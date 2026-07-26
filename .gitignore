@@ -1,0 +1,12 @@
+.env
+secrets/
+*.key
+videos/
+*.mp3
+*.mp4
+*.wav
+media/
+.venv/
+__pycache__/
+*.pyc
+.setup_complete
