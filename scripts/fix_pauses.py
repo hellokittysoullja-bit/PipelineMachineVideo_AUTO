@@ -72,6 +72,13 @@ def main():
             continue
         filt += f"[0:a]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS[a{i}];"
         parts.append(f"[a{i}]")
+    if not parts:
+        # все сегменты оказались короче 0.02с — склеивать нечего, ffmpeg бы
+        # упал на concat=n=0; отдаём исходник без изменений
+        print("Нечего склеивать — копирую исходник как есть.")
+        subprocess.run(["ffmpeg", "-y", "-i", src, "-c", "copy", out], capture_output=True)
+        print(f"Готово: {out}")
+        return
     filt += "".join(parts) + f"concat=n={len(parts)}:v=0:a=1[out]"
 
     cmd = ["ffmpeg", "-y", "-i", src, "-filter_complex", filt,

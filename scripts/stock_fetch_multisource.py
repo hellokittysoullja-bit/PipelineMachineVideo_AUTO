@@ -10,7 +10,6 @@ import json
 import os
 import sys
 import time
-import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -66,7 +65,13 @@ def fetch_pexels_photo(q, out):
     ph = data.get("photos", [])
     if not ph:
         return False
-    _download(ph[0]["src"]["large2x"], out)
+    src = ph[0].get("src", {})
+    # выбираем лучший доступный размер: раньше жёсткая ссылка на large2x
+    # роняла источник с KeyError, если Pexels его не отдал
+    url = src.get("large2x") or src.get("large") or src.get("original")
+    if not url:
+        return False
+    _download(url, out)
     return True
 
 
@@ -81,7 +86,7 @@ def fetch_pexels_video(q, out):
     vs = data.get("videos", [])
     if not vs:
         return False
-    files = sorted(vs[0]["video_files"], key=lambda f: f.get("width", 0), reverse=True)
+    files = sorted(vs[0].get("video_files", []), key=lambda f: f.get("width", 0), reverse=True)
     hd = [f for f in files if 960 <= f.get("width", 0) <= 1920]
     chosen = hd[0] if hd else (files[-1] if files else None)
     if not chosen:
@@ -100,7 +105,10 @@ def fetch_pixabay_photo(q, out):
     hits = data.get("hits", [])
     if not hits:
         return False
-    _download(hits[0]["largeImageURL"], out)
+    url = hits[0].get("largeImageURL") or hits[0].get("webformatURL")
+    if not url:
+        return False
+    _download(url, out)
     return True
 
 
@@ -133,7 +141,11 @@ def fetch_unsplash_photo(q, out):
     res = data.get("results", [])
     if not res:
         return False
-    _download(res[0]["urls"]["regular"], out)
+    urls = res[0].get("urls", {})
+    url = urls.get("regular") or urls.get("full") or urls.get("small")
+    if not url:
+        return False
+    _download(url, out)
     return True
 
 

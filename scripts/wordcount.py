@@ -18,7 +18,8 @@ def main():
     section = None
     count = 0
     def clean_words(s):
-        return len(re.sub(r'\[.*?\]', '', s).split())
+        # снимаем теги [pause] и обрывки '===', чтобы разделители не шли за слова
+        return len(re.sub(r'=+', ' ', re.sub(r'\[.*?\]', '', s)).split())
 
     for line in open(path, encoding="utf-8"):
         m = re.match(r'===\s*(.*?)\s*===\s*(.*)$', line.strip())

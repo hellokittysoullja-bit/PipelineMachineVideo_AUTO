@@ -115,7 +115,11 @@ def block_durations(blocks, total):
     return [x * scale for x in d]
 
 
+PEXELS_BROKEN = False       # взводится только на реальном отказе API, не на пустой выдаче
+
+
 def pexels_photo(query, index):
+    global PEXELS_BROKEN
     cache = os.path.join(TEMP_FOLDER, "pexels_cache")
     os.makedirs(cache, exist_ok=True)
     cf = os.path.join(cache, f"{index:04d}.jpg")
@@ -138,6 +142,7 @@ def pexels_photo(query, index):
             open(cf, "wb").write(r.read())
         return cf
     except Exception as e:
+        PEXELS_BROKEN = True
         print(f"  Pexels [{query}]: {e}")
         return None
 
@@ -200,7 +205,10 @@ def main():
         photo = local_photo(i) if use_local else None
         if not photo and use_pexels:
             photo = pexels_photo(query_for(b["text"]), i)
-            if not photo:
+            # Раньше Pexels отключался навсегда после ЛЮБОГО промаха, включая
+            # обычную пустую выдачу по одному неудачному запросу. Гасим источник
+            # только если API реально отвалился.
+            if not photo and PEXELS_BROKEN:
                 use_pexels = False
         if not photo:
             photo = local_photo(i)

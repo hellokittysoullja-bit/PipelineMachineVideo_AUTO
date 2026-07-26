@@ -38,7 +38,10 @@ def load_config(video_dir, media_dir):
     if os.path.exists(p):
         c = json.load(open(p, encoding="utf-8"))
         hd = {int(k): float(v) for k, v in c.get("hook_durations", {}).items()}
-        return int(c["n_slots"]), int(c.get("hook_slots", 0)), hd
+        if "n_slots" not in c:      # раньше падало KeyError без единого пояснения
+            print(f"В {p} нет обязательного поля n_slots — считаю слоты по media/")
+        else:
+            return int(c["n_slots"]), int(c.get("hook_slots", 0)), hd
     nums = set()
     for f in glob.glob(os.path.join(media_dir, "*")):
         m = re.match(r'(\d+)_', os.path.basename(f))
@@ -108,6 +111,12 @@ def main():
         return
     hook_total = sum(hook_dur.values())
     body_slots = n_slots - hook_slots
+    if hook_total >= audio_dur:
+        # хук длиннее всей озвучки -> телу доставалась нулевая/отрицательная
+        # длительность и ffmpeg падал на каждом слоте
+        print(f"Хук ({hook_total:.1f}с) не короче всего аудио ({audio_dur:.1f}с) — "
+              f"проверь hook_durations. Раскладываю равномерно.")
+        hook_dur, hook_slots, hook_total, body_slots = {}, 0, 0.0, n_slots
     body_d = (audio_dur - hook_total) / max(body_slots, 1)
 
     # проверка хук-тайминга (ЧАСТЬ 14, ХУК-МЕДИА)

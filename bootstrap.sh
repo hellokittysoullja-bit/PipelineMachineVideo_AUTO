@@ -23,7 +23,9 @@ else
 fi
 
 # 2. Python venv ----------------------------------------------
-PY=$(command -v python3 || command -v python)
+# '|| true' обязателен: без него set -e убивает скрипт прямо на этой строке,
+# когда Python не найден, и подсказка ниже никогда не печатается
+PY=$(command -v python3 || command -v python || true)
 [ -z "$PY" ] && { echo "Python не найден. Поставь Python 3.11+"; exit 1; }
 if [ ! -d "$ROOT/.venv" ]; then echo "==> Создаю venv..."; "$PY" -m venv "$ROOT/.venv"; fi
 echo "==> Ставлю Python-зависимости..."
