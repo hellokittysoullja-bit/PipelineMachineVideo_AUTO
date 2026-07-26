@@ -148,8 +148,12 @@ def try_sources(sources, start, q, out):
         try:
             if fn(q, out):
                 return fn.__name__
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, Exception):
-            pass
+        except Exception as e:
+            # Причину печатаем: раньше любая ошибка глушилась молча и слот
+            # просто оказывался пустым без единого намёка почему.
+            detail = getattr(e, "code", None)
+            print(f"    {fn.__name__}: {type(e).__name__}"
+                  f"{f' {detail}' if detail else ''}: {e}", flush=True)
     return None
 
 

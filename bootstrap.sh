@@ -45,4 +45,4 @@ fi
 # 5. Маркер завершения ----------------------------------------
 echo "setup ok $(date -Iseconds)" > "$ROOT/.setup_complete"
 echo ""
-echo "==> Готово. Дальше: 1) заполни .env  2) Claude сгенерит скрипты в scripts/ по SCRIPTS SPEC из CLAUDE.md"
+echo "==> Готово. Дальше: 1) заполни .env  2) скажи Claude «Новый ролик: [ТЕМА]» (скрипты уже в scripts/)"

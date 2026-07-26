@@ -27,7 +27,10 @@ if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
 }
 
 # 2. Python venv ----------------------------------------------
-$py = (Get-Command python -ErrorAction SilentlyContinue) ?? (Get-Command py -ErrorAction SilentlyContinue)
+# Без оператора ?? — он появился только в PowerShell 7, а в Windows 10/11
+# из коробки стоит 5.1, где эта строка падала с синтаксической ошибкой.
+$py = Get-Command python -ErrorAction SilentlyContinue
+if (-not $py) { $py = Get-Command py -ErrorAction SilentlyContinue }
 if (-not $py) { throw "Python не найден. Поставь Python 3.11+ и повтори." }
 
 $venv = Join-Path $Root ".venv"
@@ -59,4 +62,4 @@ if (-not (Test-Path $env_file)) {
 # 5. Маркер завершения ----------------------------------------
 "setup ok $(Get-Date -Format o)" | Out-File (Join-Path $Root ".setup_complete") -Encoding utf8
 
-Write-Host "`n==> Готово. Дальше: 1) заполни .env  2) Claude сгенерит скрипты в scripts\ по SCRIPTS SPEC из CLAUDE.md" -ForegroundColor Cyan
+Write-Host "`n==> Готово. Дальше: 1) заполни .env  2) скажи Claude «Новый ролик: [ТЕМА]» (скрипты уже в scripts\)" -ForegroundColor Cyan

@@ -70,16 +70,20 @@ def get_audio_duration():
 
 def parse_blocks(path):
     raw = open(path, encoding="utf-8").read()
-    content = raw
-    for skip in ["=== METADATA ===", "=== PEXELS QUERIES ===", "=== IMAGE PROMPTS ===",
-                 "=== COMPETITOR ANALYSIS ===", "=== TITLE OPTIONS ===", "=== THUMBNAIL TEXT OPTIONS ==="]:
-        if skip in content:
-            content = content[:content.find(skip)] if skip in ("=== PEXELS QUERIES ===",) else content
-    # оставляем только тело до служебных секций
-    for skip in ["=== PEXELS QUERIES ===", "=== IMAGE PROMPTS ===", "=== COMPETITOR ANALYSIS ==="]:
-        if skip in content:
-            content = content[:content.find(skip)]
-    content = re.sub(r'===.*?===', '', content).strip()
+    # Берём ТОЛЬКО озвучиваемые секции (HOOK / BLOCK* / FINAL). Всё служебное —
+    # METADATA, PEXELS QUERIES, IMAGE PROMPTS, COMPETITOR ANALYSIS, TITLE/THUMBNAIL
+    # OPTIONS — отбрасывается по имени секции, а не по списку известных заголовков:
+    # раньше METADATA просачивалась в озвучку и съедала первый кадр.
+    parts = re.split(r'===\s*(.*?)\s*===', raw)
+    kept = []
+    for i in range(1, len(parts), 2):
+        name = parts[i].upper()
+        body = parts[i + 1] if i + 1 < len(parts) else ""
+        if name.startswith(("HOOK", "BLOCK", "FINAL")):
+            kept.append(body)
+    content = "\n".join(kept).strip()
+    if not content:                      # сценарий без === заголовков — берём как есть
+        content = re.sub(r'===.*?===', '', raw).strip()
     processed = content
     for tag in sorted(PAUSE_DURATIONS, key=len, reverse=True):
         processed = processed.replace(tag, f"__PAUSE_{PAUSE_DURATIONS[tag]}__")
@@ -214,7 +218,10 @@ def main():
         print("Нет клипов")
         return
     concat = os.path.join(TEMP_FOLDER, "concat.txt")
-    open(concat, "w", encoding="utf-8").write("".join(f"file '{c}'\n" for c in clips))
+    # Пути ТОЛЬКО абсолютные: concat-демуксер ffmpeg резолвит относительные
+    # пути от папки самого concat.txt, а не от cwd — иначе сборка падает.
+    open(concat, "w", encoding="utf-8").write(
+        "".join(f"file '{os.path.abspath(c)}'\n" for c in clips))
     merged = os.path.join(TEMP_FOLDER, "merged.mp4")
     r = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
                         "-i", concat, "-c", "copy", merged], capture_output=True, text=True)

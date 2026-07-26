@@ -17,16 +17,23 @@ def main():
     T = float(sys.argv[2]) if len(sys.argv) > 2 else None
     section = None
     count = 0
+    def clean_words(s):
+        return len(re.sub(r'\[.*?\]', '', s).split())
+
     for line in open(path, encoding="utf-8"):
-        m = re.match(r'===\s*(.*?)\s*===', line.strip())
+        m = re.match(r'===\s*(.*?)\s*===\s*(.*)$', line.strip())
         if m:
             section = m.group(1).upper()
+            # Текст может стоять на ОДНОЙ строке с заголовком — именно так
+            # выглядит формат script.txt в CLAUDE.md (ЧАСТЬ 9). Без этого
+            # весь сценарий считался за 0 слов, и проверка длины молчала.
+            if section.startswith(("HOOK", "BLOCK", "FINAL")):
+                count += clean_words(m.group(2))
             continue
         if not section:
             continue
         if section.startswith(("HOOK", "BLOCK", "FINAL")):
-            clean = re.sub(r'\[.*?\]', '', line)
-            count += len(clean.split())
+            count += clean_words(line)
     mins = count / WPM
     print(f"Слов в сценарии: {count}. Расчётная длительность: {mins:.1f} минут (при {WPM:.0f} слов/мин).")
     if T:

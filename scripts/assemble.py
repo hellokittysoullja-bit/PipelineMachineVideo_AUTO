@@ -141,7 +141,10 @@ def main():
     if not clips:
         return
     concat = os.path.join(temp, "concat.txt")
-    open(concat, "w", encoding="utf-8").write("".join(f"file '{c}'\n" for c in clips))
+    # Пути ТОЛЬКО абсолютные: concat-демуксер ffmpeg резолвит относительные
+    # пути от папки самого concat.txt, а не от cwd — иначе сборка падает.
+    open(concat, "w", encoding="utf-8").write(
+        "".join(f"file '{os.path.abspath(c)}'\n" for c in clips))
     merged = os.path.join(temp, "merged.mp4")
     r = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
                         "-i", concat, "-c", "copy", merged], capture_output=True, text=True)

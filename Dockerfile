@@ -30,7 +30,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Скрипты пайплайна (Claude генерит их по SCRIPTS SPEC из CLAUDE.md)
+# Скрипты пайплайна (идут в комплекте, генерировать ничего не нужно)
 COPY scripts/ ./scripts/
 
 # По умолчанию — показать доступные скрипты
