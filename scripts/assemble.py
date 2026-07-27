@@ -111,9 +111,11 @@ def main():
         return
     hook_total = sum(hook_dur.values())
     body_slots = n_slots - hook_slots
-    if hook_total >= audio_dur:
-        # хук длиннее всей озвучки -> телу доставалась нулевая/отрицательная
-        # длительность и ffmpeg падал на каждом слоте
+    if hook_total >= audio_dur and body_slots > 0:
+        # хук длиннее всей озвучки, а тело ещё есть -> телу доставалась
+        # нулевая/отрицательная длительность и ffmpeg падал на каждом слоте.
+        # Когда ВСЕ слоты хуковые (body_slots == 0), это не ошибка: длительности
+        # заданы явно, лишний хвост подрежет -shortest.
         print(f"Хук ({hook_total:.1f}с) не короче всего аудио ({audio_dur:.1f}с) — "
               f"проверь hook_durations. Раскладываю равномерно.")
         hook_dur, hook_slots, hook_total, body_slots = {}, 0, 0.0, n_slots
