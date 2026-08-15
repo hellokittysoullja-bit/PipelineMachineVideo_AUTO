@@ -35,6 +35,7 @@ except ImportError:
     PARALLAX_LIBS = False   # 2.5D-параллакс — опциональная фича (torch/transformers/opencv тяжёлые)
 
 PARALLAX_ENABLED = os.environ.get("PARALLAX", "1") != "0" and PARALLAX_LIBS
+PARALLAX_BROKEN = False   # взводится только на системном сбое (модель/сеть), не на одной плохой картинке
 
 VIDEO_FOLDER = sys.argv[1] if len(sys.argv) > 1 else os.getcwd()
 SCRIPT_FILE = os.path.join(VIDEO_FOLDER, "script.txt")
@@ -601,11 +602,25 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
     вместо ffmpeg zoompan — только так можно сделать смещение, зависящее от
     глубины пикселя. При любой накладке (модель не встала, ffmpeg-пайп упал)
     возвращает False — вызывающий код откатывается на обычный kenburns()."""
+    global PARALLAX_BROKEN
+    if PARALLAX_BROKEN:
+        return False
+    proc = None
     try:
         frames = max(1, round(dur * FPS))
         cw, ch = round(WIDTH * PARALLAX_MARGIN), round(HEIGHT * PARALLAX_MARGIN)
         canvas = fill_crop_canvas(photo, cw, ch)
-        depth = estimate_depth(photo, cw, ch)
+        try:
+            depth = estimate_depth(photo, cw, ch)
+        except Exception as e:
+            # Сбой именно тут почти всегда системный (модель не встала /
+            # сеть до HF Hub отвалилась), не проблема конкретной картинки —
+            # дальше пытаться на каждом из оставшихся хайлайтов бессмысленно,
+            # только тратим время на повторную (медленную) загрузку модели.
+            print(f"  depth-модель недоступна, параллакс выключается на остаток ролика: "
+                  f"{type(e).__name__} {e}")
+            PARALLAX_BROKEN = True
+            return False
 
         h, zoom_in_default, pan_dir_default = kb_hash_choices(photo)
         if zoom_in is None:
@@ -664,6 +679,17 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
     except Exception as e:
         print(f"  параллакс сорвался ({os.path.basename(out)}): {type(e).__name__} {e}")
         return False
+    finally:
+        # Раньше при сбое ПОСРЕДИ покадрового цикла (BrokenPipeError на
+        # stdin.write, таймаут на wait) дочерний ffmpeg не убивался вообще —
+        # завис бы висячим процессом до конца сессии. Гасим его в любом
+        # случае, если он ещё жив к выходу из функции.
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.kill()
+                proc.wait(timeout=5)
+            except Exception:
+                pass
 
 
 # Не динамический ramp внутри клипа (это отдельная и намного более сложная
@@ -920,11 +946,16 @@ def main():
     used_photo_ids = set()   # общий на весь ролик — не даём одной фотке всплыть дважды
     used_video_ids = set()   # то же самое, отдельно для видео (разные ID-пространства)
     for i, (b, d) in enumerate(zip(blocks, durs)):
-        out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}.mp4")
         # Титр темы — только на ПЕРВОМ кадре новой секции (BLOCK N: Название).
         is_section_start = i == 0 or blocks[i]["section"] != blocks[i - 1]["section"]
         title = section_title(b["section"]) if is_section_start else None
         stat = b.get("stat")
+        # Хэш параметров рендера в имени — иначе правка script.txt (текст,
+        # тайминг, плашка) без ручной чистки temp_smart/ молча оставляла
+        # старый клип под новые данные (тот же класс бага, что уже правили
+        # для pexels_cache — тут просто ещё не было починено).
+        params_hash = hashlib.md5(f"{d:.3f}|{title}|{stat}|{b['section']}".encode()).hexdigest()[:8]
+        out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}_{params_hash}.mp4")
         if os.path.exists(out):
             clips.append(out)
             clip_durs.append(d)
