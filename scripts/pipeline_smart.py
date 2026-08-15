@@ -57,11 +57,16 @@ PAN_DIRECTIONS = [(0, 0), (1, 1), (1, -1), (-1, 1), (-1, -1), (1, 0), (-1, 0), (
 # Один и тот же грейд на все 200+ кадров — тоже штамп, если приглядеться.
 # Лёгкий hash-джиттер контраста/сатурации/яркости на каждый клип убирает
 # эту одинаковость, оставаясь в узком диапазоне (не превращается в разнобой).
+# Базовый грейд — не нейтральный "как есть у стока": сатурация чуть прибрана,
+# тени уводим в холод, света чуть тёплые (лёгкий teal-orange) — читается как
+# военно-историческая документалка, а не разноцветный слайд-шоу из Pexels.
 def film_look(photo_hash):
-    c = 1.03 + (photo_hash % 100) / 100 * 0.05          # 1.03-1.08
-    s = 1.04 + ((photo_hash >> 7) % 100) / 100 * 0.09    # 1.04-1.13
-    b = ((photo_hash >> 14) % 100) / 100 * 0.02          # 0.00-0.02
-    return f"eq=contrast={c:.3f}:saturation={s:.3f}:brightness={b:.3f},vignette=PI/5,noise=alls=2:allf=t+u"
+    c = 1.06 + (photo_hash % 100) / 100 * 0.05           # 1.06-1.11
+    s = 0.86 + ((photo_hash >> 7) % 100) / 100 * 0.08     # 0.86-0.94 (приглушённо, не пёстро)
+    b = ((photo_hash >> 14) % 100) / 100 * 0.02           # 0.00-0.02
+    return (f"eq=contrast={c:.3f}:saturation={s:.3f}:brightness={b:.3f},"
+            f"colorbalance=rs=-0.06:bs=0.10:rm=-0.02:bm=0.04:rh=0.03:bh=-0.02,"
+            f"vignette=PI/5,noise=alls=2:allf=t+u")
 
 
 XFADE_DUR = 0.4        # диссолв на границах секций и часть обычных склеек
@@ -71,7 +76,14 @@ HOOK_MAX_CLIP = 5.0     # в хуке кадры короче и чаще — к
 PAUSE_DURATIONS = {"[pause]": 0.8, "[short pause]": 0.4,
                    "[slowly]": 0.0, "[emphasis]": 0.0, "[energetic]": 0.0}
 
+# Russo One — фирменный "рубленый" дисплейный шрифт (CHANNEL.md house
+# style), не системный DejaVu. OFL, бесплатно (Google Fonts / google/fonts
+# на GitHub). Anton (первый выбор) не подошёл — в нём НЕТ кириллицы вообще
+# (проверено вживую: буквы рисуются квадратами-тофу). Russo One — с родной
+# кириллицей от российской студии, того же плакатного характера.
+# Держим DejaVu запасным на случай отсутствия assets/fonts/.
 FONT_CANDIDATES = [
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "fonts", "RussoOne-Regular.ttf"),
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
     "C:/Windows/Fonts/arialbd.ttf",
@@ -79,6 +91,7 @@ FONT_CANDIDATES = [
     "/Library/Fonts/Arial Bold.ttf",
 ]
 FONT_PATH = next((p for p in FONT_CANDIDATES if os.path.exists(p)), None)
+FONT_IS_DISPLAY = bool(FONT_PATH) and "RussoOne" in FONT_PATH   # дисплейный шрифт уже капслочный и очень широкий по кеглю
 
 
 def section_title(name):
@@ -383,27 +396,36 @@ def resolve_queries(blocks):
 
 
 def add_overlays(vf_base, dur, title=None, stat=None):
-    """Титр секции (низ кадра, держится первые ~2.5с) + цифровая плашка
-    (верх кадра, держится почти весь клип — цифру без неё не запоминают,
-    см. производственные пометки сценария). Общий код для фото и видео-стока."""
+    """Титр секции (низ кадра, слайд+fade первые ~2.5с, фирменный дисплейный
+    шрифт) + цифровая плашка (верх кадра, красный баннер — акцентный цвет
+    CHANNEL.md house style, держится почти весь клип: цифру без плашки не
+    запоминают, см. производственные пометки сценария). Общий код для фото
+    и видео-стока. Обычный fade раньше был самым узнаваемым штампом
+    автослайдшоу — слайд добавляет "кто-то это анимировал руками"."""
     vf = vf_base
     if title and FONT_PATH:
         hold = min(2.5, dur * 0.6)
         fin = max(0.3, hold * 0.3)
-        safe = escape_drawtext(title)
+        text = title.upper() if FONT_IS_DISPLAY else title
+        safe = escape_drawtext(text)
+        fs = 46 if FONT_IS_DISPLAY else 54
         vf += (f",drawtext=fontfile='{FONT_PATH}':text='{safe}':"
-               f"fontcolor=white:fontsize=54:borderw=3:bordercolor=black@0.7:"
-               f"x=(w-text_w)/2:y=h-180:"
+               f"fontcolor=white:fontsize={fs}:borderw=3:bordercolor=black@0.8:"
+               f"x=(w-text_w)/2:"
+               f"y='h-180+(1-min(t/{fin:.2f}\\,1))*36':"
                f"alpha='if(lt(t\\,{fin:.2f})\\,t/{fin:.2f}\\,"
                f"if(lt(t\\,{hold:.2f})\\,1\\,max(0\\,1-(t-{hold:.2f})/0.4)))'")
     if stat and FONT_PATH:
         fin = 0.25
         hold = max(fin, dur - 0.5)
-        safe = escape_drawtext(stat)
+        text = stat.upper() if FONT_IS_DISPLAY else stat
+        safe = escape_drawtext(text)
+        fs = 58 if FONT_IS_DISPLAY else 64
         vf += (f",drawtext=fontfile='{FONT_PATH}':text='{safe}':"
-               f"fontcolor=white:fontsize=64:borderw=4:bordercolor=black@0.8:"
-               f"box=1:boxcolor=black@0.5:boxborderw=16:"
-               f"x=(w-text_w)/2:y=110:"
+               f"fontcolor=white:fontsize={fs}:"
+               f"box=1:boxcolor=0xC8102E@0.92:boxborderw=18:"
+               f"x=(w-text_w)/2:"
+               f"y='110-(1-min(t/{fin:.2f}\\,1))*26':"
                f"alpha='if(lt(t\\,{fin:.2f})\\,t/{fin:.2f}\\,"
                f"if(lt(t\\,{hold:.2f})\\,1\\,max(0\\,1-(t-{hold:.2f})/0.4)))'")
     return vf
