@@ -32,17 +32,21 @@ ZOOM_DELTA_MIN, ZOOM_DELTA_MAX = 0.05, 0.22
 PAN_SAFETY = 0.9
 PAN_JITTER_MIN, PAN_JITTER_MAX = 0.6, 1.0   # органический разброс силы пана по клипам
 PAN_DIRECTIONS = [(0, 0), (1, 1), (1, -1), (-1, 1), (-1, -1), (1, 0), (-1, 0), (0, 1)]
-XFADE_DUR = 0.4   # длительность кроссфейда между соседними кадрами
-# Плёночный грейд поверх КАЖДОГО кадра: лёгкий контраст/сатурация/виньетка
-# визуально объединяют разнородные источники в единый стиль. Зерно — только
-# на AI-картинках (маскирует "пластиковую" гладкость генерации), на честном
-# стоке лишний шум только раздувает битрейт без пользы восприятию.
-FILM_LOOK_BASE = "eq=contrast=1.05:saturation=1.08:brightness=0.01,vignette=PI/5"
+XFADE_DUR = 0.4        # диссолв на границе хук/тело и часть обычных склеек
+XFADE_DUR_HARD = 0.06  # почти мгновенный переход — читается как жёсткий cut
+XFADE_TRANSITIONS = ["fade", "dissolve", "smoothleft", "smoothright", "smoothup", "smoothdown"]
 
 
-def film_look(source):
+def film_look(source, photo_hash):
+    # Один и тот же грейд на все слоты — тоже штамп, если приглядеться. Лёгкий
+    # hash-джиттер контраста/сатурации/яркости на каждый клип убирает эту
+    # одинаковость. Зерно — по источнику: сильнее на AI (маскирует "пластик"
+    # генерации), почти незаметно на честном стоке (не раздувает битрейт зря).
+    c = 1.03 + (photo_hash % 100) / 100 * 0.05          # 1.03-1.08
+    s = 1.04 + ((photo_hash >> 7) % 100) / 100 * 0.09    # 1.04-1.13
+    b = ((photo_hash >> 14) % 100) / 100 * 0.02          # 0.00-0.02
     grain = 6 if source == "ai" else 1
-    return f"{FILM_LOOK_BASE},noise=alls={grain}:allf=t+u"
+    return f"eq=contrast={c:.3f}:saturation={s:.3f}:brightness={b:.3f},vignette=PI/5,noise=alls={grain}:allf=t+u"
 
 
 def find_audio(video_dir):
@@ -122,7 +126,7 @@ def kenburns_clip(photo, out, d, source="stock"):
             f"pad=8000:4500:(ow-iw)/2:(oh-ih)/2,setsar=1,"
             f"zoompan=z={z}:x={x}:y={y}:"
             f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS},"
-            f"{film_look(source)}"),
+            f"{film_look(source, h)}"),
            "-t", str(d), "-c:v", "libx264", "-preset", "fast",
            "-crf", "23", "-pix_fmt", "yuv420p", "-r", str(FPS), out]
     return subprocess.run(cmd, capture_output=True, text=True).returncode == 0
@@ -133,31 +137,56 @@ def video_clip(vid, out, d, source="stock"):
         actual = dur(vid)
     except Exception:
         actual = d
+    h = int(hashlib.md5(vid.encode()).hexdigest()[:8], 16)
     vf = f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,crop={WIDTH}:{HEIGHT},setsar=1"
     if actual < d - 0.05:
         vf += f",setpts={d/actual:.5f}*PTS"
-    vf += f",{film_look(source)}"
+    vf += f",{film_look(source, h)}"
     cmd = ["ffmpeg", "-y", "-i", vid, "-vf", vf, "-t", str(d), "-an",
            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
            "-pix_fmt", "yuv420p", "-r", str(FPS), out]
     return subprocess.run(cmd, capture_output=True, text=True).returncode == 0
 
 
-def xfade_chain(clips, durs, out, xfade_dur=XFADE_DUR):
+def jittered_body_durations(n, base_d):
+    """Тело нарезано ровно на n одинаковых body_d — тоже штамп ("робот резал
+    ровно"). Джиттер по хэшу позиции слота, нормализованный так, что сумма
+    длительностей не меняется (среднее по-прежнему = base_d)."""
+    if n <= 0:
+        return []
+    factors = []
+    for i in range(n):
+        h = int(hashlib.md5(f"body_slot:{i}".encode()).hexdigest()[:8], 16)
+        factors.append(0.75 + (h % 1000) / 1000 * 0.5)   # 0.75-1.25
+    avg = sum(factors) / len(factors)
+    return [base_d * f / avg for f in factors]
+
+
+def xfade_chain(clips, durs, is_hook, out, xfade_dur=XFADE_DUR):
     """Один проход filter_complex с цепочкой xfade между ВСЕМИ соседними
-    кадрами — вместо жёсткой склейки. Возвращает (True, итоговая_длительность)
-    или (False, 0.0), если что-то пошло не так (тогда main() откатывается на
-    обычный concat -c copy)."""
+    кадрами — вместо жёсткой склейки. Тип перехода и длительность варьируются
+    (разнообразие + иногда почти жёсткий cut), на границе хук/тело — заметный
+    dissolve. Возвращает (True, итоговая_длительность) или (False, 0.0), если
+    что-то пошло не так (тогда main() откатывается на обычный concat -c copy)."""
     n = len(clips)
     if n < 2:
         return False, 0.0
     parts, prev_label, cum = [], "0:v", durs[0]
     for i in range(1, n):
-        offset = max(0.0, cum - xfade_dur)
+        h = int(hashlib.md5(f"{clips[i-1]}|{clips[i]}".encode()).hexdigest()[:8], 16)
+        is_boundary = is_hook[i] != is_hook[i - 1]
+        if is_boundary:
+            this_dur, transition = xfade_dur, "dissolve"
+        elif h % 3 == 0:
+            this_dur, transition = XFADE_DUR_HARD, "fade"      # читается как жёсткий cut
+        else:
+            this_dur = xfade_dur
+            transition = XFADE_TRANSITIONS[(h >> 8) % len(XFADE_TRANSITIONS)]
+        offset = max(0.0, cum - this_dur)
         out_label = f"vx{i}" if i < n - 1 else "vout"
-        parts.append(f"[{prev_label}][{i}:v]xfade=transition=fade:"
-                     f"duration={xfade_dur:.3f}:offset={offset:.3f}[{out_label}]")
-        cum = cum + durs[i] - xfade_dur
+        parts.append(f"[{prev_label}][{i}:v]xfade=transition={transition}:"
+                     f"duration={this_dur:.3f}:offset={offset:.3f}[{out_label}]")
+        cum = cum + durs[i] - this_dur
         prev_label = out_label
     cmd = ["ffmpeg", "-y"]
     for c in clips:
@@ -228,20 +257,23 @@ def main():
     # Кроссфейд между КАЖДОЙ парой слотов суммарно "съедает" (n-1)*XFADE_DUR —
     # закладываем это в тело заранее, хук-длительности заданы явно и их не трогаем.
     xfade_budget = max(0, n_slots - 1) * XFADE_DUR
-    body_d = (audio_dur + xfade_budget - hook_total) / max(body_slots, 1)
+    body_d_avg = (audio_dur + xfade_budget - hook_total) / max(body_slots, 1)
+    body_durs = jittered_body_durations(body_slots, body_d_avg)
 
     # проверка хук-тайминга (ЧАСТЬ 14, ХУК-МЕДИА)
     if hook_slots and hook_total > 0:
-        print(f"Хук: {hook_slots} слотов, сумма {hook_total:.1f}с | тело {body_slots} по {body_d:.2f}с")
+        print(f"Хук: {hook_slots} слотов, сумма {hook_total:.1f}с | тело {body_slots} по ~{body_d_avg:.2f}с")
     print(f"Аудио {audio_dur:.1f}с ({audio_dur/60:.1f} мин), слотов {n_slots}")
 
-    clips, clip_durs, missing = [], [], []
+    clips, clip_durs, clip_is_hook, missing = [], [], [], []
     for slot in range(1, n_slots + 1):
         out = os.path.join(temp, f"clip_{slot:04d}.mp4")
-        d = hook_dur.get(slot, body_d) if slot <= hook_slots else body_d
+        is_hook_slot = slot <= hook_slots
+        d = hook_dur.get(slot, body_d_avg) if is_hook_slot else body_durs[slot - hook_slots - 1]
         if os.path.exists(out):
             clips.append(out)
             clip_durs.append(d)
+            clip_is_hook.append(is_hook_slot)
             continue
         kind, path, source = resolve_slot(media_dir, slot)
         if not path:
@@ -252,6 +284,7 @@ def main():
         if ok:
             clips.append(out)
             clip_durs.append(d)
+            clip_is_hook.append(is_hook_slot)
             if slot % 20 == 0 or slot <= 3:
                 print(f"[{slot:03d}/{n_slots}] OK <- {os.path.basename(path)}", flush=True)
         else:
@@ -264,7 +297,7 @@ def main():
     if not clips:
         return
     merged = os.path.join(temp, "merged.mp4")
-    ok, xfade_total = xfade_chain(clips, clip_durs, merged)
+    ok, xfade_total = xfade_chain(clips, clip_durs, clip_is_hook, merged)
     if not ok:
         concat = os.path.join(temp, "concat.txt")
         # Пути ТОЛЬКО абсолютные: concat-демуксер ffmpeg резолвит относительные

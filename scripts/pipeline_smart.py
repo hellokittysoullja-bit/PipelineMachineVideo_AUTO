@@ -49,14 +49,41 @@ MIN_CLIP, MAX_CLIP = 4.0, 20.0
 PAN_SAFETY = 0.9
 PAN_JITTER_MIN, PAN_JITTER_MAX = 0.6, 1.0   # органический разброс силы пана по клипам
 PAN_DIRECTIONS = [(0, 0), (1, 1), (1, -1), (-1, 1), (-1, -1), (1, 0), (-1, 0), (0, 1)]
-# Плёночный грейд поверх каждого кадра: лёгкий контраст/сатурация/виньетка
-# визуально объединяют разнородный сток+AI-картинки в единый стиль. Зерно
-# держим слабым — здесь источник не различается (нет тега AI/сток), а на
-# честном стоке лишнее зерно только раздувает битрейт без пользы восприятию.
-FILM_LOOK = "eq=contrast=1.05:saturation=1.08:brightness=0.01,vignette=PI/5,noise=alls=2:allf=t+u"
-XFADE_DUR = 0.4   # длительность кроссфейда между соседними кадрами
+# Один и тот же грейд на все 200+ кадров — тоже штамп, если приглядеться.
+# Лёгкий hash-джиттер контраста/сатурации/яркости на каждый клип убирает
+# эту одинаковость, оставаясь в узком диапазоне (не превращается в разнобой).
+def film_look(photo_hash):
+    c = 1.03 + (photo_hash % 100) / 100 * 0.05          # 1.03-1.08
+    s = 1.04 + ((photo_hash >> 7) % 100) / 100 * 0.09    # 1.04-1.13
+    b = ((photo_hash >> 14) % 100) / 100 * 0.02          # 0.00-0.02
+    return f"eq=contrast={c:.3f}:saturation={s:.3f}:brightness={b:.3f},vignette=PI/5,noise=alls=2:allf=t+u"
+
+
+XFADE_DUR = 0.4        # диссолв на границах секций и часть обычных склеек
+XFADE_DUR_HARD = 0.06  # почти мгновенный переход — читается как жёсткий cut
+XFADE_TRANSITIONS = ["fade", "dissolve", "smoothleft", "smoothright", "smoothup", "smoothdown"]
+HOOK_MAX_CLIP = 5.0     # в хуке кадры короче и чаще — критично для удержания первых секунд
 PAUSE_DURATIONS = {"[pause]": 0.8, "[short pause]": 0.4,
                    "[slowly]": 0.0, "[emphasis]": 0.0, "[energetic]": 0.0}
+
+FONT_CANDIDATES = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+    "C:/Windows/Fonts/arialbd.ttf",
+    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+    "/Library/Fonts/Arial Bold.ttf",
+]
+FONT_PATH = next((p for p in FONT_CANDIDATES if os.path.exists(p)), None)
+
+
+def section_title(name):
+    """BLOCK N: Название -> 'Название'. HOOK/FINAL/безымянные BLOCK — без титра."""
+    m = re.match(r'BLOCK\s+\d+\s*:\s*(.+)', name, re.I)
+    return m.group(1).strip() if m else None
+
+
+def escape_drawtext(s):
+    return s.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\u2019")
 
 
 def find_audio():
@@ -102,28 +129,39 @@ def parse_blocks(path):
         name = parts[i].upper()
         body = parts[i + 1] if i + 1 < len(parts) else ""
         if name.startswith(("HOOK", "BLOCK", "FINAL")):
-            kept.append(body)
-    content = "\n".join(kept).strip()
-    if not content:                      # сценарий без === заголовков — берём как есть
-        content = re.sub(r'===.*?===', '', raw).strip()
+            kept.append((name, body))
+    if kept:
+        # Маркер секции — ещё один спецтокен в общем потоке (не просто "\n"-склейка
+        # как раньше), чтобы граница === не рвала перенос паузы через границу блока,
+        # а секция при этом была известна для каждого получившегося блока.
+        content = "".join(f"\x00SECTION:{name}\x00{body}" for name, body in kept).strip("\x00")
+    else:
+        content = re.sub(r'===.*?===', '', raw).strip()   # сценарий без === — берём как есть
     processed = content
     for tag in sorted(PAUSE_DURATIONS, key=len, reverse=True):
         processed = processed.replace(tag, f"__PAUSE_{PAUSE_DURATIONS[tag]}__")
     processed = re.sub(r'\[.*?\]', '', processed)
-    parts = re.split(r'(__PAUSE_[\d.]+__)', processed)
+    parts = re.split(r'(__PAUSE_[\d.]+__|\x00SECTION:.*?\x00)', processed)
     blocks, cur, pause = [], "", 0.0
+    section, pending_section = "BODY", "BODY"
     for part in parts:
-        m = re.match(r'__PAUSE_([\d.]+)__', part)
-        if m:
-            pause += float(m.group(1))
+        mp = re.match(r'__PAUSE_([\d.]+)__', part)
+        ms = re.match(r'\x00SECTION:(.*?)\x00', part)
+        if mp:
+            pause += float(mp.group(1))
+        elif ms:
+            section = ms.group(1)
         else:
             t = part.strip()
             if t:
                 if cur:
-                    blocks.append({"text": cur, "pause_after": pause, "words": len(cur.split())})
+                    blocks.append({"text": cur, "pause_after": pause,
+                                   "words": len(cur.split()), "section": pending_section})
                 cur, pause = t, 0.0
+                pending_section = section
     if cur:
-        blocks.append({"text": cur, "pause_after": pause, "words": len(cur.split())})
+        blocks.append({"text": cur, "pause_after": pause,
+                       "words": len(cur.split()), "section": pending_section})
     print(f"Блоков: {len(blocks)}")
     return blocks
 
@@ -132,7 +170,11 @@ def block_durations(blocks, total):
     tw = sum(b["words"] for b in blocks)
     tp = sum(b["pause_after"] for b in blocks)
     wps = tw / max(total - tp, 1)
-    d = [max(MIN_CLIP, min(MAX_CLIP, b["words"] / wps + b["pause_after"])) for b in blocks]
+    d = []
+    for b in blocks:
+        # В хуке кадры короче и чаще — первые секунды решают, останется ли зритель.
+        cap = HOOK_MAX_CLIP if b["section"].startswith("HOOK") else MAX_CLIP
+        d.append(max(MIN_CLIP, min(cap, b["words"] / wps + b["pause_after"])))
     scale = total / sum(d)
     return [x * scale for x in d]
 
@@ -187,7 +229,7 @@ def query_for(text):
     return "cinematic atmospheric moody"
 
 
-def kenburns(photo, out, dur):
+def kenburns(photo, out, dur, title=None):
     frames = max(1, round(dur * FPS))
     h = int(hashlib.md5(photo.encode()).hexdigest()[:8], 16)
     zoom_in = bool(h & 1)
@@ -214,32 +256,66 @@ def kenburns(photo, out, dur):
          else "'iw/2-(iw/zoom/2)'")
     y = (f"'ih/2-(ih/zoom/2){dy * pan_amt:+.5f}*(1-1/zoom)/2*ih'" if dy
          else "'ih/2-(ih/zoom/2)'")
-    cmd = ["ffmpeg", "-y", "-loop", "1", "-i", photo, "-vf",
-           (f"scale=8000:4500:force_original_aspect_ratio=decrease,"
-            f"pad=8000:4500:(ow-iw)/2:(oh-ih)/2,setsar=1,"
-            f"zoompan=z={z}:x={x}:y={y}:"
-            f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS},"
-            f"{FILM_LOOK}"),
-           "-t", str(dur), "-c:v", "libx264", "-preset", "fast",
-           "-crf", "23", "-pix_fmt", "yuv420p", "-r", str(FPS), out]
-    return subprocess.run(cmd, capture_output=True, text=True).returncode == 0
+    vf_base = (f"scale=8000:4500:force_original_aspect_ratio=decrease,"
+               f"pad=8000:4500:(ow-iw)/2:(oh-ih)/2,setsar=1,"
+               f"zoompan=z={z}:x={x}:y={y}:"
+               f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS},"
+               f"{film_look(h)}")
+    vf_title = None
+    if title and FONT_PATH:
+        # Титр новой темы держится первые ~2.5с клипа — плавный fade in/out,
+        # это то самое "кто-то сел и отредактировал", а не бот нарезал слайды.
+        hold = min(2.5, dur * 0.6)
+        fin = max(0.3, hold * 0.3)
+        safe = escape_drawtext(title)
+        vf_title = vf_base + (
+            f",drawtext=fontfile='{FONT_PATH}':text='{safe}':"
+            f"fontcolor=white:fontsize=54:borderw=3:bordercolor=black@0.7:"
+            f"x=(w-text_w)/2:y=h-180:"
+            f"alpha='if(lt(t\\,{fin:.2f})\\,t/{fin:.2f}\\,"
+            f"if(lt(t\\,{hold:.2f})\\,1\\,max(0\\,1-(t-{hold:.2f})/0.4)))'")
+
+    def render(vf):
+        cmd = ["ffmpeg", "-y", "-loop", "1", "-i", photo, "-vf", vf,
+               "-t", str(dur), "-c:v", "libx264", "-preset", "fast",
+               "-crf", "23", "-pix_fmt", "yuv420p", "-r", str(FPS), out]
+        return subprocess.run(cmd, capture_output=True, text=True)
+
+    if vf_title:
+        r = render(vf_title)
+        if r.returncode == 0:
+            return True
+        # Титр (drawtext/шрифт) — не повод терять весь кадр: некоторые сборки
+        # ffmpeg собраны без drawtext вообще. Откатываемся на версию без титра.
+        print(f"  титр не встал ({os.path.basename(out)}), рисую без него: {r.stderr[-200:]}")
+    return render(vf_base).returncode == 0
 
 
-def xfade_chain(clips, durs, out, xfade_dur=XFADE_DUR):
+def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR):
     """Один проход filter_complex с цепочкой xfade между ВСЕМИ соседними
-    кадрами — вместо жёсткой склейки. Возвращает (True, итоговая_длительность)
-    или (False, 0.0), если что-то пошло не так (тогда main() откатывается на
-    обычный concat -c copy)."""
+    кадрами — вместо жёсткой склейки. Тип перехода и длительность варьируются
+    (разнообразие + иногда почти жёсткий cut), на границе секций — заметный
+    dissolve. Возвращает (True, итоговая_длительность) или (False, 0.0), если
+    что-то пошло не так (тогда main() откатывается на обычный concat -c copy)."""
     n = len(clips)
     if n < 2:
         return False, 0.0
     parts, prev_label, cum = [], "0:v", durs[0]
     for i in range(1, n):
-        offset = max(0.0, cum - xfade_dur)
+        h = int(hashlib.md5(f"{clips[i-1]}|{clips[i]}".encode()).hexdigest()[:8], 16)
+        is_boundary = sections[i] != sections[i - 1]
+        if is_boundary:
+            this_dur, transition = xfade_dur, "dissolve"
+        elif h % 3 == 0:
+            this_dur, transition = XFADE_DUR_HARD, "fade"      # читается как жёсткий cut
+        else:
+            this_dur = xfade_dur
+            transition = XFADE_TRANSITIONS[(h >> 8) % len(XFADE_TRANSITIONS)]
+        offset = max(0.0, cum - this_dur)
         out_label = f"vx{i}" if i < n - 1 else "vout"
-        parts.append(f"[{prev_label}][{i}:v]xfade=transition=fade:"
-                     f"duration={xfade_dur:.3f}:offset={offset:.3f}[{out_label}]")
-        cum = cum + durs[i] - xfade_dur
+        parts.append(f"[{prev_label}][{i}:v]xfade=transition={transition}:"
+                     f"duration={this_dur:.3f}:offset={offset:.3f}[{out_label}]")
+        cum = cum + durs[i] - this_dur
         prev_label = out_label
     cmd = ["ffmpeg", "-y"]
     for c in clips:
@@ -306,14 +382,18 @@ def main():
     durs = block_durations(blocks, total + xfade_budget)
     print(f"Средний кадр: {sum(durs)/len(durs):.1f}с")
 
-    clips, clip_durs = [], []
+    clips, clip_durs, clip_sections = [], [], []
     use_local = os.path.isdir(MEDIA_FOLDER) and bool(local_photo(0))
     use_pexels = bool(PEXELS_API_KEY)
     for i, (b, d) in enumerate(zip(blocks, durs)):
         out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}.mp4")
+        # Титр темы — только на ПЕРВОМ кадре новой секции (BLOCK N: Название).
+        is_section_start = i == 0 or blocks[i]["section"] != blocks[i - 1]["section"]
+        title = section_title(b["section"]) if is_section_start else None
         if os.path.exists(out):
             clips.append(out)
             clip_durs.append(d)
+            clip_sections.append(b["section"])
             continue
         photo = local_photo(i) if use_local else None
         if not photo and use_pexels:
@@ -328,9 +408,10 @@ def main():
         if not photo:
             print(f"  [{i+1}] нет фото")
             continue
-        if kenburns(photo, out, d):
+        if kenburns(photo, out, d, title=title):
             clips.append(out)
             clip_durs.append(d)
+            clip_sections.append(b["section"])
             if i % 20 == 0 or i < 3:
                 print(f"  [{i+1}/{len(blocks)}] {d:.1f}с {b['words']} слов")
         if use_pexels and not use_local and i % 10 == 9:
@@ -340,7 +421,7 @@ def main():
         print("Нет клипов")
         return
     merged = os.path.join(TEMP_FOLDER, "merged.mp4")
-    ok, xfade_total = xfade_chain(clips, clip_durs, merged)
+    ok, xfade_total = xfade_chain(clips, clip_durs, clip_sections, merged)
     if not ok:
         concat = os.path.join(TEMP_FOLDER, "concat.txt")
         # Пути ТОЛЬКО абсолютные: concat-демуксер ffmpeg резолвит относительные
