@@ -867,7 +867,19 @@ def main():
             _, zi_cand, pd_cand = kb_hash_choices(photo)
             zoom_in = pick_no_repeat(zoom_hist, zi_cand, [True, False], max_repeat=2)
             pan_dir = pick_no_repeat(pan_hist, pd_cand, PAN_DIRECTIONS, max_repeat=2)
-            ok = kenburns(photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir, stat=stat)
+            # Параллакс — только на самые заметные точки ролика (хук целиком +
+            # первый кадр каждого раздела), не на все фото: покадровый рендер
+            # с depth-моделью в разы дороже по времени zoompan-версии, на
+            # 40+ кадрах это лишние десятки минут ради эффекта, который
+            # большую часть ролика зритель всё равно не разглядывает так
+            # пристально, как хук и открывашки разделов.
+            is_highlight = b["section"].startswith("HOOK") or is_section_start
+            ok = False
+            if PARALLAX_ENABLED and is_highlight:
+                ok = parallax_kenburns(photo, out, d, title=title, zoom_in=zoom_in,
+                                        pan_dir=pan_dir, stat=stat)
+            if not ok:
+                ok = kenburns(photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir, stat=stat)
         if ok:
             clips.append(out)
             clip_durs.append(d)
