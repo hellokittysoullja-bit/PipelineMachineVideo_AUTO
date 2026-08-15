@@ -15,21 +15,34 @@ import subprocess
 import sys
 
 FPS, WIDTH, HEIGHT = 25, 1920, 1080
-ZOOM_START = 1.0
+# ZOOM_FLOOR — минимальный зум держится ВЕСЬ клип (не 1.0). Раньше offset пана
+# был обязан = 0 ровно в момент zoom=1.0 (иначе край вылезет за картинку), и на
+# каждом втором клипе (zoom-out) кадр половину времени стоял мёртвым по центру.
+# С постоянным полом запас под пан есть на любом кадре клипа, а не только к
+# концу движения зума.
+ZOOM_FLOOR = 1.04
 # Скорость зума задаётся в долях/сек, а не фиксированным приростом на клип —
 # иначе 4-секундный и 20-секундный кадр "дышат" с заметно разной скоростью.
 ZOOM_RATE_BASE = 0.010
 ZOOM_DELTA_MIN, ZOOM_DELTA_MAX = 0.05, 0.22
-# Панорамирование: смещение центра растёт от 0 пропорционально (zoom-ZOOM_START),
-# на полном кадре (zoom=1.0) offset строго 0 — иначе край вылезет за картинку.
-# PAN_SAFETY < 1 держит запас ниже теоретического предела (1-1/zoom)/2.
-PAN_SAFETY = 0.8
+# Панорамирование считается от РЕАЛЬНОГО zoom в каждый момент кадра — (1-1/zoom)/2
+# это точный геометрический запас смещения без вылета за картинку, безопасно по
+# построению на любом кадре, поэтому PAN_SAFETY можно брать ближе к пределу, чем
+# раньше (когда запас считался один раз заранее от конечного zoom клипа).
+PAN_SAFETY = 0.9
+PAN_JITTER_MIN, PAN_JITTER_MAX = 0.6, 1.0   # органический разброс силы пана по клипам
 PAN_DIRECTIONS = [(0, 0), (1, 1), (1, -1), (-1, 1), (-1, -1), (1, 0), (-1, 0), (0, 1)]
-# Плёночный грейд поверх КАЖДОГО кадра (фото и сток-видео): лёгкий контраст/
-# сатурация/виньетка/зерно визуально объединяют разнородные источники
-# (Pexels/Pixabay/Unsplash/AI-картинки) в единый стиль и убирают "слишком
-# чистую" картинку, которая выдаёт сырой сток/ИИ-слайд-шоу.
-FILM_LOOK = "eq=contrast=1.05:saturation=1.08:brightness=0.01,vignette=PI/5,noise=alls=4:allf=t+u"
+XFADE_DUR = 0.4   # длительность кроссфейда между соседними кадрами
+# Плёночный грейд поверх КАЖДОГО кадра: лёгкий контраст/сатурация/виньетка
+# визуально объединяют разнородные источники в единый стиль. Зерно — только
+# на AI-картинках (маскирует "пластиковую" гладкость генерации), на честном
+# стоке лишний шум только раздувает битрейт без пользы восприятию.
+FILM_LOOK_BASE = "eq=contrast=1.05:saturation=1.08:brightness=0.01,vignette=PI/5"
+
+
+def film_look(source):
+    grain = 6 if source == "ai" else 1
+    return f"{FILM_LOOK_BASE},noise=alls={grain}:allf=t+u"
 
 
 def find_audio(video_dir):
@@ -68,17 +81,17 @@ def resolve_slot(media_dir, n):
     for suf in ("_fastgen.jpg", "_grok.jpg", "_flow.jpg", "_ai.jpg"):
         p = os.path.join(media_dir, f"{n:03d}{suf}")
         if os.path.exists(p):
-            return "photo", p
+            return "photo", p, "ai"
     v = os.path.join(media_dir, f"{n:03d}_stock_video.mp4")
     if os.path.exists(v):
-        return "video", v
+        return "video", v, "stock"
     p = os.path.join(media_dir, f"{n:03d}_stock.jpg")
     if os.path.exists(p):
-        return "photo", p
-    return None, None
+        return "photo", p, "stock"
+    return None, None, None
 
 
-def kenburns_clip(photo, out, d):
+def kenburns_clip(photo, out, d, source="stock"):
     frames = max(1, round(d * FPS))
     h = int(hashlib.md5(photo.encode()).hexdigest()[:8], 16)
     zoom_in = bool(h & 1)
@@ -87,36 +100,35 @@ def kenburns_clip(photo, out, d):
     pan_jit = ((h >> 15) % 1000) / 1000.0
     delta = max(ZOOM_DELTA_MIN, min(ZOOM_DELTA_MAX,
                 ZOOM_RATE_BASE * d * (0.75 + rate_jit * 0.5)))
-    max_zoom = ZOOM_START + delta
-    margin = (1 - 1 / max_zoom) / 2          # безопасный предел смещения по каждой оси
-    pan_frac = margin * PAN_SAFETY * (0.5 + pan_jit * 0.5)
+    max_zoom = ZOOM_FLOOR + delta
+    # PAN_SAFETY * jitter всегда < 1.0 (проверено численно) — офсет остаётся
+    # строго внутри геометрического запаса (1-1/zoom)/2 на любом кадре клипа.
+    pan_amt = PAN_SAFETY * (PAN_JITTER_MIN + pan_jit * (PAN_JITTER_MAX - PAN_JITTER_MIN))
 
     t = f"(on/{frames})"
     # smoothstep вместо линейного роста: старт/финиш без рывка — линейный зум
     # это самый узнаваемый штамп шаблонных слайд-шоу.
     eased = f"(3*pow({t},2)-2*pow({t},3))"
-    z = (f"'{ZOOM_START}+{delta:.5f}*{eased}'" if zoom_in
+    z = (f"'{ZOOM_FLOOR}+{delta:.5f}*{eased}'" if zoom_in
          else f"'{max_zoom:.5f}-{delta:.5f}*{eased}'")
-    pan_scale = f"(zoom-{ZOOM_START})/{delta:.5f}"
-    # dx/dy подставляем как знак числа через format-спек "+", а не отдельным
-    # множителем — иначе при dx=-1 получалось "+-1*..." и парсер ffmpeg
-    # мог не пережить двойной знак.
-    x = (f"'iw/2-(iw/zoom/2){dx * pan_frac:+.5f}*iw*{pan_scale}'" if dx
+    # margin = (1-1/zoom)/2 считается от РЕАЛЬНОГО zoom в текущем кадре (переменная
+    # zoompan даёт его сама) — офсет безопасен на любом кадре клипа по построению.
+    x = (f"'iw/2-(iw/zoom/2){dx * pan_amt:+.5f}*(1-1/zoom)/2*iw'" if dx
          else "'iw/2-(iw/zoom/2)'")
-    y = (f"'ih/2-(ih/zoom/2){dy * pan_frac:+.5f}*ih*{pan_scale}'" if dy
+    y = (f"'ih/2-(ih/zoom/2){dy * pan_amt:+.5f}*(1-1/zoom)/2*ih'" if dy
          else "'ih/2-(ih/zoom/2)'")
     cmd = ["ffmpeg", "-y", "-loop", "1", "-i", photo, "-vf",
            (f"scale=8000:4500:force_original_aspect_ratio=decrease,"
             f"pad=8000:4500:(ow-iw)/2:(oh-ih)/2,setsar=1,"
             f"zoompan=z={z}:x={x}:y={y}:"
             f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS},"
-            f"{FILM_LOOK}"),
+            f"{film_look(source)}"),
            "-t", str(d), "-c:v", "libx264", "-preset", "fast",
            "-crf", "23", "-pix_fmt", "yuv420p", "-r", str(FPS), out]
     return subprocess.run(cmd, capture_output=True, text=True).returncode == 0
 
 
-def video_clip(vid, out, d):
+def video_clip(vid, out, d, source="stock"):
     try:
         actual = dur(vid)
     except Exception:
@@ -124,11 +136,67 @@ def video_clip(vid, out, d):
     vf = f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,crop={WIDTH}:{HEIGHT},setsar=1"
     if actual < d - 0.05:
         vf += f",setpts={d/actual:.5f}*PTS"
-    vf += f",{FILM_LOOK}"
+    vf += f",{film_look(source)}"
     cmd = ["ffmpeg", "-y", "-i", vid, "-vf", vf, "-t", str(d), "-an",
            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
            "-pix_fmt", "yuv420p", "-r", str(FPS), out]
     return subprocess.run(cmd, capture_output=True, text=True).returncode == 0
+
+
+def xfade_chain(clips, durs, out, xfade_dur=XFADE_DUR):
+    """Один проход filter_complex с цепочкой xfade между ВСЕМИ соседними
+    кадрами — вместо жёсткой склейки. Возвращает (True, итоговая_длительность)
+    или (False, 0.0), если что-то пошло не так (тогда main() откатывается на
+    обычный concat -c copy)."""
+    n = len(clips)
+    if n < 2:
+        return False, 0.0
+    parts, prev_label, cum = [], "0:v", durs[0]
+    for i in range(1, n):
+        offset = max(0.0, cum - xfade_dur)
+        out_label = f"vx{i}" if i < n - 1 else "vout"
+        parts.append(f"[{prev_label}][{i}:v]xfade=transition=fade:"
+                     f"duration={xfade_dur:.3f}:offset={offset:.3f}[{out_label}]")
+        cum = cum + durs[i] - xfade_dur
+        prev_label = out_label
+    cmd = ["ffmpeg", "-y"]
+    for c in clips:
+        cmd += ["-i", c]
+    cmd += ["-filter_complex", ";".join(parts), "-map", "[vout]",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-pix_fmt", "yuv420p", "-r", str(FPS), out]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        print("  xfade-склейка не удалась, откат на concat:", r.stderr[-300:])
+        return False, 0.0
+    return True, max(cum, 0.1)
+
+
+def pad_to_length(video, target, temp_dir):
+    """Достраивает видео до нужной длины заморозкой последнего кадра — нужно
+    после xfade_chain(), которая суммарно укорачивает ролик на (n-1)*XFADE_DUR
+    относительно суммы длительностей кадров."""
+    cur = dur(video)
+    gap = target - cur
+    if gap <= 0.05:
+        return video
+    lastframe = os.path.join(temp_dir, "_lastframe.jpg")
+    padclip = os.path.join(temp_dir, "_pad.mp4")
+    padded = os.path.join(temp_dir, "_padded.mp4")
+    subprocess.run(["ffmpeg", "-y", "-sseof", "-0.3", "-i", video,
+                    "-vframes", "1", lastframe], capture_output=True)
+    r = subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", lastframe, "-t", f"{gap:.3f}",
+                        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                        "-pix_fmt", "yuv420p", "-r", str(FPS), padclip],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return video
+    lst = os.path.join(temp_dir, "_pad_concat.txt")
+    open(lst, "w", encoding="utf-8").write(
+        f"file '{os.path.abspath(video)}'\nfile '{os.path.abspath(padclip)}'\n")
+    r = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                        "-i", lst, "-c", "copy", padded], capture_output=True, text=True)
+    return padded if r.returncode == 0 else video
 
 
 def main():
@@ -157,27 +225,33 @@ def main():
         print(f"Хук ({hook_total:.1f}с) не короче всего аудио ({audio_dur:.1f}с) — "
               f"проверь hook_durations. Раскладываю равномерно.")
         hook_dur, hook_slots, hook_total, body_slots = {}, 0, 0.0, n_slots
-    body_d = (audio_dur - hook_total) / max(body_slots, 1)
+    # Кроссфейд между КАЖДОЙ парой слотов суммарно "съедает" (n-1)*XFADE_DUR —
+    # закладываем это в тело заранее, хук-длительности заданы явно и их не трогаем.
+    xfade_budget = max(0, n_slots - 1) * XFADE_DUR
+    body_d = (audio_dur + xfade_budget - hook_total) / max(body_slots, 1)
 
     # проверка хук-тайминга (ЧАСТЬ 14, ХУК-МЕДИА)
     if hook_slots and hook_total > 0:
         print(f"Хук: {hook_slots} слотов, сумма {hook_total:.1f}с | тело {body_slots} по {body_d:.2f}с")
     print(f"Аудио {audio_dur:.1f}с ({audio_dur/60:.1f} мин), слотов {n_slots}")
 
-    clips, missing = [], []
+    clips, clip_durs, missing = [], [], []
     for slot in range(1, n_slots + 1):
         out = os.path.join(temp, f"clip_{slot:04d}.mp4")
+        d = hook_dur.get(slot, body_d) if slot <= hook_slots else body_d
         if os.path.exists(out):
             clips.append(out)
+            clip_durs.append(d)
             continue
-        kind, path = resolve_slot(media_dir, slot)
+        kind, path, source = resolve_slot(media_dir, slot)
         if not path:
             missing.append(slot)
             continue
-        d = hook_dur.get(slot, body_d) if slot <= hook_slots else body_d
-        ok = video_clip(path, out, d) if kind == "video" else kenburns_clip(path, out, d)
+        ok = (video_clip(path, out, d, source) if kind == "video"
+              else kenburns_clip(path, out, d, source))
         if ok:
             clips.append(out)
+            clip_durs.append(d)
             if slot % 20 == 0 or slot <= 3:
                 print(f"[{slot:03d}/{n_slots}] OK <- {os.path.basename(path)}", flush=True)
         else:
@@ -189,17 +263,20 @@ def main():
         print("Пропущены:", missing)
     if not clips:
         return
-    concat = os.path.join(temp, "concat.txt")
-    # Пути ТОЛЬКО абсолютные: concat-демуксер ffmpeg резолвит относительные
-    # пути от папки самого concat.txt, а не от cwd — иначе сборка падает.
-    open(concat, "w", encoding="utf-8").write(
-        "".join(f"file '{os.path.abspath(c)}'\n" for c in clips))
     merged = os.path.join(temp, "merged.mp4")
-    r = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                        "-i", concat, "-c", "copy", merged], capture_output=True, text=True)
-    if r.returncode != 0:
-        print("Склейка:", r.stderr[-400:])
-        return
+    ok, xfade_total = xfade_chain(clips, clip_durs, merged)
+    if not ok:
+        concat = os.path.join(temp, "concat.txt")
+        # Пути ТОЛЬКО абсолютные: concat-демуксер ffmpeg резолвит относительные
+        # пути от папки самого concat.txt, а не от cwd — иначе сборка падает.
+        open(concat, "w", encoding="utf-8").write(
+            "".join(f"file '{os.path.abspath(c)}'\n" for c in clips))
+        r = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                            "-i", concat, "-c", "copy", merged], capture_output=True, text=True)
+        if r.returncode != 0:
+            print("Склейка:", r.stderr[-400:])
+            return
+    merged = pad_to_length(merged, audio_dur, temp)
     r = subprocess.run(["ffmpeg", "-y", "-i", merged, "-i", audio,
                         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
                         "-shortest", out_file], capture_output=True, text=True)
