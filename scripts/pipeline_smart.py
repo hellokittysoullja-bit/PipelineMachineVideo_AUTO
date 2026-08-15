@@ -1060,7 +1060,13 @@ def main():
             print("Склейка:", r.stderr[-300:])
             return 1
     merged = pad_to_length(merged, total, TEMP_FOLDER)
+    # -shortest САМ ПО СЕБЕ недостаточен с -c:v copy: копирование пакетов
+    # режет только по границам GOP исходного клипа, а не по факту конца
+    # аудио — на реальном 17-минутном ролике это давало +6с видео без
+    # звука сверху (проверено вживую). Явный -t с точной длительностью
+    # аудио режет ровно там, где надо, независимо от размера GOP.
     r = subprocess.run(["ffmpeg", "-y", "-i", merged, "-i", AUDIO_FILE,
+                        "-t", f"{total:.3f}",
                         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
                         "-shortest", OUTPUT_FILE], capture_output=True, text=True)
     if r.returncode != 0:
