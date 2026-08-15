@@ -199,7 +199,11 @@ def parse_blocks(path):
         # Маркер секции — ещё один спецтокен в общем потоке (не просто "\n"-склейка
         # как раньше), чтобы граница === не рвала перенос паузы через границу блока,
         # а секция при этом была известна для каждого получившегося блока.
-        content = "".join(f"\x00SECTION:{name}\x00{body}" for name, body in kept).strip("\x00")
+        # БЕЗ .strip("\x00") — иначе снимается ведущий \x00 у маркера самой первой
+        # секции (обычно HOOK), split() перестаёт его узнавать, и "SECTION:HOOK"
+        # утекает в текст как отдельный псевдо-блок из одного слова — под первый
+        # кадр хука уходит мусорный клип с generic-запросом вместо реального текста.
+        content = "".join(f"\x00SECTION:{name}\x00{body}" for name, body in kept)
     else:
         content = re.sub(r'===.*?===', '', raw).strip()   # сценарий без === — берём как есть
     processed = content
@@ -250,7 +254,13 @@ def block_durations(blocks, total, energy_mults=None):
 PEXELS_BROKEN = False       # взводится только на реальном отказе API, не на пустой выдаче
 
 
-def pexels_photo(query, index):
+def pexels_photo(query, index, used_ids=None):
+    """used_ids — множество ID уже показанных в этом ролике фото (мутируется на
+    месте). Разные блоки часто ловят один и тот же тематический запрос — без
+    этого им всем доставался бы top-1 результат, то есть одна и та же картинка
+    по нескольку раз за ролик. Перебираем выдачу (per_page=10) и берём первый
+    ID, которого ещё не было; если все уже использованы — берём топ-1 всё равно
+    (лучше повтор, чем сорванная сборка)."""
     global PEXELS_BROKEN
     cache = os.path.join(TEMP_FOLDER, "pexels_cache")
     os.makedirs(cache, exist_ok=True)
@@ -262,13 +272,22 @@ def pexels_photo(query, index):
     try:
         q = urllib.parse.quote(query)
         req = urllib.request.Request(
-            f"https://api.pexels.com/v1/search?query={q}&per_page=5&orientation=landscape",
+            f"https://api.pexels.com/v1/search?query={q}&per_page=10&orientation=landscape",
             headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
         with urllib.request.urlopen(req, timeout=15) as r:
             data = json.load(r)
-        if not data.get("photos"):
+        photos = data.get("photos") or []
+        if not photos:
             return None
-        url = data["photos"][0]["src"].get("large2x") or data["photos"][0]["src"].get("large")
+        pick = photos[0]
+        if used_ids is not None:
+            for p in photos:
+                if p.get("id") not in used_ids:
+                    pick = p
+                    break
+        if used_ids is not None:
+            used_ids.add(pick.get("id"))
+        url = pick["src"].get("large2x") or pick["src"].get("large")
         img = urllib.request.Request(url, headers={"User-Agent": UA})
         with urllib.request.urlopen(img, timeout=20) as r:
             open(cf, "wb").write(r.read())
@@ -289,12 +308,55 @@ def local_photo(index):
     return os.path.join(MEDIA_FOLDER, photos[index % len(photos)])
 
 
+GENERIC_FALLBACKS = [
+    "medieval sword still life", "knight armor moody light",
+    "medieval castle atmosphere", "old manuscript parchment history",
+    "cinematic dark fantasy weapon",
+]
+
+
 def query_for(text):
     tl = text.lower()
     for kw, q in THEMES.items():
         if kw in tl:
             return q
-    return "cinematic atmospheric moody"
+    return None
+
+
+def resolve_queries(blocks):
+    """Прямой поиск по themes.json ловит не все блоки — короткие связки
+    ("Не дрались. Несли.", "Береги себя.") и абстрактные куски без предметных
+    слов улетают в generic-заглушку, которая никак не привязана к теме ролика.
+    Вместо одной фиксированной строки на все такие блоки: сперва пробуем
+    унаследовать запрос соседнего блока той же секции (тема раздела обычно
+    не меняется от предложения к предложению), и только если во всей секции
+    вообще ничего не нашлось — берём по кругу из GENERIC_FALLBACKS (не один
+    и тот же текст на всё, иначе Pexels отдаёт одну и ту же жалкую пятёрку)."""
+    raw = [query_for(b["text"]) for b in blocks]
+    resolved = list(raw)
+    for i, q in enumerate(resolved):
+        if q is not None:
+            continue
+        for j in range(i - 1, -1, -1):
+            if blocks[j]["section"] != blocks[i]["section"]:
+                break
+            if raw[j] is not None:
+                resolved[i] = raw[j]
+                break
+        if resolved[i] is not None:
+            continue
+        for j in range(i + 1, len(blocks)):
+            if blocks[j]["section"] != blocks[i]["section"]:
+                break
+            if raw[j] is not None:
+                resolved[i] = raw[j]
+                break
+    fallback_n = 0
+    for i, q in enumerate(resolved):
+        if q is None:
+            resolved[i] = GENERIC_FALLBACKS[fallback_n % len(GENERIC_FALLBACKS)]
+            fallback_n += 1
+    return resolved
 
 
 def kb_hash_choices(photo):
@@ -487,6 +549,8 @@ def main():
     zoom_hist, pan_hist = [], []
     use_local = os.path.isdir(MEDIA_FOLDER) and bool(local_photo(0))
     use_pexels = bool(PEXELS_API_KEY)
+    queries = resolve_queries(blocks)
+    used_photo_ids = set()   # общий на весь ролик — не даём одной фотке всплыть дважды
     for i, (b, d) in enumerate(zip(blocks, durs)):
         out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}.mp4")
         # Титр темы — только на ПЕРВОМ кадре новой секции (BLOCK N: Название).
@@ -499,7 +563,7 @@ def main():
             continue
         photo = local_photo(i) if use_local else None
         if not photo and use_pexels:
-            photo = pexels_photo(query_for(b["text"]), i)
+            photo = pexels_photo(queries[i], i, used_ids=used_photo_ids)
             # Раньше Pexels отключался навсегда после ЛЮБОГО промаха, включая
             # обычную пустую выдачу по одному неудачному запросу. Гасим источник
             # только если API реально отвалился.
