@@ -3,6 +3,9 @@ Pillow>=10.0
 python-dotenv>=1.0
 numpy>=1.24
 
+# Только для tests/ (pytest tests/) — в проде пайплайну не нужен.
+pytest>=8.0
+
 # Опционально — 2.5D-параллакс в pipeline_smart.py (PARALLAX=0 отключает).
 # Без них скрипт работает как обычно, просто без этой фичи.
 # opencv-python-headless

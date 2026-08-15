@@ -10,6 +10,38 @@ import sys
 WPM = 125.0
 
 
+def clean_words(s):
+    # Теги стоят СПЛОШНЯКОМ с текстом без пробелов (ЧАСТЬ 10 CLAUDE.md,
+    # например "грамма.[pause]Так"), поэтому тег заменяем на ПРОБЕЛ, а не на
+    # пустоту — иначе соседние слова склеиваются в одно и счётчик занижает
+    # реальную длину сценария (тот самый критический класс отказа из
+    # ЧАСТИ 1: недосчитанный сценарий -> неверная длина озвучки).
+    return len(re.sub(r'=+', ' ', re.sub(r'\[.*?\]', ' ', s)).split())
+
+
+def count_words(path):
+    """Чистые слова только в озвучиваемых секциях (HOOK/BLOCK*/FINAL).
+    Вынесено из main() как отдельная функция — чтобы тестировать логику
+    подсчёта без сборки sys.argv (поведение не менялось, тот же код)."""
+    section = None
+    count = 0
+    for line in open(path, encoding="utf-8"):
+        m = re.match(r'===\s*(.*?)\s*===\s*(.*)$', line.strip())
+        if m:
+            section = m.group(1).upper()
+            # Текст может стоять на ОДНОЙ строке с заголовком — именно так
+            # выглядит формат script.txt в CLAUDE.md (ЧАСТЬ 9). Без этого
+            # весь сценарий считался за 0 слов, и проверка длины молчала.
+            if section.startswith(("HOOK", "BLOCK", "FINAL")):
+                count += clean_words(m.group(2))
+            continue
+        if not section:
+            continue
+        if section.startswith(("HOOK", "BLOCK", "FINAL")):
+            count += clean_words(line)
+    return count
+
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: wordcount.py <script.txt> [T_минут]")
@@ -25,26 +57,7 @@ def main():
         except ValueError:
             print(f"T_минут должно быть числом, получено: {sys.argv[2]!r}")
             return 1
-    section = None
-    count = 0
-    def clean_words(s):
-        # снимаем теги [pause] и обрывки '===', чтобы разделители не шли за слова
-        return len(re.sub(r'=+', ' ', re.sub(r'\[.*?\]', '', s)).split())
-
-    for line in open(path, encoding="utf-8"):
-        m = re.match(r'===\s*(.*?)\s*===\s*(.*)$', line.strip())
-        if m:
-            section = m.group(1).upper()
-            # Текст может стоять на ОДНОЙ строке с заголовком — именно так
-            # выглядит формат script.txt в CLAUDE.md (ЧАСТЬ 9). Без этого
-            # весь сценарий считался за 0 слов, и проверка длины молчала.
-            if section.startswith(("HOOK", "BLOCK", "FINAL")):
-                count += clean_words(m.group(2))
-            continue
-        if not section:
-            continue
-        if section.startswith(("HOOK", "BLOCK", "FINAL")):
-            count += clean_words(line)
+    count = count_words(path)
     mins = count / WPM
     print(f"Слов в сценарии: {count}. Расчётная длительность: {mins:.1f} минут (при {WPM:.0f} слов/мин).")
     if T:
