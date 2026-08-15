@@ -264,7 +264,10 @@ def pexels_photo(query, index, used_ids=None):
     global PEXELS_BROKEN
     cache = os.path.join(TEMP_FOLDER, "pexels_cache")
     os.makedirs(cache, exist_ok=True)
-    cf = os.path.join(cache, f"{index:04d}.jpg")
+    # Хэш запроса в имени файла — иначе смена themes.json без чистки temp_smart/
+    # молча оставляет картинку под старый запрос (кэш бил только по номеру блока).
+    qhash = hashlib.md5(query.encode()).hexdigest()[:8]
+    cf = os.path.join(cache, f"{index:04d}_{qhash}.jpg")
     if os.path.exists(cf):
         return cf
     if not PEXELS_API_KEY:
@@ -396,8 +399,12 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None):
          else "'iw/2-(iw/zoom/2)'")
     y = (f"'ih/2-(ih/zoom/2){dy * pan_amt:+.5f}*(1-1/zoom)/2*ih'" if dy
          else "'ih/2-(ih/zoom/2)'")
-    vf_base = (f"scale=8000:4500:force_original_aspect_ratio=decrease,"
-               f"pad=8000:4500:(ow-iw)/2:(oh-ih)/2,setsar=1,"
+    # increase+crop (не decrease+pad) — исходные фото редко ровно 16:9, "вписать
+    # в рамку" оставляло чёрные поля по краям на большинстве кадров (проверено:
+    # 3 из 8 тестовых кадров с полосами по обеим сторонам). Залить кадр целиком
+    # и обрезать лишнее — тот же приём, что уже применялся к видео-стоку ниже.
+    vf_base = (f"scale=8000:4500:force_original_aspect_ratio=increase,"
+               f"crop=8000:4500,setsar=1,"
                f"zoompan=z={z}:x={x}:y={y}:"
                f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS},"
                f"{film_look(h)}")

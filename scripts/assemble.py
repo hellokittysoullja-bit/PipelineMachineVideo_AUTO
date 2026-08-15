@@ -196,9 +196,13 @@ def kenburns_clip(photo, out, d, source="stock", zoom_in=None, pan_dir=None):
          else "'iw/2-(iw/zoom/2)'")
     y = (f"'ih/2-(ih/zoom/2){dy * pan_amt:+.5f}*(1-1/zoom)/2*ih'" if dy
          else "'ih/2-(ih/zoom/2)'")
+    # increase+crop (не decrease+pad) — вписывание в рамку оставляло чёрные
+    # поля по краям на фото, чей исходный кадр не ровно 16:9 (большинство
+    # стока). Заливаем кадр целиком и обрезаем лишнее, как уже делает
+    # video_clip() ниже для стокового видео.
     cmd = ["ffmpeg", "-y", "-loop", "1", "-i", photo, "-vf",
-           (f"scale=8000:4500:force_original_aspect_ratio=decrease,"
-            f"pad=8000:4500:(ow-iw)/2:(oh-ih)/2,setsar=1,"
+           (f"scale=8000:4500:force_original_aspect_ratio=increase,"
+            f"crop=8000:4500,setsar=1,"
             f"zoompan=z={z}:x={x}:y={y}:"
             f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS},"
             f"{film_look(source, h)}"),
