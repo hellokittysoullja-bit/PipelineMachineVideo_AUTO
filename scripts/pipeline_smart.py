@@ -21,6 +21,11 @@ try:
 except Exception:
     pass
 
+try:
+    import numpy as np
+except ImportError:
+    np = None   # аудио-ритм по громкости — опциональная фича, без numpy просто выключена
+
 VIDEO_FOLDER = sys.argv[1] if len(sys.argv) > 1 else os.getcwd()
 SCRIPT_FILE = os.path.join(VIDEO_FOLDER, "script.txt")
 MEDIA_FOLDER = os.path.join(VIDEO_FOLDER, "media")
@@ -84,6 +89,66 @@ def section_title(name):
 
 def escape_drawtext(s):
     return s.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\u2019")
+
+
+def pick_no_repeat(history, candidate, options, max_repeat):
+    """\u0425\u044d\u0448 \u0434\u0430\u0451\u0442 \u0440\u0430\u0437\u043d\u043e\u043e\u0431\u0440\u0430\u0437\u0438\u0435 "\u0432 \u0441\u0440\u0435\u0434\u043d\u0435\u043c", \u043d\u043e \u043d\u0435 \u043c\u0435\u0448\u0430\u0435\u0442 3-4 \u043e\u0434\u0438\u043d\u0430\u043a\u043e\u0432\u044b\u043c \u043f\u043e\u0434\u0440\u044f\u0434
+    \u0441\u043b\u0443\u0447\u0430\u0439\u043d\u044b\u043c \u0441\u043e\u0432\u043f\u0430\u0434\u0435\u043d\u0438\u0435\u043c. \u0415\u0441\u043b\u0438 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0435 max_repeat \u0440\u0435\u0448\u0435\u043d\u0438\u0439 \u0441\u043e\u0432\u043f\u0430\u0434\u0430\u044e\u0442 \u0441
+    \u043a\u0430\u043d\u0434\u0438\u0434\u0430\u0442\u043e\u043c \u2014 \u0434\u0435\u0442\u0435\u0440\u043c\u0438\u043d\u0438\u0440\u043e\u0432\u0430\u043d\u043d\u043e \u0431\u0435\u0440\u0451\u043c \u0441\u043b\u0435\u0434\u0443\u044e\u0449\u0438\u0439 \u0432\u0430\u0440\u0438\u0430\u043d\u0442 \u043f\u043e \u043a\u0440\u0443\u0433\u0443 \u0432\u043c\u0435\u0441\u0442\u043e
+    \u043d\u0435\u0433\u043e. history \u043c\u0443\u0442\u0438\u0440\u0443\u0435\u0442\u0441\u044f \u043d\u0430 \u043c\u0435\u0441\u0442\u0435 (\u0441\u043f\u0438\u0441\u043e\u043a \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0445 \u0440\u0435\u0448\u0435\u043d\u0438\u0439)."""
+    if len(history) >= max_repeat and all(x == candidate for x in history[-max_repeat:]):
+        idx = options.index(candidate) if candidate in options else 0
+        candidate = options[(idx + 1) % len(options)]
+    history.append(candidate)
+    del history[:-(max_repeat + 2)]
+    return candidate
+
+
+def audio_energy_curve(audio_path, window_sec=1.0):
+    """RMS-\u0433\u0440\u043e\u043c\u043a\u043e\u0441\u0442\u044c \u0430\u0443\u0434\u0438\u043e \u043f\u043e \u043e\u043a\u043d\u0430\u043c \u2014 \u0431\u0435\u0437 Whisper/librosa, \u0447\u0438\u0441\u0442\u044b\u0439 PCM+numpy.
+    \u0412\u043e\u0437\u0432\u0440\u0430\u0449\u0430\u0435\u0442 (rms_array, window_sec) \u0438\u043b\u0438 None, \u0435\u0441\u043b\u0438 numpy \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d/\u0447\u0442\u043e-\u0442\u043e
+    \u043f\u043e\u0448\u043b\u043e \u043d\u0435 \u0442\u0430\u043a (\u0444\u0438\u0447\u0430 \u043e\u043f\u0446\u0438\u043e\u043d\u0430\u043b\u044c\u043d\u0430\u044f, \u043f\u0430\u0439\u043f\u043b\u0430\u0439\u043d \u043d\u0435 \u0434\u043e\u043b\u0436\u0435\u043d \u043f\u0430\u0434\u0430\u0442\u044c \u0431\u0435\u0437 \u043d\u0435\u0451)."""
+    if np is None:
+        return None
+    sr = 8000   # \u043d\u0443\u0436\u043d\u0430 \u0442\u043e\u043b\u044c\u043a\u043e \u043e\u0433\u0438\u0431\u0430\u044e\u0449\u0430\u044f \u0433\u0440\u043e\u043c\u043a\u043e\u0441\u0442\u0438, \u043d\u0435 \u0437\u0432\u0443\u043a \u2014 \u043d\u0438\u0437\u043a\u0438\u0439 sr \u0434\u043e\u0441\u0442\u0430\u0442\u043e\u0447\u043d\u043e \u0438 \u0431\u044b\u0441\u0442\u0440\u043e
+    try:
+        r = subprocess.run(["ffmpeg", "-v", "quiet", "-i", audio_path, "-f", "s16le",
+                            "-ac", "1", "-ar", str(sr), "-"], capture_output=True, timeout=120)
+        if r.returncode != 0 or not r.stdout:
+            return None
+        raw = r.stdout[:len(r.stdout) - len(r.stdout) % 2]
+        samples = np.frombuffer(raw, dtype=np.int16).astype(np.float64)
+        if len(samples) < sr:
+            return None
+        win = max(1, int(sr * window_sec))
+        n_win = max(1, len(samples) // win)
+        trimmed = samples[:n_win * win].reshape(n_win, win)
+        rms = np.sqrt(np.mean(trimmed ** 2, axis=1))
+        return rms, window_sec
+    except Exception as e:
+        print(f"  \u0410\u043d\u0430\u043b\u0438\u0437 \u0433\u0440\u043e\u043c\u043a\u043e\u0441\u0442\u0438 \u043d\u0435 \u0443\u0434\u0430\u043b\u0441\u044f (\u043f\u0440\u043e\u043f\u0443\u0441\u043a\u0430\u044e): {e}")
+        return None
+
+
+def energy_pace_multipliers(curve, starts, durs, lo=0.8, hi=1.25):
+    """\u0413\u0440\u043e\u043c\u0447\u0435 \u0443\u0447\u0430\u0441\u0442\u043e\u043a \u2014 \u043a\u043e\u0440\u043e\u0447\u0435 \u043a\u0430\u0434\u0440\u044b (\u043c\u043d\u043e\u0436\u0438\u0442\u0435\u043b\u044c <1), \u0442\u0438\u0448\u0435 \u2014 \u0434\u043b\u0438\u043d\u043d\u0435\u0435 (>1).
+    \u041c\u043d\u043e\u0436\u0438\u0442\u0435\u043b\u044c \u0441\u0447\u0438\u0442\u0430\u0435\u0442\u0441\u044f \u043e\u0442 \u043e\u0442\u043d\u043e\u0448\u0435\u043d\u0438\u044f \u043a \u041c\u0415\u0414\u0418\u0410\u041d\u0415 \u0433\u0440\u043e\u043c\u043a\u043e\u0441\u0442\u0438 \u0432\u0441\u0435\u0439 \u0434\u043e\u0440\u043e\u0436\u043a\u0438,
+    \u0447\u0442\u043e\u0431\u044b \u0442\u0438\u0445\u0438\u0439 \u0440\u043e\u043b\u0438\u043a \u0446\u0435\u043b\u0438\u043a\u043e\u043c \u043d\u0435 \u0440\u0430\u0441\u0442\u044f\u0433\u0438\u0432\u0430\u043b \u0432\u0441\u0435 \u043a\u0430\u0434\u0440\u044b \u043e\u0434\u0438\u043d\u0430\u043a\u043e\u0432\u043e."""
+    if curve is None:
+        return [1.0] * len(durs)
+    rms, window_sec = curve
+    med = float(np.median(rms))
+    if med <= 0:
+        return [1.0] * len(durs)
+    mults = []
+    for t0, d in zip(starts, durs):
+        i0 = max(0, int(t0 / window_sec))
+        i1 = min(len(rms), max(i0 + 1, int((t0 + d) / window_sec)))
+        seg = rms[i0:i1] if i0 < len(rms) else rms[-1:]
+        e = float(seg.mean()) if len(seg) else med
+        ratio = max(0.5, min(2.0, e / med))
+        mults.append(max(lo, min(hi, 1.0 / ratio)))
+    return mults
 
 
 def find_audio():
@@ -166,15 +231,18 @@ def parse_blocks(path):
     return blocks
 
 
-def block_durations(blocks, total):
+def block_durations(blocks, total, energy_mults=None):
     tw = sum(b["words"] for b in blocks)
     tp = sum(b["pause_after"] for b in blocks)
     wps = tw / max(total - tp, 1)
+    raw = [b["words"] / wps + b["pause_after"] for b in blocks]
+    if energy_mults:
+        raw = [r * m for r, m in zip(raw, energy_mults)]
     d = []
-    for b in blocks:
+    for b, r in zip(blocks, raw):
         # В хуке кадры короче и чаще — первые секунды решают, останется ли зритель.
         cap = HOOK_MAX_CLIP if b["section"].startswith("HOOK") else MAX_CLIP
-        d.append(max(MIN_CLIP, min(cap, b["words"] / wps + b["pause_after"])))
+        d.append(max(MIN_CLIP, min(cap, r)))
     scale = total / sum(d)
     return [x * scale for x in d]
 
@@ -229,11 +297,21 @@ def query_for(text):
     return "cinematic atmospheric moody"
 
 
-def kenburns(photo, out, dur, title=None):
-    frames = max(1, round(dur * FPS))
+def kb_hash_choices(photo):
+    """Кандидаты зума/пана по хэшу файла — детерминированно, но БЕЗ памяти о
+    соседних клипах (это даёт anti-repetition в main(), см. pick_no_repeat)."""
     h = int(hashlib.md5(photo.encode()).hexdigest()[:8], 16)
     zoom_in = bool(h & 1)
-    dx, dy = PAN_DIRECTIONS[(h >> 1) % len(PAN_DIRECTIONS)]
+    pan_dir = PAN_DIRECTIONS[(h >> 1) % len(PAN_DIRECTIONS)]
+    return h, zoom_in, pan_dir
+
+
+def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None):
+    frames = max(1, round(dur * FPS))
+    h, zoom_in_default, pan_dir_default = kb_hash_choices(photo)
+    if zoom_in is None:
+        zoom_in = zoom_in_default
+    dx, dy = pan_dir if pan_dir is not None else pan_dir_default
     rate_jit = ((h >> 5) % 1000) / 1000.0
     pan_jit = ((h >> 15) % 1000) / 1000.0
     delta = max(ZOOM_DELTA_MIN, min(ZOOM_DELTA_MAX,
@@ -301,16 +379,23 @@ def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR):
     if n < 2:
         return False, 0.0
     parts, prev_label, cum = [], "0:v", durs[0]
+    cut_hist, boundary_hist = [], []
     for i in range(1, n):
         h = int(hashlib.md5(f"{clips[i-1]}|{clips[i]}".encode()).hexdigest()[:8], 16)
         is_boundary = sections[i] != sections[i - 1]
         if is_boundary:
-            this_dur, transition = xfade_dur, "dissolve"
-        elif h % 3 == 0:
-            this_dur, transition = XFADE_DUR_HARD, "fade"      # читается как жёсткий cut
-        else:
+            # Смена темы — заметный переход, не обычная склейка. dissolve/fadeblack
+            # вперемешку (fadeblack — через чёрный кадр, "конец главы").
+            candidate = "fadeblack" if (h % 2 == 0) else "dissolve"
+            transition = pick_no_repeat(boundary_hist, candidate, ["dissolve", "fadeblack"], 1)
             this_dur = xfade_dur
-            transition = XFADE_TRANSITIONS[(h >> 8) % len(XFADE_TRANSITIONS)]
+        else:
+            # Большинство склеек в реальном монтаже — жёсткий cut, не dissolve;
+            # заметный переход — редкость, не норма. ~65% hard cut / ~35% вариация.
+            candidate = "hardcut" if (h % 3 != 0) else XFADE_TRANSITIONS[(h >> 8) % len(XFADE_TRANSITIONS)]
+            choice = pick_no_repeat(cut_hist, candidate, ["hardcut"] + XFADE_TRANSITIONS, max_repeat=3)
+            this_dur = XFADE_DUR_HARD if choice == "hardcut" else xfade_dur
+            transition = "fade" if choice == "hardcut" else choice
         offset = max(0.0, cum - this_dur)
         out_label = f"vx{i}" if i < n - 1 else "vout"
         parts.append(f"[{prev_label}][{i}:v]xfade=transition={transition}:"
@@ -379,10 +464,23 @@ def main():
     # длина видео снова совпала с аудио (без этого хвост ролика проигрывался бы
     # без картинки под конец аудиодорожки).
     xfade_budget = max(0, len(blocks) - 1) * XFADE_DUR
-    durs = block_durations(blocks, total + xfade_budget)
+    target = total + xfade_budget
+    durs = block_durations(blocks, target)
+    # Второй проход: ритм по громкости поверх word-count-базы (не вместо неё) —
+    # громкие места режутся чаще, тихие держатся дольше. Опционально (нужен numpy).
+    curve = audio_energy_curve(AUDIO_FILE)
+    if curve:
+        starts, acc = [], 0.0
+        for d in durs:
+            starts.append(acc)
+            acc += d
+        mults = energy_pace_multipliers(curve, starts, durs)
+        durs = block_durations(blocks, target, energy_mults=mults)
+        print("Ритм по громкости: включён")
     print(f"Средний кадр: {sum(durs)/len(durs):.1f}с")
 
     clips, clip_durs, clip_sections = [], [], []
+    zoom_hist, pan_hist = [], []
     use_local = os.path.isdir(MEDIA_FOLDER) and bool(local_photo(0))
     use_pexels = bool(PEXELS_API_KEY)
     for i, (b, d) in enumerate(zip(blocks, durs)):
@@ -408,7 +506,12 @@ def main():
         if not photo:
             print(f"  [{i+1}] нет фото")
             continue
-        if kenburns(photo, out, d, title=title):
+        # anti-repetition: хэш сам по себе не мешает 3 зумам подряд случайно
+        # совпасть — держим окно последних решений и форсируем смену при повторе.
+        _, zi_cand, pd_cand = kb_hash_choices(photo)
+        zoom_in = pick_no_repeat(zoom_hist, zi_cand, [True, False], max_repeat=2)
+        pan_dir = pick_no_repeat(pan_hist, pd_cand, PAN_DIRECTIONS, max_repeat=2)
+        if kenburns(photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir):
             clips.append(out)
             clip_durs.append(d)
             clip_sections.append(b["section"])

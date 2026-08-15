@@ -14,6 +14,11 @@ import re
 import subprocess
 import sys
 
+try:
+    import numpy as np
+except ImportError:
+    np = None   # аудио-ритм по громкости — опциональная фича, без numpy просто выключена
+
 FPS, WIDTH, HEIGHT = 25, 1920, 1080
 # ZOOM_FLOOR — минимальный зум держится ВЕСЬ клип (не 1.0). Раньше offset пана
 # был обязан = 0 ровно в момент zoom=1.0 (иначе край вылезет за картинку), и на
@@ -47,6 +52,66 @@ def film_look(source, photo_hash):
     b = ((photo_hash >> 14) % 100) / 100 * 0.02          # 0.00-0.02
     grain = 6 if source == "ai" else 1
     return f"eq=contrast={c:.3f}:saturation={s:.3f}:brightness={b:.3f},vignette=PI/5,noise=alls={grain}:allf=t+u"
+
+
+def pick_no_repeat(history, candidate, options, max_repeat):
+    """Хэш даёт разнообразие "в среднем", но не мешает 3-4 одинаковым подряд
+    случайным совпадением. Если последние max_repeat решений совпадают с
+    кандидатом — детерминированно берём следующий вариант по кругу вместо
+    него. history мутируется на месте (список последних решений)."""
+    if len(history) >= max_repeat and all(x == candidate for x in history[-max_repeat:]):
+        idx = options.index(candidate) if candidate in options else 0
+        candidate = options[(idx + 1) % len(options)]
+    history.append(candidate)
+    del history[:-(max_repeat + 2)]
+    return candidate
+
+
+def audio_energy_curve(audio_path, window_sec=1.0):
+    """RMS-громкость аудио по окнам — без Whisper/librosa, чистый PCM+numpy.
+    Возвращает (rms_array, window_sec) или None, если numpy недоступен/что-то
+    пошло не так (фича опциональная, пайплайн не должен падать без неё)."""
+    if np is None:
+        return None
+    sr = 8000   # нужна только огибающая громкости, не звук — низкий sr достаточно и быстро
+    try:
+        r = subprocess.run(["ffmpeg", "-v", "quiet", "-i", audio_path, "-f", "s16le",
+                            "-ac", "1", "-ar", str(sr), "-"], capture_output=True, timeout=120)
+        if r.returncode != 0 or not r.stdout:
+            return None
+        raw = r.stdout[:len(r.stdout) - len(r.stdout) % 2]
+        samples = np.frombuffer(raw, dtype=np.int16).astype(np.float64)
+        if len(samples) < sr:
+            return None
+        win = max(1, int(sr * window_sec))
+        n_win = max(1, len(samples) // win)
+        trimmed = samples[:n_win * win].reshape(n_win, win)
+        rms = np.sqrt(np.mean(trimmed ** 2, axis=1))
+        return rms, window_sec
+    except Exception as e:
+        print(f"  Анализ громкости не удался (пропускаю): {e}")
+        return None
+
+
+def energy_pace_multipliers(curve, starts, durs, lo=0.8, hi=1.25):
+    """Громче участок — короче кадры (множитель <1), тише — длиннее (>1).
+    Множитель считается от отношения к МЕДИАНЕ громкости всей дорожки,
+    чтобы тихий ролик целиком не растягивал все кадры одинаково."""
+    if curve is None:
+        return [1.0] * len(durs)
+    rms, window_sec = curve
+    med = float(np.median(rms))
+    if med <= 0:
+        return [1.0] * len(durs)
+    mults = []
+    for t0, d in zip(starts, durs):
+        i0 = max(0, int(t0 / window_sec))
+        i1 = min(len(rms), max(i0 + 1, int((t0 + d) / window_sec)))
+        seg = rms[i0:i1] if i0 < len(rms) else rms[-1:]
+        e = float(seg.mean()) if len(seg) else med
+        ratio = max(0.5, min(2.0, e / med))
+        mults.append(max(lo, min(hi, 1.0 / ratio)))
+    return mults
 
 
 def find_audio(video_dir):
@@ -95,11 +160,21 @@ def resolve_slot(media_dir, n):
     return None, None, None
 
 
-def kenburns_clip(photo, out, d, source="stock"):
-    frames = max(1, round(d * FPS))
+def kb_hash_choices(photo):
+    """Кандидаты зума/пана по хэшу файла — детерминированно, но БЕЗ памяти о
+    соседних клипах (это даёт anti-repetition в main(), см. pick_no_repeat)."""
     h = int(hashlib.md5(photo.encode()).hexdigest()[:8], 16)
     zoom_in = bool(h & 1)
-    dx, dy = PAN_DIRECTIONS[(h >> 1) % len(PAN_DIRECTIONS)]
+    pan_dir = PAN_DIRECTIONS[(h >> 1) % len(PAN_DIRECTIONS)]
+    return h, zoom_in, pan_dir
+
+
+def kenburns_clip(photo, out, d, source="stock", zoom_in=None, pan_dir=None):
+    frames = max(1, round(d * FPS))
+    h, zoom_in_default, pan_dir_default = kb_hash_choices(photo)
+    if zoom_in is None:
+        zoom_in = zoom_in_default
+    dx, dy = pan_dir if pan_dir is not None else pan_dir_default
     rate_jit = ((h >> 5) % 1000) / 1000.0
     pan_jit = ((h >> 15) % 1000) / 1000.0
     delta = max(ZOOM_DELTA_MIN, min(ZOOM_DELTA_MAX,
@@ -148,16 +223,22 @@ def video_clip(vid, out, d, source="stock"):
     return subprocess.run(cmd, capture_output=True, text=True).returncode == 0
 
 
-def jittered_body_durations(n, base_d):
+def jittered_body_durations(n, base_d, audio_path=None, start_offset=0.0):
     """Тело нарезано ровно на n одинаковых body_d — тоже штамп ("робот резал
-    ровно"). Джиттер по хэшу позиции слота, нормализованный так, что сумма
-    длительностей не меняется (среднее по-прежнему = base_d)."""
+    ровно"). Если есть numpy — множители берутся из РЕАЛЬНОЙ громкости
+    аудио на месте каждого слота (громче -> короче), иначе fallback на
+    псевдослучайный хэш-джиттер. Нормализовано так, что сумма не меняется."""
     if n <= 0:
         return []
-    factors = []
-    for i in range(n):
-        h = int(hashlib.md5(f"body_slot:{i}".encode()).hexdigest()[:8], 16)
-        factors.append(0.75 + (h % 1000) / 1000 * 0.5)   # 0.75-1.25
+    curve = audio_energy_curve(audio_path) if audio_path else None
+    if curve:
+        starts = [start_offset + i * base_d for i in range(n)]
+        factors = energy_pace_multipliers(curve, starts, [base_d] * n)
+    else:
+        factors = []
+        for i in range(n):
+            h = int(hashlib.md5(f"body_slot:{i}".encode()).hexdigest()[:8], 16)
+            factors.append(0.75 + (h % 1000) / 1000 * 0.5)   # 0.75-1.25
     avg = sum(factors) / len(factors)
     return [base_d * f / avg for f in factors]
 
@@ -172,16 +253,22 @@ def xfade_chain(clips, durs, is_hook, out, xfade_dur=XFADE_DUR):
     if n < 2:
         return False, 0.0
     parts, prev_label, cum = [], "0:v", durs[0]
+    cut_hist, boundary_hist = [], []
     for i in range(1, n):
         h = int(hashlib.md5(f"{clips[i-1]}|{clips[i]}".encode()).hexdigest()[:8], 16)
         is_boundary = is_hook[i] != is_hook[i - 1]
         if is_boundary:
-            this_dur, transition = xfade_dur, "dissolve"
-        elif h % 3 == 0:
-            this_dur, transition = XFADE_DUR_HARD, "fade"      # читается как жёсткий cut
-        else:
+            # Граница хук/тело — заметный переход, не обычная склейка.
+            candidate = "fadeblack" if (h % 2 == 0) else "dissolve"
+            transition = pick_no_repeat(boundary_hist, candidate, ["dissolve", "fadeblack"], 1)
             this_dur = xfade_dur
-            transition = XFADE_TRANSITIONS[(h >> 8) % len(XFADE_TRANSITIONS)]
+        else:
+            # Большинство склеек в реальном монтаже — жёсткий cut, не dissolve;
+            # заметный переход — редкость, не норма. ~65% hard cut / ~35% вариация.
+            candidate = "hardcut" if (h % 3 != 0) else XFADE_TRANSITIONS[(h >> 8) % len(XFADE_TRANSITIONS)]
+            choice = pick_no_repeat(cut_hist, candidate, ["hardcut"] + XFADE_TRANSITIONS, max_repeat=3)
+            this_dur = XFADE_DUR_HARD if choice == "hardcut" else xfade_dur
+            transition = "fade" if choice == "hardcut" else choice
         offset = max(0.0, cum - this_dur)
         out_label = f"vx{i}" if i < n - 1 else "vout"
         parts.append(f"[{prev_label}][{i}:v]xfade=transition={transition}:"
@@ -258,7 +345,8 @@ def main():
     # закладываем это в тело заранее, хук-длительности заданы явно и их не трогаем.
     xfade_budget = max(0, n_slots - 1) * XFADE_DUR
     body_d_avg = (audio_dur + xfade_budget - hook_total) / max(body_slots, 1)
-    body_durs = jittered_body_durations(body_slots, body_d_avg)
+    body_durs = jittered_body_durations(body_slots, body_d_avg, audio_path=audio,
+                                         start_offset=hook_total)
 
     # проверка хук-тайминга (ЧАСТЬ 14, ХУК-МЕДИА)
     if hook_slots and hook_total > 0:
@@ -266,6 +354,7 @@ def main():
     print(f"Аудио {audio_dur:.1f}с ({audio_dur/60:.1f} мин), слотов {n_slots}")
 
     clips, clip_durs, clip_is_hook, missing = [], [], [], []
+    zoom_hist, pan_hist = [], []
     for slot in range(1, n_slots + 1):
         out = os.path.join(temp, f"clip_{slot:04d}.mp4")
         is_hook_slot = slot <= hook_slots
@@ -279,8 +368,15 @@ def main():
         if not path:
             missing.append(slot)
             continue
-        ok = (video_clip(path, out, d, source) if kind == "video"
-              else kenburns_clip(path, out, d, source))
+        if kind == "video":
+            ok = video_clip(path, out, d, source)
+        else:
+            # anti-repetition: хэш сам по себе не мешает 3 зумам подряд случайно
+            # совпасть — держим окно последних решений и форсируем смену при повторе.
+            _, zi_cand, pd_cand = kb_hash_choices(path)
+            zoom_in = pick_no_repeat(zoom_hist, zi_cand, [True, False], max_repeat=2)
+            pan_dir = pick_no_repeat(pan_hist, pd_cand, PAN_DIRECTIONS, max_repeat=2)
+            ok = kenburns_clip(path, out, d, source, zoom_in=zoom_in, pan_dir=pan_dir)
         if ok:
             clips.append(out)
             clip_durs.append(d)
