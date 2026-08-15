@@ -15,12 +15,21 @@ import subprocess
 import sys
 
 FPS, WIDTH, HEIGHT = 25, 1920, 1080
-ZOOM_START, ZOOM_END = 1.0, 1.12
-# Панорамирование Ken Burns: смещение центра растёт от 0 пропорционально
-# (zoom-ZOOM_START), на полном кадре (zoom=1.0) offset строго 0. PAN_MAX_FRAC
-# с запасом ниже безопасного предела (1-1/ZOOM_END)/2 ≈ 0.0536.
-PAN_MAX_FRAC = 0.045
+ZOOM_START = 1.0
+# Скорость зума задаётся в долях/сек, а не фиксированным приростом на клип —
+# иначе 4-секундный и 20-секундный кадр "дышат" с заметно разной скоростью.
+ZOOM_RATE_BASE = 0.010
+ZOOM_DELTA_MIN, ZOOM_DELTA_MAX = 0.05, 0.22
+# Панорамирование: смещение центра растёт от 0 пропорционально (zoom-ZOOM_START),
+# на полном кадре (zoom=1.0) offset строго 0 — иначе край вылезет за картинку.
+# PAN_SAFETY < 1 держит запас ниже теоретического предела (1-1/zoom)/2.
+PAN_SAFETY = 0.8
 PAN_DIRECTIONS = [(0, 0), (1, 1), (1, -1), (-1, 1), (-1, -1), (1, 0), (-1, 0), (0, 1)]
+# Плёночный грейд поверх КАЖДОГО кадра (фото и сток-видео): лёгкий контраст/
+# сатурация/виньетка/зерно визуально объединяют разнородные источники
+# (Pexels/Pixabay/Unsplash/AI-картинки) в единый стиль и убирают "слишком
+# чистую" картинку, которая выдаёт сырой сток/ИИ-слайд-шоу.
+FILM_LOOK = "eq=contrast=1.05:saturation=1.08:brightness=0.01,vignette=PI/5,noise=alls=4:allf=t+u"
 
 
 def find_audio(video_dir):
@@ -72,20 +81,36 @@ def resolve_slot(media_dir, n):
 def kenburns_clip(photo, out, d):
     frames = max(1, round(d * FPS))
     h = int(hashlib.md5(photo.encode()).hexdigest()[:8], 16)
-    zi = h % 2 == 0
-    dx, dy = PAN_DIRECTIONS[(h // 2) % len(PAN_DIRECTIONS)]
-    z = (f"'1.0+{ZOOM_END - ZOOM_START}*on/{frames}'" if zi
-         else f"'{ZOOM_END}-{ZOOM_END - ZOOM_START}*on/{frames}'")
-    pan_scale = f"(zoom-{ZOOM_START})/{ZOOM_END - ZOOM_START}"
-    x = (f"'iw/2-(iw/zoom/2)+{dx}*{PAN_MAX_FRAC}*iw*{pan_scale}'" if dx
+    zoom_in = bool(h & 1)
+    dx, dy = PAN_DIRECTIONS[(h >> 1) % len(PAN_DIRECTIONS)]
+    rate_jit = ((h >> 5) % 1000) / 1000.0
+    pan_jit = ((h >> 15) % 1000) / 1000.0
+    delta = max(ZOOM_DELTA_MIN, min(ZOOM_DELTA_MAX,
+                ZOOM_RATE_BASE * d * (0.75 + rate_jit * 0.5)))
+    max_zoom = ZOOM_START + delta
+    margin = (1 - 1 / max_zoom) / 2          # безопасный предел смещения по каждой оси
+    pan_frac = margin * PAN_SAFETY * (0.5 + pan_jit * 0.5)
+
+    t = f"(on/{frames})"
+    # smoothstep вместо линейного роста: старт/финиш без рывка — линейный зум
+    # это самый узнаваемый штамп шаблонных слайд-шоу.
+    eased = f"(3*pow({t},2)-2*pow({t},3))"
+    z = (f"'{ZOOM_START}+{delta:.5f}*{eased}'" if zoom_in
+         else f"'{max_zoom:.5f}-{delta:.5f}*{eased}'")
+    pan_scale = f"(zoom-{ZOOM_START})/{delta:.5f}"
+    # dx/dy подставляем как знак числа через format-спек "+", а не отдельным
+    # множителем — иначе при dx=-1 получалось "+-1*..." и парсер ffmpeg
+    # мог не пережить двойной знак.
+    x = (f"'iw/2-(iw/zoom/2){dx * pan_frac:+.5f}*iw*{pan_scale}'" if dx
          else "'iw/2-(iw/zoom/2)'")
-    y = (f"'ih/2-(ih/zoom/2)+{dy}*{PAN_MAX_FRAC}*ih*{pan_scale}'" if dy
+    y = (f"'ih/2-(ih/zoom/2){dy * pan_frac:+.5f}*ih*{pan_scale}'" if dy
          else "'ih/2-(ih/zoom/2)'")
     cmd = ["ffmpeg", "-y", "-loop", "1", "-i", photo, "-vf",
            (f"scale=8000:4500:force_original_aspect_ratio=decrease,"
             f"pad=8000:4500:(ow-iw)/2:(oh-ih)/2,setsar=1,"
             f"zoompan=z={z}:x={x}:y={y}:"
-            f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS}"),
+            f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS},"
+            f"{FILM_LOOK}"),
            "-t", str(d), "-c:v", "libx264", "-preset", "fast",
            "-crf", "23", "-pix_fmt", "yuv420p", "-r", str(FPS), out]
     return subprocess.run(cmd, capture_output=True, text=True).returncode == 0
@@ -99,6 +124,7 @@ def video_clip(vid, out, d):
     vf = f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,crop={WIDTH}:{HEIGHT},setsar=1"
     if actual < d - 0.05:
         vf += f",setpts={d/actual:.5f}*PTS"
+    vf += f",{FILM_LOOK}"
     cmd = ["ffmpeg", "-y", "-i", vid, "-vf", vf, "-t", str(d), "-an",
            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
            "-pix_fmt", "yuv420p", "-r", str(FPS), out]
