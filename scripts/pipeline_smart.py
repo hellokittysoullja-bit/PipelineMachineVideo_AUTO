@@ -209,31 +209,48 @@ def parse_blocks(path):
         content = "".join(f"\x00SECTION:{name}\x00{body}" for name, body in kept)
     else:
         content = re.sub(r'===.*?===', '', raw).strip()   # сценарий без === — берём как есть
+    # [stat:TEXT] — цифра-плашка на экран (ЧАСТЬ "Монтаж под удержание": цифра
+    # без плашки не запоминается). Вытаскиваем ДО общего вырезания [...],
+    # иначе текст плашки пропадает вместе со всеми остальными тегами.
+    content = re.sub(r'\[stat:(.*?)\]', lambda m: f"\x01STAT:{m.group(1)}\x01", content)
     processed = content
     for tag in sorted(PAUSE_DURATIONS, key=len, reverse=True):
         processed = processed.replace(tag, f"__PAUSE_{PAUSE_DURATIONS[tag]}__")
     processed = re.sub(r'\[.*?\]', '', processed)
-    parts = re.split(r'(__PAUSE_[\d.]+__|\x00SECTION:.*?\x00)', processed)
-    blocks, cur, pause = [], "", 0.0
-    section, pending_section = "BODY", "BODY"
+    parts = re.split(r'(__PAUSE_[\d.]+__|\x00SECTION:.*?\x00|\x01STAT:.*?\x01)', processed)
+    blocks, cur, pause, stat = [], "", 0.0, None
+    section = "BODY"
+
+    def flush():
+        nonlocal cur, pause, stat
+        if cur:
+            blocks.append({"text": cur, "pause_after": pause,
+                           "words": len(cur.split()), "section": section, "stat": stat})
+        cur, pause, stat = "", 0.0, None
+
     for part in parts:
         mp = re.match(r'__PAUSE_([\d.]+)__', part)
         ms = re.match(r'\x00SECTION:(.*?)\x00', part)
+        mst = re.match(r'\x01STAT:(.*?)\x01', part)
         if mp:
             pause += float(mp.group(1))
         elif ms:
+            flush()             # смена секции — всегда граница блока
             section = ms.group(1)
+        elif mst:
+            # Плашка НЕ режет монтаж — [stat:...] может стоять посреди фразы
+            # без соседнего [pause], и это не повод обрывать клип на ровном
+            # месте. Только помечает блок, который сейчас копится в cur.
+            stat = mst.group(1)
         else:
             t = part.strip()
             if t:
-                if cur:
-                    blocks.append({"text": cur, "pause_after": pause,
-                                   "words": len(cur.split()), "section": pending_section})
-                cur, pause = t, 0.0
-                pending_section = section
-    if cur:
-        blocks.append({"text": cur, "pause_after": pause,
-                       "words": len(cur.split()), "section": pending_section})
+                if pause > 0 and cur:
+                    flush()      # реальная пауза — вот это настоящая граница блока
+                    cur = t
+                else:
+                    cur = f"{cur} {t}".strip()
+    flush()
     print(f"Блоков: {len(blocks)}")
     return blocks
 
@@ -365,6 +382,33 @@ def resolve_queries(blocks):
     return resolved
 
 
+def add_overlays(vf_base, dur, title=None, stat=None):
+    """Титр секции (низ кадра, держится первые ~2.5с) + цифровая плашка
+    (верх кадра, держится почти весь клип — цифру без неё не запоминают,
+    см. производственные пометки сценария). Общий код для фото и видео-стока."""
+    vf = vf_base
+    if title and FONT_PATH:
+        hold = min(2.5, dur * 0.6)
+        fin = max(0.3, hold * 0.3)
+        safe = escape_drawtext(title)
+        vf += (f",drawtext=fontfile='{FONT_PATH}':text='{safe}':"
+               f"fontcolor=white:fontsize=54:borderw=3:bordercolor=black@0.7:"
+               f"x=(w-text_w)/2:y=h-180:"
+               f"alpha='if(lt(t\\,{fin:.2f})\\,t/{fin:.2f}\\,"
+               f"if(lt(t\\,{hold:.2f})\\,1\\,max(0\\,1-(t-{hold:.2f})/0.4)))'")
+    if stat and FONT_PATH:
+        fin = 0.25
+        hold = max(fin, dur - 0.5)
+        safe = escape_drawtext(stat)
+        vf += (f",drawtext=fontfile='{FONT_PATH}':text='{safe}':"
+               f"fontcolor=white:fontsize=64:borderw=4:bordercolor=black@0.8:"
+               f"box=1:boxcolor=black@0.5:boxborderw=16:"
+               f"x=(w-text_w)/2:y=110:"
+               f"alpha='if(lt(t\\,{fin:.2f})\\,t/{fin:.2f}\\,"
+               f"if(lt(t\\,{hold:.2f})\\,1\\,max(0\\,1-(t-{hold:.2f})/0.4)))'")
+    return vf
+
+
 def kb_hash_choices(photo):
     """Кандидаты зума/пана по хэшу файла — детерминированно, но БЕЗ памяти о
     соседних клипах (это даёт anti-repetition в main(), см. pick_no_repeat)."""
@@ -374,7 +418,7 @@ def kb_hash_choices(photo):
     return h, zoom_in, pan_dir
 
 
-def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None):
+def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None):
     frames = max(1, round(dur * FPS))
     h, zoom_in_default, pan_dir_default = kb_hash_choices(photo)
     if zoom_in is None:
@@ -411,19 +455,7 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None):
                f"zoompan=z={z}:x={x}:y={y}:"
                f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS},"
                f"{film_look(h)}")
-    vf_title = None
-    if title and FONT_PATH:
-        # Титр новой темы держится первые ~2.5с клипа — плавный fade in/out,
-        # это то самое "кто-то сел и отредактировал", а не бот нарезал слайды.
-        hold = min(2.5, dur * 0.6)
-        fin = max(0.3, hold * 0.3)
-        safe = escape_drawtext(title)
-        vf_title = vf_base + (
-            f",drawtext=fontfile='{FONT_PATH}':text='{safe}':"
-            f"fontcolor=white:fontsize=54:borderw=3:bordercolor=black@0.7:"
-            f"x=(w-text_w)/2:y=h-180:"
-            f"alpha='if(lt(t\\,{fin:.2f})\\,t/{fin:.2f}\\,"
-            f"if(lt(t\\,{hold:.2f})\\,1\\,max(0\\,1-(t-{hold:.2f})/0.4)))'")
+    vf_overlay = add_overlays(vf_base, dur, title, stat) if (title or stat) else None
 
     def render(vf):
         cmd = ["ffmpeg", "-y", "-loop", "1", "-i", photo, "-vf", vf,
@@ -431,14 +463,89 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None):
                "-crf", "23", "-pix_fmt", "yuv420p", "-r", str(FPS), out]
         return subprocess.run(cmd, capture_output=True, text=True)
 
-    if vf_title:
-        r = render(vf_title)
+    if vf_overlay:
+        r = render(vf_overlay)
         if r.returncode == 0:
             return True
-        # Титр (drawtext/шрифт) — не повод терять весь кадр: некоторые сборки
-        # ffmpeg собраны без drawtext вообще. Откатываемся на версию без титра.
-        print(f"  титр не встал ({os.path.basename(out)}), рисую без него: {r.stderr[-200:]}")
+        # Титр/плашка (drawtext/шрифт) — не повод терять весь кадр: некоторые
+        # сборки ffmpeg собраны без drawtext вообще. Откат на версию без них.
+        print(f"  титр/плашка не встали ({os.path.basename(out)}), рисую без них: {r.stderr[-200:]}")
     return render(vf_base).returncode == 0
+
+
+def video_render(vid, out, dur, title=None, stat=None):
+    """Аналог kenburns(), но для стокового видео: без zoompan (движение уже
+    есть в кадре), заливка кадра целиком + обрезка (не letterbox), растяжение
+    по времени, если исходный ролик короче нужной длительности."""
+    try:
+        actual = get_media_duration(vid)
+    except Exception:
+        actual = dur
+    h = int(hashlib.md5(vid.encode()).hexdigest()[:8], 16)
+    vf_base = f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,crop={WIDTH}:{HEIGHT},setsar=1"
+    if actual < dur - 0.05:
+        vf_base += f",setpts={dur/max(actual, 0.1):.5f}*PTS"
+    vf_base += f",{film_look(h)}"
+    vf_overlay = add_overlays(vf_base, dur, title, stat) if (title or stat) else None
+
+    def render(vf):
+        cmd = ["ffmpeg", "-y", "-i", vid, "-vf", vf, "-t", str(dur), "-an",
+               "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+               "-pix_fmt", "yuv420p", "-r", str(FPS), out]
+        return subprocess.run(cmd, capture_output=True, text=True)
+
+    if vf_overlay:
+        r = render(vf_overlay)
+        if r.returncode == 0:
+            return True
+        print(f"  титр/плашка не встали на видео ({os.path.basename(out)}), рисую без них: {r.stderr[-200:]}")
+    return render(vf_base).returncode == 0
+
+
+def pexels_video(query, index, used_ids=None):
+    """Тот же принцип, что pexels_photo(): перебираем выдачу и берём первое
+    ещё не показанное видео. Из доступных video_files берём ближайшее по
+    ширине к целевому 1920 — не тянем 4K ради 1080p-выхода."""
+    global PEXELS_BROKEN
+    cache = os.path.join(TEMP_FOLDER, "pexels_video_cache")
+    os.makedirs(cache, exist_ok=True)
+    qhash = hashlib.md5(query.encode()).hexdigest()[:8]
+    cf = os.path.join(cache, f"{index:04d}_{qhash}.mp4")
+    if os.path.exists(cf):
+        return cf
+    if not PEXELS_API_KEY:
+        return None
+    try:
+        q = urllib.parse.quote(query)
+        req = urllib.request.Request(
+            f"https://api.pexels.com/videos/search?query={q}&per_page=10&orientation=landscape",
+            headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            data = json.load(r)
+        videos = data.get("videos") or []
+        if not videos:
+            return None
+        pick = videos[0]
+        if used_ids is not None:
+            for v in videos:
+                if v.get("id") not in used_ids:
+                    pick = v
+                    break
+        if used_ids is not None:
+            used_ids.add(pick.get("id"))
+        files = [f for f in (pick.get("video_files") or [])
+                 if f.get("file_type") == "video/mp4" and f.get("width")]
+        if not files:
+            return None
+        best = min(files, key=lambda f: abs(f["width"] - WIDTH))
+        vid_req = urllib.request.Request(best["link"], headers={"User-Agent": UA})
+        with urllib.request.urlopen(vid_req, timeout=40) as r:
+            open(cf, "wb").write(r.read())
+        return cf
+    except Exception as e:
+        PEXELS_BROKEN = True
+        print(f"  Pexels video [{query}]: {e}")
+        return None
 
 
 def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR):
@@ -556,47 +663,67 @@ def main():
     print(f"Средний кадр: {sum(durs)/len(durs):.1f}с")
 
     clips, clip_durs, clip_sections = [], [], []
-    missing = []   # индексы блоков, для которых не нашлось ни фото, ни кадра
+    missing = []   # индексы блоков, для которых не нашлось ни фото, ни видео
     zoom_hist, pan_hist = [], []
     use_local = os.path.isdir(MEDIA_FOLDER) and bool(local_photo(0))
     use_pexels = bool(PEXELS_API_KEY)
     queries = resolve_queries(blocks)
     used_photo_ids = set()   # общий на весь ролик — не даём одной фотке всплыть дважды
+    used_video_ids = set()   # то же самое, отдельно для видео (разные ID-пространства)
     for i, (b, d) in enumerate(zip(blocks, durs)):
         out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}.mp4")
         # Титр темы — только на ПЕРВОМ кадре новой секции (BLOCK N: Название).
         is_section_start = i == 0 or blocks[i]["section"] != blocks[i - 1]["section"]
         title = section_title(b["section"]) if is_section_start else None
+        stat = b.get("stat")
         if os.path.exists(out):
             clips.append(out)
             clip_durs.append(d)
             clip_sections.append(b["section"])
             continue
         photo = local_photo(i) if use_local else None
+        video = None
         if not photo and use_pexels:
-            photo = pexels_photo(queries[i], i, used_ids=used_photo_ids)
+            # Чередуем фото/видео через один — живое движение вперемешку со
+            # статикой вместо чистого слайд-шоу (ЧАСТЬ 14: нечётные фото,
+            # чётные видео). Слишком короткому кадру видео не заказываем —
+            # не тянуть ролик ради 4 секунд. Если у предпочтённого типа для
+            # этой темы пусто — откатываемся на другой тип, а не теряем кадр.
+            prefer_video = (i % 2 == 1) and d >= MIN_CLIP + 1.0
+            if prefer_video:
+                video = pexels_video(queries[i], i, used_ids=used_video_ids)
+                if not video:
+                    photo = pexels_photo(queries[i], i, used_ids=used_photo_ids)
+            else:
+                photo = pexels_photo(queries[i], i, used_ids=used_photo_ids)
+                if not photo and d >= MIN_CLIP + 1.0:
+                    video = pexels_video(queries[i], i, used_ids=used_video_ids)
             # Раньше Pexels отключался навсегда после ЛЮБОГО промаха, включая
             # обычную пустую выдачу по одному неудачному запросу. Гасим источник
             # только если API реально отвалился.
-            if not photo and PEXELS_BROKEN:
+            if not photo and not video and PEXELS_BROKEN:
                 use_pexels = False
-        if not photo:
+        if not photo and not video:
             photo = local_photo(i)
-        if not photo:
-            print(f"  [{i+1}] нет фото")
+        if not photo and not video:
+            print(f"  [{i+1}] нет медиа")
             missing.append(i + 1)
             continue
-        # anti-repetition: хэш сам по себе не мешает 3 зумам подряд случайно
-        # совпасть — держим окно последних решений и форсируем смену при повторе.
-        _, zi_cand, pd_cand = kb_hash_choices(photo)
-        zoom_in = pick_no_repeat(zoom_hist, zi_cand, [True, False], max_repeat=2)
-        pan_dir = pick_no_repeat(pan_hist, pd_cand, PAN_DIRECTIONS, max_repeat=2)
-        if kenburns(photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir):
+        if video:
+            ok = video_render(video, out, d, title=title, stat=stat)
+        else:
+            # anti-repetition: хэш сам по себе не мешает 3 зумам подряд случайно
+            # совпасть — держим окно последних решений и форсируем смену при повторе.
+            _, zi_cand, pd_cand = kb_hash_choices(photo)
+            zoom_in = pick_no_repeat(zoom_hist, zi_cand, [True, False], max_repeat=2)
+            pan_dir = pick_no_repeat(pan_hist, pd_cand, PAN_DIRECTIONS, max_repeat=2)
+            ok = kenburns(photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir, stat=stat)
+        if ok:
             clips.append(out)
             clip_durs.append(d)
             clip_sections.append(b["section"])
             if i % 20 == 0 or i < 3:
-                print(f"  [{i+1}/{len(blocks)}] {d:.1f}с {b['words']} слов")
+                print(f"  [{i+1}/{len(blocks)}] {d:.1f}с {b['words']} слов ({'видео' if video else 'фото'})")
         else:
             missing.append(i + 1)
         if use_pexels and not use_local and i % 10 == 9:
