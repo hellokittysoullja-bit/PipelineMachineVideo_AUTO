@@ -333,12 +333,12 @@ def main():
     audio = find_audio(video_dir)
     if not audio:
         print("Аудио не найдено")
-        return
+        return 1
     audio_dur = dur(audio)
     n_slots, hook_slots, hook_dur = load_config(video_dir, media_dir)
     if n_slots <= 0:
         print("Слотов не найдено (пустой media/ и нет конфига)")
-        return
+        return 1
     hook_total = sum(hook_dur.values())
     body_slots = n_slots - hook_slots
     if hook_total >= audio_dur and body_slots > 0:
@@ -403,7 +403,7 @@ def main():
     if missing:
         print("Пропущены:", missing)
     if not clips:
-        return
+        return 1
     merged = os.path.join(temp, "merged.mp4")
     ok, xfade_total = xfade_chain(clips, clip_durs, clip_is_hook, merged)
     if not ok:
@@ -416,17 +416,23 @@ def main():
                             "-i", concat, "-c", "copy", merged], capture_output=True, text=True)
         if r.returncode != 0:
             print("Склейка:", r.stderr[-400:])
-            return
+            return 1
     merged = pad_to_length(merged, audio_dur, temp)
     r = subprocess.run(["ffmpeg", "-y", "-i", merged, "-i", audio,
                         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
                         "-shortest", out_file], capture_output=True, text=True)
     if r.returncode != 0:
         print("Аудио:", r.stderr[-400:])
-        return
+        return 1
     mb = os.path.getsize(out_file) / (1024 * 1024)
-    print(f"\nГОТОВО: {out_file} ({mb:.0f} MB)")
+    # Раньше ГОТОВО печаталось одинаково что при полном покрытии слотов, что
+    # при пропусках — успех был неотличим от частичной сборки, а код возврата
+    # оставался 0 в обоих случаях. Теперь пропуски видны в итоговой строке и
+    # код возврата честно ненулевой, если не все слоты доехали.
+    status = f" | ПРОПУЩЕНО {len(missing)}/{n_slots} слотов: {missing}" if missing else ""
+    print(f"\nГОТОВО: {out_file} ({mb:.0f} MB){status}")
+    return 1 if missing else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

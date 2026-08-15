@@ -74,17 +74,21 @@ def main():
     src = find_audio(video_dir)
     if not src:
         print("Аудио не найдено (audio.mp3)")
-        return
+        return 1
     out = os.path.join(video_dir, "audio_fixed.mp3")
     total = duration(src)
     sil = detect_silences(src)
     loud = loudnorm_filter(measure_loudness(src))
     if not sil:
         print("Длинных пауз не найдено — нормализую громкость.")
-        subprocess.run(["ffmpeg", "-y", "-i", src, "-af", loud,
-                        "-c:a", "libmp3lame", "-b:a", "192k", out], capture_output=True)
+        r = subprocess.run(["ffmpeg", "-y", "-i", src, "-af", loud,
+                            "-c:a", "libmp3lame", "-b:a", "192k", out],
+                           capture_output=True, text=True)
+        if r.returncode != 0 or not os.path.exists(out):
+            print("Ошибка ffmpeg:", r.stderr[-400:])
+            return 1
         print(f"Готово: {out}")
-        return
+        return 0
 
     # Строим сегменты: речь целиком + каждая тишина обрезана до KEEP_SEC
     segments = []
@@ -107,20 +111,25 @@ def main():
         # все сегменты оказались короче 0.02с — склеивать нечего, ffmpeg бы
         # упал на concat=n=0; отдаём исходник без изменений (кроме громкости)
         print("Нечего склеивать — нормализую громкость исходника.")
-        subprocess.run(["ffmpeg", "-y", "-i", src, "-af", loud,
-                        "-c:a", "libmp3lame", "-b:a", "192k", out], capture_output=True)
+        r = subprocess.run(["ffmpeg", "-y", "-i", src, "-af", loud,
+                            "-c:a", "libmp3lame", "-b:a", "192k", out],
+                           capture_output=True, text=True)
+        if r.returncode != 0 or not os.path.exists(out):
+            print("Ошибка ffmpeg:", r.stderr[-400:])
+            return 1
         print(f"Готово: {out}")
-        return
+        return 0
     filt += "".join(parts) + f"concat=n={len(parts)}:v=0:a=1[c];[c]{loud}[out]"
 
     cmd = ["ffmpeg", "-y", "-i", src, "-filter_complex", filt,
            "-map", "[out]", "-c:a", "libmp3lame", "-b:a", "192k", out]
     r = subprocess.run(cmd, capture_output=True, text=True)
-    if r.returncode != 0:
+    if r.returncode != 0 or not os.path.exists(out):
         print("Ошибка ffmpeg:", r.stderr[-400:])
-        return
+        return 1
     print(f"Готово: {out} | подрезано пауз: {len(sil)} | было {total:.1f}с → стало {duration(out):.1f}с")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

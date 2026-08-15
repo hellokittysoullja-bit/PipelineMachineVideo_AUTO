@@ -88,7 +88,10 @@ def section_title(name):
 
 
 def escape_drawtext(s):
-    return s.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\u2019")
+    # % \u043d\u0435 \u044d\u043a\u0440\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u043b\u0441\u044f \u2014 ffmpeg drawtext \u0442\u0440\u0430\u043a\u0442\u0443\u0435\u0442 \u0435\u0433\u043e \u043a\u0430\u043a \u043d\u0430\u0447\u0430\u043b\u043e strftime/
+    # expansion-\u0442\u043e\u043a\u0435\u043d\u0430 \u0438 \u0440\u043e\u043d\u044f\u0435\u0442 "Stray %" \u043f\u0440\u0435\u0434\u0443\u043f\u0440\u0435\u0436\u0434\u0435\u043d\u0438\u0435 (\u043f\u0440\u043e\u0432\u0435\u0440\u0435\u043d\u043e \u0432\u0436\u0438\u0432\u0443\u044e).
+    return (s.replace("\\", "\\\\").replace(":", "\\:")
+             .replace("%", "%%").replace("'", "\u2019"))
 
 
 def pick_no_repeat(history, candidate, options, max_repeat):
@@ -520,14 +523,14 @@ def get_media_duration(path):
 def main():
     if not os.path.exists(AUDIO_FILE):
         print(f"Аудио не найдено: {AUDIO_FILE}")
-        return
+        return 1
     total = get_audio_duration()
     print(f"Аудио: {total:.1f}с ({total/60:.1f} мин)")
     os.makedirs(TEMP_FOLDER, exist_ok=True)
     blocks = parse_blocks(SCRIPT_FILE) if os.path.exists(SCRIPT_FILE) else []
     if not blocks:
         print("Сценарий не найден/пуст")
-        return
+        return 1
     # Кроссфейд между КАЖДОЙ парой кадров суммарно "съедает" (n-1)*XFADE_DUR —
     # закладываем это в целевую длительность заранее, чтобы после склейки общая
     # длина видео снова совпала с аудио (без этого хвост ролика проигрывался бы
@@ -553,6 +556,7 @@ def main():
     print(f"Средний кадр: {sum(durs)/len(durs):.1f}с")
 
     clips, clip_durs, clip_sections = [], [], []
+    missing = []   # индексы блоков, для которых не нашлось ни фото, ни кадра
     zoom_hist, pan_hist = [], []
     use_local = os.path.isdir(MEDIA_FOLDER) and bool(local_photo(0))
     use_pexels = bool(PEXELS_API_KEY)
@@ -580,6 +584,7 @@ def main():
             photo = local_photo(i)
         if not photo:
             print(f"  [{i+1}] нет фото")
+            missing.append(i + 1)
             continue
         # anti-repetition: хэш сам по себе не мешает 3 зумам подряд случайно
         # совпасть — держим окно последних решений и форсируем смену при повторе.
@@ -592,12 +597,14 @@ def main():
             clip_sections.append(b["section"])
             if i % 20 == 0 or i < 3:
                 print(f"  [{i+1}/{len(blocks)}] {d:.1f}с {b['words']} слов")
+        else:
+            missing.append(i + 1)
         if use_pexels and not use_local and i % 10 == 9:
             time.sleep(0.4)
 
     if not clips:
         print("Нет клипов")
-        return
+        return 1
     merged = os.path.join(TEMP_FOLDER, "merged.mp4")
     ok, xfade_total = xfade_chain(clips, clip_durs, clip_sections, merged)
     if not ok:
@@ -610,17 +617,24 @@ def main():
                             "-i", concat, "-c", "copy", merged], capture_output=True, text=True)
         if r.returncode != 0:
             print("Склейка:", r.stderr[-300:])
-            return
+            return 1
     merged = pad_to_length(merged, total, TEMP_FOLDER)
     r = subprocess.run(["ffmpeg", "-y", "-i", merged, "-i", AUDIO_FILE,
                         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
                         "-shortest", OUTPUT_FILE], capture_output=True, text=True)
     if r.returncode != 0:
         print("Аудио:", r.stderr[-300:])
-        return
+        return 1
     mb = os.path.getsize(OUTPUT_FILE) / (1024 * 1024)
-    print(f"\nГОТОВО: {OUTPUT_FILE} ({mb:.0f} MB, {total/60:.1f} мин, {len(clips)} кадров)")
+    # Пропущенные кадры и раньше не останавливали сборку (стратегия
+    # "лучше меньше клипов, чем сорванный рендер") — но раньше это тонуло
+    # в середине лога, а ГОТОВО выглядело как чистый успех. Теперь пропуски
+    # видны в итоговой строке, и код возврата честно отражает, что не всё
+    # доехало (не 0, если что-то пропущено).
+    status = f" | ПРОПУЩЕНО {len(missing)} блоков: {missing}" if missing else ""
+    print(f"\nГОТОВО: {OUTPUT_FILE} ({mb:.0f} MB, {total/60:.1f} мин, {len(clips)} кадров){status}")
+    return 1 if missing else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

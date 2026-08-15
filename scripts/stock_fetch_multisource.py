@@ -173,16 +173,34 @@ def main():
     base = sys.argv[1] if len(sys.argv) > 1 else os.getcwd()
     idx_path = os.path.join(base, "media_plan", "slots_master_index.txt")
     outdir = os.path.join(base, "media")
+    if not os.path.exists(idx_path):
+        print(f"Не найден {idx_path}")
+        return 1
     os.makedirs(outdir, exist_ok=True)
     themes = load_themes(base)
 
     rows = []
-    for line in open(idx_path, encoding="utf-8"):
+    bad_lines = []
+    for n, line in enumerate(open(idx_path, encoding="utf-8"), 1):
         line = line.rstrip("\n")
         if not line.strip():
             continue
+        # Раньше строка без '|' роняла весь скрипт голым ValueError на
+        # unpack — одна опечатка при ручной правке индекса убивала весь
+        # прогон. Теперь такая строка пропускается с понятным сообщением.
+        if "|" not in line:
+            bad_lines.append(n)
+            continue
         i, text = line.split("|", 1)
-        rows.append((int(i), text))
+        try:
+            rows.append((int(i), text))
+        except ValueError:
+            bad_lines.append(n)
+    if bad_lines:
+        print(f"Пропущены битые строки (ожидался формат idx|текст): {bad_lines}")
+    if not rows:
+        print("Нет валидных строк в slots_master_index.txt")
+        return 1
 
     ok = fail = skip = 0
     for idx, text in rows:
@@ -214,7 +232,13 @@ def main():
             print(f"[{idx:03d}] NO RESULT: {q}", flush=True)
         time.sleep(0.3)
     print(f"\nИтого: OK={ok} FAIL={fail} SKIP={skip} | Unsplash {unsplash_used}", flush=True)
+    # Отдельные промахи по слоту — штатный сценарий (лимиты источников,
+    # временная недоступность), не повод считать прогон целиком неудачным.
+    # Но если НИ ОДИН слот не заполнился — это реальный отказ, не частичность.
+    if ok == 0 and (fail > 0 or skip == 0):
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

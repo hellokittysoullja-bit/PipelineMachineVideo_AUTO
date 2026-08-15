@@ -3,6 +3,7 @@
 Usage: python scripts/wordcount.py <script.txt> [T_минут]
 Считает ЧИСТЫЕ слова только в секциях HOOK/BLOCK*/FINAL (без тегов [...],
 без === заголовков, без служебных секций METADATA/PEXELS/IMAGE/ANALYSIS/...)."""
+import os
 import re
 import sys
 
@@ -12,9 +13,18 @@ WPM = 125.0
 def main():
     if len(sys.argv) < 2:
         print("Usage: wordcount.py <script.txt> [T_минут]")
-        return
+        return 1
     path = sys.argv[1]
-    T = float(sys.argv[2]) if len(sys.argv) > 2 else None
+    if not os.path.exists(path):
+        print(f"Файл не найден: {path}")
+        return 1
+    T = None
+    if len(sys.argv) > 2:
+        try:
+            T = float(sys.argv[2])
+        except ValueError:
+            print(f"T_минут должно быть числом, получено: {sys.argv[2]!r}")
+            return 1
     section = None
     count = 0
     def clean_words(s):
@@ -46,7 +56,8 @@ def main():
         else:
             status = "OK, в коридоре"
         print(f"Цель T={T:g} мин -> коридор {lo:.0f}-{hi:.0f} слов -> {status}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
