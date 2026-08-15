@@ -208,14 +208,28 @@ def find_audio():
 AUDIO_FILE = find_audio()
 
 
-def load_themes():
-    p = os.path.join(VIDEO_FOLDER, "media_plan", "themes.json")
-    if os.path.exists(p):
+def load_json_dict(path):
+    if os.path.exists(path):
         try:
-            return json.load(open(p, encoding="utf-8"))
-        except Exception:
-            pass
+            return json.load(open(path, encoding="utf-8"))
+        except Exception as e:
+            print(f"  Битый {path}, пропускаю: {e}")
     return {}
+
+
+def load_themes():
+    """Два уровня: канальный словарь (channel_themes.json в корне репо —
+    общие для ниши слова вроде "меч"/"доспех"/"музей", не меняются от
+    ролика к ролику) + эпизодный (media_plan/themes.json конкретного
+    видео — только то, что специфично именно этой теме). Раньше весь
+    словарь собирался заново руками под каждый новый сценарий; теперь
+    новому эпизоду нужно всего несколько строк добавки поверх базы."""
+    base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                              "channel_themes.json")
+    episode_path = os.path.join(VIDEO_FOLDER, "media_plan", "themes.json")
+    merged = load_json_dict(base_path)
+    merged.update(load_json_dict(episode_path))
+    return merged
 
 
 THEMES = load_themes()
