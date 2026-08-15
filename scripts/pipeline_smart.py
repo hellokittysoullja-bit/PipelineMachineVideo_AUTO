@@ -26,9 +26,10 @@ try:
 except ImportError:
     np = None   # аудио-ритм по громкости — опциональная фича, без numpy просто выключена
 
+from PIL import Image as PILImage   # Pillow уже обязательная зависимость (requirements.txt)
+
 try:
     import cv2
-    from PIL import Image as PILImage
     PARALLAX_LIBS = True
 except ImportError:
     PARALLAX_LIBS = False   # 2.5D-параллакс — опциональная фича (torch/transformers/opencv тяжёлые)
@@ -69,18 +70,36 @@ PAN_DIRECTIONS = [(0, 0), (1, 1), (1, -1), (-1, 1), (-1, -1), (1, 0), (-1, 0), (
 # Базовый грейд — не нейтральный "как есть у стока": сатурация чуть прибрана,
 # тени уводим в холод, света чуть тёплые (лёгкий teal-orange) — читается как
 # военно-историческая документалка, а не разноцветный слайд-шоу из Pexels.
-def film_look(photo_hash):
-    c = 1.06 + (photo_hash % 100) / 100 * 0.05           # 1.06-1.11
-    s = 0.86 + ((photo_hash >> 7) % 100) / 100 * 0.08     # 0.86-0.94 (приглушённо, не пёстро)
-    b = ((photo_hash >> 14) % 100) / 100 * 0.02           # 0.00-0.02
+# MOOD_GRADE — тот же язык грейда, но с сдвигом под секцию: хук резче и
+# холоднее (цепляет), тело — базовая "стальная" документалка, финал теплее
+# и мягче (спад напряжения). LUT-переключение по секции без внешних .cube
+# файлов — тот же eq/colorbalance, просто другие опорные точки.
+MOOD_GRADE = {
+    "HOOK":  {"c0": 1.10, "s0": 0.82, "vign": "PI/4.2", "bs": 0.13, "rh": 0.02},
+    "FINAL": {"c0": 1.02, "s0": 0.90, "vign": "PI/6",   "bs": 0.06, "rh": 0.08},
+    "BODY":  {"c0": 1.06, "s0": 0.86, "vign": "PI/5",   "bs": 0.10, "rh": 0.03},
+}
+
+
+def film_look(photo_hash, section=""):
+    mood = MOOD_GRADE["HOOK"] if section.startswith("HOOK") else (
+           MOOD_GRADE["FINAL"] if section.startswith("FINAL") else MOOD_GRADE["BODY"])
+    c = mood["c0"] + (photo_hash % 100) / 100 * 0.05
+    s = mood["s0"] + ((photo_hash >> 7) % 100) / 100 * 0.08
+    b = ((photo_hash >> 14) % 100) / 100 * 0.02
     return (f"eq=contrast={c:.3f}:saturation={s:.3f}:brightness={b:.3f},"
-            f"colorbalance=rs=-0.06:bs=0.10:rm=-0.02:bm=0.04:rh=0.03:bh=-0.02,"
-            f"vignette=PI/5,noise=alls=2:allf=t+u")
+            f"colorbalance=rs=-0.06:bs={mood['bs']:.3f}:rm=-0.02:bm=0.04:rh={mood['rh']:.3f}:bh=-0.02,"
+            f"vignette={mood['vign']},noise=alls=2:allf=t+u")
 
 
 XFADE_DUR = 0.4        # диссолв на границах секций и часть обычных склеек
 XFADE_DUR_HARD = 0.06  # почти мгновенный переход — читается как жёсткий cut
-XFADE_TRANSITIONS = ["fade", "dissolve", "smoothleft", "smoothright", "smoothup", "smoothdown"]
+# hblur (смаз в движении — читается как whip pan) и zoomin (панч-переход)
+# добавлены в пул обычных склеек; fadewhite — вспышка светом на границах
+# разделов вперемешку с dissolve/fadeblack, без кастомных текстур-ассетов.
+XFADE_TRANSITIONS = ["fade", "dissolve", "smoothleft", "smoothright",
+                      "smoothup", "smoothdown", "hblur", "zoomin"]
+BOUNDARY_TRANSITIONS = ["dissolve", "fadeblack", "fadewhite"]
 HOOK_MAX_CLIP = 5.0     # в хуке кадры короче и чаще — критично для удержания первых секунд
 PAUSE_DURATIONS = {"[pause]": 0.8, "[short pause]": 0.4,
                    "[slowly]": 0.0, "[emphasis]": 0.0, "[energetic]": 0.0}
@@ -449,7 +468,25 @@ def kb_hash_choices(photo):
     return h, zoom_in, pan_dir
 
 
-def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None):
+def estimate_busyness(photo_path):
+    """Грубая мера "тесноты" кадра без depth-модели — просто плотность
+    перепадов яркости на уменьшенной копии. Не настоящая детекция крупности
+    плана, но дешёвый прокси: у тесного/плотного кадра (уже крупный план)
+    перепадов много на каждый пиксель, у просторного — мало. Используется
+    только чтобы НЕ зумить ещё сильнее то, что и так уже крупный план."""
+    try:
+        img = PILImage.open(photo_path).convert("L").resize((160, 90))
+        arr = np.asarray(img, dtype=np.float32) if np is not None else None
+        if arr is None:
+            return 0.5
+        gx = np.abs(np.diff(arr, axis=1)).mean()
+        gy = np.abs(np.diff(arr, axis=0)).mean()
+        return float(min(1.0, (gx + gy) / 40.0))
+    except Exception:
+        return 0.5
+
+
+def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None, section=""):
     frames = max(1, round(dur * FPS))
     h, zoom_in_default, pan_dir_default = kb_hash_choices(photo)
     if zoom_in is None:
@@ -459,6 +496,12 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None)
     pan_jit = ((h >> 15) % 1000) / 1000.0
     delta = max(ZOOM_DELTA_MIN, min(ZOOM_DELTA_MAX,
                 ZOOM_RATE_BASE * dur * (0.75 + rate_jit * 0.5)))
+    # Уже тесный/плотный кадр (крупный план) не нуждается в таком же зуме,
+    # как просторный — иначе на кадре и так крупного меча к концу клипа
+    # остаётся одна текстура металла, некуда уже приближаться со смыслом.
+    busy = estimate_busyness(photo)
+    if busy > 0.6:
+        delta *= 0.7
     max_zoom = ZOOM_FLOOR + delta
     # PAN_SAFETY * jitter всегда < 1.0 (проверено численно) — офсет остаётся
     # строго внутри геометрического запаса (1-1/zoom)/2 на любом кадре клипа.
@@ -485,7 +528,7 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None)
                f"crop=8000:4500,setsar=1,"
                f"zoompan=z={z}:x={x}:y={y}:"
                f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS},"
-               f"{film_look(h)}")
+               f"{film_look(h, section)}")
     vf_overlay = add_overlays(vf_base, dur, title, stat) if (title or stat) else None
 
     def render(vf):
@@ -553,7 +596,7 @@ def fill_crop_canvas(photo_path, cw, ch):
     return arr
 
 
-def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None):
+def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None, section=""):
     """2.5D-версия kenburns(): собственный покадровый рендер (OpenCV remap)
     вместо ffmpeg zoompan — только так можно сделать смещение, зависящее от
     глубины пикселя. При любой накладке (модель не встала, ffmpeg-пайп упал)
@@ -583,7 +626,7 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
         cmd = ["ffmpeg", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24",
                "-s", f"{WIDTH}x{HEIGHT}", "-r", str(FPS), "-i", "-",
                "-frames:v", str(frames)]
-        vf = film_look(h)
+        vf = film_look(h, section)
         vf = add_overlays(vf, dur, title, stat) if (title or stat) else vf
         cmd += ["-vf", vf, "-c:v", "libx264", "-preset", "fast", "-crf", "23",
                 "-pix_fmt", "yuv420p", "-r", str(FPS), out]
@@ -623,7 +666,13 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
         return False
 
 
-def video_render(vid, out, dur, title=None, stat=None):
+# Не динамический ramp внутри клипа (это отдельная и намного более сложная
+# задача — переменная PTS-кривая), а постоянная скорость по контексту клипа:
+# хук чуть быстрее — энергичнее, финал чуть медленнее — снимает напряжение.
+SPEED_BIAS = {"HOOK": 1.12, "FINAL": 0.92}
+
+
+def video_render(vid, out, dur, title=None, stat=None, section=""):
     """Аналог kenburns(), но для стокового видео: без zoompan (движение уже
     есть в кадре), заливка кадра целиком + обрезка (не letterbox), растяжение
     по времени, если исходный ролик короче нужной длительности."""
@@ -633,9 +682,15 @@ def video_render(vid, out, dur, title=None, stat=None):
         actual = dur
     h = int(hashlib.md5(vid.encode()).hexdigest()[:8], 16)
     vf_base = f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,crop={WIDTH}:{HEIGHT},setsar=1"
+    bias = next((v for k, v in SPEED_BIAS.items() if section.startswith(k)), 1.0)
+    setpts_factor = None
     if actual < dur - 0.05:
-        vf_base += f",setpts={dur/max(actual, 0.1):.5f}*PTS"
-    vf_base += f",{film_look(h)}"
+        setpts_factor = dur / max(actual, 0.1)   # уже растягиваем нехватку — bias не добавляем поверх
+    elif bias != 1.0 and actual >= dur * bias:
+        setpts_factor = 1.0 / bias
+    if setpts_factor is not None:
+        vf_base += f",setpts={setpts_factor:.5f}*PTS"
+    vf_base += f",{film_look(h, section)}"
     vf_overlay = add_overlays(vf_base, dur, title, stat) if (title or stat) else None
 
     def render(vf):
@@ -713,10 +768,11 @@ def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR):
         h = int(hashlib.md5(f"{clips[i-1]}|{clips[i]}".encode()).hexdigest()[:8], 16)
         is_boundary = sections[i] != sections[i - 1]
         if is_boundary:
-            # Смена темы — заметный переход, не обычная склейка. dissolve/fadeblack
-            # вперемешку (fadeblack — через чёрный кадр, "конец главы").
-            candidate = "fadeblack" if (h % 2 == 0) else "dissolve"
-            transition = pick_no_repeat(boundary_hist, candidate, ["dissolve", "fadeblack"], 1)
+            # Смена темы — заметный переход, не обычная склейка. dissolve/fadeblack/
+            # fadewhite (вспышка светом — читается как "новая глава начинается ярко")
+            # вперемешку.
+            candidate = BOUNDARY_TRANSITIONS[h % len(BOUNDARY_TRANSITIONS)]
+            transition = pick_no_repeat(boundary_hist, candidate, BOUNDARY_TRANSITIONS, 1)
             this_dur = xfade_dur
         else:
             # Большинство склеек в реальном монтаже — жёсткий cut, не dissolve;
@@ -777,6 +833,48 @@ def get_media_duration(path):
     return float(json.loads(r.stdout)["format"]["duration"])
 
 
+def ahash(photo_path, size=8):
+    """Средний хэш (average hash) картинки — 64-битная строка, дешёвая
+    замена imagehash-библиотеке (Pillow уже обязательная зависимость, лишний
+    пакет не нужен). Похожие по контенту кадры дают близкий хэш даже если
+    это разные файлы с разных источников."""
+    img = PILImage.open(photo_path).convert("L").resize((size, size), PILImage.LANCZOS)
+    pixels = list(img.getdata())
+    avg = sum(pixels) / len(pixels)
+    return "".join("1" if p > avg else "0" for p in pixels)
+
+
+def hamming(a, b):
+    return sum(c1 != c2 for c1, c2 in zip(a, b))
+
+
+def qc_report(media_log):
+    """Не блокирует сборку — просто честно докладывает, если несколько
+    кадров ролика визуально почти одинаковые (Pexels ID разные, а по факту
+    похожий кроп/пересъёмка того же сюжета — то, что ловится глазом, но не
+    ловится дедупом по ID). Порог 6 бит из 64 — эмпирически "заметно похоже"."""
+    if len(media_log) < 2:
+        return
+    hashes = []
+    for i, path in media_log:
+        try:
+            hashes.append((i, ahash(path)))
+        except Exception:
+            pass
+    dupes = []
+    for a in range(len(hashes)):
+        for bb in range(a + 1, len(hashes)):
+            i1, h1 = hashes[a]
+            i2, h2 = hashes[bb]
+            d = hamming(h1, h2)
+            if d <= 6:
+                dupes.append((i1 + 1, i2 + 1, d))
+    if dupes:
+        print(f"QC: похожие кадры (проверь глазами) — {dupes}")
+    else:
+        print("QC: явных повторов по картинке не найдено")
+
+
 def main():
     if not os.path.exists(AUDIO_FILE):
         print(f"Аудио не найдено: {AUDIO_FILE}")
@@ -814,6 +912,7 @@ def main():
 
     clips, clip_durs, clip_sections = [], [], []
     missing = []   # индексы блоков, для которых не нашлось ни фото, ни видео
+    media_log = []   # (индекс, путь_к_фото) — для QC-проверки на похожие кадры в конце
     zoom_hist, pan_hist = [], []
     use_local = os.path.isdir(MEDIA_FOLDER) and bool(local_photo(0))
     use_pexels = bool(PEXELS_API_KEY)
@@ -860,7 +959,7 @@ def main():
             missing.append(i + 1)
             continue
         if video:
-            ok = video_render(video, out, d, title=title, stat=stat)
+            ok = video_render(video, out, d, title=title, stat=stat, section=b["section"])
         else:
             # anti-repetition: хэш сам по себе не мешает 3 зумам подряд случайно
             # совпасть — держим окно последних решений и форсируем смену при повторе.
@@ -877,13 +976,16 @@ def main():
             ok = False
             if PARALLAX_ENABLED and is_highlight:
                 ok = parallax_kenburns(photo, out, d, title=title, zoom_in=zoom_in,
-                                        pan_dir=pan_dir, stat=stat)
+                                        pan_dir=pan_dir, stat=stat, section=b["section"])
             if not ok:
-                ok = kenburns(photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir, stat=stat)
+                ok = kenburns(photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
+                              stat=stat, section=b["section"])
         if ok:
             clips.append(out)
             clip_durs.append(d)
             clip_sections.append(b["section"])
+            if not video and photo:
+                media_log.append((i, photo))
             if i % 20 == 0 or i < 3:
                 print(f"  [{i+1}/{len(blocks)}] {d:.1f}с {b['words']} слов ({'видео' if video else 'фото'})")
         else:
@@ -922,6 +1024,7 @@ def main():
     # доехало (не 0, если что-то пропущено).
     status = f" | ПРОПУЩЕНО {len(missing)} блоков: {missing}" if missing else ""
     print(f"\nГОТОВО: {OUTPUT_FILE} ({mb:.0f} MB, {total/60:.1f} мин, {len(clips)} кадров){status}")
+    qc_report(media_log)
     return 1 if missing else 0
 
 
