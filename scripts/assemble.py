@@ -223,17 +223,21 @@ def video_clip(vid, out, d, source="stock"):
     return subprocess.run(cmd, capture_output=True, text=True).returncode == 0
 
 
-def jittered_body_durations(n, base_d, audio_path=None, start_offset=0.0):
+def jittered_body_durations(n, base_d, audio_path=None, start_offset=0.0, start_step=None):
     """Тело нарезано ровно на n одинаковых body_d — тоже штамп ("робот резал
     ровно"). Если есть numpy — множители берутся из РЕАЛЬНОЙ громкости
     аудио на месте каждого слота (громче -> короче), иначе fallback на
-    псевдослучайный хэш-джиттер. Нормализовано так, что сумма не меняется."""
+    псевдослучайный хэш-джиттер. Нормализовано так, что сумма не меняется.
+    start_step — шаг для стартовых точек САМПЛИРОВАНИЯ энергии; если base_d
+    уже раздут под кроссфейд-бюджет, start_step должен быть РЕАЛЬНЫМ шагом
+    по аудио, иначе поздние слоты сэмплят энергию не в том месте трека."""
     if n <= 0:
         return []
     curve = audio_energy_curve(audio_path) if audio_path else None
     if curve:
-        starts = [start_offset + i * base_d for i in range(n)]
-        factors = energy_pace_multipliers(curve, starts, [base_d] * n)
+        step = start_step if start_step is not None else base_d
+        starts = [start_offset + i * step for i in range(n)]
+        factors = energy_pace_multipliers(curve, starts, [step] * n)
     else:
         factors = []
         for i in range(n):
@@ -345,8 +349,12 @@ def main():
     # закладываем это в тело заранее, хук-длительности заданы явно и их не трогаем.
     xfade_budget = max(0, n_slots - 1) * XFADE_DUR
     body_d_avg = (audio_dur + xfade_budget - hook_total) / max(body_slots, 1)
+    # body_d_avg раздут под кроссфейд-бюджет — для сэмплинга энергии по РЕАЛЬНОМУ
+    # аудио стартовые точки должны идти с шагом от настоящей (не раздутой) длины,
+    # иначе поздние слоты на ролике со множеством склеек съезжают по треку.
+    body_d_real = (audio_dur - hook_total) / max(body_slots, 1)
     body_durs = jittered_body_durations(body_slots, body_d_avg, audio_path=audio,
-                                         start_offset=hook_total)
+                                         start_offset=hook_total, start_step=body_d_real)
 
     # проверка хук-тайминга (ЧАСТЬ 14, ХУК-МЕДИА)
     if hook_slots and hook_total > 0:

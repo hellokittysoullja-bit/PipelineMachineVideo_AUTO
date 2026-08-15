@@ -468,13 +468,17 @@ def main():
     durs = block_durations(blocks, target)
     # Второй проход: ритм по громкости поверх word-count-базы (не вместо неё) —
     # громкие места режутся чаще, тихие держатся дольше. Опционально (нужен numpy).
+    # Стартовые точки для сэмплинга энергии считаем от РЕАЛЬНОЙ длины аудио
+    # (total), не от раздутой под кроссфейды target — иначе поздние блоки на
+    # длинном ролике со множеством склеек сэмплили бы энергию не в том месте.
     curve = audio_energy_curve(AUDIO_FILE)
     if curve:
+        baseline = block_durations(blocks, total)
         starts, acc = [], 0.0
-        for d in durs:
+        for d in baseline:
             starts.append(acc)
             acc += d
-        mults = energy_pace_multipliers(curve, starts, durs)
+        mults = energy_pace_multipliers(curve, starts, baseline)
         durs = block_durations(blocks, target, energy_mults=mults)
         print("Ритм по громкости: включён")
     print(f"Средний кадр: {sum(durs)/len(durs):.1f}с")
