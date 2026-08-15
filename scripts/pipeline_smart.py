@@ -26,6 +26,15 @@ try:
 except ImportError:
     np = None   # аудио-ритм по громкости — опциональная фича, без numpy просто выключена
 
+try:
+    import cv2
+    from PIL import Image as PILImage
+    PARALLAX_LIBS = True
+except ImportError:
+    PARALLAX_LIBS = False   # 2.5D-параллакс — опциональная фича (torch/transformers/opencv тяжёлые)
+
+PARALLAX_ENABLED = os.environ.get("PARALLAX", "1") != "0" and PARALLAX_LIBS
+
 VIDEO_FOLDER = sys.argv[1] if len(sys.argv) > 1 else os.getcwd()
 SCRIPT_FILE = os.path.join(VIDEO_FOLDER, "script.txt")
 MEDIA_FOLDER = os.path.join(VIDEO_FOLDER, "media")
@@ -493,6 +502,125 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None)
         # сборки ffmpeg собраны без drawtext вообще. Откат на версию без них.
         print(f"  титр/плашка не встали ({os.path.basename(out)}), рисую без них: {r.stderr[-200:]}")
     return render(vf_base).returncode == 0
+
+
+# --- 2.5D-параллакс (опционально, нужны torch/transformers/opencv) ---
+# Depth-Anything-V2-Small с Hugging Face: по одной фотке строит карту глубины
+# (белое — близко, чёрное — далеко), дальше "ближние" пиксели двигаются
+# сильнее "дальних" при панорамировании — настоящее ощущение объёма вместо
+# плоского зума. GitHub codeload (откуда обычно тянут MiDaS) закрыт сетевой
+# политикой (проверено: 403) — huggingface.co открыт, поэтому источник модели
+# именно оттуда.
+PARALLAX_MARGIN = 1.5     # рабочий холст на 50% больше кадра — запас под
+                           # зум+пан+параллакс-смещение без чёрных дыр по краям
+PARALLAX_PX_BASE = 55.0   # максимальный доп.разброс между ближним/дальним слоем, px
+_depth_model = None
+
+
+def get_depth_model():
+    global _depth_model
+    if _depth_model is None:
+        from transformers import pipeline as hf_pipeline
+        _depth_model = hf_pipeline(task="depth-estimation",
+                                    model="depth-anything/Depth-Anything-V2-Small-hf")
+    return _depth_model
+
+
+def estimate_depth(photo_path, work_w, work_h):
+    """Карта глубины (float32, 0..1, 1=близко) под размер рабочего холста."""
+    model = get_depth_model()
+    img = PILImage.open(photo_path).convert("RGB")
+    out = model(img)
+    depth = np.array(out["predicted_depth"], dtype=np.float32)
+    depth = cv2.resize(depth, (work_w, work_h), interpolation=cv2.INTER_LINEAR)
+    d_min, d_max = float(depth.min()), float(depth.max())
+    if d_max - d_min < 1e-6:
+        return np.full((work_h, work_w), 0.5, dtype=np.float32)
+    return (depth - d_min) / (d_max - d_min)
+
+
+def fill_crop_canvas(photo_path, cw, ch):
+    """Тот же increase+crop, что и в ffmpeg-пути: заливаем холст целиком,
+    обрезаем лишнее — без чёрных полос по краям (BGR для cv2)."""
+    img = PILImage.open(photo_path).convert("RGB")
+    iw, ih = img.size
+    scale = max(cw / iw, ch / ih)
+    nw, nh = max(1, round(iw * scale)), max(1, round(ih * scale))
+    img = img.resize((nw, nh), PILImage.LANCZOS)
+    x0, y0 = (nw - cw) // 2, (nh - ch) // 2
+    img = img.crop((x0, y0, x0 + cw, y0 + ch))
+    arr = np.array(img)[:, :, ::-1].copy()   # RGB -> BGR
+    return arr
+
+
+def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None):
+    """2.5D-версия kenburns(): собственный покадровый рендер (OpenCV remap)
+    вместо ffmpeg zoompan — только так можно сделать смещение, зависящее от
+    глубины пикселя. При любой накладке (модель не встала, ffmpeg-пайп упал)
+    возвращает False — вызывающий код откатывается на обычный kenburns()."""
+    try:
+        frames = max(1, round(dur * FPS))
+        cw, ch = round(WIDTH * PARALLAX_MARGIN), round(HEIGHT * PARALLAX_MARGIN)
+        canvas = fill_crop_canvas(photo, cw, ch)
+        depth = estimate_depth(photo, cw, ch)
+
+        h, zoom_in_default, pan_dir_default = kb_hash_choices(photo)
+        if zoom_in is None:
+            zoom_in = zoom_in_default
+        dx, dy = pan_dir if pan_dir is not None else pan_dir_default
+        rate_jit = ((h >> 5) % 1000) / 1000.0
+        pan_jit = ((h >> 15) % 1000) / 1000.0
+        delta = max(ZOOM_DELTA_MIN, min(ZOOM_DELTA_MAX,
+                    ZOOM_RATE_BASE * dur * (0.75 + rate_jit * 0.5)))
+        max_zoom = ZOOM_FLOOR + delta
+        pan_amt_frac = PAN_SAFETY * (PAN_JITTER_MIN + pan_jit * (PAN_JITTER_MAX - PAN_JITTER_MIN))
+        parallax_px = PARALLAX_PX_BASE * (0.7 + rate_jit * 0.6)
+
+        cx, cy = cw / 2.0, ch / 2.0
+        ox_grid, oy_grid = np.meshgrid(np.arange(WIDTH, dtype=np.float32),
+                                        np.arange(HEIGHT, dtype=np.float32))
+
+        cmd = ["ffmpeg", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24",
+               "-s", f"{WIDTH}x{HEIGHT}", "-r", str(FPS), "-i", "-",
+               "-frames:v", str(frames)]
+        vf = film_look(h)
+        vf = add_overlays(vf, dur, title, stat) if (title or stat) else vf
+        cmd += ["-vf", vf, "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-pix_fmt", "yuv420p", "-r", str(FPS), out]
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+
+        for frame_i in range(frames):
+            t = frame_i / frames
+            eased = 3 * t ** 2 - 2 * t ** 3   # smoothstep — тот же профиль, что у zoompan-версии
+            zoom = (ZOOM_FLOOR + delta * eased) if zoom_in else (max_zoom - delta * eased)
+            pan_px = pan_amt_frac * eased * min(cw, ch) * 0.5 * ((1 - 1 / zoom))
+
+            map_x0 = cx + (ox_grid - WIDTH / 2) / zoom + dx * pan_px
+            map_y0 = cy + (oy_grid - HEIGHT / 2) / zoom + dy * pan_px
+            map_x0 = np.clip(map_x0, 0, cw - 1)
+            map_y0 = np.clip(map_y0, 0, ch - 1)
+
+            d_here = cv2.remap(depth, map_x0, map_y0, interpolation=cv2.INTER_LINEAR,
+                                borderMode=cv2.BORDER_REPLICATE)
+            extra = (d_here - 0.5) * parallax_px * eased   # центрировано: ближе/дальше среднего
+            map_x = np.clip(map_x0 + dx * extra, 0, cw - 1)
+            map_y = np.clip(map_y0 + dy * extra, 0, ch - 1)
+
+            frame = cv2.remap(canvas, map_x, map_y, interpolation=cv2.INTER_LINEAR,
+                               borderMode=cv2.BORDER_REPLICATE)
+            proc.stdin.write(frame.tobytes())
+
+        proc.stdin.close()
+        proc.wait(timeout=60)
+        if proc.returncode != 0:
+            print(f"  параллакс-рендер не встал ({os.path.basename(out)}): "
+                  f"{proc.stderr.read().decode(errors='replace')[-200:]}")
+            return False
+        return True
+    except Exception as e:
+        print(f"  параллакс сорвался ({os.path.basename(out)}): {type(e).__name__} {e}")
+        return False
 
 
 def video_render(vid, out, dur, title=None, stat=None):
