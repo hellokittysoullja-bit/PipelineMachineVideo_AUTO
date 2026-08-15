@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Подрезка длинных пауз в озвучке (ЧАСТЬ 9, п.7).
+"""Подрезка длинных пауз в озвучке + нормализация громкости (ЧАСТЬ 9, п.7).
 Находит тишину длиннее THRESH_SEC и укорачивает её до KEEP_SEC.
+Двухпроходный loudnorm (EBU R128) поверх — гуляющая громкость между
+блоками/эпизодами звучит непрофессионально и это бесплатно чинится.
 Usage: python scripts/fix_pauses.py <video_dir>
 Вход: audio.mp3 (или первый *.mp3). Выход: audio_fixed.mp3."""
+import json
 import os
 import re
 import subprocess
@@ -11,6 +14,32 @@ import sys
 THRESH_SEC = 1.0     # тишина длиннее этого — подрезается
 KEEP_SEC = 0.6       # до какой длины оставляем паузу
 NOISE_DB = "-30dB"   # порог тишины
+LOUDNORM_TARGET = "I=-16:TP=-1.5:LRA=11"   # стандарт для закадрового голоса
+
+
+def measure_loudness(path):
+    """Первый проход loudnorm: только измерение, ничего не меняет в файле."""
+    r = subprocess.run(["ffmpeg", "-i", path, "-af",
+                        f"loudnorm={LOUDNORM_TARGET}:print_format=json",
+                        "-f", "null", "-"], capture_output=True, text=True)
+    m = re.search(r'\{[^{}]*"input_i"[^{}]*\}', r.stderr, re.S)
+    if not m:
+        return None
+    try:
+        return json.loads(m.group(0))
+    except Exception:
+        return None
+
+
+def loudnorm_filter(stats):
+    """Второй проход: если есть замер с первого — линейная точная нормализация,
+    иначе одиночный проход loudnorm (менее точно, но не падает)."""
+    if not stats:
+        return f"loudnorm={LOUDNORM_TARGET}"
+    return (f"loudnorm={LOUDNORM_TARGET}:"
+            f"measured_I={stats['input_i']}:measured_TP={stats['input_tp']}:"
+            f"measured_LRA={stats['input_lra']}:measured_thresh={stats['input_thresh']}:"
+            f"offset={stats.get('target_offset', 0)}:linear=true:print_format=summary")
 
 
 def find_audio(video_dir):
@@ -49,9 +78,11 @@ def main():
     out = os.path.join(video_dir, "audio_fixed.mp3")
     total = duration(src)
     sil = detect_silences(src)
+    loud = loudnorm_filter(measure_loudness(src))
     if not sil:
-        print("Длинных пауз не найдено — копирую как есть.")
-        subprocess.run(["ffmpeg", "-y", "-i", src, "-c", "copy", out], capture_output=True)
+        print("Длинных пауз не найдено — нормализую громкость.")
+        subprocess.run(["ffmpeg", "-y", "-i", src, "-af", loud,
+                        "-c:a", "libmp3lame", "-b:a", "192k", out], capture_output=True)
         print(f"Готово: {out}")
         return
 
@@ -74,12 +105,13 @@ def main():
         parts.append(f"[a{i}]")
     if not parts:
         # все сегменты оказались короче 0.02с — склеивать нечего, ffmpeg бы
-        # упал на concat=n=0; отдаём исходник без изменений
-        print("Нечего склеивать — копирую исходник как есть.")
-        subprocess.run(["ffmpeg", "-y", "-i", src, "-c", "copy", out], capture_output=True)
+        # упал на concat=n=0; отдаём исходник без изменений (кроме громкости)
+        print("Нечего склеивать — нормализую громкость исходника.")
+        subprocess.run(["ffmpeg", "-y", "-i", src, "-af", loud,
+                        "-c:a", "libmp3lame", "-b:a", "192k", out], capture_output=True)
         print(f"Готово: {out}")
         return
-    filt += "".join(parts) + f"concat=n={len(parts)}:v=0:a=1[out]"
+    filt += "".join(parts) + f"concat=n={len(parts)}:v=0:a=1[c];[c]{loud}[out]"
 
     cmd = ["ffmpeg", "-y", "-i", src, "-filter_complex", filt,
            "-map", "[out]", "-c:a", "libmp3lame", "-b:a", "192k", out]

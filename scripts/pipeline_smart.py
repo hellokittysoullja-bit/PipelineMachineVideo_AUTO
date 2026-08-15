@@ -33,6 +33,12 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 FPS, WIDTH, HEIGHT = 25, 1920, 1080
 ZOOM_START, ZOOM_END = 1.0, 1.12
 MIN_CLIP, MAX_CLIP = 4.0, 20.0
+# Панорамирование Ken Burns (не только зум по центру): смещение центра кадра
+# растёт от 0 пропорционально (zoom-ZOOM_START), поэтому на полном кадре
+# (zoom=1.0) offset всегда строго 0 — иначе край кадра вылезет за картинку.
+# PAN_MAX_FRAC подобран с запасом ниже безопасного предела (1-1/ZOOM_END)/2 ≈ 0.0536.
+PAN_MAX_FRAC = 0.045
+PAN_DIRECTIONS = [(0, 0), (1, 1), (1, -1), (-1, 1), (-1, -1), (1, 0), (-1, 0), (0, 1)]
 PAUSE_DURATIONS = {"[pause]": 0.8, "[short pause]": 0.4,
                    "[slowly]": 0.0, "[emphasis]": 0.0, "[energetic]": 0.0}
 
@@ -167,13 +173,20 @@ def query_for(text):
 
 def kenburns(photo, out, dur):
     frames = max(1, round(dur * FPS))
-    zi = int(hashlib.md5(photo.encode()).hexdigest()[:8], 16) % 2 == 0
+    h = int(hashlib.md5(photo.encode()).hexdigest()[:8], 16)
+    zi = h % 2 == 0
+    dx, dy = PAN_DIRECTIONS[(h // 2) % len(PAN_DIRECTIONS)]
     z = (f"'1.0+{ZOOM_END - ZOOM_START}*on/{frames}'" if zi
          else f"'{ZOOM_END}-{ZOOM_END - ZOOM_START}*on/{frames}'")
+    pan_scale = f"(zoom-{ZOOM_START})/{ZOOM_END - ZOOM_START}"
+    x = (f"'iw/2-(iw/zoom/2)+{dx}*{PAN_MAX_FRAC}*iw*{pan_scale}'" if dx
+         else "'iw/2-(iw/zoom/2)'")
+    y = (f"'ih/2-(ih/zoom/2)+{dy}*{PAN_MAX_FRAC}*ih*{pan_scale}'" if dy
+         else "'ih/2-(ih/zoom/2)'")
     cmd = ["ffmpeg", "-y", "-loop", "1", "-i", photo, "-vf",
            (f"scale=8000:4500:force_original_aspect_ratio=decrease,"
             f"pad=8000:4500:(ow-iw)/2:(oh-ih)/2,setsar=1,"
-            f"zoompan=z={z}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+            f"zoompan=z={z}:x={x}:y={y}:"
             f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS}"),
            "-t", str(dur), "-c:v", "libx264", "-preset", "fast",
            "-crf", "23", "-pix_fmt", "yuv420p", "-r", str(FPS), out]

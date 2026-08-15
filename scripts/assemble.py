@@ -16,6 +16,11 @@ import sys
 
 FPS, WIDTH, HEIGHT = 25, 1920, 1080
 ZOOM_START, ZOOM_END = 1.0, 1.12
+# Панорамирование Ken Burns: смещение центра растёт от 0 пропорционально
+# (zoom-ZOOM_START), на полном кадре (zoom=1.0) offset строго 0. PAN_MAX_FRAC
+# с запасом ниже безопасного предела (1-1/ZOOM_END)/2 ≈ 0.0536.
+PAN_MAX_FRAC = 0.045
+PAN_DIRECTIONS = [(0, 0), (1, 1), (1, -1), (-1, 1), (-1, -1), (1, 0), (-1, 0), (0, 1)]
 
 
 def find_audio(video_dir):
@@ -66,13 +71,20 @@ def resolve_slot(media_dir, n):
 
 def kenburns_clip(photo, out, d):
     frames = max(1, round(d * FPS))
-    zi = int(hashlib.md5(photo.encode()).hexdigest()[:8], 16) % 2 == 0
+    h = int(hashlib.md5(photo.encode()).hexdigest()[:8], 16)
+    zi = h % 2 == 0
+    dx, dy = PAN_DIRECTIONS[(h // 2) % len(PAN_DIRECTIONS)]
     z = (f"'1.0+{ZOOM_END - ZOOM_START}*on/{frames}'" if zi
          else f"'{ZOOM_END}-{ZOOM_END - ZOOM_START}*on/{frames}'")
+    pan_scale = f"(zoom-{ZOOM_START})/{ZOOM_END - ZOOM_START}"
+    x = (f"'iw/2-(iw/zoom/2)+{dx}*{PAN_MAX_FRAC}*iw*{pan_scale}'" if dx
+         else "'iw/2-(iw/zoom/2)'")
+    y = (f"'ih/2-(ih/zoom/2)+{dy}*{PAN_MAX_FRAC}*ih*{pan_scale}'" if dy
+         else "'ih/2-(ih/zoom/2)'")
     cmd = ["ffmpeg", "-y", "-loop", "1", "-i", photo, "-vf",
            (f"scale=8000:4500:force_original_aspect_ratio=decrease,"
             f"pad=8000:4500:(ow-iw)/2:(oh-ih)/2,setsar=1,"
-            f"zoompan=z={z}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+            f"zoompan=z={z}:x={x}:y={y}:"
             f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS}"),
            "-t", str(d), "-c:v", "libx264", "-preset", "fast",
            "-crf", "23", "-pix_fmt", "yuv420p", "-r", str(FPS), out]
