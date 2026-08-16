@@ -340,7 +340,7 @@ def pexels_photo(query, index, used_ids=None):
     """used_ids — множество ID уже показанных в этом ролике фото (мутируется на
     месте). Разные блоки часто ловят один и тот же тематический запрос — без
     этого им всем доставался бы top-1 результат, то есть одна и та же картинка
-    по нескольку раз за ролик. Перебираем выдачу (per_page=10) и берём первый
+    по нескольку раз за ролик. Перебираем выдачу (per_page=40) и берём первый
     ID, которого ещё не было; если все уже использованы — берём топ-1 всё равно
     (лучше повтор, чем сорванная сборка)."""
     global PEXELS_BROKEN
@@ -357,7 +357,7 @@ def pexels_photo(query, index, used_ids=None):
     try:
         q = urllib.parse.quote(query)
         req = urllib.request.Request(
-            f"https://api.pexels.com/v1/search?query={q}&per_page=10&orientation=landscape",
+            f"https://api.pexels.com/v1/search?query={q}&per_page=40&orientation=landscape",
             headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
         with urllib.request.urlopen(req, timeout=15) as r:
             data = json.load(r)
@@ -793,7 +793,7 @@ def pexels_video(query, index, used_ids=None):
     try:
         q = urllib.parse.quote(query)
         req = urllib.request.Request(
-            f"https://api.pexels.com/videos/search?query={q}&per_page=10&orientation=landscape",
+            f"https://api.pexels.com/videos/search?query={q}&per_page=40&orientation=landscape",
             headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
         with urllib.request.urlopen(req, timeout=15) as r:
             data = json.load(r)
