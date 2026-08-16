@@ -48,23 +48,6 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/125.0 Safari/537.36")
 FPS, WIDTH, HEIGHT = 25, 1920, 1080
 
-# Паттерн-разрыв перед хуком: чёрный кадр + звук удара до первого кадра
-# ролика — рассчитан на случайных зрителей, у которых ролик открывается
-# в ленте/автоплее: обычная картинка не цепляет взгляд в первые доли
-# секунды так же надёжно, как чёрный экран со звуком. Файл — общий
-# ассет пайплайна (не привязан к конкретному эпизоду), можно переиспользовать
-# на других роликах канала.
-HOOK_SFX_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                              "assets", "sfx_hook_hit.mp3")
-BLACK_HOLD_DUR = 0.15    # чистый чёрный экран до начала перехода — коротко,
-                          # не тянет (жалоба: "чёрный экран должен быть намного меньше")
-PREROLL_FADE_DUR = 0.3   # плавный xfade чёрный -> первый кадр (не жёсткий рез
-                          # и не отдельная вставка белой вспышкой — тот вариант
-                          # читался как визуальный глюк, не как приём)
-SFX_PEAK_OFFSET = 0.052  # позиция пика в scripts/assets/sfx_hook_hit.mp3
-                          # (измерено по факту) — используется, чтобы старт
-                          # sfx подгадать так, чтобы пик приходился точно на
-                          # начало перехода, а не на пустой чёрный экран
 # ZOOM_FLOOR — минимальный зум держится ВЕСЬ клип (не 1.0). Раньше offset пана
 # был обязан = 0 ровно в момент zoom=1.0 (иначе край вылезет за картинку), и на
 # каждом втором клипе (zoom-out) кадр половину времени стоял мёртвым по центру.
@@ -914,55 +897,6 @@ def pad_to_length(video, target, temp_dir):
     return padded if r.returncode == 0 else video
 
 
-def build_hook_preroll(temp_dir, merged_video):
-    """Короткий чёрный экран + звук удара, ПЛАВНО (xfade-дисолв, не
-    жёсткий рез и не отдельная вставка белой вспышкой — тот вариант читался
-    как визуальный глюк) перетекающий в первый кадр ролика. Пик sfx подгадан
-    так, чтобы приходиться точно на начало перехода — раньше звук и картинка
-    расходились по таймингу (удар слышен сразу, а кадр появлялся почти на
-    полсекунды позже). Возвращает (путь_к_видео_с_прероллом,
-    путь_к_аудио_с_прероллом, добавленная_длительность) или (None, None, 0.0),
-    если sfx-файла нет или сборка не удалась — тогда main() ведёт себя как
-    раньше, без преролла."""
-    if not os.path.exists(HOOK_SFX_FILE):
-        return None, None, 0.0
-    black_full_dur = BLACK_HOLD_DUR + PREROLL_FADE_DUR
-    black = os.path.join(temp_dir, "_preroll_black.mp4")
-    r = subprocess.run(["ffmpeg", "-y", "-f", "lavfi",
-                        "-i", f"color=c=black:s={WIDTH}x{HEIGHT}:r={FPS}:d={black_full_dur:.3f}",
-                        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                        "-pix_fmt", "yuv420p", "-r", str(FPS), "-an", black],
-                       capture_output=True, text=True)
-    if r.returncode != 0:
-        return None, None, 0.0
-    out = os.path.join(temp_dir, "_merged_with_preroll.mp4")
-    r = subprocess.run([
-        "ffmpeg", "-y", "-i", black, "-i", merged_video, "-filter_complex",
-        f"[0:v][1:v]xfade=transition=fade:duration={PREROLL_FADE_DUR:.3f}:"
-        f"offset={BLACK_HOLD_DUR:.3f},format=yuv420p",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23", out],
-        capture_output=True, text=True)
-    if r.returncode != 0:
-        return None, None, 0.0
-
-    # Старт sfx смещаем так, чтобы измеренный пик файла попал ровно в
-    # BLACK_HOLD_DUR (момент начала дисолва) — не в t=0 (пустой чёрный кадр).
-    lead = min(BLACK_HOLD_DUR, SFX_PEAK_OFFSET)
-    sfx_start_ms = int(max(0.0, BLACK_HOLD_DUR - lead) * 1000)
-    narr_start_ms = int(BLACK_HOLD_DUR * 1000)
-    combined_audio = os.path.join(temp_dir, "_audio_with_preroll.mp3")
-    r = subprocess.run([
-        "ffmpeg", "-y", "-i", HOOK_SFX_FILE, "-i", AUDIO_FILE, "-filter_complex",
-        f"[0:a]adelay={sfx_start_ms}|{sfx_start_ms}[sfx];"
-        f"[1:a]adelay={narr_start_ms}|{narr_start_ms}[narr];"
-        f"[sfx][narr]amix=inputs=2:duration=longest:normalize=0,alimiter=limit=0.95[a]",
-        "-map", "[a]", "-c:a", "libmp3lame", "-b:a", "192k", combined_audio,
-    ], capture_output=True, text=True)
-    if r.returncode != 0:
-        return None, None, 0.0
-    return out, combined_audio, BLACK_HOLD_DUR
-
-
 def get_media_duration(path):
     r = subprocess.run(["ffprobe", "-v", "quiet", "-print_format", "json",
                         "-show_format", path], capture_output=True, text=True, check=True)
@@ -1152,21 +1086,12 @@ def main():
             return 1
     merged = pad_to_length(merged, total, TEMP_FOLDER)
 
-    audio_for_mux = AUDIO_FILE
-    merged_preroll, preroll_audio, preroll_added = build_hook_preroll(TEMP_FOLDER, merged)
-    if merged_preroll and preroll_audio:
-        merged = merged_preroll
-        audio_for_mux = preroll_audio
-        total += preroll_added
-    else:
-        print("  Пре-ролл (чёрный+удар) не собрался, продолжаю без него")
-
     # -shortest САМ ПО СЕБЕ недостаточен с -c:v copy: копирование пакетов
     # режет только по границам GOP исходного клипа, а не по факту конца
     # аудио — на реальном 17-минутном ролике это давало +6с видео без
     # звука сверху (проверено вживую). Явный -t с точной длительностью
     # аудио режет ровно там, где надо, независимо от размера GOP.
-    r = subprocess.run(["ffmpeg", "-y", "-i", merged, "-i", audio_for_mux,
+    r = subprocess.run(["ffmpeg", "-y", "-i", merged, "-i", AUDIO_FILE,
                         "-t", f"{total:.3f}",
                         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
                         "-shortest", OUTPUT_FILE], capture_output=True, text=True)
