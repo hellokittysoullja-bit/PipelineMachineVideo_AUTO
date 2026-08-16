@@ -589,16 +589,27 @@ def get_depth_model():
     return _depth_model
 
 
-def estimate_depth(photo_path, work_w, work_h):
-    """Карта глубины (float32, 0..1, 1=близко) под размер рабочего холста."""
+def estimate_depth(canvas_bgr):
+    """Карта глубины (float32, 0..1, 1=близко) — строится по УЖЕ обрезанному
+    холсту (canvas_bgr из fill_crop_canvas), а не по исходному фото.
+    Раньше модель считала глубину по несжатому оригиналу (его родное
+    соотношение сторон), а карта потом растягивалась голым cv2.resize под
+    размер холста — без кропа, который применялся к цветной картинке. При
+    несовпадении соотношения сторон (портретное фото под альбомный холст)
+    карта глубины съезжала и тянулась не по тому же кадру, что видит
+    зритель: параллакс сдвигал пиксели по чужой геометрии — отсюда
+    видимое искажение/"плавание" картинки. Считая глубину прямо по canvas,
+    геометрия гарантированно совпадает."""
     model = get_depth_model()
-    img = PILImage.open(photo_path).convert("RGB")
+    h, w = canvas_bgr.shape[:2]
+    img = PILImage.fromarray(canvas_bgr[:, :, ::-1])  # BGR -> RGB
     out = model(img)
     depth = np.array(out["predicted_depth"], dtype=np.float32)
-    depth = cv2.resize(depth, (work_w, work_h), interpolation=cv2.INTER_LINEAR)
+    if depth.shape != (h, w):
+        depth = cv2.resize(depth, (w, h), interpolation=cv2.INTER_LINEAR)
     d_min, d_max = float(depth.min()), float(depth.max())
     if d_max - d_min < 1e-6:
-        return np.full((work_h, work_w), 0.5, dtype=np.float32)
+        return np.full((h, w), 0.5, dtype=np.float32)
     return (depth - d_min) / (d_max - d_min)
 
 
@@ -630,7 +641,7 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
         cw, ch = round(WIDTH * PARALLAX_MARGIN), round(HEIGHT * PARALLAX_MARGIN)
         canvas = fill_crop_canvas(photo, cw, ch)
         try:
-            depth = estimate_depth(photo, cw, ch)
+            depth = estimate_depth(canvas)
         except Exception as e:
             # Сбой именно тут почти всегда системный (модель не встала /
             # сеть до HF Hub отвалилась), не проблема конкретной картинки —
