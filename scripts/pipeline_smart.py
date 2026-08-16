@@ -997,8 +997,15 @@ def main():
         # Хэш параметров рендера в имени — иначе правка script.txt (текст,
         # тайминг, плашка) без ручной чистки temp_smart/ молча оставляла
         # старый клип под новые данные (тот же класс бага, что уже правили
-        # для pexels_cache — тут просто ещё не было починено).
-        params_hash = hashlib.md5(f"{d:.3f}|{title}|{stat}|{b['section']}".encode()).hexdigest()[:8]
+        # для pexels_cache). Запрос (queries[i]) обязателен в хэше отдельно —
+        # без него правка channel_themes.json/media_plan/themes.json при
+        # совпавшей длительности тихо оставляла старый (уже нерелевантный)
+        # клип под новым запросом — поймано QC-сверкой вживую: клип с новым
+        # запросом "medieval sword close up" продолжал показывать старую
+        # киноплёнку, потому что длительность/заголовок/плашка/секция не
+        # изменились, а запрос в хэш не входил.
+        params_hash = hashlib.md5(
+            f"{d:.3f}|{title}|{stat}|{b['section']}|{queries[i]}".encode()).hexdigest()[:8]
         out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}_{params_hash}.mp4")
         if os.path.exists(out):
             clips.append(out)
