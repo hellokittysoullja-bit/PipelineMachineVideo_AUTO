@@ -47,6 +47,16 @@ PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY", "")
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/125.0 Safari/537.36")
 FPS, WIDTH, HEIGHT = 25, 1920, 1080
+
+# Паттерн-разрыв перед хуком: чёрный кадр + звук удара до первого кадра
+# ролика — рассчитан на случайных зрителей, у которых ролик открывается
+# в ленте/автоплее: обычная картинка не цепляет взгляд в первые доли
+# секунды так же надёжно, как чёрный экран со звуком. Файл — общий
+# ассет пайплайна (не привязан к конкретному эпизоду), можно переиспользовать
+# на других роликах канала.
+HOOK_SFX_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "assets", "sfx_hook_hit.mp3")
+PREROLL_DUR = 0.65  # чуть больше длины sfx (~0.63с) — без обрыва звука серединой удара
 # ZOOM_FLOOR — минимальный зум держится ВЕСЬ клип (не 1.0). Раньше offset пана
 # был обязан = 0 ровно в момент zoom=1.0 (иначе край вылезет за картинку), и на
 # каждом втором клипе (zoom-out) кадр половину времени стоял мёртвым по центру.
@@ -883,6 +893,35 @@ def pad_to_length(video, target, temp_dir):
     return padded if r.returncode == 0 else video
 
 
+def build_hook_preroll(temp_dir):
+    """Чёрный видео-сегмент (без звука, кодек/параметры — как у остальных
+    кадров, чтобы concat -c copy склеился без перекодирования) + отдельная
+    аудио-дорожка (звук удара, притёртый по длине под этот же сегмент,
+    затем встык с настоящей озвучкой). Возвращает (путь_к_чёрному_клипу,
+    путь_к_аудио_с_прероллом) или (None, None), если sfx-файла нет —
+    тогда main() просто пропускает прероллы, не ломая сборку."""
+    if not os.path.exists(HOOK_SFX_FILE):
+        return None, None
+    black = os.path.join(temp_dir, "_preroll_black.mp4")
+    r = subprocess.run(["ffmpeg", "-y", "-f", "lavfi",
+                        "-i", f"color=c=black:s={WIDTH}x{HEIGHT}:r={FPS}:d={PREROLL_DUR:.3f}",
+                        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                        "-pix_fmt", "yuv420p", "-r", str(FPS), "-an", black],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return None, None
+    combined_audio = os.path.join(temp_dir, "_audio_with_preroll.mp3")
+    r = subprocess.run([
+        "ffmpeg", "-y", "-i", HOOK_SFX_FILE, "-i", AUDIO_FILE,
+        "-filter_complex",
+        f"[0:a]apad,atrim=0:{PREROLL_DUR:.3f}[sfx];[sfx][1:a]concat=n=2:v=0:a=1[a]",
+        "-map", "[a]", "-c:a", "libmp3lame", "-b:a", "192k", combined_audio,
+    ], capture_output=True, text=True)
+    if r.returncode != 0:
+        return None, None
+    return black, combined_audio
+
+
 def get_media_duration(path):
     r = subprocess.run(["ffprobe", "-v", "quiet", "-print_format", "json",
                         "-show_format", path], capture_output=True, text=True, check=True)
@@ -1071,12 +1110,30 @@ def main():
             print("Склейка:", r.stderr[-300:])
             return 1
     merged = pad_to_length(merged, total, TEMP_FOLDER)
+
+    audio_for_mux = AUDIO_FILE
+    black, preroll_audio = build_hook_preroll(TEMP_FOLDER)
+    if black and preroll_audio:
+        merged_preroll = os.path.join(TEMP_FOLDER, "_merged_with_preroll.mp4")
+        lst = os.path.join(TEMP_FOLDER, "_preroll_concat.txt")
+        open(lst, "w", encoding="utf-8").write(
+            f"file '{os.path.abspath(black)}'\nfile '{os.path.abspath(merged)}'\n")
+        r = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                            "-i", lst, "-c", "copy", merged_preroll],
+                           capture_output=True, text=True)
+        if r.returncode == 0:
+            merged = merged_preroll
+            audio_for_mux = preroll_audio
+            total += PREROLL_DUR
+        else:
+            print("  Пре-ролл (чёрный+удар) не подклеился, собираю без него:", r.stderr[-200:])
+
     # -shortest САМ ПО СЕБЕ недостаточен с -c:v copy: копирование пакетов
     # режет только по границам GOP исходного клипа, а не по факту конца
     # аудио — на реальном 17-минутном ролике это давало +6с видео без
     # звука сверху (проверено вживую). Явный -t с точной длительностью
     # аудио режет ровно там, где надо, независимо от размера GOP.
-    r = subprocess.run(["ffmpeg", "-y", "-i", merged, "-i", AUDIO_FILE,
+    r = subprocess.run(["ffmpeg", "-y", "-i", merged, "-i", audio_for_mux,
                         "-t", f"{total:.3f}",
                         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
                         "-shortest", OUTPUT_FILE], capture_output=True, text=True)
