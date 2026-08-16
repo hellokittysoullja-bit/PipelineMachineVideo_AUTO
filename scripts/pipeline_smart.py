@@ -56,7 +56,9 @@ FPS, WIDTH, HEIGHT = 25, 1920, 1080
 # на других роликах канала.
 HOOK_SFX_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                               "assets", "sfx_hook_hit.mp3")
-PREROLL_DUR = 0.65  # чуть больше длины sfx (~0.63с) — без обрыва звука серединой удара
+PREROLL_DUR = 0.65   # чуть больше длины sfx (~0.65с) — без обрыва звука серединой удара
+FLASH_DUR = 2 / FPS  # белая вспышка на границе чёрный->первый кадр — иначе смена
+                      # выглядит плоским жёстким резом ("сырой монтаж")
 # ZOOM_FLOOR — минимальный зум держится ВЕСЬ клип (не 1.0). Раньше offset пана
 # был обязан = 0 ровно в момент zoom=1.0 (иначе край вылезет за картинку), и на
 # каждом втором клипе (zoom-out) кадр половину времени стоял мёртвым по центру.
@@ -894,22 +896,45 @@ def pad_to_length(video, target, temp_dir):
 
 
 def build_hook_preroll(temp_dir):
-    """Чёрный видео-сегмент (без звука, кодек/параметры — как у остальных
-    кадров, чтобы concat -c copy склеился без перекодирования) + отдельная
-    аудио-дорожка (звук удара, притёртый по длине под этот же сегмент,
-    затем встык с настоящей озвучкой). Возвращает (путь_к_чёрному_клипу,
-    путь_к_аудио_с_прероллом) или (None, None), если sfx-файла нет —
-    тогда main() просто пропускает прероллы, не ломая сборку."""
+    """Чёрный видео-сегмент + короткая белая вспышка на стыке с первым
+    кадром (кодек/параметры — как у остальных кадров, чтобы concat -c copy
+    склеился без перекодирования) + отдельная аудио-дорожка (звук удара,
+    притёртый по длине под этот же сегмент, затем встык с настоящей
+    озвучкой). Вспышка синхронизирует "удар" по звуку с "ударом" по
+    картинке — без неё чёрный экран просто обрывался жёстким резом в
+    статичное фото, что читалось как недоделанный монтаж, а не осознанный
+    приём. Возвращает (путь_к_чёрному+вспышка_клипу, путь_к_аудио_с_прероллом)
+    или (None, None), если sfx-файла нет — тогда main() просто пропускает
+    прероллы, не ломая сборку."""
     if not os.path.exists(HOOK_SFX_FILE):
         return None, None
+    black_dur = PREROLL_DUR - FLASH_DUR
     black = os.path.join(temp_dir, "_preroll_black.mp4")
     r = subprocess.run(["ffmpeg", "-y", "-f", "lavfi",
-                        "-i", f"color=c=black:s={WIDTH}x{HEIGHT}:r={FPS}:d={PREROLL_DUR:.3f}",
+                        "-i", f"color=c=black:s={WIDTH}x{HEIGHT}:r={FPS}:d={black_dur:.3f}",
                         "-c:v", "libx264", "-preset", "fast", "-crf", "23",
                         "-pix_fmt", "yuv420p", "-r", str(FPS), "-an", black],
                        capture_output=True, text=True)
     if r.returncode != 0:
         return None, None
+    flash = os.path.join(temp_dir, "_preroll_flash.mp4")
+    r = subprocess.run(["ffmpeg", "-y", "-f", "lavfi",
+                        "-i", f"color=c=white:s={WIDTH}x{HEIGHT}:r={FPS}:d={FLASH_DUR:.3f}",
+                        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                        "-pix_fmt", "yuv420p", "-r", str(FPS), "-an", flash],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return None, None
+    black_flash = os.path.join(temp_dir, "_preroll_black_flash.mp4")
+    lst = os.path.join(temp_dir, "_preroll_bf_concat.txt")
+    open(lst, "w", encoding="utf-8").write(
+        f"file '{os.path.abspath(black)}'\nfile '{os.path.abspath(flash)}'\n")
+    r = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                        "-i", lst, "-c", "copy", black_flash],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return None, None
+    black = black_flash
     combined_audio = os.path.join(temp_dir, "_audio_with_preroll.mp3")
     r = subprocess.run([
         "ffmpeg", "-y", "-i", HOOK_SFX_FILE, "-i", AUDIO_FILE,
