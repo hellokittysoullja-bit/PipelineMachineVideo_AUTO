@@ -628,7 +628,20 @@ def estimate_depth(canvas_bgr):
     d_min, d_max = float(depth.min()), float(depth.max())
     if d_max - d_min < 1e-6:
         return np.full((h, w), 0.5, dtype=np.float32)
-    return (depth - d_min) / (d_max - d_min)
+    depth = (depth - d_min) / (d_max - d_min)
+    # Depth-Anything даёт РЕЗКИЙ край на границе объекта (перепад ~0..1 за
+    # 1-2px — проверено: grad p99 ~0.08, максимум >2.0 на пиксель). При
+    # remap с parallax_px до ~70px это превращает границу в артефакт
+    # "двойного контура"/расслоения на резких силуэтах (рукоять меча на
+    # фоне боке) — то, что видно глазом как "ИИ-искажение". Настоящей
+    # физически верной параллакс-окклюзии тут всё равно нет (плоская
+    # картинка, не многослойная сцена), поэтому лечим не резкость карты,
+    # а её крутизну: широкое гауссово размытие растягивает переход через
+    # много пикселей, и remap плывёт плавно вместо "разрыва" на 1-2px —
+    # тот же приём, что использует Apple/Google в 3D-Ken-Burns эффектах.
+    sigma = max(3.0, min(h, w) * 0.018)
+    depth = cv2.GaussianBlur(depth, (0, 0), sigmaX=sigma)
+    return depth
 
 
 def fill_crop_canvas(photo_path, cw, ch):
