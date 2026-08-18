@@ -85,12 +85,20 @@ MOOD_GRADE = {
 }
 
 
-def film_look(photo_hash, section=""):
+def film_look(photo_hash, section="", brightness_bias=0.0, energy_bias=0.0):
+    """brightness_bias — сглаживание скачка экспозиции со СОСЕДНИМ кадром
+    (см. measure_luma()/main(): сток из разных источников иначе скачет по
+    яркости кадр-к-кадру — частый "любительский" tell в компиляциях).
+    energy_bias — лёгкая пульсация контраста/сатурации в такт громкости
+    голоса в ЭТОМ отрезке (energy_levels()) — на эмоциональных пиках кадр
+    чуть "подбирается", на тихих местах чуть мягче, как это интуитивно
+    делает монтажёр руками, а не по одной и той же формуле весь ролик."""
     mood = MOOD_GRADE["HOOK"] if section.startswith("HOOK") else (
            MOOD_GRADE["FINAL"] if section.startswith("FINAL") else MOOD_GRADE["BODY"])
-    c = mood["c0"] + (photo_hash % 100) / 100 * 0.05
-    s = mood["s0"] + ((photo_hash >> 7) % 100) / 100 * 0.08
-    b = ((photo_hash >> 14) % 100) / 100 * 0.02
+    eb = max(-0.5, min(0.5, energy_bias))
+    c = mood["c0"] + (photo_hash % 100) / 100 * 0.05 + eb * 0.06
+    s = mood["s0"] + ((photo_hash >> 7) % 100) / 100 * 0.08 + eb * 0.05
+    b = ((photo_hash >> 14) % 100) / 100 * 0.02 + brightness_bias
     return (f"eq=contrast={c:.3f}:saturation={s:.3f}:brightness={b:.3f},"
             f"colorbalance=rs=-0.06:bs={mood['bs']:.3f}:rm=-0.02:bm=0.04:rh={mood['rh']:.3f}:bh=-0.02,"
             f"vignette={mood['vign']},noise=alls=3:allf=t+u")
@@ -215,6 +223,52 @@ def energy_pace_multipliers(curve, starts, durs, lo=0.8, hi=1.25):
         ratio = max(0.5, min(2.0, e / med))
         mults.append(max(lo, min(hi, 1.0 / ratio)))
     return mults
+
+
+def energy_levels(curve, starts, durs):
+    """То же окно сэмплинга, что energy_pace_multipliers(), но возвращает
+    СЫРОЕ отношение к медиане (0.5..2.0, 1.0 = обычная громкость), не
+    инвертированный множитель темпа. Используется для лёгкой визуальной
+    пульсации грейда в такт эмоциональным пикам речи (см. main()) —
+    отдельная кривая от таймингов, чтобы не путать две разные вещи под
+    одной переменной."""
+    if curve is None:
+        return [1.0] * len(durs)
+    rms, window_sec = curve
+    med = float(np.median(rms))
+    if med <= 0:
+        return [1.0] * len(durs)
+    levels = []
+    for t0, d in zip(starts, durs):
+        i0 = max(0, int(t0 / window_sec))
+        i1 = min(len(rms), max(i0 + 1, int((t0 + d) / window_sec)))
+        seg = rms[i0:i1] if i0 < len(rms) else rms[-1:]
+        e = float(seg.mean()) if len(seg) else med
+        levels.append(max(0.5, min(2.0, e / med)))
+    return levels
+
+
+def measure_luma(path, is_video=False):
+    """Средняя яркость кадра (0..1) — для сглаживания скачков экспозиции
+    между соседними склейками (см. main()): сток из разных источников
+    скачет по яркости кадр-к-кадру, это частый "любительский" tell в
+    компиляциях. Для видео берём один кадр в начале — грубой оценки
+    достаточно, не нужен точный анализ всего клипа."""
+    try:
+        if is_video:
+            tmp = path + "._luma_probe.jpg"
+            r = subprocess.run(["ffmpeg", "-y", "-i", path, "-frames:v", "1", "-q:v", "5", tmp],
+                                capture_output=True, timeout=20)
+            if r.returncode != 0 or not os.path.exists(tmp):
+                return None
+            img = PILImage.open(tmp).convert("L").resize((64, 36))
+            os.remove(tmp)
+        else:
+            img = PILImage.open(path).convert("L").resize((64, 36))
+        arr = list(img.getdata())
+        return sum(arr) / len(arr) / 255.0
+    except Exception:
+        return None
 
 
 def find_audio():
@@ -892,8 +946,12 @@ def write_shot_manifest(video_dir, blocks, durs, queries):
     return path
 
 
+WOBBLE_AMP_CANVAS_PX = 6.0   # ~1.4px в итоговом 1920-кадре (канва 8000px) — см. kenburns()
+
+
 def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
-             section="", motion_mode="classic_kb", stat_variant=0):
+             section="", motion_mode="classic_kb", stat_variant=0,
+             brightness_bias=0.0, energy_bias=0.0):
     frames = max(1, round(dur * FPS))
     h, zoom_in_default, pan_dir_default = kb_hash_choices(photo)
     if zoom_in is None:
@@ -957,13 +1015,22 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
     max_zoom = ZOOM_FLOOR + delta
     z = (f"'{ZOOM_FLOOR}+{delta:.5f}*{eased}'" if zoom_in
          else f"'{max_zoom:.5f}-{delta:.5f}*{eased}'")
+    # Film weave: математически идеальная smoothstep-кривая зума/пана — сама
+    # по себе штамп "отрендерено алгоритмом", у настоящей камеры/плёнки
+    # всегда есть микро-дрожь. Низкочастотный синус (не шум per-frame — это
+    # выглядело бы как тряска, не имитация плёнки), амплитуда и фаза/период —
+    # детерминированно по хэшу фото. Меньше цикла за весь клип (0.6-1.4) —
+    # чтобы не читалось как заметное "покачивание туда-сюда".
+    wob_amp = WOBBLE_AMP_CANVAS_PX * (0.5 if motion_mode == "static_hold" else 1.0)
+    wob_px = f"{wob_amp:.2f}*sin(2*PI*(on/{frames})*{0.6 + ((h >> 19) % 100) / 125.0:.3f}+{((h >> 3) % 628) / 100.0:.3f})"
+    wob_py = f"{wob_amp:.2f}*sin(2*PI*(on/{frames})*{0.6 + ((h >> 23) % 100) / 125.0:.3f}+{((h >> 11) % 628) / 100.0:.3f})"
     # margin = (1-1/zoom)/2 считается от РЕАЛЬНОГО zoom в текущем кадре (переменная
     # zoompan даёт его сама) — офсет безопасен на любом кадре клипа по построению,
     # а не только к концу движения, как раньше при завязке на delta.
-    x = (f"'iw/2-(iw/zoom/2){dx * pan_amt:+.5f}*(1-1/zoom)/2*iw'" if dx
-         else "'iw/2-(iw/zoom/2)'")
-    y = (f"'ih/2-(ih/zoom/2){dy * pan_amt:+.5f}*(1-1/zoom)/2*ih'" if dy
-         else "'ih/2-(ih/zoom/2)'")
+    x = (f"'iw/2-(iw/zoom/2){dx * pan_amt:+.5f}*(1-1/zoom)/2*iw+{wob_px}'" if dx
+         else f"'iw/2-(iw/zoom/2)+{wob_px}'")
+    y = (f"'ih/2-(ih/zoom/2){dy * pan_amt:+.5f}*(1-1/zoom)/2*ih+{wob_py}'" if dy
+         else f"'ih/2-(ih/zoom/2)+{wob_py}'")
     # increase+crop (не decrease+pad) — исходные фото редко ровно 16:9, "вписать
     # в рамку" оставляло чёрные поля по краям на большинстве кадров (проверено:
     # 3 из 8 тестовых кадров с полосами по обеим сторонам). Залить кадр целиком
@@ -980,7 +1047,7 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
                f"crop=8000:4500:{cx0}:{cy0},setsar=1,"
                f"zoompan=z={z}:x={x}:y={y}:"
                f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS},"
-               f"{film_look(h, section)}")
+               f"{film_look(h, section, brightness_bias, energy_bias)}")
     vf_overlay = add_overlays(vf_base, dur, title, stat, stat_variant) if (title or stat) else None
 
     def render(vf):
@@ -1073,7 +1140,7 @@ def fill_crop_canvas(photo_path, cw, ch, anchor=None):
 
 
 def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
-                       section="", stat_variant=0):
+                       section="", stat_variant=0, brightness_bias=0.0, energy_bias=0.0):
     """2.5D-версия kenburns(): собственный покадровый рендер (OpenCV remap)
     вместо ffmpeg zoompan — только так можно сделать смещение, зависящее от
     глубины пикселя. При любой накладке (модель не встала, ffmpeg-пайп упал)
@@ -1117,7 +1184,7 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
         cmd = ["ffmpeg", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24",
                "-s", f"{WIDTH}x{HEIGHT}", "-r", str(FPS), "-i", "-",
                "-frames:v", str(frames)]
-        vf = film_look(h, section)
+        vf = film_look(h, section, brightness_bias, energy_bias)
         vf = add_overlays(vf, dur, title, stat, stat_variant) if (title or stat) else vf
         cmd += ["-vf", vf, "-c:v", "libx264", "-preset", "fast", "-crf", "23",
                 "-pix_fmt", "yuv420p", "-r", str(FPS), out]
@@ -1174,7 +1241,8 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
 SPEED_BIAS = {"HOOK": 1.12, "FINAL": 0.92}
 
 
-def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=0):
+def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=0,
+                  brightness_bias=0.0, energy_bias=0.0):
     """Аналог kenburns(), но для стокового видео: без zoompan (движение уже
     есть в кадре), заливка кадра целиком + обрезка (не letterbox), растяжение
     по времени, если исходный ролик короче нужной длительности."""
@@ -1203,7 +1271,7 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
         setpts_factor = 1.0 / bias
     if setpts_factor is not None:
         vf_base += f",setpts={setpts_factor:.5f}*PTS"
-    vf_base += f",{film_look(h, section)}"
+    vf_base += f",{film_look(h, section, brightness_bias, energy_bias)}"
     vf_overlay = add_overlays(vf_base, dur, title, stat, stat_variant) if (title or stat) else None
 
     def render(vf):
@@ -1675,6 +1743,7 @@ def main():
     # (total), не от раздутой под кроссфейды target — иначе поздние блоки на
     # длинном ролике со множеством склеек сэмплили бы энергию не в том месте.
     curve = audio_energy_curve(AUDIO_FILE)
+    energy_lvls = [1.0] * len(blocks)
     if curve:
         baseline = block_durations(blocks, total, real_weights=real_weights)
         starts, acc = [], 0.0
@@ -1683,6 +1752,10 @@ def main():
             acc += d
         mults = energy_pace_multipliers(curve, starts, baseline)
         durs = block_durations(blocks, target, energy_mults=mults, real_weights=real_weights)
+        # Та же кривая громкости, что уже двигает тайминг — используем и для
+        # лёгкой визуальной пульсации грейда (не только когда резать, но и
+        # "с каким нажимом" показать кадр на эмоциональном пике).
+        energy_lvls = energy_levels(curve, starts, baseline)
         print("Ритм по громкости: включён")
     durs = apply_section_boundary_shift(blocks, durs)
     durs = apply_human_jitter(blocks, durs)
@@ -1700,6 +1773,7 @@ def main():
     used_video_ids = set()   # то же самое, отдельно для видео (разные ID-пространства)
     used_photo_hashes = []   # aHash уже отобранных фото — ловит визуальные дубли под РАЗНЫМИ ID (см. pexels_photo)
     stat_count = 0   # 2.2: номер плашки по счёту в ролике -> вариант оформления (chередуются по кругу)
+    luma_ema = None   # для сглаживания скачков экспозиции между соседними склейками (см. measure_luma())
     for i, (b, d) in enumerate(zip(blocks, durs)):
         # Титр темы — только на ПЕРВОМ кадре новой секции (BLOCK N: Название).
         is_section_start = i == 0 or blocks[i]["section"] != blocks[i - 1]["section"]
@@ -1755,9 +1829,22 @@ def main():
             print(f"  [{i+1}] нет медиа")
             missing.append(i + 1)
             continue
+        # Непрерывность экспозиции: измеряем яркость ИМЕННО этого кадра,
+        # сравниваем со скользящим средним последних клипов — если скачок
+        # большой (сток из разных источников редко совпадает по свету),
+        # подмешиваем небольшую компенсацию в brightness, а не выравниваем
+        # целиком (иначе пропала бы естественная вариативность вообще).
+        luma = measure_luma(photo, is_video=False) if photo else measure_luma(video, is_video=True)
+        if luma is not None:
+            brightness_bias = 0.0 if luma_ema is None else max(-0.035, min(0.035, (luma_ema - luma) * 0.35))
+            luma_ema = luma if luma_ema is None else luma_ema * 0.6 + luma * 0.4
+        else:
+            brightness_bias = 0.0
+        energy_bias = max(-0.5, min(0.5, energy_lvls[i] - 1.0))
         if video:
             ok = video_render(video, out, d, title=title, stat=stat, section=b["section"],
-                               stat_variant=stat_variant)
+                               stat_variant=stat_variant, brightness_bias=brightness_bias,
+                               energy_bias=energy_bias)
         else:
             # anti-repetition: хэш сам по себе не мешает 3 зумам подряд случайно
             # совпасть — держим окно последних решений и форсируем смену при повторе.
@@ -1780,12 +1867,14 @@ def main():
                 # категоризации поверх собственной.
                 ok = parallax_kenburns(photo, out, d, title=title, zoom_in=zoom_in,
                                         pan_dir=pan_dir, stat=stat, section=b["section"],
-                                        stat_variant=stat_variant)
+                                        stat_variant=stat_variant, brightness_bias=brightness_bias,
+                                        energy_bias=energy_bias)
             if not ok:
                 photo_hash, _, _ = kb_hash_choices(photo)
                 motion_mode = choose_motion_mode(b, is_section_start, photo_hash)
                 ok = kenburns(photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
                               stat=stat, section=b["section"], motion_mode=motion_mode,
+                              brightness_bias=brightness_bias, energy_bias=energy_bias,
                               stat_variant=stat_variant)
         if ok:
             clips.append(out)
@@ -1824,8 +1913,14 @@ def main():
     # аудио — на реальном 17-минутном ролике это давало +6с видео без
     # звука сверху (проверено вживую). Явный -t с точной длительностью
     # аудио режет ровно там, где надо, независимо от размера GOP.
+    # loudnorm — стандартная целевая громкость YouTube (-16 LUFS intergated,
+    # -1.5dB true peak потолок, LRA 11) вместо "как есть от TTS". Разные
+    # заказы озвучки/движки иначе дают заметно разную громкость от эпизода
+    # к эпизоду — не проф. уровень, если зритель тянется к громкости между
+    # роликами одного канала.
     r = subprocess.run(["ffmpeg", "-y", "-i", merged, "-i", AUDIO_FILE,
                         "-t", f"{total:.3f}",
+                        "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
                         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
                         "-shortest", OUTPUT_FILE], capture_output=True, text=True)
     if r.returncode != 0:
