@@ -602,7 +602,31 @@ def estimate_busyness(photo_path):
         return 0.5
 
 
-def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None, section=""):
+MOTION_MODES = ("classic_kb", "static_hold", "snap_push", "slow_pull",
+                 "horizontal_pan", "micro_drift")
+
+
+def choose_motion_mode(b, is_section_start, photo_hash):
+    """Все кадры "дышат" одним и тем же классом движения (smoothstep
+    zoom+pan) — фирменный почерк автослайдшоу, даже с anti-repeat на
+    выборе направления. Профессиональный монтаж чередует статику, быстрый
+    push-in, медленный pull-out, чистую панораму, едва заметный дрифт.
+    Выбор — по ФУНКЦИИ блока, не случайно: цифра должна читаться (не
+    ехать), reveal-кадр раздела — медленный отъезд, sub-cut деталь —
+    почти неподвижна (не тянет внимание с главного кадра фразы)."""
+    if b.get("stat"):
+        return "static_hold"
+    if is_section_start:
+        return "slow_pull"
+    if b["section"].startswith("HOOK"):
+        return "snap_push" if (photo_hash & 2) else "classic_kb"
+    if b.get("is_subcut"):
+        return "micro_drift" if (photo_hash & 4) else "static_hold"
+    return "horizontal_pan" if (photo_hash % 7 == 0) else "classic_kb"
+
+
+def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
+             section="", motion_mode="classic_kb"):
     frames = max(1, round(dur * FPS))
     h, zoom_in_default, pan_dir_default = kb_hash_choices(photo)
     if zoom_in is None:
@@ -618,15 +642,52 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
     busy = estimate_busyness(photo)
     if busy > 0.6:
         delta *= 0.7
-    max_zoom = ZOOM_FLOOR + delta
     # PAN_SAFETY * jitter всегда < 1.0 (проверено численно) — офсет остаётся
     # строго внутри геометрического запаса (1-1/zoom)/2 на любом кадре клипа.
     pan_amt = PAN_SAFETY * (PAN_JITTER_MIN + pan_jit * (PAN_JITTER_MAX - PAN_JITTER_MIN))
-
     t = f"(on/{frames})"
     # smoothstep вместо линейного роста: старт/финиш без рывка — линейный зум
     # это самый узнаваемый штамп шаблонных слайд-шоу.
     eased = f"(3*pow({t},2)-2*pow({t},3))"
+
+    if motion_mode == "static_hold":
+        # Цифра должна читаться — кадр не едет вообще. Лёгкий "дышащий" зум
+        # (не 1.0 буквально — совсем мёртвый стоп-кадр сам по себе штамп)
+        # без пана.
+        delta = min(delta, 0.02)
+        pan_amt = 0.0
+    elif motion_mode == "snap_push":
+        # Быстрый punch-in за ~0.3с, дальше — hold на максимуме. eased
+        # клампится к 1.0 рано (по доле кадров, не по общей длительности —
+        # короткий hook-кадр и так короткий).
+        snap_frac = min(0.95, max(0.05, 8 / frames))
+        eased = f"min(1,{t}/{snap_frac})"
+        eased = f"(3*pow({eased},2)-2*pow({eased},3))"
+        zoom_in = True
+        delta = max(delta, ZOOM_DELTA_MIN * 1.4)
+        pan_amt *= 0.4   # пан почти не нужен — внимание на резкость punch-in
+    elif motion_mode == "slow_pull":
+        # Reveal кадр раздела: стартуем зумленными, спокойно отъезжаем.
+        # Без пана — это медленный отъезд, а не комбинация приёмов.
+        zoom_in = False
+        delta = max(delta, ZOOM_DELTA_MIN * 1.6)
+        pan_amt = 0.0
+    elif motion_mode == "horizontal_pan":
+        # Почти чистая панорама — для длинных объектов (клинки, карты,
+        # гравюры). ВАЖНО: offset пана ниже завязан на (1-1/zoom) — растёт
+        # ВМЕСТЕ с изменением зума, а не по отдельной шкале времени. При
+        # delta=0 (зум строго константа) этот множитель тоже был бы
+        # константой — пан физически не двигался бы кадр от кадра (поймано
+        # при проверке формулы, не вживую). Держим delta малой, но не
+        # нулевой — зум еле заметен, а пан (усиленный) реально едет.
+        delta = min(delta, 0.06)
+        pan_amt = PAN_SAFETY * 0.95
+    elif motion_mode == "micro_drift":
+        # Едва заметное движение — не тянет внимание с главного кадра
+        # sub-cut-фразы.
+        delta = min(delta, 0.03)
+        pan_amt = 0.0
+    max_zoom = ZOOM_FLOOR + delta
     z = (f"'{ZOOM_FLOOR}+{delta:.5f}*{eased}'" if zoom_in
          else f"'{max_zoom:.5f}-{delta:.5f}*{eased}'")
     # margin = (1-1/zoom)/2 считается от РЕАЛЬНОГО zoom в текущем кадре (переменная
@@ -1158,6 +1219,7 @@ def split_long_blocks(blocks, real_weights):
             nb["words"] = c - a
             nb["stat"] = b["stat"] if k == 0 else None
             nb["pause_after"] = b["pause_after"] if k == len(merged) - 1 else 0.0
+            nb["is_subcut"] = k > 0   # для choose_motion_mode() (1.4) — деталь, не главный кадр фразы
             new_blocks.append(nb)
             new_weights.append((w * (c - a) / total_w) if w is not None else None)
     return new_blocks, new_weights
@@ -1289,11 +1351,18 @@ def main():
             is_highlight = b["section"].startswith("HOOK") or is_section_start
             ok = False
             if PARALLAX_ENABLED and is_highlight:
+                # Параллакс (2.5D depth remap) — своя, уже отдельно проверенная
+                # зум/пан-математика, motion_mode на него не распространяем:
+                # это отдельный, более дорогой визуальный приём для самых
+                # заметных точек ролика, не нуждается в дополнительной
+                # категоризации поверх собственной.
                 ok = parallax_kenburns(photo, out, d, title=title, zoom_in=zoom_in,
                                         pan_dir=pan_dir, stat=stat, section=b["section"])
             if not ok:
+                photo_hash, _, _ = kb_hash_choices(photo)
+                motion_mode = choose_motion_mode(b, is_section_start, photo_hash)
                 ok = kenburns(photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
-                              stat=stat, section=b["section"])
+                              stat=stat, section=b["section"], motion_mode=motion_mode)
         if ok:
             clips.append(out)
             clip_durs.append(d)
