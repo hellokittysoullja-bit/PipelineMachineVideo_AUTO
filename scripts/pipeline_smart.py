@@ -1049,14 +1049,40 @@ def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR, blocks=None):
     return True, max(cum, 0.1)
 
 
+def estimate_xfade_budget(blocks):
+    """Сколько xfade_chain суммарно "съест" при склейке — точная оценка ПО
+    КАТЕГОРИЯМ перехода (см. 2.1: xfade_chain), не плоская (n-1)*XFADE_DUR
+    (та была верна для старой единой логики, но разошлась с реальностью,
+    когда переходы стали разной длины — 0.03-0.4с по функции блока).
+    Не можем предсказать хэш-выбор hardcut/variety внутри "обычных" пар
+    (зависит от итоговых путей файлов клипов — а те зависят от длительностей,
+    которые мы как раз считаем, циклическая зависимость) — берём верхнюю
+    границу этой категории. Небольшой перебор безопасен: финальный мукс
+    обрезает merged видео точно по аудио (-t), лишнее просто уходит.
+    Недобор — то, чего мы тут избегаем: он означает freeze-frame padding
+    в конце ролика."""
+    total = 0.0
+    for i in range(1, len(blocks)):
+        b_prev, b_cur = blocks[i - 1], blocks[i]
+        if b_cur["section"] != b_prev["section"]:
+            total += XFADE_DUR
+        elif b_cur.get("is_subcut") or b_prev.get("stat") or b_cur["section"].startswith("HOOK"):
+            total += XFADE_DUR_HARD
+        else:
+            total += max(XFADE_DUR_HARD, XFADE_DUR * 0.4)   # верхняя граница "обычной" пары
+    return total
+
+
 def pad_to_length(video, target, temp_dir):
     """Достраивает видео до нужной длины заморозкой последнего кадра — нужно
-    после xfade_chain(), которая суммарно укорачивает ролик на (n-1)*XFADE_DUR
-    относительно суммы длительностей кадров."""
+    после xfade_chain(), если реальный итог всё же короче target (несмотря
+    на estimate_xfade_budget с запасом сверху — редкий остаточный случай,
+    не обычный путь). Возвращает (путь, gap) — gap > 0 означает, что
+    заморозка реально сработала, main() отражает это в QC."""
     cur = get_media_duration(video)
     gap = target - cur
     if gap <= 0.05:
-        return video
+        return video, 0.0
     lastframe = os.path.join(temp_dir, "_lastframe.jpg")
     padclip = os.path.join(temp_dir, "_pad.mp4")
     padded = os.path.join(temp_dir, "_padded.mp4")
@@ -1067,13 +1093,13 @@ def pad_to_length(video, target, temp_dir):
                         "-pix_fmt", "yuv420p", "-r", str(FPS), padclip],
                        capture_output=True, text=True)
     if r.returncode != 0:
-        return video
+        return video, gap
     lst = os.path.join(temp_dir, "_pad_concat.txt")
     open(lst, "w", encoding="utf-8").write(
         f"file '{os.path.abspath(video)}'\nfile '{os.path.abspath(padclip)}'\n")
     r = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
                         "-i", lst, "-c", "copy", padded], capture_output=True, text=True)
-    return padded if r.returncode == 0 else video
+    return (padded, gap) if r.returncode == 0 else (video, gap)
 
 
 def get_media_duration(path):
@@ -1270,12 +1296,14 @@ def main():
     blocks, real_weights = split_long_blocks(blocks, real_weights)
     if len(blocks) != n_before:
         print(f"Sub-cuts: {n_before} -> {len(blocks)} блоков")
-    # Кроссфейд между КАЖДОЙ парой кадров суммарно "съедает" (n-1)*XFADE_DUR —
-    # закладываем это в целевую длительность заранее, чтобы после склейки общая
-    # длина видео снова совпала с аудио (без этого хвост ролика проигрывался бы
-    # без картинки под конец аудиодорожки). Считаем ПОСЛЕ split — sub-cuts
-    # добавляют новые склейки, бюджет должен их учитывать.
-    xfade_budget = max(0, len(blocks) - 1) * XFADE_DUR
+    # Кроссфейд между КАЖДОЙ парой кадров суммарно "съедает" какую-то часть
+    # длительности — закладываем это в целевую длительность заранее, чтобы
+    # после склейки общая длина видео снова совпала с аудио (без этого хвост
+    # ролика проигрывался бы без картинки под конец аудиодорожки). Считаем
+    # ПОСЛЕ split — sub-cuts добавляют новые склейки, бюджет должен их
+    # учитывать. estimate_xfade_budget() — точная оценка по категориям
+    # перехода (2.4), не плоская (n-1)*XFADE_DUR.
+    xfade_budget = estimate_xfade_budget(blocks)
     target = total + xfade_budget
     durs = block_durations(blocks, target, real_weights=real_weights)
     # Второй проход: ритм по громкости поверх базовой оценки (не вместо неё) —
@@ -1417,7 +1445,7 @@ def main():
         if r.returncode != 0:
             print("Склейка:", r.stderr[-300:])
             return 1
-    merged = pad_to_length(merged, total, TEMP_FOLDER)
+    merged, pad_gap = pad_to_length(merged, total, TEMP_FOLDER)
 
     # -shortest САМ ПО СЕБЕ недостаточен с -c:v copy: копирование пакетов
     # режет только по границам GOP исходного клипа, а не по факту конца
@@ -1443,8 +1471,13 @@ def main():
     # и в целом смотрибельно), но не даём находке потеряться в середине
     # лога и не даём коду возврата соврать, что всё чисто.
     status += f" | QC: {len(dupes)} похожих пар кадров — проверь глазами" if dupes else ""
+    # Freeze-padding (2.4) — estimate_xfade_budget() должен был свести его
+    # к нулю почти всегда; если он всё же сработал заметно (>1с), это
+    # видно глазом на экране (замёрзший кадр без причины) — та же
+    # честная видимость, не молчаливое "ГОТОВО".
+    status += f" | ЗАМОРОЗКА {pad_gap:.1f}с в хвосте — расчёт длительностей разошёлся" if pad_gap > 1.0 else ""
     print(f"\nГОТОВО: {OUTPUT_FILE} ({mb:.0f} MB, {total/60:.1f} мин, {len(clips)} кадров){status}")
-    return 1 if (missing or dupes) else 0
+    return 1 if (missing or dupes or pad_gap > 1.0) else 0
 
 
 if __name__ == "__main__":
