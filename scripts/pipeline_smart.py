@@ -113,9 +113,18 @@ PAUSE_DURATIONS = {"[pause]": 0.8, "[short pause]": 0.4,
 # на GitHub). Anton (первый выбор) не подошёл — в нём НЕТ кириллицы вообще
 # (проверено вживую: буквы рисуются квадратами-тофу). Russo One — с родной
 # кириллицей от российской студии, того же плакатного характера.
-# Держим DejaVu запасным на случай отсутствия assets/fonts/.
+FONTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "fonts")
+# Типографическая иерархия (не один шрифт на всё): Benzin ExtraBold — жирный
+# плакатный display для "геройского" текста (хук-титры, цифры-доказательства
+# в stat-плашках), Montserrat ExtraBold — второй уровень для подписи раздела
+# (менее кричащий, но всё ещё жирный гротеск) вместо того же display-шрифта
+# в меньшем кегле. Оба протестированы вживую на полную кириллицу (65/65
+# букв) — в отличие от Anton, который в сессии раньше вообще не имел
+# кириллицы. RussoOne остаётся дальше по цепочке как safe fallback, если
+# файлов Benzin/Montserrat вдруг нет на диске (не ломает сборку).
 FONT_CANDIDATES = [
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "fonts", "RussoOne-Regular.ttf"),
+    os.path.join(FONTS_DIR, "Benzin-ExtraBold.ttf"),
+    os.path.join(FONTS_DIR, "RussoOne-Regular.ttf"),
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
     "C:/Windows/Fonts/arialbd.ttf",
@@ -123,7 +132,16 @@ FONT_CANDIDATES = [
     "/Library/Fonts/Arial Bold.ttf",
 ]
 FONT_PATH = next((p for p in FONT_CANDIDATES if os.path.exists(p)), None)
-FONT_IS_DISPLAY = bool(FONT_PATH) and "RussoOne" in FONT_PATH   # дисплейный шрифт уже капслочный и очень широкий по кеглю
+# И Benzin, и RussoOne — плотные капслочные display-гарнитуры (тот же режим
+# кегля/аптейка), поэтому оба считаются "дисплейным" случаем.
+FONT_IS_DISPLAY = bool(FONT_PATH) and any(name in FONT_PATH for name in ("Benzin", "RussoOne"))
+
+FONT_SECONDARY_CANDIDATES = [
+    os.path.join(FONTS_DIR, "Montserrat-ExtraBold.ttf"),
+]
+# Секондари не находится -> используем тот же FONT_PATH, что и раньше (одна
+# гарнитура на всё) — деградация к старому поведению, не падение.
+FONT_SECONDARY_PATH = next((p for p in FONT_SECONDARY_CANDIDATES if os.path.exists(p)), FONT_PATH)
 
 
 def section_title(name):
@@ -632,13 +650,17 @@ def add_overlays(vf_base, dur, title=None, stat=None, stat_variant=0):
     крупное число по центру без плашки / боковой акцент с полосой / мелкий
     текст в углу с подчёркиванием."""
     vf = vf_base
-    if title and FONT_PATH:
+    # Титр раздела — вторичный уровень иерархии (Montserrat): это подпись,
+    # не "геройский" факт-баннер — жирный, но не такой кричащий, как Benzin
+    # на цифрах-доказательствах (stat ниже). Один и тот же шрифт на оба
+    # уровня раньше читался как "программа так рисует", не решение монтажёра.
+    if title and FONT_SECONDARY_PATH:
         hold = min(2.5, dur * 0.6)
         fin = max(0.3, hold * 0.3)
         text = title.upper() if FONT_IS_DISPLAY else title
         safe = escape_drawtext(text)
         fs = 46 if FONT_IS_DISPLAY else 54
-        vf += (f",drawtext=fontfile='{FONT_PATH}':text='{safe}':"
+        vf += (f",drawtext=fontfile='{FONT_SECONDARY_PATH}':text='{safe}':"
                f"fontcolor=white:fontsize={fs}:borderw=3:bordercolor=black@0.8:"
                f"x=(w-text_w)/2:"
                f"y='h-180+(1-min(t/{fin:.2f}\\,1))*36':"
@@ -687,8 +709,9 @@ def add_overlays(vf_base, dur, title=None, stat=None, stat_variant=0):
                    f"alpha='{alpha}'")
         else:
             # Минимальный — мелкий текст в нижнем правом углу, подчёркивание.
+            # По смыслу это подпись, не геройская цифра — вторичный шрифт.
             fs = 34 if FONT_IS_DISPLAY else 38
-            vf += (f",drawtext=fontfile='{FONT_PATH}':text='{safe}':"
+            vf += (f",drawtext=fontfile='{FONT_SECONDARY_PATH}':text='{safe}':"
                    f"fontcolor=white:fontsize={fs}:"
                    f"borderw=2:bordercolor=black@0.7:"
                    f"x=w-text_w-60:y=h-110:"
