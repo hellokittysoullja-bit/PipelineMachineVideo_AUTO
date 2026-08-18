@@ -539,13 +539,21 @@ def resolve_queries(blocks):
     return resolved
 
 
-def add_overlays(vf_base, dur, title=None, stat=None):
+STAT_ACCENT = "0xC8102E"   # акцентный красный, CHANNEL.md house style
+
+
+def add_overlays(vf_base, dur, title=None, stat=None, stat_variant=0):
     """Титр секции (низ кадра, слайд+fade первые ~2.5с, фирменный дисплейный
-    шрифт) + цифровая плашка (верх кадра, красный баннер — акцентный цвет
-    CHANNEL.md house style, держится почти весь клип: цифру без плашки не
-    запоминают, см. производственные пометки сценария). Общий код для фото
-    и видео-стока. Обычный fade раньше был самым узнаваемым штампом
-    автослайдшоу — слайд добавляет "кто-то это анимировал руками"."""
+    шрифт) + цифровая плашка. Общий код для фото и видео-стока. Обычный
+    fade раньше был самым узнаваемым штампом автослайдшоу — слайд добавляет
+    "кто-то это анимировал руками".
+
+    Плашка (2.2): раньше ОДИН и тот же красный баннер на каждую цифру за
+    ролик — после 3-4 повторов за 16 минут читается как "шаблон программы",
+    не дизайнерское решение. 4 варианта оформления, чередуются по позиции
+    цифры в ролике (main() считает running-индекс): классический баннер /
+    крупное число по центру без плашки / боковой акцент с полосой / мелкий
+    текст в углу с подчёркиванием."""
     vf = vf_base
     if title and FONT_PATH:
         hold = min(2.5, dur * 0.6)
@@ -564,14 +572,53 @@ def add_overlays(vf_base, dur, title=None, stat=None):
         hold = max(fin, dur - 0.5)
         text = stat.upper() if FONT_IS_DISPLAY else stat
         safe = escape_drawtext(text)
-        fs = 58 if FONT_IS_DISPLAY else 64
-        vf += (f",drawtext=fontfile='{FONT_PATH}':text='{safe}':"
-               f"fontcolor=white:fontsize={fs}:"
-               f"box=1:boxcolor=0xC8102E@0.92:boxborderw=18:"
-               f"x=(w-text_w)/2:"
-               f"y='110-(1-min(t/{fin:.2f}\\,1))*26':"
-               f"alpha='if(lt(t\\,{fin:.2f})\\,t/{fin:.2f}\\,"
-               f"if(lt(t\\,{hold:.2f})\\,1\\,max(0\\,1-(t-{hold:.2f})/0.4)))'")
+        alpha = (f"if(lt(t\\,{fin:.2f})\\,t/{fin:.2f}\\,"
+                 f"if(lt(t\\,{hold:.2f})\\,1\\,max(0\\,1-(t-{hold:.2f})/0.4)))")
+        variant = stat_variant % 4
+        if variant == 0:
+            # Классический баннер — верх кадра, слайд сверху.
+            fs = 58 if FONT_IS_DISPLAY else 64
+            vf += (f",drawtext=fontfile='{FONT_PATH}':text='{safe}':"
+                   f"fontcolor=white:fontsize={fs}:"
+                   f"box=1:boxcolor={STAT_ACCENT}@0.92:boxborderw=18:"
+                   f"x=(w-text_w)/2:"
+                   f"y='110-(1-min(t/{fin:.2f}\\,1))*26':"
+                   f"alpha='{alpha}'")
+        elif variant == 1:
+            # Крупное число по центру кадра — без плашки, тень вместо box.
+            fs = 96 if FONT_IS_DISPLAY else 108
+            vf += (f",drawtext=fontfile='{FONT_PATH}':text='{safe}':"
+                   f"fontcolor=white:fontsize={fs}:"
+                   f"shadowcolor=black@0.85:shadowx=4:shadowy=4:"
+                   f"borderw=2:bordercolor=black@0.6:"
+                   f"x=(w-text_w)/2:y=(h-text_h)/2:"
+                   f"alpha='{alpha}'")
+        elif variant == 2:
+            # Боковой акцент — число слева, вертикальная полоса рядом.
+            fs = 62 if FONT_IS_DISPLAY else 68
+            # drawbox: w/h в x/y-выражениях ссылаются на СОБСТВЕННЫЕ параметры
+            # бокса (w=8, h=160), не на кадр — иначе бы (h-160)/2 = 0
+            # (самоссылка h=160-160=0), поймано на реальном рендере (полоса
+            # уезжала в самый верх кадра). ih/iw — явно "кадр", не бокс.
+            vf += (f",drawbox=x=100:y=(ih-160)/2:w=8:h=160:"
+                   f"color={STAT_ACCENT}@0.92:t=fill:"
+                   f"enable='between(t\\,0\\,{hold:.2f})'"
+                   f",drawtext=fontfile='{FONT_PATH}':text='{safe}':"
+                   f"fontcolor=white:fontsize={fs}:"
+                   f"shadowcolor=black@0.8:shadowx=3:shadowy=3:"
+                   f"x=130:y=(h-text_h)/2:"
+                   f"alpha='{alpha}'")
+        else:
+            # Минимальный — мелкий текст в нижнем правом углу, подчёркивание.
+            fs = 34 if FONT_IS_DISPLAY else 38
+            vf += (f",drawtext=fontfile='{FONT_PATH}':text='{safe}':"
+                   f"fontcolor=white:fontsize={fs}:"
+                   f"borderw=2:bordercolor=black@0.7:"
+                   f"x=w-text_w-60:y=h-110:"
+                   f"alpha='{alpha}'"
+                   f",drawbox=x=iw-260:y=ih-72:w=200:h=3:"
+                   f"color={STAT_ACCENT}@0.92:t=fill:"
+                   f"enable='between(t\\,0\\,{hold:.2f})'")
     return vf
 
 
@@ -626,7 +673,7 @@ def choose_motion_mode(b, is_section_start, photo_hash):
 
 
 def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
-             section="", motion_mode="classic_kb"):
+             section="", motion_mode="classic_kb", stat_variant=0):
     frames = max(1, round(dur * FPS))
     h, zoom_in_default, pan_dir_default = kb_hash_choices(photo)
     if zoom_in is None:
@@ -706,7 +753,7 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
                f"zoompan=z={z}:x={x}:y={y}:"
                f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS},"
                f"{film_look(h, section)}")
-    vf_overlay = add_overlays(vf_base, dur, title, stat) if (title or stat) else None
+    vf_overlay = add_overlays(vf_base, dur, title, stat, stat_variant) if (title or stat) else None
 
     def render(vf):
         cmd = ["ffmpeg", "-y", "-loop", "1", "-i", photo, "-vf", vf,
@@ -797,7 +844,8 @@ def fill_crop_canvas(photo_path, cw, ch):
     return arr
 
 
-def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None, section=""):
+def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
+                       section="", stat_variant=0):
     """2.5D-версия kenburns(): собственный покадровый рендер (OpenCV remap)
     вместо ffmpeg zoompan — только так можно сделать смещение, зависящее от
     глубины пикселя. При любой накладке (модель не встала, ffmpeg-пайп упал)
@@ -842,7 +890,7 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
                "-s", f"{WIDTH}x{HEIGHT}", "-r", str(FPS), "-i", "-",
                "-frames:v", str(frames)]
         vf = film_look(h, section)
-        vf = add_overlays(vf, dur, title, stat) if (title or stat) else vf
+        vf = add_overlays(vf, dur, title, stat, stat_variant) if (title or stat) else vf
         cmd += ["-vf", vf, "-c:v", "libx264", "-preset", "fast", "-crf", "23",
                 "-pix_fmt", "yuv420p", "-r", str(FPS), out]
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE,
@@ -898,7 +946,7 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
 SPEED_BIAS = {"HOOK": 1.12, "FINAL": 0.92}
 
 
-def video_render(vid, out, dur, title=None, stat=None, section=""):
+def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=0):
     """Аналог kenburns(), но для стокового видео: без zoompan (движение уже
     есть в кадре), заливка кадра целиком + обрезка (не letterbox), растяжение
     по времени, если исходный ролик короче нужной длительности."""
@@ -917,7 +965,7 @@ def video_render(vid, out, dur, title=None, stat=None, section=""):
     if setpts_factor is not None:
         vf_base += f",setpts={setpts_factor:.5f}*PTS"
     vf_base += f",{film_look(h, section)}"
-    vf_overlay = add_overlays(vf_base, dur, title, stat) if (title or stat) else None
+    vf_overlay = add_overlays(vf_base, dur, title, stat, stat_variant) if (title or stat) else None
 
     def render(vf):
         cmd = ["ffmpeg", "-y", "-i", vid, "-vf", vf, "-t", str(dur), "-an",
@@ -1334,11 +1382,15 @@ def main():
     queries = resolve_queries(blocks)
     used_photo_ids = set()   # общий на весь ролик — не даём одной фотке всплыть дважды
     used_video_ids = set()   # то же самое, отдельно для видео (разные ID-пространства)
+    stat_count = 0   # 2.2: номер плашки по счёту в ролике -> вариант оформления (chередуются по кругу)
     for i, (b, d) in enumerate(zip(blocks, durs)):
         # Титр темы — только на ПЕРВОМ кадре новой секции (BLOCK N: Название).
         is_section_start = i == 0 or blocks[i]["section"] != blocks[i - 1]["section"]
         title = section_title(b["section"]) if is_section_start else None
         stat = b.get("stat")
+        stat_variant = stat_count
+        if stat:
+            stat_count += 1
         # Хэш параметров рендера в имени — иначе правка script.txt (текст,
         # тайминг, плашка) без ручной чистки temp_smart/ молча оставляла
         # старый клип под новые данные (тот же класс бага, что уже правили
@@ -1350,7 +1402,7 @@ def main():
         # киноплёнку, потому что длительность/заголовок/плашка/секция не
         # изменились, а запрос в хэш не входил.
         params_hash = hashlib.md5(
-            f"{d:.3f}|{title}|{stat}|{b['section']}|{queries[i]}".encode()).hexdigest()[:8]
+            f"{d:.3f}|{title}|{stat}|{stat_variant}|{b['section']}|{queries[i]}".encode()).hexdigest()[:8]
         out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}_{params_hash}.mp4")
         if os.path.exists(out):
             clips.append(out)
@@ -1387,7 +1439,8 @@ def main():
             missing.append(i + 1)
             continue
         if video:
-            ok = video_render(video, out, d, title=title, stat=stat, section=b["section"])
+            ok = video_render(video, out, d, title=title, stat=stat, section=b["section"],
+                               stat_variant=stat_variant)
         else:
             # anti-repetition: хэш сам по себе не мешает 3 зумам подряд случайно
             # совпасть — держим окно последних решений и форсируем смену при повторе.
@@ -1409,12 +1462,14 @@ def main():
                 # заметных точек ролика, не нуждается в дополнительной
                 # категоризации поверх собственной.
                 ok = parallax_kenburns(photo, out, d, title=title, zoom_in=zoom_in,
-                                        pan_dir=pan_dir, stat=stat, section=b["section"])
+                                        pan_dir=pan_dir, stat=stat, section=b["section"],
+                                        stat_variant=stat_variant)
             if not ok:
                 photo_hash, _, _ = kb_hash_choices(photo)
                 motion_mode = choose_motion_mode(b, is_section_start, photo_hash)
                 ok = kenburns(photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
-                              stat=stat, section=b["section"], motion_mode=motion_mode)
+                              stat=stat, section=b["section"], motion_mode=motion_mode,
+                              stat_variant=stat_variant)
         if ok:
             clips.append(out)
             clip_durs.append(d)
