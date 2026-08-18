@@ -1069,6 +1069,28 @@ def apply_section_boundary_shift(blocks, durs):
     return d
 
 
+def apply_human_jitter(blocks, durs, magnitude=0.3):
+    """Механическая регулярность длительностей — узнаваемый штамп автослайдшоу:
+    даже с real-alignment таймингом (см. load_alignment_weights) сетка
+    остаётся слишком "правильной". Живой монтаж имеет микронеровности:
+    иногда кадр обрывается на 2.3с раньше расчётного, иногда держится
+    дольше. Джиттер — детерминированный (hashlib.md5 текста, не встроенный
+    hash() — тот рандомизирован между запусками и сломал бы кэш), сумма
+    длительностей сохраняется РОВНО (вычитаем среднее смещение из всех
+    дельт вместо пропорционального масштабирования — иначе масштаб просто
+    съедает большую часть эффекта на длинном ролике)."""
+    deltas = []
+    for b in blocks:
+        h = int(hashlib.md5((b["section"] + b["text"][:40]).encode()).hexdigest()[:8], 16)
+        frac = (h % 1000) / 1000.0
+        deltas.append((frac - 0.5) * 2 * magnitude)
+    mean_delta = sum(deltas) / len(deltas)
+    deltas = [x - mean_delta for x in deltas]
+    out = [max(MIN_CLIP, d + delta) for d, delta in zip(durs, deltas)]
+    scale = sum(durs) / sum(out)
+    return [x * scale for x in out]
+
+
 def main():
     if not os.path.exists(AUDIO_FILE):
         print(f"Аудио не найдено: {AUDIO_FILE}")
@@ -1107,6 +1129,7 @@ def main():
         durs = block_durations(blocks, target, energy_mults=mults, real_weights=real_weights)
         print("Ритм по громкости: включён")
     durs = apply_section_boundary_shift(blocks, durs)
+    durs = apply_human_jitter(blocks, durs)
     print(f"Средний кадр: {sum(durs)/len(durs):.1f}с")
 
     clips, clip_durs, clip_sections = [], [], []
