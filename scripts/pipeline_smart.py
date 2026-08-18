@@ -840,6 +840,106 @@ def detect_face_anchor(photo_path):
         return None
 
 
+def spectral_saliency_anchor(photo_path, confidence_z=2.2):
+    """Anchor-кроп по лицу (detect_face_anchor) покрывает ~10% кадров этого
+    канала — остальное оружие/доспехи/предметы без единого лица в кадре, для
+    них anchor всегда был None (центр-кроп). Saliency (spectral residual,
+    Hou & Zhang 2007) — общий детектор "главного объекта" без лиц.
+
+    Взял именно spectral residual, а не сырую плотность градиента/контраста
+    (как estimate_busyness) — по конкретной причине: у сырого градиента
+    текстурный ФОН (шершавый камень, кольчуга) часто даёт БОЛЬШЕ локального
+    контраста, чем гладкий клинок на переднем плане — anchor утянуло бы к
+    фону, кроп стал бы ХУЖЕ центрального, не лучше. Spectral residual вместо
+    этого ищет то, что СТАТИСТИЧЕСКИ необычно относительно частотного
+    профиля всего кадра — повторяющаяся текстура (камень, кольчуга) даёт
+    низкий остаток именно потому, что она регулярна, один явный объект на
+    таком фоне даёт пик. Чистый numpy (FFT) — cv2.saliency живёт только в
+    opencv-contrib, которого нет в запиненном пакете (тот же класс промаха,
+    что уже был с CascadeClassifier в этой сессии — не повторяем).
+
+    ПОРОГ УВЕРЕННОСТИ (confidence_z): возвращаем anchor, только если пик
+    saliency-карты заметно (z-score >= confidence_z) выше среднего уровня
+    шума карты — на плоских/симметричных кадрах (широкий пейзаж, ткань)
+    saliency не выражена вообще, и НАВЯЗЫВАТЬ смещение кропа туда, где нет
+    реального сигнала, опаснее, чем оставить центр (см. критика раньше в
+    этой же сессии). Слабый/отсутствующий пик -> None, откат на центр —
+    то же safety-поведение, что и у detect_face_anchor."""
+    if np is None:
+        return None
+    try:
+        H, W = 36, 64
+        img = PILImage.open(photo_path).convert("L").resize((W, H), PILImage.LANCZOS)
+        gray = np.asarray(img, dtype=np.float64)
+        # FFT считает кадр периодическим "по кругу" — резкий разрыв между
+        # правым/левым и верхним/нижним краем сам создаёт ложную высокочастотную
+        # "границу", которую spectral residual принимает за объект. Поймано
+        # вживую на реальных фото канала: пик СИСТЕМАТИЧЕСКИ садился в первую
+        # строку кадра (0/36) почти на каждом кадре — не совпадение, артефакт.
+        # Окно Ханна плавно гасит яркость к краям перед FFT — убирает разрыв.
+        win = np.outer(np.hanning(H), np.hanning(W))
+        fft = np.fft.fft2(gray * win)
+        amp = np.abs(fft)
+        log_amp = np.log(amp + 1e-8)
+        phase = np.angle(fft)
+        kernel = np.ones((3, 3)) / 9.0
+        avg_log_amp = _convolve2d_same(log_amp, kernel)
+        residual = log_amp - avg_log_amp
+        sal = np.abs(np.fft.ifft2(np.exp(residual + 1j * phase))) ** 2
+        sal = _convolve2d_same(sal, np.ones((3, 3)) / 9.0)   # лёгкое сглаживание карты
+        # Даже с окном Ханна самый край карты остаётся наименее надёжным —
+        # исключаем внешнюю кайму из поиска пика (реальный объект в кадре
+        # у стокового фотографа почти никогда не приклеен к самому краю).
+        my, mx = max(1, H // 8), max(1, W // 8)
+        interior = sal[my:H - my, mx:W - mx]
+        if interior.size == 0:
+            return None
+        mean, std = float(sal.mean()), float(sal.std())
+        # Верхний потолок на mean — поймано вживую: на ПОЧТИ однородном кадре
+        # (плоский цвет/градиент без реальной текстуры) окно Ханна само по
+        # себе создаёт плавный "холм" яркости, который residual-математика
+        # принимает за огромный ложный пик (mean взлетает на 2-3 порядка
+        # выше любого реального фото — проверено на 12 реальных кадрах
+        # канала: 0.0005-0.00065, и на синтетическом плоском/градиентном
+        # тесте: 0.33-0.74). Порог 0.02 — с большим запасом выше реальных
+        # фото и с большим запасом ниже вырожденного случая.
+        if std < 1e-9 or mean > 0.02:
+            return None
+        peak_idx = np.unravel_index(np.argmax(interior), interior.shape)
+        z = (interior[peak_idx] - mean) / std
+        if z < confidence_z:
+            return None
+        py, px = peak_idx[0] + my, peak_idx[1] + mx
+        return ((px + 0.5) / W, (py + 0.5) / H)
+    except Exception:
+        return None
+
+
+def _convolve2d_same(arr, kernel):
+    """Мини-свёртка без scipy (не тянуть отдельную зависимость ради одной
+    функции) — 'same'-паддинг через edge-repeat, реализация в лоб на
+    маленькой (64x36) карте, скорость тут не критична."""
+    kh, kw = kernel.shape
+    ph, pw = kh // 2, kw // 2
+    padded = np.pad(arr, ((ph, ph), (pw, pw)), mode="edge")
+    out = np.zeros_like(arr)
+    for i in range(kh):
+        for j in range(kw):
+            out += kernel[i, j] * padded[i:i + arr.shape[0], j:j + arr.shape[1]]
+    return out
+
+
+def resolve_crop_anchor(photo_path):
+    """Единая точка входа для anchor-кропа: лицо приоритетнее (выше точность,
+    когда сработало), saliency — общий фоллбэк для кадров без лиц (оружие/
+    доспехи/предметы, большинство кадров этого канала). Ни один сигнал не
+    найден -> None, старый центр-кроп (ноль регрессии по построению)."""
+    anchor = detect_face_anchor(photo_path)
+    if anchor is not None:
+        return anchor
+    return spectral_saliency_anchor(photo_path)
+
+
 def compute_crop_offset(iw, ih, cw, ch, anchor=None):
     """increase+crop геометрия (та же, что раньше делал ffmpeg force_original_
     aspect_ratio=increase сам, без смещения) — теперь считается в Python, чтобы
@@ -1035,13 +1135,14 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
     # в рамку" оставляло чёрные поля по краям на большинстве кадров (проверено:
     # 3 из 8 тестовых кадров с полосами по обеим сторонам). Залить кадр целиком
     # и обрезать лишнее — тот же приём, что уже применялся к видео-стоку ниже.
-    # Anchor-aware: кроп бьёт по центру ТОЛЬКО если лицо не найдено (см.
-    # detect_face_anchor) — иначе смещается так, чтобы не резать голову.
+    # Anchor-aware: кроп бьёт по центру, только если ни лицо, ни saliency
+    # не нашли уверенного сигнала (см. resolve_crop_anchor) — иначе
+    # смещается так, чтобы не резать голову/главный объект.
     try:
         iw, ih = PILImage.open(photo).size
     except Exception:
         iw, ih = 8000, 4500
-    anchor = detect_face_anchor(photo)
+    anchor = resolve_crop_anchor(photo)
     nw, nh, cx0, cy0 = compute_crop_offset(iw, ih, 8000, 4500, anchor)
     vf_base = (f"scale={nw}:{nh},"
                f"crop=8000:4500:{cx0}:{cy0},setsar=1,"
@@ -1152,7 +1253,7 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
     try:
         frames = max(1, round(dur * FPS))
         cw, ch = round(WIDTH * PARALLAX_MARGIN), round(HEIGHT * PARALLAX_MARGIN)
-        canvas = fill_crop_canvas(photo, cw, ch, anchor=detect_face_anchor(photo))
+        canvas = fill_crop_canvas(photo, cw, ch, anchor=resolve_crop_anchor(photo))
         try:
             depth = estimate_depth(canvas)
         except Exception as e:
@@ -1175,7 +1276,29 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
                     ZOOM_RATE_BASE * dur * (0.75 + rate_jit * 0.5)))
         max_zoom = ZOOM_FLOOR + delta
         pan_amt_frac = PAN_SAFETY * (PAN_JITTER_MIN + pan_jit * (PAN_JITTER_MAX - PAN_JITTER_MIN))
-        parallax_px = PARALLAX_PX_BASE * (0.7 + rate_jit * 0.6)
+        # Content-aware сила эффекта: раньше parallax_px был один и тот же
+        # для любой картинки — эффект работает эффектно только там, где в
+        # карте глубины ЕСТЬ реальный контраст (чёткое разделение объект/
+        # фон); на плоских/текстурных кадрах (макро металла, ткань, ровный
+        # задник) та же сила выглядит как случайное дрожание, не параллакс,
+        # потому что двигать там физически нечего. depth.std() — дешёвая
+        # мера контраста уже посчитанной карты (без доп. модели). Референс
+        # 0.22 — медиана std по реальным фото канала (проверено: 0.18-0.31
+        # на 8 кадрах), не гадание. Границы [0.4, 1.4] — не гасим эффект
+        # до нуля даже на самом плоском кадре (тогда параллакс-путь вообще
+        # не имел бы смысла выбирать), но и не разгоняем сверх разумного.
+        depth_contrast = float(depth.std())
+        strength_gain = max(0.4, min(1.4, depth_contrast / 0.22))
+        parallax_px = PARALLAX_PX_BASE * (0.7 + rate_jit * 0.6) * strength_gain
+        # DEPTH_ZOOM_STRENGTH — насколько сильно ближние/дальние слои
+        # расходятся по СКОРОСТИ ЗУМА при push/pull (не только по офсету
+        # при пане, как раньше). Настоящая перспектива: у камеры, которая
+        # реально приближается к сцене, ближние объекты растут в кадре
+        # быстрее дальних — старая версия зумила все пиксели с одной и той
+        # же скоростью независимо от глубины (это и есть "2D remap", не
+        # честная 3D-репроекция). depth_zoom_strength тоже масштабируется
+        # content-aware — той же логикой, что и parallax_px выше.
+        depth_zoom_strength = 0.12 * strength_gain
 
         cx, cy = cw / 2.0, ch / 2.0
         ox_grid, oy_grid = np.meshgrid(np.arange(WIDTH, dtype=np.float32),
@@ -1205,8 +1328,22 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
             d_here = cv2.remap(depth, map_x0, map_y0, interpolation=cv2.INTER_LINEAR,
                                 borderMode=cv2.BORDER_REPLICATE)
             extra = (d_here - 0.5) * parallax_px * eased   # центрировано: ближе/дальше среднего
-            map_x = np.clip(map_x0 + dx * extra, 0, cw - 1)
-            map_y = np.clip(map_y0 + dy * extra, 0, ch - 1)
+            # 3D-репроекция (не только офсет при пане, но и СКОРОСТЬ ЗУМА
+            # по глубине): d_here уже известен на "базовой" (единый zoom)
+            # позиции — используем его как приближение реальной глубины
+            # источника (двухпроходная аппроксимация, честный mesh-warp
+            # избыточен для этой задачи). zoom_gain > 1 для близких
+            # пикселей (d_here -> 1) — под push-in они растут БЫСТРЕЕ
+            # среднего, зеркально для дальних (d_here -> 0) — это и есть
+            # разница между "камера едет" (старая версия, все пиксели
+            # растут с одной скоростью) и "камера едет СКВОЗЬ сцену с
+            # глубиной" (ближние слои обгоняют дальние).
+            zoom_gain = 1.0 + (d_here - 0.5) * depth_zoom_strength * eased
+            zoom_gain = np.clip(zoom_gain, 0.88, 1.15)
+            map_x = cx + (ox_grid - WIDTH / 2) / (zoom * zoom_gain) + dx * pan_px + dx * extra
+            map_y = cy + (oy_grid - HEIGHT / 2) / (zoom * zoom_gain) + dy * pan_px + dy * extra
+            map_x = np.clip(map_x, 0, cw - 1)
+            map_y = np.clip(map_y, 0, ch - 1)
 
             frame = cv2.remap(canvas, map_x, map_y, interpolation=cv2.INTER_LINEAR,
                                borderMode=cv2.BORDER_REPLICATE)
@@ -1241,6 +1378,31 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
 SPEED_BIAS = {"HOOK": 1.12, "FINAL": 0.92}
 
 
+def detect_scene_change_offset(vid, max_skip, scene_threshold=0.12):
+    """Сцен-анализ вместо чисто произвольного хэш-пропуска (см. video_render):
+    ищем РЕАЛЬНЫЙ момент смены кадра/начала движения в допустимом окне
+    [0, max_skip] штатным ffmpeg-детектором сцен (select=gt(scene,THRESH) —
+    честный frame-diff, не полноценный optical flow, но быстро и без новых
+    зависимостей). Берём САМУЮ ПОЗДНЮЮ найденную смену в пределах окна —
+    максимально используем допустимый запас, но приземляемся точно на
+    реальное событие в кадре, а не на случайное место.
+
+    Порог уверенности: сцен не найдено (статичный до самого края план,
+    либо анализ не удался) -> None, вызывающий код откатывается на старый
+    детерминированный хэш-пропуск — то же safety-поведение, что у
+    anchor-кропа/saliency (см. resolve_crop_anchor)."""
+    try:
+        r = subprocess.run(
+            ["ffmpeg", "-i", vid, "-t", f"{max_skip:.2f}", "-vf",
+             f"select='gt(scene\\,{scene_threshold})',showinfo", "-f", "null", "-"],
+            capture_output=True, text=True, timeout=30)
+        times = [float(m) for m in re.findall(r"pts_time:([\d.]+)", r.stderr)]
+        candidates = [t for t in times if 0.1 <= t <= max_skip]
+        return max(candidates) if candidates else None
+    except Exception:
+        return None
+
+
 def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=0,
                   brightness_bias=0.0, energy_bias=0.0):
     """Аналог kenburns(), но для стокового видео: без zoompan (движение уже
@@ -1264,7 +1426,9 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
     skip = 0.0
     if actual - dur > 0.6:
         max_skip = min(1.6, (actual - dur) * 0.5)
-        skip = max_skip * (0.5 + ((h >> 20) % 1000) / 1000.0 * 0.5)
+        scene_skip = detect_scene_change_offset(vid, max_skip)
+        skip = scene_skip if scene_skip is not None else (
+            max_skip * (0.5 + ((h >> 20) % 1000) / 1000.0 * 0.5))
     if actual < dur - 0.05:
         setpts_factor = dur / max(actual, 0.1)   # уже растягиваем нехватку — bias не добавляем поверх
     elif bias != 1.0 and actual >= dur * bias:
