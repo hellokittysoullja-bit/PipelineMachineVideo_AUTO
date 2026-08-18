@@ -6,6 +6,7 @@
 fallback — Pexels по тематическому запросу.
 Usage: python scripts/pipeline_smart.py <video_dir>"""
 import csv
+import difflib
 import hashlib
 import json
 import os
@@ -92,7 +93,7 @@ def film_look(photo_hash, section=""):
     b = ((photo_hash >> 14) % 100) / 100 * 0.02
     return (f"eq=contrast={c:.3f}:saturation={s:.3f}:brightness={b:.3f},"
             f"colorbalance=rs=-0.06:bs={mood['bs']:.3f}:rm=-0.02:bm=0.04:rh={mood['rh']:.3f}:bh=-0.02,"
-            f"vignette={mood['vign']},noise=alls=2:allf=t+u")
+            f"vignette={mood['vign']},noise=alls=3:allf=t+u")
 
 
 XFADE_DUR = 0.4        # диссолв на границах секций и часть обычных склеек
@@ -389,6 +390,7 @@ def load_alignment_weights(blocks):
 
     weights = []
     seg_cursor = {}
+    stale = 0
     for b in blocks:
         segs = section_segments.get(b["section"])
         if segs is None:
@@ -402,9 +404,25 @@ def load_alignment_weights(blocks):
             # секции, а не подставляем чужой сегмент не по месту.
             weights.append(None)
         else:
-            span = _real_speech_span(segs[k])
-            weights.append(span if span > 0.05 else None)
+            # Число сегментов может совпасть, а ТЕКСТ — разойтись (слово-два
+            # поправили в script.txt после записи озвучки, не тронув счётчик
+            # [pause]) — тогда старый код молча применял чужой тайминг к
+            # новому тексту. Fuzzy-сверка (difflib, без новых зависимостей)
+            # блока против реально озвученного сегмента: разошлись сильнее
+            # порога — честный откат на word-count вместо тихой подмены.
+            seg_text = re.sub(r'\s+', ' ', "".join(c for c, s, e in segs[k])).strip().lower()
+            block_text = re.sub(r'\s+', ' ', b["text"]).strip().lower()
+            ratio = difflib.SequenceMatcher(None, block_text, seg_text).ratio() if (block_text and seg_text) else 0.0
+            if ratio < 0.55:
+                weights.append(None)
+                stale += 1
+            else:
+                span = _real_speech_span(segs[k])
+                weights.append(span if span > 0.05 else None)
         seg_cursor[b["section"]] = k + 1
+    if stale:
+        print(f"  Alignment: {stale} блок(ов) текстом разошлись с сохранённым таймингом "
+              f"(script.txt правили после записи?) — откат на word-count для них")
     return weights
 
 
@@ -431,7 +449,11 @@ def block_durations(blocks, total, energy_mults=None, real_weights=None):
 PEXELS_BROKEN = False       # взводится только на реальном отказе API, не на пустой выдаче
 
 
-def pexels_photo(query, index, used_ids=None):
+PHOTO_DEDUP_HAMMING = 6   # тот же порог, что в qc_report() — "заметно похоже"
+PHOTO_DEDUP_MAX_TRIES = 6 # сколько кандидатов реально СКАЧАТЬ и захэшировать, прежде чем сдаться
+
+
+def pexels_photo(query, index, used_ids=None, used_hashes=None):
     """used_ids — множество ID уже показанных в этом ролике фото (мутируется на
     месте). Разные блоки часто ловят один и тот же тематический запрос — без
     этого им всем доставался бы top-1 результат, то есть одна и та же картинка
@@ -439,9 +461,20 @@ def pexels_photo(query, index, used_ids=None):
     проверено вживую: возвращает 79; 40 всё ещё не хватало на узкой теме
     вроде "meч" при 150 sub-cut блоках на одну лексическую тему — used_ids
     общий на весь ролик, а не на запрос, так что разные запросы про мечи
-    делят один и тот же небольшой пул различимых стоковых фото) и берём
-    первый ID, которого ещё не было; если все уже использованы — берём топ-1 всё равно
-    (лучше повтор, чем сорванная сборка)."""
+    делят один и тот же небольшой пул различимых стоковых фото).
+
+    used_hashes (опционально) — список aHash уже отобранных в ролик фото.
+    Дедуп только по ID ловит лишь буквально тот же файл повторно — не ловит
+    РАЗНЫЕ ID из одной фотосессии (тот же реквизит/ракурс, другой кадр серии),
+    а именно так выглядели реальные дубли, найденные постфактум в qc_report()
+    на готовом ролике. Теперь при наличии used_hashes каждый кандидат перед
+    принятием СКАЧИВАЕТСЯ и хэшируется — если он визуально слишком похож
+    (hamming <= 6) на уже выбранную картинку, пробуем следующего кандидата
+    из уже полученного списка (без нового сетевого запроса на список, только
+    докачка кандидата) — до PHOTO_DEDUP_MAX_TRIES попыток, чтобы не жечь
+    время/трафик на исчерпание всей выдачи. Не нашли непохожего — берём
+    наименее похожего из просмотренных (лучше редкий повтор, чем сорванная
+    сборка)."""
     global PEXELS_BROKEN
     cache = os.path.join(TEMP_FOLDER, "pexels_cache")
     os.makedirs(cache, exist_ok=True)
@@ -450,6 +483,11 @@ def pexels_photo(query, index, used_ids=None):
     qhash = hashlib.md5(query.encode()).hexdigest()[:8]
     cf = os.path.join(cache, f"{index:04d}_{qhash}.jpg")
     if os.path.exists(cf):
+        if used_hashes is not None:
+            try:
+                used_hashes.append(ahash(cf))
+            except Exception:
+                pass
         return cf
     if not PEXELS_API_KEY:
         return None
@@ -463,18 +501,53 @@ def pexels_photo(query, index, used_ids=None):
         photos = data.get("photos") or []
         if not photos:
             return None
-        pick = photos[0]
-        if used_ids is not None:
-            for p in photos:
-                if p.get("id") not in used_ids:
-                    pick = p
+        candidates = [p for p in photos if used_ids is None or p.get("id") not in used_ids] or photos
+
+        def download(p, dest):
+            url = p["src"].get("large2x") or p["src"].get("large")
+            req_img = urllib.request.Request(url, headers={"User-Agent": UA})
+            with urllib.request.urlopen(req_img, timeout=20) as r:
+                open(dest, "wb").write(r.read())
+
+        if used_hashes is None:
+            pick = candidates[0]
+            download(pick, cf)
+        else:
+            best_path, best_min_d = None, -1
+            for p in candidates[:PHOTO_DEDUP_MAX_TRIES]:
+                trial = cf + f".trial_{p.get('id')}.jpg"
+                try:
+                    download(p, trial)
+                    h = ahash(trial)
+                except Exception:
+                    continue
+                min_d = min((hamming(h, uh) for uh in used_hashes), default=99)
+                if min_d > best_min_d:
+                    if best_path and best_path != trial:
+                        try:
+                            os.remove(best_path)
+                        except OSError:
+                            pass
+                    best_path, best_min_d, pick = trial, min_d, p
+                elif trial != best_path:
+                    try:
+                        os.remove(trial)
+                    except OSError:
+                        pass
+                if min_d > PHOTO_DEDUP_HAMMING:
                     break
+            if best_path is None:
+                pick = candidates[0]
+                download(pick, cf)
+            else:
+                os.replace(best_path, cf)
         if used_ids is not None:
             used_ids.add(pick.get("id"))
-        url = pick["src"].get("large2x") or pick["src"].get("large")
-        img = urllib.request.Request(url, headers={"User-Agent": UA})
-        with urllib.request.urlopen(img, timeout=20) as r:
-            open(cf, "wb").write(r.read())
+        if used_hashes is not None:
+            try:
+                used_hashes.append(ahash(cf))
+            except Exception:
+                pass
         return cf
     except Exception as e:
         PEXELS_BROKEN = True
@@ -653,6 +726,60 @@ def estimate_busyness(photo_path):
         return 0.5
 
 
+_FACE_CASCADE = None
+
+
+def detect_face_anchor(photo_path):
+    """Anchor-aware crop: раньше кроп под кадр 16:9 всегда бил ровно по
+    центру исходного фото (increase+crop без смещения) — на портретных или
+    непропорциональных стоковых кадрах это регулярно подрезало лицо/голову
+    сверху или сбоку. Лёгкий локальный Haar-детектор (OpenCV, бесплатно,
+    уже используется для параллакса — новых зависимостей и денег не стоит)
+    ищет самое крупное лицо и возвращает точку привязки (fraction 0..1 по
+    ширине/высоте ОРИГИНАЛА, чуть выше центра лица — глаза, не подбородок).
+    Лицо не найдено/cv2 недоступен/фото не про людей (оружие, пейзаж) —
+    возвращает None, и вызывающий код падает обратно на старый центр-кроп
+    (то же поведение, что было всегда) — чистое дополнение без регрессии."""
+    if not PARALLAX_LIBS:
+        return None
+    global _FACE_CASCADE
+    try:
+        if _FACE_CASCADE is None:
+            _FACE_CASCADE = cv2.CascadeClassifier(
+                cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+        img = cv2.imread(photo_path)
+        if img is None:
+            return None
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        h, w = gray.shape[:2]
+        min_side = int(min(w, h) * 0.08)
+        faces = _FACE_CASCADE.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5,
+                                                minSize=(min_side, min_side))
+        if len(faces) == 0:
+            return None
+        fx, fy, fw, fh = max(faces, key=lambda f: f[2] * f[3])
+        return ((fx + fw / 2) / w, (fy + fh * 0.35) / h)
+    except Exception:
+        return None
+
+
+def compute_crop_offset(iw, ih, cw, ch, anchor=None):
+    """increase+crop геометрия (та же, что раньше делал ffmpeg force_original_
+    aspect_ratio=increase сам, без смещения) — теперь считается в Python, чтобы
+    можно было подставить anchor вместо жёсткого центра. anchor=None -> тот же
+    центр-кроп, что был всегда (0 изменений в дефолтном поведении)."""
+    scale = max(cw / iw, ch / ih)
+    nw, nh = max(cw, round(iw * scale)), max(ch, round(ih * scale))
+    if anchor:
+        ax, ay = anchor
+        cx, cy = ax * nw, ay * nh
+        x0 = int(min(max(cx - cw / 2, 0), nw - cw))
+        y0 = int(min(max(cy - ch / 2, 0), nh - ch))
+    else:
+        x0, y0 = (nw - cw) // 2, (nh - ch) // 2
+    return nw, nh, x0, y0
+
+
 MOTION_MODES = ("classic_kb", "static_hold", "snap_push", "slow_pull",
                  "horizontal_pan", "micro_drift")
 
@@ -818,8 +945,16 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
     # в рамку" оставляло чёрные поля по краям на большинстве кадров (проверено:
     # 3 из 8 тестовых кадров с полосами по обеим сторонам). Залить кадр целиком
     # и обрезать лишнее — тот же приём, что уже применялся к видео-стоку ниже.
-    vf_base = (f"scale=8000:4500:force_original_aspect_ratio=increase,"
-               f"crop=8000:4500,setsar=1,"
+    # Anchor-aware: кроп бьёт по центру ТОЛЬКО если лицо не найдено (см.
+    # detect_face_anchor) — иначе смещается так, чтобы не резать голову.
+    try:
+        iw, ih = PILImage.open(photo).size
+    except Exception:
+        iw, ih = 8000, 4500
+    anchor = detect_face_anchor(photo)
+    nw, nh, cx0, cy0 = compute_crop_offset(iw, ih, 8000, 4500, anchor)
+    vf_base = (f"scale={nw}:{nh},"
+               f"crop=8000:4500:{cx0}:{cy0},setsar=1,"
                f"zoompan=z={z}:x={x}:y={y}:"
                f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS},"
                f"{film_look(h, section)}")
@@ -900,15 +1035,15 @@ def estimate_depth(canvas_bgr):
     return depth
 
 
-def fill_crop_canvas(photo_path, cw, ch):
+def fill_crop_canvas(photo_path, cw, ch, anchor=None):
     """Тот же increase+crop, что и в ffmpeg-пути: заливаем холст целиком,
-    обрезаем лишнее — без чёрных полос по краям (BGR для cv2)."""
+    обрезаем лишнее — без чёрных полос по краям (BGR для cv2). anchor —
+    та же логика, что в compute_crop_offset (см. detect_face_anchor):
+    None -> центр-кроп, как было всегда."""
     img = PILImage.open(photo_path).convert("RGB")
     iw, ih = img.size
-    scale = max(cw / iw, ch / ih)
-    nw, nh = max(1, round(iw * scale)), max(1, round(ih * scale))
+    nw, nh, x0, y0 = compute_crop_offset(iw, ih, cw, ch, anchor)
     img = img.resize((nw, nh), PILImage.LANCZOS)
-    x0, y0 = (nw - cw) // 2, (nh - ch) // 2
     img = img.crop((x0, y0, x0 + cw, y0 + ch))
     arr = np.array(img)[:, :, ::-1].copy()   # RGB -> BGR
     return arr
@@ -927,7 +1062,7 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
     try:
         frames = max(1, round(dur * FPS))
         cw, ch = round(WIDTH * PARALLAX_MARGIN), round(HEIGHT * PARALLAX_MARGIN)
-        canvas = fill_crop_canvas(photo, cw, ch)
+        canvas = fill_crop_canvas(photo, cw, ch, anchor=detect_face_anchor(photo))
         try:
             depth = estimate_depth(canvas)
         except Exception as e:
@@ -1028,6 +1163,17 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
     vf_base = f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,crop={WIDTH}:{HEIGHT},setsar=1"
     bias = next((v for k, v in SPEED_BIAS.items() if section.startswith(k)), 1.0)
     setpts_factor = None
+    # Стоковое видео часто начинается со статичного/вялого кадра до того, как
+    # начнётся реальное движение (панорама разгоняется, руки только подносят
+    # предмет к камере) — первая секунда почти всегда самая скучная в клипе.
+    # Пропуск возможен только если есть запас (actual заметно больше dur) —
+    # иначе откусили бы от нужной длительности и пришлось бы растягивать
+    # (setpts) остаток, что и так уже отдельная ветка ниже. Детерминированный
+    # джиттер по хэшу файла — не одна и та же доля пропуска на каждом клипе.
+    skip = 0.0
+    if actual - dur > 0.6:
+        max_skip = min(1.6, (actual - dur) * 0.5)
+        skip = max_skip * (0.5 + ((h >> 20) % 1000) / 1000.0 * 0.5)
     if actual < dur - 0.05:
         setpts_factor = dur / max(actual, 0.1)   # уже растягиваем нехватку — bias не добавляем поверх
     elif bias != 1.0 and actual >= dur * bias:
@@ -1038,9 +1184,12 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
     vf_overlay = add_overlays(vf_base, dur, title, stat, stat_variant) if (title or stat) else None
 
     def render(vf):
-        cmd = ["ffmpeg", "-y", "-i", vid, "-vf", vf, "-t", str(dur), "-an",
-               "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-               "-pix_fmt", "yuv420p", "-r", str(FPS), out]
+        cmd = ["ffmpeg", "-y"]
+        if skip > 0.05:
+            cmd += ["-ss", f"{skip:.2f}"]
+        cmd += ["-i", vid, "-vf", vf, "-t", str(dur), "-an",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-pix_fmt", "yuv420p", "-r", str(FPS), out]
         return subprocess.run(cmd, capture_output=True, text=True)
 
     if vf_overlay:
@@ -1245,6 +1394,44 @@ def get_media_duration(path):
     return float(json.loads(r.stdout)["format"]["duration"])
 
 
+def audio_qc(path):
+    """Технический QC дорожки ДО сборки — тот же принцип, что qc_report() для
+    картинок: не блокирует, только честно докладывает брак, который иначе
+    заметили бы только на слух постфактум (клиппинг, слишком тихо/громко,
+    длинные участки мёртвой тишины помимо самих [pause] — забытый обрыв
+    записи). Бесплатно — штатные ffmpeg-фильтры astats/silencedetect,
+    никакого нового API."""
+    try:
+        r = subprocess.run(
+            ["ffmpeg", "-nostats", "-i", path, "-af",
+             "astats=reset=0,silencedetect=noise=-40dB:d=1.5", "-f", "null", "-"],
+            capture_output=True, text=True, timeout=120)
+        err = r.stderr
+    except Exception as e:
+        print(f"  Audio QC: не удалось проверить ({e})")
+        return
+    warns = []
+    m = re.search(r"Peak level dB:\s*(-?[\d.]+)", err)
+    if m and float(m.group(1)) > -0.1:
+        warns.append(f"пик {m.group(1)} dBFS — на грани клиппинга")
+    m = re.search(r"RMS level dB:\s*(-?[\d.]+)", err)
+    rms = float(m.group(1)) if m else None
+    if rms is not None and rms < -35:
+        warns.append(f"RMS {rms:.1f} dBFS — очень тихо")
+    elif rms is not None and rms > -12:
+        warns.append(f"RMS {rms:.1f} dBFS — очень громко/пережато")
+    silences = [float(x) for x in re.findall(r"silence_duration:\s*([\d.]+)", err)]
+    if silences:
+        try:
+            dur = get_media_duration(path)
+            ratio = sum(silences) / dur
+            if ratio > 0.15:
+                warns.append(f"{ratio*100:.0f}% дорожки — тишина длиннее 1.5с (мёртвый воздух?)")
+        except Exception:
+            pass
+    print(f"Audio QC: {'; '.join(warns)}" if warns else "Audio QC: клиппинга/аномальной громкости не найдено")
+
+
 def ahash(photo_path, size=8):
     """Средний хэш (average hash) картинки — 64-битная строка, дешёвая
     замена imagehash-библиотеке (Pillow уже обязательная зависимость, лишний
@@ -1381,7 +1568,22 @@ def split_long_blocks(blocks, real_weights):
                 split_at.append(i)
                 break
         if not split_at:
-            split_at = [len(words) // 2]
+            # Без смыслового триггера резать РОВНО посередине по счёту слов
+            # означало иногда рвать словосочетание внутри одной фразы ("в
+            # тысячу" | "раз" — тайминг не привязан к речи). Ищем ближайшую к
+            # середине пунктуационную границу (конец клаузы: , . ! ? — ; :) —
+            # рез попадает на естественную паузу произношения. Не нашли ни
+            # одной в разумном радиусе — старое поведение (ровно посередине).
+            mid = len(words) // 2
+            found = None
+            for radius in range(0, len(words) // 2 + 1):
+                for cand in (mid - radius, mid + radius):
+                    if 2 <= cand <= len(words) - 3 and words[cand - 1].rstrip()[-1:] in ",.!?—;:":
+                        found = cand
+                        break
+                if found is not None:
+                    break
+            split_at = [found if found is not None else mid]
         bounds = sorted(set([0] + split_at + [len(words)]))
         chunks = [(a, c) for a, c in zip(bounds, bounds[1:]) if c > a]
         # Склеиваем куски короче SUBCUT_MIN_PART_DUR (по доле слов от est)
@@ -1417,6 +1619,7 @@ def main():
         return 1
     total = get_audio_duration()
     print(f"Аудио: {total:.1f}с ({total/60:.1f} мин)")
+    audio_qc(AUDIO_FILE)
     os.makedirs(TEMP_FOLDER, exist_ok=True)
     blocks = parse_blocks(SCRIPT_FILE) if os.path.exists(SCRIPT_FILE) else []
     if not blocks:
@@ -1472,6 +1675,7 @@ def main():
     write_shot_manifest(VIDEO_FOLDER, blocks, durs, queries)
     used_photo_ids = set()   # общий на весь ролик — не даём одной фотке всплыть дважды
     used_video_ids = set()   # то же самое, отдельно для видео (разные ID-пространства)
+    used_photo_hashes = []   # aHash уже отобранных фото — ловит визуальные дубли под РАЗНЫМИ ID (см. pexels_photo)
     stat_count = 0   # 2.2: номер плашки по счёту в ролике -> вариант оформления (chередуются по кругу)
     for i, (b, d) in enumerate(zip(blocks, durs)):
         # Титр темы — только на ПЕРВОМ кадре новой секции (BLOCK N: Название).
@@ -1512,9 +1716,9 @@ def main():
             if prefer_video:
                 video = pexels_video(queries[i], i, used_ids=used_video_ids)
                 if not video:
-                    photo = pexels_photo(queries[i], i, used_ids=used_photo_ids)
+                    photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes)
             else:
-                photo = pexels_photo(queries[i], i, used_ids=used_photo_ids)
+                photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes)
                 if not photo and d >= MIN_CLIP + 1.0:
                     video = pexels_video(queries[i], i, used_ids=used_video_ids)
             # Раньше Pexels отключался навсегда после ЛЮБОГО промаха, включая
