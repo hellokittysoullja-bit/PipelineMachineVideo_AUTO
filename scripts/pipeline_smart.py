@@ -672,6 +672,72 @@ def choose_motion_mode(b, is_section_start, photo_hash):
     return "horizontal_pan" if (photo_hash % 7 == 0) else "classic_kb"
 
 
+def classify_shot_function(b, is_section_start):
+    """Грубая, но дешёвая категоризация "зачем этот кадр" — evidence (цифра-
+    доказательство), context (reveal раздела), detail (sub-cut деталь одной
+    фразы), hook (энергия хука), narrative (обычное повествование)."""
+    if b.get("stat"):
+        return "evidence"
+    if b.get("is_subcut"):
+        return "detail"
+    if is_section_start:
+        return "context"
+    if b["section"].startswith("HOOK"):
+        return "hook"
+    return "narrative"
+
+
+def write_shot_manifest(video_dir, blocks, durs, queries):
+    """3.4: JSON-манифест по клипу — что это за кадр (function/motion_mode/
+    запрос), не только "какая картинка досталась по номеру". Раньше связь
+    блок->медиа была неявной, проверить "не стоят ли 5 context-кадров
+    подряд" можно было только глазами по всему готовому рендеру. Манифест —
+    читаемая опора для Шага 7.5 визуальной QC-проверки (CLAUDE.md), не
+    отдельная фича ради фичи — сразу печатает подсказку о длинных пробегах
+    одной функции подряд, чтобы не читать весь JSON руками, если паттерн
+    уже виден невооружённым глазом.
+
+    motion_mode_estimate тут ПРИБЛИЗИТЕЛЬНЫЙ — по хэшу текста блока, не
+    реального файла фото (тот известен только во время рендера, здесь мы
+    ещё даже не знаем, какая картинка достанется). Для обзорной QC-опоры
+    точность до бита не нужна — расхождение возможно только на редких
+    hash-tie-break внутри HOOK/обычных блоков (snap_push/classic_kb,
+    horizontal_pan/classic_kb)."""
+    entries = []
+    for i, (b, d) in enumerate(zip(blocks, durs)):
+        is_section_start = i == 0 or blocks[i]["section"] != blocks[i - 1]["section"]
+        h = int(hashlib.md5(b["text"][:40].encode()).hexdigest()[:8], 16)
+        mode = choose_motion_mode(b, is_section_start, h)
+        section_slug = re.sub(r'[^A-Za-z0-9]+', '_', b["section"])[:24].strip('_')
+        entries.append({
+            "shot_id": f"{i:03d}_{section_slug}",
+            "index": i,
+            "section": b["section"],
+            "duration_sec": round(d, 2),
+            "function": classify_shot_function(b, is_section_start),
+            "motion_mode_estimate": mode,
+            "is_subcut": bool(b.get("is_subcut")),
+            "has_stat": bool(b.get("stat")),
+            "query": queries[i],
+            "text_preview": b["text"][:60],
+        })
+    path = os.path.join(video_dir, "media_plan", "shot_manifest.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(entries, f, ensure_ascii=False, indent=1)
+    run_func, run_len, warn = None, 0, []
+    for e in entries:
+        if e["function"] == run_func:
+            run_len += 1
+        else:
+            run_func, run_len = e["function"], 1
+        if run_len == 5:
+            warn.append(f"{run_func}@{e['index']-4}-{e['index']}")
+    if warn:
+        print(f"  Shot manifest: пробеги одной функции подряд (>=5) — {warn}")
+    return path
+
+
 def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
              section="", motion_mode="classic_kb", stat_variant=0):
     frames = max(1, round(dur * FPS))
@@ -1380,6 +1446,7 @@ def main():
     use_local = os.path.isdir(MEDIA_FOLDER) and bool(local_photo(0))
     use_pexels = bool(PEXELS_API_KEY)
     queries = resolve_queries(blocks)
+    write_shot_manifest(VIDEO_FOLDER, blocks, durs, queries)
     used_photo_ids = set()   # общий на весь ролик — не даём одной фотке всплыть дважды
     used_video_ids = set()   # то же самое, отдельно для видео (разные ID-пространства)
     stat_count = 0   # 2.2: номер плашки по счёту в ролике -> вариант оформления (chередуются по кругу)
