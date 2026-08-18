@@ -1091,6 +1091,78 @@ def apply_human_jitter(blocks, durs, magnitude=0.3):
     return [x * scale for x in out]
 
 
+SUBCUT_MIN_SOURCE_DUR = 8.0   # блок короче этого не режем вообще
+SUBCUT_MIN_PART_DUR = 3.0     # ни один получившийся под-кадр не короче этого
+SUBCUT_CONTRAST_WORDS = {"но", "однако", "зато", "хотя", "просто", "ведь",
+                          "потому", "поэтому", "притом", "притом,"}
+
+
+def split_long_blocks(blocks, real_weights):
+    """Один блок = один клип 4-20 сек — механическая сетка "одна мысль = одна
+    картинка". Профессиональный монтаж на одну длинную фразу даёт 2-3
+    визуальных решения. Режем блок ТОЛЬКО если он длиннее SUBCUT_MIN_SOURCE_DUR
+    (по реальному alignment-весу, при его отсутствии — грубая оценка по
+    словам), по смысловым триггерам: контраст-союзы ("но"/"однако"/...) или
+    первое число за пределами первой четверти блока (новый аргумент). Без
+    триггеров, но всё равно длинный — режем ровно посередине по словам.
+    Реальный вес блока делится между кусками ПРОПОРЦИОНАЛЬНО их доле слов —
+    сумма сохраняется, ничего не выдумываем сверху. Запрос к стоку для
+    под-кадров остаётся тем же самым блоком (resolve_queries считается уже
+    ПОСЛЕ split, на новом расширенном списке — если у куска нет своего
+    ключевого слова, он унаследует запрос соседнего куска той же секции,
+    та же логика, что уже работает для обычных блоков), картинка другая —
+    засчёт дедупа по used_photo_ids на большем пуле Pexels (per_page=40)."""
+    new_blocks, new_weights = [], []
+    for b, w in zip(blocks, real_weights or [None] * len(blocks)):
+        est = w if w is not None else b["words"] / 2.08
+        if est < SUBCUT_MIN_SOURCE_DUR:
+            new_blocks.append(b)
+            new_weights.append(w)
+            continue
+        words = b["text"].split()
+        if len(words) < 8:
+            new_blocks.append(b)
+            new_weights.append(w)
+            continue
+        split_at = []
+        for i, word in enumerate(words):
+            wl = word.strip(",.!?—–:;»«").lower()
+            if wl in SUBCUT_CONTRAST_WORDS and 2 <= i <= len(words) - 3:
+                split_at.append(i)
+        for i, word in enumerate(words):
+            if re.search(r'\d', word) and i > len(words) // 4:
+                split_at.append(i)
+                break
+        if not split_at:
+            split_at = [len(words) // 2]
+        bounds = sorted(set([0] + split_at + [len(words)]))
+        chunks = [(a, c) for a, c in zip(bounds, bounds[1:]) if c > a]
+        # Склеиваем куски короче SUBCUT_MIN_PART_DUR (по доле слов от est)
+        # с предыдущим — не даём под-кадру уйти ниже комфортной длины.
+        total_w = len(words)
+        merged = []
+        for a, c in chunks:
+            frac = (c - a) / total_w
+            if merged and est * frac < SUBCUT_MIN_PART_DUR:
+                pa, _ = merged[-1]
+                merged[-1] = (pa, c)
+            else:
+                merged.append((a, c))
+        if len(merged) < 2:
+            new_blocks.append(b)
+            new_weights.append(w)
+            continue
+        for k, (a, c) in enumerate(merged):
+            nb = dict(b)
+            nb["text"] = " ".join(words[a:c])
+            nb["words"] = c - a
+            nb["stat"] = b["stat"] if k == 0 else None
+            nb["pause_after"] = b["pause_after"] if k == len(merged) - 1 else 0.0
+            new_blocks.append(nb)
+            new_weights.append((w * (c - a) / total_w) if w is not None else None)
+    return new_blocks, new_weights
+
+
 def main():
     if not os.path.exists(AUDIO_FILE):
         print(f"Аудио не найдено: {AUDIO_FILE}")
@@ -1102,16 +1174,24 @@ def main():
     if not blocks:
         print("Сценарий не найден/пуст")
         return 1
-    # Кроссфейд между КАЖДОЙ парой кадров суммарно "съедает" (n-1)*XFADE_DUR —
-    # закладываем это в целевую длительность заранее, чтобы после склейки общая
-    # длина видео снова совпала с аудио (без этого хвост ролика проигрывался бы
-    # без картинки под конец аудиодорожки).
-    xfade_budget = max(0, len(blocks) - 1) * XFADE_DUR
-    target = total + xfade_budget
+    # Реальный тайминг считаем ДО sub-cuts — alignment.csv записан 1:1 на
+    # исходные блоки (по [pause]/[short pause]), split_long_blocks() потом
+    # честно делит вес пропорционально словам между получившимися кусками.
     real_weights = load_alignment_weights(blocks)
     if real_weights:
         known = sum(1 for w in real_weights if w is not None)
         print(f"Реальный тайминг (alignment.csv): {known}/{len(blocks)} блоков")
+    n_before = len(blocks)
+    blocks, real_weights = split_long_blocks(blocks, real_weights)
+    if len(blocks) != n_before:
+        print(f"Sub-cuts: {n_before} -> {len(blocks)} блоков")
+    # Кроссфейд между КАЖДОЙ парой кадров суммарно "съедает" (n-1)*XFADE_DUR —
+    # закладываем это в целевую длительность заранее, чтобы после склейки общая
+    # длина видео снова совпала с аудио (без этого хвост ролика проигрывался бы
+    # без картинки под конец аудиодорожки). Считаем ПОСЛЕ split — sub-cuts
+    # добавляют новые склейки, бюджет должен их учитывать.
+    xfade_budget = max(0, len(blocks) - 1) * XFADE_DUR
+    target = total + xfade_budget
     durs = block_durations(blocks, target, real_weights=real_weights)
     # Второй проход: ритм по громкости поверх базовой оценки (не вместо неё) —
     # громкие места режутся чаще, тихие держатся дольше. Опционально (нужен numpy).
