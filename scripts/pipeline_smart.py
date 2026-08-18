@@ -60,7 +60,14 @@ ZOOM_FLOOR = 1.04
 # 4-секундный и 20-секундный кадр "дышат" с заметно разной скоростью.
 ZOOM_RATE_BASE = 0.010
 ZOOM_DELTA_MIN, ZOOM_DELTA_MAX = 0.05, 0.22
-MIN_CLIP, MAX_CLIP = 4.0, 20.0
+MIN_CLIP, MAX_CLIP = 3.0, 20.0
+# Раньше MIN_CLIP=4.0 был ЕДИНЫМ полом на весь ролик, включая хук — на
+# реальном эпизоде это дало 0% клипов короче 3с и хук со средней длиной
+# кадра 4.65с, почти не отличающейся от тела (6.8с). У каналов с высоким
+# удержанием первые 15-30с режутся заметно чаще именно потому, что это
+# самый крутой обрыв на кривой удержания YouTube — отдельный, более
+# низкий пол специально для хука.
+HOOK_MIN_CLIP = 1.8
 # Панорамирование считается от РЕАЛЬНОГО zoom в каждый момент кадра — (1-1/zoom)/2
 # это точный геометрический запас смещения без вылета за картинку, безопасно по
 # построению на любом кадре, поэтому PAN_SAFETY можно брать ближе к пределу, чем
@@ -112,7 +119,9 @@ XFADE_DUR_HARD = 0.06  # почти мгновенный переход — чи
 XFADE_TRANSITIONS = ["fade", "dissolve", "smoothleft", "smoothright",
                       "smoothup", "smoothdown", "hblur", "zoomin"]
 BOUNDARY_TRANSITIONS = ["dissolve", "fadeblack", "fadewhite"]
-HOOK_MAX_CLIP = 5.0     # в хуке кадры короче и чаще — критично для удержания первых секунд
+HOOK_MAX_CLIP = 3.6     # в хуке кадры короче и чаще — критично для удержания первых секунд.
+                        # Было 5.0 — на практике держало хук почти вровень с телом ролика
+                        # (4.65с против 6.8с), а не заметно быстрее, как задумано.
 PAUSE_DURATIONS = {"[pause]": 0.8, "[short pause]": 0.4,
                    "[slowly]": 0.0, "[emphasis]": 0.0, "[energetic]": 0.0}
 
@@ -512,8 +521,14 @@ def block_durations(blocks, total, energy_mults=None, real_weights=None):
     d = []
     for b, r in zip(blocks, raw):
         # В хуке кадры короче и чаще — первые секунды решают, останется ли зритель.
-        cap = HOOK_MAX_CLIP if b["section"].startswith("HOOK") else MAX_CLIP
-        d.append(max(MIN_CLIP, min(cap, r)))
+        # Раньше пол был ОДИН на весь ролик (MIN_CLIP) — реальная короткая
+        # фраза в хуке всё равно раздувалась до общего пола, и хук не
+        # отличался по темпу от тела ролика. Свой, более низкий пол —
+        # хук реально может резать чаще, а не только "теоретически может".
+        is_hook = b["section"].startswith("HOOK")
+        cap = HOOK_MAX_CLIP if is_hook else MAX_CLIP
+        floor = HOOK_MIN_CLIP if is_hook else MIN_CLIP
+        d.append(max(floor, min(cap, r)))
     scale = total / sum(d)
     return [x * scale for x in d]
 
@@ -1752,7 +1767,9 @@ def apply_section_boundary_shift(blocks, durs):
         h = int(hashlib.md5(blocks[i]["text"][:40].encode()).hexdigest()[:8], 16)
         mag = 0.25 + (h % 150) / 1000.0   # 0.25-0.40с, детерминировано по тексту
         give = mag if (h & 1) else -mag
-        if d[i - 1] - give >= MIN_CLIP and d[i] + give >= MIN_CLIP:
+        floor_prev = HOOK_MIN_CLIP if blocks[i - 1]["section"].startswith("HOOK") else MIN_CLIP
+        floor_cur = HOOK_MIN_CLIP if blocks[i]["section"].startswith("HOOK") else MIN_CLIP
+        if d[i - 1] - give >= floor_prev and d[i] + give >= floor_cur:
             d[i - 1] -= give
             d[i] += give
     return d
@@ -1775,7 +1792,11 @@ def apply_human_jitter(blocks, durs, magnitude=0.3):
         deltas.append((frac - 0.5) * 2 * magnitude)
     mean_delta = sum(deltas) / len(deltas)
     deltas = [x - mean_delta for x in deltas]
-    out = [max(MIN_CLIP, d + delta) for d, delta in zip(durs, deltas)]
+    # Свой пол для хука (HOOK_MIN_CLIP) — иначе джиттер молча утаскивал бы
+    # уже нарочно короткие хук-кадры обратно к общему MIN_CLIP, сводя на
+    # нет весь смысл отдельного, более быстрого пола (см. block_durations).
+    out = [max(HOOK_MIN_CLIP if b["section"].startswith("HOOK") else MIN_CLIP, d + delta)
+           for b, d, delta in zip(blocks, durs, deltas)]
     scale = sum(durs) / sum(out)
     return [x * scale for x in out]
 
