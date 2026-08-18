@@ -435,8 +435,12 @@ def pexels_photo(query, index, used_ids=None):
     """used_ids — множество ID уже показанных в этом ролике фото (мутируется на
     месте). Разные блоки часто ловят один и тот же тематический запрос — без
     этого им всем доставался бы top-1 результат, то есть одна и та же картинка
-    по нескольку раз за ролик. Перебираем выдачу (per_page=40) и берём первый
-    ID, которого ещё не было; если все уже использованы — берём топ-1 всё равно
+    по нескольку раз за ролик. Перебираем выдачу (per_page=80 — Pexels-максимум,
+    проверено вживую: возвращает 79; 40 всё ещё не хватало на узкой теме
+    вроде "meч" при 150 sub-cut блоках на одну лексическую тему — used_ids
+    общий на весь ролик, а не на запрос, так что разные запросы про мечи
+    делят один и тот же небольшой пул различимых стоковых фото) и берём
+    первый ID, которого ещё не было; если все уже использованы — берём топ-1 всё равно
     (лучше повтор, чем сорванная сборка)."""
     global PEXELS_BROKEN
     cache = os.path.join(TEMP_FOLDER, "pexels_cache")
@@ -452,7 +456,7 @@ def pexels_photo(query, index, used_ids=None):
     try:
         q = urllib.parse.quote(query)
         req = urllib.request.Request(
-            f"https://api.pexels.com/v1/search?query={q}&per_page=40&orientation=landscape",
+            f"https://api.pexels.com/v1/search?query={q}&per_page=80&orientation=landscape",
             headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
         with urllib.request.urlopen(req, timeout=15) as r:
             data = json.load(r)
@@ -1063,7 +1067,7 @@ def pexels_video(query, index, used_ids=None):
     try:
         q = urllib.parse.quote(query)
         req = urllib.request.Request(
-            f"https://api.pexels.com/videos/search?query={q}&per_page=40&orientation=landscape",
+            f"https://api.pexels.com/videos/search?query={q}&per_page=80&orientation=landscape",
             headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
         with urllib.request.urlopen(req, timeout=15) as r:
             data = json.load(r)
