@@ -1160,7 +1160,26 @@ def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR, blocks=None):
     if r.returncode != 0:
         print("  xfade-склейка не удалась, откат на concat:", r.stderr[-300:])
         return False, 0.0
-    return True, max(cum, 0.1)
+    # Пойман вживую на 150 клипах (после sub-cuts): ffmpeg возвращает 0
+    # (успех), но при очень длинной цепочке последовательных xfade в ОДНОМ
+    # filter_complex молча "роняет" кадры (dup=0 drop=20000+ в stderr) и
+    # застревает на застывшем кадре с середины ролика — итоговый файл
+    # правильной длины (после -shortest/-t на муксе), но 800+ секунд из
+    # них заморожены. Return-код тут не индикатор, реальная длительность —
+    # индикатор. На ~90 клипах (до sub-cuts) с той же схемой такого не
+    # было — это масштабная проблема ffmpeg с очень длинной цепочкой в
+    # одном графе, не баг в математике offset/cum (та проверена отдельно).
+    try:
+        real_dur = get_media_duration(out)
+    except Exception:
+        real_dur = 0.0
+    expected = max(cum, 0.1)
+    if real_dur < expected * 0.9 - 2.0:
+        print(f"  xfade-склейка вернула 0, но реальная длительность {real_dur:.1f}с "
+              f"против ожидаемых {expected:.1f}с (похоже на застревание ffmpeg на "
+              f"длинной цепочке xfade) — откат на concat.")
+        return False, 0.0
+    return True, expected
 
 
 def estimate_xfade_budget(blocks):
