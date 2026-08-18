@@ -5,6 +5,7 @@
 кадра, чередование in/out. Медиа: локальная папка media/ по порядку,
 fallback — Pexels по тематическому запросу.
 Usage: python scripts/pipeline_smart.py <video_dir>"""
+import csv
 import hashlib
 import json
 import os
@@ -317,11 +318,105 @@ def parse_blocks(path):
     return blocks
 
 
-def block_durations(blocks, total, energy_mults=None):
+ALIGNMENT_DIR = os.path.join(VIDEO_FOLDER, "media_plan", "alignment")
+ALIGNMENT_TAG_RE = re.compile(r'\[short pause\]|\[pause\]')
+ALIGNMENT_STRIP_TAGS = ("[energetic]", "[slowly]", "[emphasis]")
+
+
+def _real_speech_span(segment):
+    """Реальная длительность озвученного текста в сегменте символов
+    (index,char,start,end) — по первому и последнему буквенно-цифровому
+    символу, за вычетом служебных тегов вроде [energetic]/[slowly],
+    которые могут затесаться внутрь (они не читаются TTS вслух, но
+    формально попадают в поток символов из alignment.csv)."""
+    text = "".join(c for c, s, e in segment)
+    excluded = set()
+    for tag in ALIGNMENT_STRIP_TAGS:
+        idx = text.find(tag)
+        while idx != -1:
+            for j in range(idx, idx + len(tag)):
+                excluded.add(j)
+            idx = text.find(tag, idx + 1)
+    clean = [(c, s, e) for j, (c, s, e) in enumerate(segment)
+             if j not in excluded and re.match(r'[^\s\[\]]', c or "")]
+    if not clean:
+        return 0.0
+    return clean[-1][2] - clean[0][1]
+
+
+def load_alignment_weights(blocks):
+    """Реальные веса длительности блоков из посимвольного alignment.csv
+    (ElevenLabs/Lumean отдают его бесплатно вместе с каждым TTS-заказом —
+    раньше просто не забирался). Раньше длительность блока считалась ЧИСТО
+    по числу слов и общей скорости слов/сек — то есть каждое слово "весило"
+    одинаково. На деле темп TTS живой: короткая ударная фраза читается
+    быстрее длинной со сложными словами, [slowly]-блок — заметно медленнее.
+    Реальный посимвольный тайминг ловит эту вариацию, а не усредняет её.
+
+    Файлы лежат в media_plan/alignment/00.csv, 01.csv... — по одному на
+    КАЖДУЮ секцию (HOOK, BLOCK 1, ..., FINAL) в порядке их первого появления
+    в script.txt, разрезаны по буквальным вхождениям [pause]/[short pause]
+    на сегменты 1:1 с под-блоками этой секции в том же порядке.
+
+    Возвращает список той же длины, что blocks, — вес (сек) реальной речи
+    на блок или None для блоков без данных (эпизод без сохранённого
+    alignment, или новый блок, добавленный после записи — сборка тогда
+    просто откатывается на word-count оценку для этих блоков, как раньше)."""
+    if not os.path.isdir(ALIGNMENT_DIR):
+        return None
+    section_order = []
+    for b in blocks:
+        if not section_order or section_order[-1] != b["section"]:
+            section_order.append(b["section"])
+    section_segments = {}
+    for i, name in enumerate(section_order):
+        path = os.path.join(ALIGNMENT_DIR, f"{i:02d}.csv")
+        if not os.path.exists(path):
+            continue
+        try:
+            rows = list(csv.DictReader(open(path, encoding="utf-8")))
+            chars = [(r["char"], float(r["start"]), float(r["end"])) for r in rows]
+        except Exception as e:
+            print(f"  alignment {path} битый, пропускаю: {e}")
+            continue
+        text = "".join(c for c, s, e in chars)
+        segs, pos = [], 0
+        for m in ALIGNMENT_TAG_RE.finditer(text):
+            segs.append(chars[pos:m.start()])
+            pos = m.end()
+        segs.append(chars[pos:])
+        section_segments[name] = segs
+
+    weights = []
+    seg_cursor = {}
+    for b in blocks:
+        segs = section_segments.get(b["section"])
+        if segs is None:
+            weights.append(None)
+            continue
+        k = seg_cursor.get(b["section"], 0)
+        if k >= len(segs):
+            # Число под-блоков в текущем script.txt разошлось с числом
+            # сегментов в сохранённом alignment (текст правили после
+            # записи) — честно откатываемся на word-count для остатка
+            # секции, а не подставляем чужой сегмент не по месту.
+            weights.append(None)
+        else:
+            span = _real_speech_span(segs[k])
+            weights.append(span if span > 0.05 else None)
+        seg_cursor[b["section"]] = k + 1
+    return weights
+
+
+def block_durations(blocks, total, energy_mults=None, real_weights=None):
     tw = sum(b["words"] for b in blocks)
     tp = sum(b["pause_after"] for b in blocks)
     wps = tw / max(total - tp, 1)
-    raw = [b["words"] / wps + b["pause_after"] for b in blocks]
+    raw = []
+    for i, b in enumerate(blocks):
+        rw = real_weights[i] if real_weights else None
+        base = rw if rw is not None else b["words"] / wps
+        raw.append(base + b["pause_after"])
     if energy_mults:
         raw = [r * m for r, m in zip(raw, energy_mults)]
     d = []
@@ -950,6 +1045,30 @@ def qc_report(media_log):
     return dupes
 
 
+def apply_section_boundary_shift(blocks, durs):
+    """Лёгкая версия J/L-cut. Классический приём (звук следующей сцены
+    начинается раньше её картинки) тут физически не из чего собрать — вся
+    озвучка это один сплошной файл на весь ролик, а не отдельная дорожка
+    на клип. Но можно сдвинуть саму ТОЧКУ ВИДЕО-РЕЗА относительно границы
+    фразы на 250-400мс раньше или позже вместо ровно момента паузы —
+    зритель считывает лёгкую рассинхронность видео/смыслового реза как
+    признак ручного монтажа, а не нарезки строго по паузам. Сумма
+    длительностей не меняется — время просто перетекает между соседними
+    блоками ДО и ПОСЛЕ границы секции (не трогаем границы внутри секции —
+    там резы и так короткие/частые, сдвигать нечего и незачем)."""
+    d = list(durs)
+    for i in range(1, len(blocks)):
+        if blocks[i]["section"] == blocks[i - 1]["section"]:
+            continue
+        h = int(hashlib.md5(blocks[i]["text"][:40].encode()).hexdigest()[:8], 16)
+        mag = 0.25 + (h % 150) / 1000.0   # 0.25-0.40с, детерминировано по тексту
+        give = mag if (h & 1) else -mag
+        if d[i - 1] - give >= MIN_CLIP and d[i] + give >= MIN_CLIP:
+            d[i - 1] -= give
+            d[i] += give
+    return d
+
+
 def main():
     if not os.path.exists(AUDIO_FILE):
         print(f"Аудио не найдено: {AUDIO_FILE}")
@@ -967,22 +1086,27 @@ def main():
     # без картинки под конец аудиодорожки).
     xfade_budget = max(0, len(blocks) - 1) * XFADE_DUR
     target = total + xfade_budget
-    durs = block_durations(blocks, target)
-    # Второй проход: ритм по громкости поверх word-count-базы (не вместо неё) —
+    real_weights = load_alignment_weights(blocks)
+    if real_weights:
+        known = sum(1 for w in real_weights if w is not None)
+        print(f"Реальный тайминг (alignment.csv): {known}/{len(blocks)} блоков")
+    durs = block_durations(blocks, target, real_weights=real_weights)
+    # Второй проход: ритм по громкости поверх базовой оценки (не вместо неё) —
     # громкие места режутся чаще, тихие держатся дольше. Опционально (нужен numpy).
     # Стартовые точки для сэмплинга энергии считаем от РЕАЛЬНОЙ длины аудио
     # (total), не от раздутой под кроссфейды target — иначе поздние блоки на
     # длинном ролике со множеством склеек сэмплили бы энергию не в том месте.
     curve = audio_energy_curve(AUDIO_FILE)
     if curve:
-        baseline = block_durations(blocks, total)
+        baseline = block_durations(blocks, total, real_weights=real_weights)
         starts, acc = [], 0.0
         for d in baseline:
             starts.append(acc)
             acc += d
         mults = energy_pace_multipliers(curve, starts, baseline)
-        durs = block_durations(blocks, target, energy_mults=mults)
+        durs = block_durations(blocks, target, energy_mults=mults, real_weights=real_weights)
         print("Ритм по громкости: включён")
+    durs = apply_section_boundary_shift(blocks, durs)
     print(f"Средний кадр: {sum(durs)/len(durs):.1f}с")
 
     clips, clip_durs, clip_sections = [], [], []
