@@ -979,11 +979,26 @@ def pexels_video(query, index, used_ids=None):
         return None
 
 
-def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR):
+SNAP_CUT_DUR = 0.03   # мгновенный рез после stat-плашки — короче обычного hardcut
+
+
+def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR, blocks=None):
     """Один проход filter_complex с цепочкой xfade между ВСЕМИ соседними
-    кадрами — вместо жёсткой склейки. Тип перехода и длительность варьируются
-    (разнообразие + иногда почти жёсткий cut), на границе секций — заметный
-    dissolve. Возвращает (True, итоговая_длительность) или (False, 0.0), если
+    кадрами — вместо жёсткой склейки. Переход = сигнал драматургии, не
+    случайность: раньше тип перехода выбирался чисто хэшем путей файлов,
+    без связи со сменой темы/функции блока — dissolve мог случайно попасть
+    внутрь одной фразы, hardcut — между разделами. Теперь мотивированно
+    (нужен параллельный список blocks — метаданные клипов, is_subcut/stat/
+    section; без него откат на старое хэш-разнообразие для обратной
+    совместимости):
+    - граница секции → dissolve/fadeblack/fadewhite (смена темы)
+    - sub-cut внутри одного исходного блока → только hardcut (это один кадр
+      мысли, разрезанный на фазы — не повод анонсировать переход)
+    - сразу после клипа со stat-плашкой → snap cut (мгновенный, короче
+      обычного hardcut — цифра "впечаталась" и тут же сменилась)
+    - весь хук → только hardcut (энергия, скорость, никаких dissolve)
+    - остальное — 85% hardcut / 15% короткий dissolve (не полный xfade_dur)
+    Возвращает (True, итоговая_длительность) или (False, 0.0), если
     что-то пошло не так (тогда main() откатывается на обычный concat -c copy)."""
     n = len(clips)
     if n < 2:
@@ -993,6 +1008,8 @@ def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR):
     for i in range(1, n):
         h = int(hashlib.md5(f"{clips[i-1]}|{clips[i]}".encode()).hexdigest()[:8], 16)
         is_boundary = sections[i] != sections[i - 1]
+        b_prev = blocks[i - 1] if blocks else None
+        b_cur = blocks[i] if blocks else None
         if is_boundary:
             # Смена темы — заметный переход, не обычная склейка. dissolve/fadeblack/
             # fadewhite (вспышка светом — читается как "новая глава начинается ярко")
@@ -1000,12 +1017,18 @@ def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR):
             candidate = BOUNDARY_TRANSITIONS[h % len(BOUNDARY_TRANSITIONS)]
             transition = pick_no_repeat(boundary_hist, candidate, BOUNDARY_TRANSITIONS, 1)
             this_dur = xfade_dur
+        elif b_cur is not None and b_cur.get("is_subcut"):
+            transition, this_dur = "fade", XFADE_DUR_HARD
+        elif b_prev is not None and b_prev.get("stat"):
+            transition, this_dur = "fade", SNAP_CUT_DUR
+        elif b_cur is not None and sections[i].startswith("HOOK"):
+            transition, this_dur = "fade", XFADE_DUR_HARD
         else:
             # Большинство склеек в реальном монтаже — жёсткий cut, не dissolve;
-            # заметный переход — редкость, не норма. ~65% hard cut / ~35% вариация.
-            candidate = "hardcut" if (h % 3 != 0) else XFADE_TRANSITIONS[(h >> 8) % len(XFADE_TRANSITIONS)]
+            # заметный переход — редкость, не норма. ~85% hard cut / ~15% короткий dissolve.
+            candidate = "hardcut" if (h % 20 >= 3) else XFADE_TRANSITIONS[(h >> 8) % len(XFADE_TRANSITIONS)]
             choice = pick_no_repeat(cut_hist, candidate, ["hardcut"] + XFADE_TRANSITIONS, max_repeat=3)
-            this_dur = XFADE_DUR_HARD if choice == "hardcut" else xfade_dur
+            this_dur = XFADE_DUR_HARD if choice == "hardcut" else xfade_dur * 0.4
             transition = "fade" if choice == "hardcut" else choice
         offset = max(0.0, cum - this_dur)
         out_label = f"vx{i}" if i < n - 1 else "vout"
@@ -1274,7 +1297,7 @@ def main():
     durs = apply_human_jitter(blocks, durs)
     print(f"Средний кадр: {sum(durs)/len(durs):.1f}с")
 
-    clips, clip_durs, clip_sections = [], [], []
+    clips, clip_durs, clip_sections, clip_blocks = [], [], [], []
     missing = []   # индексы блоков, для которых не нашлось ни фото, ни видео
     media_log = []   # (индекс, путь_к_фото) — для QC-проверки на похожие кадры в конце
     zoom_hist, pan_hist = [], []
@@ -1305,6 +1328,7 @@ def main():
             clips.append(out)
             clip_durs.append(d)
             clip_sections.append(b["section"])
+            clip_blocks.append(b)
             continue
         photo = local_photo(i) if use_local else None
         video = None
@@ -1367,6 +1391,7 @@ def main():
             clips.append(out)
             clip_durs.append(d)
             clip_sections.append(b["section"])
+            clip_blocks.append(b)
             if not video and photo:
                 media_log.append((i, photo))
             if i % 20 == 0 or i < 3:
@@ -1380,7 +1405,7 @@ def main():
         print("Нет клипов")
         return 1
     merged = os.path.join(TEMP_FOLDER, "merged.mp4")
-    ok, xfade_total = xfade_chain(clips, clip_durs, clip_sections, merged)
+    ok, xfade_total = xfade_chain(clips, clip_durs, clip_sections, merged, blocks=clip_blocks)
     if not ok:
         concat = os.path.join(TEMP_FOLDER, "concat.txt")
         # Пути ТОЛЬКО абсолютные: concat-демуксер ffmpeg резолвит относительные
