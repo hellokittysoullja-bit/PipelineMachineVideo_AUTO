@@ -113,9 +113,13 @@ def film_look(photo_hash, section="", brightness_bias=0.0, energy_bias=0.0):
     c = mood["c0"] + (photo_hash % 100) / 100 * 0.05 + eb * 0.06
     s = mood["s0"] + ((photo_hash >> 7) % 100) / 100 * 0.08 + eb * 0.05
     b = ((photo_hash >> 14) % 100) / 100 * 0.02 + brightness_bias
+    # unsharp ДО noise, не после: zoompan рендерит с 8000px-холста в 1920 —
+    # даунскейл сам по себе мягкий, лёгкая доводка резкости возвращает
+    # ощущение "живого" объектива. После noise та же resharpen подчёркивала
+    # бы САМО зерно (арефактно), не картинку — порядок имеет значение.
     return (f"eq=contrast={c:.3f}:saturation={s:.3f}:brightness={b:.3f},"
             f"colorbalance=rs=-0.06:bs={mood['bs']:.3f}:rm=-0.02:bm=0.04:rh={mood['rh']:.3f}:bh=-0.02,"
-            f"vignette={mood['vign']},noise=alls=3:allf=t+u")
+            f"vignette={mood['vign']},unsharp=5:5:0.45:5:5:0.0,noise=alls=3:allf=t+u")
 
 
 XFADE_DUR = 0.4        # диссолв на границах секций и часть обычных склеек
