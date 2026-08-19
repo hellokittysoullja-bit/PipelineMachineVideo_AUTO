@@ -369,33 +369,45 @@ def measure_loudnorm_stats(audio_path, target_i=-16, target_tp=-1.5, target_lra=
         return None
 
 
-def measure_levels(path, is_video=False, lo_pct=2, hi_pct=98):
+def measure_levels(path, is_video=False, lo_pct=2, hi_pct=98, video_samples=4, video_span=3.5):
     """Чёрная/белая точка кадра (0..1) по перцентилям гистограммы — для
     адаптивной ТЕХНИЧЕСКОЙ нормализации экспозиции ДО фиксированного
     творческого грейда (см. auto_levels_params()/film_look()). Перцентили,
     не голый min/max — иначе один яркий блик/пересвеченный пиксель срывает
-    белую точку всего кадра. Для видео — тот же грубый приём, что
-    measure_luma (один кадр-пробник, не весь клип — экспозиция может плыть
-    внутри клипа, но точный анализ всего ролика не окупает cложность)."""
+    белую точку всего кадра.
+
+    Для видео — НЕСКОЛЬКО кадров-пробников (video_samples, разнесённых по
+    первым video_span секундам, тот же принцип, что уже использует
+    measure_motion() для спид-рампа), не один: экспозиция может плыть
+    внутри клипа (панорама между светлым/тёмным), один кадр — нерепрезен-
+    тативная выборка. Перцентили считаются по ОБЪЕДИНЁННЫМ пикселям всех
+    сэмплов — честная оценка разброса по всему просматриваемому диапазону,
+    не по случайному одному моменту."""
     try:
         if is_video:
-            tmp = path + "._levels_probe.jpg"
-            # -ss 0.5 ДО -i, не кадр 0 — реальный сток иногда начинается с
-            # чёрного лидер-кадра/fade-in (поймано вживую: у одного из
-            # клипов эпизода кадр 0 был буквально чистым чёрным, min=max=0 —
-            # без сдвига это выглядело бы как "снято в темноте" и заваливало
-            # бы коррекцию в вырожденный случай на КАЖДОМ таком клипе).
-            r = subprocess.run(["ffmpeg", "-y", "-ss", "0.5", "-i", path, "-frames:v", "1", "-q:v", "5", tmp],
-                                capture_output=True, timeout=20)
-            if r.returncode != 0 or not os.path.exists(tmp):
+            arrs = []
+            for i in range(video_samples):
+                # 0.5 старт, не 0 — реальный сток иногда начинается с чёрного
+                # лидер-кадра/fade-in (поймано вживую: у одного клипа эпизода
+                # кадр 0 был буквально чистым чёрным, min=max=0 — без сдвига
+                # это заваливало бы коррекцию в вырожденный случай на КАЖДОМ
+                # таком клипе).
+                t = 0.5 + video_span * i / max(1, video_samples - 1)
+                tmp = path + f"._levels_probe_{i}.jpg"
+                r = subprocess.run(["ffmpeg", "-y", "-ss", f"{t:.2f}", "-i", path,
+                                     "-frames:v", "1", "-q:v", "5", tmp],
+                                    capture_output=True, timeout=20)
+                if r.returncode == 0 and os.path.exists(tmp):
+                    if np is not None:
+                        arrs.append(np.asarray(PILImage.open(tmp).convert("L"), dtype=np.float32) / 255.0)
+                    os.remove(tmp)
+            if not arrs:
                 return None
-            img = PILImage.open(tmp).convert("L")
-            os.remove(tmp)
+            arr = np.concatenate([a.ravel() for a in arrs])
         else:
-            img = PILImage.open(path).convert("L")
-        if np is None:
-            return None
-        arr = np.asarray(img, dtype=np.float32) / 255.0
+            if np is None:
+                return None
+            arr = np.asarray(PILImage.open(path).convert("L"), dtype=np.float32).ravel() / 255.0
         lo = float(np.percentile(arr, lo_pct))
         hi = float(np.percentile(arr, hi_pct))
         return lo, hi
