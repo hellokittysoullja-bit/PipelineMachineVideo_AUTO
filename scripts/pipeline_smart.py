@@ -549,7 +549,7 @@ PHOTO_DEDUP_HAMMING = 6   # тот же порог, что в qc_report() — "�
 PHOTO_DEDUP_MAX_TRIES = 6 # сколько кандидатов реально СКАЧАТЬ и захэшировать, прежде чем сдаться
 
 
-def pexels_photo(query, index, used_ids=None, used_hashes=None):
+def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=None):
     """used_ids — множество ID уже показанных в этом ролике фото (мутируется на
     месте). Разные блоки часто ловят один и тот же тематический запрос — без
     этого им всем доставался бы top-1 результат, то есть одна и та же картинка
@@ -580,6 +580,11 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None):
     cf = os.path.join(cache, f"{index:04d}_{qhash}.jpg")
     if os.path.exists(cf):
         if used_hashes is None:
+            if recent_sizes is not None:
+                try:
+                    recent_sizes.append(estimate_shot_size(cf))
+                except Exception:
+                    pass
             return cf
         # Реальный баг, пойманный вживую: кэш-хит раньше отдавал файл СРАЗУ,
         # даже не проверяя его против used_hashes — анти-дубль код (ниже)
@@ -594,6 +599,11 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None):
             h = ahash(cf)
             if min((hamming(h, uh) for uh in used_hashes), default=99) > PHOTO_DEDUP_HAMMING:
                 used_hashes.append(h)
+                if recent_sizes is not None:
+                    try:
+                        recent_sizes.append(estimate_shot_size(cf))
+                    except Exception:
+                        pass
                 return cf
         except Exception:
             return cf
@@ -621,7 +631,13 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None):
             pick = candidates[0]
             download(pick, cf)
         else:
-            best_path, best_min_d = None, -1
+            # score = (не дубль?, разнообразит масштаб плана?, дистанция по хэшу) —
+            # сравниваются как кортежи, лексикографически: "не дубль" важнее
+            # "разнообразия", разнообразие важнее точной дистанции. recent_sizes
+            # (см. main()) — те же уже скачанные кандидаты анти-дубля, никакого
+            # нового сетевого трафика ради этой доп. проверки — переиспользуем
+            # то, что и так уже качаем.
+            best_path, best_score = None, (-1, -1, -1)
             for p in candidates[:PHOTO_DEDUP_MAX_TRIES]:
                 trial = cf + f".trial_{p.get('id')}.jpg"
                 try:
@@ -630,20 +646,28 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None):
                 except Exception:
                     continue
                 min_d = min((hamming(h, uh) for uh in used_hashes), default=99)
-                if min_d > best_min_d:
+                is_dup_free = 1 if min_d > PHOTO_DEDUP_HAMMING else 0
+                size_ok = 1
+                if recent_sizes is not None:
+                    try:
+                        size_ok = 0 if estimate_shot_size(trial) in recent_sizes[-2:] else 1
+                    except Exception:
+                        size_ok = 1
+                score = (is_dup_free, size_ok, min_d)
+                if score > best_score:
                     if best_path and best_path != trial:
                         try:
                             os.remove(best_path)
                         except OSError:
                             pass
-                    best_path, best_min_d, pick = trial, min_d, p
+                    best_path, best_score, pick = trial, score, p
                 elif trial != best_path:
                     try:
                         os.remove(trial)
                     except OSError:
                         pass
-                if min_d > PHOTO_DEDUP_HAMMING:
-                    break
+                if is_dup_free and size_ok:
+                    break   # хорош по обеим осям сразу — не жжём оставшиеся попытки
             if best_path is None:
                 pick = candidates[0]
                 download(pick, cf)
@@ -654,6 +678,11 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None):
         if used_hashes is not None:
             try:
                 used_hashes.append(ahash(cf))
+            except Exception:
+                pass
+        if recent_sizes is not None:
+            try:
+                recent_sizes.append(estimate_shot_size(cf))
             except Exception:
                 pass
         return cf
@@ -1019,18 +1048,78 @@ def compute_crop_offset(iw, ih, cw, ch, anchor=None):
     return nw, nh, x0, y0
 
 
+SHOT_SIZES = ("wide", "medium", "close", "detail")
+
+
+def estimate_shot_size(photo_path):
+    """Четвёртая ось грамматики кадра (после функции блока) — масштаб
+    плана: wide/medium/close/detail. Профессиональный монтаж постоянно
+    МЕНЯЕТ масштаб визуальной информации между соседними кадрами; без
+    этого сигнала пайплайн может случайно поставить подряд несколько
+    общих или несколько крупных планов — по отдельности каждый кадр
+    подобран хорошо, но подряд это читается как монотонность.
+
+    Сигналы — все уже дешёвые и частично считаются в пайплайне для
+    других целей, новой модели не тянем:
+    1. Лицо и его относительный размер (Haar, уже есть для anchor-кропа)
+       — самый надёжный сигнал, когда сработал.
+    2. Плотность локального контраста (estimate_busyness) — тесный/
+       текстурный кадр (макро металла, гравировка) даёт много перепадов
+       на пиксель, просторный — мало.
+    3. Уверенность spectral saliency — резкий узкий пик на спокойном
+       фоне типичен для предметной съёмки крупным/средним планом
+       (студийный сток), отсутствие пика — открытая сцена."""
+    if PARALLAX_LIBS:
+        try:
+            global _FACE_CASCADE
+            if _FACE_CASCADE is None:
+                _FACE_CASCADE = cv2.CascadeClassifier(
+                    cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+            img = cv2.imread(photo_path)
+            if img is not None:
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                h, w = gray.shape[:2]
+                min_side = int(min(w, h) * 0.08)
+                faces = _FACE_CASCADE.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5,
+                                                        minSize=(min_side, min_side))
+                if len(faces) > 0:
+                    fx, fy, fw, fh = max(faces, key=lambda f: f[2] * f[3])
+                    face_frac = (fw * fh) / (w * h)
+                    if face_frac > 0.06:
+                        return "close"
+                    if face_frac > 0.015:
+                        return "medium"
+                    return "wide"
+        except Exception:
+            pass
+    busy = estimate_busyness(photo_path)
+    if busy > 0.62:
+        return "detail"
+    if spectral_saliency_anchor(photo_path) is not None:
+        return "medium"
+    return "wide"
+
+
 MOTION_MODES = ("classic_kb", "static_hold", "snap_push", "slow_pull",
                  "horizontal_pan", "micro_drift")
 
 
-def choose_motion_mode(b, is_section_start, photo_hash):
+def choose_motion_mode(b, is_section_start, photo_hash, shot_size=None):
     """Все кадры "дышат" одним и тем же классом движения (smoothstep
     zoom+pan) — фирменный почерк автослайдшоу, даже с anti-repeat на
     выборе направления. Профессиональный монтаж чередует статику, быстрый
     push-in, медленный pull-out, чистую панораму, едва заметный дрифт.
-    Выбор — по ФУНКЦИИ блока, не случайно: цифра должна читаться (не
+    Выбор — по ФУНКЦИИ блока в первую очередь: цифра должна читаться (не
     ехать), reveal-кадр раздела — медленный отъезд, sub-cut деталь —
-    почти неподвижна (не тянет внимание с главного кадра фразы)."""
+    почти неподвижна (не тянет внимание с главного кадра фразы).
+
+    shot_size (см. estimate_shot_size) — вторая, более тонкая поправка
+    ПОВЕРХ выбора по функции, не вместо него: широкий план (простор,
+    открытая сцена) естественнее смотрится с панорамой/медленным отъездом,
+    крупный/деталь — с едва заметным дрифтом или статикой (быстрый зум на
+    и без того тесном кадре съедает сам объект). Дешёвая эвристика вместо
+    отдельного классификатора "портрет/архитектура/пейзаж" — используем
+    уже посчитанный сигнал, а не тянем новую модель ради категорий."""
     if b.get("stat"):
         return "static_hold"
     if is_section_start:
@@ -1038,7 +1127,13 @@ def choose_motion_mode(b, is_section_start, photo_hash):
     if b["section"].startswith("HOOK"):
         return "snap_push" if (photo_hash & 2) else "classic_kb"
     if b.get("is_subcut"):
+        if shot_size in ("close", "detail"):
+            return "micro_drift"
         return "micro_drift" if (photo_hash & 4) else "static_hold"
+    if shot_size == "wide":
+        return "horizontal_pan" if (photo_hash & 1) else "slow_pull"
+    if shot_size in ("close", "detail"):
+        return "micro_drift" if (photo_hash & 1) else "static_hold"
     return "horizontal_pan" if (photo_hash % 7 == 0) else "classic_kb"
 
 
@@ -2018,6 +2113,7 @@ def main():
     used_photo_ids = set()   # общий на весь ролик — не даём одной фотке всплыть дважды
     used_video_ids = set()   # то же самое, отдельно для видео (разные ID-пространства)
     used_photo_hashes = []   # aHash уже отобранных фото — ловит визуальные дубли под РАЗНЫМИ ID (см. pexels_photo)
+    recent_shot_sizes = []   # скользящее окно масштаба плана (wide/medium/close/detail) — см. estimate_shot_size
     stat_count = 0   # 2.2: номер плашки по счёту в ролике -> вариант оформления (chередуются по кругу)
     luma_ema = None   # для сглаживания скачков экспозиции между соседними склейками (см. measure_luma())
     for i, (b, d) in enumerate(zip(blocks, durs)):
@@ -2067,9 +2163,11 @@ def main():
             if prefer_video:
                 video = pexels_video(queries[i], i, used_ids=used_video_ids)
                 if not video:
-                    photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes)
+                    photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
+                                      recent_sizes=recent_shot_sizes)
             else:
-                photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes)
+                photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
+                                      recent_sizes=recent_shot_sizes)
                 if not photo and d >= MIN_CLIP + 1.0:
                     video = pexels_video(queries[i], i, used_ids=used_video_ids)
             # Раньше Pexels отключался навсегда после ЛЮБОГО промаха, включая
@@ -2125,7 +2223,8 @@ def main():
                                         energy_bias=energy_bias, stat_delay=stat_delay)
             if not ok:
                 photo_hash, _, _ = kb_hash_choices(photo)
-                motion_mode = choose_motion_mode(b, is_section_start, photo_hash)
+                cur_shot_size = recent_shot_sizes[-1] if recent_shot_sizes else None
+                motion_mode = choose_motion_mode(b, is_section_start, photo_hash, shot_size=cur_shot_size)
                 ok = kenburns(photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
                               stat=stat, section=b["section"], motion_mode=motion_mode,
                               brightness_bias=brightness_bias, energy_bias=energy_bias,
