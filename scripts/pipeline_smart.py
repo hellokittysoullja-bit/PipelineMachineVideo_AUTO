@@ -49,6 +49,13 @@ PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY", "")
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/125.0 Safari/537.36")
 FPS, WIDTH, HEIGHT = 25, 1920, 1080
+# Явные цветовые метаданные — без них YouTube на части устройств домысливает
+# цветовое пространство сам и уходит в грязь/перенасыщение (особенно заметно
+# на тёмном грейде — а у нас он тёмный). Добавляется на КАЖДЫЙ libx264-выход
+# (промежуточные клипы и оба финальных прохода) — дешёвая гигиена, не
+# косметика: без неё цвет непредсказуем именно там, где мы больше всего
+# вложились в грейд/зерно/halation.
+COLOR_META_ARGS = ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709"]
 
 # ZOOM_FLOOR — минимальный зум держится ВЕСЬ клип (не 1.0). Раньше offset пана
 # был обязан = 0 ровно в момент zoom=1.0 (иначе край вылезет за картинку), и на
@@ -259,6 +266,24 @@ def energy_levels(curve, starts, durs):
         e = float(seg.mean()) if len(seg) else med
         levels.append(max(0.5, min(2.0, e / med)))
     return levels
+
+
+def measure_loudnorm_stats(audio_path, target_i=-16, target_tp=-1.5, target_lra=11):
+    """Первый проход двух-проходного loudnorm — только измерение, звук не
+    трогаем. Однопроходный (динамический) режим подстраивает усиление на
+    лету по ходу файла и даёт неровную громкость внутри ролика и неточный
+    итоговый integrated — это ffmpeg-документация прямо называет compromise-
+    режимом, не тем, что стоит использовать для финального мастеринга.
+    None при любой ошибке — main() откатывается на старый однопроходный af."""
+    try:
+        r = subprocess.run(
+            ["ffmpeg", "-i", audio_path, "-af",
+             f"loudnorm=I={target_i}:TP={target_tp}:LRA={target_lra}:print_format=json",
+             "-f", "null", "-"], capture_output=True, text=True, timeout=60)
+        start, end = r.stderr.rindex("{"), r.stderr.rindex("}") + 1
+        return json.loads(r.stderr[start:end])
+    except Exception:
+        return None
 
 
 def measure_luma(path, is_video=False):
@@ -1394,7 +1419,7 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
     def render(vf):
         cmd = ["ffmpeg", "-y", "-loop", "1", "-i", photo, "-vf", vf,
                "-t", str(dur), "-c:v", "libx264", "-preset", "fast",
-               "-crf", "23", "-pix_fmt", "yuv420p", "-r", str(FPS), out]
+               "-crf", "18", "-pix_fmt", "yuv420p", "-r", str(FPS)] + COLOR_META_ARGS + [out]
         return subprocess.run(cmd, capture_output=True, text=True)
 
     if vf_overlay:
@@ -1550,8 +1575,8 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
                "-frames:v", str(frames)]
         vf = film_look(h, section, brightness_bias, energy_bias)
         vf = add_overlays(vf, dur, title, stat, stat_variant, stat_delay) if (title or stat) else vf
-        cmd += ["-vf", vf, "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                "-pix_fmt", "yuv420p", "-r", str(FPS), out]
+        cmd += ["-vf", vf, "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                "-pix_fmt", "yuv420p", "-r", str(FPS)] + COLOR_META_ARGS + [out]
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE,
                                  stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
@@ -1756,8 +1781,8 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
         filter_complex = f"[0:v]{scale_crop}[base];{ramp_filter};[ramped]{full_tail}[vout]"
         cmd = ["ffmpeg", "-y", "-i", vid, "-filter_complex", filter_complex,
                "-map", "[vout]", "-t", str(dur), "-an",
-               "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-               "-pix_fmt", "yuv420p", "-r", str(FPS), out]
+               "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+               "-pix_fmt", "yuv420p", "-r", str(FPS)] + COLOR_META_ARGS + [out]
         r = subprocess.run(cmd, capture_output=True, text=True)
         if r.returncode == 0:
             return True
@@ -1779,8 +1804,8 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
         if skip > 0.05:
             cmd += ["-ss", f"{skip:.2f}"]
         cmd += ["-i", vid, "-vf", vf, "-t", str(dur), "-an",
-                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                "-pix_fmt", "yuv420p", "-r", str(FPS), out]
+                "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                "-pix_fmt", "yuv420p", "-r", str(FPS)] + COLOR_META_ARGS + [out]
         return subprocess.run(cmd, capture_output=True, text=True)
 
     if vf_overlay:
@@ -1897,9 +1922,16 @@ def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR, blocks=None):
     cmd = ["ffmpeg", "-y"]
     for c in clips:
         cmd += ["-i", c]
+    # Это единственный проход, который видит ВСЮ склейку сразу — то, что
+    # уйдёт на YouTube (финальный мукс делает -c:v copy, второго прохода
+    # уже не будет). Каждый отдельный клип и так уже CRF 18 (см. kenburns/
+    # video_render/parallax_kenburns) — если тут снова ужать до 23, это
+    # второе поколение потерь поверх первого, заметное именно на тёмном
+    # грейде (градиенты/дым/зерно). medium+CRF16 — разовая цена, не на
+    # каждый маленький клип.
     cmd += ["-filter_complex", ";".join(parts), "-map", "[vout]",
-            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-            "-pix_fmt", "yuv420p", "-r", str(FPS), out]
+            "-c:v", "libx264", "-preset", "medium", "-crf", "16",
+            "-pix_fmt", "yuv420p", "-r", str(FPS)] + COLOR_META_ARGS + [out]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
         print("  xfade-склейка не удалась, откат на concat:", r.stderr[-300:])
@@ -1966,8 +1998,8 @@ def pad_to_length(video, target, temp_dir):
     subprocess.run(["ffmpeg", "-y", "-sseof", "-0.3", "-i", video,
                     "-vframes", "1", lastframe], capture_output=True)
     r = subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", lastframe, "-t", f"{gap:.3f}",
-                        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                        "-pix_fmt", "yuv420p", "-r", str(FPS), padclip],
+                        "-c:v", "libx264", "-preset", "medium", "-crf", "16",
+                        "-pix_fmt", "yuv420p", "-r", str(FPS)] + COLOR_META_ARGS + [padclip],
                        capture_output=True, text=True)
     if r.returncode != 0:
         return video, gap
@@ -2448,15 +2480,42 @@ def main():
     # -1.5dB true peak потолок, LRA 11) вместо "как есть от TTS". Разные
     # заказы озвучки/движки иначе дают заметно разную громкость от эпизода
     # к эпизоду — не проф. уровень, если зритель тянется к громкости между
-    # роликами одного канала.
+    # роликами одного канала. Двухпроходный (measure -> linear=true) вместо
+    # однопроходного динамического — тот подстраивает усиление на лету и
+    # даёт неровную громкость внутри самого ролика. afade — раньше ролик
+    # начинался и обрывался всухую (щелчок на монтажный лад, не финал).
+    loud_stats = measure_loudnorm_stats(AUDIO_FILE)
+    fade_out_st = max(0.0, total - 2.0)
+    if loud_stats:
+        af = (f"loudnorm=I=-16:TP=-1.5:LRA=11:linear=true:"
+              f"measured_I={loud_stats['input_i']}:measured_TP={loud_stats['input_tp']}:"
+              f"measured_LRA={loud_stats['input_lra']}:measured_thresh={loud_stats['input_thresh']}:"
+              f"offset={loud_stats['target_offset']},"
+              f"afade=t=in:st=0:d=0.4,afade=t=out:st={fade_out_st:.3f}:d=2")
+    else:
+        af = (f"loudnorm=I=-16:TP=-1.5:LRA=11,"
+              f"afade=t=in:st=0:d=0.4,afade=t=out:st={fade_out_st:.3f}:d=2")
     r = subprocess.run(["ffmpeg", "-y", "-i", merged, "-i", AUDIO_FILE,
                         "-t", f"{total:.3f}",
-                        "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
+                        "-af", af,
                         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+                        "-movflags", "+faststart",
                         "-shortest", OUTPUT_FILE], capture_output=True, text=True)
     if r.returncode != 0:
         print("Аудио:", r.stderr[-300:])
         return 1
+    # Честная цифра вместо "надеемся" — измеряем итоговую громкость ГОТОВОГО
+    # файла (не входного audio.mp3): если разошлось с целью -16 LUFS больше,
+    # чем на децибел, это видно в отчёте, а не тонет молча.
+    final_lufs = None
+    try:
+        fr = subprocess.run(["ffmpeg", "-i", OUTPUT_FILE, "-af",
+                              "loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json",
+                              "-f", "null", "-"], capture_output=True, text=True, timeout=60)
+        fs, fe = fr.stderr.rindex("{"), fr.stderr.rindex("}") + 1
+        final_lufs = float(json.loads(fr.stderr[fs:fe])["input_i"])
+    except Exception:
+        pass
     mb = os.path.getsize(OUTPUT_FILE) / (1024 * 1024)
     # Пропущенные кадры и раньше не останавливали сборку (стратегия
     # "лучше меньше клипов, чем сорванный рендер") — но раньше это тонуло
@@ -2465,6 +2524,9 @@ def main():
     # доехало (не 0, если что-то пропущено).
     dupes = qc_report(media_log)
     status = f" | ПРОПУЩЕНО {len(missing)} блоков: {missing}" if missing else ""
+    if final_lufs is not None:
+        status += f" | Громкость: {final_lufs:.1f} LUFS" + (
+            "" if abs(final_lufs - (-16.0)) <= 1.0 else " (!!! разошлось с целью -16)")
     # Дубли по фото — та же логика: не блокируем сборку (видео уже готово
     # и в целом смотрибельно), но не даём находке потеряться в середине
     # лога и не даём коду возврата соврать, что всё чисто.
