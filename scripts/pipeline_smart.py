@@ -9,6 +9,7 @@ import csv
 import difflib
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -1984,6 +1985,17 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
         # честная 3D-репроекция). depth_zoom_strength тоже масштабируется
         # content-aware — той же логикой, что и parallax_px выше.
         depth_zoom_strength = 0.12 * strength_gain
+        # C2: лёгкий 3D-наклон камеры (roll) — до TILT_MAX_DEG, направление
+        # по хэшу фото. Независимая от зума/пана ось движения, добавляет
+        # ощущение "камера не на рельсах, а в руках", не дублирует то, что
+        # уже даёт depth-параллакс (тот двигает БЛИЖНИЕ/ДАЛЬНИЕ слои с разной
+        # скоростью, это вращает кадр целиком).
+        TILT_MAX_DEG = 0.6
+        tilt_dir = 1 if (h & 0x100) else -1
+        # Не крутим кадр под цифрой-плашкой — читаемость важнее, тот же
+        # принцип, что static_hold у kenburns() (параллакс своей "статичной"
+        # ветки не имеет, гасим только этот один эффект).
+        tilt_theta_max = 0.0 if stat else math.radians(TILT_MAX_DEG * tilt_dir)
 
         cx, cy = cw / 2.0, ch / 2.0
         ox_grid, oy_grid = np.meshgrid(np.arange(WIDTH, dtype=np.float32),
@@ -2036,6 +2048,17 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
             zoom_gain = np.clip(zoom_gain, 0.88, 1.15)
             map_x = cx + (ox_grid - WIDTH / 2) / (zoom * zoom_gain) + dx * pan_px + dx * extra
             map_y = cy + (oy_grid - HEIGHT / 2) / (zoom * zoom_gain) + dy * pan_px + dy * extra
+            # Лёгкий поворот кадра (roll) — независимая от зума/пана степень
+            # свободы: камера не строго на рельсах, а слегка меняет угол.
+            # Амплитуда мала (умещается в запас холста PARALLAX_MARGIN=1.5,
+            # проверено вживую на отсутствие смазанных краёв), направление —
+            # детерминировано по хэшу фото.
+            if tilt_theta_max != 0.0:
+                theta = tilt_theta_max * eased
+                cos_t, sin_t = np.float32(math.cos(theta)), np.float32(math.sin(theta))
+                rel_x, rel_y = map_x - cx, map_y - cy
+                map_x = cx + rel_x * cos_t - rel_y * sin_t
+                map_y = cy + rel_y * cos_t + rel_x * sin_t
             map_x = np.clip(map_x, 0, cw - 1)
             map_y = np.clip(map_y, 0, ch - 1)
 
@@ -2173,10 +2196,17 @@ def detect_scene_change_offset(vid, max_skip, scene_threshold=0.12):
 
 
 def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=0,
-                  brightness_bias=0.0, energy_bias=0.0, stat_delay=0.0, levels=None):
+                  brightness_bias=0.0, energy_bias=0.0, stat_delay=0.0, levels=None,
+                  handheld=False):
     """Аналог kenburns(), но для стокового видео: без zoompan (движение уже
     есть в кадре), заливка кадра целиком + обрезка (не letterbox), растяжение
     по времени, если исходный ролик короче нужной длительности.
+
+    handheld — лёгкая ручная тряска (C3): у фото уже есть film weave
+    (WOBBLE_AMP_CANVAS_PX), у видео-стока движения камеры не было вообще —
+    боевые сцены на стоке выглядели подозрительно гладко (будто со штатива).
+    Заказывается по контенту (ACTION_WORDS в тексте блока, см. main()), не
+    на каждый видео-кадр — на спокойных сюжетах тряска ничем не мотивирована.
 
     Speed ramp (slow->fast->normal, SPEED_RAMP_SEGMENTS) — отдельный путь
     через -filter_complex (нужен concat нескольких setpts-кусков ОДНОГО
@@ -2188,7 +2218,20 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
     except Exception:
         actual = dur
     h = int(hashlib.md5(vid.encode()).hexdigest()[:8], 16)
-    scale_crop = f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,crop={WIDTH}:{HEIGHT},setsar=1"
+    if handheld:
+        # Небольшой запас (3.5%) сверх целевого кадра под тряску — тот же
+        # принцип, что PARALLAX_MARGIN у фото, просто меньше (тут не нужно
+        # места под пан/зум, только под дрожание в несколько пикселей).
+        ov_w, ov_h = round(WIDTH * 1.035), round(HEIGHT * 1.035)
+        amp = 6.0
+        ph1, ph2 = ((h >> 3) % 628) / 100.0, ((h >> 11) % 628) / 100.0
+        shake_x = f"{amp:.1f}*sin(2*PI*t*0.9+{ph1:.2f})+{amp*0.6:.1f}*sin(2*PI*t*2.3+{ph2:.2f})"
+        shake_y = f"{amp:.1f}*sin(2*PI*t*1.1+{ph2:.2f})+{amp*0.6:.1f}*sin(2*PI*t*2.7+{ph1:.2f})"
+        scale_crop = (f"scale={ov_w}:{ov_h}:force_original_aspect_ratio=increase,"
+                      f"crop={WIDTH}:{HEIGHT}:x='({ov_w}-{WIDTH})/2+{shake_x}':"
+                      f"y='({ov_h}-{HEIGHT})/2+{shake_y}',setsar=1")
+    else:
+        scale_crop = f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,crop={WIDTH}:{HEIGHT},setsar=1"
     bias = next((v for k, v in SPEED_BIAS.items() if section.startswith(k)), 1.0)
     # Стоковое видео часто начинается со статичного/вялого кадра до того, как
     # начнётся реальное движение (панорама разгоняется, руки только подносят
@@ -3002,7 +3045,8 @@ def main():
         if video:
             ok = video_render(video, out, d, title=title, stat=stat, section=b["section"],
                                stat_variant=stat_variant, brightness_bias=brightness_bias,
-                               energy_bias=energy_bias, stat_delay=stat_delay, levels=levels)
+                               energy_bias=energy_bias, stat_delay=stat_delay, levels=levels,
+                               handheld=has_action_word(b["text"]))
         else:
             # anti-repetition: хэш сам по себе не мешает 3 зумам подряд случайно
             # совпасть — держим окно последних решений и форсируем смену при повторе.
