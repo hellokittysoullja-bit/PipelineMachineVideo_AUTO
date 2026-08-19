@@ -570,12 +570,24 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None):
     qhash = hashlib.md5(query.encode()).hexdigest()[:8]
     cf = os.path.join(cache, f"{index:04d}_{qhash}.jpg")
     if os.path.exists(cf):
-        if used_hashes is not None:
-            try:
-                used_hashes.append(ahash(cf))
-            except Exception:
-                pass
-        return cf
+        if used_hashes is None:
+            return cf
+        # Реальный баг, пойманный вживую: кэш-хит раньше отдавал файл СРАЗУ,
+        # даже не проверяя его против used_hashes — анти-дубль код (ниже)
+        # тогда никогда не успевал сработать на файлах, скачанных ЕЩЁ ДО
+        # его появления (или на прошлом прогоне без анти-дубля). На готовом
+        # ролике это дало 4 пары дублей — оба файла кэша существовали
+        # заранее, каждый кэш-хит молча их одобрял. Теперь кэш-хит тоже
+        # проверяется на похожесть — коллизия найдена, файл НЕ считается
+        # валидным кэшем, код падает ниже в обычный путь скачивания и
+        # перезаписывает cf нормальным анти-дубль перебором кандидатов.
+        try:
+            h = ahash(cf)
+            if min((hamming(h, uh) for uh in used_hashes), default=99) > PHOTO_DEDUP_HAMMING:
+                used_hashes.append(h)
+                return cf
+        except Exception:
+            return cf
     if not PEXELS_API_KEY:
         return None
     try:
