@@ -869,16 +869,16 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             download(pick, cf)
         else:
             # score = (не дубль?, разнообразит масштаб плана?, релевантна
-            # запросу по CLIP?, ближе по яркости к соседям?, дистанция по
-            # хэшу) — сравниваются как кортежи, лексикографически: "не
-            # дубль" важнее "разнообразия", то важнее релевантности, та
-            # важнее яркостной близости, та важнее точной дистанции (самый
-            # младший критерий — просто добивает выбор среди и так уже
-            # равных по первым осям). recent_sizes/luma/CLIP — те же уже
-            # скачанные кандидаты анти-дубля, никакого нового сетевого
-            # трафика ради этой доп. проверки — переиспользуем то, что и
-            # так уже качаем.
-            best_path, best_score, good_seen = None, (-1, -1, -1, -1.0, -1), 0
+            # запросу по CLIP?, эстетическая оценка, ближе по яркости к
+            # соседям?, дистанция по хэшу) — сравниваются как кортежи,
+            # лексикографически: "не дубль" важнее "разнообразия", то
+            # важнее релевантности, та важнее эстетики, та важнее яркостной
+            # близости, та важнее точной дистанции (самый младший критерий —
+            # просто добивает выбор среди и так уже равных по первым осям).
+            # recent_sizes/luma/CLIP/эстетика — те же уже скачанные
+            # кандидаты анти-дубля, никакого нового сетевого трафика ради
+            # этой доп. проверки — переиспользуем то, что и так уже качаем.
+            best_path, best_score, good_seen = None, (-1, -1, -1, -100.0, -1.0, -1), 0
             # Без target_luma брейк на первом же "хорошем" кандидате, как раньше
             # (0 доп. скачиваний). С target_luma нужно сравнить МИНИМУМ 2 таких
             # кандидата, иначе яркостный критерий никогда не встретится с
@@ -907,6 +907,16 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                         size_ok = 1
                 relevance = clip_relevance(trial, query)
                 is_relevant = 1 if (relevance is None or relevance >= CLIP_RELEVANCE_THRESHOLD) else 0
+                # Эстетика — доп. измерение, НЕ повышает good_needed само по
+                # себе (в отличие от target_luma) — иначе каждый выбор фото
+                # тратил бы вдвое больше скачиваний/Pexels-трафика по
+                # умолчанию, а не только когда это уже оправдано другой
+                # причиной. В реальных вызовах из main() target_luma и так
+                # почти всегда задан (сравниваются 2+ кандидата), так что
+                # эстетика получает шанс сработать бесплатно; если нет —
+                # просто тихо не участвует в выборе (как раньше).
+                aesthetic = aesthetic_score(trial)
+                aesthetic_val = aesthetic if aesthetic is not None else 0.0
                 luma_score = 0.0
                 if target_luma is not None:
                     try:
@@ -915,7 +925,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                             luma_score = -abs(cand_luma - target_luma)
                     except Exception:
                         pass
-                score = (is_dup_free, size_ok, is_relevant, luma_score, min_d)
+                score = (is_dup_free, size_ok, is_relevant, aesthetic_val, luma_score, min_d)
                 if score > best_score:
                     if best_path and best_path != trial:
                         try:
@@ -1778,6 +1788,61 @@ def clip_relevance(image_path, text):
         img_e = out.image_embeds / out.image_embeds.norm(dim=-1, keepdim=True)
         txt_e = out.text_embeds / out.text_embeds.norm(dim=-1, keepdim=True)
         return float((img_e @ txt_e.T)[0][0])
+    except ImportError:
+        CLIP_BROKEN = True
+        return None
+    except Exception:
+        return None
+
+
+# --- Эстетическая оценка кадра (LAION aesthetic predictor v1, линейная
+# голова поверх CLIP ViT-B/32) — та же модель, что уже загружена для
+# clip_relevance(), никакого нового тяжёлого скачивания. Голова — всего
+# 513 чисел (512-мерный вес + bias), извлечена ОДИН РАЗ из официальных
+# весов (shunk031/aesthetics-predictor-v1-vit-base-patch32 на HF — это
+# репаковка оригинальных LAION-AI/aesthetic-predictor sa_0_4_vit_b_32_
+# linear.pth в формат HF, GitHub-источник в этой сессии недоступен по
+# сетевой политике, HF открыт) и сохранена как assets/aesthetic/*.npz —
+# не .pth (pickle, может исполнять код при загрузке), голый numpy-массив,
+# без риска.
+AESTHETIC_ENABLED = os.environ.get("AESTHETIC_SCORE", "1") != "0"
+_aesthetic_head = None
+
+
+def get_aesthetic_head():
+    global _aesthetic_head
+    if _aesthetic_head is None:
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                             "assets", "aesthetic", "laion_aesthetic_vit_b_32_head.npz")
+        data = np.load(path)
+        _aesthetic_head = (data["weight"], float(data["bias"]))
+    return _aesthetic_head
+
+
+def aesthetic_score(image_path):
+    """Эстетическая оценка кадра — линейная регрессия поверх L2-нормали-
+    зованного CLIP image embedding (формула подтверждена по исходному коду
+    модели: image_embeds /= norm(...); prediction = predictor(image_embeds)).
+    Диапазон на реальных фото ~3-7 (проверено вживую на 25 кадрах эпизода —
+    топ-3 по оценке визуально заметно сильнее по композиции/свету, чем
+    низ; самый низкий скор корректно поймал случайно затесавшийся в кэш
+    нерелевантный кадр — рюкзак/ноутбук вместо меча). None при отключённой
+    фиче/сбое — вызывающий код просто не использует критерий (безопасный
+    откат, тот же принцип, что CLIP_BROKEN/PARALLAX_BROKEN)."""
+    global CLIP_BROKEN
+    if not AESTHETIC_ENABLED or not CLIP_ENABLED or CLIP_BROKEN:
+        return None
+    try:
+        import torch
+        model, processor = get_clip_model()
+        img = PILImage.open(image_path).convert("RGB")
+        inputs = processor(images=[img], return_tensors="pt")
+        with torch.no_grad():
+            vis_out = model.vision_model(pixel_values=inputs["pixel_values"])
+            feat = model.visual_projection(vis_out.pooler_output)
+        e = (feat / feat.norm(dim=-1, keepdim=True))[0].numpy()
+        w, b = get_aesthetic_head()
+        return float(e @ w + b)
     except ImportError:
         CLIP_BROKEN = True
         return None
