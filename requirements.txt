@@ -14,7 +14,13 @@ pytest>=8.0
 # haarcascade вообще (проверено вживую) — anchor-по-лицу молча никогда не
 # сработает на такой версии.
 opencv-python-headless==4.10.0.84
-# Опционально — только для 2.5D-параллакса. Без них — просто без этой фичи.
+# Опционально — для 2.5D-параллакса (Depth-Anything-V2) И для CLIP-проверки
+# релевантности медиа (clip_relevance() в pexels_photo() — ловит кандидатов,
+# которые прошли текстовый поиск Pexels по ключевым словам, но по смыслу
+# мимо запроса; CLIP_RELEVANCE=0 отключает). Без torch/transformers — обе
+# фичи просто выключены (безопасный откат, без регрессии). torchvision
+# нужен только параллаксу, CLIP его не использует, но ставить всё вместе
+# проще, чем разводить на два опциональных набора.
 # torch --index-url https://download.pytorch.org/whl/cpu
 # torchvision --index-url https://download.pytorch.org/whl/cpu
 # transformers

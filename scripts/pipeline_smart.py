@@ -748,22 +748,27 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             pick = candidates[0]
             download(pick, cf)
         else:
-            # score = (не дубль?, разнообразит масштаб плана?, ближе по яркости
-            # к соседям?, дистанция по хэшу) — сравниваются как кортежи,
-            # лексикографически: "не дубль" важнее "разнообразия", то важнее
-            # яркостной близости, та важнее точной дистанции (самый младший
-            # критерий — просто добивает выбор среди и так уже равных по
-            # первым двум осям). recent_sizes/luma — те же уже скачанные
-            # кандидаты анти-дубля, никакого нового сетевого трафика ради
-            # этой доп. проверки — переиспользуем то, что и так уже качаем.
-            best_path, best_score, good_seen = None, (-1, -1, -1.0, -1), 0
+            # score = (не дубль?, разнообразит масштаб плана?, релевантна
+            # запросу по CLIP?, ближе по яркости к соседям?, дистанция по
+            # хэшу) — сравниваются как кортежи, лексикографически: "не
+            # дубль" важнее "разнообразия", то важнее релевантности, та
+            # важнее яркостной близости, та важнее точной дистанции (самый
+            # младший критерий — просто добивает выбор среди и так уже
+            # равных по первым осям). recent_sizes/luma/CLIP — те же уже
+            # скачанные кандидаты анти-дубля, никакого нового сетевого
+            # трафика ради этой доп. проверки — переиспользуем то, что и
+            # так уже качаем.
+            best_path, best_score, good_seen = None, (-1, -1, -1, -1.0, -1), 0
             # Без target_luma брейк на первом же "хорошем" кандидате, как раньше
             # (0 доп. скачиваний). С target_luma нужно сравнить МИНИМУМ 2 таких
             # кандидата, иначе яркостный критерий никогда не встретится с
             # реальной альтернативой и молча ничего не решает — брейк на первом
             # же успехе просто не даёт ему сработать. +1 скачивание в типичном
             # случае (не x6) — единственный способ сделать tie-breaker не
-            # фиктивным, не разгоняя стоимость до полного перебора.
+            # фиктивным, не разгоняя стоимость до полного перебора. CLIP-
+            # релевантность НЕ добавляет к good_needed — она не tie-breaker,
+            # а гейт (см. is_relevant ниже, часть условия break) — кандидат
+            # без неё не считается "хорошим", даже если дубль-фри/размер ок.
             good_needed = 2 if target_luma is not None else 1
             for p in candidates[:PHOTO_DEDUP_MAX_TRIES]:
                 trial = cf + f".trial_{p.get('id')}.jpg"
@@ -780,6 +785,8 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                         size_ok = 0 if estimate_shot_size(trial) in recent_sizes[-2:] else 1
                     except Exception:
                         size_ok = 1
+                relevance = clip_relevance(trial, query)
+                is_relevant = 1 if (relevance is None or relevance >= CLIP_RELEVANCE_THRESHOLD) else 0
                 luma_score = 0.0
                 if target_luma is not None:
                     try:
@@ -788,7 +795,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                             luma_score = -abs(cand_luma - target_luma)
                     except Exception:
                         pass
-                score = (is_dup_free, size_ok, luma_score, min_d)
+                score = (is_dup_free, size_ok, is_relevant, luma_score, min_d)
                 if score > best_score:
                     if best_path and best_path != trial:
                         try:
@@ -801,7 +808,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                         os.remove(trial)
                     except OSError:
                         pass
-                if is_dup_free and size_ok:
+                if is_dup_free and size_ok and is_relevant:
                     good_seen += 1
                     if good_seen >= good_needed:
                         break   # набрали, сколько нужно для честного сравнения — не жжём оставшиеся попытки
@@ -1590,6 +1597,65 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
 PARALLAX_MARGIN = 1.5     # рабочий холст на 50% больше кадра — запас под
                            # зум+пан+параллакс-смещение без чёрных дыр по краям
 PARALLAX_PX_BASE = 55.0   # максимальный доп.разброс между ближним/дальним слоем, px
+# --- CLIP-релевантность медиа (опционально, нужны torch/transformers) ---
+# Главная реально подтверждённая на QC этого канала проблема: текстовый
+# поиск Pexels иногда возвращает кандидата, который ПОХОЖ по ключевым
+# словам, но по смыслу мимо (найдено вживую — клипы кино/танцевального боя
+# проходили через запросы про мечи). CLIP умеет реально сравнить картинку
+# с текстом ЗАПРОСА (не с русским текстом блока — CLIP англоязычный, а
+# query уже на английском, см. THEMES/query_for) и дать число, а не
+# доверять слепо тому, что поиск вернул top-N по ключевым словам.
+CLIP_ENABLED = os.environ.get("CLIP_RELEVANCE", "1") != "0"
+CLIP_BROKEN = False   # взводится только на системном сбое (модель/сеть), не на одной картинке
+# Калибровано вживую на 01_ves-mecha: 20 верных пар (картинка, её реальный
+# запрос) дали score 0.217-0.303 (среднее 0.262); 15 пар с заведомо
+# посторонним запросом ("pizza restaurant", "office meeting" и т.п. — не
+# просто другой вариант той же темы, а другая тема целиком) дали 0.118-0.201
+# (среднее 0.164). Порог 0.19 — выше кластера настоящих непопаданий, ниже
+# минимума верных пар с запасом, не режет близкие по смыслу варианты одной
+# темы (те тоже пересекаются с верными по диапазону — это ОК, задача ловить
+# явный промах, не выбирать идеальный вариант из синонимов).
+CLIP_RELEVANCE_THRESHOLD = 0.19
+_clip_model = None
+_clip_processor = None
+
+
+def get_clip_model():
+    global _clip_model, _clip_processor
+    if _clip_model is None:
+        from transformers import CLIPModel, CLIPProcessor
+        name = "openai/clip-vit-base-patch32"
+        _clip_model = CLIPModel.from_pretrained(name).eval()
+        _clip_processor = CLIPProcessor.from_pretrained(name)
+    return _clip_model, _clip_processor
+
+
+def clip_relevance(image_path, text):
+    """Косинусная близость картинки и текста ЗАПРОСА (0..1, реалистичный
+    диапазон на наших фото ~0.1-0.3, не 0..1 в бытовом смысле "процент
+    похожести" — это сырой косинус эмбеддингов CLIP). None при отключённой
+    фиче/сбое модели — вызывающий код тогда просто не гейтит по релевантности
+    (безопасный откат, тот же принцип, что PARALLAX_LIBS/PARALLAX_BROKEN)."""
+    global CLIP_BROKEN
+    if not CLIP_ENABLED or CLIP_BROKEN:
+        return None
+    try:
+        import torch
+        model, processor = get_clip_model()
+        img = PILImage.open(image_path).convert("RGB")
+        inputs = processor(text=[text], images=[img], return_tensors="pt", padding=True, truncation=True)
+        with torch.no_grad():
+            out = model(**inputs)
+        img_e = out.image_embeds / out.image_embeds.norm(dim=-1, keepdim=True)
+        txt_e = out.text_embeds / out.text_embeds.norm(dim=-1, keepdim=True)
+        return float((img_e @ txt_e.T)[0][0])
+    except ImportError:
+        CLIP_BROKEN = True
+        return None
+    except Exception:
+        return None
+
+
 _depth_model = None
 
 
