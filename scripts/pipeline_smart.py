@@ -155,12 +155,38 @@ def film_look(photo_hash, section="", brightness_bias=0.0, energy_bias=0.0):
         # vignette-углу через реальный libx264 CRF18 энкод), не размывает
         # текстуру/детали.
         f"deband=range=22:1thr=0.04:2thr=0.04:3thr=0.04:4thr=0.04,"
-        # unsharp ДО noise, не после: zoompan рендерит с 8000px-холста в 1920 —
-        # даунскейл сам по себе мягкий, лёгкая доводка резкости возвращает
-        # ощущение "живого" объектива. После noise та же resharpen подчёркивала
-        # бы САМО зерно (арефактно), не картинку — порядок имеет значение.
-        f"unsharp=5:5:0.45:5:5:0.0,noise=alls=3:allf=t+u"
+        # unsharp — резкость после даунскейла с 8000px-холста в 1920 (тот
+        # сам по себе мягкий) — ощущение "живого" объектива. Зерно (grain)
+        # СЮДА больше не входит — оно теперь настоящий процедурный видео-луп
+        # (assets/grain/grain_loop.mp4, см. generate_grain_asset.py и
+        # apply_grain()), подмешивается ОТДЕЛЬНЫМ шагом в каждой рендер-
+        # функции (нужен второй ffmpeg-вход, filter_complex этого не
+        # позволяет сделать внутри одной строки-чейна). Голый noise=alls=3
+        # был плоским per-pixel шумом — у настоящего зерна структура
+        # сгустками и посекундная смена, это и даёт grain_loop.
+        f"unsharp=5:5:0.45:5:5:0.0"
     )
+
+
+# Процедурный grain-луп (см. scripts/generate_grain_asset.py) — статический
+# ассет в репозитории, тот же принцип, что assets/fonts. Нет файла (например,
+# ещё не сгенерирован) -> GRAIN_ENABLED=False, весь рендер тихо откатывается
+# на путь без зерна (безопасный откат, тот же принцип, что PARALLAX_LIBS).
+GRAIN_LOOP_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                "assets", "grain", "grain_loop.mp4")
+GRAIN_ENABLED = os.environ.get("GRAIN", "1") != "0" and os.path.exists(GRAIN_LOOP_PATH)
+GRAIN_OPACITY = 0.10   # калибровано вживую — см. коммит с проверкой
+
+
+def grain_blend_complex(label_in, grain_input_idx, label_out):
+    """Фрагмент filter_complex: масштабирует зацикленный (-stream_loop -1 на
+    входе grain_input_idx) grain-луп под WIDTH/HEIGHT и подмешивает его к
+    label_in через grainmerge (штатный blend-режим ffmpeg именно под
+    добавление зерна: result = base + overlay - 128 — естественно слабее у
+    самых крайних светов/теней за счёт клиппинга, без отдельной яркостной
+    маски)."""
+    return (f"[{grain_input_idx}:v]scale={WIDTH}:{HEIGHT}:flags=bicubic,setsar=1[gr_scaled];"
+            f"[{label_in}][gr_scaled]blend=all_mode=grainmerge:all_opacity={GRAIN_OPACITY}[{label_out}]")
 
 
 XFADE_DUR = 0.4        # диссолв на границах секций и часть обычных склеек
@@ -1572,8 +1598,17 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
     vf_overlay = add_overlays(vf_base, dur, title, stat, stat_variant, stat_delay) if (title or stat) else None
 
     def render(vf):
-        cmd = ["ffmpeg", "-y", "-loop", "1", "-i", photo, "-vf", vf,
-               "-t", str(dur), "-c:v", "libx264", "-preset", "fast",
+        cmd = ["ffmpeg", "-y", "-loop", "1", "-i", photo]
+        if GRAIN_ENABLED:
+            # Зерно — отдельный вход (зацикленный grain_loop.mp4), не строка
+            # фильтров — filter_complex вместо -vf, тот же приём, что уже
+            # используется для speed ramp/halation embedding.
+            cmd += ["-stream_loop", "-1", "-i", GRAIN_LOOP_PATH]
+            fc = f"[0:v]{vf}[gr_in];{grain_blend_complex('gr_in', 1, 'vout')}"
+            cmd += ["-filter_complex", fc, "-map", "[vout]"]
+        else:
+            cmd += ["-vf", vf]
+        cmd += ["-t", str(dur), "-c:v", "libx264", "-preset", "fast",
                "-crf", "18", "-pix_fmt", "yuv420p", "-r", str(FPS)] + COLOR_META_ARGS + [out]
         return subprocess.run(cmd, capture_output=True, text=True)
 
@@ -1785,11 +1820,20 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
                                         np.arange(HEIGHT, dtype=np.float32))
 
         cmd = ["ffmpeg", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24",
-               "-s", f"{WIDTH}x{HEIGHT}", "-r", str(FPS), "-i", "-",
-               "-frames:v", str(frames)]
+               "-s", f"{WIDTH}x{HEIGHT}", "-r", str(FPS), "-i", "-"]
+        # Зерно — второй вход, ДО -frames:v (тот должен остаться однозначно
+        # выходной опцией — если между ним и следующим -i ничего не стоит,
+        # ffmpeg привязал бы его ко входу grain, а не к выходу).
+        if GRAIN_ENABLED:
+            cmd += ["-stream_loop", "-1", "-i", GRAIN_LOOP_PATH]
         vf = film_look(h, section, brightness_bias, energy_bias)
         vf = add_overlays(vf, dur, title, stat, stat_variant, stat_delay) if (title or stat) else vf
-        cmd += ["-vf", vf, "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+        if GRAIN_ENABLED:
+            fc = f"[0:v]{vf}[gr_in];{grain_blend_complex('gr_in', 1, 'vout')}"
+            cmd += ["-filter_complex", fc, "-map", "[vout]"]
+        else:
+            cmd += ["-vf", vf]
+        cmd += ["-frames:v", str(frames), "-c:v", "libx264", "-preset", "fast", "-crf", "18",
                 "-pix_fmt", "yuv420p", "-r", str(FPS)] + COLOR_META_ARGS + [out]
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE,
                                  stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -2000,8 +2044,14 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
     if ramp_filter:
         tail = film_look(h, section, brightness_bias, energy_bias)
         full_tail = add_overlays(tail, dur, title, stat, stat_variant, stat_delay) if (title or stat) else tail
-        filter_complex = f"[0:v]{scale_crop}[base];{ramp_filter};[ramped]{full_tail}[vout]"
-        cmd = ["ffmpeg", "-y", "-i", vid, "-filter_complex", filter_complex,
+        cmd = ["ffmpeg", "-y", "-i", vid]
+        if GRAIN_ENABLED:
+            cmd += ["-stream_loop", "-1", "-i", GRAIN_LOOP_PATH]
+            filter_complex = (f"[0:v]{scale_crop}[base];{ramp_filter};"
+                               f"[ramped]{full_tail}[gr_in];{grain_blend_complex('gr_in', 1, 'vout')}")
+        else:
+            filter_complex = f"[0:v]{scale_crop}[base];{ramp_filter};[ramped]{full_tail}[vout]"
+        cmd += ["-filter_complex", filter_complex,
                "-map", "[vout]", "-t", str(dur), "-an",
                "-c:v", "libx264", "-preset", "fast", "-crf", "18",
                "-pix_fmt", "yuv420p", "-r", str(FPS)] + COLOR_META_ARGS + [out]
@@ -2025,7 +2075,14 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
         cmd = ["ffmpeg", "-y"]
         if skip > 0.05:
             cmd += ["-ss", f"{skip:.2f}"]
-        cmd += ["-i", vid, "-vf", vf, "-t", str(dur), "-an",
+        cmd += ["-i", vid]
+        if GRAIN_ENABLED:
+            cmd += ["-stream_loop", "-1", "-i", GRAIN_LOOP_PATH]
+            fc = f"[0:v]{vf}[gr_in];{grain_blend_complex('gr_in', 1, 'vout')}"
+            cmd += ["-filter_complex", fc, "-map", "[vout]"]
+        else:
+            cmd += ["-vf", vf]
+        cmd += ["-t", str(dur), "-an",
                 "-c:v", "libx264", "-preset", "fast", "-crf", "18",
                 "-pix_fmt", "yuv420p", "-r", str(FPS)] + COLOR_META_ARGS + [out]
         return subprocess.run(cmd, capture_output=True, text=True)
