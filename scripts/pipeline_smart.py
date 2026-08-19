@@ -1591,8 +1591,14 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
     dx, dy = pan_dir if pan_dir is not None else pan_dir_default
     rate_jit = ((h >> 5) % 1000) / 1000.0
     pan_jit = ((h >> 15) % 1000) / 1000.0
+    # C6: скорость зума в такт энергии голоса — на эмоциональных пиках речи
+    # камера "подбирается" быстрее, на спокойных местах медленнее, тот же
+    # energy_bias, что уже модулирует контраст/сатурацию в film_look().
+    # Клэмп ZOOM_DELTA_MIN/MAX всё равно применяется ПОСЛЕ — энергия сдвигает
+    # в пределах уже безопасного диапазона, не расширяет его.
+    energy_zoom_mult = 1.0 + max(-0.5, min(0.5, energy_bias)) * 0.2
     delta = max(ZOOM_DELTA_MIN, min(ZOOM_DELTA_MAX,
-                ZOOM_RATE_BASE * dur * (0.75 + rate_jit * 0.5)))
+                ZOOM_RATE_BASE * dur * (0.75 + rate_jit * 0.5) * energy_zoom_mult))
     # Уже тесный/плотный кадр (крупный план) не нуждается в таком же зуме,
     # как просторный — иначе на кадре и так крупного меча к концу клипа
     # остаётся одна текстура металла, некуда уже приближаться со смыслом.
@@ -1958,8 +1964,10 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
         dx, dy = pan_dir if pan_dir is not None else pan_dir_default
         rate_jit = ((h >> 5) % 1000) / 1000.0
         pan_jit = ((h >> 15) % 1000) / 1000.0
+        # C6: см. kenburns() — та же логика скорости зума в такт энергии голоса.
+        energy_zoom_mult = 1.0 + max(-0.5, min(0.5, energy_bias)) * 0.2
         delta = max(ZOOM_DELTA_MIN, min(ZOOM_DELTA_MAX,
-                    ZOOM_RATE_BASE * dur * (0.75 + rate_jit * 0.5)))
+                    ZOOM_RATE_BASE * dur * (0.75 + rate_jit * 0.5) * energy_zoom_mult))
         max_zoom = ZOOM_FLOOR + delta
         pan_amt_frac = PAN_SAFETY * (PAN_JITTER_MIN + pan_jit * (PAN_JITTER_MAX - PAN_JITTER_MIN))
         # Content-aware сила эффекта: раньше parallax_px был один и тот же
