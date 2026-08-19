@@ -1,10 +1,10 @@
-"""Одноразовый генератор assets/music/ambient_bed.mp3 — процедурная атмосферная
-подложка (не сэмпл, честный синтез, см. film_look()/generate_grain_asset.py —
-тот же принцип, что и с зерном: у нас нет источника лицензионной музыки без
-затрат и без риска Content ID, поэтому подложка честно сгенерирована с нуля
-и является нашей собственной). Не часть рантайм-пайплайна — запускается
-вручную при необходимости пересоздать/перекалибровать текстуру, результат
-коммитится в репозиторий как статический ассет.
+"""Генератор assets/music/ambient_bed*.mp3 — процедурная атмосферная подложка
+(не сэмпл, честный синтез, см. film_look()/generate_grain_asset.py — тот же
+принцип, что и с зерном: нет источника лицензионной музыки без затрат и без
+риска Content ID, поэтому подложка честно сгенерирована с нуля и является
+нашей собственной). Не часть рантайм-пайплайна — запускается вручную при
+необходимости пересоздать/перекалибровать текстуру, результат коммитится
+в репозиторий как статический ассет.
 
 Формат ниши (CHANNEL.md) — документальный, спокойный, без пафоса, голос
 ровный и низкий. Подложке НЕЛЬЗЯ быть мелодией (спорит с закадром, тянет
@@ -15,11 +15,26 @@
 (медленный тремоло на басовом слое, не ритм, не бит). Ничего резкого,
 ничего мелодического — фон, который не потребует пряток за голосом.
 
+A2: три варианта настроения — та же логика секций, что MOOD_GRADE в
+pipeline_smart.py (HOOK холоднее/острее, BODY нейтральная "стальная"
+документалка, FINAL теплее/мягче — спад напряжения). Один и тот же
+базовый язык синтеза, только пропорции: у HOOK быстрее "дыхание" и
+заметнее верхний обертон (тревожнее), у FINAL медленнее и добавлен тихий
+суб-октавный слой (теплее/весомее), у BODY — среднее между ними.
+
 Бесшовная петля: несущие синусоиды и их LFO подобраны так, чтобы период
 уложился в LOOP_SEC ЦЕЛОЕ число раз (частота*LOOP_SEC — целое) — тогда
 сигнал точно периодичен САМ ПО СЕБЕ, без кроссфейда. Единственный
 непериодичный слой — фильтрованный шум ("воздух") — для него кроссфейд
 хвоста в начало, как в generate_grain_asset.py.
+
+Формат — FLAC, не MP3: пойманная вживую проблема — ffmpeg -stream_loop на
+MP3-файле теряет ~26мс (декодерный priming/bit reservoir каждого MP3-кадра)
+на КАЖДОМ повторе петли, что на длинном BODY-сегменте (десятки повторов
+внутри 18-минутного ролика) накапливается почти в полсекунды рассинхрона
+итоговой длины подложки — проверено (893.5с вместо расчётных 894с на
+894-секундном отрезке). FLAC lossless — см. проверку в
+build_mood_timeline()/pipeline_smart.py на реальных цифрах эпизода.
 """
 import os
 import subprocess
@@ -34,9 +49,20 @@ XFADE_N = int(SR * XFADE_SEC)
 SEED = 20260819
 
 OUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "music")
-OUT_PATH = os.path.join(OUT_DIR, "ambient_bed.mp3")
 
 t = np.arange(N, dtype=np.float64) / SR
+
+# mood -> (имя файла, seed-сдвиг, множитель скорости LFO-"дыхания" [меньше —
+# быстрее/тревожнее], глубина/период саб-пульса, амплитуда верхнего обертона
+# 164.8Hz [ярче/тревожнее], амплитуда доп. суб-октавного слоя 27.5Hz [теплее])
+MOODS = {
+    "body":  dict(fname="ambient_bed.flac",       seed_off=0,   lfo_mult=1.00,
+                  pulse_period=6.0, pulse_depth=0.12, shimmer_amp=0.06, sub_amp=0.0,  air_amp=0.050),
+    "hook":  dict(fname="ambient_bed_hook.flac",  seed_off=100, lfo_mult=0.75,
+                  pulse_period=4.0, pulse_depth=0.18, shimmer_amp=0.10, sub_amp=0.0,  air_amp=0.065),
+    "final": dict(fname="ambient_bed_final.flac", seed_off=200, lfo_mult=1.30,
+                  pulse_period=9.0, pulse_depth=0.07, shimmer_amp=0.03, sub_amp=0.05, air_amp=0.035),
+}
 
 
 def snap_freq(f):
@@ -86,21 +112,31 @@ def air_layer(rng, amp):
     return amp * filtered * lfo
 
 
-def build_channel(rng, detune_cents):
+def build_channel(rng, detune_cents, mood):
+    lm = mood["lfo_mult"]
     sig = np.zeros(N, dtype=np.float64)
     # Тоника (низкий "ля" ~55Hz), квинта, октава — минимальная неопределённая
     # тональность (не мажор/минор впрямую), медленное "дыхание" разной фазы.
-    sig += drone_layer(55.0, 0.42, lfo_period=27.0, lfo_depth=0.35, lfo_phase=0.0, detune_cents=detune_cents)
-    sig += drone_layer(82.4, 0.24, lfo_period=19.0, lfo_depth=0.40, lfo_phase=1.7, detune_cents=detune_cents)
-    sig += drone_layer(110.0, 0.15, lfo_period=33.0, lfo_depth=0.45, lfo_phase=3.1, detune_cents=detune_cents)
-    sig += drone_layer(164.8, 0.06, lfo_period=41.0, lfo_depth=0.55, lfo_phase=4.4, detune_cents=detune_cents)
+    # lfo_mult короче период (быстрее "дыхание") у HOOK, длиннее (спокойнее)
+    # у FINAL — тот же приём, что MOOD_GRADE делает для визуального грейда.
+    sig += drone_layer(55.0, 0.42, lfo_period=27.0 * lm, lfo_depth=0.35, lfo_phase=0.0, detune_cents=detune_cents)
+    sig += drone_layer(82.4, 0.24, lfo_period=19.0 * lm, lfo_depth=0.40, lfo_phase=1.7, detune_cents=detune_cents)
+    sig += drone_layer(110.0, 0.15, lfo_period=33.0 * lm, lfo_depth=0.45, lfo_phase=3.1, detune_cents=detune_cents)
+    sig += drone_layer(164.8, mood["shimmer_amp"], lfo_period=41.0 * lm, lfo_depth=0.55, lfo_phase=4.4,
+                        detune_cents=detune_cents)
+    if mood["sub_amp"] > 0:
+        # Тихий суб-октавный слой (27.5Hz) — только FINAL: теплее/весомее,
+        # спад напряжения без буквальной "медленной грустной мелодии".
+        sig += drone_layer(27.5, mood["sub_amp"], lfo_period=53.0 * lm, lfo_depth=0.30, lfo_phase=2.2,
+                            detune_cents=detune_cents)
     # Саб-пульс: НЕ бит, а очень медленный тремоло на самой тонике поверх её
     # собственной LFO — едва уловимое "напряжение", период с запасом длиннее
     # любой реальной строки закадра, чтобы не читаться как ритм под речь.
-    pulse_p = snap_freq(1.0 / 6.0)
-    pulse = 1.0 - 0.12 * 0.5 * (1.0 - np.cos(2 * np.pi * pulse_p * t))
-    sig *= (0.85 + 0.15 * pulse)
-    air = air_layer(rng, amp=0.05)
+    # У HOOK короче и глубже (тревожнее), у FINAL длиннее и мельче (спокойнее).
+    pulse_p = snap_freq(1.0 / mood["pulse_period"])
+    pulse = 1.0 - mood["pulse_depth"] * 0.5 * (1.0 - np.cos(2 * np.pi * pulse_p * t))
+    sig *= (1.0 - mood["pulse_depth"] + mood["pulse_depth"] * pulse)
+    air = air_layer(rng, amp=mood["air_amp"])
     # Кроссфейд хвоста air-слоя в его начало — только этот слой непериодичен.
     head = air[:XFADE_N].copy()
     for k in range(XFADE_N):
@@ -111,12 +147,13 @@ def build_channel(rng, detune_cents):
     return sig
 
 
-def main():
-    os.makedirs(OUT_DIR, exist_ok=True)
-    rng_l = np.random.default_rng(SEED)
-    rng_r = np.random.default_rng(SEED + 1)
-    left = build_channel(rng_l, detune_cents=-3.0)
-    right = build_channel(rng_r, detune_cents=3.0)
+def render_mood(mood_key):
+    mood = MOODS[mood_key]
+    out_path = os.path.join(OUT_DIR, mood["fname"])
+    rng_l = np.random.default_rng(SEED + mood["seed_off"])
+    rng_r = np.random.default_rng(SEED + mood["seed_off"] + 1)
+    left = build_channel(rng_l, detune_cents=-3.0, mood=mood)
+    right = build_channel(rng_r, detune_cents=3.0, mood=mood)
 
     peak = max(np.abs(left).max(), np.abs(right).max())
     target_peak = 10 ** (-12.0 / 20.0)   # -12dBFS запас, подложка тише голоса
@@ -129,13 +166,19 @@ def main():
     pcm16 = np.clip(stereo * 32767.0, -32768, 32767).astype("<i2")
 
     cmd = ["ffmpeg", "-y", "-f", "s16le", "-ar", str(SR), "-ac", "2", "-i", "-",
-           "-c:a", "libmp3lame", "-q:a", "2", OUT_PATH]
+           "-c:a", "flac", out_path]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     _, err = proc.communicate(pcm16.tobytes())
     if proc.returncode != 0:
         print("ffmpeg упал:", err.decode(errors="ignore")[-1500:])
         raise SystemExit(1)
-    print(f"Готово: {OUT_PATH} ({LOOP_SEC}с петля, {SR}Hz stereo, пик {target_peak:.3f}~-12dBFS)")
+    print(f"Готово: {out_path} ({LOOP_SEC}с петля, {SR}Hz stereo, пик {target_peak:.3f}~-12dBFS)")
+
+
+def main():
+    os.makedirs(OUT_DIR, exist_ok=True)
+    for mood_key in MOODS:
+        render_mood(mood_key)
 
 
 if __name__ == "__main__":

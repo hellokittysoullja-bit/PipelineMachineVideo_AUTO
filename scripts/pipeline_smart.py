@@ -205,9 +205,25 @@ GRAIN_OPACITY = 0.10   # калибровано вживую — см. комм�
 # тот же принцип, что и с grain_loop: статический ассет в репозитории, нет
 # файла -> MUSIC_ENABLED=False, безопасный откат на прежнее поведение
 # (только голос, без подложки).
-MUSIC_BED_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                               "assets", "music", "ambient_bed.mp3")
+_MUSIC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "music")
+# A2: три варианта настроения — та же логика секций, что MOOD_GRADE у
+# визуального грейда (HOOK холоднее/острее, BODY нейтральная документалка,
+# FINAL теплее/мягче). BODY — обязательный файл (используется как основной
+# индикатор MUSIC_ENABLED и как fallback для HOOK/FINAL, если их отдельные
+# файлы почему-то не сгенерированы).
+MUSIC_BED_PATH = os.path.join(_MUSIC_DIR, "ambient_bed.flac")
+MUSIC_BED_PATHS = {
+    "HOOK": os.path.join(_MUSIC_DIR, "ambient_bed_hook.flac"),
+    "BODY": MUSIC_BED_PATH,
+    "FINAL": os.path.join(_MUSIC_DIR, "ambient_bed_final.flac"),
+}
 MUSIC_ENABLED = os.environ.get("MUSIC_BED", "1") != "0" and os.path.exists(MUSIC_BED_PATH)
+# J-cut: смена настроения подложки опережает смену секции сценария на
+# столько секунд — звук "приходит первым", смысловой сдвиг подложки уже
+# ощущается ДО того, как текст/картинка формально сменили раздел (тот же
+# приём, что в проф. монтаже: звук режется раньше картинки).
+MUSIC_JCUT_LEAD = 2.5
+MUSIC_MOOD_XFADE = 4.0   # кроссфейд между настроениями — медленный, подложка не должна "щёлкать" сменой
 # Доп. затухание ПОВЕРХ собственных -12dBFS ассета — фон должен быть заметно
 # тише голоса даже ДО сайдчейн-дакинга (дакинг — страховка на явных пиках
 # речи, не единственная линия обороны против "музыка спорит с закадром").
@@ -402,13 +418,64 @@ def measure_loudnorm_stats(audio_path, target_i=-16, target_tp=-1.5, target_lra=
         return None
 
 
-def build_music_mix(voice_path, total_dur, out_path):
-    """A1: атмосферная подложка (assets/music/ambient_bed.mp3) под голосом,
-    с сайдчейн-дакингом — громкость музыки автоматически прижимается, когда
-    звучит речь, и отпускает в паузах (тот же приём, что в любом проф.
-    документальном монтаже: подложка ощущается, но никогда не спорит со
-    словами). MUSIC_ENABLED=False (нет ассета или явно выключено) -> просто
-    копируем голос как есть, без регрессии.
+def build_mood_timeline(hook_end, final_start, total_dur, out_path):
+    """A2: единая дорожка подложки на весь ролик, склеенная из 3 настроений
+    (HOOK/BODY/FINAL, см. MUSIC_BED_PATHS) через медленный кроссфейд
+    (acrossfade), а не один и тот же луп на все 18 минут. Переходные точки
+    сдвинуты РАНЬШЕ формальной границы секции на MUSIC_JCUT_LEAD секунд —
+    звуковой J-cut: настроение подложки уже слегка меняется до того, как
+    текст/картинка формально перешли в новый раздел.
+
+    Математика длин сегментов для acrossfade с двумя переходами t1 (HOOK->
+    BODY) и t2 (BODY->FINAL), d = MUSIC_MOOD_XFADE:
+    L1 = t1+d, L2 = (t2-t1)+d, L3 = total_dur-t2 — тогда итоговая длина
+    после двух acrossfade равна ровно total_dur (проверено расчётом и живым
+    ffprobe на реальных цифрах), с чистыми "полными" участками настроения
+    длиной t1 / (t2-t1-d) / (total_dur-t2-d) между кроссфейдами.
+
+    Слишком короткий ролик/секция (t2-t1 меньше 2 кроссфейдов) -> тихий
+    откат на одну BODY-петлю на всю длину, без попытки втиснуть переходы
+    туда, где для них физически нет места."""
+    d = MUSIC_MOOD_XFADE
+    t1 = max(2.0, hook_end - MUSIC_JCUT_LEAD)
+    t2 = min(total_dur - 2.0, max(t1 + 2 * d, final_start - MUSIC_JCUT_LEAD))
+    if t2 - t1 < 2 * d or t1 >= total_dur - 2 * d:
+        r = subprocess.run(["ffmpeg", "-y", "-stream_loop", "-1", "-i", MUSIC_BED_PATHS["BODY"],
+                             "-t", f"{total_dur:.3f}", "-ar", "44100", "-ac", "2", out_path],
+                            capture_output=True, text=True)
+        return out_path if r.returncode == 0 else None
+    L1, L2, L3 = t1 + d, (t2 - t1) + d, total_dur - t2
+    fc = (
+        f"[0:a]atrim=0:{L1:.3f}[s1];"
+        f"[1:a]atrim=0:{L2:.3f}[s2];"
+        f"[2:a]atrim=0:{L3:.3f}[s3];"
+        f"[s1][s2]acrossfade=d={d}:c1=tri:c2=tri[r1];"
+        f"[r1][s3]acrossfade=d={d}:c1=tri:c2=tri[mood_mix]"
+    )
+    r = subprocess.run(
+        ["ffmpeg", "-y",
+         "-stream_loop", "-1", "-i", MUSIC_BED_PATHS["HOOK"],
+         "-stream_loop", "-1", "-i", MUSIC_BED_PATHS["BODY"],
+         "-stream_loop", "-1", "-i", MUSIC_BED_PATHS["FINAL"],
+         "-filter_complex", fc, "-map", "[mood_mix]",
+         "-t", f"{total_dur:.3f}", "-ar", "44100", "-ac", "2", out_path],
+        capture_output=True, text=True)
+    if r.returncode != 0:
+        r2 = subprocess.run(["ffmpeg", "-y", "-stream_loop", "-1", "-i", MUSIC_BED_PATHS["BODY"],
+                              "-t", f"{total_dur:.3f}", "-ar", "44100", "-ac", "2", out_path],
+                             capture_output=True, text=True)
+        return out_path if r2.returncode == 0 else None
+    return out_path
+
+
+def build_music_mix(voice_path, total_dur, out_path, hook_end=0.0, final_start=None):
+    """A1: атмосферная подложка под голосом, с сайдчейн-дакингом — громкость
+    музыки автоматически прижимается, когда звучит речь, и отпускает в
+    паузах (тот же приём, что в любом проф. документальном монтаже: подложка
+    ощущается, но никогда не спорит со словами). A2: подложка меняет
+    настроение по секциям (build_mood_timeline), не один луп на весь ролик.
+    MUSIC_ENABLED=False (нет ассета или явно выключено) -> просто копируем
+    голос как есть, без регрессии.
 
     Микс делается ОТДЕЛЬНЫМ шагом (не встроен прямо в финальный мультиплекс)
     — так итоговый loudnorm (A7) считается на ГОТОВОМ миксе голос+музыка,
@@ -418,15 +485,23 @@ def build_music_mix(voice_path, total_dur, out_path):
         r = subprocess.run(["ffmpeg", "-y", "-i", voice_path, "-t", f"{total_dur:.3f}",
                              "-ar", "44100", "-ac", "2", out_path], capture_output=True, text=True)
         return out_path if r.returncode == 0 else voice_path
+    if final_start is None:
+        final_start = total_dur
+    timeline_path = out_path + ".mood_timeline.wav"
+    timeline = build_mood_timeline(hook_end, final_start, total_dur, timeline_path)
+    if timeline is None:
+        r = subprocess.run(["ffmpeg", "-y", "-i", voice_path, "-t", f"{total_dur:.3f}",
+                             "-ar", "44100", "-ac", "2", out_path], capture_output=True, text=True)
+        return out_path if r.returncode == 0 else voice_path
     filter_complex = (
-        f"[1:a]atrim=0:{total_dur:.3f},volume={MUSIC_BED_GAIN_DB}dB[music_raw];"
+        f"[1:a]volume={MUSIC_BED_GAIN_DB}dB[music_raw];"
         f"[0:a]asplit=2[voice_main][voice_sc];"
         f"[music_raw][voice_sc]sidechaincompress=threshold={MUSIC_DUCK_THRESHOLD}:"
         f"ratio={MUSIC_DUCK_RATIO}:attack={MUSIC_DUCK_ATTACK_MS}:release={MUSIC_DUCK_RELEASE_MS}[music_ducked];"
         f"[voice_main][music_ducked]amix=inputs=2:duration=first:weights=1 1:normalize=0[mix]"
     )
     r = subprocess.run(
-        ["ffmpeg", "-y", "-i", voice_path, "-stream_loop", "-1", "-i", MUSIC_BED_PATH,
+        ["ffmpeg", "-y", "-i", voice_path, "-i", timeline,
          "-filter_complex", filter_complex, "-map", "[mix]",
          "-t", f"{total_dur:.3f}", "-ar", "44100", "-ac", "2", out_path],
         capture_output=True, text=True)
@@ -3189,8 +3264,14 @@ def main():
     # одном голосе — иначе музыка добавляла бы громкость ПОСЛЕ калибровки
     # -16 LUFS и сводила бы её к нулю (та же ошибка, что "нормализовать
     # трек, потом наложить ещё один трек поверх без пересчёта").
+    # A2: границы HOOK/FINAL по реальным длительностям отрендеренных клипов
+    # (не по словам сценария — клипы уже учитывают все реальные подрезки/
+    # sub-cuts) — секции идут по порядку HOOK -> BLOCK* -> FINAL, так что
+    # достаточно суммы длительностей внутри каждой без отдельного поиска границ.
+    hook_end = sum(d for sec, d in zip(clip_sections, clip_durs) if sec.startswith("HOOK"))
+    final_start = sum(d for sec, d in zip(clip_sections, clip_durs) if not sec.startswith("FINAL"))
     premix = os.path.join(TEMP_FOLDER, "premix.wav")
-    premix = build_music_mix(AUDIO_FILE, total, premix)
+    premix = build_music_mix(AUDIO_FILE, total, premix, hook_end=hook_end, final_start=final_start)
     # loudnorm — стандартная целевая громкость YouTube (-16 LUFS intergated,
     # -1.5dB true peak потолок, LRA 11) вместо "как есть от TTS". Разные
     # заказы озвучки/движки иначе дают заметно разную громкость от эпизода
