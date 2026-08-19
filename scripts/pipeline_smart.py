@@ -1204,6 +1204,27 @@ def write_shot_manifest(video_dir, blocks, durs, queries):
 
 
 WOBBLE_AMP_CANVAS_PX = 6.0   # ~1.4px в итоговом 1920-кадре (канва 8000px) — см. kenburns()
+FREEZE_HOLD_DUR = 0.35       # секунд остановки движения перед stat-плашкой — см. kenburns()
+
+
+def piecewise_ease_expr(t_expr, points):
+    """Составная (multi-phase) траектория вместо одной гладкой кривой на
+    весь клип — "push → micro-pan → settle" или "pull → reveal → hold"
+    вместо равномерного smoothstep от начала до конца. points — контрольные
+    точки [(0.0,0.0), ..., (1.0,1.0)] по возрастанию t; между соседними
+    точками — НЕЗАВИСИМЫЙ smoothstep (гладкая скорость на стыке фаз, не
+    рывок при переходе между ними, а не кусочно-линейная ломаная).
+    Возвращает строку ffmpeg-eval выражения, t_expr — переменная времени
+    0..1 (обычно on/frames)."""
+    expr = f"{points[-1][1]:.4f}"
+    for i in range(len(points) - 1, 0, -1):
+        t0, v0 = points[i - 1]
+        t1, v1 = points[i]
+        local = f"(({t_expr}-{t0:.4f})/{(t1 - t0):.4f})"
+        smooth = f"(3*pow({local},2)-2*pow({local},3))"
+        seg_val = f"({v0:.4f}+{(v1 - v0):.4f}*{smooth})"
+        expr = f"if(lt({t_expr}\\,{t1:.4f})\\,{seg_val}\\,{expr})"
+    return expr
 
 
 def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
@@ -1227,7 +1248,24 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
     # PAN_SAFETY * jitter всегда < 1.0 (проверено численно) — офсет остаётся
     # строго внутри геометрического запаса (1-1/zoom)/2 на любом кадре клипа.
     pan_amt = PAN_SAFETY * (PAN_JITTER_MIN + pan_jit * (PAN_JITTER_MAX - PAN_JITTER_MIN))
-    t = f"(on/{frames})"
+    on_expr = "on"
+    # Freeze-hold: короткая остановка движения ПРЯМО ПЕРЕД тем, как
+    # появляется stat-плашка (stat_delay — см. main()/add_overlays,
+    # тот же момент, синхронизированный с реальной озвучкой числа).
+    # Контраст "движение → пауза → цифра" — приём, отличающий монтаж
+    # с намерением от бесшовной анимации без акцентов. Замораживаем
+    # именно ПЕРЕМЕННУЮ ВРЕМЕНИ (виртуальный "on"), а не сами zoom/pan —
+    # эффект автоматически подхватывается ЛЮБЫМ motion_mode без
+    # дублирования логики в каждой ветке. Движение после паузы продолжает
+    # с того же места, откуда остановилось (не теряет фазу), а не рестартует.
+    if stat and stat_delay > 0.5:
+        freeze_start_f = max(0, round((stat_delay - FREEZE_HOLD_DUR) * FPS))
+        freeze_end_f = round(stat_delay * FPS)
+        if freeze_end_f > freeze_start_f:
+            on_expr = (f"if(lt(on\\,{freeze_start_f})\\,on\\,"
+                       f"if(lt(on\\,{freeze_end_f})\\,{freeze_start_f}\\,"
+                       f"on-{freeze_end_f - freeze_start_f}))")
+    t = f"({on_expr}/{frames})"
     # smoothstep вместо линейного роста: старт/финиш без рывка — линейный зум
     # это самый узнаваемый штамп шаблонных слайд-шоу.
     eased = f"(3*pow({t},2)-2*pow({t},3))"
@@ -1238,6 +1276,14 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
         # без пана.
         delta = min(delta, 0.02)
         pan_amt = 0.0
+    elif motion_mode == "classic_kb":
+        # Multi-phase вместо одной ровной кривой на весь клип: "push →
+        # micro-pan → settle" — быстрый ход в первой половине, спокойное
+        # продолжение, гладкая остановка перед резом. Одна гладкая кривая
+        # от начала до конца — сама по себе узнаваемый штамп "программа
+        # анимировала", реальная камера редко держит идеально постоянную
+        # скорость до самого конца движения.
+        eased = piecewise_ease_expr(t, [(0.0, 0.0), (0.5, 0.72), (0.85, 0.95), (1.0, 1.0)])
     elif motion_mode == "snap_push":
         # Быстрый punch-in за ~0.3с, дальше — hold на максимуме. eased
         # клампится к 1.0 рано (по доле кадров, не по общей длительности —
@@ -1251,9 +1297,14 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
     elif motion_mode == "slow_pull":
         # Reveal кадр раздела: стартуем зумленными, спокойно отъезжаем.
         # Без пана — это медленный отъезд, а не комбинация приёмов.
+        # Multi-phase: "pull → reveal → hold" — основной отъезд в первой
+        # половине-двух третях клипа, дальше движение гасится к спокойному
+        # hold перед резом (реальный оператор не продолжает тянуть камеру
+        # рывками ровно до конца кадра).
         zoom_in = False
         delta = max(delta, ZOOM_DELTA_MIN * 1.6)
         pan_amt = 0.0
+        eased = piecewise_ease_expr(t, [(0.0, 0.0), (0.55, 0.68), (0.85, 0.92), (1.0, 1.0)])
     elif motion_mode == "horizontal_pan":
         # Почти чистая панорама — для длинных объектов (клинки, карты,
         # гравюры). ВАЖНО: offset пана ниже завязан на (1-1/zoom) — растёт
