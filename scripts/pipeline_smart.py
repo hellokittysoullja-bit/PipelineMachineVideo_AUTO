@@ -1213,6 +1213,74 @@ def classify_shot_function(b, is_section_start):
     return "narrative"
 
 
+def _srt_timestamp(t):
+    t = max(0.0, t)
+    ms_total = int(round(t * 1000))
+    h, rem = divmod(ms_total, 3600000)
+    m, rem = divmod(rem, 60000)
+    s, ms = divmod(rem, 1000)
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def write_subtitles(video_dir, blocks, starts, durs):
+    """SRT — бесплатный побочный продукт уже посчитанного тайминга: реальный
+    посимвольный alignment.csv (см. load_alignment_weights) уже участвует в
+    расчёте durs/starts, отдельно парсить CSV второй раз не нужно. starts —
+    РЕАЛЬНОЕ аудио-время (block_durations по total, не по раздутой под xfade
+    target — та же модель, что уже использует energy_pace_multipliers для
+    сэмплинга кривой громкости, см. main()), иначе субтитры разъехались бы
+    с озвучкой на сумму xfade-нахлёстов к концу ролика.
+
+    Один блок = один субтитр-кадр: текст уже чистый (теги вырезаны в
+    parse_blocks), деления и так на границах пауз/фраз — не нужно заново
+    резать по 5-7 слов, разбивка уже смысловая."""
+    path = os.path.join(video_dir, "subtitles.srt")
+    lines = []
+    n = 0
+    for b, s, d in zip(blocks, starts, durs):
+        text = b["text"].strip()
+        if not text:
+            continue
+        n += 1
+        lines.append(str(n))
+        lines.append(f"{_srt_timestamp(s)} --> {_srt_timestamp(s + max(d, 0.3))}")
+        lines.append(text)
+        lines.append("")
+    open(path, "w", encoding="utf-8").write("\n".join(lines))
+    return path
+
+
+def write_chapters(video_dir, blocks, starts):
+    """Список глав для описания YouTube — из уже известных границ секций
+    (section_title()) и их реального старта в аудио (starts, см.
+    write_subtitles). YouTube требует первую главу строго с 00:00 и минимум
+    3 главы от 10с каждая, иначе не активирует таймлайн — это проверяется
+    руками при вставке в описание, здесь только честный расчёт таймингов."""
+    path = os.path.join(video_dir, "chapters.txt")
+    seen, lines = set(), []
+    for b, s in zip(blocks, starts):
+        if b["section"] in seen:
+            continue
+        seen.add(b["section"])
+        label = section_title(b["section"])
+        if label is None:
+            label = "Хук" if b["section"].startswith("HOOK") else (
+                "Итоги" if b["section"].startswith("FINAL") else b["section"])
+        # Заголовки блоков в script.txt пишутся КАПСОМ для видимости внутри
+        # сценария (не для показа зрителю) — в реальном описании YouTube это
+        # читается как крик. Трогаем только то, что ЦЕЛИКОМ капс — намеренно
+        # смешанный регистр не портим.
+        if label.isupper():
+            label = label[0] + label[1:].lower()
+        t = max(0.0, s)
+        h, rem = divmod(int(t), 3600)
+        m, sec = divmod(rem, 60)
+        ts = f"{h}:{m:02d}:{sec:02d}" if h else f"{m}:{sec:02d}"
+        lines.append(f"{ts} {label}")
+    open(path, "w", encoding="utf-8").write("\n".join(lines) + "\n")
+    return path
+
+
 def write_shot_manifest(video_dir, blocks, durs, queries):
     """3.4: JSON-манифест по клипу — что это за кадр (function/motion_mode/
     запрос), не только "какая картинка досталась по номеру". Раньше связь
@@ -2315,6 +2383,18 @@ def main():
     durs = apply_section_boundary_shift(blocks, durs)
     durs = apply_human_jitter(blocks, durs)
     print(f"Средний кадр: {sum(durs)/len(durs):.1f}с")
+
+    # Субтитры/главы — бесплатный побочный продукт уже посчитанного тайминга
+    # (см. write_subtitles/write_chapters). Нужна РЕАЛЬНАЯ развёртка по аудио
+    # (block_durations по total), не по xfade-раздутой durs/target — та же
+    # модель реального времени, что уже используется для energy-курса ниже.
+    sub_baseline = block_durations(blocks, total, real_weights=real_weights)
+    sub_starts, sub_acc = [], 0.0
+    for d in sub_baseline:
+        sub_starts.append(sub_acc)
+        sub_acc += d
+    write_subtitles(VIDEO_FOLDER, blocks, sub_starts, sub_baseline)
+    write_chapters(VIDEO_FOLDER, blocks, sub_starts)
 
     clips, clip_durs, clip_sections, clip_blocks = [], [], [], []
     missing = []   # индексы блоков, для которых не нашлось ни фото, ни видео
