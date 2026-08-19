@@ -201,6 +201,27 @@ GRAIN_LOOP_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(_
 GRAIN_ENABLED = os.environ.get("GRAIN", "1") != "0" and os.path.exists(GRAIN_LOOP_PATH)
 GRAIN_OPACITY = 0.10   # калибровано вживую — см. коммит с проверкой
 
+# Процедурная атмосферная подложка (см. scripts/generate_music_asset.py) —
+# тот же принцип, что и с grain_loop: статический ассет в репозитории, нет
+# файла -> MUSIC_ENABLED=False, безопасный откат на прежнее поведение
+# (только голос, без подложки).
+MUSIC_BED_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                               "assets", "music", "ambient_bed.mp3")
+MUSIC_ENABLED = os.environ.get("MUSIC_BED", "1") != "0" and os.path.exists(MUSIC_BED_PATH)
+# Доп. затухание ПОВЕРХ собственных -12dBFS ассета — фон должен быть заметно
+# тише голоса даже ДО сайдчейн-дакинга (дакинг — страховка на явных пиках
+# речи, не единственная линия обороны против "музыка спорит с закадром").
+MUSIC_BED_GAIN_DB = -13.0
+# Порог в ЛИНЕЙНОЙ амплитуде (ffmpeg sidechaincompress, не дБ): реальный
+# голос в проекте — mean -16dB/max -1.7dB (см. volumedetect на audio_fixed.mp3),
+# 0.06 ~= -24dB — уверенно ловит речь, не ловит фоновую тишину/дыхание между
+# фразами (там подложка может чуть подняться — естественное "дыхание" мастера,
+# как в живом монтаже, а не плоская постоянная громкость).
+MUSIC_DUCK_THRESHOLD = 0.06
+MUSIC_DUCK_RATIO = 9.0
+MUSIC_DUCK_ATTACK_MS = 15.0    # быстро прижать к началу фразы
+MUSIC_DUCK_RELEASE_MS = 450.0  # плавно отпустить после — без эффекта "накачки"
+
 
 def grain_blend_complex(label_in, grain_input_idx, label_out):
     """Фрагмент filter_complex: масштабирует зацикленный (-stream_loop -1 на
@@ -379,6 +400,43 @@ def measure_loudnorm_stats(audio_path, target_i=-16, target_tp=-1.5, target_lra=
         return json.loads(r.stderr[start:end])
     except Exception:
         return None
+
+
+def build_music_mix(voice_path, total_dur, out_path):
+    """A1: атмосферная подложка (assets/music/ambient_bed.mp3) под голосом,
+    с сайдчейн-дакингом — громкость музыки автоматически прижимается, когда
+    звучит речь, и отпускает в паузах (тот же приём, что в любом проф.
+    документальном монтаже: подложка ощущается, но никогда не спорит со
+    словами). MUSIC_ENABLED=False (нет ассета или явно выключено) -> просто
+    копируем голос как есть, без регрессии.
+
+    Микс делается ОТДЕЛЬНЫМ шагом (не встроен прямо в финальный мультиплекс)
+    — так итоговый loudnorm (A7) считается на ГОТОВОМ миксе голос+музыка,
+    а не только на голосе, как было раньше: иначе музыка добавляла бы
+    громкость ПОСЛЕ калибровки и сводила её к нулю."""
+    if not MUSIC_ENABLED:
+        r = subprocess.run(["ffmpeg", "-y", "-i", voice_path, "-t", f"{total_dur:.3f}",
+                             "-ar", "44100", "-ac", "2", out_path], capture_output=True, text=True)
+        return out_path if r.returncode == 0 else voice_path
+    filter_complex = (
+        f"[1:a]atrim=0:{total_dur:.3f},volume={MUSIC_BED_GAIN_DB}dB[music_raw];"
+        f"[0:a]asplit=2[voice_main][voice_sc];"
+        f"[music_raw][voice_sc]sidechaincompress=threshold={MUSIC_DUCK_THRESHOLD}:"
+        f"ratio={MUSIC_DUCK_RATIO}:attack={MUSIC_DUCK_ATTACK_MS}:release={MUSIC_DUCK_RELEASE_MS}[music_ducked];"
+        f"[voice_main][music_ducked]amix=inputs=2:duration=first:weights=1 1:normalize=0[mix]"
+    )
+    r = subprocess.run(
+        ["ffmpeg", "-y", "-i", voice_path, "-stream_loop", "-1", "-i", MUSIC_BED_PATH,
+         "-filter_complex", filter_complex, "-map", "[mix]",
+         "-t", f"{total_dur:.3f}", "-ar", "44100", "-ac", "2", out_path],
+        capture_output=True, text=True)
+    if r.returncode != 0:
+        # Микс не собрался — откат на голос без подложки, не срываем сборку
+        # ролика ради необязательного улучшения.
+        r2 = subprocess.run(["ffmpeg", "-y", "-i", voice_path, "-t", f"{total_dur:.3f}",
+                              "-ar", "44100", "-ac", "2", out_path], capture_output=True, text=True)
+        return out_path if r2.returncode == 0 else voice_path
+    return out_path
 
 
 def measure_levels(path, is_video=False, lo_pct=2, hi_pct=98, video_samples=4, video_span=3.5):
@@ -3125,6 +3183,14 @@ def main():
     # аудио — на реальном 17-минутном ролике это давало +6с видео без
     # звука сверху (проверено вживую). Явный -t с точной длительностью
     # аудио режет ровно там, где надо, независимо от размера GOP.
+    # A1: атмосферная подложка + сайдчейн-дакинг под голосом (build_music_mix,
+    # безопасный откат на чистый голос, если ассет отсутствует/выключен).
+    # A7: loudnorm теперь считается на ГОТОВОМ миксе голос+музыка, а не на
+    # одном голосе — иначе музыка добавляла бы громкость ПОСЛЕ калибровки
+    # -16 LUFS и сводила бы её к нулю (та же ошибка, что "нормализовать
+    # трек, потом наложить ещё один трек поверх без пересчёта").
+    premix = os.path.join(TEMP_FOLDER, "premix.wav")
+    premix = build_music_mix(AUDIO_FILE, total, premix)
     # loudnorm — стандартная целевая громкость YouTube (-16 LUFS intergated,
     # -1.5dB true peak потолок, LRA 11) вместо "как есть от TTS". Разные
     # заказы озвучки/движки иначе дают заметно разную громкость от эпизода
@@ -3133,7 +3199,7 @@ def main():
     # однопроходного динамического — тот подстраивает усиление на лету и
     # даёт неровную громкость внутри самого ролика. afade — раньше ролик
     # начинался и обрывался всухую (щелчок на монтажный лад, не финал).
-    loud_stats = measure_loudnorm_stats(AUDIO_FILE)
+    loud_stats = measure_loudnorm_stats(premix)
     fade_out_st = max(0.0, total - 2.0)
     if loud_stats:
         af = (f"loudnorm=I=-16:TP=-1.5:LRA=11:linear=true:"
@@ -3144,7 +3210,7 @@ def main():
     else:
         af = (f"loudnorm=I=-16:TP=-1.5:LRA=11,"
               f"afade=t=in:st=0:d=0.4,afade=t=out:st={fade_out_st:.3f}:d=2")
-    r = subprocess.run(["ffmpeg", "-y", "-i", merged, "-i", AUDIO_FILE,
+    r = subprocess.run(["ffmpeg", "-y", "-i", merged, "-i", premix,
                         "-t", f"{total:.3f}",
                         "-af", af,
                         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
