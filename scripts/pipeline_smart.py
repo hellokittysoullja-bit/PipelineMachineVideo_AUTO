@@ -75,6 +75,12 @@ MIN_CLIP, MAX_CLIP = 3.0, 20.0
 # самый крутой обрыв на кривой удержания YouTube — отдельный, более
 # низкий пол специально для хука.
 HOOK_MIN_CLIP = 1.8
+# Топовые ролики первые 2-3 реза хука делают ЕЩЁ короче, чем весь остальной
+# хук (0.8-1.2с) — самый первый удар по вниманию, а не просто "быстрее тела
+# ролика". Общий HOOK_MIN_CLIP держал даже открывающие кадры вровень с
+# остальным хуком.
+HOOK_OPENING_MIN_CLIP = 1.0
+HOOK_OPENING_CUTS = 3
 # Панорамирование считается от РЕАЛЬНОГО zoom в каждый момент кадра — (1-1/zoom)/2
 # это точный геометрический запас смещения без вылета за картинку, безопасно по
 # построению на любом кадре, поэтому PAN_SAFETY можно брать ближе к пределу, чем
@@ -603,6 +609,21 @@ def load_alignment_weights(blocks):
     return weights
 
 
+def hook_floor_for(blocks, i):
+    """Пол длительности для блока i — с учётом того, что первые
+    HOOK_OPENING_CUTS резов ХУКА получают ещё более низкий пол
+    (HOOK_OPENING_MIN_CLIP), чем остальной хук (HOOK_MIN_CLIP). Единая
+    функция для всех мест, что клэмпят длительность по этому полу
+    (block_durations/apply_section_boundary_shift/apply_human_jitter) —
+    иначе они разошлись бы между собой, и джиттер/сдвиг границы секции
+    молча утаскивали бы уже нарочно короткие открывающие кадры обратно
+    к общему HOOK_MIN_CLIP, сводя на нет весь смысл более быстрого пола."""
+    if not blocks[i]["section"].startswith("HOOK"):
+        return MIN_CLIP
+    hook_idx = sum(1 for k in range(i + 1) if blocks[k]["section"].startswith("HOOK"))
+    return HOOK_OPENING_MIN_CLIP if hook_idx <= HOOK_OPENING_CUTS else HOOK_MIN_CLIP
+
+
 def block_durations(blocks, total, energy_mults=None, real_weights=None):
     tw = sum(b["words"] for b in blocks)
     tp = sum(b["pause_after"] for b in blocks)
@@ -615,15 +636,16 @@ def block_durations(blocks, total, energy_mults=None, real_weights=None):
     if energy_mults:
         raw = [r * m for r, m in zip(raw, energy_mults)]
     d = []
-    for b, r in zip(blocks, raw):
+    for i, (b, r) in enumerate(zip(blocks, raw)):
         # В хуке кадры короче и чаще — первые секунды решают, останется ли зритель.
         # Раньше пол был ОДИН на весь ролик (MIN_CLIP) — реальная короткая
         # фраза в хуке всё равно раздувалась до общего пола, и хук не
-        # отличался по темпу от тела ролика. Свой, более низкий пол —
-        # хук реально может резать чаще, а не только "теоретически может".
+        # отличался по темпу от тела ролика. Свой, более низкий пол (ещё
+        # ниже — для самых первых резов, см. hook_floor_for) — хук реально
+        # может резать чаще, а не только "теоретически может".
         is_hook = b["section"].startswith("HOOK")
         cap = HOOK_MAX_CLIP if is_hook else MAX_CLIP
-        floor = HOOK_MIN_CLIP if is_hook else MIN_CLIP
+        floor = hook_floor_for(blocks, i)
         d.append(max(floor, min(cap, r)))
     scale = total / sum(d)
     return [x * scale for x in d]
@@ -2342,8 +2364,8 @@ def apply_section_boundary_shift(blocks, durs):
         h = int(hashlib.md5(blocks[i]["text"][:40].encode()).hexdigest()[:8], 16)
         mag = 0.25 + (h % 150) / 1000.0   # 0.25-0.40с, детерминировано по тексту
         give = mag if (h & 1) else -mag
-        floor_prev = HOOK_MIN_CLIP if blocks[i - 1]["section"].startswith("HOOK") else MIN_CLIP
-        floor_cur = HOOK_MIN_CLIP if blocks[i]["section"].startswith("HOOK") else MIN_CLIP
+        floor_prev = hook_floor_for(blocks, i - 1)
+        floor_cur = hook_floor_for(blocks, i)
         if d[i - 1] - give >= floor_prev and d[i] + give >= floor_cur:
             d[i - 1] -= give
             d[i] += give
@@ -2367,11 +2389,12 @@ def apply_human_jitter(blocks, durs, magnitude=0.3):
         deltas.append((frac - 0.5) * 2 * magnitude)
     mean_delta = sum(deltas) / len(deltas)
     deltas = [x - mean_delta for x in deltas]
-    # Свой пол для хука (HOOK_MIN_CLIP) — иначе джиттер молча утаскивал бы
-    # уже нарочно короткие хук-кадры обратно к общему MIN_CLIP, сводя на
-    # нет весь смысл отдельного, более быстрого пола (см. block_durations).
-    out = [max(HOOK_MIN_CLIP if b["section"].startswith("HOOK") else MIN_CLIP, d + delta)
-           for b, d, delta in zip(blocks, durs, deltas)]
+    # Свой пол для хука (hook_floor_for — с учётом ещё более низкого пола на
+    # первые резы) — иначе джиттер молча утаскивал бы уже нарочно короткие
+    # хук-кадры обратно к общему MIN_CLIP, сводя на нет весь смысл отдельного,
+    # более быстрого пола (см. block_durations).
+    out = [max(hook_floor_for(blocks, i), d + delta)
+           for i, (d, delta) in enumerate(zip(durs, deltas))]
     scale = sum(durs) / sum(out)
     return [x * scale for x in out]
 
@@ -2380,6 +2403,17 @@ SUBCUT_MIN_SOURCE_DUR = 8.0   # блок короче этого не режем
 SUBCUT_MIN_PART_DUR = 3.0     # ни один получившийся под-кадр не короче этого
 SUBCUT_CONTRAST_WORDS = {"но", "однако", "зато", "хотя", "просто", "ведь",
                           "потому", "поэтому", "притом", "притом,"}
+# Первые HOOK_OPENING_CUTS блоков хука режем куда охотнее обычного — топовые
+# ролики держат первые 2-3 реза короче остального хука. Просто пол
+# (hook_floor_for/HOOK_OPENING_MIN_CLIP) тут бессилен сам по себе: он
+# клэмпит СНИЗУ уже готовую длительность блока, а не даёт больше КУСКОВ на
+# ту же фразу — типичная 3-4-секундная фраза открытия просто не проходит
+# порог обычного SUBCUT_MIN_SOURCE_DUR=8.0 и остаётся одним клипом
+# (проверено вживую на реальном эпизоде: один только floor не изменил ни
+# одной цифры длительности — узкое место в гранулярности блоков, не в поле).
+SUBCUT_HOOK_MIN_SOURCE_DUR = 2.0
+SUBCUT_HOOK_MIN_PART_DUR = 0.9
+SUBCUT_HOOK_MIN_WORDS = 4
 
 
 def split_long_blocks(blocks, real_weights):
@@ -2398,14 +2432,22 @@ def split_long_blocks(blocks, real_weights):
     та же логика, что уже работает для обычных блоков), картинка другая —
     засчёт дедупа по used_photo_ids на большем пуле Pexels (per_page=40)."""
     new_blocks, new_weights = [], []
+    hook_seen = 0
     for b, w in zip(blocks, real_weights or [None] * len(blocks)):
+        is_hook_opening = False
+        if b["section"].startswith("HOOK"):
+            hook_seen += 1
+            is_hook_opening = hook_seen <= HOOK_OPENING_CUTS
+        min_source = SUBCUT_HOOK_MIN_SOURCE_DUR if is_hook_opening else SUBCUT_MIN_SOURCE_DUR
+        min_part = SUBCUT_HOOK_MIN_PART_DUR if is_hook_opening else SUBCUT_MIN_PART_DUR
+        min_words = SUBCUT_HOOK_MIN_WORDS if is_hook_opening else 8
         est = w if w is not None else b["words"] / 2.08
-        if est < SUBCUT_MIN_SOURCE_DUR:
+        if est < min_source:
             new_blocks.append(b)
             new_weights.append(w)
             continue
         words = b["text"].split()
-        if len(words) < 8:
+        if len(words) < min_words:
             new_blocks.append(b)
             new_weights.append(w)
             continue
@@ -2443,7 +2485,7 @@ def split_long_blocks(blocks, real_weights):
         merged = []
         for a, c in chunks:
             frac = (c - a) / total_w
-            if merged and est * frac < SUBCUT_MIN_PART_DUR:
+            if merged and est * frac < min_part:
                 pa, _ = merged[-1]
                 merged[-1] = (pa, c)
             else:
