@@ -1774,9 +1774,17 @@ def build_speed_ramp_filter(skip, dur, actual, label_in="base", label_out="rampe
         out_d = dur * frac
         src_d = out_d * mult
         lbl = f"{label_out}{i}"
+        # Motion blur ТОЛЬКО на реально ускоренном (mult>1) сегменте — без
+        # смаза ускорение через голый setpts выглядит цифровым рывком
+        # (кадры просто чаще пропускаются), со смазом читается как
+        # операторский приём. Замедленный/нормальный сегмент не трогаем —
+        # там лишнее размытие только портит резкость, которую специально
+        # вернули unsharp'ом (см. film_look). tmix не меняет число кадров/
+        # длительность — безопасно вставлять здесь без пересчёта таймингов.
+        blur = ",tmix=frames=3:weights='1 2 1'" if mult > 1.0 else ""
         parts.append(
             f"[{split_labels[i]}]trim=start={pos:.3f}:duration={src_d:.3f},"
-            f"setpts=PTS-STARTPTS,setpts={1 / mult:.5f}*PTS[{lbl}]")
+            f"setpts=PTS-STARTPTS,setpts={1 / mult:.5f}*PTS{blur}[{lbl}]")
         labels.append(f"[{lbl}]")
         pos += src_d
     parts.append(f"{''.join(labels)}concat=n={len(labels)}:v=1:a=0[{label_out}]")
