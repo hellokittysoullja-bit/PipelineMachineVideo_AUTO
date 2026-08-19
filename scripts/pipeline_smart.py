@@ -417,6 +417,57 @@ def energy_levels(curve, starts, durs):
     return levels
 
 
+HOOK_ENERGY_SNAP_WINDOW = 0.35   # A8: макс. сдвиг границы реза в поиске локального пика, сек
+
+
+def snap_hook_cuts_to_energy(blocks, durs, real_starts, audio_path):
+    """A8: резы ВНУТРИ хука слегка "прилипают" к локальным пикам энергии
+    ГОЛОСА (ударный слог/акцент) — тот же эффект "монтаж режется в такт",
+    что в трейлерах режут под бит музыки, но синхронизировано с речью, а
+    не с музыкой: наша подложка (generate_music_asset.py) намеренно без
+    ритмического бита — дрон/пэд, чтобы не спорить с закадром документалки
+    (см. A1/A2) — вводить бит в музыку ради этого сломало бы уже
+    проверенное решение, поэтому синхронизация идёт по тому, что реально
+    отбивает акценты в этой подаче: по голосу.
+
+    Только границы МЕЖДУ соседними HOOK-клипами (не самая первая точка
+    хука и не граница хук->тело — те определяются структурой сценария, не
+    тайминг-эстетикой). Сдвиг ищется в мелком (80мс) окне энергии вокруг
+    текущей границы, симметрично перекладывается между двумя соседними
+    клипами — суммарная длительность хука не меняется НИ НА МИЛЛИСЕКУНДУ
+    (бюджет xfade/точное совпадение с аудио не трогается), только реальные
+    клипы i/j локально короче/длиннее друг друга. Каждый сдвиг ищется от
+    ОРИГИНАЛЬНОЙ (досдвиговой) позиции границы — соседние сдвиги не
+    накапливают дрейф друг от друга. Пол безопасности — hook_floor_for(),
+    та же per-позиция функция, что уже держит открывающие резы хука ещё
+    короче остального хука (не плоский порог — плоский тихо утаскивал бы
+    уже нарочно короткие открывающие кадры обратно к общему полу, тот же
+    класс бага, что hook_floor_for() уже один раз чинила для jitter/сдвига
+    границы секции)."""
+    curve = audio_energy_curve(audio_path, window_sec=0.08)
+    if curve is None:
+        return durs
+    rms, win_sec = curve
+    hook_idx = [i for i, b in enumerate(blocks) if b["section"].startswith("HOOK")]
+    if len(hook_idx) < 3:
+        return durs
+    new_durs = list(durs)
+    for k in range(len(hook_idx) - 1):
+        i, j = hook_idx[k], hook_idx[k + 1]
+        boundary_t = real_starts[j]
+        lo = max(0, int((boundary_t - HOOK_ENERGY_SNAP_WINDOW) / win_sec))
+        hi = min(len(rms), int((boundary_t + HOOK_ENERGY_SNAP_WINDOW) / win_sec) + 1)
+        if hi <= lo:
+            continue
+        peak_i = lo + int(np.argmax(rms[lo:hi]))
+        delta = max(-HOOK_ENERGY_SNAP_WINDOW, min(HOOK_ENERGY_SNAP_WINDOW, peak_i * win_sec - boundary_t))
+        if new_durs[i] + delta < hook_floor_for(blocks, i) or new_durs[j] - delta < hook_floor_for(blocks, j):
+            continue
+        new_durs[i] += delta
+        new_durs[j] -= delta
+    return new_durs
+
+
 def measure_loudnorm_stats(audio_path, target_i=-16, target_tp=-1.5, target_lra=11):
     """Первый проход двух-проходного loudnorm — только измерение, звук не
     трогаем. Однопроходный (динамический) режим подстраивает усиление на
@@ -3107,6 +3158,11 @@ def main():
         sub_acc += d
     write_subtitles(VIDEO_FOLDER, blocks, sub_starts, sub_baseline)
     write_chapters(VIDEO_FOLDER, blocks, sub_starts)
+
+    # A8: резы хука слегка "прилипают" к пикам голосовой энергии (см.
+    # snap_hook_cuts_to_energy) — реальные (не xfade-раздутые) старты sub_starts
+    # уже посчитаны как раз выше, переиспользуем ту же временную шкалу.
+    durs = snap_hook_cuts_to_energy(blocks, durs, sub_starts, AUDIO_FILE)
 
     clips, clip_durs, clip_sections, clip_blocks = [], [], [], []
     missing = []   # индексы блоков, для которых не нашлось ни фото, ни видео
