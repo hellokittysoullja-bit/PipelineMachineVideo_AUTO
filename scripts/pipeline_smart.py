@@ -671,10 +671,25 @@ GENERIC_FALLBACKS = [
 ]
 
 
-def query_for(text):
+def query_for(text, keyword_counts=None):
+    """keyword_counts (опционально, мутируется на месте) — значение THEMES
+    может быть СПИСКОМ синонимичных запросов, не только строкой. Найден
+    вживую реальный источник дублей на готовом ролике: "меч" — самое частое
+    слово в видео буквально про вес меча, matches keyword напрямую (не
+    через generic-заглушку с её собственной ротацией) — один и тот же
+    запрос "medieval sword close up" уходил в Pexels 35 раз на 150 кадров
+    эпизода. У Pexels физически нет 35 визуально различимых фото на один
+    узкий запрос — сколько ни доверяй анти-дублю (pexels_photo), пул
+    исчерпывается. Ротация по списку синонимов делит нагрузку на несколько
+    независимых пулов вместо одного."""
     tl = text.lower()
     for kw, q in THEMES.items():
         if kw in tl:
+            if isinstance(q, list):
+                idx = keyword_counts.get(kw, 0) if keyword_counts is not None else 0
+                if keyword_counts is not None:
+                    keyword_counts[kw] = idx + 1
+                return q[idx % len(q)]
             return q
     return None
 
@@ -688,7 +703,8 @@ def resolve_queries(blocks):
     не меняется от предложения к предложению), и только если во всей секции
     вообще ничего не нашлось — берём по кругу из GENERIC_FALLBACKS (не один
     и тот же текст на всё, иначе Pexels отдаёт одну и ту же жалкую пятёрку)."""
-    raw = [query_for(b["text"]) for b in blocks]
+    keyword_counts = {}
+    raw = [query_for(b["text"], keyword_counts) for b in blocks]
     resolved = list(raw)
     for i, q in enumerate(resolved):
         if q is not None:

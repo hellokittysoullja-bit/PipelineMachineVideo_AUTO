@@ -7,7 +7,8 @@
   "катана": "katana sword japanese",
   "викинг": "viking sword",
   "оукшотт": "medieval sword museum catalogue",
-  "музе": "medieval sword collection",
+  "музе": ["medieval sword collection", "sword museum display case", "antique swords wall mounted",
+           "medieval weapons exhibition", "sword collection glass case"],
   "церемониальн": "ornate ceremonial sword blade",
   "парадн": "ornate ceremonial sword blade",
   "доспех": "knight plate armor",
@@ -34,5 +35,6 @@
   "гравюр": "medieval engraving illustration",
   "перчат": "knight gauntlet armor hand grip",
   "реплик": "sword replica hand close up",
-  "меч": "medieval sword close up"
+  "меч": ["medieval sword close up", "sword blade macro texture", "knight sword hilt detail",
+          "steel sword blade closeup", "sword handle grip closeup", "antique sword steel detail"]
 }
