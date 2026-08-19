@@ -113,12 +113,16 @@ def film_look(photo_hash, section="", brightness_bias=0.0, energy_bias=0.0):
 
 XFADE_DUR = 0.4        # диссолв на границах секций и часть обычных склеек
 XFADE_DUR_HARD = 0.06  # почти мгновенный переход — читается как жёсткий cut
-# hblur (смаз в движении — читается как whip pan) и zoomin (панч-переход)
-# добавлены в пул обычных склеек; fadewhite — вспышка светом на границах
-# разделов вперемешку с dissolve/fadeblack, без кастомных текстур-ассетов.
+# hblur/hlwind/hrwind (смаз в движении — читается как whip pan, разные
+# направления — не один и тот же смаз на каждой склейке) и zoomin
+# (панч-переход) — одна мотивированная категория "движение камеры", не
+# декоративные геометрические wipe (проверено вживую рендером — pixelize/
+# circleopen/squeeze и т.п. читаются как шаблон видеоредактора, не приём
+# оператора, поэтому НЕ в пуле). fadewhite/fadegrays — вспышка светом и
+# тональный сдвиг на границах разделов вперемешку с dissolve/fadeblack.
 XFADE_TRANSITIONS = ["fade", "dissolve", "smoothleft", "smoothright",
-                      "smoothup", "smoothdown", "hblur", "zoomin"]
-BOUNDARY_TRANSITIONS = ["dissolve", "fadeblack", "fadewhite"]
+                      "smoothup", "smoothdown", "hblur", "hlwind", "hrwind", "zoomin"]
+BOUNDARY_TRANSITIONS = ["dissolve", "fadeblack", "fadewhite", "fadegrays"]
 HOOK_MAX_CLIP = 3.6     # в хуке кадры короче и чаще — критично для удержания первых секунд.
                         # Было 5.0 — на практике держало хук почти вровень с телом ролика
                         # (4.65с против 6.8с), а не заметно быстрее, как задумано.
