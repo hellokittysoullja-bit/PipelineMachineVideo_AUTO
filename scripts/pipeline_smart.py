@@ -358,15 +358,16 @@ def parse_blocks(path):
         processed = processed.replace(tag, f"__PAUSE_{PAUSE_DURATIONS[tag]}__")
     processed = re.sub(r'\[.*?\]', '', processed)
     parts = re.split(r'(__PAUSE_[\d.]+__|\x00SECTION:.*?\x00|\x01STAT:.*?\x01)', processed)
-    blocks, cur, pause, stat = [], "", 0.0, None
+    blocks, cur, pause, stat, stat_word_pos = [], "", 0.0, None, None
     section = "BODY"
 
     def flush():
-        nonlocal cur, pause, stat
+        nonlocal cur, pause, stat, stat_word_pos
         if cur:
             blocks.append({"text": cur, "pause_after": pause,
-                           "words": len(cur.split()), "section": section, "stat": stat})
-        cur, pause, stat = "", 0.0, None
+                           "words": len(cur.split()), "section": section, "stat": stat,
+                           "stat_word_pos": stat_word_pos})
+        cur, pause, stat, stat_word_pos = "", 0.0, None, None
 
     for part in parts:
         mp = re.match(r'__PAUSE_([\d.]+)__', part)
@@ -387,6 +388,14 @@ def parse_blocks(path):
             if pause > 0 and cur:
                 flush()
             stat = mst.group(1)
+            # Тег стоит ПОСЛЕ фразы с числом ("...до полутора.[stat:1,0-1,5 КГ]
+            # Среднее...") — то есть к моменту тега число уже произнесено.
+            # Запоминаем, сколько слов УЖЕ накоплено в cur — это точка, к
+            # которой плашка должна появиться, а не начало клипа (раньше
+            # позиция тега нигде не сохранялась, плашка стартовала от t=0
+            # независимо от того, где в фразе реально звучит цифра — цифра
+            # на экране опережала озвучку на полклипа и больше)."""
+            stat_word_pos = len(cur.split())
         else:
             t = part.strip()
             if t:
@@ -734,7 +743,7 @@ def resolve_queries(blocks):
 STAT_ACCENT = "0xC8102E"   # акцентный красный, CHANNEL.md house style
 
 
-def add_overlays(vf_base, dur, title=None, stat=None, stat_variant=0):
+def add_overlays(vf_base, dur, title=None, stat=None, stat_variant=0, stat_delay=0.0):
     """Титр секции (низ кадра, слайд+fade первые ~2.5с, фирменный дисплейный
     шрифт) + цифровая плашка. Общий код для фото и видео-стока. Обычный
     fade раньше был самым узнаваемым штампом автослайдшоу — слайд добавляет
@@ -764,12 +773,22 @@ def add_overlays(vf_base, dur, title=None, stat=None, stat_variant=0):
                f"alpha='if(lt(t\\,{fin:.2f})\\,t/{fin:.2f}\\,"
                f"if(lt(t\\,{hold:.2f})\\,1\\,max(0\\,1-(t-{hold:.2f})/0.4)))'")
     if stat and FONT_PATH:
-        fin = 0.25
+        fin_dur = 0.25
+        # Плашка раньше ВСЕГДА стартовала от t=0 клипа — независимо от того,
+        # где внутри фразы реально произносится число (см. stat_word_pos в
+        # parse_blocks/split_long_blocks). Цифра появлялась на экране
+        # заметно раньше, чем её произносили. delay — момент внутри клипа,
+        # когда число уже озвучено; clamp оставляет минимум ~1.2с на сам
+        # fade-in/hold/fade-out, даже если delay пришёлся почти на конец
+        # клипа (не даём плашке исчезнуть, не успев появиться).
+        delay = max(0.0, min(stat_delay, dur - 1.2))
+        fin = delay + fin_dur
         hold = max(fin, dur - 0.5)
         text = stat.upper() if FONT_IS_DISPLAY else stat
         safe = escape_drawtext(text)
-        alpha = (f"if(lt(t\\,{fin:.2f})\\,t/{fin:.2f}\\,"
-                 f"if(lt(t\\,{hold:.2f})\\,1\\,max(0\\,1-(t-{hold:.2f})/0.4)))")
+        alpha = (f"if(lt(t\\,{delay:.2f})\\,0\\,"
+                 f"if(lt(t\\,{fin:.2f})\\,(t-{delay:.2f})/{fin_dur:.2f}\\,"
+                 f"if(lt(t\\,{hold:.2f})\\,1\\,max(0\\,1-(t-{hold:.2f})/0.4))))")
         variant = stat_variant % 4
         if variant == 0:
             # Классический баннер — верх кадра, слайд сверху.
@@ -778,7 +797,7 @@ def add_overlays(vf_base, dur, title=None, stat=None, stat_variant=0):
                    f"fontcolor=white:fontsize={fs}:"
                    f"box=1:boxcolor={STAT_ACCENT}@0.92:boxborderw=18:"
                    f"x=(w-text_w)/2:"
-                   f"y='110-(1-min(t/{fin:.2f}\\,1))*26':"
+                   f"y='110-(1-max(0\\,min((t-{delay:.2f})/{fin_dur:.2f}\\,1)))*26':"
                    f"alpha='{alpha}'")
         elif variant == 1:
             # Крупное число по центру кадра — без плашки, тень вместо box.
@@ -798,7 +817,7 @@ def add_overlays(vf_base, dur, title=None, stat=None, stat_variant=0):
             # уезжала в самый верх кадра). ih/iw — явно "кадр", не бокс.
             vf += (f",drawbox=x=100:y=(ih-160)/2:w=8:h=160:"
                    f"color={STAT_ACCENT}@0.92:t=fill:"
-                   f"enable='between(t\\,0\\,{hold:.2f})'"
+                   f"enable='between(t\\,{delay:.2f}\\,{hold:.2f})'"
                    f",drawtext=fontfile='{FONT_PATH}':text='{safe}':"
                    f"fontcolor=white:fontsize={fs}:"
                    f"shadowcolor=black@0.8:shadowx=3:shadowy=3:"
@@ -815,7 +834,7 @@ def add_overlays(vf_base, dur, title=None, stat=None, stat_variant=0):
                    f"alpha='{alpha}'"
                    f",drawbox=x=iw-260:y=ih-72:w=200:h=3:"
                    f"color={STAT_ACCENT}@0.92:t=fill:"
-                   f"enable='between(t\\,0\\,{hold:.2f})'")
+                   f"enable='between(t\\,{delay:.2f}\\,{hold:.2f})'")
     return vf
 
 
@@ -1094,7 +1113,7 @@ WOBBLE_AMP_CANVAS_PX = 6.0   # ~1.4px в итоговом 1920-кадре (ка�
 
 def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
              section="", motion_mode="classic_kb", stat_variant=0,
-             brightness_bias=0.0, energy_bias=0.0):
+             brightness_bias=0.0, energy_bias=0.0, stat_delay=0.0):
     frames = max(1, round(dur * FPS))
     h, zoom_in_default, pan_dir_default = kb_hash_choices(photo)
     if zoom_in is None:
@@ -1192,7 +1211,7 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
                f"zoompan=z={z}:x={x}:y={y}:"
                f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS},"
                f"{film_look(h, section, brightness_bias, energy_bias)}")
-    vf_overlay = add_overlays(vf_base, dur, title, stat, stat_variant) if (title or stat) else None
+    vf_overlay = add_overlays(vf_base, dur, title, stat, stat_variant, stat_delay) if (title or stat) else None
 
     def render(vf):
         cmd = ["ffmpeg", "-y", "-loop", "1", "-i", photo, "-vf", vf,
@@ -1284,7 +1303,8 @@ def fill_crop_canvas(photo_path, cw, ch, anchor=None):
 
 
 def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
-                       section="", stat_variant=0, brightness_bias=0.0, energy_bias=0.0):
+                       section="", stat_variant=0, brightness_bias=0.0, energy_bias=0.0,
+                       stat_delay=0.0):
     """2.5D-версия kenburns(): собственный покадровый рендер (OpenCV remap)
     вместо ffmpeg zoompan — только так можно сделать смещение, зависящее от
     глубины пикселя. При любой накладке (модель не встала, ffmpeg-пайп упал)
@@ -1351,7 +1371,7 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
                "-s", f"{WIDTH}x{HEIGHT}", "-r", str(FPS), "-i", "-",
                "-frames:v", str(frames)]
         vf = film_look(h, section, brightness_bias, energy_bias)
-        vf = add_overlays(vf, dur, title, stat, stat_variant) if (title or stat) else vf
+        vf = add_overlays(vf, dur, title, stat, stat_variant, stat_delay) if (title or stat) else vf
         cmd += ["-vf", vf, "-c:v", "libx264", "-preset", "fast", "-crf", "23",
                 "-pix_fmt", "yuv420p", "-r", str(FPS), out]
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE,
@@ -1447,7 +1467,7 @@ def detect_scene_change_offset(vid, max_skip, scene_threshold=0.12):
 
 
 def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=0,
-                  brightness_bias=0.0, energy_bias=0.0):
+                  brightness_bias=0.0, energy_bias=0.0, stat_delay=0.0):
     """Аналог kenburns(), но для стокового видео: без zoompan (движение уже
     есть в кадре), заливка кадра целиком + обрезка (не letterbox), растяжение
     по времени, если исходный ролик короче нужной длительности."""
@@ -1479,7 +1499,7 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
     if setpts_factor is not None:
         vf_base += f",setpts={setpts_factor:.5f}*PTS"
     vf_base += f",{film_look(h, section, brightness_bias, energy_bias)}"
-    vf_overlay = add_overlays(vf_base, dur, title, stat, stat_variant) if (title or stat) else None
+    vf_overlay = add_overlays(vf_base, dur, title, stat, stat_variant, stat_delay) if (title or stat) else None
 
     def render(vf):
         cmd = ["ffmpeg", "-y"]
@@ -1905,11 +1925,24 @@ def split_long_blocks(blocks, real_weights):
             new_blocks.append(b)
             new_weights.append(w)
             continue
+        # Плашка раньше ВСЕГДА доставалась первому куску (k==0) независимо от
+        # того, где в исходном блоке реально стоял [stat:...] — если рез
+        # приходился ДО фразы с числом, цифра на экране показывалась на
+        # куске, где она ещё не произнесена, а реальный кусок с числом
+        # оставался без плашки вовсе. stat_word_pos (см. parse_blocks) —
+        # позиция тега в словах исходного блока; находим, в какой ИМЕННО
+        # кусок она попадает, и пересчитываем позицию относительно НАЧАЛА
+        # этого куска (nb-локально), чтобы дальше по конвейеру плашку можно
+        # было синхронизировать с моментом озвучки, а не с началом клипа.
+        stat_pos = b.get("stat_word_pos")
         for k, (a, c) in enumerate(merged):
             nb = dict(b)
             nb["text"] = " ".join(words[a:c])
             nb["words"] = c - a
-            nb["stat"] = b["stat"] if k == 0 else None
+            has_stat = b["stat"] is not None and stat_pos is not None and (
+                (a < stat_pos <= c) or (stat_pos <= 0 and k == 0))
+            nb["stat"] = b["stat"] if has_stat else None
+            nb["stat_word_pos"] = max(0, stat_pos - a) if has_stat else None
             nb["pause_after"] = b["pause_after"] if k == len(merged) - 1 else 0.0
             nb["is_subcut"] = k > 0   # для choose_motion_mode() (1.4) — деталь, не главный кадр фразы
             new_blocks.append(nb)
@@ -1995,6 +2028,14 @@ def main():
         stat_variant = stat_count
         if stat:
             stat_count += 1
+        # Момент внутри клипа, когда число уже произнесено (см. stat_word_pos
+        # в parse_blocks/split_long_blocks) — доля слов ДО тега [stat:...] от
+        # общего числа слов В ЭТОМ куске, умноженная на его финальную
+        # длительность. Та же word-count-пропорция, что уже используется как
+        # честный фоллбэк тайминга по всему пайплайну (не выдумываем более
+        # точную модель специально под этот случай).
+        stat_word_pos = b.get("stat_word_pos")
+        stat_delay = (stat_word_pos / max(1, b["words"]) * d) if (stat and stat_word_pos) else 0.0
         # Хэш параметров рендера в имени — иначе правка script.txt (текст,
         # тайминг, плашка) без ручной чистки temp_smart/ молча оставляла
         # старый клип под новые данные (тот же класс бага, что уже правили
@@ -2006,7 +2047,7 @@ def main():
         # киноплёнку, потому что длительность/заголовок/плашка/секция не
         # изменились, а запрос в хэш не входил.
         params_hash = hashlib.md5(
-            f"{d:.3f}|{title}|{stat}|{stat_variant}|{b['section']}|{queries[i]}".encode()).hexdigest()[:8]
+            f"{d:.3f}|{title}|{stat}|{stat_variant}|{b['section']}|{queries[i]}|{stat_delay:.3f}".encode()).hexdigest()[:8]
         out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}_{params_hash}.mp4")
         if os.path.exists(out):
             clips.append(out)
@@ -2057,7 +2098,7 @@ def main():
         if video:
             ok = video_render(video, out, d, title=title, stat=stat, section=b["section"],
                                stat_variant=stat_variant, brightness_bias=brightness_bias,
-                               energy_bias=energy_bias)
+                               energy_bias=energy_bias, stat_delay=stat_delay)
         else:
             # anti-repetition: хэш сам по себе не мешает 3 зумам подряд случайно
             # совпасть — держим окно последних решений и форсируем смену при повторе.
@@ -2081,14 +2122,14 @@ def main():
                 ok = parallax_kenburns(photo, out, d, title=title, zoom_in=zoom_in,
                                         pan_dir=pan_dir, stat=stat, section=b["section"],
                                         stat_variant=stat_variant, brightness_bias=brightness_bias,
-                                        energy_bias=energy_bias)
+                                        energy_bias=energy_bias, stat_delay=stat_delay)
             if not ok:
                 photo_hash, _, _ = kb_hash_choices(photo)
                 motion_mode = choose_motion_mode(b, is_section_start, photo_hash)
                 ok = kenburns(photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
                               stat=stat, section=b["section"], motion_mode=motion_mode,
                               brightness_bias=brightness_bias, energy_bias=energy_bias,
-                              stat_variant=stat_variant)
+                              stat_variant=stat_variant, stat_delay=stat_delay)
         if ok:
             clips.append(out)
             clip_durs.append(d)
