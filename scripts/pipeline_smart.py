@@ -105,21 +105,33 @@ MOOD_GRADE = {
 }
 
 
-def film_look(photo_hash, section="", brightness_bias=0.0, energy_bias=0.0):
+def film_look(photo_hash, section="", brightness_bias=0.0, energy_bias=0.0, levels=None):
     """brightness_bias — сглаживание скачка экспозиции со СОСЕДНИМ кадром
     (см. measure_luma()/main(): сток из разных источников иначе скачет по
     яркости кадр-к-кадру — частый "любительский" tell в компиляциях).
     energy_bias — лёгкая пульсация контраста/сатурации в такт громкости
     голоса в ЭТОМ отрезке (energy_levels()) — на эмоциональных пиках кадр
     чуть "подбирается", на тихих местах чуть мягче, как это интуитивно
-    делает монтажёр руками, а не по одной и той же формуле весь ролик."""
+    делает монтажёр руками, а не по одной и той же формуле весь ролик.
+
+    levels — (чёрная,белая) точка ЭТОГО кадра по перцентилям гистограммы
+    (см. measure_levels()) для адаптивной ТЕХНИЧЕСКОЙ нормализации
+    экспозиции — отдельный, самый первый шаг цепочки (auto_levels_params(),
+    клэмп силы — не полное выравнивание), решает другую задачу, чем
+    brightness_bias (тот сглаживает скачок МЕЖДУ соседними кадрами, этот
+    поднимает разброс экспозиции ВНУТРИ одного кадра к общей базе). Сам
+    творческий грейд ниже (eq/curves/selectivecolor/...) НЕ адаптируется и
+    не меняется от кадра к кадру — только то, что в него попадает."""
     mood = MOOD_GRADE["HOOK"] if section.startswith("HOOK") else (
            MOOD_GRADE["FINAL"] if section.startswith("FINAL") else MOOD_GRADE["BODY"])
     eb = max(-0.5, min(0.5, energy_bias))
     c = mood["c0"] + (photo_hash % 100) / 100 * 0.05 + eb * 0.06
     s = mood["s0"] + ((photo_hash >> 7) % 100) / 100 * 0.08 + eb * 0.05
     b = ((photo_hash >> 14) % 100) / 100 * 0.02 + brightness_bias
+    al_c, al_b = auto_levels_params(levels)
+    norm_stage = f"eq=contrast={al_c:.4f}:brightness={al_b:.4f}," if (al_c != 1.0 or al_b != 0.0) else ""
     return (
+        norm_stage +
         f"eq=contrast={c:.3f}:saturation={s:.3f}:brightness={b:.3f},"
         # Тон-кривая: мягкий roll-off светов и лёгкий подъём теней вместо
         # жёсткого клиппинга голым eq — "мёртвый" digital-белый (255) и
@@ -357,6 +369,73 @@ def measure_loudnorm_stats(audio_path, target_i=-16, target_tp=-1.5, target_lra=
         return None
 
 
+def measure_levels(path, is_video=False, lo_pct=2, hi_pct=98):
+    """Чёрная/белая точка кадра (0..1) по перцентилям гистограммы — для
+    адаптивной ТЕХНИЧЕСКОЙ нормализации экспозиции ДО фиксированного
+    творческого грейда (см. auto_levels_params()/film_look()). Перцентили,
+    не голый min/max — иначе один яркий блик/пересвеченный пиксель срывает
+    белую точку всего кадра. Для видео — тот же грубый приём, что
+    measure_luma (один кадр-пробник, не весь клип — экспозиция может плыть
+    внутри клипа, но точный анализ всего ролика не окупает cложность)."""
+    try:
+        if is_video:
+            tmp = path + "._levels_probe.jpg"
+            # -ss 0.5 ДО -i, не кадр 0 — реальный сток иногда начинается с
+            # чёрного лидер-кадра/fade-in (поймано вживую: у одного из
+            # клипов эпизода кадр 0 был буквально чистым чёрным, min=max=0 —
+            # без сдвига это выглядело бы как "снято в темноте" и заваливало
+            # бы коррекцию в вырожденный случай на КАЖДОМ таком клипе).
+            r = subprocess.run(["ffmpeg", "-y", "-ss", "0.5", "-i", path, "-frames:v", "1", "-q:v", "5", tmp],
+                                capture_output=True, timeout=20)
+            if r.returncode != 0 or not os.path.exists(tmp):
+                return None
+            img = PILImage.open(tmp).convert("L")
+            os.remove(tmp)
+        else:
+            img = PILImage.open(path).convert("L")
+        if np is None:
+            return None
+        arr = np.asarray(img, dtype=np.float32) / 255.0
+        lo = float(np.percentile(arr, lo_pct))
+        hi = float(np.percentile(arr, hi_pct))
+        return lo, hi
+    except Exception:
+        return None
+
+
+AUTO_LEVELS_TARGET_BLACK = 0.03
+AUTO_LEVELS_TARGET_WHITE = 0.97
+# Клэмп силы коррекции — НЕ полное выравнивание к цели (иначе кадр с
+# осознанно низким контрастом/затемнением — музейный экспонат в полумраке —
+# перекорректируется до нейтрального "мыла", тот же принцип, что уже держит
+# в узде brightness_bias). 0.5 = на полпути между "как есть" и целью.
+AUTO_LEVELS_MAX_STRENGTH = 0.5
+AUTO_LEVELS_MIN_RANGE = 0.05   # чёрная/белая точка ближе этого — вырожденная гистограмма, не трогаем
+
+
+def auto_levels_params(levels):
+    """(contrast, brightness) для eq() — линейная растяжка чёрной/белой
+    точки К цели (не ДО цели — см. AUTO_LEVELS_MAX_STRENGTH), формула eq
+    подтверждена вживую на синтетическом градиенте: output=(input-0.5)*
+    contrast+0.5+brightness. None/вырожденная гистограмма -> (1.0, 0.0) —
+    нейтральный проход, эффекта нет."""
+    if levels is None:
+        return 1.0, 0.0
+    black_in, white_in = levels
+    if white_in - black_in < AUTO_LEVELS_MIN_RANGE:
+        return 1.0, 0.0
+    s = AUTO_LEVELS_MAX_STRENGTH
+    # Блендим ЛИНЕЙНО две affine-трансформации — identity (as-is) и полную
+    # коррекцию (black_in->TARGET_BLACK, white_in->TARGET_WHITE) — блендинг
+    # двух affine-преобразований сам по себе affine, поэтому это по-прежнему
+    # чистая (contrast, brightness) пара, не приближение.
+    scale_full = (AUTO_LEVELS_TARGET_WHITE - AUTO_LEVELS_TARGET_BLACK) / (white_in - black_in)
+    contrast_eff = (1 - s) + s * scale_full
+    brightness_offset = s * (AUTO_LEVELS_TARGET_BLACK - black_in * scale_full)
+    brightness = brightness_offset - 0.5 + 0.5 * contrast_eff
+    return contrast_eff, brightness
+
+
 def measure_luma(path, is_video=False):
     """Средняя яркость кадра (0..1) — для сглаживания скачков экспозиции
     между соседними склейками (см. main()): сток из разных источников
@@ -366,7 +445,10 @@ def measure_luma(path, is_video=False):
     try:
         if is_video:
             tmp = path + "._luma_probe.jpg"
-            r = subprocess.run(["ffmpeg", "-y", "-i", path, "-frames:v", "1", "-q:v", "5", tmp],
+            # -ss 0.5, не кадр 0 — см. тот же фикс в measure_levels(): реальный
+            # сток иногда начинается с чёрного лидер-кадра/fade-in, кадр 0
+            # тогда даёт ложный "снято в темноте" на весь клип.
+            r = subprocess.run(["ffmpeg", "-y", "-ss", "0.5", "-i", path, "-frames:v", "1", "-q:v", "5", tmp],
                                 capture_output=True, timeout=20)
             if r.returncode != 0 or not os.path.exists(tmp):
                 return None
@@ -1467,7 +1549,7 @@ def piecewise_ease_expr(t_expr, points):
 
 def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
              section="", motion_mode="classic_kb", stat_variant=0,
-             brightness_bias=0.0, energy_bias=0.0, stat_delay=0.0):
+             brightness_bias=0.0, energy_bias=0.0, stat_delay=0.0, levels=None):
     frames = max(1, round(dur * FPS))
     h, zoom_in_default, pan_dir_default = kb_hash_choices(photo)
     if zoom_in is None:
@@ -1594,7 +1676,7 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
                f"crop=8000:4500:{cx0}:{cy0},setsar=1,"
                f"zoompan=z={z}:x={x}:y={y}:"
                f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS},"
-               f"{film_look(h, section, brightness_bias, energy_bias)}")
+               f"{film_look(h, section, brightness_bias, energy_bias, levels)}")
     vf_overlay = add_overlays(vf_base, dur, title, stat, stat_variant, stat_delay) if (title or stat) else None
 
     def render(vf):
@@ -1756,7 +1838,7 @@ def fill_crop_canvas(photo_path, cw, ch, anchor=None):
 
 def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
                        section="", stat_variant=0, brightness_bias=0.0, energy_bias=0.0,
-                       stat_delay=0.0):
+                       stat_delay=0.0, levels=None):
     """2.5D-версия kenburns(): собственный покадровый рендер (OpenCV remap)
     вместо ffmpeg zoompan — только так можно сделать смещение, зависящее от
     глубины пикселя. При любой накладке (модель не встала, ffmpeg-пайп упал)
@@ -1826,7 +1908,7 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
         # ffmpeg привязал бы его ко входу grain, а не к выходу).
         if GRAIN_ENABLED:
             cmd += ["-stream_loop", "-1", "-i", GRAIN_LOOP_PATH]
-        vf = film_look(h, section, brightness_bias, energy_bias)
+        vf = film_look(h, section, brightness_bias, energy_bias, levels)
         vf = add_overlays(vf, dur, title, stat, stat_variant, stat_delay) if (title or stat) else vf
         if GRAIN_ENABLED:
             fc = f"[0:v]{vf}[gr_in];{grain_blend_complex('gr_in', 1, 'vout')}"
@@ -2003,7 +2085,7 @@ def detect_scene_change_offset(vid, max_skip, scene_threshold=0.12):
 
 
 def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=0,
-                  brightness_bias=0.0, energy_bias=0.0, stat_delay=0.0):
+                  brightness_bias=0.0, energy_bias=0.0, stat_delay=0.0, levels=None):
     """Аналог kenburns(), но для стокового видео: без zoompan (движение уже
     есть в кадре), заливка кадра целиком + обрезка (не letterbox), растяжение
     по времени, если исходный ролик короче нужной длительности.
@@ -2042,7 +2124,7 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
             ramp_filter = build_speed_ramp_filter(skip, dur, actual)
 
     if ramp_filter:
-        tail = film_look(h, section, brightness_bias, energy_bias)
+        tail = film_look(h, section, brightness_bias, energy_bias, levels)
         full_tail = add_overlays(tail, dur, title, stat, stat_variant, stat_delay) if (title or stat) else tail
         cmd = ["ffmpeg", "-y", "-i", vid]
         if GRAIN_ENABLED:
@@ -2068,7 +2150,7 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
         setpts_factor = 1.0 / bias
     if setpts_factor is not None:
         vf_base += f",setpts={setpts_factor:.5f}*PTS"
-    vf_base += f",{film_look(h, section, brightness_bias, energy_bias)}"
+    vf_base += f",{film_look(h, section, brightness_bias, energy_bias, levels)}"
     vf_overlay = add_overlays(vf_base, dur, title, stat, stat_variant, stat_delay) if (title or stat) else None
 
     def render(vf):
@@ -2821,11 +2903,18 @@ def main():
             luma_ema = luma if luma_ema is None else luma_ema * 0.6 + luma * 0.4
         else:
             brightness_bias = 0.0
+        # Адаптивная ТЕХНИЧЕСКАЯ нормализация экспозиции ЭТОГО кадра (auto-
+        # levels по перцентилям, см. measure_levels()/auto_levels_params()) —
+        # решает другую задачу, чем brightness_bias выше (тот сглаживает
+        # скачок МЕЖДУ соседними кадрами, это подтягивает разброс ВНУТРИ
+        # одного кадра к общей базе), применяется в film_look() ПЕРЕД
+        # неизменным творческим грейдом, не вместо него.
+        levels = measure_levels(photo, is_video=False) if photo else measure_levels(video, is_video=True)
         energy_bias = max(-0.5, min(0.5, energy_lvls[i] - 1.0))
         if video:
             ok = video_render(video, out, d, title=title, stat=stat, section=b["section"],
                                stat_variant=stat_variant, brightness_bias=brightness_bias,
-                               energy_bias=energy_bias, stat_delay=stat_delay)
+                               energy_bias=energy_bias, stat_delay=stat_delay, levels=levels)
         else:
             # anti-repetition: хэш сам по себе не мешает 3 зумам подряд случайно
             # совпасть — держим окно последних решений и форсируем смену при повторе.
@@ -2849,7 +2938,7 @@ def main():
                 ok = parallax_kenburns(photo, out, d, title=title, zoom_in=zoom_in,
                                         pan_dir=pan_dir, stat=stat, section=b["section"],
                                         stat_variant=stat_variant, brightness_bias=brightness_bias,
-                                        energy_bias=energy_bias, stat_delay=stat_delay)
+                                        energy_bias=energy_bias, stat_delay=stat_delay, levels=levels)
             if not ok:
                 photo_hash, _, _ = kb_hash_choices(photo)
                 cur_shot_size = recent_shot_sizes[-1] if recent_shot_sizes else None
@@ -2857,7 +2946,7 @@ def main():
                 ok = kenburns(photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
                               stat=stat, section=b["section"], motion_mode=motion_mode,
                               brightness_bias=brightness_bias, energy_bias=energy_bias,
-                              stat_variant=stat_variant, stat_delay=stat_delay)
+                              stat_variant=stat_variant, stat_delay=stat_delay, levels=levels)
         if ok:
             clips.append(out)
             clip_durs.append(d)
