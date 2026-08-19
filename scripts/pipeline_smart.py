@@ -238,6 +238,23 @@ MUSIC_DUCK_RATIO = 9.0
 MUSIC_DUCK_ATTACK_MS = 15.0    # быстро прижать к началу фразы
 MUSIC_DUCK_RELEASE_MS = 450.0  # плавно отпустить после — без эффекта "накачки"
 
+# A6: цепочка обработки самого голоса (сырой TTS -> вещательного качества),
+# ДО подмешивания музыки/дакинга — то, что обычно делает звукорежиссёр с
+# дорожкой диктора: срез суб-баса (в голосе его быть не должно, только гул),
+# лёгкая тональная коррекция (тепло внизу, разборчивость наверху — TTS
+# нейтрален "из коробки", не спроектирован под смесь с музыкой), деэссер
+# (TTS-движки нередко дают резкие "с/ш" на определённых голосах/скоростях),
+# мягкая компрессия РОВНО голоса (не путать с loudnorm — тот выравнивает
+# ГРОМКОСТЬ ролика целиком, это — микро-динамика внутри фраз, чтобы тихие
+# слова не тонули под подложкой ДО дакинга).
+VOICE_PROCESS_ENABLED = os.environ.get("VOICE_PROCESS", "1") != "0"
+VOICE_HIGHPASS_HZ = 80
+VOICE_EQ_WARMTH_HZ, VOICE_EQ_WARMTH_GAIN = 200, 1.5
+VOICE_EQ_PRESENCE_HZ, VOICE_EQ_PRESENCE_GAIN = 3000, 2.0
+VOICE_DEESS_INTENSITY = 0.3
+VOICE_COMPRESS_THRESHOLD = 0.15
+VOICE_COMPRESS_RATIO = 2.5
+
 
 def grain_blend_complex(label_in, grain_input_idx, label_out):
     """Фрагмент filter_complex: масштабирует зацикленный (-stream_loop -1 на
@@ -416,6 +433,32 @@ def measure_loudnorm_stats(audio_path, target_i=-16, target_tp=-1.5, target_lra=
         return json.loads(r.stderr[start:end])
     except Exception:
         return None
+
+
+def process_voice(voice_path, out_path):
+    """A6: обработка сырой TTS-дорожки перед миксом с музыкой — срез
+    суб-баса, лёгкая тональная коррекция, деэссер, мягкая компрессия
+    микро-динамики фраз. VOICE_PROCESS_ENABLED=False -> просто копия
+    исходника (безопасный откат, тот же принцип, что MUSIC_ENABLED)."""
+    if not VOICE_PROCESS_ENABLED:
+        r = subprocess.run(["ffmpeg", "-y", "-i", voice_path, "-ar", "44100", "-ac", "2", out_path],
+                            capture_output=True, text=True)
+        return out_path if r.returncode == 0 else voice_path
+    af = (
+        f"highpass=f={VOICE_HIGHPASS_HZ},"
+        f"equalizer=f={VOICE_EQ_WARMTH_HZ}:width_type=o:width=1.5:g={VOICE_EQ_WARMTH_GAIN},"
+        f"equalizer=f={VOICE_EQ_PRESENCE_HZ}:width_type=o:width=1.2:g={VOICE_EQ_PRESENCE_GAIN},"
+        f"deesser=i={VOICE_DEESS_INTENSITY}:m=0.4,"
+        f"acompressor=threshold={VOICE_COMPRESS_THRESHOLD}:ratio={VOICE_COMPRESS_RATIO}:"
+        f"attack=8:release=120:makeup=1.15"
+    )
+    r = subprocess.run(["ffmpeg", "-y", "-i", voice_path, "-af", af, "-ar", "44100", "-ac", "2", out_path],
+                        capture_output=True, text=True)
+    if r.returncode != 0:
+        r2 = subprocess.run(["ffmpeg", "-y", "-i", voice_path, "-ar", "44100", "-ac", "2", out_path],
+                             capture_output=True, text=True)
+        return out_path if r2.returncode == 0 else voice_path
+    return out_path
 
 
 def build_mood_timeline(hook_end, final_start, total_dur, out_path):
@@ -3270,8 +3313,13 @@ def main():
     # достаточно суммы длительностей внутри каждой без отдельного поиска границ.
     hook_end = sum(d for sec, d in zip(clip_sections, clip_durs) if sec.startswith("HOOK"))
     final_start = sum(d for sec, d in zip(clip_sections, clip_durs) if not sec.startswith("FINAL"))
+    # A6: обработка голоса (highpass/EQ/деэссер/компрессия) ДО подмешивания
+    # музыки — тот же порядок, что в реальном пост-продакшене: сначала
+    # приводишь дорожку диктора в порядок, потом кладёшь её в микс.
+    voice_processed = os.path.join(TEMP_FOLDER, "voice_processed.wav")
+    voice_processed = process_voice(AUDIO_FILE, voice_processed)
     premix = os.path.join(TEMP_FOLDER, "premix.wav")
-    premix = build_music_mix(AUDIO_FILE, total, premix, hook_end=hook_end, final_start=final_start)
+    premix = build_music_mix(voice_processed, total, premix, hook_end=hook_end, final_start=final_start)
     # loudnorm — стандартная целевая громкость YouTube (-16 LUFS intergated,
     # -1.5dB true peak потолок, LRA 11) вместо "как есть от TTS". Разные
     # заказы озвучки/движки иначе дают заметно разную громкость от эпизода
