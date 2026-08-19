@@ -56,6 +56,17 @@ FPS, WIDTH, HEIGHT = 25, 1920, 1080
 # косметика: без неё цвет непредсказуем именно там, где мы больше всего
 # вложились в грейд/зерно/halation.
 COLOR_META_ARGS = ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709"]
+# 10-бит ТОЛЬКО на промежуточных клипах (kenburns/video_render/
+# parallax_kenburns) — у нас две генерации перекодирования (клип -> общий
+# xfade-проход), и 8-бит на КАЖДОЙ из них копит собственную ошибку
+# квантования (видно на тёмных градиентах — deband лечит следствие, не
+# причину). xfade_chain() и pad_to_length() ОСТАЮТСЯ на yuv420p (8-бит) —
+# это финальный формат поставки (-c:v copy на финальном муксе копирует
+# ИМЕННО их выход без изменений), 10-бит H.264 не универсально безопасен
+# для доставки на YouTube. ffmpeg сам понижает точность при декодировании
+# 10-битных клипов в 8-битный xfade-выход — обычный смешанный pipeline,
+# ничего специального делать не нужно на стороне master-прохода.
+CLIP_PIX_ARGS = ["-pix_fmt", "yuv420p10le", "-profile:v", "high10"]
 
 # ZOOM_FLOOR — минимальный зум держится ВЕСЬ клип (не 1.0). Раньше offset пана
 # был обязан = 0 ровно в момент zoom=1.0 (иначе край вылезет за картинку), и на
@@ -1713,7 +1724,7 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
         else:
             cmd += ["-vf", vf]
         cmd += ["-t", str(dur), "-c:v", "libx264", "-preset", "fast",
-               "-crf", "18", "-pix_fmt", "yuv420p", "-r", str(FPS)] + COLOR_META_ARGS + [out]
+               "-crf", "18", "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS + [out]
         return subprocess.run(cmd, capture_output=True, text=True)
 
     if vf_overlay:
@@ -1993,7 +2004,7 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
         else:
             cmd += ["-vf", vf]
         cmd += ["-frames:v", str(frames), "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-                "-pix_fmt", "yuv420p", "-r", str(FPS)] + COLOR_META_ARGS + [out]
+                "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS + [out]
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE,
                                  stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
@@ -2213,7 +2224,7 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
         cmd += ["-filter_complex", filter_complex,
                "-map", "[vout]", "-t", str(dur), "-an",
                "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-               "-pix_fmt", "yuv420p", "-r", str(FPS)] + COLOR_META_ARGS + [out]
+               "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS + [out]
         r = subprocess.run(cmd, capture_output=True, text=True)
         if r.returncode == 0:
             return True
@@ -2243,7 +2254,7 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
             cmd += ["-vf", vf]
         cmd += ["-t", str(dur), "-an",
                 "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-                "-pix_fmt", "yuv420p", "-r", str(FPS)] + COLOR_META_ARGS + [out]
+                "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS + [out]
         return subprocess.run(cmd, capture_output=True, text=True)
 
     if vf_overlay:
