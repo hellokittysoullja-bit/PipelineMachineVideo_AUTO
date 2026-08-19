@@ -1587,6 +1587,73 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
 SPEED_BIAS = {"HOOK": 1.12, "FINAL": 0.92}
 
 
+def measure_motion(vid, start, span, samples=4):
+    """Дешёвая оценка реального движения в клипе (frame-diff на N мелких
+    170x90-кадрах, тот же приём, что measure_luma) — speed ramp (см. ниже)
+    имеет смысл только там, где в кадре РЕАЛЬНО что-то происходит (взмах,
+    шаг, панорама съёмщика), а не когда объект просто лежит/стоит в кадре —
+    там ускорение ничем не мотивировано и выглядит как рывок, не приём.
+    0.0 при любой ошибке/отсутствии numpy — ramp тогда просто не применяется
+    (безопасный откат на старое поведение, тот же принцип, что PARALLAX_LIBS)."""
+    if np is None:
+        return 0.0
+    try:
+        frames = []
+        for i in range(samples):
+            t = start + span * (i + 0.5) / samples
+            tmp = vid + f"._motion_probe_{i}.jpg"
+            r = subprocess.run(
+                ["ffmpeg", "-y", "-ss", f"{t:.2f}", "-i", vid, "-frames:v", "1",
+                 "-vf", "scale=160:90", tmp],
+                capture_output=True, timeout=15)
+            if r.returncode == 0 and os.path.exists(tmp):
+                img = PILImage.open(tmp).convert("L")
+                frames.append(np.asarray(img, dtype=np.float32))
+                os.remove(tmp)
+        if len(frames) < 2:
+            return 0.0
+        diffs = [float(np.abs(frames[i] - frames[i - 1]).mean()) for i in range(1, len(frames))]
+        return (sum(diffs) / len(diffs)) / 255.0
+    except Exception:
+        return 0.0
+
+
+# Slow -> fast -> normal внутри ОДНОГО клипа — подчёркивает момент реального
+# действия (замах, шаг, столкновение), а не плоская постоянная скорость на
+# весь план (то, что уже делает SPEED_BIAS выше на уровне целого клипа).
+# Тройка (доля_длительности_на_выходе, множитель_скорости).
+SPEED_RAMP_SEGMENTS = [(0.30, 0.85), (0.45, 1.20), (0.25, 1.00)]
+SPEED_RAMP_MOTION_THRESHOLD = 0.02   # ниже — план статичен, ramp не гейтится сюда
+
+
+def build_speed_ramp_filter(skip, dur, actual, label_in="base", label_out="ramped"):
+    """[label_in] -> trim/setpts по SPEED_RAMP_SEGMENTS -> concat -> [label_out],
+    как отдельный кусок filter_complex-графа (не обычный -vf, т.к. нужен
+    concat нескольких setpts-кусков одного и того же входа). None, если
+    исходника не хватает (safety margin) — вызывающий код тогда просто не
+    применяет ramp, как есть."""
+    needed = dur * sum(frac * mult for frac, mult in SPEED_RAMP_SEGMENTS)
+    if actual - skip < needed + 0.05:
+        return None
+    n = len(SPEED_RAMP_SEGMENTS)
+    # Один и тот же [label_in] нельзя подать входом сразу в 3 независимых
+    # trim (ffmpeg не фанаутит именованный pad автоматически) — явный split.
+    split_labels = [f"{label_out}_s{i}" for i in range(n)]
+    parts = [f"[{label_in}]split={n}{''.join(f'[{s}]' for s in split_labels)}"]
+    labels, pos = [], skip
+    for i, (frac, mult) in enumerate(SPEED_RAMP_SEGMENTS):
+        out_d = dur * frac
+        src_d = out_d * mult
+        lbl = f"{label_out}{i}"
+        parts.append(
+            f"[{split_labels[i]}]trim=start={pos:.3f}:duration={src_d:.3f},"
+            f"setpts=PTS-STARTPTS,setpts={1 / mult:.5f}*PTS[{lbl}]")
+        labels.append(f"[{lbl}]")
+        pos += src_d
+    parts.append(f"{''.join(labels)}concat=n={len(labels)}:v=1:a=0[{label_out}]")
+    return ";".join(parts)
+
+
 def detect_scene_change_offset(vid, max_skip, scene_threshold=0.12):
     """Сцен-анализ вместо чисто произвольного хэш-пропуска (см. video_render):
     ищем РЕАЛЬНЫЙ момент смены кадра/начала движения в допустимом окне
@@ -1616,15 +1683,20 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
                   brightness_bias=0.0, energy_bias=0.0, stat_delay=0.0):
     """Аналог kenburns(), но для стокового видео: без zoompan (движение уже
     есть в кадре), заливка кадра целиком + обрезка (не letterbox), растяжение
-    по времени, если исходный ролик короче нужной длительности."""
+    по времени, если исходный ролик короче нужной длительности.
+
+    Speed ramp (slow->fast->normal, SPEED_RAMP_SEGMENTS) — отдельный путь
+    через -filter_complex (нужен concat нескольких setpts-кусков ОДНОГО
+    входа, обычный -vf так не умеет). Применяется только когда есть и запас
+    исходника, и реальное движение в кадре (measure_motion) — иначе тихо
+    падаем обратно на старый -vf путь ниже."""
     try:
         actual = get_media_duration(vid)
     except Exception:
         actual = dur
     h = int(hashlib.md5(vid.encode()).hexdigest()[:8], 16)
-    vf_base = f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,crop={WIDTH}:{HEIGHT},setsar=1"
+    scale_crop = f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,crop={WIDTH}:{HEIGHT},setsar=1"
     bias = next((v for k, v in SPEED_BIAS.items() if section.startswith(k)), 1.0)
-    setpts_factor = None
     # Стоковое видео часто начинается со статичного/вялого кадра до того, как
     # начнётся реальное движение (панорама разгоняется, руки только подносят
     # предмет к камере) — первая секунда почти всегда самая скучная в клипе.
@@ -1638,6 +1710,29 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
         scene_skip = detect_scene_change_offset(vid, max_skip)
         skip = scene_skip if scene_skip is not None else (
             max_skip * (0.5 + ((h >> 20) % 1000) / 1000.0 * 0.5))
+
+    ramp_filter = None
+    margin_needed = dur * sum(frac * mult for frac, mult in SPEED_RAMP_SEGMENTS)
+    if actual - skip >= margin_needed + 0.05:
+        motion = measure_motion(vid, skip, min(dur, actual - skip))
+        if motion >= SPEED_RAMP_MOTION_THRESHOLD:
+            ramp_filter = build_speed_ramp_filter(skip, dur, actual)
+
+    if ramp_filter:
+        tail = film_look(h, section, brightness_bias, energy_bias)
+        full_tail = add_overlays(tail, dur, title, stat, stat_variant, stat_delay) if (title or stat) else tail
+        filter_complex = f"[0:v]{scale_crop}[base];{ramp_filter};[ramped]{full_tail}[vout]"
+        cmd = ["ffmpeg", "-y", "-i", vid, "-filter_complex", filter_complex,
+               "-map", "[vout]", "-t", str(dur), "-an",
+               "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+               "-pix_fmt", "yuv420p", "-r", str(FPS), out]
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode == 0:
+            return True
+        print(f"  speed ramp не встал на видео ({os.path.basename(out)}), рисую без ramp: {r.stderr[-200:]}")
+
+    vf_base = scale_crop
+    setpts_factor = None
     if actual < dur - 0.05:
         setpts_factor = dur / max(actual, 0.1)   # уже растягиваем нехватку — bias не добавляем поверх
     elif bias != 1.0 and actual >= dur * bias:
