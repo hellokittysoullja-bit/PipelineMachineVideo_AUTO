@@ -553,7 +553,7 @@ PHOTO_DEDUP_HAMMING = 6   # тот же порог, что в qc_report() — "�
 PHOTO_DEDUP_MAX_TRIES = 6 # сколько кандидатов реально СКАЧАТЬ и захэшировать, прежде чем сдаться
 
 
-def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=None):
+def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=None, target_luma=None):
     """used_ids — множество ID уже показанных в этом ролике фото (мутируется на
     месте). Разные блоки часто ловят один и тот же тематический запрос — без
     этого им всем доставался бы top-1 результат, то есть одна и та же картинка
@@ -574,7 +574,15 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
     докачка кандидата) — до PHOTO_DEDUP_MAX_TRIES попыток, чтобы не жечь
     время/трафик на исчерпание всей выдачи. Не нашли непохожего — берём
     наименее похожего из просмотренных (лучше редкий повтор, чем сорванная
-    сборка)."""
+    сборка).
+
+    target_luma (опционально) — текущий luma_ema соседних кадров (см. main()).
+    Самый младший критерий выбора (после anti-dup и size-variety): среди уже
+    и так скачанных в рамках анти-дубль перебора кандидатов предпочитаем того,
+    чья ЕСТЕСТВЕННАЯ яркость ближе к контексту — меньше нагрузки на синтетическую
+    коррекцию film_look(brightness_bias), та зажата в ±0.035 и не всегда
+    вытягивает разницу целиком. Не тратит дополнительные скачивания сверх уже
+    идущего анти-дубль перебора."""
     global PEXELS_BROKEN
     cache = os.path.join(TEMP_FOLDER, "pexels_cache")
     os.makedirs(cache, exist_ok=True)
@@ -635,13 +643,23 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             pick = candidates[0]
             download(pick, cf)
         else:
-            # score = (не дубль?, разнообразит масштаб плана?, дистанция по хэшу) —
-            # сравниваются как кортежи, лексикографически: "не дубль" важнее
-            # "разнообразия", разнообразие важнее точной дистанции. recent_sizes
-            # (см. main()) — те же уже скачанные кандидаты анти-дубля, никакого
-            # нового сетевого трафика ради этой доп. проверки — переиспользуем
-            # то, что и так уже качаем.
-            best_path, best_score = None, (-1, -1, -1)
+            # score = (не дубль?, разнообразит масштаб плана?, ближе по яркости
+            # к соседям?, дистанция по хэшу) — сравниваются как кортежи,
+            # лексикографически: "не дубль" важнее "разнообразия", то важнее
+            # яркостной близости, та важнее точной дистанции (самый младший
+            # критерий — просто добивает выбор среди и так уже равных по
+            # первым двум осям). recent_sizes/luma — те же уже скачанные
+            # кандидаты анти-дубля, никакого нового сетевого трафика ради
+            # этой доп. проверки — переиспользуем то, что и так уже качаем.
+            best_path, best_score, good_seen = None, (-1, -1, -1.0, -1), 0
+            # Без target_luma брейк на первом же "хорошем" кандидате, как раньше
+            # (0 доп. скачиваний). С target_luma нужно сравнить МИНИМУМ 2 таких
+            # кандидата, иначе яркостный критерий никогда не встретится с
+            # реальной альтернативой и молча ничего не решает — брейк на первом
+            # же успехе просто не даёт ему сработать. +1 скачивание в типичном
+            # случае (не x6) — единственный способ сделать tie-breaker не
+            # фиктивным, не разгоняя стоимость до полного перебора.
+            good_needed = 2 if target_luma is not None else 1
             for p in candidates[:PHOTO_DEDUP_MAX_TRIES]:
                 trial = cf + f".trial_{p.get('id')}.jpg"
                 try:
@@ -657,7 +675,15 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                         size_ok = 0 if estimate_shot_size(trial) in recent_sizes[-2:] else 1
                     except Exception:
                         size_ok = 1
-                score = (is_dup_free, size_ok, min_d)
+                luma_score = 0.0
+                if target_luma is not None:
+                    try:
+                        cand_luma = measure_luma(trial)
+                        if cand_luma is not None:
+                            luma_score = -abs(cand_luma - target_luma)
+                    except Exception:
+                        pass
+                score = (is_dup_free, size_ok, luma_score, min_d)
                 if score > best_score:
                     if best_path and best_path != trial:
                         try:
@@ -671,7 +697,9 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                     except OSError:
                         pass
                 if is_dup_free and size_ok:
-                    break   # хорош по обеим осям сразу — не жжём оставшиеся попытки
+                    good_seen += 1
+                    if good_seen >= good_needed:
+                        break   # набрали, сколько нужно для честного сравнения — не жжём оставшиеся попытки
             if best_path is None:
                 pick = candidates[0]
                 download(pick, cf)
@@ -2314,10 +2342,10 @@ def main():
                 video = pexels_video(queries[i], i, used_ids=used_video_ids)
                 if not video:
                     photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
-                                      recent_sizes=recent_shot_sizes)
+                                      recent_sizes=recent_shot_sizes, target_luma=luma_ema)
             else:
                 photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
-                                      recent_sizes=recent_shot_sizes)
+                                      recent_sizes=recent_shot_sizes, target_luma=luma_ema)
                 if not photo and d >= MIN_CLIP + 1.0:
                     video = pexels_video(queries[i], i, used_ids=used_video_ids)
             # Раньше Pexels отключался навсегда после ЛЮБОГО промаха, включая
