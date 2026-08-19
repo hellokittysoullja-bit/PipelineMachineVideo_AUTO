@@ -2030,6 +2030,94 @@ def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR, blocks=None):
     return True, expected
 
 
+XFADE_CHUNK_SIZE = 35   # порог чанкования — см. xfade_chain_chunked
+
+
+def _chunk_bounds(n, sections, chunk_size):
+    """(start,end) полуинтервалы индексов клипов на чанки ~chunk_size —
+    резать ТОЛЬКО на границах section (там и так планировался заметный
+    dissolve/fadeblack/fadewhite, см. xfade_chain — на стыке чанков он
+    станет обычным concat-cut, это читается как ещё один hardcut, не как
+    потеря приёма, в отличие от разрыва ПОСЕРЕДИНЕ фразы). Защита от
+    вырожденного случая (вся секция длиннее 2×chunk_size — например,
+    гигантский BODY без внутренних BLOCK) — режем принудительно, не гоняясь
+    за границей до бесконечности: маленькая потеря одного перехода лучше
+    риска снова упереться в ту же ffmpeg-багу на длинной цепочке."""
+    if n <= chunk_size:
+        return [(0, n)]
+    bounds, pos = [0], 0
+    while pos < n:
+        target = min(pos + chunk_size, n)
+        if target >= n:
+            bounds.append(n)
+            break
+        j = target
+        hard_cap = min(pos + chunk_size * 2, n)
+        while j < hard_cap and sections[j] == sections[j - 1]:
+            j += 1
+        bounds.append(j)
+        pos = j
+    bounds = sorted(set(bounds))
+    chunks = list(zip(bounds[:-1], bounds[1:]))
+    # xfade_chain() требует минимум 2 клипа (n<2 -> (False, 0.0) сразу) —
+    # де-фрагментируем случайный "хвостик" в 1 клип (получается, если
+    # граница секции легла ровно на предпоследний индекс) слиянием с
+    # соседним чанком, а не оставляем orphan-чанк, гарантированно
+    # роняющий всю сборку в откат на concat.
+    fixed = []
+    for a, b in chunks:
+        if b - a < 2 and fixed:
+            pa, _ = fixed[-1]
+            fixed[-1] = (pa, b)
+        else:
+            fixed.append((a, b))
+    if len(fixed) > 1 and fixed[0][1] - fixed[0][0] < 2:
+        (a0, _), (_, b1) = fixed[0], fixed[1]
+        fixed[0] = (a0, b1)
+        del fixed[1]
+    return fixed
+
+
+def xfade_chain_chunked(clips, durs, sections, out, temp_dir, xfade_dur=XFADE_DUR, blocks=None,
+                         chunk_size=XFADE_CHUNK_SIZE):
+    """Обёртка над xfade_chain(): на длинной цепочке (150+ клипов после
+    sub-cuts) один filter_complex со всеми xfade сразу ловит документированный
+    в xfade_chain() баг ffmpeg — молча роняет кадры и застревает на
+    застывшем кадре с середины ролика, при том что return-код 0. Раньше
+    единственным ответом был полный откат на голый concat — ролик собирался,
+    но терял ВСЕ переходы разом. Вместо этого режем на чанки по chunk_size
+    (см. _chunk_bounds — только по границам section), каждый чанк — свой
+    независимый xfade_chain() (короткая цепочка, баг не всплывает), чанки
+    склеиваются -c copy (без потерь, все чанки — один и тот же кодек/
+    параметры). Если ХОТЯ БЫ один чанк не собрался — честный откат на
+    concat всего ролика, как раньше (лучше без переходов, чем сорванная
+    сборка)."""
+    n = len(clips)
+    bounds = _chunk_bounds(n, sections, chunk_size)
+    if len(bounds) <= 1:
+        return xfade_chain(clips, durs, sections, out, xfade_dur=xfade_dur, blocks=blocks)
+    chunk_files, chunk_total = [], 0.0
+    for ci, (a, b) in enumerate(bounds):
+        cblocks = blocks[a:b] if blocks else None
+        cout = os.path.join(temp_dir, f"_xchunk_{ci:03d}.mp4")
+        ok, cdur = xfade_chain(clips[a:b], durs[a:b], sections[a:b], cout,
+                                xfade_dur=xfade_dur, blocks=cblocks)
+        if not ok:
+            print(f"  чанк {ci} ({b - a} клипов) xfade не собрался — вся склейка откатывается на concat")
+            return False, 0.0
+        chunk_files.append(cout)
+        chunk_total += cdur
+    concat_list = os.path.join(temp_dir, "_xchunk_concat.txt")
+    open(concat_list, "w", encoding="utf-8").write(
+        "".join(f"file '{os.path.abspath(c)}'\n" for c in chunk_files))
+    r = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                        "-i", concat_list, "-c", "copy", out], capture_output=True, text=True)
+    if r.returncode != 0:
+        print("  склейка чанков xfade не удалась, откат на concat:", r.stderr[-300:])
+        return False, 0.0
+    return True, chunk_total
+
+
 def estimate_xfade_budget(blocks):
     """Сколько xfade_chain суммарно "съест" при склейке — точная оценка ПО
     КАТЕГОРИЯМ перехода (см. 2.1: xfade_chain), не плоская (n-1)*XFADE_DUR
@@ -2541,7 +2629,8 @@ def main():
         print("Нет клипов")
         return 1
     merged = os.path.join(TEMP_FOLDER, "merged.mp4")
-    ok, xfade_total = xfade_chain(clips, clip_durs, clip_sections, merged, blocks=clip_blocks)
+    ok, xfade_total = xfade_chain_chunked(clips, clip_durs, clip_sections, merged, TEMP_FOLDER,
+                                           blocks=clip_blocks)
     if not ok:
         concat = os.path.join(TEMP_FOLDER, "concat.txt")
         # Пути ТОЛЬКО абсолютные: concat-демуксер ffmpeg резолвит относительные
