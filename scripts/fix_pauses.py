@@ -143,10 +143,20 @@ def save_cuts(video_dir, sil, src):
     # семпл-уровне, а не мс-уровне.
     cuts = [[round(min(se, ss + _keep_sec_for(ss, se)), 6), round(se, 6)]
             for ss, se in sil if se - min(se, ss + _keep_sec_for(ss, se)) > 0.001]
+    # P1-15 (аудит звукового пайплайна): отдельно от cuts (вырезанное) —
+    # СОХРАНЁННЫЕ окна тишины [сырой_старт, сколько_оставлено], нужны
+    # pipeline_smart.py, чтобы дать подложке лёгкий "вздох" именно на
+    # осознанно длинных паузах (keep == LONG_HOLD_KEEP_SEC), не на каждом
+    # обычном вдохе TTS — тот же отбор, что уже использует _keep_sec_for
+    # для решения "сколько оставить". Отдельный ключ, а не третий элемент
+    # в cuts — raw_to_real_time() распаковывает cuts строго как (a, b) пары
+    # по всему файлу, менять эту форму не нужно ради нового потребителя.
+    pause_windows = [[round(ss, 6), round(_keep_sec_for(ss, se), 6)] for ss, se in sil]
     plan_dir = os.path.join(video_dir, "media_plan")
     os.makedirs(plan_dir, exist_ok=True)
     with open(os.path.join(plan_dir, "pause_cuts.json"), "w", encoding="utf-8") as f:
-        json.dump({"source_audio_md5": _audio_fingerprint(src), "cuts": cuts}, f)
+        json.dump({"source_audio_md5": _audio_fingerprint(src), "cuts": cuts,
+                    "pause_windows": pause_windows}, f)
 
 
 def main():

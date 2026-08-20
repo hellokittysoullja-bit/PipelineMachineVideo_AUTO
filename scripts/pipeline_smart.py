@@ -303,12 +303,29 @@ VOICE_COMPRESS_RATIO = 2.5
 def grain_blend_complex(label_in, grain_input_idx, label_out):
     """Фрагмент filter_complex: масштабирует зацикленный (-stream_loop -1 на
     входе grain_input_idx) grain-луп под WIDTH/HEIGHT и подмешивает его к
-    label_in через grainmerge (штатный blend-режим ffmpeg именно под
-    добавление зерна: result = base + overlay - 128 — естественно слабее у
-    самых крайних светов/теней за счёт клиппинга, без отдельной яркостной
-    маски)."""
+    label_in.
+
+    P2-24 (аудит звукового/видео пайплайна): раньше — штатный grainmerge с
+    ОДНИМ фиксированным all_opacity на весь кадр (result = base+overlay-128,
+    ослабление в самых крайних светах/тенях получалось только побочно, за
+    счёт клиппинга итоговой суммы, не по замыслу). Настоящее плёночное
+    зерно заметнее в средних тонах и слабее в глубоких тенях/пересвете
+    (характеристическая кривая) — переходим на blend=all_expr с весом,
+    зависящим от яркости БАЗОВОГО кадра (A): колокол от GRAIN_OPACITY*0.6
+    на крайних A=0/255 до полного GRAIN_OPACITY на средней точке A=128.
+    Диапазон нарочно узкий (0.06..0.10, не 0..0.10) — калибровка исходного
+    плоского 0.10 была подтверждена вживую (см. коммит с проверкой), эта
+    правка ФОРМУ добавляет, а не меняет средний уровень зерна на кадре
+    кардинально."""
+    # clip(...,0,255) обязателен: без него сложение на самых светлых пикселях
+    # (A близко к 255 + положительный шум) переполняет uint8 и заворачивается
+    # (поймано вживую прямым тестом на градиенте: A=255 без clip давал
+    # ffmpeg-выход 2 вместо 255 — чёрная точка на самом ярком пикселе кадра,
+    # ffmpeg сам НЕ клиппит all_expr автоматически).
+    weight = f"({GRAIN_OPACITY}*(0.6+0.4*(1-abs(A-128)/128)))"
+    expr = f"clip(A+(B-128)*{weight},0,255)"
     return (f"[{grain_input_idx}:v]scale={WIDTH}:{HEIGHT}:flags=bicubic,setsar=1[gr_scaled];"
-            f"[{label_in}][gr_scaled]blend=all_mode=grainmerge:all_opacity={GRAIN_OPACITY}[{label_out}]")
+            f"[{label_in}][gr_scaled]blend=all_expr='{expr}'[{label_out}]")
 
 
 XFADE_DUR = 0.4        # диссолв на границах секций и часть обычных склеек
@@ -677,7 +694,44 @@ def _climax_dip_expr(climax_times):
     return expr
 
 
-def build_music_mix(voice_path, total_dur, out_path, hook_end=0.0, final_start=None, climax_times=None):
+PAUSE_SWELL_MIN_KEEP_SEC = 1.0   # порог отбора: между KEEP_SEC=0.6 и
+                                  # LONG_HOLD_KEEP_SEC=1.3 в fix_pauses.py —
+                                  # берём только "осознанно длинные" паузы,
+                                  # не обычные вдохи TTS (см. load_pause_windows)
+PAUSE_SWELL_DB = 3.0             # заметно тише климакс-провала (22дБ) — это
+                                  # не разоблачение, а мягкое "дыхание" подложки
+PAUSE_SWELL_FADE_SEC = 0.3       # должно уместиться внутри keep-окна (~1.3с)
+
+
+def _pause_swell_expr(pause_windows_real):
+    """Как _climax_dip_expr, но наоборот: лёгкий ПОДЪЁМ громкости подложки
+    внутри окна осознанно длинной паузы (P1-15) — та же механика вложенных
+    if(between(...)), тот же принцип "каждый следующий уровень — fallback
+    предыдущего", те же неперекрывающиеся окна на практике (длинные паузы
+    не бывают через доли секунды друг после друга). pause_windows_real —
+    [(реальный_старт, длительность_keep), ...] уже в реальном (после
+    обрезки) времени — см. main()."""
+    if not pause_windows_real:
+        return None
+    boost = 10 ** (PAUSE_SWELL_DB / 20.0)
+    f = min(PAUSE_SWELL_FADE_SEC, min(dur for _, dur in pause_windows_real) / 2.5)
+    expr = "1"
+    for real_start, dur in sorted(pause_windows_real):
+        seg2_start = real_start + f
+        seg3_start = max(seg2_start, real_start + dur - f)
+        seg3_end = real_start + dur
+        expr = (
+            f"if(between(t\\,{real_start:.3f}\\,{seg2_start:.3f})\\,"
+            f"1+{boost - 1:.4f}*(t-{real_start:.3f})/{f:.3f}\\,"
+            f"if(between(t\\,{seg2_start:.3f}\\,{seg3_start:.3f})\\,{boost:.4f}\\,"
+            f"if(between(t\\,{seg3_start:.3f}\\,{seg3_end:.3f})\\,"
+            f"{boost:.4f}-{boost - 1:.4f}*(t-{seg3_start:.3f})/{f:.3f}\\,{expr})))"
+        )
+    return expr
+
+
+def build_music_mix(voice_path, total_dur, out_path, hook_end=0.0, final_start=None, climax_times=None,
+                     pause_windows_real=None):
     """A1: атмосферная подложка под голосом, с сайдчейн-дакингом — громкость
     музыки автоматически прижимается, когда звучит речь, и отпускает в
     паузах (тот же приём, что в любом проф. документальном монтаже: подложка
@@ -709,8 +763,10 @@ def build_music_mix(voice_path, total_dur, out_path, hook_end=0.0, final_start=N
         return out_path if r.returncode == 0 else voice_path
     dip_expr = _climax_dip_expr(climax_times)
     dip_stage = f",volume=eval=frame:volume='{dip_expr}'" if dip_expr else ""
+    swell_expr = _pause_swell_expr(pause_windows_real)
+    swell_stage = f",volume=eval=frame:volume='{swell_expr}'" if swell_expr else ""
     filter_complex = (
-        f"[1:a]volume={MUSIC_BED_GAIN_DB}dB{dip_stage}[music_raw];"
+        f"[1:a]volume={MUSIC_BED_GAIN_DB}dB{dip_stage}{swell_stage}[music_raw];"
         f"[0:a]asplit=2[voice_main][voice_sc];"
         f"[music_raw][voice_sc]sidechaincompress=threshold={MUSIC_DUCK_THRESHOLD}:"
         f"ratio={MUSIC_DUCK_RATIO}:attack={MUSIC_DUCK_ATTACK_MS}:release={MUSIC_DUCK_RELEASE_MS}[music_ducked];"
@@ -1050,6 +1106,40 @@ def load_pause_cuts():
     except Exception:
         _PAUSE_CUTS_CACHE = []
     return _PAUSE_CUTS_CACHE
+
+
+_PAUSE_WINDOWS_CACHE = None   # ленивый кэш на процесс, как и _PAUSE_CUTS_CACHE
+
+
+def load_pause_windows():
+    """[[сырой_старт_тишины, сколько_оставлено], ...] — см. fix_pauses.save_cuts
+    (P1-15). Используется только для музыкального "вздоха" на осознанно
+    длинных паузах (см. _pause_swell_expr), поэтому переиспользует тот же
+    файл/отпечаток, что и load_pause_cuts(), но не трогает её кэш и формат
+    (raw_to_real_time распаковывает cuts как строгие (a, b) пары повсюду в
+    файле — здесь отдельный ключ, отдельная проверка). Нет файла/ключа или
+    отпечаток не совпадает с текущим audio.mp3 -> [] (тихий откат, как и
+    у load_pause_cuts)."""
+    global _PAUSE_WINDOWS_CACHE
+    if _PAUSE_WINDOWS_CACHE is not None:
+        return _PAUSE_WINDOWS_CACHE
+    try:
+        with open(PAUSE_CUTS_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        raw_audio_path = os.path.join(VIDEO_FOLDER, "audio.mp3")
+        expected_md5 = data.get("source_audio_md5")
+        if expected_md5 and os.path.exists(raw_audio_path):
+            h = hashlib.md5()
+            with open(raw_audio_path, "rb") as af:
+                for chunk in iter(lambda: af.read(1 << 20), b""):
+                    h.update(chunk)
+            if h.hexdigest() != expected_md5:
+                _PAUSE_WINDOWS_CACHE = []
+                return _PAUSE_WINDOWS_CACHE
+        _PAUSE_WINDOWS_CACHE = [(float(a), float(b)) for a, b in data.get("pause_windows", [])]
+    except Exception:
+        _PAUSE_WINDOWS_CACHE = []
+    return _PAUSE_WINDOWS_CACHE
 
 
 def raw_to_real_time(t, cuts):
@@ -4322,8 +4412,14 @@ def main():
     # 2.8: [climax] в script.txt -> реальный момент на той же шкале, что уже
     # использует sub_starts (real, не xfade-раздутая — см. комментарий у неё).
     climax_times = [sub_starts[i] for i, b in enumerate(blocks) if b.get("is_climax")]
+    # P1-15: осознанно длинные паузы (см. load_pause_windows/PAUSE_SWELL_MIN_KEEP_SEC)
+    # в РЕАЛЬНОМ (после обрезки) времени — та же raw_to_real_time, что уже
+    # даёт точную шкалу подписям хука, здесь даёт точную шкалу музыке.
+    _pw_cuts = load_pause_cuts()
+    pause_windows_real = [(raw_to_real_time(ws, _pw_cuts), keep)
+                           for ws, keep in load_pause_windows() if keep >= PAUSE_SWELL_MIN_KEEP_SEC]
     premix = build_music_mix(voice_processed, total, premix, hook_end=hook_end, final_start=final_start,
-                              climax_times=climax_times)
+                              climax_times=climax_times, pause_windows_real=pause_windows_real)
     # D4: щелчки клавиатуры поверх готового микса — ПОСЛЕ музыки/дакинга
     # (иначе сайдчейн реагировал бы и на сами щелчки), ДО финального loudnorm
     # (клики тоже участвуют в мастеринге громкости целиком, не бесплатный
