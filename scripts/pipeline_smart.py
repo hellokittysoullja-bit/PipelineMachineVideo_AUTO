@@ -258,6 +258,20 @@ MUSIC_MOOD_XFADE = 4.0   # кроссфейд между настроениям�
 # тише голоса даже ДО сайдчейн-дакинга (дакинг — страховка на явных пиках
 # речи, не единственная линия обороны против "музыка спорит с закадром").
 MUSIC_BED_GAIN_DB = -13.0
+# 2.8: "тишина как акцент" перед разоблачением мифа ([climax] в script.txt,
+# см. parse_blocks) — сайдчейн-дакинг реагирует только на громкость голоса
+# в моменте, разоблачение может звучать так же тихо, как остальной текст,
+# и подложка НЕ провалится сама. Явный, отдельный от дакинга обрыв музыки
+# прямо перед моментом климакса — приём, невозможный в чисто петлевой
+# схеме (golden standard, п.42: "1.5-3с тишины перед разоблачением —
+# работает сильнее любого звукового удара"). Не полный ноль (клик риск,
+# и полная тишина внутри плотного микса читается как обрыв связи, не как
+# приём) — глубокий, но конечный провал (-22дБ), с гладкими afade на
+# входе/выходе (тот же паттерн, что уже чинил щелчки на стыках пауз).
+CLIMAX_DIP_LEAD_SEC = 1.1      # обрыв начинается ДО момента климакса
+CLIMAX_DIP_FADE_SEC = 0.4      # длительность самого провала/возврата (afade)
+CLIMAX_DIP_HOLD_SEC = 1.0      # сколько держим низкий уровень между fade out/in
+CLIMAX_DIP_DB = -22.0          # насколько проваливаем (не полный ноль — см. выше)
 # Порог в ЛИНЕЙНОЙ амплитуде (ffmpeg sidechaincompress, не дБ): реальный
 # голос в проекте — mean -16dB/max -1.7dB (см. volumedetect на audio_fixed.mp3),
 # 0.06 ~= -24dB — уверенно ловит речь, не ловит фоновую тишину/дыхание между
@@ -636,12 +650,44 @@ def build_mood_timeline(hook_end, final_start, total_dur, out_path):
     return out_path
 
 
-def build_music_mix(voice_path, total_dur, out_path, hook_end=0.0, final_start=None):
+def _climax_dip_expr(climax_times):
+    """Покадровое ffmpeg-выражение громкости (1.0 = без изменений) с
+    провалом до CLIMAX_DIP_DB перед каждым моментом климакса — см.
+    константы выше. Собирается как цепочка вложенных if(between(...)),
+    каждый следующий уровень — fallback предыдущего (окна климаксов не
+    пересекаются в реальном сценарии — драматургических поворотов не
+    бывает через 2 секунды друг после друга). Тот же стиль выражений, что
+    уже используют drawtext alpha='if(...)' по всему файлу (add_overlays)."""
+    if not climax_times:
+        return None
+    g = 10 ** (CLIMAX_DIP_DB / 20.0)
+    f = CLIMAX_DIP_FADE_SEC
+    h = CLIMAX_DIP_HOLD_SEC
+    expr = "1"
+    for t_c in sorted(climax_times):
+        d1 = max(0.0, t_c - CLIMAX_DIP_LEAD_SEC)
+        seg2_start, seg3_start, seg3_end = d1 + f, d1 + f + h, d1 + f + h + f
+        expr = (
+            f"if(between(t\\,{d1:.3f}\\,{seg2_start:.3f})\\,"
+            f"1-{1 - g:.4f}*(t-{d1:.3f})/{f:.3f}\\,"
+            f"if(between(t\\,{seg2_start:.3f}\\,{seg3_start:.3f})\\,{g:.4f}\\,"
+            f"if(between(t\\,{seg3_start:.3f}\\,{seg3_end:.3f})\\,"
+            f"{g:.4f}+{1 - g:.4f}*(t-{seg3_start:.3f})/{f:.3f}\\,{expr})))"
+        )
+    return expr
+
+
+def build_music_mix(voice_path, total_dur, out_path, hook_end=0.0, final_start=None, climax_times=None):
     """A1: атмосферная подложка под голосом, с сайдчейн-дакингом — громкость
     музыки автоматически прижимается, когда звучит речь, и отпускает в
     паузах (тот же приём, что в любом проф. документальном монтаже: подложка
     ощущается, но никогда не спорит со словами). A2: подложка меняет
     настроение по секциям (build_mood_timeline), не один луп на весь ролик.
+    2.8: climax_times (абсолютные секунды из [climax] в script.txt) — доп.
+    провал громкости ПЕРЕД моментом разоблачения, независимо от дакинга
+    (см. _climax_dip_expr/CLIMAX_DIP_* констант) — сайдчейн реагирует
+    только на текущую громкость голоса, разоблачение может звучать не
+    громче обычного текста и не даст дакингу провалиться само.
     MUSIC_ENABLED=False (нет ассета или явно выключено) -> просто копируем
     голос как есть, без регрессии.
 
@@ -661,8 +707,10 @@ def build_music_mix(voice_path, total_dur, out_path, hook_end=0.0, final_start=N
         r = subprocess.run(["ffmpeg", "-y", "-i", voice_path, "-t", f"{total_dur:.3f}",
                              "-ar", "44100", "-ac", "2", out_path], capture_output=True, text=True)
         return out_path if r.returncode == 0 else voice_path
+    dip_expr = _climax_dip_expr(climax_times)
+    dip_stage = f",volume=eval=frame:volume='{dip_expr}'" if dip_expr else ""
     filter_complex = (
-        f"[1:a]volume={MUSIC_BED_GAIN_DB}dB[music_raw];"
+        f"[1:a]volume={MUSIC_BED_GAIN_DB}dB{dip_stage}[music_raw];"
         f"[0:a]asplit=2[voice_main][voice_sc];"
         f"[music_raw][voice_sc]sidechaincompress=threshold={MUSIC_DUCK_THRESHOLD}:"
         f"ratio={MUSIC_DUCK_RATIO}:attack={MUSIC_DUCK_ATTACK_MS}:release={MUSIC_DUCK_RELEASE_MS}[music_ducked];"
@@ -884,31 +932,48 @@ def parse_blocks(path):
     # без плашки не запоминается). Вытаскиваем ДО общего вырезания [...],
     # иначе текст плашки пропадает вместе со всеми остальными тегами.
     content = re.sub(r'\[stat:(.*?)\]', lambda m: f"\x01STAT:{m.group(1)}\x01", content)
+    # [climax] — 2.8 (второй продакшн-документ, "тишина как акцент перед
+    # разоблачением"): ставится сценаристом ЯВНО перед фразой-разоблачением
+    # (не угадывается автоматически — риск ложного срабатывания на обычном
+    # блоке того же типа, что уже отвели для CV-принудительной вариативности
+    # и акцентных слов при выборе, что НЕ делать). Пипелайн-only маркер,
+    # как [stat:...] — не входит в текст, который читает TTS (тот же
+    # принцип: пользователь копирует ЧИСТЫЙ текст в ElevenLabs, [stat:...]
+    # туда тоже никогда не попадал).
+    content = content.replace("[climax]", "\x02CLIMAX\x02")
     processed = content
     for tag in sorted(PAUSE_DURATIONS, key=len, reverse=True):
         processed = processed.replace(tag, f"__PAUSE_{PAUSE_DURATIONS[tag]}__")
     processed = re.sub(r'\[.*?\]', '', processed)
-    parts = re.split(r'(__PAUSE_[\d.]+__|\x00SECTION:.*?\x00|\x01STAT:.*?\x01)', processed)
-    blocks, cur, pause, stat, stat_word_pos = [], "", 0.0, None, None
+    parts = re.split(r'(__PAUSE_[\d.]+__|\x00SECTION:.*?\x00|\x01STAT:.*?\x01|\x02CLIMAX\x02)', processed)
+    blocks, cur, pause, stat, stat_word_pos, pending_climax = [], "", 0.0, None, None, False
     section = "BODY"
 
     def flush():
-        nonlocal cur, pause, stat, stat_word_pos
+        nonlocal cur, pause, stat, stat_word_pos, pending_climax
         if cur:
             blocks.append({"text": cur, "pause_after": pause,
                            "words": len(cur.split()), "section": section, "stat": stat,
-                           "stat_word_pos": stat_word_pos})
-        cur, pause, stat, stat_word_pos = "", 0.0, None, None
+                           "stat_word_pos": stat_word_pos, "is_climax": pending_climax})
+        cur, pause, stat, stat_word_pos, pending_climax = "", 0.0, None, None, False
 
     for part in parts:
         mp = re.match(r'__PAUSE_([\d.]+)__', part)
         ms = re.match(r'\x00SECTION:(.*?)\x00', part)
         mst = re.match(r'\x01STAT:(.*?)\x01', part)
+        mc = part == "\x02CLIMAX\x02"
         if mp:
             pause += float(mp.group(1))
         elif ms:
             flush()             # смена секции — всегда граница блока
             section = ms.group(1)
+        elif mc:
+            # Клаймакс относится к СЛЕДУЮЩЕМУ (ещё не начатому) блоку — тот
+            # же принцип, что у [stat:...] ниже: если что-то уже накоплено
+            # в cur, это ЧУЖОЙ, предыдущий блок, флашим его, не помечаем.
+            if cur:
+                flush()
+            pending_climax = True
         elif mst:
             # Плашка НЕ режет монтаж — [stat:...] может стоять посреди фразы
             # без соседнего [pause], и это не повод обрывать клип на ровном
@@ -3829,6 +3894,11 @@ def split_long_blocks(blocks, real_weights):
             nb["stat_word_pos"] = max(0, stat_pos - a) if has_stat else None
             nb["pause_after"] = b["pause_after"] if k == len(merged) - 1 else 0.0
             nb["is_subcut"] = k > 0   # для choose_motion_mode() (1.4) — деталь, не главный кадр фразы
+            # is_climax (2.8) — та же логика, что и у плашки: тег стоит перед
+            # НАЧАЛОМ исходного блока, значит момент, к которому привязана
+            # тишина-акцент, попадает в ПЕРВЫЙ получившийся под-кадр, не во
+            # все (dict(b) выше скопировал бы флаг во все k без явного сброса).
+            nb["is_climax"] = b.get("is_climax", False) if k == 0 else False
             new_blocks.append(nb)
             new_weights.append((w * (c - a) / total_w) if w is not None else None)
     return new_blocks, new_weights
@@ -4249,7 +4319,11 @@ def main():
     voice_processed = os.path.join(TEMP_FOLDER, "voice_processed.wav")
     voice_processed = process_voice(AUDIO_FILE, voice_processed)
     premix = os.path.join(TEMP_FOLDER, "premix.wav")
-    premix = build_music_mix(voice_processed, total, premix, hook_end=hook_end, final_start=final_start)
+    # 2.8: [climax] в script.txt -> реальный момент на той же шкале, что уже
+    # использует sub_starts (real, не xfade-раздутая — см. комментарий у неё).
+    climax_times = [sub_starts[i] for i, b in enumerate(blocks) if b.get("is_climax")]
+    premix = build_music_mix(voice_processed, total, premix, hook_end=hook_end, final_start=final_start,
+                              climax_times=climax_times)
     # D4: щелчки клавиатуры поверх готового микса — ПОСЛЕ музыки/дакинга
     # (иначе сайдчейн реагировал бы и на сами щелчки), ДО финального loudnorm
     # (клики тоже участвуют в мастеринге громкости целиком, не бесплатный
