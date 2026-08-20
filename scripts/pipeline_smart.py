@@ -1209,7 +1209,25 @@ def load_hook_word_timings(blocks=None, sub_starts=None, sub_baseline=None, real
             take = min(w, remaining)
             seg_end = seg_start + take
             if seg_end - seg_start > 1e-6:
-                remap.append((seg_start, seg_end, sub_starts[bi], sub_baseline[bi]))
+                # sub_baseline[bi] — ПОЛНОЕ окно блока, включая хвостовую
+                # паузу (block_durations() прибавляет b["pause_after"] к
+                # "сырому" весу ДО floor/cap/глобального scale — см.
+                # block_durations). Растягивать frac*sub_baseline напрямую
+                # (было раньше) значит растягивать слово ВПЛОТЬ ДО КОНЦА
+                # паузы — последнее слово блока держалось на экране почти
+                # всю паузу целиком, реальная жалоба пользователя ("текста
+                # не должно быть во время паузы"). Пауза — не постоянная
+                # доля исходного сырого веса блока (real_weight + pause_after
+                # -> sub_baseline через один и тот же floor/cap/scale), эта
+                # ДОЛЯ инвариантна к равномерному масштабированию — берём её
+                # и оставляем как подпись-свободный хвост окна.
+                pause_after = blocks[bi].get("pause_after") or 0.0
+                if pause_after > 0 and w > 0:
+                    pause_frac = pause_after / (w + pause_after)
+                    speech_dur = sub_baseline[bi] * (1.0 - pause_frac)
+                else:
+                    speech_dur = sub_baseline[bi]
+                remap.append((seg_start, seg_end, sub_starts[bi], speech_dur))
             cursor = seg_end
             remaining -= take
 
