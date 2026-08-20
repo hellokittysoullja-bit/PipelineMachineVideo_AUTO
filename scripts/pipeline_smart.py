@@ -1526,6 +1526,16 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                         size_ok = 1
                 relevance = clip_relevance(trial, query)
                 is_relevant = 1 if (relevance is None or relevance >= CLIP_RELEVANCE_THRESHOLD) else 0
+                # 2.5-3a: доп. гейт для "собирательных" запросов (museum/
+                # exhibition/collection/...) — см. RISKY_GENERIC_TERMS.
+                # Кандидат обязан обгонять NEGATIVE_ANCHOR_PROMPT ("пустой
+                # интерьер/архитектура/окно") на RISKY_QUERY_MARGIN, иначе
+                # не считается релевантным — даже если формально прошёл
+                # порог по самому запросу.
+                if is_relevant and relevance is not None and is_risky_query(query):
+                    anchor_relevance = clip_relevance(trial, NEGATIVE_ANCHOR_PROMPT)
+                    if anchor_relevance is not None and (relevance - anchor_relevance) < RISKY_QUERY_MARGIN:
+                        is_relevant = 0
                 # Эстетика — доп. измерение, НЕ повышает good_needed само по
                 # себе (в отличие от target_luma) — иначе каждый выбор фото
                 # тратил бы вдвое больше скачиваний/Pexels-трафика по
@@ -1612,10 +1622,18 @@ def query_for(text, keyword_counts=None):
     эпизода. У Pexels физически нет 35 визуально различимых фото на один
     узкий запрос — сколько ни доверяй анти-дублю (pexels_photo), пул
     исчерпывается. Ротация по списку синонимов делит нагрузку на несколько
-    независимых пулов вместо одного."""
+    независимых пулов вместо одного.
+
+    Матч по ГРАНИЦЕ слова, не по голой подстроке — ключи THEMES это корни
+    словоформ ("музе" -> музей/музейные/музея), поэтому конец матча
+    намеренно открыт (\\w* добавляет любое окончание), а вот НАЧАЛО матча
+    обязано быть началом слова (\\b). Раньше `kw in tl` совпадал и ВНУТРИ
+    произвольного слова, где корень оказался подстрокой случайно — тихий
+    риск ложного срабатывания на короткие 3-4-буквенные ключи (их в
+    THEMES большинство)."""
     tl = text.lower()
     for kw, q in THEMES.items():
-        if kw in tl:
+        if re.search(r'\b' + re.escape(kw), tl):
             if isinstance(q, list):
                 idx = keyword_counts.get(kw, 0) if keyword_counts is not None else 0
                 if keyword_counts is not None:
@@ -2631,6 +2649,30 @@ CLIP_BROKEN = False   # взводится только на системном 
 # темы (те тоже пересекаются с верными по диапазону — это ОК, задача ловить
 # явный промах, не выбирать идеальный вариант из синонимов).
 CLIP_RELEVANCE_THRESHOLD = 0.19
+
+# 2.5-3a: второй якорь для запросов с "собирательными" словами (museum,
+# exhibition, collection, display, cabinet, case, gallery) — сами по себе
+# они не гарантируют, что в кадре ДОМИНИРУЕТ предмет темы, а не архитектура
+# зала/случайная утварь. Реальный пойманный случай: "sword museum display
+# case" стабильно возвращал витражные окна музейного зала — по CLIP-скору
+# против самого запроса это формально "релевантно" (слово museum в кадре
+# есть), но карта не про то. Калибровано вживую (эпизод 01_ves-mecha, 10
+# заведомо хороших кандидатов "весы"/"музе"-тем против 5 заведомо плохих
+# "display case"/"glass cabinet" промахов): margin = релевантность(query) -
+# релевантность(NEGATIVE_ANCHOR_PROMPT) у хороших — 0.050..0.138, у плохих —
+# от -0.081 до 0.013. Порог 0.03 — с запасом ниже минимума хороших и выше
+# максимума плохих на этой калибровке.
+RISKY_GENERIC_TERMS = ("museum", "exhibition", "collection", "display",
+                        "cabinet", "case", "gallery")
+NEGATIVE_ANCHOR_PROMPT = "empty room interior architecture window"
+RISKY_QUERY_MARGIN = 0.03
+
+
+def is_risky_query(query):
+    ql = query.lower()
+    return any(term in ql for term in RISKY_GENERIC_TERMS)
+
+
 _clip_model = None
 _clip_processor = None
 
