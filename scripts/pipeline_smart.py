@@ -1404,7 +1404,10 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
     # молча оставляет картинку под старый запрос (кэш бил только по номеру блока).
     qhash = hashlib.md5(query.encode()).hexdigest()[:8]
     cf = os.path.join(cache, f"{index:04d}_{qhash}.jpg")
-    if os.path.exists(cf):
+    # size>0, не просто exists — см. atomic_url_download: старые (до этого
+    # фикса) прерванные закачки могли уже оставить 0-байтный файл под этим
+    # именем, и голый exists() принял бы его за валидный кэш.
+    if os.path.exists(cf) and os.path.getsize(cf) > 0:
         if used_hashes is None:
             if recent_sizes is not None:
                 try:
@@ -1451,8 +1454,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
         def download(p, dest):
             url = p["src"].get("large2x") or p["src"].get("large")
             req_img = urllib.request.Request(url, headers={"User-Agent": UA})
-            with urllib.request.urlopen(req_img, timeout=20) as r:
-                open(dest, "wb").write(r.read())
+            atomic_url_download(req_img, dest, timeout=20)
 
         if used_hashes is None:
             pick = candidates[0]
@@ -2337,6 +2339,37 @@ def finalize_render(tmp, out, ok):
     return False
 
 
+def atomic_url_download(req, dest, timeout):
+    """Тот же принцип, что render_tmp_path/finalize_render, но для скачки
+    стокового медиа (pexels_photo/pexels_video) — реальный баг, пойманный
+    вживую: обе функции раньше писали ПРЯМО в конечное имя кэша
+    (open(cf,"wb").write(r.read())), а кэш-хит на следующий запуск проверял
+    только os.path.exists(cf), ничего про размер/целостность. Прерванная
+    закачка (обрыв сети/сигнал/OOM — тот же класс сбоя, что уже ловили на
+    рендере клипов) оставляет 0-байтный или обрезанный файл ровно под
+    "доверенным" именем — молча наступили на это вживую (0072_...mp4,
+    0 байт, месяц пролежал в кэше, "непредвиденно" выкинул блок из ролика
+    без единой строчки в логе, потому что скачка даже не запускалась
+    заново — кэш-хит просто отдал битый файл). Качаем во временный файл,
+    переименовываем атомарно только при успехе — как рендер клипов."""
+    tmp = dest + ".download.part"
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            with open(tmp, "wb") as f:
+                f.write(r.read())
+        if os.path.getsize(tmp) == 0:
+            raise IOError("скачан 0-байтный файл")
+        os.replace(tmp, dest)
+        return True
+    except Exception:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+        raise
+
+
 def log_render_diagnostics(tag):
     """Лёгкий след памяти процесса в TEMP_FOLDER/render_diag.log — НЕ для
     рантайма (ни на что не влияет), а на случай СЛЕДУЮЩЕГО непонятного
@@ -3129,7 +3162,13 @@ def pexels_video(query, index, used_ids=None):
     os.makedirs(cache, exist_ok=True)
     qhash = hashlib.md5(query.encode()).hexdigest()[:8]
     cf = os.path.join(cache, f"{index:04d}_{qhash}.mp4")
-    if os.path.exists(cf):
+    # size>0, не просто exists — см. atomic_url_download: реальный случай,
+    # пойманный вживую на этом эпизоде — 0-байтный файл от прерванной
+    # закачки прошлого прогона тихо "проходил" как готовый кэш и ронял
+    # блок из ролика без единой строчки в логе (ffmpeg на пустом файле не
+    # печатает никакого "непредвиденного сбоя" уровня main() — падает
+    # молча внутри рендер-функции).
+    if os.path.exists(cf) and os.path.getsize(cf) > 0:
         return cf
     if not PEXELS_API_KEY:
         return None
@@ -3157,8 +3196,7 @@ def pexels_video(query, index, used_ids=None):
             return None
         best = min(files, key=lambda f: abs(f["width"] - WIDTH))
         vid_req = urllib.request.Request(best["link"], headers={"User-Agent": UA})
-        with urllib.request.urlopen(vid_req, timeout=40) as r:
-            open(cf, "wb").write(r.read())
+        atomic_url_download(vid_req, cf, timeout=40)
         return cf
     except Exception as e:
         PEXELS_BROKEN = True
