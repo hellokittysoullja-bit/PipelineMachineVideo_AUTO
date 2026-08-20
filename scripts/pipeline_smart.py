@@ -1539,16 +1539,25 @@ def add_overlays(vf_base, dur, title=None, stat=None, stat_variant=0, stat_delay
                    f"color={STAT_ACCENT}@0.92:t=fill:"
                    f"enable='between(t\\,{delay:.2f}\\,{hold:.2f})'")
         else:
-            # D4: печатная машинка — по центру кадра, символы появляются
-            # один за другим (та же ставка TYPEWRITER_CHAR_DUR, что задаёт
-            # таймкоды звука в main()/add_typewriter_clicks), после полного
-            # текста — обычная задержка и fade-out, как у остальных вариантов.
-            # Цепочка drawtext: filter k показывает text[:k+1] ТОЛЬКО в своём
-            # окне [delay+k*cd, delay+(k+1)*cd) — сменяется следующим, длиннее
-            # на один символ; последний остаётся до конца hold+fade-out.
+            # D4: печатная машинка — сверено с референсом пользователя
+            # (архивная аэросъёмка, дата "12.09.2020"): НЕ крупный "геройский"
+            # центр кадра (как было раньше), а скромная подпись в нижней
+            # трети — субтильный вес, тонкая тень вместо жирного борда, ближе
+            # к "архивной датировке кадра", чем к рекламному баннеру. По X
+            # оставлен центр (не копируем точный сдвиг референса влево — тот
+            # кадр 9:16 с другим соотношением сторон, а текст variant 4 может
+            # быть разной длины/языка, центр — единственное универсально
+            # безопасное положение по горизонтали).
+            # Символы появляются один за другим (та же ставка
+            # TYPEWRITER_CHAR_DUR, что задаёт таймкоды звука в
+            # main()/add_typewriter_clicks), после полного текста — обычная
+            # задержка и fade-out, как у остальных вариантов. Цепочка
+            # drawtext: filter k показывает text[:k+1] ТОЛЬКО в своём окне
+            # [delay+k*cd, delay+(k+1)*cd) — сменяется следующим, длиннее на
+            # один символ; последний остаётся до конца hold+fade-out.
             n_chars = len(text)
             _, cd = typewriter_reveal_timing(n_chars, delay, dur)
-            fs = 90 if FONT_IS_DISPLAY else 100
+            fs = 56 if FONT_IS_DISPLAY else 62
             for k in range(n_chars):
                 sub = escape_drawtext(text[:k + 1])
                 seg_start = delay + k * cd
@@ -1556,9 +1565,8 @@ def add_overlays(vf_base, dur, title=None, stat=None, stat_variant=0, stat_delay
                 seg_alpha = alpha if k == n_chars - 1 else "1"
                 vf += (f",drawtext=fontfile='{FONT_PATH}':text='{sub}':"
                        f"fontcolor=white:fontsize={fs}:"
-                       f"shadowcolor=black@0.85:shadowx=4:shadowy=4:"
-                       f"borderw=2:bordercolor=black@0.6:"
-                       f"x=(w-text_w)/2:y=(h-text_h)/2:"
+                       f"shadowcolor=black@0.7:shadowx=1:shadowy=1:"
+                       f"x=(w-text_w)/2:y=h*0.78-text_h/2:"
                        f"enable='between(t\\,{seg_start:.3f}\\,{seg_end:.3f})':"
                        f"alpha='{seg_alpha}'")
     return vf
