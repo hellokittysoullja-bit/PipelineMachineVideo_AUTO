@@ -7,6 +7,7 @@ fallback — Pexels по тематическому запросу.
 Usage: python scripts/pipeline_smart.py <video_dir>"""
 import csv
 import difflib
+import glob
 import hashlib
 import json
 import math
@@ -513,31 +514,46 @@ def process_voice(voice_path, out_path):
 
 
 def add_typewriter_clicks(mix_path, click_times, total_dur, out_path):
-    """D4: звук печатной машинки — по одному щелчку (assets/sfx/keyboard_click.flac)
-    на КАЖДЫЙ символ, ровно в момент, когда он появляется на экране (тот же
-    TYPEWRITER_CHAR_DUR, что и в add_overlays() — визуал и звук считаются
-    от одной и той же ставки). click_times — абсолютные секунды в ФИНАЛЬНОМ
-    таймлайне ролика (см. main(): sub_starts + delay + k*char_dur).
+    """D4: звук печатной машинки — щелчок на КАЖДЫЙ символ, ровно в момент,
+    когда он появляется на экране (тот же TYPEWRITER_CHAR_DUR, что и в
+    add_overlays() — визуал и звук считаются от одной и той же ставки).
+    click_times — абсолютные секунды в ФИНАЛЬНОМ таймлайне ролика (см.
+    main(): sub_starts + delay + k*char_dur).
 
-    asplit на N копий щелчка + свой adelay на каждую + amix со всем миксом —
-    обычный приём "разложить N коротких сэмплов по таймлайну одним
-    фильтр-графом", без промежуточных файлов на каждый щелчок."""
+    KEYBOARD_CLICK_PATHS — библиотека из НЕСКОЛЬКИХ разных реальных ударов
+    (не один сэмпл клонштампом на каждый символ — по прямой обратной связи
+    пользователя один и тот же щелчок на каждый символ звучал механически,
+    "не как в живой записи"; round-robin по библиотеке даёт естественный
+    разброс тембра/громкости между соседними символами, как при живой
+    печати). Каждый входной файл asplit'ится РОВНО на то число раз, сколько
+    он реально используется в этом ролике — не больше (лишние неиспользуемые
+    выходы asplit — трата, ffmpeg отдельно предупреждает про unconnected
+    output)."""
     if not click_times or not TYPEWRITER_CLICK_ENABLED:
         return mix_path
-    n = len(click_times)
-    parts = ["[1:a]asplit=" + str(n) + "".join(f"[ck{i}]" for i in range(n))]
+    n_files = len(KEYBOARD_CLICK_PATHS)
+    assigned = [i % n_files for i in range(len(click_times))]
+    usage = [assigned.count(f) for f in range(n_files)]
+    cmd = ["ffmpeg", "-y", "-i", mix_path]
+    for p in KEYBOARD_CLICK_PATHS:
+        cmd += ["-i", p]
+    parts = []
+    for f in range(n_files):
+        if usage[f] > 0:
+            parts.append(f"[{f + 1}:a]asplit={usage[f]}" + "".join(f"[fs{f}_{k}]" for k in range(usage[f])))
+    cursor = [0] * n_files
     mix_inputs = ["[0:a]"]
-    for i, t in enumerate(click_times):
+    for i, (t, f_idx) in enumerate(zip(click_times, assigned)):
         ms = max(0, int(t * 1000))
-        parts.append(f"[ck{i}]adelay={ms}|{ms},volume={TYPEWRITER_CLICK_GAIN_DB}dB[cd{i}]")
+        k = cursor[f_idx]
+        cursor[f_idx] += 1
+        parts.append(f"[fs{f_idx}_{k}]adelay={ms}|{ms},volume={TYPEWRITER_CLICK_GAIN_DB}dB[cd{i}]")
         mix_inputs.append(f"[cd{i}]")
-    parts.append("".join(mix_inputs) + f"amix=inputs={n + 1}:duration=first:normalize=0[out]")
+    parts.append("".join(mix_inputs) + f"amix=inputs={len(click_times) + 1}:duration=first:normalize=0[out]")
     fc = ";".join(parts)
-    r = subprocess.run(
-        ["ffmpeg", "-y", "-i", mix_path, "-i", KEYBOARD_CLICK_PATH,
-         "-filter_complex", fc, "-map", "[out]",
-         "-t", f"{total_dur:.3f}", "-ar", "44100", "-ac", "2", out_path],
-        capture_output=True, text=True)
+    cmd += ["-filter_complex", fc, "-map", "[out]",
+            "-t", f"{total_dur:.3f}", "-ar", "44100", "-ac", "2", out_path]
+    r = subprocess.run(cmd, capture_output=True, text=True)
     return out_path if r.returncode == 0 else mix_path
 
 
@@ -1392,9 +1408,18 @@ STAT_ACCENT = "0xC8102E"   # акцентный красный, CHANNEL.md house
 # звука печатной машинки (add_typewriter_clicks) — ОДНА и та же величина,
 # иначе визуал и звук разъедутся по скорости печати.
 TYPEWRITER_CHAR_DUR = 0.075
-KEYBOARD_CLICK_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                    "assets", "sfx", "keyboard_click.flac")
-TYPEWRITER_CLICK_ENABLED = os.environ.get("TYPEWRITER_CLICKS", "1") != "0" and os.path.exists(KEYBOARD_CLICK_PATH)
+# Библиотека из 8 РЕАЛЬНЫХ отдельных ударов клавиш (не один клип, повторённый
+# клонштампом на каждый символ — на реальной записи разные удары звучат чуть
+# по-разному, один и тот же сэмпл на каждый символ читался механически,
+# "не как в живой записи", по прямой обратной связи пользователя). Извлечены
+# из присланной пользователем записи (scripts/generate — нет, это ручное
+# разовое извлечение, см. коммит) — каждый нормализован к своему пику
+# отдельно (не общий loudnorm), сохраняя естественный разброс громкости
+# между разными ударами.
+KEYBOARD_CLICKS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                    "assets", "sfx", "keyboard_clicks")
+KEYBOARD_CLICK_PATHS = sorted(glob.glob(os.path.join(KEYBOARD_CLICKS_DIR, "click_*.flac")))
+TYPEWRITER_CLICK_ENABLED = os.environ.get("TYPEWRITER_CLICKS", "1") != "0" and bool(KEYBOARD_CLICK_PATHS)
 TYPEWRITER_CLICK_GAIN_DB = -6.0
 
 
