@@ -931,12 +931,13 @@ ALIGNMENT_TAG_RE = re.compile(r'\[short pause\]|\[pause\]')
 ALIGNMENT_STRIP_TAGS = ("[energetic]", "[slowly]", "[emphasis]")
 
 
-def _real_speech_span(segment):
-    """Реальная длительность озвученного текста в сегменте символов
+def _real_speech_bounds(segment):
+    """(старт, конец) реально озвученного текста в сегменте символов
     (index,char,start,end) — по первому и последнему буквенно-цифровому
     символу, за вычетом служебных тегов вроде [energetic]/[slowly],
     которые могут затесаться внутрь (они не читаются TTS вслух, но
-    формально попадают в поток символов из alignment.csv)."""
+    формально попадают в поток символов из alignment.csv). None, если
+    в сегменте нет ни одного реального символа."""
     text = "".join(c for c, s, e in segment)
     excluded = set()
     for tag in ALIGNMENT_STRIP_TAGS:
@@ -948,8 +949,15 @@ def _real_speech_span(segment):
     clean = [(c, s, e) for j, (c, s, e) in enumerate(segment)
              if j not in excluded and re.match(r'[^\s\[\]]', c or "")]
     if not clean:
-        return 0.0
-    return clean[-1][2] - clean[0][1]
+        return None
+    return clean[0][1], clean[-1][2]
+
+
+def _real_speech_span(segment):
+    """Реальная длительность озвученного текста в сегменте — см.
+    _real_speech_bounds (общая логика, тег-агностичная граница)."""
+    bounds = _real_speech_bounds(segment)
+    return (bounds[1] - bounds[0]) if bounds else 0.0
 
 
 def load_alignment_weights(blocks):
@@ -1033,11 +1041,38 @@ def load_alignment_weights(blocks):
     return weights
 
 
-def load_hook_word_timings():
+def load_hook_word_timings(blocks=None, sub_starts=None, sub_baseline=None, real_weights=None):
     """D2: посимвольный alignment.csv хука (00.csv — хук всегда первая
-    секция эпизода, см. load_alignment_weights) собран в СЛОВА — тайминг
-    в ХУК-локальной шкале (t=0 = начало хука), та же шкала, что sub_starts
-    для HOOK-блоков в main(), поэтому напрямую сравнима без пересчёта.
+    секция эпизода, см. load_alignment_weights) собран в СЛОВА.
+
+    ВАЖНО (фикс реального бага, пойманного вживую жалобой пользователя —
+    "текст на субтитрах не совпадает с диктором"): 00.csv записан на
+    СЫРОМ, необрезанном audio.mp3, а реальный рендер идёт по
+    audio_fixed.mp3 после fix_pauses.py (обязательный шаг, ЧАСТЬ 9) —
+    паузы >1с подрезаны до ~0.6с. На реальном эпизоде это ~16с разницы
+    ТОЛЬКО внутри HOOK (56.7с сырой спан 00.csv против 40.7с суммы
+    sub_baseline). Раньше слова отдавались в сырой абсолютной шкале и
+    напрямую сравнивались в hook_captions_for_block() с sub_starts (та
+    шкала УЖЕ обрезана — см. load_alignment_weights/block_durations) —
+    рассинхрон рос по ходу хука с каждой подрезанной паузой, к середине
+    хука подписи заметно "убегали" от того, что реально звучит.
+
+    Фикс: та же посегментная разбивка по [pause]/[short pause], что уже
+    делает load_alignment_weights() — НО с поправкой на sub-cuts
+    (split_long_blocks режет один "сырой" сегмент на НЕСКОЛЬКО HOOK-блоков,
+    поэтому сегментов меньше, чем блоков — прямое zip 1:1 не работает).
+    real_weights (реальный вес каждого ПОСЛЕ-сплитового блока в секундах —
+    та же величина, что уже кормит block_durations()) расходуется на каждый
+    сегмент ПОСЛЕДОВАТЕЛЬНО: сколько блок "весит", столько сырого времени
+    сегмента ему и достаётся, по порядку — то же word-fraction-дробление,
+    что split_long_blocks() уже применил к весам, просто с той же меркой
+    приложенное к сырому времени. Внутри своего куска сегмента время
+    линейно растягивается/сжимается в реальный [sub_starts[i],
+    sub_starts[i]+sub_baseline[i]) — слова и картинки оказываются на одной
+    шкале. Без blocks/sub_starts/sub_baseline/real_weights (вызов без
+    данных) — тихий откат на старую сырую шкалу, лучше кривые подписи, чем
+    их полное отсутствие там, где пересчёт невозможен.
+
     Служебные теги ([energetic]/[pause]/[short pause]/...) вычищаются —
     та же логика, что _real_speech_span, но разбирает на слова, а не на
     общий диапазон. Нет alignment.csv -> [] (кинетика хука тихо не
@@ -1051,6 +1086,61 @@ def load_hook_word_timings():
     except Exception:
         return []
     text = "".join(c for c, s, e in chars)
+
+    # Пересегментация 1:1 с load_alignment_weights() — та же регулярка,
+    # тот же порядок сегментов, что и HOOK-блоков.
+    raw_segs, pos = [], 0
+    for m in ALIGNMENT_TAG_RE.finditer(text):
+        raw_segs.append(chars[pos:m.start()])
+        pos = m.end()
+    raw_segs.append(chars[pos:])
+
+    remap = None
+    if blocks and sub_starts is not None and sub_baseline is not None and real_weights is not None:
+        hook_idxs = [i for i, b in enumerate(blocks) if b["section"].startswith("HOOK")]
+        seg_spans = [_real_speech_bounds(seg) for seg in raw_segs]
+
+        remap = []
+        seg_ptr = 0
+        raw_cursor = raw_remaining = None
+
+        def _advance_seg():
+            nonlocal seg_ptr, raw_cursor, raw_remaining
+            while seg_ptr < len(seg_spans) and seg_spans[seg_ptr] is None:
+                seg_ptr += 1
+            if seg_ptr < len(seg_spans):
+                raw_cursor = seg_spans[seg_ptr][0]
+                raw_remaining = seg_spans[seg_ptr][1] - seg_spans[seg_ptr][0]
+            else:
+                raw_cursor, raw_remaining = None, 0.0
+
+        _advance_seg()
+        for bi in hook_idxs:
+            w = real_weights[bi] if (bi < len(real_weights) and real_weights[bi]) else 0.0
+            if raw_cursor is None or w <= 0:
+                continue
+            if raw_remaining <= 1e-6:
+                seg_ptr += 1
+                _advance_seg()
+                if raw_cursor is None:
+                    continue
+            raw_start = raw_cursor
+            take = min(w, raw_remaining)
+            raw_end = raw_start + take
+            if raw_end - raw_start > 1e-6:
+                remap.append((raw_start, raw_end, sub_starts[bi], sub_baseline[bi]))
+            raw_cursor = raw_end
+            raw_remaining -= take
+
+    def rescale(t):
+        if not remap:
+            return t
+        for seg_start, seg_end, real_start, real_dur in remap:
+            if seg_start - 1e-6 <= t <= seg_end + 1e-6:
+                frac = (t - seg_start) / (seg_end - seg_start)
+                return real_start + frac * real_dur
+        return t   # вне всех сегментов (хвостовой мусор) — не подменяем произвольно
+
     excluded = set()
     for tag in ALIGNMENT_STRIP_TAGS + ("[pause]", "[short pause]"):
         idx = text.find(tag)
@@ -1073,6 +1163,7 @@ def load_hook_word_timings():
             cur.append((c, s, e))
     if cur:
         words.append(("".join(ch for ch, _, _ in cur), cur[0][1], cur[-1][2]))
+    words = [(w, rescale(s), rescale(e)) for w, s, e in words]
     return [w for w in words if w[0]]
 
 
@@ -1147,6 +1238,43 @@ def block_durations(blocks, total, energy_mults=None, real_weights=None):
 
 
 PEXELS_BROKEN = False       # взводится только на реальном отказе API, не на пустой выдаче
+
+
+# Отбор (2.5): фильтр по alt-тексту кандидата — тот же JSON от Pexels-поиска,
+# ничего не стоит (не новый запрос, не новая скачка). Заведён после ДВУХ
+# реальных вживую пойманных случаев на этом эпизоде: и-словая
+# неоднозначность английского запроса надёжно тянула контент не той
+# категории — "игр" (video game...) стабильно ловил косплей/аниме-персонажей
+# с оружием вместо документальных кадров, "весы"/"весит" (scale weighing...)
+# стабильно ловил бытовые весы для тела (голые ступни на весах, лента для
+# талии) вместо предметных весов. CLIP-релевантность и эстетика НЕ ловят
+# это — с точки зрения обеих метрик косплей-фото "релевантно" запросу про
+# видеоигры и красиво снято, весы с ногами "релевантны" запросу про весы.
+# Список — не исчерпывающий тег-детектор (невозможен без платного vision на
+# каждую фотографию, а платить за это на каждый кадр — именно то, от чего
+# ЧАСТЬ 13/Шаг 7.5 явно отказывается), а конкретный, растущий по опыту
+# список слов, которые в alt-тексте Pexels НАДЁЖНО значат "не тот жанр" для
+# документального канала про историю/вооружение. Кандидат с любым из этих
+# слов в alt — просто исключается из перебора (не понижается, а убирается
+# совсем); если после фильтра кандидатов не осталось — тихий откат на
+# нефильтрованный список (лучше формально нерелевантный кадр, чем сорванная
+# сборка блока).
+CONTENT_ALT_BLOCKLIST = (
+    "cosplay", "anime", "manga character", "video game character",
+    "bathroom scale", "body scale", "weight loss", "weight management",
+    "body fat", "diet plan", "measuring tape body", "barefoot", "bare feet",
+    "feet on scale", "feet on a scale", "human foot", "obesity",
+)
+
+
+def filter_alt_blocklist(photos):
+    """photos — список объектов Pexels /v1/search (см. pexels_photo). Убирает
+    кандидатов, чей alt однозначно сигналит не тот жанр (см.
+    CONTENT_ALT_BLOCKLIST) — тихий no-op откат на исходный список, если
+    после фильтра ничего не осталось."""
+    filtered = [p for p in photos
+                if not any(term in (p.get("alt") or "").lower() for term in CONTENT_ALT_BLOCKLIST)]
+    return filtered or photos
 
 
 PHOTO_DEDUP_HAMMING = 6   # тот же порог, что в qc_report() — "заметно похоже"
@@ -1231,6 +1359,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
         photos = data.get("photos") or []
         if not photos:
             return None
+        photos = filter_alt_blocklist(photos)
         candidates = [p for p in photos if used_ids is None or p.get("id") not in used_ids] or photos
 
         def download(p, dest):
@@ -3553,7 +3682,7 @@ def main():
     stat_count = 0   # 2.2: номер плашки по счёту в ролике -> вариант оформления (chередуются по кругу)
     luma_ema = None   # для сглаживания скачков экспозиции между соседними склейками (см. measure_luma())
     typewriter_click_times = []   # D4: абсолютные секунды щелчков клавиатуры на весь ролик
-    hook_words = load_hook_word_timings()   # D2: пусто, если alignment.csv недоступен — тихий откат
+    hook_words = load_hook_word_timings(blocks, sub_starts, sub_baseline, real_weights)   # D2: пусто, если alignment.csv недоступен — тихий откат
     for i, (b, d) in enumerate(zip(blocks, durs)):
         # Титр темы — только на ПЕРВОМ кадре новой секции (BLOCK N: Название).
         is_section_start = i == 0 or blocks[i]["section"] != blocks[i - 1]["section"]
