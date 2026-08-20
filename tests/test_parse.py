@@ -3,6 +3,7 @@
 Запуск: .venv/bin/python -m pytest tests/ -v
 """
 import os
+import re
 import sys
 import tempfile
 
@@ -19,6 +20,7 @@ sys.argv = ["pipeline_smart.py", tempfile.gettempdir()]
 import pipeline_smart          # noqa: E402
 import wordcount                # noqa: E402
 import stock_fetch_multisource  # noqa: E402
+import fix_pauses               # noqa: E402
 
 
 def write_script(tmp_path, body):
@@ -264,3 +266,113 @@ def test_load_themes_reads_json(tmp_path):
     media_plan.mkdir()
     (media_plan / "themes.json").write_text('{"меч": "sword"}', encoding="utf-8")
     assert stock_fetch_multisource.load_themes(str(tmp_path)) == {"меч": "sword"}
+
+
+# ---------- pipeline_smart._scene_bias / film_look (контент-осознанный грейд) ----------
+
+def test_scene_bias_neutral_without_signal():
+    assert pipeline_smart._scene_bias(None, None) == (0.0, 0.0, 0.0)
+
+
+def test_scene_bias_warm_source_positive_warm_bias():
+    warm, _, _ = pipeline_smart._scene_bias(None, (0.55, 0.45, 0.30))
+    cool, _, _ = pipeline_smart._scene_bias(None, (0.30, 0.33, 0.42))
+    assert warm > 0
+    assert cool < 0
+
+
+def test_scene_bias_saturated_vs_near_mono_chroma():
+    _, chroma_vivid, _ = pipeline_smart._scene_bias(None, (0.80, 0.20, 0.15))
+    _, chroma_mono, _ = pipeline_smart._scene_bias(None, (0.5, 0.5, 0.5))
+    assert chroma_vivid > chroma_mono
+
+
+def test_scene_bias_dark_vs_bright_key():
+    _, _, key_dark = pipeline_smart._scene_bias((0.02, 0.55), None)
+    _, _, key_bright = pipeline_smart._scene_bias((0.15, 0.92), None)
+    assert key_dark < 0
+    assert key_bright > 0
+
+
+def test_film_look_warm_source_gets_weaker_warm_push_than_cool():
+    warm_out = pipeline_smart.film_look(123456789, section="BODY",
+                                         levels=(0.05, 0.9), wb=(0.55, 0.45, 0.30))
+    cool_out = pipeline_smart.film_look(123456789, section="BODY",
+                                         levels=(0.05, 0.9), wb=(0.30, 0.33, 0.42))
+
+    def bs_value(vf):
+        m = re.search(r'colorbalance=rs=[^:]+:bs=([\-\d.]+):', vf)
+        return float(m.group(1))
+
+    assert bs_value(warm_out) < bs_value(cool_out)
+
+
+def test_film_look_saturated_source_gets_stronger_selectivecolor():
+    vivid = pipeline_smart.film_look(1, section="BODY", levels=(0.05, 0.9), wb=(0.80, 0.20, 0.15))
+    mono = pipeline_smart.film_look(1, section="BODY", levels=(0.05, 0.9), wb=(0.5, 0.5, 0.5))
+
+    def greens_first_value(vf):
+        m = re.search(r'selectivecolor=greens=([\-\d.]+)', vf)
+        return float(m.group(1))
+
+    assert greens_first_value(vivid) > greens_first_value(mono)
+
+
+def test_film_look_dark_frame_gets_weaker_vignette_than_bright():
+    dark = pipeline_smart.film_look(1, section="BODY", levels=(0.02, 0.55), wb=None)
+    bright = pipeline_smart.film_look(1, section="BODY", levels=(0.15, 0.92), wb=None)
+
+    def vignette_divisor(vf):
+        m = re.search(r'vignette=PI/([\d.]+)', vf)
+        return float(m.group(1))
+
+    # Слабее виньетка = БОЛЬШЕ делитель в PI/N.
+    assert vignette_divisor(dark) > vignette_divisor(bright)
+
+
+def test_film_look_neutral_input_matches_unbiased_defaults():
+    # Без levels/wb сигнала (None) грейд обязан остаться ровно тем же
+    # фиксированным рецептом, что и раньше — content-aware поправка не
+    # должна незаметно менять поведение, когда сигнала попросту нет.
+    out = pipeline_smart.film_look(1, section="BODY")
+    assert "colorbalance=rs=-0.06:bs=0.100:" in out
+    assert "selectivecolor=greens=0.0200 0.0400 -0.0200 0.0200:" in out
+    assert "vignette=PI/5.000," in out
+
+
+# ---------- fix_pauses._pause_curve / _keep_sec_for (гладкая кривая пауз) ----------
+
+def test_pause_curve_monotonic_non_decreasing():
+    raws = [1.0, 1.2, 1.5, 1.8, 2.2, 2.6, 3.0, 5.0]
+    keeps = [fix_pauses._pause_curve(r) for r in raws]
+    assert all(a <= b + 1e-9 for a, b in zip(keeps, keeps[1:]))
+
+
+def test_pause_curve_bounds():
+    assert abs(fix_pauses._pause_curve(1.0) - fix_pauses.KEEP_MIN_SEC) < 1e-9
+    assert abs(fix_pauses._pause_curve(fix_pauses.KEEP_CURVE_TOP_SEC) - fix_pauses.KEEP_MAX_SEC) < 1e-9
+    assert abs(fix_pauses._pause_curve(999.0) - fix_pauses.KEEP_MAX_SEC) < 1e-9
+
+
+def test_pause_jitter_varies_by_position_but_bounded():
+    values = {fix_pauses._pause_jitter(t, t + 1.4) for t in (10.0, 250.0, 900.0, 1500.0)}
+    assert len(values) > 1   # не одно и то же значение на всех позициях
+    assert all(abs(v) <= fix_pauses.PAUSE_JITTER_SEC + 1e-9 for v in values)
+
+
+def test_keep_sec_for_idempotent():
+    assert fix_pauses._keep_sec_for(123.456, 124.856) == fix_pauses._keep_sec_for(123.456, 124.856)
+
+
+def test_keep_sec_for_never_exceeds_raw_duration():
+    for ss, se in [(0.0, 1.0), (5.0, 6.3), (100.0, 104.0)]:
+        assert fix_pauses._keep_sec_for(ss, se) <= se - ss
+
+
+def test_keep_sec_for_two_pauses_same_raw_duration_are_not_identical():
+    # Регрессия против старого поведения: раньше ЛЮБЫЕ две паузы одинаковой
+    # сырой длительности давали БИТ-В-БИТ одинаковый keep (ступенька по
+    # константе) — джиттер обязан развести их.
+    a = fix_pauses._keep_sec_for(10.0, 11.4)
+    b = fix_pauses._keep_sec_for(500.0, 501.4)
+    assert a != b
