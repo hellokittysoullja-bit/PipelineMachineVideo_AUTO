@@ -938,14 +938,36 @@ def load_pause_cuts():
     (см. fix_pauses.save_cuts) — реальные интервалы, которые
     silencedetect+atrim вычистили из аудио. Нет файла (старый эпизод, ещё
     не пересчитанный fix_pauses.py) -> [] (тихий откат на identity-маппинг,
-    raw_to_real_time тогда просто возвращает t без изменений)."""
+    raw_to_real_time тогда просто возвращает t без изменений).
+
+    Проверка отпечатка (source_audio_md5): pause_cuts.json описывает
+    порезки КОНКРЕТНОГО audio.mp3 на момент запуска fix_pauses.py. Если
+    audio.mp3 потом перезаписали (новая озвучка, правка) без повторного
+    fix_pauses.py — порезки больше не соответствуют реальности, а
+    raw_to_real_time() молча применил бы их к чужому аудио, воспроизводя
+    ровно тот класс рассинхрона, который этот файл должен был исправить.
+    Несовпадение -> предупреждение в консоль + откат на [] (честно "без
+    точной подгонки", а не тихая порча по устаревшим данным)."""
     global _PAUSE_CUTS_CACHE
     if _PAUSE_CUTS_CACHE is not None:
         return _PAUSE_CUTS_CACHE
     try:
         with open(PAUSE_CUTS_PATH, encoding="utf-8") as f:
-            cuts = json.load(f)
-        _PAUSE_CUTS_CACHE = [(float(a), float(b)) for a, b in cuts]
+            data = json.load(f)
+        raw_audio_path = os.path.join(VIDEO_FOLDER, "audio.mp3")
+        expected_md5 = data.get("source_audio_md5")
+        if expected_md5 and os.path.exists(raw_audio_path):
+            h = hashlib.md5()
+            with open(raw_audio_path, "rb") as af:
+                for chunk in iter(lambda: af.read(1 << 20), b""):
+                    h.update(chunk)
+            if h.hexdigest() != expected_md5:
+                print("  ВНИМАНИЕ: pause_cuts.json не соответствует текущему audio.mp3 "
+                      "(перезаписали озвучку без повторного fix_pauses.py?) — "
+                      "порезки игнорирую, подписи хука пересчитаются без точной подгонки паузы.")
+                _PAUSE_CUTS_CACHE = []
+                return _PAUSE_CUTS_CACHE
+        _PAUSE_CUTS_CACHE = [(float(a), float(b)) for a, b in data.get("cuts", [])]
     except Exception:
         _PAUSE_CUTS_CACHE = []
     return _PAUSE_CUTS_CACHE
@@ -3985,6 +4007,16 @@ def main():
     # было всё время работы цикла выше, чтобы прогрызть очередь. Порядок —
     # строго по индексу блока (pending_jobs собран в порядке цикла), не по
     # порядку завершения — xfade-склейка ниже требует правильную последовательность.
+    # Защитная проверка (дёшево, страхует от РЕАЛЬНОГО класса бага, уже
+    # пойманного вживую — см. коммит про порядок склейки): pending_jobs
+    # обязан идти строго по возрастанию индекса блока, раз кэш-хиты и
+    # кэш-промахи теперь оба уходят сюда одним путём. Если это когда-нибудь
+    # снова нарушится (рефакторинг, новый путь append), лучше упасть здесь
+    # громко, чем молча собрать ролик с переставленными кусками.
+    for k, job in enumerate(pending_jobs):
+        assert job["i"] == k, (
+            f"pending_jobs не по порядку: позиция {k} содержит блок {job['i']} — "
+            f"склейка получила бы кадры не в том порядке (см. комментарий у append выше)")
     for job in pending_jobs:
         if job["future"] is not None:
             try:

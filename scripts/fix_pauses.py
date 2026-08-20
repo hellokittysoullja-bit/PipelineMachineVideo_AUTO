@@ -18,6 +18,7 @@ pipeline_smart.py (load_hook_word_timings/load_alignment_weights) раньше
 1:1 сюда же (media_plan/pause_cuts.json), и pipeline_smart.py умеет
 пересчитывать alignment.csv В ТОЧНОСТИ на реальную (обрезанную) шкалу
 вместо приближения."""
+import hashlib
 import json
 import os
 import re
@@ -82,18 +83,34 @@ def detect_silences(path):
     return list(zip(starts, ends))
 
 
-def save_cuts(video_dir, sil):
+def _audio_fingerprint(path):
+    """md5 содержимого исходного audio.mp3 — записывается вместе с
+    порезками, чтобы pipeline_smart.py мог обнаружить, что audio.mp3
+    перезаписали (новая озвучка/правка) БЕЗ повторного запуска
+    fix_pauses.py, и не применить молча устаревшие порезки к чужому
+    аудио (реальный риск: пользователь перезаписывает эпизод озвучкой,
+    забывает про этот шаг — тогда pause_cuts.json тихо соврёт про то,
+    где резать)."""
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def save_cuts(video_dir, sil, src):
     """Сохраняет РЕАЛЬНО вырезанные интервалы (сырое время audio.mp3) —
     только ту часть каждой тишины, что реально ушла (se - min(se,ss+KEEP_SEC)
-    > 0; короткие тишины ниже KEEP_SEC ничего не теряют). pipeline_smart.py
-    читает этот файл, чтобы ТОЧНО (не приближённо по тегам) пересчитать
+    > 0; короткие тишины ниже KEEP_SEC ничего не теряют) + отпечаток
+    исходного audio.mp3 (см. _audio_fingerprint). pipeline_smart.py читает
+    этот файл, чтобы ТОЧНО (не приближённо по тегам) пересчитать
     alignment.csv на реальную обрезанную шкалу — см. raw_to_real_time()."""
     cuts = [[round(min(se, ss + KEEP_SEC), 3), round(se, 3)]
             for ss, se in sil if se - min(se, ss + KEEP_SEC) > 0.001]
     plan_dir = os.path.join(video_dir, "media_plan")
     os.makedirs(plan_dir, exist_ok=True)
     with open(os.path.join(plan_dir, "pause_cuts.json"), "w", encoding="utf-8") as f:
-        json.dump(cuts, f)
+        json.dump({"source_audio_md5": _audio_fingerprint(src), "cuts": cuts}, f)
 
 
 def main():
@@ -107,7 +124,7 @@ def main():
     sil = detect_silences(src)
     loud = loudnorm_filter(measure_loudness(src))
     if not sil:
-        save_cuts(video_dir, [])
+        save_cuts(video_dir, [], src)
         print("Длинных пауз не найдено — нормализую громкость.")
         r = subprocess.run(["ffmpeg", "-y", "-i", src, "-af", loud,
                             "-c:a", "libmp3lame", "-b:a", "192k", out],
@@ -138,7 +155,7 @@ def main():
     if not parts:
         # все сегменты оказались короче 0.02с — склеивать нечего, ffmpeg бы
         # упал на concat=n=0; отдаём исходник без изменений (кроме громкости)
-        save_cuts(video_dir, [])
+        save_cuts(video_dir, [], src)
         print("Нечего склеивать — нормализую громкость исходника.")
         r = subprocess.run(["ffmpeg", "-y", "-i", src, "-af", loud,
                             "-c:a", "libmp3lame", "-b:a", "192k", out],
@@ -156,7 +173,7 @@ def main():
     if r.returncode != 0 or not os.path.exists(out):
         print("Ошибка ffmpeg:", r.stderr[-400:])
         return 1
-    save_cuts(video_dir, sil)
+    save_cuts(video_dir, sil, src)
     print(f"Готово: {out} | подрезано пауз: {len(sil)} | было {total:.1f}с → стало {duration(out):.1f}с")
     return 0
 
