@@ -32,35 +32,79 @@ FPS = 24
 # бесшовностью (XFADE_N ниже) делает цикл субъективно незаметным.
 DUR = 8.0
 N = int(FPS * DUR)        # 192 кадра
-XFADE_N = 10               # хвостовых кадров кроссфейдим с началом — бесшовная петля
 SEED = 20260819            # детерминированный сид — воспроизводимый ассет
 
 OUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "grain")
 OUT_PATH = os.path.join(OUT_DIR, "grain_loop.mp4")
 
 
-def coarse_field(rng, scale_div):
-    """Шум на низком разрешении, апскейленный бикубикой — источник "сгустков"
-    (крупных пятен зерна), не отдельных пикселей."""
-    small = rng.normal(0, 1, (max(2, H // scale_div), max(2, W // scale_div))).astype(np.float32)
-    small -= small.min()
-    small /= (small.max() + 1e-6)
-    img = Image.fromarray((small * 255).astype(np.uint8))
-    up = img.resize((W, H), Image.BICUBIC)
-    arr = np.asarray(up, dtype=np.float32) / 255.0
-    return (arr - arr.mean()) / (arr.std() + 1e-6)
+# P1-22 (аудит звукового/видео пайплайна): было — N НЕЗАВИСИМЫХ случайных
+# кадров + искусственный линейный кроссфейд последних XFADE_N кадров с
+# первыми, чтобы шов петли не был виден. Кроссфейд — заплатка: на стыке
+# два независимых случайных кадра УСРЕДНЯЮТСЯ, что даёт заметно более
+# гладкую (меньше дисперсии) текстуру именно в этих кадрах — то есть
+# "плотность" зерна едва заметно проседает раз за петлю, ровно там, где
+# должна быть незаметна.
+#
+# Правильное решение — та же идея, что уже дала точную периодичность
+# дрейфу расстройки дрона в generate_music_asset.py (PM с частотами,
+# снапнутыми на целое число циклов на петлю), только для шума: случайный
+# ФАЗОВЫЙ спектр (амплитуда постоянна по частоте — "белый" по времени,
+# та же статистика, что и у прежнего purely-независимого per-frame шума)
+# с обратным FFT даёт ДЕЙСТВИТЕЛЬНЫЙ, ТОЧНО периодичный на N кадров
+# временной ряд для каждой точки поля — без какого-либо шва и без
+# кроссфейда-заплатки в принципе (см. periodic_noise_volume).
+def periodic_noise_volume(rng, shape, n_frames):
+    """Шум, независимый по каждой пространственной точке `shape`, СЛУЧАЙНЫЙ
+    и "белый" по времени (как честный per-frame независимый шум), но ТОЧНО
+    периодичный на n_frames кадров — без кроссфейда, по построению (см.
+    комментарий выше). Возвращает (n_frames, *shape), std по всему объёму
+    приведено к ~1."""
+    n_bins = n_frames // 2 + 1
+    phases = rng.uniform(0, 2 * np.pi, size=shape + (n_bins,)).astype(np.float32)
+    mag = np.ones(shape + (n_bins,), dtype=np.float32)
+    mag[..., 0] = 0.0    # DC = 0 — нулевое среднее по петле
+    mag[..., -1] = 0.0   # Найквист = 0 — избегаем чисто-действительного частного случая
+    spectrum = (mag * np.exp(1j * phases)).astype(np.complex64)
+    vol = np.fft.irfft(spectrum, n=n_frames, axis=-1)     # (*shape, n_frames), точно периодично
+    vol = np.moveaxis(vol, -1, 0).astype(np.float32)      # (n_frames, *shape)
+    vol = (vol - vol.mean()) / (vol.std() + 1e-9)
+    return vol
 
 
-def gen_luma_frame(rng):
-    """Multi-scale: крупные сгустки (delen 10) + среднее зерно (делитель 4) +
-    мелкая текстура (полное разрешение), взвешенная сумма — органичнее, чем
-    один масштаб шума."""
-    coarse = coarse_field(rng, 10)
-    mid = coarse_field(rng, 4)
-    fine = rng.normal(0, 1, (H, W)).astype(np.float32)
-    fine = (fine - fine.mean()) / (fine.std() + 1e-6)
+def coarse_volume(rng, scale_div, n_frames):
+    """Периодический шум на низком разрешении, апскейленный бикубикой
+    покадрово — источник "сгустков" (крупных пятен зерна), не отдельных
+    пикселей. Тот же принцип, что был у coarse_field(), но целый объём
+    кадров разом, из periodic_noise_volume вместо N независимых вызовов."""
+    h2, w2 = max(2, H // scale_div), max(2, W // scale_div)
+    small_vol = periodic_noise_volume(rng, (h2, w2), n_frames)
+    up = np.empty((n_frames, H, W), dtype=np.float32)
+    for i in range(n_frames):
+        frame = small_vol[i]
+        lo, hi = frame.min(), frame.max()
+        frame_u8 = ((frame - lo) / (hi - lo + 1e-6) * 255).astype(np.uint8)
+        img = Image.fromarray(frame_u8).resize((W, H), Image.BICUBIC)
+        arr = np.asarray(img, dtype=np.float32) / 255.0
+        up[i] = (arr - arr.mean()) / (arr.std() + 1e-6)
+    return up
+
+
+def gen_luma_volume(rng, n_frames):
+    """Multi-scale: крупные сгустки (делитель 10) + среднее зерно (делитель
+    4) + мелкая текстура (полное разрешение), взвешенная сумма по ВСЕМ
+    n_frames кадрам разом — органичнее, чем один масштаб шума, точно
+    периодично на n_frames без кроссфейда."""
+    coarse = coarse_volume(rng, 10, n_frames)
+    mid = coarse_volume(rng, 4, n_frames)
+    fine = periodic_noise_volume(rng, (H, W), n_frames)
     grain = 0.35 * coarse + 0.35 * mid + 0.30 * fine
-    grain /= (np.abs(grain).std() * 3.2 + 1e-6)   # нормализация к ~[-1,1] с запасом
+    # Нормализация по ВСЕМУ объёму разом (не по каждому кадру отдельно, как
+    # раньше в gen_luma_frame) — устраняет источник мелкого кадр-к-кадру
+    # дрожания КОНТРАСТА зерна от случайных отличий измеренного std между
+    # кадрами; все кадры статистически одинаковы по построению, общая
+    # нормализация корректна и строже прежней.
+    grain /= (np.abs(grain).std() * 3.2 + 1e-6)
     return np.clip(grain, -1.2, 1.2)
 
 
@@ -68,19 +112,16 @@ def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     rng = np.random.default_rng(SEED)
 
-    luma_frames = [gen_luma_frame(rng) for _ in range(N)]
-    # Бесшовная петля: последние XFADE_N кадров линейно кроссфейдим с первыми
-    # XFADE_N — иначе в точке склейки петли виден скачок (два независимых
-    # случайных кадра встык).
-    head = [luma_frames[i].copy() for i in range(XFADE_N)]
-    for k in range(XFADE_N):
-        i = N - XFADE_N + k
-        w = (k + 1) / (XFADE_N + 1)   # 0 -> 1 к концу
-        luma_frames[i] = luma_frames[i] * (1 - w) + head[k] * w
+    luma_vol = gen_luma_volume(rng, N)   # (N, H, W), точно периодично — без кроссфейда
 
     # Лёгкая независимая цветность (реальное зерно не строго ахроматично) —
-    # отдельный, куда более слабый шумовой канал на Cb/Cr.
+    # отдельный, куда более слабый шумовой канал на Cb/Cr. P1-22: раньше
+    # генерировался per-frame независимо БЕЗ какой-либо компенсации шва
+    # (даже кроссфейда, который был хотя бы у яркости) — тот же периодический
+    # FFT-фазовый метод убирает шов и здесь той же одной правкой.
     chroma_rng = np.random.default_rng(SEED + 1)
+    cb_vol = periodic_noise_volume(chroma_rng, (H, W), N) * 3.0
+    cr_vol = periodic_noise_volume(chroma_rng, (H, W), N) * 3.0
 
     cmd = ["ffmpeg", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
            "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-",
@@ -88,10 +129,9 @@ def main():
            "-pix_fmt", "yuv420p", OUT_PATH]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
-    for luma in luma_frames:
-        base = 128.0 + luma * 22.0   # амплитуда яркостного зерна
-        cb_noise = chroma_rng.normal(0, 1, (H, W)).astype(np.float32) * 3.0
-        cr_noise = chroma_rng.normal(0, 1, (H, W)).astype(np.float32) * 3.0
+    for i in range(N):
+        base = 128.0 + luma_vol[i] * 22.0   # амплитуда яркостного зерна
+        cb_noise, cr_noise = cb_vol[i], cr_vol[i]
         r = base + cr_noise * 0.6
         g = base - cr_noise * 0.2 - cb_noise * 0.2
         b = base + cb_noise * 0.6
