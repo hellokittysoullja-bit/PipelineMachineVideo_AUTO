@@ -3734,10 +3734,22 @@ def main():
             f"{captions}".encode()).hexdigest()[:8]
         out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}_{params_hash}.mp4")
         if os.path.exists(out):
-            clips.append(out)
-            clip_durs.append(d)
-            clip_sections.append(b["section"])
-            clip_blocks.append(b)
+            # РЕАЛЬНЫЙ баг, пойманный вживую: раньше кэш-хит уходил в clips
+            # СРАЗУ здесь, по ходу цикла, а промах кэша (ниже) — только В
+            # pending_jobs, с append в clips ОТДЕЛЬНЫМ проходом ПОСЛЕ конца
+            # всего цикла. Пока хэш параметров у блока не меняется — разницы
+            # не видно, но стоило хэшу измениться у ОДНОЙ группы блоков
+            # (здесь — у всего ХУКА разом, после правки D2-таймингов) — их
+            # кэш-хиты соседних секций уходили в clips ПЕРВЫМИ по ходу цикла,
+            # а сам хук (сплошь кэш-промахи) — единым блоком В КОНЕЦ, уже
+            # после resolve-прохода. Итог на реальном ролике: хук отрендерился
+            # верно, но склейка voed поставила его в самый хвост ролика, а
+            # титр BLOCK 1 оказался в первых секундах. Фикс: кэш-хит идёт
+            # ТЕМ ЖЕ путём (pending_jobs, future=None, ok сразу True) — единый
+            # проход ниже строит clips строго по порядку индекса блока
+            # независимо от того, кэш это или свежий рендер.
+            pending_jobs.append({"i": i, "out": out, "d": d, "section": b["section"], "block": b,
+                                  "video": False, "photo": None, "future": None, "ok": True})
             continue
         photo = local_photo(i) if use_local else None
         video = None
