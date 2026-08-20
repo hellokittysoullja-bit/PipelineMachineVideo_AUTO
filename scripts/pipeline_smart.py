@@ -2057,6 +2057,35 @@ def piecewise_ease_expr(t_expr, points):
     return expr
 
 
+def render_tmp_path(out):
+    """Промежуточный путь для АТОМАРНОЙ записи клипа — рендерим сюда, потом
+    os.replace() в финальный `out` ТОЛЬКО при успехе (см. finalize_render()).
+    Без этого убитый процесс (SIGKILL/OOM/обрыв контейнера — ровно так один
+    раз уже падал многочасовой фоновый рендер без единой строчки трейсбека)
+    посреди записи оставляет ОБРЕЗАННЫЙ mp4 ровно по пути, который кэш
+    main() (простая проверка os.path.exists(out)) на следующем запуске
+    молча считает валидным готовым клипом — порченый кадр всплыл бы только
+    на сборке/просмотре готового ролика, не в момент самого рендера."""
+    return out + ".partial.mp4"
+
+
+def finalize_render(tmp, out, ok):
+    """Переименовать tmp -> out атомарно при успехе; подчистить огрызок при
+    провале — см. render_tmp_path(). os.replace — атомарная операция на
+    одной файловой системе (tmp и out всегда в одной папке), не "скопировать
+    и удалить" — на успешном пути либо всего файла целиком не существует,
+    либо он полностью готов, никакого промежуточного полу-состояния."""
+    if ok and os.path.exists(tmp):
+        os.replace(tmp, out)
+        return True
+    if os.path.exists(tmp):
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+    return False
+
+
 def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
              section="", motion_mode="classic_kb", stat_variant=0,
              brightness_bias=0.0, energy_bias=0.0, stat_delay=0.0, levels=None, captions=None):
@@ -2198,6 +2227,8 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
         vf_overlay = add_overlays(vf_base, dur, title, stat, stat_variant, stat_delay, media_path=photo)
         vf_overlay = add_kinetic_captions(vf_overlay, captions)
 
+    tmp_out = render_tmp_path(out)
+
     def render(vf):
         cmd = ["ffmpeg", "-y", "-loop", "1", "-i", photo]
         if GRAIN_ENABLED:
@@ -2210,17 +2241,18 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
         else:
             cmd += ["-vf", vf]
         cmd += ["-t", str(dur), "-c:v", "libx264", "-preset", "fast",
-               "-crf", "18", "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS + [out]
+               "-crf", "18", "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS + [tmp_out]
         return subprocess.run(cmd, capture_output=True, text=True)
 
     if vf_overlay:
         r = render(vf_overlay)
         if r.returncode == 0:
-            return True
+            return finalize_render(tmp_out, out, True)
         # Титр/плашка (drawtext/шрифт) — не повод терять весь кадр: некоторые
         # сборки ffmpeg собраны без drawtext вообще. Откат на версию без них.
         print(f"  титр/плашка не встали ({os.path.basename(out)}), рисую без них: {r.stderr[-200:]}")
-    return render(vf_base).returncode == 0
+    ok = render(vf_base).returncode == 0
+    return finalize_render(tmp_out, out, ok)
 
 
 # --- 2.5D-параллакс (опционально, нужны torch/transformers/opencv) ---
@@ -2504,8 +2536,9 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
             cmd += ["-filter_complex", fc, "-map", "[vout]"]
         else:
             cmd += ["-vf", vf]
+        tmp_out = render_tmp_path(out)
         cmd += ["-frames:v", str(frames), "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-                "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS + [out]
+                "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS + [tmp_out]
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE,
                                  stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
@@ -2560,10 +2593,12 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
         if proc.returncode != 0:
             print(f"  параллакс-рендер не встал ({os.path.basename(out)}): "
                   f"{proc.stderr.read().decode(errors='replace')[-200:]}")
+            finalize_render(tmp_out, out, False)
             return False
-        return True
+        return finalize_render(tmp_out, out, True)
     except Exception as e:
         print(f"  параллакс сорвался ({os.path.basename(out)}): {type(e).__name__} {e}")
+        finalize_render(render_tmp_path(out), out, False)
         return False
     finally:
         # Раньше при сбое ПОСРЕДИ покадрового цикла (BrokenPipeError на
@@ -2743,6 +2778,7 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
         if motion >= SPEED_RAMP_MOTION_THRESHOLD:
             ramp_filter = build_speed_ramp_filter(skip, dur, actual)
 
+    tmp_out = render_tmp_path(out)
     if ramp_filter:
         tail = film_look(h, section, brightness_bias, energy_bias, levels)
         full_tail = tail
@@ -2759,10 +2795,10 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
         cmd += ["-filter_complex", filter_complex,
                "-map", "[vout]", "-t", str(dur), "-an",
                "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-               "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS + [out]
+               "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS + [tmp_out]
         r = subprocess.run(cmd, capture_output=True, text=True)
         if r.returncode == 0:
-            return True
+            return finalize_render(tmp_out, out, True)
         print(f"  speed ramp не встал на видео ({os.path.basename(out)}), рисую без ramp: {r.stderr[-200:]}")
 
     vf_base = scale_crop
@@ -2792,15 +2828,16 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
             cmd += ["-vf", vf]
         cmd += ["-t", str(dur), "-an",
                 "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-                "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS + [out]
+                "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS + [tmp_out]
         return subprocess.run(cmd, capture_output=True, text=True)
 
     if vf_overlay:
         r = render(vf_overlay)
         if r.returncode == 0:
-            return True
+            return finalize_render(tmp_out, out, True)
         print(f"  титр/плашка не встали на видео ({os.path.basename(out)}), рисую без них: {r.stderr[-200:]}")
-    return render(vf_base).returncode == 0
+    ok = render(vf_base).returncode == 0
+    return finalize_render(tmp_out, out, ok)
 
 
 def pexels_video(query, index, used_ids=None):
@@ -3358,6 +3395,16 @@ def main():
     print(f"Аудио: {total:.1f}с ({total/60:.1f} мин)")
     audio_qc(AUDIO_FILE)
     os.makedirs(TEMP_FOLDER, exist_ok=True)
+    # Огрызки .partial.mp4 от предыдущего прогона, убитого посреди рендера
+    # клипа (SIGKILL/OOM/обрыв — см. render_tmp_path/finalize_render) —
+    # безопасно чистить на старте: раз файл лежит под .partial.mp4, а не
+    # под финальным именем, значит тот рендер так и не завершился успехом,
+    # доедать его нечем, только место занимает.
+    for stale in glob.glob(os.path.join(TEMP_FOLDER, "clip_*.mp4.partial.mp4")):
+        try:
+            os.remove(stale)
+        except OSError:
+            pass
     blocks = parse_blocks(SCRIPT_FILE) if os.path.exists(SCRIPT_FILE) else []
     if not blocks:
         print("Сценарий не найден/пуст")
@@ -3565,45 +3612,56 @@ def main():
         # неизменным творческим грейдом, не вместо него.
         levels = measure_levels(photo, is_video=False) if photo else measure_levels(video, is_video=True)
         energy_bias = max(-0.5, min(0.5, energy_lvls[i] - 1.0))
-        if video:
-            ok = video_render(video, out, d, title=title, stat=stat, section=b["section"],
-                               stat_variant=stat_variant, brightness_bias=brightness_bias,
-                               energy_bias=energy_bias, stat_delay=stat_delay, levels=levels,
-                               handheld=has_action_word(b["text"]), captions=captions)
-        else:
-            # anti-repetition: хэш сам по себе не мешает 3 зумам подряд случайно
-            # совпасть — держим окно последних решений и форсируем смену при повторе.
-            _, zi_cand, pd_cand = kb_hash_choices(photo)
-            zoom_in = pick_no_repeat(zoom_hist, zi_cand, [True, False], max_repeat=2)
-            pan_dir = pick_no_repeat(pan_hist, pd_cand, PAN_DIRECTIONS, max_repeat=2)
-            # Параллакс — только на самые заметные точки ролика (хук целиком +
-            # первый кадр каждого раздела), не на все фото: покадровый рендер
-            # с depth-моделью в разы дороже по времени zoompan-версии, на
-            # 40+ кадрах это лишние десятки минут ради эффекта, который
-            # большую часть ролика зритель всё равно не разглядывает так
-            # пристально, как хук и открывашки разделов.
-            is_highlight = b["section"].startswith("HOOK") or is_section_start
+        # Один непойманный сбой в рендере ОДНОГО кадра (редкий edge case —
+        # битый файл, неожиданный тип данных и т.п.) раньше падал наружу и
+        # убивал весь многочасовой прогон main() целиком, теряя ВСЮ уже
+        # проделанную работу. kenburns()/video_render() и так возвращают
+        # False на предсказуемые сбои (ffmpeg не встал и т.п.) — это перехват
+        # именно НЕПРЕДВИДЕННОГО исключения, кадр просто уходит в missing
+        # (как и любой другой honest-failure), рендер продолжается дальше.
+        try:
+            if video:
+                ok = video_render(video, out, d, title=title, stat=stat, section=b["section"],
+                                   stat_variant=stat_variant, brightness_bias=brightness_bias,
+                                   energy_bias=energy_bias, stat_delay=stat_delay, levels=levels,
+                                   handheld=has_action_word(b["text"]), captions=captions)
+            else:
+                # anti-repetition: хэш сам по себе не мешает 3 зумам подряд случайно
+                # совпасть — держим окно последних решений и форсируем смену при повторе.
+                _, zi_cand, pd_cand = kb_hash_choices(photo)
+                zoom_in = pick_no_repeat(zoom_hist, zi_cand, [True, False], max_repeat=2)
+                pan_dir = pick_no_repeat(pan_hist, pd_cand, PAN_DIRECTIONS, max_repeat=2)
+                # Параллакс — только на самые заметные точки ролика (хук целиком +
+                # первый кадр каждого раздела), не на все фото: покадровый рендер
+                # с depth-моделью в разы дороже по времени zoompan-версии, на
+                # 40+ кадрах это лишние десятки минут ради эффекта, который
+                # большую часть ролика зритель всё равно не разглядывает так
+                # пристально, как хук и открывашки разделов.
+                is_highlight = b["section"].startswith("HOOK") or is_section_start
+                ok = False
+                if PARALLAX_ENABLED and is_highlight:
+                    # Параллакс (2.5D depth remap) — своя, уже отдельно проверенная
+                    # зум/пан-математика, motion_mode на него не распространяем:
+                    # это отдельный, более дорогой визуальный приём для самых
+                    # заметных точек ролика, не нуждается в дополнительной
+                    # категоризации поверх собственной.
+                    ok = parallax_kenburns(photo, out, d, title=title, zoom_in=zoom_in,
+                                            pan_dir=pan_dir, stat=stat, section=b["section"],
+                                            stat_variant=stat_variant, brightness_bias=brightness_bias,
+                                            energy_bias=energy_bias, stat_delay=stat_delay, levels=levels,
+                                            captions=captions)
+                if not ok:
+                    photo_hash, _, _ = kb_hash_choices(photo)
+                    cur_shot_size = recent_shot_sizes[-1] if recent_shot_sizes else None
+                    motion_mode = choose_motion_mode(b, is_section_start, photo_hash, shot_size=cur_shot_size)
+                    ok = kenburns(photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
+                                  stat=stat, section=b["section"], motion_mode=motion_mode,
+                                  brightness_bias=brightness_bias, energy_bias=energy_bias,
+                                  stat_variant=stat_variant, stat_delay=stat_delay, levels=levels,
+                                  captions=captions)
+        except Exception as e:
+            print(f"  [{i+1}] непредвиденный сбой рендера, пропускаю кадр: {type(e).__name__} {e}")
             ok = False
-            if PARALLAX_ENABLED and is_highlight:
-                # Параллакс (2.5D depth remap) — своя, уже отдельно проверенная
-                # зум/пан-математика, motion_mode на него не распространяем:
-                # это отдельный, более дорогой визуальный приём для самых
-                # заметных точек ролика, не нуждается в дополнительной
-                # категоризации поверх собственной.
-                ok = parallax_kenburns(photo, out, d, title=title, zoom_in=zoom_in,
-                                        pan_dir=pan_dir, stat=stat, section=b["section"],
-                                        stat_variant=stat_variant, brightness_bias=brightness_bias,
-                                        energy_bias=energy_bias, stat_delay=stat_delay, levels=levels,
-                                        captions=captions)
-            if not ok:
-                photo_hash, _, _ = kb_hash_choices(photo)
-                cur_shot_size = recent_shot_sizes[-1] if recent_shot_sizes else None
-                motion_mode = choose_motion_mode(b, is_section_start, photo_hash, shot_size=cur_shot_size)
-                ok = kenburns(photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
-                              stat=stat, section=b["section"], motion_mode=motion_mode,
-                              brightness_bias=brightness_bias, energy_bias=energy_bias,
-                              stat_variant=stat_variant, stat_delay=stat_delay, levels=levels,
-                              captions=captions)
         if ok:
             clips.append(out)
             clip_durs.append(d)
