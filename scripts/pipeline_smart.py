@@ -4456,7 +4456,16 @@ def main():
     r = subprocess.run(["ffmpeg", "-y", "-i", merged, "-i", premix,
                         "-t", f"{total:.3f}",
                         "-af", af,
-                        "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+                        # -ar 48000 обязателен именно ЗДЕСЬ (поймано вживую на
+                        # реальном рендере): loudnorm с TP (true peak, для
+                        # inter-sample пиков по ITU-R BS.1770 нужен передискрет)
+                        # сам меняет частоту потока на выходе фильтра — без
+                        # явного -ar это утекает прямо в AAC-энкодер (поймано:
+                        # 96000Hz на итоговом final.mp4 при всём остальном
+                        # звуке 48000Hz — единственное место в файле, где
+                        # -ar не был проставлен явно, все остальные 11
+                        # вызовов это уже получили в P2-17).
+                        "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
                         "-movflags", "+faststart",
                         "-shortest", output_tmp], capture_output=True, text=True)
     if r.returncode != 0:
