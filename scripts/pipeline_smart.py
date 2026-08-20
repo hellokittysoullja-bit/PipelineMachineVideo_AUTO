@@ -536,7 +536,7 @@ def process_voice(voice_path, out_path):
     микро-динамики фраз. VOICE_PROCESS_ENABLED=False -> просто копия
     исходника (безопасный откат, тот же принцип, что MUSIC_ENABLED)."""
     if not VOICE_PROCESS_ENABLED:
-        r = subprocess.run(["ffmpeg", "-y", "-i", voice_path, "-ar", "44100", "-ac", "2", out_path],
+        r = subprocess.run(["ffmpeg", "-y", "-i", voice_path, "-ar", "48000", "-ac", "2", out_path],
                             capture_output=True, text=True)
         return out_path if r.returncode == 0 else voice_path
     af = (
@@ -547,10 +547,10 @@ def process_voice(voice_path, out_path):
         f"acompressor=threshold={VOICE_COMPRESS_THRESHOLD}:ratio={VOICE_COMPRESS_RATIO}:"
         f"attack=8:release=120:makeup=1.15"
     )
-    r = subprocess.run(["ffmpeg", "-y", "-i", voice_path, "-af", af, "-ar", "44100", "-ac", "2", out_path],
+    r = subprocess.run(["ffmpeg", "-y", "-i", voice_path, "-af", af, "-ar", "48000", "-ac", "2", out_path],
                         capture_output=True, text=True)
     if r.returncode != 0:
-        r2 = subprocess.run(["ffmpeg", "-y", "-i", voice_path, "-ar", "44100", "-ac", "2", out_path],
+        r2 = subprocess.run(["ffmpeg", "-y", "-i", voice_path, "-ar", "48000", "-ac", "2", out_path],
                              capture_output=True, text=True)
         return out_path if r2.returncode == 0 else voice_path
     return out_path
@@ -595,7 +595,7 @@ def add_typewriter_clicks(mix_path, click_times, total_dur, out_path):
     parts.append("".join(mix_inputs) + f"amix=inputs={len(click_times) + 1}:duration=first:normalize=0[out]")
     fc = ";".join(parts)
     cmd += ["-filter_complex", fc, "-map", "[out]",
-            "-t", f"{total_dur:.3f}", "-ar", "44100", "-ac", "2", out_path]
+            "-t", f"{total_dur:.3f}", "-ar", "48000", "-ac", "2", out_path]
     r = subprocess.run(cmd, capture_output=True, text=True)
     return out_path if r.returncode == 0 else mix_path
 
@@ -623,7 +623,7 @@ def build_mood_timeline(hook_end, final_start, total_dur, out_path):
     t2 = min(total_dur - 2.0, max(t1 + 2 * d, final_start - MUSIC_JCUT_LEAD))
     if t2 - t1 < 2 * d or t1 >= total_dur - 2 * d:
         r = subprocess.run(["ffmpeg", "-y", "-stream_loop", "-1", "-i", MUSIC_BED_PATHS["BODY"],
-                             "-t", f"{total_dur:.3f}", "-ar", "44100", "-ac", "2", out_path],
+                             "-t", f"{total_dur:.3f}", "-ar", "48000", "-ac", "2", out_path],
                             capture_output=True, text=True)
         return out_path if r.returncode == 0 else None
     L1, L2, L3 = t1 + d, (t2 - t1) + d, total_dur - t2
@@ -640,11 +640,11 @@ def build_mood_timeline(hook_end, final_start, total_dur, out_path):
          "-stream_loop", "-1", "-i", MUSIC_BED_PATHS["BODY"],
          "-stream_loop", "-1", "-i", MUSIC_BED_PATHS["FINAL"],
          "-filter_complex", fc, "-map", "[mood_mix]",
-         "-t", f"{total_dur:.3f}", "-ar", "44100", "-ac", "2", out_path],
+         "-t", f"{total_dur:.3f}", "-ar", "48000", "-ac", "2", out_path],
         capture_output=True, text=True)
     if r.returncode != 0:
         r2 = subprocess.run(["ffmpeg", "-y", "-stream_loop", "-1", "-i", MUSIC_BED_PATHS["BODY"],
-                              "-t", f"{total_dur:.3f}", "-ar", "44100", "-ac", "2", out_path],
+                              "-t", f"{total_dur:.3f}", "-ar", "48000", "-ac", "2", out_path],
                              capture_output=True, text=True)
         return out_path if r2.returncode == 0 else None
     return out_path
@@ -697,7 +697,7 @@ def build_music_mix(voice_path, total_dur, out_path, hook_end=0.0, final_start=N
     громкость ПОСЛЕ калибровки и сводила её к нулю."""
     if not MUSIC_ENABLED:
         r = subprocess.run(["ffmpeg", "-y", "-i", voice_path, "-t", f"{total_dur:.3f}",
-                             "-ar", "44100", "-ac", "2", out_path], capture_output=True, text=True)
+                             "-ar", "48000", "-ac", "2", out_path], capture_output=True, text=True)
         return out_path if r.returncode == 0 else voice_path
     if final_start is None:
         final_start = total_dur
@@ -705,7 +705,7 @@ def build_music_mix(voice_path, total_dur, out_path, hook_end=0.0, final_start=N
     timeline = build_mood_timeline(hook_end, final_start, total_dur, timeline_path)
     if timeline is None:
         r = subprocess.run(["ffmpeg", "-y", "-i", voice_path, "-t", f"{total_dur:.3f}",
-                             "-ar", "44100", "-ac", "2", out_path], capture_output=True, text=True)
+                             "-ar", "48000", "-ac", "2", out_path], capture_output=True, text=True)
         return out_path if r.returncode == 0 else voice_path
     dip_expr = _climax_dip_expr(climax_times)
     dip_stage = f",volume=eval=frame:volume='{dip_expr}'" if dip_expr else ""
@@ -719,13 +719,13 @@ def build_music_mix(voice_path, total_dur, out_path, hook_end=0.0, final_start=N
     r = subprocess.run(
         ["ffmpeg", "-y", "-i", voice_path, "-i", timeline,
          "-filter_complex", filter_complex, "-map", "[mix]",
-         "-t", f"{total_dur:.3f}", "-ar", "44100", "-ac", "2", out_path],
+         "-t", f"{total_dur:.3f}", "-ar", "48000", "-ac", "2", out_path],
         capture_output=True, text=True)
     if r.returncode != 0:
         # Микс не собрался — откат на голос без подложки, не срываем сборку
         # ролика ради необязательного улучшения.
         r2 = subprocess.run(["ffmpeg", "-y", "-i", voice_path, "-t", f"{total_dur:.3f}",
-                              "-ar", "44100", "-ac", "2", out_path], capture_output=True, text=True)
+                              "-ar", "48000", "-ac", "2", out_path], capture_output=True, text=True)
         return out_path if r2.returncode == 0 else voice_path
     return out_path
 
