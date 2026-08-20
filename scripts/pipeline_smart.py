@@ -512,6 +512,35 @@ def process_voice(voice_path, out_path):
     return out_path
 
 
+def add_typewriter_clicks(mix_path, click_times, total_dur, out_path):
+    """D4: звук печатной машинки — по одному щелчку (assets/sfx/keyboard_click.flac)
+    на КАЖДЫЙ символ, ровно в момент, когда он появляется на экране (тот же
+    TYPEWRITER_CHAR_DUR, что и в add_overlays() — визуал и звук считаются
+    от одной и той же ставки). click_times — абсолютные секунды в ФИНАЛЬНОМ
+    таймлайне ролика (см. main(): sub_starts + delay + k*char_dur).
+
+    asplit на N копий щелчка + свой adelay на каждую + amix со всем миксом —
+    обычный приём "разложить N коротких сэмплов по таймлайну одним
+    фильтр-графом", без промежуточных файлов на каждый щелчок."""
+    if not click_times or not TYPEWRITER_CLICK_ENABLED:
+        return mix_path
+    n = len(click_times)
+    parts = ["[1:a]asplit=" + str(n) + "".join(f"[ck{i}]" for i in range(n))]
+    mix_inputs = ["[0:a]"]
+    for i, t in enumerate(click_times):
+        ms = max(0, int(t * 1000))
+        parts.append(f"[ck{i}]adelay={ms}|{ms},volume={TYPEWRITER_CLICK_GAIN_DB}dB[cd{i}]")
+        mix_inputs.append(f"[cd{i}]")
+    parts.append("".join(mix_inputs) + f"amix=inputs={n + 1}:duration=first:normalize=0[out]")
+    fc = ";".join(parts)
+    r = subprocess.run(
+        ["ffmpeg", "-y", "-i", mix_path, "-i", KEYBOARD_CLICK_PATH,
+         "-filter_complex", fc, "-map", "[out]",
+         "-t", f"{total_dur:.3f}", "-ar", "44100", "-ac", "2", out_path],
+        capture_output=True, text=True)
+    return out_path if r.returncode == 0 else mix_path
+
+
 def build_mood_timeline(hook_end, final_start, total_dur, out_path):
     """A2: единая дорожка подложки на весь ролик, склеенная из 3 настроений
     (HOOK/BODY/FINAL, см. MUSIC_BED_PATHS) через медленный кроссфейд
@@ -968,6 +997,77 @@ def load_alignment_weights(blocks):
     return weights
 
 
+def load_hook_word_timings():
+    """D2: посимвольный alignment.csv хука (00.csv — хук всегда первая
+    секция эпизода, см. load_alignment_weights) собран в СЛОВА — тайминг
+    в ХУК-локальной шкале (t=0 = начало хука), та же шкала, что sub_starts
+    для HOOK-блоков в main(), поэтому напрямую сравнима без пересчёта.
+    Служебные теги ([energetic]/[pause]/[short pause]/...) вычищаются —
+    та же логика, что _real_speech_span, но разбирает на слова, а не на
+    общий диапазон. Нет alignment.csv -> [] (кинетика хука тихо не
+    показывается, не регрессия — как и все alignment-based фичи в пайплайне)."""
+    path = os.path.join(ALIGNMENT_DIR, "00.csv")
+    if not os.path.exists(path):
+        return []
+    try:
+        rows = list(csv.DictReader(open(path, encoding="utf-8")))
+        chars = [(r["char"], float(r["start"]), float(r["end"])) for r in rows]
+    except Exception:
+        return []
+    text = "".join(c for c, s, e in chars)
+    excluded = set()
+    for tag in ALIGNMENT_STRIP_TAGS + ("[pause]", "[short pause]"):
+        idx = text.find(tag)
+        while idx != -1:
+            for j in range(idx, idx + len(tag)):
+                excluded.add(j)
+            idx = text.find(tag, idx + 1)
+    # Вырезанный тег ТОЖЕ обязан рвать слово, не только пробел — в сыром
+    # тексте тег часто стоит БЕЗ пробела ("...убеждают.[short pause]Так
+    # говорят" — точка сразу перед тегом, слово сразу после), простое
+    # исключение символов тега без разрыва склеивало соседние слова в одно
+    # ("килограммов.Так") — поймано вживую на реальном 00.csv эпизода.
+    words, cur = [], []
+    for j, (c, s, e) in enumerate(chars):
+        if j in excluded or c.isspace() or c in "[]":
+            if cur:
+                words.append(("".join(ch for ch, _, _ in cur), cur[0][1], cur[-1][2]))
+                cur = []
+        else:
+            cur.append((c, s, e))
+    if cur:
+        words.append(("".join(ch for ch, _, _ in cur), cur[0][1], cur[-1][2]))
+    return [w for w in words if w[0]]
+
+
+HOOK_CAPTION_MIN_DUR = 0.15   # короткие служебные слова из alignment иначе мелькают 1-2 кадра, нечитаемо
+
+
+def hook_captions_for_block(hook_words, block_start, block_dur):
+    """Слова из load_hook_word_timings(), чьё время пересекается с окном
+    [block_start, block_start+block_dur) конкретного HOOK-клипа — переведены
+    в ЛОКАЛЬНОЕ время клипа (0 = начало клипа) и обрезаны по его границам,
+    чтобы drawtext enable=between() не ссылался на моменты вне клипа.
+
+    Минимальная длительность показа (HOOK_CAPTION_MIN_DUR) — короткие слова
+    (особенно сразу после вырезанного тега паузы, см. load_hook_word_timings)
+    иногда получают из alignment почти нулевую длительность и мелькают
+    незаметно; растягиваем ВПЕРЁД, но не дальше начала следующего слова
+    (иначе два слова читались бы на экране одновременно)."""
+    caps = []
+    for k, (word, s, e) in enumerate(hook_words):
+        if e <= block_start or s >= block_start + block_dur:
+            continue
+        local_s = max(0.0, s - block_start)
+        local_e = min(block_dur, e - block_start)
+        if local_e - local_s < HOOK_CAPTION_MIN_DUR:
+            next_start = (hook_words[k + 1][1] - block_start) if k + 1 < len(hook_words) else block_dur
+            local_e = min(block_dur, next_start, local_s + HOOK_CAPTION_MIN_DUR)
+        if local_e > local_s:
+            caps.append((word, local_s, local_e))
+    return caps
+
+
 def hook_floor_for(blocks, i):
     """Пол длительности для блока i — с учётом того, что первые
     HOOK_OPENING_CUTS резов ХУКА получают ещё более низкий пол
@@ -1283,9 +1383,67 @@ def resolve_queries(blocks):
 
 
 STAT_ACCENT = "0xC8102E"   # акцентный красный, CHANNEL.md house style
+# D4: печатная машинка на 5-м варианте плашки (variant 4 из 5) — round-robin
+# stat_variant % 5 уже даёт "не постоянно всегда" бесплатно (1 из 5 появлений
+# цифры/даты в ролике), без отдельной классификации "это дата или нет" —
+# [stat:...] и так по смыслу ВСЕГДА число/дата (см. ЧАСТЬ 9 script.txt),
+# отдельный детектор не нужен. Тайминг посимвольного появления — константа,
+# используется И в drawtext (визуал), И в main() при сборе таймкодов для
+# звука печатной машинки (add_typewriter_clicks) — ОДНА и та же величина,
+# иначе визуал и звук разъедутся по скорости печати.
+TYPEWRITER_CHAR_DUR = 0.075
+KEYBOARD_CLICK_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                    "assets", "sfx", "keyboard_click.flac")
+TYPEWRITER_CLICK_ENABLED = os.environ.get("TYPEWRITER_CLICKS", "1") != "0" and os.path.exists(KEYBOARD_CLICK_PATH)
+TYPEWRITER_CLICK_GAIN_DB = -6.0
 
 
-def add_overlays(vf_base, dur, title=None, stat=None, stat_variant=0, stat_delay=0.0):
+def typewriter_reveal_timing(n_chars, delay, dur, fin_dur=0.25, hold_margin=0.5):
+    """Общая математика тайминга посимвольного появления — используется И в
+    add_overlays() (визуал, локальное время клипа), И в main() при сборе
+    таймкодов звука (реальное абсолютное время ролика) — ОДНА функция, чтобы
+    визуал и звук печатной машинки не могли разъехаться по скорости из-за
+    двух независимо подправленных копий одной и той же формулы клэмпа."""
+    hold = max(delay + fin_dur, dur - hold_margin)
+    cd = TYPEWRITER_CHAR_DUR
+    if n_chars > 0 and delay + n_chars * cd > hold:
+        cd = max(0.02, (hold - delay) / n_chars)
+    return hold, cd
+
+
+def pick_stat_variant(stat_variant, media_path=None):
+    """D5: среди "статичных" оформлений плашки (0/1/2/3 — баннер-бокс/
+    крупный центр без бокса/боковой акцент/мелкий угол) выбор не чисто по
+    кругу, а с поправкой на РЕАЛЬНЫЙ контраст/плотность кадра под ней:
+    - плотный кадр (busy>0.55, много локальных перепадов — макро/деталь) ->
+      мелкий угловой (3), крупная плашка перекрыла бы сюжет;
+    - малоконтрастный фон (узкий диапазон белая-чёрная точка) -> крупный
+      центральный текст без бокса (1) читается безопасно, бокс тут не нужен;
+    - просторный И контрастный кадр -> боковой акцент (2), есть настоящее
+      негативное пространство под полосу+текст;
+    - смешанный случай -> классический баннер с боксом (0), самый
+      универсально безопасный (бокс сам создаёт контраст, не полагается на
+      то, что уже есть в кадре).
+    media_path=None (видео-клип или PIL/np недоступны) -> откат на прежний
+    чистый round-robin (%4) — не регрессия, а прежнее поведение."""
+    if media_path is None:
+        return stat_variant % 4
+    try:
+        busy = estimate_busyness(media_path)
+        levels = measure_levels(media_path)
+        contrast = (levels[1] - levels[0]) if levels else 0.5
+    except Exception:
+        return stat_variant % 4
+    if busy > 0.55:
+        return 3
+    if contrast < 0.35:
+        return 1
+    if busy < 0.25 and contrast > 0.55:
+        return 2
+    return 0
+
+
+def add_overlays(vf_base, dur, title=None, stat=None, stat_variant=0, stat_delay=0.0, media_path=None):
     """Титр секции (низ кадра, слайд+fade первые ~2.5с, фирменный дисплейный
     шрифт) + цифровая плашка. Общий код для фото и видео-стока. Обычный
     fade раньше был самым узнаваемым штампом автослайдшоу — слайд добавляет
@@ -1331,7 +1489,10 @@ def add_overlays(vf_base, dur, title=None, stat=None, stat_variant=0, stat_delay
         alpha = (f"if(lt(t\\,{delay:.2f})\\,0\\,"
                  f"if(lt(t\\,{fin:.2f})\\,(t-{delay:.2f})/{fin_dur:.2f}\\,"
                  f"if(lt(t\\,{hold:.2f})\\,1\\,max(0\\,1-(t-{hold:.2f})/0.4))))")
-        variant = stat_variant % 4
+        # D4: печатная машинка — фиксированный round-robin слот "не всегда"
+        # (1 из 5 появлений цифры/даты), независимо от D5 ниже. D5: остальные
+        # 4/5 появлений выбирают оформление по контрасту кадра, не по кругу.
+        variant = 4 if stat_variant % 5 == 4 else pick_stat_variant(stat_variant, media_path)
         if variant == 0:
             # Классический баннер — верх кадра, слайд сверху.
             fs = 58 if FONT_IS_DISPLAY else 64
@@ -1365,7 +1526,7 @@ def add_overlays(vf_base, dur, title=None, stat=None, stat_variant=0, stat_delay
                    f"shadowcolor=black@0.8:shadowx=3:shadowy=3:"
                    f"x=130:y=(h-text_h)/2:"
                    f"alpha='{alpha}'")
-        else:
+        elif variant == 3:
             # Минимальный — мелкий текст в нижнем правом углу, подчёркивание.
             # По смыслу это подпись, не геройская цифра — вторичный шрифт.
             fs = 34 if FONT_IS_DISPLAY else 38
@@ -1377,6 +1538,61 @@ def add_overlays(vf_base, dur, title=None, stat=None, stat_variant=0, stat_delay
                    f",drawbox=x=iw-260:y=ih-72:w=200:h=3:"
                    f"color={STAT_ACCENT}@0.92:t=fill:"
                    f"enable='between(t\\,{delay:.2f}\\,{hold:.2f})'")
+        else:
+            # D4: печатная машинка — по центру кадра, символы появляются
+            # один за другим (та же ставка TYPEWRITER_CHAR_DUR, что задаёт
+            # таймкоды звука в main()/add_typewriter_clicks), после полного
+            # текста — обычная задержка и fade-out, как у остальных вариантов.
+            # Цепочка drawtext: filter k показывает text[:k+1] ТОЛЬКО в своём
+            # окне [delay+k*cd, delay+(k+1)*cd) — сменяется следующим, длиннее
+            # на один символ; последний остаётся до конца hold+fade-out.
+            n_chars = len(text)
+            _, cd = typewriter_reveal_timing(n_chars, delay, dur)
+            fs = 90 if FONT_IS_DISPLAY else 100
+            for k in range(n_chars):
+                sub = escape_drawtext(text[:k + 1])
+                seg_start = delay + k * cd
+                seg_end = hold if k == n_chars - 1 else delay + (k + 1) * cd
+                seg_alpha = alpha if k == n_chars - 1 else "1"
+                vf += (f",drawtext=fontfile='{FONT_PATH}':text='{sub}':"
+                       f"fontcolor=white:fontsize={fs}:"
+                       f"shadowcolor=black@0.85:shadowx=4:shadowy=4:"
+                       f"borderw=2:bordercolor=black@0.6:"
+                       f"x=(w-text_w)/2:y=(h-text_h)/2:"
+                       f"enable='between(t\\,{seg_start:.3f}\\,{seg_end:.3f})':"
+                       f"alpha='{seg_alpha}'")
+    return vf
+
+
+CAPTION_FONT_SIZE = 76   # D2: крупные кинетические слова-акценты хука, Benzin-ExtraBold
+
+
+def add_kinetic_captions(vf, captions):
+    """D2: кинетические подписи хука — по одному слову крупным фирменным
+    шрифтом (FONT_PATH), синхронно с РЕАЛЬНЫМ посимвольным таймингом
+    произношения (см. load_hook_word_timings/hook_captions_for_block — тот
+    же alignment.csv, что и везде в пайплайне, не оценка по words/wps).
+    Только ХУК (main() зовёт это только для HOOK-блоков) — приём крупных
+    слов-акцентов для самых первых секунд удержания, не постоянный субтитр
+    на весь ролик (тот — write_subtitles(), полноразмерные описательные
+    субтитры, другая задача).
+
+    Позиция — нижняя треть, НЕ дно кадра (там уже фирменный титр раздела/
+    полноразмерные субтитры) и не центр (там уже плашка-цифра, если есть) —
+    все три уровня текста не должны драться за одно и то же место."""
+    if not captions or not FONT_PATH:
+        return vf
+    for word, start, end in captions:
+        text = word.upper() if FONT_IS_DISPLAY else word
+        safe = escape_drawtext(text)
+        if not safe:
+            continue
+        vf += (f",drawtext=fontfile='{FONT_PATH}':text='{safe}':"
+               f"fontcolor=white:fontsize={CAPTION_FONT_SIZE}:"
+               f"shadowcolor=black@0.85:shadowx=3:shadowy=3:"
+               f"borderw=2:bordercolor=black@0.6:"
+               f"x=(w-text_w)/2:y=h*0.66-text_h/2:"
+               f"enable='between(t\\,{start:.3f}\\,{end:.3f})'")
     return vf
 
 
@@ -1810,7 +2026,7 @@ def piecewise_ease_expr(t_expr, points):
 
 def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
              section="", motion_mode="classic_kb", stat_variant=0,
-             brightness_bias=0.0, energy_bias=0.0, stat_delay=0.0, levels=None):
+             brightness_bias=0.0, energy_bias=0.0, stat_delay=0.0, levels=None, captions=None):
     frames = max(1, round(dur * FPS))
     h, zoom_in_default, pan_dir_default = kb_hash_choices(photo)
     if zoom_in is None:
@@ -1944,7 +2160,10 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
                f"zoompan=z={z}:x={x}:y={y}:"
                f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS},"
                f"{film_look(h, section, brightness_bias, energy_bias, levels)}")
-    vf_overlay = add_overlays(vf_base, dur, title, stat, stat_variant, stat_delay) if (title or stat) else None
+    vf_overlay = None
+    if title or stat or captions:
+        vf_overlay = add_overlays(vf_base, dur, title, stat, stat_variant, stat_delay, media_path=photo)
+        vf_overlay = add_kinetic_captions(vf_overlay, captions)
 
     def render(vf):
         cmd = ["ffmpeg", "-y", "-loop", "1", "-i", photo]
@@ -2160,7 +2379,7 @@ def fill_crop_canvas(photo_path, cw, ch, anchor=None):
 
 def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
                        section="", stat_variant=0, brightness_bias=0.0, energy_bias=0.0,
-                       stat_delay=0.0, levels=None):
+                       stat_delay=0.0, levels=None, captions=None):
     """2.5D-версия kenburns(): собственный покадровый рендер (OpenCV remap)
     вместо ffmpeg zoompan — только так можно сделать смещение, зависящее от
     глубины пикселя. При любой накладке (модель не встала, ffmpeg-пайп упал)
@@ -2244,7 +2463,9 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
         if GRAIN_ENABLED:
             cmd += ["-stream_loop", "-1", "-i", GRAIN_LOOP_PATH]
         vf = film_look(h, section, brightness_bias, energy_bias, levels)
-        vf = add_overlays(vf, dur, title, stat, stat_variant, stat_delay) if (title or stat) else vf
+        if title or stat or captions:
+            vf = add_overlays(vf, dur, title, stat, stat_variant, stat_delay, media_path=photo)
+            vf = add_kinetic_captions(vf, captions)
         if GRAIN_ENABLED:
             fc = f"[0:v]{vf}[gr_in];{grain_blend_complex('gr_in', 1, 'vout')}"
             cmd += ["-filter_complex", fc, "-map", "[vout]"]
@@ -2432,7 +2653,7 @@ def detect_scene_change_offset(vid, max_skip, scene_threshold=0.12):
 
 def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=0,
                   brightness_bias=0.0, energy_bias=0.0, stat_delay=0.0, levels=None,
-                  handheld=False):
+                  handheld=False, captions=None):
     """Аналог kenburns(), но для стокового видео: без zoompan (движение уже
     есть в кадре), заливка кадра целиком + обрезка (не letterbox), растяжение
     по времени, если исходный ролик короче нужной длительности.
@@ -2491,7 +2712,10 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
 
     if ramp_filter:
         tail = film_look(h, section, brightness_bias, energy_bias, levels)
-        full_tail = add_overlays(tail, dur, title, stat, stat_variant, stat_delay) if (title or stat) else tail
+        full_tail = tail
+        if title or stat or captions:
+            full_tail = add_overlays(tail, dur, title, stat, stat_variant, stat_delay)
+            full_tail = add_kinetic_captions(full_tail, captions)
         cmd = ["ffmpeg", "-y", "-i", vid]
         if GRAIN_ENABLED:
             cmd += ["-stream_loop", "-1", "-i", GRAIN_LOOP_PATH]
@@ -2517,7 +2741,10 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
     if setpts_factor is not None:
         vf_base += f",setpts={setpts_factor:.5f}*PTS"
     vf_base += f",{film_look(h, section, brightness_bias, energy_bias, levels)}"
-    vf_overlay = add_overlays(vf_base, dur, title, stat, stat_variant, stat_delay) if (title or stat) else None
+    vf_overlay = None
+    if title or stat or captions:
+        vf_overlay = add_overlays(vf_base, dur, title, stat, stat_variant, stat_delay)
+        vf_overlay = add_kinetic_captions(vf_overlay, captions)
 
     def render(vf):
         cmd = ["ffmpeg", "-y"]
@@ -3179,12 +3406,20 @@ def main():
     recent_media_types = []   # скользящее окно фото/видео — content-aware чередование, см. main() ниже
     stat_count = 0   # 2.2: номер плашки по счёту в ролике -> вариант оформления (chередуются по кругу)
     luma_ema = None   # для сглаживания скачков экспозиции между соседними склейками (см. measure_luma())
+    typewriter_click_times = []   # D4: абсолютные секунды щелчков клавиатуры на весь ролик
+    hook_words = load_hook_word_timings()   # D2: пусто, если alignment.csv недоступен — тихий откат
     for i, (b, d) in enumerate(zip(blocks, durs)):
         # Титр темы — только на ПЕРВОМ кадре новой секции (BLOCK N: Название).
         is_section_start = i == 0 or blocks[i]["section"] != blocks[i - 1]["section"]
         title = section_title(b["section"]) if is_section_start else None
         stat = b.get("stat")
         stat_variant = stat_count
+        # D2: кинетические подписи — только ХУК, только если alignment.csv
+        # реально дал слова на эту секцию. sub_starts/sub_baseline (реальная,
+        # не xfade-раздутая шкала) уже посчитаны выше по тексту — та же
+        # шкала, что у 00.csv (хук всегда с t=0 эпизода).
+        captions = (hook_captions_for_block(hook_words, sub_starts[i], sub_baseline[i])
+                    if (hook_words and b["section"].startswith("HOOK")) else None)
         if stat:
             stat_count += 1
         # Момент внутри клипа, когда число уже произнесено (см. stat_word_pos
@@ -3195,6 +3430,17 @@ def main():
         # точную модель специально под этот случай).
         stat_word_pos = b.get("stat_word_pos")
         stat_delay = (stat_word_pos / max(1, b["words"]) * d) if (stat and stat_word_pos) else 0.0
+        # D4: печатная машинка — только на 5-м варианте плашки (см. add_overlays).
+        # Таймкоды щелчков считаем на РЕАЛЬНОЙ (не xfade-раздутой) шкале —
+        # sub_starts/sub_baseline уже посчитаны выше по тексту, та же шкала,
+        # что уже используется для субтитров (см. комментарий у sub_baseline).
+        if stat and stat_variant % 5 == 4:
+            real_dur = sub_baseline[i]
+            real_delay = max(0.0, min(stat_delay, real_dur - 1.2))
+            click_text = stat.upper() if FONT_IS_DISPLAY else stat
+            _, click_cd = typewriter_reveal_timing(len(click_text), real_delay, real_dur)
+            typewriter_click_times.extend(
+                sub_starts[i] + real_delay + k * click_cd for k in range(len(click_text)))
         # Хэш параметров рендера в имени — иначе правка script.txt (текст,
         # тайминг, плашка) без ручной чистки temp_smart/ молча оставляла
         # старый клип под новые данные (тот же класс бага, что уже правили
@@ -3205,8 +3451,12 @@ def main():
         # запросом "medieval sword close up" продолжал показывать старую
         # киноплёнку, потому что длительность/заголовок/плашка/секция не
         # изменились, а запрос в хэш не входил.
+        # captions в хэше — D2, чтобы правка/пересчёт alignment.csv не
+        # оставляла старые (без подписей или с другим текстом/таймингом)
+        # закэшированные клипы висеть под тем же именем.
         params_hash = hashlib.md5(
-            f"{d:.3f}|{title}|{stat}|{stat_variant}|{b['section']}|{queries[i]}|{stat_delay:.3f}".encode()).hexdigest()[:8]
+            f"{d:.3f}|{title}|{stat}|{stat_variant}|{b['section']}|{queries[i]}|{stat_delay:.3f}|"
+            f"{captions}".encode()).hexdigest()[:8]
         out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}_{params_hash}.mp4")
         if os.path.exists(out):
             clips.append(out)
@@ -3286,7 +3536,7 @@ def main():
             ok = video_render(video, out, d, title=title, stat=stat, section=b["section"],
                                stat_variant=stat_variant, brightness_bias=brightness_bias,
                                energy_bias=energy_bias, stat_delay=stat_delay, levels=levels,
-                               handheld=has_action_word(b["text"]))
+                               handheld=has_action_word(b["text"]), captions=captions)
         else:
             # anti-repetition: хэш сам по себе не мешает 3 зумам подряд случайно
             # совпасть — держим окно последних решений и форсируем смену при повторе.
@@ -3310,7 +3560,8 @@ def main():
                 ok = parallax_kenburns(photo, out, d, title=title, zoom_in=zoom_in,
                                         pan_dir=pan_dir, stat=stat, section=b["section"],
                                         stat_variant=stat_variant, brightness_bias=brightness_bias,
-                                        energy_bias=energy_bias, stat_delay=stat_delay, levels=levels)
+                                        energy_bias=energy_bias, stat_delay=stat_delay, levels=levels,
+                                        captions=captions)
             if not ok:
                 photo_hash, _, _ = kb_hash_choices(photo)
                 cur_shot_size = recent_shot_sizes[-1] if recent_shot_sizes else None
@@ -3318,7 +3569,8 @@ def main():
                 ok = kenburns(photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
                               stat=stat, section=b["section"], motion_mode=motion_mode,
                               brightness_bias=brightness_bias, energy_bias=energy_bias,
-                              stat_variant=stat_variant, stat_delay=stat_delay, levels=levels)
+                              stat_variant=stat_variant, stat_delay=stat_delay, levels=levels,
+                              captions=captions)
         if ok:
             clips.append(out)
             clip_durs.append(d)
@@ -3376,6 +3628,13 @@ def main():
     voice_processed = process_voice(AUDIO_FILE, voice_processed)
     premix = os.path.join(TEMP_FOLDER, "premix.wav")
     premix = build_music_mix(voice_processed, total, premix, hook_end=hook_end, final_start=final_start)
+    # D4: щелчки клавиатуры поверх готового микса — ПОСЛЕ музыки/дакинга
+    # (иначе сайдчейн реагировал бы и на сами щелчки), ДО финального loudnorm
+    # (клики тоже участвуют в мастеринге громкости целиком, не бесплатный
+    # довесок сверху уже откалиброванного микса).
+    if typewriter_click_times:
+        premix_clicks = os.path.join(TEMP_FOLDER, "premix_clicks.wav")
+        premix = add_typewriter_clicks(premix, typewriter_click_times, total, premix_clicks)
     # loudnorm — стандартная целевая громкость YouTube (-16 LUFS intergated,
     # -1.5dB true peak потолок, LRA 11) вместо "как есть от TTS". Разные
     # заказы озвучки/движки иначе дают заметно разную громкость от эпизода
