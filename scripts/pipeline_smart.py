@@ -2106,6 +2106,25 @@ def finalize_render(tmp, out, ok):
     return False
 
 
+def log_render_diagnostics(tag):
+    """Лёгкий след памяти процесса в TEMP_FOLDER/render_diag.log — НЕ для
+    рантайма (ни на что не влияет), а на случай СЛЕДУЮЩЕГО непонятного
+    обрыва: ровно так уже падал многочасовой фоновый рендер один раз, без
+    единой строчки трейсбека (см. render_tmp_path()) — если это снова
+    SIGKILL/OOM, в diag-логе будет видно, росла ли память перед смертью,
+    а не только "тихо умер, причина неизвестна" во второй раз подряд.
+    resource — Linux/macOS; тихий no-op на всём остальном (Windows и т.п.,
+    см. CLAUDE.md — пайплайн кросс-платформенный) — диагностика не ценой
+    падения самого рендера."""
+    try:
+        import resource
+        rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+        with open(os.path.join(TEMP_FOLDER, "render_diag.log"), "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%H:%M:%S')} {tag} peak_rss={rss_mb:.0f}MB\n")
+    except Exception:
+        pass
+
+
 def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
              section="", motion_mode="classic_kb", stat_variant=0,
              brightness_bias=0.0, energy_bias=0.0, stat_delay=0.0, levels=None, captions=None,
@@ -3435,6 +3454,14 @@ def main():
             os.remove(stale)
         except OSError:
             pass
+    # Тот же огрызок, но от финального мукса (см. render_tmp_path(OUTPUT_FILE)
+    # в конце main()) — лежит не в TEMP_FOLDER, а рядом с самим final.mp4.
+    stale_final = render_tmp_path(OUTPUT_FILE)
+    if os.path.exists(stale_final):
+        try:
+            os.remove(stale_final)
+        except OSError:
+            pass
     blocks = parse_blocks(SCRIPT_FILE) if os.path.exists(SCRIPT_FILE) else []
     if not blocks:
         print("Сценарий не найден/пуст")
@@ -3513,6 +3540,7 @@ def main():
     render_pool = (concurrent.futures.ProcessPoolExecutor(max_workers=RENDER_POOL_WORKERS)
                    if RENDER_POOL_ENABLED else None)
     pending_jobs = []   # [{i, out, d, section, block, video, photo, future|None, ok}], в порядке блоков
+    log_render_diagnostics("render_start")
     use_local = os.path.isdir(MEDIA_FOLDER) and bool(local_photo(0))
     use_pexels = bool(PEXELS_API_KEY)
     queries = resolve_queries(blocks)
@@ -3726,6 +3754,8 @@ def main():
         if i % 20 == 0 or i < 3:
             print(f"  [{i+1}/{len(blocks)}] {d:.1f}с {b['words']} слов ({'видео' if video else 'фото'}, "
                   f"{'в очереди' if future is not None else 'готово' if ok else 'пропуск'})")
+        if i % 10 == 9:
+            log_render_diagnostics(f"block_{i+1}/{len(blocks)}")
         if use_pexels and not use_local and i % 10 == 9:
             time.sleep(0.4)
 
@@ -3753,6 +3783,7 @@ def main():
             missing.append(job["i"] + 1)
     if render_pool:
         render_pool.shutdown(wait=True)
+    log_render_diagnostics("render_done")
     print(f"  Рендер завершён: {len(clips)}/{len(blocks)} клипов")
 
     if not clips:
@@ -3824,15 +3855,24 @@ def main():
     else:
         af = (f"loudnorm=I=-16:TP=-1.5:LRA=11,"
               f"afade=t=in:st=0:d=0.4,afade=t=out:st={fade_out_st:.3f}:d=2")
+    # Атомарная запись — тот же принцип, что render_tmp_path()/finalize_render()
+    # у отдельных клипов (см. коммент там): final.mp4 — то, что пользователь
+    # ФАКТИЧЕСКИ проверяет как "готово или нет". Обрыв ровно на этом финальном
+    # проходе (пусть и короткий по времени — это -c:v copy, не перекодирование)
+    # раньше оставлял бы обрезанный final.mp4 под финальным именем, что
+    # выглядело бы как "готовый, но битый" файл, а не как "рендер не доехал".
+    output_tmp = render_tmp_path(OUTPUT_FILE)
     r = subprocess.run(["ffmpeg", "-y", "-i", merged, "-i", premix,
                         "-t", f"{total:.3f}",
                         "-af", af,
                         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
                         "-movflags", "+faststart",
-                        "-shortest", OUTPUT_FILE], capture_output=True, text=True)
+                        "-shortest", output_tmp], capture_output=True, text=True)
     if r.returncode != 0:
         print("Аудио:", r.stderr[-300:])
+        finalize_render(output_tmp, OUTPUT_FILE, False)
         return 1
+    finalize_render(output_tmp, OUTPUT_FILE, True)
     # Честная цифра вместо "надеемся" — измеряем итоговую громкость ГОТОВОГО
     # файла (не входного audio.mp3): если разошлось с целью -16 LUFS больше,
     # чем на децибел, это видно в отчёте, а не тонет молча.
