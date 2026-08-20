@@ -257,15 +257,40 @@ def test_build_query_default_when_no_match():
         stock_fetch_multisource.DEFAULT_QUERY
 
 
-def test_load_themes_missing_file_returns_empty(tmp_path):
-    assert stock_fetch_multisource.load_themes(str(tmp_path)) == {}
+def test_load_themes_merges_channel_dictionary_without_episode_file(tmp_path):
+    # Регрессия: раньше load_themes() читал ТОЛЬКО media_plan/themes.json
+    # эпизода — на свежем эпизоде без него (типичный случай: канальный
+    # словарь предполагается общим, эпизодный — необязательной добавкой)
+    # build_query() почти на каждом слоте падал в DEFAULT_QUERY, потому что
+    # канальный channel_themes.json вообще не подключался.
+    merged = stock_fetch_multisource.load_themes(str(tmp_path))
+    assert "меч" in merged
 
 
-def test_load_themes_reads_json(tmp_path):
+def test_load_themes_episode_overrides_channel(tmp_path):
     media_plan = tmp_path / "media_plan"
     media_plan.mkdir()
-    (media_plan / "themes.json").write_text('{"меч": "sword"}', encoding="utf-8")
-    assert stock_fetch_multisource.load_themes(str(tmp_path)) == {"меч": "sword"}
+    (media_plan / "themes.json").write_text('{"меч": "custom episode sword"}', encoding="utf-8")
+    merged = stock_fetch_multisource.load_themes(str(tmp_path))
+    assert merged["меч"] == "custom episode sword"
+    assert "доспех" in merged   # канальный словарь по-прежнему подключён рядом с оверрайдом
+
+
+def test_build_query_rotates_list_values_across_calls():
+    themes = {"меч": ["a sword", "b sword", "c sword"]}
+    counts = {}
+    picks = [stock_fetch_multisource.build_query("Меч был длинным", themes, counts) for _ in range(4)]
+    assert picks == ["a sword", "b sword", "c sword", "a sword"]
+
+
+def test_build_query_word_boundary_not_mid_word():
+    # Левая граница обязана быть началом слова (тот же \b-паттерн, что уже
+    # использует query_for() в pipeline_smart.py) — "меч" не должен
+    # матчиться, оказавшись подстрокой ВНУТРИ слова, а не в его начале.
+    themes = {"меч": "medieval sword close up"}
+    # "отмечен" содержит "меч" как подстроку (от-МЕЧ-ен), но НЕ в начале слова.
+    assert stock_fetch_multisource.build_query("Этот день отмечен в летописи", themes) == \
+        stock_fetch_multisource.DEFAULT_QUERY
 
 
 # ---------- pipeline_smart._scene_bias / film_look (контент-осознанный грейд) ----------

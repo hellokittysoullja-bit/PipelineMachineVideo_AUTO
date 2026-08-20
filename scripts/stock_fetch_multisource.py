@@ -8,6 +8,7 @@ round-robin с фоллбэком. Unsplash — demo 50/час (cap 45). Все 
 Usage: python scripts/stock_fetch_multisource.py <video_dir>"""
 import json
 import os
+import re
 import sys
 import time
 import urllib.parse
@@ -29,8 +30,7 @@ unsplash_used = 0
 DEFAULT_QUERY = "cinematic atmospheric moody"
 
 
-def load_themes(base):
-    p = os.path.join(base, "media_plan", "themes.json")
+def _load_json_dict(p):
     if os.path.exists(p):
         try:
             return json.load(open(p, encoding="utf-8"))
@@ -39,10 +39,48 @@ def load_themes(base):
     return {}
 
 
-def build_query(text, themes):
+def load_themes(base):
+    """Два уровня, как в pipeline_smart.load_themes() — канальный словарь
+    (channel_themes.json в корне репо: "меч"/"доспех"/"музе" и т.п., общие
+    для ниши) + эпизодный (media_plan/themes.json конкретного видео, только
+    специфичное этой теме). РЕАЛЬНЫЙ баг, пойманный при разборе: раньше
+    здесь читался ТОЛЬКО эпизодный файл — на свежем эпизоде с типично
+    коротким media_plan/themes.json (по замыслу CLAUDE.md — несколько строк
+    добавки ПОВЕРХ базы, не полный словарь заново) канальная база вообще не
+    подключалась, и build_query() почти на каждом слоте молча уходил в
+    DEFAULT_QUERY вместо реального тематического запроса."""
+    base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                              "channel_themes.json")
+    episode_path = os.path.join(base, "media_plan", "themes.json")
+    merged = _load_json_dict(base_path)
+    merged.update(_load_json_dict(episode_path))
+    return merged
+
+
+def build_query(text, themes, keyword_counts=None):
+    """keyword_counts (опционально, мутируется на месте) — значение themes
+    может быть СПИСКОМ синонимичных запросов, не только строкой (см.
+    channel_themes.json: "меч"/"музе" — самые частые слова в этой нише,
+    один и тот же узкий запрос на весь эпизод быстро исчерпывает пул
+    Pexels/Pixabay/Unsplash по нему). Без keyword_counts список просто
+    ротируется по счётчику в 0 каждый вызов (первый вариант) — не падает,
+    но и не разводит нагрузку между слотами; main() передаёт общий на весь
+    прогон словарь, та же логика, что уже использует query_for() в
+    pipeline_smart.py для того же channel_themes.json.
+
+    Матч по границе слова (\\b), не по голой подстроке — ключи это корни
+    словоформ ("музе" -> музей/музейные), \\w* в конце не нужен: re.search
+    без $-якоря на конце уже допускает любое продолжение после найденного
+    корня, важна только граница СЛЕВА (не разрешить попасть в середину
+    случайно совпавшего произвольного слова)."""
     tl = text.lower()
     for kw, q in themes.items():
-        if kw in tl:
+        if re.search(r'\b' + re.escape(kw), tl):
+            if isinstance(q, list):
+                idx = keyword_counts.get(kw, 0) if keyword_counts is not None else 0
+                if keyword_counts is not None:
+                    keyword_counts[kw] = idx + 1
+                return q[idx % len(q)]
             return q
     return DEFAULT_QUERY
 
@@ -203,8 +241,9 @@ def main():
         return 1
 
     ok = fail = skip = 0
+    keyword_counts = {}   # общий на весь прогон — ротирует list-значения themes.json по слотам
     for idx, text in rows:
-        q = build_query(text, themes)
+        q = build_query(text, themes, keyword_counts)
         is_video = (idx % 2 == 0)
         existing = None
         for suf in ("_stock_video.mp4", "_stock.jpg"):
