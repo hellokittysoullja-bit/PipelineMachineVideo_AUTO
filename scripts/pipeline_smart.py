@@ -788,7 +788,12 @@ def measure_luma(path, is_video=False):
 
 
 def find_audio():
-    for name in ("audio_fixed.mp3", "audio.mp3"):
+    # audio_fixed.flac — текущий выход fix_pauses.py (P0-4: FLAC вместо
+    # MP3, вторая lossy-перекодировка поверх TTS-исходника была слышна на
+    # "с"/"ш"/"ч"). audio_fixed.mp3 оставлен в порядке поиска для старых
+    # эпизодов, чья озвучка уже была прогнана через fix_pauses.py до этого
+    # фикса — не задел бы их молча.
+    for name in ("audio_fixed.flac", "audio_fixed.mp3", "audio.mp3"):
         p = os.path.join(VIDEO_FOLDER, name)
         if os.path.exists(p):
             return p

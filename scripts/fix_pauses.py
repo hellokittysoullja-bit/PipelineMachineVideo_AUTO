@@ -4,7 +4,12 @@
 Двухпроходный loudnorm (EBU R128) поверх — гуляющая громкость между
 блоками/эпизодами звучит непрофессионально и это бесплатно чинится.
 Usage: python scripts/fix_pauses.py <video_dir>
-Вход: audio.mp3 (или первый *.mp3). Выход: audio_fixed.mp3.
+Вход: audio.mp3 (или первый *.mp3). Выход: audio_fixed.flac.
+
+P0-4 (аудит звукового пайплайна): раньше выход был audio_fixed.mp3 — вторая
+lossy-перекодировка поверх уже сжатого TTS-исходника, слышимая на
+"с"/"ш"/"ч" (та же ошибка, что уже поймана и исправлена для музыки — см.
+generate_music_asset.py). FLAC lossless — та же причина, тот же фикс.
 
 Реальный баг, пойманный вживую (жалоба на подписи хука, "убегающие" от
 голоса): silencedetect режет ЛЮБУЮ акустическую тишину длиннее THRESH_SEC —
@@ -144,7 +149,7 @@ def main():
     if not src:
         print("Аудио не найдено (audio.mp3)")
         return 1
-    out = os.path.join(video_dir, "audio_fixed.mp3")
+    out = os.path.join(video_dir, "audio_fixed.flac")
     total = duration(src)
     sil = detect_silences(src)
     loud = loudnorm_filter(measure_loudness(src))
@@ -152,7 +157,7 @@ def main():
         save_cuts(video_dir, [], src)
         print("Длинных пауз не найдено — нормализую громкость.")
         r = subprocess.run(["ffmpeg", "-y", "-i", src, "-af", loud,
-                            "-c:a", "libmp3lame", "-b:a", "192k", out],
+                            "-c:a", "flac", out],
                            capture_output=True, text=True)
         if r.returncode != 0 or not os.path.exists(out):
             print("Ошибка ffmpeg:", r.stderr[-400:])
@@ -176,11 +181,23 @@ def main():
     if prev < total:
         segments.append((prev, total))
 
+    # Аудит звукового пайплайна (P0-1): concat встык на стыке двух кусков с
+    # ненулевым уровнем сигнала даёт слышимый щелчок/ступеньку волны — на
+    # речи это "цок". Короткий (8мс) fade-in/fade-out на КАЖДОМ сегменте
+    # перед concat убирает разрыв амплитуды на стыке, не трогая тайминг
+    # (fade — это огибающая внутри уже вырезанных границ, не сдвиг границ) —
+    # безопасно для pause_cuts.json/raw_to_real_time, которые считаются по
+    # границам сегментов, не по амплитуде.
+    SPLICE_FADE_SEC = 0.008
     parts, filt = [], ""
     for i, (a, b) in enumerate(segments):
-        if b - a <= 0.02:
+        dur = b - a
+        if dur <= 0.02:
             continue
-        filt += f"[0:a]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS[a{i}];"
+        fade = min(SPLICE_FADE_SEC, dur / 3)
+        fade_out_start = max(0.0, dur - fade)
+        filt += (f"[0:a]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS,"
+                 f"afade=t=in:d={fade:.4f},afade=t=out:st={fade_out_start:.4f}:d={fade:.4f}[a{i}];")
         parts.append(f"[a{i}]")
     if not parts:
         # все сегменты оказались короче 0.02с — склеивать нечего, ffmpeg бы
@@ -188,7 +205,7 @@ def main():
         save_cuts(video_dir, [], src)
         print("Нечего склеивать — нормализую громкость исходника.")
         r = subprocess.run(["ffmpeg", "-y", "-i", src, "-af", loud,
-                            "-c:a", "libmp3lame", "-b:a", "192k", out],
+                            "-c:a", "flac", out],
                            capture_output=True, text=True)
         if r.returncode != 0 or not os.path.exists(out):
             print("Ошибка ffmpeg:", r.stderr[-400:])
@@ -198,7 +215,7 @@ def main():
     filt += "".join(parts) + f"concat=n={len(parts)}:v=0:a=1[c];[c]{loud}[out]"
 
     cmd = ["ffmpeg", "-y", "-i", src, "-filter_complex", filt,
-           "-map", "[out]", "-c:a", "libmp3lame", "-b:a", "192k", out]
+           "-map", "[out]", "-c:a", "flac", out]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0 or not os.path.exists(out):
         print("Ошибка ffmpeg:", r.stderr[-400:])

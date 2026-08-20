@@ -36,7 +36,9 @@ MP3-файле теряет ~26мс (декодерный priming/bit reservoir 
 894-секундном отрезке). FLAC lossless — см. проверку в
 build_mood_timeline()/pipeline_smart.py на реальных цифрах эпизода.
 """
+import json
 import os
+import re
 import subprocess
 
 import numpy as np
@@ -147,6 +149,26 @@ def build_channel(rng, detune_cents, mood):
     return sig
 
 
+# P0-12 (аудит звукового пайплайна): раньше все 3 mood-варианта нормализо-
+# вались к одному ПИКУ (-12dBFS) — но HOOK (яркий shimmer-обертон 164.8Гц)
+# и FINAL (добавленный саб-слой 27.5Гц) при равном пике имеют РАЗНУЮ
+# субъективную (интегральную) громкость: пик — мгновенное значение, ухо
+# слышит энергию за время. На стыке секций HOOK->BODY->FINAL подложка
+# "прыгала" по громкости. Нормализация к одному integrated LUFS (тот же
+# двухпроходный loudnorm, что уже используется в fix_pauses.py на голосе)
+# устраняет это — все 3 файла subjectively одной громкости независимо от
+# спектрального состава.
+MUSIC_LUFS_TARGET = "I=-30:TP=-3:LRA=3"   # тише голоса (-16 LUFS) на ~14дБ — см. CHANNEL.md house style
+
+
+def _measure_loudness(path):
+    r = subprocess.run(["ffmpeg", "-i", path, "-af",
+                        f"loudnorm={MUSIC_LUFS_TARGET}:print_format=json",
+                        "-f", "null", "-"], capture_output=True, text=True)
+    m = re.search(r'\{[^{}]*"input_i"[^{}]*\}', r.stderr, re.S)
+    return json.loads(m.group(0)) if m else None
+
+
 def render_mood(mood_key):
     mood = MOODS[mood_key]
     out_path = os.path.join(OUT_DIR, mood["fname"])
@@ -155,24 +177,43 @@ def render_mood(mood_key):
     left = build_channel(rng_l, detune_cents=-3.0, mood=mood)
     right = build_channel(rng_r, detune_cents=3.0, mood=mood)
 
+    # Лёгкая пиковая защита ДО loudnorm — не финальная громкость (та ниже,
+    # через LUFS), только гарантия, что сигнал не клипует при кодировании
+    # в PCM16 перед измерением.
     peak = max(np.abs(left).max(), np.abs(right).max())
-    target_peak = 10 ** (-12.0 / 20.0)   # -12dBFS запас, подложка тише голоса
+    safety_peak = 10 ** (-3.0 / 20.0)
     if peak > 1e-9:
-        gain = target_peak / peak
+        gain = safety_peak / peak
         left *= gain
         right *= gain
 
     stereo = np.stack([left, right], axis=-1)
     pcm16 = np.clip(stereo * 32767.0, -32768, 32767).astype("<i2")
 
+    tmp_path = out_path + ".prenorm.flac"
     cmd = ["ffmpeg", "-y", "-f", "s16le", "-ar", str(SR), "-ac", "2", "-i", "-",
-           "-c:a", "flac", out_path]
+           "-c:a", "flac", tmp_path]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     _, err = proc.communicate(pcm16.tobytes())
     if proc.returncode != 0:
         print("ffmpeg упал:", err.decode(errors="ignore")[-1500:])
         raise SystemExit(1)
-    print(f"Готово: {out_path} ({LOOP_SEC}с петля, {SR}Hz stereo, пик {target_peak:.3f}~-12dBFS)")
+
+    stats = _measure_loudness(tmp_path)
+    if stats:
+        af = (f"loudnorm={MUSIC_LUFS_TARGET}:measured_I={stats['input_i']}:"
+              f"measured_TP={stats['input_tp']}:measured_LRA={stats['input_lra']}:"
+              f"measured_thresh={stats['input_thresh']}:offset={stats.get('target_offset', 0)}:"
+              f"linear=true")
+    else:
+        af = f"loudnorm={MUSIC_LUFS_TARGET}"
+    r = subprocess.run(["ffmpeg", "-y", "-i", tmp_path, "-af", af, "-c:a", "flac", out_path],
+                        capture_output=True, text=True)
+    os.remove(tmp_path)
+    if r.returncode != 0 or not os.path.exists(out_path):
+        print("loudnorm упал:", r.stderr[-1500:])
+        raise SystemExit(1)
+    print(f"Готово: {out_path} ({LOOP_SEC}с петля, {SR}Hz stereo, {MUSIC_LUFS_TARGET})")
 
 
 def main():
