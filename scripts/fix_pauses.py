@@ -30,6 +30,18 @@ KEEP_SEC = 0.6       # до какой длины оставляем паузу
 NOISE_DB = "-30dB"   # порог тишины
 LOUDNORM_TARGET = "I=-16:TP=-1.5:LRA=11"   # стандарт для закадрового голоса
 
+# Пауза как драматургический приём (продакшн-разбор: "1-2 сек тишины после
+# сильного факта" — реальный приём режиссёра, не брак). Раньше КАЖДАЯ
+# тишина ≥THRESH_SEC резалась до одного и того же KEEP_SEC — то есть
+# осознанная длинная пауза, которую TTS/запись и так сделала заметно
+# длиннее обычной, стриглась под ту же гребёнку, что и случайный вдох.
+# Порог здесь — по ФАКТУ сырой длительности конкретной тишины, не "топ-N
+# самых длинных пауз ролика": так честнее (эпизод может не иметь ни одной
+# такой паузы, а может иметь несколько — от реальной начитки, не от
+# искусственного квотирования).
+LONG_HOLD_THRESHOLD_SEC = 1.8   # сырая тишина длиннее этого — осознанная пауза
+LONG_HOLD_KEEP_SEC = 1.3        # ...и оставляем её длиннее обычного KEEP_SEC
+
 
 def measure_loudness(path):
     """Первый проход loudnorm: только измерение, ничего не меняет в файле."""
@@ -98,15 +110,28 @@ def _audio_fingerprint(path):
     return h.hexdigest()
 
 
+def _keep_sec_for(ss, se):
+    """Сколько секунд тишины (ss, se) реально оставляем — обычный KEEP_SEC,
+    кроме "осознанно длинных" пауз (см. LONG_HOLD_THRESHOLD_SEC), которым
+    оставляем LONG_HOLD_KEEP_SEC. ЕДИНСТВЕННОЕ место, где считается keep —
+    и main() (реальная обрезка atrim), и save_cuts() (что записать как
+    вырезанное) обязаны звать именно эту функцию, а не пересчитывать
+    константой отдельно: иначе pause_cuts.json тихо соврёт про hold-паузы
+    (запишет как обрезано до KEEP_SEC, хотя реально оставлено больше) —
+    и вся синхронизация подписей хука (raw_to_real_time) снова разъедется,
+    только уже на новых данных."""
+    return LONG_HOLD_KEEP_SEC if (se - ss) >= LONG_HOLD_THRESHOLD_SEC else KEEP_SEC
+
+
 def save_cuts(video_dir, sil, src):
     """Сохраняет РЕАЛЬНО вырезанные интервалы (сырое время audio.mp3) —
-    только ту часть каждой тишины, что реально ушла (se - min(se,ss+KEEP_SEC)
-    > 0; короткие тишины ниже KEEP_SEC ничего не теряют) + отпечаток
-    исходного audio.mp3 (см. _audio_fingerprint). pipeline_smart.py читает
-    этот файл, чтобы ТОЧНО (не приближённо по тегам) пересчитать
-    alignment.csv на реальную обрезанную шкалу — см. raw_to_real_time()."""
-    cuts = [[round(min(se, ss + KEEP_SEC), 3), round(se, 3)]
-            for ss, se in sil if se - min(se, ss + KEEP_SEC) > 0.001]
+    только ту часть каждой тишины, что реально ушла (see _keep_sec_for —
+    короткие тишины и hold-паузы теряют разную долю) + отпечаток исходного
+    audio.mp3 (см. _audio_fingerprint). pipeline_smart.py читает этот файл,
+    чтобы ТОЧНО (не приближённо по тегам) пересчитать alignment.csv на
+    реальную обрезанную шкалу — см. raw_to_real_time()."""
+    cuts = [[round(min(se, ss + _keep_sec_for(ss, se)), 3), round(se, 3)]
+            for ss, se in sil if se - min(se, ss + _keep_sec_for(ss, se)) > 0.001]
     plan_dir = os.path.join(video_dir, "media_plan")
     os.makedirs(plan_dir, exist_ok=True)
     with open(os.path.join(plan_dir, "pause_cuts.json"), "w", encoding="utf-8") as f:
@@ -136,12 +161,17 @@ def main():
         return 0
 
     # Строим сегменты: речь целиком + каждая тишина обрезана до KEEP_SEC
+    # (или LONG_HOLD_KEEP_SEC для "осознанно длинных" пауз — см. _keep_sec_for)
     segments = []
     prev = 0.0
+    long_holds = 0
     for ss, se in sil:
+        keep = _keep_sec_for(ss, se)
+        if keep == LONG_HOLD_KEEP_SEC:
+            long_holds += 1
         if ss > prev:
             segments.append((prev, ss))
-        segments.append((ss, min(se, ss + KEEP_SEC)))
+        segments.append((ss, min(se, ss + keep)))
         prev = se
     if prev < total:
         segments.append((prev, total))
@@ -174,7 +204,8 @@ def main():
         print("Ошибка ffmpeg:", r.stderr[-400:])
         return 1
     save_cuts(video_dir, sil, src)
-    print(f"Готово: {out} | подрезано пауз: {len(sil)} | было {total:.1f}с → стало {duration(out):.1f}с")
+    print(f"Готово: {out} | подрезано пауз: {len(sil)} (из них длинных hold-пауз: {long_holds}) | "
+          f"было {total:.1f}с → стало {duration(out):.1f}с")
     return 0
 
 
