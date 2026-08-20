@@ -5,6 +5,7 @@
 кадра, чередование in/out. Медиа: локальная папка media/ по порядку,
 fallback — Pexels по тематическому запросу.
 Usage: python scripts/pipeline_smart.py <video_dir>"""
+import concurrent.futures
 import csv
 import difflib
 import glob
@@ -40,6 +41,25 @@ except ImportError:
 
 PARALLAX_ENABLED = os.environ.get("PARALLAX", "1") != "0" and PARALLAX_LIBS
 PARALLAX_BROKEN = False   # взводится только на системном сбое (модель/сеть), не на одной плохой картинке
+
+# Пул процессов для kenburns()/video_render() (НЕ parallax_kenburns() — та
+# намеренно остаётся последовательной в главном процессе, см. main()).
+# Почему процессы, а не потоки: полная изоляция между воркерами (ни общего
+# состояния, ни вопроса потокобезопасности torch-модели при конкурентных
+# вызовах — вопрос, на который я не готов ответить "да" не проверив, а
+# проверять на живом многочасовом рендере не буду); почему НЕ тянет за
+# собой дублирование depth-модели в памяти: torch/transformers загружаются
+# ЛЕНИВО (см. get_depth_model/get_clip_model — импорт внутри функции, не на
+# уровне модуля) и только в ГЛАВНОМ процессе при рендере параллакс-кадра —
+# воркеры этот код вообще не исполняют, значит и не грузят. -threads на
+# каждый ffmpeg-вызов воркера — иначе N параллельных процессов, каждый сам
+# по себе многопоточный, начнут толкаться за одни и те же ядра и просадят
+# эффект (проверено рассуждением: libx264 -preset fast по умолчанию берёт
+# все доступные ядра сам). RENDER_POOL_WORKERS оставляет минимум 1 ядро
+# главному процессу (параллакс + оркестрация), не отправляет туда весь nproc.
+RENDER_POOL_ENABLED = os.environ.get("RENDER_PARALLEL", "1") != "0"
+RENDER_POOL_WORKERS = int(os.environ.get("RENDER_WORKERS", str(max(1, (os.cpu_count() or 4) - 1))))
+RENDER_FFMPEG_THREADS = int(os.environ.get("RENDER_FFMPEG_THREADS", "1"))
 
 VIDEO_FOLDER = sys.argv[1] if len(sys.argv) > 1 else os.getcwd()
 SCRIPT_FILE = os.path.join(VIDEO_FOLDER, "script.txt")
@@ -2088,7 +2108,8 @@ def finalize_render(tmp, out, ok):
 
 def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
              section="", motion_mode="classic_kb", stat_variant=0,
-             brightness_bias=0.0, energy_bias=0.0, stat_delay=0.0, levels=None, captions=None):
+             brightness_bias=0.0, energy_bias=0.0, stat_delay=0.0, levels=None, captions=None,
+             ffmpeg_threads=None):
     frames = max(1, round(dur * FPS))
     h, zoom_in_default, pan_dir_default = kb_hash_choices(photo)
     if zoom_in is None:
@@ -2241,7 +2262,10 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
         else:
             cmd += ["-vf", vf]
         cmd += ["-t", str(dur), "-c:v", "libx264", "-preset", "fast",
-               "-crf", "18", "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS + [tmp_out]
+               "-crf", "18", "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS
+        if ffmpeg_threads:
+            cmd += ["-threads", str(ffmpeg_threads)]
+        cmd += [tmp_out]
         return subprocess.run(cmd, capture_output=True, text=True)
 
     if vf_overlay:
@@ -2721,7 +2745,7 @@ def detect_scene_change_offset(vid, max_skip, scene_threshold=0.12):
 
 def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=0,
                   brightness_bias=0.0, energy_bias=0.0, stat_delay=0.0, levels=None,
-                  handheld=False, captions=None):
+                  handheld=False, captions=None, ffmpeg_threads=None):
     """Аналог kenburns(), но для стокового видео: без zoompan (движение уже
     есть в кадре), заливка кадра целиком + обрезка (не letterbox), растяжение
     по времени, если исходный ролик короче нужной длительности.
@@ -2795,7 +2819,10 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
         cmd += ["-filter_complex", filter_complex,
                "-map", "[vout]", "-t", str(dur), "-an",
                "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-               "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS + [tmp_out]
+               "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS
+        if ffmpeg_threads:
+            cmd += ["-threads", str(ffmpeg_threads)]
+        cmd += [tmp_out]
         r = subprocess.run(cmd, capture_output=True, text=True)
         if r.returncode == 0:
             return finalize_render(tmp_out, out, True)
@@ -2828,7 +2855,10 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
             cmd += ["-vf", vf]
         cmd += ["-t", str(dur), "-an",
                 "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-                "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS + [tmp_out]
+                "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS
+        if ffmpeg_threads:
+            cmd += ["-threads", str(ffmpeg_threads)]
+        cmd += [tmp_out]
         return subprocess.run(cmd, capture_output=True, text=True)
 
     if vf_overlay:
@@ -3475,6 +3505,14 @@ def main():
     missing = []   # индексы блоков, для которых не нашлось ни фото, ни видео
     media_log = []   # (индекс, путь_к_фото) — для QC-проверки на похожие кадры в конце
     zoom_hist, pan_hist = [], []
+    # Пул на kenburns()/video_render() — НЕ на parallax_kenburns() (та
+    # остаётся последовательной в этом же процессе, см. комментарий у
+    # RENDER_POOL_ENABLED выше). Решение "что рендерить" (выбор фото/видео,
+    # anti-repeat) остаётся ПОЛНОСТЬЮ последовательным, как и раньше —
+    # параллелится только сам вызов ffmpeg, уже после того, как всё решено.
+    render_pool = (concurrent.futures.ProcessPoolExecutor(max_workers=RENDER_POOL_WORKERS)
+                   if RENDER_POOL_ENABLED else None)
+    pending_jobs = []   # [{i, out, d, section, block, video, photo, future|None, ok}], в порядке блоков
     use_local = os.path.isdir(MEDIA_FOLDER) and bool(local_photo(0))
     use_pexels = bool(PEXELS_API_KEY)
     queries = resolve_queries(blocks)
@@ -3619,12 +3657,22 @@ def main():
         # False на предсказуемые сбои (ffmpeg не встал и т.п.) — это перехват
         # именно НЕПРЕДВИДЕННОГО исключения, кадр просто уходит в missing
         # (как и любой другой honest-failure), рендер продолжается дальше.
+        future = None
         try:
             if video:
-                ok = video_render(video, out, d, title=title, stat=stat, section=b["section"],
-                                   stat_variant=stat_variant, brightness_bias=brightness_bias,
-                                   energy_bias=energy_bias, stat_delay=stat_delay, levels=levels,
-                                   handheld=has_action_word(b["text"]), captions=captions)
+                if render_pool:
+                    future = render_pool.submit(
+                        video_render, video, out, d, title=title, stat=stat, section=b["section"],
+                        stat_variant=stat_variant, brightness_bias=brightness_bias,
+                        energy_bias=energy_bias, stat_delay=stat_delay, levels=levels,
+                        handheld=has_action_word(b["text"]), captions=captions,
+                        ffmpeg_threads=RENDER_FFMPEG_THREADS)
+                    ok = None
+                else:
+                    ok = video_render(video, out, d, title=title, stat=stat, section=b["section"],
+                                       stat_variant=stat_variant, brightness_bias=brightness_bias,
+                                       energy_bias=energy_bias, stat_delay=stat_delay, levels=levels,
+                                       handheld=has_action_word(b["text"]), captions=captions)
             else:
                 # anti-repetition: хэш сам по себе не мешает 3 зумам подряд случайно
                 # совпасть — держим окно последних решений и форсируем смену при повторе.
@@ -3636,7 +3684,9 @@ def main():
                 # с depth-моделью в разы дороже по времени zoompan-версии, на
                 # 40+ кадрах это лишние десятки минут ради эффекта, который
                 # большую часть ролика зритель всё равно не разглядывает так
-                # пристально, как хук и открывашки разделов.
+                # пристально, как хук и открывашки разделов. Всегда ПОСЛЕДОВАТЕЛЬНО
+                # в главном процессе (см. RENDER_POOL_ENABLED выше) — только тут
+                # живёт depth-модель.
                 is_highlight = b["section"].startswith("HOOK") or is_section_start
                 ok = False
                 if PARALLAX_ENABLED and is_highlight:
@@ -3654,27 +3704,56 @@ def main():
                     photo_hash, _, _ = kb_hash_choices(photo)
                     cur_shot_size = recent_shot_sizes[-1] if recent_shot_sizes else None
                     motion_mode = choose_motion_mode(b, is_section_start, photo_hash, shot_size=cur_shot_size)
-                    ok = kenburns(photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
-                                  stat=stat, section=b["section"], motion_mode=motion_mode,
-                                  brightness_bias=brightness_bias, energy_bias=energy_bias,
-                                  stat_variant=stat_variant, stat_delay=stat_delay, levels=levels,
-                                  captions=captions)
+                    if render_pool:
+                        future = render_pool.submit(
+                            kenburns, photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
+                            stat=stat, section=b["section"], motion_mode=motion_mode,
+                            brightness_bias=brightness_bias, energy_bias=energy_bias,
+                            stat_variant=stat_variant, stat_delay=stat_delay, levels=levels,
+                            captions=captions, ffmpeg_threads=RENDER_FFMPEG_THREADS)
+                        ok = None
+                    else:
+                        ok = kenburns(photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
+                                      stat=stat, section=b["section"], motion_mode=motion_mode,
+                                      brightness_bias=brightness_bias, energy_bias=energy_bias,
+                                      stat_variant=stat_variant, stat_delay=stat_delay, levels=levels,
+                                      captions=captions)
         except Exception as e:
             print(f"  [{i+1}] непредвиденный сбой рендера, пропускаю кадр: {type(e).__name__} {e}")
-            ok = False
-        if ok:
-            clips.append(out)
-            clip_durs.append(d)
-            clip_sections.append(b["section"])
-            clip_blocks.append(b)
-            if not video and photo:
-                media_log.append((i, photo))
-            if i % 20 == 0 or i < 3:
-                print(f"  [{i+1}/{len(blocks)}] {d:.1f}с {b['words']} слов ({'видео' if video else 'фото'})")
-        else:
-            missing.append(i + 1)
+            ok, future = False, None
+        pending_jobs.append({"i": i, "out": out, "d": d, "section": b["section"], "block": b,
+                              "video": bool(video), "photo": photo, "future": future, "ok": ok})
+        if i % 20 == 0 or i < 3:
+            print(f"  [{i+1}/{len(blocks)}] {d:.1f}с {b['words']} слов ({'видео' if video else 'фото'}, "
+                  f"{'в очереди' if future is not None else 'готово' if ok else 'пропуск'})")
         if use_pexels and not use_local and i % 10 == 9:
             time.sleep(0.4)
+
+    # Резолвим отложенные (в пуле) рендеры — future.result() блокирует, только
+    # если этот конкретный клип ещё не доехал, к этому моменту у воркеров уже
+    # было всё время работы цикла выше, чтобы прогрызть очередь. Порядок —
+    # строго по индексу блока (pending_jobs собран в порядке цикла), не по
+    # порядку завершения — xfade-склейка ниже требует правильную последовательность.
+    for job in pending_jobs:
+        if job["future"] is not None:
+            try:
+                job["ok"] = job["future"].result()
+            except Exception as e:
+                print(f"  [{job['i']+1}] непредвиденный сбой рендера в пуле, пропускаю кадр: "
+                      f"{type(e).__name__} {e}")
+                job["ok"] = False
+        if job["ok"]:
+            clips.append(job["out"])
+            clip_durs.append(job["d"])
+            clip_sections.append(job["section"])
+            clip_blocks.append(job["block"])
+            if not job["video"] and job["photo"]:
+                media_log.append((job["i"], job["photo"]))
+        else:
+            missing.append(job["i"] + 1)
+    if render_pool:
+        render_pool.shutdown(wait=True)
+    print(f"  Рендер завершён: {len(clips)}/{len(blocks)} клипов")
 
     if not clips:
         print("Нет клипов")
