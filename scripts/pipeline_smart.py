@@ -386,10 +386,19 @@ VOICE_COMPRESS_THRESHOLD = 0.15
 VOICE_COMPRESS_RATIO = 2.5
 
 
-def grain_blend_complex(label_in, grain_input_idx, label_out):
+def grain_blend_complex(label_in, grain_input_idx, label_out, opacity_scale=1.0):
     """Фрагмент filter_complex: масштабирует зацикленный (-stream_loop -1 на
     входе grain_input_idx) grain-луп под WIDTH/HEIGHT и подмешивает его к
     label_in.
+
+    opacity_scale — множитель GRAIN_OPACITY для ЭТОГО конкретного клипа
+    (P2, "зерно vs частицы в мире"): часть стокового контента уже несёт
+    собственные визуальные частицы (снег/пыль/капли/боке в кадре) — на
+    таких клипах наше зерно накладывается ПОВЕРХ уже существующей текстуры
+    другого характера, читается как два разных источника шума одновременно.
+    См. measure_particle_score()/PARTICLE_SCORE_THRESHOLD — калибровано на
+    реальных кадрах, не на глаз. По умолчанию 1.0 — поведение не меняется
+    для клипов без обнаруженных частиц.
 
     P2-24 (аудит звукового/видео пайплайна): раньше — штатный grainmerge с
     ОДНИМ фиксированным all_opacity на весь кадр (result = base+overlay-128,
@@ -408,7 +417,7 @@ def grain_blend_complex(label_in, grain_input_idx, label_out):
     # (поймано вживую прямым тестом на градиенте: A=255 без clip давал
     # ffmpeg-выход 2 вместо 255 — чёрная точка на самом ярком пикселе кадра,
     # ffmpeg сам НЕ клиппит all_expr автоматически).
-    weight = f"({GRAIN_OPACITY}*(0.6+0.4*(1-abs(A-128)/128)))"
+    weight = f"({GRAIN_OPACITY * opacity_scale}*(0.6+0.4*(1-abs(A-128)/128)))"
     expr = f"clip(A+(B-128)*{weight},0,255)"
     return (f"[{grain_input_idx}:v]scale={WIDTH}:{HEIGHT}:flags=bicubic,setsar=1[gr_scaled];"
             f"[{label_in}][gr_scaled]blend=all_expr='{expr}'[{label_out}]")
@@ -2762,8 +2771,8 @@ def log_render_diagnostics(tag):
 
 def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
              section="", motion_mode="classic_kb", stat_variant=0,
-             brightness_bias=0.0, energy_bias=0.0, stat_delay=0.0, levels=None, wb=None, captions=None,
-             ffmpeg_threads=None):
+             brightness_bias=0.0, energy_bias=0.0, stat_delay=0.0, levels=None, wb=None,
+             grain_scale=1.0, captions=None, ffmpeg_threads=None):
     frames = max(1, round(dur * FPS))
     h, zoom_in_default, pan_dir_default = kb_hash_choices(photo)
     if zoom_in is None:
@@ -2911,7 +2920,7 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
             # фильтров — filter_complex вместо -vf, тот же приём, что уже
             # используется для speed ramp/halation embedding.
             cmd += ["-stream_loop", "-1", "-i", GRAIN_LOOP_PATH]
-            fc = f"[0:v]{vf}[gr_in];{grain_blend_complex('gr_in', 1, 'vout')}"
+            fc = f"[0:v]{vf}[gr_in];{grain_blend_complex('gr_in', 1, 'vout', grain_scale)}"
             cmd += ["-filter_complex", fc, "-map", "[vout]"]
         else:
             cmd += ["-vf", vf]
@@ -2984,6 +2993,57 @@ RISKY_QUERY_MARGIN = 0.03
 def is_risky_query(query):
     ql = query.lower()
     return any(term in ql for term in RISKY_GENERIC_TERMS)
+
+
+# P2 (аудит "зерно vs частицы в мире"): часть стокового контента УЖЕ несёт
+# собственные визуальные частицы (падающий снег, пыль, капли дождя, боке) —
+# найдено вживую прямым просмотром кадра (фото "EXCALIBUR" со снегом,
+# см. коммит). Наше процедурное зерно (grain_blend_complex) кладётся ОДНИМ
+# и тем же opacity на любой клип, независимо от того, есть ли у исходника
+# уже своя текстура — на "частицастых" клипах зритель видит два разных по
+# характеру источника мелких точек сразу.
+#
+# Калибровано вживую (НЕ на глаз): 10 подтверждённых прямым просмотром
+# кандидатов — частицастые (реальный дождь/снег/пыль на кадре, включая
+# "EXCALIBUR", реальные Pexels-фото по запросам "sword snow"/"medieval
+# weapon dust particles"/"sword rain droplets") дают relevance против
+# PARTICLE_PROMPT в диапазоне 0.208..0.287; чистые "по делу" кадры того же
+# оружейного топика (рыцари/легионеры/косплей без частиц, включая один
+# кадр с обычным несфокусированным зелёным фоном — НЕ частицы, просто
+# боке) — 0.115..0.216. Порог 0.21 — выше единственного пограничного
+# случая (0.2156, подтверждённое отсутствие частиц) и не выше самого
+# слабого подтверждённого частицастого случая (0.2079). Точность неидеальна
+# (граница узкая, ~0.006), но цена ошибки низкая: ложное срабатывание
+# просто чуть снижает opacity зерна на обычном фото с боке — не искажает
+# контент и не отбрасывает кандидата (кандидат остаётся выбранным, меняется
+# только позже наложение зерна).
+PARTICLE_PROMPT = "falling snow dust particles bokeh in frame"
+PARTICLE_SCORE_THRESHOLD = 0.21
+PARTICLE_GRAIN_SCALE = 0.5   # во сколько раз снижаем GRAIN_OPACITY на "частицастом" клипе
+
+
+def measure_particle_score(path, is_video=False):
+    """clip_relevance() кандидата против PARTICLE_PROMPT — см. калибровку
+    выше. Для видео — один кадр-пробник (тот же приём, что measure_luma()
+    уже использует для видео: -ss 0.5, не кадр 0, реальный сток иногда
+    начинается с чёрного лидер-кадра). None при недоступной CLIP-модели —
+    вызывающий код тогда просто не масштабирует opacity (безопасный откат,
+    тот же принцип, что и у остальных CLIP-гейтов в файле)."""
+    if is_video:
+        tmp = path + "._particle_probe.jpg"
+        try:
+            r = subprocess.run(["ffmpeg", "-y", "-ss", "0.5", "-i", path, "-frames:v", "1", "-q:v", "5", tmp],
+                                capture_output=True, timeout=20)
+            if r.returncode != 0 or not os.path.exists(tmp):
+                return None
+            score = clip_relevance(tmp, PARTICLE_PROMPT)
+        except Exception:
+            score = None
+        finally:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        return score
+    return clip_relevance(path, PARTICLE_PROMPT)
 
 
 _clip_model = None
@@ -3146,7 +3206,7 @@ def fill_crop_canvas(photo_path, cw, ch, anchor=None):
 
 def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
                        section="", stat_variant=0, brightness_bias=0.0, energy_bias=0.0,
-                       stat_delay=0.0, levels=None, wb=None, captions=None):
+                       stat_delay=0.0, levels=None, wb=None, grain_scale=1.0, captions=None):
     """2.5D-версия kenburns(): собственный покадровый рендер (OpenCV remap)
     вместо ffmpeg zoompan — только так можно сделать смещение, зависящее от
     глубины пикселя. При любой накладке (модель не встала, ffmpeg-пайп упал)
@@ -3234,7 +3294,7 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
             vf = add_overlays(vf, dur, title, stat, stat_variant, stat_delay, media_path=photo)
             vf = add_kinetic_captions(vf, captions)
         if GRAIN_ENABLED:
-            fc = f"[0:v]{vf}[gr_in];{grain_blend_complex('gr_in', 1, 'vout')}"
+            fc = f"[0:v]{vf}[gr_in];{grain_blend_complex('gr_in', 1, 'vout', grain_scale)}"
             cmd += ["-filter_complex", fc, "-map", "[vout]"]
         else:
             cmd += ["-vf", vf]
@@ -3423,7 +3483,7 @@ def detect_scene_change_offset(vid, max_skip, scene_threshold=0.12):
 
 def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=0,
                   brightness_bias=0.0, energy_bias=0.0, stat_delay=0.0, levels=None, wb=None,
-                  handheld=False, captions=None, ffmpeg_threads=None):
+                  grain_scale=1.0, handheld=False, captions=None, ffmpeg_threads=None):
     """Аналог kenburns(), но для стокового видео: без zoompan (движение уже
     есть в кадре), заливка кадра целиком + обрезка (не letterbox), растяжение
     по времени, если исходный ролик короче нужной длительности.
@@ -3491,7 +3551,7 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
         if GRAIN_ENABLED:
             cmd += ["-stream_loop", "-1", "-i", GRAIN_LOOP_PATH]
             filter_complex = (f"[0:v]{scale_crop}[base];{ramp_filter};"
-                               f"[ramped]{full_tail}[gr_in];{grain_blend_complex('gr_in', 1, 'vout')}")
+                               f"[ramped]{full_tail}[gr_in];{grain_blend_complex('gr_in', 1, 'vout', grain_scale)}")
         else:
             filter_complex = f"[0:v]{scale_crop}[base];{ramp_filter};[ramped]{full_tail}[vout]"
         cmd += ["-filter_complex", filter_complex,
@@ -3527,7 +3587,7 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
         cmd += ["-i", vid]
         if GRAIN_ENABLED:
             cmd += ["-stream_loop", "-1", "-i", GRAIN_LOOP_PATH]
-            fc = f"[0:v]{vf}[gr_in];{grain_blend_complex('gr_in', 1, 'vout')}"
+            fc = f"[0:v]{vf}[gr_in];{grain_blend_complex('gr_in', 1, 'vout', grain_scale)}"
             cmd += ["-filter_complex", fc, "-map", "[vout]"]
         else:
             cmd += ["-vf", vf]
@@ -4402,6 +4462,14 @@ def main():
         # неизменным творческим грейдом, не вместо него.
         levels, wb = (measure_levels(photo, is_video=False, want_wb=True) if photo
                       else measure_levels(video, is_video=True, want_wb=True))
+        # П.2 (аудит "зерно vs частицы в мире"): частицастость ИСХОДНИКА —
+        # снижает GRAIN_OPACITY для этого клипа при финальном блендинге,
+        # см. measure_particle_score()/PARTICLE_SCORE_THRESHOLD (калибровано
+        # на реальных кадрах, не на глаз).
+        particle_score = (measure_particle_score(photo, is_video=False) if photo
+                           else measure_particle_score(video, is_video=True))
+        grain_scale = (PARTICLE_GRAIN_SCALE if (particle_score is not None
+                        and particle_score >= PARTICLE_SCORE_THRESHOLD) else 1.0)
         energy_bias = max(-0.5, min(0.5, energy_lvls[i] - 1.0))
         # Один непойманный сбой в рендере ОДНОГО кадра (редкий edge case —
         # битый файл, неожиданный тип данных и т.п.) раньше падал наружу и
@@ -4417,14 +4485,14 @@ def main():
                     future = render_pool.submit(
                         video_render, video, out, d, title=title, stat=stat, section=b["section"],
                         stat_variant=stat_variant, brightness_bias=brightness_bias,
-                        energy_bias=energy_bias, stat_delay=stat_delay, levels=levels, wb=wb,
+                        energy_bias=energy_bias, stat_delay=stat_delay, levels=levels, wb=wb, grain_scale=grain_scale,
                         handheld=has_action_word(b["text"]), captions=captions,
                         ffmpeg_threads=RENDER_FFMPEG_THREADS)
                     ok = None
                 else:
                     ok = video_render(video, out, d, title=title, stat=stat, section=b["section"],
                                        stat_variant=stat_variant, brightness_bias=brightness_bias,
-                                       energy_bias=energy_bias, stat_delay=stat_delay, levels=levels, wb=wb,
+                                       energy_bias=energy_bias, stat_delay=stat_delay, levels=levels, wb=wb, grain_scale=grain_scale,
                                        handheld=has_action_word(b["text"]), captions=captions)
             else:
                 # anti-repetition: хэш сам по себе не мешает 3 зумам подряд случайно
@@ -4451,7 +4519,7 @@ def main():
                     ok = parallax_kenburns(photo, out, d, title=title, zoom_in=zoom_in,
                                             pan_dir=pan_dir, stat=stat, section=b["section"],
                                             stat_variant=stat_variant, brightness_bias=brightness_bias,
-                                            energy_bias=energy_bias, stat_delay=stat_delay, levels=levels, wb=wb,
+                                            energy_bias=energy_bias, stat_delay=stat_delay, levels=levels, wb=wb, grain_scale=grain_scale,
                                             captions=captions)
                 if not ok:
                     photo_hash, _, _ = kb_hash_choices(photo)
@@ -4462,14 +4530,14 @@ def main():
                             kenburns, photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
                             stat=stat, section=b["section"], motion_mode=motion_mode,
                             brightness_bias=brightness_bias, energy_bias=energy_bias,
-                            stat_variant=stat_variant, stat_delay=stat_delay, levels=levels, wb=wb,
+                            stat_variant=stat_variant, stat_delay=stat_delay, levels=levels, wb=wb, grain_scale=grain_scale,
                             captions=captions, ffmpeg_threads=RENDER_FFMPEG_THREADS)
                         ok = None
                     else:
                         ok = kenburns(photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
                                       stat=stat, section=b["section"], motion_mode=motion_mode,
                                       brightness_bias=brightness_bias, energy_bias=energy_bias,
-                                      stat_variant=stat_variant, stat_delay=stat_delay, levels=levels, wb=wb,
+                                      stat_variant=stat_variant, stat_delay=stat_delay, levels=levels, wb=wb, grain_scale=grain_scale,
                                       captions=captions)
         except Exception as e:
             print(f"  [{i+1}] непредвиденный сбой рендера, пропускаю кадр: {type(e).__name__} {e}")
