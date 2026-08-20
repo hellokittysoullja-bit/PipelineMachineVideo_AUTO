@@ -2194,7 +2194,7 @@ def _srt_timestamp(t):
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
-def write_subtitles(video_dir, blocks, starts, durs):
+def write_subtitles(video_dir, blocks, starts, durs, real_weights=None):
     """SRT — бесплатный побочный продукт уже посчитанного тайминга: реальный
     посимвольный alignment.csv (см. load_alignment_weights) уже участвует в
     расчёте durs/starts, отдельно парсить CSV второй раз не нужно. starts —
@@ -2205,17 +2205,30 @@ def write_subtitles(video_dir, blocks, starts, durs):
 
     Один блок = один субтитр-кадр: текст уже чистый (теги вырезаны в
     parse_blocks), деления и так на границах пауз/фраз — не нужно заново
-    резать по 5-7 слов, разбивка уже смысловая."""
+    резать по 5-7 слов, разбивка уже смысловая.
+
+    Видимое окно субтитра НЕ включает хвостовую паузу блока (2.7, тот же
+    класс бага, что уже чинили в load_hook_word_timings): durs[i] —
+    ПОЛНОЕ окно блока, block_durations() прибавляет b["pause_after"] к весу
+    ДО floor/cap/глобального scale, так что субтитр держался бы на экране
+    почти всю следующую паузу — визуально текст "отстаёт" от голоса на
+    тишине. real_weights (если есть) даёт долю паузы в исходном сыром весе
+    блока — она инвариантна к равномерному масштабированию, обрезаем ею
+    durs[i] перед показом. Без real_weights (старый вызов/фоллбэк) — как
+    раньше, полное окно."""
     path = os.path.join(video_dir, "subtitles.srt")
     lines = []
     n = 0
-    for b, s, d in zip(blocks, starts, durs):
+    for i, (b, s, d) in enumerate(zip(blocks, starts, durs)):
         text = b["text"].strip()
         if not text:
             continue
+        pause_after = b.get("pause_after") or 0.0
+        w = real_weights[i] if (real_weights and i < len(real_weights) and real_weights[i]) else None
+        visible_d = d * (1.0 - pause_after / (w + pause_after)) if (pause_after > 0 and w) else d
         n += 1
         lines.append(str(n))
-        lines.append(f"{_srt_timestamp(s)} --> {_srt_timestamp(s + max(d, 0.3))}")
+        lines.append(f"{_srt_timestamp(s)} --> {_srt_timestamp(s + max(visible_d, 0.3))}")
         lines.append(text)
         lines.append("")
     open(path, "w", encoding="utf-8").write("\n".join(lines))
@@ -3807,7 +3820,7 @@ def main():
     for d in sub_baseline:
         sub_starts.append(sub_acc)
         sub_acc += d
-    write_subtitles(VIDEO_FOLDER, blocks, sub_starts, sub_baseline)
+    write_subtitles(VIDEO_FOLDER, blocks, sub_starts, sub_baseline, real_weights=real_weights)
     write_chapters(VIDEO_FOLDER, blocks, sub_starts)
 
     # A8: резы хука слегка "прилипают" к пикам голосовой энергии (см.
