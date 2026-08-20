@@ -135,7 +135,13 @@ def save_cuts(video_dir, sil, src):
     audio.mp3 (см. _audio_fingerprint). pipeline_smart.py читает этот файл,
     чтобы ТОЧНО (не приближённо по тегам) пересчитать alignment.csv на
     реальную обрезанную шкалу — см. raw_to_real_time()."""
-    cuts = [[round(min(se, ss + _keep_sec_for(ss, se)), 3), round(se, 3)]
+    # P2-9 (аудит звукового пайплайна): раньше округляли до 3 знаков (1мс) —
+    # совпадало с :.3f в atrim/afade ниже, но обе точности были ГРУБЕЕ
+    # семпла (при 48000Hz 1мс = 48 семплов). Подняли до 6 знаков (мкс) в
+    # ОБОИХ местах разом (см. main() ниже) — записанное в pause_cuts.json
+    # снова точно совпадает с тем, что реально режет ffmpeg, просто на
+    # семпл-уровне, а не мс-уровне.
+    cuts = [[round(min(se, ss + _keep_sec_for(ss, se)), 6), round(se, 6)]
             for ss, se in sil if se - min(se, ss + _keep_sec_for(ss, se)) > 0.001]
     plan_dir = os.path.join(video_dir, "media_plan")
     os.makedirs(plan_dir, exist_ok=True)
@@ -196,8 +202,8 @@ def main():
             continue
         fade = min(SPLICE_FADE_SEC, dur / 3)
         fade_out_start = max(0.0, dur - fade)
-        filt += (f"[0:a]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS,"
-                 f"afade=t=in:d={fade:.4f},afade=t=out:st={fade_out_start:.4f}:d={fade:.4f}[a{i}];")
+        filt += (f"[0:a]atrim=start={a:.6f}:end={b:.6f},asetpts=PTS-STARTPTS,"
+                 f"afade=t=in:d={fade:.6f},afade=t=out:st={fade_out_start:.6f}:d={fade:.6f}[a{i}];")
         parts.append(f"[a{i}]")
     if not parts:
         # все сегменты оказались короче 0.02с — склеивать нечего, ffmpeg бы
