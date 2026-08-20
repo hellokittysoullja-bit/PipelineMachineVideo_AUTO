@@ -4,7 +4,20 @@
 Двухпроходный loudnorm (EBU R128) поверх — гуляющая громкость между
 блоками/эпизодами звучит непрофессионально и это бесплатно чинится.
 Usage: python scripts/fix_pauses.py <video_dir>
-Вход: audio.mp3 (или первый *.mp3). Выход: audio_fixed.mp3."""
+Вход: audio.mp3 (или первый *.mp3). Выход: audio_fixed.mp3.
+
+Реальный баг, пойманный вживую (жалоба на подписи хука, "убегающие" от
+голоса): silencedetect режет ЛЮБУЮ акустическую тишину длиннее THRESH_SEC —
+включая естественные вдохи/микропаузы TTS, которых НЕТ в тексте как тега
+[pause]/[short pause] (на реальном эпизоде — 41 реальная порезка на 90
+тегов паузы в тексте, т.е. большинство тегов даже не доросли до порога, а
+часть порезок вообще не привязана ни к одному тегу). Даунстрим-код в
+pipeline_smart.py (load_hook_word_timings/load_alignment_weights) раньше
+восстанавливал реальную шкалу ПРИБЛИЖЁННО — по границам ТЕГОВ, не по
+факту, — что и давало нарастающий рассинхрон. Теперь порезки сохраняются
+1:1 сюда же (media_plan/pause_cuts.json), и pipeline_smart.py умеет
+пересчитывать alignment.csv В ТОЧНОСТИ на реальную (обрезанную) шкалу
+вместо приближения."""
 import json
 import os
 import re
@@ -69,6 +82,20 @@ def detect_silences(path):
     return list(zip(starts, ends))
 
 
+def save_cuts(video_dir, sil):
+    """Сохраняет РЕАЛЬНО вырезанные интервалы (сырое время audio.mp3) —
+    только ту часть каждой тишины, что реально ушла (se - min(se,ss+KEEP_SEC)
+    > 0; короткие тишины ниже KEEP_SEC ничего не теряют). pipeline_smart.py
+    читает этот файл, чтобы ТОЧНО (не приближённо по тегам) пересчитать
+    alignment.csv на реальную обрезанную шкалу — см. raw_to_real_time()."""
+    cuts = [[round(min(se, ss + KEEP_SEC), 3), round(se, 3)]
+            for ss, se in sil if se - min(se, ss + KEEP_SEC) > 0.001]
+    plan_dir = os.path.join(video_dir, "media_plan")
+    os.makedirs(plan_dir, exist_ok=True)
+    with open(os.path.join(plan_dir, "pause_cuts.json"), "w", encoding="utf-8") as f:
+        json.dump(cuts, f)
+
+
 def main():
     video_dir = sys.argv[1] if len(sys.argv) > 1 else os.getcwd()
     src = find_audio(video_dir)
@@ -80,6 +107,7 @@ def main():
     sil = detect_silences(src)
     loud = loudnorm_filter(measure_loudness(src))
     if not sil:
+        save_cuts(video_dir, [])
         print("Длинных пауз не найдено — нормализую громкость.")
         r = subprocess.run(["ffmpeg", "-y", "-i", src, "-af", loud,
                             "-c:a", "libmp3lame", "-b:a", "192k", out],
@@ -110,6 +138,7 @@ def main():
     if not parts:
         # все сегменты оказались короче 0.02с — склеивать нечего, ffmpeg бы
         # упал на concat=n=0; отдаём исходник без изменений (кроме громкости)
+        save_cuts(video_dir, [])
         print("Нечего склеивать — нормализую громкость исходника.")
         r = subprocess.run(["ffmpeg", "-y", "-i", src, "-af", loud,
                             "-c:a", "libmp3lame", "-b:a", "192k", out],
@@ -127,6 +156,7 @@ def main():
     if r.returncode != 0 or not os.path.exists(out):
         print("Ошибка ffmpeg:", r.stderr[-400:])
         return 1
+    save_cuts(video_dir, sil)
     print(f"Готово: {out} | подрезано пауз: {len(sil)} | было {total:.1f}с → стало {duration(out):.1f}с")
     return 0
 

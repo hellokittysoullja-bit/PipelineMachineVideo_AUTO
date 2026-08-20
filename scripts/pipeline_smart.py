@@ -929,6 +929,40 @@ def parse_blocks(path):
 ALIGNMENT_DIR = os.path.join(VIDEO_FOLDER, "media_plan", "alignment")
 ALIGNMENT_TAG_RE = re.compile(r'\[short pause\]|\[pause\]')
 ALIGNMENT_STRIP_TAGS = ("[energetic]", "[slowly]", "[emphasis]")
+PAUSE_CUTS_PATH = os.path.join(VIDEO_FOLDER, "media_plan", "pause_cuts.json")
+_PAUSE_CUTS_CACHE = None   # ленивый кэш на процесс — файл не меняется за время рендера
+
+
+def load_pause_cuts():
+    """[[вырезанный_старт, вырезанный_конец], ...] в СЫРОМ времени audio.mp3
+    (см. fix_pauses.save_cuts) — реальные интервалы, которые
+    silencedetect+atrim вычистили из аудио. Нет файла (старый эпизод, ещё
+    не пересчитанный fix_pauses.py) -> [] (тихий откат на identity-маппинг,
+    raw_to_real_time тогда просто возвращает t без изменений)."""
+    global _PAUSE_CUTS_CACHE
+    if _PAUSE_CUTS_CACHE is not None:
+        return _PAUSE_CUTS_CACHE
+    try:
+        with open(PAUSE_CUTS_PATH, encoding="utf-8") as f:
+            cuts = json.load(f)
+        _PAUSE_CUTS_CACHE = [(float(a), float(b)) for a, b in cuts]
+    except Exception:
+        _PAUSE_CUTS_CACHE = []
+    return _PAUSE_CUTS_CACHE
+
+
+def raw_to_real_time(t, cuts):
+    """Точный (не приближённый по тегам) пересчёт сырого времени alignment.csv
+    (до обрезки пауз в fix_pauses.py) в реальное время audio_fixed.mp3 —
+    вычитает из t суммарно всё, что реально вырезано ДО t (частично, если t
+    попадает внутрь самого вырезанного интервала). cuts — из load_pause_cuts(),
+    отсортированы по возрастанию (естественный порядок silencedetect)."""
+    removed = 0.0
+    for a, b in cuts:
+        if a >= t:
+            break
+        removed += min(t, b) - a
+    return t - removed
 
 
 def _real_speech_bounds(segment):
@@ -954,10 +988,25 @@ def _real_speech_bounds(segment):
 
 
 def _real_speech_span(segment):
-    """Реальная длительность озвученного текста в сегменте — см.
-    _real_speech_bounds (общая логика, тег-агностичная граница)."""
+    """РЕАЛЬНАЯ (после обрезки пауз fix_pauses.py, см. raw_to_real_time)
+    длительность озвученного текста в сегменте — см. _real_speech_bounds
+    (общая логика, тег-агностичная граница). Раньше возвращала СЫРУЮ
+    длительность (до обрезки) — а именно эта величина кормит вес блока в
+    load_alignment_weights()/block_durations(), то есть раньше ДЛИТЕЛЬНОСТЬ
+    КАДРА блока могла быть завышена, если внутри блока TTS сделал
+    незапланированную (не тегом [pause]) паузу/вдох длиннее секунды —
+    silencedetect в fix_pauses.py режет ЛЮБУЮ такую тишину, независимо от
+    тегов в тексте (пойман вживую: 41 реальная порезка на 90 тегов паузы в
+    эпизоде — то есть часть порезок вообще не в тех местах, где текст
+    формально ожидал паузу). Теперь вес блока — точно то время, что он
+    реально звучит в audio_fixed.mp3, а не в сыром audio.mp3."""
     bounds = _real_speech_bounds(segment)
-    return (bounds[1] - bounds[0]) if bounds else 0.0
+    if not bounds:
+        return 0.0
+    cuts = load_pause_cuts()
+    real_start = raw_to_real_time(bounds[0], cuts)
+    real_end = raw_to_real_time(bounds[1], cuts)
+    return real_end - real_start
 
 
 def load_alignment_weights(blocks):
@@ -1045,38 +1094,41 @@ def load_hook_word_timings(blocks=None, sub_starts=None, sub_baseline=None, real
     """D2: посимвольный alignment.csv хука (00.csv — хук всегда первая
     секция эпизода, см. load_alignment_weights) собран в СЛОВА.
 
-    ВАЖНО (фикс реального бага, пойманного вживую жалобой пользователя —
-    "текст на субтитрах не совпадает с диктором"): 00.csv записан на
-    СЫРОМ, необрезанном audio.mp3, а реальный рендер идёт по
-    audio_fixed.mp3 после fix_pauses.py (обязательный шаг, ЧАСТЬ 9) —
-    паузы >1с подрезаны до ~0.6с. На реальном эпизоде это ~16с разницы
-    ТОЛЬКО внутри HOOK (56.7с сырой спан 00.csv против 40.7с суммы
-    sub_baseline). Раньше слова отдавались в сырой абсолютной шкале и
-    напрямую сравнивались в hook_captions_for_block() с sub_starts (та
-    шкала УЖЕ обрезана — см. load_alignment_weights/block_durations) —
-    рассинхрон рос по ходу хука с каждой подрезанной паузой, к середине
-    хука подписи заметно "убегали" от того, что реально звучит.
+    ИСТОРИЯ (три раунда одного и того же бага, каждый пойман вживую жалобой
+    пользователя на рассинхрон подписей с голосом):
+    1) слова раньше отдавались в СЫРОЙ абсолютной шкале 00.csv (до обрезки
+       пауз) и напрямую сравнивались с уже обрезанной шкалой sub_starts.
+    2) первый фикс приближал обрезку ПО ТЕГАМ [pause]/[short pause] в
+       тексте — но fix_pauses.py режет ЛЮБУЮ акустическую тишину длиннее
+       порога, включая нетегированные вдохи/микропаузы TTS (на реальном
+       эпизоде — 41 реальная порезка на 90 тегов в тексте) — рассинхрон
+       оставался внутри сегментов, где порезка пришлась не там, где текст
+       её ожидал.
+    3) raw_to_real_time() (см. fix_pauses.save_cuts/pause_cuts.json) даёт
+       ТОЧНУЮ, не приближённую обрезку — но voed НАПРЯМУЮ давать точное
+       "чистое" время слова оказалось МАЛО: sub_starts/sub_baseline сами
+       считаются НЕ линейно от точного времени, а через block_durations() —
+       там ОДИН глобальный коэффициент scale=total/sum(d) растягивает/жмёт
+       ВСЕ блоки ролика разом, независимо от того, где реально резались
+       паузы (в HOOK этого эпизода не отрезали ни секунды — а глобальный
+       коэффициент всё равно сжимает и его, потому что пауз наотрезали в
+       других секциях). Прямой точный маппинг слова уезжали в СОСЕДНИЙ блок.
 
-    Фикс: та же посегментная разбивка по [pause]/[short pause], что уже
-    делает load_alignment_weights() — НО с поправкой на sub-cuts
-    (split_long_blocks режет один "сырой" сегмент на НЕСКОЛЬКО HOOK-блоков,
-    поэтому сегментов меньше, чем блоков — прямое zip 1:1 не работает).
-    real_weights (реальный вес каждого ПОСЛЕ-сплитового блока в секундах —
-    та же величина, что уже кормит block_durations()) расходуется на каждый
-    сегмент ПОСЛЕДОВАТЕЛЬНО: сколько блок "весит", столько сырого времени
-    сегмента ему и достаётся, по порядку — то же word-fraction-дробление,
-    что split_long_blocks() уже применил к весам, просто с той же меркой
-    приложенное к сырому времени. Внутри своего куска сегмента время
-    линейно растягивается/сжимается в реальный [sub_starts[i],
-    sub_starts[i]+sub_baseline[i]) — слова и картинки оказываются на одной
-    шкале. Без blocks/sub_starts/sub_baseline/real_weights (вызов без
-    данных) — тихий откат на старую сырую шкалу, лучше кривые подписи, чем
-    их полное отсутствие там, где пересчёт невозможен.
+    Правильная комбинация: слово сначала переводится в точное "чистое"
+    время (raw_to_real_time, шаг 3), ЗАТЕМ его позиция ВНУТРИ своего
+    досплитового сегмента (та же посегментная разбивка по тегам, что и в
+    load_alignment_weights) пропорционально размещается в реальном окне
+    блока [sub_starts[i], sub_starts[i]+sub_baseline[i]) — той же
+    (глобально пересчитанной) шкале, что и картинки. real_weights (уже
+    точные, см. _real_speech_span) — сколько "чистого" времени сегмента
+    достаётся каждому под-блоку по порядку (sub-cuts режут один сегмент на
+    несколько блоков), без остатка, раз сумма кусков точно равна точному
+    спану сегмента. Без blocks/sub_starts/sub_baseline/real_weights —
+    тихий откат на точное-но-не-выровненное-с-картинками время (лучше так,
+    чем совсем без подписей).
 
-    Служебные теги ([energetic]/[pause]/[short pause]/...) вычищаются —
-    та же логика, что _real_speech_span, но разбирает на слова, а не на
-    общий диапазон. Нет alignment.csv -> [] (кинетика хука тихо не
-    показывается, не регрессия — как и все alignment-based фичи в пайплайне)."""
+    Нет alignment.csv -> [] (кинетика хука тихо не показывается, не
+    регрессия — как и все alignment-based фичи в пайплайне)."""
     path = os.path.join(ALIGNMENT_DIR, "00.csv")
     if not os.path.exists(path):
         return []
@@ -1086,9 +1138,8 @@ def load_hook_word_timings(blocks=None, sub_starts=None, sub_baseline=None, real
     except Exception:
         return []
     text = "".join(c for c, s, e in chars)
+    cuts = load_pause_cuts()
 
-    # Пересегментация 1:1 с load_alignment_weights() — та же регулярка,
-    # тот же порядок сегментов, что и HOOK-блоков.
     raw_segs, pos = [], 0
     for m in ALIGNMENT_TAG_RE.finditer(text):
         raw_segs.append(chars[pos:m.start()])
@@ -1098,48 +1149,57 @@ def load_hook_word_timings(blocks=None, sub_starts=None, sub_baseline=None, real
     remap = None
     if blocks and sub_starts is not None and sub_baseline is not None and real_weights is not None:
         hook_idxs = [i for i, b in enumerate(blocks) if b["section"].startswith("HOOK")]
-        seg_spans = [_real_speech_bounds(seg) for seg in raw_segs]
+        # Точные (после вычета реально вырезанных пауз) границы каждого
+        # досплитового сегмента — та же raw_to_real_time, что уже даёт
+        # real_weights через _real_speech_span, поэтому расход ниже сходится
+        # без остатка (не приближение по сырому времени).
+        seg_spans = []
+        for seg in raw_segs:
+            bounds = _real_speech_bounds(seg)
+            seg_spans.append((raw_to_real_time(bounds[0], cuts), raw_to_real_time(bounds[1], cuts))
+                              if bounds else None)
 
         remap = []
         seg_ptr = 0
-        raw_cursor = raw_remaining = None
+        cursor = remaining = None
 
         def _advance_seg():
-            nonlocal seg_ptr, raw_cursor, raw_remaining
+            nonlocal seg_ptr, cursor, remaining
             while seg_ptr < len(seg_spans) and seg_spans[seg_ptr] is None:
                 seg_ptr += 1
             if seg_ptr < len(seg_spans):
-                raw_cursor = seg_spans[seg_ptr][0]
-                raw_remaining = seg_spans[seg_ptr][1] - seg_spans[seg_ptr][0]
+                cursor = seg_spans[seg_ptr][0]
+                remaining = seg_spans[seg_ptr][1] - seg_spans[seg_ptr][0]
             else:
-                raw_cursor, raw_remaining = None, 0.0
+                cursor, remaining = None, 0.0
 
         _advance_seg()
         for bi in hook_idxs:
             w = real_weights[bi] if (bi < len(real_weights) and real_weights[bi]) else 0.0
-            if raw_cursor is None or w <= 0:
+            if cursor is None or w <= 0:
                 continue
-            if raw_remaining <= 1e-6:
+            if remaining <= 1e-6:
                 seg_ptr += 1
                 _advance_seg()
-                if raw_cursor is None:
+                if cursor is None:
                     continue
-            raw_start = raw_cursor
-            take = min(w, raw_remaining)
-            raw_end = raw_start + take
-            if raw_end - raw_start > 1e-6:
-                remap.append((raw_start, raw_end, sub_starts[bi], sub_baseline[bi]))
-            raw_cursor = raw_end
-            raw_remaining -= take
+            seg_start = cursor
+            take = min(w, remaining)
+            seg_end = seg_start + take
+            if seg_end - seg_start > 1e-6:
+                remap.append((seg_start, seg_end, sub_starts[bi], sub_baseline[bi]))
+            cursor = seg_end
+            remaining -= take
 
     def rescale(t):
+        real_t = raw_to_real_time(t, cuts)
         if not remap:
-            return t
+            return real_t
         for seg_start, seg_end, real_start, real_dur in remap:
-            if seg_start - 1e-6 <= t <= seg_end + 1e-6:
-                frac = (t - seg_start) / (seg_end - seg_start)
+            if seg_start - 1e-6 <= real_t <= seg_end + 1e-6:
+                frac = (real_t - seg_start) / (seg_end - seg_start) if seg_end > seg_start else 0.0
                 return real_start + frac * real_dur
-        return t   # вне всех сегментов (хвостовой мусор) — не подменяем произвольно
+        return real_t   # вне всех сегментов (хвостовой мусор) — не подменяем произвольно
 
     excluded = set()
     for tag in ALIGNMENT_STRIP_TAGS + ("[pause]", "[short pause]"):
@@ -1167,7 +1227,11 @@ def load_hook_word_timings(blocks=None, sub_starts=None, sub_baseline=None, real
     return [w for w in words if w[0]]
 
 
-HOOK_CAPTION_MIN_DUR = 0.15   # короткие служебные слова из alignment иначе мелькают 1-2 кадра, нечитаемо
+HOOK_CAPTION_MIN_DUR = 0.40   # 2.6: было 0.15 — реальная жалоба "слишком быстро исчезают"; короткие
+# слова (особенно после вырезанной паузы) читались меньше половины секунды, почти нечитаемо на
+# практике. 0.40с — всё ещё быстрый кинетический темп, но экранно различимо; растяжка по-прежнему
+# не вылезает за начало следующего слова (см. hook_captions_for_block), так что подряд идущие
+# короткие слова просто НЕМНОГО перекрывают друг друга по расписанию блока, а не показывают оба разом.
 
 
 def hook_captions_for_block(hook_words, block_start, block_dur):
@@ -1701,15 +1765,23 @@ def add_overlays(vf_base, dur, title=None, stat=None, stat_variant=0, stat_delay
                    f"x=130:y=(h-text_h)/2:"
                    f"alpha='{alpha}'")
         elif variant == 3:
-            # Минимальный — мелкий текст в нижнем правом углу, подчёркивание.
-            # По смыслу это подпись, не геройская цифра — вторичный шрифт.
-            fs = 34 if FONT_IS_DISPLAY else 38
+            # Минимальный — текст в нижнем правом углу, подчёркивание. По
+            # смыслу подпись, не геройская цифра — вторичный шрифт, но
+            # реальная жалоба (скриншот пользователя): на практике читалась
+            # как "слишком мелкая и незаметная" на фоне живой картинки —
+            # 34-38px терялись рядом с деталями кадра. Крупнее + тёмная
+            # подложка под текст для контраста (не превращаем в баннер
+            # variant 0 — подложка полупрозрачная и только под текстом, не
+            # во весь угол), позиция и логика (right-aligned, подчёркивание)
+            # не менялись — только заметность.
+            fs = 46 if FONT_IS_DISPLAY else 52
             vf += (f",drawtext=fontfile='{FONT_SECONDARY_PATH}':text='{safe}':"
                    f"fontcolor=white:fontsize={fs}:"
+                   f"box=1:boxcolor=black@0.5:boxborderw=12:"
                    f"borderw=2:bordercolor=black@0.7:"
-                   f"x=w-text_w-60:y=h-110:"
+                   f"x=w-text_w-70:y=h-140:"
                    f"alpha='{alpha}'"
-                   f",drawbox=x=iw-260:y=ih-72:w=200:h=3:"
+                   f",drawbox=x=iw-300:y=ih-88:w=240:h=4:"
                    f"color={STAT_ACCENT}@0.92:t=fill:"
                    f"enable='between(t\\,{delay:.2f}\\,{hold:.2f})'")
         else:
@@ -1759,9 +1831,17 @@ def add_kinetic_captions(vf, captions):
     на весь ролик (тот — write_subtitles(), полноразмерные описательные
     субтитры, другая задача).
 
-    Позиция — нижняя треть, НЕ дно кадра (там уже фирменный титр раздела/
-    полноразмерные субтитры) и не центр (там уже плашка-цифра, если есть) —
-    все три уровня текста не должны драться за одно и то же место."""
+    Позиция (2.6, было h*0.66 — реальная жалоба: слишком по центру кадра,
+    мешает смотреть картинку): write_subtitles() пишет ТОЛЬКО отдельный
+    subtitles.srt для загрузки на YouTube, в кадр НЕ вшивается — "дно кадра
+    уже занято субтитрами" было неверно с самого начала, реального
+    конкурента внизу нет. Единственные соседи внизу — плашка-цифра (2.2):
+    variant 4 (typewriter, add_overlays) сидит на y=h*0.78 по центру,
+    variant 3 — мелкая подпись в правом нижнем углу (y=h-110). Стандартная
+    для горизонтального ролика зона субтитров — нижняя треть, ближе к низу,
+    чем к центру, но с запасом НАД variant 4, чтобы два текстовых слоя не
+    накладывались, если в одном клипе одновременно и цифра, и кинетическое
+    слово хука."""
     if not captions or not FONT_PATH:
         return vf
     for word, start, end in captions:
@@ -1773,7 +1853,7 @@ def add_kinetic_captions(vf, captions):
                f"fontcolor=white:fontsize={CAPTION_FONT_SIZE}:"
                f"shadowcolor=black@0.85:shadowx=3:shadowy=3:"
                f"borderw=2:bordercolor=black@0.6:"
-               f"x=(w-text_w)/2:y=h*0.66-text_h/2:"
+               f"x=(w-text_w)/2:y=h*0.73-text_h/2:"
                f"enable='between(t\\,{start:.3f}\\,{end:.3f})'")
     return vf
 
