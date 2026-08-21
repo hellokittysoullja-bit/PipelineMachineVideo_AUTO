@@ -188,3 +188,135 @@ def test_end_to_end_script_produces_valid_plan(tmp_path):
     kinds = {u["rhetorical_kind"] for u in units}
     assert "reveal_hold" in kinds
     assert "closing_hold" in kinds
+
+
+# ---------- assign_chapter_arcs (планирование по главам) ----------
+
+def _make_units_from_script(tmp_path, text):
+    script = tmp_path / "script.txt"
+    script.write_text(text, encoding="utf-8")
+    blocks = sp.pipeline_smart.parse_blocks(str(script))
+    units = sp.build_units(blocks)
+    sp.assign_chapter_arcs(units)
+    return units
+
+
+def test_assign_chapter_arcs_hook_gets_single_stage(tmp_path):
+    units = _make_units_from_script(tmp_path, "=== HOOK === Раз.[pause]Два.[pause]Три.\n")
+    hook_units = [u for u in units if u["section"] == "HOOK"]
+    assert all(u["arc_stage"] == "hook" for u in hook_units)
+    assert all(u["chapter_id"] == 0 for u in hook_units)
+
+
+def test_assign_chapter_arcs_final_gets_single_stage(tmp_path):
+    units = _make_units_from_script(tmp_path, "=== FINAL === Конец истории.\n")
+    assert units[0]["arc_stage"] == "final"
+
+
+def test_assign_chapter_arcs_block_covers_all_seven_stages_with_enough_units(tmp_path):
+    # Границы стадий (см. _BLOCK_STAGE_BOUNDARIES) НЕ равномерны по замыслу
+    # (CLAUDE.md отводит "доказательству" больше доли блока, чем "заходу-
+    # якорю") — при 7 юнитах на 7 стадий поровну НЕ выйдет (проверено:
+    # первый юнит уже попадает в "постановка", не в "заход-якорь", т.к.
+    # 1/7 > 0.10). С МНОГИМИ юнитами (тут 40 — заведомо больше, чем полос)
+    # каждая стадия обязана появиться хотя бы раз, и стадии обязаны идти
+    # в документированном порядке без скачков назад.
+    text = "=== BLOCK 1: Тест === " + "[pause]".join([f"Юнит {i}." for i in range(40)]) + "\n"
+    units = _make_units_from_script(tmp_path, text)
+    stages = [u["arc_stage"] for u in units]
+    assert set(stages) == set(sp.CHAPTER_ARC_STAGES_BLOCK)
+    seen_order = []
+    for s in stages:
+        if not seen_order or seen_order[-1] != s:
+            seen_order.append(s)
+    assert seen_order == list(sp.CHAPTER_ARC_STAGES_BLOCK)
+
+
+def test_assign_chapter_arcs_first_unit_of_block_is_early_stage(tmp_path):
+    text = "=== BLOCK 1: Тест === " + "[pause]".join([f"Юнит {i}." for i in range(40)]) + "\n"
+    units = _make_units_from_script(tmp_path, text)
+    assert units[0]["arc_stage"] in ("заход-якорь", "постановка")
+
+
+def test_assign_chapter_arcs_last_unit_of_block_is_late_stage(tmp_path):
+    text = "=== BLOCK 1: Тест === " + "[pause]".join([f"Юнит {i}." for i in range(40)]) + "\n"
+    units = _make_units_from_script(tmp_path, text)
+    assert units[-1]["arc_stage"] in ("перенос-на-зрителя", "мостик")
+
+
+def test_assign_chapter_arcs_different_sections_get_different_chapter_ids(tmp_path):
+    text = ("=== HOOK === Хук.\n"
+            "=== BLOCK 1: А === Блок раз.\n"
+            "=== BLOCK 2: Б === Блок два.\n"
+            "=== FINAL === Финал.\n")
+    units = _make_units_from_script(tmp_path, text)
+    chapter_ids = [u["chapter_id"] for u in units]
+    assert chapter_ids == [0, 1, 2, 3]
+
+
+def test_assign_chapter_arcs_single_unit_block_gets_final_stage_of_arc():
+    units = [{"section": "BLOCK 1", "text": "x", "words": 1, "unit_id": "a#0"}]
+    sp.assign_chapter_arcs(units)
+    # Один юнит -> frac = 1/1 = 1.0 -> первая стадия с right-bound >= 1.0 -> "мостик"
+    assert units[0]["arc_stage"] == "мостик"
+    assert units[0]["tempo_mult"] == sp.ARC_STAGE_PROFILE["мостик"]["tempo_mult"]
+    assert units[0]["target_wpm"] == round(sp.BASE_WPM * sp.ARC_STAGE_PROFILE["мостик"]["tempo_mult"], 1)
+
+
+def test_assign_chapter_arcs_mutates_and_returns_same_list():
+    units = [{"section": "HOOK", "text": "x", "words": 1, "unit_id": "a#0"}]
+    result = sp.assign_chapter_arcs(units)
+    assert result is units
+    assert "arc_stage" in units[0]
+
+
+# ---------- validate_plan с новыми полями (chapter_id/arc_stage/tempo_mult) ----------
+
+def test_validate_plan_accepts_units_without_arc_fields():
+    # Обратная совместимость: план БЕЗ chapter/arc-полей всё ещё валиден
+    # (старый план, записанный до этой правки).
+    plan = {"units": [{"unit_id": "a#0", "section": "HOOK", "text": "x",
+                       "rhetorical_kind": "connective", "target_range_sec": [0.1, 0.5],
+                       "protected": False}]}
+    assert sp.validate_plan(plan) is True
+
+
+def test_validate_plan_rejects_unknown_arc_stage():
+    plan = {"units": [{"unit_id": "a#0", "section": "HOOK", "text": "x",
+                       "rhetorical_kind": "connective", "target_range_sec": [0.1, 0.5],
+                       "protected": False, "arc_stage": "несуществующая-стадия"}]}
+    with pytest.raises(ValueError):
+        sp.validate_plan(plan)
+
+
+def test_validate_plan_rejects_invalid_tempo_mult():
+    plan = {"units": [{"unit_id": "a#0", "section": "HOOK", "text": "x",
+                       "rhetorical_kind": "connective", "target_range_sec": [0.1, 0.5],
+                       "protected": False, "tempo_mult": 99.0}]}
+    with pytest.raises(ValueError):
+        sp.validate_plan(plan)
+
+
+def test_validate_plan_accepts_valid_arc_fields():
+    plan = {"units": [{"unit_id": "a#0", "section": "HOOK", "text": "x",
+                       "rhetorical_kind": "connective", "target_range_sec": [0.1, 0.5],
+                       "protected": False, "arc_stage": "hook", "tempo_mult": 1.05}]}
+    assert sp.validate_plan(plan) is True
+
+
+def test_main_populates_chapter_arc_fields_end_to_end(tmp_path):
+    script = tmp_path / "script.txt"
+    script.write_text(
+        "=== HOOK === Раз.[pause]Два.\n=== FINAL === Конец.\n", encoding="utf-8")
+    saved_argv = sys.argv
+    sys.argv = ["speech_planner.py", str(tmp_path)]
+    try:
+        rc = sp.main()
+    finally:
+        sys.argv = saved_argv
+    assert rc == 0
+    import json
+    with open(tmp_path / "media_plan" / "speech_plan.json", encoding="utf-8") as f:
+        plan = json.load(f)
+    assert all("arc_stage" in u for u in plan["units"])
+    assert all("chapter_id" in u for u in plan["units"])

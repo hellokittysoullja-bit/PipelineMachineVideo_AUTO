@@ -157,6 +157,100 @@ def tag_suggestion(block, kind):
     return None
 
 
+# --- Speech Direction Engine, Stage B-подготовка: план ПОДАЧИ ПО ГЛАВАМ,
+# а не только по отдельным юнитам. Один "chapter" = одна секция script.txt
+# (HOOK / BLOCK N / FINAL) — та же граница, что уже режет alignment.csv
+# (см. load_alignment_weights() в pipeline_smart.py: "по одному файлу на
+# КАЖДУЮ секцию"). Внутри BLOCK-секций arc_stage — прямая проекция уже
+# документированной структуры блока (ЧАСТЬ 9 CLAUDE.md: "заход-якорь →
+# постановка → слом → доказательство → вывод → перенос на зрителя →
+# мостик") на позицию юнита внутри секции (0..1 по номеру юнита, не по
+# словам — блок из многих коротких punchy-юнитов не должен схлопывать
+# все стадии в первые 10% просто потому что слов мало). HOOK/FINAL — не
+# 7-стадийная структура блока (в них другая, отдельно описанная логика:
+# 5 рычагов хука, "честный финал" без триад) — один stage на всю секцию.
+#
+# tempo_mult/energy_target — ПРИНЦИПИАЛЬНЫЕ дефолты, выведенные из текста
+# CLAUDE.md ("слом" — резче, "доказательство"/"вывод" — спокойные
+# объяснения, FINAL — тише), НЕ откалиброваны на реальном сгенерированном
+# аудио (в отличие от, например, CLIP_RELEVANCE_THRESHOLD в
+# pipeline_smart.py, которая калибрована на измеренных живых парах) —
+# честно так и помечено, чтобы не выдавать принцип за измерение.
+CHAPTER_ARC_STAGES_HOOK = ("hook",)
+CHAPTER_ARC_STAGES_FINAL = ("final",)
+CHAPTER_ARC_STAGES_BLOCK = (
+    "заход-якорь", "постановка", "слом", "доказательство",
+    "вывод", "перенос-на-зрителя", "мостик",
+)
+# Правая граница накопительной доли юнитов секции для каждой стадии.
+_BLOCK_STAGE_BOUNDARIES = [
+    ("заход-якорь", 0.10), ("постановка", 0.25), ("слом", 0.40),
+    ("доказательство", 0.70), ("вывод", 0.85), ("перенос-на-зрителя", 0.95),
+    ("мостик", 1.01),   # >1.0 — подчищает последний юнит от округления
+]
+ARC_STAGE_PROFILE = {
+    "hook":              {"tempo_mult": 1.05, "energy_target": "high"},
+    "заход-якорь":       {"tempo_mult": 1.00, "energy_target": "med"},
+    "постановка":        {"tempo_mult": 0.95, "energy_target": "med"},
+    "слом":              {"tempo_mult": 1.10, "energy_target": "high"},
+    "доказательство":    {"tempo_mult": 0.95, "energy_target": "med"},
+    "вывод":             {"tempo_mult": 0.95, "energy_target": "med"},
+    "перенос-на-зрителя": {"tempo_mult": 1.00, "energy_target": "med-high"},
+    "мостик":            {"tempo_mult": 1.00, "energy_target": "med"},
+    "final":             {"tempo_mult": 0.90, "energy_target": "low"},
+}
+BASE_WPM = 125.0   # ЧАСТЬ 9 CLAUDE.md — спокойный закадр, без тегов
+
+
+def _section_kind(section):
+    if section.startswith("HOOK"):
+        return "hook"
+    if section.startswith("FINAL"):
+        return "final"
+    return "block"
+
+
+def _arc_stage_for_position(frac, kind):
+    if kind == "hook":
+        return "hook"
+    if kind == "final":
+        return "final"
+    for name, bound in _BLOCK_STAGE_BOUNDARIES:
+        if frac <= bound:
+            return name
+    return "мостик"
+
+
+def assign_chapter_arcs(units):
+    """Добавляет к каждому unit: chapter_id (номер секции по порядку
+    первого появления — та же нумерация, что media_plan/alignment/NN.csv),
+    arc_stage, tempo_mult, energy_target. Мутирует units на месте и
+    возвращает их же (для удобства цепочки вызовов)."""
+    chapter_order = []
+    chapter_units = {}
+    for u in units:
+        sec = u["section"]
+        if sec not in chapter_units:
+            chapter_order.append(sec)
+            chapter_units[sec] = []
+        chapter_units[sec].append(u)
+
+    chapter_id_of = {sec: i for i, sec in enumerate(chapter_order)}
+    for sec, sec_units in chapter_units.items():
+        kind = _section_kind(sec)
+        n = len(sec_units)
+        for idx, u in enumerate(sec_units):
+            frac = (idx + 1) / n
+            stage = _arc_stage_for_position(frac, kind)
+            profile = ARC_STAGE_PROFILE[stage]
+            u["chapter_id"] = chapter_id_of[sec]
+            u["arc_stage"] = stage
+            u["tempo_mult"] = profile["tempo_mult"]
+            u["energy_target"] = profile["energy_target"]
+            u["target_wpm"] = round(BASE_WPM * profile["tempo_mult"], 1)
+    return units
+
+
 def build_units(blocks):
     units = []
     for i, b in enumerate(blocks):
@@ -214,6 +308,16 @@ def validate_plan(plan):
         tag_sug = u.get("tag_suggestion")
         if tag_sug is not None and tag_sug not in ALLOWED_TAGS:
             raise ValueError(f"speech_plan: tag_suggestion {tag_sug!r} вне разрешённого словаря ({ALLOWED_TAGS})")
+        # chapter_id/arc_stage — опциональны В ЧТЕНИИ (план, записанный ДО
+        # этого поля, не должен внезапно перестать проходить валидацию),
+        # но если поле есть — обязано быть валидным, не тихо неправильным.
+        if "arc_stage" in u:
+            all_stages = (set(CHAPTER_ARC_STAGES_HOOK) | set(CHAPTER_ARC_STAGES_FINAL)
+                          | set(CHAPTER_ARC_STAGES_BLOCK))
+            if u["arc_stage"] not in all_stages:
+                raise ValueError(f"speech_plan: неизвестный arc_stage {u['arc_stage']!r} у {u['unit_id']}")
+        if "tempo_mult" in u and not (0.5 <= u["tempo_mult"] <= 2.0):
+            raise ValueError(f"speech_plan: невалидный tempo_mult у {u['unit_id']}: {u['tempo_mult']}")
     return True
 
 
@@ -233,6 +337,10 @@ def render_annotated_text(units):
     for u in units:
         lines.append(f"[{u['unit_id']}] {u['text']}")
         notes = []
+        if u.get("arc_stage"):
+            notes.append(f"глава {u['chapter_id']}/{u['arc_stage']} "
+                         f"(темп x{u['tempo_mult']:.2f} ~{u['target_wpm']:.0f}сл/мин, "
+                         f"энергия {u['energy_target']})")
         if u["rhetorical_kind"] != "connective":
             notes.append(f"роль: {u['rhetorical_kind']} (цель {u['target_range_sec'][0]:.2f}"
                          f"-{u['target_range_sec'][1]:.2f}с)")
@@ -282,6 +390,7 @@ def main():
         return 1
 
     units = build_units(blocks)
+    assign_chapter_arcs(units)
     plan = {"units": units}
     try:
         validate_plan(plan)
