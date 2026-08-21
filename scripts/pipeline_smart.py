@@ -8,6 +8,7 @@ Usage: python scripts/pipeline_smart.py <video_dir>"""
 import concurrent.futures
 import csv
 import difflib
+import functools
 import glob
 import hashlib
 import json
@@ -1865,9 +1866,64 @@ def filter_alt_blocklist(photos):
 
 PHOTO_DEDUP_HAMMING = 6   # тот же порог, что в qc_report() — "заметно похоже"
 PHOTO_DEDUP_MAX_TRIES = 6 # сколько кандидатов реально СКАЧАТЬ и захэшировать, прежде чем сдаться
+DIRECTOR_MIN_POOL = 3   # Semantic Visual Director (scripts/visual_director.py) —
+                          # тот же смысл и то же значение, что visual_director.
+                          # DIRECTOR_MIN_POOL: без расширения пула Директору в
+                          # pexels_photo() часто буквально нечего ранжировать
+                          # (см. good_needed ниже). Отдельная константа здесь, а
+                          # не импорт из visual_director.py — тот модуль сам
+                          # импортирует pipeline_smart.py, обратный импорт создал
+                          # бы цикл.
 
 
-def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=None, target_luma=None):
+def _score_and_pick(candidates_info, director_score_fn=None):
+    """Чистая функция без сети/диска — построение и сравнение кортежей
+    ранжирования по УЖЕ ПОСЧИТАННЫМ метрикам кандидатов (см. цикл в
+    pexels_photo() ниже, который эти метрики считает и вызывает эту
+    функцию один раз после скачивания). Извлечена отдельно от pexels_photo()
+    именно чтобы тестироваться на синтетическом списке кандидатов, без
+    реальных файлов/сети — pexels_photo() до этого рефакторинга была
+    единственной core-функцией отбора медиа вообще без тестового покрытия.
+
+    candidates_info — список dict, каждый с готовыми числами:
+    path, p (сырой Pexels-объект), is_dup_free, size_ok, is_relevant,
+    aesthetic_val, luma_score, min_d.
+
+    Возвращает (base_winner, director_winner) — оба элемента
+    candidates_info (или None на пустом списке/если ни один кандидат не
+    улучшил стартовый счёт). base_winner — СЕГОДНЯШНИЙ 6-элементный
+    лексикографический кортеж (is_dup_free, size_ok, is_relevant,
+    aesthetic_val, luma_score, min_d), то же строгое ">" сравнение и тот же
+    порядок кандидатов, что был инлайн в pexels_photo() до этого
+    рефакторинга — при равенстве кортежей побеждает ПЕРВЫЙ встреченный
+    кандидат, не последний (важно для байт-в-байт совместимости).
+
+    director_winner считается, ТОЛЬКО если передан director_score_fn(path)
+    -> float (scripts/visual_director.py) — 7-элементный кортеж с extra-
+    осью СРАЗУ ПОСЛЕ relevance-гейта, ДО aesthetic (см. докстринг
+    scripts/visual_director.py: "подходит ли по роли/домену/повтору"
+    важнее "красиво ли", но relevance/dedup/size остаются гейтами, не
+    подвинуты). director_winner — None, если director_score_fn не
+    передан — вызывающий код (pexels_photo) тогда просто не считает вторую
+    ветвь вообще."""
+    base_best, base_score = None, (-1, -1, -1, -100.0, -1.0, -1)
+    dir_best, dir_score = None, (-1, -1, -1, -100.0, -100.0, -1.0, -1)
+    for c in candidates_info:
+        score = (c["is_dup_free"], c["size_ok"], c["is_relevant"],
+                  c["aesthetic_val"], c["luma_score"], c["min_d"])
+        if score > base_score:
+            base_best, base_score = c, score
+        if director_score_fn is not None:
+            extra = director_score_fn(c["path"])
+            dscore = (c["is_dup_free"], c["size_ok"], c["is_relevant"], extra,
+                       c["aesthetic_val"], c["luma_score"], c["min_d"])
+            if dscore > dir_score:
+                dir_best, dir_score = c, dscore
+    return base_best, dir_best
+
+
+def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=None, target_luma=None,
+                  director_score_fn=None, director_assist=False, director_report=None):
     """used_ids — множество ID уже показанных в этом ролике фото (мутируется на
     месте). Разные блоки часто ловят один и тот же тематический запрос — без
     этого им всем доставался бы top-1 результат, то есть одна и та же картинка
@@ -1896,7 +1952,20 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
     чья ЕСТЕСТВЕННАЯ яркость ближе к контексту — меньше нагрузки на синтетическую
     коррекцию film_look(brightness_bias), та зажата в ±0.035 и не всегда
     вытягивает разницу целиком. Не тратит дополнительные скачивания сверх уже
-    идущего анти-дубль перебора."""
+    идущего анти-дубль перебора.
+
+    director_score_fn/director_assist/director_report (опционально, Semantic
+    Visual Director — scripts/visual_director.py) — по умолчанию все None/
+    False, поведение байт-в-байт как без этой фичи. Если director_score_fn
+    задан, good_needed поднимается до DIRECTOR_MIN_POOL (Директору нужно
+    реально из чего выбирать, не один первый прошедший гейты кандидат — см.
+    докстринг visual_director.py про cost-tradeoff), а после скачивания пула
+    (см. _score_and_pick) считаются ДВА победителя параллельно на одном и
+    том же уже скачанном пуле — base (сегодняшний) и director (с extra-
+    осью). director_assist=False (shadow) — реально используется base;
+    True (assist) — director. director_report, если передан dict —
+    заполняется {"base_winner"/"director_winner": Pexels-ID или None,
+    "diverged": bool} для честного аудита независимо от director_assist."""
     global PEXELS_BROKEN
     cache = os.path.join(TEMP_FOLDER, "pexels_cache")
     os.makedirs(cache, exist_ok=True)
@@ -1970,7 +2039,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             # recent_sizes/luma/CLIP/эстетика — те же уже скачанные
             # кандидаты анти-дубля, никакого нового сетевого трафика ради
             # этой доп. проверки — переиспользуем то, что и так уже качаем.
-            best_path, best_score, good_seen = None, (-1, -1, -1, -100.0, -1.0, -1), 0
+            good_seen = 0
             # Без target_luma брейк на первом же "хорошем" кандидате, как раньше
             # (0 доп. скачиваний). С target_luma нужно сравнить МИНИМУМ 2 таких
             # кандидата, иначе яркостный критерий никогда не встретится с
@@ -1982,6 +2051,14 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             # а гейт (см. is_relevant ниже, часть условия break) — кандидат
             # без неё не считается "хорошим", даже если дубль-фри/размер ок.
             good_needed = 2 if target_luma is not None else 1
+            if director_score_fn is not None:
+                # Директору реально нужно из чего выбирать — иначе цикл
+                # часто останавливался бы на первом же прошедшем кандидате
+                # (good_needed=1) и extra-ось ни разу не встретила бы
+                # альтернативу (см. докстринг scripts/visual_director.py про
+                # честный cost-tradeoff расширения пула).
+                good_needed = max(good_needed, DIRECTOR_MIN_POOL)
+            candidates_info = []
             for p in candidates[:PHOTO_DEDUP_MAX_TRIES]:
                 trial = cf + f".trial_{p.get('id')}.jpg"
                 try:
@@ -2020,28 +2097,41 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                             luma_score = -abs(cand_luma - target_luma)
                     except Exception:
                         pass
-                score = (is_dup_free, size_ok, is_relevant, aesthetic_val, luma_score, min_d)
-                if score > best_score:
-                    if best_path and best_path != trial:
-                        try:
-                            os.remove(best_path)
-                        except OSError:
-                            pass
-                    best_path, best_score, pick = trial, score, p
-                elif trial != best_path:
-                    try:
-                        os.remove(trial)
-                    except OSError:
-                        pass
+                candidates_info.append({
+                    "path": trial, "p": p, "is_dup_free": is_dup_free, "size_ok": size_ok,
+                    "is_relevant": is_relevant, "aesthetic_val": aesthetic_val,
+                    "luma_score": luma_score, "min_d": min_d,
+                })
                 if is_dup_free and size_ok and is_relevant:
                     good_seen += 1
                     if good_seen >= good_needed:
                         break   # набрали, сколько нужно для честного сравнения — не жжём оставшиеся попытки
-            if best_path is None:
+            # _score_and_pick (см. выше) — чистое сравнение по уже скачанному
+            # пулу, вынесенное отдельно ради тестируемости. Файлы-неудачники
+            # раньше удалялись СРАЗУ по ходу цикла (экономия диска) — теперь
+            # удаляются один раз здесь, после того как известен и base-, и
+            # (если считался) director-победитель; PHOTO_DEDUP_MAX_TRIES=6,
+            # так что одновременно на диске лежит максимум 6 trial-файлов —
+            # пренебрежимо. Порядок выбора победителя от этого не меняется.
+            base_winner, director_winner = _score_and_pick(candidates_info, director_score_fn)
+            if director_report is not None:
+                director_report["base_winner"] = base_winner["p"].get("id") if base_winner else None
+                director_report["director_winner"] = director_winner["p"].get("id") if director_winner else None
+                director_report["diverged"] = bool(
+                    base_winner and director_winner and base_winner["path"] != director_winner["path"])
+            winner = director_winner if (director_assist and director_winner is not None) else base_winner
+            for c in candidates_info:
+                if winner is None or c["path"] != winner["path"]:
+                    try:
+                        os.remove(c["path"])
+                    except OSError:
+                        pass
+            if winner is None:
                 pick = candidates[0]
                 download(pick, cf)
             else:
-                os.replace(best_path, cf)
+                pick = winner["p"]
+                os.replace(winner["path"], cf)
         if used_ids is not None:
             used_ids.add(pick.get("id"))
         if used_hashes is not None:
@@ -4636,15 +4726,27 @@ def main():
     if os.environ.get("LOOK_MANAGEMENT_MODE", "off").strip().lower() in ("shadow", "assist"):
         import look_reference as look_ref  # noqa: F401
     look_cache_sig = _look_management_cache_signature(look_ref)
+    # Semantic Visual Director (scripts/visual_director.py) — тот же ленивый
+    # импорт по режиму, что look_ref выше (не тянуть CLIP-модель в процесс,
+    # если режим off). visual_director сам импортирует pipeline_smart (см.
+    # докстринг модуля) — это НЕ циклический импорт с точки зрения Python
+    # (мы импортируем visual_director уже ВНУТРИ выполнения main(), после
+    # того как pipeline_smart полностью загружен), тот же паттерн уже
+    # использует look_reference.py.
+    visual_director = None
+    if os.environ.get("VISUAL_DIRECTOR_MODE", "off").strip().lower() in ("shadow", "assist"):
+        import visual_director as visual_director  # noqa: F401
     used_photo_ids = set()   # общий на весь ролик — не даём одной фотке всплыть дважды
     used_video_ids = set()   # то же самое, отдельно для видео (разные ID-пространства)
     used_photo_hashes = []   # aHash уже отобранных фото — ловит визуальные дубли под РАЗНЫМИ ID (см. pexels_photo)
     recent_shot_sizes = []   # скользящее окно масштаба плана (wide/medium/close/detail) — см. estimate_shot_size
     recent_media_types = []   # скользящее окно фото/видео — content-aware чередование, см. main() ниже
+    recent_semantic_tags = []   # скользящее окно (domain, role) уже выбранных фото — см. visual_director.repetition_penalty
     stat_count = 0   # 2.2: номер плашки по счёту в ролике -> вариант оформления (chередуются по кругу)
     luma_ema = None   # для сглаживания скачков экспозиции между соседними склейками (см. measure_luma())
     look_report = {}   # индекс -> запись решения Look Management (каждый индекс, не только там, где сработало)
     look_state = None   # аналог luma_ema — {"delta","domain","reference_id"} между клипами (см. look_reference.EMPTY_STATE)
+    director_report = {}   # индекс -> {"base_winner","director_winner","diverged"} (см. visual_director_report.json)
     typewriter_click_times = []   # D4: абсолютные секунды щелчков клавиатуры на весь ролик
     hook_words = load_hook_word_timings(blocks, sub_starts, sub_baseline, real_weights)   # D2: пусто, если alignment.csv недоступен — тихий откат
     for i, (b, d) in enumerate(zip(blocks, durs)):
@@ -4739,7 +4841,26 @@ def main():
             continue
         photo = local_photo(i) if use_local else None
         video = None
+        # Semantic Visual Director — role/text_domain/director_score_fn
+        # существуют для этой итерации независимо от того, каким путём в
+        # итоге получено медиа (используются ниже при записи director_report),
+        # но САМИ СЧИТАЮТСЯ (text_domain_hint — CLIP-вызов) ТОЛЬКО когда
+        # реально есть шанс дойти до pexels_photo() — местный photo уже
+        # решённый блок (use_local) сюда вообще не заходит, счёт впустую не
+        # тратим (см. докстринг visual_director.py про cost-tradeoff).
+        director_role = None
+        director_text_domain = None
+        director_score_fn = None
+        director_entry = None
+        director_assist = visual_director is not None and visual_director.VISUAL_DIRECTOR_MODE == "assist"
         if not photo and use_pexels:
+            if visual_director is not None:
+                director_role = visual_director.functional_role(b, is_section_start)
+                director_text_domain, _ = visual_director.lr.text_domain_hint(b["text"])
+                director_score_fn = functools.partial(
+                    visual_director.compute_extra_score, role=director_role, block_text=b["text"],
+                    text_domain=director_text_domain, recent_semantic_tags=recent_semantic_tags)
+                director_entry = {}
             # Content-aware чередование вместо механического i%2 (ЧАСТЬ 14
             # раньше просто нечётные->фото/чётные->видео) — зритель
             # подсознательно считывает такую периодичность. Видео заказываем,
@@ -4767,10 +4888,14 @@ def main():
                 video = pexels_video(queries[i], i, used_ids=used_video_ids)
                 if not video:
                     photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
-                                      recent_sizes=recent_shot_sizes, target_luma=luma_ema)
+                                      recent_sizes=recent_shot_sizes, target_luma=luma_ema,
+                                      director_score_fn=director_score_fn, director_assist=director_assist,
+                                      director_report=director_entry)
             else:
                 photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
-                                      recent_sizes=recent_shot_sizes, target_luma=luma_ema)
+                                      recent_sizes=recent_shot_sizes, target_luma=luma_ema,
+                                      director_score_fn=director_score_fn, director_assist=director_assist,
+                                      director_report=director_entry)
                 if not photo and d >= MIN_CLIP + 1.0:
                     video = pexels_video(queries[i], i, used_ids=used_video_ids)
             # Раньше Pexels отключался навсегда после ЛЮБОГО промаха, включая
@@ -4786,9 +4911,33 @@ def main():
             render_manifest[i] = {"index": i, "status": "failed",
                                    "reason": "нет медиа (ни фото, ни видео)", "section": b["section"]}
             look_report[i] = {"decision": "skipped_no_media"}
+            director_report[i] = {"decision": "skipped_no_media"}
             continue
         recent_media_types.append("video" if video else "photo")
         del recent_media_types[:-6]
+        # Semantic Visual Director — аудит-трейл + скользящее окно
+        # (domain, role) для repetition_penalty. director_entry.get(
+        # "base_winner") — надёжный маркер того, что pexels_photo() реально
+        # дошёл до цикла скачивания/ранжирования (не кэш-хит, не local_photo,
+        # не video) — см. комментарий про director_entry=None по умолчанию
+        # выше. Домен победившего кадра считается ЗАНОВО, отдельным вызовом
+        # candidate_domain_for() на уже выбранном файле (не переносится из
+        # pexels_photo через report) — так pexels_photo остаётся семантически
+        # "не знающим", что такое домен, только считает extra_score.
+        if visual_director is None:
+            director_report[i] = {"decision": "skipped_disabled"}
+        elif video:
+            director_report[i] = {"decision": "skipped_video"}
+        elif director_entry is None or director_entry.get("base_winner") is None:
+            director_report[i] = {"decision": "skipped_not_scored"}
+        else:
+            director_entry["decision"] = "scored"
+            director_entry["role"] = director_role
+            director_entry["text_domain"] = director_text_domain
+            director_report[i] = director_entry
+            candidate_domain = visual_director.candidate_domain_for(photo)
+            recent_semantic_tags.append((candidate_domain, director_role))
+            del recent_semantic_tags[:-visual_director.REPETITION_WINDOW]
         # Непрерывность экспозиции: измеряем яркость ИМЕННО этого кадра,
         # сравниваем со скользящим средним последних клипов — если скачок
         # большой (сток из разных источников редко совпадает по свету),
@@ -5001,6 +5150,22 @@ def main():
         print(f"  Look Management: {cache_hits_skipped_analysis} клип(ов) пропущено анализом "
               f"(кэш из прошлого прогона) — для честного shadow/assist-прогона на этом эпизоде "
               f"очисти temp_smart/ и перезапусти.")
+
+    # Semantic Visual Director — аудит-трейл (см. scripts/visual_director.py).
+    # Тот же принцип, что look_manifest.json чуть выше: пустой/enabled=False
+    # отчёт при выключенной фиче — не тишина, честная запись "нечего сообщить".
+    director_manifest_path = os.path.join(VIDEO_FOLDER, "media_plan", "visual_director_report.json")
+    director_manifest_tmp = director_manifest_path + ".tmp"
+    director_scored = sum(1 for e in director_report.values() if e.get("decision") == "scored")
+    director_diverged = sum(1 for e in director_report.values() if e.get("diverged"))
+    with open(director_manifest_tmp, "w", encoding="utf-8") as f:
+        json.dump({"enabled": visual_director is not None,
+                    "mode": visual_director.VISUAL_DIRECTOR_MODE if visual_director is not None else "off",
+                    "scored": director_scored,
+                    "diverged_from_base": director_diverged,
+                    "clips": [director_report[i] for i in sorted(director_report)]},
+                   f, ensure_ascii=False, indent=2)
+    os.replace(director_manifest_tmp, director_manifest_path)
 
     # Жёсткий финальный гейт: цель не "никогда не упасть" (нечестное
     # обещание — сеть/диск/память могут отказать всегда), а чтобы одиночный

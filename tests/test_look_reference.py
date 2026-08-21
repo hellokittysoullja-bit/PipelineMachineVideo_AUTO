@@ -67,6 +67,37 @@ def test_classify_domain_none_when_margin_too_small(monkeypatch):
     assert margin == 0.0
 
 
+# ---------- text_domain_hint (через monkeypatch _domain_scores_from_text) ----------
+# Та же margin-gate логика, что classify_domain() выше, но текст-vs-текст —
+# добавлена для Semantic Visual Director (scripts/visual_director.py), нужен
+# домен ОЖИДАНИЯ по тексту фразы, для сравнения с доменом КАНДИДАТА.
+
+def test_text_domain_hint_none_when_clip_unavailable(monkeypatch):
+    monkeypatch.setattr(lr, "_domain_scores_from_text", lambda text: None)
+    domain, margin = lr.text_domain_hint("какой-то текст блока")
+    assert domain is None
+    assert margin == 0.0
+
+
+def test_text_domain_hint_picks_top_score_with_enough_margin(monkeypatch):
+    monkeypatch.setattr(lr, "_domain_scores_from_text", lambda text: {
+        "snow": 0.30, "night": 0.10, "museum_daylight": 0.05, "portrait": 0.02,
+        "urban": 0.01, "archive_bw": 0.0, "ai_illustration": -0.01, "battle": -0.02,
+    })
+    domain, margin = lr.text_domain_hint("метель замела деревню")
+    assert domain == "snow"
+    assert margin == pytest.approx(0.20)
+
+
+def test_text_domain_hint_none_when_margin_too_small(monkeypatch):
+    monkeypatch.setattr(lr, "_domain_scores_from_text", lambda text: {
+        "snow": 0.201, "night": 0.20, "museum_daylight": 0.05,
+    })
+    domain, margin = lr.text_domain_hint("неоднозначный текст")
+    assert domain is None
+    assert margin == 0.0
+
+
 # ---------- find_reference ----------
 
 def _ref(id_, domain, lab_mean, brightness=0.5, contrast=0.4, temperature=0.0, max_delta=None):

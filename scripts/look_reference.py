@@ -330,6 +330,54 @@ def classify_domain(image_path):
     return top_domain, margin
 
 
+def _domain_scores_from_text(text):
+    """То же самое, что _domain_scores(), но ТЕКСТ-vs-ТЕКСТ (сам текст
+    блока сценария против DOMAIN_PROMPTS), не изображение-vs-текст. Ни в
+    этом модуле, ни в pipeline_smart.py такой ветки раньше не было — везде
+    до сих пор CLIP вызывался только совместным image+text forward'ом
+    (см. clip_relevance()/_domain_scores() выше). model.get_text_features()
+    — реальный, документированный метод transformers.CLIPModel для
+    текстового-только эмбеддинга, тот же закэшированный get_clip_model(),
+    ноль новых зависимостей/загрузок модели — просто раньше не
+    использовался. Нужно для Semantic Visual Director (scripts/
+    visual_director.py) — домен ОЖИДАНИЯ по тексту фразы, для сравнения с
+    доменом КАНДИДАТА (classify_domain() на картинке)."""
+    if not pipeline_smart.CLIP_ENABLED or pipeline_smart.CLIP_BROKEN:
+        return None
+    try:
+        import torch
+        model, processor = pipeline_smart.get_clip_model()
+        domains = list(DOMAIN_PROMPTS.keys())
+        texts = [text] + list(DOMAIN_PROMPTS.values())
+        inputs = processor(text=texts, return_tensors="pt", padding=True, truncation=True)
+        with torch.no_grad():
+            txt_e = model.get_text_features(**inputs)
+        txt_e = txt_e / txt_e.norm(dim=-1, keepdim=True)
+        scores = (txt_e[0:1] @ txt_e[1:].T)[0].tolist()
+    except ImportError:
+        pipeline_smart.CLIP_BROKEN = True
+        return None
+    except Exception:
+        return None
+    return dict(zip(domains, scores))
+
+
+def text_domain_hint(text):
+    """(domain, margin) — та же margin-gate логика, что classify_domain(),
+    только по тексту фразы, не по картинке (см. _domain_scores_from_text()).
+    (None, 0.0) при недоступном CLIP или недостаточной уверенности."""
+    scores = _domain_scores_from_text(text)
+    if not scores:
+        return None, 0.0
+    ranked = sorted(scores.items(), key=lambda x: -x[1])
+    top_domain, top_score = ranked[0]
+    second_score = ranked[1][1] if len(ranked) > 1 else -1.0
+    margin = top_score - second_score
+    if margin < DOMAIN_MARGIN:
+        return None, 0.0
+    return top_domain, margin
+
+
 # ---------- Эталон ----------
 
 def _distance(frame_lab, frame_brightness, frame_contrast, frame_temp, ref):
