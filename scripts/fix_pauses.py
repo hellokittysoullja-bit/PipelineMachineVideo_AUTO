@@ -151,46 +151,113 @@ def _pause_jitter(ss, se):
     return (h % 1000) / 1000.0 * 2 * PAUSE_JITTER_SEC - PAUSE_JITTER_SEC
 
 
-def _keep_sec_for(ss, se):
-    """Сколько секунд тишины (ss, se) реально оставляем — гладкая кривая от
-    сырой длительности (_pause_curve) плюс небольшой детерминированный
-    джиттер (_pause_jitter), а не бинарный выбор между двумя константами
-    (см. комментарий у KEEP_MIN_SEC/KEEP_MAX_SEC выше). ЕДИНСТВЕННОЕ место,
-    где считается keep — и main() (реальная обрезка atrim), и save_cuts()
-    (что записать как вырезанное) обязаны звать именно эту функцию, а не
-    пересчитывать отдельно: иначе pause_cuts.json тихо соврёт про реально
-    оставленную длину — и вся синхронизация подписей хука (raw_to_real_time)
-    снова разъедется, только уже на новых данных."""
+SPEECH_TIMELINE_PATH_NAME = "speech_timeline.json"
+PROTECTED_OVERLAP_TOLERANCE = 0.35   # секунд — alignment (Cadence Validator) и
+                                       # ffmpeg silencedetect видят одну и ту же
+                                       # физическую тишину чуть по-разному
+                                       # (порог шума -30dB против точных
+                                       # посимвольных таймкодов), окна нужно
+                                       # сопоставлять с запасом, не 1-в-1
+
+
+def load_protected_windows(video_dir):
+    """[(raw_start, raw_end, target_kept_sec, unit_id), ...] из
+    media_plan/speech_timeline.json (см. scripts/speech_validator.py) —
+    паузы, которые Speech Planner поставил ОСОЗНАННО (reveal_hold перед
+    [climax], evidence_beat после [stat:...], закрывающий hold финальной
+    мысли и т.д.) и Cadence Validator подтвердил реальным alignment.
+    Нет файла (эпизод без Speech Director — большинство существующих
+    эпизодов) -> [] (тихий откат: вся логика ниже отрабатывает РОВНО как
+    раньше, ни одна пауза не считается protected, тот же принцип
+    безопасного отката, что и у остальных опциональных источников данных
+    пайплайна)."""
+    path = os.path.join(video_dir, "media_plan", SPEECH_TIMELINE_PATH_NAME)
+    if not os.path.exists(path):
+        return []
+    try:
+        data = json.load(open(path, encoding="utf-8"))
+        return [(float(w[0]), float(w[1]), float(w[2]), str(w[3]))
+                for w in data.get("protected_windows", [])]
+    except Exception as e:
+        print(f"  ВНИМАНИЕ: {path} битый/нечитаемый, protected-паузы игнорирую: {e}")
+        return []
+
+
+def _match_protected(ss, se, protected_windows):
+    """Находит protected-окно, физически совпадающее с обнаруженной
+    silencedetect-паузой (ss, se) — по перекрытию интервалов с допуском
+    PROTECTED_OVERLAP_TOLERANCE, а не точным равенством границ (alignment
+    и silencedetect двумя разными методами меряют одну и ту же тишину,
+    границы почти никогда не совпадают бит-в-бит). Первое совпадение по
+    порядку (список уже хронологический — юниты плана идут по тексту
+    сценария) — соседние protected-окна на практике не перекрываются
+    между собой, второго кандидата в реальном сценарии не бывает."""
+    for w_start, w_end, kept, unit_id in protected_windows:
+        if ss < w_end + PROTECTED_OVERLAP_TOLERANCE and se > w_start - PROTECTED_OVERLAP_TOLERANCE:
+            return kept, unit_id
+    return None, None
+
+
+def _keep_sec_for(ss, se, protected_windows=None):
+    """Сколько секунд тишины (ss, se) реально оставляем.
+
+    Если (ss, se) физически совпадает с protected-окном из
+    speech_timeline.json (Speech Director распорядился этой конкретной
+    паузой осознанно) — берём ТОЧНУЮ цель плана, БЕЗ гладкой кривой и БЕЗ
+    джиттера: оба существуют именно для пауз, у которых НЕТ режиссёрского
+    решения, и наложение джиттера поверх точно спланированной длины не
+    "оживляет" её, а портит точность (см. ЧАСТЬ протокола Speech Director).
+
+    Иначе — прежнее поведение: гладкая кривая от сырой длительности
+    (_pause_curve) плюс небольшой детерминированный джиттер (_pause_jitter),
+    safety net для ВСЕХ пауз, которые Speech Planner не запланировал (не
+    только "эпизод без Speech Director вообще", но и обычные connective-
+    паузы внутри эпизода С планом — тег есть, роль нейтральная, тут план
+    целиком доверяет прежней кривой).
+
+    ЕДИНСТВЕННОЕ место, где считается keep — и main() (реальная обрезка
+    atrim), и save_cuts() (что записать как вырезанное) обязаны звать
+    именно эту функцию с ОДНИМ И ТЕМ ЖЕ protected_windows: иначе
+    pause_cuts.json/speech_timeline.json тихо разойдутся по тому, что
+    реально вырезано — и вся синхронизация подписей хука снова разъедется,
+    только уже на новых данных."""
     raw_dur = se - ss
+    if protected_windows:
+        target, _unit_id = _match_protected(ss, se, protected_windows)
+        if target is not None:
+            return max(0.15, min(raw_dur, target))
     keep = _pause_curve(raw_dur) + _pause_jitter(ss, se)
     return max(0.15, min(raw_dur, keep))
 
 
-def save_cuts(video_dir, sil, src):
+def save_cuts(video_dir, sil, src, protected_windows=None):
     """Сохраняет РЕАЛЬНО вырезанные интервалы (сырое время audio.mp3) —
     только ту часть каждой тишины, что реально ушла (see _keep_sec_for —
-    короткие тишины и hold-паузы теряют разную долю) + отпечаток исходного
-    audio.mp3 (см. _audio_fingerprint). pipeline_smart.py читает этот файл,
-    чтобы ТОЧНО (не приближённо по тегам) пересчитать alignment.csv на
-    реальную обрезанную шкалу — см. raw_to_real_time()."""
+    protected-паузы, hold-паузы и короткие тишины теряют разную долю) +
+    отпечаток исходного audio.mp3 (см. _audio_fingerprint). pipeline_smart.py
+    читает этот файл, чтобы ТОЧНО (не приближённо по тегам) пересчитать
+    alignment.csv на реальную обрезанную шкалу — см. raw_to_real_time().
+    protected_windows — тот же список из load_protected_windows(), что и
+    в main(): ОБЯЗАН быть тем же самым, иначе pause_cuts.json запишет keep,
+    отличный от того, что реально вырезал atrim в main()."""
     # P2-9 (аудит звукового пайплайна): раньше округляли до 3 знаков (1мс) —
     # совпадало с :.3f в atrim/afade ниже, но обе точности были ГРУБЕЕ
     # семпла (при 48000Hz 1мс = 48 семплов). Подняли до 6 знаков (мкс) в
     # ОБОИХ местах разом (см. main() ниже) — записанное в pause_cuts.json
     # снова точно совпадает с тем, что реально режет ffmpeg, просто на
     # семпл-уровне, а не мс-уровне.
-    cuts = [[round(min(se, ss + _keep_sec_for(ss, se)), 6), round(se, 6)]
-            for ss, se in sil if se - min(se, ss + _keep_sec_for(ss, se)) > 0.001]
+    cuts = [[round(min(se, ss + _keep_sec_for(ss, se, protected_windows)), 6), round(se, 6)]
+            for ss, se in sil if se - min(se, ss + _keep_sec_for(ss, se, protected_windows)) > 0.001]
     # P1-15 (аудит звукового пайплайна): отдельно от cuts (вырезанное) —
     # СОХРАНЁННЫЕ окна тишины [сырой_старт, сколько_оставлено], нужны
     # pipeline_smart.py, чтобы дать подложке лёгкий "вздох" именно на
-    # паузах, реально удержанных надолго кривой _pause_curve (см.
-    # PAUSE_SWELL_MIN_KEEP_SEC в pipeline_smart.py — фильтрует по keep, а
-    # не по сырой длительности), не на каждом обычном вдохе TTS. Отдельный
-    # ключ, а не третий элемент
+    # паузах, реально удержанных надолго (плановых protected или кривой
+    # _pause_curve — см. PAUSE_SWELL_MIN_KEEP_SEC в pipeline_smart.py,
+    # фильтрует по keep, а не по сырой длительности), не на каждом обычном
+    # вдохе TTS. Отдельный ключ, а не третий элемент
     # в cuts — raw_to_real_time() распаковывает cuts строго как (a, b) пары
     # по всему файлу, менять эту форму не нужно ради нового потребителя.
-    pause_windows = [[round(ss, 6), round(_keep_sec_for(ss, se), 6)] for ss, se in sil]
+    pause_windows = [[round(ss, 6), round(_keep_sec_for(ss, se, protected_windows), 6)] for ss, se in sil]
     plan_dir = os.path.join(video_dir, "media_plan")
     os.makedirs(plan_dir, exist_ok=True)
     with open(os.path.join(plan_dir, "pause_cuts.json"), "w", encoding="utf-8") as f:
@@ -208,8 +275,12 @@ def main():
     total = duration(src)
     sil = detect_silences(src)
     loud = loudnorm_filter(measure_loudness(src))
+    protected_windows = load_protected_windows(video_dir)
+    if protected_windows:
+        print(f"  Speech Director: {len(protected_windows)} запланированных пауз защищено "
+              f"от гладкой кривой/джиттера (media_plan/speech_timeline.json)")
     if not sil:
-        save_cuts(video_dir, [], src)
+        save_cuts(video_dir, [], src, protected_windows)
         print("Длинных пауз не найдено — нормализую громкость.")
         r = subprocess.run(["ffmpeg", "-y", "-i", src, "-af", loud,
                             "-c:a", "flac", out],
@@ -225,8 +296,12 @@ def main():
     segments = []
     prev = 0.0
     long_holds = 0
+    protected_used = 0
     for ss, se in sil:
-        keep = _keep_sec_for(ss, se)
+        target, unit_id = _match_protected(ss, se, protected_windows) if protected_windows else (None, None)
+        keep = _keep_sec_for(ss, se, protected_windows)
+        if unit_id is not None:
+            protected_used += 1
         if keep >= LONG_HOLD_REPORT_SEC:
             long_holds += 1
         if ss > prev:
@@ -257,7 +332,7 @@ def main():
     if not parts:
         # все сегменты оказались короче 0.02с — склеивать нечего, ffmpeg бы
         # упал на concat=n=0; отдаём исходник без изменений (кроме громкости)
-        save_cuts(video_dir, [], src)
+        save_cuts(video_dir, [], src, protected_windows)
         print("Нечего склеивать — нормализую громкость исходника.")
         r = subprocess.run(["ffmpeg", "-y", "-i", src, "-af", loud,
                             "-c:a", "flac", out],
@@ -275,9 +350,10 @@ def main():
     if r.returncode != 0 or not os.path.exists(out):
         print("Ошибка ffmpeg:", r.stderr[-400:])
         return 1
-    save_cuts(video_dir, sil, src)
-    print(f"Готово: {out} | подрезано пауз: {len(sil)} (из них длинных hold-пауз: {long_holds}) | "
-          f"было {total:.1f}с → стало {duration(out):.1f}с")
+    save_cuts(video_dir, sil, src, protected_windows)
+    protected_note = f", из них по плану Speech Director: {protected_used}" if protected_windows else ""
+    print(f"Готово: {out} | подрезано пауз: {len(sil)} (из них длинных hold-пауз: {long_holds}"
+          f"{protected_note}) | было {total:.1f}с → стало {duration(out):.1f}с")
     return 0
 
 

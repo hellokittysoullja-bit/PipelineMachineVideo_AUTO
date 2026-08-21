@@ -401,3 +401,72 @@ def test_keep_sec_for_two_pauses_same_raw_duration_are_not_identical():
     a = fix_pauses._keep_sec_for(10.0, 11.4)
     b = fix_pauses._keep_sec_for(500.0, 501.4)
     assert a != b
+
+
+# ---------- fix_pauses: protected-паузы из speech_timeline.json (Speech Director) ----------
+
+def test_keep_sec_for_uses_curve_when_no_protected_windows():
+    # protected_windows=None (или []) -> поведение НЕ отличается от старого —
+    # ноль регресса для эпизодов без Speech Director.
+    a = fix_pauses._keep_sec_for(10.0, 11.4)
+    b = fix_pauses._keep_sec_for(10.0, 11.4, protected_windows=None)
+    c = fix_pauses._keep_sec_for(10.0, 11.4, protected_windows=[])
+    assert a == b == c
+
+
+def test_keep_sec_for_uses_exact_target_for_matched_protected_window():
+    windows = [(10.0, 11.4, 1.10, "BLOCK 2: РАЗОБЛАЧЕНИЕ#1")]
+    kept = fix_pauses._keep_sec_for(10.05, 11.35, protected_windows=windows)
+    assert abs(kept - 1.10) < 1e-9   # ТОЧНАЯ цель плана, не кривая/джиттер
+
+
+def test_keep_sec_for_protected_target_never_added_beyond_raw_duration():
+    # Цель плана длиннее, чем реально есть тишины — не изобретаем лишнее.
+    windows = [(10.0, 10.3, 1.40, "u#0")]
+    kept = fix_pauses._keep_sec_for(10.0, 10.3, protected_windows=windows)
+    assert kept <= 0.3 + 1e-9
+
+
+def test_keep_sec_for_falls_back_to_curve_for_unmatched_silence():
+    # protected_windows заданы, но эта конкретная тишина ни с одним окном не
+    # совпадает — обычная кривая+джиттер, как для эпизода без плана.
+    windows = [(500.0, 501.0, 1.10, "u#0")]
+    curve_only = fix_pauses._keep_sec_for(10.0, 11.4)
+    with_unrelated_plan = fix_pauses._keep_sec_for(10.0, 11.4, protected_windows=windows)
+    assert curve_only == with_unrelated_plan
+
+
+def test_match_protected_respects_tolerance_window():
+    windows = [(10.0, 11.0, 0.8, "u#0")]
+    # Небольшой сдвиг (silencedetect не даёт бит-в-бит те же границы, что
+    # посимвольный alignment) — всё ещё должен матчиться.
+    kept, unit_id = fix_pauses._match_protected(10.2, 10.9, windows)
+    assert unit_id == "u#0"
+    assert kept == 0.8
+
+
+def test_match_protected_ignores_far_away_silence():
+    windows = [(10.0, 11.0, 0.8, "u#0")]
+    kept, unit_id = fix_pauses._match_protected(500.0, 501.0, windows)
+    assert unit_id is None
+    assert kept is None
+
+
+def test_load_protected_windows_missing_file_returns_empty(tmp_path):
+    assert fix_pauses.load_protected_windows(str(tmp_path)) == []
+
+
+def test_load_protected_windows_reads_speech_timeline(tmp_path):
+    plan_dir = tmp_path / "media_plan"
+    plan_dir.mkdir()
+    (plan_dir / "speech_timeline.json").write_text(
+        '{"protected_windows": [[1.0, 2.0, 0.9, "HOOK#0"]]}', encoding="utf-8")
+    windows = fix_pauses.load_protected_windows(str(tmp_path))
+    assert windows == [(1.0, 2.0, 0.9, "HOOK#0")]
+
+
+def test_load_protected_windows_corrupt_file_returns_empty_not_crash(tmp_path):
+    plan_dir = tmp_path / "media_plan"
+    plan_dir.mkdir()
+    (plan_dir / "speech_timeline.json").write_text("{not valid json", encoding="utf-8")
+    assert fix_pauses.load_protected_windows(str(tmp_path)) == []
