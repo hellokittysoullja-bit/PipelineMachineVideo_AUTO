@@ -1880,17 +1880,10 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                     except Exception:
                         size_ok = 1
                 relevance = clip_relevance(trial, query)
-                is_relevant = 1 if (relevance is None or relevance >= CLIP_RELEVANCE_THRESHOLD) else 0
-                # 2.5-3a: доп. гейт для "собирательных" запросов (museum/
-                # exhibition/collection/...) — см. RISKY_GENERIC_TERMS.
-                # Кандидат обязан обгонять NEGATIVE_ANCHOR_PROMPT ("пустой
-                # интерьер/архитектура/окно") на RISKY_QUERY_MARGIN, иначе
-                # не считается релевантным — даже если формально прошёл
-                # порог по самому запросу.
-                if is_relevant and relevance is not None and is_risky_query(query):
-                    anchor_relevance = clip_relevance(trial, NEGATIVE_ANCHOR_PROMPT)
-                    if anchor_relevance is not None and (relevance - anchor_relevance) < RISKY_QUERY_MARGIN:
-                        is_relevant = 0
+                # Порог + risky-margin гейт (museum/exhibition/collection/... —
+                # см. RISKY_GENERIC_TERMS) — см. is_relevant_candidate(), та же
+                # функция, что проверяет golden-тест media-selection.
+                is_relevant = 1 if is_relevant_candidate(trial, query, relevance=relevance) else 0
                 # Эстетика — доп. измерение, НЕ повышает good_needed само по
                 # себе (в отличие от target_luma) — иначе каждый выбор фото
                 # тратил бы вдвое больше скачиваний/Pexels-трафика по
@@ -3146,6 +3139,26 @@ RISKY_QUERY_MARGIN = 0.03
 def is_risky_query(query):
     ql = query.lower()
     return any(term in ql for term in RISKY_GENERIC_TERMS)
+
+
+def is_relevant_candidate(image_path, query, relevance=None):
+    """Итоговое решение "релевантен ли кандидат query" — тот же порог +
+    risky-margin гейт, что раньше жил инлайном в цикле подбора фото (см.
+    main()/pexels_photo(), вызов ниже). Вынесено в отдельную функцию, чтобы
+    golden-тест (tests/test_media_selection_golden.py) гонял РЕАЛЬНУЮ
+    логику принятия решения через реальный clip_relevance(), а не свою
+    отдельную копию тех же трёх строк, которая могла бы молча разойтись
+    с рабочим кодом при следующей правке. relevance можно передать уже
+    посчитанным (вызывающий код часто уже считал его для других целей) —
+    иначе считается здесь же."""
+    if relevance is None:
+        relevance = clip_relevance(image_path, query)
+    is_relevant = relevance is None or relevance >= CLIP_RELEVANCE_THRESHOLD
+    if is_relevant and relevance is not None and is_risky_query(query):
+        anchor_relevance = clip_relevance(image_path, NEGATIVE_ANCHOR_PROMPT)
+        if anchor_relevance is not None and (relevance - anchor_relevance) < RISKY_QUERY_MARGIN:
+            is_relevant = False
+    return is_relevant
 
 
 # P2 (аудит "зерно vs частицы в мире"): часть стокового контента УЖЕ несёт

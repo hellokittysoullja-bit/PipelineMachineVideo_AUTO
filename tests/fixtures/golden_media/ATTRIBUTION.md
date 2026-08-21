@@ -1,0 +1,40 @@
+# Источники фикстур golden media-selection теста
+
+Все 4 исходных фото — реальные фотографии с Wikimedia Commons, лицензии
+разрешают переиспользование при указании авторства (нет CC0/PD — авторство
+обязательно). Уменьшены до max 768px по длинной стороне и пережаты (JPEG
+quality ~82) для размера в репозитории — содержание кадра не изменено.
+
+## sword.jpg
+- Оригинал: "Albion Cluny Medieval Sword 13"
+- Автор: Søren Niedziella (Дания)
+- Лицензия: CC BY 2.0
+- Источник: https://commons.wikimedia.org/wiki/File:Albion_Cluny_Medieval_Sword_13_(6092968660).jpg
+
+## stainedglass.jpg
+- Оригинал: "St Vitus Cathedral - Stained glass (retouch)"
+- Автор: Oryg. Pudelek, Mody. Albertus teolog
+- Лицензия: CC BY-SA 4.0
+- Источник: https://commons.wikimedia.org/wiki/File:St_Vitus_Cathedral_-_Stained_glass_(retouch).jpg
+
+## pizza.jpg
+- Оригинал: "Vegetarian Pizza"
+- Автор: Petar Milošević
+- Лицензия: CC BY-SA 4.0
+- Источник: https://commons.wikimedia.org/wiki/File:Vegetarian_Pizza.jpg
+
+## meeting.jpg
+- Оригинал: "Meeting British business representatives"
+- Автор: Foreign and Commonwealth Office (Great Britain)
+- Лицензия: OGL v1.0 (UK Open Government Licence)
+- Источник: https://commons.wikimedia.org/wiki/File:Meeting_British_business_representatives_(5430620349).jpg
+
+## sword_near_dup.jpg / sword_degraded.jpg
+Производные от sword.jpg (см. выше), сгенерированы локально в этом
+репозитории (лёгкий кроп 2% с краёв — имитация того же фото у другого
+стокового источника; и Gaussian blur — имитация плохого/размытого
+кандидата) — не самостоятельные внешние источники, лицензия та же, что
+у sword.jpg (CC BY 2.0, Søren Niedziella).
+
+Использование: только как тестовые фикстуры для CLIP-based media-selection
+теста (tests/test_media_selection_golden.py), не для производства видео.
