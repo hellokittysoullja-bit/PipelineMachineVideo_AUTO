@@ -58,8 +58,41 @@ PARALLAX_BROKEN = False   # взводится только на системн�
 # все доступные ядра сам). RENDER_POOL_WORKERS оставляет минимум 1 ядро
 # главному процессу (параллакс + оркестрация), не отправляет туда весь nproc.
 RENDER_POOL_ENABLED = os.environ.get("RENDER_PARALLEL", "1") != "0"
-RENDER_POOL_WORKERS = int(os.environ.get("RENDER_WORKERS", str(max(1, (os.cpu_count() or 4) - 1))))
 RENDER_FFMPEG_THREADS = int(os.environ.get("RENDER_FFMPEG_THREADS", "1"))
+# Отказоустойчивый рендер (см. также verify_clip/run_ffmpeg_with_retry выше):
+# жёсткий финальный гейт — если хоть один клип не принят, final.mp4 вообще
+# не собирается (см. main()). RENDER_STRICT_GATE=0 возвращает старое
+# поведение "лучше меньше клипов, чем сорванный рендер" для тех, кому это
+# осознанно нужно (например, ручная досборка позже).
+RENDER_STRICT_GATE = os.environ.get("RENDER_STRICT_GATE", "1") != "0"
+PAD_GAP_HARD_CAP_SEC = 1.0   # freeze-padding сверх этого — не округление xfade, а реальная потеря
+
+
+def _default_render_workers():
+    """CPU-aware пол уже был (nproc-1, минимум 1 ядро оставлен главному
+    процессу под параллакс/оркестрацию) — этого недостаточно на машине с
+    МНОГО ядер, но МАЛО RAM: N параллельных ffmpeg-процессов (каждый —
+    свой 8000x4500 холст под zoompan, см. kenburns()) может честно вызвать
+    OOM раньше, чем упрутся в CPU. Грубая (не Windows — Linux/macOS-only,
+    тот же принцип отката, что уже использует log_render_diagnostics)
+    оценка доступной памяти: ~700MB на воркер с запасом, не точная бухгалтерия,
+    а защита от самого частого правдоподобного сценария (мало RAM + много
+    ядер в облачном контейнере). Сбой определения ресурсов -> тихий откат
+    на прежний чисто CPU-based расчёт, ноль регресса."""
+    cpu_based = max(1, (os.cpu_count() or 4) - 1)
+    try:
+        with open("/proc/meminfo", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("MemAvailable:"):
+                    avail_mb = int(line.split()[1]) / 1024
+                    mem_based = max(1, int(avail_mb // 700))
+                    return max(1, min(cpu_based, mem_based))
+    except Exception:
+        pass
+    return cpu_based
+
+
+RENDER_POOL_WORKERS = int(os.environ.get("RENDER_WORKERS", str(_default_render_workers())))
 
 VIDEO_FOLDER = sys.argv[1] if len(sys.argv) > 1 else os.getcwd()
 SCRIPT_FILE = os.path.join(VIDEO_FOLDER, "script.txt")
@@ -2719,6 +2752,121 @@ def finalize_render(tmp, out, ok):
     return False
 
 
+# --- Отказоустойчивый рендер клипа: код возврата ffmpeg сам по себе НЕ
+# гарантирует, что записанный файл реально того же качества/длины, что
+# заказано (редкий, но реальный класс сбоя — процесс отчитался успехом на
+# усечённом/битом выводе). verify_clip() — независимая от кода возврата
+# проверка через ffprobe; run_ffmpeg_with_retry() — несколько попыток одной
+# и той же команды с верификацией после каждой, транзиентный сбой (диск,
+# память, гонка) часто не повторяется на следующей попытке.
+CLIP_VERIFY_TOLERANCE_SEC = 0.25   # допуск между заказанной и фактической длительностью клипа
+RENDER_RETRY_ATTEMPTS = max(1, int(os.environ.get("RENDER_RETRY_ATTEMPTS", "3")))
+RENDER_RETRY_BACKOFF_SEC = 1.5
+
+
+def render_timeout_sec(dur):
+    """Таймаут на ОДНУ попытку рендера клипа длительностью dur секунд.
+    РЕАЛЬНЫЙ, пойманный вживую при разработке этого модуля случай: ffmpeg
+    `-loop 1 -i <битый/усечённый файл>` не падает с ошибкой декода — он
+    ВИСНЕТ БЕСКОНЕЧНО (проверено напрямую: процесс пришлось убивать по
+    внешнему timeout, ни строчки вывода за 10+ секунд). Без явного таймаута
+    ретрай вообще не срабатывает — первая же попытка никогда не возвращает
+    управление, чтобы её можно было повторить.
+    Плоский пол 30с ("15x реального времени клипа") оказался НЕВЕРНЫМ на
+    практике: под реальной нагрузкой пула воркеров (RENDER_POOL_WORKERS,
+    несколько ffmpeg с тяжёлым filter_complex — scale до 8000x4500, gblur,
+    deband, unsharp — одновременно; -threads 1 ограничивает только
+    энкодер, НЕ фильтр-граф — filter_complex_threads отдельный флаг, тоже
+    не выставлен) короткие (~1-2с) под-катные клипы ловили ложный таймаут
+    под реальным контеншном. Плоский подъём пола (проверено: 180с) чинил
+    это, но ломал другую сторону — тест на реальное бесконечное
+    зависание (битый файл, RENDER_PARALLEL=0, один воркер, contention=1)
+    честно ждал все 180с на одну заведомо безнадёжную попытку вместо
+    прежних быстрых 30с. Обе цифры были правильными каждая для своего
+    сценария — но врозь, не как одна константа. Правильный сигнал уже
+    существует в коде: RENDER_POOL_ENABLED/RENDER_POOL_WORKERS. Пол
+    масштabируется контеншном пула, а не берётся с потолка одним числом
+    для всех режимов: при выключенном пуле (RENDER_PARALLEL=0, как в
+    последовательном рендере) contention=1 -> те же 30с, что и были
+    (не трогаем то, что уже подтверждено рабочим); при N воркерах в
+    пуле — 30с*N, тот же принцип, которым уже руководствуется
+    _default_render_workers() (нагрузка растёт вместе с числом
+    параллельных ffmpeg). Проверено вживую на 4-ядерной машине с
+    RENDER_POOL_WORKERS=3 (90с пол) — реальный прогон 4 клипов проходит
+    с первой попытки на каждый клип, суммарно на весь пул 73.8с."""
+    contention = RENDER_POOL_WORKERS if RENDER_POOL_ENABLED else 1
+    return max(30 * contention, dur * 15 * contention)
+
+
+def verify_clip(path, expected_dur, tolerance=CLIP_VERIFY_TOLERANCE_SEC):
+    """ffprobe-верификация уже отрендеренного клипа — единственный источник
+    правды о том, что реально записано на диск, независимый от кода
+    возврата ffmpeg. Возвращает (ok, reason, actual_dur|None)."""
+    try:
+        r = subprocess.run(["ffprobe", "-v", "quiet", "-print_format", "json",
+                            "-show_format", "-show_streams", path],
+                           capture_output=True, text=True, timeout=20)
+        if r.returncode != 0:
+            return False, "ffprobe не смог прочитать файл", None
+        data = json.loads(r.stdout)
+        if not any(s.get("codec_type") == "video" for s in data.get("streams", [])):
+            return False, "в файле нет видеопотока", None
+        actual_dur = float(data["format"]["duration"])
+        if actual_dur < max(0.1, expected_dur - tolerance):
+            return False, f"длительность {actual_dur:.2f}с короче заказанной {expected_dur:.2f}с", actual_dur
+        return True, "ok", actual_dur
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}", None
+
+
+def run_ffmpeg_with_retry(build_cmd, tmp_out, expected_dur, label=""):
+    """Прогоняет build_cmd() (callable без аргументов — каждый вызов строит
+    и исполняет НОВУЮ ffmpeg-команду в tmp_out, возвращает CompletedProcess)
+    до RENDER_RETRY_ATTEMPTS раз. После КАЖДОГО ненулевого-кода-возврата
+    успеха дополнительно проверяет реальный файл через verify_clip() —
+    returncode==0 сам по себе недостаточен (см. комментарий у
+    CLIP_VERIFY_TOLERANCE_SEC). Систематический сбой (битый вход, кодек)
+    повторится тем же образом на всех попытках и честно вернёт (False,
+    причина); транзиентный (гонка, нехватка ресурсов в моменте) часто
+    лечится самим повтором. Возвращает (ok, reason)."""
+    last_reason = "неизвестная ошибка"
+    for attempt in range(1, RENDER_RETRY_ATTEMPTS + 1):
+        if os.path.exists(tmp_out):
+            try:
+                os.remove(tmp_out)
+            except OSError:
+                pass
+        try:
+            r = build_cmd()
+        except subprocess.TimeoutExpired:
+            # РЕАЛЬНЫЙ случай, пойманный при разработке (см. render_timeout_sec):
+            # ffmpeg на битом/усечённом входе не падает с ошибкой декода —
+            # виснет БЕСКОНЕЧНО. Без этого перехвата TimeoutExpired улетел бы
+            # наружу и уронил бы весь рендер (или воркер пула), а не дал
+            # честное "не получилось, пробуем ещё раз/сдаёмся".
+            last_reason = f"таймаут ({render_timeout_sec(expected_dur):.0f}с) — процесс завис"
+            r = None
+        except Exception as e:
+            last_reason = f"{type(e).__name__}: {e}"
+            r = None
+        if r is None:
+            pass   # уже записали last_reason выше
+        elif r.returncode != 0:
+            stderr_tail = (r.stderr or "")[-200:] if hasattr(r, "stderr") else ""
+            last_reason = f"ffmpeg вышел с кодом {r.returncode}: {stderr_tail}"
+        else:
+            ok, reason, _ = verify_clip(tmp_out, expected_dur)
+            if ok:
+                if attempt > 1:
+                    print(f"  [{label}] ok с {attempt}-й попытки")
+                return True, "ok"
+            last_reason = reason
+        if attempt < RENDER_RETRY_ATTEMPTS:
+            print(f"  [{label}] попытка {attempt}/{RENDER_RETRY_ATTEMPTS} не удалась ({last_reason}), повтор...")
+            time.sleep(RENDER_RETRY_BACKOFF_SEC)
+    return False, last_reason
+
+
 def atomic_url_download(req, dest, timeout):
     """Тот же принцип, что render_tmp_path/finalize_render, но для скачки
     стокового медиа (pexels_photo/pexels_video) — реальный баг, пойманный
@@ -2929,16 +3077,21 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
         if ffmpeg_threads:
             cmd += ["-threads", str(ffmpeg_threads)]
         cmd += [tmp_out]
-        return subprocess.run(cmd, capture_output=True, text=True)
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=render_timeout_sec(dur))
 
+    label = os.path.basename(out)
     if vf_overlay:
-        r = render(vf_overlay)
-        if r.returncode == 0:
+        ok, reason = run_ffmpeg_with_retry(lambda: render(vf_overlay), tmp_out, dur, label)
+        if ok:
             return finalize_render(tmp_out, out, True)
         # Титр/плашка (drawtext/шрифт) — не повод терять весь кадр: некоторые
-        # сборки ffmpeg собраны без drawtext вообще. Откат на версию без них.
-        print(f"  титр/плашка не встали ({os.path.basename(out)}), рисую без них: {r.stderr[-200:]}")
-    ok = render(vf_base).returncode == 0
+        # сборки ffmpeg собраны без drawtext вообще. Откат на версию без них
+        # (тоже с ретраем/верификацией — сбой мог быть транзиентным, а не
+        # именно про drawtext).
+        print(f"  титр/плашка не встали ({label}): {reason} — рисую без них")
+    ok, reason = run_ffmpeg_with_retry(lambda: render(vf_base), tmp_out, dur, label)
+    if not ok:
+        print(f"  [{label}] рендер не удался после {RENDER_RETRY_ATTEMPTS} попыток: {reason}")
     return finalize_render(tmp_out, out, ok)
 
 
@@ -3357,6 +3510,16 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
                   f"{proc.stderr.read().decode(errors='replace')[-200:]}")
             finalize_render(tmp_out, out, False)
             return False
+        # Без ретрая здесь намеренно — покадровый python-цикл с depth-моделью
+        # на порядок дороже по времени, чем zoompan-версия, а у вызывающего
+        # кода (main()) УЖЕ есть готовый fallback на дешёвый kenburns() при
+        # False. Достаточно честно вернуть False на битом файле — верификация
+        # ffprobe тут заменяет ретрай, не дублирует его.
+        ok, reason, _ = verify_clip(tmp_out, dur)
+        if not ok:
+            print(f"  параллакс-файл не прошёл проверку ({os.path.basename(out)}): {reason}")
+            finalize_render(tmp_out, out, False)
+            return False
         return finalize_render(tmp_out, out, True)
     except Exception as e:
         print(f"  параллакс сорвался ({os.path.basename(out)}): {type(e).__name__} {e}")
@@ -3561,10 +3724,12 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
         if ffmpeg_threads:
             cmd += ["-threads", str(ffmpeg_threads)]
         cmd += [tmp_out]
-        r = subprocess.run(cmd, capture_output=True, text=True)
-        if r.returncode == 0:
+        ok, reason = run_ffmpeg_with_retry(
+            lambda: subprocess.run(cmd, capture_output=True, text=True, timeout=render_timeout_sec(dur)),
+            tmp_out, dur, os.path.basename(out))
+        if ok:
             return finalize_render(tmp_out, out, True)
-        print(f"  speed ramp не встал на видео ({os.path.basename(out)}), рисую без ramp: {r.stderr[-200:]}")
+        print(f"  speed ramp не встал на видео ({os.path.basename(out)}): {reason} — рисую без ramp")
 
     vf_base = scale_crop
     setpts_factor = None
@@ -3597,14 +3762,17 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
         if ffmpeg_threads:
             cmd += ["-threads", str(ffmpeg_threads)]
         cmd += [tmp_out]
-        return subprocess.run(cmd, capture_output=True, text=True)
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=render_timeout_sec(dur))
 
+    label = os.path.basename(out)
     if vf_overlay:
-        r = render(vf_overlay)
-        if r.returncode == 0:
+        ok, reason = run_ffmpeg_with_retry(lambda: render(vf_overlay), tmp_out, dur, label)
+        if ok:
             return finalize_render(tmp_out, out, True)
-        print(f"  титр/плашка не встали на видео ({os.path.basename(out)}), рисую без них: {r.stderr[-200:]}")
-    ok = render(vf_base).returncode == 0
+        print(f"  титр/плашка не встали на видео ({label}): {reason} — рисую без них")
+    ok, reason = run_ffmpeg_with_retry(lambda: render(vf_base), tmp_out, dur, label)
+    if not ok:
+        print(f"  [{label}] рендер видео не удался после {RENDER_RETRY_ATTEMPTS} попыток: {reason}")
     return finalize_render(tmp_out, out, ok)
 
 
@@ -4303,6 +4471,7 @@ def main():
     clips, clip_durs, clip_sections, clip_blocks = [], [], [], []
     missing = []   # индексы блоков, для которых не нашлось ни фото, ни видео
     media_log = []   # (индекс, путь_к_фото) — для QC-проверки на похожие кадры в конце
+    render_manifest = {}   # индекс -> статус (ok/failed/skipped-no-media), для резюме/диагностики
     zoom_hist, pan_hist = [], []
     # Пул на kenburns()/video_render() — НЕ на parallax_kenburns() (та
     # остаётся последовательной в этом же процессе, см. комментарий у
@@ -4376,6 +4545,19 @@ def main():
             f"{d:.3f}|{title}|{stat}|{stat_variant}|{b['section']}|{queries[i]}|{stat_delay:.3f}|"
             f"{captions}".encode()).hexdigest()[:8]
         out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}_{params_hash}.mp4")
+        if os.path.exists(out) and not verify_clip(out, d)[0]:
+            # Кэш раньше доверял голому os.path.exists() — обрезанный/битый
+            # клип от прошлого убитого прогона (SIGKILL/OOM ровно так уже
+            # падал многочасовой рендер, см. render_tmp_path()) молча
+            # принимался бы за готовый на следующем запуске. Теперь огрызок
+            # чистится и падает в обычный (не кэш-хит) путь ниже — само-
+            # исцеляется повторным рендером вместо того, чтобы либо портить
+            # ролик, либо требовать ручной чистки temp_smart/.
+            print(f"  [{i+1}] кэш битый (не прошёл verify_clip), перерендерю")
+            try:
+                os.remove(out)
+            except OSError:
+                pass
         if os.path.exists(out):
             # РЕАЛЬНЫЙ баг, пойманный вживую: раньше кэш-хит уходил в clips
             # СРАЗУ здесь, по ходу цикла, а промах кэша (ниже) — только В
@@ -4440,6 +4622,8 @@ def main():
         if not photo and not video:
             print(f"  [{i+1}] нет медиа")
             missing.append(i + 1)
+            render_manifest[i] = {"index": i, "status": "failed",
+                                   "reason": "нет медиа (ни фото, ни видео)", "section": b["section"]}
             continue
         recent_media_types.append("video" if video else "photo")
         del recent_media_types[:-6]
@@ -4582,12 +4766,47 @@ def main():
             clip_blocks.append(job["block"])
             if not job["video"] and job["photo"]:
                 media_log.append((job["i"], job["photo"]))
+            render_manifest[job["i"]] = {"index": job["i"], "status": "ok", "path": job["out"],
+                                          "section": job["section"], "duration": job["d"],
+                                          "kind": "video" if job["video"] else "photo"}
         else:
             missing.append(job["i"] + 1)
+            render_manifest[job["i"]] = {"index": job["i"], "status": "failed",
+                                          "reason": "см. консольный лог выше (run_ffmpeg_with_retry) — "
+                                                    f"после {RENDER_RETRY_ATTEMPTS} попыток",
+                                          "section": job["section"], "duration": job["d"]}
     if render_pool:
         render_pool.shutdown(wait=True)
     log_render_diagnostics("render_done")
     print(f"  Рендер завершён: {len(clips)}/{len(blocks)} клипов")
+
+    manifest_path = os.path.join(VIDEO_FOLDER, "media_plan", "render_manifest.json")
+    os.makedirs(os.path.dirname(manifest_path), exist_ok=True)
+    manifest_tmp = manifest_path + ".tmp"
+    with open(manifest_tmp, "w", encoding="utf-8") as f:
+        json.dump({"total_blocks": len(blocks), "ok": len(clips), "missing": missing,
+                    "clips": [render_manifest[i] for i in sorted(render_manifest)]},
+                   f, ensure_ascii=False, indent=2)
+    os.replace(manifest_tmp, manifest_path)
+
+    # Жёсткий финальный гейт: цель не "никогда не упасть" (нечестное
+    # обещание — сеть/диск/память могут отказать всегда), а чтобы одиночный
+    # сбой не портил ГОТОВЫЙ ролик молча. Раньше пропущенный клип просто
+    # уходил в missing, а final.mp4 всё равно собирался с меньшим числом
+    # клипов и растянутым freeze-кадром на месте пропуска (см.
+    # pad_to_length ниже) — ненулевой код возврата был единственным
+    # признаком проблемы, и его легко не заметить в конце многочасового
+    # лога. RENDER_STRICT_GATE=0 возвращает старое поведение для тех, кому
+    # осознанно нужна частичная сборка (ручная досборка позже).
+    if missing and RENDER_STRICT_GATE:
+        print(f"\nСТОП: {len(missing)} клип(ов) не приняты — final.mp4 НЕ собран "
+              f"(RENDER_STRICT_GATE=1). Причины — {manifest_path}:")
+        for i in missing:
+            entry = render_manifest.get(i - 1, {})
+            print(f"  [{i}] {entry.get('reason', 'причина не зафиксирована')}")
+        print("Перезапусти прогон — уже готовые клипы (atomic-кэш) переиспользуются, "
+              "перерендерятся только пропущенные.")
+        return 1
 
     if not clips:
         print("Нет клипов")
@@ -4607,6 +4826,28 @@ def main():
             print("Склейка:", r.stderr[-300:])
             return 1
     merged, pad_gap = pad_to_length(merged, total, TEMP_FOLDER)
+    # Freeze-padding существует ТОЛЬКО чтобы закрыть маленький остаточный
+    # зазор от xfade-округления (обычно доли секунды) — не как приёмный
+    # механизм для реально пропущенного клипа. Раньше большой pad_gap
+    # (например, вся длительность потерянного кадра) просто ронял код
+    # возврата в конце main(), но final.mp4 всё равно ЗАПИСЫВАЛСЯ с
+    # замороженным хвостом — ненулевой exit code легко потерять в конце
+    # многочасового лога, а файл выглядит "готовым". Это ПРОВЕРКА ЦЕЛОСТНОСТИ:
+    # ловит ЛЮБОЕ необъяснённое расхождение длительности (включая
+    # гипотетическую ошибку расчёта xfade-бюджета), не только missing —
+    # но именно НЕОБЪЯСНЁННОЕ. Если missing уже непустой и мы вообще
+    # добрались сюда, значит RENDER_STRICT_GATE=0 (иначе гейт выше уже
+    # вернул бы 1) — пользователь осознанно попросил старое поведение
+    # "частичная сборка вместо срыва", и pad_gap тут ПОЛНОСТЬЮ объясняется
+    # длительностью уже залогированных пропущенных клипов, а не скрытым
+    # багом бюджета xfade. Дважды наказывать за один и тот же осознанный
+    # пропуск (сначала пометить missing, потом всё равно не собрать файл)
+    # значит не давать lenient-режиму вообще ничего лениться.
+    if pad_gap > PAD_GAP_HARD_CAP_SEC and not (missing and not RENDER_STRICT_GATE):
+        print(f"\nСТОП: заморозка в хвосте {pad_gap:.1f}с превышает допуск "
+              f"{PAD_GAP_HARD_CAP_SEC:.1f}с — final.mp4 НЕ собран (расчёт длительностей "
+              f"разошёлся сильнее, чем можно списать на округление xfade).")
+        return 1
 
     # -shortest САМ ПО СЕБЕ недостаточен с -c:v copy: копирование пакетов
     # режет только по границам GOP исходного клипа, а не по факту конца
@@ -4723,12 +4964,13 @@ def main():
     # лога и не даём коду возврата соврать, что всё чисто.
     status += f" | QC: {len(dupes)} похожих пар кадров — проверь глазами" if dupes else ""
     # Freeze-padding (2.4) — estimate_xfade_budget() должен был свести его
-    # к нулю почти всегда; если он всё же сработал заметно (>1с), это
-    # видно глазом на экране (замёрзший кадр без причины) — та же
-    # честная видимость, не молчаливое "ГОТОВО".
-    status += f" | ЗАМОРОЗКА {pad_gap:.1f}с в хвосте — расчёт длительностей разошёлся" if pad_gap > 1.0 else ""
+    # к нулю почти всегда; заметный (>PAD_GAP_HARD_CAP_SEC) случай уже
+    # остановил бы сборку выше (см. проверку сразу после pad_to_length) —
+    # если мы вообще добрались сюда, pad_gap заведомо <= допуска, но мелкий
+    # ненулевой остаток всё ещё стоит показать честно, не молчать про него.
+    status += f" | заморозка в хвосте: {pad_gap:.2f}с (в пределах допуска)" if pad_gap > 0.1 else ""
     print(f"\nГОТОВО: {OUTPUT_FILE} ({mb:.0f} MB, {total/60:.1f} мин, {len(clips)} кадров){status}")
-    return 1 if (missing or dupes or pad_gap > 1.0) else 0
+    return 1 if (missing or dupes) else 0
 
 
 if __name__ == "__main__":
