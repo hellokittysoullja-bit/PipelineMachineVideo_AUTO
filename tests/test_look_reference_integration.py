@@ -59,6 +59,52 @@ def test_kenburns_look_filter_none_is_unaffected(tmp_path):
     assert os.path.exists(out)
 
 
+def test_shadow_mode_end_to_end_never_reaches_kenburns_render(tmp_path, monkeypatch):
+    """Сквозной путь: реальный look_reference.look_correction_filter() в
+    режиме shadow (с эталоном, который РЕАЛЬНО матчится и был бы применён в
+    assist) -> filt=None -> pipeline_smart.kenburns(look_filter=filt) ->
+    рендер идентичен рендеру без Look Management вообще. Не изолированный
+    юнит-тест orchestration-логики (это уже покрыто test_look_reference.py),
+    а доказательство, что None из shadow действительно доходит до
+    kenburns() и ничего не меняет в реальном вызове ffmpeg."""
+    import look_reference as lr
+
+    photo = str(tmp_path / "photo.jpg")
+    _make_photo(photo)
+    levels, wb = pipeline_smart.measure_levels(photo, want_wb=True)
+    frame_lab = lr._srgb_to_lab(wb)
+
+    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "shadow")
+    monkeypatch.setattr(lr, "load_lookbook", lambda: {"references": [
+        {"id": "test_ref", "domain": "snow", "lab_mean": list(frame_lab),
+         "brightness": 0.5, "contrast": 0.4, "temperature": 0.0,
+         "max_correction_delta": [10, 8, 8]},
+    ]})
+    monkeypatch.setattr(lr, "classify_domain", lambda path: ("snow", 0.5))
+
+    filt, report, state = lr.look_correction_filter(
+        photo, levels, wb, has_face=False, scene_boundary=True)
+    assert filt is None
+    assert report["decision"] == "shadow_would_apply"   # ПОДТВЕРЖДЕНО: сработало бы в assist
+
+    out_shadow = str(tmp_path / "clip_shadow.mp4")
+    out_plain = str(tmp_path / "clip_plain.mp4")
+    ok1 = pipeline_smart.kenburns(photo, out_shadow, dur=1.0, section="BODY", look_filter=filt)
+    ok2 = pipeline_smart.kenburns(photo, out_plain, dur=1.0, section="BODY", look_filter=None)
+    assert ok1 is True and ok2 is True
+    # Пиксели, не сырые байты контейнера — muxer-метаданные (не пиксели)
+    # между двумя независимыми вызовами ffmpeg не обязаны совпадать бит-в-
+    # бит, реальный сигнал "shadow не просочился" — идентичное изображение.
+    probe_shadow = str(tmp_path / "probe_shadow.png")
+    probe_plain = str(tmp_path / "probe_plain.png")
+    for src, dst in ((out_shadow, probe_shadow), (out_plain, probe_plain)):
+        subprocess.run(["ffmpeg", "-y", "-i", src, "-frames:v", "1", dst],
+                        capture_output=True, check=True)
+    arr_shadow = np.asarray(Image.open(probe_shadow).convert("RGB"))
+    arr_plain = np.asarray(Image.open(probe_plain).convert("RGB"))
+    assert np.array_equal(arr_shadow, arr_plain)
+
+
 def test_kenburns_garbage_look_filter_makes_ffmpeg_fail():
     """Отрицательный контроль: если бы look_filter тихо ИГНОРИРОВАЛСЯ (не
     реально доезжал до ffmpeg-команды), заведомо невалидный фрагмент не

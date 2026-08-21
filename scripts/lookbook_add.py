@@ -6,9 +6,16 @@ scripts/look_reference.py) — вручную, одним реально одо�
 ошибка, за которую критиковали _scene_bias: коррекция без внешней,
 реально проверенной цели).
 
-Usage: python scripts/lookbook_add.py <photo_path> --domain <domain> [--id <id>]
+Usage: python scripts/lookbook_add.py <photo_path> --domain <domain> [--id <id>] [--force]
 Домены — см. look_reference.DOMAIN_PROMPTS (snow/night/museum_daylight/
 portrait/urban/archive_bw/ai_illustration/battle).
+
+channel_id (см. look_reference.CHANNEL_ID/.env CHANNEL_ID) — при первой
+записи в новый/пустой lookbook.json проставляется автоматически. При
+добавлении в УЖЕ существующий lookbook с ДРУГИМ channel_id — отказ (защита
+от случайного copy-paste lookbook.json между репозиториями разных
+каналов), кроме явного --force (сознательно перепривязывает lookbook к
+текущему каналу).
 
 Копирует фото в assets/lookbook/<id>.<ext> (lookbook не зависит от того,
 останется ли исходный файл на месте) и дописывает запись в lookbook.json:
@@ -47,6 +54,7 @@ def parse_args(argv):
     photo_path = argv[0]
     domain = None
     ref_id = None
+    force = False
     i = 1
     while i < len(argv):
         if argv[i] == "--domain" and i + 1 < len(argv):
@@ -55,18 +63,46 @@ def parse_args(argv):
         elif argv[i] == "--id" and i + 1 < len(argv):
             ref_id = argv[i + 1]
             i += 2
+        elif argv[i] == "--force":
+            force = True
+            i += 1
         else:
             i += 1
-    return photo_path, domain, ref_id
+    return photo_path, domain, ref_id, force
+
+
+def _read_raw_lookbook():
+    """Читает lookbook.json БЕЗ fail-closed channel-фильтрации
+    look_reference.load_lookbook() — та для ЧТЕНИЯ на рендере намеренно
+    прячет чужие эталоны, но здесь (запись) нужен реальный, неотфильтрованный
+    список: иначе добавление одной записи в lookbook с ЧУЖИМ channel_id
+    тихо стёрло бы все существующие записи того канала (load_lookbook()
+    отдала бы для них уже пустой references, а этот скрипт бы это
+    сериализовал обратно как новую "истину"). Проверка конфликта здесь —
+    отдельная, явная (см. main())."""
+    if not os.path.exists(lr.LOOKBOOK_PATH):
+        return {"references": []}
+    try:
+        return json.load(open(lr.LOOKBOOK_PATH, encoding="utf-8"))
+    except Exception:
+        return {"references": []}
 
 
 def main():
     parsed = parse_args(_real_argv[1:])
     if not parsed or not parsed[1]:
-        print("Usage: python scripts/lookbook_add.py <photo_path> --domain <domain> [--id <id>]")
+        print("Usage: python scripts/lookbook_add.py <photo_path> --domain <domain> [--id <id>] [--force]")
         print(f"Домены: {', '.join(sorted(lr.DOMAIN_PROMPTS))}")
         return 1
-    photo_path, domain, ref_id = parsed
+    photo_path, domain, ref_id, force = parsed
+
+    raw_lookbook = _read_raw_lookbook()
+    stored_channel = raw_lookbook.get("channel_id")
+    if stored_channel is not None and stored_channel != lr.CHANNEL_ID and not force:
+        print(f"Этот lookbook принадлежит каналу {stored_channel!r}, текущий "
+              f"CHANNEL_ID={lr.CHANNEL_ID!r} — отказываюсь дописывать. "
+              f"Передай --force, если это сознательная смена привязки канала.")
+        return 1
 
     if domain not in lr.DOMAIN_PROMPTS:
         print(f"Неизвестный домен {domain!r}. Домены: {', '.join(sorted(lr.DOMAIN_PROMPTS))}")
@@ -99,8 +135,7 @@ def main():
     dest_path = os.path.join(lookbook_dir, f"{ref_id}{ext}")
     shutil.copyfile(photo_path, dest_path)
 
-    lookbook = lr.load_lookbook()
-    references = [r for r in lookbook.get("references", []) if r.get("id") != ref_id]
+    references = [r for r in raw_lookbook.get("references", []) if r.get("id") != ref_id]
     references.append({
         "id": ref_id,
         "domain": domain,
@@ -112,9 +147,9 @@ def main():
         "temperature": round(warm_bias, 4),
         "max_correction_delta": list(lr.DEFAULT_MAX_CORRECTION_DELTA),
     })
-    atomic_write_json(lr.LOOKBOOK_PATH, {"references": references})
+    atomic_write_json(lr.LOOKBOOK_PATH, {"references": references, "channel_id": lr.CHANNEL_ID})
 
-    print(f"Добавлен эталон {ref_id!r} (домен={domain}) в {lr.LOOKBOOK_PATH}")
+    print(f"Добавлен эталон {ref_id!r} (домен={domain}, channel_id={lr.CHANNEL_ID!r}) в {lr.LOOKBOOK_PATH}")
     print(f"  lab_mean={[round(x, 2) for x in lab_mean]} brightness={brightness:.3f} "
           f"contrast={contrast:.3f} temperature={warm_bias:.3f}")
     print(f"  Всего эталонов в lookbook: {len(references)}")

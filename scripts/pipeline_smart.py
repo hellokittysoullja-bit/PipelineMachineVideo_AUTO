@@ -386,30 +386,17 @@ GRAIN_LOOP_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(_
 GRAIN_ENABLED = os.environ.get("GRAIN", "1") != "0" and os.path.exists(GRAIN_LOOP_PATH)
 GRAIN_OPACITY = 0.10   # калибровано вживую — см. коммит с проверкой
 
-LOOKBOOK_JSON_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                   "assets", "lookbook", "lookbook.json")
-
-
-def _look_management_cache_signature():
-    """Грубая (не по-клипово точная), но безопасная добавка к params_hash
-    (см. main()) для Reference-Guided Look Management (scripts/
-    look_reference.py). params_hash считается ДО того, как известны
-    photo/levels/wb конкретного клипа (кэш проверяется раньше резолва
-    медиа) — точный look_filter ЭТОГО клипа тут физически ещё не посчитан.
-    Вместо него — сигнатура ГЛОБАЛЬНОГО состояния системы (включена ли
-    фича + mtime/размер lookbook.json): любое изменение lookbook.json или
-    переключение LOOK_MANAGEMENT_ENABLED инвалидирует ВСЕ кэшированные
-    клипы разом. Грубее точечной инвалидации, но недоинвалидация была бы
-    реальным багом (тихо устаревший грейд, тот же класс проблемы, что уже
-    описан в ЗАМЕТКЕ НА БУДУЩЕЕ у _warm_mult()) — переинвалидация просто
-    стоит одного лишнего рендера."""
-    if os.environ.get("LOOK_MANAGEMENT_ENABLED", "0") != "1":
-        return "look:off"
-    try:
-        st = os.stat(LOOKBOOK_JSON_PATH)
-        return f"look:on:{st.st_mtime_ns}:{st.st_size}"
-    except OSError:
-        return "look:on:missing"
+def _look_management_cache_signature(look_ref):
+    """Тонкая обёртка над look_reference.cache_signature() (см. main()) —
+    params_hash считается ДО того, как известны photo/levels/wb КОНКРЕТНОГО
+    клипа (кэш проверяется раньше резолва медиа), поэтому точный
+    look_filter этого клипа физически ещё не посчитан здесь. Вместо него —
+    сигнатура ГЛОБАЛЬНОГО состояния Look Management (режим/lookbook/
+    channel_id/пороги — см. look_reference.cache_signature(), она
+    единственный источник истины по своим же константам, эта функция
+    внутрь них не лезет). look_ref is None (LOOK_MANAGEMENT_MODE=off) ->
+    "look:off" без импорта модуля вообще."""
+    return look_ref.cache_signature() if look_ref is not None else "look:off"
 
 # Процедурная атмосферная подложка (см. scripts/generate_music_asset.py) —
 # тот же принцип, что и с grain_loop: статический ассет в репозитории, нет
@@ -4638,7 +4625,17 @@ def main():
     use_pexels = bool(PEXELS_API_KEY)
     queries = resolve_queries(blocks)
     write_shot_manifest(VIDEO_FOLDER, blocks, durs, queries)
-    look_cache_sig = _look_management_cache_signature()
+    # Reference-Guided Look Management (scripts/look_reference.py) — ленивый импорт
+    # (см. clip_relevance()/torch выше — тот же принцип: не тянуть модель/CLIP в
+    # процесс, если режим off) — только для shadow/assist; look_ref остаётся
+    # None иначе — весь блок ниже, использующий look_ref, безопасно
+    # пропускается (look_filter=None на каждый клип, ноль влияния на рендер).
+    # ДО look_cache_sig — тот вызывает look_ref.cache_signature(), которая
+    # должна быть уже импортирована.
+    look_ref = None
+    if os.environ.get("LOOK_MANAGEMENT_MODE", "off").strip().lower() in ("shadow", "assist"):
+        import look_reference as look_ref  # noqa: F401
+    look_cache_sig = _look_management_cache_signature(look_ref)
     used_photo_ids = set()   # общий на весь ролик — не даём одной фотке всплыть дважды
     used_video_ids = set()   # то же самое, отдельно для видео (разные ID-пространства)
     used_photo_hashes = []   # aHash уже отобранных фото — ловит визуальные дубли под РАЗНЫМИ ID (см. pexels_photo)
@@ -4646,16 +4643,8 @@ def main():
     recent_media_types = []   # скользящее окно фото/видео — content-aware чередование, см. main() ниже
     stat_count = 0   # 2.2: номер плашки по счёту в ролике -> вариант оформления (chередуются по кругу)
     luma_ema = None   # для сглаживания скачков экспозиции между соседними склейками (см. measure_luma())
-    # Reference-Guided Look Management (scripts/look_reference.py) — ленивый импорт
-    # (см. clip_relevance()/torch выше — тот же принцип: не тянуть модель/CLIP в
-    # процесс, если фича выключена) ТОЛЬКО если явно включена флагом; look_ref
-    # остаётся None иначе — весь блок ниже, использующий look_ref, безопасно
-    # пропускается (look_filter=None на каждый клип, ноль влияния на рендер).
-    look_ref = None
-    if os.environ.get("LOOK_MANAGEMENT_ENABLED", "0") == "1":
-        import look_reference as look_ref  # noqa: F401
-    look_report = {}   # индекс -> запись решения Look Management, только для фото-клипов
-    look_ema_state = None   # аналог luma_ema — сглаженная Lab-дельта коррекции между клипами
+    look_report = {}   # индекс -> запись решения Look Management (каждый индекс, не только там, где сработало)
+    look_state = None   # аналог luma_ema — {"delta","domain","reference_id"} между клипами (см. look_reference.EMPTY_STATE)
     typewriter_click_times = []   # D4: абсолютные секунды щелчков клавиатуры на весь ролик
     hook_words = load_hook_word_timings(blocks, sub_starts, sub_baseline, real_weights)   # D2: пусто, если alignment.csv недоступен — тихий откат
     for i, (b, d) in enumerate(zip(blocks, durs)):
@@ -4741,6 +4730,12 @@ def main():
             # независимо от того, кэш это или свежий рендер.
             pending_jobs.append({"i": i, "out": out, "d": d, "section": b["section"], "block": b,
                                   "video": False, "photo": None, "future": None, "ok": True})
+            # Look Management не может проанализировать кэш-хит — у него нет
+            # сохранённого пути к исходному фото/свежих levels/wb на этот
+            # прогон (см. ЗАМЕТКУ про shadow в look_reference.py). Честная
+            # запись, не тишина — иначе shadow-отчёт на уже отрендеренном
+            # эпизоде выглядел бы полным, хотя ничего не проанализировано.
+            look_report[i] = {"decision": "skipped_cache_hit"}
             continue
         photo = local_photo(i) if use_local else None
         video = None
@@ -4790,6 +4785,7 @@ def main():
             missing.append(i + 1)
             render_manifest[i] = {"index": i, "status": "failed",
                                    "reason": "нет медиа (ни фото, ни видео)", "section": b["section"]}
+            look_report[i] = {"decision": "skipped_no_media"}
             continue
         recent_media_types.append("video" if video else "photo")
         del recent_media_types[:-6]
@@ -4823,18 +4819,27 @@ def main():
         energy_bias = max(-0.5, min(0.5, energy_lvls[i] - 1.0))
         # Reference-Guided Look Management (см. scripts/look_reference.py) —
         # ТОЛЬКО для фото (video-клипы не входят в эту версию системы, см.
-        # докстринг модуля), ТОЛЬКО если явно включена (look_ref is None
-        # иначе — вся секция ниже безопасно пропускается, look_filter=None).
-        # has_face — свой, отдельный вызов detect_face_anchor() (та же
-        # функция, что уже использует resolve_crop_anchor() внутри
-        # kenburns()/parallax_kenburns() для кропа, второй недорогой вызов
-        # здесь — не переиспользование внутреннего состояния тех функций,
-        # т.к. решение о коррекции нужно ДО диспетчеризации рендера).
+        # докстринг модуля). Каждый индекс блока получает запись в
+        # look_report — даже когда фича выключена или это video-клип — тот
+        # же принцип полноты аудита, что уже применяет render_manifest
+        # (пользователь указал на этот пробел явно). has_face — свой,
+        # отдельный вызов detect_face_anchor() (та же функция, что уже
+        # использует resolve_crop_anchor() внутри kenburns()/
+        # parallax_kenburns() для кропа, второй недорогой вызов здесь — не
+        # переиспользование внутреннего состояния тех функций, т.к. решение
+        # о коррекции нужно ДО диспетчеризации рендера). scene_boundary —
+        # is_section_start уже посчитан выше в этой же итерации, сигнал для
+        # сброса EMA-сглаживания на границе секции сценария (см.
+        # look_correction_filter()).
         look_filter = None
-        if look_ref is not None and photo:
+        if not photo:
+            look_report[i] = {"decision": "skipped_video" if video else "skipped_no_media"}
+        elif look_ref is None:
+            look_report[i] = {"decision": "skipped_disabled"}
+        else:
             has_face = detect_face_anchor(photo) is not None
-            look_filter, look_entry, look_ema_state = look_ref.look_correction_filter(
-                photo, levels, wb, has_face, prev_delta=look_ema_state)
+            look_filter, look_entry, look_state = look_ref.look_correction_filter(
+                photo, levels, wb, has_face, scene_boundary=is_section_start, prev_state=look_state)
             look_report[i] = look_entry
         # Один непойманный сбой в рендере ОДНОГО кадра (редкий edge case —
         # битый файл, неожиданный тип данных и т.п.) раньше падал наружу и
@@ -4978,11 +4983,24 @@ def main():
     # к media_plan/pause_decisions.json).
     look_manifest_path = os.path.join(VIDEO_FOLDER, "media_plan", "look_manifest.json")
     look_manifest_tmp = look_manifest_path + ".tmp"
+    cache_hits_skipped_analysis = sum(1 for e in look_report.values() if e.get("decision") == "skipped_cache_hit")
     with open(look_manifest_tmp, "w", encoding="utf-8") as f:
         json.dump({"enabled": look_ref is not None,
+                    "cache_hits_skipped_analysis": cache_hits_skipped_analysis,
                     "clips": [look_report[i] for i in sorted(look_report)]},
                    f, ensure_ascii=False, indent=2)
     os.replace(look_manifest_tmp, look_manifest_path)
+    # Честное предупреждение: shadow/assist на уже отрендеренном эпизоде
+    # (temp_smart/ содержит кэш из прошлого прогона) не анализирует
+    # кэш-хиты — у них физически нет сохранённого пути к исходному фото на
+    # этот прогон (см. докстринг look_reference.py). Отчёт в этом случае
+    # НЕ полная симуляция assist — печатаем это явно, не оставляем
+    # оператора гадать, почему клипов в look_manifest.json меньше, чем
+    # блоков в эпизоде.
+    if look_ref is not None and cache_hits_skipped_analysis:
+        print(f"  Look Management: {cache_hits_skipped_analysis} клип(ов) пропущено анализом "
+              f"(кэш из прошлого прогона) — для честного shadow/assist-прогона на этом эпизоде "
+              f"очисти temp_smart/ и перезапусти.")
 
     # Жёсткий финальный гейт: цель не "никогда не упасть" (нечестное
     # обещание — сеть/диск/память могут отказать всегда), а чтобы одиночный

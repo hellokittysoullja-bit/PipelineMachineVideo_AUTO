@@ -6,7 +6,6 @@ scorer-функциям). Самый важный тест файла —
 test_look_correction_filter_noop_on_real_empty_lookbook: он единственный
 прямо доказывает, что система не влияет на сегодняшний рендер, пока в
 assets/lookbook/lookbook.json реально нет ни одного эталона."""
-import json
 import os
 import sys
 import tempfile
@@ -150,6 +149,17 @@ def test_compute_correction_rejected_case_keeps_prev_delta_unchanged():
     assert delta == prev
 
 
+def test_compute_correction_rejected_case_with_prev_none_stays_none():
+    """Regression на баг, пойманный при разборе плана: hard-reject ПОСЛЕ
+    EMA reset (prev_delta=None на входе) обязан вернуть delta=None, а не
+    какое-либо старое значение — compute_correction() возвращает ровно то,
+    что ей передали, без пересчёта."""
+    ref = _ref("a", "night", (5, 0, 115), max_delta=(200, 200, 200))
+    gains, qc, delta = lr.compute_correction((0.03, 0.03, 0.03), (5, 0, 0), ref, confidence=1.0, prev_delta=None)
+    assert gains is None
+    assert delta is None
+
+
 def test_compute_correction_ema_step_is_clamped():
     ref = _ref("a", "snow", (70, 20, -20), max_delta=(30, 30, 30))
     prev = (0.0, 0.0, 0.0)
@@ -167,11 +177,126 @@ def test_compute_correction_never_upgrades_gain_beyond_clamp_even_unclamped_targ
             assert lr.GAIN_CLAMP[0] <= g <= lr.GAIN_CLAMP[1]
 
 
+# ---------- cache_signature() ----------
+
+def test_cache_signature_off_for_off_and_shadow(monkeypatch):
+    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "off")
+    assert lr.cache_signature() == "look:off"
+    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "shadow")
+    assert lr.cache_signature() == "look:off"
+
+
+def test_cache_signature_changes_with_lookbook_content(monkeypatch, tmp_path):
+    lookbook_path = tmp_path / "lookbook.json"
+    lookbook_path.write_text('{"references": []}', encoding="utf-8")
+    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "assist")
+    monkeypatch.setattr(lr, "LOOKBOOK_PATH", str(lookbook_path))
+    sig1 = lr.cache_signature()
+    # Тот же mtime/size класс не имеет значения — реальный digest содержимого.
+    lookbook_path.write_text('{"references": [{"id": "x"}]}', encoding="utf-8")
+    sig2 = lr.cache_signature()
+    assert sig1 != sig2
+
+
+def test_cache_signature_changes_with_threshold_constant(monkeypatch, tmp_path):
+    lookbook_path = tmp_path / "lookbook.json"
+    lookbook_path.write_text('{"references": []}', encoding="utf-8")
+    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "assist")
+    monkeypatch.setattr(lr, "LOOKBOOK_PATH", str(lookbook_path))
+    sig1 = lr.cache_signature()
+    monkeypatch.setattr(lr, "MAX_STRENGTH", lr.MAX_STRENGTH + 0.01)
+    sig2 = lr.cache_signature()
+    assert sig1 != sig2
+
+
+def test_cache_signature_changes_with_channel_id(monkeypatch, tmp_path):
+    lookbook_path = tmp_path / "lookbook.json"
+    lookbook_path.write_text('{"references": []}', encoding="utf-8")
+    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "assist")
+    monkeypatch.setattr(lr, "LOOKBOOK_PATH", str(lookbook_path))
+    monkeypatch.setattr(lr, "CHANNEL_ID", "channel_a")
+    sig1 = lr.cache_signature()
+    monkeypatch.setattr(lr, "CHANNEL_ID", "channel_b")
+    sig2 = lr.cache_signature()
+    assert sig1 != sig2
+
+
+# ---------- load_lookbook (channel-scoping, fail-closed) ----------
+
+def _write_lookbook(path, references, channel_id=None):
+    import json
+    data = {"references": references}
+    if channel_id is not None:
+        data["channel_id"] = channel_id
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_load_lookbook_no_channel_id_passes_through(monkeypatch, tmp_path):
+    p = tmp_path / "lookbook.json"
+    _write_lookbook(p, [_ref("a", "snow", (50, 0, 0))])   # без channel_id вообще
+    monkeypatch.setattr(lr, "LOOKBOOK_PATH", str(p))
+    monkeypatch.setattr(lr, "CHANNEL_ID", "my_channel")
+    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "shadow")
+    data = lr.load_lookbook()
+    assert len(data["references"]) == 1
+    assert "_reject_reason" not in data
+
+
+def test_load_lookbook_matching_channel_id_passes_through(monkeypatch, tmp_path):
+    p = tmp_path / "lookbook.json"
+    _write_lookbook(p, [_ref("a", "snow", (50, 0, 0))], channel_id="my_channel")
+    monkeypatch.setattr(lr, "LOOKBOOK_PATH", str(p))
+    monkeypatch.setattr(lr, "CHANNEL_ID", "my_channel")
+    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "assist")
+    data = lr.load_lookbook()
+    assert len(data["references"]) == 1
+
+
+def test_load_lookbook_mismatch_rejects_fail_closed(monkeypatch, tmp_path):
+    p = tmp_path / "lookbook.json"
+    _write_lookbook(p, [_ref("a", "snow", (50, 0, 0))], channel_id="channel_a")
+    monkeypatch.setattr(lr, "LOOKBOOK_PATH", str(p))
+    monkeypatch.setattr(lr, "CHANNEL_ID", "channel_b")
+    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "shadow")
+    data = lr.load_lookbook()
+    assert data["references"] == []
+    assert data["_reject_reason"] == "channel_mismatch"
+
+
+def test_load_lookbook_default_not_configured_rejected_only_in_assist(monkeypatch, tmp_path):
+    p = tmp_path / "lookbook.json"
+    _write_lookbook(p, [_ref("a", "snow", (50, 0, 0))])   # без channel_id -> None
+    monkeypatch.setattr(lr, "LOOKBOOK_PATH", str(p))
+    monkeypatch.setattr(lr, "CHANNEL_ID", "default")
+
+    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "assist")
+    data_assist = lr.load_lookbook()
+    assert data_assist["references"] == []
+    assert data_assist["_reject_reason"] == "channel_not_configured"
+
+    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "shadow")
+    data_shadow = lr.load_lookbook()
+    assert len(data_shadow["references"]) == 1
+    assert "_reject_reason" not in data_shadow
+
+
+def test_load_lookbook_empty_lookbook_ignores_channel_check(monkeypatch, tmp_path):
+    p = tmp_path / "lookbook.json"
+    _write_lookbook(p, [], channel_id="channel_a")
+    monkeypatch.setattr(lr, "LOOKBOOK_PATH", str(p))
+    monkeypatch.setattr(lr, "CHANNEL_ID", "channel_b")
+    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "assist")
+    data = lr.load_lookbook()
+    assert data["references"] == []
+    assert "_reject_reason" not in data
+
+
 # ---------- look_correction_filter (оркестрация) ----------
 
 def test_look_correction_filter_noop_when_disabled(monkeypatch):
-    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_ENABLED", False)
-    filt, report, delta = lr.look_correction_filter("x.jpg", (0.1, 0.9), (0.5, 0.5, 0.5), has_face=False)
+    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "off")
+    filt, report, state = lr.look_correction_filter(
+        "x.jpg", (0.1, 0.9), (0.5, 0.5, 0.5), has_face=False, scene_boundary=False)
     assert filt is None
     assert report["decision"] == "skipped_disabled"
 
@@ -179,45 +304,50 @@ def test_look_correction_filter_noop_when_disabled(monkeypatch):
 def test_look_correction_filter_noop_on_real_empty_lookbook(monkeypatch):
     """Главный тест модуля: с РЕАЛЬНЫМ assets/lookbook/lookbook.json (пустым
     сегодня — канал не выпустил ни одного эпизода) система обязана быть
-    полностью инертной даже при включённом флаге — это единственная
+    полностью инертной даже при включённом режиме — это единственная
     гарантия, что коммит этой системы не меняет сегодняшний рендер."""
     assert os.path.exists(lr.LOOKBOOK_PATH), "assets/lookbook/lookbook.json должен существовать в репозитории"
-    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_ENABLED", True)
-    filt, report, delta = lr.look_correction_filter("x.jpg", (0.1, 0.9), (0.5, 0.5, 0.5), has_face=False)
+    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "assist")
+    filt, report, state = lr.look_correction_filter(
+        "x.jpg", (0.1, 0.9), (0.5, 0.5, 0.5), has_face=False, scene_boundary=False)
     assert filt is None
     assert report["decision"] == "skipped_empty_lookbook"
 
 
 def test_look_correction_filter_noop_when_face_detected(monkeypatch):
-    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_ENABLED", True)
+    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "assist")
     monkeypatch.setattr(lr, "load_lookbook", lambda: {"references": [_ref("a", "portrait", (50, 0, 0))]})
-    filt, report, delta = lr.look_correction_filter("x.jpg", (0.1, 0.9), (0.5, 0.5, 0.5), has_face=True)
+    filt, report, state = lr.look_correction_filter(
+        "x.jpg", (0.1, 0.9), (0.5, 0.5, 0.5), has_face=True, scene_boundary=False)
     assert filt is None
     assert report["decision"] == "skipped_face_detected"
 
 
 def test_look_correction_filter_noop_without_signal(monkeypatch):
-    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_ENABLED", True)
+    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "assist")
     monkeypatch.setattr(lr, "load_lookbook", lambda: {"references": [_ref("a", "portrait", (50, 0, 0))]})
-    filt, report, delta = lr.look_correction_filter("x.jpg", (None, None), None, has_face=False)
+    filt, report, state = lr.look_correction_filter(
+        "x.jpg", (None, None), None, has_face=False, scene_boundary=False)
     assert filt is None
     assert report["decision"] == "skipped_no_signal"
 
 
 def test_look_correction_filter_noop_when_domain_unmatched(monkeypatch):
-    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_ENABLED", True)
+    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "assist")
     monkeypatch.setattr(lr, "load_lookbook", lambda: {"references": [_ref("a", "snow", (50, 0, 0))]})
     monkeypatch.setattr(lr, "classify_domain", lambda path: (None, 0.0))
-    filt, report, delta = lr.look_correction_filter("x.jpg", (0.1, 0.9), (0.5, 0.5, 0.5), has_face=False)
+    filt, report, state = lr.look_correction_filter(
+        "x.jpg", (0.1, 0.9), (0.5, 0.5, 0.5), has_face=False, scene_boundary=False)
     assert filt is None
     assert report["decision"] == "skipped_low_domain_confidence"
 
 
 def test_look_correction_filter_noop_when_no_reference_of_matched_domain(monkeypatch):
-    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_ENABLED", True)
+    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "assist")
     monkeypatch.setattr(lr, "load_lookbook", lambda: {"references": [_ref("a", "night", (50, 0, 0))]})
     monkeypatch.setattr(lr, "classify_domain", lambda path: ("snow", 0.1))
-    filt, report, delta = lr.look_correction_filter("x.jpg", (0.1, 0.9), (0.5, 0.5, 0.5), has_face=False)
+    filt, report, state = lr.look_correction_filter(
+        "x.jpg", (0.1, 0.9), (0.5, 0.5, 0.5), has_face=False, scene_boundary=False)
     assert filt is None
     assert report["decision"] == "skipped_no_reference_match"
 
@@ -225,12 +355,102 @@ def test_look_correction_filter_noop_when_no_reference_of_matched_domain(monkeyp
 def test_look_correction_filter_applies_when_everything_matches(monkeypatch):
     ref = _ref("snow_01", "snow", (55, 1, -2), brightness=0.5, contrast=0.4, temperature=0.0,
                max_delta=(10, 8, 8))
-    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_ENABLED", True)
+    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "assist")
     monkeypatch.setattr(lr, "load_lookbook", lambda: {"references": [ref]})
     monkeypatch.setattr(lr, "classify_domain", lambda path: ("snow", 0.1))
-    filt, report, delta = lr.look_correction_filter("x.jpg", (0.1, 0.9), (0.5, 0.5, 0.5), has_face=False)
+    filt, report, state = lr.look_correction_filter(
+        "x.jpg", (0.1, 0.9), (0.5, 0.5, 0.5), has_face=False, scene_boundary=False)
     assert filt is not None
     assert filt.startswith("colorchannelmixer=rr=")
     assert report["decision"] == "applied"
     assert report["reference_id"] == "snow_01"
-    assert delta is not None
+    assert state["delta"] is not None
+    assert state["domain"] == "snow"
+    assert state["reference_id"] == "snow_01"
+
+
+def test_look_correction_filter_shadow_never_returns_filter_but_computes_everything(monkeypatch):
+    ref = _ref("snow_01", "snow", (55, 1, -2), max_delta=(10, 8, 8))
+    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "shadow")
+    monkeypatch.setattr(lr, "load_lookbook", lambda: {"references": [ref]})
+    monkeypatch.setattr(lr, "classify_domain", lambda path: ("snow", 0.1))
+    filt, report, state = lr.look_correction_filter(
+        "x.jpg", (0.1, 0.9), (0.5, 0.5, 0.5), has_face=False, scene_boundary=False)
+    assert filt is None   # НИКОГДА не просачивается в рендер
+    assert report["decision"] == "shadow_would_apply"
+    assert report["reference_id"] == "snow_01"
+    assert state["delta"] is not None   # состояние обновляется как в assist — честное превью
+
+
+# ---------- EMA reset при смене сцены/домена/эталона ----------
+
+def _run_with_state(monkeypatch, ref, domain, scene_boundary, prev_state):
+    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "assist")
+    monkeypatch.setattr(lr, "load_lookbook", lambda: {"references": [ref]})
+    monkeypatch.setattr(lr, "classify_domain", lambda path: (domain, 0.1))
+    return lr.look_correction_filter(
+        "x.jpg", (0.1, 0.9), (0.5, 0.5, 0.5), has_face=False,
+        scene_boundary=scene_boundary, prev_state=prev_state)
+
+
+def test_ema_resets_on_scene_boundary(monkeypatch):
+    ref = _ref("snow_01", "snow", (55, 1, -2), max_delta=(10, 8, 8))
+    stale_state = {"delta": (9.0, 7.0, -7.0), "domain": "snow", "reference_id": "snow_01"}
+    filt, report, state = _run_with_state(monkeypatch, ref, "snow", scene_boundary=True, prev_state=stale_state)
+    assert report["ema_reset"] is True
+    assert report["reset_reason"] == "scene_boundary"
+    # Дельта посчитана заново (эффективный prev=None), не унаследована от stale_state.
+    assert state["delta"] != stale_state["delta"]
+
+
+def test_ema_resets_on_domain_change(monkeypatch):
+    # lab_mean выбран близко к frame_lab у wb=(0.5,0.5,0.5) (~L=53), чтобы
+    # пройти дистанционный гейт find_reference() (MAX_MATCH_DISTANCE=35) —
+    # проверено численно при написании теста, не угадано.
+    ref = _ref("night_01", "night", (45, -3, -8), max_delta=(10, 8, 8))
+    stale_state = {"delta": (9.0, 7.0, -7.0), "domain": "snow", "reference_id": "snow_01"}
+    filt, report, state = _run_with_state(monkeypatch, ref, "night", scene_boundary=False, prev_state=stale_state)
+    assert report["ema_reset"] is True
+    assert report["reset_reason"] == "domain_changed"
+    assert state["delta"] != stale_state["delta"]
+
+
+def test_ema_resets_on_reference_change_same_domain(monkeypatch):
+    ref = _ref("snow_02", "snow", (60, 3, -4), max_delta=(10, 8, 8))
+    stale_state = {"delta": (9.0, 7.0, -7.0), "domain": "snow", "reference_id": "snow_01"}
+    filt, report, state = _run_with_state(monkeypatch, ref, "snow", scene_boundary=False, prev_state=stale_state)
+    assert report["ema_reset"] is True
+    assert report["reset_reason"] == "reference_changed"
+    assert state["delta"] != stale_state["delta"]
+
+
+def test_ema_does_not_reset_when_same_domain_and_reference(monkeypatch):
+    ref = _ref("snow_01", "snow", (55, 1, -2), max_delta=(10, 8, 8))
+    prev_state = {"delta": (1.0, 0.5, -0.5), "domain": "snow", "reference_id": "snow_01"}
+    filt, report, state = _run_with_state(monkeypatch, ref, "snow", scene_boundary=False, prev_state=prev_state)
+    assert report["ema_reset"] is False
+    assert report["reset_reason"] is None
+
+
+def test_hard_reject_immediately_after_reset_leaves_delta_none(monkeypatch):
+    """Regression на баг, пойманный при разборе плана: reset (scene_boundary)
+    сразу за которым следует hard-reject (клиппинг) НЕ должен воскресить
+    дельту старой, несвязанной сцены — new_state["delta"] обязан быть None,
+    не stale_state["delta"]. find_reference() замокан на заведомо клиппинг-
+    сценарий (см. test_compute_correction_rejects_extreme_target_as_clipping)
+    — иначе find_reference() сам отфильтровал бы этот эталон по
+    MAX_MATCH_DISTANCE раньше, чем дело дойдёт до compute_correction, и
+    тест проверял бы не то, что задумано."""
+    ref = _ref("a", "night", (5, 0, 115), max_delta=(200, 200, 200))
+    stale_state = {"delta": (9.0, 7.0, -7.0), "domain": "snow", "reference_id": "snow_01"}
+    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "assist")
+    monkeypatch.setattr(lr, "load_lookbook", lambda: {"references": [ref]})
+    monkeypatch.setattr(lr, "classify_domain", lambda path: ("night", 0.1))
+    monkeypatch.setattr(lr, "find_reference", lambda *a, **kw: (ref, 1.0))
+    filt, report, state = lr.look_correction_filter(
+        "x.jpg", (0.02, 0.04), (0.03, 0.03, 0.03), has_face=False,
+        scene_boundary=True, prev_state=stale_state)
+    assert filt is None
+    assert report["decision"] == "reject_clipping"
+    assert report["ema_reset"] is True
+    assert state["delta"] is None

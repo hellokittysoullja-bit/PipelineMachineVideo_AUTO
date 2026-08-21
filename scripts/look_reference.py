@@ -13,14 +13,30 @@ regression-тест. Эта система — не патч той эврист
 
 ВАЖНО, честно: lookbook начинается ПУСТЫМ (assets/lookbook/lookbook.json —
 канал не выпустил ни одного эпизода, реального "одобренного" эталона взять
-неоткуда). При пустом lookbook (или LOOK_MANAGEMENT_ENABLED=0, дефолт)
+неоткуда). При пустом lookbook (или LOOK_MANAGEMENT_MODE=off, дефолт)
 look_correction_filter() возвращает None для ЛЮБОГО кадра — система
 физически не может повлиять на рендер, пока лениво (см.
-test_look_correction_filter_noop_when_lookbook_empty в tests/test_look_reference.py
+test_look_correction_filter_noop_on_real_empty_lookbook в tests/test_look_reference.py
 — главный тест всего модуля). Пополнять lookbook — только вручную, через
 scripts/lookbook_add.py, реально одобренными кадрами канала (не выдуманными
 "на глаз" эталонами — та же ошибка, которую критиковали в _scene_bias, тут
 повторять её нельзя).
+
+LOOK_MANAGEMENT_MODE: `off` (дефолт) — лукбук даже не грузится. `shadow` —
+ВЕСЬ конвейер отрабатывает по-настоящему (домен/эталон/коррекция/QC) и
+пишется в отчёт с decision="shadow_would_apply", но filter_str ВСЕГДА None
+— рендер не тронут (тот же принцип, что F0-shadow в Speech Director Stage
+B, CLAUDE.md Шаг 6 вариант Б). `assist` — коррекция реально применяется.
+
+ИЗВЕСТНОЕ ОГРАНИЧЕНИЕ shadow-режима: кэш-хит клипы (уже отрендерены в
+прошлом прогоне, temp_smart/ содержит готовый файл) НИКОГДА не доходят до
+look_correction_filter() — main() уходит на ранний `continue` до
+measure_levels(), и у кэш-хита физически нет сохранённого пути к исходному
+фото для повторного анализа. На уже отрендеренном эпизоде shadow-прогон
+НЕ является честной симуляцией assist — он покажет только то, что реально
+проанализировано (см. "cache_hits_skipped_analysis" в media_plan/
+look_manifest.json и консольное предупреждение). Для честного превью —
+очистить temp_smart/ этого эпизода перед shadow-прогоном.
 
 Архитектура (что переиспользуется из pipeline_smart.py, что новое):
   - measure_levels()/auto_wb_params()-стиль клэмпа силы и gain-диапазона —
@@ -62,6 +78,7 @@ scripts/lookbook_add.py, реально одобренными кадрами к
 
 Не самостоятельный CLI-скрипт (кроме lookbook_add.py) — вызывается из
 scripts/pipeline_smart.py."""
+import hashlib
 import json
 import math
 import os
@@ -81,7 +98,39 @@ sys.argv = _saved_argv
 from PIL import Image  # noqa: E402
 
 LOOKBOOK_PATH = os.path.join(REPO_ROOT, "assets", "lookbook", "lookbook.json")
-LOOK_MANAGEMENT_ENABLED = os.environ.get("LOOK_MANAGEMENT_ENABLED", "0") == "1"
+
+# off — как раньше, ничего не считаем, лукбук даже не грузим (см.
+# look_correction_filter). shadow — ВЕСЬ конвейер (домен/эталон/коррекция/QC)
+# отрабатывает по-настоящему и пишется в отчёт, но filter_str ВСЕГДА None —
+# рендер не тронут. Тот же принцип, что уже применяет Stage B Speech
+# Director к F0-перепаду ("измеряется и пишется в отчёт, НЕ влияет на
+# решение", CLAUDE.md Шаг 6 вариант Б) — сначала честно посмотреть, что
+# система решила бы, прежде чем доверить ей реальный рендер. assist —
+# коррекция реально применяется.
+_LOOK_MANAGEMENT_MODES = ("off", "shadow", "assist")
+LOOK_MANAGEMENT_MODE = os.environ.get("LOOK_MANAGEMENT_MODE", "off").strip().lower()
+if LOOK_MANAGEMENT_MODE not in _LOOK_MANAGEMENT_MODES:
+    print(f"  ВНИМАНИЕ: LOOK_MANAGEMENT_MODE={LOOK_MANAGEMENT_MODE!r} не входит в "
+          f"{_LOOK_MANAGEMENT_MODES} — откатываюсь на 'off'.")
+    LOOK_MANAGEMENT_MODE = "off"
+
+# Единственный источник истины для channel-scoping (см. lookbook_add.py и
+# load_lookbook() ниже) — "just metadata for audit", не полноценный
+# мульти-тенант: один репозиторий пайплайна = один канал (см. CHANNEL.md),
+# это только защита от случайного copy-paste lookbook.json между
+# репозиториями РАЗНЫХ каналов (git merge/cherry-pick/ручной cp пронесли бы
+# его МИМО lookbook_add.py целиком — там же единственная проверка была бы
+# бесполезна).
+CHANNEL_ID = (os.environ.get("CHANNEL_ID") or "default").strip() or "default"
+
+# Бампить ВРУЧНУЮ при любой смене САМОЙ ЛОГИКИ/формулы classify_domain/
+# find_reference/compute_correction — не только чисел констант ниже (те уже
+# автоматически попадают в cache_signature() через _cache_relevant_constants()).
+# Без этого правка алгоритма (не просто порога) молча пережила бы старый
+# кэш temp_smart/ с прошлым поведением — тот же класс бага, что уже
+# документирован у params_hash в pipeline_smart.py (там забывали
+# queries[i]/captions, поймали вживую).
+POLICY_VERSION = "1"
 
 # --- Домены: CLIP-промпты + margin-gate (тот же принцип, что уже применяет
 # RISKY_QUERY_MARGIN в pipeline_smart.is_relevant_candidate() — разрыв
@@ -111,9 +160,6 @@ DELTA_STEP_CLAMP = (6.0, 4.0, 4.0)   # (dL, da, db) — максимальный
                                        # один клип, тот же принцип клэмпа
                                        # шага, что max(-0.035,min(0.035,...))
                                        # у brightness_bias
-EMA_KEEP = 0.6   # доля предыдущего состояния — тот же коэффициент, что
-                  # luma_ema = luma_ema*0.6 + luma*0.4
-
 DEFAULT_MAX_CORRECTION_DELTA = (10.0, 8.0, 8.0)   # (dL, da, db), если у
                                                      # эталона поле не задано
 OVERSATURATION_FACTOR = 1.5   # рост хромы (sqrt(a^2+b^2)) свыше этого — hard-fail
@@ -127,6 +173,42 @@ OVERSATURATION_FACTOR = 1.5   # рост хромы (sqrt(a^2+b^2)) свыше �
 AUX_BRIGHTNESS_WEIGHT = 40.0
 AUX_CONTRAST_WEIGHT = 20.0
 AUX_TEMP_WEIGHT = 15.0
+
+
+def _cache_relevant_constants():
+    """Все пороги/параметры, которые влияют на итоговый filter_str при
+    НЕИЗМЕННОМ lookbook.json — см. cache_signature() ниже. Забыть добавить
+    сюда новую константу — тот же класс бага, что уже документирован у
+    params_hash в pipeline_smart.py (там забывали queries[i]/captions,
+    поймали вживую) — при добавлении новой ручки в compute_correction()/
+    find_reference()/classify_domain() дописать её сюда же."""
+    return (POLICY_VERSION, DOMAIN_MARGIN, MAX_MATCH_DISTANCE, MAX_STRENGTH,
+            GAIN_CLAMP, DELTA_STEP_CLAMP, DEFAULT_MAX_CORRECTION_DELTA,
+            OVERSATURATION_FACTOR, AUX_BRIGHTNESS_WEIGHT, AUX_CONTRAST_WEIGHT,
+            AUX_TEMP_WEIGHT)
+
+
+def cache_signature():
+    """Единственный источник истины для инвалидации кэша temp_smart/
+    (см. pipeline_smart.py main()) по состоянию Look Management —
+    pipeline_smart.py читает ТОЛЬКО через эту функцию, не лезет во
+    внутренние константы этого модуля напрямую (та же дисциплина
+    ответственности, что уже описана в ЗАМЕТКЕ НА БУДУЩЕЕ у _warm_mult() в
+    pipeline_smart.py).
+
+    "off" И "shadow" дают одну и ту же сигнатуру: обе НИКОГДА не трогают
+    filter_str (shadow всегда возвращает None, см. look_correction_filter),
+    рендер побитово идентичен — кэш можно свободно переиспользовать при
+    экспериментах в shadow, инвалидация имеет смысл только для "assist"."""
+    if LOOK_MANAGEMENT_MODE != "assist":
+        return "look:off"
+    try:
+        with open(LOOKBOOK_PATH, "rb") as f:
+            lookbook_digest = hashlib.md5(f.read()).hexdigest()[:12]
+    except OSError:
+        return "look:on:missing"
+    payload = repr((lookbook_digest, CHANNEL_ID, _cache_relevant_constants()))
+    return f"look:on:{hashlib.md5(payload.encode()).hexdigest()[:12]}"
 
 
 # ---------- sRGB <-> CIE Lab (D65), скалярные (r,g,b) в [0,1] ----------
@@ -329,35 +411,87 @@ def compute_correction(frame_rgb_means, frame_lab, reference, confidence, prev_d
 
 # ---------- Оркестрация ----------
 
+EMPTY_STATE = {"delta": None, "domain": None, "reference_id": None}
+
+
 def load_lookbook():
+    """{"references": [...], "channel_id": ...} — с fail-closed проверкой
+    channel_id ПРИ КАЖДОМ ЧТЕНИИ (не только на записи в lookbook_add.py):
+    git merge/cherry-pick/ручной cp между репозиториями РАЗНЫХ каналов
+    пронесли бы чужой lookbook.json мимо lookbook_add.py целиком — проверка
+    только на запись была бы бесполезна против этого. "just metadata for
+    audit", не полноценный мульти-тенант (см. докстринг модуля).
+
+    Два случая MISMATCH (оба возвращают {"references": [], "channel_id":
+    stored, "_reject_reason": ...} — эталоны игнорируются ЦЕЛИКОМ, тот же
+    безопасный fallback, что и для реально пустого lookbook):
+      1. Явное расхождение — записанный channel_id не совпадает с текущим.
+      2. "default" не считается настоящей верификацией для ASSIST (режима,
+         который реально меняет рендер) — если lookbook непуст, но никто не
+         настроил CHANNEL_ID по-настоящему (ни при записи, ни сейчас), это
+         тот же риск, что и mismatch, только тише. В shadow/off это
+         ограничение НЕ действует — там безопасно смотреть превью даже без
+         строгой настройки (см. cache_signature()/LOOK_MANAGEMENT_MODE)."""
     if not os.path.exists(LOOKBOOK_PATH):
         return {"references": []}
     try:
-        return json.load(open(LOOKBOOK_PATH, encoding="utf-8"))
+        data = json.load(open(LOOKBOOK_PATH, encoding="utf-8"))
     except Exception:
         return {"references": []}
+    references = data.get("references", [])
+    if not references:
+        return data
+    stored_channel = data.get("channel_id")
+    if stored_channel is not None and stored_channel != CHANNEL_ID:
+        print(f"  ВНИМАНИЕ: {LOOKBOOK_PATH} принадлежит каналу {stored_channel!r}, "
+              f"текущий CHANNEL_ID={CHANNEL_ID!r} — игнорирую все эталоны (fail closed).")
+        return {"references": [], "channel_id": stored_channel, "_reject_reason": "channel_mismatch"}
+    if LOOK_MANAGEMENT_MODE == "assist" and (stored_channel in (None, "default") or CHANNEL_ID == "default"):
+        print(f"  ВНИМАНИЕ: LOOK_MANAGEMENT_MODE=assist с непустым lookbook, но channel_id "
+              f"не настроен по-настоящему (stored={stored_channel!r}, current={CHANNEL_ID!r}) — "
+              f"отказываюсь применять коррекцию, пока не задан явный CHANNEL_ID.")
+        return {"references": [], "channel_id": stored_channel, "_reject_reason": "channel_not_configured"}
+    return data
 
 
-def look_correction_filter(image_path, levels, wb, has_face, prev_delta=None):
-    """Возвращает (filter_str_or_None, report_entry, new_delta_state).
+def look_correction_filter(image_path, levels, wb, has_face, scene_boundary, prev_state=None):
+    """Возвращает (filter_str_or_None, report_entry, new_state).
     filter_str — фрагмент ffmpeg-графа (colorchannelmixer), приклеивается
     ПОСЛЕ film_look(...) вызывающим кодом, никогда не заменяет его. None —
-    коррекция не применяется (см. report_entry['decision'] за причиной) —
-    вызывающий код просто не добавляет ничего, оригинальный рендер film_look
-    не затронут ни в одном случае None."""
-    if not LOOK_MANAGEMENT_ENABLED:
-        return None, {"decision": "skipped_disabled"}, prev_delta
+    коррекция не применяется/не рендерится (см. report_entry['decision'] за
+    причиной) — вызывающий код просто не добавляет ничего.
+
+    prev_state/new_state — {"delta", "domain", "reference_id"} между
+    соседними клипами (см. EMPTY_STATE). scene_boundary=True (граница
+    секции сценария) ИЛИ смена domain/reference_id между этим и предыдущим
+    СКОРРЕКТИРОВАННЫМ клипом — сбрасывает Lab-дельту сглаживания в None
+    (не тянуть "плавный" переход между двумя никак не связанными эталонами
+    — тот же принцип, по которому Speech Director никогда не считает паузу
+    через границу секции, см. _flat_segment_bounds в speech_validator.py).
+    domain/reference_id в состоянии обновляются на значения ЭТОГО клипа
+    независимо от исхода QC (честное наблюдение "что видели"); delta же
+    берётся НАПРЯМУЮ из возврата compute_correction() — та уже сама
+    корректно возвращает либо новую сглаженную дельту, либо (при
+    hard-reject) переданный ей prev_delta БЕЗ ИЗМЕНЕНИЙ. Передавать ей
+    нужно effective_prev_delta (None после reset), не голый
+    prev_state["delta"] — иначе hard-reject на reset-клипе тихо восстановил
+    бы дельту старой, несвязанной сцены."""
+    prev_state = prev_state or EMPTY_STATE
+    if LOOK_MANAGEMENT_MODE == "off":
+        return None, {"decision": "skipped_disabled"}, prev_state
     lookbook = load_lookbook()
+    if lookbook.get("_reject_reason"):
+        return None, {"decision": f"skipped_{lookbook['_reject_reason']}"}, prev_state
     if not lookbook.get("references"):
-        return None, {"decision": "skipped_empty_lookbook"}, prev_delta
+        return None, {"decision": "skipped_empty_lookbook"}, prev_state
     if has_face:
-        return None, {"decision": "skipped_face_detected"}, prev_delta
+        return None, {"decision": "skipped_face_detected"}, prev_state
     if wb is None or levels is None or levels[0] is None:
-        return None, {"decision": "skipped_no_signal"}, prev_delta
+        return None, {"decision": "skipped_no_signal"}, prev_state
 
     domain, margin = classify_domain(image_path)
     if domain is None:
-        return None, {"decision": "skipped_low_domain_confidence"}, prev_delta
+        return None, {"decision": "skipped_low_domain_confidence"}, prev_state
 
     frame_lab = _srgb_to_lab(wb)
     warm_bias, _, _ = pipeline_smart._scene_bias(levels, wb)
@@ -366,18 +500,33 @@ def look_correction_filter(image_path, levels, wb, has_face, prev_delta=None):
 
     reference, confidence = find_reference(domain, frame_lab, frame_brightness, frame_contrast, warm_bias, lookbook)
     if reference is None:
-        return None, {"decision": "skipped_no_reference_match", "domain": domain, "domain_margin": margin}, prev_delta
+        return (None, {"decision": "skipped_no_reference_match", "domain": domain, "domain_margin": margin},
+                prev_state)
 
-    gains, qc, new_delta = compute_correction(wb, frame_lab, reference, confidence, prev_delta)
+    reference_id = reference.get("id")
+    domain_changed = prev_state["domain"] is not None and prev_state["domain"] != domain
+    reference_changed = prev_state["reference_id"] is not None and prev_state["reference_id"] != reference_id
+    reset = scene_boundary or domain_changed or reference_changed
+    reset_reason = ("scene_boundary" if scene_boundary else
+                     "domain_changed" if domain_changed else
+                     "reference_changed" if reference_changed else None)
+    effective_prev_delta = None if reset else prev_state["delta"]
+
+    gains, qc, new_delta = compute_correction(wb, frame_lab, reference, confidence, effective_prev_delta)
+    new_state = {"delta": new_delta, "domain": domain, "reference_id": reference_id}
     report = {
         "domain": domain, "domain_margin": round(margin, 4),
-        "reference_id": reference.get("id"), "confidence": round(confidence, 4),
+        "reference_id": reference_id, "confidence": round(confidence, 4),
         "applied_delta": [round(x, 3) for x in new_delta] if new_delta else None,
+        "ema_reset": reset, "reset_reason": reset_reason,
         "qc": qc,
     }
     if gains is None:
         report["decision"] = qc["decision"]
-        return None, report, new_delta
+        return None, report, new_state
+    if LOOK_MANAGEMENT_MODE == "shadow":
+        report["decision"] = "shadow_would_apply"
+        return None, report, new_state
     report["decision"] = "applied"
     filt = f"colorchannelmixer=rr={gains[0]:.4f}:gg={gains[1]:.4f}:bb={gains[2]:.4f}"
-    return filt, report, new_delta
+    return filt, report, new_state

@@ -100,6 +100,46 @@ def test_no_args_prints_usage_and_fails(monkeypatch):
     assert la.main() == 1
 
 
+def test_first_write_stamps_channel_id(tmp_path, monkeypatch, _isolated_lookbook):
+    photo = str(tmp_path / "p.png")
+    _make_photo(photo)
+    monkeypatch.setattr(lr, "CHANNEL_ID", "my_channel")
+    monkeypatch.setattr(la, "_real_argv", ["lookbook_add.py", photo, "--domain", "snow", "--id", "a"])
+    assert la.main() == 0
+    data = json.loads(_isolated_lookbook.read_text(encoding="utf-8"))
+    assert data["channel_id"] == "my_channel"
+
+
+def test_conflicting_channel_id_without_force_refuses(tmp_path, monkeypatch, _isolated_lookbook):
+    photo = str(tmp_path / "p.png")
+    _make_photo(photo)
+    monkeypatch.setattr(lr, "CHANNEL_ID", "channel_a")
+    monkeypatch.setattr(la, "_real_argv", ["lookbook_add.py", photo, "--domain", "snow", "--id", "a"])
+    assert la.main() == 0
+
+    monkeypatch.setattr(lr, "CHANNEL_ID", "channel_b")
+    monkeypatch.setattr(la, "_real_argv", ["lookbook_add.py", photo, "--domain", "snow", "--id", "b"])
+    assert la.main() == 1
+    data = json.loads(_isolated_lookbook.read_text(encoding="utf-8"))
+    assert data["channel_id"] == "channel_a"
+    assert [r["id"] for r in data["references"]] == ["a"]   # ничего не дописано
+
+
+def test_conflicting_channel_id_with_force_overwrites(tmp_path, monkeypatch, _isolated_lookbook):
+    photo = str(tmp_path / "p.png")
+    _make_photo(photo)
+    monkeypatch.setattr(lr, "CHANNEL_ID", "channel_a")
+    monkeypatch.setattr(la, "_real_argv", ["lookbook_add.py", photo, "--domain", "snow", "--id", "a"])
+    assert la.main() == 0
+
+    monkeypatch.setattr(lr, "CHANNEL_ID", "channel_b")
+    monkeypatch.setattr(la, "_real_argv", ["lookbook_add.py", photo, "--domain", "snow", "--id", "b", "--force"])
+    assert la.main() == 0
+    data = json.loads(_isolated_lookbook.read_text(encoding="utf-8"))
+    assert data["channel_id"] == "channel_b"
+    assert {r["id"] for r in data["references"]} == {"a", "b"}   # старая запись СОХРАНЕНА, не стёрта
+
+
 def test_real_repo_lookbook_untouched_by_this_test_file():
     """Контрольная проверка: этот тестовый файл не должен был ни разу
     коснуться реального assets/lookbook/lookbook.json (все остальные тесты
