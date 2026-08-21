@@ -147,3 +147,48 @@ def test_protected_window_target_never_exceeds_observed_plus_margin(monkeypatch)
     timeline = sv.build_timeline(units, audio_md5="deadbeef")
     kept = timeline["protected_windows"][0][2]
     assert abs(kept - 0.3) < 1e-6
+
+
+# ---------- Pause Intelligence wiring (cooldown + аудит-трейл) ----------
+
+def test_build_timeline_exposes_pause_decisions_key(monkeypatch):
+    units = [
+        _unit("HOOK#0", "HOOK", "reveal_hold", (0.9, 1.2)),
+        _unit("HOOK#1", "HOOK", "connective", (0.55, 0.95)),
+    ]
+    monkeypatch.setattr(sv, "_load_section_segments", lambda section_order: {"HOOK": [1, 1]})
+    monkeypatch.setattr(sv, "_flat_segment_bounds", lambda units, segs: [(1.0, 2.0), (3.0, 3.5)])
+    timeline = sv.build_timeline(units, audio_md5="deadbeef")
+    assert "pause_decisions" in timeline
+    assert len(timeline["pause_decisions"]) == 1
+    assert timeline["pause_decisions"][0]["unit_id"] == "HOOK#0"
+
+
+def test_build_timeline_cooldown_shrinks_second_of_two_close_long_holds(monkeypatch):
+    # Две протяжённые protected-паузы одной секции близко друг к другу
+    # (1.2с речи между ними, меньше COOLDOWN_MIN_SPEECH_GAP_SEC=2.0) —
+    # Pause Intelligence обязан понизить вторую до её lo,
+    # protected_windows[1][2] должен отразить ИМЕННО это (а не сырую цель
+    # плана) — иначе fix_pauses.py всё равно вырежет две длинные паузы
+    # подряд, кулдаун существовал бы только на бумаге. Третий юнит нужен
+    # только чтобы дать границу для паузы ПОСЛЕ второго юнита (см.
+    # _flat_segment_bounds — окно юнита i строится из bounds[i]/bounds[i+1]).
+    units = [
+        _unit("BLOCK1#0", "BLOCK1", "reveal_hold", (0.9, 1.2)),
+        _unit("BLOCK1#1", "BLOCK1", "closing_hold", (0.7, 1.1)),
+        _unit("BLOCK1#2", "BLOCK1", "connective", (0.55, 0.95)),
+    ]
+    monkeypatch.setattr(sv, "_load_section_segments", lambda section_order: {"BLOCK1": [1, 1, 1]})
+    # юнит0: речь 1.0-2.0, пауза 2.0-3.5 (1.5с сырых, min(1.5, hi=1.2) -> 1.2)
+    # юнит1: речь 3.5-4.7 (сразу после паузы0 — 0с зазора внутри самой речи
+    # не считается, гэп между паузами меряется по их собственным границам),
+    # пауза 4.7-5.9 (1.2с сырых, min(1.2, hi=1.1) -> 1.1 ДО кулдауна)
+    # юнит2: речь начинается 5.9 — просто закрывает окно паузы юнита1
+    monkeypatch.setattr(sv, "_flat_segment_bounds",
+                         lambda units, segs: [(1.0, 2.0), (3.5, 4.7), (5.9, 6.1)])
+    timeline = sv.build_timeline(units, audio_md5="deadbeef")
+    pw = timeline["protected_windows"]
+    assert len(pw) == 2
+    assert abs(pw[0][2] - 1.2) < 1e-6   # первая пауза — без изменений
+    assert abs(pw[1][2] - 0.7) < 1e-6   # вторая — понижена кулдауном до lo=0.7
+    assert timeline["pause_decisions"][1]["cooldown_applied"] is True

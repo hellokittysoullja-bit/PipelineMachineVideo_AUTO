@@ -24,6 +24,11 @@ Cadence Validator).
     плана. fix_pauses.py читает именно этот список, чтобы НЕ трогать (или
     трогать по цели плана, не по гладкой кривой) паузы, которые Speech
     Planner поставил осознанно.
+  - "pause_decisions": то же самое, но с объяснением (Pause Intelligence,
+    см. scripts/pause_intelligence.py) — confidence, применён ли cooldown
+    между двумя соседними длинными паузами одной секции, music_action и
+    т.д. Дублируется отдельным файлом media_plan/pause_decisions.json
+    (честный аудит-трейл, не только для fix_pauses.py, но и для человека).
 
 Действие при mismatch — НЕ автоматический повторный вызов TTS (это стоило
 бы реальных кредитов ElevenLabs при каждом ложном срабатывании и убрало бы
@@ -54,6 +59,7 @@ import pipeline_smart  # noqa: E402  (переиспользуем ALIGNMENT_TAG
 sys.argv = _saved_argv
 
 import speech_planner as splanner  # noqa: E402  (validate_plan — план не доверяем без проверки)
+import pause_intelligence as pause_intel  # noqa: E402  (cooldown + аудит-трейл поверх protected-окон)
 
 
 # Допуск ("насколько короче/длиннее цели ещё не считаем провалом") —
@@ -185,7 +191,7 @@ def build_timeline(units, audio_md5):
     section_segments = _load_section_segments(section_order)
     bounds = _flat_segment_bounds(units, section_segments)
 
-    out_units, protected_windows = [], []
+    out_units, protected_entries = [], []
     for i, u in enumerate(units):
         this_b = bounds[i]
         next_u = units[i + 1] if i + 1 < len(units) else None
@@ -208,9 +214,24 @@ def build_timeline(units, audio_md5):
         if u["protected"] and raw_window is not None and observed_raw_dur is not None:
             lo, hi = u["target_range_sec"]
             kept = max(MIN_PROTECTED_SEC, min(observed_raw_dur, hi if hi > 0 else observed_raw_dur))
-            protected_windows.append([raw_window[0], raw_window[1], round(kept, 6), u["unit_id"]])
+            protected_entries.append({
+                "unit_id": u["unit_id"], "section": u["section"],
+                "rhetorical_kind": u["rhetorical_kind"], "raw_window": raw_window,
+                "kept": kept, "lo": lo, "hi": hi,
+            })
 
-    return {"source_audio_md5": audio_md5, "units": out_units, "protected_windows": protected_windows}
+    # Pause Intelligence (см. scripts/pause_intelligence.py): cooldown между
+    # соседними длинными protected-паузами одной секции + аудит-трейл решения
+    # (почему именно эта длительность и что она означает для музыки/визуала/
+    # субтитров) — 1:1 с protected_entries, только опускает финальный kept.
+    pause_decisions = pause_intel.build_decisions(protected_entries)
+    protected_windows = [
+        [d["raw_window"][0], d["raw_window"][1], d["final_target_sec"], d["unit_id"]]
+        for d in pause_decisions
+    ]
+
+    return {"source_audio_md5": audio_md5, "units": out_units,
+            "protected_windows": protected_windows, "pause_decisions": pause_decisions}
 
 
 def main():
@@ -242,6 +263,13 @@ def main():
     plan_dir = os.path.join(video_dir, "media_plan")
     os.makedirs(plan_dir, exist_ok=True)
     atomic_write_json(os.path.join(plan_dir, "speech_timeline.json"), timeline)
+    atomic_write_json(os.path.join(plan_dir, "pause_decisions.json"),
+                       {"source_audio_md5": audio_md5, "decisions": timeline["pause_decisions"]})
+
+    cooldowns = sum(1 for d in timeline["pause_decisions"] if d["cooldown_applied"])
+    if cooldowns:
+        print(f"  Pause Intelligence: cooldown понизил {cooldowns} паузу(з) рядом с другой "
+              f"длинной паузой той же секции — см. media_plan/pause_decisions.json")
 
     counts = {}
     needs_retake = []

@@ -889,8 +889,12 @@ PAUSE_SWELL_MIN_KEEP_SEC = 1.0   # порог отбора: fix_pauses.py дер
                                   # срабатывает НА ОБЫЧНЫХ пауз, но ЖИВ на
                                   # protected closing_hold (target до 1.1с, см.
                                   # speech_planner.RHETORICAL_RANGES) — reveal_hold
-                                  # (до 1.4с) намеренно исключён рядом с climax dip,
-                                  # см. _exclude_climax_overlapping_windows(). Не
+                                  # (до 1.2с, см. pause_intelligence.py — тот же
+                                  # модуль ещё и не даёт двум таким паузам подряд
+                                  # столкнуться, см. cooldown) намеренно исключён
+                                  # рядом с climax dip отдельно (структурно, не по
+                                  # порогу длительности), см.
+                                  # _exclude_climax_overlapping_windows(). Не
                                   # понижаю порог "на глаз" — нет реального корпуса
                                   # эпизодов, чтобы понять, где кончаются обычные
                                   # вдохи и начинаются осознанные паузы (пониженный
