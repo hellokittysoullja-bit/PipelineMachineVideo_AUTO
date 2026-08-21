@@ -21,6 +21,7 @@ import sys
 import tempfile
 import urllib.error
 
+import numpy as np
 import pytest
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -174,7 +175,7 @@ def test_cache_key_differs_by_text():
     assert k1 != k2
 
 
-# ---------- решение: accept / fix_boundary / regenerate ----------
+# ---------- решение: accept / accept_needs_boundary_repair / regenerate ----------
 
 def _eval(tempo_ok=True, pause_ok=True, energy_ok=True, signal=True):
     return {
@@ -188,9 +189,9 @@ def test_decide_accepts_when_everything_ok():
     assert action == "accept"
 
 
-def test_decide_fix_boundary_when_only_pause_off():
+def test_decide_accept_needs_boundary_repair_when_only_pause_off():
     action, _ = sg.decide_fragment_action(_eval(pause_ok=False), attempt=1)
-    assert action == "fix_boundary"
+    assert action == "accept_needs_boundary_repair"
 
 
 def test_decide_regenerate_when_tempo_off_and_attempts_remain():
@@ -312,7 +313,7 @@ def test_end_to_end_alignment_round_trips_through_pipeline_smart(tmp_path, monke
     units = _make_units(tmp_path)
     fragments = sg.segment_fragments(units)
 
-    def fake_call(text, voice_id, api_key, model, previous_text=None, next_text=None):
+    def fake_call(text, voice_id, api_key, model, previous_text=None, next_text=None, voice_settings=None):
         return _fake_generate(text)
     monkeypatch.setattr(sg, "call_elevenlabs_with_retry_on_transient_error", fake_call)
 
@@ -361,7 +362,7 @@ def test_end_to_end_writes_final_timeline_with_all_units(tmp_path, monkeypatch):
     units = _make_units(tmp_path)
     fragments = sg.segment_fragments(units)
 
-    def fake_call(text, voice_id, api_key, model, previous_text=None, next_text=None):
+    def fake_call(text, voice_id, api_key, model, previous_text=None, next_text=None, voice_settings=None):
         return _fake_generate(text)
     monkeypatch.setattr(sg, "call_elevenlabs_with_retry_on_transient_error", fake_call)
 
@@ -384,7 +385,7 @@ def test_cache_prevents_repeat_live_call_on_rerun(tmp_path, monkeypatch):
     fragments = sg.segment_fragments(units)
     calls = {"n": 0}
 
-    def fake_call(text, voice_id, api_key, model, previous_text=None, next_text=None):
+    def fake_call(text, voice_id, api_key, model, previous_text=None, next_text=None, voice_settings=None):
         calls["n"] += 1
         return _fake_generate(text)
     monkeypatch.setattr(sg, "call_elevenlabs_with_retry_on_transient_error", fake_call)
@@ -434,3 +435,325 @@ def test_main_requires_speech_plan_first(tmp_path):
                        capture_output=True, text=True, timeout=30, env=env)
     assert r.returncode != 0
     assert "speech_planner.py" in r.stdout
+
+
+# ---------- _build_fragment_text_and_spans: регрессия на реальный найденный баг ----------
+# (span каждого unit'а после cue-префикса съезжал на len(cue)+1 символов —
+# _unit_char_spans раньше не знал про cue вообще, дублировал построение
+# текста ОТДЕЛЬНО от fragment_text_for_tts(). Пойман РУЧНЫМ прослеживанием
+# арифметики, не тестом — синтетический равномерный alignment в остальных
+# e2e-тестах маскировал проблему (любой смежный срез равномерно
+# размеченного текста выглядит правдоподобно). Эти тесты — то, чего не
+# хватало, чтобы поймать баг автоматически.)
+
+def test_build_fragment_text_and_spans_matches_text_without_cue():
+    units = [{"unit_id": "a", "text": "Первая фраза", "tag": "[pause]", "cue": None},
+              {"unit_id": "b", "text": "Вторая фраза", "tag": None, "cue": None}]
+    text, spans = sg._build_fragment_text_and_spans(units)
+    for (s, e), u in zip(spans, units):
+        assert text[s:e] == u["text"]
+
+
+def test_build_fragment_text_and_spans_matches_text_with_cue_before_second_unit():
+    units = [{"unit_id": "a", "text": "Первая фраза", "tag": "[pause]", "cue": None},
+              {"unit_id": "b", "text": "Вторая фраза", "tag": "[pause]", "cue": "[slowly]"}]
+    text, spans = sg._build_fragment_text_and_spans(units)
+    assert "[slowly]" in text
+    for (s, e), u in zip(spans, units):
+        assert text[s:e] == u["text"], f"span для {u['unit_id']} указывает не на его текст"
+
+
+def test_build_fragment_text_and_spans_matches_text_with_cue_before_first_unit():
+    units = [{"unit_id": "a", "text": "Первая фраза", "tag": "[pause]", "cue": "[emphasis]"},
+              {"unit_id": "b", "text": "Вторая фраза", "tag": None, "cue": None}]
+    text, spans = sg._build_fragment_text_and_spans(units)
+    for (s, e), u in zip(spans, units):
+        assert text[s:e] == u["text"]
+
+
+def test_build_fragment_text_and_spans_matches_text_with_energetic_and_cue():
+    units = [{"unit_id": "a", "text": "Хук фраза", "tag": "[pause]", "cue": None},
+              {"unit_id": "b", "text": "Вторая фраза", "tag": "[pause]", "cue": "[slowly]"}]
+    text, spans = sg._build_fragment_text_and_spans(units, prefix_energetic=True)
+    assert text.startswith("[energetic]")
+    for (s, e), u in zip(spans, units):
+        assert text[s:e] == u["text"]
+
+
+def test_fragment_text_for_tts_delegates_to_shared_builder():
+    units = [{"unit_id": "a", "text": "Текст", "tag": None, "cue": "[emphasis]"}]
+    assert sg.fragment_text_for_tts(units) == sg._build_fragment_text_and_spans(units)[0]
+
+
+def test_evaluate_fragment_asserts_on_text_span_mismatch():
+    units = [{"unit_id": "a", "text": "Текст один", "tag": None, "cue": None,
+              "target_range_sec": [0, 0], "target_wpm": 125, "words": 2}]
+    with pytest.raises(AssertionError):
+        sg.evaluate_fragment(units, "заведомо другой текст", "/nonexistent.mp3",
+                             [("x", 0.0, 0.1)])
+
+
+# ---------- sparse cue policy ----------
+
+def test_assign_sparse_cues_climax_gets_slowly():
+    units = [{"unit_id": "a", "chapter_id": 0, "is_climax": True, "stat": None}]
+    sg.assign_sparse_cues(units)
+    assert units[0]["cue"] == "[slowly]"
+
+
+def test_assign_sparse_cues_stat_gets_emphasis():
+    units = [{"unit_id": "a", "chapter_id": 0, "is_climax": False, "stat": "1.2 КГ"}]
+    sg.assign_sparse_cues(units)
+    assert units[0]["cue"] == "[emphasis]"
+
+
+def test_assign_sparse_cues_neither_signal_gets_no_cue():
+    units = [{"unit_id": "a", "chapter_id": 0, "is_climax": False, "stat": None}]
+    sg.assign_sparse_cues(units)
+    assert units[0]["cue"] is None
+
+
+def test_assign_sparse_cues_climax_priority_over_stat_same_unit():
+    units = [{"unit_id": "a", "chapter_id": 0, "is_climax": True, "stat": "1.2 КГ"}]
+    sg.assign_sparse_cues(units)
+    assert units[0]["cue"] == "[slowly]"
+
+
+def test_assign_sparse_cues_slowly_budget_max_one_per_chapter():
+    units = [
+        {"unit_id": "a", "chapter_id": 0, "is_climax": True, "stat": None},
+        {"unit_id": "b", "chapter_id": 0, "is_climax": True, "stat": None},
+    ]
+    sg.assign_sparse_cues(units)
+    assert units[0]["cue"] == "[slowly]"
+    assert units[1]["cue"] is None, "второй [slowly] в той же главе не должен пройти бюджет"
+
+
+def test_assign_sparse_cues_slowly_budget_separate_per_chapter():
+    units = [
+        {"unit_id": "a", "chapter_id": 0, "is_climax": True, "stat": None},
+        {"unit_id": "b", "chapter_id": 1, "is_climax": True, "stat": None},
+    ]
+    sg.assign_sparse_cues(units)
+    assert units[0]["cue"] == "[slowly]"
+    assert units[1]["cue"] == "[slowly]", "разные главы — разные бюджеты"
+
+
+def test_assign_sparse_cues_emphasis_has_no_chapter_budget_limit():
+    units = [
+        {"unit_id": "a", "chapter_id": 0, "is_climax": False, "stat": "1"},
+        {"unit_id": "b", "chapter_id": 0, "is_climax": False, "stat": "2"},
+    ]
+    sg.assign_sparse_cues(units)
+    assert units[0]["cue"] == "[emphasis]"
+    assert units[1]["cue"] == "[emphasis]"
+
+
+def test_fragment_text_for_tts_never_includes_more_than_one_cue():
+    units = [
+        {"unit_id": "a", "text": "Раз", "tag": "[pause]", "cue": "[slowly]"},
+        {"unit_id": "b", "text": "Два", "tag": "[pause]", "cue": "[emphasis]"},
+    ]
+    text = sg.fragment_text_for_tts(units)
+    total_cues = text.count("[slowly]") + text.count("[emphasis]")
+    assert total_cues == 1, f"максимум 1 cue на фрагмент, получили: {text!r}"
+    assert "[slowly]" in text and "[emphasis]" not in text, (
+        "первый по порядку cue должен победить детерминированно")
+
+
+def test_question_rise_and_closing_hold_never_get_cue_via_classify_and_assign(tmp_path):
+    # question_rise/closing_hold сознательно НЕ входят в CUE_MAP (см.
+    # докстринг) — is_climax/stat остаются единственными триггерами,
+    # рядовой вопрос/финальная фраза без явного климакса/статы cue не
+    # получают, даже если их rhetorical_kind заметный.
+    script = tmp_path / "script.txt"
+    script.write_text(
+        "=== HOOK === Ты видел это сто раз?\n=== FINAL === Вот и всё.\n", encoding="utf-8")
+    saved_argv = sys.argv
+    sys.argv = ["pipeline_smart.py", str(tmp_path)]
+    import pipeline_smart
+    sys.argv = saved_argv
+    blocks = pipeline_smart.parse_blocks(str(script))
+    units = speech_planner.build_units(blocks)
+    speech_planner.assign_chapter_arcs(units)
+    sg.assign_sparse_cues(units)
+    assert all(u["cue"] is None for u in units)
+
+
+# ---------- voice_settings профили ----------
+
+def test_voice_settings_defaults_to_conservative_when_disabled(monkeypatch):
+    monkeypatch.setattr(sg, "VOICE_PROFILES_ENABLED", False)
+    units = [{"energy_target": "high"}]
+    name, settings = sg.voice_settings_for_fragment(units)
+    assert name == "conservative"
+    assert settings == sg.VOICE_SETTINGS_PROFILES["conservative"]
+
+
+def test_voice_settings_maps_high_energy_to_energetic_when_enabled(monkeypatch):
+    monkeypatch.setattr(sg, "VOICE_PROFILES_ENABLED", True)
+    units = [{"energy_target": "high"}]
+    name, _ = sg.voice_settings_for_fragment(units)
+    assert name == "energetic"
+
+
+def test_voice_settings_maps_low_energy_to_calm_when_enabled(monkeypatch):
+    monkeypatch.setattr(sg, "VOICE_PROFILES_ENABLED", True)
+    units = [{"energy_target": "low"}]
+    name, _ = sg.voice_settings_for_fragment(units)
+    assert name == "calm"
+
+
+def test_voice_settings_maps_med_energy_to_conservative_when_enabled(monkeypatch):
+    monkeypatch.setattr(sg, "VOICE_PROFILES_ENABLED", True)
+    units = [{"energy_target": "med"}]
+    name, _ = sg.voice_settings_for_fragment(units)
+    assert name == "conservative"
+
+
+def test_voice_settings_only_three_profiles_exist():
+    assert set(sg.VOICE_SETTINGS_PROFILES) == {"conservative", "calm", "energetic"}
+
+
+def test_cache_key_differs_by_voice_profile():
+    k1 = sg.cache_key("текст", "v", "m", 1, voice_profile="conservative")
+    k2 = sg.cache_key("текст", "v", "m", 1, voice_profile="energetic")
+    assert k1 != k2
+
+
+# ---------- нормализация произношения ----------
+
+def test_normalize_percent_sign():
+    text, subs = sg.normalize_pronunciation("Настоящий вес — 5% от ожидаемого.")
+    assert "5 процентов" in text
+    assert "%" not in text
+    assert len(subs) == 1
+
+
+def test_normalize_kg_after_digit():
+    text, subs = sg.normalize_pronunciation("Средний вес составлял 1.2 кг.")
+    assert "килограммов" in text
+    assert subs[0]["before"] == "2 кг"   # цифра ПЕРЕД сокращением — часть паттерна
+
+
+def test_normalize_does_not_touch_ambiguous_bare_g():
+    # "г" (граммы vs год vs город) НАМЕРЕННО не в таблице (см. докстринг) —
+    # "5 г." должно остаться как есть, не превратиться в "5 граммов.".
+    text, subs = sg.normalize_pronunciation("Событие произошло в 1932 г.")
+    assert text == "Событие произошло в 1932 г."
+    assert subs == []
+
+
+def test_normalize_km_mm_cm():
+    text, _ = sg.normalize_pronunciation("3 км, 4 см, 5 мм.")
+    assert "километров" in text and "сантиметров" in text and "миллиметров" in text
+
+
+def test_normalize_disabled_via_env():
+    env = dict(os.environ, SPEECH_GEN_PRONUNCIATION_NORMALIZE="0")
+    r = subprocess.run(
+        [sys.executable, "-c",
+         "import sys; sys.argv=['speech_generate.py','.']; sys.path.insert(0, %r); "
+         "import speech_generate as sg; "
+         "t, s = sg.normalize_pronunciation('5%% готово'); print(t); print(len(s))" % SCRIPTS_DIR],
+        capture_output=True, text=True, env=env, timeout=30)
+    lines = r.stdout.strip().splitlines()
+    assert lines[0] == "5% готово"
+    assert lines[1] == "0"
+
+
+def test_apply_pronunciation_normalization_recomputes_words():
+    units = [{"unit_id": "a", "text": "Вес 5% ровно", "words": 3}]
+    sg.apply_pronunciation_normalization(units)
+    assert units[0]["text"] == "Вес 5 процентов ровно"
+    assert units[0]["words"] == len("Вес 5 процентов ровно".split())
+
+
+def test_apply_pronunciation_normalization_reports_substitutions_with_unit_id():
+    units = [{"unit_id": "u#0", "text": "5%", "words": 1}]
+    subs = sg.apply_pronunciation_normalization(units)
+    assert subs == [{"unit_id": "u#0", "before": "5%", "after": "5 процентов"}]
+
+
+def test_apply_pronunciation_normalization_no_subs_returns_empty_list():
+    units = [{"unit_id": "a", "text": "Обычная фраза без чисел", "words": 4}]
+    subs = sg.apply_pronunciation_normalization(units)
+    assert subs == []
+    assert units[0]["text"] == "Обычная фраза без чисел"
+
+
+# ---------- F0 shadow-метрика и реальная тишина на стыке ----------
+
+def test_estimate_f0_hz_detects_known_frequency_within_tolerance():
+    sr = 22050
+    freq = 220.0
+    t = np.arange(int(sr * 0.3)) / sr
+    tone = np.sin(2 * np.pi * freq * t).astype(np.float32)
+    f0 = sg.estimate_f0_hz(tone, sr)
+    assert f0 is not None
+    # Автокорреляция может поймать субгармонику (см. докстринг shadow-
+    # метрики) — проверяем ОКТАВНУЮ близость (f0 или f0/2 или f0*2 близко
+    # к freq), не точное совпадение.
+    ratios = [f0 / freq, (f0 * 2) / freq, f0 / (freq * 2)]
+    assert any(abs(r - 1.0) < 0.05 for r in ratios), f"f0={f0} далеко от {freq} и его октав"
+
+
+def test_estimate_f0_hz_returns_none_on_too_short_input():
+    assert sg.estimate_f0_hz(np.zeros(3, dtype=np.float32), 22050) is None
+
+
+def test_estimate_f0_hz_returns_none_on_none_input():
+    assert sg.estimate_f0_hz(None, 22050) is None
+
+
+def test_trailing_silence_detects_real_silence():
+    sr = 22050
+    tone = np.sin(2 * np.pi * 220 * np.arange(int(sr * 0.2)) / sr).astype(np.float32) * 0.5
+    silence = np.zeros(int(sr * 0.3), dtype=np.float32)
+    arr = np.concatenate([tone, silence])
+    sec = sg._trailing_silence_sec(arr, sr)
+    assert sec > 0.2, f"должен поймать большую часть {0.3}с реальной тишины, получил {sec}"
+
+
+def test_trailing_silence_zero_when_no_silence():
+    sr = 22050
+    tone = np.sin(2 * np.pi * 220 * np.arange(int(sr * 0.3)) / sr).astype(np.float32) * 0.5
+    assert sg._trailing_silence_sec(tone, sr) == 0.0
+
+
+def test_evaluate_joins_includes_shadow_f0_and_join_risk_fields(tmp_path):
+    sr = 22050
+    for name in ("a.mp3", "b.mp3"):
+        tone = (np.sin(2 * np.pi * 220 * np.arange(int(sr * 0.3)) / sr) * 0.5).astype(np.float32)
+        raw = (tone * 32767).astype(np.int16).tobytes()
+        path = tmp_path / name
+        subprocess.run(["ffmpeg", "-y", "-f", "s16le", "-ar", str(sr), "-ac", "1", "-i", "-",
+                        "-c:a", "libmp3lame", str(path)], input=raw, capture_output=True, check=True)
+    joins = sg.evaluate_joins([str(tmp_path / "a.mp3"), str(tmp_path / "b.mp3")])
+    assert len(joins) == 1
+    j = joins[0]
+    assert "f0_a_hz_shadow" in j and "f0_b_hz_shadow" in j and "f0_jump_hz_shadow" in j
+    assert "trailing_silence_sec" in j and "leading_silence_sec" in j
+    assert j["join_risk"] in ("low", "high")
+
+
+# ---------- SPEECH_JOIN_REGEN_BUDGET (зарезервировано, не реализовано) ----------
+
+def test_join_regen_budget_defaults_to_zero():
+    r = subprocess.run(
+        [sys.executable, "-c",
+         "import sys; sys.argv=['speech_generate.py','.']; sys.path.insert(0, %r); "
+         "import speech_generate as sg; print(sg.SPEECH_JOIN_REGEN_BUDGET)" % SCRIPTS_DIR],
+        capture_output=True, text=True, timeout=30,
+        env={k: v for k, v in os.environ.items() if k != "SPEECH_JOIN_REGEN_BUDGET"})
+    assert r.stdout.strip() == "0"
+
+
+def test_join_regen_budget_reads_env():
+    env = dict(os.environ, SPEECH_JOIN_REGEN_BUDGET="3")
+    r = subprocess.run(
+        [sys.executable, "-c",
+         "import sys; sys.argv=['speech_generate.py','.']; sys.path.insert(0, %r); "
+         "import speech_generate as sg; print(sg.SPEECH_JOIN_REGEN_BUDGET)" % SCRIPTS_DIR],
+        capture_output=True, text=True, env=env, timeout=30)
+    assert r.stdout.strip() == "3"

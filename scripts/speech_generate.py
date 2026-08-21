@@ -120,6 +120,16 @@ PAUSE_BOUNDARY_TOLERANCE_SEC = 0.20
 
 CACHE_DIR_NAME = "speech_cache"
 
+# Резерв на будущее — merge-регенерация стыка (перегенерировать связную
+# мини-сцену из 2+ фрагментов, если стык плохой) СОЗНАТЕЛЬНО НЕ реализована
+# сейчас: это откат уже ПРИНЯТЫХ и уже ОПЛАЧЕННЫХ фрагментов, ему нужен
+# отдельный бюджет (не тот же SPEECH_GEN_MAX_ATTEMPTS — тот про одну
+# попытку одного фрагмента, не про пересборку нескольких сразу), иначе
+# "почини шов" тихо превращается в "трать сколько потребуется". Поле
+# зарезервировано (умолч. 0 = функция выключена), чтобы формат отчёта не
+# ломался, когда она появится, — не значит, что она уже работает.
+SPEECH_JOIN_REGEN_BUDGET = max(0, int(os.environ.get("SPEECH_JOIN_REGEN_BUDGET", "0")))
+
 
 class SpeechGenerationLimitError(Exception):
     """SPEECH_GEN_MAX_CALLS_PER_RUN исчерпан — прогон останавливается
@@ -170,24 +180,104 @@ def fragment_id_for(fragment_units):
     return fragment_units[0]["unit_id"] + ".." + fragment_units[-1]["unit_id"]
 
 
-def fragment_text_for_tts(fragment_units, prefix_energetic=False):
-    """Текст, который реально уходит в TTS — озвучиваемые слова юнитов +
-    восстановленные литеральные [pause]/[short pause] между ними (см.
-    честные границы в докстринге модуля насчёт [slowly]/[emphasis]).
-    Тег ПОСЛЕ юнита включается ВСЕГДА, когда он есть (в т.ч. у
-    последнего юнита фрагмента) — это реальная пауза, которую нужно
-    озвучить/получить в alignment, не только "внутренний" разделитель
-    между юнитами одного вызова; на сборке она просто остаётся частью
-    аудио этого фрагмента, следующий фрагмент клеится встык без
-    дополнительной вставленной тишины."""
+# --- Sparse cue policy: [slowly]/[emphasis] ТОЛЬКО на уже явных
+# высокоценных сигналах, которые сценарий и так уже отметил (is_climax/
+# stat) — НЕ угадывание по arc_stage/энергии. Ровно 2 маппинга, не 4:
+# question_rise не имеет естественного соответствия ни одному
+# разрешённому тегу без натяжки (вопросительная интонация уже несёт сам
+# текст с "?"); closing_hold — ЧАСТЬ 9 CLAUDE.md прямо требует
+# "приземлённый честный финал... без чеканных триад" — навязанный
+# [slowly] на последней фразе эпизода работал бы ПРОТИВ этого правила,
+# не за него, так что финал cue сознательно не получает. climax > stat по
+# приоритету, если оба сигнала есть на одном юните (редкий случай).
+CUE_MAP = {"climax": "[slowly]", "stat": "[emphasis]"}
+
+
+def assign_sparse_cues(units):
+    """Мутирует units на месте: 'cue' = None/'[slowly]'/'[emphasis]'.
+    [slowly] — максимум ОДИН на chapter_id (ЧАСТЬ 10 CLAUDE.md: "[slowly]
+    ≤1/блок" — секция может занять несколько фрагментов, бюджет считается
+    на всю секцию разом, не per-фрагмент). [emphasis] такого лимита в
+    CLAUDE.md не имеет, но фактически редок — один per stat. Возвращает
+    units (цепочка вызовов, как assign_chapter_arcs)."""
+    slowly_used_chapters = set()
+    for u in units:
+        cue = None
+        if u.get("is_climax"):
+            ch = u.get("chapter_id")
+            if ch not in slowly_used_chapters:
+                cue = CUE_MAP["climax"]
+                slowly_used_chapters.add(ch)
+        elif u.get("stat"):
+            cue = CUE_MAP["stat"]
+        u["cue"] = cue
+    return units
+
+
+def _build_fragment_text_and_spans(fragment_units, prefix_energetic=False):
+    """ЕДИНСТВЕННОЕ место, которое знает, как fragment_text_for_tts()
+    склеивает parts — раньше _unit_char_spans() дублировала эту
+    последовательность ОТДЕЛЬНО и НЕ знала про cue-префикс, из-за чего
+    диапазон каждого unit'а после первого cue съезжал (проверено вживую:
+    ручной прогон с [climax] дал видимо правдоподобные, но по факту
+    смещённые на len(cue)+1 символов границы — синтетический
+    равномерный alignment в тестах этого не ловил, т.к. любой смежный
+    срез равномерно размеченного текста выглядит правдоподобно). Теперь
+    text и spans считаются ОДНИМ проходом по ОДНОМУ и тому же списку
+    parts — разойтись им больше негде. Возвращает (text, [(start,end), ...])
+    длины len(fragment_units), в порядке fragment_units."""
     parts = []
+    spans = []
     if prefix_energetic:
         parts.append("[energetic]")
+    cue_used = False
     for u in fragment_units:
+        cue = u.get("cue")
+        if cue and not cue_used:
+            parts.append(cue)
+            cue_used = True
+        unit_part_index = len(parts)
         parts.append(u["text"])
         if u.get("tag"):
             parts.append(u["tag"])
-    return " ".join(parts)
+        spans.append(unit_part_index)   # индекс В parts, переводим в символьные смещения ниже
+
+    text = " ".join(parts)
+    # Символьные смещения каждого part'а в склеенном тексте — считаем один
+    # раз по той же последовательности parts, потом просто берём нужные
+    # индексы (spans выше) под каждый unit.
+    offsets = []
+    pos = 0
+    for i, p in enumerate(parts):
+        if i > 0:
+            pos += 1
+        offsets.append(pos)
+        pos += len(p)
+    char_spans = []
+    for unit_part_index, u in zip(spans, fragment_units):
+        start = offsets[unit_part_index]
+        end = start + len(u["text"])
+        char_spans.append((start, end))
+    return text, char_spans
+
+
+def fragment_text_for_tts(fragment_units, prefix_energetic=False):
+    """Текст, который реально уходит в TTS — озвучиваемые слова юнитов +
+    восстановленные литеральные [pause]/[short pause] между ними (см.
+    честные границы в докстринге модуля насчёт [slowly]/[emphasis] из
+    ОРИГИНАЛЬНОГО script.txt — они теряются на уровне общего парсера,
+    здесь не про это) + не более ОДНОГО sparse-cue на фрагмент (см.
+    assign_sparse_cues — cue уже посчитан заранее и не зависит от того,
+    сколько раз эту функцию вызвали, чтобы previous_text/next_text
+    контекст соседних фрагментов совпадал с тем, что реально прозвучит
+    у них самих). Тег ПОСЛЕ юнита включается ВСЕГДА, когда он есть (в
+    т.ч. у последнего юнита фрагмента) — это реальная пауза, которую
+    нужно озвучить/получить в alignment, не только "внутренний"
+    разделитель между юнитами одного вызова; на сборке она просто
+    остаётся частью аудио этого фрагмента, следующий фрагмент клеится
+    встык без дополнительной вставленной тишины."""
+    text, _ = _build_fragment_text_and_spans(fragment_units, prefix_energetic=prefix_energetic)
+    return text
 
 
 def is_first_hook_fragment(fragment_units, fragments, idx):
@@ -203,12 +293,74 @@ def is_first_hook_fragment(fragment_units, fragments, idx):
     return True
 
 
+# --- Консервативный pronunciation/normalization-слой: ТОЛЬКО однозначные,
+# узкие паттерны (единица измерения СРАЗУ после цифры, знак процента) —
+# НЕ полная нормализация числительных. Полное разворачивание "2019" в
+# "две тысячи девятнадцатый" (правильный падеж) — отдельная, намного более
+# рискованная NLP-задача (русское склонение контекстно-зависимо, наивная
+# попытка легко звучит ХУЖЕ, чем оставить модели читать цифры как есть,
+# что современные TTS обычно уже умеют разумно) — сознательно не делается
+# здесь. "г" (граммы) НАМЕРЕННО не в списке — неоднозначно с "год"/"город"
+# в сокращении "г." (реальный риск неправильной подстановки хуже, чем
+# отсутствие подстановки). Каждая замена логируется (report) — не тихая
+# правка текста в обход видимости.
+PRONUNCIATION_RULES = [
+    (re.compile(r'(\d)\s*%'), r'\1 процентов'),
+    (re.compile(r'(\d)\s*кг\b'), r'\1 килограммов'),
+    (re.compile(r'(\d)\s*см\b'), r'\1 сантиметров'),
+    (re.compile(r'(\d)\s*мм\b'), r'\1 миллиметров'),
+    (re.compile(r'(\d)\s*км\b'), r'\1 километров'),
+]
+PRONUNCIATION_NORMALIZE_ENABLED = os.environ.get("SPEECH_GEN_PRONUNCIATION_NORMALIZE", "1") != "0"
+
+
+def normalize_pronunciation(text):
+    """Возвращает (нормализованный_текст, [(было, стало), ...]). Правила
+    узкие и однозначные (см. PRONUNCIATION_RULES) — ничего не разбирает
+    семантически, чистая текстовая подстановка по regex."""
+    if not PRONUNCIATION_NORMALIZE_ENABLED:
+        return text, []
+    substitutions = []
+    result = text
+    for pattern, repl in PRONUNCIATION_RULES:
+        def _sub(m, repl=repl):
+            after = m.expand(repl)
+            substitutions.append({"before": m.group(0), "after": after})
+            return after
+        result = pattern.sub(_sub, result)
+    return result, substitutions
+
+
+def apply_pronunciation_normalization(units):
+    """Мутирует units на месте (unit['text']) + возвращает плоский список
+    всех подстановок по всему сценарию, для media_plan/speech_generation_report.json."""
+    all_subs = []
+    for u in units:
+        normalized, subs = normalize_pronunciation(u["text"])
+        if subs:
+            u["text"] = normalized
+            # words пересчитывается — иначе evaluate_fragment() считал бы
+            # темп по СТАРОМУ (короче) числу слов против НОВОГО (длиннее
+            # после нормализации) звучащего текста, тихо занижая wpm.
+            u["words"] = len(normalized.split())
+            for s in subs:
+                all_subs.append({"unit_id": u["unit_id"], **s})
+    return all_subs
+
+
 # --- Кэш: по хэшу (текст+voice+model) — одинаковый фрагмент дважды не
 # оплачивается, тот же принцип атомарности, что atomic_url_download в
 # pipeline_smart.py. ---
 
-def cache_key(text, voice_id, model, attempt):
-    h = hashlib.sha1(f"{text}|{voice_id}|{model}|attempt={attempt}".encode("utf-8")).hexdigest()
+def cache_key(text, voice_id, model, attempt, voice_profile="conservative"):
+    # voice_profile ВКЛЮЧЁН в хэш: тот же текст под другим voice_settings-
+    # профилем (см. SPEECH_GEN_VOICE_PROFILES) — РЕАЛЬНО другой аудио-
+    # результат, не должен тихо отдаваться из кэша, посчитанного под
+    # другой профиль (иначе включение/выключение флага между прогонами
+    # молча продолжало бы использовать старое аудио).
+    h = hashlib.sha1(
+        f"{text}|{voice_id}|{model}|attempt={attempt}|profile={voice_profile}".encode("utf-8")
+    ).hexdigest()
     return h[:24]
 
 
@@ -244,6 +396,39 @@ def save_to_cache(video_dir, key, audio_bytes, alignment):
     return audio_path
 
 
+# --- Voice settings: ОДИН профиль на ФРАГМЕНТ (= один TTS-вызов), не на
+# unit — per-unit stability/style внутри одного дубля сам стал бы новой
+# причиной слышимых скачков (та самая проблема, которую вся эта версия
+# должна убирать, не плодить). 3 профиля, по energy_target ПЕРВОГО юнита
+# фрагмента (фрагмент никогда не смешивает arc_stage — см.
+# segment_fragments — значит energy_target у всех юнитов фрагмента общий).
+# ЧИСЛА В ПРОФИЛЯХ — ПРИНЦИПИАЛЬНЫЕ дефолты (высокий style/низкий
+# stability эмоциональнее, обратное — ровнее), НЕ откалиброваны на живом
+# выводе ElevenLabs (см. честные границы модуля) — поэтому по умолчанию
+# ВЫКЛЮЧЕНО (SPEECH_GEN_VOICE_PROFILES=1 включает; без флага всегда
+# "conservative" независимо от energy_target — калибровка не нужна,
+# пока дефолт остаётся одним и тем же профилем для всех фрагментов).
+VOICE_SETTINGS_PROFILES = {
+    "conservative": {"stability": 0.50, "style": 0.00, "use_speaker_boost": True},
+    "calm":         {"stability": 0.65, "style": 0.15, "use_speaker_boost": True},
+    "energetic":    {"stability": 0.35, "style": 0.45, "use_speaker_boost": True},
+}
+ENERGY_TARGET_TO_PROFILE = {"low": "calm", "med": "conservative",
+                            "med-high": "conservative", "high": "energetic"}
+VOICE_PROFILES_ENABLED = os.environ.get("SPEECH_GEN_VOICE_PROFILES", "0") == "1"
+
+
+def voice_settings_for_fragment(fragment_units):
+    """Возвращает (profile_name, settings_dict) — profile_name пишется в
+    decision_log/отчёт (аудируемо, какой профиль применён к какому
+    фрагменту)."""
+    if not VOICE_PROFILES_ENABLED:
+        return "conservative", VOICE_SETTINGS_PROFILES["conservative"]
+    energy_target = fragment_units[0].get("energy_target", "med")
+    name = ENERGY_TARGET_TO_PROFILE.get(energy_target, "conservative")
+    return name, VOICE_SETTINGS_PROFILES[name]
+
+
 # --- ElevenLabs HTTP-клиент. Никогда не логирует/не печатает api_key —
 # см. _redact() и то, что ключ читается только из os.environ и передаётся
 # ТОЛЬКО в заголовке запроса, никогда в URL/логах/media_plan/*.json. ---
@@ -254,13 +439,15 @@ def _redact(text, api_key):
     return text.replace(api_key, "***REDACTED***")
 
 
-def call_elevenlabs_with_timestamps(text, voice_id, api_key, model, previous_text=None, next_text=None):
+def call_elevenlabs_with_timestamps(text, voice_id, api_key, model, previous_text=None,
+                                     next_text=None, voice_settings=None):
     """POST /v1/text-to-speech/{voice_id}/with-timestamps — документированный
     endpoint ElevenLabs, отдаёт audio (base64) + посимвольный alignment за
     ОДИН вызов (то, что раньше человек получал вручную и клал в
     media_plan/alignment/*.csv, см. ЧАСТЬ 13 CLAUDE.md Шаг 6). previous_text/
     next_text — контекст соседних фрагментов ДЛЯ ПРОСОДИИ (уменьшает, но не
-    убирает риск шва на стыке — см. докстринг модуля).
+    убирает риск шва на стыке — см. докстринг модуля). voice_settings —
+    см. voice_settings_for_fragment(), опционально.
     Возвращает (audio_bytes, alignment) где alignment — список (char, start, end).
     Бросает ElevenLabsAPIError с текстом, где api_key уже вычищен, на любой
     ошибке (сеть/HTTP/формат ответа)."""
@@ -270,6 +457,8 @@ def call_elevenlabs_with_timestamps(text, voice_id, api_key, model, previous_tex
         body["previous_text"] = previous_text
     if next_text:
         body["next_text"] = next_text
+    if voice_settings:
+        body["voice_settings"] = voice_settings
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(url, data=data, method="POST", headers={
         "xi-api-key": api_key,
@@ -306,7 +495,8 @@ def call_elevenlabs_with_timestamps(text, voice_id, api_key, model, previous_tex
 
 
 def call_elevenlabs_with_retry_on_transient_error(text, voice_id, api_key, model,
-                                                    previous_text=None, next_text=None, attempts=2):
+                                                    previous_text=None, next_text=None,
+                                                    voice_settings=None, attempts=2):
     """Ретрай ТОЛЬКО транспортного/HTTP-5xx сбоя (ElevenLabs недоступен на
     секунду) — НЕ тот же ретрай, что решает decide_fragment_action() ниже
     (тот перегенерирует из-за КАЧЕСТВА речи, этот — из-за того, что запрос
@@ -316,7 +506,7 @@ def call_elevenlabs_with_retry_on_transient_error(text, voice_id, api_key, model
     for i in range(attempts):
         try:
             return call_elevenlabs_with_timestamps(text, voice_id, api_key, model,
-                                                     previous_text, next_text)
+                                                     previous_text, next_text, voice_settings)
         except ElevenLabsAPIError as e:
             last_err = e
             if i < attempts - 1:
@@ -358,33 +548,22 @@ def rms_envelope_db(arr, sr, window_sec=0.25):
     return db
 
 
-def _unit_char_spans(fragment_units, fragment_text):
-    """Символьный диапазон [start_char, end_char) КАЖДОГО unit в
-    fragment_text (см. fragment_text_for_tts) — нужен, чтобы сопоставить
-    юнит с его срезом alignment. Строится той же конкатенацией, что и
-    fragment_text_for_tts(), НЕ повторным поиском текста в строке (поиск
-    подстрокой ломался бы на повторяющихся словах)."""
-    spans = []
-    pos = 0
-    for i, u in enumerate(fragment_units):
-        if i > 0:
-            pos += 1   # разделяющий пробел
-        start = pos
-        pos += len(u["text"])
-        end = pos
-        spans.append((start, end))
-        if u.get("tag"):
-            pos += 1 + len(u["tag"])
-    return spans
-
-
-def evaluate_fragment(fragment_units, fragment_text, audio_path, alignment):
+def evaluate_fragment(fragment_units, fragment_text, audio_path, alignment, prefix_energetic=False):
     """Возвращает dict с оценкой фрагмента: per-unit паузы (сверка с
     target_range_sec из speech_plan), темп (слов/мин из alignment против
     target_wpm), энергия (RMS-огибающая против energy_target). Не сетевой
-    вызов — работает с уже полученными audio_path/alignment."""
+    вызов — работает с уже полученными audio_path/alignment. prefix_energetic
+    ОБЯЗАН совпадать с тем, что было передано в fragment_text_for_tts() при
+    генерации fragment_text — spans считаются ЗАНОВО тем же builder'ом
+    (_build_fragment_text_and_spans), а не отдельным подсчётом (см. его
+    докстринг про реальный баг со смещением после cue, который так уже
+    поймали и починили)."""
+    rebuilt_text, spans = _build_fragment_text_and_spans(fragment_units, prefix_energetic=prefix_energetic)
+    assert rebuilt_text == fragment_text, (
+        "evaluate_fragment: переданный fragment_text не совпадает с тем, что "
+        "реально строит _build_fragment_text_and_spans — spans были бы неверны "
+        "(см. prefix_energetic/cue рассинхрон)")
     full_text_from_alignment = "".join(c for c, s, e in alignment)
-    spans = _unit_char_spans(fragment_units, fragment_text)
 
     unit_evals = []
     for u, (cs, ce) in zip(fragment_units, spans):
@@ -455,12 +634,69 @@ def evaluate_fragment(fragment_units, fragment_text, audio_path, alignment):
     }
 
 
+def estimate_f0_hz(arr, sr, fmin=75.0, fmax=400.0):
+    """Грубая оценка основного тона (autocorrelation, без новых
+    зависимостей — тот же numpy, что и остальная оценка) на КОРОТКОМ
+    окне (~0.15с, край фрагмента). ТЕНЕВАЯ метрика (shadow mode, см.
+    evaluate_joins) — измеряется и логируется, НИКОГДА не участвует в
+    accept/accept_needs_boundary_repair/regenerate: наивный порог на
+    перепад тона без калибровки на живом выводе рисковал бы либо
+    браковать нормальные стыки (лишняя трата кредитов), либо пропускать
+    настоящие проблемы — ни то, ни другое не выяснить без реальных
+    данных, которых сейчас нет (см. честные границы модуля)."""
+    if arr is None or len(arr) < int(sr * 0.02):
+        return None
+    windowed = arr.astype(np.float64) * np.hanning(len(arr))
+    corr = np.correlate(windowed, windowed, mode="full")
+    corr = corr[len(corr) // 2:]
+    min_lag = int(sr / fmax)
+    max_lag = int(sr / fmin)
+    if max_lag >= len(corr) or min_lag >= max_lag:
+        return None
+    segment = corr[min_lag:max_lag]
+    if len(segment) == 0 or np.max(segment) <= 0:
+        return None
+    peak_lag = int(np.argmax(segment)) + min_lag
+    if peak_lag <= 0:
+        return None
+    return float(sr / peak_lag)
+
+
+def _trailing_silence_sec(arr, sr, silence_thresh_db=-40.0, window_sec=0.02):
+    """Сколько СЕКУНД реальной тишины на конце arr (не из alignment/тега —
+    измерено прямо по сэмплам) — используется join'ами вместе с RMS-
+    скачком, честный сигнал 'здесь физически тихо или нет', не из
+    предположений о том, что должно было получиться."""
+    if arr is None or len(arr) == 0:
+        return 0.0
+    win = max(1, int(sr * window_sec))
+    n = len(arr) // win
+    if n == 0:
+        return 0.0
+    trimmed = arr[-n * win:].reshape(n, win)
+    db = 20 * np.log10(np.maximum(np.sqrt(np.mean(trimmed.astype(np.float64) ** 2, axis=1)), 1e-6))
+    silent = db < silence_thresh_db
+    count = 0
+    for is_silent in silent[::-1]:
+        if not is_silent:
+            break
+        count += 1
+    return count * window_sec
+
+
 def evaluate_joins(assembled_fragments_audio):
     """Оценка ШВОВ между УЖЕ принятыми соседними фрагментами (вызывается
     на сборке — до неё швов не существует). Резкий скачок RMS на границе
     (последнее окно фрагмента N против первого окна фрагмента N+1) —
     грубый, но честный, бесплатный сигнал "здесь может быть заметный
-    шов". Не гарантия неслышимости шва человеком (см. докстринг модуля)."""
+    шов". Плюс реальная тишина на хвосте/голове (см. _trailing_silence_sec)
+    и F0-перепад В ТЕНЕВОМ РЕЖИМЕ (см. estimate_f0_hz — измеряется и
+    пишется в отчёт, НЕ влияет на join_ok/join_risk: без калибровки на
+    живом выводе доверять числовому порогу по тону нечестно). join_risk —
+    категориальное поле для будущей merge-регенерации (см.
+    SPEECH_JOIN_REGEN_BUDGET — сейчас 0, функция не реализована, поле
+    только готовит формат отчёта). Не гарантия неслышимости шва человеком
+    (см. докстринг модуля)."""
     joins = []
     if np is None:
         return joins
@@ -470,16 +706,27 @@ def evaluate_joins(assembled_fragments_audio):
         arr_a, sr = decode_audio_to_array(path_a)
         arr_b, _ = decode_audio_to_array(path_b)
         if arr_a is None or arr_b is None or len(arr_a) == 0 or len(arr_b) == 0:
-            joins.append({"index": i, "signal": False})
+            joins.append({"index": i, "signal": False, "join_risk": "unknown"})
             continue
         tail = arr_a[-int(sr * 0.15):]
         head = arr_b[:int(sr * 0.15)]
         tail_db = 20 * math.log10(max(1e-6, math.sqrt(float(np.mean(tail.astype(np.float64) ** 2)))))
         head_db = 20 * math.log10(max(1e-6, math.sqrt(float(np.mean(head.astype(np.float64) ** 2)))))
         jump = abs(tail_db - head_db)
-        joins.append({"index": i, "signal": True, "tail_db": round(tail_db, 1),
-                      "head_db": round(head_db, 1), "jump_db": round(jump, 1),
-                      "join_ok": jump <= JOIN_RMS_JUMP_DB})
+        join_ok = jump <= JOIN_RMS_JUMP_DB
+        f0_a = estimate_f0_hz(tail, sr)
+        f0_b = estimate_f0_hz(head, sr)
+        f0_jump_hz = abs(f0_a - f0_b) if (f0_a is not None and f0_b is not None) else None
+        joins.append({
+            "index": i, "signal": True, "tail_db": round(tail_db, 1),
+            "head_db": round(head_db, 1), "jump_db": round(jump, 1), "join_ok": join_ok,
+            "trailing_silence_sec": round(_trailing_silence_sec(arr_a, sr), 3),
+            "leading_silence_sec": round(_trailing_silence_sec(arr_b[::-1], sr), 3),
+            "f0_a_hz_shadow": round(f0_a, 1) if f0_a is not None else None,
+            "f0_b_hz_shadow": round(f0_b, 1) if f0_b is not None else None,
+            "f0_jump_hz_shadow": round(f0_jump_hz, 1) if f0_jump_hz is not None else None,
+            "join_risk": "high" if not join_ok else "low",
+        })
     return joins
 
 
@@ -490,7 +737,7 @@ def evaluate_joins(assembled_fragments_audio):
 # что и в отказоустойчивом рендере клипов, см. pipeline_smart.py). ---
 
 def decide_fragment_action(evaluation, attempt):
-    """Возвращает ("accept"|"fix_boundary"|"regenerate", reason)."""
+    """Возвращает ("accept"|"accept_needs_boundary_repair"|"regenerate", reason)."""
     units = evaluation["units"]
     signal_units = [u for u in units if u.get("signal")]
     if not signal_units:
@@ -509,7 +756,7 @@ def decide_fragment_action(evaluation, attempt):
         # генерацию, отдаём границу на исправление тем же механизмом,
         # что уже правит паузы (fix_pauses.py/protected_windows), не
         # перегенерируем ради тишины, которую можно просто подрезать.
-        return "fix_boundary", f"{len(pause_bad)} пауз(ы) вне диапазона, темп/энергия в норме"
+        return "accept_needs_boundary_repair", f"{len(pause_bad)} пауз(ы) вне диапазона, темп/энергия в норме"
 
     if attempt < SPEECH_GEN_MAX_ATTEMPTS:
         reasons = []
@@ -525,7 +772,7 @@ def decide_fragment_action(evaluation, attempt):
 def _eval_problem_count(evaluation):
     """Меньше — лучше. Используется ТОЛЬКО чтобы выбрать "менее плохую"
     попытку после исчерпания лимита регенераций — не влияет на решение
-    accept/fix_boundary/regenerate само по себе (то принимает
+    accept/accept_needs_boundary_repair/regenerate само по себе (то принимает
     decide_fragment_action по конкретным порогам, не по этому счётчику)."""
     units = evaluation["units"]
     n = sum(1 for u in units if u.get("signal") and not u.get("tempo_ok", True))
@@ -537,11 +784,11 @@ def _eval_problem_count(evaluation):
 
 
 # --- Оркестрация: кэш -> генерация с ретраями -> оценка -> решение, для
-# каждого фрагмента по очереди. "fix_boundary" НЕ реализует коррекцию
+# каждого фрагмента по очереди. "accept_needs_boundary_repair" НЕ реализует коррекцию
 # паузы САМ — эта коррекция уже существует (speech_validator.py считает
 # protected_windows из ЛЮБОГО audio+alignment против того же
 # speech_plan.json, fix_pauses.py их применяет, см. ЧАСТЬ 13 CLAUDE.md
-# Шаги 6.5/7) — fix_boundary здесь означает "эта попытка принимается,
+# Шаги 6.5/7) — accept_needs_boundary_repair здесь означает "эта попытка принимается,
 # регенерация не нужна, а точную границу паузы доведёт до ума уже
 # существующий последующий шаг", не дублирует его логику заново. ---
 
@@ -554,13 +801,14 @@ def generate_all_fragments(video_dir, fragments, api_key, voice_id, model, on_pr
         text = fragment_text_for_tts(frag_units, prefix_energetic=prefix_energetic)
         prev_text = fragment_text_for_tts(fragments[idx - 1])[-200:] if idx > 0 else None
         next_text = fragment_text_for_tts(fragments[idx + 1])[:200] if idx + 1 < len(fragments) else None
+        profile_name, voice_settings = voice_settings_for_fragment(frag_units)
 
         decision_log = []
         best = None
         attempt = 1
         chosen = None
         while True:
-            key = cache_key(text, voice_id, model, attempt)
+            key = cache_key(text, voice_id, model, attempt, voice_profile=profile_name)
             cached = load_from_cache(video_dir, key)
             from_cache = cached is not None
             if cached:
@@ -574,18 +822,20 @@ def generate_all_fragments(video_dir, fragments, api_key, voice_id, model, on_pr
                         f"уже сгенерированные фрагменты остались в кэше — повторный "
                         f"запуск переиспользует их и продолжит с этого места")
                 audio_bytes, alignment = call_elevenlabs_with_retry_on_transient_error(
-                    text, voice_id, api_key, model, previous_text=prev_text, next_text=next_text)
+                    text, voice_id, api_key, model, previous_text=prev_text, next_text=next_text,
+                    voice_settings=voice_settings)
                 live_calls += 1
                 audio_path = save_to_cache(video_dir, key, audio_bytes, alignment)
 
-            evaluation = evaluate_fragment(frag_units, text, audio_path, alignment)
+            evaluation = evaluate_fragment(frag_units, text, audio_path, alignment,
+                                           prefix_energetic=prefix_energetic)
             action, reason = decide_fragment_action(evaluation, attempt)
             decision_log.append({"attempt": attempt, "from_cache": from_cache,
-                                 "action": action, "reason": reason})
+                                 "action": action, "reason": reason, "voice_profile": profile_name})
             if best is None or _eval_problem_count(evaluation) < _eval_problem_count(best[2]):
                 best = (audio_path, alignment, evaluation)
 
-            if action in ("accept", "fix_boundary"):
+            if action in ("accept", "accept_needs_boundary_repair"):
                 chosen = (audio_path, alignment, evaluation)
                 break
             if attempt >= SPEECH_GEN_MAX_ATTEMPTS:
@@ -599,7 +849,7 @@ def generate_all_fragments(video_dir, fragments, api_key, voice_id, model, on_pr
         results.append({
             "fragment_id": fragment_id_for(frag_units), "units": frag_units, "text": text,
             "audio_path": chosen[0], "alignment": chosen[1], "evaluation": chosen[2],
-            "decision_log": decision_log, "attempts": attempt,
+            "decision_log": decision_log, "attempts": attempt, "voice_profile": profile_name,
         })
     return results, live_calls, cache_hits
 
@@ -738,11 +988,18 @@ def main():
               "требует план по главам, не только по юнитам.")
         return 1
 
+    pronunciation_subs = apply_pronunciation_normalization(units)
+    assign_sparse_cues(units)
+
     fragments = segment_fragments(units)
     total_chars = sum(len(fragment_text_for_tts(f)) for f in fragments)
     print(f"Speech Generate: {len(units)} юнитов -> {len(fragments)} связных фрагментов "
           f"(~{total_chars} символов на озвучку). Лимит живых вызовов за прогон: "
-          f"{SPEECH_GEN_MAX_CALLS_PER_RUN}, лимит попыток на фрагмент: {SPEECH_GEN_MAX_ATTEMPTS}.")
+          f"{SPEECH_GEN_MAX_CALLS_PER_RUN}, лимит попыток на фрагмент: {SPEECH_GEN_MAX_ATTEMPTS}. "
+          f"Voice-профили по arc_stage: {'вкл' if VOICE_PROFILES_ENABLED else 'выкл (conservative для всех)'}.")
+    if pronunciation_subs:
+        print(f"  Нормализация произношения: {len(pronunciation_subs)} подстановок "
+              f"(см. media_plan/speech_generation_report.json).")
 
     def on_progress(i, n, frag_id, last_decision):
         print(f"  [{i}/{n}] {frag_id}: {last_decision['action']} "
@@ -782,6 +1039,16 @@ def main():
         "total_chars_sent": total_chars, "model": model,
         "exhausted_attempts_fragments": [r["fragment_id"] for r in exhausted],
         "suspicious_joins": bad_joins,
+        "voice_profiles_enabled": VOICE_PROFILES_ENABLED,
+        "voice_profile_by_fragment": {r["fragment_id"]: r["voice_profile"] for r in fragment_results},
+        "pronunciation_substitutions": pronunciation_subs,
+        "sparse_cues_applied": [{"unit_id": u["unit_id"], "cue": u["cue"]}
+                                for u in units if u.get("cue")],
+        # Резерв, не реализовано (см. SPEECH_JOIN_REGEN_BUDGET) — формат
+        # отчёта уже готов принять эти значения, когда/если появится
+        # merge-регенерация стыков.
+        "join_regen_budget": SPEECH_JOIN_REGEN_BUDGET,
+        "join_regens_used": 0,
     }
     atomic_write_json(os.path.join(video_dir, "media_plan", "speech_generation_report.json"), report)
 
