@@ -160,6 +160,28 @@ PROTECTED_OVERLAP_TOLERANCE = 0.35   # секунд — alignment (Cadence Valid
                                        # сопоставлять с запасом, не 1-в-1
 
 
+SECTION_OFFSETS_PATH_NAME = "section_offsets.json"
+
+
+def load_section_offsets(video_dir):
+    """{section_name: global_start_offset_sec} из media_plan/section_offsets.json
+    (пишет scripts/speech_generate.py Stage B при сборке — единственное
+    место, которое РЕАЛЬНО знает, где начинается аудио каждой секции в
+    итоговом audio.mp3, потому что само его туда конкатенировало). Нет
+    файла (ручной Шаг 6, вариант А — секции склеены человеком, карты
+    смещений ни от кого не осталось) -> {} — см. load_protected_windows()
+    про честное ограничение без этой карты."""
+    path = os.path.join(video_dir, "media_plan", SECTION_OFFSETS_PATH_NAME)
+    if not os.path.exists(path):
+        return {}
+    try:
+        data = json.load(open(path, encoding="utf-8"))
+        return {str(k): float(v) for k, v in data.items()}
+    except Exception as e:
+        print(f"  ВНИМАНИЕ: {path} битый/нечитаемый, смещения секций игнорирую: {e}")
+        return {}
+
+
 def load_protected_windows(video_dir):
     """[(raw_start, raw_end, target_kept_sec, unit_id), ...] из
     media_plan/speech_timeline.json (см. scripts/speech_validator.py) —
@@ -170,17 +192,44 @@ def load_protected_windows(video_dir):
     эпизодов) -> [] (тихий откат: вся логика ниже отрабатывает РОВНО как
     раньше, ни одна пауза не считается protected, тот же принцип
     безопасного отката, что и у остальных опциональных источников данных
-    пайплайна)."""
+    пайплайна).
+
+    РЕАЛЬНЫЙ БАГ, найден эмпирической проверкой (не гипотетический):
+    время в speech_timeline.json ЛОКАЛЬНОЕ для каждой секции (своя
+    нулевая точка на файл alignment.csv — та же конвенция, что и у
+    ручного Шага 6), а silencedetect ниже в этом же скрипте меряет ВЕСЬ
+    audio.mp3 ОДНИМ глобальным проходом. Без пересчёта в глобальное время
+    protected-окно физически совпадает со своей silencedetect-паузой
+    ТОЛЬКО у первой секции эпизода (её локальный ноль случайно совпадает
+    с глобальным) — у всех следующих секций _match_protected() молча не
+    находил совпадения, и защита пауз тихо переставала работать после
+    первой секции у КАЖДОГО эпизода. Чинится смещением из
+    load_section_offsets() (см. unit_id -> секция через 'СЕКЦИЯ#N',
+    та же нумерация, что speech_planner.build_units())."""
     path = os.path.join(video_dir, "media_plan", SPEECH_TIMELINE_PATH_NAME)
     if not os.path.exists(path):
         return []
+    offsets = load_section_offsets(video_dir)
     try:
         data = json.load(open(path, encoding="utf-8"))
-        return [(float(w[0]), float(w[1]), float(w[2]), str(w[3]))
-                for w in data.get("protected_windows", [])]
+        raw_windows = data.get("protected_windows", [])
     except Exception as e:
         print(f"  ВНИМАНИЕ: {path} битый/нечитаемый, protected-паузы игнорирую: {e}")
         return []
+    if raw_windows and not offsets:
+        print(f"  ВНИМАНИЕ: {SECTION_OFFSETS_PATH_NAME} не найден — время в "
+              f"{SPEECH_TIMELINE_PATH_NAME} локальное для каждой секции, а silencedetect "
+              f"здесь меряет весь audio.mp3 одним проходом. Без карты смещений "
+              f"protected-паузы физически совпадут ТОЛЬКО в первой секции эпизода "
+              f"(Stage B — scripts/speech_generate.py — пишет карту сам; при ручном "
+              f"Шаге 6, вариант А, карты пока нет).")
+    out = []
+    for w in raw_windows:
+        raw_start, raw_end, kept, unit_id = float(w[0]), float(w[1]), float(w[2]), str(w[3])
+        section = unit_id.rsplit("#", 1)[0]
+        offset = offsets.get(section, 0.0)
+        out.append((raw_start + offset, raw_end + offset, kept, unit_id))
+    return out
 
 
 def _match_protected(ss, se, protected_windows):

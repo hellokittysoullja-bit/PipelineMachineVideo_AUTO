@@ -882,10 +882,16 @@ def concat_fragment_audio(fragment_results, out_path, temp_dir):
 def write_section_alignment_csvs(fragment_results, alignment_dir):
     """Формат — ТОТ ЖЕ, что ручной Шаг 6 (см. load_alignment_weights() в
     pipeline_smart.py: 'char,start,end', по файлу на секцию в порядке
-    первого появления, время — ЛОКАЛЬНОЕ для каждой секции (см. докстринг
-    модуля про то, почему это осознанно, не глобальный сдвиг по всему
-    audio.mp3 — так уже устроен весь downstream, включая speech_validator.py's
-    'нет сигнала' на границах секций)."""
+    первого появления, время — ЛОКАЛЬНОЕ для каждой секции (та же
+    конвенция, что и у ручного Шага 6 — каждая секция была бы своим
+    отдельным TTS-заказом у человека, с собственным нулём времени).
+    Возвращает {section_name: global_start_offset_sec} — РЕАЛЬНАЯ,
+    измеренная (не предположенная) точка, где аудио этой секции начинается
+    в итоговом audio.mp3 (см. write_section_offsets() — без этого
+    protected_windows из speech_timeline.json, чьё время ЛОКАЛЬНОЕ для
+    секции, физически не сопоставимы с silencedetect в fix_pauses.py,
+    который меряет ВЕСЬ audio.mp3 одним глобальным проходом — найдено и
+    исправлено эмпирической проверкой, см. коммит)."""
     os.makedirs(alignment_dir, exist_ok=True)
     section_order = []
     section_fragments = {}
@@ -896,7 +902,10 @@ def write_section_alignment_csvs(fragment_results, alignment_dir):
             section_fragments[sec] = []
         section_fragments[sec].append(r)
 
+    section_global_offsets = {}
+    global_offset = 0.0
     for i, sec in enumerate(section_order):
+        section_global_offsets[sec] = global_offset
         rows = []
         local_offset = 0.0
         for r in section_fragments[sec]:
@@ -911,6 +920,27 @@ def write_section_alignment_csvs(fragment_results, alignment_dir):
             w.writerow(["char", "start", "end"])
             w.writerows(rows)
         os.replace(tmp, path)
+        global_offset += local_offset
+    return section_global_offsets
+
+
+def write_section_offsets(video_dir, section_global_offsets):
+    """media_plan/section_offsets.json — {section_name: global_start_offset_sec},
+    ТОЧНОЕ знание, доступное только на сборке (мы сами конкатенируем
+    аудио, см. concat_fragment_audio). fix_pauses.py читает этот файл
+    (опционально, безопасный откат без него — тот же принцип, что и у
+    остальных Speech Director артефактов), чтобы перевести локальное
+    время protected_windows в глобальное ПЕРЕД сравнением с
+    silencedetect. Без него защита пауз в fix_pauses.py физически
+    корректна только для ПЕРВОЙ секции (её локальный ноль совпадает с
+    глобальным по определению) — остальные молча не находят совпадение
+    (реальный баг, найден эмпирически)."""
+    path = os.path.join(video_dir, "media_plan", "section_offsets.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(section_global_offsets, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
 
 
 def build_final_timeline(fragment_results, join_evals):
@@ -1024,7 +1054,8 @@ def main():
         return 1
 
     alignment_dir = os.path.join(video_dir, "media_plan", "alignment")
-    write_section_alignment_csvs(fragment_results, alignment_dir)
+    section_global_offsets = write_section_alignment_csvs(fragment_results, alignment_dir)
+    write_section_offsets(video_dir, section_global_offsets)
 
     join_evals = evaluate_joins([r["audio_path"] for r in fragment_results])
     timeline = build_final_timeline(fragment_results, join_evals)

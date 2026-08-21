@@ -470,3 +470,76 @@ def test_load_protected_windows_corrupt_file_returns_empty_not_crash(tmp_path):
     plan_dir.mkdir()
     (plan_dir / "speech_timeline.json").write_text("{not valid json", encoding="utf-8")
     assert fix_pauses.load_protected_windows(str(tmp_path)) == []
+
+
+# ---------- load_section_offsets / offset-коррекция protected_windows ----------
+# Регрессия на РЕАЛЬНЫЙ найденный баг (не гипотеза — пойман эмпирической
+# проверкой, см. коммит): speech_timeline.json хранит protected_windows в
+# ЛОКАЛЬНОМ для каждой секции времени (своя нулевая точка на файл
+# alignment.csv), а silencedetect в этом же fix_pauses.py меряет ВЕСЬ
+# audio.mp3 ОДНИМ глобальным проходом. Без пересчёта в глобальное время
+# через section_offsets.json защита пауз физически совпадала ТОЛЬКО с
+# первой секцией эпизода (её локальный ноль случайно равен глобальному) —
+# у всех следующих секций совпадения тихо не находилось.
+
+def test_load_section_offsets_missing_file_returns_empty(tmp_path):
+    assert fix_pauses.load_section_offsets(str(tmp_path)) == {}
+
+
+def test_load_section_offsets_reads_file(tmp_path):
+    plan_dir = tmp_path / "media_plan"
+    plan_dir.mkdir()
+    (plan_dir / "section_offsets.json").write_text(
+        '{"HOOK": 0.0, "BLOCK 1: ТЕСТ": 6.28}', encoding="utf-8")
+    offsets = fix_pauses.load_section_offsets(str(tmp_path))
+    assert offsets == {"HOOK": 0.0, "BLOCK 1: ТЕСТ": 6.28}
+
+
+def test_load_section_offsets_corrupt_file_returns_empty_not_crash(tmp_path):
+    plan_dir = tmp_path / "media_plan"
+    plan_dir.mkdir()
+    (plan_dir / "section_offsets.json").write_text("{not valid", encoding="utf-8")
+    assert fix_pauses.load_section_offsets(str(tmp_path)) == {}
+
+
+def test_load_protected_windows_without_offsets_map_leaves_first_section_correct(tmp_path):
+    # Без карты смещений (offset по умолчанию 0.0) окно ПЕРВОЙ секции
+    # физически совпадает с глобальным временем случайно — это НЕ
+    # регрессия, а известное ограничение (см. докстринг load_protected_windows).
+    plan_dir = tmp_path / "media_plan"
+    plan_dir.mkdir()
+    (plan_dir / "speech_timeline.json").write_text(
+        '{"protected_windows": [[1.0, 2.0, 0.9, "HOOK#0"]]}', encoding="utf-8")
+    windows = fix_pauses.load_protected_windows(str(tmp_path))
+    assert windows == [(1.0, 2.0, 0.9, "HOOK#0")]
+
+
+def test_load_protected_windows_applies_section_offset_to_non_first_section(tmp_path):
+    # ИМЕННО ЭТОТ тест ловит реальный баг: без offset-коррекции окно
+    # второй секции осталось бы (2.88, 4.68) — физически не там, где
+    # реальная тишина находится в audio.mp3 (9.16, 10.96).
+    plan_dir = tmp_path / "media_plan"
+    plan_dir.mkdir()
+    (plan_dir / "speech_timeline.json").write_text(
+        '{"protected_windows": [[2.88, 4.68, 1.4, "BLOCK 1: ТЕСТ#0"]]}', encoding="utf-8")
+    (plan_dir / "section_offsets.json").write_text(
+        '{"HOOK": 0.0, "BLOCK 1: ТЕСТ": 6.28}', encoding="utf-8")
+    windows = fix_pauses.load_protected_windows(str(tmp_path))
+    assert windows == [(9.16, 10.96, 1.4, "BLOCK 1: ТЕСТ#0")]
+
+
+def test_load_protected_windows_unknown_section_defaults_to_zero_offset(tmp_path):
+    plan_dir = tmp_path / "media_plan"
+    plan_dir.mkdir()
+    (plan_dir / "speech_timeline.json").write_text(
+        '{"protected_windows": [[1.0, 2.0, 0.9, "MYSTERY#0"]]}', encoding="utf-8")
+    (plan_dir / "section_offsets.json").write_text('{"HOOK": 0.0}', encoding="utf-8")
+    windows = fix_pauses.load_protected_windows(str(tmp_path))
+    assert windows == [(1.0, 2.0, 0.9, "MYSTERY#0")]
+
+
+def test_load_protected_windows_section_name_split_on_last_hash():
+    # unit_id формата "СЕКЦИЯ#N" — секция сама может (гипотетически)
+    # содержать "#", берём ПОСЛЕДНИЙ разделитель, не первый.
+    assert "A#B".rsplit("#", 1)[0] == "A"
+    assert "BLOCK 1: A#B#3".rsplit("#", 1)[0] == "BLOCK 1: A#B"

@@ -22,9 +22,31 @@ def _block(text, words=None, section="BODY", pause_after=0.8, stat=None,
 
 # ---------- classify_unit ----------
 
-def test_climax_beats_everything_else():
+def test_unit_before_climax_gets_reveal_hold():
+    # "Тишина как акцент ПЕРЕД разоблачением" (см. CLIMAX_DIP_LEAD_SEC в
+    # pipeline_smart.py — дип начинается ДО climax-момента, не после) —
+    # reveal_hold защищает ХВОСТОВУЮ паузу юнита ПЕРЕД climax-блоком, не
+    # сам climax-блок (та пауза уже прозвучала ПОСЛЕ разоблачения).
+    setup = _block("Обычная фраза перед разоблачением.")
+    reveal = _block("Короткая?", section="HOOK", is_climax=True)
+    blocks = [setup, reveal]
+    assert sp.classify_unit(setup, 0, blocks) == "reveal_hold"
+
+
+def test_climax_block_itself_is_not_reveal_hold():
+    setup = _block("Обычная фраза перед разоблачением.")
+    reveal = _block("Короткая?", section="HOOK", is_climax=True)
+    blocks = [setup, reveal]
+    assert sp.classify_unit(reveal, 1, blocks) != "reveal_hold"
+
+
+def test_climax_as_last_block_does_not_crash():
+    # idx+1 выходит за границы blocks, когда climax — последний блок
+    # сценария (например, единственная строка в HOOK) — не должно падать,
+    # просто некому получить reveal_hold (нет предыдущего блока с этим
+    # is_climax соседом... сам по себе climax-блок без предыдущего юнита).
     b = _block("Короткая?", section="HOOK", is_climax=True)
-    assert sp.classify_unit(b, 0, [b]) == "reveal_hold"
+    assert sp.classify_unit(b, 0, [b]) != "reveal_hold"
 
 
 def test_stat_gives_evidence_beat():

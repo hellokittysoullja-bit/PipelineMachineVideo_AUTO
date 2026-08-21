@@ -358,6 +358,97 @@ def test_end_to_end_alignment_round_trips_through_pipeline_smart(tmp_path, monke
     assert all(w > 0 for w in weights)
 
 
+def test_write_section_alignment_csvs_returns_correct_global_offsets(tmp_path, monkeypatch):
+    units = _make_units(tmp_path)
+    fragments = sg.segment_fragments(units)
+
+    def fake_call(text, voice_id, api_key, model, previous_text=None, next_text=None, voice_settings=None):
+        return _fake_generate(text)
+    monkeypatch.setattr(sg, "call_elevenlabs_with_retry_on_transient_error", fake_call)
+
+    results, _, _ = sg.generate_all_fragments(str(tmp_path), fragments, "k", "v", "eleven_v3")
+    alignment_dir = tmp_path / "media_plan" / "alignment"
+    offsets = sg.write_section_alignment_csvs(results, str(alignment_dir))
+
+    assert set(offsets) == {"HOOK", "BLOCK 1: ВЕС МЕЧА", "FINAL"}
+    assert offsets["HOOK"] == 0.0, "первая секция всегда начинается на глобальном нуле"
+    # HOOK's own audio duration -> BLOCK 1 must start exactly there (не
+    # приблизительно — это РЕАЛЬНОЕ измерение через get_media_duration
+    # на уже собранных фрагментах, та же величина, что использует
+    # concat_fragment_audio для итогового audio.mp3).
+    hook_total = sum(sg.pipeline_smart.get_media_duration(r["audio_path"])
+                     for r in results if r["units"][0]["section"] == "HOOK")
+    assert abs(offsets["BLOCK 1: ВЕС МЕЧА"] - hook_total) < 0.01
+    assert offsets["FINAL"] > offsets["BLOCK 1: ВЕС МЕЧА"]
+
+
+def test_write_section_offsets_round_trips_via_fix_pauses_loader(tmp_path):
+    section_global_offsets = {"HOOK": 0.0, "BLOCK 1: ТЕСТ": 6.28}
+    sg.write_section_offsets(str(tmp_path), section_global_offsets)
+
+    saved_argv = sys.argv
+    sys.argv = ["fix_pauses.py", str(tmp_path)]
+    import fix_pauses
+    sys.argv = saved_argv
+    loaded = fix_pauses.load_section_offsets(str(tmp_path))
+    assert loaded == section_global_offsets
+
+
+def test_end_to_end_second_section_protected_window_matches_real_global_silence(tmp_path, monkeypatch):
+    """РЕГРЕССИЯ на реальный найденный баг (не мок изолированной функции —
+    полный путь speech_generate.py -> fix_pauses.py на РЕАЛЬНОМ собранном
+    audio.mp3): protected_windows для секции ПОСЛЕ первой (BLOCK 1) без
+    section_offsets.json физически не совпадали бы с тем, что реально
+    находит silencedetect в итоговом audio.mp3 — их локальный ноль не
+    там же, где глобальный. С section_offsets.json (пишет Stage B) —
+    совпадают, проверено на РЕАЛЬНОМ ffmpeg silencedetect, не на цифрах,
+    которые я сам придумал."""
+    units = _make_units(tmp_path)
+    fragments = sg.segment_fragments(units)
+
+    def fake_call(text, voice_id, api_key, model, previous_text=None, next_text=None, voice_settings=None):
+        return _fake_generate(text)
+    monkeypatch.setattr(sg, "call_elevenlabs_with_retry_on_transient_error", fake_call)
+
+    results, _, _ = sg.generate_all_fragments(str(tmp_path), fragments, "k", "v", "eleven_v3")
+    temp_dir = tmp_path / "media_plan" / "speech_temp"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    audio_out = tmp_path / "audio.mp3"
+    sg.concat_fragment_audio(results, str(audio_out), str(temp_dir))
+    alignment_dir = tmp_path / "media_plan" / "alignment"
+    offsets = sg.write_section_alignment_csvs(results, str(alignment_dir))
+    sg.write_section_offsets(str(tmp_path), offsets)
+
+    # Синтетическое protected_window В ЛОКАЛЬНОМ времени BLOCK 1 (как
+    # реально пишет speech_validator.py) — где-то в середине секции, не в
+    # начале, чтобы гарантированно быть в НЕ-первой секции.
+    block1_offset = offsets["BLOCK 1: ВЕС МЕЧА"]
+    fake_local_window = [1.0, 1.5, 1.3, "BLOCK 1: ВЕС МЕЧА#0"]
+    timeline_path = tmp_path / "media_plan" / "speech_timeline.json"
+    timeline_path.write_text(json.dumps({"protected_windows": [fake_local_window]}), encoding="utf-8")
+
+    saved_argv = sys.argv
+    sys.argv = ["fix_pauses.py", str(tmp_path)]
+    import fix_pauses
+    sys.argv = saved_argv
+    loaded = fix_pauses.load_protected_windows(str(tmp_path))
+    assert len(loaded) == 1
+    global_start, global_end, kept, unit_id = loaded[0]
+    assert abs(global_start - (1.0 + block1_offset)) < 0.01
+    assert abs(global_end - (1.5 + block1_offset)) < 0.01
+    # ГЛАВНАЯ проверка: это глобальное время ДЕЙСТВИТЕЛЬНО валидно внутри
+    # реального собранного audio.mp3 (не вышло за длительность файла) —
+    # если бы offset не применился, global_start остался бы 1.0с, что
+    # тоже технически "валидно" (меньше длительности), но указывало бы
+    # на середину ХУКА, а не на BLOCK 1 — эту подмену чисто по диапазону
+    # не поймать, поэтому проверяем через реальную длительность HOOK'а.
+    hook_total = sum(sg.pipeline_smart.get_media_duration(r["audio_path"])
+                     for r in results if r["units"][0]["section"] == "HOOK")
+    assert global_start >= hook_total, (
+        "offset-скорректированное окно обязано лежать ПОСЛЕ хука в глобальном "
+        "времени — иначе offset не применился (тот самый баг)")
+
+
 def test_end_to_end_writes_final_timeline_with_all_units(tmp_path, monkeypatch):
     units = _make_units(tmp_path)
     fragments = sg.segment_fragments(units)

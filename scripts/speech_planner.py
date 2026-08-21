@@ -103,7 +103,20 @@ def classify_unit(block, idx, blocks):
     text = block["text"].strip()
     section = block["section"]
 
-    if block.get("is_climax"):
+    # "Тишина как акцент ПЕРЕД разоблачением" — уже установленная в этом
+    # пайплайне конвенция (см. CLIMAX_DIP_LEAD_SEC в pipeline_smart.py:
+    # музыкальный провал начинается ДО t_climax, не после — t_climax там
+    # это старт climax-блока). Значит важна ХВОСТОВАЯ пауза блока, который
+    # идёт ПЕРЕД climax-блоком (она ведёт в разоблачение) — не хвостовая
+    # пауза самой climax-строки (та пауза идёт уже ПОСЛЕ того, как фраза
+    # сказана, держать её ради драмы поздно). build_timeline() в
+    # speech_validator.py защищает ХВОСТОВУЮ паузу юнита, помеченного
+    # reveal_hold — раньше эта роль ошибочно вешалась на сам climax-блок
+    # (block.get("is_climax")), из-за чего план защищал паузу ПОСЛЕ
+    # разоблачения вместо паузы ПЕРЕД ним. Реальный баг, пойман при
+    # эмпирической проверке "действительно ли пауза стала умнее" —
+    # см. git log этого коммита.
+    if idx + 1 < len(blocks) and blocks[idx + 1].get("is_climax"):
         return "reveal_hold"
     if block.get("stat"):
         return "evidence_beat"
