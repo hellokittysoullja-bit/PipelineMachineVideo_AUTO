@@ -386,6 +386,31 @@ GRAIN_LOOP_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(_
 GRAIN_ENABLED = os.environ.get("GRAIN", "1") != "0" and os.path.exists(GRAIN_LOOP_PATH)
 GRAIN_OPACITY = 0.10   # калибровано вживую — см. коммит с проверкой
 
+LOOKBOOK_JSON_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                   "assets", "lookbook", "lookbook.json")
+
+
+def _look_management_cache_signature():
+    """Грубая (не по-клипово точная), но безопасная добавка к params_hash
+    (см. main()) для Reference-Guided Look Management (scripts/
+    look_reference.py). params_hash считается ДО того, как известны
+    photo/levels/wb конкретного клипа (кэш проверяется раньше резолва
+    медиа) — точный look_filter ЭТОГО клипа тут физически ещё не посчитан.
+    Вместо него — сигнатура ГЛОБАЛЬНОГО состояния системы (включена ли
+    фича + mtime/размер lookbook.json): любое изменение lookbook.json или
+    переключение LOOK_MANAGEMENT_ENABLED инвалидирует ВСЕ кэшированные
+    клипы разом. Грубее точечной инвалидации, но недоинвалидация была бы
+    реальным багом (тихо устаревший грейд, тот же класс проблемы, что уже
+    описан в ЗАМЕТКЕ НА БУДУЩЕЕ у _warm_mult()) — переинвалидация просто
+    стоит одного лишнего рендера."""
+    if os.environ.get("LOOK_MANAGEMENT_ENABLED", "0") != "1":
+        return "look:off"
+    try:
+        st = os.stat(LOOKBOOK_JSON_PATH)
+        return f"look:on:{st.st_mtime_ns}:{st.st_size}"
+    except OSError:
+        return "look:on:missing"
+
 # Процедурная атмосферная подложка (см. scripts/generate_music_asset.py) —
 # тот же принцип, что и с grain_loop: статический ассет в репозитории, нет
 # файла -> MUSIC_ENABLED=False, безопасный откат на прежнее поведение
@@ -3019,7 +3044,7 @@ def log_render_diagnostics(tag):
 def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
              section="", motion_mode="classic_kb", stat_variant=0,
              brightness_bias=0.0, energy_bias=0.0, stat_delay=0.0, levels=None, wb=None,
-             grain_scale=1.0, captions=None, ffmpeg_threads=None):
+             grain_scale=1.0, captions=None, look_filter=None, ffmpeg_threads=None):
     frames = max(1, round(dur * FPS))
     h, zoom_in_default, pan_dir_default = kb_hash_choices(photo)
     if zoom_in is None:
@@ -3152,7 +3177,12 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
                f"crop=8000:4500:{cx0}:{cy0},setsar=1,"
                f"zoompan=z={z}:x={x}:y={y}:"
                f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS},"
-               f"{film_look(h, section, brightness_bias, energy_bias, levels, wb)}")
+               f"{film_look(h, section, brightness_bias, energy_bias, levels, wb)}"
+               # Reference-Guided Look Management (см. scripts/look_reference.py) —
+               # ДОБАВОЧНЫЙ фрагмент ПОСЛЕ уже готового film_look(), никогда не
+               # заменяет его. look_filter=None (фича выключена/lookbook пуст/
+               # низкая уверенность/лицо в кадре и т.д.) -> без изменений.
+               + (f",{look_filter}" if look_filter else ""))
     vf_overlay = None
     if title or stat or captions:
         vf_overlay = add_overlays(vf_base, dur, title, stat, stat_variant, stat_delay, media_path=photo)
@@ -3478,7 +3508,8 @@ def fill_crop_canvas(photo_path, cw, ch, anchor=None):
 
 def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
                        section="", stat_variant=0, brightness_bias=0.0, energy_bias=0.0,
-                       stat_delay=0.0, levels=None, wb=None, grain_scale=1.0, captions=None):
+                       stat_delay=0.0, levels=None, wb=None, grain_scale=1.0, captions=None,
+                       look_filter=None):
     """2.5D-версия kenburns(): собственный покадровый рендер (OpenCV remap)
     вместо ffmpeg zoompan — только так можно сделать смещение, зависящее от
     глубины пикселя. При любой накладке (модель не встала, ffmpeg-пайп упал)
@@ -3562,6 +3593,8 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
         if GRAIN_ENABLED:
             cmd += ["-stream_loop", "-1", "-i", GRAIN_LOOP_PATH]
         vf = film_look(h, section, brightness_bias, energy_bias, levels, wb)
+        if look_filter:   # Reference-Guided Look Management — см. kenburns()
+            vf += f",{look_filter}"
         if title or stat or captions:
             vf = add_overlays(vf, dur, title, stat, stat_variant, stat_delay, media_path=photo)
             vf = add_kinetic_captions(vf, captions)
@@ -4605,6 +4638,7 @@ def main():
     use_pexels = bool(PEXELS_API_KEY)
     queries = resolve_queries(blocks)
     write_shot_manifest(VIDEO_FOLDER, blocks, durs, queries)
+    look_cache_sig = _look_management_cache_signature()
     used_photo_ids = set()   # общий на весь ролик — не даём одной фотке всплыть дважды
     used_video_ids = set()   # то же самое, отдельно для видео (разные ID-пространства)
     used_photo_hashes = []   # aHash уже отобранных фото — ловит визуальные дубли под РАЗНЫМИ ID (см. pexels_photo)
@@ -4612,6 +4646,16 @@ def main():
     recent_media_types = []   # скользящее окно фото/видео — content-aware чередование, см. main() ниже
     stat_count = 0   # 2.2: номер плашки по счёту в ролике -> вариант оформления (chередуются по кругу)
     luma_ema = None   # для сглаживания скачков экспозиции между соседними склейками (см. measure_luma())
+    # Reference-Guided Look Management (scripts/look_reference.py) — ленивый импорт
+    # (см. clip_relevance()/torch выше — тот же принцип: не тянуть модель/CLIP в
+    # процесс, если фича выключена) ТОЛЬКО если явно включена флагом; look_ref
+    # остаётся None иначе — весь блок ниже, использующий look_ref, безопасно
+    # пропускается (look_filter=None на каждый клип, ноль влияния на рендер).
+    look_ref = None
+    if os.environ.get("LOOK_MANAGEMENT_ENABLED", "0") == "1":
+        import look_reference as look_ref  # noqa: F401
+    look_report = {}   # индекс -> запись решения Look Management, только для фото-клипов
+    look_ema_state = None   # аналог luma_ema — сглаженная Lab-дельта коррекции между клипами
     typewriter_click_times = []   # D4: абсолютные секунды щелчков клавиатуры на весь ролик
     hook_words = load_hook_word_timings(blocks, sub_starts, sub_baseline, real_weights)   # D2: пусто, если alignment.csv недоступен — тихий откат
     for i, (b, d) in enumerate(zip(blocks, durs)):
@@ -4660,9 +4704,12 @@ def main():
         # captions в хэше — D2, чтобы правка/пересчёт alignment.csv не
         # оставляла старые (без подписей или с другим текстом/таймингом)
         # закэшированные клипы висеть под тем же именем.
+        # look_cache_sig — Reference-Guided Look Management (см.
+        # _look_management_cache_signature()) — грубая, но безопасная
+        # инвалидация всех клипов разом при смене lookbook.json/флага.
         params_hash = hashlib.md5(
             f"{d:.3f}|{title}|{stat}|{stat_variant}|{b['section']}|{queries[i]}|{stat_delay:.3f}|"
-            f"{captions}".encode()).hexdigest()[:8]
+            f"{captions}|{look_cache_sig}".encode()).hexdigest()[:8]
         out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}_{params_hash}.mp4")
         if os.path.exists(out) and not verify_clip(out, d)[0]:
             # Кэш раньше доверял голому os.path.exists() — обрезанный/битый
@@ -4774,6 +4821,21 @@ def main():
         grain_scale = (PARTICLE_GRAIN_SCALE if (particle_score is not None
                         and particle_score >= PARTICLE_SCORE_THRESHOLD) else 1.0)
         energy_bias = max(-0.5, min(0.5, energy_lvls[i] - 1.0))
+        # Reference-Guided Look Management (см. scripts/look_reference.py) —
+        # ТОЛЬКО для фото (video-клипы не входят в эту версию системы, см.
+        # докстринг модуля), ТОЛЬКО если явно включена (look_ref is None
+        # иначе — вся секция ниже безопасно пропускается, look_filter=None).
+        # has_face — свой, отдельный вызов detect_face_anchor() (та же
+        # функция, что уже использует resolve_crop_anchor() внутри
+        # kenburns()/parallax_kenburns() для кропа, второй недорогой вызов
+        # здесь — не переиспользование внутреннего состояния тех функций,
+        # т.к. решение о коррекции нужно ДО диспетчеризации рендера).
+        look_filter = None
+        if look_ref is not None and photo:
+            has_face = detect_face_anchor(photo) is not None
+            look_filter, look_entry, look_ema_state = look_ref.look_correction_filter(
+                photo, levels, wb, has_face, prev_delta=look_ema_state)
+            look_report[i] = look_entry
         # Один непойманный сбой в рендере ОДНОГО кадра (редкий edge case —
         # битый файл, неожиданный тип данных и т.п.) раньше падал наружу и
         # убивал весь многочасовой прогон main() целиком, теряя ВСЮ уже
@@ -4823,7 +4885,7 @@ def main():
                                             pan_dir=pan_dir, stat=stat, section=b["section"],
                                             stat_variant=stat_variant, brightness_bias=brightness_bias,
                                             energy_bias=energy_bias, stat_delay=stat_delay, levels=levels, wb=wb, grain_scale=grain_scale,
-                                            captions=captions)
+                                            captions=captions, look_filter=look_filter)
                 if not ok:
                     photo_hash, _, _ = kb_hash_choices(photo)
                     cur_shot_size = recent_shot_sizes[-1] if recent_shot_sizes else None
@@ -4834,14 +4896,14 @@ def main():
                             stat=stat, section=b["section"], motion_mode=motion_mode,
                             brightness_bias=brightness_bias, energy_bias=energy_bias,
                             stat_variant=stat_variant, stat_delay=stat_delay, levels=levels, wb=wb, grain_scale=grain_scale,
-                            captions=captions, ffmpeg_threads=RENDER_FFMPEG_THREADS)
+                            captions=captions, look_filter=look_filter, ffmpeg_threads=RENDER_FFMPEG_THREADS)
                         ok = None
                     else:
                         ok = kenburns(photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
                                       stat=stat, section=b["section"], motion_mode=motion_mode,
                                       brightness_bias=brightness_bias, energy_bias=energy_bias,
                                       stat_variant=stat_variant, stat_delay=stat_delay, levels=levels, wb=wb, grain_scale=grain_scale,
-                                      captions=captions)
+                                      captions=captions, look_filter=look_filter)
         except Exception as e:
             print(f"  [{i+1}] непредвиденный сбой рендера, пропускаю кадр: {type(e).__name__} {e}")
             ok, future = False, None
@@ -4907,6 +4969,20 @@ def main():
                     "clips": [render_manifest[i] for i in sorted(render_manifest)]},
                    f, ensure_ascii=False, indent=2)
     os.replace(manifest_tmp, manifest_path)
+
+    # Reference-Guided Look Management — аудит-трейл (см. scripts/
+    # look_reference.py). look_report пуст, если фича выключена/lookbook
+    # пуст (реальный случай сегодня — см. LOOKBOOK_JSON_PATH) — тогда пишем
+    # пустой отчёт с enabled=False, не пропускаем файл молча (тот же принцип
+    # честной записи "нечего сообщить", что уже применяет speech_validator.py
+    # к media_plan/pause_decisions.json).
+    look_manifest_path = os.path.join(VIDEO_FOLDER, "media_plan", "look_manifest.json")
+    look_manifest_tmp = look_manifest_path + ".tmp"
+    with open(look_manifest_tmp, "w", encoding="utf-8") as f:
+        json.dump({"enabled": look_ref is not None,
+                    "clips": [look_report[i] for i in sorted(look_report)]},
+                   f, ensure_ascii=False, indent=2)
+    os.replace(look_manifest_tmp, look_manifest_path)
 
     # Жёсткий финальный гейт: цель не "никогда не упасть" (нечестное
     # обещание — сеть/диск/память могут отказать всегда), а чтобы одиночный
