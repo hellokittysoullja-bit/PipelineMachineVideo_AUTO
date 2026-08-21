@@ -543,3 +543,59 @@ def test_load_protected_windows_section_name_split_on_last_hash():
     # содержать "#", берём ПОСЛЕДНИЙ разделитель, не первый.
     assert "A#B".rsplit("#", 1)[0] == "A"
     assert "BLOCK 1: A#B#3".rsplit("#", 1)[0] == "BLOCK 1: A#B"
+
+
+# ---------- _exclude_climax_overlapping_windows (P0, нейрокогнитивная критика) ----------
+# Регрессия на реальный найденный эффект: защита reveal_hold-паузы (см.
+# коммит про section_offsets.json) часто делает её ДОСТАТОЧНО длинной,
+# чтобы задеть PAUSE_SWELL_MIN_KEEP_SEC — раньше слепая кривая обрезала
+# эту же паузу короче порога, swell на ней почти никогда не срабатывал.
+# Теперь, без исключения, swell (+3дБ) накладывался бы поверх climax dip
+# (-22дБ) на одном и том же участке трека — два последовательных volume-
+# фильтра частично гасят друг друга, размывая самый важный провал.
+
+def test_exclude_climax_overlapping_windows_removes_overlapping_pause():
+    # Пауза [8.6, 10.0] физически пересекается с dip-окном климакса в
+    # t=10.0 (см. _climax_dip_window: [8.9, 10.7] при дефолтных константах).
+    kept = pipeline_smart._exclude_climax_overlapping_windows([(8.6, 1.4)], [10.0])
+    assert kept == []
+
+
+def test_exclude_climax_overlapping_windows_keeps_far_away_pause():
+    kept = pipeline_smart._exclude_climax_overlapping_windows([(50.0, 1.2)], [10.0])
+    assert kept == [(50.0, 1.2)]
+
+
+def test_exclude_climax_overlapping_windows_mixed_list():
+    kept = pipeline_smart._exclude_climax_overlapping_windows(
+        [(8.6, 1.4), (50.0, 1.2), (100.0, 1.1)], [10.0])
+    assert kept == [(50.0, 1.2), (100.0, 1.1)]
+
+
+def test_exclude_climax_overlapping_windows_no_climax_is_noop():
+    windows = [(8.6, 1.4), (50.0, 1.2)]
+    assert pipeline_smart._exclude_climax_overlapping_windows(windows, []) == windows
+
+
+def test_exclude_climax_overlapping_windows_no_pauses_is_noop():
+    assert pipeline_smart._exclude_climax_overlapping_windows([], [10.0]) == []
+
+
+def test_exclude_climax_overlapping_windows_multiple_climaxes():
+    kept = pipeline_smart._exclude_climax_overlapping_windows(
+        [(8.6, 1.4), (30.0, 1.1), (70.0, 1.3)], [10.0, 30.5])
+    assert (8.6, 1.4) not in kept
+    assert (30.0, 1.1) not in kept   # пересекается со вторым климаксом
+    assert (70.0, 1.3) in kept
+
+
+def test_climax_dip_window_matches_dip_expr_bounds():
+    # _climax_dip_window() — та же формула d1/seg3_end, что _climax_dip_expr()
+    # использует внутри себя (см. докстринг) — сверяем явно, чтобы будущая
+    # правка констант не рассинхронила два места молча.
+    t_c = 10.0
+    start, end = pipeline_smart._climax_dip_window(t_c)
+    d1 = max(0.0, t_c - pipeline_smart.CLIMAX_DIP_LEAD_SEC)
+    expected_end = d1 + pipeline_smart.CLIMAX_DIP_FADE_SEC + pipeline_smart.CLIMAX_DIP_HOLD_SEC + pipeline_smart.CLIMAX_DIP_FADE_SEC
+    assert start == d1
+    assert end == expected_end

@@ -244,9 +244,13 @@ def film_look(photo_hash, section="", brightness_bias=0.0, energy_bias=0.0, leve
     только по цвету: без этого шага разные стоковые источники с разной
     цветовой температурой проходят один и тот же творческий грейд с разным
     итоговым "теплом" (пойман вживую прямым сравнением кадров — см. коммит).
-    И levels, и wb — ТЕХНИЧЕСКАЯ нормализация ДО грейда, сам творческий
-    грейд ниже (eq/curves/selectivecolor/...) НЕ адаптируется и не меняется
-    от кадра к кадру — только то, что в него попадает."""
+    levels/wb используются ДВАЖДЫ: сначала как ТЕХНИЧЕСКАЯ нормализация ДО
+    грейда (norm_stage — auto_levels_params/auto_wb_params, выравнивает САМ
+    кадр), затем как сигнал для _scene_bias() ниже — сила творческого
+    грейда (warm_mult/sel_scale/shadow_lift/vign_expr) теперь СОЗНАТЕЛЬНО
+    гнётся под то, что реально в кадре (см. коммит про content-aware
+    грейд) — рецепт (какие ручки крутятся) общий на муд, а не на кадр,
+    но их СИЛА больше не одно и то же число на каждое фото секции."""
     mood = MOOD_GRADE["HOOK"] if section.startswith("HOOK") else (
            MOOD_GRADE["FINAL"] if section.startswith("FINAL") else MOOD_GRADE["BODY"])
     eb = max(-0.5, min(0.5, energy_bias))
@@ -795,6 +799,52 @@ def build_mood_timeline(hook_end, final_start, total_dur, out_path):
     return out_path
 
 
+def _climax_dip_window(t_c):
+    """(start, end) полного окна провала громкости для одного climax-момента
+    (fade-out -> hold -> fade-in) — ЕДИНСТВЕННОЕ место, которое считает эти
+    границы: _climax_dip_expr() строит по нему ffmpeg-выражение, а
+    _exclude_climax_overlapping_windows() ниже использует ТЕ ЖЕ границы,
+    чтобы не дать музыкальному 'вздоху' (swell) на длинной паузе
+    накладываться на уже идущий климакс-провал (dip) — иначе два
+    последовательных volume-фильтра на одном треке частично гасят друг
+    друга (+3дБ поверх -22дБ), разбавляя ИМЕННО тот момент, где провал
+    нужен максимально чистым. Раньше эти границы дублировались бы в двух
+    местах порознь — реальный риск рассинхрона при следующей правке
+    констант."""
+    d1 = max(0.0, t_c - CLIMAX_DIP_LEAD_SEC)
+    return d1, d1 + CLIMAX_DIP_FADE_SEC + CLIMAX_DIP_HOLD_SEC + CLIMAX_DIP_FADE_SEC
+
+
+def _exclude_climax_overlapping_windows(pause_windows_real, climax_times):
+    """P0 (нейрокогнитивная критика системы пауз): не менять несколько
+    каналов одновременно на одном и том же участке — swell (+3дБ, "вдох"
+    подложки на длинной паузе) и climax dip (-22дБ, провал перед
+    разоблачением) физически МОГУТ попасть на один и тот же интервал:
+    после защиты reveal_hold-паузы её реальная длительность (kept_sec из
+    protected_windows) часто оказывается >= PAUSE_SWELL_MIN_KEEP_SEC —
+    паузу ПЕРЕД климаксом теперь корректно не срезают слепой кривой, но
+    это же делает её длинной ДОСТАТОЧНО, чтобы задеть порог swell'а,
+    которого раньше эта пауза почти никогда не достигала (раньше её
+    обрезала кривая до ~0.6-0.8с). Два последовательных volume-фильтра на
+    одном треке (dip, потом swell) не отменяют друг друга целиком, а
+    ЧАСТИЧНО гасят (-22дБ*+3дБ ≈ -19дБ) — разбавляют самый драматургически
+    важный провал слышимым артефактом, которого не было бы, будь эта
+    пауза короче порога. Исключаем swell на любом окне, физически
+    пересекающемся с dip-окном того же climax-момента — dip сам по себе
+    уже полноценный акцент на этом участке, второй эффект поверх не
+    нужен, только мешает."""
+    if not pause_windows_real or not climax_times:
+        return pause_windows_real
+    dip_windows = [_climax_dip_window(t_c) for t_c in climax_times]
+    kept = []
+    for start, dur in pause_windows_real:
+        end = start + dur
+        if any(start < d_end and end > d_start for d_start, d_end in dip_windows):
+            continue
+        kept.append((start, dur))
+    return kept
+
+
 def _climax_dip_expr(climax_times):
     """Покадровое ffmpeg-выражение громкости (1.0 = без изменений) с
     провалом до CLIMAX_DIP_DB перед каждым моментом климакса — см.
@@ -822,10 +872,30 @@ def _climax_dip_expr(climax_times):
     return expr
 
 
-PAUSE_SWELL_MIN_KEEP_SEC = 1.0   # порог отбора: между KEEP_SEC=0.6 и
-                                  # LONG_HOLD_KEEP_SEC=1.3 в fix_pauses.py —
-                                  # берём только "осознанно длинные" паузы,
-                                  # не обычные вдохи TTS (см. load_pause_windows)
+PAUSE_SWELL_MIN_KEEP_SEC = 1.0   # порог отбора: fix_pauses.py держит паузу в
+                                  # диапазоне KEEP_MIN_SEC=0.42..KEEP_MAX_SEC=1.35
+                                  # (гладкая кривая, не бинарная ступенька —
+                                  # старые KEEP_SEC=0.6/LONG_HOLD_KEEP_SEC=1.3
+                                  # тут раньше упоминались, но эти константы
+                                  # больше не существуют в fix_pauses.py, комментарий
+                                  # был устаревшим). 1.0 — примерно верхние ~30%
+                                  # диапазона кривой (0.42+0.7*(1.35-0.42)≈1.07) —
+                                  # берём только "осознанно длинные" паузы, не
+                                  # обычные вдохи TTS (см. load_pause_windows).
+                                  # НА РЕАЛЬНОМ эпизоде без Speech Director гладкая
+                                  # кривая редко/никогда не заходит настолько высоко
+                                  # (raw-пауза должна быть >=~2.15с — обычные вдохи
+                                  # заметно короче) — swell почти никогда не
+                                  # срабатывает НА ОБЫЧНЫХ пауз, но ЖИВ на
+                                  # protected closing_hold (target до 1.1с, см.
+                                  # speech_planner.RHETORICAL_RANGES) — reveal_hold
+                                  # (до 1.4с) намеренно исключён рядом с climax dip,
+                                  # см. _exclude_climax_overlapping_windows(). Не
+                                  # понижаю порог "на глаз" — нет реального корпуса
+                                  # эпизодов, чтобы понять, где кончаются обычные
+                                  # вдохи и начинаются осознанные паузы (пониженный
+                                  # порог рискует включить swell на КАЖДОМ вдохе —
+                                  # хуже, чем редкое срабатывание).
 PAUSE_SWELL_DB = 3.0             # заметно тише климакс-провала (22дБ) — это
                                   # не разоблачение, а мягкое "дыхание" подложки
 PAUSE_SWELL_FADE_SEC = 0.3       # должно уместиться внутри keep-окна (~1.3с)
@@ -4894,6 +4964,9 @@ def main():
     _pw_cuts = load_pause_cuts()
     pause_windows_real = [(raw_to_real_time(ws, _pw_cuts), keep)
                            for ws, keep in load_pause_windows() if keep >= PAUSE_SWELL_MIN_KEEP_SEC]
+    # P0 (нейрокогнитивная критика): не накладывать swell поверх climax dip
+    # на одном и том же участке трека — см. _exclude_climax_overlapping_windows().
+    pause_windows_real = _exclude_climax_overlapping_windows(pause_windows_real, climax_times)
     premix = build_music_mix(voice_processed, total, premix, hook_end=hook_end, final_start=final_start,
                               climax_times=climax_times, pause_windows_real=pause_windows_real)
     # D4: щелчки клавиатуры поверх готового микса — ПОСЛЕ музыки/дакинга
