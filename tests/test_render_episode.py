@@ -172,9 +172,15 @@ def video_dir(tmp_path):
 
 
 def test_render_episode_end_to_end_produces_final_mp4(video_dir):
+    # timeout=280, не 120: реально занимает ~80-85с изолированно (проверено
+    # вживую), но в общем прогоне tests/ (10+ минут, общая CPU-песочница)
+    # уже ловил реальный TimeoutExpired на 120с из-за нагрузки от других
+    # тестов, выполняющихся ДО этого в той же сессии — не регрессия кода
+    # (повторный изолированный запуск сразу же прошёл за 83с), а слишком
+    # тесный запас для этой конкретной shared-среды.
     env = dict(os.environ, PARALLAX="0")
     r = subprocess.run([sys.executable, RENDER_EPISODE, str(video_dir), "--strict-production"],
-                        capture_output=True, text=True, timeout=120, env=env)
+                        capture_output=True, text=True, timeout=280, env=env)
     assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-1000:]
     assert (video_dir / "final.mp4").exists()
     manifest = json.load(open(video_dir / "media_plan" / "timeline_manifest.json"))
