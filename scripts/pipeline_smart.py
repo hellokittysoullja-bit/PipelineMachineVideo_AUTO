@@ -1485,6 +1485,18 @@ def parse_blocks(path):
     processed = content
     for tag in sorted(PAUSE_DURATIONS, key=len, reverse=True):
         processed = processed.replace(tag, f"__PAUSE_{PAUSE_DURATIONS[tag]}__")
+    # Всё, что дошло сюда как [...] — НЕ входит в PAUSE_DURATIONS (известные
+    # теги уже заменены строчкой выше). Раньше re.sub ниже молча вырезал такие
+    # теги без единого предупреждения и БЕЗ вставки паузы — если сценарист по
+    # аналогии с [pause]/[short pause] напишет запрещённый [long pause]
+    # (ЧАСТЬ 10 CLAUDE.md — ломает TTS-артефактами) или любой другой
+    # незнакомый тег, граница блока/пауза в этом месте тихо пропадала.
+    unknown_tags = sorted(set(re.findall(r'\[.*?\]', processed)))
+    if unknown_tags:
+        print(f"  ВНИМАНИЕ: неизвестные теги в script.txt — вырезаны БЕЗ вставки "
+              f"паузы: {', '.join(unknown_tags)}. Разрешены только: "
+              f"{', '.join(sorted(PAUSE_DURATIONS))} (ЧАСТЬ 10 CLAUDE.md). "
+              f"[long pause] запрещён явно (ломает TTS-артефактами) — проверь script.txt.")
     processed = re.sub(r'\[.*?\]', '', processed)
     parts = re.split(r'(__PAUSE_[\d.]+__|\x00SECTION:.*?\x00|\x01STAT:.*?\x01|\x02CLIMAX\x02)', processed)
     blocks, cur, pause, stat, stat_word_pos, pending_climax = [], "", 0.0, None, None, False

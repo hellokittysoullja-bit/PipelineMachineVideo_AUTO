@@ -141,6 +141,16 @@ class ElevenLabsAPIError(Exception):
     pass
 
 
+class ElevenLabsPermanentError(ElevenLabsAPIError):
+    """Подкласс ElevenLabsAPIError для ошибок, которые ретрай НЕ починит:
+    просроченный/неверный ключ, невалидный запрос, кончились кредиты (HTTP
+    4xx кроме 429 rate-limit — тот, наоборот, транзиентный и должен
+    ретраиться). Раньше call_elevenlabs_with_retry_on_transient_error() ловила
+    любой ElevenLabsAPIError без разбора и слепо ретраила с бэкоффом даже
+    permanent-ошибки — 2 попытки с sleep() впустую перед тем же самым отказом,
+    вместо мгновенного явного стопа (см. её докстринг ниже)."""
+
+
 # --- Фрагментация: группировка юнитов speech_plan.json в связные куски
 # для ОДНОГО TTS-вызова ---
 
@@ -474,7 +484,13 @@ def call_elevenlabs_with_timestamps(text, voice_id, api_key, model, previous_tex
             err_body = e.read().decode("utf-8", errors="replace")[:500]
         except Exception:
             pass
-        raise ElevenLabsAPIError(_redact(f"HTTP {e.code}: {err_body}", api_key)) from None
+        msg = _redact(f"HTTP {e.code}: {err_body}", api_key)
+        # 4xx кроме 429 (rate limit) — клиентская ошибка (ключ/запрос/квота),
+        # повтор того же запроса не изменит результат. 429 и 5xx остаются
+        # транзиентными — см. ElevenLabsPermanentError.
+        if e.code != 429 and 400 <= e.code < 500:
+            raise ElevenLabsPermanentError(msg) from None
+        raise ElevenLabsAPIError(msg) from None
     except urllib.error.URLError as e:
         raise ElevenLabsAPIError(_redact(f"сетевая ошибка: {e.reason}", api_key)) from None
     except Exception as e:
@@ -497,16 +513,22 @@ def call_elevenlabs_with_timestamps(text, voice_id, api_key, model, previous_tex
 def call_elevenlabs_with_retry_on_transient_error(text, voice_id, api_key, model,
                                                     previous_text=None, next_text=None,
                                                     voice_settings=None, attempts=2):
-    """Ретрай ТОЛЬКО транспортного/HTTP-5xx сбоя (ElevenLabs недоступен на
+    """Ретрай ТОЛЬКО транспортного/HTTP-5xx/429 сбоя (ElevenLabs недоступен на
     секунду) — НЕ тот же ретрай, что решает decide_fragment_action() ниже
     (тот перегенерирует из-за КАЧЕСТВА речи, этот — из-за того, что запрос
     вообще не доехал). Раздельные счётчики: транспортный ретрай не тратит
-    из лимита в 2 попытки по качеству."""
+    из лимита в 2 попытки по качеству.
+    ElevenLabsPermanentError (неверный/просроченный ключ, невалидный запрос,
+    кончились кредиты) пробрасывается СРАЗУ, без сна и повторов — эта ошибка
+    гарантированно повторится на следующей попытке, бэкофф только тратит время
+    впустую перед тем же самым отказом."""
     last_err = None
     for i in range(attempts):
         try:
             return call_elevenlabs_with_timestamps(text, voice_id, api_key, model,
                                                      previous_text, next_text, voice_settings)
+        except ElevenLabsPermanentError:
+            raise
         except ElevenLabsAPIError as e:
             last_err = e
             if i < attempts - 1:

@@ -75,6 +75,27 @@ def test_parse_blocks_short_pause_duration(tmp_path):
     assert blocks[0]["pause_after"] == 0.4
 
 
+def test_parse_blocks_unknown_tag_warns_and_does_not_split(tmp_path, capsys):
+    # Регрессия: раньше [long pause] (явно ЗАПРЕЩЁН ЧАСТЬЮ 10 CLAUDE.md) и
+    # любой другой незнакомый тег молча вырезались без единого предупреждения
+    # и без вставки паузы — сценарист не узнал бы, что граница блока/пауза в
+    # этом месте пропала.
+    text = "=== HOOK === Раз.[long pause]Два.\n"
+    blocks = pipeline_smart.parse_blocks(write_script(tmp_path, text))
+    assert len(blocks) == 1                       # тег не создал границу (как и раньше)
+    assert blocks[0]["pause_after"] == 0.0         # и не добавил паузу (как и раньше)
+    assert "[long pause]" not in blocks[0]["text"]
+    err = capsys.readouterr().out
+    assert "ВНИМАНИЕ" in err
+    assert "[long pause]" in err
+
+
+def test_parse_blocks_known_tags_do_not_trigger_warning(tmp_path, capsys):
+    text = "=== HOOK === Раз.[pause]Два.[short pause]Три.\n"
+    pipeline_smart.parse_blocks(write_script(tmp_path, text))
+    assert "ВНИМАНИЕ" not in capsys.readouterr().out
+
+
 def test_parse_blocks_stat_tag_does_not_split(tmp_path):
     # [stat:...] посреди фразы без соседнего [pause] НЕ должен резать блок
     # (регрессия: раньше stat-маркер сам по себе создавал границу блока).
