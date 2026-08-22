@@ -6,9 +6,20 @@ scripts/look_reference.py) — вручную, одним реально одо�
 ошибка, за которую критиковали _scene_bias: коррекция без внешней,
 реально проверенной цели).
 
-Usage: python scripts/lookbook_add.py <photo_path> --domain <domain> [--id <id>] [--force]
+Usage: python scripts/lookbook_add.py <photo_path> --domain <domain> [--id <id>] [--force] [--pregraded]
 Домены — см. look_reference.DOMAIN_PROMPTS (snow/night/museum_daylight/
 portrait/urban/archive_bw/ai_illustration/battle).
+
+--pregraded — photo_path уже ГОТОВЫЙ, утверждённый финальный вид (не сырой
+кандидат), например вручную построенный/подобранный грейд, специально
+проверенный shootout'ом против baseline. Без флага graded_lab_mean
+считается ЧЕРЕЗ реальный film_look() (см. look_reference.
+graded_reference_lab) — корректно для сырого источника, но НЕПРАВИЛЬНО
+для уже-грейженого: второй проход film_look() поверх готового вида
+задвоил бы коррекцию, которую он и так уже несёт. С флагом graded_lab_mean
+= сырой lab_mean ЭТОГО файла на все 3 секции (HOOK/BODY/FINAL) — сам файл
+УЖЕ и есть целевой грейженый вид, второй проход не нужен и не запускается
+(ffmpeg не дёргается).
 
 channel_id (см. look_reference.CHANNEL_ID/.env CHANNEL_ID) — при первой
 записи в новый/пустой lookbook.json проставляется автоматически. При
@@ -55,6 +66,7 @@ def parse_args(argv):
     domain = None
     ref_id = None
     force = False
+    pregraded = False
     i = 1
     while i < len(argv):
         if argv[i] == "--domain" and i + 1 < len(argv):
@@ -66,9 +78,12 @@ def parse_args(argv):
         elif argv[i] == "--force":
             force = True
             i += 1
+        elif argv[i] == "--pregraded":
+            pregraded = True
+            i += 1
         else:
             i += 1
-    return photo_path, domain, ref_id, force
+    return photo_path, domain, ref_id, force, pregraded
 
 
 def _read_raw_lookbook():
@@ -91,10 +106,11 @@ def _read_raw_lookbook():
 def main():
     parsed = parse_args(_real_argv[1:])
     if not parsed or not parsed[1]:
-        print("Usage: python scripts/lookbook_add.py <photo_path> --domain <domain> [--id <id>] [--force]")
+        print("Usage: python scripts/lookbook_add.py <photo_path> --domain <domain> "
+              "[--id <id>] [--force] [--pregraded]")
         print(f"Домены: {', '.join(sorted(lr.DOMAIN_PROMPTS))}")
         return 1
-    photo_path, domain, ref_id, force = parsed
+    photo_path, domain, ref_id, force, pregraded = parsed
 
     raw_lookbook = _read_raw_lookbook()
     stored_channel = raw_lookbook.get("channel_id")
@@ -120,7 +136,14 @@ def main():
     warm_bias, _, _ = pipeline_smart._scene_bias(levels, wb)
     brightness = (levels[0] + levels[1]) / 2.0
     contrast = levels[1] - levels[0]
-    graded_lab_mean = lr.graded_reference_lab(photo_path, domain, levels, wb)
+    if pregraded:
+        # Файл УЖЕ финальный утверждённый вид — второй проход film_look()
+        # задвоил бы его собственную коррекцию (см. --pregraded в докстринге
+        # модуля). graded_lab_mean = его собственный lab_mean на все 3
+        # секции, ffmpeg не дёргается.
+        graded_lab_mean = {s: list(lab_mean) for s in lr.GRADE_REFERENCE_SECTIONS}
+    else:
+        graded_lab_mean = lr.graded_reference_lab(photo_path, domain, levels, wb)
     graded_recipe_fingerprint = lr._grade_recipe_fingerprint()
 
     ext = os.path.splitext(photo_path)[1] or ".jpg"
@@ -148,6 +171,7 @@ def main():
         "contrast": round(contrast, 4),
         "temperature": round(warm_bias, 4),
         "max_correction_delta": list(lr.DEFAULT_MAX_CORRECTION_DELTA),
+        "pregraded": pregraded,
         "graded_lab_mean": {
             k: ([round(x, 4) for x in v] if v is not None else None)
             for k, v in graded_lab_mean.items()

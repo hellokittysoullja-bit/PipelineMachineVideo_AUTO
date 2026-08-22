@@ -445,38 +445,39 @@
       "graded_recipe_fingerprint": "8bb5ad05e0cd"
     },
     {
-      "id": "snow_userapproved_sword",
+      "id": "snow_material_separation_sword",
       "domain": "snow",
-      "image": "assets/lookbook/snow_userapproved_sword.png",
-      "added_at": "2026-08-22T22:06:32.895894Z",
+      "image": "assets/lookbook/snow_material_separation_sword.png",
+      "added_at": "2026-08-22T22:27:38.210971Z",
       "lab_mean": [
-        34.9692,
-        4.7698,
-        -15.6102
+        32.9214,
+        -3.9083,
+        -6.8069
       ],
-      "brightness": 0.3529,
-      "contrast": 0.6353,
-      "temperature": -0.7192,
+      "brightness": 0.3765,
+      "contrast": 0.7216,
+      "temperature": -0.5563,
       "max_correction_delta": [
         10.0,
         8.0,
         8.0
       ],
+      "pregraded": true,
       "graded_lab_mean": {
         "HOOK": [
-          32.7298,
-          8.9564,
-          -12.0279
+          32.9214,
+          -3.9083,
+          -6.8069
         ],
         "BODY": [
-          34.8409,
-          9.2337,
-          -12.6433
+          32.9214,
+          -3.9083,
+          -6.8069
         ],
         "FINAL": [
-          36.7159,
-          9.9834,
-          -13.1458
+          32.9214,
+          -3.9083,
+          -6.8069
         ]
       },
       "graded_recipe_fingerprint": "8bb5ad05e0cd"

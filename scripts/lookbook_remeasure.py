@@ -12,10 +12,17 @@ lookbook.json — без этого поля closed-loop проверка (_clos
 совпадать с текущим кодом, и _closed_loop_improves будет их пропускать,
 пока не перемеряешь заново.
 
+Записи с pregraded=True (см. lookbook_add.py --pregraded) НИКОГДА не
+перемеряются через film_look() — они не зависят от него в принципе (см.
+look_reference._closed_loop_improves: fingerprint-гейт для них пропущен),
+второй проход только испортил бы уже утверждённый вид. Всегда пропускаются
+молча (не в счётчике "пропущено", т.к. это не "уже актуально", а "не
+применимо").
+
 Usage: python scripts/lookbook_remeasure.py [--force]
 --force — перемерить даже записи, у которых fingerprint уже совпадает с
 текущим film_look() (иначе они по умолчанию пропускаются — дёшево, не
-дёргать ffmpeg зря)."""
+дёргать ffmpeg зря). Не действует на pregraded-записи."""
 import json
 import os
 import sys
@@ -54,6 +61,8 @@ def main():
     updated = 0
     skipped = 0
     for ref in references:
+        if ref.get("pregraded"):
+            continue
         if not force and ref.get("graded_recipe_fingerprint") == current_fp and ref.get("graded_lab_mean"):
             skipped += 1
             continue

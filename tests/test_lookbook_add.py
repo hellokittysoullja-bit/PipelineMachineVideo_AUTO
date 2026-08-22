@@ -82,6 +82,24 @@ def test_adds_valid_reference(tmp_path, monkeypatch, _isolated_lookbook):
     # иначе closed-loop сравнивает разные пространства (см. коммит).
     assert set(ref["graded_lab_mean"].keys()) == set(lr.GRADE_REFERENCE_SECTIONS)
     assert ref["graded_recipe_fingerprint"] == lr._grade_recipe_fingerprint()
+    assert ref["pregraded"] is False
+
+
+def test_pregraded_skips_film_look_repass(tmp_path, monkeypatch, _isolated_lookbook):
+    # --pregraded: photo_path УЖЕ утверждённый финальный вид (например,
+    # вручную построенный/выбранный shootout-кандидат) — второй проход
+    # через film_look() задвоил бы его собственную коррекцию. graded_lab_mean
+    # должен быть РОВНО lab_mean (тот же файл, без ffmpeg-рендера).
+    photo = str(tmp_path / "p.png")
+    _make_photo(photo)
+    monkeypatch.setattr(la, "_real_argv",
+                         ["lookbook_add.py", photo, "--domain", "snow", "--id", "pg", "--pregraded"])
+    assert la.main() == 0
+    data = json.loads(_isolated_lookbook.read_text(encoding="utf-8"))
+    ref = data["references"][0]
+    assert ref["pregraded"] is True
+    for section in lr.GRADE_REFERENCE_SECTIONS:
+        assert ref["graded_lab_mean"][section] == ref["lab_mean"]
 
 
 def test_adding_same_id_twice_replaces_not_duplicates(tmp_path, monkeypatch, _isolated_lookbook):

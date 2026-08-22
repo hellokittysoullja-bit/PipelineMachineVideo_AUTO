@@ -162,7 +162,7 @@ def test_text_domain_hint_none_when_margin_too_small(monkeypatch):
 # ---------- find_reference ----------
 
 def _ref(id_, domain, lab_mean, brightness=0.5, contrast=0.4, temperature=0.0, max_delta=None,
-         graded_lab_mean="same", graded_recipe_fingerprint="current"):
+         graded_lab_mean="same", graded_recipe_fingerprint="current", pregraded=False):
     """graded_lab_mean="same" (дефолт) — тесты closed-loop/find_reference,
     написанные ДО graded_lab_mean, ожидали, что lab_mean УЖЕ в том
     пространстве, с которым сравнивается candidate — сохраняем это
@@ -181,6 +181,7 @@ def _ref(id_, domain, lab_mean, brightness=0.5, contrast=0.4, temperature=0.0, m
         graded_recipe_fingerprint = lr._grade_recipe_fingerprint()
     if graded_recipe_fingerprint is not None:
         r["graded_recipe_fingerprint"] = graded_recipe_fingerprint
+    r["pregraded"] = pregraded
     return r
 
 
@@ -624,6 +625,41 @@ def test_closed_loop_improves_none_when_recipe_fingerprint_stale():
     ref = _ref("r", "battle", (60, 5, 5), graded_recipe_fingerprint="stale_fingerprint_from_old_code")
     assert lr._closed_loop_improves("/no/such/file.jpg", "BODY", (0.3, 0.7),
                                      (0.47, 0.47, 0.47), None, ref, (1.1, 1.0, 0.95)) is None
+
+
+def test_closed_loop_improves_ignores_stale_fingerprint_when_pregraded():
+    # pregraded=True: graded_lab_mean НЕ результат film_look() — измерение
+    # уже готового утверждённого файла, поэтому смена film_look() (и,
+    # соответственно, fingerprint) его не устаревляет. Файл всё равно не
+    # существует, так что реальный рендер не пройдёт — но результат ДОЛЖЕН
+    # дойти до этой стадии (не отсечься раньше на fingerprint-гейте),
+    # то есть всё ещё None (сбой рендера), не отличить это напрямую по
+    # возврату — проверяем, что явно устаревший fingerprint сам по себе не
+    # единственная причина отказа, сверяя с обычным (non-pregraded) эталоном
+    # с тем же устаревшим fingerprint, который отсекается РАНЬШЕ рендера.
+    stale_ref = _ref("r", "battle", (60, 5, 5), graded_recipe_fingerprint="stale", pregraded=False)
+    pregraded_ref = _ref("r", "battle", (60, 5, 5), graded_recipe_fingerprint="stale", pregraded=True)
+    assert lr._closed_loop_improves("/no/such/file.jpg", "BODY", (0.3, 0.7),
+                                     (0.47, 0.47, 0.47), None, stale_ref, (1.1, 1.0, 0.95)) is None
+    assert lr._closed_loop_improves("/no/such/file.jpg", "BODY", (0.3, 0.7),
+                                     (0.47, 0.47, 0.47), None, pregraded_ref, (1.1, 1.0, 0.95)) is None
+
+
+@_no_ffmpeg
+def test_closed_loop_improves_pregraded_reaches_real_render_despite_stale_fingerprint(tmp_path):
+    # То же самое, но с реальным файлом — pregraded ref со СТАРЫМ fingerprint
+    # всё равно доходит до фактического рендера/сравнения (не блокируется
+    # гейтом), в отличие от non-pregraded эталона с тем же fingerprint.
+    photo = tmp_path / "src.jpg"
+    _solid_photo(str(photo), (95, 105, 115))
+    levels, wb = (0.3, 0.5), (95 / 255, 105 / 255, 115 / 255)
+    ref = _ref("bright_warm", "battle", (75, 2, 18), max_delta=(15, 10, 10),
+               graded_recipe_fingerprint="definitely_stale", pregraded=True)
+    frame_lab = lr._srgb_to_lab(wb)
+    gains, qc, _delta = lr.compute_correction(wb, frame_lab, ref, confidence=1.0, prev_delta=None)
+    assert gains is not None, f"ожидались реальные gains, получен reject: {qc}"
+    result = lr._closed_loop_improves(str(photo), "BODY", levels, wb, None, ref, gains)
+    assert result is True   # реальный рендер отработал, не None от гейта
 
 
 def test_mood_section_key_matches_film_look_selection():

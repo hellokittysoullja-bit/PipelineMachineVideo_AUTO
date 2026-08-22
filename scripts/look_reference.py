@@ -603,8 +603,12 @@ def _closed_loop_improves(image_path, section, levels, wb, domain, reference, ga
     рендера превью, эталон без graded_lab_mean этой секции (старый формат,
     не мигрированный scripts/lookbook_remeasure.py) или несовпадение
     graded_recipe_fingerprint (film_look() поменялся после того, как этот
-    эталон был измерен — раньше НЕ отслеживалось вообще)."""
-    if reference.get("graded_recipe_fingerprint") != _grade_recipe_fingerprint():
+    эталон был измерен — раньше НЕ отслеживалось вообще). Эталон с
+    pregraded=True (см. lookbook_add.py --pregraded) пропускает fingerprint-
+    гейт: его graded_lab_mean — не результат film_look(), а измерение уже
+    готового, утверждённого файла, поэтому смена film_look() его не
+    устаревляет — гейт здесь бессмысленен, не просто необязателен."""
+    if not reference.get("pregraded") and reference.get("graded_recipe_fingerprint") != _grade_recipe_fingerprint():
         return None
     ref_lab_raw = (reference.get("graded_lab_mean") or {}).get(_mood_section_key(section))
     if ref_lab_raw is None:
