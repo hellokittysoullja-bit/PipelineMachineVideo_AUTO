@@ -7,10 +7,12 @@ scorer-функциям). test_look_correction_filter_noop_on_empty_lookbook
 реальном assets/lookbook/lookbook.json — тот сегодня уже не пуст, 13
 эталонов канала, добавлены вручную вне тестов, см. коммит)."""
 import os
+import shutil
 import sys
 import tempfile
 
 import pytest
+from PIL import Image
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS_DIR = os.path.join(REPO_ROOT, "scripts")
@@ -18,6 +20,8 @@ sys.path.insert(0, SCRIPTS_DIR)
 
 sys.argv = ["look_reference.py", tempfile.gettempdir()]
 import look_reference as lr   # noqa: E402
+
+_no_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg не найден в PATH")
 
 
 # ---------- sRGB <-> Lab round-trip ----------
@@ -485,3 +489,92 @@ def test_hard_reject_immediately_after_reset_leaves_delta_none(monkeypatch):
     assert report["decision"] == "reject_clipping"
     assert report["ema_reset"] is True
     assert state["delta"] is None
+
+
+# ---------- closed-loop проверка (P1-3 форензик-аудита) ----------
+# compute_correction() считает gains по СЫРЫМ (негрейженным) измерениям, но
+# реальный рендер приклеивает colorchannelmixer(gains) ПОСЛЕ полного
+# film_look()-грейда — "ближе к эталону" на входе не гарантирует "ближе к
+# эталону" на том, что реально увидит зритель. _closed_loop_improves
+# рендерит настоящий film_look()-граф (через ffmpeg) и перемеряет.
+
+def _solid_photo(path, rgb):
+    Image.new("RGB", (64, 64), rgb).save(path)
+
+
+@_no_ffmpeg
+def test_render_graded_preview_produces_real_file(tmp_path):
+    photo = tmp_path / "src.jpg"
+    _solid_photo(str(photo), (120, 120, 120))
+    out = lr._render_graded_preview(str(photo), "BODY", (0.3, 0.7), (0.47, 0.47, 0.47), None)
+    try:
+        assert out is not None
+        assert os.path.exists(out)
+    finally:
+        if out and os.path.exists(out):
+            os.remove(out)
+
+
+def test_render_graded_preview_none_for_missing_file():
+    assert lr._render_graded_preview("/no/such/file.jpg", "BODY", (0.3, 0.7),
+                                      (0.47, 0.47, 0.47), None) is None
+
+
+def test_closed_loop_improves_none_for_missing_file():
+    ref = _ref("r", "battle", (60, 5, 5))
+    assert lr._closed_loop_improves("/no/such/file.jpg", "BODY", (0.3, 0.7),
+                                     (0.47, 0.47, 0.47), None, ref, (1.1, 1.0, 0.95)) is None
+
+
+@_no_ffmpeg
+def test_closed_loop_improves_true_for_correction_moving_toward_reference(tmp_path):
+    # Тусклый серый источник, эталон заметно ЯРЧЕ и ТЕПЛЕЕ (высокий L,
+    # положительный b) — реальные gains из compute_correction() двигают
+    # именно в эту сторону, closed-loop обязан подтвердить улучшение.
+    photo = tmp_path / "src.jpg"
+    _solid_photo(str(photo), (110, 100, 90))
+    levels, wb = (0.3, 0.5), (110 / 255, 100 / 255, 90 / 255)
+    frame_lab = lr._srgb_to_lab(wb)
+    ref = _ref("bright_warm", "battle", (75, 2, 18), max_delta=(15, 10, 10))
+    gains, qc, _delta = lr.compute_correction(wb, frame_lab, ref, confidence=1.0, prev_delta=None)
+    assert gains is not None, f"ожидались реальные gains, получен reject: {qc}"
+    result = lr._closed_loop_improves(str(photo), "BODY", levels, wb, None, ref, gains)
+    assert result is True
+
+
+@_no_ffmpeg
+def test_closed_loop_improves_false_for_gains_moving_away_from_reference(tmp_path):
+    # Те же фото/эталон, что и в тесте выше (эталон ЯРЧЕ/ТЕПЛЕЕ источника),
+    # но gains намеренно НАПРАВЛЕНЫ В ОБРАТНУЮ СТОРОНУ (затемнить/охладить
+    # ещё сильнее) — closed-loop обязан поймать это как ухудшение, а не
+    # молча пропустить.
+    photo = tmp_path / "src.jpg"
+    _solid_photo(str(photo), (110, 100, 90))
+    levels, wb = (0.3, 0.5), (110 / 255, 100 / 255, 90 / 255)
+    ref = _ref("bright_warm", "battle", (75, 2, 18), max_delta=(15, 10, 10))
+    wrong_gains = (0.6, 0.6, 0.7)   # темнее и холоднее — прямо противоположно нужному
+    result = lr._closed_loop_improves(str(photo), "BODY", levels, wb, None, ref, wrong_gains)
+    assert result is False
+
+
+@_no_ffmpeg
+def test_look_correction_filter_rejects_when_closed_loop_disagrees(tmp_path, monkeypatch):
+    # Интеграционный тест поверх юнитов выше: compute_correction() замокан
+    # на заведомо "неправильные" (уводящие от эталона в графированном
+    # пространстве) gains — look_correction_filter() обязан вернуть
+    # reject_closed_loop_no_improvement, а не applied.
+    photo = tmp_path / "src.jpg"
+    _solid_photo(str(photo), (110, 100, 90))
+    ref = _ref("bright_warm", "battle", (75, 2, 18), max_delta=(15, 10, 10))
+    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "assist")
+    monkeypatch.setattr(lr, "load_lookbook", lambda: {"references": [ref]})
+    monkeypatch.setattr(lr, "classify_domain", lambda path: ("battle", 0.5))
+    monkeypatch.setattr(lr, "find_reference", lambda *a, **kw: (ref, 1.0))
+    monkeypatch.setattr(lr, "compute_correction",
+                         lambda *a, **kw: ((0.6, 0.6, 0.7), {"decision": "ok", "notes": []}, (5.0, 1.0, 3.0)))
+    filt, report, state = lr.look_correction_filter(
+        str(photo), (0.3, 0.5), (110 / 255, 100 / 255, 90 / 255), has_face=False,
+        scene_boundary=False, section="BODY")
+    assert filt is None
+    assert report["decision"] == "reject_closed_loop_no_improvement"
+    assert report["closed_loop_improves"] is False

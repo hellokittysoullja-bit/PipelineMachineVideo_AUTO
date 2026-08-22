@@ -84,7 +84,9 @@ import hashlib
 import json
 import math
 import os
+import subprocess
 import sys
+import tempfile
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS_DIR = os.path.join(REPO_ROOT, "scripts")
@@ -414,6 +416,79 @@ def find_reference(domain, frame_lab, frame_brightness, frame_contrast, frame_te
 
 # ---------- Коррекция ----------
 
+# P1-3 форензик-аудита (реальный, подтверждённый чтением кода структурный
+# риск): compute_correction() выше считает gains из levels/wb, измеренных
+# на СЫРОМ, негрейженном фото — но сам colorchannelmixer(gains) в реальном
+# рендере (main() в pipeline_smart.py) приклеивается ПОСЛЕ полного
+# творческого грейда film_look() (eq/colorbalance/curves/selectivecolor/
+# vignette/halation), не до него. "Ближе к эталону" на входных, сырых
+# измерениях НЕ гарантирует "ближе к эталону" на реально показанном
+# зрителю кадре — film_look() между измерением и применением коррекции
+# нелинейно двигает цвет. compute_correction() сам по себе интерполяция
+# к эталону (raw_delta*strength) — она МАТЕМАТИЧЕСКИ не может отдалить
+# на измеренном пространстве, проблема именно в разрыве между
+# "где измерено" и "где применено".
+def _render_graded_preview(image_path, section, levels, wb, domain, extra_filter=None):
+    """Крошечный (160x90) превью-кадр через РЕАЛЬНЫЙ film_look()-граф
+    (+ опционально доп. фильтр-кандидат коррекции) — то, что реально
+    получит зритель ПОСЛЕ творческого грейда, не сырое фото до него.
+    photo_hash — детерминированный int по пути файла (не обязан совпадать
+    с хэшем финального рендера — обе стороны сравнения ниже используют
+    ОДИН и тот же hash/section/bias, так что сравнение честное независимо
+    от конкретного значения). Возвращает путь к PNG или None при сбое
+    ffmpeg (честный откат — closed-loop проверка тогда просто
+    пропускается, см. _closed_loop_improves)."""
+    photo_hash = int(hashlib.md5(image_path.encode()).hexdigest()[:8], 16)
+    vf = pipeline_smart.film_look(photo_hash, section, 0.0, 0.0, levels, wb, domain)
+    if extra_filter:
+        vf += f",{extra_filter}"
+    vf += ",scale=160:90"
+    suffix = hashlib.md5(vf.encode()).hexdigest()[:12]
+    out_path = os.path.join(tempfile.gettempdir(), f"lookpreview_{suffix}.png")
+    try:
+        r = subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", image_path, "-frames:v", "1",
+                            "-vf", vf, out_path], capture_output=True, timeout=20)
+    except Exception:
+        return None
+    if r.returncode != 0 or not os.path.exists(out_path):
+        return None
+    return out_path
+
+
+def _closed_loop_improves(image_path, section, levels, wb, domain, reference, gains):
+    """True/False — применение gains (кандидат-коррекция) РЕАЛЬНО
+    приближает итоговый (уже прошедший film_look()) кадр к эталону, не
+    только формально уменьшает расстояние на сырых, негрейженных
+    измерениях (см. докстринг выше про разрыв "где измерено"/"где
+    применено"). None при сбое рендера превью — fail-open (та же честная
+    деградация, что у остальных опциональных проверок пайплайна: не
+    блокирует уже прошедшую все остальные гейты коррекцию только потому,
+    что не удалось сгенерировать превью, например ffmpeg занят/недоступен)."""
+    gains_filter = f"colorchannelmixer=rr={gains[0]:.4f}:gg={gains[1]:.4f}:bb={gains[2]:.4f}"
+    base_preview = _render_graded_preview(image_path, section, levels, wb, domain)
+    after_preview = _render_graded_preview(image_path, section, levels, wb, domain, extra_filter=gains_filter)
+    try:
+        if base_preview is None or after_preview is None:
+            return None
+        base_wb = pipeline_smart.measure_levels(base_preview, want_wb=True)[1]
+        after_wb = pipeline_smart.measure_levels(after_preview, want_wb=True)[1]
+        if base_wb is None or after_wb is None or base_wb[0] is None or after_wb[0] is None:
+            return None
+        base_lab = _srgb_to_lab(base_wb)
+        after_lab = _srgb_to_lab(after_wb)
+        ref_lab = tuple(reference["lab_mean"])
+        base_dist = math.sqrt(sum((base_lab[i] - ref_lab[i]) ** 2 for i in range(3)))
+        after_dist = math.sqrt(sum((after_lab[i] - ref_lab[i]) ** 2 for i in range(3)))
+        return after_dist < base_dist
+    finally:
+        for p in (base_preview, after_preview):
+            if p:
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+
+
 def compute_correction(frame_rgb_means, frame_lab, reference, confidence, prev_delta):
     """(gains_or_None, qc_dict, smoothed_delta). gains — (r,g,b) для
     colorchannelmixer, None при hard QC-fail (клиппинг/оверсатурация) —
@@ -504,12 +579,19 @@ def load_lookbook():
     return data
 
 
-def look_correction_filter(image_path, levels, wb, has_face, scene_boundary, prev_state=None):
+def look_correction_filter(image_path, levels, wb, has_face, scene_boundary, section="", prev_state=None):
     """Возвращает (filter_str_or_None, report_entry, new_state).
     filter_str — фрагмент ffmpeg-графа (colorchannelmixer), приклеивается
     ПОСЛЕ film_look(...) вызывающим кодом, никогда не заменяет его. None —
     коррекция не применяется/не рендерится (см. report_entry['decision'] за
     причиной) — вызывающий код просто не добавляет ничего.
+
+    section — секция сценария (HOOK/BLOCK*/FINAL) ЭТОГО клипа, нужна
+    ТОЛЬКО для closed-loop проверки (_closed_loop_improves) — та рендерит
+    настоящий film_look()-граф, а он выбирает MOOD_GRADE по секции (см.
+    P1-3 форензик-аудита в докстринге _render_graded_preview выше).
+    Пустая строка — тот же MOOD_GRADE["BODY"], что и раньше для
+    неизвестной секции, не регрессия.
 
     prev_state/new_state — {"delta", "domain", "reference_id"} между
     соседними клипами (см. EMPTY_STATE). scene_boundary=True (граница
@@ -574,6 +656,19 @@ def look_correction_filter(image_path, levels, wb, has_face, scene_boundary, pre
     if gains is None:
         report["decision"] = qc["decision"]
         return None, report, new_state
+
+    # P1-3: gains посчитаны на СЫРЫХ измерениях (frame_lab выше) — closed-
+    # loop проверяет, что применение gains ПОСЛЕ реального film_look()-грейда
+    # действительно приближает кадр к эталону, не только формально на входе
+    # (см. _closed_loop_improves). None (сбой рендера превью) — fail-open,
+    # решение остаётся как было посчитано (та же честная деградация, что и
+    # у остальных опциональных проверок).
+    closed_loop_ok = _closed_loop_improves(image_path, section, levels, wb, domain, reference, gains)
+    report["closed_loop_improves"] = closed_loop_ok
+    if closed_loop_ok is False:
+        report["decision"] = "reject_closed_loop_no_improvement"
+        return None, report, new_state
+
     if LOOK_MANAGEMENT_MODE == "shadow":
         report["decision"] = "shadow_would_apply"
         return None, report, new_state

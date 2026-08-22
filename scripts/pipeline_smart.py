@@ -5436,7 +5436,8 @@ def main():
         else:
             has_face = detect_face_anchor(photo) is not None
             look_filter, look_entry, look_state = look_ref.look_correction_filter(
-                photo, levels, wb, has_face, scene_boundary=is_section_start, prev_state=look_state)
+                photo, levels, wb, has_face, scene_boundary=is_section_start,
+                section=b["section"], prev_state=look_state)
             look_report[i] = look_entry
         # П.4: домен кадра для DOMAIN_WARM_PUSH_SCALE (film_look()) — только
         # фото (видео не участвует, тот же скоуп, что Look Management выше),
