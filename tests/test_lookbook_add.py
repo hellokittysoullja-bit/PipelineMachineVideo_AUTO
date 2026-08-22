@@ -77,6 +77,11 @@ def test_adds_valid_reference(tmp_path, monkeypatch, _isolated_lookbook):
     assert len(ref["lab_mean"]) == 3
     assert "brightness" in ref and "contrast" in ref and "temperature" in ref
     assert os.path.exists(os.path.join(REPO_ROOT, ref["image"]))
+    # Color Director: эталон измерен ТАКЖЕ в грейженом пространстве (см.
+    # look_reference.graded_reference_lab), не только сыром lab_mean —
+    # иначе closed-loop сравнивает разные пространства (см. коммит).
+    assert set(ref["graded_lab_mean"].keys()) == set(lr.GRADE_REFERENCE_SECTIONS)
+    assert ref["graded_recipe_fingerprint"] == lr._grade_recipe_fingerprint()
 
 
 def test_adding_same_id_twice_replaces_not_duplicates(tmp_path, monkeypatch, _isolated_lookbook):

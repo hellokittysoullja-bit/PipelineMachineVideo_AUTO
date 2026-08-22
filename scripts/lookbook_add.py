@@ -120,6 +120,8 @@ def main():
     warm_bias, _, _ = pipeline_smart._scene_bias(levels, wb)
     brightness = (levels[0] + levels[1]) / 2.0
     contrast = levels[1] - levels[0]
+    graded_lab_mean = lr.graded_reference_lab(photo_path, domain, levels, wb)
+    graded_recipe_fingerprint = lr._grade_recipe_fingerprint()
 
     ext = os.path.splitext(photo_path)[1] or ".jpg"
     if not ref_id:
@@ -146,12 +148,21 @@ def main():
         "contrast": round(contrast, 4),
         "temperature": round(warm_bias, 4),
         "max_correction_delta": list(lr.DEFAULT_MAX_CORRECTION_DELTA),
+        "graded_lab_mean": {
+            k: ([round(x, 4) for x in v] if v is not None else None)
+            for k, v in graded_lab_mean.items()
+        },
+        "graded_recipe_fingerprint": graded_recipe_fingerprint,
     })
     atomic_write_json(lr.LOOKBOOK_PATH, {"references": references, "channel_id": lr.CHANNEL_ID})
 
     print(f"Добавлен эталон {ref_id!r} (домен={domain}, channel_id={lr.CHANNEL_ID!r}) в {lr.LOOKBOOK_PATH}")
     print(f"  lab_mean={[round(x, 2) for x in lab_mean]} brightness={brightness:.3f} "
           f"contrast={contrast:.3f} temperature={warm_bias:.3f}")
+    failed_sections = [k for k, v in graded_lab_mean.items() if v is None]
+    if failed_sections:
+        print(f"  ВНИМАНИЕ: graded_lab_mean не измерился для секций {failed_sections} "
+              f"(closed-loop проверка будет пропускать этот эталон для них)")
     print(f"  Всего эталонов в lookbook: {len(references)}")
     return 0
 

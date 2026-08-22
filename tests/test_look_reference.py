@@ -161,11 +161,26 @@ def test_text_domain_hint_none_when_margin_too_small(monkeypatch):
 
 # ---------- find_reference ----------
 
-def _ref(id_, domain, lab_mean, brightness=0.5, contrast=0.4, temperature=0.0, max_delta=None):
+def _ref(id_, domain, lab_mean, brightness=0.5, contrast=0.4, temperature=0.0, max_delta=None,
+         graded_lab_mean="same", graded_recipe_fingerprint="current"):
+    """graded_lab_mean="same" (дефолт) — тесты closed-loop/find_reference,
+    написанные ДО graded_lab_mean, ожидали, что lab_mean УЖЕ в том
+    пространстве, с которым сравнивается candidate — сохраняем это
+    поведение по умолчанию (одинаковый Lab на все 3 секции), явный None
+    или свой dict — для тестов, которые ПРОВЕРЯЮТ fail-open путь
+    (отсутствующий/устаревший graded_lab_mean, см. _closed_loop_improves)."""
     r = {"id": id_, "domain": domain, "lab_mean": list(lab_mean),
          "brightness": brightness, "contrast": contrast, "temperature": temperature}
     if max_delta is not None:
         r["max_correction_delta"] = list(max_delta)
+    if graded_lab_mean == "same":
+        graded_lab_mean = {s: list(lab_mean) for s in lr.GRADE_REFERENCE_SECTIONS}
+    if graded_lab_mean is not None:
+        r["graded_lab_mean"] = graded_lab_mean
+    if graded_recipe_fingerprint == "current":
+        graded_recipe_fingerprint = lr._grade_recipe_fingerprint()
+    if graded_recipe_fingerprint is not None:
+        r["graded_recipe_fingerprint"] = graded_recipe_fingerprint
     return r
 
 
@@ -581,6 +596,61 @@ def test_closed_loop_improves_none_for_missing_file():
     ref = _ref("r", "battle", (60, 5, 5))
     assert lr._closed_loop_improves("/no/such/file.jpg", "BODY", (0.3, 0.7),
                                      (0.47, 0.47, 0.47), None, ref, (1.1, 1.0, 0.95)) is None
+
+
+def test_closed_loop_improves_none_when_graded_lab_mean_missing():
+    # Немигрированный (старым lookbook_add.py/до scripts/lookbook_remeasure.py)
+    # эталон — только сырой lab_mean, без graded_lab_mean. Раньше это
+    # сравнивалось напрямую (баг, который и нашёл внешний разбор); теперь
+    # честный fail-open, не тихий возврат к сырому сравнению.
+    ref = _ref("r", "battle", (60, 5, 5), graded_lab_mean=None)
+    assert lr._closed_loop_improves("/no/such/file.jpg", "BODY", (0.3, 0.7),
+                                     (0.47, 0.47, 0.47), None, ref, (1.1, 1.0, 0.95)) is None
+
+
+def test_closed_loop_improves_none_when_graded_lab_mean_missing_for_this_section():
+    # graded_lab_mean есть, но не для запрошенной секции (например, только
+    # HOOK/FINAL смогли отрендериться при миграции, BODY — нет).
+    ref = _ref("r", "battle", (60, 5, 5),
+               graded_lab_mean={"HOOK": [60, 5, 5], "BODY": None, "FINAL": [60, 5, 5]})
+    assert lr._closed_loop_improves("/no/such/file.jpg", "BODY", (0.3, 0.7),
+                                     (0.47, 0.47, 0.47), None, ref, (1.1, 1.0, 0.95)) is None
+
+
+def test_closed_loop_improves_none_when_recipe_fingerprint_stale():
+    # film_look() поменялся после того, как этот эталон был измерен —
+    # graded_lab_mean теперь ссылается на грейд, которого зритель больше не
+    # увидит. Честный fail-open, а не сравнение против устаревшей цели.
+    ref = _ref("r", "battle", (60, 5, 5), graded_recipe_fingerprint="stale_fingerprint_from_old_code")
+    assert lr._closed_loop_improves("/no/such/file.jpg", "BODY", (0.3, 0.7),
+                                     (0.47, 0.47, 0.47), None, ref, (1.1, 1.0, 0.95)) is None
+
+
+def test_mood_section_key_matches_film_look_selection():
+    assert lr._mood_section_key("HOOK") == "HOOK"
+    assert lr._mood_section_key("HOOK_1") == "HOOK"
+    assert lr._mood_section_key("FINAL") == "FINAL"
+    assert lr._mood_section_key("FINAL_2") == "FINAL"
+    assert lr._mood_section_key("BLOCK1") == "BODY"
+    assert lr._mood_section_key("") == "BODY"
+
+
+@_no_ffmpeg
+def test_graded_reference_lab_produces_all_three_sections(tmp_path):
+    photo = tmp_path / "src.jpg"
+    _solid_photo(str(photo), (120, 130, 140))
+    levels, wb = (0.3, 0.7), (120 / 255, 130 / 255, 140 / 255)
+    out = lr.graded_reference_lab(str(photo), None, levels, wb)
+    assert set(out.keys()) == set(lr.GRADE_REFERENCE_SECTIONS)
+    for section in lr.GRADE_REFERENCE_SECTIONS:
+        assert out[section] is not None
+        assert len(out[section]) == 3
+
+
+def test_graded_reference_lab_none_for_missing_file():
+    out = lr.graded_reference_lab("/no/such/file.jpg", None, (0.3, 0.7), (0.47, 0.47, 0.47))
+    assert set(out.keys()) == set(lr.GRADE_REFERENCE_SECTIONS)
+    assert all(v is None for v in out.values())
 
 
 @_no_ffmpeg

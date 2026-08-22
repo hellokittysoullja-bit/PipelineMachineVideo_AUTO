@@ -81,6 +81,7 @@ look_manifest.json и консольное предупреждение). Для
 Не самостоятельный CLI-скрипт (кроме lookbook_add.py) — вызывается из
 scripts/pipeline_smart.py."""
 import hashlib
+import inspect
 import json
 import math
 import os
@@ -528,15 +529,86 @@ def _render_graded_preview(image_path, section, levels, wb, domain, extra_filter
     return out_path
 
 
+GRADE_REFERENCE_SECTIONS = ("HOOK", "BODY", "FINAL")
+
+
+def _grade_recipe_fingerprint():
+    """Хэш исходника film_look() — тот же принцип, что params_hash уже
+    использует для инвалидации кэша клипов (см. main() в pipeline_smart.py),
+    только здесь применён к lookbook-эталонам. Эталон хранит, ПРИ КАКОМ
+    коде film_look() он был измерен (см. graded_reference_lab); расхождение
+    с текущим film_look() на чтении — честный сигнал "эталон устарел, надо
+    перемерить scripts/lookbook_remeasure.py", а не молчаливое сравнение
+    против грейда, который зритель больше не увидит."""
+    return hashlib.md5(inspect.getsource(pipeline_smart.film_look).encode()).hexdigest()[:12]
+
+
+def graded_reference_lab(image_path, domain, levels, wb):
+    """{section: [L,a,b] или None} по каждой из GRADE_REFERENCE_SECTIONS —
+    реальное измерение эталонного кадра ПОСЛЕ того же film_look()-графа,
+    что видит зритель (тот же принцип, что уже применяет
+    _render_graded_preview/_closed_loop_improves для candidate-кадра, см.
+    докстринг там). ПРОБЛЕМА, которую это закрывает (подтверждено внешним
+    разбором, конкретно "pro_color_workflow_sources": lookbook хранит
+    СЫРОЙ lab_mean исходника, closed-loop сравнивает с ним УЖЕ ГРЕЙЖЕННЫЙ
+    after — сравнение не "в одном пространстве", тот же класс разрыва, что
+    P1-3 форензик-аудита уже описал для candidate-стороны, но не для
+    reference-стороны). Раздельно по секции, потому что MOOD_GRADE у
+    film_look() разный на HOOK/BODY/FINAL, а один и тот же эталон домена
+    может быть ближайшим для кадра в любой из трёх секций. Секция с
+    неудавшимся рендером/измерением превью получает None (честный отказ,
+    вызывающий код обязан считать это "недоступно", не подставлять raw)."""
+    out = {}
+    for section in GRADE_REFERENCE_SECTIONS:
+        preview = _render_graded_preview(image_path, section, levels, wb, domain)
+        if preview is None:
+            out[section] = None
+            continue
+        try:
+            measured = pipeline_smart.measure_levels(preview, want_wb=True)
+            wb_measured = measured[1] if measured else None
+        finally:
+            try:
+                os.remove(preview)
+            except OSError:
+                pass
+        if wb_measured is None or wb_measured[0] is None:
+            out[section] = None
+            continue
+        out[section] = list(_srgb_to_lab(wb_measured))
+    return out
+
+
+def _mood_section_key(section):
+    """Тот же выбор MOOD_GRADE-ключа, что film_look() реально использует
+    (см. pipeline_smart.py: 'HOOK'/'FINAL' по startswith, иначе 'BODY') —
+    нужен, чтобы искать graded_lab_mean эталона по ТОЙ ЖЕ секции, для
+    которой он посчитан в graded_reference_lab()."""
+    if section.startswith("HOOK"):
+        return "HOOK"
+    if section.startswith("FINAL"):
+        return "FINAL"
+    return "BODY"
+
+
 def _closed_loop_improves(image_path, section, levels, wb, domain, reference, gains):
     """True/False — применение gains (кандидат-коррекция) РЕАЛЬНО
-    приближает итоговый (уже прошедший film_look()) кадр к эталону, не
-    только формально уменьшает расстояние на сырых, негрейженных
-    измерениях (см. докстринг выше про разрыв "где измерено"/"где
-    применено"). None при сбое рендера превью — fail-open (та же честная
-    деградация, что у остальных опциональных проверок пайплайна: не
-    блокирует уже прошедшую все остальные гейты коррекцию только потому,
-    что не удалось сгенерировать превью, например ffmpeg занят/недоступен)."""
+    приближает итоговый (уже прошедший film_look()) кадр к ТАК ЖЕ
+    грейженному эталону (см. graded_reference_lab), не только формально
+    уменьшает расстояние на сырых, негрейженных измерениях (см. докстринг
+    выше про разрыв "где измерено"/"где применено" — раньше этот разрыв
+    был закрыт только для candidate-стороны, эталон сравнивался всё ещё в
+    сыром виде, см. graded_reference_lab). None — fail-open (та же честная
+    деградация, что у остальных опциональных проверок пайплайна): сбой
+    рендера превью, эталон без graded_lab_mean этой секции (старый формат,
+    не мигрированный scripts/lookbook_remeasure.py) или несовпадение
+    graded_recipe_fingerprint (film_look() поменялся после того, как этот
+    эталон был измерен — раньше НЕ отслеживалось вообще)."""
+    if reference.get("graded_recipe_fingerprint") != _grade_recipe_fingerprint():
+        return None
+    ref_lab_raw = (reference.get("graded_lab_mean") or {}).get(_mood_section_key(section))
+    if ref_lab_raw is None:
+        return None
     gains_filter = f"colorchannelmixer=rr={gains[0]:.4f}:gg={gains[1]:.4f}:bb={gains[2]:.4f}"
     base_preview = _render_graded_preview(image_path, section, levels, wb, domain)
     after_preview = _render_graded_preview(image_path, section, levels, wb, domain, extra_filter=gains_filter)
@@ -549,7 +621,7 @@ def _closed_loop_improves(image_path, section, levels, wb, domain, reference, ga
             return None
         base_lab = _srgb_to_lab(base_wb)
         after_lab = _srgb_to_lab(after_wb)
-        ref_lab = tuple(reference["lab_mean"])
+        ref_lab = tuple(ref_lab_raw)
         base_dist = math.sqrt(sum((base_lab[i] - ref_lab[i]) ** 2 for i in range(3)))
         after_dist = math.sqrt(sum((after_lab[i] - ref_lab[i]) ** 2 for i in range(3)))
         return after_dist < base_dist
