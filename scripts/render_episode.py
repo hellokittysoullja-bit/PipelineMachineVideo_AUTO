@@ -63,17 +63,23 @@ SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 def _run(script_name, video_dir, extra_env=None):
     """Запускает scripts/<script_name> <video_dir> как подпроцесс (не
     import — section_sync.py/fix_pauses.py/pipeline_smart.py каждый сам
-    парсит sys.argv[1] на импорте, см. их же докстринги про этот приём)."""
+    парсит sys.argv[1] на импорте, см. их же докстринги про этот приём).
+    Вывод дочернего процесса НЕ перехватывается (никакого capture_output) —
+    идёт напрямую в унаследованные stdout/stderr в реальном времени. Раньше
+    capture_output=True буферизовал ВЕСЬ вывод и печатал его только после
+    завершения процесса — для рендер-шага (pipeline_smart.py), который может
+    идти часами, это означало, что пользователь не видел ВООБЩЕ НИЧЕГО в
+    терминале до конца или до падения, хотя сам pipeline_smart.py прилежно
+    печатает прогресс каждые 10-20 блоков. PYTHONUNBUFFERED гарантирует
+    реальное время и тогда, когда родительский stdout сам перенаправлен
+    (например, в лог-файл через tee), а не только в интерактивном терминале."""
     cmd = [sys.executable, os.path.join(SCRIPTS_DIR, script_name), video_dir]
     env = dict(os.environ)
+    env.setdefault("PYTHONUNBUFFERED", "1")
     if extra_env:
         env.update(extra_env)
     print(f"  -> {script_name} {video_dir}")
-    r = subprocess.run(cmd, env=env, capture_output=True, text=True)
-    if r.stdout:
-        print(r.stdout.rstrip())
-    if r.stderr:
-        print(r.stderr.rstrip(), file=sys.stderr)
+    r = subprocess.run(cmd, env=env)
     return r.returncode
 
 
