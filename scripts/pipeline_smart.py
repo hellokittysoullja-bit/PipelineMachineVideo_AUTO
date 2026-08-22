@@ -1964,6 +1964,36 @@ HOOK_CAPTION_MIN_DUR = 0.40   # 2.6: было 0.15 — реальная жало
 # короткие слова просто НЕМНОГО перекрывают друг друга по расписанию блока, а не показывают оба разом.
 
 
+def hook_visual_starts(blocks, durs):
+    """Реальные старты клипов НА ШКАЛЕ ФИНАЛЬНОГО СМОНТИРОВАННОГО видео —
+    не наивный cumsum(durs) (P0-3 доп. находка, независимый форензик-разбор
+    архитектуры: xfade-переход СЖИМАЕТ итоговый таймлайн на свою
+    длительность, offset = cum - this_dur, см. xfade_chain() — cumsum без
+    вычета нахлёста завышает старт каждого следующего клипа на сумму уже
+    прошедших нахлёстов, накопительно).
+
+    Для ХУКА (единственное место, где сегодня есть вшитые в кадр подписи,
+    см. rescale_hook_words_to_visual_time) длительность перехода ПОЛНОСТЬЮ
+    детерминирована на этом этапе, ещё до того как выбраны финальные
+    файлы клипов: xfade_chain() всегда даёт HOOK-переходам XFADE_DUR_HARD,
+    кроме перехода СРАЗУ ПОСЛЕ блока со stat-плашкой — там SNAP_CUT_DUR
+    (то же условие и тот же порядок проверки, что в xfade_chain(); ветка
+    "обычный переход" — единственная, зависящая от хэша путей ЕЩЁ НЕ
+    выбранных файлов — HOOK её физически никогда не достигает, см. код
+    xfade_chain()). Значения вне HOOK этой функцией не гарантированы
+    точными (там нет burned-caption потребителя — учитывать не нужно)."""
+    starts, cum = [], (durs[0] if durs else 0.0)
+    for i, d in enumerate(durs):
+        if i == 0:
+            starts.append(0.0)
+            continue
+        this_dur = SNAP_CUT_DUR if blocks[i - 1].get("stat") else XFADE_DUR_HARD
+        offset = max(0.0, cum - this_dur)
+        starts.append(offset)
+        cum = cum + d - this_dur
+    return starts
+
+
 def rescale_hook_words_to_visual_time(hook_words, blocks, sub_starts, sub_baseline, visual_starts, durs):
     """P0-3 форензик-аудита (реальный, подтверждённый эмпирически баг):
     load_hook_word_timings() кладёт слова на АУДИО-шкалу (sub_starts/
@@ -3200,6 +3230,43 @@ def _srt_timestamp(t):
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
+SRT_MAX_LINE_CHARS = 42   # реальный, задокументированный стандарт индустрии субтитров
+                           # (Netflix/BBC-класс гайдлайнов, ~40-42 символа/строка — читаемо
+                           # без движения глаз поперёк всего экрана)
+SRT_MAX_LINES = 2   # тот же стандарт — больше 2 строк одновременно закрывает кадр
+
+
+def _wrap_caption_text(text, max_line_chars=SRT_MAX_LINE_CHARS, max_lines=SRT_MAX_LINES):
+    """Перенос ОДНОГО SRT-cue на строки по РЕАЛЬНЫМ границам слов, не более
+    max_lines строк — задокументированный стандарт субтитрирования (см.
+    CLAUDE.md/коммит про GSA/CU Boulder captioning guidelines): короткие
+    читаемые строки, разрыв по словам, никогда посередине слова.
+
+    Не пытается влезть в max_lines любой ценой — блок, для которого даже
+    после max_lines строк остаётся текст, честно дописывает остаток В
+    ПОСЛЕДНЮЮ строку (длиннее стандарта, но ничего не обрезается и не
+    теряется молча) — слишком длинный для 2 строк блок сценария сам по
+    себе повод пересмотреть длину блока выше по пайплайну, не что чинить
+    здесь угадыванием, где резать смысл."""
+    words = text.split()
+    if not words:
+        return text
+    lines, idx = [], 0
+    while idx < len(words) and len(lines) < max_lines:
+        cur = words[idx]
+        idx += 1
+        while idx < len(words):
+            candidate = f"{cur} {words[idx]}"
+            if len(candidate) > max_line_chars:
+                break
+            cur = candidate
+            idx += 1
+        lines.append(cur)
+    if idx < len(words):
+        lines[-1] = lines[-1] + " " + " ".join(words[idx:])
+    return "\n".join(lines)
+
+
 def write_subtitles(video_dir, blocks, starts, durs, real_weights=None):
     """SRT — бесплатный побочный продукт уже посчитанного тайминга: реальный
     посимвольный alignment.csv (см. load_alignment_weights) уже участвует в
@@ -3229,6 +3296,7 @@ def write_subtitles(video_dir, blocks, starts, durs, real_weights=None):
         text = b["text"].strip()
         if not text:
             continue
+        text = _wrap_caption_text(text)
         pause_after = b.get("pause_after") or 0.0
         w = real_weights[i] if (real_weights and i < len(real_weights) and real_weights[i]) else None
         visible_d = d * (1.0 - pause_after / (w + pause_after)) if (pause_after > 0 and w) else d
@@ -5122,14 +5190,12 @@ def main():
 
     # visual_starts — РЕАЛЬНЫЕ старты клипов на шкале визуального монтажа,
     # ПОСЛЕ всех "очеловечивающих" сдвигов durs выше (apply_section_boundary_shift/
-    # apply_within_cut_shift/apply_human_jitter/snap_hook_cuts_to_energy).
-    # Нужны ТОЛЬКО для rescale_hook_words_to_visual_time() ниже (P0-3) —
-    # sub_starts/sub_baseline остаются аудио-шкалой для write_subtitles/
-    # write_chapters (это и должно быть привязано к голосу, не к монтажу).
-    visual_starts, v_acc = [], 0.0
-    for d in durs:
-        visual_starts.append(v_acc)
-        v_acc += d
+    # apply_within_cut_shift/apply_human_jitter/snap_hook_cuts_to_energy) И
+    # после xfade-нахлёста (см. hook_visual_starts). Нужны ТОЛЬКО для
+    # rescale_hook_words_to_visual_time() ниже (P0-3) — sub_starts/sub_baseline
+    # остаются аудио-шкалой для write_subtitles/write_chapters (это и должно
+    # быть привязано к голосу, не к монтажу).
+    visual_starts = hook_visual_starts(blocks, durs)
 
     clips, clip_durs, clip_sections, clip_blocks = [], [], [], []
     missing = []   # индексы блоков, для которых не нашлось ни фото, ни видео

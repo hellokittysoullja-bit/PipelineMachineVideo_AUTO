@@ -1096,3 +1096,94 @@ def test_auto_levels_params_near_threshold_range_is_clamped():
     contrast, brightness = pipeline_smart.auto_levels_params((0.4, 0.451))
     assert contrast == pytest.approx(pipeline_smart.AUTO_LEVELS_MAX_CONTRAST)
     assert abs(brightness) <= pipeline_smart.AUTO_LEVELS_MAX_BRIGHTNESS_ABS + 1e-9
+
+
+# ---------- hook_visual_starts (доп. находка из независимого архитектурного
+# разбора: наивный cumsum(durs) не учитывает xfade-нахлёст, который РЕАЛЬНО
+# сжимает итоговый таймлайн — см. xfade_chain(): cum = cum + durs[i] - this_dur) ----------
+
+def test_hook_visual_starts_first_clip_at_zero():
+    assert pipeline_smart.hook_visual_starts([{"section": "HOOK"}], [3.0]) == [0.0]
+
+
+def test_hook_visual_starts_subtracts_xfade_hard_overlap():
+    blocks = [{"section": "HOOK"}, {"section": "HOOK"}, {"section": "HOOK"}]
+    durs = [2.0, 3.0, 4.0]
+    starts = pipeline_smart.hook_visual_starts(blocks, durs)
+    hard = pipeline_smart.XFADE_DUR_HARD
+    assert starts[0] == pytest.approx(0.0)
+    assert starts[1] == pytest.approx(2.0 - hard)
+    cum_after_1 = 2.0 + 3.0 - hard
+    assert starts[2] == pytest.approx(cum_after_1 - hard)
+
+
+def test_hook_visual_starts_uses_snap_cut_after_stat_block():
+    # Переход СРАЗУ ПОСЛЕ блока со stat-плашкой — SNAP_CUT_DUR, не
+    # XFADE_DUR_HARD (то же условие, что xfade_chain()).
+    blocks = [{"section": "HOOK", "stat": "15 КГ"}, {"section": "HOOK"}, {"section": "HOOK"}]
+    durs = [2.0, 3.0, 4.0]
+    starts = pipeline_smart.hook_visual_starts(blocks, durs)
+    snap = pipeline_smart.SNAP_CUT_DUR
+    hard = pipeline_smart.XFADE_DUR_HARD
+    assert starts[1] == pytest.approx(2.0 - snap)
+    cum_after_1 = 2.0 + 3.0 - snap
+    assert starts[2] == pytest.approx(cum_after_1 - hard)   # blocks[1] без stat -> обычный hard
+
+
+def test_hook_visual_starts_matches_xfade_chain_cum_recurrence():
+    # Регрессия: формула здесь обязана быть БИТ-В-БИТ той же, что
+    # xfade_chain() реально использует для HOOK-переходов (cum = cum + d -
+    # this_dur, offset = max(0, cum_before - this_dur)) — пересчитано
+    # вручную независимо от реализации, не скопировано с неё вслепую.
+    blocks = [{"section": "HOOK"}] * 5
+    durs = [1.5, 2.2, 0.9, 3.1, 1.8]
+    starts = pipeline_smart.hook_visual_starts(blocks, durs)
+    hard = pipeline_smart.XFADE_DUR_HARD
+    cum = durs[0]
+    expected = [0.0]
+    for d in durs[1:]:
+        expected.append(max(0.0, cum - hard))
+        cum = cum + d - hard
+    assert starts == pytest.approx(expected)
+
+
+# ---------- _wrap_caption_text / write_subtitles readability (реальный,
+# задокументированный стандарт субтитрирования: короткие строки, разрыв по
+# словам, максимум 2 строки — см. коммит) ----------
+
+def test_wrap_caption_text_short_unchanged():
+    text = "Так почему миф жив?"
+    assert pipeline_smart._wrap_caption_text(text) == text
+
+
+def test_wrap_caption_text_empty_string():
+    assert pipeline_smart._wrap_caption_text("") == ""
+
+
+def test_wrap_caption_text_wraps_long_text_at_word_boundary():
+    text = ("Обычный одноручный рыцарский меч — рабочая лошадка всего "
+            "средневековья — весит от килограмма до полутора")
+    wrapped = pipeline_smart._wrap_caption_text(text)
+    out_lines = wrapped.split("\n")
+    assert len(out_lines) <= pipeline_smart.SRT_MAX_LINES
+    for line in out_lines[:-1]:
+        assert len(line) <= pipeline_smart.SRT_MAX_LINE_CHARS
+    # ни одно слово не разорвано — весь исходный текст восстанавливается
+    # обратно словá-в-слово при простом склеивании через пробел
+    assert " ".join(wrapped.split()) == " ".join(text.split())
+
+
+def test_wrap_caption_text_never_loses_words_beyond_max_lines():
+    text = " ".join(f"слово{i}" for i in range(40))   # заведомо длиннее 2 строк по 42 символа
+    wrapped = pipeline_smart._wrap_caption_text(text)
+    assert wrapped.count("\n") <= pipeline_smart.SRT_MAX_LINES - 1
+    assert " ".join(wrapped.split()) == text   # ничего не потеряно, даже с превышением лимита
+
+
+def test_write_subtitles_wraps_long_block(tmp_path):
+    raw_text = ("Обычный одноручный рыцарский меч — рабочая лошадка всего "
+                "средневековья — весит от килограмма до полутора")
+    blocks = [{"text": raw_text, "pause_after": 0.0}]
+    path = pipeline_smart.write_subtitles(str(tmp_path), blocks, [0.0], [8.0])
+    content = open(path, encoding="utf-8").read()
+    assert pipeline_smart._wrap_caption_text(raw_text) in content
