@@ -71,6 +71,63 @@ def test_classify_domain_none_when_margin_too_small(monkeypatch):
     assert margin == 0.0
 
 
+# ---------- environment-vs-subject тай-брейк (пользователь: "меч всё ещё
+# холодный" — реальный кадр меча в снегу CLIP видит одновременно похожим на
+# "battle" и "snow", margin < DOMAIN_MARGIN — раньше честный, но полный
+# отказ (None), из-за которого ни Look Management, ни доменный warm push
+# вообще не касались кадра) ----------
+
+def test_classify_domain_environment_wins_close_tie_with_subject(monkeypatch):
+    # Реальные числа с кадра меча в снегу (battle=0.2311, snow=0.2446).
+    monkeypatch.setattr(lr, "_domain_scores", lambda path: {
+        "snow": 0.2446, "battle": 0.2311, "night": 0.10, "portrait": 0.02,
+    })
+    domain, margin = lr.classify_domain("x.jpg")
+    assert domain == "snow"
+    assert margin == pytest.approx(0.2446 - 0.2311)
+
+
+def test_classify_domain_environment_wins_regardless_of_which_is_top1(monkeypatch):
+    # Тай-брейк симметричен — не зависит от того, кто именно оказался top-1.
+    monkeypatch.setattr(lr, "_domain_scores", lambda path: {
+        "battle": 0.25, "urban": 0.24, "night": 0.05,
+    })
+    domain, margin = lr.classify_domain("x.jpg")
+    assert domain == "urban"
+
+
+def test_classify_domain_no_tiebreak_for_two_subject_domains(monkeypatch):
+    # Ничья МЕЖДУ двумя subject-доменами — тай-брейк не определён
+    # (нет "среды" среди топ-2), честный отказ, как и раньше.
+    monkeypatch.setattr(lr, "_domain_scores", lambda path: {
+        "battle": 0.25, "portrait": 0.245, "snow": 0.05,
+    })
+    domain, margin = lr.classify_domain("x.jpg")
+    assert domain is None
+    assert margin == 0.0
+
+
+def test_classify_domain_no_tiebreak_with_stylistic_domain(monkeypatch):
+    # Ничья между "средой" и archive_bw/ai_illustration (не subject) —
+    # тай-брейк не участвует, честный отказ.
+    monkeypatch.setattr(lr, "_domain_scores", lambda path: {
+        "snow": 0.25, "archive_bw": 0.245, "battle": 0.05,
+    })
+    domain, margin = lr.classify_domain("x.jpg")
+    assert domain is None
+    assert margin == 0.0
+
+
+def test_classify_domain_real_sword_in_snow_photo_now_resolves_to_snow():
+    pytest.importorskip("cv2")
+    import glob
+    candidates = glob.glob("videos/*/temp_smart/pexels_cache/*1b37a930.jpg")
+    if not candidates:
+        pytest.skip("реальный тестовый файл не найден в этой рабочей копии")
+    domain, margin = lr.classify_domain(candidates[0])
+    assert domain == "snow"
+
+
 # ---------- text_domain_hint (через monkeypatch _domain_scores_from_text) ----------
 # Та же margin-gate логика, что classify_domain() выше, но текст-vs-текст —
 # добавлена для Semantic Visual Director (scripts/visual_director.py), нужен

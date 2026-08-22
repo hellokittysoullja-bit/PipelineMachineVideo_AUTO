@@ -154,6 +154,18 @@ DOMAIN_PROMPTS = {
     "battle": "battle scene with weapons and armor",
 }
 DOMAIN_MARGIN = 0.02
+# Тай-брейк близкой ничьей между "средой" (определяет освещение/температуру
+# цвета кадра) и "предметом" (у оружия/человека нет своей независимой
+# температуры цвета — она приходит от среды) — см. classify_domain().
+# Реальный случай, найденный по жалобе ("меч всё ещё холодный"): кадр
+# меча крупным планом В СНЕГУ CLIP видит одновременно похожим на "battle"
+# (оружие в кадре) и "snow" (снежное окружение), margin < DOMAIN_MARGIN —
+# оба технически верны, кадр правда и то, и другое. Только environment/
+# subject домены участвуют в тай-брейке — неоднозначность с archive_bw/
+# ai_illustration (не среда и не предмет) им НЕ разрешается, честный
+# отказ (None, 0.0), как и раньше.
+ENVIRONMENT_DOMAINS = {"snow", "night", "museum_daylight", "urban"}
+SUBJECT_DOMAINS = {"battle", "portrait"}
 
 MAX_MATCH_DISTANCE = 35.0
 MAX_STRENGTH = 0.35   # тот же порядок, что AUTO_WB_MAX_STRENGTH — частичная
@@ -373,17 +385,26 @@ def classify_domain(image_path):
     DOMAIN_PROMPTS; margin — разрыв top-1/top-2 (уверенность, не абсолютный
     скор — тот же принцип, что RISKY_QUERY_MARGIN в
     pipeline_smart.is_relevant_candidate()). (None, 0.0), если CLIP
-    недоступен или разрыв меньше DOMAIN_MARGIN."""
+    недоступен или разрыв меньше DOMAIN_MARGIN — С ОДНИМ исключением: если
+    top-1/top-2 — ровно один environment- и один subject-домен (см.
+    ENVIRONMENT_DOMAINS/SUBJECT_DOMAINS выше), при близкой ничьей
+    побеждает environment (для грейда важнее освещение/среда, не предмет
+    в кадре) — margin возвращается ЧЕСТНЫЙ (маленький, не подделанный),
+    вызывающий код видит реальную неуверенность в отчёте."""
     scores = _domain_scores(image_path)
     if not scores:
         return None, 0.0
     ranked = sorted(scores.items(), key=lambda x: -x[1])
     top_domain, top_score = ranked[0]
+    second_domain = ranked[1][0] if len(ranked) > 1 else None
     second_score = ranked[1][1] if len(ranked) > 1 else -1.0
     margin = top_score - second_score
-    if margin < DOMAIN_MARGIN:
-        return None, 0.0
-    return top_domain, margin
+    if margin >= DOMAIN_MARGIN:
+        return top_domain, margin
+    pair = {top_domain, second_domain}
+    if len(pair & ENVIRONMENT_DOMAINS) == 1 and len(pair & SUBJECT_DOMAINS) == 1:
+        return (pair & ENVIRONMENT_DOMAINS).pop(), margin
+    return None, 0.0
 
 
 def _domain_scores_from_text(text):
