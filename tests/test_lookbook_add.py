@@ -1,8 +1,9 @@
 """Юнит-тесты scripts/lookbook_add.py — единственный способ пополнить
 assets/lookbook/lookbook.json. КАЖДЫЙ тест monkeypatch'ит look_reference.
 LOOKBOOK_PATH на tmp_path — ни один тест не должен коснуться реального
-assets/lookbook/lookbook.json (он обязан оставаться пустым в репозитории,
-см. test_look_correction_filter_noop_on_real_empty_lookbook)."""
+assets/lookbook/lookbook.json (см. test_real_repo_lookbook_untouched_by_
+this_test_file — сверяет со снимком, снятым до тестов, файл сегодня уже
+не пуст — 13 эталонов канала, добавлены вручную вне тестов)."""
 import json
 import os
 import sys
@@ -15,6 +16,19 @@ from PIL import Image
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS_DIR = os.path.join(REPO_ROOT, "scripts")
 sys.path.insert(0, SCRIPTS_DIR)
+
+# Снимок реального lookbook.json ДО того, как хоть один тест этого файла
+# успел запуститься (модульный код выполняется один раз при импорте, до
+# всех autouse-фикстур/тестов) — раньше test_real_repo_lookbook_untouched_
+# by_this_test_file() сверялся с константой {"references": []}, что было
+# верно, только пока канал не выпустил ни одного эпизода. Теперь реальный
+# lookbook.json намеренно НЕ пуст (13 эталонов, добавлены вручную через
+# lookbook_add.py CLI вне тестов, см. коммит) — тест должен доказывать
+# "этот файл тестов его не трогал", а не "он пуст", иначе он сломан самим
+# фактом легитимной курации, а не регрессией.
+_REAL_LOOKBOOK_PATH = os.path.join(REPO_ROOT, "assets", "lookbook", "lookbook.json")
+with open(_REAL_LOOKBOOK_PATH, encoding="utf-8") as _f:
+    _REAL_LOOKBOOK_SNAPSHOT = _f.read()
 
 sys.argv = ["lookbook_add.py", tempfile.gettempdir()]
 import lookbook_add as la   # noqa: E402
@@ -143,7 +157,10 @@ def test_conflicting_channel_id_with_force_overwrites(tmp_path, monkeypatch, _is
 def test_real_repo_lookbook_untouched_by_this_test_file():
     """Контрольная проверка: этот тестовый файл не должен был ни разу
     коснуться реального assets/lookbook/lookbook.json (все остальные тесты
-    monkeypatch'или LOOKBOOK_PATH) — он обязан остаться пустым."""
-    real_path = os.path.join(REPO_ROOT, "assets", "lookbook", "lookbook.json")
-    data = json.loads(open(real_path, encoding="utf-8").read())
-    assert data == {"references": []}
+    monkeypatch'или LOOKBOOK_PATH) — сверяем побайтово со снимком, снятым
+    ДО первого теста (см. _REAL_LOOKBOOK_SNAPSHOT), а не с константной
+    "пустотой" — реальный lookbook сегодня намеренно не пуст (13 эталонов
+    канала, добавлены вне тестов)."""
+    with open(_REAL_LOOKBOOK_PATH, encoding="utf-8") as f:
+        current = f.read()
+    assert current == _REAL_LOOKBOOK_SNAPSHOT

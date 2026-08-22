@@ -427,6 +427,23 @@ def _look_management_cache_signature(look_ref):
     "look:off" без импорта модуля вообще."""
     return look_ref.cache_signature() if look_ref is not None else "look:off"
 
+
+def _domain_grade_cache_signature(domain_ref):
+    """Тот же принцип, что _look_management_cache_signature() выше — грубая,
+    но безопасная инвалидация ВСЕХ клипов temp_smart/ разом при смене
+    DOMAIN_GRADE_MODE или правке DOMAIN_WARM_PUSH_SCALE (см. film_look(),
+    _warm_mult() — П.4, "меч всё ещё холодный"). Без этого params_hash
+    (main()) не менялся бы при включении/выключении домен-модуляции или
+    правке коэффициентов таблицы — старые кэшированные клипы молча
+    переживали бы правку рецепта, тот же класс бага, что уже описан в
+    ЗАМЕТКЕ НА БУДУЩЕЕ у _warm_mult() про версию рецепта грейда, только для
+    ЭТОЙ, отдельной от Look Management модуляции. domain_ref is None
+    (DOMAIN_GRADE_MODE=off) -> "domain:off"."""
+    if domain_ref is None:
+        return "domain:off"
+    table_sig = hashlib.md5(repr(sorted(DOMAIN_WARM_PUSH_SCALE.items())).encode()).hexdigest()[:8]
+    return f"domain:on:{table_sig}"
+
 # Процедурная атмосферная подложка (см. scripts/generate_music_asset.py) —
 # тот же принцип, что и с grain_loop: статический ассет в репозитории, нет
 # файла -> MUSIC_ENABLED=False, безопасный откат на прежнее поведение
@@ -4814,9 +4831,20 @@ def main():
     # переиспользует уже проверенный код (не новый эксперимент), правится по
     # прямой жалобе на конкретный кадр, визуально сверен Шагом 7.5 перед тем
     # как считаться готовым.
-    domain_ref = look_ref
-    if domain_ref is None and os.environ.get("DOMAIN_GRADE_MODE", "on").strip().lower() != "off":
-        import look_reference as domain_ref  # noqa: F401
+    # РЕАЛЬНЫЙ БАГ, пойманный при разборе (найден и исправлен в этом же
+    # коммите, до первого реального использования): `domain_ref = look_ref`
+    # раньше стояло БЕЗ проверки DOMAIN_GRADE_MODE — если Look Management уже
+    # включён (LOOK_MANAGEMENT_MODE=shadow/assist), домен-модуляция включалась
+    # молча, даже когда DOMAIN_GRADE_MODE=off явно просил её выключить. Флаг
+    # теперь проверяется ОДИН РАЗ и решает, участвует ли domain_ref вообще,
+    # независимо от того, откуда берётся сам модуль (переиспользуется look_ref
+    # или импортируется отдельно).
+    domain_ref = None
+    if os.environ.get("DOMAIN_GRADE_MODE", "on").strip().lower() != "off":
+        domain_ref = look_ref
+        if domain_ref is None:
+            import look_reference as domain_ref  # noqa: F401
+    domain_cache_sig = _domain_grade_cache_signature(domain_ref)
     used_photo_ids = set()   # общий на весь ролик — не даём одной фотке всплыть дважды
     used_video_ids = set()   # то же самое, отдельно для видео (разные ID-пространства)
     used_photo_hashes = []   # aHash уже отобранных фото — ловит визуальные дубли под РАЗНЫМИ ID (см. pexels_photo)
@@ -4879,9 +4907,12 @@ def main():
         # look_cache_sig — Reference-Guided Look Management (см.
         # _look_management_cache_signature()) — грубая, но безопасная
         # инвалидация всех клипов разом при смене lookbook.json/флага.
+        # domain_cache_sig — та же грубая инвалидация для DOMAIN_GRADE_MODE/
+        # DOMAIN_WARM_PUSH_SCALE (см. _domain_grade_cache_signature(), П.4) —
+        # отдельная от Look Management модуляция, отдельная сигнатура.
         params_hash = hashlib.md5(
             f"{d:.3f}|{title}|{stat}|{stat_variant}|{b['section']}|{queries[i]}|{stat_delay:.3f}|"
-            f"{captions}|{look_cache_sig}".encode()).hexdigest()[:8]
+            f"{captions}|{look_cache_sig}|{domain_cache_sig}".encode()).hexdigest()[:8]
         out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}_{params_hash}.mp4")
         if os.path.exists(out) and not verify_clip(out, d)[0]:
             # Кэш раньше доверял голому os.path.exists() — обрезанный/битый
@@ -4919,6 +4950,15 @@ def main():
             # запись, не тишина — иначе shadow-отчёт на уже отрендеренном
             # эпизоде выглядел бы полным, хотя ничего не проанализировано.
             look_report[i] = {"decision": "skipped_cache_hit"}
+            # РЕАЛЬНЫЙ БАГ (найден и исправлен в этом же коммите): director_report
+            # раньше НЕ получал записи на этой ветке вообще — в отличие от
+            # look_report прямо над этой строкой (та же ситуация, тот же принцип
+            # честности отчёта). visual_director_report.json тогда молча терял
+            # индексы кэш-хитов из "clips" (перечисление идёт по sorted(director_report)
+            # — отсутствующий ключ просто не появляется), а scored/diverged_from_base
+            # занижались без единого предупреждения, в отличие от look_manifest.json,
+            # который печатает явное cache_hits_skipped_analysis.
+            director_report[i] = {"decision": "skipped_cache_hit"}
             continue
         photo = local_photo(i) if use_local else None
         video = None
@@ -5250,14 +5290,23 @@ def main():
     director_manifest_tmp = director_manifest_path + ".tmp"
     director_scored = sum(1 for e in director_report.values() if e.get("decision") == "scored")
     director_diverged = sum(1 for e in director_report.values() if e.get("diverged"))
+    director_cache_hits_skipped = sum(1 for e in director_report.values() if e.get("decision") == "skipped_cache_hit")
     with open(director_manifest_tmp, "w", encoding="utf-8") as f:
         json.dump({"enabled": visual_director is not None,
                     "mode": visual_director.VISUAL_DIRECTOR_MODE if visual_director is not None else "off",
                     "scored": director_scored,
                     "diverged_from_base": director_diverged,
+                    "cache_hits_skipped_analysis": director_cache_hits_skipped,
                     "clips": [director_report[i] for i in sorted(director_report)]},
                    f, ensure_ascii=False, indent=2)
     os.replace(director_manifest_tmp, director_manifest_path)
+    # То же честное предупреждение, что уже есть у Look Management чуть выше
+    # (см. cache_hits_skipped_analysis там) — тот же класс "shadow/assist на
+    # уже отрендеренном эпизоде не полная симуляция".
+    if visual_director is not None and director_cache_hits_skipped:
+        print(f"  Visual Director: {director_cache_hits_skipped} клип(ов) пропущено анализом "
+              f"(кэш из прошлого прогона) — для честного shadow/assist-прогона на этом эпизоде "
+              f"очисти temp_smart/ и перезапусти.")
 
     # Жёсткий финальный гейт: цель не "никогда не упасть" (нечестное
     # обещание — сеть/диск/память могут отказать всегда), а чтобы одиночный

@@ -2,10 +2,10 @@
 Без реального torch/CLIP — CLIP-вызов вынесен в _domain_scores() именно для
 того, чтобы ранжирование/margin-gate/коррекция тестировались изолированно
 (тот же принцип разделения, что test_visual_qc.py уже применяет к своим
-scorer-функциям). Самый важный тест файла —
-test_look_correction_filter_noop_on_real_empty_lookbook: он единственный
-прямо доказывает, что система не влияет на сегодняшний рендер, пока в
-assets/lookbook/lookbook.json реально нет ни одного эталона."""
+scorer-функциям). test_look_correction_filter_noop_on_empty_lookbook
+доказывает инертность системы на СИНТЕТИЧЕСКИ пустом lookbook (не на
+реальном assets/lookbook/lookbook.json — тот сегодня уже не пуст, 13
+эталонов канала, добавлены вручную вне тестов, см. коммит)."""
 import os
 import sys
 import tempfile
@@ -332,13 +332,13 @@ def test_look_correction_filter_noop_when_disabled(monkeypatch):
     assert report["decision"] == "skipped_disabled"
 
 
-def test_look_correction_filter_noop_on_real_empty_lookbook(monkeypatch):
-    """Главный тест модуля: с РЕАЛЬНЫМ assets/lookbook/lookbook.json (пустым
-    сегодня — канал не выпустил ни одного эпизода) система обязана быть
-    полностью инертной даже при включённом режиме — это единственная
-    гарантия, что коммит этой системы не меняет сегодняшний рендер."""
+def test_look_correction_filter_noop_on_empty_lookbook(monkeypatch):
+    """С пустым lookbook (синтетический — см. модульный докстринг: реальный
+    assets/lookbook/lookbook.json сегодня уже не пуст) система обязана быть
+    полностью инертной даже при включённом режиме."""
     assert os.path.exists(lr.LOOKBOOK_PATH), "assets/lookbook/lookbook.json должен существовать в репозитории"
     monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "assist")
+    monkeypatch.setattr(lr, "load_lookbook", lambda: {"references": []})
     filt, report, state = lr.look_correction_filter(
         "x.jpg", (0.1, 0.9), (0.5, 0.5, 0.5), has_face=False, scene_boundary=False)
     assert filt is None

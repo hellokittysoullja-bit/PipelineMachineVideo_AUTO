@@ -244,6 +244,28 @@ def test_count_words_missing_sections_is_zero(tmp_path):
     assert wordcount.count_words(str(p)) == 0
 
 
+# ---------- _domain_grade_cache_signature (П.4: temp_smart/ версионирование) ----------
+
+def test_domain_grade_cache_signature_off_when_disabled():
+    assert pipeline_smart._domain_grade_cache_signature(None) == "domain:off"
+
+
+def test_domain_grade_cache_signature_on_when_enabled():
+    sig = pipeline_smart._domain_grade_cache_signature(object())
+    assert sig.startswith("domain:on:")
+
+
+def test_domain_grade_cache_signature_changes_with_table(monkeypatch):
+    # Регрессия: params_hash (main()) раньше не учитывал DOMAIN_GRADE_MODE/
+    # DOMAIN_WARM_PUSH_SCALE вообще — правка таблицы между прогонами молча
+    # оставляла старые кэшированные клипы temp_smart/ нетронутыми. Сигнатура
+    # должна реально меняться при правке таблицы, не быть константой.
+    before = pipeline_smart._domain_grade_cache_signature(object())
+    monkeypatch.setattr(pipeline_smart, "DOMAIN_WARM_PUSH_SCALE", {"snow": 0.9})
+    after = pipeline_smart._domain_grade_cache_signature(object())
+    assert before != after
+
+
 # ---------- stock_fetch_multisource.build_query / load_themes ----------
 
 def test_build_query_matches_keyword():
