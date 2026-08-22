@@ -631,6 +631,14 @@ def test_skin_gains_stay_in_corridor_false_for_hue_shifting_gains():
     assert lr._skin_gains_stay_in_corridor(_MEDIUM_SKIN_RGB_01, (0.6, 1.3, 0.6)) is False
 
 
+def test_skin_gains_stay_in_corridor_false_for_crushed_or_blown_luma():
+    # Экспозиция кожи — отдельный реальный стандарт (broadcast "skin ~70 IRE",
+    # см. коммит) — коррекция, выдавливающая кожу в черноту или засвечивающая
+    # до потери детали, не должна пройти, даже если формально не задевает тон/хрому.
+    assert lr._skin_gains_stay_in_corridor(_MEDIUM_SKIN_RGB_01, (0.05, 0.05, 0.05)) is False   # выдавлено в чёрное
+    assert lr._skin_gains_stay_in_corridor(_MEDIUM_SKIN_RGB_01, (3.0, 3.0, 3.0)) is False   # засвечено
+
+
 @_no_ffmpeg
 def test_look_correction_filter_rejects_when_skin_present_and_gains_shift_hue(tmp_path, monkeypatch):
     # Интеграционный тест: реальное фото цвета кожи (рука держит меч, лица
