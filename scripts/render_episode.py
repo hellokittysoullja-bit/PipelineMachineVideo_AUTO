@@ -86,17 +86,17 @@ def _run(script_name, video_dir, extra_env=None):
 def _section_count(video_dir):
     """Число секций (HOOK/BLOCK*/FINAL) в script.txt — та же логика, что
     section_sync.py использует для собственного порога "меньше двух секций
-    -> детектор не нужен"."""
-    saved_argv = sys.argv
-    sys.argv = ["pipeline_smart.py", video_dir]
-    try:
-        import pipeline_smart as ps
-    finally:
-        sys.argv = saved_argv
+    -> детектор не нужен". parse_blocks() импортируется напрямую из
+    script_parser.py (лёгкий модуль без побочных эффектов) — раньше это
+    требовало временной подмены sys.argv и импорта ВСЕГО pipeline_smart.py
+    (5900+ строк, тяжёлые torch/cv2-зависимости) только ради одной функции;
+    section_sync.py вынужден так делать по другой причине (использует ещё
+    несколько символов из pipeline_smart.py), render_episode.py — нет."""
+    import script_parser
     script_path = os.path.join(video_dir, "script.txt")
     if not os.path.exists(script_path):
         return 0
-    blocks = ps.parse_blocks(script_path)
+    blocks = script_parser.parse_blocks(script_path)
     section_order = []
     for b in blocks:
         if not section_order or section_order[-1] != b["section"]:
