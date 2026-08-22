@@ -227,6 +227,18 @@ def qc_verdict(path, is_video, query, accepted_hashes, slot_label):
         sharp = sharpness_score(gray)
         noise = noise_score(gray)
         relevance = pipeline_smart.clip_relevance(frame, query) if query else None
+        # Реальный баг, найденный и подтверждённый вживую: якорную проверку
+        # для "собирательных" запросов раньше считали НИЖЕ, уже после этого
+        # try/finally, на `path` — для видео это путь к .mp4, а не к кадру
+        # (frame к тому моменту уже удалён), PIL не может открыть видео как
+        # картинку, clip_relevance() тихо возвращает None — anchor-защита
+        # была НЕРАБОЧЕЙ для всех видео-кандидатов с риск-запросами (для
+        # фото path==frame случайно маскировал баг). Считаем anchor_relevance
+        # здесь же, на ещё живом frame — тот же принцип, что уже
+        # используется в pexels_photo()/pipeline_smart.py.
+        anchor_relevance = None
+        if relevance is not None and query and pipeline_smart.is_risky_query(query):
+            anchor_relevance = pipeline_smart.clip_relevance(frame, pipeline_smart.NEGATIVE_ANCHOR_PROMPT)
         aesthetic = pipeline_smart.aesthetic_score(frame)
         h = pipeline_smart.ahash(frame)
     finally:
@@ -242,7 +254,7 @@ def qc_verdict(path, is_video, query, accepted_hashes, slot_label):
 
     info.update(luma=luma, levels=levels, sharpness=sharp, noise=noise,
                 motion=motion, particle=particle, relevance=relevance,
-                aesthetic=aesthetic, ahash=h)
+                anchor_relevance=anchor_relevance, aesthetic=aesthetic, ahash=h)
 
     reasons = []
     hard_reject = False
@@ -266,8 +278,7 @@ def qc_verdict(path, is_video, query, accepted_hashes, slot_label):
             reasons.append(f"не по теме запроса (relevance={relevance:.3f})")
             hard_reject = True
         elif pipeline_smart.is_risky_query(query):
-            neg = pipeline_smart.clip_relevance(path if not is_video else path, pipeline_smart.NEGATIVE_ANCHOR_PROMPT)
-            if neg is not None and (relevance - neg) < pipeline_smart.RISKY_QUERY_MARGIN:
+            if anchor_relevance is not None and (relevance - anchor_relevance) < pipeline_smart.RISKY_QUERY_MARGIN:
                 reasons.append("собирательный запрос без доминирующего предмета в кадре")
                 hard_reject = True
     if h is not None and not hard_reject:

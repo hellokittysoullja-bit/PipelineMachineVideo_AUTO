@@ -1,0 +1,24 @@
+{
+  "_comment": "Творческие характеристики ЭТОГО канала (военно-историческая документалка), вынесенные из scripts/pipeline_smart.py в конфиг — см. docs/ROADMAP_CHANNEL_PROFILE.md и CLAUDE.md ЧАСТЬ 24. Значения ниже 1-в-1 совпадают с константами, которые были зашиты в коде до этого файла (ноль изменений поведения при его появлении). Клон репозитория под другую нишу — новый channel_profile.json с другими значениями, код трогать не нужно. Музыкальный генератор (scripts/generate_music_asset.py, процедурный дрон) сюда намеренно НЕ вынесен: сегодня существует только одна реализация (архитектурно другой генератор — самая дорогая часть роадмапа, отдельная задача), профиль с полем, которое некуда переключить, был бы нечестным.",
+  "mood_grade": {
+    "HOOK":  {"c0": 1.10, "s0": 0.82, "vign": "PI/4.2", "bs": 0.13, "rh": 0.02},
+    "FINAL": {"c0": 1.02, "s0": 0.90, "vign": "PI/6",   "bs": 0.06, "rh": 0.08},
+    "BODY":  {"c0": 1.06, "s0": 0.86, "vign": "PI/5",   "bs": 0.10, "rh": 0.03}
+  },
+  "content_alt_blocklist": [
+    "cosplay", "anime", "manga character", "video game character",
+    "bathroom scale", "body scale", "weight loss", "weight management",
+    "body fat", "diet plan", "measuring tape body", "barefoot", "bare feet",
+    "feet on scale", "feet on a scale", "human foot", "obesity"
+  ],
+  "voice": {
+    "highpass_hz": 80,
+    "eq_warmth_hz": 200,
+    "eq_warmth_gain": 1.5,
+    "eq_presence_hz": 3000,
+    "eq_presence_gain": 2.0,
+    "deess_intensity": 0.3,
+    "compress_threshold": 0.15,
+    "compress_ratio": 2.5
+  }
+}

@@ -276,6 +276,34 @@ def test_load_themes_episode_overrides_channel(tmp_path):
     assert "доспех" in merged   # канальный словарь по-прежнему подключён рядом с оверрайдом
 
 
+# ---------- channel_profile.json wiring (P3, ЧАСТЬ 24) ----------
+
+def test_channel_profile_loaded_from_repo_root():
+    # channel_profile.json (корень репо) должен реально читаться, не тихо
+    # игнорироваться — иначе весь смысл выноса MOOD_GRADE/CONTENT_ALT_
+    # BLOCKLIST/VOICE_* из кода в конфиг (см. docs/ROADMAP_CHANNEL_PROFILE.md)
+    # был бы фиктивным.
+    assert pipeline_smart.CHANNEL_PROFILE.get("mood_grade")
+    assert pipeline_smart.CHANNEL_PROFILE.get("content_alt_blocklist")
+    assert pipeline_smart.CHANNEL_PROFILE.get("voice")
+
+
+def test_mood_grade_matches_channel_profile_file():
+    assert pipeline_smart.MOOD_GRADE == pipeline_smart.CHANNEL_PROFILE["mood_grade"]
+
+
+def test_content_alt_blocklist_matches_channel_profile_file():
+    assert pipeline_smart.CONTENT_ALT_BLOCKLIST == tuple(pipeline_smart.CHANNEL_PROFILE["content_alt_blocklist"])
+
+
+def test_voice_tuning_matches_channel_profile_file():
+    voice = pipeline_smart.CHANNEL_PROFILE["voice"]
+    assert pipeline_smart.VOICE_HIGHPASS_HZ == voice["highpass_hz"]
+    assert pipeline_smart.VOICE_COMPRESS_THRESHOLD == voice["compress_threshold"]
+    assert pipeline_smart.VOICE_COMPRESS_RATIO == voice["compress_ratio"]
+    assert pipeline_smart.VOICE_DEESS_INTENSITY == voice["deess_intensity"]
+
+
 def test_build_query_rotates_list_values_across_calls():
     themes = {"меч": ["a sword", "b sword", "c sword"]}
     counts = {}

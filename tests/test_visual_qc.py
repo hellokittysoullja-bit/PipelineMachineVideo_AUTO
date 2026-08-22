@@ -174,6 +174,57 @@ def test_qc_verdict_accepted_hash_only_updates_on_non_reject(tmp_path, monkeypat
     assert accepted == {"abc": "001"}
 
 
+def test_qc_verdict_video_anchor_uses_extracted_frame_not_original_path(tmp_path, monkeypatch):
+    """Регрессия на реальный баг visual_qc.py:269 (было `path if not
+    is_video else path` — обе ветки идентичны, всегда `path`): якорную
+    проверку риск-запроса для ВИДЕО-кандидата нужно считать на реально
+    извлечённом кадре (frame), а не на исходном пути к .mp4 (path) — PIL/
+    clip_relevance() не умеют декодировать видео как картинку, поэтому
+    подстановка path тихо возвращала бы None и anchor-защита не работала
+    бы вообще ни для одного видео-кандидата с риск-запросом. Старый
+    `_patch_all_scorers()` не мог поймать этот класс бага: он мокает
+    clip_relevance() одним и тем же значением независимо от аргумента, так
+    что path и frame были неотличимы для теста."""
+    media = tmp_path / "media"
+    media.mkdir()
+    video_path = str(media / "001_stock_video.mp4")
+    with open(video_path, "wb") as f:
+        f.write(b"fake video bytes, never actually decoded in this test")
+    frame_path = str(tmp_path / "extracted_frame.jpg")
+    make_sharp_photo(frame_path)
+
+    # Симулируем реальное поведение _extract_probe_frame() для видео:
+    # возвращает ОТДЕЛЬНЫЙ путь к извлечённому кадру, cleanup=True.
+    monkeypatch.setattr(vqc, "_extract_probe_frame", lambda p, iv, at=0.5: (frame_path, True))
+
+    def fake_clip_relevance(img_path, query):
+        assert img_path == frame_path, (
+            "clip_relevance() позвали не на извлечённом кадре, а на "
+            f"{img_path!r} — это и есть баг visual_qc.py:269"
+        )
+        if query == pipeline_smart.NEGATIVE_ANCHOR_PROMPT:
+            return 0.05
+        return 0.30
+
+    monkeypatch.setattr(pipeline_smart, "clip_relevance", fake_clip_relevance)
+    monkeypatch.setattr(pipeline_smart, "is_risky_query", lambda q: True)
+    monkeypatch.setattr(pipeline_smart, "measure_luma", lambda *a, **kw: 0.5)
+    monkeypatch.setattr(pipeline_smart, "measure_levels", lambda *a, **kw: (0.1, 0.9))
+    monkeypatch.setattr(pipeline_smart, "aesthetic_score", lambda *a, **kw: 5.0)
+    monkeypatch.setattr(pipeline_smart, "measure_particle_score", lambda *a, **kw: 0.05)
+    monkeypatch.setattr(pipeline_smart, "measure_motion", lambda *a, **kw: 0.05)
+    monkeypatch.setattr(pipeline_smart, "ahash", lambda *a, **kw: "0" * 64)
+    monkeypatch.setattr(vqc, "sharpness_score", lambda *a, **kw: 500.0)
+    monkeypatch.setattr(vqc, "noise_score", lambda *a, **kw: 5.0)
+
+    info = vqc.qc_verdict(video_path, is_video=True, query="risky collective query",
+                           accepted_hashes={}, slot_label="001")
+
+    assert info["anchor_relevance"] == 0.05
+    assert info["relevance"] == 0.30
+    assert info["verdict"] == "pass"
+
+
 # ---------- _composite_score ----------
 
 def test_composite_score_prefers_higher_relevance():

@@ -1248,6 +1248,38 @@ def load_themes():
 
 THEMES = load_themes()
 
+# channel_profile.json (в корне репо, рядом с CHANNEL.md) — творческие
+# характеристики КОНКРЕТНОГО канала (грейд/контент-блоклист/тюнинг голоса),
+# вынесенные из кода в конфиг (см. docs/ROADMAP_CHANNEL_PROFILE.md, ЧАСТЬ 24
+# CLAUDE.md). Файла нет/пуст -> ничего не меняется: MOOD_GRADE/
+# CONTENT_ALT_BLOCKLIST/VOICE_* ниже уже определены как хардкод этого
+# (военно-исторического) канала, override применяется ПОВЕРХ них по
+# отдельности, там, где эти константы объявлены — сам этот файл нужен
+# только затем, чтобы CHANNEL_PROFILE был готов до первого override. Клон
+# репозитория под другую нишу (см. ЧАСТЬ 24) заводит СВОЙ
+# channel_profile.json — код трогать не нужно.
+CHANNEL_PROFILE = load_json_dict(os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "channel_profile.json"))
+
+# Override зашитых творческих констант этого канала значениями из профиля,
+# если он есть (см. комментарий выше) — MOOD_GRADE (грейд по секциям) и
+# VOICE_* (тюнинг обработки голоса) уже определены выше как хардкод по
+# умолчанию, здесь их значение переопределяется ЦЕЛИКОМ по ключу, если
+# ключ есть в channel_profile.json, иначе остаются как были (сам вызов
+# .get() со вторым аргументом = уже присвоенное значение — не дублирует
+# дефолты второй раз). CONTENT_ALT_BLOCKLIST переопределяется так же, у
+# своего определения ниже (объявлена позже в файле).
+MOOD_GRADE = CHANNEL_PROFILE.get("mood_grade", MOOD_GRADE)
+_voice_profile = CHANNEL_PROFILE.get("voice", {})
+VOICE_HIGHPASS_HZ = _voice_profile.get("highpass_hz", VOICE_HIGHPASS_HZ)
+VOICE_EQ_WARMTH_HZ = _voice_profile.get("eq_warmth_hz", VOICE_EQ_WARMTH_HZ)
+VOICE_EQ_WARMTH_GAIN = _voice_profile.get("eq_warmth_gain", VOICE_EQ_WARMTH_GAIN)
+VOICE_EQ_PRESENCE_HZ = _voice_profile.get("eq_presence_hz", VOICE_EQ_PRESENCE_HZ)
+VOICE_EQ_PRESENCE_GAIN = _voice_profile.get("eq_presence_gain", VOICE_EQ_PRESENCE_GAIN)
+VOICE_DEESS_INTENSITY = _voice_profile.get("deess_intensity", VOICE_DEESS_INTENSITY)
+VOICE_COMPRESS_THRESHOLD = _voice_profile.get("compress_threshold", VOICE_COMPRESS_THRESHOLD)
+VOICE_COMPRESS_RATIO = _voice_profile.get("compress_ratio", VOICE_COMPRESS_RATIO)
+
 # Слова, по которым блок вероятно описывает физическое действие/движение —
 # видео туда осмысленно (бой на стоке реально показывает бой), не просто
 # механическая чётность i%2 (см. main() — та не различала "плита лежит на
@@ -1852,6 +1884,12 @@ CONTENT_ALT_BLOCKLIST = (
     "body fat", "diet plan", "measuring tape body", "barefoot", "bare feet",
     "feet on scale", "feet on a scale", "human foot", "obesity",
 )
+# Override из channel_profile.json (см. CHANNEL_PROFILE выше) — тот же
+# принцип, что MOOD_GRADE/VOICE_*: список выше — хардкод по умолчанию ЭТОГО
+# (военно-исторического) канала, для другой ниши (например, игровой канал,
+# где cosplay/anime — нужный контент, не мусор) заменяется целиком через
+# профиль, не код.
+CONTENT_ALT_BLOCKLIST = tuple(CHANNEL_PROFILE.get("content_alt_blocklist", CONTENT_ALT_BLOCKLIST))
 
 
 def filter_alt_blocklist(photos):
