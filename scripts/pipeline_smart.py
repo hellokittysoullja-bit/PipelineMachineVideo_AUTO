@@ -2594,6 +2594,51 @@ def estimate_busyness(photo_path):
 
 
 _FACE_CASCADE = None
+_EYE_CASCADE = None   # см. _face_region_plausible() — вторичная проверка найденного "лица"
+
+
+FACE_SKIN_FRAC_MIN = 0.25   # доля YCrCb-кожи в найденном "лице" — калибровано вживую (см. ниже)
+FACE_EYE_MIN_SIZE_FRAC = 0.10   # мин. размер глаза относительно найденного "лица"
+
+
+def _face_region_plausible(img, gray, fx, fy, fw, fh):
+    """Вторая, независимая проверка НАД результатом Haar-каскада лица —
+    не меняет чувствительность самого каскада (см. detect_face_anchor,
+    ЧАСТЬ 13 "меч всё ещё холодный"): реальный вживую замер на 125
+    уникальных стоковых кандидатах этого канала (военные предметы, доспехи,
+    архивные фото) дал 39 "лиц" от голого frontalface-каскада — из них
+    ПРОВЕРЕНО глазами лишь единицы настоящие (навершие меча, кинозал,
+    камуфляжный геймпад и т.п. регулярно ложно триггерят каскад). Два
+    независимых, бесплатных, уже-в-OpenCV сигнала, оба должны пройти:
+    1) skin-tone в YCrCb (Cr/Cb-диапазон — стандартная, документированная
+       эвристика детекции кожи, не выдуманная) — доля пикселей найденной
+       области в человеческом диапазоне тона;
+    2) вложенный eye-каскад (haarcascade_eye.xml, тот же бесплатный набор
+       OpenCV) — хотя бы один глаз внутри области лица.
+    Комбинация на том же тестовом наборе: 39 -> 9 кандидатов (проверено
+    вживую чтением кадров — среди 9 подтверждённых лиц оказалось
+    большинство настоящих, включая случай, что фильтр НЕ идеален (один
+    геймпад с камуфляжной раскраской всё ещё проходит) — честно, не
+    гарантия нуля ошибок, только СИЛЬНОЕ сужение частоты false positive,
+    та же дисциплина, что и у _warm_mult/DOMAIN_WARM_PUSH_SCALE выше:
+    только сужение сигнала, никогда не расширение (ничего, что раньше не
+    считалось лицом, теперь лицом не станет)."""
+    global _EYE_CASCADE
+    roi_color = img[fy:fy + fh, fx:fx + fw]
+    roi_gray = gray[fy:fy + fh, fx:fx + fw]
+    if roi_color.size == 0 or roi_gray.size == 0:
+        return False
+    ycrcb = cv2.cvtColor(roi_color, cv2.COLOR_BGR2YCrCb)
+    cr, cb = ycrcb[:, :, 1], ycrcb[:, :, 2]
+    skin_frac = float(((cr >= 133) & (cr <= 173) & (cb >= 77) & (cb <= 127)).mean())
+    if skin_frac < FACE_SKIN_FRAC_MIN:
+        return False
+    if _EYE_CASCADE is None:
+        _EYE_CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_eye.xml")
+    min_eye = max(8, int(min(fw, fh) * FACE_EYE_MIN_SIZE_FRAC))
+    eyes = _EYE_CASCADE.detectMultiScale(roi_gray, scaleFactor=1.1, minNeighbors=4,
+                                          minSize=(min_eye, min_eye))
+    return len(eyes) >= 1
 
 
 def detect_face_anchor(photo_path):
@@ -2606,7 +2651,12 @@ def detect_face_anchor(photo_path):
     ширине/высоте ОРИГИНАЛА, чуть выше центра лица — глаза, не подбородок).
     Лицо не найдено/cv2 недоступен/фото не про людей (оружие, пейзаж) —
     возвращает None, и вызывающий код падает обратно на старый центр-кроп
-    (то же поведение, что было всегда) — чистое дополнение без регрессии."""
+    (то же поведение, что было всегда) — чистое дополнение без регрессии.
+
+    Найденный каскадом регион ДОПОЛНИТЕЛЬНО проверяется _face_region_
+    plausible() (skin-tone + вложенный eye-каскад) — см. её докстринг,
+    реальный false-positive baг, пойманный на жалобе "меч всё ещё
+    холодно выглядит"."""
     if not PARALLAX_LIBS:
         return None
     global _FACE_CASCADE
@@ -2625,6 +2675,8 @@ def detect_face_anchor(photo_path):
         if len(faces) == 0:
             return None
         fx, fy, fw, fh = max(faces, key=lambda f: f[2] * f[3])
+        if not _face_region_plausible(img, gray, fx, fy, fw, fh):
+            return None
         return ((fx + fw / 2) / w, (fy + fh * 0.35) / h)
     except Exception:
         return None

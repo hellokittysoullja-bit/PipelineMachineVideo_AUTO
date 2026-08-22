@@ -7,6 +7,8 @@ import re
 import sys
 import tempfile
 
+import pytest
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS_DIR = os.path.join(REPO_ROOT, "scripts")
 sys.path.insert(0, SCRIPTS_DIR)
@@ -649,3 +651,74 @@ def test_climax_dip_window_matches_dip_expr_bounds():
     expected_end = d1 + pipeline_smart.CLIMAX_DIP_FADE_SEC + pipeline_smart.CLIMAX_DIP_HOLD_SEC + pipeline_smart.CLIMAX_DIP_FADE_SEC
     assert start == d1
     assert end == expected_end
+
+
+# ---------- _face_region_plausible (П.4: "меч всё ещё холодный" — face false positive) ----------
+
+_PARALLAX_SKIP = not pipeline_smart.PARALLAX_LIBS
+
+
+def _make_bgr(size, color):
+    import numpy as np
+    h, w = size
+    arr = np.zeros((h, w, 3), dtype="uint8")
+    arr[:, :] = color   # BGR
+    return arr
+
+
+@pytest.mark.skipif(_PARALLAX_SKIP, reason="cv2 недоступен")
+def test_face_region_plausible_rejects_no_skin_tone(monkeypatch):
+    # Реальный баг: навершие меча/шлем/кинозал ложно триггерят frontalface-
+    # каскад — регион ЯВНО не кожа (холодный металлик), должен отклоняться
+    # ДО обращения к eye-каскаду (skin-check первым).
+    import cv2
+    img = _make_bgr((60, 60), (200, 200, 200))   # серый металлик, не кожа
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    assert pipeline_smart._face_region_plausible(img, gray, 5, 5, 40, 40) is False
+
+
+@pytest.mark.skipif(_PARALLAX_SKIP, reason="cv2 недоступен")
+def test_face_region_plausible_requires_eyes_even_with_skin_tone(monkeypatch):
+    # Камуфляжный геймпад (реальный найденный остаточный false positive) —
+    # цвет попадает в skin-tone диапазон, но глаз внутри нет: eye-каскад
+    # должен отклонить. Мокаем именно eye-каскад (не сам факт вызова —
+    # deterministic поведение теста, не полагается на то, найдёт ли реальный
+    # OpenCV-каскад глаза на однотонной заливке).
+    import cv2
+
+    class _NoEyes:
+        def detectMultiScale(self, *a, **kw):
+            return []
+
+    monkeypatch.setattr(pipeline_smart, "_EYE_CASCADE", _NoEyes())
+    img = _make_bgr((60, 60), (120, 150, 200))   # BGR внутри YCrCb skin-диапазона
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    assert pipeline_smart._face_region_plausible(img, gray, 5, 5, 40, 40) is False
+
+
+@pytest.mark.skipif(_PARALLAX_SKIP, reason="cv2 недоступен")
+def test_face_region_plausible_passes_with_skin_and_eyes(monkeypatch):
+    import cv2
+
+    class _OneEye:
+        def detectMultiScale(self, *a, **kw):
+            return [(10, 10, 8, 8)]
+
+    monkeypatch.setattr(pipeline_smart, "_EYE_CASCADE", _OneEye())
+    img = _make_bgr((60, 60), (120, 150, 200))
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    assert pipeline_smart._face_region_plausible(img, gray, 5, 5, 40, 40) is True
+
+
+@pytest.mark.skipif(_PARALLAX_SKIP, reason="cv2 недоступен")
+def test_detect_face_anchor_none_for_known_false_positive_sword_photo():
+    # Регрессия на реальный, найденный вживую случай (не синтетика): этот
+    # конкретный кадр (сток-меч в снегу) годами давал ложное срабатывание
+    # каскада лица, что блокировало Look Management assist на нём — см.
+    # коммит. Тест — реальный файл, если он ещё в кэше этой рабочей копии
+    # (не гарантирован в CI без реального temp_smart/); best-effort skip.
+    import glob
+    candidates = glob.glob("videos/*/temp_smart/pexels_cache/*1b37a930.jpg")
+    if not candidates:
+        pytest.skip("реальный тестовый файл не найден в этой рабочей копии")
+    assert pipeline_smart.detect_face_anchor(candidates[0]) is None
