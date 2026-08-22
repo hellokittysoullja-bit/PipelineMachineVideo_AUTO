@@ -217,6 +217,60 @@ def test_resolve_queries_fallback_cycles(monkeypatch):
     assert resolved[len(pipeline_smart.GENERIC_FALLBACKS)] == pipeline_smart.GENERIC_FALLBACKS[0]
 
 
+def _max_run_length(values):
+    best = cur = 1
+    for a, b in zip(values, values[1:]):
+        cur = cur + 1 if b == a else 1
+        best = max(best, cur)
+    return best
+
+
+# Реальный, эмпирически найденный случай (жалоба "3 кадра подряд с кино",
+# videos/_test_wide): даже когда КАЖДЫЙ отдельный унаследованный запрос
+# формально верный по теме, длинная цепочка одинаковых буквальных строк
+# подряд визуально монотонна — MAX_CONSECUTIVE_SAME_QUERY режет такие
+# цепочки (см. _diversify_repeated_query_runs).
+
+def test_resolve_queries_caps_long_inherited_run(monkeypatch):
+    monkeypatch.setattr(pipeline_smart, "THEMES", {"меч": "medieval sword close up"})
+    blocks = [{"text": "Меч был длинным.", "words": 3, "pause_after": 0.0, "section": "BODY", "stat": None}]
+    blocks += [{"text": f"Абстрактная фраза {i}.", "words": 2, "pause_after": 0.0, "section": "BODY", "stat": None}
+               for i in range(8)]
+    resolved = pipeline_smart.resolve_queries(blocks)
+    assert _max_run_length(resolved) <= pipeline_smart.MAX_CONSECUTIVE_SAME_QUERY
+
+
+def test_resolve_queries_diversify_converges_no_residual_long_run(monkeypatch):
+    # Регрессия на реальный найденный баг: один проход разбивал длинный
+    # прогон, но несколько соседних блоков независимо занимали ОДИН и тот
+    # же альтернативный запрос у одного внешнего соседа — прогон не
+    # исчезал, а просто сдвигался (был 6 подряд "A", стало 3 + НОВЫЙ
+    # прогон из 4 "B"). Нужен fixed-point (несколько проходов), не один.
+    monkeypatch.setattr(pipeline_smart, "THEMES", {"меч": "medieval sword close up",
+                                                     "клинок": "sword blade close up"})
+    blocks = [{"text": "Меч был длинным.", "words": 3, "pause_after": 0.0, "section": "HOOK", "stat": None}
+              for _ in range(3)]
+    blocks += [{"text": f"Абстрактная фраза {i}.", "words": 2, "pause_after": 0.0, "section": "HOOK", "stat": None}
+               for i in range(3)]
+    blocks += [{"text": "Острый клинок.", "words": 2, "pause_after": 0.0, "section": "HOOK", "stat": None}]
+    resolved = pipeline_smart.resolve_queries(blocks)
+    assert _max_run_length(resolved) <= pipeline_smart.MAX_CONSECUTIVE_SAME_QUERY
+
+
+def test_resolve_queries_all_same_in_section_falls_back_to_generic(monkeypatch):
+    # Вся секция схлопнулась в ОДИН буквальный запрос (реальное совпадение
+    # ключевого слова в каждом блоке, не наследование) — искать "другого
+    # соседа той же секции" бессмысленно, никакого другого нет. Диверсификация
+    # обязана откатиться на GENERIC_FALLBACKS, а не зациклиться/оставить
+    # запрос как есть сверх лимита.
+    monkeypatch.setattr(pipeline_smart, "THEMES", {"меч": "medieval sword close up"})
+    blocks = [{"text": "Меч меч меч.", "words": 3, "pause_after": 0.0, "section": "BODY", "stat": None}
+              for _ in range(6)]
+    resolved = pipeline_smart.resolve_queries(blocks)
+    assert _max_run_length(resolved) <= pipeline_smart.MAX_CONSECUTIVE_SAME_QUERY
+    assert any(q in pipeline_smart.GENERIC_FALLBACKS for q in resolved[pipeline_smart.MAX_CONSECUTIVE_SAME_QUERY:])
+
+
 # ---------- wordcount.py ----------
 
 def test_clean_words_strips_tags_and_markers():
