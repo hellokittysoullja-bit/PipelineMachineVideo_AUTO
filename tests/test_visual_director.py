@@ -215,3 +215,54 @@ def test_invalid_mode_env_value_is_a_known_fallback_state():
     # значение всегда одно из объявленных режимов (сам fallback при
     # реальном неверном env проверяется вручную, см. docstring модуля).
     assert vd.VISUAL_DIRECTOR_MODE in vd._VISUAL_DIRECTOR_MODES
+
+
+# ---------- cache_signature (P1-4 форензик-аудита: params_hash раньше не
+# знал о VISUAL_DIRECTOR_MODE вообще — off -> assist на уже отрендеренном
+# эпизоде не инвалидировал старые клипы temp_smart/) ----------
+
+def test_cache_signature_off_is_stable_string(monkeypatch):
+    monkeypatch.setattr(vd, "VISUAL_DIRECTOR_MODE", "off")
+    assert vd.cache_signature() == "director:off"
+
+
+def test_cache_signature_shadow_same_as_off(monkeypatch):
+    # shadow никогда не трогает реальный выбор кандидата (см. докстринг
+    # cache_signature) — рендер побитово идентичен off, инвалидация кэша
+    # бессмысленна и вредна (лишний перерендер без единого визуального
+    # отличия).
+    monkeypatch.setattr(vd, "VISUAL_DIRECTOR_MODE", "shadow")
+    assert vd.cache_signature() == "director:off"
+
+
+def test_cache_signature_assist_differs_from_off(monkeypatch):
+    monkeypatch.setattr(vd, "VISUAL_DIRECTOR_MODE", "assist")
+    sig = vd.cache_signature()
+    assert sig != "director:off"
+    assert sig.startswith("director:assist:")
+
+
+def test_cache_signature_changes_with_tunable_table(monkeypatch):
+    # Регрессия на найденный аудитом класс бага: правка любой из
+    # bonus/penalty-констант ассист-скоринга обязана менять сигнатуру,
+    # иначе старые закэшированные клипы молча переживут правку рецепта
+    # (тот же принцип, что test_domain_grade_cache_signature_changes_with_table
+    # в tests/test_parse.py).
+    monkeypatch.setattr(vd, "VISUAL_DIRECTOR_MODE", "assist")
+    before = vd.cache_signature()
+    monkeypatch.setattr(vd, "REPETITION_PENALTY", 0.99)
+    after = vd.cache_signature()
+    assert before != after
+
+
+def test_pipeline_smart_visual_director_cache_signature_off_without_module():
+    import pipeline_smart
+    assert pipeline_smart._visual_director_cache_signature(None) == "director:off"
+
+
+def test_pipeline_smart_visual_director_cache_signature_delegates_to_module(monkeypatch):
+    import pipeline_smart
+    monkeypatch.setattr(vd, "VISUAL_DIRECTOR_MODE", "assist")
+    sig = pipeline_smart._visual_director_cache_signature(vd)
+    assert sig == vd.cache_signature()
+    assert sig.startswith("director:assist:")

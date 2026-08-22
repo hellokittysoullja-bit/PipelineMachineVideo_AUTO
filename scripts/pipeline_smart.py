@@ -444,6 +444,16 @@ def _domain_grade_cache_signature(domain_ref):
     table_sig = hashlib.md5(repr(sorted(DOMAIN_WARM_PUSH_SCALE.items())).encode()).hexdigest()[:8]
     return f"domain:on:{table_sig}"
 
+
+def _visual_director_cache_signature(director_ref):
+    """Тот же принцип, что _look_management_cache_signature() выше — см.
+    visual_director.cache_signature() (единственный источник истины по
+    своим же константам). director_ref is None (VISUAL_DIRECTOR_MODE=off,
+    модуль не импортирован) -> "director:off" без импорта модуля вообще —
+    для "shadow" сигнатура тоже "director:off" (см. cache_signature()),
+    инвалидация имеет смысл только для "assist"."""
+    return director_ref.cache_signature() if director_ref is not None else "director:off"
+
 # Процедурная атмосферная подложка (см. scripts/generate_music_asset.py) —
 # тот же принцип, что и с grain_loop: статический ассет в репозитории, нет
 # файла -> MUSIC_ENABLED=False, безопасный откат на прежнее поведение
@@ -1250,16 +1260,78 @@ def measure_luma(path, is_video=False):
         return None
 
 
+def _md5_file(path):
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _fixed_audio_is_current(fixed_path):
+    """P0-1 форензик-аудита (реальный, подтверждённый риск): раньше
+    find_audio() безусловно выбирал audio_fixed.flac, если он просто
+    СУЩЕСТВОВАЛ на диске — единственная проверка (в load_pause_cuts())
+    сверяла source_audio_md5 только для ТАЙМИНГА (cuts), не для самого
+    аудиофайла, идущего в саундтрек. Сценарий поломки: переозвучили
+    эпизод (заменили audio.mp3), забыли перезапустить fix_pauses.py —
+    pipeline_smart.py тихо собрал бы ролик СО СТАРЫМ ГОЛОСОМ из
+    audio_fixed.flac, но с НОВЫМИ alignment/субтитрами/таймингом (та же
+    MD5-проверка raw в load_pause_cuts() к этому моменту уже откатилась
+    бы на identity-маппинг — тайминг просто перестал бы быть точным,
+    но голос всё равно звучал бы чужой). Тестов на этот сценарий не было.
+
+    Проверка в 2 уровня — media_plan/pause_cuts.json теперь (см.
+    fix_pauses.save_cuts) хранит И source_audio_md5 (сырой audio.mp3), И
+    fixed_audio_md5 (сам готовый audio_fixed.flac этого прогона):
+    - оба поля есть и совпадают с текущими файлами -> True (полная гарантия);
+    - fixed_audio_md5 отсутствует (старый формат pause_cuts.json, эпизод
+      обработан ДО этого фикса) -> откат на прежнюю проверку (только
+      source_audio_md5) — не хуже статус-кво для уже работающих старых
+      эпизодов, не новое ограничение "из ниоткуда";
+    - файла pause_cuts.json нет вообще (fix_pauses.py ни разу не
+      запускался) -> False, но это не регрессия: раньше в этом случае
+      audio_fixed.flac физически не существовало бы (никто его не создал),
+      этот код и не вызывался бы."""
+    cuts_path = os.path.join(VIDEO_FOLDER, "media_plan", "pause_cuts.json")
+    if not os.path.exists(cuts_path):
+        return False
+    try:
+        data = json.load(open(cuts_path, encoding="utf-8"))
+    except Exception:
+        return False
+    raw_path = os.path.join(VIDEO_FOLDER, "audio.mp3")
+    expected_src = data.get("source_audio_md5")
+    if not expected_src or not os.path.exists(raw_path):
+        return False
+    if _md5_file(raw_path) != expected_src:
+        return False
+    expected_fixed = data.get("fixed_audio_md5")
+    if expected_fixed is None:
+        return True   # старый формат pause_cuts.json — прежний уровень доверия
+    return os.path.exists(fixed_path) and _md5_file(fixed_path) == expected_fixed
+
+
 def find_audio():
     # audio_fixed.flac — текущий выход fix_pauses.py (P0-4: FLAC вместо
     # MP3, вторая lossy-перекодировка поверх TTS-исходника была слышна на
     # "с"/"ш"/"ч"). audio_fixed.mp3 оставлен в порядке поиска для старых
     # эпизодов, чья озвучка уже была прогнана через fix_pauses.py до этого
     # фикса — не задел бы их молча.
-    for name in ("audio_fixed.flac", "audio_fixed.mp3", "audio.mp3"):
+    for name in ("audio_fixed.flac", "audio_fixed.mp3"):
         p = os.path.join(VIDEO_FOLDER, name)
         if os.path.exists(p):
-            return p
+            if _fixed_audio_is_current(p):
+                return p
+            print(f"  ВНИМАНИЕ: {name} не соответствует текущему audio.mp3 или "
+                  f"media_plan/pause_cuts.json (озвучку заменили без повторного "
+                  f"fix_pauses.py?) — игнорирую устаревший файл, использую audio.mp3 "
+                  f"НАПРЯМУЮ (без обрезки пауз/нормализации громкости). Перезапусти "
+                  f"scripts/fix_pauses.py, чтобы получить их обратно на новой озвучке.")
+            break
+    p = os.path.join(VIDEO_FOLDER, "audio.mp3")
+    if os.path.exists(p):
+        return p
     mp3s = [f for f in os.listdir(VIDEO_FOLDER) if f.lower().endswith(".mp3")]
     return os.path.join(VIDEO_FOLDER, mp3s[0]) if mp3s else os.path.join(VIDEO_FOLDER, "audio.mp3")
 
@@ -1868,6 +1940,42 @@ HOOK_CAPTION_MIN_DUR = 0.40   # 2.6: было 0.15 — реальная жало
 # практике. 0.40с — всё ещё быстрый кинетический темп, но экранно различимо; растяжка по-прежнему
 # не вылезает за начало следующего слова (см. hook_captions_for_block), так что подряд идущие
 # короткие слова просто НЕМНОГО перекрывают друг друга по расписанию блока, а не показывают оба разом.
+
+
+def rescale_hook_words_to_visual_time(hook_words, blocks, sub_starts, sub_baseline, visual_starts, durs):
+    """P0-3 форензик-аудита (реальный, подтверждённый эмпирически баг):
+    load_hook_word_timings() кладёт слова на АУДИО-шкалу (sub_starts/
+    sub_baseline — та же, что использует write_subtitles/write_chapters,
+    честно синхронная с голосом). Но РЕАЛЬНО рендерящийся визуальный кадр
+    хука после apply_section_boundary_shift/apply_within_cut_shift/
+    apply_human_jitter/snap_hook_cuts_to_energy — все они сдвигают ИМЕННО
+    durs, не sub_baseline, — может отличаться по длительности и старту от
+    sub_baseline/sub_starts на десятки-сотни мс. Изолированный прогон
+    apply_within_cut_shift() на 4 блоках хука дал накопленную ошибку
+    локального тайминга подписи +0.098/+0.094/-0.093с — маленькую на
+    глаз, но реальную и систематическую, не шум.
+
+    Кусочно-линейный пересчёт: для каждого слова находим HOOK-блок, чьё
+    АУДИО-окно [sub_starts[i], sub_starts[i]+sub_baseline[i]) его
+    содержит, и переносим его долю позиции внутри этого окна в ту же
+    долю ВИЗУАЛЬНОГО окна [visual_starts[i], visual_starts[i]+durs[i])
+    того же блока — слово остаётся привязано к тому же фрагменту речи,
+    просто рисуется на шкале реально показанного кадра, а не идеализиро-
+    ванной аудио-шкале. Слово вне всех хук-окон (не должно случаться) —
+    возвращается как есть, не подменяем произвольно."""
+    hook_idxs = [i for i, b in enumerate(blocks) if b["section"].startswith("HOOK")]
+    windows = [(sub_starts[i], sub_baseline[i], visual_starts[i], durs[i]) for i in hook_idxs]
+    if not windows or not hook_words:
+        return hook_words
+
+    def _map(t):
+        for a_start, a_dur, v_start, v_dur in windows:
+            if a_dur > 1e-9 and a_start - 1e-6 <= t <= a_start + a_dur + 1e-6:
+                frac = (t - a_start) / a_dur
+                return v_start + frac * v_dur
+        return t
+
+    return [(w, _map(s), _map(e)) for w, s, e in hook_words]
 
 
 def hook_captions_for_block(hook_words, block_start, block_dur):
@@ -4953,6 +5061,17 @@ def main():
     # уже посчитаны как раз выше, переиспользуем ту же временную шкалу.
     durs = snap_hook_cuts_to_energy(blocks, durs, sub_starts, AUDIO_FILE)
 
+    # visual_starts — РЕАЛЬНЫЕ старты клипов на шкале визуального монтажа,
+    # ПОСЛЕ всех "очеловечивающих" сдвигов durs выше (apply_section_boundary_shift/
+    # apply_within_cut_shift/apply_human_jitter/snap_hook_cuts_to_energy).
+    # Нужны ТОЛЬКО для rescale_hook_words_to_visual_time() ниже (P0-3) —
+    # sub_starts/sub_baseline остаются аудио-шкалой для write_subtitles/
+    # write_chapters (это и должно быть привязано к голосу, не к монтажу).
+    visual_starts, v_acc = [], 0.0
+    for d in durs:
+        visual_starts.append(v_acc)
+        v_acc += d
+
     clips, clip_durs, clip_sections, clip_blocks = [], [], [], []
     missing = []   # индексы блоков, для которых не нашлось ни фото, ни видео
     media_log = []   # (индекс, путь_к_фото) — для QC-проверки на похожие кадры в конце
@@ -4992,6 +5111,7 @@ def main():
     visual_director = None
     if os.environ.get("VISUAL_DIRECTOR_MODE", "off").strip().lower() in ("shadow", "assist"):
         import visual_director as visual_director  # noqa: F401
+    director_cache_sig = _visual_director_cache_signature(visual_director)
     # П.4: доменная модуляция warm_mult (DOMAIN_WARM_PUSH_SCALE, film_look())
     # — НЕЗАВИСИМА от Look Management/Visual Director (свой режим, свой
     # дефолт), но переиспользует ту же classify_domain(), если look_ref уже
@@ -5031,6 +5151,11 @@ def main():
     director_report = {}   # индекс -> {"base_winner","director_winner","diverged"} (см. visual_director_report.json)
     typewriter_click_times = []   # D4: абсолютные секунды щелчков клавиатуры на весь ролик
     hook_words = load_hook_word_timings(blocks, sub_starts, sub_baseline, real_weights)   # D2: пусто, если alignment.csv недоступен — тихий откат
+    # P0-3: слова с аудио-шкалы (sub_starts/sub_baseline) переносятся на
+    # шкалу реально показанного кадра (visual_starts/durs) — см. докстринг
+    # rescale_hook_words_to_visual_time().
+    hook_words = rescale_hook_words_to_visual_time(hook_words, blocks, sub_starts, sub_baseline,
+                                                     visual_starts, durs)
     for i, (b, d) in enumerate(zip(blocks, durs)):
         # Титр темы — только на ПЕРВОМ кадре новой секции (BLOCK N: Название).
         is_section_start = i == 0 or blocks[i]["section"] != blocks[i - 1]["section"]
@@ -5038,10 +5163,13 @@ def main():
         stat = b.get("stat")
         stat_variant = stat_count
         # D2: кинетические подписи — только ХУК, только если alignment.csv
-        # реально дал слова на эту секцию. sub_starts/sub_baseline (реальная,
-        # не xfade-раздутая шкала) уже посчитаны выше по тексту — та же
-        # шкала, что у 00.csv (хук всегда с t=0 эпизода).
-        captions = (hook_captions_for_block(hook_words, sub_starts[i], sub_baseline[i])
+        # реально дал слова на эту секцию. hook_words уже пересчитаны в
+        # ВИЗУАЛЬНУЮ шкалу (rescale_hook_words_to_visual_time, P0-3) —
+        # поэтому здесь тоже visual_starts[i]/d (реальный старт/длительность
+        # ЭТОГО клипа на шкале монтажа), а не sub_starts/sub_baseline
+        # (аудио-шкала — она бы совпала с визуальной только без "очелове-
+        # чивающих" сдвигов durs, см. apply_within_cut_shift и соседей).
+        captions = (hook_captions_for_block(hook_words, visual_starts[i], d)
                     if (hook_words and b["section"].startswith("HOOK")) else None)
         if stat:
             stat_count += 1
@@ -5083,9 +5211,13 @@ def main():
         # domain_cache_sig — та же грубая инвалидация для DOMAIN_GRADE_MODE/
         # DOMAIN_WARM_PUSH_SCALE (см. _domain_grade_cache_signature(), П.4) —
         # отдельная от Look Management модуляция, отдельная сигнатура.
+        # director_cache_sig — РЕАЛЬНЫЙ баг, найден внешним форензик-аудитом
+        # (P1-4): раньше params_hash не содержал НИЧЕГО про
+        # VISUAL_DIRECTOR_MODE, поэтому off -> assist на уже отрендеренном
+        # эпизоде не инвалидировал кэш — см. _visual_director_cache_signature().
         params_hash = hashlib.md5(
             f"{d:.3f}|{title}|{stat}|{stat_variant}|{b['section']}|{queries[i]}|{stat_delay:.3f}|"
-            f"{captions}|{look_cache_sig}|{domain_cache_sig}".encode()).hexdigest()[:8]
+            f"{captions}|{look_cache_sig}|{domain_cache_sig}|{director_cache_sig}".encode()).hexdigest()[:8]
         out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}_{params_hash}.mp4")
         if os.path.exists(out) and not verify_clip(out, d)[0]:
             # Кэш раньше доверял голому os.path.exists() — обрезанный/битый

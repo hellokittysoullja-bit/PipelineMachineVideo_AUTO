@@ -48,6 +48,7 @@ relevance-гейта) — не бесплатно по времени, толь�
 причина, почему off остаётся дефолтом.
 
 Не самостоятельный CLI-скрипт — вызывается из scripts/pipeline_smart.py."""
+import hashlib
 import os
 import sys
 
@@ -94,6 +95,34 @@ REPETITION_WINDOW = 3
 REPETITION_PENALTY = 0.15
 VISUAL_QC_SHARPNESS_WEIGHT = 0.10
 VISUAL_QC_NOISE_WEIGHT = 0.05
+
+
+def cache_signature():
+    """Единственный источник истины для инвалидации кэша temp_smart/ по
+    состоянию Visual Director — тот же принцип и роль, что
+    look_reference.cache_signature() (pipeline_smart.py читает только через
+    эту функцию). РЕАЛЬНЫЙ, найденный внешним аудитом баг: раньше её не
+    было вообще — params_hash в main() не включал НИЧЕГО про
+    VISUAL_DIRECTOR_MODE, поэтому переключение off -> assist на уже
+    отрендеренном эпизоде НЕ инвалидировало старые клипы (в отличие от
+    Look Management, у которого своя сигнатура уже была правильно
+    подключена) — cache-хиты молча пропускали анализ Директора, и
+    "assist" на практике ничего не менял, пока не почистишь temp_smart/
+    вручную (см. предупреждение "N клипов пропущено анализом" в main()).
+
+    "off" И "shadow" дают одну и ту же сигнатуру (та же логика, что у
+    look_reference: shadow никогда не трогает реальный выбор кандидата,
+    рендер побитово идентичен off) — инвалидация имеет смысл только для
+    "assist"."""
+    if VISUAL_DIRECTOR_MODE != "assist":
+        return "director:off"
+    table_sig = hashlib.md5(repr((
+        sorted(ROLE_SHOT_SIZE_BONUS.items()), DOMAIN_MATCH_BONUS,
+        REPETITION_WINDOW, REPETITION_PENALTY,
+        VISUAL_QC_SHARPNESS_WEIGHT, VISUAL_QC_NOISE_WEIGHT,
+        SENTENCE_RELEVANCE_WEIGHT, DIRECTOR_MIN_POOL,
+    )).encode()).hexdigest()[:8]
+    return f"director:assist:{table_sig}"
 
 
 def functional_role(block, is_section_start):

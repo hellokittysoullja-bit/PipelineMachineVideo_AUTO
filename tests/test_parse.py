@@ -889,3 +889,180 @@ def test_load_alignment_weights_applies_section_offset_to_non_first_section(tmp_
     _reset_pipeline_smart_caches(monkeypatch)
     weights_no_offset_file = pipeline_smart.load_alignment_weights(blocks)
     assert weights_no_offset_file[1] == pytest.approx(1.5)
+
+
+# ---------- audio provenance gate (P0-1 форензик-аудита) ----------
+# Реальный, подтверждённый риск: раньше find_audio() безусловно выбирал
+# audio_fixed.flac, если он просто СУЩЕСТВОВАЛ на диске — переозвучили
+# эпизод (заменили audio.mp3), забыли перезапустить fix_pauses.py, и
+# pipeline_smart.py тихо собрал бы ролик СО СТАРЫМ ГОЛОСОМ из
+# audio_fixed.flac под НОВЫМ таймингом/субтитрами. Такого сценария не
+# было в тестах вообще.
+
+def _write_audio_bytes(path, content):
+    path.write_bytes(content)
+    return pipeline_smart._md5_file(str(path))
+
+
+def test_fixed_audio_is_current_no_pause_cuts_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(pipeline_smart, "VIDEO_FOLDER", str(tmp_path))
+    fixed = tmp_path / "audio_fixed.flac"
+    fixed.write_bytes(b"fixed-bytes")
+    assert pipeline_smart._fixed_audio_is_current(str(fixed)) is False
+
+
+def test_fixed_audio_is_current_true_when_both_hashes_match(tmp_path, monkeypatch):
+    monkeypatch.setattr(pipeline_smart, "VIDEO_FOLDER", str(tmp_path))
+    raw = tmp_path / "audio.mp3"
+    fixed = tmp_path / "audio_fixed.flac"
+    raw_md5 = _write_audio_bytes(raw, b"raw-voice-v1")
+    fixed_md5 = _write_audio_bytes(fixed, b"fixed-voice-v1")
+    plan_dir = tmp_path / "media_plan"
+    plan_dir.mkdir()
+    (plan_dir / "pause_cuts.json").write_text(
+        f'{{"source_audio_md5": "{raw_md5}", "fixed_audio_md5": "{fixed_md5}", "cuts": []}}',
+        encoding="utf-8")
+    assert pipeline_smart._fixed_audio_is_current(str(fixed)) is True
+
+
+def test_fixed_audio_is_current_false_when_raw_audio_changed(tmp_path, monkeypatch):
+    # Переозвучили (audio.mp3 другой), fix_pauses.py не перезапускали —
+    # source_audio_md5 в pause_cuts.json теперь не совпадает с реальным.
+    monkeypatch.setattr(pipeline_smart, "VIDEO_FOLDER", str(tmp_path))
+    raw = tmp_path / "audio.mp3"
+    fixed = tmp_path / "audio_fixed.flac"
+    _write_audio_bytes(raw, b"raw-voice-v2-NEW")
+    fixed_md5 = _write_audio_bytes(fixed, b"fixed-voice-v1")
+    plan_dir = tmp_path / "media_plan"
+    plan_dir.mkdir()
+    (plan_dir / "pause_cuts.json").write_text(
+        f'{{"source_audio_md5": "old-raw-md5-does-not-match", '
+        f'"fixed_audio_md5": "{fixed_md5}", "cuts": []}}', encoding="utf-8")
+    assert pipeline_smart._fixed_audio_is_current(str(fixed)) is False
+
+
+def test_fixed_audio_is_current_false_when_fixed_file_itself_changed(tmp_path, monkeypatch):
+    # Сырой audio.mp3 не менялся, но сам audio_fixed.flac подменили/повредили
+    # (или это остаток от другого прогона с тем же именем) — раздельная
+    # проверка ловит и это, не только рассинхрон raw-источника.
+    monkeypatch.setattr(pipeline_smart, "VIDEO_FOLDER", str(tmp_path))
+    raw = tmp_path / "audio.mp3"
+    fixed = tmp_path / "audio_fixed.flac"
+    raw_md5 = _write_audio_bytes(raw, b"raw-voice-v1")
+    _write_audio_bytes(fixed, b"SOME OTHER fixed audio entirely")
+    plan_dir = tmp_path / "media_plan"
+    plan_dir.mkdir()
+    (plan_dir / "pause_cuts.json").write_text(
+        f'{{"source_audio_md5": "{raw_md5}", '
+        f'"fixed_audio_md5": "old-fixed-md5-does-not-match", "cuts": []}}', encoding="utf-8")
+    assert pipeline_smart._fixed_audio_is_current(str(fixed)) is False
+
+
+def test_fixed_audio_is_current_old_format_without_fixed_md5_falls_back_to_source_check(tmp_path, monkeypatch):
+    # Старый формат pause_cuts.json (эпизод обработан до этого фикса) — нет
+    # ключа fixed_audio_md5 вообще. Не должно стать НОВЫМ ограничением для
+    # уже работающих старых эпизодов: тот же уровень доверия, что и раньше
+    # (проверка только source_audio_md5).
+    monkeypatch.setattr(pipeline_smart, "VIDEO_FOLDER", str(tmp_path))
+    raw = tmp_path / "audio.mp3"
+    fixed = tmp_path / "audio_fixed.flac"
+    raw_md5 = _write_audio_bytes(raw, b"raw-voice-v1")
+    _write_audio_bytes(fixed, b"fixed-voice-v1")
+    plan_dir = tmp_path / "media_plan"
+    plan_dir.mkdir()
+    (plan_dir / "pause_cuts.json").write_text(
+        f'{{"source_audio_md5": "{raw_md5}", "cuts": []}}', encoding="utf-8")
+    assert pipeline_smart._fixed_audio_is_current(str(fixed)) is True
+
+
+def test_find_audio_falls_back_to_raw_when_fixed_is_stale(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(pipeline_smart, "VIDEO_FOLDER", str(tmp_path))
+    raw = tmp_path / "audio.mp3"
+    fixed = tmp_path / "audio_fixed.flac"
+    _write_audio_bytes(raw, b"raw-voice-v2-NEW")   # переозвучили
+    _write_audio_bytes(fixed, b"fixed-voice-v1")   # старый FLAC, fix_pauses.py не перезапускали
+    plan_dir = tmp_path / "media_plan"
+    plan_dir.mkdir()
+    (plan_dir / "pause_cuts.json").write_text(
+        '{"source_audio_md5": "stale-raw-md5", "fixed_audio_md5": "stale-fixed-md5", "cuts": []}',
+        encoding="utf-8")
+    result = pipeline_smart.find_audio()
+    assert result == str(raw)
+    assert "ВНИМАНИЕ" in capsys.readouterr().out
+
+
+def test_find_audio_uses_fixed_when_current(tmp_path, monkeypatch):
+    monkeypatch.setattr(pipeline_smart, "VIDEO_FOLDER", str(tmp_path))
+    raw = tmp_path / "audio.mp3"
+    fixed = tmp_path / "audio_fixed.flac"
+    raw_md5 = _write_audio_bytes(raw, b"raw-voice-v1")
+    fixed_md5 = _write_audio_bytes(fixed, b"fixed-voice-v1")
+    plan_dir = tmp_path / "media_plan"
+    plan_dir.mkdir()
+    (plan_dir / "pause_cuts.json").write_text(
+        f'{{"source_audio_md5": "{raw_md5}", "fixed_audio_md5": "{fixed_md5}", "cuts": []}}',
+        encoding="utf-8")
+    assert pipeline_smart.find_audio() == str(fixed)
+
+
+# ---------- rescale_hook_words_to_visual_time (P0-3 форензик-аудита) ----------
+# Реальный, подтверждённый эмпирически баг: хук-слова кладутся на АУДИО-
+# шкалу (sub_starts/sub_baseline), но реально рендерящийся визуальный кадр
+# после apply_section_boundary_shift/apply_within_cut_shift/apply_human_jitter/
+# snap_hook_cuts_to_energy (все сдвигают ИМЕННО durs) может отличаться по
+# длительности/старту — локальная позиция подписи внутри клипа систематически
+# уезжает от того, что реально показано на экране.
+
+def test_rescale_hook_words_identity_when_visual_equals_audio_scale():
+    # Визуальная шкала бит-в-бит совпадает с аудио (нет сдвигов durs) —
+    # rescale обязан быть identity (никакой лишней погрешности из ничего).
+    blocks = [{"section": "HOOK"}, {"section": "HOOK"}]
+    sub_starts = [0.0, 2.0]
+    sub_baseline = [2.0, 3.0]
+    visual_starts = [0.0, 2.0]
+    durs = [2.0, 3.0]
+    hook_words = [("Раз", 0.5, 1.0), ("Два", 3.0, 3.5)]
+    out = pipeline_smart.rescale_hook_words_to_visual_time(
+        hook_words, blocks, sub_starts, sub_baseline, visual_starts, durs)
+    for (w1, s1, e1), (w2, s2, e2) in zip(hook_words, out):
+        assert w1 == w2
+        assert s1 == pytest.approx(s2)
+        assert e1 == pytest.approx(e2)
+
+
+def test_rescale_hook_words_stretches_into_shifted_visual_window():
+    # Блок 1: аудио-окно [2.0, 5.0) (baseline=3.0), визуальное окно после
+    # apply_within_cut_shift сдвинулось и стало [2.1, 5.4) (durs=3.3) —
+    # слово в середине аудио-окна (50%) должно оказаться в середине
+    # ВИЗУАЛЬНОГО окна (50% от 3.3 = 1.65 после старта 2.1 -> 3.75).
+    blocks = [{"section": "HOOK"}, {"section": "HOOK"}]
+    sub_starts = [0.0, 2.0]
+    sub_baseline = [2.0, 3.0]
+    visual_starts = [0.0, 2.1]
+    durs = [2.0, 3.3]
+    hook_words = [("Середина", 3.5, 4.0)]   # 3.5 = 2.0 + 0.5*3.0 (50% блока 1)
+    out = pipeline_smart.rescale_hook_words_to_visual_time(
+        hook_words, blocks, sub_starts, sub_baseline, visual_starts, durs)
+    w, s, e = out[0]
+    assert w == "Середина"
+    assert s == pytest.approx(2.1 + 0.5 * 3.3)
+    assert e == pytest.approx(2.1 + (2.0 / 3.0) * 3.3)
+
+
+def test_rescale_hook_words_only_rescales_hook_section_windows():
+    # Небук-секции игнорируются при построении окон (rescale работает
+    # только с hook_idxs), но неспецифичное слово вне всех окон должно
+    # просто вернуться как есть, не падать/не подменяться произвольно.
+    blocks = [{"section": "HOOK"}, {"section": "BLOCK 1"}]
+    sub_starts = [0.0, 2.0]
+    sub_baseline = [2.0, 5.0]
+    visual_starts = [0.0, 2.2]
+    durs = [2.2, 4.5]
+    hook_words = [("Вне", 10.0, 10.5)]   # далеко за пределами хук-окна [0, 2.0)
+    out = pipeline_smart.rescale_hook_words_to_visual_time(
+        hook_words, blocks, sub_starts, sub_baseline, visual_starts, durs)
+    assert out == hook_words
+
+
+def test_rescale_hook_words_empty_input_noop():
+    assert pipeline_smart.rescale_hook_words_to_visual_time([], [], [], [], [], []) == []

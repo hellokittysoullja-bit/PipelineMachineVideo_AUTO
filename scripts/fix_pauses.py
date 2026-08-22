@@ -279,7 +279,7 @@ def _keep_sec_for(ss, se, protected_windows=None):
     return max(0.15, min(raw_dur, keep))
 
 
-def save_cuts(video_dir, sil, src, protected_windows=None):
+def save_cuts(video_dir, sil, src, out, protected_windows=None):
     """Сохраняет РЕАЛЬНО вырезанные интервалы (сырое время audio.mp3) —
     только ту часть каждой тишины, что реально ушла (see _keep_sec_for —
     protected-паузы, hold-паузы и короткие тишины теряют разную долю) +
@@ -288,7 +288,18 @@ def save_cuts(video_dir, sil, src, protected_windows=None):
     alignment.csv на реальную обрезанную шкалу — см. raw_to_real_time().
     protected_windows — тот же список из load_protected_windows(), что и
     в main(): ОБЯЗАН быть тем же самым, иначе pause_cuts.json запишет keep,
-    отличный от того, что реально вырезал atrim в main()."""
+    отличный от того, что реально вырезал atrim в main().
+
+    fixed_audio_md5 (P0-1 форензик-аудита) — отпечаток УЖЕ ГОТОВОГО out
+    (audio_fixed.flac), не только исходного src. Раньше pipeline_smart.py
+    проверял ТОЛЬКО source_audio_md5 (что audio.mp3 не переозвучили молча) —
+    но не то, что сам audio_fixed.flac реально соответствует ЭТОМУ прогону
+    fix_pauses.py, а не остался от предыдущего (перезаписали озвучку,
+    забыли перезапустить fix_pauses.py — старый FLAC со старым голосом
+    тихо подставлялся бы под новые alignment/субтитры/тайминг). out может
+    ещё не существовать (вызов ДО ffmpeg в веток "нечего резать" — тогда
+    дважды не считаем: этот случай сейчас всегда вызывается ПОСЛЕ успешного
+    ffmpeg, см. main())."""
     # P2-9 (аудит звукового пайплайна): раньше округляли до 3 знаков (1мс) —
     # совпадало с :.3f в atrim/afade ниже, но обе точности были ГРУБЕЕ
     # семпла (при 48000Hz 1мс = 48 семплов). Подняли до 6 знаков (мкс) в
@@ -310,8 +321,9 @@ def save_cuts(video_dir, sil, src, protected_windows=None):
     plan_dir = os.path.join(video_dir, "media_plan")
     os.makedirs(plan_dir, exist_ok=True)
     with open(os.path.join(plan_dir, "pause_cuts.json"), "w", encoding="utf-8") as f:
-        json.dump({"source_audio_md5": _audio_fingerprint(src), "cuts": cuts,
-                    "pause_windows": pause_windows}, f)
+        json.dump({"source_audio_md5": _audio_fingerprint(src),
+                    "fixed_audio_md5": _audio_fingerprint(out) if os.path.exists(out) else None,
+                    "cuts": cuts, "pause_windows": pause_windows}, f)
 
 
 def main():
@@ -329,7 +341,6 @@ def main():
         print(f"  Speech Director: {len(protected_windows)} запланированных пауз защищено "
               f"от гладкой кривой/джиттера (media_plan/speech_timeline.json)")
     if not sil:
-        save_cuts(video_dir, [], src, protected_windows)
         print("Длинных пауз не найдено — нормализую громкость.")
         r = subprocess.run(["ffmpeg", "-y", "-i", src, "-af", loud,
                             "-c:a", "flac", out],
@@ -337,6 +348,9 @@ def main():
         if r.returncode != 0 or not os.path.exists(out):
             print("Ошибка ffmpeg:", r.stderr[-400:])
             return 1
+        # save_cuts ПОСЛЕ успешного ffmpeg (не до) — fixed_audio_md5 обязан
+        # быть отпечатком уже ГОТОВОГО out, иначе всегда записывался бы None.
+        save_cuts(video_dir, [], src, out, protected_windows)
         print(f"Готово: {out}")
         return 0
 
@@ -381,7 +395,6 @@ def main():
     if not parts:
         # все сегменты оказались короче 0.02с — склеивать нечего, ffmpeg бы
         # упал на concat=n=0; отдаём исходник без изменений (кроме громкости)
-        save_cuts(video_dir, [], src, protected_windows)
         print("Нечего склеивать — нормализую громкость исходника.")
         r = subprocess.run(["ffmpeg", "-y", "-i", src, "-af", loud,
                             "-c:a", "flac", out],
@@ -389,6 +402,7 @@ def main():
         if r.returncode != 0 or not os.path.exists(out):
             print("Ошибка ffmpeg:", r.stderr[-400:])
             return 1
+        save_cuts(video_dir, [], src, out, protected_windows)
         print(f"Готово: {out}")
         return 0
     filt += "".join(parts) + f"concat=n={len(parts)}:v=0:a=1[c];[c]{loud}[out]"
@@ -399,7 +413,7 @@ def main():
     if r.returncode != 0 or not os.path.exists(out):
         print("Ошибка ffmpeg:", r.stderr[-400:])
         return 1
-    save_cuts(video_dir, sil, src, protected_windows)
+    save_cuts(video_dir, sil, src, out, protected_windows)
     protected_note = f", из них по плану Speech Director: {protected_used}" if protected_windows else ""
     print(f"Готово: {out} | подрезано пауз: {len(sil)} (из них длинных hold-пауз: {long_holds}"
           f"{protected_note}) | было {total:.1f}с → стало {duration(out):.1f}с")
