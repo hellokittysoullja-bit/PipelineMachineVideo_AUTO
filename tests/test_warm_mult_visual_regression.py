@@ -64,13 +64,13 @@ def _make_gradient_photo(path, r_shift=0.0, b_shift=0.0):
     Image.fromarray(arr, mode="RGB").save(path)
 
 
-def _render_via_film_look(input_path, output_path):
+def _render_via_film_look(input_path, output_path, domain=None):
     """Реальный measure_levels() -> реальный film_look() (использует
     pipeline_smart._warm_mult как есть в момент вызова — тест патчит/снимает
     патч ДО вызова этой функции, не внутри неё) -> реальный ffmpeg.
     Возвращает средний (r,g,b) выходного кадра (0..1)."""
     levels, wb = pipeline_smart.measure_levels(input_path, want_wb=True)
-    vf = pipeline_smart.film_look(PHOTO_HASH, section="BODY", levels=levels, wb=wb)
+    vf = pipeline_smart.film_look(PHOTO_HASH, section="BODY", levels=levels, wb=wb, domain=domain)
     r = subprocess.run(
         ["ffmpeg", "-y", "-i", input_path, "-vf", vf, "-frames:v", "1", output_path],
         capture_output=True, text=True, timeout=30,
@@ -212,3 +212,84 @@ def test_warm_mult_cold_no_longer_amplified_warm_unaffected(tmp_path, monkeypatc
     #    отчёта, не участвует в assert.
     print(f"(справочно) dist-to-neutral по всему кадру: before={dist_cold_before:.5f} "
           f"after={dist_cold_after:.5f} — эта метрика слишком грубая для вывода, см. п.2 выше")
+
+
+def _warm_mult_plateau_fix(warm_bias):
+    """Формула предыдущего фикса (плато: холодный источник получал ПОЛНЫЙ
+    базовый пуш, warm_mult никогда не опускался ниже 1.0 для warm_bias<0) —
+    копия только для regression-сравнения с новым симметричным сужением,
+    НЕ трогать/не использовать больше нигде."""
+    return 1.0 - 0.35 * max(0.0, warm_bias)
+
+
+def test_warm_mult_symmetric_taper_reduces_cold_further_than_plateau_fix(tmp_path, monkeypatch):
+    """П.4 (жалоба "меч всё ещё выглядит слишком холодно"): доказывает на
+    РЕАЛЬНО ОТРЕНДЕРЕННЫХ пикселях, что новая симметричная формула
+    (|warm_bias| вместо max(0,warm_bias)) даёт МЕНЬШЕ синего в тенях
+    холодного кадра, чем формула предыдущего фикса (та лишь убирала
+    усиление, но держала холодный источник на том же плато 1.0, что и
+    нейтральный) — и что тёплая сторона по-прежнему не затронута (ветка для
+    warm_bias>0 у обеих формул идентична)."""
+    cold_in = str(tmp_path / "cold.png")
+    warm_in = str(tmp_path / "warm.png")
+    _make_gradient_photo(cold_in, r_shift=-COLOR_SHIFT, b_shift=COLOR_SHIFT)
+    _make_gradient_photo(warm_in, r_shift=COLOR_SHIFT, b_shift=-COLOR_SHIFT)
+
+    cold_new_out = str(tmp_path / "cold_new_out.png")
+    cold_plateau_out = str(tmp_path / "cold_plateau_out.png")
+    warm_new_out = str(tmp_path / "warm_new_out.png")
+    warm_plateau_out = str(tmp_path / "warm_plateau_out.png")
+
+    # "new" — реальный текущий прод-код (симметричное сужение), без патча
+    cold_new_rgb = _render_via_film_look(cold_in, cold_new_out)
+    warm_new_rgb = _render_via_film_look(warm_in, warm_new_out)
+    # "plateau" — формула предыдущего фикса, только для этого сравнения
+    monkeypatch.setattr(pipeline_smart, "_warm_mult", _warm_mult_plateau_fix)
+    cold_plateau_rgb = _render_via_film_look(cold_in, cold_plateau_out)
+    warm_plateau_rgb = _render_via_film_look(warm_in, warm_plateau_out)
+
+    cold_new_shadow, _ = _region_means(cold_new_out)
+    cold_plateau_shadow, _ = _region_means(cold_plateau_out)
+
+    assert cold_new_shadow[2] < cold_plateau_shadow[2], (
+        f"новая симметричная формула не дала меньше синего в тенях холодного кадра, чем "
+        f"плато предыдущего фикса: new={cold_new_shadow} plateau={cold_plateau_shadow}")
+    assert warm_new_rgb == pytest.approx(warm_plateau_rgb, abs=1e-3), (
+        "тёплый источник изменился между формулами — ветка для warm_bias>0 идентична у обеих, "
+        f"не должна была измениться: new={warm_new_rgb} plateau={warm_plateau_rgb}")
+
+
+def test_domain_warm_push_scale_snow_reduces_shadow_further(tmp_path):
+    """DOMAIN_WARM_PUSH_SCALE['snow']=0.5 должен реально уменьшать синий в
+    тенях холодного кадра ДОПОЛНИТЕЛЬНО к обычному warm_bias-сужению, когда
+    домен явно передан film_look() — на РЕАЛЬНО ОТРЕНДЕРЕННЫХ пикселях, не
+    только по формуле на бумаге."""
+    cold_in = str(tmp_path / "cold.png")
+    _make_gradient_photo(cold_in, r_shift=-COLOR_SHIFT, b_shift=COLOR_SHIFT)
+
+    no_domain_out = str(tmp_path / "cold_no_domain.png")
+    snow_domain_out = str(tmp_path / "cold_snow_domain.png")
+
+    _render_via_film_look(cold_in, no_domain_out, domain=None)
+    _render_via_film_look(cold_in, snow_domain_out, domain="snow")
+
+    shadow_no_domain, _ = _region_means(no_domain_out)
+    shadow_snow_domain, _ = _region_means(snow_domain_out)
+
+    assert shadow_snow_domain[2] < shadow_no_domain[2], (
+        f"домен snow не уменьшил синий в тенях сильнее базового сужения: "
+        f"no_domain={shadow_no_domain} snow_domain={shadow_snow_domain}")
+
+
+def test_warm_mult_algebra_symmetric():
+    """Быстрая алгебраическая проверка формы формулы (без ffmpeg) —
+    дополняет визуальные regression-тесты выше, не заменяет их."""
+    assert pipeline_smart._warm_mult(0.0) == pytest.approx(1.0)
+    assert pipeline_smart._warm_mult(1.0) == pytest.approx(0.65)
+    assert pipeline_smart._warm_mult(-1.0) == pytest.approx(0.65)
+    assert pipeline_smart._warm_mult(0.4) == pytest.approx(pipeline_smart._warm_mult(-0.4))
+
+
+def test_domain_warm_push_scale_unknown_domain_is_neutral():
+    assert pipeline_smart.DOMAIN_WARM_PUSH_SCALE.get("some_unclassified_domain", 1.0) == 1.0
+    assert pipeline_smart.DOMAIN_WARM_PUSH_SCALE["snow"] == pytest.approx(0.5)

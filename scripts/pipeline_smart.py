@@ -226,39 +226,61 @@ def _scene_bias(levels, wb):
 
 def _warm_mult(warm_bias):
     """Множитель силы фирменного тёплого colorbalance-пуша (bs/rh из
-    MOOD_GRADE) по warm_bias кадра (см. _scene_bias). Тёплый источник ->
-    пуш ослаблен (до -35% на warm_bias=1.0) — иначе двойное потепление даёт
-    "апельсиновую кашу". Холодный источник -> пуш БОЛЬШЕ НЕ усиливается —
-    warm_mult никогда не превышает 1.0.
+    MOOD_GRADE) по warm_bias кадра (см. _scene_bias). Сужение к ОБОИМ
+    краям: пуш максимален (=1.0) на нейтральном по цвету кадре и слабеет
+    симметрично и на тёплых, и на холодных источниках (до -35% на
+    |warm_bias|=1.0) — warm_mult никогда не превышает 1.0.
 
-    РЕАЛЬНЫЙ БАГ (пойман при разборе жалобы "меч стал холоднее", не
-    гипотеза): раньше здесь была вторая ветка, `+ 0.20 * max(0.0,
-    -warm_bias)` — холодный кадр получал УСИЛЕННЫЙ пуш (до warm_mult=1.20).
-    Заявленная цель этой модуляции — "один визуальный язык на канал"
-    (CLAUDE.md, ЧАСТЬ 15), т.е. СБЛИЖАТЬ клипы разной цветовой температуры
-    друг с другом. Формула делала обратное: тёплые клипы получали меньше
-    пуша (теплее остаются собой), холодные — БОЛЬШЕ пуша (уходят ещё
-    холоднее) — ось не сближала клипы, а раздвигала их ещё дальше друг от
-    друга, ровно то, чего модуляция должна была избегать. Убрана только
-    усиливающая ветка (сужение диапазона — строго безопасно, никогда не
-    увеличивает разброс между клипами относительно baseline warm_mult=1.0);
-    полноценная сходящаяся коррекция (например, reference-based color
-    matching к утверждённому lookbook канала) — отдельная, более крупная
-    задача, для которой сегодня нет ни одного готового эпизода канала,
-    чтобы построить честный эталон (не выдуманный) — отложена.
+    П.4 (жалоба "меч всё ещё выглядит слишком холодно" после предыдущего
+    фикса, ниже): предыдущая версия убирала только УСИЛИВАЮЩУЮ ветку для
+    холодных источников (warm_mult доходил максимум до 1.0, то есть полный
+    базовый пуш применялся к уже предельно холодному кадру ровно так же,
+    как к нейтральному) — технически не баг (раздвижение убрано), но и не
+    то, что делает профессиональный колорист: чем экстремальнее кадр по
+    своей естественной температуре, тем МЕНЬШЕ смысла давить туда же ещё
+    одним слоем той же температуры — это не сближает клипы канала, а тупо
+    выжигает кадр в монохромную синеву. |warm_bias| вместо max(0,warm_bias)
+    даёт ту же логику, что уже была для тёплой стороны (там баг никогда не
+    жил — см. история ниже), просто применённую симметрично.
+
+    ИСТОРИЯ БАГА (пойман при разборе жалобы "меч стал холоднее", реальная,
+    не гипотеза): раньше здесь была ветка `+ 0.20 * max(0.0, -warm_bias)` —
+    холодный кадр получал УСИЛЕННЫЙ пуш (до warm_mult=1.20), раздвигая
+    клипы канала по температуре ДАЛЬШЕ друг от друга вместо заявленной цели
+    "один визуальный язык" (CLAUDE.md, ЧАСТЬ 15). Убрана целиком (не просто
+    приглушена) — сегодняшняя формула строго безопаснее той версии на всём
+    диапазоне warm_bias (полноценная сходящаяся коррекция к утверждённому
+    эталону канала — см. scripts/look_reference.py, Reference-Guided Look
+    Management — отдельная, более крупная система, не эта функция).
 
     ЗАМЕТКА НА БУДУЩЕЕ: params_hash кэша temp_smart/ (см. main()) хэширует
     только рантайм-параметры блока (текст/длительность/query/капшены), не
     версию творческого рецепта грейда — следующая правка film_look()/
-    _scene_bias()/_warm_mult() молча переживёт старые кэшированные клипы,
-    если они где-то есть (сегодня их физически нет — ни одного эпизода ещё
-    не отрендерено). Перед следующей правкой рецепта — вручную очистить
-    temp_smart/ у уже отрендеренных эпизодов или завести версию рецепта в
-    params_hash."""
-    return 1.0 - 0.35 * max(0.0, warm_bias)
+    _scene_bias()/_warm_mult() молча переживёт старые кэшированные клипы.
+    Перед следующей правкой рецепта — вручную очистить temp_smart/ у уже
+    отрендеренных эпизодов или завести версию рецепта в params_hash."""
+    return 1.0 - 0.35 * abs(warm_bias)
 
 
-def film_look(photo_hash, section="", brightness_bias=0.0, energy_bias=0.0, levels=None, wb=None):
+# П.4 продолжение: домен кадра (та же CLIP-классификация, что уже использует
+# Reference-Guided Look Management — scripts/look_reference.classify_domain())
+# даёт БОЛЬШЕ контекста, чем один только warm_bias по пикселям — уверенно
+# опознанная "снежная" сцена НЕ МОЖЕТ быть ничем, кроме уже предельно
+# холодного источника, а warm_bias может обмануться (например, тёплый
+# внутренний кадр со случайным синим отсветом). Сегодня заполнен ТОЛЬКО
+# домен snow, для которого есть прямая жалоба и измеренные числа (см.
+# коммит) — остальные домены (battle/museum_daylight/night/...) намеренно
+# НЕ получили выдуманных коэффициентов без такой же реальной проверки,
+# добавлять по мере появления обоснования, не заранее. 0.5 — ещё половина
+# уже суженного (_warm_mult) пуша, тот же порядок урезания, не новый
+# принцип. Отсутствующий домен (или классификация не сработала) -> 1.0,
+# поведение не меняется.
+DOMAIN_WARM_PUSH_SCALE = {
+    "snow": 0.5,
+}
+
+
+def film_look(photo_hash, section="", brightness_bias=0.0, energy_bias=0.0, levels=None, wb=None, domain=None):
     """brightness_bias — сглаживание скачка экспозиции со СОСЕДНИМ кадром
     (см. measure_luma()/main(): сток из разных источников иначе скачет по
     яркости кадр-к-кадру — частый "любительский" tell в компиляциях).
@@ -285,7 +307,13 @@ def film_look(photo_hash, section="", brightness_bias=0.0, energy_bias=0.0, leve
     грейда (warm_mult/sel_scale/shadow_lift/vign_expr) теперь СОЗНАТЕЛЬНО
     гнётся под то, что реально в кадре (см. коммит про content-aware
     грейд) — рецепт (какие ручки крутятся) общий на муд, а не на кадр,
-    но их СИЛА больше не одно и то же число на каждое фото секции."""
+    но их СИЛА больше не одно и то же число на каждое фото секции.
+
+    domain — опционально, CLIP-домен кадра (см. look_reference.classify_
+    domain(), main() зовёт её независимо от Look Management/Visual Director
+    под своим DOMAIN_GRADE_MODE) — доп. сужение warm_mult для доменов из
+    DOMAIN_WARM_PUSH_SCALE (см. _warm_mult()). None/неизвестный домен ->
+    множитель 1.0, поведение не меняется."""
     mood = MOOD_GRADE["HOOK"] if section.startswith("HOOK") else (
            MOOD_GRADE["FINAL"] if section.startswith("FINAL") else MOOD_GRADE["BODY"])
     eb = max(-0.5, min(0.5, energy_bias))
@@ -304,7 +332,7 @@ def film_look(photo_hash, section="", brightness_bias=0.0, energy_bias=0.0, leve
     # ниже было одним и тем же рецептом на каждое фото секции; теперь сила
     # конкретных ручек рецепта (не сам рецепт) слегка гнётся под сцену.
     warm_bias, chroma_bias, key_bias = _scene_bias(levels, wb)
-    warm_mult = _warm_mult(warm_bias)
+    warm_mult = _warm_mult(warm_bias) * DOMAIN_WARM_PUSH_SCALE.get(domain, 1.0)
     bs_adj = mood["bs"] * warm_mult
     rh_adj = mood["rh"] * warm_mult
     # Уже насыщенный источник -> избирательная коррекция сильнее (спорит с
@@ -3159,7 +3187,7 @@ def log_render_diagnostics(tag):
 def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
              section="", motion_mode="classic_kb", stat_variant=0,
              brightness_bias=0.0, energy_bias=0.0, stat_delay=0.0, levels=None, wb=None,
-             grain_scale=1.0, captions=None, look_filter=None, ffmpeg_threads=None):
+             grain_scale=1.0, captions=None, look_filter=None, ffmpeg_threads=None, domain=None):
     frames = max(1, round(dur * FPS))
     h, zoom_in_default, pan_dir_default = kb_hash_choices(photo)
     if zoom_in is None:
@@ -3292,7 +3320,7 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
                f"crop=8000:4500:{cx0}:{cy0},setsar=1,"
                f"zoompan=z={z}:x={x}:y={y}:"
                f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS},"
-               f"{film_look(h, section, brightness_bias, energy_bias, levels, wb)}"
+               f"{film_look(h, section, brightness_bias, energy_bias, levels, wb, domain)}"
                # Reference-Guided Look Management (см. scripts/look_reference.py) —
                # ДОБАВОЧНЫЙ фрагмент ПОСЛЕ уже готового film_look(), никогда не
                # заменяет его. look_filter=None (фича выключена/lookbook пуст/
@@ -3624,7 +3652,7 @@ def fill_crop_canvas(photo_path, cw, ch, anchor=None):
 def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
                        section="", stat_variant=0, brightness_bias=0.0, energy_bias=0.0,
                        stat_delay=0.0, levels=None, wb=None, grain_scale=1.0, captions=None,
-                       look_filter=None):
+                       look_filter=None, domain=None):
     """2.5D-версия kenburns(): собственный покадровый рендер (OpenCV remap)
     вместо ffmpeg zoompan — только так можно сделать смещение, зависящее от
     глубины пикселя. При любой накладке (модель не встала, ffmpeg-пайп упал)
@@ -3707,7 +3735,7 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
         # ffmpeg привязал бы его ко входу grain, а не к выходу).
         if GRAIN_ENABLED:
             cmd += ["-stream_loop", "-1", "-i", GRAIN_LOOP_PATH]
-        vf = film_look(h, section, brightness_bias, energy_bias, levels, wb)
+        vf = film_look(h, section, brightness_bias, energy_bias, levels, wb, domain)
         if look_filter:   # Reference-Guided Look Management — см. kenburns()
             vf += f",{look_filter}"
         if title or stat or captions:
@@ -4774,6 +4802,21 @@ def main():
     visual_director = None
     if os.environ.get("VISUAL_DIRECTOR_MODE", "off").strip().lower() in ("shadow", "assist"):
         import visual_director as visual_director  # noqa: F401
+    # П.4: доменная модуляция warm_mult (DOMAIN_WARM_PUSH_SCALE, film_look())
+    # — НЕЗАВИСИМА от Look Management/Visual Director (свой режим, свой
+    # дефолт), но переиспользует ту же classify_domain(), если look_ref уже
+    # импортирован для Look Management — повторный import того же модуля
+    # дёшев (sys.modules), только тогда, когда оба включены одновременно
+    # реально считается CLIP дважды на кадр (Look Management сегодня off по
+    # умолчанию у этого канала — для него domain_ref это единственный вызов).
+    # Дефолт "on" (не "off", как у shadow/assist-систем выше) — сознательно:
+    # эффект узкий (сегодня только домен snow, см. DOMAIN_WARM_PUSH_SCALE),
+    # переиспользует уже проверенный код (не новый эксперимент), правится по
+    # прямой жалобе на конкретный кадр, визуально сверен Шагом 7.5 перед тем
+    # как считаться готовым.
+    domain_ref = look_ref
+    if domain_ref is None and os.environ.get("DOMAIN_GRADE_MODE", "on").strip().lower() != "off":
+        import look_reference as domain_ref  # noqa: F401
     used_photo_ids = set()   # общий на весь ролик — не даём одной фотке всплыть дважды
     used_video_ids = set()   # то же самое, отдельно для видео (разные ID-пространства)
     used_photo_hashes = []   # aHash уже отобранных фото — ловит визуальные дубли под РАЗНЫМИ ID (см. pexels_photo)
@@ -5028,6 +5071,17 @@ def main():
             look_filter, look_entry, look_state = look_ref.look_correction_filter(
                 photo, levels, wb, has_face, scene_boundary=is_section_start, prev_state=look_state)
             look_report[i] = look_entry
+        # П.4: домен кадра для DOMAIN_WARM_PUSH_SCALE (film_look()) — только
+        # фото (видео не участвует, тот же скоуп, что Look Management выше),
+        # свой независимый вызов classify_domain() (не переиспользует
+        # look_entry — та не гарантирует поле "domain" на всех ветках
+        # решения Look Management, см. look_correction_filter()).
+        domain = None
+        if photo and domain_ref is not None:
+            try:
+                domain, _domain_margin = domain_ref.classify_domain(photo)
+            except Exception:
+                domain = None
         # Один непойманный сбой в рендере ОДНОГО кадра (редкий edge case —
         # битый файл, неожиданный тип данных и т.п.) раньше падал наружу и
         # убивал весь многочасовой прогон main() целиком, теряя ВСЮ уже
@@ -5077,7 +5131,7 @@ def main():
                                             pan_dir=pan_dir, stat=stat, section=b["section"],
                                             stat_variant=stat_variant, brightness_bias=brightness_bias,
                                             energy_bias=energy_bias, stat_delay=stat_delay, levels=levels, wb=wb, grain_scale=grain_scale,
-                                            captions=captions, look_filter=look_filter)
+                                            captions=captions, look_filter=look_filter, domain=domain)
                 if not ok:
                     photo_hash, _, _ = kb_hash_choices(photo)
                     cur_shot_size = recent_shot_sizes[-1] if recent_shot_sizes else None
@@ -5088,14 +5142,14 @@ def main():
                             stat=stat, section=b["section"], motion_mode=motion_mode,
                             brightness_bias=brightness_bias, energy_bias=energy_bias,
                             stat_variant=stat_variant, stat_delay=stat_delay, levels=levels, wb=wb, grain_scale=grain_scale,
-                            captions=captions, look_filter=look_filter, ffmpeg_threads=RENDER_FFMPEG_THREADS)
+                            captions=captions, look_filter=look_filter, ffmpeg_threads=RENDER_FFMPEG_THREADS, domain=domain)
                         ok = None
                     else:
                         ok = kenburns(photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
                                       stat=stat, section=b["section"], motion_mode=motion_mode,
                                       brightness_bias=brightness_bias, energy_bias=energy_bias,
                                       stat_variant=stat_variant, stat_delay=stat_delay, levels=levels, wb=wb, grain_scale=grain_scale,
-                                      captions=captions, look_filter=look_filter)
+                                      captions=captions, look_filter=look_filter, domain=domain)
         except Exception as e:
             print(f"  [{i+1}] непредвиденный сбой рендера, пропускаю кадр: {type(e).__name__} {e}")
             ok, future = False, None
