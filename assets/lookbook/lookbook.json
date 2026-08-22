@@ -1,1 +1,252 @@
-{"references": []}
+{
+  "references": [
+    {
+      "id": "battle_a8bf88ea",
+      "domain": "battle",
+      "image": "assets/lookbook/battle_a8bf88ea.jpg",
+      "added_at": "2026-08-22T01:13:12.739293Z",
+      "lab_mean": [
+        6.8801,
+        1.496,
+        3.6337
+      ],
+      "brightness": 0.4451,
+      "contrast": 0.8824,
+      "temperature": 0.2385,
+      "max_correction_delta": [
+        10.0,
+        8.0,
+        8.0
+      ]
+    },
+    {
+      "id": "battle_46411e3c",
+      "domain": "battle",
+      "image": "assets/lookbook/battle_46411e3c.jpg",
+      "added_at": "2026-08-22T01:13:13.026067Z",
+      "lab_mean": [
+        35.4941,
+        9.5666,
+        6.5943
+      ],
+      "brightness": 0.5235,
+      "contrast": 0.8824,
+      "temperature": 0.6806,
+      "max_correction_delta": [
+        10.0,
+        8.0,
+        8.0
+      ]
+    },
+    {
+      "id": "battle_6a1007ca",
+      "domain": "battle",
+      "image": "assets/lookbook/battle_6a1007ca.jpg",
+      "added_at": "2026-08-22T01:13:13.617851Z",
+      "lab_mean": [
+        15.3831,
+        0.0285,
+        2.239
+      ],
+      "brightness": 0.2627,
+      "contrast": 0.4941,
+      "temperature": 0.1072,
+      "max_correction_delta": [
+        10.0,
+        8.0,
+        8.0
+      ]
+    },
+    {
+      "id": "battle_e70e2028",
+      "domain": "battle",
+      "image": "assets/lookbook/battle_e70e2028.jpg",
+      "added_at": "2026-08-22T01:13:13.911403Z",
+      "lab_mean": [
+        20.239,
+        -2.57,
+        9.4775
+      ],
+      "brightness": 0.3,
+      "contrast": 0.4667,
+      "temperature": 0.3643,
+      "max_correction_delta": [
+        10.0,
+        8.0,
+        8.0
+      ]
+    },
+    {
+      "id": "museum_daylight_df88f234",
+      "domain": "museum_daylight",
+      "image": "assets/lookbook/museum_daylight_df88f234.jpg",
+      "added_at": "2026-08-22T01:13:14.262414Z",
+      "lab_mean": [
+        45.0568,
+        13.2362,
+        31.3112
+      ],
+      "brightness": 0.5157,
+      "contrast": 0.7412,
+      "temperature": 1.0,
+      "max_correction_delta": [
+        10.0,
+        8.0,
+        8.0
+      ]
+    },
+    {
+      "id": "museum_daylight_b821a44a",
+      "domain": "museum_daylight",
+      "image": "assets/lookbook/museum_daylight_b821a44a.jpg",
+      "added_at": "2026-08-22T01:13:14.781162Z",
+      "lab_mean": [
+        42.409,
+        0.0121,
+        -0.2331
+      ],
+      "brightness": 0.4706,
+      "contrast": 0.8235,
+      "temperature": -0.0127,
+      "max_correction_delta": [
+        10.0,
+        8.0,
+        8.0
+      ]
+    },
+    {
+      "id": "archive_bw_e35d8a37",
+      "domain": "archive_bw",
+      "image": "assets/lookbook/archive_bw_e35d8a37.jpg",
+      "added_at": "2026-08-22T01:13:15.086316Z",
+      "lab_mean": [
+        51.7114,
+        -0.0,
+        0.0
+      ],
+      "brightness": 0.4902,
+      "contrast": 0.9176,
+      "temperature": 0.0,
+      "max_correction_delta": [
+        10.0,
+        8.0,
+        8.0
+      ]
+    },
+    {
+      "id": "snow_1b37a930",
+      "domain": "snow",
+      "image": "assets/lookbook/snow_1b37a930.jpg",
+      "added_at": "2026-08-22T01:13:15.454857Z",
+      "lab_mean": [
+        37.8257,
+        -2.9645,
+        -15.4106
+      ],
+      "brightness": 0.3863,
+      "contrast": 0.6549,
+      "temperature": -1.0,
+      "max_correction_delta": [
+        10.0,
+        8.0,
+        8.0
+      ]
+    },
+    {
+      "id": "battle_a81aeed8",
+      "domain": "battle",
+      "image": "assets/lookbook/battle_a81aeed8.jpg",
+      "added_at": "2026-08-22T01:13:15.733865Z",
+      "lab_mean": [
+        55.9722,
+        5.8994,
+        11.0637
+      ],
+      "brightness": 0.4863,
+      "contrast": 0.9255,
+      "temperature": 0.8599,
+      "max_correction_delta": [
+        10.0,
+        8.0,
+        8.0
+      ]
+    },
+    {
+      "id": "battle_655dac42",
+      "domain": "battle",
+      "image": "assets/lookbook/battle_655dac42.jpg",
+      "added_at": "2026-08-22T01:13:16.020311Z",
+      "lab_mean": [
+        19.8933,
+        13.7554,
+        8.2136
+      ],
+      "brightness": 0.351,
+      "contrast": 0.6627,
+      "temperature": 0.7911,
+      "max_correction_delta": [
+        10.0,
+        8.0,
+        8.0
+      ]
+    },
+    {
+      "id": "battle_838ffae3",
+      "domain": "battle",
+      "image": "assets/lookbook/battle_838ffae3.jpg",
+      "added_at": "2026-08-22T01:13:16.306121Z",
+      "lab_mean": [
+        39.7653,
+        2.4185,
+        7.2531
+      ],
+      "brightness": 0.4922,
+      "contrast": 0.9373,
+      "temperature": 0.4808,
+      "max_correction_delta": [
+        10.0,
+        8.0,
+        8.0
+      ]
+    },
+    {
+      "id": "battle_7bb3e15f",
+      "domain": "battle",
+      "image": "assets/lookbook/battle_7bb3e15f.jpg",
+      "added_at": "2026-08-22T01:13:16.599335Z",
+      "lab_mean": [
+        48.0818,
+        5.9519,
+        17.5751
+      ],
+      "brightness": 0.4569,
+      "contrast": 0.851,
+      "temperature": 1.0,
+      "max_correction_delta": [
+        10.0,
+        8.0,
+        8.0
+      ]
+    },
+    {
+      "id": "archive_bw_dc8f2a9b",
+      "domain": "archive_bw",
+      "image": "assets/lookbook/archive_bw_dc8f2a9b.jpg",
+      "added_at": "2026-08-22T01:13:16.926643Z",
+      "lab_mean": [
+        53.7649,
+        -0.252,
+        -0.8665
+      ],
+      "brightness": 0.4961,
+      "contrast": 0.9451,
+      "temperature": -0.062,
+      "max_correction_delta": [
+        10.0,
+        8.0,
+        8.0
+      ]
+    }
+  ],
+  "channel_id": "default"
+}
