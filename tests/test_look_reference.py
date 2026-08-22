@@ -532,8 +532,11 @@ def test_closed_loop_improves_true_for_correction_moving_toward_reference(tmp_pa
     # положительный b) — реальные gains из compute_correction() двигают
     # именно в эту сторону, closed-loop обязан подтвердить улучшение.
     photo = tmp_path / "src.jpg"
-    _solid_photo(str(photo), (110, 100, 90))
-    levels, wb = (0.3, 0.5), (110 / 255, 100 / 255, 90 / 255)
+    # (95,105,115) — холодный серый, НЕ skin-tone в YCrCb (проверено —
+    # см. test_skin_tone_stats_none_for_non_skin_color), чтобы этот тест
+    # проверял ИМЕННО closed-loop, не пересекаясь с skin corridor гейтом.
+    _solid_photo(str(photo), (95, 105, 115))
+    levels, wb = (0.3, 0.5), (95 / 255, 105 / 255, 115 / 255)
     frame_lab = lr._srgb_to_lab(wb)
     ref = _ref("bright_warm", "battle", (75, 2, 18), max_delta=(15, 10, 10))
     gains, qc, _delta = lr.compute_correction(wb, frame_lab, ref, confidence=1.0, prev_delta=None)
@@ -549,8 +552,11 @@ def test_closed_loop_improves_false_for_gains_moving_away_from_reference(tmp_pat
     # ещё сильнее) — closed-loop обязан поймать это как ухудшение, а не
     # молча пропустить.
     photo = tmp_path / "src.jpg"
-    _solid_photo(str(photo), (110, 100, 90))
-    levels, wb = (0.3, 0.5), (110 / 255, 100 / 255, 90 / 255)
+    # (95,105,115) — холодный серый, НЕ skin-tone в YCrCb (проверено —
+    # см. test_skin_tone_stats_none_for_non_skin_color), чтобы этот тест
+    # проверял ИМЕННО closed-loop, не пересекаясь с skin corridor гейтом.
+    _solid_photo(str(photo), (95, 105, 115))
+    levels, wb = (0.3, 0.5), (95 / 255, 105 / 255, 115 / 255)
     ref = _ref("bright_warm", "battle", (75, 2, 18), max_delta=(15, 10, 10))
     wrong_gains = (0.6, 0.6, 0.7)   # темнее и холоднее — прямо противоположно нужному
     result = lr._closed_loop_improves(str(photo), "BODY", levels, wb, None, ref, wrong_gains)
@@ -564,7 +570,7 @@ def test_look_correction_filter_rejects_when_closed_loop_disagrees(tmp_path, mon
     # пространстве) gains — look_correction_filter() обязан вернуть
     # reject_closed_loop_no_improvement, а не applied.
     photo = tmp_path / "src.jpg"
-    _solid_photo(str(photo), (110, 100, 90))
+    _solid_photo(str(photo), (95, 105, 115))   # холодный серый, не skin-tone — см. коммент выше
     ref = _ref("bright_warm", "battle", (75, 2, 18), max_delta=(15, 10, 10))
     monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "assist")
     monkeypatch.setattr(lr, "load_lookbook", lambda: {"references": [ref]})
@@ -573,8 +579,93 @@ def test_look_correction_filter_rejects_when_closed_loop_disagrees(tmp_path, mon
     monkeypatch.setattr(lr, "compute_correction",
                          lambda *a, **kw: ((0.6, 0.6, 0.7), {"decision": "ok", "notes": []}, (5.0, 1.0, 3.0)))
     filt, report, state = lr.look_correction_filter(
-        str(photo), (0.3, 0.5), (110 / 255, 100 / 255, 90 / 255), has_face=False,
+        str(photo), (0.3, 0.5), (95 / 255, 105 / 255, 115 / 255), has_face=False,
         scene_boundary=False, section="BODY")
     assert filt is None
     assert report["decision"] == "reject_closed_loop_no_improvement"
     assert report["closed_loop_improves"] is False
+
+
+# ---------- skin tone corridor (пользователь: "как делает профессиональная
+# цветокоррекция" — vectorscope skin tone line, см. константы SKIN_HUE_RANGE_DEG/
+# SKIN_CHROMA_RANGE) ----------
+
+_MEDIUM_SKIN_RGB_255 = (198, 134, 66)
+_MEDIUM_SKIN_RGB_01 = tuple(c / 255 for c in _MEDIUM_SKIN_RGB_255)
+
+
+def test_skin_tone_stats_none_for_non_skin_color(tmp_path):
+    pytest.importorskip("cv2")
+    import pipeline_smart as ps
+    if not ps.PARALLAX_LIBS:
+        pytest.skip("cv2 недоступен")
+    photo = tmp_path / "gray.jpg"
+    _solid_photo(str(photo), (95, 105, 115))
+    frac, rgb = ps.skin_tone_stats(str(photo))
+    assert rgb is None
+
+
+def test_skin_tone_stats_detects_real_skin_color(tmp_path):
+    pytest.importorskip("cv2")
+    import pipeline_smart as ps
+    if not ps.PARALLAX_LIBS:
+        pytest.skip("cv2 недоступен")
+    photo = tmp_path / "skin.jpg"
+    _solid_photo(str(photo), _MEDIUM_SKIN_RGB_255)
+    frac, rgb = ps.skin_tone_stats(str(photo))
+    assert frac > 0.9   # сплошной кадр — почти вся площадь
+    assert rgb is not None
+    assert rgb[0] > rgb[2]   # красный канал заметно выше синего — тёплый тон кожи
+
+
+def test_skin_gains_stay_in_corridor_identity_and_mild_correction():
+    assert lr._skin_gains_stay_in_corridor(_MEDIUM_SKIN_RGB_01, (1.0, 1.0, 1.0)) is True
+    assert lr._skin_gains_stay_in_corridor(_MEDIUM_SKIN_RGB_01, (0.9, 1.0, 1.3)) is True
+
+
+def test_skin_gains_stay_in_corridor_false_for_hue_shifting_gains():
+    # Ассиметричные gains, сдвигающие тон кожи к неестественному
+    # зелёному/пурпурному — реальный случай, который коррекция под
+    # "холодный доспех" вполне могла бы дать без этой защиты.
+    assert lr._skin_gains_stay_in_corridor(_MEDIUM_SKIN_RGB_01, (1.4, 0.7, 1.5)) is False
+    assert lr._skin_gains_stay_in_corridor(_MEDIUM_SKIN_RGB_01, (0.6, 1.3, 0.6)) is False
+
+
+@_no_ffmpeg
+def test_look_correction_filter_rejects_when_skin_present_and_gains_shift_hue(tmp_path, monkeypatch):
+    # Интеграционный тест: реальное фото цвета кожи (рука держит меч, лица
+    # каскад не нашёл — has_face=False), compute_correction() замокан на
+    # gains, уводящие тон кожи из коридора — look_correction_filter()
+    # обязан отклонить ДО closed-loop рендера (дешёвая проверка первой).
+    import pipeline_smart as ps
+    if not ps.PARALLAX_LIBS:
+        pytest.skip("cv2 недоступен")
+    photo = tmp_path / "skin.jpg"
+    _solid_photo(str(photo), _MEDIUM_SKIN_RGB_255)
+    ref = _ref("cool_steel", "battle", (40, -5, -10), max_delta=(15, 10, 10))
+    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "assist")
+    monkeypatch.setattr(lr, "load_lookbook", lambda: {"references": [ref]})
+    monkeypatch.setattr(lr, "classify_domain", lambda path: ("battle", 0.5))
+    monkeypatch.setattr(lr, "find_reference", lambda *a, **kw: (ref, 1.0))
+    monkeypatch.setattr(lr, "compute_correction",
+                         lambda *a, **kw: ((0.6, 1.3, 0.6), {"decision": "ok", "notes": []}, (5.0, 1.0, 3.0)))
+    filt, report, state = lr.look_correction_filter(
+        str(photo), (0.3, 0.7), _MEDIUM_SKIN_RGB_01, has_face=False,
+        scene_boundary=False, section="BODY")
+    assert filt is None
+    assert report["decision"] == "reject_skin_tone_corridor"
+    assert report["skin_fraction"] > 0.9
+
+
+def test_look_correction_filter_reports_skin_fraction_even_when_zero(monkeypatch):
+    # skin_fraction обязан быть в отчёте даже когда кожи в кадре нет (0.0),
+    # для честного аудит-трейла (тот же принцип, что look_manifest.json
+    # уже применяет к остальным полям)."""
+    ref = _ref("snow_01", "snow", (55, 1, -2), brightness=0.5, contrast=0.4, temperature=0.0,
+               max_delta=(10, 8, 8))
+    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "assist")
+    monkeypatch.setattr(lr, "load_lookbook", lambda: {"references": [ref]})
+    monkeypatch.setattr(lr, "classify_domain", lambda path: ("snow", 0.1))
+    filt, report, state = lr.look_correction_filter(
+        "x.jpg", (0.1, 0.9), (0.5, 0.5, 0.5), has_face=False, scene_boundary=False)
+    assert "skin_fraction" in report

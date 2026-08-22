@@ -168,6 +168,41 @@ DEFAULT_MAX_CORRECTION_DELTA = (10.0, 8.0, 8.0)   # (dL, da, db), если у
                                                      # эталона поле не задано
 OVERSATURATION_FACTOR = 1.5   # рост хромы (sqrt(a^2+b^2)) свыше этого — hard-fail
 
+# Skin tone corridor — реальный, задокументированный стандарт колористики
+# (vectorscope "skin tone line": угол тона кожи держится в узком коридоре
+# независимо от тона/освещения, меняется в основном ХРОМА, не угол — см.
+# https://caitlinwatson.com/what-is-the-skin-tone-line-in-the-vectorscope-and-how-do-i-use-it/,
+# https://pixelvalleystudio.com/pmf-articles/the-skin-tone-line). Классический
+# vectorscope использует IQ-плоскость (угол ~116-126°) — другое цветовое
+# пространство, не Lab a/b этого модуля; порт готового числа был бы неверен.
+# Вместо этого — угол посчитан В ТОМ ЖЕ Lab a/b, что и весь остальной код
+# этого файла, на 7 реальных эталонных RGB светлой/средней/смуглой/тёмной
+# кожи (через _srgb_to_lab, тот же путь, что кадр -> Lab везде в этом
+# модуле): диапазон получился 54.7°-70.8° — тот же структурный вывод, что
+# и у стандарта (узкий, стабильный угол на всём диапазоне тонов кожи), с
+# запасом на реальные условия съёмки/WB стока. Хрома естественно шире
+# (17-49 на тех же эталонах, зависит от освещения/тона) — с запасом.
+SKIN_HUE_RANGE_DEG = (40.0, 85.0)
+SKIN_CHROMA_RANGE = (8.0, 65.0)
+
+
+def _lab_hue_chroma(lab):
+    return math.degrees(math.atan2(lab[2], lab[1])) % 360, math.hypot(lab[1], lab[2])
+
+
+def _skin_gains_stay_in_corridor(skin_rgb, gains):
+    """True, если применение gains к измеренному цвету кожи В КАДРЕ не
+    выталкивает её за пределы естественного коридора (см. константы выше).
+    skin_rgb — реальное среднее по коже ЭТОГО кадра (см.
+    pipeline_smart.skin_tone_stats), не абстрактный эталон — коррекция,
+    подходящая для металла/камня доспеха, может быть совершенно неверной
+    для кожи руки в том же кадре, у неё другая физика цвета (кровь/меланин,
+    не пигмент/минерал)."""
+    projected = tuple(max(0.0, min(1.0, skin_rgb[i] * gains[i])) for i in range(3))
+    hue, chroma = _lab_hue_chroma(_srgb_to_lab(projected))
+    return SKIN_HUE_RANGE_DEG[0] <= hue <= SKIN_HUE_RANGE_DEG[1] and \
+        SKIN_CHROMA_RANGE[0] <= chroma <= SKIN_CHROMA_RANGE[1]
+
 # --- Веса для расстояния "кадр -> эталон" (см. find_reference). Lab — три
 # оси в сопоставимом масштабе (L: 0..100, a/b обычно в пределах ±50) — сама
 # по себе почти готовая метрика. brightness/contrast (0..1) и temperature
@@ -655,6 +690,20 @@ def look_correction_filter(image_path, levels, wb, has_face, scene_boundary, sec
     }
     if gains is None:
         report["decision"] = qc["decision"]
+        return None, report, new_state
+
+    # Skin tone corridor — реальный стандарт колористики (см. константы
+    # выше). has_face уже отсёк ПОЛНОЕ лицо целиком (skipped_face_detected
+    # выше) — это ДОПОЛНИТЕЛЬНЫЙ, ранее отсутствовавший сигнал для случая
+    # "кожа есть (рука/плечо), лица не нашли": раньше такой кадр получал
+    # коррекцию без единой проверки кожи вообще, та же физика цвета
+    # (кровь/меланин), что и у лица, просто без каскада, который бы её
+    # поймал. Дешёвая, локальная проверка — до closed-loop рендера (ниже),
+    # чтобы не тратить лишний ffmpeg-вызов на то, что и так отклонится.
+    skin_frac, skin_rgb = pipeline_smart.skin_tone_stats(image_path)
+    report["skin_fraction"] = round(skin_frac, 4)
+    if skin_rgb is not None and not _skin_gains_stay_in_corridor(skin_rgb, gains):
+        report["decision"] = "reject_skin_tone_corridor"
         return None, report, new_state
 
     # P1-3: gains посчитаны на СЫРЫХ измерениях (frame_lab выше) — closed-

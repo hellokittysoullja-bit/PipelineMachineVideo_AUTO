@@ -2892,6 +2892,43 @@ def _face_region_plausible(img, gray, fx, fy, fw, fh):
     return len(eyes) >= 1
 
 
+SKIN_STATS_MIN_FRAC = 0.04   # доля кадра — ниже считаем "кожи в кадре нет" (рука в углу и т.п. уже проходит)
+
+
+def skin_tone_stats(photo_path):
+    """(skin_fraction, mean_skin_rgb_0_1_or_None) — та же YCrCb skin-tone
+    эвристика, что _face_region_plausible() (см. её докстринг), но по
+    ВСЕМУ кадру, а не только внутри уже найденного каскадом "лица".
+
+    Зачем отдельно от has_face: has_face=False (нет каскад-лица) СЕГОДНЯ
+    означает "Look Management коррекция применяется без единой проверки
+    кожи вообще" — рука, держащая меч, плечо, любой частичный человеческий
+    силуэт без лица в кадре (в этой нише — редкий, но реальный случай)
+    раньше был так же беззащитен, как сам клинок. Это отдельный, ДО этого
+    непокрытый сигнал (см. look_reference._skin_gains_stay_in_corridor) —
+    не замена has_face, а его дополнение для случая "кожа есть, лица нет".
+
+    None/cv2 недоступен/сигнала недостаточно -> (frac, None) — честный
+    откат, коррекция ведёт себя как раньше (сигнала кожи просто не видно)."""
+    if not PARALLAX_LIBS:
+        return 0.0, None
+    try:
+        img = cv2.imread(photo_path)
+        if img is None:
+            return 0.0, None
+        ycrcb = cv2.cvtColor(img, cv2.COLOR_BGR2YCrCb)
+        cr, cb = ycrcb[:, :, 1], ycrcb[:, :, 2]
+        mask = (cr >= 133) & (cr <= 173) & (cb >= 77) & (cb <= 127)
+        frac = float(mask.mean())
+        if frac < SKIN_STATS_MIN_FRAC:
+            return frac, None
+        mean_bgr = img[mask].mean(axis=0)
+        mean_rgb = (float(mean_bgr[2]) / 255.0, float(mean_bgr[1]) / 255.0, float(mean_bgr[0]) / 255.0)
+        return frac, mean_rgb
+    except Exception:
+        return 0.0, None
+
+
 def detect_face_anchor(photo_path):
     """Anchor-aware crop: раньше кроп под кадр 16:9 всегда бил ровно по
     центру исходного фото (increase+crop без смещения) — на портретных или
