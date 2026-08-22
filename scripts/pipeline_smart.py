@@ -5177,6 +5177,19 @@ def main():
     look_report = {}   # индекс -> запись решения Look Management (каждый индекс, не только там, где сработало)
     look_state = None   # аналог luma_ema — {"delta","domain","reference_id"} между клипами (см. look_reference.EMPTY_STATE)
     director_report = {}   # индекс -> {"base_winner","director_winner","diverged"} (см. visual_director_report.json)
+
+    def mark_reports_skipped(i, reason):
+        """Единая точка записи "этот индекс пропущен" сразу в ОБА отчёта
+        (look_report/director_report) — раньше каждая РАННЯЯ ветка цикла
+        (continue до реального рендера кадра) дублировала обе строки по
+        отдельности, и реальный баг уже случался: одну из веток добавили,
+        забыв продублировать вторую запись (см. коммент у cache-hit ниже) —
+        индекс тихо выпадал из visual_director_report.json. Полный путь
+        (реальный рендер кадра, дальше по циклу) сюда не относится: там обе
+        записи разной формы и без continue между ними, дублировать нечего."""
+        look_report[i] = {"decision": reason}
+        director_report[i] = {"decision": reason}
+
     typewriter_click_times = []   # D4: абсолютные секунды щелчков клавиатуры на весь ролик
     hook_words = load_hook_word_timings(blocks, sub_starts, sub_baseline, real_weights)   # D2: пусто, если alignment.csv недоступен — тихий откат
     # P0-3: слова с аудио-шкалы (sub_starts/sub_baseline) переносятся на
@@ -5277,21 +5290,15 @@ def main():
             # независимо от того, кэш это или свежий рендер.
             pending_jobs.append({"i": i, "out": out, "d": d, "section": b["section"], "block": b,
                                   "video": False, "photo": None, "future": None, "ok": True})
-            # Look Management не может проанализировать кэш-хит — у него нет
-            # сохранённого пути к исходному фото/свежих levels/wb на этот
-            # прогон (см. ЗАМЕТКУ про shadow в look_reference.py). Честная
-            # запись, не тишина — иначе shadow-отчёт на уже отрендеренном
-            # эпизоде выглядел бы полным, хотя ничего не проанализировано.
-            look_report[i] = {"decision": "skipped_cache_hit"}
-            # РЕАЛЬНЫЙ БАГ (найден и исправлен в этом же коммите): director_report
-            # раньше НЕ получал записи на этой ветке вообще — в отличие от
-            # look_report прямо над этой строкой (та же ситуация, тот же принцип
-            # честности отчёта). visual_director_report.json тогда молча терял
-            # индексы кэш-хитов из "clips" (перечисление идёт по sorted(director_report)
-            # — отсутствующий ключ просто не появляется), а scored/diverged_from_base
-            # занижались без единого предупреждения, в отличие от look_manifest.json,
-            # который печатает явное cache_hits_skipped_analysis.
-            director_report[i] = {"decision": "skipped_cache_hit"}
+            # Look Management/Semantic Visual Director не могут проанализировать
+            # кэш-хит — нет сохранённого пути к исходному фото/свежих levels/wb
+            # на этот прогон (см. ЗАМЕТКУ про shadow в look_reference.py).
+            # Честная запись в ОБА отчёта (см. mark_reports_skipped() выше —
+            # именно на этой ветке однажды реально забыли продублировать
+            # вторую запись), не тишина — иначе shadow/director-отчёт на уже
+            # отрендеренном эпизоде выглядел бы полным, хотя ничего не
+            # проанализировано.
+            mark_reports_skipped(i, "skipped_cache_hit")
             continue
         photo = local_photo(i) if use_local else None
         video = None
@@ -5364,8 +5371,7 @@ def main():
             missing.append(i + 1)
             render_manifest[i] = {"index": i, "status": "failed",
                                    "reason": "нет медиа (ни фото, ни видео)", "section": b["section"]}
-            look_report[i] = {"decision": "skipped_no_media"}
-            director_report[i] = {"decision": "skipped_no_media"}
+            mark_reports_skipped(i, "skipped_no_media")
             continue
         recent_media_types.append("video" if video else "photo")
         del recent_media_types[:-6]
