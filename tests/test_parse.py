@@ -722,3 +722,116 @@ def test_detect_face_anchor_none_for_known_false_positive_sword_photo():
     if not candidates:
         pytest.skip("реальный тестовый файл не найден в этой рабочей копии")
     assert pipeline_smart.detect_face_anchor(candidates[0]) is None
+
+
+# ---------- section_offsets.json: локальное -> глобальное время для BLOCK1+ ----------
+# Реальный, эмпирически найденный баг (не гипотеза, videos/_test_wide):
+# raw_to_real_time() верно вычитает ГЛОБАЛЬНЫЕ обрезки пауз из t, но
+# _real_speech_span()/load_alignment_weights() раньше подавали туда
+# ЛОКАЛЬНОЕ время секции (свой ноль на файл alignment/NN.csv) НАПРЯМУЮ, как
+# будто оно уже глобальное — верно только для первой секции (HOOK, ноль
+# совпадает случайно). Для BLOCK1+ это давало неверный вес блока, который
+# одинаково портил и субтитры, и тайминг монтажных резов (см.
+# scripts/section_sync.py). Фикс — section_offset в _real_speech_span() +
+# load_section_offsets() в load_alignment_weights().
+
+def _reset_pipeline_smart_caches(monkeypatch):
+    monkeypatch.setattr(pipeline_smart, "_PAUSE_CUTS_CACHE", None)
+    monkeypatch.setattr(pipeline_smart, "_PAUSE_WINDOWS_CACHE", None)
+    monkeypatch.setattr(pipeline_smart, "_SECTION_OFFSETS_CACHE", None)
+
+
+def test_load_section_offsets_missing_file_returns_empty(tmp_path, monkeypatch):
+    _reset_pipeline_smart_caches(monkeypatch)
+    monkeypatch.setattr(pipeline_smart, "SECTION_OFFSETS_PATH", str(tmp_path / "media_plan" / "section_offsets.json"))
+    assert pipeline_smart.load_section_offsets() == {}
+
+
+def test_load_section_offsets_reads_file(tmp_path, monkeypatch):
+    _reset_pipeline_smart_caches(monkeypatch)
+    plan_dir = tmp_path / "media_plan"
+    plan_dir.mkdir()
+    (plan_dir / "section_offsets.json").write_text(
+        '{"HOOK": 0.0, "BLOCK 1: X": 56.649}', encoding="utf-8")
+    monkeypatch.setattr(pipeline_smart, "SECTION_OFFSETS_PATH", str(plan_dir / "section_offsets.json"))
+    offsets = pipeline_smart.load_section_offsets()
+    assert offsets == {"HOOK": 0.0, "BLOCK 1: X": 56.649}
+
+
+def test_real_speech_span_ignores_offset_zero_baseline(monkeypatch):
+    _reset_pipeline_smart_caches(monkeypatch)
+    monkeypatch.setattr(pipeline_smart, "load_pause_cuts", lambda: [])
+    segment = [("X", 0.0, 5.0)]
+    assert pipeline_smart._real_speech_span(segment) == pytest.approx(5.0)
+    assert pipeline_smart._real_speech_span(segment, section_offset=0.0) == pytest.approx(5.0)
+
+
+def test_real_speech_span_without_offset_misses_real_cut_in_later_section(monkeypatch):
+    # Секция реально начинается на 100-й секунде исходного audio.mp3, и
+    # ровно внутри неё есть реальная обрезанная пауза (102-103) — БЕЗ
+    # смещения (старое поведение) локальный сегмент [0, 5] не пересекается
+    # с (102, 103) вообще, обрезка молча теряется -> span завышен.
+    _reset_pipeline_smart_caches(monkeypatch)
+    cuts = [(102.0, 103.0)]
+    monkeypatch.setattr(pipeline_smart, "load_pause_cuts", lambda: cuts)
+    segment = [("X", 0.0, 5.0)]
+    assert pipeline_smart._real_speech_span(segment, section_offset=0.0) == pytest.approx(5.0)
+
+
+def test_real_speech_span_with_offset_correctly_applies_real_cut(monkeypatch):
+    _reset_pipeline_smart_caches(monkeypatch)
+    cuts = [(102.0, 103.0)]
+    monkeypatch.setattr(pipeline_smart, "load_pause_cuts", lambda: cuts)
+    segment = [("X", 0.0, 5.0)]
+    # то же самое локальное время, но с ПРАВИЛЬНЫМ смещением секции (100.0) —
+    # обрезка (102-103) реально попадает внутрь [100, 105], вес уменьшается на 1с
+    assert pipeline_smart._real_speech_span(segment, section_offset=100.0) == pytest.approx(4.0)
+
+
+def _write_alignment_csv(path, rows):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["char,start,end"] + [f"{c},{s},{e}" for c, s, e in rows]
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def test_load_alignment_weights_applies_section_offset_to_non_first_section(tmp_path, monkeypatch):
+    _reset_pipeline_smart_caches(monkeypatch)
+    plan_dir = tmp_path / "media_plan"
+    alignment_dir = plan_dir / "alignment"
+    monkeypatch.setattr(pipeline_smart, "ALIGNMENT_DIR", str(alignment_dir))
+    monkeypatch.setattr(pipeline_smart, "PAUSE_CUTS_PATH", str(plan_dir / "pause_cuts.json"))
+    monkeypatch.setattr(pipeline_smart, "SECTION_OFFSETS_PATH", str(plan_dir / "section_offsets.json"))
+
+    # HOOK: локальный ноль совпадает с глобальным (0.0-0.9), без обрезок рядом
+    _write_alignment_csv(alignment_dir / "00.csv",
+                         [("Р", 0.0, 0.3), ("а", 0.3, 0.6), ("з", 0.6, 0.9)])
+    # BLOCK 1: РЕАЛЬНО начинается на 10.0с исходного audio.mp3 (HOOK кадр
+    # длиннее, чем 0.9с локального alignment — тот же случай, что и в
+    # реальном эпизоде, где HOOK — не единственный источник глобального
+    # смещения). Локально секция сама по себе 0.0-1.5с.
+    _write_alignment_csv(alignment_dir / "01.csv",
+                         [("Д", 0.0, 0.5), ("в", 0.5, 1.0), ("а", 1.0, 1.5)])
+
+    plan_dir.mkdir(exist_ok=True)
+    (plan_dir / "section_offsets.json").write_text(
+        '{"BLOCK 1: ТЕСТ": 10.0}', encoding="utf-8")
+    # реальная обрезанная пауза внутри ГЛОБАЛЬНОГО окна BLOCK1 (10.0-11.5) —
+    # без source_audio_md5, чтобы не требовать реальный audio.mp3 в тесте
+    (plan_dir / "pause_cuts.json").write_text(
+        '{"cuts": [[10.5, 11.0]]}', encoding="utf-8")
+
+    blocks = [
+        {"text": "Раз", "words": 1, "section": "HOOK", "pause_after": 0.0},
+        {"text": "Два", "words": 1, "section": "BLOCK 1: ТЕСТ", "pause_after": 0.0},
+    ]
+    weights = pipeline_smart.load_alignment_weights(blocks)
+    assert weights[0] == pytest.approx(0.9)    # HOOK не затронут (обрезка далеко после него)
+    assert weights[1] == pytest.approx(1.0)    # BLOCK1: 1.5с локальных - 0.5с реальной обрезки внутри
+
+    # Контроль: без section_offsets.json та же обрезка (10.5-11.0) не
+    # пересекает локальный диапазон BLOCK1 [0, 1.5] вообще -> вес остался
+    # бы НЕобрезанным (1.5) — именно так ошибка выглядела до фикса.
+    (plan_dir / "section_offsets.json").unlink()
+    _reset_pipeline_smart_caches(monkeypatch)
+    weights_no_offset_file = pipeline_smart.load_alignment_weights(blocks)
+    assert weights_no_offset_file[1] == pytest.approx(1.5)

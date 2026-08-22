@@ -1547,6 +1547,31 @@ def raw_to_real_time(t, cuts):
     return t - removed
 
 
+_SECTION_OFFSETS_CACHE = None   # ленивый кэш на процесс, как и _PAUSE_CUTS_CACHE
+SECTION_OFFSETS_PATH = os.path.join(VIDEO_FOLDER, "media_plan", "section_offsets.json")
+
+
+def load_section_offsets():
+    """{section_name: raw_global_offset_sec} из media_plan/section_offsets.json —
+    пишет scripts/speech_generate.py Stage B (сам конкатенирует фрагменты,
+    знает точно) ИЛИ scripts/section_sync.py (кросс-корреляция паттерна
+    пауз против реального аудио — для эпизодов без Stage B, см. докстринг
+    section_sync.py). Нет файла -> {} (тихий откат: offsets.get(name, 0.0)
+    везде ниже даёт РОВНО прежнее поведение — локальное время секции
+    трактуется как глобальное, корректно только для первой секции по
+    определению, как и было до этой карты)."""
+    global _SECTION_OFFSETS_CACHE
+    if _SECTION_OFFSETS_CACHE is not None:
+        return _SECTION_OFFSETS_CACHE
+    try:
+        with open(SECTION_OFFSETS_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        _SECTION_OFFSETS_CACHE = {str(k): float(v) for k, v in data.items()}
+    except Exception:
+        _SECTION_OFFSETS_CACHE = {}
+    return _SECTION_OFFSETS_CACHE
+
+
 def _real_speech_bounds(segment):
     """(старт, конец) реально озвученного текста в сегменте символов
     (index,char,start,end) — по первому и последнему буквенно-цифровому
@@ -1569,7 +1594,7 @@ def _real_speech_bounds(segment):
     return clean[0][1], clean[-1][2]
 
 
-def _real_speech_span(segment):
+def _real_speech_span(segment, section_offset=0.0):
     """РЕАЛЬНАЯ (после обрезки пауз fix_pauses.py, см. raw_to_real_time)
     длительность озвученного текста в сегменте — см. _real_speech_bounds
     (общая логика, тег-агностичная граница). Раньше возвращала СЫРУЮ
@@ -1581,13 +1606,22 @@ def _real_speech_span(segment):
     тегов в тексте (пойман вживую: 41 реальная порезка на 90 тегов паузы в
     эпизоде — то есть часть порезок вообще не в тех местах, где текст
     формально ожидал паузу). Теперь вес блока — точно то время, что он
-    реально звучит в audio_fixed.mp3, а не в сыром audio.mp3."""
+    реально звучит в audio_fixed.mp3, а не в сыром audio.mp3.
+
+    section_offset — сдвиг ЛОКАЛЬНОГО времени сегмента (свой ноль на файл
+    alignment/NN.csv) в ГЛОБАЛЬНОЕ (по всему audio.mp3, та же шкала, что и
+    cuts из load_pause_cuts() — см. load_section_offsets()). Раньше bounds
+    (локальные) подавались в raw_to_real_time() НАПРЯМУЮ, как будто уже
+    глобальные — для первой секции (HOOK) это случайно верно (локальный
+    ноль совпадает с глобальным), для всех следующих секций cuts из ДРУГИХ
+    участков ролика применялись не туда, давая неверный вес блока —
+    реальный, эмпирически подтверждённый баг (см. section_sync.py)."""
     bounds = _real_speech_bounds(segment)
     if not bounds:
         return 0.0
     cuts = load_pause_cuts()
-    real_start = raw_to_real_time(bounds[0], cuts)
-    real_end = raw_to_real_time(bounds[1], cuts)
+    real_start = raw_to_real_time(bounds[0] + section_offset, cuts)
+    real_end = raw_to_real_time(bounds[1] + section_offset, cuts)
     return real_end - real_start
 
 
@@ -1634,6 +1668,7 @@ def load_alignment_weights(blocks):
         segs.append(chars[pos:])
         section_segments[name] = segs
 
+    section_offsets = load_section_offsets()   # {} без Stage B/section_sync.py -> offset 0.0 для всех, как раньше
     weights = []
     seg_cursor = {}
     stale = 0
@@ -1642,6 +1677,7 @@ def load_alignment_weights(blocks):
         if segs is None:
             weights.append(None)
             continue
+        offset = section_offsets.get(b["section"], 0.0)
         k = seg_cursor.get(b["section"], 0)
         if k >= len(segs):
             # Число под-блоков в текущем script.txt разошлось с числом
@@ -1663,7 +1699,7 @@ def load_alignment_weights(blocks):
                 weights.append(None)
                 stale += 1
             else:
-                span = _real_speech_span(segs[k])
+                span = _real_speech_span(segs[k], offset)
                 weights.append(span if span > 0.05 else None)
         seg_cursor[b["section"]] = k + 1
     if stale:
