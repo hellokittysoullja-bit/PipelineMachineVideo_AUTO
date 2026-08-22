@@ -1066,3 +1066,33 @@ def test_rescale_hook_words_only_rescales_hook_section_windows():
 
 def test_rescale_hook_words_empty_input_noop():
     assert pipeline_smart.rescale_hook_words_to_visual_time([], [], [], [], [], []) == []
+
+
+# ---------- auto_levels_params: клэмп выхода (P2 форензик-аудита) ----------
+# Реальный, увиденный вживую на полном прогоне случай: у самого порога
+# AUTO_LEVELS_MIN_RANGE (но формально его прошедшего) scale_full делится на
+# почти нулевой range — контраст улетает в разы сильнее любой легитимной
+# коррекции (eq=contrast=4.2453 в реальном логе ffmpeg).
+
+def test_auto_levels_params_none_is_neutral():
+    assert pipeline_smart.auto_levels_params(None) == (1.0, 0.0)
+
+
+def test_auto_levels_params_degenerate_range_is_neutral():
+    assert pipeline_smart.auto_levels_params((0.5, 0.53)) == (1.0, 0.0)
+
+
+def test_auto_levels_params_normal_flat_photo_unclamped():
+    # range=0.5 — обычное фото, легитимная умеренная коррекция, клэмп не
+    # должен вмешиваться вообще.
+    contrast, brightness = pipeline_smart.auto_levels_params((0.1, 0.6))
+    assert 1.0 < contrast < pipeline_smart.AUTO_LEVELS_MAX_CONTRAST
+    assert abs(brightness) < pipeline_smart.AUTO_LEVELS_MAX_BRIGHTNESS_ABS
+
+
+def test_auto_levels_params_near_threshold_range_is_clamped():
+    # range=0.051 — на волосок выше AUTO_LEVELS_MIN_RANGE=0.05, без клэмпа
+    # даёт contrast_eff~9.7 (см. докстринг auto_levels_params).
+    contrast, brightness = pipeline_smart.auto_levels_params((0.4, 0.451))
+    assert contrast == pytest.approx(pipeline_smart.AUTO_LEVELS_MAX_CONTRAST)
+    assert abs(brightness) <= pipeline_smart.AUTO_LEVELS_MAX_BRIGHTNESS_ABS + 1e-9

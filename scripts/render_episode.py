@@ -1,0 +1,185 @@
+#!/usr/bin/env python3
+"""render_episode.py — Production Orchestrator (P0-2 форензик-аудита:
+"нет единого timeline authority: синхронизация зависит от ручных шагов и
+имеет silent fallback").
+
+ЧТО ЭТО. Раньше pipeline_smart.py сам по себе НЕ вызывал ни section_sync.py,
+ни fix_pauses.py — каждый шаг протокола (ЧАСТЬ 13 CLAUDE.md) запускался
+отдельной командой, по порядку. Пропущенный шаг не был ошибкой — просто
+degraded timing (тот же безопасный откат, что уже описан в каждой из этих
+функций по отдельности: "нет offset-файла — работает как раньше",
+"нет speech_timeline.json — защита пауз не включается" и т.д.). Это разумно
+для экспериментов, но для РЕАЛЬНОГО эпизода означает, что "всё
+синхронизировано" — это лишь предположение, если человек/Claude Code сам
+не проверил на глаз, что все нужные шаги действительно прошли по порядку.
+
+Этот скрипт НЕ переписывает архитектуру — section_sync.py/fix_pauses.py/
+pipeline_smart.py по-прежнему можно запускать и вручную, отдельно, как
+раньше (ничего не убрано, ничего не сломано у существующих вызовов). Он
+даёт ОДНУ команду, которая проходит бесплатные локальные шаги по порядку
+и, в --strict-production, ОТКАЗЫВАЕТСЯ рендерить, если какой-то из них
+пропущен или не дал уверенного результата, вместо того чтобы молча
+деградировать.
+
+НЕ тратит платные API за один запуск: speech_planner.py/speech_generate.py/
+speech_validator.py сюда НЕ входят — предполагается, что audio.mp3 уже
+существует (голос уже записан вручную ИЛИ через Stage B, Шаг 6 CLAUDE.md).
+Этот оркестратор занимается только БЕСПЛАТНЫМИ локальными шагами ПОСЛЕ
+этого (Шаги 6.7-7 протокола): section_sync.py (если нужен), fix_pauses.py,
+затем сама сборка pipeline_smart.py.
+
+Usage: python scripts/render_episode.py <video_dir> [--strict-production]
+       [--legacy-allow-degraded-timing]
+
+Без обоих флагов — то же самое, что --legacy-allow-degraded-timing (полная
+обратная совместимость: best-effort, ни на чём не падает, кроме явных
+ошибок ffmpeg/отсутствующего audio.mp3) — этот скрипт остаётся строго
+ДОПОЛНЕНИЕМ к прежнему рабочему процессу, не заменой по умолчанию.
+
+--strict-production (рекомендуется для реального, не тестового эпизода):
+    останавливается с точной ошибкой ДО запуска pipeline_smart.py, если:
+    1) audio.mp3 отсутствует;
+    2) эпизод многосекционный (>=2 секций) и НИ Stage B, НИ section_sync.py
+       не дали уверенного section_offsets.json на ВСЕ секции после первой;
+    3) fix_pauses.py завершился с ошибкой (ffmpeg упал).
+--legacy-allow-degraded-timing: явно разрешает продолжить рендер БЕЗ
+    гарантий синхронизации, даже если запрошен --strict-production —
+    чтобы сознательный компромисс был явным флагом в команде, а не тихой
+    деградацией по умолчанию.
+
+Пишет media_plan/timeline_manifest.json — сводка, что реально прогналось
+и с каким результатом (тот же принцип честного аудит-трейла, что уже
+применяют pause_decisions.json/visual_director_report.json/
+section_sync_report.json)."""
+import argparse
+import json
+import os
+import subprocess
+import sys
+
+SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _run(script_name, video_dir, extra_env=None):
+    """Запускает scripts/<script_name> <video_dir> как подпроцесс (не
+    import — section_sync.py/fix_pauses.py/pipeline_smart.py каждый сам
+    парсит sys.argv[1] на импорте, см. их же докстринги про этот приём)."""
+    cmd = [sys.executable, os.path.join(SCRIPTS_DIR, script_name), video_dir]
+    env = dict(os.environ)
+    if extra_env:
+        env.update(extra_env)
+    print(f"  -> {script_name} {video_dir}")
+    r = subprocess.run(cmd, env=env, capture_output=True, text=True)
+    if r.stdout:
+        print(r.stdout.rstrip())
+    if r.stderr:
+        print(r.stderr.rstrip(), file=sys.stderr)
+    return r.returncode
+
+
+def _section_count(video_dir):
+    """Число секций (HOOK/BLOCK*/FINAL) в script.txt — та же логика, что
+    section_sync.py использует для собственного порога "меньше двух секций
+    -> детектор не нужен"."""
+    saved_argv = sys.argv
+    sys.argv = ["pipeline_smart.py", video_dir]
+    try:
+        import pipeline_smart as ps
+    finally:
+        sys.argv = saved_argv
+    script_path = os.path.join(video_dir, "script.txt")
+    if not os.path.exists(script_path):
+        return 0
+    blocks = ps.parse_blocks(script_path)
+    section_order = []
+    for b in blocks:
+        if not section_order or section_order[-1] != b["section"]:
+            section_order.append(b["section"])
+    return len(section_order)
+
+
+def _section_offsets_cover_all(video_dir, expected_count):
+    """True, если media_plan/section_offsets.json существует и покрывает
+    ВСЕ секции эпизода (не только часть — частичный файл означает, что
+    section_sync.py честно отказался от одной или нескольких секций по
+    низкой уверенности, см. его докстринг про безопасный откат)."""
+    path = os.path.join(video_dir, "media_plan", "section_offsets.json")
+    if not os.path.exists(path):
+        return False
+    try:
+        data = json.load(open(path, encoding="utf-8"))
+    except Exception:
+        return False
+    return len(data) >= expected_count
+
+
+def preflight_and_run(video_dir, strict, legacy_allow_degraded):
+    manifest = {"video_dir": video_dir, "strict_production": strict,
+                "legacy_allow_degraded_timing": legacy_allow_degraded, "stages": {}}
+
+    audio_path = os.path.join(video_dir, "audio.mp3")
+    if not os.path.exists(audio_path):
+        manifest["stages"]["audio"] = {"status": "missing"}
+        _write_manifest(video_dir, manifest)
+        print("  СТОП: audio.mp3 не найден — озвучка ещё не готова (Шаг 6 протокола).")
+        return 1
+    manifest["stages"]["audio"] = {"status": "ok"}
+
+    n_sections = _section_count(video_dir)
+    manifest["section_count"] = n_sections
+
+    offsets_path = os.path.join(video_dir, "media_plan", "section_offsets.json")
+    need_sync = n_sections >= 2 and not (os.path.exists(offsets_path)
+                                          and _section_offsets_cover_all(video_dir, n_sections))
+    if need_sync:
+        rc = _run("section_sync.py", video_dir)
+        covered = _section_offsets_cover_all(video_dir, n_sections)
+        manifest["stages"]["section_sync"] = {"status": "ok" if covered else "partial",
+                                               "exit_code": rc, "covers_all_sections": covered}
+        if not covered and strict and not legacy_allow_degraded:
+            _write_manifest(video_dir, manifest)
+            print("  СТОП (--strict-production): section_sync.py не дал уверенного "
+                  "смещения на все секции — синхронизация BLOCK1+ не гарантирована. "
+                  "Перезапусти с --legacy-allow-degraded-timing, если это осознанный "
+                  "компромисс, или пересмотри реальный audio.mp3/alignment.")
+            return 1
+    else:
+        manifest["stages"]["section_sync"] = {"status": "skipped",
+                                               "reason": ("single_section" if n_sections < 2
+                                                          else "already_present")}
+
+    rc = _run("fix_pauses.py", video_dir)
+    manifest["stages"]["fix_pauses"] = {"status": "ok" if rc == 0 else "failed", "exit_code": rc}
+    if rc != 0 and strict and not legacy_allow_degraded:
+        _write_manifest(video_dir, manifest)
+        print("  СТОП (--strict-production): fix_pauses.py завершился с ошибкой — "
+              "аудио не обработано, дальше рендерить нечего.")
+        return 1
+
+    rc = _run("pipeline_smart.py", video_dir)
+    manifest["stages"]["pipeline_smart"] = {"status": "ok" if rc == 0 else "failed", "exit_code": rc}
+    _write_manifest(video_dir, manifest)
+    return rc
+
+
+def _write_manifest(video_dir, manifest):
+    plan_dir = os.path.join(video_dir, "media_plan")
+    os.makedirs(plan_dir, exist_ok=True)
+    path = os.path.join(plan_dir, "timeline_manifest.json")
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("video_dir")
+    parser.add_argument("--strict-production", action="store_true")
+    parser.add_argument("--legacy-allow-degraded-timing", action="store_true")
+    args = parser.parse_args()
+    return preflight_and_run(args.video_dir, args.strict_production, args.legacy_allow_degraded_timing)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

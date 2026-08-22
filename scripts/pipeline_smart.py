@@ -1166,6 +1166,19 @@ AUTO_LEVELS_TARGET_WHITE = 0.97
 # в узде brightness_bias). 0.5 = на полпути между "как есть" и целью.
 AUTO_LEVELS_MAX_STRENGTH = 0.5
 AUTO_LEVELS_MIN_RANGE = 0.05   # чёрная/белая точка ближе этого — вырожденная гистограмма, не трогаем
+# P2 форензик-аудита (реальный, подтверждённый эмпирически риск): AUTO_LEVELS_MIN_RANGE
+# отсекает только СОВСЕМ вырожденную гистограмму, но НЕ ограничивает выход сверху —
+# scale_full = (TARGET_WHITE-TARGET_BLACK)/(white_in-black_in) растёт без потолка при
+# приближении range к самому порогу (0.05 сверху), а не только ниже него. На реальном
+# полном прогоне это дало eq=contrast=4.2453:brightness=0.9180 на одном фикстур-кадре —
+# не гипотеза, увидено вживую в логе ffmpeg. Бэкстоп ниже — не перекалибровка формулы
+# (та остаётся как есть для нормальных фото), а страховка именно от этого крайнего
+# случая около порога: щедрые границы, чтобы не задеть легитимную сильную коррекцию
+# плоского фото (range~0.2 у обычного тускло снятого кадра даёт contrast_eff~2.85,
+# внутри границ), но не пропустить кратный/почти-бесконечный скачок у самого порога.
+AUTO_LEVELS_MAX_CONTRAST = 3.0
+AUTO_LEVELS_MIN_CONTRAST = 0.3
+AUTO_LEVELS_MAX_BRIGHTNESS_ABS = 0.5
 
 # Баланс белого (gray-world) — та же логика клэмпа силы, что и у auto_levels
 # выше, только по цвету, не по яркости. Реальный, пойманный вживую (прямое
@@ -1216,7 +1229,14 @@ def auto_levels_params(levels):
     точки К цели (не ДО цели — см. AUTO_LEVELS_MAX_STRENGTH), формула eq
     подтверждена вживую на синтетическом градиенте: output=(input-0.5)*
     contrast+0.5+brightness. None/вырожденная гистограмма -> (1.0, 0.0) —
-    нейтральный проход, эффекта нет."""
+    нейтральный проход, эффекта нет.
+
+    Финальный клэмп (см. AUTO_LEVELS_MAX_CONTRAST и соседей) — бэкстоп от
+    реального, эмпирически увиденного случая: у самого порога
+    AUTO_LEVELS_MIN_RANGE (но ещё формально его прошедшего) scale_full
+    делится на почти нулевой range и даёт контраст в разы сильнее любой
+    легитимной коррекции. Не меняет поведение на нормальных фото — только
+    отсекает этот один патологический хвост распределения."""
     if levels is None:
         return 1.0, 0.0
     black_in, white_in = levels
@@ -1231,6 +1251,8 @@ def auto_levels_params(levels):
     contrast_eff = (1 - s) + s * scale_full
     brightness_offset = s * (AUTO_LEVELS_TARGET_BLACK - black_in * scale_full)
     brightness = brightness_offset - 0.5 + 0.5 * contrast_eff
+    contrast_eff = max(AUTO_LEVELS_MIN_CONTRAST, min(AUTO_LEVELS_MAX_CONTRAST, contrast_eff))
+    brightness = max(-AUTO_LEVELS_MAX_BRIGHTNESS_ABS, min(AUTO_LEVELS_MAX_BRIGHTNESS_ABS, brightness))
     return contrast_eff, brightness
 
 
