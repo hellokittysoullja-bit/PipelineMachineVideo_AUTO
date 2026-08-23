@@ -868,6 +868,80 @@ def test_detect_face_anchor_none_for_known_false_positive_sword_photo():
     assert pipeline_smart.detect_face_anchor(candidates[0]) is None
 
 
+# ---------- apply_depth_of_field(): боке/ГРИП (ЭТАП 1.3 внешнего аудита —
+# параллакс уже считает depth-карту, но раньше не использовал её для
+# размытия фона) ----------
+
+def _checker_bgr(size, block=8):
+    # Не однотонная заливка — Gaussian blur однотонного изображения
+    # математически no-op, тест на "размылось ли что-то" иначе бессмыслен.
+    import numpy as np
+    h, w = size
+    yy, xx = np.mgrid[0:h, 0:w]
+    pattern = (((xx // block) + (yy // block)) % 2) * 255
+    arr = np.stack([pattern, pattern, pattern], axis=-1).astype("uint8")
+    return arr
+
+
+@pytest.mark.skipif(_PARALLAX_SKIP, reason="cv2 недоступен")
+def test_apply_depth_of_field_disabled_returns_canvas_unchanged(monkeypatch):
+    import numpy as np
+    monkeypatch.setattr(pipeline_smart, "DOF_ENABLED", False)
+    canvas = _checker_bgr((120, 120))
+    depth = np.zeros((120, 120), dtype="float32")   # всё "далеко" — если бы считалось, дало бы max blur
+    result = pipeline_smart.apply_depth_of_field(canvas, depth, strength_gain=1.0)
+    assert np.array_equal(result, canvas)
+
+
+@pytest.mark.skipif(_PARALLAX_SKIP, reason="cv2 недоступен")
+def test_apply_depth_of_field_all_near_leaves_canvas_sharp(monkeypatch):
+    import numpy as np
+    monkeypatch.setattr(pipeline_smart, "DOF_ENABLED", True)
+    canvas = _checker_bgr((120, 120))
+    depth = np.ones((120, 120), dtype="float32")   # всё "близко" — весь кадр должен остаться резким
+    result = pipeline_smart.apply_depth_of_field(canvas, depth, strength_gain=1.0)
+    assert np.array_equal(result, canvas)
+
+
+@pytest.mark.skipif(_PARALLAX_SKIP, reason="cv2 недоступен")
+def test_apply_depth_of_field_all_far_blurs_canvas(monkeypatch):
+    import numpy as np
+    monkeypatch.setattr(pipeline_smart, "DOF_ENABLED", True)
+    canvas = _checker_bgr((120, 120))
+    depth = np.zeros((120, 120), dtype="float32")   # всё "далеко" — весь кадр должен размыться
+    result = pipeline_smart.apply_depth_of_field(canvas, depth, strength_gain=1.0)
+    assert not np.array_equal(result, canvas)
+    # Резкий шахматный узор после размытия должен потерять контраст
+    # (значения средних пикселей должны сместиться к середине 0..255, а не
+    # оставаться строго на 0/255, как в исходном узоре).
+    mid_range = np.logical_and(result > 40, result < 215)
+    assert mid_range.mean() > 0.3
+
+
+@pytest.mark.skipif(_PARALLAX_SKIP, reason="cv2 недоступен")
+def test_apply_depth_of_field_mixed_depth_blurs_only_far_half(monkeypatch):
+    import numpy as np
+    monkeypatch.setattr(pipeline_smart, "DOF_ENABLED", True)
+    canvas = _checker_bgr((120, 120))
+    depth = np.ones((120, 120), dtype="float32")
+    depth[:, 60:] = 0.0   # правая половина кадра — "далеко"
+    result = pipeline_smart.apply_depth_of_field(canvas, depth, strength_gain=1.0)
+    left_unchanged = np.array_equal(result[:, :60], canvas[:, :60])
+    right_changed = not np.array_equal(result[:, 60:], canvas[:, 60:])
+    assert left_unchanged, "ближняя половина (depth=1) не должна размываться"
+    assert right_changed, "дальняя половина (depth=0) должна размыться"
+
+
+@pytest.mark.skipif(_PARALLAX_SKIP, reason="cv2 недоступен")
+def test_apply_depth_of_field_low_strength_gain_suppresses_effect(monkeypatch):
+    import numpy as np
+    monkeypatch.setattr(pipeline_smart, "DOF_ENABLED", True)
+    canvas = _checker_bgr((60, 60))   # маленький холст — при низком strength_gain сигма уйдёт < 1px
+    depth = np.zeros((60, 60), dtype="float32")
+    result = pipeline_smart.apply_depth_of_field(canvas, depth, strength_gain=0.3)
+    assert np.array_equal(result, canvas)
+
+
 # ---------- section_offsets.json: локальное -> глобальное время для BLOCK1+ ----------
 # Реальный, эмпирически найденный баг (не гипотеза, videos/_test_wide):
 # raw_to_real_time() верно вычитает ГЛОБАЛЬНЫЕ обрезки пауз из t, но
@@ -1345,6 +1419,48 @@ def test_disambiguate_search_query_leaves_explicit_asian_query_untouched():
 
 def test_disambiguate_search_query_leaves_unrelated_query_untouched():
     assert pipeline_smart.disambiguate_search_query("shield close up") == "shield close up"
+
+
+# --- Расширение на другие категории того же класса бага (не только sword) —
+# по прямому запросу пользователя не останавливаться на одном частном
+# случае: helmet/armor/spear/battle дают ту же контаминацию (проверено
+# живым Pexels-поиском, см. комментарий у QUERY_DISAMBIGUATION_RULES).
+
+def test_disambiguate_search_query_adds_qualifier_to_helmet_query():
+    assert pipeline_smart.disambiguate_search_query("helmet close up") == "european helmet close up"
+
+
+def test_disambiguate_search_query_adds_qualifier_to_armor_query():
+    assert pipeline_smart.disambiguate_search_query("armor close up") == \
+        "european medieval armor close up"
+
+
+def test_disambiguate_search_query_armor_does_not_duplicate_existing_medieval():
+    assert pipeline_smart.disambiguate_search_query("medieval armor close up") == \
+        "european medieval armor close up"
+
+
+def test_disambiguate_search_query_adds_qualifier_to_spear_query():
+    assert pipeline_smart.disambiguate_search_query("spear close up") == \
+        "european medieval spear close up"
+
+
+def test_disambiguate_search_query_adds_qualifier_to_battle_query():
+    assert pipeline_smart.disambiguate_search_query("battle scene") == \
+        "european medieval battle scene"
+
+
+def test_disambiguate_search_query_leaves_explicit_other_culture_queries_untouched():
+    # Легитимные запросы для другой темы/культуры не должны получать
+    # искажающую приставку.
+    for q in ("samurai armor", "african spear ceremony", "sci-fi helmet",
+              "stormtrooper armor costume"):
+        assert pipeline_smart.disambiguate_search_query(q) == q
+
+
+def test_disambiguate_search_query_no_duplicate_words_for_fully_qualified_query():
+    q = "european medieval battle scene"
+    assert pipeline_smart.disambiguate_search_query(q) == q
 
 
 # --- pexels_video(): реальный, ранее не закрытый структурный пробел (найден

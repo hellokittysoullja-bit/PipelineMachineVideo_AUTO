@@ -11,7 +11,9 @@
     "body fat", "diet plan", "measuring tape body", "barefoot", "bare feet",
     "feet on scale", "feet on a scale", "human foot", "obesity",
     "katana", "samurai", "kimono", "chinese sword", "jian sword",
-    "wuxia", "tai chi", "shogun", "ninja"
+    "wuxia", "tai chi", "shogun", "ninja",
+    "stormtrooper", "motorcycle helmet", "sci-fi costume", "tribal costume",
+    "cultural festival", "video game icon"
   ],
   "voice": {
     "highpass_hz": 80,

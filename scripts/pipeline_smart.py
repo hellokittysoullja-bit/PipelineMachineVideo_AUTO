@@ -2135,19 +2135,51 @@ def filter_alt_blocklist(photos):
 # Простая и при этом САМАЯ эффективная защита — не постфактум-классификация
 # уже скачанного кандидата (см. VISUAL_DOMAIN_GUARDS ниже, вторая линия),
 # а уточнение САМОГО ЗАПРОСА, чтобы контаминация не попадала в пул
-# кандидатов вообще. unless — не добавлять уточнение, если запрос УЖЕ
-# содержит явный культурный маркер (легитимный запрос про катану для
-# японской темы другого канала не должен получать искажающую приставку).
-# qualifier добавляется ТОЛЬКО в реальный вызов Pexels API — см.
+# кандидатов вообще.
+#
+# ПОСЛЕ первого фикса (только "sword") пользователь справедливо указал:
+# один частный случай — не системный апгрейд. Проверил ту же контаминацию
+# на ДРУГИХ частых для военно-исторической ниши терминах ТЕМ ЖЕ методом
+# (живой Pexels-поиск, не гадание) — контаминация реальна и по другим
+# категориям, причём РАЗНОГО типа: "helmet close up" — мотоциклетный/sci-fi
+# шлем (2/15), "armor close up" — самурай/штурмовик/косплей (3/14), "spear
+# close up" — африканская культурная/фестивальная одежда (5/15, другой тип
+# анахронизма, не азиатский), "battle scene" — индийский/китайский храмовый
+# рельеф (2/15). Уточнение запроса ("european"/"european medieval")
+# каждый раз реально гасило контаминацию (проверено на том же сэмпле:
+# helmet 2->0, armor 3->1, spear 5->1, battle 2->0) — тот же рычаг
+# работает системно для всей категории "generic-запрос по историческому
+# оружию/сцене", не только для мечей.
+#
+# unless — не добавлять уточнение, если запрос УЖЕ содержит явный
+# культурный/жанровый маркер (легитимный запрос про катану/самурая для
+# соответствующей темы не должен получать искажающую приставку — то же
+# верно для будущего эпизода про африканские копья и т.п.). qualifier
+# добавляется ТОЛЬКО в реальный вызов Pexels API — см.
 # disambiguate_search_query()/pexels_photo()/pexels_video() — кэш-ключ и
 # relevance-скоринг остаются на ИСХОДНОМ query, нулевой риск для уже
 # откалиброванных порогов (CLIP_RELEVANCE_THRESHOLD и т.п.). Список — тот
 # же паттерн override из channel_profile.json, что CONTENT_ALT_BLOCKLIST
-# выше (для другой ниши правило заменяется целиком через профиль, не код).
+# выше (для другой ниши/культурного контекста правила заменяются целиком
+# через профиль, не код).
 QUERY_DISAMBIGUATION_RULES = (
     {"term": "sword",
      "unless": ("katana", "samurai", "chinese", "japanese", "jian", "wuxia", "asian", "kimono"),
      "qualifier": "european"},
+    {"term": "helmet",
+     "unless": ("katana", "samurai", "chinese", "japanese", "asian", "sci-fi", "futuristic",
+                "motorcycle", "bike", "football", "construction"),
+     "qualifier": "european"},
+    {"term": "armor",
+     "unless": ("katana", "samurai", "chinese", "japanese", "asian", "sci-fi", "futuristic",
+                "cosplay", "stormtrooper", "video game"),
+     "qualifier": "european medieval"},
+    {"term": "spear",
+     "unless": ("african", "tribal", "zulu", "asian", "japanese", "chinese", "maori"),
+     "qualifier": "european medieval"},
+    {"term": "battle",
+     "unless": ("modern", "sci-fi", "futuristic", "space", "video game", "wwii", "world war"),
+     "qualifier": "european medieval"},
 )
 QUERY_DISAMBIGUATION_RULES = tuple(CHANNEL_PROFILE.get("query_disambiguation_rules", QUERY_DISAMBIGUATION_RULES))
 
@@ -2156,17 +2188,21 @@ def disambiguate_search_query(query):
     """Возвращает уточнённую строку запроса ТОЛЬКО для реального вызова
     Pexels API (см. QUERY_DISAMBIGUATION_RULES выше) — исходный query для
     кэш-ключа/relevance-скоринга не трогает. Нет совпавшего правила —
-    строка возвращается без изменений."""
+    строка возвращается без изменений. Составные qualifier ("european
+    medieval") добавляют только те СЛОВА, которых в запросе ещё нет —
+    иначе запрос вроде "medieval armor close up" получил бы дубль
+    ("european medieval medieval armor close up", реальный найденный
+    баг первой версии этой функции)."""
     ql = query.lower()
     for rule in QUERY_DISAMBIGUATION_RULES:
         if rule["term"] not in ql:
             continue
         if any(u in ql for u in rule.get("unless", ())):
             continue
-        qualifier = rule["qualifier"]
-        if qualifier in ql:
+        missing_words = [w for w in rule["qualifier"].split() if w not in ql]
+        if not missing_words:
             continue
-        return f"{qualifier} {query}"
+        return f"{' '.join(missing_words)} {query}"
     return query
 
 
@@ -3891,6 +3927,25 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
 PARALLAX_MARGIN = 1.5     # рабочий холст на 50% больше кадра — запас под
                            # зум+пан+параллакс-смещение без чёрных дыр по краям
 PARALLAX_PX_BASE = 55.0   # максимальный доп.разброс между ближним/дальним слоем, px
+
+# Глубина резкости/боке (ЭТАП 1.3 внешнего аудита — реальный пробел, не
+# гипотеза: параллакс уже считает depth-карту, но НЕ использует её для
+# размытия фона, кадры технически объёмные по движению, но плоские по
+# оптике). Дешёвая "poor man's DOF": одна размытая копия холста + линейный
+# блендинг по уже посчитанной depth-карте (1=близко=резко, 0=далеко=
+# максимальное размытие) — БЕЗ второй модели/скачивания, тот же canvas и
+# depth, что уже посчитаны для параллакса. Считается ОДИН раз на холст (не
+# на кадр) — размытие фона относительно СЦЕНЫ, не относительно текущего
+# вида камеры, оптически корректно и дешевле по CPU.
+DOF_ENABLED = os.environ.get("DOF_BLUR", "1") != "0"
+DOF_SIGMA_FRAC = 0.014     # сигма размытия фона как доля min(cw, ch) —
+                           # относительный, не абсолютный пиксельный размер
+                           # (тот же принцип, что sigma в estimate_depth())
+DOF_FOCUS_DEPTH = 0.55     # пиксели ГЛУБЖЕ этого порога (дальше от камеры)
+                           # уходят в размытие, ближе — остаются резкими
+DOF_FALLOFF_POWER = 1.4    # >1 — резкость держится дольше около порога,
+                           # размытие быстро нарастает у самого дальнего плана
+                           # (мягче "стены" на границе фокуса, чем линейный спад)
 # --- CLIP-релевантность медиа (опционально, нужны torch/transformers) ---
 # Главная реально подтверждённая на QC этого канала проблема: текстовый
 # поиск Pexels иногда возвращает кандидата, который ПОХОЖ по ключевым
@@ -4221,6 +4276,27 @@ def fill_crop_canvas(photo_path, cw, ch, anchor=None):
     return arr
 
 
+def apply_depth_of_field(canvas, depth, strength_gain=1.0):
+    """Размывает фон холста ПРОПОРЦИОНАЛЬНО дистанции от переднего плана —
+    см. DOF_* константы выше. Один Gaussian-blur прохода + линейный (по
+    DOF_FALLOFF_POWER) блендинг по уже посчитанной depth-карте, без второй
+    модели. strength_gain — тот же content-aware множитель, что уже
+    масштабирует parallax_px/depth_zoom_strength (depth.std() / референс) —
+    на плоских кадрах (студийный фон почти без глубины) эффект слабее, не
+    выдаёт ложный "боке" там, где реального разделения план/фон нет."""
+    if not DOF_ENABLED:
+        return canvas
+    h, w = canvas.shape[:2]
+    sigma = DOF_SIGMA_FRAC * min(h, w) * max(0.3, min(1.5, strength_gain))
+    if sigma < 1.0:
+        return canvas
+    blurred = cv2.GaussianBlur(canvas, (0, 0), sigmaX=sigma)
+    blur_weight = np.clip((DOF_FOCUS_DEPTH - depth) / DOF_FOCUS_DEPTH, 0.0, 1.0) ** DOF_FALLOFF_POWER
+    blur_weight = blur_weight[:, :, None]
+    return (canvas.astype(np.float32) * (1.0 - blur_weight)
+            + blurred.astype(np.float32) * blur_weight).astype(np.uint8)
+
+
 def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
                        section="", stat_variant=0, brightness_bias=0.0, energy_bias=0.0,
                        stat_delay=0.0, levels=None, wb=None, grain_scale=1.0, captions=None,
@@ -4284,6 +4360,12 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
         # честная 3D-репроекция). depth_zoom_strength тоже масштабируется
         # content-aware — той же логикой, что и parallax_px выше.
         depth_zoom_strength = 0.12 * strength_gain
+        # Боке/глубина резкости (см. apply_depth_of_field()/DOF_* выше) —
+        # размывает canvas ОДИН раз до начала покадрового remap-цикла, тот
+        # же canvas дальше варпится по кадрам как обычно (background
+        # остаётся размытым и через движение параллакса — оптически
+        # корректно, размытие свойство сцены, не текущего вида камеры).
+        canvas = apply_depth_of_field(canvas, depth, strength_gain)
         # C2: лёгкий 3D-наклон камеры (roll) — до TILT_MAX_DEG, направление
         # по хэшу фото. Независимая от зума/пана ось движения, добавляет
         # ощущение "камера не на рельсах, а в руках", не дублирует то, что
