@@ -43,6 +43,19 @@ except ImportError:
 PARALLAX_ENABLED = os.environ.get("PARALLAX", "1") != "0" and PARALLAX_LIBS
 PARALLAX_BROKEN = False   # взводится только на системном сбое (модель/сеть), не на одной плохой картинке
 
+# D2: кинетические подписи хука (add_kinetic_captions/hook_captions_for_block)
+# ВРЕМЕННО выключены по умолчанию (реальная жалоба пользователя 23.08:
+# вздохи/паузы TTS уводят посимвольный alignment.csv, слова начинают
+# заметно отставать от голоса на некоторых блоках хука) — код НЕ удалён,
+# только не вызывается: load_hook_word_timings() просто не запускается,
+# hook_words остаётся [] на весь эпизод, hook_captions_for_block() и
+# add_kinetic_captions() никогда не получают непустой captions (см. их
+# вызовы ниже — truthy-проверка на hook_words). Включить обратно —
+# HOOK_KINETIC_CAPTIONS=1, без правки кода, когда синхронизация будет
+# доработана (см. докстринг load_hook_word_timings — уже 3 раунда одного
+# и того же класса бага, вопрос сложнее одной точечной правки).
+HOOK_KINETIC_CAPTIONS_ENABLED = os.environ.get("HOOK_KINETIC_CAPTIONS", "0") != "0"
+
 # Пул процессов для kenburns()/video_render() (НЕ parallax_kenburns() — та
 # намеренно остаётся последовательной в главном процессе, см. main()).
 # Почему процессы, а не потоки: полная изоляция между воркерами (ни общего
@@ -5259,7 +5272,11 @@ def main():
         director_report[i] = {"decision": reason}
 
     typewriter_click_times = []   # D4: абсолютные секунды щелчков клавиатуры на весь ролик
-    hook_words = load_hook_word_timings(blocks, sub_starts, sub_baseline, real_weights)   # D2: пусто, если alignment.csv недоступен — тихий откат
+    # HOOK_KINETIC_CAPTIONS_ENABLED=False (см. его комментарий выше) -> hook_words
+    # остаётся [] на весь эпизод, ни один клип хука не получит captions — тот
+    # же честный откат, что и при отсутствии alignment.csv (D2).
+    hook_words = (load_hook_word_timings(blocks, sub_starts, sub_baseline, real_weights)
+                  if HOOK_KINETIC_CAPTIONS_ENABLED else [])
     # P0-3: слова с аудио-шкалы (sub_starts/sub_baseline) переносятся на
     # шкалу реально показанного кадра (visual_starts/durs) — см. докстринг
     # rescale_hook_words_to_visual_time().
