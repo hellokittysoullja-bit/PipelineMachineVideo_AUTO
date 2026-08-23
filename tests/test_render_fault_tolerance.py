@@ -155,6 +155,94 @@ def test_run_ffmpeg_with_retry_detects_verified_bad_output_despite_returncode_0(
     assert "короче" in reason
 
 
+# ---------- _looks_like_drawtext_failure / captions-fallback (реальная жалоба:
+# "субтитров нет вначале, потом резко появляются, рассинхрон") ----------
+
+def test_looks_like_drawtext_failure_true_for_real_signatures():
+    assert ps._looks_like_drawtext_failure("ffmpeg вышел с кодом 1: No such filter: 'drawtext'")
+    assert ps._looks_like_drawtext_failure("Cannot load default config")
+    assert ps._looks_like_drawtext_failure('Unable to parse option value "..." as image size')
+    assert ps._looks_like_drawtext_failure("fontfile: could not open font file")
+    assert ps._looks_like_drawtext_failure("Unrecognized option 'drawtext'")
+
+
+def test_looks_like_drawtext_failure_false_for_unrelated_reasons():
+    # Реальный кейс, который сломал подписи: таймаут от CPU-контеншна
+    # (параллельный процесс) НЕ имеет отношения к drawtext/шрифту.
+    assert not ps._looks_like_drawtext_failure("таймаут (106с) — процесс завис")
+    assert not ps._looks_like_drawtext_failure("ffmpeg вышел с кодом 1: Cannot allocate memory")
+    assert not ps._looks_like_drawtext_failure("длительность 1.20с короче заказанной 2.00с")
+    assert not ps._looks_like_drawtext_failure("")
+    assert not ps._looks_like_drawtext_failure(None)
+
+
+def test_kenburns_does_not_silently_drop_captions_on_unrelated_failure(tmp_path, monkeypatch):
+    # РЕАЛЬНЫЙ баг, найден по жалобе пользователя на реальном рендере: WITH-
+    # captions попытка проваливалась по таймауту (CPU-контеншн от параллельного
+    # процесса), код трактовал ЛЮБОЙ сбой как "drawtext не работает" и тихо
+    # перерисовывал клип БЕЗ титров/подписей — та версия проще и укладывалась
+    # в лимит времени. Итог: подписи пропадали на случайных клипах хука, без
+    # единой строчки в логе, объясняющей почему. Теперь — честный провал клипа,
+    # НЕ вторая (без подписей) попытка.
+    photo = str(tmp_path / "p.jpg")
+    Image.new("RGB", (320, 180), (100, 110, 120)).save(photo)
+    out = str(tmp_path / "clip_0000.mp4")
+
+    calls = []
+
+    def fake_retry(build_cmd, tmp_out, expected_dur, label=""):
+        calls.append(label)
+        return False, "таймаут (106с) — процесс завис"
+
+    monkeypatch.setattr(ps, "run_ffmpeg_with_retry", fake_retry)
+    ok = ps.kenburns(photo, out, 2.0, section="HOOK", captions=[("СЛОВО", 0.0, 1.0)])
+    assert ok is False
+    assert len(calls) == 1   # НЕ должно быть второй (без подписей) попытки
+    assert not os.path.exists(out)
+
+
+def test_kenburns_falls_back_without_captions_on_real_drawtext_failure(tmp_path, monkeypatch):
+    # Обратный случай — сборка ffmpeg реально без drawtext: откат на версию
+    # без подписей ДОЛЖЕН сработать (иначе клип потерялся бы целиком зря).
+    photo = str(tmp_path / "p.jpg")
+    Image.new("RGB", (320, 180), (100, 110, 120)).save(photo)
+    out = str(tmp_path / "clip_0000.mp4")
+
+    calls = []
+
+    def fake_retry(build_cmd, tmp_out, expected_dur, label=""):
+        calls.append(1)
+        if len(calls) == 1:
+            return False, "ffmpeg вышел с кодом 1: No such filter: 'drawtext'"
+        _make_clip(tmp_out, dur=expected_dur)
+        return True, "ok"
+
+    monkeypatch.setattr(ps, "run_ffmpeg_with_retry", fake_retry)
+    ok = ps.kenburns(photo, out, 2.0, section="HOOK", captions=[("СЛОВО", 0.0, 1.0)])
+    assert ok is True
+    assert len(calls) == 2   # первая (с подписями) провалилась ИМЕННО по drawtext -> вторая (без) удалась
+    assert os.path.exists(out)
+
+
+def test_video_render_does_not_silently_drop_captions_on_unrelated_failure(tmp_path, monkeypatch):
+    # Тот же баг/фикс, что у kenburns() выше, но для стокового видео (video_render()).
+    vid = str(tmp_path / "src.mp4")
+    _make_clip(vid, dur=3.0)
+    out = str(tmp_path / "clip_0000.mp4")
+
+    calls = []
+
+    def fake_retry(build_cmd, tmp_out, expected_dur, label=""):
+        calls.append(label)
+        return False, "таймаут (106с) — процесс завис"
+
+    monkeypatch.setattr(ps, "run_ffmpeg_with_retry", fake_retry)
+    ok = ps.video_render(vid, out, 2.0, section="HOOK", captions=[("СЛОВО", 0.0, 1.0)])
+    assert ok is False
+    assert len(calls) == 1
+    assert not os.path.exists(out)
+
+
 # ---------- Полный прогон pipeline_smart.py: реальный сбойный клип + жёсткий гейт ----------
 
 @pytest.fixture

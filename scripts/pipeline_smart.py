@@ -3511,6 +3511,31 @@ def verify_clip(path, expected_dur, tolerance=CLIP_VERIFY_TOLERANCE_SEC):
         return False, f"{type(e).__name__}: {e}", None
 
 
+def _looks_like_drawtext_failure(reason):
+    """True — ТОЛЬКО если reason (см. run_ffmpeg_with_retry) реально
+    указывает на недоступность drawtext/шрифта (некоторые сборки ffmpeg
+    собраны без libfreetype/drawtext вообще — единственный случай, ради
+    которого существует откат "рисую без них" у kenburns()/video_render()).
+
+    РЕАЛЬНЫЙ БАГ, найден по жалобе пользователя ("субтитров нет вначале,
+    потом резко появляются, рассинхрон") на реальном рендере: откат раньше
+    срабатывал на ЛЮБОЙ reason, включая таймаут/OOM/гонку ресурсов —
+    транзиентный сбой (в конкретном случае: CPU-контеншн от параллельного
+    процесса) ронял ВСЕ попытки WITH-captions рендера по таймауту, код
+    трактовал это как "drawtext не работает" и молча перерисовывал клип БЕЗ
+    подписей — та версия проще/быстрее и укладывалась в лимит времени, где
+    сложная (с подписями) не успевала. Итог на экране: подписи есть не на
+    всех клипах хука, без единой строчки в логе, объясняющей почему именно
+    эти. Теперь откат без подписей — только когда причина реально об этом
+    (drawtext/шрифт), любой другой сбой после исчерпанных попыток — честный
+    провал ВСЕГО клипа (тот же путь, что systematic ffmpeg-ошибка), не тихая
+    потеря подписей."""
+    r = (reason or "").lower()
+    return any(sig in r for sig in
+               ("drawtext", "fontfile", "font file", "no such filter", "unrecognized option",
+                "unable to parse option value", "cannot load default config"))
+
+
 def run_ffmpeg_with_retry(build_cmd, tmp_out, expected_dur, label=""):
     """Прогоняет build_cmd() (callable без аргументов — каждый вызов строит
     и исполняет НОВУЮ ffmpeg-команду в tmp_out, возвращает CompletedProcess)
@@ -3781,10 +3806,15 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
         ok, reason = run_ffmpeg_with_retry(lambda: render(vf_overlay), tmp_out, dur, label)
         if ok:
             return finalize_render(tmp_out, out, True)
-        # Титр/плашка (drawtext/шрифт) — не повод терять весь кадр: некоторые
-        # сборки ffmpeg собраны без drawtext вообще. Откат на версию без них
-        # (тоже с ретраем/верификацией — сбой мог быть транзиентным, а не
-        # именно про drawtext).
+        if not _looks_like_drawtext_failure(reason):
+            # См. _looks_like_drawtext_failure — таймаут/OOM/др. транзиентный
+            # сбой после исчерпанных попыток НЕ повод тихо терять подписи,
+            # это честный провал клипа (main() отправит его в missing/повтор).
+            print(f"  [{label}] рендер с подписями не удался ({reason}) — "
+                  f"это не про drawtext, не откатываюсь на версию без них")
+            return finalize_render(tmp_out, out, False)
+        # Титр/плашка (drawtext/шрифт) реально недоступны — не повод терять
+        # весь кадр. Откат на версию без них (тоже с ретраем/верификацией).
         print(f"  титр/плашка не встали ({label}): {reason} — рисую без них")
     ok, reason = run_ffmpeg_with_retry(lambda: render(vf_base), tmp_out, dur, label)
     if not ok:
@@ -4489,6 +4519,11 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
         ok, reason = run_ffmpeg_with_retry(lambda: render(vf_overlay), tmp_out, dur, label)
         if ok:
             return finalize_render(tmp_out, out, True)
+        if not _looks_like_drawtext_failure(reason):
+            # См. _looks_like_drawtext_failure — тот же принцип, что kenburns().
+            print(f"  [{label}] рендер видео с подписями не удался ({reason}) — "
+                  f"это не про drawtext, не откатываюсь на версию без них")
+            return finalize_render(tmp_out, out, False)
         print(f"  титр/плашка не встали на видео ({label}): {reason} — рисую без них")
     ok, reason = run_ffmpeg_with_retry(lambda: render(vf_base), tmp_out, dur, label)
     if not ok:
