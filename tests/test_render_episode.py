@@ -80,10 +80,21 @@ def test_strict_refuses_when_audio_missing(tmp_path, monkeypatch):
     assert manifest["stages"]["audio"]["status"] == "missing"
 
 
+def _write_clean_visual_qc_report(video_dir):
+    # Отчёт Шага 5.5, где ВСЕ слоты прошли (нет missing/reject/
+    # accepted_below_threshold) — та же структура, что реально пишет
+    # visual_qc.py::main() ({"counts": {...}, "slots": [...]}).
+    plan_dir = video_dir / "media_plan"
+    plan_dir.mkdir(exist_ok=True)
+    (plan_dir / "visual_qc_report.json").write_text(
+        json.dumps({"counts": {"pass": 3}, "slots": [{"verdict": "pass"}] * 3}), encoding="utf-8")
+
+
 def test_strict_refuses_when_section_sync_incomplete(tmp_path, monkeypatch):
     write_script(tmp_path / "script.txt",
                  "=== HOOK === Раз два три.\n=== BLOCK 1: X === Четыре пять шесть.\n")
     (tmp_path / "audio.mp3").write_bytes(b"fake-audio")
+    _write_clean_visual_qc_report(tmp_path)
 
     def fake_run(script_name, video_dir, extra_env=None):
         # section_sync.py "запускается", но не пишет section_offsets.json
@@ -101,6 +112,7 @@ def test_legacy_flag_overrides_strict_refusal(tmp_path, monkeypatch):
     write_script(tmp_path / "script.txt",
                  "=== HOOK === Раз два три.\n=== BLOCK 1: X === Четыре пять шесть.\n")
     (tmp_path / "audio.mp3").write_bytes(b"fake-audio")
+    _write_clean_visual_qc_report(tmp_path)
     calls = []
 
     def fake_run(script_name, video_dir, extra_env=None):
@@ -111,6 +123,64 @@ def test_legacy_flag_overrides_strict_refusal(tmp_path, monkeypatch):
     assert rc == 0
     # несмотря на неполный section_sync, --legacy-allow-degraded-timing
     # обязан довести дело до pipeline_smart.py (явно разрешённый компромисс).
+    assert "pipeline_smart.py" in calls
+
+
+# ---------- preflight_and_run: visual_qc-гейт (Шаг 5.5, отдельный от
+# --legacy-allow-degraded-timing флаг --legacy-allow-unreviewed-media) ----------
+
+def test_strict_refuses_when_visual_qc_never_ran(tmp_path, monkeypatch):
+    write_script(tmp_path / "script.txt", "=== HOOK === Раз два три.\n")
+    (tmp_path / "audio.mp3").write_bytes(b"fake-audio")
+    # media_plan/visual_qc_report.json НЕ создан вообще.
+    calls = []
+    monkeypatch.setattr(re_mod, "_run", lambda *a, **kw: (calls.append(a), 0)[1])
+    rc = re_mod.preflight_and_run(str(tmp_path), strict=True, legacy_allow_degraded=False)
+    assert rc == 1
+    assert calls == []   # ничего не должно было запускаться вообще
+    manifest = json.load(open(tmp_path / "media_plan" / "timeline_manifest.json"))
+    assert manifest["stages"]["visual_qc"]["status"] == "missing_report"
+
+
+def test_strict_refuses_when_visual_qc_has_unresolved_slots(tmp_path, monkeypatch):
+    write_script(tmp_path / "script.txt", "=== HOOK === Раз два три.\n")
+    (tmp_path / "audio.mp3").write_bytes(b"fake-audio")
+    plan_dir = tmp_path / "media_plan"
+    plan_dir.mkdir()
+    (plan_dir / "visual_qc_report.json").write_text(
+        json.dumps({"counts": {"pass": 2, "reject": 1}, "slots": []}), encoding="utf-8")
+    calls = []
+    monkeypatch.setattr(re_mod, "_run", lambda *a, **kw: (calls.append(a), 0)[1])
+    rc = re_mod.preflight_and_run(str(tmp_path), strict=True, legacy_allow_degraded=False)
+    assert rc == 1
+    assert calls == []
+    manifest = json.load(open(tmp_path / "media_plan" / "timeline_manifest.json"))
+    assert manifest["stages"]["visual_qc"]["status"] == "unresolved"
+    assert manifest["stages"]["visual_qc"]["unresolved"] == 1
+
+
+def test_legacy_allow_unreviewed_media_overrides_visual_qc_refusal(tmp_path, monkeypatch):
+    write_script(tmp_path / "script.txt", "=== HOOK === Раз два три.\n")
+    (tmp_path / "audio.mp3").write_bytes(b"fake-audio")
+    # НЕТ visual_qc_report.json — как будто Шаг 5.5 вообще не запускался.
+    calls = []
+    monkeypatch.setattr(re_mod, "_run", lambda script_name, video_dir, extra_env=None:
+                         (calls.append(script_name), 0)[1])
+    rc = re_mod.preflight_and_run(str(tmp_path), strict=True, legacy_allow_degraded=False,
+                                   legacy_allow_unreviewed_media=True)
+    assert rc == 0
+    assert "pipeline_smart.py" in calls
+
+
+def test_visual_qc_clean_report_does_not_block_strict(tmp_path, monkeypatch):
+    write_script(tmp_path / "script.txt", "=== HOOK === Раз два три.\n")
+    (tmp_path / "audio.mp3").write_bytes(b"fake-audio")
+    _write_clean_visual_qc_report(tmp_path)
+    calls = []
+    monkeypatch.setattr(re_mod, "_run", lambda script_name, video_dir, extra_env=None:
+                         (calls.append(script_name), 0)[1])
+    rc = re_mod.preflight_and_run(str(tmp_path), strict=True, legacy_allow_degraded=False)
+    assert rc == 0
     assert "pipeline_smart.py" in calls
 
 
@@ -131,6 +201,7 @@ def test_default_mode_is_legacy_even_without_flag(tmp_path, monkeypatch):
 def test_single_section_skips_section_sync(tmp_path, monkeypatch):
     write_script(tmp_path / "script.txt", "=== HOOK === Раз два три.\n")
     (tmp_path / "audio.mp3").write_bytes(b"fake-audio")
+    _write_clean_visual_qc_report(tmp_path)
     calls = []
     monkeypatch.setattr(re_mod, "_run", lambda script_name, video_dir, extra_env=None:
                          (calls.append(script_name), 0)[1])
@@ -179,12 +250,17 @@ def test_render_episode_end_to_end_produces_final_mp4(video_dir):
     # (повторный изолированный запуск сразу же прошёл за 83с), а слишком
     # тесный запас для этой конкретной shared-среды.
     env = dict(os.environ, PARALLAX="0")
-    r = subprocess.run([sys.executable, RENDER_EPISODE, str(video_dir), "--strict-production"],
+    # --legacy-allow-unreviewed-media: этот фикстур-эпизод не прогонял
+    # scripts/visual_qc.py (не тема этого теста — тот проверяет реальный
+    # sequencing тайминга через настоящие подпроцессы, не Шаг 5.5).
+    r = subprocess.run([sys.executable, RENDER_EPISODE, str(video_dir), "--strict-production",
+                         "--legacy-allow-unreviewed-media"],
                         capture_output=True, text=True, timeout=280, env=env)
     assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-1000:]
     assert (video_dir / "final.mp4").exists()
     manifest = json.load(open(video_dir / "media_plan" / "timeline_manifest.json"))
     assert manifest["stages"]["audio"]["status"] == "ok"
+    assert manifest["stages"]["visual_qc"]["status"] == "missing_report"
     assert manifest["stages"]["section_sync"]["status"] == "skipped"   # 1 секция
     assert manifest["stages"]["fix_pauses"]["status"] == "ok"
     assert manifest["stages"]["pipeline_smart"]["status"] == "ok"

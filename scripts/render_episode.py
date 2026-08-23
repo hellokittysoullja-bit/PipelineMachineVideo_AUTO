@@ -29,23 +29,37 @@ speech_validator.py сюда НЕ входят — предполагается,
 затем сама сборка pipeline_smart.py.
 
 Usage: python scripts/render_episode.py <video_dir> [--strict-production]
-       [--legacy-allow-degraded-timing]
+       [--legacy-allow-degraded-timing] [--legacy-allow-unreviewed-media]
 
-Без обоих флагов — то же самое, что --legacy-allow-degraded-timing (полная
-обратная совместимость: best-effort, ни на чём не падает, кроме явных
-ошибок ffmpeg/отсутствующего audio.mp3) — этот скрипт остаётся строго
-ДОПОЛНЕНИЕМ к прежнему рабочему процессу, не заменой по умолчанию.
+Без всех флагов — то же самое, что --legacy-allow-degraded-timing и
+--legacy-allow-unreviewed-media вместе (полная обратная совместимость:
+best-effort, ни на чём не падает, кроме явных ошибок ffmpeg/отсутствующего
+audio.mp3) — этот скрипт остаётся строго ДОПОЛНЕНИЕМ к прежнему рабочему
+процессу, не заменой по умолчанию.
 
 --strict-production (рекомендуется для реального, не тестового эпизода):
     останавливается с точной ошибкой ДО запуска pipeline_smart.py, если:
     1) audio.mp3 отсутствует;
-    2) эпизод многосекционный (>=2 секций) и НИ Stage B, НИ section_sync.py
+    2) Шаг 5.5 (scripts/visual_qc.py) ни разу не запускался ИЛИ его отчёт
+       (media_plan/visual_qc_report.json) показывает нерешённые слоты
+       (missing/reject/accepted_below_threshold — та же формула, что даёт
+       return 2 у самого visual_qc.py) — реальный, ранее не закрытый пробел
+       независимого архитектурного разбора этой сессии: strict-режим уже
+       проверял тайминг/синхронизацию, но НИЧЕГО не знал про релевантность/
+       качество самого медиа, эпизод с половиной отклонённых QC слотов
+       спокойно проходил гейт;
+    3) эпизод многосекционный (>=2 секций) и НИ Stage B, НИ section_sync.py
        не дали уверенного section_offsets.json на ВСЕ секции после первой;
-    3) fix_pauses.py завершился с ошибкой (ffmpeg упал).
+    4) fix_pauses.py завершился с ошибкой (ffmpeg упал).
 --legacy-allow-degraded-timing: явно разрешает продолжить рендер БЕЗ
-    гарантий синхронизации, даже если запрошен --strict-production —
-    чтобы сознательный компромисс был явным флагом в команде, а не тихой
-    деградацией по умолчанию.
+    гарантий синхронизации (пункты 3-4 выше), даже если запрошен
+    --strict-production — чтобы сознательный компромисс был явным флагом в
+    команде, а не тихой деградацией по умолчанию.
+--legacy-allow-unreviewed-media: тот же принцип, отдельным флагом — явно
+    разрешает продолжить БЕЗ гарантии, что media\\ прошла Visual QC
+    (пункт 2 выше). Отдельный от --legacy-allow-degraded-timing флаг
+    (не одно и то же: тайминг и качество медиа — независимые гарантии,
+    молчаливое объединение под одним именем было бы вводящим в заблуждение).
 
 Пишет media_plan/timeline_manifest.json — сводка, что реально прогналось
 и с каким результатом (тот же принцип честного аудит-трейла, что уже
@@ -119,7 +133,40 @@ def _section_offsets_cover_all(video_dir, expected_count):
     return len(data) >= expected_count
 
 
-def preflight_and_run(video_dir, strict, legacy_allow_degraded):
+_VISUAL_QC_UNRESOLVED_VERDICTS = ("missing", "reject", "accepted_below_threshold")
+
+
+def _visual_qc_status(video_dir):
+    """(status, unresolved_count) — status один из "missing_report" (Шаг 5.5
+    не запускался вообще), "unresolved" (запускался, но остались слоты,
+    которые visual_qc.py сам просит проверить глазами — verdict в
+    _VISUAL_QC_UNRESOLVED_VERDICTS, см. его main()/return 2), "ok".
+
+    РЕАЛЬНЫЙ, ранее НЕ доведённый до конца пробел (см. независимый
+    архитектурный разбор этой же сессии: "Visual QC... не является
+    обязательным final gate текущего orchestrator") — --strict-production
+    уже проверяет audio.mp3/section_offsets/fix_pauses, но НИЧЕГО не знает
+    про релевантность/качество самого медиа: эпизод с половиной слотов,
+    явно отклонённых QC (или вообще без единого прогона Шага 5.5), раньше
+    спокойно проходил strict-гейт и собирался в final.mp4. Отчёт ТОЛЬКО
+    читается (не запускает visual_qc.py заново — тот платно дёргает Pexels
+    при подборе замены, это НЕ бесплатный локальный шаг, вне скоупа этого
+    оркестратора, см. его докстринг)."""
+    path = os.path.join(video_dir, "media_plan", "visual_qc_report.json")
+    if not os.path.exists(path):
+        return "missing_report", 0
+    try:
+        data = json.load(open(path, encoding="utf-8"))
+    except Exception:
+        return "missing_report", 0
+    # {"counts": {...}, "slots": [...]} — та же структура, что visual_qc.py
+    # реально пишет (main()) и та же формула, что даёт его return 2.
+    counts = data.get("counts", {})
+    unresolved = sum(counts.get(v, 0) for v in _VISUAL_QC_UNRESOLVED_VERDICTS)
+    return ("unresolved", unresolved) if unresolved else ("ok", 0)
+
+
+def preflight_and_run(video_dir, strict, legacy_allow_degraded, legacy_allow_unreviewed_media=False):
     manifest = {"video_dir": video_dir, "strict_production": strict,
                 "legacy_allow_degraded_timing": legacy_allow_degraded, "stages": {}}
 
@@ -130,6 +177,22 @@ def preflight_and_run(video_dir, strict, legacy_allow_degraded):
         print("  СТОП: audio.mp3 не найден — озвучка ещё не готова (Шаг 6 протокола).")
         return 1
     manifest["stages"]["audio"] = {"status": "ok"}
+
+    vqc_status, vqc_unresolved = _visual_qc_status(video_dir)
+    manifest["stages"]["visual_qc"] = {"status": vqc_status, "unresolved": vqc_unresolved}
+    if vqc_status != "ok" and strict and not legacy_allow_unreviewed_media:
+        _write_manifest(video_dir, manifest)
+        if vqc_status == "missing_report":
+            print("  СТОП (--strict-production): scripts/visual_qc.py ни разу не запускался "
+                  "(Шаг 5.5 протокола, media_plan/visual_qc_report.json отсутствует) — "
+                  "релевантность/качество media\\ не проверены. Запусти visual_qc.py <video_dir> "
+                  "перед сборкой, или --legacy-allow-unreviewed-media для явного пропуска.")
+        else:
+            print(f"  СТОП (--strict-production): visual_qc_report.json — {vqc_unresolved} слот(ов) "
+                  "требуют проверки глазами (missing/reject/accepted_below_threshold), Шаг 7.5 не "
+                  "выполнен. Пересмотри media_plan/visual_qc_report.json, или "
+                  "--legacy-allow-unreviewed-media для явного пропуска.")
+        return 1
 
     n_sections = _section_count(video_dir)
     manifest["section_count"] = n_sections
@@ -183,8 +246,10 @@ def main():
     parser.add_argument("video_dir")
     parser.add_argument("--strict-production", action="store_true")
     parser.add_argument("--legacy-allow-degraded-timing", action="store_true")
+    parser.add_argument("--legacy-allow-unreviewed-media", action="store_true")
     args = parser.parse_args()
-    return preflight_and_run(args.video_dir, args.strict_production, args.legacy_allow_degraded_timing)
+    return preflight_and_run(args.video_dir, args.strict_production, args.legacy_allow_degraded_timing,
+                              legacy_allow_unreviewed_media=args.legacy_allow_unreviewed_media)
 
 
 if __name__ == "__main__":
