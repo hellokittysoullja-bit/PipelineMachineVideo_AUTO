@@ -80,6 +80,34 @@ SENTENCE_RELEVANCE_WEIGHT = 1.0   # доминирующий член — тот
                                     # (реалистичный диапазон ~0.15-0.35), что уже
                                     # использует is_relevant_candidate()
 
+# РЕАЛЬНЫЙ, эмпирически подтверждённый баг (не гипотеза): sentence_relevance()
+# передавала СЫРОЙ русский block_text прямо в pipeline_smart.clip_relevance(),
+# который использует ОДНОЯЗЫЧНУЮ (английскую) openai/clip-vit-base-patch32.
+# Прямое измерение на реальных фото канала + реальных фразах сценария (см.
+# коммит): та же модель на русском тексте даёт кластер 0.17-0.21 НЕЗАВИСИМО
+# от содержимого картинки (меч/пицца/катана — разница в пределах шума) — то
+# есть доминирующий сигнал Директора (SENTENCE_RELEVANCE_WEIGHT=1.0, больше
+# любого другого бонуса) на практике был ПУСТЫМ для ВСЕГО этого (русскоязычного)
+# канала, хотя VISUAL_DIRECTOR_MODE=assist уже включён. Мультиязычная модель
+# (sentence-transformers/clip-ViT-B-32-multilingual-v1, та же архитектура CLIP,
+# дообученная на параллельных текстах 50+ языков) на ТОМ ЖЕ тесте: 3/5 точных
+# топ-совпадений на реальных фразах сценария 01_ves-mecha (меч/молоток/молоко/
+# скальпель/ноутбук против 7 кандидатов) — не идеально, но осмысленный сигнал
+# вместо шума, тот же порядок точности, что и у остальных "мягких" бонусов
+# Директора (некалиброванных, доменных).
+#
+# КРИТИЧНО: это ОТДЕЛЬНАЯ модель/эмбеддинг-пространство от
+# pipeline_smart.get_clip_model() — та остаётся ТРОНУТОЙ НЕ БЫЛА и обслуживает
+# все уже откалиброванные пороги (CLIP_RELEVANCE_THRESHOLD, RISKY_QUERY_MARGIN,
+# PARTICLE_SCORE_THRESHOLD, VISUAL_DOMAIN_GUARDS) — смена модели там задним
+# числом обесценила бы ВСЕ эти калибровки (разные модели дают разные шкалы
+# скоров). Используется ТОЛЬКО здесь, для sentence_relevance() — единственного
+# места, что и раньше получало сырой текст без английского посредника-query.
+SENTENCE_RELEVANCE_MODEL_VERSION = "multilingual-clip-v1"   # см. cache_signature() —
+                                                               # смена модели меняет
+                                                               # шкалу скоров, должна
+                                                               # инвалидировать кэш
+
 # Некалиброванные, разумные стартовые бонусы (та же честная маркировка, что
 # DOMAIN_MARGIN/MAX_MATCH_DISTANCE в look_reference.py) — нет ни одного
 # реального эпизода канала, чтобы подтвердить вживую.
@@ -138,7 +166,7 @@ def cache_signature():
         sorted(ROLE_SHOT_SIZE_BONUS.items()), DOMAIN_MATCH_BONUS,
         REPETITION_WINDOW, REPETITION_PENALTY,
         VISUAL_QC_SHARPNESS_WEIGHT, VISUAL_QC_NOISE_WEIGHT,
-        SENTENCE_RELEVANCE_WEIGHT, DIRECTOR_MIN_POOL,
+        SENTENCE_RELEVANCE_WEIGHT, SENTENCE_RELEVANCE_MODEL_VERSION, DIRECTOR_MIN_POOL,
         sorted(ARC_STAGE_SHOT_SIZE_BONUS.items()),
     )).encode()).hexdigest()[:8]
     return f"director:assist:{table_sig}"
@@ -152,13 +180,53 @@ def functional_role(block, is_section_start):
     return pipeline_smart.classify_shot_function(block, is_section_start)
 
 
+_multilingual_clip_text_model = None
+_multilingual_clip_image_model = None
+_MULTILINGUAL_CLIP_BROKEN = False
+
+
+def _get_multilingual_clip_models():
+    """Ленивая загрузка (см. SENTENCE_RELEVANCE_MODEL_VERSION выше) — два
+    отдельных энкодера (текст/картинка), как того требует sentence-
+    transformers для clip-ViT-B-32-multilingual-v1 (текстовая ветка
+    дообучена отдельно, картиночная — оригинальный CLIP ViT-B/32,
+    совместимое эмбеддинг-пространство, но НЕ тот же объект модели, что
+    pipeline_smart.get_clip_model() — см. предупреждение выше про разные
+    шкалы скоров)."""
+    global _multilingual_clip_text_model, _multilingual_clip_image_model
+    if _multilingual_clip_text_model is None:
+        from sentence_transformers import SentenceTransformer
+        _multilingual_clip_text_model = SentenceTransformer(
+            "sentence-transformers/clip-ViT-B-32-multilingual-v1")
+        _multilingual_clip_image_model = SentenceTransformer("clip-ViT-B-32")
+    return _multilingual_clip_text_model, _multilingual_clip_image_model
+
+
 def sentence_relevance(image_path, block_text):
-    """pipeline_smart.clip_relevance() НАПРЯМУЮ, без изменений — та функция
-    уже принимает произвольный текст, не только короткий query. None, если
-    CLIP недоступен (тот же fail-open, что и везде в пайплайне)."""
-    if not block_text:
+    """Косинусная близость картинки и ПОЛНОГО текста блока (русского, как
+    он есть в сценарии — см. SENTENCE_RELEVANCE_MODEL_VERSION выше) через
+    мультиязычную CLIP-модель. None при отсутствии текста/недоступности
+    модели (тот же fail-open, что и везде в пайплайне) — вызывающий код
+    (compute_extra_score) тогда просто не добавляет этот бонус, поведение
+    как до фичи."""
+    global _MULTILINGUAL_CLIP_BROKEN
+    if not block_text or _MULTILINGUAL_CLIP_BROKEN:
         return None
-    return pipeline_smart.clip_relevance(image_path, block_text)
+    try:
+        from PIL import Image as PILImage
+        text_model, image_model = _get_multilingual_clip_models()
+        img = PILImage.open(image_path).convert("RGB")
+        img_emb = image_model.encode([img], convert_to_numpy=True)
+        txt_emb = text_model.encode([block_text], convert_to_numpy=True)
+        import numpy as np
+        img_n = img_emb[0] / np.linalg.norm(img_emb[0])
+        txt_n = txt_emb[0] / np.linalg.norm(txt_emb[0])
+        return float(np.dot(img_n, txt_n))
+    except ImportError:
+        _MULTILINGUAL_CLIP_BROKEN = True
+        return None
+    except Exception:
+        return None
 
 
 def role_shot_size_bonus(role, shot_size):

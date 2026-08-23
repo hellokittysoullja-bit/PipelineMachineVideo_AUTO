@@ -34,17 +34,52 @@ def test_sentence_relevance_none_on_empty_text():
     assert vd.sentence_relevance("x.jpg", None) is None
 
 
-def test_sentence_relevance_delegates_to_clip_relevance(monkeypatch):
-    calls = []
+def test_sentence_relevance_uses_multilingual_model_not_english_only_clip_relevance(monkeypatch, tmp_path):
+    # Реальный, эмпирически подтверждённый баг первой версии: sentence_relevance()
+    # передавала русский текст в pipeline_smart.clip_relevance() (одноязычная
+    # английская модель) — на реальных фото/фразах канала это давало почти
+    # нулевой сигнал (см. комментарий у SENTENCE_RELEVANCE_MODEL_VERSION).
+    # Фикс — отдельная мультиязычная модель, НЕ pipeline_smart.clip_relevance().
+    called = {"clip_relevance": False}
 
-    def fake_clip_relevance(path, text):
-        calls.append((path, text))
-        return 0.27
+    def fail_if_called(path, text):
+        called["clip_relevance"] = True
+        return 0.99   # заведомо отличается от того, что должен вернуть тест
+    monkeypatch.setattr(vd.pipeline_smart, "clip_relevance", fail_if_called)
 
-    monkeypatch.setattr(vd.pipeline_smart, "clip_relevance", fake_clip_relevance)
-    result = vd.sentence_relevance("x.jpg", "полный текст фразы блока")
-    assert result == 0.27
-    assert calls == [("x.jpg", "полный текст фразы блока")]
+    import numpy as np
+
+    class _FakeTextModel:
+        def encode(self, texts, convert_to_numpy=True):
+            return np.array([[1.0, 0.0, 0.0]])
+
+    class _FakeImageModel:
+        def encode(self, images, convert_to_numpy=True):
+            return np.array([[1.0, 0.0, 0.0]])   # параллельно тексту -> cos=1.0
+
+    monkeypatch.setattr(vd, "_get_multilingual_clip_models",
+                         lambda: (_FakeTextModel(), _FakeImageModel()))
+    img_path = str(tmp_path / "x.jpg")
+    from PIL import Image
+    Image.new("RGB", (4, 4)).save(img_path)
+
+    result = vd.sentence_relevance(img_path, "полный текст фразы блока")
+    assert result == pytest.approx(1.0)
+    assert called["clip_relevance"] is False, (
+        "sentence_relevance не должна использовать одноязычный "
+        "pipeline_smart.clip_relevance() — см. докстринг про баг")
+
+
+def test_sentence_relevance_none_when_multilingual_model_import_fails(monkeypatch, tmp_path):
+    def raise_import_error():
+        raise ImportError("sentence_transformers недоступен")
+    monkeypatch.setattr(vd, "_get_multilingual_clip_models", raise_import_error)
+    monkeypatch.setattr(vd, "_MULTILINGUAL_CLIP_BROKEN", False)
+    img_path = str(tmp_path / "x.jpg")
+    from PIL import Image
+    Image.new("RGB", (4, 4)).save(img_path)
+    assert vd.sentence_relevance(img_path, "текст") is None
+    assert vd._MULTILINGUAL_CLIP_BROKEN is True
 
 
 # ---------- role_shot_size_bonus ----------
@@ -311,3 +346,45 @@ def test_pipeline_smart_visual_director_cache_signature_delegates_to_module(monk
     sig = pipeline_smart._visual_director_cache_signature(vd)
     assert sig == vd.cache_signature()
     assert sig.startswith("director:assist:")
+
+
+# ---------- sentence_relevance: РЕАЛЬНАЯ мультиязычная модель на реальных
+# фото + реальной русской фразе сценария (не мок — та же логика, что golden
+# CLIP-тесты в test_media_selection_golden.py: сама суть регрессии, которую
+# нужно ловить, это ошибка семантики реальной модели, не что-то кодируемое
+# в мок-объекте). Фраза — дословно из videos/01_ves-mecha/script.txt. ----------
+
+sentence_transformers = pytest.importorskip("sentence_transformers")
+torch = pytest.importorskip("torch")
+transformers = pytest.importorskip("transformers")
+
+_GOLDEN_FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "golden_media")
+_GOLDEN_SWORD = os.path.join(_GOLDEN_FIXTURES, "sword.jpg")
+_GOLDEN_PIZZA = os.path.join(_GOLDEN_FIXTURES, "pizza.jpg")
+
+
+class TestSentenceRelevanceMultilingualRealModel:
+    def test_real_sentence_prefers_matching_photo_over_unrelated(self):
+        text = "Обычный одноручный рыцарский меч весит от килограмма до полутора."
+        r_sword = vd.sentence_relevance(_GOLDEN_SWORD, text)
+        r_pizza = vd.sentence_relevance(_GOLDEN_PIZZA, text)
+        assert r_sword is not None and r_pizza is not None
+        assert r_sword > r_pizza, (
+            f"реальная русская фраза сценария про меч должна давать более высокую "
+            f"близость к фото меча, чем к фото пиццы: sword={r_sword}, pizza={r_pizza}")
+
+    def test_regression_raw_russian_text_was_near_noise_on_english_only_clip(self):
+        # Документирует РЕАЛЬНУЮ причину фикса: та же фраза через ОДНОЯЗЫЧНУЮ
+        # (английскую) pipeline_smart.clip_relevance() не различает meч/пиццу
+        # на русском тексте — разница в пределах шума. Это не проверка самого
+        # sentence_relevance() (уже проверено выше), а живая регрессия на
+        # СТАРОЕ поведение, чтобы факт бага не потерялся молча, если кто-то
+        # решит "упростить" реализацию обратно.
+        text = "Обычный одноручный рыцарский меч весит от килограмма до полутора."
+        r_sword = vd.pipeline_smart.clip_relevance(_GOLDEN_SWORD, text)
+        r_pizza = vd.pipeline_smart.clip_relevance(_GOLDEN_PIZZA, text)
+        assert r_sword is not None and r_pizza is not None
+        assert abs(r_sword - r_pizza) < 0.05, (
+            "если это упало — одноязычный CLIP неожиданно научился различать "
+            "русский текст, sentence_relevance можно упростить обратно; "
+            "пока что это ожидаемо мал")
