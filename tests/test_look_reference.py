@@ -477,6 +477,67 @@ def test_look_correction_filter_applies_when_everything_matches(monkeypatch):
     assert state["reference_id"] == "snow_01"
 
 
+# ---------- arc_stage: сила коррекции подчинена драматургической стадии ----------
+
+def _applied_gains(monkeypatch, arc_stage):
+    ref = _ref("snow_01", "snow", (55, 1, -2), brightness=0.5, contrast=0.4, temperature=0.0,
+               max_delta=(10, 8, 8))
+    monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "assist")
+    monkeypatch.setattr(lr, "load_lookbook", lambda: {"references": [ref]})
+    monkeypatch.setattr(lr, "classify_domain", lambda path: ("snow", 0.1))
+    filt, report, state = lr.look_correction_filter(
+        "x.jpg", (0.1, 0.9), (0.5, 0.5, 0.5), has_face=False, scene_boundary=False, arc_stage=arc_stage)
+    assert report["decision"] == "applied"
+    return filt, report, state
+
+
+def test_arc_stage_full_bias_stage_matches_no_arc_stage_baseline(monkeypatch):
+    # "слом" — ARC_STAGE_STRENGTH_BIAS=1.00 — тот же результат, что и вообще
+    # без arc_stage (тот же stage_bias=1.0 в обоих случаях).
+    filt_base, report_base, _ = _applied_gains(monkeypatch, None)
+    filt_stage, report_stage, _ = _applied_gains(monkeypatch, "слом")
+    assert filt_stage == filt_base
+    assert report_stage["applied_delta"] == report_base["applied_delta"]
+    assert report_stage["stage_bias"] == 1.0
+
+
+def test_arc_stage_transitional_stage_reduces_correction_strength(monkeypatch):
+    # "мостик" — ARC_STAGE_STRENGTH_BIAS=0.80 — эффективная сила МЕНЬШЕ, чем
+    # без arc_stage (профессиональный колорист держится мягче на связках,
+    # полной силой — на драматургически важных стадиях, не одинаково везде).
+    _, report_base, _ = _applied_gains(monkeypatch, None)
+    _, report_stage, _ = _applied_gains(monkeypatch, "мостик")
+    assert report_stage["stage_bias"] == 0.8
+    base_mag = sum(abs(x) for x in report_base["applied_delta"])
+    stage_mag = sum(abs(x) for x in report_stage["applied_delta"])
+    assert stage_mag < base_mag
+
+
+def test_arc_stage_never_exceeds_max_strength_ceiling(monkeypatch):
+    # STAGE_BIAS_CLAMP=(0.6, 1.0) — bias физически не может превысить 1.0,
+    # даже если бы кто-то по ошибке вписал в ARC_STAGE_STRENGTH_BIAS
+    # значение >1.0 — MAX_STRENGTH остаётся абсолютным потолком.
+    monkeypatch.setitem(lr.ARC_STAGE_STRENGTH_BIAS, "слом", 5.0)
+    _, report_stage, _ = _applied_gains(monkeypatch, "слом")
+    assert report_stage["stage_bias"] == 1.0   # клэмпнуто, не 5.0
+
+
+def test_arc_stage_unknown_value_falls_back_to_full_strength(monkeypatch):
+    # Незнакомая строка (будущий stage, опечатка) — безопасный откат на
+    # bias=1.0 (не reject, не исключение), тот же принцип, что и у dict.get()
+    # с дефолтом везде в этом пайплайне.
+    _, report_base, _ = _applied_gains(monkeypatch, None)
+    _, report_stage, _ = _applied_gains(monkeypatch, "совершенно_незнакомая_стадия")
+    assert report_stage["stage_bias"] == 1.0
+    assert report_stage["applied_delta"] == report_base["applied_delta"]
+
+
+def test_arc_stage_recorded_in_report(monkeypatch):
+    _, report, _ = _applied_gains(monkeypatch, "постановка")
+    assert report["arc_stage"] == "постановка"
+    assert report["stage_bias"] == 0.9
+
+
 def test_look_correction_filter_shadow_never_returns_filter_but_computes_everything(monkeypatch):
     ref = _ref("snow_01", "snow", (55, 1, -2), max_delta=(10, 8, 8))
     monkeypatch.setattr(lr, "LOOK_MANAGEMENT_MODE", "shadow")

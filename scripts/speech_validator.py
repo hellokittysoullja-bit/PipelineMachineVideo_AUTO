@@ -40,7 +40,11 @@ Usage: python scripts/speech_validator.py <video_dir>
 Вход: media_plan/speech_plan.json + media_plan/alignment/*.csv (опционально —
 нет alignment -> все юниты "no_signal", ничего не защищено, fix_pauses.py
 работает как раньше, ноль регресса) + audio.mp3 (только для фингерпринта).
-Выход: media_plan/speech_timeline.json."""
+Выход: media_plan/speech_timeline.json.
+Код возврата: 0 — все юниты в норме; 2 — прогон прошёл успешно, но есть
+фразы, не достигшие задуманного ритма (advisory — "re-record phrase
+manually", не сбой); 1 — реальный сбой (нет speech_plan.json, план не
+прошёл валидацию, нет audio.mp3)."""
 import csv
 import hashlib
 import json
@@ -287,7 +291,12 @@ def main():
         for unit_id, reason in needs_retake:
             print(f"    [{unit_id}] {reason}")
     print(f"\nГотово: {os.path.join(plan_dir, 'speech_timeline.json')}")
-    return 1 if needs_retake else 0
+    # 0 — чисто; 2 — ПРОГОН ПРОШЁЛ УСПЕШНО, но есть фразы на ручную пересъёмку
+    # (advisory, не сбой); 1 зарезервирован за реальными сбоями выше (нет
+    # speech_plan.json, план не прошёл валидацию, нет audio.mp3). Раньше 1
+    # означало и то, и другое — при цепочном запуске (`&&`, как подразумевает
+    # ЧАСТЬ 13 CLAUDE.md) advisory-результат был неотличим от настоящего краша.
+    return 2 if needs_retake else 0
 
 
 if __name__ == "__main__":

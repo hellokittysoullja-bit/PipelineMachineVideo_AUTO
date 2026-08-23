@@ -19,7 +19,10 @@ try:
 except ImportError:
     np = None   # аудио-ритм по громкости — опциональная фича, без numpy просто выключена
 
-FPS, WIDTH, HEIGHT = 25, 1920, 1080
+FPS, WIDTH, HEIGHT = 24, 1920, 1080   # синхронизировано с pipeline_smart.py: 24 — киностандарт из
+# обоих продакшн-эталонов, было 25 (PAL ТВ). Раньше это число было изменено только в
+# pipeline_smart.py, и Ken Burns/xfade-математика двух сборщиков (эта формула буквально
+# скопирована оттуда) считалась с разной частотой кадров — реальный найденный дрейф.
 # ZOOM_FLOOR — минимальный зум держится ВЕСЬ клип (не 1.0). Раньше offset пана
 # был обязан = 0 ровно в момент zoom=1.0 (иначе край вылезет за картинку), и на
 # каждом втором клипе (zoom-out) кадр половину времени стоял мёртвым по центру.
@@ -160,6 +163,58 @@ def resolve_slot(media_dir, n):
     return None, None, None
 
 
+def render_tmp_path(out):
+    """Промежуточный путь для АТОМАРНОЙ записи клипа — рендерим сюда, потом
+    os.replace() в финальный `out` ТОЛЬКО при успехе (см. finalize_render()).
+    Тот же паттерн, которым pipeline_smart.py уже защищён (render_tmp_path/
+    finalize_render там), портирован сюда: без него убитый процесс
+    (SIGKILL/OOM/обрыв контейнера) посреди записи оставляет ОБРЕЗАННЫЙ mp4
+    ровно под финальным именем, а кэш-проверка в main() (раньше — голый
+    os.path.exists(out)) на следующем прогоне молча считает огрызок готовым
+    клипом — порченый кадр всплыл бы только на сборке/просмотре готового
+    ролика."""
+    return out + ".partial.mp4"
+
+
+def finalize_render(tmp, out, ok):
+    """Переименовать tmp -> out атомарно при успехе; подчистить огрызок при
+    провале. os.replace — атомарная операция на одной файловой системе (tmp и
+    out всегда в одной папке), никакого промежуточного полу-состояния файла
+    под финальным именем."""
+    if ok and os.path.exists(tmp):
+        os.replace(tmp, out)
+        return True
+    if os.path.exists(tmp):
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+    return False
+
+
+def verify_clip(path, expected_dur, tolerance=0.25):
+    """ffprobe-верификация уже записанного клипа — код возврата ffmpeg сам по
+    себе не гарантирует, что файл реально того же качества/длины, что
+    заказано (тот же класс сбоя, что независимо ловит pipeline_smart.py
+    ровно той же проверкой). Используется и на свежем рендере (перед
+    finalize_render), и на кэше при повторном запуске main() — без второго
+    применения кэш верится голым os.path.exists() и молча принимает битый
+    огрызок за готовый клип."""
+    try:
+        r = subprocess.run(["ffprobe", "-v", "quiet", "-print_format", "json",
+                            "-show_format", "-show_streams", path],
+                           capture_output=True, text=True, timeout=20)
+        if r.returncode != 0:
+            return False
+        data = json.loads(r.stdout)
+        if not any(s.get("codec_type") == "video" for s in data.get("streams", [])):
+            return False
+        actual = float(data["format"]["duration"])
+        return actual >= max(0.1, expected_dur - tolerance)
+    except Exception:
+        return False
+
+
 def kb_hash_choices(photo):
     """Кандидаты зума/пана по хэшу файла — детерминированно, но БЕЗ памяти о
     соседних клипах (это даёт anti-repetition в main(), см. pick_no_repeat)."""
@@ -200,6 +255,7 @@ def kenburns_clip(photo, out, d, source="stock", zoom_in=None, pan_dir=None):
     # поля по краям на фото, чей исходный кадр не ровно 16:9 (большинство
     # стока). Заливаем кадр целиком и обрезаем лишнее, как уже делает
     # video_clip() ниже для стокового видео.
+    tmp = render_tmp_path(out)
     cmd = ["ffmpeg", "-y", "-loop", "1", "-i", photo, "-vf",
            (f"scale=8000:4500:force_original_aspect_ratio=increase,"
             f"crop=8000:4500,setsar=1,"
@@ -207,8 +263,10 @@ def kenburns_clip(photo, out, d, source="stock", zoom_in=None, pan_dir=None):
             f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS},"
             f"{film_look(source, h)}"),
            "-t", str(d), "-c:v", "libx264", "-preset", "fast",
-           "-crf", "23", "-pix_fmt", "yuv420p", "-r", str(FPS), out]
-    return subprocess.run(cmd, capture_output=True, text=True).returncode == 0
+           "-crf", "23", "-pix_fmt", "yuv420p", "-r", str(FPS), tmp]
+    ok = subprocess.run(cmd, capture_output=True, text=True).returncode == 0
+    ok = ok and verify_clip(tmp, d)
+    return finalize_render(tmp, out, ok)
 
 
 def video_clip(vid, out, d, source="stock"):
@@ -221,10 +279,13 @@ def video_clip(vid, out, d, source="stock"):
     if actual < d - 0.05:
         vf += f",setpts={d/actual:.5f}*PTS"
     vf += f",{film_look(source, h)}"
+    tmp = render_tmp_path(out)
     cmd = ["ffmpeg", "-y", "-i", vid, "-vf", vf, "-t", str(d), "-an",
            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-           "-pix_fmt", "yuv420p", "-r", str(FPS), out]
-    return subprocess.run(cmd, capture_output=True, text=True).returncode == 0
+           "-pix_fmt", "yuv420p", "-r", str(FPS), tmp]
+    ok = subprocess.run(cmd, capture_output=True, text=True).returncode == 0
+    ok = ok and verify_clip(tmp, d)
+    return finalize_render(tmp, out, ok)
 
 
 def jittered_body_durations(n, base_d, audio_path=None, start_offset=0.0, start_step=None):
@@ -372,10 +433,20 @@ def main():
         is_hook_slot = slot <= hook_slots
         d = hook_dur.get(slot, body_d_avg) if is_hook_slot else body_durs[slot - hook_slots - 1]
         if os.path.exists(out):
-            clips.append(out)
-            clip_durs.append(d)
-            clip_is_hook.append(is_hook_slot)
-            continue
+            if verify_clip(out, d):
+                clips.append(out)
+                clip_durs.append(d)
+                clip_is_hook.append(is_hook_slot)
+                continue
+            # Битый/усечённый огрызок с прошлого прерванного прогона (см.
+            # render_tmp_path()) — не доверяем голому os.path.exists(),
+            # перерендериваем на месте вместо того, чтобы молча смонтировать
+            # порченый кадр в final.mp4.
+            print(f"  слот {slot}: закэшированный клип не прошёл верификацию, перерендер")
+            try:
+                os.remove(out)
+            except OSError:
+                pass
         kind, path, source = resolve_slot(media_dir, slot)
         if not path:
             missing.append(slot)

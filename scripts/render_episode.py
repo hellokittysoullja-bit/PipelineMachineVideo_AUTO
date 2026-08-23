@@ -63,34 +63,40 @@ SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 def _run(script_name, video_dir, extra_env=None):
     """Запускает scripts/<script_name> <video_dir> как подпроцесс (не
     import — section_sync.py/fix_pauses.py/pipeline_smart.py каждый сам
-    парсит sys.argv[1] на импорте, см. их же докстринги про этот приём)."""
+    парсит sys.argv[1] на импорте, см. их же докстринги про этот приём).
+    Вывод дочернего процесса НЕ перехватывается (никакого capture_output) —
+    идёт напрямую в унаследованные stdout/stderr в реальном времени. Раньше
+    capture_output=True буферизовал ВЕСЬ вывод и печатал его только после
+    завершения процесса — для рендер-шага (pipeline_smart.py), который может
+    идти часами, это означало, что пользователь не видел ВООБЩЕ НИЧЕГО в
+    терминале до конца или до падения, хотя сам pipeline_smart.py прилежно
+    печатает прогресс каждые 10-20 блоков. PYTHONUNBUFFERED гарантирует
+    реальное время и тогда, когда родительский stdout сам перенаправлен
+    (например, в лог-файл через tee), а не только в интерактивном терминале."""
     cmd = [sys.executable, os.path.join(SCRIPTS_DIR, script_name), video_dir]
     env = dict(os.environ)
+    env.setdefault("PYTHONUNBUFFERED", "1")
     if extra_env:
         env.update(extra_env)
     print(f"  -> {script_name} {video_dir}")
-    r = subprocess.run(cmd, env=env, capture_output=True, text=True)
-    if r.stdout:
-        print(r.stdout.rstrip())
-    if r.stderr:
-        print(r.stderr.rstrip(), file=sys.stderr)
+    r = subprocess.run(cmd, env=env)
     return r.returncode
 
 
 def _section_count(video_dir):
     """Число секций (HOOK/BLOCK*/FINAL) в script.txt — та же логика, что
     section_sync.py использует для собственного порога "меньше двух секций
-    -> детектор не нужен"."""
-    saved_argv = sys.argv
-    sys.argv = ["pipeline_smart.py", video_dir]
-    try:
-        import pipeline_smart as ps
-    finally:
-        sys.argv = saved_argv
+    -> детектор не нужен". parse_blocks() импортируется напрямую из
+    script_parser.py (лёгкий модуль без побочных эффектов) — раньше это
+    требовало временной подмены sys.argv и импорта ВСЕГО pipeline_smart.py
+    (5900+ строк, тяжёлые torch/cv2-зависимости) только ради одной функции;
+    section_sync.py вынужден так делать по другой причине (использует ещё
+    несколько символов из pipeline_smart.py), render_episode.py — нет."""
+    import script_parser
     script_path = os.path.join(video_dir, "script.txt")
     if not os.path.exists(script_path):
         return 0
-    blocks = ps.parse_blocks(script_path)
+    blocks = script_parser.parse_blocks(script_path)
     section_order = []
     for b in blocks:
         if not section_order or section_order[-1] != b["section"]:

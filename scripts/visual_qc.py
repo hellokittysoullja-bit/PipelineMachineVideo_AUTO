@@ -39,7 +39,10 @@ Usage: python scripts/visual_qc.py <video_dir>
       + media_plan/slots_master_index.txt (idx|текст) + media_plan/themes.json.
 Выход: media_plan/visual_qc_report.json + правки в media/ (замена
        отклонённых СТОКОВЫХ файлов; AI-картинки НИКОГДА не трогаются —
-       курируются человеком по ЧАСТИ 14, QC их только оценивает)."""
+       курируются человеком по ЧАСТИ 14, QC их только оценивает).
+Код возврата: 0 — чисто; 2 — прогон прошёл успешно, но есть слоты ниже
+       порога/без файла/reject (advisory, см. Шаг 7.5 — не сбой); 1 —
+       реальный сбой (media/ не найдена, нет слотов для проверки)."""
 import glob
 import json
 import os
@@ -386,25 +389,29 @@ def process_slot(media_dir, idx, query, accepted_hashes):
         best["_kept_path"] = path
 
     tries = 0
-    out_video_tmp = os.path.join(media_dir, f".qc_tmp_{idx:03d}.mp4")
-    out_photo_tmp = os.path.join(media_dir, f".qc_tmp_{idx:03d}.jpg")
+    # У каждой попытки — СВОЁ уникальное имя temp-файла (суффикс номера
+    # попытки), а не общее фиксированное на все QC_MAX_REFETCH_TRIES.
+    # Реальный баг, пойманный при разборе: с общим именем cleanup в начале
+    # следующей итерации удалял файл, на который уже ссылался best["_kept_path"]
+    # (если лучшим пока оставался более ранний, но всё ещё "reject" кандидат) —
+    # к концу цикла best указывал на несуществующий файл, и os.replace() ниже
+    # падал с FileNotFoundError, роняя весь QC-прогон.
+    tmp_paths = []
     while (best is None or best["verdict"] == "reject") and tries < QC_MAX_REFETCH_TRIES:
-        _cleanup(out_video_tmp, out_photo_tmp)
+        out_video_tmp = os.path.join(media_dir, f".qc_tmp_{idx:03d}_{tries}.mp4")
+        out_photo_tmp = os.path.join(media_dir, f".qc_tmp_{idx:03d}_{tries}.jpg")
         new_kind, new_path = _refetch_stock(media_dir, idx, prefer_video, query, tries,
                                              out_video_tmp, out_photo_tmp)
         tries += 1
         if new_path is None:
             continue
+        tmp_paths.append(new_path)
         candidate = qc_verdict(new_path, is_video=(new_kind == "video"), query=query,
                                 accepted_hashes={}, slot_label=slot_label)
         candidate["_kept_path"] = new_path
         candidate["_kind"] = new_kind
         if best is None or candidate["score"] > best["score"]:
-            if best is not None and best.get("_kept_path") not in (path, None):
-                _cleanup(best["_kept_path"])
             best = candidate
-        else:
-            _cleanup(new_path)
 
     auto_replaced = False
     if best is not None and best.get("_kept_path") != path:
@@ -420,7 +427,11 @@ def process_slot(media_dir, idx, query, accepted_hashes):
             os.replace(best["_kept_path"], final_path)
         best["path"] = final_path
         auto_replaced = True
-    _cleanup(out_video_tmp, out_photo_tmp)
+    # Все temp-файлы отклонённых попыток, кроме той, что стала best (уже
+    # перемещена os.replace выше, если применимо) — удаляем.
+    for p in tmp_paths:
+        if best is None or p != best.get("_kept_path"):
+            _cleanup(p)
 
     if best is None:
         return {"slot": slot_label, "verdict": "missing", "reasons": ["нет кандидата ни от одного источника"],
@@ -501,7 +512,13 @@ def main():
           f"НЕТ_ФАЙЛА={counts.get('missing', 0)} REJECT(AI)={counts.get('reject', 0)}")
     if unresolved:
         print(f"  {unresolved} слот(ов) требуют проверки глазами (Шаг 7.5) перед сборкой.")
-    return 1 if unresolved else 0
+    # Код возврата: 0 — чисто; 2 — ПРОГОН ПРОШЁЛ УСПЕШНО, но есть слоты,
+    # требующие ручной проверки (advisory, не сбой); 1 зарезервирован за
+    # реальными сбоями выше (media/ не найдена, нет слотов для проверки).
+    # Раньше 1 означало и то, и другое — при ручном/цепочном запуске
+    # (`&&`, как подразумевает ЧАСТЬ 13 CLAUDE.md) advisory-результат "часть
+    # слотов стоит переслушать/пересмотреть" был неотличим от настоящего краша.
+    return 2 if unresolved else 0
 
 
 if __name__ == "__main__":

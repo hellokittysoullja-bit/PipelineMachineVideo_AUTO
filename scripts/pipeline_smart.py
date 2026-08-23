@@ -454,6 +454,29 @@ def _visual_director_cache_signature(director_ref):
     инвалидация имеет смысл только для "assist"."""
     return director_ref.cache_signature() if director_ref is not None else "director:off"
 
+
+def _load_arc_stage_by_index(video_dir):
+    """{index: arc_stage} из media_plan/speech_plan.json (см.
+    speech_planner.assign_chapter_arcs — "заход-якорь"/"слом"/
+    "доказательство"/... для BLOCK-секций, "hook"/"final" для HOOK/FINAL).
+    index — ГЛОБАЛЬНЫЙ индекс блока parse_blocks(), который build_units()
+    пишет 1:1 в каждый unit (тот же i, которым идёт главный цикл main()) —
+    прямое соответствие, без отдельного маппинга. Используется в main(),
+    чтобы Look Management/Visual Director реагировали на драматургическую
+    стадию текущего блока, а не только на содержимое кадра в изоляции.
+    Нет speech_plan.json (эпизод без Speech Director, или ещё не запущен
+    speech_planner.py) -> {} -> вызывающий код получает arc_stage=None на
+    каждом клипе (safe fallback, тот же принцип, что и у остальных
+    опциональных источников данных пайплайна)."""
+    plan_path = os.path.join(video_dir, "media_plan", "speech_plan.json")
+    if not os.path.exists(plan_path):
+        return {}
+    try:
+        plan_data = json.load(open(plan_path, encoding="utf-8"))
+        return {u["index"]: u.get("arc_stage") for u in plan_data.get("units", []) if "index" in u}
+    except Exception:
+        return {}
+
 # Процедурная атмосферная подложка (см. scripts/generate_music_asset.py) —
 # тот же принцип, что и с grain_loop: статический ассет в репозитории, нет
 # файла -> MUSIC_ENABLED=False, безопасный откат на прежнее поведение
@@ -575,8 +598,12 @@ BOUNDARY_TRANSITIONS = ["dissolve", "fadeblack", "fadewhite", "fadegrays"]
 HOOK_MAX_CLIP = 3.6     # в хуке кадры короче и чаще — критично для удержания первых секунд.
                         # Было 5.0 — на практике держало хук почти вровень с телом ролика
                         # (4.65с против 6.8с), а не заметно быстрее, как задумано.
-PAUSE_DURATIONS = {"[pause]": 0.8, "[short pause]": 0.4,
-                   "[slowly]": 0.0, "[emphasis]": 0.0, "[energetic]": 0.0}
+# PAUSE_DURATIONS/parse_blocks живут в script_parser.py (лёгкий модуль без
+# побочных эффектов импорта) — см. его докстринг про то, почему это вынесено
+# из pipeline_smart.py. Реэкспортированы здесь под теми же именами: ничего
+# не сломано у существующих вызовов вида pipeline_smart.parse_blocks(...) /
+# тестов, патчащих pipeline_smart.PAUSE_DURATIONS.
+from script_parser import PAUSE_DURATIONS, parse_blocks  # noqa: E402
 
 # Russo One — фирменный "рубленый" дисплейный шрифт (CHANNEL.md house
 # style), не системный DejaVu. OFL, бесплатно (Google Fonts / google/fonts
@@ -1443,107 +1470,6 @@ def get_audio_duration():
     r = subprocess.run(["ffprobe", "-v", "quiet", "-print_format", "json",
                         "-show_format", AUDIO_FILE], capture_output=True, text=True, check=True)
     return float(json.loads(r.stdout)["format"]["duration"])
-
-
-def parse_blocks(path):
-    raw = open(path, encoding="utf-8").read()
-    # Берём ТОЛЬКО озвучиваемые секции (HOOK / BLOCK* / FINAL). Всё служебное —
-    # METADATA, PEXELS QUERIES, IMAGE PROMPTS, COMPETITOR ANALYSIS, TITLE/THUMBNAIL
-    # OPTIONS — отбрасывается по имени секции, а не по списку известных заголовков:
-    # раньше METADATA просачивалась в озвучку и съедала первый кадр.
-    parts = re.split(r'===\s*(.*?)\s*===', raw)
-    kept = []
-    for i in range(1, len(parts), 2):
-        name = parts[i].upper()
-        body = parts[i + 1] if i + 1 < len(parts) else ""
-        if name.startswith(("HOOK", "BLOCK", "FINAL")):
-            kept.append((name, body))
-    if kept:
-        # Маркер секции — ещё один спецтокен в общем потоке (не просто "\n"-склейка
-        # как раньше), чтобы граница === не рвала перенос паузы через границу блока,
-        # а секция при этом была известна для каждого получившегося блока.
-        # БЕЗ .strip("\x00") — иначе снимается ведущий \x00 у маркера самой первой
-        # секции (обычно HOOK), split() перестаёт его узнавать, и "SECTION:HOOK"
-        # утекает в текст как отдельный псевдо-блок из одного слова — под первый
-        # кадр хука уходит мусорный клип с generic-запросом вместо реального текста.
-        content = "".join(f"\x00SECTION:{name}\x00{body}" for name, body in kept)
-    else:
-        content = re.sub(r'===.*?===', '', raw).strip()   # сценарий без === — берём как есть
-    # [stat:TEXT] — цифра-плашка на экран (ЧАСТЬ "Монтаж под удержание": цифра
-    # без плашки не запоминается). Вытаскиваем ДО общего вырезания [...],
-    # иначе текст плашки пропадает вместе со всеми остальными тегами.
-    content = re.sub(r'\[stat:(.*?)\]', lambda m: f"\x01STAT:{m.group(1)}\x01", content)
-    # [climax] — 2.8 (второй продакшн-документ, "тишина как акцент перед
-    # разоблачением"): ставится сценаристом ЯВНО перед фразой-разоблачением
-    # (не угадывается автоматически — риск ложного срабатывания на обычном
-    # блоке того же типа, что уже отвели для CV-принудительной вариативности
-    # и акцентных слов при выборе, что НЕ делать). Пипелайн-only маркер,
-    # как [stat:...] — не входит в текст, который читает TTS (тот же
-    # принцип: пользователь копирует ЧИСТЫЙ текст в ElevenLabs, [stat:...]
-    # туда тоже никогда не попадал).
-    content = content.replace("[climax]", "\x02CLIMAX\x02")
-    processed = content
-    for tag in sorted(PAUSE_DURATIONS, key=len, reverse=True):
-        processed = processed.replace(tag, f"__PAUSE_{PAUSE_DURATIONS[tag]}__")
-    processed = re.sub(r'\[.*?\]', '', processed)
-    parts = re.split(r'(__PAUSE_[\d.]+__|\x00SECTION:.*?\x00|\x01STAT:.*?\x01|\x02CLIMAX\x02)', processed)
-    blocks, cur, pause, stat, stat_word_pos, pending_climax = [], "", 0.0, None, None, False
-    section = "BODY"
-
-    def flush():
-        nonlocal cur, pause, stat, stat_word_pos, pending_climax
-        if cur:
-            blocks.append({"text": cur, "pause_after": pause,
-                           "words": len(cur.split()), "section": section, "stat": stat,
-                           "stat_word_pos": stat_word_pos, "is_climax": pending_climax})
-        cur, pause, stat, stat_word_pos, pending_climax = "", 0.0, None, None, False
-
-    for part in parts:
-        mp = re.match(r'__PAUSE_([\d.]+)__', part)
-        ms = re.match(r'\x00SECTION:(.*?)\x00', part)
-        mst = re.match(r'\x01STAT:(.*?)\x01', part)
-        mc = part == "\x02CLIMAX\x02"
-        if mp:
-            pause += float(mp.group(1))
-        elif ms:
-            flush()             # смена секции — всегда граница блока
-            section = ms.group(1)
-        elif mc:
-            # Клаймакс относится к СЛЕДУЮЩЕМУ (ещё не начатому) блоку — тот
-            # же принцип, что у [stat:...] ниже: если что-то уже накоплено
-            # в cur, это ЧУЖОЙ, предыдущий блок, флашим его, не помечаем.
-            if cur:
-                flush()
-            pending_climax = True
-        elif mst:
-            # Плашка НЕ режет монтаж — [stat:...] может стоять посреди фразы
-            # без соседнего [pause], и это не повод обрывать клип на ровном
-            # месте. Но если пауза уже открыта (граница блока ждёт следующий
-            # текст), плашка относится к ЕЩЁ НЕ начатому следующему блоку —
-            # без явного flush() она утекала бы в текущий cur (баг: плашка
-            # после [pause] подписывалась под предыдущий, а не следующий кадр).
-            if pause > 0 and cur:
-                flush()
-            stat = mst.group(1)
-            # Тег стоит ПОСЛЕ фразы с числом ("...до полутора.[stat:1,0-1,5 КГ]
-            # Среднее...") — то есть к моменту тега число уже произнесено.
-            # Запоминаем, сколько слов УЖЕ накоплено в cur — это точка, к
-            # которой плашка должна появиться, а не начало клипа (раньше
-            # позиция тега нигде не сохранялась, плашка стартовала от t=0
-            # независимо от того, где в фразе реально звучит цифра — цифра
-            # на экране опережала озвучку на полклипа и больше)."""
-            stat_word_pos = len(cur.split())
-        else:
-            t = part.strip()
-            if t:
-                if pause > 0 and cur:
-                    flush()      # реальная пауза — вот это настоящая граница блока
-                    cur = t
-                else:
-                    cur = f"{cur} {t}".strip()
-    flush()
-    print(f"Блоков: {len(blocks)}")
-    return blocks
 
 
 ALIGNMENT_DIR = os.path.join(VIDEO_FOLDER, "media_plan", "alignment")
@@ -5298,6 +5224,16 @@ def main():
         if domain_ref is None:
             import look_reference as domain_ref  # noqa: F401
     domain_cache_sig = _domain_grade_cache_signature(domain_ref)
+    # Arc-stage awareness — см. _load_arc_stage_by_index() выше. Передаётся
+    # НИЖЕ в look_ref.look_correction_filter()/director_score_fn, чтобы Look
+    # Management/Visual Director реагировали на драматургическую стадию
+    # текущего блока, а не только на содержимое кадра в изоляции (тот же
+    # принцип, по которому проф. колорист/монтажёр держит цвет/крупность
+    # плана ПОДЧИНЁННЫМИ сюжету, не одинаковыми по всему ролику). Загружаем
+    # ОДИН РАЗ, только если хотя бы один потребитель реально активен —
+    # иначе это чтение файла впустую.
+    arc_stage_by_index = (_load_arc_stage_by_index(VIDEO_FOLDER)
+                           if (look_ref is not None or visual_director is not None) else {})
     used_photo_ids = set()   # общий на весь ролик — не даём одной фотке всплыть дважды
     used_video_ids = set()   # то же самое, отдельно для видео (разные ID-пространства)
     used_photo_hashes = []   # aHash уже отобранных фото — ловит визуальные дубли под РАЗНЫМИ ID (см. pexels_photo)
@@ -5309,6 +5245,19 @@ def main():
     look_report = {}   # индекс -> запись решения Look Management (каждый индекс, не только там, где сработало)
     look_state = None   # аналог luma_ema — {"delta","domain","reference_id"} между клипами (см. look_reference.EMPTY_STATE)
     director_report = {}   # индекс -> {"base_winner","director_winner","diverged"} (см. visual_director_report.json)
+
+    def mark_reports_skipped(i, reason):
+        """Единая точка записи "этот индекс пропущен" сразу в ОБА отчёта
+        (look_report/director_report) — раньше каждая РАННЯЯ ветка цикла
+        (continue до реального рендера кадра) дублировала обе строки по
+        отдельности, и реальный баг уже случался: одну из веток добавили,
+        забыв продублировать вторую запись (см. коммент у cache-hit ниже) —
+        индекс тихо выпадал из visual_director_report.json. Полный путь
+        (реальный рендер кадра, дальше по циклу) сюда не относится: там обе
+        записи разной формы и без continue между ними, дублировать нечего."""
+        look_report[i] = {"decision": reason}
+        director_report[i] = {"decision": reason}
+
     typewriter_click_times = []   # D4: абсолютные секунды щелчков клавиатуры на весь ролик
     hook_words = load_hook_word_timings(blocks, sub_starts, sub_baseline, real_weights)   # D2: пусто, если alignment.csv недоступен — тихий откат
     # P0-3: слова с аудио-шкалы (sub_starts/sub_baseline) переносятся на
@@ -5375,9 +5324,17 @@ def main():
         # (P1-4): раньше params_hash не содержал НИЧЕГО про
         # VISUAL_DIRECTOR_MODE, поэтому off -> assist на уже отрендеренном
         # эпизоде не инвалидировал кэш — см. _visual_director_cache_signature().
+        # arc_stage этого КОНКРЕТНОГО блока — тот же класс бага, если его не
+        # включить: сгенерировать/пересчитать speech_plan.json ПОСЛЕ первого
+        # рендера (или наоборот, удалить его) молча оставило бы старые
+        # кэшированные клипы под именем, которое больше не отражает реальный
+        # arc_stage, использованный при их рендере (Look Management/Visual
+        # Director получили бы другую силу/бонус на пересчёте, а кэш этого
+        # бы не заметил).
         params_hash = hashlib.md5(
             f"{d:.3f}|{title}|{stat}|{stat_variant}|{b['section']}|{queries[i]}|{stat_delay:.3f}|"
-            f"{captions}|{look_cache_sig}|{domain_cache_sig}|{director_cache_sig}".encode()).hexdigest()[:8]
+            f"{captions}|{look_cache_sig}|{domain_cache_sig}|{director_cache_sig}|"
+            f"{arc_stage_by_index.get(i)}".encode()).hexdigest()[:8]
         out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}_{params_hash}.mp4")
         if os.path.exists(out) and not verify_clip(out, d)[0]:
             # Кэш раньше доверял голому os.path.exists() — обрезанный/битый
@@ -5409,21 +5366,15 @@ def main():
             # независимо от того, кэш это или свежий рендер.
             pending_jobs.append({"i": i, "out": out, "d": d, "section": b["section"], "block": b,
                                   "video": False, "photo": None, "future": None, "ok": True})
-            # Look Management не может проанализировать кэш-хит — у него нет
-            # сохранённого пути к исходному фото/свежих levels/wb на этот
-            # прогон (см. ЗАМЕТКУ про shadow в look_reference.py). Честная
-            # запись, не тишина — иначе shadow-отчёт на уже отрендеренном
-            # эпизоде выглядел бы полным, хотя ничего не проанализировано.
-            look_report[i] = {"decision": "skipped_cache_hit"}
-            # РЕАЛЬНЫЙ БАГ (найден и исправлен в этом же коммите): director_report
-            # раньше НЕ получал записи на этой ветке вообще — в отличие от
-            # look_report прямо над этой строкой (та же ситуация, тот же принцип
-            # честности отчёта). visual_director_report.json тогда молча терял
-            # индексы кэш-хитов из "clips" (перечисление идёт по sorted(director_report)
-            # — отсутствующий ключ просто не появляется), а scored/diverged_from_base
-            # занижались без единого предупреждения, в отличие от look_manifest.json,
-            # который печатает явное cache_hits_skipped_analysis.
-            director_report[i] = {"decision": "skipped_cache_hit"}
+            # Look Management/Semantic Visual Director не могут проанализировать
+            # кэш-хит — нет сохранённого пути к исходному фото/свежих levels/wb
+            # на этот прогон (см. ЗАМЕТКУ про shadow в look_reference.py).
+            # Честная запись в ОБА отчёта (см. mark_reports_skipped() выше —
+            # именно на этой ветке однажды реально забыли продублировать
+            # вторую запись), не тишина — иначе shadow/director-отчёт на уже
+            # отрендеренном эпизоде выглядел бы полным, хотя ничего не
+            # проанализировано.
+            mark_reports_skipped(i, "skipped_cache_hit")
             continue
         photo = local_photo(i) if use_local else None
         video = None
@@ -5445,7 +5396,8 @@ def main():
                 director_text_domain, _ = visual_director.lr.text_domain_hint(b["text"])
                 director_score_fn = functools.partial(
                     visual_director.compute_extra_score, role=director_role, block_text=b["text"],
-                    text_domain=director_text_domain, recent_semantic_tags=recent_semantic_tags)
+                    text_domain=director_text_domain, recent_semantic_tags=recent_semantic_tags,
+                    arc_stage=arc_stage_by_index.get(i))
                 director_entry = {}
             # Content-aware чередование вместо механического i%2 (ЧАСТЬ 14
             # раньше просто нечётные->фото/чётные->видео) — зритель
@@ -5496,8 +5448,7 @@ def main():
             missing.append(i + 1)
             render_manifest[i] = {"index": i, "status": "failed",
                                    "reason": "нет медиа (ни фото, ни видео)", "section": b["section"]}
-            look_report[i] = {"decision": "skipped_no_media"}
-            director_report[i] = {"decision": "skipped_no_media"}
+            mark_reports_skipped(i, "skipped_no_media")
             continue
         recent_media_types.append("video" if video else "photo")
         del recent_media_types[:-6]
@@ -5575,7 +5526,7 @@ def main():
             has_face = detect_face_anchor(photo) is not None
             look_filter, look_entry, look_state = look_ref.look_correction_filter(
                 photo, levels, wb, has_face, scene_boundary=is_section_start,
-                section=b["section"], prev_state=look_state)
+                section=b["section"], prev_state=look_state, arc_stage=arc_stage_by_index.get(i))
             look_report[i] = look_entry
         # П.4: домен кадра для DOMAIN_WARM_PUSH_SCALE (film_look()) — только
         # фото (видео не участвует, тот же скоуп, что Look Management выше),

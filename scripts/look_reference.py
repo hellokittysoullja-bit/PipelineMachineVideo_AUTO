@@ -181,6 +181,29 @@ DEFAULT_MAX_CORRECTION_DELTA = (10.0, 8.0, 8.0)   # (dL, da, db), если у
                                                      # эталона поле не задано
 OVERSATURATION_FACTOR = 1.5   # рост хромы (sqrt(a^2+b^2)) свыше этого — hard-fail
 
+# Arc-stage-осведомлённая модуляция силы коррекции (см. speech_planner.
+# assign_chapter_arcs — "заход-якорь"/"постановка"/"слом"/"доказательство"/
+# "вывод"/"перенос-на-зрителя"/"мостик" для BLOCK-секций, "hook"/"final" для
+# HOOK/FINAL). Профессиональный колорист держит грейд ПОДЧИНЁННЫМ сюжету —
+# полная сила на драматургически важных стадиях (сам момент разоблачения
+# мифа), мягче на связках/переходах, а не одинаковая сила по всему ролику
+# (это и есть та "шаблонность", от которой отличаются каналы с ручной
+# доводкой). НИКОГДА не превышает 1.0 — MAX_STRENGTH остаётся абсолютным
+# потолком (см. его комментарий выше: "частичная коррекция, никогда полный
+# снап к эталону"), STAGE_BIAS_CLAMP может только УМЕНЬШИТЬ эффективную
+# силу на переходных стадиях, никогда не увеличить её сверх уже
+# откалиброванного MAX_STRENGTH. Некалиброванные, разумные стартовые
+# значения (нет ни одного реального эпизода канала) — та же честная
+# маркировка, что у DOMAIN_MARGIN/MAX_MATCH_DISTANCE выше. Отсутствие
+# speech_plan.json (эпизод без Speech Director) -> arc_stage=None на каждом
+# клипе -> stage_bias=1.0 везде -> байт-в-байт прежнее поведение.
+ARC_STAGE_STRENGTH_BIAS = {
+    "hook": 1.00, "слом": 1.00, "доказательство": 1.00,
+    "заход-якорь": 0.85, "постановка": 0.90, "мостик": 0.80,
+    "вывод": 0.95, "перенос-на-зрителя": 0.95, "final": 0.85,
+}
+STAGE_BIAS_CLAMP = (0.6, 1.0)
+
 # Skin tone corridor — реальный, задокументированный стандарт колористики
 # (vectorscope "skin tone line": угол тона кожи держится в узком коридоре
 # независимо от тона/освещения, меняется в основном ХРОМА, не угол — см.
@@ -254,7 +277,8 @@ def _cache_relevant_constants():
     return (POLICY_VERSION, DOMAIN_MARGIN, MAX_MATCH_DISTANCE, MAX_STRENGTH,
             GAIN_CLAMP, DELTA_STEP_CLAMP, DEFAULT_MAX_CORRECTION_DELTA,
             OVERSATURATION_FACTOR, AUX_BRIGHTNESS_WEIGHT, AUX_CONTRAST_WEIGHT,
-            AUX_TEMP_WEIGHT)
+            AUX_TEMP_WEIGHT, tuple(sorted(ARC_STAGE_STRENGTH_BIAS.items())),
+            STAGE_BIAS_CLAMP)
 
 
 def cache_signature():
@@ -728,12 +752,21 @@ def load_lookbook():
     return data
 
 
-def look_correction_filter(image_path, levels, wb, has_face, scene_boundary, section="", prev_state=None):
+def look_correction_filter(image_path, levels, wb, has_face, scene_boundary, section="",
+                            prev_state=None, arc_stage=None):
     """Возвращает (filter_str_or_None, report_entry, new_state).
     filter_str — фрагмент ffmpeg-графа (colorchannelmixer), приклеивается
     ПОСЛЕ film_look(...) вызывающим кодом, никогда не заменяет его. None —
     коррекция не применяется/не рендерится (см. report_entry['decision'] за
     причиной) — вызывающий код просто не добавляет ничего.
+
+    arc_stage — риторическая стадия ЭТОГО блока из media_plan/speech_plan.json
+    (см. speech_planner.assign_chapter_arcs), None — если эпизод без Speech
+    Director. Модулирует ТОЛЬКО эффективную силу коррекции через
+    ARC_STAGE_STRENGTH_BIAS/STAGE_BIAS_CLAMP (см. их комментарий выше) — не
+    трогает ни один из hard-гейтов ниже (clipping/oversaturation/skin
+    corridor/closed-loop) — те применяются к уже посчитанным gains ровно так
+    же, независимо от того, как была получена сила коррекции.
 
     section — секция сценария (HOOK/BLOCK*/FINAL) ЭТОГО клипа, нужна
     ТОЛЬКО для closed-loop проверки (_closed_loop_improves) — та рендерит
@@ -793,11 +826,18 @@ def look_correction_filter(image_path, levels, wb, has_face, scene_boundary, sec
                      "reference_changed" if reference_changed else None)
     effective_prev_delta = None if reset else prev_state["delta"]
 
-    gains, qc, new_delta = compute_correction(wb, frame_lab, reference, confidence, effective_prev_delta)
+    # arc_stage=None (эпизод без Speech Director) -> stage_bias=1.0 ->
+    # effective_confidence == confidence -> байт-в-байт прежнее поведение.
+    stage_bias = (max(STAGE_BIAS_CLAMP[0], min(STAGE_BIAS_CLAMP[1], ARC_STAGE_STRENGTH_BIAS.get(arc_stage, 1.0)))
+                  if arc_stage is not None else 1.0)
+    effective_confidence = confidence * stage_bias
+
+    gains, qc, new_delta = compute_correction(wb, frame_lab, reference, effective_confidence, effective_prev_delta)
     new_state = {"delta": new_delta, "domain": domain, "reference_id": reference_id}
     report = {
         "domain": domain, "domain_margin": round(margin, 4),
         "reference_id": reference_id, "confidence": round(confidence, 4),
+        "arc_stage": arc_stage, "stage_bias": round(stage_bias, 3),
         "applied_delta": [round(x, 3) for x in new_delta] if new_delta else None,
         "ema_reset": reset, "reset_reason": reset_reason,
         "qc": qc,
