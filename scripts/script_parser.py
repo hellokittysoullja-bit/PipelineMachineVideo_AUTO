@@ -136,3 +136,60 @@ def parse_blocks(path):
     flush()
     print(f"Блоков: {len(blocks)}")
     return blocks
+
+
+def _normalize_section_key(name):
+    """"BLOCK 1: Постановка проблемы" (b["section"], полный заголовок) и
+    "BLOCK_1" (строка в === PEXELS QUERIES ===, см. parse_pexels_queries) —
+    два РАЗНЫХ написания одной и той же секции (пробел+заголовок против
+    подчёркивания). Нормализует оба к общему ключу ("BLOCK1"/"HOOK"/
+    "FINAL") — без этого сопоставление по имени секции никогда бы не
+    совпало. None, если строка не начинается с известного имени секции."""
+    m = re.match(r'\s*(HOOK|FINAL|BLOCK[\s_]*\d+)', name.strip().upper())
+    if not m:
+        return None
+    return re.sub(r'[\s_]+', '', m.group(1))
+
+
+def parse_pexels_queries(path):
+    """Разбор === PEXELS QUERIES === (см. CLAUDE.md ЧАСТЬ 9/13, Шаг 3) —
+    {normalized_section_key: [query, ...]}. Это ЗАПРОСЫ, НАПИСАННЫЕ ВРУЧНУЮ
+    (человеком/LLM) в процессе написания сценария, С ПОЛНЫМ КОНТЕКСТОМ
+    момента ("вспомни, сколько весит пакет молока у тебя в руке" ->
+    "milk bottle hand") — то, что чисто алгоритмический query_for()/THEMES
+    (см. pipeline_smart.py) физически не может воспроизвести: тот сопостав-
+    ляет только отдельные существительные-корни из статического словаря,
+    без понимания сцены целиком. Секция реально существует в script.txt
+    production-эпизода (videos/01_ves-mecha) — просто ДО этого коммита ни
+    разу не читалась пайплайном, несмотря на то что протокол явно требует
+    её писать (реальный, найденный по прямому запросу пользователя пробел:
+    "написанное для этого назначения не используется").
+
+    Нет файла / нет секции / секция пуста -> {} (честный откат — вызывающий
+    код в pipeline_smart.resolve_queries() просто не находит authored-
+    запрос для секции и работает как раньше, query_for()/THEMES)."""
+    try:
+        raw = open(path, encoding="utf-8").read()
+    except Exception:
+        return {}
+    parts = re.split(r'===\s*(.*?)\s*===', raw)
+    body = None
+    for i in range(1, len(parts), 2):
+        if parts[i].strip().upper().startswith("PEXELS QUERIES"):
+            body = parts[i + 1] if i + 1 < len(parts) else ""
+            break
+    if not body:
+        return {}
+    result = {}
+    for line in body.splitlines():
+        line = line.strip()
+        if not line or ":" not in line:
+            continue
+        label, _, rest = line.partition(":")
+        key = _normalize_section_key(label)
+        if not key:
+            continue
+        queries = [q.strip() for q in rest.split(",") if q.strip()]
+        if queries:
+            result[key] = queries
+    return result

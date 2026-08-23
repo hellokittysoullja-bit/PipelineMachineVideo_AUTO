@@ -616,7 +616,7 @@ HOOK_MAX_CLIP = 3.6     # в хуке кадры короче и чаще — к
 # из pipeline_smart.py. Реэкспортированы здесь под теми же именами: ничего
 # не сломано у существующих вызовов вида pipeline_smart.parse_blocks(...) /
 # тестов, патчащих pipeline_smart.PAUSE_DURATIONS.
-from script_parser import PAUSE_DURATIONS, parse_blocks  # noqa: E402
+from script_parser import PAUSE_DURATIONS, parse_blocks, parse_pexels_queries, _normalize_section_key  # noqa: E402
 
 # Russo One — фирменный "рубленый" дисплейный шрифт (CHANNEL.md house
 # style), не системный DejaVu. OFL, бесплатно (Google Fonts / google/fonts
@@ -2495,7 +2495,7 @@ def _diversify_repeated_query_runs(resolved, blocks):
             break
 
 
-def resolve_queries(blocks):
+def resolve_queries(blocks, authored_queries=None):
     """Прямой поиск по themes.json ловит не все блоки — короткие связки
     ("Не дрались. Несли.", "Береги себя.") и абстрактные куски без предметных
     слов улетают в generic-заглушку, которая никак не привязана к теме ролика.
@@ -2505,13 +2505,45 @@ def resolve_queries(blocks):
     вообще ничего не нашлось — берём по кругу из GENERIC_FALLBACKS (не один
     и тот же текст на всё, иначе Pexels отдаёт одну и ту же жалкую пятёрку).
 
+    authored_queries (опционально) — {normalized_section_key: [query, ...]}
+    из === PEXELS QUERIES === (см. script_parser.parse_pexels_queries) —
+    запросы, написанные вручную СО ЗНАНИЕМ КОНКРЕТНОГО МОМЕНТА сценария
+    ("вспомни, сколько весит пакет молока" -> "milk bottle hand"), которые
+    query_for()/THEMES физически не может воспроизвести (статический
+    словарь корней, без понимания сцены целиком). Реальный, найденный по
+    прямому запросу пользователя пробел: секция писалась по протоколу
+    (CLAUDE.md ЧАСТЬ 13, Шаг 3), но НИКОГДА не читалась пайплайном —
+    query_for() всегда молча пересчитывал заново, теряя весь авторский
+    контекст. ПРИОРИТЕТ над query_for() там, где для секции есть
+    авторские запросы: распределяются по ОРИГИНАЛЬНЫМ (до sub-cut split)
+    блокам секции по порядку, sub-cut-продолжение (b["is_subcut"]) получает
+    ТОТ ЖЕ запрос, что и его исходный блок (тот же принцип, что уже
+    работает для query_for() — "под-кадры унаследуют запрос", см.
+    split_long_blocks). None/{} -> прежнее поведение, ноль регрессии.
+
     Наследование само по себе может дать длинную цепочку блоков с ОДНИМ и
     тем же буквальным запросом (см. _diversify_repeated_query_runs) —
     финальный проход разбивает такие цепочки длиннее
     MAX_CONSECUTIVE_SAME_QUERY, даже если каждый отдельный запрос в ней
-    формально верный по теме."""
+    формально верный по теме (в т.ч. авторские — те тоже могут повторяться
+    по кругу, если исходных блоков в секции больше, чем написанных запросов)."""
     keyword_counts = {}
     raw = [query_for(b["text"], keyword_counts) for b in blocks]
+
+    if authored_queries:
+        cursors = {}
+        for i, b in enumerate(blocks):
+            key = _normalize_section_key(b["section"])
+            pool = authored_queries.get(key) if key else None
+            if not pool:
+                continue
+            if b.get("is_subcut") and i > 0 and raw[i - 1] is not None:
+                raw[i] = raw[i - 1]
+                continue
+            idx = cursors.get(key, 0)
+            raw[i] = pool[idx % len(pool)]
+            cursors[key] = idx + 1
+
     resolved = list(raw)
     for i, q in enumerate(resolved):
         if q is not None:
@@ -5187,7 +5219,15 @@ def main():
     log_render_diagnostics("render_start")
     use_local = os.path.isdir(MEDIA_FOLDER) and bool(local_photo(0))
     use_pexels = bool(PEXELS_API_KEY)
-    queries = resolve_queries(blocks)
+    # === PEXELS QUERIES === написан вручную по протоколу (CLAUDE.md ЧАСТЬ 13,
+    # Шаг 3), но до этой строки НИКОГДА не читался пайплайном — см. докстринг
+    # resolve_queries()/authored_queries. {} у эпизодов без этой секции
+    # (напр. тестовые скрипты) -> ноль влияния, прежнее поведение.
+    authored_queries = parse_pexels_queries(SCRIPT_FILE)
+    if authored_queries:
+        print(f"  Авторские PEXELS QUERIES: {sum(len(v) for v in authored_queries.values())} "
+              f"запрос(ов) на {len(authored_queries)} секци(й)")
+    queries = resolve_queries(blocks, authored_queries=authored_queries)
     write_shot_manifest(VIDEO_FOLDER, blocks, durs, queries)
     # Reference-Guided Look Management (scripts/look_reference.py) — ленивый импорт
     # (см. clip_relevance()/torch выше — тот же принцип: не тянуть модель/CLIP в

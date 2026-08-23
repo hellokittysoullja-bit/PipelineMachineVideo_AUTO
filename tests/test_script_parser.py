@@ -58,3 +58,58 @@ def test_pipeline_smart_reexports_same_object_as_script_parser():
         assert pipeline_smart.PAUSE_DURATIONS is script_parser.PAUSE_DURATIONS
     finally:
         sys.argv = old_argv
+
+
+# ---------- parse_pexels_queries / _normalize_section_key — === PEXELS
+# QUERIES === написан вручную по протоколу (CLAUDE.md ЧАСТЬ 13, Шаг 3), но
+# до этого коммита ни разу не читался пайплайном (реальный найденный
+# пробел) ----------
+
+def _sp():
+    sys.path.insert(0, SCRIPTS_DIR)
+    import script_parser
+    return script_parser
+
+
+def test_normalize_section_key_matches_full_header_and_underscore_form():
+    sp = _sp()
+    assert sp._normalize_section_key("BLOCK 1: Постановка проблемы") == "BLOCK1"
+    assert sp._normalize_section_key("BLOCK_1") == "BLOCK1"
+    assert sp._normalize_section_key("HOOK") == "HOOK"
+    assert sp._normalize_section_key("FINAL") == "FINAL"
+
+
+def test_normalize_section_key_none_for_unknown_prefix():
+    sp = _sp()
+    assert sp._normalize_section_key("IMAGE PROMPTS") is None
+    assert sp._normalize_section_key("") is None
+
+
+def test_parse_pexels_queries_real_format(tmp_path):
+    sp = _sp()
+    script_path = tmp_path / "script.txt"
+    script_path.write_text(
+        "=== HOOK === Текст хука.\n\n"
+        "=== BLOCK 1: Название === Текст блока.\n\n"
+        "=== PEXELS QUERIES ===\n"
+        "HOOK: medieval knight sword battle, milk bottle hand\n"
+        "BLOCK_1: medieval sword museum display, knight armor exhibit\n\n"
+        "=== IMAGE PROMPTS ===\nНе используется.\n",
+        encoding="utf-8")
+    result = sp.parse_pexels_queries(str(script_path))
+    assert result == {
+        "HOOK": ["medieval knight sword battle", "milk bottle hand"],
+        "BLOCK1": ["medieval sword museum display", "knight armor exhibit"],
+    }
+
+
+def test_parse_pexels_queries_missing_section_returns_empty(tmp_path):
+    sp = _sp()
+    script_path = tmp_path / "script.txt"
+    script_path.write_text("=== HOOK === Текст хука.\n", encoding="utf-8")
+    assert sp.parse_pexels_queries(str(script_path)) == {}
+
+
+def test_parse_pexels_queries_missing_file_returns_empty():
+    sp = _sp()
+    assert sp.parse_pexels_queries("/no/such/script.txt") == {}

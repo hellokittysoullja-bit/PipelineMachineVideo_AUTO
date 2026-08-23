@@ -292,6 +292,68 @@ def test_resolve_queries_all_same_in_section_falls_back_to_generic(monkeypatch):
     assert any(q in pipeline_smart.GENERIC_FALLBACKS for q in resolved[pipeline_smart.MAX_CONSECUTIVE_SAME_QUERY:])
 
 
+# ---------- resolve_queries(authored_queries=...) — === PEXELS QUERIES ===
+# написан вручную по протоколу (CLAUDE.md ЧАСТЬ 13, Шаг 3), но до этого не
+# читался пайплайном вообще (реальный, найденный по прямому запросу
+# пользователя пробел) — query_for()/THEMES физически не может
+# воспроизвести контекст конкретного момента сценария, который человек/LLM
+# вписывает вручную ("вспомни про молоко" -> "milk bottle hand"). ----------
+
+def test_resolve_queries_authored_takes_priority_over_themes(monkeypatch):
+    # Даже когда THEMES нашёл бы совпадение ("меч"), авторский запрос из
+    # === PEXELS QUERIES === побеждает — он написан с полным контекстом
+    # сцены, а не по одному ключевому слову.
+    monkeypatch.setattr(pipeline_smart, "THEMES", {"меч": "medieval sword close up"})
+    blocks = [{"text": "Меч был длинным.", "words": 3, "pause_after": 0.0, "section": "HOOK", "stat": None}]
+    resolved = pipeline_smart.resolve_queries(blocks, authored_queries={"HOOK": ["milk bottle hand"]})
+    assert resolved == ["milk bottle hand"]
+
+
+def test_resolve_queries_authored_cycles_across_original_blocks_in_section(monkeypatch):
+    monkeypatch.setattr(pipeline_smart, "THEMES", {})
+    blocks = [{"text": f"Фраза {i}.", "words": 2, "pause_after": 0.0, "section": "HOOK", "stat": None}
+              for i in range(3)]
+    resolved = pipeline_smart.resolve_queries(blocks, authored_queries={"HOOK": ["q1", "q2"]})
+    assert resolved == ["q1", "q2", "q1"]   # третий блок — по кругу, снова q1
+
+
+def test_resolve_queries_authored_subcut_inherits_parent_not_next_in_pool(monkeypatch):
+    # is_subcut=True — это НЕ новый исходный блок, а продолжение предыдущего
+    # (см. split_long_blocks: "под-кадры унаследуют запрос") — обязан
+    # получить ТОТ ЖЕ авторский запрос, что и родитель, не следующий по кругу.
+    monkeypatch.setattr(pipeline_smart, "THEMES", {})
+    blocks = [
+        {"text": "Первая половина фразы.", "words": 3, "pause_after": 0.0,
+         "section": "HOOK", "stat": None, "is_subcut": False},
+        {"text": "Вторая половина той же фразы.", "words": 4, "pause_after": 0.0,
+         "section": "HOOK", "stat": None, "is_subcut": True},
+        {"text": "Уже новая, отдельная фраза.", "words": 4, "pause_after": 0.0,
+         "section": "HOOK", "stat": None, "is_subcut": False},
+    ]
+    resolved = pipeline_smart.resolve_queries(blocks, authored_queries={"HOOK": ["q1", "q2"]})
+    assert resolved == ["q1", "q1", "q2"]
+
+
+def test_resolve_queries_authored_matches_full_section_header_with_title(monkeypatch):
+    # b["section"] реально хранит "BLOCK 1: Постановка проблемы" (полный
+    # заголовок из === BLOCK 1: ... ===), а строка в === PEXELS QUERIES ===
+    # это "BLOCK_1:" (подчёркивание, без заголовка) — оба должны совпасть
+    # через _normalize_section_key.
+    monkeypatch.setattr(pipeline_smart, "THEMES", {})
+    blocks = [{"text": "Любая фраза.", "words": 2, "pause_after": 0.0,
+               "section": "BLOCK 1: ПОСТАНОВКА ПРОБЛЕМЫ", "stat": None}]
+    resolved = pipeline_smart.resolve_queries(blocks, authored_queries={"BLOCK1": ["museum sword display"]})
+    assert resolved == ["museum sword display"]
+
+
+def test_resolve_queries_no_authored_queries_unchanged_behavior(monkeypatch):
+    # authored_queries=None (или {}) — байт-в-байт прежнее поведение.
+    monkeypatch.setattr(pipeline_smart, "THEMES", {"меч": "medieval sword close up"})
+    blocks = [{"text": "Меч весил немало.", "words": 3, "pause_after": 0.0, "section": "BODY", "stat": None}]
+    assert pipeline_smart.resolve_queries(blocks) == pipeline_smart.resolve_queries(blocks, authored_queries=None)
+    assert pipeline_smart.resolve_queries(blocks) == pipeline_smart.resolve_queries(blocks, authored_queries={})
+
+
 # ---------- wordcount.py ----------
 
 def test_clean_words_strips_tags_and_markers():
@@ -792,8 +854,14 @@ def test_detect_face_anchor_none_for_known_false_positive_sword_photo():
     # каскада лица, что блокировало Look Management assist на нём — см.
     # коммит. Тест — реальный файл, если он ещё в кэше этой рабочей копии
     # (не гарантирован в CI без реального temp_smart/); best-effort skip.
+    # "*1b37a930.jpg" — хэш ТЕКСТА ЗАПРОСА (см. pexels_photo()), не хэш
+    # фото — часто повторяющийся запрос даёт этот суффикс на десятки РАЗНЫХ
+    # слотов реального эпизода (у каждого свой anti-dup выбор из выдачи
+    # Pexels). Пиннинг на конкретный, вручную проверенный индекс (0000) —
+    # без сортировки/пиннинга glob мог выбрать любой из НЕОДИНАКОВЫХ фото
+    # под этим суффиксом (см. коммит).
     import glob
-    candidates = glob.glob("videos/*/temp_smart/pexels_cache/*1b37a930.jpg")
+    candidates = sorted(glob.glob("videos/*/temp_smart/pexels_cache/0000_1b37a930.jpg"))
     if not candidates:
         pytest.skip("реальный тестовый файл не найден в этой рабочей копии")
     assert pipeline_smart.detect_face_anchor(candidates[0]) is None

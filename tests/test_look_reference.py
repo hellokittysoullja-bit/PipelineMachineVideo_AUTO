@@ -119,9 +119,17 @@ def test_classify_domain_no_tiebreak_with_stylistic_domain(monkeypatch):
 
 
 def test_classify_domain_real_sword_in_snow_photo_now_resolves_to_snow():
+    # РЕАЛЬНЫЙ найденный баг теста (не кода): "*1b37a930.jpg" — хэш ТЕКСТА
+    # ЗАПРОСА (см. pexels_photo() — {index:04d}_{qhash}.jpg), не хэш фото.
+    # Один и тот же часто повторяющийся запрос ("меч") даёт этот суффикс
+    # на ДЕСЯТКИ РАЗНЫХ слотов реального эпизода (у каждого слота свой
+    # anti-dup выбор из выдачи Pexels) — glob-and-take-first без сортировки
+    # мог случайно выбрать любой из НЕОДИНАКОВЫХ фото под этим суффиксом.
+    # Пиннинг на конкретный, вручную проверенный индекс (0000) — тот же
+    # файл, что использовался для калибровки Color Director в этой сессии.
     pytest.importorskip("cv2")
     import glob
-    candidates = glob.glob("videos/*/temp_smart/pexels_cache/*1b37a930.jpg")
+    candidates = sorted(glob.glob("videos/*/temp_smart/pexels_cache/0000_1b37a930.jpg"))
     if not candidates:
         pytest.skip("реальный тестовый файл не найден в этой рабочей копии")
     domain, margin = lr.classify_domain(candidates[0])
