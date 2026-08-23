@@ -6,9 +6,21 @@ numpy>=1.24
 # Только для tests/ (pytest tests/) — в проде пайплайну не нужен.
 pytest>=8.0
 
-# Опционально — 2.5D-параллакс в pipeline_smart.py (PARALLAX=0 отключает).
-# Без них скрипт работает как обычно, просто без этой фичи.
-# opencv-python-headless
+# opencv-python-headless — используется в pipeline_smart.py для 2.5D-параллакса
+# (опционально, PARALLAX=0 отключает) И для anchor-aware кропа по лицу
+# (detect_face_anchor — всегда, если cv2 доступен; без него просто старый
+# центр-кроп, без регрессии). Пин на 4.10.0.84 обязателен: opencv-python-headless
+# 5.0.0 (то, что подтягивается без пина) идёт БЕЗ CascadeClassifier и БЕЗ файлов
+# haarcascade вообще (проверено вживую) — anchor-по-лицу молча никогда не
+# сработает на такой версии.
+opencv-python-headless==4.10.0.84
+# Опционально — для 2.5D-параллакса (Depth-Anything-V2) И для CLIP-проверки
+# релевантности медиа (clip_relevance() в pexels_photo() — ловит кандидатов,
+# которые прошли текстовый поиск Pexels по ключевым словам, но по смыслу
+# мимо запроса; CLIP_RELEVANCE=0 отключает). Без torch/transformers — обе
+# фичи просто выключены (безопасный откат, без регрессии). torchvision
+# нужен только параллаксу, CLIP его не использует, но ставить всё вместе
+# проще, чем разводить на два опциональных набора.
 # torch --index-url https://download.pytorch.org/whl/cpu
 # torchvision --index-url https://download.pytorch.org/whl/cpu
 # transformers
