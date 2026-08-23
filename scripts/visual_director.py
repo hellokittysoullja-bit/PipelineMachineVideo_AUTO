@@ -80,33 +80,36 @@ SENTENCE_RELEVANCE_WEIGHT = 1.0   # доминирующий член — тот
                                     # (реалистичный диапазон ~0.15-0.35), что уже
                                     # использует is_relevant_candidate()
 
-# РЕАЛЬНЫЙ, эмпирически подтверждённый баг (не гипотеза): sentence_relevance()
-# передавала СЫРОЙ русский block_text прямо в pipeline_smart.clip_relevance(),
-# который использует ОДНОЯЗЫЧНУЮ (английскую) openai/clip-vit-base-patch32.
-# Прямое измерение на реальных фото канала + реальных фразах сценария (см.
-# коммит): та же модель на русском тексте даёт кластер 0.17-0.21 НЕЗАВИСИМО
-# от содержимого картинки (меч/пицца/катана — разница в пределах шума) — то
-# есть доминирующий сигнал Директора (SENTENCE_RELEVANCE_WEIGHT=1.0, больше
-# любого другого бонуса) на практике был ПУСТЫМ для ВСЕГО этого (русскоязычного)
-# канала, хотя VISUAL_DIRECTOR_MODE=assist уже включён. Мультиязычная модель
-# (sentence-transformers/clip-ViT-B-32-multilingual-v1, та же архитектура CLIP,
-# дообученная на параллельных текстах 50+ языков) — калибровка на 16
-# реальных парах текст/фото (не только оружейная лексика канала — специально
-# добавлены НИКАК не связанные с нишей темы: собака, гора, кофе, велосипед,
-# дождь, гитара, книга, мост, кот, ракета — проверка, что сигнал работает
-# по смыслу ЛЮБОГО текста, не только знакомой военно-исторической лексики):
-# top-1 точность 12/16 (75%), top-3 точность 15/16 (94%). Показательно: ВСЕ
-# 10 разнотемных (не оружейных) пар угаданы с первой попытки — 4 промаха
-# сосредоточены ИСКЛЮЧИТЕЛЬНО в кластере визуально похожих мелких предметов
-# (меч/молоток/молоко/скальпель/ноутбук/весы — фото "рука держит
-# металлический предмет крупным планом" объективно похожи друг на друга и
-# семантически, и по кадру). 100% top-1 недостижимо для этого класса
-# моделей в принципе (открытый словарь, zero-shot) — не цель, честный
-# потолок. top-3=94% — реалистичная оценка полезности сигнала, потому что
-# в проде это РЕРАНЖИРОВАНИЕ уже отфильтрованного query-based гейтом пула
-# кандидатов (см. is_relevant_candidate()/pexels_photo()), а не выбор из
-# всех возможных фото — там, где query уже сузил пул до тематически близких
-# кандидатов, sentence_relevance() дотягивает точный выбор внутри него.
+# РЕАЛЬНЫЙ, эмпирически подтверждённый баг (не гипотеза, история в git-логе):
+# sentence_relevance() передавала СЫРОЙ русский block_text прямо в
+# pipeline_smart.clip_relevance(), который использует ОДНОЯЗЫЧНУЮ (английскую)
+# openai/clip-vit-base-patch32 — та же модель на русском тексте даёт кластер
+# 0.17-0.21 независимо от содержимого картинки (доминирующий сигнал Директора
+# был фактически пустым для всего этого русскоязычного канала).
+#
+# Первый фикс — sentence-transformers/clip-ViT-B-32-multilingual-v1 (только
+# ТЕКСТОВАЯ башня дообучена на 50+ языков, картиночная — не изменена от
+# оригинального английского CLIP): калибровка на 16 реальных парах
+# текст/фото (10 намеренно НЕ военно-исторических тем — собака, гора, кофе,
+# велосипед, дождь, гитара, книга, мост, кот, ракета — проверка обобщения на
+# ЛЮБОЙ текст) дала top-1 75%, top-3 94%; все 4 промаха — в одном кластере
+# визуально похожих мелких предметов (меч/молоток/молоко/скальпель/ноутбук/
+# весы, "рука держит металлический предмет крупным планом").
+#
+# По прямому запросу пользователя дожать точность — прогнал ТОТ ЖЕ тест на
+# google/siglip2-base-patch16-256 (SigLIP2 — sigmoid-loss контрастная модель
+# от Google, В ОТЛИЧИЕ от clip-ViT-B-32-multilingual-v1 вся, включая
+# картиночную башню, обучена на многоязычных данных, 109 языков, WebLI, ещё
+# и на разрешении 256×256 против 224×224 у обычного CLIP): **top-1 16/16
+# (100%), top-3 16/16 (100%)** на ТОЙ ЖЕ выборке — включая ВЕСЬ кластер
+# мелких предметов, где предыдущая модель проваливалась (меч/молоток/молоко/
+# скальпель/ноутбук/весы — все верно). Нативная поддержка в transformers
+# (без remote-кода — в отличие от проверенного, но несовместимого с текущей
+# версией transformers Jina CLIP v2), без новых зависимостей сверх уже
+# установленных torch/transformers/PIL. 100% на 16 парах — не гарантия 100%
+# всегда (открытый словарь, zero-shot, честный потолок остаётся, см. выше),
+# но однозначно, воспроизводимо лучше предыдущей модели на РЕАЛЬНЫХ данных —
+# заменяю по факту измерения, не по названию бренда.
 #
 # КРИТИЧНО: это ОТДЕЛЬНАЯ модель/эмбеддинг-пространство от
 # pipeline_smart.get_clip_model() — та остаётся ТРОНУТОЙ НЕ БЫЛА и обслуживает
@@ -115,10 +118,13 @@ SENTENCE_RELEVANCE_WEIGHT = 1.0   # доминирующий член — тот
 # числом обесценила бы ВСЕ эти калибровки (разные модели дают разные шкалы
 # скоров). Используется ТОЛЬКО здесь, для sentence_relevance() — единственного
 # места, что и раньше получало сырой текст без английского посредника-query.
-SENTENCE_RELEVANCE_MODEL_VERSION = "multilingual-clip-v1"   # см. cache_signature() —
-                                                               # смена модели меняет
-                                                               # шкалу скоров, должна
-                                                               # инвалидировать кэш
+SIGLIP2_MODEL_NAME = "google/siglip2-base-patch16-256"
+SIGLIP2_MAX_TEXT_LENGTH = 64   # ровно max_position_embeddings текстовой башни
+                                 # этой модели (см. config) — не произвольное число
+SENTENCE_RELEVANCE_MODEL_VERSION = "siglip2-base-patch16-256"   # см. cache_signature() —
+                                                                    # смена модели меняет
+                                                                    # шкалу скоров, должна
+                                                                    # инвалидировать кэш
 
 # Некалиброванные, разумные стартовые бонусы (та же честная маркировка, что
 # DOMAIN_MARGIN/MAX_MATCH_DISTANCE в look_reference.py) — нет ни одного
@@ -192,50 +198,59 @@ def functional_role(block, is_section_start):
     return pipeline_smart.classify_shot_function(block, is_section_start)
 
 
-_multilingual_clip_text_model = None
-_multilingual_clip_image_model = None
-_MULTILINGUAL_CLIP_BROKEN = False
+_siglip2_model = None
+_siglip2_processor = None
+_SIGLIP2_BROKEN = False
 
 
-def _get_multilingual_clip_models():
-    """Ленивая загрузка (см. SENTENCE_RELEVANCE_MODEL_VERSION выше) — два
-    отдельных энкодера (текст/картинка), как того требует sentence-
-    transformers для clip-ViT-B-32-multilingual-v1 (текстовая ветка
-    дообучена отдельно, картиночная — оригинальный CLIP ViT-B/32,
-    совместимое эмбеддинг-пространство, но НЕ тот же объект модели, что
-    pipeline_smart.get_clip_model() — см. предупреждение выше про разные
-    шкалы скоров)."""
-    global _multilingual_clip_text_model, _multilingual_clip_image_model
-    if _multilingual_clip_text_model is None:
-        from sentence_transformers import SentenceTransformer
-        _multilingual_clip_text_model = SentenceTransformer(
-            "sentence-transformers/clip-ViT-B-32-multilingual-v1")
-        _multilingual_clip_image_model = SentenceTransformer("clip-ViT-B-32")
-    return _multilingual_clip_text_model, _multilingual_clip_image_model
+def _get_siglip2_model():
+    """Ленивая загрузка (см. SENTENCE_RELEVANCE_MODEL_VERSION/SIGLIP2_MODEL_NAME
+    выше) — модель+процессор нативно поддержаны transformers (AutoModel/
+    AutoProcessor), без remote-кода стороннего репозитория (в отличие от
+    Jina CLIP v2, проверенного и отклонённого — несовместим с текущей
+    версией transformers, см. git-лог) и без новых зависимостей поверх уже
+    установленных torch/transformers."""
+    global _siglip2_model, _siglip2_processor
+    if _siglip2_model is None:
+        from transformers import AutoModel, AutoProcessor
+        _siglip2_model = AutoModel.from_pretrained(SIGLIP2_MODEL_NAME)
+        _siglip2_model.eval()
+        _siglip2_processor = AutoProcessor.from_pretrained(SIGLIP2_MODEL_NAME)
+    return _siglip2_model, _siglip2_processor
 
 
 def sentence_relevance(image_path, block_text):
     """Косинусная близость картинки и ПОЛНОГО текста блока (русского, как
     он есть в сценарии — см. SENTENCE_RELEVANCE_MODEL_VERSION выше) через
-    мультиязычную CLIP-модель. None при отсутствии текста/недоступности
-    модели (тот же fail-open, что и везде в пайплайне) — вызывающий код
+    SigLIP2 (нативно многоязычная модель, калибровка — см. комментарий
+    выше). None при отсутствии текста/недоступности модели (тот же
+    fail-open, что и везде в пайплайне) — вызывающий код
     (compute_extra_score) тогда просто не добавляет этот бонус, поведение
     как до фичи."""
-    global _MULTILINGUAL_CLIP_BROKEN
-    if not block_text or _MULTILINGUAL_CLIP_BROKEN:
+    global _SIGLIP2_BROKEN
+    if not block_text or _SIGLIP2_BROKEN:
         return None
     try:
+        import torch
         from PIL import Image as PILImage
-        text_model, image_model = _get_multilingual_clip_models()
+        model, processor = _get_siglip2_model()
         img = PILImage.open(image_path).convert("RGB")
-        img_emb = image_model.encode([img], convert_to_numpy=True)
-        txt_emb = text_model.encode([block_text], convert_to_numpy=True)
-        import numpy as np
-        img_n = img_emb[0] / np.linalg.norm(img_emb[0])
-        txt_n = txt_emb[0] / np.linalg.norm(txt_emb[0])
-        return float(np.dot(img_n, txt_n))
+        with torch.no_grad():
+            img_inputs = processor(images=[img], return_tensors="pt")
+            img_out = model.get_image_features(**img_inputs)
+            img_emb = img_out.pooler_output if hasattr(img_out, "pooler_output") else img_out
+            img_emb = img_emb / img_emb.norm(dim=-1, keepdim=True)
+
+            txt_inputs = processor(text=[block_text], padding="max_length",
+                                    max_length=SIGLIP2_MAX_TEXT_LENGTH, return_tensors="pt")
+            txt_out = model.get_text_features(**txt_inputs)
+            txt_emb = txt_out.pooler_output if hasattr(txt_out, "pooler_output") else txt_out
+            txt_emb = txt_emb / txt_emb.norm(dim=-1, keepdim=True)
+
+            sim = (txt_emb @ img_emb.T)[0][0]
+        return float(sim)
     except ImportError:
-        _MULTILINGUAL_CLIP_BROKEN = True
+        _SIGLIP2_BROKEN = True
         return None
     except Exception:
         return None

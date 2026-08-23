@@ -34,12 +34,12 @@ def test_sentence_relevance_none_on_empty_text():
     assert vd.sentence_relevance("x.jpg", None) is None
 
 
-def test_sentence_relevance_uses_multilingual_model_not_english_only_clip_relevance(monkeypatch, tmp_path):
+def test_sentence_relevance_uses_siglip2_not_english_only_clip_relevance(monkeypatch, tmp_path):
     # Реальный, эмпирически подтверждённый баг первой версии: sentence_relevance()
     # передавала русский текст в pipeline_smart.clip_relevance() (одноязычная
     # английская модель) — на реальных фото/фразах канала это давало почти
     # нулевой сигнал (см. комментарий у SENTENCE_RELEVANCE_MODEL_VERSION).
-    # Фикс — отдельная мультиязычная модель, НЕ pipeline_smart.clip_relevance().
+    # Фикс — отдельная модель (SigLIP2), НЕ pipeline_smart.clip_relevance().
     called = {"clip_relevance": False}
 
     def fail_if_called(path, text):
@@ -47,18 +47,22 @@ def test_sentence_relevance_uses_multilingual_model_not_english_only_clip_releva
         return 0.99   # заведомо отличается от того, что должен вернуть тест
     monkeypatch.setattr(vd.pipeline_smart, "clip_relevance", fail_if_called)
 
-    import numpy as np
+    import torch
 
-    class _FakeTextModel:
-        def encode(self, texts, convert_to_numpy=True):
-            return np.array([[1.0, 0.0, 0.0]])
+    class _FakeProcessor:
+        def __call__(self, images=None, text=None, return_tensors=None, padding=None, max_length=None):
+            if images is not None:
+                return {"pixel_values": torch.zeros(1, 3, 2, 2)}
+            return {"input_ids": torch.zeros(1, 3, dtype=torch.long)}
 
-    class _FakeImageModel:
-        def encode(self, images, convert_to_numpy=True):
-            return np.array([[1.0, 0.0, 0.0]])   # параллельно тексту -> cos=1.0
+    class _FakeModel:
+        def get_image_features(self, **kwargs):
+            return torch.tensor([[1.0, 0.0, 0.0]])
 
-    monkeypatch.setattr(vd, "_get_multilingual_clip_models",
-                         lambda: (_FakeTextModel(), _FakeImageModel()))
+        def get_text_features(self, **kwargs):
+            return torch.tensor([[1.0, 0.0, 0.0]])   # параллельно картинке -> cos=1.0
+
+    monkeypatch.setattr(vd, "_get_siglip2_model", lambda: (_FakeModel(), _FakeProcessor()))
     img_path = str(tmp_path / "x.jpg")
     from PIL import Image
     Image.new("RGB", (4, 4)).save(img_path)
@@ -70,16 +74,16 @@ def test_sentence_relevance_uses_multilingual_model_not_english_only_clip_releva
         "pipeline_smart.clip_relevance() — см. докстринг про баг")
 
 
-def test_sentence_relevance_none_when_multilingual_model_import_fails(monkeypatch, tmp_path):
+def test_sentence_relevance_none_when_siglip2_model_import_fails(monkeypatch, tmp_path):
     def raise_import_error():
-        raise ImportError("sentence_transformers недоступен")
-    monkeypatch.setattr(vd, "_get_multilingual_clip_models", raise_import_error)
-    monkeypatch.setattr(vd, "_MULTILINGUAL_CLIP_BROKEN", False)
+        raise ImportError("transformers недоступен")
+    monkeypatch.setattr(vd, "_get_siglip2_model", raise_import_error)
+    monkeypatch.setattr(vd, "_SIGLIP2_BROKEN", False)
     img_path = str(tmp_path / "x.jpg")
     from PIL import Image
     Image.new("RGB", (4, 4)).save(img_path)
     assert vd.sentence_relevance(img_path, "текст") is None
-    assert vd._MULTILINGUAL_CLIP_BROKEN is True
+    assert vd._SIGLIP2_BROKEN is True
 
 
 # ---------- role_shot_size_bonus ----------
@@ -348,13 +352,12 @@ def test_pipeline_smart_visual_director_cache_signature_delegates_to_module(monk
     assert sig.startswith("director:assist:")
 
 
-# ---------- sentence_relevance: РЕАЛЬНАЯ мультиязычная модель на реальных
+# ---------- sentence_relevance: РЕАЛЬНАЯ модель (SigLIP2) на реальных
 # фото + реальной русской фразе сценария (не мок — та же логика, что golden
 # CLIP-тесты в test_media_selection_golden.py: сама суть регрессии, которую
 # нужно ловить, это ошибка семантики реальной модели, не что-то кодируемое
 # в мок-объекте). Фраза — дословно из videos/01_ves-mecha/script.txt. ----------
 
-sentence_transformers = pytest.importorskip("sentence_transformers")
 torch = pytest.importorskip("torch")
 transformers = pytest.importorskip("transformers")
 
@@ -363,7 +366,7 @@ _GOLDEN_SWORD = os.path.join(_GOLDEN_FIXTURES, "sword.jpg")
 _GOLDEN_PIZZA = os.path.join(_GOLDEN_FIXTURES, "pizza.jpg")
 
 
-class TestSentenceRelevanceMultilingualRealModel:
+class TestSentenceRelevanceSiglip2RealModel:
     def test_real_sentence_prefers_matching_photo_over_unrelated(self):
         text = "Обычный одноручный рыцарский меч весит от килограмма до полутора."
         r_sword = vd.sentence_relevance(_GOLDEN_SWORD, text)
