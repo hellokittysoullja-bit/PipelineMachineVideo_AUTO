@@ -24,3 +24,11 @@ opencv-python-headless==4.10.0.84
 # torch --index-url https://download.pytorch.org/whl/cpu
 # torchvision --index-url https://download.pytorch.org/whl/cpu
 # transformers
+
+# Опционально — ensemble SigLIP2+Jina CLIP v2 в scripts/visual_director.py
+# sentence_relevance() (VISUAL_DIRECTOR_MODE=shadow/assist, само по себе off
+# по умолчанию). Без onnxruntime — sentence_relevance() падает на SigLIP2
+# solo (fail-open, см. докстринг), без torch/transformers выше — вообще
+# выключена, как и раньше. huggingface_hub не пиновать отдельно — уже тянется
+# transformers.
+# onnxruntime>=1.20

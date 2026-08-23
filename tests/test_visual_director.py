@@ -63,6 +63,10 @@ def test_sentence_relevance_uses_siglip2_not_english_only_clip_relevance(monkeyp
             return torch.tensor([[1.0, 0.0, 0.0]])   # параллельно картинке -> cos=1.0
 
     monkeypatch.setattr(vd, "_get_siglip2_model", lambda: (_FakeModel(), _FakeProcessor()))
+    # Jina недоступна в этом тесте (не мокается загрузка ONNX) -> ensemble
+    # честно падает на SigLIP2-only (см. test_sentence_relevance_falls_back_*
+    # ниже для отдельной проверки самого fail-open пути).
+    monkeypatch.setattr(vd, "_jina_relevance", lambda path, text: None)
     img_path = str(tmp_path / "x.jpg")
     from PIL import Image
     Image.new("RGB", (4, 4)).save(img_path)
@@ -84,6 +88,102 @@ def test_sentence_relevance_none_when_siglip2_model_import_fails(monkeypatch, tm
     Image.new("RGB", (4, 4)).save(img_path)
     assert vd.sentence_relevance(img_path, "текст") is None
     assert vd._SIGLIP2_BROKEN is True
+
+
+# ---------- ensemble SigLIP2 + Jina CLIP v2 (sentence_relevance) ----------
+# По прямому запросу пользователя "объединить сильнейшие стороны обеих
+# моделей" — 113-позиционный бенчмарк дал измеримый прирост (top-1 81%->85%,
+# top-3 93%->95% на SigLIP2=0.7/Jina=0.3, см. докстринг
+# ENSEMBLE_WEIGHT_SIGLIP2 в scripts/visual_director.py). Критично: Jina
+# ДОЛЖНА быть fail-open — при недоступности (нет onnxruntime, сеть, любая
+# ошибка) sentence_relevance() обязана падать на SigLIP2-only, никогда не
+# возвращать None только из-за отсутствующей Jina, пока SigLIP2 сам жив.
+
+def test_sentence_relevance_blends_siglip2_and_jina_with_fixed_weights(monkeypatch, tmp_path):
+    monkeypatch.setattr(vd, "_siglip2_relevance", lambda path, text: 0.30)
+    monkeypatch.setattr(vd, "_jina_relevance", lambda path, text: vd.JINA_SCORE_MEAN + vd.JINA_SCORE_STD)
+    img_path = str(tmp_path / "x.jpg")
+    result = vd.sentence_relevance(img_path, "текст")
+    # jina_raw на 1 стд выше среднего -> rescale даёт SIGLIP2_SCORE_MEAN + SIGLIP2_SCORE_STD
+    expected_jina_rescaled = vd.SIGLIP2_SCORE_MEAN + vd.SIGLIP2_SCORE_STD
+    expected = vd.ENSEMBLE_WEIGHT_SIGLIP2 * 0.30 + vd.ENSEMBLE_WEIGHT_JINA * expected_jina_rescaled
+    assert result == pytest.approx(expected)
+
+
+def test_sentence_relevance_falls_back_to_siglip2_only_when_jina_unavailable(monkeypatch, tmp_path):
+    monkeypatch.setattr(vd, "_siglip2_relevance", lambda path, text: 0.42)
+    monkeypatch.setattr(vd, "_jina_relevance", lambda path, text: None)
+    img_path = str(tmp_path / "x.jpg")
+    result = vd.sentence_relevance(img_path, "текст")
+    assert result == pytest.approx(0.42)   # чистый SigLIP2, без домножения на вес
+
+
+def test_sentence_relevance_none_when_siglip2_unavailable_even_if_jina_ok(monkeypatch, tmp_path):
+    # SigLIP2 — основа, Jina только добавляет; без SigLIP2 весь сигнал None,
+    # ensemble НЕ должен подменять базовую модель второстепенной.
+    monkeypatch.setattr(vd, "_siglip2_relevance", lambda path, text: None)
+    monkeypatch.setattr(vd, "_jina_relevance", lambda path, text: 0.99)
+    img_path = str(tmp_path / "x.jpg")
+    assert vd.sentence_relevance(img_path, "текст") is None
+
+
+def test_rescale_jina_to_siglip2_scale_identity_at_mean():
+    # На среднем Jina -> среднее SigLIP2 (по построению z-score переноса).
+    assert vd._rescale_jina_to_siglip2_scale(vd.JINA_SCORE_MEAN) == pytest.approx(vd.SIGLIP2_SCORE_MEAN)
+
+
+def test_rescale_jina_to_siglip2_scale_preserves_direction():
+    lo = vd._rescale_jina_to_siglip2_scale(vd.JINA_SCORE_MEAN - vd.JINA_SCORE_STD)
+    hi = vd._rescale_jina_to_siglip2_scale(vd.JINA_SCORE_MEAN + vd.JINA_SCORE_STD)
+    assert hi > lo
+
+
+def test_jina_relevance_none_on_import_error(monkeypatch):
+    def raise_import_error():
+        raise ImportError("onnxruntime недоступен")
+    monkeypatch.setattr(vd, "_get_jina_session", raise_import_error)
+    monkeypatch.setattr(vd, "_JINA_BROKEN", False)
+    assert vd._jina_relevance("x.jpg", "текст") is None
+    assert vd._JINA_BROKEN is True
+
+
+def test_jina_relevance_none_on_generic_exception(monkeypatch, tmp_path):
+    def raise_runtime_error():
+        raise RuntimeError("модель сломалась")
+    monkeypatch.setattr(vd, "_get_jina_session", raise_runtime_error)
+    monkeypatch.setattr(vd, "_JINA_BROKEN", False)
+    assert vd._jina_relevance("x.jpg", "текст") is None
+    # generic Exception (не ImportError) НЕ должен взводить permanent-флаг —
+    # тот же принцип, что и у _siglip2_relevance (см. except-ветки).
+    assert vd._JINA_BROKEN is False
+
+
+def test_jina_relevance_returns_cosine_from_mocked_onnx_session(monkeypatch, tmp_path):
+    import numpy as np
+
+    class _FakeSession:
+        def run(self, output_names, feed):
+            if output_names == ["l2norm_image_embeddings"]:
+                return [np.array([[1.0, 0.0]], dtype=np.float32)]
+            return [np.array([[1.0, 0.0]], dtype=np.float32)]
+
+    class _FakeTokenizer:
+        def __call__(self, texts, padding=None, truncation=None, max_length=None, return_tensors=None):
+            return {"input_ids": np.zeros((1, 3), dtype=np.int64)}
+
+    monkeypatch.setattr(vd, "_get_jina_session", lambda: (_FakeSession(), _FakeTokenizer()))
+    monkeypatch.setattr(vd, "_JINA_BROKEN", False)
+    img_path = str(tmp_path / "x.jpg")
+    from PIL import Image
+    Image.new("RGB", (8, 8)).save(img_path)
+    result = vd._jina_relevance(img_path, "текст")
+    assert result == pytest.approx(1.0)   # параллельные векторы -> cos=1.0
+
+
+def test_ensemble_model_version_reflects_weights():
+    assert str(vd.ENSEMBLE_WEIGHT_SIGLIP2) in vd.SENTENCE_RELEVANCE_MODEL_VERSION
+    assert str(vd.ENSEMBLE_WEIGHT_JINA) in vd.SENTENCE_RELEVANCE_MODEL_VERSION
+    assert "jina" in vd.SENTENCE_RELEVANCE_MODEL_VERSION.lower()
 
 
 # ---------- role_shot_size_bonus ----------

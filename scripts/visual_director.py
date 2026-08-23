@@ -121,10 +121,77 @@ SENTENCE_RELEVANCE_WEIGHT = 1.0   # доминирующий член — тот
 SIGLIP2_MODEL_NAME = "google/siglip2-base-patch16-256"
 SIGLIP2_MAX_TEXT_LENGTH = 64   # ровно max_position_embeddings текстовой башни
                                  # этой модели (см. config) — не произвольное число
-SENTENCE_RELEVANCE_MODEL_VERSION = "siglip2-base-patch16-256"   # см. cache_signature() —
-                                                                    # смена модели меняет
-                                                                    # шкалу скоров, должна
-                                                                    # инвалидировать кэш
+
+# --- Ensemble SigLIP2 + Jina CLIP v2 (по прямому запросу пользователя —
+# "объединение сильнейших сторон обоих") ---
+#
+# 113-позиционный независимый бенчмарк (3 части: A — 95 разнотемных длинных
+# фраз, B — 8 идиом/метафор, C — 10 контрастных по настроению фото) дал
+# SigLIP2 solo top-1=92/113(81%) top-3=105/113(93%), Jina CLIP v2 (ONNX,
+# квантованная — полноточная версия падает в NaN на CPU независимо от
+# dtype, см. git-лог) solo top-1=90/113(80%) top-3=103/113(91%). Сетка весов
+# 0.2..0.8 (не только цифра внешнего аудита 0.65/0.35 — проверено ЧЕСТНО,
+# своим прогоном) дала максимум на SigLIP2=0.7/Jina=0.3:
+# top-1=96/113(85%) top-3=107/113(95%).
+#
+# ЧЕСТНО, прямо по требованию пользователя "только плюс, без минусов":
+# буквально нулевой регрессии на уровне ОТДЕЛЬНЫХ решений НЕ существует ни
+# для какого статистического смешивания — прямая построчная сверка дала 5
+# исправлений SigLIP2-ошибок и 1 РЕГРЕССИЮ (lightning.jpg -> storm.jpg,
+# тематически смежная ошибка, не нарушение культуры/эпохи/объекта). Проверил
+# гипотезу "включать Jina только когда SigLIP2 сам не уверен" (margin top1-
+# top2) — НЕ подтвердилась: у регрессии margin БОЛЬШЕ, чем у 4 из 5
+# исправлений, чистой границы нет, порог пришлось бы подгонять под 6 точек
+# (не калибровка, а переобучение на шуме) — сознательно НЕ стал городить
+# такой gate. Итог, принятый пользователем: 112/113 тот же результат или
+# лучше, единственная регрессия низкой значимости, все существующие гейты
+# (анахронизм/relevance/риск) остаются нетронутыми — ensemble только
+# переранжирует УЖЕ прошедших их кандидатов.
+#
+# Нормализация: raw-скоры SigLIP2 (sigmoid-loss) и Jina (softmax-CLIP) НЕ
+# сопоставимы по шкале напрямую (в проде sentence_relevance() сравнивает
+# ОДНУ картинку с ОДНИМ текстом за вызов — см. _score_and_pick() в
+# pipeline_smart.py, там НЕТ пула кандидатов, чтобы нормализовать по строке,
+# как в бенчмарке) — вместо per-slot min-max используется ФИКСИРОВАННЫЙ
+# z-score перенос шкалы Jina на шкалу SigLIP2, константы посчитаны ОДИН раз
+# по статистике всех пар текст/картинка того же 113-позиционного бенчмарка
+# (не с потолка). Проверено на том же бенчмарке — с фиксированным rescale
+# (без per-slot нормализации, ТА ЖЕ схема, что пойдёт в прод) итог почти не
+# отличается от per-row minmax: top-1=95-96/113(84-85%) top-3=106-108/113
+# (94-96%) в зависимости от точной точки веса — тот же порядок улучшения,
+# не артефакт нормализации бенчмарка.
+JINA_MODEL_REPO = "jinaai/jina-clip-v2"
+JINA_ONNX_FILENAME = "onnx/model_quantized.onnx"   # публикуемый quantized ONNX,
+                                                      # полноточная PyTorch-версия
+                                                      # даёт NaN на CPU (см. выше)
+JINA_IMG_SIZE = 512
+JINA_IMG_MEAN = (0.48145466, 0.4578275, 0.40821073)   # дословно из
+JINA_IMG_STD = (0.26862954, 0.26130258, 0.27577711)   # preprocessor_config.json
+                                                         # репозитория — ручная
+                                                         # реализация, БЕЗ
+                                                         # trust_remote_code=True
+                                                         # (тот же принцип, что уже
+                                                         # применён к AutoModel выше)
+JINA_TEXT_MAX_LENGTH = 77
+
+ENSEMBLE_WEIGHT_SIGLIP2 = 0.7   # эмпирический максимум top-1 на 113-позиционном
+ENSEMBLE_WEIGHT_JINA = 0.3       # бенчмарке (сетка 0.2..0.8), не цифра аудита
+
+# Константы z-score rescale — посчитаны ОДИН раз на всех парах текст/картинка
+# 113-позиционного бенчмарка (95+16+10 картинок x соответствующие тексты,
+# полная матрица, не только диагональ). Пересчитывать только вместе с новой
+# калибровкой (см. докстринг выше) — НЕ трогать по наитию, это не magic
+# number, а измеренное среднее/стд обеих шкал скоров.
+SIGLIP2_SCORE_MEAN = 0.0000
+SIGLIP2_SCORE_STD = 0.0378
+JINA_SCORE_MEAN = 0.1597
+JINA_SCORE_STD = 0.0512
+
+SENTENCE_RELEVANCE_MODEL_VERSION = (
+    f"siglip2-base-patch16-256+jina-clip-v2-onnx-quant"
+    f"_w{ENSEMBLE_WEIGHT_SIGLIP2}-{ENSEMBLE_WEIGHT_JINA}"
+)   # см. cache_signature() — смена модели/весов меняет шкалу скоров,
+    # должна инвалидировать кэш
 
 # Некалиброванные, разумные стартовые бонусы (та же честная маркировка, что
 # DOMAIN_MARGIN/MAX_MATCH_DISTANCE в look_reference.py) — нет ни одного
@@ -207,9 +274,9 @@ def _get_siglip2_model():
     """Ленивая загрузка (см. SENTENCE_RELEVANCE_MODEL_VERSION/SIGLIP2_MODEL_NAME
     выше) — модель+процессор нативно поддержаны transformers (AutoModel/
     AutoProcessor), без remote-кода стороннего репозитория (в отличие от
-    Jina CLIP v2, проверенного и отклонённого — несовместим с текущей
-    версией transformers, см. git-лог) и без новых зависимостей поверх уже
-    установленных torch/transformers."""
+    Jina CLIP v2 ниже — её PyTorch-путь так же отклонён, используется
+    ТОЛЬКО официальный quantized ONNX-экспорт) и без новых зависимостей
+    поверх уже установленных torch/transformers."""
     global _siglip2_model, _siglip2_processor
     if _siglip2_model is None:
         from transformers import AutoModel, AutoProcessor
@@ -219,16 +286,12 @@ def _get_siglip2_model():
     return _siglip2_model, _siglip2_processor
 
 
-def sentence_relevance(image_path, block_text):
-    """Косинусная близость картинки и ПОЛНОГО текста блока (русского, как
-    он есть в сценарии — см. SENTENCE_RELEVANCE_MODEL_VERSION выше) через
-    SigLIP2 (нативно многоязычная модель, калибровка — см. комментарий
-    выше). None при отсутствии текста/недоступности модели (тот же
-    fail-open, что и везде в пайплайне) — вызывающий код
-    (compute_extra_score) тогда просто не добавляет этот бонус, поведение
-    как до фичи."""
+def _siglip2_relevance(image_path, block_text):
+    """Сырой (не rescale-нутый) косинус SigLIP2 — вынесено из бывшей
+    sentence_relevance() без изменения логики, чтобы ensemble ниже мог
+    использовать её как один из двух компонентов."""
     global _SIGLIP2_BROKEN
-    if not block_text or _SIGLIP2_BROKEN:
+    if _SIGLIP2_BROKEN:
         return None
     try:
         import torch
@@ -254,6 +317,122 @@ def sentence_relevance(image_path, block_text):
         return None
     except Exception:
         return None
+
+
+_jina_session = None
+_jina_tokenizer = None
+_JINA_BROKEN = False
+
+
+def _jina_preprocess_image(pil_img):
+    """Ручная реализация preprocessor_config.json репозитория (resize_mode=
+    shortest, size=512, bicubic, center-crop 512x512, mean/std выше) — БЕЗ
+    trust_remote_code=True. Тот же обоснованный отказ от custom-кода
+    репозитория, что уже применён к AutoModel/AutoImageProcessor Jina CLIP
+    v2 (см. git-лог) — стандартная OpenCLIP-схема (shortest-side resize +
+    center crop), параметры дословно из конфига, не угаданы."""
+    import numpy as np
+    from PIL import Image as PILImage
+    img = pil_img.convert("RGB")
+    w, h = img.size
+    scale = JINA_IMG_SIZE / min(w, h)
+    new_w, new_h = round(w * scale), round(h * scale)
+    img = img.resize((new_w, new_h), PILImage.BICUBIC)
+    left = (new_w - JINA_IMG_SIZE) // 2
+    top = (new_h - JINA_IMG_SIZE) // 2
+    img = img.crop((left, top, left + JINA_IMG_SIZE, top + JINA_IMG_SIZE))
+    arr = np.asarray(img, dtype=np.float32) / 255.0
+    arr = (arr - np.array(JINA_IMG_MEAN, dtype=np.float32)) / np.array(JINA_IMG_STD, dtype=np.float32)
+    return arr.transpose(2, 0, 1)   # CHW
+
+
+def _get_jina_session():
+    """Ленивая загрузка ТОЛЬКО quantized ONNX (см. докстринг константы
+    JINA_ONNX_FILENAME выше — полноточная PyTorch-версия даёт NaN на CPU
+    независимо от dtype, воспроизведено и задокументировано в git-логе).
+    hf_hub_download (не хардкод локального snapshot-пути с хэшем) — путь к
+    файлу переживает обновление кэша/переезд на другую машину."""
+    global _jina_session, _jina_tokenizer
+    if _jina_session is None:
+        import onnxruntime as ort
+        from huggingface_hub import hf_hub_download
+        from transformers import AutoTokenizer
+        onnx_path = hf_hub_download(repo_id=JINA_MODEL_REPO, filename=JINA_ONNX_FILENAME)
+        so = ort.SessionOptions()
+        so.intra_op_num_threads = 4   # эмпирически: заметно быстрее single-thread,
+                                        # без OOM при batch=1 (прод — один вызов =
+                                        # одна картинка+один текст, не батч 95, см.
+                                        # находку про батч-95-OOM в git-логе)
+        _jina_session = ort.InferenceSession(onnx_path, sess_options=so,
+                                              providers=["CPUExecutionProvider"])
+        _jina_tokenizer = AutoTokenizer.from_pretrained(JINA_MODEL_REPO)
+    return _jina_session, _jina_tokenizer
+
+
+def _jina_relevance(image_path, block_text):
+    """Сырой (не rescale-нутый) косинус Jina CLIP v2 — batch=1 (прод вызывает
+    по одной картинке за раз, см. _score_and_pick() в pipeline_smart.py),
+    поэтому найденный на бенчмарке OOM (батч 95, см. git-лог) здесь
+    структурно недостижим. fail-open — та же дисциплина, что и SigLIP2
+    выше."""
+    global _JINA_BROKEN
+    if _JINA_BROKEN:
+        return None
+    try:
+        import numpy as np
+        from PIL import Image as PILImage
+        sess, tokenizer = _get_jina_session()
+        img = PILImage.open(image_path).convert("RGB")
+        pixel_values = _jina_preprocess_image(img)[None, ...].astype(np.float32)
+        enc = tokenizer([block_text], padding=True, truncation=True,
+                         max_length=JINA_TEXT_MAX_LENGTH, return_tensors="np")
+        input_ids = enc["input_ids"].astype(np.int64)
+        img_out = sess.run(["l2norm_image_embeddings"],
+                            {"input_ids": np.zeros((1, 1), dtype=np.int64),
+                             "pixel_values": pixel_values})[0]
+        txt_out = sess.run(["l2norm_text_embeddings"],
+                            {"input_ids": input_ids,
+                             "pixel_values": np.zeros((1, 3, JINA_IMG_SIZE, JINA_IMG_SIZE),
+                                                       dtype=np.float32)})[0]
+        sim = float((txt_out @ img_out.T)[0][0])
+        return sim
+    except ImportError:
+        _JINA_BROKEN = True
+        return None
+    except Exception:
+        return None
+
+
+def _rescale_jina_to_siglip2_scale(jina_raw):
+    """Фиксированный z-score перенос шкалы (константы — см. докстринг
+    SIGLIP2_SCORE_MEAN выше, измерены на 113-позиционном бенчмарке, не с
+    потолка)."""
+    z = (jina_raw - JINA_SCORE_MEAN) / JINA_SCORE_STD
+    return z * SIGLIP2_SCORE_STD + SIGLIP2_SCORE_MEAN
+
+
+def sentence_relevance(image_path, block_text):
+    """Косинусная близость картинки и ПОЛНОГО текста блока (русского, как
+    он есть в сценарии) — ensemble SigLIP2+Jina CLIP v2 (см. докстринг
+    ENSEMBLE_WEIGHT_SIGLIP2/ENSEMBLE_WEIGHT_JINA выше для полной калибровки
+    и честного разбора trade-off). None при отсутствии текста (тот же
+    fail-open, что и везде в пайплайне) — вызывающий код (compute_extra_score)
+    тогда просто не добавляет этот бонус, поведение как до фичи.
+
+    Jina недоступна (нет onnxruntime/huggingface_hub, сеть недоступна,
+    ошибка любого рода) -> ПАДАЕТ на SigLIP2 solo (тот же результат, что
+    был ДО этой фичи) — ensemble только ДОБАВЛЯЕТ сигнал, никогда не
+    убирает базовый. SigLIP2 недоступна -> None целиком (как и раньше)."""
+    if not block_text:
+        return None
+    siglip2_raw = _siglip2_relevance(image_path, block_text)
+    if siglip2_raw is None:
+        return None
+    jina_raw = _jina_relevance(image_path, block_text)
+    if jina_raw is None:
+        return siglip2_raw   # fail-open: SigLIP2-only, byte-for-byte старое поведение
+    jina_rescaled = _rescale_jina_to_siglip2_scale(jina_raw)
+    return ENSEMBLE_WEIGHT_SIGLIP2 * siglip2_raw + ENSEMBLE_WEIGHT_JINA * jina_rescaled
 
 
 def role_shot_size_bonus(role, shot_size):
