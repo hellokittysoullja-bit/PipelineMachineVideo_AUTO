@@ -2668,6 +2668,22 @@ def resolve_queries(blocks, authored_queries=None):
             raw[i] = pool[idx % len(pool)]
             cursors[key] = idx + 1
 
+    # LLM-режиссёр (SHOT_DIRECTOR_MODE=on, дефолт off) — только для блоков,
+    # оставшихся None ПОСЛЕ authored_queries и THEMES (см. shot_director.py
+    # докстринг: идиомы/метафоры без предметных слов, реальный, эмпирически
+    # найденный пробел неспособности neighbor-inherit/GENERIC_FALLBACKS
+    # передать смысл именно ЭТОЙ фразы). Ленивый импорт по тому же паттерну,
+    # что VISUAL_DIRECTOR_MODE/LOOK_MANAGEMENT_MODE ниже в этом файле — off
+    # не тянет модуль и не трогает сеть вообще.
+    if os.environ.get("SHOT_DIRECTOR_MODE", "off").strip().lower() == "on":
+        import shot_director
+        for i, q in enumerate(raw):
+            if q is not None:
+                continue
+            directed = shot_director.direct_query(blocks[i]["text"], VIDEO_FOLDER)
+            if directed is not None:
+                raw[i] = directed
+
     resolved = list(raw)
     for i, q in enumerate(resolved):
         if q is not None:

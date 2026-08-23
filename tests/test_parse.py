@@ -23,6 +23,7 @@ sys.argv = ["pipeline_smart.py", tempfile.gettempdir()]
 import pipeline_smart          # noqa: E402
 import wordcount                # noqa: E402
 import stock_fetch_multisource  # noqa: E402
+import shot_director            # noqa: E402
 import fix_pauses               # noqa: E402
 
 
@@ -353,6 +354,71 @@ def test_resolve_queries_no_authored_queries_unchanged_behavior(monkeypatch):
     blocks = [{"text": "Меч весил немало.", "words": 3, "pause_after": 0.0, "section": "BODY", "stat": None}]
     assert pipeline_smart.resolve_queries(blocks) == pipeline_smart.resolve_queries(blocks, authored_queries=None)
     assert pipeline_smart.resolve_queries(blocks) == pipeline_smart.resolve_queries(blocks, authored_queries={})
+
+
+# ---------- resolve_queries × shot_director (LLM-режиссёр, SHOT_DIRECTOR_MODE) ----------
+# off (дефолт) -> ноль вызовов shot_director, byte-for-byte старое поведение.
+# on -> вызывается ТОЛЬКО для блоков, оставшихся None после authored_queries
+# и THEMES (см. shot_director.py докстринг) — не для блоков, у которых уже
+# есть авторский/тематический запрос.
+
+def test_resolve_queries_mode_off_never_calls_shot_director(monkeypatch):
+    monkeypatch.delenv("SHOT_DIRECTOR_MODE", raising=False)
+    monkeypatch.setattr(pipeline_smart, "THEMES", {})
+    calls = []
+    monkeypatch.setattr(shot_director, "direct_query",
+                         lambda text, video_dir: calls.append(text) or "should-not-be-used")
+    blocks = [{"text": "Взять быка за рога.", "words": 4, "pause_after": 0.0, "section": "BODY", "stat": None}]
+    resolved = pipeline_smart.resolve_queries(blocks)
+    assert calls == []
+    assert resolved == [pipeline_smart.GENERIC_FALLBACKS[0]]
+
+
+def test_resolve_queries_mode_on_uses_director_for_unresolved_block(monkeypatch):
+    monkeypatch.setenv("SHOT_DIRECTOR_MODE", "on")
+    monkeypatch.setattr(pipeline_smart, "THEMES", {})
+    monkeypatch.setattr(shot_director, "direct_query",
+                         lambda text, video_dir: "person taking decisive action")
+    blocks = [{"text": "Взять быка за рога.", "words": 4, "pause_after": 0.0, "section": "BODY", "stat": None}]
+    resolved = pipeline_smart.resolve_queries(blocks)
+    assert resolved == ["person taking decisive action"]
+
+
+def test_resolve_queries_mode_on_skips_blocks_already_resolved_by_themes(monkeypatch):
+    # THEMES/authored уже дали ответ — shot_director вообще не должен
+    # вызываться на этот блок (бюджет вызовов бережём для реального остатка).
+    monkeypatch.setenv("SHOT_DIRECTOR_MODE", "on")
+    monkeypatch.setattr(pipeline_smart, "THEMES", {"меч": "medieval sword close up"})
+    calls = []
+    monkeypatch.setattr(shot_director, "direct_query",
+                         lambda text, video_dir: calls.append(text) or "unused")
+    blocks = [{"text": "Меч весил немало.", "words": 3, "pause_after": 0.0, "section": "BODY", "stat": None}]
+    resolved = pipeline_smart.resolve_queries(blocks)
+    assert calls == []
+    assert resolved == ["medieval sword close up"]
+
+
+def test_resolve_queries_mode_on_director_returns_none_falls_back(monkeypatch):
+    # director недоступен/лимит исчерпан/ошибка -> None -> прежнее поведение
+    # (neighbor-inherit/GENERIC_FALLBACKS), ноль регрессии.
+    monkeypatch.setenv("SHOT_DIRECTOR_MODE", "on")
+    monkeypatch.setattr(pipeline_smart, "THEMES", {})
+    monkeypatch.setattr(shot_director, "direct_query", lambda text, video_dir: None)
+    blocks = [{"text": "Абстрактная фраза.", "words": 2, "pause_after": 0.0, "section": "BODY", "stat": None}]
+    resolved = pipeline_smart.resolve_queries(blocks)
+    assert resolved == [pipeline_smart.GENERIC_FALLBACKS[0]]
+
+
+def test_resolve_queries_mode_on_authored_still_takes_priority(monkeypatch):
+    monkeypatch.setenv("SHOT_DIRECTOR_MODE", "on")
+    monkeypatch.setattr(pipeline_smart, "THEMES", {})
+    calls = []
+    monkeypatch.setattr(shot_director, "direct_query",
+                         lambda text, video_dir: calls.append(text) or "unused")
+    blocks = [{"text": "Взять быка за рога.", "words": 4, "pause_after": 0.0, "section": "HOOK", "stat": None}]
+    resolved = pipeline_smart.resolve_queries(blocks, authored_queries={"HOOK": ["milk bottle hand"]})
+    assert calls == []
+    assert resolved == ["milk bottle hand"]
 
 
 # ---------- wordcount.py ----------
