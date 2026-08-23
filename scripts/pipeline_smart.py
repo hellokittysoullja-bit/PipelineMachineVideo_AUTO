@@ -2125,6 +2125,51 @@ def filter_alt_blocklist(photos):
     return filtered or photos
 
 
+# Реальный, подтверждённый случай (внешний аудит + прямая проверка на
+# 01_ves-mecha/_test20s, см. коммит): голый запрос "sword" на Pexels
+# ощутимо намешивает восточноазиатские клинки (катана/цзянь) в выдачу —
+# прямое сравнение живых результатов поиска: "sword close up" — заметная
+# доля контаминации на первых 15 результатах (кимоно+катана, самурай и
+# т.п.), "medieval sword close up" — заметно меньше, "european longsword"
+# — на том же сэмпле ни одного явного восточноазиатского результата.
+# Простая и при этом САМАЯ эффективная защита — не постфактум-классификация
+# уже скачанного кандидата (см. VISUAL_DOMAIN_GUARDS ниже, вторая линия),
+# а уточнение САМОГО ЗАПРОСА, чтобы контаминация не попадала в пул
+# кандидатов вообще. unless — не добавлять уточнение, если запрос УЖЕ
+# содержит явный культурный маркер (легитимный запрос про катану для
+# японской темы другого канала не должен получать искажающую приставку).
+# qualifier добавляется ТОЛЬКО в реальный вызов Pexels API — см.
+# disambiguate_search_query()/pexels_photo()/pexels_video() — кэш-ключ и
+# relevance-скоринг остаются на ИСХОДНОМ query, нулевой риск для уже
+# откалиброванных порогов (CLIP_RELEVANCE_THRESHOLD и т.п.). Список — тот
+# же паттерн override из channel_profile.json, что CONTENT_ALT_BLOCKLIST
+# выше (для другой ниши правило заменяется целиком через профиль, не код).
+QUERY_DISAMBIGUATION_RULES = (
+    {"term": "sword",
+     "unless": ("katana", "samurai", "chinese", "japanese", "jian", "wuxia", "asian", "kimono"),
+     "qualifier": "european"},
+)
+QUERY_DISAMBIGUATION_RULES = tuple(CHANNEL_PROFILE.get("query_disambiguation_rules", QUERY_DISAMBIGUATION_RULES))
+
+
+def disambiguate_search_query(query):
+    """Возвращает уточнённую строку запроса ТОЛЬКО для реального вызова
+    Pexels API (см. QUERY_DISAMBIGUATION_RULES выше) — исходный query для
+    кэш-ключа/relevance-скоринга не трогает. Нет совпавшего правила —
+    строка возвращается без изменений."""
+    ql = query.lower()
+    for rule in QUERY_DISAMBIGUATION_RULES:
+        if rule["term"] not in ql:
+            continue
+        if any(u in ql for u in rule.get("unless", ())):
+            continue
+        qualifier = rule["qualifier"]
+        if qualifier in ql:
+            continue
+        return f"{qualifier} {query}"
+    return query
+
+
 PHOTO_DEDUP_HAMMING = 6   # тот же порог, что в qc_report() — "заметно похоже"
 PHOTO_DEDUP_MAX_TRIES = 6 # сколько кандидатов реально СКАЧАТЬ и захэшировать, прежде чем сдаться
 DIRECTOR_MIN_POOL = 3   # Semantic Visual Director (scripts/visual_director.py) —
@@ -2269,7 +2314,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
     if not PEXELS_API_KEY:
         return None
     try:
-        q = urllib.parse.quote(query)
+        q = urllib.parse.quote(disambiguate_search_query(query))
         req = urllib.request.Request(
             f"https://api.pexels.com/v1/search?query={q}&per_page=80&orientation=landscape",
             headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
@@ -3889,6 +3934,60 @@ def is_risky_query(query):
     return any(term in ql for term in RISKY_GENERIC_TERMS)
 
 
+# Вторая линия защиты от того же реального случая, что QUERY_DISAMBIGUATION_
+# RULES выше (восточноазиатские клинки в выдаче по "sword") — та часть
+# кандидатов, что просачивается мимо уточнённого запроса (Pexels — полнотек-
+# стовый поиск, не гарантия), проверяется ВИЗУАЛЬНО. Калибровано вживую на
+# 45 реальных Pexels-фото (tests/fixtures/golden_media/katana.jpg,
+# euro_sword_2.jpg, уже существующий sword.jpg + 42 доп. фото — 23
+# подтверждённых восточноазиатских клинка, включая 2 случая, найденных
+# среди изначально "хороших" при прямой проверке кадра глазами, которые
+# оказались катанами, а не отбраковкой метода; 22 подтверждённых европейских,
+# включая sword.jpg — уже существующую эталонную фикстуру с рукоятью,
+# обмотанной похоже на катана-цуку — самый жёсткий из проверенных случаев).
+# margin = relevance(euro_prompt) - relevance(asian_prompt): подтверждённые
+# восточноазиатские до +0.0187, подтверждённые европейские от -0.0139.
+# Порог -0.03 — с запасом ниже минимума европейских (асимметричный риск:
+# ложный reject кандидата просто пробует следующего в пуле, см.
+# is_relevant_candidate() ниже — ложный accept пропускает анахронизм в
+# кадр, дороже). ЧЕСТНО не ловит 100%: реальный найденный случай — крупный
+# план ОДНОЙ рукояти без клинка/гарды в кадре (см. видео-кандидат в
+# коммите) CLIP физически не может отличить по форме клинка, которой не
+# видно — это первая, менее надёжная линия защиты (QUERY_DISAMBIGUATION_
+# RULES) должна ловить такие случаи раньше, здесь — просто доп. слой,
+# не единственная гарантия. Тот же паттерн override из channel_profile.json,
+# что CONTENT_ALT_BLOCKLIST/QUERY_DISAMBIGUATION_RULES выше.
+VISUAL_DOMAIN_GUARDS = (
+    {
+        "name": "east_asian_sword",
+        "trigger_terms": ("sword", "blade", "katana", "longsword", "saber", "sabre"),
+        "euro_prompt": "straight double-edged european longsword blade with cross-shaped hilt guard",
+        "asian_prompt": ("curved single-edged katana blade with round tsuba guard, "
+                          "or chinese jian sword with diamond pommel and tassel"),
+        "margin_threshold": -0.03,
+    },
+)
+VISUAL_DOMAIN_GUARDS = tuple(CHANNEL_PROFILE.get("visual_domain_guards", VISUAL_DOMAIN_GUARDS))
+
+
+def visual_domain_guard_violation(image_path, query):
+    """(нарушен_ли_анкер, имя_анкера) для ПЕРВОГО сработавшего правила из
+    VISUAL_DOMAIN_GUARDS, чей trigger_terms совпал с query — см. калибровку
+    выше. (False, None), если анкеры не применимы к этому запросу или CLIP
+    недоступен (безопасный откат, тот же принцип, что is_risky_query)."""
+    ql = query.lower()
+    for guard in VISUAL_DOMAIN_GUARDS:
+        if not any(t in ql for t in guard["trigger_terms"]):
+            continue
+        euro = clip_relevance(image_path, guard["euro_prompt"])
+        asian = clip_relevance(image_path, guard["asian_prompt"])
+        if euro is None or asian is None:
+            continue
+        if (euro - asian) < guard["margin_threshold"]:
+            return True, guard["name"]
+    return False, None
+
+
 def is_relevant_candidate(image_path, query, relevance=None):
     """Итоговое решение "релевантен ли кандидат query" — тот же порог +
     risky-margin гейт, что раньше жил инлайном в цикле подбора фото (см.
@@ -3905,6 +4004,10 @@ def is_relevant_candidate(image_path, query, relevance=None):
     if is_relevant and relevance is not None and is_risky_query(query):
         anchor_relevance = clip_relevance(image_path, NEGATIVE_ANCHOR_PROMPT)
         if anchor_relevance is not None and (relevance - anchor_relevance) < RISKY_QUERY_MARGIN:
+            is_relevant = False
+    if is_relevant:
+        violated, _ = visual_domain_guard_violation(image_path, query)
+        if violated:
             is_relevant = False
     return is_relevant
 
@@ -4545,10 +4648,31 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
     return finalize_render(tmp_out, out, ok)
 
 
+VIDEO_RELEVANCE_MAX_TRIES = 3  # сколько видео-кандидатов реально СКАЧАТЬ и
+                                # проверить на релевантность, прежде чем
+                                # сдаться (тот же принцип, что
+                                # PHOTO_DEDUP_MAX_TRIES у фото — здесь
+                                # меньше, видео тяжелее по трафику/времени)
+
+
 def pexels_video(query, index, used_ids=None):
-    """Тот же принцип, что pexels_photo(): перебираем выдачу и берём первое
-    ещё не показанное видео. Из доступных video_files берём ближайшее по
-    ширине к целевому 1920 — не тянем 4K ради 1080p-выхода."""
+    """Раньше брала ПЕРВОЕ ещё не показанное видео из выдачи без единой
+    проверки релевантности/риска (реальный, ранее не закрытый структурный
+    пробел, найденный внешним аудитом + прямой проверкой на реальном
+    ролике — см. коммит: фото-путь через is_relevant_candidate() уже давно
+    гейтит кандидатов, видео-путь был полностью незащищён, из-за чего
+    восточноазиатский клинок в видео-B-roll проходил без единой проверки).
+    Теперь — тот же принцип, что pexels_photo(): перебираем выдачу
+    (до VIDEO_RELEVANCE_MAX_TRIES реально скачанных кандидатов), для
+    каждого извлекаем кадр-пробник (extract_video_probe_frame() — устойчив
+    к чёрному лидеру/fade-in) и прогоняем через is_relevant_candidate() —
+    тот же relevance/risky-margin/visual-domain-guard гейт, что у фото.
+    Ни один слот не остаётся пустым: если НИ ОДИН кандидат не прошёл гейт
+    (или пробник не извлёкся — тогда гейт просто не может сработать, кандидат
+    считается допустимым, тот же безопасный откат, что у остальных
+    опциональных CLIP-проверок), в кэш уходит первый реально скачанный —
+    честная деградация, не сорванный слот. Из доступных video_files берём
+    ближайшее по ширине к целевому 1920 — не тянем 4K ради 1080p-выхода."""
     global PEXELS_BROKEN
     cache = os.path.join(TEMP_FOLDER, "pexels_video_cache")
     os.makedirs(cache, exist_ok=True)
@@ -4565,7 +4689,7 @@ def pexels_video(query, index, used_ids=None):
     if not PEXELS_API_KEY:
         return None
     try:
-        q = urllib.parse.quote(query)
+        q = urllib.parse.quote(disambiguate_search_query(query))
         req = urllib.request.Request(
             f"https://api.pexels.com/videos/search?query={q}&per_page=80&orientation=landscape",
             headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
@@ -4574,22 +4698,53 @@ def pexels_video(query, index, used_ids=None):
         videos = data.get("videos") or []
         if not videos:
             return None
-        pick = videos[0]
+        ordered = videos
         if used_ids is not None:
-            for v in videos:
-                if v.get("id") not in used_ids:
-                    pick = v
-                    break
-        if used_ids is not None:
-            used_ids.add(pick.get("id"))
-        files = [f for f in (pick.get("video_files") or [])
-                 if f.get("file_type") == "video/mp4" and f.get("width")]
-        if not files:
-            return None
-        best = min(files, key=lambda f: abs(f["width"] - WIDTH))
-        vid_req = urllib.request.Request(best["link"], headers={"User-Agent": UA})
-        atomic_url_download(vid_req, cf, timeout=40)
-        return cf
+            ordered = ([v for v in videos if v.get("id") not in used_ids]
+                       + [v for v in videos if v.get("id") in used_ids])
+        fallback = None   # (путь_к_temp_файлу, id) — первый реально скачанный,
+                           # на случай что ни один не пройдёт гейт релевантности
+        tries = 0
+        for v in ordered:
+            if tries >= VIDEO_RELEVANCE_MAX_TRIES:
+                break
+            files = [f for f in (v.get("video_files") or [])
+                     if f.get("file_type") == "video/mp4" and f.get("width")]
+            if not files:
+                continue
+            best = min(files, key=lambda f: abs(f["width"] - WIDTH))
+            trial = cf + f".trial_{v.get('id')}.mp4"
+            try:
+                vid_req = urllib.request.Request(best["link"], headers={"User-Agent": UA})
+                atomic_url_download(vid_req, trial, timeout=40)
+            except Exception:
+                continue
+            tries += 1
+            probe, cleanup = extract_video_probe_frame(trial)
+            relevant = True
+            if probe is not None:
+                try:
+                    relevant = is_relevant_candidate(probe, query)
+                finally:
+                    if cleanup and os.path.exists(probe):
+                        os.remove(probe)
+            if relevant:
+                if fallback is not None and os.path.exists(fallback[0]):
+                    os.remove(fallback[0])
+                os.replace(trial, cf)
+                if used_ids is not None:
+                    used_ids.add(v.get("id"))
+                return cf
+            if fallback is None:
+                fallback = (trial, v.get("id"))
+            else:
+                os.remove(trial)
+        if fallback is not None:
+            os.replace(fallback[0], cf)
+            if used_ids is not None:
+                used_ids.add(fallback[1])
+            return cf
+        return None
     except Exception as e:
         PEXELS_BROKEN = True
         print(f"  Pexels video [{query}]: {e}")

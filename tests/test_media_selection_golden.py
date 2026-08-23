@@ -42,6 +42,8 @@ PIZZA = os.path.join(FIXTURES, "pizza.jpg")
 MEETING = os.path.join(FIXTURES, "meeting.jpg")
 SWORD_NEAR_DUP = os.path.join(FIXTURES, "sword_near_dup.jpg")
 SWORD_DEGRADED = os.path.join(FIXTURES, "sword_degraded.jpg")
+KATANA = os.path.join(FIXTURES, "katana.jpg")
+EURO_SWORD_2 = os.path.join(FIXTURES, "euro_sword_2.jpg")
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -124,6 +126,52 @@ class TestRiskyQueryMargin:
         strict=True)
     def test_known_gap_exact_bug_query_still_accepts_stainedglass(self):
         assert ps.is_relevant_candidate(STAINEDGLASS, "sword museum display case") is False
+
+
+class TestVisualDomainGuard:
+    """Регрессия на РЕАЛЬНЫЙ пойманный вживую баг (внешний аудит + прямая
+    покадровая проверка реального ролика 01_ves-mecha/_test20s): голый
+    запрос про "sword" пропускал в кадр восточноазиатские клинки (катана/
+    цзянь) — visual_domain_guard_violation()/VISUAL_DOMAIN_GUARDS в
+    pipeline_smart.py — та же функция, что реально гейтит в проде
+    (is_relevant_candidate()), не копия её логики. katana.jpg/euro_sword_2.jpg
+    — реальные независимые Pexels-фото (не из исходной калибровки, см.
+    ATTRIBUTION.md); sword.jpg — уже существующая эталонная фикстура,
+    самый жёсткий проверенный случай (рукоять с обмоткой, похожей на
+    катана-цуку)."""
+
+    def test_rejects_katana(self):
+        violated, name = ps.visual_domain_guard_violation(KATANA, "medieval sword close up")
+        assert violated is True
+        assert name == "east_asian_sword"
+
+    def test_accepts_independent_european_sword_photo(self):
+        violated, _ = ps.visual_domain_guard_violation(EURO_SWORD_2, "medieval sword close up")
+        assert violated is False
+
+    def test_accepts_existing_golden_sword_fixture_hardest_known_case(self):
+        # sword.jpg — рукоять, обмотанная тёмным шнуром по диагонали,
+        # визуально похоже на катана-цуку — самый жёсткий случай из
+        # калибровки (margin=-0.0139, ближе всего к порогу -0.03 среди
+        # ВСЕХ подтверждённых европейских кандидатов). Должен пройти без
+        # ложного отказа, иначе уже существующий golden-тест сломался бы
+        # тоже (is_relevant_candidate используется во всех классах этого
+        # файла).
+        violated, _ = ps.visual_domain_guard_violation(SWORD, "medieval sword close up")
+        assert violated is False
+
+    def test_guard_only_applies_to_trigger_terms(self):
+        # Запрос без "sword"/"blade"/... вообще не должен запускать анкер —
+        # даже на заведомо восточноазиатском фото.
+        violated, name = ps.visual_domain_guard_violation(KATANA, "medieval armor helmet")
+        assert violated is False
+        assert name is None
+
+    def test_is_relevant_candidate_integrates_domain_guard(self):
+        # Полный гейт (та же функция, что реально вызывает pexels_photo/
+        # pexels_video) — не только внутренняя проверка анкера.
+        assert ps.is_relevant_candidate(KATANA, "medieval sword close up") is False
+        assert ps.is_relevant_candidate(SWORD, "medieval sword close up") is True
 
 
 class TestAestheticScore:

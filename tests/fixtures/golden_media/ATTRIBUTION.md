@@ -36,5 +36,24 @@ quality ~82) для размера в репозитории — содержа�
 кандидата) — не самостоятельные внешние источники, лицензия та же, что
 у sword.jpg (CC BY 2.0, Søren Niedziella).
 
+## katana.jpg
+- Источник: Pexels, https://www.pexels.com/photo/woman-in-floral-kimono-holding-katana-in-hand-7778825/
+- Автор: cottonbro studio
+- Лицензия: Pexels License (свободное использование, изменение, без
+  обязательной атрибуции — https://www.pexels.com/license/)
+- Уменьшено до 768px/JPEG q82, как остальные фикстуры выше.
+
+## euro_sword_2.jpg
+- Источник: Pexels, https://www.pexels.com/photo/intricately-designed-historical-sword-close-up-31350049/
+- Автор: Blackcurrant Great
+- Лицензия: Pexels License (см. katana.jpg выше)
+- Уменьшено до 768px/JPEG q82, как остальные фикстуры выше.
+
+katana.jpg/euro_sword_2.jpg — фикстуры для калибровки VISUAL_DOMAIN_GUARDS
+(scripts/pipeline_smart.py: guard "east_asian_sword" — см. коммит и
+tests/test_media_selection_golden.py) — та же пара классов
+(восточноазиатский vs европейский меч), что реально спутал Pexels-подбор
+на живом эпизоде 01_ves-mecha.
+
 Использование: только как тестовые фикстуры для CLIP-based media-selection
 теста (tests/test_media_selection_golden.py), не для производства видео.

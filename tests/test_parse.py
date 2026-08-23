@@ -2,6 +2,7 @@
 выбор без повторов, подбор тематического запроса, счётчик слов.
 Запуск: .venv/bin/python -m pytest tests/ -v
 """
+import json
 import os
 import re
 import sys
@@ -1314,3 +1315,130 @@ def test_load_arc_stage_by_index_skips_units_without_index(tmp_path):
         '{"unit_id": "BLOCK1#0", "index": 1, "arc_stage": "постановка"}]}', encoding="utf-8")
     result = pipeline_smart._load_arc_stage_by_index(str(tmp_path))
     assert result == {1: "постановка"}
+
+
+# --- disambiguate_search_query(): реальный, подтверждённый вживую случай
+# (внешний аудит + прямая проверка на 01_ves-mecha/_test20s) — голый запрос
+# "sword" намешивает восточноазиатские клинки в выдачу Pexels; см. полную
+# калибровку (живые числа) у QUERY_DISAMBIGUATION_RULES в pipeline_smart.py.
+
+def test_disambiguate_search_query_adds_qualifier_to_bare_sword_query():
+    assert pipeline_smart.disambiguate_search_query("sword close up") == "european sword close up"
+
+
+def test_disambiguate_search_query_adds_qualifier_to_medieval_sword_query():
+    assert pipeline_smart.disambiguate_search_query("medieval sword close up") == \
+        "european medieval sword close up"
+
+
+def test_disambiguate_search_query_does_not_duplicate_existing_qualifier():
+    assert pipeline_smart.disambiguate_search_query("european longsword knight") == \
+        "european longsword knight"
+
+
+def test_disambiguate_search_query_leaves_explicit_asian_query_untouched():
+    # Легитимный запрос про катану (например, для другого канала/эпизода
+    # про японское оружие) не должен получать искажающую приставку.
+    for q in ("katana sword", "japanese katana", "chinese jian sword"):
+        assert pipeline_smart.disambiguate_search_query(q) == q
+
+
+def test_disambiguate_search_query_leaves_unrelated_query_untouched():
+    assert pipeline_smart.disambiguate_search_query("shield close up") == "shield close up"
+
+
+# --- pexels_video(): реальный, ранее не закрытый структурный пробел (найден
+# внешним аудитом + прямой проверкой на реальном ролике) — раньше брала
+# ПЕРВОЕ ещё не показанное видео без единой проверки релевантности, в
+# отличие от pexels_photo(). Контроль потока (перебор кандидатов/
+# VIDEO_RELEVANCE_MAX_TRIES/честный fallback) проверяется здесь с
+# ПОЛНОСТЬЮ замоканными сетью/CLIP — корректность самого CLIP-гейта уже
+# покрыта tests/test_media_selection_golden.py::TestVisualDomainGuard,
+# здесь тестируется только оркестрация pexels_video().
+
+class _FakeHTTPResponse:
+    def __init__(self, payload):
+        self._payload = json.dumps(payload).encode()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self):
+        return self._payload
+
+
+def _fake_video_entry(vid, width=1920):
+    return {"id": vid, "video_files": [{"file_type": "video/mp4", "width": width,
+                                          "link": f"https://example.invalid/{vid}.mp4"}]}
+
+
+def _patch_pexels_video_infra(monkeypatch, tmp_path, videos, relevant_ids):
+    """videos — список записей Pexels /videos/search. relevant_ids — set id,
+    которые is_relevant_candidate() должен считать подходящими (остальные —
+    нет). Скачивание/probe-извлечение — no-op, пишут/возвращают детерминиро-
+    ванный dummy-путь, никакой реальной сети/ffmpeg."""
+    monkeypatch.setattr(pipeline_smart, "TEMP_FOLDER", str(tmp_path))
+    monkeypatch.setattr(pipeline_smart, "PEXELS_API_KEY", "fake-key-for-test")
+
+    def fake_urlopen(req, timeout=15):
+        return _FakeHTTPResponse({"videos": videos})
+    monkeypatch.setattr(pipeline_smart.urllib.request, "urlopen", fake_urlopen)
+
+    downloaded = []
+
+    def fake_atomic_download(req, dest, timeout):
+        downloaded.append(dest)
+        with open(dest, "wb") as f:
+            f.write(b"dummy-video-bytes")
+        return True
+    monkeypatch.setattr(pipeline_smart, "atomic_url_download", fake_atomic_download)
+
+    def fake_extract_probe(path, base_at=0.5, retry_ats=(1.5, 3.0), timeout=20, q=5):
+        return path + ".probe.jpg", False   # cleanup=False — ничего реального не создавали
+    monkeypatch.setattr(pipeline_smart, "extract_video_probe_frame", fake_extract_probe)
+
+    def fake_is_relevant(image_path, query, relevance=None):
+        # trial-путь несёт id кандидата в имени (см. pexels_video: f".trial_{id}.mp4")
+        for vid in relevant_ids:
+            if f".trial_{vid}.mp4" in image_path:
+                return True
+        return False
+    monkeypatch.setattr(pipeline_smart, "is_relevant_candidate", fake_is_relevant)
+    return downloaded
+
+
+def test_pexels_video_skips_irrelevant_candidate_and_picks_next(monkeypatch, tmp_path):
+    videos = [_fake_video_entry(111), _fake_video_entry(222)]
+    _patch_pexels_video_infra(monkeypatch, tmp_path, videos, relevant_ids={222})
+    result = pipeline_smart.pexels_video("european medieval sword close up", 0)
+    assert result is not None and os.path.exists(result)
+
+
+def test_pexels_video_respects_max_tries_bound(monkeypatch, tmp_path):
+    # Ни один кандидат не релевантен, кандидатов больше, чем
+    # VIDEO_RELEVANCE_MAX_TRIES — должен остановиться на границе, не
+    # перебрать всю выдачу.
+    videos = [_fake_video_entry(i) for i in range(10)]
+    downloaded = _patch_pexels_video_infra(monkeypatch, tmp_path, videos, relevant_ids=set())
+    result = pipeline_smart.pexels_video("european medieval sword close up", 1)
+    assert result is not None   # честный fallback на первого скачанного, слот не пуст
+    assert len(downloaded) <= pipeline_smart.VIDEO_RELEVANCE_MAX_TRIES
+
+
+def test_pexels_video_falls_back_to_first_when_none_relevant(monkeypatch, tmp_path):
+    videos = [_fake_video_entry(333), _fake_video_entry(444)]
+    _patch_pexels_video_infra(monkeypatch, tmp_path, videos, relevant_ids=set())
+    result = pipeline_smart.pexels_video("european medieval sword close up", 2)
+    assert result is not None and os.path.exists(result), (
+        "ни один кандидат не прошёл гейт — слот всё равно не должен остаться пустым")
+
+
+def test_pexels_video_first_candidate_relevant_downloads_once(monkeypatch, tmp_path):
+    videos = [_fake_video_entry(555), _fake_video_entry(666)]
+    downloaded = _patch_pexels_video_infra(monkeypatch, tmp_path, videos, relevant_ids={555})
+    result = pipeline_smart.pexels_video("european medieval sword close up", 3)
+    assert result is not None
+    assert len(downloaded) == 1, "первый же релевантный кандидат — не нужно скачивать остальных"
