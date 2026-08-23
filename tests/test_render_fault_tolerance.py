@@ -34,6 +34,22 @@ def _make_clip(path, dur=2.0, color="red"):
                     capture_output=True, check=True)
 
 
+def _make_black_leader_clip(path, black_dur=1.2, content_dur=3.0):
+    """Реальный, подтверждённый на живом Pexels-кэше эпизода случай: сток
+    иногда начинается с чёрного лидер-кадра/fade-in ДОЛЬШЕ 0.5с (см.
+    extract_video_probe_frame()) — этот хелпер воспроизводит именно такой
+    клип детерминированно, без сети. "Реальный" сегмент — testsrc (не
+    сплошной цвет!), иначе кадр сам по себе однотонный и неотличим от
+    чёрного лидера по дисперсии — ложно провалил бы собственную проверку."""
+    subprocess.run(
+        ["ffmpeg", "-y",
+         "-f", "lavfi", "-i", f"color=c=black:s=320x180:d={black_dur}:r=24",
+         "-f", "lavfi", "-i", f"testsrc=s=320x180:d={content_dur}:r=24",
+         "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[v]",
+         "-map", "[v]", "-c:v", "libx264", "-pix_fmt", "yuv420p", path],
+        capture_output=True, check=True)
+
+
 # ---------- verify_clip: реальные битые/усечённые/некорректные файлы ----------
 
 def test_verify_clip_accepts_good_file(tmp_path):
@@ -85,6 +101,57 @@ def test_verify_clip_within_tolerance_is_accepted(tmp_path):
     _make_clip(p, dur=1.9)   # заказали 2.0с, допуск CLIP_VERIFY_TOLERANCE_SEC=0.25
     ok, reason, _ = ps.verify_clip(p, expected_dur=2.0)
     assert ok, reason
+
+
+# ---------- extract_video_probe_frame/measure_luma: реальный чёрный лидер-кадр
+# длиннее 0.5с (найден на живом Pexels-кэше видео эпизода "01_ves-mecha",
+# 0008_f62be164.mp4 — t=0.1 и t=0.5 оба чисто чёрные, реальный контент
+# начинается только к t≈1.0) ----------
+
+def test_extract_video_probe_frame_skips_black_leader(tmp_path):
+    p = str(tmp_path / "black_leader.mp4")
+    _make_black_leader_clip(p, black_dur=1.2, content_dur=3.0)
+    tmp, cleanup = ps.extract_video_probe_frame(p, base_at=0.5, retry_ats=(1.5, 3.0))
+    try:
+        assert tmp is not None
+        from PIL import Image
+        import numpy as np
+        arr = np.asarray(Image.open(tmp).convert("L"), dtype=np.float32)
+        assert arr.std() >= 0.5, "должен вернуть реальный (не чёрный) кадр после ретрая"
+    finally:
+        if cleanup and tmp and os.path.exists(tmp):
+            os.remove(tmp)
+
+
+def test_extract_video_probe_frame_no_retry_needed_for_normal_clip(tmp_path):
+    p = str(tmp_path / "normal.mp4")
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=s=320x180:d=2.0:r=24",
+                     "-c:v", "libx264", "-pix_fmt", "yuv420p", p],
+                    capture_output=True, check=True)
+    tmp, cleanup = ps.extract_video_probe_frame(p, base_at=0.5, retry_ats=(1.5, 3.0))
+    try:
+        assert tmp is not None
+    finally:
+        if cleanup and tmp and os.path.exists(tmp):
+            os.remove(tmp)
+
+
+def test_extract_video_probe_frame_none_when_entirely_black(tmp_path):
+    p = str(tmp_path / "all_black.mp4")
+    _make_clip(p, dur=5.0, color="black")
+    tmp, cleanup = ps.extract_video_probe_frame(p, base_at=0.5, retry_ats=(1.5, 3.0))
+    assert tmp is None
+    assert cleanup is False
+
+
+def test_measure_luma_video_not_fooled_by_black_leader(tmp_path):
+    p = str(tmp_path / "black_leader.mp4")
+    _make_black_leader_clip(p, black_dur=1.2, content_dur=3.0)
+    luma = ps.measure_luma(p, is_video=True)
+    assert luma is not None
+    # чистый чёрный кадр дал бы luma≈0.0 — реальный клип (testsrc после
+    # лидера) должен читаться заметно ярче
+    assert luma > 0.15, f"ожидали яркость реального кадра, получили {luma}"
 
 
 # ---------- run_ffmpeg_with_retry: намеренные транзиентные/постоянные сбои ----------

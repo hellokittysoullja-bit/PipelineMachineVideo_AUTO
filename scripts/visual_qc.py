@@ -103,23 +103,16 @@ QC_MAX_REFETCH_TRIES = 3         # сколько раз реально пере
 
 
 def _extract_probe_frame(path, is_video, at=0.5):
-    """Кадр-пробник: сам файл для фото, один кадр через ffmpeg для видео —
-    тот же приём (-ss 0.5, не 0 — реальный сток иногда начинается с чёрного
-    лидер-кадра), что уже использует measure_luma()/measure_levels() в
-    pipeline_smart.py. Возвращает (путь_к_кадру, нужно_ли_удалить) или
-    (None, False) при сбое чтения/декода."""
+    """Кадр-пробник: сам файл для фото, один кадр для видео — делегирует в
+    pipeline_smart.extract_video_probe_frame(), устойчивый к чёрному
+    лидер-кадру/fade-in ДОЛЬШЕ 0.5с (реальный, подтверждённый на живом
+    кэше эпизода случай — одиночный пробник на фиксированном at раньше
+    молча возвращал вырожденный чёрный кадр и ложный reject по резкости/
+    шуму для технически нормального клипа). Возвращает (путь_к_кадру,
+    нужно_ли_удалить) или (None, False) при сбое чтения/декода."""
     if not is_video:
         return (path, False) if os.path.exists(path) else (None, False)
-    tmp = path + "._qc_probe.jpg"
-    try:
-        r = subprocess.run(["ffmpeg", "-y", "-ss", f"{at:.2f}", "-i", path,
-                             "-frames:v", "1", "-q:v", "3", tmp],
-                            capture_output=True, timeout=20)
-        if r.returncode != 0 or not os.path.exists(tmp):
-            return None, False
-        return tmp, True
-    except Exception:
-        return None, False
+    return pipeline_smart.extract_video_probe_frame(path, base_at=at)
 
 
 def _load_gray_normalized(image_path):

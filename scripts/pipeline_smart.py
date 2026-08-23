@@ -1296,24 +1296,67 @@ def auto_levels_params(levels):
     return contrast_eff, brightness
 
 
+def _probe_frame_is_degenerate(gray_arr):
+    """True для вырожденного (сплошного, однотонного) кадра — реальный
+    контент практически никогда не имеет нулевой дисперсии по всему кадру,
+    порог с запасом (0.5 из 0..255) отсекает именно "стену одного цвета",
+    не просто тёмную/пересвеченную, но текстурную сцену."""
+    return float(gray_arr.std()) < 0.5
+
+
+def extract_video_probe_frame(path, base_at=0.5, retry_ats=(1.5, 3.0), timeout=20, q=5):
+    """Кадр-пробник для видео, устойчивый к чёрному лидер-кадру/fade-in
+    длиннее 0.5с — реальный, подтверждённый на живом кэше эпизода случай
+    (см. измерение на 0008_f62be164.mp4: t=0.1 и t=0.5 оба чисто чёрные,
+    std=0, реальный контент начинается только к t≈1.0). Пробует base_at
+    (дешёвый общий случай), при вырожденном результате — по очереди
+    retry_ats, пока не найдёт нетривиальный кадр. Возвращает
+    (путь_к_temp_jpg, нужно_ли_удалить) или (None, False), если ни одна
+    попытка не дала реального кадра.
+
+    Только для ОДНОКАДРОВЫХ пробников (measure_luma(),
+    visual_qc._extract_probe_frame()) — measure_levels() уже сэмплирует
+    НЕСКОЛЬКО кадров по 3.5с диапазону, там один вырожденный сэмпл из
+    четырёх и так растворяется в остальных, отдельный фикс не нужен."""
+    if np is None:
+        return None, False
+    for at in (base_at,) + tuple(retry_ats):
+        tmp = path + f"._probe_{at:.2f}.jpg"
+        try:
+            r = subprocess.run(["ffmpeg", "-y", "-ss", f"{at:.2f}", "-i", path,
+                                 "-frames:v", "1", "-q:v", str(q), tmp],
+                                capture_output=True, timeout=timeout)
+        except Exception:
+            continue
+        if r.returncode != 0 or not os.path.exists(tmp):
+            continue
+        try:
+            arr = np.asarray(PILImage.open(tmp).convert("L"), dtype=np.float32)
+        except Exception:
+            os.remove(tmp)
+            continue
+        if _probe_frame_is_degenerate(arr):
+            os.remove(tmp)
+            continue
+        return tmp, True
+    return None, False
+
+
 def measure_luma(path, is_video=False):
     """Средняя яркость кадра (0..1) — для сглаживания скачков экспозиции
     между соседними склейками (см. main()): сток из разных источников
     скачет по яркости кадр-к-кадру, это частый "любительский" tell в
     компиляциях. Для видео берём один кадр в начале — грубой оценки
-    достаточно, не нужен точный анализ всего клипа."""
+    достаточно, не нужен точный анализ всего клипа (устойчиво к чёрному
+    лидер-кадру — см. extract_video_probe_frame())."""
     try:
         if is_video:
-            tmp = path + "._luma_probe.jpg"
-            # -ss 0.5, не кадр 0 — см. тот же фикс в measure_levels(): реальный
-            # сток иногда начинается с чёрного лидер-кадра/fade-in, кадр 0
-            # тогда даёт ложный "снято в темноте" на весь клип.
-            r = subprocess.run(["ffmpeg", "-y", "-ss", "0.5", "-i", path, "-frames:v", "1", "-q:v", "5", tmp],
-                                capture_output=True, timeout=20)
-            if r.returncode != 0 or not os.path.exists(tmp):
+            tmp, cleanup = extract_video_probe_frame(path)
+            if tmp is None:
                 return None
             img = PILImage.open(tmp).convert("L").resize((64, 36))
-            os.remove(tmp)
+            if cleanup:
+                os.remove(tmp)
         else:
             img = PILImage.open(path).convert("L").resize((64, 36))
         arr = list(img.getdata())
