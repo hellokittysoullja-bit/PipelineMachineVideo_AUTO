@@ -454,6 +454,29 @@ def _visual_director_cache_signature(director_ref):
     инвалидация имеет смысл только для "assist"."""
     return director_ref.cache_signature() if director_ref is not None else "director:off"
 
+
+def _load_arc_stage_by_index(video_dir):
+    """{index: arc_stage} из media_plan/speech_plan.json (см.
+    speech_planner.assign_chapter_arcs — "заход-якорь"/"слом"/
+    "доказательство"/... для BLOCK-секций, "hook"/"final" для HOOK/FINAL).
+    index — ГЛОБАЛЬНЫЙ индекс блока parse_blocks(), который build_units()
+    пишет 1:1 в каждый unit (тот же i, которым идёт главный цикл main()) —
+    прямое соответствие, без отдельного маппинга. Используется в main(),
+    чтобы Look Management/Visual Director реагировали на драматургическую
+    стадию текущего блока, а не только на содержимое кадра в изоляции.
+    Нет speech_plan.json (эпизод без Speech Director, или ещё не запущен
+    speech_planner.py) -> {} -> вызывающий код получает arc_stage=None на
+    каждом клипе (safe fallback, тот же принцип, что и у остальных
+    опциональных источников данных пайплайна)."""
+    plan_path = os.path.join(video_dir, "media_plan", "speech_plan.json")
+    if not os.path.exists(plan_path):
+        return {}
+    try:
+        plan_data = json.load(open(plan_path, encoding="utf-8"))
+        return {u["index"]: u.get("arc_stage") for u in plan_data.get("units", []) if "index" in u}
+    except Exception:
+        return {}
+
 # Процедурная атмосферная подложка (см. scripts/generate_music_asset.py) —
 # тот же принцип, что и с grain_loop: статический ассет в репозитории, нет
 # файла -> MUSIC_ENABLED=False, безопасный откат на прежнее поведение
@@ -5166,6 +5189,16 @@ def main():
         if domain_ref is None:
             import look_reference as domain_ref  # noqa: F401
     domain_cache_sig = _domain_grade_cache_signature(domain_ref)
+    # Arc-stage awareness — см. _load_arc_stage_by_index() выше. Передаётся
+    # НИЖЕ в look_ref.look_correction_filter()/director_score_fn, чтобы Look
+    # Management/Visual Director реагировали на драматургическую стадию
+    # текущего блока, а не только на содержимое кадра в изоляции (тот же
+    # принцип, по которому проф. колорист/монтажёр держит цвет/крупность
+    # плана ПОДЧИНЁННЫМИ сюжету, не одинаковыми по всему ролику). Загружаем
+    # ОДИН РАЗ, только если хотя бы один потребитель реально активен —
+    # иначе это чтение файла впустую.
+    arc_stage_by_index = (_load_arc_stage_by_index(VIDEO_FOLDER)
+                           if (look_ref is not None or visual_director is not None) else {})
     used_photo_ids = set()   # общий на весь ролик — не даём одной фотке всплыть дважды
     used_video_ids = set()   # то же самое, отдельно для видео (разные ID-пространства)
     used_photo_hashes = []   # aHash уже отобранных фото — ловит визуальные дубли под РАЗНЫМИ ID (см. pexels_photo)
@@ -5256,9 +5289,17 @@ def main():
         # (P1-4): раньше params_hash не содержал НИЧЕГО про
         # VISUAL_DIRECTOR_MODE, поэтому off -> assist на уже отрендеренном
         # эпизоде не инвалидировал кэш — см. _visual_director_cache_signature().
+        # arc_stage этого КОНКРЕТНОГО блока — тот же класс бага, если его не
+        # включить: сгенерировать/пересчитать speech_plan.json ПОСЛЕ первого
+        # рендера (или наоборот, удалить его) молча оставило бы старые
+        # кэшированные клипы под именем, которое больше не отражает реальный
+        # arc_stage, использованный при их рендере (Look Management/Visual
+        # Director получили бы другую силу/бонус на пересчёте, а кэш этого
+        # бы не заметил).
         params_hash = hashlib.md5(
             f"{d:.3f}|{title}|{stat}|{stat_variant}|{b['section']}|{queries[i]}|{stat_delay:.3f}|"
-            f"{captions}|{look_cache_sig}|{domain_cache_sig}|{director_cache_sig}".encode()).hexdigest()[:8]
+            f"{captions}|{look_cache_sig}|{domain_cache_sig}|{director_cache_sig}|"
+            f"{arc_stage_by_index.get(i)}".encode()).hexdigest()[:8]
         out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}_{params_hash}.mp4")
         if os.path.exists(out) and not verify_clip(out, d)[0]:
             # Кэш раньше доверял голому os.path.exists() — обрезанный/битый
@@ -5320,7 +5361,8 @@ def main():
                 director_text_domain, _ = visual_director.lr.text_domain_hint(b["text"])
                 director_score_fn = functools.partial(
                     visual_director.compute_extra_score, role=director_role, block_text=b["text"],
-                    text_domain=director_text_domain, recent_semantic_tags=recent_semantic_tags)
+                    text_domain=director_text_domain, recent_semantic_tags=recent_semantic_tags,
+                    arc_stage=arc_stage_by_index.get(i))
                 director_entry = {}
             # Content-aware чередование вместо механического i%2 (ЧАСТЬ 14
             # раньше просто нечётные->фото/чётные->видео) — зритель
@@ -5449,7 +5491,7 @@ def main():
             has_face = detect_face_anchor(photo) is not None
             look_filter, look_entry, look_state = look_ref.look_correction_filter(
                 photo, levels, wb, has_face, scene_boundary=is_section_start,
-                section=b["section"], prev_state=look_state)
+                section=b["section"], prev_state=look_state, arc_stage=arc_stage_by_index.get(i))
             look_report[i] = look_entry
         # П.4: домен кадра для DOMAIN_WARM_PUSH_SCALE (film_look()) — только
         # фото (видео не участвует, тот же скоуп, что Look Management выше),

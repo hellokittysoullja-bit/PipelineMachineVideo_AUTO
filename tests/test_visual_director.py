@@ -59,6 +59,25 @@ def test_role_shot_size_bonus_unknown_pair_is_zero():
     assert vd.role_shot_size_bonus("unknown_role", "wide") == 0.0
 
 
+# ---------- arc_stage_shot_bonus ----------
+
+def test_arc_stage_shot_bonus_known_pair():
+    assert vd.arc_stage_shot_bonus("слом", "detail") == pytest.approx(0.12)
+    assert vd.arc_stage_shot_bonus("заход-якорь", "wide") == pytest.approx(0.10)
+
+
+def test_arc_stage_shot_bonus_unknown_pair_is_zero():
+    assert vd.arc_stage_shot_bonus("слом", "wide") == 0.0
+    assert vd.arc_stage_shot_bonus("совершенно_незнакомая_стадия", "detail") == 0.0
+
+
+def test_arc_stage_shot_bonus_none_is_zero():
+    # Эпизод без Speech Director (нет speech_plan.json) -> arc_stage=None на
+    # каждом клипе -> бонус 0.0 везде -> байт-в-байт прежнее поведение.
+    assert vd.arc_stage_shot_bonus(None, "detail") == 0.0
+    assert vd.arc_stage_shot_bonus(None, "wide") == 0.0
+
+
 # ---------- domain_match_bonus ----------
 
 def test_domain_match_bonus_when_equal():
@@ -176,6 +195,32 @@ def test_compute_extra_score_adds_role_shot_size_bonus(monkeypatch):
     monkeypatch.setattr(vd, "_safe_shot_size", lambda path: "detail")
     score = vd.compute_extra_score("x.jpg", "detail", "текст блока", None, [])
     assert score == pytest.approx(vd.ROLE_SHOT_SIZE_BONUS[("detail", "detail")])
+
+
+def test_compute_extra_score_adds_arc_stage_shot_bonus(monkeypatch):
+    _patch_all_neutral(monkeypatch)
+    monkeypatch.setattr(vd, "_safe_shot_size", lambda path: "detail")
+    score = vd.compute_extra_score("x.jpg", "narrative", "текст блока", None, [], arc_stage="слом")
+    assert score == pytest.approx(vd.ARC_STAGE_SHOT_SIZE_BONUS[("слом", "detail")])
+
+
+def test_compute_extra_score_combines_role_and_arc_stage_bonuses(monkeypatch):
+    # Оба бонуса СКЛАДЫВАЮТСЯ (роль отвечает "что это за кадр", arc_stage —
+    # "где мы в разоблачении мифа") — независимые сигналы, не взаимоисключающие.
+    _patch_all_neutral(monkeypatch)
+    monkeypatch.setattr(vd, "_safe_shot_size", lambda path: "detail")
+    score = vd.compute_extra_score("x.jpg", "detail", "текст блока", None, [], arc_stage="слом")
+    assert score == pytest.approx(vd.ROLE_SHOT_SIZE_BONUS[("detail", "detail")]
+                                   + vd.ARC_STAGE_SHOT_SIZE_BONUS[("слом", "detail")])
+
+
+def test_compute_extra_score_default_arc_stage_is_zero_bonus(monkeypatch):
+    # arc_stage не передан (дефолт None) — эпизод без Speech Director,
+    # байт-в-байт прежнее поведение (ноль влияния этой оси).
+    _patch_all_neutral(monkeypatch)
+    monkeypatch.setattr(vd, "_safe_shot_size", lambda path: "detail")
+    score = vd.compute_extra_score("x.jpg", "narrative", "текст блока", None, [])
+    assert score == 0.0
 
 
 def test_compute_extra_score_adds_domain_match_bonus(monkeypatch):
