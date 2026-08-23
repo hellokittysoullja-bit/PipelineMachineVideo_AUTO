@@ -25,16 +25,45 @@ MAX_ATTEMPTS_DEFAULT = 5
 RETRY_DELAY_SEC = 15
 
 
-def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("--max")]
+def parse_args(argv):
+    """Разбирает <video_dir> [--max N]. Раньше здесь понимался ТОЛЬКО
+    `--max=N` (через знак равенства), при том что докстринг модуля и usage-
+    сообщение документируют `--max N` (через пробел, как в примере
+    использования выше) — вызов ровно по документации тихо игнорировал флаг
+    (значение "5" просто оседало отдельным позиционным аргументом, не
+    влияющим ни на что, а max_attempts молча оставался дефолтным — по
+    совпадению тем же числом 5, что маскировало баг). Теперь поддержаны обе
+    формы. Возвращает (video_dir|None, max_attempts)."""
     max_attempts = MAX_ATTEMPTS_DEFAULT
-    for a in sys.argv[1:]:
+    positional = []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--max":
+            if i + 1 >= len(argv):
+                raise ValueError("--max требует значение: --max N")
+            max_attempts = int(argv[i + 1])
+            i += 2
+            continue
         if a.startswith("--max="):
             max_attempts = int(a.split("=", 1)[1])
-    if not args:
-        print("Использование: python scripts/render_with_retry.py <video_dir> [--max=N]")
+            i += 1
+            continue
+        positional.append(a)
+        i += 1
+    video_dir = positional[0] if positional else None
+    return video_dir, max_attempts
+
+
+def main():
+    try:
+        video_dir, max_attempts = parse_args(sys.argv[1:])
+    except ValueError as e:
+        print(f"Использование: python scripts/render_with_retry.py <video_dir> [--max N] ({e})")
         return 1
-    video_dir = args[0]
+    if not video_dir:
+        print("Использование: python scripts/render_with_retry.py <video_dir> [--max N]")
+        return 1
 
     for attempt in range(1, max_attempts + 1):
         print(f"=== Попытка {attempt}/{max_attempts} ===", flush=True)

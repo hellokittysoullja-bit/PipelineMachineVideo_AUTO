@@ -192,3 +192,69 @@ def test_build_timeline_cooldown_shrinks_second_of_two_close_long_holds(monkeypa
     assert abs(pw[0][2] - 1.2) < 1e-6   # первая пауза — без изменений
     assert abs(pw[1][2] - 0.7) < 1e-6   # вторая — понижена кулдауном до lo=0.7
     assert timeline["pause_decisions"][1]["cooldown_applied"] is True
+
+
+# ---------- main(): коды возврата — сбой (1) vs advisory (2) vs чисто (0) ----------
+# Регрессия: раньше 1 означало и "реальный сбой" (нет входа/невалидный план),
+# и "прогон прошёл успешно, но часть фраз стоит переслушать" — при цепочном
+# запуске (`&&`) эти два исхода были неотличимы.
+
+def _write_json(path, data):
+    import json
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+
+
+def test_main_returns_1_when_speech_plan_missing(tmp_path):
+    import sys as _sys
+    old_argv = _sys.argv
+    _sys.argv = ["speech_validator.py", str(tmp_path)]
+    try:
+        assert sv.main() == 1
+    finally:
+        _sys.argv = old_argv
+
+
+def test_main_returns_2_when_a_unit_needs_retake(tmp_path, monkeypatch):
+    plan = {"units": [_unit("HOOK#0", "HOOK", "punchy", (0.15, 0.35))]}
+    os.makedirs(tmp_path / "media_plan")
+    _write_json(tmp_path / "media_plan" / "speech_plan.json", plan)
+    (tmp_path / "audio.mp3").write_bytes(b"fake audio bytes")
+
+    fake_timeline = {
+        "units": [{"unit_id": "HOOK#0",
+                   "validation": {"status": "mismatch_long", "action": "re-record phrase manually",
+                                   "reason": "перебор темпа"}}],
+        "protected_windows": [], "pause_decisions": [],
+    }
+    monkeypatch.setattr(sv, "build_timeline", lambda units, audio_md5: fake_timeline)
+
+    import sys as _sys
+    old_argv = _sys.argv
+    _sys.argv = ["speech_validator.py", str(tmp_path)]
+    try:
+        assert sv.main() == 2
+    finally:
+        _sys.argv = old_argv
+
+
+def test_main_returns_0_when_all_units_ok(tmp_path, monkeypatch):
+    plan = {"units": [_unit("HOOK#0", "HOOK", "punchy", (0.15, 0.35))]}
+    os.makedirs(tmp_path / "media_plan")
+    _write_json(tmp_path / "media_plan" / "speech_plan.json", plan)
+    (tmp_path / "audio.mp3").write_bytes(b"fake audio bytes")
+
+    fake_timeline = {
+        "units": [{"unit_id": "HOOK#0",
+                   "validation": {"status": "ok", "action": "none", "reason": "в норме"}}],
+        "protected_windows": [], "pause_decisions": [],
+    }
+    monkeypatch.setattr(sv, "build_timeline", lambda units, audio_md5: fake_timeline)
+
+    import sys as _sys
+    old_argv = _sys.argv
+    _sys.argv = ["speech_validator.py", str(tmp_path)]
+    try:
+        assert sv.main() == 0
+    finally:
+        _sys.argv = old_argv

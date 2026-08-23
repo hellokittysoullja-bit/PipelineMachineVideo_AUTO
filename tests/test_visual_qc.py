@@ -294,3 +294,86 @@ def test_process_slot_never_leaves_slot_empty_when_refetch_unavailable(tmp_path,
     assert entry["verdict"] == "accepted_below_threshold"
     assert entry["auto_replaced"] is False
     assert os.path.exists(p)   # файл НИКУДА не делся
+
+
+def test_process_slot_survives_early_best_across_multiple_refetch_tries(tmp_path, monkeypatch):
+    # Регрессия на реальный баг: если ЛУЧШИЙ (по score) кандидат нашёлся на
+    # ранней попытке переподбора, а последующие попытки хуже (но всё ещё
+    # "reject", так что цикл продолжается до QC_MAX_REFETCH_TRIES) — best
+    # обязан пережить оставшиеся итерации не потеряв свой физический файл.
+    # Раньше temp-файл каждой попытки писался под ОДНИМ и тем же фиксированным
+    # именем, и cleanup в начале следующей итерации удалял файл, на который
+    # уже ссылался best — к концу цикла os.replace() падал с FileNotFoundError.
+    media = tmp_path / "media"
+    media.mkdir()
+    orig_path = str(media / "001_stock.jpg")
+    make_sharp_photo(orig_path)
+
+    scores_by_try = {1: 0.9, 2: 0.5, 3: 0.3}   # первая попытка — лучшая
+    counter = {"n": 0}
+
+    def fake_qc_verdict(path, is_video, query, accepted_hashes, slot_label):
+        if path == orig_path:
+            return {"verdict": "reject", "score": 0.01, "reasons": ["orig"]}
+        counter["n"] += 1
+        return {"verdict": "reject", "score": scores_by_try[counter["n"]],
+                "reasons": [f"try{counter['n']}"]}
+
+    def fake_try_sources(sources, attempt, query, out_path):
+        with open(out_path, "wb") as f:
+            f.write(b"fake-refetch-bytes")
+        return True
+
+    monkeypatch.setattr(vqc, "qc_verdict", fake_qc_verdict)
+    monkeypatch.setattr(vqc.sfm, "try_sources", fake_try_sources)
+
+    entry = vqc.process_slot(str(media), 1, "medieval sword close up", {})
+    assert entry["verdict"] == "accepted_below_threshold"
+    assert entry["auto_replaced"] is True
+    assert counter["n"] == vqc.QC_MAX_REFETCH_TRIES   # цикл честно исчерпал все попытки
+    assert entry["path"] == orig_path   # финальное имя слота совпадает с исходным
+    assert os.path.exists(entry["path"])
+    with open(entry["path"], "rb") as f:
+        assert f.read() == b"fake-refetch-bytes"   # это файл от try1 (score 0.9), не orig и не try2/3
+
+
+# ---------- main(): коды возврата — сбой (1) vs advisory (2) vs чисто (0) ----------
+# Регрессия: раньше 1 означало и "реальный сбой" (media/ не найдена), и
+# "прогон прошёл успешно, но часть слотов ниже порога" — при цепочном
+# запуске (`&&`) эти два исхода были неотличимы.
+
+def _set_argv_and_call_main(video_dir):
+    old_argv = sys.argv
+    sys.argv = ["visual_qc.py", video_dir]
+    try:
+        return vqc.main()
+    finally:
+        sys.argv = old_argv
+
+
+def test_main_returns_1_when_media_dir_missing(tmp_path):
+    assert _set_argv_and_call_main(str(tmp_path)) == 1
+
+
+def test_main_returns_2_when_a_slot_is_below_threshold(tmp_path, monkeypatch):
+    media = tmp_path / "media"
+    media.mkdir()
+    make_sharp_photo(str(media / "001_stock.jpg"))   # без slots_master_index.txt -> fallback-скан media/
+
+    monkeypatch.setattr(vqc, "process_slot", lambda media_dir, idx, query, accepted_hashes: {
+        "slot": f"{idx:03d}", "verdict": "accepted_below_threshold", "source": "stock",
+        "auto_replaced": False, "reasons": ["ниже порога"], "path": str(media / "001_stock.jpg")})
+
+    assert _set_argv_and_call_main(str(tmp_path)) == 2
+
+
+def test_main_returns_0_when_all_slots_pass(tmp_path, monkeypatch):
+    media = tmp_path / "media"
+    media.mkdir()
+    make_sharp_photo(str(media / "001_stock.jpg"))
+
+    monkeypatch.setattr(vqc, "process_slot", lambda media_dir, idx, query, accepted_hashes: {
+        "slot": f"{idx:03d}", "verdict": "pass", "source": "stock",
+        "auto_replaced": False, "reasons": [], "path": str(media / "001_stock.jpg")})
+
+    assert _set_argv_and_call_main(str(tmp_path)) == 0

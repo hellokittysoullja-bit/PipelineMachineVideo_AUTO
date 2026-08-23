@@ -75,6 +75,27 @@ def test_parse_blocks_short_pause_duration(tmp_path):
     assert blocks[0]["pause_after"] == 0.4
 
 
+def test_parse_blocks_unknown_tag_warns_and_does_not_split(tmp_path, capsys):
+    # Регрессия: раньше [long pause] (явно ЗАПРЕЩЁН ЧАСТЬЮ 10 CLAUDE.md) и
+    # любой другой незнакомый тег молча вырезались без единого предупреждения
+    # и без вставки паузы — сценарист не узнал бы, что граница блока/пауза в
+    # этом месте пропала.
+    text = "=== HOOK === Раз.[long pause]Два.\n"
+    blocks = pipeline_smart.parse_blocks(write_script(tmp_path, text))
+    assert len(blocks) == 1                       # тег не создал границу (как и раньше)
+    assert blocks[0]["pause_after"] == 0.0         # и не добавил паузу (как и раньше)
+    assert "[long pause]" not in blocks[0]["text"]
+    err = capsys.readouterr().out
+    assert "ВНИМАНИЕ" in err
+    assert "[long pause]" in err
+
+
+def test_parse_blocks_known_tags_do_not_trigger_warning(tmp_path, capsys):
+    text = "=== HOOK === Раз.[pause]Два.[short pause]Три.\n"
+    pipeline_smart.parse_blocks(write_script(tmp_path, text))
+    assert "ВНИМАНИЕ" not in capsys.readouterr().out
+
+
 def test_parse_blocks_stat_tag_does_not_split(tmp_path):
     # [stat:...] посреди фразы без соседнего [pause] НЕ должен резать блок
     # (регрессия: раньше stat-маркер сам по себе создавал границу блока).
@@ -1187,3 +1208,41 @@ def test_write_subtitles_wraps_long_block(tmp_path):
     path = pipeline_smart.write_subtitles(str(tmp_path), blocks, [0.0], [8.0])
     content = open(path, encoding="utf-8").read()
     assert pipeline_smart._wrap_caption_text(raw_text) in content
+
+
+# ---------- _load_arc_stage_by_index (arc-stage awareness Look Management/Visual Director) ----------
+
+def test_load_arc_stage_by_index_missing_file_returns_empty(tmp_path):
+    assert pipeline_smart._load_arc_stage_by_index(str(tmp_path)) == {}
+
+
+def test_load_arc_stage_by_index_reads_speech_plan(tmp_path):
+    plan_dir = tmp_path / "media_plan"
+    plan_dir.mkdir()
+    (plan_dir / "speech_plan.json").write_text(
+        '{"units": ['
+        '{"unit_id": "HOOK#0", "index": 0, "arc_stage": "hook"},'
+        '{"unit_id": "BLOCK1#0", "index": 1, "arc_stage": "заход-якорь"},'
+        '{"unit_id": "BLOCK1#1", "index": 2, "arc_stage": "слом"}'
+        ']}', encoding="utf-8")
+    result = pipeline_smart._load_arc_stage_by_index(str(tmp_path))
+    assert result == {0: "hook", 1: "заход-якорь", 2: "слом"}
+
+
+def test_load_arc_stage_by_index_corrupt_file_returns_empty_not_crash(tmp_path):
+    plan_dir = tmp_path / "media_plan"
+    plan_dir.mkdir()
+    (plan_dir / "speech_plan.json").write_text("{not valid json", encoding="utf-8")
+    assert pipeline_smart._load_arc_stage_by_index(str(tmp_path)) == {}
+
+
+def test_load_arc_stage_by_index_skips_units_without_index(tmp_path):
+    # Старый формат/битый юнит без "index" — пропускается, не роняет весь
+    # словарь (тот же принцип толерантного парсинга, что и у load_protected_windows).
+    plan_dir = tmp_path / "media_plan"
+    plan_dir.mkdir()
+    (plan_dir / "speech_plan.json").write_text(
+        '{"units": [{"unit_id": "HOOK#0", "arc_stage": "hook"}, '
+        '{"unit_id": "BLOCK1#0", "index": 1, "arc_stage": "постановка"}]}', encoding="utf-8")
+    result = pipeline_smart._load_arc_stage_by_index(str(tmp_path))
+    assert result == {1: "постановка"}

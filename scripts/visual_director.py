@@ -96,6 +96,24 @@ REPETITION_PENALTY = 0.15
 VISUAL_QC_SHARPNESS_WEIGHT = 0.10
 VISUAL_QC_NOISE_WEIGHT = 0.05
 
+# Arc-stage-осведомлённый бонус по крупности плана (см. speech_planner.
+# assign_chapter_arcs — "заход-якорь"/"слом"/"доказательство"/... для
+# BLOCK-секций, "hook"/"final" для HOOK/FINAL) — ДОПОЛНИТЕЛЬНЫЙ, независимый
+# сигнал поверх ROLE_SHOT_SIZE_BONUS выше: роль (evidence/detail/context/
+# hook/narrative) отвечает "что это за кадр по смыслу", arc_stage — "где мы
+# сейчас в разоблачении мифа" (тот же принцип, по которому проф. монтажёр
+# держит крупность плана подчинённой сюжету — сближение на слом/доказательство,
+# общий план на заходе — а не одинаковой по всему ролику). Оба бонуса
+# складываются, не заменяют друг друга. Некалиброванные, разумные стартовые
+# значения — та же честная маркировка, что у ROLE_SHOT_SIZE_BONUS. arc_stage=None
+# (эпизод без Speech Director) -> бонус 0.0 везде -> байт-в-байт прежнее поведение.
+ARC_STAGE_SHOT_SIZE_BONUS = {
+    ("слом", "detail"): 0.12, ("слом", "close"): 0.10,
+    ("доказательство", "detail"): 0.10, ("доказательство", "close"): 0.08,
+    ("заход-якорь", "wide"): 0.10, ("постановка", "wide"): 0.08,
+    ("hook", "wide"): 0.05,
+}
+
 
 def cache_signature():
     """Единственный источник истины для инвалидации кэша temp_smart/ по
@@ -121,6 +139,7 @@ def cache_signature():
         REPETITION_WINDOW, REPETITION_PENALTY,
         VISUAL_QC_SHARPNESS_WEIGHT, VISUAL_QC_NOISE_WEIGHT,
         SENTENCE_RELEVANCE_WEIGHT, DIRECTOR_MIN_POOL,
+        sorted(ARC_STAGE_SHOT_SIZE_BONUS.items()),
     )).encode()).hexdigest()[:8]
     return f"director:assist:{table_sig}"
 
@@ -144,6 +163,12 @@ def sentence_relevance(image_path, block_text):
 
 def role_shot_size_bonus(role, shot_size):
     return ROLE_SHOT_SIZE_BONUS.get((role, shot_size), 0.0)
+
+
+def arc_stage_shot_bonus(arc_stage, shot_size):
+    if arc_stage is None:
+        return 0.0
+    return ARC_STAGE_SHOT_SIZE_BONUS.get((arc_stage, shot_size), 0.0)
 
 
 def domain_match_bonus(candidate_domain, text_domain):
@@ -200,18 +225,23 @@ def candidate_domain_for(image_path):
     return domain
 
 
-def compute_extra_score(image_path, role, block_text, text_domain, recent_semantic_tags):
+def compute_extra_score(image_path, role, block_text, text_domain, recent_semantic_tags, arc_stage=None):
     """Один float — оркестрация всех сигналов выше. role/text_domain —
     БЛОК-уровневые значения (посчитаны ОДИН РАЗ на блок вызывающим кодом в
     main(), не на каждого кандидата — functional_role() бесплатна, но
     text_domain_hint() — CLIP-вызов, пересчитывать его на каждого
-    кандидата того же блока было бы лишним расходом времени)."""
+    кандидата того же блока было бы лишним расходом времени).
+
+    arc_stage — риторическая стадия ЭТОГО блока из media_plan/speech_plan.json
+    (см. ARC_STAGE_SHOT_SIZE_BONUS выше), None — если эпизод без Speech
+    Director (даёт нулевой бонус, поведение не меняется)."""
     rel = sentence_relevance(image_path, block_text)
     score = (rel or 0.0) * SENTENCE_RELEVANCE_WEIGHT
 
     shot_size = _safe_shot_size(image_path)
     if shot_size:
         score += role_shot_size_bonus(role, shot_size)
+        score += arc_stage_shot_bonus(arc_stage, shot_size)
 
     candidate_domain = candidate_domain_for(image_path)
     score += domain_match_bonus(candidate_domain, text_domain)

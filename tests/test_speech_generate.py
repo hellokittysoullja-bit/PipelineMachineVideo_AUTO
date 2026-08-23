@@ -249,6 +249,66 @@ def test_api_key_redacted_from_http_error(monkeypatch):
     assert "REDACTED" in str(exc_info.value)
 
 
+def test_http_401_raises_permanent_error_not_retried(monkeypatch):
+    # Регрессия: раньше call_elevenlabs_with_retry_on_transient_error() ловила
+    # ЛЮБОЙ ElevenLabsAPIError без разбора кода ответа и слепо ретраила с
+    # бэкоффом (sleep) даже перманентные ошибки вроде просроченного ключа —
+    # HTTP 401 никогда не "чинится" повтором того же запроса.
+    calls = {"n": 0}
+
+    class FakeHTTPError(urllib.error.HTTPError):
+        def __init__(self):
+            super().__init__("http://x", 401, "unauthorized", {}, None)
+
+        def read(self):
+            return b'{"error": "invalid_api_key"}'
+
+    def raise_it(*a, **kw):
+        calls["n"] += 1
+        raise FakeHTTPError()
+
+    sleeps = []
+    monkeypatch.setattr(sg.urllib.request, "urlopen", raise_it)
+    monkeypatch.setattr(sg.time, "sleep", lambda s: sleeps.append(s))
+
+    with pytest.raises(sg.ElevenLabsPermanentError):
+        sg.call_elevenlabs_with_retry_on_transient_error(
+            "текст", "voice_x", "sk_key", "eleven_v3", attempts=2)
+
+    assert calls["n"] == 1     # ни одной лишней попытки
+    assert sleeps == []        # и ни одного бэкоффа перед заведомо безнадёжным отказом
+
+
+def test_http_500_is_transient_and_gets_retried(monkeypatch):
+    # Обратная сторона того же фикса: реальный транспортный сбой (5xx) должен
+    # по-прежнему ретраиться с бэкоффом, а не резко перестать после фикса про
+    # permanent-ошибки.
+    calls = {"n": 0}
+
+    class FakeHTTPError(urllib.error.HTTPError):
+        def __init__(self):
+            super().__init__("http://x", 503, "service unavailable", {}, None)
+
+        def read(self):
+            return b'{"error": "temporarily_unavailable"}'
+
+    def raise_it(*a, **kw):
+        calls["n"] += 1
+        raise FakeHTTPError()
+
+    sleeps = []
+    monkeypatch.setattr(sg.urllib.request, "urlopen", raise_it)
+    monkeypatch.setattr(sg.time, "sleep", lambda s: sleeps.append(s))
+
+    with pytest.raises(sg.ElevenLabsAPIError) as exc_info:
+        sg.call_elevenlabs_with_retry_on_transient_error(
+            "текст", "voice_x", "sk_key", "eleven_v3", attempts=2)
+
+    assert not isinstance(exc_info.value, sg.ElevenLabsPermanentError)
+    assert calls["n"] == 2     # обе попытки реально ушли
+    assert len(sleeps) == 1    # бэкофф между ними
+
+
 def test_api_key_never_in_request_url_or_query(monkeypatch):
     captured = {}
 
