@@ -549,6 +549,136 @@ def test_build_query_word_boundary_not_mid_word():
         stock_fetch_multisource.DEFAULT_QUERY
 
 
+# ---------- stock_fetch_multisource.fetch_openverse_photo (по прямому запросу
+# пользователя — атласные исторические карты, контент, которого физически
+# нет у Pexels/Pixabay/Unsplash; проверено вживую на реальном API — "Europe
+# 1200"/euratlas.com под CC BY, "Medieval map"/rawpixel под CC0, см. коммит).
+# OPENVERSE_ENABLED=0 по умолчанию — ВЫКЛЮЧЕН, только license=cc0,pdm (см.
+# докстринг модуля: by/by-sa требуют атрибуции, которую пайплайн сегодня не
+# умеет вставлять в описание YouTube — сознательно не в этом заходе). ----------
+
+def _fake_openverse_response(results):
+    import json as _json
+    payload = _json.dumps({"results": results}).encode()
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return payload
+    return _Resp()
+
+
+def test_fetch_openverse_photo_off_by_default(monkeypatch, tmp_path):
+    monkeypatch.setattr(stock_fetch_multisource, "OPENVERSE_ENABLED", False)
+
+    def boom(*a, **kw):
+        raise AssertionError("сеть не должна вызываться при OPENVERSE_ENABLED=False")
+    monkeypatch.setattr(stock_fetch_multisource.urllib.request, "urlopen", boom)
+    out = str(tmp_path / "x.jpg")
+    assert stock_fetch_multisource.fetch_openverse_photo("test", out) is False
+    assert not os.path.exists(out)
+
+
+def test_fetch_openverse_photo_rejects_by_license_even_if_returned(monkeypatch, tmp_path):
+    # Fail-closed: даже если API вернул результат НЕ из запрошенного
+    # license=cc0,pdm (баг на стороне API, устаревший кэш и т.п.) — код не
+    # должен скачать его вслепую, доверяя только фильтру запроса.
+    monkeypatch.setattr(stock_fetch_multisource, "OPENVERSE_ENABLED", True)
+    results = [{"id": "1", "license": "by-sa", "url": "https://example.com/risky.jpg"}]
+    monkeypatch.setattr(stock_fetch_multisource.urllib.request, "urlopen",
+                         lambda req, timeout=None: _fake_openverse_response(results))
+    out = str(tmp_path / "x.jpg")
+    assert stock_fetch_multisource.fetch_openverse_photo("test", out) is False
+    assert not os.path.exists(out)
+
+
+def test_fetch_openverse_photo_downloads_safe_license_and_logs_manifest(monkeypatch, tmp_path):
+    monkeypatch.setattr(stock_fetch_multisource, "OPENVERSE_ENABLED", True)
+    results = [{
+        "id": "abc123", "title": "Medieval map", "url": "https://example.com/map.jpg",
+        "creator": "someone", "license": "cc0", "license_version": "1.0",
+        "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+        "source": "rawpixel", "foreign_landing_url": "https://example.com/page",
+    }]
+
+    def fake_urlopen(req, timeout=None):
+        url = req.full_url if hasattr(req, "full_url") else req
+        if "example.com/map.jpg" in url:
+            class _ImgResp:
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *a):
+                    return False
+
+                def read(self):
+                    return b"\xff\xd8\xff fake jpeg bytes"
+            return _ImgResp()
+        return _fake_openverse_response(results)
+    monkeypatch.setattr(stock_fetch_multisource.urllib.request, "urlopen", fake_urlopen)
+
+    out = str(tmp_path / "x.jpg")
+    ok = stock_fetch_multisource.fetch_openverse_photo("medieval map", out, base=str(tmp_path))
+    assert ok is True
+    assert os.path.exists(out)
+    manifest = tmp_path / "media_plan" / "openverse_license_manifest.jsonl"
+    assert manifest.exists()
+    entry = json.loads(manifest.read_text().strip())
+    assert entry["license"] == "cc0"
+    assert entry["id"] == "abc123"
+    assert entry["query"] == "medieval map"
+
+
+def test_fetch_openverse_photo_skips_unsafe_and_takes_next_safe_result(monkeypatch, tmp_path):
+    monkeypatch.setattr(stock_fetch_multisource, "OPENVERSE_ENABLED", True)
+    results = [
+        {"id": "1", "license": "by", "url": "https://example.com/risky.jpg"},
+        {"id": "2", "license": "cc0", "url": "https://example.com/safe.jpg"},
+    ]
+
+    def fake_urlopen(req, timeout=None):
+        url = req.full_url if hasattr(req, "full_url") else req
+        if "safe.jpg" in url:
+            class _ImgResp:
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *a):
+                    return False
+
+                def read(self):
+                    return b"fake"
+            return _ImgResp()
+        if "risky.jpg" in url:
+            raise AssertionError("не должен скачивать 'by'-результат вообще")
+        return _fake_openverse_response(results)
+    monkeypatch.setattr(stock_fetch_multisource.urllib.request, "urlopen", fake_urlopen)
+
+    out = str(tmp_path / "x.jpg")
+    assert stock_fetch_multisource.fetch_openverse_photo("test", out) is True
+    assert os.path.exists(out)
+
+
+def test_fetch_openverse_photo_no_results_returns_false(monkeypatch, tmp_path):
+    monkeypatch.setattr(stock_fetch_multisource, "OPENVERSE_ENABLED", True)
+    monkeypatch.setattr(stock_fetch_multisource.urllib.request, "urlopen",
+                         lambda req, timeout=None: _fake_openverse_response([]))
+    out = str(tmp_path / "x.jpg")
+    assert stock_fetch_multisource.fetch_openverse_photo("test", out) is False
+
+
+def test_is_safe_openverse_license_case_and_whitespace_insensitive():
+    assert stock_fetch_multisource._is_safe_openverse_license({"license": "CC0"}) is True
+    assert stock_fetch_multisource._is_safe_openverse_license({"license": " pdm "}) is True
+    assert stock_fetch_multisource._is_safe_openverse_license({"license": "by-sa"}) is False
+    assert stock_fetch_multisource._is_safe_openverse_license({}) is False
+
+
 # ---------- pipeline_smart._scene_bias / film_look (контент-осознанный грейд) ----------
 
 def test_scene_bias_neutral_without_signal():

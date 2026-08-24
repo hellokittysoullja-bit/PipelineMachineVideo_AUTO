@@ -428,6 +428,22 @@ GRAIN_LOOP_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(_
 GRAIN_ENABLED = os.environ.get("GRAIN", "1") != "0" and os.path.exists(GRAIN_LOOP_PATH)
 GRAIN_OPACITY = 0.10   # калибровано вживую — см. коммит с проверкой
 
+# Пункт аудита "деффликер по стоковому видео" (ЧАСТЬ 14 CLAUDE.md, апгрейд
+# CLIP-моделей той же сессии). Применяется ТОЛЬКО в video_render() (реальное
+# видео-стоковое, не Ken Burns по фото) — у синтетического зума по ОДНОМУ
+# фото физически нет межкадрового мерцания источника (все кадры интерполяция
+# одних и тех же пикселей), у реального видеостока — есть (сенсорный шум,
+# компрессия, микроколебания экспозиции). Изолированный ffmpeg-фильтр перед
+# творческим грейдом (film_look() смотрит уже сглаженный по яркости кадр,
+# не сырой) — низкий риск по конструкции, но НЕ проверен вживую на глаз
+# (нет доступа к пользователю в момент написания) — по умолчанию включён
+# (дефолт-параметры фильтра, size=5/mode=am — та же арифметика, что ffmpeg
+# сам использует по умолчанию, не подобранное число), флаг даёт быстрый
+# откат без редеплоя, если при следующем визуальном QC (ЧАСТЬ 13, Шаг 7.5)
+# что-то не понравится.
+DEFLICKER_ENABLED = os.environ.get("DEFLICKER", "1") != "0"
+DEFLICKER_FILTER = "deflicker=size=5:mode=am,"
+
 def _look_management_cache_signature(look_ref):
     """Тонкая обёртка над look_reference.cache_signature() (см. main()) —
     params_hash считается ДО того, как известны photo/levels/wb КОНКРЕТНОГО
@@ -2207,8 +2223,20 @@ def disambiguate_search_query(query):
 
 
 PHOTO_DEDUP_HAMMING = 6   # тот же порог, что в qc_report() — "заметно похоже"
-PHOTO_DEDUP_MAX_TRIES = 6 # сколько кандидатов реально СКАЧАТЬ и захэшировать, прежде чем сдаться
-DIRECTOR_MIN_POOL = 3   # Semantic Visual Director (scripts/visual_director.py) —
+# Апгрейд пула кандидатов (по прямому запросу пользователя — пункт аудита
+# "40-80 кандидатов на шот", ЧЕСТНО НЕ взят буквально). Раньше (6/3) было
+# калибровано под ДЕШЁВЫЙ director_score_fn (sentence_relevance ->
+# SigLIP2-base-256 solo, доли секунды на вызов). После апгрейда на
+# so400m-384+Jina ensemble (см. scripts/visual_director.py,
+# ENSEMBLE_WEIGHT_SIGLIP2) один вызов ~2.5-3с — _score_and_pick() вызывает
+# director_score_fn на КАЖДОГО собранного кандидата, поэтому пул 20-30 из
+# аудита означал бы ~1 минуту ТОЛЬКО на скоринг одного слота (буквальная
+# цифра аудита писалась без учёта того, что скоринг сам станет тяжелее в
+# этой же сессии) — на эпизоде с сотнями слотов это часы, не приемлемо.
+# 20/8 — умеренный, обоснованный компромисс (не переиспользование числа
+# аудита без проверки): ~8×3с=24с на слот на скоринг, вместо ~1 минуты.
+PHOTO_DEDUP_MAX_TRIES = 20 # сколько кандидатов реально СКАЧАТЬ и захэшировать, прежде чем сдаться
+DIRECTOR_MIN_POOL = 8   # Semantic Visual Director (scripts/visual_director.py) —
                           # тот же смысл и то же значение, что visual_director.
                           # DIRECTOR_MIN_POOL: без расширения пула Директору в
                           # pexels_photo() часто буквально нечего ранжировать
@@ -4646,6 +4674,13 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
                       f"y='({ov_h}-{HEIGHT})/2+{shake_y}',setsar=1")
     else:
         scale_crop = f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,crop={WIDTH}:{HEIGHT},setsar=1"
+    if DEFLICKER_ENABLED:
+        # ПОСЛЕ scale/crop (работает на целевом разрешении, не на исходнике —
+        # дешевле, порядок с setpts ниже не важен: deflicker смотрит на
+        # ПОСЛЕДОВАТЕЛЬНОСТЬ кадров, setpts меняет только PTS-метки, не сам
+        # контент/порядок кадров), ДО film_look() — творческий грейд видит уже
+        # сглаженный по яркости кадр, не сырой источник.
+        scale_crop += f",{DEFLICKER_FILTER.rstrip(',')}"
     bias = next((v for k, v in SPEED_BIAS.items() if section.startswith(k)), 1.0)
     # Стоковое видео часто начинается со статичного/вялого кадра до того, как
     # начнётся реальное движение (панорама разгоняется, руки только подносят

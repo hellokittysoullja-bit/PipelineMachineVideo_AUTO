@@ -452,6 +452,17 @@ def test_pipeline_smart_visual_director_cache_signature_delegates_to_module(monk
     assert sig.startswith("director:assist:")
 
 
+def test_director_min_pool_stays_in_sync_across_modules():
+    # pipeline_smart.DIRECTOR_MIN_POOL реально управляет good_needed в
+    # pexels_photo(); vd.DIRECTOR_MIN_POOL — отдельная константа-дубликат
+    # (обратный импорт создал бы цикл), используется только для
+    # cache_signature()/докстрингов. Расхождение тихо сломало бы
+    # инвалидацию кэша при смене значения — см. реальный найденный случай
+    # при апгрейде 3->8 вместе с so400m+Jina ensemble.
+    import pipeline_smart
+    assert pipeline_smart.DIRECTOR_MIN_POOL == vd.DIRECTOR_MIN_POOL
+
+
 # ---------- sentence_relevance: РЕАЛЬНАЯ модель (SigLIP2) на реальных
 # фото + реальной русской фразе сценария (не мок — та же логика, что golden
 # CLIP-тесты в test_media_selection_golden.py: сама суть регрессии, которую

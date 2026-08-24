@@ -72,9 +72,13 @@ if VISUAL_DIRECTOR_MODE not in _VISUAL_DIRECTOR_MODES:
           f"{_VISUAL_DIRECTOR_MODES} — откатываюсь на 'off'.")
     VISUAL_DIRECTOR_MODE = "off"
 
-DIRECTOR_MIN_POOL = 3   # расширяет good_needed в pexels_photo() при shadow/assist —
-                          # разумное некалиброванное значение (см. докстринг модуля
-                          # про cost-tradeoff), без него Директору часто нечего ранжировать
+DIRECTOR_MIN_POOL = 8   # ДОЛЖНО совпадать с pipeline_smart.DIRECTOR_MIN_POOL (та
+                          # константа реально управляет good_needed в pexels_photo(),
+                          # эта — только для cache_signature()/докстрингов ниже; см.
+                          # комментарий у pipeline_smart.DIRECTOR_MIN_POOL про апгрейд
+                          # 3->8 вместе с so400m+Jina ensemble). Расхождение значений
+                          # тихо сломало бы инвалидацию кэша — сигнатура не отразила
+                          # бы реальное изменение поведения.
 
 SENTENCE_RELEVANCE_WEIGHT = 1.0   # доминирующий член — тот же порядок величины
                                     # (реалистичный диапазон ~0.15-0.35), что уже
