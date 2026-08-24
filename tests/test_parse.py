@@ -552,10 +552,16 @@ def test_build_query_word_boundary_not_mid_word():
 # ---------- stock_fetch_multisource.fetch_openverse_photo (по прямому запросу
 # пользователя — атласные исторические карты, контент, которого физически
 # нет у Pexels/Pixabay/Unsplash; проверено вживую на реальном API — "Europe
-# 1200"/euratlas.com под CC BY, "Medieval map"/rawpixel под CC0, см. коммит).
-# OPENVERSE_ENABLED=0 по умолчанию — ВЫКЛЮЧЕН, только license=cc0,pdm (см.
-# докстринг модуля: by/by-sa требуют атрибуции, которую пайплайн сегодня не
-# умеет вставлять в описание YouTube — сознательно не в этом заходе). ----------
+# 1200"/euratlas.com под CC BY, реальные political-boundary карты под CC0 из
+# Wikimedia, см. коммиты). OPENVERSE_ENABLED=0 по умолчанию — ВЫКЛЮЧЕН.
+# Второй заход по прямому требованию пользователя "копни глубже, только то,
+# что не требует лицензии на 100%": license=cc0 ТОЛЬКО (pdm убран — это
+# самоидентификация "кто-то решил, что работа свободна", не юридический
+# отказ от прав правообладателя, см. докстринг модуля/CLAUDE.md), И
+# source должен быть в списке проверенных институциональных архивов
+# (Wikimedia/Смитсоновский институт/музеи и т.п.) — не персональные/
+# самотегируемые источники, где лицензию ставит сам загрузивший без
+# проверки. by/by-sa по-прежнему исключены (нет сборщика атрибуций). ----------
 
 def _fake_openverse_response(results):
     import json as _json
@@ -586,7 +592,7 @@ def test_fetch_openverse_photo_off_by_default(monkeypatch, tmp_path):
 
 def test_fetch_openverse_photo_rejects_by_license_even_if_returned(monkeypatch, tmp_path):
     # Fail-closed: даже если API вернул результат НЕ из запрошенного
-    # license=cc0,pdm (баг на стороне API, устаревший кэш и т.п.) — код не
+    # license=cc0 (баг на стороне API, устаревший кэш и т.п.) — код не
     # должен скачать его вслепую, доверяя только фильтру запроса.
     monkeypatch.setattr(stock_fetch_multisource, "OPENVERSE_ENABLED", True)
     results = [{"id": "1", "license": "by-sa", "url": "https://example.com/risky.jpg"}]
@@ -603,7 +609,8 @@ def test_fetch_openverse_photo_downloads_safe_license_and_logs_manifest(monkeypa
         "id": "abc123", "title": "Medieval map", "url": "https://example.com/map.jpg",
         "creator": "someone", "license": "cc0", "license_version": "1.0",
         "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
-        "source": "rawpixel", "foreign_landing_url": "https://example.com/page",
+        "provider": "wikimedia", "source": "wikimedia",
+        "foreign_landing_url": "https://example.com/page",
     }]
 
     def fake_urlopen(req, timeout=None):
@@ -637,8 +644,8 @@ def test_fetch_openverse_photo_downloads_safe_license_and_logs_manifest(monkeypa
 def test_fetch_openverse_photo_skips_unsafe_and_takes_next_safe_result(monkeypatch, tmp_path):
     monkeypatch.setattr(stock_fetch_multisource, "OPENVERSE_ENABLED", True)
     results = [
-        {"id": "1", "license": "by", "url": "https://example.com/risky.jpg"},
-        {"id": "2", "license": "cc0", "url": "https://example.com/safe.jpg"},
+        {"id": "1", "license": "by", "source": "wikimedia", "url": "https://example.com/risky.jpg"},
+        {"id": "2", "license": "cc0", "source": "wikimedia", "url": "https://example.com/safe.jpg"},
     ]
 
     def fake_urlopen(req, timeout=None):
@@ -674,9 +681,55 @@ def test_fetch_openverse_photo_no_results_returns_false(monkeypatch, tmp_path):
 
 def test_is_safe_openverse_license_case_and_whitespace_insensitive():
     assert stock_fetch_multisource._is_safe_openverse_license({"license": "CC0"}) is True
-    assert stock_fetch_multisource._is_safe_openverse_license({"license": " pdm "}) is True
+    # pdm сознательно НЕ безопасна (второй заход, "копни глубже") — это
+    # самоидентификация ("кто-то решил, что работа свободна от копирайта"),
+    # не юридический отказ от прав правообладателя, как у cc0. См. докстринг
+    # модуля/CLAUDE.md — официальная формулировка Creative Commons.
+    assert stock_fetch_multisource._is_safe_openverse_license({"license": "PDM"}) is False
+    assert stock_fetch_multisource._is_safe_openverse_license({"license": " pdm "}) is False
     assert stock_fetch_multisource._is_safe_openverse_license({"license": "by-sa"}) is False
     assert stock_fetch_multisource._is_safe_openverse_license({}) is False
+
+
+def test_is_trusted_openverse_source_known_institutions():
+    assert stock_fetch_multisource._is_trusted_openverse_source({"source": "wikimedia"}) is True
+    assert stock_fetch_multisource._is_trusted_openverse_source({"source": "MET"}) is True
+    assert stock_fetch_multisource._is_trusted_openverse_source({"source": " rijksmuseum "}) is True
+
+
+def test_is_trusted_openverse_source_smithsonian_prefix_covers_future_branches():
+    # Openverse хранит смитсоновские подразделения отдельными source-слагами
+    # — проверка префиксом защищает и ветки, которых нет в явном списке
+    # (Openverse может добавить новые).
+    assert stock_fetch_multisource._is_trusted_openverse_source(
+        {"source": "smithsonian_national_museum_of_natural_history"}) is True
+    assert stock_fetch_multisource._is_trusted_openverse_source(
+        {"source": "smithsonian_some_future_branch_not_in_list"}) is True
+
+
+def test_is_trusted_openverse_source_rejects_untrusted_self_tagged_platforms():
+    # Реальный, проверенный вживую случай: NASA/Biodiversity Heritage Library
+    # технически идут через Flickr API (provider=flickr), но ОБЫЧНЫЙ
+    # персональный Flickr-аккаунт — не институция, лицензию там ставит сам
+    # загрузивший без проверки. source= (не provider=) различает эти случаи.
+    assert stock_fetch_multisource._is_trusted_openverse_source({"source": "flickr"}) is False
+    assert stock_fetch_multisource._is_trusted_openverse_source({"source": "rawpixel"}) is False
+    assert stock_fetch_multisource._is_trusted_openverse_source({"source": "inaturalist"}) is False
+    assert stock_fetch_multisource._is_trusted_openverse_source({}) is False
+
+
+def test_fetch_openverse_photo_rejects_untrusted_source_even_with_safe_license(monkeypatch, tmp_path):
+    # Fail-closed: license=cc0 сам по себе недостаточен — источник тоже
+    # должен быть институциональным, иначе честный на вид cc0-тег может
+    # быть ошибочно проставлен случайным пользователем без проверки прав.
+    monkeypatch.setattr(stock_fetch_multisource, "OPENVERSE_ENABLED", True)
+    results = [{"id": "1", "license": "cc0", "source": "rawpixel",
+                "url": "https://example.com/risky.jpg"}]
+    monkeypatch.setattr(stock_fetch_multisource.urllib.request, "urlopen",
+                         lambda req, timeout=None: _fake_openverse_response(results))
+    out = str(tmp_path / "x.jpg")
+    assert stock_fetch_multisource.fetch_openverse_photo("test", out) is False
+    assert not os.path.exists(out)
 
 
 # ---------- pipeline_smart._scene_bias / film_look (контент-осознанный грейд) ----------
@@ -716,6 +769,20 @@ def test_film_look_warm_source_gets_weaker_warm_push_than_cool():
         return float(m.group(1))
 
     assert bs_value(warm_out) < bs_value(cool_out)
+
+
+def test_color_meta_args_includes_explicit_color_range_tv():
+    # По прямому запросу пользователя ("копни глубже на Rec.709") —
+    # closed-loop проверка вживую (pc-источник через реальный CLIP_PIX_ARGS)
+    # показала, что явный -pix_fmt yuv420p10le УЖЕ заставляет ffmpeg
+    # корректно пересчитывать в tv-диапазон независимо от входного pc/tv —
+    # добавка -color_range tv здесь чистое ужесточение (explicit лучше
+    # implicit), подтверждено НЕ менять итоговый вывод. Тест защищает сам
+    # факт, что тег явно объявлен, а не только протестированное сегодня
+    # поведение по умолчанию.
+    assert "-color_range" in pipeline_smart.COLOR_META_ARGS
+    idx = pipeline_smart.COLOR_META_ARGS.index("-color_range")
+    assert pipeline_smart.COLOR_META_ARGS[idx + 1] == "tv"
 
 
 def test_film_look_saturated_source_gets_stronger_selectivecolor():

@@ -342,3 +342,67 @@ def test_main_populates_chapter_arc_fields_end_to_end(tmp_path):
         plan = json.load(f)
     assert all("arc_stage" in u for u in plan["units"])
     assert all("chapter_id" in u for u in plan["units"])
+
+
+# ---------- homograph_hints_for_text (scripts/stress_placement.py надстройка,
+# STRESS_HINTS_ENABLED=0 по умолчанию — см. докстринг в speech_planner.py) ----
+
+def test_homograph_hints_off_by_default(monkeypatch):
+    monkeypatch.setattr(sp, "STRESS_HINTS_ENABLED", False)
+    assert sp.homograph_hints_for_text("Мука для хлеба стоила дорого.") == []
+
+
+def test_homograph_hints_fail_open_on_import_error(monkeypatch):
+    # Fail-open: если stress_placement/ruaccent недоступны или падают —
+    # тихая пустая подсказка, планирование не должно падать из-за этого.
+    monkeypatch.setattr(sp, "STRESS_HINTS_ENABLED", True)
+    import builtins
+    real_import = builtins.__import__
+
+    def boom(name, *a, **kw):
+        if name == "stress_placement":
+            raise ImportError("simulated missing dependency")
+        return real_import(name, *a, **kw)
+    monkeypatch.setattr(builtins, "__import__", boom)
+    assert sp.homograph_hints_for_text("Мука для хлеба стоила дорого.") == []
+
+
+def test_homograph_hints_no_signal_returns_empty(monkeypatch):
+    monkeypatch.setattr(sp, "STRESS_HINTS_ENABLED", True)
+    # Нет известных омографов в тексте вообще.
+    assert sp.homograph_hints_for_text("Солнце светило над полем весь день.") == []
+
+
+class TestHomographHintsRealModel:
+    """Реальный ruaccent (тяжёлая модель, ~30с загрузка один раз на класс,
+    см. stress_placement.py) — та же категория тестов, что
+    TestSentenceRelevanceSiglip2RealModel в test_visual_director.py."""
+
+    def test_flour_sense_detected_with_context(self):
+        sp.STRESS_HINTS_ENABLED = True
+        try:
+            hints = sp.homograph_hints_for_text(
+                "Мешок муки стоял в углу амбара рядом с хлебом.")
+        finally:
+            sp.STRESS_HINTS_ENABLED = False
+        assert any("мука" in h.lower() or "мешок" in h.lower() or "муки" in h for h in hints), hints
+        assert any("flour" in h for h in hints), hints
+
+    def test_suffering_sense_detected_with_context(self):
+        sp.STRESS_HINTS_ENABLED = True
+        try:
+            hints = sp.homograph_hints_for_text(
+                "Голод причинял людям страшные муки день за днём.")
+        finally:
+            sp.STRESS_HINTS_ENABLED = False
+        assert any("suffering" in h for h in hints), hints
+
+    def test_render_annotated_text_includes_homograph_hint(self):
+        blocks = [_block("Мешок муки стоял в углу амбара рядом с хлебом.", section="BODY")]
+        units = sp.build_units(blocks)
+        sp.STRESS_HINTS_ENABLED = True
+        try:
+            text = sp.render_annotated_text(units)
+        finally:
+            sp.STRESS_HINTS_ENABLED = False
+        assert "омограф" in text

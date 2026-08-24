@@ -198,31 +198,107 @@ def fetch_unsplash_photo(q, out):
 # скачан и просмотрен.
 #
 # ЧЕСТНО, по прямому требованию пользователя "супер осторожно, чтобы
-# гарантированно не словить демонетизацию": первая версия ограничена ТОЛЬКО
-# `license=cc0,pdm` (Creative Commons Zero / Public Domain Mark) — НИКАКОГО
-# by/by-sa. Причина не «by тоже нельзя» (CC BY/BY-SA разрешают коммерческое
-# использование, включая монетизацию) — причина в том, что у CC BY/BY-SA
-# есть ОБЯЗАТЕЛЬНОЕ условие атрибуции (упоминание автора в описании ролика),
-# а в этом пайплайне СЕГОДНЯ нет механизма, который собирает и вставляет
-# такие атрибуции в описание YouTube — контент скачался бы легально, но без
-# соблюдения условия лицензии на выходе, то есть реальный риск оказался бы
-# не сразу в скачивании, а позже, в невыполненном требовании лицензии. CC0/
-# PDM атрибуции не требуют вообще — единственный сегодня безопасный вариант
-# без доп. инфраструктуры. by/by-sa — отдельная задача (нужен сборщик
-# атрибуций в описание), сознательно не в этом заходе.
+# гарантированно не словить демонетизацию": ограничена ТОЛЬКО `license=cc0`
+# — НИКАКОГО by/by-sa. Причина не «by тоже нельзя» (CC BY/BY-SA разрешают
+# коммерческое использование, включая монетизацию) — причина в том, что у
+# CC BY/BY-SA есть ОБЯЗАТЕЛЬНОЕ условие атрибуции (упоминание автора в
+# описании ролика), а в этом пайплайне СЕГОДНЯ нет механизма, который
+# собирает и вставляет такие атрибуции в описание YouTube — контент
+# скачался бы легально, но без соблюдения условия лицензии на выходе, то
+# есть реальный риск оказался бы не сразу в скачивании, а позже, в
+# невыполненном требовании лицензии. by/by-sa — отдельная задача (нужен
+# сборщик атрибуций в описание), сознательно не в этом заходе.
 #
-# Дополнительная защита: license-фильтр в URL — это ЗАПРОШЕННОЕ условие
-# поиска, не гарантия (мало ли баг на стороне API) — код ПОВТОРНО проверяет
-# license поля КАЖДОГО реального результата перед скачиванием (см.
-# _is_safe_openverse_license), fail closed на любом расхождении с ожиданием
-# — не доверяет фильтру запроса вслепую.
+# PDM (Public Domain Mark) сознательно ИСКЛЮЧЕН, по второму заходу
+# ("копни глубже", прямое требование пользователя). Разница с CC0 —
+# не формальность, проверено на первоисточнике (creativecommons.org,
+# официальный текст лицензии, не пересказ): CC0 — юридический документ,
+# которым правообладатель ДЕЙСТВИТЕЛЬНО отказывается от прав ("dedication").
+# PDM — просто пометка "This work has been **identified** as being free of
+# known restrictions" — кто-то (не обязательно правообладатель) посчитал
+# работу свободной, с явной оговоркой самого CC: "may not be free of known
+# copyright restrictions in all jurisdictions", без каких-либо гарантий.
+# Для канала это разница между "юридически оформленный отказ от прав" и
+# "чьё-то мнение, что прав ни у кого нет" — при разметке демонетизацией
+# вторая категория объективно рискованнее первой, даже если обе выглядят
+# в UI Openverse одинаково безопасными. license=cc0 — единственный вариант,
+# который не требует НИКАКОГО доверия к чужой оценке.
+#
+# Второй независимый слой (тоже по "копни глубже"): даже честный CC0-тег
+# может быть проставлен ОШИБОЧНО — источник, где лицензию проставляет
+# случайный пользователь без модерации (например, произвольный аккаунт на
+# Flickr), физически может пометить чужую работу как CC0 по ошибке или
+# незнанию. Openverse различает это через поле `source` (не `provider` —
+# проверено вживую: NASA и Biodiversity Heritage Library технически идут
+# через Flickr API и у обоих `provider=flickr`, но `source` сохраняет
+# настоящую институциональную принадлежность: `source=nasa`/`source=
+# bio_diversity`; спутать эти поля означало бы либо ошибочно доверять
+# ВСЕМУ Flickr, либо ошибочно блокировать легитimate NASA/BHL). Поэтому
+# автоматически берутся только результаты из `source`, принадлежащего
+# заранее проверенному списку архивов/музеев/библиотек с собственной
+# юридической проверкой прав ПЕРЕД публикацией (Wikimedia Commons —
+# community-review; Смитсоновский институт, Метрополитен, Рейксмузеум,
+# Кливлендский музей — официальные Open Access программы; Europeana,
+# NASA, Biodiversity Heritage Library, Digitalt Museum, Wellcome
+# Collection — институциональные агрегаторы/архивы). НЕ в списке —
+# любые персональные/самотегируемые источники (обычный Flickr,
+# iNaturalist, Rawpixel, StockSnap, WordPress и т.п.), там лицензию
+# ставит сам загрузивший, без институциональной проверки.
+#
+# Дополнительная защита (как и раньше): license/source-фильтры в URL —
+# это ЗАПРОШЕННОЕ условие поиска, не гарантия (мало ли баг на стороне
+# API) — код ПОВТОРНО проверяет ОБА поля КАЖДОГО реального результата
+# перед скачиванием (см. _is_safe_openverse_license/
+# _is_trusted_openverse_source), fail closed на любом расхождении с
+# ожиданием — не доверяет фильтру запроса вслепую.
 OPENVERSE_ENABLED = os.environ.get("OPENVERSE_ENABLED", "0") != "0"
-OPENVERSE_SAFE_LICENSES = {"cc0", "pdm"}   # НЕ трогать без сборщика атрибуций (см. выше)
+OPENVERSE_SAFE_LICENSES = {"cc0"}   # НЕ pdm — см. докстринг выше. НЕ трогать без сборщика атрибуций (by/by-sa)
+
+# `source` (не `provider` — см. докстринг выше), институциональные архивы
+# с собственной юридической проверкой прав перед публикацией. Проверено
+# вживую на реальном API (не гипотеза): все перечисленные реально отдают
+# license=cc0 контент под соответствующим source (кроме нескольких
+# smithsonian_* веток и smk/sciencemuseum/finnish_heritage_agency/
+# bib_gulbenkian/brooklynmuseum/finnish_satakunnan_museum — на момент
+# проверки 0 cc0-результатов в индексе Openverse, оставлены в списке как
+# легитимные институции на будущее, фильтр license=cc0 всё равно не даст
+# им ничего пропустить, если результатов нет).
+OPENVERSE_TRUSTED_SOURCES = {
+    "wikimedia", "met", "rijksmuseum", "clevelandmuseum", "brooklynmuseum",
+    "digitaltmuseum", "europeana", "nasa", "bio_diversity",
+    "wellcome_collection", "sciencemuseum", "smk", "finnish_heritage_agency",
+    "finnish_satakunnan_museum", "bib_gulbenkian",
+    # Смитсоновские подразделения — Openverse хранит их отдельными
+    # source-слагами, а параметр запроса source= не принимает префиксы
+    # (проверено вживую), поэтому для реального URL-фильтра нужно
+    # перечисление; _is_trusted_openverse_source() ниже дополнительно
+    # проверяет ЛЮБОЙ smithsonian_* префиксом — на случай новых подразделений,
+    # которые Openverse добавит после этого списка (они не будут покрыты
+    # URL-фильтром, но безопасно пройдут пост-проверку, если когда-нибудь
+    # окажутся среди результатов другого source= запроса).
+    "smithsonian_national_museum_of_natural_history",
+    "smithsonian_cooper_hewitt_museum", "smithsonian_american_history_museum",
+    "smithsonian_portrait_gallery", "smithsonian_african_american_history_museum",
+    "smithsonian_gardens", "smithsonian_american_art_museum",
+    "smithsonian_postal_museum", "smithsonian_freer_gallery_of_art",
+    "smithsonian_institution_archives", "smithsonian_air_and_space_museum",
+}
 
 
 def _is_safe_openverse_license(result):
     lic = (result.get("license") or "").strip().lower()
     return lic in OPENVERSE_SAFE_LICENSES
+
+
+def _is_trusted_openverse_source(result):
+    src = (result.get("source") or "").strip().lower()
+    if src in OPENVERSE_TRUSTED_SOURCES:
+        return True
+    # Openverse хранит смитсоновские подразделения отдельными source-слагами
+    # (smithsonian_national_museum_of_natural_history и т.д.) — префиксом,
+    # чтобы не перечислять и не терять новые ветки, которые Openverse
+    # добавит позже.
+    return src.startswith("smithsonian_")
 
 
 def _log_openverse_manifest(base, entry):
@@ -252,13 +328,23 @@ def fetch_openverse_photo(q, out, base=None):
         return False
     url = ("https://api.openverse.org/v1/images/?q=" + urllib.parse.quote(q) +
            "&license=" + ",".join(sorted(OPENVERSE_SAFE_LICENSES)) +
+           "&source=" + ",".join(sorted(OPENVERSE_TRUSTED_SOURCES)) +
            "&page_size=5&mature=false")
     req = urllib.request.Request(url, headers={"User-Agent": UA})
     with urllib.request.urlopen(req, timeout=20) as r:
         data = json.load(r)
     results = data.get("results", [])
     for res in results:
+        # Оба условия — запрошенные фильтры URL (license=/source=) ЭКОНОМЯТ
+        # запросы, но не гарантия (баг/несогласованность на стороне API) —
+        # ПОВТОРНАЯ проверка обоих полей каждого результата перед скачиванием,
+        # fail closed. source= в URL не покрывает смитсоновские подветки
+        # (Openverse не принимает префиксы в параметре запроса) — поэтому
+        # они всё равно проходят через реальную проверку здесь, а не только
+        # через URL-фильтр.
         if not _is_safe_openverse_license(res):
+            continue   # fail closed — см. докстринг модуля выше
+        if not _is_trusted_openverse_source(res):
             continue   # fail closed — см. докстринг модуля выше
         img_url = res.get("url")
         if not img_url:
@@ -272,7 +358,8 @@ def fetch_openverse_photo(q, out, base=None):
                 "query": q, "id": res.get("id"), "title": res.get("title"),
                 "url": img_url, "creator": res.get("creator"),
                 "license": res.get("license"), "license_version": res.get("license_version"),
-                "license_url": res.get("license_url"), "source": res.get("source"),
+                "license_url": res.get("license_url"), "provider": res.get("provider"),
+                "source": res.get("source"),
                 "foreign_landing_url": res.get("foreign_landing_url"),
             })
         return True

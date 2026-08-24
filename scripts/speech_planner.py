@@ -53,6 +53,58 @@ sys.argv = _saved_argv
 # артефактов на этом голосе). ---
 ALLOWED_TAGS = ("[pause]", "[short pause]", "[slowly]", "[emphasis]", "[energetic]")
 
+# --- Подсказки по ударению известных омографов (scripts/stress_placement.py,
+# опционально, STRESS_HINTS_ENABLED=0/1, дефолт 0). Чисто информационная
+# строка в аннотации — НЕ трогает script.txt/тайминг/резы (см. докстринг
+# stress_placement.py: резы завязаны на [pause]-границы, не на слог внутри
+# слова, это архитектурно не менялось). Дефолт "выключено", как и у всех
+# ML-надстроек в этом пайплайне (VISUAL_DIRECTOR_MODE/SHOT_DIRECTOR_MODE/
+# LOOK_MANAGEMENT_MODE) — модель ruaccent грузится ~30с один раз за прогон
+# планирования (не за рендер), это заметная, но одноразовая цена. Fail-open
+# на любую ошибку (ruaccent не установлен, сбой модели) — ЛЮБОЕ исключение
+# просто гасит подсказки, планирование никогда не падает из-за этого слоя.
+STRESS_HINTS_ENABLED = os.environ.get("STRESS_HINTS_ENABLED", "0") != "0"
+
+
+def homograph_hints_for_text(text):
+    """Список человекочитаемых подсказок вида 'омограф «мука» → мука́
+    (продукт, не му́ка)' для известных омографов с определённым по
+    контексту смыслом в этом юните (см. stress_placement.py). Пустой
+    список — либо выключено, либо нет известных омографов, либо нет
+    контекстного сигнала (та же fail-closed логика самого модуля: без
+    сигнала — тишина, не гадание)."""
+    if not STRESS_HINTS_ENABLED:
+        return []
+    try:
+        import stress_placement as sp
+        hints = []
+        raw_tokens = sp.WORD_RE.findall(text)
+        word_positions = [i for i, t in enumerate(raw_tokens) if re.match(r"^[А-Яа-яЁё]+$", t)]
+        lower_words = [raw_tokens[i].lower() for i in word_positions]
+        seen = set()
+        for pos_idx, tok_idx in enumerate(word_positions):
+            form_lower = lower_words[pos_idx]
+            lemma = sp.HOMOGRAPH_FORMS.get(form_lower)
+            if lemma is None:
+                continue
+            lo = max(0, pos_idx - sp.CONTEXT_WINDOW_WORDS)
+            hi = min(len(lower_words), pos_idx + sp.CONTEXT_WINDOW_WORDS + 1)
+            context = lower_words[lo:pos_idx] + lower_words[pos_idx + 1:hi]
+            sense = sp._detect_sense(lemma, context)
+            if sense is None:
+                continue
+            corrected = sp._probe_accent_for_form(form_lower, lemma, sense)
+            if corrected is None:
+                continue
+            key = (raw_tokens[tok_idx], sense)
+            if key in seen:
+                continue
+            seen.add(key)
+            hints.append(f"омограф «{raw_tokens[tok_idx]}» → {corrected} ({sense})")
+        return hints
+    except Exception:
+        return []   # fail-open — см. докстринг выше
+
 # target_range_sec для обычной связки ("connective") — НЕ новые глобальные
 # константы длительности паузы в pipeline_smart.py (там их как не было, так
 # и нет) — это ДИАПАЗОН для планирования/валидации, живёт только здесь и в
@@ -367,6 +419,7 @@ def render_annotated_text(units):
         if u["tag_suggestion"]:
             notes.append(f"рекомендован тег {u['tag_suggestion']} "
                          f"(сейчас: {u['tag'] or 'нет тега'})")
+        notes.extend(homograph_hints_for_text(u["text"]))
         if notes:
             lines.append("    ↳ " + "; ".join(notes))
     return "\n".join(lines) + "\n"

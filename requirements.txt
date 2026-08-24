@@ -32,3 +32,11 @@ opencv-python-headless==4.10.0.84
 # выключена, как и раньше. huggingface_hub не пиновать отдельно — уже тянется
 # transformers.
 # onnxruntime>=1.20
+
+# Опционально — коррекция ударений известных омографов (scripts/
+# stress_placement.py, используется только из speech_planner.py при
+# STRESS_HINTS_ENABLED=1, само по себе выключено по умолчанию). Без
+# ruaccent — fail-open, подсказки просто не генерируются (см. докстринг
+# homograph_hints_for_text() в speech_planner.py), планирование работает
+# как раньше.
+# ruaccent>=1.5
