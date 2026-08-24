@@ -771,6 +771,30 @@ def test_film_look_warm_source_gets_weaker_warm_push_than_cool():
     assert bs_value(warm_out) < bs_value(cool_out)
 
 
+def test_is_parallax_highlight_hook_always_true():
+    assert pipeline_smart.is_parallax_highlight({"section": "HOOK"}, False) is True
+
+
+def test_is_parallax_highlight_section_start_true():
+    assert pipeline_smart.is_parallax_highlight({"section": "BLOCK_3"}, True) is True
+
+
+def test_is_parallax_highlight_climax_true_even_mid_section():
+    # По прямому запросу пользователя (17-28-минутные ролики) — [climax]
+    # даёт параллакс, даже если это не хук и не первый кадр раздела.
+    assert pipeline_smart.is_parallax_highlight(
+        {"section": "BLOCK_3", "is_climax": True}, False) is True
+
+
+def test_is_parallax_highlight_ordinary_body_false():
+    assert pipeline_smart.is_parallax_highlight(
+        {"section": "BLOCK_3", "is_climax": False}, False) is False
+
+
+def test_is_parallax_highlight_missing_is_climax_key_defaults_false():
+    assert pipeline_smart.is_parallax_highlight({"section": "BLOCK_3"}, False) is False
+
+
 def test_color_meta_args_includes_explicit_color_range_tv():
     # По прямому запросу пользователя ("копни глубже на Rec.709") —
     # closed-loop проверка вживую (pc-источник через реальный CLIP_PIX_ARGS)
