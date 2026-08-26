@@ -104,6 +104,51 @@ def estimate_xfade_budget(is_hook):
     return sum(d for _t, d in plan_transitions(is_hook))
 
 
+XFADE_CHUNK_SIZE = 35   # тот же порог и та же причина, что в pipeline_smart.py
+
+
+def _chunk_bounds(n, is_hook, chunk_size):
+    """(start,end) полуинтервалы индексов клипов на чанки ~chunk_size —
+    перенесено из pipeline_smart.py (см. её докстринг у одноимённой функции
+    для полной истории), с одной заменой: там резали на границах СЕКЦИИ
+    сценария, здесь сценария нет вообще — единственная содержательная
+    граница слотовой схемы это переход хук/тело (is_hook), и резать имеет
+    смысл только по ней (на стыке и так планировался заметный dissolve/
+    fadeblack, см. plan_transitions — на границе чанка он читается как ещё
+    один обычный переход, не как потеря приёма)."""
+    if n <= chunk_size:
+        return [(0, n)]
+    bounds, pos = [0], 0
+    while pos < n:
+        target = min(pos + chunk_size, n)
+        if target >= n:
+            bounds.append(n)
+            break
+        j = target
+        hard_cap = min(pos + chunk_size * 2, n)
+        while j < hard_cap and is_hook[j] == is_hook[j - 1]:
+            j += 1
+        bounds.append(j)
+        pos = j
+    bounds = sorted(set(bounds))
+    chunks = list(zip(bounds[:-1], bounds[1:]))
+    # xfade_chain() требует минимум 2 клипа — де-фрагментируем случайный
+    # orphan-чанк в 1 клип слиянием с соседом, а не оставляем его гарантированно
+    # ронять всю сборку в откат на concat.
+    fixed = []
+    for a, b in chunks:
+        if b - a < 2 and fixed:
+            pa, _ = fixed[-1]
+            fixed[-1] = (pa, b)
+        else:
+            fixed.append((a, b))
+    if len(fixed) > 1 and fixed[0][1] - fixed[0][0] < 2:
+        (a0, _), (_, b1) = fixed[0], fixed[1]
+        fixed[0] = (a0, b1)
+        del fixed[1]
+    return fixed
+
+
 def film_look(source, photo_hash):
     # Один и тот же грейд на все слоты — тоже штамп, если приглядеться. Лёгкий
     # hash-джиттер контраста/сатурации/яркости на каждый клип убирает эту
@@ -432,6 +477,54 @@ def xfade_chain(clips, durs, is_hook, out, xfade_dur=XFADE_DUR, plan=None):
     return True, expected
 
 
+def xfade_chain_chunked(clips, durs, is_hook, out, temp_dir, xfade_dur=XFADE_DUR,
+                        chunk_size=XFADE_CHUNK_SIZE, plan=None):
+    """Обёртка над xfade_chain() — перенесено из pipeline_smart.py, где на
+    цепочке из 150+ последовательных xfade в одном filter_complex ffmpeg
+    пойман вживую на молчаливой потере кадров (возвращает код 0, но
+    застревает на застывшем кадре с середины ролика — см. проверку реальной
+    длительности в xfade_chain() выше, добавленную в этом же аудите). Там
+    лечение — резать на чанки по chunk_size (только по границам хук/тело,
+    см. _chunk_bounds), каждый чанк — свой независимый xfade_chain()
+    (короткая цепочка, баг не всплывает), чанки склеиваются -c copy (без
+    потерь, один и тот же кодек/параметры). До этой правки у слотового
+    сборщика лечения не было вообще: единственным ответом на застревание
+    был полный откат на голый concat — ролик собирался, но терял ВСЕ
+    переходы разом, даже когда потерять нужно было один при стыке чанков.
+    Если хотя бы один чанк не собрался — тот же честный откат на concat
+    всего ролика."""
+    n = len(clips)
+    bounds = _chunk_bounds(n, is_hook, chunk_size)
+    # Один общий план на весь ролик, чанкам — его срезы: элемент plan[j]
+    # описывает переход между глобальными клипами j и j+1, внутри чанка
+    # [a, b) работают переходы plan[a:b-1] (переход на самом входе чанка не
+    # делается — чанки склеиваются concat -c copy, это же учитывает
+    # estimate_xfade_budget()).
+    if plan is None:
+        plan = plan_transitions(is_hook, xfade_dur=xfade_dur)
+    if len(bounds) <= 1:
+        return xfade_chain(clips, durs, is_hook, out, xfade_dur=xfade_dur, plan=plan)
+    chunk_files, chunk_total = [], 0.0
+    for ci, (a, b) in enumerate(bounds):
+        cout = os.path.join(temp_dir, f"_xchunk_{ci:03d}.mp4")
+        ok, cdur = xfade_chain(clips[a:b], durs[a:b], is_hook[a:b], cout,
+                               xfade_dur=xfade_dur, plan=plan[a:b - 1])
+        if not ok:
+            print(f"  чанк {ci} ({b - a} клипов) xfade не собрался — вся склейка откатывается на concat")
+            return False, 0.0
+        chunk_files.append(cout)
+        chunk_total += cdur
+    concat_list = os.path.join(temp_dir, "_xchunk_concat.txt")
+    open(concat_list, "w", encoding="utf-8").write(
+        "".join(f"file '{os.path.abspath(c)}'\n" for c in chunk_files))
+    r = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                        "-i", concat_list, "-c", "copy", out], capture_output=True, text=True)
+    if r.returncode != 0:
+        print("  склейка чанков xfade не удалась, откат на concat:", r.stderr[-300:])
+        return False, 0.0
+    return True, chunk_total
+
+
 def pad_to_length(video, target, temp_dir):
     """Достраивает видео до нужной длины заморозкой последнего кадра — нужно
     после xfade_chain(), которая суммарно укорачивает ролик на (n-1)*XFADE_DUR
@@ -574,8 +667,8 @@ def main():
     if not clips:
         return 1
     merged = os.path.join(temp, "merged.mp4")
-    ok, xfade_total = xfade_chain(clips, clip_durs, clip_is_hook, merged,
-                                  plan=xfade_plan if len(clips) == n_slots else None)
+    ok, xfade_total = xfade_chain_chunked(clips, clip_durs, clip_is_hook, merged, temp,
+                                          plan=xfade_plan if len(clips) == n_slots else None)
     if not ok:
         concat = os.path.join(temp, "concat.txt")
         # Пути ТОЛЬКО абсолютные: concat-демуксер ffmpeg резолвит относительные

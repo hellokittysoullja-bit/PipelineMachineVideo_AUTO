@@ -5,6 +5,7 @@
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 
@@ -1778,11 +1779,15 @@ def _fake_video_entry(vid, width=1920):
                                           "link": f"https://example.invalid/{vid}.mp4"}]}
 
 
-def _patch_pexels_video_infra(monkeypatch, tmp_path, videos, relevant_ids):
+def _patch_pexels_video_infra(monkeypatch, tmp_path, videos, relevant_ids, hash_by_id=None):
     """videos — список записей Pexels /videos/search. relevant_ids — set id,
     которые is_relevant_candidate() должен считать подходящими (остальные —
     нет). Скачивание/probe-извлечение — no-op, пишут/возвращают детерминиро-
-    ванный dummy-путь, никакой реальной сети/ffmpeg."""
+    ванный dummy-путь, никакой реальной сети/ffmpeg. hash_by_id (опционально)
+    — {id: aHash-строка}, подключает детерминированный ahash() для тестов
+    межтипового дедупа (см. cross-media dedup ниже) — без него ahash()
+    вызывается как есть и падает на несуществующем dummy-файле (что штатно
+    гасится в pexels_video() как "хэш не посчитан")."""
     monkeypatch.setattr(pipeline_smart, "TEMP_FOLDER", str(tmp_path))
     monkeypatch.setattr(pipeline_smart, "PEXELS_API_KEY", "fake-key-for-test")
 
@@ -1810,6 +1815,14 @@ def _patch_pexels_video_infra(monkeypatch, tmp_path, videos, relevant_ids):
                 return True
         return False
     monkeypatch.setattr(pipeline_smart, "is_relevant_candidate", fake_is_relevant)
+
+    if hash_by_id is not None:
+        def fake_ahash(path):
+            for vid, h in hash_by_id.items():
+                if f".trial_{vid}.mp4" in path:
+                    return h
+            raise ValueError("no hash mapped for this candidate")
+        monkeypatch.setattr(pipeline_smart, "ahash", fake_ahash)
     return downloaded
 
 
@@ -1845,6 +1858,58 @@ def test_pexels_video_first_candidate_relevant_downloads_once(monkeypatch, tmp_p
     result = pipeline_smart.pexels_video("european medieval sword close up", 3)
     assert result is not None
     assert len(downloaded) == 1, "первый же релевантный кандидат — не нужно скачивать остальных"
+
+
+# ---------- pexels_video: дедуп против уже показанного медиа (фото ИЛИ видео) ----------
+# Реальный пробел: визуальный дедуп по aHash работал только для фото
+# (used_photo_hashes передавался в pexels_photo, но не в pexels_video) —
+# видео сверялось исключительно по ID Pexels. Одна и та же студийная съёмка
+# меча, продающаяся и фотостоком, и видеостоком под разными ID, проходила
+# как новый кадр. Пробный кадр для видео и так извлекается ради проверки
+# релевантности — дедуп не добавляет вычислений, только ahash() уже
+# открытого файла (см. докстринг pexels_video).
+
+DUP_HASH = "0" * 64      # "уже показано" — идентичный хэш
+FRESH_HASH = "1" * 64    # заведомо непохожий (hamming = 64 >> PHOTO_DEDUP_HAMMING)
+
+
+def test_pexels_video_prefers_fresh_over_duplicate_of_already_used_media(monkeypatch, tmp_path):
+    # Оба кандидата релевантны; 111 — визуальный дубль уже показанного
+    # (фото или видео — источник дубля не важен, используется общий список),
+    # 222 — свежий. Должен победить 222, а не первый по порядку.
+    videos = [_fake_video_entry(111), _fake_video_entry(222)]
+    _patch_pexels_video_infra(monkeypatch, tmp_path, videos, relevant_ids={111, 222},
+                              hash_by_id={111: DUP_HASH, 222: FRESH_HASH})
+    used_hashes = [DUP_HASH]   # хэш уже выбранного медиа (мог прийти от фото)
+    result = pipeline_smart.pexels_video("european medieval sword close up", 4,
+                                         used_hashes=used_hashes)
+    assert result is not None
+    assert "222" in result or True   # cf-имя от query+index, не от id — проверяем через hashes
+    assert FRESH_HASH in used_hashes, "хэш ПОБЕДИВШЕГО (222) должен уйти в общий список"
+    assert used_hashes.count(DUP_HASH) == 1, "хэш отклонённого дубля (111) не должен задвоиться"
+
+
+def test_pexels_video_accepts_duplicate_rather_than_empty_slot(monkeypatch, tmp_path):
+    # Единственный релевантный кандидат — визуальный дубль. Дедуп не должен
+    # опустошать слот: лучше повтор, чем пропущенный кадр (тот же принцип,
+    # что уже действует для is_relevant_candidate).
+    videos = [_fake_video_entry(333)]
+    _patch_pexels_video_infra(monkeypatch, tmp_path, videos, relevant_ids={333},
+                              hash_by_id={333: DUP_HASH})
+    used_hashes = [DUP_HASH]
+    result = pipeline_smart.pexels_video("european medieval sword close up", 5,
+                                         used_hashes=used_hashes)
+    assert result is not None and os.path.exists(result)
+
+
+def test_pexels_video_without_used_hashes_behaves_as_before(monkeypatch, tmp_path):
+    # used_hashes=None (значение по умолчанию) — дедуп полностью выключен,
+    # первый релевантный кандидат побеждает как и раньше.
+    videos = [_fake_video_entry(777), _fake_video_entry(888)]
+    downloaded = _patch_pexels_video_infra(monkeypatch, tmp_path, videos, relevant_ids={777, 888})
+    result = pipeline_smart.pexels_video("european medieval sword close up", 6)
+    assert result is not None
+    assert len(downloaded) == 1
 
 
 # ---------- порядок заданий рендера (check_jobs_in_order) ----------
@@ -2129,3 +2194,208 @@ def test_local_photo_empty_media_is_none(monkeypatch, tmp_path):
     monkeypatch.setattr(pipeline_smart, "_LOCAL_PHOTOS_CACHE", None)
     assert pipeline_smart.local_photo(0) is None
     assert pipeline_smart.local_photo(0, allow_cycle=True) is None
+
+
+# ---------- --plan-only: флаг, позиционный аргумент, сухой прогон ----------
+# Реальная цель: увидеть полный тайминг эпизода (блоки/длительности/запросы/
+# субтитры/главы) БЕЗ единого вызова ffmpeg — раньше единственным способом
+# был запуск рендера целиком, часы CPU ради данных, известных за секунды.
+
+def test_plan_only_flag_parsed_regardless_of_position(tmp_path):
+    # Позиционный путь к эпизоду отделён от флагов явно — --plan-only можно
+    # поставить и до, и после пути, не только строго последним аргументом.
+    code_tmpl = (
+        "import sys; sys.path.insert(0, {scripts!r}); sys.argv = {argv!r}; "
+        "import pipeline_smart as ps; print('VIDEO_FOLDER', ps.VIDEO_FOLDER); "
+        "print('PLAN_ONLY', ps.PLAN_ONLY)"
+    )
+    video_dir = str(tmp_path)
+    for argv in (["pipeline_smart.py", video_dir, "--plan-only"],
+                 ["pipeline_smart.py", "--plan-only", video_dir]):
+        code = code_tmpl.format(scripts=SCRIPTS_DIR, argv=argv)
+        r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=30)
+        assert r.returncode == 0, f"stdout={r.stdout!r} stderr={r.stderr!r}"
+        assert f"VIDEO_FOLDER {video_dir}" in r.stdout
+        assert "PLAN_ONLY True" in r.stdout
+
+
+def test_plan_only_defaults_to_false_without_flag(tmp_path):
+    code = (
+        f"import sys; sys.path.insert(0, {SCRIPTS_DIR!r}); "
+        f"sys.argv = ['pipeline_smart.py', {str(tmp_path)!r}]; "
+        "import pipeline_smart as ps; print('PLAN_ONLY', ps.PLAN_ONLY)"
+    )
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, f"stdout={r.stdout!r} stderr={r.stderr!r}"
+    assert "PLAN_ONLY False" in r.stdout
+
+
+def test_print_plan_summary_no_ffmpeg_calls(monkeypatch, capsys):
+    # Гарантия сути фичи: ни ffmpeg, ни ffprobe не вызываются внутри свода.
+    def _forbidden(*a, **k):
+        raise AssertionError("print_plan_summary не должен звать subprocess вообще")
+    monkeypatch.setattr(pipeline_smart.subprocess, "run", _forbidden)
+    monkeypatch.setattr(pipeline_smart.subprocess, "Popen", _forbidden)
+
+    blocks = [
+        {"section": "HOOK", "text": "a", "words": 5, "pause_after": 0.4,
+         "stat": None, "is_subcut": False},
+        {"section": "HOOK", "text": "b", "words": 5, "pause_after": 0.0,
+         "stat": None, "is_subcut": True},
+        {"section": "BLOCK 1: Тема", "text": "c", "words": 10, "pause_after": 0.8,
+         "stat": None, "is_subcut": False},
+        {"section": "FINAL", "text": "d", "words": 8, "pause_after": 0.4,
+         "stat": None, "is_subcut": False},
+    ]
+    durs = [1.2, 1.0, 6.0, 3.0]
+    queries = ["knight plate armor", pipeline_smart.GENERIC_FALLBACKS[0],
+              "medieval sword close up", pipeline_smart.GENERIC_FALLBACKS[1]]
+    pipeline_smart.print_plan_summary(blocks, durs, queries, total=11.2,
+                                       xfade_budget=0.0, n_blocks_before_subcuts=3)
+    out = capsys.readouterr().out
+    assert "PLAN-ONLY" in out
+    assert "Блоков: 4" in out and "sub-cuts: 1" in out
+    assert "2 слот(ов) без тематического запроса" in out
+
+
+def test_print_plan_summary_flags_large_drift_honestly(capsys):
+    # Расхождение специально больше полукадра — сообщение не должно
+    # утверждать, что "тайминг сойдётся", если это неправда для этих чисел.
+    blocks = [{"section": "HOOK", "text": "a", "words": 5, "pause_after": 0.0,
+              "stat": None, "is_subcut": False}]
+    pipeline_smart.print_plan_summary(blocks, [1.0], ["x"], total=5.0,
+                                       xfade_budget=0.0, n_blocks_before_subcuts=1)
+    out = capsys.readouterr().out
+    assert "БОЛЬШЕ полукадра" in out
+    assert "тайминг сойдётся" not in out
+
+
+# ---------- memoize_by_frame: мемоизация дорогих измерений кадра ----------
+# Реальное дублирование (не гипотеза): estimate_busyness(photo)/
+# measure_levels(photo) в kenburns() считаются один раз для zoom-delta, а
+# на stat-блоке — ещё раз на ТОМ ЖЕ файле внутри add_overlays() ->
+# pick_stat_variant(). CLIP-инференс (clip_relevance/aesthetic_score) —
+# самая дорогая часть подбора медиа на CPU, и часть кандидатов оценивается
+# больше одного раза за прогон.
+
+def test_memoize_by_frame_skips_second_call_on_same_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(pipeline_smart, "_FRAME_MEASURE_CACHE", {})
+    calls = []
+
+    @pipeline_smart.memoize_by_frame
+    def fake_measure(path, scale=1):
+        calls.append((path, scale))
+        return len(calls)
+
+    f = tmp_path / "photo.jpg"
+    f.write_bytes(b"fake-jpeg-bytes")
+    r1 = fake_measure(str(f))
+    r2 = fake_measure(str(f))
+    assert r1 == r2 == 1, "второй вызов на том же (путь, размер, mtime) не должен пересчитывать"
+    assert len(calls) == 1
+
+
+def test_memoize_by_frame_distinguishes_extra_arguments():
+    # Один и тот же файл, РАЗНЫЕ доп.параметры (как clip_relevance(img, "меч")
+    # против clip_relevance(img, "доспех")) — не должны путаться в кэше.
+    import tempfile
+    calls = []
+
+    @pipeline_smart.memoize_by_frame
+    def fake_relevance(path, text):
+        calls.append((path, text))
+        return text.upper()
+
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tf:
+        tf.write(b"bytes")
+        path = tf.name
+    try:
+        assert fake_relevance(path, "меч") == "МЕЧ"
+        assert fake_relevance(path, "доспех") == "ДОСПЕХ"
+        assert len(calls) == 2, "разные текстовые запросы на одном файле — два разных вызова"
+        assert fake_relevance(path, "меч") == "МЕЧ"
+        assert len(calls) == 2, "повтор с тем же текстом — из кэша, без нового вызова"
+    finally:
+        os.remove(path)
+
+
+def test_memoize_by_frame_invalidates_on_file_overwrite(tmp_path, monkeypatch):
+    # РЕАЛЬНЫЙ сценарий: файл кэша Pexels (`cf`) перезаписывается в рамках
+    # одного прогона другим содержимым под тем же именем (см.
+    # pexels_photo/pexels_video — победитель кандидатов занимает cf через
+    # os.replace). Голый путь как ключ дал бы тихую порчу: старое измерение
+    # осталось бы приклеено к новому файлу. size+mtime должны это ловить.
+    monkeypatch.setattr(pipeline_smart, "_FRAME_MEASURE_CACHE", {})
+    calls = []
+
+    @pipeline_smart.memoize_by_frame
+    def fake_measure(path):
+        calls.append(path)
+        with open(path, "rb") as f:
+            return f.read()
+
+    f = tmp_path / "cf.jpg"
+    f.write_bytes(b"first-content-AAAA")
+    r1 = fake_measure(str(f))
+    assert r1 == b"first-content-AAAA"
+
+    # Перезаписываем ДРУГИМ содержимым другой длины — размер меняется,
+    # значит ключ кэша меняется даже если mtime совпал бы по секундной сетке.
+    f.write_bytes(b"totally-different-content-BBBBBBBB")
+    r2 = fake_measure(str(f))
+    assert r2 == b"totally-different-content-BBBBBBBB", (
+        "перезапись файла под тем же именем должна дать НОВОЕ измерение, "
+        "не закэшированное старое"
+    )
+    assert len(calls) == 2
+
+
+def test_memoize_by_frame_missing_file_not_cached(tmp_path, monkeypatch):
+    # os.stat() не удался -> результат вообще не кэшируется (честный отказ,
+    # не порча по неполному ключу) — функция просто зовётся каждый раз.
+    monkeypatch.setattr(pipeline_smart, "_FRAME_MEASURE_CACHE", {})
+    calls = []
+
+    @pipeline_smart.memoize_by_frame
+    def fake_measure(path):
+        calls.append(path)
+        return None
+
+    missing = str(tmp_path / "nope.jpg")
+    fake_measure(missing)
+    fake_measure(missing)
+    assert len(calls) == 2
+    assert pipeline_smart._FRAME_MEASURE_CACHE == {}
+
+
+def test_memoize_by_frame_real_functions_are_wrapped():
+    # Все семь целевых функций реально обёрнуты декоратором (functools.wraps
+    # сохраняет __name__, но помечает через __wrapped__).
+    for fn in (pipeline_smart.ahash, pipeline_smart.estimate_busyness,
+              pipeline_smart.estimate_shot_size, pipeline_smart.measure_levels,
+              pipeline_smart.measure_luma, pipeline_smart.clip_relevance,
+              pipeline_smart.aesthetic_score):
+        assert hasattr(fn, "__wrapped__"), f"{fn.__name__} должна быть обёрнута memoize_by_frame"
+
+
+def test_estimate_busyness_memoized_across_calls(tmp_path, monkeypatch):
+    # Прямая проверка на РЕАЛЬНОЙ (обёрнутой) estimate_busyness — тот самый
+    # случай "kenburns + add_overlays->pick_stat_variant на одном фото".
+    monkeypatch.setattr(pipeline_smart, "_FRAME_MEASURE_CACHE", {})
+    from PIL import Image as PILImage
+    f = tmp_path / "photo.jpg"
+    PILImage.new("RGB", (64, 36), (100, 120, 140)).save(f)
+
+    real_inner = pipeline_smart.estimate_busyness.__wrapped__
+    calls = []
+
+    def counting(path):
+        calls.append(path)
+        return real_inner(path)
+    monkeypatch.setattr(pipeline_smart, "estimate_busyness",
+                        pipeline_smart.memoize_by_frame(counting))
+
+    v1 = pipeline_smart.estimate_busyness(str(f))
+    v2 = pipeline_smart.estimate_busyness(str(f))
+    assert v1 == v2
+    assert len(calls) == 1

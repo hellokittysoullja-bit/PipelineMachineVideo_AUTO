@@ -108,7 +108,22 @@ def _default_render_workers():
 
 RENDER_POOL_WORKERS = int(os.environ.get("RENDER_WORKERS", str(_default_render_workers())))
 
-VIDEO_FOLDER = sys.argv[1] if len(sys.argv) > 1 else os.getcwd()
+# Позиционный аргумент (путь к эпизоду) отделён от флагов явно, а не просто
+# sys.argv[1] — иначе --plan-only (см. ниже) пришлось бы всегда ставить
+# строго ПОСЛЕДНИМ аргументом, а любая опечатка в порядке аргументов молча
+# подставляла бы флаг как путь к папке.
+_ARGV_FLAGS = {a for a in sys.argv[1:] if a.startswith("--")}
+_ARGV_POSITIONAL = [a for a in sys.argv[1:] if not a.startswith("--")]
+VIDEO_FOLDER = _ARGV_POSITIONAL[0] if _ARGV_POSITIONAL else os.getcwd()
+# Сухой прогон тайминга (ЧАСТЬ 1 CLAUDE.md, "проверяемое — локально, не жечь
+# токены/деньги на угадывание"): считает блоки/длительности/тематические
+# запросы/титры/субтитры/главы и печатает свод, НЕ трогая ffmpeg вообще —
+# ни одного рендера клипа. Раньше единственный способ увидеть реальный
+# тайминг эпизода (после sub-cuts, ритма по громкости, "очеловечивающих"
+# сдвигов) — запустить рендер целиком, то есть часы CPU и, при
+# VISUAL_DIRECTOR_MODE/CLIP_RELEVANCE, реальные сетевые вызовы к Pexels
+# ради данных, которые физически известны за секунды до единой закачки.
+PLAN_ONLY = "--plan-only" in _ARGV_FLAGS
 SCRIPT_FILE = os.path.join(VIDEO_FOLDER, "script.txt")
 MEDIA_FOLDER = os.path.join(VIDEO_FOLDER, "media")
 OUTPUT_FILE = os.path.join(VIDEO_FOLDER, "final.mp4")
@@ -1187,6 +1202,63 @@ def build_music_mix(voice_path, total_dur, out_path, hook_end=0.0, final_start=N
     return out_path
 
 
+_FRAME_MEASURE_CACHE = {}   # {(fn_name, path, size, mtime_ns, args, kwargs): результат} — см. memoize_by_frame
+
+
+def _frame_cache_key(path):
+    """(путь, размер, mtime в наносекундах) — НЕ голый путь. Файл под тем
+    же именем реально перезаписывается в рамках одного прогона (см.
+    pexels_photo/pexels_video: кандидат-победитель занимает имя `cf` через
+    os.replace, кандидат-проигравший на том же логическом слоте следующего
+    эпизода может унаследовать то же имя кэша при повторном запуске) — голый
+    путь как ключ дал бы тихую порчу: устаревшее измерение осталось бы
+    приклеено к новому файлу под старым именем. os.stat() не удался (файл
+    исчез между вызовами, гонка с параллельным рендер-пулом) -> None —
+    вызывающий код такой результат не кэширует вообще, честный отказ, не
+    порча по несуществующему/неполному ключу."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (path, st.st_size, st.st_mtime_ns)
+
+
+def memoize_by_frame(fn):
+    """Мемоизация для ЧИСТЫХ измерений кадра — функция читает файл(ы) с
+    диска по пути (ПЕРВЫЙ позиционный аргумент) и не имеет побочных
+    эффектов помимо своего возвращаемого значения; на одном и том же
+    (путь, размер, mtime) результат гарантированно совпадёт.
+
+    ЗАЧЕМ (реальное дублирование, не гипотеза): estimate_busyness(photo) и
+    measure_levels(photo) в kenburns() считаются один раз для zoom-delta,
+    а на stat-блоке — ЕЩЁ РАЗ на том же файле внутри
+    add_overlays()->pick_stat_variant() тем же вызовом рендера. Кандидатов
+    у pexels_photo() до 20 на блок, блоков — сотни: clip_relevance/
+    aesthetic_score (CLIP-инференс на CPU) — самая дорогая часть подбора
+    медиа, и часть вызовов на практике приходится на один и тот же файл
+    более одного раза за прогон.
+
+    Живёт только в рамках ОДНОГО процесса (module-level dict, не пишется на
+    диск) — новый прогон эпизода стартует с чистого кэша сам по себе,
+    инвалидировать вручную нечего. Остальные аргументы вызова участвуют в
+    ключе как есть — два вызова с одним файлом, но разными доп.параметрами
+    (например clip_relevance(img, "меч") vs clip_relevance(img, "доспех"))
+    не путаются между собой."""
+    @functools.wraps(fn)
+    def wrapper(path, *args, **kwargs):
+        base_key = _frame_cache_key(path)
+        if base_key is None:
+            return fn(path, *args, **kwargs)
+        key = (fn.__name__, base_key, args, tuple(sorted(kwargs.items())))
+        if key in _FRAME_MEASURE_CACHE:
+            return _FRAME_MEASURE_CACHE[key]
+        result = fn(path, *args, **kwargs)
+        _FRAME_MEASURE_CACHE[key] = result
+        return result
+    return wrapper
+
+
+@memoize_by_frame
 def measure_levels(path, is_video=False, lo_pct=2, hi_pct=98, video_samples=4, video_span=3.5, want_wb=False):
     """Чёрная/белая точка кадра (0..1) по перцентилям гистограммы — для
     адаптивной ТЕХНИЧЕСКОЙ нормализации экспозиции ДО фиксированного
@@ -1401,6 +1473,7 @@ def extract_video_probe_frame(path, base_at=0.5, retry_ats=(1.5, 3.0), timeout=2
     return None, False
 
 
+@memoize_by_frame
 def measure_luma(path, is_video=False):
     """Средняя яркость кадра (0..1) — для сглаживания скачков экспозиции
     между соседними склейками (см. main()): сток из разных источников
@@ -3097,6 +3170,7 @@ def kb_hash_choices(photo):
     return h, zoom_in, pan_dir
 
 
+@memoize_by_frame
 def estimate_busyness(photo_path):
     """Грубая мера "тесноты" кадра без depth-модели — просто плотность
     перепадов яркости на уменьшенной копии. Не настоящая детекция крупности
@@ -3361,6 +3435,7 @@ def compute_crop_offset(iw, ih, cw, ch, anchor=None):
 SHOT_SIZES = ("wide", "medium", "close", "detail")
 
 
+@memoize_by_frame
 def estimate_shot_size(photo_path):
     """Четвёртая ось грамматики кадра (после функции блока) — масштаб
     плана: wide/medium/close/detail. Профессиональный монтаж постоянно
@@ -4298,6 +4373,15 @@ def get_clip_model():
     return _clip_model, _clip_processor
 
 
+# clip_relevance()/aesthetic_score() ниже читают module-level флаги
+# CLIP_ENABLED/CLIP_BROKEN/AESTHETIC_ENABLED помимо своих аргументов — но
+# все три МОНОТОННЫ в рамках одного прогона (CLIP_ENABLED/AESTHETIC_ENABLED
+# фиксируются один раз на импорте из окружения, CLIP_BROKEN только False->
+# True и никогда обратно), значит memoize_by_frame безопасен: если результат
+# на (путь, текст) уже закэширован, флаги с тех пор могли только СИЛЬНЕЕ
+# отключить CLIP, никогда не включить его заново — закэшированный
+# "рабочий" ответ не может стать неверным из-за более позднего отказа.
+@memoize_by_frame
 def clip_relevance(image_path, text):
     """Косинусная близость картинки и текста ЗАПРОСА (0..1, реалистичный
     диапазон на наших фото ~0.1-0.3, не 0..1 в бытовом смысле "процент
@@ -4348,6 +4432,7 @@ def get_aesthetic_head():
     return _aesthetic_head
 
 
+@memoize_by_frame
 def aesthetic_score(image_path):
     """Эстетическая оценка кадра — линейная регрессия поверх L2-нормали-
     зованного CLIP image embedding (формула подтверждена по исходному коду
@@ -4913,7 +4998,7 @@ VIDEO_RELEVANCE_MAX_TRIES = 3  # сколько видео-кандидатов 
                                 # меньше, видео тяжелее по трафику/времени)
 
 
-def pexels_video(query, index, used_ids=None):
+def pexels_video(query, index, used_ids=None, used_hashes=None):
     """Раньше брала ПЕРВОЕ ещё не показанное видео из выдачи без единой
     проверки релевантности/риска (реальный, ранее не закрытый структурный
     пробел, найденный внешним аудитом + прямой проверкой на реальном
@@ -4930,7 +5015,19 @@ def pexels_video(query, index, used_ids=None):
     считается допустимым, тот же безопасный откат, что у остальных
     опциональных CLIP-проверок), в кэш уходит первый реально скачанный —
     честная деградация, не сорванный слот. Из доступных video_files берём
-    ближайшее по ширине к целевому 1920 — не тянем 4K ради 1080p-выхода."""
+    ближайшее по ширине к целевому 1920 — не тянем 4K ради 1080p-выхода.
+
+    used_hashes — общий (на весь эпизод, тот же список, что пробрасывается в
+    pexels_photo()) aHash-дедуп. Раньше видео сверялось с уже показанным
+    медиа ТОЛЬКО по ID Pexels — визуальный дубль под другим ID (частый
+    случай: одна и та же студийная съёмка продаётся и фотостоком, и
+    клипом) проходил как новый. Пробный кадр здесь и так извлекается ради
+    проверки релевантности — лишних вычислений дедуп не добавляет, только
+    ahash() уже открытого файла. Кандидат, прошедший relevance, но визуально
+    похожий на уже выбранное медиа, не отбрасывается — он остаётся вторым
+    приоритетом (relevant_dup_fallback): дедуп не должен пустить слот
+    впустую, только предпочесть менее похожий вариант, если он есть среди
+    уже скачанных попыток."""
     global PEXELS_BROKEN
     cache = os.path.join(TEMP_FOLDER, "pexels_video_cache")
     os.makedirs(cache, exist_ok=True)
@@ -4960,8 +5057,13 @@ def pexels_video(query, index, used_ids=None):
         if used_ids is not None:
             ordered = ([v for v in videos if v.get("id") not in used_ids]
                        + [v for v in videos if v.get("id") in used_ids])
-        fallback = None   # (путь_к_temp_файлу, id) — первый реально скачанный,
-                           # на случай что ни один не пройдёт гейт релевантности
+        # Три уровня приоритета для кандидата, который не оказался
+        # немедленным победителем: relevant+уникальный (лучший, принимается
+        # сразу) > relevant, но визуальный дубль уже показанного >
+        # первый вообще скачанный (старое поведение "ни один не прошёл
+        # relevance" — честная деградация, не пустой слот).
+        dup_fallback = None    # (путь, id, hash) — прошёл relevance, похож на уже показанное
+        plain_fallback = None  # (путь, id, hash) — первый скачанный, безопасная сетка
         tries = 0
         for v in ordered:
             if tries >= VIDEO_RELEVANCE_MAX_TRIES:
@@ -4980,27 +5082,46 @@ def pexels_video(query, index, used_ids=None):
             tries += 1
             probe, cleanup = extract_video_probe_frame(trial)
             relevant = True
+            cand_hash = None
             if probe is not None:
                 try:
                     relevant = is_relevant_candidate(probe, query)
+                    if used_hashes is not None:
+                        try:
+                            cand_hash = ahash(probe)
+                        except Exception:
+                            cand_hash = None
                 finally:
                     if cleanup and os.path.exists(probe):
                         os.remove(probe)
-            if relevant:
-                if fallback is not None and os.path.exists(fallback[0]):
-                    os.remove(fallback[0])
+            is_dup = (cand_hash is not None and used_hashes and
+                      min((hamming(cand_hash, uh) for uh in used_hashes), default=99)
+                      <= PHOTO_DEDUP_HAMMING)
+            if relevant and not is_dup:
+                if dup_fallback is not None and os.path.exists(dup_fallback[0]):
+                    os.remove(dup_fallback[0])
+                if plain_fallback is not None and os.path.exists(plain_fallback[0]):
+                    os.remove(plain_fallback[0])
                 os.replace(trial, cf)
                 if used_ids is not None:
                     used_ids.add(v.get("id"))
+                if used_hashes is not None and cand_hash is not None:
+                    used_hashes.append(cand_hash)
                 return cf
-            if fallback is None:
-                fallback = (trial, v.get("id"))
+            if relevant and dup_fallback is None:
+                dup_fallback = (trial, v.get("id"), cand_hash)
+            elif plain_fallback is None:
+                plain_fallback = (trial, v.get("id"), cand_hash)
             else:
                 os.remove(trial)
-        if fallback is not None:
-            os.replace(fallback[0], cf)
+        chosen = dup_fallback or plain_fallback
+        if chosen is not None:
+            path, vid, cand_hash = chosen
+            os.replace(path, cf)
             if used_ids is not None:
-                used_ids.add(fallback[1])
+                used_ids.add(vid)
+            if used_hashes is not None and cand_hash is not None:
+                used_hashes.append(cand_hash)
             return cf
         return None
     except Exception as e:
@@ -5371,6 +5492,7 @@ def audio_qc(path):
     print(f"Audio QC: {'; '.join(warns)}" if warns else "Audio QC: клиппинга/аномальной громкости не найдено")
 
 
+@memoize_by_frame
 def ahash(photo_path, size=8):
     """Средний хэш (average hash) картинки — 64-битная строка, дешёвая
     замена imagehash-библиотеке (Pillow уже обязательная зависимость, лишний
@@ -5714,6 +5836,50 @@ def check_jobs_in_order(pending_jobs):
     return True
 
 
+def print_plan_summary(blocks, durs, queries, total, xfade_budget, n_blocks_before_subcuts):
+    """Свод для --plan-only (см. PLAN_ONLY): показывает то же самое, что
+    иначе можно узнать только по факту рендера — часы CPU спустя. Ни ffmpeg,
+    ни сетевых вызовов к Pexels/CLIP-моделям здесь нет: только уже
+    посчитанные blocks/durs/queries.
+
+    Побочные файлы (shot_manifest.json/subtitles.srt/chapters.txt) к этому
+    моменту уже записаны вызывающим кодом (main()) — это чистая печать
+    свода поверх них, не отдельный проход."""
+    n_sections = len({b["section"] for b in blocks})
+    n_subcuts = sum(1 for b in blocks if b.get("is_subcut"))
+    n_generic = sum(1 for q in queries if q in GENERIC_FALLBACKS)
+    total_dur = sum(durs)
+    predicted_final = total_dur - xfade_budget
+
+    print("\n=== PLAN-ONLY: сборка НЕ запускалась (ни одного вызова ffmpeg) ===")
+    print(f"Блоков: {len(blocks)} (до sub-cuts: {n_blocks_before_subcuts}, "
+          f"sub-cuts: {n_subcuts}) в {n_sections} секци(ях)")
+    print(f"Средний кадр: {total_dur / max(1, len(blocks)):.2f}с")
+    by_section = {}
+    for b, d in zip(blocks, durs):
+        by_section.setdefault(b["section"], []).append(d)
+    for name, ds in by_section.items():
+        print(f"  {name}: {len(ds)} кадр(ов), средний {sum(ds) / len(ds):.2f}с, "
+              f"сумма {sum(ds):.1f}с")
+    print(f"Аудио: {total:.2f}с | сумма длительностей кадров: {total_dur:.2f}с | "
+          f"бюджет склейки: {xfade_budget:.2f}с")
+    drift_ms = abs(predicted_final - total) * 1000
+    half_frame_ms = 500.0 / FPS
+    drift_note = ("в пределах полукадра — тайминг сойдётся без заморозки в хвосте"
+                  if drift_ms <= half_frame_ms else
+                  "БОЛЬШЕ полукадра — при реальном рендере жди либо заморозку в хвосте "
+                  "(pad_to_length), либо перебор, обрезаемый муксом; стоит перепроверить "
+                  "block_durations()/estimate_xfade_budget() на этом сценарии")
+    print(f"Прогноз длины смонтированного видео (сумма - бюджет): {predicted_final:.2f}с "
+          f"(расхождение с аудио: {drift_ms:.0f} мс — {drift_note})")
+    if n_generic:
+        print(f"  ВНИМАНИЕ: {n_generic} слот(ов) без тематического запроса — ушли в "
+              f"GENERIC_FALLBACKS (см. resolve_queries). Стоит расширить themes.json "
+              f"ДО того, как тратить кредиты Pexels/AI-картинок на угадывание.")
+    print("Файлы для проверки: media_plan/shot_manifest.json, subtitles.srt, chapters.txt")
+    print("Готово (план). Для реальной сборки — запусти без --plan-only.")
+
+
 def main():
     if not os.path.exists(AUDIO_FILE):
         print(f"Аудио не найдено: {AUDIO_FILE}")
@@ -5853,6 +6019,11 @@ def main():
               f"запрос(ов) на {len(authored_queries)} секци(й)")
     queries = resolve_queries(blocks, authored_queries=authored_queries)
     write_shot_manifest(VIDEO_FOLDER, blocks, durs, queries)
+
+    if PLAN_ONLY:
+        print_plan_summary(blocks, durs, queries, total, xfade_budget, n_before)
+        return 0
+
     # Reference-Guided Look Management (scripts/look_reference.py) — ленивый импорт
     # (см. clip_relevance()/torch выше — тот же принцип: не тянуть модель/CLIP в
     # процесс, если режим off) — только для shadow/assist; look_ref остаётся
@@ -6104,7 +6275,7 @@ def main():
                 want_video = True
             prefer_video = want_video and d >= MIN_CLIP + 1.0
             if prefer_video:
-                video = pexels_video(queries[i], i, used_ids=used_video_ids)
+                video = pexels_video(queries[i], i, used_ids=used_video_ids, used_hashes=used_photo_hashes)
                 if not video:
                     photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
                                       recent_sizes=recent_shot_sizes, target_luma=luma_ema,
@@ -6116,7 +6287,7 @@ def main():
                                       director_score_fn=director_score_fn, director_assist=director_assist,
                                       director_report=director_entry)
                 if not photo and d >= MIN_CLIP + 1.0:
-                    video = pexels_video(queries[i], i, used_ids=used_video_ids)
+                    video = pexels_video(queries[i], i, used_ids=used_video_ids, used_hashes=used_photo_hashes)
             # Раньше Pexels отключался навсегда после ЛЮБОГО промаха, включая
             # обычную пустую выдачу по одному неудачному запросу. Гасим источник
             # только если API реально отвалился.
