@@ -2,6 +2,7 @@
 выбор без повторов, подбор тематического запроса, счётчик слов.
 Запуск: .venv/bin/python -m pytest tests/ -v
 """
+import json
 import os
 import sys
 import tempfile
@@ -255,12 +256,24 @@ def test_build_query_default_when_no_match():
         stock_fetch_multisource.DEFAULT_QUERY
 
 
-def test_load_themes_missing_file_returns_empty(tmp_path):
-    assert stock_fetch_multisource.load_themes(str(tmp_path)) == {}
+def _channel_themes():
+    path = os.path.join(REPO_ROOT, "channel_themes.json")
+    return json.load(open(path, encoding="utf-8")) if os.path.exists(path) else {}
 
 
-def test_load_themes_reads_json(tmp_path):
+def test_load_themes_without_episode_file_falls_back_to_channel(tmp_path):
+    # Без эпизодного themes.json словарь НЕ пустой: подхватывается канальный
+    # channel_themes.json. Иначе каждый слот ролика уходил в сток с одним
+    # DEFAULT_QUERY вместо тематических слов канала.
+    assert stock_fetch_multisource.load_themes(str(tmp_path)) == _channel_themes()
+
+
+def test_load_themes_episode_overrides_channel(tmp_path):
     media_plan = tmp_path / "media_plan"
     media_plan.mkdir()
     (media_plan / "themes.json").write_text('{"меч": "sword"}', encoding="utf-8")
-    assert stock_fetch_multisource.load_themes(str(tmp_path)) == {"меч": "sword"}
+    themes = stock_fetch_multisource.load_themes(str(tmp_path))
+    assert themes["меч"] == "sword"                       # эпизод перекрывает канал
+    for k, v in _channel_themes().items():
+        if k != "меч":
+            assert themes[k] == v                          # остальная база на месте

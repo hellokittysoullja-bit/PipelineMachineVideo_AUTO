@@ -146,17 +146,25 @@ def load_config(video_dir, media_dir):
     return (max(nums) if nums else 0), 0, {}
 
 
+# .png тоже: Google Flow отдаёт скачанные картинки именно как png, и слот с
+# NNN_flow.png раньше считался пустым, хотя AI-картинка для него уже лежала.
+AI_SUFFIXES = tuple(f"_{src}.{ext}"
+                    for src in ("fastgen", "grok", "flow", "ai")
+                    for ext in ("jpg", "jpeg", "png"))
+
+
 def resolve_slot(media_dir, n):
-    for suf in ("_fastgen.jpg", "_grok.jpg", "_flow.jpg", "_ai.jpg"):
+    for suf in AI_SUFFIXES:
         p = os.path.join(media_dir, f"{n:03d}{suf}")
         if os.path.exists(p):
             return "photo", p, "ai"
     v = os.path.join(media_dir, f"{n:03d}_stock_video.mp4")
     if os.path.exists(v):
         return "video", v, "stock"
-    p = os.path.join(media_dir, f"{n:03d}_stock.jpg")
-    if os.path.exists(p):
-        return "photo", p, "stock"
+    for ext in ("jpg", "jpeg", "png"):
+        p = os.path.join(media_dir, f"{n:03d}_stock.{ext}")
+        if os.path.exists(p):
+            return "photo", p, "stock"
     return None, None, None
 
 
@@ -251,7 +259,40 @@ def jittered_body_durations(n, base_d, audio_path=None, start_offset=0.0, start_
     return [base_d * f / avg for f in factors]
 
 
-def xfade_chain(clips, durs, is_hook, out, xfade_dur=XFADE_DUR):
+def plan_transitions(is_hook, xfade_dur=XFADE_DUR):
+    """Заранее и детерминированно решить, КАКОЙ переход и КАКОЙ длины стоит на
+    каждой склейке. Возвращает список (transition, duration) длиной n-1.
+
+    Ключ хэша — номер стыка, а не имена файлов клипов: имена зависят от
+    длительностей, длительности — от бюджета переходов, то есть от результата
+    этой функции. Из-за этой завязки main() был вынужден закладывать XFADE_DUR
+    на КАЖДУЮ склейку, хотя ~65% из них — hardcut на 0.06с; накопленная разница
+    делала видео на десятки секунд длиннее аудио, и хвост срезался."""
+    n = len(is_hook)
+    plan = []
+    cut_hist, boundary_hist = [], []
+    for i in range(1, n):
+        h = int(hashlib.md5(f"xfade:{i}|{is_hook[i-1]}|{is_hook[i]}".encode()).hexdigest()[:8], 16)
+        if is_hook[i] != is_hook[i - 1]:
+            # Граница хук/тело — заметный переход, не обычная склейка.
+            candidate = "fadeblack" if (h % 2 == 0) else "dissolve"
+            plan.append((pick_no_repeat(boundary_hist, candidate, ["dissolve", "fadeblack"], 1), xfade_dur))
+        else:
+            # Большинство склеек в реальном монтаже — жёсткий cut, не dissolve;
+            # заметный переход — редкость, не норма. ~65% hard cut / ~35% вариация.
+            candidate = "hardcut" if (h % 3 != 0) else XFADE_TRANSITIONS[(h >> 8) % len(XFADE_TRANSITIONS)]
+            choice = pick_no_repeat(cut_hist, candidate, ["hardcut"] + XFADE_TRANSITIONS, max_repeat=3)
+            plan.append(("fade" if choice == "hardcut" else choice,
+                         XFADE_DUR_HARD if choice == "hardcut" else xfade_dur))
+    return plan
+
+
+def transitions_budget(is_hook, xfade_dur=XFADE_DUR):
+    """Сколько секунд суммарно съедят склейки — точно, а не по верхней оценке."""
+    return sum(d for _, d in plan_transitions(is_hook, xfade_dur))
+
+
+def xfade_chain(clips, durs, is_hook, out, xfade_dur=XFADE_DUR, plan=None):
     """Один проход filter_complex с цепочкой xfade между ВСЕМИ соседними
     кадрами — вместо жёсткой склейки. Тип перехода и длительность варьируются
     (разнообразие + иногда почти жёсткий cut), на границе хук/тело — заметный
@@ -260,23 +301,11 @@ def xfade_chain(clips, durs, is_hook, out, xfade_dur=XFADE_DUR):
     n = len(clips)
     if n < 2:
         return False, 0.0
+    if plan is None:
+        plan = plan_transitions(is_hook, xfade_dur)
     parts, prev_label, cum = [], "0:v", durs[0]
-    cut_hist, boundary_hist = [], []
     for i in range(1, n):
-        h = int(hashlib.md5(f"{clips[i-1]}|{clips[i]}".encode()).hexdigest()[:8], 16)
-        is_boundary = is_hook[i] != is_hook[i - 1]
-        if is_boundary:
-            # Граница хук/тело — заметный переход, не обычная склейка.
-            candidate = "fadeblack" if (h % 2 == 0) else "dissolve"
-            transition = pick_no_repeat(boundary_hist, candidate, ["dissolve", "fadeblack"], 1)
-            this_dur = xfade_dur
-        else:
-            # Большинство склеек в реальном монтаже — жёсткий cut, не dissolve;
-            # заметный переход — редкость, не норма. ~65% hard cut / ~35% вариация.
-            candidate = "hardcut" if (h % 3 != 0) else XFADE_TRANSITIONS[(h >> 8) % len(XFADE_TRANSITIONS)]
-            choice = pick_no_repeat(cut_hist, candidate, ["hardcut"] + XFADE_TRANSITIONS, max_repeat=3)
-            this_dur = XFADE_DUR_HARD if choice == "hardcut" else xfade_dur
-            transition = "fade" if choice == "hardcut" else choice
+        transition, this_dur = plan[i - 1]
         offset = max(0.0, cum - this_dur)
         out_label = f"vx{i}" if i < n - 1 else "vout"
         parts.append(f"[{prev_label}][{i}:v]xfade=transition={transition}:"
@@ -349,9 +378,15 @@ def main():
         print(f"Хук ({hook_total:.1f}с) не короче всего аудио ({audio_dur:.1f}с) — "
               f"проверь hook_durations. Раскладываю равномерно.")
         hook_dur, hook_slots, hook_total, body_slots = {}, 0, 0.0, n_slots
-    # Кроссфейд между КАЖДОЙ парой слотов суммарно "съедает" (n-1)*XFADE_DUR —
-    # закладываем это в тело заранее, хук-длительности заданы явно и их не трогаем.
-    xfade_budget = max(0, n_slots - 1) * XFADE_DUR
+    # Кроссфейд между КАЖДОЙ парой слотов "съедает" время — закладываем это в
+    # тело заранее (хук-длительности заданы явно и их не трогаем). Бюджет
+    # считается ТОЧНО по заранее построенному плану переходов, а не по верхней
+    # оценке (n-1)*XFADE_DUR: большинство склеек — hardcut на 0.06с, и завышенный
+    # бюджет растягивал слоты так, что видео выходило на десятки секунд длиннее
+    # аудио — хвост срезался, а картинка ползла от слов всё дальше к концу.
+    slot_is_hook = [sl <= hook_slots for sl in range(1, n_slots + 1)]
+    slot_plan = plan_transitions(slot_is_hook)
+    xfade_budget = sum(d for _, d in slot_plan)
     body_d_avg = (audio_dur + xfade_budget - hook_total) / max(body_slots, 1)
     # body_d_avg раздут под кроссфейд-бюджет — для сэмплинга энергии по РЕАЛЬНОМУ
     # аудио стартовые точки должны идти с шагом от настоящей (не раздутой) длины,
@@ -368,17 +403,24 @@ def main():
     clips, clip_durs, clip_is_hook, missing = [], [], [], []
     zoom_hist, pan_hist = [], []
     for slot in range(1, n_slots + 1):
-        out = os.path.join(temp, f"clip_{slot:04d}.mp4")
         is_hook_slot = slot <= hook_slots
         d = hook_dur.get(slot, body_d_avg) if is_hook_slot else body_durs[slot - hook_slots - 1]
+        kind, path, source = resolve_slot(media_dir, slot)
+        if not path:
+            missing.append(slot)
+            continue
+        # Хэш параметров рендера в имени клипа. Без него правка
+        # assemble_config.json или новая озвучка другой длины молча переиспользовали
+        # старые клипы со СТАРЫМИ длительностями — весь ролик уезжал по таймингу,
+        # и никакого признака этого в логе не было. В pipeline_smart.py это уже
+        # починено, сюда фикс не был перенесён.
+        params_hash = hashlib.md5(
+            f"{d:.3f}|{source}|{os.path.basename(path)}".encode()).hexdigest()[:8]
+        out = os.path.join(temp, f"clip_{slot:04d}_{params_hash}.mp4")
         if os.path.exists(out):
             clips.append(out)
             clip_durs.append(d)
             clip_is_hook.append(is_hook_slot)
-            continue
-        kind, path, source = resolve_slot(media_dir, slot)
-        if not path:
-            missing.append(slot)
             continue
         if kind == "video":
             ok = video_clip(path, out, d, source)
@@ -405,7 +447,10 @@ def main():
     if not clips:
         return 1
     merged = os.path.join(temp, "merged.mp4")
-    ok, xfade_total = xfade_chain(clips, clip_durs, clip_is_hook, merged)
+    # План должен совпадать с тем, по которому считался бюджет; если слот выпал —
+    # честно пересчитываем по фактической цепочке.
+    plan = slot_plan if len(clips) == n_slots else plan_transitions(clip_is_hook)
+    ok, xfade_total = xfade_chain(clips, clip_durs, clip_is_hook, merged, plan=plan)
     if not ok:
         concat = os.path.join(temp, "concat.txt")
         # Пути ТОЛЬКО абсолютные: concat-демуксер ffmpeg резолвит относительные
@@ -418,7 +463,12 @@ def main():
             print("Склейка:", r.stderr[-400:])
             return 1
     merged = pad_to_length(merged, audio_dur, temp)
+    # -shortest САМ ПО СЕБЕ недостаточен с -c:v copy: копирование пакетов режет
+    # только по границам GOP исходного клипа, а не по факту конца аудио — на
+    # реальном длинном ролике это давало лишние секунды видео без звука сверху.
+    # В pipeline_smart.py это уже починено (явный -t), сюда фикс не был перенесён.
     r = subprocess.run(["ffmpeg", "-y", "-i", merged, "-i", audio,
+                        "-t", f"{audio_dur:.3f}",
                         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
                         "-shortest", out_file], capture_output=True, text=True)
     if r.returncode != 0:

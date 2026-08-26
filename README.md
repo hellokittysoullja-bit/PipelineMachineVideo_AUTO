@@ -16,6 +16,7 @@
 | `bootstrap.ps1` / `bootstrap.sh` | Автоустановка: ffmpeg, Python-venv, зависимости, папки. Claude запускает сам. |
 | `requirements.txt` | Python-зависимости. |
 | `Dockerfile` | Воспроизводимое headless-ядро сборки видео (ffmpeg + скрипты). |
+| `tests/` | pytest: разбор сценария, тайминг, регрессии на исправленные баги сборки. `python -m pytest tests/ -q` (нужен ffmpeg). |
 
 ---
 

@@ -130,10 +130,21 @@ def section_title(name):
 
 
 def escape_drawtext(s):
-    # % \u043d\u0435 \u044d\u043a\u0440\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u043b\u0441\u044f \u2014 ffmpeg drawtext \u0442\u0440\u0430\u043a\u0442\u0443\u0435\u0442 \u0435\u0433\u043e \u043a\u0430\u043a \u043d\u0430\u0447\u0430\u043b\u043e strftime/
-    # expansion-\u0442\u043e\u043a\u0435\u043d\u0430 \u0438 \u0440\u043e\u043d\u044f\u0435\u0442 "Stray %" \u043f\u0440\u0435\u0434\u0443\u043f\u0440\u0435\u0436\u0434\u0435\u043d\u0438\u0435 (\u043f\u0440\u043e\u0432\u0435\u0440\u0435\u043d\u043e \u0432\u0436\u0438\u0432\u0443\u044e).
+    # ВАЖНО: % НЕ удваивается. Проверено вживую на ffmpeg 6.1: при дефолтном
+    # expansion=normal текст с процентом в ЛЮБОМ виде ("%", "%%", "\\%") даёт
+    # "Stray %" и drawtext не рисует ВООБЩЕ НИЧЕГО — при этом код возврата 0,
+    # то есть откат на версию без титра/плашки не срабатывает и плашка просто
+    # молча исчезает с экрана. Лечится только expansion=none на самом фильтре
+    # (см. DRAWTEXT_OPTS), и тогда % надо оставлять как есть — иначе на экран
+    # выйдет буквальное "40%%".
     return (s.replace("\\", "\\\\").replace(":", "\\:")
-             .replace("%", "%%").replace("'", "\u2019"))
+             .replace("'", "\u2019"))
+
+
+# expansion=none — выключает %{...}/strftime-подстановки в drawtext. Нам они не
+# нужны ни в титрах, ни в плашках, а без них любой % в тексте убивает весь
+# слой целиком (см. escape_drawtext).
+DRAWTEXT_OPTS = "expansion=none:"
 
 
 def pick_no_repeat(history, candidate, options, max_repeat):
@@ -201,7 +212,9 @@ def find_audio():
         p = os.path.join(VIDEO_FOLDER, name)
         if os.path.exists(p):
             return p
-    mp3s = [f for f in os.listdir(VIDEO_FOLDER) if f.lower().endswith(".mp3")]
+    # sorted(): listdir отдаёт файлы в порядке файловой системы, и на папке с
+    # несколькими mp3 выбор "первого" менялся от прогона к прогону.
+    mp3s = sorted(f for f in os.listdir(VIDEO_FOLDER) if f.lower().endswith(".mp3"))
     return os.path.join(VIDEO_FOLDER, mp3s[0]) if mp3s else os.path.join(VIDEO_FOLDER, "audio.mp3")
 
 
@@ -272,7 +285,12 @@ def parse_blocks(path):
     processed = content
     for tag in sorted(PAUSE_DURATIONS, key=len, reverse=True):
         processed = processed.replace(tag, f"__PAUSE_{PAUSE_DURATIONS[tag]}__")
-    processed = re.sub(r'\[.*?\]', '', processed)
+    # Пробел, а не пустая строка: теги в сценарии стоят СПЛОШНЯКОМ с текстом
+    # ("грамма.[emphasis]Так" — ЧАСТЬ 10). Вырезание в пустоту склеивало
+    # соседние слова в одно и занижало words у блока, то есть кадру
+    # доставалось меньше времени, чем реально звучит текст. Ровно этот же
+    # баг уже был найден и починен в wordcount.py — здесь остался.
+    processed = re.sub(r'\[.*?\]', ' ', processed)
     parts = re.split(r'(__PAUSE_[\d.]+__|\x00SECTION:.*?\x00|\x01STAT:.*?\x01)', processed)
     blocks, cur, pause, stat = [], "", 0.0, None
     section = "BODY"
@@ -316,6 +334,54 @@ def parse_blocks(path):
     return blocks
 
 
+def fit_to_total(raw, mins, maxs, total, iters=60):
+    """Подогнать длительности под ровно total, НЕ вылезая за [min, max].
+
+    Раньше здесь был один общий scale = total / sum(d) поверх уже обрезанных
+    по капу значений — и этот множитель капы просто перечёркивал. На реальном
+    сценарии (18 мин, ~135 блоков) HOOK-кадры вместо предела 5с выходили на
+    9.6с, а обычные вместо 20с — на 38с: то есть главное правило удержания
+    ("в хуке кадры короче и чаще") в готовом ролике не работало вообще, при
+    том что в коде оно записано.
+
+    Вместо этого — water-filling: обрезали по границам, посчитали недобор/
+    перебор и разложили остаток ТОЛЬКО по тем блокам, которым ещё есть куда
+    двигаться. Сумма сходится к total и капы держатся одновременно.
+    Если задача физически неразрешима (аудио длиннее суммы всех капов или
+    короче суммы всех минимумов), синхрон важнее капа — честно говорим об
+    этом и раскладываем пропорционально."""
+    n = len(raw)
+    if n == 0:
+        return []
+    lo_sum, hi_sum = sum(mins), sum(maxs)
+    if total <= lo_sum or total >= hi_sum:
+        # Границы недостижимы — держим общую длину (иначе поедет синхрон с
+        # аудио), но предупреждаем: это значит, что блоков реально мало/много.
+        base = mins if total <= lo_sum else maxs
+        ssum = sum(base) or 1.0
+        print(f"  Кадров {n} на {total:.0f}с — уложиться в пределы "
+              f"{MIN_CLIP:g}-{MAX_CLIP:g}с невозможно "
+              f"(коридор {lo_sum:.0f}-{hi_sum:.0f}с). Держу синхрон, капы не соблюдаю: "
+              f"{'дроби блоки [pause]-ами' if total >= hi_sum else 'блоков слишком много'}.")
+        return [x * total / ssum for x in base]
+    d = [min(mx, max(mn, r)) for r, mn, mx in zip(raw, mins, maxs)]
+    for _ in range(iters):
+        diff = total - sum(d)
+        if abs(diff) < 1e-6:
+            break
+        free = [i for i in range(n)
+                if (diff > 0 and d[i] < maxs[i] - 1e-9) or (diff < 0 and d[i] > mins[i] + 1e-9)]
+        if not free:
+            break
+        pool = sum(d[i] for i in free)
+        if pool <= 1e-9:
+            break
+        k = (pool + diff) / pool
+        for i in free:
+            d[i] = min(maxs[i], max(mins[i], d[i] * k))
+    return d
+
+
 def block_durations(blocks, total, energy_mults=None):
     tw = sum(b["words"] for b in blocks)
     tp = sum(b["pause_after"] for b in blocks)
@@ -323,16 +389,39 @@ def block_durations(blocks, total, energy_mults=None):
     raw = [b["words"] / wps + b["pause_after"] for b in blocks]
     if energy_mults:
         raw = [r * m for r, m in zip(raw, energy_mults)]
-    d = []
-    for b, r in zip(blocks, raw):
-        # В хуке кадры короче и чаще — первые секунды решают, останется ли зритель.
-        cap = HOOK_MAX_CLIP if b["section"].startswith("HOOK") else MAX_CLIP
-        d.append(max(MIN_CLIP, min(cap, r)))
-    scale = total / sum(d)
-    return [x * scale for x in d]
+    # В хуке кадры короче и чаще — первые секунды решают, останется ли зритель.
+    mins = [MIN_CLIP] * len(blocks)
+    maxs = [HOOK_MAX_CLIP if b["section"].startswith("HOOK") else MAX_CLIP for b in blocks]
+    return fit_to_total(raw, mins, maxs, total)
 
 
 PEXELS_BROKEN = False       # взводится только на реальном отказе API, не на пустой выдаче
+
+
+def download_atomic(url, dest, timeout=20):
+    """Скачать во ВРЕМЕННЫЙ файл и переименовать только после полной записи.
+
+    Раньше писали сразу в файл кэша. Обрыв связи или Ctrl-C посреди загрузки
+    оставлял в кэше обрезанный jpg/mp4 — и он лежал там НАВСЕГДА: на каждом
+    следующем прогоне кэш считался готовым, ffmpeg на битом файле падал, блок
+    молча оставался без кадра, а причина ниоткуда не была видна. Плюс
+    отбрасываем пустой ответ (0 байт — тоже "успех" на уровне HTTP)."""
+    tmp = f"{dest}.part"
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r, open(tmp, "wb") as f:
+            data = r.read()
+            if not data:
+                raise ValueError("пустой ответ")
+            f.write(data)
+        os.replace(tmp, dest)
+        return True
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
 
 def pexels_photo(query, index, used_ids=None):
@@ -371,10 +460,10 @@ def pexels_photo(query, index, used_ids=None):
                     break
         if used_ids is not None:
             used_ids.add(pick.get("id"))
-        url = pick["src"].get("large2x") or pick["src"].get("large")
-        img = urllib.request.Request(url, headers={"User-Agent": UA})
-        with urllib.request.urlopen(img, timeout=20) as r:
-            open(cf, "wb").write(r.read())
+        url = pick["src"].get("large2x") or pick["src"].get("large") or pick["src"].get("original")
+        if not url:
+            return None
+        download_atomic(url, cf, timeout=20)
         return cf
     except Exception as e:
         PEXELS_BROKEN = True
@@ -382,14 +471,51 @@ def pexels_photo(query, index, used_ids=None):
         return None
 
 
-def local_photo(index):
-    photos = sorted([f for f in os.listdir(MEDIA_FOLDER)
-                     if f.lower().endswith((".jpg", ".jpeg", ".png"))],
-                    key=lambda x: int(re.findall(r'\d+', x)[0]) if re.findall(r'\d+', x) else 0) \
-        if os.path.isdir(MEDIA_FOLDER) else []
-    if not photos:
+PHOTO_EXT = (".jpg", ".jpeg", ".png", ".webp")
+VIDEO_EXT = (".mp4", ".mov", ".m4v", ".webm", ".mkv")
+
+
+def scan_local_media():
+    """Всё содержимое media/ по порядку слота: и фото, И ВИДЕО.
+
+    Раньше сюда попадали только .jpg/.png. Но stock_fetch_multisource.py по
+    схеме ЧАСТИ 14 кладёт в ту же папку чётные слоты как NNN_stock_video.mp4 —
+    то есть ПОЛОВИНА скачанного стока не использовалась вообще, а оставшиеся
+    фотографии прокручивались по кругу и повторялись по 2 раза за ролик.
+    Читаем каталог ОДИН раз (раньше listdir дёргался на каждый блок).
+    Сортировка — по числовому префиксу имени, как и раньше, чтобы порядок
+    слотов из media_plan сохранялся."""
+    if not os.path.isdir(MEDIA_FOLDER):
+        return []
+    items = []
+    for f in os.listdir(MEDIA_FOLDER):
+        low = f.lower()
+        if low.startswith((".", "_")):
+            continue
+        kind = "photo" if low.endswith(PHOTO_EXT) else ("video" if low.endswith(VIDEO_EXT) else None)
+        if not kind:
+            continue
+        nums = re.findall(r'\d+', f)
+        items.append((int(nums[0]) if nums else 0, f, kind))
+    items.sort(key=lambda x: (x[0], x[1]))
+    return [(kind, os.path.join(MEDIA_FOLDER, f)) for _, f, kind in items]
+
+
+LOCAL_MEDIA = scan_local_media()
+
+
+def local_media(index):
+    """(kind, path) для слота или None. Циклический перебор — как и раньше."""
+    if not LOCAL_MEDIA:
         return None
-    return os.path.join(MEDIA_FOLDER, photos[index % len(photos)])
+    return LOCAL_MEDIA[index % len(LOCAL_MEDIA)]
+
+
+def local_photo(index):
+    """Совместимость: только фото из media/ (используется как последний
+    резерв, когда для блока не нашлось вообще ничего другого)."""
+    photos = [p for k, p in LOCAL_MEDIA if k == "photo"]
+    return photos[index % len(photos)] if photos else None
 
 
 GENERIC_FALLBACKS = [
@@ -457,7 +583,7 @@ def add_overlays(vf_base, dur, title=None, stat=None):
         text = title.upper() if FONT_IS_DISPLAY else title
         safe = escape_drawtext(text)
         fs = 46 if FONT_IS_DISPLAY else 54
-        vf += (f",drawtext=fontfile='{FONT_PATH}':text='{safe}':"
+        vf += (f",drawtext=fontfile='{FONT_PATH}':{DRAWTEXT_OPTS}text='{safe}':"
                f"fontcolor=white:fontsize={fs}:borderw=3:bordercolor=black@0.8:"
                f"x=(w-text_w)/2:"
                f"y='h-180+(1-min(t/{fin:.2f}\\,1))*36':"
@@ -469,7 +595,7 @@ def add_overlays(vf_base, dur, title=None, stat=None):
         text = stat.upper() if FONT_IS_DISPLAY else stat
         safe = escape_drawtext(text)
         fs = 58 if FONT_IS_DISPLAY else 64
-        vf += (f",drawtext=fontfile='{FONT_PATH}':text='{safe}':"
+        vf += (f",drawtext=fontfile='{FONT_PATH}':{DRAWTEXT_OPTS}text='{safe}':"
                f"fontcolor=white:fontsize={fs}:"
                f"box=1:boxcolor=0xC8102E@0.92:boxborderw=18:"
                f"x=(w-text_w)/2:"
@@ -653,6 +779,14 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
         pan_amt_frac = PAN_SAFETY * (PAN_JITTER_MIN + pan_jit * (PAN_JITTER_MAX - PAN_JITTER_MIN))
         parallax_px = PARALLAX_PX_BASE * (0.7 + rate_jit * 0.6)
 
+        # Шаг сэмплирования по холсту. РАНЬШЕ здесь стояло просто /zoom, то есть
+        # на кадр брались WIDTH/zoom пикселей холста из cw = WIDTH*1.5 — 64%
+        # ширины картинки против 96% у обычного zoompan-пути. Хук и открывашки
+        # разделов (единственные места, куда идёт параллакс) выходили заметно
+        # крупнее остального ролика, да ещё и мягче: 1846 пикселей растягивались
+        # до 1920. С множителем PARALLAX_MARGIN кадрирование совпадает с
+        # zoompan-версией, а холст работает как запас под пан и параллакс —
+        # ровно то, ради чего он и заводился.
         cx, cy = cw / 2.0, ch / 2.0
         ox_grid, oy_grid = np.meshgrid(np.arange(WIDTH, dtype=np.float32),
                                         np.arange(HEIGHT, dtype=np.float32))
@@ -671,10 +805,23 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
             t = frame_i / frames
             eased = 3 * t ** 2 - 2 * t ** 3   # smoothstep — тот же профиль, что у zoompan-версии
             zoom = (ZOOM_FLOOR + delta * eased) if zoom_in else (max_zoom - delta * eased)
-            pan_px = pan_amt_frac * eased * min(cw, ch) * 0.5 * ((1 - 1 / zoom))
+            # Шаг сэмплирования по холсту. Раньше здесь было просто /zoom: на кадр
+            # бралось WIDTH/zoom пикселей холста шириной cw = WIDTH*PARALLAX_MARGIN,
+            # то есть 64% ширины картинки против 96% у обычного zoompan-пути. Хук и
+            # открывашки разделов (единственные места, куда идёт параллакс) выходили
+            # заметно крупнее остального ролика и мягче — 1846 пикселей растягивались
+            # до 1920. С множителем PARALLAX_MARGIN кадрирование совпадает с
+            # zoompan-версией, а холст остаётся тем, чем задумывался: запасом под пан
+            # и параллакс-смещение.
+            sx, sy = PARALLAX_MARGIN / zoom, PARALLAX_MARGIN / zoom
+            # Геометрический запас на текущем зуме, минус резерв под параллакс —
+            # так суммарное смещение гарантированно не вылезает за холст, и по краям
+            # кадра не появляется размазанный BORDER_REPLICATE.
+            avail_x = max(0.0, (cw - cw / zoom) / 2.0 - parallax_px / 2.0)
+            avail_y = max(0.0, (ch - ch / zoom) / 2.0 - parallax_px / 2.0)
 
-            map_x0 = cx + (ox_grid - WIDTH / 2) / zoom + dx * pan_px
-            map_y0 = cy + (oy_grid - HEIGHT / 2) / zoom + dy * pan_px
+            map_x0 = cx + (ox_grid - WIDTH / 2) * sx + dx * pan_amt_frac * avail_x
+            map_y0 = cy + (oy_grid - HEIGHT / 2) * sy + dy * pan_amt_frac * avail_y
             map_x0 = np.clip(map_x0, 0, cw - 1)
             map_y0 = np.clip(map_y0, 0, ch - 1)
 
@@ -788,9 +935,7 @@ def pexels_video(query, index, used_ids=None):
         if not files:
             return None
         best = min(files, key=lambda f: abs(f["width"] - WIDTH))
-        vid_req = urllib.request.Request(best["link"], headers={"User-Agent": UA})
-        with urllib.request.urlopen(vid_req, timeout=40) as r:
-            open(cf, "wb").write(r.read())
+        download_atomic(best["link"], cf, timeout=40)
         return cf
     except Exception as e:
         PEXELS_BROKEN = True
@@ -798,7 +943,45 @@ def pexels_video(query, index, used_ids=None):
         return None
 
 
-def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR):
+def plan_transitions(sections, xfade_dur=XFADE_DUR):
+    """Заранее и детерминированно решить, КАКОЙ переход и КАКОЙ длины стоит
+    на каждой склейке. Возвращает список (transition, duration) длиной n-1.
+
+    Ключ хэша — номер стыка и имена секций, а НЕ имена файлов клипов. Это
+    принципиально: имя файла клипа содержит хэш его длительности, а
+    длительность считается от бюджета переходов — то есть от результата этой
+    самой функции. Завязка на имена файлов делала бюджет невычислимым заранее,
+    и main() был вынужден закладывать XFADE_DUR на КАЖДУЮ склейку, хотя ~65%
+    из них — почти мгновенный hardcut на 0.06с. Разница копилась: на 135
+    кадрах видео получалось на ~25с длиннее аудио, финальный -t срезал хвост,
+    а картинка на всём протяжении ролика всё сильнее отставала от слов."""
+    n = len(sections)
+    plan = []
+    cut_hist, boundary_hist = [], []
+    for i in range(1, n):
+        h = int(hashlib.md5(f"xfade:{i}|{sections[i-1]}|{sections[i]}".encode()).hexdigest()[:8], 16)
+        if sections[i] != sections[i - 1]:
+            # Смена темы — заметный переход, не обычная склейка. dissolve/fadeblack/
+            # fadewhite (вспышка светом — читается как "новая глава начинается ярко")
+            # вперемешку.
+            candidate = BOUNDARY_TRANSITIONS[h % len(BOUNDARY_TRANSITIONS)]
+            plan.append((pick_no_repeat(boundary_hist, candidate, BOUNDARY_TRANSITIONS, 1), xfade_dur))
+        else:
+            # Большинство склеек в реальном монтаже — жёсткий cut, не dissolve;
+            # заметный переход — редкость, не норма. ~65% hard cut / ~35% вариация.
+            candidate = "hardcut" if (h % 3 != 0) else XFADE_TRANSITIONS[(h >> 8) % len(XFADE_TRANSITIONS)]
+            choice = pick_no_repeat(cut_hist, candidate, ["hardcut"] + XFADE_TRANSITIONS, max_repeat=3)
+            plan.append(("fade" if choice == "hardcut" else choice,
+                         XFADE_DUR_HARD if choice == "hardcut" else xfade_dur))
+    return plan
+
+
+def transitions_budget(sections, xfade_dur=XFADE_DUR):
+    """Сколько секунд суммарно съедят склейки — точно, а не по верхней оценке."""
+    return sum(d for _, d in plan_transitions(sections, xfade_dur))
+
+
+def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR, plan=None):
     """Один проход filter_complex с цепочкой xfade между ВСЕМИ соседними
     кадрами — вместо жёсткой склейки. Тип перехода и длительность варьируются
     (разнообразие + иногда почти жёсткий cut), на границе секций — заметный
@@ -807,25 +990,11 @@ def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR):
     n = len(clips)
     if n < 2:
         return False, 0.0
+    if plan is None:
+        plan = plan_transitions(sections, xfade_dur)
     parts, prev_label, cum = [], "0:v", durs[0]
-    cut_hist, boundary_hist = [], []
     for i in range(1, n):
-        h = int(hashlib.md5(f"{clips[i-1]}|{clips[i]}".encode()).hexdigest()[:8], 16)
-        is_boundary = sections[i] != sections[i - 1]
-        if is_boundary:
-            # Смена темы — заметный переход, не обычная склейка. dissolve/fadeblack/
-            # fadewhite (вспышка светом — читается как "новая глава начинается ярко")
-            # вперемешку.
-            candidate = BOUNDARY_TRANSITIONS[h % len(BOUNDARY_TRANSITIONS)]
-            transition = pick_no_repeat(boundary_hist, candidate, BOUNDARY_TRANSITIONS, 1)
-            this_dur = xfade_dur
-        else:
-            # Большинство склеек в реальном монтаже — жёсткий cut, не dissolve;
-            # заметный переход — редкость, не норма. ~65% hard cut / ~35% вариация.
-            candidate = "hardcut" if (h % 3 != 0) else XFADE_TRANSITIONS[(h >> 8) % len(XFADE_TRANSITIONS)]
-            choice = pick_no_repeat(cut_hist, candidate, ["hardcut"] + XFADE_TRANSITIONS, max_repeat=3)
-            this_dur = XFADE_DUR_HARD if choice == "hardcut" else xfade_dur
-            transition = "fade" if choice == "hardcut" else choice
+        transition, this_dur = plan[i - 1]
         offset = max(0.0, cum - this_dur)
         out_label = f"vx{i}" if i < n - 1 else "vout"
         parts.append(f"[{prev_label}][{i}:v]xfade=transition={transition}:"
@@ -931,11 +1100,16 @@ def main():
     if not blocks:
         print("Сценарий не найден/пуст")
         return 1
-    # Кроссфейд между КАЖДОЙ парой кадров суммарно "съедает" (n-1)*XFADE_DUR —
-    # закладываем это в целевую длительность заранее, чтобы после склейки общая
-    # длина видео снова совпала с аудио (без этого хвост ролика проигрывался бы
-    # без картинки под конец аудиодорожки).
-    xfade_budget = max(0, len(blocks) - 1) * XFADE_DUR
+    # Кроссфейд между КАЖДОЙ парой кадров "съедает" время — закладываем это в
+    # целевую длительность заранее, чтобы после склейки общая длина видео снова
+    # совпала с аудио. Бюджет считается ТОЧНО, по заранее построенному плану
+    # переходов (plan_transitions), а не по верхней оценке (n-1)*XFADE_DUR:
+    # большинство склеек — hardcut на 0.06с, и завышенный бюджет раздувал
+    # кадры так, что видео выходило на десятки секунд длиннее аудио, хвост
+    # срезался, а картинка ползла всё дальше от слов к концу ролика.
+    block_sections = [b["section"] for b in blocks]
+    xfade_plan = plan_transitions(block_sections)
+    xfade_budget = sum(d for _, d in xfade_plan)
     target = total + xfade_budget
     durs = block_durations(blocks, target)
     # Второй проход: ритм по громкости поверх word-count-базы (не вместо неё) —
@@ -959,30 +1133,31 @@ def main():
     missing = []   # индексы блоков, для которых не нашлось ни фото, ни видео
     media_log = []   # (индекс, путь_к_фото) — для QC-проверки на похожие кадры в конце
     zoom_hist, pan_hist = [], []
-    use_local = os.path.isdir(MEDIA_FOLDER) and bool(local_photo(0))
+    use_local = bool(LOCAL_MEDIA)
     use_pexels = bool(PEXELS_API_KEY)
     queries = resolve_queries(blocks)
     used_photo_ids = set()   # общий на весь ролик — не даём одной фотке всплыть дважды
     used_video_ids = set()   # то же самое, отдельно для видео (разные ID-пространства)
+    last_media = None        # чем закрыть блок, для которого вообще ничего не нашлось
+    reused = []              # такие блоки — чтобы честно сказать о них в конце
     for i, (b, d) in enumerate(zip(blocks, durs)):
         # Титр темы — только на ПЕРВОМ кадре новой секции (BLOCK N: Название).
         is_section_start = i == 0 or blocks[i]["section"] != blocks[i - 1]["section"]
         title = section_title(b["section"]) if is_section_start else None
         stat = b.get("stat")
-        # Хэш параметров рендера в имени — иначе правка script.txt (текст,
-        # тайминг, плашка) без ручной чистки temp_smart/ молча оставляла
-        # старый клип под новые данные (тот же класс бага, что уже правили
-        # для pexels_cache — тут просто ещё не было починено).
-        params_hash = hashlib.md5(f"{d:.3f}|{title}|{stat}|{b['section']}".encode()).hexdigest()[:8]
-        out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}_{params_hash}.mp4")
-        if os.path.exists(out):
-            clips.append(out)
-            clip_durs.append(d)
-            clip_sections.append(b["section"])
-            continue
-        photo = local_photo(i) if use_local else None
-        video = None
-        if not photo and use_pexels:
+        # Медиа разрешается ДО проверки кэша клипа: иначе имя клипа не знает,
+        # из какой картинки он собран, и подмена файла в media/ или правка
+        # themes.json молча оставляли старый кадр (тот же класс бага, что уже
+        # правили для pexels_cache и для параметров рендера).
+        photo = video = None
+        local = local_media(i) if use_local else None
+        if local:
+            kind, path = local
+            if kind == "video":
+                video = path
+            else:
+                photo = path
+        if not photo and not video and use_pexels:
             # Чередуем фото/видео через один — живое движение вперемешку со
             # статикой вместо чистого слайд-шоу (ЧАСТЬ 14: нечётные фото,
             # чётные видео). Слишком короткому кадру видео не заказываем —
@@ -1004,9 +1179,34 @@ def main():
                 use_pexels = False
         if not photo and not video:
             photo = local_photo(i)
+        reuse = False
+        if not photo and not video and last_media:
+            # Выбросить блок нельзя: его длительность заложена в общий тайминг,
+            # и без кадра ВСЁ, что идёт дальше, уезжает относительно звука (на
+            # длинном ролике это десятки секунд рассинхрона к финалу). Повторяем
+            # предыдущее медиа — один повторный кадр заметно дешевле сбитого
+            # синхрона на весь остаток ролика. Зум разворачиваем в обратную
+            # сторону, чтобы повтор не читался как зависшая картинка.
+            kind, path = last_media
+            video, photo = (path, None) if kind == "video" else (None, path)
+            reuse = True
+            reused.append(i + 1)
         if not photo and not video:
             print(f"  [{i+1}] нет медиа")
             missing.append(i + 1)
+            continue
+        last_media = ("video", video) if video else ("photo", photo)
+        src = video or photo
+        params_hash = hashlib.md5(
+            f"{d:.3f}|{title}|{stat}|{b['section']}|{os.path.basename(src)}|{reuse}".encode()
+        ).hexdigest()[:8]
+        out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}_{params_hash}.mp4")
+        if os.path.exists(out):
+            clips.append(out)
+            clip_durs.append(d)
+            clip_sections.append(b["section"])
+            if photo:
+                media_log.append((i, photo))
             continue
         if video:
             ok = video_render(video, out, d, title=title, stat=stat, section=b["section"])
@@ -1014,6 +1214,8 @@ def main():
             # anti-repetition: хэш сам по себе не мешает 3 зумам подряд случайно
             # совпасть — держим окно последних решений и форсируем смену при повторе.
             _, zi_cand, pd_cand = kb_hash_choices(photo)
+            if reuse:
+                zi_cand = not zi_cand   # повтор кадра — хотя бы в другую сторону
             zoom_in = pick_no_repeat(zoom_hist, zi_cand, [True, False], max_repeat=2)
             pan_dir = pick_no_repeat(pan_hist, pd_cand, PAN_DIRECTIONS, max_repeat=2)
             # Параллакс — только на самые заметные точки ролика (хук целиком +
@@ -1047,7 +1249,11 @@ def main():
         print("Нет клипов")
         return 1
     merged = os.path.join(TEMP_FOLDER, "merged.mp4")
-    ok, xfade_total = xfade_chain(clips, clip_durs, clip_sections, merged)
+    # План переходов должен совпадать с тем, по которому считался бюджет. Если
+    # все блоки доехали (обычный случай) — берём его как есть; если какой-то
+    # блок всё же выпал, честно пересчитываем по фактической цепочке клипов.
+    plan = xfade_plan if len(clips) == len(blocks) else plan_transitions(clip_sections)
+    ok, xfade_total = xfade_chain(clips, clip_durs, clip_sections, merged, plan=plan)
     if not ok:
         concat = os.path.join(TEMP_FOLDER, "concat.txt")
         # Пути ТОЛЬКО абсолютные: concat-демуксер ffmpeg резолвит относительные
@@ -1079,6 +1285,8 @@ def main():
     # видны в итоговой строке, и код возврата честно отражает, что не всё
     # доехало (не 0, если что-то пропущено).
     status = f" | ПРОПУЩЕНО {len(missing)} блоков: {missing}" if missing else ""
+    if reused:
+        status += f" | ПОВТОР медиа (не нашлось своего) в блоках: {reused}"
     print(f"\nГОТОВО: {OUTPUT_FILE} ({mb:.0f} MB, {total/60:.1f} мин, {len(clips)} кадров){status}")
     qc_report(media_log)
     return 1 if missing else 0

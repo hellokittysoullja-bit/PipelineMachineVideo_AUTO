@@ -59,13 +59,19 @@ def duration(path):
     return float(r.stdout.strip())
 
 
-def detect_silences(path):
+def detect_silences(path, total=None):
     r = subprocess.run(["ffmpeg", "-i", path, "-af",
                         f"silencedetect=noise={NOISE_DB}:d={THRESH_SEC}",
                         "-f", "null", "-"], capture_output=True, text=True)
     log = r.stderr
     starts = [float(x) for x in re.findall(r'silence_start:\s*([\d.]+)', log)]
     ends = [float(x) for x in re.findall(r'silence_end:\s*([\d.]+)', log)]
+    # Тишина В КОНЦЕ файла: часть сборок ffmpeg не печатает для неё silence_end,
+    # и zip() просто выбрасывал последний silence_start — хвостовая тишина
+    # озвучки (у TTS она есть почти всегда) не подрезалась, и в готовом ролике
+    # оставался застывший последний кадр под пустой звук.
+    if total is not None and len(starts) == len(ends) + 1:
+        ends.append(total)
     return list(zip(starts, ends))
 
 
@@ -77,7 +83,7 @@ def main():
         return 1
     out = os.path.join(video_dir, "audio_fixed.mp3")
     total = duration(src)
-    sil = detect_silences(src)
+    sil = detect_silences(src, total)
     loud = loudnorm_filter(measure_loudness(src))
     if not sil:
         print("Длинных пауз не найдено — нормализую громкость.")

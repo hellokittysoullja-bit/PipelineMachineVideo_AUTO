@@ -4,7 +4,7 @@
 Нечётные слоты -> фото, чётные -> видео. Внутри категории источники
 round-robin с фоллбэком. Unsplash — demo 50/час (cap 45). Все источники
 пишут в одно имя на слот. Safe re-run (пропуск готовых слотов).
-Тематический словарь — media_plan/themes.json (рус.ключ -> англ.запрос).
+Тематический словарь: channel_themes.json (корень репо) + media_plan/themes.json.
 Usage: python scripts/stock_fetch_multisource.py <video_dir>"""
 import json
 import os
@@ -19,6 +19,34 @@ try:
 except Exception:
     pass
 
+# Уже использованные результаты, по источникам. Без этого каждый источник
+# всегда брал hits[0]: все слоты с одинаковым тематическим запросом (а их в
+# ролике десятки — словарь тем на то и словарь) получали ОДНУ И ТУ ЖЕ картинку.
+# Теперь перебираем выдачу и берём первый ещё не использованный результат.
+used_ids = {}
+
+
+def _pick_unused(source, items, key):
+    """Первый элемент, чей ключ ещё не встречался в этом прогоне. Если все уже
+    были — берём первый (повтор лучше пустого слота) и не портим статистику."""
+    seen = used_ids.setdefault(source, set())
+    chosen = None
+    for it in items:
+        k = key(it)
+        if k is None:
+            continue
+        if k not in seen:
+            chosen = it
+            seen.add(k)
+            break
+    if chosen is None:
+        chosen = items[0]
+        k = key(chosen)
+        if k is not None:
+            seen.add(k)
+    return chosen
+
+
 PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY", "")
 PIXABAY_API_KEY = os.environ.get("PIXABAY_API_KEY", "")
 UNSPLASH_ACCESS_KEY = os.environ.get("UNSPLASH_API_KEY", "")
@@ -29,14 +57,29 @@ unsplash_used = 0
 DEFAULT_QUERY = "cinematic atmospheric moody"
 
 
-def load_themes(base):
-    p = os.path.join(base, "media_plan", "themes.json")
-    if os.path.exists(p):
+def _load_json_dict(path):
+    if os.path.exists(path):
         try:
-            return json.load(open(p, encoding="utf-8"))
-        except Exception:
-            pass
+            return json.load(open(path, encoding="utf-8"))
+        except Exception as e:
+            print(f"  Битый {path}, пропускаю: {e}")
     return {}
+
+
+def load_themes(base):
+    """Два уровня, ровно как в pipeline_smart.py: канальный словарь
+    channel_themes.json в корне репозитория + эпизодный media_plan/themes.json
+    поверх него.
+
+    Канальный уровень тут отсутствовал: скрипт читал только эпизодный файл, и
+    если его не завели (а его и не надо заводить — ради этого канальный словарь
+    и делали), КАЖДЫЙ слот уходил в Pexels/Pixabay с одним и тем же
+    DEFAULT_QUERY. То есть весь сток ролика скачивался по запросу
+    "cinematic atmospheric moody" вместо тематических слов канала."""
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    merged = _load_json_dict(os.path.join(repo_root, "channel_themes.json"))
+    merged.update(_load_json_dict(os.path.join(base, "media_plan", "themes.json")))
+    return merged
 
 
 def build_query(text, themes):
@@ -48,24 +91,41 @@ def build_query(text, themes):
 
 
 def _download(url, out, headers=None):
+    """Скачать во временный файл и переименовать только после полной записи.
+
+    Раньше писали прямо в целевое имя: обрыв связи или Ctrl-C посреди загрузки
+    оставлял в media/ обрезанный файл, а следующий прогон считал слот готовым
+    (проверка — только по существованию имени) и больше к нему не возвращался.
+    Битый кадр доезжал до сборки и валил ffmpeg уже там."""
     req = urllib.request.Request(url, headers=headers or {"User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        data = r.read()
-    open(out, "wb").write(data)
+    tmp = f"{out}.part"
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r, open(tmp, "wb") as f:
+            data = r.read()
+            if not data:
+                raise ValueError("пустой ответ")
+            f.write(data)
+        os.replace(tmp, out)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
 
 def fetch_pexels_photo(q, out):
     if not PEXELS_API_KEY:
         return False
     req = urllib.request.Request(
-        f"https://api.pexels.com/v1/search?query={urllib.parse.quote(q)}&per_page=3&orientation=landscape",
+        f"https://api.pexels.com/v1/search?query={urllib.parse.quote(q)}&per_page=15&orientation=landscape",
         headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
     with urllib.request.urlopen(req, timeout=20) as r:
         data = json.load(r)
     ph = data.get("photos", [])
     if not ph:
         return False
-    src = ph[0].get("src", {})
+    src = _pick_unused("pexels_photo", ph, lambda x: x.get("id")).get("src", {})
     # выбираем лучший доступный размер: раньше жёсткая ссылка на large2x
     # роняла источник с KeyError, если Pexels его не отдал
     url = src.get("large2x") or src.get("large") or src.get("original")
@@ -79,14 +139,15 @@ def fetch_pexels_video(q, out):
     if not PEXELS_API_KEY:
         return False
     req = urllib.request.Request(
-        f"https://api.pexels.com/videos/search?query={urllib.parse.quote(q)}&per_page=5&orientation=landscape",
+        f"https://api.pexels.com/videos/search?query={urllib.parse.quote(q)}&per_page=15&orientation=landscape",
         headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
     with urllib.request.urlopen(req, timeout=20) as r:
         data = json.load(r)
     vs = data.get("videos", [])
     if not vs:
         return False
-    files = sorted(vs[0].get("video_files", []), key=lambda f: f.get("width", 0), reverse=True)
+    vid = _pick_unused("pexels_video", vs, lambda x: x.get("id"))
+    files = sorted(vid.get("video_files", []), key=lambda f: f.get("width", 0), reverse=True)
     hd = [f for f in files if 960 <= f.get("width", 0) <= 1920]
     chosen = hd[0] if hd else (files[-1] if files else None)
     if not chosen:
@@ -99,13 +160,14 @@ def fetch_pixabay_photo(q, out):
     if not PIXABAY_API_KEY:
         return False
     url = (f"https://pixabay.com/api/?key={PIXABAY_API_KEY}&q={urllib.parse.quote(q)}"
-           f"&image_type=photo&orientation=horizontal&per_page=3&safesearch=true")
+           f"&image_type=photo&orientation=horizontal&per_page=15&safesearch=true")
     with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}), timeout=20) as r:
         data = json.load(r)
     hits = data.get("hits", [])
     if not hits:
         return False
-    url = hits[0].get("largeImageURL") or hits[0].get("webformatURL")
+    hit = _pick_unused("pixabay_photo", hits, lambda x: x.get("id"))
+    url = hit.get("largeImageURL") or hit.get("webformatURL")
     if not url:
         return False
     _download(url, out)
@@ -115,17 +177,20 @@ def fetch_pixabay_photo(q, out):
 def fetch_pixabay_video(q, out):
     if not PIXABAY_API_KEY:
         return False
-    url = f"https://pixabay.com/api/videos/?key={PIXABAY_API_KEY}&q={urllib.parse.quote(q)}&per_page=3&safesearch=true"
+    url = f"https://pixabay.com/api/videos/?key={PIXABAY_API_KEY}&q={urllib.parse.quote(q)}&per_page=15&safesearch=true"
     with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}), timeout=20) as r:
         data = json.load(r)
     hits = data.get("hits", [])
     if not hits:
         return False
-    v = hits[0].get("videos", {})
-    chosen = v.get("large") or v.get("medium") or v.get("small")
-    if not chosen:
+    v = _pick_unused("pixabay_video", hits, lambda x: x.get("id")).get("videos", {})
+    # Pixabay отдаёт ключ рендиции даже когда url в нём пустой — проверяем сам url,
+    # а не наличие ключа, иначе уходим качать "" и теряем слот.
+    link = next((v[k]["url"] for k in ("large", "medium", "small")
+                 if isinstance(v.get(k), dict) and v[k].get("url")), None)
+    if not link:
         return False
-    _download(chosen["url"], out)
+    _download(link, out)
     return True
 
 
@@ -134,14 +199,14 @@ def fetch_unsplash_photo(q, out):
     if not UNSPLASH_ACCESS_KEY or unsplash_used >= UNSPLASH_HOURLY_CAP:
         return False
     url = (f"https://api.unsplash.com/search/photos?query={urllib.parse.quote(q)}"
-           f"&per_page=3&orientation=landscape&client_id={UNSPLASH_ACCESS_KEY}")
+           f"&per_page=15&orientation=landscape&client_id={UNSPLASH_ACCESS_KEY}")
     with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}), timeout=20) as r:
         data = json.load(r)
     unsplash_used += 1
     res = data.get("results", [])
     if not res:
         return False
-    urls = res[0].get("urls", {})
+    urls = _pick_unused("unsplash_photo", res, lambda x: x.get("id")).get("urls", {})
     url = urls.get("regular") or urls.get("full") or urls.get("small")
     if not url:
         return False
