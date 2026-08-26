@@ -13,6 +13,22 @@ import speech_planner as sp   # noqa: E402
 import pytest                 # noqa: E402
 
 
+# ruaccent — ОПЦИОНАЛЬНАЯ зависимость (в requirements.txt закомментирована,
+# см. её докстринг): без неё коррекция ударений честно fail-open, подсказки
+# просто не генерируются. Тесты "реальной модели" без пакета не имеют
+# смысла — их надо ПРОПУСКАТЬ, а не валить: до этой правки чистая установка
+# по requirements.txt давала 11 красных тестов на ровном месте, и на их фоне
+# настоящая регрессия была бы незаметна.
+try:
+    import ruaccent  # noqa: F401
+    RUACCENT_AVAILABLE = True
+except Exception:
+    RUACCENT_AVAILABLE = False
+
+requires_ruaccent = pytest.mark.skipif(
+    not RUACCENT_AVAILABLE, reason="ruaccent не установлен (опциональная зависимость)")
+
+
 def _block(text, words=None, section="BODY", pause_after=0.8, stat=None,
            stat_word_pos=None, is_climax=False):
     return {"text": text, "words": words if words is not None else len(text.split()),
@@ -373,6 +389,7 @@ def test_homograph_hints_no_signal_returns_empty(monkeypatch):
     assert sp.homograph_hints_for_text("Солнце светило над полем весь день.") == []
 
 
+@requires_ruaccent
 class TestHomographHintsRealModel:
     """Реальный ruaccent (тяжёлая модель, ~30с загрузка один раз на класс,
     см. stress_placement.py) — та же категория тестов, что

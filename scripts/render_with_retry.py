@@ -17,9 +17,18 @@ OOM) от "процесс завершился сам, просто с нену�
 
 Использование: python scripts/render_with_retry.py <video_dir> [--max N]
 """
+import os
 import subprocess
 import sys
 import time
+
+SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+# Путь к пайплайну — от МЕСТА ЭТОГО ФАЙЛА, а не относительный "scripts/...":
+# относительный работал только при запуске строго из корня репозитория, а из
+# любой другой рабочей папки (или из планировщика/cron с другим cwd) обёртка
+# запускала python на несуществующий файл и "падала" 5 раз подряд с
+# непонятной причиной вместо рендера.
+PIPELINE = os.path.join(SCRIPTS_DIR, "pipeline_smart.py")
 
 MAX_ATTEMPTS_DEFAULT = 5
 RETRY_DELAY_SEC = 15
@@ -67,7 +76,7 @@ def main():
 
     for attempt in range(1, max_attempts + 1):
         print(f"=== Попытка {attempt}/{max_attempts} ===", flush=True)
-        r = subprocess.run([sys.executable, "scripts/pipeline_smart.py", video_dir])
+        r = subprocess.run([sys.executable, PIPELINE, video_dir])
         if r.returncode == 0:
             print("Готово, без замечаний.")
             return 0

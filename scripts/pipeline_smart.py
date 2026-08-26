@@ -930,8 +930,20 @@ def add_typewriter_clicks(mix_path, click_times, total_dur, out_path):
         mix_inputs.append(f"[cd{i}]")
     parts.append("".join(mix_inputs) + f"amix=inputs={len(click_times) + 1}:duration=first:normalize=0[out]")
     fc = ";".join(parts)
-    cmd += ["-filter_complex", fc, "-map", "[out]",
-            "-t", f"{total_dur:.3f}", "-ar", "48000", "-ac", "2", out_path]
+    # Граф в ФАЙЛ, не в аргумент: щелчки набираются по одному на СИМВОЛ
+    # раскрываемой цифры, и на ролике с десятком stat-плашек это сотни
+    # adelay-фильтров + amix на столько же входов — десятки тысяч символов
+    # в одном аргументе. Лимит командной строки Windows (32767 на всю
+    # строку) отвергает такое молча-фатально: шаг просто не запускается.
+    fc_path = os.path.join(TEMP_FOLDER, "typewriter_filter.txt")
+    try:
+        with open(fc_path, "w", encoding="utf-8") as f:
+            f.write(fc)
+        cmd += ["-filter_complex_script", fc_path, "-map", "[out]",
+                "-t", f"{total_dur:.3f}", "-ar", "48000", "-ac", "2", out_path]
+    except OSError:
+        cmd += ["-filter_complex", fc, "-map", "[out]",
+                "-t", f"{total_dur:.3f}", "-ar", "48000", "-ac", "2", out_path]
     r = subprocess.run(cmd, capture_output=True, text=True)
     return out_path if r.returncode == 0 else mix_path
 

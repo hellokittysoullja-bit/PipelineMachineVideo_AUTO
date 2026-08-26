@@ -72,6 +72,12 @@ import subprocess
 import sys
 
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+# Явная гарантия импортируемости script_parser (см. _section_count): при
+# запуске файлом sys.path[0] и так равен scripts/, но при любом другом
+# способе вызова (импорт из другого каталога, -m, обёртка) этого нет —
+# остальные модули пакета такую же страховку уже ставят.
+if SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, SCRIPTS_DIR)
 
 
 def _run(script_name, video_dir, extra_env=None):

@@ -1972,3 +1972,160 @@ def test_timeline_length_matches_audio_after_budget_and_quantization():
 def test_estimate_xfade_budget_empty_and_single():
     assert pipeline_smart.estimate_xfade_budget([]) == 0.0
     assert pipeline_smart.estimate_xfade_budget([{"section": "HOOK"}]) == 0.0
+
+
+# ---------- мультисток: ротация кандидатов вместо "всегда топ-1" ----------
+# Реальный, самый заметный на глаз баг: запрос берётся из тематического
+# словаря по корню слова, десятки слотов эпизода получают ОДИН И ТОТ ЖЕ
+# запрос — и раньше все они скачивали ph[0]/hits[0]/res[0], то есть одну и
+# ту же картинку по многу раз за ролик.
+
+def _fake_pexels_photo_response(n):
+    import json as _json
+    payload = _json.dumps({"photos": [
+        {"id": 1000 + i, "src": {"large2x": f"https://img.example/{1000 + i}.jpg"}}
+        for i in range(n)]}).encode()
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return payload
+    return _Resp()
+
+
+def _patch_stock_photo_source(monkeypatch, tmp_path, n_candidates=5):
+    """urlopen отдаёт n кандидатов на любой поисковый запрос и байты на любой
+    запрос картинки; возвращает список реально скачанных URL."""
+    downloaded = []
+
+    def fake_urlopen(req, timeout=None):
+        url = req.full_url if hasattr(req, "full_url") else req
+        if "img.example" in url:
+            downloaded.append(url)
+
+            class _Img:
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *a):
+                    return False
+
+                def read(self):
+                    return b"\xff\xd8\xff jpeg"
+            return _Img()
+        return _fake_pexels_photo_response(n_candidates)
+
+    monkeypatch.setattr(stock_fetch_multisource, "PEXELS_API_KEY", "test-key")
+    monkeypatch.setattr(stock_fetch_multisource.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(stock_fetch_multisource, "USED_MEDIA_KEYS", set())
+    return downloaded
+
+
+def test_stock_photo_slots_with_same_query_get_different_candidates(monkeypatch, tmp_path):
+    downloaded = _patch_stock_photo_source(monkeypatch, tmp_path, n_candidates=5)
+    for slot in range(3):
+        out = str(tmp_path / f"{slot:03d}_stock.jpg")
+        assert stock_fetch_multisource.fetch_pexels_photo("knight plate armor", out) is True
+    assert len(set(downloaded)) == 3, (
+        f"три слота с одним и тем же запросом должны получить РАЗНЫЕ кадры, "
+        f"скачано: {downloaded}")
+
+
+def test_stock_photo_reuses_top_when_pool_exhausted(monkeypatch, tmp_path):
+    # Пул исчерпан — повтор допустим (лучше, чем пустой слот), падать нельзя.
+    downloaded = _patch_stock_photo_source(monkeypatch, tmp_path, n_candidates=1)
+    for slot in range(2):
+        out = str(tmp_path / f"{slot:03d}_stock.jpg")
+        assert stock_fetch_multisource.fetch_pexels_photo("knight plate armor", out) is True
+    assert len(downloaded) == 2 and len(set(downloaded)) == 1
+
+
+def test_stock_download_is_atomic_no_partial_file_on_error(monkeypatch, tmp_path):
+    # Обрыв посреди скачивания не должен оставлять обрезанный файл под именем
+    # слота: иначе следующий прогон ("safe re-run") сочтёт слот готовым.
+    out = str(tmp_path / "007_stock.jpg")
+
+    class _Broken:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            raise IOError("соединение оборвалось")
+
+    monkeypatch.setattr(stock_fetch_multisource.urllib.request, "urlopen",
+                        lambda req, timeout=None: _Broken())
+    with pytest.raises(Exception):
+        stock_fetch_multisource._download("https://img.example/x.jpg", out)
+    assert not os.path.exists(out)
+    assert not os.path.exists(out + ".part")
+
+
+def test_stock_download_rejects_empty_response(monkeypatch, tmp_path):
+    out = str(tmp_path / "008_stock.jpg")
+
+    class _Empty:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b""
+
+    monkeypatch.setattr(stock_fetch_multisource.urllib.request, "urlopen",
+                        lambda req, timeout=None: _Empty())
+    with pytest.raises(Exception):
+        stock_fetch_multisource._download("https://img.example/x.jpg", out)
+    assert not os.path.exists(out)
+
+
+# ---------- local_photo: точный слот -> позиционно -> None (не по кругу) ----------
+
+def _make_media(tmp_path, names):
+    media = tmp_path / "media"
+    media.mkdir(exist_ok=True)
+    for n in names:
+        (media / n).write_bytes(b"\xff\xd8\xff")
+    return str(media)
+
+
+def test_local_photo_exact_slot_match_wins(monkeypatch, tmp_path):
+    media = _make_media(tmp_path, ["001_flow.jpg", "003_stock.jpg", "005_stock.jpg"])
+    monkeypatch.setattr(pipeline_smart, "MEDIA_FOLDER", media)
+    monkeypatch.setattr(pipeline_smart, "_LOCAL_PHOTOS_CACHE", None)
+    # блок 0 -> слот 001, блок 2 -> слот 003 (а НЕ позиционно photos[2]=005)
+    assert os.path.basename(pipeline_smart.local_photo(0)) == "001_flow.jpg"
+    assert os.path.basename(pipeline_smart.local_photo(2)) == "003_stock.jpg"
+
+
+def test_local_photo_returns_none_past_pool_instead_of_cycling(monkeypatch, tmp_path):
+    media = _make_media(tmp_path, ["001_flow.jpg", "002_flow.jpg"])
+    monkeypatch.setattr(pipeline_smart, "MEDIA_FOLDER", media)
+    monkeypatch.setattr(pipeline_smart, "_LOCAL_PHOTOS_CACHE", None)
+    # Раньше здесь начинался цикл: блок 7 получал photos[7 % 2] — и весь
+    # 40-минутный ролик собирался из двух картинок, Pexels не опрашивался.
+    assert pipeline_smart.local_photo(7) is None
+
+
+def test_local_photo_cycles_only_when_explicitly_allowed(monkeypatch, tmp_path):
+    media = _make_media(tmp_path, ["001_flow.jpg", "002_flow.jpg"])
+    monkeypatch.setattr(pipeline_smart, "MEDIA_FOLDER", media)
+    monkeypatch.setattr(pipeline_smart, "_LOCAL_PHOTOS_CACHE", None)
+    assert pipeline_smart.local_photo(7, allow_cycle=True) is not None
+
+
+def test_local_photo_empty_media_is_none(monkeypatch, tmp_path):
+    media = _make_media(tmp_path, [])
+    monkeypatch.setattr(pipeline_smart, "MEDIA_FOLDER", media)
+    monkeypatch.setattr(pipeline_smart, "_LOCAL_PHOTOS_CACHE", None)
+    assert pipeline_smart.local_photo(0) is None
+    assert pipeline_smart.local_photo(0, allow_cycle=True) is None

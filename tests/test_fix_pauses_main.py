@@ -60,7 +60,14 @@ def _run_main_capturing_ffmpeg(monkeypatch, video_dir):
 
 
 def _filter_complex_arg(cmd):
-    return cmd[cmd.index("-filter_complex") + 1]
+    """Граф фильтров: либо прямо в аргументе, либо в файле
+    (-filter_complex_script — так теперь идут длинные графы, чтобы не
+    упираться в лимит длины командной строки Windows)."""
+    if "-filter_complex" in cmd:
+        return cmd[cmd.index("-filter_complex") + 1]
+    path = cmd[cmd.index("-filter_complex_script") + 1]
+    with open(path, encoding="utf-8") as f:
+        return f.read()
 
 
 def test_main_no_silences_normalizes_only(tmp_path, monkeypatch):

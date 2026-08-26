@@ -86,24 +86,74 @@ def build_query(text, themes, keyword_counts=None):
 
 
 def _download(url, out, headers=None):
+    """Атомарная запись: сначала в .part, потом os.replace.
+
+    РЕАЛЬНЫЙ БАГ без этого: файл писался прямо в итоговое имя слота. Обрыв
+    сети/Ctrl-C посреди скачивания оставлял в media/ ОБРЕЗАННЫЙ файл под
+    правильным именем — а этот же скрипт при следующем запуске считает
+    существующий файл готовым слотом и пропускает его ("Safe re-run"), а
+    сборщик потом падает на битом кадре. Пустой ответ отвергается — тот же
+    порог, что у pipeline_smart.atomic_url_download() (не выдуманный
+    минимальный размер: он мог бы отбросить и настоящий маленький файл)."""
     req = urllib.request.Request(url, headers=headers or {"User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        data = r.read()
-    open(out, "wb").write(data)
+    tmp = out + ".part"
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            data = r.read()
+        if not data:
+            raise IOError("скачан 0-байтный файл")
+        with open(tmp, "wb") as f:
+            f.write(data)
+        os.replace(tmp, out)
+    except Exception:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+        raise
+
+
+USED_MEDIA_KEYS = set()   # что уже скачано в этом прогоне: "источник:id"
+
+
+def _pick_unused(items, key_fn):
+    """Первый кандидат, которого в этом прогоне ещё не брали.
+
+    РЕАЛЬНЫЙ И САМЫЙ ЗАМЕТНЫЙ НА ГЛАЗ БАГ этого скрипта: все источники
+    брали ЖЁСТКО первый результат выдачи (ph[0]/hits[0]/res[0]). Запрос же
+    берётся из тематического словаря по корню слова — то есть десятки
+    слотов эпизода получают ОДИН И ТОТ ЖЕ запрос ("доспех" -> "knight plate
+    armor"), а значит и одну и ту же верхнюю картинку. Ролик собирался из
+    нескольких фотографий, повторённых по многу раз, при том что в выдаче
+    лежали десятки подходящих. Теперь ротация по выдаче с памятью на весь
+    прогон; если пул исчерпан — берём первый (повтор лучше пустого слота),
+    но уже не помечаем повторно."""
+    for it in items:
+        k = key_fn(it)
+        if k not in USED_MEDIA_KEYS:
+            USED_MEDIA_KEYS.add(k)
+            return it
+    return items[0] if items else None
 
 
 def fetch_pexels_photo(q, out):
     if not PEXELS_API_KEY:
         return False
+    # per_page=30, а не 3: тот же ОДИН запрос к API (квота не тратится
+    # больше), но пул кандидатов, из которого _pick_unused() берёт ещё не
+    # использованный кадр, а не один и тот же топ-1 на все слоты с этим
+    # запросом.
     req = urllib.request.Request(
-        f"https://api.pexels.com/v1/search?query={urllib.parse.quote(q)}&per_page=3&orientation=landscape",
+        f"https://api.pexels.com/v1/search?query={urllib.parse.quote(q)}&per_page=30&orientation=landscape",
         headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
     with urllib.request.urlopen(req, timeout=20) as r:
         data = json.load(r)
     ph = data.get("photos", [])
     if not ph:
         return False
-    src = ph[0].get("src", {})
+    pick = _pick_unused(ph, lambda p: f"pexels_photo:{p.get('id')}")
+    src = (pick or {}).get("src", {})
     # выбираем лучший доступный размер: раньше жёсткая ссылка на large2x
     # роняла источник с KeyError, если Pexels его не отдал
     url = src.get("large2x") or src.get("large") or src.get("original")
@@ -117,14 +167,15 @@ def fetch_pexels_video(q, out):
     if not PEXELS_API_KEY:
         return False
     req = urllib.request.Request(
-        f"https://api.pexels.com/videos/search?query={urllib.parse.quote(q)}&per_page=5&orientation=landscape",
+        f"https://api.pexels.com/videos/search?query={urllib.parse.quote(q)}&per_page=30&orientation=landscape",
         headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
     with urllib.request.urlopen(req, timeout=20) as r:
         data = json.load(r)
     vs = data.get("videos", [])
     if not vs:
         return False
-    files = sorted(vs[0].get("video_files", []), key=lambda f: f.get("width", 0), reverse=True)
+    pick = _pick_unused(vs, lambda v: f"pexels_video:{v.get('id')}")
+    files = sorted((pick or {}).get("video_files", []), key=lambda f: f.get("width", 0), reverse=True)
     hd = [f for f in files if 960 <= f.get("width", 0) <= 1920]
     chosen = hd[0] if hd else (files[-1] if files else None)
     if not chosen:
@@ -137,13 +188,14 @@ def fetch_pixabay_photo(q, out):
     if not PIXABAY_API_KEY:
         return False
     url = (f"https://pixabay.com/api/?key={PIXABAY_API_KEY}&q={urllib.parse.quote(q)}"
-           f"&image_type=photo&orientation=horizontal&per_page=3&safesearch=true")
+           f"&image_type=photo&orientation=horizontal&per_page=30&safesearch=true")
     with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}), timeout=20) as r:
         data = json.load(r)
     hits = data.get("hits", [])
     if not hits:
         return False
-    url = hits[0].get("largeImageURL") or hits[0].get("webformatURL")
+    pick = _pick_unused(hits, lambda p: f"pixabay_photo:{p.get('id')}") or {}
+    url = pick.get("largeImageURL") or pick.get("webformatURL")
     if not url:
         return False
     _download(url, out)
@@ -153,13 +205,13 @@ def fetch_pixabay_photo(q, out):
 def fetch_pixabay_video(q, out):
     if not PIXABAY_API_KEY:
         return False
-    url = f"https://pixabay.com/api/videos/?key={PIXABAY_API_KEY}&q={urllib.parse.quote(q)}&per_page=3&safesearch=true"
+    url = f"https://pixabay.com/api/videos/?key={PIXABAY_API_KEY}&q={urllib.parse.quote(q)}&per_page=30&safesearch=true"
     with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}), timeout=20) as r:
         data = json.load(r)
     hits = data.get("hits", [])
     if not hits:
         return False
-    v = hits[0].get("videos", {})
+    v = (_pick_unused(hits, lambda p: f"pixabay_video:{p.get('id')}") or {}).get("videos", {})
     chosen = v.get("large") or v.get("medium") or v.get("small")
     if not chosen:
         return False
@@ -172,14 +224,14 @@ def fetch_unsplash_photo(q, out):
     if not UNSPLASH_ACCESS_KEY or unsplash_used >= UNSPLASH_HOURLY_CAP:
         return False
     url = (f"https://api.unsplash.com/search/photos?query={urllib.parse.quote(q)}"
-           f"&per_page=3&orientation=landscape&client_id={UNSPLASH_ACCESS_KEY}")
+           f"&per_page=30&orientation=landscape&client_id={UNSPLASH_ACCESS_KEY}")
     with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}), timeout=20) as r:
         data = json.load(r)
     unsplash_used += 1
     res = data.get("results", [])
     if not res:
         return False
-    urls = res[0].get("urls", {})
+    urls = (_pick_unused(res, lambda p: f"unsplash:{p.get('id')}") or {}).get("urls", {})
     url = urls.get("regular") or urls.get("full") or urls.get("small")
     if not url:
         return False
@@ -334,6 +386,10 @@ def fetch_openverse_photo(q, out, base=None):
     with urllib.request.urlopen(req, timeout=20) as r:
         data = json.load(r)
     results = data.get("results", [])
+    # Ротация как у остальных источников: сначала те, которых в этом прогоне
+    # ещё не брали (лицензионные/источниковые проверки ниже не меняются).
+    results = ([r for r in results if f"openverse:{r.get('id')}" not in USED_MEDIA_KEYS]
+               + [r for r in results if f"openverse:{r.get('id')}" in USED_MEDIA_KEYS])
     for res in results:
         # Оба условия — запрошенные фильтры URL (license=/source=) ЭКОНОМЯТ
         # запросы, но не гарантия (баг/несогласованность на стороне API) —
@@ -353,6 +409,7 @@ def fetch_openverse_photo(q, out, base=None):
             _download(img_url, out)
         except Exception:
             continue
+        USED_MEDIA_KEYS.add(f"openverse:{res.get('id')}")
         if base:
             _log_openverse_manifest(base, {
                 "query": q, "id": res.get("id"), "title": res.get("title"),

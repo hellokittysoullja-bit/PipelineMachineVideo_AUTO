@@ -10,7 +10,24 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS_DIR = os.path.join(REPO_ROOT, "scripts")
 sys.path.insert(0, SCRIPTS_DIR)
 
+import pytest                   # noqa: E402
 import stress_placement as sp   # noqa: E402
+
+
+# ruaccent — ОПЦИОНАЛЬНАЯ зависимость (в requirements.txt закомментирована,
+# см. её докстринг): без неё коррекция ударений честно fail-open, подсказки
+# просто не генерируются. Тесты "реальной модели" без пакета не имеют
+# смысла — их надо ПРОПУСКАТЬ, а не валить: до этой правки чистая установка
+# по requirements.txt давала 11 красных тестов на ровном месте, и на их фоне
+# настоящая регрессия была бы незаметна.
+try:
+    import ruaccent  # noqa: F401
+    RUACCENT_AVAILABLE = True
+except Exception:
+    RUACCENT_AVAILABLE = False
+
+requires_ruaccent = pytest.mark.skipif(
+    not RUACCENT_AVAILABLE, reason="ruaccent не установлен (опциональная зависимость)")
 
 
 # ---------- чистая логика, без модели ----------
@@ -61,6 +78,7 @@ def test_atlas_deliberately_not_included():
 
 # ---------- реальная модель (ruaccent, ~30с загрузка один раз) ----------
 
+@requires_ruaccent
 class TestAccentizeWithHomographCorrectionRealModel:
 
     def test_fixes_known_bug_bare_nominative_flour(self):

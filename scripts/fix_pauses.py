@@ -407,8 +407,25 @@ def main():
         return 0
     filt += "".join(parts) + f"concat=n={len(parts)}:v=0:a=1[c];[c]{loud}[out]"
 
-    cmd = ["ffmpeg", "-y", "-i", src, "-filter_complex", filt,
+    # Граф фильтров уходит в ФАЙЛ (-filter_complex_script), а не в аргумент
+    # командной строки. РЕАЛЬНОЕ ограничение платформы, не стилистика: на
+    # каждую найденную паузу здесь два сегмента по ~150 символов, и на
+    # 40-60-минутном эпизоде с сотнями пауз (ЧАСТЬ 9 CLAUDE.md прямо
+    # предполагает до ~90 тегов паузы плюс естественные вдохи TTS — на
+    # реальном эпизоде их было 41 при 90 тегах) граф разрастается до
+    # десятков тысяч символов. Лимит командной строки Windows (основная
+    # платформа по CLAUDE.md ЧАСТЬ 3) — 32767 символов на ВСЮ строку: за
+    # ним ffmpeg просто не запускается (WinError 206), и шаг подрезки пауз
+    # отваливается целиком именно на длинных роликах, ради которых он и
+    # нужен. Linux тоже не безграничен (MAX_ARG_STRLEN 128КБ на аргумент).
+    filt_path = os.path.join(video_dir, "_fix_pauses_filter.txt")
+    with open(filt_path, "w", encoding="utf-8") as f:
+        f.write(filt)
+    cmd = ["ffmpeg", "-y", "-i", src, "-filter_complex_script", filt_path,
            "-map", "[out]", "-c:a", "flac", out]
+    # Файл графа НЕ удаляем: он маленький (десятки КБ), а при разборе
+    # ошибки ffmpeg на длинной цепочке это единственный способ увидеть, что
+    # именно ушло в фильтр.
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0 or not os.path.exists(out):
         print("Ошибка ffmpeg:", r.stderr[-400:])
