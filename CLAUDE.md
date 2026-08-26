@@ -65,7 +65,9 @@ python -m venv .venv
 | Картинки ИИ | Fast Gen AI / Grok Imagine / Google Flow |
 | Монтаж | FFmpeg (основной) + опц. DaVinci (ручная доводка) |
 
-Ключи из `.env`: `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `PEXELS_API_KEY`, `PIXABAY_API_KEY`, `UNSPLASH_API_KEY`, `FASTGEN_API_KEY`, `GEMINI_API_KEY`. Grok/Flow — сессия браузера (Claude-in-Chrome), без ключа. NexLev/vidIQ — MCP-коннекторы (OAuth). `.env` и `secrets/` — в `.gitignore`, в поставку не включать.
+Ключи из `.env`: `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `LUMEAN_API_KEY`, `LUMEAN_TEMPLATE_ID`, `PEXELS_API_KEY`, `PIXABAY_API_KEY`, `UNSPLASH_API_KEY`, `FASTGEN_API_KEY`, `GEMINI_API_KEY`. Grok/Flow — сессия браузера (Claude-in-Chrome), без ключа. NexLev/vidIQ — MCP-коннекторы (OAuth). `.env` и `secrets/` — в `.gitignore`, в поставку не включать.
+
+**Lumean** (`LUMEAN_API_KEY`) — альтернативный/дополнительный TTS-провайдер: не прямой вызов движка озвучки, а платформа-прокси (SaaS) со своей системой заказов (`POST /api/public/orders`, асинхронная обработка чанками, опрос статуса или WebSocket) поверх ElevenLabs/HeyGen/LumVoice + SFX/музыка/voice-clone. Голос задаётся ТОЛЬКО через шаблон (`LUMEAN_TEMPLATE_ID`, создаётся один раз через `POST /templates` с `config.tts_settings.voice_id` внутри) — заказ не принимает voice_id напрямую. Текст озвучки — в `input_text` заказа, не в `task_data`. Интеграционный скрипт (`scripts/lumean_tts.py` или аналог) ещё не написан — до этого момента текущий прямой ElevenLabs-путь (`scripts/speech_generate.py`) остаётся рабочим по умолчанию.
 
 ---
 
