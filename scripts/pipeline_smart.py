@@ -633,8 +633,18 @@ def grain_blend_complex(label_in, grain_input_idx, label_out, opacity_scale=1.0)
             f"[{label_in}][gr_scaled]blend=all_expr='{expr}'[{label_out}]")
 
 
-XFADE_DUR = 0.4        # диссолв на границах секций и часть обычных склеек
-XFADE_DUR_HARD = 0.06  # почти мгновенный переход — читается как жёсткий cut
+# ВСЕ длительности переходов — целое число кадров (кратны 1/FPS). Причина не
+# косметическая: ffmpeg xfade переводит offset в кадры входного time_base
+# (av_rescale_q), то есть РЕАЛЬНО потреблённый нахлёст всегда кратен кадру.
+# Пока константы были "круглыми в секундах" (0.4/0.06/0.03), план склейки и
+# факт расходились на доли кадра на КАЖДОЙ склейке, а на 300-500 склейках
+# эпизода это складывалось в секунды рассинхрона видео с аудио (см.
+# estimate_xfade_budget/quantize_durations_to_frames). 10/4/1 кадр при FPS=24
+# — это 0.4167 / 0.1667 / 0.0417с, то есть ТЕ ЖЕ значения, что и раньше, с
+# точностью до полукадра: смены картинки на глаз нет, а арифметика стала
+# точной по построению.
+XFADE_DUR = 10 / FPS       # ~0.42с — диссолв на границах секций и часть обычных склеек
+XFADE_DUR_HARD = 1 / FPS   # один кадр — минимально возможный нахлёст, читается как жёсткий cut
 # hblur/hlwind/hrwind (смаз в движении — читается как whip pan, разные
 # направления — не один и тот же смаз на каждой склейке) и zoomin
 # (панч-переход) — одна мотивированная категория "движение камеры", не
@@ -2001,12 +2011,16 @@ def hook_visual_starts(blocks, durs):
     выбранных файлов — HOOK её физически никогда не достигает, см. код
     xfade_chain()). Значения вне HOOK этой функцией не гарантированы
     точными (там нет burned-caption потребителя — учитывать не нужно)."""
+    plan = plan_transitions([b["section"] for b in blocks], blocks)
     starts, cum = [], (durs[0] if durs else 0.0)
     for i, d in enumerate(durs):
         if i == 0:
             starts.append(0.0)
             continue
-        this_dur = SNAP_CUT_DUR if blocks[i - 1].get("stat") else XFADE_DUR_HARD
+        # Тот же самый план, по которому реально режет xfade_chain() — не
+        # копия его условий (раньше условия были продублированы здесь
+        # вручную и могли разойтись при любой правке одной из двух копий).
+        this_dur = plan[i - 1][1] if i - 1 < len(plan) else XFADE_DUR_HARD
         offset = max(0.0, cum - this_dur)
         starts.append(offset)
         cum = cum + d - this_dur
@@ -2397,6 +2411,12 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
         except Exception:
             return cf
     if not PEXELS_API_KEY:
+        # Досюда доходим и в случае "кэш есть, но он визуальный дубль уже
+        # показанного" (см. ветку used_hashes выше). Без ключа заменить
+        # его нечем — вернуть дубль честнее, чем потерять кадр целиком:
+        # пустой слот при RENDER_STRICT_GATE=1 останавливает всю сборку.
+        if os.path.exists(cf) and os.path.getsize(cf) > 0:
+            return cf
         return None
     try:
         q = urllib.parse.quote(disambiguate_search_query(query))
@@ -2542,14 +2562,56 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
         return None
 
 
-def local_photo(index):
-    photos = sorted([f for f in os.listdir(MEDIA_FOLDER)
-                     if f.lower().endswith((".jpg", ".jpeg", ".png"))],
-                    key=lambda x: int(re.findall(r'\d+', x)[0]) if re.findall(r'\d+', x) else 0) \
-        if os.path.isdir(MEDIA_FOLDER) else []
+_LOCAL_PHOTOS_CACHE = None
+
+
+def _local_photos():
+    """Отсортированный список локальных фото media/ — один раз на процесс.
+    Раньше os.listdir(media/) выполнялся на КАЖДЫЙ вызов local_photo(), то
+    есть по разу на блок (сотни раз за прогон) на папке из сотен файлов."""
+    global _LOCAL_PHOTOS_CACHE
+    if _LOCAL_PHOTOS_CACHE is None:
+        _LOCAL_PHOTOS_CACHE = sorted(
+            [f for f in os.listdir(MEDIA_FOLDER)
+             if f.lower().endswith((".jpg", ".jpeg", ".png"))],
+            key=lambda x: int(re.findall(r'\d+', x)[0]) if re.findall(r'\d+', x) else 0
+        ) if os.path.isdir(MEDIA_FOLDER) else []
+    return _LOCAL_PHOTOS_CACHE
+
+
+def local_photo(index, allow_cycle=False):
+    """Локальное фото под блок index (0-based).
+
+    Порядок поиска:
+    1) точное совпадение по номеру слота ({index+1:03d}_*) — это конвенция
+       имён, которой пишут и stock_fetch_multisource.py, и AI-картинки
+       (001_flow.jpg / 007_stock.jpg, см. ЧАСТЬ 14 CLAUDE.md);
+    2) позиционно (photos[index]) — документированное "media/ по порядку";
+    3) allow_cycle=True -> по кругу (photos[index % len]).
+
+    РЕАЛЬНЫЙ БАГ, который здесь жил: раньше единственным вариантом был
+    пункт 3 — по кругу ВСЕГДА. А признак "использовать локальную папку"
+    (use_local в main()) взводится, если в media/ есть ХОТЯ БЫ ОДНО фото.
+    То есть штатный сценарий протокола (Шаг 5: положить AI-картинки под
+    хук, остальное добрать стоком/Pexels) давал ролик, целиком собранный
+    из этих нескольких картинок, повторённых по кругу десятки раз, а
+    Pexels не опрашивался ни разу. Теперь исчерпание локального пула —
+    это None, и вызывающий код идёт в Pexels, как и написано в докстринге
+    модуля ("Медиа: локальная папка media/ по порядку, fallback — Pexels").
+    Цикл остался ровно там, где он лучше пустого кадра: последняя попытка
+    в main(), когда Pexels уже не дал ничего (allow_cycle=True)."""
+    photos = _local_photos()
     if not photos:
         return None
-    return os.path.join(MEDIA_FOLDER, photos[index % len(photos)])
+    prefix = f"{index + 1:03d}_"
+    for f in photos:
+        if f.startswith(prefix):
+            return os.path.join(MEDIA_FOLDER, f)
+    if index < len(photos):
+        return os.path.join(MEDIA_FOLDER, photos[index])
+    if allow_cycle:
+        return os.path.join(MEDIA_FOLDER, photos[index % len(photos)])
+    return None
 
 
 GENERIC_FALLBACKS = [
@@ -3966,7 +4028,15 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
             cmd += ["-filter_complex", fc, "-map", "[vout]"]
         else:
             cmd += ["-vf", vf]
-        cmd += ["-t", str(dur), "-c:v", "libx264", "-preset", "fast",
+        # -frames:v, а НЕ -t: заказ в кадрах — единственная точная единица
+        # (столько же кадров, сколько заложено в zoompan d=frames и в
+        # тайминг склейки). С -t граница "последний кадр влез/не влез"
+        # решалась сравнением дробных секунд, и клип регулярно выходил на
+        # один кадр длиннее заказанного — на сотнях клипов эпизода это
+        # складывалось в секунды ухода видео от голоса (см.
+        # quantize_durations_to_frames). Так же уже работает
+        # parallax_kenburns(), путь просто приведён к одному виду.
+        cmd += ["-frames:v", str(frames), "-c:v", "libx264", "-preset", "fast",
                "-crf", "18", "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS
         if ffmpeg_threads:
             cmd += ["-threads", str(ffmpeg_threads)]
@@ -4692,6 +4762,9 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
         actual = get_media_duration(vid)
     except Exception:
         actual = dur
+    # Заказ в кадрах — та же причина, что в kenburns(): точная единица вместо
+    # сравнения дробных секунд (см. комментарий у -frames:v ниже).
+    frames = max(1, int(round(dur * FPS)))
     h = int(hashlib.md5(vid.encode()).hexdigest()[:8], 16)
     if handheld:
         # Небольшой запас (3.5%) сверх целевого кадра под тряску — тот же
@@ -4751,7 +4824,7 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
         else:
             filter_complex = f"[0:v]{scale_crop}[base];{ramp_filter};[ramped]{full_tail}[vout]"
         cmd += ["-filter_complex", filter_complex,
-               "-map", "[vout]", "-t", str(dur), "-an",
+               "-map", "[vout]", "-frames:v", str(frames), "-an",
                "-c:v", "libx264", "-preset", "fast", "-crf", "18",
                "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS
         if ffmpeg_threads:
@@ -4789,7 +4862,7 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
             cmd += ["-filter_complex", fc, "-map", "[vout]"]
         else:
             cmd += ["-vf", vf]
-        cmd += ["-t", str(dur), "-an",
+        cmd += ["-frames:v", str(frames), "-an",
                 "-c:v", "libx264", "-preset", "fast", "-crf", "18",
                 "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS
         if ffmpeg_threads:
@@ -4917,10 +4990,104 @@ def pexels_video(query, index, used_ids=None):
         return None
 
 
-SNAP_CUT_DUR = 0.03   # мгновенный рез после stat-плашки — короче обычного hardcut
+# Мгновенный рез после stat-плашки. Раньше 0.03с — при FPS=24 это 0.72 кадра,
+# то есть физически НЕ короче обычного hardcut: ffmpeg всё равно округлял его
+# до того же одного кадра. Один кадр — реальный минимум сетки, и теперь это
+# написано честно (ветка в плане переходов остаётся отдельной: смысл разный,
+# и при другом FPS значения снова разойдутся).
+SNAP_CUT_DUR = 1 / FPS
 
 
-def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR, blocks=None):
+def quantize_dur_to_frame(d):
+    """Длительность -> ближайшее целое число кадров (минимум один кадр)."""
+    return max(1, int(round(d * FPS))) / FPS
+
+
+def quantize_durations_to_frames(durs):
+    """Кадровая сетка для ВСЕХ длительностей клипов, с диффузией ошибки
+    округления в следующий клип.
+
+    Зачем (реальный, посчитанный рассинхрон, не гипотеза): длительность
+    клипа физически не может быть дробной по кадрам — ffmpeg всё равно
+    отдаёт целое число кадров. Раньше клипу заказывалось, например, 3.5671с,
+    а на выходе получалось 86 кадров = 3.5833с, то есть в среднем +20мс на
+    каждый клип В ОДНУ СТОРОНУ. На эпизоде из 400-500 кадров (после
+    sub-cuts) это 8-10 секунд систематического ухода видео вперёд от
+    голоса, которые потом просто отрезались финальным муксом (-t по длине
+    аудио) — то есть последние кадры ролика вообще не доезжали, а картинка
+    к концу отставала от текста.
+
+    Диффузия (carry) важнее самого округления: без неё ошибки округления
+    (до полукадра каждая) складывались бы случайным блужданием на сотнях
+    клипов; с carry суммарная ошибка ВСЕГО таймлайна ограничена полукадром
+    (~21мс при 24fps) независимо от числа клипов."""
+    out, carry = [], 0.0
+    for d in durs:
+        target = d + carry
+        q = quantize_dur_to_frame(target)
+        carry = target - q
+        out.append(q)
+    return out
+
+
+def plan_transitions(sections, blocks=None, xfade_dur=XFADE_DUR):
+    """План склейки: [(тип_перехода, длительность), ...] длиной len(sections)-1,
+    где элемент j описывает переход между клипами j и j+1.
+
+    ЗАЧЕМ ОТДЕЛЬНАЯ ФУНКЦИЯ (реальный баг, а не рефакторинг ради красоты).
+    Раньше тип и длительность перехода выбирались ВНУТРИ xfade_chain() по
+    хэшу ПУТЕЙ ФАЙЛОВ клипов. А пути содержат params_hash, в который входит
+    длительность клипа (см. main()) — то есть узнать план можно было только
+    ПОСЛЕ того, как длительности уже посчитаны. Но длительности считаются
+    из бюджета нахлёстов, а бюджет — это и есть сумма плана: замкнутый круг.
+    Из-за него estimate_xfade_budget() был вынужден брать ВЕРХНЮЮ ГРАНИЦУ
+    "обычной" пары (0.1667с) вместо факта, а факт — 85% одного кадра
+    (0.0417с). Перебор ~0.12с на каждой обычной склейке; на 300+ обычных
+    склейках 40-минутного эпизода это 35+ секунд, на которые видео
+    оказывалось ДЛИННЕЕ аудио. Финальный мукс обрезал их по -t, то есть:
+    (1) хвост ролика (несколько последних кадров) не попадал в файл вообще,
+    (2) картинка накопительно отставала от голоса — к концу эпизода на
+    десятки секунд, при том что весь остальной код (alignment.csv,
+    section_sync, snap_hook_cuts_to_energy) борется за точность до
+    десятых долей секунды.
+
+    Хэш теперь считается от (номер склейки + имена секций) — данных,
+    известных ДО выбора файлов. Разнообразие ровно то же (тот же md5, та же
+    статистика), круговая зависимость исчезла, и один и тот же план
+    используется и для бюджета, и для реальной склейки, и для расчёта
+    визуальных стартов подписей — они физически не могут разойтись.
+
+    Логика ветвления — ровно та, что была в xfade_chain() (переход = сигнал
+    драматургии): граница секции -> заметный переход; sub-cut -> один кадр;
+    сразу после stat-плашки -> snap; хук -> только жёсткие резы; остальное —
+    85% hardcut / 15% короткий диссолв."""
+    plan = []
+    cut_hist, boundary_hist = [], []
+    for i in range(1, len(sections)):
+        h = int(hashlib.md5(f"xfade:{i}|{sections[i - 1]}|{sections[i]}".encode()).hexdigest()[:8], 16)
+        is_boundary = sections[i] != sections[i - 1]
+        b_prev = blocks[i - 1] if blocks else None
+        b_cur = blocks[i] if blocks else None
+        if is_boundary:
+            candidate = BOUNDARY_TRANSITIONS[h % len(BOUNDARY_TRANSITIONS)]
+            transition = pick_no_repeat(boundary_hist, candidate, BOUNDARY_TRANSITIONS, 1)
+            this_dur = xfade_dur
+        elif b_cur is not None and b_cur.get("is_subcut"):
+            transition, this_dur = "fade", XFADE_DUR_HARD
+        elif b_prev is not None and b_prev.get("stat"):
+            transition, this_dur = "fade", SNAP_CUT_DUR
+        elif b_cur is not None and sections[i].startswith("HOOK"):
+            transition, this_dur = "fade", XFADE_DUR_HARD
+        else:
+            candidate = "hardcut" if (h % 20 >= 3) else XFADE_TRANSITIONS[(h >> 8) % len(XFADE_TRANSITIONS)]
+            choice = pick_no_repeat(cut_hist, candidate, ["hardcut"] + XFADE_TRANSITIONS, max_repeat=3)
+            this_dur = XFADE_DUR_HARD if choice == "hardcut" else xfade_dur * 0.4
+            transition = "fade" if choice == "hardcut" else choice
+        plan.append((transition, quantize_dur_to_frame(this_dur)))
+    return plan
+
+
+def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR, blocks=None, plan=None):
     """Один проход filter_complex с цепочкой xfade между ВСЕМИ соседними
     кадрами — вместо жёсткой склейки. Переход = сигнал драматургии, не
     случайность: раньше тип перехода выбирался чисто хэшем путей файлов,
@@ -4941,37 +5108,23 @@ def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR, blocks=None):
     n = len(clips)
     if n < 2:
         return False, 0.0
+    # План склейки (тип/длительность каждого перехода) считает plan_transitions()
+    # — ОДИН источник истины и для бюджета длительностей, и для этой склейки,
+    # и для visual_starts подписей (см. её докстринг про круговую зависимость).
+    if plan is None:
+        plan = plan_transitions(sections, blocks, xfade_dur=xfade_dur)
     parts, prev_label, cum = [], "0:v", durs[0]
-    cut_hist, boundary_hist = [], []
     for i in range(1, n):
-        h = int(hashlib.md5(f"{clips[i-1]}|{clips[i]}".encode()).hexdigest()[:8], 16)
-        is_boundary = sections[i] != sections[i - 1]
-        b_prev = blocks[i - 1] if blocks else None
-        b_cur = blocks[i] if blocks else None
-        if is_boundary:
-            # Смена темы — заметный переход, не обычная склейка. dissolve/fadeblack/
-            # fadewhite (вспышка светом — читается как "новая глава начинается ярко")
-            # вперемешку.
-            candidate = BOUNDARY_TRANSITIONS[h % len(BOUNDARY_TRANSITIONS)]
-            transition = pick_no_repeat(boundary_hist, candidate, BOUNDARY_TRANSITIONS, 1)
-            this_dur = xfade_dur
-        elif b_cur is not None and b_cur.get("is_subcut"):
-            transition, this_dur = "fade", XFADE_DUR_HARD
-        elif b_prev is not None and b_prev.get("stat"):
-            transition, this_dur = "fade", SNAP_CUT_DUR
-        elif b_cur is not None and sections[i].startswith("HOOK"):
-            transition, this_dur = "fade", XFADE_DUR_HARD
-        else:
-            # Большинство склеек в реальном монтаже — жёсткий cut, не dissolve;
-            # заметный переход — редкость, не норма. ~85% hard cut / ~15% короткий dissolve.
-            candidate = "hardcut" if (h % 20 >= 3) else XFADE_TRANSITIONS[(h >> 8) % len(XFADE_TRANSITIONS)]
-            choice = pick_no_repeat(cut_hist, candidate, ["hardcut"] + XFADE_TRANSITIONS, max_repeat=3)
-            this_dur = XFADE_DUR_HARD if choice == "hardcut" else xfade_dur * 0.4
-            transition = "fade" if choice == "hardcut" else choice
+        transition, this_dur = plan[i - 1]
         offset = max(0.0, cum - this_dur)
         out_label = f"vx{i}" if i < n - 1 else "vout"
+        # .6f, не .3f: offset к концу длинного эпизода — тысячи секунд, и
+        # округление до миллисекунд может сдвинуть его на кадр относительно
+        # плана (ffmpeg переводит offset в кадры). Полукадр при 24fps — 21мс,
+        # запас на порядок больше миллисекунды, но печатать точно ничего не
+        # стоит, а гарантия появляется.
         parts.append(f"[{prev_label}][{i}:v]xfade=transition={transition}:"
-                     f"duration={this_dur:.3f}:offset={offset:.3f}[{out_label}]")
+                     f"duration={this_dur:.6f}:offset={offset:.6f}[{out_label}]")
         cum = cum + durs[i] - this_dur
         prev_label = out_label
     cmd = ["ffmpeg", "-y"]
@@ -5077,14 +5230,20 @@ def xfade_chain_chunked(clips, durs, sections, out, temp_dir, xfade_dur=XFADE_DU
     сборка)."""
     n = len(clips)
     bounds = _chunk_bounds(n, sections, chunk_size)
+    # Один общий план на весь ролик, чанкам отдаются его СРЕЗЫ: элемент
+    # plan[j] описывает переход между глобальными клипами j и j+1, значит
+    # внутри чанка [a, b) работают переходы plan[a:b-1] (переход на самом
+    # входе чанка не делается вообще — чанки склеиваются concat -c copy,
+    # именно это учитывает estimate_xfade_budget()).
+    plan = plan_transitions(sections, blocks, xfade_dur=xfade_dur)
     if len(bounds) <= 1:
-        return xfade_chain(clips, durs, sections, out, xfade_dur=xfade_dur, blocks=blocks)
+        return xfade_chain(clips, durs, sections, out, xfade_dur=xfade_dur, blocks=blocks, plan=plan)
     chunk_files, chunk_total = [], 0.0
     for ci, (a, b) in enumerate(bounds):
         cblocks = blocks[a:b] if blocks else None
         cout = os.path.join(temp_dir, f"_xchunk_{ci:03d}.mp4")
         ok, cdur = xfade_chain(clips[a:b], durs[a:b], sections[a:b], cout,
-                                xfade_dur=xfade_dur, blocks=cblocks)
+                                xfade_dur=xfade_dur, blocks=cblocks, plan=plan[a:b - 1])
         if not ok:
             print(f"  чанк {ci} ({b - a} клипов) xfade не собрался — вся склейка откатывается на concat")
             return False, 0.0
@@ -5101,28 +5260,23 @@ def xfade_chain_chunked(clips, durs, sections, out, temp_dir, xfade_dur=XFADE_DU
     return True, chunk_total
 
 
-def estimate_xfade_budget(blocks):
-    """Сколько xfade_chain суммарно "съест" при склейке — точная оценка ПО
-    КАТЕГОРИЯМ перехода (см. 2.1: xfade_chain), не плоская (n-1)*XFADE_DUR
-    (та была верна для старой единой логики, но разошлась с реальностью,
-    когда переходы стали разной длины — 0.03-0.4с по функции блока).
-    Не можем предсказать хэш-выбор hardcut/variety внутри "обычных" пар
-    (зависит от итоговых путей файлов клипов — а те зависят от длительностей,
-    которые мы как раз считаем, циклическая зависимость) — берём верхнюю
-    границу этой категории. Небольшой перебор безопасен: финальный мукс
-    обрезает merged видео точно по аудио (-t), лишнее просто уходит.
-    Недобор — то, чего мы тут избегаем: он означает freeze-frame padding
-    в конце ролика."""
-    total = 0.0
-    for i in range(1, len(blocks)):
-        b_prev, b_cur = blocks[i - 1], blocks[i]
-        if b_cur["section"] != b_prev["section"]:
-            total += XFADE_DUR
-        elif b_cur.get("is_subcut") or b_prev.get("stat") or b_cur["section"].startswith("HOOK"):
-            total += XFADE_DUR_HARD
-        else:
-            total += max(XFADE_DUR_HARD, XFADE_DUR * 0.4)   # верхняя граница "обычной" пары
-    return total
+def estimate_xfade_budget(blocks, chunk_size=XFADE_CHUNK_SIZE):
+    """Сколько склейка суммарно "съест" нахлёстами — теперь ТОЧНО, а не
+    оценкой сверху: это буквально сумма того самого плана, по которому
+    xfade_chain() потом и режет (см. plan_transitions() — там же история
+    бага с круговой зависимостью и цена перебора: 35+ секунд ухода видео
+    от аудио на 40-минутном эпизоде).
+
+    Учитывается и чанкование: xfade_chain_chunked() склеивает чанки через
+    concat -c copy, то есть переход НА ВХОДЕ каждого чанка не делается и
+    нахлёста не потребляет — раньше эти ~0.4с на каждый чанк (13-14 чанков
+    на длинном эпизоде) тоже уходили в перебор."""
+    sections = [b["section"] for b in blocks]
+    plan = plan_transitions(sections, blocks)
+    if not plan:
+        return 0.0
+    dropped = {a for a, _b in _chunk_bounds(len(blocks), sections, chunk_size) if a > 0}
+    return sum(d for i, (_t, d) in enumerate(plan, start=1) if i not in dropped)
 
 
 def pad_to_length(video, target, temp_dir):
@@ -5465,6 +5619,82 @@ def split_long_blocks(blocks, real_weights):
     return new_blocks, new_weights
 
 
+def render_recipe_signature():
+    """Отпечаток САМОГО РЕЦЕПТА картинки (исходный код функций рендера +
+    ключевые константы) — входит в params_hash кэша temp_smart/ (см. main()).
+
+    Закрывает класс бага, который в этом файле был честно описан как
+    "ЗАМЕТКА НА БУДУЩЕЕ" у _warm_mult(), но не закрыт: params_hash хэшировал
+    только РАНТАЙМ-параметры блока (текст/длительность/запрос/подписи), а не
+    версию рецепта. Любая правка грейда (film_look/_scene_bias/_warm_mult),
+    зерна, движения камеры или оформления плашек молча переживала уже
+    отрендеренные клипы: на следующем прогоне часть эпизода оставалась в
+    старом рецепте, часть — в новом, причём разница видна на глаз только
+    при сравнении кадров, а в логе не сказано ничего. Ровно эта ловушка
+    уже требовала ручной чистки temp_smart/ "не забыть перед правкой".
+
+    Теперь смена рецепта инвалидирует кэш САМА. Инвалидация грубая (любая
+    правка перечисленных функций — даже строчки лога — считается сменой
+    рецепта): это осознанно консервативная сторона, лишний перерендер
+    дешевле молча смешанного грейда в одном ролике.
+
+    Сбой inspect (нестандартная упаковка, .pyc без исходника) -> стабильная
+    заглушка: поведение как раньше, без падения."""
+    try:
+        import inspect
+        parts = [inspect.getsource(f) for f in (
+            film_look, _scene_bias, _warm_mult, grain_blend_complex,
+            add_overlays, add_kinetic_captions, kenburns, video_render,
+            parallax_kenburns, choose_motion_mode, piecewise_ease_expr,
+        )]
+        parts.append(repr((
+            sorted(MOOD_GRADE.items()), sorted(DOMAIN_WARM_PUSH_SCALE.items()),
+            GRAIN_ENABLED, GRAIN_OPACITY, DEFLICKER_ENABLED, DOF_ENABLED,
+            FPS, WIDTH, HEIGHT, ZOOM_FLOOR, ZOOM_RATE_BASE,
+            ZOOM_DELTA_MIN, ZOOM_DELTA_MAX, PAN_SAFETY,
+            PARALLAX_ENABLED, HOOK_KINETIC_CAPTIONS_ENABLED,
+            CLIP_PIX_ARGS, COLOR_META_ARGS,
+        )))
+    except Exception:
+        return "recipe:unknown"
+    return "recipe:" + hashlib.md5("".join(parts).encode()).hexdigest()[:10]
+
+
+RENDER_RECIPE_SIG = None   # считается один раз в main() (см. render_recipe_signature)
+
+
+def check_jobs_in_order(pending_jobs):
+    """pending_jobs обязан идти строго по ВОЗРАСТАНИЮ индекса блока — этого
+    (и только этого) требует xfade-склейка ниже: кадры должны попасть в
+    цепочку в том же порядке, в каком идут блоки сценария.
+
+    РЕАЛЬНЫЙ БАГ, который здесь жил (падение всего прогона, не порча
+    порядка): проверка была `assert job["i"] == k` — то есть требовала,
+    чтобы индекс блока СОВПАДАЛ с позицией в списке. Но блок, для которого
+    не нашлось ни фото, ни видео (кончилась квота Pexels, пустая выдача по
+    запросу, нет ключа), в pending_jobs НЕ добавляется вообще — это штатный
+    путь `continue` с записью в missing/render_manifest. После первого же
+    такого блока все последующие позиции сдвигались на единицу, и ровно эта
+    "защитная" проверка роняла весь рендер сырым AssertionError с
+    трейсбеком — вместо аккуратного отчёта "СТОП: N клип(ов) не приняты"
+    (RENDER_STRICT_GATE, ниже) или сборки без пропущенных кадров. То есть
+    страховка от гипотетического бага сама создавала гарантированное
+    падение на самом обычном сценарии.
+
+    Возрастание (а не равенство позиции) — это и есть настоящий инвариант:
+    он держится при любом числе пропусков и ловит именно то, от чего
+    страховка ставилась (переставленные/дублированные задания)."""
+    prev = -1
+    for pos, job in enumerate(pending_jobs):
+        if job["i"] <= prev:
+            raise AssertionError(
+                f"pending_jobs не по порядку: позиция {pos} содержит блок {job['i']} "
+                f"после блока {prev} — склейка получила бы кадры не в том порядке "
+                f"(см. комментарий у append в main())")
+        prev = job["i"]
+    return True
+
+
 def main():
     if not os.path.exists(AUDIO_FILE):
         print(f"Аудио не найдено: {AUDIO_FILE}")
@@ -5557,6 +5787,12 @@ def main():
     # snap_hook_cuts_to_energy) — реальные (не xfade-раздутые) старты sub_starts
     # уже посчитаны как раз выше, переиспользуем ту же временную шкалу.
     durs = snap_hook_cuts_to_energy(blocks, durs, sub_starts, AUDIO_FILE)
+    # ПОСЛЕДНИЙ шаг тайминга — кадровая сетка (см. quantize_durations_to_frames):
+    # дальше durs больше никто не сдвигает, значит то, что здесь посчитано,
+    # ровно то, что реально отрендерится (клип физически не может быть
+    # дробным по кадрам). После этого sum(durs) - бюджет_нахлёстов == длине
+    # аудио с точностью до полукадра, а не до десятков секунд, как раньше.
+    durs = quantize_durations_to_frames(durs)
 
     # visual_starts — РЕАЛЬНЫЕ старты клипов на шкале визуального монтажа,
     # ПОСЛЕ всех "очеловечивающих" сдвигов durs выше (apply_section_boundary_shift/
@@ -5581,6 +5817,11 @@ def main():
                    if RENDER_POOL_ENABLED else None)
     pending_jobs = []   # [{i, out, d, section, block, video, photo, future|None, ok}], в порядке блоков
     log_render_diagnostics("render_start")
+    # Версия рецепта картинки — часть ключа кэша клипов (см.
+    # render_recipe_signature): правка грейда/движения/оформления больше не
+    # переживает молча уже отрендеренные клипы.
+    global RENDER_RECIPE_SIG
+    RENDER_RECIPE_SIG = recipe_sig = render_recipe_signature()
     use_local = os.path.isdir(MEDIA_FOLDER) and bool(local_photo(0))
     use_pexels = bool(PEXELS_API_KEY)
     # === PEXELS QUERIES === написан вручную по протоколу (CLAUDE.md ЧАСТЬ 13,
@@ -5755,7 +5996,7 @@ def main():
         params_hash = hashlib.md5(
             f"{d:.3f}|{title}|{stat}|{stat_variant}|{b['section']}|{queries[i]}|{stat_delay:.3f}|"
             f"{captions}|{look_cache_sig}|{domain_cache_sig}|{director_cache_sig}|"
-            f"{arc_stage_by_index.get(i)}".encode()).hexdigest()[:8]
+            f"{arc_stage_by_index.get(i)}|{recipe_sig}".encode()).hexdigest()[:8]
         out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}_{params_hash}.mp4")
         if os.path.exists(out) and not verify_clip(out, d)[0]:
             # Кэш раньше доверял голому os.path.exists() — обрезанный/битый
@@ -5863,7 +6104,10 @@ def main():
             if not photo and not video and PEXELS_BROKEN:
                 use_pexels = False
         if not photo and not video:
-            photo = local_photo(i)
+            # Последняя попытка: локальная папка ПО КРУГУ. Повтор картинки
+            # хуже свежего кадра, но несравнимо лучше пропущенного блока
+            # (тот при RENDER_STRICT_GATE=1 останавливает всю сборку).
+            photo = local_photo(i, allow_cycle=True)
         if not photo and not video:
             print(f"  [{i+1}] нет медиа")
             missing.append(i + 1)
@@ -6054,16 +6298,7 @@ def main():
     # было всё время работы цикла выше, чтобы прогрызть очередь. Порядок —
     # строго по индексу блока (pending_jobs собран в порядке цикла), не по
     # порядку завершения — xfade-склейка ниже требует правильную последовательность.
-    # Защитная проверка (дёшево, страхует от РЕАЛЬНОГО класса бага, уже
-    # пойманного вживую — см. коммит про порядок склейки): pending_jobs
-    # обязан идти строго по возрастанию индекса блока, раз кэш-хиты и
-    # кэш-промахи теперь оба уходят сюда одним путём. Если это когда-нибудь
-    # снова нарушится (рефакторинг, новый путь append), лучше упасть здесь
-    # громко, чем молча собрать ролик с переставленными кусками.
-    for k, job in enumerate(pending_jobs):
-        assert job["i"] == k, (
-            f"pending_jobs не по порядку: позиция {k} содержит блок {job['i']} — "
-            f"склейка получила бы кадры не в том порядке (см. комментарий у append выше)")
+    check_jobs_in_order(pending_jobs)
     for job in pending_jobs:
         if job["future"] is not None:
             try:
@@ -6191,6 +6426,25 @@ def main():
             print("Склейка:", r.stderr[-300:])
             return 1
     merged, pad_gap = pad_to_length(merged, total, TEMP_FOLDER)
+    # Симметричный контроль расхождения. Гейт по pad_gap ниже ловит только
+    # СЛИШКОМ КОРОТКОЕ видео (заморозка в хвосте). Обратная сторона —
+    # видео ДЛИННЕЕ аудио — раньше не диагностировалась вообще: финальный
+    # мукс просто обрезал лишнее по -t, и это выглядело как штатная
+    # сборка, хотя означало, что картинка накопительно отстаёт от голоса
+    # (ровно тот баг, который лечат plan_transitions/
+    # quantize_durations_to_frames). Теперь перебор виден в логе числом.
+    try:
+        merged_dur = get_media_duration(merged)
+        overshoot = merged_dur - total
+        if overshoot > 0.5:
+            print(f"  ВНИМАНИЕ: смонтированное видео на {overshoot:.2f}с длиннее аудио "
+                  f"({merged_dur:.2f}с против {total:.2f}с) — финальный мукс обрежет хвост "
+                  f"по -t, но это значит, что картинка к концу отстаёт от голоса на эту "
+                  f"же величину. Ожидаемое расхождение после кадровой сетки — доли "
+                  f"секунды; больше — повод смотреть на бюджет склейки "
+                  f"(estimate_xfade_budget/plan_transitions) или на пропущенные клипы.")
+    except Exception:
+        pass
     # Freeze-padding существует ТОЛЬКО чтобы закрыть маленький остаточный
     # зазор от xfade-округления (обычно доли секунды) — не как приёмный
     # механизм для реально пропущенного клипа. Раньше большой pad_gap

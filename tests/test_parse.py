@@ -1845,3 +1845,130 @@ def test_pexels_video_first_candidate_relevant_downloads_once(monkeypatch, tmp_p
     result = pipeline_smart.pexels_video("european medieval sword close up", 3)
     assert result is not None
     assert len(downloaded) == 1, "первый же релевантный кандидат — не нужно скачивать остальных"
+
+
+# ---------- порядок заданий рендера (check_jobs_in_order) ----------
+# Реальный баг: проверка требовала job["i"] == позиция_в_списке, но блок без
+# медиа (кончилась квота Pexels, пустая выдача, нет ключа) в pending_jobs не
+# попадает вообще — после первого же такого блока прогон падал сырым
+# AssertionError вместо аккуратного отчёта о пропусках.
+
+def test_check_jobs_in_order_allows_gaps_from_skipped_blocks():
+    jobs = [{"i": 0}, {"i": 1}, {"i": 3}, {"i": 7}]   # блоки 2, 4-6 пропущены (нет медиа)
+    assert pipeline_smart.check_jobs_in_order(jobs) is True
+
+
+def test_check_jobs_in_order_raises_on_real_disorder():
+    jobs = [{"i": 0}, {"i": 5}, {"i": 3}]
+    with pytest.raises(AssertionError):
+        pipeline_smart.check_jobs_in_order(jobs)
+
+
+def test_check_jobs_in_order_raises_on_duplicate_index():
+    jobs = [{"i": 0}, {"i": 1}, {"i": 1}]
+    with pytest.raises(AssertionError):
+        pipeline_smart.check_jobs_in_order(jobs)
+
+
+def test_check_jobs_in_order_empty_ok():
+    assert pipeline_smart.check_jobs_in_order([]) is True
+
+
+# ---------- кадровая сетка длительностей ----------
+
+def test_quantize_durations_all_multiples_of_frame():
+    durs = [3.4567, 1.0001, 8.9999, 5.5, 0.4]
+    q = pipeline_smart.quantize_durations_to_frames(durs)
+    for d in q:
+        assert abs(d * pipeline_smart.FPS - round(d * pipeline_smart.FPS)) < 1e-9
+
+
+def test_quantize_durations_keeps_total_within_half_frame():
+    # Главное свойство: диффузия ошибки (carry) держит суммарное расхождение
+    # в пределах полукадра НЕЗАВИСИМО от числа клипов — иначе округления
+    # складывались бы в секунды на 400+ кадрах эпизода.
+    durs = [1.7 + 0.013 * i for i in range(500)]
+    q = pipeline_smart.quantize_durations_to_frames(durs)
+    assert abs(sum(q) - sum(durs)) <= 0.5 / pipeline_smart.FPS + 1e-9
+
+
+def test_quantize_durations_floor_is_one_frame():
+    q = pipeline_smart.quantize_durations_to_frames([0.0, 0.001])
+    assert all(d >= 1 / pipeline_smart.FPS - 1e-9 for d in q)
+
+
+def test_quantize_durations_empty():
+    assert pipeline_smart.quantize_durations_to_frames([]) == []
+
+
+# ---------- план переходов и бюджет склейки ----------
+
+def _synthetic_blocks():
+    blocks = []
+    for k in range(8):
+        blocks.append({"section": "HOOK", "text": "хук", "words": 10, "pause_after": 0.4,
+                       "stat": None, "is_subcut": k % 5 == 3})
+    for b in range(1, 4):
+        for k in range(40):
+            blocks.append({"section": f"BLOCK {b}: Тема", "text": "тело", "words": 20,
+                           "pause_after": 0.8 if k % 3 == 0 else 0.0,
+                           "stat": "42 КГ" if k % 25 == 7 else None,
+                           "is_subcut": k % 4 == 2})
+    for k in range(6):
+        blocks.append({"section": "FINAL", "text": "финал", "words": 16, "pause_after": 0.8,
+                       "stat": None, "is_subcut": False})
+    return blocks
+
+
+def test_plan_transitions_length_and_frame_alignment():
+    blocks = _synthetic_blocks()
+    sections = [b["section"] for b in blocks]
+    plan = pipeline_smart.plan_transitions(sections, blocks)
+    assert len(plan) == len(blocks) - 1
+    for _t, d in plan:
+        assert d >= 1 / pipeline_smart.FPS - 1e-9
+        assert abs(d * pipeline_smart.FPS - round(d * pipeline_smart.FPS)) < 1e-9
+
+
+def test_plan_transitions_deterministic_and_path_independent():
+    # Ключевое свойство фикса: план НЕ зависит от путей файлов клипов (те
+    # зависят от длительностей, а длительности — от бюджета плана: раньше
+    # это была круговая зависимость, из-за которой бюджет брался "сверху").
+    blocks = _synthetic_blocks()
+    sections = [b["section"] for b in blocks]
+    assert (pipeline_smart.plan_transitions(sections, blocks)
+            == pipeline_smart.plan_transitions(sections, blocks))
+
+
+def test_estimate_xfade_budget_equals_what_chain_really_consumes():
+    # Бюджет обязан быть РАВЕН сумме нахлёстов, которые реально применит
+    # xfade_chain_chunked (с учётом того, что переход на входе каждого чанка
+    # не делается — чанки склеиваются concat -c copy).
+    blocks = _synthetic_blocks()
+    sections = [b["section"] for b in blocks]
+    plan = pipeline_smart.plan_transitions(sections, blocks)
+    bounds = pipeline_smart._chunk_bounds(len(blocks), sections, pipeline_smart.XFADE_CHUNK_SIZE)
+    dropped = {a for a, _b in bounds if a > 0}
+    consumed = sum(d for i, (_t, d) in enumerate(plan, start=1) if i not in dropped)
+    assert pipeline_smart.estimate_xfade_budget(blocks) == pytest.approx(consumed, abs=1e-9)
+
+
+def test_timeline_length_matches_audio_after_budget_and_quantization():
+    # Сквозной инвариант всего тайминга: длина смонтированного видео
+    # (сумма длительностей МИНУС потреблённые нахлёсты) совпадает с длиной
+    # аудио. Раньше расхождение на таком эпизоде было в десятки секунд —
+    # видео уходило вперёд, хвост обрезался финальным муксом.
+    blocks = _synthetic_blocks()
+    total = 20 * 60.0
+    budget = pipeline_smart.estimate_xfade_budget(blocks)
+    durs = pipeline_smart.block_durations(blocks, total + budget)
+    durs = pipeline_smart.apply_section_boundary_shift(blocks, durs)
+    durs = pipeline_smart.apply_within_cut_shift(blocks, durs)
+    durs = pipeline_smart.apply_human_jitter(blocks, durs)
+    durs = pipeline_smart.quantize_durations_to_frames(durs)
+    assert sum(durs) - budget == pytest.approx(total, abs=1.0 / pipeline_smart.FPS)
+
+
+def test_estimate_xfade_budget_empty_and_single():
+    assert pipeline_smart.estimate_xfade_budget([]) == 0.0
+    assert pipeline_smart.estimate_xfade_budget([{"section": "HOOK"}]) == 0.0

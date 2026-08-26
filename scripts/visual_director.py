@@ -58,6 +58,26 @@ if SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, SCRIPTS_DIR)
 
 VIDEO_DIR = sys.argv[1] if len(sys.argv) > 1 else os.getcwd()
+# РЕАЛЬНЫЙ БАГ (двойное исполнение pipeline_smart в одном процессе).
+# pipeline_smart.py запускается как СКРИПТ, то есть живёт в sys.modules под
+# именем "__main__". Голый `import pipeline_smart` не находит его там и
+# исполняет ФАЙЛ ВТОРОЙ РАЗ — как отдельный модуль со своим набором
+# глобалов. Последствия не косметические: модуль-дубль лениво грузит СВОЮ
+# копию CLIP-модели (get_clip_model кэширует её в глобале _clip_model,
+# который у копии свой) — то есть ~+600МБ RSS и второй прогон загрузки
+# модели на каждый рендер, при том что _default_render_workers() считает
+# число воркеров как раз по свободной памяти (~700МБ на воркера).
+# Заодно расходятся флаги CLIP_BROKEN/PARALLAX_BROKEN (сбой, погашенный в
+# одной копии, продолжает биться в другой) и дублируются предупреждения
+# импорта (find_audio о устаревшем audio_fixed печатается дважды).
+# Правильный импорт — переиспользовать уже исполненный __main__, если это и
+# есть pipeline_smart. Запуск ЭТОГО модуля отдельным скриптом (__main__ —
+# он сам) идёт по обычному пути, поведение не меняется.
+_main_mod = sys.modules.get("__main__")
+if (getattr(_main_mod, "__file__", None)
+        and os.path.basename(_main_mod.__file__) == "pipeline_smart.py"
+        and "pipeline_smart" not in sys.modules):
+    sys.modules["pipeline_smart"] = _main_mod
 _saved_argv = sys.argv
 sys.argv = ["pipeline_smart.py", VIDEO_DIR]
 import pipeline_smart  # noqa: E402
