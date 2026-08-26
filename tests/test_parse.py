@@ -234,13 +234,13 @@ def test_count_words_only_voiced_sections(tmp_path):
     )
     p = tmp_path / "script.txt"
     p.write_text(text, encoding="utf-8")
-    assert wordcount.count_words(str(p)) == 7
+    assert wordcount.count_words(str(p))[0] == 7
 
 
 def test_count_words_missing_sections_is_zero(tmp_path):
     p = tmp_path / "script.txt"
     p.write_text("=== METADATA === TITLE: x\n=== IMAGE PROMPTS === HOOK_1: y\n", encoding="utf-8")
-    assert wordcount.count_words(str(p)) == 0
+    assert wordcount.count_words(str(p))[0] == 0
 
 
 # ---------- stock_fetch_multisource.build_query / load_themes ----------

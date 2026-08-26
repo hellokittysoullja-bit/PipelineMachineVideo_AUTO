@@ -329,3 +329,31 @@ def test_end_to_end_video_length_tracks_audio_on_many_blocks(tmp_path):
     v_len = float(streams["video"].get("duration") or info["format"]["duration"])
     a_len = float(streams["audio"].get("duration") or info["format"]["duration"])
     assert abs(v_len - a_len) <= 0.6, f"видео {v_len:.2f}с против аудио {a_len:.2f}с"
+
+
+# ---------- wordcount: реальный хронометраж, а не только слова ----------
+
+def test_wordcount_reports_pause_time(tmp_path):
+    """Симптом: отчёт длины показывал только слова/125 и молчал про теги пауз.
+    На 18-минутном сценарии их 150+ — это ~2 минуты сверху, то есть разница
+    между «в коридоре» и «перебор» перед платной озвучкой (ЧАСТЬ 1)."""
+    import wordcount
+    f = tmp_path / "s.txt"
+    f.write_text("=== HOOK === один два.[pause]три четыре.[short pause]пять\n",
+                 encoding="utf-8")
+    count, pause_sec = wordcount.count_words(str(f))
+    assert count == 5
+    assert abs(pause_sec - 1.2) < 1e-9
+
+    r = subprocess.run([sys.executable, os.path.join(SCRIPTS_DIR, "wordcount.py"),
+                        str(f), "1"], capture_output=True, text=True)
+    assert r.returncode == 0
+    assert "С учётом тегов пауз" in r.stdout
+
+
+def test_wordcount_pause_values_match_the_assembler():
+    """Отчёт длины и сборка обязаны считать паузы одинаково — иначе оператор
+    планирует одну длину, а получает другую."""
+    import wordcount
+    for tag, sec in wordcount.PAUSE_SEC.items():
+        assert pipeline_smart.PAUSE_DURATIONS[tag] == sec
