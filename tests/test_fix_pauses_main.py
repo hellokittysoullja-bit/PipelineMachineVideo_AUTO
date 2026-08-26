@@ -30,7 +30,7 @@ def _patch_main_deps(monkeypatch, tmp_path, sil, total, protected_windows=None):
     open(src, "wb").write(b"fake source audio")
     monkeypatch.setattr(fix_pauses, "find_audio", lambda video_dir: src)
     monkeypatch.setattr(fix_pauses, "duration", lambda path: total if path == src else 0.0)
-    monkeypatch.setattr(fix_pauses, "detect_silences", lambda path: sil)
+    monkeypatch.setattr(fix_pauses, "detect_silences", lambda path, total=None: sil)
     monkeypatch.setattr(fix_pauses, "measure_loudness", lambda path: {})
     monkeypatch.setattr(fix_pauses, "loudnorm_filter", lambda stats: "loudnorm=I=-16:TP=-1.5:LRA=11")
     monkeypatch.setattr(fix_pauses, "load_protected_windows", lambda video_dir: protected_windows or [])
@@ -154,3 +154,31 @@ def test_main_respects_protected_window_over_curve(tmp_path, monkeypatch):
 
     cuts = json.load(open(tmp_path / "media_plan" / "pause_cuts.json", encoding="utf-8"))
     assert cuts["cuts"][0] == [3.8, 4.0]
+
+
+def test_detect_silences_closes_trailing_silence_without_end_marker(monkeypatch):
+    # Часть сборок ffmpeg не печатает silence_end для тишины, дотянувшейся до
+    # конца файла — zip() отбрасывал такую пару, и хвостовой мёртвый воздух
+    # не подрезался вообще (при том что убирать его — прямая задача скрипта).
+    log = ("silence_start: 3.0\nsilence_end: 4.5 | silence_duration: 1.5\n"
+           "silence_start: 9.0\n")
+
+    class _R:
+        returncode = 0
+        stderr = log
+
+    monkeypatch.setattr(fix_pauses.subprocess, "run", lambda *a, **k: _R())
+    pairs = fix_pauses.detect_silences("audio.mp3", total=12.0)
+    assert pairs == [(3.0, 4.5), (9.0, 12.0)]
+
+
+def test_detect_silences_unchanged_when_end_marker_present(monkeypatch):
+    log = ("silence_start: 3.0\nsilence_end: 4.5 | silence_duration: 1.5\n"
+           "silence_start: 9.0\nsilence_end: 12.0 | silence_duration: 3.0\n")
+
+    class _R:
+        returncode = 0
+        stderr = log
+
+    monkeypatch.setattr(fix_pauses.subprocess, "run", lambda *a, **k: _R())
+    assert fix_pauses.detect_silences("audio.mp3", total=12.0) == [(3.0, 4.5), (9.0, 12.0)]

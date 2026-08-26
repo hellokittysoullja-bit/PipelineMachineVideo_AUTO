@@ -107,14 +107,25 @@ def duration(path):
     return float(r.stdout.strip())
 
 
-def detect_silences(path):
+def detect_silences(path, total=None):
+    """Пары (начало, конец) тишины длиннее THRESH_SEC.
+
+    total (длина файла) нужен для ХВОСТОВОЙ тишины: если запись кончается
+    молчанием, часть сборок ffmpeg не печатает для него закрывающий
+    silence_end вообще — тогда zip() просто отбрасывал последнюю пару, и
+    хвостовая тишина не подрезалась (мёртвый воздух в конце ролика, который
+    этот скрипт как раз и должен убирать). Если закрывающая метка есть,
+    длины совпадают и ветка ниже не срабатывает — поведение то же."""
     r = subprocess.run(["ffmpeg", "-i", path, "-af",
                         f"silencedetect=noise={NOISE_DB}:d={THRESH_SEC}",
                         "-f", "null", "-"], capture_output=True, text=True)
     log = r.stderr
     starts = [float(x) for x in re.findall(r'silence_start:\s*([\d.]+)', log)]
     ends = [float(x) for x in re.findall(r'silence_end:\s*([\d.]+)', log)]
-    return list(zip(starts, ends))
+    pairs = list(zip(starts, ends))
+    if total is not None and len(starts) == len(ends) + 1 and starts[-1] < total:
+        pairs.append((starts[-1], total))
+    return pairs
 
 
 def _audio_fingerprint(path):
@@ -336,7 +347,7 @@ def main():
         return 1
     out = os.path.join(video_dir, "audio_fixed.flac")
     total = duration(src)
-    sil = detect_silences(src)
+    sil = detect_silences(src, total=total)
     loud = loudnorm_filter(measure_loudness(src))
     protected_windows = load_protected_windows(video_dir)
     if protected_windows:
