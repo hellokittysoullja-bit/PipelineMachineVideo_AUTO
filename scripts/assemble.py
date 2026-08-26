@@ -21,6 +21,11 @@ try:
 except ImportError:
     np = None   # аудио-ритм по громкости — опциональная фича, без numpy просто выключена
 
+# Пан по композиции и shot matching. Текста блоков у слот-сборщика нет
+# (схема слотов, а не разбор по паузам), поэтому беаты сюда не применимы —
+# но сама КАРТИНКА тут ровно та же, и решения по ней работают одинаково.
+import director
+
 FPS, WIDTH, HEIGHT = 25, 1920, 1080
 # Каждый слот рендерится независимым процессом ffmpeg по уже полностью
 # решённым параметрам (зум/пан/переход/медиа выбраны до рендера) — N
@@ -73,14 +78,20 @@ XFADE_DUR_HARD = 0.06  # почти мгновенный переход — чи
 XFADE_TRANSITIONS = ["fade", "dissolve", "smoothleft", "smoothright", "smoothup", "smoothdown"]
 
 
-def film_look(source, photo_hash):
+def film_look(source, photo_hash, comp=None):
     # Один и тот же грейд на все слоты — тоже штамп, если приглядеться. Лёгкий
     # hash-джиттер контраста/сатурации/яркости на каждый клип убирает эту
     # одинаковость. Зерно — по источнику: сильнее на AI (маскирует "пластик"
     # генерации), почти незаметно на честном стоке (не раздувает битрейт зря).
+    # comp — замер самого кадра: подтягивает тёмные и выбеленные планы друг к
+    # другу (shot matching), иначе одна кривая eq ложится на всё подряд.
     c = 1.03 + (photo_hash % 100) / 100 * 0.05          # 1.03-1.08
     s = 1.04 + ((photo_hash >> 7) % 100) / 100 * 0.09    # 1.04-1.13
     b = ((photo_hash >> 14) % 100) / 100 * 0.02          # 0.00-0.02
+    off = director.grade_offsets(comp)
+    c = max(0.85, min(1.35, c + off["dc"]))
+    s = max(0.60, min(1.25, s + off["ds"]))
+    b = max(-0.06, min(0.09, b + off["db"]))
     grain = 6 if source == "ai" else 1
     return f"eq=contrast={c:.3f}:saturation={s:.3f}:brightness={b:.3f},vignette=PI/5,noise=alls={grain}:allf=t+u"
 
@@ -210,8 +221,10 @@ def kb_hash_choices(photo):
     return h, zoom_in, pan_dir
 
 
-def kenburns_clip(photo, out, d, source="stock", zoom_in=None, pan_dir=None):
+def kenburns_clip(photo, out, d, source="stock", zoom_in=None, pan_dir=None, comp=None):
     frames = max(1, round(d * FPS))
+    if comp is None:
+        comp = director.frame_composition(photo)
     h, zoom_in_default, pan_dir_default = kb_hash_choices(photo)
     if zoom_in is None:
         zoom_in = zoom_in_default
@@ -246,14 +259,14 @@ def kenburns_clip(photo, out, d, source="stock", zoom_in=None, pan_dir=None):
             f"crop=8000:4500,setsar=1,"
             f"zoompan=z={z}:x={x}:y={y}:"
             f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS},"
-            f"{film_look(source, h)}"),
+            f"{film_look(source, h, comp)}"),
            "-t", str(d), "-c:v", "libx264", "-preset", "fast",
            "-crf", CLIP_CRF, "-threads", str(FFMPEG_THREADS),
            "-pix_fmt", "yuv420p", "-r", str(FPS), out]
     return subprocess.run(cmd, capture_output=True, text=True).returncode == 0
 
 
-def video_clip(vid, out, d, source="stock"):
+def video_clip(vid, out, d, source="stock", comp=None):
     try:
         actual = dur(vid)
     except Exception:
@@ -262,7 +275,7 @@ def video_clip(vid, out, d, source="stock"):
     vf = f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,crop={WIDTH}:{HEIGHT},setsar=1"
     if actual < d - 0.05:
         vf += f",setpts={d/actual:.5f}*PTS"
-    vf += f",{film_look(source, h)}"
+    vf += f",{film_look(source, h, comp)}"
     cmd = ["ffmpeg", "-y", "-i", vid, "-vf", vf, "-t", str(d), "-an",
            "-c:v", "libx264", "-preset", "fast", "-crf", CLIP_CRF,
            "-threads", str(FFMPEG_THREADS), "-pix_fmt", "yuv420p", "-r", str(FPS), out]
@@ -466,10 +479,17 @@ def main():
             # совпасть — держим окно последних решений и форсируем смену при повторе.
             _, zi_cand, pd_cand = kb_hash_choices(path)
             zoom_in = pick_no_repeat(zoom_hist, zi_cand, [True, False], max_repeat=2)
-            pan_dir = pick_no_repeat(pan_hist, pd_cand, PAN_DIRECTIONS, max_repeat=2)
+            # Пан ведём НА объект: если визуальная масса заметно смещена,
+            # направление диктует картинка, а не хэш имени файла (иначе пан с
+            # вероятностью 1/2 выдавливает объект за рамку). Отцентрованный
+            # кадр — прежний путь через анти-повтор.
+            comp = director.frame_composition(path)
+            pan_dir = director.pan_for_composition(comp, None)
+            if pan_dir is None:
+                pan_dir = pick_no_repeat(pan_hist, pd_cand, PAN_DIRECTIONS, max_repeat=2)
             jobs[idx] = {"cached": False, "kind": "photo", "path": path, "d": d,
                         "source": source, "is_hook": is_hook_slot, "out": out,
-                        "zoom_in": zoom_in, "pan_dir": pan_dir}
+                        "zoom_in": zoom_in, "pan_dir": pan_dir, "comp": comp}
 
     # --- Фаза B: параллельный рендер того, чего нет в кэше — каждый job уже
     # несёт все параметры, N процессов ffmpeg дают тот же результат быстрее.
@@ -477,7 +497,8 @@ def main():
         if job["kind"] == "video":
             return video_clip(job["path"], job["out"], job["d"], job["source"])
         return kenburns_clip(job["path"], job["out"], job["d"], job["source"],
-                             zoom_in=job["zoom_in"], pan_dir=job["pan_dir"])
+                             zoom_in=job["zoom_in"], pan_dir=job["pan_dir"],
+                             comp=job.get("comp"))
 
     to_render = [(idx, job) for idx, job in enumerate(jobs) if job is not None and not job["cached"]]
     results = {}

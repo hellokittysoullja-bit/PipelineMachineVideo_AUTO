@@ -30,6 +30,11 @@ except ImportError:
 
 from PIL import Image as PILImage   # Pillow уже обязательная зависимость (requirements.txt)
 
+# Режиссёрские решения по смыслу текста и по самой картинке — вместо выбора по
+# md5 имени файла. Модуль всегда едет в комплекте (scripts/), поэтому импорт
+# жёсткий: его отсутствие — это битая поставка, а не отключённая опция.
+import director
+
 try:
     import cv2
     PARALLAX_LIBS = True
@@ -118,12 +123,21 @@ MOOD_GRADE = {
 }
 
 
-def film_look(photo_hash, section=""):
+def film_look(photo_hash, section="", comp=None):
+    """comp — замер самого кадра (director.frame_composition). Без него одна
+    и та же кривая eq ложилась и на тёмный кадр, и на выбеленный: первый
+    сваливался в кашу в тенях, второй так и оставался блёклым. С замером
+    кадры подтягиваются друг к другу — то, чем занимается колорист (shot matching)."""
     mood = MOOD_GRADE["HOOK"] if section.startswith("HOOK") else (
            MOOD_GRADE["FINAL"] if section.startswith("FINAL") else MOOD_GRADE["BODY"])
     c = mood["c0"] + (photo_hash % 100) / 100 * 0.05
     s = mood["s0"] + ((photo_hash >> 7) % 100) / 100 * 0.08
     b = ((photo_hash >> 14) % 100) / 100 * 0.02
+    off = director.grade_offsets(comp)
+    # Клэмп узкий: задача — свести кадры друг к другу, а не перекрасить.
+    c = max(0.85, min(1.35, c + off["dc"]))
+    s = max(0.60, min(1.25, s + off["ds"]))
+    b = max(-0.06, min(0.09, b + off["db"]))
     return (f"eq=contrast={c:.3f}:saturation={s:.3f}:brightness={b:.3f},"
             f"colorbalance=rs=-0.06:bs={mood['bs']:.3f}:rm=-0.02:bm=0.04:rh={mood['rh']:.3f}:bh=-0.02,"
             f"vignette={mood['vign']},noise=alls=2:allf=t+u")
@@ -261,6 +275,10 @@ except ImportError:
 
 WHISPER_ENABLED = os.environ.get("WHISPER_ALIGN", "0") == "1" and WHISPER_LIBS
 WHISPER_MODEL_SIZE = os.environ.get("WHISPER_MODEL", "small")
+# Субтитры — побочный продукт выравнивания, а не его цель. Иногда они не
+# нужны (свои субтитры, чужой воркфлоу, просто проверочный прогон), а
+# сам точный тайминг нужен. WHISPER_SRT=0 отключает только экспорт .srt.
+WHISPER_SRT = os.environ.get("WHISPER_SRT", "1") != "0"
 WHISPER_LANG = os.environ.get("WHISPER_LANG", "ru")
 _whisper_model = None
 _whisper_lock = threading.Lock()
@@ -547,11 +565,18 @@ def fit_to_total(raw, mins, maxs, total, iters=60):
     return d
 
 
-def block_durations(blocks, total, energy_mults=None, raw_override=None):
+def block_durations(blocks, total, energy_mults=None, raw_override=None, beat_pace=False):
     """raw_override — реальные длительности по факту речи (Whisper), а не
     оценка по словам. Всё остальное (энергетический множитель, капы,
     water-filling под total) применяется одинаково независимо от источника
-    сырых значений."""
+    сырых значений.
+
+    beat_pace — растянуть/поджать кадр под РАБОТУ реплики: цифру на плашке
+    надо успеть прочитать, слому дать сесть, перечисление наоборот резать
+    чаще. Применяется ТОЛЬКО поверх оценки по словам и НИКОГДА поверх
+    raw_override: когда границы взяты из реальной речи, они и есть факт —
+    растягивать их значит уводить кадр от фразы, ради совпадения с которой
+    Whisper и запускали."""
     if raw_override is not None:
         raw = list(raw_override)
     else:
@@ -559,6 +584,10 @@ def block_durations(blocks, total, energy_mults=None, raw_override=None):
         tp = sum(b["pause_after"] for b in blocks)
         wps = tw / max(total - tp, 1)
         raw = [b["words"] / wps + b["pause_after"] for b in blocks]
+        if beat_pace:
+            raw = [r * director.pace_multiplier(
+                       director.analyze_beat(b["text"], b["section"], bool(b.get("stat"))))
+                   for r, b in zip(raw, blocks)]
     if energy_mults:
         raw = [r * m for r, m in zip(raw, energy_mults)]
     # В хуке кадры короче и чаще — первые секунды решают, останется ли зритель.
@@ -896,25 +925,18 @@ def kb_hash_choices(photo):
 
 
 def estimate_busyness(photo_path):
-    """Грубая мера "тесноты" кадра без depth-модели — просто плотность
-    перепадов яркости на уменьшенной копии. Не настоящая детекция крупности
-    плана, но дешёвый прокси: у тесного/плотного кадра (уже крупный план)
-    перепадов много на каждый пиксель, у просторного — мало. Используется
-    только чтобы НЕ зумить ещё сильнее то, что и так уже крупный план."""
-    try:
-        img = PILImage.open(photo_path).convert("L").resize((160, 90))
-        arr = np.asarray(img, dtype=np.float32) if np is not None else None
-        if arr is None:
-            return 0.5
-        gx = np.abs(np.diff(arr, axis=1)).mean()
-        gy = np.abs(np.diff(arr, axis=0)).mean()
-        return float(min(1.0, (gx + gy) / 40.0))
-    except Exception:
-        return 0.5
+    """Грубая мера "тесноты" кадра: у уже крупного плана перепадов
+    яркости много, у просторного — мало. Нужна только чтобы НЕ зумить ещё
+    сильнее то, что и так крупный план. Считается тем же единым проходом
+    по картинке, что и композиция с грейдом (раньше был отдельный открытый файл)."""
+    return director.frame_composition(photo_path)["busyness"]
 
 
-def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None, section=""):
+def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
+             section="", comp=None):
     frames = max(1, round(dur * FPS))
+    if comp is None:
+        comp = director.frame_composition(photo)
     h, zoom_in_default, pan_dir_default = kb_hash_choices(photo)
     if zoom_in is None:
         zoom_in = zoom_in_default
@@ -926,7 +948,7 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
     # Уже тесный/плотный кадр (крупный план) не нуждается в таком же зуме,
     # как просторный — иначе на кадре и так крупного меча к концу клипа
     # остаётся одна текстура металла, некуда уже приближаться со смыслом.
-    busy = estimate_busyness(photo)
+    busy = comp["busyness"]
     if busy > 0.6:
         delta *= 0.7
     max_zoom = ZOOM_FLOOR + delta
@@ -955,7 +977,7 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
                f"crop=8000:4500,setsar=1,"
                f"zoompan=z={z}:x={x}:y={y}:"
                f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS},"
-               f"{film_look(h, section)}")
+               f"{film_look(h, section, comp)}")
     vf_overlay = add_overlays(vf_base, dur, title, stat) if (title or stat) else None
 
     def render(vf):
@@ -1024,7 +1046,8 @@ def fill_crop_canvas(photo_path, cw, ch):
     return arr
 
 
-def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None, section=""):
+def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
+                      section="", comp=None):
     """2.5D-версия kenburns(): собственный покадровый рендер (OpenCV remap)
     вместо ffmpeg zoompan — только так можно сделать смещение, зависящее от
     глубины пикселя. При любой накладке (модель не встала, ffmpeg-пайп упал)
@@ -1076,7 +1099,7 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
         cmd = ["ffmpeg", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24",
                "-s", f"{WIDTH}x{HEIGHT}", "-r", str(FPS), "-i", "-",
                "-frames:v", str(frames)]
-        vf = film_look(h, section)
+        vf = film_look(h, section, comp if comp is not None else director.frame_composition(photo))
         vf = add_overlays(vf, dur, title, stat) if (title or stat) else vf
         cmd += ["-vf", vf, "-c:v", "libx264", "-preset", "fast", "-crf", CLIP_CRF,
                 "-threads", str(FFMPEG_THREADS), "-pix_fmt", "yuv420p", "-r", str(FPS), out]
@@ -1146,7 +1169,42 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
 SPEED_BIAS = {"HOOK": 1.12, "FINAL": 0.92}
 
 
-def video_render(vid, out, dur, title=None, stat=None, section=""):
+_video_comp_cache = {}
+_video_comp_lock = threading.Lock()
+
+
+def video_composition(vid):
+    """Замер стокового ВИДЕО для shot matching — по одному кадру из середины.
+
+    Без этого видеовставки жили вне цветокоррекции по содержанию: фото
+    подтягивались друг к другу, а яркий или наоборот тёмный стоковый клип
+    между ними выпадал из ряда. Пан по композиции видео не нужен (движение
+    уже в кадре), поэтому берётся только светлота/контраст.
+
+    Любой сбой — None: тогда грейд остаётся прежним, по хэшу и секции."""
+    with _video_comp_lock:
+        if vid in _video_comp_cache:
+            return _video_comp_cache[vid]
+    comp = None
+    try:
+        os.makedirs(TEMP_FOLDER, exist_ok=True)
+        thumb = os.path.join(TEMP_FOLDER,
+                             f"_vthumb_{hashlib.md5(vid.encode()).hexdigest()[:8]}.jpg")
+        if not os.path.exists(thumb):
+            r = subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", "1", "-i", vid,
+                                "-frames:v", "1", "-vf", "scale=320:-1", thumb],
+                               capture_output=True, text=True, timeout=60)
+            if r.returncode != 0 or not os.path.exists(thumb):
+                raise RuntimeError(r.stderr[-160:])
+        comp = director.frame_composition(thumb)
+    except Exception as e:
+        print(f"  замер видео пропущен ({os.path.basename(vid)}): {type(e).__name__} {e}")
+    with _video_comp_lock:
+        _video_comp_cache[vid] = comp
+    return comp
+
+
+def video_render(vid, out, dur, title=None, stat=None, section="", comp=None):
     """Аналог kenburns(), но для стокового видео: без zoompan (движение уже
     есть в кадре), заливка кадра целиком + обрезка (не letterbox), растяжение
     по времени, если исходный ролик короче нужной длительности."""
@@ -1164,7 +1222,7 @@ def video_render(vid, out, dur, title=None, stat=None, section=""):
         setpts_factor = 1.0 / bias
     if setpts_factor is not None:
         vf_base += f",setpts={setpts_factor:.5f}*PTS"
-    vf_base += f",{film_look(h, section)}"
+    vf_base += f",{film_look(h, section, comp)}"
     vf_overlay = add_overlays(vf_base, dur, title, stat) if (title or stat) else None
 
     def render(vf):
@@ -1225,7 +1283,7 @@ def pexels_video(query, index, used_ids=None):
         return None
 
 
-def plan_transitions(sections, xfade_dur=XFADE_DUR):
+def plan_transitions(sections, xfade_dur=XFADE_DUR, pauses=None):
     """Заранее и детерминированно решить, КАКОЙ переход и КАКОЙ длины стоит
     на каждой склейке. Возвращает список (transition, duration) длиной n-1.
 
@@ -1236,18 +1294,36 @@ def plan_transitions(sections, xfade_dur=XFADE_DUR):
     и main() был вынужден закладывать XFADE_DUR на КАЖДУЮ склейку, хотя ~65%
     из них — почти мгновенный hardcut на 0.06с. Разница копилась: на 135
     кадрах видео получалось на ~25с длиннее аудио, финальный -t срезал хвост,
-    а картинка на всём протяжении ролика всё сильнее отставала от слов."""
+    а картинка на всём протяжении ролика всё сильнее отставала от слов.
+
+    pauses — длина паузы ПОСЛЕ каждого блока (pause_after). Пауза в сценарии
+    это режиссёрская ремарка, которую автор уже поставил руками: длинная =
+    смена мысли, зритель готов к заметному переходу; короткой нет = мысль
+    продолжается, только жёсткий рез. Раньше это решал хэш номера стыка, то
+    есть заметный переход мог попасть ровно на середину неразрывной мысли.
+    Без pauses — прежнее поведение по хэшу (обратная совместимость)."""
     n = len(sections)
     plan = []
     cut_hist, boundary_hist = [], []
     for i in range(1, n):
         h = int(hashlib.md5(f"xfade:{i}|{sections[i-1]}|{sections[i]}".encode()).hexdigest()[:8], 16)
+        gap = pauses[i - 1] if pauses is not None and i - 1 < len(pauses) else None
+        kind = director.transition_kind(gap, h)
         if sections[i] != sections[i - 1]:
             # Смена темы — заметный переход, не обычная склейка. dissolve/fadeblack/
             # fadewhite (вспышка светом — читается как "новая глава начинается ярко")
             # вперемешку.
             candidate = BOUNDARY_TRANSITIONS[h % len(BOUNDARY_TRANSITIONS)]
             plan.append((pick_no_repeat(boundary_hist, candidate, BOUNDARY_TRANSITIONS, 1), xfade_dur))
+        elif kind is not None:
+            # Решает пауза сценария, а не хэш.
+            if kind == "visible":
+                candidate = XFADE_TRANSITIONS[(h >> 8) % len(XFADE_TRANSITIONS)]
+                plan.append((pick_no_repeat(cut_hist, candidate, XFADE_TRANSITIONS, 3), xfade_dur))
+            else:
+                cut_hist.append("hardcut")
+                del cut_hist[:-5]
+                plan.append(("fade", XFADE_DUR_HARD))
         else:
             # Большинство склеек в реальном монтаже — жёсткий cut, не dissolve;
             # заметный переход — редкость, не норма. ~65% hard cut / ~35% вариация.
@@ -1371,6 +1447,20 @@ def qc_report(media_log):
         print("QC: явных повторов по картинке не найдено")
 
 
+def _render_recipe(b, d, title, stat, src, reuse, comp, beat, is_section_start, is_photo):
+    """Строка, однозначно описывающая ВСЁ, из чего собран кадр. Ложится в имя
+    файла клипа: любое изменение здесь = другой файл = честный перерендер.
+    Композиция округляется — иначе пересохранение той же картинки другим
+    кодировщиком меняло бы хэш на шум в третьем знаке."""
+    c = comp or director.NEUTRAL_COMPOSITION
+    return "|".join((
+        f"{d:.3f}", str(title), str(stat), b["section"], os.path.basename(src),
+        str(reuse), beat, str(is_section_start), "photo" if is_photo else "video",
+        f"{c['cx']:.2f}", f"{c['cy']:.2f}", f"{c['luma']:.2f}",
+        f"{c['spread']:.2f}", f"{c['busyness']:.2f}",
+    ))
+
+
 def main():
     if not os.path.exists(AUDIO_FILE):
         print(f"Аудио не найдено: {AUDIO_FILE}")
@@ -1390,7 +1480,8 @@ def main():
     # кадры так, что видео выходило на десятки секунд длиннее аудио, хвост
     # срезался, а картинка ползла всё дальше от слов к концу ролика.
     block_sections = [b["section"] for b in blocks]
-    xfade_plan = plan_transitions(block_sections)
+    block_pauses = [b["pause_after"] for b in blocks]
+    xfade_plan = plan_transitions(block_sections, pauses=block_pauses)
     xfade_budget = sum(d for _, d in xfade_plan)
     target = total + xfade_budget
 
@@ -1403,9 +1494,10 @@ def main():
         raw = [whisper_bp[i + 1] - whisper_bp[i] for i in range(len(blocks))]
         durs = block_durations(blocks, target, raw_override=raw)
         print("Тайминг блоков: по факту речи (Whisper)")
-        write_srt(blocks, whisper_bp, os.path.join(VIDEO_FOLDER, "subtitles.srt"))
+        if WHISPER_SRT:
+            write_srt(blocks, whisper_bp, os.path.join(VIDEO_FOLDER, "subtitles.srt"))
     else:
-        durs = block_durations(blocks, target)
+        durs = block_durations(blocks, target, beat_pace=True)
         # Второй проход: ритм по громкости поверх word-count-базы (не вместо
         # неё) — громкие места режутся чаще, тихие держатся дольше.
         # Опционально (нужен numpy). Стартовые точки для сэмплинга энергии
@@ -1414,13 +1506,13 @@ def main():
         # множеством склеек сэмплили бы энергию не в том месте.
         curve = audio_energy_curve(AUDIO_FILE)
         if curve:
-            baseline = block_durations(blocks, total)
+            baseline = block_durations(blocks, total, beat_pace=True)
             starts, acc = [], 0.0
             for d in baseline:
                 starts.append(acc)
                 acc += d
             mults = energy_pace_multipliers(curve, starts, baseline)
-            durs = block_durations(blocks, target, energy_mults=mults)
+            durs = block_durations(blocks, target, energy_mults=mults, beat_pace=True)
             print("Ритм по громкости: включён")
     print(f"Средний кадр: {sum(durs)/len(durs):.1f}с")
 
@@ -1497,9 +1589,15 @@ def main():
             continue
         last_media = ("video", video) if video else ("photo", photo)
         src = video or photo
-        params_hash = hashlib.md5(
-            f"{d:.3f}|{title}|{stat}|{b['section']}|{os.path.basename(src)}|{reuse}".encode()
-        ).hexdigest()[:8]
+        # Хэш ВСЕХ входов рендера (ЧАСТЬ 21). Раньше сюда не входили
+        # режиссёрские решения — зум, пан, грейд по кадру. Из-за этого правка
+        # логики режиссуры (или самой картинки, влияющей на композицию) молча
+        # переиспользовала старый клип, снятый по прежним решениям.
+        comp = director.frame_composition(photo) if photo else video_composition(video)
+        beat = director.analyze_beat(b["text"], b["section"], bool(stat))
+        recipe = _render_recipe(b, d, title, stat, src, reuse, comp, beat,
+                                is_section_start, photo)
+        params_hash = hashlib.md5(recipe.encode()).hexdigest()[:8]
         out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}_{params_hash}.mp4")
         if os.path.exists(out):
             jobs[i] = {"cached": True, "out": out, "d": d, "section": b["section"],
@@ -1507,22 +1605,38 @@ def main():
             continue
         if video:
             jobs[i] = {"cached": False, "kind": "video", "src": video, "out": out, "d": d,
-                       "title": title, "stat": stat, "section": b["section"]}
+                       "title": title, "stat": stat, "section": b["section"], "comp": comp}
         else:
-            # anti-repetition: хэш сам по себе не мешает 3 зумам подряд случайно
-            # совпасть — держим окно последних решений и форсируем смену при повторе.
             _, zi_cand, pd_cand = kb_hash_choices(photo)
+            # НАПРАВЛЕНИЕ ЗУМА — от работы реплики, а не от md5 имени файла:
+            # наезд на цифру/слом/вопрос, отъезд на тихий финал и на нейтральную
+            # открывашку раздела. Если беат не распознан — intent None и решает
+            # хэш, ровно как раньше.
+            intent = director.zoom_intent(beat, is_section_start)
+            if intent is not None:
+                zi_cand = intent
             if reuse:
                 zi_cand = not zi_cand   # повтор кадра — хотя бы в другую сторону
-            zoom_in = pick_no_repeat(zoom_hist, zi_cand, [True, False], max_repeat=2)
-            pan_dir = pick_no_repeat(pan_hist, pd_cand, PAN_DIRECTIONS, max_repeat=2)
+            # Анти-повтор оставляем, но осознанному решению даём чуть больше
+            # свободы: три наезда подряд под три сильных реплики — нормальный
+            # монтаж, четыре — уже однообразие. Случайному хэшу прежний зазор в 2.
+            zoom_in = pick_no_repeat(zoom_hist, zi_cand, [True, False],
+                                     max_repeat=3 if intent is not None else 2)
+            # ПАН — на объект. Если визуальная масса заметно смещена, направление
+            # диктует сама картинка, и анти-повтор тут не нужен: разные фото дают
+            # разные направления сами, а «разнообразие» вопреки композиции просто
+            # выдавливает объект за рамку.
+            pan_dir = director.pan_for_composition(comp, None)
+            if pan_dir is None:
+                pan_dir = pick_no_repeat(pan_hist, pd_cand, PAN_DIRECTIONS, max_repeat=2)
             # Параллакс — только на самые заметные точки ролика (хук целиком +
             # первый кадр каждого раздела), не на все фото: покадровый рендер
             # с depth-моделью в разы дороже по времени zoompan-версии.
             is_highlight = b["section"].startswith("HOOK") or is_section_start
             jobs[i] = {"cached": False, "kind": "photo", "src": photo, "out": out, "d": d,
-                       "title": title, "stat": stat, "section": b["section"],
-                       "zoom_in": zoom_in, "pan_dir": pan_dir, "is_highlight": is_highlight}
+                       "title": title, "stat": stat, "section": b["section"], "comp": comp,
+                       "zoom_in": zoom_in, "pan_dir": pan_dir, "is_highlight": is_highlight,
+                       "beat": beat}
         if use_pexels and not use_local and i % 10 == 9:
             time.sleep(0.4)
 
@@ -1533,16 +1647,16 @@ def main():
     def render_job(job):
         if job["kind"] == "video":
             return video_render(job["src"], job["out"], job["d"], title=job["title"],
-                                 stat=job["stat"], section=job["section"])
+                                 stat=job["stat"], section=job["section"], comp=job.get("comp"))
         ok = False
         if PARALLAX_ENABLED and job["is_highlight"]:
             ok = parallax_kenburns(job["src"], job["out"], job["d"], title=job["title"],
                                     zoom_in=job["zoom_in"], pan_dir=job["pan_dir"],
-                                    stat=job["stat"], section=job["section"])
+                                    stat=job["stat"], section=job["section"], comp=job.get("comp"))
         if not ok:
             ok = kenburns(job["src"], job["out"], job["d"], title=job["title"],
                           zoom_in=job["zoom_in"], pan_dir=job["pan_dir"],
-                          stat=job["stat"], section=job["section"])
+                          stat=job["stat"], section=job["section"], comp=job.get("comp"))
         return ok
 
     to_render = [(i, j) for i, j in enumerate(jobs) if j is not None and not j["cached"]]
@@ -1570,7 +1684,7 @@ def main():
 
     # --- Сборка результата в ИСХОДНОМ порядке блоков — порядок завершения
     # потоков произвольный, xfade_chain требует клипы строго по таймлайну.
-    clips, clip_durs, clip_sections = [], [], []
+    clips, clip_durs, clip_sections, clip_pauses = [], [], [], []
     media_log = []   # (индекс, путь_к_фото) — для QC-проверки на похожие кадры в конце
     for i, job in enumerate(jobs):
         if job is None:
@@ -1580,6 +1694,7 @@ def main():
             clips.append(job["out"])
             clip_durs.append(job["d"])
             clip_sections.append(job["section"])
+            clip_pauses.append(blocks[i]["pause_after"])
             photo_for_log = job.get("photo_for_log") if job["cached"] else (
                 job["src"] if job["kind"] == "photo" else None)
             if photo_for_log:
@@ -1594,7 +1709,8 @@ def main():
     # План переходов должен совпадать с тем, по которому считался бюджет. Если
     # все блоки доехали (обычный случай) — берём его как есть; если какой-то
     # блок всё же выпал, честно пересчитываем по фактической цепочке клипов.
-    plan = xfade_plan if len(clips) == len(blocks) else plan_transitions(clip_sections)
+    plan = (xfade_plan if len(clips) == len(blocks)
+            else plan_transitions(clip_sections, pauses=clip_pauses))
     ok, xfade_total = xfade_chain(clips, clip_durs, clip_sections, merged, plan=plan)
     if not ok:
         concat = os.path.join(TEMP_FOLDER, "concat.txt")

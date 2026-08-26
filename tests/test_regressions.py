@@ -6,12 +6,13 @@
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS_DIR = os.path.join(REPO_ROOT, "scripts")
@@ -765,3 +766,325 @@ def test_whisper_align_end_to_end_uses_real_breakpoints(tmp_path, monkeypatch):
     assert rc == 0
     assert (d / "final.mp4").exists()
     assert (d / "subtitles.srt").exists()
+
+
+# =====================================================================
+#  Режиссура: решения по смыслу текста и по самой картинке
+# =====================================================================
+
+import director  # noqa: E402
+
+
+def _blk(text, section="BLOCK 1: X", pause=0.8, stat=None):
+    return {"text": text, "words": len(text.split()), "pause_after": pause,
+            "section": section, "stat": stat}
+
+
+# ---------- D1: беат = работа реплики, а не тема ----------
+
+def test_beat_classifies_the_work_the_line_does():
+    cases = [
+        ("На самом деле всё было наоборот.", "BLOCK 1: X", False, director.BEAT_REVEAL),
+        ("А ты когда-нибудь держал меч?", "BLOCK 1: X", False, director.BEAT_QUESTION),
+        ("Во-первых, вес. Во-вторых, баланс.", "BLOCK 1: X", False, director.BEAT_LIST),
+        ("Вот и вся легенда.", "BLOCK 2: X", False, director.BEAT_QUIET),
+        ("Он рванул вперёд!", "BLOCK 1: X", False, director.BEAT_ACTION),
+        ("Кузнец работал в мастерской.", "BLOCK 1: X", False, director.BEAT_NEUTRAL),
+        ("Простая фраза без примет.", "FINAL", False, director.BEAT_QUIET),
+    ]
+    for text, sec, stat, expected in cases:
+        assert director.analyze_beat(text, sec, stat) == expected, text
+
+
+def test_stat_beat_wins_over_everything_because_the_number_must_be_readable():
+    """Плашку зритель обязан успеть прочитать — это сильнее любого другого
+    намерения кадра, поэтому цифра перебивает и слом, и вопрос."""
+    assert director.analyze_beat("На самом деле меч легче?", "BLOCK 1: X", has_stat=True) \
+        == director.BEAT_STAT
+    # цифра в самом тексте тоже считается плашкой-обязательством
+    assert director.analyze_beat("Он весил 1,3 килограмма.", "BLOCK 1: X") == director.BEAT_STAT
+    assert director.analyze_beat("Потери выросли на 40%.", "BLOCK 1: X") == director.BEAT_STAT
+    # но одиночная цифра в обычной фразе — не статистика
+    assert director.analyze_beat("У него было 5 мечей.", "BLOCK 1: X") != director.BEAT_STAT
+
+
+def test_reveal_opener_only_counts_at_the_start():
+    """«Но» в начале реплики — слом (ЧАСТЬ 8 разрешает так начинать).
+    То же слово внутри фразы — обычный союз, маркером быть не должно."""
+    assert director.analyze_beat("Но всё вышло иначе.", "BLOCK 1: X") == director.BEAT_REVEAL
+    assert director.analyze_beat("Меч был тяжёлым, но удобным.", "BLOCK 1: X") \
+        == director.BEAT_NEUTRAL
+
+
+def test_unrecognised_line_returns_decision_to_the_hash():
+    """Ключевое свойство всей режиссуры: хуже случайного хэша быть не может.
+    Не распознали — intent None, и наверху срабатывает прежний путь."""
+    assert director.zoom_intent(director.BEAT_NEUTRAL, is_section_start=False) is None
+
+
+def test_zoom_intent_reads_as_editing_grammar():
+    assert director.zoom_intent(director.BEAT_STAT) is True        # наезд на цифру
+    assert director.zoom_intent(director.BEAT_REVEAL) is True      # наезд на слом
+    assert director.zoom_intent(director.BEAT_QUIET) is False      # отъезд на финале
+    # нейтральная открывашка раздела — общий план
+    assert director.zoom_intent(director.BEAT_NEUTRAL, is_section_start=True) is False
+    # но настоящий беат сильнее формальности открывашки
+    assert director.zoom_intent(director.BEAT_STAT, is_section_start=True) is True
+
+
+def test_pace_gives_numbers_and_reveals_more_screen_time_than_lists():
+    assert director.pace_multiplier(director.BEAT_STAT) > 1.0
+    assert director.pace_multiplier(director.BEAT_REVEAL) > 1.0
+    assert director.pace_multiplier(director.BEAT_LIST) < 1.0
+    assert director.pace_multiplier(director.BEAT_NEUTRAL) == 1.0
+    assert director.pace_multiplier("что-то неизвестное") == 1.0
+
+
+def test_beat_pace_redistributes_time_but_never_changes_total():
+    """Темп по беатам меняет ПРОПОРЦИИ, а не общую длину: синхрон с озвучкой
+    держит fit_to_total, и он не должен ломаться от этих множителей."""
+    blocks = [_blk("Во-первых, вес. Во-вторых, баланс.", "BLOCK 1: X"),
+              _blk("На самом деле всё было наоборот.", "BLOCK 1: X"),
+              _blk("Кузнец работал в мастерской.", "BLOCK 1: X")]
+    total = 30.0
+    plain = pipeline_smart.block_durations(blocks, total, beat_pace=False)
+    paced = pipeline_smart.block_durations(blocks, total, beat_pace=True)
+    assert abs(sum(plain) - total) < 1e-6
+    assert abs(sum(paced) - total) < 1e-6
+    assert paced != plain, "темп по беатам вообще не применился"
+    # перечисление ужалось относительно слома
+    assert paced[0] / plain[0] < paced[1] / plain[1]
+
+
+def test_beat_pace_never_overrides_real_speech_timing():
+    """Когда границы взяты из реальной речи (Whisper), они и есть факт.
+    Растянуть их «под беат» значит увести кадр от фразы, ради совпадения с
+    которой Whisper и запускали."""
+    blocks = [_blk("Во-первых, вес.", "BLOCK 1: X"),
+              _blk("На самом деле всё наоборот.", "BLOCK 1: X")]
+    raw = [6.0, 9.0]
+    a = pipeline_smart.block_durations(blocks, 15.0, raw_override=raw, beat_pace=True)
+    b = pipeline_smart.block_durations(blocks, 15.0, raw_override=raw, beat_pace=False)
+    assert a == b, "beat_pace просочился в тайминг по факту речи"
+
+
+# ---------- D2: пан на объект, а не наугад ----------
+
+def _subject_image(path, subj_x, w=480, h=270):
+    """Тёмный фон + светлый объект в заданной точке по горизонтали."""
+    img = Image.new("RGB", (w, h), (24, 26, 30))
+    d = ImageDraw.Draw(img)
+    cx = int(w * subj_x)
+    d.rectangle([cx - 18, int(h * 0.2), cx + 18, int(h * 0.8)], fill=(230, 225, 210))
+    img.save(path, quality=95)
+
+
+def test_composition_finds_the_subject_and_pans_toward_it(tmp_path):
+    """Симптом: на кадре с объектом слева пан с вероятностью 1/2 уезжал
+    вправо и выдавливал объект за рамку — направление выбирал md5 имени файла."""
+    left, right = tmp_path / "l.jpg", tmp_path / "r.jpg"
+    _subject_image(left, 0.22)
+    _subject_image(right, 0.78)
+    cl = director.frame_composition(str(left))
+    cr = director.frame_composition(str(right))
+    assert cl["cx"] < -director.COMPOSITION_DEADZONE
+    assert cr["cx"] > director.COMPOSITION_DEADZONE
+    # dx<0 = кадр идёт влево, к объекту; dx>0 = вправо
+    assert director.pan_for_composition(cl, None)[0] == -1
+    assert director.pan_for_composition(cr, None)[0] == 1
+
+
+def test_centred_frame_hands_pan_back_to_the_hash(tmp_path):
+    """Отцентрованный кадр — мнения нет, иначе на симметричных кадрах пан
+    всегда шёл бы в одну сторону. Возвращаем фоллбэк как есть."""
+    p = tmp_path / "c.jpg"
+    _subject_image(p, 0.5)
+    comp = director.frame_composition(str(p))
+    assert abs(comp["cx"]) <= director.COMPOSITION_DEADZONE
+    sentinel = ("FALLBACK",)
+    assert director.pan_for_composition(comp, sentinel) is sentinel
+
+
+def test_pan_for_composition_survives_missing_analysis():
+    sentinel = (1, -1)
+    assert director.pan_for_composition(None, sentinel) is sentinel
+    assert director.pan_for_composition({}, sentinel) is sentinel
+
+
+def test_frame_composition_never_raises_on_a_broken_file(tmp_path):
+    bad = tmp_path / "broken.jpg"
+    bad.write_bytes(b"not an image at all")
+    comp = director.frame_composition(str(bad))
+    assert comp == director.NEUTRAL_COMPOSITION
+    assert director.frame_composition(str(tmp_path / "missing.jpg")) == director.NEUTRAL_COMPOSITION
+
+
+# ---------- D3: shot matching ----------
+
+def _flat_image(path, level, w=320, h=180):
+    """Почти ровная заливка заданной светлоты — минимальный разброс яркости."""
+    img = Image.new("RGB", (w, h), (level, level, level))
+    d = ImageDraw.Draw(img)
+    d.rectangle([10, 10, 40, 40], fill=(min(255, level + 6),) * 3)   # чуть-чуть структуры
+    img.save(path, quality=95)
+
+
+def test_shot_matching_pulls_dark_and_washed_out_shots_toward_each_other(tmp_path):
+    """Симптом: одна и та же кривая eq ложилась и на тёмный кадр, и на
+    выбеленный — первый сваливался в кашу, второй оставался блёклым."""
+    dark, bright = tmp_path / "d.jpg", tmp_path / "b.jpg"
+    _flat_image(dark, 30)
+    _flat_image(bright, 200)
+    gd = director.grade_offsets(director.frame_composition(str(dark)))
+    gb = director.grade_offsets(director.frame_composition(str(bright)))
+    assert gd["db"] > 0, "тёмный кадр надо приподнять"
+    assert gb["db"] < 0, "пересвеченный кадр надо прибрать"
+    assert gd["db"] > gb["db"]
+
+
+def test_flat_shot_gets_more_contrast_than_a_punchy_one(tmp_path):
+    flat = tmp_path / "f.jpg"
+    _flat_image(flat, 120)
+    punchy = tmp_path / "p.jpg"
+    img = Image.new("RGB", (320, 180), (0, 0, 0))
+    ImageDraw.Draw(img).rectangle([0, 0, 160, 180], fill=(255, 255, 255))
+    img.save(punchy, quality=95)
+    gf = director.grade_offsets(director.frame_composition(str(flat)))
+    gp = director.grade_offsets(director.frame_composition(str(punchy)))
+    assert gf["dc"] > gp["dc"]
+
+
+def test_grade_offsets_neutral_without_analysis():
+    assert director.grade_offsets(None) == {"dc": 0.0, "db": 0.0, "ds": 0.0}
+
+
+def test_film_look_stays_in_sane_range_for_any_shot(tmp_path):
+    """Поправки shot matching не должны выносить eq за разумные пределы —
+    иначе «сведение кадров» превратится в перекраску."""
+    for level in (5, 30, 120, 200, 250):
+        p = tmp_path / f"l{level}.jpg"
+        _flat_image(p, level)
+        comp = director.frame_composition(str(p))
+        for section in ("HOOK", "BLOCK 1: X", "FINAL"):
+            for h in (0, 12345, 4294967295):
+                vf = pipeline_smart.film_look(h, section, comp)
+                m = re.search(r'eq=contrast=([\d.]+):saturation=([\d.]+):brightness=(-?[\d.]+)', vf)
+                assert m, vf
+                c, s_, b = (float(x) for x in m.groups())
+                assert 0.85 <= c <= 1.35, f"contrast {c}"
+                assert 0.60 <= s_ <= 1.25, f"saturation {s_}"
+                assert -0.06 <= b <= 0.09, f"brightness {b}"
+
+
+def test_assemble_shares_the_same_shot_matching(tmp_path):
+    """assemble.py и pipeline_smart.py не должны разъезжаться по грейду —
+    ровно этот класс расхождения дал баги B4/B5."""
+    p = tmp_path / "x.jpg"
+    _flat_image(p, 28)
+    comp = director.frame_composition(str(p))
+    plain = assemble.film_look("stock", 999)
+    matched = assemble.film_look("stock", 999, comp)
+    assert plain != matched, "shot matching в assemble.py не применяется"
+
+
+# ---------- D4: переход по паузе сценария ----------
+
+def test_transition_follows_the_pause_the_writer_wrote():
+    """Симптом: заметный переход мог попасть ровно в середину неразрывной
+    мысли — его выбирал хэш номера стыка, а не пауза в сценарии."""
+    # длинная пауза (две [pause] подряд) — всегда заметный переход
+    assert all(director.transition_kind(1.6, h) == "visible" for h in range(20))
+    # пауз нет / [short pause] — мысль не прерывалась, только жёсткий рез
+    assert all(director.transition_kind(0.0, h) == "hard" for h in range(20))
+    assert all(director.transition_kind(0.4, h) == "hard" for h in range(20))
+    # нет данных — решает вызывающий код по-старому
+    assert director.transition_kind(None, 0) is None
+
+
+def test_ordinary_pause_keeps_hard_cuts_the_norm():
+    """Дисcольв в реальном монтаже — исключение. На рядовой [pause] заметный
+    переход должен быть редкостью, иначе ролик поплывёт."""
+    kinds = [director.transition_kind(0.8, h) for h in range(400)]
+    visible = kinds.count("visible")
+    assert 0.15 < visible / len(kinds) < 0.35, f"заметных переходов {visible}/400"
+
+
+def test_plan_transitions_uses_pauses_and_keeps_budget_exact():
+    sections = ["HOOK"] * 3 + ["BLOCK 1: A"] * 3 + ["BLOCK 2: B"] * 3
+    pauses = [0.0, 1.6, 0.0, 0.4, 1.6, 0.0, 0.0, 0.4, 0.0]
+    plan = pipeline_smart.plan_transitions(sections, pauses=pauses)
+    assert len(plan) == len(sections) - 1
+    # бюджет обязан по-прежнему совпадать с тем, что реально съест цепочка
+    durs = [8.0] * len(sections)
+    cum = durs[0]
+    for i in range(1, len(sections)):
+        cum = cum + durs[i] - plan[i - 1][1]
+    assert abs((sum(durs) - cum) - sum(d for _, d in plan)) < 1e-6
+    # plan[k] — стык между блоками k и k+1, то есть пауза pauses[k].
+    # Длинная пауза внутри раздела -> заметный переход.
+    assert plan[1][1] == pipeline_smart.XFADE_DUR, "длинная пауза не дала заметный переход"
+    assert plan[4][1] == pipeline_smart.XFADE_DUR
+    # Мысль не прерывалась (pause 0.0) внутри раздела -> жёсткий рез.
+    assert plan[0][1] == pipeline_smart.XFADE_DUR_HARD
+    assert plan[6][1] == pipeline_smart.XFADE_DUR_HARD
+    # [short pause] — тоже не повод рвать мысль.
+    assert plan[7][1] == pipeline_smart.XFADE_DUR_HARD
+    # Граница раздела перебивает паузу: тут pause 0.0, но переход обязан быть заметным.
+    assert plan[2][0] in pipeline_smart.BOUNDARY_TRANSITIONS
+    assert plan[2][1] == pipeline_smart.XFADE_DUR
+
+
+def test_plan_transitions_without_pauses_is_unchanged():
+    """Обратная совместимость: без pauses — ровно прежнее поведение по хэшу."""
+    sections = ["HOOK"] * 4 + ["BLOCK 1: A"] * 4
+    assert pipeline_smart.plan_transitions(sections) == pipeline_smart.plan_transitions(sections)
+    with_none = pipeline_smart.plan_transitions(sections, pauses=None)
+    assert with_none == pipeline_smart.plan_transitions(sections)
+
+
+def test_section_boundary_still_wins_over_pause():
+    """Смена раздела — всегда заметный переход, даже если паузы там нет."""
+    sections = ["HOOK", "BLOCK 1: A"]
+    plan = pipeline_smart.plan_transitions(sections, pauses=[0.0])
+    assert plan[0][0] in pipeline_smart.BOUNDARY_TRANSITIONS
+    assert plan[0][1] == pipeline_smart.XFADE_DUR
+
+
+def test_clip_cache_key_covers_director_decisions():
+    """ЧАСТЬ 21: имя кэшированного клипа обязано содержать хэш ВСЕХ входов.
+    Режиссёрские решения (беат, композиция, светлота кадра) — такие же входы
+    рендера, как длительность и титр. Без них правка логики режиссуры молча
+    переиспользовала бы кадры, снятые по прежним решениям."""
+    b = _blk("Кузнец работал.", "BLOCK 1: X")
+    base = dict(b=b, d=5.0, title="ТЕМА", stat=None, src="/m/001.jpg", reuse=False,
+                comp=dict(director.NEUTRAL_COMPOSITION), beat=director.BEAT_NEUTRAL,
+                is_section_start=False, is_photo=True)
+
+    def recipe(**over):
+        a = dict(base, **over)
+        return pipeline_smart._render_recipe(a["b"], a["d"], a["title"], a["stat"], a["src"],
+                                             a["reuse"], a["comp"], a["beat"],
+                                             a["is_section_start"], a["is_photo"])
+
+    ref = recipe()
+    assert recipe() == ref, "рецепт обязан быть детерминированным"
+    # каждый вход обязан менять рецепт
+    assert recipe(beat=director.BEAT_STAT) != ref
+    assert recipe(is_section_start=True) != ref
+    assert recipe(comp=dict(director.NEUTRAL_COMPOSITION, cx=0.8)) != ref
+    assert recipe(comp=dict(director.NEUTRAL_COMPOSITION, luma=0.9)) != ref
+    assert recipe(comp=dict(director.NEUTRAL_COMPOSITION, spread=0.05)) != ref
+    assert recipe(d=6.0) != ref
+    assert recipe(title="ДРУГОЕ") != ref
+    assert recipe(src="/m/002.jpg") != ref
+    assert recipe(reuse=True) != ref
+    assert recipe(is_photo=False) != ref
+    # ...но шум в третьем знаке замера не должен гонять перерендер зря
+    assert recipe(comp=dict(director.NEUTRAL_COMPOSITION, cx=0.0004)) == ref
+
+
+def test_render_recipe_survives_missing_composition():
+    b = _blk("Кузнец работал.", "BLOCK 1: X")
+    r = pipeline_smart._render_recipe(b, 5.0, None, None, "/m/x.mp4", False, None,
+                                      director.BEAT_NEUTRAL, False, False)
+    assert isinstance(r, str) and r
