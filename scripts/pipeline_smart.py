@@ -708,17 +708,17 @@ def section_title(name):
 
 
 def escape_drawtext(s):
-    # % \u043d\u0435 \u044d\u043a\u0440\u0430\u043d\u0438\u0440\u043e\u0432\u0430\u043b\u0441\u044f \u2014 ffmpeg drawtext \u0442\u0440\u0430\u043a\u0442\u0443\u0435\u0442 \u0435\u0433\u043e \u043a\u0430\u043a \u043d\u0430\u0447\u0430\u043b\u043e strftime/
-    # expansion-\u0442\u043e\u043a\u0435\u043d\u0430 \u0438 \u0440\u043e\u043d\u044f\u0435\u0442 "Stray %" \u043f\u0440\u0435\u0434\u0443\u043f\u0440\u0435\u0436\u0434\u0435\u043d\u0438\u0435 (\u043f\u0440\u043e\u0432\u0435\u0440\u0435\u043d\u043e \u0432\u0436\u0438\u0432\u0443\u044e).
+    # % не экранировался — ffmpeg drawtext трактует его как начало strftime/
+    # expansion-токена и роняет "Stray %" предупреждение (проверено вживую).
     return (s.replace("\\", "\\\\").replace(":", "\\:")
              .replace("%", "%%").replace("'", "\u2019"))
 
 
 def pick_no_repeat(history, candidate, options, max_repeat):
-    """\u0425\u044d\u0448 \u0434\u0430\u0451\u0442 \u0440\u0430\u0437\u043d\u043e\u043e\u0431\u0440\u0430\u0437\u0438\u0435 "\u0432 \u0441\u0440\u0435\u0434\u043d\u0435\u043c", \u043d\u043e \u043d\u0435 \u043c\u0435\u0448\u0430\u0435\u0442 3-4 \u043e\u0434\u0438\u043d\u0430\u043a\u043e\u0432\u044b\u043c \u043f\u043e\u0434\u0440\u044f\u0434
-    \u0441\u043b\u0443\u0447\u0430\u0439\u043d\u044b\u043c \u0441\u043e\u0432\u043f\u0430\u0434\u0435\u043d\u0438\u0435\u043c. \u0415\u0441\u043b\u0438 \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0435 max_repeat \u0440\u0435\u0448\u0435\u043d\u0438\u0439 \u0441\u043e\u0432\u043f\u0430\u0434\u0430\u044e\u0442 \u0441
-    \u043a\u0430\u043d\u0434\u0438\u0434\u0430\u0442\u043e\u043c \u2014 \u0434\u0435\u0442\u0435\u0440\u043c\u0438\u043d\u0438\u0440\u043e\u0432\u0430\u043d\u043d\u043e \u0431\u0435\u0440\u0451\u043c \u0441\u043b\u0435\u0434\u0443\u044e\u0449\u0438\u0439 \u0432\u0430\u0440\u0438\u0430\u043d\u0442 \u043f\u043e \u043a\u0440\u0443\u0433\u0443 \u0432\u043c\u0435\u0441\u0442\u043e
-    \u043d\u0435\u0433\u043e. history \u043c\u0443\u0442\u0438\u0440\u0443\u0435\u0442\u0441\u044f \u043d\u0430 \u043c\u0435\u0441\u0442\u0435 (\u0441\u043f\u0438\u0441\u043e\u043a \u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0445 \u0440\u0435\u0448\u0435\u043d\u0438\u0439)."""
+    """Хэш даёт разнообразие "в среднем", но не мешает 3-4 одинаковым подряд
+    случайным совпадением. Если последние max_repeat решений совпадают с
+    кандидатом — детерминированно берём следующий вариант по кругу вместо
+    него. history мутируется на месте (список последних решений)."""
     if len(history) >= max_repeat and all(x == candidate for x in history[-max_repeat:]):
         idx = options.index(candidate) if candidate in options else 0
         candidate = options[(idx + 1) % len(options)]
@@ -728,12 +728,12 @@ def pick_no_repeat(history, candidate, options, max_repeat):
 
 
 def audio_energy_curve(audio_path, window_sec=1.0):
-    """RMS-\u0433\u0440\u043e\u043c\u043a\u043e\u0441\u0442\u044c \u0430\u0443\u0434\u0438\u043e \u043f\u043e \u043e\u043a\u043d\u0430\u043c \u2014 \u0431\u0435\u0437 Whisper/librosa, \u0447\u0438\u0441\u0442\u044b\u0439 PCM+numpy.
-    \u0412\u043e\u0437\u0432\u0440\u0430\u0449\u0430\u0435\u0442 (rms_array, window_sec) \u0438\u043b\u0438 None, \u0435\u0441\u043b\u0438 numpy \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d/\u0447\u0442\u043e-\u0442\u043e
-    \u043f\u043e\u0448\u043b\u043e \u043d\u0435 \u0442\u0430\u043a (\u0444\u0438\u0447\u0430 \u043e\u043f\u0446\u0438\u043e\u043d\u0430\u043b\u044c\u043d\u0430\u044f, \u043f\u0430\u0439\u043f\u043b\u0430\u0439\u043d \u043d\u0435 \u0434\u043e\u043b\u0436\u0435\u043d \u043f\u0430\u0434\u0430\u0442\u044c \u0431\u0435\u0437 \u043d\u0435\u0451)."""
+    """RMS-громкость аудио по окнам — без Whisper/librosa, чистый PCM+numpy.
+    Возвращает (rms_array, window_sec) или None, если numpy недоступен/что-то
+    пошло не так (фича опциональная, пайплайн не должен падать без неё)."""
     if np is None:
         return None
-    sr = 8000   # \u043d\u0443\u0436\u043d\u0430 \u0442\u043e\u043b\u044c\u043a\u043e \u043e\u0433\u0438\u0431\u0430\u044e\u0449\u0430\u044f \u0433\u0440\u043e\u043c\u043a\u043e\u0441\u0442\u0438, \u043d\u0435 \u0437\u0432\u0443\u043a \u2014 \u043d\u0438\u0437\u043a\u0438\u0439 sr \u0434\u043e\u0441\u0442\u0430\u0442\u043e\u0447\u043d\u043e \u0438 \u0431\u044b\u0441\u0442\u0440\u043e
+    sr = 8000   # нужна только огибающая громкости, не звук — низкий sr достаточно и быстро
     try:
         r = subprocess.run(["ffmpeg", "-v", "quiet", "-i", audio_path, "-f", "s16le",
                             "-ac", "1", "-ar", str(sr), "-"], capture_output=True, timeout=120)
@@ -749,14 +749,14 @@ def audio_energy_curve(audio_path, window_sec=1.0):
         rms = np.sqrt(np.mean(trimmed ** 2, axis=1))
         return rms, window_sec
     except Exception as e:
-        print(f"  \u0410\u043d\u0430\u043b\u0438\u0437 \u0433\u0440\u043e\u043c\u043a\u043e\u0441\u0442\u0438 \u043d\u0435 \u0443\u0434\u0430\u043b\u0441\u044f (\u043f\u0440\u043e\u043f\u0443\u0441\u043a\u0430\u044e): {e}")
+        print(f"  Анализ громкости не удался (пропускаю): {e}")
         return None
 
 
 def energy_pace_multipliers(curve, starts, durs, lo=0.8, hi=1.25):
-    """\u0413\u0440\u043e\u043c\u0447\u0435 \u0443\u0447\u0430\u0441\u0442\u043e\u043a \u2014 \u043a\u043e\u0440\u043e\u0447\u0435 \u043a\u0430\u0434\u0440\u044b (\u043c\u043d\u043e\u0436\u0438\u0442\u0435\u043b\u044c <1), \u0442\u0438\u0448\u0435 \u2014 \u0434\u043b\u0438\u043d\u043d\u0435\u0435 (>1).
-    \u041c\u043d\u043e\u0436\u0438\u0442\u0435\u043b\u044c \u0441\u0447\u0438\u0442\u0430\u0435\u0442\u0441\u044f \u043e\u0442 \u043e\u0442\u043d\u043e\u0448\u0435\u043d\u0438\u044f \u043a \u041c\u0415\u0414\u0418\u0410\u041d\u0415 \u0433\u0440\u043e\u043c\u043a\u043e\u0441\u0442\u0438 \u0432\u0441\u0435\u0439 \u0434\u043e\u0440\u043e\u0436\u043a\u0438,
-    \u0447\u0442\u043e\u0431\u044b \u0442\u0438\u0445\u0438\u0439 \u0440\u043e\u043b\u0438\u043a \u0446\u0435\u043b\u0438\u043a\u043e\u043c \u043d\u0435 \u0440\u0430\u0441\u0442\u044f\u0433\u0438\u0432\u0430\u043b \u0432\u0441\u0435 \u043a\u0430\u0434\u0440\u044b \u043e\u0434\u0438\u043d\u0430\u043a\u043e\u0432\u043e."""
+    """Громче участок — короче кадры (множитель <1), тише — длиннее (>1).
+    Множитель считается от отношения к МЕДИАНЕ громкости всей дорожки,
+    чтобы тихий ролик целиком не растягивал все кадры одинаково."""
     if curve is None:
         return [1.0] * len(durs)
     rms, window_sec = curve
@@ -1496,6 +1496,13 @@ def find_audio():
     p = os.path.join(VIDEO_FOLDER, "audio.mp3")
     if os.path.exists(p):
         return p
+    # os.listdir по несуществующей папке — FileNotFoundError НА ИМПОРТЕ
+    # модуля (find_audio зовётся на уровне модуля), то есть опечатка в пути к
+    # эпизоду давала сырой трейсбек вместо понятного сообщения. Поймано
+    # вживую: свежий клон без папки videos/ (git не хранит пустые каталоги) +
+    # любой скрипт, который импортирует pipeline_smart с таким путём.
+    if not os.path.isdir(VIDEO_FOLDER):
+        return os.path.join(VIDEO_FOLDER, "audio.mp3")
     mp3s = [f for f in os.listdir(VIDEO_FOLDER) if f.lower().endswith(".mp3")]
     return os.path.join(VIDEO_FOLDER, mp3s[0]) if mp3s else os.path.join(VIDEO_FOLDER, "audio.mp3")
 

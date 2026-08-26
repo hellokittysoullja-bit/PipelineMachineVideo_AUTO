@@ -93,6 +93,8 @@ def find_audio(video_dir):
         p = os.path.join(video_dir, name)
         if os.path.exists(p):
             return p
+    if not os.path.isdir(video_dir):
+        return None
     mp3s = [f for f in os.listdir(video_dir) if f.lower().endswith(".mp3")
             and "fixed" not in f.lower()]
     return os.path.join(video_dir, mp3s[0]) if mp3s else None
