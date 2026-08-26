@@ -782,9 +782,14 @@ def test_normalize_percent_sign():
 
 
 def test_normalize_kg_after_digit():
+    # Дробное число -> родительный падеж ЕДИНСТВЕННОГО числа ("1.2
+    # килограмма"), и в паттерн входит ВСЁ число, а не последняя его цифра.
+    # Раньше здесь стояло "килограммов" и before == "2 кг" — это был зафик-
+    # сированный тестом БАГ: текст уходил в озвучку неграмотным ("1.2
+    # килограммов"), а платит за это TTS и слушает зритель.
     text, subs = sg.normalize_pronunciation("Средний вес составлял 1.2 кг.")
-    assert "килограммов" in text
-    assert subs[0]["before"] == "2 кг"   # цифра ПЕРЕД сокращением — часть паттерна
+    assert "1.2 килограмма" in text
+    assert subs[0]["before"] == "1.2 кг"
 
 
 def test_normalize_does_not_touch_ambiguous_bare_g():
@@ -797,7 +802,39 @@ def test_normalize_does_not_touch_ambiguous_bare_g():
 
 def test_normalize_km_mm_cm():
     text, _ = sg.normalize_pronunciation("3 км, 4 см, 5 мм.")
-    assert "километров" in text and "сантиметров" in text and "миллиметров" in text
+    assert "3 километра" in text and "4 сантиметра" in text and "5 миллиметров" in text
+
+
+def test_normalize_unit_agrees_with_number():
+    # Согласование формы единицы с числом — самый частый контент этой ниши
+    # ("вес меча 1,5 кг"), и именно он раньше звучал неграмотно.
+    cases = {
+        "Меч весил 1 кг.": "1 килограмм",
+        "Меч весил 2 кг.": "2 килограмма",
+        "Меч весил 4 кг.": "4 килограмма",
+        "Меч весил 5 кг.": "5 килограммов",
+        "Меч весил 11 кг.": "11 килограммов",
+        "Меч весил 14 кг.": "14 килограммов",
+        "Меч весил 21 кг.": "21 килограмм",
+        "Меч весил 22 кг.": "22 килограмма",
+        "Меч весил 1,5 кг.": "1,5 килограмма",
+        "Ровно 1%.": "1 процент",
+        "Ровно 22%.": "22 процента",
+        "Ровно 50%.": "50 процентов",
+    }
+    for text_in, expected in cases.items():
+        out, _ = sg.normalize_pronunciation(text_in)
+        assert expected in out, f"{text_in!r} -> {out!r}, ожидалось вхождение {expected!r}"
+
+
+def test_russian_unit_form_table():
+    forms = ("килограмм", "килограмма", "килограммов")
+    assert sg.russian_unit_form("1", forms) == "килограмм"
+    assert sg.russian_unit_form("101", forms) == "килограмм"
+    assert sg.russian_unit_form("111", forms) == "килограммов"
+    assert sg.russian_unit_form("3", forms) == "килограмма"
+    assert sg.russian_unit_form("0", forms) == "килограммов"
+    assert sg.russian_unit_form("0,5", forms) == "килограмма"
 
 
 def test_normalize_disabled_via_env():
