@@ -12,3 +12,9 @@ pytest>=8.0
 # torch --index-url https://download.pytorch.org/whl/cpu
 # torchvision --index-url https://download.pytorch.org/whl/cpu
 # transformers
+
+# Опционально — точная привязка кадров к речи в pipeline_smart.py
+# (WHISPER_ALIGN=1 включает; без переменной или без пакета — прежняя оценка
+# по словам, пайплайн не падает). CPU-инференс, модель "small" по умолчанию
+# (WHISPER_MODEL=... меняет размер, WHISPER_LANG=... язык).
+# faster-whisper

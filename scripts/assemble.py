@@ -6,6 +6,7 @@
 Слот: приоритет AI-фото (_fastgen/_grok/_flow/_ai .jpg) > сток-видео (_stock_video.mp4)
 > сток-фото (_stock.jpg). Фото -> Ken Burns, видео -> кроп под слот.
 Usage: python scripts/assemble.py <video_dir>"""
+import concurrent.futures
 import glob
 import hashlib
 import json
@@ -13,6 +14,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 
 try:
     import numpy as np
@@ -20,6 +22,35 @@ except ImportError:
     np = None   # аудио-ритм по громкости — опциональная фича, без numpy просто выключена
 
 FPS, WIDTH, HEIGHT = 25, 1920, 1080
+# Каждый слот рендерится независимым процессом ffmpeg по уже полностью
+# решённым параметрам (зум/пан/переход/медиа выбраны до рендера) — N
+# параллельных процессов дают тот же результат, что и последовательный
+# перебор, только быстрее. Та же формула, что в pipeline_smart.py.
+def resolve_workers(env_value, cpu_count):
+    if env_value:
+        try:
+            v = int(env_value)
+            if v > 0:
+                return v
+        except ValueError:
+            pass
+    return max(1, (cpu_count or 4) - 1)
+
+
+def resolve_ffmpeg_threads(workers, cpu_count):
+    return max(1, (cpu_count or 4) // max(1, workers))
+
+
+WORKERS = resolve_workers(os.environ.get("PIPELINE_WORKERS", ""), os.cpu_count())
+FFMPEG_THREADS = resolve_ffmpeg_threads(WORKERS, os.cpu_count())
+
+# CRF интермедиатов поднят с 23 (второе поколение потерь при склейке xfade
+# поверх — см. pipeline_smart.py). Финальный проход может себе позволить
+# -preset slow: он запускается один раз на весь ролик, а не N раз, как
+# per-clip кодирование.
+CLIP_CRF = "17"
+FINAL_CRF = "18"
+FINAL_PRESET = "slow"
 # ZOOM_FLOOR — минимальный зум держится ВЕСЬ клип (не 1.0). Раньше offset пана
 # был обязан = 0 ровно в момент zoom=1.0 (иначе край вылезет за картинку), и на
 # каждом втором клипе (zoom-out) кадр половину времени стоял мёртвым по центру.
@@ -115,7 +146,9 @@ def energy_pace_multipliers(curve, starts, durs, lo=0.8, hi=1.25):
 
 
 def find_audio(video_dir):
-    for name in ("audio_fixed.mp3", "audio.mp3"):
+    # flac/wav — lossless-выход fix_pauses.py (см. pipeline_smart.py); mp3
+    # остаётся резервом для роликов, сделанных до этого изменения.
+    for name in ("audio_fixed.flac", "audio_fixed.wav", "audio_fixed.mp3", "audio.mp3"):
         p = os.path.join(video_dir, name)
         if os.path.exists(p):
             return p
@@ -215,7 +248,8 @@ def kenburns_clip(photo, out, d, source="stock", zoom_in=None, pan_dir=None):
             f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS},"
             f"{film_look(source, h)}"),
            "-t", str(d), "-c:v", "libx264", "-preset", "fast",
-           "-crf", "23", "-pix_fmt", "yuv420p", "-r", str(FPS), out]
+           "-crf", CLIP_CRF, "-threads", str(FFMPEG_THREADS),
+           "-pix_fmt", "yuv420p", "-r", str(FPS), out]
     return subprocess.run(cmd, capture_output=True, text=True).returncode == 0
 
 
@@ -230,8 +264,8 @@ def video_clip(vid, out, d, source="stock"):
         vf += f",setpts={d/actual:.5f}*PTS"
     vf += f",{film_look(source, h)}"
     cmd = ["ffmpeg", "-y", "-i", vid, "-vf", vf, "-t", str(d), "-an",
-           "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-           "-pix_fmt", "yuv420p", "-r", str(FPS), out]
+           "-c:v", "libx264", "-preset", "fast", "-crf", CLIP_CRF,
+           "-threads", str(FFMPEG_THREADS), "-pix_fmt", "yuv420p", "-r", str(FPS), out]
     return subprocess.run(cmd, capture_output=True, text=True).returncode == 0
 
 
@@ -316,7 +350,7 @@ def xfade_chain(clips, durs, is_hook, out, xfade_dur=XFADE_DUR, plan=None):
     for c in clips:
         cmd += ["-i", c]
     cmd += ["-filter_complex", ";".join(parts), "-map", "[vout]",
-            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:v", "libx264", "-preset", FINAL_PRESET, "-crf", FINAL_CRF,
             "-pix_fmt", "yuv420p", "-r", str(FPS), out]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
@@ -339,7 +373,7 @@ def pad_to_length(video, target, temp_dir):
     subprocess.run(["ffmpeg", "-y", "-sseof", "-0.3", "-i", video,
                     "-vframes", "1", lastframe], capture_output=True)
     r = subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", lastframe, "-t", f"{gap:.3f}",
-                        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                        "-c:v", "libx264", "-preset", "fast", "-crf", CLIP_CRF,
                         "-pix_fmt", "yuv420p", "-r", str(FPS), padclip],
                        capture_output=True, text=True)
     if r.returncode != 0:
@@ -400,9 +434,13 @@ def main():
         print(f"Хук: {hook_slots} слотов, сумма {hook_total:.1f}с | тело {body_slots} по ~{body_d_avg:.2f}с")
     print(f"Аудио {audio_dur:.1f}с ({audio_dur/60:.1f} мин), слотов {n_slots}")
 
-    clips, clip_durs, clip_is_hook, missing = [], [], [], []
+    # --- Фаза A: решения по порядку (медиа, зум/пан, кэш-хиты) — последовательно
+    # (анти-повтор по истории должен видеть каждое предыдущее решение).
+    missing = []
     zoom_hist, pan_hist = [], []
-    for slot in range(1, n_slots + 1):
+    jobs = [None] * n_slots
+    for idx in range(n_slots):
+        slot = idx + 1
         is_hook_slot = slot <= hook_slots
         d = hook_dur.get(slot, body_d_avg) if is_hook_slot else body_durs[slot - hook_slots - 1]
         kind, path, source = resolve_slot(media_dir, slot)
@@ -418,28 +456,62 @@ def main():
             f"{d:.3f}|{source}|{os.path.basename(path)}".encode()).hexdigest()[:8]
         out = os.path.join(temp, f"clip_{slot:04d}_{params_hash}.mp4")
         if os.path.exists(out):
-            clips.append(out)
-            clip_durs.append(d)
-            clip_is_hook.append(is_hook_slot)
+            jobs[idx] = {"cached": True, "out": out, "d": d, "is_hook": is_hook_slot}
             continue
         if kind == "video":
-            ok = video_clip(path, out, d, source)
+            jobs[idx] = {"cached": False, "kind": "video", "path": path, "d": d,
+                        "source": source, "is_hook": is_hook_slot, "out": out}
         else:
             # anti-repetition: хэш сам по себе не мешает 3 зумам подряд случайно
             # совпасть — держим окно последних решений и форсируем смену при повторе.
             _, zi_cand, pd_cand = kb_hash_choices(path)
             zoom_in = pick_no_repeat(zoom_hist, zi_cand, [True, False], max_repeat=2)
             pan_dir = pick_no_repeat(pan_hist, pd_cand, PAN_DIRECTIONS, max_repeat=2)
-            ok = kenburns_clip(path, out, d, source, zoom_in=zoom_in, pan_dir=pan_dir)
+            jobs[idx] = {"cached": False, "kind": "photo", "path": path, "d": d,
+                        "source": source, "is_hook": is_hook_slot, "out": out,
+                        "zoom_in": zoom_in, "pan_dir": pan_dir}
+
+    # --- Фаза B: параллельный рендер того, чего нет в кэше — каждый job уже
+    # несёт все параметры, N процессов ffmpeg дают тот же результат быстрее.
+    def render_job(job):
+        if job["kind"] == "video":
+            return video_clip(job["path"], job["out"], job["d"], job["source"])
+        return kenburns_clip(job["path"], job["out"], job["d"], job["source"],
+                             zoom_in=job["zoom_in"], pan_dir=job["pan_dir"])
+
+    to_render = [(idx, job) for idx, job in enumerate(jobs) if job is not None and not job["cached"]]
+    results = {}
+    if to_render:
+        print(f"Рендер {len(to_render)} слотов, {WORKERS} параллельно "
+              f"({FFMPEG_THREADS} потока ffmpeg на слот)...")
+        print_lock = threading.Lock()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=WORKERS) as ex:
+            futures = {ex.submit(render_job, job): idx for idx, job in to_render}
+            done_n = 0
+            for fut in concurrent.futures.as_completed(futures):
+                idx = futures[fut]
+                try:
+                    ok = fut.result()
+                except Exception as e:
+                    print(f"  [{idx+1}] рендер упал: {type(e).__name__} {e}")
+                    ok = False
+                results[idx] = ok
+                done_n += 1
+                if not ok or done_n % 20 == 0 or done_n <= 3:
+                    with print_lock:
+                        print(f"[{done_n}/{len(to_render)}] слот {idx+1:03d}/{n_slots} "
+                              f"{'OK' if ok else 'FFMPEG FAIL'}", flush=True)
+
+    clips, clip_durs, clip_is_hook = [], [], []
+    for idx, job in enumerate(jobs):
+        if job is None:
+            continue
+        slot = idx + 1
+        ok = True if job["cached"] else results.get(idx, False)
         if ok:
-            clips.append(out)
-            clip_durs.append(d)
-            clip_is_hook.append(is_hook_slot)
-            if slot % 20 == 0 or slot <= 3:
-                print(f"[{slot:03d}/{n_slots}] OK <- {os.path.basename(path)}", flush=True)
+            clips.append(job["out"]); clip_durs.append(job["d"]); clip_is_hook.append(job["is_hook"])
         else:
             missing.append(slot)
-            print(f"[{slot:03d}] FFMPEG FAIL", flush=True)
 
     print(f"\nКлипов: {len(clips)}/{n_slots}, пропущено: {len(missing)}")
     if missing:
@@ -470,6 +542,7 @@ def main():
     r = subprocess.run(["ffmpeg", "-y", "-i", merged, "-i", audio,
                         "-t", f"{audio_dur:.3f}",
                         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+                        "-movflags", "+faststart",
                         "-shortest", out_file], capture_output=True, text=True)
     if r.returncode != 0:
         print("Аудио:", r.stderr[-400:])

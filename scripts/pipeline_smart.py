@@ -5,12 +5,14 @@
 кадра, чередование in/out. Медиа: локальная папка media/ по порядку,
 fallback — Pexels по тематическому запросу.
 Usage: python scripts/pipeline_smart.py <video_dir>"""
+import concurrent.futures
 import hashlib
 import json
 import os
 import re
 import subprocess
 import sys
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -47,6 +49,40 @@ PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY", "")
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/125.0 Safari/537.36")
 FPS, WIDTH, HEIGHT = 25, 1920, 1080
+# Каждый клип рендерится независимым процессом ffmpeg, и все решения (зум,
+# пан, переход, выбор медиа) принимаются ДО запуска рендера — общего
+# изменяемого состояния между клипами нет. Значит параллельный запуск N из
+# них не меняет результат, только время сборки. -threads на каждый процесс
+# клэмпится так, чтобы WORKERS процессов суммарно не забирали больше ядер,
+# чем есть физически — без клэмпа N параллельных full-core энкодов душат
+# друг друга и выигрыша по времени почти нет.
+def resolve_workers(env_value, cpu_count):
+    if env_value:
+        try:
+            v = int(env_value)
+            if v > 0:
+                return v
+        except ValueError:
+            pass
+    return max(1, (cpu_count or 4) - 1)
+
+
+def resolve_ffmpeg_threads(workers, cpu_count):
+    return max(1, (cpu_count or 4) // max(1, workers))
+
+
+WORKERS = resolve_workers(os.environ.get("PIPELINE_WORKERS", ""), os.cpu_count())
+FFMPEG_THREADS = resolve_ffmpeg_threads(WORKERS, os.cpu_count())
+
+# CRF интермедиатов поднят с 23: клип кодируется раз, потом ЕЩЁ РАЗ поверх
+# кодируется вся цепочка xfade — то есть в финал уходит второе поколение
+# потерь. 17 — стандартный порог "визуально без потерь" для x264, цена —
+# только временное место на диске в temp_smart/. Финальный проход
+# (xfade_chain, единственный полноразмерный энкод на весь ролик, а не N раз,
+# как per-clip) может себе позволить -preset slow.
+CLIP_CRF = "17"
+FINAL_CRF = "18"
+FINAL_PRESET = "slow"
 # ZOOM_FLOOR — минимальный зум держится ВЕСЬ клип (не 1.0). Раньше offset пана
 # был обязан = 0 ровно в момент zoom=1.0 (иначе край вылезет за картинку), и на
 # каждом втором клипе (zoom-out) кадр половину времени стоял мёртвым по центру.
@@ -207,8 +243,137 @@ def energy_pace_multipliers(curve, starts, durs, lo=0.8, hi=1.25):
     return mults
 
 
+# --- Точная привязка кадров к речи (опционально, нужен faster-whisper) ---
+# Без этого длительность блока — ОЦЕНКА (слова/скорость), а не факт: граница
+# кадра никогда не совпадает с реальным концом фразы, только статистически
+# близко к нему. faster-whisper даёт пословные тайм-коды по РЕАЛЬНОМУ аудио;
+# порядок слов в озвучке известен заранее (TTS читает сценарий как есть),
+# поэтому слово сценария сопоставляется слову распознавания не по смыслу, а
+# по позиции — пропорциональным индексом в общем счётчике слов. Это не
+# полноценный forced-aligner (Whisper иногда путает 1-2 слова), но для границ
+# БЛОКОВ (не отдельных слов) точности достаточно, а зависимостей на порядок
+# легче, чем у настоящего forced-alignment пакета.
+try:
+    from faster_whisper import WhisperModel
+    WHISPER_LIBS = True
+except ImportError:
+    WHISPER_LIBS = False   # опциональная фича — без пакета работает прежняя оценка по словам
+
+WHISPER_ENABLED = os.environ.get("WHISPER_ALIGN", "0") == "1" and WHISPER_LIBS
+WHISPER_MODEL_SIZE = os.environ.get("WHISPER_MODEL", "small")
+WHISPER_LANG = os.environ.get("WHISPER_LANG", "ru")
+_whisper_model = None
+_whisper_lock = threading.Lock()
+
+
+def get_whisper_model():
+    global _whisper_model
+    with _whisper_lock:
+        if _whisper_model is None:
+            _whisper_model = WhisperModel(WHISPER_MODEL_SIZE, device="cpu", compute_type="int8")
+        return _whisper_model
+
+
+def transcribe_words(audio_path):
+    """[(start_sec, end_sec, word), ...] по всему аудио, в порядке звучания."""
+    model = get_whisper_model()
+    segments, _ = model.transcribe(audio_path, language=WHISPER_LANG, word_timestamps=True)
+    words = []
+    for seg in segments:
+        for w in (seg.words or []):
+            words.append((float(w.start), float(w.end), w.word))
+    return words
+
+
+def _map_index(k, n_total, m_total):
+    """Пропорциональный индекс: k-е слово сценария (из n_total) -> позиция в
+    последовательности из m_total распознанных слов. Монотонно неубывающая
+    "линейная деформация времени" — без полного форс-алайнмента (DTW/edit
+    distance), которого для границ блоков не требуется: несколько неверно
+    распознанных слов внутри блока сдвигают индекс на доли слова, границы
+    блоков это не портит заметно."""
+    if n_total <= 0 or m_total <= 0:
+        return 0
+    return min(m_total - 1, max(0, round(k * (m_total - 1) / n_total)))
+
+
+def whisper_breakpoints(blocks, audio_path):
+    """[t0, t1, ..., tN] (N=len(blocks)) — граница времени речи между блоками
+    по факту звучания audio_path. t0=0.0, tN=длина аудио. None при
+    недоступности/сбое/подозрительном результате — тогда вызывающий код
+    остаётся на прежней оценке по словам, тайминг не должен падать из-за
+    опциональной фичи."""
+    if not WHISPER_ENABLED:
+        return None
+    try:
+        words = transcribe_words(audio_path)
+    except Exception as e:
+        print(f"  Whisper-выравнивание недоступно ({type(e).__name__}: {e}), оценка по словам.")
+        return None
+    script_word_counts = [b["words"] for b in blocks]
+    n_total = sum(script_word_counts)
+    m_total = len(words)
+    if n_total <= 0 or m_total < n_total * 0.5:
+        # Меньше половины ожидаемых слов распознано — модель не справилась с
+        # этим аудио (шум, музыка, не тот язык), а не сценарий пустой.
+        # Доверять таким тайм-кодам опаснее, чем прежней оценке.
+        print(f"  Whisper распознал {m_total} слов на {n_total} в сценарии — "
+              f"расхождение слишком большое, оценка по словам.")
+        return None
+    try:
+        audio_len = get_media_duration(audio_path)
+    except Exception:
+        return None
+    cum = 0
+    breakpoints = [0.0]
+    for count in script_word_counts:
+        cum += count
+        breakpoints.append(audio_len if cum >= n_total else words[_map_index(cum, n_total, m_total)][0])
+    return breakpoints
+
+
+def _format_srt_timestamp(t):
+    ms = round(max(0.0, t) * 1000)
+    h, ms = divmod(ms, 3_600_000)
+    m, ms = divmod(ms, 60_000)
+    sec, ms = divmod(ms, 1000)
+    return f"{h:02d}:{m:02d}:{sec:02d},{ms:03d}"
+
+
+def write_srt(blocks, breakpoints, path):
+    """Экспорт субтитров по тем же тайм-кодам, что дал Whisper для тайминга
+    монтажа — бесплатный побочный продукт точной привязки к речи. Внутри
+    блока делим текст на предложения и распределяем время пропорционально
+    числу слов: без этого длинный блок превращался бы в одну нечитаемую
+    plaque на 15-20 секунд."""
+    cues = []
+    for b, t0, t1 in zip(blocks, breakpoints[:-1], breakpoints[1:]):
+        text = b["text"].strip()
+        if not text or t1 <= t0:
+            continue
+        sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()]
+        if not sentences:
+            continue
+        counts = [max(1, len(s.split())) for s in sentences]
+        total_words = sum(counts)
+        cur = t0
+        for sent, cnt in zip(sentences, counts):
+            share = (t1 - t0) * cnt / total_words
+            cues.append((cur, cur + share, sent))
+            cur += share
+    if not cues:
+        return
+    with open(path, "w", encoding="utf-8") as f:
+        for n, (a, bnd, text) in enumerate(cues, 1):
+            f.write(f"{n}\n{_format_srt_timestamp(a)} --> {_format_srt_timestamp(bnd)}\n{text}\n\n")
+    print(f"Субтитры: {path} ({len(cues)} реплик)")
+
+
 def find_audio():
-    for name in ("audio_fixed.mp3", "audio.mp3"):
+    # flac/wav — новый lossless-выход fix_pauses.py (убирает второе поколение
+    # lossy-сжатия между trim/loudnorm и финальным AAC-миксом); audio_fixed.mp3
+    # остаётся резервом для роликов, сделанных до этого изменения.
+    for name in ("audio_fixed.flac", "audio_fixed.wav", "audio_fixed.mp3", "audio.mp3"):
         p = os.path.join(VIDEO_FOLDER, name)
         if os.path.exists(p):
             return p
@@ -382,11 +547,18 @@ def fit_to_total(raw, mins, maxs, total, iters=60):
     return d
 
 
-def block_durations(blocks, total, energy_mults=None):
-    tw = sum(b["words"] for b in blocks)
-    tp = sum(b["pause_after"] for b in blocks)
-    wps = tw / max(total - tp, 1)
-    raw = [b["words"] / wps + b["pause_after"] for b in blocks]
+def block_durations(blocks, total, energy_mults=None, raw_override=None):
+    """raw_override — реальные длительности по факту речи (Whisper), а не
+    оценка по словам. Всё остальное (энергетический множитель, капы,
+    water-filling под total) применяется одинаково независимо от источника
+    сырых значений."""
+    if raw_override is not None:
+        raw = list(raw_override)
+    else:
+        tw = sum(b["words"] for b in blocks)
+        tp = sum(b["pause_after"] for b in blocks)
+        wps = tw / max(total - tp, 1)
+        raw = [b["words"] / wps + b["pause_after"] for b in blocks]
     if energy_mults:
         raw = [r * m for r, m in zip(raw, energy_mults)]
     # В хуке кадры короче и чаще — первые секунды решают, останется ли зритель.
@@ -424,13 +596,26 @@ def download_atomic(url, dest, timeout=20):
                 pass
 
 
-def pexels_photo(query, index, used_ids=None):
+DUPE_HAMMING_THRESHOLD = 6   # тот же порог, что у qc_report — эмпирически "заметно похоже"
+
+
+def pexels_photo(query, index, used_ids=None, avoid_hashes=None):
     """used_ids — множество ID уже показанных в этом ролике фото (мутируется на
     месте). Разные блоки часто ловят один и тот же тематический запрос — без
     этого им всем доставался бы top-1 результат, то есть одна и та же картинка
-    по нескольку раз за ролик. Перебираем выдачу (per_page=10) и берём первый
-    ID, которого ещё не было; если все уже использованы — берём топ-1 всё равно
-    (лучше повтор, чем сорванная сборка)."""
+    по нескольку раз за ролик.
+
+    avoid_hashes — список ahash уже ПРИНЯТЫХ в этом ролике кадров (мутируется
+    на месте). qc_report уже находит визуально похожие кадры (Pexels ID разные,
+    а по факту похожий кроп того же сюжета) — но делает это ПОСЛЕ сборки и
+    только печатает список. Здесь тот же хэш применяется ДО рендера: похожий
+    результат отбрасывается и пробуется следующий из выдачи — предотвращение,
+    а не диагностика постфактум.
+
+    Перебираем выдачу (per_page=15) и берём первый ID, которого ещё не было И
+    чей ahash не похож на уже принятое; если вся выдача занята/похожа — берём
+    последний скачанный кандидат всё равно (лучше повтор, чем сорванная
+    сборка)."""
     global PEXELS_BROKEN
     cache = os.path.join(TEMP_FOLDER, "pexels_cache")
     os.makedirs(cache, exist_ok=True)
@@ -439,36 +624,57 @@ def pexels_photo(query, index, used_ids=None):
     qhash = hashlib.md5(query.encode()).hexdigest()[:8]
     cf = os.path.join(cache, f"{index:04d}_{qhash}.jpg")
     if os.path.exists(cf):
+        if avoid_hashes is not None:
+            # Кэш-хит на повторном прогоне никогда не прогонялся через хэш в
+            # ЭТОМ процессе — без этого добавления resume-прогон не видел бы,
+            # что этот кадр уже "занят", и дедуп для новых кадров того же
+            # запуска был бы неполным.
+            try:
+                avoid_hashes.append(ahash(cf))
+            except Exception:
+                pass
         return cf
     if not PEXELS_API_KEY:
         return None
     try:
         q = urllib.parse.quote(query)
         req = urllib.request.Request(
-            f"https://api.pexels.com/v1/search?query={q}&per_page=10&orientation=landscape",
+            f"https://api.pexels.com/v1/search?query={q}&per_page=15&orientation=landscape",
             headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
         with urllib.request.urlopen(req, timeout=15) as r:
             data = json.load(r)
-        photos = data.get("photos") or []
-        if not photos:
-            return None
-        pick = photos[0]
-        if used_ids is not None:
-            for p in photos:
-                if p.get("id") not in used_ids:
-                    pick = p
-                    break
-        if used_ids is not None:
-            used_ids.add(pick.get("id"))
-        url = pick["src"].get("large2x") or pick["src"].get("large") or pick["src"].get("original")
-        if not url:
-            return None
-        download_atomic(url, cf, timeout=20)
-        return cf
     except Exception as e:
         PEXELS_BROKEN = True
         print(f"  Pexels [{query}]: {e}")
         return None
+    photos = data.get("photos") or []
+    if not photos:
+        return None
+    candidates = [p for p in photos if used_ids is None or p.get("id") not in used_ids] or photos
+    got_any = False
+    for pick in candidates:
+        url = pick["src"].get("large2x") or pick["src"].get("large") or pick["src"].get("original")
+        if not url:
+            continue
+        try:
+            download_atomic(url, cf, timeout=20)
+        except Exception as e:
+            print(f"  Pexels [{query}] кандидат id={pick.get('id')}: {e}")
+            continue
+        got_any = True
+        if used_ids is not None:
+            used_ids.add(pick.get("id"))
+        if avoid_hashes is None:
+            break
+        try:
+            h = ahash(cf)
+        except Exception:
+            break   # хэш не считается — картинка всё равно валидна, отдаём как есть
+        if not any(hamming(h, prev) <= DUPE_HAMMING_THRESHOLD for prev in avoid_hashes):
+            avoid_hashes.append(h)
+            break
+        # похоже на уже принятое — cf уже перезапишется следующим кандидатом
+    return cf if got_any else None
 
 
 PHOTO_EXT = (".jpg", ".jpeg", ".png", ".webp")
@@ -533,6 +739,63 @@ def query_for(text):
     return None
 
 
+def normalize_section_key(name):
+    """"BLOCK 1: Название" / "BLOCK_1" / "HOOK" -> единый ключ ("HOOK",
+    "BLOCK 1", "FINAL"), не зависящий ни от разметки, ни от произвольного
+    человеческого титра после двоеточия."""
+    if not name:
+        return None
+    n = name.strip().upper().replace("_", " ")
+    if n.startswith("HOOK"):
+        return "HOOK"
+    if n.startswith("FINAL"):
+        return "FINAL"
+    m = re.match(r'BLOCK\s*(\d+)', n)
+    return f"BLOCK {m.group(1)}" if m else None
+
+
+def parse_pexels_queries(raw_text):
+    """Разбирает === PEXELS QUERIES === script.txt в словарь
+    {"HOOK": [q1, q2, ...], "BLOCK 1": [...], "FINAL": [...]}.
+
+    Формат по ЧАСТИ 9: "HOOK: q1,q2,q3 / BLOCK_1: qa,qb / ...". Группы могут
+    стоять и через "/", и по отдельным строкам — сценарий пишет LLM, а не
+    парсер, оформление плывёт.
+
+    Это ПРИОРИТЕТНЫЙ источник запросов (см. resolve_queries): протокол
+    (ЧАСТЬ 13, шаг 3) требует финализировать эту секцию под конкретный
+    сценарий ДО подбора стока — раньше её парсили только чтобы выбросить, и
+    картинки подбирались исключительно по общему словарю канала. Самая
+    точная информация о содержимом кадра писалась в файл и терялась."""
+    parts = re.split(r'===\s*(.*?)\s*===', raw_text)
+    body = ""
+    for i in range(1, len(parts), 2):
+        if parts[i].upper().startswith("PEXELS QUERIES"):
+            body = parts[i + 1] if i + 1 < len(parts) else ""
+            break
+    if not body.strip():
+        return {}
+    out = {}
+    for group in re.split(r'[/\n]+', body):
+        group = group.strip().strip("()").strip()
+        if not group or ":" not in group:
+            continue
+        key_raw, _, vals = group.partition(":")
+        key = normalize_section_key(key_raw)
+        qs = [v.strip() for v in vals.split(",") if v.strip()]
+        if key and qs:
+            out.setdefault(key, []).extend(qs)
+    return out
+
+
+def _read_script_queries():
+    try:
+        with open(SCRIPT_FILE, encoding="utf-8") as f:
+            return parse_pexels_queries(f.read())
+    except OSError:
+        return {}
+
+
 def resolve_queries(blocks):
     """Прямой поиск по themes.json ловит не все блоки — короткие связки
     ("Не дрались. Несли.", "Береги себя.") и абстрактные куски без предметных
@@ -541,8 +804,26 @@ def resolve_queries(blocks):
     унаследовать запрос соседнего блока той же секции (тема раздела обычно
     не меняется от предложения к предложению), и только если во всей секции
     вообще ничего не нашлось — берём по кругу из GENERIC_FALLBACKS (не один
-    и тот же текст на всё, иначе Pexels отдаёт одну и ту же жалкую пятёрку)."""
-    raw = [query_for(b["text"]) for b in blocks]
+    и тот же текст на всё, иначе Pexels отдаёт одну и ту же жалкую пятёрку).
+
+    ПРИОРИТЕТ: если в === PEXELS QUERIES === script.txt для секции блока
+    расписан список запросов — используем его, циклически меняя запрос
+    внутри секции (несколько разных картинок на один раздел, а не одна и та
+    же строка на все его кадры). Канальный словарь THEMES и вся резервная
+    цепочка ниже остаются на случай, если раздела в PEXELS QUERIES нет или
+    список пуст."""
+    script_queries = _read_script_queries()
+    section_cursor = {}
+    raw = []
+    for b in blocks:
+        key = normalize_section_key(b["section"])
+        qs = script_queries.get(key) if key else None
+        if qs:
+            idx = section_cursor.get(key, 0)
+            raw.append(qs[idx % len(qs)])
+            section_cursor[key] = idx + 1
+        else:
+            raw.append(query_for(b["text"]))
     resolved = list(raw)
     for i, q in enumerate(resolved):
         if q is not None:
@@ -680,7 +961,8 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
     def render(vf):
         cmd = ["ffmpeg", "-y", "-loop", "1", "-i", photo, "-vf", vf,
                "-t", str(dur), "-c:v", "libx264", "-preset", "fast",
-               "-crf", "23", "-pix_fmt", "yuv420p", "-r", str(FPS), out]
+               "-crf", CLIP_CRF, "-threads", str(FFMPEG_THREADS),
+               "-pix_fmt", "yuv420p", "-r", str(FPS), out]
         return subprocess.run(cmd, capture_output=True, text=True)
 
     if vf_overlay:
@@ -796,8 +1078,8 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
                "-frames:v", str(frames)]
         vf = film_look(h, section)
         vf = add_overlays(vf, dur, title, stat) if (title or stat) else vf
-        cmd += ["-vf", vf, "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                "-pix_fmt", "yuv420p", "-r", str(FPS), out]
+        cmd += ["-vf", vf, "-c:v", "libx264", "-preset", "fast", "-crf", CLIP_CRF,
+                "-threads", str(FFMPEG_THREADS), "-pix_fmt", "yuv420p", "-r", str(FPS), out]
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE,
                                  stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
@@ -887,8 +1169,8 @@ def video_render(vid, out, dur, title=None, stat=None, section=""):
 
     def render(vf):
         cmd = ["ffmpeg", "-y", "-i", vid, "-vf", vf, "-t", str(dur), "-an",
-               "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-               "-pix_fmt", "yuv420p", "-r", str(FPS), out]
+               "-c:v", "libx264", "-preset", "fast", "-crf", CLIP_CRF,
+               "-threads", str(FFMPEG_THREADS), "-pix_fmt", "yuv420p", "-r", str(FPS), out]
         return subprocess.run(cmd, capture_output=True, text=True)
 
     if vf_overlay:
@@ -1005,7 +1287,7 @@ def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR, plan=None):
     for c in clips:
         cmd += ["-i", c]
     cmd += ["-filter_complex", ";".join(parts), "-map", "[vout]",
-            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:v", "libx264", "-preset", FINAL_PRESET, "-crf", FINAL_CRF,
             "-pix_fmt", "yuv420p", "-r", str(FPS), out]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
@@ -1028,7 +1310,7 @@ def pad_to_length(video, target, temp_dir):
     subprocess.run(["ffmpeg", "-y", "-sseof", "-0.3", "-i", video,
                     "-vframes", "1", lastframe], capture_output=True)
     r = subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", lastframe, "-t", f"{gap:.3f}",
-                        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                        "-c:v", "libx264", "-preset", "fast", "-crf", CLIP_CRF,
                         "-pix_fmt", "yuv420p", "-r", str(FPS), padclip],
                        capture_output=True, text=True)
     if r.returncode != 0:
@@ -1111,35 +1393,53 @@ def main():
     xfade_plan = plan_transitions(block_sections)
     xfade_budget = sum(d for _, d in xfade_plan)
     target = total + xfade_budget
-    durs = block_durations(blocks, target)
-    # Второй проход: ритм по громкости поверх word-count-базы (не вместо неё) —
-    # громкие места режутся чаще, тихие держатся дольше. Опционально (нужен numpy).
-    # Стартовые точки для сэмплинга энергии считаем от РЕАЛЬНОЙ длины аудио
-    # (total), не от раздутой под кроссфейды target — иначе поздние блоки на
-    # длинном ролике со множеством склеек сэмплили бы энергию не в том месте.
-    curve = audio_energy_curve(AUDIO_FILE)
-    if curve:
-        baseline = block_durations(blocks, total)
-        starts, acc = [], 0.0
-        for d in baseline:
-            starts.append(acc)
-            acc += d
-        mults = energy_pace_multipliers(curve, starts, baseline)
-        durs = block_durations(blocks, target, energy_mults=mults)
-        print("Ритм по громкости: включён")
+
+    # Whisper даёт РЕАЛЬНЫЕ границы речи вместо оценки по словам (опционально,
+    # WHISPER_ALIGN=1). Когда он сработал — энергетический ритм ниже не нужен
+    # и не запускается: тот эвристический проход был попыткой приблизить
+    # оценку к реальному темпу речи, а тут уже сам реальный темп.
+    whisper_bp = whisper_breakpoints(blocks, AUDIO_FILE)
+    if whisper_bp:
+        raw = [whisper_bp[i + 1] - whisper_bp[i] for i in range(len(blocks))]
+        durs = block_durations(blocks, target, raw_override=raw)
+        print("Тайминг блоков: по факту речи (Whisper)")
+        write_srt(blocks, whisper_bp, os.path.join(VIDEO_FOLDER, "subtitles.srt"))
+    else:
+        durs = block_durations(blocks, target)
+        # Второй проход: ритм по громкости поверх word-count-базы (не вместо
+        # неё) — громкие места режутся чаще, тихие держатся дольше.
+        # Опционально (нужен numpy). Стартовые точки для сэмплинга энергии
+        # считаем от РЕАЛЬНОЙ длины аудио (total), не от раздутой под
+        # кроссфейды target — иначе поздние блоки на длинном ролике со
+        # множеством склеек сэмплили бы энергию не в том месте.
+        curve = audio_energy_curve(AUDIO_FILE)
+        if curve:
+            baseline = block_durations(blocks, total)
+            starts, acc = [], 0.0
+            for d in baseline:
+                starts.append(acc)
+                acc += d
+            mults = energy_pace_multipliers(curve, starts, baseline)
+            durs = block_durations(blocks, target, energy_mults=mults)
+            print("Ритм по громкости: включён")
     print(f"Средний кадр: {sum(durs)/len(durs):.1f}с")
 
-    clips, clip_durs, clip_sections = [], [], []
     missing = []   # индексы блоков, для которых не нашлось ни фото, ни видео
-    media_log = []   # (индекс, путь_к_фото) — для QC-проверки на похожие кадры в конце
     zoom_hist, pan_hist = [], []
     use_local = bool(LOCAL_MEDIA)
     use_pexels = bool(PEXELS_API_KEY)
     queries = resolve_queries(blocks)
     used_photo_ids = set()   # общий на весь ролик — не даём одной фотке всплыть дважды
     used_video_ids = set()   # то же самое, отдельно для видео (разные ID-пространства)
+    avoid_hashes = []        # ahash принятых фото — не даём визуально похожему кадру пройти
     last_media = None        # чем закрыть блок, для которого вообще ничего не нашлось
     reused = []              # такие блоки — чтобы честно сказать о них в конце
+
+    # --- Фаза A: все решения по порядку — медиа (сеть + общий дедуп), зум/пан
+    # (анти-повтор по истории), кэш-хиты уже готовых клипов. Последовательно,
+    # потому что мутирует общее состояние (used_ids/avoid_hashes/zoom_hist/
+    # last_media), которое должно видеть каждое предыдущее решение.
+    jobs = [None] * len(blocks)
     for i, (b, d) in enumerate(zip(blocks, durs)):
         # Титр темы — только на ПЕРВОМ кадре новой секции (BLOCK N: Название).
         is_section_start = i == 0 or blocks[i]["section"] != blocks[i - 1]["section"]
@@ -1167,9 +1467,9 @@ def main():
             if prefer_video:
                 video = pexels_video(queries[i], i, used_ids=used_video_ids)
                 if not video:
-                    photo = pexels_photo(queries[i], i, used_ids=used_photo_ids)
+                    photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, avoid_hashes=avoid_hashes)
             else:
-                photo = pexels_photo(queries[i], i, used_ids=used_photo_ids)
+                photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, avoid_hashes=avoid_hashes)
                 if not photo and d >= MIN_CLIP + 1.0:
                     video = pexels_video(queries[i], i, used_ids=used_video_ids)
             # Раньше Pexels отключался навсегда после ЛЮБОГО промаха, включая
@@ -1202,14 +1502,12 @@ def main():
         ).hexdigest()[:8]
         out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}_{params_hash}.mp4")
         if os.path.exists(out):
-            clips.append(out)
-            clip_durs.append(d)
-            clip_sections.append(b["section"])
-            if photo:
-                media_log.append((i, photo))
+            jobs[i] = {"cached": True, "out": out, "d": d, "section": b["section"],
+                       "photo_for_log": photo}
             continue
         if video:
-            ok = video_render(video, out, d, title=title, stat=stat, section=b["section"])
+            jobs[i] = {"cached": False, "kind": "video", "src": video, "out": out, "d": d,
+                       "title": title, "stat": stat, "section": b["section"]}
         else:
             # anti-repetition: хэш сам по себе не мешает 3 зумам подряд случайно
             # совпасть — держим окно последних решений и форсируем смену при повторе.
@@ -1220,30 +1518,74 @@ def main():
             pan_dir = pick_no_repeat(pan_hist, pd_cand, PAN_DIRECTIONS, max_repeat=2)
             # Параллакс — только на самые заметные точки ролика (хук целиком +
             # первый кадр каждого раздела), не на все фото: покадровый рендер
-            # с depth-моделью в разы дороже по времени zoompan-версии, на
-            # 40+ кадрах это лишние десятки минут ради эффекта, который
-            # большую часть ролика зритель всё равно не разглядывает так
-            # пристально, как хук и открывашки разделов.
+            # с depth-моделью в разы дороже по времени zoompan-версии.
             is_highlight = b["section"].startswith("HOOK") or is_section_start
-            ok = False
-            if PARALLAX_ENABLED and is_highlight:
-                ok = parallax_kenburns(photo, out, d, title=title, zoom_in=zoom_in,
-                                        pan_dir=pan_dir, stat=stat, section=b["section"])
-            if not ok:
-                ok = kenburns(photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
-                              stat=stat, section=b["section"])
-        if ok:
-            clips.append(out)
-            clip_durs.append(d)
-            clip_sections.append(b["section"])
-            if not video and photo:
-                media_log.append((i, photo))
-            if i % 20 == 0 or i < 3:
-                print(f"  [{i+1}/{len(blocks)}] {d:.1f}с {b['words']} слов ({'видео' if video else 'фото'})")
-        else:
-            missing.append(i + 1)
+            jobs[i] = {"cached": False, "kind": "photo", "src": photo, "out": out, "d": d,
+                       "title": title, "stat": stat, "section": b["section"],
+                       "zoom_in": zoom_in, "pan_dir": pan_dir, "is_highlight": is_highlight}
         if use_pexels and not use_local and i % 10 == 9:
             time.sleep(0.4)
+
+    # --- Фаза B: параллельный рендер того, чего не нашлось в кэше готовых
+    # клипов. Каждый job уже несёт все параметры — рендер одного клипа не
+    # зависит ни от чего вне себя, поэтому N параллельных процессов ffmpeg
+    # дают тот же результат, что и последовательный перебор, только быстрее.
+    def render_job(job):
+        if job["kind"] == "video":
+            return video_render(job["src"], job["out"], job["d"], title=job["title"],
+                                 stat=job["stat"], section=job["section"])
+        ok = False
+        if PARALLAX_ENABLED and job["is_highlight"]:
+            ok = parallax_kenburns(job["src"], job["out"], job["d"], title=job["title"],
+                                    zoom_in=job["zoom_in"], pan_dir=job["pan_dir"],
+                                    stat=job["stat"], section=job["section"])
+        if not ok:
+            ok = kenburns(job["src"], job["out"], job["d"], title=job["title"],
+                          zoom_in=job["zoom_in"], pan_dir=job["pan_dir"],
+                          stat=job["stat"], section=job["section"])
+        return ok
+
+    to_render = [(i, j) for i, j in enumerate(jobs) if j is not None and not j["cached"]]
+    results = {}
+    if to_render:
+        print(f"Рендер {len(to_render)} кадров, {WORKERS} параллельно "
+              f"({FFMPEG_THREADS} потока ffmpeg на кадр)...")
+        print_lock = threading.Lock()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=WORKERS) as ex:
+            futures = {ex.submit(render_job, job): i for i, job in to_render}
+            done_n = 0
+            for fut in concurrent.futures.as_completed(futures):
+                i = futures[fut]
+                try:
+                    ok = fut.result()
+                except Exception as e:
+                    print(f"  [{i+1}] рендер упал: {type(e).__name__} {e}")
+                    ok = False
+                results[i] = ok
+                done_n += 1
+                if not ok or done_n % 20 == 0 or done_n <= 3:
+                    with print_lock:
+                        print(f"  [{done_n}/{len(to_render)}] блок {i+1}/{len(blocks)} "
+                              f"{'OK' if ok else 'ОШИБКА'}")
+
+    # --- Сборка результата в ИСХОДНОМ порядке блоков — порядок завершения
+    # потоков произвольный, xfade_chain требует клипы строго по таймлайну.
+    clips, clip_durs, clip_sections = [], [], []
+    media_log = []   # (индекс, путь_к_фото) — для QC-проверки на похожие кадры в конце
+    for i, job in enumerate(jobs):
+        if job is None:
+            continue
+        ok = True if job["cached"] else results.get(i, False)
+        if ok:
+            clips.append(job["out"])
+            clip_durs.append(job["d"])
+            clip_sections.append(job["section"])
+            photo_for_log = job.get("photo_for_log") if job["cached"] else (
+                job["src"] if job["kind"] == "photo" else None)
+            if photo_for_log:
+                media_log.append((i, photo_for_log))
+        else:
+            missing.append(i + 1)
 
     if not clips:
         print("Нет клипов")
@@ -1274,6 +1616,7 @@ def main():
     r = subprocess.run(["ffmpeg", "-y", "-i", merged, "-i", AUDIO_FILE,
                         "-t", f"{total:.3f}",
                         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+                        "-movflags", "+faststart",
                         "-shortest", OUTPUT_FILE], capture_output=True, text=True)
     if r.returncode != 0:
         print("Аудио:", r.stderr[-300:])

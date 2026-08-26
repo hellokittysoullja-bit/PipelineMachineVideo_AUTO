@@ -4,7 +4,10 @@
 Двухпроходный loudnorm (EBU R128) поверх — гуляющая громкость между
 блоками/эпизодами звучит непрофессионально и это бесплатно чинится.
 Usage: python scripts/fix_pauses.py <video_dir>
-Вход: audio.mp3 (или первый *.mp3). Выход: audio_fixed.mp3."""
+Вход: audio.mp3 (или первый *.mp3). Выход: audio_fixed.flac (lossless — исходный
+audio.mp3 у TTS уже lossy сам по себе, но раньше этот шаг добавлял ЕЩЁ ОДНО
+поколение потерь mp3->mp3 поверх, которое финальный микс потом пережимал в AAC
+третий раз; теперь между этим шагом и финальным AAC-миксом потерь нет)."""
 import json
 import os
 import re
@@ -81,14 +84,14 @@ def main():
     if not src:
         print("Аудио не найдено (audio.mp3)")
         return 1
-    out = os.path.join(video_dir, "audio_fixed.mp3")
+    out = os.path.join(video_dir, "audio_fixed.flac")
     total = duration(src)
     sil = detect_silences(src, total)
     loud = loudnorm_filter(measure_loudness(src))
     if not sil:
         print("Длинных пауз не найдено — нормализую громкость.")
         r = subprocess.run(["ffmpeg", "-y", "-i", src, "-af", loud,
-                            "-c:a", "libmp3lame", "-b:a", "192k", out],
+                            "-c:a", "flac", out],
                            capture_output=True, text=True)
         if r.returncode != 0 or not os.path.exists(out):
             print("Ошибка ffmpeg:", r.stderr[-400:])
@@ -118,7 +121,7 @@ def main():
         # упал на concat=n=0; отдаём исходник без изменений (кроме громкости)
         print("Нечего склеивать — нормализую громкость исходника.")
         r = subprocess.run(["ffmpeg", "-y", "-i", src, "-af", loud,
-                            "-c:a", "libmp3lame", "-b:a", "192k", out],
+                            "-c:a", "flac", out],
                            capture_output=True, text=True)
         if r.returncode != 0 or not os.path.exists(out):
             print("Ошибка ffmpeg:", r.stderr[-400:])
@@ -128,7 +131,7 @@ def main():
     filt += "".join(parts) + f"concat=n={len(parts)}:v=0:a=1[c];[c]{loud}[out]"
 
     cmd = ["ffmpeg", "-y", "-i", src, "-filter_complex", filt,
-           "-map", "[out]", "-c:a", "libmp3lame", "-b:a", "192k", out]
+           "-map", "[out]", "-c:a", "flac", out]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0 or not os.path.exists(out):
         print("Ошибка ffmpeg:", r.stderr[-400:])
