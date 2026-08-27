@@ -380,7 +380,20 @@ def _get_jina_session():
     JINA_ONNX_FILENAME выше — полноточная PyTorch-версия даёт NaN на CPU
     независимо от dtype, воспроизведено и задокументировано в git-логе).
     hf_hub_download (не хардкод локального snapshot-пути с хэшем) — путь к
-    файлу переживает обновление кэша/переезд на другую машину."""
+    файлу переживает обновление кэша/переезд на другую машину.
+
+    РЕАЛЬНЫЙ БАГ, пойманный живым прогоном (не гипотеза): без явного
+    `trust_remote_code=False` AutoTokenizer.from_pretrained() у новых версий
+    transformers может уйти в интерактивный prompt ("Do wish to run the
+    custom code? [y/N]") при разрешении конфига репозитория — в трёх
+    прогонах подряд повёл себя по-разному (тихо прошёл дважды, завис на
+    чтении stdin на третий). Токенизатор Jina — штатный XLMRobertaTokenizer,
+    НИКАКОГО remote-кода реально не требует (проверено — trust_remote_code=
+    False загружает его штатно), поэтому явный False убирает и промпт, и
+    зависимость поведения от того, что конкретно у процесса на stdin —
+    вместо неопределённого "иногда виснет" получаем детерминированный
+    успех или чистое исключение (уходит в тот же except в _jina_relevance(),
+    fail-open работает как задумано, а не блокируется молча)."""
     global _jina_session, _jina_tokenizer
     if _jina_session is None:
         import onnxruntime as ort
@@ -394,7 +407,8 @@ def _get_jina_session():
                                         # находку про батч-95-OOM в git-логе)
         _jina_session = ort.InferenceSession(onnx_path, sess_options=so,
                                               providers=["CPUExecutionProvider"])
-        _jina_tokenizer = AutoTokenizer.from_pretrained(JINA_MODEL_REPO)
+        _jina_tokenizer = AutoTokenizer.from_pretrained(JINA_MODEL_REPO,
+                                                         trust_remote_code=False)
     return _jina_session, _jina_tokenizer
 
 

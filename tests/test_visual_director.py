@@ -180,6 +180,37 @@ def test_jina_relevance_returns_cosine_from_mocked_onnx_session(monkeypatch, tmp
     assert result == pytest.approx(1.0)   # параллельные векторы -> cos=1.0
 
 
+def test_get_jina_session_passes_trust_remote_code_false(monkeypatch):
+    # РЕАЛЬНЫЙ баг, пойманный живым прогоном (не гипотеза): без явного
+    # trust_remote_code=False AutoTokenizer.from_pretrained() у jina-clip-v2
+    # (кастомная архитектура, auto_map в конфиге) ведёт себя недетерминиро-
+    # ванно — в нескольких прогонах подряд то проходил тихо, то уходил в
+    # интерактивный "Do you wish to run the custom code? [y/N]" и висел на
+    # чтении stdin (никогда не поднимая исключение, то есть ЛЮБОЙ fail-open
+    # в _jina_relevance() до него просто не доходил — тихое зависание, не
+    # честный None). Токенизатор — штатный XLMRobertaTokenizer, remote-код
+    # реально не нужен: явный False убирает промпт детерминированно.
+    onnxruntime = pytest.importorskip("onnxruntime")
+    huggingface_hub = pytest.importorskip("huggingface_hub")
+    transformers = pytest.importorskip("transformers")
+
+    monkeypatch.setattr(vd, "_jina_session", None)
+    monkeypatch.setattr(vd, "_jina_tokenizer", None)
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download", lambda **kw: "/fake/model.onnx")
+    monkeypatch.setattr(onnxruntime, "InferenceSession", lambda *a, **kw: object())
+
+    captured = {}
+
+    def fake_from_pretrained(repo_id, **kwargs):
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(transformers.AutoTokenizer, "from_pretrained", fake_from_pretrained)
+
+    vd._get_jina_session()
+    assert captured.get("trust_remote_code") is False
+
+
 def test_ensemble_model_version_reflects_weights():
     assert str(vd.ENSEMBLE_WEIGHT_SIGLIP2) in vd.SENTENCE_RELEVANCE_MODEL_VERSION
     assert str(vd.ENSEMBLE_WEIGHT_JINA) in vd.SENTENCE_RELEVANCE_MODEL_VERSION
