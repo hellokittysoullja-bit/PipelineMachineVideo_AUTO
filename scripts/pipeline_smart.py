@@ -4296,6 +4296,57 @@ def visual_domain_guard_violation(image_path, query):
     return False, None
 
 
+# Доли длительности ролика, где берутся дополнительные кадры-пробники для
+# video_domain_guard_violation() ниже — не научный подбор, просто разброс
+# "начало/середина/конец", чтобы не зависеть от одной случайной секунды.
+VIDEO_DOMAIN_GUARD_SAMPLE_FRACS = (0.15, 0.5, 0.85)
+
+
+def video_domain_guard_violation(video_path, query):
+    """Тот же visual_domain_guard_violation(), но на НЕСКОЛЬКИХ кадрах видео,
+    не на одном (см. pexels_video() — та проверяет relevance/risky-margin
+    через ОДИН пробник extract_video_probe_frame(), обычно на 0.5с).
+    Реальный, живьём найденный предел метода (не гипотеза): у видео по
+    запросу "sword blade close up" кадр на 0.5с показывал ТОЛЬКО ромбовидную
+    оплётку рукояти катаны — anchor-промпты домен-гварда описывают форму
+    КЛИНКА/ГАРДЫ (см. VISUAL_DOMAIN_GUARDS), которых на этом кадре просто
+    не видно, поэтому CLIP не мог сработать — а дальше по тому же ролику
+    клинок/гарда уже попадали в кадр. Берём несколько точек по длительности
+    (не только начало), нарушение НА ЛЮБОЙ из них — нарушение кандидата
+    целиком (тот же принцип "не доверять одному сэмплу", что уже применяет
+    measure_levels() против measure_luma() — см. её докстринг). Каждый
+    сэмпл — свой независимый вызов extract_video_probe_frame() (с его же
+    защитой от чёрного/вырожденного кадра). Дешёво в среднем: guard сам по
+    себе не делает ни одного CLIP-вызова, если query не совпал ни с одним
+    trigger_terms — эта функция вызывается ТОЛЬКО когда общий relevance-гейт
+    уже прошёл на первом кадре, то есть на подавляющем большинстве обычных
+    (не «оружейных») запросов не добавляет ни одного лишнего кадра/вызова."""
+    try:
+        duration = get_media_duration(video_path)
+    except Exception:
+        duration = None
+    if duration and duration > 0.6:
+        ats = [max(0.3, min(duration - 0.2, duration * f)) for f in VIDEO_DOMAIN_GUARD_SAMPLE_FRACS]
+    else:
+        ats = [0.5]
+    seen = []
+    for at in ats:
+        if any(abs(at - s) < 0.2 for s in seen):
+            continue   # слишком близко к уже проверенной точке — тот же кадр
+        seen.append(at)
+        probe, cleanup = extract_video_probe_frame(video_path, base_at=at, retry_ats=())
+        if probe is None:
+            continue
+        try:
+            violated, name = visual_domain_guard_violation(probe, query)
+        finally:
+            if cleanup and os.path.exists(probe):
+                os.remove(probe)
+        if violated:
+            return True, name
+    return False, None
+
+
 def is_relevant_candidate(image_path, query, relevance=None):
     """Итоговое решение "релевантен ли кандидат query" — тот же порог +
     risky-margin гейт, что раньше жил инлайном в цикле подбора фото (см.
@@ -5131,6 +5182,19 @@ def pexels_video(query, index, used_ids=None, used_hashes=None):
                 finally:
                     if cleanup and os.path.exists(probe):
                         os.remove(probe)
+            # Домен-гвард (анахронизм-защита) — ДОПОЛНИТЕЛЬНО на нескольких
+            # кадрах по всей длительности ролика, не только на том же одном
+            # пробнике, что уже участвовал в relevant выше: is_relevant_
+            # candidate() сама по себе тоже гейтит домен, но ТОЛЬКО на этом
+            # первом кадре — реальный найденный случай, когда именно ПЕРВЫЙ
+            # кадр был тесным кропом на рукояти без клинка/гарды и гейт
+            # ничего не поймал (см. video_domain_guard_violation()). Только
+            # когда relevant уже True — на явно нерелевантных candidates,
+            # которые и так не пройдут, лишние кадры не тянем.
+            if relevant:
+                violated, _ = video_domain_guard_violation(trial, query)
+                if violated:
+                    relevant = False
             is_dup = (cand_hash is not None and used_hashes and
                       min((hamming(cand_hash, uh) for uh in used_hashes), default=99)
                       <= PHOTO_DEDUP_HAMMING)
@@ -5840,6 +5904,14 @@ def render_recipe_signature():
             film_look, _scene_bias, _warm_mult, grain_blend_complex,
             add_overlays, add_kinetic_captions, kenburns, video_render,
             parallax_kenburns, choose_motion_mode, piecewise_ease_expr,
+            # is_parallax_highlight — ТОЖЕ часть рецепта, не рантайм-параметр:
+            # правка её условий (например, что считать highlight-моментом)
+            # меняет, КАКОЙ путь рендера (parallax_kenburns vs обычный
+            # kenburns) получит уже закэшированный клип, при том что ни один
+            # из перечисленных выше рантайм-параметров params_hash при этом
+            # не меняется — без неё такая правка молча не инвалидировала бы
+            # старый кэш (тот же класс бага, что и у остальных функций здесь).
+            is_parallax_highlight,
         )]
         parts.append(repr((
             sorted(MOOD_GRADE.items()), sorted(DOMAIN_WARM_PUSH_SCALE.items()),
