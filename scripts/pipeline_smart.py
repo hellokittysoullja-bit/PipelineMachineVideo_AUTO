@@ -2480,8 +2480,13 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
     os.makedirs(cache, exist_ok=True)
     # Хэш запроса в имени файла — иначе смена themes.json без чистки temp_smart/
     # молча оставляет картинку под старый запрос (кэш бил только по номеру блока).
+    # Хэш правил отбора (candidate_gate_signature()) в имени файла ТУДА ЖЕ —
+    # иначе улучшение relevance/анахронизм-гварда молча не переоценивает уже
+    # закэшированного кандидата, отобранного по старым, менее строгим правилам
+    # (реальный найденный баг, см. докстринг candidate_gate_signature()).
     qhash = hashlib.md5(query.encode()).hexdigest()[:8]
-    cf = os.path.join(cache, f"{index:04d}_{qhash}.jpg")
+    gate_sig = candidate_gate_signature().split(":", 1)[-1]
+    cf = os.path.join(cache, f"{index:04d}_{qhash}_{gate_sig}.jpg")
     # size>0, не просто exists — см. atomic_url_download: старые (до этого
     # фикса) прерванные закачки могли уже оставить 0-байтный файл под этим
     # именем, и голый exists() принял бы его за валидный кэш.
@@ -4386,6 +4391,58 @@ def is_relevant_candidate(image_path, query, relevance=None):
     return is_relevant
 
 
+_CANDIDATE_GATE_SIG = None   # см. candidate_gate_signature(), считается лениво один раз
+
+
+def candidate_gate_signature():
+    """Отпечаток ПРАВИЛ ОТБОРА кандидата (relevance/анахронизм-гвард/
+    дизамбигуация запроса) — входит в имя файла кэша temp_smart/pexels_cache
+    и temp_smart/pexels_video_cache.
+
+    РЕАЛЬНЫЙ, найденный вживую на Шаге 7.5 баг (QC теста videos/_test20s,
+    27 августа): pexels_photo()/pexels_video() кэшируют скачанный файл по
+    ключу "{индекс_слота}_{хэш_запроса}" и на кэш-хите отдают его СРАЗУ
+    (см. комментарий "size>0, не просто exists" в обеих функциях) — ни
+    is_relevant_candidate(), ни video_domain_guard_violation() на кэш-хите
+    вообще не вызываются повторно. На практике: слот с запросом "sword
+    blade close up" закэшировал кадр восточноазиатской катаны (видео
+    0004_a29e160f.mp4, скачано 23 августа) ДО того, как в этот файл попал
+    multi-frame video-domain-guard (более поздняя правка той же сессии) —
+    и при каждом следующем прогоне ЭТОГО ЖЕ эпизода отдавался как есть,
+    потому что улучшение проверки не меняло ключ кэша: анахронизм пережил
+    свой собственный фикс. render_recipe_signature() уже решает ровно этот
+    класс бага для temp_smart/clip_*.mp4 (визуальный РЕЦЕПТ рендера) — эта
+    функция то же самое для temp_smart/pexels_cache и
+    temp_smart/pexels_video_cache (правила ОТБОРА кандидата, другой этап
+    пайплайна, другой кэш, тот же класс проблемы).
+
+    Инвалидация грубая (правка любой из перечисленных функций/констант —
+    даже строчки комментария внутри — считается сменой правил): та же
+    осознанно консервативная сторона, что у render_recipe_signature() —
+    лишняя перезакачка дешевле молча просроченного анахронизм-гварда.
+    Сбой inspect -> стабильная заглушка, поведение как раньше, без падения."""
+    global _CANDIDATE_GATE_SIG
+    if _CANDIDATE_GATE_SIG is not None:
+        return _CANDIDATE_GATE_SIG
+    try:
+        import inspect
+        parts = [inspect.getsource(f) for f in (
+            is_relevant_candidate, visual_domain_guard_violation,
+            video_domain_guard_violation, disambiguate_search_query,
+            is_risky_query,
+        )]
+        parts.append(repr((
+            CLIP_RELEVANCE_THRESHOLD, RISKY_QUERY_MARGIN, NEGATIVE_ANCHOR_PROMPT,
+            RISKY_GENERIC_TERMS, VISUAL_DOMAIN_GUARDS, VIDEO_DOMAIN_GUARD_SAMPLE_FRACS,
+            CONTENT_ALT_BLOCKLIST, QUERY_DISAMBIGUATION_RULES,
+        )))
+    except Exception:
+        _CANDIDATE_GATE_SIG = "gate:unknown"
+        return _CANDIDATE_GATE_SIG
+    _CANDIDATE_GATE_SIG = "gate:" + hashlib.md5("".join(parts).encode()).hexdigest()[:10]
+    return _CANDIDATE_GATE_SIG
+
+
 # P2 (аудит "зерно vs частицы в мире"): часть стокового контента УЖЕ несёт
 # собственные визуальные частицы (падающий снег, пыль, капли дождя, боке) —
 # найдено вживую прямым просмотром кадра (фото "EXCALIBUR" со снегом,
@@ -5166,8 +5223,12 @@ def pexels_video(query, index, used_ids=None, used_hashes=None):
     global PEXELS_BROKEN
     cache = os.path.join(TEMP_FOLDER, "pexels_video_cache")
     os.makedirs(cache, exist_ok=True)
+    # gate_sig — см. pexels_photo()/candidate_gate_signature(): без него улучшение
+    # анахронизм-гварда не переоценивает уже закэшированное видео, отобранное
+    # по старым правилам (реальный найденный случай — катана в кэше этого файла).
     qhash = hashlib.md5(query.encode()).hexdigest()[:8]
-    cf = os.path.join(cache, f"{index:04d}_{qhash}.mp4")
+    gate_sig = candidate_gate_signature().split(":", 1)[-1]
+    cf = os.path.join(cache, f"{index:04d}_{qhash}_{gate_sig}.mp4")
     # size>0, не просто exists — см. atomic_url_download: реальный случай,
     # пойманный вживую на этом эпизоде — 0-байтный файл от прерванной
     # закачки прошлого прогона тихо "проходил" как готовый кэш и ронял
