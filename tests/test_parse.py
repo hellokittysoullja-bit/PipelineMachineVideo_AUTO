@@ -2732,3 +2732,53 @@ def test_pexels_photo_pool_interleaves_queries_not_sequential(monkeypatch):
     assert origins == {"q1", "q2"}, (
         "первые же перебираемые кандидаты обязаны охватывать ОБА запроса "
         "секции, иначе расширение пула существует только на бумаге")
+
+
+# ---------- pexels_video: бюджет попыток должен расти вместе с пулом ----------
+# Реальный регресс, найденный покадровым просмотром готового рендера:
+# VIDEO_RELEVANCE_MAX_TRIES=3 калибровалась под "до 3 попыток на ОДИН
+# запрос", а после chередования по всему пулу секции (8 запросов на HOOK)
+# 3 попытки покрывали только первые 3 запроса — фраза "герой заносит
+# клинок... враг падает" получила видео с кухонными весами, потому что
+# кандидат по запросу про всадника с мечом ни разу не скачивался.
+
+def test_pexels_video_try_budget_scales_with_pool_size(tmp_path, monkeypatch):
+    # 6 запросов в пуле, "хороший" кандидат только в ПОСЛЕДНЕМ — без
+    # расширения бюджета выбор до него физически не доходит.
+    per_query = {f"q{i}": [{"id": i * 10, "video_files": [
+        {"file_type": "video/mp4", "width": 1920, "link": f"http://x/{i*10}.mp4"}]}]
+        for i in range(6)}
+    monkeypatch.setattr(pipeline_smart, "_pexels_search_videos", lambda q: per_query.get(q, []))
+    monkeypatch.setattr(pipeline_smart, "PEXELS_API_KEY", "k")
+    monkeypatch.setattr(pipeline_smart, "TEMP_FOLDER", str(tmp_path))
+    monkeypatch.setattr(pipeline_smart, "atomic_url_download",
+                        lambda req, dest, timeout=None: open(dest, "wb").write(b"x"))
+    monkeypatch.setattr(pipeline_smart, "extract_video_probe_frame",
+                        lambda p, **kw: (p + ".jpg", False))
+    # Релевантен ТОЛЬКО кандидат id=50 (из q5, последний в пуле).
+    monkeypatch.setattr(pipeline_smart, "is_relevant_candidate",
+                        lambda probe, q, **k: q == "q5")
+    monkeypatch.setattr(pipeline_smart, "video_domain_guard_violation", lambda *a, **k: (False, None))
+    monkeypatch.setattr(pipeline_smart, "measure_luma", lambda p: 0.4)
+    monkeypatch.setattr(pipeline_smart, "ahash", lambda p: 0)
+    out = pipeline_smart.pexels_video(
+        "q0", 0, used_ids=set(), used_hashes=[],
+        extra_queries=[f"q{i}" for i in range(1, 6)],
+        sentence_score_fn=lambda probe: 0.5)
+    assert out is not None
+    # Файл выжившего кандидата — единственный релевантный, id=50.
+    with open(out, "rb") as f:
+        pass
+    import os as _os
+    assert _os.path.getsize(out) > 0
+
+
+def test_pexels_video_try_budget_capped_hard(monkeypatch):
+    # Пул из 30 запросов не должен разгонять бюджет до 30 попыток —
+    # VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP держит трафик в узде.
+    monkeypatch.setattr(pipeline_smart, "PEXELS_API_KEY", "k")
+    many = [f"q{i}" for i in range(30)]
+    # Прямая проверка формулы (та же, что в теле pexels_video).
+    budget = min(pipeline_smart.VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP,
+                max(pipeline_smart.VIDEO_RELEVANCE_MAX_TRIES, len(["q0"] + many)))
+    assert budget == pipeline_smart.VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP

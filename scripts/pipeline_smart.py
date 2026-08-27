@@ -5521,13 +5521,11 @@ VIDEO_RELEVANCE_MAX_TRIES = 3  # сколько видео-кандидатов 
                                 # сдаться (тот же принцип, что
                                 # PHOTO_DEDUP_MAX_TRIES у фото — здесь
                                 # меньше, видео тяжелее по трафику/времени)
+VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP = 10  # см. video_relevance_try_budget()
 
 
 VIDEO_MIN_LUMA_HARD = 0.06     # ниже — кадр практически чёрный, отбраковка
 VIDEO_PREFER_MIN_LUMA = 0.18   # ниже — кадр читается плохо, уступает более светлому
-VIDEO_SENTENCE_POOL = 4        # сколько прошедших гейт кандидатов сравнить по смыслу
-
-
 _PEXELS_VIDEO_SEARCH_CACHE = {}
 
 
@@ -5654,8 +5652,26 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
         # (sentence_score_fn) и читаемости кадра — так же, как у фото.
         good = []              # [(sentence_score, luma_ok, путь, id, hash)]
         tries = 0
+        # РЕАЛЬНЫЙ баг, найденный покадровым просмотром готового рендера
+        # (не гипотеза): VIDEO_RELEVANCE_MAX_TRIES=3 калибровалась под
+        # СТАРУЮ логику "до 3 попыток на ОДИН запрос". После расширения пула
+        # (см. extra_queries выше) список кандидатов чередуется по ВСЕМ
+        # запросам секции — на HOOK из 8 запросов бюджет в 3 попытки
+        # покрывает буквально первые 3 запроса из 8 и ни разу не доходит до
+        # "warrior on horseback with sword". На реальном рендере это отдало
+        # фразу "герой заносит клинок... враг падает" видео с кухонными
+        # весами — единственным кандидатом, до которого хватило попыток,
+        # хотя по смыслу разгромно проигрывающим не опробованному всаднику
+        # с занесённым мечом. С пулом бюджет — минимум одна попытка на
+        # каждый запрос пула (иначе большинство запросов не участвует в
+        # сравнении вообще), с потолком против неограниченного трафика на
+        # секции с большим числом авторских запросов.
+        try_budget = VIDEO_RELEVANCE_MAX_TRIES
+        if sentence_score_fn is not None:
+            try_budget = min(VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP,
+                             max(VIDEO_RELEVANCE_MAX_TRIES, len(pool_queries)))
         for v in ordered:
-            if tries >= VIDEO_RELEVANCE_MAX_TRIES:
+            if tries >= try_budget:
                 break
             files = [f for f in (v.get("video_files") or [])
                      if f.get("file_type") == "video/mp4" and f.get("width")]
@@ -5728,8 +5744,14 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                 good.append((sent_score, luma_ok, trial, v.get("id"), cand_hash))
                 # Без смыслового скоринга сравнивать нечего — прежнее
                 # поведение "первый прошедший побеждает" (ноль регресса для
-                # вызовов без sentence_score_fn).
-                if sentence_score_fn is None or len(good) >= VIDEO_SENTENCE_POOL:
+                # вызовов без sentence_score_fn). С пулом ранний обрыв по
+                # фиксированному числу "хороших" кандидатов — тот же баг,
+                # что try_budget выше чинит для попыток скачивания: первые
+                # найденные "хорошие" почти всегда из ранних запросов пула
+                # (дальние запросы просто не успевают дать кандидата). Обрыв
+                # только по исчерпанию try_budget — тот уже ограничен
+                # VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP, второй потолок не нужен.
+                if sentence_score_fn is None:
                     break
                 continue
             if relevant and dup_fallback is None:
