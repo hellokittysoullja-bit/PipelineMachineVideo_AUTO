@@ -4800,6 +4800,19 @@ def measure_motion(vid, start, span, samples=4):
 # Тройка (доля_длительности_на_выходе, множитель_скорости).
 SPEED_RAMP_SEGMENTS = [(0.30, 0.85), (0.45, 1.20), (0.25, 1.00)]
 SPEED_RAMP_MOTION_THRESHOLD = 0.02   # ниже — план статичен, ramp не гейтится сюда
+# РЕАЛЬНЫЙ баг, пойманный на реальном продакшн-рендере (не гипотеза): спид-
+# рамп (split -> trim/setpts -> concat) в паре с film_look() (свой отдельный
+# split/gblur=sigma=14/blend для bloom-эффекта, см. film_look()) вешает
+# ffmpeg на источниках с аномально высоким fps (60/1, 60000/1001) —
+# воспроизведено напрямую бисекцией: голый ramp без film_look — 20с, ramp+
+# деффликер — 19с, ramp+film_look — не укладывается в 90с. На обычных
+# ~24-30fps источниках та же связка (156 других клипов того же эпизода)
+# отрабатывает штатно — проблема именно в комбинации высокого fps с
+# вложенными split/concat узлами графа, не в film_look()/ramp по отдельности.
+# Порог с запасом выше стандартных 24/25/30fps стока, ниже проблемных 60fps.
+# 60fps-исходники и так часто сняты specifically под готовое замедление —
+# пропуск доп. спид-рампа на них не потеря приёма, разумный трейд-офф.
+SPEED_RAMP_MAX_SOURCE_FPS = 40.0
 
 
 def build_speed_ramp_filter(skip, dur, actual, label_in="base", label_out="ramped"):
@@ -4928,9 +4941,14 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
     ramp_filter = None
     margin_needed = dur * sum(frac * mult for frac, mult in SPEED_RAMP_SEGMENTS)
     if actual - skip >= margin_needed + 0.05:
-        motion = measure_motion(vid, skip, min(dur, actual - skip))
-        if motion >= SPEED_RAMP_MOTION_THRESHOLD:
-            ramp_filter = build_speed_ramp_filter(skip, dur, actual)
+        src_fps = get_media_fps(vid)
+        # SPEED_RAMP_MAX_SOURCE_FPS — см. докстринг константы (реальный
+        # зависший рендер на 60fps-стоке, не гипотеза). src_fps=None
+        # (ffprobe не смог определить) -> не гейтим, прежнее поведение.
+        if src_fps is None or src_fps <= SPEED_RAMP_MAX_SOURCE_FPS:
+            motion = measure_motion(vid, skip, min(dur, actual - skip))
+            if motion >= SPEED_RAMP_MOTION_THRESHOLD:
+                ramp_filter = build_speed_ramp_filter(skip, dur, actual)
 
     tmp_out = render_tmp_path(out)
     if ramp_filter:
@@ -5471,6 +5489,22 @@ def get_media_duration(path):
     r = subprocess.run(["ffprobe", "-v", "quiet", "-print_format", "json",
                         "-show_format", path], capture_output=True, text=True, check=True)
     return float(json.loads(r.stdout)["format"]["duration"])
+
+
+def get_media_fps(path):
+    """r_frame_rate первого видеопотока (см. SPEED_RAMP_MAX_SOURCE_FPS) —
+    None при любой ошибке/отсутствии видеопотока (fail-open, тот же принцип,
+    что get_media_duration/measure_motion): вызывающий код тогда не гейтит
+    спид-рамп по fps вообще, прежнее поведение."""
+    try:
+        r = subprocess.run(["ffprobe", "-v", "quiet", "-print_format", "json",
+                            "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate",
+                            path], capture_output=True, text=True, check=True)
+        rate = json.loads(r.stdout)["streams"][0]["r_frame_rate"]
+        num, _, den = rate.partition("/")
+        return float(num) / float(den or 1)
+    except Exception:
+        return None
 
 
 def audio_qc(path):

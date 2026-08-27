@@ -310,6 +310,72 @@ def test_video_render_does_not_silently_drop_captions_on_unrelated_failure(tmp_p
     assert not os.path.exists(out)
 
 
+# ---------- SPEED_RAMP_MAX_SOURCE_FPS (реальный зависший продакшн-рендер) ----------
+
+def _make_clip_at_fps(path, fps, dur=2.0):
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", f"testsrc=s=320x180:d={dur}:r={fps}",
+                     "-c:v", "libx264", "-pix_fmt", "yuv420p", path],
+                    capture_output=True, check=True)
+
+
+def test_get_media_fps_reads_real_frame_rate(tmp_path):
+    vid = str(tmp_path / "src.mp4")
+    _make_clip_at_fps(vid, 60, dur=1.0)
+    fps = ps.get_media_fps(vid)
+    assert fps == pytest.approx(60.0, abs=0.1)
+
+
+def test_get_media_fps_none_on_missing_file():
+    assert ps.get_media_fps("/no/such/file.mp4") is None
+
+
+def test_video_render_skips_speed_ramp_above_max_source_fps(tmp_path, monkeypatch):
+    # РЕАЛЬНЫЙ зависший продакшн-рендер (не гипотеза, см. докстринг
+    # SPEED_RAMP_MAX_SOURCE_FPS): спид-рамп + film_look (свой split/
+    # gblur=sigma=14/blend для bloom) на 60fps-источнике вешал ffmpeg на
+    # реальном эпизоде — воспроизведено и изолировано бисекцией на живом
+    # файле. Источник с fps выше порога не должен даже пытаться измерить
+    # motion/построить ramp — фильтр гасится ДО этого шага.
+    vid = str(tmp_path / "src_60fps.mp4")
+    _make_clip_at_fps(vid, 60, dur=6.0)
+    out = str(tmp_path / "clip_0000.mp4")
+
+    called = {"motion": False, "ramp": False}
+
+    def fake_motion(*a, **kw):
+        called["motion"] = True
+        return 1.0   # заведомо выше SPEED_RAMP_MOTION_THRESHOLD, если бы вызвался
+
+    def fake_ramp(*a, **kw):
+        called["ramp"] = True
+        return None
+
+    monkeypatch.setattr(ps, "measure_motion", fake_motion)
+    monkeypatch.setattr(ps, "build_speed_ramp_filter", fake_ramp)
+    ok = ps.video_render(vid, out, 2.0, section="HOOK")
+    assert ok is True
+    assert called["motion"] is False, "measure_motion не должен вызываться выше SPEED_RAMP_MAX_SOURCE_FPS"
+    assert called["ramp"] is False
+
+
+def test_video_render_still_tries_speed_ramp_below_max_source_fps(tmp_path, monkeypatch):
+    # Обратный случай — обычный 24fps сток НЕ гейтится, прежнее поведение.
+    vid = str(tmp_path / "src_24fps.mp4")
+    _make_clip_at_fps(vid, 24, dur=6.0)
+    out = str(tmp_path / "clip_0000.mp4")
+
+    called = {"motion": False}
+
+    def fake_motion(*a, **kw):
+        called["motion"] = True
+        return 0.0   # ниже порога -> ramp всё равно не строится, но вызов ДОЛЖЕН произойти
+
+    monkeypatch.setattr(ps, "measure_motion", fake_motion)
+    ok = ps.video_render(vid, out, 2.0, section="HOOK")
+    assert ok is True
+    assert called["motion"] is True, "measure_motion должен вызываться на обычном fps"
+
+
 # ---------- Полный прогон pipeline_smart.py: реальный сбойный клип + жёсткий гейт ----------
 
 @pytest.fixture
