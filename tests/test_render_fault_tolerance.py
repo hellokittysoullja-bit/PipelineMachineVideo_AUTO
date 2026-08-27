@@ -509,3 +509,27 @@ def test_corrupt_cached_clip_self_heals_on_rerun(tmp_path):
     assert r2.returncode == 0, r2.stdout[-1500:]
     assert (d / "final.mp4").exists(), "битый кэш должен был самоисцелиться, а не сорвать сборку"
     assert "кэш битый" in r2.stdout, "должно быть видно в логе, что кэш был обнаружен и перерендерен"
+
+
+# ---------- Незащищённые subprocess-вызовы в финальной сборке (реальный аудит-найденный пробел) ----------
+
+def test_xfade_chain_returns_false_on_timeout_instead_of_raising(tmp_path, monkeypatch):
+    # РЕАЛЬНЫЙ пробел, найденный аудитом того же класса багов, что и
+    # SPEED_RAMP_MAX_SOURCE_FPS/parallax stderr-deadlock: у этого вызова не
+    # было timeout вообще — зависание ffmpeg на длинной xfade-цепочке (уже
+    # задокументированный в докстринге функции живой кейс "молча роняет
+    # кадры и застревает") теряло бы весь уже отрендеренный за часы прогон
+    # молча. Должен вернуть (False, 0.0) — тот же контракт, что и на
+    # returncode != 0 — а не уронить main() необработанным исключением.
+    clip1, clip2 = str(tmp_path / "c1.mp4"), str(tmp_path / "c2.mp4")
+    _make_clip(clip1, dur=1.0)
+    _make_clip(clip2, dur=1.0)
+    out = str(tmp_path / "merged.mp4")
+
+    def fake_run(cmd, **kw):
+        raise subprocess.TimeoutExpired(cmd, kw.get("timeout"))
+
+    monkeypatch.setattr(ps.subprocess, "run", fake_run)
+    ok, dur = ps.xfade_chain([clip1, clip2], [1.0, 1.0], ["HOOK", "HOOK"], out)
+    assert ok is False
+    assert dur == 0.0
