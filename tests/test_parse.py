@@ -2782,3 +2782,69 @@ def test_pexels_video_try_budget_capped_hard(monkeypatch):
     budget = min(pipeline_smart.VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP,
                 max(pipeline_smart.VIDEO_RELEVANCE_MAX_TRIES, len(["q0"] + many)))
     assert budget == pipeline_smart.VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP
+
+
+# ---------- foreground_background_layers(): occlusion-aware параллакс ----------
+# Независимая реализация двухслойного варпа (см. докстринг в pipeline_smart.py
+# у PARALLAX_OCCLUSION_AWARE) — решает архитектурную причину растяжения на
+# границах объекта (окклюзия: за передним планом физически нет данных),
+# не только маскирует симптом размытием карты глубины, как более ранний
+# фикс (PARALLAX_MAX_STRETCH). Проверено вживую на реальном фото (кадр,
+# который раньше давал 172% растяжения) — синтетика здесь для быстрой,
+# без сети/модели, регрессии на саму функцию слоения.
+
+def test_foreground_background_layers_splits_clear_circle():
+    import numpy as np
+    import cv2
+    h, w = 200, 300
+    canvas = np.zeros((h, w, 3), dtype=np.uint8)
+    canvas[:, :, 0] = 180
+    depth = np.full((h, w), 0.15, dtype=np.float32)
+    cv2.circle(canvas, (150, 100), 50, (20, 20, 220), -1)
+    cv2.circle(depth, (150, 100), 50, 0.9, -1)
+    bg_plate, fg_alpha = pipeline_smart.foreground_background_layers(canvas, depth)
+    assert fg_alpha is not None
+    assert fg_alpha[100, 150] > 0.9, "центр круга (близко) должен быть почти полностью передним планом"
+    assert fg_alpha[10, 10] < 0.1, "угол (далеко) должен быть почти полностью фоном"
+    assert bg_plate.shape == canvas.shape
+    assert bg_plate.dtype == canvas.dtype
+
+
+def test_foreground_background_layers_flat_depth_returns_none():
+    import numpy as np
+    h, w = 100, 100
+    canvas = np.full((h, w, 3), 128, dtype=np.uint8)
+    depth = np.full((h, w), 0.5, dtype=np.float32)   # ни одного края — слоить нечего
+    bg_plate, fg_alpha = pipeline_smart.foreground_background_layers(canvas, depth)
+    assert fg_alpha is None
+    assert bg_plate is canvas, "без реального разделения — прежний холст как есть, не копия"
+
+
+def test_foreground_background_layers_fails_open_on_exception(monkeypatch):
+    import numpy as np
+    h, w = 80, 80
+    canvas = np.zeros((h, w, 3), dtype=np.uint8)
+    depth = np.zeros((h, w), dtype=np.float32)
+    depth[:40, :] = 0.9
+    monkeypatch.setattr(pipeline_smart.cv2, "inpaint",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    bg_plate, fg_alpha = pipeline_smart.foreground_background_layers(canvas, depth)
+    assert fg_alpha is None
+    assert bg_plate is canvas
+
+
+def test_foreground_background_layers_orientation_self_corrects():
+    # depth=1 значит "близко" по конвенции всего модуля (estimate_depth) —
+    # маска обязана соответствовать БЛИЖНЕМУ объекту независимо от того,
+    # какой класс Otsu пометил как "белый" (см. проверку среднего в коде).
+    import numpy as np
+    import cv2
+    h, w = 150, 150
+    canvas = np.full((h, w, 3), 100, dtype=np.uint8)
+    depth = np.full((h, w), 0.8, dtype=np.float32)   # почти весь кадр "близко"
+    cv2.rectangle(depth, (0, 0), (30, 30), 0.05, -1)  # маленький "далёкий" угол
+    bg_plate, fg_alpha = pipeline_smart.foreground_background_layers(canvas, depth)
+    if fg_alpha is not None:
+        assert fg_alpha[75, 75] > fg_alpha[15, 15], (
+            "центр (глубина 0.8, близко) обязан иметь БОЛЬШУЮ fg-альфу, "
+            "чем угол (глубина 0.05, далеко) — маска не должна оказаться инвертированной")

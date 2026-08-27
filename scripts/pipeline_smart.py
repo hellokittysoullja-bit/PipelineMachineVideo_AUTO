@@ -4994,6 +4994,64 @@ def apply_depth_of_field(canvas, depth, strength_gain=1.0):
             + blurred.astype(np.float32) * blur_weight).astype(np.uint8)
 
 
+# Occlusion-aware двухслойный варп — независимая реализация общеизвестной
+# техники "layered depth image" (см. "3D Ken Burns Effect from a Single
+# Image", Niklaus/Mai/Yang/Liu, 2019 — та же архитектурная идея, на которую
+# уже ссылается комментарий у estimate_depth() выше; код здесь свой, на
+# штатном OpenCV cv2.inpaint(), ничего не заимствовано из чужих репозиториев).
+#
+# ПРОБЛЕМА, которую это решает: PARALLAX_MAX_STRETCH/WARP_SIGMA_FRAC выше —
+# рабочий, измеренный фикс для одного-единственного плоского remap()
+# (растяжение снижено с 172% до 13% на реальном кадре) — но это смягчение
+# СИМПТОМА (сглаженная карта глубины растягивает разрыв на больше пикселей),
+# не устранение ПРИЧИНЫ: на границе объекта remap() всё ещё сэмплит один и
+# тот же холст по обе стороны разрыва, соседние выходные пиксели неизбежно
+# тянут текстуру через границу. Настоящая проблема физическая: фото —
+# плоское, за передним планом реально НЕТ данных о том, что там на самом
+# деле (окклюзия) — плоский remap с этим ничего не может поделать
+# принципиально, только маскировать растяжку размытием.
+#
+# РЕШЕНИЕ: разложить холст на 2 слоя по Otsu-порогу depth-карты (близко/
+# далеко — порог считается автоматически по бимодальности гистограммы
+# глубины, не гадание с процентилем). Область под "близким" объектом на
+# ФОНОВОМ слое затягивается cv2.inpaint() ОДИН раз на фото (не на кадр —
+# дорого) — правдоподобным продолжением фона, а не дырой/растяжкой.
+# На каждом кадре оба слоя варпятся ТЕМ ЖЕ самым map_x/map_y, что и раньше
+# (архитектура remap-цикла не меняется), и компонуются через мягкую
+# (растушёванную) альфа-маску переднего плана — там, где раньше задняя
+# плоскость стягивалась в мазок, теперь виден уже готовый (не рвущийся)
+# инпейнт-фон.
+PARALLAX_OCCLUSION_AWARE = os.environ.get("PARALLAX_OCCLUSION_AWARE", "1") != "0"
+PARALLAX_INPAINT_RADIUS = 5   # px, стандартный диапазон cv2.inpaint() (3-7)
+
+
+def foreground_background_layers(canvas, depth):
+    """(bg_plate, fg_alpha) — фоновый слой с инпейнтом под передним планом
+    и мягкая (0..1) альфа-маска "насколько этот пиксель — передний план".
+
+    Сбой (inpaint не встал/маска пустая/вся картинка одним классом) ->
+    (canvas, None) — вызывающий код на None откатывается на старый
+    однослойный путь, тот же fail-open принцип, что у остального параллакса."""
+    try:
+        d8 = np.clip(depth * 255, 0, 255).astype(np.uint8)
+        _, fg_mask = cv2.threshold(d8, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        # Otsu не гарантирует, какой класс какой — у нас депт=1 значит
+        # "близко", проверяем и при необходимости инвертируем маску так,
+        # чтобы fg_mask действительно соответствовал БЛИЖНЕМУ объекту.
+        if fg_mask.mean() <= 0 or fg_mask.mean() >= 255:
+            return canvas, None   # вся картинка одним классом — слоить нечего
+        if float(depth[fg_mask > 0].mean()) < float(depth[fg_mask == 0].mean()):
+            fg_mask = 255 - fg_mask
+        k = PARALLAX_INPAINT_RADIUS * 2 + 1
+        inpaint_mask = cv2.dilate(fg_mask, np.ones((k, k), np.uint8))
+        bg_plate = cv2.inpaint(canvas, inpaint_mask, PARALLAX_INPAINT_RADIUS, cv2.INPAINT_TELEA)
+        sigma = max(2.0, min(canvas.shape[:2]) * 0.01)
+        fg_alpha = cv2.GaussianBlur(fg_mask.astype(np.float32) / 255.0, (0, 0), sigmaX=sigma)
+        return bg_plate, fg_alpha
+    except Exception:
+        return canvas, None
+
+
 def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
                        section="", stat_variant=0, brightness_bias=0.0, energy_bias=0.0,
                        stat_delay=0.0, levels=None, wb=None, grain_scale=1.0, captions=None,
@@ -5091,6 +5149,12 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
         # остаётся размытым и через движение параллакса — оптически
         # корректно, размытие свойство сцены, не текущего вида камеры).
         canvas = apply_depth_of_field(canvas, depth, strength_gain)
+        # Occlusion-aware фоновый слой (см. foreground_background_layers()
+        # выше) — считается ОДИН раз на фото, до покадрового цикла. bg_alpha
+        # is None -> старый однослойный remap (fail-open, не другое
+        # поведение при выключенном/сбойном PARALLAX_OCCLUSION_AWARE).
+        bg_plate, fg_alpha = ((canvas, None) if not PARALLAX_OCCLUSION_AWARE
+                               else foreground_background_layers(canvas, depth))
         # C2: лёгкий 3D-наклон камеры (roll) — до TILT_MAX_DEG, направление
         # по хэшу фото. Независимая от зума/пана ось движения, добавляет
         # ощущение "камера не на рельсах, а в руках", не дублирует то, что
@@ -5195,6 +5259,16 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
 
             frame = cv2.remap(canvas, map_x, map_y, interpolation=cv2.INTER_LINEAR,
                                borderMode=cv2.BORDER_REPLICATE)
+            if fg_alpha is not None:
+                # Тот же map_x/map_y (единая геометрия варпа не меняется) —
+                # только источник для "того, что за передним планом" теперь
+                # уже заполненный инпейнт-фон, а не растянутая текстура.
+                frame_bg = cv2.remap(bg_plate, map_x, map_y, interpolation=cv2.INTER_LINEAR,
+                                      borderMode=cv2.BORDER_REPLICATE)
+                alpha = cv2.remap(fg_alpha, map_x, map_y, interpolation=cv2.INTER_LINEAR,
+                                   borderMode=cv2.BORDER_REPLICATE)[:, :, None]
+                frame = (frame.astype(np.float32) * alpha
+                         + frame_bg.astype(np.float32) * (1.0 - alpha)).astype(np.uint8)
             proc.stdin.write(frame.tobytes())
 
         proc.stdin.close()
