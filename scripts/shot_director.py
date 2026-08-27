@@ -40,17 +40,20 @@ neighbor-inherit, только для реального остатка (эмп�
   на старое поведение (neighbor-inherit/GENERIC_FALLBACKS) — ноль
   регрессии для эпизодов без ключа или с исчерпанным лимитом.
 
-ЧЕСТНО: живой вызов НЕ подтверждён на реальном ключе в этой сессии —
-GEMINI_API_KEY в .env здесь пуст (`GEMINI_API_KEY=` без значения), попытка
-живого прогона на калибровке вернула HTTP 403 именно по этой причине
-(проверено — не гадание: значение переменной окружения при чтении
-оказалось пустой строкой). Контракт запроса/ответа проверен только на
-моке (tests/test_shot_director.py). Перед первым реальным использованием
-обязателен "один дешёвый ручной прогон" (тот же принцип, что у
-speech_generate.py) с настоящим ключом — SHOT_DIRECTOR_MODE=off остаётся
-дефолтом именно поэтому, включать нужно осознанно и только после этой
-проверки.
-"""
+ОБНОВЛЕНО 27.08 — живой ключ подтверждён напрямую против реального API
+Google (не мок, не гадание): этому конкретному ключу gemini-2.5-flash
+недоступна ("This model models/gemini-2.5-flash is no longer available to
+new users", HTTP 404) — Google сам подсказал в тексте ошибки
+gemini-3.6-flash, она отвечает 200. thinkingConfig thinkingBudget=0 (был
+обязателен для 2.5-flash, ЧАСТЬ 14 — иначе обрыв MAX_TOKENS) на 3.6-flash
+даёт HTTP 400 "Request contains an invalid argument" — эта модель нулевой
+бюджет мышления не принимает вообще (проверено изолированно: тот же
+запрос без thinkingConfig -> HTTP 200, finishReason=STOP, валидный JSON;
+thinkingBudget=-1 тоже 200). Модель и правило про thinkingConfig теперь
+берутся динамически по имени модели (см. _thinking_config_for_model()) —
+0 только для семейства 2.5, иначе не отправляется совсем. Прежний
+GEMINI_API_KEY в .env был пуст — это больше не так, ключ вписан
+пользователем и проверен реальным вызовом (см. коммит)."""
 import os
 import re
 import json
@@ -60,8 +63,26 @@ import urllib.error
 
 SHOT_DIRECTOR_MAX_CALLS_PER_RUN = min(
     int(os.environ.get("SHOT_DIRECTOR_MAX_CALLS_PER_RUN", "15")), 15)
-SHOT_DIRECTOR_MODEL = "gemini-2.5-flash"
+# gemini-2.5-flash недоступна ключу, проверенному 27.08 (см. докстринг
+# модуля) — Google сам указал gemini-3.6-flash как замену. GEMINI_MODEL_
+# OVERRIDE в .env позволяет вернуться на 2.5-flash (или любую другую) без
+# правки кода, если ключ/аккаунт другой пользователь сменит.
+SHOT_DIRECTOR_MODEL = os.environ.get("GEMINI_MODEL_OVERRIDE") or "gemini-3.6-flash"
 SHOT_DIRECTOR_TIMEOUT_SEC = 20
+
+
+def _thinking_config_for_model(model):
+    """thinkingBudget=0 обязателен ТОЛЬКО для семейства 2.5 (см. ЧАСТЬ 14 —
+    иначе обрыв MAX_TOKENS на длинных ответах). На gemini-3.6-flash тот же
+    флаг ломает запрос целиком (HTTP 400 invalid argument — проверено
+    вживую 27.08, не гипотеза). Для любой другой/будущей модели —
+    thinkingConfig не отправляется вовсе: живой тест показал, что
+    gemini-3.6-flash без него даёт finishReason=STOP на реальном промпте
+    этого модуля (не обрублен), так что riskа MAX_TOKENS для неё нет —
+    честная, проверенная деградация, не предположение на будущее."""
+    if model.startswith("gemini-2.5"):
+        return {"thinkingBudget": 0}
+    return None
 
 _PROMPT_TEMPLATE = (
     'Ты — постановщик кадра для закадрового видео на русском языке. '
@@ -115,12 +136,13 @@ def _extract_queries(raw_text):
 
 
 def _call_gemini(text, api_key):
+    generation_config = {"responseMimeType": "application/json"}
+    thinking_cfg = _thinking_config_for_model(SHOT_DIRECTOR_MODEL)
+    if thinking_cfg is not None:
+        generation_config["thinkingConfig"] = thinking_cfg
     body = json.dumps({
         "contents": [{"parts": [{"text": _PROMPT_TEMPLATE.format(text=text)}]}],
-        "generationConfig": {
-            "thinkingConfig": {"thinkingBudget": 0},
-            "responseMimeType": "application/json",
-        },
+        "generationConfig": generation_config,
     }).encode("utf-8")
     url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
            f"{SHOT_DIRECTOR_MODEL}:generateContent?key={api_key}")

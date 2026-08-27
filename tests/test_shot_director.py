@@ -169,3 +169,52 @@ def test_env_cannot_raise_cap_above_hard_ceiling(monkeypatch):
     finally:
         monkeypatch.delenv("SHOT_DIRECTOR_MAX_CALLS_PER_RUN", raising=False)
         importlib.reload(sd)
+
+
+# ---------- _thinking_config_for_model(): реальное поведение разных моделей ----------
+# thinkingBudget=0 обязателен для gemini-2.5-flash (обрыв MAX_TOKENS без
+# него), но на gemini-3.6-flash тот же флаг даёт HTTP 400 invalid argument
+# (проверено вживую 27.08 на реальном ключе, не гипотеза). Дефолт модуля
+# теперь gemini-3.6-flash, потому что gemini-2.5-flash недоступна ключу,
+# который в итоге получил этот канал ("no longer available to new users").
+
+def test_thinking_config_zero_budget_for_25_family():
+    assert sd._thinking_config_for_model("gemini-2.5-flash") == {"thinkingBudget": 0}
+    assert sd._thinking_config_for_model("gemini-2.5-pro") == {"thinkingBudget": 0}
+
+
+def test_thinking_config_omitted_for_36_flash():
+    assert sd._thinking_config_for_model("gemini-3.6-flash") is None
+
+
+def test_thinking_config_omitted_for_unknown_future_model():
+    # Честная деградация на неизвестную модель — не гадаем thinkingBudget,
+    # просто не отправляем thinkingConfig вовсе.
+    assert sd._thinking_config_for_model("gemini-9.0-nano") is None
+
+
+def test_call_body_omits_thinking_config_for_default_model(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(req, timeout=None):
+        captured["body"] = json.loads(req.data.decode("utf-8"))
+        return _FakeHTTPResponse(_fake_gemini_payload(["a query", "b query"]))
+    monkeypatch.setattr(sd.urllib.request, "urlopen", fake_urlopen)
+    with tempfile.TemporaryDirectory() as d:
+        sd.direct_query("человек принимает решение", d)
+    assert "thinkingConfig" not in captured["body"]["generationConfig"], (
+        "дефолтная модель этого модуля (gemini-3.6-flash) не принимает "
+        "thinkingConfig вообще — отправка ломает запрос")
+
+
+def test_call_body_includes_zero_budget_for_25_flash(monkeypatch):
+    monkeypatch.setattr(sd, "SHOT_DIRECTOR_MODEL", "gemini-2.5-flash")
+    captured = {}
+
+    def fake_urlopen(req, timeout=None):
+        captured["body"] = json.loads(req.data.decode("utf-8"))
+        return _FakeHTTPResponse(_fake_gemini_payload(["a query", "b query"]))
+    monkeypatch.setattr(sd.urllib.request, "urlopen", fake_urlopen)
+    with tempfile.TemporaryDirectory() as d:
+        sd.direct_query("человек принимает решение", d)
+    assert captured["body"]["generationConfig"]["thinkingConfig"] == {"thinkingBudget": 0}
