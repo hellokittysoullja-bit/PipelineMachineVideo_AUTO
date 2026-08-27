@@ -2514,3 +2514,56 @@ def test_apply_action_qualifier_does_not_duplicate_words():
 
 def test_apply_action_qualifier_passthrough_when_none():
     assert pipeline_smart.apply_action_qualifier("medieval sword", None) == "medieval sword"
+
+
+# ---------- semantic_context_text(): смысловой контекст для коротких блоков ----------
+# Реальный случай, увиденный на готовом кадре: блок "Не дрались. Несли."
+# (3 слова, ни одного зрительного существительного) — его смысл целиком в
+# предыдущей фразе, и модель сопоставления фразы с картинкой получала именно
+# этот огрызок. Влияет ТОЛЬКО на выбор картинки, не на тайминг/резы/запрос.
+
+def _blk(text, section="BLOCK 1"):
+    return {"text": text, "section": section}
+
+
+def test_semantic_context_leaves_long_block_untouched():
+    blocks = [_blk("а б в г д е ё ж з и к л м н о")]
+    assert pipeline_smart.semantic_context_text(blocks, 0) == blocks[0]["text"]
+
+
+def test_semantic_context_pulls_previous_sentence_for_short_block():
+    blocks = [
+        _blk("Существовала целая категория мечей, которые никогда не предназначались для боя"),
+        _blk("Не дрались. Несли."),
+    ]
+    ctx = pipeline_smart.semantic_context_text(blocks, 1)
+    assert "категория мечей" in ctx
+    assert "Несли." in ctx, "собственная фраза блока обязана остаться в окне"
+
+
+def test_semantic_context_does_not_cross_section_boundary():
+    blocks = [
+        _blk("Длинная фраза совсем другого раздела про совершенно иные вещи", section="BLOCK 1"),
+        _blk("Береги себя.", section="FINAL"),
+    ]
+    ctx = pipeline_smart.semantic_context_text(blocks, 1)
+    assert "другого раздела" not in ctx, "через границу секции тема меняется — контекст не берём"
+    assert "Береги себя." in ctx
+
+
+def test_semantic_context_uses_next_sentence_when_no_previous():
+    blocks = [
+        _blk("Пятнадцать килограммов."),
+        _blk("Так говорят кино, видеоигры и школьные учебники — в один голос"),
+    ]
+    ctx = pipeline_smart.semantic_context_text(blocks, 0)
+    assert "Пятнадцать килограммов." in ctx
+    assert "учебники" in ctx
+
+
+def test_semantic_context_always_keeps_own_sentence_even_with_long_neighbour():
+    long_prev = " ".join(f"слово{i}" for i in range(80))
+    blocks = [_blk(long_prev), _blk("Не дрались. Несли.")]
+    ctx = pipeline_smart.semantic_context_text(blocks, 1)
+    assert "Несли." in ctx
+    assert len(ctx.split()) <= pipeline_smart.SEMANTIC_CONTEXT_MAX_WORDS

@@ -2553,8 +2553,85 @@ def _score_and_pick(candidates_info, director_score_fn=None):
     return base_best, dir_best
 
 
+SEMANTIC_CONTEXT_MIN_WORDS = 9   # короче — фраза сама себя не описывает
+SEMANTIC_CONTEXT_MAX_WORDS = 40  # и не растворять смысл текущей фразы в соседях
+
+
+def semantic_context_text(blocks, i):
+    """Текст для СМЫСЛОВОГО подбора картинки к блоку i — сам блок, при
+    необходимости дополненный соседними фразами ТОЙ ЖЕ секции.
+
+    Реальный, увиденный на готовом кадре случай: блок "Не дрались. Несли."
+    (3 слова) — в нём нет ни одного зрительного существительного, его смысл
+    целиком в предыдущей фразе ("категория мечей, которые никогда не
+    предназначались для боя"). Модель сопоставления фразы с картинкой на
+    таком огрызке физически не может выбрать осмысленно — и раньше получала
+    именно его, слово в слово. В реальном эпизоде таких блоков 7 из 91 ещё
+    ДО sub-cut-разбивки (та дробит длинные блоки и добавляет коротких).
+
+    Контекст берётся только внутри своей секции (через границу раздела тема
+    меняется) и только пока не набрано SEMANTIC_CONTEXT_MIN_WORDS: сначала
+    предыдущая фраза (она обычно и вводит предмет), затем следующая. Длинный
+    блок не трогается вообще — байт-в-байт прежнее поведение.
+
+    Влияет ТОЛЬКО на выбор картинки. Ни тайминг, ни резы, ни поисковый
+    запрос, ни субтитры от этого не зависят."""
+    cur = blocks[i]
+    words = cur["text"].split()
+    if len(words) >= SEMANTIC_CONTEXT_MIN_WORDS:
+        return cur["text"]
+    section = cur.get("section")
+    before, after = "", ""
+    if i > 0 and blocks[i - 1].get("section") == section:
+        before = blocks[i - 1]["text"]
+    if i + 1 < len(blocks) and blocks[i + 1].get("section") == section:
+        after = blocks[i + 1]["text"]
+    parts = [p for p in (before, cur["text"]) if p]
+    if len(" ".join(parts).split()) < SEMANTIC_CONTEXT_MIN_WORDS and after:
+        parts.append(after)
+    out = " ".join(parts).split()
+    # Обрезаем ВОКРУГ текущей фразы, а не с начала: она должна остаться в
+    # окне даже когда соседи длинные.
+    if len(out) > SEMANTIC_CONTEXT_MAX_WORDS:
+        out = out[:SEMANTIC_CONTEXT_MAX_WORDS] if not before else out[-SEMANTIC_CONTEXT_MAX_WORDS:]
+    return " ".join(out)
+
+
+_PEXELS_SEARCH_CACHE = {}   # {api_query: [photo, ...]} — на процесс, см. ниже
+
+
+def _pexels_search_photos(api_query):
+    """Выдача Pexels по УЖЕ подготовленной строке запроса, с кэшем на процесс.
+
+    Кэш здесь не оптимизация "на всякий случай", а условие работоспособности
+    расширенного пула: один и тот же запрос повторяется у ДЕСЯТКОВ блоков
+    (запрос берётся из словаря по корню слова либо из авторских запросов
+    секции), и раньше каждый блок дёргал API заново — на эпизоде в 91 блок
+    это десятки одинаковых запросов. Квота Pexels — 200/час (ЧАСТЬ 21), а
+    сбор пула из всех запросов секции умножил бы число вызовов ещё в 3-4
+    раза и гарантированно упёрся бы в лимит. С кэшем расход становится
+    "по одному вызову на УНИКАЛЬНЫЙ запрос эпизода" (порядок 10-40), то есть
+    расширение пула обходится дешевле, чем стоил прежний однозапросный путь.
+
+    Выдача Pexels на один и тот же запрос стабильна в пределах прогона —
+    кэшировать её безопасно; разные блоки всё равно получают РАЗНЫЕ картинки
+    за счёт used_ids/used_hashes (анти-дубль), а не за счёт разной выдачи."""
+    if api_query in _PEXELS_SEARCH_CACHE:
+        return _PEXELS_SEARCH_CACHE[api_query]
+    q = urllib.parse.quote(api_query)
+    req = urllib.request.Request(
+        f"https://api.pexels.com/v1/search?query={q}&per_page=80&orientation=landscape",
+        headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        data = json.load(r)
+    photos = data.get("photos") or []
+    _PEXELS_SEARCH_CACHE[api_query] = photos
+    return photos
+
+
 def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=None, target_luma=None,
-                  director_score_fn=None, director_assist=False, director_report=None):
+                  director_score_fn=None, director_assist=False, director_report=None,
+                  extra_queries=None):
     """used_ids — множество ID уже показанных в этом ролике фото (мутируется на
     месте). Разные блоки часто ловят один и тот же тематический запрос — без
     этого им всем доставался бы top-1 результат, то есть одна и та же картинка
@@ -2596,7 +2673,21 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
     осью). director_assist=False (shadow) — реально используется base;
     True (assist) — director. director_report, если передан dict —
     заполняется {"base_winner"/"director_winner": Pexels-ID или None,
-    "diverged": bool} для честного аудита независимо от director_assist."""
+    "diverged": bool} для честного аудита независимо от director_assist.
+
+    extra_queries (опционально) — ОСТАЛЬНЫЕ авторские запросы этой секции.
+    Кандидаты собираются из всех них сразу (один вызов API на УНИКАЛЬНЫЙ
+    запрос, см. _pexels_search_photos), а не только из `query`. Смысл: раньше
+    блок видел ровно один запрос, доставшийся ему позиционно по кругу
+    (pool[idx % len(pool)]), и выбирать было физически не из чего — на
+    реальном эпизоде это давало совпадение по смыслу примерно у 1 блока из 3
+    (фраза про заточку клинка получала запрос "medieval castle hall").
+    Теперь позиция задаёт только ОСНОВНОЙ запрос (ключ кэша/гейта), а какой
+    кадр реально встанет в этот момент ролика, решает сопоставление ПОЛНОЙ
+    ФРАЗЫ блока с картинкой (director_score_fn -> sentence_relevance). Гейт
+    релевантности сверяет каждого кандидата с ЕГО собственным запросом
+    (_origin_query), а не с чужим — иначе кандидат из второго запроса секции
+    отбраковывался бы ни за что. None/[] -> прежнее поведение."""
     global PEXELS_BROKEN
     cache = os.path.join(TEMP_FOLDER, "pexels_cache")
     os.makedirs(cache, exist_ok=True)
@@ -2606,7 +2697,12 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
     # иначе улучшение relevance/анахронизм-гварда молча не переоценивает уже
     # закэшированного кандидата, отобранного по старым, менее строгим правилам
     # (реальный найденный баг, см. докстринг candidate_gate_signature()).
-    qhash = hashlib.md5(query.encode()).hexdigest()[:8]
+    # В ключ входит ВЕСЬ набор запросов пула (не только основной): смена
+    # состава пула меняет, из чего вообще выбирался кадр — переиспользовать
+    # старый файл в этом случае значит молча остаться на прежнем, более
+    # бедном выборе (тот же класс бага, что закрывает candidate_gate_signature).
+    qkey = "|".join([query] + sorted(q for q in (extra_queries or []) if q and q != query))
+    qhash = hashlib.md5(qkey.encode()).hexdigest()[:8]
     gate_sig = candidate_gate_signature().split(":", 1)[-1]
     cf = os.path.join(cache, f"{index:04d}_{qhash}_{gate_sig}.jpg")
     # size>0, не просто exists — см. atomic_url_download: старые (до этого
@@ -2650,13 +2746,25 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             return cf
         return None
     try:
-        q = urllib.parse.quote(disambiguate_search_query(query))
-        req = urllib.request.Request(
-            f"https://api.pexels.com/v1/search?query={q}&per_page=80&orientation=landscape",
-            headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
-        with urllib.request.urlopen(req, timeout=15) as r:
-            data = json.load(r)
-        photos = data.get("photos") or []
+        # Пул кандидатов собирается из ВСЕХ запросов секции сразу, а не из
+        # одного (см. extra_queries в докстринге) — победителя дальше выбирает
+        # director_score_fn по ПОЛНОЙ фразе блока.
+        pool_queries = [query] + [q for q in (extra_queries or []) if q and q != query]
+        photos = []
+        seen_ids = set()
+        for pq in pool_queries:
+            for p in _pexels_search_photos(disambiguate_search_query(pq)):
+                pid = p.get("id")
+                if pid in seen_ids:
+                    continue
+                seen_ids.add(pid)
+                # Из какого запроса кандидат пришёл — гейт релевантности ниже
+                # должен сверять его с ЕГО запросом, иначе кандидат из второго
+                # запроса секции сравнивался бы с чужим текстом и честно
+                # отбраковывался бы ни за что.
+                p = dict(p)
+                p["_origin_query"] = pq
+                photos.append(p)
         if not photos:
             return None
         photos = filter_alt_blocklist(photos)
@@ -2716,11 +2824,12 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                         size_ok = 0 if estimate_shot_size(trial) in recent_sizes[-2:] else 1
                     except Exception:
                         size_ok = 1
-                relevance = clip_relevance(trial, query)
+                origin_q = p.get("_origin_query") or query
+                relevance = clip_relevance(trial, origin_q)
                 # Порог + risky-margin гейт (museum/exhibition/collection/... —
                 # см. RISKY_GENERIC_TERMS) — см. is_relevant_candidate(), та же
                 # функция, что проверяет golden-тест media-selection.
-                is_relevant = 1 if is_relevant_candidate(trial, query, relevance=relevance) else 0
+                is_relevant = 1 if is_relevant_candidate(trial, origin_q, relevance=relevance) else 0
                 # Эстетика — доп. измерение, НЕ повышает good_needed само по
                 # себе (в отличие от target_luma) — иначе каждый выбор фото
                 # тратил бы вдвое больше скачиваний/Pexels-трафика по
@@ -6477,6 +6586,24 @@ def main():
         print(f"  Авторские PEXELS QUERIES: {sum(len(v) for v in authored_queries.values())} "
               f"запрос(ов) на {len(authored_queries)} секци(й)")
     queries = resolve_queries(blocks, authored_queries=authored_queries)
+    # Пул запросов СЕКЦИИ на каждый блок (см. extra_queries в pexels_photo).
+    # Раньше авторские запросы раздавались блокам ПОЗИЦИОННО ПО КРУГУ
+    # (pool[idx % len(pool)]) — на секции из 16 блоков и 3 запросов это
+    # означало, что блок про заточку клинка получал запрос "medieval castle
+    # hall" просто потому, что выпал третьим по счёту. Реально измерено на
+    # videos/01_ves-mecha: совпадало по смыслу примерно 1 из 3, остальное —
+    # шум раздачи. Теперь позиция задаёт лишь ОСНОВНОЙ запрос (кэш/гейт), а
+    # кандидаты собираются из всех запросов секции, и победителя выбирает
+    # сопоставление ПОЛНОЙ ФРАЗЫ блока с картинкой (Semantic Visual Director,
+    # sentence_relevance) — то, для чего эта модель и обучена, в отличие от
+    # сравнения текста с текстом (проверено: на text-vs-text та же модель
+    # ошибалась 3 раза из 4, поэтому этот путь сознательно не используется).
+    section_query_pool = {}
+    if authored_queries:
+        for b in blocks:
+            key = _normalize_section_key(b["section"])
+            if key and key in authored_queries:
+                section_query_pool[b["section"]] = authored_queries[key]
     write_shot_manifest(VIDEO_FOLDER, blocks, durs, queries)
 
     if PLAN_ONLY:
@@ -6706,9 +6833,10 @@ def main():
         if not photo and use_pexels:
             if visual_director is not None:
                 director_role = visual_director.functional_role(b, is_section_start)
-                director_text_domain, _ = visual_director.lr.text_domain_hint(b["text"])
+                sem_text = semantic_context_text(blocks, i)
+                director_text_domain, _ = visual_director.lr.text_domain_hint(sem_text)
                 director_score_fn = functools.partial(
-                    visual_director.compute_extra_score, role=director_role, block_text=b["text"],
+                    visual_director.compute_extra_score, role=director_role, block_text=sem_text,
                     text_domain=director_text_domain, recent_semantic_tags=recent_semantic_tags,
                     arc_stage=arc_stage_by_index.get(i))
                 director_entry = {}
@@ -6743,12 +6871,14 @@ def main():
                     photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
                                       recent_sizes=recent_shot_sizes, target_luma=luma_ema,
                                       director_score_fn=director_score_fn, director_assist=director_assist,
-                                      director_report=director_entry)
+                                      director_report=director_entry,
+                                      extra_queries=section_query_pool.get(b["section"]))
             else:
                 photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
                                       recent_sizes=recent_shot_sizes, target_luma=luma_ema,
                                       director_score_fn=director_score_fn, director_assist=director_assist,
-                                      director_report=director_entry)
+                                      director_report=director_entry,
+                                      extra_queries=section_query_pool.get(b["section"]))
                 if not photo and d >= MIN_CLIP + 1.0:
                     video = pexels_video(queries[i], i, used_ids=used_video_ids, used_hashes=used_photo_hashes,
                                          action_qualifier=act_qual)
