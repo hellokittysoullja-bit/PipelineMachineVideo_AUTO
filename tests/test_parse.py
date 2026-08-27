@@ -2230,6 +2230,33 @@ def test_plan_only_defaults_to_false_without_flag(tmp_path):
     assert "PLAN_ONLY False" in r.stdout
 
 
+def test_on_screen_text_enabled_defaults_to_true(tmp_path):
+    code = (
+        f"import sys; sys.path.insert(0, {SCRIPTS_DIR!r}); "
+        f"sys.argv = ['pipeline_smart.py', {str(tmp_path)!r}]; "
+        "import pipeline_smart as ps; print('ON_SCREEN_TEXT_ENABLED', ps.ON_SCREEN_TEXT_ENABLED)"
+    )
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, f"stdout={r.stdout!r} stderr={r.stderr!r}"
+    assert "ON_SCREEN_TEXT_ENABLED True" in r.stdout
+
+
+def test_on_screen_text_enabled_false_when_env_zero(tmp_path):
+    # По прямому запросу пользователя — титр темы блока и [stat:...]-плашки
+    # отключаемы отдельно от субтитров (см. main(): title/stat -> None
+    # ПЕРЕД kenburns()/parallax_kenburns()/add_overlays(), сам [stat:...] в
+    # script.txt и его семантика для speech_planner.py не трогаются).
+    code = (
+        f"import sys; sys.path.insert(0, {SCRIPTS_DIR!r}); "
+        f"sys.argv = ['pipeline_smart.py', {str(tmp_path)!r}]; "
+        "import pipeline_smart as ps; print('ON_SCREEN_TEXT_ENABLED', ps.ON_SCREEN_TEXT_ENABLED)"
+    )
+    env = dict(os.environ, ON_SCREEN_TEXT="0")
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=30, env=env)
+    assert r.returncode == 0, f"stdout={r.stdout!r} stderr={r.stderr!r}"
+    assert "ON_SCREEN_TEXT_ENABLED False" in r.stdout
+
+
 def test_print_plan_summary_no_ffmpeg_calls(monkeypatch, capsys):
     # Гарантия сути фичи: ни ffmpeg, ни ffprobe не вызываются внутри свода.
     def _forbidden(*a, **k):

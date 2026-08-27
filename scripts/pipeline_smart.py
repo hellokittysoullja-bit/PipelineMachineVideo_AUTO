@@ -480,6 +480,18 @@ GRAIN_OPACITY = 0.10   # калибровано вживую — см. комм�
 DEFLICKER_ENABLED = os.environ.get("DEFLICKER", "1") != "0"
 DEFLICKER_FILTER = "deflicker=size=5:mode=am,"
 
+# По прямому запросу пользователя — полностью отключаемые on-screen текстовые
+# оверлеи (титр темы блока, [stat:...]-плашки с цифрами), НЕ субтитры (те и
+# так отдельный сайдкар-файл subtitles.srt, никогда не вшиты в кадр — эта
+# ручка про то, что реально рисуется поверх картинки). off -> main() ниже
+# принудительно обнуляет title/stat ПЕРЕД передачей в kenburns()/
+# parallax_kenburns()/add_overlays() — сам текст [stat:...] в script.txt и
+# его семантика (evidence_beat в speech_planner.py, freeze-hold перед
+# цифрой в kenburns()) не трогаются, подавляется только отрисовка. Дефолт
+# "1" (было и остаётся поведением по умолчанию) — ноль влияния на существующие
+# эпизоды, пока флаг не выставлен явно.
+ON_SCREEN_TEXT_ENABLED = os.environ.get("ON_SCREEN_TEXT", "1") != "0"
+
 def _look_management_cache_signature(look_ref):
     """Тонкая обёртка над look_reference.cache_signature() (см. main()) —
     params_hash считается ДО того, как известны photo/levels/wb КОНКРЕТНОГО
@@ -4596,11 +4608,18 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
         # потому что двигать там физически нечего. depth.std() — дешёвая
         # мера контраста уже посчитанной карты (без доп. модели). Референс
         # 0.22 — медиана std по реальным фото канала (проверено: 0.18-0.31
-        # на 8 кадрах), не гадание. Границы [0.4, 1.4] — не гасим эффект
-        # до нуля даже на самом плоском кадре (тогда параллакс-путь вообще
-        # не имел бы смысла выбирать), но и не разгоняем сверх разумного.
+        # на 8 кадрах), не гадание. Верхняя граница 1.4 — не разгоняем сверх
+        # разумного. Нижняя граница поднята с 0.4 до 0.6 по прямой жалобе
+        # пользователя (параллакс на хук-кадре с низкоконтрастным фоном
+        # выглядел почти неотличимо от обычного Ken Burns) — parallax_kenburns
+        # вызывается ИСКЛЮЧИТЕЛЬНО на highlight-кадрах (хук/открывашки
+        # разделов/climax, см. is_parallax_highlight()), то есть именно там,
+        # где эффект по замыслу должен читаться сильнее всего; 0.6 — разумная
+        # правка на глаз, НЕ пересчитана заново на большой выборке фото
+        # (честно, как и исходное значение 0.4 не было "гаданием", но и не
+        # калибровкой в строгом смысле).
         depth_contrast = float(depth.std())
-        strength_gain = max(0.4, min(1.4, depth_contrast / 0.22))
+        strength_gain = max(0.6, min(1.4, depth_contrast / 0.22))
         parallax_px = PARALLAX_PX_BASE * (0.7 + rate_jit * 0.6) * strength_gain
         # DEPTH_ZOOM_STRENGTH — насколько сильно ближние/дальние слои
         # расходятся по СКОРОСТИ ЗУМА при push/pull (не только по офсету
@@ -6122,6 +6141,8 @@ def main():
         is_section_start = i == 0 or blocks[i]["section"] != blocks[i - 1]["section"]
         title = section_title(b["section"]) if is_section_start else None
         stat = b.get("stat")
+        if not ON_SCREEN_TEXT_ENABLED:
+            title, stat = None, None
         stat_variant = stat_count
         # D2: кинетические подписи — только ХУК, только если alignment.csv
         # реально дал слова на эту секцию. hook_words уже пересчитаны в
