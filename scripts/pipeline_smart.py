@@ -3825,8 +3825,23 @@ def render_timeout_sec(dur):
     _default_render_workers() (нагрузка растёт вместе с числом
     параллельных ffmpeg). Проверено вживую на 4-ядерной машине с
     RENDER_POOL_WORKERS=3 (90с пол) — реальный прогон 4 клипов проходит
-    с первой попытки на каждый клип, суммарно на весь пул 73.8с."""
-    contention = RENDER_POOL_WORKERS if RENDER_POOL_ENABLED else 1
+    с первой попытки на каждый клип, суммарно на весь пул 73.8с.
+
+    РЕАЛЬНЫЙ пойманный вживую пробел (не гипотеза): формула выше учитывает
+    ТОЛЬКО contention от RENDER_POOL_WORKERS — но parallax_kenburns()
+    (2.5D-параллакс на highlight-кадрах, см. is_parallax_highlight())
+    всегда выполняется ПОСЛЕДОВАТЕЛЬНО в главном процессе, а не в пуле, и
+    сам по себе тяжёлый ffmpeg-энкод (тот же дорогой film_look() с
+    gblur=14 bloom-эффектом, что и у остальных клипов). Пока он идёт,
+    реальное число одновременных тяжёлых ffmpeg-процессов на машине —
+    RENDER_POOL_WORKERS ИЗ ПУЛА плюс ЕЩЁ ОДИН в главном процессе, а
+    формула этого не считала. На 4-ядерной песочнице поймано вживую:
+    изолированный (без конкуренции) прогон тяжёлого клипа — 112-224с,
+    под реальной нагрузкой пула — таймаут на ровно той же цифре, что
+    выдавала формула (contention=3 -> ~418-429с), 3 попытки подряд.
+    +1 к contention — честный запас именно под эту, ранее не посчитанную
+    добавку от параллакса, не гадание с потолка."""
+    contention = (RENDER_POOL_WORKERS + 1) if RENDER_POOL_ENABLED else 1
     return max(30 * contention, dur * 15 * contention)
 
 
@@ -4572,6 +4587,8 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
     if PARALLAX_BROKEN:
         return False
     proc = None
+    stderr_f = None
+    stderr_path = None
     try:
         frames = max(1, round(dur * FPS))
         cw, ch = round(WIDTH * PARALLAX_MARGIN), round(HEIGHT * PARALLAX_MARGIN)
@@ -4673,8 +4690,25 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
         tmp_out = render_tmp_path(out)
         cmd += ["-frames:v", str(frames), "-c:v", "libx264", "-preset", "fast", "-crf", "18",
                 "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS + [tmp_out]
+        # РЕАЛЬНЫЙ баг, пойманный на реальном продакшн-рендере (не гипотеза):
+        # stderr=subprocess.PIPE здесь НИКОГДА не вычитывался, пока родитель
+        # покадрово пишет сырое видео в stdin ниже — классический subprocess
+        # deadlock: если ffmpeg успевает написать в stderr больше системного
+        # лимита пайпа (обычно 64КБ на Linux) ДО того, как родитель дозапишет
+        # все кадры, ffmpeg блокируется на записи в свой заполненный stderr,
+        # родитель блокируется на proc.stdin.write() — оба ждут друг друга
+        # НАВСЕГДА. Не зависит от содержимого фото/fps/модели — только от
+        # того, сколько именно диагностики ffmpeg успел написать для
+        # конкретного клипа, поэтому и выглядело "случайным" (не каждый
+        # клип, только те, что перешли порог буфера). Критично: это блокирует
+        # proc.stdin.write() ВНУТРИ цикла ниже — proc.wait(timeout=60) дальше
+        # по коду вообще не успевает сработать, до него не доходит.
+        # Файл вместо пайпа — стандартный фикс: запись в файл не имеет
+        # аналогичного лимита буфера, ffmpeg никогда не блокируется на нём.
+        stderr_path = render_tmp_path(out) + ".stderr.log"
+        stderr_f = open(stderr_path, "wb")
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE,
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                                 stdout=subprocess.DEVNULL, stderr=stderr_f)
 
         for frame_i in range(frames):
             t = frame_i / frames
@@ -4724,9 +4758,12 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
 
         proc.stdin.close()
         proc.wait(timeout=60)
+        stderr_f.close()
+        stderr_f = None
         if proc.returncode != 0:
-            print(f"  параллакс-рендер не встал ({os.path.basename(out)}): "
-                  f"{proc.stderr.read().decode(errors='replace')[-200:]}")
+            with open(stderr_path, "rb") as f:
+                err_tail = f.read().decode(errors="replace")[-200:]
+            print(f"  параллакс-рендер не встал ({os.path.basename(out)}): {err_tail}")
             finalize_render(tmp_out, out, False)
             return False
         # Без ретрая здесь намеренно — покадровый python-цикл с depth-моделью
@@ -4754,6 +4791,16 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
                 proc.kill()
                 proc.wait(timeout=5)
             except Exception:
+                pass
+        if stderr_f is not None:
+            try:
+                stderr_f.close()
+            except Exception:
+                pass
+        if stderr_path is not None:
+            try:
+                os.remove(stderr_path)
+            except OSError:
                 pass
 
 

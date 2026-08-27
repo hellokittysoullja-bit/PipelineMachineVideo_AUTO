@@ -329,6 +329,26 @@ def test_get_media_fps_none_on_missing_file():
     assert ps.get_media_fps("/no/such/file.mp4") is None
 
 
+# ---------- render_timeout_sec headroom for sequential parallax (реальный найденный пробел) ----------
+
+def test_render_timeout_sec_accounts_for_sequential_parallax_headroom(monkeypatch):
+    # РЕАЛЬНЫЙ пробел, пойманный вживую (не гипотеза): формула раньше
+    # считала contention ТОЛЬКО от RENDER_POOL_WORKERS, не учитывая, что
+    # parallax_kenburns() всегда выполняется ДОПОЛНИТЕЛЬНО, последовательно
+    # в главном процессе, поверх пула. +1 к contention — прямая проверка.
+    monkeypatch.setattr(ps, "RENDER_POOL_ENABLED", True)
+    monkeypatch.setattr(ps, "RENDER_POOL_WORKERS", 3)
+    assert ps.render_timeout_sec(10.0) == max(30 * 4, 10.0 * 15 * 4)
+
+
+def test_render_timeout_sec_pool_disabled_unaffected(monkeypatch):
+    # Пул выключен (RENDER_PARALLEL=0, последовательный рендер) -> contention=1
+    # как и раньше — headroom применяется только когда пул реально включён.
+    monkeypatch.setattr(ps, "RENDER_POOL_ENABLED", False)
+    monkeypatch.setattr(ps, "RENDER_POOL_WORKERS", 3)
+    assert ps.render_timeout_sec(10.0) == max(30, 10.0 * 15)
+
+
 def test_video_render_skips_speed_ramp_above_max_source_fps(tmp_path, monkeypatch):
     # РЕАЛЬНЫЙ зависший продакшн-рендер (не гипотеза, см. докстринг
     # SPEED_RAMP_MAX_SOURCE_FPS): спид-рамп + film_look (свой split/
