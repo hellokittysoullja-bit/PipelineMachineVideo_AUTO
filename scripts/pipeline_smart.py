@@ -5506,7 +5506,33 @@ VIDEO_RELEVANCE_MAX_TRIES = 3  # сколько видео-кандидатов 
                                 # меньше, видео тяжелее по трафику/времени)
 
 
-def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier=None):
+VIDEO_MIN_LUMA_HARD = 0.06     # ниже — кадр практически чёрный, отбраковка
+VIDEO_PREFER_MIN_LUMA = 0.18   # ниже — кадр читается плохо, уступает более светлому
+VIDEO_SENTENCE_POOL = 4        # сколько прошедших гейт кандидатов сравнить по смыслу
+
+
+_PEXELS_VIDEO_SEARCH_CACHE = {}
+
+
+def _pexels_search_videos(api_query):
+    """Видео-выдача Pexels с кэшем на процесс — та же причина и та же
+    механика, что у _pexels_search_photos (см. её докстринг): без кэша сбор
+    пула из всех запросов секции упёрся бы в квоту 200/час."""
+    if api_query in _PEXELS_VIDEO_SEARCH_CACHE:
+        return _PEXELS_VIDEO_SEARCH_CACHE[api_query]
+    q = urllib.parse.quote(api_query)
+    req = urllib.request.Request(
+        f"https://api.pexels.com/videos/search?query={q}&per_page=80&orientation=landscape",
+        headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        data = json.load(r)
+    videos = data.get("videos") or []
+    _PEXELS_VIDEO_SEARCH_CACHE[api_query] = videos
+    return videos
+
+
+def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier=None,
+                  extra_queries=None, sentence_score_fn=None):
     """Раньше брала ПЕРВОЕ ещё не показанное видео из выдачи без единой
     проверки релевантности/риска (реальный, ранее не закрытый структурный
     пробел, найденный внешним аудитом + прямой проверкой на реальном
@@ -5542,7 +5568,8 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
     # gate_sig — см. pexels_photo()/candidate_gate_signature(): без него улучшение
     # анахронизм-гварда не переоценивает уже закэшированное видео, отобранное
     # по старым правилам (реальный найденный случай — катана в кэше этого файла).
-    qhash = hashlib.md5(query.encode()).hexdigest()[:8]
+    qkey = "|".join([query] + sorted(q for q in (extra_queries or []) if q and q != query))
+    qhash = hashlib.md5(qkey.encode()).hexdigest()[:8]
     gate_sig = candidate_gate_signature().split(":", 1)[-1]
     cf = os.path.join(cache, f"{index:04d}_{qhash}_{gate_sig}.mp4")
     # size>0, не просто exists — см. atomic_url_download: реальный случай,
@@ -5556,17 +5583,28 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
     if not PEXELS_API_KEY:
         return None
     try:
-        # action_qualifier — движение из текста блока (см.
-        # action_video_qualifier): только в строку к API, не в ключ кэша и
-        # не в relevance-скоринг, как и disambiguate_search_query().
-        q = urllib.parse.quote(apply_action_qualifier(
-            disambiguate_search_query(query), action_qualifier))
-        req = urllib.request.Request(
-            f"https://api.pexels.com/videos/search?query={q}&per_page=80&orientation=landscape",
-            headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
-        with urllib.request.urlopen(req, timeout=15) as r:
-            data = json.load(r)
-        videos = data.get("videos") or []
+        # Пул из ВСЕХ запросов секции — то же, что уже сделано для фото
+        # (см. extra_queries в pexels_photo). До этого видео-слот жёстко
+        # держался одного позиционно доставшегося запроса, и никакого
+        # смыслового выбора у него не было вообще: на реальном рендере
+        # фраза "сколько весил настоящий боевой меч" получила зал
+        # кинотеатра, потому что позиции достался запрос про кино.
+        pool_queries = [query] + [q for q in (extra_queries or []) if q and q != query]
+        videos = []
+        seen_ids = set()
+        for pq in pool_queries:
+            # action_qualifier — движение из текста блока (см.
+            # action_video_qualifier): только в строку к API, не в ключ кэша
+            # и не в relevance-скоринг, как и disambiguate_search_query().
+            api_q = apply_action_qualifier(disambiguate_search_query(pq), action_qualifier)
+            for v in _pexels_search_videos(api_q):
+                vid = v.get("id")
+                if vid in seen_ids:
+                    continue
+                seen_ids.add(vid)
+                v = dict(v)
+                v["_origin_query"] = pq
+                videos.append(v)
         if not videos:
             return None
         ordered = videos
@@ -5580,6 +5618,10 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
         # relevance" — честная деградация, не пустой слот).
         dup_fallback = None    # (путь, id, hash) — прошёл relevance, похож на уже показанное
         plain_fallback = None  # (путь, id, hash) — первый скачанный, безопасная сетка
+        # Кандидаты, прошедшие все гейты, больше НЕ принимаются "первым
+        # попавшимся": собираются и сравниваются по смыслу полной фразы
+        # (sentence_score_fn) и читаемости кадра — так же, как у фото.
+        good = []              # [(sentence_score, luma_ok, путь, id, hash)]
         tries = 0
         for v in ordered:
             if tries >= VIDEO_RELEVANCE_MAX_TRIES:
@@ -5596,20 +5638,45 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
             except Exception:
                 continue
             tries += 1
+            origin_q = v.get("_origin_query") or query
             probe, cleanup = extract_video_probe_frame(trial)
             relevant = True
             cand_hash = None
+            sent_score = 0.0
+            cand_luma = None
             if probe is not None:
                 try:
-                    relevant = is_relevant_candidate(probe, query)
+                    # Гейт сверяется с ЕГО СОБСТВЕННЫМ запросом, не с чужим
+                    # (тот же принцип, что _origin_query у фото).
+                    relevant = is_relevant_candidate(probe, origin_q)
                     if used_hashes is not None:
                         try:
                             cand_hash = ahash(probe)
                         except Exception:
                             cand_hash = None
+                    try:
+                        cand_luma = measure_luma(probe)
+                    except Exception:
+                        cand_luma = None
+                    if relevant and sentence_score_fn is not None:
+                        try:
+                            s = sentence_score_fn(probe)
+                            sent_score = float(s) if s is not None else 0.0
+                        except Exception:
+                            sent_score = 0.0
                 finally:
                     if cleanup and os.path.exists(probe):
                         os.remove(probe)
+            # Практически чёрный кадр — отбраковываем жёстко: грейд канала
+            # темнит и без того, зритель просто не увидит, что показано
+            # (реальный случай на рендере — кадр с еле различимой полоской
+            # клинка). Порог 0.06 намеренно НИЖЕ реально встреченных тёмных
+            # кандидатов (0.113/0.118): осознанно тёмный кадр — часть стиля
+            # канала и отбраковываться не должен, режем только то, где
+            # разглядеть нечего физически.
+            if cand_luma is not None and cand_luma < VIDEO_MIN_LUMA_HARD:
+                relevant = False
+            luma_ok = 1 if (cand_luma is None or cand_luma >= VIDEO_PREFER_MIN_LUMA) else 0
             # Домен-гвард (анахронизм-защита) — ДОПОЛНИТЕЛЬНО на нескольких
             # кадрах по всей длительности ролика, не только на том же одном
             # пробнике, что уже участвовал в relevant выше: is_relevant_
@@ -5627,22 +5694,42 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                       min((hamming(cand_hash, uh) for uh in used_hashes), default=99)
                       <= PHOTO_DEDUP_HAMMING)
             if relevant and not is_dup:
-                if dup_fallback is not None and os.path.exists(dup_fallback[0]):
-                    os.remove(dup_fallback[0])
-                if plain_fallback is not None and os.path.exists(plain_fallback[0]):
-                    os.remove(plain_fallback[0])
-                os.replace(trial, cf)
-                if used_ids is not None:
-                    used_ids.add(v.get("id"))
-                if used_hashes is not None and cand_hash is not None:
-                    used_hashes.append(cand_hash)
-                return cf
+                good.append((sent_score, luma_ok, trial, v.get("id"), cand_hash))
+                # Без смыслового скоринга сравнивать нечего — прежнее
+                # поведение "первый прошедший побеждает" (ноль регресса для
+                # вызовов без sentence_score_fn).
+                if sentence_score_fn is None or len(good) >= VIDEO_SENTENCE_POOL:
+                    break
+                continue
             if relevant and dup_fallback is None:
                 dup_fallback = (trial, v.get("id"), cand_hash)
             elif plain_fallback is None:
                 plain_fallback = (trial, v.get("id"), cand_hash)
             else:
                 os.remove(trial)
+        if good:
+            # Читаемость кадра важнее тонкой разницы в смысловом скоре:
+            # нерелевантных здесь уже нет (все прошли гейт), а невидимый
+            # кадр бесполезен независимо от того, что на нём изображено.
+            good.sort(key=lambda g: (g[1], g[0]), reverse=True)
+            best = good[0]
+            for g in good[1:]:
+                try:
+                    os.remove(g[2])
+                except OSError:
+                    pass
+            for fb in (dup_fallback, plain_fallback):
+                if fb is not None and os.path.exists(fb[0]):
+                    try:
+                        os.remove(fb[0])
+                    except OSError:
+                        pass
+            os.replace(best[2], cf)
+            if used_ids is not None:
+                used_ids.add(best[3])
+            if used_hashes is not None and best[4] is not None:
+                used_hashes.append(best[4])
+            return cf
         chosen = dup_fallback or plain_fallback
         if chosen is not None:
             path, vid, cand_hash = chosen
@@ -6831,6 +6918,17 @@ def main():
         director_entry = None
         director_assist = visual_director is not None and visual_director.VISUAL_DIRECTOR_MODE == "assist"
         if not photo and use_pexels:
+            # Смысловая оценка кадра-пробника ВИДЕО против полной фразы —
+            # раньше видео-путь такой оценки не имел вообще (только фото),
+            # и видео-слот молча оставался на позиционно доставшемся
+            # запросе: на реальном рендере фраза "сколько весил настоящий
+            # боевой меч" получила зал кинотеатра. Та же модель и та же
+            # функция, что уже используются для фото.
+            video_sentence_fn = None
+            if visual_director is not None:
+                _sem = semantic_context_text(blocks, i)
+                video_sentence_fn = functools.partial(
+                    visual_director.sentence_relevance, block_text=_sem)
             if visual_director is not None:
                 director_role = visual_director.functional_role(b, is_section_start)
                 sem_text = semantic_context_text(blocks, i)
@@ -6866,7 +6964,9 @@ def main():
             act_qual = action_video_qualifier(b["text"])
             if prefer_video:
                 video = pexels_video(queries[i], i, used_ids=used_video_ids, used_hashes=used_photo_hashes,
-                                     action_qualifier=act_qual)
+                                     action_qualifier=act_qual,
+                                     extra_queries=section_query_pool.get(b["section"]),
+                                     sentence_score_fn=video_sentence_fn)
                 if not video:
                     photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
                                       recent_sizes=recent_shot_sizes, target_luma=luma_ema,
@@ -6881,7 +6981,9 @@ def main():
                                       extra_queries=section_query_pool.get(b["section"]))
                 if not photo and d >= MIN_CLIP + 1.0:
                     video = pexels_video(queries[i], i, used_ids=used_video_ids, used_hashes=used_photo_hashes,
-                                         action_qualifier=act_qual)
+                                         action_qualifier=act_qual,
+                                         extra_queries=section_query_pool.get(b["section"]),
+                                         sentence_score_fn=video_sentence_fn)
             # Раньше Pexels отключался навсегда после ЛЮБОГО промаха, включая
             # обычную пустую выдачу по одному неудачному запросу. Гасим источник
             # только если API реально отвалился.

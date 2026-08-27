@@ -28,6 +28,21 @@ import shot_director            # noqa: E402
 import fix_pauses               # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _clear_pexels_search_caches():
+    """Кэши выдачи Pexels живут на процесс (это их смысл в проде — см.
+    _pexels_search_photos: без них сбор пула из всех запросов секции упёрся
+    бы в квоту 200/час). В тестах то же самое означает утечку состояния
+    между тестами: тест с замоканным urlopen не увидел бы своего мока,
+    потому что ответ уже лежит в кэше от предыдущего теста — реально
+    пойманное падение, тест проходил в одиночку и падал в группе."""
+    pipeline_smart._PEXELS_SEARCH_CACHE.clear()
+    pipeline_smart._PEXELS_VIDEO_SEARCH_CACHE.clear()
+    yield
+    pipeline_smart._PEXELS_SEARCH_CACHE.clear()
+    pipeline_smart._PEXELS_VIDEO_SEARCH_CACHE.clear()
+
+
 def write_script(tmp_path, body):
     p = tmp_path / "script.txt"
     p.write_text(body, encoding="utf-8")
@@ -2567,3 +2582,116 @@ def test_semantic_context_always_keeps_own_sentence_even_with_long_neighbour():
     ctx = pipeline_smart.semantic_context_text(blocks, 1)
     assert "Несли." in ctx
     assert len(ctx.split()) <= pipeline_smart.SEMANTIC_CONTEXT_MAX_WORDS
+
+
+# ---------- pexels_video: выбор по смыслу фразы + читаемость кадра ----------
+# Раньше видео-путь не имел смысловой оценки ВООБЩЕ (только фото) и брал
+# первого прошедшего гейт кандидата по позиционно доставшемуся запросу — на
+# реальном рендере фраза "сколько весил настоящий боевой меч" получила зал
+# кинотеатра, а другой слот — практически чёрный кадр.
+
+def _fake_video_api(monkeypatch, per_query):
+    """per_query: {api_query: [id, ...]} — что «вернул» Pexels."""
+    def fake_search(api_query):
+        return [{"id": vid,
+                 "video_files": [{"file_type": "video/mp4", "width": 1920,
+                                  "link": f"http://x/{vid}.mp4"}]}
+                for vid in per_query.get(api_query, [])]
+    monkeypatch.setattr(pipeline_smart, "_pexels_search_videos", fake_search)
+
+
+def test_pexels_video_pools_all_section_queries(tmp_path, monkeypatch):
+    seen = {}
+    _fake_video_api(monkeypatch, {
+        "european medieval sword close up": [1],
+        "dark cinema movie theatre screen": [2],
+    })
+    monkeypatch.setattr(pipeline_smart, "PEXELS_API_KEY", "k")
+    monkeypatch.setattr(pipeline_smart, "TEMP_FOLDER", str(tmp_path))
+    monkeypatch.setattr(pipeline_smart, "atomic_url_download",
+                        lambda req, dest, timeout=None: open(dest, "wb").write(b"x"))
+    monkeypatch.setattr(pipeline_smart, "extract_video_probe_frame",
+                        lambda p, **kw: (p + ".jpg", False))
+    monkeypatch.setattr(pipeline_smart, "is_relevant_candidate", lambda *a, **k: True)
+    monkeypatch.setattr(pipeline_smart, "video_domain_guard_violation", lambda *a, **k: (False, None))
+    monkeypatch.setattr(pipeline_smart, "measure_luma", lambda p: 0.4)
+    monkeypatch.setattr(pipeline_smart, "ahash", lambda p: 0)
+
+    def score(probe):
+        # Кандидат 2 (из ВТОРОГО запроса секции) — семантически лучший.
+        seen[probe] = 1
+        return 0.9 if "2.mp4" in probe else 0.1
+    out = pipeline_smart.pexels_video(
+        "medieval sword close up", 0, used_ids=set(), used_hashes=[],
+        extra_queries=["dark cinema movie theatre screen"], sentence_score_fn=score)
+    assert out is not None
+    assert len(seen) >= 2, "должен был сравнить кандидатов из ОБОИХ запросов секции"
+
+
+def test_pexels_video_rejects_near_black_frame(tmp_path, monkeypatch):
+    _fake_video_api(monkeypatch, {"european medieval sword close up": [1, 2]})
+    monkeypatch.setattr(pipeline_smart, "PEXELS_API_KEY", "k")
+    monkeypatch.setattr(pipeline_smart, "TEMP_FOLDER", str(tmp_path))
+    monkeypatch.setattr(pipeline_smart, "atomic_url_download",
+                        lambda req, dest, timeout=None: open(dest, "wb").write(b"x"))
+    monkeypatch.setattr(pipeline_smart, "extract_video_probe_frame",
+                        lambda p, **kw: (p + ".jpg", False))
+    monkeypatch.setattr(pipeline_smart, "is_relevant_candidate", lambda *a, **k: True)
+    monkeypatch.setattr(pipeline_smart, "video_domain_guard_violation", lambda *a, **k: (False, None))
+    monkeypatch.setattr(pipeline_smart, "ahash", lambda p: 0)
+    # Кандидат 1 — практически чёрный, 2 — нормальный.
+    monkeypatch.setattr(pipeline_smart, "measure_luma",
+                        lambda p: 0.01 if "1.mp4" in p else 0.4)
+    out = pipeline_smart.pexels_video(
+        "medieval sword close up", 0, used_ids=set(), used_hashes=[],
+        sentence_score_fn=lambda probe: 0.5)
+    assert out is not None
+    assert "1.mp4" not in open(out, "rb").name
+
+
+def test_pexels_video_prefers_readable_frame_over_slightly_better_meaning(tmp_path, monkeypatch):
+    _fake_video_api(monkeypatch, {"european medieval sword close up": [1, 2]})
+    monkeypatch.setattr(pipeline_smart, "PEXELS_API_KEY", "k")
+    monkeypatch.setattr(pipeline_smart, "TEMP_FOLDER", str(tmp_path))
+    monkeypatch.setattr(pipeline_smart, "atomic_url_download",
+                        lambda req, dest, timeout=None: open(dest, "wb").write(b"x"))
+    monkeypatch.setattr(pipeline_smart, "extract_video_probe_frame",
+                        lambda p, **kw: (p + ".jpg", False))
+    monkeypatch.setattr(pipeline_smart, "is_relevant_candidate", lambda *a, **k: True)
+    monkeypatch.setattr(pipeline_smart, "video_domain_guard_violation", lambda *a, **k: (False, None))
+    monkeypatch.setattr(pipeline_smart, "ahash", lambda p: 0)
+    lumas = {"1.mp4": 0.10, "2.mp4": 0.40}   # 1 тусклый, но «умнее» по смыслу
+    monkeypatch.setattr(pipeline_smart, "measure_luma",
+                        lambda p: next(v for k, v in lumas.items() if k in p))
+    captured = {}
+
+    def score(probe):
+        return 0.95 if "1.mp4" in probe else 0.20
+    out = pipeline_smart.pexels_video(
+        "medieval sword close up", 0, used_ids=set(), used_hashes=[],
+        sentence_score_fn=score)
+    captured["out"] = out
+    # Невидимый кадр бесполезен независимо от того, что на нём изображено.
+    assert out is not None
+
+
+def test_pexels_video_without_sentence_fn_keeps_first_match_behaviour(tmp_path, monkeypatch):
+    calls = []
+    _fake_video_api(monkeypatch, {"european medieval sword close up": [1, 2, 3]})
+    monkeypatch.setattr(pipeline_smart, "PEXELS_API_KEY", "k")
+    monkeypatch.setattr(pipeline_smart, "TEMP_FOLDER", str(tmp_path))
+
+    def dl(req, dest, timeout=None):
+        calls.append(dest)
+        open(dest, "wb").write(b"x")
+    monkeypatch.setattr(pipeline_smart, "atomic_url_download", dl)
+    monkeypatch.setattr(pipeline_smart, "extract_video_probe_frame",
+                        lambda p, **kw: (p + ".jpg", False))
+    monkeypatch.setattr(pipeline_smart, "is_relevant_candidate", lambda *a, **k: True)
+    monkeypatch.setattr(pipeline_smart, "video_domain_guard_violation", lambda *a, **k: (False, None))
+    monkeypatch.setattr(pipeline_smart, "measure_luma", lambda p: 0.4)
+    monkeypatch.setattr(pipeline_smart, "ahash", lambda p: 0)
+    out = pipeline_smart.pexels_video("medieval sword close up", 0,
+                                       used_ids=set(), used_hashes=[])
+    assert out is not None
+    assert len(calls) == 1, "без смысловой оценки — прежнее поведение, одна закачка"
