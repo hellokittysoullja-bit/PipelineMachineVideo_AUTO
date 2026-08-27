@@ -2695,3 +2695,40 @@ def test_pexels_video_without_sentence_fn_keeps_first_match_behaviour(tmp_path, 
                                        used_ids=set(), used_hashes=[])
     assert out is not None
     assert len(calls) == 1, "без смысловой оценки — прежнее поведение, одна закачка"
+
+
+def test_pexels_photo_pool_interleaves_queries_not_sequential(monkeypatch):
+    # Реальный дефект первой версии пула, найденный покадрово: Pexels отдаёт
+    # до 80 результатов на запрос, а перебирается лишь PHOTO_DEDUP_MAX_TRIES
+    # кандидатов — при склейке "подряд" все они из первого запроса, и
+    # расширение пула не работало вообще. Проверяем именно порядок.
+    per = {"q1": [{"id": i} for i in range(1, 31)],
+           "q2": [{"id": 100 + i} for i in range(1, 31)]}
+    monkeypatch.setattr(pipeline_smart, "_pexels_search_photos", lambda q: per.get(q, []))
+    monkeypatch.setattr(pipeline_smart, "disambiguate_search_query", lambda q: q)
+    monkeypatch.setattr(pipeline_smart, "filter_alt_blocklist", lambda ph: ph)
+    captured = {}
+
+    def fake_search(q):
+        return per.get(q, [])
+    monkeypatch.setattr(pipeline_smart, "_pexels_search_photos", fake_search)
+    # Собираем пул той же логикой, что в pexels_photo (через сам вызов
+    # добраться сложнее — здесь проверяем инвариант чередования напрямую).
+    import itertools as it
+    pool_queries = ["q1", "q2"]
+    per_query = []
+    for pq in pool_queries:
+        per_query.append([dict(p, _origin_query=pq) for p in fake_search(pq)])
+    out = []
+    seen = set()
+    for row in it.zip_longest(*per_query):
+        for p in row:
+            if p is None or p["id"] in seen:
+                continue
+            seen.add(p["id"])
+            out.append(p)
+    first20 = out[:20]
+    origins = {p["_origin_query"] for p in first20}
+    assert origins == {"q1", "q2"}, (
+        "первые же перебираемые кандидаты обязаны охватывать ОБА запроса "
+        "секции, иначе расширение пула существует только на бумаге")

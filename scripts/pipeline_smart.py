@@ -11,6 +11,7 @@ import difflib
 import functools
 import glob
 import hashlib
+import itertools
 import json
 import math
 import os
@@ -2750,20 +2751,36 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
         # одного (см. extra_queries в докстринге) — победителя дальше выбирает
         # director_score_fn по ПОЛНОЙ фразе блока.
         pool_queries = [query] + [q for q in (extra_queries or []) if q and q != query]
-        photos = []
-        seen_ids = set()
+        per_query = []
         for pq in pool_queries:
+            lst = []
             for p in _pexels_search_photos(disambiguate_search_query(pq)):
-                pid = p.get("id")
-                if pid in seen_ids:
-                    continue
-                seen_ids.add(pid)
                 # Из какого запроса кандидат пришёл — гейт релевантности ниже
                 # должен сверять его с ЕГО запросом, иначе кандидат из второго
                 # запроса секции сравнивался бы с чужим текстом и честно
                 # отбраковывался бы ни за что.
                 p = dict(p)
                 p["_origin_query"] = pq
+                lst.append(p)
+            per_query.append(lst)
+        # ЧЕРЕДОВАНИЕ по запросам, а не подряд — реальный дефект первой
+        # версии этого пула, найденный покадровым просмотром рендера: Pexels
+        # отдаёт до 80 результатов на запрос, а перебирается лишь первые
+        # PHOTO_DEDUP_MAX_TRIES кандидатов, поэтому при склейке "подряд" ВСЕ
+        # они оказывались из первого (позиционно доставшегося) запроса, и до
+        # остальных запросов секции дело не доходило вообще — расширение
+        # пула существовало только на бумаге. При чередовании сравниваемая
+        # выборка гарантированно охватывает все запросы секции.
+        photos = []
+        seen_ids = set()
+        for row in itertools.zip_longest(*per_query):
+            for p in row:
+                if p is None:
+                    continue
+                pid = p.get("id")
+                if pid in seen_ids:
+                    continue
+                seen_ids.add(pid)
                 photos.append(p)
         if not photos:
             return None
@@ -5590,20 +5607,34 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
         # фраза "сколько весил настоящий боевой меч" получила зал
         # кинотеатра, потому что позиции достался запрос про кино.
         pool_queries = [query] + [q for q in (extra_queries or []) if q and q != query]
-        videos = []
-        seen_ids = set()
+        per_query = []
         for pq in pool_queries:
             # action_qualifier — движение из текста блока (см.
             # action_video_qualifier): только в строку к API, не в ключ кэша
             # и не в relevance-скоринг, как и disambiguate_search_query().
             api_q = apply_action_qualifier(disambiguate_search_query(pq), action_qualifier)
+            lst = []
             for v in _pexels_search_videos(api_q):
+                v = dict(v)
+                v["_origin_query"] = pq
+                lst.append(v)
+            per_query.append(lst)
+        # Чередование по запросам — см. тот же комментарий в pexels_photo():
+        # перебирается лишь VIDEO_RELEVANCE_MAX_TRIES кандидатов, и при
+        # склейке "подряд" все они были бы из первого запроса. Реально
+        # найдено покадрово: фраза "сколько весил настоящий боевой меч"
+        # получала зал кинотеатра, потому что позиции достался запрос про
+        # кино и до запросов про меч перебор не доходил.
+        videos = []
+        seen_ids = set()
+        for row in itertools.zip_longest(*per_query):
+            for v in row:
+                if v is None:
+                    continue
                 vid = v.get("id")
                 if vid in seen_ids:
                     continue
                 seen_ids.add(vid)
-                v = dict(v)
-                v["_origin_query"] = pq
                 videos.append(v)
         if not videos:
             return None
