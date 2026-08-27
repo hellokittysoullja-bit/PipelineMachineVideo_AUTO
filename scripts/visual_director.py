@@ -309,9 +309,15 @@ def _get_siglip2_model():
     global _siglip2_model, _siglip2_processor
     if _siglip2_model is None:
         from transformers import AutoModel, AutoProcessor
-        _siglip2_model = AutoModel.from_pretrained(SIGLIP2_MODEL_NAME)
+        # trust_remote_code=False — та же защита, что уже стоит у Jina
+        # (_get_jina_session() ниже, см. её докстринг про пойманный вживую
+        # интерактивный prompt "Do you wish to run the custom code? [y/N]",
+        # зависавший на чтении stdin в headless-процессе). SigLIP2 — нативная
+        # transformers-модель, remote-код и так не нужен; явный False убирает
+        # саму возможность промпта, не только его последствия.
+        _siglip2_model = AutoModel.from_pretrained(SIGLIP2_MODEL_NAME, trust_remote_code=False)
         _siglip2_model.eval()
-        _siglip2_processor = AutoProcessor.from_pretrained(SIGLIP2_MODEL_NAME)
+        _siglip2_processor = AutoProcessor.from_pretrained(SIGLIP2_MODEL_NAME, trust_remote_code=False)
     return _siglip2_model, _siglip2_processor
 
 

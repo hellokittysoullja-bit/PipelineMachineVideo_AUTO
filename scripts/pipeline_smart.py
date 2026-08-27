@@ -5509,7 +5509,21 @@ def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR, blocks=None, pl
     cmd += ["-filter_complex", ";".join(parts), "-map", "[vout]",
             "-c:v", "libx264", "-preset", "medium", "-crf", "16",
             "-pix_fmt", "yuv420p", "-r", str(FPS)] + COLOR_META_ARGS + [out]
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    # РЕАЛЬНЫЙ пробел, пойманный аудитом того же класса багов, что и
+    # SPEED_RAMP_MAX_SOURCE_FPS/parallax stderr-deadlock (см. их докстринги
+    # выше): у этого вызова не было НИКАКОГО timeout — при зависании ffmpeg
+    # (тот же класс проблем, что и задокументированный ниже "молча роняет
+    # кадры и застревает") весь уже отрендеренный за часы прогон терялся бы
+    # молча, без единого сигнала. cum — суммарная длительность чанка (до 35
+    # клипов на medium+CRF16, тяжелее, чем per-clip fast+CRF18) — щедрый
+    # множитель (30x), это последний рубеж защиты от НАСТОЯЩЕГО зависания,
+    # не бюджет под скорость.
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True,
+                            timeout=max(180, cum * 30))
+    except subprocess.TimeoutExpired:
+        print(f"  xfade-склейка зависла (таймаут {max(180, cum * 30):.0f}с), откат на concat.")
+        return False, 0.0
     if r.returncode != 0:
         print("  xfade-склейка не удалась, откат на concat:", r.stderr[-300:])
         return False, 0.0
@@ -6865,8 +6879,17 @@ def main():
         # пути от папки самого concat.txt, а не от cwd — иначе сборка падает.
         open(concat, "w", encoding="utf-8").write(
             "".join(f"file '{os.path.abspath(c)}'\n" for c in clips))
-        r = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                            "-i", concat, "-c", "copy", merged], capture_output=True, text=True)
+        # Тот же пробел, что у xfade_chain()/финального мукса выше — fallback-
+        # путь на concat не должен быть НЕЗАЩИЩЁННЕЕ пути, с которого он
+        # откатывается. -c copy — тоже быстрый ремукс, щедрый множитель
+        # достаточен как последний рубеж против настоящего зависания.
+        try:
+            r = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                                "-i", concat, "-c", "copy", merged], capture_output=True, text=True,
+                               timeout=max(180, total))
+        except subprocess.TimeoutExpired:
+            print(f"Склейка (concat) зависла (таймаут {max(180, total):.0f}с).")
+            return 1
         if r.returncode != 0:
             print("Склейка:", r.stderr[-300:])
             return 1
@@ -6983,21 +7006,35 @@ def main():
     # раньше оставлял бы обрезанный final.mp4 под финальным именем, что
     # выглядело бы как "готовый, но битый" файл, а не как "рендер не доехал".
     output_tmp = render_tmp_path(OUTPUT_FILE)
-    r = subprocess.run(["ffmpeg", "-y", "-i", merged, "-i", premix,
-                        "-t", f"{total:.3f}",
-                        "-af", af,
-                        # -ar 48000 обязателен именно ЗДЕСЬ (поймано вживую на
-                        # реальном рендере): loudnorm с TP (true peak, для
-                        # inter-sample пиков по ITU-R BS.1770 нужен передискрет)
-                        # сам меняет частоту потока на выходе фильтра — без
-                        # явного -ar это утекает прямо в AAC-энкодер (поймано:
-                        # 96000Hz на итоговом final.mp4 при всём остальном
-                        # звуке 48000Hz — единственное место в файле, где
-                        # -ar не был проставлен явно, все остальные 11
-                        # вызовов это уже получили в P2-17).
-                        "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
-                        "-movflags", "+faststart",
-                        "-shortest", output_tmp], capture_output=True, text=True)
+    # РЕАЛЬНЫЙ пробел, пойманный аудитом того же класса багов, что и
+    # SPEED_RAMP_MAX_SOURCE_FPS/parallax stderr-deadlock/xfade_chain выше —
+    # у ПОСЛЕДНЕГО шага перед final.mp4 (после часов рендера всех клипов)
+    # не было никакого timeout вообще. Зависание здесь молча теряло бы весь
+    # уже сделанный прогон. -c:v copy — быстрый ремукс, не перекодирование,
+    # поэтому щедрого множителя достаточно (сама операция обычно на порядок
+    # быстрее total, это именно последний рубеж против настоящего
+    # зависания, не бюджет под скорость).
+    try:
+        r = subprocess.run(["ffmpeg", "-y", "-i", merged, "-i", premix,
+                            "-t", f"{total:.3f}",
+                            "-af", af,
+                            # -ar 48000 обязателен именно ЗДЕСЬ (поймано вживую на
+                            # реальном рендере): loudnorm с TP (true peak, для
+                            # inter-sample пиков по ITU-R BS.1770 нужен передискрет)
+                            # сам меняет частоту потока на выходе фильтра — без
+                            # явного -ar это утекает прямо в AAC-энкодер (поймано:
+                            # 96000Hz на итоговом final.mp4 при всём остальном
+                            # звуке 48000Hz — единственное место в файле, где
+                            # -ar не был проставлен явно, все остальные 11
+                            # вызовов это уже получили в P2-17).
+                            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+                            "-movflags", "+faststart",
+                            "-shortest", output_tmp], capture_output=True, text=True,
+                           timeout=max(180, total))
+    except subprocess.TimeoutExpired:
+        print(f"Финальный мукс завис (таймаут {max(180, total):.0f}с) — final.mp4 не собран.")
+        finalize_render(output_tmp, OUTPUT_FILE, False)
+        return 1
     if r.returncode != 0:
         print("Аудио:", r.stderr[-300:])
         finalize_render(output_tmp, OUTPUT_FILE, False)
