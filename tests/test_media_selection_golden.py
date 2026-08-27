@@ -174,6 +174,65 @@ class TestVisualDomainGuard:
         assert ps.is_relevant_candidate(SWORD, "medieval sword close up") is True
 
 
+class TestVideoDomainGuardMultiFrame:
+    """Регрессия на реальный найденный случай (видео по запросу "sword
+    blade close up", videos/_test20s, слот 4): единственный кадр-пробник
+    extract_video_probe_frame() на 0.5с оказался тесным кропом ТОЛЬКО на
+    ромбовидной оплётке рукояти катаны, без клинка/гарды в кадре вообще —
+    anchor-промпты VISUAL_DOMAIN_GUARDS описывают форму клинка/гарды,
+    которых на этом кадре физически не видно, гейт ничего не поймал.
+    video_domain_guard_violation() проверяет НЕСКОЛЬКО кадров по всей
+    длительности ролика — тесты симулируют ровно этот сценарий (разные
+    `base_at` -> разные реальные fixture-фото; сам CLIP-вызов внутри —
+    настоящий, не мок, тот же принцип файла: подменяется только
+    видео-I/O, не логика принятия решения)."""
+
+    def test_catches_violation_visible_only_in_later_frame(self, monkeypatch):
+        calls = []
+
+        def fake_extract(path, base_at=0.5, retry_ats=(), **kw):
+            calls.append(base_at)
+            # Ранний кадр — нейтральный ракурс, где формы оружия вообще не
+            # видно (как в живом баге: только оплётка рукояти в кадре);
+            # более поздний кадр того же ролика — клинок/гарда уже видны.
+            return (MEETING if base_at < 2.0 else KATANA), False
+        monkeypatch.setattr(ps, "get_media_duration", lambda p: 10.0)
+        monkeypatch.setattr(ps, "extract_video_probe_frame", fake_extract)
+        violated, name = ps.video_domain_guard_violation("fake.mp4", "medieval sword close up")
+        assert violated is True
+        assert name == "east_asian_sword"
+        assert len(calls) >= 2, "должна была проверить больше одного кадра"
+
+    def test_no_violation_when_all_sampled_frames_clean(self, monkeypatch):
+        monkeypatch.setattr(ps, "get_media_duration", lambda p: 10.0)
+        monkeypatch.setattr(ps, "extract_video_probe_frame",
+                             lambda path, base_at=0.5, retry_ats=(), **kw: (EURO_SWORD_2, False))
+        violated, _ = ps.video_domain_guard_violation("fake.mp4", "medieval sword close up")
+        assert violated is False
+
+    def test_guard_only_applies_to_trigger_terms_for_video_too(self, monkeypatch):
+        monkeypatch.setattr(ps, "get_media_duration", lambda p: 10.0)
+        monkeypatch.setattr(ps, "extract_video_probe_frame",
+                             lambda path, base_at=0.5, retry_ats=(), **kw: (KATANA, False))
+        violated, name = ps.video_domain_guard_violation("fake.mp4", "medieval armor helmet")
+        assert violated is False
+        assert name is None
+
+    def test_falls_back_to_single_frame_when_duration_unavailable(self, monkeypatch):
+        calls = []
+
+        def fake_extract(path, base_at=0.5, retry_ats=(), **kw):
+            calls.append(base_at)
+            return KATANA, False
+        def boom(p):
+            raise Exception("no ffprobe")
+        monkeypatch.setattr(ps, "get_media_duration", boom)
+        monkeypatch.setattr(ps, "extract_video_probe_frame", fake_extract)
+        violated, name = ps.video_domain_guard_violation("fake.mp4", "medieval sword close up")
+        assert violated is True
+        assert calls == [0.5]
+
+
 class TestAestheticScore:
     """LAION aesthetic predictor (aesthetic_score()) — реальная модель +
     голова из assets/aesthetic/*.npz. Деградированная версия сгенерирована
