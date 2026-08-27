@@ -297,6 +297,9 @@ def functional_role(block, is_section_start):
 _siglip2_model = None
 _siglip2_processor = None
 _SIGLIP2_BROKEN = False
+# Список из одного элемента, а не голый bool: функция ниже уже объявляет
+# global _SIGLIP2_BROKEN, второй global в том же except читался бы хуже.
+_SIGLIP2_WARNED = [False]
 
 
 def _get_siglip2_model():
@@ -333,7 +336,19 @@ def _siglip2_relevance(image_path, block_text):
             img_emb = img_out.pooler_output if hasattr(img_out, "pooler_output") else img_out
             img_emb = img_emb / img_emb.norm(dim=-1, keepdim=True)
 
+            # truncation=True ОБЯЗАТЕЛЕН, а не гигиена: max_position_embeddings
+            # текстовой башни so400m — те же 64, что и SIGLIP2_MAX_TEXT_LENGTH
+            # выше, а РЕАЛЬНЫЙ блок сценария (ради которого функция и
+            # написана — см. докстринг sentence_relevance про "ПОЛНЫЙ текст
+            # блока") на русском токенизируется в 80+ токенов. Без обрезки
+            # вызов модели падает, исключение глотает except ниже, и
+            # sentence_relevance() молча отдаёт None — то есть доминирующий
+            # сигнал Директора (SENTENCE_RELEVANCE_WEIGHT=1.0) на длинных
+            # блоках просто отсутствовал, не логируя ничего. Проверено
+            # вживую: короткий запрос -> 64 токена (ок), блок сценария из
+            # 47 слов -> 80 токенов -> None по всем кандидатам сразу.
             txt_inputs = processor(text=[block_text], padding="max_length",
+                                    truncation=True,
                                     max_length=SIGLIP2_MAX_TEXT_LENGTH, return_tensors="pt")
             txt_out = model.get_text_features(**txt_inputs)
             txt_emb = txt_out.pooler_output if hasattr(txt_out, "pooler_output") else txt_out
@@ -344,7 +359,17 @@ def _siglip2_relevance(image_path, block_text):
     except ImportError:
         _SIGLIP2_BROKEN = True
         return None
-    except Exception:
+    except Exception as exc:
+        # Fail-open остаётся (надстройка не имеет права ронять рендер), но
+        # молчать нельзя: ровно так баг с truncation выше отдавал None на
+        # каждом длинном блоке, и это не было видно ни в одном отчёте.
+        # Предупреждение одноразовое — иначе на эпизоде из сотен слотов
+        # оно затопит консоль.
+        if not _SIGLIP2_WARNED[0]:
+            _SIGLIP2_WARNED[0] = True
+            print("[visual_director] SigLIP2-релевантность недоступна, "
+                  "сигнал Директора не участвует в отборе: "
+                  f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return None
 
 

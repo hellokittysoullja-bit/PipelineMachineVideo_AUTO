@@ -50,7 +50,8 @@ def test_sentence_relevance_uses_siglip2_not_english_only_clip_relevance(monkeyp
     import torch
 
     class _FakeProcessor:
-        def __call__(self, images=None, text=None, return_tensors=None, padding=None, max_length=None):
+        def __call__(self, images=None, text=None, return_tensors=None, padding=None,
+                     max_length=None, truncation=None):
             if images is not None:
                 return {"pixel_values": torch.zeros(1, 3, 2, 2)}
             return {"input_ids": torch.zeros(1, 3, dtype=torch.long)}
@@ -88,6 +89,55 @@ def test_sentence_relevance_none_when_siglip2_model_import_fails(monkeypatch, tm
     Image.new("RGB", (4, 4)).save(img_path)
     assert vd.sentence_relevance(img_path, "текст") is None
     assert vd._SIGLIP2_BROKEN is True
+
+
+def test_siglip2_truncates_long_block_text(monkeypatch, tmp_path):
+    """Регрессия на реальный, воспроизведённый вживую баг: текстовая башня
+    so400m держит 64 позиции (max_position_embeddings), SIGLIP2_MAX_TEXT_LENGTH
+    тоже 64, а настоящий блок сценария на русском (47 слов) токенизируется в
+    80 токенов. Без truncation=True вызов модели падал, except глотал
+    исключение, и sentence_relevance() отдавала None ПО ВСЕМ кандидатам сразу —
+    то есть доминирующий сигнал Директора (SENTENCE_RELEVANCE_WEIGHT=1.0) на
+    длинных блоках молча не участвовал в отборе вообще.
+
+    Фейковый процессор здесь ведёт себя как настоящий: без truncation на
+    длинном тексте бросает, с truncation — обрезает."""
+    import torch
+
+    seen = {}
+
+    class _StrictProcessor:
+        def __call__(self, images=None, text=None, return_tensors=None, padding=None,
+                     max_length=None, truncation=None):
+            if images is not None:
+                return {"pixel_values": torch.zeros(1, 3, 2, 2)}
+            seen["truncation"] = truncation
+            n_tokens = len(text[0].split()) * 2      # грубая имитация русской токенизации
+            if n_tokens > max_length and not truncation:
+                raise ValueError("sequence length %d > max_length %d" % (n_tokens, max_length))
+            return {"input_ids": torch.zeros(1, min(n_tokens, max_length), dtype=torch.long)}
+
+    class _FakeModel:
+        def get_image_features(self, **kwargs):
+            return torch.tensor([[1.0, 0.0, 0.0]])
+
+        def get_text_features(self, **kwargs):
+            return torch.tensor([[1.0, 0.0, 0.0]])
+
+    monkeypatch.setattr(vd, "_get_siglip2_model", lambda: (_FakeModel(), _StrictProcessor()))
+    monkeypatch.setattr(vd, "_jina_relevance", lambda path, text: None)
+    img_path = str(tmp_path / "x.jpg")
+    from PIL import Image
+    Image.new("RGB", (4, 4)).save(img_path)
+
+    long_block = " ".join(["слово"] * 60)          # 120 "токенов" против лимита 64
+    result = vd.sentence_relevance(img_path, long_block)
+
+    assert seen["truncation"] is True, (
+        "processor() обязан вызываться с truncation=True — иначе длинный блок "
+        "роняет модель, except глотает ошибку и сигнал Директора молча исчезает")
+    assert result == pytest.approx(1.0), (
+        "на длинном блоке sentence_relevance обязана вернуть число, а не None")
 
 
 # ---------- ensemble SigLIP2 + Jina CLIP v2 (sentence_relevance) ----------
