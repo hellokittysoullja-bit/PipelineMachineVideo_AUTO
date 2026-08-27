@@ -26,11 +26,13 @@ section_offsets (см. ниже).
 - Посимвольный alignment.csv — ЛУЧШЕЕ УСИЛИЕ (best-effort), не гарантия.
   Формат сервисного файла alignment.*/result.json в публичной спеке Lumean
   описан только функционально ("пословное/посимвольное выравнивание"), без
-  точной JSON-схемы. Пробуем распознать ДВЕ вероятные формы (нативную формы
+  точной JSON-схемы. Пробуем распознать ТРИ вероятные формы (нативную форму
   ElevenLabs with-timestamps — её уже парсит speech_generate.py напрямую —
-  и плоский список {character,start,end}); ЛЮБАЯ форма, не прошедшая строгую
-  проверку структуры, отбрасывается целиком для этой секции — НЕ подсовывается
-  как правдоподобная. Даунстрим-код (pipeline_smart.py) уже штатно откатывается
+  плоский список {character,start,end}, и — найдено живым прогоном на
+  реальном аккаунте, не гипотеза — готовый CSV-текст с заголовком
+  "index,char,start,end"); ЛЮБАЯ форма, не прошедшая строгую проверку
+  структуры, отбрасывается целиком для этой секции — НЕ подсовывается как
+  правдоподобная. Даунстрим-код (pipeline_smart.py) уже штатно откатывается
   на word-count тайминг для секций без alignment.csv — тот же путь, что и у
   ручной озвучки без сохранённого alignment, не деградация.
 - Фрагментный quality-gated retry (темп/энергия/паузы, есть у прямого
@@ -59,6 +61,7 @@ Usage:
 потребляют его без изменений), media_plan/section_offsets.json,
 media_plan/lumean_generation_report.json."""
 import csv
+import io
 import json
 import os
 import re
@@ -371,6 +374,35 @@ def storage_url(api_key, path):
 
 # ---------- alignment: best-effort парсинг неподтверждённой схемы ----------
 
+def _try_parse_alignment_csv(raw_bytes):
+    """Форма C — найдена живым прогоном (не гипотеза): у этого аккаунта
+    alignment-сервисный файл приходит уже готовым CSV-текстом с заголовком
+    "index,char,start,end" (одна строка — один символ, "," как символ сам
+    честно квотируется CSV-модулем, а не ломает разбор наивным split(",")).
+    Строгая та же дисциплина, что Форма A/B: любое отклонение от ожидаемых
+    колонок/типов -> None целиком, не частичный/угаданный результат."""
+    try:
+        text = raw_bytes.decode("utf-8")
+    except (UnicodeDecodeError, AttributeError):
+        return None
+    try:
+        reader = csv.DictReader(io.StringIO(text))
+    except Exception:
+        return None
+    if not reader.fieldnames or not {"char", "start", "end"} <= set(reader.fieldnames):
+        return None
+    rows = []
+    for row in reader:
+        c, s, e = row.get("char"), row.get("start"), row.get("end")
+        if c is None or s is None or e is None:
+            return None
+        try:
+            rows.append((str(c), float(s), float(e)))
+        except (TypeError, ValueError):
+            return None
+    return rows if rows else None
+
+
 def try_parse_alignment(raw_bytes):
     """Список [(char, start, end), ...] или None, если данные не подошли ни
     под одну из ДВУХ вероятных форм (см. докстринг модуля — схема
@@ -382,7 +414,7 @@ def try_parse_alignment(raw_bytes):
     try:
         data = json.loads(raw_bytes)
     except Exception:
-        return None
+        return _try_parse_alignment_csv(raw_bytes)
 
     # Форма A: нативный ElevenLabs with-timestamps (её же напрямую парсит
     # scripts/speech_generate.py call_elevenlabs_with_timestamps) —

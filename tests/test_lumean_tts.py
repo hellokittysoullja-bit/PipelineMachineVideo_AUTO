@@ -151,6 +151,35 @@ def test_try_parse_alignment_rejects_bad_types_in_flat_list():
     assert lt.try_parse_alignment(payload) is None
 
 
+def test_try_parse_alignment_recognizes_csv_shape():
+    # Форма C — реальный live-прогон против настоящего аккаунта Lumean
+    # (не гипотеза): alignment-сервисный файл пришёл готовым CSV-текстом,
+    # не JSON. Квотированная запятая-как-символ (строка 3) должна разобраться
+    # csv-модулем, а не наивным split(",").
+    payload = (
+        "index,char,start,end\n"
+        "0,M,0.000,0.040\n"
+        "1, ,0.040,0.050\n"
+        '2,",",0.050,0.060\n'
+    ).encode("utf-8")
+    rows = lt.try_parse_alignment(payload)
+    assert rows == [("M", 0.0, 0.04), (" ", 0.04, 0.05), (",", 0.05, 0.06)]
+
+
+def test_try_parse_alignment_rejects_csv_missing_columns():
+    payload = b"index,char,start\n0,M,0.000\n"
+    assert lt.try_parse_alignment(payload) is None
+
+
+def test_try_parse_alignment_rejects_csv_bad_types():
+    payload = b"index,char,start,end\n0,M,oops,0.040\n"
+    assert lt.try_parse_alignment(payload) is None
+
+
+def test_try_parse_alignment_rejects_empty_csv():
+    assert lt.try_parse_alignment(b"index,char,start,end\n") is None
+
+
 # ---------- api_call: коды ответов Lumean §12 (мок urllib, без сети) ----------
 
 class _FakeHTTPResponse:

@@ -62,7 +62,7 @@
 ## 8. Voice ID / озвучка
 
 TTS, спокойный мужской голос, документальный ровный темп (у конкурента похоже на ElevenLabs, ~75 пауз за 18 мин, без дыхания/шумов).
-Основной путь озвучки — Lumean (CLAUDE.md, Шаг 6, вариант А): `LUMEAN_TEMPLATE_ID=01a04073-ff23-72c2-a8f8-c4cb7443f788` — **временный, подобранный автоматически, ещё не прослушан человеком** (голос "Maxim - Deep Russian Narrator", `voice_id=gMIlPNegT3C1SdNBp6rW`, подходит по описанию — спокойный низкий мужской, но `preview_url` нужно прослушать и подтвердить/заменить через `scripts/lumean_tts.py --list-voices` + `--create-template <VOICE_ID>`).
+Основной путь озвучки — Lumean (CLAUDE.md, Шаг 6, вариант А): `LUMEAN_TEMPLATE_ID=01a040ba-056d-73f5-88b1-4ddb83f7397b` — голос **Savely - e-learning, documentary** (`voice_id=cQBwjaYSTY9mh3fUvHS3`, мужской, средний возраст, нейтральный акцент, ru), подтверждён пользователем на слух.
 `ELEVENLABS_VOICE_ID=` — запасной путь (вариант В, прямой ElevenLabs), **не заполнено, впиши в `.env` после выбора голоса в ElevenLabs** (ищи спокойный низкий мужской голос, "documentary"/"calm narrator").
 
 ## 9. Факт-база канала
