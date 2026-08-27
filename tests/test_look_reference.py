@@ -119,20 +119,21 @@ def test_classify_domain_no_tiebreak_with_stylistic_domain(monkeypatch):
 
 
 def test_classify_domain_real_sword_in_snow_photo_now_resolves_to_snow():
-    # РЕАЛЬНЫЙ найденный баг теста (не кода): "*1b37a930.jpg" — хэш ТЕКСТА
-    # ЗАПРОСА (см. pexels_photo() — {index:04d}_{qhash}.jpg), не хэш фото.
-    # Один и тот же часто повторяющийся запрос ("меч") даёт этот суффикс
-    # на ДЕСЯТКИ РАЗНЫХ слотов реального эпизода (у каждого слота свой
-    # anti-dup выбор из выдачи Pexels) — glob-and-take-first без сортировки
-    # мог случайно выбрать любой из НЕОДИНАКОВЫХ фото под этим суффиксом.
-    # Пиннинг на конкретный, вручную проверенный индекс (0000) — тот же
-    # файл, что использовался для калибровки Color Director в этой сессии.
+    # Фикстура, а не glob по videos/*/temp_smart/ — вторая, уже РЕАЛЬНО
+    # сработавшая итерация фикса этого теста. Первая привязывалась к имени
+    # файла в кэше ("0000_1b37a930.jpg"), но имя кэша — не свойство фото:
+    # оно склеено из номера слота и хэша ЗАПРОСА, и любой перерендер
+    # эпизода (другая ротация выдачи Pexels, смена ключа кэша) молча
+    # подставляет под то же имя ДРУГУЮ фотографию. Ровно это и произошло
+    # при добавлении candidate_gate_signature() в ключ кэша: тест упал не
+    # потому, что classify_domain() сломался, а потому что искомое фото
+    # переехало в другой слот. Фикстура (то же самое фото, уменьшенное как
+    # остальные в этой папке — см. ATTRIBUTION.md) убирает зависимость от
+    # изменчивого содержимого рабочей копии совсем.
     pytest.importorskip("cv2")
-    import glob
-    candidates = sorted(glob.glob("videos/*/temp_smart/pexels_cache/0000_1b37a930.jpg"))
-    if not candidates:
-        pytest.skip("реальный тестовый файл не найден в этой рабочей копии")
-    domain, margin = lr.classify_domain(candidates[0])
+    fixture = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "fixtures", "golden_media", "sword_snow.jpg")
+    domain, margin = lr.classify_domain(fixture)
     assert domain == "snow"
 
 

@@ -1139,21 +1139,17 @@ def test_face_region_plausible_passes_with_skin_and_eyes(monkeypatch):
 @pytest.mark.skipif(_PARALLAX_SKIP, reason="cv2 недоступен")
 def test_detect_face_anchor_none_for_known_false_positive_sword_photo():
     # Регрессия на реальный, найденный вживую случай (не синтетика): этот
-    # конкретный кадр (сток-меч в снегу) годами давал ложное срабатывание
-    # каскада лица, что блокировало Look Management assist на нём — см.
-    # коммит. Тест — реальный файл, если он ещё в кэше этой рабочей копии
-    # (не гарантирован в CI без реального temp_smart/); best-effort skip.
-    # "*1b37a930.jpg" — хэш ТЕКСТА ЗАПРОСА (см. pexels_photo()), не хэш
-    # фото — часто повторяющийся запрос даёт этот суффикс на десятки РАЗНЫХ
-    # слотов реального эпизода (у каждого свой anti-dup выбор из выдачи
-    # Pexels). Пиннинг на конкретный, вручную проверенный индекс (0000) —
-    # без сортировки/пиннинга glob мог выбрать любой из НЕОДИНАКОВЫХ фото
-    # под этим суффиксом (см. коммит).
-    import glob
-    candidates = sorted(glob.glob("videos/*/temp_smart/pexels_cache/0000_1b37a930.jpg"))
-    if not candidates:
-        pytest.skip("реальный тестовый файл не найден в этой рабочей копии")
-    assert pipeline_smart.detect_face_anchor(candidates[0]) is None
+    # конкретный кадр (сток-меч в снегу) давал ложное срабатывание каскада
+    # лица, что блокировало Look Management assist на нём — см. коммит.
+    # Фикстура, а не glob по videos/*/temp_smart/: имя файла в кэше склеено
+    # из номера слота и хэша ЗАПРОСА, то есть НЕ идентифицирует фото —
+    # перерендер эпизода подставляет под то же имя другую картинку, и тест
+    # начинает проверять не тот кадр (реально произошло при добавлении
+    # candidate_gate_signature() в ключ кэша). То же фото, уменьшенное как
+    # остальные фикстуры этой папки — см. ATTRIBUTION.md.
+    fixture = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "fixtures", "golden_media", "sword_snow.jpg")
+    assert pipeline_smart.detect_face_anchor(fixture) is None
 
 
 # ---------- apply_depth_of_field(): боке/ГРИП (ЭТАП 1.3 внешнего аудита —
@@ -2426,3 +2422,95 @@ def test_estimate_busyness_memoized_across_calls(tmp_path, monkeypatch):
     v2 = pipeline_smart.estimate_busyness(str(f))
     assert v1 == v2
     assert len(calls) == 1
+
+
+# ---------- has_action_word(): выбор ВИДЕО вместо фото по смыслу блока ----------
+# Регрессия на реальную жалобу пользователя ("говорится, что герой заносит
+# клинок — показывается статичное фото меча"). Старая версия сравнивала
+# ТОЧНУЮ словоформу со словарём и на реальном эпизоде (91 блок) срабатывала
+# лишь на 3 блоках (3.3%) — то есть заявленный content-aware выбор фото/видео
+# фактически не работал, решение принимал хэш текста. Теперь сравнение по
+# основе слова; эти тесты фиксируют ОБЕ стороны компромисса, потому что
+# наивные основы дают ложные срабатывания именно в лексике этого канала.
+
+@pytest.mark.parametrize("text", [
+    "Герой на экране заносит клинок двумя руками, рычит, враг падает",
+    "Не дрались. Несли.",
+    "Полтора килограмма, помноженные на сотню взмахов, ударов и блоков",
+    "Любой, кто дрался хоть раз, скажет",
+    "Гладиус — короткий колющий укол",
+    "Фехтовальные мастера писали об этом пятьсот лет назад",
+    "Зачем точить, если им не рубить",
+    "Рыцари шли в атаку",
+    "Началась осада крепости",
+    "Он замахнулся мечом",
+])
+def test_has_action_word_catches_inflected_action_verbs(text):
+    assert pipeline_smart.has_action_word(text) is True, (
+        "склонённая/спрягаемая форма действия должна ловиться по основе — "
+        "именно её пропускало сравнение по полной словоформе")
+
+
+@pytest.mark.parametrize("text", [
+    "Металл клинка",              # "метал" -> металл: сплошь на оружейном канале
+    "Сечение клинка ромбовидное",  # "сеч" -> сечение: прямой термин ниши
+    "Стоил три рубля",             # "руб" -> рубль
+    "Вышли на рубеж",              # "руб" -> рубеж
+    "И сразу понял",               # "сраз" -> сразу (найдено прогоном по эпизоду)
+    "Проложил маршрут",            # "марш" -> маршрут
+    "Он боится боя",               # "боя"/"бои" -> боится: тема страха постоянна
+    "Все боятся",
+    "Это боязнь",
+    "Погоны на плечах",            # "погон" -> погоны
+    "Купил билет",                 # "бил" -> билет
+    "Лёгкая походка",              # "поход" -> походка
+    "Надо скачать файл",           # "скач" -> скачать
+    "Выпал осадок",                # "осад" -> осадок
+])
+def test_has_action_word_no_false_positive_on_niche_homonyms(text):
+    assert pipeline_smart.has_action_word(text) is False, (
+        "слово-омоним не должно считаться действием — иначе спокойный блок "
+        "получит видео вместо фото")
+
+
+# ---------- action_video_qualifier(): движение В САМОМ ЗАПРОСЕ ----------
+# Вторая половина той же жалобы: мало выбрать видео — запрос из словаря
+# ("клинок" -> "medieval sword close up") описывает статичный предмет.
+# Формулировки проверены на живом Pexels API, см. комментарий у
+# ACTION_VIDEO_QUALIFIERS.
+
+def test_action_qualifier_for_raising_blade():
+    assert pipeline_smart.action_video_qualifier(
+        "Герой на экране заносит клинок двумя руками") == "wielding"
+
+
+def test_action_qualifier_none_without_action():
+    assert pipeline_smart.action_video_qualifier(
+        "Меч лежит в музейной витрине под стеклом") is None
+
+
+def test_action_qualifier_ignores_niche_homonyms():
+    # Тот же стоп-список, что у has_action_word — "металл"/"сечение" не
+    # должны выдавать себя за действие и портить запрос.
+    assert pipeline_smart.action_video_qualifier("Металл клинка и его сечение") is None
+
+
+def test_action_qualifier_swinging_rejected_in_favour_of_wielding():
+    # Регрессия на реальный результат живой проверки Pexels: "swinging"
+    # тянуло качели (woman sitting on swing) — формулировка отвергнута.
+    quals = {q for _, q in pipeline_smart.ACTION_VIDEO_QUALIFIERS}
+    assert "swinging" not in quals
+    assert "wielding" in quals
+
+
+def test_apply_action_qualifier_does_not_duplicate_words():
+    # Тот же баг, что был у disambiguate_search_query ("european medieval
+    # medieval armor") — уточнение не должно дублировать уже имеющееся слово.
+    assert pipeline_smart.apply_action_qualifier(
+        "fighting knights battle", "fighting") == "fighting knights battle"
+    assert pipeline_smart.apply_action_qualifier(
+        "medieval sword", "wielding") == "wielding medieval sword"
+
+
+def test_apply_action_qualifier_passthrough_when_none():
+    assert pipeline_smart.apply_action_qualifier("medieval sword", None) == "medieval sword"
