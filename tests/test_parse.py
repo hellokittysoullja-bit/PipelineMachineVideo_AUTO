@@ -327,19 +327,27 @@ def test_resolve_queries_authored_takes_priority_over_themes(monkeypatch):
     assert resolved == ["milk bottle hand"]
 
 
-def test_resolve_queries_authored_cycles_across_original_blocks_in_section(monkeypatch):
+# Позиционная раздача (по кругу) и is_subcut-наследование БОЛЬШЕ НЕ основной
+# путь: с 28 августа запрос назначается по смыслу фразы (см.
+# semantic_query_assignment() — на реальном эпизоде позиционная раздача
+# промахивалась 6 раз из 8). Прежнее поведение сохранено целиком как
+# fail-open на машине без мультиязычной модели — эти два теста теперь
+# проверяют именно его, явно отключив смысловой путь.
+
+def test_resolve_queries_authored_cycles_positionally_when_semantic_unavailable(monkeypatch):
     monkeypatch.setattr(pipeline_smart, "THEMES", {})
+    monkeypatch.setattr(pipeline_smart, "SEMANTIC_QUERY_ASSIGNMENT", False)
     blocks = [{"text": f"Фраза {i}.", "words": 2, "pause_after": 0.0, "section": "HOOK", "stat": None}
               for i in range(3)]
     resolved = pipeline_smart.resolve_queries(blocks, authored_queries={"HOOK": ["q1", "q2"]})
     assert resolved == ["q1", "q2", "q1"]   # третий блок — по кругу, снова q1
 
 
-def test_resolve_queries_authored_subcut_inherits_parent_not_next_in_pool(monkeypatch):
-    # is_subcut=True — это НЕ новый исходный блок, а продолжение предыдущего
-    # (см. split_long_blocks: "под-кадры унаследуют запрос") — обязан
-    # получить ТОТ ЖЕ авторский запрос, что и родитель, не следующий по кругу.
+def test_resolve_queries_authored_subcut_inherits_parent_when_semantic_unavailable(monkeypatch):
+    # На fail-open пути is_subcut=True по-прежнему наследует запрос родителя
+    # (без смысловой модели у под-кадра нет способа выбрать лучше).
     monkeypatch.setattr(pipeline_smart, "THEMES", {})
+    monkeypatch.setattr(pipeline_smart, "SEMANTIC_QUERY_ASSIGNMENT", False)
     blocks = [
         {"text": "Первая половина фразы.", "words": 3, "pause_after": 0.0,
          "section": "HOOK", "stat": None, "is_subcut": False},
@@ -2982,3 +2990,98 @@ def test_split_long_blocks_long_single_sentence_still_uses_duration_trigger():
                "section": "BODY", "stat": None}]
     new_blocks, new_weights = pipeline_smart.split_long_blocks(blocks, [10.0])
     assert len(new_blocks) >= 2
+
+
+# ---------- semantic_query_assignment(): авторский запрос — по СМЫСЛУ, не по позиции ----------
+# РЕАЛЬНАЯ измеренная причина (videos/_test20s, 28 августа): запросы из
+# === PEXELS QUERIES === раздавались блокам как pool[cursor % len(pool)] —
+# между текстом запроса и текстом блока не было никакой связи, только
+# порядковый номер. На реальном хуке это дало 6 промахов из 8; зритель
+# видит такое ровно как «картинку поставили в рандом, а не под озвучку».
+
+def _fake_sim(monkeypatch, matrix):
+    """Подменяет ТОЛЬКО текст-текст модель — сама логика распределения
+    (жадность/потолок повторов/детерминизм) тестируется без сети и без
+    скачивания весов."""
+    import types
+    fake = types.SimpleNamespace(text_text_similarity=lambda a, b: matrix)
+    monkeypatch.setitem(sys.modules, "visual_director", fake)
+
+
+def test_semantic_query_assignment_picks_best_matching_query(monkeypatch):
+    monkeypatch.setattr(pipeline_smart, "SEMANTIC_QUERY_ASSIGNMENT", True)
+    # блок0 явно ближе к запросу1, блок1 — к запросу0 (позиционный порядок ОБРАТНЫЙ)
+    _fake_sim(monkeypatch, [[0.1, 0.9], [0.8, 0.2]])
+    assert pipeline_smart.semantic_query_assignment(["a", "b"], ["q0", "q1"]) == [1, 0]
+
+
+def test_semantic_query_assignment_spreads_queries_evenly(monkeypatch):
+    monkeypatch.setattr(pipeline_smart, "SEMANTIC_QUERY_ASSIGNMENT", True)
+    # Все 4 блока сильнее всего тянет к запросу0 — но потолок ceil(4/2)=2
+    # не даёт одному запросу забрать всё и потерять авторский ряд.
+    _fake_sim(monkeypatch, [[0.9, 0.5], [0.8, 0.4], [0.7, 0.3], [0.6, 0.2]])
+    out = pipeline_smart.semantic_query_assignment(["a", "b", "c", "d"], ["q0", "q1"])
+    assert sorted(out) == [0, 0, 1, 1]
+    assert out[0] == 0 and out[1] == 0   # самые уверенные пары забирают запрос первыми
+
+
+def test_semantic_query_assignment_is_deterministic(monkeypatch):
+    monkeypatch.setattr(pipeline_smart, "SEMANTIC_QUERY_ASSIGNMENT", True)
+    matrix = [[0.5, 0.5, 0.5], [0.5, 0.5, 0.5], [0.5, 0.5, 0.5]]
+    _fake_sim(monkeypatch, matrix)
+    runs = [pipeline_smart.semantic_query_assignment(["a", "b", "c"], ["q0", "q1", "q2"])
+            for _ in range(5)]
+    assert len(set(map(tuple, runs))) == 1, "полностью равные скоры обязаны давать стабильный результат (кэш)"
+
+
+def test_semantic_query_assignment_fails_open_when_model_unavailable(monkeypatch):
+    monkeypatch.setattr(pipeline_smart, "SEMANTIC_QUERY_ASSIGNMENT", True)
+    _fake_sim(monkeypatch, None)   # модель недоступна -> матрицы нет
+    assert pipeline_smart.semantic_query_assignment(["a"], ["q0"]) is None
+
+
+def test_semantic_query_assignment_disabled_by_env_flag(monkeypatch):
+    monkeypatch.setattr(pipeline_smart, "SEMANTIC_QUERY_ASSIGNMENT", False)
+    _fake_sim(monkeypatch, [[0.1, 0.9]])
+    assert pipeline_smart.semantic_query_assignment(["a"], ["q0", "q1"]) is None
+
+
+def test_resolve_queries_uses_semantic_assignment_over_position(monkeypatch):
+    monkeypatch.setattr(pipeline_smart, "SEMANTIC_QUERY_ASSIGNMENT", True)
+    # Позиционно блок0 получил бы "sword", блок1 — "scale". По смыслу — наоборот.
+    _fake_sim(monkeypatch, [[0.1, 0.9], [0.9, 0.1]])
+    blocks = [
+        {"text": "Пятнадцать килограммов.", "words": 2, "pause_after": 0.0,
+         "section": "HOOK", "stat": None},
+        {"text": "Герой заносит клинок.", "words": 3, "pause_after": 0.0,
+         "section": "HOOK", "stat": None},
+    ]
+    out = pipeline_smart.resolve_queries(blocks, {"HOOK": ["sword blade", "weighing scale"]})
+    assert out == ["weighing scale", "sword blade"]
+
+
+def test_resolve_queries_falls_back_to_positional_without_model(monkeypatch):
+    monkeypatch.setattr(pipeline_smart, "SEMANTIC_QUERY_ASSIGNMENT", True)
+    _fake_sim(monkeypatch, None)   # модели нет — обязано быть ПРЕЖНЕЕ поведение
+    blocks = [
+        {"text": "Первая фраза.", "words": 2, "pause_after": 0.0, "section": "HOOK", "stat": None},
+        {"text": "Вторая фраза.", "words": 2, "pause_after": 0.0, "section": "HOOK", "stat": None},
+    ]
+    out = pipeline_smart.resolve_queries(blocks, {"HOOK": ["q_first", "q_second"]})
+    assert out == ["q_first", "q_second"]
+
+
+def test_resolve_queries_subcut_gets_own_query_not_parent_inheritance(monkeypatch):
+    # Прямая регрессия найденного случая: под-кадр «Герой... заносит клинок»
+    # раньше НАСЛЕДОВАЛ запрос непредметного родителя «Готов спорить, что да».
+    monkeypatch.setattr(pipeline_smart, "SEMANTIC_QUERY_ASSIGNMENT", True)
+    _fake_sim(monkeypatch, [[0.9, 0.1], [0.1, 0.9]])
+    blocks = [
+        {"text": "Готов спорить, что да.", "words": 4, "pause_after": 0.0,
+         "section": "HOOK", "stat": None, "is_subcut": False},
+        {"text": "Герой на экране заносит клинок.", "words": 5, "pause_after": 0.0,
+         "section": "HOOK", "stat": None, "is_subcut": True},
+    ]
+    out = pipeline_smart.resolve_queries(blocks, {"HOOK": ["battle fight", "warrior on horseback with sword"]})
+    assert out[1] == "warrior on horseback with sword"
+    assert out[0] != out[1], "под-кадр обязан получить СВОЙ запрос, а не унаследовать родительский"

@@ -2710,12 +2710,14 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
     (pool[idx % len(pool)]), и выбирать было физически не из чего — на
     реальном эпизоде это давало совпадение по смыслу примерно у 1 блока из 3
     (фраза про заточку клинка получала запрос "medieval castle hall").
-    Теперь позиция задаёт только ОСНОВНОЙ запрос (ключ кэша/гейта), а какой
-    кадр реально встанет в этот момент ролика, решает сопоставление ПОЛНОЙ
-    ФРАЗЫ блока с картинкой (director_score_fn -> sentence_relevance). Гейт
-    релевантности сверяет каждого кандидата с ЕГО собственным запросом
-    (_origin_query), а не с чужим — иначе кандидат из второго запроса секции
-    отбраковывался бы ни за что. None/[] -> прежнее поведение."""
+    Запрос блока (`query`) теперь назначается ПО СМЫСЛУ его фразы, а не
+    позиционно (см. semantic_query_assignment()), поэтому гейт релевантности
+    сверяет каждого кандидата ИМЕННО С НИМ — а не с тем запросом пула, из
+    которого кандидат приплыл. Расширенный пул при этом сохраняется целиком
+    (глубина выбора та же), но кандидат из соседнего запроса секции побеждает
+    только если реально подходит и теме ЭТОГО блока — см. развёрнутый разбор
+    у самого вызова is_relevant_candidate() ниже. None/[] -> прежнее
+    поведение."""
     global PEXELS_BROKEN
     cache = os.path.join(TEMP_FOLDER, "pexels_cache")
     os.makedirs(cache, exist_ok=True)
@@ -2885,12 +2887,28 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                         size_ok = 0 if estimate_shot_size(trial) in recent_sizes[-2:] else 1
                     except Exception:
                         size_ok = 1
-                origin_q = p.get("_origin_query") or query
-                relevance = clip_relevance(trial, origin_q)
+                # Гейт сверяет кандидата с запросом ЭТОГО БЛОКА (`query`), а не
+                # с тем запросом пула, из которого кандидат приплыл
+                # (`_origin_query`). РЕАЛЬНАЯ, измеренная причина смены (28
+                # августа, videos/_test20s): пул расширен ВСЕМИ авторскими
+                # запросами секции (extra_queries), и при проверке «по своему
+                # запросу» кандидат-всадник из запроса про конницу честно
+                # проходил гейт... и попадал в блок «Пятнадцать килограммов»,
+                # потому что дальше его ранжировал image-text скор Директора,
+                # ложащийся на абстрактных фразах в шум 0.03-0.11 (то есть
+                # выбор был фактически случайным). Прежняя формулировка была
+                # осмысленна ровно до тех пор, пока запрос блока раздавался
+                # ПОЗИЦИОННО и сам ничего не значил (см. semantic_query_
+                # assignment() — теперь значит). Расширенный пул при этом
+                # сохраняется целиком: кандидат из соседнего запроса по-
+                # прежнему может победить, но только если он РЕАЛЬНО подходит
+                # и теме этого блока тоже — чистое ужесточение без потери
+                # глубины выбора.
+                relevance = clip_relevance(trial, query)
                 # Порог + risky-margin гейт (museum/exhibition/collection/... —
                 # см. RISKY_GENERIC_TERMS) — см. is_relevant_candidate(), та же
                 # функция, что проверяет golden-тест media-selection.
-                is_relevant = 1 if is_relevant_candidate(trial, origin_q, relevance=relevance) else 0
+                is_relevant = 1 if is_relevant_candidate(trial, query, relevance=relevance) else 0
                 # sharp_ok (PHOTO_SHARPNESS_REJECT) — см. её докстринг: реальный
                 # найденный случай, ни один кандидат никогда не проверялся на
                 # резкость на этапе отбора, только опциональный постфактум-
@@ -2946,7 +2964,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                 # (слот не должен остаться пустым), но промах теперь
                 # честно записан, а не молчит.
                 RELEVANCE_GATE_MISSES.append({
-                    "index": index, "query": winner["p"].get("_origin_query") or query,
+                    "index": index, "query": query,
                     "relevance": winner.get("relevance"),
                     "threshold": CLIP_RELEVANCE_THRESHOLD, "kind": "photo",
                 })
@@ -3149,6 +3167,79 @@ def _diversify_repeated_query_runs(resolved, blocks):
             break
 
 
+SEMANTIC_QUERY_ASSIGNMENT = os.environ.get("SEMANTIC_QUERY_ASSIGNMENT", "1") != "0"
+
+
+def semantic_query_assignment(block_texts, queries):
+    """Кому какой АВТОРСКИЙ запрос — по СМЫСЛУ фразы, а не по позиции в списке.
+    Возвращает список индексов queries (по одному на блок) или None (fail-open:
+    вызывающий код тогда откатывается на прежнее позиционное поведение).
+
+    РЕАЛЬНАЯ, измеренная причина (videos/_test20s, 28 августа — не гипотеза,
+    прямой разбор готового ролика по жалобе пользователя): авторские запросы
+    из `=== PEXELS QUERIES ===` раздавались блокам ПОЗИЦИОННО по кругу
+    (`pool[cursor % len(pool)]`). Между ТЕКСТОМ запроса и ТЕКСТОМ блока не
+    было вообще никакой связи — только порядковый номер. На реальном хуке из
+    8 запросов и 8 блоков это дало 6 промахов из 8: фраза «Так говорят кино,
+    видеоигры и школьные учебники» получала запрос про ВЕСЫ, фраза «сколько
+    весил настоящий боевой меч» — запрос про КИНОЗАЛ, а самая визуальная
+    фраза эпизода «Герой на экране заносит клинок... вместе с конём» —
+    вообще чужой запрос по наследству от непредметной связки «Готов спорить,
+    что да» (правило is_subcut-наследования). Зритель видит это ровно как
+    «картинку поставили в рандом, а не под озвучку» — потому что связь с
+    озвучкой физически отсутствовала.
+
+    Никакой гейт качества/резкости/релевантности это НЕ ЛЕЧИТ: они проверяют
+    «хорош ли кандидат для СВОЕГО запроса», а запрос с самого начала был не
+    тот. Поэтому чинить надо здесь, в точке назначения, а не ниже по конвейеру.
+
+    МЕТОД. visual_director.text_text_similarity() — мультиязычный текстовый
+    энкодер (Jina CLIP v2): русская фраза сценария против английского
+    авторского запроса, обе стороны ТЕКСТ (см. её докстринг с реальными
+    замерами: правильный запрос выигрывает с заметным отрывом на каждом
+    визуальном блоке). Это принципиально сильнее, чем image-text скоринг
+    Директора, который на абстрактных фразах ложится в шум 0.03-0.11.
+
+    Распределение — ЖАДНОЕ ГЛОБАЛЬНОЕ по всей матрице (самая уверенная пара
+    «блок-запрос» забирается первой), с равномерным потолком повторов
+    ceil(n_блоков / n_запросов). Почему не «каждому блоку его максимум
+    независимо»: тогда несколько блоков забрали бы один и тот же самый
+    «удобный» запрос, а остальные авторские запросы не использовались бы
+    вообще — автор писал их как ПОСЛЕДОВАТЕЛЬНОСТЬ кадров, и терять часть
+    ряда значит терять его замысел. Глобальная жадность детерминирована
+    (сортировка со стабильным тай-брейком по индексам), поэтому один и тот
+    же сценарий всегда даёт одно и то же распределение — важно для кэша.
+
+    is_subcut-наследование здесь СОЗНАТЕЛЬНО не применяется: оно было
+    компенсацией именно за то, что позиционный запрос всё равно ничего не
+    значил. Теперь каждый под-кадр получает СВОЙ лучший по смыслу запрос —
+    и это прямо чинит найденный случай (под-кадр «Герой... заносит клинок»
+    больше не наследует запрос непредметного родителя)."""
+    if not SEMANTIC_QUERY_ASSIGNMENT or not block_texts or not queries:
+        return None
+    try:
+        import visual_director
+        sim = visual_director.text_text_similarity(block_texts, queries)
+    except Exception:
+        return None
+    if not sim:
+        return None
+    n_blocks, n_q = len(block_texts), len(queries)
+    max_uses = -(-n_blocks // n_q)   # ceil — равномерный потолок повторов
+    pairs = sorted(((-sim[b][q], b, q) for b in range(n_blocks) for q in range(n_q)))
+    assigned, uses = [None] * n_blocks, [0] * n_q
+    for _, b, q in pairs:
+        if assigned[b] is None and uses[q] < max_uses:
+            assigned[b] = q
+            uses[q] += 1
+    # Блок, которому не хватило квоты (возможно при неровном делении) —
+    # берёт свой безусловный максимум, без потолка: пустой слот хуже повтора.
+    for b in range(n_blocks):
+        if assigned[b] is None:
+            assigned[b] = max(range(n_q), key=lambda q: sim[b][q])
+    return assigned
+
+
 def resolve_queries(blocks, authored_queries=None):
     """Прямой поиск по themes.json ловит не все блоки — короткие связки
     ("Не дрались. Несли.", "Береги себя.") и абстрактные куски без предметных
@@ -3185,18 +3276,28 @@ def resolve_queries(blocks, authored_queries=None):
     raw = [query_for(b["text"], keyword_counts) for b in blocks]
 
     if authored_queries:
-        cursors = {}
+        # Индексы блоков каждой секции, у которой есть авторские запросы.
+        by_section = {}
         for i, b in enumerate(blocks):
             key = _normalize_section_key(b["section"])
-            pool = authored_queries.get(key) if key else None
-            if not pool:
+            if key and authored_queries.get(key):
+                by_section.setdefault(key, []).append(i)
+        for key, idxs in by_section.items():
+            pool = authored_queries[key]
+            assignment = semantic_query_assignment([blocks[i]["text"] for i in idxs], pool)
+            if assignment is not None:
+                for pos, i in enumerate(idxs):
+                    raw[i] = pool[assignment[pos]]
                 continue
-            if b.get("is_subcut") and i > 0 and raw[i - 1] is not None:
-                raw[i] = raw[i - 1]
-                continue
-            idx = cursors.get(key, 0)
-            raw[i] = pool[idx % len(pool)]
-            cursors[key] = idx + 1
+            # Fail-open: смысловая модель недоступна -> ПРЕЖНЕЕ позиционное
+            # поведение байт-в-байт (ноль регрессии на машине без Jina/onnx).
+            cursor = 0
+            for i in idxs:
+                if blocks[i].get("is_subcut") and i > 0 and raw[i - 1] is not None:
+                    raw[i] = raw[i - 1]
+                    continue
+                raw[i] = pool[cursor % len(pool)]
+                cursor += 1
 
     # LLM-режиссёр (SHOT_DIRECTOR_MODE=on, дефолт off) — только для блоков,
     # оставшихся None ПОСЛЕ authored_queries и THEMES (см. shot_director.py
@@ -4869,6 +4970,17 @@ def is_relevant_candidate(image_path, query, relevance=None):
     return is_relevant
 
 
+# Версия ПРАВИЛ гейта, которые живут НЕ внутри перечисленных в
+# candidate_gate_signature() функций, а в месте их ВЫЗОВА (pexels_photo/
+# pexels_video) — inspect.getsource() таких изменений не видит, и без явного
+# маркера правка правила молча не инвалидировала бы уже закэшированного
+# кандидата, отобранного по старому правилу (ровно тот класс бага, который
+# эта подпись и создавалась закрывать, см. её докстринг).
+# 2 -> гейт релевантности сверяет кандидата с запросом ЕГО БЛОКА, а не с тем
+#      запросом пула, из которого кандидат приплыл (28 августа, см. разбор у
+#      вызова is_relevant_candidate() в pexels_photo()).
+CANDIDATE_GATE_RULES_VERSION = 2
+
 _CANDIDATE_GATE_SIG = None   # см. candidate_gate_signature(), считается лениво один раз
 
 
@@ -4924,7 +5036,7 @@ def candidate_gate_signature():
             RISKY_GENERIC_TERMS, VISUAL_DOMAIN_GUARDS, VIDEO_DOMAIN_GUARD_SAMPLE_FRACS,
             CONTENT_ALT_BLOCKLIST, QUERY_DISAMBIGUATION_RULES,
             PHOTO_SHARPNESS_REJECT, VIDEO_SHARPNESS_REJECT, VIDEO_SHARPNESS_SAMPLE_FRACS,
-            SHARPNESS_PROBE_MAX_SIDE,
+            SHARPNESS_PROBE_MAX_SIDE, CANDIDATE_GATE_RULES_VERSION,
         )))
     except Exception:
         _CANDIDATE_GATE_SIG = "gate:unknown"
@@ -5859,7 +5971,25 @@ VIDEO_RELEVANCE_MAX_TRIES = 3  # сколько видео-кандидатов 
                                 # сдаться (тот же принцип, что
                                 # PHOTO_DEDUP_MAX_TRIES у фото — здесь
                                 # меньше, видео тяжелее по трафику/времени)
-VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP = 10  # см. video_relevance_try_budget()
+# Реальный, найденный вживую случай (27 августа, videos/_test20s, слот 7,
+# ПОСЛЕ добавления video_sharpness_ok в гейт релевантности): при 8 запросах
+# пула round-robin-чередование (zip_longest) даёт КАЖДОМУ запросу только
+# ОДНУ попытку в пределах try_budget=8 (см. try_budget ниже: max(3,8)=8,
+# min(10,8)=8) — если у ПЕРВОГО кандидата "sword blade close up" сорвался
+# новый гейт резкости (частый случай — экшн-сток по мечам почти всегда с
+# motion-blur, прямая проверка вживую: 4 из первых 4 кандидатов не прошли
+# резкость), до второго кандидата ТОЙ ЖЕ темы перебор физически не доходит
+# — и слот получает видео из СОВСЕМ ДРУГОГО запроса пула (гантель вместо
+# занесённого клинка), semantically разгромно проигрывающее непроверенному
+# 5-му кандидату (id=855260 в прямой проверке — резкий, sentence_relevance
+# 0.118 против отданного варианта). Тот же класс проблемы, что уже была
+# закрыта в этом же файле для ДРУГОГО бюджета (комментарий "РЕАЛЬНЫЙ баг,
+# найденный покадровым просмотром" ниже, про кухонные весы) — гейт стал
+# строже, бюджет под него не подрос. 10->30: та же ЛОГИКА компромисса, что
+# уже применена к PHOTO_DEDUP_MAX_TRIES (6->20) — не буквальное число из
+# внешнего аудита, обоснованный запас (round-robin из 8 запросов теперь
+# реально доходит до ~3-4 попытки на запрос, а не только до первой).
+VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP = 30
 
 
 VIDEO_MIN_LUMA_HARD = 0.06     # ниже — кадр практически чёрный, отбраковка
@@ -6027,7 +6157,6 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
             except Exception:
                 continue
             tries += 1
-            origin_q = v.get("_origin_query") or query
             probe, cleanup = extract_video_probe_frame(trial)
             relevant = True
             cand_hash = None
@@ -6035,9 +6164,12 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
             cand_luma = None
             if probe is not None:
                 try:
-                    # Гейт сверяется с ЕГО СОБСТВЕННЫМ запросом, не с чужим
-                    # (тот же принцип, что _origin_query у фото).
-                    relevant = is_relevant_candidate(probe, origin_q)
+                    # Гейт сверяется с запросом ЭТОГО БЛОКА (`query`), не с тем,
+                    # из которого кандидат приплыл в общий пул — тот же разбор и
+                    # та же причина, что подробно расписаны у фото-пути в
+                    # pexels_photo() (кандидат из соседнего запроса секции
+                    # проходил «по своему» и попадал в чужой по смыслу блок).
+                    relevant = is_relevant_candidate(probe, query)
                     if used_hashes is not None:
                         try:
                             cand_hash = ahash(probe)
@@ -7495,6 +7627,29 @@ def main():
             director_report[i] = {"decision": "skipped_disabled"}
         elif video:
             director_report[i] = {"decision": "skipped_video"}
+            # DIRECTOR_RELEVANCE_MISSES для ВИДЕО — реальный, найденный вживую
+            # пробел (27 августа, videos/_test20s, слот 7): фото-путь получил
+            # свой пол релевантности выше, видео-путь — нет (эта ветка раньше
+            # заканчивалась одной строкой "skipped_video"). На практике сам
+            # гейт резкости кандидата (video_sharpness_ok в pexels_video())
+            # может отсеять ВСЕ кандидаты правильной по смыслу темы (сток
+            # "мужчина заносит клинок" почти всегда с motion-blur) и оставить
+            # победителем видео из ДРУГОГО запроса общего пула секции (общая
+            # гантель для текста про занесённый клинок) — семантически
+            # проверить и это тоже, тем же порогом и тем же методом, что и
+            # фото (кадр-пробник + sentence_relevance), а не молчать.
+            probe, cleanup = extract_video_probe_frame(video)
+            if probe is not None:
+                try:
+                    director_rel = visual_director.sentence_relevance(probe, sem_text)
+                finally:
+                    if cleanup and os.path.exists(probe):
+                        os.remove(probe)
+                if director_rel is not None and director_rel < visual_director.DIRECTOR_RELEVANCE_FLOOR:
+                    DIRECTOR_RELEVANCE_MISSES.append({
+                        "index": i, "text": sem_text, "photo": video, "kind": "video",
+                        "relevance": director_rel, "threshold": visual_director.DIRECTOR_RELEVANCE_FLOOR,
+                    })
         elif director_entry is None or director_entry.get("base_winner") is None:
             director_report[i] = {"decision": "skipped_not_scored"}
         else:
@@ -7524,7 +7679,7 @@ def main():
             director_rel = visual_director.sentence_relevance(photo, sem_text)
             if director_rel is not None and director_rel < visual_director.DIRECTOR_RELEVANCE_FLOOR:
                 DIRECTOR_RELEVANCE_MISSES.append({
-                    "index": i, "text": sem_text, "photo": photo,
+                    "index": i, "text": sem_text, "photo": photo, "kind": "photo",
                     "relevance": director_rel, "threshold": visual_director.DIRECTOR_RELEVANCE_FLOOR,
                 })
         # Непрерывность экспозиции: измеряем яркость ИМЕННО этого кадра,

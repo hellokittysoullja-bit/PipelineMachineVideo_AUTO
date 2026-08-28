@@ -479,6 +479,55 @@ def _jina_relevance(image_path, block_text):
         return None
 
 
+def text_text_similarity(texts_a, texts_b):
+    """Матрица косинусных близостей ТЕКСТ-ТЕКСТ (len(a) x len(b)) через
+    мультиязычный текстовый энкодер Jina CLIP v2. None на любой ошибке
+    (fail-open, как и весь остальной опциональный слой этого модуля).
+
+    ЗАЧЕМ ОТДЕЛЬНО ОТ sentence_relevance(): та сравнивает КАРТИНКУ с
+    текстом (image-text) — принципиально более слабый и шумный сигнал на
+    абстрактных фразах (прямое измерение на реальном эпизоде: скоры всех
+    кандидатов легли в 0.03-0.11, то есть ранжирование по ним было
+    фактически случайным). Здесь обе стороны — ТЕКСТ: русская фраза
+    сценария против английского авторского запроса, который буквально
+    ОПИСЫВАЕТ желаемый кадр. Прямое измерение на том же реальном эпизоде
+    (videos/_test20s, 8 авторских запросов x 6 блоков хука, не гипотеза):
+    «Пятнадцать килограммов.» -> weighing scale metal object (0.707),
+    «Так говорят кино, видеоигры и школьные учебники» -> dark cinema movie
+    theatre screen (0.639), «...сколько весил настоящий боевой меч» ->
+    knight armor holding sword two hands (0.674), «Герой на экране заносит
+    клинок... вместе с конём» -> warrior on horseback with sword (0.766).
+    Каждый визуальный блок получил СВОЙ смысловой запрос с большим отрывом,
+    непредметные связки («Готов спорить, что да») закономерно дали низкий
+    максимум — то есть сигнал не только точный, но и честно сообщает о
+    собственной неуверенности."""
+    if not texts_a or not texts_b:
+        return None
+    global _JINA_BROKEN
+    if _JINA_BROKEN:
+        return None
+    try:
+        import numpy as np
+        sess, tokenizer = _get_jina_session()
+
+        def _emb(texts):
+            enc = tokenizer(list(texts), padding=True, truncation=True,
+                             max_length=JINA_TEXT_MAX_LENGTH, return_tensors="np")
+            ids = enc["input_ids"].astype(np.int64)
+            n = ids.shape[0]
+            return sess.run(["l2norm_text_embeddings"],
+                             {"input_ids": ids,
+                              "pixel_values": np.zeros((n, 3, JINA_IMG_SIZE, JINA_IMG_SIZE),
+                                                        dtype=np.float32)})[0]
+
+        return (_emb(texts_a) @ _emb(texts_b).T).tolist()
+    except ImportError:
+        _JINA_BROKEN = True
+        return None
+    except Exception:
+        return None
+
+
 def _rescale_jina_to_siglip2_scale(jina_raw):
     """Фиксированный z-score перенос шкалы (константы — см. докстринг
     SIGLIP2_SCORE_MEAN выше, измерены на 113-позиционном бенчмарке, не с
