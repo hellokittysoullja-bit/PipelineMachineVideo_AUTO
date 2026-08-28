@@ -2359,6 +2359,22 @@ def block_durations(blocks, total, energy_mults=None, real_weights=None):
 
 PEXELS_BROKEN = False       # взводится только на реальном отказе API, не на пустой выдаче
 
+# Реальный, найденный вживую баг (27 августа, videos/_test20s, слоты 0 и 3):
+# is_relevant_candidate() — гейт, не жёсткий фильтр в _score_and_pick() (см.
+# докстринг pexels_photo() про лексикографический кортеж) — если ВЕСЬ
+# просмотренный пул кандидатов (до PHOTO_DEDUP_MAX_TRIES штук) провалил
+# relevance-гейт, побеждает всё равно "лучший из плохих" (эстетика/luma
+# решают дальше по кортежу), без единой пометки об этом. На готовом рендере
+# это дало слот с запросом "heavy iron dumbbell weight plate", вернувший
+# фото рыцаря с мечом (relevance=0.151, порог 0.19) — пользователь поймал
+# на глаз ("фото мальчика вместо гантели"), не пайплайн. Тот же принцип
+# честной пометки, что visual_qc.py уже применяет к "ниже порога" кандидатам
+# на Шаге 5.5 (media_plan/visual_qc_report.json) — здесь для более раннего
+# этапа (сам выбор кандидата, не пост-хок QC уже выбранного). Не меняет
+# поведение отбора (слот по-прежнему не остаётся пустым, см. философию
+# ЧАСТИ 13) — только делает промах ВИДИМЫМ вместо молчаливого приёма.
+RELEVANCE_GATE_MISSES = []   # [{"index", "query", "relevance", "threshold", "kind"}, ...]
+
 
 # Отбор (2.5): фильтр по alt-тексту кандидата — тот же JSON от Pexels-поиска,
 # ничего не стоит (не новый запрос, не новая скачка). Заведён после ДВУХ
@@ -2885,7 +2901,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                 candidates_info.append({
                     "path": trial, "p": p, "is_dup_free": is_dup_free, "size_ok": size_ok,
                     "is_relevant": is_relevant, "aesthetic_val": aesthetic_val,
-                    "luma_score": luma_score, "min_d": min_d,
+                    "luma_score": luma_score, "min_d": min_d, "relevance": relevance,
                 })
                 if is_dup_free and size_ok and is_relevant:
                     good_seen += 1
@@ -2905,6 +2921,16 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                 director_report["diverged"] = bool(
                     base_winner and director_winner and base_winner["path"] != director_winner["path"])
             winner = director_winner if (director_assist and director_winner is not None) else base_winner
+            if winner is not None and not winner["is_relevant"]:
+                # Весь просмотренный пул провалил relevance-гейт — см.
+                # RELEVANCE_GATE_MISSES выше. Победитель всё равно есть
+                # (слот не должен остаться пустым), но промах теперь
+                # честно записан, а не молчит.
+                RELEVANCE_GATE_MISSES.append({
+                    "index": index, "query": winner["p"].get("_origin_query") or query,
+                    "relevance": winner.get("relevance"),
+                    "threshold": CLIP_RELEVANCE_THRESHOLD, "kind": "photo",
+                })
             for c in candidates_info:
                 if winner is None or c["path"] != winner["path"]:
                     try:
@@ -4522,11 +4548,50 @@ DOF_ENABLED = os.environ.get("DOF_BLUR", "1") != "0"
 DOF_SIGMA_FRAC = 0.014     # сигма размытия фона как доля min(cw, ch) —
                            # относительный, не абсолютный пиксельный размер
                            # (тот же принцип, что sigma в estimate_depth())
-DOF_FOCUS_DEPTH = 0.55     # пиксели ГЛУБЖЕ этого порога (дальше от камеры)
-                           # уходят в размытие, ближе — остаются резкими
+DOF_FOCUS_DEPTH = 0.55     # запасной порог на вырожденный случай (пустой
+                           # центральный патч) — см. _dof_focus_depth() ниже,
+                           # в норме порог адаптивный, не эта константа
 DOF_FALLOFF_POWER = 1.4    # >1 — резкость держится дольше около порога,
                            # размытие быстро нарастает у самого дальнего плана
                            # (мягче "стены" на границе фокуса, чем линейный спад)
+DOF_FOCUS_DEPTH_FLOOR = 0.05   # защита от деления на ноль в _dof_focus_depth()
+                                # и от вырожденного "порог=0" на полностью
+                                # плоском/дальнем кадре (см. тест all_far)
+# Реальный, найденный вживую баг (27 августа, videos/_test20s, слот 3 —
+# HOOK-фото рыцаря на фоне лестницы): DOF_FOCUS_DEPTH был АБСОЛЮТНОЙ
+# константой на normalized(0..1) карте, что молча предполагает — главный
+# объект кадра всегда лежит у самого ВЕРХА диапазона глубины (ближе всего
+# к камере во всём кадре). На этом конкретном фото у главного объекта
+# (рыцарь, центр кадра) реальная normalized-глубина оказалась 0.23-0.32 —
+# из-за постороннего яркого/резкого элемента в кадре (силуэт слева),
+# перетянувшего верх диапазона на себя при min-max нормализации. Порог
+# 0.55 в итоге считал САМ ОБЪЕКТ "дальним планом" и размывал его наравне с
+# фоном — на готовом рендере это выглядело как "фото ужасно размазано", не
+# как боке. Измерено прямо (torso row): blur_weight 0.29-0.60 на пикселях
+# главного объекта при фиксированном пороге — заведомо не то же самое, что
+# лёгкая мягкость фона.
+DOF_FOCUS_CENTER_Y = (0.25, 0.85)   # доля кадра по вертикали для патча "где обычно объект"
+DOF_FOCUS_CENTER_X = (0.30, 0.70)   # (тот же композиционный принцип, что центр-кроп
+                                     # по умолчанию в compute_crop_offset/detect_face_anchor)
+
+
+def _dof_focus_depth(depth, h, w):
+    """Адаптивный порог фокуса ДЛЯ ЭТОГО конкретного кадра — медиана глубины
+    в центральном патче (там, где в этом пайплайне почти всегда находится
+    объект интереса — тот же композиционный принцип, что центр-кроп по
+    умолчанию). Заменяет фиксированный DOF_FOCUS_DEPTH: реальный главный
+    объект кадра размывается по СВОЕЙ фактической глубине, а не по
+    предположению "объект всегда у самого верха normalized-диапазона" (см.
+    комментарий у DOF_FOCUS_DEPTH выше — это предположение подтверждённо
+    ломается на реальных фото). DOF_FOCUS_DEPTH_FLOOR — пол на случай
+    вырожденного патча (пустой срез/полностью плоская нулевая глубина, см.
+    test_apply_depth_of_field_all_far_blurs_canvas) — без него деление в
+    blur_weight ушло бы в 0/0."""
+    cy0, cy1 = int(h * DOF_FOCUS_CENTER_Y[0]), int(h * DOF_FOCUS_CENTER_Y[1])
+    cx0, cx1 = int(w * DOF_FOCUS_CENTER_X[0]), int(w * DOF_FOCUS_CENTER_X[1])
+    patch = depth[cy0:cy1, cx0:cx1]
+    focus = float(np.median(patch)) if patch.size else DOF_FOCUS_DEPTH
+    return max(focus, DOF_FOCUS_DEPTH_FLOOR)
 # --- CLIP-релевантность медиа (опционально, нужны torch/transformers) ---
 # Главная реально подтверждённая на QC этого канала проблема: текстовый
 # поиск Pexels иногда возвращает кандидата, который ПОХОЖ по ключевым
@@ -5005,7 +5070,8 @@ def apply_depth_of_field(canvas, depth, strength_gain=1.0):
     if sigma < 1.0:
         return canvas
     blurred = cv2.GaussianBlur(canvas, (0, 0), sigmaX=sigma)
-    blur_weight = np.clip((DOF_FOCUS_DEPTH - depth) / DOF_FOCUS_DEPTH, 0.0, 1.0) ** DOF_FALLOFF_POWER
+    focus_depth = _dof_focus_depth(depth, h, w)
+    blur_weight = np.clip((focus_depth - depth) / focus_depth, 0.0, 1.0) ** DOF_FALLOFF_POWER
     blur_weight = blur_weight[:, :, None]
     return (canvas.astype(np.float32) * (1.0 - blur_weight)
             + blurred.astype(np.float32) * blur_weight).astype(np.uint8)
@@ -5881,6 +5947,22 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
         chosen = dup_fallback or plain_fallback
         if chosen is not None:
             path, vid, cand_hash = chosen
+            if chosen is plain_fallback:
+                # Ни один кандидат не прошёл relevance-гейт вообще (не
+                # только "похож на уже показанное", как у dup_fallback) —
+                # тот же случай, что RELEVANCE_GATE_MISSES ловит у фото
+                # (см. её докстринг выше). probe уже удалён к этому моменту
+                # (extract_video_probe_frame чистит себя сам) — путь ещё цел
+                # (это САМ видеофайл, не пробник), поэтому релевантность
+                # можно честно перепосчитать один раз на итоговом кадре.
+                probe2, cleanup2 = extract_video_probe_frame(path)
+                rel = clip_relevance(probe2, query) if probe2 is not None else None
+                if cleanup2 and probe2 and os.path.exists(probe2):
+                    os.remove(probe2)
+                RELEVANCE_GATE_MISSES.append({
+                    "index": index, "query": query, "relevance": rel,
+                    "threshold": CLIP_RELEVANCE_THRESHOLD, "kind": "video",
+                })
             os.replace(path, cf)
             if used_ids is not None:
                 used_ids.add(vid)
@@ -6595,10 +6677,18 @@ def render_recipe_signature():
             # и молча не инвалидировала бы старый кэш — тот же класс пробела,
             # что и у is_parallax_highlight выше.
             foreground_background_layers,
+            # apply_depth_of_field/_dof_focus_depth — тот же класс пробела,
+            # что foreground_background_layers выше: вызываются ИЗНУТРИ
+            # parallax_kenburns() по имени, правка их тела (например, замена
+            # DOF_FOCUS_DEPTH на адаптивный порог, 27 августа) не меняет
+            # исходник parallax_kenburns и молча не инвалидировала бы старый
+            # кэш без явного перечисления здесь.
+            apply_depth_of_field, _dof_focus_depth,
         )]
         parts.append(repr((
             sorted(MOOD_GRADE.items()), sorted(DOMAIN_WARM_PUSH_SCALE.items()),
             GRAIN_ENABLED, GRAIN_OPACITY, DEFLICKER_ENABLED, DOF_ENABLED,
+            DOF_FOCUS_DEPTH, DOF_FOCUS_DEPTH_FLOOR, DOF_FOCUS_CENTER_Y, DOF_FOCUS_CENTER_X,
             FPS, WIDTH, HEIGHT, ZOOM_FLOOR, ZOOM_RATE_BASE,
             ZOOM_DELTA_MIN, ZOOM_DELTA_MAX, PAN_SAFETY,
             PARALLAX_ENABLED, PARALLAX_WARP_SIGMA_FRAC, PARALLAX_MAX_STRETCH,
@@ -7376,6 +7466,21 @@ def main():
                     "clips": [render_manifest[i] for i in sorted(render_manifest)]},
                    f, ensure_ascii=False, indent=2)
     os.replace(manifest_tmp, manifest_path)
+
+    # RELEVANCE_GATE_MISSES — см. её докстринг у объявления выше: слоты, где
+    # ВЕСЬ просмотренный пул кандидатов провалил relevance-гейт, но слот всё
+    # равно не остался пустым (философия ЧАСТИ 13). Тот же принцип честной
+    # записи, что уже применяет look_manifest.json чуть ниже — пишем ВСЕГДА
+    # (даже пустой список), не пропускаем файл молча.
+    relevance_report_path = os.path.join(VIDEO_FOLDER, "media_plan", "relevance_gate_report.json")
+    relevance_report_tmp = relevance_report_path + ".tmp"
+    with open(relevance_report_tmp, "w", encoding="utf-8") as f:
+        json.dump({"misses": RELEVANCE_GATE_MISSES}, f, ensure_ascii=False, indent=2)
+    os.replace(relevance_report_tmp, relevance_report_path)
+    if RELEVANCE_GATE_MISSES:
+        print(f"  ВНИМАНИЕ: {len(RELEVANCE_GATE_MISSES)} слот(ов) получили кандидата НИЖЕ порога "
+              f"relevance (весь пул провалил гейт) — см. media_plan/relevance_gate_report.json, "
+              f"сверить глазами на Шаге 7.5.")
 
     # Reference-Guided Look Management — аудит-трейл (см. scripts/
     # look_reference.py). look_report пуст, если фича выключена/lookbook
