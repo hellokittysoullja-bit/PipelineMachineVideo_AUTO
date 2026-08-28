@@ -2848,3 +2848,70 @@ def test_foreground_background_layers_orientation_self_corrects():
         assert fg_alpha[75, 75] > fg_alpha[15, 15], (
             "центр (глубина 0.8, близко) обязан иметь БОЛЬШУЮ fg-альфу, "
             "чем угол (глубина 0.05, далеко) — маска не должна оказаться инвертированной")
+
+
+# ---------- text_key: кэш должен зависеть от ФРАЗЫ, не только от запроса ----------
+# Реальный пробел, найденный по прямому запросу пользователя: ключ кэша бил
+# по (индекс слота, вычисленный запрос, версия кода) — правка текста в
+# script.txt может НЕ изменить вычисленный запрос (то же слово темы, или
+# позиционное совпадение в цикле авторского пула) — старое фото/видео под
+# старую фразу тогда тихо остаётся стоять под изменённый текст.
+
+def test_pexels_photo_text_key_changes_cache_path_for_same_query(tmp_path, monkeypatch):
+    monkeypatch.setattr(pipeline_smart, "PEXELS_API_KEY", "k")
+    monkeypatch.setattr(pipeline_smart, "TEMP_FOLDER", str(tmp_path))
+    captured = []
+
+    def fake_search(q):
+        captured.append(q)
+        return [{"id": 1, "src": {"large2x": "http://x/1.jpg"}, "alt": ""}]
+    monkeypatch.setattr(pipeline_smart, "_pexels_search_photos", fake_search)
+    monkeypatch.setattr(pipeline_smart, "disambiguate_search_query", lambda q: q)
+    monkeypatch.setattr(pipeline_smart, "filter_alt_blocklist", lambda ph: ph)
+    monkeypatch.setattr(pipeline_smart, "atomic_url_download",
+                        lambda req, dest, timeout=None: open(dest, "wb").write(b"x"))
+
+    out1 = pipeline_smart.pexels_photo("medieval sword", 0, text_key="Не дрались. Несли.")
+    out2 = pipeline_smart.pexels_photo("medieval sword", 0, text_key="Первое: размер.")
+    assert out1 != out2, (
+        "один и тот же запрос на одной и той же позиции, но РАЗНЫЙ текст блока "
+        "обязан давать РАЗНЫЙ файл кэша — иначе правка сценария молча "
+        "оставляет старое фото под новую фразу")
+
+
+def test_pexels_photo_without_text_key_keeps_old_cache_path(tmp_path, monkeypatch):
+    # None (вызов без блока сценария, напр. другие тесты этого файла) ->
+    # прежнее поведение, ноль регрессии в имени файла.
+    monkeypatch.setattr(pipeline_smart, "PEXELS_API_KEY", "k")
+    monkeypatch.setattr(pipeline_smart, "TEMP_FOLDER", str(tmp_path))
+    monkeypatch.setattr(pipeline_smart, "_pexels_search_photos",
+                        lambda q: [{"id": 1, "src": {"large2x": "http://x/1.jpg"}, "alt": ""}])
+    monkeypatch.setattr(pipeline_smart, "disambiguate_search_query", lambda q: q)
+    monkeypatch.setattr(pipeline_smart, "filter_alt_blocklist", lambda ph: ph)
+    monkeypatch.setattr(pipeline_smart, "atomic_url_download",
+                        lambda req, dest, timeout=None: open(dest, "wb").write(b"x"))
+    out = pipeline_smart.pexels_photo("medieval sword", 0)
+    qhash = pipeline_smart.hashlib.md5("medieval sword".encode()).hexdigest()[:8]
+    assert qhash in out
+
+
+def test_pexels_video_text_key_changes_cache_path_for_same_query(tmp_path, monkeypatch):
+    monkeypatch.setattr(pipeline_smart, "PEXELS_API_KEY", "k")
+    monkeypatch.setattr(pipeline_smart, "TEMP_FOLDER", str(tmp_path))
+
+    def fake_search(q):
+        return [{"id": 1, "video_files": [{"file_type": "video/mp4", "width": 1920,
+                                            "link": "http://x/1.mp4"}]}]
+    monkeypatch.setattr(pipeline_smart, "_pexels_search_videos", fake_search)
+    monkeypatch.setattr(pipeline_smart, "atomic_url_download",
+                        lambda req, dest, timeout=None: open(dest, "wb").write(b"x"))
+    monkeypatch.setattr(pipeline_smart, "extract_video_probe_frame",
+                        lambda p, **kw: (p + ".jpg", False))
+    monkeypatch.setattr(pipeline_smart, "is_relevant_candidate", lambda *a, **k: True)
+    monkeypatch.setattr(pipeline_smart, "video_domain_guard_violation", lambda *a, **k: (False, None))
+    monkeypatch.setattr(pipeline_smart, "measure_luma", lambda p: 0.4)
+    monkeypatch.setattr(pipeline_smart, "ahash", lambda p: 0)
+
+    out1 = pipeline_smart.pexels_video("medieval sword", 0, text_key="Не дрались. Несли.")
+    out2 = pipeline_smart.pexels_video("medieval sword", 0, text_key="Первое: размер.")
+    assert out1 != out2

@@ -2632,7 +2632,7 @@ def _pexels_search_photos(api_query):
 
 def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=None, target_luma=None,
                   director_score_fn=None, director_assist=False, director_report=None,
-                  extra_queries=None):
+                  extra_queries=None, text_key=None):
     """used_ids — множество ID уже показанных в этом ролике фото (мутируется на
     месте). Разные блоки часто ловят один и тот же тематический запрос — без
     этого им всем доставался бы top-1 результат, то есть одна и та же картинка
@@ -2702,7 +2702,24 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
     # состава пула меняет, из чего вообще выбирался кадр — переиспользовать
     # старый файл в этом случае значит молча остаться на прежнем, более
     # бедном выборе (тот же класс бага, что закрывает candidate_gate_signature).
-    qkey = "|".join([query] + sorted(q for q in (extra_queries or []) if q and q != query))
+    # text_key — РЕАЛЬНЫЙ пробел, найденный по прямому запросу пользователя
+    # (не гипотеза): кэш до этого бил по (индекс слота, ЗАПРОС, версия
+    # кода) — но ЗАПРОС для слота считает resolve_queries() либо по
+    # словарю тем, либо циклическим курсором по авторскому пулу секции.
+    # Правка текста в script.txt (перефразировка, добавленное/убранное
+    # предложение) может ОСТАВИТЬ вычисленный запрос тем же самым (то же
+    # слово темы) или же — из-за сдвига позиций при циклическом курсоре —
+    # ПОЗИЦИОННО попасть на ту же самую строку запроса, что была у СОВСЕМ
+    # ДРУГОГО предложения раньше. В обоих случаях кэш-файл на диске уже
+    # существует под этим же именем и молча отдаётся — фото, подобранное
+    # под старый текст, беззвучно остаётся стоять под новый. text_key
+    # (semantic_context_text() того же блока — та же строка, что реально
+    # идёт в сравнение по смыслу) — это то немногое, что ОДНОЗНАЧНО
+    # привязывает кэш к КОНКРЕТНОЙ фразе, а не к производному от неё
+    # запросу. None (вызов без блока сценария, напр. тесты) -> прежнее
+    # поведение, ноль регрессии.
+    qkey = "|".join([query] + sorted(q for q in (extra_queries or []) if q and q != query)
+                     + ([text_key] if text_key else []))
     qhash = hashlib.md5(qkey.encode()).hexdigest()[:8]
     gate_sig = candidate_gate_signature().split(":", 1)[-1]
     cf = os.path.join(cache, f"{index:04d}_{qhash}_{gate_sig}.jpg")
@@ -5621,7 +5638,7 @@ def _pexels_search_videos(api_query):
 
 
 def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier=None,
-                  extra_queries=None, sentence_score_fn=None):
+                  extra_queries=None, sentence_score_fn=None, text_key=None):
     """Раньше брала ПЕРВОЕ ещё не показанное видео из выдачи без единой
     проверки релевантности/риска (реальный, ранее не закрытый структурный
     пробел, найденный внешним аудитом + прямой проверкой на реальном
@@ -5657,7 +5674,11 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
     # gate_sig — см. pexels_photo()/candidate_gate_signature(): без него улучшение
     # анахронизм-гварда не переоценивает уже закэшированное видео, отобранное
     # по старым правилам (реальный найденный случай — катана в кэше этого файла).
-    qkey = "|".join([query] + sorted(q for q in (extra_queries or []) if q and q != query))
+    # text_key — та же причина и та же механика, что в pexels_photo() (см. её
+    # докстринг у qkey): без этого правка текста сценария может не поменять
+    # ни запрос, ни ключ кэша, и видео под старую фразу тихо остаётся стоять.
+    qkey = "|".join([query] + sorted(q for q in (extra_queries or []) if q and q != query)
+                     + ([text_key] if text_key else []))
     qhash = hashlib.md5(qkey.encode()).hexdigest()[:8]
     gate_sig = candidate_gate_signature().split(":", 1)[-1]
     cf = os.path.join(cache, f"{index:04d}_{qhash}_{gate_sig}.mp4")
@@ -6568,6 +6589,12 @@ def render_recipe_signature():
             # не меняется — без неё такая правка молча не инвалидировала бы
             # старый кэш (тот же класс бага, что и у остальных функций здесь).
             is_parallax_highlight,
+            # foreground_background_layers — ТОЖЕ часть рецепта: вызывается
+            # ИЗНУТРИ parallax_kenburns() (по имени, не инлайн-кодом), поэтому
+            # правка её собственного тела не меняет исходник parallax_kenburns
+            # и молча не инвалидировала бы старый кэш — тот же класс пробела,
+            # что и у is_parallax_highlight выше.
+            foreground_background_layers,
         )]
         parts.append(repr((
             sorted(MOOD_GRADE.items()), sorted(DOMAIN_WARM_PUSH_SCALE.items()),
@@ -6575,6 +6602,7 @@ def render_recipe_signature():
             FPS, WIDTH, HEIGHT, ZOOM_FLOOR, ZOOM_RATE_BASE,
             ZOOM_DELTA_MIN, ZOOM_DELTA_MAX, PAN_SAFETY,
             PARALLAX_ENABLED, PARALLAX_WARP_SIGMA_FRAC, PARALLAX_MAX_STRETCH,
+            PARALLAX_OCCLUSION_AWARE, PARALLAX_INPAINT_RADIUS,
             HOOK_KINETIC_CAPTIONS_ENABLED,
             CLIP_PIX_ARGS, COLOR_META_ARGS,
         )))
@@ -7051,14 +7079,13 @@ def main():
             # запросе: на реальном рендере фраза "сколько весил настоящий
             # боевой меч" получила зал кинотеатра. Та же модель и та же
             # функция, что уже используются для фото.
+            sem_text = semantic_context_text(blocks, i)
             video_sentence_fn = None
             if visual_director is not None:
-                _sem = semantic_context_text(blocks, i)
                 video_sentence_fn = functools.partial(
-                    visual_director.sentence_relevance, block_text=_sem)
+                    visual_director.sentence_relevance, block_text=sem_text)
             if visual_director is not None:
                 director_role = visual_director.functional_role(b, is_section_start)
-                sem_text = semantic_context_text(blocks, i)
                 director_text_domain, _ = visual_director.lr.text_domain_hint(sem_text)
                 director_score_fn = functools.partial(
                     visual_director.compute_extra_score, role=director_role, block_text=sem_text,
@@ -7093,24 +7120,24 @@ def main():
                 video = pexels_video(queries[i], i, used_ids=used_video_ids, used_hashes=used_photo_hashes,
                                      action_qualifier=act_qual,
                                      extra_queries=section_query_pool.get(b["section"]),
-                                     sentence_score_fn=video_sentence_fn)
+                                     sentence_score_fn=video_sentence_fn, text_key=sem_text)
                 if not video:
                     photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
                                       recent_sizes=recent_shot_sizes, target_luma=luma_ema,
                                       director_score_fn=director_score_fn, director_assist=director_assist,
                                       director_report=director_entry,
-                                      extra_queries=section_query_pool.get(b["section"]))
+                                      extra_queries=section_query_pool.get(b["section"]), text_key=sem_text)
             else:
                 photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
                                       recent_sizes=recent_shot_sizes, target_luma=luma_ema,
                                       director_score_fn=director_score_fn, director_assist=director_assist,
                                       director_report=director_entry,
-                                      extra_queries=section_query_pool.get(b["section"]))
+                                      extra_queries=section_query_pool.get(b["section"]), text_key=sem_text)
                 if not photo and d >= MIN_CLIP + 1.0:
                     video = pexels_video(queries[i], i, used_ids=used_video_ids, used_hashes=used_photo_hashes,
                                          action_qualifier=act_qual,
                                          extra_queries=section_query_pool.get(b["section"]),
-                                         sentence_score_fn=video_sentence_fn)
+                                         sentence_score_fn=video_sentence_fn, text_key=sem_text)
             # Раньше Pexels отключался навсегда после ЛЮБОГО промаха, включая
             # обычную пустую выдачу по одному неудачному запросу. Гасим источник
             # только если API реально отвалился.
