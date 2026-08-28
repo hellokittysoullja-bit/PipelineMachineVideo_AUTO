@@ -1922,13 +1922,14 @@ def load_section_offsets():
     return _SECTION_OFFSETS_CACHE
 
 
-def _real_speech_bounds(segment):
-    """(старт, конец) реально озвученного текста в сегменте символов
-    (index,char,start,end) — по первому и последнему буквенно-цифровому
-    символу, за вычетом служебных тегов вроде [energetic]/[slowly],
-    которые могут затесаться внутрь (они не читаются TTS вслух, но
-    формально попадают в поток символов из alignment.csv). None, если
-    в сегменте нет ни одного реального символа."""
+def _clean_timed_chars(segment):
+    """Только РЕАЛЬНО озвученные символы сегмента с их временами
+    [(char, start, end), ...] — без пробелов, скобок и служебных тегов вроде
+    [energetic]/[slowly] (они не читаются TTS вслух, но формально попадают в
+    поток символов alignment.csv). Общая основа для _real_speech_bounds()
+    (границы сегмента) и load_alignment_onsets() (посимвольная привязка
+    ПОД-блоков внутри сегмента) — одна реализация фильтра на оба места,
+    иначе они молча разошлись бы при следующей правке."""
     text = "".join(c for c, s, e in segment)
     excluded = set()
     for tag in ALIGNMENT_STRIP_TAGS:
@@ -1937,8 +1938,28 @@ def _real_speech_bounds(segment):
             for j in range(idx, idx + len(tag)):
                 excluded.add(j)
             idx = text.find(tag, idx + 1)
-    clean = [(c, s, e) for j, (c, s, e) in enumerate(segment)
-             if j not in excluded and re.match(r'[^\s\[\]]', c or "")]
+    return [(c, s, e) for j, (c, s, e) in enumerate(segment)
+            if j not in excluded and re.match(r'[^\s\[\]]', c or "")]
+
+
+def speech_chars_of_text(text):
+    """Та же нормализация, что _clean_timed_chars(), но для ТЕКСТА блока —
+    строка из одних озвучиваемых символов. Позволяет сопоставить блок с его
+    участком посимвольного alignment один-в-один: sub-cut'ы (см.
+    split_long_blocks) делят слова исходного блока БЕЗ остатка, поэтому их
+    очищенные тексты, склеенные подряд, посимвольно равны очищенному тексту
+    сегмента — это и даёт точную, а не пропорциональную привязку под-кадра
+    ко времени озвучки."""
+    text = re.sub(r'\[[^\]]*\]', '', text or "")
+    return re.sub(r'[\s\[\]]', '', text)
+
+
+def _real_speech_bounds(segment):
+    """(старт, конец) реально озвученного текста в сегменте символов
+    (index,char,start,end) — по первому и последнему озвученному символу
+    (см. _clean_timed_chars). None, если в сегменте нет ни одного реального
+    символа."""
+    clean = _clean_timed_chars(segment)
     if not clean:
         return None
     return clean[0][1], clean[-1][2]
@@ -1975,24 +1996,11 @@ def _real_speech_span(segment, section_offset=0.0):
     return real_end - real_start
 
 
-def load_alignment_weights(blocks):
-    """Реальные веса длительности блоков из посимвольного alignment.csv
-    (ElevenLabs/Lumean отдают его бесплатно вместе с каждым TTS-заказом —
-    раньше просто не забирался). Раньше длительность блока считалась ЧИСТО
-    по числу слов и общей скорости слов/сек — то есть каждое слово "весило"
-    одинаково. На деле темп TTS живой: короткая ударная фраза читается
-    быстрее длинной со сложными словами, [slowly]-блок — заметно медленнее.
-    Реальный посимвольный тайминг ловит эту вариацию, а не усредняет её.
-
-    Файлы лежат в media_plan/alignment/00.csv, 01.csv... — по одному на
-    КАЖДУЮ секцию (HOOK, BLOCK 1, ..., FINAL) в порядке их первого появления
-    в script.txt, разрезаны по буквальным вхождениям [pause]/[short pause]
-    на сегменты 1:1 с под-блоками этой секции в том же порядке.
-
-    Возвращает список той же длины, что blocks, — вес (сек) реальной речи
-    на блок или None для блоков без данных (эпизод без сохранённого
-    alignment, или новый блок, добавленный после записи — сборка тогда
-    просто откатывается на word-count оценку для этих блоков, как раньше)."""
+def _alignment_section_segments(blocks):
+    """{секция: [сегмент, ...]} — разборка media_plan/alignment/NN.csv на
+    сегменты по тегам пауз. Общая основа для load_alignment_weights() (вес
+    блока) и load_alignment_onsets() (момент НАЧАЛА блока) — одна реализация
+    на оба места. None, если папки alignment нет вообще."""
     if not os.path.isdir(ALIGNMENT_DIR):
         return None
     section_order = []
@@ -2017,6 +2025,147 @@ def load_alignment_weights(blocks):
             pos = m.end()
         segs.append(chars[pos:])
         section_segments[name] = segs
+    return section_segments
+
+
+ONSET_TEXT_MATCH_MIN_RATIO = 0.9   # ниже — текст блока разошёлся с озвученным, привязке нельзя доверять
+
+
+def load_alignment_onsets(blocks):
+    """РЕАЛЬНЫЙ момент НАЧАЛА речи каждого блока (сек, в шкале финального
+    audio_fixed — после обрезки пауз fix_pauses.py). Список длиной len(blocks)
+    или None, если хотя бы для одного блока привязка не подтвердилась
+    (fail-open целиком, а не частично: половина точных онсетов и половина
+    угаданных дала бы рассинхрон хуже, чем честная старая оценка).
+
+    ЗАЧЕМ ЭТО ЕСТЬ (реальная, измеренная причина — 28 августа, разбор жалобы
+    «видео показывается позже, когда фраза уже сказана»): длительности кадров
+    считались по load_alignment_weights() — то есть по ДЛИНЕ речи блока, а не
+    по её ПОЛОЖЕНИЮ. Дальше эта оценка проходила через семь преобразований
+    (floor/cap-клэмп и rescale в block_durations, energy_mults, apply_section_
+    boundary_shift ±250-400мс, apply_within_cut_shift ±80-180мс,
+    apply_human_jitter ±300мс, snap_hook_cuts_to_energy), каждое из которых
+    двигает границу кадра ОТНОСИТЕЛЬНО фразы, а ошибки складываются по
+    накоплению — к концу хука рез уезжает от своей фразы на доли секунды и
+    больше. Зритель видит ровно то, на что жаловался пользователь: кадр
+    «не под озвучку».
+
+    Длина речи не даёт положения — его даёт только ОНСЕТ. Поэтому здесь
+    возвращается именно момент начала, и по нему (см. phrase_locked_durations)
+    рез ставится ТОЧНО на начало следующей фразы.
+
+    ТОЧНОСТЬ ДЛЯ ПОД-КАДРОВ: sub-cut'ы (split_long_blocks) делят слова
+    исходного блока без остатка, поэтому очищенные тексты под-блоков,
+    склеенные подряд, посимвольно равны очищенному тексту сегмента —
+    привязка идёт по РЕАЛЬНОМУ символу alignment, а не пропорционально
+    числу слов (как считается вес в load_alignment_weights).
+
+    БЕЗОПАСНОСТЬ: текст каждого блока сверяется с реально озвученными
+    символами на его позиции (ONSET_TEXT_MATCH_MIN_RATIO). Сценарий,
+    поправленный ПОСЛЕ записи озвучки, не получит чужой тайминг молча —
+    вернётся None, и сборка честно откатится на прежнее поведение."""
+    section_segments = _alignment_section_segments(blocks)
+    if not section_segments:
+        return None
+    section_offsets = load_section_offsets()
+    cuts = load_pause_cuts()
+    onsets = []
+    seg_idx, char_pos = {}, {}
+    for b in blocks:
+        section = b["section"]
+        segs = section_segments.get(section)
+        if segs is None:
+            return None
+        k = seg_idx.get(section, 0)
+        if k >= len(segs):
+            return None   # блоков больше, чем сегментов записи — доверять нечему
+        clean = _clean_timed_chars(segs[k])
+        pos = char_pos.get(section, 0)
+        want = speech_chars_of_text(b["text"])
+        if not want or pos + len(want) > len(clean):
+            return None
+        got = "".join(c for c, s, e in clean[pos:pos + len(want)])
+        if difflib.SequenceMatcher(None, want.lower(), got.lower()).ratio() < ONSET_TEXT_MATCH_MIN_RATIO:
+            return None
+        offset = section_offsets.get(section, 0.0)
+        onsets.append(raw_to_real_time(clean[pos][1] + offset, cuts))
+        pos += len(want)
+        if pos >= len(clean):
+            seg_idx[section] = k + 1
+            char_pos[section] = 0
+        else:
+            char_pos[section] = pos
+    return onsets
+
+
+PHRASE_LOCK = os.environ.get("PHRASE_LOCK", "1") != "0"
+
+
+def phrase_locked_durations(onsets, total, trans_plan, fps=None):
+    """Длительности клипов, при которых ВИДИМЫЙ рез приходится ТОЧНО на
+    начало следующей фразы. None, если данных не хватает (fail-open).
+
+    ДВЕ вещи, которые обязательно учесть, иначе точность теряется:
+
+    1) КОМПЕНСАЦИЯ КРОССФЕЙДА. xfade_chain() физически СЖИМАЕТ смонтированный
+       таймлайн на длительность каждого перехода (см. её же комментарий и
+       hook_visual_starts): видимый старт клипа n равен cumsum(durs[:n])
+       МИНУС сумма уже прошедших нахлёстов. Без поправки каждый следующий рез
+       уезжает раньше своей фразы накопительно. Отсюда
+       dur[i] = (онсет[i+1] - онсет[i]) + длительность_перехода[i] — при этом
+       итоговая длина видео остаётся равна длине аудио (сумма поправок ровно
+       компенсируется сжатием).
+
+    2) КВАНТОВАНИЕ ПО ГРАНИЦАМ, А НЕ ПО ДЛИТЕЛЬНОСТЯМ. Клип не может быть
+       дробным по кадрам. Если округлять каждую ДЛИТЕЛЬНОСТЬ отдельно (как
+       делает quantize_durations_to_frames), ошибка округления складывается
+       по всей цепочке. Здесь на кадровую сетку кладутся сами ГРАНИЦЫ, а
+       длительности из них вычитаются — тогда каждый рез отстоит от своей
+       фразы не более чем на полкадра (~21мс при 24 fps), и это НЕ копится."""
+    if not onsets or total <= 0:
+        return None
+    fps = fps or FPS
+    n = len(onsets)
+    # Границы клипов на шкале РЕАЛЬНОГО аудио: клип i держится от начала своей
+    # фразы до начала следующей (первый — от нуля, чтобы не было чёрного
+    # экрана на ведущей тишине; последний — до конца аудио).
+    bounds = [0.0] + [onsets[i] for i in range(1, n)] + [float(total)]
+    if any(bounds[i + 1] <= bounds[i] for i in range(n)):
+        return None   # непоследовательные онсеты — доверять нельзя
+    cum = 0.0
+    shifted = []
+    for i, b in enumerate(bounds):
+        shifted.append(b + cum)
+        if i < len(trans_plan):
+            cum += trans_plan[i][1]
+    grid = [round(x * fps) / fps for x in shifted]
+    durs = [grid[i + 1] - grid[i] for i in range(n)]
+    if any(d < 1.0 / fps for d in durs):
+        return None   # кадр короче одного кадра сетки физически не рендерится
+    return durs
+
+
+def load_alignment_weights(blocks):
+    """Реальные веса длительности блоков из посимвольного alignment.csv
+    (ElevenLabs/Lumean отдают его бесплатно вместе с каждым TTS-заказом —
+    раньше просто не забирался). Раньше длительность блока считалась ЧИСТО
+    по числу слов и общей скорости слов/сек — то есть каждое слово "весило"
+    одинаково. На деле темп TTS живой: короткая ударная фраза читается
+    быстрее длинной со сложными словами, [slowly]-блок — заметно медленнее.
+    Реальный посимвольный тайминг ловит эту вариацию, а не усредняет её.
+
+    Файлы лежат в media_plan/alignment/00.csv, 01.csv... — по одному на
+    КАЖДУЮ секцию (HOOK, BLOCK 1, ..., FINAL) в порядке их первого появления
+    в script.txt, разрезаны по буквальным вхождениям [pause]/[short pause]
+    на сегменты 1:1 с под-блоками этой секции в том же порядке.
+
+    Возвращает список той же длины, что blocks, — вес (сек) реальной речи
+    на блок или None для блоков без данных (эпизод без сохранённого
+    alignment, или новый блок, добавленный после записи — сборка тогда
+    просто откатывается на word-count оценку для этих блоков, как раньше)."""
+    section_segments = _alignment_section_segments(blocks)
+    if section_segments is None:
+        return None
 
     section_offsets = load_section_offsets()   # {} без Stage B/section_sync.py -> offset 0.0 для всех, как раньше
     weights = []
@@ -7198,53 +7347,81 @@ def main():
     xfade_budget = estimate_xfade_budget(blocks)
     target = total + xfade_budget
     durs = block_durations(blocks, target, real_weights=real_weights)
-    # Второй проход: ритм по громкости поверх базовой оценки (не вместо неё) —
-    # громкие места режутся чаще, тихие держатся дольше. Опционально (нужен numpy).
-    # Стартовые точки для сэмплинга энергии считаем от РЕАЛЬНОЙ длины аудио
-    # (total), не от раздутой под кроссфейды target — иначе поздние блоки на
-    # длинном ролике со множеством склеек сэмплили бы энергию не в том месте.
+
+    # === PHRASE LOCK — рез строго на начале фразы =========================
+    # Реальная, измеренная причина жалобы «кадр показывается не под озвучку»
+    # (28 августа): ниже по коду длительность проходила через СЕМЬ
+    # преобразований (floor/cap-клэмп и rescale внутри block_durations,
+    # energy_mults, apply_section_boundary_shift ±250-400мс,
+    # apply_within_cut_shift ±80-180мс, apply_human_jitter ±300мс,
+    # snap_hook_cuts_to_energy, поштучное quantize_durations_to_frames).
+    # Каждое двигает границу кадра ОТНОСИТЕЛЬНО фразы, и ошибки СКЛАДЫВАЮТСЯ
+    # по накоплению — к концу хука рез уезжает от своей фразы на доли секунды
+    # и больше, то есть кадр «принадлежит» уже не той фразе.
+    #
+    # Обоснование, почему это чистое улучшение, а не размен:
+    # эти преобразования вводились как «оживление» механически ровной сетки —
+    # но сетка перестала быть механической ровно тогда, когда появился
+    # реальный alignment: длительности фраз и так неравномерны от природы
+    # речи (в этом эпизоде 1.25с .. 4.58с). То есть джиттер добавляет
+    # неравномерность, которая УЖЕ есть, и платит за это единственным, что
+    # тут по-настоящему важно — совпадением кадра с произносимой фразой.
+    # J/L-cut (apply_*_shift) в этой архитектуре тоже недостижим и честно
+    # признан таковым в собственном докстринге («классический приём тут
+    # физически не из чего собрать» — одна сплошная дорожка озвучки на весь
+    # ролик): сдвиг видео-реза с границы фразы не создаёт J/L-cut, он
+    # создаёт ровно тот рассинхрон, на который жалуется зритель.
+    onsets = load_alignment_onsets(blocks) if PHRASE_LOCK else None
+    phrase_locked = None
+    if onsets:
+        phrase_locked = phrase_locked_durations(
+            onsets, total, plan_transitions([b["section"] for b in blocks], blocks))
     curve = audio_energy_curve(AUDIO_FILE)
     energy_lvls = [1.0] * len(blocks)
-    if curve:
-        baseline = block_durations(blocks, total, real_weights=real_weights)
-        starts, acc = [], 0.0
-        for d in baseline:
-            starts.append(acc)
-            acc += d
-        mults = energy_pace_multipliers(curve, starts, baseline)
-        durs = block_durations(blocks, target, energy_mults=mults, real_weights=real_weights)
-        # Та же кривая громкости, что уже двигает тайминг — используем и для
-        # лёгкой визуальной пульсации грейда (не только когда резать, но и
-        # "с каким нажимом" показать кадр на эмоциональном пике).
-        energy_lvls = energy_levels(curve, starts, baseline)
-        print("Ритм по громкости: включён")
-    durs = apply_section_boundary_shift(blocks, durs)
-    durs = apply_within_cut_shift(blocks, durs)
-    durs = apply_human_jitter(blocks, durs)
+
+    if phrase_locked:
+        durs = phrase_locked
+        # Шкала аудио для субтитров/глав — те же самые онсеты, а не отдельная
+        # оценка: раньше субтитры считались по block_durations() (оценка с
+        # клэмпом и rescale), из-за чего они закономерно «не успевали за
+        # озвучкой» — та же корневая причина, что и у картинки.
+        sub_starts = [0.0] + [onsets[i] for i in range(1, len(onsets))]
+        sub_baseline = [(sub_starts[i + 1] if i + 1 < len(sub_starts) else total) - sub_starts[i]
+                        for i in range(len(sub_starts))]
+        if curve:
+            # Громкость больше НЕ двигает резы (это ломало бы привязку), но
+            # по-прежнему даёт лёгкую пульсацию грейда — там она безвредна.
+            energy_lvls = energy_levels(curve, sub_starts, sub_baseline)
+        print(f"Тайминг: рез привязан к началу фразы по alignment "
+              f"({len(onsets)}/{len(blocks)} блоков, точность ±полкадра)")
+    else:
+        # Прежнее поведение целиком — эпизод без alignment (или с текстом,
+        # правленным после записи): точной шкалы фраз не существует, и
+        # «оживление» ровной оценки остаётся осмысленным.
+        if curve:
+            baseline = block_durations(blocks, total, real_weights=real_weights)
+            starts, acc = [], 0.0
+            for d in baseline:
+                starts.append(acc)
+                acc += d
+            mults = energy_pace_multipliers(curve, starts, baseline)
+            durs = block_durations(blocks, target, energy_mults=mults, real_weights=real_weights)
+            energy_lvls = energy_levels(curve, starts, baseline)
+            print("Ритм по громкости: включён")
+        durs = apply_section_boundary_shift(blocks, durs)
+        durs = apply_within_cut_shift(blocks, durs)
+        durs = apply_human_jitter(blocks, durs)
+        sub_baseline = block_durations(blocks, total, real_weights=real_weights)
+        sub_starts, sub_acc = [], 0.0
+        for d in sub_baseline:
+            sub_starts.append(sub_acc)
+            sub_acc += d
+        durs = snap_hook_cuts_to_energy(blocks, durs, sub_starts, AUDIO_FILE)
+        durs = quantize_durations_to_frames(durs)
     print(f"Средний кадр: {sum(durs)/len(durs):.1f}с")
 
-    # Субтитры/главы — бесплатный побочный продукт уже посчитанного тайминга
-    # (см. write_subtitles/write_chapters). Нужна РЕАЛЬНАЯ развёртка по аудио
-    # (block_durations по total), не по xfade-раздутой durs/target — та же
-    # модель реального времени, что уже используется для energy-курса ниже.
-    sub_baseline = block_durations(blocks, total, real_weights=real_weights)
-    sub_starts, sub_acc = [], 0.0
-    for d in sub_baseline:
-        sub_starts.append(sub_acc)
-        sub_acc += d
     write_subtitles(VIDEO_FOLDER, blocks, sub_starts, sub_baseline, real_weights=real_weights)
     write_chapters(VIDEO_FOLDER, blocks, sub_starts)
-
-    # A8: резы хука слегка "прилипают" к пикам голосовой энергии (см.
-    # snap_hook_cuts_to_energy) — реальные (не xfade-раздутые) старты sub_starts
-    # уже посчитаны как раз выше, переиспользуем ту же временную шкалу.
-    durs = snap_hook_cuts_to_energy(blocks, durs, sub_starts, AUDIO_FILE)
-    # ПОСЛЕДНИЙ шаг тайминга — кадровая сетка (см. quantize_durations_to_frames):
-    # дальше durs больше никто не сдвигает, значит то, что здесь посчитано,
-    # ровно то, что реально отрендерится (клип физически не может быть
-    # дробным по кадрам). После этого sum(durs) - бюджет_нахлёстов == длине
-    # аудио с точностью до полукадра, а не до десятков секунд, как раньше.
-    durs = quantize_durations_to_frames(durs)
 
     # visual_starts — РЕАЛЬНЫЕ старты клипов на шкале визуального монтажа,
     # ПОСЛЕ всех "очеловечивающих" сдвигов durs выше (apply_section_boundary_shift/
@@ -7254,6 +7431,40 @@ def main():
     # остаются аудио-шкалой для write_subtitles/write_chapters (это и должно
     # быть привязано к голосу, не к монтажу).
     visual_starts = hook_visual_starts(blocks, durs)
+
+    # media_plan/phrase_timeline.json — ПРОВЕРЯЕМЫЙ аудит привязки кадра к
+    # фразе. Пишется ВСЕГДА (даже когда привязки нет — тогда честно
+    # locked=false), потому что «показалось ли вовремя» до этого нельзя было
+    # проверить ничем, кроме просмотра глазами. Дрейф считается не по
+    # намерению, а по РЕАЛЬНОЙ визуальной шкале монтажа (hook_visual_starts —
+    # она уже учитывает сжатие таймлайна кроссфейдом), то есть отражает то,
+    # что зритель действительно увидит.
+    phrase_timeline = {"locked": bool(phrase_locked), "fps": FPS,
+                       "audio_total_sec": total, "blocks": []}
+    worst_drift = 0.0
+    for i, b in enumerate(blocks):
+        want = (0.0 if i == 0 else onsets[i]) if onsets else None
+        drift = (visual_starts[i] - want) if want is not None else None
+        if drift is not None:
+            worst_drift = max(worst_drift, abs(drift))
+        phrase_timeline["blocks"].append({
+            "index": i, "section": b["section"], "text": b["text"][:120],
+            "speech_onset_sec": want, "visual_start_sec": visual_starts[i],
+            "duration_sec": durs[i], "drift_sec": drift,
+        })
+    phrase_timeline["worst_drift_sec"] = worst_drift if onsets else None
+    phrase_timeline["max_allowed_drift_sec"] = 0.5 / FPS
+    pt_path = os.path.join(VIDEO_FOLDER, "media_plan", "phrase_timeline.json")
+    os.makedirs(os.path.dirname(pt_path), exist_ok=True)
+    with open(pt_path + ".tmp", "w", encoding="utf-8") as f:
+        json.dump(phrase_timeline, f, ensure_ascii=False, indent=2)
+    os.replace(pt_path + ".tmp", pt_path)
+    if phrase_locked:
+        print(f"  Привязка кадра к фразе: худший дрейф {worst_drift * 1000:.0f}мс "
+              f"(предел полкадра = {500 / FPS:.0f}мс) — media_plan/phrase_timeline.json")
+    else:
+        print("  ВНИМАНИЕ: точной привязки кадра к фразе НЕТ (нет alignment или текст "
+              "правился после записи) — тайминг оценочный, см. media_plan/phrase_timeline.json")
 
     clips, clip_durs, clip_sections, clip_blocks = [], [], [], []
     missing = []   # индексы блоков, для которых не нашлось ни фото, ни видео

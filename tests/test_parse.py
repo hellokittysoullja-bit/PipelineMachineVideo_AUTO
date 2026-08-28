@@ -3085,3 +3085,80 @@ def test_resolve_queries_subcut_gets_own_query_not_parent_inheritance(monkeypatc
     out = pipeline_smart.resolve_queries(blocks, {"HOOK": ["battle fight", "warrior on horseback with sword"]})
     assert out[1] == "warrior on horseback with sword"
     assert out[0] != out[1], "под-кадр обязан получить СВОЙ запрос, а не унаследовать родительский"
+
+
+# ---------- PHRASE LOCK: рез строго на начале фразы ----------
+# Реальная измеренная причина (28 августа, videos/_test20s): фраза «Герой на
+# экране заносит клинок» реально начинается на 17.35с, а кадр под неё
+# ставился на 19.79с — опоздание 2.4 секунды. Виноваты семь преобразований
+# между точным alignment и финальной длительностью (клэмп/rescale/energy/
+# два J-L-сдвига/джиттер/поштучное квантование), чьи ошибки складываются.
+
+def test_phrase_locked_durations_cuts_land_exactly_on_onsets():
+    onsets = [0.0, 2.0, 5.0, 9.0]
+    total = 12.0
+    plan = [("fade", 0.0)] * (len(onsets) - 1)   # без переходов — чистая проверка границ
+    durs = pipeline_smart.phrase_locked_durations(onsets, total, plan, fps=100)
+    starts, acc = [], 0.0
+    for d in durs:
+        starts.append(acc)
+        acc += d
+    assert starts == pytest.approx(onsets, abs=1e-6)
+    assert acc == pytest.approx(total, abs=1e-6)
+
+
+def test_phrase_locked_durations_compensates_xfade_compression():
+    # xfade СЖИМАЕТ таймлайн на длительность каждого перехода — без поправки
+    # каждый следующий рез уезжал бы раньше своей фразы накопительно.
+    onsets = [0.0, 2.0, 5.0, 9.0]
+    total, tdur = 12.0, 0.25
+    plan = [("fade", tdur)] * (len(onsets) - 1)
+    durs = pipeline_smart.phrase_locked_durations(onsets, total, plan, fps=100)
+    # Видимый старт = cumsum(durs) - сумма уже прошедших нахлёстов.
+    visible, acc, used = [], 0.0, 0.0
+    for i, d in enumerate(durs):
+        visible.append(acc - used)
+        acc += d
+        if i < len(plan):
+            used += plan[i][1]
+    assert visible == pytest.approx(onsets, abs=1e-6)
+    # Итоговая длина видео обязана совпасть с длиной аудио.
+    assert acc - used == pytest.approx(total, abs=1e-6)
+
+
+def test_phrase_locked_durations_quantizes_bounds_not_durations():
+    # Ошибка кадровой сетки НЕ должна копиться: каждый рез — не дальше
+    # полукадра от своей фразы, независимо от числа блоков перед ним.
+    fps = 24
+    onsets = [i * 1.017 for i in range(40)]   # намеренно не кратно кадру
+    total = onsets[-1] + 1.017
+    plan = [("fade", 1.0 / fps)] * (len(onsets) - 1)
+    durs = pipeline_smart.phrase_locked_durations(onsets, total, plan, fps=fps)
+    visible, acc, used = [], 0.0, 0.0
+    for i, d in enumerate(durs):
+        visible.append(acc - used)
+        acc += d
+        if i < len(plan):
+            used += plan[i][1]
+    want = [0.0] + onsets[1:]
+    worst = max(abs(v - w) for v, w in zip(visible, want))
+    assert worst <= 0.5 / fps + 1e-9, f"дрейф {worst*1000:.1f}мс превысил полкадра"
+
+
+def test_phrase_locked_durations_rejects_non_monotonic_onsets():
+    assert pipeline_smart.phrase_locked_durations([0.0, 5.0, 3.0], 10.0, [("fade", 0.0)] * 2) is None
+
+
+def test_phrase_locked_durations_rejects_subframe_clip():
+    # Две фразы в пределах одного кадра — честный отказ, а не клип нулевой длины.
+    assert pipeline_smart.phrase_locked_durations([0.0, 0.001], 5.0, [("fade", 0.0)], fps=24) is None
+
+
+def test_speech_chars_of_text_strips_tags_and_whitespace():
+    assert pipeline_smart.speech_chars_of_text("Привет, [pause] мир!") == "Привет,мир!"
+
+
+def test_load_alignment_onsets_returns_none_without_alignment(monkeypatch, tmp_path):
+    monkeypatch.setattr(pipeline_smart, "ALIGNMENT_DIR", str(tmp_path / "nope"))
+    blocks = [{"text": "Фраза.", "words": 1, "pause_after": 0.0, "section": "HOOK", "stat": None}]
+    assert pipeline_smart.load_alignment_onsets(blocks) is None
