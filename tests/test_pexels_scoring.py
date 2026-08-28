@@ -18,10 +18,10 @@ sys.argv = ["pipeline_smart.py", tempfile.gettempdir()]
 import pipeline_smart as ps   # noqa: E402
 
 
-def _cand(path, is_dup_free=1, size_ok=1, is_relevant=1, aesthetic_val=0.0,
+def _cand(path, is_dup_free=1, size_ok=1, is_relevant=1, sharp_ok=1, aesthetic_val=0.0,
           luma_score=0.0, min_d=99, pid=None):
     return {"path": path, "p": {"id": pid or path}, "is_dup_free": is_dup_free,
-            "size_ok": size_ok, "is_relevant": is_relevant,
+            "size_ok": size_ok, "is_relevant": is_relevant, "sharp_ok": sharp_ok,
             "aesthetic_val": aesthetic_val, "luma_score": luma_score, "min_d": min_d}
 
 
@@ -106,3 +106,42 @@ def test_director_respects_relevance_gate_even_with_high_extra():
     base, director = ps._score_and_pick(
         [irrelevant_but_favored, relevant], director_score_fn=lambda path: scores[path])
     assert director is relevant   # is_relevant остаётся гейтом впереди extra, extra не может его перебить
+
+
+# ---------- sharp_ok: гейт резкости (см. PHOTO_SHARPNESS_REJECT) ----------
+# Реальный найденный случай (27 августа, videos/_test20s, слот 7 — размытое
+# видео всадника) — ни один кандидат никогда не проверялся на резкость на
+# этапе отбора. sharp_ok — тот же класс гейта, что is_relevant: важнее
+# эстетики, но не важнее dup/size/relevance.
+
+def test_sharp_beats_aesthetic():
+    blurry = _cand("blurry", sharp_ok=0, aesthetic_val=10.0)
+    sharp = _cand("sharp", sharp_ok=1, aesthetic_val=-10.0)
+    base, _ = ps._score_and_pick([blurry, sharp])
+    assert base is sharp
+
+
+def test_relevance_beats_sharp():
+    irrelevant_sharp = _cand("irrelevant_sharp", is_relevant=0, sharp_ok=1)
+    relevant_blurry = _cand("relevant_blurry", is_relevant=1, sharp_ok=0)
+    base, _ = ps._score_and_pick([irrelevant_sharp, relevant_blurry])
+    assert base is relevant_blurry
+
+
+def test_sharp_ok_defaults_to_one_when_key_missing():
+    # Обратная совместимость: candidates_info без ключа "sharp_ok" вообще
+    # (старый вызывающий код/тест) — поведение как раньше, никого не режет.
+    no_key = {"path": "no_key", "p": {"id": "no_key"}, "is_dup_free": 1, "size_ok": 1,
+              "is_relevant": 1, "aesthetic_val": 5.0, "luma_score": 0.0, "min_d": 99}
+    with_key = _cand("with_key", sharp_ok=1, aesthetic_val=0.0)
+    base, _ = ps._score_and_pick([no_key, with_key])
+    assert base is no_key   # выше эстетика побеждает — sharp_ok=1 по умолчанию для обоих
+
+
+def test_director_sharp_gate_matches_base():
+    blurry = _cand("blurry", sharp_ok=0, aesthetic_val=10.0)
+    sharp = _cand("sharp", sharp_ok=1, aesthetic_val=-10.0)
+    scores = {"blurry": 0.0, "sharp": 0.0}
+    base, director = ps._score_and_pick(
+        [blurry, sharp], director_score_fn=lambda path: scores[path])
+    assert director is sharp

@@ -2537,35 +2537,44 @@ def _score_and_pick(candidates_info, director_score_fn=None):
 
     candidates_info — список dict, каждый с готовыми числами:
     path, p (сырой Pexels-объект), is_dup_free, size_ok, is_relevant,
-    aesthetic_val, luma_score, min_d.
+    sharp_ok (опционально, см. ниже), aesthetic_val, luma_score, min_d.
 
     Возвращает (base_winner, director_winner) — оба элемента
     candidates_info (или None на пустом списке/если ни один кандидат не
-    улучшил стартовый счёт). base_winner — СЕГОДНЯШНИЙ 6-элементный
-    лексикографический кортеж (is_dup_free, size_ok, is_relevant,
+    улучшил стартовый счёт). base_winner — 7-элементный
+    лексикографический кортеж (is_dup_free, size_ok, is_relevant, sharp_ok,
     aesthetic_val, luma_score, min_d), то же строгое ">" сравнение и тот же
     порядок кандидатов, что был инлайн в pexels_photo() до этого
     рефакторинга — при равенстве кортежей побеждает ПЕРВЫЙ встреченный
     кандидат, не последний (важно для байт-в-байт совместимости).
 
     director_winner считается, ТОЛЬКО если передан director_score_fn(path)
-    -> float (scripts/visual_director.py) — 7-элементный кортеж с extra-
-    осью СРАЗУ ПОСЛЕ relevance-гейта, ДО aesthetic (см. докстринг
+    -> float (scripts/visual_director.py) — 8-элементный кортеж с extra-
+    осью СРАЗУ ПОСЛЕ sharp_ok, ДО aesthetic (см. докстринг
     scripts/visual_director.py: "подходит ли по роли/домену/повтору"
     важнее "красиво ли", но relevance/dedup/size остаются гейтами, не
     подвинуты). director_winner — None, если director_score_fn не
     передан — вызывающий код (pexels_photo) тогда просто не считает вторую
-    ветвь вообще."""
-    base_best, base_score = None, (-1, -1, -1, -100.0, -1.0, -1)
-    dir_best, dir_score = None, (-1, -1, -1, -100.0, -100.0, -1.0, -1)
+    ветвь вообще.
+
+    sharp_ok (опционально, по умолчанию 1 через .get — старые вызовы/тесты
+    без этого ключа получают байт-в-байт прежнее поведение) — гейт резкости
+    (PHOTO_SHARPNESS_REJECT, см. её докстринг: реальный найденный случай,
+    videos/_test20s слот 7 — размытый кандидат никогда не проверялся на
+    этапе отбора). Стоит СРАЗУ после is_relevant, ДО aesthetic — та же
+    логика приоритета, что и у extra Директора: "не размыто" важнее
+    "красиво", но не важнее "по теме"/"не дубль"/"нужный размер"."""
+    base_best, base_score = None, (-1, -1, -1, -1, -100.0, -1.0, -1)
+    dir_best, dir_score = None, (-1, -1, -1, -1, -100.0, -100.0, -1.0, -1)
     for c in candidates_info:
-        score = (c["is_dup_free"], c["size_ok"], c["is_relevant"],
+        sharp_ok = c.get("sharp_ok", 1)
+        score = (c["is_dup_free"], c["size_ok"], c["is_relevant"], sharp_ok,
                   c["aesthetic_val"], c["luma_score"], c["min_d"])
         if score > base_score:
             base_best, base_score = c, score
         if director_score_fn is not None:
             extra = director_score_fn(c["path"])
-            dscore = (c["is_dup_free"], c["size_ok"], c["is_relevant"], extra,
+            dscore = (c["is_dup_free"], c["size_ok"], c["is_relevant"], sharp_ok, extra,
                        c["aesthetic_val"], c["luma_score"], c["min_d"])
             if dscore > dir_score:
                 dir_best, dir_score = c, dscore
@@ -2882,6 +2891,14 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                 # см. RISKY_GENERIC_TERMS) — см. is_relevant_candidate(), та же
                 # функция, что проверяет golden-тест media-selection.
                 is_relevant = 1 if is_relevant_candidate(trial, origin_q, relevance=relevance) else 0
+                # sharp_ok (PHOTO_SHARPNESS_REJECT) — см. её докстринг: реальный
+                # найденный случай, ни один кандидат никогда не проверялся на
+                # резкость на этапе отбора, только опциональный постфактум-
+                # проход (visual_qc.py, часто не запускается). None (сбой
+                # декода/недоступность numpy) -> не гейтит, тот же безопасный
+                # откат, что у остальных опциональных осей.
+                sharp = image_sharpness_score(trial)
+                sharp_ok = 1 if (sharp is None or sharp >= PHOTO_SHARPNESS_REJECT) else 0
                 # Эстетика — доп. измерение, НЕ повышает good_needed само по
                 # себе (в отличие от target_luma) — иначе каждый выбор фото
                 # тратил бы вдвое больше скачиваний/Pexels-трафика по
@@ -2902,10 +2919,10 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                         pass
                 candidates_info.append({
                     "path": trial, "p": p, "is_dup_free": is_dup_free, "size_ok": size_ok,
-                    "is_relevant": is_relevant, "aesthetic_val": aesthetic_val,
+                    "is_relevant": is_relevant, "sharp_ok": sharp_ok, "aesthetic_val": aesthetic_val,
                     "luma_score": luma_score, "min_d": min_d, "relevance": relevance,
                 })
-                if is_dup_free and size_ok and is_relevant:
+                if is_dup_free and size_ok and is_relevant and sharp_ok:
                     good_seen += 1
                     if good_seen >= good_needed:
                         break   # набрали, сколько нужно для честного сравнения — не жжём оставшиеся попытки
@@ -4614,6 +4631,22 @@ CLIP_BROKEN = False   # взводится только на системном 
 # явный промах, не выбирать идеальный вариант из синонимов).
 CLIP_RELEVANCE_THRESHOLD = 0.19
 
+# Реальный, найденный вживую пробел (27 августа, videos/_test20s, слот 7 —
+# видео всадника с занесённым клинком): ни pexels_photo(), ни pexels_video()
+# НИКОГДА не проверяли резкость кандидата НА ЭТАПЕ ОТБОРА — только
+# отдельный, часто НЕ запускаемый scripts/visual_qc.py (Шаг 5.5, работает
+# по media\, а этот эпизод тянул медиа НАПРЯМУЮ из Pexels, minuя media\
+# вообще) умел это ловить. render_qc_report.json (см. RENDER_SHARPNESS_
+# DROP_RATIO выше) сравнивает готовый рендер с ЕГО ЖЕ источником — но если
+# ИСТОЧНИК сам по себе смазан (реальное motion-blur в самой стоковой
+# съёмке, не наш рендер его испортил), эта проверка молчит: рендер честно
+# не размытее источника, источник изначально плохой. PHOTO_SHARPNESS_REJECT
+# переиспользует уже откалиброванный порог visual_qc.py (тот же Лапласиан
+# на том же 720px-нормализованном кадре — see image_sharpness_score()) —
+# теперь ту же проверку применяет и сам отбор кандидата, не только опциональный
+# постфактум-проход.
+PHOTO_SHARPNESS_REJECT = 25.0
+
 # 2.5-3a: второй якорь для запросов с "собирательными" словами (museum,
 # exhibition, collection, display, cabinet, case, gallery) — сами по себе
 # они не гарантируют, что в кадре ДОМИНИРУЕТ предмет темы, а не архитектура
@@ -4762,6 +4795,56 @@ def video_domain_guard_violation(video_path, query):
     return False, None
 
 
+# Реальный, найденный вживую случай (27 августа, videos/_test20s, слот 7):
+# видео всадника с занесённым клинком — генуинное motion-blur самой
+# стоковой съёмки (быстрая скачка/поворот камеры), не артефакт нашего
+# рендера. Замерено на РЕАЛЬНЫХ кандидатах этого эпизода: заведомо ХОРОШЕЕ
+# видео (батальная реконструкция, уже стоявшее в кадре) — резкость 1009-1952
+# на 5 сэмплах по всей длительности; заведомо ПЛОХОЕ (этот всадник) —
+# 92-270 на тех же 5 сэмплах, той же функцией image_sharpness_score(). Разрыв
+# чистый и большой (минимум хорошего 1009 против максимума плохого 270) —
+# порог 400 берётся с большим запасом в разрыв. Честно: n=2 видео, не
+# статистика — тот же принцип малой калибровки, что уже применяет
+# DIRECTOR_RELEVANCE_FLOOR/RISKY_QUERY_MARGIN в этом файле, не гадание с
+# потолка.
+VIDEO_SHARPNESS_REJECT = 400.0
+VIDEO_SHARPNESS_SAMPLE_FRACS = (0.15, 0.5, 0.85)   # та же сетка, что у domain-гварда
+
+
+def video_sharpness_ok(video_path):
+    """Median резкости по нескольким сэмплам (не один кадр — транзиентное
+    смазывание в один момент не должно топить весь клип, см. докстринг
+    video_domain_guard_violation про "не доверять одному сэмплу"). None
+    (не гейтит) при сбое длительности/декода — безопасный откат, как и у
+    остальных опциональных проверок. РЕАЛЬНАЯ проверка на калибровочных
+    видео этого эпизода (см. VIDEO_SHARPNESS_REJECT) — хорошее видео держит
+    median далеко ВЫШЕ порога на всех сэмплах, плохое — далеко НИЖЕ."""
+    try:
+        duration = get_media_duration(video_path)
+    except Exception:
+        duration = None
+    if not duration or duration <= 0.6:
+        return None
+    scores = []
+    for frac in VIDEO_SHARPNESS_SAMPLE_FRACS:
+        at = max(0.3, min(duration - 0.2, duration * frac))
+        probe, cleanup = extract_video_probe_frame(video_path, base_at=at, retry_ats=())
+        if probe is None:
+            continue
+        try:
+            s = image_sharpness_score(probe)
+        finally:
+            if cleanup and os.path.exists(probe):
+                os.remove(probe)
+        if s is not None:
+            scores.append(s)
+    if not scores:
+        return None
+    scores.sort()
+    median = scores[len(scores) // 2]
+    return median >= VIDEO_SHARPNESS_REJECT
+
+
 def is_relevant_candidate(image_path, query, relevance=None):
     """Итоговое решение "релевантен ли кандидат query" — тот же порог +
     risky-margin гейт, что раньше жил инлайном в цикле подбора фото (см.
@@ -4825,11 +4908,23 @@ def candidate_gate_signature():
             is_relevant_candidate, visual_domain_guard_violation,
             video_domain_guard_violation, disambiguate_search_query,
             is_risky_query,
+            # image_sharpness_score/video_sharpness_ok — резкость кандидата
+            # (PHOTO_SHARPNESS_REJECT/VIDEO_SHARPNESS_REJECT) — ТОЖЕ правило
+            # отбора, хоть и не внутри is_relevant_candidate() самой (вызывается
+            # отдельно в pexels_photo()/pexels_video()) — тот же класс пробела,
+            # что уже описан в докстринге этой функции выше (анахронизм пережил
+            # свой фикс) — без явного перечисления здесь правка порога/формулы
+            # резкости молча не инвалидировала бы уже закэшированный размытый
+            # кандидат, отобранный до этого фикса (реальный случай — слот 7,
+            # videos/_test20s, 27 августа).
+            image_sharpness_score, video_sharpness_ok,
         )]
         parts.append(repr((
             CLIP_RELEVANCE_THRESHOLD, RISKY_QUERY_MARGIN, NEGATIVE_ANCHOR_PROMPT,
             RISKY_GENERIC_TERMS, VISUAL_DOMAIN_GUARDS, VIDEO_DOMAIN_GUARD_SAMPLE_FRACS,
             CONTENT_ALT_BLOCKLIST, QUERY_DISAMBIGUATION_RULES,
+            PHOTO_SHARPNESS_REJECT, VIDEO_SHARPNESS_REJECT, VIDEO_SHARPNESS_SAMPLE_FRACS,
+            SHARPNESS_PROBE_MAX_SIDE,
         )))
     except Exception:
         _CANDIDATE_GATE_SIG = "gate:unknown"
@@ -5983,6 +6078,18 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
             if relevant:
                 violated, _ = video_domain_guard_violation(trial, query)
                 if violated:
+                    relevant = False
+            # video_sharpness_ok (VIDEO_SHARPNESS_REJECT) — см. её докстринг:
+            # реальный найденный случай (videos/_test20s, слот 7) — видео-
+            # кандидаты НИКОГДА не проверялись на резкость, только фото. Тот
+            # же принцип, что домен-гвард выше: только когда relevant уже
+            # True — на заведомо провальных кандидатах лишний многокадровый
+            # проход не тянем. False (не None — сбой decode не должен молча
+            # пропускать явно смазанное видео) блокирует так же, как домен-
+            # анахронизм.
+            if relevant:
+                sharp_ok = video_sharpness_ok(trial)
+                if sharp_ok is False:
                     relevant = False
             is_dup = (cand_hash is not None and used_hashes and
                       min((hamming(cand_hash, uh) for uh in used_hashes), default=99)
@@ -7605,6 +7712,23 @@ def main():
                     RENDER_QC_REPORT.append({
                         "index": job["i"], "source": job["photo"], "rendered": job["out"],
                         "ratio": ratio, "threshold": RENDER_SHARPNESS_DROP_RATIO,
+                    })
+            elif job["video"]:
+                # Второй, независимый предохранитель поверх селекционного
+                # гейта (video_sharpness_ok в pexels_video()): если ВЕСЬ пул
+                # кандидатов был смазан (fallback всё равно не оставляет слот
+                # пустым, см. философию ЧАСТИ 13), это честно всплывает здесь
+                # на ГОТОВОМ клипе — та же логика, что render_sharpness_
+                # regression() даёт фото, но для видео нет "источника"
+                # отдельно от рендера (клип и есть исходник, без Ken Burns/
+                # ГРИП поверх), поэтому проверяем абсолютную резкость, не
+                # отношение.
+                v_sharp_ok = video_sharpness_ok(job["out"])
+                if v_sharp_ok is False:
+                    RENDER_QC_REPORT.append({
+                        "index": job["i"], "source": None, "rendered": job["out"],
+                        "ratio": None, "threshold": VIDEO_SHARPNESS_REJECT,
+                        "reason": "video_median_sharpness_below_threshold",
                     })
             render_manifest[job["i"]] = {"index": job["i"], "status": "ok", "path": job["out"],
                                           "section": job["section"], "duration": job["d"],

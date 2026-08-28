@@ -611,3 +611,32 @@ def test_render_sharpness_regression_none_on_undecodable_rendered_clip(tmp_path)
     broken.write_bytes(b"not a real video")
     flagged, ratio = ps.render_sharpness_regression(source_png, str(broken))
     assert flagged is None and ratio is None
+
+
+# ---------- video_sharpness_ok: реальный найденный случай, videos/_test20s слот 7 ----------
+# Видео всадника с занесённым клинком было genuинно смазано (motion-blur
+# самой стоковой съёмки) — ни pexels_video(), ни render_qc_report.json
+# раньше не проверяли резкость видео-кандидата вообще, только фото.
+
+def test_video_sharpness_ok_true_for_sharp_video(tmp_path):
+    path = str(tmp_path / "sharp.mp4")
+    _make_sharp_video(path, dur=3.0)
+    assert ps.video_sharpness_ok(path) is True
+
+
+def test_video_sharpness_ok_false_for_blurred_video(tmp_path):
+    path = str(tmp_path / "blurred.mp4")
+    _make_blurred_video(path, dur=3.0)
+    assert ps.video_sharpness_ok(path) is False
+
+
+def test_video_sharpness_ok_none_for_too_short_video(tmp_path):
+    path = str(tmp_path / "short.mp4")
+    _make_sharp_video(path, dur=0.3)
+    assert ps.video_sharpness_ok(path) is None
+
+
+def test_video_sharpness_ok_none_on_undecodable_file(tmp_path):
+    broken = tmp_path / "broken.mp4"
+    broken.write_bytes(b"not a real video")
+    assert ps.video_sharpness_ok(str(broken)) is None
