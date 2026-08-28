@@ -49,6 +49,7 @@ relevance-гейта) — не бесплатно по времени, толь�
 
 Не самостоятельный CLI-скрипт — вызывается из scripts/pipeline_smart.py."""
 import hashlib
+import json
 import os
 import sys
 
@@ -112,24 +113,38 @@ SENTENCE_RELEVANCE_WEIGHT = 1.0   # доминирующий член — тот
 # extra_score просто переранжирует уже прошедших этот гейт кандидатов.
 # Кандидат мог оказаться семантически слабым по смыслу РЕАЛЬНОЙ фразы и всё
 # равно победить — просто как лучший из имеющихся, не потому что подходил.
-# Калибровка (n=8, реальные пары этого эпизода + живой sentence_relevance(),
-# не гипотеза — тот же принцип "не гадать", что и у CLIP_RELEVANCE_THRESHOLD
-# в pipeline_smart.py): 4 подтверждённых глазами ПРОМАХА (сравнение
-# РЕАЛЬНОГО текста блока с РЕАЛЬНО выбранным кандидатом на живом рендере) —
-# 0.031/0.041/0.114/0.057 (макс. 0.114); 4 заведомо ВЕРНЫЕ пары (та же
-# картинка + точное текстовое описание того, что на ней изображено) —
-# 0.157/0.164/0.170/0.160 (мин. 0.157). Разделение чистое на этой выборке
-# (макс. промаха ниже мин. верной пары с запасом 0.043). Порог 0.13 — с
-# запасом ниже кластера верных пар, выше кластера промахов (тот же
-# асимметричный принцип риска, что и у RISKY_QUERY_MARGIN: ложный "miss"
-# просто идёт в отчёт на ручную проверку, ложный "не miss" глушит реальную
-# проблему — дешевле переотметить). Честно: n=8 — не статистика уровня
-# 113-позиционного бенчмарка ensemble-весов выше, это ADVISORY-ONLY порог
-# (см. DIRECTOR_RELEVANCE_MISSES в pipeline_smart.py — только отчёт,
-# победителя НЕ меняет) — после первых живых прогонов на реальных эпизодах
-# стоит свериться с media_plan-отчётами и поправить, тот же принцип, что
-# уже честно документирует visual_qc.py про свои пороги.
-DIRECTOR_RELEVANCE_FLOOR = 0.13
+#
+# ВТОРОЙ, ТОЖЕ РЕАЛЬНЫЙ, найденный вживую пробел (deep-audit, 28 августа,
+# тот же videos/_test20s): первая калибровка порога (n=8) была на пары ИЗ
+# ЭТОГО ЖЕ эпизода (мечи/рыцари) и на ensemble ДО апгрейда so400m — то есть
+# сама числовая шкала score с тех пор сдвинулась (см. SIGLIP2_SCORE_MEAN/
+# STD выше — они пересчитаны под so400m, а порог, стоявший поверх них,
+# пересчитан не был). Живая проверка на этом же коде: EXCALIBUR-фото ПРОТИВ
+# СВОЕГО ЖЕ авторского запроса ("medieval european sword blade close up" —
+# почти идеальное совпадение) даёт 0.113 — уже НИЖЕ порога 0.13. Хардкод
+# числа тут не чинит проблему, а откладывает её же до следующего апгрейда
+# модели (это уже второй раз, когда порог тихо устарел). Порог теперь
+# ВЫЧИСЛЯЕТСЯ живой калибровкой (calibrate_relevance_floor() ниже) на
+# channel-agnostic паре good/bad (tests/fixtures/director_calibration/
+# calibration_pairs.json — переиспользует уже лицензированные фикстуры
+# tests/fixtures/golden_media/, не мечи из конкретного эпизода), кэшируется
+# по подписи модели (см. _model_signature()) и КОММИТИТСЯ в
+# scripts/calibration_cache/ — смена модели меняет подпись, следующий
+# запуск честно пересчитывает заново, а сам пересчёт виден в git diff (не
+# тихий рантайм-эффект). DIRECTOR_RELEVANCE_FALLBACK ниже — последняя
+# линия защиты, если фикстур/кэша физически нет (fail-open, не крашим
+# рендер из-за advisory-only порога).
+DIRECTOR_RELEVANCE_FALLBACK = 0.13
+DIRECTOR_RELEVANCE_MIN_MARGIN = 0.02   # ниже этого разделение good/bad на
+                                         # калибровочных парах считается
+                                         # ненадёжным — новый порог НЕ
+                                         # принимается, остаётся прежний
+                                         # (кэш или fallback), с громким
+                                         # предупреждением в консоль.
+CALIBRATION_PAIRS_PATH = os.path.join(
+    REPO_ROOT, "tests", "fixtures", "director_calibration", "calibration_pairs.json")
+CALIBRATION_CACHE_PATH = os.path.join(
+    SCRIPTS_DIR, "calibration_cache", "director_relevance_floor.json")
 
 # РЕАЛЬНЫЙ, эмпирически подтверждённый баг (не гипотеза, история в git-логе):
 # sentence_relevance() передавала СЫРОЙ русский block_text прямо в
@@ -560,6 +575,134 @@ def sentence_relevance(image_path, block_text):
     return ENSEMBLE_WEIGHT_SIGLIP2 * siglip2_raw + ENSEMBLE_WEIGHT_JINA * jina_rescaled
 
 
+def _relevance_model_signature():
+    """Отпечаток всего, что влияет на СЫРУЮ шкалу sentence_relevance() —
+    имя модели, ensemble-веса, z-rescale константы. Меняется -> старый
+    закэшированный DIRECTOR_RELEVANCE_FLOOR больше не доверенный (шкала
+    сдвинулась), см. докстринг DIRECTOR_RELEVANCE_FALLBACK выше. Тот же
+    принцип, что уже CANDIDATE_GATE_RULES_VERSION в pipeline_smart.py
+    использует для инвалидации кэша кандидатов при смене правил гейта."""
+    parts = "|".join([
+        SIGLIP2_MODEL_NAME, JINA_MODEL_REPO, JINA_ONNX_FILENAME,
+        f"{ENSEMBLE_WEIGHT_SIGLIP2}", f"{ENSEMBLE_WEIGHT_JINA}",
+        f"{SIGLIP2_SCORE_MEAN}", f"{SIGLIP2_SCORE_STD}",
+    ])
+    return hashlib.md5(parts.encode()).hexdigest()[:16]
+
+
+def _load_calibration_pairs():
+    """Пары image+caption+label из CALIBRATION_PAIRS_PATH. None, если файла
+    нет/битый JSON — fail-open, вызывающий код откатывается на кэш/fallback,
+    не крашится (тот же принцип, что и у всего остального в этом файле)."""
+    try:
+        with open(CALIBRATION_PAIRS_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        pairs = data.get("pairs") or []
+        out = []
+        for p in pairs:
+            img = os.path.join(REPO_ROOT, p["image"])
+            if os.path.exists(img) and p.get("label") in ("good", "bad") and p.get("caption"):
+                out.append((img, p["caption"], p["label"]))
+        return out or None
+    except Exception:
+        return None
+
+
+def calibrate_relevance_floor():
+    """Живая калибровка DIRECTOR_RELEVANCE_FLOOR на CALIBRATION_PAIRS_PATH —
+    та же ручная методика (min(good) с запасом выше max(bad)), что раньше
+    делалась один раз глазами и записывалась числом в комментарий; здесь
+    выполняется кодом, поэтому происходит заново при каждой смене модели
+    (см. _relevance_model_signature()), а не только когда кто-то вспомнит
+    руками пересчитать.
+
+    Возвращает dict {"floor", "margin", "good_scores", "bad_scores",
+    "model_signature", ...} или None при любом сбое (нет фикстур, модель
+    недоступна, sentence_relevance() падает на всех парах) — ПОЛНОСТЬЮ
+    fail-open, вызывающий код откатывается на кэш/DIRECTOR_RELEVANCE_FALLBACK.
+
+    САНИТИ-ГЕЙТ: если разделение good/bad меньше DIRECTOR_RELEVANCE_MIN_
+    MARGIN, результат всё равно возвращается (для видимости в логе), но
+    caller обязан не принимать его как новый порог — см. _resolve_director_
+    relevance_floor(). Это и есть защита от "автоматизация просто быстрее
+    ошибается": плохое разделение на новой модели не должно тихо стать
+    новым порогом без явного сигнала, что что-то не так."""
+    pairs = _load_calibration_pairs()
+    if not pairs:
+        return None
+    good_scores, bad_scores = [], []
+    try:
+        for image_path, caption, label in pairs:
+            score = sentence_relevance(image_path, caption)
+            if score is None:
+                return None   # модель недоступна на этом прогоне — не считаем частичный результат
+            (good_scores if label == "good" else bad_scores).append(score)
+    except Exception:
+        return None
+    if not good_scores or not bad_scores:
+        return None
+    min_good, max_bad = min(good_scores), max(bad_scores)
+    margin = min_good - max_bad
+    # Порог — с запасом ниже кластера верных пар, выше кластера промахов же
+    # (тот же асимметричный принцип риска, что у RISKY_QUERY_MARGIN в
+    # pipeline_smart.py: ложный "miss" в отчёте дешевле, чем ложное
+    # молчание о реальной проблеме) — середина зазора, а не его край.
+    floor = max_bad + margin / 2.0
+    return {
+        "floor": floor, "margin": margin,
+        "min_good": min_good, "max_bad": max_bad,
+        "good_scores": good_scores, "bad_scores": bad_scores,
+        "n_pairs": len(pairs),
+        "model_signature": _relevance_model_signature(),
+    }
+
+
+def _resolve_director_relevance_floor():
+    """Порядок разрешения DIRECTOR_RELEVANCE_FLOOR при импорте модуля:
+    1) закэшированное значение для ТЕКУЩЕЙ подписи модели (CALIBRATION_
+       CACHE_PATH) — быстро, не гоняет модель на каждый запуск;
+    2) живая калибровка, если кэш промахнулся (новая модель/первый запуск)
+       — принимается ТОЛЬКО если margin >= DIRECTOR_RELEVANCE_MIN_MARGIN
+       (сани-гейт), и тогда атомарно пишется в кэш (см. docstring выше про
+       "смена модели видна в git diff, не тихий рантайм-эффект");
+    3) DIRECTOR_RELEVANCE_FALLBACK — если live-калибровка недоступна ИЛИ
+       не прошла сани-гейт: используем последний известный кэш для ЛЮБОЙ
+       подписи (пусть и устаревшей — стоять на месте безопаснее, чем
+       принять непроверенный сдвиг), а если кэша вообще ни для чего нет —
+       жёсткий хардкод-fallback.
+
+    Полностью fail-open на каждом шаге — advisory-only порог (см.
+    DIRECTOR_RELEVANCE_MISSES в pipeline_smart.py, победителя не меняет),
+    поэтому худший случай любого сбоя здесь — чуть менее точный отчёт, не
+    сорванный рендер."""
+    sig = _relevance_model_signature()
+    cached = None
+    try:
+        with open(CALIBRATION_CACHE_PATH, "r", encoding="utf-8") as f:
+            cached = json.load(f)
+    except Exception:
+        cached = None
+    if cached and cached.get("model_signature") == sig:
+        return cached["floor"]
+    result = calibrate_relevance_floor()
+    if result is not None and result["margin"] >= DIRECTOR_RELEVANCE_MIN_MARGIN:
+        try:
+            os.makedirs(os.path.dirname(CALIBRATION_CACHE_PATH), exist_ok=True)
+            tmp = CALIBRATION_CACHE_PATH + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(result, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, CALIBRATION_CACHE_PATH)
+        except Exception:
+            pass   # кэш не записался -> просто пересчитаем в следующий раз, не критично
+        return result["floor"]
+    if result is not None:
+        print(f"  ВНИМАНИЕ: авто-калибровка DIRECTOR_RELEVANCE_FLOOR дала разделение "
+              f"good/bad margin={result['margin']:.3f} (< {DIRECTOR_RELEVANCE_MIN_MARGIN}) — "
+              f"новый порог НЕ принят, используется прежний кэш/fallback. Модель, похоже, "
+              f"плохо разделяет калибровочные пары — проверь calibration_pairs.json глазами.")
+    return cached["floor"] if cached else DIRECTOR_RELEVANCE_FALLBACK
+
+
 def role_shot_size_bonus(role, shot_size):
     return ROLE_SHOT_SIZE_BONUS.get((role, shot_size), 0.0)
 
@@ -647,3 +790,13 @@ def compute_extra_score(image_path, role, block_text, text_domain, recent_semant
     score -= repetition_penalty(recent_semantic_tags, candidate_domain, role)
     score += visual_qc_bonus(image_path)
     return score
+
+
+# Разрешается ЗДЕСЬ, в конце файла (после sentence_relevance() и всего, что
+# ей нужно) — см. _resolve_director_relevance_floor() выше. pipeline_smart.py
+# обращается к visual_director.DIRECTOR_RELEVANCE_FLOOR как к обычному
+# атрибуту модуля (4 места) — этот вызов остаётся плейн-присваиванием,
+# ноль изменений на стороне вызывающего кода. Модуль импортируется
+# ТОЛЬКО когда VISUAL_DIRECTOR_MODE != "off" (см. pipeline_smart.py) —
+# стоимость калибровки/её кэш-чтения не платит никто, кому эта фича не нужна.
+DIRECTOR_RELEVANCE_FLOOR = _resolve_director_relevance_floor()

@@ -249,6 +249,24 @@ def test_post_render_status_reports_unresolved_across_files(tmp_path):
     assert reports == {"relevance_gate_report.json": 1, "render_qc_report.json": 2}
 
 
+def test_post_render_status_includes_stock_exhausted_report(tmp_path):
+    # STOCK_EXHAUSTED_MISSES (см. её докстринг в pipeline_smart.py) —
+    # четвёртый пост-рендер отчёт, отдельная ось от relevance_gate_report
+    # (весь пул, не только победитель).
+    plan_dir = tmp_path / "media_plan"
+    plan_dir.mkdir()
+    (plan_dir / "relevance_gate_report.json").write_text(json.dumps({"misses": []}), encoding="utf-8")
+    (plan_dir / "director_relevance_report.json").write_text(json.dumps({"misses": []}), encoding="utf-8")
+    (plan_dir / "render_qc_report.json").write_text(json.dumps({"flagged": []}), encoding="utf-8")
+    (plan_dir / "stock_exhausted_report.json").write_text(
+        json.dumps({"misses": [{"index": 7, "kind": "video"}]}), encoding="utf-8")
+    status, total, details = re_mod._post_render_status(str(tmp_path))
+    assert status == "unresolved"
+    assert total == 1
+    reports = {d["report"]: d["count"] for d in details}
+    assert reports == {"stock_exhausted_report.json": 1}
+
+
 def test_strict_refuses_when_post_render_reports_unresolved(tmp_path, monkeypatch):
     write_script(tmp_path / "script.txt", "=== HOOK === Раз два три.\n")
     (tmp_path / "audio.mp3").write_bytes(b"fake-audio")

@@ -533,3 +533,154 @@ class TestSentenceRelevanceSiglip2RealModel:
             "если это упало — одноязычный CLIP неожиданно научился различать "
             "русский текст, sentence_relevance можно упростить обратно; "
             "пока что это ожидаемо мал")
+
+
+# ---------- self-calibrating DIRECTOR_RELEVANCE_FLOOR ----------
+# см. docstring calibrate_relevance_floor()/_resolve_director_relevance_floor()
+# в scripts/visual_director.py — sentence_relevance() мокается (логика
+# калибровки не должна платить за реальную модель на каждый прогон тестов,
+# живая проверка на реальной модели уже сделана вручную при внедрении и
+# зафиксирована в scripts/calibration_cache/director_relevance_floor.json).
+
+def _write_pairs(path, pairs):
+    import json
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"pairs": pairs}, f)
+
+
+def test_load_calibration_pairs_skips_missing_images(tmp_path, monkeypatch):
+    pairs_path = str(tmp_path / "pairs.json")
+    real_img = str(tmp_path / "real.jpg")
+    open(real_img, "wb").close()
+    _write_pairs(pairs_path, [
+        {"image": os.path.relpath(real_img, vd.REPO_ROOT), "caption": "x", "label": "good"},
+        {"image": "does/not/exist.jpg", "caption": "y", "label": "bad"},
+    ])
+    monkeypatch.setattr(vd, "CALIBRATION_PAIRS_PATH", pairs_path)
+    pairs = vd._load_calibration_pairs()
+    assert len(pairs) == 1
+    assert pairs[0][2] == "good"
+
+
+def test_load_calibration_pairs_none_on_missing_file(monkeypatch, tmp_path):
+    monkeypatch.setattr(vd, "CALIBRATION_PAIRS_PATH", str(tmp_path / "nope.json"))
+    assert vd._load_calibration_pairs() is None
+
+
+def test_calibrate_relevance_floor_places_threshold_in_the_gap(monkeypatch, tmp_path):
+    pairs_path = str(tmp_path / "pairs.json")
+    imgs = {}
+    for name in ("g1", "g2", "b1", "b2"):
+        p = str(tmp_path / f"{name}.jpg")
+        open(p, "wb").close()
+        imgs[name] = p
+    _write_pairs(pairs_path, [
+        {"image": os.path.relpath(imgs["g1"], vd.REPO_ROOT), "caption": "good1", "label": "good"},
+        {"image": os.path.relpath(imgs["g2"], vd.REPO_ROOT), "caption": "good2", "label": "good"},
+        {"image": os.path.relpath(imgs["b1"], vd.REPO_ROOT), "caption": "bad1", "label": "bad"},
+        {"image": os.path.relpath(imgs["b2"], vd.REPO_ROOT), "caption": "bad2", "label": "bad"},
+    ])
+    monkeypatch.setattr(vd, "CALIBRATION_PAIRS_PATH", pairs_path)
+    scores = {"good1": 0.20, "good2": 0.18, "bad1": 0.05, "bad2": 0.02}
+    monkeypatch.setattr(vd, "sentence_relevance", lambda path, caption: scores[caption])
+    result = vd.calibrate_relevance_floor()
+    assert result is not None
+    assert result["min_good"] == 0.18
+    assert result["max_bad"] == 0.05
+    assert abs(result["margin"] - 0.13) < 1e-9
+    assert result["max_bad"] < result["floor"] < result["min_good"]
+
+
+def test_calibrate_relevance_floor_none_when_model_unavailable(monkeypatch, tmp_path):
+    pairs_path = str(tmp_path / "pairs.json")
+    p = str(tmp_path / "a.jpg")
+    open(p, "wb").close()
+    _write_pairs(pairs_path, [{"image": os.path.relpath(p, vd.REPO_ROOT), "caption": "x", "label": "good"}])
+    monkeypatch.setattr(vd, "CALIBRATION_PAIRS_PATH", pairs_path)
+    monkeypatch.setattr(vd, "sentence_relevance", lambda path, caption: None)
+    assert vd.calibrate_relevance_floor() is None
+
+
+def test_calibrate_relevance_floor_none_on_missing_pairs(monkeypatch, tmp_path):
+    monkeypatch.setattr(vd, "CALIBRATION_PAIRS_PATH", str(tmp_path / "nope.json"))
+    assert vd.calibrate_relevance_floor() is None
+
+
+def test_resolve_floor_uses_cache_when_signature_matches(monkeypatch, tmp_path):
+    cache_path = str(tmp_path / "cache.json")
+    import json
+    with open(cache_path, "w", encoding="utf-8") as f:
+        json.dump({"floor": 0.42, "model_signature": "sig-a"}, f)
+    monkeypatch.setattr(vd, "CALIBRATION_CACHE_PATH", cache_path)
+    monkeypatch.setattr(vd, "_relevance_model_signature", lambda: "sig-a")
+
+    def fail_if_called():
+        raise AssertionError("не должно калиброваться заново на кэш-хите")
+    monkeypatch.setattr(vd, "calibrate_relevance_floor", fail_if_called)
+    assert vd._resolve_director_relevance_floor() == 0.42
+
+
+def test_resolve_floor_recalibrates_when_signature_differs(monkeypatch, tmp_path):
+    cache_path = str(tmp_path / "cache.json")
+    import json
+    with open(cache_path, "w", encoding="utf-8") as f:
+        json.dump({"floor": 0.42, "model_signature": "sig-old"}, f)
+    monkeypatch.setattr(vd, "CALIBRATION_CACHE_PATH", cache_path)
+    monkeypatch.setattr(vd, "_relevance_model_signature", lambda: "sig-new")
+    monkeypatch.setattr(vd, "calibrate_relevance_floor",
+                         lambda: {"floor": 0.55, "margin": 0.1, "model_signature": "sig-new"})
+    floor = vd._resolve_director_relevance_floor()
+    assert floor == 0.55
+    with open(cache_path, encoding="utf-8") as f:
+        written = json.load(f)
+    assert written["model_signature"] == "sig-new" and written["floor"] == 0.55
+
+
+def test_resolve_floor_rejects_thin_margin_keeps_old_cache(monkeypatch, tmp_path):
+    """Сани-гейт: плохое разделение good/bad НЕ должно тихо стать новым
+    порогом — реальный риск, найденный при финальной проверке ПЕРЕД
+    внедрением (см. коммит): автоматизация решает проблему "забыли
+    пересчитать", но не гарантирует, что пересчёт всегда качественный."""
+    cache_path = str(tmp_path / "cache.json")
+    import json
+    with open(cache_path, "w", encoding="utf-8") as f:
+        json.dump({"floor": 0.42, "model_signature": "sig-old"}, f)
+    monkeypatch.setattr(vd, "CALIBRATION_CACHE_PATH", cache_path)
+    monkeypatch.setattr(vd, "_relevance_model_signature", lambda: "sig-new")
+    monkeypatch.setattr(vd, "DIRECTOR_RELEVANCE_MIN_MARGIN", 0.02)
+    monkeypatch.setattr(vd, "calibrate_relevance_floor",
+                         lambda: {"floor": 0.30, "margin": 0.005, "model_signature": "sig-new"})
+    floor = vd._resolve_director_relevance_floor()
+    assert floor == 0.42   # старый кэш, не новый непрошедший гейт порог
+    with open(cache_path, encoding="utf-8") as f:
+        untouched = json.load(f)
+    assert untouched["model_signature"] == "sig-old"   # файл не переписан
+
+
+def test_resolve_floor_falls_back_to_hardcoded_default_with_nothing_available(monkeypatch, tmp_path):
+    monkeypatch.setattr(vd, "CALIBRATION_CACHE_PATH", str(tmp_path / "no_cache.json"))
+    monkeypatch.setattr(vd, "calibrate_relevance_floor", lambda: None)
+    assert vd._resolve_director_relevance_floor() == vd.DIRECTOR_RELEVANCE_FALLBACK
+
+
+def test_model_signature_changes_when_ensemble_weights_change(monkeypatch):
+    sig1 = vd._relevance_model_signature()
+    monkeypatch.setattr(vd, "ENSEMBLE_WEIGHT_SIGLIP2", vd.ENSEMBLE_WEIGHT_SIGLIP2 + 0.1)
+    sig2 = vd._relevance_model_signature()
+    assert sig1 != sig2
+
+
+def test_real_calibration_pairs_file_is_valid_and_channel_agnostic():
+    """Не мок — проверяет реальный committed tests/fixtures/director_
+    calibration/calibration_pairs.json: файлы существуют, оба лейбла
+    представлены, и набор НЕ состоит из одних мечей/рыцарей (см. ЧАСТЬ 24
+    CLAUDE.md — калибровка не должна тащить нишу текущего канала в клон
+    репозитория под другую тематику)."""
+    pairs = vd._load_calibration_pairs()
+    assert pairs is not None and len(pairs) >= 8
+    labels = {label for _, _, label in pairs}
+    assert labels == {"good", "bad"}
+    non_sword_images = {os.path.basename(img) for img, _, _ in pairs
+                         if "sword" not in os.path.basename(img) and "katana" not in os.path.basename(img)}
+    assert len(non_sword_images) >= 2, "калибровка не должна состоять из одной ниши (ЧАСТЬ 24)"

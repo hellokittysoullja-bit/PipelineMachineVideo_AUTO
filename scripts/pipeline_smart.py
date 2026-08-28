@@ -2526,6 +2526,29 @@ RELEVANCE_GATE_MISSES = []   # [{"index", "query", "relevance", "threshold", "ki
 DIRECTOR_RELEVANCE_MISSES = []   # [{"index", "text", "photo", "relevance", "threshold"}, ...]
                                   # — см. её докстринг в main() у DIRECTOR_RELEVANCE_FLOOR
 
+# РЕАЛЬНЫЙ, найденный вживую пробел в самом RELEVANCE_GATE_MISSES выше
+# (deep-audit, videos/_test20s, слот 7 "warrior on horseback with sword",
+# 28 августа) — комментарий у RELEVANCE_GATE_MISSES утверждает "ВЕСЬ
+# просмотренный пул провалил гейт", но код проверяет только ПОБЕДИТЕЛЯ
+# (`if winner is not None and not winner["is_relevant"]`). Лексикографический
+# кортеж _score_and_pick() ставит is_dup_free ПЕРЕД is_relevant — то есть
+# кандидат, который релевантен и резкий, но оказался near-duplicate уже
+# использованного кадра, проигрывает нерелевантному, но уникальному кандидату,
+# и тогда "победитель нерелевантен" НЕ означает "пул нечего предложить" —
+# кандидат, реально подходящий по смыслу, в пуле БЫЛ, просто отсеян дедупом
+# (у видео — то же самое: dup_fallback конкретно для этого и заведён, см.
+# pexels_video()). STOCK_EXHAUSTED_MISSES проверяет РОВНО ту ось, которую
+# RELEVANCE_GATE_MISSES по факту не проверяет — "нашёлся ли в ПОЛНОСТЬЮ
+# просмотренном пуле хоть один кандидат, прошедший relevance И резкость",
+# НЕЗАВИСИМО от дедупа. Это строго более редкий и более сильный сигнал:
+# не "победитель не идеален", а "стоку буквально нечего предложить на эту
+# фразу" — практический вывод из него другой (не "проверь глазами", а
+# "сгенерируй AI-картинку на Шаге 5", см. media_plan/stock_exhausted_report.json
+# и render_episode.py). Не меняет отбор победителя (тот же принцип "слот не
+# должен остаться пустым", ЧАСТЬ 13) — только делает этот более редкий и
+# более серьёзный случай видимым отдельно от обычного relevance-промаха.
+STOCK_EXHAUSTED_MISSES = []   # [{"index", "kind", "query", "n_candidates_examined"}, ...]
+
 
 # Отбор (2.5): фильтр по alt-тексту кандидата — тот же JSON от Pexels-поиска,
 # ничего не стоит (не новый запрос, не новая скачка). Заведён после ДВУХ
@@ -2673,6 +2696,17 @@ DIRECTOR_MIN_POOL = 8   # Semantic Visual Director (scripts/visual_director.py) 
                           # не импорт из visual_director.py — тот модуль сам
                           # импортирует pipeline_smart.py, обратный импорт создал
                           # бы цикл.
+
+
+def _pool_cleared_both_gates(candidates_info):
+    """True, если хотя бы ОДИН кандидат из candidates_info прошёл И
+    relevance, И резкость — НЕЗАВИСИМО от дедупа/размера/итогового
+    победителя. Ось STOCK_EXHAUSTED_MISSES (см. её докстринг у объявления
+    выше): строго более сильный сигнал, чем "победитель не идеален" —
+    "стоку тут физически нечего предложить". Извлечена в отдельную функцию
+    ради тестируемости, тот же принцип, что и _score_and_pick() (см.
+    докстринг tests/test_pexels_scoring.py)."""
+    return any(c["is_relevant"] and c["sharp_ok"] for c in candidates_info)
 
 
 def _score_and_pick(candidates_info, director_score_fn=None):
@@ -3116,6 +3150,16 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                     "index": index, "query": query,
                     "relevance": winner.get("relevance"),
                     "threshold": CLIP_RELEVANCE_THRESHOLD, "kind": "photo",
+                })
+            # STOCK_EXHAUSTED_MISSES — см. её докстринг у объявления выше:
+            # True-пул-вайд проверка (независимо от дедупа), а не только по
+            # победителю, как RELEVANCE_GATE_MISSES. candidates_info уже
+            # содержит relevance/sharp_ok на КАЖДОГО кандидата — переиспользуем
+            # то, что и так посчитано, ни одного нового вызова.
+            if candidates_info and not _pool_cleared_both_gates(candidates_info):
+                STOCK_EXHAUSTED_MISSES.append({
+                    "index": index, "kind": "photo", "query": query,
+                    "n_candidates_examined": len(candidates_info),
                 })
             for c in candidates_info:
                 if winner is None or c["path"] != winner["path"]:
@@ -6437,6 +6481,16 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                     "index": index, "query": query, "relevance": rel,
                     "threshold": CLIP_RELEVANCE_THRESHOLD, "kind": "video",
                 })
+                # STOCK_EXHAUSTED_MISSES — см. её докстринг у объявления выше.
+                # Мы уже ЗДЕСЬ (chosen is plain_fallback) только когда good
+                # пуст И dup_fallback пуст — то есть НИ ОДИН из tries
+                # просмотренных кандидатов не прошёл relevant+sharp_ok,
+                # независимо от дедупа. Ничего заново считать не нужно —
+                # сам факт, что мы в этой ветке, и есть искомый сигнал.
+                STOCK_EXHAUSTED_MISSES.append({
+                    "index": index, "kind": "video", "query": query,
+                    "n_candidates_examined": tries,
+                })
             os.replace(path, cf)
             if used_ids is not None:
                 used_ids.add(vid)
@@ -8130,9 +8184,33 @@ def main():
         json.dump({"misses": RELEVANCE_GATE_MISSES}, f, ensure_ascii=False, indent=2)
     os.replace(relevance_report_tmp, relevance_report_path)
     if RELEVANCE_GATE_MISSES:
+        # Формулировка "весь пул провалил гейт" здесь исторически неточна —
+        # см. докстринг STOCK_EXHAUSTED_MISSES выше: на деле проверяется
+        # только ПОБЕДИТЕЛЬ, а лексикографический кортеж _score_and_pick()
+        # может предпочесть нерелевантного, но уникального кандидата
+        # релевантному дублю — победитель нерелевантен, а пул при этом не
+        # обязательно исчерпан. Честная пул-вайд проверка — ниже.
         print(f"  ВНИМАНИЕ: {len(RELEVANCE_GATE_MISSES)} слот(ов) получили кандидата НИЖЕ порога "
-              f"relevance (весь пул провалил гейт) — см. media_plan/relevance_gate_report.json, "
-              f"сверить глазами на Шаге 7.5.")
+              f"relevance — см. media_plan/relevance_gate_report.json, сверить глазами на Шаге 7.5.")
+
+    # STOCK_EXHAUSTED_MISSES — см. её докстринг у объявления выше: строго
+    # более сильный сигнал, чем RELEVANCE_GATE_MISSES — не "победитель не
+    # идеален", а "ни один кандидат из ВСЕГО просмотренного пула не прошёл
+    # ни relevance, ни резкость одновременно" (независимо от дедупа). На
+    # это стоит реагировать иначе, чем на обычный промах: не "сверить
+    # глазами", а "стоку тут физически нечего предложить — см. Шаг 5,
+    # AI-картинка/видео вместо стока для этого слота".
+    stock_exhausted_path = os.path.join(VIDEO_FOLDER, "media_plan", "stock_exhausted_report.json")
+    stock_exhausted_tmp = stock_exhausted_path + ".tmp"
+    with open(stock_exhausted_tmp, "w", encoding="utf-8") as f:
+        json.dump({"misses": STOCK_EXHAUSTED_MISSES}, f, ensure_ascii=False, indent=2)
+    os.replace(stock_exhausted_tmp, stock_exhausted_path)
+    if STOCK_EXHAUSTED_MISSES:
+        idxs = [m["index"] for m in STOCK_EXHAUSTED_MISSES]
+        print(f"  ВНИМАНИЕ: {len(STOCK_EXHAUSTED_MISSES)} слот(ов) {idxs} — сток не дал НИ ОДНОГО "
+              f"кандидата, прошедшего и relevance, и резкость (весь просмотренный пул честно "
+              f"исчерпан) — см. media_plan/stock_exhausted_report.json. Для этих слотов сток — "
+              f"тупик, не проверка глазами: нужна AI-картинка/видео (Шаг 5) вместо стока.")
 
     # RENDER_QC_REPORT — см. render_sharpness_regression()/RENDER_SHARPNESS_
     # DROP_RATIO выше: клипы, где ГОТОВЫЙ рендер ощутимо размытее своего же

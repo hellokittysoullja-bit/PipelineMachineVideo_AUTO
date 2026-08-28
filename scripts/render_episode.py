@@ -161,6 +161,15 @@ _POST_RENDER_REPORTS = (
      "выбранный кадр семантически слаб по РЕАЛЬНОМУ тексту блока (Директор)"),
     ("render_qc_report.json", "flagged",
      "готовый рендер заметно размытее своего источника (DOF/параллакс/грейд)"),
+    # STOCK_EXHAUSTED_MISSES (см. её докстринг в pipeline_smart.py) — строго
+    # более сильный сигнал, чем relevance_gate_report.json выше: не
+    # "победитель не идеален", а "ни один кандидат из ВСЕГО просмотренного
+    # пула не прошёл ни relevance, ни резкость" (независимо от дедупа).
+    # Практический вывод для этих слотов другой — не "сверить глазами на
+    # Шаге 7.5", а "сгенерировать AI-картинку/видео на Шаге 5 вместо стока".
+    ("stock_exhausted_report.json", "misses",
+     "сток не дал НИ ОДНОГО кандидата, прошедшего и relevance, и резкость — "
+     "нужна AI-картинка/видео (Шаг 5) вместо стока, не ручная сверка"),
 )
 
 
@@ -306,7 +315,8 @@ def preflight_and_run(video_dir, strict, legacy_allow_degraded, legacy_allow_unr
         _write_manifest(video_dir, manifest)
         reasons = "; ".join(f"{d['report']}: {d['count']} ({d['reason']})" for d in pr_details)
         print(f"  СТОП (--strict-production): {pr_total} слот(ов) в пост-рендер отчётах требуют "
-              f"проверки глазами (Шаг 7.5) — {reasons}. final.mp4 собран, но НЕ считается чисто "
+              f"внимания (конкретный следующий шаг — в скобках у каждого отчёта ниже) — "
+              f"{reasons}. final.mp4 собран, но НЕ считается чисто "
               f"пройденным. Пересмотри отчёты в media_plan/, или --legacy-allow-unreviewed-render "
               f"для явного пропуска.")
         return 1

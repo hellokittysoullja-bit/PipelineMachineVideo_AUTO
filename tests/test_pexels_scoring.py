@@ -145,3 +145,34 @@ def test_director_sharp_gate_matches_base():
     base, director = ps._score_and_pick(
         [blurry, sharp], director_score_fn=lambda path: scores[path])
     assert director is sharp
+
+
+# ---------- _pool_cleared_both_gates (STOCK_EXHAUSTED_MISSES ось) ----------
+
+def test_pool_cleared_true_when_one_candidate_passes_both_gates():
+    pool = [_cand("a", is_relevant=0, sharp_ok=1), _cand("b", is_relevant=1, sharp_ok=1)]
+    assert ps._pool_cleared_both_gates(pool) is True
+
+
+def test_pool_cleared_false_when_nobody_passes_both():
+    pool = [_cand("a", is_relevant=0, sharp_ok=1), _cand("b", is_relevant=1, sharp_ok=0)]
+    assert ps._pool_cleared_both_gates(pool) is False
+
+
+def test_pool_cleared_true_even_if_winner_lost_to_dedup():
+    # Реальный случай, который RELEVANCE_GATE_MISSES (победитель-онли) не
+    # ловит: "победитель" в _score_and_pick() мог оказаться нерелевантным
+    # уникальным кандидатом, хотя релевантный+резкий кандидат в пуле БЫЛ,
+    # просто проиграл по is_dup_free (первому элементу кортежа). Пул при
+    # этом не исчерпан — сток есть, просто уже использован где-то ещё.
+    pool = [
+        _cand("dup_but_good", is_dup_free=0, is_relevant=1, sharp_ok=1),
+        _cand("unique_but_bad", is_dup_free=1, is_relevant=0, sharp_ok=1),
+    ]
+    base_winner, _ = ps._score_and_pick(pool)
+    assert base_winner["path"] == "unique_but_bad"   # победитель — не relevant
+    assert ps._pool_cleared_both_gates(pool) is True   # но пул не исчерпан
+
+
+def test_pool_cleared_false_on_empty_pool():
+    assert ps._pool_cleared_both_gates([]) is False
