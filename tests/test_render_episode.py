@@ -210,6 +210,81 @@ def test_single_section_skips_section_sync(tmp_path, monkeypatch):
     assert "section_sync.py" not in calls   # 1 секция — офсеты не нужны по определению
 
 
+# ---------- _post_render_status: пост-рендер отчёты (relevance_gate/director_relevance/render_qc) ----------
+# Реальный контекст (27 августа, videos/_test20s): visual_qc.py (Шаг 5.5)
+# проверяет только СЫРОЙ кандидат ДО рендера — эти три отчёта пишет сам
+# pipeline_smart.py ПОСЛЕ рендера (RELEVANCE_GATE_MISSES/DIRECTOR_RELEVANCE_
+# MISSES/RENDER_QC_REPORT), поэтому preflight_and_run проверяет их отдельно,
+# уже после успешного вызова pipeline_smart.py, а не в preflight-блоке.
+
+def test_post_render_status_no_reports_at_all(tmp_path):
+    status, total, details = re_mod._post_render_status(str(tmp_path))
+    assert status == "no_reports"
+    assert total == 0
+
+
+def test_post_render_status_all_clean(tmp_path):
+    plan_dir = tmp_path / "media_plan"
+    plan_dir.mkdir()
+    (plan_dir / "relevance_gate_report.json").write_text(json.dumps({"misses": []}), encoding="utf-8")
+    (plan_dir / "director_relevance_report.json").write_text(json.dumps({"misses": []}), encoding="utf-8")
+    (plan_dir / "render_qc_report.json").write_text(json.dumps({"flagged": []}), encoding="utf-8")
+    status, total, details = re_mod._post_render_status(str(tmp_path))
+    assert status == "ok"
+    assert total == 0
+
+
+def test_post_render_status_reports_unresolved_across_files(tmp_path):
+    plan_dir = tmp_path / "media_plan"
+    plan_dir.mkdir()
+    (plan_dir / "relevance_gate_report.json").write_text(
+        json.dumps({"misses": [{"index": 0}]}), encoding="utf-8")
+    (plan_dir / "director_relevance_report.json").write_text(json.dumps({"misses": []}), encoding="utf-8")
+    (plan_dir / "render_qc_report.json").write_text(
+        json.dumps({"flagged": [{"index": 3}, {"index": 5}]}), encoding="utf-8")
+    status, total, details = re_mod._post_render_status(str(tmp_path))
+    assert status == "unresolved"
+    assert total == 3
+    reports = {d["report"]: d["count"] for d in details}
+    assert reports == {"relevance_gate_report.json": 1, "render_qc_report.json": 2}
+
+
+def test_strict_refuses_when_post_render_reports_unresolved(tmp_path, monkeypatch):
+    write_script(tmp_path / "script.txt", "=== HOOK === Раз два три.\n")
+    (tmp_path / "audio.mp3").write_bytes(b"fake-audio")
+    _write_clean_visual_qc_report(tmp_path)
+
+    def fake_run(script_name, video_dir, extra_env=None):
+        if script_name == "pipeline_smart.py":
+            plan_dir = tmp_path / "media_plan"
+            (plan_dir / "render_qc_report.json").write_text(
+                json.dumps({"flagged": [{"index": 3, "ratio": 0.41}]}), encoding="utf-8")
+        return 0
+    monkeypatch.setattr(re_mod, "_run", fake_run)
+    rc = re_mod.preflight_and_run(str(tmp_path), strict=True, legacy_allow_degraded=False)
+    assert rc == 1
+    manifest = json.load(open(tmp_path / "media_plan" / "timeline_manifest.json"))
+    assert manifest["stages"]["post_render_qc"]["status"] == "unresolved"
+    assert manifest["stages"]["pipeline_smart"]["status"] == "ok"   # рендер УЖЕ прошёл — final.mp4 не удаляется
+
+
+def test_legacy_allow_unreviewed_render_overrides_post_render_refusal(tmp_path, monkeypatch):
+    write_script(tmp_path / "script.txt", "=== HOOK === Раз два три.\n")
+    (tmp_path / "audio.mp3").write_bytes(b"fake-audio")
+    _write_clean_visual_qc_report(tmp_path)
+
+    def fake_run(script_name, video_dir, extra_env=None):
+        if script_name == "pipeline_smart.py":
+            plan_dir = tmp_path / "media_plan"
+            (plan_dir / "render_qc_report.json").write_text(
+                json.dumps({"flagged": [{"index": 3, "ratio": 0.41}]}), encoding="utf-8")
+        return 0
+    monkeypatch.setattr(re_mod, "_run", fake_run)
+    rc = re_mod.preflight_and_run(str(tmp_path), strict=True, legacy_allow_degraded=False,
+                                   legacy_allow_unreviewed_render=True)
+    assert rc == 0
+
+
 # ---------- реальный end-to-end (та же схема, что test_smoke.py) ----------
 
 AUDIO_DURATION = 5.0

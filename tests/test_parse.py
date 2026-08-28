@@ -2915,3 +2915,70 @@ def test_pexels_video_text_key_changes_cache_path_for_same_query(tmp_path, monke
     out1 = pipeline_smart.pexels_video("medieval sword", 0, text_key="Не дрались. Несли.")
     out2 = pipeline_smart.pexels_video("medieval sword", 0, text_key="Первое: размер.")
     assert out1 != out2
+
+
+# ---------- _internal_sentence_boundaries / split_long_blocks: несколько предложений в блоке ----------
+# Реальный найденный случай (27 августа, videos/_test20s): "Готов спорить,
+# что да. Герой на экране заносит клинок двумя руками, рычит, враг падает —
+# вместе с конём, разумеется." — один блок хука, 4.1с по реальному alignment
+# (заведомо короче SUBCUT_MIN_SOURCE_DUR=8.0), но 2 законченных предложения.
+# split_long_blocks() раньше пропускал его целиком (est < min_source), и
+# зритель видел ОДИН кадр на оба предложения — пользователь пожаловался,
+# что видео "заносит клинок" появляется не в момент этих слов.
+
+def test_internal_sentence_boundaries_finds_midblock_period():
+    words = "Готов спорить, что да. Герой на экране заносит клинок.".split()
+    assert pipeline_smart._internal_sentence_boundaries(words) == [4]
+
+
+def test_internal_sentence_boundaries_ignores_last_word():
+    words = "Одно простое предложение.".split()
+    assert pipeline_smart._internal_sentence_boundaries(words) == []
+
+
+def test_internal_sentence_boundaries_ignores_decimal_number():
+    words = "Меч весил около 15.5 килограммов, что немало.".split()
+    assert pipeline_smart._internal_sentence_boundaries(words) == []
+
+
+def test_internal_sentence_boundaries_ignores_year_with_trailing_dot():
+    words = "Битва случилась в 1240. Мир изменился навсегда.".split()
+    # "1240." — чистое число, не считается концом предложения; "навсегда." — последнее слово.
+    assert pipeline_smart._internal_sentence_boundaries(words) == []
+
+
+def test_split_long_blocks_splits_short_multi_sentence_block_despite_duration():
+    text = ("Готов спорить, что да. Герой на экране заносит клинок двумя "
+            "руками, рычит, враг падает — вместе с конём, разумеется.")
+    blocks = [{"text": text, "words": len(text.split()), "pause_after": 0.0,
+               "section": "HOOK", "stat": None}]
+    # Реальный вес — 4.125с (как в живом рендере эпизода), заведомо короче
+    # SUBCUT_MIN_SOURCE_DUR=8.0 — без нового триггера блок остался бы целым.
+    new_blocks, new_weights = pipeline_smart.split_long_blocks(blocks, [4.125])
+    assert len(new_blocks) >= 2, "составной по смыслу блок должен резаться даже при короткой длительности"
+    assert new_blocks[0]["text"].rstrip().endswith("да.")
+    assert "заносит клинок" in new_blocks[1]["text"]
+    assert abs(sum(new_weights) - 4.125) < 1e-9, "сумма весов кусков должна сохраняться"
+
+
+def test_split_long_blocks_single_sentence_short_block_unaffected():
+    # Регрессия: обычный короткий однопредложенческий блок (как подавляющее
+    # большинство блоков сценария) не должен начать резаться из-за нового
+    # триггера — sentence_bounds для него пуст.
+    blocks = [{"text": "Именно так отвечает почти каждый.", "words": 5,
+               "pause_after": 0.0, "section": "HOOK", "stat": None}]
+    new_blocks, new_weights = pipeline_smart.split_long_blocks(blocks, [1.8])
+    assert len(new_blocks) == 1
+    assert new_blocks[0]["text"] == blocks[0]["text"]
+
+
+def test_split_long_blocks_long_single_sentence_still_uses_duration_trigger():
+    # Существующее поведение (по длительности, без предложений) не должно
+    # сломаться новым триггером — длинный ОДНОпредложенческий блок режется
+    # как и раньше, по контраст-словам/середине.
+    text = ("Но самое главное здесь не то что видно на экране а то что стоит "
+            "за каждым движением клинка в руках воина на поле боя")
+    blocks = [{"text": text, "words": len(text.split()), "pause_after": 0.0,
+               "section": "BODY", "stat": None}]
+    new_blocks, new_weights = pipeline_smart.split_long_blocks(blocks, [10.0])
+    assert len(new_blocks) >= 2

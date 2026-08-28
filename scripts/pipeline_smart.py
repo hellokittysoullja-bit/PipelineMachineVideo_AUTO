@@ -2374,6 +2374,8 @@ PEXELS_BROKEN = False       # взводится только на реальн�
 # поведение отбора (слот по-прежнему не остаётся пустым, см. философию
 # ЧАСТИ 13) — только делает промах ВИДИМЫМ вместо молчаливого приёма.
 RELEVANCE_GATE_MISSES = []   # [{"index", "query", "relevance", "threshold", "kind"}, ...]
+DIRECTOR_RELEVANCE_MISSES = []   # [{"index", "text", "photo", "relevance", "threshold"}, ...]
+                                  # — см. её докстринг в main() у DIRECTOR_RELEVANCE_FLOOR
 
 
 # Отбор (2.5): фильтр по alt-тексту кандидата — тот же JSON от Pexels-поиска,
@@ -4960,6 +4962,90 @@ def get_aesthetic_head():
     return _aesthetic_head
 
 
+SHARPNESS_PROBE_MAX_SIDE = 720   # тот же нормализующий размер, что уже использует
+                                  # visual_qc.py — Лапласиан-дисперсия растёт с
+                                  # разрешением исходника, не только с реальной
+                                  # резкостью; сравнивать источник и рендер нужно
+                                  # в ОДНОЙ шкале.
+
+
+def image_sharpness_score(image_path):
+    """Дисперсия Лапласиана (тот же дешёвый blur-детектор, что уже использует
+    visual_qc.py sharpness_score() — не дублируется оттуда напрямую: тот файл
+    ИМПОРТИРУЕТ pipeline_smart, обратный импорт дал бы цикл). None при сбое
+    чтения/декода или недоступности numpy — вызывающий код просто не гейтит
+    по этой оси (тот же безопасный откат, что и у остальных опциональных
+    скореров пайплайна)."""
+    if np is None:
+        return None
+    try:
+        img = PILImage.open(image_path).convert("L")
+        w, h = img.size
+        scale = SHARPNESS_PROBE_MAX_SIDE / max(w, h)
+        if scale < 1.0:
+            img = img.resize((max(1, round(w * scale)), max(1, round(h * scale))), PILImage.LANCZOS)
+        arr = np.asarray(img, dtype=np.uint8)
+        if PARALLAX_LIBS:   # cv2 доступен — см. import cv2 в начале файла
+            return float(cv2.Laplacian(arr, cv2.CV_64F).var())
+        kernel = np.array([[0.0, 1.0, 0.0], [1.0, -4.0, 1.0], [0.0, 1.0, 0.0]])
+        lap = _convolve2d_same(arr.astype(np.float64), kernel)
+        return float(lap.var())
+    except Exception:
+        return None
+
+
+# Реальный, найденный вживую случай (27 августа, videos/_test20s, слот 3):
+# apply_depth_of_field() размыл САМ ОБЪЕКТ, не только фон (см. коммит про
+# _dof_focus_depth) — но НИЧТО в пайплайне до этого коммита не сравнивало
+# резкость ГОТОВОГО РЕНДЕРА с резкостью ИСХОДНОГО фото. visual_qc.py (Шаг
+# 5.5) проверяет резкость только СЫРОГО кандидата ДО рендера — у него
+# физически нет доступа к тому, что Ken Burns/параллакс/ГРИП/грейд сделают
+# с кадром ПОСЛЕ. Эта проверка — единственное место, которое умеет поймать
+# ЛЮБОЙ будущий баг того же КЛАССА (не только сегодняшний DOF): рендер,
+# который ощутимо размывает кадр относительно его же источника, независимо
+# от причины (новый неудачный фильтр, регрессия в параллаксе, что угодно).
+#
+# Калибровка (n=4 реальных клипа этого эпизода, честно — не строгая
+# статистика, а быстрая проверка на реальных данных перед тем, как
+# использовать порог, см. принцип "не гадать" по всему пайплайну):
+# baggy DOF (найденный баг) дал rendered/source = 245/596 = 0.41; тот же
+# кадр после фикса — 639/596 = 1.07; фото с намеренным боке крупного плана
+# (книга, естественное размытие фона в самом источнике) — 155/245 = 0.64;
+# фото без выраженной глубины (весы) — 145/144 = 1.01. Порог 0.5 — с
+# запасом ниже честного кинематографичного боке (0.64), но ловит реальный
+# найденный случай (0.41). Advisory, не hard-reject (тот же принцип, что
+# AESTHETIC_BORDERLINE в visual_qc.py) — рендер не останавливается, флаг
+# идёт в отчёт для Шага 7.5.
+RENDER_SHARPNESS_DROP_RATIO = 0.5
+RENDER_QC_REPORT = []   # [{"index", "source", "rendered", "source_sharpness",
+                         #   "rendered_sharpness", "ratio"}, ...] — см. main()
+
+
+def render_sharpness_regression(source_photo, rendered_clip):
+    """(флаг_подозрительно_размыто, ratio) — сравнивает резкость ИСХОДНОГО
+    фото с резкостью кадра-пробника ИЗ ГОТОВОГО РЕНДЕРА (см.
+    RENDER_SHARPNESS_DROP_RATIO выше). Пробник берётся с середины клипа
+    (extract_video_probe_frame, тот же метод, что уже используют домен-гварды
+    видео) — не с первого кадра, где ещё может идти вход в кенбёрнс.
+    (None, None) на любом сбое (декод/недоступность numpy-CV) — безопасный
+    откат, проверка просто не участвует, как и остальные опциональные оси."""
+    src_sharp = image_sharpness_score(source_photo)
+    if src_sharp is None or src_sharp <= 1.0:
+        return None, None   # почти однотонный/вырожденный источник — не с чем сравнивать
+    probe, cleanup = extract_video_probe_frame(rendered_clip, base_at=0.5)
+    if probe is None:
+        return None, None
+    try:
+        rendered_sharp = image_sharpness_score(probe)
+    finally:
+        if cleanup and os.path.exists(probe):
+            os.remove(probe)
+    if rendered_sharp is None:
+        return None, None
+    ratio = rendered_sharp / src_sharp
+    return (ratio < RENDER_SHARPNESS_DROP_RATIO, ratio)
+
+
 @memoize_by_frame
 def aesthetic_score(image_path):
     """Эстетическая оценка кадра — линейная регрессия поверх L2-нормали-
@@ -6527,15 +6613,47 @@ SUBCUT_HOOK_MIN_SOURCE_DUR = 2.0
 SUBCUT_HOOK_MIN_PART_DUR = 0.9
 SUBCUT_HOOK_MIN_WORDS = 4
 
+_PURE_NUMBER_RE = re.compile(r'^\d+$')   # "1240" из "1240." — год/номер, не конец предложения
+
+
+def _internal_sentence_boundaries(words):
+    """Индексы слов (резать ПОСЛЕ этого индекса), где внутри блока заканчивается
+    ЗАКОНЧЕННОЕ предложение (.!?) — реальный, найденный вживую класс бага (27
+    августа, videos/_test20s, финальный блок хука "Готов спорить, что да.
+    Герой на экране заносит клинок..."): один физический блок сценария может
+    содержать НЕСКОЛЬКО риторически независимых предложений, если автор не
+    поставил между ними [pause]/[short pause] (границы блока и так уже
+    задаются тегами — по построению ВНУТРИ уже распарсенного блока такого
+    тега нет, значит любая точка/! /? внутри текста блока — это ровно тот
+    случай, когда автор ЗАБЫЛ явно разметить границу, не намеренно оставил
+    monolith). Раньше split_long_blocks() решал резать ТОЛЬКО по длительности
+    (est < SUBCUT_MIN_SOURCE_DUR) — короткий по времени, но составной по
+    смыслу блок (три предложения, произнесённые быстро) не резался вовсе,
+    и все они получали ОДИН общий кадр — зритель видит "не тот" кадр в
+    момент смены смысла внутри блока. Последнее слово блока не считается
+    внутренней границей (это и так конец блока). Число с точкой на конце
+    ("1240.") не считается концом предложения — почти всегда десятичная
+    точка/номер, не разрыв смысла."""
+    bounds = []
+    for i, word in enumerate(words[:-1]):
+        core = word.rstrip('»"\')')
+        if core and core[-1] in ".!?" and not _PURE_NUMBER_RE.match(core[:-1]):
+            bounds.append(i + 1)
+    return bounds
+
 
 def split_long_blocks(blocks, real_weights):
     """Один блок = один клип 4-20 сек — механическая сетка "одна мысль = одна
     картинка". Профессиональный монтаж на одну длинную фразу даёт 2-3
-    визуальных решения. Режем блок ТОЛЬКО если он длиннее SUBCUT_MIN_SOURCE_DUR
+    визуальных решения. Режем блок, если он длиннее SUBCUT_MIN_SOURCE_DUR
     (по реальному alignment-весу, при его отсутствии — грубая оценка по
-    словам), по смысловым триггерам: контраст-союзы ("но"/"однако"/...) или
-    первое число за пределами первой четверти блока (новый аргумент). Без
-    триггеров, но всё равно длинный — режем ровно посередине по словам.
+    словам) — ЛИБО, независимо от длительности, если внутри блока несколько
+    ЗАКОНЧЕННЫХ предложений без явного [pause]/[short pause] между ними (см.
+    _internal_sentence_boundaries — реальный найденный случай, короткий по
+    времени, но составной по смыслу блок раньше не резался вовсе). Внутри —
+    по смысловым триггерам: сами границы предложений (приоритет), иначе
+    контраст-союзы ("но"/"однако"/...) или первое число за пределами первой
+    четверти блока. Без триггеров, но всё равно длинный — режем ровно посередине по словам.
     Реальный вес блока делится между кусками ПРОПОРЦИОНАЛЬНО их доле слов —
     сумма сохраняется, ничего не выдумываем сверху. Запрос к стоку для
     под-кадров остаётся тем же самым блоком (resolve_queries считается уже
@@ -6554,24 +6672,34 @@ def split_long_blocks(blocks, real_weights):
         min_part = SUBCUT_HOOK_MIN_PART_DUR if is_hook_opening else SUBCUT_MIN_PART_DUR
         min_words = SUBCUT_HOOK_MIN_WORDS if is_hook_opening else 8
         est = w if w is not None else b["words"] / 2.08
-        if est < min_source:
-            new_blocks.append(b)
-            new_weights.append(w)
-            continue
         words = b["text"].split()
-        if len(words) < min_words:
+        # sentence_bounds — см. _internal_sentence_boundaries(): несколько
+        # ЗАКОНЧЕННЫХ (.!?) предложений в одном блоке — сигнал сильнее и
+        # надёжнее, чем длительность est. Проверяем ДО обоих ранних выходов
+        # (по длительности/по числу слов) — реальный найденный случай был
+        # именно коротким по времени (4.1с — заведомо младше SUBCUT_MIN_
+        # SOURCE_DUR=8.0), но составным по смыслу (3 предложения). Без этого
+        # условия оба ранних выхода отсекли бы ровно тот блок, который и
+        # нужно резать.
+        sentence_bounds = _internal_sentence_boundaries(words)
+        if est < min_source and not sentence_bounds:
             new_blocks.append(b)
             new_weights.append(w)
             continue
-        split_at = []
-        for i, word in enumerate(words):
-            wl = word.strip(",.!?—–:;»«").lower()
-            if wl in SUBCUT_CONTRAST_WORDS and 2 <= i <= len(words) - 3:
-                split_at.append(i)
-        for i, word in enumerate(words):
-            if re.search(r'\d', word) and i > len(words) // 4:
-                split_at.append(i)
-                break
+        if len(words) < min_words and not sentence_bounds:
+            new_blocks.append(b)
+            new_weights.append(w)
+            continue
+        split_at = list(sentence_bounds)
+        if not split_at:
+            for i, word in enumerate(words):
+                wl = word.strip(",.!?—–:;»«").lower()
+                if wl in SUBCUT_CONTRAST_WORDS and 2 <= i <= len(words) - 3:
+                    split_at.append(i)
+            for i, word in enumerate(words):
+                if re.search(r'\d', word) and i > len(words) // 4:
+                    split_at.append(i)
+                    break
         if not split_at:
             # Без смыслового триггера резать РОВНО посередине по счёту слов
             # означало иногда рвать словосочетание внутри одной фразы ("в
@@ -7270,6 +7398,28 @@ def main():
             candidate_domain = visual_director.candidate_domain_for(photo)
             recent_semantic_tags.append((candidate_domain, director_role))
             del recent_semantic_tags[:-visual_director.REPETITION_WINDOW]
+            # DIRECTOR_RELEVANCE_MISSES — тот же принцип, что RELEVANCE_GATE_
+            # MISSES (см. её докстринг): is_relevant в кортеже _score_and_pick
+            # гейтит только по ORIGIN QUERY (английский запрос-посредник),
+            # НЕ по реальному тексту блока — Директор (compute_extra_score)
+            # добавляет sentence_relevance() как доп. ранжирующий сигнал, но
+            # у НЕГО САМОГО не было пола: победитель мог оказаться семантически
+            # слабым по смыслу фразы и всё равно выиграть, если он лучший
+            # (не идеальный) среди прошедших origin-query гейт. Реальный
+            # найденный случай (27 августа, videos/_test20s, слот 1):
+            # sentence_relevance("Так говорят кино, видеоигры и школьные
+            # учебники...", фото весов) = 0.041 — фото победило, потому что
+            # было лучшим доступным, а не потому что подходило по смыслу.
+            # DIRECTOR_RELEVANCE_FLOOR откалиброван на 8 реальных парах этого
+            # же эпизода (visual_director.py, см. её докстринг у константы) —
+            # только отчёт, победителя не меняет (иначе пришлось бы решать,
+            # ЧЕМ его заменить, когда весь пул одинаково слаб).
+            director_rel = visual_director.sentence_relevance(photo, sem_text)
+            if director_rel is not None and director_rel < visual_director.DIRECTOR_RELEVANCE_FLOOR:
+                DIRECTOR_RELEVANCE_MISSES.append({
+                    "index": i, "text": sem_text, "photo": photo,
+                    "relevance": director_rel, "threshold": visual_director.DIRECTOR_RELEVANCE_FLOOR,
+                })
         # Непрерывность экспозиции: измеряем яркость ИМЕННО этого кадра,
         # сравниваем со скользящим средним последних клипов — если скачок
         # большой (сток из разных источников редко совпадает по свету),
@@ -7444,6 +7594,18 @@ def main():
             clip_blocks.append(job["block"])
             if not job["video"] and job["photo"]:
                 media_log.append((job["i"], job["photo"]))
+                # Пост-рендер QC (RENDER_SHARPNESS_DROP_RATIO выше) — единственная
+                # проверка в пайплайне, которая смотрит на ГОТОВЫЙ кадр, а не на
+                # исходное фото ДО Ken Burns/параллакса/ГРИП/грейда. Дёшево (Лапла-
+                # сиан на уже скачанном исходнике + один кадр-пробник уже готового
+                # клипа, без новой модели/сети) — считается синхронно здесь же, не
+                # в пуле, лишние доли секунды на клип не стоят отдельного воркера.
+                flagged, ratio = render_sharpness_regression(job["photo"], job["out"])
+                if flagged:
+                    RENDER_QC_REPORT.append({
+                        "index": job["i"], "source": job["photo"], "rendered": job["out"],
+                        "ratio": ratio, "threshold": RENDER_SHARPNESS_DROP_RATIO,
+                    })
             render_manifest[job["i"]] = {"index": job["i"], "status": "ok", "path": job["out"],
                                           "section": job["section"], "duration": job["d"],
                                           "kind": "video" if job["video"] else "photo"}
@@ -7481,6 +7643,37 @@ def main():
         print(f"  ВНИМАНИЕ: {len(RELEVANCE_GATE_MISSES)} слот(ов) получили кандидата НИЖЕ порога "
               f"relevance (весь пул провалил гейт) — см. media_plan/relevance_gate_report.json, "
               f"сверить глазами на Шаге 7.5.")
+
+    # RENDER_QC_REPORT — см. render_sharpness_regression()/RENDER_SHARPNESS_
+    # DROP_RATIO выше: клипы, где ГОТОВЫЙ рендер ощутимо размытее своего же
+    # источника (реальный найденный случай — DOF-баг 27 августа). Advisory,
+    # не hard-reject — тот же принцип честной записи, что и у остальных
+    # отчётов здесь.
+    render_qc_path = os.path.join(VIDEO_FOLDER, "media_plan", "render_qc_report.json")
+    render_qc_tmp = render_qc_path + ".tmp"
+    with open(render_qc_tmp, "w", encoding="utf-8") as f:
+        json.dump({"flagged": RENDER_QC_REPORT}, f, ensure_ascii=False, indent=2)
+    os.replace(render_qc_tmp, render_qc_path)
+    if RENDER_QC_REPORT:
+        print(f"  ВНИМАНИЕ: {len(RENDER_QC_REPORT)} клип(ов) заметно размытее своего исходника "
+              f"(rendered/source < {RENDER_SHARPNESS_DROP_RATIO}) — см. media_plan/render_qc_report.json, "
+              f"сверить глазами на Шаге 7.5.")
+
+    # DIRECTOR_RELEVANCE_MISSES — см. её докстринг у объявления выше и
+    # DIRECTOR_RELEVANCE_FLOOR в visual_director.py: победитель Директора
+    # семантически слаб по РЕАЛЬНОМУ тексту блока (не по origin query).
+    # Пустой список, если VISUAL_DIRECTOR_MODE не assist (условие "scored"
+    # выше просто никогда не срабатывает) — пишем файл всё равно, тот же
+    # принцип честной записи "нечего сообщить", что и у остальных отчётов.
+    director_rel_path = os.path.join(VIDEO_FOLDER, "media_plan", "director_relevance_report.json")
+    director_rel_tmp = director_rel_path + ".tmp"
+    with open(director_rel_tmp, "w", encoding="utf-8") as f:
+        json.dump({"misses": DIRECTOR_RELEVANCE_MISSES}, f, ensure_ascii=False, indent=2)
+    os.replace(director_rel_tmp, director_rel_path)
+    if DIRECTOR_RELEVANCE_MISSES:
+        print(f"  ВНИМАНИЕ: {len(DIRECTOR_RELEVANCE_MISSES)} слот(ов) — выбранный кадр семантически "
+              f"слаб по РЕАЛЬНОМУ тексту блока (не по запросу) — см. "
+              f"media_plan/director_relevance_report.json, сверить глазами на Шаге 7.5.")
 
     # Reference-Guided Look Management — аудит-трейл (см. scripts/
     # look_reference.py). look_report пуст, если фича выключена/lookbook

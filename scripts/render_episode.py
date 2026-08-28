@@ -30,6 +30,7 @@ speech_validator.py сюда НЕ входят — предполагается,
 
 Usage: python scripts/render_episode.py <video_dir> [--strict-production]
        [--legacy-allow-degraded-timing] [--legacy-allow-unreviewed-media]
+       [--legacy-allow-unreviewed-render]
 
 Без всех флагов — то же самое, что --legacy-allow-degraded-timing и
 --legacy-allow-unreviewed-media вместе (полная обратная совместимость:
@@ -50,7 +51,14 @@ audio.mp3) — этот скрипт остаётся строго ДОПОЛН�
        спокойно проходил гейт;
     3) эпизод многосекционный (>=2 секций) и НИ Stage B, НИ section_sync.py
        не дали уверенного section_offsets.json на ВСЕ секции после первой;
-    4) fix_pauses.py завершился с ошибкой (ffmpeg упал).
+    4) fix_pauses.py завершился с ошибкой (ffmpeg упал);
+    5) ПОСЛЕ успешного рендера — media_plan/relevance_gate_report.json,
+       media_plan/director_relevance_report.json или media_plan/
+       render_qc_report.json (пишет сам pipeline_smart.py, см. их докстринги
+       там) содержат непустые списки промахов — слот получил кандидата ниже
+       порога relevance/семантики, либо готовый клип заметно размытее
+       своего источника. final.mp4 при этом НЕ удаляется, просто сборка не
+       считается чисто пройденной без ручной проверки (Шаг 7.5).
 --legacy-allow-degraded-timing: явно разрешает продолжить рендер БЕЗ
     гарантий синхронизации (пункты 3-4 выше), даже если запрошен
     --strict-production — чтобы сознательный компромисс был явным флагом в
@@ -60,6 +68,12 @@ audio.mp3) — этот скрипт остаётся строго ДОПОЛН�
     (пункт 2 выше). Отдельный от --legacy-allow-degraded-timing флаг
     (не одно и то же: тайминг и качество медиа — независимые гарантии,
     молчаливое объединение под одним именем было бы вводящим в заблуждение).
+--legacy-allow-unreviewed-render: тот же принцип, третьим отдельным флагом —
+    явно разрешает считать сборку пройденной, даже если пост-рендер отчёты
+    (пункт 5 выше) нашли непройденные слоты. Отдельная гарантия от
+    --legacy-allow-unreviewed-media: та проверяет media\\ ДО рендера (сырой
+    кандидат), эта — САМ ГОТОВЫЙ КЛИП ПОСЛЕ рендера (может поймать баг,
+    которого не было в исходнике, см. render_qc_report.json).
 
 Пишет media_plan/timeline_manifest.json — сводка, что реально прогналось
 и с каким результатом (тот же принцип честного аудит-трейла, что уже
@@ -139,6 +153,47 @@ def _section_offsets_cover_all(video_dir, expected_count):
     return len(data) >= expected_count
 
 
+_POST_RENDER_REPORTS = (
+    # (имя_файла, ключ_в_JSON_со_списком, человекочитаемая_причина)
+    ("relevance_gate_report.json", "misses",
+     "весь просмотренный пул кандидата провалил relevance-гейт (query)"),
+    ("director_relevance_report.json", "misses",
+     "выбранный кадр семантически слаб по РЕАЛЬНОМУ тексту блока (Директор)"),
+    ("render_qc_report.json", "flagged",
+     "готовый рендер заметно размытее своего источника (DOF/параллакс/грейд)"),
+)
+
+
+def _post_render_status(video_dir):
+    """(status, total_count, details) — status "ok"/"unresolved"/"no_reports".
+    Читает ТОЛЬКО отчёты, которые пишет сам pipeline_smart.py ПОСЛЕ рендера
+    (см. RELEVANCE_GATE_MISSES/DIRECTOR_RELEVANCE_MISSES/RENDER_QC_REPORT в
+    pipeline_smart.py) — в отличие от visual_qc_report.json (Шаг 5.5, ДО
+    рендера, отдельный обязательный запуск), эти три существуют только
+    ПОСЛЕ того, как pipeline_smart.py уже отработал, поэтому проверяются
+    здесь ПОСТ-рендерно, не как preflight. "no_reports" — pipeline_smart.py
+    ещё старой версии (или упал раньше, чем успел их записать) — то же
+    отношение, что "missing_report" у visual_qc: не считается "ok" молча."""
+    details = []
+    any_report = False
+    for fname, key, reason in _POST_RENDER_REPORTS:
+        path = os.path.join(video_dir, "media_plan", fname)
+        if not os.path.exists(path):
+            continue
+        any_report = True
+        try:
+            data = json.load(open(path, encoding="utf-8"))
+        except Exception:
+            continue
+        items = data.get(key) or []
+        if items:
+            details.append({"report": fname, "count": len(items), "reason": reason})
+    if not any_report:
+        return "no_reports", 0, details
+    total = sum(d["count"] for d in details)
+    return ("unresolved", total, details) if total else ("ok", 0, details)
+
+
 _VISUAL_QC_UNRESOLVED_VERDICTS = ("missing", "reject", "accepted_below_threshold")
 
 
@@ -172,7 +227,8 @@ def _visual_qc_status(video_dir):
     return ("unresolved", unresolved) if unresolved else ("ok", 0)
 
 
-def preflight_and_run(video_dir, strict, legacy_allow_degraded, legacy_allow_unreviewed_media=False):
+def preflight_and_run(video_dir, strict, legacy_allow_degraded, legacy_allow_unreviewed_media=False,
+                       legacy_allow_unreviewed_render=False):
     manifest = {"video_dir": video_dir, "strict_production": strict,
                 "legacy_allow_degraded_timing": legacy_allow_degraded, "stages": {}}
 
@@ -233,6 +289,28 @@ def preflight_and_run(video_dir, strict, legacy_allow_degraded, legacy_allow_unr
 
     rc = _run("pipeline_smart.py", video_dir)
     manifest["stages"]["pipeline_smart"] = {"status": "ok" if rc == 0 else "failed", "exit_code": rc}
+    if rc != 0:
+        _write_manifest(video_dir, manifest)
+        return rc
+
+    # Пост-рендер отчёты (_POST_RENDER_REPORTS выше) — существуют только
+    # ПОСЛЕ успешного pipeline_smart.py, поэтому эта проверка идёт здесь, а
+    # не в preflight-блоке выше вместе с visual_qc (тот — ДО рендера,
+    # отдельный обязательный шаг). final.mp4 при этом НЕ удаляется (тот же
+    # принцип, что и у visual_qc "ниже порога" — честно пометить, не стереть
+    # уже посчитанную работу), просто СБОРКА не считается чисто пройденной.
+    pr_status, pr_total, pr_details = _post_render_status(video_dir)
+    manifest["stages"]["post_render_qc"] = {"status": pr_status, "unresolved": pr_total,
+                                             "details": pr_details}
+    if pr_status == "unresolved" and strict and not legacy_allow_unreviewed_render:
+        _write_manifest(video_dir, manifest)
+        reasons = "; ".join(f"{d['report']}: {d['count']} ({d['reason']})" for d in pr_details)
+        print(f"  СТОП (--strict-production): {pr_total} слот(ов) в пост-рендер отчётах требуют "
+              f"проверки глазами (Шаг 7.5) — {reasons}. final.mp4 собран, но НЕ считается чисто "
+              f"пройденным. Пересмотри отчёты в media_plan/, или --legacy-allow-unreviewed-render "
+              f"для явного пропуска.")
+        return 1
+
     _write_manifest(video_dir, manifest)
     return rc
 
@@ -253,9 +331,11 @@ def main():
     parser.add_argument("--strict-production", action="store_true")
     parser.add_argument("--legacy-allow-degraded-timing", action="store_true")
     parser.add_argument("--legacy-allow-unreviewed-media", action="store_true")
+    parser.add_argument("--legacy-allow-unreviewed-render", action="store_true")
     args = parser.parse_args()
     return preflight_and_run(args.video_dir, args.strict_production, args.legacy_allow_degraded_timing,
-                              legacy_allow_unreviewed_media=args.legacy_allow_unreviewed_media)
+                              legacy_allow_unreviewed_media=args.legacy_allow_unreviewed_media,
+                              legacy_allow_unreviewed_render=args.legacy_allow_unreviewed_render)
 
 
 if __name__ == "__main__":

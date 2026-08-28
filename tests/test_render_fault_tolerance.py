@@ -533,3 +533,81 @@ def test_xfade_chain_returns_false_on_timeout_instead_of_raising(tmp_path, monke
     ok, dur = ps.xfade_chain([clip1, clip2], [1.0, 1.0], ["HOOK", "HOOK"], out)
     assert ok is False
     assert dur == 0.0
+
+
+# ---------- render_sharpness_regression: пост-рендер QC (см. RENDER_SHARPNESS_DROP_RATIO) ----------
+# Реальный найденный случай (27 августа, videos/_test20s, слот 3): фикс
+# _dof_focus_depth() чинит САМ баг, но ничто до этого коммита не проверяло
+# ГОТОВЫЙ рендер против его же источника — эти тесты покрывают ту вторую,
+# независимую линию защиты (ловит любой БУДУЩИЙ баг того же класса, не
+# только сегодняшний DOF).
+
+def _make_sharp_video(path, dur=1.0):
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", f"testsrc=s=640x360:d={dur}:r=24",
+                     "-c:v", "libx264", "-pix_fmt", "yuv420p", path],
+                    capture_output=True, check=True)
+
+
+def _make_blurred_video(path, dur=1.0):
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", f"testsrc=s=640x360:d={dur}:r=24",
+                     "-vf", "boxblur=20:2", "-c:v", "libx264", "-pix_fmt", "yuv420p", path],
+                    capture_output=True, check=True)
+
+
+def test_image_sharpness_score_ranks_sharp_above_blurred(tmp_path):
+    sharp_png, blurred_png = str(tmp_path / "sharp.png"), str(tmp_path / "blurred.png")
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=s=640x360:d=1:r=1",
+                     "-frames:v", "1", sharp_png], capture_output=True, check=True)
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=s=640x360:d=1:r=1",
+                     "-vf", "boxblur=20:2", "-frames:v", "1", blurred_png],
+                    capture_output=True, check=True)
+    sharp_score = ps.image_sharpness_score(sharp_png)
+    blurred_score = ps.image_sharpness_score(blurred_png)
+    assert sharp_score is not None and blurred_score is not None
+    assert sharp_score > blurred_score * 3   # разрыв должен быть явным, не пограничным
+
+
+def test_image_sharpness_score_none_on_missing_file():
+    assert ps.image_sharpness_score("/no/such/file.jpg") is None
+
+
+def test_render_sharpness_regression_flags_blurry_render_vs_sharp_source(tmp_path):
+    # Источник — сам testsrc-кадр (резкий), рендер — намеренно замыленное
+    # видео из ТОГО ЖЕ паттерна: воспроизводит ровно то, что случилось с
+    # DOF-багом — рендер заметно мутнее своего источника.
+    source_png = str(tmp_path / "source.png")
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=s=640x360:d=1:r=1",
+                     "-frames:v", "1", source_png], capture_output=True, check=True)
+    rendered_mp4 = str(tmp_path / "rendered.mp4")
+    _make_blurred_video(rendered_mp4)
+    flagged, ratio = ps.render_sharpness_regression(source_png, rendered_mp4)
+    assert flagged is True
+    assert ratio is not None and ratio < ps.RENDER_SHARPNESS_DROP_RATIO
+
+
+def test_render_sharpness_regression_does_not_flag_matching_sharpness(tmp_path):
+    source_png = str(tmp_path / "source.png")
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=s=640x360:d=1:r=1",
+                     "-frames:v", "1", source_png], capture_output=True, check=True)
+    rendered_mp4 = str(tmp_path / "rendered.mp4")
+    _make_sharp_video(rendered_mp4)
+    flagged, ratio = ps.render_sharpness_regression(source_png, rendered_mp4)
+    assert flagged is False
+    assert ratio is not None and ratio >= ps.RENDER_SHARPNESS_DROP_RATIO
+
+
+def test_render_sharpness_regression_none_on_missing_source(tmp_path):
+    rendered_mp4 = str(tmp_path / "rendered.mp4")
+    _make_sharp_video(rendered_mp4)
+    flagged, ratio = ps.render_sharpness_regression("/no/such/source.jpg", rendered_mp4)
+    assert flagged is None and ratio is None
+
+
+def test_render_sharpness_regression_none_on_undecodable_rendered_clip(tmp_path):
+    source_png = str(tmp_path / "source.png")
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=s=640x360:d=1:r=1",
+                     "-frames:v", "1", source_png], capture_output=True, check=True)
+    broken = tmp_path / "broken.mp4"
+    broken.write_bytes(b"not a real video")
+    flagged, ratio = ps.render_sharpness_regression(source_png, str(broken))
+    assert flagged is None and ratio is None
