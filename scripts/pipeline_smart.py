@@ -2163,6 +2163,98 @@ def load_alignment_onsets(blocks):
 PHRASE_LOCK = os.environ.get("PHRASE_LOCK", "1") != "0"
 
 
+def _merge_two_blocks(pb, cb, prev_words):
+    """Слить блок cb В предыдущий (уже накопленный) pb — общая часть между
+    merge_short_phrase_locked_blocks() и её хвостовым случаем. prev_words —
+    число слов pb ДО слияния (нужно для пересчёта позиции stat-плашки)."""
+    nb = dict(pb)
+    nb["text"] = (pb["text"].rstrip() + " " + cb["text"].lstrip()).strip()
+    nb["words"] = pb["words"] + cb["words"]
+    nb["pause_after"] = cb["pause_after"]
+    if nb.get("stat") is None and cb.get("stat") is not None:
+        sp = cb.get("stat_word_pos")
+        nb["stat"] = cb["stat"]
+        nb["stat_word_pos"] = (prev_words + sp) if sp is not None else None
+    nb["is_climax"] = bool(pb.get("is_climax")) or bool(cb.get("is_climax"))
+    return nb
+
+
+def merge_short_phrase_locked_blocks(blocks, real_weights, total):
+    """РЕАЛЬНЫЙ найденный вживую баг (29 августа, videos/_test20s, idx=4,
+    1.33с) — HOOK_MIN_CLIP (см. её ревизию выше) клэмпит длительность только
+    внутри block_durations()/hook_floor_for. Этот эпизод (как и любой с
+    рабочим alignment.csv) идёт по PHRASE LOCK ветке (см. main(),
+    phrase_locked_durations) — там длительность клипа считается СТРОГО как
+    расстояние между реальными онсетами речи, без единого пола вообще:
+    растянуть короткую фразу до пола означало бы, что рез уедет мимо начала
+    следующей фразы — ровно тот рассинхрон, ради устранения которого PHRASE
+    LOCK и был написан (см. её докстринг). Единственный способ дать
+    гарантию пола БЕЗ рассинхрона — не резать на границе слишком короткой
+    фразы вовсе: сливаем её текст с предыдущим блоком той же секции в один
+    клип (та же идея, что уже мержит короткие sub-cut куски в
+    split_long_blocks). Уцелевшие резы по-прежнему стоят РОВНО на реальном
+    онсете — их просто меньше.
+
+    БЕЗОПАСНОСТЬ СЛИЯНИЯ (реальный найденный вживую баг при первой версии
+    этой функции): сливать можно ТОЛЬКО блок с is_subcut=True — то есть
+    кусок, на который split_long_blocks() уже порезал ОДИН исходный
+    [pause]-блок (его склеенный текст посимвольно принадлежит тому же
+    сегменту alignment, см. docstring speech_chars_of_text). Слияние ДВУХ
+    разных исходных [pause]-блоков (is_subcut отсутствует/False) рвёт
+    привязку: посимвольный курсор load_alignment_onsets() идёт строго по
+    сегментам записи, и склеенный текст двух разных сегментов не находит
+    соответствия ни в одном из них — onsets на всём эпизоде становится
+    None, то есть "починка" пола сломала бы ВЕСЬ phrase lock целиком
+    (проверено вживую: первая версия без этой проверки именно так и
+    сломала onsets на videos/_test20s). Итог: короткая фраза, стоящая
+    ДЕЙСТВИТЕЛЬНО между двумя настоящими паузами (не sub-cut), пол может
+    не выдержать — это честный, редкий остаточный случай (звучит короче
+    пола ровно потому, что автор поставил паузы по обе стороны от неё),
+    не маскируется молча.
+    Никогда не сливает блоки РАЗНЫХ секций (та же граница, которую уважает
+    apply_section_boundary_shift).
+    Fail-open: без рабочего alignment (onsets is None) ничего не меняет —
+    обычная ветка block_durations()/hook_floor_for уже даёт гарантию сама."""
+    onsets = load_alignment_onsets(blocks)
+    if not onsets or len(onsets) != len(blocks):
+        return blocks, real_weights
+    merged_blocks = [blocks[0]]
+    merged_weights = [real_weights[0] if real_weights else None]
+    merged_start = [onsets[0]]
+    for i in range(1, len(blocks)):
+        cb = blocks[i]
+        pb = merged_blocks[-1]
+        same_section = cb["section"] == pb["section"]
+        floor = hook_floor_for(blocks, i - 1)
+        gap = onsets[i] - merged_start[-1]
+        if same_section and gap < floor and cb.get("is_subcut"):
+            merged_blocks[-1] = _merge_two_blocks(pb, cb, pb["words"])
+            pw = merged_weights[-1]
+            cw = real_weights[i] if real_weights else None
+            merged_weights[-1] = None if (pw is None and cw is None) else (pw or 0.0) + (cw or 0.0)
+        else:
+            merged_blocks.append(cb)
+            merged_weights.append(real_weights[i] if real_weights else None)
+            merged_start.append(onsets[i])
+    # Хвост: последний клип держится от своего онсета до конца аудио — этот
+    # интервал не участвовал в цикле выше (там сравнивались только соседние
+    # онсеты между собой). Короче пола — сливаем с предыдущим клипом той же
+    # секции (если он есть).
+    if len(merged_blocks) > 1:
+        tail_floor = hook_floor_for(blocks, len(blocks) - 1)
+        tail_gap = total - merged_start[-1]
+        if (tail_gap < tail_floor and merged_blocks[-1]["section"] == merged_blocks[-2]["section"]
+                and merged_blocks[-1].get("is_subcut")):
+            cb = merged_blocks.pop()
+            merged_start.pop()
+            cw = merged_weights.pop()
+            pb = merged_blocks[-1]
+            merged_blocks[-1] = _merge_two_blocks(pb, cb, pb["words"])
+            pw = merged_weights[-1]
+            merged_weights[-1] = None if (pw is None and cw is None) else (pw or 0.0) + (cw or 0.0)
+    return merged_blocks, merged_weights
+
+
 def phrase_locked_durations(onsets, total, trans_plan, fps=None):
     """Длительности клипов, при которых ВИДИМЫЙ рез приходится ТОЧНО на
     начало следующей фразы. None, если данных не хватает (fail-open).
@@ -7473,6 +7565,16 @@ def main():
     blocks, real_weights = split_long_blocks(blocks, real_weights)
     if len(blocks) != n_before:
         print(f"Sub-cuts: {n_before} -> {len(blocks)} блоков")
+    # См. merge_short_phrase_locked_blocks() — PHRASE LOCK ветка строит
+    # длительность строго по реальным онсетам речи, без единого пола, поэтому
+    # сам HOOK_MIN_CLIP/MIN_CLIP её не защищает; здесь заранее сливаем
+    # блоки, чья реальная фраза короче пола, чтобы КАЖДЫЙ уцелевший рез
+    # (и в PHRASE LOCK, и в обычной ветке — обе читают уже этот blocks)
+    # гарантированно не давал клип короче пола.
+    n_before_merge = len(blocks)
+    blocks, real_weights = merge_short_phrase_locked_blocks(blocks, real_weights, total)
+    if len(blocks) != n_before_merge:
+        print(f"Phrase-lock merge (клипы короче пола): {n_before_merge} -> {len(blocks)} блоков")
     # Кроссфейд между КАЖДОЙ парой кадров суммарно "съедает" какую-то часть
     # длительности — закладываем это в целевую длительность заранее, чтобы
     # после склейки общая длина видео снова совпала с аудио (без этого хвост
