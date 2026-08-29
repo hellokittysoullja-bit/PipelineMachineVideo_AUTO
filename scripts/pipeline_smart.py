@@ -2725,6 +2725,16 @@ CONTENT_ALT_BLOCKLIST = (
     "bathroom scale", "body scale", "weight loss", "weight management",
     "body fat", "diet plan", "measuring tape body", "barefoot", "bare feet",
     "feet on scale", "feet on a scale", "human foot", "obesity",
+    # Найдено вживую (deep-audit, videos/_test20s, 29 августа): и фото, и
+    # видео-кандидаты по queries вроде "knight armor holding sword two
+    # hands"/"warrior on horseback with sword" на Pexels — это чаще всего
+    # СОВРЕМЕННЫЕ buhurt/HEMA-турниры и историческая реконструкция (видимая
+    # толпа зрителей в обычной одежде, телефоны, деревянные ограждения), а
+    # не постановочный "кинематографичный" кадр — CLIP-релевантность это не
+    # ловит (тема "меч"/"бой" совпадает), только текстовый alt отличает.
+    "reenactment", "reenactor", "medieval festival", "renaissance faire",
+    "buhurt", "hema tournament", "combat sport", "full contact fighting",
+    "spectators watching", "crowd watching", "audience watching",
 )
 # Override из channel_profile.json (см. CHANNEL_PROFILE выше) — тот же
 # принцип, что MOOD_GRADE/VOICE_*: список выше — хардкод по умолчанию ЭТОГО
@@ -2882,8 +2892,12 @@ def _score_and_pick(candidates_info, director_score_fn=None):
     рефакторинга — при равенстве кортежей побеждает ПЕРВЫЙ встреченный
     кандидат, не последний (важно для байт-в-байт совместимости).
 
-    director_winner считается, ТОЛЬКО если передан director_score_fn(path)
-    -> float (scripts/visual_director.py) — 8-элементный кортеж с extra-
+    director_winner считается, ТОЛЬКО если передан director_score_fn(path,
+    candidate_query=None) -> float (scripts/visual_director.py) —
+    candidate_query (см. SAME_QUERY_BONUS) передаётся всегда, как keyword;
+    любой director_score_fn обязан его принимать (**kwargs или явный
+    параметр) — см. тестовые lambda в tests/test_pexels_scoring.py.
+    8-элементный кортеж с extra-
     осью СРАЗУ ПОСЛЕ sharp_ok, ДО aesthetic (см. докстринг
     scripts/visual_director.py: "подходит ли по роли/домену/повтору"
     важнее "красиво ли", но relevance/dedup/size остаются гейтами, не
@@ -2907,12 +2921,43 @@ def _score_and_pick(candidates_info, director_score_fn=None):
         if score > base_score:
             base_best, base_score = c, score
         if director_score_fn is not None:
-            extra = director_score_fn(c["path"])
+            # candidate_query — из какого запроса пула пришёл ЭТОТ кандидат
+            # (см. SAME_QUERY_BONUS в visual_director.py) — c["p"] всегда
+            # словарь (см. candidates_info.append выше), _origin_query
+            # проставляется в pexels_photo()/pexels_video() при сборе пула;
+            # отсутствует -> None, старое поведение (ноль бонуса).
+            extra = director_score_fn(c["path"], candidate_query=c["p"].get("_origin_query"))
             dscore = (c["is_dup_free"], c["size_ok"], c["is_relevant"], sharp_ok, extra,
                        c["aesthetic_val"], c["luma_score"], c["min_d"])
             if dscore > dir_score:
                 dir_best, dir_score = c, dscore
     return base_best, dir_best
+
+
+def _build_arbiter_shortlist(candidates_info, base_winner, director_winner, own_query, max_n=3):
+    """Шорт-лист для VLM-арбитра (shot_director.arbitrate_hook_candidates,
+    см. её блок-комментарий) — до max_n РАЗЛИЧНЫХ (по path) уже прошедших
+    все гейты кандидатов из уже скачанного пула (ничего не докачивает):
+    director_winner и base_winner (если это разные файлы — сама эта разница
+    и есть неопределённость, которую арбитр разрешает), плюс лучший
+    кандидат из СВОЕГО запроса слота (own_query), если он не совпал ни с
+    одним из них — ровно тот кандидат, которого раньше мог "перетянуть"
+    чужой запрос до появления SAME_QUERY_BONUS."""
+    seen = set()
+    shortlist = []
+    for c in (director_winner, base_winner):
+        if c is not None and c["path"] not in seen:
+            shortlist.append(c)
+            seen.add(c["path"])
+    own_gated = [c for c in candidates_info
+                 if c["p"].get("_origin_query") == own_query
+                 and c["is_dup_free"] and c["size_ok"] and c["is_relevant"] and c.get("sharp_ok", 1)]
+    if own_gated:
+        best_own = max(own_gated, key=lambda c: (c["aesthetic_val"], c["luma_score"]))
+        if best_own["path"] not in seen:
+            shortlist.append(best_own)
+            seen.add(best_own["path"])
+    return shortlist[:max_n]
 
 
 SEMANTIC_CONTEXT_MIN_WORDS = 9   # короче — фраза сама себя не описывает
@@ -2993,7 +3038,7 @@ def _pexels_search_photos(api_query):
 
 def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=None, target_luma=None,
                   director_score_fn=None, director_assist=False, director_report=None,
-                  extra_queries=None, text_key=None):
+                  extra_queries=None, text_key=None, arbiter_text=None):
     """used_ids — множество ID уже показанных в этом ролике фото (мутируется на
     месте). Разные блоки часто ловят один и тот же тематический запрос — без
     этого им всем доставался бы top-1 результат, то есть одна и та же картинка
@@ -3081,6 +3126,13 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
     # привязывает кэш к КОНКРЕТНОЙ фразе, а не к производному от неё
     # запросу. None (вызов без блока сценария, напр. тесты) -> прежнее
     # поведение, ноль регрессии.
+    #
+    # arbiter_text — РЕАЛЬНЫЙ (не дополненный соседями) текст блока, только
+    # для HOOK-слотов (см. вызов в main(), VLM_ARBITER_MODE) — включает
+    # VLM-арбитра (shot_director.arbitrate_hook_candidates) поверх уже
+    # решённого base/director победителя, см. её блок-комментарий в
+    # shot_director.py. None -> арбитраж не запускается вообще, прежнее
+    # поведение.
     qkey = "|".join([query] + sorted(q for q in (extra_queries or []) if q and q != query)
                      + ([text_key] if text_key else []))
     qhash = hashlib.md5(qkey.encode()).hexdigest()[:8]
@@ -3292,6 +3344,22 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                 director_report["diverged"] = bool(
                     base_winner and director_winner and base_winner["path"] != director_winner["path"])
             winner = director_winner if (director_assist and director_winner is not None) else base_winner
+            # VLM-АРБИТР (см. shot_director.arbitrate_hook_candidates,
+            # блок-комментарий там же) — только когда вызывающий код передал
+            # arbiter_text (HOOK-слоты, VLM_ARBITER_MODE, см. main()). Гейт
+            # по режиму ЗДЕСЬ же, до сборки шорт-листа/импорта модуля — не
+            # тратим время впустую при off (тот же паттерн, что resolve_
+            # queries() уже применяет к SHOT_DIRECTOR_MODE).
+            if (arbiter_text is not None and winner is not None
+                    and os.environ.get("VLM_ARBITER_MODE", "off").strip().lower() == "on"):
+                shortlist = _build_arbiter_shortlist(candidates_info, base_winner, director_winner, query)
+                if len(shortlist) >= 2:
+                    import shot_director
+                    arbiter_pick = shot_director.arbitrate_hook_candidates(
+                        arbiter_text, [c["path"] for c in shortlist],
+                        [c["p"].get("id") for c in shortlist], VIDEO_FOLDER)
+                    if arbiter_pick is not None:
+                        winner = next(c for c in shortlist if c["path"] == arbiter_pick)
             if winner is not None and not winner["is_relevant"]:
                 # Весь просмотренный пул провалил relevance-гейт — см.
                 # RELEVANCE_GATE_MISSES выше. Победитель всё равно есть
@@ -6559,6 +6627,21 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                             sent_score = float(s) if s is not None else 0.0
                         except Exception:
                             sent_score = 0.0
+                        # SAME_QUERY_BONUS (см. visual_director.py) — тот же
+                        # фикс, что и у фото: кандидат из ЧУЖОГО запроса пула
+                        # не должен побеждать кандидата, назначенного этому
+                        # слоту ПО СМЫСЛУ, только за счёт того, что общая
+                        # тема эпизода перетягивает sentence_score. visual_
+                        # director — модуль, не глобальная переменная этой
+                        # функции (та живёт только внутри main()) — ленивый
+                        # импорт, тот же fail-open паттерн, что у
+                        # visual_qc_bonus() в visual_director.py.
+                        if v.get("_origin_query") == query:
+                            try:
+                                import visual_director as _vd
+                                sent_score += _vd.SAME_QUERY_BONUS
+                            except Exception:
+                                pass
                 finally:
                     if cleanup and os.path.exists(probe):
                         os.remove(probe)
@@ -8083,7 +8166,7 @@ def main():
                 director_score_fn = functools.partial(
                     visual_director.compute_extra_score, role=director_role, block_text=sem_text,
                     text_domain=director_text_domain, recent_semantic_tags=recent_semantic_tags,
-                    arc_stage=arc_stage_by_index.get(i))
+                    arc_stage=arc_stage_by_index.get(i), own_query=queries[i])
                 director_entry = {}
             # Content-aware чередование вместо механического i%2 (ЧАСТЬ 14
             # раньше просто нечётные->фото/чётные->видео) — зритель
@@ -8109,6 +8192,13 @@ def main():
                 want_video = True
             prefer_video = want_video and d >= MIN_CLIP + 1.0
             act_qual = action_video_qualifier(b["text"])
+            # VLM-арбитр — ТОЛЬКО хук (см. shot_director.arbitrate_hook_
+            # candidates, HOOK-only-скоуп объявлен пользователю явно, не
+            # скрытый компромисс: свободный тариф Gemini не выдержал бы
+            # арбитраж на весь эпизод, см. её блок-комментарий). Реальный,
+            # НЕ дополненный соседями текст блока (в отличие от sem_text) —
+            # VLM понимает короткую фразу саму по себе.
+            hook_arbiter_text = b["text"] if b["section"].startswith("HOOK") else None
             if prefer_video:
                 video = pexels_video(queries[i], i, used_ids=used_video_ids, used_hashes=used_photo_hashes,
                                      action_qualifier=act_qual,
@@ -8119,13 +8209,15 @@ def main():
                                       recent_sizes=recent_shot_sizes, target_luma=luma_ema,
                                       director_score_fn=director_score_fn, director_assist=director_assist,
                                       director_report=director_entry,
-                                      extra_queries=section_query_pool.get(b["section"]), text_key=sem_text)
+                                      extra_queries=section_query_pool.get(b["section"]), text_key=sem_text,
+                                      arbiter_text=hook_arbiter_text)
             else:
                 photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
                                       recent_sizes=recent_shot_sizes, target_luma=luma_ema,
                                       director_score_fn=director_score_fn, director_assist=director_assist,
                                       director_report=director_entry,
-                                      extra_queries=section_query_pool.get(b["section"]), text_key=sem_text)
+                                      extra_queries=section_query_pool.get(b["section"]), text_key=sem_text,
+                                      arbiter_text=hook_arbiter_text)
                 if not photo and d >= MIN_CLIP + 1.0:
                     video = pexels_video(queries[i], i, used_ids=used_video_ids, used_hashes=used_photo_hashes,
                                          action_qualifier=act_qual,

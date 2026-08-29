@@ -57,6 +57,7 @@ GEMINI_API_KEY в .env был пуст — это больше не так, кл
 import os
 import re
 import json
+import base64
 import hashlib
 import urllib.request
 import urllib.error
@@ -303,3 +304,180 @@ def direct_query(text, video_dir):
     except Exception:
         pass
     return queries[0]
+
+
+# ============================================================================
+# VLM-АРБИТР (VLM_ARBITER_MODE=off/on, дефолт off) — по прямому запросу
+# пользователя (29 августа, deep-audit): SAME_QUERY_BONUS в
+# visual_director.compute_extra_score() (см. её докстринг) чинит СИМПТОМ —
+# restорирует вес уже вложенного текст-текст решения semantic_query_
+# assignment() поверх более слабого image-text CLIP-скоринга — но САМ
+# скоринг остаётся эмбеддинг-косинусом, который в принципе не умеет понять
+# композиционный/абстрактный смысл фразы ("меч весом 15 кг" — не "любой
+# меч"), только сравнивать вектора. Пользователь прямо указал: это опять
+# точечный фикс, а не поднятие потолка архитектуры. Единственный способ
+# ДЕЙСТВИТЕЛЬНО поднять потолок без нового отдельного сервиса — заменить
+# эмбеддинг-сравнение на РЕАЛЬНОЕ языковое понимание: показать модели
+# (Gemini, тот же ключ, что уже подтверждён живым вызовом в этом модуле)
+# саму фразу И картинки кандидатов, спросить "какая ДЕЙСТВИТЕЛЬНО подходит
+# по смыслу" — то, что реально делает человек-монтажёр, а не formal
+# similarity.
+#
+# СКОУП — ТОЛЬКО ХУК (осознанное, объявленное пользователю ограничение, не
+# скрытый компромисс): free-tier бюджет Gemini ~20 вызовов/день НА МОДЕЛЬ
+# (эмпирика ЧАСТЬ 14 CLAUDE.md) — арбитраж на КАЖДЫЙ слот целого эпизода
+# (100+ кадров на реальный 60-минутный ролик) исчерпал бы дневной лимит на
+# одном рендере. Хук — 5-8 слотов, самый решающий по удержанию участок
+# ролика (ЧАСТЬ 9 CLAUDE.md) — уже даёт заметный эффект в разумном бюджете.
+# Расширение на весь эпизод возможно, но требует ЛИБО платного тарифа Gemini
+# (реальные деньги — ЧАСТЬ 1, не решается без пользователя), ЛИБО смирения
+# с тем, что бюджет исчерпается на середине рендера — оба варианта требуют
+# явного решения пользователя, не мой выбор по умолчанию.
+#
+# Использует ТОТ ЖЕ счётчик _calls_made/SHOT_DIRECTOR_MAX_CALLS_PER_RUN, что
+# и direct_query()/enrich_atmospheric_queries() — единый бюджет вызовов
+# Gemini за прогон (та же причина: одна и та же квота ключа/модели, два
+# независимых потолка позволили бы двум фичам вместе тихо съесть вдвое
+# больше дневного лимита).
+#
+# ЧЕСТНО: VLM-суждение — тоже не "истина", а более сильная, но НЕ
+# безошибочная эвристика (языковая модель может ошибиться так же, как
+# человек может ошибиться, глядя на кадр) — это подъём потолка, не
+# гарантия. Живой ручной прогон на реальном ключе ОБЯЗАТЕЛЕН перед первым
+# включением VLM_ARBITER_MODE=on (тот же принцип, что уже применён к
+# speech_generate.py/этому же модулю выше) — контракт запроса/ответа ниже
+# проверен только на моке до этого прогона.
+VLM_ARBITER_TIMEOUT_SEC = 25   # тяжелее текстового промпта (несколько картинок в теле запроса)
+
+_ARBITER_PROMPT_TEMPLATE = (
+    'Ты — опытный монтажёр видео, подбираешь кадр под конкретную фразу '
+    'закадрового текста для документального ролика на русском языке.\n\n'
+    'ФРАЗА: "{text}"\n\n'
+    'Ниже приложено {n} кандидатов-изображений по порядку (картинка 1, '
+    'картинка 2, ...). Выбери НОМЕР картинки, которая РЕАЛЬНО, по смыслу '
+    '(не по формальному сходству темы) лучше всего иллюстрирует именно эту '
+    'фразу — так, как выбрал бы человек, прочитавший фразу и посмотревший '
+    'на картинки, а не по совпадению ключевых слов с общей темой ролика. '
+    'Если ни одна картинка реально не подходит — верни 0.\n\n'
+    'Верни СТРОГО валидный JSON без пояснений и без markdown-разметки: '
+    '{{"choice": <целое число 0..{n}>, "reason": "коротко, по-русски"}}.'
+)
+
+
+def _mime_type_for(path):
+    return "image/png" if os.path.splitext(path)[1].lower() == ".png" else "image/jpeg"
+
+
+def _extract_choice(raw_text, n):
+    cleaned = raw_text.strip()
+    m = re.search(r'\{.*\}', cleaned, re.S)
+    if m:
+        cleaned = m.group(0)
+    parsed = json.loads(cleaned)
+    choice = parsed.get("choice")
+    if not isinstance(choice, (int, float)) or isinstance(choice, bool):
+        return None
+    choice = int(choice)
+    if choice < 0 or choice > n:
+        return None
+    return choice   # 0 == "ни одна не подходит", 1..n == 1-based индекс
+
+
+def _call_gemini_vision(prompt, image_paths, api_key):
+    """Тот же транспорт/JSON-режим, что _call_gemini_prompt(), плюс
+    inline_data-части картинок ПЕРЕД текстом — порядок картинок в частях
+    запроса соответствует порядку "картинка N" в промпте, это и даёт модели
+    однозначно сослаться на конкретного кандидата номером."""
+    parts = []
+    for p in image_paths:
+        with open(p, "rb") as f:
+            data = base64.b64encode(f.read()).decode("ascii")
+        parts.append({"inline_data": {"mime_type": _mime_type_for(p), "data": data}})
+    parts.append({"text": prompt})
+    generation_config = {"responseMimeType": "application/json"}
+    thinking_cfg = _thinking_config_for_model(SHOT_DIRECTOR_MODEL)
+    if thinking_cfg is not None:
+        generation_config["thinkingConfig"] = thinking_cfg
+    body = json.dumps({
+        "contents": [{"parts": parts}],
+        "generationConfig": generation_config,
+    }).encode("utf-8")
+    url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+           f"{SHOT_DIRECTOR_MODEL}:generateContent?key={api_key}")
+    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=VLM_ARBITER_TIMEOUT_SEC) as r:
+        resp = json.loads(r.read().decode("utf-8"))
+    raw = resp["candidates"][0]["content"]["parts"][0]["text"]
+    return _extract_choice(raw, len(image_paths))
+
+
+def _arbiter_cache_path(video_dir, text, candidate_ids):
+    # candidate_ids в ПОРЯДКЕ (не sorted, в отличие от _atmo_cache_path) —
+    # закэшированный choice это 1-based ИНДЕКС в этот порядок, менять
+    # порядок и держать тот же кэш-файл значило бы отдать неверную картинку.
+    h = hashlib.sha256(
+        ("arbiter|" + text + "|" + "|".join(str(c) for c in candidate_ids)
+         ).encode("utf-8")).hexdigest()[:24]
+    return os.path.join(_cache_dir(video_dir), "arbiter_" + h + ".json")
+
+
+def _resolve_choice(choice, candidate_paths):
+    if not isinstance(choice, int) or choice <= 0 or choice > len(candidate_paths):
+        return None
+    return candidate_paths[choice - 1]
+
+
+def arbitrate_hook_candidates(text, candidate_paths, candidate_ids, video_dir):
+    """VLM-арбитр (см. блок-комментарий выше) — реальное языковое+визуальное
+    суждение поверх уже готового шорт-листа (2-3 уже прошедших все гейты
+    кандидата, см. вызывающий код в pipeline_smart.py — их СОБИРАЕТ, не
+    скачивает заново), а не ещё один numeric-скоринг. text — РЕАЛЬНАЯ фраза
+    блока (не дополненная соседями semantic_context_text — VLM, в отличие
+    от CLIP, понимает короткую фразу саму по себе).
+
+    candidate_ids — стабильный идентификатор каждого пути в candidate_paths
+    (тот же порядок, Pexels photo/video id) — используется ТОЛЬКО для ключа
+    кэша (temp-файлы кандидатов эфемерны и меняют имя между прогонами, id
+    остаётся тем же).
+
+    Возвращает путь ИЗ candidate_paths (не индекс) — победивший кандидат,
+    либо None: режим off / нет ключа / лимит вызовов исчерпан / кандидатов
+    меньше 2 (нечего арбитрировать) / ошибка сети/парсинга / модель
+    вернула 0 ("ни один не подходит"). ЛЮБОЙ None — вызывающий код обязан
+    остаться на уже вычисленном (director/base) победителе, не на пустом
+    слоте — тот же fail-open принцип, что у direct_query()/
+    enrich_atmospheric_queries()."""
+    global _calls_made
+    if os.environ.get("VLM_ARBITER_MODE", "off").strip().lower() != "on":
+        return None
+    if not candidate_paths or len(candidate_paths) < 2:
+        return None
+    if len(candidate_paths) != len(candidate_ids):
+        return None
+    cache_file = _arbiter_cache_path(video_dir, text, candidate_ids)
+    if os.path.exists(cache_file):
+        try:
+            cached = json.load(open(cache_file, encoding="utf-8"))
+            return _resolve_choice(cached.get("choice"), candidate_paths)
+        except Exception:
+            pass
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        return None
+    if _calls_made >= SHOT_DIRECTOR_MAX_CALLS_PER_RUN:
+        return None
+    _calls_made += 1
+    prompt = _ARBITER_PROMPT_TEMPLATE.format(text=text, n=len(candidate_paths))
+    try:
+        choice = _call_gemini_vision(prompt, candidate_paths, api_key)
+    except Exception as e:
+        print(f"  [shot_director] VLM-арбитр не ответил на \"{text[:40]}...\": {e}")
+        return None
+    if choice is None:
+        return None
+    try:
+        json.dump({"text": text, "candidate_ids": candidate_ids, "choice": choice},
+                   open(cache_file, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+    return _resolve_choice(choice, candidate_paths)

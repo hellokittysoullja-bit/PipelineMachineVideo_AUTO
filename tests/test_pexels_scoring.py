@@ -19,8 +19,11 @@ import pipeline_smart as ps   # noqa: E402
 
 
 def _cand(path, is_dup_free=1, size_ok=1, is_relevant=1, sharp_ok=1, aesthetic_val=0.0,
-          luma_score=0.0, min_d=99, pid=None):
-    return {"path": path, "p": {"id": pid or path}, "is_dup_free": is_dup_free,
+          luma_score=0.0, min_d=99, pid=None, origin_query=None):
+    p = {"id": pid or path}
+    if origin_query is not None:
+        p["_origin_query"] = origin_query
+    return {"path": path, "p": p, "is_dup_free": is_dup_free,
             "size_ok": size_ok, "is_relevant": is_relevant, "sharp_ok": sharp_ok,
             "aesthetic_val": aesthetic_val, "luma_score": luma_score, "min_d": min_d}
 
@@ -94,7 +97,7 @@ def test_director_score_fn_can_diverge_from_base_winner():
     director_pick = _cand("director_pick", aesthetic_val=0.0)
     scores = {"aesthetic_high": 0.0, "director_pick": 10.0}
     base, director = ps._score_and_pick(
-        [aesthetic_high, director_pick], director_score_fn=lambda path: scores[path])
+        [aesthetic_high, director_pick], director_score_fn=lambda path, candidate_query=None: scores[path])
     assert base is aesthetic_high
     assert director is director_pick
 
@@ -104,7 +107,7 @@ def test_director_respects_relevance_gate_even_with_high_extra():
     relevant = _cand("relevant", is_relevant=1)
     scores = {"irrelevant_but_favored": 100.0, "relevant": 0.0}
     base, director = ps._score_and_pick(
-        [irrelevant_but_favored, relevant], director_score_fn=lambda path: scores[path])
+        [irrelevant_but_favored, relevant], director_score_fn=lambda path, candidate_query=None: scores[path])
     assert director is relevant   # is_relevant остаётся гейтом впереди extra, extra не может его перебить
 
 
@@ -143,7 +146,7 @@ def test_director_sharp_gate_matches_base():
     sharp = _cand("sharp", sharp_ok=1, aesthetic_val=-10.0)
     scores = {"blurry": 0.0, "sharp": 0.0}
     base, director = ps._score_and_pick(
-        [blurry, sharp], director_score_fn=lambda path: scores[path])
+        [blurry, sharp], director_score_fn=lambda path, candidate_query=None: scores[path])
     assert director is sharp
 
 
@@ -176,3 +179,62 @@ def test_pool_cleared_true_even_if_winner_lost_to_dedup():
 
 def test_pool_cleared_false_on_empty_pool():
     assert ps._pool_cleared_both_gates([]) is False
+
+
+# ---------- _build_arbiter_shortlist (VLM-арбитр, HOOK-only) ----------
+
+def test_shortlist_includes_both_base_and_director_when_they_differ():
+    base = _cand("base_pick")
+    director = _cand("director_pick")
+    shortlist = ps._build_arbiter_shortlist([base, director], base, director, own_query="q")
+    paths = {c["path"] for c in shortlist}
+    assert paths == {"base_pick", "director_pick"}
+
+
+def test_shortlist_dedupes_when_base_equals_director():
+    same = _cand("same_pick")
+    shortlist = ps._build_arbiter_shortlist([same], same, same, own_query="q")
+    assert len(shortlist) == 1
+    assert shortlist[0]["path"] == "same_pick"
+
+
+def test_shortlist_adds_best_same_query_candidate_not_already_present():
+    # Реальный найденный случай: победитель (base/director) пришёл из
+    # ЧУЖОГО запроса, а лучший кандидат СВОЕГО запроса ("own_query")
+    # проиграл — арбитр должен увидеть его тоже, не только победителей.
+    base = _cand("foreign_pick", origin_query="other query")
+    director = _cand("foreign_pick", origin_query="other query")
+    own_good = _cand("own_query_pick", origin_query="scale", aesthetic_val=1.0)
+    pool = [base, own_good]
+    shortlist = ps._build_arbiter_shortlist(pool, base, director, own_query="scale")
+    paths = {c["path"] for c in shortlist}
+    assert paths == {"foreign_pick", "own_query_pick"}
+
+
+def test_shortlist_skips_same_query_candidate_that_fails_gates():
+    base = _cand("winner")
+    own_bad = _cand("own_bad", origin_query="scale", is_relevant=0)   # провалил гейт
+    pool = [base, own_bad]
+    shortlist = ps._build_arbiter_shortlist(pool, base, base, own_query="scale")
+    assert len(shortlist) == 1
+    assert shortlist[0]["path"] == "winner"
+
+
+def test_shortlist_respects_max_n_cap():
+    base = _cand("base_pick")
+    director = _cand("director_pick")
+    own_good = _cand("own_query_pick", origin_query="scale", aesthetic_val=1.0)
+    pool = [base, director, own_good]
+    shortlist = ps._build_arbiter_shortlist(pool, base, director, own_query="scale", max_n=2)
+    assert len(shortlist) == 2
+
+
+def test_shortlist_picks_best_of_multiple_same_query_candidates_by_aesthetic():
+    base = _cand("winner")
+    own_ok = _cand("own_ok", origin_query="scale", aesthetic_val=0.5)
+    own_better = _cand("own_better", origin_query="scale", aesthetic_val=2.0)
+    pool = [base, own_ok, own_better]
+    shortlist = ps._build_arbiter_shortlist(pool, base, base, own_query="scale")
+    paths = {c["path"] for c in shortlist}
+    assert "own_better" in paths
+    assert "own_ok" not in paths

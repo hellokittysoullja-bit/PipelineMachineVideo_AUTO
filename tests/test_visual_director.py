@@ -422,6 +422,31 @@ def test_compute_extra_score_treats_none_relevance_as_zero(monkeypatch):
     assert score == 0.0
 
 
+# ---------- SAME_QUERY_BONUS (см. её докстринг: слот с чужого запроса
+# перетягивал победу у слота, для которого запрос назначен ПО СМЫСЛУ) ----------
+
+def test_compute_extra_score_adds_same_query_bonus_when_matching(monkeypatch):
+    _patch_all_neutral(monkeypatch)
+    score = vd.compute_extra_score("x.jpg", "narrative", "текст блока", None, [],
+                                    own_query="scale", candidate_query="scale")
+    assert score == pytest.approx(vd.SAME_QUERY_BONUS)
+
+
+def test_compute_extra_score_no_bonus_when_query_mismatched(monkeypatch):
+    _patch_all_neutral(monkeypatch)
+    score = vd.compute_extra_score("x.jpg", "narrative", "текст блока", None, [],
+                                    own_query="scale", candidate_query="sword")
+    assert score == 0.0
+
+
+def test_compute_extra_score_no_bonus_when_query_info_missing(monkeypatch):
+    # own_query/candidate_query оба None (старые вызовы без этой оси) —
+    # ноль изменений поведения.
+    _patch_all_neutral(monkeypatch)
+    score = vd.compute_extra_score("x.jpg", "narrative", "текст блока", None, [])
+    assert score == 0.0
+
+
 # ---------- VISUAL_DIRECTOR_MODE — валидация env ----------
 
 def test_invalid_mode_env_value_is_a_known_fallback_state():

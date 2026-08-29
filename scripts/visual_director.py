@@ -280,6 +280,38 @@ REPETITION_PENALTY = 0.15
 VISUAL_QC_SHARPNESS_WEIGHT = 0.10
 VISUAL_QC_NOISE_WEIGHT = 0.05
 
+# РЕАЛЬНЫЙ найденный вживую баг (deep-audit, videos/_test20s, 29 августа —
+# по прямой просьбе пользователя "пересмотри снова получившийся видеоряд").
+# extra_queries (см. докстринг pexels_photo()) собирает кандидатов из ВСЕХ
+# авторских запросов секции сразу — Директор ранжирует их по compute_extra_
+# score() БЕЗ учёта, из какого именно запроса пришёл кандидат. На реальном
+# рендере это дало явную перестановку: слот с запросом "weighing scale
+# metal object" (для фразы "Пятнадцать килограммов.") получил фото мечей и
+# щита из ЧУЖОГО запроса ("knight armor holding sword two hands"), а
+# соседний слот с запросом "dark cinema movie theatre screen" (для фразы
+# про кино/видеоигры/учебники) получил ВИДЕО ВЕСОВ — которое, судя по
+# содержанию, и было честным кандидатом ПЕРВОГО слота, просто выигранным
+# у него чужим текстом. Причина: semantic_query_assignment() уже назначает
+# запрос блоку ПО СМЫСЛУ его конкретной фразы (не позиционно) — это сильный
+# сигнал, который compute_extra_score() полностью игнорировал, оценивая
+# только "похож ли кандидат на ПОЛНУЮ (иногда дополненную соседями,
+# см. semantic_context_text) фразу", где общая тема эпизода ("меч") может
+# перетягивать оценку у короткого/абстрактного блока в пользу чужого,
+# более "мечового" кандидата — тот же класс ограничения, что уже честно
+# описан в докстринге sentence_relevance() ("композиционные/атрибутивные
+# связки вроде «меч весом 5 кг» ему не по силам").
+# Небольшой бонус кандидату, пришедшему из СВОЕГО (не чужого) запроса
+# слота — не жёсткий приоритет (чужой кандидат всё ещё может победить,
+# если он ощутимо лучше по всем остальным осям), просто восстанавливает
+# вес уже вложенного смыслового решения semantic_query_assignment(), а не
+# отдаёт его целиком на откуп CLIP-скорингу полной фразы. Некалиброванное,
+# разумное стартовое значение (та же честная маркировка, что у бонусов
+# выше) — нет откалиброванного набора реальных эпизодов, чтобы подтвердить
+# точную величину; порядок величины намеренно сопоставим с DOMAIN_MATCH_
+# BONUS, а не мельче ROLE_SHOT_SIZE_BONUS — ошибка, которую он чинит,
+# оказалась не мелкой (3 из 5 слотов хука на реальном рендере).
+SAME_QUERY_BONUS = 0.20
+
 # Arc-stage-осведомлённый бонус по крупности плана (см. speech_planner.
 # assign_chapter_arcs — "заход-якорь"/"слом"/"доказательство"/... для
 # BLOCK-секций, "hook"/"final" для HOOK/FINAL) — ДОПОЛНИТЕЛЬНЫЙ, независимый
@@ -767,7 +799,8 @@ def candidate_domain_for(image_path):
     return domain
 
 
-def compute_extra_score(image_path, role, block_text, text_domain, recent_semantic_tags, arc_stage=None):
+def compute_extra_score(image_path, role, block_text, text_domain, recent_semantic_tags, arc_stage=None,
+                         own_query=None, candidate_query=None):
     """Один float — оркестрация всех сигналов выше. role/text_domain —
     БЛОК-уровневые значения (посчитаны ОДИН РАЗ на блок вызывающим кодом в
     main(), не на каждого кандидата — functional_role() бесплатна, но
@@ -776,9 +809,17 @@ def compute_extra_score(image_path, role, block_text, text_domain, recent_semant
 
     arc_stage — риторическая стадия ЭТОГО блока из media_plan/speech_plan.json
     (см. ARC_STAGE_SHOT_SIZE_BONUS выше), None — если эпизод без Speech
-    Director (даёт нулевой бонус, поведение не меняется)."""
+    Director (даёт нулевой бонус, поведение не меняется).
+
+    own_query/candidate_query — см. SAME_QUERY_BONUS выше. own_query —
+    запрос, назначенный ЭТОМУ блоку (queries[i] у вызывающего кода);
+    candidate_query — из какого запроса пула реально пришёл ЭТОТ кандидат
+    (p["_origin_query"], см. pexels_photo()/pexels_video()). Оба None у
+    старых вызовов/тестов — ноль изменений поведения."""
     rel = sentence_relevance(image_path, block_text)
     score = (rel or 0.0) * SENTENCE_RELEVANCE_WEIGHT
+    if own_query and candidate_query and candidate_query == own_query:
+        score += SAME_QUERY_BONUS
 
     shot_size = _safe_shot_size(image_path)
     if shot_size:

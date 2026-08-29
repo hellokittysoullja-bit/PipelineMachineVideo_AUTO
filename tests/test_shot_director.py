@@ -11,6 +11,7 @@ import sys
 import tempfile
 
 import pytest
+from PIL import Image
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS_DIR = os.path.join(REPO_ROOT, "scripts")
@@ -325,3 +326,173 @@ def test_atmo_own_query_excluded_from_context(monkeypatch, tmp_path):
     monkeypatch.setattr(sd.urllib.request, "urlopen", fake_urlopen)
     sd.enrich_atmospheric_queries("Текст.", "own query", ["own query", "other query"], str(tmp_path))
     assert captured["body"].count("own query") == 1   # только в описании own_query, не в context-списке
+
+
+# ============================================================================
+# VLM-АРБИТР (arbitrate_hook_candidates) — HOOK-only, VLM_ARBITER_MODE=off/on,
+# отдельный флаг от SHOT_DIRECTOR_MODE, но ОБЩИЙ счётчик _calls_made.
+
+def _fake_arbiter_payload(choice, reason="ок"):
+    inner = json.dumps({"choice": choice, "reason": reason})
+    return json.dumps({
+        "candidates": [{"content": {"parts": [{"text": inner}]}}]
+    }).encode("utf-8")
+
+
+def _make_images(tmp_path, n):
+    paths = []
+    for i in range(n):
+        p = tmp_path / f"cand_{i}.jpg"
+        Image.new("RGB", (32, 32), (i * 40 % 255, 10, 10)).save(p, "JPEG")
+        paths.append(str(p))
+    return paths
+
+
+@pytest.fixture(autouse=True)
+def _arbiter_mode_default_off(monkeypatch):
+    # VLM_ARBITER_MODE не входит в _reset() (отдельная фича/флаг) — по
+    # умолчанию off в каждом тесте этого блока, тесты явно включают "on".
+    monkeypatch.setenv("VLM_ARBITER_MODE", "off")
+    yield
+
+
+def test_arbiter_off_mode_never_touches_network(monkeypatch, tmp_path):
+    paths = _make_images(tmp_path, 2)
+
+    def _boom(*a, **kw):
+        raise AssertionError("network должен быть недостижим в off-режиме")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    assert sd.arbitrate_hook_candidates("Пятнадцать килограммов.", paths, [1, 2], str(tmp_path)) is None
+
+
+def test_arbiter_no_api_key_returns_none_without_network(monkeypatch, tmp_path):
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    paths = _make_images(tmp_path, 2)
+
+    def _boom(*a, **kw):
+        raise AssertionError("не должно быть сетевого вызова без ключа")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    assert sd.arbitrate_hook_candidates("Текст.", paths, [1, 2], str(tmp_path)) is None
+
+
+def test_arbiter_fewer_than_two_candidates_returns_none_without_network(monkeypatch, tmp_path):
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    paths = _make_images(tmp_path, 1)
+
+    def _boom(*a, **kw):
+        raise AssertionError("нечего арбитрировать — сеть недостижима")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    assert sd.arbitrate_hook_candidates("Текст.", paths, [1], str(tmp_path)) is None
+    assert sd.arbitrate_hook_candidates("Текст.", [], [], str(tmp_path)) is None
+
+
+def test_arbiter_mismatched_ids_length_returns_none_without_network(monkeypatch, tmp_path):
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    paths = _make_images(tmp_path, 2)
+
+    def _boom(*a, **kw):
+        raise AssertionError("несогласованный вход — сеть недостижима")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    assert sd.arbitrate_hook_candidates("Текст.", paths, [1], str(tmp_path)) is None
+
+
+def test_arbiter_successful_call_returns_chosen_path_and_writes_cache(monkeypatch, tmp_path):
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    paths = _make_images(tmp_path, 3)
+    payload = _fake_arbiter_payload(2)
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(payload))
+    result = sd.arbitrate_hook_candidates("Пятнадцать килограммов.", paths, [10, 20, 30], str(tmp_path))
+    assert result == paths[1]   # choice=2 -> 1-based индекс 2 -> paths[1]
+    cache_file = sd._arbiter_cache_path(str(tmp_path), "Пятнадцать килограммов.", [10, 20, 30])
+    assert os.path.exists(cache_file)
+
+
+def test_arbiter_zero_choice_means_none_good_returns_none(monkeypatch, tmp_path):
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    paths = _make_images(tmp_path, 2)
+    payload = _fake_arbiter_payload(0)
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(payload))
+    assert sd.arbitrate_hook_candidates("Текст.", paths, [1, 2], str(tmp_path)) is None
+
+
+def test_arbiter_cache_hit_skips_network_entirely(monkeypatch, tmp_path):
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    paths = _make_images(tmp_path, 2)
+    payload = _fake_arbiter_payload(1)
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(payload))
+    args = ("Текст.", paths, [1, 2], str(tmp_path))
+    first = sd.arbitrate_hook_candidates(*args)
+
+    def _boom(*a, **kw):
+        raise AssertionError("кэш-хит не должен трогать сеть")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    second = sd.arbitrate_hook_candidates(*args)
+    assert first == second == paths[0]
+
+
+def test_arbiter_shares_call_budget_with_direct_query(monkeypatch, tmp_path):
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    monkeypatch.setattr(sd, "SHOT_DIRECTOR_MAX_CALLS_PER_RUN", 1)
+    paths = _make_images(tmp_path, 2)
+    payload = _fake_arbiter_payload(1)
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(payload))
+    first = sd.arbitrate_hook_candidates("Текст 1.", paths, [1, 2], str(tmp_path))
+    assert first == paths[0]
+
+    def _boom(*a, **kw):
+        raise AssertionError("бюджет должен быть общим с direct_query/enrich_atmospheric_queries")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    assert sd.direct_query("Совсем другой текст.", str(tmp_path)) is None
+
+
+def test_arbiter_network_error_fails_open(monkeypatch, tmp_path):
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    paths = _make_images(tmp_path, 2)
+
+    def _raise(*a, **kw):
+        raise OSError("network down")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _raise)
+    assert sd.arbitrate_hook_candidates("Текст.", paths, [1, 2], str(tmp_path)) is None
+
+
+def test_arbiter_out_of_range_choice_fails_open(monkeypatch, tmp_path):
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    paths = _make_images(tmp_path, 2)
+    payload = _fake_arbiter_payload(5)   # только 2 кандидата — вне диапазона
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(payload))
+    assert sd.arbitrate_hook_candidates("Текст.", paths, [1, 2], str(tmp_path)) is None
+
+
+def test_arbiter_malformed_json_fails_open(monkeypatch, tmp_path):
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    paths = _make_images(tmp_path, 2)
+    bad_payload = json.dumps({
+        "candidates": [{"content": {"parts": [{"text": "not json at all"}]}}]
+    }).encode("utf-8")
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(bad_payload))
+    assert sd.arbitrate_hook_candidates("Текст.", paths, [1, 2], str(tmp_path)) is None
+
+
+def test_arbiter_sends_all_candidate_images_as_inline_data(monkeypatch, tmp_path):
+    paths = _make_images(tmp_path, 3)
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    captured = {}
+
+    def fake_urlopen(req, timeout=None):
+        captured["body"] = json.loads(req.data.decode("utf-8"))
+        return _FakeHTTPResponse(_fake_arbiter_payload(1))
+    monkeypatch.setattr(sd.urllib.request, "urlopen", fake_urlopen)
+    sd.arbitrate_hook_candidates("Текст.", paths, [1, 2, 3], str(tmp_path))
+    parts = captured["body"]["contents"][0]["parts"]
+    inline_parts = [p for p in parts if "inline_data" in p]
+    assert len(inline_parts) == 3
+    text_parts = [p for p in parts if "text" in p]
+    assert len(text_parts) == 1
+    assert "Текст." in text_parts[0]["text"]

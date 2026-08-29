@@ -13,7 +13,10 @@
     "katana", "samurai", "kimono", "chinese sword", "jian sword",
     "wuxia", "tai chi", "shogun", "ninja",
     "stormtrooper", "motorcycle helmet", "sci-fi costume", "tribal costume",
-    "cultural festival", "video game icon"
+    "cultural festival", "video game icon",
+    "reenactment", "reenactor", "medieval festival", "renaissance faire",
+    "buhurt", "hema tournament", "combat sport", "full contact fighting",
+    "spectators watching", "crowd watching", "audience watching"
   ],
   "voice": {
     "highpass_hz": 80,
