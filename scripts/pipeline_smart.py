@@ -2960,6 +2960,28 @@ def _build_arbiter_shortlist(candidates_info, base_winner, director_winner, own_
     return shortlist[:max_n]
 
 
+def _build_video_arbiter_shortlist(good, own_query, max_n=3):
+    """Аналог _build_arbiter_shortlist() для видео-пути (pexels_video) —
+    good уже отсортирован по (luma_ok, sent_score) убыванию, элементы —
+    (sent_score, luma_ok, trial_path, id, hash, origin_query), все уже
+    прошли гейты. Победитель (good[0]) + лучший кандидат СВОЕГО запроса
+    слота, если не совпал (см. SAME_QUERY_BONUS), + второй по счёту
+    (good[1]), если отличается от уже добавленных — та же неопределённость
+    "какой сигнал прав", что у фото-версии, только без раздельных base/
+    director победителей (видео-путь считает один общий sent_score)."""
+    seen = set()
+    shortlist = [good[0]]
+    seen.add(good[0][2])
+    own_matches = [g for g in good if g[5] == own_query]
+    if own_matches and own_matches[0][2] not in seen:
+        shortlist.append(own_matches[0])
+        seen.add(own_matches[0][2])
+    if len(good) > 1 and good[1][2] not in seen:
+        shortlist.append(good[1])
+        seen.add(good[1][2])
+    return shortlist[:max_n]
+
+
 SEMANTIC_CONTEXT_MIN_WORDS = 9   # короче — фраза сама себя не описывает
 SEMANTIC_CONTEXT_MAX_WORDS = 40  # и не растворять смысл текущей фразы в соседях
 
@@ -6457,7 +6479,7 @@ def _pexels_search_videos(api_query):
 
 
 def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier=None,
-                  extra_queries=None, sentence_score_fn=None, text_key=None):
+                  extra_queries=None, sentence_score_fn=None, text_key=None, arbiter_text=None):
     """Раньше брала ПЕРВОЕ ещё не показанное видео из выдачи без единой
     проверки релевантности/риска (реальный, ранее не закрытый структурный
     пробел, найденный внешним аудитом + прямой проверкой на реальном
@@ -6684,7 +6706,7 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                       min((hamming(cand_hash, uh) for uh in used_hashes), default=99)
                       <= PHOTO_DEDUP_HAMMING)
             if relevant and not is_dup:
-                good.append((sent_score, luma_ok, trial, v.get("id"), cand_hash))
+                good.append((sent_score, luma_ok, trial, v.get("id"), cand_hash, v.get("_origin_query")))
                 # Без смыслового скоринга сравнивать нечего — прежнее
                 # поведение "первый прошедший побеждает" (ноль регресса для
                 # вызовов без sentence_score_fn). С пулом ранний обрыв по
@@ -6709,7 +6731,27 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
             # кадр бесполезен независимо от того, что на нём изображено.
             good.sort(key=lambda g: (g[1], g[0]), reverse=True)
             best = good[0]
-            for g in good[1:]:
+            # VLM-АРБИТР (см. shot_director.arbitrate_hook_candidates и
+            # _build_video_arbiter_shortlist) — тот же принцип, что уже
+            # применён к pexels_photo(): реальный найденный случай (idx4,
+            # videos/_test20s, 29 августа) — видео-путь раньше вообще не
+            # был подключён к арбитру (только к SAME_QUERY_BONUS в
+            # sent_score), и модерн-реконструкция с толпой зрителей/
+            # телефонами (не ловится ни CLIP-релевантностью, ни
+            # CONTENT_ALT_BLOCKLIST, если alt-текст Pexels не содержит ни
+            # одного из его терминов) так и оставалась победителем.
+            if (arbiter_text is not None and
+                    os.environ.get("VLM_ARBITER_MODE", "off").strip().lower() == "on"):
+                shortlist = _build_video_arbiter_shortlist(good, query)
+                if len(shortlist) >= 2:
+                    import shot_director
+                    arbiter_pick = shot_director.arbitrate_hook_candidates(
+                        arbiter_text, [g[2] for g in shortlist], [g[3] for g in shortlist], VIDEO_FOLDER)
+                    if arbiter_pick is not None:
+                        best = next(g for g in shortlist if g[2] == arbiter_pick)
+            for g in good:
+                if g is best:
+                    continue
                 try:
                     os.remove(g[2])
                 except OSError:
@@ -8203,7 +8245,8 @@ def main():
                 video = pexels_video(queries[i], i, used_ids=used_video_ids, used_hashes=used_photo_hashes,
                                      action_qualifier=act_qual,
                                      extra_queries=section_query_pool.get(b["section"]),
-                                     sentence_score_fn=video_sentence_fn, text_key=sem_text)
+                                     sentence_score_fn=video_sentence_fn, text_key=sem_text,
+                                     arbiter_text=hook_arbiter_text)
                 if not video:
                     photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
                                       recent_sizes=recent_shot_sizes, target_luma=luma_ema,
@@ -8222,7 +8265,8 @@ def main():
                     video = pexels_video(queries[i], i, used_ids=used_video_ids, used_hashes=used_photo_hashes,
                                          action_qualifier=act_qual,
                                          extra_queries=section_query_pool.get(b["section"]),
-                                         sentence_score_fn=video_sentence_fn, text_key=sem_text)
+                                         sentence_score_fn=video_sentence_fn, text_key=sem_text,
+                                         arbiter_text=hook_arbiter_text)
             # Раньше Pexels отключался навсегда после ЛЮБОГО промаха, включая
             # обычную пустую выдачу по одному неудачному запросу. Гасим источник
             # только если API реально отвалился.
