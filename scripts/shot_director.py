@@ -363,6 +363,38 @@ _ARBITER_PROMPT_TEMPLATE = (
     '{{"choice": <целое число 0..{n}>, "reason": "коротко, по-русски"}}.'
 )
 
+# ОТКРЫВАЮЩИЙ кадр (is_opening=True, см. arbitrate_hook_candidates) —
+# отдельный промпт, не просто тот же с косметической правкой. Реальный
+# найденный вживую случай (29 августа, прямая жалоба пользователя): для
+# фразы "Пятнадцать килограммов." обычный промпт (только семантическая
+# точность) стабильно выбирал фото весов — технически верно, но НЕ то, что
+# реально держит зрителя в первую секунду ролика (CLAUDE.md ЧАСТЬ 9: "самый
+# первый кадр видео — самое важное и главное", "5 рычагов хука"). Первый
+# кадр ролика — единственное место, где визуальная эффектность важнее
+# буквальной точности: у зрителя есть меньше секунды решить, остаться или
+# уйти, смысл фразы он ещё не успел толком осознать. Кандидаты для этого
+# промпта уже собраны ШИРЕ обычного шорт-листа (см. _build_opening_shortlist
+# в pipeline_smart.py — берёт лучшие по эстетике кадры со ВСЕГО пула хука,
+# не только своего запроса), поэтому среди них уже есть реально эффектные
+# варианты — этот промпт лишь меняет КРИТЕРИЙ выбора, не расширяет пул сам.
+_OPENING_ARBITER_PROMPT_TEMPLATE = (
+    'Ты — опытный монтажёр видео. Перед тобой — САМЫЙ ПЕРВЫЙ кадр ВСЕГО '
+    'ролика (документалка на русском языке). От него зависит, останется ли '
+    'зритель смотреть дальше — у него меньше секунды решить.\n\n'
+    'Закадровая фраза, под которую идёт этот кадр: "{text}"\n\n'
+    'Ниже приложено {n} кандидатов-изображений по порядку (картинка 1, '
+    'картинка 2, ...). Выбери НОМЕР картинки, которая ЭФФЕКТНЕЕ, ДРАМАТИЧНЕЕ, '
+    'сильнее цепляет взгляд визуально — при условии, что она НЕ ПРОТИВОРЕЧИТ '
+    'явно смыслу фразы (не обязана иллюстрировать её буквально и дословно — '
+    'фраза ещё не успела прозвучать полностью, зритель судит по картинке, а '
+    'не по тексту). Между скучной, но точной картинкой и эффектной, но '
+    'уместной — выбирай эффектную. Если ВСЕ кандидаты одинаково блёклые/'
+    'невыразительные — верни номер технически лучшей из них (не 0 — пустой '
+    'кадр хуже любого реального).\n\n'
+    'Верни СТРОГО валидный JSON без пояснений и без markdown-разметки: '
+    '{{"choice": <целое число 1..{n}>, "reason": "коротко, по-русски"}}.'
+)
+
 
 def _mime_type_for(path):
     return "image/png" if os.path.splitext(path)[1].lower() == ".png" else "image/jpeg"
@@ -411,12 +443,16 @@ def _call_gemini_vision(prompt, image_paths, api_key):
     return _extract_choice(raw, len(image_paths))
 
 
-def _arbiter_cache_path(video_dir, text, candidate_ids):
+def _arbiter_cache_path(video_dir, text, candidate_ids, is_opening=False):
     # candidate_ids в ПОРЯДКЕ (не sorted, в отличие от _atmo_cache_path) —
     # закэшированный choice это 1-based ИНДЕКС в этот порядок, менять
     # порядок и держать тот же кэш-файл значило бы отдать неверную картинку.
+    # is_opening в ключе — тот же (text, candidates) в обычном промпте (по
+    # смыслу) и в opening-промпте (по эффектности) может дать РАЗНЫЙ выбор,
+    # это не взаимозаменяемые результаты.
     h = hashlib.sha256(
-        ("arbiter|" + text + "|" + "|".join(str(c) for c in candidate_ids)
+        ("arbiter|" + ("opening|" if is_opening else "") + text + "|"
+         + "|".join(str(c) for c in candidate_ids)
          ).encode("utf-8")).hexdigest()[:24]
     return os.path.join(_cache_dir(video_dir), "arbiter_" + h + ".json")
 
@@ -427,7 +463,7 @@ def _resolve_choice(choice, candidate_paths):
     return candidate_paths[choice - 1]
 
 
-def arbitrate_hook_candidates(text, candidate_paths, candidate_ids, video_dir):
+def arbitrate_hook_candidates(text, candidate_paths, candidate_ids, video_dir, is_opening=False):
     """VLM-арбитр (см. блок-комментарий выше) — реальное языковое+визуальное
     суждение поверх уже готового шорт-листа (2-3 уже прошедших все гейты
     кандидата, см. вызывающий код в pipeline_smart.py — их СОБИРАЕТ, не
@@ -439,6 +475,12 @@ def arbitrate_hook_candidates(text, candidate_paths, candidate_ids, video_dir):
     (тот же порядок, Pexels photo/video id) — используется ТОЛЬКО для ключа
     кэша (temp-файлы кандидатов эфемерны и меняют имя между прогонами, id
     остаётся тем же).
+
+    is_opening — САМЫЙ ПЕРВЫЙ кадр всего ролика (см. _OPENING_ARBITER_
+    PROMPT_TEMPLATE и _build_opening_shortlist в pipeline_smart.py) —
+    меняет и промпт (критерий — визуальная эффектность, не только смысл),
+    и ключ кэша (тот же кандидат в обычном слоте и на открытии — разные
+    решения, кэш не должен их путать).
 
     Возвращает путь ИЗ candidate_paths (не индекс) — победивший кандидат,
     либо None: режим off / нет ключа / лимит вызовов исчерпан / кандидатов
@@ -454,7 +496,7 @@ def arbitrate_hook_candidates(text, candidate_paths, candidate_ids, video_dir):
         return None
     if len(candidate_paths) != len(candidate_ids):
         return None
-    cache_file = _arbiter_cache_path(video_dir, text, candidate_ids)
+    cache_file = _arbiter_cache_path(video_dir, text, candidate_ids, is_opening=is_opening)
     if os.path.exists(cache_file):
         try:
             cached = json.load(open(cache_file, encoding="utf-8"))
@@ -467,7 +509,8 @@ def arbitrate_hook_candidates(text, candidate_paths, candidate_ids, video_dir):
     if _calls_made >= SHOT_DIRECTOR_MAX_CALLS_PER_RUN:
         return None
     _calls_made += 1
-    prompt = _ARBITER_PROMPT_TEMPLATE.format(text=text, n=len(candidate_paths))
+    template = _OPENING_ARBITER_PROMPT_TEMPLATE if is_opening else _ARBITER_PROMPT_TEMPLATE
+    prompt = template.format(text=text, n=len(candidate_paths))
     try:
         choice = _call_gemini_vision(prompt, candidate_paths, api_key)
     except Exception as e:

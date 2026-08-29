@@ -496,3 +496,65 @@ def test_arbiter_sends_all_candidate_images_as_inline_data(monkeypatch, tmp_path
     text_parts = [p for p in parts if "text" in p]
     assert len(text_parts) == 1
     assert "Текст." in text_parts[0]["text"]
+
+
+# ---------- is_opening (открывающий кадр — критерий "эффектность", не
+# только "точность"; см. блок-комментарий у _OPENING_ARBITER_PROMPT_TEMPLATE) ----------
+
+def test_opening_uses_different_prompt_template(monkeypatch, tmp_path):
+    paths = _make_images(tmp_path, 2)
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    captured = {}
+
+    def fake_urlopen(req, timeout=None):
+        captured["body"] = json.loads(req.data.decode("utf-8"))
+        return _FakeHTTPResponse(_fake_arbiter_payload(1))
+    monkeypatch.setattr(sd.urllib.request, "urlopen", fake_urlopen)
+    sd.arbitrate_hook_candidates("Пятнадцать килограммов.", paths, [1, 2], str(tmp_path), is_opening=True)
+    text_part = next(p for p in captured["body"]["contents"][0]["parts"] if "text" in p)
+    assert "эффектн" in text_part["text"].lower()
+    assert "самый первый кадр" in text_part["text"].lower()
+
+
+def test_opening_and_regular_have_separate_cache_entries(monkeypatch, tmp_path):
+    # Тот же (text, candidate_ids) — но опрашивались РАЗНЫЕ промпты, кэш не
+    # должен путать opening-выбор с обычным.
+    paths = _make_images(tmp_path, 2)
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(_fake_arbiter_payload(1)))
+    sd.arbitrate_hook_candidates("Текст.", paths, [1, 2], str(tmp_path), is_opening=True)
+    opening_cache = sd._arbiter_cache_path(str(tmp_path), "Текст.", [1, 2], is_opening=True)
+    regular_cache = sd._arbiter_cache_path(str(tmp_path), "Текст.", [1, 2], is_opening=False)
+    assert opening_cache != regular_cache
+    assert os.path.exists(opening_cache)
+    assert not os.path.exists(regular_cache)
+
+
+def test_opening_cache_hit_skips_network(monkeypatch, tmp_path):
+    paths = _make_images(tmp_path, 2)
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(_fake_arbiter_payload(2)))
+    first = sd.arbitrate_hook_candidates("Текст.", paths, [1, 2], str(tmp_path), is_opening=True)
+
+    def _boom(*a, **kw):
+        raise AssertionError("кэш-хит не должен трогать сеть")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    second = sd.arbitrate_hook_candidates("Текст.", paths, [1, 2], str(tmp_path), is_opening=True)
+    assert first == second == paths[1]
+
+
+def test_opening_shares_call_budget(monkeypatch, tmp_path):
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    monkeypatch.setattr(sd, "SHOT_DIRECTOR_MAX_CALLS_PER_RUN", 1)
+    paths = _make_images(tmp_path, 2)
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(_fake_arbiter_payload(1)))
+    first = sd.arbitrate_hook_candidates("Открытие.", paths, [1, 2], str(tmp_path), is_opening=True)
+    assert first == paths[0]
+
+    def _boom(*a, **kw):
+        raise AssertionError("бюджет открывающего кадра должен быть общим с остальными")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    assert sd.direct_query("Другой текст.", str(tmp_path)) is None

@@ -2960,6 +2960,37 @@ def _build_arbiter_shortlist(candidates_info, base_winner, director_winner, own_
     return shortlist[:max_n]
 
 
+def _build_opening_shortlist(candidates_info, base_winner, director_winner, max_n=4):
+    """Шорт-лист для САМОГО ПЕРВОГО кадра ролика (см. is_opening в
+    shot_director.arbitrate_hook_candidates) — реальная жалоба пользователя
+    (29 августа, /goal): _build_arbiter_shortlist() держится своего запроса
+    слота — для открывающего кадра это неверный приоритет, зрителю нужна
+    максимально эффектная картинка ради удержания (CLAUDE.md ЧАСТЬ 9), а не
+    самая буквально точная. Кросс-опылённые кандидаты из ДРУГИХ запросов
+    секции (section_query_pool, см. main()) уже в candidates_info — эта
+    функция просто не отбрасывает их молча в пользу буквальной точности,
+    а берёт лучших ПО ЭСТЕТИКЕ технически чистых кандидатов ИЗ ВСЕГО пула,
+    не только своего запроса."""
+    gated = [c for c in candidates_info
+             if c["is_dup_free"] and c["size_ok"] and c["is_relevant"] and c.get("sharp_ok", 1)]
+    if not gated:
+        gated = candidates_info   # честная деградация — лучше нерелевантный шорт-лист, чем пустой
+    by_aesthetic = sorted(gated, key=lambda c: c["aesthetic_val"], reverse=True)
+    seen = set()
+    shortlist = []
+    for c in (director_winner, base_winner):
+        if c is not None and c["path"] not in seen:
+            shortlist.append(c)
+            seen.add(c["path"])
+    for c in by_aesthetic:
+        if len(shortlist) >= max_n:
+            break
+        if c["path"] not in seen:
+            shortlist.append(c)
+            seen.add(c["path"])
+    return shortlist[:max_n]
+
+
 def _build_video_arbiter_shortlist(good, own_query, max_n=3):
     """Аналог _build_arbiter_shortlist() для видео-пути (pexels_video) —
     good уже отсортирован по (luma_ok, sent_score) убыванию, элементы —
@@ -2980,6 +3011,27 @@ def _build_video_arbiter_shortlist(good, own_query, max_n=3):
         shortlist.append(good[1])
         seen.add(good[1][2])
     return shortlist[:max_n]
+
+
+def _build_opening_video_shortlist(good, max_n=4):
+    """Видео-версия _build_opening_shortlist() — good уже отсортирован по
+    (luma_ok, sent_score) и уже включает кросс-опылённых кандидатов всех
+    запросов секции, не только своего слота (см. extra_queries в
+    pexels_video()). В отличие от фото-версии здесь нет отдельной
+    эстетической метрики на кандидата — берёт первые max_n РАЗЛИЧНЫХ (по
+    trial_path) элементов уже отсортированного good без own_query-
+    приоритета обычной видео-версии (_build_video_arbiter_shortlist),
+    чтобы явно "эффектные" кросс-опылённые кандидаты не отсеивались молча
+    в пользу буквальной точности своего запроса."""
+    seen = set()
+    shortlist = []
+    for g in good:
+        if g[2] not in seen:
+            shortlist.append(g)
+            seen.add(g[2])
+        if len(shortlist) >= max_n:
+            break
+    return shortlist
 
 
 SEMANTIC_CONTEXT_MIN_WORDS = 9   # короче — фраза сама себя не описывает
@@ -3060,7 +3112,7 @@ def _pexels_search_photos(api_query):
 
 def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=None, target_luma=None,
                   director_score_fn=None, director_assist=False, director_report=None,
-                  extra_queries=None, text_key=None, arbiter_text=None):
+                  extra_queries=None, text_key=None, arbiter_text=None, is_opening_shot=False):
     """used_ids — множество ID уже показанных в этом ролике фото (мутируется на
     месте). Разные блоки часто ловят один и тот же тематический запрос — без
     этого им всем доставался бы top-1 результат, то есть одна и та же картинка
@@ -3374,12 +3426,22 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             # queries() уже применяет к SHOT_DIRECTOR_MODE).
             if (arbiter_text is not None and winner is not None
                     and os.environ.get("VLM_ARBITER_MODE", "off").strip().lower() == "on"):
-                shortlist = _build_arbiter_shortlist(candidates_info, base_winner, director_winner, query)
+                # Открывающий кадр — отдельный, ШИРЕ, шорт-лист (см.
+                # _build_opening_shortlist) и отдельный промпт (критерий
+                # "эффектность", не "точность", см. is_opening в
+                # arbitrate_hook_candidates) — реальная жалоба пользователя
+                # (/goal, 29 августа): обычный критерий стабильно выбирал
+                # технически точную, но невыразительную картинку (весы) для
+                # самого решающего для удержания кадра всего ролика.
+                if is_opening_shot:
+                    shortlist = _build_opening_shortlist(candidates_info, base_winner, director_winner)
+                else:
+                    shortlist = _build_arbiter_shortlist(candidates_info, base_winner, director_winner, query)
                 if len(shortlist) >= 2:
                     import shot_director
                     arbiter_pick = shot_director.arbitrate_hook_candidates(
                         arbiter_text, [c["path"] for c in shortlist],
-                        [c["p"].get("id") for c in shortlist], VIDEO_FOLDER)
+                        [c["p"].get("id") for c in shortlist], VIDEO_FOLDER, is_opening=is_opening_shot)
                     if arbiter_pick is not None:
                         winner = next(c for c in shortlist if c["path"] == arbiter_pick)
             if winner is not None and not winner["is_relevant"]:
@@ -6479,7 +6541,8 @@ def _pexels_search_videos(api_query):
 
 
 def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier=None,
-                  extra_queries=None, sentence_score_fn=None, text_key=None, arbiter_text=None):
+                  extra_queries=None, sentence_score_fn=None, text_key=None, arbiter_text=None,
+                  is_opening_shot=False):
     """Раньше брала ПЕРВОЕ ещё не показанное видео из выдачи без единой
     проверки релевантности/риска (реальный, ранее не закрытый структурный
     пробел, найденный внешним аудитом + прямой проверкой на реальном
@@ -6742,7 +6805,13 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
             # одного из его терминов) так и оставалась победителем.
             if (arbiter_text is not None and
                     os.environ.get("VLM_ARBITER_MODE", "off").strip().lower() == "on"):
-                shortlist = _build_video_arbiter_shortlist(good, query)
+                # Открывающий кадр — та же логика, что у pexels_photo()
+                # (см. is_opening_shot там): шире шорт-лист, критерий
+                # эффектности вместо буквальной точности запроса.
+                if is_opening_shot:
+                    shortlist = _build_opening_video_shortlist(good)
+                else:
+                    shortlist = _build_video_arbiter_shortlist(good, query)
                 if len(shortlist) >= 2:
                     # Реальный найденный баг: shortlist здесь — пути к
                     # ВИДЕОФАЙЛАМ (.mp4), а Gemini vision принимает только
@@ -6762,7 +6831,7 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                         import shot_director
                         arbiter_pick = shot_director.arbitrate_hook_candidates(
                             arbiter_text, [p for _, p, _ in probes],
-                            [g[3] for g, _, _ in probes], VIDEO_FOLDER)
+                            [g[3] for g, _, _ in probes], VIDEO_FOLDER, is_opening=is_opening_shot)
                     if arbiter_pick is not None:
                         match = next((g for g, p, _ in probes if p == arbiter_pick), None)
                         if match is not None:
@@ -8265,32 +8334,38 @@ def main():
             # НЕ дополненный соседями текст блока (в отличие от sem_text) —
             # VLM понимает короткую фразу саму по себе.
             hook_arbiter_text = b["text"] if b["section"].startswith("HOOK") else None
+            # is_opening — САМЫЙ ПЕРВЫЙ блок всего эпизода (i==0, HOOK по
+            # построению сценария) — см. _build_opening_shortlist/
+            # is_opening в arbitrate_hook_candidates. Реальная жалоба
+            # пользователя (/goal, 29 августа): "самое начало... нужно
+            # самый красивый впечатляющий кадр для наивысшего удержания".
+            is_opening_shot = (i == 0)
             if prefer_video:
                 video = pexels_video(queries[i], i, used_ids=used_video_ids, used_hashes=used_photo_hashes,
                                      action_qualifier=act_qual,
                                      extra_queries=section_query_pool.get(b["section"]),
                                      sentence_score_fn=video_sentence_fn, text_key=sem_text,
-                                     arbiter_text=hook_arbiter_text)
+                                     arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot)
                 if not video:
                     photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
                                       recent_sizes=recent_shot_sizes, target_luma=luma_ema,
                                       director_score_fn=director_score_fn, director_assist=director_assist,
                                       director_report=director_entry,
                                       extra_queries=section_query_pool.get(b["section"]), text_key=sem_text,
-                                      arbiter_text=hook_arbiter_text)
+                                      arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot)
             else:
                 photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
                                       recent_sizes=recent_shot_sizes, target_luma=luma_ema,
                                       director_score_fn=director_score_fn, director_assist=director_assist,
                                       director_report=director_entry,
                                       extra_queries=section_query_pool.get(b["section"]), text_key=sem_text,
-                                      arbiter_text=hook_arbiter_text)
+                                      arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot)
                 if not photo and d >= MIN_CLIP + 1.0:
                     video = pexels_video(queries[i], i, used_ids=used_video_ids, used_hashes=used_photo_hashes,
                                          action_qualifier=act_qual,
                                          extra_queries=section_query_pool.get(b["section"]),
                                          sentence_score_fn=video_sentence_fn, text_key=sem_text,
-                                         arbiter_text=hook_arbiter_text)
+                                         arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot)
             # Раньше Pexels отключался навсегда после ЛЮБОГО промаха, включая
             # обычную пустую выдачу по одному неудачному запросу. Гасим источник
             # только если API реально отвалился.

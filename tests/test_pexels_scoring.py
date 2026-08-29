@@ -281,3 +281,64 @@ def test_video_shortlist_respects_max_n_cap():
     good = [winner, own_match, runner_up]
     shortlist = ps._build_video_arbiter_shortlist(good, own_query="scale", max_n=2)
     assert len(shortlist) == 2
+
+
+# ---------- _build_opening_shortlist (открывающий кадр — критерий
+# эффектности, не буквальной точности запроса; см. /goal 29 августа) ----------
+
+def test_opening_shortlist_pulls_best_aesthetic_from_whole_pool_not_own_query():
+    # Реальный найденный случай: победитель (base/director) — технически
+    # точная, но невыразительная картинка своего запроса; эффектный
+    # кросс-опылённый кандидат ЧУЖОГО запроса (высокая эстетика) должен
+    # попасть в шорт-лист, а не быть молча отброшен.
+    winner = _cand("boring_winner", origin_query="scale", aesthetic_val=0.1)
+    dramatic = _cand("dramatic_cross_pollinated", origin_query="warrior on horseback", aesthetic_val=5.0)
+    pool = [winner, dramatic]
+    shortlist = ps._build_opening_shortlist(pool, winner, winner)
+    paths = {c["path"] for c in shortlist}
+    assert "dramatic_cross_pollinated" in paths
+
+
+def test_opening_shortlist_always_includes_base_and_director_winners():
+    base = _cand("base_pick", aesthetic_val=0.0)
+    director = _cand("director_pick", aesthetic_val=0.0)
+    pool = [base, director]
+    shortlist = ps._build_opening_shortlist(pool, base, director)
+    paths = {c["path"] for c in shortlist}
+    assert {"base_pick", "director_pick"} <= paths
+
+
+def test_opening_shortlist_skips_candidates_failing_gates():
+    winner = _cand("winner", aesthetic_val=0.0)
+    bad = _cand("gorgeous_but_irrelevant", aesthetic_val=10.0, is_relevant=0)
+    pool = [winner, bad]
+    shortlist = ps._build_opening_shortlist(pool, winner, winner)
+    paths = {c["path"] for c in shortlist}
+    assert "gorgeous_but_irrelevant" not in paths
+
+
+def test_opening_shortlist_respects_max_n_cap():
+    base = _cand("base", aesthetic_val=0.0)
+    director = _cand("director", aesthetic_val=0.0)
+    c1 = _cand("c1", aesthetic_val=3.0)
+    c2 = _cand("c2", aesthetic_val=2.0)
+    pool = [base, director, c1, c2]
+    shortlist = ps._build_opening_shortlist(pool, base, director, max_n=3)
+    assert len(shortlist) == 3
+
+
+# ---------- _build_opening_video_shortlist ----------
+
+def test_opening_video_shortlist_includes_cross_pollinated_candidates():
+    winner = _vcand("winner", origin_query="scale", score=1.0)
+    cross = _vcand("cross_pollinated", origin_query="warrior on horseback", score=0.8)
+    good = [winner, cross]
+    shortlist = ps._build_opening_video_shortlist(good)
+    paths = {g[2] for g in shortlist}
+    assert paths == {"winner", "cross_pollinated"}
+
+
+def test_opening_video_shortlist_respects_max_n_cap():
+    good = [_vcand(f"c{i}", score=1.0 - i * 0.1) for i in range(6)]
+    shortlist = ps._build_opening_video_shortlist(good, max_n=4)
+    assert len(shortlist) == 4
