@@ -188,8 +188,8 @@ ZOOM_RATE_BASE = 0.010
 # первый кадр ролика — фото весов). ZOOM_DELTA_MIN был 0.05: любой клип
 # короче 5с (ZOOM_DELTA_MIN/ZOOM_RATE_BASE = 5.0) получает ОДИНАКОВУЮ
 # итоговую величину зума за весь клип, независимо от того, 1с он или 4.9с
-# — а именно в ХУКЕ (HOOK_OPENING_MIN_CLIP=1.0, HOOK_MIN_CLIP=1.8) клипы
-# почти ВСЕГДА короче этого порога, то есть КАЖДЫЙ хук-кадр упирался в
+# — а именно в ХУКЕ (HOOK_MIN_CLIP=2.2) клипы часто короче этого порога,
+# то есть многие хук-кадры упирались в
 # один и тот же пол. Прямая проверка на реальном фото (0000_fec5885a,
 # 1.958с, parallax_kenburns — is_parallax_highlight() покрывает ВЕСЬ хук):
 # при 0.05 итоговый зум за клип 1.040->1.090 (рост 4.8%), три кадра
@@ -220,13 +220,20 @@ MIN_CLIP, MAX_CLIP = 3.0, 9.0
 # удержанием первые 15-30с режутся заметно чаще именно потому, что это
 # самый крутой обрыв на кривой удержания YouTube — отдельный, более
 # низкий пол специально для хука.
-HOOK_MIN_CLIP = 1.8
-# Топовые ролики первые 2-3 реза хука делают ЕЩЁ короче, чем весь остальной
-# хук (0.8-1.2с) — самый первый удар по вниманию, а не просто "быстрее тела
-# ролика". Общий HOOK_MIN_CLIP держал даже открывающие кадры вровень с
-# остальным хуком.
-HOOK_OPENING_MIN_CLIP = 1.0
-HOOK_OPENING_CUTS = 3
+# РЕВИЗИЯ (29 августа, прямое требование пользователя "хотя бы минимум
+# будут они длиться 2-3 секунды в хуке а не 1"). Раньше здесь стояло
+# HOOK_MIN_CLIP=1.8 плюс отдельный, ещё более низкий пол для первых
+# HOOK_OPENING_CUTS резов хука (HOOK_OPENING_MIN_CLIP=1.0) — идея была
+# "топовые ролики держат самый первый удар по вниманию короче остального
+# хука", но это была НЕ проверенная на конкурентах этой ниши цифра (в
+# нарушение ЧАСТИ 7 CLAUDE.md — решение без анализа реально выстреливших
+# видео), а общая монтажная эвристика. Пользователь посмотрел готовый
+# рендер и увидел реальные 1-секундные кадры в хуке — по дисциплине
+# deep-audit прямое наблюдение пользователя не слабее кода, при конфликте
+# неправ метод. Отдельный, ещё более быстрый пол для "открывающих" резов
+# убран целиком (не просто поднят числом) — единый HOOK_MIN_CLIP на весь
+# хук, никаких клипов короче него ни в одной позиции хука.
+HOOK_MIN_CLIP = 2.2
 # Панорамирование считается от РЕАЛЬНОГО zoom в каждый момент кадра — (1-1/zoom)/2
 # это точный геометрический запас смещения без вылета за картинку, безопасно по
 # построению на любом кадре, поэтому PAN_SAFETY можно брать ближе к пределу, чем
@@ -2520,18 +2527,15 @@ def hook_captions_for_block(hook_words, block_start, block_dur):
 
 
 def hook_floor_for(blocks, i):
-    """Пол длительности для блока i — с учётом того, что первые
-    HOOK_OPENING_CUTS резов ХУКА получают ещё более низкий пол
-    (HOOK_OPENING_MIN_CLIP), чем остальной хук (HOOK_MIN_CLIP). Единая
-    функция для всех мест, что клэмпят длительность по этому полу
-    (block_durations/apply_section_boundary_shift/apply_human_jitter) —
-    иначе они разошлись бы между собой, и джиттер/сдвиг границы секции
-    молча утаскивали бы уже нарочно короткие открывающие кадры обратно
-    к общему HOOK_MIN_CLIP, сводя на нет весь смысл более быстрого пола."""
+    """Пол длительности для блока i — единый HOOK_MIN_CLIP на весь хук (см.
+    ревизию 29 августа у самой константы: раньше первые резы хука получали
+    отдельный, более низкий пол — убран по требованию пользователя, ни один
+    клип хука не должен быть короче HOOK_MIN_CLIP независимо от позиции).
+    Единая функция для всех мест, что клэмпят длительность по этому полу
+    (block_durations/apply_section_boundary_shift/apply_human_jitter)."""
     if not blocks[i]["section"].startswith("HOOK"):
         return MIN_CLIP
-    hook_idx = sum(1 for k in range(i + 1) if blocks[k]["section"].startswith("HOOK"))
-    return HOOK_OPENING_MIN_CLIP if hook_idx <= HOOK_OPENING_CUTS else HOOK_MIN_CLIP
+    return HOOK_MIN_CLIP
 
 
 def block_durations(blocks, total, energy_mults=None, real_weights=None):
@@ -7128,17 +7132,15 @@ SUBCUT_MIN_SOURCE_DUR = 8.0   # блок короче этого не режем
 SUBCUT_MIN_PART_DUR = 3.0     # ни один получившийся под-кадр не короче этого
 SUBCUT_CONTRAST_WORDS = {"но", "однако", "зато", "хотя", "просто", "ведь",
                           "потому", "поэтому", "притом", "притом,"}
-# Первые HOOK_OPENING_CUTS блоков хука режем куда охотнее обычного — топовые
-# ролики держат первые 2-3 реза короче остального хука. Просто пол
-# (hook_floor_for/HOOK_OPENING_MIN_CLIP) тут бессилен сам по себе: он
-# клэмпит СНИЗУ уже готовую длительность блока, а не даёт больше КУСКОВ на
-# ту же фразу — типичная 3-4-секундная фраза открытия просто не проходит
-# порог обычного SUBCUT_MIN_SOURCE_DUR=8.0 и остаётся одним клипом
-# (проверено вживую на реальном эпизоде: один только floor не изменил ни
-# одной цифры длительности — узкое место в гранулярности блоков, не в поле).
-SUBCUT_HOOK_MIN_SOURCE_DUR = 2.0
-SUBCUT_HOOK_MIN_PART_DUR = 0.9
-SUBCUT_HOOK_MIN_WORDS = 4
+# Раньше здесь стоял отдельный, более агрессивный набор порогов
+# (SUBCUT_HOOK_MIN_SOURCE_DUR=2.0/SUBCUT_HOOK_MIN_PART_DUR=0.9/
+# SUBCUT_HOOK_MIN_WORDS=4) для первых HOOK_OPENING_CUTS блоков хука — резал
+# короткие фразы открытия на ещё более мелкие куски (вплоть до ~1с).
+# Убрано целиком вместе с HOOK_OPENING_MIN_CLIP/HOOK_OPENING_CUTS (см.
+# HOOK_MIN_CLIP выше) по прямому требованию пользователя: хук теперь режется
+# теми же порогами (SUBCUT_MIN_SOURCE_DUR/SUBCUT_MIN_PART_DUR), что и тело
+# ролика — единственное, что остаётся хук-специфичным, это сам пол
+# длительности готового клипа (HOOK_MIN_CLIP=2.2 через hook_floor_for).
 
 _PURE_NUMBER_RE = re.compile(r'^\d+$')   # "1240" из "1240." — год/номер, не конец предложения
 
@@ -7189,15 +7191,10 @@ def split_long_blocks(blocks, real_weights):
     та же логика, что уже работает для обычных блоков), картинка другая —
     засчёт дедупа по used_photo_ids на большем пуле Pexels (per_page=40)."""
     new_blocks, new_weights = [], []
-    hook_seen = 0
     for b, w in zip(blocks, real_weights or [None] * len(blocks)):
-        is_hook_opening = False
-        if b["section"].startswith("HOOK"):
-            hook_seen += 1
-            is_hook_opening = hook_seen <= HOOK_OPENING_CUTS
-        min_source = SUBCUT_HOOK_MIN_SOURCE_DUR if is_hook_opening else SUBCUT_MIN_SOURCE_DUR
-        min_part = SUBCUT_HOOK_MIN_PART_DUR if is_hook_opening else SUBCUT_MIN_PART_DUR
-        min_words = SUBCUT_HOOK_MIN_WORDS if is_hook_opening else 8
+        min_source = SUBCUT_MIN_SOURCE_DUR
+        min_part = SUBCUT_MIN_PART_DUR
+        min_words = 8
         est = w if w is not None else b["words"] / 2.08
         words = b["text"].split()
         # sentence_bounds — см. _internal_sentence_boundaries(): несколько
