@@ -7588,6 +7588,50 @@ def main():
             key = _normalize_section_key(b["section"])
             if key and key in authored_queries:
                 section_query_pool[b["section"]] = authored_queries[key]
+
+    # LLM-режиссёр, атмосферное обогащение ХУКА (SHOT_DIRECTOR_MODE=on) —
+    # РЕАЛЬНЫЙ, найденный вживую пробел, отдельный от direct_query() выше
+    # (тот покрывает только блоки БЕЗ запроса вообще). Прямая жалоба
+    # пользователя: у "Пятнадцать килограммов" уже ЕСТЬ технически
+    # релевантный авторский запрос ("weighing scale metal object"), но он
+    # взят слишком буквально — реальный монтажёр связал бы число с темой
+    # ролика (меч), не с бытовым предметом. enrich_atmospheric_queries()
+    # даёт 2-3 альтернативных запроса на КАЖДЫЙ блок хука (не заменяет
+    # own_query — добавляет в тот же extra_queries-пул, что уже кросс-
+    # опыляет кандидатов внутри секции, см. комментарий выше). Отбор кадра
+    # (relevance-гейт + Semantic Visual Director реранк по РЕАЛЬНОЙ фразе)
+    # не меняется — слот физически не может стать хуже, только получить
+    # более богатый пул на выбор. Только ХУК (не всё тело эпизода) — тот же
+    # принцип, что и у всех остальных HOOK-специфичных решений пайплайна
+    # (короче клипы, только hardcut, параллакс на всю секцию): это
+    # "самый крутой обрыв на кривой удержания" (ЧАСТЬ 9 CLAUDE.md),
+    # оправдывает трату бюджета Gemini именно здесь, а не размазывание по
+    # всему эпизоду. Бюджет — тот же SHOT_DIRECTOR_MAX_CALLS_PER_RUN/кэш,
+    # что у direct_query() (единый счётчик _calls_made в shot_director.py).
+    if (os.environ.get("SHOT_DIRECTOR_MODE", "off").strip().lower() == "on"
+            and "HOOK" in section_query_pool):
+        import shot_director
+        atmo_extra = []
+        for i, b in enumerate(blocks):
+            if not b["section"].startswith("HOOK"):
+                continue
+            own_query = queries[i]
+            if not own_query:
+                continue
+            context = section_query_pool.get(b["section"], [])
+            alt = shot_director.enrich_atmospheric_queries(b["text"], own_query, context, VIDEO_FOLDER)
+            if alt:
+                atmo_extra.extend(alt)
+        if atmo_extra:
+            pool = list(section_query_pool.get("HOOK", []))
+            base_len = len(pool)
+            for q in atmo_extra:
+                if q not in pool:
+                    pool.append(q)
+            section_query_pool["HOOK"] = pool
+            print(f"  Атмосферное обогащение хука: +{len(pool) - base_len} "
+                  f"запрос(ов) от LLM-режиссёра (media_plan/shot_director_cache/atmo_*.json)")
+
     write_shot_manifest(VIDEO_FOLDER, blocks, durs, queries)
 
     if PLAN_ONLY:
@@ -7652,6 +7696,47 @@ def main():
     # иначе это чтение файла впустую.
     arc_stage_by_index = (_load_arc_stage_by_index(VIDEO_FOLDER)
                            if (look_ref is not None or visual_director is not None) else {})
+    # РЕАЛЬНЫЙ, найденный вживую пробел (deep-audit, videos/_test20s, слот 0
+    # "Пятнадцать килограммов", прямая жалоба пользователя на атмосферность
+    # отбора). domain_match_bonus() уже существует и уже подключён к
+    # compute_extra_score() — но text_domain_hint(sem_text) считается ТОЛЬКО
+    # по локальному тексту 1-2 соседних блоков, а короткие "числовые"/связочные
+    # фразы ("Пятнадцать килограммов.") физически не содержат ни одного
+    # домен-слова (battle/museum/snow/...) — сигнал молча нулевой, и бонус
+    # никогда не срабатывает именно там, где короткая фраза больше всего
+    # нуждается в подсказке "к какой теме она принадлежит". Живая проверка:
+    # domain_match_bonus для этого блока был 0.0 на КАЖДОМ кандидате
+    # (candidate_domain неважен — text_domain уже None). section_domain_hint
+    # — тот же text_domain_hint(), но по ОБЪЕДИНЁННОМУ тексту всех авторских
+    # (+ атмосферно обогащённых, см. атмосферное обогащение хука выше)
+    # запросов секции — считается РОВНО ОДИН раз на секцию (не на кандидата
+    # и не на блок), copейки по стоимости. Используется ТОЛЬКО как fallback,
+    # когда у КОНКРЕТНОГО блока свой сигнал отсутствует — блок с явным
+    # локальным доменом ("зал кинотеатра" -> urban/night) им не переопределяется.
+    #
+    # РЕАЛЬНЫЙ, найденный вживую баг в ПЕРВОЙ версии этого фикса (тот же
+    # заход, до коммита): join(pool) склеивал 20-30+ запросов в одну строку
+    # ДЛИННЕЕ, чем текстовый энкодер CLIP умеет принять целиком — truncation
+    # обрезает её до первых ~77 токенов, и КАКОЙ ИМЕННО домен выживает после
+    # обрезки зависит от порядка запросов в пуле почти случайно. Живая
+    # проверка на РЕАЛЬНОМ пуле этого эпизода (26-34 запроса, три чуть
+    # разных состава пула между прогонами): join-версия дала три РАЗНЫХ
+    # ответа — "battle", "archive_bw", None — на семантически одном и том же
+    # пуле, где явное большинство (10 из 16 классифицированных запросов)
+    # реально "battle". Голосование по домену КАЖДОГО запроса ПООТДЕЛЬНОСТИ
+    # (короткие строки, никогда не обрезаются) и выбор самого частого —
+    # устойчиво к порядку и к 1-2 отсутствующим/новым запросам, та же
+    # проверка дала "battle" стабильно на всех трёх составах пула.
+    section_domain_hint = {}
+    if visual_director is not None:
+        for sec, pool in section_query_pool.items():
+            votes = {}
+            for q in pool:
+                d, _ = visual_director.lr.text_domain_hint(q)
+                if d:
+                    votes[d] = votes.get(d, 0) + 1
+            if votes:
+                section_domain_hint[sec] = max(votes.items(), key=lambda kv: kv[1])[0]
     used_photo_ids = set()   # общий на весь ролик — не даём одной фотке всплыть дважды
     used_video_ids = set()   # то же самое, отдельно для видео (разные ID-пространства)
     used_photo_hashes = []   # aHash уже отобранных фото — ловит визуальные дубли под РАЗНЫМИ ID (см. pexels_photo)
@@ -7829,6 +7914,8 @@ def main():
             if visual_director is not None:
                 director_role = visual_director.functional_role(b, is_section_start)
                 director_text_domain, _ = visual_director.lr.text_domain_hint(sem_text)
+                if director_text_domain is None:
+                    director_text_domain = section_domain_hint.get(b["section"])
                 director_score_fn = functools.partial(
                     visual_director.compute_extra_score, role=director_role, block_text=sem_text,
                     text_domain=director_text_domain, recent_semantic_tags=recent_semantic_tags,

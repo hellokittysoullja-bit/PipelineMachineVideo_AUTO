@@ -218,3 +218,110 @@ def test_call_body_includes_zero_budget_for_25_flash(monkeypatch):
     with tempfile.TemporaryDirectory() as d:
         sd.direct_query("человек принимает решение", d)
     assert captured["body"]["generationConfig"]["thinkingConfig"] == {"thinkingBudget": 0}
+
+
+# ---------- enrich_atmospheric_queries (атмосферное обогащение хука) ----------
+# см. её докстринг в shot_director.py — реальная жалоба пользователя: у блока
+# УЖЕ есть технически релевантный запрос, но он взят слишком буквально, в
+# отрыве от темы остального ролика.
+
+def test_atmo_off_mode_never_touches_network(monkeypatch, tmp_path):
+    monkeypatch.setenv("SHOT_DIRECTOR_MODE", "off")
+
+    def _boom(*a, **kw):
+        raise AssertionError("network должен быть недостижим в off-режиме")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    assert sd.enrich_atmospheric_queries(
+        "Пятнадцать килограммов.", "weighing scale metal object",
+        ["medieval european sword blade close up"], str(tmp_path)) is None
+
+
+def test_atmo_no_api_key_returns_none_without_network(monkeypatch, tmp_path):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
+    def _boom(*a, **kw):
+        raise AssertionError("не должно быть сетевого вызова без ключа")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    assert sd.enrich_atmospheric_queries(
+        "Пятнадцать килограммов.", "weighing scale metal object", [], str(tmp_path)) is None
+
+
+def test_atmo_successful_call_returns_full_list_and_writes_cache(monkeypatch, tmp_path):
+    payload = _fake_gemini_payload(["heavy iron weight medieval sword", "knight holding heavy sword"])
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(payload))
+    result = sd.enrich_atmospheric_queries(
+        "Пятнадцать килограммов.", "weighing scale metal object",
+        ["medieval european sword blade close up"], str(tmp_path))
+    assert result == ["heavy iron weight medieval sword", "knight holding heavy sword"]
+    cache_file = sd._atmo_cache_path(
+        str(tmp_path), "Пятнадцать килограммов.", "weighing scale metal object",
+        ["medieval european sword blade close up"])
+    assert os.path.exists(cache_file)
+
+
+def test_atmo_cache_hit_skips_network_entirely(monkeypatch, tmp_path):
+    payload = _fake_gemini_payload(["heavy iron weight medieval sword"])
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(payload))
+    args = ("Пятнадцать килограммов.", "weighing scale metal object",
+            ["medieval european sword blade close up"], str(tmp_path))
+    first = sd.enrich_atmospheric_queries(*args)
+
+    def _boom(*a, **kw):
+        raise AssertionError("кэш-хит не должен трогать сеть")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    second = sd.enrich_atmospheric_queries(*args)
+    assert first == second == ["heavy iron weight medieval sword"]
+
+
+def test_atmo_cache_key_changes_with_context_queries(monkeypatch, tmp_path):
+    # Реальный сценарий: человек отредактировал script.txt, состав запросов
+    # секции изменился — кэш должен честно промахнуться, не отдать
+    # атмосферное обогащение под СТАРУЮ тему раздела.
+    payload1 = _fake_gemini_payload(["query for context A"])
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(payload1))
+    r1 = sd.enrich_atmospheric_queries("Текст.", "own query", ["context A"], str(tmp_path))
+    assert r1 == ["query for context A"]
+
+    payload2 = _fake_gemini_payload(["query for context B"])
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(payload2))
+    r2 = sd.enrich_atmospheric_queries("Текст.", "own query", ["context B"], str(tmp_path))
+    assert r2 == ["query for context B"]
+
+
+def test_atmo_shares_call_budget_with_direct_query(monkeypatch, tmp_path):
+    monkeypatch.setattr(sd, "SHOT_DIRECTOR_MAX_CALLS_PER_RUN", 1)
+    payload = _fake_gemini_payload(["some query"])
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(payload))
+    first = sd.enrich_atmospheric_queries("Текст 1.", "q1", ["ctx"], str(tmp_path))
+    assert first == ["some query"]
+    # Бюджет исчерпан этим ЖЕ вызовом — direct_query() на РАЗНОМ тексте
+    # (свежий кэш-промах) обязан молча вернуть None, не звонить в сеть.
+    def _boom(*a, **kw):
+        raise AssertionError("бюджет должен быть общим со enrich_atmospheric_queries")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    assert sd.direct_query("Совсем другой текст.", str(tmp_path)) is None
+
+
+def test_atmo_network_error_fails_open(monkeypatch, tmp_path):
+    def _raise(*a, **kw):
+        raise OSError("network down")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _raise)
+    assert sd.enrich_atmospheric_queries("Текст.", "q", ["ctx"], str(tmp_path)) is None
+
+
+def test_atmo_own_query_excluded_from_context(monkeypatch, tmp_path):
+    # own_query не должен дублироваться в context — enrich_atmospheric_queries
+    # сама фильтрует, вызывающий код (pipeline_smart.py) передаёт "как есть".
+    captured = {}
+
+    def fake_urlopen(req, timeout=None):
+        captured["body"] = req.data.decode("utf-8")
+        return _FakeHTTPResponse(_fake_gemini_payload(["q"]))
+    monkeypatch.setattr(sd.urllib.request, "urlopen", fake_urlopen)
+    sd.enrich_atmospheric_queries("Текст.", "own query", ["own query", "other query"], str(tmp_path))
+    assert captured["body"].count("own query") == 1   # только в описании own_query, не в context-списке

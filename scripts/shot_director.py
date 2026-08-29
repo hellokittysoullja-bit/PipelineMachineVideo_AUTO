@@ -135,13 +135,16 @@ def _extract_queries(raw_text):
     return clean or None
 
 
-def _call_gemini(text, api_key):
+def _call_gemini_prompt(prompt, api_key):
+    """Общий HTTP-вызов Gemini — извлечено из _call_gemini(), чтобы
+    enrich_atmospheric_queries() могла использовать тот же транспорт/парсинг
+    с ДРУГИМ (не _PROMPT_TEMPLATE) промптом, не дублируя код запроса."""
     generation_config = {"responseMimeType": "application/json"}
     thinking_cfg = _thinking_config_for_model(SHOT_DIRECTOR_MODEL)
     if thinking_cfg is not None:
         generation_config["thinkingConfig"] = thinking_cfg
     body = json.dumps({
-        "contents": [{"parts": [{"text": _PROMPT_TEMPLATE.format(text=text)}]}],
+        "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": generation_config,
     }).encode("utf-8")
     url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
@@ -153,10 +156,107 @@ def _call_gemini(text, api_key):
     return _extract_queries(raw)
 
 
+def _call_gemini(text, api_key):
+    return _call_gemini_prompt(_PROMPT_TEMPLATE.format(text=text), api_key)
+
+
+_ATMO_PROMPT_TEMPLATE = (
+    'Ты — постановщик кадра для закадрового видео на русском языке. '
+    'Визуальный мир этого ролика уже задан ДРУГИМИ кадрами того же раздела '
+    'сценария (их авторские поисковые запросы): {context}.\n\n'
+    'Дана ФРАЗА из сценария: "{text}". Её собственный поисковый запрос — '
+    '"{own_query}" — технически релевантен фразе, но взят СЛИШКОМ БУКВАЛЬНО, '
+    'в отрыве от темы всего ролика (см. другие запросы раздела выше) — так '
+    'реальный монтажёр эту фразу НЕ поставил бы. Предложи 2-3 АЛЬТЕРНАТИВНЫХ '
+    'английских поисковых запроса для Pexels/Pixabay (2-5 слов каждый, '
+    'конкретная визуальная сцена, без кириллицы, без текста на кадре), '
+    'которые: (1) остаются по смыслу верны именно ЭТОЙ фразе, (2) визуально '
+    'принадлежат ТОМУ ЖЕ миру, что и остальные запросы раздела — то есть '
+    'связывают содержание фразы с темой/предметами остальных кадров, а не '
+    'берут первый напрашивающийся обобщённый предмет.\n\n'
+    'Верни СТРОГО валидный JSON без пояснений и без markdown-разметки: '
+    '{{"literal": true/false, "queries": ["query1", "query2", "query3"]}}.'
+)
+
+
+def _atmo_cache_path(video_dir, text, own_query, context_queries):
+    h = hashlib.sha256(
+        ("atmo|" + text + "|" + own_query + "|" + "|".join(sorted(context_queries))
+         ).encode("utf-8")).hexdigest()[:24]
+    return os.path.join(_cache_dir(video_dir), "atmo_" + h + ".json")
+
+
 def reset_call_counter():
     """Тесты/повторный прогон в одном процессе — сбросить счётчик лимита."""
     global _calls_made
     _calls_made = 0
+
+
+def enrich_atmospheric_queries(text, own_query, context_queries, video_dir):
+    """Реальный, найденный вживую пробел (прямая жалоба пользователя на
+    открывающий кадр хука: фраза "Пятнадцать килограммов" получила фото
+    бытовых кухонных весов — технически релевантно ЧИСЛУ, но никак не
+    связано с темой всего ролика про меч). direct_query() выше решает
+    ДРУГУЮ задачу (совсем нет запроса — идиома/метафора без предметных
+    слов); здесь запрос УЖЕ есть и технически подходит, проблема в том, что
+    он взят СЛИШКОМ буквально, в отрыве от визуального мира остальных
+    кадров раздела.
+
+    own_query — уже назначенный авторский/смысловой запрос этого блока.
+    context_queries — ОСТАЛЬНЫЕ запросы того же раздела (см. section_query_
+    pool в pipeline_smart.py) — дают модели понять тему ролика без отдельного
+    вызова за METADATA/TITLE (который на практике может быть плейсхолдером
+    или кликбейтом, не описанием содержания — лишний источник ошибки).
+
+    Возвращает список альтернативных запросов (str) или None (режим off /
+    нет ключа / лимит исчерпан / ошибка) — вызывающий код ДОБАВЛЯЕТ их в
+    пул кандидатов (extra_queries), никогда не заменяет own_query — тот же
+    принцип "только плюс", что и у остального пайплайна: даже если LLM
+    вернула что-то похуже, реальный отбор (relevance-гейт + Semantic Visual
+    Director реранк по РЕАЛЬНОЙ фразе) их всё равно честно отсеет, слот не
+    может стать ХУЖЕ, чем был без этого вызова — только получить более
+    богатый пул кандидатов на выбор.
+
+    Отдельный, ЗАМЕДЛЕННЫЙ кэш-неймспейс от direct_query() (префикс "atmo_"
+    в имени файла в ТОМ ЖЕ media_plan/shot_director_cache/) — ключ кэша
+    включает own_query И context_queries, поэтому смена состава запросов
+    секции (человек отредактировал script.txt) сама инвалидирует кэш, не
+    нужно чистить руками. Использует ТОТ ЖЕ счётчик лимита (_calls_made/
+    SHOT_DIRECTOR_MAX_CALLS_PER_RUN), что и direct_query() — единый бюджет
+    вызовов Gemini за прогон, не два независимых потолка."""
+    global _calls_made
+    if os.environ.get("SHOT_DIRECTOR_MODE", "off").strip().lower() != "on":
+        return None
+    context_queries = [q for q in (context_queries or []) if q and q != own_query]
+    cache_file = _atmo_cache_path(video_dir, text, own_query, context_queries)
+    if os.path.exists(cache_file):
+        try:
+            cached = json.load(open(cache_file, encoding="utf-8"))
+            return cached.get("queries") or None
+        except Exception:
+            pass
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        return None
+    if _calls_made >= SHOT_DIRECTOR_MAX_CALLS_PER_RUN:
+        return None
+    _calls_made += 1
+    prompt = _ATMO_PROMPT_TEMPLATE.format(
+        context=", ".join(f'"{q}"' for q in context_queries), text=text, own_query=own_query)
+    try:
+        queries = _call_gemini_prompt(prompt, api_key)
+    except Exception as e:
+        print(f"  [shot_director] Gemini (atmo) не ответил на \"{text[:40]}...\": {e}")
+        return None
+    if not queries:
+        return None
+    try:
+        json.dump({"text": text, "own_query": own_query, "context_queries": context_queries,
+                    "queries": queries}, open(cache_file, "w", encoding="utf-8"),
+                   ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+    return queries
 
 
 def direct_query(text, video_dir):

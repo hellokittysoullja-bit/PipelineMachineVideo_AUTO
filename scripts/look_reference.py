@@ -463,7 +463,28 @@ def _domain_scores_from_text(text):
     ноль новых зависимостей/загрузок модели — просто раньше не
     использовался. Нужно для Semantic Visual Director (scripts/
     visual_director.py) — домен ОЖИДАНИЯ по тексту фразы, для сравнения с
-    доменом КАНДИДАТА (classify_domain() на картинке)."""
+    доменом КАНДИДАТА (classify_domain() на картинке).
+
+    РЕАЛЬНЫЙ, найденный вживую баг (deep-audit, 28 августа) — эта функция
+    была ПОЛНОСТЬЮ сломана с момента написания и НИ РАЗУ не сработала ни на
+    одном рендере: в установленной версии transformers (5.15) get_text_
+    features() возвращает не голый тензор, как в старой документации/
+    докстринге выше, а BaseModelOutputWithPooling — `txt_e.norm(...)` кидал
+    AttributeError на КАЖДОМ вызове, широкий `except Exception: return None`
+    (строка ниже) молча глотал это как "CLIP недоступен", и text_domain_hint()
+    всегда отдавала (None, 0.0) — domain_match_bonus() в compute_extra_score()
+    был мёртвым кодом с самого внедрения, ни разу не дал ненулевой бонус.
+    Живая проверка на реальном тексте эпизода ("medieval knight battle
+    reenactment fight" — максимально очевидный "battle"-домен) подтвердила:
+    ДО фикса — None/0.0 всегда; ПОСЛЕ — уверенный сигнал. Исходники
+    transformers (CLIPModel.get_text_features) показывают: пулинг ВНУТРИ
+    этой версии УЖЕ применяет text_projection и кладёт результат обратно в
+    `.pooler_output` того же объекта (перезаписывая сырой pooled_output) —
+    численно сверено против ЗАВЕДОМО рабочего пути (joint image+text forward
+    в _domain_scores()/clip_relevance(), max abs diff = 0.0 на одном и том
+    же тексте). Обрабатываем ОБА варианта (голый тензор старых версий
+    transformers И BaseModelOutputWithPooling новых) — не привязываемся к
+    одной версии библиотеки повторно."""
     if not pipeline_smart.CLIP_ENABLED or pipeline_smart.CLIP_BROKEN:
         return None
     try:
@@ -473,7 +494,8 @@ def _domain_scores_from_text(text):
         texts = [text] + list(DOMAIN_PROMPTS.values())
         inputs = processor(text=texts, return_tensors="pt", padding=True, truncation=True)
         with torch.no_grad():
-            txt_e = model.get_text_features(**inputs)
+            raw = model.get_text_features(**inputs)
+        txt_e = raw if torch.is_tensor(raw) else raw.pooler_output
         txt_e = txt_e / txt_e.norm(dim=-1, keepdim=True)
         scores = (txt_e[0:1] @ txt_e[1:].T)[0].tolist()
     except ImportError:

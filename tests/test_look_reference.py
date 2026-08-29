@@ -168,6 +168,41 @@ def test_text_domain_hint_none_when_margin_too_small(monkeypatch):
     assert margin == 0.0
 
 
+# ---------- _domain_scores_from_text — РЕАЛЬНЫЙ CLIP-вызов, не мок ----------
+# РЕАЛЬНЫЙ, найденный вживую баг (deep-audit, 28 августа): все три теста
+# выше мокают _domain_scores_from_text напрямую — ни один из них никогда не
+# вызывал настоящий CLIP-путь внутри неё, поэтому её реальная поломка
+# (get_text_features() в установленной версии transformers возвращает
+# BaseModelOutputWithPooling, не голый тензор — см. её докстринг) НЕ была
+# поймана тестами месяцами. Этот тест намеренно НЕ мокает _domain_scores_
+# from_text — живой вызов той же (уже везде в этом файле кэшируемой)
+# CLIP-модели, единственный способ поймать регрессию именно такого рода.
+
+def test_domain_scores_from_text_real_clip_call_battle_text():
+    scores = lr._domain_scores_from_text("medieval knight battle reenactment fight with swords and armor")
+    assert scores is not None, (
+        "если это None — _domain_scores_from_text() снова тихо падает "
+        "(см. широкий except в её теле) и domain_match_bonus() снова мёртвый код")
+    assert scores["battle"] == max(scores.values()), (
+        f"максимально однозначный 'battle'-текст должен дать 'battle' как топ-домен, "
+        f"получили {scores}")
+
+
+def test_domain_scores_from_text_real_clip_call_snow_text():
+    scores = lr._domain_scores_from_text("snowy winter forest covered in ice and snow")
+    assert scores is not None
+    assert scores["snow"] == max(scores.values()), f"получили {scores}"
+
+
+def test_text_domain_hint_real_clip_call_matches_domain_scores():
+    # Сквозная проверка: text_domain_hint() (margin-gate поверх _domain_
+    # scores_from_text()) реально доходит до "battle" на живом вызове, а не
+    # падает в (None, 0.0) молча.
+    domain, margin = lr.text_domain_hint("medieval knight battle reenactment fight with swords and armor")
+    assert domain == "battle"
+    assert margin > 0.0
+
+
 # ---------- find_reference ----------
 
 def _ref(id_, domain, lab_mean, brightness=0.5, contrast=0.4, temperature=0.0, max_delta=None,
