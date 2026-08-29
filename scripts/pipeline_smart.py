@@ -6744,11 +6744,35 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                     os.environ.get("VLM_ARBITER_MODE", "off").strip().lower() == "on"):
                 shortlist = _build_video_arbiter_shortlist(good, query)
                 if len(shortlist) >= 2:
-                    import shot_director
-                    arbiter_pick = shot_director.arbitrate_hook_candidates(
-                        arbiter_text, [g[2] for g in shortlist], [g[3] for g in shortlist], VIDEO_FOLDER)
+                    # Реальный найденный баг: shortlist здесь — пути к
+                    # ВИДЕОФАЙЛАМ (.mp4), а Gemini vision принимает только
+                    # статичные картинки — сырой .mp4 под mime_type=image/*
+                    # дал HTTP 400 Bad Request (videos/_test20s, idx4, 29
+                    # августа). Пробник уже удалён к этому моменту (см.
+                    # finally у extract_video_probe_frame выше) — исходный
+                    # видеофайл ещё цел, извлекаем заново ТОЛЬКО для
+                    # шорт-листа (не для всего good — дёшево).
+                    probes = []
+                    for g in shortlist:
+                        p, cleanup = extract_video_probe_frame(g[2])
+                        if p is not None:
+                            probes.append((g, p, cleanup))
+                    arbiter_pick = None
+                    if len(probes) >= 2:
+                        import shot_director
+                        arbiter_pick = shot_director.arbitrate_hook_candidates(
+                            arbiter_text, [p for _, p, _ in probes],
+                            [g[3] for g, _, _ in probes], VIDEO_FOLDER)
                     if arbiter_pick is not None:
-                        best = next(g for g in shortlist if g[2] == arbiter_pick)
+                        match = next((g for g, p, _ in probes if p == arbiter_pick), None)
+                        if match is not None:
+                            best = match
+                    for _, p, cleanup in probes:
+                        if cleanup and os.path.exists(p):
+                            try:
+                                os.remove(p)
+                            except OSError:
+                                pass
             for g in good:
                 if g is best:
                     continue
