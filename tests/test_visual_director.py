@@ -447,6 +447,60 @@ def test_compute_extra_score_no_bonus_when_query_info_missing(monkeypatch):
     assert score == 0.0
 
 
+# ---------- OPENING_AESTHETIC_WEIGHT (открывающий кадр — эстетика решает
+# base/director выбор ДАЖЕ без VLM-арбитра, см. её блок-комментарий) ----------
+
+def test_compute_extra_score_adds_opening_aesthetic_bonus(monkeypatch):
+    _patch_all_neutral(monkeypatch)
+    # aesthetic_val=7.0 (верхняя граница документированного диапазона 3-7)
+    # -> normalized=(7-3)/4=1.0 -> bonus = 1.0 * OPENING_AESTHETIC_WEIGHT
+    score = vd.compute_extra_score("x.jpg", "narrative", "текст блока", None, [],
+                                    is_opening=True, aesthetic_val=7.0)
+    assert score == pytest.approx(1.0 * vd.OPENING_AESTHETIC_WEIGHT)
+
+
+def test_compute_extra_score_no_opening_bonus_when_not_opening(monkeypatch):
+    _patch_all_neutral(monkeypatch)
+    score = vd.compute_extra_score("x.jpg", "narrative", "текст блока", None, [],
+                                    is_opening=False, aesthetic_val=7.0)
+    assert score == 0.0
+
+
+def test_compute_extra_score_no_opening_bonus_when_aesthetic_val_missing(monkeypatch):
+    _patch_all_neutral(monkeypatch)
+    score = vd.compute_extra_score("x.jpg", "narrative", "текст блока", None, [],
+                                    is_opening=True, aesthetic_val=None)
+    assert score == 0.0
+
+
+def test_compute_extra_score_opening_bonus_clamped_at_floor(monkeypatch):
+    _patch_all_neutral(monkeypatch)
+    # aesthetic_val ниже документированного диапазона (3-7) -> normalized
+    # клэмпится к 0, не уходит в отрицательное (не штрафует низкую эстетику
+    # сверх того, что и так даёт естественная разница нормализованных значений).
+    score = vd.compute_extra_score("x.jpg", "narrative", "текст блока", None, [],
+                                    is_opening=True, aesthetic_val=0.0)
+    assert score == 0.0
+
+
+def test_compute_extra_score_opening_bonus_clamped_at_ceiling(monkeypatch):
+    _patch_all_neutral(monkeypatch)
+    # aesthetic_val сильно выше документированного диапазона -> клэмп 1.5,
+    # не даёт единичному выдающемуся кадру задавить остальные сигналы бесконечно.
+    score = vd.compute_extra_score("x.jpg", "narrative", "текст блока", None, [],
+                                    is_opening=True, aesthetic_val=100.0)
+    assert score == pytest.approx(1.5 * vd.OPENING_AESTHETIC_WEIGHT)
+
+
+def test_compute_extra_score_opening_bonus_combines_with_same_query_bonus(monkeypatch):
+    # Независимые сигналы — оба применяются одновременно, не взаимоисключают.
+    _patch_all_neutral(monkeypatch)
+    score = vd.compute_extra_score("x.jpg", "narrative", "текст блока", None, [],
+                                    own_query="scale", candidate_query="scale",
+                                    is_opening=True, aesthetic_val=7.0)
+    assert score == pytest.approx(vd.SAME_QUERY_BONUS + 1.0 * vd.OPENING_AESTHETIC_WEIGHT)
+
+
 # ---------- VISUAL_DIRECTOR_MODE — валидация env ----------
 
 def test_invalid_mode_env_value_is_a_known_fallback_state():

@@ -2893,10 +2893,11 @@ def _score_and_pick(candidates_info, director_score_fn=None):
     кандидат, не последний (важно для байт-в-байт совместимости).
 
     director_winner считается, ТОЛЬКО если передан director_score_fn(path,
-    candidate_query=None) -> float (scripts/visual_director.py) —
-    candidate_query (см. SAME_QUERY_BONUS) передаётся всегда, как keyword;
-    любой director_score_fn обязан его принимать (**kwargs или явный
-    параметр) — см. тестовые lambda в tests/test_pexels_scoring.py.
+    candidate_query=None, aesthetic_val=None) -> float (scripts/
+    visual_director.py) — candidate_query (см. SAME_QUERY_BONUS) и
+    aesthetic_val (см. OPENING_AESTHETIC_WEIGHT) передаются всегда, как
+    keyword; любой director_score_fn обязан их принимать (**kwargs или
+    явные параметры) — см. тестовые lambda в tests/test_pexels_scoring.py.
     8-элементный кортеж с extra-
     осью СРАЗУ ПОСЛЕ sharp_ok, ДО aesthetic (см. докстринг
     scripts/visual_director.py: "подходит ли по роли/домену/повтору"
@@ -2926,7 +2927,11 @@ def _score_and_pick(candidates_info, director_score_fn=None):
             # словарь (см. candidates_info.append выше), _origin_query
             # проставляется в pexels_photo()/pexels_video() при сборе пула;
             # отсутствует -> None, старое поведение (ноль бонуса).
-            extra = director_score_fn(c["path"], candidate_query=c["p"].get("_origin_query"))
+            # aesthetic_val — уже посчитан для base-тройки ниже, передаём
+            # тот же (см. OPENING_AESTHETIC_WEIGHT в visual_director.py) —
+            # используется, только если вызывающий partial связал is_opening=True.
+            extra = director_score_fn(c["path"], candidate_query=c["p"].get("_origin_query"),
+                                       aesthetic_val=c["aesthetic_val"])
             dscore = (c["is_dup_free"], c["size_ok"], c["is_relevant"], sharp_ok, extra,
                        c["aesthetic_val"], c["luma_score"], c["min_d"])
             if dscore > dir_score:
@@ -6727,6 +6732,23 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                                 sent_score += _vd.SAME_QUERY_BONUS
                             except Exception:
                                 pass
+                        # OPENING_AESTHETIC_WEIGHT (см. visual_director.py) —
+                        # та же архитектурная причина, что у фото-пути:
+                        # семантика почти всегда предпочитает буквальный, но
+                        # скучный кандидат раньше, чем эстетика успевает
+                        # сравниться — для открывающего кадра ролика решает
+                        # ДАЖЕ без VLM-арбитра/Gemini. probe — реальный кадр
+                        # ЭТОГО видео-кандидата, ещё не удалён (см. finally
+                        # ниже) — тот же aesthetic_score(), что фото-путь.
+                        if is_opening_shot:
+                            try:
+                                import visual_director as _vd
+                                av = aesthetic_score(probe)
+                                if av is not None:
+                                    norm = max(0.0, min(1.5, (av - _vd.AESTHETIC_NORM_MIN) / _vd.AESTHETIC_NORM_RANGE))
+                                    sent_score += norm * _vd.OPENING_AESTHETIC_WEIGHT
+                            except Exception:
+                                pass
                 finally:
                     if cleanup and os.path.exists(probe):
                         os.remove(probe)
@@ -8281,6 +8303,14 @@ def main():
         director_score_fn = None
         director_entry = None
         director_assist = visual_director is not None and visual_director.VISUAL_DIRECTOR_MODE == "assist"
+        # is_opening — САМЫЙ ПЕРВЫЙ блок всего эпизода (i==0, HOOK по
+        # построению сценария) — см. OPENING_AESTHETIC_WEIGHT в
+        # visual_director.py и is_opening в arbitrate_hook_candidates.
+        # Реальная жалоба пользователя (/goal, 29 августа): "самое
+        # начало... нужно самый красивый впечатляющий кадр для наивысшего
+        # удержания" — работает ДАЖЕ без VLM-арбитра/Gemini (см. её
+        # блок-комментарий), т.к. решает сам base/director выбор.
+        is_opening_shot = (i == 0)
         if not photo and use_pexels:
             # Смысловая оценка кадра-пробника ВИДЕО против полной фразы —
             # раньше видео-путь такой оценки не имел вообще (только фото),
@@ -8301,7 +8331,7 @@ def main():
                 director_score_fn = functools.partial(
                     visual_director.compute_extra_score, role=director_role, block_text=sem_text,
                     text_domain=director_text_domain, recent_semantic_tags=recent_semantic_tags,
-                    arc_stage=arc_stage_by_index.get(i), own_query=queries[i])
+                    arc_stage=arc_stage_by_index.get(i), own_query=queries[i], is_opening=is_opening_shot)
                 director_entry = {}
             # Content-aware чередование вместо механического i%2 (ЧАСТЬ 14
             # раньше просто нечётные->фото/чётные->видео) — зритель
@@ -8334,12 +8364,6 @@ def main():
             # НЕ дополненный соседями текст блока (в отличие от sem_text) —
             # VLM понимает короткую фразу саму по себе.
             hook_arbiter_text = b["text"] if b["section"].startswith("HOOK") else None
-            # is_opening — САМЫЙ ПЕРВЫЙ блок всего эпизода (i==0, HOOK по
-            # построению сценария) — см. _build_opening_shortlist/
-            # is_opening в arbitrate_hook_candidates. Реальная жалоба
-            # пользователя (/goal, 29 августа): "самое начало... нужно
-            # самый красивый впечатляющий кадр для наивысшего удержания".
-            is_opening_shot = (i == 0)
             if prefer_video:
                 video = pexels_video(queries[i], i, used_ids=used_video_ids, used_hashes=used_photo_hashes,
                                      action_qualifier=act_qual,

@@ -97,7 +97,7 @@ def test_director_score_fn_can_diverge_from_base_winner():
     director_pick = _cand("director_pick", aesthetic_val=0.0)
     scores = {"aesthetic_high": 0.0, "director_pick": 10.0}
     base, director = ps._score_and_pick(
-        [aesthetic_high, director_pick], director_score_fn=lambda path, candidate_query=None: scores[path])
+        [aesthetic_high, director_pick], director_score_fn=lambda path, **kwargs: scores[path])
     assert base is aesthetic_high
     assert director is director_pick
 
@@ -107,7 +107,7 @@ def test_director_respects_relevance_gate_even_with_high_extra():
     relevant = _cand("relevant", is_relevant=1)
     scores = {"irrelevant_but_favored": 100.0, "relevant": 0.0}
     base, director = ps._score_and_pick(
-        [irrelevant_but_favored, relevant], director_score_fn=lambda path, candidate_query=None: scores[path])
+        [irrelevant_but_favored, relevant], director_score_fn=lambda path, **kwargs: scores[path])
     assert director is relevant   # is_relevant остаётся гейтом впереди extra, extra не может его перебить
 
 
@@ -146,7 +146,7 @@ def test_director_sharp_gate_matches_base():
     sharp = _cand("sharp", sharp_ok=1, aesthetic_val=-10.0)
     scores = {"blurry": 0.0, "sharp": 0.0}
     base, director = ps._score_and_pick(
-        [blurry, sharp], director_score_fn=lambda path, candidate_query=None: scores[path])
+        [blurry, sharp], director_score_fn=lambda path, **kwargs: scores[path])
     assert director is sharp
 
 

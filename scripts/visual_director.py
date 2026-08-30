@@ -312,6 +312,40 @@ VISUAL_QC_NOISE_WEIGHT = 0.05
 # оказалась не мелкой (3 из 5 слотов хука на реальном рендере).
 SAME_QUERY_BONUS = 0.20
 
+# OPENING_AESTHETIC_WEIGHT — реальный найденный вживую случай (29 августа,
+# прямое требование пользователя после того, как VLM-арбитр не смог быть
+# живьём проверен из-за исчерпанной квоты Gemini: "реализовать то, что мы
+# хотим от Gemini, даже БЕЗ Gemini"). Проблема ("самый первый кадр ролика —
+# технически точная, но скучная картинка") решается не только vision-LLM:
+# в пайплайне уже есть РЕАЛЬНАЯ, локальная, ничего не стоящая модель
+# эстетики — aesthetic_score() (LAION-Aesthetics head поверх CLIP-эмбеддинга,
+# см. её докстринг: диапазон ~3-7 на реальных фото, подтверждён вживую на
+# 25 кадрах этого же эпизода — топ-3 по оценке визуально заметно сильнее по
+# композиции/свету). Баг был не "эстетики не существует", а АРХИТЕКТУРНЫЙ:
+# aesthetic_val стоит в лексикографическом кортеже _score_and_pick() ПОСЛЕ
+# extra (семантического скора) — то есть решает только когда семантика уже
+# идеально равна, а на практике семантика конкретной фразы ("Пятнадцать
+# килограммов." -> весы) почти всегда СТРОГО предпочитает буквальный, но
+# скучный кандидат раньше, чем эстетика вообще успевает сравниться.
+# is_opening внедряет эстетику РАНЬШЕ, прямо в сам extra-скор (не трогая
+# порядок кортежа — общий, безопасный способ, уже проверенный на
+# SAME_QUERY_BONUS/DOMAIN_MATCH_BONUS), поэтому решает и base-, и director-
+# победителя ДО и НЕЗАВИСИМО от VLM-арбитра — работает всегда, при
+# VLM_ARBITER_MODE=off, при исчерпанной квоте, без ключа вообще. Арбитр
+# (когда доступен) остаётся дополнительной полировкой поверх уже
+# качественного base/director выбора, не единственным источником качества.
+# Нормализация — честно откалиброванный диапазон ИЗ ДОКСТРИНГА самой
+# aesthetic_score() (3-7, не с потолка): (val-3)/4 даёт ~0..1 на типичных
+# фото, верхний клэмп 1.5 — не режет реально выдающиеся кадры за пределами
+# документированного диапазона. Вес 0.6 — того же порядка, что
+# SENTENCE_RELEVANCE_WEIGHT=1.0 (эстетика РЕАЛЬНО конкурирует со смыслом
+# для открывающего кадра, не тонет в нём и не полностью его перебивает) —
+# как и SAME_QUERY_BONUS/DOMAIN_MATCH_BONUS, разумное стартовое значение,
+# не откалиброванное на большом наборе эпизодов; честно так и помечено.
+AESTHETIC_NORM_MIN = 3.0
+AESTHETIC_NORM_RANGE = 4.0
+OPENING_AESTHETIC_WEIGHT = 0.6
+
 # Arc-stage-осведомлённый бонус по крупности плана (см. speech_planner.
 # assign_chapter_arcs — "заход-якорь"/"слом"/"доказательство"/... для
 # BLOCK-секций, "hook"/"final" для HOOK/FINAL) — ДОПОЛНИТЕЛЬНЫЙ, независимый
@@ -800,7 +834,7 @@ def candidate_domain_for(image_path):
 
 
 def compute_extra_score(image_path, role, block_text, text_domain, recent_semantic_tags, arc_stage=None,
-                         own_query=None, candidate_query=None):
+                         own_query=None, candidate_query=None, is_opening=False, aesthetic_val=None):
     """Один float — оркестрация всех сигналов выше. role/text_domain —
     БЛОК-уровневые значения (посчитаны ОДИН РАЗ на блок вызывающим кодом в
     main(), не на каждого кандидата — functional_role() бесплатна, но
@@ -815,11 +849,20 @@ def compute_extra_score(image_path, role, block_text, text_domain, recent_semant
     запрос, назначенный ЭТОМУ блоку (queries[i] у вызывающего кода);
     candidate_query — из какого запроса пула реально пришёл ЭТОТ кандидат
     (p["_origin_query"], см. pexels_photo()/pexels_video()). Оба None у
-    старых вызовов/тестов — ноль изменений поведения."""
+    старых вызовов/тестов — ноль изменений поведения.
+
+    is_opening/aesthetic_val — см. OPENING_AESTHETIC_WEIGHT ниже: та же
+    проблема, что решает VLM-арбитр (open-shot критерий — эффектность, не
+    точность), но БЕЗ Gemini — работает всегда, независимо от квоты/ключа/
+    режима VLM_ARBITER_MODE, и именно поэтому определяет САМ base/director
+    выбор (не только арбитраж поверх него)."""
     rel = sentence_relevance(image_path, block_text)
     score = (rel or 0.0) * SENTENCE_RELEVANCE_WEIGHT
     if own_query and candidate_query and candidate_query == own_query:
         score += SAME_QUERY_BONUS
+    if is_opening and aesthetic_val is not None:
+        normalized = max(0.0, min(1.5, (aesthetic_val - AESTHETIC_NORM_MIN) / AESTHETIC_NORM_RANGE))
+        score += normalized * OPENING_AESTHETIC_WEIGHT
 
     shot_size = _safe_shot_size(image_path)
     if shot_size:
