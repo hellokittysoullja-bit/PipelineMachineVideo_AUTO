@@ -492,13 +492,67 @@ def test_compute_extra_score_opening_bonus_clamped_at_ceiling(monkeypatch):
     assert score == pytest.approx(1.5 * vd.OPENING_AESTHETIC_WEIGHT)
 
 
-def test_compute_extra_score_opening_bonus_combines_with_same_query_bonus(monkeypatch):
-    # Независимые сигналы — оба применяются одновременно, не взаимоисключают.
+def test_compute_extra_score_opening_suppresses_same_query_bonus(monkeypatch):
+    # 29 августа, реальный найденный конфликт: SAME_QUERY_BONUS награждает
+    # буквальную точность запроса, opening-кадр должен предпочитать
+    # эффектность точности — бонус НЕ должен применяться при is_opening=True,
+    # даже если own_query/candidate_query совпадают.
     _patch_all_neutral(monkeypatch)
     score = vd.compute_extra_score("x.jpg", "narrative", "текст блока", None, [],
                                     own_query="scale", candidate_query="scale",
                                     is_opening=True, aesthetic_val=7.0)
-    assert score == pytest.approx(vd.SAME_QUERY_BONUS + 1.0 * vd.OPENING_AESTHETIC_WEIGHT)
+    assert score == pytest.approx(1.0 * vd.OPENING_AESTHETIC_WEIGHT)
+
+
+def test_compute_extra_score_same_query_bonus_still_applies_when_not_opening(monkeypatch):
+    # Регрессия: для всех остальных слотов (is_opening=False, дефолт)
+    # SAME_QUERY_BONUS не тронут этим изменением.
+    _patch_all_neutral(monkeypatch)
+    score = vd.compute_extra_score("x.jpg", "narrative", "текст блока", None, [],
+                                    own_query="scale", candidate_query="scale",
+                                    is_opening=False, aesthetic_val=7.0)
+    assert score == pytest.approx(vd.SAME_QUERY_BONUS)
+
+
+# ---------- OPENING_DOMAIN_WEIGHT (открывающий кадр — усиленный,
+# самостоятельный бонус за жанровое совпадение, заменяет обычный
+# DOMAIN_MATCH_BONUS только для is_opening=True, см. её блок-комментарий) ----------
+
+def test_compute_extra_score_opening_domain_weight_when_domains_match(monkeypatch):
+    _patch_all_neutral(monkeypatch)
+    monkeypatch.setattr(vd, "candidate_domain_for", lambda path: "battle")
+    score = vd.compute_extra_score("x.jpg", "narrative", "текст блока", "battle", [],
+                                    is_opening=True)
+    assert score == pytest.approx(vd.OPENING_DOMAIN_WEIGHT)
+
+
+def test_compute_extra_score_opening_domain_weight_not_applied_when_domains_differ(monkeypatch):
+    # Домены не совпадают -> обычный domain_match_bonus (даёт 0 для
+    # несовпадающих непустых доменов), не OPENING_DOMAIN_WEIGHT.
+    _patch_all_neutral(monkeypatch)
+    monkeypatch.setattr(vd, "candidate_domain_for", lambda path: "snow")
+    score = vd.compute_extra_score("x.jpg", "narrative", "текст блока", "battle", [],
+                                    is_opening=True)
+    assert score == pytest.approx(vd.domain_match_bonus("snow", "battle"))
+
+
+def test_compute_extra_score_not_opening_uses_regular_domain_match_bonus(monkeypatch):
+    # is_opening=False (дефолт) -> прежнее поведение, OPENING_DOMAIN_WEIGHT
+    # не участвует вообще, даже при совпадающих доменах.
+    _patch_all_neutral(monkeypatch)
+    monkeypatch.setattr(vd, "candidate_domain_for", lambda path: "battle")
+    score = vd.compute_extra_score("x.jpg", "narrative", "текст блока", "battle", [])
+    assert score == pytest.approx(vd.DOMAIN_MATCH_BONUS)
+    assert score != pytest.approx(vd.OPENING_DOMAIN_WEIGHT)
+
+
+def test_compute_extra_score_opening_combines_domain_and_aesthetic_bonuses(monkeypatch):
+    # Оба opening-сигнала независимы и складываются вместе.
+    _patch_all_neutral(monkeypatch)
+    monkeypatch.setattr(vd, "candidate_domain_for", lambda path: "battle")
+    score = vd.compute_extra_score("x.jpg", "narrative", "текст блока", "battle", [],
+                                    is_opening=True, aesthetic_val=7.0)
+    assert score == pytest.approx(vd.OPENING_DOMAIN_WEIGHT + 1.0 * vd.OPENING_AESTHETIC_WEIGHT)
 
 
 # ---------- VISUAL_DIRECTOR_MODE — валидация env ----------

@@ -346,6 +346,21 @@ AESTHETIC_NORM_MIN = 3.0
 AESTHETIC_NORM_RANGE = 4.0
 OPENING_AESTHETIC_WEIGHT = 0.6
 
+# OPENING_DOMAIN_WEIGHT — усиленный DOMAIN_MATCH_BONUS (0.20) специально
+# для открывающего кадра (см. блок-комментарий у OPENING_AESTHETIC_WEIGHT
+# выше и у её использования в compute_extra_score). Реальный, измеренный
+# вживую случай: обычного DOMAIN_MATCH_BONUS не хватило, чтобы жанрово
+# уместный ("battle"), но менее конвенционально "красивый" по LAION
+# кандидат победил конвенционально более "красивый", но жанрово
+# нейтральный — разрыв в эстетике (aesthetic 6.65 vs 5.61 -> ~0.16 разницы
+# в OPENING_AESTHETIC_WEIGHT-члене) плюс SAME_QUERY_BONUS (0.20, теперь
+# отключённый для opening, см. выше) в сумме перевешивали 0.20. Величина
+# сопоставима с OPENING_AESTHETIC_WEIGHT намеренно — жанровое соответствие
+# для открывающего кадра ценится наравне с визуальной привлекательностью,
+# не подчинено ей. Разумное стартовое значение (та же честная маркировка),
+# не откалиброванное на большом наборе эпизодов — тот же принцип.
+OPENING_DOMAIN_WEIGHT = 0.5
+
 # Arc-stage-осведомлённый бонус по крупности плана (см. speech_planner.
 # assign_chapter_arcs — "заход-якорь"/"слом"/"доказательство"/... для
 # BLOCK-секций, "hook"/"final" для HOOK/FINAL) — ДОПОЛНИТЕЛЬНЫЙ, независимый
@@ -858,7 +873,15 @@ def compute_extra_score(image_path, role, block_text, text_domain, recent_semant
     выбор (не только арбитраж поверх него)."""
     rel = sentence_relevance(image_path, block_text)
     score = (rel or 0.0) * SENTENCE_RELEVANCE_WEIGHT
-    if own_query and candidate_query and candidate_query == own_query:
+    # SAME_QUERY_BONUS НЕ применяется для открывающего кадра — реальный
+    # найденный вживую конфликт (29 августа, прямая проверка на реальных
+    # кандидатах этого эпизода): бонус награждает буквальную точность
+    # запроса, а весь смысл is_opening — НЕ награждать буквальную точность
+    # ценой эффектности. Оставлять его активным здесь значило бы одной
+    # рукой отталкивать эффектного кросс-опылённого кандидата, другой —
+    # подталкивать буквальный. Для всех остальных слотов (is_opening=False)
+    # поведение не меняется — тот самый фикс query-swap бага остаётся в силе.
+    if own_query and candidate_query and candidate_query == own_query and not is_opening:
         score += SAME_QUERY_BONUS
     if is_opening and aesthetic_val is not None:
         normalized = max(0.0, min(1.5, (aesthetic_val - AESTHETIC_NORM_MIN) / AESTHETIC_NORM_RANGE))
@@ -870,7 +893,23 @@ def compute_extra_score(image_path, role, block_text, text_domain, recent_semant
         score += arc_stage_shot_bonus(arc_stage, shot_size)
 
     candidate_domain = candidate_domain_for(image_path)
-    score += domain_match_bonus(candidate_domain, text_domain)
+    # OPENING_DOMAIN_WEIGHT — реальный найденный вживую случай (29 августа,
+    # прямая проверка на реальных кандидатах _test20s): чистая эстетика
+    # (LAION) меряет ОБЩУЮ фотографическую привлекательность, не жанровую
+    # уместность — яркие бирюзовые весы при хорошем свете набрали БОЛЬШЕ
+    # очков (6.65), чем мрачный, драматичный натюрморт с мечом и шлемом
+    # (5.61), хотя именно второй явно сильнее для военно-исторической
+    # документалки. classify_domain() уже умеет узнавать жанр кадра
+    # ("battle" и т.п., см. DOMAIN_PROMPTS) — обычный DOMAIN_MATCH_BONUS
+    # (0.20) уже пытался это компенсировать, но проиграл гонку баллов
+    # aesthetic-бонусу (0.55) и SAME_QUERY_BONUS. Для открывающего кадра
+    # совпадение жанра — усиленный, самостоятельный сигнал, не смешанный с
+    # обычным DOMAIN_MATCH_BONUS (тот остаётся как есть для всех
+    # остальных слотов).
+    if is_opening and candidate_domain and text_domain and candidate_domain == text_domain:
+        score += OPENING_DOMAIN_WEIGHT
+    else:
+        score += domain_match_bonus(candidate_domain, text_domain)
     score -= repetition_penalty(recent_semantic_tags, candidate_domain, role)
     score += visual_qc_bonus(image_path)
     return score
