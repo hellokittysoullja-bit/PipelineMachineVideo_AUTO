@@ -14,6 +14,7 @@ import hashlib
 import itertools
 import json
 import math
+import multiprocessing
 import os
 import re
 import subprocess
@@ -7986,7 +7987,29 @@ def main():
     # RENDER_POOL_ENABLED выше). Решение "что рендерить" (выбор фото/видео,
     # anti-repeat) остаётся ПОЛНОСТЬЮ последовательным, как и раньше —
     # параллелится только сам вызов ffmpeg, уже после того, как всё решено.
-    render_pool = (concurrent.futures.ProcessPoolExecutor(max_workers=RENDER_POOL_WORKERS)
+    # РЕАЛЬНЫЙ найденный вживую OOM (31 авг, полный рендер 01_ves-mecha,
+    # dmesg): cgroup OOM-killer убил pid 1405 (anon-rss 8.66GB) и следом ещё
+    # 3 форкнутых воркера пула — КАЖДЫЙ с тем же anon-rss ~8.66GB. kenburns()/
+    # video_render() (единственное, что реально уходит в этот пул) сами по
+    # себе не грузят ни одну ML-модель — им передаются уже готовые
+    # wb/levels/look_filter/domain, посчитанные ДО submit(). Причина —
+    # порядок вызовов: pexels_photo()/sentence_relevance() (SigLIP2-so400m +
+    # Jina, лениво загружаются в главном процессе при первом обращении к
+    # кандидату) отрабатывают РАНЬШЕ первого render_pool.submit() внутри
+    # того же блока — то есть к моменту первого форка пул уже приходится
+    # форкать процесс, в котором эти модели УЖЕ загружены. fork() на Linux
+    # делит память через COW, но refcounting трогает заголовок почти
+    # каждого объекта, которого касается воркер (в т.ч. периодическая
+    # cyclic GC) — COW расходится, и воркер фактически получает свою копию
+    # уже загруженного веса моделей, которые ему не нужны. mp_context=spawn
+    # даёт форкнутому процессу чистый интерпретер (torch/onnxruntime/
+    # transformers импортируются только ВНУТРИ get_clip_model()/
+    # get_depth_model()/sentence_relevance(), не на уровне модуля — см.
+    # `import` в этих функциях) — воркер, вызывающий только kenburns()/
+    # video_render(), никогда их не касается и не тянет ни байта моделей.
+    render_pool = (concurrent.futures.ProcessPoolExecutor(
+                       max_workers=RENDER_POOL_WORKERS,
+                       mp_context=multiprocessing.get_context("spawn"))
                    if RENDER_POOL_ENABLED else None)
     pending_jobs = []   # [{i, out, d, section, block, video, photo, future|None, ok}], в порядке блоков
     log_render_diagnostics("render_start")
