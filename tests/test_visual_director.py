@@ -211,6 +211,78 @@ def test_get_jina_session_passes_trust_remote_code_false(monkeypatch):
     assert captured.get("trust_remote_code") is False
 
 
+def test_text_text_similarity_never_exceeds_batch_size_cap(monkeypatch):
+    # Реальный найденный вживую OOM (videos/01_ves-mecha, 91 блок -> 165
+    # после sub-cuts, 31.08): _emb() раньше строила dummy "pixel_values"
+    # РАЗМЕРОМ СО ВЕСЬ список текстов сразу (n=len(texts)) — сессия
+    # прогоняла vision-башню Jina на 165 фиктивных 512x512 "изображениях"
+    # ОДНИМ батчем, роняя процесс по памяти (~13.9GB, контейнер 15GB) ещё
+    # до первого реального кандидата медиа. Регрессионный гейт: ни один
+    # sess.run() не должен получать батч pixel_values больше
+    # JINA_TEXT_BATCH_SIZE, независимо от того, сколько текстов передано
+    # в text_text_similarity() целиком.
+    import numpy as np
+
+    seen_batch_sizes = []
+
+    class _FakeSession:
+        def run(self, output_names, feed):
+            seen_batch_sizes.append(feed["pixel_values"].shape[0])
+            n = feed["input_ids"].shape[0]
+            return [np.ones((n, 4), dtype=np.float32)]
+
+    class _FakeTokenizer:
+        def __call__(self, texts, padding=None, truncation=None, max_length=None, return_tensors=None):
+            n = len(texts)
+            return {"input_ids": np.zeros((n, 3), dtype=np.int64)}
+
+    monkeypatch.setattr(vd, "_get_jina_session", lambda: (_FakeSession(), _FakeTokenizer()))
+    monkeypatch.setattr(vd, "_JINA_BROKEN", False)
+    monkeypatch.setattr(vd, "JINA_TEXT_BATCH_SIZE", 4)
+
+    texts_a = [f"фраза {i}" for i in range(37)]   # намеренно НЕ кратно batch_size
+    texts_b = [f"query {i}" for i in range(9)]
+
+    result = vd.text_text_similarity(texts_a, texts_b)
+
+    assert max(seen_batch_sizes) <= 4
+    assert len(result) == len(texts_a)
+    assert len(result[0]) == len(texts_b)
+
+
+def test_text_text_similarity_chunking_matches_single_batch_shape(monkeypatch):
+    # Чанкинг — чисто группировка вызовов, не должен ронять форму/порядок
+    # результата (каждый текст сравнивается независимо от остальных
+    # элементов своего чанка).
+    import numpy as np
+
+    class _FakeSession:
+        def run(self, output_names, feed):
+            n = feed["input_ids"].shape[0]
+            # Детерминированный "эмбеддинг" — просто id-based вектор, чтобы
+            # проверить, что порядок/состав результата не путается чанкингом.
+            ids_sum = feed["input_ids"].sum(axis=1, keepdims=True).astype(np.float32)
+            return [np.concatenate([ids_sum, np.ones((n, 1), dtype=np.float32)], axis=1)]
+
+    class _FakeTokenizer:
+        def __call__(self, texts, padding=None, truncation=None, max_length=None, return_tensors=None):
+            ids = np.array([[hash(t) % 100, 1, 2] for t in texts], dtype=np.int64)
+            return {"input_ids": ids}
+
+    monkeypatch.setattr(vd, "_get_jina_session", lambda: (_FakeSession(), _FakeTokenizer()))
+    monkeypatch.setattr(vd, "_JINA_BROKEN", False)
+
+    texts_a = [f"фраза {i}" for i in range(10)]
+    texts_b = [f"query {i}" for i in range(3)]
+
+    monkeypatch.setattr(vd, "JINA_TEXT_BATCH_SIZE", 3)
+    result_chunked = vd.text_text_similarity(texts_a, texts_b)
+    monkeypatch.setattr(vd, "JINA_TEXT_BATCH_SIZE", 1000)
+    result_single = vd.text_text_similarity(texts_a, texts_b)
+
+    assert result_chunked == result_single
+
+
 def test_ensemble_model_version_reflects_weights():
     assert str(vd.ENSEMBLE_WEIGHT_SIGLIP2) in vd.SENTENCE_RELEVANCE_MODEL_VERSION
     assert str(vd.ENSEMBLE_WEIGHT_JINA) in vd.SENTENCE_RELEVANCE_MODEL_VERSION

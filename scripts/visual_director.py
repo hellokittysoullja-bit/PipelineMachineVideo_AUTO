@@ -243,6 +243,16 @@ JINA_IMG_STD = (0.26862954, 0.26130258, 0.27577711)   # preprocessor_config.json
                                                          # (тот же принцип, что уже
                                                          # применён к AutoModel выше)
 JINA_TEXT_MAX_LENGTH = 77
+# Реальный найденный вживую OOM (см. text_text_similarity()/_emb() ниже,
+# videos/01_ves-mecha, 31.08): dummy "pixel_values" под ONNX-граф Jina
+# строился размером СО ВЕСЬ батч текстов разом (n=len(texts), вплоть до
+# 165 на реальном 18-минутном эпизоде) — 165 x 3 x 512 x 512 fp32
+# "изображений" через vision-башню одним вызовом роняли процесс по
+# памяти (~13.9GB) ещё до первого реального кандидата медиа. Небольшой
+# потолок ограничивает пиковую память константой, не зависящей от
+# длины эпизода — математика идентична (эмбеддинг каждого текста не
+# зависит от остальных элементов батча), это чисто группировка вызовов.
+JINA_TEXT_BATCH_SIZE = 16
 
 ENSEMBLE_WEIGHT_SIGLIP2 = 0.5   # эмпирический максимум top-1 на 113-позиционном
 ENSEMBLE_WEIGHT_JINA = 0.5       # бенчмарке (сетка 0.3..0.9 поверх so400m)
@@ -607,14 +617,32 @@ def text_text_similarity(texts_a, texts_b):
         sess, tokenizer = _get_jina_session()
 
         def _emb(texts):
-            enc = tokenizer(list(texts), padding=True, truncation=True,
-                             max_length=JINA_TEXT_MAX_LENGTH, return_tensors="np")
-            ids = enc["input_ids"].astype(np.int64)
-            n = ids.shape[0]
-            return sess.run(["l2norm_text_embeddings"],
-                             {"input_ids": ids,
-                              "pixel_values": np.zeros((n, 3, JINA_IMG_SIZE, JINA_IMG_SIZE),
-                                                        dtype=np.float32)})[0]
+            # Реальный найденный вживую OOM (01_ves-mecha, 91 блок -> 165
+            # после sub-cuts, 31.08): ONNX-граф Jina требует dummy
+            # "pixel_values" даже для чисто текстового эмбеддинга (см.
+            # _jina_relevance выше — там n=1, безобидно), но
+            # text_text_similarity() раньше строила dummy-батч РАЗМЕРОМ
+            # СО ВЕСЬ СПИСОК текстов сразу (n=len(texts_a) или
+            # len(texts_b), здесь — вплоть до 165) — сессия прогоняла
+            # vision-башню на 165 фиктивных 512x512 "изображениях" ОДНИМ
+            # батчем, что и роняло процесс по памяти (anon-rss ~13.9GB,
+            # контейнер 15GB) ещё ДО первого реального кандидата медиа.
+            # Матрично результат ИДЕНТИЧЕН — эмбеддинг каждого текста не
+            # зависит от остальных элементов батча, чанкинг только
+            # ограничивает пиковую память, не меняет числа.
+            out_chunks = []
+            for start in range(0, len(texts), JINA_TEXT_BATCH_SIZE):
+                chunk = list(texts)[start:start + JINA_TEXT_BATCH_SIZE]
+                enc = tokenizer(chunk, padding=True, truncation=True,
+                                 max_length=JINA_TEXT_MAX_LENGTH, return_tensors="np")
+                ids = enc["input_ids"].astype(np.int64)
+                n = ids.shape[0]
+                out_chunks.append(sess.run(
+                    ["l2norm_text_embeddings"],
+                    {"input_ids": ids,
+                     "pixel_values": np.zeros((n, 3, JINA_IMG_SIZE, JINA_IMG_SIZE),
+                                               dtype=np.float32)})[0])
+            return np.concatenate(out_chunks, axis=0)
 
         return (_emb(texts_a) @ _emb(texts_b).T).tolist()
     except ImportError:
