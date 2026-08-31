@@ -275,6 +275,23 @@ def detect_section_offsets(video_dir):
     offsets = {section_order[0]: 0.0}
     report = {section_order[0]: {"confidence": 1.0, "method": "first_section_is_zero_by_definition"}}
 
+    # section_start_estimate — ВСЕГДА валидная (в отличие от offsets, у
+    # которого дыры на отклонённых секциях) оценка начала каждой секции,
+    # для расчёта "разрыва между i-1 и i" в sanity/chapter-проверках.
+    # Реальный найденный баг (см. videos/01_ves-mecha, BLOCK6-8/FINAL,
+    # 30 августа): offsets.get(section_order[i-1], 0.0) молча подставлял
+    # 0.0 вместо реального смещения предыдущей секции, если та была
+    # отклонена (не первая по счёту, а ЛЮБАЯ до неё) — это превращало
+    # "разрыв между секциями" в "почти абсолютную позицию в аудио",
+    # sanity_ratio улетал за SANITY_RATIO_MAX, и ВСЕ секции после первого
+    # отказа отклонялись каскадно ("sanity_failed"/"chapter_mismatch"),
+    # даже когда сам offset (найденный кросс-корреляцией в узком окне
+    # ±SEARCH_SLACK_SEC) был точным. section_start_estimate всегда хранит
+    # либо реальный принятый offset, либо ту же структурную оценку
+    # (cursor), что и так уже используется для окна поиска следующей
+    # секции — никогда дефолтный 0.0 просто потому что ключа нет.
+    section_start_estimate = {section_order[0]: 0.0}
+
     first_chars = section_chars.get(section_order[0])
     cursor = first_chars[-1][2] if first_chars else 0.0
 
@@ -282,8 +299,10 @@ def detect_section_offsets(video_dir):
         name = section_order[i]
         chars = section_chars.get(name)
         expected_dur = section_words.get(name, 0) / max(wps, 0.01) + section_pause.get(name, 0.0)
+        prev_start = section_start_estimate.get(section_order[i - 1], 0.0)
         if not chars:
             report[name] = {"confidence": 0.0, "method": "rejected", "reason": "no_alignment_file"}
+            section_start_estimate[name] = cursor
             cursor += max(expected_dur, SEARCH_SLACK_SEC)
             continue
 
@@ -294,20 +313,21 @@ def detect_section_offsets(video_dir):
 
         sanity_ok = True
         if offset is not None:
-            observed_gap = offset - offsets.get(section_order[i - 1], 0.0)
+            observed_gap = offset - prev_start
             ratio = observed_gap / max(expected_dur, 0.1)
             sanity_ok = SANITY_RATIO_MIN <= ratio <= SANITY_RATIO_MAX
 
         chapter_ok, chapter_note = True, None
         if offset is not None and chapters_usable:
             real_gap = chapters[i] - chapters[i - 1]
-            raw_gap = offset - offsets.get(section_order[i - 1], 0.0)
+            raw_gap = offset - prev_start
             chapter_note = {"real_gap": real_gap, "raw_gap": raw_gap}
             if raw_gap > 0:
                 chapter_ok = 0.0 <= real_gap <= raw_gap * 1.05
 
         if offset is not None and conf >= MIN_CONFIDENCE and sanity_ok and chapter_ok:
             offsets[name] = round(offset, 3)
+            section_start_estimate[name] = offset
             report[name] = {"confidence": round(conf, 3), "method": "pause_cross_correlation",
                              "gaps_total": len(events), "expected_dur_sec": round(expected_dur, 2),
                              "chapter_check": chapter_note}
@@ -316,6 +336,7 @@ def detect_section_offsets(video_dir):
             reason = ("no_cluster" if offset is None else
                        "low_confidence" if conf < MIN_CONFIDENCE else
                        "sanity_failed" if not sanity_ok else "chapter_mismatch")
+            section_start_estimate[name] = cursor
             report[name] = {"confidence": round(conf, 3) if offset is not None else 0.0,
                              "method": "rejected", "reason": reason,
                              "gaps_total": len(events), "expected_dur_sec": round(expected_dur, 2),
