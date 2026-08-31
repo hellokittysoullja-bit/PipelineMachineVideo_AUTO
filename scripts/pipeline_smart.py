@@ -2858,6 +2858,29 @@ DIRECTOR_MIN_POOL = 8   # Semantic Visual Director (scripts/visual_director.py) 
                           # импортирует pipeline_smart.py, обратный импорт создал
                           # бы цикл.
 
+# По прямому запросу пользователя (31.08, реальный долгий рендер
+# videos/01_ves-mecha — SigLIP2-so400m ~2.5-3с/кандидат х до 8 кандидатов
+# уже даёт ~5-6 мин/клип, на ~155 клипах тела эпизода это часы): первые
+# FAST_MODE_START_INDEX клипов (хук + немного после — самый важный по
+# удержанию участок) держат полный пул (DIRECTOR_MIN_POOL/
+# PHOTO_DEDUP_MAX_TRIES выше), дальше пул сознательно уже — ЧЕСТНЫЙ
+# компромисс скорость/точность подбора, не тихий даунгрейд: пользователь
+# прямо предупреждён, что клипы 16+ сравнивают меньше кандидатов, чем
+# было откалибровано в этой же сессии (3->8/6->20).
+FAST_MODE_START_INDEX = 15         # 0-based индекс блока; блоки 0..14 — полный пул
+FAST_DIRECTOR_MIN_POOL = 2
+FAST_PHOTO_DEDUP_MAX_TRIES = 5
+FAST_VIDEO_RELEVANCE_MAX_TRIES = 1
+FAST_VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP = 3
+
+
+def _director_min_pool_for(index):
+    return DIRECTOR_MIN_POOL if index < FAST_MODE_START_INDEX else FAST_DIRECTOR_MIN_POOL
+
+
+def _photo_dedup_max_tries_for(index):
+    return PHOTO_DEDUP_MAX_TRIES if index < FAST_MODE_START_INDEX else FAST_PHOTO_DEDUP_MAX_TRIES
+
 
 def _pool_cleared_both_gates(candidates_info):
     """True, если хотя бы ОДИН кандидат из candidates_info прошёл И
@@ -3335,9 +3358,9 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                 # (good_needed=1) и extra-ось ни разу не встретила бы
                 # альтернативу (см. докстринг scripts/visual_director.py про
                 # честный cost-tradeoff расширения пула).
-                good_needed = max(good_needed, DIRECTOR_MIN_POOL)
+                good_needed = max(good_needed, _director_min_pool_for(index))
             candidates_info = []
-            for p in candidates[:PHOTO_DEDUP_MAX_TRIES]:
+            for p in candidates[:_photo_dedup_max_tries_for(index)]:
                 trial = cf + f".trial_{p.get('id')}.jpg"
                 try:
                     download(p, trial)
@@ -6523,6 +6546,15 @@ VIDEO_RELEVANCE_MAX_TRIES = 3  # сколько видео-кандидатов 
 VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP = 30
 
 
+def _video_relevance_max_tries_for(index):
+    return VIDEO_RELEVANCE_MAX_TRIES if index < FAST_MODE_START_INDEX else FAST_VIDEO_RELEVANCE_MAX_TRIES
+
+
+def _video_relevance_max_tries_hard_cap_for(index):
+    return (VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP if index < FAST_MODE_START_INDEX
+            else FAST_VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP)
+
+
 VIDEO_MIN_LUMA_HARD = 0.06     # ниже — кадр практически чёрный, отбраковка
 VIDEO_PREFER_MIN_LUMA = 0.18   # ниже — кадр читается плохо, уступает более светлому
 _PEXELS_VIDEO_SEARCH_CACHE = {}
@@ -6670,10 +6702,10 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
         # каждый запрос пула (иначе большинство запросов не участвует в
         # сравнении вообще), с потолком против неограниченного трафика на
         # секции с большим числом авторских запросов.
-        try_budget = VIDEO_RELEVANCE_MAX_TRIES
+        try_budget = _video_relevance_max_tries_for(index)
         if sentence_score_fn is not None:
-            try_budget = min(VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP,
-                             max(VIDEO_RELEVANCE_MAX_TRIES, len(pool_queries)))
+            try_budget = min(_video_relevance_max_tries_hard_cap_for(index),
+                             max(_video_relevance_max_tries_for(index), len(pool_queries)))
         for v in ordered:
             if tries >= try_budget:
                 break
