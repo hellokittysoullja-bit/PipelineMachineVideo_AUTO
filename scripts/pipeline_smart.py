@@ -2850,6 +2850,14 @@ PHOTO_DEDUP_HAMMING = 6   # тот же порог, что в qc_report() — "�
 # 20/8 — умеренный, обоснованный компромисс (не переиспользование числа
 # аудита без проверки): ~8×3с=24с на слот на скоринг, вместо ~1 минуты.
 PHOTO_DEDUP_MAX_TRIES = 20 # сколько кандидатов реально СКАЧАТЬ и захэшировать, прежде чем сдаться
+# I/O-bound, не CPU-bound (download() — HTTP GET на images.pexels.com,
+# ffmpeg/модели тут не участвуют) — безопасно распараллелить без риска для
+# качества выбора: сама сортировка/скоринг кандидатов (см. цикл ниже)
+# остаётся ПОСЛЕДОВАТЕЛЬНОЙ, в том же порядке, с тем же ранним break по
+# good_needed — параллелится только сетевое ожидание. НЕ считается против
+# квоты api.pexels.com/v1/search (200/час) — это ОДИН уже сделанный поиск,
+# качаются только байты уже найденных кандидатов с CDN, отдельный лимит.
+PHOTO_PREFETCH_WORKERS = int(os.environ.get("PHOTO_PREFETCH_WORKERS", "6"))
 DIRECTOR_MIN_POOL = 8   # Semantic Visual Director (scripts/visual_director.py) —
                           # тот же смысл и то же значение, что visual_director.
                           # DIRECTOR_MIN_POOL: без расширения пула Директору в
@@ -3361,10 +3369,24 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                 # честный cost-tradeoff расширения пула).
                 good_needed = max(good_needed, _director_min_pool_for(index))
             candidates_info = []
-            for p in candidates[:_photo_dedup_max_tries_for(index)]:
-                trial = cf + f".trial_{p.get('id')}.jpg"
+            trial_slice = candidates[:_photo_dedup_max_tries_for(index)]
+            # Скачивание кандидатов — сетевой I/O, не CPU (см. докстринг
+            # PHOTO_PREFETCH_WORKERS выше) — заранее запускаем ВСЕ загрузки
+            # этого слота параллельно, а обрабатываем/скорим строго
+            # ПОСЛЕДОВАТЕЛЬНО в том же порядке и с тем же ранним break, что
+            # и раньше: какой кандидат победит — не меняется ни на бит,
+            # меняется только то, что к моменту очереди файл обычно уже
+            # скачан (или качается параллельно с обработкой предыдущего),
+            # а не ждёт своей синхронной очереди с нуля.
+            trial_paths = {id(p): cf + f".trial_{p.get('id')}.jpg" for p in trial_slice}
+            prefetch_pool = concurrent.futures.ThreadPoolExecutor(
+                max_workers=max(1, min(PHOTO_PREFETCH_WORKERS, len(trial_slice) or 1)))
+            prefetch_futures = {id(p): prefetch_pool.submit(download, p, trial_paths[id(p)])
+                                 for p in trial_slice}
+            for p in trial_slice:
+                trial = trial_paths[id(p)]
                 try:
-                    download(p, trial)
+                    prefetch_futures[id(p)].result()
                     h = ahash(trial)
                 except Exception:
                     continue
@@ -3433,6 +3455,19 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                     good_seen += 1
                     if good_seen >= good_needed:
                         break   # набрали, сколько нужно для честного сравнения — не жжём оставшиеся попытки
+            # Ранний break (как и раньше) может оставить часть prefetch-загрузок
+            # ещё не понадобившимися — они не попали в candidates_info, значит
+            # не попадут и под обычную чистку файлов-неудачников ниже. Ещё не
+            # стартовавшие потоки отменяются (cancel() — no-op, если уже
+            # бегут); shutdown(wait=False) не блокирует хвост функции, уже
+            # запущенные докачки долетают в фоне и просто остаются на диске в
+            # temp_smart/pexels_cache — тот же порядок величины "несколько
+            # лишних trial-файлов", что и раньше терпелся у обычных неудачников.
+            _processed_ids = {id(c["p"]) for c in candidates_info}
+            for p in trial_slice:
+                if id(p) not in _processed_ids:
+                    prefetch_futures[id(p)].cancel()
+            prefetch_pool.shutdown(wait=False)
             # _score_and_pick (см. выше) — чистое сравнение по уже скачанному
             # пулу, вынесенное отдельно ради тестируемости. Файлы-неудачники
             # раньше удалялись СРАЗУ по ходу цикла (экономия диска) — теперь
@@ -3765,6 +3800,65 @@ def semantic_query_assignment(block_texts, queries):
     return assigned
 
 
+def _query_assignment_cache_dir():
+    return os.path.join(VIDEO_FOLDER, "media_plan", "query_resolution_cache")
+
+
+def _query_assignment_cache_path(block_texts, queries):
+    key = hashlib.sha256(
+        json.dumps({"block_texts": block_texts, "queries": queries},
+                    ensure_ascii=False, sort_keys=False).encode("utf-8")
+    ).hexdigest()
+    return os.path.join(_query_assignment_cache_dir(), f"{key}.json")
+
+
+def _cached_semantic_query_assignment(block_texts, queries):
+    """Тонкая дисковая обёртка над semantic_query_assignment() — реальный
+    измеренный вживую (01_ves-mecha, 31 авг) кейс: `resolve_queries()`
+    считается ЗАНОВО при КАЖДОМ перезапуске процесса (эпизод перезапускался
+    несколько раз за сессию из-за OOM, не по вине этой функции) — Jina
+    text-text similarity по всем секциям с авторскими запросами занимала
+    ориентировочно 10-15+ минут, притом что вход (тексты блоков + авторские
+    запросы секции) между перезапусками ОДНОГО и того же эпизода не менялся
+    вообще. Кэш на диске по хэшу точного содержимого (block_texts, queries)
+    — тот же паттерн, что уже используют media_plan/shot_director_cache/.
+
+    Кэшируется ТОЛЬКО успешный результат (assignment is not None) — fail-open
+    "модель недоступна" не кэшируется (дёшево пересчитать, и это честный
+    сигнал состояния окружения на конкретный момент, не вход).
+
+    Отключено под pytest (PYTEST_CURRENT_TEST) — тесты этого модуля гоняют
+    semantic_query_assignment()/resolve_queries() на подменённой (monkeypatch)
+    text_text_similarity() с ОДИНАКОВЫМ текстовым входом, но РАЗНЫМИ
+    матрицами по разным тестам (см. tests/test_parse.py::_fake_sim) — общий
+    VIDEO_FOLDER=tempdir() на весь тестовый прогон сделал бы такой дисковый
+    кэш общим между тестами и мог бы отдать результат ОДНОГО теста другому
+    с тем же текстом. PYTEST_CURRENT_TEST — стандартная переменная, которую
+    сам pytest выставляет на время каждого теста, надёжный сигнал "не прод"."""
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return semantic_query_assignment(block_texts, queries)
+    cache_path = None
+    try:
+        cache_path = _query_assignment_cache_path(block_texts, queries)
+        if os.path.exists(cache_path):
+            with open(cache_path, encoding="utf-8") as f:
+                cached = json.load(f)
+            if isinstance(cached, list) and len(cached) == len(block_texts):
+                return cached
+    except Exception:
+        pass
+    result = semantic_query_assignment(block_texts, queries)
+    if result is not None and cache_path is not None:
+        try:
+            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+            with open(cache_path + ".tmp", "w", encoding="utf-8") as f:
+                json.dump(result, f, ensure_ascii=False)
+            os.replace(cache_path + ".tmp", cache_path)
+        except Exception:
+            pass
+    return result
+
+
 def resolve_queries(blocks, authored_queries=None):
     """Прямой поиск по themes.json ловит не все блоки — короткие связки
     ("Не дрались. Несли.", "Береги себя.") и абстрактные куски без предметных
@@ -3809,7 +3903,7 @@ def resolve_queries(blocks, authored_queries=None):
                 by_section.setdefault(key, []).append(i)
         for key, idxs in by_section.items():
             pool = authored_queries[key]
-            assignment = semantic_query_assignment([blocks[i]["text"] for i in idxs], pool)
+            assignment = _cached_semantic_query_assignment([blocks[i]["text"] for i in idxs], pool)
             if assignment is not None:
                 for pos, i in enumerate(idxs):
                     raw[i] = pool[assignment[pos]]
