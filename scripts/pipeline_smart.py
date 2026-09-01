@@ -4768,6 +4768,34 @@ def write_shot_manifest(video_dir, blocks, durs, queries):
 
 WOBBLE_AMP_CANVAS_PX = 6.0   # ~1.4px в итоговом 1920-кадре (канва 8000px) — см. kenburns()
 FREEZE_HOLD_DUR = 0.35       # секунд остановки движения перед stat-плашкой — см. kenburns()
+# Адаптивный холст для kenburns() (по умолчанию ВЫКЛЮЧЕН — байт-в-байт
+# старое поведение с фиксированными 8000x4500). Реальный, измеренный вживую
+# (01_ves-mecha, ночь 31 авг/1 сен) остаток времени клипа, не объяснённый
+# ни одной ML-моделью — zoompan однопоточен, его стоимость на кадр растёт
+# вместе с разрешением холста, а 8000x4500 (36 Мп) апскейлит ЛЮБОЕ фото
+# (реальные Pexels large2x — ~1880px по длинной стороне, проверено ffprobe
+# на 54 закэшированных файлах эпизода) в 4+ раза больше, чем нужно.
+# KENBURNS_CANVAS_MARGIN выведен из уже существующих в kenburns() констант
+# зума (не с потолка): максимально возможный zoom = ZOOM_FLOOR (1.04) +
+# ZOOM_DELTA_MAX (0.22) = 1.26 — то есть холст шириной WIDTH*1.26 уже
+# достаточен, чтобы на пике зума кроп-окно (canvas/zoom) не апскейлилось
+# при финальном ресайзе в WIDTHxHEIGHT. 1.5 — тот же запас, что уже
+# ПРОВЕРЕН В ПРОДЕ на самых заметных кадрах ролика (хук/climax/начало
+# разделов) — см. PARALLAX_MARGIN/fill_crop_canvas() ниже, тот же принцип,
+# независимо выведенное число оказалось близко (1.26 нужно, 1.5 даёт
+# честный запас на панораму/округление/anchor-кроп).
+KENBURNS_ADAPTIVE_CANVAS = os.environ.get("KENBURNS_ADAPTIVE_CANVAS", "0") != "0"
+KENBURNS_CANVAS_MARGIN = 1.5
+
+
+def _kenburns_canvas_size():
+    """(ширина, высота) рабочего холста kenburns() ДО crop/zoompan. Вынесена
+    отдельной чистой функцией ради юнит-теста — сама по себе ни на что не
+    влияет, флаг читается в момент вызова (не на импорте), см. тесты
+    monkeypatch KENBURNS_ADAPTIVE_CANVAS."""
+    if not KENBURNS_ADAPTIVE_CANVAS:
+        return 8000, 4500
+    return round(WIDTH * KENBURNS_CANVAS_MARGIN), round(HEIGHT * KENBURNS_CANVAS_MARGIN)
 
 
 def piecewise_ease_expr(t_expr, points):
@@ -5029,6 +5057,9 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
              brightness_bias=0.0, energy_bias=0.0, stat_delay=0.0, levels=None, wb=None,
              grain_scale=1.0, captions=None, look_filter=None, ffmpeg_threads=None, domain=None):
     frames = max(1, round(dur * FPS))
+    # KENBURNS_ADAPTIVE_CANVAS=0 (дефолт) -> ровно 8000x4500, как раньше,
+    # байт-в-байт. См. докстринг константы у объявления выше.
+    kb_cw, kb_ch = _kenburns_canvas_size()
     h, zoom_in_default, pan_dir_default = kb_hash_choices(photo)
     if zoom_in is None:
         zoom_in = zoom_in_default
@@ -5133,7 +5164,12 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
     # выглядело бы как тряска, не имитация плёнки), амплитуда и фаза/период —
     # детерминированно по хэшу фото. Меньше цикла за весь клип (0.6-1.4) —
     # чтобы не читалось как заметное "покачивание туда-сюда".
-    wob_amp = WOBBLE_AMP_CANVAS_PX * (0.5 if motion_mode == "static_hold" else 1.0)
+    # Абсолютное значение в пикселях калибровано под холст 8000px (см.
+    # докстринг константы) — масштабируем пропорционально РЕАЛЬНОМУ холсту
+    # (kb_cw), иначе при меньшем холсте то же число пикселей — заметно
+    # более сильное "дрожание плёнки" относительно кадра. При выключенном
+    # KENBURNS_ADAPTIVE_CANVAS kb_cw==8000 -> множитель==1.0, ноль изменений.
+    wob_amp = (WOBBLE_AMP_CANVAS_PX * (kb_cw / 8000.0)) * (0.5 if motion_mode == "static_hold" else 1.0)
     wob_px = f"{wob_amp:.2f}*sin(2*PI*(on/{frames})*{0.6 + ((h >> 19) % 100) / 125.0:.3f}+{((h >> 3) % 628) / 100.0:.3f})"
     wob_py = f"{wob_amp:.2f}*sin(2*PI*(on/{frames})*{0.6 + ((h >> 23) % 100) / 125.0:.3f}+{((h >> 11) % 628) / 100.0:.3f})"
     # margin = (1-1/zoom)/2 считается от РЕАЛЬНОГО zoom в текущем кадре (переменная
@@ -5153,11 +5189,11 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
     try:
         iw, ih = PILImage.open(photo).size
     except Exception:
-        iw, ih = 8000, 4500
+        iw, ih = kb_cw, kb_ch
     anchor = resolve_crop_anchor(photo)
-    nw, nh, cx0, cy0 = compute_crop_offset(iw, ih, 8000, 4500, anchor)
+    nw, nh, cx0, cy0 = compute_crop_offset(iw, ih, kb_cw, kb_ch, anchor)
     vf_base = (f"scale={nw}:{nh},"
-               f"crop=8000:4500:{cx0}:{cy0},setsar=1,"
+               f"crop={kb_cw}:{kb_ch}:{cx0}:{cy0},setsar=1,"
                f"zoompan=z={z}:x={x}:y={y}:"
                f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS},"
                f"{film_look(h, section, brightness_bias, energy_bias, levels, wb, domain)}"
