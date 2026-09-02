@@ -454,32 +454,107 @@ def _get_siglip2_model():
     return _siglip2_model, _siglip2_processor
 
 
+# --- Кэш эмбеддингов: чистая мемоизация, НЕ смена алгоритма ---
+#
+# Замер 02.09 (media_plan/stage_timings.jsonl, реальный прогон _test20s, не
+# реконструкция): один вызов sentence_relevance() стоит 7.34с, из них
+# 2.80с (38%) — ПОВТОРНЫЙ расчёт ТЕКСТОВЫХ башен. _score_and_pick()
+# (pipeline_smart.py) скорит все кандидаты слота — на полном пуле их 17-26
+# — против ОДНОГО И ТОГО ЖЕ текста блока, а обе текстовые башни считались
+# заново на каждого кандидата с идентичным входом и идентичным выходом.
+# Разрез по башням (отдельный бенчмарк, сошёлся с замером: 7.34 против
+# измеренной медианы 7.40с): SigLIP2 картинка 1.89с / текст 0.22с, Jina
+# картинка 2.65с / текст 2.57с. Текстовая башня Jina стоит как башня
+# картинки, потому что ONNX-граф требует dummy pixel_values и гоняет
+# vision-башню по нулям (уменьшить нельзя — 512x512 фиксировано в графе,
+# проверено: 64x64 отклоняется с INVALID_ARGUMENT).
+#
+# Эмбеддинг — чистая функция от (модель, вход): результат побитово тот же,
+# качество отбора не меняется ни на один кандидат. Кэш живёт в рамках
+# ОДНОГО процесса (module-level dict, на диск не пишется) — тот же принцип,
+# что у pipeline_smart.memoize_by_frame, инвалидировать вручную нечего.
+EMB_CACHE_MAX = 512
+
+_siglip2_text_emb_cache = {}
+_siglip2_img_emb_cache = {}
+_jina_text_emb_cache = {}
+_jina_img_emb_cache = {}
+
+
+def _emb_cache_put(cache, key, value):
+    """Грубая граница памяти: при переполнении кэш чистится целиком, а не
+    вытесняет по LRU. Осознанно — эмбеддинги мелкие (~4-5КБ), 512 записей
+    это единицы мегабайт, а порядок обращений в пайплайне таков (все
+    кандидаты слота подряд против одного текста), что дорогие попадания
+    случаются ВНУТРИ слота и переживают любую разумную границу; городить
+    LRU ради этого значило бы усложнять код без измеримой выгоды."""
+    if len(cache) >= EMB_CACHE_MAX:
+        cache.clear()
+    cache[key] = value
+
+
+def _image_cache_key(image_path):
+    """(путь, размер, mtime) — тот же ключ, что у pipeline_smart.
+    memoize_by_frame: перезаписанный на месте файл даёт другой ключ и не
+    отдаётся из кэша по ошибке. Не удалось прочитать stat — ключ по пути
+    (кэш всё равно живёт один прогон)."""
+    k = pipeline_smart._frame_cache_key(image_path)
+    return k if k is not None else ("path", image_path)
+
+
+def _siglip2_text_emb(text):
+    """Нормированный текстовый эмбеддинг SigLIP2 (кэш по строке)."""
+    hit = _siglip2_text_emb_cache.get(text)
+    if hit is not None:
+        return hit
+    import torch
+    model, processor = _get_siglip2_model()
+    with torch.no_grad():
+        txt_inputs = processor(text=[text], padding="max_length",
+                                max_length=SIGLIP2_MAX_TEXT_LENGTH, return_tensors="pt")
+        txt_out = model.get_text_features(**txt_inputs)
+        emb = txt_out.pooler_output if hasattr(txt_out, "pooler_output") else txt_out
+        emb = emb / emb.norm(dim=-1, keepdim=True)
+    _emb_cache_put(_siglip2_text_emb_cache, text, emb)
+    return emb
+
+
+def _siglip2_image_emb(image_path):
+    """Нормированный эмбеддинг картинки SigLIP2 (кэш по кадру). Попадания
+    реальны: extra_queries/section_query_pool кладут один и тот же файл в
+    пулы кандидатов нескольких слотов."""
+    key = _image_cache_key(image_path)
+    hit = _siglip2_img_emb_cache.get(key)
+    if hit is not None:
+        return hit
+    import torch
+    from PIL import Image as PILImage
+    model, processor = _get_siglip2_model()
+    img = PILImage.open(image_path).convert("RGB")
+    with torch.no_grad():
+        img_inputs = processor(images=[img], return_tensors="pt")
+        img_out = model.get_image_features(**img_inputs)
+        emb = img_out.pooler_output if hasattr(img_out, "pooler_output") else img_out
+        emb = emb / emb.norm(dim=-1, keepdim=True)
+    _emb_cache_put(_siglip2_img_emb_cache, key, emb)
+    return emb
+
+
 def _siglip2_relevance(image_path, block_text):
     """Сырой (не rescale-нутый) косинус SigLIP2 — вынесено из бывшей
     sentence_relevance() без изменения логики, чтобы ensemble ниже мог
-    использовать её как один из двух компонентов."""
+    использовать её как один из двух компонентов.
+
+    Башни вынесены в _siglip2_image_emb/_siglip2_text_emb ради кэша (см.
+    EMB_CACHE_MAX выше) — порядок вычисления (сначала картинка, потом
+    текст) и сама формула косинуса сохранены как были."""
     global _SIGLIP2_BROKEN
     if _SIGLIP2_BROKEN:
         return None
     try:
-        import torch
-        from PIL import Image as PILImage
-        model, processor = _get_siglip2_model()
-        img = PILImage.open(image_path).convert("RGB")
-        with torch.no_grad():
-            img_inputs = processor(images=[img], return_tensors="pt")
-            img_out = model.get_image_features(**img_inputs)
-            img_emb = img_out.pooler_output if hasattr(img_out, "pooler_output") else img_out
-            img_emb = img_emb / img_emb.norm(dim=-1, keepdim=True)
-
-            txt_inputs = processor(text=[block_text], padding="max_length",
-                                    max_length=SIGLIP2_MAX_TEXT_LENGTH, return_tensors="pt")
-            txt_out = model.get_text_features(**txt_inputs)
-            txt_emb = txt_out.pooler_output if hasattr(txt_out, "pooler_output") else txt_out
-            txt_emb = txt_emb / txt_emb.norm(dim=-1, keepdim=True)
-
-            sim = (txt_emb @ img_emb.T)[0][0]
-        return float(sim)
+        img_emb = _siglip2_image_emb(image_path)
+        txt_emb = _siglip2_text_emb(block_text)
+        return float((txt_emb @ img_emb.T)[0][0])
     except ImportError:
         _SIGLIP2_BROKEN = True
         return None
@@ -561,28 +636,110 @@ def _jina_relevance(image_path, block_text):
     if _JINA_BROKEN:
         return None
     try:
-        import numpy as np
-        from PIL import Image as PILImage
-        sess, tokenizer = _get_jina_session()
-        img = PILImage.open(image_path).convert("RGB")
-        pixel_values = _jina_preprocess_image(img)[None, ...].astype(np.float32)
-        enc = tokenizer([block_text], padding=True, truncation=True,
-                         max_length=JINA_TEXT_MAX_LENGTH, return_tensors="np")
-        input_ids = enc["input_ids"].astype(np.int64)
-        img_out = sess.run(["l2norm_image_embeddings"],
-                            {"input_ids": np.zeros((1, 1), dtype=np.int64),
-                             "pixel_values": pixel_values})[0]
-        txt_out = sess.run(["l2norm_text_embeddings"],
-                            {"input_ids": input_ids,
-                             "pixel_values": np.zeros((1, 3, JINA_IMG_SIZE, JINA_IMG_SIZE),
-                                                       dtype=np.float32)})[0]
-        sim = float((txt_out @ img_out.T)[0][0])
-        return sim
+        img_out = _jina_image_emb(image_path)
+        txt_out = _jina_text_emb(block_text)
+        return float((txt_out @ img_out.T)[0][0])
     except ImportError:
         _JINA_BROKEN = True
         return None
     except Exception:
         return None
+
+
+def _jina_text_emb(text):
+    """Текстовый эмбеддинг Jina (кэш по строке). Батч здесь и так 1, то
+    есть dummy pixel_values минимален по построению — экономия берётся
+    только кэшем, а не размером заглушки (в отличие от
+    text_text_similarity() ниже, где батч равен числу текстов)."""
+    hit = _jina_text_emb_cache.get(text)
+    if hit is not None:
+        return hit
+    import numpy as np
+    sess, tokenizer = _get_jina_session()
+    enc = tokenizer([text], padding=True, truncation=True,
+                     max_length=JINA_TEXT_MAX_LENGTH, return_tensors="np")
+    emb = sess.run(["l2norm_text_embeddings"],
+                    {"input_ids": enc["input_ids"].astype(np.int64),
+                     "pixel_values": np.zeros((1, 3, JINA_IMG_SIZE, JINA_IMG_SIZE),
+                                               dtype=np.float32)})[0]
+    _emb_cache_put(_jina_text_emb_cache, text, emb)
+    return emb
+
+
+def _jina_image_emb(image_path):
+    """Эмбеддинг картинки Jina (кэш по кадру)."""
+    key = _image_cache_key(image_path)
+    hit = _jina_img_emb_cache.get(key)
+    if hit is not None:
+        return hit
+    import numpy as np
+    from PIL import Image as PILImage
+    sess, _ = _get_jina_session()
+    img = PILImage.open(image_path).convert("RGB")
+    pixel_values = _jina_preprocess_image(img)[None, ...].astype(np.float32)
+    emb = sess.run(["l2norm_image_embeddings"],
+                    {"input_ids": np.zeros((1, 1), dtype=np.int64),
+                     "pixel_values": pixel_values})[0]
+    _emb_cache_put(_jina_img_emb_cache, key, emb)
+    return emb
+
+
+_JINA_DUMMY_BATCH1_OK = None   # None — ещё не проверено в этом процессе
+
+
+def _jina_text_emb_batch(sess, ids):
+    """Текстовые эмбеддинги ЧАНКА текстов, с dummy pixel_values размером 1
+    вместо len(chunk).
+
+    ЗАЧЕМ: ONNX-граф Jina требует pixel_values даже для чисто текстового
+    выхода, и раньше сюда подавался нулевой тензор РАЗМЕРОМ СО ВЕСЬ ЧАНК —
+    то есть vision-башня прогонялась по n пустым картинкам 512x512, чья
+    стоимость линейна по n и полностью выброшена. Замер 02.09: чанк из 5
+    текстов — 15.37с, тот же чанк с заглушкой размера 1 — 2.64с (x5.8),
+    результат np.allclose(atol=1e-6) идентичен. Уменьшить САМУ картинку
+    нельзя (512x512 фиксировано в графе — 64x64 отклоняется с
+    INVALID_ARGUMENT), а вот батч у неё динамический.
+
+    ПОЧЕМУ С САМОПРОВЕРКОЙ, а не просто так: несовпадение батчей
+    input_ids и pixel_values — поведение, которое граф допускает, но
+    нигде не гарантирует; другая версия onnxruntime может не отклонить
+    его явной ошибкой, а тихо вернуть иной результат, и это молча
+    испортило бы semantic_query_assignment() (раздачу авторских запросов
+    по смыслу) без единого признака в логе. Поэтому ОДИН раз за процесс
+    быстрый путь сверяется с медленным на реальном чанке; расходятся —
+    навсегда остаёмся на прежнем полном батче. Цена проверки — один
+    лишний полный прогон за процесс, и она превращает недокументированную
+    оптимизацию в проверяемую."""
+    import numpy as np
+    global _JINA_DUMMY_BATCH1_OK
+    n = ids.shape[0]
+
+    def _full():
+        return sess.run(["l2norm_text_embeddings"],
+                        {"input_ids": ids,
+                         "pixel_values": np.zeros((n, 3, JINA_IMG_SIZE, JINA_IMG_SIZE),
+                                                   dtype=np.float32)})[0]
+
+    def _fast():
+        return sess.run(["l2norm_text_embeddings"],
+                        {"input_ids": ids,
+                         "pixel_values": np.zeros((1, 3, JINA_IMG_SIZE, JINA_IMG_SIZE),
+                                                   dtype=np.float32)})[0]
+
+    if n == 1 or _JINA_DUMMY_BATCH1_OK is False:
+        return _full()
+    if _JINA_DUMMY_BATCH1_OK is None:
+        try:
+            fast, full = _fast(), _full()
+            _JINA_DUMMY_BATCH1_OK = bool(np.allclose(fast, full, atol=1e-6))
+        except Exception:
+            _JINA_DUMMY_BATCH1_OK = False
+        if not _JINA_DUMMY_BATCH1_OK:
+            print("  Jina: заглушка pixel_values размера 1 не подтверждена — "
+                  "остаюсь на полном батче (медленнее, но проверено)")
+            return _full()
+        return fast
+    return _fast()
 
 
 def text_text_similarity(texts_a, texts_b):
@@ -636,12 +793,7 @@ def text_text_similarity(texts_a, texts_b):
                 enc = tokenizer(chunk, padding=True, truncation=True,
                                  max_length=JINA_TEXT_MAX_LENGTH, return_tensors="np")
                 ids = enc["input_ids"].astype(np.int64)
-                n = ids.shape[0]
-                out_chunks.append(sess.run(
-                    ["l2norm_text_embeddings"],
-                    {"input_ids": ids,
-                     "pixel_values": np.zeros((n, 3, JINA_IMG_SIZE, JINA_IMG_SIZE),
-                                               dtype=np.float32)})[0])
+                out_chunks.append(_jina_text_emb_batch(sess, ids))
             return np.concatenate(out_chunks, axis=0)
 
         # Замер именно здесь: это тот самый шаг, где ONNX-граф Jina
