@@ -29,6 +29,12 @@ try:
 except Exception:
     pass
 
+# Замер стадий (scripts/stage_timer.py) — выключен по умолчанию
+# (STAGE_TIMER=0), при выключенном флаге stage() пустой и на диск не
+# пишет. Обязателен ПЕРЕД любым разговором об ускорении: половина
+# бюджета живёт в subprocess ffmpeg, где Python-профайлер видит wait().
+import stage_timer
+
 try:
     import numpy as np
 except ImportError:
@@ -2962,8 +2968,9 @@ def _score_and_pick(candidates_info, director_score_fn=None):
             # aesthetic_val — уже посчитан для base-тройки ниже, передаём
             # тот же (см. OPENING_AESTHETIC_WEIGHT в visual_director.py) —
             # используется, только если вызывающий partial связал is_opening=True.
-            extra = director_score_fn(c["path"], candidate_query=c["p"].get("_origin_query"),
-                                       aesthetic_val=c["aesthetic_val"])
+            with stage_timer.stage("ensemble_score"):
+                extra = director_score_fn(c["path"], candidate_query=c["p"].get("_origin_query"),
+                                           aesthetic_val=c["aesthetic_val"])
             dscore = (c["is_dup_free"], c["size_ok"], c["is_relevant"], sharp_ok, extra,
                        c["aesthetic_val"], c["luma_score"], c["min_d"])
             if dscore > dir_score:
@@ -3386,7 +3393,8 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             for p in trial_slice:
                 trial = trial_paths[id(p)]
                 try:
-                    prefetch_futures[id(p)].result()
+                    with stage_timer.stage("cand_download_wait", clip_idx=index):
+                        prefetch_futures[id(p)].result()
                     h = ahash(trial)
                 except Exception:
                     continue
@@ -3415,11 +3423,12 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                 # прежнему может победить, но только если он РЕАЛЬНО подходит
                 # и теме этого блока тоже — чистое ужесточение без потери
                 # глубины выбора.
-                relevance = clip_relevance(trial, query)
-                # Порог + risky-margin гейт (museum/exhibition/collection/... —
-                # см. RISKY_GENERIC_TERMS) — см. is_relevant_candidate(), та же
-                # функция, что проверяет golden-тест media-selection.
-                is_relevant = 1 if is_relevant_candidate(trial, query, relevance=relevance) else 0
+                with stage_timer.stage("cheap_gate_clip", clip_idx=index):
+                    relevance = clip_relevance(trial, query)
+                    # Порог + risky-margin гейт (museum/exhibition/collection/... —
+                    # см. RISKY_GENERIC_TERMS) — см. is_relevant_candidate(), та же
+                    # функция, что проверяет golden-тест media-selection.
+                    is_relevant = 1 if is_relevant_candidate(trial, query, relevance=relevance) else 0
                 # sharp_ok (PHOTO_SHARPNESS_REJECT) — см. её докстринг: реальный
                 # найденный случай, ни один кандидат никогда не проверялся на
                 # резкость на этапе отбора, только опциональный постфактум-
@@ -7944,6 +7953,24 @@ def print_plan_summary(blocks, durs, queries, total, xfade_budget, n_blocks_befo
     print("Готово (план). Для реальной сборки — запусти без --plan-only.")
 
 
+def _timed_render(render_fn, clip_idx, *args, **kwargs):
+    """Замер времени рендера ОДНОГО клипа.
+
+    Обёртка СНАРУЖИ kenburns()/video_render()/parallax_kenburns(), а не
+    таймер внутри них — сознательно: их исходный код хэшируется
+    render_recipe_signature(), и правка тела (даже добавление строки
+    замера) сменила бы params_hash и молча инвалидировала весь кэш
+    temp_smart/ на 165 клипов. Реальный случай 01.09: monkeypatch
+    choose_motion_mode ровно так и запустил незапланированный полный
+    перерендер.
+
+    Функция верхнего уровня, а не lambda/closure: ProcessPoolExecutor
+    пикклит вызываемое, замыкание не пикклится. При STAGE_TIMER=0 —
+    прозрачный проброс, поведение байт-в-байт прежнее."""
+    with stage_timer.stage("clip_render", clip_idx=clip_idx, fn=render_fn.__name__):
+        return render_fn(*args, **kwargs)
+
+
 def main():
     if not os.path.exists(AUDIO_FILE):
         print(f"Аудио не найдено: {AUDIO_FILE}")
@@ -7952,6 +7979,12 @@ def main():
     print(f"Аудио: {total:.1f}с ({total/60:.1f} мин)")
     audio_qc(AUDIO_FILE)
     os.makedirs(TEMP_FOLDER, exist_ok=True)
+    # Замер стадий — только при STAGE_TIMER=1, иначе путь не выставляется
+    # и stage() остаётся пустым (см. scripts/stage_timer.py).
+    if stage_timer.STAGE_TIMER_ENABLED:
+        stage_timer.set_output_path(
+            os.path.join(VIDEO_FOLDER, "media_plan", "stage_timings.jsonl"))
+        print("  Замер стадий включён (STAGE_TIMER=1) -> media_plan/stage_timings.jsonl")
     # Огрызки .partial.mp4 от предыдущего прогона, убитого посреди рендера
     # клипа (SIGKILL/OOM/обрыв — см. render_tmp_path/finalize_render) —
     # безопасно чистить на старте: раз файл лежит под .partial.mp4, а не
@@ -8755,14 +8788,14 @@ def main():
             if video:
                 if render_pool:
                     future = render_pool.submit(
-                        video_render, video, out, d, title=title, stat=stat, section=b["section"],
+                        _timed_render, video_render, i, video, out, d, title=title, stat=stat, section=b["section"],
                         stat_variant=stat_variant, brightness_bias=brightness_bias,
                         energy_bias=energy_bias, stat_delay=stat_delay, levels=levels, wb=wb, grain_scale=grain_scale,
                         handheld=has_action_word(b["text"]), captions=captions,
                         ffmpeg_threads=RENDER_FFMPEG_THREADS)
                     ok = None
                 else:
-                    ok = video_render(video, out, d, title=title, stat=stat, section=b["section"],
+                    ok = _timed_render(video_render, i, video, out, d, title=title, stat=stat, section=b["section"],
                                        stat_variant=stat_variant, brightness_bias=brightness_bias,
                                        energy_bias=energy_bias, stat_delay=stat_delay, levels=levels, wb=wb, grain_scale=grain_scale,
                                        handheld=has_action_word(b["text"]), captions=captions)
@@ -8796,7 +8829,7 @@ def main():
                     # это отдельный, более дорогой визуальный приём для самых
                     # заметных точек ролика, не нуждается в дополнительной
                     # категоризации поверх собственной.
-                    ok = parallax_kenburns(photo, out, d, title=title, zoom_in=zoom_in,
+                    ok = _timed_render(parallax_kenburns, i, photo, out, d, title=title, zoom_in=zoom_in,
                                             pan_dir=pan_dir, stat=stat, section=b["section"],
                                             stat_variant=stat_variant, brightness_bias=brightness_bias,
                                             energy_bias=energy_bias, stat_delay=stat_delay, levels=levels, wb=wb, grain_scale=grain_scale,
@@ -8807,14 +8840,14 @@ def main():
                     motion_mode = choose_motion_mode(b, is_section_start, photo_hash, shot_size=cur_shot_size)
                     if render_pool:
                         future = render_pool.submit(
-                            kenburns, photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
+                            _timed_render, kenburns, i, photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
                             stat=stat, section=b["section"], motion_mode=motion_mode,
                             brightness_bias=brightness_bias, energy_bias=energy_bias,
                             stat_variant=stat_variant, stat_delay=stat_delay, levels=levels, wb=wb, grain_scale=grain_scale,
                             captions=captions, look_filter=look_filter, ffmpeg_threads=RENDER_FFMPEG_THREADS, domain=domain)
                         ok = None
                     else:
-                        ok = kenburns(photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
+                        ok = _timed_render(kenburns, i, photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
                                       stat=stat, section=b["section"], motion_mode=motion_mode,
                                       brightness_bias=brightness_bias, energy_bias=energy_bias,
                                       stat_variant=stat_variant, stat_delay=stat_delay, levels=levels, wb=wb, grain_scale=grain_scale,
@@ -9050,8 +9083,9 @@ def main():
         print("Нет клипов")
         return 1
     merged = os.path.join(TEMP_FOLDER, "merged.mp4")
-    ok, xfade_total = xfade_chain_chunked(clips, clip_durs, clip_sections, merged, TEMP_FOLDER,
-                                           blocks=clip_blocks)
+    with stage_timer.stage("assembly_xfade", n_clips=len(clips)):
+        ok, xfade_total = xfade_chain_chunked(clips, clip_durs, clip_sections, merged, TEMP_FOLDER,
+                                               blocks=clip_blocks)
     if not ok:
         concat = os.path.join(TEMP_FOLDER, "concat.txt")
         # Пути ТОЛЬКО абсолютные: concat-демуксер ffmpeg резолвит относительные
@@ -9220,6 +9254,7 @@ def main():
     # Аудио по-прежнему явно триммится "-t" (оно перекодируется в AAC —
     # PTS-обрезка там точна, тот же принцип, что и раньше).
     video_frames_target = min(round(total * FPS), round(get_media_duration(merged) * FPS))
+    _mux_t0 = time.perf_counter()
     try:
         r = subprocess.run(["ffmpeg", "-y", "-i", merged, "-i", premix,
                             "-t", f"{total:.3f}",
@@ -9239,9 +9274,11 @@ def main():
                             output_tmp], capture_output=True, text=True,
                            timeout=max(180, total))
     except subprocess.TimeoutExpired:
+        stage_timer.record("final_mux", time.perf_counter() - _mux_t0, ok=False)
         print(f"Финальный мукс завис (таймаут {max(180, total):.0f}с) — final.mp4 не собран.")
         finalize_render(output_tmp, OUTPUT_FILE, False)
         return 1
+    stage_timer.record("final_mux", time.perf_counter() - _mux_t0)
     if r.returncode != 0:
         print("Аудио:", r.stderr[-300:])
         finalize_render(output_tmp, OUTPUT_FILE, False)

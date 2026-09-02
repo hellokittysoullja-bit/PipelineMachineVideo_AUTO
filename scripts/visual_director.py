@@ -644,7 +644,13 @@ def text_text_similarity(texts_a, texts_b):
                                                dtype=np.float32)})[0])
             return np.concatenate(out_chunks, axis=0)
 
-        return (_emb(texts_a) @ _emb(texts_b).T).tolist()
+        # Замер именно здесь: это тот самый шаг, где ONNX-граф Jina
+        # заставляет прогонять vision-башню по НУЛЯМ (см. _emb выше) —
+        # разбор 01.09 оценил его в 10-15 мин на прогон, но это была
+        # реконструкция без замера. Цифра нужна до, а не после правки.
+        with pipeline_smart.stage_timer.stage("text_text_jina",
+                                              n_a=len(texts_a), n_b=len(texts_b)):
+            return (_emb(texts_a) @ _emb(texts_b).T).tolist()
     except ImportError:
         _JINA_BROKEN = True
         return None
@@ -674,10 +680,12 @@ def sentence_relevance(image_path, block_text):
     убирает базовый. SigLIP2 недоступна -> None целиком (как и раньше)."""
     if not block_text:
         return None
-    siglip2_raw = _siglip2_relevance(image_path, block_text)
+    with pipeline_smart.stage_timer.stage("siglip2"):
+        siglip2_raw = _siglip2_relevance(image_path, block_text)
     if siglip2_raw is None:
         return None
-    jina_raw = _jina_relevance(image_path, block_text)
+    with pipeline_smart.stage_timer.stage("jina_img"):
+        jina_raw = _jina_relevance(image_path, block_text)
     if jina_raw is None:
         return siglip2_raw   # fail-open: SigLIP2-only, byte-for-byte старое поведение
     jina_rescaled = _rescale_jina_to_siglip2_scale(jina_raw)
