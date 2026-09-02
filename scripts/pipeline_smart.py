@@ -296,7 +296,14 @@ PAN_DIRECTIONS = [(0, 0), (1, 1), (1, -1), (-1, 1), (-1, -1), (1, 0), (-1, 0), (
 MOOD_GRADE = {
     "HOOK":  {"c0": 1.06, "s0": 0.82, "vign": "PI/6",   "bs": 0.10, "rh": 0.03},
     "FINAL": {"c0": 1.02, "s0": 0.90, "vign": "PI/6",   "bs": 0.06, "rh": 0.08},
-    "BODY":  {"c0": 1.06, "s0": 0.86, "vign": "PI/5",   "bs": 0.10, "rh": 0.03},
+    # vign PI/5 -> PI/6: BODY был ЕДИНСТВЕННОЙ секцией с более тёмной
+    # виньеткой (у HOOK и FINAL уже PI/6), и именно BODY занимает ~90%
+    # хронометража — то есть подавляющая часть ролика шла заметно темнее
+    # по краям, чем его же начало и финал. Разрыв не был осознанным
+    # решением: PI/6 у HOOK/FINAL появился отдельной правкой (см.
+    # комментарий "ВТОРОЙ проход" выше), BODY тогда просто не тронули.
+    # Возвращает ~8 пунктов яркости кадру на протяжении всего тела.
+    "BODY":  {"c0": 1.06, "s0": 0.86, "vign": "PI/6",   "bs": 0.10, "rh": 0.03},
 }
 
 
@@ -502,8 +509,26 @@ def film_look(photo_hash, section="", brightness_bias=0.0, energy_bias=0.0, leve
         # (video_render ramp-путь, parallax rawvideo pipe).
         f"split[fl_hi_a][fl_hi_b];"
         f"[fl_hi_a]curves=all='0/0 0.6/0 0.8/0.22 1/0.6',"
-        f"colorbalance=rs=0.12:bs=-0.12,gblur=sigma=14[fl_hi_glow];"
-        f"[fl_hi_b][fl_hi_glow]blend=all_mode=screen:all_opacity=0.09,"
+        # gblur=sigma=14 на полном кадре -> то же размытие на 1/4 стороны.
+        # Стоимость гауссова размытия растёт с площадью И с радиусом; ветка
+        # свечения — самая дорогая часть film_look(). Радиус масштабируется
+        # ровно как сторона (14/4 = 3.5), поэтому свечение остаётся тем же
+        # по форме: halation по определению низкочастотный, детали в нём
+        # нет — терять на даунскейле нечего (в отличие от основной ветки
+        # [fl_hi_b], которая идёт в полном разрешении и не тронута).
+        f"colorbalance=rs=0.12:bs=-0.12,"
+        f"scale=iw/4:ih/4,gblur=sigma=3.5[fl_hi_small];"
+        # Возврат к исходному размеру — ТОЛЬКО через scale2ref по второй
+        # ветке, никогда через литерал 1920:1080. РЕАЛЬНЫЙ баг, пойманный
+        # тестами (6 падений в test_look_reference.py, не гипотеза):
+        # film_look() работает не только на 1080p — look_reference.
+        # _render_graded_preview() гоняет через ЭТОТ ЖЕ граф кадр 160x90
+        # (closed-loop проверка коррекции), и жёстко вписанный апскейл
+        # разводил ветки по размеру, после чего blend падал. Обратный
+        # пересчёт "iw*4" тоже не годится: 90/4 округляется до 22, и
+        # 22*4=88 != 90 — расхождение на пиксель ломает blend так же.
+        f"[fl_hi_small][fl_hi_b]scale2ref=flags=bicubic[fl_hi_glow][fl_hi_bref];"
+        f"[fl_hi_bref][fl_hi_glow]blend=all_mode=screen:all_opacity=0.09,"
         # deband — тёмный тёплый грейд + vignette + halation усиливают риск
         # полос на гладких градиентах (небо, размытый фон, тень от vignette) —
         # то, что 8-бит легче всего выдаёт как "цифровое". Мягкие пороги
@@ -945,7 +970,7 @@ def snap_hook_cuts_to_energy(blocks, durs, real_starts, audio_path):
     return new_durs
 
 
-def measure_loudnorm_stats(audio_path, target_i=-16, target_tp=-1.5, target_lra=11):
+def measure_loudnorm_stats(audio_path, target_i=-14, target_tp=-1.5, target_lra=11):
     """Первый проход двух-проходного loudnorm — только измерение, звук не
     трогаем. Однопроходный (динамический) режим подстраивает усиление на
     лету по ходу файла и даёт неровную громкость внутри ролика и неточный
@@ -5237,8 +5262,8 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
         # складывалось в секунды ухода видео от голоса (см.
         # quantize_durations_to_frames). Так же уже работает
         # parallax_kenburns(), путь просто приведён к одному виду.
-        cmd += ["-frames:v", str(frames), "-c:v", "libx264", "-preset", "fast",
-               "-crf", "18", "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS
+        cmd += ["-frames:v", str(frames), "-c:v", "libx264", "-preset", "veryfast",
+               "-crf", "17", "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS
         if ffmpeg_threads:
             cmd += ["-threads", str(ffmpeg_threads)]
         cmd += [tmp_out]
@@ -6260,7 +6285,7 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
         else:
             cmd += ["-vf", vf]
         tmp_out = render_tmp_path(out)
-        cmd += ["-frames:v", str(frames), "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+        cmd += ["-frames:v", str(frames), "-c:v", "libx264", "-preset", "veryfast", "-crf", "17",
                 "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS + [tmp_out]
         # РЕАЛЬНЫЙ баг, пойманный на реальном продакшн-рендере (не гипотеза):
         # stderr=subprocess.PIPE здесь НИКОГДА не вычитывался, пока родитель
@@ -6598,7 +6623,7 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
             filter_complex = f"[0:v]{scale_crop}[base];{ramp_filter};[ramped]{full_tail}[vout]"
         cmd += ["-filter_complex", filter_complex,
                "-map", "[vout]", "-frames:v", str(frames), "-an",
-               "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+               "-c:v", "libx264", "-preset", "veryfast", "-crf", "17",
                "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS
         if ffmpeg_threads:
             cmd += ["-threads", str(ffmpeg_threads)]
@@ -6636,7 +6661,7 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
         else:
             cmd += ["-vf", vf]
         cmd += ["-frames:v", str(frames), "-an",
-                "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "17",
                 "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS
         if ffmpeg_threads:
             cmd += ["-threads", str(ffmpeg_threads)]
@@ -9193,8 +9218,14 @@ def main():
     if typewriter_click_times:
         premix_clicks = os.path.join(TEMP_FOLDER, "premix_clicks.wav")
         premix = add_typewriter_clicks(premix, typewriter_click_times, total, premix_clicks)
-    # loudnorm — стандартная целевая громкость YouTube (-16 LUFS intergated,
-    # -1.5dB true peak потолок, LRA 11) вместо "как есть от TTS". Разные
+    # loudnorm — целевая громкость YouTube (-14 LUFS integrated, -1.5dB
+    # true peak потолок, LRA 11) вместо "как есть от TTS". Было -16: на
+    # этой платформе тише целевой означает, что ролик звучит глуше соседних
+    # в ленте (платформа поднимает громкость только ГРОМКИХ роликов, тихие
+    # не подтягивает). ЧЕТЫРЕ места обязаны совпадать — дефолт target_i у
+    # measure_loudnorm_stats() и три литерала ниже: первый проход меряет
+    # под одну цель, второй применяет под другую, и рассинхрон дал бы
+    # смещение громкости, которого нет ни в одном логе. Разные
     # заказы озвучки/движки иначе дают заметно разную громкость от эпизода
     # к эпизоду — не проф. уровень, если зритель тянется к громкости между
     # роликами одного канала. Двухпроходный (measure -> linear=true) вместо
@@ -9204,13 +9235,13 @@ def main():
     loud_stats = measure_loudnorm_stats(premix)
     fade_out_st = max(0.0, total - 2.0)
     if loud_stats:
-        af = (f"loudnorm=I=-16:TP=-1.5:LRA=11:linear=true:"
+        af = (f"loudnorm=I=-14:TP=-1.5:LRA=11:linear=true:"
               f"measured_I={loud_stats['input_i']}:measured_TP={loud_stats['input_tp']}:"
               f"measured_LRA={loud_stats['input_lra']}:measured_thresh={loud_stats['input_thresh']}:"
               f"offset={loud_stats['target_offset']},"
               f"afade=t=in:st=0:d=0.4,afade=t=out:st={fade_out_st:.3f}:d=2")
     else:
-        af = (f"loudnorm=I=-16:TP=-1.5:LRA=11,"
+        af = (f"loudnorm=I=-14:TP=-1.5:LRA=11,"
               f"afade=t=in:st=0:d=0.4,afade=t=out:st={fade_out_st:.3f}:d=2")
     # Атомарная запись — тот же принцип, что render_tmp_path()/finalize_render()
     # у отдельных клипов (см. коммент там): final.mp4 — то, что пользователь
@@ -9290,7 +9321,7 @@ def main():
     final_lufs = None
     try:
         fr = subprocess.run(["ffmpeg", "-i", OUTPUT_FILE, "-af",
-                              "loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json",
+                              "loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json",
                               "-f", "null", "-"], capture_output=True, text=True, timeout=60)
         fs, fe = fr.stderr.rindex("{"), fr.stderr.rindex("}") + 1
         final_lufs = float(json.loads(fr.stderr[fs:fe])["input_i"])
