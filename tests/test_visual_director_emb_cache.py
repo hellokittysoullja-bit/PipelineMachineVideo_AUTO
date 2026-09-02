@@ -131,3 +131,82 @@ def test_cache_signature_unchanged_by_embedding_cache():
     инвалидировала бы кэш кандидатов на диске."""
     assert vd.cache_signature() == vd.cache_signature()
     assert "EMB_CACHE_MAX" not in str(vd.cache_signature())
+
+
+# --------------------------------------------------------------------------
+# Дисковый слой кэша (переживает перепрогон эпизода)
+# --------------------------------------------------------------------------
+
+@pytest.fixture
+def disk_cache(tmp_path, monkeypatch):
+    """Кэш-директория — под tmp_path, а не в реальном temp_smart эпизода."""
+    import pipeline_smart
+    monkeypatch.setattr(pipeline_smart, "TEMP_FOLDER", str(tmp_path))
+    monkeypatch.setattr(vd, "EMB_DISK_CACHE_ENABLED", True)
+    return tmp_path
+
+
+def test_disk_roundtrip_is_bitwise_exact(disk_cache):
+    """npy хранит сырые байты массива — вектор обязан вернуться побитово
+    тем же, иначе кэш менял бы отбор в последних знаках."""
+    arr = np.random.RandomState(0).rand(1, 1152).astype(np.float32)
+    vd._emb_disk_store("s2i", "deadbeef", arr)
+    back = vd._emb_disk_load("s2i", "deadbeef")
+    assert back is not None
+    assert back.dtype == arr.dtype
+    assert back.tobytes() == arr.tobytes(), "побитовое совпадение, не 'почти равно'"
+
+
+def test_disk_key_bound_to_model_signature(disk_cache, monkeypatch):
+    """Сменилась модель/веса/шкала -> старые векторы недостижимы САМИ,
+    вручную чистить кэш не нужно (иначе к новой модели молча подмешались
+    бы векторы старой)."""
+    arr = np.ones((1, 4), dtype=np.float32)
+    vd._emb_disk_store("s2t", "k1", arr)
+    assert vd._emb_disk_load("s2t", "k1") is not None
+    monkeypatch.setattr(vd, "_relevance_model_signature", lambda: "другая_модель")
+    assert vd._emb_disk_load("s2t", "k1") is None
+
+
+def test_corrupt_cache_file_is_a_miss_not_a_crash(disk_cache):
+    """Прогон убит посреди записи -> промах кэша, а не падение отбора."""
+    d = vd._emb_disk_dir()
+    p = os.path.join(d, f"s2i_{vd._relevance_model_signature()}_broken.npy")
+    with open(p, "wb") as f:
+        f.write("не numpy вовсе".encode("utf-8"))
+    assert vd._emb_disk_load("s2i", "broken") is None
+
+
+def test_disk_cache_can_be_disabled(tmp_path, monkeypatch):
+    import pipeline_smart
+    monkeypatch.setattr(pipeline_smart, "TEMP_FOLDER", str(tmp_path))
+    monkeypatch.setattr(vd, "EMB_DISK_CACHE_ENABLED", False)
+    assert vd._emb_disk_dir() is None
+    vd._emb_disk_store("s2i", "k", np.ones((1, 4), dtype=np.float32))
+    assert vd._emb_disk_load("s2i", "k") is None
+
+
+def test_image_key_follows_content_not_path(tmp_path):
+    """Один и тот же файл под разными именами (пулы разных слотов) — одно
+    попадание; изменившееся содержимое — другой ключ."""
+    a = tmp_path / "slot0.jpg"
+    b = tmp_path / "slot7.jpg"
+    a.write_bytes(b"\xff\xd8same-bytes")
+    b.write_bytes(b"\xff\xd8same-bytes")
+    assert vd._image_disk_key(str(a)) == vd._image_disk_key(str(b))
+    b.write_bytes(b"\xff\xd8other-bytes")
+    assert vd._image_disk_key(str(a)) != vd._image_disk_key(str(b))
+
+
+def test_image_key_missing_file_is_none(disk_cache):
+    """Нет файла -> None -> просто не кэшируем, без исключения."""
+    assert vd._image_disk_key("/нет/такого.jpg") is None
+    assert vd._emb_disk_load("s2i", None) is None
+    vd._emb_disk_store("s2i", None, np.ones((1, 4), dtype=np.float32))
+
+
+def test_no_tmp_files_left_behind(disk_cache):
+    """Атомарная запись не должна оставлять .tmp-мусор в кэше."""
+    vd._emb_disk_store("jt", "abc", np.ones((1, 8), dtype=np.float32))
+    leftovers = [f for f in os.listdir(vd._emb_disk_dir()) if ".tmp" in f]
+    assert leftovers == []

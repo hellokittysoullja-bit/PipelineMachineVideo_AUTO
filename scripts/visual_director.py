@@ -481,6 +481,84 @@ _jina_text_emb_cache = {}
 _jina_img_emb_cache = {}
 
 
+# Дисковый слой того же кэша: переживает ПЕРЕПРОГОН эпизода.
+# Кандидаты лежат в temp_smart/pexels_cache и между прогонами не меняются,
+# а их векторы раньше считались заново каждый раз с нуля. Эмбеддинг —
+# чистая функция от (модель, файл), поэтому сохранить его на диск можно
+# без единого изменения результата; это тот же приём, что уже применён к
+# temp_smart/clip_*.mp4 и pexels_cache, только для более дорогого этапа.
+EMB_DISK_CACHE_ENABLED = os.environ.get("EMB_DISK_CACHE", "1") != "0"
+
+
+def _emb_disk_dir():
+    """temp_smart/emb_cache рядом с кэшем самих кандидатов — привязан к
+    эпизоду и чистится вместе с ним. None при любой ошибке (кэш опционален
+    и никогда не должен ронять отбор)."""
+    if not EMB_DISK_CACHE_ENABLED:
+        return None
+    try:
+        d = os.path.join(pipeline_smart.TEMP_FOLDER, "emb_cache")
+        os.makedirs(d, exist_ok=True)
+        return d
+    except Exception:
+        return None
+
+
+def _emb_disk_load(kind, key):
+    """Ключ включает подпись модели (_relevance_model_signature) — смена
+    модели/весов/шкалы делает старые файлы недостижимыми сама, вручную
+    инвалидировать нечего. Битый/обрезанный файл (прогон убит посреди
+    записи) — просто промах кэша, не исключение."""
+    d = _emb_disk_dir()
+    if not d or key is None:
+        return None
+    try:
+        import numpy as np
+        p = os.path.join(d, f"{kind}_{_relevance_model_signature()}_{key}.npy")
+        if os.path.exists(p):
+            return np.load(p)
+    except Exception:
+        return None
+    return None
+
+
+def _emb_disk_store(kind, key, arr):
+    """Запись атомарная (tmp + os.replace): параллельный процесс никогда не
+    прочитает наполовину записанный вектор — тот же принцип, что у
+    atomic-кэша клипов в pipeline_smart."""
+    d = _emb_disk_dir()
+    if not d or key is None:
+        return
+    # Имя tmp кончается на .npy — иначе np.save допишет расширение сам, и
+    # os.replace переименовал бы несуществующий путь.
+    tmp = os.path.join(d, f".{kind}_{key}.{os.getpid()}.tmp.npy")
+    try:
+        import numpy as np
+        p = os.path.join(d, f"{kind}_{_relevance_model_signature()}_{key}.npy")
+        np.save(tmp, arr)
+        os.replace(tmp, p)
+    except Exception:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
+
+
+def _image_disk_key(image_path):
+    """md5 СОДЕРЖИМОГО, а не (путь, mtime): один и тот же файл, попавший в
+    пулы разных слотов под разными именами, даёт одно попадание. Чтение
+    ~1МБ занимает миллисекунды против 1.89-2.65с на прогон башни."""
+    try:
+        return pipeline_smart._md5_file(image_path)
+    except Exception:
+        return None
+
+
+def _text_disk_key(text):
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()
+
+
 def _emb_cache_put(cache, key, value):
     """Грубая граница памяти: при переполнении кэш чистится целиком, а не
     вытесняет по LRU. Осознанно — эмбеддинги мелкие (~4-5КБ), 512 записей
@@ -503,11 +581,19 @@ def _image_cache_key(image_path):
 
 
 def _siglip2_text_emb(text):
-    """Нормированный текстовый эмбеддинг SigLIP2 (кэш по строке)."""
+    """Нормированный текстовый эмбеддинг SigLIP2 (кэш в памяти + на диске)."""
     hit = _siglip2_text_emb_cache.get(text)
     if hit is not None:
         return hit
     import torch
+    dk = _text_disk_key(text)
+    on_disk = _emb_disk_load("s2t", dk)
+    if on_disk is not None:
+        # float32 -> npy -> float32 обратно: побитово то же значение, а не
+        # «почти то же» (npy хранит сырые байты массива, без округления).
+        emb = torch.from_numpy(on_disk)
+        _emb_cache_put(_siglip2_text_emb_cache, text, emb)
+        return emb
     model, processor = _get_siglip2_model()
     with torch.no_grad():
         txt_inputs = processor(text=[text], padding="max_length",
@@ -516,6 +602,7 @@ def _siglip2_text_emb(text):
         emb = txt_out.pooler_output if hasattr(txt_out, "pooler_output") else txt_out
         emb = emb / emb.norm(dim=-1, keepdim=True)
     _emb_cache_put(_siglip2_text_emb_cache, text, emb)
+    _emb_disk_store("s2t", dk, emb.numpy())
     return emb
 
 
@@ -529,6 +616,12 @@ def _siglip2_image_emb(image_path):
         return hit
     import torch
     from PIL import Image as PILImage
+    dk = _image_disk_key(image_path)
+    on_disk = _emb_disk_load("s2i", dk)
+    if on_disk is not None:
+        emb = torch.from_numpy(on_disk)
+        _emb_cache_put(_siglip2_img_emb_cache, key, emb)
+        return emb
     model, processor = _get_siglip2_model()
     img = PILImage.open(image_path).convert("RGB")
     with torch.no_grad():
@@ -537,6 +630,7 @@ def _siglip2_image_emb(image_path):
         emb = img_out.pooler_output if hasattr(img_out, "pooler_output") else img_out
         emb = emb / emb.norm(dim=-1, keepdim=True)
     _emb_cache_put(_siglip2_img_emb_cache, key, emb)
+    _emb_disk_store("s2i", dk, emb.numpy())
     return emb
 
 
@@ -655,6 +749,11 @@ def _jina_text_emb(text):
     if hit is not None:
         return hit
     import numpy as np
+    dk = _text_disk_key(text)
+    on_disk = _emb_disk_load("jt", dk)
+    if on_disk is not None:
+        _emb_cache_put(_jina_text_emb_cache, text, on_disk)
+        return on_disk
     sess, tokenizer = _get_jina_session()
     enc = tokenizer([text], padding=True, truncation=True,
                      max_length=JINA_TEXT_MAX_LENGTH, return_tensors="np")
@@ -663,6 +762,7 @@ def _jina_text_emb(text):
                      "pixel_values": np.zeros((1, 3, JINA_IMG_SIZE, JINA_IMG_SIZE),
                                                dtype=np.float32)})[0]
     _emb_cache_put(_jina_text_emb_cache, text, emb)
+    _emb_disk_store("jt", dk, emb)
     return emb
 
 
@@ -674,6 +774,11 @@ def _jina_image_emb(image_path):
         return hit
     import numpy as np
     from PIL import Image as PILImage
+    dk = _image_disk_key(image_path)
+    on_disk = _emb_disk_load("ji", dk)
+    if on_disk is not None:
+        _emb_cache_put(_jina_img_emb_cache, key, on_disk)
+        return on_disk
     sess, _ = _get_jina_session()
     img = PILImage.open(image_path).convert("RGB")
     pixel_values = _jina_preprocess_image(img)[None, ...].astype(np.float32)
@@ -681,6 +786,7 @@ def _jina_image_emb(image_path):
                     {"input_ids": np.zeros((1, 1), dtype=np.int64),
                      "pixel_values": pixel_values})[0]
     _emb_cache_put(_jina_img_emb_cache, key, emb)
+    _emb_disk_store("ji", dk, emb)
     return emb
 
 
