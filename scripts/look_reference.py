@@ -605,8 +605,21 @@ def _grade_recipe_fingerprint():
     коде film_look() он был измерен (см. graded_reference_lab); расхождение
     с текущим film_look() на чтении — честный сигнал "эталон устарел, надо
     перемерить scripts/lookbook_remeasure.py", а не молчаливое сравнение
-    против грейда, который зритель больше не увидит."""
-    return hashlib.md5(inspect.getsource(pipeline_smart.film_look).encode()).hexdigest()[:12]
+    против грейда, который зритель больше не увидит.
+
+    НЕ только film_look() — тот же класс пробела, что самоаудит 03.09 нашёл
+    и починил в pipeline_smart.render_recipe_signature() (см. её докстринг):
+    film_look() вызывает _scene_bias()/_warm_mult()/auto_levels_params()/
+    auto_wb_params() ПО ИМЕНИ (проверено построчно по реальному телу
+    функции, не по докстрингу, где они тоже упомянуты прозой) — без них
+    здесь правка любой из четырёх молча НЕ инвалидировала бы эталон,
+    ровно та же ловушка "рецепт изменился, отпечаток — нет"."""
+    parts = [inspect.getsource(f) for f in (
+        pipeline_smart.film_look, pipeline_smart._scene_bias,
+        pipeline_smart._warm_mult, pipeline_smart.auto_levels_params,
+        pipeline_smart.auto_wb_params,
+    )]
+    return hashlib.md5("".join(parts).encode()).hexdigest()[:12]
 
 
 def graded_reference_lab(image_path, domain, levels, wb):
