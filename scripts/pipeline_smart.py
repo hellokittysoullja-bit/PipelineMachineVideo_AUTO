@@ -181,6 +181,16 @@ COLOR_META_ARGS = ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorsp
 # ничего специального делать не нужно на стороне master-прохода.
 CLIP_PIX_ARGS = ["-pix_fmt", "yuv420p10le", "-profile:v", "high10"]
 
+# Единый источник preset/CRF для КАЖДОГО кодирования клипа (kenburns/
+# video_render/parallax_kenburns — 4 места ниже) — тот же принцип и та же
+# причина, что у LOUDNORM_TARGET_I/_MOOD_GRADE_DEFAULT: раньше "veryfast"/
+# "17" были литералом в каждом из 4 мест по отдельности (правились
+# sed'ом разом 02.09, но ничто не мешало следующей правке задеть не все
+# 4). Самоаудит 03.09: не рассинхрон (все 4 совпадали), но профилактика
+# того же класса риска, пока он не проявился как баг.
+RENDER_PRESET = "veryfast"
+RENDER_CRF = "17"
+
 # ZOOM_FLOOR — минимальный зум держится ВЕСЬ клип (не 1.0). Раньше offset пана
 # был обязан = 0 ровно в момент zoom=1.0 (иначе край вылезет за картинку), и на
 # каждом втором клипе (zoom-out) кадр половину времени стоял мёртвым по центру.
@@ -293,7 +303,20 @@ PAN_DIRECTIONS = [(0, 0), (1, 1), (1, -1), (-1, 1), (-1, -1), (1, 0), (-1, 0), (
 # HOOK всё ещё отличим от BODY/FINAL контрастом (1.06 vs 1.02)/
 # сатурацией (0.82 vs 0.90)/холодом теней (bs=0.10 vs 0.06) — только
 # виньетка выровнена с FINAL, не осталась самой сильной из трёх.
-MOOD_GRADE = {
+# Имя дефолта — ОТДЕЛЬНОЕ от MOOD_GRADE (не просто "MOOD_GRADE = {...}",
+# как было раньше). Причина — реальный найденный баг (03.09): правка
+# ЭТОГО словаря молча не действовала, потому что MOOD_GRADE ниже
+# ПЕРЕЗАПИСЫВАЕТСЯ ЦЕЛИКОМ значением channel_profile.json, если файл
+# существует (см. override ниже, комментарий про CHANNEL_PROFILE) — а
+# конфиг для BODY.vign остался на старом значении. Пока имя было одно и
+# то же, у теста не было способа отличить "код и конфиг совпадают,
+# потому что кто-то это проверил" от "совпадают, потому что один
+# ЯВЛЯЕТСЯ другим" (test_mood_grade_matches_channel_profile_file раньше
+# проверял именно второе — тривиально верно всегда, ловит ноль
+# рассинхронов). Отдельное имя _MOOD_GRADE_DEFAULT даёт тесту то, с чем
+# реально сравнивать: задокументированный в channel_profile.json
+# инвариант "1-в-1" (см. его _comment) теперь проверяем не на словах.
+_MOOD_GRADE_DEFAULT = {
     "HOOK":  {"c0": 1.06, "s0": 0.82, "vign": "PI/6",   "bs": 0.10, "rh": 0.03},
     "FINAL": {"c0": 1.02, "s0": 0.90, "vign": "PI/6",   "bs": 0.06, "rh": 0.08},
     # РАЗБИРАЛОСЬ 02.09: BODY был единственной секцией темнее HOOK/FINAL
@@ -1757,7 +1780,7 @@ CHANNEL_PROFILE = load_json_dict(os.path.join(
 # .get() со вторым аргументом = уже присвоенное значение — не дублирует
 # дефолты второй раз). CONTENT_ALT_BLOCKLIST переопределяется так же, у
 # своего определения ниже (объявлена позже в файле).
-MOOD_GRADE = CHANNEL_PROFILE.get("mood_grade", MOOD_GRADE)
+MOOD_GRADE = CHANNEL_PROFILE.get("mood_grade", _MOOD_GRADE_DEFAULT)
 _voice_profile = CHANNEL_PROFILE.get("voice", {})
 VOICE_HIGHPASS_HZ = _voice_profile.get("highpass_hz", VOICE_HIGHPASS_HZ)
 VOICE_EQ_WARMTH_HZ = _voice_profile.get("eq_warmth_hz", VOICE_EQ_WARMTH_HZ)
@@ -2772,7 +2795,14 @@ STOCK_EXHAUSTED_MISSES = []   # [{"index", "kind", "query", "n_candidates_examin
 # совсем); если после фильтра кандидатов не осталось — тихий откат на
 # нефильтрованный список (лучше формально нерелевантный кадр, чем сорванная
 # сборка блока).
-CONTENT_ALT_BLOCKLIST = (
+# Отдельное имя дефолта — тот же принцип и та же причина, что у
+# _MOOD_GRADE_DEFAULT выше: самоаудит 03.09 нашёл 15 терминов
+# (katana/samurai/kimono/wuxia/...), добавленных в channel_profile.json
+# при работе над анахронизмами, но никогда не синхронизированных сюда —
+# расхождение молчало, потому что имя было одно и то же, и не с чем было
+# сравнить. Починено (термины добавлены ниже), но имя разделено, чтобы
+# тест мог реально проверить инвариант, а не поверить ему на слово.
+_CONTENT_ALT_BLOCKLIST_DEFAULT = (
     "cosplay", "anime", "manga character", "video game character",
     "bathroom scale", "body scale", "weight loss", "weight management",
     "body fat", "diet plan", "measuring tape body", "barefoot", "bare feet",
@@ -2787,13 +2817,28 @@ CONTENT_ALT_BLOCKLIST = (
     "reenactment", "reenactor", "medieval festival", "renaissance faire",
     "buhurt", "hema tournament", "combat sport", "full contact fighting",
     "spectators watching", "crowd watching", "audience watching",
+    # Культурно-исторические анахронизмы (см. CLAUDE.md ЧАСТЬ 13/14,
+    # QUERY_DISAMBIGUATION_RULES/VISUAL_DOMAIN_GUARDS ниже — три независимых
+    # слоя защиты): 15 терминов ниже были добавлены ТОЛЬКО в
+    # channel_profile.json при работе над анахронизмами (катана в выдаче по
+    # "sword"), в этот хардкод-дефолт — никогда. channel_profile.json
+    # всегда побеждает при .get() ниже, поэтому расхождение не меняло
+    # текущее поведение репозитория — но нарушало документированный
+    # инвариант "1-в-1" (см. _comment в channel_profile.json) и тихо
+    # теряло бы защиту от анахронизмов, если конфиг когда-нибудь окажется
+    # отсутствующим/повреждённым. Найдено 03.09 самоаудитом на тот же
+    # класс бага, что дал непримененную виньетку в этой же сессии.
+    "katana", "samurai", "kimono", "chinese sword", "jian sword",
+    "wuxia", "tai chi", "shogun", "ninja",
+    "stormtrooper", "motorcycle helmet", "sci-fi costume", "tribal costume",
+    "cultural festival", "video game icon",
 )
 # Override из channel_profile.json (см. CHANNEL_PROFILE выше) — тот же
 # принцип, что MOOD_GRADE/VOICE_*: список выше — хардкод по умолчанию ЭТОГО
 # (военно-исторического) канала, для другой ниши (например, игровой канал,
 # где cosplay/anime — нужный контент, не мусор) заменяется целиком через
 # профиль, не код.
-CONTENT_ALT_BLOCKLIST = tuple(CHANNEL_PROFILE.get("content_alt_blocklist", CONTENT_ALT_BLOCKLIST))
+CONTENT_ALT_BLOCKLIST = tuple(CHANNEL_PROFILE.get("content_alt_blocklist", _CONTENT_ALT_BLOCKLIST_DEFAULT))
 
 
 def filter_alt_blocklist(photos):
@@ -5282,8 +5327,8 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
         # складывалось в секунды ухода видео от голоса (см.
         # quantize_durations_to_frames). Так же уже работает
         # parallax_kenburns(), путь просто приведён к одному виду.
-        cmd += ["-frames:v", str(frames), "-c:v", "libx264", "-preset", "veryfast",
-               "-crf", "17", "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS
+        cmd += ["-frames:v", str(frames), "-c:v", "libx264", "-preset", RENDER_PRESET,
+               "-crf", RENDER_CRF, "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS
         if ffmpeg_threads:
             cmd += ["-threads", str(ffmpeg_threads)]
         cmd += [tmp_out]
@@ -6305,7 +6350,7 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
         else:
             cmd += ["-vf", vf]
         tmp_out = render_tmp_path(out)
-        cmd += ["-frames:v", str(frames), "-c:v", "libx264", "-preset", "veryfast", "-crf", "17",
+        cmd += ["-frames:v", str(frames), "-c:v", "libx264", "-preset", RENDER_PRESET, "-crf", RENDER_CRF,
                 "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS + [tmp_out]
         # РЕАЛЬНЫЙ баг, пойманный на реальном продакшн-рендере (не гипотеза):
         # stderr=subprocess.PIPE здесь НИКОГДА не вычитывался, пока родитель
@@ -6643,7 +6688,7 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
             filter_complex = f"[0:v]{scale_crop}[base];{ramp_filter};[ramped]{full_tail}[vout]"
         cmd += ["-filter_complex", filter_complex,
                "-map", "[vout]", "-frames:v", str(frames), "-an",
-               "-c:v", "libx264", "-preset", "veryfast", "-crf", "17",
+               "-c:v", "libx264", "-preset", RENDER_PRESET, "-crf", RENDER_CRF,
                "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS
         if ffmpeg_threads:
             cmd += ["-threads", str(ffmpeg_threads)]
@@ -6681,7 +6726,7 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
         else:
             cmd += ["-vf", vf]
         cmd += ["-frames:v", str(frames), "-an",
-                "-c:v", "libx264", "-preset", "veryfast", "-crf", "17",
+                "-c:v", "libx264", "-preset", RENDER_PRESET, "-crf", RENDER_CRF,
                 "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS
         if ffmpeg_threads:
             cmd += ["-threads", str(ffmpeg_threads)]

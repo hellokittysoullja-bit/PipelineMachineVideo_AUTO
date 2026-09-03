@@ -548,6 +548,32 @@ def test_content_alt_blocklist_matches_channel_profile_file():
     assert pipeline_smart.CONTENT_ALT_BLOCKLIST == tuple(pipeline_smart.CHANNEL_PROFILE["content_alt_blocklist"])
 
 
+def test_hardcoded_defaults_match_committed_channel_profile():
+    # РЕАЛЬНЫЙ найденный баг (03.09): выше два теста сравнивают MOOD_GRADE/
+    # CONTENT_ALT_BLOCKLIST с CHANNEL_PROFILE — но обе переменные ЯВЛЯЮТСЯ
+    # результатом чтения того же CHANNEL_PROFILE (см. override в коде), то
+    # есть тест выше тривиально верен ВСЕГДА и не ловит ни одного
+    # рассинхрона. Живой случай: правка BODY.vign в хардкод-дефолте
+    # (_MOOD_GRADE_DEFAULT) не докатилась до channel_profile.json —
+    # MOOD_GRADE молча остался на старом значении, оба теста выше прошли
+    # чисто. Второй случай — CONTENT_ALT_BLOCKLIST: 15 терминов
+    # (katana/samurai/kimono/wuxia/...) были добавлены ТОЛЬКО в
+    # channel_profile.json, никогда не попав в _CONTENT_ALT_BLOCKLIST_
+    # DEFAULT — по документированному в channel_profile.json _comment
+    # инварианту ("1-в-1 совпадают") это тоже баг, просто без текущего
+    # эффекта (конфиг всегда побеждает).
+    #
+    # Этот тест сравнивает ДВЕ РАЗНЫЕ вещи — хардкод-дефолт (что было бы
+    # без channel_profile.json) и реально закоммиченный channel_profile.
+    # json этого репозитория — и проверяет именно тот инвариант, который
+    # сам файл заявляет как задуманный. Если он падает — значит кто-то
+    # правил один источник и забыл другой (как здесь), либо канал
+    # осознанно разошёлся с дефолтом (тогда тест меняется явно, это не
+    # тихий дрейф, а осознанное решение автора правки).
+    assert pipeline_smart._MOOD_GRADE_DEFAULT == pipeline_smart.CHANNEL_PROFILE["mood_grade"]
+    assert set(pipeline_smart._CONTENT_ALT_BLOCKLIST_DEFAULT) == set(pipeline_smart.CHANNEL_PROFILE["content_alt_blocklist"])
+
+
 def test_voice_tuning_matches_channel_profile_file():
     voice = pipeline_smart.CHANNEL_PROFILE["voice"]
     assert pipeline_smart.VOICE_HIGHPASS_HZ == voice["highpass_hz"]
