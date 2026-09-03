@@ -62,6 +62,10 @@ import hashlib
 import urllib.request
 import urllib.error
 
+# Дефолты режимов — из единого реестра (см. его докстринг: дефолт
+# VLM_ARBITER_MODE в коде месяцами расходился с CLAUDE.md).
+import feature_flags
+
 SHOT_DIRECTOR_MAX_CALLS_PER_RUN = min(
     int(os.environ.get("SHOT_DIRECTOR_MAX_CALLS_PER_RUN", "15")), 15)
 # gemini-2.5-flash недоступна ключу, проверенному 27.08 (см. докстринг
@@ -226,7 +230,7 @@ def enrich_atmospheric_queries(text, own_query, context_queries, video_dir):
     SHOT_DIRECTOR_MAX_CALLS_PER_RUN), что и direct_query() — единый бюджет
     вызовов Gemini за прогон, не два независимых потолка."""
     global _calls_made
-    if os.environ.get("SHOT_DIRECTOR_MODE", "off").strip().lower() != "on":
+    if feature_flags.mode("SHOT_DIRECTOR_MODE") != "on":
         return None
     context_queries = [q for q in (context_queries or []) if q and q != own_query]
     cache_file = _atmo_cache_path(video_dir, text, own_query, context_queries)
@@ -274,7 +278,7 @@ def direct_query(text, video_dir):
     # выставленные после — прямой вызов direct_query() (как в тестах, или
     # любым будущим кодом, который импортирует модуль раньше, чем известен
     # режим) обязан проверять актуальное состояние, а не застывший снимок.
-    if os.environ.get("SHOT_DIRECTOR_MODE", "off").strip().lower() != "on":
+    if feature_flags.mode("SHOT_DIRECTOR_MODE") != "on":
         return None
     cache_file = _cache_path(video_dir, text)
     if os.path.exists(cache_file):
@@ -490,7 +494,7 @@ def arbitrate_hook_candidates(text, candidate_paths, candidate_ids, video_dir, i
     слоте — тот же fail-open принцип, что у direct_query()/
     enrich_atmospheric_queries()."""
     global _calls_made
-    if os.environ.get("VLM_ARBITER_MODE", "off").strip().lower() != "on":
+    if feature_flags.mode("VLM_ARBITER_MODE") != "on":
         return None
     if not candidate_paths or len(candidate_paths) < 2:
         return None

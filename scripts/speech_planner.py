@@ -63,7 +63,8 @@ ALLOWED_TAGS = ("[pause]", "[short pause]", "[slowly]", "[emphasis]", "[energeti
 # планирования (не за рендер), это заметная, но одноразовая цена. Fail-open
 # на любую ошибку (ruaccent не установлен, сбой модели) — ЛЮБОЕ исключение
 # просто гасит подсказки, планирование никогда не падает из-за этого слоя.
-STRESS_HINTS_ENABLED = os.environ.get("STRESS_HINTS_ENABLED", "0") != "0"
+import feature_flags  # noqa: E402
+STRESS_HINTS_ENABLED = feature_flags.enabled("STRESS_HINTS_ENABLED")
 
 
 def homograph_hints_for_text(text):

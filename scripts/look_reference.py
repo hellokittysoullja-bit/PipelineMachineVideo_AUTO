@@ -132,12 +132,11 @@ LOOKBOOK_PATH = os.path.join(REPO_ROOT, "assets", "lookbook", "lookbook.json")
 # решение", CLAUDE.md Шаг 6 вариант Б) — сначала честно посмотреть, что
 # система решила бы, прежде чем доверить ей реальный рендер. assist —
 # коррекция реально применяется.
-_LOOK_MANAGEMENT_MODES = ("off", "shadow", "assist")
-LOOK_MANAGEMENT_MODE = os.environ.get("LOOK_MANAGEMENT_MODE", "off").strip().lower()
-if LOOK_MANAGEMENT_MODE not in _LOOK_MANAGEMENT_MODES:
-    print(f"  ВНИМАНИЕ: LOOK_MANAGEMENT_MODE={LOOK_MANAGEMENT_MODE!r} не входит в "
-          f"{_LOOK_MANAGEMENT_MODES} — откатываюсь на 'off'.")
-    LOOK_MANAGEMENT_MODE = "off"
+# Нормализация/предупреждение/откат на "off" при мусорном значении —
+# теперь в общем реестре (scripts/feature_flags.py), поведение то же.
+import feature_flags  # noqa: E402
+_LOOK_MANAGEMENT_MODES = feature_flags.FLAGS["LOOK_MANAGEMENT_MODE"].allowed
+LOOK_MANAGEMENT_MODE = feature_flags.mode("LOOK_MANAGEMENT_MODE")
 
 # Единственный источник истины для channel-scoping (см. lookbook_add.py и
 # load_lookbook() ниже) — "just metadata for audit", не полноценный

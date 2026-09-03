@@ -153,6 +153,13 @@ def _section_offsets_cover_all(video_dir, expected_count):
     return len(data) >= expected_count
 
 
+# Коды возврата pipeline_smart.py (его EXIT_* — источник истины; тест
+# test_exit_codes_stay_in_sync_across_consumers сверяет эти три числа с ним,
+# импорт напрямую тянул бы PIL/numpy/CLIP в оркестратор ради трёх констант).
+PIPELINE_EXIT_OK = 0
+PIPELINE_EXIT_NOT_BUILT = 1
+PIPELINE_EXIT_BUILT_WITH_WARNINGS = 2
+
 _POST_RENDER_REPORTS = (
     # (имя_файла, ключ_в_JSON_со_списком, человекочитаемая_причина)
     ("relevance_gate_report.json", "misses",
@@ -297,9 +304,21 @@ def preflight_and_run(video_dir, strict, legacy_allow_degraded, legacy_allow_unr
         return 1
 
     rc = _run("pipeline_smart.py", video_dir)
-    manifest["stages"]["pipeline_smart"] = {"status": "ok" if rc == 0 else "failed", "exit_code": rc}
-    if rc != 0:
+    # 2 — final.mp4 СОБРАН, но с замечаниями (пропуски/QC-дубли): это не
+    # "failed", и останавливаться на нём нельзя — пост-рендер отчёты ниже
+    # существуют именно для такого случая и как раз называют, что смотреть.
+    # Раньше любой ненулевой код давал status="failed" и ранний выход, то
+    # есть нормальный рендер с парой похожих кадров выглядел в манифесте
+    # как сорванный, а его отчёты не проверялись вообще.
+    built = rc in (PIPELINE_EXIT_OK, PIPELINE_EXIT_BUILT_WITH_WARNINGS)
+    manifest["stages"]["pipeline_smart"] = {
+        "status": {PIPELINE_EXIT_OK: "ok",
+                   PIPELINE_EXIT_BUILT_WITH_WARNINGS: "built_with_warnings"}.get(rc, "failed"),
+        "exit_code": rc}
+    if not built:
         _write_manifest(video_dir, manifest)
+        print(f"  final.mp4 не собран (код {rc}) — причина в логе выше и в "
+              f"media_plan/render_manifest.json.")
         return rc
 
     # Пост-рендер отчёты (_POST_RENDER_REPORTS выше) — существуют только

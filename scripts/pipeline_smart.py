@@ -34,6 +34,10 @@ except Exception:
 # пишет. Обязателен ПЕРЕД любым разговором об ускорении: половина
 # бюджета живёт в subprocess ffmpeg, где Python-профайлер видит wait().
 import stage_timer
+# Единый реестр флагов режимов (scripts/feature_flags.py) — дефолты
+# объявлены ТАМ, а не литералом в каждой точке чтения: расхождение
+# кода с CLAUDE.md уже случалось молча (см. докстринг реестра).
+import feature_flags
 
 try:
     import numpy as np
@@ -86,7 +90,18 @@ RENDER_FFMPEG_THREADS = int(os.environ.get("RENDER_FFMPEG_THREADS", "1"))
 # не собирается (см. main()). RENDER_STRICT_GATE=0 возвращает старое
 # поведение "лучше меньше клипов, чем сорванный рендер" для тех, кому это
 # осознанно нужно (например, ручная досборка позже).
-RENDER_STRICT_GATE = os.environ.get("RENDER_STRICT_GATE", "1") != "0"
+RENDER_STRICT_GATE = feature_flags.enabled("RENDER_STRICT_GATE")
+
+# Коды возврата main(). До этого "собрано, но есть замечания" и "не
+# собрано вообще" отдавали ОДИН И ТОТ ЖЕ код 1 — потребители физически
+# не могли их различить: render_episode.py писал в timeline_manifest.json
+# status="failed" для совершенно нормального рендера с парой похожих
+# кадров, а render_with_retry.py на честном "final.mp4 не собран"
+# печатал "ролик собран, есть замечания". Теперь код возврата — факт,
+# а не догадка (п.2.6 docs/AUDIT_2026-08_NEXT_UPGRADES.md).
+EXIT_OK = 0                    # final.mp4 собран, замечаний нет
+EXIT_NOT_BUILT = 1             # final.mp4 НЕ собран (любая причина)
+EXIT_BUILT_WITH_WARNINGS = 2   # final.mp4 собран, но есть пропуски/QC-дубли
 PAD_GAP_HARD_CAP_SEC = 1.0   # freeze-padding сверх этого — не округление xfade, а реальная потеря
 
 
@@ -652,7 +667,11 @@ GRAIN_OPACITY = 0.10   # калибровано вживую — см. комм�
 # сам использует по умолчанию, не подобранное число), флаг даёт быстрый
 # откат без редеплоя, если при следующем визуальном QC (ЧАСТЬ 13, Шаг 7.5)
 # что-то не понравится.
-DEFLICKER_ENABLED = os.environ.get("DEFLICKER", "1") != "0"
+# РЕАЛЬНОЕ расхождение (найдено 03.09): CLAUDE.md документирует флаг как
+# DEFLICKER_ENABLED, а код читал переменную DEFLICKER — откат ровно по
+# документации не работал. Реестр читает документированное имя, старое
+# оставлено рабочим псевдонимом (Flag.aliases), чтобы ничей .env не сломался.
+DEFLICKER_ENABLED = feature_flags.enabled("DEFLICKER_ENABLED")
 DEFLICKER_FILTER = "deflicker=size=5:mode=am,"
 
 # По прямому запросу пользователя — полностью отключаемые on-screen текстовые
@@ -3643,7 +3662,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             # тратим время впустую при off (тот же паттерн, что resolve_
             # queries() уже применяет к SHOT_DIRECTOR_MODE).
             if (arbiter_text is not None and winner is not None
-                    and os.environ.get("VLM_ARBITER_MODE", "off").strip().lower() == "on"):
+                    and feature_flags.mode("VLM_ARBITER_MODE") == "on"):
                 # Открывающий кадр — отдельный, ШИРЕ, шорт-лист (см.
                 # _build_opening_shortlist) и отдельный промпт (критерий
                 # "эффектность", не "точность", см. is_opening в
@@ -4079,7 +4098,7 @@ def resolve_queries(blocks, authored_queries=None):
     # передать смысл именно ЭТОЙ фразы). Ленивый импорт по тому же паттерну,
     # что VISUAL_DIRECTOR_MODE/LOOK_MANAGEMENT_MODE ниже в этом файле — off
     # не тянет модуль и не трогает сеть вообще.
-    if os.environ.get("SHOT_DIRECTOR_MODE", "off").strip().lower() == "on":
+    if feature_flags.mode("SHOT_DIRECTOR_MODE") == "on":
         import shot_director
         for i, q in enumerate(raw):
             if q is not None:
@@ -7160,7 +7179,7 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
             # CONTENT_ALT_BLOCKLIST, если alt-текст Pexels не содержит ни
             # одного из его терминов) так и оставалась победителем.
             if (arbiter_text is not None and
-                    os.environ.get("VLM_ARBITER_MODE", "off").strip().lower() == "on"):
+                    feature_flags.mode("VLM_ARBITER_MODE") == "on"):
                 # Открывающий кадр — та же логика, что у pexels_photo()
                 # (см. is_opening_shot там): шире шорт-лист, критерий
                 # эффектности вместо буквальной точности запроса.
@@ -8185,6 +8204,11 @@ def main():
         return 1
     total = get_audio_duration()
     print(f"Аудио: {total:.1f}с ({total/60:.1f} мин)")
+    # Какой пайплайн РЕАЛЬНО исполняется — до того, как потрачены часы CPU.
+    # Дорогой слой, выключенный в .env, раньше было видно только по
+    # отсутствию строк в логе где-то в середине рендера (или не видно вовсе).
+    feature_flags.print_summary()
+    feature_flags.write_snapshot(VIDEO_FOLDER)
     audio_qc(AUDIO_FILE)
     os.makedirs(TEMP_FOLDER, exist_ok=True)
     # Замер стадий — только при STAGE_TIMER=1, иначе путь не выставляется
@@ -8455,7 +8479,7 @@ def main():
     # оправдывает трату бюджета Gemini именно здесь, а не размазывание по
     # всему эпизоду. Бюджет — тот же SHOT_DIRECTOR_MAX_CALLS_PER_RUN/кэш,
     # что у direct_query() (единый счётчик _calls_made в shot_director.py).
-    if (os.environ.get("SHOT_DIRECTOR_MODE", "off").strip().lower() == "on"
+    if (feature_flags.mode("SHOT_DIRECTOR_MODE") == "on"
             and "HOOK" in section_query_pool):
         import shot_director
         atmo_extra = []
@@ -8493,7 +8517,7 @@ def main():
     # ДО look_cache_sig — тот вызывает look_ref.cache_signature(), которая
     # должна быть уже импортирована.
     look_ref = None
-    if os.environ.get("LOOK_MANAGEMENT_MODE", "off").strip().lower() in ("shadow", "assist"):
+    if feature_flags.mode("LOOK_MANAGEMENT_MODE") in ("shadow", "assist"):
         import look_reference as look_ref  # noqa: F401
     look_cache_sig = _look_management_cache_signature(look_ref)
     # Semantic Visual Director (scripts/visual_director.py) — тот же ленивый
@@ -8504,7 +8528,7 @@ def main():
     # того как pipeline_smart полностью загружен), тот же паттерн уже
     # использует look_reference.py.
     visual_director = None
-    if os.environ.get("VISUAL_DIRECTOR_MODE", "off").strip().lower() in ("shadow", "assist"):
+    if feature_flags.mode("VISUAL_DIRECTOR_MODE") in ("shadow", "assist"):
         import visual_director as visual_director  # noqa: F401
     director_cache_sig = _visual_director_cache_signature(visual_director)
     # П.4: доменная модуляция warm_mult (DOMAIN_WARM_PUSH_SCALE, film_look())
@@ -9540,7 +9564,7 @@ def main():
     # ненулевой остаток всё ещё стоит показать честно, не молчать про него.
     status += f" | заморозка в хвосте: {pad_gap:.2f}с (в пределах допуска)" if pad_gap > 0.1 else ""
     print(f"\nГОТОВО: {OUTPUT_FILE} ({mb:.0f} MB, {total/60:.1f} мин, {len(clips)} кадров){status}")
-    return 1 if (missing or dupes) else 0
+    return EXIT_BUILT_WITH_WARNINGS if (missing or dupes) else EXIT_OK
 
 
 if __name__ == "__main__":

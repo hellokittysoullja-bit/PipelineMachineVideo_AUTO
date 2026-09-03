@@ -27,4 +27,10 @@ import pytest
 def _isolate_from_real_dotenv(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("SHOT_DIRECTOR_MODE", raising=False)
+    # VLM_ARBITER_MODE — по той же причине, но с обратным знаком: его дефолт
+    # в реестре (scripts/feature_flags.py) "on", и тест, проверяющий
+    # поведение ПО УМОЛЧАНИЮ, не должен зависеть от того, выставил ли
+    # пользователь в своём .env "off". Живого вызова это не открывает —
+    # GEMINI_API_KEY ниже всё равно пуст, арбитр fail-open выходит сразу.
+    monkeypatch.delenv("VLM_ARBITER_MODE", raising=False)
     monkeypatch.setenv("GEMINI_API_KEY", "")
