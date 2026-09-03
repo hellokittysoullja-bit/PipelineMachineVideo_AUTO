@@ -75,6 +75,10 @@ FLAGS = {f.name: f for f in (
          summary="Semantic Visual Director — реранк пула кандидатов по смыслу фразы"),
     Flag("LOOK_MANAGEMENT_MODE", "off", ("off", "shadow", "assist"),
          summary="Reference-Guided Look Management — коррекция кадра к эталону канала"),
+    Flag("GRAIN_BLEND_MODE", "softlight", ("softlight", "grainmerge", "expr"),
+         summary="Наложение зерна: softlight (нативный, быстрый) / grainmerge / expr (прежняя формула, медленно)"),
+    Flag("DELIVERY_PROFILE", "youtube", ("youtube", "archive", "hevc"),
+         summary="Финальный проход: youtube (VBV-потолок 12 Мбит/с) / archive (без потолка) / hevc (libx265)"),
     # --- булевы ---
     Flag("RENDER_STRICT_GATE", "1", aliases=(),
          summary="Не собирать final.mp4, если хоть один клип не принят"),

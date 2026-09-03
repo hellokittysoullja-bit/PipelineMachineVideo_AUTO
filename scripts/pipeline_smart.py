@@ -289,8 +289,9 @@ FINAL_PASS_CRF = "20"
 #                      SSIM, но медленнее x264 medium в 2-3 раза и не везде
 #                      играется без кодека (Windows: расширение HEVC/VLC).
 #                      -tag:v hvc1 обязателен для QuickTime/Apple.
-# Значение вне списка -> youtube с предупреждением, не падение.
-DELIVERY_PROFILE = os.environ.get("DELIVERY_PROFILE", "youtube").strip().lower()
+# Значение вне списка -> реестр отдаёт "off" с предупреждением, здесь это
+# значит youtube (ещё одно предупреждение ниже), не падение.
+DELIVERY_PROFILE = feature_flags.mode("DELIVERY_PROFILE")   # дефолт и список значений — в реестре
 DELIVERY_PROFILES = {
     "youtube": {"codec": "libx264", "preset": FINAL_PASS_PRESET, "crf": FINAL_PASS_CRF,
                 "maxrate": "12M", "bufsize": "24M", "pix_fmt": "yuv420p", "extra": []},
@@ -748,7 +749,7 @@ GRAIN_OPACITY = float(os.environ.get("GRAIN_OPACITY", "0.10"))
 #   grainmerge — плоский вес по всей яркости, той же скорости, что softlight.
 # Дефолт softlight. expr оставлен для побайтового сравнения со старыми
 # рендерами, не как рабочий режим.
-GRAIN_BLEND_MODE = os.environ.get("GRAIN_BLEND_MODE", "softlight").strip().lower()
+GRAIN_BLEND_MODE = feature_flags.mode("GRAIN_BLEND_MODE")   # дефолт и список значений — в реестре
 GRAIN_SOFTLIGHT_GAIN = 2.0
 
 # Пункт аудита "деффликер по стоковому видео" (ЧАСТЬ 14 CLAUDE.md, апгрейд
@@ -9502,9 +9503,9 @@ def main():
         "aesthetic_score_enabled": bool(AESTHETIC_ENABLED),
         "parallax": bool(PARALLAX_ENABLED and not PARALLAX_BROKEN),
         "visual_director_mode": (visual_director.VISUAL_DIRECTOR_MODE if visual_director is not None else "off"),
-        "look_management_mode": os.environ.get("LOOK_MANAGEMENT_MODE", "off"),
-        "shot_director_mode": os.environ.get("SHOT_DIRECTOR_MODE", "off"),
-        "vlm_arbiter_mode": os.environ.get("VLM_ARBITER_MODE", "off"),
+        "look_management_mode": feature_flags.value("LOOK_MANAGEMENT_MODE"),
+        "shot_director_mode": feature_flags.value("SHOT_DIRECTOR_MODE"),
+        "vlm_arbiter_mode": feature_flags.value("VLM_ARBITER_MODE"),
         "gemini_key_present": bool(os.environ.get("GEMINI_API_KEY")),
         "shotlist_locked_slots_used": shotlist_locked_used,
     }
