@@ -191,6 +191,19 @@ CLIP_PIX_ARGS = ["-pix_fmt", "yuv420p10le", "-profile:v", "high10"]
 RENDER_PRESET = "veryfast"
 RENDER_CRF = "17"
 
+# Отдельная, НАМЕРЕННО более качественная пара для ЕДИНСТВЕННОГО прохода,
+# который видит всю склейку сразу (xfade_chain — уходит на YouTube без
+# второго прохода, финальный мукс делает -c:v copy) и для freeze-подкладки
+# в хвосте (pad_to_length) — см. комментарий у места использования. Была
+# продублирована как литерал в двух местах без общего источника — тот же
+# структурный риск, что уже чинили для RENDER_PRESET/RENDER_CRF, найден
+# самоаудитом 03.09 до того, как проявился как реальный баг (сейчас оба
+# места совпадали). Обе НЕ входят ни в render_recipe_signature(), ни в
+# candidate_gate_signature() (xfade_chain/pad_to_length не хэшируются
+# ни там, ни там) — правка ниже не трогает НИ ОДИН кэш.
+FINAL_PASS_PRESET = "medium"
+FINAL_PASS_CRF = "16"
+
 # ZOOM_FLOOR — минимальный зум держится ВЕСЬ клип (не 1.0). Раньше offset пана
 # был обязан = 0 ровно в момент zoom=1.0 (иначе край вылезет за картинку), и на
 # каждом втором клипе (zoom-out) кадр половину времени стоял мёртвым по центру.
@@ -7329,13 +7342,13 @@ def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR, blocks=None, pl
         cmd += ["-i", c]
     # Это единственный проход, который видит ВСЮ склейку сразу — то, что
     # уйдёт на YouTube (финальный мукс делает -c:v copy, второго прохода
-    # уже не будет). Каждый отдельный клип и так уже CRF 18 (см. kenburns/
-    # video_render/parallax_kenburns) — если тут снова ужать до 23, это
-    # второе поколение потерь поверх первого, заметное именно на тёмном
-    # грейде (градиенты/дым/зерно). medium+CRF16 — разовая цена, не на
-    # каждый маленький клип.
+    # уже не будет). Каждый отдельный клип и так уже CRF 17 (RENDER_CRF, см.
+    # kenburns/video_render/parallax_kenburns) — если тут снова ужать до 23,
+    # это второе поколение потерь поверх первого, заметное именно на тёмном
+    # грейде (градиенты/дым/зерно). FINAL_PASS_PRESET/CRF — разовая цена, не
+    # на каждый маленький клип.
     cmd += ["-filter_complex", ";".join(parts), "-map", "[vout]",
-            "-c:v", "libx264", "-preset", "medium", "-crf", "16",
+            "-c:v", "libx264", "-preset", FINAL_PASS_PRESET, "-crf", FINAL_PASS_CRF,
             "-pix_fmt", "yuv420p", "-r", str(FPS)] + COLOR_META_ARGS + [out]
     # РЕАЛЬНЫЙ пробел, пойманный аудитом того же класса багов, что и
     # SPEED_RAMP_MAX_SOURCE_FPS/parallax stderr-deadlock (см. их докстринги
@@ -7523,7 +7536,7 @@ def pad_to_length(video, target, temp_dir):
     subprocess.run(["ffmpeg", "-y", "-sseof", "-0.3", "-i", video,
                     "-vframes", "1", lastframe], capture_output=True)
     r = subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", lastframe, "-t", f"{gap:.3f}",
-                        "-c:v", "libx264", "-preset", "medium", "-crf", "16",
+                        "-c:v", "libx264", "-preset", FINAL_PASS_PRESET, "-crf", FINAL_PASS_CRF,
                         "-pix_fmt", "yuv420p", "-r", str(FPS)] + COLOR_META_ARGS + [padclip],
                        capture_output=True, text=True)
     if r.returncode != 0:

@@ -23,6 +23,18 @@ FPS, WIDTH, HEIGHT = 24, 1920, 1080   # синхронизировано с pipe
 # обоих продакшн-эталонов, было 25 (PAL ТВ). Раньше это число было изменено только в
 # pipeline_smart.py, и Ken Burns/xfade-математика двух сборщиков (эта формула буквально
 # скопирована оттуда) считалась с разной частотой кадров — реальный найденный дрейф.
+
+# preset/CRF кодирования клипа — тот же класс риска, что дал дрейф FPS
+# выше: "fast"/"23" были литералом в 4 местах (photo_clip/video_clip/
+# xfade_chain/pad_to_length) без единого источника. Найдено самоаудитом
+# 03.09 (по образцу того же класса бага, уже дважды пойманного в
+# pipeline_smart.py — LOUDNORM_TARGET_I и RENDER_PRESET/CRF) ДО того, как
+# расхождение проявилось как реальный баг. params_hash этого файла
+# (см. photo_clip/video_clip — hashlib.md5 от duration|path|kind|FPS)
+# НЕ зависит от исходного кода функций — правка ниже не трогает кэш
+# temp_smart/ вообще, в отличие от аналогичной правки в pipeline_smart.py.
+ASSEMBLE_PRESET = "fast"
+ASSEMBLE_CRF = "23"
 # ZOOM_FLOOR — минимальный зум держится ВЕСЬ клип (не 1.0). Раньше offset пана
 # был обязан = 0 ровно в момент zoom=1.0 (иначе край вылезет за картинку), и на
 # каждом втором клипе (zoom-out) кадр половину времени стоял мёртвым по центру.
@@ -375,8 +387,8 @@ def kenburns_clip(photo, out, d, source="stock", zoom_in=None, pan_dir=None):
             f"zoompan=z={z}:x={x}:y={y}:"
             f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS},"
             f"{film_look(source, h)}"),
-           "-frames:v", str(frames), "-c:v", "libx264", "-preset", "fast",
-           "-crf", "23", "-pix_fmt", "yuv420p", "-r", str(FPS), tmp]
+           "-frames:v", str(frames), "-c:v", "libx264", "-preset", ASSEMBLE_PRESET,
+           "-crf", ASSEMBLE_CRF, "-pix_fmt", "yuv420p", "-r", str(FPS), tmp]
     ok = subprocess.run(cmd, capture_output=True, text=True).returncode == 0
     ok = ok and verify_clip(tmp, d)
     return finalize_render(tmp, out, ok)
@@ -396,7 +408,7 @@ def video_clip(vid, out, d, source="stock"):
     # -frames:v, а не -t: заказ в кадрах — точная единица (см.
     # quantize_durations_to_frames), с -t клип регулярно выходил на кадр длиннее.
     cmd = ["ffmpeg", "-y", "-i", vid, "-vf", vf, "-frames:v", str(max(1, int(round(d * FPS)))), "-an",
-           "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+           "-c:v", "libx264", "-preset", ASSEMBLE_PRESET, "-crf", ASSEMBLE_CRF,
            "-pix_fmt", "yuv420p", "-r", str(FPS), tmp]
     ok = subprocess.run(cmd, capture_output=True, text=True).returncode == 0
     ok = ok and verify_clip(tmp, d)
@@ -453,7 +465,7 @@ def xfade_chain(clips, durs, is_hook, out, xfade_dur=XFADE_DUR, plan=None):
     for c in clips:
         cmd += ["-i", c]
     cmd += ["-filter_complex", ";".join(parts), "-map", "[vout]",
-            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:v", "libx264", "-preset", ASSEMBLE_PRESET, "-crf", ASSEMBLE_CRF,
             "-pix_fmt", "yuv420p", "-r", str(FPS), out]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
@@ -539,7 +551,7 @@ def pad_to_length(video, target, temp_dir):
     subprocess.run(["ffmpeg", "-y", "-sseof", "-0.3", "-i", video,
                     "-vframes", "1", lastframe], capture_output=True)
     r = subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", lastframe, "-t", f"{gap:.3f}",
-                        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                        "-c:v", "libx264", "-preset", ASSEMBLE_PRESET, "-crf", ASSEMBLE_CRF,
                         "-pix_fmt", "yuv420p", "-r", str(FPS), padclip],
                        capture_output=True, text=True)
     if r.returncode != 0:

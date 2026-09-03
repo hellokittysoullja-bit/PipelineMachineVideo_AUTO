@@ -3188,3 +3188,22 @@ def test_load_alignment_onsets_returns_none_without_alignment(monkeypatch, tmp_p
     monkeypatch.setattr(pipeline_smart, "ALIGNMENT_DIR", str(tmp_path / "nope"))
     blocks = [{"text": "Фраза.", "words": 1, "pause_after": 0.0, "section": "HOOK", "stat": None}]
     assert pipeline_smart.load_alignment_onsets(blocks) is None
+
+
+# ---------- FPS синхронизирован между 3 независимыми скриптами (P2-23, реальный найденный дрейф) ----------
+
+def test_fps_stays_in_sync_across_independent_scripts():
+    # РЕАЛЬНЫЙ, уже случившийся баг (см. docstring generate_grain_asset.py,
+    # "P2-23"): FPS=24 в pipeline_smart.py, но было 25 в generate_grain_asset.
+    # py — grain_loop.mp4 блендился поверх видео другой частоты кадров, и
+    # каденс обновления зерна полз относительно кадров (не 1:1). Сейчас все
+    # три синхронизированы вручную, без общего источника — вводить общий
+    # модуль констант означало бы связать три сейчас независимо запускаемых
+    # CLI-скрипта импортом (assemble.py/generate_grain_asset.py задуманы
+    # runnable как `python scripts/X.py`, не только как библиотека) —
+    # компромисс, который не проверялся в этой сессии. Вместо архитектурной
+    # правки — дешёвый регрессионный тест: рассинхрон снова случится, тест
+    # упадёт прежде, чем зерно снова расползётся по кадрам.
+    import assemble
+    import generate_grain_asset
+    assert pipeline_smart.FPS == assemble.FPS == generate_grain_asset.FPS == 24
