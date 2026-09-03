@@ -5797,6 +5797,23 @@ def candidate_gate_signature():
             # кандидат, отобранный до этого фикса (реальный случай — слот 7,
             # videos/_test20s, 27 августа).
             image_sharpness_score, video_sharpness_ok,
+            # Найдено самоаудитом 03.09 (тот же принцип, что уже применён к
+            # image_sharpness_score/video_sharpness_ok выше): вызываются по
+            # имени изнутри уже перечисленных функций, реально влияют на
+            # решение гейта, @memoize_by_frame их не защищает МЕЖДУ
+            # прогонами (та же оговорка, что у render_recipe_signature()).
+            #
+            # clip_relevance — САМА функция, дающая число: используется и в
+            # is_relevant_candidate() (порог CLIP_RELEVANCE_THRESHOLD), и в
+            # visual_domain_guard_violation() (euro/asian margin — то есть
+            # сам анахронизм-гвард, ради которого эта сигнатура и была
+            # создана изначально), и в NEGATIVE_ANCHOR_PROMPT-проверке.
+            clip_relevance,
+            # extract_video_probe_frame — из video_domain_guard_violation()/
+            # video_sharpness_ok(): решает, КАКОЙ именно кадр видео (с
+            # ретраями от вырожденного/чёрного) идёт на CLIP-проверку домена
+            # и резкости — другой выбранный кадр даёт другой результат гейта.
+            extract_video_probe_frame,
         )]
         parts.append(repr((
             CLIP_RELEVANCE_THRESHOLD, RISKY_QUERY_MARGIN, NEGATIVE_ANCHOR_PROMPT,
@@ -7961,6 +7978,51 @@ def render_recipe_signature():
             # исходник parallax_kenburns и молча не инвалидировала бы старый
             # кэш без явного перечисления здесь.
             apply_depth_of_field, _dof_focus_depth,
+            # Найдено самоаудитом 03.09 (Explore-агент, тот же принцип, что
+            # уже применён к is_parallax_highlight/foreground_background_
+            # layers/apply_depth_of_field выше): все функции ниже вызываются
+            # ПО ИМЕНИ изнутри уже перечисленных film_look/kenburns/
+            # parallax_kenburns/video_render, реально влияют на итоговую
+            # картинку и НЕ мемоизированы между прогонами процесса (в
+            # отличие от кандидатов ниже, у @memoize_by_frame — она
+            # ВНУТРИПРОЦЕССНАЯ, не защищает от staleness МЕЖДУ прогонами,
+            # см. её докстринг) — правка их тела молча не инвалидировала бы
+            # старый temp_smart/clip_*.mp4, тот же класс бага, что и у уже
+            # перечисленных функций.
+            #
+            # auto_levels_params/auto_wb_params — из film_look(): дают
+            # contrast/brightness/colorchannelmixer техническую нормировку
+            # ДО творческого грейда, идут прямо в возвращаемую строку
+            # фильтра.
+            auto_levels_params, auto_wb_params,
+            # kb_hash_choices — из kenburns()/parallax_kenburns(): даёт
+            # zoom_in/pan_dir по умолчанию, которые входят в z=/x=/y=
+            # выражение zoompan.
+            kb_hash_choices,
+            # estimate_busyness — из kenburns(): напрямую масштабирует силу
+            # зума (delta *= 0.7 при busy > 0.6).
+            estimate_busyness,
+            # resolve_crop_anchor/compute_crop_offset — из kenburns()/
+            # parallax_kenburns(): решают, какая часть фото попадёт в
+            # crop=.
+            resolve_crop_anchor, compute_crop_offset,
+            # pick_stat_variant — из add_overlays(): выбирает между 4
+            # визуально разными оформлениями stat-плашки.
+            pick_stat_variant,
+            # detect_scene_change_offset — из video_render(): решает, с
+            # какого момента исходного видео стартует клип (-ss).
+            detect_scene_change_offset,
+            # measure_motion/build_speed_ramp_filter — из video_render():
+            # решают, применяется ли speed-ramp вообще, и строят сам
+            # filter_complex-граф эффекта.
+            measure_motion, build_speed_ramp_filter,
+            # estimate_depth/fill_crop_canvas — из parallax_kenburns():
+            # единственный источник карты глубины, от которой зависят
+            # parallax_px/depth_zoom_strength И уже перечисленные выше
+            # apply_depth_of_field/foreground_background_layers — их более
+            # фундаментальный апстрим-источник данных, ранее в список не
+            # попавший.
+            estimate_depth, fill_crop_canvas,
         )]
         parts.append(repr((
             sorted(MOOD_GRADE.items()), sorted(DOMAIN_WARM_PUSH_SCALE.items()),
