@@ -296,14 +296,16 @@ PAN_DIRECTIONS = [(0, 0), (1, 1), (1, -1), (-1, 1), (-1, -1), (1, 0), (-1, 0), (
 MOOD_GRADE = {
     "HOOK":  {"c0": 1.06, "s0": 0.82, "vign": "PI/6",   "bs": 0.10, "rh": 0.03},
     "FINAL": {"c0": 1.02, "s0": 0.90, "vign": "PI/6",   "bs": 0.06, "rh": 0.08},
-    # vign PI/5 -> PI/6: BODY был ЕДИНСТВЕННОЙ секцией с более тёмной
-    # виньеткой (у HOOK и FINAL уже PI/6), и именно BODY занимает ~90%
-    # хронометража — то есть подавляющая часть ролика шла заметно темнее
-    # по краям, чем его же начало и финал. Разрыв не был осознанным
-    # решением: PI/6 у HOOK/FINAL появился отдельной правкой (см.
-    # комментарий "ВТОРОЙ проход" выше), BODY тогда просто не тронули.
-    # Возвращает ~8 пунктов яркости кадру на протяжении всего тела.
-    "BODY":  {"c0": 1.06, "s0": 0.86, "vign": "PI/6",   "bs": 0.10, "rh": 0.03},
+    # РАЗБИРАЛОСЬ 02.09: BODY был единственной секцией темнее HOOK/FINAL
+    # (PI/5 против PI/6 у обоих) — пробовали выровнять до PI/6. Замер на
+    # реальном кадре (не оценка) дал +25 пунктов яркости в углу 150x150 —
+    # втрое больше, чем предполагалось (~8), заметный сдвиг в сторону
+    # более плоской, менее контрастной по краям картинки. Решение
+    # пользователя — оставить BODY темнее HOOK/FINAL: для жанра (мрачная
+    # военно-историческая документалка/разоблачение мифов) сильная
+    # виньетка ближе к принятой конвенции серьёзного/премиального тона,
+    # чем светлые края кадра. Откат — тот же PI/5, что был исходно.
+    "BODY":  {"c0": 1.06, "s0": 0.86, "vign": "PI/5",   "bs": 0.10, "rh": 0.03},
 }
 
 
@@ -970,7 +972,25 @@ def snap_hook_cuts_to_energy(blocks, durs, real_starts, audio_path):
     return new_durs
 
 
-def measure_loudnorm_stats(audio_path, target_i=-14, target_tp=-1.5, target_lra=11):
+# Единый источник целевой громкости — ЕДИНСТВЕННОЕ место, которое трогать
+# при смене цели. Раньше -14 (было -16) была рассыпана литералом по пяти
+# местам вручную (дефолт measure_loudnorm_stats, два af= в финальном
+# миксе, print_format=json первого прохода, sanity-проверка готового
+# файла) — РЕАЛЬНЫЙ найденный баг (02.09): при переходе -16 -> -14 пятое
+# место (sanity-проверка) осталось на старом значении, и честный рендер
+# на -14.3 (в пределах цели) печатал ложную тревогу "разошлось с целью
+# -16". Четыре места нашли и поправили сразу, пятое — нет, потому что
+# ничего в коде не требовало держать их согласованными. Константа не
+# устраняет риск рассинхрона полностью (использования всё ещё нужно
+# найти и подставить руками), но делает следующую смену цели ОДНИМ
+# изменением вместо пяти grep'ов по литералу.
+LOUDNORM_TARGET_I = -14.0
+LOUDNORM_TARGET_TP = -1.5
+LOUDNORM_TARGET_LRA = 11
+
+
+def measure_loudnorm_stats(audio_path, target_i=LOUDNORM_TARGET_I,
+                            target_tp=LOUDNORM_TARGET_TP, target_lra=LOUDNORM_TARGET_LRA):
     """Первый проход двух-проходного loudnorm — только измерение, звук не
     трогаем. Однопроходный (динамический) режим подстраивает усиление на
     лету по ходу файла и даёт неровную громкость внутри ролика и неточный
@@ -9235,13 +9255,13 @@ def main():
     loud_stats = measure_loudnorm_stats(premix)
     fade_out_st = max(0.0, total - 2.0)
     if loud_stats:
-        af = (f"loudnorm=I=-14:TP=-1.5:LRA=11:linear=true:"
+        af = (f"loudnorm=I={LOUDNORM_TARGET_I}:TP={LOUDNORM_TARGET_TP}:LRA={LOUDNORM_TARGET_LRA}:linear=true:"
               f"measured_I={loud_stats['input_i']}:measured_TP={loud_stats['input_tp']}:"
               f"measured_LRA={loud_stats['input_lra']}:measured_thresh={loud_stats['input_thresh']}:"
               f"offset={loud_stats['target_offset']},"
               f"afade=t=in:st=0:d=0.4,afade=t=out:st={fade_out_st:.3f}:d=2")
     else:
-        af = (f"loudnorm=I=-14:TP=-1.5:LRA=11,"
+        af = (f"loudnorm=I={LOUDNORM_TARGET_I}:TP={LOUDNORM_TARGET_TP}:LRA={LOUDNORM_TARGET_LRA},"
               f"afade=t=in:st=0:d=0.4,afade=t=out:st={fade_out_st:.3f}:d=2")
     # Атомарная запись — тот же принцип, что render_tmp_path()/finalize_render()
     # у отдельных клипов (см. коммент там): final.mp4 — то, что пользователь
@@ -9316,12 +9336,18 @@ def main():
         return 1
     finalize_render(output_tmp, OUTPUT_FILE, True)
     # Честная цифра вместо "надеемся" — измеряем итоговую громкость ГОТОВОГО
-    # файла (не входного audio.mp3): если разошлось с целью -16 LUFS больше,
-    # чем на децибел, это видно в отчёте, а не тонет молча.
+    # файла (не входного audio.mp3): если разошлось с целью (см. loudnorm=I=
+    # в финальном миксе выше, сейчас -14) больше, чем на децибел, это видно
+    # в отчёте, а не тонет молча. РЕАЛЬНЫЙ найденный баг (02.09): при смене
+    # цели -16 -> -14 эта проверка осталась зашита на -16.0 отдельно от
+    # четырёх точек loudnorm= — честный рендер на -14.3 (в пределах цели)
+    # печатал ложную тревогу "разошлось с целью -16". Вынесено в константу
+    # рядом с самим loudnorm=, а не восьмым магическим числом.
     final_lufs = None
     try:
         fr = subprocess.run(["ffmpeg", "-i", OUTPUT_FILE, "-af",
-                              "loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json",
+                              f"loudnorm=I={LOUDNORM_TARGET_I}:TP={LOUDNORM_TARGET_TP}:"
+                              f"LRA={LOUDNORM_TARGET_LRA}:print_format=json",
                               "-f", "null", "-"], capture_output=True, text=True, timeout=60)
         fs, fe = fr.stderr.rindex("{"), fr.stderr.rindex("}") + 1
         final_lufs = float(json.loads(fr.stderr[fs:fe])["input_i"])
@@ -9337,7 +9363,8 @@ def main():
     status = f" | ПРОПУЩЕНО {len(missing)} блоков: {missing}" if missing else ""
     if final_lufs is not None:
         status += f" | Громкость: {final_lufs:.1f} LUFS" + (
-            "" if abs(final_lufs - (-16.0)) <= 1.0 else " (!!! разошлось с целью -16)")
+            "" if abs(final_lufs - LOUDNORM_TARGET_I) <= 1.0
+            else f" (!!! разошлось с целью {LOUDNORM_TARGET_I:.0f})")
     # Дубли по фото — та же логика: не блокируем сборку (видео уже готово
     # и в целом смотрибельно), но не даём находке потеряться в середине
     # лога и не даём коду возврата соврать, что всё чисто.
