@@ -8077,6 +8077,21 @@ def render_recipe_signature():
             HOOK_KINETIC_CAPTIONS_ENABLED,
             CLIP_PIX_ARGS, COLOR_META_ARGS,
         )))
+        # KENBURNS_ADAPTIVE_CANVAS — УСЛОВНО, только когда флаг взведён.
+        # Почему не просто ещё одно поле в кортеже выше: при дефолте (=0)
+        # подпись обязана остаться байт-в-байт прежней, иначе сама эта
+        # правка инвалидировала бы весь прогретый temp_smart/ у каждого,
+        # кто флаг никогда не трогал — «апгрейд плюс перерендер», а не
+        # апгрейд. Почему вообще нужно: холст входит в crop=/zoompan и
+        # масштабирует амплитуду покачивания (WOBBLE_AMP_CANVAS_PX *
+        # kb_cw/8000, см. kenburns()) — то есть это часть рецепта, но
+        # значение берётся из ENV, а не из исходника kenburns(), и хэш
+        # исходника его не видит: включение флага на прогретом кэше молча
+        # смешало бы клипы с холстом 8000x4500 и 2880x1620 в одном ролике.
+        # Хэшируется реальный размер холста (не только факт флага) — смена
+        # KENBURNS_CANVAS_MARGIN при включённом флаге тоже меняет рецепт.
+        if KENBURNS_ADAPTIVE_CANVAS:
+            parts.append(repr(("KENBURNS_ADAPTIVE_CANVAS", _kenburns_canvas_size())))
     except Exception:
         return "recipe:unknown"
     return "recipe:" + hashlib.md5("".join(parts).encode()).hexdigest()[:10]

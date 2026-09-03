@@ -105,3 +105,31 @@ def test_wobble_amplitude_scales_with_canvas_not_absolute(tmp_path, monkeypatch)
     expected_amp = ps.WOBBLE_AMP_CANVAS_PX * (cw / 8000.0)
     assert f"{expected_amp:.2f}*sin" in cmd_str_on
     assert expected_amp < ps.WOBBLE_AMP_CANVAS_PX   # меньше холст -> меньше абсолютных пикселей дрожания
+
+
+# --- KENBURNS_ADAPTIVE_CANVAS в подписи рецепта (render_recipe_signature) ---
+# Флаг берётся из ENV, а не из исходника kenburns(), поэтому хэш исходников
+# его не видит: без явного включения в подпись переключение флага на
+# прогретом temp_smart/ молча смешивало бы клипы с холстом 8000x4500 и
+# 2880x1620 (и разной амплитудой покачивания) в одном ролике. Включение
+# УСЛОВНОЕ: при дефолте (=0) подпись идентична прежней — ноль перерендера.
+
+def test_recipe_signature_ignores_canvas_margin_when_flag_off(monkeypatch):
+    monkeypatch.setattr(ps, "KENBURNS_ADAPTIVE_CANVAS", False)
+    sig_a = ps.render_recipe_signature()
+    monkeypatch.setattr(ps, "KENBURNS_CANVAS_MARGIN", ps.KENBURNS_CANVAS_MARGIN + 0.5)
+    sig_b = ps.render_recipe_signature()
+    assert sig_a == sig_b
+    assert sig_a != "recipe:unknown"
+
+
+def test_recipe_signature_changes_when_canvas_flag_on(monkeypatch):
+    monkeypatch.setattr(ps, "KENBURNS_ADAPTIVE_CANVAS", False)
+    sig_off = ps.render_recipe_signature()
+    monkeypatch.setattr(ps, "KENBURNS_ADAPTIVE_CANVAS", True)
+    sig_on = ps.render_recipe_signature()
+    assert sig_on != sig_off
+    # При включённом флаге хэшируется реальный размер холста, а не только
+    # факт флага — смена запаса холста тоже меняет рецепт.
+    monkeypatch.setattr(ps, "KENBURNS_CANVAS_MARGIN", ps.KENBURNS_CANVAS_MARGIN + 0.5)
+    assert ps.render_recipe_signature() != sig_on
