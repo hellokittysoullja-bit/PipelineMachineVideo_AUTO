@@ -10,10 +10,14 @@
 запуск просто доделывает то, что не успело доехать.
 
 Отличаем "процесс убит сигналом" (retcode < 0 на POSIX — SIGKILL/SIGTERM/
-OOM) от "процесс завершился сам, просто с ненулевым кодом" (retcode 1 —
-это pipeline_smart.py честно сигналит про пропущенные кадры/QC-дубли,
-см. конец main() — ролик УЖЕ собран, ретраить нечего, результат не
-изменится). Ретраим только первый случай.
+OOM) от "процесс завершился сам, просто с ненулевым кодом". Ретраим только
+первый случай: собственный ненулевой код — детерминированный результат,
+повтор даст ровно то же самое.
+
+Коды pipeline_smart.py (EXIT_* в его начале): 0 — чисто; 2 — ролик СОБРАН,
+но есть пропуски/QC-дубли; 1 — final.mp4 НЕ собран. Раньше 1 означал оба
+последних случая сразу, и эта обёртка на честном "не собрано" печатала
+"ролик собран, есть замечания" — прямо противоположное правде.
 
 Использование: python scripts/render_with_retry.py <video_dir> [--max N]
 """
@@ -29,6 +33,13 @@ SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 # запускала python на несуществующий файл и "падала" 5 раз подряд с
 # непонятной причиной вместо рендера.
 PIPELINE = os.path.join(SCRIPTS_DIR, "pipeline_smart.py")
+
+# Должны совпадать с EXIT_* в pipeline_smart.py (тест
+# test_exit_codes_stay_in_sync_across_consumers следит за этим — импортировать
+# оттуда напрямую значило бы тянуть в обёртку PIL/numpy/CLIP ради трёх чисел).
+PIPELINE_EXIT_OK = 0
+PIPELINE_EXIT_NOT_BUILT = 1
+PIPELINE_EXIT_BUILT_WITH_WARNINGS = 2
 
 MAX_ATTEMPTS_DEFAULT = 5
 RETRY_DELAY_SEC = 15
@@ -77,12 +88,18 @@ def main():
     for attempt in range(1, max_attempts + 1):
         print(f"=== Попытка {attempt}/{max_attempts} ===", flush=True)
         r = subprocess.run([sys.executable, PIPELINE, video_dir])
-        if r.returncode == 0:
+        if r.returncode == PIPELINE_EXIT_OK:
             print("Готово, без замечаний.")
-            return 0
+            return PIPELINE_EXIT_OK
+        if r.returncode == PIPELINE_EXIT_BUILT_WITH_WARNINGS:
+            print("Ролик СОБРАН, но есть отражённые в отчётах замечания "
+                  "(пропущенные блоки/QC-дубли) — это не обрыв, ретраить нечего. "
+                  "Смотри media_plan/render_manifest.json и Шаг 7.5 (визуальный QC).")
+            return r.returncode
         if r.returncode > 0:
-            print(f"Процесс завершился сам (код {r.returncode}) — ролик собран, "
-                  f"есть отражённые в отчёте замечания (пропуски/QC), это не обрыв, ретраить нечего.")
+            print(f"final.mp4 НЕ собран (код {r.returncode}) — процесс завершился сам, "
+                  f"значит причина детерминированная и повтор даст то же самое. "
+                  f"Причина — в логе выше и в media_plan/render_manifest.json.")
             return r.returncode
         # retcode < 0 -> убит сигналом (POSIX: -9 SIGKILL, -15 SIGTERM и т.п.)
         print(f"Процесс убит сигналом {-r.returncode} — не штатное завершение. "

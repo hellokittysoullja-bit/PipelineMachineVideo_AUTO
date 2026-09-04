@@ -456,7 +456,7 @@ def try_parse_alignment(raw_bytes):
 
 def audio_duration(path):
     r = subprocess.run(["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", path],
-                       capture_output=True, text=True, check=True)
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", check=True)
     return float(json.loads(r.stdout)["format"]["duration"])
 
 
@@ -469,11 +469,11 @@ def concat_audio(paths, out_path, temp_dir):
             f.write(f"file '{os.path.abspath(p)}'\n")
     tmp_out = out_path + ".tmp.mp3"
     r = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list,
-                        "-c", "copy", tmp_out], capture_output=True, text=True, timeout=120)
+                        "-c", "copy", tmp_out], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
     if r.returncode != 0:
         r2 = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list,
                              "-c:a", "libmp3lame", "-q:a", "2", tmp_out],
-                            capture_output=True, text=True, timeout=180)
+                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180)
         if r2.returncode != 0:
             raise RuntimeError(f"склейка секций не удалась (copy и re-encode): {r2.stderr[-300:]}")
     os.replace(tmp_out, out_path)

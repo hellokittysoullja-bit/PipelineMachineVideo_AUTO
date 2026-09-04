@@ -24,6 +24,32 @@ import look_reference as lr   # noqa: E402
 _no_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg не найден в PATH")
 
 
+def _require_live_clip():
+    """Пропустить тест ТОЛЬКО если CLIP физически недоступен в этом окружении.
+
+    Граница проведена намеренно узко: "нет torch/transformers/весов/фича
+    выключена" — окружение, проверять нечего, skip. "Модель есть, а функция
+    вернула None" — ПАДЕНИЕ, потому что ровно эта регрессия и есть предмет
+    тестов ниже (см. докстринг _domain_scores_from_text(): её широкий
+    `except Exception: return None` месяцами выдавал собственную поломку за
+    "CLIP недоступен", и domain_match_bonus() всё это время был мёртвым
+    кодом). Guard, который скипал бы по самому факту None, воспроизвёл бы ту
+    же слепоту на уровне тестов.
+
+    До этого guard'а не было вовсе: на чистой установке без torch (CI, новая
+    машина) четыре теста ниже падали красным вместо skip — тот же класс, что
+    уже чинили для опционального ruaccent (см. docs/AUDIT_2026-08, ЧАСТЬ 1
+    п.10), из-за чего "суита зелёная" переставала быть сигналом."""
+    pytest.importorskip("torch")
+    pytest.importorskip("transformers")
+    if not lr.pipeline_smart.CLIP_ENABLED or lr.pipeline_smart.CLIP_BROKEN:
+        pytest.skip("CLIP выключен в окружении (CLIP_RELEVANCE=0) или уже помечен сломанным")
+    try:
+        lr.pipeline_smart.get_clip_model()
+    except Exception as e:   # веса не скачаны / нет сети / несовместимая версия
+        pytest.skip(f"веса CLIP недоступны в этом окружении ({type(e).__name__}: {e})")
+
+
 # ---------- sRGB <-> Lab round-trip ----------
 
 @pytest.mark.parametrize("rgb", [
@@ -131,6 +157,7 @@ def test_classify_domain_real_sword_in_snow_photo_now_resolves_to_snow():
     # остальные в этой папке — см. ATTRIBUTION.md) убирает зависимость от
     # изменчивого содержимого рабочей копии совсем.
     pytest.importorskip("cv2")
+    _require_live_clip()
     fixture = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                            "fixtures", "golden_media", "sword_snow.jpg")
     domain, margin = lr.classify_domain(fixture)
@@ -179,6 +206,7 @@ def test_text_domain_hint_none_when_margin_too_small(monkeypatch):
 # CLIP-модели, единственный способ поймать регрессию именно такого рода.
 
 def test_domain_scores_from_text_real_clip_call_battle_text():
+    _require_live_clip()
     scores = lr._domain_scores_from_text("medieval knight battle reenactment fight with swords and armor")
     assert scores is not None, (
         "если это None — _domain_scores_from_text() снова тихо падает "
@@ -189,12 +217,14 @@ def test_domain_scores_from_text_real_clip_call_battle_text():
 
 
 def test_domain_scores_from_text_real_clip_call_snow_text():
+    _require_live_clip()
     scores = lr._domain_scores_from_text("snowy winter forest covered in ice and snow")
     assert scores is not None
     assert scores["snow"] == max(scores.values()), f"получили {scores}"
 
 
 def test_text_domain_hint_real_clip_call_matches_domain_scores():
+    _require_live_clip()
     # Сквозная проверка: text_domain_hint() (margin-gate поверх _domain_
     # scores_from_text()) реально доходит до "battle" на живом вызове, а не
     # падает в (None, 0.0) молча.

@@ -67,7 +67,7 @@ def measure_loudness(path):
     """Первый проход loudnorm: только измерение, ничего не меняет в файле."""
     r = subprocess.run(["ffmpeg", "-i", path, "-af",
                         f"loudnorm={LOUDNORM_TARGET}:print_format=json",
-                        "-f", "null", "-"], capture_output=True, text=True)
+                        "-f", "null", "-"], capture_output=True, text=True, encoding="utf-8", errors="replace")
     m = re.search(r'\{[^{}]*"input_i"[^{}]*\}', r.stderr, re.S)
     if not m:
         return None
@@ -103,7 +103,7 @@ def find_audio(video_dir):
 def duration(path):
     r = subprocess.run(["ffprobe", "-v", "quiet", "-show_entries",
                         "format=duration", "-of", "csv=p=0", path],
-                       capture_output=True, text=True, check=True)
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", check=True)
     return float(r.stdout.strip())
 
 
@@ -118,7 +118,7 @@ def detect_silences(path, total=None):
     длины совпадают и ветка ниже не срабатывает — поведение то же."""
     r = subprocess.run(["ffmpeg", "-i", path, "-af",
                         f"silencedetect=noise={NOISE_DB}:d={THRESH_SEC}",
-                        "-f", "null", "-"], capture_output=True, text=True)
+                        "-f", "null", "-"], capture_output=True, text=True, encoding="utf-8", errors="replace")
     log = r.stderr
     starts = [float(x) for x in re.findall(r'silence_start:\s*([\d.]+)', log)]
     ends = [float(x) for x in re.findall(r'silence_end:\s*([\d.]+)', log)]
@@ -357,7 +357,7 @@ def main():
         print("Длинных пауз не найдено — нормализую громкость.")
         r = subprocess.run(["ffmpeg", "-y", "-i", src, "-af", loud,
                             "-c:a", "flac", out],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
         if r.returncode != 0 or not os.path.exists(out):
             print("Ошибка ffmpeg:", r.stderr[-400:])
             return 1
@@ -411,7 +411,7 @@ def main():
         print("Нечего склеивать — нормализую громкость исходника.")
         r = subprocess.run(["ffmpeg", "-y", "-i", src, "-af", loud,
                             "-c:a", "flac", out],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
         if r.returncode != 0 or not os.path.exists(out):
             print("Ошибка ffmpeg:", r.stderr[-400:])
             return 1
@@ -439,7 +439,7 @@ def main():
     # Файл графа НЕ удаляем: он маленький (десятки КБ), а при разборе
     # ошибки ffmpeg на длинной цепочке это единственный способ увидеть, что
     # именно ушло в фильтр.
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0 or not os.path.exists(out):
         print("Ошибка ffmpeg:", r.stderr[-400:])
         return 1

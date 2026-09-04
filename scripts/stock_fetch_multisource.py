@@ -303,7 +303,8 @@ def fetch_unsplash_photo(q, out):
 # перед скачиванием (см. _is_safe_openverse_license/
 # _is_trusted_openverse_source), fail closed на любом расхождении с
 # ожиданием — не доверяет фильтру запроса вслепую.
-OPENVERSE_ENABLED = os.environ.get("OPENVERSE_ENABLED", "0") != "0"
+import feature_flags  # noqa: E402
+OPENVERSE_ENABLED = feature_flags.enabled("OPENVERSE_ENABLED")
 OPENVERSE_SAFE_LICENSES = {"cc0"}   # НЕ pdm — см. докстринг выше. НЕ трогать без сборщика атрибуций (by/by-sa)
 
 # `source` (не `provider` — см. докстринг выше), институциональные архивы

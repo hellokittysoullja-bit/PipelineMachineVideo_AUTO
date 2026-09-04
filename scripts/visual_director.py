@@ -86,12 +86,13 @@ sys.argv = _saved_argv
 
 import look_reference as lr  # noqa: E402  (text_domain_hint/classify_domain — CLIP-домен, переиспользуется, не дублируется)
 
-_VISUAL_DIRECTOR_MODES = ("off", "shadow", "assist")
-VISUAL_DIRECTOR_MODE = os.environ.get("VISUAL_DIRECTOR_MODE", "off").strip().lower()
-if VISUAL_DIRECTOR_MODE not in _VISUAL_DIRECTOR_MODES:
-    print(f"  ВНИМАНИЕ: VISUAL_DIRECTOR_MODE={VISUAL_DIRECTOR_MODE!r} не входит в "
-          f"{_VISUAL_DIRECTOR_MODES} — откатываюсь на 'off'.")
-    VISUAL_DIRECTOR_MODE = "off"
+# Нормализация/предупреждение/откат на "off" при мусорном значении — в общем
+# реестре (scripts/feature_flags.py), поведение то же. Дефолт объявлен ТАМ:
+# десятая точка чтения с собственным литералом — ровно тот механизм, которым
+# код разошёлся с CLAUDE.md по VLM_ARBITER_MODE (см. докстринг реестра).
+import feature_flags  # noqa: E402
+_VISUAL_DIRECTOR_MODES = feature_flags.FLAGS["VISUAL_DIRECTOR_MODE"].allowed
+VISUAL_DIRECTOR_MODE = feature_flags.mode("VISUAL_DIRECTOR_MODE")
 
 DIRECTOR_MIN_POOL = 8   # ДОЛЖНО совпадать с pipeline_smart.DIRECTOR_MIN_POOL (та
                           # константа реально управляет good_needed в pexels_photo(),

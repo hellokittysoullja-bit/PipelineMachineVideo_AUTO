@@ -34,13 +34,17 @@ except Exception:
 # пишет. Обязателен ПЕРЕД любым разговором об ускорении: половина
 # бюджета живёт в subprocess ffmpeg, где Python-профайлер видит wait().
 import stage_timer
+# Единый реестр флагов режимов (scripts/feature_flags.py) — дефолты
+# объявлены ТАМ, а не литералом в каждой точке чтения: расхождение
+# кода с CLAUDE.md уже случалось молча (см. докстринг реестра).
+import feature_flags
 
 try:
     import numpy as np
 except ImportError:
     np = None   # аудио-ритм по громкости — опциональная фича, без numpy просто выключена
 
-from PIL import Image as PILImage   # Pillow уже обязательная зависимость (requirements.txt)
+from PIL import Image as PILImage, ImageOps as PILImageOps   # Pillow уже обязательная зависимость (requirements.txt)
 
 try:
     import cv2
@@ -86,7 +90,18 @@ RENDER_FFMPEG_THREADS = int(os.environ.get("RENDER_FFMPEG_THREADS", "1"))
 # не собирается (см. main()). RENDER_STRICT_GATE=0 возвращает старое
 # поведение "лучше меньше клипов, чем сорванный рендер" для тех, кому это
 # осознанно нужно (например, ручная досборка позже).
-RENDER_STRICT_GATE = os.environ.get("RENDER_STRICT_GATE", "1") != "0"
+RENDER_STRICT_GATE = feature_flags.enabled("RENDER_STRICT_GATE")
+
+# Коды возврата main(). До этого "собрано, но есть замечания" и "не
+# собрано вообще" отдавали ОДИН И ТОТ ЖЕ код 1 — потребители физически
+# не могли их различить: render_episode.py писал в timeline_manifest.json
+# status="failed" для совершенно нормального рендера с парой похожих
+# кадров, а render_with_retry.py на честном "final.mp4 не собран"
+# печатал "ролик собран, есть замечания". Теперь код возврата — факт,
+# а не догадка (п.2.6 docs/AUDIT_2026-08_NEXT_UPGRADES.md).
+EXIT_OK = 0                    # final.mp4 собран, замечаний нет
+EXIT_NOT_BUILT = 1             # final.mp4 НЕ собран (любая причина)
+EXIT_BUILT_WITH_WARNINGS = 2   # final.mp4 собран, но есть пропуски/QC-дубли
 PAD_GAP_HARD_CAP_SEC = 1.0   # freeze-padding сверх этого — не округление xfade, а реальная потеря
 
 
@@ -114,7 +129,17 @@ def _default_render_workers():
     return cpu_based
 
 
-RENDER_POOL_WORKERS = int(os.environ.get("RENDER_WORKERS", str(_default_render_workers())))
+def _render_workers_from_env():
+    """RENDER_WORKERS=0/мусор раньше роняли ProcessPoolExecutor ValueError уже
+    в середине main() (аудит 04.09) — клэмп к [1, cpu]."""
+    try:
+        n = int(os.environ.get("RENDER_WORKERS", "") or _default_render_workers())
+    except ValueError:
+        n = _default_render_workers()
+    return max(1, min(n, max(1, os.cpu_count() or 4)))
+
+
+RENDER_POOL_WORKERS = _render_workers_from_env()
 
 # Позиционный аргумент (путь к эпизоду) отделён от флагов явно, а не просто
 # sys.argv[1] — иначе --plan-only (см. ниже) пришлось бы всегда ставить
@@ -245,6 +270,87 @@ FINAL_PASS_PRESET = "medium"
 # (коммит 2ebe746) — творческий компромисс, принят пользователем, не
 # автономно.
 FINAL_PASS_CRF = "20"
+
+# --- ПРОФИЛЬ ДОСТАВКИ финального прохода (xfade_chain/pad_to_length) ---
+# Реальная жалоба пользователя (03.09): "гигантский вес даже небольшого
+# ролика сводит на нет попытки скачать и выложить на YouTube". Два факта,
+# измеренных на этом коде (RD-тест 03.09, 60с реального merged.mp4, SSIM к
+# источнику):
+#   1) CRF без потолка НЕ ограничивает размер сверху: на зернистом тёмном
+#      грейде тот же CRF 20 давал 20+ Мбит/с (2-3 ГБ на 17 минут) — при том,
+#      что YouTube для 1080p/24 рекомендует 8 Мбит/с и всё сверху этого
+#      просто пережимает сам. Профиль youtube ставит VBV-потолок
+#      (-maxrate/-bufsize): пики режутся до 12 Мбит/с (потолок YouTube для
+#      1080p/60, с запасом над 8 для 24fps), спокойные сцены остаются на CRF.
+#      Худший случай размера становится ПРЕДСКАЗУЕМЫМ: <= 5.4 ГБ/час вместо
+#      "сколько получится".
+#   2) Эффективность на байт: medium/fast заметно выше veryfast —
+#      medium@CRF22 (39.0МБ, SSIM 0.9957) меньше И лучше, чем
+#      veryfast@CRF20 (44.3МБ, SSIM 0.9951). fast ≈ medium по качеству
+#      (0.99820 vs 0.99832 при CRF20) при том же размере. Поэтому preset
+#      финального прохода остаётся medium/fast, а не veryfast: "быстрее"
+#      здесь = "хуже на байт", экономить время надо на клипах (см.
+#      GRAIN_BLEND_MODE), не на единственном проходе, который уходит зрителю.
+# Профили:
+#   youtube (дефолт) — libx264 FINAL_PASS_PRESET/CRF + VBV 12M/24M, 8-bit.
+#   archive          — прежнее поведение байт-в-байт: без потолка битрейта.
+#   hevc             — libx265 (H.265) для тех, кому важен размер: YouTube
+#                      принимает HEVC в mp4; ~на 35-45% меньше при том же
+#                      SSIM, но медленнее x264 medium в 2-3 раза и не везде
+#                      играется без кодека (Windows: расширение HEVC/VLC).
+#                      -tag:v hvc1 обязателен для QuickTime/Apple.
+# Значение вне списка -> реестр отдаёт "off" с предупреждением, здесь это
+# значит youtube (ещё одно предупреждение ниже), не падение.
+DELIVERY_PROFILE = feature_flags.mode("DELIVERY_PROFILE")   # дефолт и список значений — в реестре
+DELIVERY_PROFILES = {
+    "youtube": {"codec": "libx264", "preset": FINAL_PASS_PRESET, "crf": FINAL_PASS_CRF,
+                "maxrate": "12M", "bufsize": "24M", "pix_fmt": "yuv420p", "extra": []},
+    "archive": {"codec": "libx264", "preset": FINAL_PASS_PRESET, "crf": FINAL_PASS_CRF,
+                "maxrate": None, "bufsize": None, "pix_fmt": "yuv420p", "extra": []},
+    "hevc": {"codec": "libx265", "preset": "fast", "crf": "22",
+             "maxrate": "10M", "bufsize": "20M", "pix_fmt": "yuv420p", "extra": ["-tag:v", "hvc1"]},
+}
+# Переопределение потолка из .env (пусто = как в профиле; "0" = без потолка).
+DELIVERY_MAXRATE = os.environ.get("DELIVERY_MAXRATE", "").strip()
+
+
+def parse_bitrate_kbps(text):
+    """'12' / '12M' / '8000k' -> кбит/с (int); '' -> None; мусор -> None.
+    Аудит 04.09: прежний парсер принимал только '12'/'12M', а обычная
+    ffmpeg-нотация '8000k' роняла ValueError — причём впервые в xfade_chain,
+    то есть ПОСЛЕ многочасового рендера всех клипов."""
+    t = (text or "").strip().lower()
+    if not t:
+        return None
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)\s*([km]?)", t)
+    if not m:
+        return None
+    val, unit = float(m.group(1)), m.group(2)
+    return int(round(val)) if unit == "k" else int(round(val * 1000))
+
+
+def final_pass_encode_args():
+    """Аргументы кодека для ЕДИНСТВЕННОГО прохода, который уходит на YouTube
+    (xfade_chain) и для freeze-подкладки хвоста (pad_to_length) — оба обязаны
+    совпадать: чанки xfade и подкладка склеиваются concat -c copy, разные
+    параметры кодека там недопустимы. Один источник вместо двух литералов."""
+    prof = DELIVERY_PROFILES.get(DELIVERY_PROFILE)
+    if prof is None:
+        print(f"  ВНИМАНИЕ: DELIVERY_PROFILE={DELIVERY_PROFILE!r} неизвестен — использую youtube")
+        prof = DELIVERY_PROFILES["youtube"]
+    args = ["-c:v", prof["codec"], "-preset", prof["preset"], "-crf", prof["crf"]]
+    maxrate, bufsize = prof["maxrate"], prof["bufsize"]
+    override = parse_bitrate_kbps(DELIVERY_MAXRATE)
+    if DELIVERY_MAXRATE and override is None:
+        print(f"  ВНИМАНИЕ: DELIVERY_MAXRATE={DELIVERY_MAXRATE!r} не разобран (жду 8, 8M или 8000k) — потолок профиля")
+    elif override == 0:
+        maxrate, bufsize = None, None
+    elif override:
+        maxrate, bufsize = f"{override}k", f"{override * 2}k"
+    if maxrate:
+        args += ["-maxrate", maxrate, "-bufsize", bufsize]
+    args += ["-pix_fmt", prof["pix_fmt"], "-r", str(FPS)] + COLOR_META_ARGS + list(prof["extra"])
+    return args
 
 # ZOOM_FLOOR — минимальный зум держится ВЕСЬ клип (не 1.0). Раньше offset пана
 # был обязан = 0 ровно в момент zoom=1.0 (иначе край вылезет за картинку), и на
@@ -637,7 +743,40 @@ def film_look(photo_hash, section="", brightness_bias=0.0, energy_bias=0.0, leve
 GRAIN_LOOP_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                 "assets", "grain", "grain_loop.mp4")
 GRAIN_ENABLED = os.environ.get("GRAIN", "1") != "0" and os.path.exists(GRAIN_LOOP_PATH)
-GRAIN_OPACITY = 0.10   # калибровано вживую — см. коммит с проверкой
+# GRAIN_OPACITY — сила зерна в шкале ПРЕЖНЕЙ формулы all_expr (0.10 = та
+# калибровка, что была проверена вживую). Переопределяется из .env — это
+# ЕДИНСТВЕННЫЙ реальный рычаг размера файла помимо CRF: измерено 03.09 на
+# реальном клипе канала — зерно даёт +57% к размеру промежуточного клипа
+# (4.7МБ против 3.0МБ без зерна при CRF17) и, по прежнему расследованию
+# (см. FINAL_PASS_CRF), ~3x к битрейту финального прохода на тёмном
+# грейде. Шум по построению несжимаем: любой кодек либо тратит на него
+# биты, либо сглаживает — третьего нет. GRAIN_OPACITY=0.05 — честный
+# компромисс "зерно ещё читается как текстура, но файл заметно легче".
+GRAIN_OPACITY = float(os.environ.get("GRAIN_OPACITY", "0.10"))
+# Режим наложения зерна (замер 03.09, один клип 80 кадров, -threads 1):
+#   expr      — прежний blend=all_expr (яркостно-зависимый вес через
+#               интерпретатор выражений ffmpeg НА КАЖДЫЙ ПИКСЕЛЬ) — 27.2с,
+#               из них 14.3с (53%) — ТОЛЬКО этот blend. Самый дорогой шаг
+#               всего рендера клипа, дороже zoompan+кодирования вместе.
+#   softlight — нативный (C/SIMD) режим blend, 15.0с на тот же клип. По
+#               построению сам ослабляет эффект в глубоких тенях и светах —
+#               та же идея "колокола по яркости", что и у expr-формулы,
+#               не плоский grainmerge. Калибровка на реальном grain_loop
+#               по горизонтальному градиенту 0..255, std добавленного шума
+#               по полосам яркости [0-32, 32-96, 96-160, 160-224, 224-255]:
+#                 expr(0.10):        [0.81, 0.94, 1.09, 0.94, 0.82]
+#                 softlight(0.20):   [~0.48, ~0.90, ~1.14, ~0.90, ~0.46]
+#                 grainmerge(0.10):  [1.02, 1.13, 1.13, 1.13, 1.07] (плоско)
+#               Средние/четвертные тона совпадают в пределах ~5-10%, в
+#               крайних тенях/светах softlight тише — на тёмном грейде
+#               канала это меньше шума в чёрном, то есть ещё и меньше
+#               потраченных на него бит. GRAIN_SOFTLIGHT_GAIN — тот
+#               измеренный коэффициент 0.20/0.10.
+#   grainmerge — плоский вес по всей яркости, той же скорости, что softlight.
+# Дефолт softlight. expr оставлен для побайтового сравнения со старыми
+# рендерами, не как рабочий режим.
+GRAIN_BLEND_MODE = feature_flags.mode("GRAIN_BLEND_MODE")   # дефолт и список значений — в реестре
+GRAIN_SOFTLIGHT_GAIN = 2.0
 
 # Пункт аудита "деффликер по стоковому видео" (ЧАСТЬ 14 CLAUDE.md, апгрейд
 # CLIP-моделей той же сессии). Применяется ТОЛЬКО в video_render() (реальное
@@ -652,7 +791,11 @@ GRAIN_OPACITY = 0.10   # калибровано вживую — см. комм�
 # сам использует по умолчанию, не подобранное число), флаг даёт быстрый
 # откат без редеплоя, если при следующем визуальном QC (ЧАСТЬ 13, Шаг 7.5)
 # что-то не понравится.
-DEFLICKER_ENABLED = os.environ.get("DEFLICKER", "1") != "0"
+# РЕАЛЬНОЕ расхождение (найдено 03.09): CLAUDE.md документирует флаг как
+# DEFLICKER_ENABLED, а код читал переменную DEFLICKER — откат ровно по
+# документации не работал. Реестр читает документированное имя, старое
+# оставлено рабочим псевдонимом (Flag.aliases), чтобы ничей .env не сломался.
+DEFLICKER_ENABLED = feature_flags.enabled("DEFLICKER_ENABLED")
 DEFLICKER_FILTER = "deflicker=size=5:mode=am,"
 
 # По прямому запросу пользователя — полностью отключаемые on-screen текстовые
@@ -695,6 +838,19 @@ def _domain_grade_cache_signature(domain_ref):
         return "domain:off"
     table_sig = hashlib.md5(repr(sorted(DOMAIN_WARM_PUSH_SCALE.items())).encode()).hexdigest()[:8]
     return f"domain:on:{table_sig}"
+
+
+def arbiter_cache_suffix(section):
+    """Хвост ключа кэша клипа для VLM-арбитра — "" или "|arbiter:on".
+
+    Пустая строка при выключенном арбитре обязательна, а не косметика: ключ
+    кэша тогда байт-в-байт совпадает с тем, что было до появления этой
+    функции, и правка не перерендеривает чужие прогретые temp_smart/.
+    Читает режим В МОМЕНТ ВЫЗОВА (не на импорте) — как и остальной код,
+    работающий с реестром."""
+    if not str(section or "").startswith("HOOK"):
+        return ""
+    return "|arbiter:on" if feature_flags.mode("VLM_ARBITER_MODE") == "on" else ""
 
 
 def _visual_director_cache_signature(director_ref):
@@ -829,10 +985,21 @@ def grain_blend_complex(label_in, grain_input_idx, label_out, opacity_scale=1.0)
     # (поймано вживую прямым тестом на градиенте: A=255 без clip давал
     # ffmpeg-выход 2 вместо 255 — чёрная точка на самом ярком пикселе кадра,
     # ffmpeg сам НЕ клиппит all_expr автоматически).
-    weight = f"({GRAIN_OPACITY * opacity_scale}*(0.6+0.4*(1-abs(A-128)/128)))"
-    expr = f"clip(A+(B-128)*{weight},0,255)"
-    return (f"[{grain_input_idx}:v]scale={WIDTH}:{HEIGHT}:flags=bicubic,setsar=1[gr_scaled];"
-            f"[{label_in}][gr_scaled]blend=all_expr='{expr}'[{label_out}]")
+    #
+    # GRAIN_BLEND_MODE (см. константу): expr — прежняя формула через
+    # интерпретатор выражений, softlight/grainmerge — нативные режимы blend
+    # (см. замер и калибровку у GRAIN_BLEND_MODE). Неизвестное значение ->
+    # softlight (дефолт), не падение рендера из-за опечатки в .env.
+    scaled = f"[{grain_input_idx}:v]scale={WIDTH}:{HEIGHT}:flags=bicubic,setsar=1[gr_scaled];"
+    if GRAIN_BLEND_MODE == "expr":
+        weight = f"({GRAIN_OPACITY * opacity_scale}*(0.6+0.4*(1-abs(A-128)/128)))"
+        expr = f"clip(A+(B-128)*{weight},0,255)"
+        return scaled + f"[{label_in}][gr_scaled]blend=all_expr='{expr}'[{label_out}]"
+    if GRAIN_BLEND_MODE == "grainmerge":
+        opacity = GRAIN_OPACITY * opacity_scale
+        return scaled + f"[{label_in}][gr_scaled]blend=all_mode=grainmerge:all_opacity={opacity:.4f}[{label_out}]"
+    opacity = min(1.0, GRAIN_OPACITY * GRAIN_SOFTLIGHT_GAIN * opacity_scale)
+    return scaled + f"[{label_in}][gr_scaled]blend=all_mode=softlight:all_opacity={opacity:.4f}[{label_out}]"
 
 
 # ВСЕ длительности переходов — целое число кадров (кратны 1/FPS). Причина не
@@ -1067,6 +1234,13 @@ LOUDNORM_TARGET_TP = -1.5
 LOUDNORM_TARGET_LRA = 11
 
 
+def _audio_len_for_timeout(path):
+    try:
+        return get_media_duration(path)
+    except Exception:
+        return 600.0
+
+
 def measure_loudnorm_stats(audio_path, target_i=LOUDNORM_TARGET_I,
                             target_tp=LOUDNORM_TARGET_TP, target_lra=LOUDNORM_TARGET_LRA):
     """Первый проход двух-проходного loudnorm — только измерение, звук не
@@ -1079,10 +1253,16 @@ def measure_loudnorm_stats(audio_path, target_i=LOUDNORM_TARGET_I,
         r = subprocess.run(
             ["ffmpeg", "-i", audio_path, "-af",
              f"loudnorm=I={target_i}:TP={target_tp}:LRA={target_lra}:print_format=json",
-             "-f", "null", "-"], capture_output=True, text=True, timeout=60)
+             "-f", "null", "-"], capture_output=True, text=True, encoding="utf-8", errors="replace",
+            # Аудит 04.09: измерение — полный декод + ebur128 (~34x realtime на
+            # 4 ядрах): при фиксированных 60с любой эпизод длиннее ~34 минут
+            # молча уходил в однопроходный loudnorm ("compromise-режим").
+            timeout=max(120, int(_audio_len_for_timeout(audio_path) * 0.5)))
         start, end = r.stderr.rindex("{"), r.stderr.rindex("}") + 1
         return json.loads(r.stderr[start:end])
-    except Exception:
+    except Exception as e:
+        print(f"  ВНИМАНИЕ: двухпроходный loudnorm не измерился ({type(e).__name__}) — "
+              f"финал пойдёт через однопроходный режим (громкость внутри ролика ровнее не будет)")
         return None
 
 
@@ -1093,7 +1273,7 @@ def process_voice(voice_path, out_path):
     исходника (безопасный откат, тот же принцип, что MUSIC_ENABLED)."""
     if not VOICE_PROCESS_ENABLED:
         r = subprocess.run(["ffmpeg", "-y", "-i", voice_path, "-ar", "48000", "-ac", "2", out_path],
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, encoding="utf-8", errors="replace")
         return out_path if r.returncode == 0 else voice_path
     af = (
         f"highpass=f={VOICE_HIGHPASS_HZ},"
@@ -1104,10 +1284,11 @@ def process_voice(voice_path, out_path):
         f"attack=8:release=120:makeup=1.15"
     )
     r = subprocess.run(["ffmpeg", "-y", "-i", voice_path, "-af", af, "-ar", "48000", "-ac", "2", out_path],
-                        capture_output=True, text=True)
+                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
+        print(f"  ВНИМАНИЕ: обработка голоса не собралась, голос идёт как есть: {r.stderr[-200:].strip()}")
         r2 = subprocess.run(["ffmpeg", "-y", "-i", voice_path, "-ar", "48000", "-ac", "2", out_path],
-                             capture_output=True, text=True)
+                             capture_output=True, text=True, encoding="utf-8", errors="replace")
         return out_path if r2.returncode == 0 else voice_path
     return out_path
 
@@ -1164,7 +1345,9 @@ def add_typewriter_clicks(mix_path, click_times, total_dur, out_path):
     except OSError:
         cmd += ["-filter_complex", fc, "-map", "[out]",
                 "-t", f"{total_dur:.3f}", "-ar", "48000", "-ac", "2", out_path]
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if r.returncode != 0:
+        print(f"  ВНИМАНИЕ: щелчки печатной машинки не наложились: {r.stderr[-200:].strip()}")
     return out_path if r.returncode == 0 else mix_path
 
 
@@ -1189,10 +1372,12 @@ def build_mood_timeline(hook_end, final_start, total_dur, out_path):
     d = MUSIC_MOOD_XFADE
     t1 = max(2.0, hook_end - MUSIC_JCUT_LEAD)
     t2 = min(total_dur - 2.0, max(t1 + 2 * d, final_start - MUSIC_JCUT_LEAD))
-    if t2 - t1 < 2 * d or t1 >= total_dur - 2 * d:
+    # total_dur - t2 < d: третий сегмент короче кроссфейда — acrossfade
+    # молча отдаёт результат короче total_dur (аудит 04.09: 57.5с из 60).
+    if t2 - t1 < 2 * d or t1 >= total_dur - 2 * d or total_dur - t2 < d:
         r = subprocess.run(["ffmpeg", "-y", "-stream_loop", "-1", "-i", MUSIC_BED_PATHS["BODY"],
                              "-t", f"{total_dur:.3f}", "-ar", "48000", "-ac", "2", out_path],
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, encoding="utf-8", errors="replace")
         return out_path if r.returncode == 0 else None
     L1, L2, L3 = t1 + d, (t2 - t1) + d, total_dur - t2
     fc = (
@@ -1209,11 +1394,13 @@ def build_mood_timeline(hook_end, final_start, total_dur, out_path):
          "-stream_loop", "-1", "-i", MUSIC_BED_PATHS["FINAL"],
          "-filter_complex", fc, "-map", "[mood_mix]",
          "-t", f"{total_dur:.3f}", "-ar", "48000", "-ac", "2", out_path],
-        capture_output=True, text=True)
+        capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
+        print(f"  ВНИМАНИЕ: муд-таймлайн музыки не собрался, одна BODY-петля на весь ролик: "
+              f"{r.stderr[-200:].strip()}")
         r2 = subprocess.run(["ffmpeg", "-y", "-stream_loop", "-1", "-i", MUSIC_BED_PATHS["BODY"],
                               "-t", f"{total_dur:.3f}", "-ar", "48000", "-ac", "2", out_path],
-                             capture_output=True, text=True)
+                             capture_output=True, text=True, encoding="utf-8", errors="replace")
         return out_path if r2.returncode == 0 else None
     return out_path
 
@@ -1372,7 +1559,7 @@ def build_music_mix(voice_path, total_dur, out_path, hook_end=0.0, final_start=N
     громкость ПОСЛЕ калибровки и сводила её к нулю."""
     if not MUSIC_ENABLED:
         r = subprocess.run(["ffmpeg", "-y", "-i", voice_path, "-t", f"{total_dur:.3f}",
-                             "-ar", "48000", "-ac", "2", out_path], capture_output=True, text=True)
+                             "-ar", "48000", "-ac", "2", out_path], capture_output=True, text=True, encoding="utf-8", errors="replace")
         return out_path if r.returncode == 0 else voice_path
     if final_start is None:
         final_start = total_dur
@@ -1380,7 +1567,7 @@ def build_music_mix(voice_path, total_dur, out_path, hook_end=0.0, final_start=N
     timeline = build_mood_timeline(hook_end, final_start, total_dur, timeline_path)
     if timeline is None:
         r = subprocess.run(["ffmpeg", "-y", "-i", voice_path, "-t", f"{total_dur:.3f}",
-                             "-ar", "48000", "-ac", "2", out_path], capture_output=True, text=True)
+                             "-ar", "48000", "-ac", "2", out_path], capture_output=True, text=True, encoding="utf-8", errors="replace")
         return out_path if r.returncode == 0 else voice_path
     dip_expr = _climax_dip_expr(climax_times)
     dip_stage = f",volume=eval=frame:volume='{dip_expr}'" if dip_expr else ""
@@ -1397,12 +1584,14 @@ def build_music_mix(voice_path, total_dur, out_path, hook_end=0.0, final_start=N
         ["ffmpeg", "-y", "-i", voice_path, "-i", timeline,
          "-filter_complex", filter_complex, "-map", "[mix]",
          "-t", f"{total_dur:.3f}", "-ar", "48000", "-ac", "2", out_path],
-        capture_output=True, text=True)
+        capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
         # Микс не собрался — откат на голос без подложки, не срываем сборку
-        # ролика ради необязательного улучшения.
+        # ролика ради необязательного улучшения. Но НЕ молча (аудит 04.09):
+        # ролик без музыки выглядел как чистый успех.
+        print(f"  ВНИМАНИЕ: музыкальная подложка НЕ наложена (микс не собрался): {r.stderr[-200:].strip()}")
         r2 = subprocess.run(["ffmpeg", "-y", "-i", voice_path, "-t", f"{total_dur:.3f}",
-                              "-ar", "48000", "-ac", "2", out_path], capture_output=True, text=True)
+                              "-ar", "48000", "-ac", "2", out_path], capture_output=True, text=True, encoding="utf-8", errors="replace")
         return out_path if r2.returncode == 0 else voice_path
     return out_path
 
@@ -1897,6 +2086,12 @@ ACTION_STEMS = (
 # Омонимы, которые основа выше всё-таки цепляет — проверяются ПЕРВЫМИ.
 # Каждое слово здесь либо реально встретилось в тексте канала, либо
 # заведомо частотно именно в этой нише (металл/сечение/клинок).
+# Аудит 04.09 (воспроизведено живым вызовом): startswith по основам ловил
+# «резная рукоять» (резн- -> fighting), «заносчивый» (-> wielding), «штурман»,
+# «горелка», «походка», «ударение», «бойкот», «разительно» — блок про декор
+# получал ВИДЕО с уточнением «fighting». Исключения по ОСНОВЕ (не словоформе).
+ACTION_STEM_EXCLUDE_PREFIXES = ("резн", "резьб", "заносчив", "штурман", "горелк", "походк",
+                                "ударен", "бойкот", "разительн")
 ACTION_STEM_EXCLUDE = frozenset((
     "сразу", "маршрут", "маршрута", "маршруты", "металл", "металла",
     "металлы", "металлург", "рубль", "рубля", "рублей", "рубеж", "рубежа",
@@ -1912,7 +2107,7 @@ def has_action_word(text):
     разбор у ACTION_STEMS выше."""
     for w in text.split():
         w = re.sub(r'[^\w]', '', w.lower())
-        if not w or w in ACTION_STEM_EXCLUDE:
+        if not w or w in ACTION_STEM_EXCLUDE or w.startswith(ACTION_STEM_EXCLUDE_PREFIXES):
             continue
         if any(w.startswith(s) for s in ACTION_STEMS):
             return True
@@ -1988,10 +2183,32 @@ def apply_action_qualifier(query, qualifier):
     return f"{' '.join(missing)} {query}"
 
 
+def decoded_audio_duration(path):
+    """Реальная длина ДЕКОДИРОВАННОГО аудио. Для MP3 ffprobe format.duration —
+    оценка контейнера с паддингом кодера: аудит 04.09 измерил 60.029с против
+    60.000с реальных сэмплов — лишний кадр видео без звука, сдвиг fade-out и
+    конца субтитров на 29 мс. FLAC/WAV точны и так, но путь один для всех.
+    None — если декод не удался (вызывающий откатывается на ffprobe)."""
+    try:
+        r = subprocess.run(["ffmpeg", "-v", "error", "-nostats", "-progress", "pipe:1",
+                            "-i", path, "-f", "null", "-"],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600)
+        us = [int(x) for x in re.findall(r"out_time_us=(\d+)", r.stdout)]
+        if r.returncode == 0 and us and us[-1] > 0:
+            return us[-1] / 1_000_000.0
+    except Exception:
+        pass
+    return None
+
+
 def get_audio_duration():
     r = subprocess.run(["ffprobe", "-v", "quiet", "-print_format", "json",
-                        "-show_format", AUDIO_FILE], capture_output=True, text=True, check=True)
-    return float(json.loads(r.stdout)["format"]["duration"])
+                        "-show_format", AUDIO_FILE], capture_output=True, text=True, encoding="utf-8", errors="replace", check=True)
+    probed = float(json.loads(r.stdout)["format"]["duration"])
+    decoded = decoded_audio_duration(AUDIO_FILE)
+    if decoded is not None and abs(decoded - probed) > 0.5 / FPS:
+        print(f"  Аудио: контейнер обещает {probed:.3f}с, реально декодируется {decoded:.3f}с — беру реальную")
+    return decoded if decoded is not None else probed
 
 
 ALIGNMENT_DIR = os.path.join(VIDEO_FOLDER, "media_plan", "alignment")
@@ -2671,7 +2888,8 @@ def hook_visual_starts(blocks, durs):
     выбранных файлов — HOOK её физически никогда не достигает, см. код
     xfade_chain()). Значения вне HOOK этой функцией не гарантированы
     точными (там нет burned-caption потребителя — учитывать не нужно)."""
-    plan = plan_transitions([b["section"] for b in blocks], blocks)
+    sections = [b["section"] for b in blocks]
+    plan = effective_transition_plan(plan_transitions(sections, blocks), sections)
     starts, cum = [], (durs[0] if durs else 0.0)
     for i, d in enumerate(durs):
         if i == 0:
@@ -2788,6 +3006,35 @@ def block_durations(blocks, total, energy_mults=None, real_weights=None):
 
 
 PEXELS_BROKEN = False       # взводится только на реальном отказе API, не на пустой выдаче
+PEXELS_FAIL_STREAK = 0      # подряд идущих сбоев любого рода (см. _note_pexels_failure)
+PEXELS_FAIL_STREAK_LIMIT = 6
+
+
+def _reset_pexels_streak():
+    global PEXELS_FAIL_STREAK
+    PEXELS_FAIL_STREAK = 0
+
+
+def _note_pexels_failure(exc, label):
+    """Аудит 04.09 (воспроизведено): один try/except на всё тело pexels_photo/
+    pexels_video взводил PEXELS_BROKEN на ЛЮБОЙ ошибке — сбой скачки одной
+    картинки с CDN, os.replace на Windows, исключение в скоринге — после
+    чего сток отключался до конца эпизода, сотни слотов уходили в повтор
+    локальных фото по кругу или в missing (и final.mp4 не собирался при
+    строгом гейте). Теперь флаг — только на 401/403 (ключ/доступ) или после
+    PEXELS_FAIL_STREAK_LIMIT сбоев ПОДРЯД (API реально недоступен);
+    одиночная ошибка стоит одному слоту, не эпизоду."""
+    global PEXELS_BROKEN, PEXELS_FAIL_STREAK
+    PEXELS_FAIL_STREAK += 1
+    code = getattr(exc, "code", None)
+    if code in (401, 403):
+        PEXELS_BROKEN = True
+        print(f"  {label}: HTTP {code} — ключ/доступ Pexels отвергнут, сток отключён на этот прогон")
+    elif PEXELS_FAIL_STREAK >= PEXELS_FAIL_STREAK_LIMIT:
+        PEXELS_BROKEN = True
+        print(f"  {label}: {exc} — {PEXELS_FAIL_STREAK} сбоев подряд, считаю API недоступным")
+    else:
+        print(f"  {label}: {exc} (слот без стока, сток НЕ отключаю)")
 
 # Реальный, найденный вживую баг (27 августа, videos/_test20s, слоты 0 и 3):
 # is_relevant_candidate() — гейт, не жёсткий фильтр в _score_and_pick() (см.
@@ -2976,11 +3223,12 @@ def disambiguate_search_query(query):
     баг первой версии этой функции)."""
     ql = query.lower()
     for rule in QUERY_DISAMBIGUATION_RULES:
-        if rule["term"] not in ql:
+        if not re.search(r"\b" + re.escape(rule["term"]) + r"\b", ql):
             continue
-        if any(u in ql for u in rule.get("unless", ())):
+        if any(re.search(r"\b" + re.escape(u) + r"\b", ql) for u in rule.get("unless", ())):
             continue
-        missing_words = [w for w in rule["qualifier"].split() if w not in ql]
+        missing_words = [w for w in rule["qualifier"].split()
+                         if not re.search(r"\b" + re.escape(w) + r"\b", ql)]
         if not missing_words:
             continue
         return f"{' '.join(missing_words)} {query}"
@@ -3411,6 +3659,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                     recent_sizes.append(estimate_shot_size(cf))
                 except Exception:
                     pass
+            _reset_pexels_streak()
             return cf
         # Реальный баг, пойманный вживую: кэш-хит раньше отдавал файл СРАЗУ,
         # даже не проверяя его против used_hashes — анти-дубль код (ниже)
@@ -3430,8 +3679,10 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                         recent_sizes.append(estimate_shot_size(cf))
                     except Exception:
                         pass
+                _reset_pexels_streak()
                 return cf
         except Exception:
+            _reset_pexels_streak()
             return cf
     if not PEXELS_API_KEY:
         # Досюда доходим и в случае "кэш есть, но он визуальный дубль уже
@@ -3439,6 +3690,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
         # его нечем — вернуть дубль честнее, чем потерять кадр целиком:
         # пустой слот при RENDER_STRICT_GATE=1 останавливает всю сборку.
         if os.path.exists(cf) and os.path.getsize(cf) > 0:
+            _reset_pexels_streak()
             return cf
         return None
     try:
@@ -3643,7 +3895,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             # тратим время впустую при off (тот же паттерн, что resolve_
             # queries() уже применяет к SHOT_DIRECTOR_MODE).
             if (arbiter_text is not None and winner is not None
-                    and os.environ.get("VLM_ARBITER_MODE", "off").strip().lower() == "on"):
+                    and feature_flags.mode("VLM_ARBITER_MODE") == "on"):
                 # Открывающий кадр — отдельный, ШИРЕ, шорт-лист (см.
                 # _build_opening_shortlist) и отдельный промпт (критерий
                 # "эффектность", не "точность", см. is_opening в
@@ -3706,10 +3958,10 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                 recent_sizes.append(estimate_shot_size(cf))
             except Exception:
                 pass
+        _reset_pexels_streak()
         return cf
     except Exception as e:
-        PEXELS_BROKEN = True
-        print(f"  Pexels [{query}]: {e}")
+        _note_pexels_failure(e, f"Pexels [{query}]")
         return None
 
 
@@ -3725,7 +3977,11 @@ def _local_photos():
         _LOCAL_PHOTOS_CACHE = sorted(
             [f for f in os.listdir(MEDIA_FOLDER)
              if f.lower().endswith((".jpg", ".jpeg", ".png"))],
-            key=lambda x: int(re.findall(r'\d+', x)[0]) if re.findall(r'\d+', x) else 0
+            # Вторичный ключ — имя: при равных номерах (или без номеров) порядок
+            # os.listdir зависит от файловой системы (аудит 04.09: тест дал
+            # b.jpg раньше a.jpg) — «media/ по порядку» стало бы разным на
+            # Windows и Linux.
+            key=lambda x: (int(re.findall(r'\d+', x)[0]) if re.findall(r'\d+', x) else 0, x)
         ) if os.path.isdir(MEDIA_FOLDER) else []
     return _LOCAL_PHOTOS_CACHE
 
@@ -3758,11 +4014,201 @@ def local_photo(index, allow_cycle=False):
     for f in photos:
         if f.startswith(prefix):
             return os.path.join(MEDIA_FOLDER, f)
-    if index < len(photos):
+    # Аудит 04.09 (воспроизведено): в НУМЕРОВАННОЙ папке с пропуском
+    # (001..004 + 007) позиционный fallback отдавал слоту 5 файл 007 —
+    # кадр под чужую фразу, дубль со слотом 7, и Pexels для дырки не
+    # опрашивался. Если хоть один файл нумерован — действует только точное
+    # совпадение; позиционный режим остаётся для папок без номеров.
+    numbered = any(re.match(r"^\d{3}_", f) for f in photos)
+    if not numbered and index < len(photos):
         return os.path.join(MEDIA_FOLDER, photos[index])
     if allow_cycle:
         return os.path.join(MEDIA_FOLDER, photos[index % len(photos)])
     return None
+
+
+# --- ШОТЛИСТ (media_plan/shotlist.json) — проверяемый и правимый список кадров ---
+# Ответ на реальную жалобу пользователя (03.09): "подбор кадров — навороченная,
+# но не внушающая доверия система, то работает, то нет". Причина доверия —
+# не в ещё одном ML-гейте, а в том, что РЕШЕНИЕ становится артефактом,
+# который можно увидеть до рендера и поправить руками. Как в реальном
+# монтаже: сначала список планов (EDL), потом рендер строго по нему.
+#
+# Что пишет main() после отбора: по каждому блоку — секция, фраза, запрос,
+# вид (photo/video), файл, источник (pexels/local/cache_hit/shotlist_lock/
+# missing), плюс шапка "gates" — какие гейты/модели РЕАЛЬНО работали в этом
+# прогоне (ключ Pexels, CLIP загружен или сломан, режимы Директора/Look/
+# LLM/VLM). Раньше fail-open каждого слоя означал, что при отсутствии torch
+# или сети гейт молча выключался, и внешне это выглядело как "то работает,
+# то нет" — теперь это записано явно.
+#
+# Как править: `"lock": true` у слота (или `"locked": true` в шапке — на все
+# слоты с файлом) + нужный `file` (свой файл или любой из temp_smart/
+# pexels_cache) — следующий прогон берёт этот файл КАК ЕСТЬ, без Pexels и без
+# гейтов, ровно для этого слота. Контактный лист для просмотра —
+# scripts/shotlist_contact.py <video_dir>.
+#
+# Защита от рассинхрона с текстом: lock действует, только если фраза блока
+# в шотлисте совпадает с текущим script.txt (после нормализации пробелов) —
+# после правки сценария индексы сдвигаются, и молча поставить залоченный
+# кадр под чужую фразу — ровно тот баг, от которого этот механизм должен
+# защищать. Несовпадение — явное предупреждение и обычный отбор.
+SHOTLIST_VERSION = 1
+VIDEO_MEDIA_EXTS = (".mp4", ".mov", ".mkv", ".webm", ".m4v")
+
+
+def shotlist_path(video_dir):
+    return os.path.join(video_dir, "media_plan", "shotlist.json")
+
+
+def _shotlist_norm_text(text):
+    return " ".join((text or "").split())
+
+
+def load_shotlist(video_dir):
+    """dict шотлиста или None. Битый JSON/не-dict -> None с предупреждением
+    (fail-open: рендер идёт как без шотлиста, но не молча)."""
+    path = shotlist_path(video_dir)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError) as e:
+        print(f"  ВНИМАНИЕ: media_plan/shotlist.json не читается ({e}) — отбор кадров без шотлиста")
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("shots"), list):
+        print("  ВНИМАНИЕ: media_plan/shotlist.json неожиданной формы — отбор кадров без шотлиста")
+        return None
+    return data
+
+
+def shotlist_shot(shotlist, index):
+    """Запись слота index из шотлиста (по полю index, не по позиции в списке)
+    или None."""
+    if not shotlist:
+        return None
+    for shot in shotlist.get("shots", []):
+        if isinstance(shot, dict) and shot.get("index") == index:
+            return shot
+    return None
+
+
+def shotlist_resolve_file(file_value, video_dir):
+    """Относительный путь в шотлисте — от папки эпизода (переносимость между
+    машинами/копиями папки), абсолютный — как есть."""
+    if not file_value:
+        return None
+    return file_value if os.path.isabs(file_value) else os.path.normpath(os.path.join(video_dir, file_value))
+
+
+def shotlist_relative_file(path, video_dir):
+    """Обратное преобразование для записи: файл внутри video_dir — относительно
+    него, иначе абсолютный путь."""
+    if not path:
+        return None
+    ap = os.path.abspath(path)
+    root = os.path.abspath(video_dir)
+    try:
+        rel = os.path.relpath(ap, root)
+    except ValueError:   # разные диски на Windows
+        return ap
+    return ap if rel.startswith("..") else rel.replace(os.sep, "/")
+
+
+def shotlist_locked_media(shotlist, index, block_text, video_dir):
+    """(photo, video) — файл, который ЭТОТ слот обязан использовать по
+    шотлисту, иначе (None, None). Условия: слот залочен (shot["lock"] или
+    шапка "locked"), файл указан и существует, фраза совпадает с текущим
+    текстом блока. Любое несоответствие — предупреждение и обычный отбор."""
+    shot = shotlist_shot(shotlist, index)
+    if shot is None:
+        return None, None
+    locked = bool(shot.get("lock")) or bool(shotlist.get("locked"))
+    if not locked:
+        return None, None
+    path = shotlist_resolve_file(shot.get("file"), video_dir)
+    if not path:
+        return None, None
+    if _shotlist_norm_text(shot.get("text")) != _shotlist_norm_text(block_text):
+        print(f"  [{index+1}] шотлист: фраза блока изменилась с момента записи — lock проигнорирован, "
+              f"обычный отбор (проверь media_plan/shotlist.json)")
+        return None, None
+    if not os.path.exists(path):
+        print(f"  [{index+1}] шотлист: залоченный файл не найден ({path}) — обычный отбор")
+        return None, None
+    if path.lower().endswith(VIDEO_MEDIA_EXTS):
+        return None, path
+    return path, None
+
+
+def shotlist_lock_key(photo, video):
+    """Фрагмент для params_hash клипа: залоченный файл (путь + размер + mtime)
+    — иначе замена файла в шотлисте молча не инвалидировала бы уже
+    отрендеренный клип под тем же именем (тот же класс бага, что уже
+    закрывают recipe_sig/candidate_gate_signature)."""
+    path = photo or video
+    if not path:
+        return ""
+    try:
+        st = os.stat(path)
+        return f"lock:{os.path.abspath(path)}:{st.st_size}:{int(st.st_mtime)}"
+    except OSError:
+        return f"lock:{path}"
+
+
+def shotlist_source_for(path, video_dir, locked=False):
+    if locked:
+        return "shotlist_lock"
+    if not path:
+        return "missing"
+    ap = os.path.abspath(path)
+    if ap.startswith(os.path.abspath(os.path.join(video_dir, "media")) + os.sep):
+        return "local"
+    return "pexels"
+
+
+def write_shotlist(video_dir, shots, gates, prev=None):
+    """Атомарная запись media_plan/shotlist.json. Флаги lock/locked из
+    ПРЕДЫДУЩЕГО шотлиста сохраняются (пользователь правил их руками —
+    прогон не имеет права их стереть), файл залоченного слота — тоже."""
+    prev = prev or {}
+    prev_by_index = {s.get("index"): s for s in prev.get("shots", []) if isinstance(s, dict)}
+    out_shots = []
+    for i in sorted(shots):
+        entry = dict(shots[i])
+        old = prev_by_index.get(i)
+        if old is not None and _shotlist_norm_text(old.get("text")) == _shotlist_norm_text(entry.get("text")):
+            entry["lock"] = bool(old.get("lock"))
+            if entry["lock"] and old.get("file"):
+                # Файл, который человек залочил, остаётся в шотлисте всегда —
+                # даже если в этом прогоне lock не применился (файл не найден)
+                # и слот собран автоматикой. Аудит 04.09: раньше lock молча
+                # переезжал на свежий Pexels-кадр, и следующий прогон брал
+                # неутверждённый файл без гейтов.
+                applied = entry.get("source") in ("shotlist_lock", "cache_hit")
+                if not applied and entry.get("file"):
+                    entry["rendered_file_this_run"] = entry["file"]
+                    entry["lock_note"] = ("lock не применён в этом прогоне (файл не найден) — "
+                                          "слот собран автоматикой, файл шотлиста сохранён")
+                entry["file"] = old["file"]
+                entry["kind"] = old.get("kind") or entry.get("kind")
+                entry["lock_applied"] = applied
+        else:
+            entry.setdefault("lock", False)
+        out_shots.append(entry)
+    data = {"version": SHOTLIST_VERSION,
+            "locked": bool(prev.get("locked", False)),
+            "how_to": "Поставь \"lock\": true у слота и укажи \"file\" (свой файл или любой из temp_smart/) — "
+                      "следующий прогон возьмёт его как есть. Контактный лист: python scripts/shotlist_contact.py <video_dir>",
+            "gates": gates, "shots": out_shots}
+    path = shotlist_path(video_dir)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+    return path
 
 
 GENERIC_FALLBACKS = [
@@ -4079,7 +4525,7 @@ def resolve_queries(blocks, authored_queries=None):
     # передать смысл именно ЭТОЙ фразы). Ленивый импорт по тому же паттерну,
     # что VISUAL_DIRECTOR_MODE/LOOK_MANAGEMENT_MODE ниже в этом файле — off
     # не тянет модуль и не трогает сеть вообще.
-    if os.environ.get("SHOT_DIRECTOR_MODE", "off").strip().lower() == "on":
+    if feature_flags.mode("SHOT_DIRECTOR_MODE") == "on":
         import shot_director
         for i, q in enumerate(raw):
             if q is not None:
@@ -4208,7 +4654,7 @@ def add_overlays(vf_base, dur, title=None, stat=None, stat_variant=0, stat_delay
         text = title.upper() if FONT_IS_DISPLAY else title
         safe = escape_drawtext(text)
         fs = 46 if FONT_IS_DISPLAY else 54
-        vf += (f",drawtext=fontfile='{FONT_SECONDARY_PATH}':text='{safe}':"
+        vf += (f",drawtext=fontfile='{ffmpeg_filter_path(FONT_SECONDARY_PATH)}':text='{safe}':"
                f"fontcolor=white:fontsize={fs}:borderw=3:bordercolor=black@0.8:"
                f"x=(w-text_w)/2:"
                f"y='h-180+(1-min(t/{fin:.2f}\\,1))*36':"
@@ -4238,7 +4684,7 @@ def add_overlays(vf_base, dur, title=None, stat=None, stat_variant=0, stat_delay
         if variant == 0:
             # Классический баннер — верх кадра, слайд сверху.
             fs = 58 if FONT_IS_DISPLAY else 64
-            vf += (f",drawtext=fontfile='{FONT_PATH}':text='{safe}':"
+            vf += (f",drawtext=fontfile='{ffmpeg_filter_path(FONT_PATH)}':text='{safe}':"
                    f"fontcolor=white:fontsize={fs}:"
                    f"box=1:boxcolor={STAT_ACCENT}@0.92:boxborderw=18:"
                    f"x=(w-text_w)/2:"
@@ -4247,7 +4693,7 @@ def add_overlays(vf_base, dur, title=None, stat=None, stat_variant=0, stat_delay
         elif variant == 1:
             # Крупное число по центру кадра — без плашки, тень вместо box.
             fs = 96 if FONT_IS_DISPLAY else 108
-            vf += (f",drawtext=fontfile='{FONT_PATH}':text='{safe}':"
+            vf += (f",drawtext=fontfile='{ffmpeg_filter_path(FONT_PATH)}':text='{safe}':"
                    f"fontcolor=white:fontsize={fs}:"
                    f"shadowcolor=black@0.85:shadowx=4:shadowy=4:"
                    f"borderw=2:bordercolor=black@0.6:"
@@ -4263,7 +4709,7 @@ def add_overlays(vf_base, dur, title=None, stat=None, stat_variant=0, stat_delay
             vf += (f",drawbox=x=100:y=(ih-160)/2:w=8:h=160:"
                    f"color={STAT_ACCENT}@0.92:t=fill:"
                    f"enable='between(t\\,{delay:.2f}\\,{hold:.2f})'"
-                   f",drawtext=fontfile='{FONT_PATH}':text='{safe}':"
+                   f",drawtext=fontfile='{ffmpeg_filter_path(FONT_PATH)}':text='{safe}':"
                    f"fontcolor=white:fontsize={fs}:"
                    f"shadowcolor=black@0.8:shadowx=3:shadowy=3:"
                    f"x=130:y=(h-text_h)/2:"
@@ -4279,7 +4725,7 @@ def add_overlays(vf_base, dur, title=None, stat=None, stat_variant=0, stat_delay
             # во весь угол), позиция и логика (right-aligned, подчёркивание)
             # не менялись — только заметность.
             fs = 46 if FONT_IS_DISPLAY else 52
-            vf += (f",drawtext=fontfile='{FONT_SECONDARY_PATH}':text='{safe}':"
+            vf += (f",drawtext=fontfile='{ffmpeg_filter_path(FONT_SECONDARY_PATH)}':text='{safe}':"
                    f"fontcolor=white:fontsize={fs}:"
                    f"box=1:boxcolor=black@0.5:boxborderw=12:"
                    f"borderw=2:bordercolor=black@0.7:"
@@ -4311,9 +4757,12 @@ def add_overlays(vf_base, dur, title=None, stat=None, stat_variant=0, stat_delay
             for k in range(n_chars):
                 sub = escape_drawtext(text[:k + 1])
                 seg_start = delay + k * cd
-                seg_end = hold if k == n_chars - 1 else delay + (k + 1) * cd
+                # Аудит 04.09: enable обрывался ровно на hold, а alpha гасит
+                # текст на hold..hold+0.4 — fade-out никогда не рисовался, текст
+                # исчезал скачком. Окно enable покрывает весь fade.
+                seg_end = min(dur, hold + 0.4) if k == n_chars - 1 else delay + (k + 1) * cd
                 seg_alpha = alpha if k == n_chars - 1 else "1"
-                vf += (f",drawtext=fontfile='{FONT_PATH}':text='{sub}':"
+                vf += (f",drawtext=fontfile='{ffmpeg_filter_path(FONT_PATH)}':text='{sub}':"
                        f"fontcolor=white:fontsize={fs}:"
                        f"shadowcolor=black@0.7:shadowx=1:shadowy=1:"
                        f"x=(w-text_w)/2:y=h*0.78-text_h/2:"
@@ -4353,13 +4802,38 @@ def add_kinetic_captions(vf, captions):
         safe = escape_drawtext(text)
         if not safe:
             continue
-        vf += (f",drawtext=fontfile='{FONT_PATH}':text='{safe}':"
+        vf += (f",drawtext=fontfile='{ffmpeg_filter_path(FONT_PATH)}':text='{safe}':"
                f"fontcolor=white:fontsize={CAPTION_FONT_SIZE}:"
                f"shadowcolor=black@0.85:shadowx=3:shadowy=3:"
                f"borderw=2:bordercolor=black@0.6:"
                f"x=(w-text_w)/2:y=h*0.73-text_h/2:"
                f"enable='between(t\\,{start:.3f}\\,{end:.3f})'")
     return vf
+
+
+def image_size_as_rendered(path):
+    """(ширина, высота) фото ТАК, как его отдаст ffmpeg. Аудит 04.09
+    (воспроизведено: JPEG 1200x600 с EXIF Orientation=6): PIL .size даёт
+    сырые размеры без учёта EXIF, ffmpeg 6.x (и cv2.imread) автоповорачивают
+    кадр — геометрия кропа считалась для 1200x600, а фильтр получал 600x1200,
+    и scale=nw:nh растягивал портретное фото с телефона в пропорцию 4:1."""
+    with PILImage.open(path) as img:
+        try:
+            return PILImageOps.exif_transpose(img).size
+        except Exception:
+            return img.size
+
+
+def ffmpeg_filter_path(path):
+    """Путь для ЗНАЧЕНИЯ опции фильтра (fontfile=…). Аудит 04.09
+    (воспроизведено на ffmpeg 6.1): парсер опций режет значение по ':' —
+    Windows-путь 'C:\\…\\Benzin.ttf' превращается в fontfile='C', остаток
+    уходит в позиционный параметр, ffmpeg молча берёт fontconfig-дефолт с
+    rc=0 — на основной платформе пользователя вся типографика титров/плашек
+    тихо подменялась системным шрифтом. Обратные слэши -> прямые (ffmpeg их
+    понимает на Windows), двоеточие -> '\\:'. На POSIX-путях без ':' —
+    без изменений."""
+    return str(path).replace("\\", "/").replace(":", "\\:")
 
 
 def kb_hash_choices(photo):
@@ -4954,21 +5428,49 @@ def _kenburns_canvas_size():
 
 def piecewise_ease_expr(t_expr, points):
     """Составная (multi-phase) траектория вместо одной гладкой кривой на
-    весь клип — "push → micro-pan → settle" или "pull → reveal → hold"
-    вместо равномерного smoothstep от начала до конца. points — контрольные
-    точки [(0.0,0.0), ..., (1.0,1.0)] по возрастанию t; между соседними
-    точками — НЕЗАВИСИМЫЙ smoothstep (гладкая скорость на стыке фаз, не
-    рывок при переходе между ними, а не кусочно-линейная ломаная).
-    Возвращает строку ffmpeg-eval выражения, t_expr — переменная времени
-    0..1 (обычно on/frames)."""
-    expr = f"{points[-1][1]:.4f}"
-    for i in range(len(points) - 1, 0, -1):
-        t0, v0 = points[i - 1]
-        t1, v1 = points[i]
-        local = f"(({t_expr}-{t0:.4f})/{(t1 - t0):.4f})"
-        smooth = f"(3*pow({local},2)-2*pow({local},3))"
-        seg_val = f"({v0:.4f}+{(v1 - v0):.4f}*{smooth})"
-        expr = f"if(lt({t_expr}\\,{t1:.4f})\\,{seg_val}\\,{expr})"
+    весь клип — "push → micro-pan → settle" или "pull → reveal → hold".
+    points — контрольные точки [(0.0,0.0), ..., (1.0,1.0)] по возрастанию t.
+
+    Аудит 04.09 (измерено SIFT-масштабом на реальных клипах ep_base): прежняя
+    реализация — НЕЗАВИСИМЫЙ smoothstep на каждом сегменте — имеет нулевую
+    производную на ОБОИХ концах каждого сегмента, поэтому в каждом внутреннем
+    узле (classic_kb: t=0.5 и 0.85; slow_pull: 0.55 и 0.85) движение камеры
+    физически останавливалось: скорость зума 5.4‰/3 кадра → 0.4‰ (×13
+    медленнее) → снова разгон. Это ровно «остановка раньше времени», которую
+    ЧАСТЬ 6 CLAUDE.md запрещает, на КАЖДОМ фото-клипе.
+
+    Теперь — монотонный кубический сплайн Эрмита (наклоны в узлах по
+    Fritsch–Butland: гармоническое среднее секущих, монотонность
+    гарантирована, перелёта нет). Нулевой наклон — только на глобальных
+    концах (плавный старт и стоп, как у smoothstep); во внутренних узлах
+    скорость непрерывна и НЕ нулевая. Для двух точек [(0,0),(1,1)]
+    вырождается ровно в прежний smoothstep 3t²-2t³. Возвращает строку
+    ffmpeg-eval выражения, t_expr — переменная времени 0..1 (обычно on/frames)."""
+    n = len(points)
+    if n < 2:
+        return f"{points[-1][1]:.4f}"
+    ts = [float(p[0]) for p in points]
+    vs = [float(p[1]) for p in points]
+    h = [ts[i + 1] - ts[i] for i in range(n - 1)]
+    delta = [(vs[i + 1] - vs[i]) / h[i] if h[i] > 0 else 0.0 for i in range(n - 1)]
+    m = [0.0] * n
+    for i in range(1, n - 1):
+        if delta[i - 1] * delta[i] <= 0:
+            m[i] = 0.0
+        else:
+            w1 = 2 * h[i] + h[i - 1]
+            w2 = h[i] + 2 * h[i - 1]
+            m[i] = (w1 + w2) / (w1 / delta[i - 1] + w2 / delta[i])
+    expr = f"{vs[-1]:.4f}"
+    for i in range(n - 1, 0, -1):
+        t0, v0, t1, v1 = ts[i - 1], vs[i - 1], ts[i], vs[i]
+        u = f"(({t_expr}-{t0:.4f})/{h[i - 1]:.4f})"
+        # Базис Эрмита: h00*v0 + h10*h*m0 + h01*v1 + h11*h*m1
+        seg = (f"({v0:.4f}*(2*pow({u},3)-3*pow({u},2)+1)"
+               f"+{h[i - 1] * m[i - 1]:.5f}*(pow({u},3)-2*pow({u},2)+{u})"
+               f"+{v1:.4f}*(3*pow({u},2)-2*pow({u},3))"
+               f"+{h[i - 1] * m[i]:.5f}*(pow({u},3)-pow({u},2)))")
+        expr = f"if(lt({t_expr}\\,{t1:.4f})\\,{seg}\\,{expr})"
     return expr
 
 
@@ -5069,7 +5571,7 @@ def verify_clip(path, expected_dur, tolerance=CLIP_VERIFY_TOLERANCE_SEC):
     try:
         r = subprocess.run(["ffprobe", "-v", "quiet", "-print_format", "json",
                             "-show_format", "-show_streams", path],
-                           capture_output=True, text=True, timeout=20)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20)
         if r.returncode != 0:
             return False, "ffprobe не смог прочитать файл", None
         data = json.loads(r.stdout)
@@ -5248,8 +5750,12 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
     # дублирования логики в каждой ветке. Движение после паузы продолжает
     # с того же места, откуда остановилось (не теряет фазу), а не рестартует.
     if stat and stat_delay > 0.5:
-        freeze_start_f = max(0, round((stat_delay - FREEZE_HOLD_DUR) * FPS))
-        freeze_end_f = round(stat_delay * FPS)
+        # Тот же кламп, что у add_overlays (delay = min(stat_delay, dur-1.2)):
+        # аудит 04.09 — при [stat:] в конце фразы плашка появлялась на dur-1.2,
+        # а «пауза перед цифрой» по сырому stat_delay случалась ПОСЛЕ неё.
+        eff_delay = max(0.0, min(stat_delay, dur - 1.2))
+        freeze_start_f = max(0, round((eff_delay - FREEZE_HOLD_DUR) * FPS))
+        freeze_end_f = round(eff_delay * FPS)
         if freeze_end_f > freeze_start_f:
             on_expr = (f"if(lt(on\\,{freeze_start_f})\\,on\\,"
                        f"if(lt(on\\,{freeze_end_f})\\,{freeze_start_f}\\,"
@@ -5304,6 +5810,11 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
         # нулевой — зум еле заметен, а пан (усиленный) реально едет.
         delta = min(delta, 0.06)
         pan_amt = PAN_SAFETY * 0.95
+        # Аудит 04.09: pan_dir выбирался независимо от режима — у 25% таких
+        # клипов dx=0 (панорама без горизонтального движения), у половины —
+        # диагональ. Режим обязан задавать направление сам, как snap_push
+        # задаёт zoom_in.
+        dx, dy = (dx if dx else (1 if (h >> 9) & 1 else -1)), 0
     elif motion_mode == "micro_drift":
         # Едва заметное движение — не тянет внимание с главного кадра
         # sub-cut-фразы.
@@ -5341,7 +5852,7 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
     # не нашли уверенного сигнала (см. resolve_crop_anchor) — иначе
     # смещается так, чтобы не резать голову/главный объект.
     try:
-        iw, ih = PILImage.open(photo).size
+        iw, ih = image_size_as_rendered(photo)
     except Exception:
         iw, ih = kb_cw, kb_ch
     anchor = resolve_crop_anchor(photo)
@@ -5364,7 +5875,14 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
     tmp_out = render_tmp_path(out)
 
     def render(vf):
-        cmd = ["ffmpeg", "-y", "-loop", "1", "-i", photo]
+        # -framerate 1 на зациклённом фото: без него image2-демуксер отдаёт
+        # 25 кадров/с, и КАЖДЫЙ из них проходит scale=8000x4500 (36 Мпикс
+        # апскейл), хотя zoompan берёт ОДИН входной кадр и сам делает из
+        # него все d=frames выходных. Замер 03.09 на клипе 80 кадров:
+        # 6.0с -> 4.6с на стадии zoompan+кодирование, выход побайтово
+        # идентичен (80 кадров, нулевая разница по пикселям на первом/
+        # среднем/последнем кадре).
+        cmd = ["ffmpeg", "-y", "-framerate", "1", "-loop", "1", "-i", photo]
         if GRAIN_ENABLED:
             # Зерно — отдельный вход (зацикленный grain_loop.mp4), не строка
             # фильтров — filter_complex вместо -vf, тот же приём, что уже
@@ -5387,7 +5905,7 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
         if ffmpeg_threads:
             cmd += ["-threads", str(ffmpeg_threads)]
         cmd += [tmp_out]
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=render_timeout_sec(dur))
+        return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=render_timeout_sec(dur))
 
     label = os.path.basename(out)
     if vf_overlay:
@@ -6662,7 +7180,7 @@ def detect_scene_change_offset(vid, max_skip, scene_threshold=0.12):
         r = subprocess.run(
             ["ffmpeg", "-i", vid, "-t", f"{max_skip:.2f}", "-vf",
              f"select='gt(scene\\,{scene_threshold})',showinfo", "-f", "null", "-"],
-            capture_output=True, text=True, timeout=30)
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
         times = [float(m) for m in re.findall(r"pts_time:([\d.]+)", r.stderr)]
         candidates = [t for t in times if 0.1 <= t <= max_skip]
         return max(candidates) if candidates else None
@@ -6766,7 +7284,7 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
             cmd += ["-threads", str(ffmpeg_threads)]
         cmd += [tmp_out]
         ok, reason = run_ffmpeg_with_retry(
-            lambda: subprocess.run(cmd, capture_output=True, text=True, timeout=render_timeout_sec(dur)),
+            lambda: subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=render_timeout_sec(dur)),
             tmp_out, dur, os.path.basename(out))
         if ok:
             return finalize_render(tmp_out, out, True)
@@ -6803,7 +7321,7 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
         if ffmpeg_threads:
             cmd += ["-threads", str(ffmpeg_threads)]
         cmd += [tmp_out]
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=render_timeout_sec(dur))
+        return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=render_timeout_sec(dur))
 
     label = os.path.basename(out)
     if vf_overlay:
@@ -6932,6 +7450,7 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
     # печатает никакого "непредвиденного сбоя" уровня main() — падает
     # молча внутри рендер-функции).
     if os.path.exists(cf) and os.path.getsize(cf) > 0:
+        _reset_pexels_streak()
         return cf
     if not PEXELS_API_KEY:
         return None
@@ -7160,7 +7679,7 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
             # CONTENT_ALT_BLOCKLIST, если alt-текст Pexels не содержит ни
             # одного из его терминов) так и оставалась победителем.
             if (arbiter_text is not None and
-                    os.environ.get("VLM_ARBITER_MODE", "off").strip().lower() == "on"):
+                    feature_flags.mode("VLM_ARBITER_MODE") == "on"):
                 # Открывающий кадр — та же логика, что у pexels_photo()
                 # (см. is_opening_shot там): шире шорт-лист, критерий
                 # эффектности вместо буквальной точности запроса.
@@ -7216,6 +7735,7 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                 used_ids.add(best[3])
             if used_hashes is not None and best[4] is not None:
                 used_hashes.append(best[4])
+            _reset_pexels_streak()
             return cf
         chosen = dup_fallback or plain_fallback
         if chosen is not None:
@@ -7251,11 +7771,11 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                 used_ids.add(vid)
             if used_hashes is not None and cand_hash is not None:
                 used_hashes.append(cand_hash)
+            _reset_pexels_streak()
             return cf
         return None
     except Exception as e:
-        PEXELS_BROKEN = True
-        print(f"  Pexels video [{query}]: {e}")
+        _note_pexels_failure(e, f"Pexels video [{query}]")
         return None
 
 
@@ -7406,9 +7926,7 @@ def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR, blocks=None, pl
     # это второе поколение потерь поверх первого, заметное именно на тёмном
     # грейде (градиенты/дым/зерно). FINAL_PASS_PRESET/CRF — разовая цена, не
     # на каждый маленький клип.
-    cmd += ["-filter_complex", ";".join(parts), "-map", "[vout]",
-            "-c:v", "libx264", "-preset", FINAL_PASS_PRESET, "-crf", FINAL_PASS_CRF,
-            "-pix_fmt", "yuv420p", "-r", str(FPS)] + COLOR_META_ARGS + [out]
+    cmd += ["-filter_complex", ";".join(parts), "-map", "[vout]"] + final_pass_encode_args() + [out]
     # РЕАЛЬНЫЙ пробел, пойманный аудитом того же класса багов, что и
     # SPEED_RAMP_MAX_SOURCE_FPS/parallax stderr-deadlock (см. их докстринги
     # выше): у этого вызова не было НИКАКОГО timeout — при зависании ffmpeg
@@ -7420,7 +7938,7 @@ def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR, blocks=None, pl
     # (30x), это последний рубеж защиты от НАСТОЯЩЕГО зависания, не бюджет
     # под скорость.
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True,
+        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
                             timeout=max(180, cum * 30))
     except subprocess.TimeoutExpired:
         print(f"  xfade-склейка зависла (таймаут {max(180, cum * 30):.0f}с), откат на concat.")
@@ -7537,7 +8055,7 @@ def xfade_chain_chunked(clips, durs, sections, out, temp_dir, xfade_dur=XFADE_DU
     open(concat_list, "w", encoding="utf-8").write(
         "".join(f"file '{os.path.abspath(c)}'\n" for c in chunk_files))
     r = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                        "-i", concat_list, "-c", "copy", out], capture_output=True, text=True)
+                        "-i", concat_list, "-c", "copy", out], capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
         print("  склейка чанков xfade не удалась, откат на concat:", r.stderr[-300:])
         return False, 0.0
@@ -7576,8 +8094,28 @@ def estimate_xfade_budget(blocks, chunk_size=XFADE_CHUNK_SIZE):
     plan = plan_transitions(sections, blocks)
     if not plan:
         return 0.0
-    dropped = {a for a, _b in _chunk_bounds(len(blocks), sections, chunk_size) if a > 0}
-    return sum(d for i, (_t, d) in enumerate(plan, start=1) if i not in dropped)
+    return sum(d for _t, d in effective_transition_plan(plan, sections, chunk_size))
+
+
+def effective_transition_plan(plan, sections, chunk_size=XFADE_CHUNK_SIZE):
+    """План переходов, каким его РЕАЛЬНО исполняет xfade_chain_chunked():
+    переход на входе каждого чанка (concat -c copy между чанками) не делается
+    и нахлёста не потребляет — его длительность здесь обнуляется. Аудит
+    04.09 (реальная находка, воспроизведена снippet'ом на 400 блоках): эту
+    поправку знал только estimate_xfade_budget(), а два других потребителя
+    того же плана — phrase_locked_durations() и hook_visual_starts() —
+    прибавляли/вычитали нахлёст и на стыках чанков тоже. На любом эпизоде
+    длиннее XFADE_CHUNK_SIZE клипов после первой границы чанка каждый кадр
+    показывался на XFADE_DUR (0.417с) позже своей фразы, накопительно
+    (7 чанков — +2.5с к финалу, 40-минутный эпизод — ~5.5с), видео
+    становилось длиннее аудио, хвост резался финальным муксом, а
+    phrase_timeline.json показывал дрейф 0, потому что считался той же
+    неверной формулой. Теперь все четыре потребителя (бюджет, PHRASE LOCK,
+    visual_starts, сама склейка) читают один и тот же эффективный план."""
+    if not plan:
+        return list(plan)
+    dropped = {a for a, _b in _chunk_bounds(len(sections), sections, chunk_size) if a > 0}
+    return [(t, 0.0 if (i + 1) in dropped else d) for i, (t, d) in enumerate(plan)]
 
 
 def pad_to_length(video, target, temp_dir):
@@ -7595,23 +8133,22 @@ def pad_to_length(video, target, temp_dir):
     padded = os.path.join(temp_dir, "_padded.mp4")
     subprocess.run(["ffmpeg", "-y", "-sseof", "-0.3", "-i", video,
                     "-vframes", "1", lastframe], capture_output=True)
-    r = subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", lastframe, "-t", f"{gap:.3f}",
-                        "-c:v", "libx264", "-preset", FINAL_PASS_PRESET, "-crf", FINAL_PASS_CRF,
-                        "-pix_fmt", "yuv420p", "-r", str(FPS)] + COLOR_META_ARGS + [padclip],
-                       capture_output=True, text=True)
+    r = subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", lastframe, "-t", f"{gap:.3f}"]
+                       + final_pass_encode_args() + [padclip],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
         return video, gap
     lst = os.path.join(temp_dir, "_pad_concat.txt")
     open(lst, "w", encoding="utf-8").write(
         f"file '{os.path.abspath(video)}'\nfile '{os.path.abspath(padclip)}'\n")
     r = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                        "-i", lst, "-c", "copy", padded], capture_output=True, text=True)
+                        "-i", lst, "-c", "copy", padded], capture_output=True, text=True, encoding="utf-8", errors="replace")
     return (padded, gap) if r.returncode == 0 else (video, gap)
 
 
 def get_media_duration(path):
     r = subprocess.run(["ffprobe", "-v", "quiet", "-print_format", "json",
-                        "-show_format", path], capture_output=True, text=True, check=True)
+                        "-show_format", path], capture_output=True, text=True, encoding="utf-8", errors="replace", check=True)
     return float(json.loads(r.stdout)["format"]["duration"])
 
 
@@ -7623,7 +8160,7 @@ def get_media_fps(path):
     try:
         r = subprocess.run(["ffprobe", "-v", "quiet", "-print_format", "json",
                             "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate",
-                            path], capture_output=True, text=True, check=True)
+                            path], capture_output=True, text=True, encoding="utf-8", errors="replace", check=True)
         rate = json.loads(r.stdout)["streams"][0]["r_frame_rate"]
         num, _, den = rate.partition("/")
         return float(num) / float(den or 1)
@@ -7642,7 +8179,7 @@ def audio_qc(path):
         r = subprocess.run(
             ["ffmpeg", "-nostats", "-i", path, "-af",
              "astats=reset=0,silencedetect=noise=-40dB:d=1.5", "-f", "null", "-"],
-            capture_output=True, text=True, timeout=120)
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
         err = r.stderr
     except Exception as e:
         print(f"  Audio QC: не удалось проверить ({e})")
@@ -8185,6 +8722,11 @@ def main():
         return 1
     total = get_audio_duration()
     print(f"Аудио: {total:.1f}с ({total/60:.1f} мин)")
+    # Какой пайплайн РЕАЛЬНО исполняется — до того, как потрачены часы CPU.
+    # Дорогой слой, выключенный в .env, раньше было видно только по
+    # отсутствию строк в логе где-то в середине рендера (или не видно вовсе).
+    feature_flags.print_summary()
+    feature_flags.write_snapshot(VIDEO_FOLDER)
     audio_qc(AUDIO_FILE)
     os.makedirs(TEMP_FOLDER, exist_ok=True)
     # Замер стадий — только при STAGE_TIMER=1, иначе путь не выставляется
@@ -8274,7 +8816,8 @@ def main():
     phrase_locked = None
     if onsets:
         phrase_locked = phrase_locked_durations(
-            onsets, total, plan_transitions([b["section"] for b in blocks], blocks))
+            onsets, total, effective_transition_plan(plan_transitions([b["section"] for b in blocks], blocks),
+                                                    [b["section"] for b in blocks]))
     curve = audio_energy_curve(AUDIO_FILE)
     energy_lvls = [1.0] * len(blocks)
 
@@ -8455,7 +8998,7 @@ def main():
     # оправдывает трату бюджета Gemini именно здесь, а не размазывание по
     # всему эпизоду. Бюджет — тот же SHOT_DIRECTOR_MAX_CALLS_PER_RUN/кэш,
     # что у direct_query() (единый счётчик _calls_made в shot_director.py).
-    if (os.environ.get("SHOT_DIRECTOR_MODE", "off").strip().lower() == "on"
+    if (feature_flags.mode("SHOT_DIRECTOR_MODE") == "on"
             and "HOOK" in section_query_pool):
         import shot_director
         atmo_extra = []
@@ -8493,7 +9036,7 @@ def main():
     # ДО look_cache_sig — тот вызывает look_ref.cache_signature(), которая
     # должна быть уже импортирована.
     look_ref = None
-    if os.environ.get("LOOK_MANAGEMENT_MODE", "off").strip().lower() in ("shadow", "assist"):
+    if feature_flags.mode("LOOK_MANAGEMENT_MODE") in ("shadow", "assist"):
         import look_reference as look_ref  # noqa: F401
     look_cache_sig = _look_management_cache_signature(look_ref)
     # Semantic Visual Director (scripts/visual_director.py) — тот же ленивый
@@ -8504,7 +9047,7 @@ def main():
     # того как pipeline_smart полностью загружен), тот же паттерн уже
     # использует look_reference.py.
     visual_director = None
-    if os.environ.get("VISUAL_DIRECTOR_MODE", "off").strip().lower() in ("shadow", "assist"):
+    if feature_flags.mode("VISUAL_DIRECTOR_MODE") in ("shadow", "assist"):
         import visual_director as visual_director  # noqa: F401
     director_cache_sig = _visual_director_cache_signature(visual_director)
     # П.4: доменная модуляция warm_mult (DOMAIN_WARM_PUSH_SCALE, film_look())
@@ -8584,6 +9127,12 @@ def main():
                     votes[d] = votes.get(d, 0) + 1
             if votes:
                 section_domain_hint[sec] = max(votes.items(), key=lambda kv: kv[1])[0]
+    # Шотлист прошлого прогона (см. load_shotlist/shotlist_locked_media выше):
+    # залоченные слоты берутся из него как есть, остальные — обычный отбор.
+    prev_shotlist = load_shotlist(VIDEO_FOLDER)
+    shot_entries = {}   # индекс -> запись для media_plan/shotlist.json (каждый индекс, включая кэш-хит/пропуск)
+    qc_unknown_cache_hits = []   # кэш-хиты без известного исходника — QC дублей/резкости по ним не выполнялся
+    shotlist_locked_used = 0
     used_photo_ids = set()   # общий на весь ролик — не даём одной фотке всплыть дважды
     used_video_ids = set()   # то же самое, отдельно для видео (разные ID-пространства)
     used_photo_hashes = []   # aHash уже отобранных фото — ловит визуальные дубли под РАЗНЫМИ ID (см. pexels_photo)
@@ -8687,10 +9236,32 @@ def main():
         # arc_stage, использованный при их рендере (Look Management/Visual
         # Director получили бы другую силу/бонус на пересчёте, а кэш этого
         # бы не заметил).
-        params_hash = hashlib.md5(
+        # Залоченный шотлистом файл — часть ключа кэша клипа (см.
+        # shotlist_lock_key): смена файла в shotlist.json обязана
+        # перерендерить этот клип, а снятие lock — вернуть прежний ключ.
+        lock_photo, lock_video = shotlist_locked_media(prev_shotlist, i, b["text"], VIDEO_FOLDER)
+        lock_key = shotlist_lock_key(lock_photo, lock_video)
+        # VLM-арбитр — ТОТ ЖЕ класс бага, что director_cache_sig выше, найден
+        # состязательным аудитом собственной правки (03.09, сразу после того,
+        # как дефолт VLM_ARBITER_MODE был приведён к документации и стал "on"):
+        # арбитр реально меняет ВЫБОР кадра для хук-слотов, но params_hash про
+        # него не знал ничего — на эпизоде с прогретым temp_smart/ клип берётся
+        # из кэша по `os.path.exists(out) -> continue` ДО того, как вызывается
+        # pexels_photo(..., arbiter_text=...), то есть включение арбитра было бы
+        # молчаливым no-op, а оператор считал бы, что кадры хука выбраны им.
+        # Сегмент добавляется ТОЛЬКО для HOOK-секций (arbiter_text передаётся
+        # только им, см. main()) и ТОЛЬКО при mode=="on", причём отдельной
+        # конкатенацией, а не ещё одним полем в f-строке: при выключенном
+        # арбитре ключ обязан остаться байт-в-байт прежним, иначе сама эта
+        # правка перерендерила бы весь кэш у всех. При включённом — меняются
+        # только хук-клипы (единицы процентов эпизода), и это правильно: их
+        # выбор кадра действительно мог стать другим.
+        cache_key = (
             f"{d:.3f}|{title}|{stat}|{stat_variant}|{b['section']}|{queries[i]}|{stat_delay:.3f}|"
             f"{captions}|{look_cache_sig}|{domain_cache_sig}|{director_cache_sig}|"
-            f"{arc_stage_by_index.get(i)}|{recipe_sig}".encode()).hexdigest()[:8]
+            f"{arc_stage_by_index.get(i)}|{recipe_sig}|{lock_key}")
+        cache_key += arbiter_cache_suffix(b["section"])
+        params_hash = hashlib.md5(cache_key.encode()).hexdigest()[:8]
         out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}_{params_hash}.mp4")
         if os.path.exists(out) and not verify_clip(out, d)[0]:
             # Кэш раньше доверял голому os.path.exists() — обрезанный/битый
@@ -8731,9 +9302,40 @@ def main():
             # отрендеренном эпизоде выглядел бы полным, хотя ничего не
             # проанализировано.
             mark_reports_skipped(i, "skipped_cache_hit")
+            # Кэш-хит не знает, из какого файла сделан клип — переносим
+            # запись из прошлого шотлиста (если фраза та же), иначе честно
+            # пишем, что файл неизвестен, а не выдумываем.
+            prev_shot = shotlist_shot(prev_shotlist, i)
+            if lock_photo or lock_video:
+                shotlist_locked_used += 1
+            if prev_shot and _shotlist_norm_text(prev_shot.get("text")) == _shotlist_norm_text(b["text"]):
+                shot_entries[i] = {"index": i, "section": b["section"], "text": b["text"], "query": queries[i],
+                                   "kind": prev_shot.get("kind"), "file": prev_shot.get("file"),
+                                   "source": "shotlist_lock" if (lock_photo or lock_video) else "cache_hit",
+                                   "clip": os.path.basename(out)}
+                # QC дублей (qc_report) считается по media_log — раньше кэш-хит
+                # в него не попадал вообще (аудит 04.09: 9 из 18 слотов
+                # байт-идентичны, отчёт пуст). Файл известен из шотлиста.
+                prev_file = shotlist_resolve_file(prev_shot.get("file"), VIDEO_FOLDER)
+                if prev_shot.get("kind") == "photo" and prev_file and os.path.exists(prev_file):
+                    media_log.append((i, prev_file))
+                else:
+                    qc_unknown_cache_hits.append(i + 1)
+            else:
+                qc_unknown_cache_hits.append(i + 1)
+                shot_entries[i] = {"index": i, "section": b["section"], "text": b["text"], "query": queries[i],
+                                   "kind": None, "file": None, "source": "cache_hit_unknown_file",
+                                   "clip": os.path.basename(out)}
             continue
-        photo = local_photo(i) if use_local else None
-        video = None
+        locked_shot = bool(lock_photo or lock_video)
+        if locked_shot:
+            # Шотлист решил за нас — ни Pexels, ни гейтов, ни локального
+            # перебора: ровно тот файл, который человек проверил и залочил.
+            photo, video = lock_photo, lock_video
+            shotlist_locked_used += 1
+        else:
+            photo = local_photo(i) if use_local else None
+            video = None
         # Semantic Visual Director — role/text_domain/director_score_fn
         # существуют для этой итерации независимо от того, каким путём в
         # итоге получено медиа (используются ниже при записи director_report),
@@ -8754,7 +9356,7 @@ def main():
         # удержания" — работает ДАЖЕ без VLM-арбитра/Gemini (см. её
         # блок-комментарий), т.к. решает сам base/director выбор.
         is_opening_shot = (i == 0)
-        if not photo and use_pexels:
+        if not photo and not video and use_pexels:
             # Смысловая оценка кадра-пробника ВИДЕО против полной фразы —
             # раньше видео-путь такой оценки не имел вообще (только фото),
             # и видео-слот молча оставался на позиционно доставшемся
@@ -8849,7 +9451,22 @@ def main():
             render_manifest[i] = {"index": i, "status": "failed",
                                    "reason": "нет медиа (ни фото, ни видео)", "section": b["section"]}
             mark_reports_skipped(i, "skipped_no_media")
+            shot_entries[i] = {"index": i, "section": b["section"], "text": b["text"], "query": queries[i],
+                               "kind": None, "file": None, "source": "missing", "clip": None}
             continue
+        # Крупность плана пополнялась только внутри pexels_photo() — локальные и
+        # залоченные фото (каждый AI-слот протокола) в окно не попадали, и
+        # choose_motion_mode получал крупность ЧУЖОГО кадра (аудит 04.09).
+        if photo and (locked_shot or photo.startswith(MEDIA_FOLDER)):
+            try:
+                recent_shot_sizes.append(estimate_shot_size(photo))
+            except Exception:
+                pass
+        shot_entries[i] = {"index": i, "section": b["section"], "text": b["text"], "query": queries[i],
+                           "kind": "video" if video else "photo",
+                           "file": shotlist_relative_file(video or photo, VIDEO_FOLDER),
+                           "source": shotlist_source_for(video or photo, VIDEO_FOLDER, locked=locked_shot),
+                           "clip": os.path.basename(out)}
         recent_media_types.append("video" if video else "photo")
         del recent_media_types[:-6]
         # Semantic Visual Director — аудит-трейл + скользящее окно
@@ -9146,6 +9763,27 @@ def main():
                    f, ensure_ascii=False, indent=2)
     os.replace(manifest_tmp, manifest_path)
 
+    # Шотлист — что РЕАЛЬНО выбрано под каждую фразу и какие гейты реально
+    # работали (см. блок-комментарий у SHOTLIST_VERSION). Пишется всегда.
+    selection_gates = {
+        "pexels_api_key": bool(use_pexels),
+        "local_media_folder": bool(use_local),
+        "clip_relevance_enabled": bool(CLIP_ENABLED),
+        "clip_broken_this_run": bool(CLIP_BROKEN),
+        "clip_model_loaded": _clip_model is not None,
+        "aesthetic_score_enabled": bool(AESTHETIC_ENABLED),
+        "parallax": bool(PARALLAX_ENABLED and not PARALLAX_BROKEN),
+        "visual_director_mode": (visual_director.VISUAL_DIRECTOR_MODE if visual_director is not None else "off"),
+        "look_management_mode": feature_flags.value("LOOK_MANAGEMENT_MODE"),
+        "shot_director_mode": feature_flags.value("SHOT_DIRECTOR_MODE"),
+        "vlm_arbiter_mode": feature_flags.value("VLM_ARBITER_MODE"),
+        "gemini_key_present": bool(os.environ.get("GEMINI_API_KEY")),
+        "shotlist_locked_slots_used": shotlist_locked_used,
+    }
+    shotlist_file = write_shotlist(VIDEO_FOLDER, shot_entries, selection_gates, prev=prev_shotlist)
+    print(f"  Шотлист: media_plan/shotlist.json ({len(shot_entries)} слотов, "
+          f"{shotlist_locked_used} по lock) — контактный лист: python scripts/shotlist_contact.py {VIDEO_FOLDER}")
+
     # RELEVANCE_GATE_MISSES — см. её докстринг у объявления выше: слоты, где
     # ВЕСЬ просмотренный пул кандидатов провалил relevance-гейт, но слот всё
     # равно не остался пустым (философия ЧАСТИ 13). Тот же принцип честной
@@ -9154,8 +9792,16 @@ def main():
     relevance_report_path = os.path.join(VIDEO_FOLDER, "media_plan", "relevance_gate_report.json")
     relevance_report_tmp = relevance_report_path + ".tmp"
     with open(relevance_report_tmp, "w", encoding="utf-8") as f:
-        json.dump({"misses": RELEVANCE_GATE_MISSES}, f, ensure_ascii=False, indent=2)
+        relevance_checked = bool(use_pexels and CLIP_ENABLED and not CLIP_BROKEN and _clip_model is not None)
+        json.dump({"checked": relevance_checked,
+                   "note": None if relevance_checked else
+                   "CLIP-гейт релевантности НЕ выполнялся в этом прогоне (нет ключа Pexels, CLIP выключен/сломан "
+                   "или модель не загружалась) — пустой список misses не означает «прошло»",
+                   "misses": RELEVANCE_GATE_MISSES}, f, ensure_ascii=False, indent=2)
     os.replace(relevance_report_tmp, relevance_report_path)
+    if not relevance_checked:
+        print("  ВНИМАНИЕ: релевантность/анахронизмы кандидатов НЕ проверялись (CLIP не загружен или нет Pexels) — "
+              "смотреть кадры глазами обязательно (Шаг 7.5)")
     if RELEVANCE_GATE_MISSES:
         # Формулировка "весь пул провалил гейт" здесь исторически неточна —
         # см. докстринг STOCK_EXHAUSTED_MISSES выше: на деле проверяется
@@ -9306,7 +9952,7 @@ def main():
         # достаточен как последний рубеж против настоящего зависания.
         try:
             r = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                                "-i", concat, "-c", "copy", merged], capture_output=True, text=True,
+                                "-i", concat, "-c", "copy", merged], capture_output=True, text=True, encoding="utf-8", errors="replace",
                                timeout=max(180, total))
         except subprocess.TimeoutExpired:
             print(f"Склейка (concat) зависла (таймаут {max(180, total):.0f}с).")
@@ -9373,8 +10019,17 @@ def main():
     # (не по словам сценария — клипы уже учитывают все реальные подрезки/
     # sub-cuts) — секции идут по порядку HOOK -> BLOCK* -> FINAL, так что
     # достаточно суммы длительностей внутри каждой без отдельного поиска границ.
-    hook_end = sum(d for sec, d in zip(clip_sections, clip_durs) if sec.startswith("HOOK"))
-    final_start = sum(d for sec, d in zip(clip_sections, clip_durs) if not sec.startswith("FINAL"))
+    # Аудит 04.09 (измерено на ep_base): clip_durs включают длительности
+    # переходов (target = total + xfade_budget), их сумма раздута на нахлёсты
+    # — FINAL-настроение музыки приходило на +2.27с позже реальной смены
+    # секции уже на 17 склейках, на длинном эпизоде — на десятки секунд. Тот
+    # же корень, что чинит hook_visual_starts() для подписей. Границы берём
+    # с АУДИО-шкалы (sub_starts — та же, что у субтитров/глав): музыка
+    # живёт на дорожке голоса, не на визуальном таймлайне.
+    _first_body = next((i for i, b in enumerate(blocks) if not b["section"].startswith("HOOK")), None)
+    _first_final = next((i for i, b in enumerate(blocks) if b["section"].startswith("FINAL")), None)
+    hook_end = sub_starts[_first_body] if _first_body is not None else total
+    final_start = sub_starts[_first_final] if _first_final is not None else None
     # A6: обработка голоса (highpass/EQ/деэссер/компрессия) ДО подмешивания
     # музыки — тот же порядок, что в реальном пост-продакшене: сначала
     # приводишь дорожку диктора в порядок, потом кладёшь её в микс.
@@ -9418,15 +10073,19 @@ def main():
     # начинался и обрывался всухую (щелчок на монтажный лад, не финал).
     loud_stats = measure_loudnorm_stats(premix)
     fade_out_st = max(0.0, total - 2.0)
+    # Аудит 04.09, измерено на готовом файле: fade-in 0.4с давал -12.8 дБ на
+    # 100 мс и -5.6 дБ на 200 мс — хук начинается с нулевой секунды, первое
+    # слово реальной озвучки глушилось. 50 мс достаточно против щелчка.
+    AUDIO_FADE_IN_SEC = 0.05
     if loud_stats:
         af = (f"loudnorm=I={LOUDNORM_TARGET_I}:TP={LOUDNORM_TARGET_TP}:LRA={LOUDNORM_TARGET_LRA}:linear=true:"
               f"measured_I={loud_stats['input_i']}:measured_TP={loud_stats['input_tp']}:"
               f"measured_LRA={loud_stats['input_lra']}:measured_thresh={loud_stats['input_thresh']}:"
               f"offset={loud_stats['target_offset']},"
-              f"afade=t=in:st=0:d=0.4,afade=t=out:st={fade_out_st:.3f}:d=2")
+              f"afade=t=in:st=0:d={AUDIO_FADE_IN_SEC},afade=t=out:st={fade_out_st:.3f}:d=2")
     else:
         af = (f"loudnorm=I={LOUDNORM_TARGET_I}:TP={LOUDNORM_TARGET_TP}:LRA={LOUDNORM_TARGET_LRA},"
-              f"afade=t=in:st=0:d=0.4,afade=t=out:st={fade_out_st:.3f}:d=2")
+              f"afade=t=in:st=0:d={AUDIO_FADE_IN_SEC},afade=t=out:st={fade_out_st:.3f}:d=2")
     # Атомарная запись — тот же принцип, что render_tmp_path()/finalize_render()
     # у отдельных клипов (см. коммент там): final.mp4 — то, что пользователь
     # ФАКТИЧЕСКИ проверяет как "готово или нет". Обрыв ровно на этом финальном
@@ -9486,7 +10145,7 @@ def main():
                             "-c:v", "copy", "-vframes", str(video_frames_target),
                             "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
                             "-movflags", "+faststart",
-                            output_tmp], capture_output=True, text=True,
+                            output_tmp], capture_output=True, text=True, encoding="utf-8", errors="replace",
                            timeout=max(180, total))
     except subprocess.TimeoutExpired:
         stage_timer.record("final_mux", time.perf_counter() - _mux_t0, ok=False)
@@ -9512,7 +10171,7 @@ def main():
         fr = subprocess.run(["ffmpeg", "-i", OUTPUT_FILE, "-af",
                               f"loudnorm=I={LOUDNORM_TARGET_I}:TP={LOUDNORM_TARGET_TP}:"
                               f"LRA={LOUDNORM_TARGET_LRA}:print_format=json",
-                              "-f", "null", "-"], capture_output=True, text=True, timeout=60)
+                              "-f", "null", "-"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
         fs, fe = fr.stderr.rindex("{"), fr.stderr.rindex("}") + 1
         final_lufs = float(json.loads(fr.stderr[fs:fe])["input_i"])
     except Exception:
@@ -9524,6 +10183,10 @@ def main():
     # видны в итоговой строке, и код возврата честно отражает, что не всё
     # доехало (не 0, если что-то пропущено).
     dupes = qc_report(media_log)
+    if qc_unknown_cache_hits:
+        print(f"  ВНИМАНИЕ: QC дублей/резкости НЕ выполнялся для {len(qc_unknown_cache_hits)} кэшированных "
+              f"клипов без известного исходника (слоты {qc_unknown_cache_hits[:10]}"
+              f"{'…' if len(qc_unknown_cache_hits) > 10 else ''}) — пустой QC-отчёт по ним не означает «чисто»")
     status = f" | ПРОПУЩЕНО {len(missing)} блоков: {missing}" if missing else ""
     if final_lufs is not None:
         status += f" | Громкость: {final_lufs:.1f} LUFS" + (
@@ -9540,7 +10203,7 @@ def main():
     # ненулевой остаток всё ещё стоит показать честно, не молчать про него.
     status += f" | заморозка в хвосте: {pad_gap:.2f}с (в пределах допуска)" if pad_gap > 0.1 else ""
     print(f"\nГОТОВО: {OUTPUT_FILE} ({mb:.0f} MB, {total/60:.1f} мин, {len(clips)} кадров){status}")
-    return 1 if (missing or dupes) else 0
+    return EXIT_BUILT_WITH_WARNINGS if (missing or dupes) else EXIT_OK
 
 
 if __name__ == "__main__":
