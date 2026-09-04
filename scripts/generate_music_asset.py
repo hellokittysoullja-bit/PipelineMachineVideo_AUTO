@@ -225,7 +225,7 @@ MUSIC_LUFS_TARGET = "I=-30:TP=-3:LRA=3"
 def _measure_loudness(path):
     r = subprocess.run(["ffmpeg", "-i", path, "-af",
                         f"loudnorm={MUSIC_LUFS_TARGET}:print_format=json",
-                        "-f", "null", "-"], capture_output=True, text=True)
+                        "-f", "null", "-"], capture_output=True, text=True, encoding="utf-8", errors="replace")
     m = re.search(r'\{[^{}]*"input_i"[^{}]*\}', r.stderr, re.S)
     return json.loads(m.group(0)) if m else None
 
@@ -269,7 +269,7 @@ def render_mood(mood_key):
     else:
         af = f"loudnorm={MUSIC_LUFS_TARGET}"
     r = subprocess.run(["ffmpeg", "-y", "-i", tmp_path, "-af", af, "-c:a", "flac", out_path],
-                        capture_output=True, text=True)
+                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     os.remove(tmp_path)
     if r.returncode != 0 or not os.path.exists(out_path):
         print("loudnorm упал:", r.stderr[-1500:])

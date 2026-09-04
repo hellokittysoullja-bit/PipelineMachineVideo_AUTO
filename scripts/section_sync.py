@@ -111,7 +111,7 @@ SEARCH_SLACK_SEC = 6.0    # окно поиска вокруг структур�
 def detect_fine_silences(audio_path):
     r = subprocess.run(["ffmpeg", "-i", audio_path, "-af",
                         f"silencedetect=noise={FINE_NOISE_DB}:d={FINE_SILENCE_D}",
-                        "-f", "null", "-"], capture_output=True, text=True)
+                        "-f", "null", "-"], capture_output=True, text=True, encoding="utf-8", errors="replace")
     log = r.stderr
     starts = [float(x) for x in re.findall(r'silence_start:\s*([\d.]+)', log)]
     ends = [float(x) for x in re.findall(r'silence_end:\s*([\d.]+)', log)]
