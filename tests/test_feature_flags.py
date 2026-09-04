@@ -190,3 +190,47 @@ def test_exit_codes_stay_in_sync_across_consumers():
         assert mod.PIPELINE_EXIT_NOT_BUILT == ps.EXIT_NOT_BUILT
         assert mod.PIPELINE_EXIT_BUILT_WITH_WARNINGS == ps.EXIT_BUILT_WITH_WARNINGS
     assert len({ps.EXIT_OK, ps.EXIT_NOT_BUILT, ps.EXIT_BUILT_WITH_WARNINGS}) == 3
+
+
+# ---------- находки состязательного аудита собственной правки (03.09) ----------
+
+def test_garbage_falls_back_to_flag_default_when_off_is_not_legal(monkeypatch, capsys):
+    """Режимы без "off" в наборе значений (GRAIN_BLEND_MODE, DELIVERY_PROFILE)
+    не должны докладывать "off" — рендер в этом случае реально применяет свой
+    дефолт (softlight / youtube), и снимок обязан говорить то же самое. До
+    фикса snapshot() писал "off", а сводка печатала «Выключено: ...
+    DELIVERY_PROFILE=off» на эпизоде, который был закодирован профилем youtube."""
+    for name in ("GRAIN_BLEND_MODE", "DELIVERY_PROFILE"):
+        if name not in ff.FLAGS:
+            pytest.skip(f"{name} ещё не в реестре")
+        ff._warned.discard(name)
+        monkeypatch.setenv(name, "h265-опечатка")
+        assert ff.mode(name) == ff.FLAGS[name].default
+        assert ff.snapshot()[name]["value"] == ff.FLAGS[name].default
+        assert repr(ff.FLAGS[name].default) in capsys.readouterr().err
+
+
+def test_garbage_still_falls_back_to_off_where_off_is_legal(monkeypatch):
+    """Обратная сторона: у флагов, где "off" легален, поведение не изменилось —
+    опечатка НЕ включает дорогой слой (у VLM_ARBITER_MODE дефолт "on")."""
+    ff._warned.discard("VLM_ARBITER_MODE")
+    monkeypatch.setenv("VLM_ARBITER_MODE", "onn")
+    assert ff.mode("VLM_ARBITER_MODE") == "off"
+
+
+def test_arbiter_participates_in_clip_cache_key(monkeypatch):
+    """VLM-арбитр меняет ВЫБОР кадра хука, значит обязан входить в ключ кэша
+    клипа — иначе на прогретом temp_smart/ клип берётся из кэша до вызова
+    подбора, и включение арбитра остаётся молчаливым no-op (тот же класс бага,
+    что уже чинили для VISUAL_DIRECTOR_MODE через director_cache_sig).
+    Выключенный арбитр обязан давать ПУСТОЙ суффикс — иначе сама правка
+    перерендерила бы весь чужой кэш."""
+    pytest.importorskip("PIL")
+    sys.argv = ["pipeline_smart.py", os.path.join(REPO_ROOT, "videos", "_none")]
+    import pipeline_smart as ps
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    assert ps.arbiter_cache_suffix("HOOK") == "|arbiter:on"
+    assert ps.arbiter_cache_suffix("BLOCK 1") == ""      # арбитр туда не передаётся
+    monkeypatch.setenv("VLM_ARBITER_MODE", "off")
+    assert ps.arbiter_cache_suffix("HOOK") == ""
+    assert ps.arbiter_cache_suffix("BLOCK 1") == ""

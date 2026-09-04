@@ -114,19 +114,35 @@ def raw(name):
 
 
 def mode(name):
-    """Нормализованное значение строкового режима. Мусор -> "off" (см.
-    докстринг модуля) с однократным предупреждением."""
+    """Нормализованное значение строкового режима. Мусорное значение ->
+    безопасный откат (см. докстринг модуля) с однократным предупреждением.
+
+    Безопасный откат — "off", ЕСЛИ он вообще легален для этого флага, иначе
+    его собственный дефолт. Первая версия возвращала литеральное "off" всегда,
+    и это было верно ровно до тех пор, пока все флаги были вкл/выкл. Как только
+    в реестр приехали режимы БЕЗ "off" (GRAIN_BLEND_MODE=softlight/grainmerge/
+    expr, DELIVERY_PROFILE=youtube/archive/hevc), опечатка вроде
+    DELIVERY_PROFILE=h265 давала расхождение отчёта с реальностью: рендер
+    честно падал на свой дефолт (оба потребителя защищаются сами —
+    DELIVERY_PROFILES.get(...) / else-ветка softlight), а snapshot() писал в
+    media_plan/feature_flags.json значение "off" и сводка печатала
+    «Выключено: DELIVERY_PROFILE=off» — при том, что зерно накладывалось и
+    эпизод кодировался. Файл, заведённый ради ответа «каким пайплайном собран
+    этот ролик», врал именно там, где нужен. Найдено состязательным аудитом
+    (03.09). Для четырёх исходных флагов "off" в allowed есть — их поведение
+    не изменилось."""
     spec = _spec(name)
     if spec.is_boolean:
         raise TypeError(f"{name} — булев флаг, используй enabled({name!r})")
     val = raw(name)
     val = spec.default if val is None else val.strip().lower()
     if val not in spec.allowed:
+        fallback = "off" if "off" in spec.allowed else spec.default
         if name not in _warned:
             _warned.add(name)
             print(f"  ВНИМАНИЕ: {name}={val!r} не входит в {spec.allowed} — "
-                  f"откатываюсь на 'off'.", file=sys.stderr)
-        return "off"
+                  f"откатываюсь на {fallback!r}.", file=sys.stderr)
+        return fallback
     return val
 
 

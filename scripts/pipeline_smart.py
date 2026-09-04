@@ -814,6 +814,19 @@ def _domain_grade_cache_signature(domain_ref):
     return f"domain:on:{table_sig}"
 
 
+def arbiter_cache_suffix(section):
+    """Хвост ключа кэша клипа для VLM-арбитра — "" или "|arbiter:on".
+
+    Пустая строка при выключенном арбитре обязательна, а не косметика: ключ
+    кэша тогда байт-в-байт совпадает с тем, что было до появления этой
+    функции, и правка не перерендеривает чужие прогретые temp_smart/.
+    Читает режим В МОМЕНТ ВЫЗОВА (не на импорте) — как и остальной код,
+    работающий с реестром."""
+    if not str(section or "").startswith("HOOK"):
+        return ""
+    return "|arbiter:on" if feature_flags.mode("VLM_ARBITER_MODE") == "on" else ""
+
+
 def _visual_director_cache_signature(director_ref):
     """Тот же принцип, что _look_management_cache_signature() выше — см.
     visual_director.cache_signature() (единственный источник истины по
@@ -9007,10 +9020,27 @@ def main():
         # перерендерить этот клип, а снятие lock — вернуть прежний ключ.
         lock_photo, lock_video = shotlist_locked_media(prev_shotlist, i, b["text"], VIDEO_FOLDER)
         lock_key = shotlist_lock_key(lock_photo, lock_video)
-        params_hash = hashlib.md5(
+        # VLM-арбитр — ТОТ ЖЕ класс бага, что director_cache_sig выше, найден
+        # состязательным аудитом собственной правки (03.09, сразу после того,
+        # как дефолт VLM_ARBITER_MODE был приведён к документации и стал "on"):
+        # арбитр реально меняет ВЫБОР кадра для хук-слотов, но params_hash про
+        # него не знал ничего — на эпизоде с прогретым temp_smart/ клип берётся
+        # из кэша по `os.path.exists(out) -> continue` ДО того, как вызывается
+        # pexels_photo(..., arbiter_text=...), то есть включение арбитра было бы
+        # молчаливым no-op, а оператор считал бы, что кадры хука выбраны им.
+        # Сегмент добавляется ТОЛЬКО для HOOK-секций (arbiter_text передаётся
+        # только им, см. main()) и ТОЛЬКО при mode=="on", причём отдельной
+        # конкатенацией, а не ещё одним полем в f-строке: при выключенном
+        # арбитре ключ обязан остаться байт-в-байт прежним, иначе сама эта
+        # правка перерендерила бы весь кэш у всех. При включённом — меняются
+        # только хук-клипы (единицы процентов эпизода), и это правильно: их
+        # выбор кадра действительно мог стать другим.
+        cache_key = (
             f"{d:.3f}|{title}|{stat}|{stat_variant}|{b['section']}|{queries[i]}|{stat_delay:.3f}|"
             f"{captions}|{look_cache_sig}|{domain_cache_sig}|{director_cache_sig}|"
-            f"{arc_stage_by_index.get(i)}|{recipe_sig}|{lock_key}".encode()).hexdigest()[:8]
+            f"{arc_stage_by_index.get(i)}|{recipe_sig}|{lock_key}")
+        cache_key += arbiter_cache_suffix(b["section"])
+        params_hash = hashlib.md5(cache_key.encode()).hexdigest()[:8]
         out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}_{params_hash}.mp4")
         if os.path.exists(out) and not verify_clip(out, d)[0]:
             # Кэш раньше доверял голому os.path.exists() — обрезанный/битый
