@@ -233,7 +233,7 @@ def test_xfade_chain_chunked_splits_large_chain_and_concats(monkeypatch, tmp_pat
 
     concat_cmds = []
 
-    def fake_run(cmd, capture_output=True, text=True):
+    def fake_run(cmd, capture_output=True, text=True, **_kw):
         concat_cmds.append(cmd)
         return _FakeCompleted(0)
     monkeypatch.setattr(assemble.subprocess, "run", fake_run)

@@ -253,7 +253,7 @@ def find_audio(video_dir):
 
 def dur(path):
     r = subprocess.run(["ffprobe", "-v", "quiet", "-print_format", "json",
-                        "-show_format", path], capture_output=True, text=True, check=True)
+                        "-show_format", path], capture_output=True, text=True, encoding="utf-8", errors="replace", check=True)
     return float(json.loads(r.stdout)["format"]["duration"])
 
 
@@ -328,7 +328,7 @@ def verify_clip(path, expected_dur, tolerance=0.25):
     try:
         r = subprocess.run(["ffprobe", "-v", "quiet", "-print_format", "json",
                             "-show_format", "-show_streams", path],
-                           capture_output=True, text=True, timeout=20)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20)
         if r.returncode != 0:
             return False
         data = json.loads(r.stdout)
@@ -389,7 +389,7 @@ def kenburns_clip(photo, out, d, source="stock", zoom_in=None, pan_dir=None):
             f"{film_look(source, h)}"),
            "-frames:v", str(frames), "-c:v", "libx264", "-preset", ASSEMBLE_PRESET,
            "-crf", ASSEMBLE_CRF, "-pix_fmt", "yuv420p", "-r", str(FPS), tmp]
-    ok = subprocess.run(cmd, capture_output=True, text=True).returncode == 0
+    ok = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace").returncode == 0
     ok = ok and verify_clip(tmp, d)
     return finalize_render(tmp, out, ok)
 
@@ -410,7 +410,7 @@ def video_clip(vid, out, d, source="stock"):
     cmd = ["ffmpeg", "-y", "-i", vid, "-vf", vf, "-frames:v", str(max(1, int(round(d * FPS)))), "-an",
            "-c:v", "libx264", "-preset", ASSEMBLE_PRESET, "-crf", ASSEMBLE_CRF,
            "-pix_fmt", "yuv420p", "-r", str(FPS), tmp]
-    ok = subprocess.run(cmd, capture_output=True, text=True).returncode == 0
+    ok = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace").returncode == 0
     ok = ok and verify_clip(tmp, d)
     return finalize_render(tmp, out, ok)
 
@@ -467,7 +467,7 @@ def xfade_chain(clips, durs, is_hook, out, xfade_dur=XFADE_DUR, plan=None):
     cmd += ["-filter_complex", ";".join(parts), "-map", "[vout]",
             "-c:v", "libx264", "-preset", ASSEMBLE_PRESET, "-crf", ASSEMBLE_CRF,
             "-pix_fmt", "yuv420p", "-r", str(FPS), out]
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
         print("  xfade-склейка не удалась, откат на concat:", r.stderr[-300:])
         return False, 0.0
@@ -530,7 +530,7 @@ def xfade_chain_chunked(clips, durs, is_hook, out, temp_dir, xfade_dur=XFADE_DUR
     open(concat_list, "w", encoding="utf-8").write(
         "".join(f"file '{os.path.abspath(c)}'\n" for c in chunk_files))
     r = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                        "-i", concat_list, "-c", "copy", out], capture_output=True, text=True)
+                        "-i", concat_list, "-c", "copy", out], capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
         print("  склейка чанков xfade не удалась, откат на concat:", r.stderr[-300:])
         return False, 0.0
@@ -553,14 +553,14 @@ def pad_to_length(video, target, temp_dir):
     r = subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", lastframe, "-t", f"{gap:.3f}",
                         "-c:v", "libx264", "-preset", ASSEMBLE_PRESET, "-crf", ASSEMBLE_CRF,
                         "-pix_fmt", "yuv420p", "-r", str(FPS), padclip],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
         return video
     lst = os.path.join(temp_dir, "_pad_concat.txt")
     open(lst, "w", encoding="utf-8").write(
         f"file '{os.path.abspath(video)}'\nfile '{os.path.abspath(padclip)}'\n")
     r = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                        "-i", lst, "-c", "copy", padded], capture_output=True, text=True)
+                        "-i", lst, "-c", "copy", padded], capture_output=True, text=True, encoding="utf-8", errors="replace")
     return padded if r.returncode == 0 else video
 
 
@@ -688,7 +688,7 @@ def main():
         open(concat, "w", encoding="utf-8").write(
             "".join(f"file '{os.path.abspath(c)}'\n" for c in clips))
         r = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                            "-i", concat, "-c", "copy", merged], capture_output=True, text=True)
+                            "-i", concat, "-c", "copy", merged], capture_output=True, text=True, encoding="utf-8", errors="replace")
         if r.returncode != 0:
             print("Склейка:", r.stderr[-400:])
             return 1
@@ -701,7 +701,7 @@ def main():
     r = subprocess.run(["ffmpeg", "-y", "-i", merged, "-i", audio,
                         "-t", f"{audio_dur:.3f}",
                         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-                        "-shortest", out_file], capture_output=True, text=True)
+                        "-shortest", out_file], capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
         print("Аудио:", r.stderr[-400:])
         return 1
