@@ -716,7 +716,7 @@ def film_look(photo_hash, section="", brightness_bias=0.0, energy_bias=0.0, leve
 # на путь без зерна (безопасный откат, тот же принцип, что PARALLAX_LIBS).
 GRAIN_LOOP_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                 "assets", "grain", "grain_loop.mp4")
-GRAIN_ENABLED = os.environ.get("GRAIN", "1") != "0" and os.path.exists(GRAIN_LOOP_PATH)
+GRAIN_ENABLED = feature_flags.enabled("GRAIN_ENABLED") and os.path.exists(GRAIN_LOOP_PATH)
 # GRAIN_OPACITY — сила зерна в шкале ПРЕЖНЕЙ формулы all_expr (0.10 = та
 # калибровка, что была проверена вживую). Переопределяется из .env — это
 # ЕДИНСТВЕННЫЙ реальный рычаг размера файла помимо CRF: измерено 03.09 на

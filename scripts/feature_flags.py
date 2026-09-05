@@ -84,6 +84,13 @@ FLAGS = {f.name: f for f in (
          summary="Не собирать final.mp4, если хоть один клип не принят"),
     Flag("DEFLICKER_ENABLED", "1", aliases=("DEFLICKER",),
          summary="Деффликер стокового ВИДЕО перед творческим грейдом"),
+    # Тот же случай, что DEFLICKER, найден продолжением аудита 03.09: выключатель
+    # зерна жил под именем GRAIN и не был документирован в CLAUDE.md ВООБЩЕ — при
+    # том что рядом задокументированы GRAIN_OPACITY и GRAIN_BLEND_MODE, и что
+    # зерно даёт +50-60% к весу клипа (замер 03.09). Человек, ищущий в
+    # документации, как его выключить, не находил ничего. Старое имя — псевдоним.
+    Flag("GRAIN_ENABLED", "1", aliases=("GRAIN",),
+         summary="Плёночное зерно на каждом кадре (ассет assets/grain/grain_loop.mp4)"),
     Flag("OPENVERSE_ENABLED", "0",
          summary="Openverse (CC0 + институциональные источники) в ротации фото-источников"),
     Flag("STRESS_HINTS_ENABLED", "0",
