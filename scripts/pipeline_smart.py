@@ -742,7 +742,7 @@ def film_look(photo_hash, section="", brightness_bias=0.0, energy_bias=0.0, leve
 # на путь без зерна (безопасный откат, тот же принцип, что PARALLAX_LIBS).
 GRAIN_LOOP_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                 "assets", "grain", "grain_loop.mp4")
-GRAIN_ENABLED = os.environ.get("GRAIN", "1") != "0" and os.path.exists(GRAIN_LOOP_PATH)
+GRAIN_ENABLED = feature_flags.enabled("GRAIN") and os.path.exists(GRAIN_LOOP_PATH)
 # GRAIN_OPACITY — сила зерна в шкале ПРЕЖНЕЙ формулы all_expr (0.10 = та
 # калибровка, что была проверена вживую). Переопределяется из .env — это
 # ЕДИНСТВЕННЫЙ реальный рычаг размера файла помимо CRF: измерено 03.09 на
@@ -808,7 +808,7 @@ DEFLICKER_FILTER = "deflicker=size=5:mode=am,"
 # цифрой в kenburns()) не трогаются, подавляется только отрисовка. Дефолт
 # "1" (было и остаётся поведением по умолчанию) — ноль влияния на существующие
 # эпизоды, пока флаг не выставлен явно.
-ON_SCREEN_TEXT_ENABLED = os.environ.get("ON_SCREEN_TEXT", "1") != "0"
+ON_SCREEN_TEXT_ENABLED = feature_flags.enabled("ON_SCREEN_TEXT")
 
 def _look_management_cache_signature(look_ref):
     """Тонкая обёртка над look_reference.cache_signature() (см. main()) —
@@ -901,7 +901,7 @@ MUSIC_BED_PATHS = {
     "BODY": MUSIC_BED_PATH,
     "FINAL": os.path.join(_MUSIC_DIR, "ambient_bed_final.flac"),
 }
-MUSIC_ENABLED = os.environ.get("MUSIC_BED", "1") != "0" and os.path.exists(MUSIC_BED_PATH)
+MUSIC_ENABLED = feature_flags.enabled("MUSIC_BED") and os.path.exists(MUSIC_BED_PATH)
 # J-cut: смена настроения подложки опережает смену секции сценария на
 # столько секунд — звук "приходит первым", смысловой сдвиг подложки уже
 # ощущается ДО того, как текст/картинка формально сменили раздел (тот же
@@ -945,7 +945,7 @@ MUSIC_DUCK_RELEASE_MS = 450.0  # плавно отпустить после — 
 # мягкая компрессия РОВНО голоса (не путать с loudnorm — тот выравнивает
 # ГРОМКОСТЬ ролика целиком, это — микро-динамика внутри фраз, чтобы тихие
 # слова не тонули под подложкой ДО дакинга).
-VOICE_PROCESS_ENABLED = os.environ.get("VOICE_PROCESS", "1") != "0"
+VOICE_PROCESS_ENABLED = feature_flags.enabled("VOICE_PROCESS")
 VOICE_HIGHPASS_HZ = 80
 VOICE_EQ_WARMTH_HZ, VOICE_EQ_WARMTH_GAIN = 200, 1.5
 VOICE_EQ_PRESENCE_HZ, VOICE_EQ_PRESENCE_GAIN = 3000, 2.0
@@ -2473,29 +2473,54 @@ def load_alignment_onsets(blocks):
     символами на его позиции (ONSET_TEXT_MATCH_MIN_RATIO). Сценарий,
     поправленный ПОСЛЕ записи озвучки, не получит чужой тайминг молча —
     вернётся None, и сборка честно откатится на прежнее поведение."""
+    global ALIGNMENT_ONSET_FAILURE
+    ALIGNMENT_ONSET_FAILURE = None
+
+    def _give_up(reason, **detail):
+        """Запомнить ПРИЧИНУ отказа, а не просто вернуть None.
+
+        N5 (docs/AUDIT_2026-09_DEEP.md:281): у этой функции пять разных
+        точек отказа, и каждая молча выключала PHRASE LOCK на ВЕСЬ эпизод —
+        в консоли при этом не появлялось ни строчки. Самый вероятный случай
+        (нормализация произношения в speech_generate.py: TTS получает
+        "1,5 килограмма", а script.txt содержит "1,5 кг") выглядел как
+        обычный рендер, но кадры переставали держаться за фразы.
+        """
+        global ALIGNMENT_ONSET_FAILURE
+        ALIGNMENT_ONSET_FAILURE = {"reason": reason, **detail}
+        return None
+
     section_segments = _alignment_section_segments(blocks)
     if not section_segments:
-        return None
+        return _give_up("нет ни одного сегмента alignment (media_plan/alignment/*.csv)")
     section_offsets = load_section_offsets()
     cuts = load_pause_cuts()
     onsets = []
     seg_idx, char_pos = {}, {}
-    for b in blocks:
+    for bi, b in enumerate(blocks):
         section = b["section"]
         segs = section_segments.get(section)
         if segs is None:
-            return None
+            return _give_up("для секции нет alignment", section=section, block_index=bi)
         k = seg_idx.get(section, 0)
         if k >= len(segs):
-            return None   # блоков больше, чем сегментов записи — доверять нечему
+            return _give_up("блоков больше, чем сегментов записи — доверять нечему",
+                            section=section, block_index=bi)
         clean = _clean_timed_chars(segs[k])
         pos = char_pos.get(section, 0)
         want = speech_chars_of_text(b["text"])
         if not want or pos + len(want) > len(clean):
-            return None
+            return _give_up("текст блока не помещается в оставшийся alignment",
+                            section=section, block_index=bi,
+                            text=b["text"][:60], want_chars=len(want),
+                            available_chars=len(clean) - pos)
         got = "".join(c for c, s, e in clean[pos:pos + len(want)])
-        if difflib.SequenceMatcher(None, want.lower(), got.lower()).ratio() < ONSET_TEXT_MATCH_MIN_RATIO:
-            return None
+        ratio = difflib.SequenceMatcher(None, want.lower(), got.lower()).ratio()
+        if ratio < ONSET_TEXT_MATCH_MIN_RATIO:
+            return _give_up("текст блока разошёлся с озвученным",
+                            section=section, block_index=bi, ratio=round(ratio, 3),
+                            threshold=ONSET_TEXT_MATCH_MIN_RATIO,
+                            script_text=b["text"][:60], spoken_text=got[:60])
         offset = section_offsets.get(section, 0.0)
         onsets.append(raw_to_real_time(clean[pos][1] + offset, cuts))
         pos += len(want)
@@ -2508,6 +2533,10 @@ def load_alignment_onsets(blocks):
 
 
 PHRASE_LOCK = os.environ.get("PHRASE_LOCK", "1") != "0"
+
+# Почему PHRASE LOCK не включился в этом прогоне (см. load_alignment_onsets()).
+# None = либо всё в порядке, либо функция ещё не вызывалась.
+ALIGNMENT_ONSET_FAILURE = None
 
 
 def _merge_two_blocks(pb, cb, prev_words):
@@ -3076,6 +3105,66 @@ DIRECTOR_RELEVANCE_MISSES = []   # [{"index", "text", "photo", "relevance", "thr
 # должен остаться пустым", ЧАСТЬ 13) — только делает этот более редкий и
 # более серьёзный случай видимым отдельно от обычного relevance-промаха.
 STOCK_EXHAUSTED_MISSES = []   # [{"index", "kind", "query", "n_candidates_examined"}, ...]
+
+# Слоты, которые в ЭТОМ прогоне реально прошли подбор кандидата (а не были
+# отданы кэш-хитом клипа). Нужен для merge_slot_report(): только про эти слоты
+# текущий прогон вправе что-то утверждать.
+RESOLVED_SLOTS_THIS_RUN = set()
+
+
+def merge_slot_report(path, fresh_misses, *, resolved_slots, extra=None):
+    """Записать отчёт по слотам, НЕ стирая то, что этот прогон не проверял.
+
+    РЕАЛЬНАЯ, измеренная дыра (04.09, разбор опубликованного эпизода):
+    relevance_gate_report.json / stock_exhausted_report.json /
+    director_relevance_report.json переписывались целиком на КАЖДОМ запуске
+    списком промахов только текущего прогона. После частичного ре-рендера
+    (в реальном случае — 4 слота из 165, остальные кэш-хиты) все три файла
+    оказались ПУСТЫМИ, хотя в готовом ролике 10 явно бракованных кадров.
+    Аудит эпизода становился физически невозможен: единственные машинные
+    свидетельства о подборе уничтожались следующим же прогоном.
+
+    Это ровно та ловушка, от которой предостерегает CLAUDE.md ("пустой
+    автоматический отчёт — не то же самое, что проблема решена"), только
+    встроенная в саму механику записи отчётов.
+
+    Правило слияния: запись прошлого прогона по слоту сохраняется, если этот
+    слот в текущем прогоне не пересобирался (о нём просто нет свежих данных —
+    и честнее сохранить старый вердикт, чем молча объявить слот чистым).
+    Слот, который пересобран, полностью замещается свежим результатом: старый
+    вердикт относится к другому, уже не существующему кадру.
+
+    Перенесённые записи помечаются "from_previous_run": true — чтобы читатель
+    отчёта отличал измеренное сейчас от унаследованного, а не считал всё
+    одинаково свежим.
+    """
+    resolved = set(resolved_slots or ())
+    merged = {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            prev = json.load(f)
+        for m in (prev.get("misses") or []):
+            idx = m.get("index")
+            if idx is None or idx in resolved:
+                continue
+            carried = dict(m)
+            carried["from_previous_run"] = True
+            merged[idx] = carried
+    except Exception:
+        pass          # нет файла/битый JSON — просто пишем свежий, как раньше
+    for m in fresh_misses:
+        idx = m.get("index")
+        if idx is not None:
+            merged[idx] = m
+    payload = dict(extra or {})
+    payload["slots_evaluated_this_run"] = len(resolved)
+    payload["misses"] = [merged[k] for k in sorted(merged)]
+    tmp = path + ".tmp"
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+    return payload
 
 
 # Отбор (2.5): фильтр по alt-тексту кандидата — тот же JSON от Pexels-поиска,
@@ -3674,6 +3763,15 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             h = ahash(cf)
             if min((hamming(h, uh) for uh in used_hashes), default=99) > PHOTO_DEDUP_HAMMING:
                 used_hashes.append(h)
+                # N8 (docs/AUDIT_2026-09_DEEP.md:299): на кэш-хите Pexels-ID
+                # раньше не попадал в used_ids вообще — дедуп ПО ID был мёртв
+                # для всех закэшированных слотов, спасал только aHash. ID берём
+                # из sidecar (write_media_sidecar); у файлов, скачанных до
+                # появления sidecar, его нет — тогда как раньше, без ID.
+                if used_ids is not None:
+                    _pid = read_media_sidecar(cf).get("pexels_id")
+                    if _pid is not None:
+                        used_ids.add(_pid)
                 if recent_sizes is not None:
                     try:
                         recent_sizes.append(estimate_shot_size(cf))
@@ -3739,6 +3837,13 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             req_img = urllib.request.Request(url, headers={"User-Agent": UA})
             atomic_url_download(req_img, dest, timeout=20)
 
+        # Дефолты ДО развилки: ветка used_hashes is None (вызов без анти-дубля —
+        # тесты, служебные прогоны) минует весь блок выбора победителя ниже, где
+        # заводятся winner/chosen_by. Без этих двух строк write_media_sidecar()
+        # падал бы на "cannot access local variable 'winner'" — поймано
+        # регрессионными тестами кэш-пути (test_parse.py), не на глаз.
+        winner = None
+        chosen_by = "first_result_no_dedup"
         if used_hashes is None:
             pick = candidates[0]
             download(pick, cf)
@@ -3888,6 +3993,11 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                 director_report["diverged"] = bool(
                     base_winner and director_winner and base_winner["path"] != director_winner["path"])
             winner = director_winner if (director_assist and director_winner is not None) else base_winner
+            # Кто реально принял решение по этому слоту — пишется в sidecar
+            # (write_media_sidecar) и делает аудит эпизода проверяемым фактом,
+            # а не догадкой по косвенным отчётам.
+            chosen_by = ("director" if (director_assist and director_winner is not None)
+                         else ("base" if winner is not None else "fallback_first_downloaded"))
             # VLM-АРБИТР (см. shot_director.arbitrate_hook_candidates,
             # блок-комментарий там же) — только когда вызывающий код передал
             # arbiter_text (HOOK-слоты, VLM_ARBITER_MODE, см. main()). Гейт
@@ -3914,6 +4024,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                         [c["p"].get("id") for c in shortlist], VIDEO_FOLDER, is_opening=is_opening_shot)
                     if arbiter_pick is not None:
                         winner = next(c for c in shortlist if c["path"] == arbiter_pick)
+                        chosen_by = "arbiter"
             if winner is not None and not winner["is_relevant"]:
                 # Весь просмотренный пул провалил relevance-гейт — см.
                 # RELEVANCE_GATE_MISSES выше. Победитель всё равно есть
@@ -3948,11 +4059,21 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                 os.replace(winner["path"], cf)
         if used_ids is not None:
             used_ids.add(pick.get("id"))
+        _picked_ahash = None
         if used_hashes is not None:
             try:
-                used_hashes.append(ahash(cf))
+                _picked_ahash = ahash(cf)
+                used_hashes.append(_picked_ahash)
             except Exception:
                 pass
+        # Sidecar — чтобы СЛЕДУЮЩИЙ прогон, который возьмёт этот файл кэш-хитом
+        # (или вообще не дойдёт до подбора, потому что кэширован сам клип),
+        # смог вернуть кадр в анти-дубль. См. write_media_sidecar().
+        write_media_sidecar(
+            cf, pexels_id=pick.get("id"), query=query, kind="photo",
+            ahash_hex=_picked_ahash,
+            relevance=(winner.get("relevance") if winner else None),
+            chosen_by=chosen_by)
         if recent_sizes is not None:
             try:
                 recent_sizes.append(estimate_shot_size(cf))
@@ -4582,7 +4703,7 @@ TYPEWRITER_CHAR_DUR = 0.075
 KEYBOARD_CLICKS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                     "assets", "sfx", "keyboard_clicks")
 KEYBOARD_CLICK_PATHS = sorted(glob.glob(os.path.join(KEYBOARD_CLICKS_DIR, "click_*.flac")))
-TYPEWRITER_CLICK_ENABLED = os.environ.get("TYPEWRITER_CLICKS", "1") != "0" and bool(KEYBOARD_CLICK_PATHS)
+TYPEWRITER_CLICK_ENABLED = feature_flags.enabled("TYPEWRITER_CLICKS") and bool(KEYBOARD_CLICK_PATHS)
 TYPEWRITER_CLICK_GAIN_DB = -6.0
 
 
@@ -5991,7 +6112,7 @@ PARALLAX_MAX_STRETCH = 0.08       # потолок локального раст
 # depth, что уже посчитаны для параллакса. Считается ОДИН раз на холст (не
 # на кадр) — размытие фона относительно СЦЕНЫ, не относительно текущего
 # вида камеры, оптически корректно и дешевле по CPU.
-DOF_ENABLED = os.environ.get("DOF_BLUR", "1") != "0"
+DOF_ENABLED = feature_flags.enabled("DOF_BLUR")
 DOF_SIGMA_FRAC = 0.014     # сигма размытия фона как доля min(cw, ch) —
                            # относительный, не абсолютный пиксельный размер
                            # (тот же принцип, что sigma в estimate_depth())
@@ -6047,7 +6168,7 @@ def _dof_focus_depth(depth, h, w):
 # с текстом ЗАПРОСА (не с русским текстом блока — CLIP англоязычный, а
 # query уже на английском, см. THEMES/query_for) и дать число, а не
 # доверять слепо тому, что поиск вернул top-N по ключевым словам.
-CLIP_ENABLED = os.environ.get("CLIP_RELEVANCE", "1") != "0"
+CLIP_ENABLED = feature_flags.enabled("CLIP_RELEVANCE")
 CLIP_BROKEN = False   # взводится только на системном сбое (модель/сеть), не на одной картинке
 # Калибровано вживую на 01_ves-mecha: 20 верных пар (картинка, её реальный
 # запрос) дали score 0.217-0.303 (среднее 0.262); 15 пар с заведомо
@@ -6311,6 +6432,142 @@ CANDIDATE_GATE_RULES_VERSION = 2
 _CANDIDATE_GATE_SIG = None   # см. candidate_gate_signature(), считается лениво один раз
 
 
+def media_sidecar_path(media_path):
+    """Путь к sidecar-метаданным кэшированного кандидата: <файл>.meta.json."""
+    return media_path + ".meta.json"
+
+
+def write_media_sidecar(media_path, *, pexels_id=None, query=None, kind=None,
+                        ahash_hex=None, relevance=None, chosen_by=None):
+    """Записать, ЧТО именно лежит в кэш-файле кандидата.
+
+    РЕАЛЬНАЯ, найденная вживую дыра (04.09), которую это закрывает: имя
+    кэш-файла кодирует только (слот, хэш запроса, хэш правил гейта) — по нему
+    невозможно узнать ни Pexels-ID кадра, ни его визуальный хэш. Следствия:
+
+    1. N8 из docs/AUDIT_2026-09_DEEP.md: на кэш-хите ID не регистрировался в
+       used_ids, и анти-дубль ПО ID был мёртв для всех закэшированных слотов.
+    2. Хуже: когда кэширован сам КЛИП (temp_smart/clip_*.mp4), функция подбора
+       вообще не вызывается, и слот не попадает ни в used_ids, ни в
+       used_hashes. На частичном ре-рендере (161 клип из 165 — кэш-хиты)
+       структуры дедупа оказываются почти пустыми, и любой заново подбираемый
+       слот спокойно берёт кадр, уже стоящий в другом месте ролика. Так в
+       опубликованном эпизоде появился дубль: одна и та же фотография
+       (Pexels 31474665) на 58-й секунде и на 11-й минуте.
+
+    Sidecar пишется рядом с файлом и переживает любые кэш-хиты, потому что
+    живёт ровно столько же, сколько сам файл. Ошибка записи не критична —
+    метаданные вспомогательные, потерять кадр из-за них было бы хуже, чем
+    остаться без ID (тот же fail-open, что у остальных необязательных слоёв).
+    """
+    try:
+        payload = {"pexels_id": pexels_id, "query": query, "kind": kind,
+                   "ahash": ahash_hex, "relevance": relevance,
+                   "chosen_by": chosen_by, "written_at": time.time()}
+        tmp = media_sidecar_path(media_path) + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+        os.replace(tmp, media_sidecar_path(media_path))
+    except Exception:
+        pass
+
+
+def read_media_sidecar(media_path):
+    """Прочитать sidecar кандидата. Нет файла/битый JSON -> {} (не исключение).
+
+    Отсутствие sidecar — норма для кэша, скачанного ДО появления этого
+    механизма: старые файлы просто не дают ID, и дедуп по ID для них работает
+    как раньше (никак), а дедуп по aHash считается на месте от самого файла.
+    """
+    try:
+        with open(media_sidecar_path(media_path), "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def register_cached_media(media_path, used_ids=None, used_hashes=None, kind="photo"):
+    """Вернуть уже стоящий в ролике кадр в структуры анти-дубля.
+
+    Вызывается там, где медиа НЕ проходит подбор заново — на кэш-хите клипа в
+    main() и на кэш-хите кандидата. Без этого вызова дедуп видит только слоты,
+    реально пересобранные в текущем прогоне (см. write_media_sidecar()).
+
+    ID берётся из sidecar (если он есть), aHash — из sidecar, а при его
+    отсутствии считается прямо от файла: для фото это дёшево и работает даже
+    на старом кэше без метаданных. Для видео aHash по файлу здесь НЕ считается
+    сознательно — нужен прогон ffmpeg за кадром-пробником, а это заметная цена
+    на каждом кэш-хите ради вторичной проверки; видео дедуплицируется по ID из
+    sidecar. Возвращает True, если удалось зарегистрировать хоть что-то.
+    """
+    meta = read_media_sidecar(media_path)
+    done = False
+    pid = meta.get("pexels_id")
+    if used_ids is not None and pid is not None:
+        used_ids.add(pid)
+        done = True
+    if used_hashes is not None:
+        h = meta.get("ahash")
+        if h is None and kind == "photo":
+            try:
+                h = ahash(media_path)
+            except Exception:
+                h = None
+        if h is not None:
+            used_hashes.append(h)
+            done = True
+    return done
+
+
+def _selection_stack_signature():
+    """Отпечаток КОНФИГУРАЦИИ отбора: какие слои реально решают, кто победит,
+    и из какого по размеру пула они выбирают. Входит в
+    candidate_gate_signature() -> в имя файла кэша кандидата.
+
+    РЕАЛЬНЫЙ, измеренный симптом, ради которого это заведено (04.09, разбор
+    опубликованного эпизода 01_ves-mecha): candidate_gate_signature() хэшировала
+    ФУНКЦИИ гейтов и ПОРОГИ, но не режимы. Значит включение VLM-арбитра или
+    Semantic Visual Director (.env: VISUAL_DIRECTOR_MODE=assist,
+    VLM_ARBITER_MODE=on) НЕ меняло ключ кэша ни одного слота — уже скачанный
+    кандидат, выбранный ДО появления этих слоёв голым косинусом эмбеддингов,
+    молча отдавался как есть при каждом следующем прогоне. Готовый эпизод —
+    лоскутное одеяло решений разных поколений системы, замороженных в момент
+    первого скачивания. Это и есть прямой источник жалобы "то работает, то не
+    работает": соседние слоты объективно выбраны разными алгоритмами.
+
+    Тот же класс бага, что уже закрыт для РЕНДЕРА (render_recipe_signature() +
+    _look_management_cache_signature()/_visual_director_cache_signature()/
+    arbiter_cache_suffix() в params_hash, см. main()) — рендер-сторона
+    инвалидируется при смене режима, сторона ОТБОРА не инвалидировалась. Здесь
+    та же дисциплина переносится на отбор.
+
+    Размер пула — в том же отпечатке и по той же причине: FAST_MODE_START_INDEX
+    (после него DIRECTOR_MIN_POOL 8->2, PHOTO_DEDUP_MAX_TRIES 20->5) физически
+    определяет, из скольких кандидатов вообще шёл выбор. Кадр, выбранный из
+    двух, и кадр, выбранный из восьми — решения разной силы, и переиспользовать
+    первое после расширения пула значит молча остаться на более бедном выборе.
+
+    SHOT_DIRECTOR_MODE сюда СОЗНАТЕЛЬНО НЕ включён (проверено по коду, не
+    предположение): он влияет только на ТЕКСТ запроса, а запрос и весь пул
+    запросов секции уже входят в qkey/qhash имени кэш-файла (см. pexels_photo()
+    у qkey). Включение/выключение режима меняет запрос -> меняет qhash ->
+    инвалидация происходит и без него. Добавить его сюда значило бы гарантированно
+    перекачивать весь эпизод на каждое переключение флага, ничего при этом не
+    исправляя.
+
+    Читается В МОМЕНТ ВЫЗОВА (не на импорте) — как и весь остальной код,
+    работающий с реестром режимов."""
+    return "sel:" + repr((
+        feature_flags.mode("VLM_ARBITER_MODE"),
+        feature_flags.mode("VISUAL_DIRECTOR_MODE"),
+        DIRECTOR_MIN_POOL, PHOTO_DEDUP_MAX_TRIES,
+        FAST_MODE_START_INDEX, FAST_DIRECTOR_MIN_POOL, FAST_PHOTO_DEDUP_MAX_TRIES,
+        VIDEO_RELEVANCE_MAX_TRIES, VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP,
+        FAST_VIDEO_RELEVANCE_MAX_TRIES, FAST_VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP,
+    ))
+
+
 def candidate_gate_signature():
     """Отпечаток ПРАВИЛ ОТБОРА кандидата (relevance/анахронизм-гвард/
     дизамбигуация запроса) — входит в имя файла кэша temp_smart/pexels_cache
@@ -6337,7 +6594,14 @@ def candidate_gate_signature():
     даже строчки комментария внутри — считается сменой правил): та же
     осознанно консервативная сторона, что у render_recipe_signature() —
     лишняя перезакачка дешевле молча просроченного анахронизм-гварда.
-    Сбой inspect -> стабильная заглушка, поведение как раньше, без падения."""
+    Сбой inspect -> стабильная заглушка, поведение как раньше, без падения.
+
+    Хэшируются ТРИ разные вещи, не одна: (1) исходники функций-гейтов,
+    (2) пороги/таблицы-константы, (3) _selection_stack_signature() — режимы
+    слоёв, реально выбирающих победителя, и размер пула, из которого он
+    выбирался (см. её докстринг: без пункта 3 включение VLM-арбитра и
+    Semantic Visual Director не инвалидировало ни одного слота, и эпизод
+    собирался из решений разных поколений системы)."""
     global _CANDIDATE_GATE_SIG
     if _CANDIDATE_GATE_SIG is not None:
         return _CANDIDATE_GATE_SIG
@@ -6357,6 +6621,8 @@ def candidate_gate_signature():
             # кандидат, отобранный до этого фикса (реальный случай — слот 7,
             # videos/_test20s, 27 августа).
             image_sharpness_score, video_sharpness_ok,
+            # _selection_stack_signature() ниже — РЕЖИМЫ и РАЗМЕР ПУЛА, а не
+            # функции; см. её докстринг, там же разбор реального симптома.
             # Найдено самоаудитом 03.09 (тот же принцип, что уже применён к
             # image_sharpness_score/video_sharpness_ok выше): вызываются по
             # имени изнутри уже перечисленных функций, реально влияют на
@@ -6382,6 +6648,7 @@ def candidate_gate_signature():
             PHOTO_SHARPNESS_REJECT, VIDEO_SHARPNESS_REJECT, VIDEO_SHARPNESS_SAMPLE_FRACS,
             SHARPNESS_PROBE_MAX_SIDE, CANDIDATE_GATE_RULES_VERSION,
         )))
+        parts.append(_selection_stack_signature())
     except Exception:
         _CANDIDATE_GATE_SIG = "gate:unknown"
         return _CANDIDATE_GATE_SIG
@@ -7450,6 +7717,12 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
     # печатает никакого "непредвиденного сбоя" уровня main() — падает
     # молча внутри рендер-функции).
     if os.path.exists(cf) and os.path.getsize(cf) > 0:
+        # N8, видео-ветка: кэш-хит отдавал файл, не сообщив анти-дублю ни ID,
+        # ни хэша — тот же слот мог всплыть ещё раз под другим индексом. ID
+        # берём из sidecar; aHash по видео здесь сознательно не считаем (нужен
+        # прогон ffmpeg за кадром-пробником на каждом кэш-хите, см.
+        # register_cached_media()).
+        register_cached_media(cf, used_ids=used_ids, used_hashes=None, kind="video")
         _reset_pexels_streak()
         return cf
     if not PEXELS_API_KEY:
@@ -7735,6 +8008,8 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                 used_ids.add(best[3])
             if used_hashes is not None and best[4] is not None:
                 used_hashes.append(best[4])
+            write_media_sidecar(cf, pexels_id=best[3], query=query, kind="video",
+                                ahash_hex=best[4], chosen_by="video_relevance_best")
             _reset_pexels_streak()
             return cf
         chosen = dup_fallback or plain_fallback
@@ -7771,6 +8046,10 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                 used_ids.add(vid)
             if used_hashes is not None and cand_hash is not None:
                 used_hashes.append(cand_hash)
+            write_media_sidecar(
+                cf, pexels_id=vid, query=query, kind="video", ahash_hex=cand_hash,
+                chosen_by=("video_dup_fallback" if chosen is dup_fallback
+                           else "video_plain_fallback"))
             _reset_pexels_streak()
             return cf
         return None
@@ -8757,6 +9036,20 @@ def main():
     if not blocks:
         print("Сценарий не найден/пуст")
         return 1
+    # ИСХОДНЫЙ индекс блока — единственное, что связывает блок монтажа с юнитом
+    # speech_plan.json ПОСЛЕ split_long_blocks()/merge_short_phrase_locked_blocks().
+    # N4 из docs/AUDIT_2026-09_DEEP.md, измерено на этом эпизоде: главный цикл
+    # идёт по 165 блокам, а speech_plan знает только 91 исходный — и раньше
+    # arc_stage брался по индексу ЦИКЛА. Итог: 151 слот из 165 (92%) получал
+    # либо чужую драматургическую стадию (77 слотов — например, слот 9 хука
+    # брал стадию из BLOCK 1), либо вообще ничего (74 слота после 90-го).
+    # Обе надстройки, которые на неё опираются (Look Management, Visual
+    # Director), в .env стоят assist — то есть работали на неверных данных.
+    # dict(b) в split_long_blocks() и dict(pb) в _merge_two_blocks() копируют
+    # ключ сами: под-кадры наследуют индекс своей фразы, а слитый блок —
+    # индекс первого из слитых, что и требуется.
+    for _bi, _b in enumerate(blocks):
+        _b["orig_index"] = _bi
     # Реальный тайминг считаем ДО sub-cuts — alignment.csv записан 1:1 на
     # исходные блоки (по [pause]/[short pause]), split_long_blocks() потом
     # честно делит вес пропорционально словам между получившимися кусками.
@@ -8813,6 +9106,16 @@ def main():
     # ролик): сдвиг видео-реза с границы фразы не создаёт J/L-cut, он
     # создаёт ровно тот рассинхрон, на который жалуется зритель.
     onsets = load_alignment_onsets(blocks) if PHRASE_LOCK else None
+    if PHRASE_LOCK and not onsets:
+        # N5: раньше здесь была тишина — эпизод собирался по оценочным
+        # длительностям вместо реальных онсетов речи, и узнать об этом было
+        # неоткуда. Теперь причина называется вслух и уезжает в манифест.
+        _f = ALIGNMENT_ONSET_FAILURE or {"reason": "alignment не найден"}
+        _det = ", ".join(f"{k}={v!r}" for k, v in _f.items() if k != "reason")
+        print(f"  ВНИМАНИЕ: PHRASE LOCK ВЫКЛЮЧЕН — {_f['reason']}"
+              + (f" ({_det})" if _det else ""))
+        print("            Кадры будут привязаны к ОЦЕНОЧНЫМ длительностям, а не к речи. "
+              "Если озвучка свежая — сверить script.txt с media_plan/alignment/*.csv.")
     phrase_locked = None
     if onsets:
         phrase_locked = phrase_locked_durations(
@@ -9071,7 +9374,7 @@ def main():
     # независимо от того, откуда берётся сам модуль (переиспользуется look_ref
     # или импортируется отдельно).
     domain_ref = None
-    if os.environ.get("DOMAIN_GRADE_MODE", "on").strip().lower() != "off":
+    if feature_flags.mode("DOMAIN_GRADE_MODE") != "off":
         domain_ref = look_ref
         if domain_ref is None:
             import look_reference as domain_ref  # noqa: F401
@@ -9086,6 +9389,29 @@ def main():
     # иначе это чтение файла впустую.
     arc_stage_by_index = (_load_arc_stage_by_index(VIDEO_FOLDER)
                            if (look_ref is not None or visual_director is not None) else {})
+
+    def arc_stage_for(block):
+        """Драматургическая стадия блока — по ИСХОДНОМУ индексу фразы.
+
+        Ключ — orig_index (проставлен сразу после parse_blocks()), а не индекс
+        главного цикла: после split_long_blocks()/merge они расходятся, и
+        обращение по индексу цикла давало чужую стадию либо None. См. N4 в
+        docs/AUDIT_2026-09_DEEP.md и замер на videos/01_ves-mecha: 151 слот из
+        165 получал неверные данные.
+        """
+        return arc_stage_by_index.get(block.get("orig_index"))
+
+    if arc_stage_by_index:
+        # Честный сигнал вместо тихой деградации: если speech_plan.json собран
+        # для ДРУГОЙ версии сценария, часть блоков останется без стадии, и обе
+        # надстройки молча потеряют драматургический вход. Раньше это было
+        # видно только пересчётом вручную.
+        _covered = sum(1 for _b in blocks if _b.get("orig_index") in arc_stage_by_index)
+        if _covered < len(blocks):
+            print(f"  ВНИМАНИЕ: arc_stage покрывает {_covered} из {len(blocks)} блоков — "
+                  f"media_plan/speech_plan.json собран для другой версии script.txt. "
+                  f"Look Management/Visual Director получат None на остальных; "
+                  f"перезапусти scripts/speech_planner.py.")
     # РЕАЛЬНЫЙ, найденный вживую пробел (deep-audit, videos/_test20s, слот 0
     # "Пятнадцать килограммов", прямая жалоба пользователя на атмосферность
     # отбора). domain_match_bonus() уже существует и уже подключён к
@@ -9259,7 +9585,7 @@ def main():
         cache_key = (
             f"{d:.3f}|{title}|{stat}|{stat_variant}|{b['section']}|{queries[i]}|{stat_delay:.3f}|"
             f"{captions}|{look_cache_sig}|{domain_cache_sig}|{director_cache_sig}|"
-            f"{arc_stage_by_index.get(i)}|{recipe_sig}|{lock_key}")
+            f"{arc_stage_for(b)}|{recipe_sig}|{lock_key}")
         cache_key += arbiter_cache_suffix(b["section"])
         params_hash = hashlib.md5(cache_key.encode()).hexdigest()[:8]
         out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}_{params_hash}.mp4")
@@ -9321,12 +9647,33 @@ def main():
                     media_log.append((i, prev_file))
                 else:
                     qc_unknown_cache_hits.append(i + 1)
+                # РЕАЛЬНЫЙ дубль в опубликованном эпизоде (04.09): одна и та же
+                # фотография (Pexels 31474665) стоит на 58-й секунде и на 11-й
+                # минуте. Причина ровно здесь: при кэш-хите КЛИПА функция
+                # подбора не вызывается вообще, поэтому кадр этого слота не
+                # попадал ни в used_photo_ids, ни в used_photo_hashes — а на
+                # частичном ре-рендере (161 кэш-хит из 165) структуры дедупа
+                # оставались почти пустыми, и любой заново подбираемый слот
+                # спокойно брал уже стоящий в ролике кадр. Возвращаем кадр в
+                # дедуп по файлу из шотлиста: анти-дубль снова видит ВЕСЬ
+                # эпизод, а не только пересобранные в этом прогоне слоты.
+                if prev_file and os.path.exists(prev_file):
+                    register_cached_media(
+                        prev_file, used_ids=(used_photo_ids if prev_shot.get("kind") == "photo"
+                                             else used_video_ids),
+                        used_hashes=used_photo_hashes,
+                        kind=(prev_shot.get("kind") or "photo"))
             else:
                 qc_unknown_cache_hits.append(i + 1)
                 shot_entries[i] = {"index": i, "section": b["section"], "text": b["text"], "query": queries[i],
                                    "kind": None, "file": None, "source": "cache_hit_unknown_file",
                                    "clip": os.path.basename(out)}
             continue
+        # Досюда доходят ТОЛЬКО слоты, которые в этом прогоне реально проходят
+        # подбор медиа (кэш-хит клипа уже ушёл по continue выше). Именно про
+        # них — и только про них — текущий прогон вправе что-то утверждать в
+        # отчётах; см. merge_slot_report().
+        RESOLVED_SLOTS_THIS_RUN.add(i)
         locked_shot = bool(lock_photo or lock_video)
         if locked_shot:
             # Шотлист решил за нас — ни Pexels, ни гейтов, ни локального
@@ -9376,7 +9723,7 @@ def main():
                 director_score_fn = functools.partial(
                     visual_director.compute_extra_score, role=director_role, block_text=sem_text,
                     text_domain=director_text_domain, recent_semantic_tags=recent_semantic_tags,
-                    arc_stage=arc_stage_by_index.get(i), own_query=queries[i], is_opening=is_opening_shot)
+                    arc_stage=arc_stage_for(b), own_query=queries[i], is_opening=is_opening_shot)
                 director_entry = {}
             # Content-aware чередование вместо механического i%2 (ЧАСТЬ 14
             # раньше просто нечётные->фото/чётные->видео) — зритель
@@ -9588,7 +9935,7 @@ def main():
             has_face = detect_face_anchor(photo) is not None
             look_filter, look_entry, look_state = look_ref.look_correction_filter(
                 photo, levels, wb, has_face, scene_boundary=is_section_start,
-                section=b["section"], prev_state=look_state, arc_stage=arc_stage_by_index.get(i))
+                section=b["section"], prev_state=look_state, arc_stage=arc_stage_for(b))
             look_report[i] = look_entry
         # П.4: домен кадра для DOMAIN_WARM_PUSH_SCALE (film_look()) — только
         # фото (видео не участвует, тот же скоуп, что Look Management выше),
@@ -9790,15 +10137,17 @@ def main():
     # записи, что уже применяет look_manifest.json чуть ниже — пишем ВСЕГДА
     # (даже пустой список), не пропускаем файл молча.
     relevance_report_path = os.path.join(VIDEO_FOLDER, "media_plan", "relevance_gate_report.json")
-    relevance_report_tmp = relevance_report_path + ".tmp"
-    with open(relevance_report_tmp, "w", encoding="utf-8") as f:
-        relevance_checked = bool(use_pexels and CLIP_ENABLED and not CLIP_BROKEN and _clip_model is not None)
-        json.dump({"checked": relevance_checked,
-                   "note": None if relevance_checked else
-                   "CLIP-гейт релевантности НЕ выполнялся в этом прогоне (нет ключа Pexels, CLIP выключен/сломан "
-                   "или модель не загружалась) — пустой список misses не означает «прошло»",
-                   "misses": RELEVANCE_GATE_MISSES}, f, ensure_ascii=False, indent=2)
-    os.replace(relevance_report_tmp, relevance_report_path)
+    relevance_checked = bool(use_pexels and CLIP_ENABLED and not CLIP_BROKEN and _clip_model is not None)
+    # merge_slot_report, а не запись целиком: слоты, отданные кэш-хитом клипа,
+    # в этом прогоне не проверялись — стирать про них прошлый вердикт значит
+    # выдавать неведение за чистый результат (см. докстринг merge_slot_report).
+    merge_slot_report(
+        relevance_report_path, RELEVANCE_GATE_MISSES,
+        resolved_slots=RESOLVED_SLOTS_THIS_RUN,
+        extra={"checked": relevance_checked,
+               "note": None if relevance_checked else
+               "CLIP-гейт релевантности НЕ выполнялся в этом прогоне (нет ключа Pexels, CLIP выключен/сломан "
+               "или модель не загружалась) — пустой список misses не означает «прошло»"})
     if not relevance_checked:
         print("  ВНИМАНИЕ: релевантность/анахронизмы кандидатов НЕ проверялись (CLIP не загружен или нет Pexels) — "
               "смотреть кадры глазами обязательно (Шаг 7.5)")
@@ -9820,10 +10169,8 @@ def main():
     # глазами", а "стоку тут физически нечего предложить — см. Шаг 5,
     # AI-картинка/видео вместо стока для этого слота".
     stock_exhausted_path = os.path.join(VIDEO_FOLDER, "media_plan", "stock_exhausted_report.json")
-    stock_exhausted_tmp = stock_exhausted_path + ".tmp"
-    with open(stock_exhausted_tmp, "w", encoding="utf-8") as f:
-        json.dump({"misses": STOCK_EXHAUSTED_MISSES}, f, ensure_ascii=False, indent=2)
-    os.replace(stock_exhausted_tmp, stock_exhausted_path)
+    merge_slot_report(stock_exhausted_path, STOCK_EXHAUSTED_MISSES,
+                      resolved_slots=RESOLVED_SLOTS_THIS_RUN)
     if STOCK_EXHAUSTED_MISSES:
         idxs = [m["index"] for m in STOCK_EXHAUSTED_MISSES]
         print(f"  ВНИМАНИЕ: {len(STOCK_EXHAUSTED_MISSES)} слот(ов) {idxs} — сток не дал НИ ОДНОГО "
@@ -9853,10 +10200,8 @@ def main():
     # выше просто никогда не срабатывает) — пишем файл всё равно, тот же
     # принцип честной записи "нечего сообщить", что и у остальных отчётов.
     director_rel_path = os.path.join(VIDEO_FOLDER, "media_plan", "director_relevance_report.json")
-    director_rel_tmp = director_rel_path + ".tmp"
-    with open(director_rel_tmp, "w", encoding="utf-8") as f:
-        json.dump({"misses": DIRECTOR_RELEVANCE_MISSES}, f, ensure_ascii=False, indent=2)
-    os.replace(director_rel_tmp, director_rel_path)
+    merge_slot_report(director_rel_path, DIRECTOR_RELEVANCE_MISSES,
+                      resolved_slots=RESOLVED_SLOTS_THIS_RUN)
     if DIRECTOR_RELEVANCE_MISSES:
         print(f"  ВНИМАНИЕ: {len(DIRECTOR_RELEVANCE_MISSES)} слот(ов) — выбранный кадр семантически "
               f"слаб по РЕАЛЬНОМУ тексту блока (не по запросу) — см. "

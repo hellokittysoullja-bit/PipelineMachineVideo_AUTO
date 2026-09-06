@@ -79,6 +79,8 @@ FLAGS = {f.name: f for f in (
          summary="Наложение зерна: softlight (нативный, быстрый) / grainmerge / expr (прежняя формула, медленно)"),
     Flag("DELIVERY_PROFILE", "youtube", ("youtube", "archive", "hevc"),
          summary="Финальный проход: youtube (VBV-потолок 12 Мбит/с) / archive (без потолка) / hevc (libx265)"),
+    Flag("DOMAIN_GRADE_MODE", "on", ("off", "on"),
+         summary="Доменная модуляция грейда (DOMAIN_WARM_PUSH_SCALE) — теплота по содержанию кадра"),
     # --- булевы ---
     Flag("RENDER_STRICT_GATE", "1", aliases=(),
          summary="Не собирать final.mp4, если хоть один клип не принят"),
@@ -88,6 +90,29 @@ FLAGS = {f.name: f for f in (
          summary="Openverse (CC0 + институциональные источники) в ротации фото-источников"),
     Flag("STRESS_HINTS_ENABLED", "0",
          summary="Подсказки по ударению омографов в speech_plan_annotated.txt"),
+    # Семь флагов ниже жили как "магические" os.environ.get() мимо реестра
+    # (найдено разбором 04.09). Последствие было не косметическим: они не
+    # попадали в snapshot() -> media_plan/feature_flags.json, и по артефактам
+    # готового ролика нельзя было ответить на вопросы "была ли в нём музыка",
+    # "с каким грейдом он собран", "работал ли CLIP-гейт вообще". Ровно тот
+    # класс расхождения код-документация, ради которого реестр и заводился.
+    # ВАЖНО: у части из них к переменной окружения добавлено ещё и условие
+    # наличия ассета на диске (зерно, музыка, щелчки) — реестр отвечает только
+    # за окружение, условие файла остаётся на месте вызова.
+    Flag("GRAIN", "1",
+         summary="Плёночное зерно поверх кадра (нужен assets/grain/grain_loop.mp4)"),
+    Flag("DOF_BLUR", "1",
+         summary="Имитация глубины резкости в parallax_kenburns (только фото-параллакс)"),
+    Flag("CLIP_RELEVANCE", "1",
+         summary="CLIP-гейт релевантности/анахронизмов кандидата; off -> кадры не проверяются"),
+    Flag("MUSIC_BED", "1",
+         summary="Музыкальная подложка (нужен assets/music/ambient_bed*.flac)"),
+    Flag("VOICE_PROCESS", "1",
+         summary="Обработка голоса: highpass/EQ/де-эссер/компрессор перед миксом"),
+    Flag("TYPEWRITER_CLICKS", "1",
+         summary="Щелчки печатной машинки под stat-плашкой варианта 5 (нужны assets/sfx/keyboard_clicks/)"),
+    Flag("ON_SCREEN_TEXT", "1",
+         summary="Отрисовка титров/stat-плашек поверх кадра (текст сценария не трогается)"),
 )}
 
 _warned = set()
