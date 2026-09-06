@@ -742,7 +742,7 @@ def film_look(photo_hash, section="", brightness_bias=0.0, energy_bias=0.0, leve
 # на путь без зерна (безопасный откат, тот же принцип, что PARALLAX_LIBS).
 GRAIN_LOOP_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                 "assets", "grain", "grain_loop.mp4")
-GRAIN_ENABLED = feature_flags.enabled("GRAIN") and os.path.exists(GRAIN_LOOP_PATH)
+GRAIN_ENABLED = feature_flags.enabled("GRAIN_ENABLED") and os.path.exists(GRAIN_LOOP_PATH)
 # GRAIN_OPACITY — сила зерна в шкале ПРЕЖНЕЙ формулы all_expr (0.10 = та
 # калибровка, что была проверена вживую). Переопределяется из .env — это
 # ЕДИНСТВЕННЫЙ реальный рычаг размера файла помимо CRF: измерено 03.09 на
@@ -8893,6 +8893,21 @@ def render_recipe_signature():
             HOOK_KINETIC_CAPTIONS_ENABLED,
             CLIP_PIX_ARGS, COLOR_META_ARGS,
         )))
+        # KENBURNS_ADAPTIVE_CANVAS — УСЛОВНО, только когда флаг взведён.
+        # Почему не просто ещё одно поле в кортеже выше: при дефолте (=0)
+        # подпись обязана остаться байт-в-байт прежней, иначе сама эта
+        # правка инвалидировала бы весь прогретый temp_smart/ у каждого,
+        # кто флаг никогда не трогал — «апгрейд плюс перерендер», а не
+        # апгрейд. Почему вообще нужно: холст входит в crop=/zoompan и
+        # масштабирует амплитуду покачивания (WOBBLE_AMP_CANVAS_PX *
+        # kb_cw/8000, см. kenburns()) — то есть это часть рецепта, но
+        # значение берётся из ENV, а не из исходника kenburns(), и хэш
+        # исходника его не видит: включение флага на прогретом кэше молча
+        # смешало бы клипы с холстом 8000x4500 и 2880x1620 в одном ролике.
+        # Хэшируется реальный размер холста (не только факт флага) — смена
+        # KENBURNS_CANVAS_MARGIN при включённом флаге тоже меняет рецепт.
+        if KENBURNS_ADAPTIVE_CANVAS:
+            parts.append(repr(("KENBURNS_ADAPTIVE_CANVAS", _kenburns_canvas_size())))
     except Exception:
         return "recipe:unknown"
     return "recipe:" + hashlib.md5("".join(parts).encode()).hexdigest()[:10]

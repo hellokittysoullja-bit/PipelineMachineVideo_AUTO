@@ -152,14 +152,22 @@ def test_no_literal_default_left_in_code(name):
     документацией. Реестру себя читать можно."""
     import glob
     offenders = []
+    # Имя И его исторические псевдонимы: читать GRAIN напрямую — то же самое,
+    # что читать GRAIN_ENABLED напрямую, реестр обходится одинаково.
+    # Кавычки обе и os.environ[...] тоже — иначе у проверки остаётся дыра,
+    # через которую дефолт возвращается в код незамеченным.
+    watched = (name,) + ff.FLAGS[name].aliases
+    pattern = (r'os\.(?:environ\.get|getenv)\(\s*["\'](?:' + "|".join(watched) + r')["\']'
+               r'|os\.environ\[\s*["\'](?:' + "|".join(watched) + r')["\']')
     for path in glob.glob(os.path.join(SCRIPTS_DIR, "*.py")):
         if os.path.basename(path) == "feature_flags.py":
             continue
         src = io.open(path, encoding="utf-8").read()
-        if re.search(rf'os\.(environ\.get|getenv)\(\s*"{name}"', src):
+        if re.search(pattern, src):
             offenders.append(os.path.basename(path))
     assert not offenders, (
-        f"{name} читается мимо реестра в {offenders} — дефолт снова продублирован")
+        f"{name} (или псевдоним) читается мимо реестра в {offenders} — "
+        f"дефолт снова продублирован")
 
 
 def test_every_registered_flag_is_actually_read_somewhere():
@@ -234,3 +242,18 @@ def test_arbiter_participates_in_clip_cache_key(monkeypatch):
     monkeypatch.setenv("VLM_ARBITER_MODE", "off")
     assert ps.arbiter_cache_suffix("HOOK") == ""
     assert ps.arbiter_cache_suffix("BLOCK 1") == ""
+
+
+def test_alias_of_registered_flag_is_not_read_directly_anywhere():
+    """Псевдонимы существуют для чужих .env, а не для кода. Прямое чтение
+    GRAIN/DEFLICKER в скрипте вернуло бы литеральный дефолт и обошло реестр —
+    ровно тот механизм, которым дефолт когда-то разъехался с документацией."""
+    import glob
+    for name, spec in ff.FLAGS.items():
+        for alias in spec.aliases:
+            for path in glob.glob(os.path.join(SCRIPTS_DIR, "*.py")):
+                if os.path.basename(path) == "feature_flags.py":
+                    continue
+                src = io.open(path, encoding="utf-8").read()
+                assert not re.search(rf'os\.(?:environ\.get|getenv)\(\s*["\']{alias}["\']', src), (
+                    f"{os.path.basename(path)} читает псевдоним {alias} напрямую вместо {name}")
