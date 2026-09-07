@@ -114,6 +114,8 @@ FLAGS = {f.name: f for f in (
          summary="Музыкальная подложка (нужен assets/music/ambient_bed*.flac)"),
     Flag("MASTER_LIMITER", "1",
          summary="Лимитер в конце мастер-цепочки, после loudnorm (страховка по пикам)"),
+    Flag("FALLBACK_CARD", "1",
+         summary="Процедурная карточка вместо заведомо плохого кадра (отказ арбитра / пустой сток)"),
     Flag("VOICE_PROCESS", "1",
          summary="Обработка голоса: highpass/EQ/де-эссер/компрессор перед миксом"),
     Flag("TYPEWRITER_CLICKS", "1",

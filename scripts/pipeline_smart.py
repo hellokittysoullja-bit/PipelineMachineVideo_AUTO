@@ -3222,6 +3222,89 @@ STOCK_EXHAUSTED_MISSES = []   # [{"index", "kind", "query", "n_candidates_examin
 # детской бутылочкой уехал в хук на фразу про вес пакета молока.
 ARBITER_REJECTED_ALL = []   # [{"index", "kind", "query", "text", "n_candidates", "is_opening"}, ...]
 
+# --- Лестница фолбэков: уровень, который НЕ МОЖЕТ БЫТЬ НЕВЕРНЫМ ---
+# Подбор устроен как гейт, а не фильтр: провалил весь пул — побеждает "лучший
+# из плохих", слот всё равно заполняется (философия "слот не должен остаться
+# пустым", ЧАСТЬ 13). На опубликованном эпизоде это дало кадры, про которые
+# система УЖЕ ЗНАЛА, что они плохие: слот #13 отклонён relevance-гейтом, для
+# слота #5 арбитр явно ответил "ни один не подходит" — оба ушли зрителю.
+# Пока нет варианта, который не может быть "не про то", ужесточение гейтов
+# меняет только ИМЯ показанного брака. Карточка (scripts/fallback_card.py)
+# собирается из СОБСТВЕННЫХ слов диктора и изображения не содержит вовсе.
+FALLBACK_CARD_ENABLED = feature_flags.enabled("FALLBACK_CARD")
+# Бюджет плотности — В КОДЕ, а не в намерении. Подряд идущие карточки
+# читаются как сбой вёрстки, а не как приём; много карточек — как капитуляция
+# подбора. Обе цифры — потолок, а не цель: обычный эпизод не должен доходить
+# и до половины.
+FALLBACK_CARD_MAX_SHARE = 0.08   # не больше 8% слотов эпизода
+FALLBACK_CARD_MIN_GAP = 3        # минимум столько слотов между двумя карточками
+FALLBACK_CARD_SLOTS = []   # [{"index", "reason", "text", "card_text"}, ...]
+
+
+def _slot_known_bad_reason(index):
+    """Почему система САМА считает кадр этого слота негодным (или None).
+
+    Смотрит ровно те записи, которые подбор уже сделал в этом прогоне —
+    новых проверок не запускает и ничего не пересчитывает. Порядок причин —
+    по силе сигнала: отказ арбитра сильнее численного промаха порога.
+    """
+    if any(m["index"] == index for m in ARBITER_REJECTED_ALL):
+        return "arbiter_rejected_all"
+    if any(m["index"] == index for m in STOCK_EXHAUSTED_MISSES):
+        return "stock_exhausted"
+    if any(m["index"] == index for m in RELEVANCE_GATE_MISSES):
+        return "below_relevance_threshold"
+    return None
+
+
+def fallback_card_allowed(index, n_slots, is_opening=False):
+    """Пускает ли бюджет плотности поставить карточку на этот слот.
+
+    is_opening — САМЫЙ ПЕРВЫЙ кадр ролика: карточка там запрещена. Не из
+    осторожности: у зрителя есть меньше секунды решить, остаться или уйти
+    (ЧАСТЬ 9, «5 рычагов хука»), и текстовая заставка на открытии слабее
+    любого живого кадра — даже посредственного. В остальных слотах хука
+    карточка разрешена: там она заменяет уже признанный негодным кадр, и
+    честная типографика выигрывает у корейского дворца.
+    """
+    if not FALLBACK_CARD_ENABLED or is_opening:
+        return False
+    if len(FALLBACK_CARD_SLOTS) >= max(1, int(n_slots * FALLBACK_CARD_MAX_SHARE)):
+        return False
+    return all(abs(index - s["index"]) >= FALLBACK_CARD_MIN_GAP
+               for s in FALLBACK_CARD_SLOTS)
+
+
+def build_slot_fallback_card(index, block_text, reason):
+    """Собрать карточку для слота. Возвращает путь или None (fail-open).
+
+    Детерминизм важен не для красоты: путь и содержимое зависят только от
+    текста, поэтому повторный прогон не перерендеривает слот заново.
+    """
+    try:
+        import fallback_card
+        out_dir = os.path.join(TEMP_FOLDER, "fallback_cards")
+        h = hashlib.md5((block_text or "").encode("utf-8")).hexdigest()[:8]
+        out = os.path.join(out_dir, f"card_{index:04d}_{h}.png")
+        if os.path.exists(out) and os.path.getsize(out) > 0:
+            # Файл уже собран прошлым прогоном (содержимое детерминировано
+            # текстом) — надпись восстанавливаем тем же выбором, не рендерим
+            # картинку заново.
+            card_text = fallback_card.choose_card_text(block_text)[0]
+        else:
+            path, card_text = fallback_card.build_fallback_card(
+                block_text, out, font_path=FONT_PATH)
+            if not path:
+                return None
+        FALLBACK_CARD_SLOTS.append({"index": index, "reason": reason,
+                                    "text": block_text, "card_text": card_text})
+        print(f"  [карточка] слот {index}: «{card_text}» вместо кадра ({reason})")
+        return out
+    except Exception as e:
+        # Уровень «не может провалиться» не имеет права уронить рендер сам.
+        print(f"  ВНИМАНИЕ: карточка для слота {index} не собралась ({type(e).__name__})")
+        return None
+
 # Слоты, которые в ЭТОМ прогоне реально прошли подбор кандидата (а не были
 # отданы кэш-хитом клипа). Нужен для merge_slot_report(): только про эти слоты
 # текущий прогон вправе что-то утверждать.
@@ -6779,6 +6862,12 @@ def _selection_stack_signature():
         FAST_MODE_START_INDEX, FAST_DIRECTOR_MIN_POOL, FAST_PHOTO_DEDUP_MAX_TRIES,
         VIDEO_RELEVANCE_MAX_TRIES, VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP,
         FAST_VIDEO_RELEVANCE_MAX_TRIES, FAST_VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP,
+        # Лестница фолбэков меняет то, ЧТО реально окажется в слоте, а не
+        # только то, как выбирается кандидат. Ключ клипа считается ДО
+        # резолва медиа, поэтому без флага здесь включение карточек не
+        # доходило бы до экрана на прогретом temp_smart/ вообще.
+        feature_flags.enabled("FALLBACK_CARD"),
+        FALLBACK_CARD_MAX_SHARE, FALLBACK_CARD_MIN_GAP,
     ))
 
 
@@ -10146,11 +10235,32 @@ def main():
             # только если API реально отвалился.
             if not photo and not video and PEXELS_BROKEN:
                 use_pexels = False
+        # ЛЕСТНИЦА ФОЛБЭКОВ, уровень «не может быть неверным» (см.
+        # _slot_known_bad_reason/fallback_card.py). Слот заполнен, но система
+        # САМА только что записала, что кадр негодный: арбитр отказал, сток
+        # исчерпан или победитель ниже порога релевантности. Раньше это
+        # оставалось строчкой в отчёте, а зрителю показывали «лучшего из
+        # плохих» — так в опубликованный эпизод попали и младенец с
+        # бутылочкой, и улица Барселоны с туристом.
+        if (photo or video) and not locked_shot:
+            bad_reason = _slot_known_bad_reason(i)
+            if bad_reason and fallback_card_allowed(i, len(blocks),
+                                                     is_opening=is_opening_shot):
+                card = build_slot_fallback_card(i, b["text"], bad_reason)
+                if card:
+                    photo, video = card, None
         if not photo and not video:
             # Последняя попытка: локальная папка ПО КРУГУ. Повтор картинки
             # хуже свежего кадра, но несравнимо лучше пропущенного блока
             # (тот при RENDER_STRICT_GATE=1 останавливает всю сборку).
             photo = local_photo(i, allow_cycle=True)
+        if not photo and not video:
+            # Медиа нет вообще. Раньше блок просто выпадал из ролика (а при
+            # RENDER_STRICT_GATE=1 — останавливал всю сборку). Карточка здесь
+            # сильнее любого повтора: она про эту самую фразу.
+            card = build_slot_fallback_card(i, b["text"], "no_media_at_all")
+            if card:
+                photo = card
         if not photo and not video:
             print(f"  [{i+1}] нет медиа")
             missing.append(i + 1)
@@ -10552,6 +10662,21 @@ def main():
               f"ответил «ни один кандидат не подходит», и слот всё равно заполнен выбором "
               f"эмбеддинга — см. media_plan/arbiter_rejected_report.json. Это не «порог не "
               f"взят», а прямой отказ более сильного судьи: кадр надо заменить, а не сверять.")
+
+    # FALLBACK_CARD_SLOTS — где вместо кадра стоит процедурная карточка.
+    # Это НЕ повод для тревоги сам по себе (карточка честнее заведомо
+    # плохого кадра), но повод посмотреть: много карточек = сток по этой
+    # теме исчерпан, нужны архивы или AI-картинки (Шаг 5).
+    fallback_cards_path = os.path.join(VIDEO_FOLDER, "media_plan",
+                                        "fallback_cards_report.json")
+    merge_slot_report(fallback_cards_path, FALLBACK_CARD_SLOTS,
+                      resolved_slots=RESOLVED_SLOTS_THIS_RUN)
+    if FALLBACK_CARD_SLOTS:
+        idxs = [m["index"] for m in FALLBACK_CARD_SLOTS]
+        print(f"  {len(FALLBACK_CARD_SLOTS)} слот(ов) {idxs} заполнены процедурной "
+              f"карточкой вместо кадра — см. media_plan/fallback_cards_report.json. "
+              f"Это осознанная замена заведомо плохого кадра, но если карточек много — "
+              f"стоку по этой теме нечего предложить: нужны архивы или AI-картинки (Шаг 5).")
 
     # RENDER_QC_REPORT — см. render_sharpness_regression()/RENDER_SHARPNESS_
     # DROP_RATIO выше: клипы, где ГОТОВЫЙ рендер ощутимо размытее своего же
