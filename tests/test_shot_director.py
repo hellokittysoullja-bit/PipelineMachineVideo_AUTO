@@ -409,13 +409,85 @@ def test_arbiter_successful_call_returns_chosen_path_and_writes_cache(monkeypatc
     assert os.path.exists(cache_file)
 
 
-def test_arbiter_zero_choice_means_none_good_returns_none(monkeypatch, tmp_path):
+def test_arbiter_zero_choice_is_an_explicit_refusal_not_silence(monkeypatch, tmp_path):
+    """choice=0 — «ни один не подходит» — обязан отличаться от «арбитра не было».
+
+    Раньше этот тест требовал ровно None, то есть закреплял тот самый баг.
+    РЕАЛЬНЫЕ последствия (найдены 07.09 в media_plan/shot_director_cache/
+    опубликованного эпизода): для фразы «Не вставай никуда. Просто вспомни,
+    сколько весит пакет молока...» модель вернула choice=0 по трём
+    кандидатам. Ответ превращался в None, вызывающий код читал None как
+    «остаться на выборе эмбеддинга» — и в хук ушёл кадр с младенцем и
+    детской бутылочкой. Вердикт эксперта «нет» и отсутствие эксперта не
+    имеют права быть одним значением.
+    """
     monkeypatch.setenv("VLM_ARBITER_MODE", "on")
     paths = _make_images(tmp_path, 2)
     payload = _fake_arbiter_payload(0)
     monkeypatch.setattr(sd.urllib.request, "urlopen",
                          lambda req, timeout=None: _FakeHTTPResponse(payload))
-    assert sd.arbitrate_hook_candidates("Текст.", paths, [1, 2], str(tmp_path)) is None
+    result = sd.arbitrate_hook_candidates("Текст.", paths, [1, 2], str(tmp_path))
+    assert result is sd.NO_CANDIDATE_FITS
+    assert result is not None, "отказ модели снова неотличим от её отсутствия"
+    assert result not in paths, "отказ не имеет права выглядеть как путь к кадру"
+
+
+def test_refusal_is_falsy_so_naive_checks_do_not_ship_it_as_a_frame(monkeypatch, tmp_path):
+    """Страховка от кода, который забудет отдельную ветку.
+
+    `if pick:` должно читаться как «кандидата нет», а не как «есть объект».
+    """
+    assert not sd.NO_CANDIDATE_FITS
+    assert repr(sd.NO_CANDIDATE_FITS) == "NO_CANDIDATE_FITS"
+
+
+def test_cached_refusal_also_survives_as_a_refusal(monkeypatch, tmp_path):
+    """Отказ, взятый из кэша, обязан остаться отказом, а не стать None.
+
+    Кэш переживает прогоны, и именно из кэша читается вердикт при повторной
+    сборке эпизода — потерять смысл на этом пути значило бы починить только
+    первый прогон.
+    """
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    monkeypatch.setenv("GEMINI_API_KEY", "dummy")
+    paths = _make_images(tmp_path, 2)
+    payload = _fake_arbiter_payload(0)
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(payload))
+    args = ("Текст.", paths, [1, 2], str(tmp_path))
+    assert sd.arbitrate_hook_candidates(*args) is sd.NO_CANDIDATE_FITS
+
+    def _boom(*a, **kw):
+        raise AssertionError("сеть не должна дёргаться на кэш-хите")
+
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    assert sd.arbitrate_hook_candidates(*args) is sd.NO_CANDIDATE_FITS
+
+
+def test_resolve_choice_has_three_outcomes_not_two():
+    paths = ["a.jpg", "b.jpg", "c.jpg"]
+    assert sd._resolve_choice(2, paths) == "b.jpg"
+    assert sd._resolve_choice(0, paths) is sd.NO_CANDIDATE_FITS
+    for garbage in (None, "2", 4, -1, 2.0):
+        assert sd._resolve_choice(garbage, paths) is None, garbage
+    # bool — тоже int в Python: False == 0 не имеет права стать «отказом».
+    assert sd._resolve_choice(False, paths) is None
+    assert sd._resolve_choice(True, paths) is None
+
+
+def test_prompt_text_is_part_of_the_verdict_cache_key(monkeypatch, tmp_path):
+    """Переписал промпт — старые вердикты не наследуются молча.
+
+    Кэш вердиктов живёт в папке эпизода и переживает прогоны. Без подписи
+    промпта в ключе правка КРИТЕРИЯ отбора не доходила бы до экрана вообще:
+    вопрос новый, ответ подставляется старый.
+    """
+    before = sd._arbiter_cache_path(str(tmp_path), "Текст.", [1, 2])
+    monkeypatch.setattr(sd, "_ARBITER_PROMPT_SIG", None)
+    monkeypatch.setattr(sd, "_ARBITER_PROMPT_TEMPLATE",
+                        sd._ARBITER_PROMPT_TEMPLATE + " (уточнение критерия)")
+    after = sd._arbiter_cache_path(str(tmp_path), "Текст.", [1, 2])
+    assert before != after
 
 
 def test_arbiter_cache_hit_skips_network_entirely(monkeypatch, tmp_path):

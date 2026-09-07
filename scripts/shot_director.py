@@ -447,6 +447,26 @@ def _call_gemini_vision(prompt, image_paths, api_key):
     return _extract_choice(raw, len(image_paths))
 
 
+_ARBITER_PROMPT_SIG = None
+
+
+def _arbiter_prompt_signature():
+    """Короткий хэш обоих промптов арбитра + имени модели.
+
+    Входит в ключ кэша вердиктов (см. _arbiter_cache_path): вердикт «картинка
+    2» осмыслен только вместе с вопросом, на который он отвечал, и с моделью,
+    которая отвечала. Тот же принцип, что candidate_gate_signature() в
+    pipeline_smart.py — подпись считается по реальному содержимому, а не по
+    вручную поддерживаемому номеру версии.
+    """
+    global _ARBITER_PROMPT_SIG
+    if _ARBITER_PROMPT_SIG is None:
+        _ARBITER_PROMPT_SIG = hashlib.sha256(
+            (_ARBITER_PROMPT_TEMPLATE + "\x00" + _OPENING_ARBITER_PROMPT_TEMPLATE
+             + "\x00" + SHOT_DIRECTOR_MODEL).encode("utf-8")).hexdigest()[:10]
+    return _ARBITER_PROMPT_SIG
+
+
 def _arbiter_cache_path(video_dir, text, candidate_ids, is_opening=False):
     # candidate_ids в ПОРЯДКЕ (не sorted, в отличие от _atmo_cache_path) —
     # закэшированный choice это 1-based ИНДЕКС в этот порядок, менять
@@ -454,15 +474,74 @@ def _arbiter_cache_path(video_dir, text, candidate_ids, is_opening=False):
     # is_opening в ключе — тот же (text, candidates) в обычном промпте (по
     # смыслу) и в opening-промпте (по эффектности) может дать РАЗНЫЙ выбор,
     # это не взаимозаменяемые результаты.
+    #
+    # _arbiter_prompt_signature() — САМ ТЕКСТ промпта и имя модели. Без него
+    # переписанный промпт молча наследовал бы вердикты, вынесенные по
+    # старому: кэш переживает прогоны и живёт в репозитории эпизода, то есть
+    # правка критерия отбора не доходила бы до экрана вообще. Считается по
+    # реальному тексту шаблона, а не по вручную поднимаемому номеру версии —
+    # номер забывают поднять, хэш забыть невозможно.
     h = hashlib.sha256(
-        ("arbiter|" + ("opening|" if is_opening else "") + text + "|"
+        ("arbiter|" + _arbiter_prompt_signature() + "|"
+         + ("opening|" if is_opening else "") + text + "|"
          + "|".join(str(c) for c in candidate_ids)
          ).encode("utf-8")).hexdigest()[:24]
     return os.path.join(_cache_dir(video_dir), "arbiter_" + h + ".json")
 
 
+class _NoCandidateFits:
+    """Явный отказ модели: «ни одна картинка реально не подходит».
+
+    РЕАЛЬНЫЙ найденный случай (07.09), ради которого этот тип и заведён.
+    Промпт арбитра прямо разрешает ответить 0 — «если ни одна картинка
+    реально не подходит». В опубликованном эпизоде модель этим правом
+    воспользовалась: в media_plan/shot_director_cache/ лежит вердикт для
+    фразы «Не вставай никуда. Просто вспомни, сколько весит пакет молока...»
+    — candidate_ids [33508363, 4867362, 8285555], choice 0.
+
+    Но _resolve_choice() возвращала на этот ответ ровно тот же None, что и
+    на «режим off», «нет ключа», «лимит исчерпан», «сеть упала», «битый
+    JSON». А вызывающий код на None делает `if arbiter_pick is not None` —
+    то есть молча остаётся на выборе эмбеддинга. Система спросила эксперта,
+    получила «ни один не годится» — и показала зрителю кадр с младенцем и
+    детской бутылочкой в хуке.
+
+    Отдельный тип, а не None и не строка: он ДОЛЖЕН ломать наивное
+    `if pick is not None: winner = найти_по_пути(pick)` громко, на месте, а
+    не тихо превращаться в путь к файлу. Обработчик обязан быть написан
+    осознанно в каждой точке вызова.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self):
+        return "NO_CANDIDATE_FITS"
+
+    def __bool__(self):
+        # Отказ — это НЕ «подошло». Любая проверка на истинность обязана
+        # читать его как «кандидата нет», даже если автор кода забыл про
+        # отдельную ветку.
+        return False
+
+
+NO_CANDIDATE_FITS = _NoCandidateFits()
+
+
 def _resolve_choice(choice, candidate_paths):
-    if not isinstance(choice, int) or choice <= 0 or choice > len(candidate_paths):
+    """Ответ модели -> путь победителя, NO_CANDIDATE_FITS или None.
+
+    Три исхода, а не два (см. _NoCandidateFits):
+      * путь из candidate_paths — модель выбрала кандидата;
+      * NO_CANDIDATE_FITS — модель ЯВНО ответила 0 («ни один не подходит»);
+      * None — ответа по существу нет (мусор, выход за диапазон).
+    """
+    # bool исключается явно: True/False — это int в Python, и False == 0
+    # молча превратился бы в «модель отказалась», хотя это просто мусор.
+    if not isinstance(choice, int) or isinstance(choice, bool):
+        return None
+    if choice == 0:
+        return NO_CANDIDATE_FITS
+    if choice < 0 or choice > len(candidate_paths):
         return None
     return candidate_paths[choice - 1]
 
@@ -486,13 +565,23 @@ def arbitrate_hook_candidates(text, candidate_paths, candidate_ids, video_dir, i
     и ключ кэша (тот же кандидат в обычном слоте и на открытии — разные
     решения, кэш не должен их путать).
 
-    Возвращает путь ИЗ candidate_paths (не индекс) — победивший кандидат,
-    либо None: режим off / нет ключа / лимит вызовов исчерпан / кандидатов
-    меньше 2 (нечего арбитрировать) / ошибка сети/парсинга / модель
-    вернула 0 ("ни один не подходит"). ЛЮБОЙ None — вызывающий код обязан
-    остаться на уже вычисленном (director/base) победителе, не на пустом
-    слоте — тот же fail-open принцип, что у direct_query()/
-    enrich_atmospheric_queries()."""
+    ТРИ исхода, а не два (см. _NoCandidateFits — там разбор реального случая,
+    когда их смешение отправило в хук кадр с младенцем):
+
+      * путь ИЗ candidate_paths (не индекс) — модель выбрала кандидата;
+      * NO_CANDIDATE_FITS — модель ЯВНО ответила «ни один не подходит».
+        Это ЗНАНИЕ, а не отсутствие ответа: вызывающий код обязан обработать
+        его отдельно (эскалация на лестницу фолбэков), а не молча оставить
+        выбор эмбеддинга;
+      * None — арбитра фактически не было: режим off / нет ключа / лимит
+        вызовов исчерпан / кандидатов меньше 2 / ошибка сети или парсинга.
+        Здесь и только здесь действует прежний fail-open: остаёмся на уже
+        вычисленном (director/base) победителе — тот же принцип, что у
+        direct_query()/enrich_atmospheric_queries().
+
+    Разница практическая: None означает «я не знаю», NO_CANDIDATE_FITS —
+    «я посмотрел и говорю нет». Обращаться с ними одинаково значит
+    выбрасывать единственное сильное суждение, которое в системе есть."""
     global _calls_made
     if feature_flags.mode("VLM_ARBITER_MODE") != "on":
         return None

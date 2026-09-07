@@ -3212,6 +3212,16 @@ DIRECTOR_RELEVANCE_MISSES = []   # [{"index", "text", "photo", "relevance", "thr
 # более серьёзный случай видимым отдельно от обычного relevance-промаха.
 STOCK_EXHAUSTED_MISSES = []   # [{"index", "kind", "query", "n_candidates_examined"}, ...]
 
+# Слоты, где VLM-арбитр ЯВНО ответил "ни один из кандидатов не подходит"
+# (shot_director.NO_CANDIDATE_FITS). Сильнее любого численного промаха выше:
+# RELEVANCE_GATE_MISSES говорит "порог не взят", а это — "смотрел человекоподобный
+# судья и сказал нет". Реальный случай, ради которого список заведён (07.09):
+# в опубликованном эпизоде такой вердикт существовал, лежал в кэше
+# (media_plan/shot_director_cache/, choice: 0) и был выброшен по дороге, потому
+# что превращался в тот же None, что "арбитра не было" — кадр с младенцем и
+# детской бутылочкой уехал в хук на фразу про вес пакета молока.
+ARBITER_REJECTED_ALL = []   # [{"index", "kind", "query", "text", "n_candidates", "is_opening"}, ...]
+
 # Слоты, которые в ЭТОМ прогоне реально прошли подбор кандидата (а не были
 # отданы кэш-хитом клипа). Нужен для merge_slot_report(): только про эти слоты
 # текущий прогон вправе что-то утверждать.
@@ -4174,7 +4184,22 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                     arbiter_pick = shot_director.arbitrate_hook_candidates(
                         arbiter_text, [c["path"] for c in shortlist],
                         [c["p"].get("id") for c in shortlist], VIDEO_FOLDER, is_opening=is_opening_shot)
-                    if arbiter_pick is not None:
+                    if arbiter_pick is shot_director.NO_CANDIDATE_FITS:
+                        # Модель посмотрела шорт-лист и сказала «ни один не
+                        # подходит». Это ЗНАНИЕ, а не отсутствие ответа (см.
+                        # shot_director._NoCandidateFits): раньше оно было
+                        # неотличимо от «арбитра не было» и молча терялось —
+                        # так в хук опубликованного ролика попал младенец с
+                        # бутылочкой на фразу про вес пакета молока.
+                        ARBITER_REJECTED_ALL.append({
+                            "index": index, "kind": "photo", "query": query,
+                            "text": arbiter_text,
+                            "n_candidates": len(shortlist),
+                            "is_opening": bool(is_opening_shot),
+                        })
+                        print(f"  [арбитр] слот {index}: ни один из {len(shortlist)} кандидатов "
+                              f"не подходит под «{(arbiter_text or '')[:50]}»")
+                    elif arbiter_pick is not None:
                         winner = next(c for c in shortlist if c["path"] == arbiter_pick)
                         chosen_by = "arbiter"
             if winner is not None and not winner["is_relevant"]:
@@ -8185,10 +8210,26 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                         arbiter_pick = shot_director.arbitrate_hook_candidates(
                             arbiter_text, [p for _, p, _ in probes],
                             [g[3] for g, _, _ in probes], VIDEO_FOLDER, is_opening=is_opening_shot)
+                    # Проверка на None ПЕРВОЙ, а не сравнение с сентинелом:
+                    # shot_director импортируется выше внутри `if len(probes)
+                    # >= 2`, и при коротком шорт-листе имени в скоупе нет —
+                    # обращение к нему уронило бы весь рендер NameError.
                     if arbiter_pick is not None:
-                        match = next((g for g, p, _ in probes if p == arbiter_pick), None)
-                        if match is not None:
-                            best = match
+                        if arbiter_pick is shot_director.NO_CANDIDATE_FITS:
+                            # Тот же разбор, что на фото-пути выше: явный отказ
+                            # модели — знание, а не молчание. Раньше терялся.
+                            ARBITER_REJECTED_ALL.append({
+                                "index": index, "kind": "video", "query": query,
+                                "text": arbiter_text,
+                                "n_candidates": len(probes),
+                                "is_opening": bool(is_opening_shot),
+                            })
+                            print(f"  [арбитр] слот {index} (видео): ни один из {len(probes)} "
+                                  f"кандидатов не подходит под «{(arbiter_text or '')[:50]}»")
+                        else:
+                            match = next((g for g, p, _ in probes if p == arbiter_pick), None)
+                            if match is not None:
+                                best = match
                     for _, p, cleanup in probes:
                         if cleanup and os.path.exists(p):
                             try:
@@ -10496,6 +10537,22 @@ def main():
               f"исчерпан) — см. media_plan/stock_exhausted_report.json. Для этих слотов сток — "
               f"тупик, не проверка глазами: нужна AI-картинка/видео (Шаг 5) вместо стока.")
 
+    # ARBITER_REJECTED_ALL — самый сильный из сигналов о подборе: не «порог
+    # не взят» (число), а «модель посмотрела кандидатов и сказала: ни один
+    # не подходит». Пишется отдельным отчётом, потому что и реакция другая:
+    # численный промах — повод сверить глазами, отказ арбитра — повод
+    # заменить кадр, он уже проверен более сильным судьёй, чем косинус.
+    arbiter_rejected_path = os.path.join(VIDEO_FOLDER, "media_plan",
+                                          "arbiter_rejected_report.json")
+    merge_slot_report(arbiter_rejected_path, ARBITER_REJECTED_ALL,
+                      resolved_slots=RESOLVED_SLOTS_THIS_RUN)
+    if ARBITER_REJECTED_ALL:
+        idxs = [m["index"] for m in ARBITER_REJECTED_ALL]
+        print(f"  ВНИМАНИЕ: {len(ARBITER_REJECTED_ALL)} слот(ов) {idxs} — VLM-арбитр ЯВНО "
+              f"ответил «ни один кандидат не подходит», и слот всё равно заполнен выбором "
+              f"эмбеддинга — см. media_plan/arbiter_rejected_report.json. Это не «порог не "
+              f"взят», а прямой отказ более сильного судьи: кадр надо заменить, а не сверять.")
+
     # RENDER_QC_REPORT — см. render_sharpness_regression()/RENDER_SHARPNESS_
     # DROP_RATIO выше: клипы, где ГОТОВЫЙ рендер ощутимо размытее своего же
     # источника (реальный найденный случай — DOF-баг 27 августа). Advisory,
@@ -10862,8 +10919,16 @@ def main():
     # если мы вообще добрались сюда, pad_gap заведомо <= допуска, но мелкий
     # ненулевой остаток всё ещё стоит показать честно, не молчать про него.
     status += f" | заморозка в хвосте: {pad_gap:.2f}с (в пределах допуска)" if pad_gap > 0.1 else ""
+    # Явный отказ арбитра — тоже «собрано, но с замечаниями», и притом
+    # замечание сильнее дублей: там «две похожие пары, посмотри», здесь
+    # «судья сказал, что кадр не подходит, а он всё равно в ролике».
+    # Раньше такой слот не влиял на код возврата вообще — прогон
+    # заканчивался чистым нулём.
+    status += (f" | арбитр отклонил ВСЕХ кандидатов на {len(ARBITER_REJECTED_ALL)} слот(ах)"
+               if ARBITER_REJECTED_ALL else "")
     print(f"\nГОТОВО: {OUTPUT_FILE} ({mb:.0f} MB, {total/60:.1f} мин, {len(clips)} кадров){status}")
-    return EXIT_BUILT_WITH_WARNINGS if (missing or dupes) else EXIT_OK
+    return (EXIT_BUILT_WITH_WARNINGS
+            if (missing or dupes or ARBITER_REJECTED_ALL) else EXIT_OK)
 
 
 if __name__ == "__main__":
