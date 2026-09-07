@@ -2,16 +2,16 @@
  "schema_version": 1,
  "measured_at": "2026-09-07",
  "commit": "89f0a44",
- "note": "Базовая линия ДО любых правок подбора. Снята на золотом наборе из реальных кадров опубликованного эпизода 01_ves-mecha.",
+ "note": "Пол метрики. Обновлён 07.09 после контрастивного вето по ловушкам-негативам: пропуск брака 0.7647 -> 0.5882, анахронизмы 0.6364 -> 0.5455, ложный отказ годным остался ровно 0.0. Прошлые значения сохранены в previous_summary_* — так видно, что пол двигался только вниз по ошибкам и никогда вверх.",
  "summary": {
   "n_items": 40,
   "n_good": 16,
   "n_tolerable": 7,
   "n_reject": 17,
-  "reject_leak": 0.7647,
+  "reject_leak": 0.5882,
   "good_false_reject": 0.0,
-  "anachronism_leak": 0.6364,
-  "strict_leak": 0.75,
+  "anachronism_leak": 0.5455,
+  "strict_leak": 0.5417,
   "episode_good_rate": 0.4,
   "hook_good_rate": 0.0,
   "by_reason": {
@@ -22,18 +22,24 @@
    "unusable": 1
   },
   "leaked_by_reason": {
-   "wrong_subject": 4,
+   "wrong_subject": 3,
    "modern_intrusion": 4,
-   "non_european": 3,
-   "duplicate": 1,
-   "unusable": 1
+   "non_european": 2,
+   "duplicate": 1
   },
   "domain_guard_hits": 2,
   "n_candidates": 264,
-  "blocked_share": 0.0795,
-  "blocked_share_photo": 0.1591,
-  "blocked_share_video": 0.0,
+  "blocked_share": 0.2765,
+  "blocked_share_photo": 0.25,
+  "blocked_share_video": 0.303,
   "starved_queries": 0
  },
- "corpus_note": "Ось «отсеяно по тексту до скачивания» зафиксирована в состоянии ДО правки 07.09: filter_alt_blocklist() смотрела только в alt и вызывалась только из pexels_photo(). Отсюда blocked_share_video=0.0 — по видео фильтр не работал вообще, при том что половина слотов эпизода видео."
+ "corpus_note": "Ось «отсеяно по тексту до скачивания» зафиксирована в состоянии ДО правки 07.09: filter_alt_blocklist() смотрела только в alt и вызывалась только из pexels_photo(). Отсюда blocked_share_video=0.0 — по видео фильтр не работал вообще, при том что половина слотов эпизода видео.",
+ "previous_summary_2026-09-07-initial": {
+  "reject_leak": 0.7647,
+  "anachronism_leak": 0.6364,
+  "strict_leak": 0.75,
+  "good_false_reject": 0.0,
+  "blocked_share": 0.0795
+ }
 }

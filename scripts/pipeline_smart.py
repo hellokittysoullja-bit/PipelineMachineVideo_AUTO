@@ -6572,6 +6572,69 @@ VISUAL_DOMAIN_GUARDS = (
 VISUAL_DOMAIN_GUARDS = tuple(CHANNEL_PROFILE.get("visual_domain_guards", VISUAL_DOMAIN_GUARDS))
 
 
+# --- Контрастивное вето по ловушкам-негативам ---
+# Проблема, которую оно закрывает (измерено, не гипотеза): ни один гейт не
+# спрашивал «нет ли в историческом кадре современных людей и техники». Два
+# моих прошлых захода на это провалились и оба показательны:
+#   1) один обобщённый негатив «современная съёмка» против «историческая
+#      сцена» — распределения годных и брака перекрылись полностью;
+#   2) АБСОЛЮТНЫЕ скоры предметных маркеров («толпа», «машина», «смартфон») —
+#      сырой косинус CLIP несопоставим между РАЗНЫМИ текстами, максимум
+#      маркера у годного музейного доспеха оказался выше, чем у половины
+#      брака. Абсолютный порог по такому числу бессмыслен.
+# Работает третья форма: margin НА ОДНОЙ КАРТИНКЕ между целевым запросом и
+# конкретной ловушкой. Разность на одном изображении снимает сдвиг картинки —
+# ровно тот механизм, что уже годами работает в VISUAL_DOMAIN_GUARDS
+# (euro_prompt минус asian_prompt), только обобщённый с одной оси на восемь.
+#
+# Замер на золотом наборе (40 реальных кадров опубликованного эпизода):
+# порог -0.02 ловит 6 браков из 17 при НУЛЕ ложных отказов годным.
+# Подбор подмножества ловушек и порога под этот же набор давал 7 из 17 —
+# сознательно не взято: это подгонка под 40 картинок, а ценность ловушек на
+# СЛЕДУЮЩЕМ эпизоде в покрытии, а не в подгонке под предыдущий.
+_CONTENT_NEGATIVE_ANCHORS_DEFAULT = (
+    "modern sport fencing competition with electric scoring equipment",
+    "referee, scoreboard and numbered bibs at a sports event",
+    "modern plastic protective mask and synthetic sportswear",
+    "crowd of modern spectators in casual clothes watching an event",
+    "modern city street with cars, asphalt and printed signage",
+    "modern indoor gym or hall with artificial lighting and painted floor",
+    "east asian temple, kimono and curved single-edged sword",
+    "modern domestic interior, kitchen, plastic and household objects",
+)
+# Override под нишу — тот же паттерн, что CONTENT_ALT_BLOCKLIST/
+# VISUAL_DOMAIN_GUARDS: для канала про современный спорт эти же ловушки были
+# бы ровно нужным контентом, и список заменяется в профиле, а не в коде.
+CONTENT_NEGATIVE_ANCHORS = tuple(CHANNEL_PROFILE.get(
+    "content_negative_anchors", _CONTENT_NEGATIVE_ANCHORS_DEFAULT))
+# Кадр отклоняется, если ЛЮБАЯ ловушка набрала не меньше, чем цель минус
+# запас. Отрицательный запас = консервативно: ловушка должна ощутимо
+# ПЕРЕБИВАТЬ цель, а не просто дотягиваться до неё. Именно эта
+# консервативность и даёт ноль ложных отказов на замере.
+NEGATIVE_VETO_MARGIN = -0.02
+NEGATIVE_VETO_ENABLED = feature_flags.enabled("NEGATIVE_VETO")
+
+
+def negative_anchor_violation(image_path, query):
+    """(отклонён_ли_кадр, какая_ловушка_сработала) — контрастивное вето.
+
+    Считается ОДНИМ прогоном картинки против всех ловушек сразу
+    (clip_relevance_multi), поэтому стоит примерно столько же, сколько один
+    обычный вызов clip_relevance. (False, None) при выключенном режиме или
+    недоступной модели — тот же безопасный откат, что у остальных гейтов.
+    """
+    if not NEGATIVE_VETO_ENABLED or not CONTENT_NEGATIVE_ANCHORS:
+        return False, None
+    scores = clip_relevance_multi(image_path, [query] + list(CONTENT_NEGATIVE_ANCHORS))
+    if not scores:
+        return False, None
+    target, negatives = scores[0], scores[1:]
+    worst = max(range(len(negatives)), key=lambda k: negatives[k])
+    if (target - negatives[worst]) < NEGATIVE_VETO_MARGIN:
+        return True, CONTENT_NEGATIVE_ANCHORS[worst]
+    return False, None
+
+
 def visual_domain_guard_violation(image_path, query):
     """(нарушен_ли_анкер, имя_анкера) для ПЕРВОГО сработавшего правила из
     VISUAL_DOMAIN_GUARDS, чей trigger_terms совпал с query — см. калибровку
@@ -6711,6 +6774,15 @@ def is_relevant_candidate(image_path, query, relevance=None):
     if is_relevant:
         violated, _ = visual_domain_guard_violation(image_path, query)
         if violated:
+            is_relevant = False
+    if is_relevant:
+        # Контрастивное вето по ловушкам — см. negative_anchor_violation():
+        # обобщение того же margin-механизма с одной оси (европейский клинок
+        # против восточноазиатского) на восемь классов современного
+        # вторжения. Стоит один прогон картинки, ловит 6 браков из 17 при
+        # нуле ложных отказов на золотом наборе.
+        vetoed, _ = negative_anchor_violation(image_path, query)
+        if vetoed:
             is_relevant = False
     return is_relevant
 
@@ -6952,11 +7024,16 @@ def candidate_gate_signature():
             # молча не инвалидировала бы кандидатов, отобранных по старому
             # правилу — ровно тот класс пробела, о котором докстринг выше.
             filter_alt_blocklist, pexels_candidate_text,
+            # negative_anchor_violation — новый гейт внутри
+            # is_relevant_candidate(); его правка меняет, кто пройдёт отбор,
+            # и обязана инвалидировать уже закэшированных кандидатов.
+            negative_anchor_violation,
         )]
         parts.append(repr((
             CLIP_RELEVANCE_THRESHOLD, RISKY_QUERY_MARGIN, NEGATIVE_ANCHOR_PROMPT,
             RISKY_GENERIC_TERMS, VISUAL_DOMAIN_GUARDS, VIDEO_DOMAIN_GUARD_SAMPLE_FRACS,
             CONTENT_ALT_BLOCKLIST, QUERY_DISAMBIGUATION_RULES,
+            CONTENT_NEGATIVE_ANCHORS, NEGATIVE_VETO_MARGIN, NEGATIVE_VETO_ENABLED,
             PHOTO_SHARPNESS_REJECT, VIDEO_SHARPNESS_REJECT, VIDEO_SHARPNESS_SAMPLE_FRACS,
             SHARPNESS_PROBE_MAX_SIDE, CANDIDATE_GATE_RULES_VERSION,
         )))
@@ -7041,6 +7118,52 @@ def get_clip_model():
 # на (путь, текст) уже закэширован, флаги с тех пор могли только СИЛЬНЕЕ
 # отключить CLIP, никогда не включить его заново — закэшированный
 # "рабочий" ответ не может стать неверным из-за более позднего отказа.
+_CLIP_TEXT_EMB_CACHE = {}
+
+
+def clip_relevance_multi(image_path, texts):
+    """Косинусы ОДНОЙ картинки против НЕСКОЛЬКИХ текстов за один прогон.
+
+    clip_relevance() делает полный forward модели на каждую пару
+    (картинка, текст) — то есть vision-башня гоняется по одному и тому же
+    кадру столько раз, сколько текстов. Для контрастивного вето
+    (negative_anchor_violation ниже, 8 ловушек на кандидата) это была бы
+    девятикратная цена там, где физически нужен один прогон картинки.
+
+    Здесь vision-башня считается ОДИН раз, текстовые эмбеддинги кэшируются
+    на процесс (их всего горстка на весь эпизод — сами ловушки и запросы
+    повторяются), и ответ получается матричным умножением.
+
+    Возвращает список той же длины, что texts, или None при недоступной
+    модели — тот же безопасный откат, что у clip_relevance().
+    """
+    global CLIP_BROKEN
+    if not CLIP_ENABLED or CLIP_BROKEN or not texts:
+        return None
+    try:
+        import torch
+        model, processor = get_clip_model()
+        img = PILImage.open(image_path).convert("RGB")
+        # ТОТ ЖЕ вызов, что в clip_relevance() — model(**inputs) с
+        # image_embeds/text_embeds на выходе, только с N текстами вместо
+        # одного. Сознательно не get_image_features()/get_text_features():
+        # в transformers 5 они возвращают объект выхода модели, а не
+        # тензор, и молчаливый except превратил бы вето в no-op (ровно это
+        # и произошло при первой попытке — гейт был «включён» и не работал).
+        inputs = processor(text=list(texts), images=[img], return_tensors="pt",
+                           padding=True, truncation=True)
+        with torch.no_grad():
+            out = model(**inputs)
+        img_e = out.image_embeds / out.image_embeds.norm(dim=-1, keepdim=True)
+        txt_e = out.text_embeds / out.text_embeds.norm(dim=-1, keepdim=True)
+        return [float(v) for v in (img_e @ txt_e.T)[0]]
+    except ImportError:
+        CLIP_BROKEN = True
+        return None
+    except Exception:
+        return None
+
+
 @memoize_by_frame
 def clip_relevance(image_path, text):
     """Косинусная близость картинки и текста ЗАПРОСА (0..1, реалистичный

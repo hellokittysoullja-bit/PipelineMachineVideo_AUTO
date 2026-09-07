@@ -7,10 +7,10 @@
   "n_good": 16,
   "n_tolerable": 7,
   "n_reject": 17,
-  "reject_leak": 0.7647,
+  "reject_leak": 0.5882,
   "good_false_reject": 0.0,
-  "anachronism_leak": 0.6364,
-  "strict_leak": 0.75,
+  "anachronism_leak": 0.5455,
+  "strict_leak": 0.5417,
   "episode_good_rate": 0.4,
   "hook_good_rate": 0.0,
   "by_reason": {
@@ -21,11 +21,10 @@
    "unusable": 1
   },
   "leaked_by_reason": {
-   "wrong_subject": 4,
+   "wrong_subject": 3,
    "modern_intrusion": 4,
-   "non_european": 3,
-   "duplicate": 1,
-   "unusable": 1
+   "non_european": 2,
+   "duplicate": 1
   },
   "domain_guard_hits": 2,
   "n_candidates": 264,
@@ -97,7 +96,7 @@
    "anchor_margin": null,
    "anchor_margin_threshold": null,
    "domain_guard": null,
-   "gate_passed": true
+   "gate_passed": false
   },
   {
    "id": "ep01_004",
@@ -353,7 +352,7 @@
    "anchor_margin": null,
    "anchor_margin_threshold": null,
    "domain_guard": null,
-   "gate_passed": true
+   "gate_passed": false
   },
   {
    "id": "ep01_048",
@@ -385,7 +384,7 @@
    "anchor_margin": null,
    "anchor_margin_threshold": null,
    "domain_guard": null,
-   "gate_passed": true
+   "gate_passed": false
   },
   {
    "id": "ep01_062",
@@ -449,7 +448,7 @@
    "anchor_margin": 0.0894,
    "anchor_margin_threshold": 0.03,
    "domain_guard": null,
-   "gate_passed": true
+   "gate_passed": false
   },
   {
    "id": "ep01_090",
@@ -593,7 +592,7 @@
    "anchor_margin": null,
    "anchor_margin_threshold": null,
    "domain_guard": null,
-   "gate_passed": true
+   "gate_passed": false
   },
   {
    "id": "ep01_146",
@@ -679,8 +678,8 @@
  "baseline_diff": {
   "reject_leak": {
    "baseline": 0.7647,
-   "now": 0.7647,
-   "delta": 0.0,
+   "now": 0.5882,
+   "delta": -0.1765,
    "regressed": false
   },
   "good_false_reject": {
@@ -691,14 +690,14 @@
   },
   "anachronism_leak": {
    "baseline": 0.6364,
-   "now": 0.6364,
-   "delta": 0.0,
+   "now": 0.5455,
+   "delta": -0.0909,
    "regressed": false
   },
   "strict_leak": {
    "baseline": 0.75,
-   "now": 0.75,
-   "delta": 0.0,
+   "now": 0.5417,
+   "delta": -0.2083,
    "regressed": false
   },
   "episode_good_rate": {
