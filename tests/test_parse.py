@@ -2663,11 +2663,27 @@ def test_pexels_video_pools_all_section_queries(tmp_path, monkeypatch):
 
 
 def test_pexels_video_rejects_near_black_frame(tmp_path, monkeypatch):
+    # Кандидат опознаётся по маркеру ".trial_<id>." в пути пробника и по
+    # СОДЕРЖИМОМУ скачанного файла, а не по подстроке "1.mp4".
+    #
+    # Реальный случай (07.09): имя кэш-файла — "{index:04d}_{qhash}_{gate_sig}.mp4",
+    # где gate_sig — хэш подписи гейтов отбора. Когда подпись изменилась,
+    # хэш стал оканчиваться на "...381", и подстрока "1.mp4" внезапно нашлась
+    # В САМОМ ИМЕНИ КЭША. Тогда стаб measure_luma начал считать чёрными ОБА
+    # кандидата, а финальная проверка — сравнивать хэш вместо кандидата.
+    # Победивший файл переименовывается в кэш-имя, id в нём не остаётся
+    # вообще: проверка "1.mp4 нет в имени" не могла работать по замыслу
+    # никогда и проходила по совпадению.
     _fake_video_api(monkeypatch, {"european medieval sword close up": [1, 2]})
     monkeypatch.setattr(pipeline_smart, "PEXELS_API_KEY", "k")
     monkeypatch.setattr(pipeline_smart, "TEMP_FOLDER", str(tmp_path))
-    monkeypatch.setattr(pipeline_smart, "atomic_url_download",
-                        lambda req, dest, timeout=None: open(dest, "wb").write(b"x"))
+
+    def dl(req, dest, timeout=None):
+        # Пишем id кандидата в файл — единственный способ узнать победителя
+        # после того, как его переименовали в кэш-имя.
+        marker = "1" if ".trial_1." in dest else "2"
+        open(dest, "w").write(marker)
+    monkeypatch.setattr(pipeline_smart, "atomic_url_download", dl)
     monkeypatch.setattr(pipeline_smart, "extract_video_probe_frame",
                         lambda p, **kw: (p + ".jpg", False))
     monkeypatch.setattr(pipeline_smart, "is_relevant_candidate", lambda *a, **k: True)
@@ -2675,12 +2691,12 @@ def test_pexels_video_rejects_near_black_frame(tmp_path, monkeypatch):
     monkeypatch.setattr(pipeline_smart, "ahash", lambda p: 0)
     # Кандидат 1 — практически чёрный, 2 — нормальный.
     monkeypatch.setattr(pipeline_smart, "measure_luma",
-                        lambda p: 0.01 if "1.mp4" in p else 0.4)
+                        lambda p: 0.01 if ".trial_1." in p else 0.4)
     out = pipeline_smart.pexels_video(
         "medieval sword close up", 0, used_ids=set(), used_hashes=[],
         sentence_score_fn=lambda probe: 0.5)
     assert out is not None
-    assert "1.mp4" not in open(out, "rb").name
+    assert open(out).read() == "2", "победил практически чёрный кандидат"
 
 
 def test_pexels_video_prefers_readable_frame_over_slightly_better_meaning(tmp_path, monkeypatch):
@@ -2694,13 +2710,15 @@ def test_pexels_video_prefers_readable_frame_over_slightly_better_meaning(tmp_pa
     monkeypatch.setattr(pipeline_smart, "is_relevant_candidate", lambda *a, **k: True)
     monkeypatch.setattr(pipeline_smart, "video_domain_guard_violation", lambda *a, **k: (False, None))
     monkeypatch.setattr(pipeline_smart, "ahash", lambda p: 0)
-    lumas = {"1.mp4": 0.10, "2.mp4": 0.40}   # 1 тусклый, но «умнее» по смыслу
+    # Маркер ".trial_<id>." вместо "<id>.mp4" — см. разбор в тесте выше:
+    # "1.mp4" может случайно оказаться подстрокой хэша в имени кэш-файла.
+    lumas = {".trial_1.": 0.10, ".trial_2.": 0.40}   # 1 тусклый, но «умнее» по смыслу
     monkeypatch.setattr(pipeline_smart, "measure_luma",
                         lambda p: next(v for k, v in lumas.items() if k in p))
     captured = {}
 
     def score(probe):
-        return 0.95 if "1.mp4" in probe else 0.20
+        return 0.95 if ".trial_1." in probe else 0.20
     out = pipeline_smart.pexels_video(
         "medieval sword close up", 0, used_ids=set(), used_hashes=[],
         sentence_score_fn=score)

@@ -16,7 +16,8 @@
     "cultural festival", "video game icon",
     "reenactment", "reenactor", "medieval festival", "renaissance faire",
     "buhurt", "hema tournament", "combat sport", "full contact fighting",
-    "spectators watching", "crowd watching", "audience watching"
+    "spectators watching", "crowd watching", "audience watching",
+    "fencing", "fencer", "epee", "parade", "military wedding"
   ],
   "voice": {
     "highpass_hz": 80,

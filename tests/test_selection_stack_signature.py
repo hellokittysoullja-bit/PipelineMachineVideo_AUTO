@@ -126,3 +126,29 @@ def test_pool_size_constants_are_in_signature():
         assert str(const) in raw, (
             f"константа пула {const} не попала в _selection_stack_signature(): {raw}"
         )
+
+
+def test_clip_cache_key_contains_the_candidate_gate_signature():
+    """Подпись отбора обязана входить в ключ КЛИПА, а не только в имя файла
+    кандидата.
+
+    Реальный, найденный 04.09 остаток Фазы 0. Ключ клипа
+    (temp_smart/clip_NNNN_<params_hash>.mp4) содержал рецепт рендера, режимы
+    Look/Director и HOOK-only хвост арбитра, но НЕ подпись гейтов отбора. А
+    кэш-хит клипа делает `continue` ДО того, как кандидат переподбирается.
+    Следствие на прогретом temp_smart/: ужесточение гвардов, расширение
+    блоклиста или смена размера пула не доходили до экрана вообще — менялось
+    только имя файла в pexels_cache, а клип брался готовым, собранный по
+    старым правилам. Правка правил отбора оставалась записью в исходнике.
+
+    Проверяется по исходнику, а не по поведению: собрать ключ иначе как
+    прогнав main() нельзя, а полный рендер в тестах не запускают. Тот же
+    приём, что у test_exit_codes_stay_in_sync_across_consumers и
+    test_director_min_pool_stays_in_sync_across_modules.
+    """
+    src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"), encoding="utf-8").read()
+    start = src.index("cache_key = (")
+    block = src[start:src.index("params_hash = hashlib.md5(cache_key.encode())", start)]
+    assert "candidate_gate_signature()" in block, (
+        "ключ кэша клипа снова не содержит candidate_gate_signature() — "
+        "на прогретом кэше правки правил отбора не дойдут до экрана")

@@ -34,3 +34,16 @@ def _isolate_from_real_dotenv(monkeypatch):
     # GEMINI_API_KEY ниже всё равно пуст, арбитр fail-open выходит сразу.
     monkeypatch.delenv("VLM_ARBITER_MODE", raising=False)
     monkeypatch.setenv("GEMINI_API_KEY", "")
+
+
+def pytest_configure(config):
+    """Регистрация маркера `slow`.
+
+    Метрика по золотому набору (tests/test_golden_set_metric.py) прогоняет
+    реальный CLIP по 40 кадрам — это десятки секунд, а не миллисекунды.
+    Маркер нужен, чтобы такой прогон можно было исключить одной командой
+    (`pytest -m "not slow"`) при быстрой итерации, и чтобы pytest не ругался
+    на незарегистрированный маркер.
+    """
+    config.addinivalue_line(
+        "markers", "slow: живые ML-прогоны, десятки секунд и дольше")

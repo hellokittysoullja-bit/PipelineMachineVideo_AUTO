@@ -908,10 +908,31 @@ MUSIC_ENABLED = feature_flags.enabled("MUSIC_BED") and os.path.exists(MUSIC_BED_
 # приём, что в проф. монтаже: звук режется раньше картинки).
 MUSIC_JCUT_LEAD = 2.5
 MUSIC_MOOD_XFADE = 4.0   # кроссфейд между настроениями — медленный, подложка не должна "щёлкать" сменой
-# Доп. затухание ПОВЕРХ собственных -12dBFS ассета — фон должен быть заметно
-# тише голоса даже ДО сайдчейн-дакинга (дакинг — страховка на явных пиках
-# речи, не единственная линия обороны против "музыка спорит с закадром").
-MUSIC_BED_GAIN_DB = -13.0
+# Насколько подложка должна быть тише голоса ДО сайдчейн-дакинга (дакинг —
+# страховка на пиках речи, не единственная линия обороны против "музыка
+# спорит с закадром"). Это ЗАДУМАННЫЙ разрыв, а не готовое усиление:
+# реальное усиление считается под конкретный ассет, см. music_bed_gain_db().
+#
+# РЕАЛЬНЫЙ найденный баг (07.09, измерено ebur128 на живых файлах эпизода
+# 01_ves-mecha, не гипотеза). Здесь стояло глухое MUSIC_BED_GAIN_DB=-13.0, а
+# комментарий рядом обосновывал его "собственными -12dBFS ассета". -12 dBFS —
+# это ПИК ассета, а не его громкость: интегральная громкость
+# assets/music/ambient_bed.flac — -30.0 LUFS, голос эпизода — -16.0 LUFS.
+# То есть разрыв составлял 14 LU ЕЩЁ ДО применения -13 дБ, а после —
+# 27 LU вместо задуманных 16. Музыку в опубликованном ролике практически
+# не слышно, и никакой отчёт этого не показывал: loudnorm выравнивает микс
+# ЦЕЛИКОМ, поэтому итоговые -14 LUFS выглядели идеально при неслышимой
+# подложке. Число -13 было не "слишком тихо на вкус", а двойным учётом.
+MUSIC_BED_GAP_LU = 16.0
+# Запасное значение, если измерить громкость не удалось. Посчитано под
+# ТЕКУЩИЕ ассеты канала (-30.0 LUFS против -16.0 LUFS голоса): для другого
+# набора музыки оно снова будет неверным — ровно поэтому основной путь
+# меряет, а не берёт константу.
+MUSIC_BED_GAIN_DB = -2.0
+# Клэмп на вычисленное усиление: сорванное измерение (пустой/битый ассет
+# даёт -inf или -70 LUFS) иначе попросило бы +50 дБ и разнесло бы микс.
+# Границы намеренно широкие — они защищают от абсурда, а не подменяют расчёт.
+MUSIC_BED_GAIN_MIN_DB, MUSIC_BED_GAIN_MAX_DB = -30.0, 6.0
 # 2.8: "тишина как акцент" перед разоблачением мифа ([climax] в script.txt,
 # см. parse_blocks) — сайдчейн-дакинг реагирует только на громкость голоса
 # в моменте, разоблачение может звучать так же тихо, как остальной текст,
@@ -952,6 +973,26 @@ VOICE_EQ_PRESENCE_HZ, VOICE_EQ_PRESENCE_GAIN = 3000, 2.0
 VOICE_DEESS_INTENSITY = 0.3
 VOICE_COMPRESS_THRESHOLD = 0.15
 VOICE_COMPRESS_RATIO = 2.5
+
+# Лимитер в самом конце мастер-цепочки — последняя ступень, которую ставит
+# любой звукорежиссёр перед выдачей. Раньше её не было вообще: цепочка
+# заканчивалась loudnorm + afade, и единственной защитой от пиков был
+# TP-режим самого loudnorm. Он честно держит true peak, ПОКА линейного
+# усиления хватает; в остальных случаях ffmpeg уходит в динамический режим
+# и гарантия становится мягкой. Лимитер стоит копейки и делает потолок
+# безусловным — особенно теперь, когда подложка стала на 11 дБ громче
+# (см. MUSIC_BED_GAP_LU) и суммарные пики микса выросли.
+# level=disabled — критично: включённый auto-level поднял бы громкость
+# обратно и обнулил только что выставленный loudnorm.
+MASTER_LIMITER_ENABLED = feature_flags.enabled("MASTER_LIMITER")
+MASTER_LIMITER_ATTACK_MS = 5
+MASTER_LIMITER_RELEASE_MS = 50
+
+# Решение по уровню подложки за этот прогон — заполняется build_music_mix()
+# и уходит в media_plan/audio_master_report.json. Без него по готовому
+# ролику невозможно ответить "почему музыка звучит так, как звучит":
+# усиление больше не константа в исходнике, а результат измерения.
+MUSIC_BED_DECISION = None
 
 
 def grain_blend_complex(label_in, grain_input_idx, label_out, opacity_scale=1.0):
@@ -1266,6 +1307,64 @@ def measure_loudnorm_stats(audio_path, target_i=LOUDNORM_TARGET_I,
         return None
 
 
+def measure_integrated_lufs(audio_path):
+    """Интегральная громкость дорожки в LUFS (ebur128), None при сбое.
+
+    Отдельно от measure_loudnorm_stats(): та печатает сообщение про откат
+    финального мастеринга в однопроходный режим, которое к измерению уровня
+    подложки отношения не имеет и только путало бы лог. Таймаут — по той же
+    формуле от длительности, что и там (аудит 04.09: фиксированные 60 с
+    молча резали любой эпизод длиннее ~34 минут).
+    """
+    try:
+        r = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-nostats", "-i", audio_path,
+             "-af", "ebur128=framelog=quiet", "-f", "null", "-"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=max(120, int(_audio_len_for_timeout(audio_path) * 0.5)))
+        m = re.findall(r"I:\s*(-?[\d.]+)\s*LUFS", r.stderr)
+        return float(m[-1]) if m else None
+    except Exception:
+        return None
+
+
+def music_bed_gain_db(voice_path, music_path):
+    """Усиление подложки под ЭТОТ голос и ЭТОТ ассет: (дБ, чем обосновано).
+
+    Считается, а не берётся константой, потому что константа уже один раз
+    молча разошлась с реальностью (см. MUSIC_BED_GAP_LU выше: задумано 16 LU,
+    в опубликованном ролике вышло 27). Замена музыкального ассета или смена
+    движка озвучки сдвигает обе громкости независимо — единственный способ
+    удержать ЗАДУМАННЫЙ разрыв — измерить обе стороны на месте.
+
+    Разрыв считается по интегральной громкости (LUFS), а не по пикам:
+    слышимость подложки под речью определяется именно средней громкостью,
+    пик у тихого дрона может быть каким угодно.
+    """
+    voice_lufs = measure_integrated_lufs(voice_path)
+    music_lufs = measure_integrated_lufs(music_path)
+    detail = {"voice_lufs": voice_lufs, "music_lufs": music_lufs,
+              "target_gap_lu": MUSIC_BED_GAP_LU}
+    if voice_lufs is None or music_lufs is None:
+        detail.update(gain_db=MUSIC_BED_GAIN_DB, source="fallback_constant")
+        print(f"  ВНИМАНИЕ: громкость дорожек не измерилась — подложка идёт по "
+              f"запасной константе {MUSIC_BED_GAIN_DB} dB, задуманный разрыв "
+              f"{MUSIC_BED_GAP_LU:.0f} LU НЕ гарантирован")
+        return MUSIC_BED_GAIN_DB, detail
+    raw = voice_lufs - MUSIC_BED_GAP_LU - music_lufs
+    gain = max(MUSIC_BED_GAIN_MIN_DB, min(MUSIC_BED_GAIN_MAX_DB, raw))
+    detail.update(gain_db=round(gain, 2), raw_gain_db=round(raw, 2),
+                  source="measured", clamped=abs(gain - raw) > 1e-6)
+    if detail["clamped"]:
+        print(f"  ВНИМАНИЕ: расчётное усиление подложки {raw:+.1f} dB вышло за "
+              f"[{MUSIC_BED_GAIN_MIN_DB}, {MUSIC_BED_GAIN_MAX_DB}] — обрезано до "
+              f"{gain:+.1f} dB, разрыв будет не {MUSIC_BED_GAP_LU:.0f} LU")
+    else:
+        print(f"  Подложка: голос {voice_lufs:.1f} LUFS, музыка {music_lufs:.1f} LUFS "
+              f"-> усиление {gain:+.1f} dB (разрыв {MUSIC_BED_GAP_LU:.0f} LU)")
+    return gain, detail
+
+
 def process_voice(voice_path, out_path):
     """A6: обработка сырой TTS-дорожки перед миксом с музыкой — срез
     суб-баса, лёгкая тональная коррекция, деэссер, мягкая компрессия
@@ -1573,8 +1672,15 @@ def build_music_mix(voice_path, total_dur, out_path, hook_end=0.0, final_start=N
     dip_stage = f",volume=eval=frame:volume='{dip_expr}'" if dip_expr else ""
     swell_expr = _pause_swell_expr(pause_windows_real)
     swell_stage = f",volume=eval=frame:volume='{swell_expr}'" if swell_expr else ""
+    # Уровень подложки — под ЭТУ пару дорожек, не глухой константой:
+    # см. music_bed_gain_db()/MUSIC_BED_GAP_LU. Меряется собранный timeline
+    # (именно он подаётся на [1:a]), а не один исходный ассет — у склейки
+    # трёх настроений громкость своя.
+    global MUSIC_BED_DECISION
+    bed_gain, bed_detail = music_bed_gain_db(voice_path, timeline)
+    MUSIC_BED_DECISION = bed_detail
     filter_complex = (
-        f"[1:a]volume={MUSIC_BED_GAIN_DB}dB{dip_stage}{swell_stage}[music_raw];"
+        f"[1:a]volume={bed_gain}dB{dip_stage}{swell_stage}[music_raw];"
         f"[0:a]asplit=2[voice_main][voice_sc];"
         f"[music_raw][voice_sc]sidechaincompress=threshold={MUSIC_DUCK_THRESHOLD}:"
         f"ratio={MUSIC_DUCK_RATIO}:attack={MUSIC_DUCK_ATTACK_MS}:release={MUSIC_DUCK_RELEASE_MS}[music_ducked];"
@@ -3223,6 +3329,16 @@ _CONTENT_ALT_BLOCKLIST_DEFAULT = (
     "wuxia", "tai chi", "shogun", "ninja",
     "stormtrooper", "motorcycle helmet", "sci-fi costume", "tribal costume",
     "cultural festival", "video game icon",
+    # Добавлено 07.09 по ЖИВОЙ выдаче Pexels (655 кандидатов по 30 запросам
+    # опубликованного эпизода), а не по интуиции. "fencing"/"fencer"/"epee":
+    # 45 кандидатов — современное спортивное фехтование, приходящее по
+    # запросам вроде "medieval knight sword battle"; проверены все 45 слагов,
+    # забора-ограды среди них нет ни одного. "parade": все 13 — либо
+    # костюмированные фестивали, либо современная военная церемония, либо
+    # другая культура. Заметны эти кандидаты стали только после того, как
+    # фильтр научился читать слаг url (см. pexels_candidate_text) — у видео
+    # alt приходит пустым, и раньше их текста никто не видел.
+    "fencing", "fencer", "epee", "parade", "military wedding",
 )
 # Override из channel_profile.json (см. CHANNEL_PROFILE выше) — тот же
 # принцип, что MOOD_GRADE/VOICE_*: список выше — хардкод по умолчанию ЭТОГО
@@ -3232,14 +3348,50 @@ _CONTENT_ALT_BLOCKLIST_DEFAULT = (
 CONTENT_ALT_BLOCKLIST = tuple(CHANNEL_PROFILE.get("content_alt_blocklist", _CONTENT_ALT_BLOCKLIST_DEFAULT))
 
 
-def filter_alt_blocklist(photos):
-    """photos — список объектов Pexels /v1/search (см. pexels_photo). Убирает
-    кандидатов, чей alt однозначно сигналит не тот жанр (см.
+def pexels_candidate_text(item):
+    """Весь текст, который Pexels отдаёт про кандидата, одной строкой.
+
+    РЕАЛЬНАЯ находка (07.09, живой запрос к API, 655 кандидатов по 30
+    запросам этого эпизода): у ВИДЕО поля `alt` нет вообще (None), а `tags`
+    приходят пустыми — то есть текстового сигнала по видео как будто нет.
+    Но `url` у Pexels — человекочитаемый слаг, и он описывает содержимое
+    точнее любого alt:
+
+        .../video/roman-soldiers-historical-reenactment-event-38103939/
+        .../video/two-fencers-at-their-fighting-position-6537092/
+
+    Оба этих кандидата пришли по запросу "medieval knight sword battle", и
+    оба — ровно тот брак, на который жаловался владелец канала. Слово
+    "reenactment" в блоклисте канала СТОИТ с самого начала — просто никто
+    никогда не смотрел в слаг, а по видео не смотрел вообще никуда.
+    """
+    parts = [item.get("alt") or "", item.get("url") or ""]
+    tags = item.get("tags")
+    if isinstance(tags, (list, tuple)):
+        parts.extend(str(t) for t in tags)
+    text = " ".join(parts).lower()
+    # Слаг — дефисы вместо пробелов плюс числовой id в хвосте: без замены
+    # "historical-reenactment-event" не содержит подстроки "reenactment
+    # event", и половина многословных терминов блоклиста молча не сработает.
+    return re.sub(r"\s+", " ", re.sub(r"[-/_]+", " ", text)).strip()
+
+
+def filter_alt_blocklist(items):
+    """items — объекты Pexels /v1/search ИЛИ /videos/search. Убирает
+    кандидатов, чей текст однозначно сигналит не тот жанр (см.
     CONTENT_ALT_BLOCKLIST) — тихий no-op откат на исходный список, если
-    после фильтра ничего не осталось."""
-    filtered = [p for p in photos
-                if not any(term in (p.get("alt") or "").lower() for term in CONTENT_ALT_BLOCKLIST)]
-    return filtered or photos
+    после фильтра ничего не осталось.
+
+    Работает и для фото, и для видео. До 07.09 вызывалась РОВНО в одном
+    месте — внутри pexels_photo(); видео-путь не фильтровался ни разу, при
+    том что половина слотов эпизода — видео. Замер на живой выдаче по 30
+    запросам эпизода: старый вариант (только alt, только фото) отсекал 54
+    кандидата из 655, новый (слаг + видео) — 185, из них 96 видео, которые
+    раньше не проверялись вообще.
+    """
+    filtered = [p for p in items
+                if not any(term in pexels_candidate_text(p) for term in CONTENT_ALT_BLOCKLIST)]
+    return filtered or items
 
 
 # Реальный, подтверждённый случай (внешний аудит + прямая проверка на
@@ -4578,6 +4730,43 @@ def _cached_semantic_query_assignment(block_texts, queries):
         except Exception:
             pass
     return result
+
+
+def lint_authored_queries(authored_queries):
+    """Авторский запрос, который просит ровно то, что канал сам запрещает.
+
+    РЕАЛЬНЫЙ найденный случай (07.09), из-за которого этот линт и написан.
+    В script.txt эпизода 01_ves-mecha секция === PEXELS QUERIES === для
+    BLOCK_6 содержала "katana sword". Канал — про европейское Средневековье,
+    и "katana" стоит в его же content_alt_blocklist. Дальше
+    semantic_query_assignment() честно раздал этот запрос пяти блокам, где
+    о японских мечах нет ни слова ("Откуда я всё это знаю? Не из фильмов",
+    "типология, по которой мечи классифицируют до сих пор"), и система
+    добросовестно принесла то, что у неё попросили.
+
+    То есть часть брака в опубликованном ролике — не промах подбора, а
+    противоречие в самом сценарии, которое никто не мог увидеть: блоклист
+    работает по КАНДИДАТАМ и физически не смотрит на запросы. Линт стоит
+    ноль (сравнение строк), печатается один раз за прогон и ничего не
+    блокирует — решение, переписывать ли запрос, остаётся за автором.
+
+    Возвращает список (секция, запрос, термин) — для теста и отчёта.
+    """
+    hits = []
+    for section, pool in sorted((authored_queries or {}).items()):
+        for q in pool or []:
+            ql = (q or "").lower()
+            for term in CONTENT_ALT_BLOCKLIST:
+                if term in ql:
+                    hits.append((section, q, term))
+                    break
+    if hits:
+        print(f"  ВНИМАНИЕ: {len(hits)} авторских запросов противоречат "
+              f"блоклисту канала (channel_profile.json) — система принесёт "
+              f"именно то, что попросили, а гейты это же и отбракуют:")
+        for section, q, term in hits:
+            print(f"    {section}: «{q}» -> запрещённый термин «{term}»")
+    return hits
 
 
 def resolve_queries(blocks, authored_queries=None):
@@ -6640,6 +6829,15 @@ def candidate_gate_signature():
             # ретраями от вырожденного/чёрного) идёт на CLIP-проверку домена
             # и резкости — другой выбранный кадр даёт другой результат гейта.
             extract_video_probe_frame,
+            # filter_alt_blocklist/pexels_candidate_text — жанровый фильтр по
+            # ТЕКСТУ кандидата. Сам список терминов (CONTENT_ALT_BLOCKLIST)
+            # в подписи уже был, а логика его применения — нет: правка 07.09
+            # (читать слаг url, а не только alt, и применять фильтр к видео)
+            # изменила, КОГО отсеет тот же самый список, не тронув ни одной
+            # перечисленной ниже константы. Без этих двух строк такая правка
+            # молча не инвалидировала бы кандидатов, отобранных по старому
+            # правилу — ровно тот класс пробела, о котором докстринг выше.
+            filter_alt_blocklist, pexels_candidate_text,
         )]
         parts.append(repr((
             CLIP_RELEVANCE_THRESHOLD, RISKY_QUERY_MARGIN, NEGATIVE_ANCHOR_PROMPT,
@@ -7742,7 +7940,14 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
             # и не в relevance-скоринг, как и disambiguate_search_query().
             api_q = apply_action_qualifier(disambiguate_search_query(pq), action_qualifier)
             lst = []
-            for v in _pexels_search_videos(api_q):
+            # Тот же жанровый фильтр по тексту кандидата, что у фото. До
+            # 07.09 видео-путь не звал его НИ РАЗУ: filter_alt_blocklist()
+            # существовала только внутри pexels_photo(). Живой замер по 30
+            # запросам этого эпизода — 96 из 330 видео-кандидатов отсеиваются
+            # (спортивное фехтование, костюмированные фестивали,
+            # реконструкторские парады), и именно оттуда пришли кадры,
+            # на которые пожаловался владелец канала.
+            for v in filter_alt_blocklist(_pexels_search_videos(api_q)):
                 v = dict(v)
                 v["_origin_query"] = pq
                 lst.append(v)
@@ -8447,21 +8652,33 @@ def get_media_fps(path):
         return None
 
 
-def audio_qc(path):
-    """Технический QC дорожки ДО сборки — тот же принцип, что qc_report() для
+def audio_qc(path, label="Audio QC"):
+    """Технический QC дорожки — тот же принцип, что qc_report() для
     картинок: не блокирует, только честно докладывает брак, который иначе
     заметили бы только на слух постфактум (клиппинг, слишком тихо/громко,
     длинные участки мёртвой тишины помимо самих [pause] — забытый обрыв
     записи). Бесплатно — штатные ffmpeg-фильтры astats/silencedetect,
-    никакого нового API."""
+    никакого нового API.
+
+    Вызывается ДВАЖДЫ: на входном голосе (что нам дали) и на ГОТОВОМ
+    final.mp4 (что услышит зритель) — см. label. Долгое время проверялся
+    только вход, и вся мастер-цепочка (обработка голоса, подложка, дакинг,
+    loudnorm, лимитер) уходила к зрителю вообще без технической проверки:
+    обе реальные поломки музыки в этом проекте нашлись ручными замерами,
+    а не отчётом.
+    """
     try:
         r = subprocess.run(
             ["ffmpeg", "-nostats", "-i", path, "-af",
              "astats=reset=0,silencedetect=noise=-40dB:d=1.5", "-f", "null", "-"],
-            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            # Тот же класс, что чинил аудит 04.09 у measure_loudnorm_stats():
+            # фиксированные 120 с — это полный декод, на часовом эпизоде он
+            # не укладывается, и QC молча не выполнялся вообще.
+            timeout=max(120, int(_audio_len_for_timeout(path) * 0.5)))
         err = r.stderr
     except Exception as e:
-        print(f"  Audio QC: не удалось проверить ({e})")
+        print(f"  {label}: не удалось проверить ({e})")
         return
     warns = []
     m = re.search(r"Peak level dB:\s*(-?[\d.]+)", err)
@@ -8482,7 +8699,82 @@ def audio_qc(path):
                 warns.append(f"{ratio*100:.0f}% дорожки — тишина длиннее 1.5с (мёртвый воздух?)")
         except Exception:
             pass
-    print(f"Audio QC: {'; '.join(warns)}" if warns else "Audio QC: клиппинга/аномальной громкости не найдено")
+    print(f"{label}: {'; '.join(warns)}" if warns
+          else f"{label}: клиппинга/аномальной громкости не найдено")
+
+
+def build_master_af(loud_stats, fade_out_st, fade_in_sec):
+    """Мастер-цепочка финального прохода: loudnorm -> лимитер -> фейды.
+
+    Вынесено из main() отдельной функцией, чтобы порядок ступеней можно было
+    проверить тестом, а не только прочитать. Порядок здесь — не вкусовщина:
+
+    * лимитер ПОСЛЕ loudnorm — иначе loudnorm поднял бы уровень уже после
+      того, как потолок выставлен, и потолок перестал бы быть потолком;
+    * лимитер ПЕРЕД afade — afade только уменьшает уровень, так что на
+      результат он не влияет, но обратный порядок заставил бы лимитер
+      работать на затухающих хвостах, где он бесполезен;
+    * порог лимитера — та же константа LOUDNORM_TARGET_TP, что цель true
+      peak у loudnorm: две ступени не должны спорить о потолке.
+
+    loud_stats=None — первый проход не измерился, идём однопроходным
+    (динамическим) loudnorm; это уже существующий откат, лимитер в нём
+    тем более уместен.
+    """
+    base = f"loudnorm=I={LOUDNORM_TARGET_I}:TP={LOUDNORM_TARGET_TP}:LRA={LOUDNORM_TARGET_LRA}"
+    if loud_stats:
+        base += (f":linear=true:measured_I={loud_stats['input_i']}:"
+                 f"measured_TP={loud_stats['input_tp']}:"
+                 f"measured_LRA={loud_stats['input_lra']}:"
+                 f"measured_thresh={loud_stats['input_thresh']}:"
+                 f"offset={loud_stats['target_offset']}")
+    stages = [base]
+    if MASTER_LIMITER_ENABLED:
+        stages.append(f"alimiter=limit={LOUDNORM_TARGET_TP}dB:"
+                      f"attack={MASTER_LIMITER_ATTACK_MS}:"
+                      f"release={MASTER_LIMITER_RELEASE_MS}:level=disabled")
+    stages.append(f"afade=t=in:st=0:d={fade_in_sec}")
+    stages.append(f"afade=t=out:st={fade_out_st:.3f}:d=2")
+    return ",".join(stages)
+
+
+def write_audio_master_report(video_dir, final_lufs=None):
+    """media_plan/audio_master_report.json — чем собран звук этого ролика.
+
+    Ровно тот же принцип, что feature_flags.json для видео: по готовому
+    файлу должно быть можно ответить, какой была подложка и почему, а не
+    вспоминать. Особенно теперь, когда усиление подложки не константа в
+    исходнике, а результат измерения на месте (music_bed_gain_db()).
+    """
+    payload = {
+        "music_enabled": bool(MUSIC_ENABLED),
+        "bed": MUSIC_BED_DECISION,
+        "target_gap_lu": MUSIC_BED_GAP_LU,
+        "duck": {"threshold": MUSIC_DUCK_THRESHOLD, "ratio": MUSIC_DUCK_RATIO,
+                 "attack_ms": MUSIC_DUCK_ATTACK_MS, "release_ms": MUSIC_DUCK_RELEASE_MS},
+        "climax_dip_db": CLIMAX_DIP_DB,
+        "voice_process_enabled": bool(VOICE_PROCESS_ENABLED),
+        "limiter": ({"limit_db": LOUDNORM_TARGET_TP,
+                     "attack_ms": MASTER_LIMITER_ATTACK_MS,
+                     "release_ms": MASTER_LIMITER_RELEASE_MS}
+                    if MASTER_LIMITER_ENABLED else None),
+        "loudnorm": {"I": LOUDNORM_TARGET_I, "TP": LOUDNORM_TARGET_TP,
+                     "LRA": LOUDNORM_TARGET_LRA},
+        "final_lufs": final_lufs,
+    }
+    try:
+        path = os.path.join(video_dir, "media_plan", "audio_master_report.json")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, path)
+        return path
+    except Exception as e:
+        # Отчёт вспомогательный: потерять готовый ролик из-за него было бы
+        # хуже, чем остаться без него (тот же fail-open, что у sidecar).
+        print(f"  ВНИМАНИЕ: audio_master_report не записан ({type(e).__name__})")
+        return None
 
 
 @memoize_by_frame
@@ -9277,6 +9569,7 @@ def main():
     if authored_queries:
         print(f"  Авторские PEXELS QUERIES: {sum(len(v) for v in authored_queries.values())} "
               f"запрос(ов) на {len(authored_queries)} секци(й)")
+        lint_authored_queries(authored_queries)
     queries = resolve_queries(blocks, authored_queries=authored_queries)
     # Пул запросов СЕКЦИИ на каждый блок (см. extra_queries в pexels_photo).
     # Раньше авторские запросы раздавались блокам ПОЗИЦИОННО ПО КРУГУ
@@ -9597,10 +9890,20 @@ def main():
         # правка перерендерила бы весь кэш у всех. При включённом — меняются
         # только хук-клипы (единицы процентов эпизода), и это правильно: их
         # выбор кадра действительно мог стать другим.
+        # candidate_gate_signature() — правила ОТБОРА кандидата. Реальный,
+        # найденный 04.09 остаток Фазы 0: подпись отбора влияла только на
+        # ИМЯ файла в pexels_cache, а ключ клипа её не содержал — и кэш-хит
+        # клипа (ниже) делает continue ДО того, как кандидат вообще
+        # переподбирается. Следствие: ужесточение гвардов, расширение
+        # блоклиста или смена размера пула на прогретом temp_smart/ не
+        # доходили до экрана вообще: клип брался готовым, собранный по
+        # старым правилам. Честная цена этой строки — первый прогон после
+        # правки правил отбора перерендеривает эпизод целиком. Это и есть
+        # смысл: иначе правка правил отбора — просто запись в исходнике.
         cache_key = (
             f"{d:.3f}|{title}|{stat}|{stat_variant}|{b['section']}|{queries[i]}|{stat_delay:.3f}|"
             f"{captions}|{look_cache_sig}|{domain_cache_sig}|{director_cache_sig}|"
-            f"{arc_stage_for(b)}|{recipe_sig}|{lock_key}")
+            f"{arc_stage_for(b)}|{recipe_sig}|{lock_key}|{candidate_gate_signature()}")
         cache_key += arbiter_cache_suffix(b["section"])
         params_hash = hashlib.md5(cache_key.encode()).hexdigest()[:8]
         out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}_{params_hash}.mp4")
@@ -10437,15 +10740,7 @@ def main():
     # 100 мс и -5.6 дБ на 200 мс — хук начинается с нулевой секунды, первое
     # слово реальной озвучки глушилось. 50 мс достаточно против щелчка.
     AUDIO_FADE_IN_SEC = 0.05
-    if loud_stats:
-        af = (f"loudnorm=I={LOUDNORM_TARGET_I}:TP={LOUDNORM_TARGET_TP}:LRA={LOUDNORM_TARGET_LRA}:linear=true:"
-              f"measured_I={loud_stats['input_i']}:measured_TP={loud_stats['input_tp']}:"
-              f"measured_LRA={loud_stats['input_lra']}:measured_thresh={loud_stats['input_thresh']}:"
-              f"offset={loud_stats['target_offset']},"
-              f"afade=t=in:st=0:d={AUDIO_FADE_IN_SEC},afade=t=out:st={fade_out_st:.3f}:d=2")
-    else:
-        af = (f"loudnorm=I={LOUDNORM_TARGET_I}:TP={LOUDNORM_TARGET_TP}:LRA={LOUDNORM_TARGET_LRA},"
-              f"afade=t=in:st=0:d={AUDIO_FADE_IN_SEC},afade=t=out:st={fade_out_st:.3f}:d=2")
+    af = build_master_af(loud_stats, fade_out_st, AUDIO_FADE_IN_SEC)
     # Атомарная запись — тот же принцип, что render_tmp_path()/finalize_render()
     # у отдельных клипов (см. коммент там): final.mp4 — то, что пользователь
     # ФАКТИЧЕСКИ проверяет как "готово или нет". Обрыв ровно на этом финальном
@@ -10536,6 +10831,11 @@ def main():
         final_lufs = float(json.loads(fr.stderr[fs:fe])["input_i"])
     except Exception:
         pass
+    # QC того, что реально услышит зритель. Проверка входного голоса (выше,
+    # до сборки) не видит ничего, что делает мастер-цепочка: подложку, дакинг,
+    # loudnorm и лимитер. Именно там и жили обе найденные поломки звука.
+    audio_qc(OUTPUT_FILE, label="Audio QC финала")
+    write_audio_master_report(VIDEO_FOLDER, final_lufs)
     mb = os.path.getsize(OUTPUT_FILE) / (1024 * 1024)
     # Пропущенные кадры и раньше не останавливали сборку (стратегия
     # "лучше меньше клипов, чем сорванный рендер") — но раньше это тонуло
