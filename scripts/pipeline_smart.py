@@ -3620,6 +3620,32 @@ def _director_min_pool_for(index):
     return DIRECTOR_MIN_POOL if index < FAST_MODE_START_INDEX else FAST_DIRECTOR_MIN_POOL
 
 
+# Пол пула, НЕЗАВИСИМЫЙ от VISUAL_DIRECTOR_MODE. Реальный, найденный вживую
+# дефект связности (не дизайн): good_needed по умолчанию — 1 (или 2, если
+# передан target_luma, что в реальных вызовах из main() почти всегда так) —
+# поднимается до DIRECTOR_MIN_POOL ТОЛЬКО если передан director_score_fn,
+# а он строится только при VISUAL_DIRECTOR_MODE в (shadow, assist).
+# Дефолт реестра — "off". То есть при дефолтной конфигурации канала цикл
+# подбора фото останавливается на ПЕРВОМ кандидате, прошедшем все гейты
+# (дедуп, размер, relevance+вето+домен-гвард, резкость) — эстетике и
+# яркостной близости РЕАЛЬНО не из чего выбирать, и самый сильный локальный
+# судья (SigLIP2 sentence_relevance) вообще не вызывается.
+#
+# Это не то же самое, что DIRECTOR_MIN_POOL: тот расширяет пул под ДОРОГОЙ
+# ensemble-скоринг (SigLIP2+Jina, ~2.5-3с/кандидат) и остаётся личным
+# компромиссом Директора. Здесь пул расширяется под УЖЕ И ТАК считающиеся
+# для каждого кандидата дешёвые оси (aesthetic_score, luma, negative-veto,
+# relevance) — они каждый вызов CLIP ViT-B/32 на CPU (доли секунды), не
+# ensemble. Дать им реальную альтернативу для сравнения — расходы на
+# несколько лишних скачиваний и дешёвых CLIP-проходов, не на тяжёлую модель.
+BASE_MIN_POOL = 4
+FAST_BASE_MIN_POOL = 2   # тот же компромисс "быстрый хвост", что у Директора
+
+
+def _base_min_pool_for(index):
+    return BASE_MIN_POOL if index < FAST_MODE_START_INDEX else FAST_BASE_MIN_POOL
+
+
 def _photo_dedup_max_tries_for(index):
     return PHOTO_DEDUP_MAX_TRIES if index < FAST_MODE_START_INDEX else FAST_PHOTO_DEDUP_MAX_TRIES
 
@@ -3881,6 +3907,97 @@ def _pexels_search_photos(api_query):
     return photos
 
 
+_OPENVERSE_SEARCH_CACHE = {}   # {api_query: [candidate, ...]} — тот же принцип, что у Pexels выше
+
+
+def _openverse_search_photos(api_query):
+    """Выдача институциональных архивов (Met/Wikimedia/Rijksmuseum/...) в
+    ФОРМЕ PEXELS-КАНДИДАТА — чтобы конкурировать в ОДНОМ пуле с Pexels под
+    ОДНИМИ гейтами (relevance/вето/домен-гвард/резкость/дедуп), а не жить в
+    отдельном пре-фетч скрипте, который пайплайн не вызывает.
+
+    РЕАЛЬНЫЙ пробел, который это закрывает (найдено при разборе внешней
+    критики 07.09): `scripts/stock_fetch_multisource.py` реализует Openverse
+    полностью — институциональный белый список источников, fail-closed
+    проверка лицензии на каждый результат, манифест атрибуций — и
+    `OPENVERSE_ENABLED=1` даже включён в примере конфига. Но `pipeline_smart.py`
+    (реальный путь отбора эпизода) не вызывает этот код НИ РАЗУ: вклад
+    архивов в уже опубликованный эпизод — ровно ноль. Для видео это
+    особенно важно — там корпус Pexels на исторические темы объективно
+    тонкий (много спортивного фехтования, костюмированных фестивалей).
+
+    Переиспользует УЖЕ НАПИСАННУЮ и проверенную безопасность источника —
+    `stock_fetch_multisource._is_safe_openverse_license/_is_trusted_openverse_
+    source` (fail-closed: license=cc0 и источник из институционального
+    белого списка проверяются здесь ПОВТОРНО, не только фильтром в URL
+    запроса — тот же двойной слой, что уже есть в исходном модуле), не
+    копирует логику заново — расхождение между копиями было бы тихой дырой.
+
+    Нормализация в форму Pexels-кандидата: id -> "openverse:<id>" (чтобы не
+    столкнуться с числовыми ID Pexels в used_ids/дедупе), alt -> title,
+    url -> foreign_landing_url (для filter_alt_blocklist/pexels_candidate_text
+    — те же текстовые проверки жанра работают и здесь без переделки),
+    src.large2x -> прямая ссылка на изображение (то же поле, что download()
+    в pexels_photo() уже читает)."""
+    # Читаем реестр НАПРЯМУЮ, а не stock_fetch_multisource.OPENVERSE_ENABLED —
+    # тот кэшируется на импорте модуля (module-level константа), здесь же
+    # действует общий принцип реестра: режим читается в момент вызова, не на
+    # импорте, иначе monkeypatch в тестах и переключение флага между
+    # прогонами в одном процессе видели бы застывший снимок.
+    if not feature_flags.enabled("OPENVERSE_ENABLED"):
+        return []
+    if api_query in _OPENVERSE_SEARCH_CACHE:
+        return _OPENVERSE_SEARCH_CACHE[api_query]
+    try:
+        import stock_fetch_multisource as _ov
+        q = urllib.parse.quote(api_query)
+        url = ("https://api.openverse.org/v1/images/?q=" + q +
+               "&license=" + ",".join(sorted(_ov.OPENVERSE_SAFE_LICENSES)) +
+               "&source=" + ",".join(sorted(_ov.OPENVERSE_TRUSTED_SOURCES)) +
+               "&page_size=20&mature=false")
+        req = urllib.request.Request(url, headers={"User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            data = json.load(r)
+        results = []
+        for res in data.get("results") or []:
+            # Fail-closed, ПОВТОРНАЯ проверка — см. докстринг выше и
+            # докстринг самих функций в stock_fetch_multisource.py: URL-
+            # фильтр экономит трафик, но не гарантия при несогласованности
+            # API, и не покрывает смитсоновские подветки вообще.
+            if not _ov._is_safe_openverse_license(res):
+                continue
+            if not _ov._is_trusted_openverse_source(res):
+                continue
+            img_url = res.get("url")
+            if not img_url:
+                continue
+            results.append({
+                "id": f"openverse:{res.get('id')}",
+                "alt": res.get("title") or "",
+                "url": res.get("foreign_landing_url") or img_url,
+                "src": {"large2x": img_url},
+                # Провенанс — та же информация, что _log_openverse_manifest()
+                # уже пишет в pre-fetch пути, здесь нужна на случай, если
+                # кандидат победит и понадобится атрибуция/аудит источника.
+                "_openverse_meta": {
+                    "creator": res.get("creator"), "license": res.get("license"),
+                    "license_version": res.get("license_version"),
+                    "license_url": res.get("license_url"),
+                    "source": res.get("source"),
+                    "foreign_landing_url": res.get("foreign_landing_url"),
+                },
+            })
+        _OPENVERSE_SEARCH_CACHE[api_query] = results
+        return results
+    except Exception:
+        # Fail-open на уровне ИСТОЧНИКА — тот же принцип, что PEXELS_BROKEN:
+        # недоступный Openverse не должен ронять слот, у которого и так есть
+        # рабочий Pexels-путь. Пустой список — кандидатов из архива не будет
+        # в этом запросе, пул продолжает собираться из Pexels как раньше.
+        _OPENVERSE_SEARCH_CACHE[api_query] = []
+        return []
+
+
 def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=None, target_luma=None,
                   director_score_fn=None, director_assist=False, director_report=None,
                   extra_queries=None, text_key=None, arbiter_text=None, is_opening_shot=False):
@@ -4044,7 +4161,25 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
         per_query = []
         for pq in pool_queries:
             lst = []
-            for p in _pexels_search_photos(disambiguate_search_query(pq)):
+            api_q = disambiguate_search_query(pq)
+            # Openverse (институциональные архивы — Met/Wikimedia/Rijksmuseum/
+            # Europeana/Смитсоновский) — В ТОТ ЖЕ пул, ПЕРЕД Pexels. Реальный
+            # пробел (найдено 07.09): код написан и включён (OPENVERSE_ENABLED),
+            # но живой путь отбора его не вызывал ни разу, вклад в
+            # опубликованный эпизод — ноль. Архивы идут первыми не по
+            # приоритету победы (гейты и скоринг ниже те же для всех), а
+            # потому что квота Pexels (200/час) — реальное ограничение, а у
+            # Openverse его в этом коде нет: если архив уже дал релевантного
+            # кандидата, нет смысла тратить Pexels-вызов заранее — но сам
+            # ВЫЗОВ _pexels_search_photos всё равно происходит (кэш на
+            # процесс уже покрывал этот запрос на 9 из 10 повторных слотов),
+            # так что порядок здесь не экономит квоту, только определяет
+            # порядок в списке при равенстве скоров.
+            for p in _openverse_search_photos(api_q):
+                p = dict(p)
+                p["_origin_query"] = pq
+                lst.append(p)
+            for p in _pexels_search_photos(api_q):
                 # Из какого запроса кандидат пришёл — гейт релевантности ниже
                 # должен сверять его с ЕГО запросом, иначе кандидат из второго
                 # запроса секции сравнивался бы с чужим текстом и честно
@@ -4115,6 +4250,14 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             # а гейт (см. is_relevant ниже, часть условия break) — кандидат
             # без неё не считается "хорошим", даже если дубль-фри/размер ок.
             good_needed = 2 if target_luma is not None else 1
+            # Пол пула — НЕЗАВИСИМО от того, включён ли Director. Реальный
+            # дефект связности (см. BASE_MIN_POOL): без него good_needed
+            # оставался 1-2 при VISUAL_DIRECTOR_MODE=off (дефолт реестра), и
+            # aesthetic/luma/negative-veto решали между единственным
+            # прошедшим гейты кандидатом — сравнивать было физически не с
+            # чем. Это чистое расширение выбора дешёвыми, уже считающимися
+            # для каждого кандидата осями — не запускает ensemble-скоринг.
+            good_needed = max(good_needed, _base_min_pool_for(index))
             if director_score_fn is not None:
                 # Директору реально нужно из чего выбирать — иначе цикл
                 # часто останавливался бы на первом же прошедшем кандидате
@@ -6930,10 +7073,17 @@ def _selection_stack_signature():
     return "sel:" + repr((
         feature_flags.mode("VLM_ARBITER_MODE"),
         feature_flags.mode("VISUAL_DIRECTOR_MODE"),
-        DIRECTOR_MIN_POOL, PHOTO_DEDUP_MAX_TRIES,
+        DIRECTOR_MIN_POOL, PHOTO_DEDUP_MAX_TRIES, BASE_MIN_POOL, FAST_BASE_MIN_POOL,
         FAST_MODE_START_INDEX, FAST_DIRECTOR_MIN_POOL, FAST_PHOTO_DEDUP_MAX_TRIES,
         VIDEO_RELEVANCE_MAX_TRIES, VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP,
         FAST_VIDEO_RELEVANCE_MAX_TRIES, FAST_VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP,
+        # Openverse — НОВЫЙ ИСТОЧНИК кандидатов, конкурирующий с Pexels в том
+        # же пуле (см. _openverse_search_photos). Включение архивов меняет
+        # состав пула для уже закэшированного слота так же, как включение
+        # VLM-арбитра/Директора меняет то, кто в нём победит — без этого
+        # флага здесь переключение OPENVERSE_ENABLED на прогретом temp_smart/
+        # не доходило бы до экрана: победитель остался бы старым файлом.
+        feature_flags.enabled("OPENVERSE_ENABLED"),
         # Лестница фолбэков меняет то, ЧТО реально окажется в слоте, а не
         # только то, как выбирается кандидат. Ключ клипа считается ДО
         # резолва медиа, поэтому без флага здесь включение карточек не

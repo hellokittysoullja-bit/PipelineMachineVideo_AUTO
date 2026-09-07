@@ -677,9 +677,9 @@
  ],
  "baseline_diff": {
   "reject_leak": {
-   "baseline": 0.7647,
+   "baseline": 0.5882,
    "now": 0.5882,
-   "delta": -0.1765,
+   "delta": 0.0,
    "regressed": false
   },
   "good_false_reject": {
@@ -689,15 +689,15 @@
    "regressed": false
   },
   "anachronism_leak": {
-   "baseline": 0.6364,
+   "baseline": 0.5455,
    "now": 0.5455,
-   "delta": -0.0909,
+   "delta": 0.0,
    "regressed": false
   },
   "strict_leak": {
-   "baseline": 0.75,
+   "baseline": 0.5417,
    "now": 0.5417,
-   "delta": -0.2083,
+   "delta": 0.0,
    "regressed": false
   },
   "episode_good_rate": {
@@ -713,9 +713,9 @@
    "regressed": false
   },
   "blocked_share": {
-   "baseline": 0.0795,
+   "baseline": 0.2765,
    "now": 0.2765,
-   "delta": 0.197,
+   "delta": 0.0,
    "regressed": false
   },
   "starved_queries": {

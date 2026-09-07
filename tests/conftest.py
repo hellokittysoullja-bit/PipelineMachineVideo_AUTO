@@ -34,6 +34,18 @@ def _isolate_from_real_dotenv(monkeypatch):
     # GEMINI_API_KEY ниже всё равно пуст, арбитр fail-open выходит сразу.
     monkeypatch.delenv("VLM_ARBITER_MODE", raising=False)
     monkeypatch.setenv("GEMINI_API_KEY", "")
+    # OPENVERSE_ENABLED — тот же класс бага, найден живьём 07.09 при
+    # подключении Openverse к главному пути отбора. У этого канала в
+    # рабочем .env стоит OPENVERSE_ENABLED=1, и тест, который сам не
+    # выставляет режим (test_base_min_pool.py), тихо делал ЖИВОЙ сетевой
+    # запрос к api.openverse.org внутри юнит-теста — реальный кандидат из
+    # архива победил трёх поддельных кандидатов теста, и ассерт на "победил
+    # самый эстетичный из ЧЕТЫРЁХ" сломался на пятом, ниоткуда не взявшемся
+    # источнике. Дефолт реестра и так "0" — здесь только гасим то, что
+    # рабочая копия могла включить поверх дефолта, тем же принципом, что и
+    # GEMINI_API_KEY выше.
+    monkeypatch.delenv("OPENVERSE_ENABLED", raising=False)
+    monkeypatch.setenv("OPENVERSE_ENABLED", "0")
 
 
 def pytest_configure(config):
