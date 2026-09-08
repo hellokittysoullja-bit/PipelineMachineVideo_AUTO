@@ -244,6 +244,54 @@ JINA_IMG_STD = (0.26862954, 0.26130258, 0.27577711)   # preprocessor_config.json
                                                          # (тот же принцип, что уже
                                                          # применён к AutoModel выше)
 JINA_TEXT_MAX_LENGTH = 77
+
+# Честная видимость молчаливой обрезки текста по лимиту токенов модели.
+# Реальный, измеренный вживую случай (08.09): SIGLIP2_MAX_TEXT_LENGTH=64
+# токена — жёсткий предел ТЕКСТОВОЙ БАШНИ модели (max_position_embeddings),
+# не настраиваемый параметр. semantic_context_text()/sentence_relevance()
+# (pipeline_smart.py) передают сюда полную фразу блока (иногда с соседней —
+# см. её докстринг), а processor(padding="max_length", max_length=64) молча
+# ОБРЕЗАЕТ всё, что не влезло, без единой строчки в логе. Прямой замер на
+# 96 реальных смысловых юнитах двух опубликованных сценариев этого канала
+# (01_ves-mecha, _test20s): 24 из 96 (25%) обрезаются — модель оценивала
+# соответствие картинки фразе, не дочитав её до конца. Ничего не меняет в
+# самом подборе (это НЕ починка обрезки, а её видимость) — записывает факт
+# в TEXT_TRUNCATION_REPORT, чтобы это можно было увидеть в отчёте эпизода
+# (media_plan/text_truncation_report.json), а не узнавать случайно.
+TEXT_TRUNCATION_REPORT = []   # [{"model", "text", "tokens", "limit"}, ...]
+_TRUNCATION_SEEN = set()   # (model, text) — не спамить одним и тем же текстом дважды за прогон
+
+
+def reset_text_truncation_report():
+    """Для тестов и для чистого старта каждого прогона main() — иначе список
+    накапливался бы между эпизодами при импорте модуля один раз на процесс."""
+    TEXT_TRUNCATION_REPORT.clear()
+    _TRUNCATION_SEEN.clear()
+
+
+def _report_truncation_if_any(model_name, text, tokenizer, max_length):
+    """Меряет РЕАЛЬНУЮ длину токенизации text (без принудительного max_length)
+    и, если она больше лимита модели, добавляет запись в
+    TEXT_TRUNCATION_REPORT. Считается один раз на уникальный (model, text) —
+    дальше эмбеддинг всё равно берётся из кэша, повторный замер ничего
+    нового не даст. Fail-open: сбой токенизации не должен ронять подбор
+    картинки ради диагностики."""
+    key = (model_name, text)
+    if key in _TRUNCATION_SEEN:
+        return
+    _TRUNCATION_SEEN.add(key)
+    try:
+        # text= КЛЮЧЕВЫМ словом, не позиционно: у SigLIP2 первый позиционный
+        # параметр процессора — images (см. её __call__), Jina-токенизатор
+        # тоже принимает text= по стандартному контракту HF-токенизаторов.
+        # Список из одного текста — общий вызов, валидный для ОБОИХ.
+        n_tokens = len(tokenizer(text=[text])["input_ids"][0])
+    except Exception:
+        return
+    if n_tokens > max_length:
+        TEXT_TRUNCATION_REPORT.append({
+            "model": model_name, "text": text, "tokens": n_tokens, "limit": max_length,
+        })
 # Реальный найденный вживую OOM (см. text_text_similarity()/_emb() ниже,
 # videos/01_ves-mecha, 31.08): dummy "pixel_values" под ONNX-граф Jina
 # строился размером СО ВЕСЬ батч текстов разом (n=len(texts), вплоть до
@@ -596,6 +644,8 @@ def _siglip2_text_emb(text):
         _emb_cache_put(_siglip2_text_emb_cache, text, emb)
         return emb
     model, processor = _get_siglip2_model()
+    tokenizer = processor.tokenizer if hasattr(processor, "tokenizer") else processor
+    _report_truncation_if_any("siglip2", text, tokenizer, SIGLIP2_MAX_TEXT_LENGTH)
     with torch.no_grad():
         txt_inputs = processor(text=[text], padding="max_length",
                                 max_length=SIGLIP2_MAX_TEXT_LENGTH, return_tensors="pt")
@@ -756,6 +806,7 @@ def _jina_text_emb(text):
         _emb_cache_put(_jina_text_emb_cache, text, on_disk)
         return on_disk
     sess, tokenizer = _get_jina_session()
+    _report_truncation_if_any("jina", text, tokenizer, JINA_TEXT_MAX_LENGTH)
     enc = tokenizer([text], padding=True, truncation=True,
                      max_length=JINA_TEXT_MAX_LENGTH, return_tensors="np")
     emb = sess.run(["l2norm_text_embeddings"],
@@ -897,6 +948,8 @@ def text_text_similarity(texts_a, texts_b):
             out_chunks = []
             for start in range(0, len(texts), JINA_TEXT_BATCH_SIZE):
                 chunk = list(texts)[start:start + JINA_TEXT_BATCH_SIZE]
+                for t in chunk:
+                    _report_truncation_if_any("jina", t, tokenizer, JINA_TEXT_MAX_LENGTH)
                 enc = tokenizer(chunk, padding=True, truncation=True,
                                  max_length=JINA_TEXT_MAX_LENGTH, return_tensors="np")
                 ids = enc["input_ids"].astype(np.int64)

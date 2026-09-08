@@ -10199,6 +10199,11 @@ def main():
     visual_director = None
     if feature_flags.mode("VISUAL_DIRECTOR_MODE") in ("shadow", "assist"):
         import visual_director as visual_director  # noqa: F401
+        # Чистый отчёт по обрезке текста НА ЭТОТ прогон — модуль импортируется
+        # один раз на процесс, и без сброса список копился бы между
+        # эпизодами при повторном вызове main() в одном процессе (тесты,
+        # пакетный прогон нескольких видео).
+        visual_director.reset_text_truncation_report()
     director_cache_sig = _visual_director_cache_signature(visual_director)
     # П.4: доменная модуляция warm_mult (DOMAIN_WARM_PUSH_SCALE, film_look())
     # — НЕЗАВИСИМА от Look Management/Visual Director (свой режим, свой
@@ -11149,6 +11154,29 @@ def main():
         print(f"  ВНИМАНИЕ: {len(DIRECTOR_RELEVANCE_MISSES)} слот(ов) — выбранный кадр семантически "
               f"слаб по РЕАЛЬНОМУ тексту блока (не по запросу) — см. "
               f"media_plan/director_relevance_report.json, сверить глазами на Шаге 7.5.")
+
+    # TEXT_TRUNCATION_REPORT (см. visual_director.py, _report_truncation_if_any) —
+    # честная видимость молчаливой обрезки текста по лимиту токенов модели
+    # (SigLIP2 — 64, Jina — 77). Ничего не чинит и не меняет в подборе
+    # картинки — только показывает факт, который раньше был не виден вообще
+    # (реальный замер на опубликованном сценарии: 25% смысловых юнитов
+    # обрезаются молча). Пишем всегда, даже пустой список — тот же принцип
+    # честной записи "нечего сообщить", что и у остальных отчётов здесь.
+    truncation_report = visual_director.TEXT_TRUNCATION_REPORT if visual_director is not None else []
+    truncation_path = os.path.join(VIDEO_FOLDER, "media_plan", "text_truncation_report.json")
+    truncation_tmp = truncation_path + ".tmp"
+    with open(truncation_tmp, "w", encoding="utf-8") as f:
+        json.dump({"enabled": visual_director is not None, "truncated": truncation_report},
+                   f, ensure_ascii=False, indent=2)
+    os.replace(truncation_tmp, truncation_path)
+    if truncation_report:
+        by_model = {}
+        for r in truncation_report:
+            by_model[r["model"]] = by_model.get(r["model"], 0) + 1
+        print(f"  ВНИМАНИЕ: {len(truncation_report)} текст(ов) молча обрезаны по лимиту токенов "
+              f"модели ({', '.join(f'{k}: {v}' for k, v in sorted(by_model.items()))}) — модель "
+              f"оценивала соответствие картинки фразе, не дочитав её до конца. См. "
+              f"media_plan/text_truncation_report.json.")
 
     # Reference-Guided Look Management — аудит-трейл (см. scripts/
     # look_reference.py). look_report пуст, если фича выключена/lookbook
