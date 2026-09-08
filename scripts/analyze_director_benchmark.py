@@ -36,6 +36,17 @@
    опубликованном эпизоде: назвала ли модель в must_not_contain ту самую
    ловушку, в которую система попала. Единственная ось, которая
    проверяет понимание против ФАКТА, а не против моей разметки.
+7. example_bleed_rate — доля слотов, чьи запросы построены на словаре
+   РАЗОБРАННОГО ПРИМЕРА из промпта, а не на своей фразе. Ось добавлена
+   постфактум, по реальной причине: болезнь v2 (запрос примера дословно
+   в девяти слотах, один и тот же кадр-победитель в трёх местах ролика)
+   я увидел глазами на контактном листе, а ни одна из шести осей выше её
+   не показала — cross_slot_distinct считает запросы уникальными, если
+   они отличаются хоть словом. Честный предел оси: она ловит ПОВТОР
+   СЛОВАРЯ примера, а не ассоциативный снос по смыслу (пример про хлеб,
+   ответ про мешки зерна — общих слов может не быть вовсе). То есть
+   ноль по этой оси не доказывает отсутствие влияния примера, а
+   ненулевое значение — доказывает наличие.
 
 Запуск: .venv/bin/python scripts/analyze_director_benchmark.py <run.json> [...]
 """
@@ -72,9 +83,36 @@ ACTUAL_TRAPS = {
 
 _WORD = re.compile(r"[a-z]+")
 
+# Слова, общие для всего канала: их присутствие в запросе ничего не говорит
+# о влиянии примера — «medieval» стоит в законном запросе любого слота.
+# Считать их за утечку значило бы получить единицу по оси на пустом месте.
+_CHANNEL_STOPWORDS = frozenset("""
+a an the of in on at with and or for from to into
+medieval middle ages european europe historical history century
+close up macro detail wide shot view angle
+""".split())
+
+# Сколько отличительных слов примера должно встретиться в запросах слота,
+# чтобы считать это построением на чужом словаре. Один общий термин —
+# совпадение (пример и фраза могут говорить об одном предмете законно),
+# два и больше — уже перенос формулировки.
+BLEED_MIN_SHARED_WORDS = 2
+
 
 def _words(s):
     return set(_WORD.findall((s or "").lower()))
+
+
+def example_vocabulary(system_prompt):
+    """Отличительные слова разобранного примера в системном промпте.
+
+    Берётся ТОЛЬКО текст после «WORKED EXAMPLE» — правила выше написаны
+    теми же словами, что и законные запросы, и их учёт превратил бы ось
+    в шум."""
+    if "WORKED EXAMPLE" not in (system_prompt or ""):
+        return frozenset()
+    tail = system_prompt.split("WORKED EXAMPLE", 1)[1]
+    return frozenset(_words(tail) - _CHANNEL_STOPWORDS)
 
 
 def _blocklist():
@@ -163,9 +201,28 @@ def analyze(run_path):
                              "negatives": c["brief"]["must_not_contain"],
                              "actual_trap": traps})
 
+    # 7. example_bleed_rate
+    try:
+        import shot_brief_planner as _sbp
+        sys_prompt = _sbp.PROMPTS.get(run.get("prompt_version"), ("", ""))[0]
+    except Exception:
+        sys_prompt = ""
+    ex_vocab = example_vocabulary(sys_prompt)
+    bleed = []
+    for c in valid:
+        # ВАЖНО: своё имя, не `shared` — выше этим именем уже назван словарь
+        # запросов, поделённых между слотами (ось 4). Затенение сломало
+        # его печать; поймано прогоном, не разбором глазами.
+        shared_with_example = _words(" ".join(c["brief"]["queries_en"])) & ex_vocab
+        if len(shared_with_example) >= BLEED_MIN_SHARED_WORDS:
+            bleed.append({"id": c["id"], "shared": sorted(shared_with_example),
+                           "queries": c["brief"]["queries_en"]})
+
     return {
         "model": run.get("model"),
         "prompt_version": run.get("prompt_version"),
+        "example_bleed_rate": round(len(bleed) / max(1, len(valid)), 4),
+        "example_vocab_n": len(ex_vocab),
         "avg_seconds_per_case": run.get("avg_seconds_per_case"),
         "n_cases": len(cases),
         "valid_json_rate": round(len(valid) / max(1, len(cases)), 4),
@@ -178,7 +235,8 @@ def analyze(run_path):
         "trap_hit_rate": round(trap_hit / max(1, trap_graded), 4) if trap_graded else None,
         "trap_graded_n": trap_graded,
         "_detail": {"reading": reading_detail, "self_harm": self_harm,
-                     "shared_queries": shared, "traps": trap_detail},
+                     "shared_queries": shared, "traps": trap_detail,
+                     "example_bleed": bleed},
     }
 
 
@@ -200,6 +258,7 @@ def main():
         ("cross_slot_distinct", "уникальность запросов", "выше"),
         ("intra_slot_diversity", "разнообразие внутри слота", "выше"),
         ("trap_hit_rate", "предсказал реальную ловушку", "выше"),
+        ("example_bleed_rate", "запрос на словаре примера", "НИЖЕ"),
         ("avg_seconds_per_case", "секунд на слот", "НИЖЕ"),
     ]
     name_w = max(len(a[1]) for a in axes) + 2
@@ -228,6 +287,12 @@ def main():
         print(f"\nЗапросы, поделённые между слотами ({len(d['shared_queries'])}):")
         for q, slots in list(d["shared_queries"].items())[:8]:
             print(f"  «{q}» -> {slots}")
+    if d["example_bleed"]:
+        print(f"\nЗапросы, построенные на словаре примера "
+              f"({len(d['example_bleed'])} из {last['n_cases']}):")
+        for x in d["example_bleed"][:8]:
+            print(f"  {x['id']}: общие слова {x['shared']}")
+            print(f"      {x['queries']}")
     missed = [x for x in d["traps"] if not x["hit"]]
     if missed:
         print(f"\nНе предсказал реальную ловушку ({len(missed)} из {last['trap_graded_n']}):")

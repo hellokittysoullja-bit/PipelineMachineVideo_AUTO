@@ -66,7 +66,15 @@ DEFAULT_MODEL_PATH = "/home/user/models/qwen2.5-3b-instruct-q4_k_m.gguf"
 # не наследуются молча (тот же урок, что уже усвоен в _arbiter_prompt_
 # signature() у VLM-арбитра). Переключается --prompt-version, чтобы
 # сравнение версий шло на ОДНИХ И ТЕХ ЖЕ случаях, а не по памяти.
-PROMPT_VERSION = 2
+#
+# Почему дефолт v3, хотя по ПРОПУСКНОЙ СПОСОБНОСТИ v2 лучше (16 брифов из 20
+# против 6): у версий разный характер отказа. Болезнь v2 — списывание
+# разобранного примера — даёт ВИДИМЫЙ зрителю дефект (один и тот же кадр в
+# трёх разных местах ролика). Болезнь v3 — внутренне противоречивые брифы —
+# ловится барьером, и слот просто остаётся на прежнем поведении пайплайна,
+# то есть отказ безопасный. Выбран отказ в безопасную сторону.
+# Полный разбор с числами — docs/quality/DIRECTOR_LOCAL_LLM.md.
+PROMPT_VERSION = 3
 
 # Потолки валидации. Всё, что за ними, — признак того, что модель поехала,
 # и такой слот честнее пометить невалидным, чем пустить в подбор.
@@ -78,6 +86,32 @@ MAX_NEGATIVE_CHARS = 60
 MAX_SUBJECT_CHARS = 200
 
 VALID_READINGS = ("literal", "figurative")
+
+# Окно эпохи канала. Промпт объявляет модели «roughly 1000-1500 AD»; бриф,
+# чьё окно с этим НЕ ПЕРЕСЕКАЕТСЯ ВООБЩЕ, по построению не про материал
+# этого канала. Границы взяты с запасом в столетие в обе стороны — задача
+# не судить историческую точность модели, а поймать явный промах эпохи.
+#
+# Проверено на реальных данных, не введено на всякий случай: по 40 брифам
+# двух прогонов правило срабатывает РОВНО ОДИН раз — на ep01_133 («человек
+# в доспехе — это человек в термосе»), где модель выдала era 1700-1800 и
+# subject «soldier in armor and a thermos», то есть поставила на экран
+# риторический предмет метафоры. Ноль ложных срабатываний на остальных 39.
+#
+# Читается из channel_profile.json (`era_from`/`era_to`), если канал их
+# объявил, — те же ворота настройки под нишу, что у content_alt_blocklist
+# (ЧАСТЬ 24 CLAUDE.md). Дефолт — окно текущего канала.
+CHANNEL_ERA_DEFAULT = (900, 1600)
+
+
+def channel_era_window():
+    try:
+        with open(os.path.join(REPO, "channel_profile.json"), encoding="utf-8") as f:
+            prof = json.load(f)
+        a, b = int(prof["era_from"]), int(prof["era_to"])
+        return (a, b) if a <= b else (b, a)
+    except Exception:
+        return CHANNEL_ERA_DEFAULT
 
 SYSTEM_PROMPT = (
     "You are a shot director for a Russian-language documentary channel about "
@@ -209,10 +243,132 @@ Answer with STRICT JSON only, all values in English, this exact schema:
   "confidence": <number between 0 and 1>
 }}"""
 
+# --- Промпт v3 ---
+# Два сбоя v2, найденные ЖИВЫМ замером по Pexels (20 реальных слотов
+# опубликованного эпизода, docs/quality/director_impact_v2.json + 4
+# контактных листа), а не рассуждением:
+#
+#  1. КОПИРОВАНИЕ ПРИМЕРА. Разобранный пример v2 был про меч — то есть про
+#     тот же предмет, что и почти каждый слот этого эпизода. Модель этого
+#     размера следует образцу буквально: запрос «medieval sword blade macro
+#     detail» из примера ушёл в 9 слотов дословно, и в трёх разных слотах
+#     победил один и тот же кадр. Это ровно та болезнь, которую Контур A
+#     должен был лечить (один запрос на четыре слота в базовой линии), —
+#     я внёс её обратно собственным примером.
+#     Лечение: пример остаётся (без него v1 дал 20% валидного JSON), но
+#     берётся из ДРУГОЙ темы того же канала — голод и цена хлеба. Списать
+#     его в слот про меч физически бессмысленно, а структуру «фигуральное
+#     чтение + три ракурса» он показывает ту же.
+#  2. ФИГУРАЛЬНОЕ ЧТЕНИЕ ПРОВАЛИЛОСЬ НА ДВУХ РЕАЛЬНЫХ ФРАЗАХ. «Вспомни,
+#     сколько весит пакет молока» -> запросы про пакеты молока; «цвайхендер
+#     — это потолок» -> `dark room ceiling macro detail`. Правило v2 («в
+#     фигуральном чтении риторический предмет запрещён») было СФОРМУЛИРОВАНО
+#     верно, но требовало от модели самой сообразить, что предмет
+#     риторический. Лечение — не ещё одно требование, а механическая
+#     процедура из трёх вопросов, которую модель выполняет ПО ПОРЯДКУ, и
+#     отдельная строка про слова-пределы («потолок», «вершина», «дно»),
+#     на которых v2 промахнулась буквально.
+SYSTEM_PROMPT_V3 = (
+    "You are a shot director for a Russian-language documentary about EUROPEAN "
+    "medieval history (roughly 1000-1500 AD). You get one line of narration and "
+    "decide what appears on screen while it is spoken.\n"
+    "\n"
+    "RULE 1 - EVERY value you output is in ENGLISH. The narration is Russian, your "
+    "answer is not. A Russian word anywhere in the JSON makes the answer unusable.\n"
+    "\n"
+    "RULE 2 - before anything else, run these three questions IN ORDER:\n"
+    "  Q1. Which everyday object, number or place does the line NAME?\n"
+    "  Q2. Is the line ABOUT that thing, or is it using that thing to explain "
+    "something else?\n"
+    "  Q3. If it explains something else, then that thing is the RHETORICAL OBJECT. "
+    "The reading is 'figurative'. The rhetorical object is BANNED from 'subject' and "
+    "from every query, and you must list it in 'must_not_contain'. What goes on "
+    "screen is the thing being explained.\n"
+    "Worked through: 'remember how much a carton of milk weighs' - Q1: a carton of "
+    "milk. Q2: the line is about how light a sword is, milk is only the unit of "
+    "comparison. Q3: milk, dairy, kitchens and shops are banned; on screen is a hand "
+    "holding a sword.\n"
+    "Words that name a LIMIT are always figurative: 'потолок' (ceiling), 'вершина' "
+    "(peak), 'дно' (bottom), 'планка' (bar). They mean the extreme of a range. Show "
+    "the object that reaches that extreme - never architecture, never a real ceiling.\n"
+    "A number quoted as a myth ('fifteen kilograms') is figurative too: show the real "
+    "object the myth is about, never scales, weights or printed digits.\n"
+    "\n"
+    "RULE 3 - the three queries must be three DIFFERENT camera angles on the same "
+    "subject, not three wordings of one query:\n"
+    "  query 1: a close detail (macro, texture, hands)\n"
+    "  query 2: the whole object or person in its place (wider)\n"
+    "  query 3: a related action or the setting itself\n"
+    "Queries are what you type into a stock footage site: concrete visible things, "
+    "no abstract nouns like 'weight', 'myth', 'comparison', 'history'.\n"
+    "\n"
+    "RULE 4 - the queries must fit THIS line and no other. If a query would suit any "
+    "random line of this documentary equally well, it is too generic: make it name "
+    "something specific to what is happening in this exact line.\n"
+    "\n"
+    "RULE 5 - this channel is strictly European. Never propose katana, samurai, "
+    "kimono, Chinese jian, Korean or Japanese costume. Never propose modern "
+    "intrusions: sport fencing, referees, scoreboards, spectators in modern clothes, "
+    "cars, phones, gyms, kitchens.\n"
+    "\n"
+    "WORKED EXAMPLE (a different subject - do NOT reuse its words).\n"
+    "Narration: 'Зимой хлеб стоил как конь.' (context: the next line is about the "
+    "famine of 1315).\n"
+    "Q1 names a horse. Q2: the line is about the price of bread in a famine, the "
+    "horse is only a unit of price. Q3: the horse is the rhetorical object.\n"
+    "Correct answer:\n"
+    "{\n"
+    '  "reading": "figurative",\n'
+    '  "why": "the line is about famine bread prices; the horse is only a unit of '
+    'comparison",\n'
+    '  "subject": "starving townspeople and a bare bread stall",\n'
+    '  "setting": "grey winter street of a medieval town, thin light",\n'
+    '  "era_from": 1300, "era_to": 1350,\n'
+    '  "queries_en": ["dark rye bread loaf on rough wood macro", '
+    '"empty medieval market stall in winter", "poor peasants queuing in a medieval '
+    'town street"],\n'
+    '  "must_not_contain": ["horse", "horse market", "stable", "modern bakery", '
+    '"supermarket shelf", "price tag"],\n'
+    '  "confidence": 0.85\n'
+    "}\n"
+    "Note how the horse is absent from every query and present in must_not_contain, "
+    "and how the three queries are macro / wide / people-in-action. Your line is "
+    "about something else entirely - use its own words, not these.\n"
+)
+
+USER_TEMPLATE_V3 = USER_TEMPLATE_V2
+
 PROMPTS = {
     1: (SYSTEM_PROMPT, USER_TEMPLATE),
     2: (SYSTEM_PROMPT_V2, USER_TEMPLATE_V2),
+    3: (SYSTEM_PROMPT_V3, USER_TEMPLATE_V3),
 }
+
+# Запросы, дословно взятые из разобранного примера промпта. Ни один из них
+# не может быть выводом ПРО КОНКРЕТНУЮ ФРАЗУ — это списанный образец, и
+# замер v2 показал цену такого списывания: один запрос в девяти слотах и
+# один и тот же кадр-победитель в трёх разных местах ролика.
+#
+# Гвард дословный и намеренно узкий: отбрасывается только запрос, ПОБУКВЕННО
+# совпадающий с образцовым (после нормализации пробелов и регистра).
+# Похожий по смыслу запрос, сформулированный моделью самостоятельно,
+# остаётся — иначе гвард начал бы резать законную работу. Если после
+# отброса не осталось ни одного запроса, бриф честно признаётся невалидным:
+# слот тогда остаётся на прежнем поведении пайплайна (авторский запрос /
+# словарь тем), то есть строго не хуже, чем сегодня.
+EXAMPLE_QUERIES = frozenset(
+    q.lower()
+    for q in (
+        # v2 — тот самый пример про меч, который и утёк в девять слотов.
+        "medieval sword blade macro detail",
+        "knight longsword in museum display case",
+        "armourer holding longsword in forge",
+        # v3 — пример про хлеб; блокируется заранее, до того как утечёт.
+        "dark rye bread loaf on rough wood macro",
+        "empty medieval market stall in winter",
+        "poor peasants queuing in a medieval town street",
+    )
+)
 
 
 def _cache_key(text, prev, next_, model_name):
@@ -223,6 +379,23 @@ def _cache_key(text, prev, next_, model_name):
 
 def _has_cyrillic(s):
     return bool(re.search(r"[а-яА-ЯёЁ]", s or ""))
+
+
+# Служебные слова: их совпадение между subject и запретами ничего не значит.
+# Список намеренно короткий — только грамматика и слова кадра. Чем он длиннее,
+# тем больше настоящих самозапретов проскочит незамеченными.
+_FUNCTION_WORDS = frozenset("""
+a an the of in on at with and or for from to into is are be being
+its his her their this that these those as by over under near
+close up macro wide shot view detail scene
+""".split())
+
+_WORD_RE = re.compile(r"[a-z]+")
+
+
+def _content_words(s):
+    """Значимые слова строки — без грамматики и без слов про крупность."""
+    return frozenset(_WORD_RE.findall((s or "").lower())) - _FUNCTION_WORDS
 
 
 def validate_brief(raw):
@@ -255,6 +428,10 @@ def validate_brief(raw):
         # запрос не поймут, и это молча дало бы пустую выдачу.
         if _has_cyrillic(q):
             continue
+        # Списанный из промпта образец — не решение про эту фразу
+        # (см. EXAMPLE_QUERIES: замер v2, девять слотов на один запрос).
+        if q.lower() in EXAMPLE_QUERIES:
+            continue
         clean_q.append(q)
     # Дедуп с сохранением порядка (модель любит повторять формулировки).
     seen = set()
@@ -284,6 +461,24 @@ def validate_brief(raw):
     if _has_cyrillic(subject):
         return None, "subject не на английском"
 
+    # Самопротиворечие: модель запрещает то, что сама же поставила на экран.
+    # Это не придирка к формулировке, а измеренная болезнь: на прогоне v3 по
+    # 20 реальным слотам 13 брифов из 20 (65%) внесли в must_not_contain
+    # слово из собственного subject — «sword» на канале про мечи. Пусти такой
+    # бриф дальше, и его негативы в роли анкеров вето забраковали бы ровно
+    # тот предмет, ради которого слот существует.
+    # Отклоняется бриф ЦЕЛИКОМ, а не только поле негативов: на худших слотах
+    # замера (ep01_005 «пакет молока», ep01_133 «человек в термосе»)
+    # самозапрет шёл в паре с запросом, который сам же запрет и нарушал, —
+    # то есть он маркирует слот, где модель не поняла задачу, а не отдельную
+    # опечатку в одном поле. Слот тогда остаётся на прежнем поведении
+    # пайплайна: гарантированный ноль регресса вместо ставки на догадку.
+    subject_words = _content_words(subject)
+    banned_words = _content_words(" ".join(negatives))
+    self_banned = subject_words & banned_words
+    if self_banned:
+        return None, f"must_not_contain запрещает собственный subject: {sorted(self_banned)}"
+
     setting = raw.get("setting")
     setting = " ".join(setting.split())[:MAX_SUBJECT_CHARS] if isinstance(setting, str) else ""
 
@@ -299,6 +494,14 @@ def validate_brief(raw):
     era_from, era_to = _year(raw.get("era_from")), _year(raw.get("era_to"))
     if era_from is not None and era_to is not None and era_from > era_to:
         era_from, era_to = era_to, era_from
+    # Окно эпохи, не пересекающееся с окном канала (см. CHANNEL_ERA_DEFAULT),
+    # — бриф не про материал этого канала. Отсутствующие годы не проверяются:
+    # молчание модели здесь не улика.
+    if era_from is not None and era_to is not None:
+        ch_from, ch_to = channel_era_window()
+        if era_to < ch_from or era_from > ch_to:
+            return None, (f"эпоха брифа {era_from}-{era_to} не пересекается "
+                          f"с эпохой канала {ch_from}-{ch_to}")
 
     try:
         conf = float(raw.get("confidence"))

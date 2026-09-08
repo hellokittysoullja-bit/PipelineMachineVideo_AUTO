@@ -144,6 +144,168 @@ class TestSanitizing:
         assert brief["subject"] == "a sword"
 
 
+class TestExampleQueryGuard:
+    """Запрос, ДОСЛОВНО списанный из разобранного примера промпта, не несёт
+    информации об этой фразе. Замер v2 по живому Pexels показал цену: один
+    запрос примера ушёл в девять слотов, и один и тот же кадр победил в трёх
+    разных местах ролика — ровно та болезнь, которую режиссёр лечит."""
+
+    def test_copied_example_query_is_dropped(self):
+        copied = "medieval sword blade macro detail"
+        assert copied in sbp.EXAMPLE_QUERIES
+        brief, err = sbp.validate_brief(
+            _ok_raw(queries_en=[copied, "gauntlet gripping a crossguard"]))
+        assert err is None
+        assert brief["queries_en"] == ["gauntlet gripping a crossguard"]
+
+    def test_case_and_spacing_do_not_smuggle_a_copy_through(self):
+        brief, err = sbp.validate_brief(_ok_raw(queries_en=[
+            "  Medieval   Sword Blade   MACRO Detail ", "knight in a winter field"]))
+        assert err is None
+        assert brief["queries_en"] == ["knight in a winter field"]
+
+    def test_brief_made_only_of_copies_is_rejected(self):
+        """Слот тогда остаётся на прежнем поведении пайплайна (авторский
+        запрос / словарь тем) — строго не хуже, чем сегодня."""
+        brief, err = sbp.validate_brief(_ok_raw(queries_en=[
+            "medieval sword blade macro detail",
+            "knight longsword in museum display case",
+            "armourer holding longsword in forge"]))
+        assert brief is None
+        assert "английск" in err or "валидн" in err
+
+    def test_guard_is_verbatim_only_and_does_not_eat_similar_work(self):
+        """Намеренно узкий гвард: похожий по смыслу, но самостоятельно
+        сформулированный запрос — законная работа модели, его резать нельзя."""
+        brief, err = sbp.validate_brief(_ok_raw(queries_en=[
+            "medieval sword blade macro", "sword blade detail medieval"]))
+        assert err is None
+        assert len(brief["queries_en"]) == 2
+
+    def test_every_example_query_of_every_prompt_version_is_covered(self):
+        """Канарейка против тихого расхождения: добавили версию промпта с
+        новым примером — его запросы обязаны попасть в гвард, иначе
+        списывание вернётся необнаруженным."""
+        import re as _re
+        for version, (system, _user) in sbp.PROMPTS.items():
+            for raw in _re.findall(r'"queries_en"\s*:\s*\[(.*?)\]', system, _re.S):
+                for q in _re.findall(r'"([^"]+)"', raw):
+                    assert " ".join(q.split()).lower() in sbp.EXAMPLE_QUERIES, (
+                        f"запрос примера промпта v{version} не в EXAMPLE_QUERIES: {q!r}")
+
+
+class TestSelfContradictingBrief:
+    """Бриф, запрещающий собственный subject, — не придирка к стилю, а
+    измеренная болезнь: на прогоне v3 по 20 реальным слотам эпизода 13
+    брифов из 20 внесли в must_not_contain слово из своего же subject
+    («sword» на канале про мечи). Их негативы в роли анкеров вето
+    забраковали бы ровно тот предмет, ради которого слот существует.
+
+    Барьер проверен против НЕЗАВИСИМОГО замера по живому Pexels: он
+    отклоняет 1 из 4 зафиксированных глазами регрессов и 0 из 7
+    улучшений."""
+
+    def test_banning_own_subject_is_rejected(self):
+        brief, err = sbp.validate_brief(_ok_raw(
+            subject="medieval longsword on a table",
+            must_not_contain=["katana", "longsword"]))
+        assert brief is None
+        assert "longsword" in err
+
+    def test_the_real_measured_case_is_caught(self):
+        """Дословный бриф v3 на ep01_005 («вспомни, сколько весит пакет
+        молока») — тот самый слот, чей кадр с современной кухней и
+        хлопьями стоит в опубликованном эпизоде. Модель поняла фразу
+        верно («milk is a comparison, not the actual weight»), запретила
+        пакет молока — и поставила его же в subject."""
+        brief, err = sbp.validate_brief(_ok_raw(
+            reading="figurative",
+            subject="a carton of milk",
+            setting="a medieval kitchen with a woman holding a sword",
+            queries_en=["woman holding a carton of milk macro",
+                        "woman in a medieval kitchen holding a sword"],
+            must_not_contain=["sword", "carton of milk", "milk", "kitchen"]))
+        assert brief is None
+        assert "milk" in err
+
+    def test_function_words_do_not_trigger_a_false_rejection(self):
+        """«of», «in», «close up» общие у половины строк — совпадение по
+        ним не самозапрет, а грамматика."""
+        brief, err = sbp.validate_brief(_ok_raw(
+            subject="close up of a sword in a hall",
+            must_not_contain=["view of a modern gym", "close up of a phone"]))
+        assert err is None and brief is not None
+
+    def test_unrelated_negatives_pass(self):
+        brief, err = sbp.validate_brief(_ok_raw(
+            subject="medieval longsword on a wooden table",
+            must_not_contain=["kitchen scales", "modern gym", "katana"]))
+        assert err is None and brief is not None
+
+    def test_empty_negatives_are_not_a_contradiction(self):
+        brief, err = sbp.validate_brief(_ok_raw(must_not_contain=[]))
+        assert err is None and brief is not None
+
+
+class TestChannelEraWindow:
+    """Окно эпохи брифа, не пересекающееся с эпохой канала, — бриф не про
+    материал этого канала. Правило проверено на 40 реальных брифах двух
+    прогонов: срабатывает ровно один раз, ложных — ноль."""
+
+    def test_the_real_measured_case_is_caught(self):
+        """Дословный бриф v3 на ep01_133 («человек в доспехе — это человек
+        в термосе»): era 1700-1800 и термос прямо в subject."""
+        brief, err = sbp.validate_brief(_ok_raw(
+            reading="figurative",
+            subject="soldier in armor and a thermos",
+            era_from=1700, era_to=1800,
+            queries_en=["soldier in armor holding a thermos macro"],
+            must_not_contain=["sword", "mace", "castle"]))
+        assert brief is None
+        assert "1700" in err and "эпох" in err
+
+    def test_overlapping_window_passes(self):
+        """Частичное пересечение — не повод терять слот: канал говорит и о
+        предыстории, и о том, что было после."""
+        brief, err = sbp.validate_brief(_ok_raw(era_from=1450, era_to=1650))
+        assert err is None and brief is not None
+
+    def test_missing_years_are_not_evidence(self):
+        brief, err = sbp.validate_brief(_ok_raw(era_from=None, era_to=None))
+        assert err is None and brief is not None
+
+    def test_window_comes_from_channel_profile_when_declared(self, tmp_path, monkeypatch):
+        """Те же ворота настройки под нишу, что у content_alt_blocklist:
+        канал про античность не должен упираться в чужое окно."""
+        prof = tmp_path / "channel_profile.json"
+        prof.write_text('{"era_from": -800, "era_to": 400}', encoding="utf-8")
+        monkeypatch.setattr(sbp, "REPO", str(tmp_path))
+        assert sbp.channel_era_window() == (-800, 400)
+
+    def test_broken_profile_falls_back_to_default(self, tmp_path, monkeypatch):
+        (tmp_path / "channel_profile.json").write_text("{ битый", encoding="utf-8")
+        monkeypatch.setattr(sbp, "REPO", str(tmp_path))
+        assert sbp.channel_era_window() == sbp.CHANNEL_ERA_DEFAULT
+
+
+class TestPromptVersions:
+    def test_v3_example_is_off_topic_for_this_episode(self):
+        """Причина копирования в v2 — пример был про меч, то есть про то же,
+        что почти каждый слот эпизода. Пример v3 обязан быть из другой темы,
+        иначе правка косметическая."""
+        system, _ = sbp.PROMPTS[3]
+        example = system.split("WORKED EXAMPLE", 1)[1]
+        for word in ("sword", "longsword", "blade", "katana"):
+            assert word not in example.lower(), f"пример v3 снова про {word}"
+
+    def test_v3_names_the_two_phrases_that_failed_in_v2(self):
+        """«потолок» и «пакет молока» — не абстрактный риск, а два
+        измеренных промаха v2 на реальных слотах эпизода."""
+        system, _ = sbp.PROMPTS[3]
+        assert "потолок" in system
+        assert "milk" in system.lower()
+
+
 class TestJsonExtraction:
     """Модели этого размера обрамляют ответ ```json ... ``` или добавляют
     фразу до/после — разбор обязан это переживать."""

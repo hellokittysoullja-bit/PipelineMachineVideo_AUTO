@@ -1,0 +1,644 @@
+{
+ "model": "qwen2.5-3b-instruct-q4_k_m.gguf",
+ "model_load_seconds": 12.3,
+ "n_threads": 4,
+ "prompt_version": 3,
+ "total_seconds": 1062.8,
+ "avg_seconds_per_case": 53.14,
+ "valid_json_rate": 1.0,
+ "cases": [
+  {
+   "id": "ep01_000",
+   "difficulty_class": "figurative",
+   "text": "Пятнадцать килограммов.",
+   "baseline_query": "milk bottle hand",
+   "baseline_verdict": "reject",
+   "baseline_reject_reason": "wrong_subject",
+   "seconds": 181.86,
+   "completion_tokens": 143,
+   "valid": true,
+   "error": null,
+   "brief": {
+    "reading": "literal",
+    "why": "The line is a weight comparison, not about the actual weight of fifteen kilograms.",
+    "subject": "fifteen kilograms of grain",
+    "setting": "dark, dimly lit medieval marketplace",
+    "era_from": 1000,
+    "era_to": 1500,
+    "queries_en": [
+     "close-up of grain sacks macro",
+     "wide shot of grain being weighed in a medieval marketplace",
+     "man holding a scale and grain"
+    ],
+    "must_not_contain": [
+     "fifteen kilograms",
+     "weight",
+     "scale",
+     "grain"
+    ],
+    "confidence": 0.95
+   }
+  },
+  {
+   "id": "ep01_002",
+   "difficulty_class": "anachronism_risk",
+   "text": "Именно так отвечает почти каждый, когда его спрашивают, сколько весил настоящий боевой меч.",
+   "baseline_query": "greatsword warrior fight",
+   "baseline_verdict": "reject",
+   "baseline_reject_reason": "non_european",
+   "seconds": 373.26,
+   "completion_tokens": 151,
+   "valid": true,
+   "error": null,
+   "brief": {
+    "reading": "figurative",
+    "why": "the line is about the weight of a myth or comparison, not the actual weight of a real sword",
+    "subject": "a hand holding a sword",
+    "setting": "a dark room with a single candle",
+    "era_from": 1000,
+    "era_to": 1500,
+    "queries_en": [
+     "close detail of a sword hilt and blade macro",
+     "wide shot of a medieval sword in a dark room",
+     "sword wielder practicing in a candlelit chamber"
+    ],
+    "must_not_contain": [
+     "booster",
+     "sword",
+     "martial arts"
+    ],
+    "confidence": 0.9
+   }
+  },
+  {
+   "id": "ep01_005",
+   "difficulty_class": "figurative",
+   "text": "Не вставай никуда. Просто вспомни, сколько весит пакет молока у тебя в руке. Литр. Ерунда.",
+   "baseline_query": "milk bottle hand",
+   "baseline_verdict": "reject",
+   "baseline_reject_reason": "wrong_subject",
+   "seconds": 112.62,
+   "completion_tokens": 157,
+   "valid": true,
+   "error": null,
+   "brief": {
+    "reading": "figurative",
+    "why": "the line is about the weight of a sword compared to a carton of milk, not the actual weight of the sword",
+    "subject": "a carton of milk",
+    "setting": "a medieval kitchen with a woman holding a sword",
+    "era_from": 1000,
+    "era_to": 1500,
+    "queries_en": [
+     "woman holding a carton of milk macro",
+     "woman in a medieval kitchen holding a sword",
+     "woman holding a sword in a medieval kitchen"
+    ],
+    "must_not_contain": [
+     "sword",
+     "carton of milk",
+     "milk",
+     "kitchen"
+    ],
+    "confidence": 0.9
+   }
+  },
+  {
+   "id": "ep01_006",
+   "difficulty_class": "anachronism_risk",
+   "text": "Вот это. Это вес настоящего боевого меча — того самого, которым люди убивали друг друга тысячу лет подряд.",
+   "baseline_query": "greatsword warrior fight",
+   "baseline_verdict": "reject",
+   "baseline_reject_reason": "non_european",
+   "seconds": 23.83,
+   "completion_tokens": 142,
+   "valid": true,
+   "error": null,
+   "brief": {
+    "reading": "figurative",
+    "why": "the line is about the weight of a sword, not the actual weight of a milk carton",
+    "subject": "a medieval sword",
+    "setting": "a dimly lit medieval battlefield",
+    "era_from": 1000,
+    "era_to": 1500,
+    "queries_en": [
+     "close-up of a medieval sword blade",
+     "wide shot of a sword in a medieval setting",
+     "sword being swung in a battle"
+    ],
+    "must_not_contain": [
+     "milk carton",
+     "milk",
+     "cow"
+    ],
+    "confidence": 0.95
+   }
+  },
+  {
+   "id": "ep01_008",
+   "difficulty_class": "compositional",
+   "text": "А ближе к концу — меч на четыре килограмма. Настоящий, из музея, с табличкой «боевой».",
+   "baseline_query": "greatsword warrior fight",
+   "baseline_verdict": "reject",
+   "baseline_reject_reason": "modern_intrusion",
+   "seconds": 23.33,
+   "completion_tokens": 137,
+   "valid": true,
+   "error": null,
+   "brief": {
+    "reading": "literal",
+    "why": "The line is about the weight of a historical sword, not the authenticity of the museum label",
+    "subject": "sword on display",
+    "setting": "medieval museum display case, dim lighting",
+    "era_from": 1000,
+    "era_to": 1500,
+    "queries_en": [
+     "sword on wooden display stand macro",
+     "sword in museum case in dim light",
+     "museum curator examining sword"
+    ],
+    "must_not_contain": [
+     "museum label",
+     "booster",
+     "boiling"
+    ],
+    "confidence": 0.95
+   }
+  },
+  {
+   "id": "ep01_009",
+   "difficulty_class": "fragment",
+   "text": "Историки до сих пор спорят, врёт эта табличка или нет.",
+   "baseline_query": "medieval knight sword battle",
+   "baseline_verdict": "reject",
+   "baseline_reject_reason": "modern_intrusion",
+   "seconds": 21.74,
+   "completion_tokens": 131,
+   "valid": true,
+   "error": null,
+   "brief": {
+    "reading": "figurative",
+    "why": "the line is about the weight of a sword and its historical significance, not the truthfulness of a plaque",
+    "subject": "sword plaque",
+    "setting": "medieval museum display",
+    "era_from": 1000,
+    "era_to": 1500,
+    "queries_en": [
+     "sword plaque close-up macro",
+     "sword display in museum",
+     "historian examining sword plaque"
+    ],
+    "must_not_contain": [
+     "sword",
+     "museum",
+     "historian"
+    ],
+    "confidence": 0.85
+   }
+  },
+  {
+   "id": "ep01_011",
+   "difficulty_class": "literal",
+   "text": "«Рыцари же были здоровые мужики, они с детства тренировались, чтобы просто держать эту штуку».",
+   "baseline_query": "knight armor exhibit",
+   "baseline_verdict": "good",
+   "baseline_reject_reason": null,
+   "seconds": 23.75,
+   "completion_tokens": 149,
+   "valid": true,
+   "error": null,
+   "brief": {
+    "reading": "figurative",
+    "why": "the line is about the physical training required for knights, not the object itself",
+    "subject": "knights and their training",
+    "setting": "medieval training ground, dim light",
+    "era_from": 1000,
+    "era_to": 1500,
+    "queries_en": [
+     "knight in full armor holding a training sword macro",
+     "knight training in a dimly lit courtyard",
+     "knight sparring with a wooden training sword"
+    ],
+    "must_not_contain": [
+     "sword",
+     "sword training",
+     "training ground",
+     "medieval armor"
+    ],
+    "confidence": 0.9
+   }
+  },
+  {
+   "id": "ep01_026",
+   "difficulty_class": "literal",
+   "text": "Инструмент, которым долбят бетон, тяжелее «страшного рыцарского меча» в два-три раза.",
+   "baseline_query": "sledgehammer tool",
+   "baseline_verdict": "good",
+   "baseline_reject_reason": null,
+   "seconds": 22.27,
+   "completion_tokens": 134,
+   "valid": true,
+   "error": null,
+   "brief": {
+    "reading": "figurative",
+    "why": "the line is about the weight of medieval weapons compared to modern tools",
+    "subject": "hammer and medieval sword",
+    "setting": "dark workshop with dim lighting",
+    "era_from": 1000,
+    "era_to": 1500,
+    "queries_en": [
+     "hammer on anvil macro",
+     "hammer and sword in a medieval workshop",
+     "smith working on a hammer"
+    ],
+    "must_not_contain": [
+     "sword",
+     "medieval",
+     "martial arts",
+     "cinematographer"
+    ],
+    "confidence": 0.9
+   }
+  },
+  {
+   "id": "ep01_048",
+   "difficulty_class": "literal",
+   "text": "И тут надо понять главное: цвайхендер — это потолок. Экстремум.",
+   "baseline_query": "medieval pikemen battle",
+   "baseline_verdict": "good",
+   "baseline_reject_reason": null,
+   "seconds": 20.04,
+   "completion_tokens": 128,
+   "valid": true,
+   "error": null,
+   "brief": {
+    "reading": "figurative",
+    "why": "the line is about the extreme weight of a sword, not the actual ceiling",
+    "subject": "sword",
+    "setting": "medieval swordsmith's workshop, dim light",
+    "era_from": 1000,
+    "era_to": 1500,
+    "queries_en": [
+     "smith hammering sword macro",
+     "swordsmith's workshop in dim light",
+     "smith holding sword"
+    ],
+    "must_not_contain": [
+     "ceiling",
+     "roof",
+     "beam"
+    ],
+    "confidence": 0.9
+   }
+  },
+  {
+   "id": "ep01_055",
+   "difficulty_class": "fragment",
+   "text": "Двойные деньги шли не за вес меча.",
+   "baseline_query": "zweihander two handed sword",
+   "baseline_verdict": "tolerable",
+   "baseline_reject_reason": null,
+   "seconds": 21.06,
+   "completion_tokens": 143,
+   "valid": true,
+   "error": null,
+   "brief": {
+    "reading": "figurative",
+    "why": "the line is about the value of double currency; the weight of a sword is only a unit of comparison",
+    "subject": "sword",
+    "setting": "medieval training hall, dim light",
+    "era_from": 1000,
+    "era_to": 1500,
+    "queries_en": [
+     "sword hilt and blade macro",
+     "sword wielder in training hall",
+     "sword demonstrations in a dimly lit room"
+    ],
+    "must_not_contain": [
+     "weight",
+     "sword weight",
+     "sword market",
+     "sword shop"
+    ],
+    "confidence": 0.85
+   }
+  },
+  {
+   "id": "ep01_068",
+   "difficulty_class": "compositional",
+   "text": "Возьми настоящий боевой меч и положи его на палец: он уравновесится в десяти-пятнадцати сантиметрах от гарды. Почти у са",
+   "baseline_query": "sword balance point finger",
+   "baseline_verdict": "reject",
+   "baseline_reject_reason": "modern_intrusion",
+   "seconds": 22.16,
+   "completion_tokens": 139,
+   "valid": true,
+   "error": null,
+   "brief": {
+    "reading": "figurative",
+    "why": "the line is about the weight of a sword compared to a finger, not the actual balance of the sword",
+    "subject": "sword on a finger",
+    "setting": "dimly lit medieval workshop",
+    "era_from": 1000,
+    "era_to": 1500,
+    "queries_en": [
+     "sword on a finger macro",
+     "sword on a finger in a dimly lit workshop",
+     "sword maker holding a sword"
+    ],
+    "must_not_contain": [
+     "finger",
+     "finger size",
+     "finger comparison"
+    ],
+    "confidence": 0.9
+   }
+  },
+  {
+   "id": "ep01_076",
+   "difficulty_class": "literal",
+   "text": "Ожидаешь монументального, а в руке — будто удочка.",
+   "baseline_query": "sword hilt hand grip",
+   "baseline_verdict": "good",
+   "baseline_reject_reason": null,
+   "seconds": 23.32,
+   "completion_tokens": 151,
+   "valid": true,
+   "error": null,
+   "brief": {
+    "reading": "figurative",
+    "why": "the line is about the size of a sword compared to a hand, not the actual weight or importance of a sword",
+    "subject": "hand holding a sword",
+    "setting": "medieval castle courtyard, dim light",
+    "era_from": 1000,
+    "era_to": 1500,
+    "queries_en": [
+     "hand holding a sword macro",
+     "medieval castle courtyard wide",
+     "medieval lord inspecting a sword"
+    ],
+    "must_not_contain": [
+     "monumental",
+     "monumental sword",
+     "magnificent sword",
+     "magnificent"
+    ],
+    "confidence": 0.9
+   }
+  },
+  {
+   "id": "ep01_084",
+   "difficulty_class": "compositional",
+   "text": "Их несли перед знатным человеком на церемониях, как несут знамя или скипетр.",
+   "baseline_query": "ornate sword display",
+   "baseline_verdict": "reject",
+   "baseline_reject_reason": "wrong_subject",
+   "seconds": 23.09,
+   "completion_tokens": 159,
+   "valid": true,
+   "error": null,
+   "brief": {
+    "reading": "figurative",
+    "why": "the line is about the symbolic nature of carrying a banner or scepter, not the literal carrying of objects",
+    "subject": "ceremonial scepter or banner being carried",
+    "setting": "medieval court or hall, dimly lit",
+    "era_from": 1000,
+    "era_to": 1500,
+    "queries_en": [
+     "ceremonial scepter or banner being carried macro",
+     "medieval court or hall with dim light",
+     "people carrying a banner or scepter"
+    ],
+    "must_not_contain": [
+     "sword",
+     "carton of milk",
+     "dairy",
+     "kitchen"
+    ],
+    "confidence": 0.9
+   }
+  },
+  {
+   "id": "ep01_090",
+   "difficulty_class": "fragment",
+   "text": "Не дрались. Несли.",
+   "baseline_query": "medieval castle hall",
+   "baseline_verdict": "good",
+   "baseline_reject_reason": null,
+   "seconds": 20.85,
+   "completion_tokens": 139,
+   "valid": true,
+   "error": null,
+   "brief": {
+    "reading": "literal",
+    "why": "The line is about the act of carrying, not a comparison or metaphor",
+    "subject": "people carrying something",
+    "setting": "dimly lit room with a few candles",
+    "era_from": 1000,
+    "era_to": 1500,
+    "queries_en": [
+     "people carrying a bundle macro",
+     "people carrying a bundle in a dimly lit room",
+     "people looking at each other in a room"
+    ],
+    "must_not_contain": [
+     "people carrying a bundle",
+     "ceremonies",
+     "noblemen"
+    ],
+    "confidence": 0.9
+   }
+  },
+  {
+   "id": "ep01_122",
+   "difficulty_class": "anachronism_risk",
+   "text": "Не потому, что не могли позволить себе больше железа. А потому, что считали.",
+   "baseline_query": "blacksmith forging sword",
+   "baseline_verdict": "reject",
+   "baseline_reject_reason": "non_european",
+   "seconds": 21.85,
+   "completion_tokens": 143,
+   "valid": true,
+   "error": null,
+   "brief": {
+    "reading": "figurative",
+    "why": "the line is about the fear and exhaustion of the warriors, not the weight of swords",
+    "subject": "warriors and a sword",
+    "setting": "medieval battlefield, dim light",
+    "era_from": 1000,
+    "era_to": 1500,
+    "queries_en": [
+     "warrior holding a sword macro",
+     "medieval battlefield with warriors in dim light",
+     "warriors marching in a foggy battlefield"
+    ],
+    "must_not_contain": [
+     "sword",
+     "swords",
+     "iron",
+     "mace"
+    ],
+    "confidence": 0.85
+   }
+  },
+  {
+   "id": "ep01_128",
+   "difficulty_class": "literal",
+   "text": "Отвечаю. Уставали. Страшно. Только не от меча.",
+   "baseline_query": "exhausted soldier armor",
+   "baseline_verdict": "good",
+   "baseline_reject_reason": null,
+   "seconds": 21.8,
+   "completion_tokens": 140,
+   "valid": true,
+   "error": null,
+   "brief": {
+    "reading": "figurative",
+    "why": "the line is about the fear of battle, not the literal use of armor",
+    "subject": "a medieval soldier in armor",
+    "setting": "a dark, foggy battlefield",
+    "era_from": 1000,
+    "era_to": 1500,
+    "queries_en": [
+     "soldier in armor with helmet macro",
+     "soldier in armor on a battlefield",
+     "soldier in armor holding a shield"
+    ],
+    "must_not_contain": [
+     "sword",
+     "mace",
+     "battlefield",
+     "modern soldier"
+    ],
+    "confidence": 0.9
+   }
+  },
+  {
+   "id": "ep01_133",
+   "difficulty_class": "metaphor",
+   "text": "Человек в доспехе — это человек в термосе. Перегрев в бою убивал не хуже клинка: в источниках хватает случаев, когда вои",
+   "baseline_query": "exhausted soldier armor",
+   "baseline_verdict": "good",
+   "baseline_reject_reason": null,
+   "seconds": 23.81,
+   "completion_tokens": 147,
+   "valid": true,
+   "error": null,
+   "brief": {
+    "reading": "figurative",
+    "why": "the line is about the durability of armor compared to heat exhaustion in battle",
+    "subject": "soldier in armor and a thermos",
+    "setting": "medieval battlefield, harsh sunlight",
+    "era_from": 1700,
+    "era_to": 1800,
+    "queries_en": [
+     "soldier in armor holding a thermos macro",
+     "soldier in armor standing in a battlefield",
+     "soldier in armor sweating in the heat"
+    ],
+    "must_not_contain": [
+     "sword",
+     "mace",
+     "castle",
+     "medieval knight"
+    ],
+    "confidence": 0.85
+   }
+  },
+  {
+   "id": "ep01_140",
+   "difficulty_class": "anachronism_risk",
+   "text": "Из девятнадцатого века. Из романтизма. Литература и живопись придумали Средневековье заново: мрачное, тяжёлое, железное.",
+   "baseline_query": "19th century romantic painting knight",
+   "baseline_verdict": "reject",
+   "baseline_reject_reason": "unusable",
+   "seconds": 24.25,
+   "completion_tokens": 155,
+   "valid": true,
+   "error": null,
+   "brief": {
+    "reading": "figurative",
+    "why": "the line is about the romanticization of medieval times in literature and art, not the literal historical period",
+    "subject": "a knight in armor",
+    "setting": "medieval battlefield with flickering torchlight",
+    "era_from": 1000,
+    "era_to": 1500,
+    "queries_en": [
+     "knight in full plate armor holding a sword macro",
+     "medieval battlefield with knights and horses in twilight",
+     "knight in armor preparing to fight"
+    ],
+    "must_not_contain": [
+     "nineteenth century",
+     "romanticism",
+     "literature",
+     "painting"
+    ],
+    "confidence": 0.9
+   }
+  },
+  {
+   "id": "ep01_146",
+   "difficulty_class": "metaphor",
+   "text": "И это ощущение честнее кино — ты его не посмотрел, ты его прожил.",
+   "baseline_query": "old film reel vintage cinema",
+   "baseline_verdict": "tolerable",
+   "baseline_reject_reason": null,
+   "seconds": 23.42,
+   "completion_tokens": 153,
+   "valid": true,
+   "error": null,
+   "brief": {
+    "reading": "figurative",
+    "why": "the line is about the feeling of history, not the literal meaning of watching a film",
+    "subject": "a person watching a film",
+    "setting": "a dimly lit room with a small screen",
+    "era_from": 1000,
+    "era_to": 1500,
+    "queries_en": [
+     "close-up of a person's face watching a small screen",
+     "a small screen in a dimly lit room",
+     "a person engrossed in a film"
+    ],
+    "must_not_contain": [
+     "cinema",
+     "movie theater",
+     "large screen",
+     "modern technology"
+    ],
+    "confidence": 0.9
+   }
+  },
+  {
+   "id": "ep01_160",
+   "difficulty_class": "metaphor",
+   "text": "И это, пожалуй, лучшая метафора всего, что мы тут делаем.",
+   "baseline_query": "chainmail armor close up",
+   "baseline_verdict": "good",
+   "baseline_reject_reason": null,
+   "seconds": 21.95,
+   "completion_tokens": 148,
+   "valid": true,
+   "error": null,
+   "brief": {
+    "reading": "figurative",
+    "why": "the line is about the value of time in battle, not the actual weight of weapons",
+    "subject": "swordsmith's workshop and a sword",
+    "setting": "dimly lit medieval forge with sparks flying",
+    "era_from": 1000,
+    "era_to": 1500,
+    "queries_en": [
+     "smith's hammer on an anvil close up",
+     "swordsmith's workshop in a dimly lit forge",
+     "smith bending over an anvil"
+    ],
+    "must_not_contain": [
+     "sword",
+     "swordsmith",
+     "battle",
+     "weapon"
+    ],
+    "confidence": 0.9
+   }
+  }
+ ]
+}
