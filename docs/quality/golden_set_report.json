@@ -7,10 +7,10 @@
   "n_good": 16,
   "n_tolerable": 7,
   "n_reject": 17,
-  "reject_leak": 0.5882,
+  "reject_leak": 0.5294,
   "good_false_reject": 0.0,
   "anachronism_leak": 0.5455,
-  "strict_leak": 0.5417,
+  "strict_leak": 0.5,
   "episode_good_rate": 0.4,
   "hook_good_rate": 0.0,
   "by_reason": {
@@ -21,10 +21,10 @@
    "unusable": 1
   },
   "leaked_by_reason": {
-   "wrong_subject": 3,
    "modern_intrusion": 4,
    "non_european": 2,
-   "duplicate": 1
+   "duplicate": 1,
+   "wrong_subject": 2
   },
   "domain_guard_hits": 2,
   "n_candidates": 264,
@@ -48,7 +48,7 @@
    "anchor_margin": null,
    "anchor_margin_threshold": null,
    "domain_guard": null,
-   "gate_passed": true
+   "gate_passed": false
   },
   {
    "id": "ep01_001",
@@ -677,8 +677,8 @@
  ],
  "baseline_diff": {
   "reject_leak": {
-   "baseline": 0.5882,
-   "now": 0.5882,
+   "baseline": 0.5294,
+   "now": 0.5294,
    "delta": 0.0,
    "regressed": false
   },
@@ -695,8 +695,8 @@
    "regressed": false
   },
   "strict_leak": {
-   "baseline": 0.5417,
-   "now": 0.5417,
+   "baseline": 0.5,
+   "now": 0.5,
    "delta": 0.0,
    "regressed": false
   },

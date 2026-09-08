@@ -18,6 +18,14 @@ VISUAL_DOMAIN_GUARDS (европейский клинок минус восто�
 Замер на золотом наборе из 40 реальных кадров опубликованного эпизода:
 пропуск брака 0.7647 -> 0.5882, анахронизмы 0.6364 -> 0.5455, ложный отказ
 годным 0.0 -> 0.0. Улучшение без единого регресса.
+
+Второй заход (07.09, порог -0.02 -> -0.015, по прямой жалобе на кадр #000 —
+кухня/хлопья на запрос "milk bottle hand"): его margin оказался -0.0175,
+на 0.0025 короче старого порога. Сканирование ВСЕХ margin золотого набора
+(не подгонка под один кадр) показало: -0.015 — первый порог строго между
+-0.02 и 0.0, который дополнительно ловит именно этот кадр и не теряет НИ
+ОДНОГО из 16 годных и 7 терпимых кадров (4 терпимых уже были пойманы и на
+старом пороге -0.02 — состав их не меняется, только состав брака растёт).
 """
 import os
 import sys
@@ -151,6 +159,8 @@ class TestOnRealFrames:
         ("040.jpg", "spear pike soldiers", "рука в китайском шёлке с цзянем"),
         ("084.jpg", "ornate sword display", "пастельное декоративное украшение"),
         ("140.jpg", "19th century romantic painting", "расфокус, содержимое неразличимо"),
+        ("000.jpg", "milk bottle hand", "современная кухня, женщина с хлопьями "
+         "(margin -0.0175 против старого порога -0.02 — второй заход тюнинга 07.09)"),
     ])
     def test_frames_the_veto_newly_catches(self, name, query, what):
         """Браки, которых до вето не ловил НИ ОДИН гейт.
@@ -180,6 +190,42 @@ class TestOnRealFrames:
         assert margin >= ps.NEGATIVE_VETO_MARGIN, (
             f"margin {margin:+.3f} ушёл ниже порога {ps.NEGATIVE_VETO_MARGIN} — "
             f"вето теперь его ловит, тест можно превратить в утверждение поимки")
+
+    def test_tightened_threshold_adds_no_new_false_rejects(self):
+        """Прямая проверка второго захода тюнинга (07.09).
+
+        -0.015 катит ep01_000 в брак дополнительно к тому, что ловил -0.02,
+        но обязан оставить состав ложных отказов на good/tolerable кадрах
+        БЕЗ ИЗМЕНЕНИЙ относительно старого порога — иначе тюнинг был бы не
+        "только плюс", а обменом одного брака на потерю годного кадра.
+        """
+        import json
+        meta = json.load(open(os.path.join(
+            REPO_ROOT, "tests", "fixtures", "golden_set", "manifest.json"),
+            encoding="utf-8"))
+
+        def _false_rejects(margin):
+            saved = ps.NEGATIVE_VETO_MARGIN
+            ps.NEGATIVE_VETO_MARGIN = margin
+            try:
+                out = set()
+                for it in meta["items"]:
+                    if it["verdict"] not in ("good", "tolerable"):
+                        continue
+                    img = os.path.join(REPO_ROOT, "tests", "fixtures",
+                                       "golden_set", it["image"])
+                    v, _ = ps.negative_anchor_violation(img, it["query"])
+                    if v:
+                        out.add(it["id"])
+                return out
+            finally:
+                ps.NEGATIVE_VETO_MARGIN = saved
+
+        old_losses = _false_rejects(-0.02)
+        new_losses = _false_rejects(ps.NEGATIVE_VETO_MARGIN)
+        assert new_losses == old_losses, (
+            f"тюнинг порога изменил состав ложных отказов: было {old_losses}, "
+            f"стало {new_losses} — это уже не чистое улучшение")
 
     def test_good_museum_frames_are_not_vetoed(self):
         """Вторая ось: вето не имеет права выкашивать годное.

@@ -3641,6 +3641,21 @@ def _director_min_pool_for(index):
 BASE_MIN_POOL = 4
 FAST_BASE_MIN_POOL = 2   # тот же компромисс "быстрый хвост", что у Директора
 
+# Видео-путь теперь ранжирует кандидатов ТЕМ ЖЕ visual_director.
+# compute_extra_score(), что и фото (см. main(): video_sentence_fn = ...
+# director_score_fn ...), а не голым sentence_relevance() без единого из её
+# бонусов. Реальный, найденный вживую пробел (08.09): видео — примерно
+# половина слотов эпизода, и НИ ОДИН из них не участвовал в arc_stage-
+# осознанной крупности плана (ARC_STAGE_SHOT_SIZE_BONUS), совпадении домена
+# (domain_match_bonus) или анти-повторе (repetition_penalty) — сигналы,
+# которые фото получает на каждом кандидате. Отдельная версия, не булев
+# дефолт: если этот шаг когда-нибудь откатят, версия обязана вернуться тоже
+# (см. _selection_stack_signature() ниже — без неё смена алгоритма
+# ранжирования на прогретом temp_smart/pexels_video_cache/ не дошла бы до
+# экрана: кандидат уже выбран и закэширован, повторный прогон отдаёт файл
+# без единого нового вызова сравнения).
+VIDEO_DIRECTOR_SCORE_VERSION = 1
+
 
 def _base_min_pool_for(index):
     return BASE_MIN_POOL if index < FAST_MODE_START_INDEX else FAST_BASE_MIN_POOL
@@ -6735,6 +6750,19 @@ VISUAL_DOMAIN_GUARDS = tuple(CHANNEL_PROFILE.get("visual_domain_guards", VISUAL_
 # Подбор подмножества ловушек и порога под этот же набор давал 7 из 17 —
 # сознательно не взято: это подгонка под 40 картинок, а ценность ловушек на
 # СЛЕДУЮЩЕМ эпизоде в покрытии, а не в подгонке под предыдущий.
+#
+# Второй заход (07.09, по прямой жалобе на кадр #000 — кухня/хлопья на
+# запрос "milk bottle hand"): margin этого кадра — ровно -0.0175, на 0.0025
+# короче порога -0.02, то есть НЕ подгонка "нашли один кадр и подвинули
+# порог под него вслепую" — сканирование ВСЕХ 10 кандидатов порога от -0.03
+# до 0.0 по уже посчитанным (без новых ML-вызовов) margin всех 40 кадров
+# золотого набора (`probe_margin_tune.py`, разовый скрипт, не в репозитории)
+# показало: -0.015 — первый порог строго между -0.02 и 0.0, который ловит
+# ещё один брак (ep01_000, ровно этот кадр) и НЕ ловит ни одного из 16
+# годных ИЛИ 7 терпимых кадров (следующий шаг ужесточения, -0.013, уже
+# ловит 2 годных — граница безопасности заканчивается ровно на -0.015).
+# Подбор остался тем же принципом, что и первый заход: одна согласованная
+# точка сканирования, не подгонка индивидуально под кадр.
 _CONTENT_NEGATIVE_ANCHORS_DEFAULT = (
     "modern sport fencing competition with electric scoring equipment",
     "referee, scoreboard and numbered bibs at a sports event",
@@ -6754,7 +6782,7 @@ CONTENT_NEGATIVE_ANCHORS = tuple(CHANNEL_PROFILE.get(
 # запас. Отрицательный запас = консервативно: ловушка должна ощутимо
 # ПЕРЕБИВАТЬ цель, а не просто дотягиваться до неё. Именно эта
 # консервативность и даёт ноль ложных отказов на замере.
-NEGATIVE_VETO_MARGIN = -0.02
+NEGATIVE_VETO_MARGIN = -0.015
 NEGATIVE_VETO_ENABLED = feature_flags.enabled("NEGATIVE_VETO")
 
 
@@ -7090,6 +7118,11 @@ def _selection_stack_signature():
         # доходило бы до экрана на прогретом temp_smart/ вообще.
         feature_flags.enabled("FALLBACK_CARD"),
         FALLBACK_CARD_MAX_SHARE, FALLBACK_CARD_MIN_GAP,
+        # Видео-путь получил тот же compute_extra_score(), что и фото (см.
+        # VIDEO_DIRECTOR_SCORE_VERSION выше) — меняет, кто побеждает среди
+        # уже прошедших гейты видео-кандидатов, без флага здесь смена
+        # алгоритма ранжирования не дошла бы до экрана на прогретом кэше.
+        VIDEO_DIRECTOR_SCORE_VERSION,
     ))
 
 
@@ -10175,7 +10208,7 @@ def main():
     used_photo_hashes = []   # aHash уже отобранных фото — ловит визуальные дубли под РАЗНЫМИ ID (см. pexels_photo)
     recent_shot_sizes = []   # скользящее окно масштаба плана (wide/medium/close/detail) — см. estimate_shot_size
     recent_media_types = []   # скользящее окно фото/видео — content-aware чередование, см. main() ниже
-    recent_semantic_tags = []   # скользящее окно (domain, role) уже выбранных фото — см. visual_director.repetition_penalty
+    recent_semantic_tags = []   # скользящее окно (domain, role) уже выбранных фото И видео (VIDEO_DIRECTOR_SCORE_VERSION) — см. visual_director.repetition_penalty
     stat_count = 0   # 2.2: номер плашки по счёту в ролике -> вариант оформления (chередуются по кругу)
     luma_ema = None   # для сглаживания скачков экспозиции между соседними склейками (см. measure_luma())
     look_report = {}   # индекс -> запись решения Look Management (каждый индекс, не только там, где сработало)
@@ -10429,13 +10462,23 @@ def main():
             # раньше видео-путь такой оценки не имел вообще (только фото),
             # и видео-слот молча оставался на позиционно доставшемся
             # запросе: на реальном рендере фраза "сколько весил настоящий
-            # боевой меч" получила зал кинотеатра. Та же модель и та же
-            # функция, что уже используются для фото.
+            # боевой меч" получила зал кинотеатра.
+            #
+            # VIDEO_DIRECTOR_SCORE_VERSION (08.09): video_sentence_fn — ТОТ
+            # ЖЕ director_score_fn, что уходит фото, не голый
+            # sentence_relevance(). Раньше видео получало только смысловую
+            # релевантность фразы и не участвовало вообще в arc_stage-
+            # осознанной крупности плана, совпадении домена и анти-повторе,
+            # хотя это примерно половина слотов эпизода. compute_extra_score()
+            # уже принимает candidate_query/aesthetic_val как опциональные
+            # keyword (по умолчанию None) — вызов sentence_score_fn(probe)
+            # одним позиционным аргументом (см. pexels_video()) по-прежнему
+            # валиден, просто без её собственных SAME_QUERY_BONUS/
+            # opening-бонусов, которые видео-путь и так добавляет вручную
+            # ниже (см. SAME_QUERY_BONUS/OPENING_AESTHETIC_WEIGHT в
+            # pexels_video()) — двойного счёта нет.
             sem_text = semantic_context_text(blocks, i)
             video_sentence_fn = None
-            if visual_director is not None:
-                video_sentence_fn = functools.partial(
-                    visual_director.sentence_relevance, block_text=sem_text)
             if visual_director is not None:
                 director_role = visual_director.functional_role(b, is_section_start)
                 director_text_domain, _ = visual_director.lr.text_domain_hint(sem_text)
@@ -10446,6 +10489,7 @@ def main():
                     text_domain=director_text_domain, recent_semantic_tags=recent_semantic_tags,
                     arc_stage=arc_stage_for(b), own_query=queries[i], is_opening=is_opening_shot)
                 director_entry = {}
+                video_sentence_fn = director_score_fn
             # Content-aware чередование вместо механического i%2 (ЧАСТЬ 14
             # раньше просто нечётные->фото/чётные->видео) — зритель
             # подсознательно считывает такую периодичность. Видео заказываем,
@@ -10586,6 +10630,18 @@ def main():
             if probe is not None:
                 try:
                     director_rel = visual_director.sentence_relevance(probe, sem_text)
+                    # recent_semantic_tags — то же скользящее окно (domain,
+                    # role) для repetition_penalty, что фото-победители
+                    # пополняют в ветке ниже (см. её комментарий). ДО
+                    # VIDEO_DIRECTOR_SCORE_VERSION видео вообще не участвовало
+                    # в этом сигнале ни как кандидат, ни как история — теперь,
+                    # когда pexels_video() САМА штрафует повтор через тот же
+                    # compute_extra_score(), история обязана видеть и
+                    # видео-победителей тоже, иначе два видео подряд в одном
+                    # домене/роли не считаются повтором вообще.
+                    candidate_domain = visual_director.candidate_domain_for(probe)
+                    recent_semantic_tags.append((candidate_domain, director_role))
+                    del recent_semantic_tags[:-visual_director.REPETITION_WINDOW]
                 finally:
                     if cleanup and os.path.exists(probe):
                         os.remove(probe)

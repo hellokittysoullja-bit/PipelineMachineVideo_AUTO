@@ -1,17 +1,17 @@
 {
  "schema_version": 1,
- "measured_at": "2026-09-07",
+ "measured_at": "2026-09-08",
  "commit": "89f0a44",
- "note": "Пол метрики. Обновлён 07.09 после контрастивного вето по ловушкам-негативам: пропуск брака 0.7647 -> 0.5882, анахронизмы 0.6364 -> 0.5455, ложный отказ годным остался ровно 0.0. Прошлые значения сохранены в previous_summary_* — так видно, что пол двигался только вниз по ошибкам и никогда вверх.",
+ "note": "Пол метрики. Обновлён 07.09 после контрастивного вето по ловушкам-негативам: пропуск брака 0.7647 -> 0.5882, анахронизмы 0.6364 -> 0.5455, ложный отказ годным остался ровно 0.0. Второй заход 07.09/08.09: NEGATIVE_VETO_MARGIN -0.02 -> -0.015 (безопасное ужесточение, найдено сканированием margin всех 40 кадров, не подгонкой под один) поймал ep01_000 (кухня на 'milk bottle hand', margin -0.0175) без единого нового ложного отказа — пропуск брака 0.5882 -> 0.5294. Прошлые значения сохранены в previous_summary_* — так видно, что пол двигался только вниз по ошибкам и никогда вверх.",
  "summary": {
   "n_items": 40,
   "n_good": 16,
   "n_tolerable": 7,
   "n_reject": 17,
-  "reject_leak": 0.5882,
+  "reject_leak": 0.5294,
   "good_false_reject": 0.0,
   "anachronism_leak": 0.5455,
-  "strict_leak": 0.5417,
+  "strict_leak": 0.5,
   "episode_good_rate": 0.4,
   "hook_good_rate": 0.0,
   "by_reason": {
@@ -22,10 +22,10 @@
    "unusable": 1
   },
   "leaked_by_reason": {
-   "wrong_subject": 3,
    "modern_intrusion": 4,
    "non_european": 2,
-   "duplicate": 1
+   "duplicate": 1,
+   "wrong_subject": 2
   },
   "domain_guard_hits": 2,
   "n_candidates": 264,
@@ -41,5 +41,12 @@
   "strict_leak": 0.75,
   "good_false_reject": 0.0,
   "blocked_share": 0.0795
+ },
+ "previous_summary_2026-09-07-negative-veto-0.02": {
+  "reject_leak": 0.5882,
+  "anachronism_leak": 0.5455,
+  "strict_leak": 0.5417,
+  "good_false_reject": 0.0,
+  "blocked_share": 0.2765
  }
 }
