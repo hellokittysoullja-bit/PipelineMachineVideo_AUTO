@@ -104,7 +104,12 @@ class TestWiredIntoRealEmbeddingFunctions:
     подключённая никуда функция."""
 
     def test_siglip2_text_emb_reports_truncation(self, monkeypatch, tmp_path):
-        import torch
+        # torch — опциональная зависимость: job `linux` в CI её намеренно не
+        # ставит (веса моделей качает отдельный job `ml`, см. ЧАСТЬ 19
+        # CLAUDE.md). Голый `import torch` здесь три пуша подряд ронял CI,
+        # оставаясь зелёным локально, где torch стоит. Тот же паттерн, что
+        # уже используют test_visual_director.py и test_golden_set_metric.py.
+        torch = pytest.importorskip("torch")
 
         class _FakeProcessor:
             def __call__(self, images=None, text=None, padding=None,
