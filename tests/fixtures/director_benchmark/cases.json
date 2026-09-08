@@ -1,0 +1,309 @@
+{
+ "schema_version": 1,
+ "source": "tests/fixtures/golden_set/manifest.json — реальные слоты опубликованного эпизода 01_ves-mecha с вердиктами глазами",
+ "purpose": "замер КАЧЕСТВА ЗАПРОСА (то, что происходит до скачивания), а не гейтов на уже скачанном кадре",
+ "honest_composition": {
+  "по классам": {
+   "figurative": [
+    "ep01_000",
+    "ep01_005"
+   ],
+   "anachronism_risk": [
+    "ep01_002",
+    "ep01_006",
+    "ep01_122",
+    "ep01_140"
+   ],
+   "compositional": [
+    "ep01_008",
+    "ep01_068",
+    "ep01_084"
+   ],
+   "fragment": [
+    "ep01_009",
+    "ep01_055",
+    "ep01_090"
+   ],
+   "literal": [
+    "ep01_011",
+    "ep01_026",
+    "ep01_048",
+    "ep01_076",
+    "ep01_128"
+   ],
+   "metaphor": [
+    "ep01_133",
+    "ep01_146",
+    "ep01_160"
+   ]
+  },
+  "по базовому вердикту": {
+   "reject": 10,
+   "good": 8,
+   "tolerable": 2
+  },
+  "почему смешанный": "набор только из провалов показал бы лишь улучшение и был бы слеп к регрессу на том, что уже работает"
+ },
+ "cases": [
+  {
+   "id": "ep01_000",
+   "difficulty_class": "figurative",
+   "section": "HOOK",
+   "index": 0,
+   "text": "Пятнадцать килограммов.",
+   "context_prev": "",
+   "context_next": "Так говорят кино, видеоигры и школьные учебники — в один голос.",
+   "baseline_query": "milk bottle hand",
+   "baseline_verdict": "reject",
+   "baseline_reject_reason": "wrong_subject",
+   "baseline_note": "современная кухня, женщина с хлопьями; фраза «Пятнадцать килограммов»"
+  },
+  {
+   "id": "ep01_002",
+   "difficulty_class": "anachronism_risk",
+   "section": "HOOK",
+   "index": 2,
+   "text": "Именно так отвечает почти каждый, когда его спрашивают, сколько весил настоящий боевой меч.",
+   "context_prev": "Так говорят кино, видеоигры и школьные учебники — в один голос.",
+   "context_next": "Скажи честно — ты тоже сейчас подумал именно это?",
+   "baseline_query": "greatsword warrior fight",
+   "baseline_verdict": "reject",
+   "baseline_reject_reason": "non_european",
+   "baseline_note": "прыжок с клинками в тёмном лесу, восточная боевая пластика"
+  },
+  {
+   "id": "ep01_005",
+   "difficulty_class": "figurative",
+   "section": "HOOK",
+   "index": 5,
+   "text": "Не вставай никуда. Просто вспомни, сколько весит пакет молока у тебя в руке. Литр. Ерунда.",
+   "context_prev": "Готов спорить, что да. Герой на экране заносит клинок двумя руками, рычит, враг падает — вместе с конём, разумеется.",
+   "context_next": "Вот это. Это вес настоящего боевого меча — того самого, которым люди убивали друг друга тысячу лет подряд.",
+   "baseline_query": "milk bottle hand",
+   "baseline_verdict": "reject",
+   "baseline_reject_reason": "wrong_subject",
+   "baseline_note": "новорождённый с бутылочкой вместо бутылки молока как меры веса"
+  },
+  {
+   "id": "ep01_006",
+   "difficulty_class": "anachronism_risk",
+   "section": "HOOK",
+   "index": 6,
+   "text": "Вот это. Это вес настоящего боевого меча — того самого, которым люди убивали друг друга тысячу лет подряд.",
+   "context_prev": "Не вставай никуда. Просто вспомни, сколько весит пакет молока у тебя в руке. Литр. Ерунда.",
+   "context_next": "Хочется возразить — отлично. Именно для этого я собрал взвешивания, музейные каталоги и статистику по сотням клинков. Вс",
+   "baseline_query": "greatsword warrior fight",
+   "baseline_verdict": "reject",
+   "baseline_reject_reason": "non_european",
+   "baseline_note": "корейский дворец, бойцы в ханбоках"
+  },
+  {
+   "id": "ep01_008",
+   "difficulty_class": "compositional",
+   "section": "HOOK",
+   "index": 8,
+   "text": "А ближе к концу — меч на четыре килограмма. Настоящий, из музея, с табличкой «боевой».",
+   "context_prev": "Хочется возразить — отлично. Именно для этого я собрал взвешивания, музейные каталоги и статистику по сотням клинков. Вс",
+   "context_next": "Историки до сих пор спорят, врёт эта табличка или нет.",
+   "baseline_query": "greatsword warrior fight",
+   "baseline_verdict": "reject",
+   "baseline_reject_reason": "modern_intrusion",
+   "baseline_note": "современная улица, ребёнок в костюме рыцаря"
+  },
+  {
+   "id": "ep01_009",
+   "difficulty_class": "fragment",
+   "section": "HOOK",
+   "index": 9,
+   "text": "Историки до сих пор спорят, врёт эта табличка или нет.",
+   "context_prev": "А ближе к концу — меч на четыре килограмма. Настоящий, из музея, с табличкой «боевой».",
+   "context_next": "Смотри, какая штука. Про мечи не знает ничего только ленивый — и при этом почти всё, что ты знаешь, неверно. Спроси любо",
+   "baseline_query": "medieval knight sword battle",
+   "baseline_verdict": "reject",
+   "baseline_reject_reason": "modern_intrusion",
+   "baseline_note": "реконструктор в современной куртке, сабля вместо меча"
+  },
+  {
+   "id": "ep01_011",
+   "difficulty_class": "literal",
+   "section": "BLOCK 1: ПОСТАНОВКА ПРОБЛЕМЫ",
+   "index": 11,
+   "text": "«Рыцари же были здоровые мужики, они с детства тренировались, чтобы просто держать эту штуку».",
+   "context_prev": "Смотри, какая штука. Про мечи не знает ничего только ленивый — и при этом почти всё, что ты знаешь, неверно. Спроси любо",
+   "context_next": "Красивая картинка. Суровые воины, тяжёлая сталь, мужской пот.",
+   "baseline_query": "knight armor exhibit",
+   "baseline_verdict": "good",
+   "baseline_reject_reason": null,
+   "baseline_note": "шлем и доспех крупно у кирпичной стены"
+  },
+  {
+   "id": "ep01_026",
+   "difficulty_class": "literal",
+   "section": "BLOCK 2: ПЕРВЫЙ ОТВЕТ И ЦИФРЫ",
+   "index": 26,
+   "text": "Инструмент, которым долбят бетон, тяжелее «страшного рыцарского меча» в два-три раза.",
+   "context_prev": "Разбирать её по винтикам неприятно: как будто у тебя отнимают любимый фильм. Но мы сюда пришли не за уютом. Мы пришли за",
+   "context_next": "Средневековые оружейники понимали это лучше любого постановщика боевых сцен.",
+   "baseline_query": "sledgehammer tool",
+   "baseline_verdict": "good",
+   "baseline_reject_reason": null,
+   "baseline_note": "современная кувалда — ровно то, с чем текст сравнивает меч"
+  },
+  {
+   "id": "ep01_048",
+   "difficulty_class": "literal",
+   "section": "BLOCK 3: А КАК ЖЕ ДВУРУЧНИКИ",
+   "index": 48,
+   "text": "И тут надо понять главное: цвайхендер — это потолок. Экстремум.",
+   "context_prev": "Весь смысл запасного оружия в том, что оно при тебе всегда, а не лежит в обозе.",
+   "context_next": "Двойные деньги шли не за вес меча.",
+   "baseline_query": "medieval pikemen battle",
+   "baseline_verdict": "good",
+   "baseline_reject_reason": null,
+   "baseline_note": "гравированный европейский доспешный щиток"
+  },
+  {
+   "id": "ep01_055",
+   "difficulty_class": "fragment",
+   "section": "BLOCK 3: А КАК ЖЕ ДВУРУЧНИКИ",
+   "index": 55,
+   "text": "Двойные деньги шли не за вес меча.",
+   "context_prev": "И тут надо понять главное: цвайхендер — это потолок. Экстремум.",
+   "context_next": "Зато есть расписания занятий: по несколько часов в день.",
+   "baseline_query": "zweihander two handed sword",
+   "baseline_verdict": "tolerable",
+   "baseline_reject_reason": null,
+   "baseline_note": "каменная резьба: абстрактно, но не противоречит"
+  },
+  {
+   "id": "ep01_068",
+   "difficulty_class": "compositional",
+   "section": "BLOCK 4: БАЛАНС ВАЖНЕЕ ВЕСА",
+   "index": 68,
+   "text": "Возьми настоящий боевой меч и положи его на палец: он уравновесится в десяти-пятнадцати сантиметрах от гарды. Почти у са",
+   "context_prev": "Зато есть расписания занятий: по несколько часов в день.",
+   "context_next": "Ожидаешь монументального, а в руке — будто удочка.",
+   "baseline_query": "sword balance point finger",
+   "baseline_verdict": "reject",
+   "baseline_reject_reason": "modern_intrusion",
+   "baseline_note": "спортивная фехтовальная перчатка и шпага"
+  },
+  {
+   "id": "ep01_076",
+   "difficulty_class": "literal",
+   "section": "BLOCK 4: БАЛАНС ВАЖНЕЕ ВЕСА",
+   "index": 76,
+   "text": "Ожидаешь монументального, а в руке — будто удочка.",
+   "context_prev": "Возьми настоящий боевой меч и положи его на палец: он уравновесится в десяти-пятнадцати сантиметрах от гарды. Почти у са",
+   "context_next": "Их несли перед знатным человеком на церемониях, как несут знамя или скипетр.",
+   "baseline_query": "sword hilt hand grip",
+   "baseline_verdict": "good",
+   "baseline_reject_reason": null,
+   "baseline_note": "рыцарь в доспехе с мечом в поле"
+  },
+  {
+   "id": "ep01_084",
+   "difficulty_class": "compositional",
+   "section": "BLOCK 5: А ЧТО В МУЗЕЯХ",
+   "index": 84,
+   "text": "Их несли перед знатным человеком на церемониях, как несут знамя или скипетр.",
+   "context_prev": "Ожидаешь монументального, а в руке — будто удочка.",
+   "context_next": "Не дрались. Несли.",
+   "baseline_query": "ornate sword display",
+   "baseline_verdict": "reject",
+   "baseline_reject_reason": "wrong_subject",
+   "baseline_note": "пастельное декоративное украшение, к теме отношения нет"
+  },
+  {
+   "id": "ep01_090",
+   "difficulty_class": "fragment",
+   "section": "BLOCK 5: А ЧТО В МУЗЕЯХ",
+   "index": 90,
+   "text": "Не дрались. Несли.",
+   "context_prev": "Их несли перед знатным человеком на церемониях, как несут знамя или скипетр.",
+   "context_next": "Это «вот что мы взвесили, а вот в чём сомневаемся».",
+   "baseline_query": "medieval castle hall",
+   "baseline_verdict": "good",
+   "baseline_reject_reason": null,
+   "baseline_note": "фахверковый зал средневековой постройки"
+  },
+  {
+   "id": "ep01_122",
+   "difficulty_class": "anachronism_risk",
+   "section": "BLOCK 6: ДОКАЗАТЕЛЬНАЯ БАЗА",
+   "index": 122,
+   "text": "Не потому, что не могли позволить себе больше железа. А потому, что считали.",
+   "context_prev": "Сотни клинков из разных стран и веков — и все, как один, лежат в коридоре от девятисот граммов до полутора килограммов. ",
+   "context_next": "Отвечаю. Уставали. Страшно. Только не от меча.",
+   "baseline_query": "blacksmith forging sword",
+   "baseline_verdict": "reject",
+   "baseline_reject_reason": "non_european",
+   "baseline_note": "катана и мотив японского флага"
+  },
+  {
+   "id": "ep01_128",
+   "difficulty_class": "literal",
+   "section": "BLOCK 7: ПОЧЕМУ ТОГДА УСТАВАЛИ",
+   "index": 128,
+   "text": "Отвечаю. Уставали. Страшно. Только не от меча.",
+   "context_prev": "Не потому, что не могли позволить себе больше железа. А потому, что считали.",
+   "context_next": "Человек в доспехе — это человек в термосе. Перегрев в бою убивал не хуже клинка: в источниках хватает случаев, когда вои",
+   "baseline_query": "exhausted soldier armor",
+   "baseline_verdict": "good",
+   "baseline_reject_reason": null,
+   "baseline_note": "европейский доспех крупно на чёрном"
+  },
+  {
+   "id": "ep01_133",
+   "difficulty_class": "metaphor",
+   "section": "BLOCK 7: ПОЧЕМУ ТОГДА УСТАВАЛИ",
+   "index": 133,
+   "text": "Человек в доспехе — это человек в термосе. Перегрев в бою убивал не хуже клинка: в источниках хватает случаев, когда вои",
+   "context_prev": "Отвечаю. Уставали. Страшно. Только не от меча.",
+   "context_next": "Из девятнадцатого века. Из романтизма. Литература и живопись придумали Средневековье заново: мрачное, тяжёлое, железное.",
+   "baseline_query": "exhausted soldier armor",
+   "baseline_verdict": "good",
+   "baseline_reject_reason": null,
+   "baseline_note": "ковка раскалённого клинка на наковальне"
+  },
+  {
+   "id": "ep01_140",
+   "difficulty_class": "anachronism_risk",
+   "section": "BLOCK 8: ОТКУДА ВЗЯЛСЯ МИФ",
+   "index": 140,
+   "text": "Из девятнадцатого века. Из романтизма. Литература и живопись придумали Средневековье заново: мрачное, тяжёлое, железное.",
+   "context_prev": "Человек в доспехе — это человек в термосе. Перегрев в бою убивал не хуже клинка: в источниках хватает случаев, когда вои",
+   "context_next": "И это ощущение честнее кино — ты его не посмотрел, ты его прожил.",
+   "baseline_query": "19th century romantic painting knight",
+   "baseline_verdict": "reject",
+   "baseline_reject_reason": "unusable",
+   "baseline_note": "расфокус, содержимое кадра неразличимо"
+  },
+  {
+   "id": "ep01_146",
+   "difficulty_class": "metaphor",
+   "section": "BLOCK 8: ОТКУДА ВЗЯЛСЯ МИФ",
+   "index": 146,
+   "text": "И это ощущение честнее кино — ты его не посмотрел, ты его прожил.",
+   "context_prev": "Из девятнадцатого века. Из романтизма. Литература и живопись придумали Средневековье заново: мрачное, тяжёлое, железное.",
+   "context_next": "Это льстит нашему чувству истории: раньше люди были настоящие, а мы деградировали.",
+   "baseline_query": "old film reel vintage cinema",
+   "baseline_verdict": "tolerable",
+   "baseline_reject_reason": null,
+   "baseline_note": "романтическая живопись XIX века под фразу про кино"
+  },
+  {
+   "id": "ep01_160",
+   "difficulty_class": "metaphor",
+   "section": "FINAL",
+   "index": 160,
+   "text": "И это, пожалуй, лучшая метафора всего, что мы тут делаем.",
+   "context_prev": "Тысяча лет оружейники делали его легче, быстрее, точнее — потому что в бою решает не вес, а доля секунды.",
+   "context_next": "Береги себя.",
+   "baseline_query": "chainmail armor close up",
+   "baseline_verdict": "good",
+   "baseline_reject_reason": null,
+   "baseline_note": "конные доспехи в музейном зале"
+  }
+ ]
+}
