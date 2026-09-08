@@ -129,13 +129,26 @@ class TestBackwardCompatibleCallingConvention:
         monkeypatch.setattr(ps, "video_sharpness_ok", lambda p: True)
         monkeypatch.setattr(ps, "measure_luma", lambda p: 0.4)
 
+        def _candidate_id(probe_path):
+            # НЕ "2.mp4" in probe: cf сам заканчивается на ".mp4" (см.
+            # pexels_video()), поэтому полный путь пробника содержит ".mp4"
+            # ДВАЖДЫ — суффикс кэш-ключа (gate_sig, зависит от текущего
+            # состояния кода) при некоторых хэшах случайно порождает
+            # подстроку "2.mp4" внутри себя (реально пойманная ложная
+            # коллизия, не гипотеза) и ломает наивный substring-матч. Якорим
+            # по единственно надёжной части имени — "trial_<id>.mp4".
+            import re
+            m = re.search(r"trial_(\d+)\.mp4", probe_path)
+            return int(m.group(1)) if m else None
+
         def director_style(probe, candidate_query=None, aesthetic_val=None):
             # Кандидат 2 явно сильнее по director-сигналу (аналог более
             # выигрышной крупности плана/домена), при равной "смысловой"
             # части — то, что раньше решал только голый sentence_relevance.
-            return 0.9 if "2.mp4" in probe else 0.1
+            return 0.9 if _candidate_id(probe) == 2 else 0.1
 
         out = ps.pexels_video("medieval sword close up", 9, used_ids=set(),
                               used_hashes=[], sentence_score_fn=director_style)
         assert out is not None
-        assert open(out, "rb").read() == b"2", "не победил кандидат с более высоким director-скором"
+        assert ps.read_media_sidecar(out).get("pexels_id") == 2, (
+            "не победил кандидат с более высоким director-скором")

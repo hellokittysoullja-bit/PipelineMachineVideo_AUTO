@@ -3654,7 +3654,13 @@ FAST_BASE_MIN_POOL = 2   # тот же компромисс "быстрый хв
 # ранжирования на прогретом temp_smart/pexels_video_cache/ не дошла бы до
 # экрана: кандидат уже выбран и закэширован, повторный прогон отдаёт файл
 # без единого нового вызова сравнения).
-VIDEO_DIRECTOR_SCORE_VERSION = 1
+#
+# v2 (08.09): pexels_video() принимает recent_sizes и штрафует повтор
+# крупности плана (shot_size_ok — тот же size_ok, что фото давно считает
+# через recent_sizes/estimate_shot_size), видео-победители пополняют
+# recent_shot_sizes — тот же "ритм крупностей" (Block 4.2), что раньше
+# работал только у фото.
+VIDEO_DIRECTOR_SCORE_VERSION = 2
 
 
 def _base_min_pool_for(index):
@@ -3805,9 +3811,10 @@ def _build_opening_shortlist(candidates_info, base_winner, director_winner, max_
 
 def _build_video_arbiter_shortlist(good, own_query, max_n=3):
     """Аналог _build_arbiter_shortlist() для видео-пути (pexels_video) —
-    good уже отсортирован по (luma_ok, sent_score) убыванию, элементы —
-    (sent_score, luma_ok, trial_path, id, hash, origin_query), все уже
-    прошли гейты. Победитель (good[0]) + лучший кандидат СВОЕГО запроса
+    good уже отсортирован по (shot_size_ok, luma_ok, sent_score) убыванию,
+    элементы — (sent_score, luma_ok, trial_path, id, hash, origin_query,
+    shot_size_ok — добавлен ПОСЛЕДНИМ полем, не сдвигая уже разбираемые по
+    позиции 0-5), все уже прошли гейты. Победитель (good[0]) + лучший кандидат СВОЕГО запроса
     слота, если не совпал (см. SAME_QUERY_BONUS), + второй по счёту
     (good[1]), если отличается от уже добавленных — та же неопределённость
     "какой сигнал прав", что у фото-версии, только без раздельных base/
@@ -8284,7 +8291,7 @@ def _pexels_search_videos(api_query):
 
 def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier=None,
                   extra_queries=None, sentence_score_fn=None, text_key=None, arbiter_text=None,
-                  is_opening_shot=False):
+                  is_opening_shot=False, recent_sizes=None):
     """Раньше брала ПЕРВОЕ ещё не показанное видео из выдачи без единой
     проверки релевантности/риска (реальный, ранее не закрытый структурный
     пробел, найденный внешним аудитом + прямой проверкой на реальном
@@ -8405,7 +8412,7 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
         # Кандидаты, прошедшие все гейты, больше НЕ принимаются "первым
         # попавшимся": собираются и сравниваются по смыслу полной фразы
         # (sentence_score_fn) и читаемости кадра — так же, как у фото.
-        good = []              # [(sentence_score, luma_ok, путь, id, hash)]
+        good = []              # [(sentence_score, luma_ok, путь, id, hash, origin_query, shot_size_ok)]
         tries = 0
         # РЕАЛЬНЫЙ баг, найденный покадровым просмотром готового рендера
         # (не гипотеза): VIDEO_RELEVANCE_MAX_TRIES=3 калибровалась под
@@ -8445,6 +8452,17 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
             cand_hash = None
             sent_score = 0.0
             cand_luma = None
+            # shot_size_ok — то же ограничение ритма крупностей, что уже
+            # годами работает в pexels_photo() (см. recent_sizes/size_ok там),
+            # раньше видео в нём не участвовало вообще: recent_sizes не
+            # принимался, крупность кандидата не считалась, а победивший
+            # видео-клип не пополнял историю для СЛЕДУЮЩИХ слотов (ни фото,
+            # ни видео) — то есть два видео-плана одной крупности подряд, или
+            # видео той же крупности сразу за фото, ничем не отличались от
+            # разнообразной последовательности. Считается на ИЗВЛЕЧЁННОМ
+            # кадре-пробнике (estimate_shot_size — функция для статичных
+            # изображений), не на самом .mp4.
+            shot_size_ok = 1
             if probe is not None:
                 try:
                     # Гейт сверяется с запросом ЭТОГО БЛОКА (`query`), не с тем,
@@ -8462,6 +8480,11 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                         cand_luma = measure_luma(probe)
                     except Exception:
                         cand_luma = None
+                    if recent_sizes is not None:
+                        try:
+                            shot_size_ok = 0 if estimate_shot_size(probe) in recent_sizes[-2:] else 1
+                        except Exception:
+                            shot_size_ok = 1
                     if relevant and sentence_score_fn is not None:
                         try:
                             s = sentence_score_fn(probe)
@@ -8542,7 +8565,15 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                       min((hamming(cand_hash, uh) for uh in used_hashes), default=99)
                       <= PHOTO_DEDUP_HAMMING)
             if relevant and not is_dup:
-                good.append((sent_score, luma_ok, trial, v.get("id"), cand_hash, v.get("_origin_query")))
+                # shot_size_ok — ДОБАВЛЕН В КОНЕЦ кортежа, не в середину: g[2]/
+                # g[3]/g[4]/g[5]/best[2..4] уже разбираются по позиции в
+                # нескольких местах ниже (_build_video_arbiter_shortlist,
+                # _build_opening_video_shortlist, финальная сборка победителя)
+                # — сдвиг индексов молча перепутал бы путь/id/hash/origin_query
+                # местами. Приоритет в сравнении всё равно даёт сам sort key
+                # ниже, не позиция в кортеже.
+                good.append((sent_score, luma_ok, trial, v.get("id"), cand_hash,
+                            v.get("_origin_query"), shot_size_ok))
                 # Без смыслового скоринга сравнивать нечего — прежнее
                 # поведение "первый прошедший побеждает" (ноль регресса для
                 # вызовов без sentence_score_fn). С пулом ранний обрыв по
@@ -8562,10 +8593,16 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
             else:
                 os.remove(trial)
         if good:
-            # Читаемость кадра важнее тонкой разницы в смысловом скоре:
-            # нерелевантных здесь уже нет (все прошли гейт), а невидимый
-            # кадр бесполезен независимо от того, что на нём изображено.
-            good.sort(key=lambda g: (g[1], g[0]), reverse=True)
+            # Ритм крупностей (g[6]=shot_size_ok) — та же приоритетная
+            # позиция, что size_ok занимает у фото в _score_and_pick() (сразу
+            # после дедупа/резкости, ДО эстетики/смыслового скора): кандидат,
+            # повторяющий крупность одного из двух последних клипов, не
+            # исключается (слот не должен опустеть), но проигрывает любому
+            # кандидату, предлагающему другую крупность. Читаемость кадра
+            # (luma_ok) важнее тонкой разницы в смысловом скоре — нерелевант-
+            # ных здесь уже нет (все прошли гейт), а невидимый кадр бесполезен
+            # независимо от того, что на нём изображено.
+            good.sort(key=lambda g: (g[6], g[1], g[0]), reverse=True)
             best = good[0]
             # VLM-АРБИТР (см. shot_director.arbitrate_hook_candidates и
             # _build_video_arbiter_shortlist) — тот же принцип, что уже
@@ -10526,7 +10563,8 @@ def main():
                                      action_qualifier=act_qual,
                                      extra_queries=section_query_pool.get(b["section"]),
                                      sentence_score_fn=video_sentence_fn, text_key=sem_text,
-                                     arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot)
+                                     arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot,
+                                     recent_sizes=recent_shot_sizes)
                 if not video:
                     photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
                                       recent_sizes=recent_shot_sizes, target_luma=luma_ema,
@@ -10546,7 +10584,8 @@ def main():
                                          action_qualifier=act_qual,
                                          extra_queries=section_query_pool.get(b["section"]),
                                          sentence_score_fn=video_sentence_fn, text_key=sem_text,
-                                         arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot)
+                                         arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot,
+                                         recent_sizes=recent_shot_sizes)
             # Раньше Pexels отключался навсегда после ЛЮБОГО промаха, включая
             # обычную пустую выдачу по одному неудачному запросу. Гасим источник
             # только если API реально отвалился.
@@ -10642,6 +10681,15 @@ def main():
                     candidate_domain = visual_director.candidate_domain_for(probe)
                     recent_semantic_tags.append((candidate_domain, director_role))
                     del recent_semantic_tags[:-visual_director.REPETITION_WINDOW]
+                    # recent_shot_sizes — тот же принцип: pexels_video() теперь
+                    # штрафует повтор крупности через recent_sizes (см.
+                    # shot_size_ok в pexels_video()), а история пополнялась
+                    # только фото-победителями (см. ветку ниже). Без этого два
+                    # видео одной крупности подряд не считались бы повтором.
+                    try:
+                        recent_shot_sizes.append(estimate_shot_size(probe))
+                    except Exception:
+                        pass
                 finally:
                     if cleanup and os.path.exists(probe):
                         os.remove(probe)
