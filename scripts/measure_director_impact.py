@@ -40,8 +40,15 @@ import urllib.request
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "scripts"))
 
+# pipeline_smart читает sys.argv[1] как папку эпизода ПРЯМО НА ИМПОРТЕ,
+# поэтому argv приходится подменить. Настоящие аргументы сохраняем до
+# подмены и возвращаем сразу после — иначе argparse ниже разбирал бы
+# подставленный путь вместо того, что набрал пользователь (реально
+# пойманная на себе ошибка: IsADirectoryError на /tmp).
+_REAL_ARGV = list(sys.argv)
 sys.argv = ["pipeline_smart.py", tempfile.gettempdir()]
 import pipeline_smart as ps  # noqa: E402
+sys.argv = _REAL_ARGV
 
 # Сколько кандидатов на запрос реально скачивать и оценивать. Не больше,
 # чем реальный пайплайн смотрит на слот (BASE_MIN_POOL=4 / DIRECTOR_MIN_
