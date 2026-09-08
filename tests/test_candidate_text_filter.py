@@ -89,6 +89,25 @@ class TestFilterOnRealSample:
                 "url": "https://www.pexels.com/photo/medieval-sword-in-museum-3/"}
         assert ps.filter_alt_blocklist([fencing, good]) == [good]
 
+    def test_korean_historical_demonstration_is_filtered_out(self):
+        """Реальный кадр из живого рендера videos/_test20s (08.09): выиграл
+        хук-слот "Готов спорить, что да. Герой на экране заносит клинок
+        двумя руками..." по запросу "warrior on horseback with sword" —
+        запрос СОДЕРЖИТ "sword", video_domain_guard_violation() проверился,
+        но кадр снят со спины (баннеры с корейским текстом, костюм в стиле
+        эпохи Чосон), клинка в кадре не видно вообще — форму сравнивать
+        физически не с чем, тот же честно задокументированный слепой угол,
+        что и у пустой рукояти без гарды. Pexels id 32736476, url-слаг
+        "traditional-korean-sword-fighting-demonstration-32736476" —
+        ни один прежний термин (katana/samurai/kimono — японские/китайские)
+        его не покрывал."""
+        item = {"id": 32736476, "alt": None,
+                "url": "https://www.pexels.com/video/traditional-korean-sword-"
+                       "fighting-demonstration-32736476/"}
+        good = {"id": 1, "alt": None,
+                "url": "https://www.pexels.com/video/knight-on-horseback-with-longsword-1/"}
+        assert ps.filter_alt_blocklist([item, good]) == [good]
+
     def test_authentic_candidates_survive(self):
         """Вторая ось: фильтр не имеет права выкашивать нужное."""
         keep = [

@@ -3420,6 +3420,17 @@ _CONTENT_ALT_BLOCKLIST_DEFAULT = (
     # класс бага, что дал непримененную виньетку в этой же сессии.
     "katana", "samurai", "kimono", "chinese sword", "jian sword",
     "wuxia", "tai chi", "shogun", "ninja",
+    # Найдено вживую 08.09 на реальном рендере videos/_test20s: победитель
+    # хук-слота "warrior on horseback with sword" (query СОДЕРЖИТ "sword" —
+    # domain guard проверяется, но кадр снят со спины, клинка в кадре не
+    # видно вообще, форму сравнивать физически не с чем) — реальное Pexels-
+    # видео 32736476, url-слаг
+    # ".../traditional-korean-sword-fighting-demonstration-32736476/".
+    # Корейская дворцовая церемония смены караула (баннеры с корейским
+    # текстом, костюм в стиле эпохи Чосон) — не покрыта ни одним
+    # существующим термином выше (katana/samurai/kimono и т.п. — японские/
+    # китайские; korean/hanbok/joseon покрывают отдельную культуру).
+    "korean", "hanbok", "joseon",
     "stormtrooper", "motorcycle helmet", "sci-fi costume", "tribal costume",
     "cultural festival", "video game icon",
     # Добавлено 07.09 по ЖИВОЙ выдаче Pexels (655 кандидатов по 30 запросам
