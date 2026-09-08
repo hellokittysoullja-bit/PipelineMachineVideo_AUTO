@@ -62,6 +62,13 @@ def _download(url, dest, timeout=30):
         shutil.copyfileobj(r, f)
 
 
+# Функция смысловой оценки по полной русской фразе и сама фраза текущего
+# слота. Ставятся в main() один раз: visual_director тянет SigLIP2, и
+# грузить её на каждый пул было бы бессмысленно дорого.
+_sentence_fn = None
+_phrase = None
+
+
 def evaluate_pool(queries, own_query, work_dir, seen_ids):
     """Скачивает кандидатов по queries и прогоняет РЕАЛЬНЫЕ гейты прода.
 
@@ -112,6 +119,20 @@ def evaluate_pool(queries, own_query, work_dir, seen_ids):
             c["aesthetic"] = round(float(ps.aesthetic_score(c["path"]) or 0), 3)
         except Exception:
             c["aesthetic"] = 0.0
+        # Смысловая близость к РЕАЛЬНОЙ РУССКОЙ ФРАЗЕ (SigLIP2+Jina), а не
+        # к английскому запросу-посреднику. Это принципиально другая ось:
+        # гейт выше спрашивает «похож ли кадр на ЗАПРОС», а здесь —
+        # «похож ли кадр на то, что зритель СЛЫШИТ». Кадр с кухней из
+        # опубликованного эпизода гейт по запросу «milk bottle hand»
+        # проходил честно — он и правда про молоко; провалился он именно
+        # по фразе, которая была про вес меча.
+        c["sentence_rel"] = None
+        if _sentence_fn is not None and _phrase:
+            try:
+                v = _sentence_fn(c["path"], _phrase)
+                c["sentence_rel"] = round(float(v), 4) if v is not None else None
+            except Exception:
+                pass
         try:
             c["sharp_ok"] = bool(ps.image_sharpness_score(c["path"]) >= ps.PHOTO_SHARPNESS_REJECT)
         except Exception:
@@ -149,6 +170,16 @@ def main():
         print("Нет PEXELS_API_KEY — замер невозможен")
         return 1
 
+    global _sentence_fn, _phrase
+    # Смысловая оценка по полной русской фразе — та же функция и та же
+    # модель, что реально решают в проде (visual_director.sentence_relevance).
+    try:
+        import visual_director as vd
+        _sentence_fn = vd.sentence_relevance
+    except Exception as e:
+        print(f"ВНИМАНИЕ: смысловая оценка недоступна ({type(e).__name__}) — "
+              f"эта ось замера будет пустой")
+
     with open(args.run_json, encoding="utf-8") as f:
         run = json.load(f)
     cases = [c for c in run["cases"] if c["valid"]]
@@ -163,6 +194,7 @@ def main():
     t0 = time.time()
     for i, c in enumerate(cases, 1):
         own = c["baseline_query"]
+        _phrase = c["text"]
         wd = os.path.join(args.work, c["id"])
         os.makedirs(wd, exist_ok=True)
         dq = c["brief"]["queries_en"]
@@ -180,6 +212,9 @@ def main():
 
         row = {"id": c["id"], "difficulty_class": c["difficulty_class"],
                 "baseline_verdict": c["baseline_verdict"],
+                # Русская фраза слота — нужна контактному листу, чтобы
+                # глазами сравнивать кадр именно с тем, что зритель слышит.
+                "text": c.get("text", ""),
                 "baseline_query": own, "director_queries": dq}
         for name, pool in (("baseline", base_c), ("director", dir_c), ("union", union_c)):
             w = pick_winner(pool)
@@ -193,11 +228,17 @@ def main():
                 "winner_relevance": w["relevance"] if w else None,
                 "winner_veto": w["negative_veto"] if w else None,
                 "winner_guard": w["domain_guard"] if w else None,
+                "winner_sentence_rel": w.get("sentence_rel") if w else None,
+                "pool_best_sentence_rel": (
+                    max((x["sentence_rel"] for x in pool
+                         if x.get("sentence_rel") is not None), default=None)),
             }
+            sr = row[name]["winner_sentence_rel"]
             print(f"    {name:<9}: {len(pool):2d} кандидатов, "
                   f"{row[name]['n_gate_passed']:2d} прошли гейт, "
                   f"победитель {'ПРОШЁЛ' if row[name]['winner_gate_passed'] else 'НЕ прошёл'} "
-                  f"(rel={row[name]['winner_relevance']})")
+                  f"(rel={row[name]['winner_relevance']}, "
+                  f"смысл={sr if sr is not None else 'н/д'})")
         results.append(row)
 
     summary = {}
@@ -205,7 +246,10 @@ def main():
         passed = sum(1 for r in results if r[name]["winner_gate_passed"])
         pool_rate = sum(r[name]["n_gate_passed"] for r in results)
         pool_total = sum(r[name]["n_candidates"] for r in results)
+        srs = [r[name]["winner_sentence_rel"] for r in results
+               if r[name]["winner_sentence_rel"] is not None]
         summary[name] = {
+            "winner_mean_sentence_rel": round(sum(srs) / len(srs), 4) if srs else None,
             "winner_passes_gates": passed,
             "winner_passes_rate": round(passed / max(1, len(results)), 4),
             "pool_gate_pass_rate": round(pool_rate / max(1, pool_total), 4),
@@ -222,12 +266,18 @@ def main():
     os.replace(tmp, args.out)
 
     print("\n=== ИТОГ ===")
-    print(f"{'пул':<10} {'победитель прошёл гейты':<26} {'доля годных в пуле':<20}")
+    print(f"{'пул':<10} {'прошёл гейты':<16} {'годных в пуле':<16} "
+          f"{'смысл по фразе':<14}")
     for name in ("baseline", "director", "union"):
-        s = summary[name]
-        print(f"{name:<10} {s['winner_passes_gates']}/{len(results)} "
-              f"({s['winner_passes_rate']:.0%})".ljust(37) +
-              f"{s['pool_gate_pass_rate']:.0%} из {s['total_candidates']}")
+        st = summary[name]
+        msr = st["winner_mean_sentence_rel"]
+        print(f"{name:<10} "
+              f"{st['winner_passes_gates']}/{len(results)} ({st['winner_passes_rate']:.0%})".ljust(27) +
+              f"{st['pool_gate_pass_rate']:.0%} из {st['total_candidates']}".ljust(16) +
+              f"{msr if msr is not None else 'н/д'}")
+    print("\nВАЖНО: «прошёл гейты» — необходимое, но НЕ достаточное условие. "
+          "\nКадр с кухней из опубликованного эпизода гейты тоже проходил. "
+          "\nРешает контактный лист (--sheet) и проверка глазами, Шаг 7.5.")
     print(f"\nОтчёт: {args.out}")
     return 0
 
