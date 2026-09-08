@@ -6893,6 +6893,49 @@ def video_domain_guard_violation(video_path, query):
     return False, None
 
 
+def video_negative_anchor_violation(video_path, query):
+    """Тот же negative_anchor_violation(), но на НЕСКОЛЬКИХ кадрах видео —
+    буквально тот же приём и те же точки сэмплирования, что уже работают в
+    video_domain_guard_violation() выше (не дублирование ради дублирования:
+    is_relevant_candidate() зовёт negative_anchor_violation() на ОДНОМ
+    кадре-пробнике — обычно на 0.5с, — и этого достаточно для фото, но не
+    для видео, где содержимое кадра меняется по ходу ролика).
+
+    Реальный, живьём найденный случай (08.09, videos/_test20s, хук-слот
+    «Готов спорить, что да. Герой на экране заносит клинок...», запрос
+    "warrior on horseback with sword", Pexels id 855260): толпа современных
+    зрителей видна на 0.96с и на 40.9с ЭТОГО ЖЕ видео, но НЕ видна на
+    дефолтном пробнике 0.5с — is_relevant_candidate() проверил ровно тот
+    момент, где толпы не видно, и кандидат прошёл. Замерено напрямую:
+    negative_anchor_violation() на кадре 0.5с -> (False, None), на кадрах
+    0.96с и 40.9с -> (True, "crowd of modern spectators..."). Ролик выиграл
+    слот и остался бы в готовом эпизоде без этой правки."""
+    try:
+        duration = get_media_duration(video_path)
+    except Exception:
+        duration = None
+    if duration and duration > 0.6:
+        ats = [max(0.3, min(duration - 0.2, duration * f)) for f in VIDEO_DOMAIN_GUARD_SAMPLE_FRACS]
+    else:
+        ats = [0.5]
+    seen = []
+    for at in ats:
+        if any(abs(at - s) < 0.2 for s in seen):
+            continue   # слишком близко к уже проверенной точке — тот же кадр
+        seen.append(at)
+        probe, cleanup = extract_video_probe_frame(video_path, base_at=at, retry_ats=())
+        if probe is None:
+            continue
+        try:
+            violated, name = negative_anchor_violation(probe, query)
+        finally:
+            if cleanup and os.path.exists(probe):
+                os.remove(probe)
+        if violated:
+            return True, name
+    return False, None
+
+
 # Реальный, найденный вживую случай (27 августа, videos/_test20s, слот 7):
 # видео всадника с занесённым клинком — генуинное motion-blur самой
 # стоковой съёмки (быстрая скачка/поворот камеры), не артефакт нашего
@@ -7185,7 +7228,8 @@ def candidate_gate_signature():
         import inspect
         parts = [inspect.getsource(f) for f in (
             is_relevant_candidate, visual_domain_guard_violation,
-            video_domain_guard_violation, disambiguate_search_query,
+            video_domain_guard_violation, video_negative_anchor_violation,
+            disambiguate_search_query,
             is_risky_query,
             # image_sharpness_score/video_sharpness_ok — резкость кандидата
             # (PHOTO_SHARPNESS_REJECT/VIDEO_SHARPNESS_REJECT) — ТОЖЕ правило
@@ -8558,6 +8602,17 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
             # которые и так не пройдут, лишние кадры не тянем.
             if relevant:
                 violated, _ = video_domain_guard_violation(trial, query)
+                if violated:
+                    relevant = False
+            # Контрастивное вето по ловушкам — ТА ЖЕ многокадровая логика,
+            # что домен-гвард строкой выше, тем же честным поводом: is_
+            # relevant_candidate() уже прогнал negative_anchor_violation(),
+            # но только на ПЕРВОМ кадре-пробнике. Реальный найденный случай
+            # (08.09) — толпа современных зрителей видна на 0.96с и 40.9с
+            # этого же видео, но не на дефолтных 0.5с, где её проверял
+            # relevant выше (см. video_negative_anchor_violation()).
+            if relevant:
+                violated, _ = video_negative_anchor_violation(trial, query)
                 if violated:
                     relevant = False
             # video_sharpness_ok (VIDEO_SHARPNESS_REJECT) — см. её докстринг:
