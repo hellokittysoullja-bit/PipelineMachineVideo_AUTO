@@ -5016,6 +5016,27 @@ def _cached_semantic_query_assignment(block_texts, queries):
     return result
 
 
+# Якоря эпохи для линта авторских запросов (см. lint_authored_queries).
+# Список НЕ про запреты — он про то, что запрос обязан хоть чем-то держаться
+# за нишу канала. Переопределяется в channel_profile.json ключом
+# "query_era_anchors" тем же паттерном, что content_alt_blocklist: у канала
+# про античность или про Вторую мировую якоря будут совершенно другие.
+_QUERY_ERA_ANCHORS_DEFAULT = (
+    "medieval", "knight", "armour", "armor", "helmet", "sword", "longsword",
+    "dagger", "rondel", "poleaxe", "halberd", "mace", "war hammer", "shield",
+    "chainmail", "mail", "gauntlet", "sabaton", "visor", "breastplate",
+    "archer", "longbow", "crossbow", "bodkin", "arrowhead", "barding",
+    "castle", "fortress", "moat", "siege", "manuscript", "illumination",
+    "heraldry", "coat of arms", "effigy", "monastery", "cathedral",
+    "skeleton", "burial", "archaeological", "excavation", "museum",
+    "century", "historical", "ancient",
+)
+
+QUERY_ERA_ANCHORS = tuple(
+    t.lower() for t in
+    CHANNEL_PROFILE.get("query_era_anchors", _QUERY_ERA_ANCHORS_DEFAULT)
+)
+
 def lint_authored_queries(authored_queries):
     """Авторский запрос, который просит ровно то, что канал сам запрещает.
 
@@ -5050,6 +5071,31 @@ def lint_authored_queries(authored_queries):
               f"именно то, что попросили, а гейты это же и отбракуют:")
         for section, q, term in hits:
             print(f"    {section}: «{q}» -> запрещённый термин «{term}»")
+
+    # Вторая ось того же линта, добавлена 10.09 по РЕАЛЬНОМУ провалу эпизода
+    # 02_ne-mechom. Первая ось ловит запрещённые слова, но здесь брак принесли
+    # слова РАЗРЕШЁННЫЕ и сами по себе безобидные — просто без эпохи:
+    # «muddy ground boots rain», «heavy boots walking mud», «dark muddy trench»,
+    # «murky water bucket». Сток отдал буквально то, что просили: резиновые
+    # сапоги в луже, ботинок Caterpillar, строительную траншею с бетонными
+    # трубами и окоп Первой мировой с мешками песка. Ни одно из этих слов не
+    # запрещено и запрещать их нельзя — грязь и сапоги в кадре про Азенкур
+    # нужны. Дефект не в словах, а в отсутствии привязки к эпохе.
+    #
+    # Правило: у КАЖДОГО авторского запроса должен быть хотя бы один якорь
+    # эпохи/предмета ниши. Тогда даже неудачное назначение запроса слоту
+    # вернёт исторический материал, а не современный.
+    unanchored = []
+    for section, pool in sorted((authored_queries or {}).items()):
+        for q in pool or []:
+            if not any(a in (q or "").lower() for a in QUERY_ERA_ANCHORS):
+                unanchored.append((section, q))
+    if unanchored:
+        print(f"  ВНИМАНИЕ: {len(unanchored)} авторских запросов без якоря "
+              f"эпохи — сток вернёт современный аналог (проверено: «boots mud» "
+              f"дало ботинок Caterpillar, «muddy trench» — окоп ПМВ):")
+        for section, q in unanchored:
+            print(f"    {section}: «{q}» -> добавь предметный/эпохальный якорь")
     return hits
 
 

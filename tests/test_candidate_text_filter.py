@@ -188,3 +188,51 @@ class TestAuthoredQueryLint:
         # Не «должно быть ровно одно», а «линт умеет читать реальный файл»:
         # число зависит от правок сценария и не должно ронять сборку.
         assert isinstance(hits, list)
+
+
+class TestQueryEraAnchorLint:
+    """Авторский запрос без якоря эпохи — вторая ось линта авторских запросов.
+
+    Написан по РЕАЛЬНОМУ провалу эпизода 02_ne-mechom (10.09): ролик собрался
+    целиком и был непригоден, потому что в кадр пришли современный ботинок
+    Caterpillar, джинсы с кроссовками, строительная траншея с бетонными
+    трубами и окоп Первой мировой с мешками песка. Ни одно слово в запросах
+    не было запрещённым — они были без эпохи: «muddy ground boots rain»,
+    «heavy boots walking mud», «dark muddy trench», «murky water bucket».
+    Сток честно отдал то, что попросили.
+
+    Запрещать «mud» и «boots» нельзя — грязь и обувь в ролике про Азенкур
+    нужны по существу. Проверяется не наличие плохих слов, а наличие
+    ХОРОШЕГО: хотя бы одного якоря ниши в каждом запросе.
+    """
+
+    def test_real_queries_that_broke_episode_2_are_caught(self):
+        hits = ps.lint_authored_queries({
+            "HOOK": ["muddy ground boots rain", "heavy boots walking mud"],
+            "BLOCK_6": ["dark muddy trench", "murky water bucket"],
+        })
+        # первая ось (блоклист) на этих запросах молчит — слова разрешённые
+        assert hits == []
+        # вторая ось обязана их поймать: ни в одном нет якоря эпохи
+        for q in ("muddy ground boots rain", "heavy boots walking mud",
+                  "dark muddy trench", "murky water bucket"):
+            assert not any(a in q for a in ps.QUERY_ERA_ANCHORS), q
+
+    def test_fixed_queries_pass(self):
+        for q in ("medieval knight plate armour closeup",
+                  "medieval helmet visor slit",
+                  "archaeological excavation human skull",
+                  "medieval rondel dagger"):
+            assert any(a in q for a in ps.QUERY_ERA_ANCHORS), q
+
+    def test_mud_and_boots_are_not_banned_themselves(self):
+        """Ключевое отличие от блоклиста: слово не запрещено, если при нём
+        стоит якорь. Иначе линт вырезал бы нужную фактуру."""
+        assert any(a in "medieval battlefield armour mud" for a in ps.QUERY_ERA_ANCHORS)
+        assert any(a in "medieval sabaton armoured foot" for a in ps.QUERY_ERA_ANCHORS)
+
+    def test_anchors_are_channel_overridable(self):
+        """Канал про другую эпоху задаёт свои якоря в channel_profile.json —
+        тот же паттерн, что у content_alt_blocklist (ЧАСТЬ 24)."""
+        assert isinstance(ps.QUERY_ERA_ANCHORS, tuple)
+        assert all(a == a.lower() for a in ps.QUERY_ERA_ANCHORS)
