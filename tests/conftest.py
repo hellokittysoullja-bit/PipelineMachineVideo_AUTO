@@ -46,6 +46,12 @@ def _isolate_from_real_dotenv(monkeypatch):
     # GEMINI_API_KEY выше.
     monkeypatch.delenv("OPENVERSE_ENABLED", raising=False)
     monkeypatch.setenv("OPENVERSE_ENABLED", "0")
+    # MUSEUM_SOURCES_ENABLED — ровно тот же класс бага, и здесь он опаснее:
+    # дефолт реестра у него "1" (источник включён в проде), то есть без этой
+    # строки КАЖДЫЙ тест, дошедший до сборки пула, ходил бы живьём в три
+    # музейных API — а Met на каждый предмет делает отдельный запрос.
+    monkeypatch.delenv("MUSEUM_SOURCES_ENABLED", raising=False)
+    monkeypatch.setenv("MUSEUM_SOURCES_ENABLED", "0")
 
 
 def pytest_configure(config):

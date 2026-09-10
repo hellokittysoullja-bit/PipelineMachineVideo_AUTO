@@ -3243,6 +3243,36 @@ FALLBACK_CARD_MAX_SHARE = 0.08   # не больше 8% слотов эпизо�
 FALLBACK_CARD_BUDGET_VERSION = 2
 FALLBACK_CARD_MIN_GAP = 3        # минимум столько слотов между двумя карточками
 FALLBACK_CARD_SLOTS = []   # [{"index", "reason", "text", "card_text"}, ...]
+# Слоты, где заведомо плохое ВИДЕО заменено фотографией (см. ступень
+# «видео -> музейное фото» в main()). Измеренный повод (эпизод 02, 10.09):
+# среди видео-слотов брак 63% (41 из 65), среди фото — 23% (35 из 154).
+# Видео-корпус Pexels на исторические темы объективно тоньше фото-корпуса,
+# а музейные API видео не отдают вообще.
+VIDEO_RESCUED_BY_PHOTO = []   # [{"index", "reason", "query"}, ...]
+
+
+def _slot_miss_snapshot(index):
+    """Вынуть из отчётов все вердикты по слоту (и вернуть их для отката).
+
+    Нужно, потому что отчёты ключуются по слоту: вердикт, вынесенный
+    ОТВЕРГНУТОМУ видео, иначе остался бы висеть на слоте, где в итоге стоит
+    совсем другой кадр, и итоговая строка считала бы спасённый слот браком.
+    """
+    taken = {}
+    for name, lst in (("relevance", RELEVANCE_GATE_MISSES),
+                      ("stock", STOCK_EXHAUSTED_MISSES),
+                      ("arbiter", ARBITER_REJECTED_ALL)):
+        taken[name] = [m for m in lst if m.get("index") == index]
+        lst[:] = [m for m in lst if m.get("index") != index]
+    return taken
+
+
+def _slot_miss_restore(snapshot):
+    """Вернуть вердикты на место — спасение не состоялось, кадр прежний."""
+    for name, lst in (("relevance", RELEVANCE_GATE_MISSES),
+                      ("stock", STOCK_EXHAUSTED_MISSES),
+                      ("arbiter", ARBITER_REJECTED_ALL)):
+        lst.extend(snapshot.get(name) or ())
 
 
 def _slot_known_bad_reason(index):
@@ -3959,6 +3989,7 @@ def _pexels_search_photos(api_query):
 
 
 _OPENVERSE_SEARCH_CACHE = {}   # {api_query: [candidate, ...]} — тот же принцип, что у Pexels выше
+_MUSEUM_SEARCH_CACHE = {}      # то же для прямых API музеев (Met на объект = отдельный запрос)
 
 
 # Каскад запросов к архивам. Openverse ищет по И-логике: каждое лишнее слово
@@ -4004,8 +4035,44 @@ OPENVERSE_DOMAIN_NOUNS = tuple(CHANNEL_PROFILE.get(
 # вообще попадает в пул, а не только кто в нём победит — на прогретом
 # temp_smart/ без этого правка не дошла бы до экрана.
 OPENVERSE_QUERY_CASCADE_VERSION = 1
+# Версия правил музейного источника (окно эпохи, список чужих культур, набор
+# музеев) — для _selection_stack_signature().
+MUSEUM_SOURCES_VERSION = 1
 # Ниже двух слов не опускаемся ни на одной ступени — см. коммент про танк.
 OPENVERSE_QUERY_MIN_WORDS = 2
+
+
+def _museum_search_photos(api_query):
+    """Кандидаты из прямых API музеев (Met/Cleveland/Chicago) — тот же каскад
+    запросов, что и у архивов: длинный запрос не находит ничего и в музейном
+    поиске тоже.
+
+    Отличие от всех остальных источников пула: эпоха и культура кандидата
+    здесь ИЗВЕСТНЫ из паспорта предмета, а не оцениваются моделью. Фильтр по
+    ним уже применён внутри museum_sources.search_museums() — до того, как
+    кандидат вообще попадёт в пул. Танк, терракотовая армия и саркофаг не
+    отсекаются гейтом, они физически не могут появиться: в музее нет предмета
+    с датой 1400 год, который был бы танком.
+
+    Fail-open, как и у Openverse: любая ошибка — пустой список, пул
+    продолжает собираться из остальных источников.
+    """
+    if api_query in _MUSEUM_SEARCH_CACHE:
+        return _MUSEUM_SEARCH_CACHE[api_query]
+    results = []
+    try:
+        import museum_sources
+        for variant in _openverse_query_cascade(api_query):
+            results = museum_sources.search_museums(variant)
+            if results:
+                if variant != api_query:
+                    print(f"    Музеи: {api_query!r} -> ничего, взят более "
+                          f"общий запрос {variant!r} ({len(results)} канд.)")
+                break
+    except Exception:
+        results = []
+    _MUSEUM_SEARCH_CACHE[api_query] = results
+    return results
 
 
 def _openverse_query_cascade(api_query):
@@ -4329,6 +4396,14 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             # процесс уже покрывал этот запрос на 9 из 10 повторных слотов),
             # так что порядок здесь не экономит квоту, только определяет
             # порядок в списке при равенстве скоров.
+            # Музеи ПЕРВЫМИ: у их кандидатов эпоха и культура не угаданы по
+            # пикселям, а прочитаны из паспорта предмета (см. докстринг
+            # museum_sources.py). Победителя по-прежнему решают общие гейты и
+            # скоринг — порядок только определяет место в списке при равенстве.
+            for p in _museum_search_photos(api_q):
+                p = dict(p)
+                p["_origin_query"] = pq
+                lst.append(p)
             for p in _openverse_search_photos(api_q):
                 p = dict(p)
                 p["_origin_query"] = pq
@@ -4368,7 +4443,13 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
 
         def download(p, dest):
             url = p["src"].get("large2x") or p["src"].get("large")
-            req_img = urllib.request.Request(url, headers={"User-Agent": UA})
+            # Кандидат может нести собственные требования к заголовкам: у
+            # Института искусств Чикаго IIIF отвечает 403 на любую ширину без
+            # их AIC-User-Agent. Заголовки едут вместе с кандидатом, чтобы
+            # этот код не знал про конкретные музеи (см. museum_sources).
+            headers = {"User-Agent": UA}
+            headers.update(p.get("_download_headers") or {})
+            req_img = urllib.request.Request(url, headers=headers)
             atomic_url_download(req_img, dest, timeout=20)
 
         # Дефолты ДО развилки: ветка used_hashes is None (вызов без анти-дубля —
@@ -7345,6 +7426,15 @@ def _selection_stack_signature():
         # запросов эпизода 02), то есть меняет САМ СОСТАВ пула, а не только
         # ранжирование внутри него.
         OPENVERSE_QUERY_CASCADE_VERSION,
+        # Прямые API музеев — НОВЫЙ источник кандидатов с известной эпохой,
+        # меняет состав пула так же, как включение Openverse.
+        feature_flags.enabled("MUSEUM_SOURCES_ENABLED"),
+        MUSEUM_SOURCES_VERSION,
+        # Ступень «негодное видео -> фотография» меняет САМ ТИП медиа в слоте,
+        # то есть то, что реально увидит зритель. Ключ клипа считается до
+        # резолва медиа — без флага здесь на прогретом temp_smart/ в слоте
+        # осталось бы прежнее видео.
+        feature_flags.enabled("VIDEO_PHOTO_RESCUE"),
         # Лестница фолбэков меняет то, ЧТО реально окажется в слоте, а не
         # только то, как выбирается кандидат. Ключ клипа считается ДО
         # резолва медиа, поэтому без флага здесь включение карточек не
@@ -10842,6 +10932,38 @@ def main():
         # оставалось строчкой в отчёте, а зрителю показывали «лучшего из
         # плохих» — так в опубликованный эпизод попали и младенец с
         # бутылочкой, и улица Барселоны с туристом.
+        # СТУПЕНЬ «ВИДЕО -> ФОТО». Измерено на эпизоде 02 (10.09): среди
+        # видео-слотов брак 63% (41 из 65), среди фото — 23% (35 из 154).
+        # Причина структурная: видео-корпус Pexels на исторические темы
+        # тоньше фото-корпуса, а музейные API (где эпоха предмета известна из
+        # паспорта, см. museum_sources.py) видео не отдают вообще. Поэтому
+        # там, где система САМА записала, что видео негодное, честнее взять
+        # фотографию — подлинный кинжал 1450 года с медленным зумом сильнее и
+        # мусорного видео, и текстовой карточки. Пробуем ДО карточки: карточка
+        # остаётся последним уровнем, а не первым.
+        if (video and not photo and not locked_shot
+                and feature_flags.enabled("VIDEO_PHOTO_RESCUE")
+                and _slot_known_bad_reason(i)):
+            # Вердикты отвергнутого видео снимаем ДО попытки: что запишет
+            # фото-путь, то и станет правдой о слоте. Не вышло — возвращаем.
+            snapshot = _slot_miss_snapshot(i)
+            rescue = pexels_photo(queries[i], i, used_ids=used_photo_ids,
+                                  used_hashes=used_photo_hashes,
+                                  recent_sizes=recent_shot_sizes, target_luma=luma_ema,
+                                  director_score_fn=director_score_fn,
+                                  director_assist=director_assist,
+                                  director_report=director_entry,
+                                  extra_queries=section_query_pool.get(b["section"]),
+                                  text_key=sem_text, arbiter_text=hook_arbiter_text,
+                                  is_opening_shot=is_opening_shot)
+            if rescue:
+                reason = ", ".join(sorted(k for k, v in snapshot.items() if v))
+                print(f"    [{i+1}] негодное видео заменено фотографией ({reason})")
+                VIDEO_RESCUED_BY_PHOTO.append(
+                    {"index": i, "reason": reason, "query": queries[i]})
+                photo, video = rescue, None
+            else:
+                _slot_miss_restore(snapshot)
         if (photo or video) and not locked_shot:
             bad_reason = _slot_known_bad_reason(i)
             if bad_reason and fallback_card_allowed(i, len(blocks),
@@ -11298,6 +11420,19 @@ def main():
               f"карточкой вместо кадра — см. media_plan/fallback_cards_report.json. "
               f"Это осознанная замена заведомо плохого кадра, но если карточек много — "
               f"стоку по этой теме нечего предложить: нужны архивы или AI-картинки (Шаг 5).")
+
+    # VIDEO_RESCUED_BY_PHOTO — слоты, где негодное видео уступило место
+    # фотографии. Пишется отдельно от карточек: это не «нечего показать», а
+    # «показали другое и лучше», и по отчёту должно быть видно, сколько раз
+    # видео-корпус стока не справился на этом эпизоде.
+    rescue_path = os.path.join(VIDEO_FOLDER, "media_plan",
+                               "video_photo_rescue_report.json")
+    merge_slot_report(rescue_path, VIDEO_RESCUED_BY_PHOTO,
+                      resolved_slots=RESOLVED_SLOTS_THIS_RUN)
+    if VIDEO_RESCUED_BY_PHOTO:
+        idxs = [m["index"] + 1 for m in VIDEO_RESCUED_BY_PHOTO]
+        print(f"  {len(VIDEO_RESCUED_BY_PHOTO)} слот(ов) {idxs}: негодное видео "
+              f"заменено фотографией — см. media_plan/video_photo_rescue_report.json")
 
     # RENDER_QC_REPORT — см. render_sharpness_regression()/RENDER_SHARPNESS_
     # DROP_RATIO выше: клипы, где ГОТОВЫЙ рендер ощутимо размытее своего же
