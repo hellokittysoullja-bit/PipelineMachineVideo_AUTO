@@ -39,9 +39,26 @@ def test_reveal_hold_ok_when_close_to_target():
 
 def test_reveal_hold_mismatch_short_when_far_below_target():
     u = _unit("a#0", "BODY", "reveal_hold", (0.9, 1.4))
-    v = sv._validate_unit(u, 0.3)   # < 0.9 * 0.6 = 0.54
+    v = sv._validate_unit(u, 0.3)   # < 0.9 * 1.0 = 0.9
     assert v["status"] == "mismatch_short"
     assert v["action"] == "re-record phrase manually"
+
+
+def test_connective_mismatch_short_even_close_to_lower_bound():
+    # Реальный найденный случай (02_ne-mechom, HOOK#12, "...ни в одном
+    # каталоге..."): observed=0.405 против target_lo=0.550 (ratio 0.74) —
+    # со старым буфером 0.6 это ошибочно проходило как "ok". fix_pauses не
+    # умеет удлинять недостаточную паузу, поэтому любой недобор до нижней
+    # границы обязан быть mismatch, без снисходительного буфера.
+    u = _unit("a#0", "HOOK", "connective", (0.55, 0.95))
+    v = sv._validate_unit(u, 0.405)
+    assert v["status"] == "mismatch_short"
+
+
+def test_connective_ok_only_when_reaches_lower_bound():
+    u = _unit("a#0", "HOOK", "connective", (0.55, 0.95))
+    v = sv._validate_unit(u, 0.55)
+    assert v["status"] == "ok"
 
 
 def test_reveal_hold_ok_when_overshoots_target():

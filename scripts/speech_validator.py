@@ -73,7 +73,21 @@ import pause_intelligence as pause_intel  # noqa: E402  (cooldown + аудит-�
 # канала, первый живой прогон может потребовать подстройки.
 SHORT_HOLD_KINDS = frozenset({"reveal_hold", "closing_hold", "anticipation", "evidence_beat", "connective"})
 FAST_KINDS = frozenset({"punchy", "question_rise"})
-SHORT_MISMATCH_FACTOR = 0.6   # observed < target_lo * 0.6 -> явно не дотянули до намерения
+SHORT_MISMATCH_FACTOR = 1.0   # observed < target_lo * 1.0 -> явно не дотянули до намерения
+# История константы (найдено вживую 10.09, реальная жалоба пользователя на
+# "слишком быстрое начало новой фразы" после "ни в одном каталоге" — HOOK#12):
+# буфер 0.6 означал, что юнит с observed=0.405с против target_lo=0.550с
+# (ratio 0.74, ИМЕННО жалоба пользователя) помечался "ok" с текстом
+# "намерение достигнуто (или обрежется до цели фиксом пауз)" — второе
+# утверждение неверно ПО КОНСТРУКЦИИ: fix_pauses.py умеет только УКОРАЧИВАТЬ
+# тишину (THRESH_SEC), у него физически нет операции "удлинить" — если TTS
+# не выдал паузу нужной длины, обрезка её точно не создаст. На реальном
+# эпизоде 02_ne-mechom из 19 юнитов, которые вышли короче нижней границы
+# цели, буфер 0.6 ловил только 2 (ratio 0.39 и 0.55), а 17 честно недотянувших
+# (ratio 0.68-0.99) молча получали "ok" — не потому что цель была достигнута,
+# а потому что порог был мягче собственного назначения. Проверка "недотянул
+# ли TTS до нижней границы" не нуждается в буфере вообще: буфер защищал бы
+# от чего-то, что downstream не умеет чинить в любом случае.
 LONG_MISMATCH_FACTOR = 2.0    # observed > target_hi * 2.0 -> явно сломали темп (для punchy/question_rise)
 MIN_PROTECTED_SEC = 0.15      # тот же пол, что уже использует fix_pauses._keep_sec_for
 
@@ -169,10 +183,11 @@ def _validate_unit(u, observed_raw_dur):
         if observed_raw_dur < lo * SHORT_MISMATCH_FACTOR:
             return {"status": "mismatch_short",
                     "reason": f"TTS не дал нужного hold'а ({observed_raw_dur:.2f}с "
-                              f"против цели {lo:.2f}-{hi:.2f}с для '{kind}')",
+                              f"против цели {lo:.2f}-{hi:.2f}с для '{kind}') — "
+                              f"fix_pauses не может это удлинить, только укоротить более длинное",
                     "confidence": 0.6, "observed_value": round(observed_raw_dur, 3),
                     "target_range": [lo, hi], "action": "re-record phrase manually"}
-        return {"status": "ok", "reason": "намерение достигнуто (или обрежется до цели фиксом пауз)",
+        return {"status": "ok", "reason": "цель достигнута (перебор обрежется фиксом пауз до target_hi)",
                 "confidence": 0.7, "observed_value": round(observed_raw_dur, 3),
                 "target_range": [lo, hi], "action": "accept"}
     return {"status": "ok", "reason": "нет строгой цели (connective/none) — без проверки",
