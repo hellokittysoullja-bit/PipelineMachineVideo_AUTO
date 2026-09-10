@@ -226,3 +226,59 @@ class TestSelectionSignature:
         start = src.index("def _selection_stack_signature")
         block = src[start:src.index("\ndef candidate_gate_signature", start)]
         assert "OPENVERSE_ENABLED" in block
+
+
+class TestQueryCascade:
+    """Замер 10.09 на восьми запросах эпизода 02_ne-mechom, где сток
+    исчерпался и в ролик ушёл брак: полным запросом архивы отдавали 0
+    кандидатов на ВСЕ восемь, каскадом — 128. Openverse ищет по И-логике,
+    и пятисловный запрос пайплайна не находил ничего, даже когда нужный
+    предмет в архиве лежал (на 'medieval rondel dagger' первым результатом
+    без фильтра длины — подлинный 'Medieval rondel dagger hilt' с Wikimedia,
+    а слот в это время получал от Pexels космонавта в скафандре)."""
+
+    def test_drops_framing_modifiers_but_keeps_era_anchor(self):
+        cascade = ps._openverse_query_cascade("medieval helmet lying dirt")
+        assert cascade[0] == "medieval helmet lying dirt"
+        assert "medieval helmet" in cascade
+        assert all("medieval" in v for v in cascade)
+
+    def test_last_domain_noun_wins_over_first(self):
+        """'medieval army column armour': последний предмет ('armour') даёт
+        41 релевантный результат, первый ('army') — 6, где первый же кадр
+        аэрофотосъёмка Индии."""
+        cascade = ps._openverse_query_cascade("medieval army column armour")
+        assert "medieval armour" in cascade
+        assert "medieval army" not in cascade
+
+    def test_never_shrinks_below_two_words(self):
+        """Одиночное слово возвращает выдачу чужого мира: 'plate armour' без
+        якоря эпохи первым результатом даёт 'MkIV-Tank-Plate' — ровно тот
+        танк, из-за которого весь разбор и начался."""
+        for q in ("medieval rondel dagger", "knight armour fallen ground",
+                  "medieval sword hilt pommel macro"):
+            for variant in ps._openverse_query_cascade(q):
+                assert len(variant.split()) >= ps.OPENVERSE_QUERY_MIN_WORDS
+
+    def test_single_word_query_is_not_broadened(self):
+        assert ps._openverse_query_cascade("sword") == ["sword"]
+
+    def test_cascade_stops_at_first_variant_with_results(self, monkeypatch):
+        calls = []
+
+        def fake_fetch(q, _ov):
+            calls.append(q)
+            return [{"id": "openverse:1"}] if q == "medieval helmet" else []
+
+        monkeypatch.setattr(ps.feature_flags, "enabled", lambda *a, **k: True)
+        monkeypatch.setattr(ps, "_openverse_fetch_one", fake_fetch)
+        ps._OPENVERSE_SEARCH_CACHE.clear()
+        out = ps._openverse_search_photos("medieval helmet lying dirt")
+        assert len(out) == 1
+        assert calls == ["medieval helmet lying dirt", "medieval helmet"]
+
+    def test_cascade_version_is_part_of_the_signature(self):
+        src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"), encoding="utf-8").read()
+        start = src.index("def _selection_stack_signature")
+        block = src[start:src.index("\ndef candidate_gate_signature", start)]
+        assert "OPENVERSE_QUERY_CASCADE_VERSION" in block

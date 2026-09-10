@@ -3943,6 +3943,95 @@ def _pexels_search_photos(api_query):
 _OPENVERSE_SEARCH_CACHE = {}   # {api_query: [candidate, ...]} — тот же принцип, что у Pexels выше
 
 
+# Каскад запросов к архивам. Openverse ищет по И-логике: каждое лишнее слово
+# сужает выдачу, и пятисловный запрос пайплайна не находит НИЧЕГО, даже когда
+# нужный предмет в архиве есть. Замер 10.09 на восьми запросах эпизода
+# 02_ne-mechom, где сток исчерпался и в ролик ушёл брак (танк/космонавт/
+# саркофаг): полным запросом — 0 кандидатов на все восемь; тот же запрос без
+# слов-уточнителей кадра — 153 на "knight armour", 41 на "medieval armour",
+# 36 на "medieval helmet" ("Bosnian XIV century medieval helmet" первым).
+# Слоты падали на Pexels, где средневековья нет, и он отдавал ближайшее по
+# вектору: на "medieval rondel dagger" — космонавта в скафандре.
+#
+# Слова, которые режут выдачу в ноль, не неся эпохи: композиция кадра и
+# обстоятельства сцены.
+_OPENVERSE_QUERY_MODIFIERS_DEFAULT = (
+    "closeup", "close-up", "macro", "detail", "shot", "view", "angle", "wide",
+    "lying", "fallen", "ground", "mud", "dirt", "marching", "column", "camp",
+    "field", "battlefield", "pommel", "slit", "water", "display", "foot",
+)
+# Якорь эпохи/культуры — единственное, что удерживает выдачу в своём мире.
+# Из запроса НЕ выбрасывается никогда: без него "plate armour" первым
+# результатом даёт "MkIV-Tank-Plate" (замерено) — тот же танк, от которого
+# всё и началось.
+_OPENVERSE_ERA_ANCHORS_DEFAULT = (
+    "medieval", "knight", "knights", "armour", "armor", "crusader", "gothic",
+    "castle", "chivalry",
+)
+# Предметные существительные канала — по ним строится последняя ступень
+# каскада "эпоха + предмет". Одиночное слово сюда не годится принципиально:
+# "knight" в одиночку даёт 240 результатов, где первые — орденские медали.
+_OPENVERSE_DOMAIN_NOUNS_DEFAULT = (
+    "armour", "armor", "helmet", "sword", "dagger", "knight", "castle",
+    "manuscript", "shield", "mail", "gauntlet", "lance", "axe", "siege",
+    "tomb", "effigy", "banner", "horse",
+)
+OPENVERSE_QUERY_MODIFIERS = tuple(CHANNEL_PROFILE.get(
+    "openverse_query_modifiers", _OPENVERSE_QUERY_MODIFIERS_DEFAULT))
+OPENVERSE_ERA_ANCHORS = tuple(CHANNEL_PROFILE.get(
+    "openverse_era_anchors", _OPENVERSE_ERA_ANCHORS_DEFAULT))
+OPENVERSE_DOMAIN_NOUNS = tuple(CHANNEL_PROFILE.get(
+    "openverse_domain_nouns", _OPENVERSE_DOMAIN_NOUNS_DEFAULT))
+# Маркер версии каскада для _selection_stack_signature(): каскад меняет, КТО
+# вообще попадает в пул, а не только кто в нём победит — на прогретом
+# temp_smart/ без этого правка не дошла бы до экрана.
+OPENVERSE_QUERY_CASCADE_VERSION = 1
+# Ниже двух слов не опускаемся ни на одной ступени — см. коммент про танк.
+OPENVERSE_QUERY_MIN_WORDS = 2
+
+
+def _openverse_query_cascade(api_query):
+    """Варианты запроса к архиву от точного к общему, без повторов.
+
+    Ступени: (1) запрос как есть; (2) без слов-уточнителей кадра; (3) якорь
+    эпохи + предметное существительное. Каждая следующая шире предыдущей, но
+    ни одна не теряет якорь эпохи и не короче OPENVERSE_QUERY_MIN_WORDS —
+    именно эти два условия отделяют "расширить охват" от "потерять тему".
+    """
+    words = [w for w in api_query.split() if w]
+    if not words:
+        return []
+    variants = [api_query]
+    lower = [w.lower() for w in words]
+    anchors = [w for w, lw in zip(words, lower) if lw in OPENVERSE_ERA_ANCHORS]
+
+    trimmed = [w for w, lw in zip(words, lower)
+               if lw not in OPENVERSE_QUERY_MODIFIERS]
+    if len(trimmed) >= OPENVERSE_QUERY_MIN_WORDS and len(trimmed) < len(words):
+        variants.append(" ".join(trimmed))
+
+    if anchors:
+        # Предмет берём ПОСЛЕДНИЙ из встреченных: в "medieval army column
+        # armour" последний ("armour") даёт 41 релевантный результат, а
+        # первый ("army") — 6, где первый же кадр аэрофотосъёмка Индии.
+        nouns = [w for w, lw in zip(words, lower)
+                 if lw in OPENVERSE_DOMAIN_NOUNS and lw not in
+                 {a.lower() for a in anchors[:1]}]
+        head = nouns[-1] if nouns else None
+        if head is not None:
+            variants.append(f"{anchors[0]} {head}")
+        elif len(anchors) >= OPENVERSE_QUERY_MIN_WORDS:
+            variants.append(" ".join(anchors[:2]))
+
+    seen, out = set(), []
+    for v in variants:
+        key = v.lower().strip()
+        if key and key not in seen:
+            seen.add(key)
+            out.append(v)
+    return out
+
+
 def _openverse_search_photos(api_query):
     """Выдача институциональных архивов (Met/Wikimedia/Rijksmuseum/...) в
     ФОРМЕ PEXELS-КАНДИДАТА — чтобы конкурировать в ОДНОМ пуле с Pexels под
@@ -3983,43 +4072,14 @@ def _openverse_search_photos(api_query):
         return _OPENVERSE_SEARCH_CACHE[api_query]
     try:
         import stock_fetch_multisource as _ov
-        q = urllib.parse.quote(api_query)
-        url = ("https://api.openverse.org/v1/images/?q=" + q +
-               "&license=" + ",".join(sorted(_ov.OPENVERSE_SAFE_LICENSES)) +
-               "&source=" + ",".join(sorted(_ov.OPENVERSE_TRUSTED_SOURCES)) +
-               "&page_size=20&mature=false")
-        req = urllib.request.Request(url, headers={"User-Agent": UA})
-        with urllib.request.urlopen(req, timeout=20) as r:
-            data = json.load(r)
         results = []
-        for res in data.get("results") or []:
-            # Fail-closed, ПОВТОРНАЯ проверка — см. докстринг выше и
-            # докстринг самих функций в stock_fetch_multisource.py: URL-
-            # фильтр экономит трафик, но не гарантия при несогласованности
-            # API, и не покрывает смитсоновские подветки вообще.
-            if not _ov._is_safe_openverse_license(res):
-                continue
-            if not _ov._is_trusted_openverse_source(res):
-                continue
-            img_url = res.get("url")
-            if not img_url:
-                continue
-            results.append({
-                "id": f"openverse:{res.get('id')}",
-                "alt": res.get("title") or "",
-                "url": res.get("foreign_landing_url") or img_url,
-                "src": {"large2x": img_url},
-                # Провенанс — та же информация, что _log_openverse_manifest()
-                # уже пишет в pre-fetch пути, здесь нужна на случай, если
-                # кандидат победит и понадобится атрибуция/аудит источника.
-                "_openverse_meta": {
-                    "creator": res.get("creator"), "license": res.get("license"),
-                    "license_version": res.get("license_version"),
-                    "license_url": res.get("license_url"),
-                    "source": res.get("source"),
-                    "foreign_landing_url": res.get("foreign_landing_url"),
-                },
-            })
+        for variant in _openverse_query_cascade(api_query):
+            results = _openverse_fetch_one(variant, _ov)
+            if results:
+                if variant != api_query:
+                    print(f"    Архивы: {api_query!r} -> ничего, взят более "
+                          f"общий запрос {variant!r} ({len(results)} канд.)")
+                break
         _OPENVERSE_SEARCH_CACHE[api_query] = results
         return results
     except Exception:
@@ -4029,6 +4089,49 @@ def _openverse_search_photos(api_query):
         # в этом запросе, пул продолжает собираться из Pexels как раньше.
         _OPENVERSE_SEARCH_CACHE[api_query] = []
         return []
+
+
+def _openverse_fetch_one(api_query, _ov):
+    """Один запрос к Openverse -> кандидаты в форме Pexels. Без кэша и без
+    перехвата исключений: и то и другое — забота вызывающего каскада."""
+    q = urllib.parse.quote(api_query)
+    url = ("https://api.openverse.org/v1/images/?q=" + q +
+           "&license=" + ",".join(sorted(_ov.OPENVERSE_SAFE_LICENSES)) +
+           "&source=" + ",".join(sorted(_ov.OPENVERSE_TRUSTED_SOURCES)) +
+           "&page_size=20&mature=false")
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        data = json.load(r)
+    results = []
+    for res in data.get("results") or []:
+        # Fail-closed, ПОВТОРНАЯ проверка — см. докстринг выше и
+        # докстринг самих функций в stock_fetch_multisource.py: URL-
+        # фильтр экономит трафик, но не гарантия при несогласованности
+        # API, и не покрывает смитсоновские подветки вообще.
+        if not _ov._is_safe_openverse_license(res):
+            continue
+        if not _ov._is_trusted_openverse_source(res):
+            continue
+        img_url = res.get("url")
+        if not img_url:
+            continue
+        results.append({
+            "id": f"openverse:{res.get('id')}",
+            "alt": res.get("title") or "",
+            "url": res.get("foreign_landing_url") or img_url,
+            "src": {"large2x": img_url},
+            # Провенанс — та же информация, что _log_openverse_manifest()
+            # уже пишет в pre-fetch пути, здесь нужна на случай, если
+            # кандидат победит и понадобится атрибуция/аудит источника.
+            "_openverse_meta": {
+                "creator": res.get("creator"), "license": res.get("license"),
+                "license_version": res.get("license_version"),
+                "license_url": res.get("license_url"),
+                "source": res.get("source"),
+                "foreign_landing_url": res.get("foreign_landing_url"),
+            },
+        })
+    return results
 
 
 def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=None, target_luma=None,
@@ -7219,6 +7322,11 @@ def _selection_stack_signature():
         # флага здесь переключение OPENVERSE_ENABLED на прогретом temp_smart/
         # не доходило бы до экрана: победитель остался бы старым файлом.
         feature_flags.enabled("OPENVERSE_ENABLED"),
+        # Каскад запросов к архивам: до него архивная ветка возвращала ноль
+        # кандидатов на длинных запросах (замер — 0 на 8 из 8 сломанных
+        # запросов эпизода 02), то есть меняет САМ СОСТАВ пула, а не только
+        # ранжирование внутри него.
+        OPENVERSE_QUERY_CASCADE_VERSION,
         # Лестница фолбэков меняет то, ЧТО реально окажется в слоте, а не
         # только то, как выбирается кандидат. Ключ клипа считается ДО
         # резолва медиа, поэтому без флага здесь включение карточек не
