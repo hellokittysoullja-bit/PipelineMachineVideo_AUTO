@@ -3237,6 +3237,10 @@ FALLBACK_CARD_ENABLED = feature_flags.enabled("FALLBACK_CARD")
 # подбора. Обе цифры — потолок, а не цель: обычный эпизод не должен доходить
 # и до половины.
 FALLBACK_CARD_MAX_SHARE = 0.08   # не больше 8% слотов эпизода
+# Версия правила выдачи бюджета (сами константы не изменились, изменилось
+# КОМУ он достаётся) — для _selection_stack_signature(): без неё на прогретом
+# temp_smart/ карточки остались бы на старых местах.
+FALLBACK_CARD_BUDGET_VERSION = 2
 FALLBACK_CARD_MIN_GAP = 3        # минимум столько слотов между двумя карточками
 FALLBACK_CARD_SLOTS = []   # [{"index", "reason", "text", "card_text"}, ...]
 
@@ -3269,7 +3273,21 @@ def fallback_card_allowed(index, n_slots, is_opening=False):
     """
     if not FALLBACK_CARD_ENABLED or is_opening:
         return False
-    if len(FALLBACK_CARD_SLOTS) >= max(1, int(n_slots * FALLBACK_CARD_MAX_SHARE)):
+    # Бюджет распределён по ДЛИНЕ эпизода, а не отдаётся первым пришедшим.
+    # Измеренный симптом (эпизод 02_ne-mechom, 10.09): все 17 карточек ушли
+    # на слоты 14..85, то есть на первые 39% ролика, а в оставшихся 61%
+    # осталось 43 слота с УЖЕ ЗАПИСАННЫМ браком и ноль карточек — не потому
+    # что там кадры лучше, а потому что бюджет кончился по календарю. Брак
+    # при этом распределён по ролику почти равномерно (21/16/20/19 по
+    # четвертям), так что дело именно в порядке выдачи, а не в его форме.
+    # Решать глобально ("покрыть худшие") нельзя: карточка выбирается в том
+    # же проходе, что и отбор, и на слоте i будущие слоты ещё не оценены.
+    # Равномерная выдача — то, что доступно без второго прохода: тот же
+    # суммарный потолок и тот же MIN_GAP, но конец ролика перестаёт быть
+    # беззащитным.
+    total_cap = max(1, int(n_slots * FALLBACK_CARD_MAX_SHARE))
+    position_cap = max(1, math.ceil((index + 1) * FALLBACK_CARD_MAX_SHARE))
+    if len(FALLBACK_CARD_SLOTS) >= min(total_cap, position_cap):
         return False
     return all(abs(index - s["index"]) >= FALLBACK_CARD_MIN_GAP
                for s in FALLBACK_CARD_SLOTS)
@@ -7333,6 +7351,7 @@ def _selection_stack_signature():
         # доходило бы до экрана на прогретом temp_smart/ вообще.
         feature_flags.enabled("FALLBACK_CARD"),
         FALLBACK_CARD_MAX_SHARE, FALLBACK_CARD_MIN_GAP,
+        FALLBACK_CARD_BUDGET_VERSION,
         # Видео-путь получил тот же compute_extra_score(), что и фото (см.
         # VIDEO_DIRECTOR_SCORE_VERSION выше) — меняет, кто побеждает среди
         # уже прошедших гейты видео-кандидатов, без флага здесь смена
@@ -11676,9 +11695,24 @@ def main():
     # заканчивался чистым нулём.
     status += (f" | арбитр отклонил ВСЕХ кандидатов на {len(ARBITER_REJECTED_ALL)} слот(ах)"
                if ARBITER_REJECTED_ALL else "")
+    # Сколько слотов система САМА признала негодными и всё равно показала
+    # зрителю живым кадром (бюджет карточек кончился, см. FALLBACK_CARD_
+    # MAX_SHARE). Реальный измеренный разрыв на эпизоде 02_ne-mechom: 76
+    # слотов помечены браком, 17 закрыты карточками, 59 доехали до экрана —
+    # и ни одна строка лога об этом не говорила, число жило только в JSON.
+    # Отчёт, который никто не открывает в момент сдачи, знанием не является.
+    known_bad_idx = ({m["index"] for m in RELEVANCE_GATE_MISSES} |
+                     {m["index"] for m in STOCK_EXHAUSTED_MISSES} |
+                     {m["index"] for m in ARBITER_REJECTED_ALL})
+    shipped_bad = sorted(known_bad_idx - {s["index"] for s in FALLBACK_CARD_SLOTS})
+    if shipped_bad:
+        status += (f" | ИЗВЕСТНЫЙ БРАК НА ЭКРАНЕ: {len(shipped_bad)} слот(ов) "
+                   f"(карточками закрыто {len(FALLBACK_CARD_SLOTS)}) — "
+                   f"слоты {[i + 1 for i in shipped_bad[:10]]}"
+                   f"{'…' if len(shipped_bad) > 10 else ''}")
     print(f"\nГОТОВО: {OUTPUT_FILE} ({mb:.0f} MB, {total/60:.1f} мин, {len(clips)} кадров){status}")
     return (EXIT_BUILT_WITH_WARNINGS
-            if (missing or dupes or ARBITER_REJECTED_ALL) else EXIT_OK)
+            if (missing or dupes or ARBITER_REJECTED_ALL or shipped_bad) else EXIT_OK)
 
 
 if __name__ == "__main__":

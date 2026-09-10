@@ -203,3 +203,63 @@ class TestDensityBudget:
         """
         assert not _ps.fallback_card_allowed(0, 165, is_opening=True)
         assert _ps.fallback_card_allowed(0, 165, is_opening=False)
+
+
+class TestBudgetSpreadOverEpisode:
+    """Измеренный симптом (эпизод 02_ne-mechom, 10.09): все 17 карточек ушли
+    на слоты 14..85 — первые 39% ролика, — а в оставшихся 61% осталось 43
+    слота с уже записанным браком и НОЛЬ карточек. Брак при этом распределён
+    почти равномерно (21/16/20/19 по четвертям), то есть дело было не в том,
+    где брак, а в том, что бюджет выдавался первым пришедшим и кончался
+    задолго до конца эпизода."""
+
+    @pytest.fixture(autouse=True)
+    def _ps(self):
+        sys.argv = ["pipeline_smart.py", tempfile.gettempdir()]
+        import pipeline_smart as ps
+        ps.FALLBACK_CARD_SLOTS.clear()
+        yield ps
+        ps.FALLBACK_CARD_SLOTS.clear()
+
+    def test_budget_cannot_be_spent_all_at_the_start(self, _ps):
+        """Ранние слоты не могут забрать весь бюджет эпизода."""
+        n = 219
+        placed = 0
+        for i in range(0, 90):
+            if _ps.fallback_card_allowed(i, n):
+                _ps.FALLBACK_CARD_SLOTS.append({"index": i, "reason": "x",
+                                                "text": "", "card_text": ""})
+                placed += 1
+        total_cap = int(n * _ps.FALLBACK_CARD_MAX_SHARE)
+        assert placed < total_cap, (
+            "к 90-му слоту из 219 бюджет не должен быть исчерпан — иначе "
+            "последние 60% ролика снова остаются без единой карточки")
+
+    def test_late_slots_still_get_budget(self, _ps):
+        """Слот во второй половине эпизода получает карточку, даже когда в
+        первой половине брака было много."""
+        n = 219
+        for i in range(0, 110):
+            if _ps.fallback_card_allowed(i, n):
+                _ps.FALLBACK_CARD_SLOTS.append({"index": i, "reason": "x",
+                                                "text": "", "card_text": ""})
+        assert _ps.fallback_card_allowed(180, n)
+
+    def test_total_cap_still_holds(self, _ps):
+        """Равномерность не поднимает суммарный потолок: карточек по-прежнему
+        не больше FALLBACK_CARD_MAX_SHARE от эпизода."""
+        n = 219
+        for i in range(n):
+            if _ps.fallback_card_allowed(i, n):
+                _ps.FALLBACK_CARD_SLOTS.append({"index": i, "reason": "x",
+                                                "text": "", "card_text": ""})
+        assert len(_ps.FALLBACK_CARD_SLOTS) <= int(n * _ps.FALLBACK_CARD_MAX_SHARE)
+
+    def test_budget_version_is_part_of_the_signature(self):
+        import os
+        src = open(os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "scripts", "pipeline_smart.py"),
+            encoding="utf-8").read()
+        start = src.index("def _selection_stack_signature")
+        block = src[start:src.index("\ndef candidate_gate_signature", start)]
+        assert "FALLBACK_CARD_BUDGET_VERSION" in block
