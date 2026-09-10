@@ -57,6 +57,25 @@ def resolve_file(file_value, video_dir):
     return file_value if os.path.isabs(file_value) else os.path.normpath(os.path.join(video_dir, file_value))
 
 
+def resolve_thumb_source(shot, video_dir):
+    """Путь к превью для этого слота: сперва исходный кандидат (`file`,
+    обычно temp_smart/pexels_*_cache/...) — он честнее показывает, ЧТО
+    выбрал отбор, до грейда/оверлеев. Но эта папка — рабочий кэш, который
+    безопасно чистят между прогонами (не входит в поставку, не нужен после
+    сборки) — если её уже нет, откат на `clip` (temp_smart/clip_NNNN_*.mp4,
+    финальный рендер ЭТОГО слота) — тот же принцип "честно показать, что
+    реально ушло в ролик", просто после грейда/титров вместо до. Оба поля
+    пишет pipeline_smart.py в один и тот же shotlist.json, ни один не
+    гарантирован живым дольше следующей чистки диска."""
+    direct = resolve_file(shot.get("file"), video_dir)
+    if direct and os.path.exists(direct):
+        return direct
+    clip = shot.get("clip")
+    if clip:
+        return os.path.normpath(os.path.join(video_dir, "temp_smart", clip))
+    return direct
+
+
 def thumbnail_for(path):
     """PIL-картинка THUMB_W x THUMB_H (вписана, чёрные поля) или None."""
     if not path or not os.path.exists(path):
@@ -116,7 +135,7 @@ def render_page(shots, video_dir, cols, out_path):
     for k, shot in enumerate(shots):
         x0 = PAD + (k % cols) * cell_w
         y0 = PAD + (k // cols) * cell_h
-        thumb = thumbnail_for(resolve_file(shot.get("file"), video_dir))
+        thumb = thumbnail_for(resolve_thumb_source(shot, video_dir))
         if thumb is None:
             thumb = Image.new("RGB", (THUMB_W, THUMB_H), (70, 20, 20))
             ImageDraw.Draw(thumb).text((14, 14), "НЕТ ФАЙЛА / не прочитан", fill=(255, 200, 200), font=font_head)
