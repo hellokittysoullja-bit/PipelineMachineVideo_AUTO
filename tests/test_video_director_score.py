@@ -36,7 +36,7 @@ import pipeline_smart as ps  # noqa: E402
 
 def _main_video_selection_block():
     src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"), encoding="utf-8").read()
-    start = src.index("if not photo and not video and use_pexels:")
+    start = src.index('is_opening_shot = (i == 0)')
     end = src.index("\n        # ЛЕСТНИЦА ФОЛБЭКОВ", start)
     return src[start:end]
 
