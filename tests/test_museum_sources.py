@@ -296,3 +296,33 @@ class TestVideoPhotoRescue:
         src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"),
                    encoding="utf-8").read()
         assert src.index("VIDEO_PHOTO_RESCUE") < src.index("build_slot_fallback_card(i, b[\"text\"], bad_reason)")
+
+
+class TestPexelsOutageDoesNotKillOtherSources:
+    """Реальный катастрофический баг, найденный вживую 11.09 (эпизод 02):
+    Pexels вернул 500 шесть раз подряд (внешний сбой), _note_pexels_failure()
+    честно взвела PEXELS_BROKEN — и внешний `if ... and use_pexels:` в main()
+    погасил вызов pexels_photo()/pexels_video() ЦЕЛИКОМ для ВСЕХ оставшихся
+    215 из 219 слотов. Музеи и архивы живут ВНУТРИ этих же функций и от
+    Pexels не зависят, но вызвать их было уже некому — весь поиск просто
+    переставал запускаться. 215 слотов получили карточку "no_media_at_all",
+    хотя архивы в тот момент отвечали (лог: десятки "Архивы: ... (20 канд.)"
+    ДО обрыва, ноль после). Комментарий самой _note_pexels_failure()
+    прямо обещает "одиночная ошибка стоит одному слоту, не эпизоду" —
+    этот тест защищает именно это обещание."""
+
+    def test_search_call_is_not_gated_by_use_pexels(self):
+        src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"),
+                   encoding="utf-8").read()
+        marker = "is_opening_shot = (i == 0)"
+        start = src.index(marker)
+        # Первая строка `if` после этой точки — тот самый гейт на вызов
+        # pexels_photo()/pexels_video(). Она не должна содержать use_pexels:
+        # музеи/архивы внутри этих функций работают независимо от Pexels.
+        block = src[start:start + 2000]
+        gate_line = next(line for line in block.splitlines()
+                         if line.strip().startswith("if not photo and not video"))
+        assert "use_pexels" not in gate_line, (
+            "Гейт вызова pexels_photo()/pexels_video() снова завязан на "
+            "use_pexels — обрыв Pexels опять погасит музеи/архивы/Openverse "
+            "для всего оставшегося эпизода, не только для Pexels")
