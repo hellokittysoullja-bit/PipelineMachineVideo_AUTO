@@ -1122,6 +1122,14 @@ def verify(manifest):
         # Частота исходника — гейт для ВСЕХ видов, и проверяется здесь же,
         # чтобы он подействовал на уже принятое, а не только на будущий
         # отбор: библиотека уже несла переход главы с исходника 16 кГц.
+        if it.get("approved"):
+            # Одобренное ухом не пересуживается НИКОГДА. Ровно этот случай и
+            # стоил золотому набору кадра: человек посмотрел и сказал «годен»,
+            # а дрейф версий модели через месяц передумал за него. Модель —
+            # инструмент отбора кандидатов, вердикт человека выше её.
+            print(f"  ++ {it['name']:14s} одобрено ухом, не пересуживается  "
+                  f"{it['title'][:34]!r}")
+            continue
         cached = download({"url": it["url"], "title": it.get("title", "")}, "hq")
         sr = probe_sample_rate(cached) if cached else 0
         if sr and sr < MIN_SOURCE_SAMPLE_RATE:
@@ -1245,9 +1253,180 @@ def audition(kind, name, limit=8):
     return 0
 
 
+LOCAL_AUDIO_EXT = (".wav", ".flac", ".ogg", ".mp3", ".aiff", ".aif", ".m4a")
+
+
+def ingest_dir(manifest, src_dir, kind, name, licence, licence_url, limit=0,
+               credit=None, allow_ai_embeddings=True):
+    """Проиндексировать ЛОКАЛЬНУЮ папку теми же гейтами, что и сток.
+
+    Написано под профессиональные пакеты, которые раздаются целиком и без
+    API — Sonniss GDC, 99Sounds, Kenney, секция эффектов YouTube Audio
+    Library. Там настоящие WAV вместо превью 128 kbps, но скачивание
+    ручное, поэтому путь к файлам даёт человек.
+
+    Гейты те же самые, не облегчённые: замеры (гул, клиппинг, тишина,
+    динамика, частота исходника), CLAP-маржа против ловушек, вето AST,
+    конкуренция видов. Пакет от профессиональной студии не освобождает от
+    проверки «про то ли это»: в библиотеке ветра лежит и прибой, и он так
+    же не подойдёт главе про поле, как и любительская запись.
+
+    Лицензия НЕ угадывается по файлу и не берётся из имени папки — её
+    называет человек флагом, и она попадает в манифест на каждую запись.
+    Молча проставить «cc0» чему угодно локальному было бы ровно тем
+    молчаливым допущением, от которого fail-closed проверка защищает сток.
+    """
+    files = []
+    for root, _, fs in os.walk(src_dir):
+        for f in sorted(fs):
+            if f.lower().endswith(LOCAL_AUDIO_EXT):
+                files.append(os.path.join(root, f))
+    if not files:
+        print(f"в {src_dir} не найдено аудио ({', '.join(LOCAL_AUDIO_EXT)})")
+        return 1
+    spec = dict(LIBRARY_SPEC[kind][name], _name=name)
+    lo, hi = spec.get("min_sec", 0.0), spec.get("max_sec", 1e9)
+    print(f"\n== {kind}/{name} из {src_dir}: файлов {len(files)}, лицензия {licence}")
+    scored = []
+    for i, f in enumerate(files, 1):
+        d = probe_duration(f) or 0.0
+        if not (lo * 0.8 <= d <= min(420.0 if kind == "ambience" else hi * 1.25, hi * 1.25)):
+            continue
+        w = title_blocked(name, os.path.basename(f))
+        if w:
+            print(f"   -- {os.path.basename(f)[:44]:46s} название: {w}")
+            continue
+        v = judge(measure(f, kind, spec), kind, spec)
+        tag = "OK " if not v["reasons"] else "-- "
+        print(f"   {tag}{os.path.basename(f)[:44]:46s} {v.get('duration',0):7.1f}с "
+              f"margin={v.get('clap_margin', float('nan')):+.3f} {','.join(v['reasons'])}")
+        if not v["reasons"]:
+            scored.append((v["clap_margin"], f, v))
+        if limit and len(scored) >= limit:
+            break
+    scored.sort(key=lambda t: -t[0])
+    kept = 0
+    for margin, f, v in scored[:spec.get("keep", 3)]:
+        safe = re.sub(r"[^a-z0-9]+", "_", os.path.splitext(os.path.basename(f))[0].lower()).strip("_")
+        dst = os.path.join(LIBRARY_ROOT, kind, name, f"local_{safe[:40]}.flac")
+        if not import_file(f, dst, kind, v["duration"]):
+            continue
+        manifest["items"][os.path.relpath(dst, ROOT)] = {
+            "kind": kind, "name": name, "source": "local",
+            "id": "local:" + hashlib.sha1(f.encode()).hexdigest()[:16],
+            "title": os.path.basename(f), "creator": credit,
+            "license": licence, "license_url": licence_url,
+            "url": None, "landing": None, "query": os.path.basename(src_dir),
+            "source_path": f, "scores": v, "imported_at": int(time.time()),
+            # Некоторые пакеты (Sonniss) прямо запрещают ОБУЧЕНИЕ на своих
+            # звуках. Инференс ради отбора под запрет не попадает, но флаг
+            # едет с записью, чтобы вопрос «можно ли публиковать её
+            # эмбеддинги» имел ответ в данных, а не в чьей-то памяти.
+            "allow_ai_embeddings": bool(allow_ai_embeddings),
+        }
+        kept += 1
+    print(f"   принято {kept} из {len(files)}")
+    save_manifest(manifest)
+    return 0
+
+
+def _match_items(manifest, patterns):
+    """Записи манифеста по куску пути/id/названия. Пусто — ничего не нашлось,
+    и это не молчаливый успех: вызывающий код обязан это сказать."""
+    out = []
+    for rel, it in manifest["items"].items():
+        hay = " ".join([rel, str(it.get("id", "")), str(it.get("title", ""))]).lower()
+        if any(pat.lower() in hay for pat in patterns):
+            out.append((rel, it))
+    return out
+
+
+def set_approved(manifest, patterns, value=True):
+    """Проставить вердикт человека. Это единственное место, где он ставится:
+    автоматика подбирает кандидатов, человек подтверждает, дальше запись не
+    пересуживается ни пересборкой вида, ни verify, ни дрейфом версий моделей.
+    """
+    hits = _match_items(manifest, patterns)
+    if not hits:
+        print("ничего не найдено по: " + ", ".join(patterns))
+        return 1
+    for rel, it in hits:
+        it["approved"] = bool(value)
+        it["approved_at"] = int(time.time()) if value else None
+        print(f"   {'одобрено' if value else 'снято одобрение'}: "
+              f"{it['kind']}/{it['name']}  {it.get('title','?')[:44]}")
+    save_manifest(manifest)
+    print(f"Записей затронуто: {len(hits)}")
+    return 0
+
+
+def promote(manifest, kind, name, numbers):
+    """Перевести спорную запись из temp_library/audition в библиотеку — по
+    номеру, который печатает `audition` и который слышен на демо-ленте.
+
+    Запись попадает СРАЗУ одобренной: она пришла сюда именно потому, что
+    гейт её не пропустил, и единственное основание взять её — что человек
+    послушал. Без `approved` следующий же verify выкинул бы её обратно тем
+    же гейтом, и круг замкнулся бы.
+    """
+    src_dir = os.path.join(CACHE_DIR, "audition", kind, name)
+    if not os.path.isdir(src_dir):
+        print(f"нет отложенных на прослушивание: {src_dir}")
+        return 1
+    path = os.path.join(LIBRARY_ROOT, "rejected.json")
+    rows = []
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            prev = json.load(f)
+        rows = prev["items"] if isinstance(prev, dict) else prev
+    near = [v for v in rows if v.get("name") == name and v.get("url")
+            and v.get("reasons") and all(_debatable(r) for r in v["reasons"])]
+    near.sort(key=lambda v: -(v.get("clap_margin") or -9.0))
+    done = 0
+    for n in numbers:
+        if n < 1 or n > len(near):
+            print(f"   номера {n} нет (всего спорных {len(near)})")
+            continue
+        v = near[n - 1]
+        src = download({"url": v["url"], "title": v.get("title", "")}, "hq")
+        if not src:
+            print(f"   {n}: не скачалось")
+            continue
+        safe = re.sub(r"[^a-z0-9]+", "_", str(v.get("id", n)).lower()).strip("_")
+        dst = os.path.join(LIBRARY_ROOT, kind, name, f"{safe}.flac")
+        if not import_file(src, dst, kind, v.get("duration", 0.0)):
+            print(f"   {n}: не импортировалось")
+            continue
+        manifest["items"][os.path.relpath(dst, ROOT)] = {
+            "kind": kind, "name": name, "source": "audition",
+            "id": v.get("id"), "title": v.get("title", "?"),
+            "creator": v.get("creator"), "license": "cc0",
+            "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+            "url": v["url"], "landing": v.get("landing"), "query": v.get("query"),
+            "scores": {k: v[k] for k in v if k not in ("kind", "name", "url")},
+            "imported_at": int(time.time()),
+            "approved": True, "approved_at": int(time.time()),
+            "approved_note": "переведено из audition: гейт отклонил, человек послушал",
+        }
+        done += 1
+        print(f"   {n}: взято — {v.get('title','?')[:46]}")
+    save_manifest(manifest)
+    print(f"Переведено в библиотеку: {done}")
+    return 0 if done else 1
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("cmd", choices=["build", "report", "restore", "reimport", "verify", "audition"])
+    ap.add_argument("cmd", choices=["build", "report", "restore", "reimport", "verify",
+                                    "audition", "approve", "unapprove", "promote", "ingest"])
+    ap.add_argument("--dir", default="", help="ingest: папка с локальными файлами")
+    ap.add_argument("--license", default="", help="ingest: лицензия пакета, называет человек")
+    ap.add_argument("--license-url", default="", help="ingest: ссылка на текст лицензии")
+    ap.add_argument("--credit", default="", help="ingest: правообладатель пакета")
+    ap.add_argument("--no-ai-embeddings", action="store_true",
+                    help="ingest: пакет запрещает обучение ИИ — пометить записи")
+    ap.add_argument("--match", default="", help="approve/unapprove: куски пути/id/названия через запятую")
+    ap.add_argument("--take", default="", help="promote: номера из audition через запятую")
     ap.add_argument("--kinds", default="", help="kind:name через запятую; пусто = всё")
     ap.add_argument("--max", type=int, default=30)
     args = ap.parse_args()
@@ -1258,6 +1437,30 @@ def main():
         return reimport(manifest)
     if args.cmd == "verify":
         return verify(manifest)
+    if args.cmd in ("approve", "unapprove"):
+        pats = [x.strip() for x in args.match.split(",") if x.strip()]
+        if not pats:
+            print("нужен --match")
+            return 1
+        return set_approved(manifest, pats, args.cmd == "approve")
+    if args.cmd == "ingest":
+        k = [x.strip() for x in args.kinds.split(",") if x.strip()]
+        if not args.dir or len(k) != 1 or not args.license:
+            print("нужно: --dir <папка> --kinds <kind>:<вид> --license <лицензия> "
+                  "[--license-url ...] [--credit ...] [--no-ai-embeddings]")
+            return 1
+        kind, _, name = k[0].partition(":")
+        return ingest_dir(manifest, args.dir, kind or "ambience", name,
+                          args.license, args.license_url or None, args.max,
+                          args.credit or None, not args.no_ai_embeddings)
+    if args.cmd == "promote":
+        k = [x.strip() for x in args.kinds.split(",") if x.strip()]
+        nums = [int(x) for x in args.take.split(",") if x.strip().isdigit()]
+        if len(k) != 1 or not nums:
+            print("нужен --kinds ambience:<вид> и --take 1,3,5")
+            return 1
+        kind, _, name = k[0].partition(":")
+        return promote(manifest, kind or "ambience", name, nums)
     if args.cmd == "audition":
         rc = 0
         for k in (args.kinds.split(",") if args.kinds.strip() else []):
@@ -1289,14 +1492,20 @@ def main():
     drop = {(k, n) for k, n in wanted}
     rejected = [v for v in rejected if (v.get("kind"), v.get("name")) not in drop]
     for kind, name in wanted:
-        # Пересборка вида — с чистого листа: старые принятые файлы и их
-        # записи в манифесте уходят, иначе «urban»-парк остался бы в лесу
-        # рядом с новыми, а манифест хранил бы записи об удалённых файлах.
+        # Пересборка вида — с чистого листа, НО одобренное ухом не трогается.
+        # Всё остальное уходит, иначе «urban»-парк остался бы в лесу рядом с
+        # новыми, а манифест хранил бы записи об удалённых файлах.
+        keep = {rel for rel, it in manifest["items"].items()
+                if it.get("kind") == kind and it.get("name") == name and it.get("approved")}
+        keep_names = {os.path.basename(r) for r in keep}
         d = os.path.join(LIBRARY_ROOT, kind, name)
         for f in (os.listdir(d) if os.path.isdir(d) else []):
-            os.remove(os.path.join(d, f))
+            if f not in keep_names:
+                os.remove(os.path.join(d, f))
         manifest["items"] = {rel: it for rel, it in manifest["items"].items()
-                             if not (it.get("kind") == kind and it.get("name") == name)}
+                             if rel in keep or not (it.get("kind") == kind and it.get("name") == name)}
+        if keep:
+            print(f"   одобренных сохранено: {len(keep)}")
         build_kind(kind, name, args.max, manifest, rejected)
         save_manifest(manifest)
         with open(rejected_path, "w", encoding="utf-8") as f:

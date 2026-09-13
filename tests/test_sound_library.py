@@ -390,3 +390,73 @@ def test_sample_rate_parsing_returns_zero_when_absent(monkeypatch):
         stdout = "\n"
     monkeypatch.setattr(sl, "_run", lambda cmd: R())
     assert sl.probe_sample_rate("x") == 0
+
+
+# ------------------------------------------------- вердикт человека
+def test_approved_records_survive_a_kind_rebuild():
+    """Пересборка вида стирает всё старое — кроме одобренного ухом. Иначе
+    одобрение жило бы до первого же `build`, то есть не жило бы вообще."""
+    src = inspect.getsource(sl.main)
+    assert 'it.get("approved")' in src
+    assert "keep_names" in src and "if f not in keep_names" in src
+    # и запись остаётся в манифесте
+    assert "if rel in keep or not" in src
+
+
+def test_verify_never_rejudges_an_approved_record():
+    """Ровно этот случай стоил золотому набору кадра: человек посмотрел и
+    сказал «годен», а дрейф версий модели через месяц передумал за него."""
+    src = inspect.getsource(sl.verify)
+    assert 'it.get("approved")' in src
+    # проверка стоит ДО любых гейтов
+    assert src.index('it.get("approved")') < src.index("MIN_SOURCE_SAMPLE_RATE")
+    assert src.index('it.get("approved")') < src.index("kind_competition(")
+
+
+def test_promoted_record_is_approved_on_arrival():
+    """Запись попадает из audition в библиотеку ТОЛЬКО потому, что человек её
+    послушал — гейт её отклонил. Без approved следующий verify выкинул бы её
+    обратно тем же гейтом, и круг замкнулся бы."""
+    src = inspect.getsource(sl.promote)
+    assert '"approved": True' in src
+    assert "_debatable(r)" in src, "переводить можно только спорные, не дефектные"
+
+
+def test_approval_is_set_in_exactly_one_place():
+    """Вердикт человека ставится одной функцией — иначе «кто и когда это
+    одобрил» снова станет вопросом без ответа."""
+    body = "\n".join(
+        inspect.getsource(getattr(sl, n))
+        for n in dir(sl)
+        if callable(getattr(sl, n, None)) and getattr(getattr(sl, n), "__module__", "") == sl.__name__
+    )
+    # присваивание approved=True живёт только в set_approved и promote
+    assert body.count('["approved"] = ') == 1
+    assert body.count('"approved": True') == 1
+
+
+# ------------------------------------------------ локальные пакеты
+def test_local_ingest_uses_the_same_gates_as_stock():
+    """Пакет от профессиональной студии не освобождает от проверки «про то
+    ли это»: в библиотеке ветра лежит и прибой. Живой прогон на смешанной
+    папке (4 ветра + 5 огня, всё загружалось как wind_open) принял 4 и
+    отбраковал все 5 по kind_lost_to_forge_fire."""
+    src = inspect.getsource(sl.ingest_dir)
+    for gate in ("judge(measure(", "title_blocked(", "import_file("):
+        assert gate in src, gate
+
+
+def test_local_ingest_never_guesses_the_licence():
+    """Лицензию называет человек флагом. Молча проставить «cc0» чему угодно
+    локальному было бы ровно тем допущением, от которого fail-closed
+    проверка защищает сток."""
+    src = inspect.getsource(sl.ingest_dir)
+    assert '"license": licence' in src
+    assert '"cc0"' not in src.split('"""')[-1], "лицензия не зашита в код"
+
+
+def test_local_ingest_records_the_ai_clause():
+    """Некоторые пакеты (Sonniss) прямо запрещают ОБУЧЕНИЕ на своих звуках.
+    Флаг едет с записью, чтобы вопрос «можно ли публиковать её эмбеддинги»
+    имел ответ в данных, а не в чьей-то памяти."""
+    assert '"allow_ai_embeddings"' in inspect.getsource(sl.ingest_dir)
