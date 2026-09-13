@@ -66,7 +66,36 @@
 # как ЗАРЕЗЕРВИРОВАННОЕ ОКНО (см. reserved_windows): её акцент ставит
 # add_reveal_sfx() по уже проверенной в проде конвенции, а планировщик
 # обязан вокруг неё расступиться, а не переставлять её заново.
-CUE_PRIORITY = {"chapter": 2, "plate": 1}
+CUE_PRIORITY = {"chapter": 3, "object": 2, "plate": 1}
+
+# --- ОБЪЕКТНЫЙ СЛОЙ (звук предмета, о котором говорит текст) -------------
+# Опережение: звук приходит РАНЬШЕ слова. Постановка ровно на слове —
+# буквальная иллюстрация речи (в монтаже это называют Mickey Mousing) и
+# самый узнаваемый признак любителя. Профессионально сначала слышишь,
+# потом понимаешь: сознание успевает принять звук как часть сцены, а не
+# как подпись к реплике.
+OBJECT_PRE_LAP_SEC = 0.45
+
+# Два класса, а не один: молот — это удар (точка), костёр — это состояние
+# (протяжённость). Один механизм «положить сэмпл в точку» на них не
+# работает: удар с полуторасекундным нарастанием смазан, а костёр,
+# оборванный через 0.7с, читается как щелчок.
+OBJECT_CLASS_POINT = "point"
+OBJECT_CLASS_BED = "bed"
+OBJECT_BED_SEC = 6.0           # сколько звучит протяжённый объект
+OBJECT_BED_FADE_IN_SEC = 1.2
+OBJECT_BED_FADE_OUT_SEC = 2.0
+
+# Уровни. Это ПОДЗВУЧНИК под фразой, а не сцена: тише атмосферы места,
+# которая сама сидит на 24 LU под голосом.
+OBJECT_POINT_GAIN_DB = -20.0
+OBJECT_BED_GAIN_DB = -26.0
+
+# Плотность. Главный рычаг объектного слоя — воздержание: три звука за
+# главу дороже пятнадцати. Ролик, где звучит каждое существительное, это
+# озвученный словарь, а не кино.
+OBJECT_MIN_GAP_SEC = 6.0
+OBJECT_MAX_PER_MIN = 3
 
 # Минимальный интервал между двумя ЛЮБЫМИ принятыми эффектами. Два
 # акцента ближе этого на слух сливаются в один сдвоенный удар — ошибка
@@ -153,9 +182,97 @@ def _in_any_window(t, windows):
     return False
 
 
+def hush_windows(blocks, sub_starts, real_weights):
+    """Окна, помеченные в сценарии как [hush] — «здесь тишина НУЖНА».
+
+    Возвращается как зарезервированное окно, то есть тем же механизмом, что
+    защищает кульминацию: разница между «сюда ничего не поместилось» и
+    «сюда ничего нельзя» должна быть в данных, а не в удаче планировщика.
+    """
+    out = []
+    for i, b in enumerate(blocks or []):
+        if not (b or {}).get("hush"):
+            continue
+        if i >= len(sub_starts or ()):
+            continue
+        start = float(sub_starts[i])
+        dur = None
+        if real_weights and i < len(real_weights) and real_weights[i]:
+            dur = float(real_weights[i])
+        elif i + 1 < len(sub_starts or ()):
+            dur = float(sub_starts[i + 1]) - start
+        if dur and dur > 0:
+            out.append((start, start + dur))
+    return out
+
+
+def word_anchor_time(block, word_pos, start, speech_dur):
+    """Момент слова №word_pos внутри блока.
+
+    ЧЕСТНЫЙ ПРЕДЕЛ: это линейная интерполяция внутри блока, а не позиция
+    конкретного слова из alignment. Обе величины берутся из ОДНОЙ шкалы
+    (реальный онсет блока + реальная длительность его речи), поэтому
+    смешения шкал — того класса бага, что уже ловили у protected_windows и
+    у веса блока, — здесь нет. Но слово в середине длинной фразы может
+    приехать на пару десятых от истины, и опережение (pre-lap) именно
+    поэтому берётся с запасом: ошибка в сторону «раньше» безобидна, в
+    сторону «позже» даёт звук поверх уже сказанного слова.
+    """
+    words = max(1, int((block or {}).get("words") or 1))
+    pos = max(0, min(int(word_pos or 0), words))
+    if not speech_dur or speech_dur <= 0:
+        return float(start)
+    return float(start) + (pos / float(words)) * float(speech_dur)
+
+
+def object_cues(blocks, sub_starts, real_weights, asset_for=None,
+                pre_lap=OBJECT_PRE_LAP_SEC):
+    """Кандидаты объектного слоя из разметки [sfx:...] сценария.
+
+    asset_for(name) -> (путь, длительность, класс) либо None, если под этот
+    концепт в библиотеке ничего нет. Нет ассета — кандидат честно уходит в
+    отклонённые с причиной, а не подменяется похожим: «похожий» звук под
+    конкретным словом слышен как ошибка, а тишина — нет.
+    """
+    cands, dropped = [], []
+    for i, b in enumerate(blocks or []):
+        marks = (b or {}).get("sfx") or []
+        if not marks:
+            continue
+        if i >= len(sub_starts or ()):
+            continue
+        start = float(sub_starts[i])
+        speech = float(real_weights[i]) if (real_weights and i < len(real_weights)
+                                            and real_weights[i]) else 0.0
+        for m in marks:
+            name = str((m or {}).get("name") or "").strip()
+            if not name:
+                continue
+            base = {"kind": "object", "block": i, "name": name,
+                    "section": _section_of(b)}
+            got = asset_for(name) if asset_for else None
+            if not got:
+                dropped.append(dict(base, reason="no_asset"))
+                continue
+            path, asset_dur, cls = got
+            anchor = word_anchor_time(b, m.get("word_pos"), start, speech)
+            t = anchor - float(pre_lap)
+            if t < 0:
+                # Опережение не влезает в начало ролика — ставим с нуля,
+                # а не выбрасываем: звук нужен, просто без разбега.
+                t = 0.0
+            cands.append(dict(base, time=t, anchor=anchor, asset=path,
+                              asset_dur=float(asset_dur or 0.0),
+                              cls=cls,
+                              gain_db=(OBJECT_BED_GAIN_DB if cls == OBJECT_CLASS_BED
+                                       else OBJECT_POINT_GAIN_DB)))
+    return cands, dropped
+
+
 def plan_sfx_cues(blocks, sub_starts, real_weights, total_dur,
                   chapter_variants=(), plate_cues=(), reserved_windows=(),
-                  min_gap=SFX_MIN_GAP_SEC, max_per_min=SFX_MAX_PER_MIN):
+                  min_gap=SFX_MIN_GAP_SEC, max_per_min=SFX_MAX_PER_MIN,
+                  object_asset_for=None):
     """Итоговый список эффектов эпизода: (принятые, отклонённые).
 
     blocks/sub_starts/real_weights/total_dur — ровно те же объекты, что уже
@@ -202,11 +319,21 @@ def plan_sfx_cues(blocks, sub_starts, real_weights, total_dur,
     for cue in plate_cues or ():
         candidates.append(dict(cue, kind="plate"))
 
+    obj_cands, obj_dropped = object_cues(blocks, sub_starts, real_weights,
+                                         asset_for=object_asset_for)
+    dropped.extend(obj_dropped)
+    candidates.extend(obj_cands)
+
+    # Помеченная тишина защищается ТЕМ ЖЕ механизмом, что кульминация.
+    reserved_windows = list(reserved_windows or ()) + \
+        hush_windows(blocks, sub_starts, real_weights)
+
     # Сортировка по приоритету, потом по времени: при конфликте побеждает
     # более важный эффект независимо от того, кто раньше на таймлайне.
     candidates.sort(key=lambda c: (-CUE_PRIORITY.get(c["kind"], 0), c.get("time") or 0.0))
 
     taken = []
+    taken_obj = []          # у объектного слоя свои, более строгие лимиты
     for c in candidates:
         t = c.get("time")
         anchor = c.get("anchor", t)
@@ -225,6 +352,19 @@ def plan_sfx_cues(blocks, sub_starts, real_weights, total_dur,
             if near >= max_per_min:
                 dropped.append(dict(c, reason="density_cap"))
                 continue
+        if c["kind"] == "object":
+            # Свой, более жёсткий бюджет: главный рычаг этого слоя —
+            # воздержание. Общий потолок здесь не помогает, он рассчитан на
+            # служебную фурнитуру, которой за минуту бывает и шесть.
+            if any(abs(t - o) < OBJECT_MIN_GAP_SEC for o in taken_obj):
+                dropped.append(dict(c, reason="object_too_close"))
+                continue
+            near_obj = sum(1 for o in taken_obj
+                           if abs(t - o) <= SFX_DENSITY_WINDOW_SEC / 2.0)
+            if near_obj >= OBJECT_MAX_PER_MIN:
+                dropped.append(dict(c, reason="object_density_cap"))
+                continue
+            taken_obj.append(t)
         taken.append(t)
         accepted.append(c)
 

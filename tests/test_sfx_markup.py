@@ -93,3 +93,94 @@ def test_existing_markup_not_regressed():
     assert any(x["stat"] == "ЧИСЛО" for x in b)
     assert any(x["is_climax"] for x in b)
     assert all("sfx" in x and "hush" in x for x in b), "новые ключи есть у КАЖДОГО блока"
+
+
+# ------------------------------------------------ планировщик объектов
+import sfx_plan
+
+
+def _assets(name):
+    table = {"fire": ("/x/fire.flac", 8.0, sfx_plan.OBJECT_CLASS_BED),
+             "hammer": ("/x/hammer.flac", 0.6, sfx_plan.OBJECT_CLASS_POINT)}
+    return table.get(name)
+
+
+def _episode(marks_at, hush_at=(), n=12, step=10.0, speech=8.0):
+    blocks, starts, weights = [], [], []
+    for i in range(n):
+        b = {"text": "фраза " * 10, "words": 10, "section": "BLOCK 1",
+             "sfx": marks_at.get(i, []), "hush": i in hush_at,
+             "stat": None, "is_climax": False, "pause_after": 0.8}
+        blocks.append(b)
+        starts.append(i * step)
+        weights.append(speech)
+    return blocks, starts, weights
+
+
+def test_object_sound_arrives_before_the_word_not_on_it():
+    """Звук ровно на слове — буквальная иллюстрация речи (Mickey Mousing),
+    самый узнаваемый признак любителя. Сначала слышишь, потом понимаешь."""
+    blocks, starts, weights = _episode({3: [{"name": "hammer", "word_pos": 5}]})
+    acc, _ = sfx_plan.plan_sfx_cues(blocks, starts, weights, 200.0,
+                                    object_asset_for=_assets)
+    cue = [c for c in acc if c["kind"] == "object"][0]
+    # якорь = 30с + (5/10)*8с = 34с; звук начинается раньше него
+    assert abs(cue["anchor"] - 34.0) < 0.01
+    assert cue["time"] < cue["anchor"]
+    assert abs((cue["anchor"] - cue["time"]) - sfx_plan.OBJECT_PRE_LAP_SEC) < 0.01
+
+
+def test_hush_block_is_protected_like_the_climax():
+    """[hush] — не «пусто», а «нельзя». Защита тем же механизмом
+    зарезервированных окон, что у кульминации."""
+    blocks, starts, weights = _episode({4: [{"name": "fire", "word_pos": 9}]},
+                                       hush_at=(4,))
+    acc, drop = sfx_plan.plan_sfx_cues(blocks, starts, weights, 200.0,
+                                       object_asset_for=_assets)
+    assert not [c for c in acc if c["kind"] == "object"]
+    assert any(c.get("reason") == "climax_window" for c in drop)
+
+
+def test_missing_asset_is_silence_not_a_substitute():
+    """«Похожий» звук под конкретным словом слышен как ошибка, тишина — нет."""
+    blocks, starts, weights = _episode({2: [{"name": "нет_такого", "word_pos": 3}]})
+    acc, drop = sfx_plan.plan_sfx_cues(blocks, starts, weights, 200.0,
+                                       object_asset_for=_assets)
+    assert not [c for c in acc if c["kind"] == "object"]
+    assert any(c.get("reason") == "no_asset" for c in drop)
+
+
+def test_object_density_is_stricter_than_service_effects():
+    """Главный рычаг слоя — воздержание: ролик, где звучит каждое
+    существительное, это озвученный словарь, а не кино."""
+    marks = {i: [{"name": "hammer", "word_pos": 1}] for i in range(10)}
+    blocks, starts, weights = _episode(marks, n=10, step=3.0)
+    acc, drop = sfx_plan.plan_sfx_cues(blocks, starts, weights, 200.0,
+                                       object_asset_for=_assets)
+    obj = [c for c in acc if c["kind"] == "object"]
+    assert len(obj) < 10, "плотность обязана резаться"
+    for a, b in zip(obj, obj[1:]):
+        assert b["time"] - a["time"] >= sfx_plan.OBJECT_MIN_GAP_SEC - 1e-6
+    assert any(c.get("reason", "").startswith("object_") for c in drop)
+
+
+def test_bed_and_point_get_different_levels():
+    """Подзвучник тише точечного удара: это фон под фразой, не сцена."""
+    assert sfx_plan.OBJECT_BED_GAIN_DB < sfx_plan.OBJECT_POINT_GAIN_DB
+    blocks, starts, weights = _episode({1: [{"name": "fire", "word_pos": 2}],
+                                        6: [{"name": "hammer", "word_pos": 2}]})
+    acc, _ = sfx_plan.plan_sfx_cues(blocks, starts, weights, 200.0,
+                                    object_asset_for=_assets)
+    by = {c["name"]: c for c in acc if c["kind"] == "object"}
+    assert by["fire"]["cls"] == sfx_plan.OBJECT_CLASS_BED
+    assert by["hammer"]["cls"] == sfx_plan.OBJECT_CLASS_POINT
+    assert by["fire"]["gain_db"] < by["hammer"]["gain_db"]
+
+
+def test_no_markup_means_no_object_layer_at_all():
+    """Эпизод без разметки — байт-в-байт прежнее поведение."""
+    blocks, starts, weights = _episode({})
+    acc, drop = sfx_plan.plan_sfx_cues(blocks, starts, weights, 200.0,
+                                       object_asset_for=_assets)
+    assert not [c for c in acc if c["kind"] == "object"]
+    assert not [c for c in drop if c["kind"] == "object"]
