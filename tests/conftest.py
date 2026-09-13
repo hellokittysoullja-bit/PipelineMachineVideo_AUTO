@@ -52,6 +52,12 @@ def _isolate_from_real_dotenv(monkeypatch):
     # музейных API — а Met на каждый предмет делает отдельный запрос.
     monkeypatch.delenv("MUSEUM_SOURCES_ENABLED", raising=False)
     monkeypatch.setenv("MUSEUM_SOURCES_ENABLED", "0")
+    # PIXABAY_ENABLED/UNSPLASH_ENABLED — та же причина и тот же дефолт-1, что у
+    # музеев: без этих двух строк любой тест, дошедший до сборки пула, ходил бы
+    # живьём в Pixabay/Unsplash, если в окружении вдруг оказался ключ.
+    for _flag in ("PIXABAY_ENABLED", "UNSPLASH_ENABLED"):
+        monkeypatch.delenv(_flag, raising=False)
+        monkeypatch.setenv(_flag, "0")
 
 
 def pytest_configure(config):

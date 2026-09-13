@@ -4075,6 +4075,179 @@ def _museum_search_photos(api_query):
     return results
 
 
+_PIXABAY_PHOTO_CACHE = {}
+_PIXABAY_VIDEO_CACHE = {}
+_UNSPLASH_PHOTO_CACHE = {}
+_UNSPLASH_CALLS_THIS_RUN = [0]   # список, а не int — мутируется из функции без global
+
+
+def _pixabay_search_photos(api_query):
+    """Фото Pixabay в ФОРМЕ PEXELS-КАНДИДАТА — чтобы конкурировать в ОДНОМ
+    пуле под ОДНИМИ гейтами (relevance/вето/домен-гвард/резкость/дедуп).
+
+    РЕАЛЬНЫЙ пробел, который это закрывает — ровно тот же, что уже находили
+    у Openverse 07.09 («код существовал, был включён, и не давал ролику
+    ничего»), просто про два других источника. `stock_fetch_multisource.py`
+    реализует Pixabay и Unsplash полностью, их ключи стоят в
+    `config.example.env`, CLAUDE.md описывает мультисток как ДЕФОЛТ
+    заполнения («нечётные слоты → фото Pexels/Pixabay/Unsplash, чётные →
+    видео Pexels/Pixabay») — а в `pipeline_smart.py`, реальном пути отбора
+    эпизода, до этой правки не было ни одного упоминания обоих. Прямая
+    проверка: `grep -n "pixabay\|unsplash" scripts/pipeline_smart.py` давал
+    ПУСТО. Вклад обоих источников в собранный ролик — ровно ноль.
+
+    Почему это важно именно здесь, а не «ещё один сток для полноты»: узкое
+    место этого пайплайна — не качество гейтов, а ГОЛОД ПУЛА (259 слотов на
+    39 авторских запросов = 6.6 уникальных медиа на запрос), и упирается он
+    в квоту Pexels 200 запросов/час. У Pixabay и Unsplash квоты СВОИ — то
+    есть пул растёт, не отнимая ни одного вызова у Pexels.
+
+    Нормализация полей под форму Pexels-кандидата:
+      id     -> "pixabay:<id>" (строка, чтобы не столкнуться с числовыми ID
+                Pexels в общем used_ids/дедупе — тот же приём, что у
+                "openverse:" и "met:");
+      alt    -> tags (у Pixabay это строка через запятую, режем в список);
+      url    -> pageURL (человекочитаемый слаг, который читает
+                pexels_candidate_text() — см. её докстринг про то, что по
+                слагу жанр виден точнее, чем по alt);
+      src.large2x -> largeImageURL (то же поле, что download() уже читает).
+    """
+    if not feature_flags.enabled("PIXABAY_ENABLED"):
+        return []
+    if api_query in _PIXABAY_PHOTO_CACHE:
+        return _PIXABAY_PHOTO_CACHE[api_query]
+    out = []
+    try:
+        import stock_fetch_multisource as _ms
+        if not _ms.PIXABAY_API_KEY:
+            _PIXABAY_PHOTO_CACHE[api_query] = []
+            return []
+        url = (f"https://pixabay.com/api/?key={_ms.PIXABAY_API_KEY}"
+               f"&q={urllib.parse.quote(api_query)}&image_type=photo"
+               f"&orientation=horizontal&per_page=50&safesearch=true")
+        req = urllib.request.Request(url, headers={"User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            data = json.load(r)
+        for h in (data.get("hits") or []):
+            img = h.get("largeImageURL") or h.get("webformatURL")
+            if not img:
+                continue
+            tags = [t.strip() for t in (h.get("tags") or "").split(",") if t.strip()]
+            out.append({
+                "id": f"pixabay:{h.get('id')}",
+                "alt": ", ".join(tags),
+                "url": h.get("pageURL") or "",
+                "tags": tags,
+                "src": {"large2x": img, "large": img},
+            })
+    except Exception:
+        # Fail-open НА УРОВНЕ ИСТОЧНИКА — тот же принцип, что у Openverse и
+        # музеев: недоступный Pixabay не должен ронять слот, у которого есть
+        # рабочий Pexels-путь. Пустой список = пул собирается как раньше.
+        out = []
+    _PIXABAY_PHOTO_CACHE[api_query] = out
+    return out
+
+
+def _pixabay_search_videos(api_query):
+    """Видео Pixabay в ФОРМЕ PEXELS-ВИДЕОКАНДИДАТА (video_files + duration).
+
+    Для видео этот источник ценнее, чем для фото, и это измерено, а не
+    предположено: разбивка брака эпизода 02 по типу слота дала среди ВИДЕО
+    63% (41 из 65) против 23% у фото — видео-корпус Pexels на исторические
+    темы объективно тоньше, а музейные API видео не отдают вообще. Второй
+    независимый видео-корпус бьёт ровно в это место.
+
+    duration Pixabay отдаёт в секундах — то самое поле, которого не хватало
+    _video_candidate_too_short() (см. её докстринг: у Pexels оно было и не
+    читалось, здесь оно есть и читается сразу).
+    """
+    if not feature_flags.enabled("PIXABAY_ENABLED"):
+        return []
+    if api_query in _PIXABAY_VIDEO_CACHE:
+        return _PIXABAY_VIDEO_CACHE[api_query]
+    out = []
+    try:
+        import stock_fetch_multisource as _ms
+        if not _ms.PIXABAY_API_KEY:
+            _PIXABAY_VIDEO_CACHE[api_query] = []
+            return []
+        url = (f"https://pixabay.com/api/videos/?key={_ms.PIXABAY_API_KEY}"
+               f"&q={urllib.parse.quote(api_query)}&per_page=50&safesearch=true")
+        req = urllib.request.Request(url, headers={"User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            data = json.load(r)
+        for h in (data.get("hits") or []):
+            files = []
+            for v in (h.get("videos") or {}).values():
+                if isinstance(v, dict) and v.get("url") and v.get("width"):
+                    files.append({"file_type": "video/mp4",
+                                  "width": v.get("width"), "link": v["url"]})
+            if not files:
+                continue
+            tags = [t.strip() for t in (h.get("tags") or "").split(",") if t.strip()]
+            out.append({
+                "id": f"pixabay:{h.get('id')}",
+                "alt": ", ".join(tags),
+                "url": h.get("pageURL") or "",
+                "tags": tags,
+                "duration": h.get("duration"),
+                "video_files": files,
+            })
+    except Exception:
+        out = []
+    _PIXABAY_VIDEO_CACHE[api_query] = out
+    return out
+
+
+def _unsplash_search_photos(api_query):
+    """Фото Unsplash в ФОРМЕ PEXELS-КАНДИДАТА.
+
+    Квота demo-ключа — 50 запросов/час, поэтому здесь стоит СВОЙ счётчик с
+    тем же потолком, что уже выбран в stock_fetch_multisource
+    (UNSPLASH_HOURLY_CAP=45, запас к 50). Исчерпан — источник молча отдаёт
+    пустой список, как будто его нет: никакого аналога PEXELS_BROKEN, потому
+    что у Pexels есть свой отдельный лимит и ронять его из-за Unsplash
+    нельзя.
+    """
+    if not feature_flags.enabled("UNSPLASH_ENABLED"):
+        return []
+    if api_query in _UNSPLASH_PHOTO_CACHE:
+        return _UNSPLASH_PHOTO_CACHE[api_query]
+    out = []
+    try:
+        import stock_fetch_multisource as _ms
+        if not _ms.UNSPLASH_ACCESS_KEY:
+            _UNSPLASH_PHOTO_CACHE[api_query] = []
+            return []
+        if _UNSPLASH_CALLS_THIS_RUN[0] >= _ms.UNSPLASH_HOURLY_CAP:
+            _UNSPLASH_PHOTO_CACHE[api_query] = []
+            return []
+        url = (f"https://api.unsplash.com/search/photos?"
+               f"query={urllib.parse.quote(api_query)}&per_page=30"
+               f"&orientation=landscape&client_id={_ms.UNSPLASH_ACCESS_KEY}")
+        req = urllib.request.Request(url, headers={"User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            data = json.load(r)
+        _UNSPLASH_CALLS_THIS_RUN[0] += 1
+        for h in (data.get("results") or []):
+            urls = h.get("urls") or {}
+            img = urls.get("regular") or urls.get("full") or urls.get("small")
+            if not img:
+                continue
+            alt = h.get("alt_description") or h.get("description") or ""
+            out.append({
+                "id": f"unsplash:{h.get('id')}",
+                "alt": alt,
+                "url": ((h.get("links") or {}).get("html")) or "",
+                "src": {"large2x": img, "large": img},
+            })
+    except Exception:
+        out = []
+    _UNSPLASH_PHOTO_CACHE[api_query] = out
+    return out
+
+
 def _openverse_query_cascade(api_query):
     """Варианты запроса к архиву от точного к общему, без повторов.
 
@@ -4413,6 +4586,24 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                 # должен сверять его с ЕГО запросом, иначе кандидат из второго
                 # запроса секции сравнивался бы с чужим текстом и честно
                 # отбраковывался бы ни за что.
+                p = dict(p)
+                p["_origin_query"] = pq
+                lst.append(p)
+            # Pixabay/Unsplash — ПОСЛЕ Pexels, в отличие от музеев и архивов
+            # выше. Разница не в важности источника, а в том, на что мы
+            # вправе опираться: у музейного кандидата эпоха и культура
+            # прочитаны из паспорта предмета, поэтому его место впереди
+            # осмысленно. Pixabay и Unsplash — такой же общий фотосток, что
+            # и Pexels, никакого преимущества у них нет. Добавление В КОНЕЦ
+            # оставляет взаимный порядок уже существовавших кандидатов
+            # ровно прежним: новый источник может выиграть слот только если
+            # реально обошёл всех по скорингу, а не потому что оказался
+            # раньше в списке при равенстве.
+            for p in _pixabay_search_photos(api_q):
+                p = dict(p)
+                p["_origin_query"] = pq
+                lst.append(p)
+            for p in _unsplash_search_photos(api_q):
                 p = dict(p)
                 p["_origin_query"] = pq
                 lst.append(p)
@@ -7543,6 +7734,12 @@ def _selection_stack_signature():
         # меняет состав пула так же, как включение Openverse.
         feature_flags.enabled("MUSEUM_SOURCES_ENABLED"),
         MUSEUM_SOURCES_VERSION,
+        # Pixabay/Unsplash — ровно та же причина, что у двух флагов выше:
+        # включение источника меняет СОСТАВ пула, а значит и победителя, и
+        # без подписи такая смена на прогретом temp_smart/ не дошла бы до
+        # экрана вообще (кандидат уже выбран и закэширован).
+        feature_flags.enabled("PIXABAY_ENABLED"),
+        feature_flags.enabled("UNSPLASH_ENABLED"),
         # Ступень «негодное видео -> фотография» меняет САМ ТИП медиа в слоте,
         # то есть то, что реально увидит зритель. Ключ клипа считается до
         # резолва медиа — без флага здесь на прогретом temp_smart/ в слоте
@@ -8854,6 +9051,15 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
             # реконструкторские парады), и именно оттуда пришли кадры,
             # на которые пожаловался владелец канала.
             for v in filter_alt_blocklist(_pexels_search_videos(api_q)):
+                v = dict(v)
+                v["_origin_query"] = pq
+                lst.append(v)
+            # Второй независимый видео-корпус — см. _pixabay_search_videos():
+            # среди ВИДЕО-слотов брак 63% против 23% у фото (замер эпизода
+            # 02), потому что видео-корпус Pexels на исторические темы тоньше,
+            # а музеи видео не отдают вообще. Через ТОТ ЖЕ жанровый фильтр по
+            # тексту кандидата и в КОНЕЦ списка (см. фото-ветку про порядок).
+            for v in filter_alt_blocklist(_pixabay_search_videos(api_q)):
                 v = dict(v)
                 v["_origin_query"] = pq
                 lst.append(v)
