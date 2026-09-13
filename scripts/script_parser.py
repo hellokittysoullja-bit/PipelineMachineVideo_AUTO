@@ -62,6 +62,27 @@ def parse_blocks(path):
     # принцип: пользователь копирует ЧИСТЫЙ текст в ElevenLabs, [stat:...]
     # туда тоже никогда не попадал).
     content = content.replace("[climax]", "\x02CLIMAX\x02")
+    # [sfx:концепт] и [hush] — намерение по ЗВУКУ, которое ставит автор
+    # сценария в тот момент, когда он этот костёр в текст и вписывает.
+    #
+    # Почему так, а не разбором готового текста: сценарий не найден в
+    # природе, он пишется — значит момент, когда система знает про костёр,
+    # наступает на шаг РАНЬШЕ любого анализа. Выводить звук из написанного
+    # текста значит угадывать то, что было известно точно. Прямая проверка
+    # обеих автоматических схем это подтвердила: русский текст главы в
+    # текстовую башню CLAP дал ОДИН И ТОТ ЖЕ вид на всех шести главах, а
+    # мост «многоязычный эмбеддинг -> английская метка понятия» — 7 верных
+    # из 18 на одиночных словах (случайный выбор дал бы 1 из 20).
+    #
+    # [hush] — не «здесь нет звука», а «здесь тишина НУЖНА». Разница
+    # смысловая: пустое место планировщик имеет право заполнить, помеченную
+    # тишину — нет. Тишина в звуковом монтаже такой же элемент плана, как
+    # удар, и защищать её надо явно.
+    #
+    # Оба — пайплайн-only маркеры, как [stat:...] и [climax]: в текст для
+    # TTS не попадают (см. ЧАСТЬ 10 CLAUDE.md).
+    content = re.sub(r'\[sfx:(.*?)\]', lambda m: f"\x03SFX:{m.group(1)}\x03", content)
+    content = content.replace("[hush]", "\x04HUSH\x04")
     processed = content
     for tag in sorted(PAUSE_DURATIONS, key=len, reverse=True):
         processed = processed.replace(tag, f"__PAUSE_{PAUSE_DURATIONS[tag]}__")
@@ -78,17 +99,27 @@ def parse_blocks(path):
               f"{', '.join(sorted(PAUSE_DURATIONS))} (ЧАСТЬ 10 CLAUDE.md). "
               f"[long pause] запрещён явно (ломает TTS-артефактами) — проверь script.txt.")
     processed = re.sub(r'\[.*?\]', '', processed)
-    parts = re.split(r'(__PAUSE_[\d.]+__|\x00SECTION:.*?\x00|\x01STAT:.*?\x01|\x02CLIMAX\x02)', processed)
+    parts = re.split(r'(__PAUSE_[\d.]+__|\x00SECTION:.*?\x00|\x01STAT:.*?\x01|\x02CLIMAX\x02'
+                     r'|\x03SFX:.*?\x03|\x04HUSH\x04)', processed)
     blocks, cur, pause, stat, stat_word_pos, pending_climax = [], "", 0.0, None, None, False
+    sfx, hush = [], False
+    # [sfx:...] стоит ВНУТРИ фразы и монтаж не режет. Но он разбивает строку
+    # на части, и если к этому моменту висит несъеденная пауза (она осталась
+    # от [pause] перед блоком), следующий же огрызок — хоть одна точка —
+    # уходил в отдельный блок со своим слотом под картинку. Флаг говорит
+    # разборщику: этот кусок — продолжение той же фразы, не новый блок.
+    merge_next = False
     section = "BODY"
 
     def flush():
-        nonlocal cur, pause, stat, stat_word_pos, pending_climax
+        nonlocal cur, pause, stat, stat_word_pos, pending_climax, sfx, hush
         if cur:
             blocks.append({"text": cur, "pause_after": pause,
                            "words": len(cur.split()), "section": section, "stat": stat,
-                           "stat_word_pos": stat_word_pos, "is_climax": pending_climax})
+                           "stat_word_pos": stat_word_pos, "is_climax": pending_climax,
+                           "sfx": list(sfx), "hush": hush})
         cur, pause, stat, stat_word_pos, pending_climax = "", 0.0, None, None, False
+        sfx, hush = [], False
 
     for part in parts:
         mp = re.match(r'__PAUSE_([\d.]+)__', part)
@@ -125,10 +156,26 @@ def parse_blocks(path):
             # независимо от того, где в фразе реально звучит цифра — цифра
             # на экране опережала озвучку на полклипа и больше)."""
             stat_word_pos = len(cur.split())
+        elif part.startswith("\x03SFX:"):
+            # Позиция в СЛОВАХ, как у [stat:...] — по ней потом берётся
+            # реальное время из посимвольного alignment. Сам звук ставится
+            # НЕ на это слово, а с опережением (pre-lap): звук ровно на
+            # слове — буквальная иллюстрация речи, узнаваемый признак
+            # любителя; профессионально сначала слышишь, потом понимаешь.
+            # Здесь хранится только якорь, решение о времени — у планировщика.
+            name = part[len("\x03SFX:"):-1].strip()
+            if name:
+                sfx.append({"name": name, "word_pos": len(cur.split())})
+            merge_next = bool(cur)
+        elif part == "\x04HUSH\x04":
+            hush = True
         else:
             t = part.strip()
             if t:
-                if pause > 0 and cur:
+                if merge_next:
+                    cur = f"{cur} {t}".strip()
+                    merge_next = False
+                elif pause > 0 and cur:
                     flush()      # реальная пауза — вот это настоящая граница блока
                     cur = t
                 else:
