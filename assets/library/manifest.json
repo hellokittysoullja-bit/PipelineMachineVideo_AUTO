@@ -947,30 +947,6 @@
    },
    "imported_at": 1789321642
   },
-  "assets/library/sfx/chapter_turn/freesound_35f06cc9_e1e6_43d2_b6c5_43f1dc586eda.flac": {
-   "kind": "sfx",
-   "name": "chapter_turn",
-   "source": "openverse:freesound",
-   "id": "freesound:35f06cc9-e1e6-43d2-b6c5-43f1dc586eda",
-   "title": "UI_Menu_Whosh",
-   "creator": "Valenspire",
-   "license": "cc0",
-   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
-   "url": "https://cdn.freesound.org/previews/699/699494_5872390-hq.mp3",
-   "landing": "https://freesound.org/people/Valenspire/sounds/699494",
-   "query": "deep whoosh",
-   "scores": {
-    "reasons": [],
-    "duration": 1.476,
-    "clipping_share": 0.0,
-    "clap_pos": 0.2935,
-    "clap_margin": 0.2999,
-    "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
-    "id": "freesound:35f06cc9-e1e6-43d2-b6c5-43f1dc586eda",
-    "title": "UI_Menu_Whosh"
-   },
-   "imported_at": 1789321643
-  },
   "assets/library/sfx/chapter_turn/freesound_f1dc6045_7965_41de_87f8_4731d2583fd2.flac": {
    "kind": "sfx",
    "name": "chapter_turn",
