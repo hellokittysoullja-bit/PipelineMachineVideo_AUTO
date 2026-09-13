@@ -404,3 +404,204 @@ def test_corrupt_asset_does_not_take_the_planner_down(tmp_path):
                                     object_asset_for=resolver)
     # переход главы не имеет к битому ассету никакого отношения и обязан уцелеть
     assert any(c["kind"] == "chapter" for c in acc)
+
+
+# --------------------------------- точечный кюй обязан стоять в ТИШИНЕ
+SILENCE_FLOOR_DB = -40.0      # порог тишины, тот же класс, что у silencedetect
+MIN_VERSION_SPREAD_DB = 3.0   # ниже этого версии коридора неразличимы на слух
+
+
+def _voice_with_real_pauses(dirpath, bursts=6, burst=5.5, pause=1.2, lufs=-16.0):
+    """Голос с НАСТОЯЩЕЙ тишиной между фразами.
+
+    Прежняя фикстура (`level_scene/voice.flac`) — розовый шум с tremolo, и
+    замер показал, что настоящих пауз в ней НЕТ ВООБЩЕ: `silencedetect` при
+    -40 dB и -30 dB находит ноль провалов, первый появляется только на
+    -25 dB. Поставить туда точечный кюй «в паузу» физически некуда, и
+    именно поэтому собранная на ней демо-лента оказалась бессмысленной.
+    """
+    import subprocess
+    parts = []
+    for i in range(bursts):
+        p = os.path.join(dirpath, f"b{i}.wav")
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
+                        f"anoisesrc=d={burst}:c=pink:r=48000",
+                        "-af", "highpass=f=120,lowpass=f=6000,"
+                               f"afade=t=in:d=0.05,afade=t=out:st={burst-0.05}:d=0.05,"
+                               f"apad=pad_dur={pause}",
+                        "-ar", "48000", "-ac", "2", p], capture_output=True)
+        parts.append(p)
+    lst = os.path.join(dirpath, "parts.txt")
+    with open(lst, "w") as f:
+        for p in parts:
+            f.write(f"file '{p}'\n")
+    out = os.path.join(dirpath, "voice_pauses.wav")
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0",
+                    "-i", lst, "-af", f"loudnorm=I={lufs}:TP=-1.5",
+                    "-ar", "48000", "-ac", "2", out], capture_output=True)
+    return out
+
+
+def _silences(path, floor_db=SILENCE_FLOOR_DB, min_sec=0.3):
+    import re
+    import subprocess
+    r = subprocess.run(["ffmpeg", "-v", "info", "-i", path, "-af",
+                        f"silencedetect=noise={floor_db}dB:d={min_sec}",
+                        "-f", "null", "-"], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    st = [float(x) for x in re.findall(r"silence_start: ([\d.]+)", r.stderr or "")]
+    en = [float(x) for x in re.findall(r"silence_end: ([\d.]+)", r.stderr or "")]
+    return list(zip(st, en))
+
+
+def _level_db_at(path, t, win=0.10):
+    """Уровень речи в окне вокруг момента t, dBFS."""
+    import numpy as np
+
+    import level_regression as lr
+    x = lr.window(lr.decode_mono(path), max(0.0, t - win / 2), t + win / 2)
+    if x.size == 0:
+        return -120.0
+    return float(20 * np.log10(np.sqrt((x ** 2).mean()) + 1e-12))
+
+
+def test_point_cue_never_starts_on_top_of_speech(tmp_path):
+    """ПРЯМАЯ ПРИЧИНА (замер владельца, подтверждён): собранная демо-лента с
+    разрывом 24 / 28 / 32 LU — то есть усилениями, отличающимися на 8 дБ —
+    различалась НЕ БОЛЕЕ чем на 0.133 дБ в любом 100мс окне. Все пять кюев
+    стартовали поверх речи, и она их полностью маскировала: кюй на 28 LU
+    ниже речи добавляет к миксу около 0.04 дБ, то есть менять его уровень
+    под речью бессмысленно при любом числе.
+
+    Инвариант: точечный кюй начинается там, где речи НЕТ. Проверяется по
+    реальному уровню дорожки голоса в момент старта, а не по намерению
+    планировщика — та же дисциплина «источник истины — сэмплы, а не отчёт».
+    """
+    import sfx_plan
+
+    voice = _voice_with_real_pauses(str(tmp_path))
+    sil = _silences(voice)
+    assert sil, "фикстура обязана содержать настоящие паузы"
+
+    # блоки строятся ПО РЕАЛЬНЫМ паузам этой дорожки: онсет — конец паузы,
+    # длительность речи — до начала следующей
+    starts, weights = [], []
+    for i, (s0, s1) in enumerate(sil):
+        starts.append(s1)
+        nxt = sil[i + 1][0] if i + 1 < len(sil) else s1 + 2.0
+        weights.append(max(0.1, nxt - s1))
+    # Фразы разведены дальше OBJECT_MIN_GAP_SEC намеренно: при более
+    # плотной сетке фильтр минимального интервала СЛУЧАЙНО отбирал ровно
+    # те кюи, что и так стояли в паузе, и контрольный прогон со снятым
+    # правилом проходил. Проверка обязана ловить дефект, а не спасаться
+    # побочным эффектом соседнего ограничителя.
+    #
+    # Половина тегов — В НАЧАЛЕ фразы (для них тишина рядом есть), половина —
+    # в СЕРЕДИНЕ. Смесь обязательна: при теге только у начала фразы прежнее,
+    # неверное размещение `anchor - pre_lap` СЛУЧАЙНО тоже попадает в паузу,
+    # и тест был бы зелёным по построению. Проверено снятием правила: с одними
+    # только начальными тегами он проходил и со сломанным кодом.
+    blocks = [{"text": "ф " * 10, "words": 10, "section": "BLOCK 1",
+               "sfx": [{"name": "hammer", "word_pos": 1 if i % 2 == 0 else 6}],
+               "hush": False, "stat": None, "is_climax": False,
+               "pause_after": 0.8}
+              for i in range(len(starts))]
+    asset = lambda n, at=None: ("/x/a.flac", 0.6, sfx_plan.OBJECT_CLASS_POINT,
+                                -20.0, "measured")
+    acc, _ = sfx_plan.plan_sfx_cues(blocks, starts, weights, 60.0,
+                                    object_asset_for=asset)
+    pts = [c for c in acc if c.get("cls") == sfx_plan.OBJECT_CLASS_POINT]
+    assert pts, "ни один точечный кюй не поставлен — проверять нечего"
+    loud = [(round(c["time"], 2), round(_level_db_at(voice, c["time"]), 1))
+            for c in pts if _level_db_at(voice, c["time"]) > SILENCE_FLOOR_DB]
+    assert not loud, (
+        f"точечный кюй стартует поверх речи (момент, уровень дБ): {loud}; "
+        f"порог тишины {SILENCE_FLOOR_DB} dB")
+
+
+def test_corridor_versions_are_actually_distinguishable(tmp_path):
+    """Лента для прослушивания обязана РАЗЛИЧАТЬСЯ, иначе уши не помогут.
+
+    Замер владельца на первой версии ленты: варианты с разрывом 24 / 28 /
+    32 LU — усиления, отличающиеся на 8 дБ — различались не более чем на
+    0.133 дБ в любом 100мс окне. Причина не в уровнях, а в размещении: все
+    кюи стояли поверх речи, и она маскировала их полностью (кюй на 28 LU
+    ниже речи добавляет к миксу около 0.04 дБ). Прослушивание такой ленты не
+    могло дать ответа ни при каком старании.
+
+    После правки размещения тот же замер даёт 8.00 дБ — ровно разницу
+    усилений, потому что в паузе кюй ничем не маскирован.
+
+    Порог 3.0 дБ — не оптимум, а граница осмысленности: ниже этого разница
+    между версиями коридора перестаёт быть предметом слухового выбора.
+    """
+    import subprocess
+
+    import numpy as np
+
+    import level_regression as lr
+    import pipeline_smart as ps
+    import sfx_plan
+
+    lr.build_fixture()
+    voice = _voice_with_real_pauses(str(tmp_path))
+    sil = _silences(voice)
+    vl = ps.measure_integrated_lufs(voice)
+    dur = ps.get_media_duration(voice)
+    assert vl is not None and sil
+
+    starts, weights = [], []
+    for i, (s0, s1) in enumerate(sil):
+        starts.append(s1)
+        nxt = sil[i + 1][0] if i + 1 < len(sil) else s1 + 2.0
+        weights.append(max(0.1, nxt - s1))
+    blocks = [{"text": "ф " * 10, "words": 10, "section": "BLOCK 1",
+               "sfx": [{"name": "point", "word_pos": 1}], "hush": False,
+               "stat": None, "is_climax": False, "pause_after": 0.8}
+              for _ in starts]
+
+    asset_lufs = ps.measure_max_momentary_lufs(lr.SCENE_POINT)
+    assert asset_lufs is not None
+
+    def render(gap):
+        g = max(sfx_plan.OBJECT_GAIN_MIN_DB,
+                min(sfx_plan.OBJECT_GAIN_MAX_DB, vl - gap - asset_lufs))
+        resolver = lambda n, at=None: (lr.SCENE_POINT,
+                                       ps.get_media_duration(lr.SCENE_POINT) or 0.6,
+                                       sfx_plan.OBJECT_CLASS_POINT, round(g, 2),
+                                       "measured")
+        acc, _ = sfx_plan.plan_sfx_cues(blocks, starts, weights, dur,
+                                        object_asset_for=resolver)
+        cues = [c for c in acc if c["kind"] == "object"]
+        pre = os.path.join(str(tmp_path), f"pre{int(gap)}.wav")
+        mixed = ps.add_planned_sfx(voice, cues, dur, pre)
+        out = os.path.join(str(tmp_path), f"out{int(gap)}.flac")
+        af = ps.build_master_af(None, max(0.0, dur - 2.0), 0.4)
+        r = subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", mixed, "-af", af,
+                            "-t", f"{dur:.3f}", "-ar", "48000", "-ac", "2", out],
+                           capture_output=True)
+        assert r.returncode == 0
+        return out, cues
+
+    loud_path, cues = render(24.0)
+    quiet_path, _ = render(32.0)
+    assert cues, "планировщик не поставил ни одного кюя — сравнивать нечего"
+
+    a, b = lr.decode_mono(loud_path), lr.decode_mono(quiet_path)
+    n = min(a.size, b.size)
+    a, b = a[:n], b[:n]
+    spreads = []
+    for c in cues:
+        t0 = c["time"]
+        t1 = t0 + max(0.25, float(c.get("asset_dur") or 0.25))
+        wa, wb = lr.window(a, t0, t1), lr.window(b, t0, t1)
+        if wa.size == 0 or wb.size == 0:
+            continue
+        ra = float(np.sqrt((wa ** 2).mean())) + 1e-12
+        rb = float(np.sqrt((wb ** 2).mean())) + 1e-12
+        spreads.append(abs(20 * np.log10(ra / rb)))
+    assert spreads
+    assert min(spreads) >= MIN_VERSION_SPREAD_DB, (
+        f"версии коридора неразличимы: минимальный разброс в окне кюя "
+        f"{min(spreads):.2f} дБ при пороге {MIN_VERSION_SPREAD_DB} дБ "
+        f"(на первой, неверно размещённой ленте было 0.13 дБ)")

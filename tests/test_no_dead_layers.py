@@ -40,6 +40,15 @@ import feature_flags  # noqa: E402
 # Публичные функции, сознательно НЕ достижимые из рабочих путей. Ключ —
 # "модуль.функция", значение — причина, которую обязан назвать автор.
 ALLOWED_UNREACHABLE = {
+    **{f"level_regression.{f}":
+       "обратный замер уровней по отрендеренному звуку — измерительная "
+       "оснастка регрессии (tests/test_level_regression.py), в рендер не "
+       "входит СОЗНАТЕЛЬНО: она рендерит сцену дважды, со слоем и без, и "
+       "вычитает результаты по сэмплам. Поставить её в рабочий путь значило "
+       "бы удваивать каждый рендер ради проверки"
+       for f in ("build_fixture", "decode_mono", "layer_contribution",
+                 "limiter_reduction_db", "loudness_of_samples", "render_scene",
+                 "window")},
     "assemble.estimate_xfade_budget":
         "альтернативный сборщик по слотам (assemble.py) — второй, ручной путь "
         "сборки; в основной рендер (pipeline_smart.py) не входит",

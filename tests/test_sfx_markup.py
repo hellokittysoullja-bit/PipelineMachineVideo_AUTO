@@ -120,20 +120,25 @@ def _episode(marks_at, hush_at=(), n=12, step=10.0, speech=8.0):
 def test_object_sound_arrives_before_the_word_not_on_it():
     """Звук ровно на слове — буквальная иллюстрация речи (Mickey Mousing),
     самый узнаваемый признак любителя. Сначала слышишь, потом понимаешь."""
-    blocks, starts, weights = _episode({3: [{"name": "hammer", "word_pos": 5}]})
+    blocks, starts, weights = _episode({3: [{"name": "hammer", "word_pos": 1}]})
     acc, _ = sfx_plan.plan_sfx_cues(blocks, starts, weights, 200.0,
                                     object_asset_for=_assets)
     cue = [c for c in acc if c["kind"] == "object"][0]
-    # якорь = 30с + (5/10)*8с = 34с; звук начинается раньше него
-    assert abs(cue["anchor"] - 34.0) < 0.01
-    assert cue["time"] < cue["anchor"]
-    assert abs((cue["anchor"] - cue["time"]) - sfx_plan.OBJECT_PRE_LAP_SEC) < 0.01
+    # якорь = 30с + (1/10)*8с = 30.8с
+    assert abs(cue["anchor"] - 30.8) < 0.01
+    # звук ЗАКАНЧИВАЕТСЯ до слова, а не просто начинается раньше
+    assert cue["time"] + cue["asset_dur"] <= cue["anchor"]
+    # и стоит в РЕАЛЬНОЙ тишине: речь блока 2 кончилась на 28.0,
+    # блок 3 начинается на 30.0
+    gap = sfx_plan.speech_gap_before(3, starts, weights)
+    assert gap[0] <= cue["time"]
+    assert cue["time"] + cue["asset_dur"] <= gap[1]
 
 
 def test_hush_block_is_protected_like_the_climax():
     """[hush] — не «пусто», а «нельзя». Защита тем же механизмом
     зарезервированных окон, что у кульминации."""
-    blocks, starts, weights = _episode({4: [{"name": "fire", "word_pos": 9}]},
+    blocks, starts, weights = _episode({4: [{"name": "fire", "word_pos": 1}]},
                                        hush_at=(4,))
     acc, drop = sfx_plan.plan_sfx_cues(blocks, starts, weights, 200.0,
                                        object_asset_for=_assets)
@@ -143,7 +148,7 @@ def test_hush_block_is_protected_like_the_climax():
 
 def test_missing_asset_is_silence_not_a_substitute():
     """«Похожий» звук под конкретным словом слышен как ошибка, тишина — нет."""
-    blocks, starts, weights = _episode({2: [{"name": "нет_такого", "word_pos": 3}]})
+    blocks, starts, weights = _episode({2: [{"name": "нет_такого", "word_pos": 1}]})
     acc, drop = sfx_plan.plan_sfx_cues(blocks, starts, weights, 200.0,
                                        object_asset_for=_assets)
     assert not [c for c in acc if c["kind"] == "object"]
@@ -154,7 +159,9 @@ def test_object_density_is_stricter_than_service_effects():
     """Главный рычаг слоя — воздержание: ролик, где звучит каждое
     существительное, это озвученный словарь, а не кино."""
     marks = {i: [{"name": "hammer", "word_pos": 1}] for i in range(10)}
-    blocks, starts, weights = _episode(marks, n=10, step=3.0)
+    # speech < step — иначе речь блока перекрывает начало следующего и
+    # реальной тишины между ними не существует вообще
+    blocks, starts, weights = _episode(marks, n=10, step=3.0, speech=2.0)
     acc, drop = sfx_plan.plan_sfx_cues(blocks, starts, weights, 200.0,
                                        object_asset_for=_assets)
     obj = [c for c in acc if c["kind"] == "object"]
@@ -327,7 +334,7 @@ def test_object_without_alignment_is_dropped_not_guessed():
     (`no_alignment`), объект угадывал. Одна и та же нехватка данных
     обрабатывалась двумя разными способами — это и есть дефект.
     """
-    blocks, starts, weights = _episode({2: [{"name": "hammer", "word_pos": 5}]})
+    blocks, starts, weights = _episode({2: [{"name": "hammer", "word_pos": 1}]})
     acc, drop = sfx_plan.plan_sfx_cues(blocks, starts, None, 200.0,
                                        object_asset_for=_assets)
     assert not [c for c in acc if c["kind"] == "object"]
@@ -342,7 +349,7 @@ def test_object_without_alignment_is_dropped_not_guessed():
 def test_object_and_chapter_refuse_the_same_way_without_alignment():
     """Симметрия — сам инвариант, а не следствие: разные ответы на одну и ту
     же нехватку данных и были корнем находки."""
-    blocks, starts, _ = _episode({6: [{"name": "hammer", "word_pos": 5}]})
+    blocks, starts, _ = _episode({6: [{"name": "hammer", "word_pos": 1}]})
     for i, b in enumerate(blocks):
         b["section"] = "BLOCK %d" % (i // 4 + 1)
     assert sfx_plan.chapter_boundaries(blocks), "граница глав должна быть"

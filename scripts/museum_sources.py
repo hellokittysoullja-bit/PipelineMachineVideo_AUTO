@@ -134,6 +134,14 @@ def _get_json(url):
 #      деградации, который в этом проекте ловили уже трижды.
 MET_MAX_REQUESTS_PER_SEC = 10.0
 MET_RETRY_STATUSES = (403, 429, 500, 502, 503, 504)
+# На паузу источник уходит ТОЛЬКО по сигналам троттлинга/недоступности, а не
+# по любой ошибке из списка повторов. Разница не косметическая: 500 на одной
+# карточке предмета — это сломанная карточка, а не «Мет просит подождать», и
+# уводить из-за неё весь источник на минуту значит терять все остальные
+# карточки того же запроса. Ровно этот класс («один битый элемент кладёт
+# весь слой») уже дважды чинился 13.09 в звуке: битый ассет ронял
+# планировщик эффектов, а нечитаемый вход — весь вызов ffmpeg в сведении.
+MET_COOLDOWN_STATUSES = (403, 429, 503)
 MET_RETRY_PAUSE_SEC = 2.0
 MET_COOLDOWN_SEC = 60.0
 
@@ -185,8 +193,10 @@ def _met_get(url):
             if e.code in MET_RETRY_STATUSES and attempt == 0:
                 time.sleep(MET_RETRY_PAUSE_SEC)
                 continue
-            if e.code in MET_RETRY_STATUSES:
+            if e.code in MET_COOLDOWN_STATUSES:
                 _met_enter_cooldown()
+            else:
+                FETCH_STATS["met_lost_cards"] = FETCH_STATS.get("met_lost_cards", 0) + 1
             return None
         except Exception:
             if attempt == 0:
