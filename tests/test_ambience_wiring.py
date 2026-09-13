@@ -57,20 +57,34 @@ def test_level_is_measured_not_a_constant():
     assert "unmeasured" in src
 
 
-def test_sources_are_all_or_nothing():
-    """Частично записанные источники хуже, чем никаких: слой звучал бы
-    неполным, и заметить это можно было бы только ушами."""
+def test_sources_are_one_recording_or_full_synth_set():
+    """Два допустимых состояния: ОДНА настоящая запись из библиотеки или
+    ПОЛНЫЙ набор из трёх синтезированных слоёв. Частичный синтез хуже, чем
+    никакого: слой звучал бы неполным, и заметить это можно было бы только
+    ушами."""
     for bed in ap.AMBIENCE_VOCAB:
-        layers = ps.ambience_layers(bed)
-        assert layers == [] or len(layers) == len(ap.AMBIENCE_LAYER_SECONDS)
+        layers = ps.ambience_layers(bed, seed=0)
+        assert len(layers) in (0, 1, len(ap.AMBIENCE_LAYER_SECONDS))
         for path, dur in layers:
             assert os.path.exists(path) and dur > 0
+        if len(layers) == 1:
+            assert "/library/ambience/" in layers[0][0].replace(os.sep, "/")
+
+
+def test_library_recording_varies_by_section_seed(tmp_path, monkeypatch):
+    """Две главы с одной атмосферой получают РАЗНЫЕ записи одного места —
+    выбор по seed участка среди отобранных."""
+    files = [str(tmp_path / f"{n}.flac") for n in ("a", "b", "c")]
+    monkeypatch.setattr(ps, "library_sounds", lambda kind, name: files)
+    monkeypatch.setattr(ps, "get_media_duration", lambda p: 120.0)
+    picks = {ps.ambience_layers("wind_open", seed=s)[0][0] for s in range(6)}
+    assert picks == set(files)
 
 
 def test_no_sources_means_exact_no_op(monkeypatch):
     """Пока генератор не запускали, слой обязан быть точным нулём — именно
     отсутствие источников и есть выключатель (см. --preview у генератора)."""
-    monkeypatch.setattr(ps, "ambience_layers", lambda bed: [])
+    monkeypatch.setattr(ps, "ambience_layers", lambda bed, seed=0: [])
     assert ps.build_ambience_track([{"start": 0.0, "end": 10.0, "bed": "wind_open", "seed": 1}],
                                     10.0, tempfile.mkdtemp()) is None
 

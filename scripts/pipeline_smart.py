@@ -1424,10 +1424,33 @@ def process_voice(voice_path, out_path):
     return out_path
 
 
+_SOUND_LIBRARY_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                   "assets", "library")
+SOUND_LIBRARY_ENABLED = feature_flags.enabled("SOUND_LIBRARY")
+
+
+def library_sounds(kind, name):
+    """Настоящие записи из assets/library/<kind>/<name>/*.flac (см.
+    scripts/sound_library.py: CC0, отобраны CLAP+AST и измерительными
+    гейтами). Пусто — если библиотека не собрана или выключена; тогда
+    вызывающий код берёт синтезированный ассет как запасной путь."""
+    if not SOUND_LIBRARY_ENABLED:
+        return []
+    d = os.path.join(_SOUND_LIBRARY_DIR, kind, name)
+    if not os.path.isdir(d):
+        return []
+    return sorted(os.path.join(d, f) for f in os.listdir(d) if f.endswith(".flac"))
+
+
+def _library_first(kind, name, fallback):
+    files = library_sounds(kind, name)
+    return files[0] if files else fallback
+
+
 _REVEAL_SFX_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                 "assets", "sfx", "reveal")
-REVEAL_RISER_PATH = os.path.join(_REVEAL_SFX_DIR, "reveal_riser.flac")
-REVEAL_HIT_PATH = os.path.join(_REVEAL_SFX_DIR, "reveal_hit.flac")
+REVEAL_RISER_PATH = _library_first("sfx", "reveal_riser", os.path.join(_REVEAL_SFX_DIR, "reveal_riser.flac"))
+REVEAL_HIT_PATH = _library_first("sfx", "reveal_hit", os.path.join(_REVEAL_SFX_DIR, "reveal_hit.flac"))
 REVEAL_SFX_ENABLED = (feature_flags.enabled("REVEAL_SFX")
                        and os.path.exists(REVEAL_RISER_PATH) and os.path.exists(REVEAL_HIT_PATH))
 # ИЗМЕРЕНО НА РЕАЛЬНЫХ ФАЙЛАХ (13.09, ffmpeg volumedetect), а не взято из
@@ -1517,7 +1540,7 @@ _UI_SFX_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fil
                             "assets", "sfx", "ui")
 CHAPTER_SFX_PATHS = (os.path.join(_TRANSITION_SFX_DIR, "chapter_turn_short.flac"),
                       os.path.join(_TRANSITION_SFX_DIR, "chapter_turn_long.flac"))
-PLATE_TICK_PATH = os.path.join(_UI_SFX_DIR, "plate_tick.flac")
+PLATE_TICK_PATH = _library_first("sfx", "plate_tick", os.path.join(_UI_SFX_DIR, "plate_tick.flac"))
 # Ассеты нормированы генератором к ЯВНОМУ пику -10 dBFS (PEAK_DBFS в
 # scripts/generate_sfx_pack.py — объявлен там одним числом и печатается при
 # генерации, а не подразумевается). Отсюда и ослабление здесь:
@@ -1540,7 +1563,11 @@ def chapter_sfx_variants():
     длина разошлась с ожидаемой, ставил бы эффект поверх первого слова —
     ровно то, что вся эта конструкция и должна исключать."""
     out = []
-    for path in CHAPTER_SFX_PATHS:
+    # Библиотека настоящих записей — первой; синтезированная пара только
+    # если библиотека для этого вида пуста. Длительности читаются у файлов:
+    # планировщик подбирает вариант под реальный размер паузы.
+    candidates = library_sounds("sfx", "chapter_turn") or list(CHAPTER_SFX_PATHS)
+    for path in candidates:
         if not os.path.exists(path):
             continue
         try:
@@ -2175,21 +2202,43 @@ AMBIENCE_FADE_SEC = 2.5          # вход/выход участка — атм
 AMBIENCE_DRIFT_DEPTH = 0.22      # глубина медленного «дыхания» громкости слоя
 
 
-def ambience_layers(bed):
+def ambience_layers(bed, seed=0):
     """[(путь, длительность_сек), ...] источников атмосферы bed.
 
-    Пустой список (папки нет — генератор ещё не запускали) и есть
-    выключатель слоя: ровно поэтому scripts/generate_ambience.py --preview
-    НЕ пишет эти файлы, а кладёт демонстрацию отдельно — «послушать» не
-    должно незаметно включать атмосферу в следующем рендере.
+    ДВА ИСТОЧНИКА, по приоритету:
+    1. Настоящая полевая запись из библиотеки (assets/library/ambience/<bed>/,
+       см. scripts/sound_library.py) — ОДИН файл на участок, выбранный по
+       seed участка среди отобранных: две главы с одной атмосферой получают
+       РАЗНЫЕ записи одного места, а не один и тот же файл со сдвигом.
+       Один файл, а не три: три разных леса одновременно — это каша, а не
+       лес; живой звукорежиссёр кладёт одну основную запись.
+    2. Синтез (три слоя взаимно простой длины, generate_ambience.py) — только
+       если библиотека для этого вида пуста. Печатается предупреждение: на
+       слух синтез хуже записи, и молча подменять одно другим нельзя.
+
+    Пустой список — слой выключен для этого вида (нет ни записи, ни синтеза).
     """
     import ambience_plan
+    lib = library_sounds("ambience", bed)
+    if lib:
+        path = lib[int(seed) % len(lib)]
+        try:
+            dur = float(get_media_duration(path) or 0.0)
+        except Exception:
+            dur = 0.0
+        if dur > 1.0:
+            return [(path, dur)]
     out = []
     for name, seconds in zip(("low", "mid", "high"), ambience_plan.AMBIENCE_LAYER_SECONDS):
         path = os.path.join(_AMBIENCE_DIR, bed, f"{name}_{seconds}s.flac")
         if os.path.exists(path):
             out.append((path, seconds))
-    return out if len(out) == len(ambience_plan.AMBIENCE_LAYER_SECONDS) else []
+    if len(out) == len(ambience_plan.AMBIENCE_LAYER_SECONDS):
+        if SOUND_LIBRARY_ENABLED:
+            print(f"  ВНИМАНИЕ: для атмосферы «{bed}» нет настоящей записи в библиотеке — "
+                  f"идёт синтез (python scripts/sound_library.py build --kinds ambience:{bed})")
+        return out
+    return []
 
 
 def _ambience_segment(bed, duration, seed, out_path):
@@ -2205,7 +2254,7 @@ def _ambience_segment(bed, duration, seed, out_path):
     никогда не приходят в одну и ту же фазу на длине эпизода.
     """
     import ambience_plan
-    layers = ambience_layers(bed)
+    layers = ambience_layers(bed, seed)
     if not layers:
         return None
     cmd = ["ffmpeg", "-y"]
@@ -2213,7 +2262,7 @@ def _ambience_segment(bed, duration, seed, out_path):
     for idx, ((path, seconds), drift) in enumerate(
             zip(layers, ambience_plan.AMBIENCE_DRIFT_SECONDS)):
         cmd += ["-stream_loop", "-1", "-i", path]
-        offset = (seed * (idx + 3)) % max(1, seconds)
+        offset = (seed * (idx + 3)) % max(1, int(seconds))
         drift_expr = f"{1.0 - AMBIENCE_DRIFT_DEPTH}+{AMBIENCE_DRIFT_DEPTH}*sin(2*PI*t/{drift})"
         parts.append(
             f"[{idx}:a]atrim={offset}:{offset + duration:.3f},asetpts=N/SR/TB,"
@@ -2265,7 +2314,7 @@ def build_ambience_track(plan, total_dur, out_dir):
     # собирая дорожку вообще. Иначе на эпизоде без атмосферы пайплайн
     # молча рендерил бы 25 минут тишины и подмешивал её в микс: работа,
     # которая не может ничего изменить, но может сломаться.
-    if not any(seg.get("bed") and ambience_layers(seg["bed"]) for seg in plan):
+    if not any(seg.get("bed") and ambience_layers(seg["bed"], int(seg.get("seed", 0))) for seg in plan):
         return None
     parts = []
     for k, seg in enumerate(plan):
@@ -6429,7 +6478,10 @@ TYPEWRITER_CHAR_DUR = 0.075
 # между разными ударами.
 KEYBOARD_CLICKS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                     "assets", "sfx", "keyboard_clicks")
-KEYBOARD_CLICK_PATHS = sorted(glob.glob(os.path.join(KEYBOARD_CLICKS_DIR, "click_*.flac")))
+# Библиотека настоящих записей машинки (CC0, отобраны моделями) — первой;
+# старые click_*.flac неизвестного происхождения остаются запасным путём.
+KEYBOARD_CLICK_PATHS = (library_sounds("sfx", "typewriter")
+                        or sorted(glob.glob(os.path.join(KEYBOARD_CLICKS_DIR, "click_*.flac"))))
 TYPEWRITER_CLICK_ENABLED = feature_flags.enabled("TYPEWRITER_CLICKS") and bool(KEYBOARD_CLICK_PATHS)
 TYPEWRITER_CLICK_GAIN_DB = -6.0
 

@@ -40,3 +40,9 @@ opencv-python-headless==4.10.0.84
 # homograph_hints_for_text() в speech_planner.py), планирование работает
 # как раньше.
 # ruaccent>=1.5
+
+# Опционально — библиотека настоящих звуков (scripts/sound_library.py build):
+# отбор полевых записей и эффектов по описанию (CLAP laion/larger_clap_general)
+# и вето по классам AudioSet (AST MIT/ast-finetuned-audioset). Те же
+# torch/transformers, что выше; без них команда build не запустится, а
+# рендер с уже собранной библиотекой работает без моделей.
