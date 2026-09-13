@@ -158,6 +158,28 @@ VIDEO_FOLDER = _ARGV_POSITIONAL[0] if _ARGV_POSITIONAL else os.getcwd()
 # VISUAL_DIRECTOR_MODE/CLIP_RELEVANCE, реальные сетевые вызовы к Pexels
 # ради данных, которые физически известны за секунды до единой закачки.
 PLAN_ONLY = "--plan-only" in _ARGV_FLAGS
+
+
+def _argv_float(name, default):
+    for a in _ARGV_FLAGS:
+        if a.startswith(name + "="):
+            try:
+                return float(a.split("=", 1)[1])
+            except ValueError:
+                pass
+    return default
+
+
+# Предпросмотр ЗВУКА без рендера видео. Прямая причина: проверить звук на
+# слух можно только на реальном отрывке реального эпизода — с настоящим
+# голосом, настоящими уровнями и настоящим мастерингом. Отдельный
+# демонстрационный синтез («вот так примерно звучит атмосфера») проверяет не
+# то, что уйдёт в ролик, а значит не проверяет ничего. Поэтому здесь не
+# копия аудио-цепочки, а ТА ЖЕ build_episode_audio_layers(), что и в рендере,
+# просто выход режется до отрывка и видео не собирается вообще.
+AUDIO_PREVIEW = "--audio-preview" in _ARGV_FLAGS
+AUDIO_PREVIEW_SEC = _argv_float("--preview-sec", 45.0)
+AUDIO_PREVIEW_AT = _argv_float("--preview-at", -1.0)
 SCRIPT_FILE = os.path.join(VIDEO_FOLDER, "script.txt")
 MEDIA_FOLDER = os.path.join(VIDEO_FOLDER, "media")
 OUTPUT_FILE = os.path.join(VIDEO_FOLDER, "final.mp4")
@@ -1678,6 +1700,213 @@ def add_typewriter_clicks(mix_path, click_times, total_dur, out_path):
     if r.returncode != 0:
         print(f"  ВНИМАНИЕ: щелчки печатной машинки не наложились: {r.stderr[-200:].strip()}")
     return out_path if r.returncode == 0 else mix_path
+
+
+def section_audio_bounds(blocks, sub_starts, total):
+    """(конец хука, начало финала) на АУДИО-шкале — где музыка меняет
+    настроение. Секции идут по порядку HOOK -> BLOCK* -> FINAL, поэтому
+    достаточно найти первый блок каждой. Шкала именно аудио (sub_starts), не
+    визуальная: музыка живёт на дорожке голоса, а сумма длительностей клипов
+    раздута нахлёстами переходов (аудит 04.09: FINAL приходил на +2.27с позже
+    уже на 17 склейках)."""
+    first_body = next((i for i, b in enumerate(blocks)
+                       if not b["section"].startswith("HOOK")), None)
+    first_final = next((i for i, b in enumerate(blocks)
+                        if b["section"].startswith("FINAL")), None)
+    return (sub_starts[first_body] if first_body is not None else total,
+            sub_starts[first_final] if first_final is not None else None)
+
+
+def plan_stat_sound_cues(blocks, durs, sub_starts, sub_baseline):
+    """(таймкоды щелчков машинки, cue-тики плашек) на весь эпизод.
+
+    Вынесено из цикла рендера: звук плашки не зависит ни от подобранного
+    медиа, ни от самого рендера — только от текста, тайминга и того, какой
+    по счёту идёт плашка. Снаружи это нужно предпросмотру звука
+    (--audio-preview), который обязан получить РОВНО те же моменты, что и
+    настоящая сборка, не отрендерив ни одного клипа.
+
+    Вариант плашки с машинкой (`% 5 == 4`, см. add_overlays) получает свои
+    посимвольные щелчки и НЕ получает тик: тик поверх них читался бы как
+    сдвоенный звук.
+    """
+    clicks, plates = [], []
+    stat_count = 0
+    for i, (b, d) in enumerate(zip(blocks, durs)):
+        stat = b.get("stat")
+        if not ON_SCREEN_TEXT_ENABLED or not stat:
+            continue
+        stat_variant = stat_count
+        stat_count += 1
+        stat_word_pos = b.get("stat_word_pos")
+        # Та же word-count-пропорция, что задаёт появление текста в кадре.
+        stat_delay = (stat_word_pos / max(1, b["words"]) * d) if stat_word_pos else 0.0
+        if stat_variant % 5 == 4:
+            real_dur = sub_baseline[i]
+            real_delay = stat_reveal_moment(stat_delay, real_dur, STAT_REVEAL_TAIL_TYPEWRITER_SEC)
+            click_text = stat.upper() if FONT_IS_DISPLAY else stat
+            _, click_cd = typewriter_reveal_timing(len(click_text), real_delay, real_dur)
+            clicks.extend(sub_starts[i] + real_delay + k * click_cd
+                          for k in range(len(click_text)))
+        else:
+            plates.append({
+                "time": sub_starts[i] + stat_reveal_moment(
+                    stat_delay, sub_baseline[i], STAT_REVEAL_TAIL_TICK_SEC),
+                "block": i,
+                "section": b["section"],
+                "stat": stat,
+                "asset": PLATE_TICK_PATH,
+                "gain_db": SFX_PLATE_GAIN_DB,
+            })
+    return clicks, plates
+
+
+def _preview_window(video_dir, total, sec):
+    """Начало отрывка: окно, где реально происходит больше всего звуковых
+    событий. Случайный кусок ролика с высокой вероятностью не содержит ни
+    границы главы, ни плашки, ни кульминации — то есть ровно то, что надо
+    услышать, в него не попадёт."""
+    marks = []
+    for name, key in (("sfx_plan.json", "accepted"), ("ambience_plan.json", "segments")):
+        try:
+            with open(os.path.join(video_dir, "media_plan", name), encoding="utf-8") as f:
+                data = json.load(f)
+            for item in data.get(key) or []:
+                if key == "accepted":
+                    marks.append((float(item["time"]), 3.0))
+                elif item.get("bed"):
+                    # атмосфера — не событие, а фон: её вклад мягкий и
+                    # размазан по всему участку, поэтому вес ниже и берётся
+                    # середина отрезка, а не его край.
+                    marks.append(((float(item["start"]) + float(item["end"])) / 2.0, 1.0))
+        except Exception:
+            pass
+    if not marks:
+        return max(0.0, min(total - sec, total * 0.35))
+    best_start, best_score = 0.0, -1.0
+    step = 1.0
+    t = 0.0
+    while t <= max(0.0, total - sec):
+        score = sum(w for m, w in marks if t <= m <= t + sec)
+        if score > best_score:
+            best_start, best_score = t, score
+        t += step
+    return best_start
+
+
+def write_audio_preview(blocks, durs, sub_starts, sub_baseline, real_weights, total,
+                        phrase_locked):
+    """Отрывок ГОТОВОГО звука эпизода в <video_dir>/audio_preview.m4a.
+
+    Собирается той же build_episode_audio_layers() и тем же мастерингом, что
+    и настоящий рендер, по ПОЛНОЙ длине эпизода — и только потом режется.
+    Мастерить сам отрывок было бы дешевле, но loudnorm считает громкость по
+    тому, что ему дали: у сорокасекундного куска она своя, и отрывок звучал
+    бы не так, как то же место в готовом ролике.
+
+    Видео не рендерится вообще — ни одного клипа, ни одного вызова к стоку.
+    """
+    if not os.path.exists(AUDIO_FILE):
+        print(f"Аудио не найдено: {AUDIO_FILE}")
+        return 1
+    voice_processed = process_voice(AUDIO_FILE, os.path.join(TEMP_FOLDER, "voice_processed.wav"))
+    clicks, plates = plan_stat_sound_cues(blocks, durs, sub_starts, sub_baseline)
+    hook_end, final_start = section_audio_bounds(blocks, sub_starts, total)
+    premix = build_episode_audio_layers(
+        voice_processed, VIDEO_FOLDER, TEMP_FOLDER, blocks, sub_starts, real_weights,
+        total, hook_end, final_start, clicks, plates, phrase_locked=bool(phrase_locked))
+    loud_stats = measure_loudnorm_stats(premix)
+    af = build_master_af(loud_stats, max(0.0, total - 2.0), 0.05)
+    mastered = os.path.join(TEMP_FOLDER, "preview_master.wav")
+    r = subprocess.run(["ffmpeg", "-y", "-i", premix, "-af", af,
+                        "-ar", "48000", "-ac", "2", mastered],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if r.returncode != 0:
+        print(f"Мастеринг предпросмотра не собрался: {r.stderr[-300:].strip()}")
+        return 1
+    sec = max(5.0, min(AUDIO_PREVIEW_SEC, total))
+    start = AUDIO_PREVIEW_AT if AUDIO_PREVIEW_AT >= 0 else _preview_window(VIDEO_FOLDER, total, sec)
+    start = max(0.0, min(start, max(0.0, total - sec)))
+    out = os.path.join(VIDEO_FOLDER, "audio_preview.m4a")
+    r = subprocess.run(["ffmpeg", "-y", "-ss", f"{start:.3f}", "-t", f"{sec:.3f}",
+                        "-i", mastered, "-c:a", "aac", "-b:a", "192k", out],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if r.returncode != 0:
+        print(f"Отрывок не вырезался: {r.stderr[-300:].strip()}")
+        return 1
+    print(f"\nГотово. Файл: {out}")
+    print(f"  Отрывок {start:.1f}..{start + sec:.1f}с из {total:.0f}с "
+          f"({'выбран вручную' if AUDIO_PREVIEW_AT >= 0 else 'выбран по плотности событий'})")
+    inside = [c for c in clicks if start <= c <= start + sec]
+    print(f"  Внутри отрывка: щелчков машинки {len(inside)}, "
+          f"плашек {sum(1 for c in plates if start <= c['time'] <= start + sec)}")
+    print("  Что сравнить: этот же файл при AMBIENCE_BED=0 SFX_DIRECTOR=0 — "
+          "звук без новых слоёв.")
+    return 0
+
+
+def build_episode_audio_layers(voice_path, video_dir, temp_dir, blocks, sub_starts,
+                               real_weights, total, hook_end, final_start,
+                               typewriter_click_times=(), plate_sfx_cues=(),
+                               phrase_locked=True):
+    """Весь слоёный звук эпизода поверх обработанного голоса -> путь к миксу.
+
+    Вынесено из main() РАДИ ОДНОГО: scripts/audio_preview.py обязан собирать
+    отрывок ровно тем же кодом, что и настоящий рендер. Копия цепочки в
+    скрипте предпросмотра означала бы, что человек слушает НЕ ТО, что уйдёт в
+    ролик — то есть проверку, которая ничего не проверяет. Порядок шагов и
+    причины этого порядка описаны у самих шагов ниже.
+    """
+    premix = os.path.join(temp_dir, "premix.wav")
+    # 2.8: [climax] в script.txt -> реальный момент на той же шкале, что уже
+    # использует sub_starts (real, не xfade-раздутая — см. комментарий у неё).
+    climax_times = [sub_starts[i] for i, b in enumerate(blocks) if b.get("is_climax")]
+    # P1-15: осознанно длинные паузы (см. load_pause_windows/PAUSE_SWELL_MIN_KEEP_SEC)
+    # в РЕАЛЬНОМ (после обрезки) времени — та же raw_to_real_time, что уже
+    # даёт точную шкалу подписям хука, здесь даёт точную шкалу музыке.
+    _pw_cuts = load_pause_cuts()
+    pause_windows_real = [(raw_to_real_time(ws, _pw_cuts), keep)
+                           for ws, keep in load_pause_windows() if keep >= PAUSE_SWELL_MIN_KEEP_SEC]
+    # P0 (нейрокогнитивная критика): не накладывать swell поверх climax dip
+    # на одном и том же участке трека — см. _exclude_climax_overlapping_windows().
+    pause_windows_real = _exclude_climax_overlapping_windows(pause_windows_real, climax_times)
+    premix = build_music_mix(voice_path, total, premix, hook_end=hook_end, final_start=final_start,
+                              climax_times=climax_times, pause_windows_real=pause_windows_real)
+    # Атмосферный слой — ПОСЛЕ музыки и дакинга и намеренно БЕЗ дакинга
+    # (см. add_ambience_bed): место действия не выключается, когда человек
+    # говорит. Уровень считается замером под ЭТОТ голос, не константой.
+    premix = run_ambience(premix, video_dir, blocks, sub_starts, total, voice_path)
+    # D4: щелчки клавиатуры поверх готового микса — ПОСЛЕ музыки/дакинга
+    # (иначе сайдчейн реагировал бы и на сами щелчки), ДО финального loudnorm
+    # (клики тоже участвуют в мастеринге громкости целиком, не бесплатный
+    # довесок сверху уже откалиброванного микса).
+    if typewriter_click_times:
+        premix_clicks = os.path.join(temp_dir, "premix_clicks.wav")
+        premix = add_typewriter_clicks(premix, typewriter_click_times, total, premix_clicks)
+    # Акценты на [climax] — те же climax_times, что уже дали музыкальный
+    # провал выше, поэтому звук и музыка говорят об ОДНОМ моменте. Порядок
+    # тот же, что у щелчков: после дакинга, до финального loudnorm.
+    if climax_times:
+        premix_reveal = os.path.join(temp_dir, "premix_reveal.wav")
+        premix = add_reveal_sfx(premix, climax_times, total, premix_reveal)
+    # Единый планировщик остальных эффектов (переход между главами, тик
+    # появления плашки). Идёт ПОСЛЕ акцентов кульминации и получает их
+    # моменты как зарезервированные окна — то есть расступается перед уже
+    # поставленным звуком, а не спорит с ним за одну и ту же секунду.
+    # real_weights передаются ТОЛЬКО на PHRASE LOCK-ветке, и это не
+    # перестраховка. Тишина перед главой считается как
+    # sub_starts[prev] + real_weights[prev] .. sub_starts[i]; real_weights —
+    # всегда РЕАЛЬНАЯ (после обрезки пауз) длительность речи из alignment,
+    # а sub_starts на ветке БЕЗ онсетов — это оценка block_durations() с
+    # клэмпом, rescale и сдвигами границ. Сложить одно с другим значит
+    # получить «паузу», которой нет в аудио, и поставить звук перехода
+    # поверх слова — ровно тот класс рассинхрона (локальная шкала пополам с
+    # глобальной), который этот файл уже ловил у protected_windows и у веса
+    # блока. Без онсетов переходы честно не ставятся вообще.
+    premix = run_sfx_director(premix, video_dir, blocks, sub_starts,
+                               real_weights if phrase_locked else None, total,
+                               climax_times=climax_times, plate_cues=plate_sfx_cues)
+    return premix
 
 
 def build_mood_timeline(hook_end, final_start, total_dur, out_path):
@@ -11587,6 +11816,13 @@ def main():
         print_plan_summary(blocks, durs, queries, total, xfade_budget, n_before)
         return 0
 
+    # Предпросмотр звука — ЗДЕСЬ, до единого отрендеренного клипа: всё, что
+    # нужно звуку (блоки, тайминг, моменты плашек), к этому моменту уже
+    # посчитано, а видео к звуку отношения не имеет.
+    if AUDIO_PREVIEW:
+        return write_audio_preview(blocks, durs, sub_starts, sub_baseline,
+                                    real_weights, total, phrase_locked)
+
     # Reference-Guided Look Management (scripts/look_reference.py) — ленивый импорт
     # (см. clip_relevance()/torch выше — тот же принцип: не тянуть модель/CLIP в
     # процесс, если режим off) — только для shadow/assist; look_ref остаётся
@@ -11744,11 +11980,12 @@ def main():
         look_report[i] = {"decision": reason}
         director_report[i] = {"decision": reason}
 
-    typewriter_click_times = []   # D4: абсолютные секунды щелчков клавиатуры на весь ролик
-    # Появления плашек, у которых СВОЕГО звука нет. Вариант 4 (печатная
-    # машинка) сюда не попадает намеренно: у него уже есть посимвольные
-    # щелчки, и тик поверх них читался бы как сдвоенный звук.
-    plate_sfx_cues = []
+    # Звуковые моменты плашек считаются ОДНИМ вызовом до цикла рендера — см.
+    # plan_stat_sound_cues(). Внутри цикла им делать нечего: они не зависят ни
+    # от подобранного медиа, ни от рендера, а снаружи их может позвать
+    # предпросмотр звука (--audio-preview), не трогая ни одного клипа.
+    typewriter_click_times, plate_sfx_cues = plan_stat_sound_cues(
+        blocks, durs, sub_starts, sub_baseline)
     # HOOK_KINETIC_CAPTIONS_ENABLED=False (см. его комментарий выше) -> hook_words
     # остаётся [] на весь эпизод, ни один клип хука не получит captions — тот
     # же честный откат, что и при отсутствии alignment.csv (D2).
@@ -11790,29 +12027,6 @@ def main():
         # Таймкоды щелчков считаем на РЕАЛЬНОЙ (не xfade-раздутой) шкале —
         # sub_starts/sub_baseline уже посчитаны выше по тексту, та же шкала,
         # что уже используется для субтитров (см. комментарий у sub_baseline).
-        if stat and stat_variant % 5 == 4:
-            real_dur = sub_baseline[i]
-            real_delay = stat_reveal_moment(stat_delay, real_dur, STAT_REVEAL_TAIL_TYPEWRITER_SEC)
-            click_text = stat.upper() if FONT_IS_DISPLAY else stat
-            _, click_cd = typewriter_reveal_timing(len(click_text), real_delay, real_dur)
-            typewriter_click_times.extend(
-                sub_starts[i] + real_delay + k * click_cd for k in range(len(click_text)))
-        elif stat:
-            # Тик появления плашки — РОВНО тот же момент, что уже управляет
-            # появлением текста в кадре (sub_starts[i] + stat_delay, та же
-            # пара значений, что уходит в add_overlays). Отдельной формулы
-            # для звука нет сознательно: две независимые формулы одного
-            # момента — это ровно тот класс бага, ради которого
-            # typewriter_reveal_timing() вынесена в общую функцию.
-            plate_sfx_cues.append({
-                "time": sub_starts[i] + stat_reveal_moment(
-                    stat_delay, sub_baseline[i], STAT_REVEAL_TAIL_TICK_SEC),
-                "block": i,
-                "section": b["section"],
-                "stat": stat,
-                "asset": PLATE_TICK_PATH,
-                "gain_db": SFX_PLATE_GAIN_DB,
-            })
         # Хэш параметров рендера в имени — иначе правка script.txt (текст,
         # тайминг, плашка) без ручной чистки temp_smart/ молча оставляла
         # старый клип под новые данные (тот же класс бага, что уже правили
@@ -12868,64 +13082,16 @@ def main():
     # же корень, что чинит hook_visual_starts() для подписей. Границы берём
     # с АУДИО-шкалы (sub_starts — та же, что у субтитров/глав): музыка
     # живёт на дорожке голоса, не на визуальном таймлайне.
-    _first_body = next((i for i, b in enumerate(blocks) if not b["section"].startswith("HOOK")), None)
-    _first_final = next((i for i, b in enumerate(blocks) if b["section"].startswith("FINAL")), None)
-    hook_end = sub_starts[_first_body] if _first_body is not None else total
-    final_start = sub_starts[_first_final] if _first_final is not None else None
+    hook_end, final_start = section_audio_bounds(blocks, sub_starts, total)
     # A6: обработка голоса (highpass/EQ/деэссер/компрессия) ДО подмешивания
     # музыки — тот же порядок, что в реальном пост-продакшене: сначала
     # приводишь дорожку диктора в порядок, потом кладёшь её в микс.
     voice_processed = os.path.join(TEMP_FOLDER, "voice_processed.wav")
     voice_processed = process_voice(AUDIO_FILE, voice_processed)
-    premix = os.path.join(TEMP_FOLDER, "premix.wav")
-    # 2.8: [climax] в script.txt -> реальный момент на той же шкале, что уже
-    # использует sub_starts (real, не xfade-раздутая — см. комментарий у неё).
-    climax_times = [sub_starts[i] for i, b in enumerate(blocks) if b.get("is_climax")]
-    # P1-15: осознанно длинные паузы (см. load_pause_windows/PAUSE_SWELL_MIN_KEEP_SEC)
-    # в РЕАЛЬНОМ (после обрезки) времени — та же raw_to_real_time, что уже
-    # даёт точную шкалу подписям хука, здесь даёт точную шкалу музыке.
-    _pw_cuts = load_pause_cuts()
-    pause_windows_real = [(raw_to_real_time(ws, _pw_cuts), keep)
-                           for ws, keep in load_pause_windows() if keep >= PAUSE_SWELL_MIN_KEEP_SEC]
-    # P0 (нейрокогнитивная критика): не накладывать swell поверх climax dip
-    # на одном и том же участке трека — см. _exclude_climax_overlapping_windows().
-    pause_windows_real = _exclude_climax_overlapping_windows(pause_windows_real, climax_times)
-    premix = build_music_mix(voice_processed, total, premix, hook_end=hook_end, final_start=final_start,
-                              climax_times=climax_times, pause_windows_real=pause_windows_real)
-    # Атмосферный слой — ПОСЛЕ музыки и дакинга и намеренно БЕЗ дакинга
-    # (см. add_ambience_bed): место действия не выключается, когда человек
-    # говорит. Уровень считается замером под ЭТОТ голос, не константой.
-    premix = run_ambience(premix, VIDEO_FOLDER, blocks, sub_starts, total, voice_processed)
-    # D4: щелчки клавиатуры поверх готового микса — ПОСЛЕ музыки/дакинга
-    # (иначе сайдчейн реагировал бы и на сами щелчки), ДО финального loudnorm
-    # (клики тоже участвуют в мастеринге громкости целиком, не бесплатный
-    # довесок сверху уже откалиброванного микса).
-    if typewriter_click_times:
-        premix_clicks = os.path.join(TEMP_FOLDER, "premix_clicks.wav")
-        premix = add_typewriter_clicks(premix, typewriter_click_times, total, premix_clicks)
-    # Акценты на [climax] — те же climax_times, что уже дали музыкальный
-    # провал выше, поэтому звук и музыка говорят об ОДНОМ моменте. Порядок
-    # тот же, что у щелчков: после дакинга, до финального loudnorm.
-    if climax_times:
-        premix_reveal = os.path.join(TEMP_FOLDER, "premix_reveal.wav")
-        premix = add_reveal_sfx(premix, climax_times, total, premix_reveal)
-    # Единый планировщик остальных эффектов (переход между главами, тик
-    # появления плашки). Идёт ПОСЛЕ акцентов кульминации и получает их
-    # моменты как зарезервированные окна — то есть расступается перед уже
-    # поставленным звуком, а не спорит с ним за одну и ту же секунду.
-    # real_weights передаются ТОЛЬКО на PHRASE LOCK-ветке, и это не
-    # перестраховка. Тишина перед главой считается как
-    # sub_starts[prev] + real_weights[prev] .. sub_starts[i]; real_weights —
-    # всегда РЕАЛЬНАЯ (после обрезки пауз) длительность речи из alignment,
-    # а sub_starts на ветке БЕЗ онсетов — это оценка block_durations() с
-    # клэмпом, rescale и сдвигами границ. Сложить одно с другим значит
-    # получить «паузу», которой нет в аудио, и поставить звук перехода
-    # поверх слова — ровно тот класс рассинхрона (локальная шкала пополам с
-    # глобальной), который этот файл уже ловил у protected_windows и у веса
-    # блока. Без онсетов переходы честно не ставятся вообще.
-    premix = run_sfx_director(premix, VIDEO_FOLDER, blocks, sub_starts,
-                               real_weights if phrase_locked else None, total,
-                               climax_times=climax_times, plate_cues=plate_sfx_cues)
+    premix = build_episode_audio_layers(
+        voice_processed, VIDEO_FOLDER, TEMP_FOLDER, blocks, sub_starts, real_weights,
+        total, hook_end, final_start, typewriter_click_times, plate_sfx_cues,
+        phrase_locked=bool(phrase_locked))
     # loudnorm — целевая громкость YouTube (-14 LUFS integrated, -1.5dB
     # true peak потолок, LRA 11) вместо "как есть от TTS". Было -16: на
     # этой платформе тише целевой означает, что ролик звучит глуше соседних

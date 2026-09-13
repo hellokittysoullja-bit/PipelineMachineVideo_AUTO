@@ -29,7 +29,8 @@ def test_flag_is_registered():
 
 
 def test_ambience_is_actually_called_from_the_render():
-    assert "run_ambience(" in inspect.getsource(ps.main)
+    assert "run_ambience(" in inspect.getsource(ps.build_episode_audio_layers)
+    assert "build_episode_audio_layers(" in inspect.getsource(ps.main)
 
 
 def test_ambience_is_not_ducked_and_not_dipped():
@@ -40,7 +41,7 @@ def test_ambience_is_not_ducked_and_not_dipped():
 
 def test_ambience_goes_in_after_the_music_mix():
     """Порядок важен: слой не должен попасть в сайдчейн музыки."""
-    src = inspect.getsource(ps.main)
+    src = inspect.getsource(ps.build_episode_audio_layers)
     assert src.index("build_music_mix(") < src.index("run_ambience(")
 
 

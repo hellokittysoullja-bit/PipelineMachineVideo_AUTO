@@ -36,7 +36,10 @@ def test_assets_exist_and_are_wired():
     assert os.path.exists(ps.REVEAL_RISER_PATH)
     assert os.path.exists(ps.REVEAL_HIT_PATH)
     import inspect
-    assert "add_reveal_sfx(" in inspect.getsource(ps.main)
+    # Цепочка слоёв вынесена в build_episode_audio_layers() — её же зовёт
+    # предпросмотр звука, чтобы человек слушал ровно то, что уйдёт в ролик.
+    assert "add_reveal_sfx(" in inspect.getsource(ps.build_episode_audio_layers)
+    assert "build_episode_audio_layers(" in inspect.getsource(ps.main)
 
 
 def test_flag_default_on():
@@ -55,10 +58,10 @@ def test_disabled_flag_is_a_full_noop(monkeypatch):
 
 
 def test_uses_the_same_moment_as_the_music_dip():
-    """Звук и музыка обязаны говорить об одном моменте: обе ветки в main()
-    кормятся из одной переменной climax_times, а не из двух расчётов."""
+    """Звук и музыка обязаны говорить об одном моменте: обе ветки кормятся
+    из одной переменной climax_times, а не из двух расчётов."""
     import inspect
-    body = inspect.getsource(ps.main)
+    body = inspect.getsource(ps.build_episode_audio_layers)
     assert "climax_times = [sub_starts[i]" in body
     assert "add_reveal_sfx(premix, climax_times" in body
     assert "climax_times=climax_times" in body   # тот же список уходит в музыку

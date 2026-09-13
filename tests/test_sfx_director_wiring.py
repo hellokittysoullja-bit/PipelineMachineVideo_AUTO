@@ -32,8 +32,13 @@ def test_flag_is_in_the_registry():
 
 
 def test_director_is_actually_called_from_the_render():
-    src = inspect.getsource(ps.main)
-    assert "run_sfx_director(" in src, "планировщик написан, но не вызывается из сборки"
+    """Цепочка слоёв вынесена в build_episode_audio_layers() — чтобы
+    предпросмотр звука собирал ТОТ ЖЕ звук, а не свою копию. Проверяем оба
+    звена: планировщик внутри цепочки, цепочка внутри рендера."""
+    assert "run_sfx_director(" in inspect.getsource(ps.build_episode_audio_layers), \
+        "планировщик написан, но не вызывается из цепочки"
+    assert "build_episode_audio_layers(" in inspect.getsource(ps.main), \
+        "цепочка написана, но не вызывается из рендера"
 
 
 def test_plate_cues_and_typewriter_share_one_scale_conversion():
@@ -47,7 +52,7 @@ def test_plate_cues_and_typewriter_share_one_scale_conversion():
     звука это готовый рассинхрон, ровно поэтому рядом уже стоит общая
     typewriter_reveal_timing().
     """
-    src = inspect.getsource(ps.main)
+    src = inspect.getsource(ps.plan_stat_sound_cues)
     assert src.count("stat_reveal_moment(") == 2, "обе ветки обязаны звать общий пересчёт"
     assert "sub_starts[i] + stat_reveal_moment(" in src
 
@@ -61,10 +66,10 @@ def test_scale_conversion_clamps_into_the_block():
 
 def test_typewriter_plates_do_not_also_get_a_tick():
     """У варианта с машинкой свой звук — тик поверх был бы сдвоенным."""
-    src = inspect.getsource(ps.main)
-    i_type = src.index("if stat and stat_variant % 5 == 4:")
-    i_elif = src.index("elif stat:", i_type)
-    assert i_elif > i_type, "тик обязан быть ИНАЧЕ-веткой к машинке, а не независимой"
+    src = inspect.getsource(ps.plan_stat_sound_cues)
+    i_type = src.index("if stat_variant % 5 == 4:")
+    i_else = src.index("else:", i_type)
+    assert i_else > i_type, "тик обязан быть ИНАЧЕ-веткой к машинке, а не независимой"
 
 
 def test_chapter_sound_needs_the_phrase_locked_timeline():
@@ -73,7 +78,7 @@ def test_chapter_sound_needs_the_phrase_locked_timeline():
     Иначе конец речи (реальная шкала) складывался бы с оценочным стартом
     блока — «пауза», которой нет в аудио, и звук поверх слова.
     """
-    src = inspect.getsource(ps.main)
+    src = inspect.getsource(ps.build_episode_audio_layers)
     assert "real_weights if phrase_locked else None" in src
 
 
