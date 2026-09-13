@@ -477,3 +477,70 @@ def test_promote_and_audition_use_the_same_ordering():
     assert key in a and key in p
     filt = 'all(_debatable(r) for r in v["reasons"])'
     assert filt in a and filt in p
+
+
+# ------------------------------------- объектный слой и частота исходника
+def test_object_kind_exists_and_stays_point_sized():
+    """Объектный слой физически не мог собраться: вида `object` в
+    LIBRARY_SPEC не было вообще, поэтому `library_sounds("object", ...)`
+    всегда возвращал пусто, что ни клади на диск.
+
+    `max_sec` каждого концепта не больше OBJECT_POINT_MAX_SEC — это не вкус,
+    а согласование с классификатором: длиннее этого `object_asset_for()`
+    считает запись протяжённой и вешает обрезку с фейдами, то есть удар
+    молота поехал бы как подзвучник.
+    """
+    import sound_library as sl
+
+    import pipeline_smart as ps
+
+    assert "object" in sl.LIBRARY_SPEC
+    assert sl.LIBRARY_SPEC["object"], "вид заведён, но пуст"
+    for name, spec in sl.LIBRARY_SPEC["object"].items():
+        assert spec.get("queries") and spec.get("prompt"), name
+        assert spec["max_sec"] <= ps.OBJECT_POINT_MAX_SEC, (
+            f"{name}: {spec['max_sec']}с > OBJECT_POINT_MAX_SEC — "
+            f"попадёт в класс подзвучника")
+
+
+def test_sample_rate_is_confirmed_on_hq_not_judged_on_the_preview():
+    """РЕАЛЬНЫЙ БАГ, найден живым прогоном: гейт частоты мерил lq-превью, а
+    его частота — свойство транскода Freesound, не исходника. Замер на живых
+    парах: источник 48000 -> hq 48000/lq 24000; источник 44100 -> hq 44100/
+    lq 24000; у другой записи lq 44100. На виде `object:hammer_anvil`
+    9 кандидатов из 16 ушли в отказ по этой причине — ровно нужные записи.
+    После правки принято 4 из 16 вместо 1.
+
+    Чинится ИЗМЕРЕНИЕ, а не вердикт: `judge()` выходит по первой причине
+    отказа ДО расчёта CLAP-маржи, поэтому снятие причины постфактум отдало бы
+    кандидата, ни разу не проверенного на «про то ли это вообще».
+    """
+    import inspect
+
+    import sound_library as sl
+
+    assert hasattr(sl, "confirmed_sample_rate")
+    src = inspect.getsource(sl.evaluate)
+    assert "confirmed_sample_rate" in src
+    # порядок обязателен: подтверждение ДО judge()
+    assert src.index("confirmed_sample_rate") < src.index("judge("), \
+        "подтверждение частоты обязано идти до вынесения вердикта"
+
+    calls = []
+    sl_download = sl.download
+    sl_probe = sl.probe_sample_rate
+    try:
+        sl.download = lambda item, q="hq": calls.append(q) or "/x/hq.mp3"
+        sl.probe_sample_rate = lambda p: 48000
+        assert sl.confirmed_sample_rate({"url": "u"}, 24000) == 48000
+        assert calls == ["hq"], "подозреваемого перепроверяем именно по hq"
+        # уже годная частота — hq не качаем вовсе
+        calls.clear()
+        assert sl.confirmed_sample_rate({"url": "u"}, 48000) == 48000
+        assert calls == []
+        # не измерилось на hq — остаётся отказ (fail-closed)
+        sl.probe_sample_rate = lambda p: 0
+        assert sl.confirmed_sample_rate({"url": "u"}, 24000) == 24000
+    finally:
+        sl.download = sl_download
+        sl.probe_sample_rate = sl_probe

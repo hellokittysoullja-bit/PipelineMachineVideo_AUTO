@@ -273,6 +273,54 @@ LIBRARY_SPEC = {
             prompt="a small stream of water flowing gently over stones",
             min_sec=45, keep=4),
     },
+    # ОБЪЕКТНЫЙ СЛОЙ — предметные разовые звуки под конкретным словом
+    # сценария (разметка `[sfx:концепт]`). Именно то, чего синтез не умеет:
+    # «плохо синтезированный колокол слышен как подделка мгновенно, в отличие
+    # от полосы шума» (CLAUDE.md, ЧАСТЬ 13) — поэтому здесь только настоящие
+    # записи, запасного синтетического пути у этого вида нет.
+    #
+    # Словарь выведен из ЧАСТОТ реального сценария канала, а не придуман: на
+    # `videos/02_ne-mechom` доспех встречается 23 раза, меч/клинок 28, стрела/
+    # лук 13, шаги/грязь 11, молот 5. Тот же урок, что уже стоил атмосфере
+    # промаха с кузницей: словарь, собранный «по принципу», описывает не тот
+    # ролик.
+    #
+    # `max_sec` у всех концептов НЕ БОЛЬШЕ OBJECT_POINT_MAX_SEC = 2.5 —
+    # и это не вкус, а согласование с классификатором: длиннее этого
+    # `object_asset_for()` считает запись протяжённой и вешает на неё
+    # обрезку с фейдами, то есть удар молота поехал бы как подзвучник.
+    "object": {
+        "sword_draw": dict(
+            queries=["sword unsheathe", "sword draw scabbard", "metal blade slide",
+                     "sword sheath metal", "blade unsheathing"],
+            prompt="a single steel sword being drawn from a scabbard, one metallic slide",
+            extra_neg=["orchestral music sting", "person talking"],
+            min_sec=0.25, max_sec=2.5, keep=4),
+        "armour_clank": dict(
+            queries=["chainmail movement", "armour clank metal", "chain mail rattle",
+                     "metal armour foley", "knight armour movement"],
+            prompt="metal armour and chainmail clanking as someone moves, foley recording",
+            extra_neg=["keys jingling in a pocket", "coins in a jar", "person talking"],
+            min_sec=0.3, max_sec=2.5, keep=4),
+        "arrow_shot": dict(
+            queries=["arrow whoosh", "bow release arrow", "arrow flyby",
+                     "archery bow shot", "arrow swoosh past"],
+            prompt="a single arrow released from a bow and whooshing past",
+            extra_neg=["gunshot", "orchestral music sting"],
+            min_sec=0.2, max_sec=2.0, keep=4),
+        "hammer_anvil": dict(
+            queries=["blacksmith hammer anvil", "hammer strike metal anvil",
+                     "forge hammer hit", "anvil strike single"],
+            prompt="a blacksmith hammer striking hot steel on an anvil, single strike",
+            extra_neg=["construction site machinery", "church bell", "person talking"],
+            min_sec=0.2, max_sec=2.5, keep=4),
+        "footsteps_mud": dict(
+            queries=["footsteps mud", "walking in mud squelch", "boots mud steps",
+                     "footsteps wet ground", "squelching mud footsteps"],
+            prompt="heavy boots stepping in thick wet mud, squelching footsteps",
+            extra_neg=["footsteps on a wooden floor indoors", "person talking"],
+            min_sec=0.3, max_sec=2.5, keep=4),
+    },
     "sfx": {
         "chapter_turn": dict(
             queries=["whoosh transition soft", "cinematic whoosh short", "air whoosh swoosh",
@@ -793,9 +841,56 @@ def judge(m, kind, spec):
     return v
 
 
+def confirmed_sample_rate(item, measured):
+    """Частота ИСХОДНИКА: lq — только подозрение, доказательство — hq.
+
+    РЕАЛЬНЫЙ БАГ, найден живым прогоном 13.09, а не чтением кода. Отбор
+    идёт по lq-превью (64 kbps — вдвое меньше трафика, см. preview_url), и
+    гейт частоты мерил ИМЕННО ЕГО. Замер на живых парах превью одного и
+    того же звука:
+
+        источник 48000 -> hq 48000, lq 24000
+        источник 44100 -> hq 44100, lq 24000
+        другая запись  -> hq 44100, lq 44100
+
+    То есть частота lq — свойство ТРАНСКОДА Freesound, а не исходника, и
+    меняется от загрузки к загрузке. Отбраковка при этом была окончательной:
+    на первом же живом прогоне вида `object:hammer_anvil` 9 кандидатов из 16
+    ушли с причиной `low_sample_rate` — ровно те записи, которые и нужны
+    («Anvil - Hammer on 6mm steel 1 time short», «Blacksmith Hammer»).
+    Существующая библиотека уцелела случайно: её измерения закэшированы ДО
+    появления гейта, у всех 60 записей манифеста `source_sample_rate` пуст,
+    и условие `if sr and ...` на них не срабатывает вообще.
+
+    hq качается ТОЛЬКО для подозреваемых (на hammer_anvil это 9 файлов по
+    ~30 КБ), иначе экономия трафика на lq теряет смысл.
+
+    Чинится ИЗМЕРЕНИЕ, а не вердикт, и это важно: `judge()` возвращается
+    сразу, как только появилась первая причина отказа, ДО расчёта CLAP-маржи
+    (у отклонённых кандидатов в логе стоит `margin=+nan` — она не считалась).
+    Снять причину постфактум значило бы отдать кандидата с пустым списком
+    причин, ни разу не проверенного на «про то ли это вообще».
+
+    Спектральный срез вместо частоты рассматривался и ОТКЛОНЁН: этот же
+    проект уже измерил, что у части легальных эффектов верха нет по самой их
+    природе («низкий удар обрезан на 0.4-7 кГц — там просто нет верха»), то
+    есть гейт по срезу выбрасывал бы настоящие глубокие удары.
+    """
+    if not measured or measured >= MIN_SOURCE_SAMPLE_RATE:
+        return measured
+    hq = download(item, "hq")
+    sr = probe_sample_rate(hq) if hq else 0
+    # Не скачалось/не измерилось — остаётся измеренное по lq, то есть отказ.
+    # Fail-closed здесь безопасен: кандидат просто не попадает в библиотеку.
+    return sr or measured
+
+
 def evaluate(item, path, kind, name, spec):
     """Полный разбор одного кандидата -> dict с вердиктом и причиной."""
-    v = judge(measure(path, kind, spec), kind, spec)
+    m = measure(path, kind, spec)
+    if m.get("source_sample_rate"):
+        m["source_sample_rate"] = confirmed_sample_rate(item, m["source_sample_rate"])
+    v = judge(m, kind, spec)
     v.update(id=item["id"], title=item["title"])
     return v
 

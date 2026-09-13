@@ -115,6 +115,43 @@ class TestGoldenSetIntegrity:
             "по видео фильтр снова не работает — это и была главная дыра")
 
 
+def _stack_now():
+    """Версии ML-стека этого прогона."""
+    try:
+        import torch
+        import transformers
+        return {"torch": torch.__version__, "transformers": transformers.__version__}
+    except Exception:
+        return {}
+
+
+def _stack_note():
+    """Приписка к любому падению метрики: тот же стек или другой.
+
+    Без неё красный тест не отличим от дрейфа моделей, и это не теория —
+    сверку через `git stash` пришлось делать вручную дважды за одну сессию,
+    а четыре красных теста успели стать фоновым шумом. Порог при этом НЕ
+    трогается: подгонка под чужую сборку библиотек испортила бы калибровку
+    на рабочей машине (CLAUDE.md, замечание к золотому набору 13.09).
+
+    У аудио-канарейки (tests/fixtures/clap_canary/canary.json) поле `stack`
+    есть с самого начала — у золотого набора его не было.
+    """
+    with open(BASELINE, encoding="utf-8") as f:
+        base = json.load(f)
+    was, now = base.get("stack"), _stack_now()
+    if not was:
+        return ("\n  СТЕК: базовая линия снята БЕЗ записи версий "
+                f"(измерена {base.get('measured_at')}, коммит {base.get('commit')}); "
+                f"сейчас {now}. Отличить регрессию кода от дрейфа моделей по этому "
+                "красному нельзя — перемерить линию на рабочей машине "
+                "(python scripts/golden_set_eval.py) и записать summary И stack.")
+    if was != now:
+        return (f"\n  СТЕК ДРУГОЙ: линия снята на {was}, сейчас {now}. "
+                "Сначала перемерить линию здесь, потом считать это регрессией.")
+    return f"\n  СТЕК ТОТ ЖЕ ({now}) — это настоящая регрессия, не дрейф."
+
+
 @pytest.fixture(scope="module")
 def report():
     """Один прогон реальных гейтов по всему набору на весь модуль.
@@ -156,7 +193,7 @@ class TestGoldenSetMetric:
         assert not regressed, (
             "метрика подбора ухудшилась по осям: " + ", ".join(regressed) +
             f"\nбыло: { {k: base.get(k) for k in regressed} }"
-            f"\nстало: { {k: summary.get(k) for k in regressed} }"
+            f"\nстало: { {k: summary.get(k) for k in regressed} }" + _stack_note()
         )
 
     def test_good_frames_are_not_falsely_rejected(self, report):
@@ -168,7 +205,7 @@ class TestGoldenSetMetric:
         """
         _, rows, _, _ = report
         wrongly = [r["id"] for r in rows if r["verdict"] == "good" and not r["gate_passed"]]
-        assert not wrongly, f"гейт отклонил годные кадры: {wrongly}"
+        assert not wrongly, f"гейт отклонил годные кадры: {wrongly}" + _stack_note()
 
     @pytest.mark.parametrize("item_id", [
         "ep01_122",   # катана и мотив японского флага на запрос про кузнеца
