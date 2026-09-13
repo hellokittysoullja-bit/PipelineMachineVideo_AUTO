@@ -97,8 +97,11 @@ TITLE_BLOCK = {
                   # «WindChimes» прошёл CLAP с маржой +0.112 и AST Music 0.059 —
                   # колокольчики ловятся только по названию
                   "chime", "bell", "whistl", "flute", "pipe"),
-    "forest_birds": ("city", "street", "traffic", "zoo", "cage", "indoor", "room", "rain"),
-    "night": ("city", "street", "traffic", "party", "club", "indoor"),
+    # «EXT Park urban morning» прошёл все гейты (AST Vehicle 0.005) — по звуку
+    # чисто, но городской парк под средневековый лес класть незачем, когда
+    # есть пять честных лесных записей; слово «urban» решает это до моделей
+    "forest_birds": ("city", "street", "traffic", "urban", "zoo", "cage", "indoor", "room", "rain"),
+    "night": ("city", "street", "traffic", "urban", "party", "club", "indoor"),
     "stone_hall": ("outdoor", "street", "traffic", "crowd", "concert", "organ", "choir"),
     "forge_fire": ("rain", "storm", "fireworks", "explosion", "gun"),
     "rain_mud": ("indoor", "inside", "window", "roof", "car", "tent", "umbrella", "thunder", "storm", "sea", "wave"),
