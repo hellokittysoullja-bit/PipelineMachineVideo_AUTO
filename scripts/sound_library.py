@@ -159,8 +159,14 @@ LIBRARY_SPEC = {
             prompt="calm night ambience outdoors with crickets and distant owls",
             min_sec=45, keep=5),
         "stone_hall": dict(
+            # Первый прогон: 0 из 11 — пул был пустой (туристы, буддийские
+            # храмы, вентиляция), а не гейты слишком строгие. Запросы шире и
+            # ближе к тому, как такие записи реально называют.
             queries=["church interior ambience", "cathedral ambience quiet", "room tone hall reverb",
-                     "empty hall room tone", "castle interior ambience", "monastery ambience"],
+                     "empty hall room tone", "castle interior ambience", "monastery ambience",
+                     "cathedral room tone", "empty church ambience", "crypt ambience",
+                     "cave ambience drips", "dungeon ambience", "cellar ambience",
+                     "large empty room tone", "stone room ambience"],
             prompt="quiet interior room tone of a large stone hall, distant reverberant space",
             extra_neg=("footsteps walking",), min_sec=30, keep=5),
         "forge_fire": dict(
@@ -406,8 +412,15 @@ def measure_loudness(path):
     return grab(r"I:\s*(-?[\d.]+) LUFS"), grab(r"LRA:\s*([\d.]+) LU"), grab(r"Peak:\s*(-?[\d.]+) dBFS")
 
 
-def silence_share(path, duration):
-    r = _run(["ffmpeg", "-v", "info", "-t", "190", "-i", path, "-af", "silencedetect=noise=-45dB:d=0.5", "-f", "null", "-"])
+def silence_share(path, duration, lufs=None):
+    """Доля «провалов» относительно громкости САМОЙ записи (I − 25 LU), а не
+    абсолютных −45 dB: тихий пустой зал целиком лежал бы ниже абсолютного
+    порога и отбраковывался как «тишина» (Monastery ruins_2: 0.966), хотя
+    после нормировки пика на импорте это ровно то, что нужно. Абсолютный
+    порог остаётся полом −70 dB."""
+    noise = max(-70.0, (lufs - 25.0)) if lufs is not None else -45.0
+    r = _run(["ffmpeg", "-v", "info", "-t", "190", "-i", path, "-af",
+              f"silencedetect=noise={noise:.0f}dB:d=0.5", "-f", "null", "-"])
     total = 0.0
     for m in re.finditer(r"silence_duration:\s*([\d.]+)", r.stderr):
         total += float(m.group(1))
@@ -515,7 +528,7 @@ def ast_probs(windows16k, labels):
 def _measure_key(path, spec):
     negs = list(NEGATIVE_PROMPTS) + list(spec.get("extra_neg", ()))
     raw = "|".join([os.path.basename(path), str(os.path.getsize(path)), spec["prompt"], *negs,
-                    "clap:laion/larger_clap_general", "ast:MIT/ast-finetuned-audioset-10-10-0.4593", "v2"])
+                    "clap:laion/larger_clap_general", "ast:MIT/ast-finetuned-audioset-10-10-0.4593", "v3"])
     return hashlib.sha1(raw.encode()).hexdigest()[:20]
 
 
@@ -552,9 +565,9 @@ def measure(path, kind, spec):
     m["clipping_share"] = round(max(clipping_share(w) for w in win48), 6)
     if kind == "ambience":
         m["hum_db"] = round(max(hum_prominence_db(w, 48000) for w in win48), 1)
-        m["silence_share"] = round(silence_share(path, dur), 3)
         lufs, lra, tp = measure_loudness(path)
         m.update(lufs=lufs, lra=lra, true_peak=tp)
+        m["silence_share"] = round(silence_share(path, dur, lufs), 3)
     negs = list(NEGATIVE_PROMPTS) + list(spec.get("extra_neg", ()))
     rows = clap_scores(win48, [spec["prompt"]] + negs)
     m["clap_rows"] = [[round(x, 4) for x in r] for r in rows]
