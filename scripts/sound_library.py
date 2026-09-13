@@ -808,6 +808,14 @@ def main():
              [(k, n) for k in LIBRARY_SPEC for n in LIBRARY_SPEC[k]]
     rejected = []
     for kind, name in wanted:
+        # Пересборка вида — с чистого листа: старые принятые файлы и их
+        # записи в манифесте уходят, иначе «urban»-парк остался бы в лесу
+        # рядом с новыми, а манифест хранил бы записи об удалённых файлах.
+        d = os.path.join(LIBRARY_ROOT, kind, name)
+        for f in (os.listdir(d) if os.path.isdir(d) else []):
+            os.remove(os.path.join(d, f))
+        manifest["items"] = {rel: it for rel, it in manifest["items"].items()
+                             if not (it.get("kind") == kind and it.get("name") == name)}
         build_kind(kind, name, args.max, manifest, rejected)
         save_manifest(manifest)
         with open(os.path.join(LIBRARY_ROOT, "rejected.json"), "w", encoding="utf-8") as f:
