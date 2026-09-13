@@ -789,6 +789,41 @@ def _trim_bounds(src, lufs):
     return start, end
 
 
+def _widen_mono(stage, dst):
+    """Моно -> два канала КРУГОВЫМ сдвигом одной записи, после сборки петли.
+
+    Смысл тот же, что был: для стационарной текстуры (ветер, дождь, гул)
+    сдвиг на секунды даёт настоящую декорреляцию каналов и ощущение
+    пространства, а не точки в центре; задержка секундная, не миллисекундная,
+    поэтому гребёнчатой окраски, как у Хааса, не возникает.
+
+    Почему именно КРУГОВОЙ сдвиг и именно ПОСЛЕ петли — это исправление
+    реального, измеренного бага. Первая версия ставила `adelay` ДО сборки
+    петли: правый канал получал 2.3 с цифровой тишины в начале, файл
+    становился на 2.3 с длиннее, а петля резалась по исходной длине — то
+    есть на каждом обороте правый канал проваливался в дыру. Замер щелчка
+    на стыке (скачок между последним и первым семплом против типичного
+    межсемплового скачка): 18.7 и 30.6 против 1.0 у нормального стыка.
+    Круговой сдвиг длину не меняет и дыры не создаёт: повёрнутая
+    бесшовная петля остаётся бесшовной.
+    """
+    dur = probe_duration(stage)
+    shift = AMBIENCE_WIDEN_DELAY_SEC
+    if dur <= 3 * shift:
+        # слишком коротко, чтобы поворот дал независимый материал
+        return stage
+    out = os.path.join(CACHE_DIR, "wide_" + hashlib.sha1(dst.encode()).hexdigest()[:12] + ".wav")
+    fc = (f"[0:a]aformat=channel_layouts=mono,asplit=3[l][r1][r2];"
+          f"[r1]atrim=start={shift:.3f},asetpts=N/SR/TB[ra];"
+          f"[r2]atrim=0:{shift:.3f},asetpts=N/SR/TB[rb];"
+          f"[ra][rb]concat=n=2:v=0:a=1[r];"
+          f"[l][r]join=inputs=2:channel_layout=stereo[out]")
+    if _run(["ffmpeg", "-y", "-v", "error", "-i", stage, "-filter_complex", fc,
+             "-map", "[out]", "-ar", "48000", "-ac", "2", out]).returncode == 0:
+        return out
+    return stage
+
+
 def import_file(src, dst, kind, dur):
     """-> FLAC 48k stereo с объявленным пиком.
 
@@ -815,23 +850,10 @@ def import_file(src, dst, kind, dur):
     mono = channel_correlation(src) >= MONO_CORRELATION
 
     stage = os.path.join(CACHE_DIR, "stage_" + hashlib.sha1(dst.encode()).hexdigest()[:12] + ".wav")
-    pre = [f"highpass=f={AMBIENCE_HIGHPASS_HZ:.0f}"]
-    if mono:
-        # Моно -> два канала с РАЗНЫМ сдвигом одной записи. Для стационарной
-        # текстуры (ветер, дождь, гул) это прозрачно и даёт настоящую
-        # декорреляцию; задержка на секунды, а не миллисекунды, поэтому
-        # гребёнчатой окраски, как у Хааса, не возникает.
-        d = int(AMBIENCE_WIDEN_DELAY_SEC * 1000)
-        pre.append(f"aformat=channel_layouts=mono,asplit=2[wl][wr0];"
-                   f"[wr0]adelay={d}[wr];[wl][wr]join=inputs=2:channel_layout=stereo")
     r = _run(["ffmpeg", "-y", "-v", "error", "-ss", f"{t0:.3f}", "-t", f"{body:.3f}", "-i", src,
-              "-filter_complex", ",".join(pre) if not mono else
-              f"[0:a]{pre[0]},{pre[1]}", "-ar", "48000", "-ac", "2", stage])
+              "-af", f"highpass=f={AMBIENCE_HIGHPASS_HZ:.0f}", "-ar", "48000", "-ac", "2", stage])
     if r.returncode != 0:
-        r = _run(["ffmpeg", "-y", "-v", "error", "-ss", f"{t0:.3f}", "-t", f"{body:.3f}", "-i", src,
-                  "-af", f"highpass=f={AMBIENCE_HIGHPASS_HZ:.0f}", "-ar", "48000", "-ac", "2", stage])
-        if r.returncode != 0:
-            return False
+        return False
 
     if xf > 0:
         # Бесшовная петля: хвост длиной xf подмешивается в начало с обратной
@@ -846,6 +868,9 @@ def import_file(src, dst, kind, dur):
         if _run(["ffmpeg", "-y", "-v", "error", "-i", stage, "-filter_complex", fc,
                  "-map", "[out]", "-ar", "48000", "-ac", "2", looped]).returncode == 0:
             stage = looped
+
+    if mono:
+        stage = _widen_mono(stage, dst)
 
     r = _run(["ffmpeg", "-v", "info", "-i", stage, "-af", "volumedetect", "-f", "null", "-"])
     m = re.findall(r"max_volume:\s*(-?[\d.]+) dB", r.stderr)

@@ -251,3 +251,29 @@ def test_rejection_log_does_not_clobber_other_entries():
     src = inspect.getsource(sl._log_rejection)
     assert "rows.append(entry)" in src
     assert "json.load(f)" in src
+
+
+# ------------------------------------------------ расширение моно и петля
+def test_mono_widening_happens_after_the_loop_is_built():
+    """Реальный измеренный баг. Первая версия ставила adelay ДО сборки
+    петли: правый канал получал 2.3 с цифровой тишины в начале, файл
+    становился длиннее, а петля резалась по исходной длине — на каждом
+    обороте правый канал проваливался в дыру (щелчок на стыке 18.7 и 30.6
+    против 1.0 у нормального стыка).
+    """
+    src = inspect.getsource(sl.import_file)
+    assert "adelay" not in src, "adelay удлиняет файл и ломает петлю"
+    assert src.index("acrossfade") < src.index("_widen_mono("), \
+        "расширение обязано идти ПОСЛЕ сборки петли"
+
+
+def test_mono_widening_is_a_circular_shift_not_a_delay():
+    """Круговой сдвиг длину не меняет и дыры не создаёт: повёрнутая
+    бесшовная петля остаётся бесшовной."""
+    src = inspect.getsource(sl._widen_mono)
+    # только КОД: в докстринге adelay упомянут как описание исправленного бага
+    body = src.split('"""')[-1]
+    assert "concat=n=2" in body and "atrim=start=" in body
+    assert "adelay" not in body
+    # слишком короткую запись поворот не делает независимой — не трогаем
+    assert "dur <= 3 * shift" in src
