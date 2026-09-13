@@ -891,7 +891,8 @@ def build_kind(kind, name, max_candidates=18, manifest=None, rejected_log=None):
     for c, w in blocked:
         if w and rejected_log is not None:
             rejected_log.append({"id": c["id"], "title": c["title"], "kind": kind, "name": name,
-                                 "reasons": [f"title:{w}"]})
+                                 "url": c["url"], "creator": c.get("creator"),
+                                 "landing": c.get("landing"), "reasons": [f"title:{w}"]})
     cands = [c for c, w in blocked if not w]
     cands.sort(key=lambda c: (-title_relevance(spec, c["title"]), -min(c["duration"], AMBIENCE_MAX_SEC)))
     cands = cands[:max_candidates]
@@ -910,7 +911,10 @@ def build_kind(kind, name, max_candidates=18, manifest=None, rejected_log=None):
               f"margin={v.get('clap_margin', float('nan')):+.3f} "
               f"[{str(v.get('clap_worst_neg', ''))[:18]}] {','.join(v['reasons'])}")
         if rejected_log is not None and v["reasons"]:
-            rejected_log.append(dict(v, kind=kind, name=name))
+            # url обязателен: без него отклонённого кандидата физически нечем
+            # переслушать, а решение «гейт неправ» принимается только ушами.
+            rejected_log.append(dict(v, kind=kind, name=name, url=c["url"],
+                                     creator=c.get("creator"), landing=c.get("landing")))
         if not v["reasons"]:
             scored.append((v["clap_margin"], c, path, v))
     scored.sort(key=lambda t: -t[0])
@@ -1025,9 +1029,63 @@ def restore(manifest):
     return 0
 
 
+# Причины отказа, которые НЕ обсуждаются ушами: это измеренные дефекты
+# самой записи (сетевой гул, клиппинг, провалы в тишину, чужой источник по
+# названию, речь/музыка поверх сцены). Спорны только два ОТНОСИТЕЛЬНЫХ
+# сигнала CLAP — они про «про то ли это», а на этот вопрос честнее отвечает
+# слух, чем ещё один подобранный порог.
+AUDITION_DEBATABLE = ("clap_negative_wins",)
+AUDITION_DEBATABLE_PREFIX = ("kind_lost_to_",)
+
+
+def _debatable(reason):
+    return reason in AUDITION_DEBATABLE or reason.startswith(AUDITION_DEBATABLE_PREFIX)
+
+
+def audition(kind, name, limit=8):
+    """Сложить отклонённых «почти прошедших» в temp_library/audition, чтобы
+    их можно было ПОСЛУШАТЬ, а не двигать порог вслепую.
+
+    Берутся только кандидаты, у которых все причины отказа — спорные
+    (см. AUDITION_DEBATABLE). Запись с сетевым гулом сюда не попадает: её
+    дефект измерен, а не предположен, и слушать там нечего.
+
+    Обработка — ТА ЖЕ import_file, что у принятых: слушается то, что реально
+    ушло бы в ролик (срез рокота, расширение моно, бесшовная петля), а не
+    исходник со стока.
+    """
+    path = os.path.join(LIBRARY_ROOT, "rejected.json")
+    if not os.path.exists(path):
+        print("нет assets/library/rejected.json — сначала build")
+        return 1
+    with open(path, encoding="utf-8") as f:
+        rows = json.load(f)
+    rows = rows["items"] if isinstance(rows, dict) else rows
+    near = [v for v in rows
+            if v.get("name") == name and v.get("url")
+            and v.get("reasons") and all(_debatable(r) for r in v["reasons"])]
+    # самые близкие к порогу — первыми: если неправ порог, ошибка именно здесь
+    near.sort(key=lambda v: -(v.get("clap_margin") or -9.0))
+    out = os.path.join(CACHE_DIR, "audition", kind, name)
+    os.makedirs(out, exist_ok=True)
+    done = 0
+    for i, v in enumerate(near[:limit], 1):
+        src = download({"url": v["url"], "title": v.get("title", "")}, "hq")
+        if not src:
+            continue
+        safe = re.sub(r"[^a-z0-9]+", "_", str(v.get("id", i)).lower()).strip("_")
+        dst = os.path.join(out, f"{i:02d}_{safe}.flac")
+        if import_file(src, dst, kind, v.get("duration", 0.0)):
+            done += 1
+            print(f"   {i:02d} margin={v.get('clap_margin'):+.4f} "
+                  f"проиграл={str(v.get('clap_worst_neg',''))[:26]!r} {v.get('title','?')[:44]}")
+    print(f"На прослушивание отложено {done} из {len(near)} спорных: {out}")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("cmd", choices=["build", "report", "restore", "reimport", "verify"])
+    ap.add_argument("cmd", choices=["build", "report", "restore", "reimport", "verify", "audition"])
     ap.add_argument("--kinds", default="", help="kind:name через запятую; пусто = всё")
     ap.add_argument("--max", type=int, default=30)
     args = ap.parse_args()
@@ -1038,6 +1096,15 @@ def main():
         return reimport(manifest)
     if args.cmd == "verify":
         return verify(manifest)
+    if args.cmd == "audition":
+        rc = 0
+        for k in (args.kinds.split(",") if args.kinds.strip() else []):
+            kind, _, name = k.partition(":")
+            rc |= audition(kind or "ambience", name, args.max)
+        if not args.kinds.strip():
+            print("audition требует --kinds ambience:<вид>")
+            return 1
+        return rc
     if args.cmd == "report":
         for rel, it in sorted(manifest["items"].items()):
             print(f"{rel:60s} {it['scores'].get('duration', 0):7.1f}с  margin {it['scores'].get('clap_margin'):+.3f}  {it['title'][:50]!r}")

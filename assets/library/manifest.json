@@ -1687,43 +1687,45 @@
    },
    "imported_at": 1789322854
   },
-  "assets/library/ambience/stone_hall/freesound_a2173e6b_157f_4903_a5cc_a5406e62186f.flac": {
+  "assets/library/ambience/stone_hall/freesound_c72e3afc_4690_4a9a_9821_33592906c900.flac": {
    "kind": "ambience",
    "name": "stone_hall",
    "source": "openverse:freesound",
-   "id": "freesound:a2173e6b-157f-4903-a5cc-a5406e62186f",
-   "title": "Quarry Tunnel Ambience 1, Large Splash",
-   "creator": "ecfike",
+   "id": "freesound:c72e3afc-4690-4a9a-9821-33592906c900",
+   "title": "ambience cave2.ogg",
+   "creator": "fonografico",
    "license": "cc0",
    "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
-   "url": "https://cdn.freesound.org/previews/476/476318_2337290-hq.mp3",
-   "landing": "https://freesound.org/people/ecfike/sounds/476318",
+   "url": "https://cdn.freesound.org/previews/636/636107_11705708-hq.mp3",
+   "landing": "https://freesound.org/people/fonografico/sounds/636107",
    "query": "cave ambience drips",
    "scores": {
     "reasons": [],
-    "duration": 173.064,
-    "clipping_share": 0.0,
-    "hum_db": 8.5,
+    "duration": 265.248,
+    "clipping_share": 1.5e-05,
+    "hum_db": 12.3,
     "silence_share": 0.0,
-    "lufs": -41.7,
-    "lra": 10.5,
-    "true_peak": -8.3,
-    "lf_share": 0.888,
-    "channel_corr": 0.033,
+    "lufs": -10.5,
+    "lra": 0.5,
+    "true_peak": 0.2,
+    "lf_share": 0.016,
+    "channel_corr": -0.103,
     "mono": false,
-    "clap_pos": 0.1747,
-    "clap_margin": 0.1416,
-    "clap_worst_neg": "one person speaking clearly, conversation",
+    "clap_pos": 0.0026,
+    "clap_margin": 0.0523,
+    "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+    "kind_winner": "stone_hall",
+    "kind_gap": 0.0052,
     "ast": {
-     "Music": 0.011,
-     "Singing": 0.001,
-     "Speech": 0.028,
-     "Vehicle": 0.002
+     "Music": 0.741,
+     "Singing": 0.0,
+     "Speech": 0.009,
+     "Vehicle": 0.005
     },
-    "id": "freesound:a2173e6b-157f-4903-a5cc-a5406e62186f",
-    "title": "Quarry Tunnel Ambience 1, Large Splash"
+    "id": "freesound:c72e3afc-4690-4a9a-9821-33592906c900",
+    "title": "ambience cave2.ogg"
    },
-   "imported_at": 1789322989
+   "imported_at": 1789323298
   }
  }
 }

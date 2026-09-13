@@ -6,6 +6,7 @@
 assets/library/manifest.json с числами по каждому файлу. Тут — правила,
 которые обязаны держаться независимо от того, что вернул поиск сегодня.
 """
+import inspect
 import os
 import sys
 
@@ -191,3 +192,33 @@ def test_kind_competition_is_a_build_gate_not_only_a_report():
             "kind_scores": {"surf": 0.34, "wind_open": 0.25}}
     v = sl.judge(lost, "ambience", {"prompt": "wind", "min_sec": 45, "_name": "wind_open"})
     assert "kind_lost_to_surf" in v["reasons"]
+
+
+# --------------------------------------------------------- прослушивание
+def test_audition_takes_only_debatable_reasons():
+    """На прослушивание идут только СПОРНЫЕ отказы — те, что про «про то ли
+    это». Запись с измеренным дефектом (сетевой гул, клиппинг, речь поверх
+    сцены) туда не попадает: слушать там нечего, дефект уже измерен."""
+    assert sl._debatable("clap_negative_wins")
+    assert sl._debatable("kind_lost_to_surf")
+    assert sl._debatable("kind_lost_to_forge_fire")
+    for hard in ("mains_hum", "clipping", "too_much_silence", "too_dynamic",
+                 "ast_speech", "ast_music", "title:street"):
+        assert not sl._debatable(hard), hard
+
+
+def test_rejected_records_carry_url_so_they_can_be_reheard():
+    """Без url отклонённого кандидата физически нечем переслушать, а решение
+    «гейт неправ» принимается только ушами — значит url обязателен."""
+    src = inspect.getsource(sl.build_kind)
+    calls = [c for c in src.split("rejected_log.append(")[1:]]
+    assert len(calls) == 2, "веток записи отказа должно быть две: по названию и по измерениям"
+    for c in calls:
+        head = c.split("\n\n")[0]
+        assert 'c["url"]' in head, head[:200]
+
+
+def test_audition_reuses_the_real_import_chain():
+    """Слушается то, что реально ушло бы в ролик (срез рокота, расширение
+    моно, бесшовная петля), а не исходник со стока."""
+    assert "import_file(" in inspect.getsource(sl.audition)

@@ -66,7 +66,7 @@
  },
  {
   "reasons": [
-   "clap_low_positive"
+   "kind_lost_to_surf"
   ],
   "duration": 299.448,
   "clipping_share": 0.0,
@@ -81,6 +81,8 @@
   "clap_pos": -0.0025,
   "clap_margin": 0.0439,
   "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "kind_winner": "surf",
+  "kind_gap": 0.0015,
   "ast": {
    "Music": 0.597,
    "Singing": 0.0,
@@ -109,6 +111,8 @@
   "clap_pos": 0.1876,
   "clap_margin": -0.0422,
   "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "kind_winner": "stone_hall",
+  "kind_gap": 0.0052,
   "ast": {
    "Music": 0.003,
    "Singing": 0.0,
@@ -162,7 +166,8 @@
  },
  {
   "reasons": [
-   "clap_negative_wins"
+   "clap_negative_wins",
+   "kind_lost_to_wind_open"
   ],
   "duration": 60.048,
   "clipping_share": 0.0,
@@ -177,6 +182,8 @@
   "clap_pos": 0.1496,
   "clap_margin": -0.0067,
   "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "kind_winner": "wind_open",
+  "kind_gap": 0.0015,
   "ast": {
    "Music": 0.029,
    "Singing": 0.0,
@@ -209,7 +216,8 @@
  },
  {
   "reasons": [
-   "clap_negative_wins"
+   "clap_negative_wins",
+   "kind_lost_to_forest_birds"
   ],
   "duration": 343.128,
   "clipping_share": 0.0,
@@ -224,6 +232,8 @@
   "clap_pos": 0.0875,
   "clap_margin": -0.0894,
   "clap_worst_neg": "music with melody and instruments, singing",
+  "kind_winner": "forest_birds",
+  "kind_gap": 0.0068,
   "ast": {
    "Music": 0.011,
    "Singing": 0.0,
@@ -237,7 +247,8 @@
  },
  {
   "reasons": [
-   "clap_negative_wins"
+   "clap_negative_wins",
+   "kind_lost_to_night"
   ],
   "duration": 208.92,
   "clipping_share": 0.0,
@@ -252,6 +263,8 @@
   "clap_pos": 0.1832,
   "clap_margin": -0.0279,
   "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "kind_winner": "night",
+  "kind_gap": 0.0165,
   "ast": {
    "Music": 0.091,
    "Singing": 0.001,
@@ -284,35 +297,6 @@
  },
  {
   "reasons": [
-   "clap_low_positive"
-  ],
-  "duration": 265.248,
-  "clipping_share": 1.5e-05,
-  "hum_db": 12.3,
-  "silence_share": 0.0,
-  "lufs": -10.5,
-  "lra": 0.5,
-  "true_peak": 0.2,
-  "lf_share": 0.016,
-  "channel_corr": -0.103,
-  "mono": false,
-  "clap_pos": 0.0026,
-  "clap_margin": 0.0523,
-  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
-  "ast": {
-   "Music": 0.741,
-   "Singing": 0.0,
-   "Speech": 0.009,
-   "Vehicle": 0.005
-  },
-  "id": "freesound:c72e3afc-4690-4a9a-9821-33592906c900",
-  "title": "ambience cave2.ogg",
-  "kind": "ambience",
-  "name": "stone_hall"
- },
- {
-  "reasons": [
-   "clap_low_positive",
    "clap_negative_wins"
   ],
   "duration": 300.048,
@@ -328,6 +312,8 @@
   "clap_pos": 0.0131,
   "clap_margin": 0.037,
   "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "kind_winner": "stone_hall",
+  "kind_gap": 0.0137,
   "ast": {
    "Music": 0.658,
    "Singing": 0.0,
@@ -341,8 +327,8 @@
  },
  {
   "reasons": [
-   "clap_low_positive",
-   "clap_negative_wins"
+   "clap_negative_wins",
+   "kind_lost_to_surf"
   ],
   "duration": 265.08,
   "clipping_share": 3.5e-05,
@@ -357,6 +343,8 @@
   "clap_pos": -0.027,
   "clap_margin": 0.0079,
   "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "kind_winner": "surf",
+  "kind_gap": 0.0329,
   "ast": {
    "Music": 0.633,
    "Singing": 0.0,
@@ -370,8 +358,8 @@
  },
  {
   "reasons": [
-   "clap_low_positive",
-   "clap_negative_wins"
+   "clap_negative_wins",
+   "kind_lost_to_forge_fire"
   ],
   "duration": 184.056,
   "clipping_share": 0.0,
@@ -386,6 +374,8 @@
   "clap_pos": -0.1002,
   "clap_margin": -0.1294,
   "clap_worst_neg": "music with melody and instruments, singing",
+  "kind_winner": "forge_fire",
+  "kind_gap": 0.0675,
   "ast": {
    "Music": 0.731,
    "Singing": 0.025,
@@ -399,7 +389,6 @@
  },
  {
   "reasons": [
-   "clap_low_positive",
    "clap_negative_wins"
   ],
   "duration": 180.048,
@@ -415,6 +404,8 @@
   "clap_pos": 0.0037,
   "clap_margin": 0.0195,
   "clap_worst_neg": "music with melody and instruments, singing",
+  "kind_winner": "stone_hall",
+  "kind_gap": 0.0384,
   "ast": {
    "Music": 0.56,
    "Singing": 0.0,
@@ -423,6 +414,36 @@
   },
   "id": "freesound:0a4567cb-00d3-4eae-8ce6-8a2e886658ac",
   "title": "ambience cave.ogg",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "kind_lost_to_forge_fire"
+  ],
+  "duration": 173.064,
+  "clipping_share": 0.0,
+  "hum_db": 8.5,
+  "silence_share": 0.0,
+  "lufs": -41.7,
+  "lra": 10.5,
+  "true_peak": -8.3,
+  "lf_share": 0.888,
+  "channel_corr": 0.033,
+  "mono": false,
+  "clap_pos": 0.1747,
+  "clap_margin": 0.1416,
+  "clap_worst_neg": "one person speaking clearly, conversation",
+  "kind_winner": "forge_fire",
+  "kind_gap": 0.0115,
+  "ast": {
+   "Music": 0.011,
+   "Singing": 0.001,
+   "Speech": 0.028,
+   "Vehicle": 0.002
+  },
+  "id": "freesound:a2173e6b-157f-4903-a5cc-a5406e62186f",
+  "title": "Quarry Tunnel Ambience 1, Large Splash",
   "kind": "ambience",
   "name": "stone_hall"
  },
@@ -481,6 +502,8 @@
   "clap_pos": 0.1829,
   "clap_margin": 0.0332,
   "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "kind_winner": "stone_hall",
+  "kind_gap": 0.022,
   "ast": {
    "Music": 0.016,
    "Singing": 0.0,
@@ -509,6 +532,8 @@
   "clap_pos": 0.227,
   "clap_margin": 0.1018,
   "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "kind_winner": "stone_hall",
+  "kind_gap": 0.1678,
   "ast": {
    "Music": 0.035,
    "Singing": 0.01,
@@ -522,8 +547,8 @@
  },
  {
   "reasons": [
-   "clap_low_positive",
-   "clap_negative_wins"
+   "clap_negative_wins",
+   "kind_lost_to_forge_fire"
   ],
   "duration": 130.056,
   "clipping_share": 0.0,
@@ -538,6 +563,8 @@
   "clap_pos": -0.1161,
   "clap_margin": -0.1227,
   "clap_worst_neg": "music with melody and instruments, singing",
+  "kind_winner": "forge_fire",
+  "kind_gap": 0.1233,
   "ast": {
    "Music": 0.824,
    "Singing": 0.002,
@@ -566,6 +593,8 @@
   "clap_pos": 0.1231,
   "clap_margin": -0.0031,
   "clap_worst_neg": "music with melody and instruments, singing",
+  "kind_winner": "stone_hall",
+  "kind_gap": 0.0267,
   "ast": {
    "Music": 0.133,
    "Singing": 0.0,
@@ -613,6 +642,8 @@
   "clap_pos": 0.2316,
   "clap_margin": 0.0765,
   "clap_worst_neg": "one person speaking clearly, conversation",
+  "kind_winner": "stone_hall",
+  "kind_gap": 0.1117,
   "ast": {
    "Music": 0.244,
    "Singing": 0.001,
