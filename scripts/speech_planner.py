@@ -79,29 +79,21 @@ def homograph_hints_for_text(text):
     try:
         import stress_placement as sp
         hints = []
-        raw_tokens = sp.WORD_RE.findall(text)
-        word_positions = [i for i, t in enumerate(raw_tokens) if re.match(r"^[А-Яа-яЁё]+$", t)]
-        lower_words = [raw_tokens[i].lower() for i in word_positions]
         seen = set()
-        for pos_idx, tok_idx in enumerate(word_positions):
-            form_lower = lower_words[pos_idx]
-            lemma = sp.HOMOGRAPH_FORMS.get(form_lower)
-            if lemma is None:
-                continue
-            lo = max(0, pos_idx - sp.CONTEXT_WINDOW_WORDS)
-            hi = min(len(lower_words), pos_idx + sp.CONTEXT_WINDOW_WORDS + 1)
-            context = lower_words[lo:pos_idx] + lower_words[pos_idx + 1:hi]
-            sense = sp._detect_sense(lemma, context)
-            if sense is None:
-                continue
-            corrected = sp._probe_accent_for_form(form_lower, lemma, sense)
+        # Обход и правило смысла — ОДНИ И ТЕ ЖЕ, что у самой правки ударения
+        # (sp.detected_homographs/sp.accent_for_form). Раньше здесь лежала
+        # копия того же цикла, собранная из приватных имён модуля: расходись
+        # она с оригиналом — подсказка человеку и реальная правка ударения
+        # говорили бы разное, и узнать об этом было бы неоткуда.
+        for _tok_idx, raw_form, lemma, sense in sp.detected_homographs(text):
+            corrected = sp.accent_for_form(raw_form, lemma, sense)
             if corrected is None:
                 continue
-            key = (raw_tokens[tok_idx], sense)
+            key = (raw_form, sense)
             if key in seen:
                 continue
             seen.add(key)
-            hints.append(f"омограф «{raw_tokens[tok_idx]}» → {corrected} ({sense})")
+            hints.append(f"омограф «{raw_form}» → {corrected} ({sense})")
         return hints
     except Exception:
         return []   # fail-open — см. докстринг выше

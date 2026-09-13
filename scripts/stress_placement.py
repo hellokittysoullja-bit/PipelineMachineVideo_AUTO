@@ -154,6 +154,52 @@ def _match_case(accented_form, original_form):
     return accented_form
 
 
+def detected_homographs(text, raw_tokens=None):
+    """Известные омографы, у которых В ЭТОМ тексте есть контекстный сигнал
+    смысла: [(индекс_токена, словоформа_как_в_тексте, лемма, смысл), ...].
+
+    Вынесено в публичную функцию не ради красоты. Этот же обход (позиции
+    словных токенов -> HOMOGRAPH_FORMS -> окно контекста -> _detect_sense)
+    был скопирован в speech_planner.homograph_hints_for_text(), причём через
+    ПРИВАТНЫЕ имена этого модуля (sp._detect_sense, sp.HOMOGRAPH_FORMS,
+    sp.CONTEXT_WINDOW_WORDS). Две копии одного правила расходятся молча:
+    правка окна контекста или списка форм здесь не дошла бы до подсказок,
+    которые человек читает перед TTS, и наоборот. Найдено машинной проверкой
+    достижимости (tests/test_no_dead_layers.py): публичная функция модуля
+    оказалась не вызвана ниоткуда, при том что её логика работала в проде —
+    в виде копии.
+
+    Без сигнала слово не попадает в результат вообще — та же гарантия
+    "только там, где есть позитивное доказательство, никогда — угадывание",
+    что и у самой правки ударения.
+    """
+    if raw_tokens is None:
+        raw_tokens = WORD_RE.findall(text)
+    word_positions = [i for i, t in enumerate(raw_tokens)
+                      if re.match(r"^[А-Яа-яЁё]+$", t)]
+    lower_words = [raw_tokens[i].lower() for i in word_positions]
+    found = []
+    for pos_idx, tok_idx in enumerate(word_positions):
+        form_lower = lower_words[pos_idx]
+        lemma = HOMOGRAPH_FORMS.get(form_lower)
+        if lemma is None:
+            continue
+        lo = max(0, pos_idx - CONTEXT_WINDOW_WORDS)
+        hi = min(len(lower_words), pos_idx + CONTEXT_WINDOW_WORDS + 1)
+        context = lower_words[lo:pos_idx] + lower_words[pos_idx + 1:hi]
+        sense = _detect_sense(lemma, context)
+        if sense is None:
+            continue   # нет сигнала — не трогаем, как и раньше
+        found.append((tok_idx, raw_tokens[tok_idx], lemma, sense))
+    return found
+
+
+def accent_for_form(form, lemma, sense):
+    """Ударение для словоформы в заданном смысле (публичная обёртка над
+    зондом) — второе место, куда speech_planner лез приватным именем."""
+    return _probe_accent_for_form(form.lower(), lemma, sense)
+
+
 def accentize_with_homograph_correction(text):
     """Тот же результат, что accentizer.process_all(text), но с
     исправлением известных омографов (мука/замок) там, где в тексте есть
@@ -168,22 +214,9 @@ def accentize_with_homograph_correction(text):
         # рискуем спутать позиции, возвращаем необработанный baseline.
         return baseline
 
-    raw_word_positions = [i for i, t in enumerate(raw_tokens)
-                           if re.match(r"^[А-Яа-яЁё]+$", t)]
-    lower_words = [raw_tokens[i].lower() for i in raw_word_positions]
-
     out_tokens = list(base_tokens)
-    for pos_idx, tok_idx in enumerate(raw_word_positions):
-        form_lower = lower_words[pos_idx]
-        lemma = HOMOGRAPH_FORMS.get(form_lower)
-        if lemma is None:
-            continue
-        lo = max(0, pos_idx - CONTEXT_WINDOW_WORDS)
-        hi = min(len(lower_words), pos_idx + CONTEXT_WINDOW_WORDS + 1)
-        context = lower_words[lo:pos_idx] + lower_words[pos_idx + 1:hi]
-        sense = _detect_sense(lemma, context)
-        if sense is None:
-            continue   # нет сигнала — не трогаем, как и раньше
+    for tok_idx, raw_form, lemma, sense in detected_homographs(text, raw_tokens):
+        form_lower = raw_form.lower()
         # Зонд ВСЕГДА строится на СТРОЧНОЙ форме слова — реальный найденный
         # эффект: заглавная буква внутри зонда ("Пшеница, мельница, Мука.")
         # заставляет модель заподозрить имя собственное и перевернуть
