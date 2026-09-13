@@ -223,3 +223,18 @@ class TestRealEpisode:
         _, plan, _ = self._plan()
         used = {s["bed"] for s in plan if s["bed"]}
         assert used <= {"wind_open", "rain_mud", "stone_hall"}, f"неуместная атмосфера: {used}"
+
+
+def test_library_kinds_and_plan_vocabulary_match_exactly():
+    """Вид, которого нет в словаре плана, план НИКОГДА не выберет — то есть
+    собранные для него записи не дадут ролику ничего. Вид, который план
+    выбирает, но которого нет в библиотеке, оставит участок без звука.
+    Это ровно тот класс пробела, который уже ловили у Openverse, Pixabay,
+    Unsplash и reveal-акцентов: код есть, ролику от него ноль.
+    """
+    import sound_library as sl
+
+    voc = set(ap.AMBIENCE_VOCAB)
+    lib = set(sl.LIBRARY_SPEC["ambience"])
+    assert lib - voc == set(), f"план никогда не выберет: {sorted(lib - voc)}"
+    assert voc - lib == set(), f"в библиотеке нет: {sorted(voc - lib)}"
