@@ -7649,6 +7649,11 @@ def candidate_gate_signature():
             # is_relevant_candidate(); его правка меняет, кто пройдёт отбор,
             # и обязана инвалидировать уже закэшированных кандидатов.
             negative_anchor_violation,
+            # _video_candidate_too_short — отсев видео, которое нельзя
+            # показать без сломанного растяжения. Меняет, КТО вообще
+            # доходит до гейтов, — значит обязан инвалидировать уже
+            # закэшированных кандидатов, отобранных по старому правилу.
+            _video_candidate_too_short,
         )]
         parts.append(repr((
             CLIP_RELEVANCE_THRESHOLD, RISKY_QUERY_MARGIN, NEGATIVE_ANCHOR_PROMPT,
@@ -7657,6 +7662,7 @@ def candidate_gate_signature():
             CONTENT_NEGATIVE_ANCHORS, NEGATIVE_VETO_MARGIN, NEGATIVE_VETO_ENABLED,
             PHOTO_SHARPNESS_REJECT, VIDEO_SHARPNESS_REJECT, VIDEO_SHARPNESS_SAMPLE_FRACS,
             SHARPNESS_PROBE_MAX_SIDE, CANDIDATE_GATE_RULES_VERSION,
+            VIDEO_MAX_TIME_STRETCH,
         )))
         parts.append(_selection_stack_signature())
     except Exception:
@@ -8663,6 +8669,48 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
     return finalize_render(tmp_out, out, ok)
 
 
+# Во сколько раз видео-кандидату РАЗРЕШЕНО быть короче своего слота.
+# video_render() растягивает нехватку через setpts (setpts_factor = dur /
+# actual) — без интерполяции кадров: каждый исходный кадр просто держится
+# несколько выходных, то есть 3-секундный клип в 12-секундном слоте едет
+# вчетверо медленнее и заметно дёргается. Потолка у этого растяжения не
+# было вообще, а отбор кандидата смотрел ТОЛЬКО на ширину файла
+# (min(files, key=|width - WIDTH|)) — поле duration, которое Pexels отдаёт
+# для каждого видео в той же выдаче, не читалось нигде.
+#
+# 1.5 выбран как граница ЗАМЕТНОСТИ, а не как "хорошо бы подлиннее":
+# замедление до полутора раз на 24 fps читается как спокойный темп сцены,
+# дальше — как подтормаживающее видео. Гейт сознательно мягкий: его задача
+# — убрать кандидатов, чей результат ОБЪЕКТИВНО сломан, а не улучшать
+# подбор (этим занимаются relevance/домен-гвард/вето, и трогать их баланс
+# здесь нельзя — релевантность на этом канале дефицитнее длины).
+VIDEO_MAX_TIME_STRETCH = 1.5
+
+# Слоты, где фильтр реально сработал — для сводки в конце прогона. Пустой
+# список = на этом эпизоде проблема не возникала (честная запись "нечего
+# сообщить", тот же принцип, что у остальных отчётов).
+VIDEO_TOO_SHORT_FILTERED = []   # [{"index", "dropped", "kept"}, ...]
+
+
+def _video_candidate_too_short(item, slot_dur):
+    """Кандидат, которого физически нельзя показать в слоте slot_dur без
+    растяжения сильнее VIDEO_MAX_TIME_STRETCH.
+
+    duration у Pexels — целые секунды, поэтому сравнение консервативное:
+    отсутствующее/нечисловое значение считается ПРИГОДНЫМ (fail-open — тот
+    же принцип, что у всех остальных опциональных проверок здесь: не знаем
+    — не отбрасываем)."""
+    if not slot_dur or slot_dur <= 0:
+        return False
+    try:
+        dur = float(item.get("duration") or 0)
+    except (TypeError, ValueError):
+        return False
+    if dur <= 0:
+        return False
+    return dur * VIDEO_MAX_TIME_STRETCH < slot_dur
+
+
 VIDEO_RELEVANCE_MAX_TRIES = 3  # сколько видео-кандидатов реально СКАЧАТЬ и
                                 # проверить на релевантность, прежде чем
                                 # сдаться (тот же принцип, что
@@ -8722,7 +8770,7 @@ def _pexels_search_videos(api_query):
 
 def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier=None,
                   extra_queries=None, sentence_score_fn=None, text_key=None, arbiter_text=None,
-                  is_opening_shot=False, recent_sizes=None):
+                  is_opening_shot=False, recent_sizes=None, slot_dur=None):
     """Раньше брала ПЕРВОЕ ещё не показанное видео из выдачи без единой
     проверки релевантности/риска (реальный, ранее не закрытый структурный
     пробел, найденный внешним аудитом + прямой проверкой на реальном
@@ -8833,6 +8881,25 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
         if used_ids is not None:
             ordered = ([v for v in videos if v.get("id") not in used_ids]
                        + [v for v in videos if v.get("id") in used_ids])
+        # Кандидаты, которых нельзя показать без сломанного замедления (см.
+        # VIDEO_MAX_TIME_STRETCH), убираются ДО скачивания — не только ради
+        # трафика: бюджет попыток (try_budget ниже) ограничен, и раньше он
+        # тратился в том числе на клипы, чей результат заведомо испорчен.
+        #
+        # Фильтр НИКОГДА не опустошает пул: если длины не хватает вообще
+        # ни у кого, список остаётся прежним и слот собирается ровно как
+        # раньше (та же дисциплина "ни один слот не остаётся пустым", что
+        # у visual_qc.py и остальных гейтов этого файла). Порядок
+        # выживших не меняется — это отсев, а не переранжирование, и на
+        # баланс relevance/домена он не влияет.
+        if slot_dur:
+            long_enough = [v for v in ordered
+                           if not _video_candidate_too_short(v, slot_dur)]
+            if long_enough and len(long_enough) < len(ordered):
+                VIDEO_TOO_SHORT_FILTERED.append(
+                    {"index": index, "dropped": len(ordered) - len(long_enough),
+                     "kept": len(long_enough), "slot_dur": round(float(slot_dur), 2)})
+                ordered = long_enough
         # Три уровня приоритета для кандидата, который не оказался
         # немедленным победителем: relevant+уникальный (лучший, принимается
         # сразу) > relevant, но визуальный дубль уже показанного >
@@ -11027,7 +11094,7 @@ def main():
                                      extra_queries=section_query_pool.get(b["section"]),
                                      sentence_score_fn=video_sentence_fn, text_key=sem_text,
                                      arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot,
-                                     recent_sizes=recent_shot_sizes)
+                                     recent_sizes=recent_shot_sizes, slot_dur=d)
                 if not video:
                     photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
                                       recent_sizes=recent_shot_sizes, target_luma=luma_ema,
@@ -11048,7 +11115,7 @@ def main():
                                          extra_queries=section_query_pool.get(b["section"]),
                                          sentence_score_fn=video_sentence_fn, text_key=sem_text,
                                          arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot,
-                                         recent_sizes=recent_shot_sizes)
+                                         recent_sizes=recent_shot_sizes, slot_dur=d)
             # Раньше Pexels отключался навсегда после ЛЮБОГО промаха, включая
             # обычную пустую выдачу по одному неудачному запросу. Гасим источник
             # только если API реально отвалился.
@@ -11558,6 +11625,11 @@ def main():
                                "video_photo_rescue_report.json")
     merge_slot_report(rescue_path, VIDEO_RESCUED_BY_PHOTO,
                       resolved_slots=RESOLVED_SLOTS_THIS_RUN)
+    if VIDEO_TOO_SHORT_FILTERED:
+        dropped = sum(m["dropped"] for m in VIDEO_TOO_SHORT_FILTERED)
+        print(f"  {len(VIDEO_TOO_SHORT_FILTERED)} слот(ов): отсеяно {dropped} видео-кандидат(ов), "
+              f"которых пришлось бы замедлить сильнее {VIDEO_MAX_TIME_STRETCH}x под длину слота "
+              f"(см. VIDEO_MAX_TIME_STRETCH). Пул ни на одном слоте не опустел.")
     if VIDEO_RESCUED_BY_PHOTO:
         idxs = [m["index"] + 1 for m in VIDEO_RESCUED_BY_PHOTO]
         print(f"  {len(VIDEO_RESCUED_BY_PHOTO)} слот(ов) {idxs}: негодное видео "
