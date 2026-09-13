@@ -340,8 +340,54 @@ def preflight_and_run(video_dir, strict, legacy_allow_degraded, legacy_allow_unr
               f"для явного пропуска.")
         return 1
 
+    # ИЗМЕРЕННАЯ проверка тайминга — по пикселям и звуку готового файла, а не
+    # по модели монтажа. До неё единственной цифрой дрейфа была
+    # media_plan/phrase_timeline.json, где обе сравниваемые величины считает
+    # ОДИН И ТОТ ЖЕ код из одних и тех же данных: расхождение между расчётом и
+    # реальным рендером (чанкование, обрезка муксом, потерянный клип, переход
+    # не той длины) там не видно по устройству. Шаг идёт ПОСЛЕ рендера,
+    # потому что мерить нечего, пока файла нет.
+    tv_status, tv_report = _timing_verification(video_dir)
+    manifest["stages"]["timing_verification"] = {"status": tv_status,
+                                                  "report": tv_report}
+    if tv_status in ("drift", "cuts_across_speech") and strict and not legacy_allow_degraded:
+        _write_manifest(video_dir, manifest)
+        print(f"  СТОП (--strict-production): измеренный тайминг готового файла — "
+              f"{tv_report.get('verdict')} (дрейф {(tv_report.get('drift') or {}).get('median_ms')}мс, "
+              f"тренд {(tv_report.get('drift') or {}).get('trend_ms_per_min')}мс/мин, "
+              f"резов в тишине {tv_report.get('cuts_in_silence_share')}). "
+              f"Подробности — media_plan/timing_verification.json. "
+              f"--legacy-allow-degraded-timing для явного пропуска.")
+        return 1
+
     _write_manifest(video_dir, manifest)
     return rc
+
+
+def _timing_verification(video_dir):
+    """Запускает verify_timing прямо в процессе (не подпроцессом): нужен сам
+    отчёт, а не только код возврата — он уезжает в timeline_manifest.json,
+    чтобы «каким измеренным таймингом собран этот ролик» отвечалось по
+    артефактам, а не по памяти.
+
+    Fail-open на отсутствие numpy/ffmpeg: измерения не будет, но уже собранный
+    ролик из-за этого не пропадает — статус честно говорит, что не измерено.
+    """
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import verify_timing
+        report, code = verify_timing.verify(video_dir)
+        verify_timing.save_report(video_dir, report)
+    except Exception as e:
+        return "not_measured", {"error": f"{type(e).__name__}: {e}"}
+    verdict = report.get("verdict")
+    if verdict in ("drift_median", "drift_trend"):
+        return "drift", report
+    if verdict == "cuts_across_speech":
+        return "cuts_across_speech", report
+    if verdict in ("low_coverage", "no_reference", "no_video"):
+        return "not_measured", report
+    return "ok", report
 
 
 def _write_manifest(video_dir, manifest):
