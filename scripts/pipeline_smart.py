@@ -44,7 +44,8 @@ try:
 except ImportError:
     np = None   # аудио-ритм по громкости — опциональная фича, без numpy просто выключена
 
-from PIL import Image as PILImage, ImageOps as PILImageOps   # Pillow уже обязательная зависимость (requirements.txt)
+from PIL import (Image as PILImage, ImageOps as PILImageOps,
+                 ImageFilter as PILImageFilter, ImageEnhance as PILImageEnhance)   # Pillow уже обязательная зависимость (requirements.txt)
 
 try:
     import cv2
@@ -6938,6 +6939,11 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
              section="", motion_mode="classic_kb", stat_variant=0,
              brightness_bias=0.0, energy_bias=0.0, stat_delay=0.0, levels=None, wb=None,
              grain_scale=1.0, captions=None, look_filter=None, ffmpeg_threads=None, domain=None):
+    # Портретный источник вписывается целиком на размытую подложку ДО всего
+    # остального (см. aspect_fit_backdrop): дальше по цепочке он уже 16:9, и
+    # ни anchor-кроп, ни zoompan, ни грейд не знают про этот шаг вообще.
+    # Кадр 4:3 и шире возвращается тем же путём — ноль изменений.
+    photo = aspect_fit_backdrop(photo)
     frames = max(1, round(dur * FPS))
     # KENBURNS_ADAPTIVE_CANVAS=0 (дефолт) -> ровно 8000x4500, как раньше,
     # байт-в-байт. См. докстринг константы у объявления выше.
@@ -8286,6 +8292,106 @@ def estimate_depth(canvas_bgr):
     return depth
 
 
+# Кадрирование источников, у которых пропорция далека от 16:9.
+#
+# РЕАЛЬНЫЙ, ИЗМЕРЕННЫЙ дефект. Весь пайплайн приводит фото к кадру одним и
+# тем же приёмом — increase+crop («залить и обрезать», см. compute_crop_offset
+# и fill_crop_canvas ниже). Для стока Pexels (обычно 3:2) это стоит 16%
+# высоты и незаметно. Но с подключением музеев, архивов Openverse и Pixabay
+# в пул пошёл материал, которого там раньше не было: страницы кодексов,
+# надгробные эффигии, доспехи в полный рост, гобелены — то есть ПОРТРЕТНЫЕ
+# снимки. Сколько от них остаётся при том же кропе (посчитано геометрией,
+# ar/1.778 по высоте):
+#
+#     миниатюра рукописи 3:4      видно 42%  -> обрезано 58%
+#     страница кодекса 2:3        видно 38%  -> обрезано 62%
+#     доспех в рост 9:16          видно 32%  -> обрезано 68%
+#     квадрат 1:1                 видно 56%  -> обрезано 44%
+#
+# И это ДО зума Ken Burns, который снимает ещё 8-22%. То есть подлинная
+# страница рукописи показывалась зрителю узкой горизонтальной полосой из
+# середины — гейты при этом считали кандидата отличным, потому что судили
+# по ЦЕЛОМУ изображению, а не по тому, что реально попадёт в кадр.
+#
+# Решение — стандартное для жанра (и ровно то, что рекомендует продакшн-
+# спецификация канала): вписать изображение ЦЕЛИКОМ, а пустоту по бокам
+# закрыть размытой и затемнённой копией его же. Затемнение обязательно —
+# без него яркая подложка перетягивает внимание с самого кадра.
+#
+# Порог выбран не на глаз: 4:3 — та пропорция, на которой increase+crop
+# теряет ровно четверть высоты. Всё, что ШИРЕ (включая 3:2 Pexels и 16:9),
+# идёт прежним путём БАЙТ-В-БАЙТ; подложка появляется только там, где
+# обычный кроп уничтожил бы больше четверти кадра.
+ASPECT_FIT_MIN_RATIO = 4 / 3
+ASPECT_BACKDROP_BLUR = 42        # sigma размытия подложки на холсте 1920x1080
+ASPECT_BACKDROP_DARKEN = 0.55    # множитель яркости подложки (документ просит -15%, берём сильнее:
+                                  # подложка тут не фон сцены, а заполнение пустоты)
+# Передний план вписывается не впритык к краю кадра, а с запасом под зум:
+# ZOOM_FLOOR=1.04 уже в первом кадре показывает 96% холста, поэтому при
+# полной высоте у страницы рукописи сразу срезался бы верх и низ.
+ASPECT_FIT_SAFE = 0.92
+ASPECT_FIT_CACHE_DIR = "aspect_fit"
+
+
+def needs_aspect_backdrop(iw, ih):
+    """Нужна ли этому источнику подложка вместо обычного кропа."""
+    if not iw or not ih or ih <= 0:
+        return False
+    return (iw / ih) < ASPECT_FIT_MIN_RATIO
+
+
+def aspect_fit_backdrop(photo_path, out_dir=None, width=None, height=None):
+    """Путь к 16:9-версии кадра: сам кадр целиком + размытая тёмная подложка.
+
+    Возвращает ИСХОДНЫЙ путь, если подложка не нужна (кадр 4:3 и шире),
+    фича выключена или что-то пошло не так — fail-open, тот же принцип, что
+    у остальных опциональных слоёв: ни один слот не должен пропасть из-за
+    этого шага. Результат кэшируется по (путь, mtime, размер, параметры),
+    поэтому повторный прогон не пересобирает композит."""
+    if not feature_flags.enabled("ASPECT_FIT_BACKDROP"):
+        return photo_path
+    W = width or WIDTH
+    H = height or HEIGHT
+    try:
+        with PILImage.open(photo_path) as probe:
+            probe = PILImageOps.exif_transpose(probe)
+            iw, ih = probe.size
+        if not needs_aspect_backdrop(iw, ih):
+            return photo_path
+        base = out_dir or os.path.join(TEMP_FOLDER, ASPECT_FIT_CACHE_DIR)
+        os.makedirs(base, exist_ok=True)
+        key = hashlib.md5("|".join([
+            os.path.abspath(photo_path), str(os.path.getmtime(photo_path)),
+            str(os.path.getsize(photo_path)), f"{W}x{H}",
+            f"{ASPECT_BACKDROP_BLUR}:{ASPECT_BACKDROP_DARKEN}:{ASPECT_FIT_SAFE}",
+        ]).encode()).hexdigest()[:12]
+        dest = os.path.join(base, f"{key}.jpg")
+        if os.path.exists(dest) and os.path.getsize(dest) > 0:
+            return dest
+        with PILImage.open(photo_path) as im:
+            im = PILImageOps.exif_transpose(im).convert("RGB")
+            # Подложка: то же изображение, залитое на весь кадр (increase+crop),
+            # размытое и притемнённое.
+            scale = max(W / im.width, H / im.height)
+            bw, bh = max(1, round(im.width * scale)), max(1, round(im.height * scale))
+            bg = im.resize((bw, bh), PILImage.LANCZOS).crop(
+                ((bw - W) // 2, (bh - H) // 2, (bw - W) // 2 + W, (bh - H) // 2 + H))
+            bg = bg.filter(PILImageFilter.GaussianBlur(ASPECT_BACKDROP_BLUR))
+            bg = PILImageEnhance.Brightness(bg).enhance(ASPECT_BACKDROP_DARKEN)
+            # Передний план: изображение целиком, вписанное с запасом под зум.
+            fit = min(W * ASPECT_FIT_SAFE / im.width, H * ASPECT_FIT_SAFE / im.height)
+            fw, fh = max(1, round(im.width * fit)), max(1, round(im.height * fit))
+            fg = im.resize((fw, fh), PILImage.LANCZOS)
+            bg.paste(fg, ((W - fw) // 2, (H - fh) // 2))
+            tmp = dest + ".tmp"
+            bg.save(tmp, "JPEG", quality=95, subsampling=0)
+            os.replace(tmp, dest)
+        return dest
+    except Exception as e:
+        print(f"  подложка 16:9 не собралась для {os.path.basename(str(photo_path))}: {e} — кадрирую как раньше")
+        return photo_path
+
+
 def fill_crop_canvas(photo_path, cw, ch, anchor=None):
     """Тот же increase+crop, что и в ffmpeg-пути: заливаем холст целиком,
     обрезаем лишнее — без чёрных полос по краям (BGR для cv2). anchor —
@@ -8388,6 +8494,9 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
     вместо ffmpeg zoompan — только так можно сделать смещение, зависящее от
     глубины пикселя. При любой накладке (модель не встала, ffmpeg-пайп упал)
     возвращает False — вызывающий код откатывается на обычный kenburns()."""
+    # Та же подложка, что и в kenburns(): параллакс строит свой холст через
+    # fill_crop_canvas(), то есть тем же increase+crop.
+    photo = aspect_fit_backdrop(photo)
     global PARALLAX_BROKEN
     if PARALLAX_BROKEN:
         return False
@@ -10374,6 +10483,10 @@ def render_recipe_signature():
     try:
         import inspect
         parts = [inspect.getsource(f) for f in (
+            # aspect_fit_backdrop/needs_aspect_backdrop — часть РЕЦЕПТА кадра:
+            # правка порога или вида подложки меняет уже отрендеренный клип,
+            # а ни один рантайм-параметр params_hash при этом не двигается.
+            aspect_fit_backdrop, needs_aspect_backdrop,
             film_look, _scene_bias, _warm_mult, grain_blend_complex,
             add_overlays, add_kinetic_captions, kenburns, video_render,
             parallax_kenburns, choose_motion_mode, piecewise_ease_expr,
