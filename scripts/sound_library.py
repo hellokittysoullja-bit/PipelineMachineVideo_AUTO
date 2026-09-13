@@ -264,8 +264,11 @@ def openverse_search(query, pages=2):
             {"q": query, "license": "cc0", "page_size": 20, "page": page})
         try:
             data = _search_cached("openverse|" + url, lambda: _get_json(url))
+        except urllib.error.HTTPError as e:
+            print(f"    openverse: HTTP {e.code} на «{query}» (стр. {page}): {e.read()[:120]!r}")
+            break
         except Exception as e:
-            print(f"    openverse: {type(e).__name__} на «{query}» (стр. {page})")
+            print(f"    openverse: {type(e).__name__} на «{query}» (стр. {page}): {e}")
             break
         chunk = data.get("results") or []
         results.extend(chunk)
