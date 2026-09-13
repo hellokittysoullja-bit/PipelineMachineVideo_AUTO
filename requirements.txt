@@ -24,6 +24,14 @@ opencv-python-headless==4.10.0.84
 # torch --index-url https://download.pytorch.org/whl/cpu
 # torchvision --index-url https://download.pytorch.org/whl/cpu
 # transformers
+#
+# Стек, на котором откалиброваны пороги отбора звука и снят золотой набор
+# картинок: torch 2.14.0+cpu, transformers 5.17.0. Это НЕ жёсткий пин
+# (обе зависимости опциональные, ставятся отдельно) — это записанный факт:
+# дрейф уже случался вживую и сдвинул кадр золотого набора через порог без
+# единой правки кода. Канарейка tests/test_clap_canary.py ловит такой сдвиг
+# на замороженных отрезках и называет обе версии в тексте провала, чтобы
+# «поменялась модель» не выглядело как «сломался код».
 
 # Опционально — ensemble SigLIP2+Jina CLIP v2 в scripts/visual_director.py
 # sentence_relevance() (VISUAL_DIRECTOR_MODE=shadow/assist, само по себе off
