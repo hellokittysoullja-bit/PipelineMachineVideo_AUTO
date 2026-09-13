@@ -103,3 +103,30 @@ def test_library_files_lists_only_flac(tmp_path, monkeypatch):
     (d / "notes.txt").write_bytes(b"x")
     assert [os.path.basename(p) for p in sl.library_files("sfx", "plate_tick")] == ["a.flac", "b.flac"]
     assert sl.library_files("sfx", "missing") == []
+
+
+def test_judge_applies_thresholds_on_cached_measurements():
+    """Пороги живут в judge(): перенастройка не гоняет модели заново."""
+    spec = {"prompt": "wind", "min_sec": 45}
+    base = {"duration": 100.0, "clipping_share": 0.0, "hum_db": 3.0, "silence_share": 0.01,
+            "lufs": -30.0, "lra": 8.0, "true_peak": -6.0,
+            "clap_rows": [[0.25, 0.10, 0.05], [0.24, 0.12, 0.04]],
+            "neg_names": ["speech", "music"], "ast": {"Speech": 0.01, "Music": 0.02}}
+    ok = sl.judge(base, "ambience", spec)
+    assert ok["reasons"] == [] and ok["clap_margin"] == pytest.approx(0.12, abs=1e-3)
+    assert ok["clap_worst_neg"] == "speech"
+    loud = sl.judge(dict(base, lra=sl.AMB_MAX_LRA + 1), "ambience", spec)
+    assert "too_dynamic" in loud["reasons"]
+    talk = sl.judge(dict(base, ast={"Speech": 0.9, "Music": 0.0}), "ambience", spec)
+    assert "ast_speech" in talk["reasons"]
+    lose = sl.judge(dict(base, clap_rows=[[0.10, 0.20, 0.05]]), "ambience", spec)
+    assert "clap_negative_wins" in lose["reasons"]
+    short = sl.judge(dict(base, duration=10.0), "ambience", spec)
+    assert short["reasons"] == ["duration_short"]
+
+
+def test_title_block_catches_the_real_misses():
+    """Реальные промахи первого прогона: колокольчики, прибой, дверь."""
+    for title in ("WindChimes1.wav", "Big waves breaking and splashing", "Door_and_whistling_wind.mp3"):
+        assert sl.title_blocked("wind_open", title), title
+    assert sl.title_blocked("wind_open", "Wind blowing across open marshland") is None

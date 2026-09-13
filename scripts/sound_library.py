@@ -81,7 +81,7 @@ CLAP_MIN_POSITIVE = 0.08
 AST_VETO = {"Speech": 0.12, "Music": 0.25, "Vehicle": 0.30, "Singing": 0.12}
 # Измерительные гейты атмосферы
 AMB_MAX_SILENCE_SHARE = 0.25
-AMB_MAX_LRA = 18.0
+AMB_MAX_LRA = 20.0     # 18.2 отсекало настоящее летнее поле с птицами; 26 (ветер без ветрозащиты) остаётся вне
 CLIP_SAMPLE_SHARE = 1e-4     # доля сэмплов на |1.0| — клиппинг
 HUM_PROMINENCE_DB = 14.0     # узкая линия 50/60 Гц над соседями ±3..10 Гц
 
@@ -93,7 +93,10 @@ HUM_PROMINENCE_DB = 14.0     # узкая линия 50/60 Гц над сосе�
 TITLE_BLOCK_COMMON = ("loop", "synth", "generated", "processed", "reverb test", "test ")
 TITLE_BLOCK = {
     "wind_open": ("wave", "sea", "surf", "ocean", "beach", "rain", "hail", "thunder", "storm",
-                  "door", "window", "indoor", "inside", "room", "car", "train", "city", "street"),
+                  "door", "window", "indoor", "inside", "room", "car", "train", "city", "street",
+                  # «WindChimes» прошёл CLAP с маржой +0.112 и AST Music 0.059 —
+                  # колокольчики ловятся только по названию
+                  "chime", "bell", "whistl", "flute", "pipe"),
     "forest_birds": ("city", "street", "traffic", "zoo", "cage", "indoor", "room", "rain"),
     "night": ("city", "street", "traffic", "party", "club", "indoor"),
     "stone_hall": ("outdoor", "street", "traffic", "crowd", "concert", "organ", "choir"),
@@ -141,43 +144,43 @@ LIBRARY_SPEC = {
             queries=["wind open field", "field ambience wind", "wind grass meadow", "moorland wind",
                      "steppe wind ambience", "windy plain"],
             prompt="steady wind blowing over an open field, outdoors, no people",
-            min_sec=45, keep=3),
+            min_sec=45, keep=5),
         "forest_birds": dict(
             queries=["forest birds ambience", "birds spring forest", "woodland birdsong ambience",
                      "forest ambience morning", "park birds ambience"],
             prompt="quiet forest ambience with birds singing softly in the distance",
-            min_sec=45, keep=3),
+            min_sec=45, keep=5),
         "night": dict(
             queries=["night ambience crickets", "night forest ambience", "night countryside ambience",
                      "owl night ambience"],
             prompt="calm night ambience outdoors with crickets and distant owls",
-            min_sec=45, keep=3),
+            min_sec=45, keep=5),
         "stone_hall": dict(
             queries=["church interior ambience", "cathedral ambience quiet", "room tone hall reverb",
                      "empty hall room tone", "castle interior ambience", "monastery ambience"],
             prompt="quiet interior room tone of a large stone hall, distant reverberant space",
-            extra_neg=("footsteps walking",), min_sec=30, keep=3),
+            extra_neg=("footsteps walking",), min_sec=30, keep=5),
         "forge_fire": dict(
             queries=["fireplace crackling", "campfire crackling", "bonfire", "wood fire burning",
                      "blacksmith forge fire"],
             prompt="a wood fire burning and crackling, calm and steady",
-            min_sec=30, keep=3),
+            min_sec=30, keep=5),
         "rain_mud": dict(
             queries=["rain ambience", "light rain outdoors", "rain on grass field", "gentle rain nature",
                      "rain forest ambience"],
             prompt="light steady rain falling outdoors, natural, no people",
-            min_sec=45, keep=3),
+            min_sec=45, keep=5),
         "crowd_market": dict(
             queries=["market crowd ambience", "crowd murmur walla", "village market crowd",
                      "medieval fair crowd", "outdoor crowd ambience distant"],
             prompt="distant murmur of a crowd at an outdoor market, indistinct voices, no clear words",
             # речь тут допустима как далёкий гомон — ловушка «разборчивые слова»
             extra_neg=("a person speaking clearly into a microphone", "announcement, narration"),
-            min_sec=30, keep=3, ast_veto={"Music": 0.25, "Vehicle": 0.30}),
+            min_sec=30, keep=5, ast_veto={"Music": 0.25, "Vehicle": 0.30}),
         "river_stream": dict(
             queries=["stream water flowing", "river ambience", "brook water", "creek ambience"],
             prompt="a small stream of water flowing gently over stones",
-            min_sec=45, keep=2),
+            min_sec=45, keep=4),
     },
     "sfx": {
         "chapter_turn": dict(
@@ -506,79 +509,114 @@ def ast_probs(windows16k, labels):
 
 
 # ------------------------------------------------------------- оценка
-def evaluate(item, path, kind, name, spec):
-    """Полный разбор одного кандидата -> dict с вердиктом и причиной."""
-    verdict = {"id": item["id"], "title": item["title"], "reasons": []}
+def _measure_key(path, spec):
+    negs = list(NEGATIVE_PROMPTS) + list(spec.get("extra_neg", ()))
+    raw = "|".join([os.path.basename(path), str(os.path.getsize(path)), spec["prompt"], *negs,
+                    "clap:laion/larger_clap_general", "ast:MIT/ast-finetuned-audioset-10-10-0.4593", "v2"])
+    return hashlib.sha1(raw.encode()).hexdigest()[:20]
+
+
+def measure(path, kind, spec):
+    """Сырые измерения кандидата — БЕЗ порогов, с кэшем на диске.
+
+    Пороги живут в judge(): перенастройка порога после разбора результатов
+    не должна заново гонять две модели по всем кандидатам (замер 13.09:
+    ~10с на кандидата, 30 кандидатов на вид, 13 видов).
+    """
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    cache = os.path.join(CACHE_DIR, "measure_" + _measure_key(path, spec) + ".json")
+    if os.path.exists(cache):
+        try:
+            with open(cache, encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    m = {}
     dur = probe_duration(path)
     if not dur:
-        verdict["reasons"].append("undecodable")
-        return verdict
-    verdict["duration"] = round(dur, 3)
-    lo, hi = spec.get("min_sec", 0.0), spec.get("max_sec", 1e9)
-    if dur < lo or dur > hi:
-        verdict["reasons"].append(f"duration_{'short' if dur < lo else 'long'}")
-        return verdict
-
-    is_amb = kind == "ambience"
-    # окна анализа
+        m["undecodable"] = True
+        return m
+    m["duration"] = round(dur, 3)
     if dur <= CLAP_WINDOW_SEC + 1.0:
         starts = [0.0]
     else:
         starts = [max(0.0, min(dur - CLAP_WINDOW_SEC, f * dur - CLAP_WINDOW_SEC / 2)) for f in CLAP_WINDOW_FRACS]
-    win48 = [decode_f32(path, s, min(CLAP_WINDOW_SEC, dur), 48000) for s in starts]
+    win48 = [decode_f32(path, st, min(CLAP_WINDOW_SEC, dur), 48000) for st in starts]
     win48 = [w for w in win48 if w.size > 4800]
     if not win48:
-        verdict["reasons"].append("undecodable")
-        return verdict
-
-    # измерительные гейты
-    clip = max(clipping_share(w) for w in win48)
-    verdict["clipping_share"] = round(clip, 6)
-    if clip > CLIP_SAMPLE_SHARE:
-        verdict["reasons"].append("clipping")
-    if is_amb:
-        hum = max(hum_prominence_db(w, 48000) for w in win48)
-        verdict["hum_db"] = round(hum, 1)
-        if hum > HUM_PROMINENCE_DB:
-            verdict["reasons"].append("mains_hum")
-        sil = silence_share(path, dur)
-        verdict["silence_share"] = round(sil, 3)
-        if sil > AMB_MAX_SILENCE_SHARE:
-            verdict["reasons"].append("too_much_silence")
+        m["undecodable"] = True
+        return m
+    m["clipping_share"] = round(max(clipping_share(w) for w in win48), 6)
+    if kind == "ambience":
+        m["hum_db"] = round(max(hum_prominence_db(w, 48000) for w in win48), 1)
+        m["silence_share"] = round(silence_share(path, dur), 3)
         lufs, lra, tp = measure_loudness(path)
-        verdict.update(lufs=lufs, lra=lra, true_peak=tp)
-        if lra is not None and lra > AMB_MAX_LRA:
-            verdict["reasons"].append("too_dynamic")
-    if verdict["reasons"]:
-        return verdict
-
-    # CLAP: маржа положительного промпта над худшей ловушкой на КАЖДОМ окне
+        m.update(lufs=lufs, lra=lra, true_peak=tp)
     negs = list(NEGATIVE_PROMPTS) + list(spec.get("extra_neg", ()))
     rows = clap_scores(win48, [spec["prompt"]] + negs)
-    pos = [r[0] for r in rows]
-    worst_neg = [max(r[1:]) for r in rows]
-    worst_neg_name = [negs[max(range(len(negs)), key=lambda k: r[1 + k])] for r in rows]
-    margin = min(p - n for p, n in zip(pos, worst_neg))
-    verdict.update(clap_pos=round(sum(pos) / len(pos), 4), clap_margin=round(margin, 4),
-                   clap_worst_neg=worst_neg_name[min(range(len(rows)), key=lambda k: pos[k] - worst_neg[k])])
-    if sum(pos) / len(pos) < CLAP_MIN_POSITIVE:
-        verdict["reasons"].append("clap_low_positive")
-    if margin < CLAP_MIN_MARGIN:
-        verdict["reasons"].append("clap_negative_wins")
+    m["clap_rows"] = [[round(x, 4) for x in r] for r in rows]
+    m["neg_names"] = negs
+    if kind == "ambience":
+        labels = sorted(set(AST_VETO) | set(spec.get("ast_veto", {})))
+        win16 = [decode_f32(path, st, min(CLAP_WINDOW_SEC, dur), 16000) for st in starts]
+        probs = ast_probs([w for w in win16 if w.size > 1600], labels)
+        m["ast"] = {lab: round(max(p.get(lab, 0.0) for p in probs), 3) for lab in labels}
+    with open(cache, "w", encoding="utf-8") as f:
+        json.dump(m, f)
+    return m
 
-    # AST: жёсткое вето по классам AudioSet (только атмосфера — у коротких
-    # эффектов классы AudioSet малоинформативны)
-    if is_amb:
+
+def judge(m, kind, spec):
+    """Пороги поверх сырых измерений -> вердикт с причинами."""
+    v = {"reasons": []}
+    if m.get("undecodable"):
+        v["reasons"].append("undecodable")
+        return v
+    v["duration"] = m["duration"]
+    lo, hi = spec.get("min_sec", 0.0), spec.get("max_sec", 1e9)
+    if m["duration"] < lo or m["duration"] > hi:
+        v["reasons"].append(f"duration_{'short' if m['duration'] < lo else 'long'}")
+        return v
+    v["clipping_share"] = m["clipping_share"]
+    if m["clipping_share"] > CLIP_SAMPLE_SHARE:
+        v["reasons"].append("clipping")
+    if kind == "ambience":
+        v.update(hum_db=m.get("hum_db"), silence_share=m.get("silence_share"),
+                 lufs=m.get("lufs"), lra=m.get("lra"), true_peak=m.get("true_peak"))
+        if (m.get("hum_db") or 0) > HUM_PROMINENCE_DB:
+            v["reasons"].append("mains_hum")
+        if (m.get("silence_share") or 0) > AMB_MAX_SILENCE_SHARE:
+            v["reasons"].append("too_much_silence")
+        if m.get("lra") is not None and m["lra"] > AMB_MAX_LRA:
+            v["reasons"].append("too_dynamic")
+    if v["reasons"]:
+        return v
+    rows, negs = m["clap_rows"], m["neg_names"]
+    pos = [r[0] for r in rows]
+    worst = [max(r[1:]) for r in rows]
+    margin = min(p - n for p, n in zip(pos, worst))
+    k = min(range(len(rows)), key=lambda i: pos[i] - worst[i])
+    v.update(clap_pos=round(sum(pos) / len(pos), 4), clap_margin=round(margin, 4),
+             clap_worst_neg=negs[max(range(len(negs)), key=lambda j: rows[k][1 + j])])
+    if sum(pos) / len(pos) < CLAP_MIN_POSITIVE:
+        v["reasons"].append("clap_low_positive")
+    if margin < CLAP_MIN_MARGIN:
+        v["reasons"].append("clap_negative_wins")
+    if kind == "ambience" and m.get("ast"):
         veto = dict(AST_VETO)
         veto.update(spec.get("ast_veto", {}))
-        win16 = [decode_f32(path, s, min(CLAP_WINDOW_SEC, dur), 16000) for s in starts]
-        probs = ast_probs([w for w in win16 if w.size > 1600], list(veto))
-        worst = {lab: max(p.get(lab, 0.0) for p in probs) for lab in veto}
-        verdict["ast"] = {k: round(v, 3) for k, v in worst.items()}
+        v["ast"] = m["ast"]
         for lab, thr in veto.items():
-            if worst.get(lab, 0.0) > thr:
-                verdict["reasons"].append(f"ast_{lab.lower()}")
-    return verdict
+            if m["ast"].get(lab, 0.0) > thr:
+                v["reasons"].append(f"ast_{lab.lower()}")
+    return v
+
+
+def evaluate(item, path, kind, name, spec):
+    """Полный разбор одного кандидата -> dict с вердиктом и причиной."""
+    v = judge(measure(path, kind, spec), kind, spec)
+    v.update(id=item["id"], title=item["title"])
+    return v
 
 
 def import_file(src, dst, kind, dur):
