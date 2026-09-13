@@ -31,7 +31,9 @@
      "Vehicle": 0.03
     },
     "id": "freesound:09b78116-2b50-47f5-bdc7-3e45c5d587bb",
-    "title": "Wind blowing across open marshland"
+    "title": "Wind blowing across open marshland",
+    "kind_winner": "wind_open",
+    "kind_gap": 0.1385
    },
    "imported_at": 1789318739
   },
@@ -66,42 +68,9 @@
      "Vehicle": 0.019
     },
     "id": "freesound:923528bf-dc69-4c33-902c-3a4d2c9715a9",
-    "title": "windy-mountain-plains by dwightsabeast (improved).flac"
-   },
-   "imported_at": 1789318840
-  },
-  "assets/library/ambience/wind_open/freesound_239700a4_dc2f_4480_ac49_fd7575e27b6e.flac": {
-   "kind": "ambience",
-   "name": "wind_open",
-   "source": "openverse:freesound",
-   "id": "freesound:239700a4-dc2f-4480-ac49-fd7575e27b6e",
-   "title": "wind_long_grass_24_96_mono.wav",
-   "creator": "dhi67540",
-   "license": "cc0",
-   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
-   "url": "https://cdn.freesound.org/previews/94/94931_1499659-hq.mp3",
-   "landing": "https://freesound.org/people/dhi67540/sounds/94931",
-   "query": "field ambience wind",
-   "scores": {
-    "reasons": [],
-    "duration": 48.504,
-    "clipping_share": 0.0,
-    "hum_db": 10.6,
-    "silence_share": 0.0,
-    "lufs": -29.8,
-    "lra": 6.9,
-    "true_peak": -9.5,
-    "clap_pos": 0.199,
-    "clap_margin": 0.146,
-    "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
-    "ast": {
-     "Music": 0.013,
-     "Singing": 0.001,
-     "Speech": 0.011,
-     "Vehicle": 0.022
-    },
-    "id": "freesound:239700a4-dc2f-4480-ac49-fd7575e27b6e",
-    "title": "wind_long_grass_24_96_mono.wav"
+    "title": "windy-mountain-plains by dwightsabeast (improved).flac",
+    "kind_winner": "wind_open",
+    "kind_gap": 0.0367
    },
    "imported_at": 1789318840
   },
@@ -136,7 +105,9 @@
      "Vehicle": 0.005
     },
     "id": "freesound:8e0829f6-24cf-42a7-9ec2-a17db2d00f63",
-    "title": "Field ambience 01.wav"
+    "title": "Field ambience 01.wav",
+    "kind_winner": "wind_open",
+    "kind_gap": 0.0283
    },
    "imported_at": 1789318875
   },
@@ -171,7 +142,9 @@
      "Vehicle": 0.011
     },
     "id": "freesound:2e65d059-0863-4473-87dc-8c2f72c6c5ca",
-    "title": "ATM_EXT_OpenFarmlandDayGrassBirdsMoreWindREJ_F8ST021019T04.wav"
+    "title": "ATM_EXT_OpenFarmlandDayGrassBirdsMoreWindREJ_F8ST021019T04.wav",
+    "kind_winner": "wind_open",
+    "kind_gap": 0.0495
    },
    "imported_at": 1789318895
   },
@@ -206,7 +179,9 @@
      "Vehicle": 0.001
     },
     "id": "freesound:704c9212-07e8-4262-940e-187ddbe5ed82",
-    "title": "Night Ambience w/ Crickets"
+    "title": "Night Ambience w/ Crickets",
+    "kind_winner": "night",
+    "kind_gap": 0.1556
    },
    "imported_at": 1789319607
   },
@@ -241,7 +216,9 @@
      "Vehicle": 0.003
     },
     "id": "freesound:cd49dea5-2267-4761-997e-ca601b817b78",
-    "title": "Night at the countryside with cows and crickets.wav"
+    "title": "Night at the countryside with cows and crickets.wav",
+    "kind_winner": "night",
+    "kind_gap": 0.1521
    },
    "imported_at": 1789319622
   },
@@ -276,7 +253,9 @@
      "Vehicle": 0.001
     },
     "id": "freesound:951e6c56-5952-40ee-b652-bdc74e83374f",
-    "title": "Forest at night, crickets, cicadas and insects in the Sian Ka'an Biosphere Reserve"
+    "title": "Forest at night, crickets, cicadas and insects in the Sian Ka'an Biosphere Reserve",
+    "kind_winner": "night",
+    "kind_gap": 0.1475
    },
    "imported_at": 1789319710
   },
@@ -311,7 +290,9 @@
      "Vehicle": 0.011
     },
     "id": "freesound:b0377c8d-8b6e-459c-b8d1-92eddbd41ef1",
-    "title": "CRICKETS_NIGHT"
+    "title": "CRICKETS_NIGHT",
+    "kind_winner": "night",
+    "kind_gap": 0.1973
    },
    "imported_at": 1789319749
   },
@@ -346,7 +327,9 @@
      "Vehicle": 0.012
     },
     "id": "freesound:91170c71-99b8-418a-8917-c79e5e7dbcd5",
-    "title": "Forest ambience 3 (night at the pond)"
+    "title": "Forest ambience 3 (night at the pond)",
+    "kind_winner": "night",
+    "kind_gap": 0.0616
    },
    "imported_at": 1789319770
   },
@@ -381,7 +364,9 @@
      "Vehicle": 0.002
     },
     "id": "freesound:63f26ee8-ba9d-4f4b-8cf1-18238e343df4",
-    "title": "The Fireplace 3.wav"
+    "title": "The Fireplace 3.wav",
+    "kind_winner": "forge_fire",
+    "kind_gap": 0.2079
    },
    "imported_at": 1789320137
   },
@@ -416,7 +401,9 @@
      "Vehicle": 0.006
     },
     "id": "freesound:a01145da-3883-4eb5-99bb-e9cdc22f30e8",
-    "title": "crackling_fire_021012.wav"
+    "title": "crackling_fire_021012.wav",
+    "kind_winner": "forge_fire",
+    "kind_gap": 0.1795
    },
    "imported_at": 1789320199
   },
@@ -451,7 +438,9 @@
      "Vehicle": 0.001
     },
     "id": "freesound:c53d4b40-474b-46e9-ae5b-a40458000f65",
-    "title": "Bonfire HQ.wav"
+    "title": "Bonfire HQ.wav",
+    "kind_winner": "forge_fire",
+    "kind_gap": 0.1918
    },
    "imported_at": 1789320230
   },
@@ -486,7 +475,9 @@
      "Vehicle": 0.002
     },
     "id": "freesound:bdf6194e-9fdf-4f9d-92ed-79a0dc63fe6a",
-    "title": "Wood_Firestove.wav"
+    "title": "Wood_Firestove.wav",
+    "kind_winner": "forge_fire",
+    "kind_gap": 0.1805
    },
    "imported_at": 1789320339
   },
@@ -521,7 +512,9 @@
      "Vehicle": 0.05
     },
     "id": "freesound:af18388a-5a7a-4ffa-8f08-3a6cf3027ded",
-    "title": "Fireplace for Six Minutes (Stereo)"
+    "title": "Fireplace for Six Minutes (Stereo)",
+    "kind_winner": "forge_fire",
+    "kind_gap": 0.201
    },
    "imported_at": 1789320474
   },
@@ -556,7 +549,9 @@
      "Vehicle": 0.001
     },
     "id": "freesound:19c3bf2c-164c-48b4-840e-acc74c33a74f",
-    "title": "Rain on grass and leaves"
+    "title": "Rain on grass and leaves",
+    "kind_winner": "rain_mud",
+    "kind_gap": 0.1302
    },
    "imported_at": 1789320772
   },
@@ -591,7 +586,9 @@
      "Vehicle": 0.002
     },
     "id": "freesound:f0848c95-ab5b-4fd9-952b-3636b2e34cca",
-    "title": "Rain on grass pt. 2"
+    "title": "Rain on grass pt. 2",
+    "kind_winner": "rain_mud",
+    "kind_gap": 0.0638
    },
    "imported_at": 1789320793
   },
@@ -626,7 +623,9 @@
      "Vehicle": 0.001
     },
     "id": "freesound:398ee690-ed60-446d-9231-56de047725e1",
-    "title": "Rain on grass pt. 1"
+    "title": "Rain on grass pt. 1",
+    "kind_winner": "rain_mud",
+    "kind_gap": 0.0347
    },
    "imported_at": 1789320811
   },
@@ -661,7 +660,9 @@
      "Vehicle": 0.004
     },
     "id": "freesound:d17d6090-87bb-4147-8417-d9055922da0a",
-    "title": "Light Rain on Woodland Floor and Running Stream.wav"
+    "title": "Light Rain on Woodland Floor and Running Stream.wav",
+    "kind_winner": "rain_mud",
+    "kind_gap": 0.0827
    },
    "imported_at": 1789320860
   },
@@ -696,7 +697,9 @@
      "Vehicle": 0.002
     },
     "id": "freesound:cd4a826e-0e42-491f-bb40-ab16192b2bad",
-    "title": "forest drop rain.wav"
+    "title": "forest drop rain.wav",
+    "kind_winner": "rain_mud",
+    "kind_gap": 0.039
    },
    "imported_at": 1789320942
   },
@@ -731,7 +734,9 @@
      "Vehicle": 0.002
     },
     "id": "freesound:d49fa0cf-ed6f-4916-8da1-6d8ad7a20b4e",
-    "title": "River"
+    "title": "River",
+    "kind_winner": "river_stream",
+    "kind_gap": 0.1521
    },
    "imported_at": 1789321466
   },
@@ -766,7 +771,9 @@
      "Vehicle": 0.054
     },
     "id": "freesound:23ca228c-8b57-4d0c-a5a2-5155003fa994",
-    "title": "Water flowing in a small river. Aquatic sound."
+    "title": "Water flowing in a small river. Aquatic sound.",
+    "kind_winner": "river_stream",
+    "kind_gap": 0.1804
    },
    "imported_at": 1789321501
   },
@@ -801,7 +808,9 @@
      "Vehicle": 0.002
     },
     "id": "freesound:1884ad24-93e1-4a00-b33e-3080eb819a57",
-    "title": "stream2.wav"
+    "title": "stream2.wav",
+    "kind_winner": "river_stream",
+    "kind_gap": 0.1523
    },
    "imported_at": 1789321558
   },
@@ -836,7 +845,9 @@
      "Vehicle": 0.002
     },
     "id": "freesound:0ffeffe4-47d0-4b37-b573-ee1634325748",
-    "title": "CreekDec182011.wav"
+    "title": "CreekDec182011.wav",
+    "kind_winner": "river_stream",
+    "kind_gap": 0.1405
    },
    "imported_at": 1789321617
   },
@@ -1351,7 +1362,9 @@
      "Vehicle": 0.001
     },
     "id": "freesound:7b6eb088-18fe-4859-abdc-fda68870c4ac",
-    "title": "Birds forest woodpecker.wav"
+    "title": "Birds forest woodpecker.wav",
+    "kind_winner": "forest_birds",
+    "kind_gap": 0.1058
    },
    "imported_at": 1789322009
   },
@@ -1386,7 +1399,9 @@
      "Vehicle": 0.001
     },
     "id": "freesound:e506b55e-0613-4b0a-8250-e709841c6736",
-    "title": "sfx_amb_forest_spring_afternoon-02.wav"
+    "title": "sfx_amb_forest_spring_afternoon-02.wav",
+    "kind_winner": "forest_birds",
+    "kind_gap": 0.1419
    },
    "imported_at": 1789322010
   },
@@ -1421,7 +1436,9 @@
      "Vehicle": 0.001
     },
     "id": "freesound:c2cfc52c-a5c1-4467-8d16-bef13043692a",
-    "title": "Forest Birds 02"
+    "title": "Forest Birds 02",
+    "kind_winner": "forest_birds",
+    "kind_gap": 0.0413
    },
    "imported_at": 1789322025
   },
@@ -1456,7 +1473,9 @@
      "Vehicle": 0.0
     },
     "id": "freesound:630ec162-11ae-42fe-9090-1a46f1ac589b",
-    "title": "sfx_amb_forest_spring_afternoon-01.wav"
+    "title": "sfx_amb_forest_spring_afternoon-01.wav",
+    "kind_winner": "forest_birds",
+    "kind_gap": 0.1497
    },
    "imported_at": 1789322026
   },
@@ -1491,7 +1510,9 @@
      "Vehicle": 0.001
     },
     "id": "freesound:9c53f3f3-48d1-4157-816a-5e82549769db",
-    "title": "Forest ambience with singing birds"
+    "title": "Forest ambience with singing birds",
+    "kind_winner": "forest_birds",
+    "kind_gap": 0.0426
    },
    "imported_at": 1789322137
   },
@@ -1715,7 +1736,7 @@
     "clap_margin": 0.0523,
     "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
     "kind_winner": "stone_hall",
-    "kind_gap": 0.0052,
+    "kind_gap": 0.0521,
     "ast": {
      "Music": 0.741,
      "Singing": 0.0,
@@ -1755,7 +1776,7 @@
     "clap_margin": 0.0835,
     "clap_worst_neg": "one person speaking clearly, announcement through a loudspeaker",
     "kind_winner": "crowd_market",
-    "kind_gap": 0.1326,
+    "kind_gap": 0.2859,
     "ast": {
      "Music": 0.159,
      "Singing": 0.001,
@@ -1795,7 +1816,7 @@
     "clap_margin": 0.0792,
     "clap_worst_neg": "digital distortion, clipping, glitch, static",
     "kind_winner": "crowd_market",
-    "kind_gap": 0.1232,
+    "kind_gap": 0.2333,
     "ast": {
      "Music": 0.078,
      "Singing": 0.002,
@@ -1835,7 +1856,7 @@
     "clap_margin": 0.0442,
     "clap_worst_neg": "one person speaking clearly, announcement through a loudspeaker",
     "kind_winner": "crowd_market",
-    "kind_gap": 0.0676,
+    "kind_gap": 0.1576,
     "ast": {
      "Music": 0.118,
      "Singing": 0.004,

@@ -222,3 +222,32 @@ def test_audition_reuses_the_real_import_chain():
     """Слушается то, что реально ушло бы в ролик (срез рокота, расширение
     моно, бесшовная петля), а не исходник со стока."""
     assert "import_file(" in inspect.getsource(sl.audition)
+
+
+def test_rejected_log_accumulates_across_builds():
+    """Пересборка одного вида не стирает причины отказа у остальных.
+    Первая версия заводила пустой список на каждый запуск — и на вопрос
+    «почему эта запись не прошла» ответа не оставалось нигде."""
+    src = inspect.getsource(sl.main)
+    assert "rejected_path" in src
+    # старый журнал читается перед записью, а не перезаписывается с нуля
+    assert src.index("json.load(f)") < src.index("json.dump(rejected")
+    # и чистятся ровно те виды, что пересобираются
+    assert "drop = {(k, n) for k, n in wanted}" in src
+
+
+def test_verify_logs_what_it_deletes():
+    """Удалять запись молча нельзя: проигрыш чужому виду — СПОРНЫЙ отказ
+    (ветер по высокой траве и правда похож на прибой), а спорное решается
+    ушами. Значит удалённое обязано попасть в журнал, откуда его достаёт
+    audition."""
+    src = inspect.getsource(sl.verify)
+    assert "_log_rejection(" in src
+    assert src.index("_log_rejection(") < src.index("os.remove(path)")
+    assert 'f"kind_lost_to_{winner}"' in src
+
+
+def test_rejection_log_does_not_clobber_other_entries():
+    src = inspect.getsource(sl._log_rejection)
+    assert "rows.append(entry)" in src
+    assert "json.load(f)" in src

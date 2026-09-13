@@ -968,6 +968,24 @@ def kind_competition(path, want, spec_by_name):
     return winner, round(gap, 4), {n: round(v, 4) for n, v in zip(names, avg)}
 
 
+def _log_rejection(entry):
+    """Дописать отказ в общий журнал, не затирая чужие записи."""
+    path = os.path.join(LIBRARY_ROOT, "rejected.json")
+    rows = []
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                prev = json.load(f)
+            rows = prev["items"] if isinstance(prev, dict) else prev
+        except Exception:
+            rows = []
+    rows = [v for v in rows if not (v.get("id") == entry.get("id")
+                                    and v.get("name") == entry.get("name"))]
+    rows.append(entry)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(rows, f, ensure_ascii=False, indent=1)
+
+
 def verify(manifest):
     """Проверка библиотеки конкуренцией видов: запись, у которой выигрывает
     ЧУЖОЙ вид, удаляется. Отдельной командой, а не внутри build: конкуренция
@@ -987,6 +1005,13 @@ def verify(manifest):
         ok = winner == it["name"]
         print(f"  {'OK ' if ok else '-- '}{it['name']:14s} -> {str(winner):14s} отрыв {gap:+.3f}  {it['title'][:38]!r}")
         if not ok:
+            # Удалять молча нельзя: это СПОРНЫЙ отказ (ветер по высокой траве
+            # и правда похож на прибой), а спорное решается ушами. Запись
+            # уходит в тот же журнал отказов, откуда её достаёт `audition`.
+            _log_rejection(dict(
+                it["scores"], kind=it["kind"], name=it["name"], id=it["id"],
+                title=it["title"], url=it["url"], creator=it.get("creator"),
+                landing=it.get("landing"), reasons=[f"kind_lost_to_{winner}"]))
             os.remove(path)
             manifest["items"].pop(rel, None)
             dropped += 1
@@ -1111,7 +1136,21 @@ def main():
         return 0
     wanted = [tuple(k.split(":", 1)) for k in args.kinds.split(",") if k.strip()] or \
              [(k, n) for k in LIBRARY_SPEC for n in LIBRARY_SPEC[k]]
+    # Отклонённые НАКАПЛИВАЮТСЯ между прогонами, как и манифест. Первая
+    # версия заводила пустой список на каждый запуск, и пересборка одного
+    # вида стирала причины отказа у всех остальных — то есть на вопрос
+    # «почему эта запись не прошла» ответа не оставалось нигде.
+    rejected_path = os.path.join(LIBRARY_ROOT, "rejected.json")
     rejected = []
+    if os.path.exists(rejected_path):
+        try:
+            with open(rejected_path, encoding="utf-8") as f:
+                prev = json.load(f)
+            rejected = prev["items"] if isinstance(prev, dict) else prev
+        except Exception:
+            rejected = []
+    drop = {(k, n) for k, n in wanted}
+    rejected = [v for v in rejected if (v.get("kind"), v.get("name")) not in drop]
     for kind, name in wanted:
         # Пересборка вида — с чистого листа: старые принятые файлы и их
         # записи в манифесте уходят, иначе «urban»-парк остался бы в лесу
@@ -1123,7 +1162,7 @@ def main():
                              if not (it.get("kind") == kind and it.get("name") == name)}
         build_kind(kind, name, args.max, manifest, rejected)
         save_manifest(manifest)
-        with open(os.path.join(LIBRARY_ROOT, "rejected.json"), "w", encoding="utf-8") as f:
+        with open(rejected_path, "w", encoding="utf-8") as f:
             json.dump(rejected, f, ensure_ascii=False, indent=1)
     print(f"\nГотово. Манифест: {MANIFEST_PATH}; отклонённые с причинами: assets/library/rejected.json")
     return 0
