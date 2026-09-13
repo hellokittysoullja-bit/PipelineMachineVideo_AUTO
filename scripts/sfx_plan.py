@@ -61,6 +61,8 @@
 громко и почему». Сведение — `add_planned_sfx()` в pipeline_smart.py,
 аудит-трейл — `media_plan/sfx_plan.json`.
 """
+import inspect
+
 
 # Приоритет при конфликте. Кульминация сюда не входит — она обрабатывается
 # как ЗАРЕЗЕРВИРОВАННОЕ ОКНО (см. reserved_windows): её акцент ставит
@@ -197,6 +199,37 @@ def pick_variant(variants, available_sec):
     return max(fits, key=lambda v: v[1])
 
 
+def _cue_span(cue):
+    """(начало, конец) звучания кюя. Не точка — ОТРЕЗОК.
+
+    Реальный дефект, найденный замером 13.09: защищённые окна проверялись
+    по ОДНОМУ моменту старта, а кюй звучит сколько-то секунд. Шестисекундный
+    подзвучник, стартовавший за 2.5с до блока `[hush]`, играл **3.55с внутри
+    тишины**, которую сценарий потребовал явно, — и по всем отчётам проходил
+    как принятый по правилам. То же самое и с окном кульминации: там музыка
+    проседает ради одного момента, а фон спокойно тянулся сквозь него.
+
+    Длительность берётся из того, что план уже посчитал: обрезка
+    (`trim_sec`) у протяжённого, иначе длительность самого ассета.
+    """
+    t = cue.get("time")
+    if t is None:
+        return None
+    dur = cue.get("trim_sec") or cue.get("asset_dur") or 0.0
+    return float(t), float(t) + float(dur)
+
+
+def _span_hits_window(cue, windows):
+    span = _cue_span(cue)
+    if span is None:
+        return False
+    a, b = span
+    for w0, w1 in windows or ():
+        if a < w1 and b > w0:
+            return True
+    return False
+
+
 def _in_any_window(t, windows):
     for a, b in windows or ():
         if a <= t <= b:
@@ -247,16 +280,42 @@ def word_anchor_time(block, word_pos, start, speech_dur):
     return float(start) + (pos / float(words)) * float(speech_dur)
 
 
+def _call_asset_for(fn, name, at):
+    """Вызвать резолвер ассета, поддерживая обе арности.
+
+    Арность проверяется явно, а не ловится через TypeError: перехват
+    TypeError поймал бы и настоящую ошибку ВНУТРИ резолвера и молча
+    повторил бы вызов без момента — то есть замаскировал бы дефект под
+    «старый контракт».
+    """
+    try:
+        params = inspect.signature(fn).parameters
+        n = sum(1 for prm in params.values()
+                if prm.kind in (prm.POSITIONAL_ONLY, prm.POSITIONAL_OR_KEYWORD))
+        if any(prm.kind == prm.VAR_POSITIONAL for prm in params.values()):
+            n = max(n, 2)
+    except (TypeError, ValueError):
+        n = 1
+    return fn(name, at) if n >= 2 else fn(name)
+
+
 def object_cues(blocks, sub_starts, real_weights, asset_for=None,
                 pre_lap=OBJECT_PRE_LAP_SEC):
     """Кандидаты объектного слоя из разметки [sfx:...] сценария.
 
-    asset_for(name) -> (путь, длительность, класс[, усиление_дБ, источник])
-    либо None, если под этот концепт в библиотеке ничего нет. Усиление
-    приходит ИЗМЕРЕННЫМ (см. pipeline_smart.object_gain_db) — планировщик
-    его не выдумывает; без него берётся запасная константа класса. Нет ассета — кандидат честно уходит в
+    asset_for(name[, момент]) -> (путь, длительность, класс[, усиление_дБ,
+    источник[, референс_LUFS, чем_обоснован]]) либо None, если под этот
+    концепт в библиотеке ничего нет. Усиление приходит ИЗМЕРЕННЫМ (см.
+    pipeline_smart.object_gain_db) — планировщик его не выдумывает; без него
+    берётся запасная константа класса. Нет ассета — кандидат честно уходит в
     отклонённые с причиной, а не подменяется похожим: «похожий» звук под
     конкретным словом слышен как ошибка, а тишина — нет.
+
+    Момент передаётся ВТОРЫМ аргументом, потому что уровень кюя считается
+    от громкости речи ВОКРУГ него, а не от средней по эпизоду. Резолвер с
+    одним параметром продолжает работать — арность проверяется, а не
+    ловится через TypeError: тот поймал бы и настоящую ошибку внутри
+    резолвера, выдав её за «старый контракт».
     """
     cands, dropped = [], []
     for i, b in enumerate(blocks or []):
@@ -268,20 +327,40 @@ def object_cues(blocks, sub_starts, real_weights, asset_for=None,
         start = float(sub_starts[i])
         speech = float(real_weights[i]) if (real_weights and i < len(real_weights)
                                             and real_weights[i]) else 0.0
+        if not speech:
+            # Без РЕАЛЬНОЙ длительности речи блока позиция слова внутри него
+            # неизвестна, и звук встал бы в начало блока — замер показал
+            # промах на 7.2с при десятисекундном блоке. Переход главы в
+            # точно такой же ситуации честно не ставится (`no_alignment`);
+            # объект обязан вести себя так же, а не угадывать. Это та самая
+            # асимметрия, из-за которой одна и та же нехватка данных
+            # обрабатывалась двумя разными способами.
+            for m in marks:
+                nm = str((m or {}).get("name") or "").strip()
+                if nm:
+                    dropped.append({"kind": "object", "block": i, "name": nm,
+                                    "section": _section_of(b),
+                                    "reason": "no_alignment"})
+            continue
         for m in marks:
             name = str((m or {}).get("name") or "").strip()
             if not name:
                 continue
             base = {"kind": "object", "block": i, "name": name,
                     "section": _section_of(b)}
-            got = asset_for(name) if asset_for else None
+            # Якорь считается ДО резолвера: уровень зависит от того, какая
+            # речь звучит вокруг этого момента, значит момент должен быть
+            # известен раньше уровня.
+            anchor = word_anchor_time(b, m.get("word_pos"), start, speech)
+            got = _call_asset_for(asset_for, name, anchor) if asset_for else None
             if not got:
                 dropped.append(dict(base, reason="no_asset"))
                 continue
             path, asset_dur, cls = got[0], got[1], got[2]
             gain_db = got[3] if len(got) > 3 else None
             gain_src = got[4] if len(got) > 4 else "constant"
-            anchor = word_anchor_time(b, m.get("word_pos"), start, speech)
+            ref_lufs = got[5] if len(got) > 5 else None
+            ref_kind = got[6] if len(got) > 6 else None
             t = anchor - float(pre_lap)
             if t < 0:
                 # Опережение не влезает в начало ролика — ставим с нуля,
@@ -293,6 +372,13 @@ def object_cues(blocks, sub_starts, real_weights, asset_for=None,
             cue = dict(base, time=t, anchor=anchor, asset=path,
                        asset_dur=float(asset_dur or 0.0), cls=cls,
                        gain_db=float(gain_db), gain_source=gain_src)
+            if ref_kind:
+                # Вторая сторона разрыва едет ВМЕСТЕ с кюем: без неё по
+                # отчёту нельзя отличить «уровень выведен из речи рядом» от
+                # «из средней по эпизоду», а это разные числа.
+                cue["voice_ref"] = ref_kind
+                if ref_lufs is not None:
+                    cue["voice_ref_lufs"] = round(float(ref_lufs), 2)
             if cls == OBJECT_CLASS_BED:
                 # Длительность и фейды НЕСЁТ САМ КЮЙ, а не логика сведения:
                 # микшер обязан остаться тупым исполнителем плана, иначе
@@ -378,8 +464,11 @@ def plan_sfx_cues(blocks, sub_starts, real_weights, total_dur,
         if t is None or t < 0 or (total_dur and t > total_dur):
             dropped.append(dict(c, reason="out_of_range"))
             continue
+        # Проверяется ВЕСЬ отрезок звучания, а не только его старт, плюс
+        # якорь (у объекта звук начинается раньше слова, и попасть в
+        # защищённое окно может любой из двух концов).
         if _in_any_window(anchor if anchor is not None else t, reserved_windows) \
-                or _in_any_window(t, reserved_windows):
+                or _span_hits_window(c, reserved_windows):
             dropped.append(dict(c, reason="climax_window"))
             continue
         if any(abs(t - o) < min_gap for o in taken):

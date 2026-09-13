@@ -1361,6 +1361,95 @@ def measure_integrated_lufs(audio_path):
         return None
 
 
+# Референс громкости для объектного слоя — речь ВОКРУГ кюя, а не средняя по
+# эпизоду. Громкость речи гуляет: разрыв от средней даёт выскакивающий звук
+# в тихом фрагменте и утонувший — в плотном, и на слух это читается как
+# неровность сведения, а не как замысел.
+#
+# Полуокно ±6с — середина коридора 5-8с из ТЗ. Окно намеренно НЕ узкое:
+# точечный кюй по правилу слоя стоит в ПАУЗЕ, где голоса нет вообще, и
+# сравнивать его надо с речью по обе стороны от этой паузы.
+LOCAL_VOICE_HALF_WINDOW_SEC = 6.0
+# Короче этого окна интегральная громкость считается по слишком малому
+# числу блоков, чтобы называться громкостью речи участка.
+LOCAL_VOICE_MIN_WINDOW_SEC = 3.0
+# Тише этого в окне речи фактически нет (пауза, вздох, хвост эпизода) —
+# тогда «локальной громкости речи» не существует и честнее взять среднюю
+# по эпизоду, чем вывести уровень из тишины.
+LOCAL_VOICE_MIN_LUFS = -45.0
+
+
+@functools.lru_cache(maxsize=512)
+def _local_voice_lufs_cached(path, mtime, t0, dur):
+    try:
+        r = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-nostats", "-ss", f"{t0:.3f}",
+             "-t", f"{dur:.3f}", "-i", path,
+             "-af", "ebur128=framelog=quiet", "-f", "null", "-"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=120)
+        m = re.findall(r"I:\s*(-?[\d.]+)\s*LUFS", r.stderr or "")
+        return float(m[-1]) if m else None
+    except Exception:
+        return None
+
+
+def local_voice_lufs(voice_path, at, episode_lufs=None):
+    """Громкость речи В ОКНЕ вокруг момента `at`: (LUFS, чем обосновано).
+
+    Мера — та же интегральная громкость, что даёт средняя по эпизоду, и это
+    не мелочь: если локальный референс мерить одним способом, а запасной —
+    другим, то откат на запасной сам по себе сдвигал бы уровень кюя. Два
+    числа обязаны быть на ОДНОЙ шкале, иначе сравнивать их нельзя.
+
+    Гейтинг BS.1770 здесь работает на нас: тихие участки внутри окна
+    отбрасываются, то есть меряется громкость РЕЧИ участка, а не смесь речи
+    с паузами. Для точечного кюя это существенно — он стоит именно в паузе.
+
+    Обоснование: "local" — замер удался; "episode" — окно не годится
+    (замер не вышел, окно короче LOCAL_VOICE_MIN_WINDOW_SEC или тише
+    LOCAL_VOICE_MIN_LUFS), берётся средняя по эпизоду; "none" — нет и её.
+
+    ЧЕСТНЫЙ ПРЕДЕЛ: верхней границы «насколько локальное значение вправе
+    отличаться от средней» здесь НЕТ, и это решение, а не недосмотр.
+    Откалибровать такую границу не на чем — реального голоса этого канала
+    в окружении нет, а число, взятое с потолка, само стало бы источником
+    тихого смещения уровня. Выброс всё равно виден: итог ограничен
+    OBJECT_GAIN_MIN_DB/MAX_DB, обрезка честно помечается `measured_clamped`,
+    а сам референс и его обоснование уходят в кюй и в отчёт эпизода.
+    """
+    if not voice_path or at is None:
+        return episode_lufs, ("episode" if episode_lufs is not None else "none")
+    half = LOCAL_VOICE_HALF_WINDOW_SEC
+    t0 = max(0.0, float(at) - half)
+    t1 = float(at) + half
+    try:
+        # get_media_duration() ПАДАЕТ на нечитаемом файле (check=True), а не
+        # возвращает None, как можно решить по докстрингам соседей. Без
+        # этого перехвата один недоступный файл голоса ронял planner целиком
+        # — то есть из ролика исчезал ВЕСЬ звуковой слой, а не один уровень.
+        total = get_media_duration(voice_path)
+    except Exception:
+        return episode_lufs, ("episode" if episode_lufs is not None else "none")
+    if total:
+        t1 = min(t1, float(total))
+        # У края эпизода окно сдвигается внутрь, а не обрезается вдвое:
+        # иначе кюй в первых секундах мерился бы по вдвое меньшей выборке.
+        if t1 - t0 < 2 * half:
+            t0 = max(0.0, min(t0, float(total) - 2 * half))
+            t1 = min(float(total), t0 + 2 * half)
+    if t1 - t0 < LOCAL_VOICE_MIN_WINDOW_SEC:
+        return episode_lufs, ("episode" if episode_lufs is not None else "none")
+    try:
+        mtime = os.path.getmtime(voice_path)
+    except OSError:
+        return episode_lufs, ("episode" if episode_lufs is not None else "none")
+    got = _local_voice_lufs_cached(voice_path, mtime, round(t0, 2), round(t1 - t0, 2))
+    if got is None or got < LOCAL_VOICE_MIN_LUFS:
+        return episode_lufs, ("episode" if episode_lufs is not None else "none")
+    return got, "local"
+
+
 def music_bed_gain_db(voice_path, music_path):
     """Усиление подложки под ЭТОТ голос и ЭТОТ ассет: (дБ, чем обосновано).
 
@@ -1603,9 +1692,21 @@ def add_planned_sfx(mix_path, cues, total_dur, out_path):
     cmd = ["ffmpeg", "-y", "-i", mix_path]
     parts, mix_inputs = [], ["[0:a]"]
     n = 0
+    skipped = 0
     for c in cues:
         path = c.get("asset")
         if not path or not os.path.exists(path):
+            continue
+        # Файл не просто существует, а ЧИТАЕТСЯ. Замер 13.09: один битый
+        # ассет ронял весь вызов ffmpeg, и вместе с ним исчезали ВСЕ кюи
+        # эпизода — fail-open функции обещает «ошибка -> исходный микс», но
+        # цена одной нечитаемой записи не должна быть равна цене всего слоя.
+        # Проверять здесь — не «решение о звуке», а отказ подсовывать
+        # ffmpeg вход, который он не откроет.
+        if media_duration_or_none(path) is None:
+            print(f"  ВНИМАНИЕ: {os.path.basename(path)} не читается — этот "
+                  f"эффект пропущен, остальные накладываются как обычно")
+            skipped += 1
             continue
         n += 1
         cmd += ["-i", path]
@@ -1635,8 +1736,13 @@ def add_planned_sfx(mix_path, cues, total_dur, out_path):
             "-t", f"{total_dur:.3f}", "-ar", "48000", "-ac", "2", out_path]
     r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
-        print(f"  ВНИМАНИЕ: запланированные эффекты не наложились: {r.stderr[-200:].strip()}")
+        # Сколько именно звука потеряно — часть сообщения, а не догадка по
+        # отчёту: «не наложились» без числа читается как мелкая неурядица.
+        print(f"  ВНИМАНИЕ: запланированные эффекты не наложились, потеряно "
+              f"{n} эффектов: {r.stderr[-400:].strip()}")
         return mix_path
+    if skipped:
+        print(f"  Эффектов наложено: {n}, пропущено по нечитаемому файлу: {skipped}")
     return out_path
 
 
@@ -1654,8 +1760,6 @@ OBJECT_BED_CONCEPTS = {
 OBJECT_POINT_MAX_SEC = 2.5
 
 
-# Порог активной области: сколько дБ ниже пика ещё считается «звуком».
-ACTIVE_REGION_FLOOR_DB = 20.0
 # Окно мгновенной громкости у ebur128 — 400мс, и на файле КОРОЧЕ он не
 # выдаёт ни одного значения вообще. Короткий ассет дополняется тишиной до
 # этой длины — только чтобы замер состоялся.
@@ -1671,62 +1775,62 @@ ACTIVE_REGION_FLOOR_DB = 20.0
 ACTIVE_REGION_MIN_SEC = 0.5
 
 
-def active_region_bounds(path, floor_db=ACTIVE_REGION_FLOOR_DB):
-    """(начало, конец) участка, где звук реально есть. None — не нашлось.
+def media_duration_or_none(path):
+    """Длительность файла или None — БЕЗ исключения.
 
-    Нужно потому, что мера громкости не должна зависеть от того, сколько
-    тишины лежит в файле вокруг полезного звука. Замер на одном и том же
-    80-миллисекундном ударе с разной подложкой тишины: файл короче 0.4с не
-    измеряется ВООБЩЕ (ebur128 не выдаёт ни одного значения мгновенной
-    громкости), и включается запасная константа — то есть на коротких
-    ассетах сегодня работает именно тот путь, который уже ошибался на 18 дБ.
+    get_media_duration() падает на нечитаемом файле (`check=True`, а на
+    пустом выводе ffprobe — ещё и KeyError), и это правильно там, где файл
+    обязан быть: в рендере отсутствие смонтированного видео — не повод
+    продолжать. Но в объектном слое цена та же ошибка имеет совсем другую:
+    замер (13.09) показал, что ОДИН битый ассет уносил с собой ВЕСЬ
+    звуковой слой эпизода — исключение из резолвера доходило до общего
+    try/except планировщика, и вместе с этим кюем пропадали переходы глав и
+    тики плашек, которые к нему отношения не имеют.
     """
-    import numpy as np
-    r = subprocess.run(["ffmpeg", "-v", "error", "-i", path, "-ac", "1",
-                        "-ar", "8000", "-f", "f32le", "-"], capture_output=True)
-    x = np.frombuffer(r.stdout, dtype=np.float32).astype("float64")
-    if x.size < 80:
+    try:
+        return get_media_duration(path)
+    except Exception:
         return None
-    # огибающая по 10мс окнам — достаточно мелко для удара, достаточно
-    # грубо, чтобы не цепляться за отдельные периоды волны
-    w = 80
-    n = (x.size // w) * w
-    env = np.abs(x[:n].reshape(-1, w)).max(axis=1)
-    peak = float(env.max())
-    if peak <= 0:
-        return None
-    thr = peak * (10.0 ** (-float(floor_db) / 20.0))
-    idx = np.where(env >= thr)[0]
-    if idx.size == 0:
-        return None
-    return (float(idx[0] * w) / 8000.0, float((idx[-1] + 1) * w) / 8000.0)
 
 
 def measure_max_momentary_lufs(path):
-    """Максимальная МГНОВЕННАЯ громкость АКТИВНОЙ ОБЛАСТИ, LUFS или None.
+    """Максимальная МГНОВЕННАЯ громкость, LUFS или None.
 
     Для транзиента интегральная громкость занижает его в разы (замер: удар
     -42.0 I против -37.7 M), а ухо сравнивает его с речью именно в момент
     удара. На стационарном материале обе меры совпадают, поэтому мгновенная
     годится как единая мера для обоих классов объектного слоя.
 
-    Меряется не весь файл, а участок, где звук есть: окно ebur128 в 400мс
-    на 80-миллисекундном ударе на три четверти состоит из тишины и занижает
-    его, а на файле короче 400мс ebur128 молчит совсем. Активная область
-    зацикливается до ACTIVE_REGION_MIN_SEC — для удара это даёт уровень
-    самого удара, для стационарного фона ничего не меняет (повтор той же
-    текстуры — та же текстура).
+    Отдельно искать «активную область» НЕ НУЖНО, и это проверено, а не
+    принято на веру: максимум по определению не может быть поднят тишиной,
+    поэтому окно ebur128 само садится туда, где звук есть. Замер одного и
+    того же удара с подложкой тишины 0.08/0.2/0.4/1.0/2.0с дал разброс
+    0.00 дБ (`test_measure_does_not_depend_on_surrounding_silence`). Первая
+    версия несла для этого отдельную функцию поиска границ по огибающей —
+    она удалена как никогда не вызывавшаяся, а её докстринг успел разойтись
+    с кодом, который и так делал правильное.
+
+    Единственный реальный дефект был другой: на файле КОРОЧЕ окна ebur128
+    не выдаёт ни одного значения, замер не происходил совсем и включалась
+    запасная константа — та, что уже ошибалась на 18 дБ. Поэтому короткий
+    ассет дополняется ТИШИНОЙ до ACTIVE_REGION_MIN_SEC, только чтобы замер
+    состоялся.
     """
     src, cleanup = path, None
-    if (get_media_duration(path) or 0.0) < ACTIVE_REGION_MIN_SEC:
+    if (media_duration_or_none(path) or 0.0) < ACTIVE_REGION_MIN_SEC:
         # Дополняем ТИШИНОЙ, а не повтором. Ведущая/хвостовая тишина на
         # максимум мгновенной громкости не влияет вообще (замер: один и тот
         # же удар с подложкой 0.4/0.6/1.0/2.0с даёт ровно -42.2), а вот
         # зацикливание активной области ЗАВЫШАЕТ транзиент с длинным спадом:
         # повтор одной атаки пятнадцать раз — это уже очередь, а не удар
         # (проверено: reveal_hit скакнул с -37.7 до -17.5).
-        tmp = os.path.join(tempfile.gettempdir(),
-                           "pad_" + hashlib.sha1(path.encode()).hexdigest()[:16] + ".wav")
+        # Имя УНИКАЛЬНО на вызов. Детерминированное имя по пути давало
+        # гонку: параллельные замеры одного файла делят один временный, и
+        # тот, кто закончил первым, удаляет его из-под остальных. Замер:
+        # 8 провалов из 16 одновременных вызовов, а провал (None) включает
+        # запасную константу — ту самую, что ошибалась на 18 дБ.
+        fd, tmp = tempfile.mkstemp(prefix="pad_", suffix=".wav")
+        os.close(fd)
         pad = subprocess.run(
             ["ffmpeg", "-y", "-v", "error", "-i", path, "-af",
              f"apad=whole_dur={ACTIVE_REGION_MIN_SEC:.2f}",
@@ -1751,12 +1855,16 @@ def measure_max_momentary_lufs(path):
 
 @functools.lru_cache(maxsize=256)
 def _object_gain_cached(path, mtime, gap_lu, voice_lufs):
+    """(усиление, расчётное_до_обрезки) или None. ОБА значения нужны:
+    обрезка — это молчаливый выход на другой уровень, и без второго числа
+    отличить «попали в цель» от «упёрлись в потолок» нельзя."""
     asset = measure_max_momentary_lufs(path)
     if asset is None or voice_lufs is None:
         return None
     raw = float(voice_lufs) - float(gap_lu) - asset
     import sfx_plan
-    return max(sfx_plan.OBJECT_GAIN_MIN_DB, min(sfx_plan.OBJECT_GAIN_MAX_DB, raw))
+    return (max(sfx_plan.OBJECT_GAIN_MIN_DB,
+                min(sfx_plan.OBJECT_GAIN_MAX_DB, raw)), raw)
 
 
 def object_gain_db(path, cls, voice_lufs):
@@ -1785,7 +1893,23 @@ def object_gain_db(path, cls, voice_lufs):
               f"объектный звук идёт по запасной константе {fallback} dB, "
               f"задуманный разрыв {gap:.0f} LU НЕ гарантирован")
         return fallback, "fallback_constant"
-    return round(got, 2), "measured"
+    gain, raw = got
+    if abs(gain - raw) > 0.05:
+        # Обрезка молча выводит кюй на ДРУГОЙ уровень, чем заказан, и без
+        # этой ветки источник остался бы «measured» — то есть отчёт уверял
+        # бы, что цель достигнута. У музыкальной подложки предупреждение на
+        # этот случай есть с самого начала, здесь его не было.
+        print(f"  ВНИМАНИЕ: расчётное усиление {os.path.basename(path)} "
+              f"{raw:+.1f} dB вышло за [{sfx_plan_gain_bounds()}] — обрезано до "
+              f"{gain:+.1f} dB, разрыв будет не {gap:.0f} LU, а "
+              f"{gap + (raw - gain):.0f} LU")
+        return round(gain, 2), "measured_clamped"
+    return round(gain, 2), "measured"
+
+
+def sfx_plan_gain_bounds():
+    import sfx_plan
+    return f"{sfx_plan.OBJECT_GAIN_MIN_DB}, {sfx_plan.OBJECT_GAIN_MAX_DB}"
 
 
 def object_asset_for(name):
@@ -1798,7 +1922,10 @@ def object_asset_for(name):
     """
     import sfx_plan
     key = str(name or "").strip().lower()
-    if not key:
+    # Имя приходит из сценария и идёт в путь. Разделители и точки убираются,
+    # чтобы концепт не мог адресовать ничего за пределами папки вида.
+    if not key or key != os.path.basename(key) or key in (".", "..") \
+            or "/" in key or "\\" in key:
         return None
     files = library_sounds("object", key)
     if not files:
@@ -1807,7 +1934,7 @@ def object_asset_for(name):
     # файл на каждое упоминание за три ролика становится подписью самоделки.
     idx = int(hashlib.sha1(key.encode("utf-8")).hexdigest()[:8], 16) % len(files)
     path = files[idx]
-    dur = get_media_duration(path)
+    dur = media_duration_or_none(path)
     cls = (sfx_plan.OBJECT_CLASS_BED
            if (key in OBJECT_BED_CONCEPTS or (dur or 0.0) > OBJECT_POINT_MAX_SEC)
            else sfx_plan.OBJECT_CLASS_POINT)
@@ -1834,13 +1961,17 @@ def run_sfx_director(mix_path, video_dir, blocks, sub_starts, real_weights, tota
         print("  ВНИМАНИЕ: громкость голоса не измерилась — объектный слой "
               "идёт по запасным константам, разрыв с речью НЕ гарантирован")
 
-    def _asset_for(name):
+    def _asset_for(name, at=None):
         got = object_asset_for(name)
         if not got:
             return None
         path, dur, cls = got
-        gain, src = object_gain_db(path, cls, voice_lufs)
-        return (path, dur, cls, gain, src)
+        # Референс — речь ВОКРУГ кюя. Средняя по эпизоду остаётся запасной:
+        # при её использовании звук в тихом фрагменте выскакивает, а в
+        # плотном тонет, и оба раза это слышно как неровность сведения.
+        ref, ref_kind = local_voice_lufs(voice_path, at, voice_lufs)
+        gain, src = object_gain_db(path, cls, ref)
+        return (path, dur, cls, gain, src, ref, ref_kind)
 
     try:
         # Окно кульминации отдаётся акценту разоблачения целиком — те же
@@ -1860,11 +1991,27 @@ def run_sfx_director(mix_path, video_dir, blocks, sub_starts, real_weights, tota
         os.makedirs(os.path.dirname(report_path), exist_ok=True)
         tmp = report_path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
+            # Уровни объектного слоя ЗАМЕРЯЮТСЯ на каждый ассет, поэтому в
+            # шапке им место только как запасным. Раньше они лежали тут
+            # рядом с реальными усилениями переходов и плашек под общим
+            # именем gains_db — то есть восстановить постфактум уровни
+            # опубликованного ролика по этому файлу было нельзя, он называл
+            # константу, которой кюй в большинстве случаев не пользовался.
+            # Фактическое усиление и его происхождение — в самом кюе
+            # (gain_db/gain_source), здесь только цель и точка отсчёта.
             json.dump({"enabled": SFX_DIRECTOR_ENABLED,
                        "gains_db": {"chapter": SFX_CHAPTER_GAIN_DB,
-                                    "plate": SFX_PLATE_GAIN_DB,
-                                    "object_point": sfx_plan.OBJECT_POINT_GAIN_DB,
-                                    "object_bed": sfx_plan.OBJECT_BED_GAIN_DB},
+                                    "plate": SFX_PLATE_GAIN_DB},
+                       "object_levels": {
+                           "voice_lufs": voice_lufs,
+                           "target_gap_lu": {
+                               "point": sfx_plan.OBJECT_POINT_GAP_LU,
+                               "bed": sfx_plan.OBJECT_BED_GAP_LU},
+                           "fallback_gain_db": {
+                               "point": sfx_plan.OBJECT_POINT_GAIN_DB,
+                               "bed": sfx_plan.OBJECT_BED_GAIN_DB},
+                           "gain_bounds_db": [sfx_plan.OBJECT_GAIN_MIN_DB,
+                                              sfx_plan.OBJECT_GAIN_MAX_DB]},
                        "object_pre_lap_sec": sfx_plan.OBJECT_PRE_LAP_SEC,
                        "summary": sfx_plan.summarize(accepted, dropped),
                        "accepted": accepted, "dropped": dropped}, f, ensure_ascii=False, indent=2)

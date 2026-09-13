@@ -147,6 +147,11 @@ def test_filter_graph_is_well_formed(tmp_path, monkeypatch):
         return R()
 
     monkeypatch.setattr(ps.subprocess, "run", fake_run)
+    # Проверка «файл читается» намеренно отключена: она делает свой ffprobe,
+    # а здесь ffmpeg нет и ассеты — заглушки в один байт. Сам гейт проверен
+    # отдельно (test_one_unreadable_asset_costs_one_cue_not_the_whole_layer),
+    # этот тест про сборку графа, и подменять надо ровно то, что мешает.
+    monkeypatch.setattr(ps, "media_duration_or_none", lambda p: 1.0)
     assets = []
     for i in range(3):
         a = tmp_path / f"a{i}.flac"
@@ -174,3 +179,30 @@ def test_filter_graph_is_well_formed(tmp_path, monkeypatch):
     assert all(lbl in consumed for lbl in declared)
     assert "[0:a]" in consumed
     assert cmd[-1].endswith("out.wav") and "-map" in cmd
+
+
+def test_report_does_not_pass_off_a_fallback_as_the_level_used(tmp_path, monkeypatch):
+    """Уровни объектного слоя ЗАМЕРЯЮТСЯ на каждый ассет и на этот голос.
+    Шапка отчёта раньше клала запасные константы рядом с реальными
+    усилениями переходов под общим именем `gains_db` — то есть файл,
+    объявленный источником истины по уровням ролика, называл число, которым
+    кюй в большинстве случаев не пользовался. Ровно этот класс («уровень
+    взят из докстринга») уже стоил проекту опубликованного эпизода.
+    """
+    import json
+    monkeypatch.setattr(ps, "TEMP_FOLDER", str(tmp_path))
+    blocks = [{"section": "HOOK"}, {"section": "BLOCK 1"}]
+    mix = str(tmp_path / "mix.wav")
+    open(mix, "wb").close()
+    ps.run_sfx_director(mix, str(tmp_path), blocks, [0.0, 5.0], None, 9.0)
+    report = json.load(open(tmp_path / "media_plan" / "sfx_plan.json", encoding="utf-8"))
+    assert "object_point" not in report["gains_db"]
+    assert "object_bed" not in report["gains_db"]
+    lv = report["object_levels"]
+    assert lv["target_gap_lu"]["point"] == sfx_plan.OBJECT_POINT_GAP_LU
+    assert lv["target_gap_lu"]["bed"] == sfx_plan.OBJECT_BED_GAP_LU
+    assert lv["fallback_gain_db"]["point"] == sfx_plan.OBJECT_POINT_GAIN_DB
+    assert lv["gain_bounds_db"] == [sfx_plan.OBJECT_GAIN_MIN_DB,
+                                    sfx_plan.OBJECT_GAIN_MAX_DB]
+    # вторая сторона разрыва — громкость ЭТОГО голоса; её отсутствие тоже факт
+    assert "voice_lufs" in lv

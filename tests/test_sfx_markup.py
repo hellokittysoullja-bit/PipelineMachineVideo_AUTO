@@ -315,3 +315,103 @@ def test_planner_falls_back_when_resolver_gives_no_gain():
     acc, _ = sfx_plan.plan_sfx_cues(blocks, starts, weights, 200.0, object_asset_for=got)
     cue = [c for c in acc if c["kind"] == "object"][0]
     assert cue["gain_db"] == sfx_plan.OBJECT_POINT_GAIN_DB
+
+
+# ----------------------------------------- находки глубокого аудита 13.09
+def test_object_without_alignment_is_dropped_not_guessed():
+    """Замер: с alignment звук вставал на 27.2с, без него — на 20.0с, то
+    есть на 7.2с раньше, поверх чужой фразы. Позиция слова внутри блока
+    выводится из РЕАЛЬНОЙ длительности речи блока; нет её — позиции нет.
+
+    Переход главы в точно такой же ситуации честно отказывается
+    (`no_alignment`), объект угадывал. Одна и та же нехватка данных
+    обрабатывалась двумя разными способами — это и есть дефект.
+    """
+    blocks, starts, weights = _episode({2: [{"name": "hammer", "word_pos": 5}]})
+    acc, drop = sfx_plan.plan_sfx_cues(blocks, starts, None, 200.0,
+                                       object_asset_for=_assets)
+    assert not [c for c in acc if c["kind"] == "object"]
+    reasons = {c.get("reason") for c in drop if c.get("kind") == "object"}
+    assert reasons == {"no_alignment"}
+    # с alignment тот же кюй по-прежнему принимается — отказ не стал глухим
+    acc2, _ = sfx_plan.plan_sfx_cues(blocks, starts, weights, 200.0,
+                                     object_asset_for=_assets)
+    assert [c for c in acc2 if c["kind"] == "object"]
+
+
+def test_object_and_chapter_refuse_the_same_way_without_alignment():
+    """Симметрия — сам инвариант, а не следствие: разные ответы на одну и ту
+    же нехватку данных и были корнем находки."""
+    blocks, starts, _ = _episode({6: [{"name": "hammer", "word_pos": 5}]})
+    for i, b in enumerate(blocks):
+        b["section"] = "BLOCK %d" % (i // 4 + 1)
+    assert sfx_plan.chapter_boundaries(blocks), "граница глав должна быть"
+    acc, drop = sfx_plan.plan_sfx_cues(blocks, starts, None, 200.0,
+                                       chapter_variants=(("/x/t.flac", 0.4),),
+                                       object_asset_for=_assets)
+    kinds = {c.get("kind") for c in acc}
+    assert "object" not in kinds and "chapter" not in kinds
+    for kind in ("object", "chapter"):
+        same = [c for c in drop if c.get("kind") == kind]
+        assert same, kind
+        assert {c.get("reason") for c in same} == {"no_alignment"}
+
+
+def test_hush_protection_widens_without_alignment_never_narrows():
+    """Без реальной длительности речи окно [hush] строится по расстоянию до
+    следующего блока — оно ШИРЕ, а не уже. Направление важно: защита,
+    ошибающаяся в сторону «тише», безопасна; в сторону «звук пролез» — нет.
+    """
+    blocks, starts, weights = _episode({}, hush_at=(2,))
+    wide = sfx_plan.hush_windows(blocks, starts, None)
+    exact = sfx_plan.hush_windows(blocks, starts, weights)
+    assert wide and exact
+    assert wide[0][0] == exact[0][0]
+    assert wide[0][1] >= exact[0][1]
+
+
+def test_concept_name_cannot_escape_its_library_folder():
+    """Имя концепта приходит из текста сценария и подставляется в путь."""
+    import pipeline_smart as ps
+
+    for bad in ("../../etc/passwd", "..", ".", "a/b", "a\\b", "  ", ""):
+        assert ps.object_asset_for(bad) is None, bad
+
+
+def test_reserved_window_is_checked_against_the_whole_cue_not_its_start():
+    """Замер 13.09: защищённые окна проверялись по ОДНОМУ моменту старта, а
+    кюй звучит секундами. Шестисекундный подзвучник, начавшийся за 2.5с до
+    блока `[hush]`, играл **3.55с внутри** тишины, которую сценарий
+    потребовал явно — и во всех отчётах числился принятым по правилам.
+
+    То же и с окном кульминации: там музыка проседает ради одного момента,
+    а фон спокойно тянулся сквозь него. Правка может только ОТКЛОНИТЬ кюй,
+    налезающий на защищённую тишину, и никогда не добавить новый — то есть
+    односторонняя по построению.
+    """
+    blocks, starts, weights = _episode({2: [{"name": "fire", "word_pos": 10}]},
+                                       hush_at=(3,))
+    bed = lambda n, at=None: ("/x/fire.flac", 12.0, sfx_plan.OBJECT_CLASS_BED,
+                              -8.0, "measured")
+    acc, drop = sfx_plan.plan_sfx_cues(blocks, starts, weights, 200.0,
+                                       object_asset_for=bed)
+    assert not [c for c in acc if c["kind"] == "object"]
+    assert any(c.get("reason") == "climax_window" for c in drop)
+
+    # Тот же кюй ДАЛЬШЕ от защищённой тишины принимается — отказ не глухой
+    blocks2, starts2, weights2 = _episode({0: [{"name": "fire", "word_pos": 1}]},
+                                          hush_at=(5,))
+    acc2, _ = sfx_plan.plan_sfx_cues(blocks2, starts2, weights2, 200.0,
+                                     object_asset_for=bed)
+    assert [c for c in acc2 if c["kind"] == "object"]
+
+
+def test_cue_span_uses_the_trim_the_plan_already_computed():
+    """Длительность берётся из того, что план посчитал (`trim_sec` у
+    протяжённого, иначе длительность ассета), а не считается заново: вторая
+    формула той же величины рано или поздно разойдётся с первой."""
+    assert sfx_plan._cue_span({"time": 10.0, "trim_sec": 6.0, "asset_dur": 99.0}) \
+        == (10.0, 16.0)
+    assert sfx_plan._cue_span({"time": 10.0, "asset_dur": 0.4}) == (10.0, 10.4)
+    assert sfx_plan._cue_span({"time": 10.0}) == (10.0, 10.0)
+    assert sfx_plan._cue_span({"asset_dur": 1.0}) is None

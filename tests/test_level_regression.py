@@ -201,3 +201,206 @@ def test_long_assets_are_untouched():
     for f in sorted(glob.glob("assets/library/sfx/*/*.flac"))[:3]:
         if (ps.get_media_duration(f) or 0) >= ps.ACTIVE_REGION_MIN_SEC:
             assert ps.measure_max_momentary_lufs(f) is not None
+
+
+def test_parallel_measurement_of_the_same_asset_never_fails(tmp_path):
+    """Дефект глубокого аудита 13.09, найден замером: временный файл под
+    добивку тишиной назывался по хэшу ПУТИ, то есть одинаково на всех
+    вызовах. Параллельные замеры одного ассета делили один файл, и кто
+    закончил первым — удалял его из-под остальных. Замер: 8 провалов из 16
+    одновременных вызовов.
+
+    Провал здесь не безобиден: None включает запасную константу — ровно ту,
+    что ошибалась на 18 дБ. То есть на многопоточном рендере уровни
+    объектного слоя разъезжались случайным образом от прогона к прогону.
+    """
+    import concurrent.futures as cf
+
+    import pipeline_smart as ps
+
+    path = _click(str(tmp_path), 0.08)
+    with cf.ThreadPoolExecutor(max_workers=16) as ex:
+        vals = list(ex.map(lambda _: ps.measure_max_momentary_lufs(path), range(16)))
+    assert all(v is not None for v in vals), f"провалов {vals.count(None)} из 16"
+    assert max(vals) - min(vals) < 0.01, "один файл — один ответ"
+
+
+def test_clamped_gain_is_never_reported_as_measured(tmp_path):
+    """Дефект глубокого аудита 13.09: расчётное усиление обрезается
+    границами [-40, 0] dB, но источник всё равно назывался `measured` —
+    то есть отчёт эпизода уверял, что задуманный разрыв достигнут, тогда
+    как кюй молча стоял на другом уровне. Замер на очень тихом ассете:
+    расчёт +17.8 dB, выдано +0.0, источник «measured».
+
+    У музыкальной подложки предупреждение на этот случай есть с самого
+    начала — здесь его не было.
+    """
+    import subprocess
+
+    import pipeline_smart as ps
+    import sfx_plan
+
+    quiet = os.path.join(str(tmp_path), "quiet.wav")
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
+                    "sine=frequency=1000:duration=2", "-af", "volume=-40dB",
+                    "-ar", "48000", "-ac", "2", quiet], capture_output=True)
+    gain, src = ps.object_gain_db(quiet, sfx_plan.OBJECT_CLASS_POINT, -16.0)
+    assert src == "measured_clamped", (gain, src)
+    assert gain == sfx_plan.OBJECT_GAIN_MAX_DB
+
+    loud = os.path.join(str(tmp_path), "loud.wav")
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
+                    "sine=frequency=1000:duration=2",
+                    "-ar", "48000", "-ac", "2", loud], capture_output=True)
+    gain2, src2 = ps.object_gain_db(loud, sfx_plan.OBJECT_CLASS_POINT, -16.0)
+    assert src2 == "measured", (gain2, src2)
+    assert sfx_plan.OBJECT_GAIN_MIN_DB < gain2 < sfx_plan.OBJECT_GAIN_MAX_DB
+
+
+# ------------------------------------------- п.4 локальный референс голоса
+def _voice_two_halves(dirpath, loud_lufs=-14.0, quiet_lufs=-26.0, half=15.0):
+    """Голос, громкость которого меняется посреди эпизода — ровно то, что
+    ТЗ называет причиной: «Громкость речи гуляет по эпизоду»."""
+    import subprocess
+    sp = ("anoisesrc=d=%.1f:c=pink:r=48000,highpass=f=120,lowpass=f=6000,"
+          "tremolo=f=0.7:d=0.9" % half)
+    parts = []
+    for tag, target in (("loud", loud_lufs), ("quiet", quiet_lufs)):
+        p = os.path.join(dirpath, tag + ".wav")
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", sp,
+                        "-af", f"loudnorm=I={target}:TP=-1.5",
+                        "-ar", "48000", "-ac", "2", p], capture_output=True)
+        parts.append(p)
+    out = os.path.join(dirpath, "voice_two_halves.wav")
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", parts[0], "-i", parts[1],
+                    "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1",
+                    "-ar", "48000", "-ac", "2", out], capture_output=True)
+    return out
+
+
+def test_level_follows_the_speech_next_to_the_cue_not_the_episode_average(tmp_path):
+    """Замер, ради которого п.4 и делался. Голос: 15с на -14 LUFS, затем
+    15с на -26. Средняя по эпизоду -16.3 (интеграл энергетически взвешен,
+    поэтому она липнет к громкой половине).
+
+    По средней оба кюя получили бы ОДНО усиление -9.3 дБ, то есть во второй
+    половине звук шёл бы на 11.4 дБ громче окружающей речи — удар поверх
+    тихой реплики. По локальному референсу: -7.2 дБ в громкой половине и
+    -18.7 в тихой, разница 11.5 дБ, ровно на величину перепада голоса.
+    """
+    import level_regression as lr
+    import pipeline_smart as ps
+    import sfx_plan
+
+    lr.build_fixture()
+    v = _voice_two_halves(str(tmp_path))
+    ep = ps.measure_integrated_lufs(v)
+    assert ep is not None
+
+    loud_ref, loud_kind = ps.local_voice_lufs(v, 5.0, ep)
+    quiet_ref, quiet_kind = ps.local_voice_lufs(v, 22.0, ep)
+    assert loud_kind == quiet_kind == "local"
+    assert loud_ref - quiet_ref > 9.0, (loud_ref, quiet_ref)
+
+    g_loud, _ = ps.object_gain_db(lr.SCENE_POINT, sfx_plan.OBJECT_CLASS_POINT, loud_ref)
+    g_quiet, _ = ps.object_gain_db(lr.SCENE_POINT, sfx_plan.OBJECT_CLASS_POINT, quiet_ref)
+    g_avg, _ = ps.object_gain_db(lr.SCENE_POINT, sfx_plan.OBJECT_CLASS_POINT, ep)
+    assert g_quiet < g_avg < g_loud, (g_quiet, g_avg, g_loud)
+    # разрыв с МЕСТНОЙ речью одинаков в обеих половинах — в этом вся суть
+    assert abs((loud_ref - g_loud) - (quiet_ref - g_quiet)) < 0.5
+
+
+def test_local_reference_falls_back_on_the_same_scale_it_replaces(tmp_path):
+    """Локальный и запасной референс — ОДНА мера (интегральная громкость).
+    Меряй их по-разному, и сам откат на запасной сдвигал бы уровень кюя, то
+    есть появлялся бы скачок ровно там, где данных не хватило."""
+    import inspect
+    import subprocess
+
+    import pipeline_smart as ps
+
+    assert "ebur128" in inspect.getsource(ps._local_voice_lufs_cached)
+    assert "I:" in inspect.getsource(ps._local_voice_lufs_cached)
+
+    sil = os.path.join(str(tmp_path), "sil.wav")
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi",
+                    "-i", "anullsrc=r=48000:cl=stereo", "-t", "30", sil],
+                   capture_output=True)
+    # окно без речи -> средняя по эпизоду, а не уровень, выведенный из тишины
+    assert ps.local_voice_lufs(sil, 15.0, -16.0) == (-16.0, "episode")
+    # нет и средней -> честное «нечем мерить», дальше включится константа
+    assert ps.local_voice_lufs(sil, 15.0, None) == (None, "none")
+
+
+def test_unreadable_voice_does_not_take_the_whole_sfx_layer_with_it(tmp_path):
+    """Найдено при живом прогоне п.4: get_media_duration() ПАДАЕТ на
+    нечитаемом файле (check=True), хотя докстринги соседних функций
+    называют её fail-open. Без перехвата исключение уходило в общий
+    try/except планировщика, и из ролика исчезал ВЕСЬ звуковой слой — из-за
+    одного уровня.
+    """
+    import pipeline_smart as ps
+
+    missing = os.path.join(str(tmp_path), "нет-такого.wav")
+    assert ps.local_voice_lufs(missing, 5.0, -16.0) == (-16.0, "episode")
+    assert ps.local_voice_lufs(missing, 5.0, None) == (None, "none")
+
+
+def test_one_unreadable_asset_costs_one_cue_not_the_whole_layer(tmp_path):
+    """Замер 13.09, не гипотеза. Функция сведения объявлена fail-open
+    («ошибка ffmpeg -> исходный микс без изменений»), но гранулярность у
+    этого обещания была неверная: один нечитаемый файл ронял ВЕСЬ вызов, и
+    вместе с ним из ролика исчезали все эффекты эпизода — переходы глав,
+    тики плашек, объектные звуки. В логе оставалась одна строка с обрезком
+    ошибки ffmpeg, по которой масштаб потери не виден.
+
+    Проверка ДО сведения: файл не просто существует, а читается.
+    """
+    import subprocess
+
+    import level_regression as lr
+    import pipeline_smart as ps
+
+    lr.build_fixture()
+    mix = os.path.join(str(tmp_path), "mix.wav")
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi",
+                    "-i", "anoisesrc=d=20:c=pink:r=48000",
+                    "-ar", "48000", "-ac", "2", mix], capture_output=True)
+    bad = os.path.join(str(tmp_path), "corrupt.flac")
+    with open(bad, "wb") as f:
+        f.write(b"\x00" * 4096)
+
+    cues = [{"time": 3.0, "asset": lr.SCENE_POINT, "gain_db": -20.0},
+            {"time": 9.0, "asset": lr.SCENE_POINT, "gain_db": -20.0},
+            {"time": 15.0, "asset": bad, "gain_db": -20.0}]
+    out = ps.add_planned_sfx(mix, cues, 20.0, os.path.join(str(tmp_path), "m.wav"))
+    assert out != mix, "годные кюи обязаны уцелеть"
+    assert ps.get_media_duration(out) > 19.0
+
+
+def test_corrupt_asset_does_not_take_the_planner_down(tmp_path):
+    """Тот же корень выше по течению: get_media_duration() на битом файле
+    бросает KeyError (ffprobe отдаёт пустой JSON), исключение уходило в
+    общий try/except планировщика — и план становился пустым целиком.
+    Замер: 'ПЛАНИРОВЩИК ЦЕЛИКОМ ПАДАЕТ: KeyError'.
+    """
+    import pipeline_smart as ps
+    import sfx_plan
+
+    bad = os.path.join(str(tmp_path), "corrupt.flac")
+    with open(bad, "wb") as f:
+        f.write(b"\x00" * 4096)
+    assert ps.media_duration_or_none(bad) is None
+    gain, src = ps.object_gain_db(bad, sfx_plan.OBJECT_CLASS_POINT, -16.0)
+    assert src == "fallback_constant"
+
+    blocks = [{"text": "ф " * 10, "words": 10, "section": "BLOCK %d" % (i // 2 + 1),
+               "sfx": [{"name": "x", "word_pos": 3}], "hush": False,
+               "stat": None, "is_climax": False, "pause_after": 0.8}
+              for i in range(4)]
+    resolver = lambda n, at=None: (bad, 0.6, sfx_plan.OBJECT_CLASS_POINT, gain, src)
+    acc, _ = sfx_plan.plan_sfx_cues(blocks, [0.0, 10.0, 20.0, 30.0], [8.0] * 4, 60.0,
+                                    chapter_variants=(("/x/t.flac", 0.4),),
+                                    object_asset_for=resolver)
+    # переход главы не имеет к битому ассету никакого отношения и обязан уцелеть
+    assert any(c["kind"] == "chapter" for c in acc)
