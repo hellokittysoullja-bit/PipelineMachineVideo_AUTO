@@ -54,9 +54,19 @@ CROSSFADE_SEC = 2.0
 PEAK_DBFS = -12.0                # нормировка источника; рабочий уровень ставит сведение
 
 
-def _write_flac(mono, path):
+def _write_flac(channels, path):
+    """channels — (left, right) или один моно-массив (тогда он дублируется).
+
+    Дублирование оставлено только для служебных случаев: для самого
+    атмосферного слоя оно НЕВЕРНО, см. make_layer_stereo().
+    """
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    stereo = np.stack([mono, mono], axis=1)
+    if isinstance(channels, tuple):
+        left, right = channels
+        n = min(len(left), len(right))
+        stereo = np.stack([left[:n], right[:n]], axis=1)
+    else:
+        stereo = np.stack([channels, channels], axis=1)
     pcm16 = (np.clip(stereo, -1.0, 1.0) * 32767.0).astype("<i2").tobytes()
     r = subprocess.run(["ffmpeg", "-y", "-f", "s16le", "-ar", str(SR), "-ac", "2",
                         "-i", "-", "-c:a", "flac", path],
@@ -161,6 +171,31 @@ BEDS = {
 }
 
 
+def make_layer_stereo(bed, layer, seconds, seed):
+    """(левый, правый) — ДВА НЕЗАВИСИМЫХ шумовых слепка одной и той же
+    текстуры, а не один продублированный.
+
+    Реальная ошибка первой версии этого файла, найденная сверкой с соседним
+    generate_music_asset.py: тот честно строит два канала на разных seed с
+    расстройкой +-3 цента, а здесь стояло `np.stack([mono, mono])` — моно,
+    растиражированное в два канала. Для точечного эффекта (удар, тик) это
+    правильно: он должен быть в центре. Для АТМОСФЕРЫ это неверно дважды:
+
+      * весь смысл слоя — ощущение пространства, а моно пространства не
+        даёт вообще: комната схлопывается в точку;
+      * центр — это место голоса. Моно-фон садится ровно туда, где идёт
+        речь, и маскирует её сильнее, чем такой же по громкости широкий
+        фон, который физически расходится от неё по сторонам.
+
+    Для шумовой текстуры полная декорреляция каналов — норма жанра, а не
+    крайность: два независимых ветра и есть ветер вокруг, а не ветер из
+    одной точки. Смещение seed заведомо больше любого, что использует сам
+    слой, чтобы каналы не совпали случайно.
+    """
+    return (make_layer(bed, layer, seconds, seed),
+            make_layer(bed, layer, seconds, seed + 100000))
+
+
 def _seed_for(bed, layer):
     """Детерминированный seed. Не hash(): он солится от запуска к запуску, и
     пересборка ассетов давала бы другой звук при том же коде."""
@@ -198,9 +233,10 @@ def main():
         print(f"{bed}:")
         if not preview_only:
             for name, seconds in zip(LAYER_NAMES, LAYER_SECONDS):
-                sig = make_layer(bed, name, seconds, _seed_for(bed, name))
+                left, right = make_layer_stereo(bed, name, seconds, _seed_for(bed, name))
                 path = os.path.join(OUT_DIR, bed, f"{name}_{seconds}s.flac")
-                _write_flac(sig, path)
+                _write_flac((left, right), path)
+                sig = left
                 peak = 20 * np.log10(np.max(np.abs(sig)) or 1e-9)
                 rms = 20 * np.log10(np.sqrt(np.mean(sig ** 2)) or 1e-9)
                 print(f"  {name:5s} {seconds:3d}с  пик {peak:6.1f}  RMS {rms:6.1f}  -> {path}")
@@ -209,14 +245,19 @@ def main():
             # Демонстрация: те же три слоя, сложенные так же, как их сложит
             # сборка — чтобы слушать РЕАЛЬНЫЙ результат, а не один слой.
             n = int(SR * args.preview)
-            mix = np.zeros(n)
+            mix_l, mix_r = np.zeros(n), np.zeros(n)
             for name, seconds in zip(LAYER_NAMES, LAYER_SECONDS):
-                sig = make_layer(bed, name, seconds, _seed_for(bed, name))
-                reps = int(np.ceil(n / len(sig)))
-                mix += np.tile(sig, reps)[:n]
-            mix = _normalize(mix)
+                left, right = make_layer_stereo(bed, name, seconds, _seed_for(bed, name))
+                for sig, acc in ((left, mix_l), (right, mix_r)):
+                    reps = int(np.ceil(n / len(sig)))
+                    acc += np.tile(sig, reps)[:n]
+            # Нормировка ОБЩАЯ на пару каналов, а не поканальная: раздельная
+            # сдвинула бы баланс сторон на случайную величину и слышалась бы
+            # как перекос картины влево или вправо.
+            peak = max(np.max(np.abs(mix_l)), np.max(np.abs(mix_r))) or 1.0
+            scale = 10 ** (PEAK_DBFS / 20.0) / peak
             prev = os.path.join(OUT_DIR, "_preview", f"{bed}.flac")
-            _write_flac(mix, prev)
+            _write_flac((mix_l * scale, mix_r * scale), prev)
             print(f"  демонстрация -> {prev}")
 
     if preview_only:

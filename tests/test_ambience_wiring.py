@@ -107,3 +107,25 @@ def test_generator_preview_does_not_arm_the_feature():
     src = open(os.path.join(REPO_ROOT, "scripts", "generate_ambience.py"), encoding="utf-8").read()
     assert "preview_only" in src
     assert "_preview" in src
+
+
+def test_ambience_sources_are_true_stereo_not_duplicated_mono():
+    """Атмосфера обязана быть широкой, а не моно в два канала.
+
+    Реальная ошибка первой версии, найденная сверкой с соседним
+    generate_music_asset.py (тот строит два канала на разных seed): моно-фон
+    схлопывает пространство в точку И садится ровно в центр, где идёт речь,
+    маскируя её сильнее, чем такой же по громкости широкий фон.
+
+    Точечные эффекты (удар кульминации, тик плашки) — наоборот, обязаны
+    остаться моно: их место в центре.
+    """
+    amb = open(os.path.join(REPO_ROOT, "scripts", "generate_ambience.py"), encoding="utf-8").read()
+    assert "def make_layer_stereo" in amb
+    assert "np.stack([mono, mono]" not in amb.replace(" ", "")
+    assert "_write_flac((left, right)" in amb
+
+    for point_fx in ("generate_sfx_pack.py", "generate_reveal_sfx.py"):
+        src = open(os.path.join(REPO_ROOT, "scripts", point_fx), encoding="utf-8").read()
+        assert "np.stack([samples_mono, samples_mono]" in src, \
+            f"{point_fx}: точечный эффект должен остаться по центру"
