@@ -18,6 +18,7 @@ import multiprocessing
 import os
 import re
 import subprocess
+import tempfile
 import sys
 import time
 import urllib.parse
@@ -1653,21 +1654,99 @@ OBJECT_BED_CONCEPTS = {
 OBJECT_POINT_MAX_SEC = 2.5
 
 
+# Порог активной области: сколько дБ ниже пика ещё считается «звуком».
+ACTIVE_REGION_FLOOR_DB = 20.0
+# Окно мгновенной громкости у ebur128 — 400мс, и на файле КОРОЧЕ он не
+# выдаёт ни одного значения вообще. Короткий ассет дополняется тишиной до
+# этой длины — только чтобы замер состоялся.
+#
+# Почему именно тишиной, а не повтором активной области. Разбор
+# предполагал, что 400-миллисекундное окно «занижает» короткий звук и это
+# надо чинить. Замер показал, что чинить там нечего: интегрирование
+# кратких звуков окном в сотни миллисекунд — это то, как слышит ухо, и
+# ровно то, что задумано в BS.1770; брать 80-миллисекундный щелчок за
+# такой же громкий, как непрерывный тон того же пика, было бы неверно.
+# Настоящий дефект был один — на файле короче окна замер не происходил
+# СОВСЕМ и включалась запасная константа, уже ошибавшаяся на 18 дБ.
+ACTIVE_REGION_MIN_SEC = 0.5
+
+
+def active_region_bounds(path, floor_db=ACTIVE_REGION_FLOOR_DB):
+    """(начало, конец) участка, где звук реально есть. None — не нашлось.
+
+    Нужно потому, что мера громкости не должна зависеть от того, сколько
+    тишины лежит в файле вокруг полезного звука. Замер на одном и том же
+    80-миллисекундном ударе с разной подложкой тишины: файл короче 0.4с не
+    измеряется ВООБЩЕ (ebur128 не выдаёт ни одного значения мгновенной
+    громкости), и включается запасная константа — то есть на коротких
+    ассетах сегодня работает именно тот путь, который уже ошибался на 18 дБ.
+    """
+    import numpy as np
+    r = subprocess.run(["ffmpeg", "-v", "error", "-i", path, "-ac", "1",
+                        "-ar", "8000", "-f", "f32le", "-"], capture_output=True)
+    x = np.frombuffer(r.stdout, dtype=np.float32).astype("float64")
+    if x.size < 80:
+        return None
+    # огибающая по 10мс окнам — достаточно мелко для удара, достаточно
+    # грубо, чтобы не цепляться за отдельные периоды волны
+    w = 80
+    n = (x.size // w) * w
+    env = np.abs(x[:n].reshape(-1, w)).max(axis=1)
+    peak = float(env.max())
+    if peak <= 0:
+        return None
+    thr = peak * (10.0 ** (-float(floor_db) / 20.0))
+    idx = np.where(env >= thr)[0]
+    if idx.size == 0:
+        return None
+    return (float(idx[0] * w) / 8000.0, float((idx[-1] + 1) * w) / 8000.0)
+
+
 def measure_max_momentary_lufs(path):
-    """Максимальная МГНОВЕННАЯ громкость (окно 400мс), LUFS или None.
+    """Максимальная МГНОВЕННАЯ громкость АКТИВНОЙ ОБЛАСТИ, LUFS или None.
 
     Для транзиента интегральная громкость занижает его в разы (замер: удар
     -42.0 I против -37.7 M), а ухо сравнивает его с речью именно в момент
     удара. На стационарном материале обе меры совпадают, поэтому мгновенная
     годится как единая мера для обоих классов объектного слоя.
+
+    Меряется не весь файл, а участок, где звук есть: окно ebur128 в 400мс
+    на 80-миллисекундном ударе на три четверти состоит из тишины и занижает
+    его, а на файле короче 400мс ebur128 молчит совсем. Активная область
+    зацикливается до ACTIVE_REGION_MIN_SEC — для удара это даёт уровень
+    самого удара, для стационарного фона ничего не меняет (повтор той же
+    текстуры — та же текстура).
     """
-    r = subprocess.run(["ffmpeg", "-v", "info", "-i", path, "-af",
-                        "ebur128=peak=true", "-f", "null", "-"],
-                       capture_output=True, text=True, encoding="utf-8",
-                       errors="replace")
-    vals = [float(x) for x in re.findall(r"M:\s*(-?[\d.]+)", r.stderr or "")]
-    vals = [v for v in vals if v > -70.0]
-    return max(vals) if vals else None
+    src, cleanup = path, None
+    if (get_media_duration(path) or 0.0) < ACTIVE_REGION_MIN_SEC:
+        # Дополняем ТИШИНОЙ, а не повтором. Ведущая/хвостовая тишина на
+        # максимум мгновенной громкости не влияет вообще (замер: один и тот
+        # же удар с подложкой 0.4/0.6/1.0/2.0с даёт ровно -42.2), а вот
+        # зацикливание активной области ЗАВЫШАЕТ транзиент с длинным спадом:
+        # повтор одной атаки пятнадцать раз — это уже очередь, а не удар
+        # (проверено: reveal_hit скакнул с -37.7 до -17.5).
+        tmp = os.path.join(tempfile.gettempdir(),
+                           "pad_" + hashlib.sha1(path.encode()).hexdigest()[:16] + ".wav")
+        pad = subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-i", path, "-af",
+             f"apad=whole_dur={ACTIVE_REGION_MIN_SEC:.2f}",
+             "-ar", "48000", "-ac", "2", tmp], capture_output=True)
+        if pad.returncode == 0 and os.path.exists(tmp):
+            src, cleanup = tmp, tmp
+    try:
+        r = subprocess.run(["ffmpeg", "-v", "info", "-i", src, "-af",
+                            "ebur128=peak=true", "-f", "null", "-"],
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace")
+        vals = [float(x) for x in re.findall(r"M:\s*(-?[\d.]+)", r.stderr or "")]
+        vals = [v for v in vals if v > -70.0]
+        return max(vals) if vals else None
+    finally:
+        if cleanup:
+            try:
+                os.unlink(cleanup)
+            except OSError:
+                pass
 
 
 @functools.lru_cache(maxsize=256)

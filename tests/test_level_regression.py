@@ -139,3 +139,65 @@ def test_the_measurement_is_not_circular(scene):
     src = inspect.getsource(lr.render_scene)
     assert "build_master_af" in src, "сцена обязана проходить loudnorm/лимитер"
     assert "add_planned_sfx" in src, "и реальное сведение, а не имитацию"
+
+
+# ------------------------------------------- мера на коротких ассетах
+def _click(tmp, total_sec):
+    import subprocess
+    p = os.path.join(tmp, f"click_{total_sec}.wav")
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi",
+                    "-i", "sine=f=800:d=0.08", "-af",
+                    f"afade=t=out:st=0.01:d=0.07,volume=-10dB,"
+                    f"apad=whole_dur={total_sec}",
+                    "-ar", "48000", "-ac", "2", p], capture_output=True)
+    return p
+
+
+def test_short_asset_is_measured_at_all(tmp_path):
+    """Настоящий дефект был не в «занижении», а в том, что на файле короче
+    окна ebur128 (400мс) замер не происходил СОВСЕМ — возвращался None, и
+    включалась запасная константа, уже ошибавшаяся на 18 дБ. То есть на
+    коротких ассетах работал именно сломанный путь."""
+    import pipeline_smart as ps
+
+    for total in (0.08, 0.2):
+        assert ps.measure_max_momentary_lufs(_click(str(tmp_path), total)) is not None
+
+
+def test_measure_does_not_depend_on_surrounding_silence(tmp_path):
+    """Один и тот же удар с разной подложкой тишины обязан мериться
+    одинаково: ведущая и хвостовая тишина на МАКСИМУМ мгновенной громкости
+    не влияет (замер: разброс 0.00 дБ на пяти подложках)."""
+    import pipeline_smart as ps
+
+    vals = [ps.measure_max_momentary_lufs(_click(str(tmp_path), t))
+            for t in (0.08, 0.2, 0.4, 1.0, 2.0)]
+    vals = [v for v in vals if v is not None]
+    assert len(vals) == 5
+    assert max(vals) - min(vals) < 0.5, vals
+
+
+def test_padding_is_silence_not_a_loop():
+    """Повтор активной области ЗАВЫШАЕТ транзиент с длинным спадом: пятнадцать
+    повторов одной атаки — это очередь, а не удар. Плюс интегрирование
+    кратких звуков окном в сотни миллисекунд — не дефект, а то, как слышит
+    ухо (BS.1770); «чинить» его значило бы считать 80-миллисекундный щелчок
+    таким же громким, как непрерывный тон того же пика."""
+    import inspect
+
+    import pipeline_smart as ps
+
+    body = inspect.getsource(ps.measure_max_momentary_lufs).split('"""')[-1]
+    assert "apad" in body
+    assert "aloop" not in body
+
+
+def test_long_assets_are_untouched():
+    """Правка обязана менять поведение ТОЛЬКО там, где замера не было."""
+    import glob
+
+    import pipeline_smart as ps
+
+    for f in sorted(glob.glob("assets/library/sfx/*/*.flac"))[:3]:
+        if (ps.get_media_duration(f) or 0) >= ps.ACTIVE_REGION_MIN_SEC:
+            assert ps.measure_max_momentary_lufs(f) is not None
