@@ -29,8 +29,14 @@ if SCRIPTS not in sys.path:
 
 
 def _run(cmd):
-    return subprocess.run(cmd, capture_output=True, text=True,
-                          encoding="utf-8", errors="replace")
+    # Кодировка объявляется В ОДНОЙ СТРОКЕ с текстовым режимом: гвард
+    # test_all_subprocess_text_calls_declare_utf8 построчный и не видит
+    # аргументы, разнесённые по строкам. Он ошибается в безопасную сторону
+    # (ловит лишнее, дырявое не пропускает), поэтому подстраивается
+    # форматирование, а не ослабляется правило. По той же причине сам этот
+    # комментарий не содержит проверяемый токен — регекс смотрит и в текст.
+    return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                          errors="replace")
 
 
 def decode_mono(path, sr=48000):
