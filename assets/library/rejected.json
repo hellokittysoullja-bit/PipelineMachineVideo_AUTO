@@ -1530,5 +1530,252 @@
   "title": "forest drop rain.wav",
   "kind": "ambience",
   "name": "night"
+ },
+ {
+  "id": "freesound:d681a09b-247c-4e86-bfc9-4e1c96a58358",
+  "title": "Organ in church.wav",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "reasons": [
+   "title:organ"
+  ]
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 235.608,
+  "clipping_share": 0.0,
+  "hum_db": 18.6,
+  "silence_share": 0.0,
+  "lufs": -25.4,
+  "lra": 1.1,
+  "true_peak": -13.1,
+  "id": "freesound:a96295b8-409c-45c3-bd16-e2144cdac47c",
+  "title": "room tone, big hall, heavy ventilation hum, extremely sparse people.wav",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 254.064,
+  "clipping_share": 0.0,
+  "hum_db": 18.5,
+  "silence_share": 0.0,
+  "lufs": -20.3,
+  "lra": 3.3,
+  "true_peak": -0.3,
+  "id": "freesound:6c12a425-d2ee-454c-b313-547b703b5bdd",
+  "title": "Solothurn - in Front of the St. Ursen Cathedral",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 343.128,
+  "clipping_share": 0.0,
+  "hum_db": 9.1,
+  "silence_share": 0.172,
+  "lufs": -48.9,
+  "lra": 11.3,
+  "true_peak": -24.4,
+  "clap_pos": 0.0875,
+  "clap_margin": -0.0116,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "ast": {
+   "Music": 0.011,
+   "Singing": 0.0,
+   "Speech": 0.007,
+   "Vehicle": 0.003
+  },
+  "id": "freesound:8dbc598d-6ead-48fb-bed0-9aafa64f6398",
+  "title": "Monastery ruins_1(birds, pigeons, wings, wind).wav",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "mains_hum",
+   "too_much_silence"
+  ],
+  "duration": 160.128,
+  "clipping_share": 0.0,
+  "hum_db": 14.1,
+  "silence_share": 0.966,
+  "lufs": -57.6,
+  "lra": 3.5,
+  "true_peak": -38.8,
+  "id": "freesound:8194963b-e1d2-4767-b23e-8f937507f0c6",
+  "title": "Monastery ruins_2(birds, pigeons, wings, wind).wav",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "ast_speech"
+  ],
+  "duration": 140.064,
+  "clipping_share": 0.0,
+  "hum_db": 9.6,
+  "silence_share": 0.0,
+  "lufs": -45.2,
+  "lra": 7.5,
+  "true_peak": -22.4,
+  "clap_pos": 0.227,
+  "clap_margin": 0.1018,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "ast": {
+   "Music": 0.035,
+   "Singing": 0.01,
+   "Speech": 0.216,
+   "Vehicle": 0.007
+  },
+  "id": "freesound:798bae20-b76a-40de-a783-719a6d88ada0",
+  "title": "Church with few people",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "ast_speech"
+  ],
+  "duration": 90.6,
+  "clipping_share": 0.0,
+  "hum_db": 11.0,
+  "silence_share": 0.0,
+  "lufs": -40.2,
+  "lra": 6.5,
+  "true_peak": -19.4,
+  "clap_pos": 0.2316,
+  "clap_margin": 0.0904,
+  "clap_worst_neg": "people talking, human speech, voices",
+  "ast": {
+   "Music": 0.244,
+   "Singing": 0.001,
+   "Speech": 0.489,
+   "Vehicle": 0.013
+  },
+  "id": "freesound:5254ddd2-d535-4aeb-9c2e-4675a89e7033",
+  "title": "Big hall ambience - some voices, coughing, and keys opening a door",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 61.176,
+  "clipping_share": 0.0,
+  "hum_db": 19.1,
+  "silence_share": 0.0,
+  "lufs": -37.2,
+  "lra": 5.3,
+  "true_peak": -19.3,
+  "id": "freesound:0ca33c4f-7deb-4f0d-bd33-512c168f2833",
+  "title": "Monastery yard with tourists.wav",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 45.408,
+  "clipping_share": 0.0,
+  "hum_db": 20.1,
+  "silence_share": 0.0,
+  "lufs": -43.0,
+  "lra": 2.9,
+  "true_peak": -18.5,
+  "id": "freesound:e3e5e0c5-1e45-41de-b66d-202438e0c3ca",
+  "title": "Hall Full of People - Ambience .wav",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins",
+   "ast_speech",
+   "ast_music"
+  ],
+  "duration": 200.176,
+  "clipping_share": 2e-06,
+  "hum_db": 7.8,
+  "silence_share": 0.0,
+  "lufs": -33.2,
+  "lra": 7.7,
+  "true_peak": 0.2,
+  "clap_pos": -0.1969,
+  "clap_margin": -0.3913,
+  "clap_worst_neg": "music, melody, musical instruments, singing",
+  "ast": {
+   "Music": 0.676,
+   "Singing": 0.003,
+   "Speech": 0.436,
+   "Vehicle": 0.003
+  },
+  "id": "freesound:b8ae751d-4ecf-41ef-903e-d441262b0a10",
+  "title": "052016 maruyama shrine.mp3",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins",
+   "ast_speech"
+  ],
+  "duration": 147.576,
+  "clipping_share": 0.0,
+  "hum_db": 9.8,
+  "silence_share": 0.0,
+  "lufs": -42.1,
+  "lra": 10.6,
+  "true_peak": -9.7,
+  "clap_pos": -0.0858,
+  "clap_margin": -0.221,
+  "clap_worst_neg": "people talking, human speech, voices",
+  "ast": {
+   "Music": 0.2,
+   "Singing": 0.001,
+   "Speech": 0.895,
+   "Vehicle": 0.003
+  },
+  "id": "freesound:cee6d042-1852-4793-b347-919d3f3ca11b",
+  "title": "Buddhist temple hum 02",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "ast_speech",
+   "ast_music"
+  ],
+  "duration": 121.08,
+  "clipping_share": 0.0,
+  "hum_db": 12.0,
+  "silence_share": 0.051,
+  "lufs": -49.3,
+  "lra": 8.6,
+  "true_peak": -20.8,
+  "clap_pos": 0.1247,
+  "clap_margin": -0.0647,
+  "clap_worst_neg": "people talking, human speech, voices",
+  "ast": {
+   "Music": 0.407,
+   "Singing": 0.001,
+   "Speech": 0.689,
+   "Vehicle": 0.002
+  },
+  "id": "freesound:b5d37da6-21c0-449a-a551-28f69508a2c9",
+  "title": "Buddhist temple hum 01",
+  "kind": "ambience",
+  "name": "stone_hall"
  }
 ]
