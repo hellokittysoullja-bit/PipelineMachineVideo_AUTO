@@ -101,7 +101,16 @@ CLAP_WINDOW_FRACS = (0.15, 0.5, 0.85)
 
 # Порог маржи CLAP: положительный промпт обязан ПЕРЕБИВАТЬ худшую ловушку.
 CLAP_MIN_MARGIN = 0.04
-CLAP_MIN_POSITIVE = 0.08
+# АБСОЛЮТНЫЙ порог положительного скора СНЯТ как гейт (13.09) и остался
+# только числом в отчёте. Это была моя же ошибка, ровно та, которую эта
+# кодовая база уже документировала про CLIP: сырой косинус несопоставим
+# между РАЗНЫМИ текстами. Громкие текстуры (огонь, дождь, ветер) дают
+# 0.2-0.5, а цель «тихий гул пустого каменного зала» — это почти тишина, и
+# сопоставлять там нечему: все пещерные и подземельные записи падали с
+# 0.04-0.05 при пороге 0.08, то есть порог отсекал вид целиком, а не брак.
+# Гейтами остаются ДВА относительных сигнала, оба на одной записи: маржа
+# над худшей ловушкой и конкуренция видов (kind_competition).
+CLAP_MIN_POSITIVE_REPORT_ONLY = 0.08
 # AST: вероятность класса выше — вето (на любом окне).
 AST_VETO = {"Speech": 0.12, "Music": 0.25, "Vehicle": 0.30, "Singing": 0.12}
 # Измерительные гейты атмосферы
@@ -167,6 +176,12 @@ def negatives_for(spec):
     if "neg" in spec:
         return list(spec["neg"])
     return list(NEGATIVE_PROMPTS) + list(spec.get("extra_neg", ()))
+
+
+KIND_DECOYS = {
+    "surf": "ocean waves breaking on a beach, sea surf",
+    "traffic_city": "city street with traffic and cars",
+}
 
 
 NEGATIVE_PROMPTS = (
@@ -622,7 +637,7 @@ def ast_probs(windows16k, labels):
 def _measure_key(path, spec):
     negs = negatives_for(spec)
     raw = "|".join([os.path.basename(path), str(os.path.getsize(path)), spec["prompt"], *negs,
-                    "clap:laion/larger_clap_general", "ast:MIT/ast-finetuned-audioset-10-10-0.4593", "v5"])
+                    "clap:laion/larger_clap_general", "ast:MIT/ast-finetuned-audioset-10-10-0.4593", "v6"])
     return hashlib.sha1(raw.encode()).hexdigest()[:20]
 
 
@@ -669,6 +684,15 @@ def measure(path, kind, spec):
     m["clap_rows"] = [[round(x, 4) for x in r] for r in rows]
     m["neg_names"] = negs
     if kind == "ambience":
+        by_name = {n: sp for n, sp in LIBRARY_SPEC["ambience"].items()}
+        names = list(by_name) + list(KIND_DECOYS)
+        kp = [by_name[n]["prompt"] for n in by_name] + list(KIND_DECOYS.values())
+        krows = clap_scores(win48, kp)
+        kavg = [sum(r[i] for r in krows) / len(krows) for i in range(len(names))]
+        korder = sorted(range(len(names)), key=lambda i: -kavg[i])
+        m["kind_winner"] = names[korder[0]]
+        m["kind_gap"] = round(kavg[korder[0]] - kavg[korder[1]], 4)
+        m["kind_scores"] = {n: round(x, 4) for n, x in zip(names, kavg)}
         labels = sorted(set(AST_VETO) | set(spec.get("ast_veto", {}) or {}))
         win16 = [decode_f32(path, st, min(CLAP_WINDOW_SEC, dur), 16000) for st in starts]
         probs = ast_probs([w for w in win16 if w.size > 1600], labels)
@@ -717,10 +741,15 @@ def judge(m, kind, spec):
     k = min(range(len(rows)), key=lambda i: pos[i] - worst[i])
     v.update(clap_pos=round(sum(pos) / len(pos), 4), clap_margin=round(margin, 4),
              clap_worst_neg=negs[max(range(len(negs)), key=lambda j: rows[k][1 + j])])
-    if sum(pos) / len(pos) < CLAP_MIN_POSITIVE:
-        v["reasons"].append("clap_low_positive")
     if margin < CLAP_MIN_MARGIN:
         v["reasons"].append("clap_negative_wins")
+    if kind == "ambience" and m.get("kind_scores"):
+        # Вид обязан выиграть у всех остальных видов и приманок. Это замена
+        # акустической части словесного блоклиста — см. kind_competition().
+        v["kind_winner"] = m.get("kind_winner")
+        v["kind_gap"] = m.get("kind_gap")
+        if m.get("kind_winner") != spec.get("_name"):
+            v["reasons"].append(f"kind_lost_to_{m.get('kind_winner')}")
     if kind == "ambience" and m.get("ast"):
         # Переопределение вида ЗАМЕНЯЕТ общий набор целиком. Первая версия
         # делала update(): у толпы Speech-вето оставалось от общего набора и
@@ -850,7 +879,7 @@ def library_files(kind, name):
 
 
 def build_kind(kind, name, max_candidates=18, manifest=None, rejected_log=None):
-    spec = LIBRARY_SPEC[kind][name]
+    spec = dict(LIBRARY_SPEC[kind][name], _name=name)
     print(f"\n== {kind}/{name}: {spec['prompt']!r}")
     cands = gather_candidates(spec)
     # сначала подходящие по заявленной длительности — их дешевле проверять
@@ -901,12 +930,6 @@ def build_kind(kind, name, max_candidates=18, manifest=None, rejected_log=None):
                 }
     print(f"   принято {len(kept)} из {len(cands)}")
     return kept
-
-
-KIND_DECOYS = {
-    "surf": "ocean waves breaking on a beach, sea surf",
-    "traffic_city": "city street with traffic and cars",
-}
 
 
 def kind_competition(path, want, spec_by_name):

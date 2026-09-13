@@ -107,11 +107,12 @@ def test_library_files_lists_only_flac(tmp_path, monkeypatch):
 
 def test_judge_applies_thresholds_on_cached_measurements():
     """Пороги живут в judge(): перенастройка не гоняет модели заново."""
-    spec = {"prompt": "wind", "min_sec": 45}
+    spec = {"prompt": "wind", "min_sec": 45, "_name": "wind_open"}
     base = {"duration": 100.0, "clipping_share": 0.0, "hum_db": 3.0, "silence_share": 0.01,
             "lufs": -30.0, "lra": 8.0, "true_peak": -6.0,
             "clap_rows": [[0.25, 0.10, 0.05], [0.24, 0.12, 0.04]],
-            "neg_names": ["speech", "music"], "ast": {"Speech": 0.01, "Music": 0.02}}
+            "neg_names": ["speech", "music"], "ast": {"Speech": 0.01, "Music": 0.02},
+            "kind_winner": "wind_open", "kind_gap": 0.1, "kind_scores": {"wind_open": 0.25}}
     ok = sl.judge(base, "ambience", spec)
     assert ok["reasons"] == [] and ok["clap_margin"] == pytest.approx(0.12, abs=1e-3)
     assert ok["clap_worst_neg"] == "speech"
@@ -169,3 +170,24 @@ def test_kind_decoys_cover_the_acoustic_neighbours():
     """Приманки — то, с чем виды реально путаются по звуку, а не по слову."""
     joined = " ".join(sl.KIND_DECOYS.values()).lower()
     assert "waves" in joined and "traffic" in joined
+
+
+def test_quiet_kinds_are_not_killed_by_an_absolute_score():
+    """Абсолютный порог положительного скора снят как гейт: сырой косинус
+    несопоставим между разными текстами, и «тихий гул пустого зала» давал
+    0.04-0.05 там, где огонь даёт 0.4 — порог отсекал вид целиком."""
+    quiet = {"duration": 100.0, "clipping_share": 0.0, "hum_db": 3.0, "silence_share": 0.01,
+             "lufs": -40.0, "lra": 4.0, "clap_rows": [[0.05, 0.005]], "neg_names": ["speech"],
+             "ast": {"Speech": 0.01}, "kind_winner": "stone_hall", "kind_gap": 0.02,
+             "kind_scores": {"stone_hall": 0.05}}
+    v = sl.judge(quiet, "ambience", {"prompt": "hall", "min_sec": 30, "_name": "stone_hall"})
+    assert v["reasons"] == [], v["reasons"]
+
+
+def test_kind_competition_is_a_build_gate_not_only_a_report():
+    lost = {"duration": 100.0, "clipping_share": 0.0, "hum_db": 3.0, "silence_share": 0.01,
+            "lufs": -30.0, "lra": 8.0, "clap_rows": [[0.30, 0.05]], "neg_names": ["speech"],
+            "ast": {"Speech": 0.01}, "kind_winner": "surf", "kind_gap": 0.09,
+            "kind_scores": {"surf": 0.34, "wind_open": 0.25}}
+    v = sl.judge(lost, "ambience", {"prompt": "wind", "min_sec": 45, "_name": "wind_open"})
+    assert "kind_lost_to_surf" in v["reasons"]

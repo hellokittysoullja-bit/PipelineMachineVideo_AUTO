@@ -1495,41 +1495,6 @@
    },
    "imported_at": 1789322137
   },
-  "assets/library/ambience/stone_hall/freesound_a2173e6b_157f_4903_a5cc_a5406e62186f.flac": {
-   "kind": "ambience",
-   "name": "stone_hall",
-   "source": "openverse:freesound",
-   "id": "freesound:a2173e6b-157f-4903-a5cc-a5406e62186f",
-   "title": "Quarry Tunnel Ambience 1, Large Splash",
-   "creator": "ecfike",
-   "license": "cc0",
-   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
-   "url": "https://cdn.freesound.org/previews/476/476318_2337290-hq.mp3",
-   "landing": "https://freesound.org/people/ecfike/sounds/476318",
-   "query": "cave ambience drips",
-   "scores": {
-    "reasons": [],
-    "duration": 173.064,
-    "clipping_share": 0.0,
-    "hum_db": 8.5,
-    "silence_share": 0.0,
-    "lufs": -41.7,
-    "lra": 10.5,
-    "true_peak": -8.3,
-    "clap_pos": 0.1747,
-    "clap_margin": 0.0549,
-    "clap_worst_neg": "footsteps walking",
-    "ast": {
-     "Music": 0.011,
-     "Singing": 0.001,
-     "Speech": 0.028,
-     "Vehicle": 0.002
-    },
-    "id": "freesound:a2173e6b-157f-4903-a5cc-a5406e62186f",
-    "title": "Quarry Tunnel Ambience 1, Large Splash"
-   },
-   "imported_at": 1789322816
-  },
   "assets/library/sfx/reveal_riser/freesound_9199161c_fa94_4c38_9e4e_19800af4411d.flac": {
    "kind": "sfx",
    "name": "reveal_riser",
@@ -1721,6 +1686,44 @@
     "title": "Bass Impact - Ki_01.mp3"
    },
    "imported_at": 1789322854
+  },
+  "assets/library/ambience/stone_hall/freesound_a2173e6b_157f_4903_a5cc_a5406e62186f.flac": {
+   "kind": "ambience",
+   "name": "stone_hall",
+   "source": "openverse:freesound",
+   "id": "freesound:a2173e6b-157f-4903-a5cc-a5406e62186f",
+   "title": "Quarry Tunnel Ambience 1, Large Splash",
+   "creator": "ecfike",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/476/476318_2337290-hq.mp3",
+   "landing": "https://freesound.org/people/ecfike/sounds/476318",
+   "query": "cave ambience drips",
+   "scores": {
+    "reasons": [],
+    "duration": 173.064,
+    "clipping_share": 0.0,
+    "hum_db": 8.5,
+    "silence_share": 0.0,
+    "lufs": -41.7,
+    "lra": 10.5,
+    "true_peak": -8.3,
+    "lf_share": 0.888,
+    "channel_corr": 0.033,
+    "mono": false,
+    "clap_pos": 0.1747,
+    "clap_margin": 0.1416,
+    "clap_worst_neg": "one person speaking clearly, conversation",
+    "ast": {
+     "Music": 0.011,
+     "Singing": 0.001,
+     "Speech": 0.028,
+     "Vehicle": 0.002
+    },
+    "id": "freesound:a2173e6b-157f-4903-a5cc-a5406e62186f",
+    "title": "Quarry Tunnel Ambience 1, Large Splash"
+   },
+   "imported_at": 1789322989
   }
  }
 }

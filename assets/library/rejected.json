@@ -1,1270 +1,5 @@
 [
  {
-  "id": "freesound:9a965918-c3de-4c49-a9f9-ae40d5691f60",
-  "title": "Birds in Rain Sounds (Scotland).wav",
-  "kind": "ambience",
-  "name": "forest_birds",
-  "reasons": [
-   "title:rain"
-  ]
- },
- {
-  "id": "freesound:25163d91-4dce-4419-ae96-565e5b670f3e",
-  "title": "Binaural Birds LOOP 1.wav",
-  "kind": "ambience",
-  "name": "forest_birds",
-  "reasons": [
-   "title:loop"
-  ]
- },
- {
-  "id": "freesound:ff51dace-7d68-455a-9ac6-b0862592087a",
-  "title": "Binaural Birds LOOP 2.wav",
-  "kind": "ambience",
-  "name": "forest_birds",
-  "reasons": [
-   "title:loop"
-  ]
- },
- {
-  "id": "freesound:743bcd77-82a5-4641-96fa-c41532486eb6",
-  "title": "Birds In Rain",
-  "kind": "ambience",
-  "name": "forest_birds",
-  "reasons": [
-   "title:rain"
-  ]
- },
- {
-  "id": "freesound:2e2a3e1a-9b22-4f10-a3c4-b52fd3baff09",
-  "title": "French Woods - Rainy Morning (take 2)",
-  "kind": "ambience",
-  "name": "forest_birds",
-  "reasons": [
-   "title:rain"
-  ]
- },
- {
-  "id": "freesound:2f815ecb-ff27-4238-8e70-a9c8378e26b7",
-  "title": "Rain in nature",
-  "kind": "ambience",
-  "name": "forest_birds",
-  "reasons": [
-   "title:rain"
-  ]
- },
- {
-  "id": "freesound:b67b82e2-8e7c-42b4-9ce5-1b87c6c754b3",
-  "title": "EXT Park urban morning.WAV",
-  "kind": "ambience",
-  "name": "forest_birds",
-  "reasons": [
-   "title:urban"
-  ]
- },
- {
-  "id": "freesound:4404a57f-1343-46df-9fa1-5a5084267b07",
-  "title": "EXT Park urban with birds morning.WAV",
-  "kind": "ambience",
-  "name": "forest_birds",
-  "reasons": [
-   "title:urban"
-  ]
- },
- {
-  "id": "freesound:37e16181-f5b2-4556-9cd0-10cb01f0d0b7",
-  "title": "Suburban Park with Children and Tennis Players (binaural)",
-  "kind": "ambience",
-  "name": "forest_birds",
-  "reasons": [
-   "title:urban"
-  ]
- },
- {
-  "id": "freesound:4949ecdc-97cf-4b75-aa0d-a0c737c9d79e",
-  "title": "Nature in spring in the city park with birds and background noise",
-  "kind": "ambience",
-  "name": "forest_birds",
-  "reasons": [
-   "title:city"
-  ]
- },
- {
-  "id": "freesound:0a570744-0575-4ca8-9e6e-ae3e16a2d3d3",
-  "title": "EXT Suburban Birds & Traffic 2.wav",
-  "kind": "ambience",
-  "name": "forest_birds",
-  "reasons": [
-   "title:traffic"
-  ]
- },
- {
-  "id": "freesound:60c85088-b159-4d2a-9fae-5910257aff3d",
-  "title": "Spring Birds 2019 (processed loop)",
-  "kind": "ambience",
-  "name": "forest_birds",
-  "reasons": [
-   "title:loop"
-  ]
- },
- {
-  "id": "freesound:7e6d4464-2321-4899-b544-94f3820832a3",
-  "title": "empty city park.wav",
-  "kind": "ambience",
-  "name": "forest_birds",
-  "reasons": [
-   "title:city"
-  ]
- },
- {
-  "id": "freesound:85268817-eb17-402b-86d4-ad5355eb9486",
-  "title": "spring birds loop with low cut new jersey LOOPED AND CLEANED",
-  "kind": "ambience",
-  "name": "forest_birds",
-  "reasons": [
-   "title:loop"
-  ]
- },
- {
-  "id": "freesound:c2a5114d-d378-4be2-a3e2-e9802ec487aa",
-  "title": "Ukraine_forest_atmo_in_May.wav",
-  "kind": "ambience",
-  "name": "forest_birds",
-  "reasons": [
-   "title:rain"
-  ]
- },
- {
-  "id": "freesound:9629cb0b-5ecb-42d4-95ac-d3fbc8e05584",
-  "title": "forest_ambience_steady_breeze_summer_sweden_leaves_light_wind_distant_highway_loop_m10.wav",
-  "kind": "ambience",
-  "name": "forest_birds",
-  "reasons": [
-   "title:loop"
-  ]
- },
- {
-  "id": "freesound:f47fc1c1-f646-4519-b84e-74a26fbb68a8",
-  "title": "Outside City Nature Ambience Sounds, Birds & Cars",
-  "kind": "ambience",
-  "name": "forest_birds",
-  "reasons": [
-   "title:city"
-  ]
- },
- {
-  "id": "freesound:6c3e7dcc-dc25-40b8-8790-be3159c92713",
-  "title": "EXT Suburban Birds & Traffic 1.wav",
-  "kind": "ambience",
-  "name": "forest_birds",
-  "reasons": [
-   "title:traffic"
-  ]
- },
- {
-  "reasons": [
-   "mains_hum",
-   "too_dynamic"
-  ],
-  "duration": 126.768,
-  "clipping_share": 0.0,
-  "hum_db": 26.7,
-  "silence_share": 0.0,
-  "lufs": -16.4,
-  "lra": 24.9,
-  "true_peak": -2.7,
-  "id": "freesound:df4c5ccb-82fd-4eeb-9915-be0a7dad5959",
-  "title": "Birds singing in spring - European robin - Forest - Rotkehlchen",
-  "kind": "ambience",
-  "name": "forest_birds"
- },
- {
-  "reasons": [
-   "clap_negative_wins"
-  ],
-  "duration": 177.888,
-  "clipping_share": 0.0,
-  "hum_db": 6.8,
-  "silence_share": 0.0,
-  "lufs": -44.3,
-  "lra": 3.6,
-  "true_peak": -4.2,
-  "clap_pos": 0.1072,
-  "clap_margin": 0.0281,
-  "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
-  "ast": {
-   "Music": 0.001,
-   "Singing": 0.0,
-   "Speech": 0.001,
-   "Vehicle": 0.001
-  },
-  "id": "freesound:813be22f-01f3-441a-b2e5-bd04e00a4b6b",
-  "title": "Forest Morning #1",
-  "kind": "ambience",
-  "name": "forest_birds"
- },
- {
-  "reasons": [
-   "clap_low_positive",
-   "clap_negative_wins"
-  ],
-  "duration": 157.248,
-  "clipping_share": 0.0,
-  "hum_db": 5.2,
-  "silence_share": 0.0,
-  "lufs": -29.0,
-  "lra": 3.7,
-  "true_peak": -8.1,
-  "clap_pos": 0.0562,
-  "clap_margin": 0.0014,
-  "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
-  "ast": {
-   "Music": 0.001,
-   "Singing": 0.0,
-   "Speech": 0.001,
-   "Vehicle": 0.002
-  },
-  "id": "freesound:aab6839c-a921-49d6-9e8d-d9e29ba58966",
-  "title": "Forest Morning #2",
-  "kind": "ambience",
-  "name": "forest_birds"
- },
- {
-  "reasons": [
-   "clap_low_positive"
-  ],
-  "duration": 122.664,
-  "clipping_share": 0.0,
-  "hum_db": 11.4,
-  "silence_share": 0.015,
-  "lufs": -19.2,
-  "lra": 12.5,
-  "true_peak": -0.5,
-  "clap_pos": 0.0736,
-  "clap_margin": 0.1074,
-  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
-  "ast": {
-   "Music": 0.002,
-   "Singing": 0.0,
-   "Speech": 0.002,
-   "Vehicle": 0.001
-  },
-  "id": "freesound:4edd8399-a00e-4e5f-86bc-0e2a9f3da2e3",
-  "title": "birds on morning",
-  "kind": "ambience",
-  "name": "forest_birds"
- },
- {
-  "reasons": [
-   "mains_hum"
-  ],
-  "duration": 121.08,
-  "clipping_share": 0.0,
-  "hum_db": 14.8,
-  "silence_share": 0.009,
-  "lufs": -65.6,
-  "lra": 6.3,
-  "true_peak": -44.7,
-  "id": "freesound:687f1ceb-43f0-4c93-8211-72de10d4862e",
-  "title": "amb, ext, high desert park, distant voices, birds, dog barks, bformat-fuma.wav",
-  "kind": "ambience",
-  "name": "forest_birds"
- },
- {
-  "reasons": [
-   "mains_hum"
-  ],
-  "duration": 120.576,
-  "clipping_share": 0.0,
-  "hum_db": 15.2,
-  "silence_share": 0.0,
-  "lufs": -27.9,
-  "lra": 7.4,
-  "true_peak": -8.3,
-  "id": "freesound:23b7945b-19c5-404e-ba3c-1d7f77529cfc",
-  "title": "Salt Marsh Morning Birds",
-  "kind": "ambience",
-  "name": "forest_birds"
- },
- {
-  "reasons": [
-   "mains_hum"
-  ],
-  "duration": 118.464,
-  "clipping_share": 0.0,
-  "hum_db": 14.4,
-  "silence_share": 0.0,
-  "lufs": -36.6,
-  "lra": 15.5,
-  "true_peak": -10.5,
-  "id": "freesound:23ce6e11-ec95-4419-a0be-e48bc5c742d7",
-  "title": "Woodland Bird Calls in Spring",
-  "kind": "ambience",
-  "name": "forest_birds"
- },
- {
-  "reasons": [
-   "clap_low_positive"
-  ],
-  "duration": 80.472,
-  "clipping_share": 5e-05,
-  "hum_db": 5.8,
-  "silence_share": 0.228,
-  "lufs": -13.7,
-  "lra": 13.6,
-  "true_peak": -0.9,
-  "clap_pos": 0.077,
-  "clap_margin": 0.0809,
-  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
-  "ast": {
-   "Music": 0.009,
-   "Singing": 0.001,
-   "Speech": 0.006,
-   "Vehicle": 0.0
-  },
-  "id": "freesound:c2188555-46b8-47aa-9879-15ef597ed52b",
-  "title": "Forest Birds .wav",
-  "kind": "ambience",
-  "name": "forest_birds"
- },
- {
-  "reasons": [
-   "mains_hum"
-  ],
-  "duration": 60.408,
-  "clipping_share": 7.9e-05,
-  "hum_db": 22.7,
-  "silence_share": 0.0,
-  "lufs": -18.1,
-  "lra": 10.6,
-  "true_peak": -0.6,
-  "id": "freesound:eded143d-1f03-4d21-bc28-b8ed6bbf5267",
-  "title": "Morning Birds Ambience.wav",
-  "kind": "ambience",
-  "name": "forest_birds"
- },
- {
-  "reasons": [
-   "mains_hum"
-  ],
-  "duration": 59.112,
-  "clipping_share": 0.0,
-  "hum_db": 18.2,
-  "silence_share": 0.0,
-  "lufs": -50.1,
-  "lra": 11.6,
-  "true_peak": -27.6,
-  "id": "freesound:d613a6ab-725c-457e-9e55-aadf806ece93",
-  "title": "Quiet Spring Woodland Ambience.wav",
-  "kind": "ambience",
-  "name": "forest_birds"
- },
- {
-  "reasons": [
-   "mains_hum"
-  ],
-  "duration": 58.056,
-  "clipping_share": 0.0,
-  "hum_db": 24.2,
-  "silence_share": 0.039,
-  "lufs": -44.9,
-  "lra": 2.2,
-  "true_peak": -29.6,
-  "id": "freesound:8a1dd547-36ae-4433-b237-07c8849b148a",
-  "title": "Birdsongs in Montreal's Parc de la Visitation.wav",
-  "kind": "ambience",
-  "name": "forest_birds"
- },
- {
-  "reasons": [
-   "mains_hum"
-  ],
-  "duration": 49.728,
-  "clipping_share": 0.0,
-  "hum_db": 14.8,
-  "silence_share": 0.0,
-  "lufs": -30.2,
-  "lra": 13.1,
-  "true_peak": -8.9,
-  "id": "freesound:f29c70a1-3949-4771-9884-10909cfbcb0e",
-  "title": "Exterior Ambiance Parking Lot with birds.wav",
-  "kind": "ambience",
-  "name": "forest_birds"
- },
- {
-  "reasons": [
-   "clap_negative_wins"
-  ],
-  "duration": 300.696,
-  "clipping_share": 0.0,
-  "hum_db": 6.8,
-  "silence_share": 0.0,
-  "lufs": -33.6,
-  "lra": 2.3,
-  "true_peak": -22.3,
-  "clap_pos": 0.1082,
-  "clap_margin": 0.0248,
-  "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
-  "ast": {
-   "Music": 0.006,
-   "Singing": 0.0,
-   "Speech": 0.002,
-   "Vehicle": 0.001
-  },
-  "id": "freesound:951e6c56-5952-40ee-b652-bdc74e83374f",
-  "title": "Forest at night, crickets, cicadas and insects in the Sian Ka'an Biosphere Reserve",
-  "kind": "ambience",
-  "name": "forest_birds"
- },
- {
-  "id": "freesound:160db3a7-cba9-4460-b41d-5386b78e9cb0",
-  "title": "2022-09-09-bookstore-ambience-zoom-f3-binaural-okm-ii.wav",
-  "kind": "ambience",
-  "name": "crowd_market",
-  "reasons": [
-   "title:binaural"
-  ]
- },
- {
-  "id": "freesound:cceadbd4-42f3-45d7-9799-d832059293bf",
-  "title": "Market fair ambience with music, street seller loudspeaker far, carousel and crowd hubbub",
-  "kind": "ambience",
-  "name": "crowd_market",
-  "reasons": [
-   "title:seller"
-  ]
- },
- {
-  "id": "freesound:4d565546-ca5f-4ad5-8997-7b63e145ccd9",
-  "title": "2022-07-01-zoom-f3-okm-ii-BINAURAL-xichangst-flea-market.wav",
-  "kind": "ambience",
-  "name": "crowd_market",
-  "reasons": [
-   "title:binaural"
-  ]
- },
- {
-  "id": "freesound:f6e069c2-bca1-49f4-9e20-9dea848a2765",
-  "title": "Esperaza Market Binaural walkthough",
-  "kind": "ambience",
-  "name": "crowd_market",
-  "reasons": [
-   "title:binaural"
-  ]
- },
- {
-  "id": "freesound:ff9c05e4-5c30-4655-926d-3f6b8783ecb5",
-  "title": "Fair seller speaking in loudspeaker in spanish with crowd hubbub",
-  "kind": "ambience",
-  "name": "crowd_market",
-  "reasons": [
-   "title:seller"
-  ]
- },
- {
-  "id": "freesound:7e64902d-a8b3-42ad-beb5-774d362fb7ae",
-  "title": "crowd ext small walla murmur arabic children and preteens at Friday fence border protest some close voices and some english words +distant motorcycle pass Gaza 2016.wav",
-  "kind": "ambience",
-  "name": "crowd_market",
-  "reasons": [
-   "title:test "
-  ]
- },
- {
-  "id": "freesound:0b9c9c7c-3c20-4677-919a-57cec50bf0e4",
-  "title": "crowd int large bingo hall chatty walla, game starts, crowd settles down, numbers called over PA, murmur.wav",
-  "kind": "ambience",
-  "name": "crowd_market",
-  "reasons": [
-   "title:bingo"
-  ]
- },
- {
-  "id": "freesound:4adf177b-530b-423e-a962-a1ab0a841c61",
-  "title": "Seller speech in spanish in loudspeaker at market fair, cars passing and crowd",
-  "kind": "ambience",
-  "name": "crowd_market",
-  "reasons": [
-   "title:seller"
-  ]
- },
- {
-  "id": "freesound:17680d8c-51de-44c1-a033-0ad67ab1f2dc",
-  "title": "Pistachio and nuts seller anouncing on loudspeaker in a market fair with distant crowd hubbub",
-  "kind": "ambience",
-  "name": "crowd_market",
-  "reasons": [
-   "title:seller"
-  ]
- },
- {
-  "id": "freesound:1d655b6b-2646-42b1-812d-13810b5f5d7c",
-  "title": "Walnut seller screaming in market fair with loudspeaker feedback",
-  "kind": "ambience",
-  "name": "crowd_market",
-  "reasons": [
-   "title:seller"
-  ]
- },
- {
-  "id": "freesound:83e87a58-f32a-487e-ab2a-ebfa0e5a6a21",
-  "title": "Market in a small village, calling, motorcycle, horns, people, speaker",
-  "kind": "ambience",
-  "name": "crowd_market",
-  "reasons": [
-   "title:calling"
-  ]
- },
- {
-  "id": "freesound:d1065598-04a8-4033-9402-5d185b6cd9fd",
-  "title": "Frame seller announcing aloud in a market fair with crowd hubbub",
-  "kind": "ambience",
-  "name": "crowd_market",
-  "reasons": [
-   "title:seller"
-  ]
- },
- {
-  "id": "freesound:c90cf4a8-dbb0-4298-82d6-ca862a7c2e73",
-  "title": "Thailand Phuket crowd ext medium restaurant covered eating area heavy walla murmur and metal serving sounds + Thai tour guide in english walking around talking to group.flac",
-  "kind": "ambience",
-  "name": "crowd_market",
-  "reasons": [
-   "title:restaurant"
-  ]
- },
- {
-  "id": "freesound:45bcbe23-0a7e-42b0-ac3e-cb86576b615a",
-  "title": "Keychain seller anouncing on loudspeaker in a market fair with crowd hubbub and cars far",
-  "kind": "ambience",
-  "name": "crowd_market",
-  "reasons": [
-   "title:seller"
-  ]
- },
- {
-  "id": "freesound:8a1895b9-b0b5-4306-a414-98282734f938",
-  "title": "Keychain seller anouncing on loudspeaker in a market fair with crowd hubbub and cars passing sometimes",
-  "kind": "ambience",
-  "name": "crowd_market",
-  "reasons": [
-   "title:seller"
-  ]
- },
- {
-  "id": "freesound:bd0af5f9-eeaf-48a7-9e45-de9e4930ac2d",
-  "title": "Seller announcing in loudspeaker during market fair with crowd hubbub",
-  "kind": "ambience",
-  "name": "crowd_market",
-  "reasons": [
-   "title:seller"
-  ]
- },
- {
-  "id": "freesound:21c139fb-5b7d-4c23-a43c-ea1906f3aa1d",
-  "title": "German sales talk on the market place - The corn-fed chicken / maize-fed chicken",
-  "kind": "ambience",
-  "name": "crowd_market",
-  "reasons": [
-   "title:talk"
-  ]
- },
- {
-  "id": "freesound:2adfbda8-6493-4b0d-bdb6-fdda3843e0ec",
-  "title": "G29-48-Men Talking and Laughing.wav",
-  "kind": "ambience",
-  "name": "crowd_market",
-  "reasons": [
-   "title:talk"
-  ]
- },
- {
-  "id": "freesound:96eea9fb-b01a-437f-b9f6-744f263bcccd",
-  "title": "Esperaza market crowd binaural (France)",
-  "kind": "ambience",
-  "name": "crowd_market",
-  "reasons": [
-   "title:binaural"
-  ]
- },
- {
-  "id": "freesound:22094b27-88f9-4047-a06c-6b35433a2417",
-  "title": "walla nike headquarters large hall dutch english.wav",
-  "kind": "ambience",
-  "name": "crowd_market",
-  "reasons": [
-   "title:headquarters"
-  ]
- },
- {
-  "id": "freesound:af4308ed-63ad-4095-b9e6-a76ba7cb5fe8",
-  "title": "Fair seller speaking in loudspeaker in spanish with distant crowd hubbub",
-  "kind": "ambience",
-  "name": "crowd_market",
-  "reasons": [
-   "title:seller"
-  ]
- },
- {
-  "id": "freesound:eaa1dd44-9e8a-4b36-941a-9326d8c4ed8f",
-  "title": "crowd int show movement walla murmur active whispers no steps nice smooth detailed sweetener.flac",
-  "kind": "ambience",
-  "name": "crowd_market",
-  "reasons": [
-   "title:int "
-  ]
- },
- {
-  "id": "freesound:fcb2a873-c99a-44ac-8708-0f3ba72dc28a",
-  "title": "People talking (Adults & Children)",
-  "kind": "ambience",
-  "name": "crowd_market",
-  "reasons": [
-   "title:talk"
-  ]
- },
- {
-  "id": "freesound:34633bc7-5de4-404d-91a7-3e08318326e3",
-  "title": "G28-09-Indoor Crowd Murmur - Varies.wav",
-  "kind": "ambience",
-  "name": "crowd_market",
-  "reasons": [
-   "title:indoor"
-  ]
- },
- {
-  "id": "freesound:0f7c88ac-f1e3-4db5-8cbf-1080b1a703ff",
-  "title": "Busy Room Ambience / People talking in background #2",
-  "kind": "ambience",
-  "name": "crowd_market",
-  "reasons": [
-   "title:talk"
-  ]
- },
- {
-  "id": "freesound:c88804ad-d001-4282-873b-4e08f0b75d8e",
-  "title": "crowd int medium students murmur walla large theatre active cinema politica Concordia short Montreal, Canada.flac",
-  "kind": "ambience",
-  "name": "crowd_market",
-  "reasons": [
-   "title:student"
-  ]
- },
- {
-  "reasons": [
-   "mains_hum"
-  ],
-  "duration": 79.44,
-  "clipping_share": 0.0,
-  "hum_db": 28.4,
-  "silence_share": 0.0,
-  "lufs": -30.6,
-  "lra": 8.6,
-  "true_peak": -8.2,
-  "id": "freesound:f39d2449-12e1-4f62-8b80-67402924cd28",
-  "title": "S13-06 Crowd walla at outdoor farmers’ market.wav",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "clap_negative_wins",
-   "ast_music"
-  ],
-  "duration": 99.96,
-  "clipping_share": 0.0,
-  "hum_db": 8.8,
-  "silence_share": 0.0,
-  "lufs": -29.0,
-  "lra": 5.0,
-  "true_peak": -2.3,
-  "clap_pos": 0.0806,
-  "clap_margin": -0.0182,
-  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
-  "ast": {
-   "Music": 0.535,
-   "Singing": 0.002,
-   "Speech": 0.712,
-   "Vehicle": 0.249
-  },
-  "id": "freesound:bf062830-e4dc-45e9-99d3-b9991f27b505",
-  "title": "Market fair ambience with crowd hubbub far and cars passing",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "mains_hum"
-  ],
-  "duration": 118.056,
-  "clipping_share": 0.0,
-  "hum_db": 22.9,
-  "silence_share": 0.03,
-  "lufs": -26.4,
-  "lra": 6.8,
-  "true_peak": -1.1,
-  "id": "freesound:658bb889-5864-4fca-9698-8f59d26110b2",
-  "title": "Semi Outdoor Montreal Market Ambiance.wav",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "mains_hum"
-  ],
-  "duration": 66.048,
-  "clipping_share": 0.0,
-  "hum_db": 45.4,
-  "silence_share": 0.0,
-  "lufs": -29.7,
-  "lra": 5.6,
-  "true_peak": -3.8,
-  "id": "freesound:23fe5c69-2752-48bc-93ef-416937b26c48",
-  "title": "G28-05-Low Murmuring Crowd.wav",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "duration_short"
-  ],
-  "duration": 28.056,
-  "id": "freesound:2c99b37f-4600-473b-bd0b-8c0560e44fdc",
-  "title": "Small Crowd Walla",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "mains_hum"
-  ],
-  "duration": 190.056,
-  "clipping_share": 0.0,
-  "hum_db": 24.0,
-  "silence_share": 0.0,
-  "lufs": -25.1,
-  "lra": 8.0,
-  "true_peak": -1.4,
-  "id": "freesound:854798da-29fd-4970-acbf-b8e497e7c9ad",
-  "title": "ramallah_Market.wav",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "clap_negative_wins"
-  ],
-  "duration": 255.624,
-  "clipping_share": 0.0,
-  "hum_db": 12.5,
-  "silence_share": 0.0,
-  "lufs": -29.1,
-  "lra": 9.2,
-  "true_peak": -0.4,
-  "clap_pos": 0.0893,
-  "clap_margin": -0.0545,
-  "clap_worst_neg": "one person speaking clearly, announcement through a loudspeaker",
-  "ast": {
-   "Music": 0.016,
-   "Singing": 0.0,
-   "Speech": 0.858,
-   "Vehicle": 0.268
-  },
-  "id": "freesound:5587b5a3-84d1-4f41-8f4a-4427012d8c78",
-  "title": "Esperaza Market Walkthrough (France)",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "clap_low_positive",
-   "clap_negative_wins"
-  ],
-  "duration": 167.328,
-  "clipping_share": 0.0,
-  "hum_db": 6.2,
-  "silence_share": 0.0,
-  "lufs": -29.1,
-  "lra": 6.6,
-  "true_peak": -5.9,
-  "clap_pos": 0.0655,
-  "clap_margin": -0.0387,
-  "clap_worst_neg": "one person speaking clearly, announcement through a loudspeaker",
-  "ast": {
-   "Music": 0.05,
-   "Singing": 0.001,
-   "Speech": 0.804,
-   "Vehicle": 0.082
-  },
-  "id": "freesound:0c6fa44b-3b20-4fa5-8e33-4923a5a24b9b",
-  "title": "CROWD",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "clap_low_positive",
-   "clap_negative_wins",
-   "ast_music",
-   "ast_vehicle"
-  ],
-  "duration": 150.552,
-  "clipping_share": 2e-06,
-  "hum_db": 12.6,
-  "silence_share": 0.0,
-  "lufs": -27.0,
-  "lra": 14.7,
-  "true_peak": -0.2,
-  "clap_pos": 0.0296,
-  "clap_margin": -0.0847,
-  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
-  "ast": {
-   "Music": 0.326,
-   "Singing": 0.001,
-   "Speech": 0.742,
-   "Vehicle": 0.664
-  },
-  "id": "freesound:078bc554-d26d-470b-b855-568a4dd2cbe1",
-  "title": "busy city 06",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "mains_hum"
-  ],
-  "duration": 145.008,
-  "clipping_share": 0.0,
-  "hum_db": 14.5,
-  "silence_share": 0.005,
-  "lufs": -24.1,
-  "lra": 10.4,
-  "true_peak": -4.0,
-  "id": "freesound:5ba197b8-7fb9-45c7-9863-7613db82e009",
-  "title": "Aux Cinq Poivres - city market",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "clap_low_positive",
-   "clap_negative_wins"
-  ],
-  "duration": 139.99,
-  "clipping_share": 0.0,
-  "hum_db": 7.8,
-  "silence_share": 0.0,
-  "lufs": -26.8,
-  "lra": 5.2,
-  "true_peak": -5.3,
-  "clap_pos": -0.0969,
-  "clap_margin": -0.1916,
-  "clap_worst_neg": "music, melody, musical instruments, singing",
-  "ast": {
-   "Music": 0.03,
-   "Singing": 0.003,
-   "Speech": 0.648,
-   "Vehicle": 0.001
-  },
-  "id": "freesound:1f64e325-097e-47aa-88e3-d85147f67491",
-  "title": "crowd_male.wav",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "clap_low_positive",
-   "clap_negative_wins"
-  ],
-  "duration": 71.4,
-  "clipping_share": 0.0,
-  "hum_db": 12.4,
-  "silence_share": 0.0,
-  "lufs": -28.7,
-  "lra": 10.8,
-  "true_peak": -6.2,
-  "clap_pos": 0.0727,
-  "clap_margin": 0.0313,
-  "clap_worst_neg": "one person speaking clearly, announcement through a loudspeaker",
-  "ast": {
-   "Music": 0.159,
-   "Singing": 0.001,
-   "Speech": 0.842,
-   "Vehicle": 0.013
-  },
-  "id": "freesound:77bd7b6e-00f7-4fac-b53b-b543444c865e",
-  "title": "Weekend Fair in Chapultepec Park Mexico City",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "clap_low_positive"
-  ],
-  "duration": 66.768,
-  "clipping_share": 0.0,
-  "hum_db": 9.3,
-  "silence_share": 0.0,
-  "lufs": -22.8,
-  "lra": 2.5,
-  "true_peak": -6.2,
-  "clap_pos": 0.0716,
-  "clap_margin": 0.0531,
-  "clap_worst_neg": "one person speaking clearly, announcement through a loudspeaker",
-  "ast": {
-   "Music": 0.118,
-   "Singing": 0.004,
-   "Speech": 0.862,
-   "Vehicle": 0.017
-  },
-  "id": "freesound:5af1591f-03e1-4dbb-9be5-0e10cc8e6784",
-  "title": "Farmer's market front",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "mains_hum"
-  ],
-  "duration": 60.144,
-  "clipping_share": 0.0,
-  "hum_db": 15.6,
-  "silence_share": 0.0,
-  "lufs": -29.7,
-  "lra": 2.5,
-  "true_peak": -14.6,
-  "id": "freesound:b7e83aaf-7bb3-49b8-a892-4f747c6fd408",
-  "title": "Bar Crowd in Belgrade",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "mains_hum"
-  ],
-  "duration": 49.224,
-  "clipping_share": 0.0,
-  "hum_db": 14.6,
-  "silence_share": 0.0,
-  "lufs": -34.6,
-  "lra": 11.9,
-  "true_peak": -13.1,
-  "id": "freesound:fcfa06d4-eacc-4fd0-929d-956e8c430319",
-  "title": "staff canteen background.wav",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "clap_low_positive",
-   "clap_negative_wins"
-  ],
-  "duration": 43.488,
-  "clipping_share": 0.0,
-  "hum_db": 10.0,
-  "silence_share": 0.0,
-  "lufs": -46.6,
-  "lra": 7.9,
-  "true_peak": -27.2,
-  "clap_pos": 0.0695,
-  "clap_margin": -0.0737,
-  "clap_worst_neg": "one person speaking clearly, announcement through a loudspeaker",
-  "ast": {
-   "Music": 0.018,
-   "Singing": 0.001,
-   "Speech": 0.949,
-   "Vehicle": 0.002
-  },
-  "id": "freesound:665b96c6-bc68-4adc-b5bc-537e26ae124d",
-  "title": "Amsterdam Atmos - de Pijp - female & higher male voices, stereo, foreigners @ a terrace, store or market, medium wide, medium strong.flac",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "clap_negative_wins"
-  ],
-  "duration": 39.0,
-  "clipping_share": 0.0,
-  "hum_db": 13.6,
-  "silence_share": 0.0,
-  "lufs": -27.4,
-  "lra": 3.0,
-  "true_peak": -13.1,
-  "clap_pos": 0.1179,
-  "clap_margin": -0.0239,
-  "clap_worst_neg": "one person speaking clearly, announcement through a loudspeaker",
-  "ast": {
-   "Music": 0.023,
-   "Singing": 0.001,
-   "Speech": 0.69,
-   "Vehicle": 0.066
-  },
-  "id": "freesound:decde14a-444f-4bf8-bdbf-34dc38681529",
-  "title": "R08-37-Large Group Murmur.wav",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "duration_short"
-  ],
-  "duration": 28.2,
-  "id": "freesound:18c47e03-2902-4c3e-b1d0-cef89406bd1f",
-  "title": "R07-04-Large Crowd in Closed Space.wav",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "clap_low_positive",
-   "clap_negative_wins"
-  ],
-  "duration": 294.408,
-  "clipping_share": 0.0,
-  "hum_db": 11.3,
-  "silence_share": 0.0,
-  "lufs": -24.6,
-  "lra": 3.7,
-  "true_peak": -7.1,
-  "clap_pos": 0.062,
-  "clap_margin": 0.0089,
-  "clap_worst_neg": "one person speaking clearly, announcement through a loudspeaker",
-  "ast": {
-   "Music": 0.078,
-   "Singing": 0.002,
-   "Speech": 0.946,
-   "Vehicle": 0.008
-  },
-  "id": "freesound:4497e941-db3b-4a31-9112-811634e39acc",
-  "title": "marchenoel5.wav",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "mains_hum"
-  ],
-  "duration": 197.448,
-  "clipping_share": 0.0,
-  "hum_db": 14.6,
-  "silence_share": 0.0,
-  "lufs": -23.5,
-  "lra": 4.9,
-  "true_peak": -9.2,
-  "id": "freesound:cc2e50ff-d136-40e1-873d-ca1adc27390e",
-  "title": "marchenoel6.wav",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "mains_hum"
-  ],
-  "duration": 380.63,
-  "clipping_share": 0.0,
-  "hum_db": 35.1,
-  "silence_share": 0.0,
-  "lufs": -39.0,
-  "lra": 10.5,
-  "true_peak": -11.5,
-  "id": "freesound:03bd61ac-7589-4101-87ee-f89d073e494c",
-  "title": "0105coffeehouse.wav",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "clap_low_positive",
-   "clap_negative_wins",
-   "ast_vehicle"
-  ],
-  "duration": 225.456,
-  "clipping_share": 0.0,
-  "hum_db": 9.7,
-  "silence_share": 0.0,
-  "lufs": -24.0,
-  "lra": 3.2,
-  "true_peak": -6.1,
-  "clap_pos": 0.0607,
-  "clap_margin": -0.0707,
-  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
-  "ast": {
-   "Music": 0.011,
-   "Singing": 0.0,
-   "Speech": 0.73,
-   "Vehicle": 0.489
-  },
-  "id": "freesound:5fa94756-e562-4d14-8a2d-81866b4e6bcf",
-  "title": "Place d'Epices Marrakesh 5.1",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "mains_hum"
-  ],
-  "duration": 175.44,
-  "clipping_share": 0.0,
-  "hum_db": 14.9,
-  "silence_share": 0.0,
-  "lufs": -24.3,
-  "lra": 7.4,
-  "true_peak": -2.8,
-  "id": "freesound:46a26fc7-2b6d-4c21-8d0f-1be8839c0c2e",
-  "title": "Jamaa El Fna Marrakesh Wide 5.1",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "clap_low_positive",
-   "clap_negative_wins"
-  ],
-  "duration": 131.808,
-  "clipping_share": 0.0,
-  "hum_db": 6.4,
-  "silence_share": 0.0,
-  "lufs": -36.5,
-  "lra": 6.0,
-  "true_peak": -13.3,
-  "clap_pos": 0.0169,
-  "clap_margin": -0.0469,
-  "clap_worst_neg": "one person speaking clearly, announcement through a loudspeaker",
-  "ast": {
-   "Music": 0.03,
-   "Singing": 0.0,
-   "Speech": 0.516,
-   "Vehicle": 0.144
-  },
-  "id": "freesound:0ba24237-b7b3-452d-ab3b-22bb9417eaff",
-  "title": "Train dining car carriage buffet car",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "mains_hum"
-  ],
-  "duration": 120.888,
-  "clipping_share": 0.0,
-  "hum_db": 18.9,
-  "silence_share": 0.0,
-  "lufs": -38.4,
-  "lra": 4.9,
-  "true_peak": -20.6,
-  "id": "freesound:0c901885-b6dc-4241-a720-89d95b1191e6",
-  "title": "geroezemoes.wav",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "clap_low_positive",
-   "clap_negative_wins"
-  ],
-  "duration": 115.704,
-  "clipping_share": 4.8e-05,
-  "hum_db": 8.2,
-  "silence_share": 0.0,
-  "lufs": -15.8,
-  "lra": 7.5,
-  "true_peak": -1.5,
-  "clap_pos": 0.034,
-  "clap_margin": -0.0232,
-  "clap_worst_neg": "music, melody, musical instruments, singing",
-  "ast": {
-   "Music": 0.16,
-   "Singing": 0.001,
-   "Speech": 0.956,
-   "Vehicle": 0.249
-  },
-  "id": "freesound:015f33b0-a675-41d8-a18a-83dbe067dee4",
-  "title": "Ambiente El Mayoreo.wav",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "clap_low_positive",
-   "clap_negative_wins",
-   "ast_music"
-  ],
-  "duration": 60.408,
-  "clipping_share": 0.0,
-  "hum_db": 8.6,
-  "silence_share": 0.0,
-  "lufs": -20.0,
-  "lra": 1.8,
-  "true_peak": -5.5,
-  "clap_pos": -0.0589,
-  "clap_margin": -0.1399,
-  "clap_worst_neg": "music, melody, musical instruments, singing",
-  "ast": {
-   "Music": 0.554,
-   "Singing": 0.001,
-   "Speech": 0.526,
-   "Vehicle": 0.014
-  },
-  "id": "freesound:68feba97-0e13-4e07-a04a-e4c668e10420",
-  "title": "Jamaa El Fna SnakeCharmer Marrakesh 5.1",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "mains_hum"
-  ],
-  "duration": 49.56,
-  "clipping_share": 0.0,
-  "hum_db": 24.7,
-  "silence_share": 0.056,
-  "lufs": -30.1,
-  "lra": 5.8,
-  "true_peak": -9.6,
-  "id": "freesound:5f699d53-08b4-4219-8a2d-8d162685b83d",
-  "title": "Butcher Shop in Montreal.wav",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "clap_low_positive",
-   "clap_negative_wins",
-   "ast_music"
-  ],
-  "duration": 31.848,
-  "clipping_share": 0.0,
-  "hum_db": 13.0,
-  "silence_share": 0.0,
-  "lufs": -25.9,
-  "lra": 8.9,
-  "true_peak": -5.7,
-  "clap_pos": 0.0373,
-  "clap_margin": -0.0876,
-  "clap_worst_neg": "digital distortion, clipping, glitch, static",
-  "ast": {
-   "Music": 0.453,
-   "Singing": 0.004,
-   "Speech": 0.602,
-   "Vehicle": 0.151
-  },
-  "id": "freesound:c2931da0-fdf9-432a-86e6-28d3742950fb",
-  "title": "rios_barney_baja_fidelidad_miniplaza_de_mercado.wav",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
-  "reasons": [
-   "duration_short"
-  ],
-  "duration": 27.072,
-  "id": "freesound:5d6f141e-e395-405f-a416-fd1699b8b471",
-  "title": "AMBTran_FieldRecording_Cinematis_Vol2_TrainStation6_Freebie",
-  "kind": "ambience",
-  "name": "crowd_market"
- },
- {
   "id": "freesound:47a9d037-c66d-4200-91cb-9f7c78c32dab",
   "title": "Church bells in a Pamplona side street 1985",
   "kind": "ambience",
@@ -1302,6 +37,9 @@
   "lufs": -25.3,
   "lra": 0.7,
   "true_peak": -11.6,
+  "lf_share": 0.184,
+  "channel_corr": 0.401,
+  "mono": false,
   "id": "freesound:92eaafad-7cd9-409f-87d1-0ef74bea3f21",
   "title": "room tone large empty bass hum rumble mosque.flac",
   "kind": "ambience",
@@ -1318,6 +56,9 @@
   "lufs": -25.4,
   "lra": 1.1,
   "true_peak": -13.1,
+  "lf_share": 0.0,
+  "channel_corr": 0.735,
+  "mono": false,
   "id": "freesound:a96295b8-409c-45c3-bd16-e2144cdac47c",
   "title": "room tone, big hall, heavy ventilation hum, extremely sparse people.wav",
   "kind": "ambience",
@@ -1325,9 +66,7 @@
  },
  {
   "reasons": [
-   "clap_low_positive",
-   "clap_negative_wins",
-   "ast_music"
+   "clap_low_positive"
   ],
   "duration": 299.448,
   "clipping_share": 0.0,
@@ -1336,9 +75,12 @@
   "lufs": -12.8,
   "lra": 0.5,
   "true_peak": -0.0,
+  "lf_share": 0.054,
+  "channel_corr": 0.006,
+  "mono": false,
   "clap_pos": -0.0025,
-  "clap_margin": -0.0009,
-  "clap_worst_neg": "footsteps walking",
+  "clap_margin": 0.0439,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
   "ast": {
    "Music": 0.597,
    "Singing": 0.0,
@@ -1361,6 +103,9 @@
   "lufs": -37.8,
   "lra": 7.2,
   "true_peak": -21.7,
+  "lf_share": 0.035,
+  "channel_corr": 0.219,
+  "mono": false,
   "clap_pos": 0.1876,
   "clap_margin": -0.0422,
   "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
@@ -1386,6 +131,9 @@
   "lufs": -55.8,
   "lra": 4.4,
   "true_peak": -32.3,
+  "lf_share": 0.51,
+  "channel_corr": -0.381,
+  "mono": false,
   "id": "freesound:f69cf27c-fe26-4b26-858e-f94d8bd7e11b",
   "title": "Room Tone Underground Parking",
   "kind": "ambience",
@@ -1404,6 +152,9 @@
   "lufs": -15.3,
   "lra": 24.8,
   "true_peak": -0.4,
+  "lf_share": 0.0,
+  "channel_corr": 0.668,
+  "mono": false,
   "id": "freesound:32243624-1fb6-4829-b7e8-8a50e91e5207",
   "title": "Whirly tube, four pitches, harmonic series, circular swinging, large room.wav",
   "kind": "ambience",
@@ -1420,6 +171,9 @@
   "lufs": -13.1,
   "lra": 0.5,
   "true_peak": -0.4,
+  "lf_share": 0.057,
+  "channel_corr": 0.025,
+  "mono": false,
   "clap_pos": 0.1496,
   "clap_margin": -0.0067,
   "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
@@ -1445,6 +199,9 @@
   "lufs": -20.3,
   "lra": 3.3,
   "true_peak": -0.3,
+  "lf_share": 0.3,
+  "channel_corr": 0.827,
+  "mono": false,
   "id": "freesound:6c12a425-d2ee-454c-b313-547b703b5bdd",
   "title": "Solothurn - in Front of the St. Ursen Cathedral",
   "kind": "ambience",
@@ -1461,9 +218,12 @@
   "lufs": -48.9,
   "lra": 11.3,
   "true_peak": -24.4,
+  "lf_share": 0.103,
+  "channel_corr": 1.0,
+  "mono": true,
   "clap_pos": 0.0875,
-  "clap_margin": -0.0116,
-  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "clap_margin": -0.0894,
+  "clap_worst_neg": "music with melody and instruments, singing",
   "ast": {
    "Music": 0.011,
    "Singing": 0.0,
@@ -1486,6 +246,9 @@
   "lufs": -48.0,
   "lra": 8.8,
   "true_peak": -20.8,
+  "lf_share": 0.596,
+  "channel_corr": -0.878,
+  "mono": false,
   "clap_pos": 0.1832,
   "clap_margin": -0.0279,
   "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
@@ -1511,6 +274,9 @@
   "lufs": -21.6,
   "lra": 3.8,
   "true_peak": -6.2,
+  "lf_share": 0.007,
+  "channel_corr": 0.882,
+  "mono": false,
   "id": "freesound:765f7a76-773d-4d8d-9471-1afd7b31ba84",
   "title": "Dark Dungeon Ambience",
   "kind": "ambience",
@@ -1518,9 +284,7 @@
  },
  {
   "reasons": [
-   "clap_low_positive",
-   "clap_negative_wins",
-   "ast_music"
+   "clap_low_positive"
   ],
   "duration": 265.248,
   "clipping_share": 1.5e-05,
@@ -1529,9 +293,12 @@
   "lufs": -10.5,
   "lra": 0.5,
   "true_peak": 0.2,
+  "lf_share": 0.016,
+  "channel_corr": -0.103,
+  "mono": false,
   "clap_pos": 0.0026,
-  "clap_margin": -0.0478,
-  "clap_worst_neg": "footsteps walking",
+  "clap_margin": 0.0523,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
   "ast": {
    "Music": 0.741,
    "Singing": 0.0,
@@ -1546,8 +313,7 @@
  {
   "reasons": [
    "clap_low_positive",
-   "clap_negative_wins",
-   "ast_music"
+   "clap_negative_wins"
   ],
   "duration": 300.048,
   "clipping_share": 0.0,
@@ -1556,9 +322,12 @@
   "lufs": -12.8,
   "lra": 0.5,
   "true_peak": -0.4,
+  "lf_share": 0.054,
+  "channel_corr": -0.006,
+  "mono": false,
   "clap_pos": 0.0131,
-  "clap_margin": 0.0206,
-  "clap_worst_neg": "footsteps walking",
+  "clap_margin": 0.037,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
   "ast": {
    "Music": 0.658,
    "Singing": 0.0,
@@ -1573,8 +342,7 @@
  {
   "reasons": [
    "clap_low_positive",
-   "clap_negative_wins",
-   "ast_music"
+   "clap_negative_wins"
   ],
   "duration": 265.08,
   "clipping_share": 3.5e-05,
@@ -1583,9 +351,12 @@
   "lufs": -9.7,
   "lra": 0.4,
   "true_peak": 0.5,
+  "lf_share": 0.01,
+  "channel_corr": -0.088,
+  "mono": false,
   "clap_pos": -0.027,
-  "clap_margin": -0.0446,
-  "clap_worst_neg": "footsteps walking",
+  "clap_margin": 0.0079,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
   "ast": {
    "Music": 0.633,
    "Singing": 0.0,
@@ -1600,8 +371,7 @@
  {
   "reasons": [
    "clap_low_positive",
-   "clap_negative_wins",
-   "ast_music"
+   "clap_negative_wins"
   ],
   "duration": 184.056,
   "clipping_share": 0.0,
@@ -1610,9 +380,12 @@
   "lufs": -25.2,
   "lra": 1.0,
   "true_peak": -13.8,
+  "lf_share": 0.0,
+  "channel_corr": -0.45,
+  "mono": false,
   "clap_pos": -0.1002,
-  "clap_margin": -0.2087,
-  "clap_worst_neg": "music, melody, musical instruments, singing",
+  "clap_margin": -0.1294,
+  "clap_worst_neg": "music with melody and instruments, singing",
   "ast": {
    "Music": 0.731,
    "Singing": 0.025,
@@ -1627,8 +400,7 @@
  {
   "reasons": [
    "clap_low_positive",
-   "clap_negative_wins",
-   "ast_music"
+   "clap_negative_wins"
   ],
   "duration": 180.048,
   "clipping_share": 0.0,
@@ -1637,9 +409,12 @@
   "lufs": -13.3,
   "lra": 1.6,
   "true_peak": -0.5,
+  "lf_share": 0.079,
+  "channel_corr": 0.129,
+  "mono": false,
   "clap_pos": 0.0037,
-  "clap_margin": -0.0137,
-  "clap_worst_neg": "footsteps walking",
+  "clap_margin": 0.0195,
+  "clap_worst_neg": "music with melody and instruments, singing",
   "ast": {
    "Music": 0.56,
    "Singing": 0.0,
@@ -1662,6 +437,9 @@
   "lufs": -57.6,
   "lra": 3.5,
   "true_peak": -38.8,
+  "lf_share": 0.404,
+  "channel_corr": 1.0,
+  "mono": true,
   "id": "freesound:8194963b-e1d2-4767-b23e-8f937507f0c6",
   "title": "Monastery ruins_2(birds, pigeons, wings, wind).wav",
   "kind": "ambience",
@@ -1678,6 +456,9 @@
   "lufs": -22.8,
   "lra": 6.4,
   "true_peak": -6.7,
+  "lf_share": 0.003,
+  "channel_corr": 0.515,
+  "mono": false,
   "id": "freesound:01227ec1-5af3-4c18-b41b-89871c6b8627",
   "title": "ShadowMaker - Crypt",
   "kind": "ambience",
@@ -1694,9 +475,12 @@
   "lufs": -30.9,
   "lra": 2.2,
   "true_peak": -5.6,
+  "lf_share": 0.938,
+  "channel_corr": 0.057,
+  "mono": false,
   "clap_pos": 0.1829,
-  "clap_margin": 0.0093,
-  "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
+  "clap_margin": 0.0332,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
   "ast": {
    "Music": 0.016,
    "Singing": 0.0,
@@ -1719,6 +503,9 @@
   "lufs": -45.2,
   "lra": 7.5,
   "true_peak": -22.4,
+  "lf_share": 0.366,
+  "channel_corr": 0.617,
+  "mono": false,
   "clap_pos": 0.227,
   "clap_margin": 0.1018,
   "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
@@ -1736,8 +523,7 @@
  {
   "reasons": [
    "clap_low_positive",
-   "clap_negative_wins",
-   "ast_music"
+   "clap_negative_wins"
   ],
   "duration": 130.056,
   "clipping_share": 0.0,
@@ -1746,9 +532,12 @@
   "lufs": -25.8,
   "lra": 0.6,
   "true_peak": -15.1,
+  "lf_share": 0.0,
+  "channel_corr": -0.0,
+  "mono": false,
   "clap_pos": -0.1161,
-  "clap_margin": -0.1454,
-  "clap_worst_neg": "music, melody, musical instruments, singing",
+  "clap_margin": -0.1227,
+  "clap_worst_neg": "music with melody and instruments, singing",
   "ast": {
    "Music": 0.824,
    "Singing": 0.002,
@@ -1771,9 +560,12 @@
   "lufs": -34.5,
   "lra": 12.3,
   "true_peak": -11.0,
+  "lf_share": 0.438,
+  "channel_corr": 0.584,
+  "mono": false,
   "clap_pos": 0.1231,
-  "clap_margin": 0.0004,
-  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "clap_margin": -0.0031,
+  "clap_worst_neg": "music with melody and instruments, singing",
   "ast": {
    "Music": 0.133,
    "Singing": 0.0,
@@ -1796,6 +588,9 @@
   "lufs": -67.8,
   "lra": 3.7,
   "true_peak": -40.4,
+  "lf_share": 0.273,
+  "channel_corr": 1.0,
+  "mono": true,
   "id": "freesound:cad39006-b791-4c46-8027-7e93901e14fa",
   "title": "Room Noise 8 Entryway.wav",
   "kind": "ambience",
@@ -1812,9 +607,12 @@
   "lufs": -40.2,
   "lra": 6.5,
   "true_peak": -19.4,
+  "lf_share": 0.052,
+  "channel_corr": 0.617,
+  "mono": false,
   "clap_pos": 0.2316,
-  "clap_margin": 0.0904,
-  "clap_worst_neg": "people talking, human speech, voices",
+  "clap_margin": 0.0765,
+  "clap_worst_neg": "one person speaking clearly, conversation",
   "ast": {
    "Music": 0.244,
    "Singing": 0.001,
@@ -1837,6 +635,9 @@
   "lufs": -11.7,
   "lra": 0.6,
   "true_peak": -0.1,
+  "lf_share": 0.0,
+  "channel_corr": 0.08,
+  "mono": false,
   "id": "freesound:9f07b57d-b1b9-446c-9438-60420ec47f70",
   "title": "ambience cave7.ogg",
   "kind": "ambience",
@@ -1853,6 +654,9 @@
   "lufs": -37.2,
   "lra": 5.3,
   "true_peak": -19.3,
+  "lf_share": 0.014,
+  "channel_corr": 0.695,
+  "mono": false,
   "id": "freesound:0ca33c4f-7deb-4f0d-bd33-512c168f2833",
   "title": "Monastery yard with tourists.wav",
   "kind": "ambience",
@@ -1869,6 +673,9 @@
   "lufs": -16.5,
   "lra": 3.9,
   "true_peak": -0.3,
+  "lf_share": 0.018,
+  "channel_corr": 0.54,
+  "mono": false,
   "id": "freesound:614569b3-b56a-4a85-a0e2-b19712db1746",
   "title": "dungeon ambience + piano",
   "kind": "ambience",
@@ -1885,6 +692,9 @@
   "lufs": -43.0,
   "lra": 2.9,
   "true_peak": -18.5,
+  "lf_share": 0.007,
+  "channel_corr": -0.324,
+  "mono": false,
   "id": "freesound:e3e5e0c5-1e45-41de-b66d-202438e0c3ca",
   "title": "Hall Full of People - Ambience .wav",
   "kind": "ambience",
@@ -1901,209 +711,12 @@
   "lufs": -14.4,
   "lra": 4.9,
   "true_peak": -0.6,
+  "lf_share": 0.001,
+  "channel_corr": 0.092,
+  "mono": false,
   "id": "freesound:09b40fe1-de9e-431c-8655-4313bed4c73d",
   "title": "Shadow Maker-Dining Room.mp3",
   "kind": "ambience",
   "name": "stone_hall"
- },
- {
-  "reasons": [
-   "clap_low_positive",
-   "clap_negative_wins"
-  ],
-  "duration": 3.048,
-  "clipping_share": 0.002368,
-  "clap_pos": 0.0769,
-  "clap_margin": 0.0092,
-  "clap_worst_neg": "digital distortion, clipping, glitch, static",
-  "id": "freesound:a3714620-d31b-4034-9b31-c7a0166981ad",
-  "title": "SFX Thrilling Build-Up and Hit 1 (Made at Paradise AIR).wav",
-  "kind": "sfx",
-  "name": "reveal_riser"
- },
- {
-  "reasons": [
-   "clap_low_positive",
-   "clap_negative_wins"
-  ],
-  "duration": 1.802,
-  "clipping_share": 0.0,
-  "clap_pos": -0.0259,
-  "clap_margin": -0.1095,
-  "clap_worst_neg": "music, melody, musical instruments, singing",
-  "id": "freesound:d3fe6653-475d-44f3-9e5b-64558f87901c",
-  "title": "Inhale with glass.wav",
-  "kind": "sfx",
-  "name": "reveal_riser"
- },
- {
-  "id": "freesound:22598fa3-b15b-4d92-906a-1a257a1045cb",
-  "title": "Church Bell 4",
-  "kind": "sfx",
-  "name": "reveal_hit",
-  "reasons": [
-   "title:bell"
-  ]
- },
- {
-  "id": "freesound:aedebad3-10ab-409c-a20c-52e6191e006d",
-  "title": "Church Bell 3",
-  "kind": "sfx",
-  "name": "reveal_hit",
-  "reasons": [
-   "title:bell"
-  ]
- },
- {
-  "id": "freesound:53b7e133-c844-4fac-b71e-c3346e8afc26",
-  "title": "Church Bell 1",
-  "kind": "sfx",
-  "name": "reveal_hit",
-  "reasons": [
-   "title:bell"
-  ]
- },
- {
-  "id": "freesound:19b18c72-74af-4fda-9bb6-c870fbac3b92",
-  "title": "Church Bell 2",
-  "kind": "sfx",
-  "name": "reveal_hit",
-  "reasons": [
-   "title:bell"
-  ]
- },
- {
-  "id": "freesound:3d9042ea-281b-4a82-a226-12153378f26a",
-  "title": "Kick 001.wav",
-  "kind": "sfx",
-  "name": "reveal_hit",
-  "reasons": [
-   "title:kick"
-  ]
- },
- {
-  "id": "freesound:86b47d9c-08d7-4034-ae5f-4941154fe12a",
-  "title": "Kick 002.wav",
-  "kind": "sfx",
-  "name": "reveal_hit",
-  "reasons": [
-   "title:kick"
-  ]
- },
- {
-  "id": "freesound:3c2b7cdb-03b3-4190-8eb9-be8200eb9e10",
-  "title": "kick12",
-  "kind": "sfx",
-  "name": "reveal_hit",
-  "reasons": [
-   "title:kick"
-  ]
- },
- {
-  "id": "freesound:427a5699-3173-4ead-aa5c-08708d02c4ff",
-  "title": "super low bass hit kick drum wAv",
-  "kind": "sfx",
-  "name": "reveal_hit",
-  "reasons": [
-   "title:kick"
-  ]
- },
- {
-  "reasons": [
-   "duration_long"
-  ],
-  "duration": 5.112,
-  "id": "freesound:7582c2bd-54a6-40dc-82ea-2710d5034c57",
-  "title": "Metal Impact Railing Hit Deep Reverb 6",
-  "kind": "sfx",
-  "name": "reveal_hit"
- },
- {
-  "reasons": [
-   "duration_long"
-  ],
-  "duration": 5.16,
-  "id": "freesound:915314e0-1272-47db-a1f3-db39d98804ba",
-  "title": "Bassy Impact with White Noise.wav",
-  "kind": "sfx",
-  "name": "reveal_hit"
- },
- {
-  "reasons": [
-   "duration_long"
-  ],
-  "duration": 5.28,
-  "id": "freesound:a48224d6-135b-4a8f-8ee3-dacf515238cf",
-  "title": "Low impact.wav",
-  "kind": "sfx",
-  "name": "reveal_hit"
- },
- {
-  "reasons": [
-   "duration_long"
-  ],
-  "duration": 4.776,
-  "id": "freesound:2a9ddfc3-1b78-4b6c-8ae0-2c50544db3d0",
-  "title": "bass drop.wav",
-  "kind": "sfx",
-  "name": "reveal_hit"
- },
- {
-  "reasons": [
-   "duration_long"
-  ],
-  "duration": 5.064,
-  "id": "freesound:e8d1cc6d-6272-4612-83d2-f9d7f5fdbf1a",
-  "title": "Cinematic Alarm Hit",
-  "kind": "sfx",
-  "name": "reveal_hit"
- },
- {
-  "reasons": [
-   "clipping"
-  ],
-  "duration": 4.152,
-  "clipping_share": 0.055057,
-  "id": "freesound:2e574015-0cc8-4c00-80bd-b403003ff7ca",
-  "title": "Dropping Knowledge",
-  "kind": "sfx",
-  "name": "reveal_hit"
- },
- {
-  "reasons": [
-   "clipping"
-  ],
-  "duration": 3.48,
-  "clipping_share": 0.058588,
-  "id": "freesound:735bdf02-99da-4273-9bb1-7f4785b29eb2",
-  "title": "FX Cinematic Impact.wav",
-  "kind": "sfx",
-  "name": "reveal_hit"
- },
- {
-  "reasons": [
-   "clap_low_positive",
-   "clap_negative_wins"
-  ],
-  "duration": 1.08,
-  "clipping_share": 0.000452,
-  "clap_pos": 0.0361,
-  "clap_margin": -0.0841,
-  "clap_worst_neg": "explosion with debris",
-  "id": "freesound:4c3ed74a-8e6d-4dc5-9d16-e2aa0678b047",
-  "title": "Whoosh Whoosh Boom",
-  "kind": "sfx",
-  "name": "reveal_hit"
- },
- {
-  "reasons": [
-   "clipping"
-  ],
-  "duration": 1.56,
-  "clipping_share": 0.097819,
-  "id": "freesound:320070bf-ad27-4ab6-a599-30167b124466",
-  "title": "JH Big Tom 3 (C 1.5 sec).wav",
-  "kind": "sfx",
-  "name": "reveal_hit"
  }
 ]
