@@ -207,7 +207,18 @@ LIBRARY_SPEC = {
                      "cave ambience drips", "dungeon ambience", "cellar ambience",
                      "large empty room tone", "stone room ambience"],
             prompt="quiet interior room tone of a large stone hall, distant reverberant space",
-            extra_neg=("footsteps walking",), min_sec=30, keep=5),
+            # «footsteps walking» как ловушка была ошибкой: в реальной записи
+            # большого зала шаги неизбежны и они часть сцены — эта ловушка
+            # перебила все пещерные и подземельные записи (1 из 30).
+            # Music-вето тоже подняли: реверберирующие капли в пещере AST
+            # уверенно читает как музыку (0.25-0.4), хотя это ровно то, что
+            # нужно под склеп.
+            neg=("one person speaking clearly, conversation",
+                 "music with melody and instruments, singing",
+                 "traffic, car engine, motor vehicle, airplane",
+                 "digital distortion, clipping, glitch, static"),
+            ast_veto={"Speech": 0.15, "Vehicle": 0.30},
+            min_sec=30, keep=5),
         "forge_fire": dict(
             queries=["fireplace crackling", "campfire crackling", "bonfire", "wood fire burning",
                      "blacksmith forge fire"],
