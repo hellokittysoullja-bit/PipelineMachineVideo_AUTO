@@ -307,3 +307,45 @@ def test_import_falls_back_to_unlooped_audio_if_loop_fails():
     src = inspect.getsource(sl.import_file)
     assert "looped = _seamless_loop(" in src
     assert "if looped:" in src
+
+
+def test_source_sample_rate_is_gated():
+    """Библиотека отдаётся в 48 кГц, значит исходник ниже 44.1 — апсемплинг:
+    новой информации нет, а потолок слышен. Найдено замером: принятый
+    переход главы пришёл с 16 кГц (потолок 8 кГц) и стоял рядом с семью
+    вариантами на 44/48; ни один существующий гейт про это не спрашивал."""
+    assert sl.MIN_SOURCE_SAMPLE_RATE == 44100
+    src = inspect.getsource(sl.judge)
+    assert "low_sample_rate" in src
+    m = {"duration": 10.0, "clipping_share": 0.0, "source_sample_rate": 16000}
+    spec = {"min_sec": 1, "max_sec": 100, "prompt": "x"}
+    assert "low_sample_rate" in sl.judge(m, "sfx", spec)["reasons"]
+
+
+def test_unknown_sample_rate_does_not_reject():
+    """Не измерилось — не повод отказывать: тот же fail-open, что и везде,
+    где измерение не получилось."""
+    m = {"duration": 10.0, "clipping_share": 0.0, "source_sample_rate": 0,
+         "clap_rows": [[0.5, 0.1]], "neg_names": ["шум"]}
+    spec = {"min_sec": 1, "max_sec": 100, "prompt": "x"}
+    assert "low_sample_rate" not in sl.judge(m, "sfx", spec)["reasons"]
+
+
+def test_loop_length_comes_from_the_real_file_not_the_requested_trim():
+    """ffmpeg отдаёт чуть меньше, чем просили (-t 77.662 -> 77.632), и хвост,
+    отсчитанный от ЗАПРОШЕННОЙ длины, выходил короче xf. acrossfade с входом
+    короче d молча не собирался, и запись оставалась без петли — на замере
+    это было видно как стык 11.2 при норме около 1."""
+    body = inspect.getsource(sl._seamless_loop).split('"""')[-1]
+    assert "body = probe_duration(stage) or body" in body
+    assert body.index("probe_duration(stage)") < body.index('f"lh_{h}.wav"')
+
+
+def test_verify_applies_the_sample_rate_gate_to_all_kinds():
+    """Гейт частоты обязан подействовать на УЖЕ принятое, а не только на
+    будущий отбор: библиотека уже несла переход главы с исходника 16 кГц.
+    И он не про атмосферу — он про любой вид."""
+    src = inspect.getsource(sl.verify)
+    assert src.index("MIN_SOURCE_SAMPLE_RATE") < src.index('it.get("kind") != "ambience"'), \
+        "проверка частоты стоит ДО отсечки не-атмосферы, иначе эффекты её не проходят"
+    assert "_log_rejection(" in src

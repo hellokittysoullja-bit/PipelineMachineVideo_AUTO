@@ -117,6 +117,13 @@ AST_VETO = {"Speech": 0.12, "Music": 0.25, "Vehicle": 0.30, "Singing": 0.12}
 AMB_MAX_SILENCE_SHARE = 0.25
 AMB_MAX_LRA = 20.0     # 18.2 отсекало настоящее летнее поле с птицами; 26 (ветер без ветрозащиты) остаётся вне
 CLIP_SAMPLE_SHARE = 1e-4     # доля сэмплов на |1.0| — клиппинг
+# Библиотека отдаётся в 48 кГц. Исходник ниже 44.1 кГц — это апсемплинг:
+# новой информации в нём нет, а потолок слышен. Найдено замером: один
+# принятый переход главы (UI_Menu_Whosh) пришёл с 16 кГц, то есть с
+# потолком 8 кГц, и стоял рядом с семью вариантами на 44/48 — на слух это
+# заметно более глухой звук, и ни один существующий гейт про это не
+# спрашивал.
+MIN_SOURCE_SAMPLE_RATE = 44100
 HUM_PROMINENCE_DB = 14.0     # узкая линия 50/60 Гц над соседями ±3..10 Гц
 
 # Слова в НАЗВАНИИ записи, при которых кандидат отбрасывается до моделей.
@@ -469,6 +476,15 @@ def _run(cmd):
     return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
 
 
+def probe_sample_rate(path):
+    r = _run(["ffprobe", "-v", "error", "-select_streams", "a:0",
+              "-show_entries", "stream=sample_rate", "-of", "csv=p=0", path])
+    try:
+        return int(r.stdout.strip().splitlines()[0])
+    except Exception:
+        return 0
+
+
 def probe_duration(path):
     r = _run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path])
     try:
@@ -637,7 +653,7 @@ def ast_probs(windows16k, labels):
 def _measure_key(path, spec):
     negs = negatives_for(spec)
     raw = "|".join([os.path.basename(path), str(os.path.getsize(path)), spec["prompt"], *negs,
-                    "clap:laion/larger_clap_general", "ast:MIT/ast-finetuned-audioset-10-10-0.4593", "v6"])
+                    "clap:laion/larger_clap_general", "ast:MIT/ast-finetuned-audioset-10-10-0.4593", "v7"])
     return hashlib.sha1(raw.encode()).hexdigest()[:20]
 
 
@@ -662,6 +678,7 @@ def measure(path, kind, spec):
         m["undecodable"] = True
         return m
     m["duration"] = round(dur, 3)
+    m["source_sample_rate"] = probe_sample_rate(path)
     if dur <= CLAP_WINDOW_SEC + 1.0:
         starts = [0.0]
     else:
@@ -718,6 +735,12 @@ def judge(m, kind, spec):
     # эффекта (riser/hit из пака) это норма мастеринга: пик приведён к
     # 0 dBFS лимитером, не перегруз. Первый прогон нарастаний отсёк 4 из
     # 10 ровно за это. Порог у эффектов в 100 раз мягче.
+    sr = m.get("source_sample_rate") or 0
+    v["source_sample_rate"] = sr
+    # 0 = не удалось определить; это не повод отказывать (fail-open, как и
+    # везде, где измерение не получилось), отказываем только по измеренному
+    if sr and sr < MIN_SOURCE_SAMPLE_RATE:
+        v["reasons"].append("low_sample_rate")
     clip_limit = CLIP_SAMPLE_SHARE if kind == "ambience" else CLIP_SAMPLE_SHARE * 100
     if m["clipping_share"] > clip_limit:
         v["reasons"].append("clipping")
@@ -803,6 +826,15 @@ def _seamless_loop(stage, dst, body, xf):
     одной записи. Видно это было только по длительности (174с вместо 177с)
     и по замеру щелчка на стыке — код возврата ffmpeg был нулевой.
     """
+    # Длина берётся у РЕАЛЬНОГО файла, а не из запрошенной обрезки: ffmpeg
+    # отдаёт чуть меньше, чем просили (-t 77.662 -> 77.632), и хвост,
+    # отсчитанный от запрошенной длины, выходил короче xf. acrossfade с
+    # входом короче d молча не собирался, и запись оставалась без петли —
+    # на замере это было видно как стык 11.2 при норме около 1.
+    body = probe_duration(stage) or body
+    xf = min(xf, body / 4.0)
+    if xf <= 0.1:
+        return None
     h = hashlib.sha1(dst.encode()).hexdigest()[:12]
     head = os.path.join(CACHE_DIR, f"lh_{h}.wav")
     tail = os.path.join(CACHE_DIR, f"lt_{h}.wav")
@@ -1056,10 +1088,25 @@ def verify(manifest):
     spec_by_name = LIBRARY_SPEC["ambience"]
     dropped = 0
     for rel, it in list(manifest["items"].items()):
-        if it.get("kind") != "ambience":
-            continue
         path = os.path.join(ROOT, rel)
         if not os.path.exists(path):
+            continue
+        # Частота исходника — гейт для ВСЕХ видов, и проверяется здесь же,
+        # чтобы он подействовал на уже принятое, а не только на будущий
+        # отбор: библиотека уже несла переход главы с исходника 16 кГц.
+        cached = download({"url": it["url"], "title": it.get("title", "")}, "hq")
+        sr = probe_sample_rate(cached) if cached else 0
+        if sr and sr < MIN_SOURCE_SAMPLE_RATE:
+            print(f"  -- {it['name']:14s} исходник {sr} Гц  {it['title'][:38]!r}")
+            _log_rejection(dict(it.get("scores", {}), kind=it["kind"], name=it["name"],
+                                id=it["id"], title=it["title"], url=it["url"],
+                                creator=it.get("creator"), landing=it.get("landing"),
+                                source_sample_rate=sr, reasons=["low_sample_rate"]))
+            os.remove(path)
+            manifest["items"].pop(rel, None)
+            dropped += 1
+            continue
+        if it.get("kind") != "ambience":
             continue
         winner, gap, scores = kind_competition(path, it["name"], spec_by_name)
         it["scores"]["kind_winner"] = winner
@@ -1078,7 +1125,7 @@ def verify(manifest):
             manifest["items"].pop(rel, None)
             dropped += 1
     save_manifest(manifest)
-    print(f"Удалено записей, где выигрывает чужой вид: {dropped}")
+    print(f"Удалено записей (чужой вид или низкая частота исходника): {dropped}")
     return 0
 
 
