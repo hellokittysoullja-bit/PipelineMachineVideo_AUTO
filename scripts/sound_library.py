@@ -848,13 +848,23 @@ def _seamless_loop(stage, dst, body, xf):
          "-t", f"{xf:.3f}", "-ar", "48000", "-ac", "2", tail],
         ["ffmpeg", "-y", "-v", "error", "-ss", f"{xf:.3f}", "-i", stage,
          "-t", f"{body - 2 * xf:.3f}", "-ar", "48000", "-ac", "2", mid],
-        ["ffmpeg", "-y", "-v", "error", "-i", tail, "-i", head, "-filter_complex",
-         f"[0:a][1:a]acrossfade=d={xf:.3f}:c1=tri:c2=tri[o]", "-map", "[o]",
-         "-ar", "48000", "-ac", "2", seam],
     ]
-    for cmd in steps:
+    for cmd in steps[:3]:
         if _run(cmd).returncode != 0:
             return None
+    # Длительность кроссфейда берётся у РЕАЛЬНО извлечённых кусков. ffmpeg
+    # отдаёт 2.999583 там, где просили 3.000, и acrossfade с d БОЛЬШЕ входа
+    # молча отдаёт пустой поток — тот же класс бага, что и выше, просто на
+    # третий знак. Округление вниз до миллисекунды, чтобы d гарантированно
+    # не превысил вход.
+    d = min(probe_duration(head) or 0.0, probe_duration(tail) or 0.0)
+    d = math.floor(d * 1000) / 1000.0
+    if d <= 0.1:
+        return None
+    if _run(["ffmpeg", "-y", "-v", "error", "-i", tail, "-i", head, "-filter_complex",
+             f"[0:a][1:a]acrossfade=d={d:.3f}:c1=tri:c2=tri[o]", "-map", "[o]",
+             "-ar", "48000", "-ac", "2", seam]).returncode != 0:
+        return None
     # шов обязан быть непустым: именно молчаливая пустота и была багом
     if not probe_duration(seam):
         return None

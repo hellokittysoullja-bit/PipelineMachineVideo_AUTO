@@ -349,3 +349,14 @@ def test_verify_applies_the_sample_rate_gate_to_all_kinds():
     assert src.index("MIN_SOURCE_SAMPLE_RATE") < src.index('it.get("kind") != "ambience"'), \
         "проверка частоты стоит ДО отсечки не-атмосферы, иначе эффекты её не проходят"
     assert "_log_rejection(" in src
+
+
+def test_crossfade_duration_comes_from_the_extracted_pieces():
+    """Третий заход на тот же класс бага, уже на третьем знаке: ffmpeg
+    отдаёт 2.999583 там, где просили 3.000, и acrossfade с d БОЛЬШЕ входа
+    снова молча отдаёт пустой поток. d берётся у реально извлечённых кусков
+    и округляется ВНИЗ, чтобы гарантированно не превысить вход."""
+    body = inspect.getsource(sl._seamless_loop).split('"""')[-1]
+    assert "probe_duration(head)" in body and "probe_duration(tail)" in body
+    assert "math.floor(d * 1000)" in body
+    assert body.index("math.floor(d * 1000)") < body.index("[0:a][1:a]acrossfade")
