@@ -297,8 +297,18 @@ LIBRARY_SPEC = {
             extra_neg=["orchestral music sting", "person talking"],
             min_sec=0.25, max_sec=2.5, keep=4),
         "armour_clank": dict(
-            queries=["chainmail movement", "armour clank metal", "chain mail rattle",
-                     "metal armour foley", "knight armour movement"],
+            # Первый прогон: 0 кандидатов из 0 — пул был ПУСТ, а не гейты
+            # строги. Замер по каждому запросу отдельно: «chainmail movement»
+            # 0, «armour clank metal» 0, «metal armour foley» 0 — все пять
+            # многословных дали ровно ноль, при том что одиночное «chainmail»
+            # даёт 21, «armor foley» 2 («HEAVY ARMOUR.wav»), «knight armor» 7
+            # («knight-walking-on-hard-ground.wav»), «chain rattle» 97.
+            # Тот же корень, что уже документирован для картинок: поиск
+            # Openverse работает по И-логике, и лишнее слово сужает выдачу в
+            # ноль. Запросы подобраны по РЕАЛЬНОЙ выдаче, а не по тому, как
+            # звук хочется назвать.
+            queries=["chainmail", "armor foley", "knight armor",
+                     "chain rattle", "metal clank"],
             prompt="metal armour and chainmail clanking as someone moves, foley recording",
             extra_neg=["keys jingling in a pocket", "coins in a jar", "person talking"],
             min_sec=0.3, max_sec=2.5, keep=4),

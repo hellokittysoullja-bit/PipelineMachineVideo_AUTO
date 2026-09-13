@@ -1883,5 +1883,822 @@
   "creator": "Valenspire",
   "landing": "https://freesound.org/people/Valenspire/sounds/699494",
   "source_sample_rate": 16000
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 3.072,
+  "id": "freesound:7eccb59f-5af3-46e4-b2ec-e933fa46f4ac",
+  "title": "Anvil - Lokomo 125 kg - Hammer on 6mm steel 1 time",
+  "kind": "object",
+  "name": "hammer_anvil",
+  "url": "https://cdn.freesound.org/previews/386/386129_1655965-hq.mp3",
+  "creator": "ldezem",
+  "landing": "https://freesound.org/people/ldezem/sounds/386129"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 3.048,
+  "id": "freesound:1f9008a5-f626-4dc5-a036-84a1e4eb509a",
+  "title": "Power hammer - Billeter Klunz 50kg - Quantized exhaust vent 12 hit",
+  "kind": "object",
+  "name": "hammer_anvil",
+  "url": "https://cdn.freesound.org/previews/386/386365_1655965-hq.mp3",
+  "creator": "ldezem",
+  "landing": "https://freesound.org/people/ldezem/sounds/386365"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 3.048,
+  "id": "freesound:966e1597-6d4d-4a93-a929-d006951e13eb",
+  "title": "Power hammer - Billeter Klunz 50kg - Quantized flat exhaust vent 12 hit",
+  "kind": "object",
+  "name": "hammer_anvil",
+  "url": "https://cdn.freesound.org/previews/386/386372_1655965-hq.mp3",
+  "creator": "ldezem",
+  "landing": "https://freesound.org/people/ldezem/sounds/386372"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 3.048,
+  "id": "freesound:95a2f451-13be-4414-aee6-19c20cc27bbb",
+  "title": "Power hammer - Billeter Klunz 50kg - Quantized flat belt drive 8 hit",
+  "kind": "object",
+  "name": "hammer_anvil",
+  "url": "https://cdn.freesound.org/previews/386/386368_1655965-hq.mp3",
+  "creator": "ldezem",
+  "landing": "https://freesound.org/people/ldezem/sounds/386368"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.536,
+  "clipping_share": 0.000282,
+  "source_sample_rate": 48000,
+  "clap_pos": 0.0475,
+  "clap_margin": 0.0393,
+  "clap_worst_neg": "church bell",
+  "id": "freesound:500d626d-f393-4387-874c-b8653c2b4805",
+  "title": "Power hammer - Billeter Klunz 50kg - Quantized exhaust vent 8 hit",
+  "kind": "object",
+  "name": "hammer_anvil",
+  "url": "https://cdn.freesound.org/previews/386/386366_1655965-hq.mp3",
+  "creator": "ldezem",
+  "landing": "https://freesound.org/people/ldezem/sounds/386366"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.536,
+  "clipping_share": 5.6e-05,
+  "source_sample_rate": 48000,
+  "clap_pos": 0.0889,
+  "clap_margin": 0.0357,
+  "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
+  "id": "freesound:bea3890c-5cc3-4602-858c-dfb3088ee33a",
+  "title": "Power hammer - Billeter Klunz 50kg - Quantized forging red glow 8 hit",
+  "kind": "object",
+  "name": "hammer_anvil",
+  "url": "https://cdn.freesound.org/previews/386/386374_1655965-hq.mp3",
+  "creator": "ldezem",
+  "landing": "https://freesound.org/people/ldezem/sounds/386374"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.536,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "clap_pos": -0.0294,
+  "clap_margin": -0.2032,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:f34f063b-92a7-465b-bfea-20422fb202a0",
+  "title": "Power hammer - Billeter Klunz 50kg - Quantized flat exhaust vent 8 hit",
+  "kind": "object",
+  "name": "hammer_anvil",
+  "url": "https://cdn.freesound.org/previews/386/386373_1655965-hq.mp3",
+  "creator": "ldezem",
+  "landing": "https://freesound.org/people/ldezem/sounds/386373"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.792,
+  "clipping_share": 0.000226,
+  "source_sample_rate": 44100,
+  "clap_pos": 0.1221,
+  "clap_margin": -0.0479,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:c5e84c01-c274-47fc-8b64-8d51db69e176",
+  "title": "Blacksmith Hammer",
+  "kind": "object",
+  "name": "hammer_anvil",
+  "url": "https://cdn.freesound.org/previews/521/521972_311243-hq.mp3",
+  "creator": "Kastenfrosch",
+  "landing": "https://freesound.org/people/Kastenfrosch/sounds/521972"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 3.048,
+  "id": "freesound:e69ccf39-c835-4654-a9bd-0447071658fd",
+  "title": "Anvil - Lokomo A 100 kg - Forging hot steel 1 time",
+  "kind": "object",
+  "name": "hammer_anvil",
+  "url": "https://cdn.freesound.org/previews/386/386116_1655965-hq.mp3",
+  "creator": "ldezem",
+  "landing": "https://freesound.org/people/ldezem/sounds/386116"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 3.048,
+  "id": "freesound:8f6cf46a-78df-4f93-a3a5-35e4e1b858da",
+  "title": "Anvil - Lokomo A 100 kg - Forging extremely hot steel 1 time",
+  "kind": "object",
+  "name": "hammer_anvil",
+  "url": "https://cdn.freesound.org/previews/386/386122_1655965-hq.mp3",
+  "creator": "ldezem",
+  "landing": "https://freesound.org/people/ldezem/sounds/386122"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 2.568,
+  "id": "freesound:b2c6e81c-06d0-434b-944a-8441742cfe28",
+  "title": "Unsheathing the sword",
+  "kind": "object",
+  "name": "sword_draw",
+  "url": "https://cdn.freesound.org/previews/395/395364_1675920-hq.mp3",
+  "creator": "ihitokage",
+  "landing": "https://freesound.org/people/ihitokage/sounds/395364"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.802,
+  "clipping_share": 0.005643,
+  "source_sample_rate": 44100,
+  "clap_pos": 0.1531,
+  "clap_margin": 0.0013,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:7c1977b2-5abc-4204-9c61-5e533bc25a7e",
+  "title": "Retro, SciFi Laser Sword, Unsheathed.wav",
+  "kind": "object",
+  "name": "sword_draw",
+  "url": "https://cdn.freesound.org/previews/657/657939_6142149-hq.mp3",
+  "creator": "MATRIXXX_",
+  "landing": "https://freesound.org/people/MATRIXXX_/sounds/657939"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 2.856,
+  "id": "freesound:5932a217-879d-437e-a946-14c4e8fd492d",
+  "title": "Sword Unsheath",
+  "kind": "object",
+  "name": "sword_draw",
+  "url": "https://cdn.freesound.org/previews/276/276872_1989929-hq.mp3",
+  "creator": "lucabia",
+  "landing": "https://freesound.org/people/lucabia/sounds/276872"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 1.698,
+  "clipping_share": 0.014412,
+  "source_sample_rate": 44100,
+  "id": "freesound:18b4e02f-1bf6-4e1b-9566-ca66dc179b88",
+  "title": "Sword Fast Unsheath.wav",
+  "kind": "object",
+  "name": "sword_draw",
+  "url": "https://cdn.freesound.org/previews/468/468695_3928631-hq.mp3",
+  "creator": "ethanchase7744",
+  "landing": "https://freesound.org/people/ethanchase7744/sounds/468695"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.312,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "clap_pos": 0.2217,
+  "clap_margin": -0.0292,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:e27f5538-6c53-4dca-82c8-144c08f93448",
+  "title": "Drawing Sword Sound 01",
+  "kind": "object",
+  "name": "sword_draw",
+  "url": "https://cdn.freesound.org/previews/684/684747_13091475-hq.mp3",
+  "creator": "Robbnix",
+  "landing": "https://freesound.org/people/Robbnix/sounds/684747"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.312,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": 0.1374,
+  "clap_margin": 0.0037,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:ea536b3f-6365-4304-98a5-622eb024bf83",
+  "title": "Unsheath knife.wav",
+  "kind": "object",
+  "name": "sword_draw",
+  "url": "https://cdn.freesound.org/previews/329/329365_3046293-hq.mp3",
+  "creator": "bassoonrckr",
+  "landing": "https://freesound.org/people/bassoonrckr/sounds/329365"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 2.4,
+  "id": "freesound:cb02c94e-1312-4a4c-a857-41185b6db550",
+  "title": "ARROW_TARGET_IMPACT_SINGLE_ARCHERY_08wav.wav",
+  "kind": "object",
+  "name": "arrow_shot",
+  "url": "https://cdn.freesound.org/previews/534/534949_579267-hq.mp3",
+  "creator": "JoeDinesSound",
+  "landing": "https://freesound.org/people/JoeDinesSound/sounds/534949"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 2.232,
+  "id": "freesound:e6feed0c-2bcd-4cad-b0e4-f65ec8c5a4be",
+  "title": "ARROW_TARGET_IMPACT_SINGLE_ARCHERY_04.wav",
+  "kind": "object",
+  "name": "arrow_shot",
+  "url": "https://cdn.freesound.org/previews/534/534943_579267-hq.mp3",
+  "creator": "JoeDinesSound",
+  "landing": "https://freesound.org/people/JoeDinesSound/sounds/534943"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 2.232,
+  "id": "freesound:65f9c60b-2b04-4d21-9bb9-5b55b5b1dc82",
+  "title": "ARROW_TARGET_IMPACT_SINGLE_ARCHERY_05.wav",
+  "kind": "object",
+  "name": "arrow_shot",
+  "url": "https://cdn.freesound.org/previews/534/534948_579267-hq.mp3",
+  "creator": "JoeDinesSound",
+  "landing": "https://freesound.org/people/JoeDinesSound/sounds/534948"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 2.136,
+  "id": "freesound:f0aeffb8-f160-4116-8955-bac3c970b9f5",
+  "title": "ARROW_SHOOT_SINGLE_03.wav",
+  "kind": "object",
+  "name": "arrow_shot",
+  "url": "https://cdn.freesound.org/previews/534/534940_579267-hq.mp3",
+  "creator": "JoeDinesSound",
+  "landing": "https://freesound.org/people/JoeDinesSound/sounds/534940"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 2.136,
+  "clipping_share": 1e-05,
+  "source_sample_rate": 48000,
+  "clap_pos": 0.1126,
+  "clap_margin": 0.0087,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:73470ab6-6c9f-4249-ae72-0b33921a681d",
+  "title": "footsteps - ice 04.wav",
+  "kind": "object",
+  "name": "footsteps_mud",
+  "url": "https://cdn.freesound.org/previews/405/405631_5923045-hq.mp3",
+  "creator": "Anthousai",
+  "landing": "https://freesound.org/people/Anthousai/sounds/405631"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.632,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "clap_pos": 0.1986,
+  "clap_margin": -0.0232,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:9123f3ee-6e6b-4981-87a4-3b2a001957f9",
+  "title": "footsteps - ice 06.wav",
+  "kind": "object",
+  "name": "footsteps_mud",
+  "url": "https://cdn.freesound.org/previews/405/405637_5923045-hq.mp3",
+  "creator": "Anthousai",
+  "landing": "https://freesound.org/people/Anthousai/sounds/405637"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.32,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "clap_pos": 0.121,
+  "clap_margin": -0.119,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:e906d7c1-7d51-488e-ab76-150db41be1b4",
+  "title": "footsteps - ice 05.wav",
+  "kind": "object",
+  "name": "footsteps_mud",
+  "url": "https://cdn.freesound.org/previews/405/405638_5923045-hq.mp3",
+  "creator": "Anthousai",
+  "landing": "https://freesound.org/people/Anthousai/sounds/405638"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.84,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "clap_pos": 0.1175,
+  "clap_margin": -0.1277,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:c4ee8cd3-44e4-467c-b196-3dbd84847df9",
+  "title": "footsteps - ice 08.wav",
+  "kind": "object",
+  "name": "footsteps_mud",
+  "url": "https://cdn.freesound.org/previews/405/405635_5923045-hq.mp3",
+  "creator": "Anthousai",
+  "landing": "https://freesound.org/people/Anthousai/sounds/405635"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.96,
+  "clipping_share": 0.001999,
+  "source_sample_rate": 44100,
+  "clap_pos": 0.1255,
+  "clap_margin": 0.0274,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:a11fb938-8457-4f17-aa86-90c85e454356",
+  "title": "Step on a slug (Splat!) 2",
+  "kind": "object",
+  "name": "footsteps_mud",
+  "url": "https://cdn.freesound.org/previews/447/447930_9159316-hq.mp3",
+  "creator": "Breviceps",
+  "landing": "https://freesound.org/people/Breviceps/sounds/447930"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.056,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": 0.0212,
+  "clap_margin": -0.0968,
+  "clap_worst_neg": "keys jingling in a pocket",
+  "id": "freesound:6c05abbc-b215-41ff-8386-b1601bd0f17c",
+  "title": "Knight Left Footstep Forest/Grass 4 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384902_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384902"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.056,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": -0.0647,
+  "clap_margin": -0.2915,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:dfb69d74-8637-45be-8285-13802b33f36f",
+  "title": "Knight Left Footstep Forest/Grass 1 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384900_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384900"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.056,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": -0.1111,
+  "clap_margin": -0.3313,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:f65a0935-6eb7-421c-a4ec-d9d14db77bec",
+  "title": "Knight Left Footstep Forest/Grass 3 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384898_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384898"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.056,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": -0.0708,
+  "clap_margin": -0.2407,
+  "clap_worst_neg": "coins in a jar",
+  "id": "freesound:92a25cf0-0479-41ac-be9d-92335f726564",
+  "title": "Knight Left Footstep Forest/Grass 5 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384901_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384901"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.056,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": -0.1183,
+  "clap_margin": -0.3052,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:68f89db1-9a29-4528-9dd5-67138652a1d6",
+  "title": "Knight Left Footstep Forest/Grass 2 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384899_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384899"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.056,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": 0.0154,
+  "clap_margin": -0.181,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:c2b58771-7c12-45e9-8416-6632cf33dca6",
+  "title": "Knight Right Footstep Forest/Grass 6 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384895_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384895"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.936,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": -0.1038,
+  "clap_margin": -0.268,
+  "clap_worst_neg": "keys jingling in a pocket",
+  "id": "freesound:1a112efb-0aaa-4ca0-b44a-188c8abda166",
+  "title": "Knight Right Footstep Forest/Grass 1 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384894_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384894"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.936,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": -0.0223,
+  "clap_margin": -0.1791,
+  "clap_worst_neg": "keys jingling in a pocket",
+  "id": "freesound:e9563bae-8d90-45ea-961c-46fefb402047",
+  "title": "Knight Right Footstep Forest/Grass 2 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384891_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384891"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.936,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": -0.098,
+  "clap_margin": -0.2805,
+  "clap_worst_neg": "keys jingling in a pocket",
+  "id": "freesound:8e178792-9eb0-46d4-888b-a104e11f20fa",
+  "title": "Knight Left Footstep Forest/Grass 6 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384893_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384893"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.936,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": -0.1179,
+  "clap_margin": -0.45,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:dc8cdacc-eb3c-4ebf-a38d-b353994d6145",
+  "title": "Knight Right Footstep Forest/Grass 5 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384897_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384897"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.936,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": -0.1258,
+  "clap_margin": -0.3404,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:99827a6b-b239-4b7a-81d1-a062bb062cf0",
+  "title": "Knight Right Footstep Forest/Grass 4 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384896_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384896"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.936,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": -0.1266,
+  "clap_margin": -0.333,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:9f07cb55-ccaa-46cc-aa42-e70c1f707c5f",
+  "title": "Knight Right Footstep Forest/Grass 3 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384892_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384892"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.576,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": 0.0034,
+  "clap_margin": -0.2014,
+  "clap_worst_neg": "coins in a jar",
+  "id": "freesound:c5ded509-7d4e-412c-9851-f2f942b158d9",
+  "title": "Knight Right Footstep on Gravel 5 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384890_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384890"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.552,
+  "clipping_share": 0.000417,
+  "source_sample_rate": 44100,
+  "clap_pos": -0.0025,
+  "clap_margin": -0.107,
+  "clap_worst_neg": "keys jingling in a pocket",
+  "id": "freesound:dceafb13-1fda-4120-a27a-ef1714ba56ff",
+  "title": "Knight Left Footstep on Gravel 2 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384881_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384881"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.552,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": 0.0878,
+  "clap_margin": -0.1309,
+  "clap_worst_neg": "coins in a jar",
+  "id": "freesound:312b40d5-12a6-4a27-87bd-c668b31bcf7e",
+  "title": "Knight Right Footstep on Gravel 1 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384887_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384887"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.552,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": -0.0063,
+  "clap_margin": -0.0828,
+  "clap_worst_neg": "keys jingling in a pocket",
+  "id": "freesound:4cae3539-c9f6-44cc-9e00-46292f7bd0fa",
+  "title": "Knight Right Footstep on Gravel 2 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384886_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384886"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.552,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": 0.0994,
+  "clap_margin": -0.1171,
+  "clap_worst_neg": "coins in a jar",
+  "id": "freesound:a4afe37c-8398-492a-ba8e-603bf3f3744b",
+  "title": "Knight Left Footstep on Gravel 4 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384885_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384885"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.392,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "clap_pos": -0.0564,
+  "clap_margin": -0.0832,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:338466be-7bab-4f9c-9bd6-ec103d4dcc6a",
+  "title": "Metallic Clank 3.wav",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/682/682150_10938187-hq.mp3",
+  "creator": "HenKonen",
+  "landing": "https://freesound.org/people/HenKonen/sounds/682150"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.08,
+  "clipping_share": 0.000184,
+  "source_sample_rate": 48000,
+  "clap_pos": -0.081,
+  "clap_margin": -0.1341,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:654b53d3-35a3-4a91-a4e6-29bad83226a4",
+  "title": "Metallic Clank 1.wav",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/682/682148_10938187-hq.mp3",
+  "creator": "HenKonen",
+  "landing": "https://freesound.org/people/HenKonen/sounds/682148"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 2.544,
+  "id": "freesound:aa542a84-b2d5-4c57-a3dc-ab7ee7b4ca93",
+  "title": "Chain rattling",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/593/593458_11182796-hq.mp3",
+  "creator": "georgesavic",
+  "landing": "https://freesound.org/people/georgesavic/sounds/593458"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.768,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "clap_pos": -0.0163,
+  "clap_margin": -0.0824,
+  "clap_worst_neg": "coins in a jar",
+  "id": "freesound:ad7065d6-247a-4d3e-adbe-94c7b9119024",
+  "title": "Empty Beer Bottles Clinking, Clanking.wav",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/416/416288_6857156-hq.mp3",
+  "creator": "Fugeni",
+  "landing": "https://freesound.org/people/Fugeni/sounds/416288"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 2.568,
+  "id": "freesound:bd3598da-a7a9-4d72-be03-be551f8e39e7",
+  "title": "Grab your weapon - heavy dark deep low",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/644/644084_13590673-hq.mp3",
+  "creator": "Duisterwho",
+  "landing": "https://freesound.org/people/Duisterwho/sounds/644084"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 2.568,
+  "id": "freesound:351db3d7-6551-4829-8f81-ea69b3388866",
+  "title": "Grab your shield - warrior vocal fight defence",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/644/644083_13590673-hq.mp3",
+  "creator": "Duisterwho",
+  "landing": "https://freesound.org/people/Duisterwho/sounds/644083"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 2.568,
+  "id": "freesound:9d614a7a-8276-4609-b531-671c23fb8524",
+  "title": "Grab your sword - vocal",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/644/644082_13590673-hq.mp3",
+  "creator": "Duisterwho",
+  "landing": "https://freesound.org/people/Duisterwho/sounds/644082"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 2.232,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "clap_pos": 0.1154,
+  "clap_margin": -0.2477,
+  "clap_worst_neg": "keys jingling in a pocket",
+  "id": "freesound:353df86b-82e3-4b28-87e1-33c13c1a1f2d",
+  "title": "Picking Up Keys",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/267/267711_3666787-hq.mp3",
+  "creator": "WeeJee_vdH",
+  "landing": "https://freesound.org/people/WeeJee_vdH/sounds/267711"
  }
 ]
