@@ -1302,6 +1302,30 @@
     "title": "button"
    },
    "imported_at": 1789321669
+  },
+  "assets/library/sfx/reveal_riser/freesound_9eefbb30_9f88_4119_ae55_defc32ea837b.flac": {
+   "kind": "sfx",
+   "name": "reveal_riser",
+   "source": "openverse:freesound",
+   "id": "freesound:9eefbb30-9f88-4119-ae55-defc32ea837b",
+   "title": "Energy Riser 3",
+   "creator": "magnuswaker",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/531/531729_11537497-hq.mp3",
+   "landing": "https://freesound.org/people/magnuswaker/sounds/531729",
+   "query": "riser cinematic",
+   "scores": {
+    "reasons": [],
+    "duration": 1.152,
+    "clipping_share": 0.0,
+    "clap_pos": 0.1124,
+    "clap_margin": 0.083,
+    "clap_worst_neg": "digital distortion, clipping, glitch, static",
+    "id": "freesound:9eefbb30-9f88-4119-ae55-defc32ea837b",
+    "title": "Energy Riser 3"
+   },
+   "imported_at": 1789321685
   }
  }
 }

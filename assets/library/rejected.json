@@ -3861,5 +3861,201 @@
   "title": "button",
   "kind": "sfx",
   "name": "plate_tick"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 5.016,
+  "id": "freesound:3dde1c5d-527c-4201-a296-1a7e789c0c1f",
+  "title": "Jumpscare sound/buildup",
+  "kind": "sfx",
+  "name": "reveal_riser"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 4.32,
+  "id": "freesound:7549f802-9b46-40c2-8960-3895e29b72bb",
+  "title": "Metallic Horror Riser FX.wav",
+  "kind": "sfx",
+  "name": "reveal_riser"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 4.2,
+  "id": "freesound:221b9b39-6439-4d64-a232-b1a5c4b55bb8",
+  "title": "Riser Hit sfx 044.wav",
+  "kind": "sfx",
+  "name": "reveal_riser"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 4.056,
+  "id": "freesound:f3069c09-efea-4d59-acc0-20b579162075",
+  "title": "SFX Thrilling Build-Up and Hit 2 (Made at Paradise AIR).wav",
+  "kind": "sfx",
+  "name": "reveal_riser"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 3.888,
+  "clipping_share": 0.001467,
+  "id": "freesound:9199161c-fa94-4c38-9e4e-19800af4411d",
+  "title": "SFX Thrilling Build-Up and Hit 4 (Made at Paradise AIR).wav",
+  "kind": "sfx",
+  "name": "reveal_riser"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 3.048,
+  "clipping_share": 0.000771,
+  "id": "freesound:6914aed7-9ebb-4893-be1c-328ae5231ac3",
+  "title": "SFX Thrilling Build-Up and Hit 5 (Made at Paradise AIR).wav",
+  "kind": "sfx",
+  "name": "reveal_riser"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 3.048,
+  "clipping_share": 0.002368,
+  "id": "freesound:a3714620-d31b-4034-9b31-c7a0166981ad",
+  "title": "SFX Thrilling Build-Up and Hit 1 (Made at Paradise AIR).wav",
+  "kind": "sfx",
+  "name": "reveal_riser"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 2.568,
+  "clipping_share": 0.004533,
+  "id": "freesound:16ad9473-9eac-4c35-a01c-af2d4825ca97",
+  "title": "SFX Thrilling Build-Up 3 (Made at Paradise AIR).wav",
+  "kind": "sfx",
+  "name": "reveal_riser"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins"
+  ],
+  "duration": 1.802,
+  "clipping_share": 0.0,
+  "clap_pos": -0.0259,
+  "clap_margin": -0.1095,
+  "clap_worst_neg": "music, melody, musical instruments, singing",
+  "id": "freesound:d3fe6653-475d-44f3-9e5b-64558f87901c",
+  "title": "Inhale with glass.wav",
+  "kind": "sfx",
+  "name": "reveal_riser"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 3.336,
+  "id": "freesound:2979211c-8d5b-4a9c-8f93-073013184e6b",
+  "title": "Deep hit",
+  "kind": "sfx",
+  "name": "reveal_hit"
+ },
+ {
+  "reasons": [
+   "duration_short"
+  ],
+  "duration": 0.384,
+  "id": "freesound:427a5699-3173-4ead-aa5c-08708d02c4ff",
+  "title": "super low bass hit kick drum wAv",
+  "kind": "sfx",
+  "name": "reveal_hit"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 3.48,
+  "id": "freesound:735bdf02-99da-4273-9bb1-7f4785b29eb2",
+  "title": "FX Cinematic Impact.wav",
+  "kind": "sfx",
+  "name": "reveal_hit"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 1.08,
+  "clipping_share": 0.000452,
+  "id": "freesound:4c3ed74a-8e6d-4dc5-9d16-e2aa0678b047",
+  "title": "Whoosh Whoosh Boom",
+  "kind": "sfx",
+  "name": "reveal_hit"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 3.792,
+  "id": "freesound:53b7e133-c844-4fac-b71e-c3346e8afc26",
+  "title": "Church Bell 1",
+  "kind": "sfx",
+  "name": "reveal_hit"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 3.792,
+  "id": "freesound:19b18c72-74af-4fda-9bb6-c870fbac3b92",
+  "title": "Church Bell 2",
+  "kind": "sfx",
+  "name": "reveal_hit"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 1.512,
+  "clipping_share": 0.002971,
+  "id": "freesound:3d9042ea-281b-4a82-a226-12153378f26a",
+  "title": "Kick 001.wav",
+  "kind": "sfx",
+  "name": "reveal_hit"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 1.248,
+  "clipping_share": 0.010381,
+  "id": "freesound:86b47d9c-08d7-4034-ae5f-4941154fe12a",
+  "title": "Kick 002.wav",
+  "kind": "sfx",
+  "name": "reveal_hit"
+ },
+ {
+  "reasons": [
+   "clap_low_positive"
+  ],
+  "duration": 1.056,
+  "clipping_share": 0.0,
+  "clap_pos": 0.0776,
+  "clap_margin": 0.0801,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "id": "freesound:3c2b7cdb-03b3-4190-8eb9-be8200eb9e10",
+  "title": "kick12",
+  "kind": "sfx",
+  "name": "reveal_hit"
  }
 ]

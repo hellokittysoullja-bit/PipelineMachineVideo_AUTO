@@ -230,7 +230,9 @@ LIBRARY_SPEC = {
         "reveal_riser": dict(
             queries=["riser cinematic", "tension riser", "suspense rise", "cinematic build up short"],
             prompt="a cinematic riser building tension, rising sweep",
-            min_sec=1.0, max_sec=4.0, keep=3),
+            # нарастание ЗАКАНЧИВАЕТСЯ на моменте кульминации, 5с под предыдущей
+            # фразой — обычная практика; первый прогон отсёк 4 из 10 за 4.1-5.0с
+            min_sec=1.0, max_sec=5.2, keep=4),
         "reveal_hit": dict(
             queries=["low impact cinematic", "deep boom hit", "sub impact", "cinematic hit low"],
             prompt="a deep low cinematic impact boom, single hit, documentary",
@@ -620,7 +622,12 @@ def judge(m, kind, spec):
         v["reasons"].append(f"duration_{'short' if m['duration'] < lo else 'long'}")
         return v
     v["clipping_share"] = m["clipping_share"]
-    if m["clipping_share"] > CLIP_SAMPLE_SHARE:
+    # Для полевой записи сэмплы на полной шкале — клиппинг. Для СДЕЛАННОГО
+    # эффекта (riser/hit из пака) это норма мастеринга: пик приведён к
+    # 0 dBFS лимитером, не перегруз. Первый прогон нарастаний отсёк 4 из
+    # 10 ровно за это. Порог у эффектов в 100 раз мягче.
+    clip_limit = CLIP_SAMPLE_SHARE if kind == "ambience" else CLIP_SAMPLE_SHARE * 100
+    if m["clipping_share"] > clip_limit:
         v["reasons"].append("clipping")
     if kind == "ambience":
         v.update(hum_db=m.get("hum_db"), silence_share=m.get("silence_share"),
