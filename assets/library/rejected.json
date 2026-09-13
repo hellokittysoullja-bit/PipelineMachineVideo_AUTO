@@ -1263,5 +1263,847 @@
   "title": "AMBTran_FieldRecording_Cinematis_Vol2_TrainStation6_Freebie",
   "kind": "ambience",
   "name": "crowd_market"
+ },
+ {
+  "id": "freesound:47a9d037-c66d-4200-91cb-9f7c78c32dab",
+  "title": "Church bells in a Pamplona side street 1985",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "reasons": [
+   "title:street"
+  ]
+ },
+ {
+  "id": "freesound:8cf31095-e153-42f0-a401-55787594a3ef",
+  "title": "Busker on a Pamplona side street 1985",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "reasons": [
+   "title:street"
+  ]
+ },
+ {
+  "id": "freesound:d681a09b-247c-4e86-bfc9-4e1c96a58358",
+  "title": "Organ in church.wav",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "reasons": [
+   "title:organ"
+  ]
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 50.328,
+  "clipping_share": 0.0,
+  "hum_db": 15.9,
+  "silence_share": 0.0,
+  "lufs": -25.3,
+  "lra": 0.7,
+  "true_peak": -11.6,
+  "id": "freesound:92eaafad-7cd9-409f-87d1-0ef74bea3f21",
+  "title": "room tone large empty bass hum rumble mosque.flac",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 235.608,
+  "clipping_share": 0.0,
+  "hum_db": 18.6,
+  "silence_share": 0.0,
+  "lufs": -25.4,
+  "lra": 1.1,
+  "true_peak": -13.1,
+  "id": "freesound:a96295b8-409c-45c3-bd16-e2144cdac47c",
+  "title": "room tone, big hall, heavy ventilation hum, extremely sparse people.wav",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins",
+   "ast_music"
+  ],
+  "duration": 299.448,
+  "clipping_share": 0.0,
+  "hum_db": 10.5,
+  "silence_share": 0.0,
+  "lufs": -12.8,
+  "lra": 0.5,
+  "true_peak": -0.0,
+  "clap_pos": -0.0025,
+  "clap_margin": -0.0009,
+  "clap_worst_neg": "footsteps walking",
+  "ast": {
+   "Music": 0.597,
+   "Singing": 0.0,
+   "Speech": 0.009,
+   "Vehicle": 0.002
+  },
+  "id": "freesound:a5c7c41f-5720-43d8-91e1-10f952079f21",
+  "title": "ambience in a large cave",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 108.408,
+  "clipping_share": 0.0,
+  "hum_db": 12.4,
+  "silence_share": 0.0,
+  "lufs": -37.8,
+  "lra": 7.2,
+  "true_peak": -21.7,
+  "clap_pos": 0.1876,
+  "clap_margin": -0.0422,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "ast": {
+   "Music": 0.003,
+   "Singing": 0.0,
+   "Speech": 0.001,
+   "Vehicle": 0.272
+  },
+  "id": "freesound:8ff01308-05c0-4dc2-a328-f5c0322b85c0",
+  "title": "AMB_Wind_Howling_empty Church close to window_48kHz.wav",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 85.488,
+  "clipping_share": 0.0,
+  "hum_db": 34.3,
+  "silence_share": 0.0,
+  "lufs": -55.8,
+  "lra": 4.4,
+  "true_peak": -32.3,
+  "id": "freesound:f69cf27c-fe26-4b26-858e-f94d8bd7e11b",
+  "title": "Room Tone Underground Parking",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "mains_hum",
+   "too_much_silence",
+   "too_dynamic"
+  ],
+  "duration": 79.8,
+  "clipping_share": 4.6e-05,
+  "hum_db": 28.6,
+  "silence_share": 0.308,
+  "lufs": -15.3,
+  "lra": 24.8,
+  "true_peak": -0.4,
+  "id": "freesound:32243624-1fb6-4829-b7e8-8a50e91e5207",
+  "title": "Whirly tube, four pitches, harmonic series, circular swinging, large room.wav",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 60.048,
+  "clipping_share": 0.0,
+  "hum_db": 13.2,
+  "silence_share": 0.0,
+  "lufs": -13.1,
+  "lra": 0.5,
+  "true_peak": -0.4,
+  "clap_pos": 0.1496,
+  "clap_margin": -0.0067,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "ast": {
+   "Music": 0.029,
+   "Singing": 0.0,
+   "Speech": 0.026,
+   "Vehicle": 0.019
+  },
+  "id": "freesound:adc7ed25-9c21-46f7-a9cc-38977c66a02d",
+  "title": "ambience large cave variation.ogg",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 254.064,
+  "clipping_share": 0.0,
+  "hum_db": 18.5,
+  "silence_share": 0.0,
+  "lufs": -20.3,
+  "lra": 3.3,
+  "true_peak": -0.3,
+  "id": "freesound:6c12a425-d2ee-454c-b313-547b703b5bdd",
+  "title": "Solothurn - in Front of the St. Ursen Cathedral",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 343.128,
+  "clipping_share": 0.0,
+  "hum_db": 9.1,
+  "silence_share": 0.0,
+  "lufs": -48.9,
+  "lra": 11.3,
+  "true_peak": -24.4,
+  "clap_pos": 0.0875,
+  "clap_margin": -0.0116,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "ast": {
+   "Music": 0.011,
+   "Singing": 0.0,
+   "Speech": 0.007,
+   "Vehicle": 0.003
+  },
+  "id": "freesound:8dbc598d-6ead-48fb-bed0-9aafa64f6398",
+  "title": "Monastery ruins_1(birds, pigeons, wings, wind).wav",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 208.92,
+  "clipping_share": 0.0,
+  "hum_db": 6.2,
+  "silence_share": 0.0,
+  "lufs": -48.0,
+  "lra": 8.8,
+  "true_peak": -20.8,
+  "clap_pos": 0.1832,
+  "clap_margin": -0.0279,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "ast": {
+   "Music": 0.091,
+   "Singing": 0.001,
+   "Speech": 0.002,
+   "Vehicle": 0.004
+  },
+  "id": "freesound:8ca51f6f-453f-4332-8e56-a17f875e54d6",
+  "title": "room_before_paradise.mp3",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 180.096,
+  "clipping_share": 0.0,
+  "hum_db": 16.2,
+  "silence_share": 0.0,
+  "lufs": -21.6,
+  "lra": 3.8,
+  "true_peak": -6.2,
+  "id": "freesound:765f7a76-773d-4d8d-9471-1afd7b31ba84",
+  "title": "Dark Dungeon Ambience",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins",
+   "ast_music"
+  ],
+  "duration": 265.248,
+  "clipping_share": 1.5e-05,
+  "hum_db": 12.3,
+  "silence_share": 0.0,
+  "lufs": -10.5,
+  "lra": 0.5,
+  "true_peak": 0.2,
+  "clap_pos": 0.0026,
+  "clap_margin": -0.0478,
+  "clap_worst_neg": "footsteps walking",
+  "ast": {
+   "Music": 0.741,
+   "Singing": 0.0,
+   "Speech": 0.009,
+   "Vehicle": 0.005
+  },
+  "id": "freesound:c72e3afc-4690-4a9a-9821-33592906c900",
+  "title": "ambience cave2.ogg",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins",
+   "ast_music"
+  ],
+  "duration": 300.048,
+  "clipping_share": 0.0,
+  "hum_db": 10.3,
+  "silence_share": 0.0,
+  "lufs": -12.8,
+  "lra": 0.5,
+  "true_peak": -0.4,
+  "clap_pos": 0.0131,
+  "clap_margin": 0.0206,
+  "clap_worst_neg": "footsteps walking",
+  "ast": {
+   "Music": 0.658,
+   "Singing": 0.0,
+   "Speech": 0.009,
+   "Vehicle": 0.001
+  },
+  "id": "freesound:e7735886-92ee-4026-bd24-5ad4892c00dd",
+  "title": "ambience cave6.ogg",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins",
+   "ast_music"
+  ],
+  "duration": 265.08,
+  "clipping_share": 3.5e-05,
+  "hum_db": 13.6,
+  "silence_share": 0.0,
+  "lufs": -9.7,
+  "lra": 0.4,
+  "true_peak": 0.5,
+  "clap_pos": -0.027,
+  "clap_margin": -0.0446,
+  "clap_worst_neg": "footsteps walking",
+  "ast": {
+   "Music": 0.633,
+   "Singing": 0.0,
+   "Speech": 0.01,
+   "Vehicle": 0.003
+  },
+  "id": "freesound:26521018-45d5-418f-83c9-c3b231e114ad",
+  "title": "ambience cave4.ogg",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins",
+   "ast_music"
+  ],
+  "duration": 184.056,
+  "clipping_share": 0.0,
+  "hum_db": 9.5,
+  "silence_share": 0.003,
+  "lufs": -25.2,
+  "lra": 1.0,
+  "true_peak": -13.8,
+  "clap_pos": -0.1002,
+  "clap_margin": -0.2087,
+  "clap_worst_neg": "music, melody, musical instruments, singing",
+  "ast": {
+   "Music": 0.731,
+   "Singing": 0.025,
+   "Speech": 0.003,
+   "Vehicle": 0.001
+  },
+  "id": "freesound:e89a89ad-daf0-4f76-b3f2-520046028503",
+  "title": "Mysterious cave with water drop sounds.wav",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins",
+   "ast_music"
+  ],
+  "duration": 180.048,
+  "clipping_share": 0.0,
+  "hum_db": 11.3,
+  "silence_share": 0.0,
+  "lufs": -13.3,
+  "lra": 1.6,
+  "true_peak": -0.5,
+  "clap_pos": 0.0037,
+  "clap_margin": -0.0137,
+  "clap_worst_neg": "footsteps walking",
+  "ast": {
+   "Music": 0.56,
+   "Singing": 0.0,
+   "Speech": 0.011,
+   "Vehicle": 0.003
+  },
+  "id": "freesound:0a4567cb-00d3-4eae-8ce6-8a2e886658ac",
+  "title": "ambience cave.ogg",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 160.128,
+  "clipping_share": 0.0,
+  "hum_db": 14.1,
+  "silence_share": 0.0,
+  "lufs": -57.6,
+  "lra": 3.5,
+  "true_peak": -38.8,
+  "id": "freesound:8194963b-e1d2-4767-b23e-8f937507f0c6",
+  "title": "Monastery ruins_2(birds, pigeons, wings, wind).wav",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 159.6,
+  "clipping_share": 0.0,
+  "hum_db": 18.7,
+  "silence_share": 0.0,
+  "lufs": -22.8,
+  "lra": 6.4,
+  "true_peak": -6.7,
+  "id": "freesound:01227ec1-5af3-4c18-b41b-89871c6b8627",
+  "title": "ShadowMaker - Crypt",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 151.632,
+  "clipping_share": 0.0,
+  "hum_db": 9.0,
+  "silence_share": 0.0,
+  "lufs": -30.9,
+  "lra": 2.2,
+  "true_peak": -5.6,
+  "clap_pos": 0.1829,
+  "clap_margin": 0.0093,
+  "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
+  "ast": {
+   "Music": 0.016,
+   "Singing": 0.0,
+   "Speech": 0.001,
+   "Vehicle": 0.075
+  },
+  "id": "freesound:51412885-aa87-47c8-b795-f8f0c4ca2998",
+  "title": "Dungeon Air",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "ast_speech"
+  ],
+  "duration": 140.064,
+  "clipping_share": 0.0,
+  "hum_db": 9.6,
+  "silence_share": 0.0,
+  "lufs": -45.2,
+  "lra": 7.5,
+  "true_peak": -22.4,
+  "clap_pos": 0.227,
+  "clap_margin": 0.1018,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "ast": {
+   "Music": 0.035,
+   "Singing": 0.01,
+   "Speech": 0.216,
+   "Vehicle": 0.007
+  },
+  "id": "freesound:798bae20-b76a-40de-a783-719a6d88ada0",
+  "title": "Church with few people",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins",
+   "ast_music"
+  ],
+  "duration": 130.056,
+  "clipping_share": 0.0,
+  "hum_db": 6.8,
+  "silence_share": 0.022,
+  "lufs": -25.8,
+  "lra": 0.6,
+  "true_peak": -15.1,
+  "clap_pos": -0.1161,
+  "clap_margin": -0.1454,
+  "clap_worst_neg": "music, melody, musical instruments, singing",
+  "ast": {
+   "Music": 0.824,
+   "Singing": 0.002,
+   "Speech": 0.003,
+   "Vehicle": 0.0
+  },
+  "id": "freesound:8e901828-b785-42bb-86cc-01e70ac776b6",
+  "title": "Dripping cave water drops - ambient atmosphere deep mysterious.wav",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 103.176,
+  "clipping_share": 0.0,
+  "hum_db": 10.0,
+  "silence_share": 0.0,
+  "lufs": -34.5,
+  "lra": 12.3,
+  "true_peak": -11.0,
+  "clap_pos": 0.1231,
+  "clap_margin": 0.0004,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "ast": {
+   "Music": 0.133,
+   "Singing": 0.0,
+   "Speech": 0.006,
+   "Vehicle": 0.019
+  },
+  "id": "freesound:65cfce91-3c55-40e4-81fd-5afdb9c5311c",
+  "title": "Gap Cathedral France",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 92.264,
+  "clipping_share": 0.0,
+  "hum_db": 34.3,
+  "silence_share": 0.0,
+  "lufs": -67.8,
+  "lra": 3.7,
+  "true_peak": -40.4,
+  "id": "freesound:cad39006-b791-4c46-8027-7e93901e14fa",
+  "title": "Room Noise 8 Entryway.wav",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "ast_speech"
+  ],
+  "duration": 90.6,
+  "clipping_share": 0.0,
+  "hum_db": 11.0,
+  "silence_share": 0.0,
+  "lufs": -40.2,
+  "lra": 6.5,
+  "true_peak": -19.4,
+  "clap_pos": 0.2316,
+  "clap_margin": 0.0904,
+  "clap_worst_neg": "people talking, human speech, voices",
+  "ast": {
+   "Music": 0.244,
+   "Singing": 0.001,
+   "Speech": 0.489,
+   "Vehicle": 0.013
+  },
+  "id": "freesound:5254ddd2-d535-4aeb-9c2e-4675a89e7033",
+  "title": "Big hall ambience - some voices, coughing, and keys opening a door",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 68.976,
+  "clipping_share": 1.3e-05,
+  "hum_db": 16.2,
+  "silence_share": 0.0,
+  "lufs": -11.7,
+  "lra": 0.6,
+  "true_peak": -0.1,
+  "id": "freesound:9f07b57d-b1b9-446c-9438-60420ec47f70",
+  "title": "ambience cave7.ogg",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 61.176,
+  "clipping_share": 0.0,
+  "hum_db": 19.1,
+  "silence_share": 0.0,
+  "lufs": -37.2,
+  "lra": 5.3,
+  "true_peak": -19.3,
+  "id": "freesound:0ca33c4f-7deb-4f0d-bd33-512c168f2833",
+  "title": "Monastery yard with tourists.wav",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 59.784,
+  "clipping_share": 0.000135,
+  "hum_db": 5.8,
+  "silence_share": 0.0,
+  "lufs": -16.5,
+  "lra": 3.9,
+  "true_peak": -0.3,
+  "id": "freesound:614569b3-b56a-4a85-a0e2-b19712db1746",
+  "title": "dungeon ambience + piano",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 45.408,
+  "clipping_share": 0.0,
+  "hum_db": 20.1,
+  "silence_share": 0.0,
+  "lufs": -43.0,
+  "lra": 2.9,
+  "true_peak": -18.5,
+  "id": "freesound:e3e5e0c5-1e45-41de-b66d-202438e0c3ca",
+  "title": "Hall Full of People - Ambience .wav",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 42.816,
+  "clipping_share": 0.0,
+  "hum_db": 20.5,
+  "silence_share": 0.014,
+  "lufs": -14.4,
+  "lra": 4.9,
+  "true_peak": -0.6,
+  "id": "freesound:09b40fe1-de9e-431c-8655-4313bed4c73d",
+  "title": "Shadow Maker-Dining Room.mp3",
+  "kind": "ambience",
+  "name": "stone_hall"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins"
+  ],
+  "duration": 3.048,
+  "clipping_share": 0.002368,
+  "clap_pos": 0.0769,
+  "clap_margin": 0.0092,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:a3714620-d31b-4034-9b31-c7a0166981ad",
+  "title": "SFX Thrilling Build-Up and Hit 1 (Made at Paradise AIR).wav",
+  "kind": "sfx",
+  "name": "reveal_riser"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins"
+  ],
+  "duration": 1.802,
+  "clipping_share": 0.0,
+  "clap_pos": -0.0259,
+  "clap_margin": -0.1095,
+  "clap_worst_neg": "music, melody, musical instruments, singing",
+  "id": "freesound:d3fe6653-475d-44f3-9e5b-64558f87901c",
+  "title": "Inhale with glass.wav",
+  "kind": "sfx",
+  "name": "reveal_riser"
+ },
+ {
+  "id": "freesound:22598fa3-b15b-4d92-906a-1a257a1045cb",
+  "title": "Church Bell 4",
+  "kind": "sfx",
+  "name": "reveal_hit",
+  "reasons": [
+   "title:bell"
+  ]
+ },
+ {
+  "id": "freesound:aedebad3-10ab-409c-a20c-52e6191e006d",
+  "title": "Church Bell 3",
+  "kind": "sfx",
+  "name": "reveal_hit",
+  "reasons": [
+   "title:bell"
+  ]
+ },
+ {
+  "id": "freesound:53b7e133-c844-4fac-b71e-c3346e8afc26",
+  "title": "Church Bell 1",
+  "kind": "sfx",
+  "name": "reveal_hit",
+  "reasons": [
+   "title:bell"
+  ]
+ },
+ {
+  "id": "freesound:19b18c72-74af-4fda-9bb6-c870fbac3b92",
+  "title": "Church Bell 2",
+  "kind": "sfx",
+  "name": "reveal_hit",
+  "reasons": [
+   "title:bell"
+  ]
+ },
+ {
+  "id": "freesound:3d9042ea-281b-4a82-a226-12153378f26a",
+  "title": "Kick 001.wav",
+  "kind": "sfx",
+  "name": "reveal_hit",
+  "reasons": [
+   "title:kick"
+  ]
+ },
+ {
+  "id": "freesound:86b47d9c-08d7-4034-ae5f-4941154fe12a",
+  "title": "Kick 002.wav",
+  "kind": "sfx",
+  "name": "reveal_hit",
+  "reasons": [
+   "title:kick"
+  ]
+ },
+ {
+  "id": "freesound:3c2b7cdb-03b3-4190-8eb9-be8200eb9e10",
+  "title": "kick12",
+  "kind": "sfx",
+  "name": "reveal_hit",
+  "reasons": [
+   "title:kick"
+  ]
+ },
+ {
+  "id": "freesound:427a5699-3173-4ead-aa5c-08708d02c4ff",
+  "title": "super low bass hit kick drum wAv",
+  "kind": "sfx",
+  "name": "reveal_hit",
+  "reasons": [
+   "title:kick"
+  ]
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 5.112,
+  "id": "freesound:7582c2bd-54a6-40dc-82ea-2710d5034c57",
+  "title": "Metal Impact Railing Hit Deep Reverb 6",
+  "kind": "sfx",
+  "name": "reveal_hit"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 5.16,
+  "id": "freesound:915314e0-1272-47db-a1f3-db39d98804ba",
+  "title": "Bassy Impact with White Noise.wav",
+  "kind": "sfx",
+  "name": "reveal_hit"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 5.28,
+  "id": "freesound:a48224d6-135b-4a8f-8ee3-dacf515238cf",
+  "title": "Low impact.wav",
+  "kind": "sfx",
+  "name": "reveal_hit"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 4.776,
+  "id": "freesound:2a9ddfc3-1b78-4b6c-8ae0-2c50544db3d0",
+  "title": "bass drop.wav",
+  "kind": "sfx",
+  "name": "reveal_hit"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 5.064,
+  "id": "freesound:e8d1cc6d-6272-4612-83d2-f9d7f5fdbf1a",
+  "title": "Cinematic Alarm Hit",
+  "kind": "sfx",
+  "name": "reveal_hit"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 4.152,
+  "clipping_share": 0.055057,
+  "id": "freesound:2e574015-0cc8-4c00-80bd-b403003ff7ca",
+  "title": "Dropping Knowledge",
+  "kind": "sfx",
+  "name": "reveal_hit"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 3.48,
+  "clipping_share": 0.058588,
+  "id": "freesound:735bdf02-99da-4273-9bb1-7f4785b29eb2",
+  "title": "FX Cinematic Impact.wav",
+  "kind": "sfx",
+  "name": "reveal_hit"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins"
+  ],
+  "duration": 1.08,
+  "clipping_share": 0.000452,
+  "clap_pos": 0.0361,
+  "clap_margin": -0.0841,
+  "clap_worst_neg": "explosion with debris",
+  "id": "freesound:4c3ed74a-8e6d-4dc5-9d16-e2aa0678b047",
+  "title": "Whoosh Whoosh Boom",
+  "kind": "sfx",
+  "name": "reveal_hit"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 1.56,
+  "clipping_share": 0.097819,
+  "id": "freesound:320070bf-ad27-4ab6-a599-30167b124466",
+  "title": "JH Big Tom 3 (C 1.5 sec).wav",
+  "kind": "sfx",
+  "name": "reveal_hit"
  }
 ]
