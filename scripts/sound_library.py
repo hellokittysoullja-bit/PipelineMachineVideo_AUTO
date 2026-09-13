@@ -119,7 +119,7 @@ TITLE_BLOCK = {
     "chapter_turn": ("sword", "hit", "impact", "explosion", "punch"),
     "plate_tick": ("clock", "metronome", "loop"),
     "reveal_riser": (),
-    "reveal_hit": ("cymbal", "drum kit", "snare", "gun", "explosion"),
+    "reveal_hit": ("cymbal", "drum kit", "snare", "gun", "explosion", "kick", "bell", "808"),
     "typewriter": ("loop", "typing fast", "sequence"),
 }
 
@@ -234,10 +234,15 @@ LIBRARY_SPEC = {
             # фразой — обычная практика; первый прогон отсёк 4 из 10 за 4.1-5.0с
             min_sec=1.0, max_sec=5.2, keep=4),
         "reveal_hit": dict(
-            queries=["low impact cinematic", "deep boom hit", "sub impact", "cinematic hit low"],
+            # первый прогон: 0 из 9 — пул из 9 и отсечка по длине 3.0с на
+            # «Deep hit» 3.3с и «FX Cinematic Impact» 3.5с: у удара длинный хвост,
+            # это норма; сам удар всё равно НАЧИНАЕТСЯ на моменте
+            queries=["low impact cinematic", "deep boom hit", "sub impact", "cinematic hit low",
+                     "cinematic boom", "impact boom low", "bass drop impact", "trailer hit deep",
+                     "deep impact reverb", "cinematic drum hit low"],
             prompt="a deep low cinematic impact boom, single hit, documentary",
             extra_neg=("drum kit, cymbal crash", "explosion with debris"),
-            min_sec=0.4, max_sec=3.0, keep=3),
+            min_sec=0.4, max_sec=4.5, keep=4),
         "typewriter": dict(
             queries=["typewriter key single", "typewriter keystroke", "mechanical keyboard single key",
                      "keyboard key press single click"],

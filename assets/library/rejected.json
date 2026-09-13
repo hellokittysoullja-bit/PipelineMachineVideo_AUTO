@@ -4057,5 +4057,68 @@
   "title": "kick12",
   "kind": "sfx",
   "name": "reveal_hit"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 0.648,
+  "id": "freesound:b603de51-948c-440e-8200-ee480979f3d1",
+  "title": "mechanical key soft.wav",
+  "kind": "sfx",
+  "name": "typewriter"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 0.336,
+  "clipping_share": 0.000449,
+  "id": "freesound:fafa91cb-5a72-447a-ab41-8dd43604dec2",
+  "title": "Typewriter - single key - type 1.wav",
+  "kind": "sfx",
+  "name": "typewriter"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 0.336,
+  "clipping_share": 0.000531,
+  "id": "freesound:ac715c8d-3010-45a2-a939-e110a14da389",
+  "title": "Typewriter - single key - type 2.wav",
+  "kind": "sfx",
+  "name": "typewriter"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 0.288,
+  "clipping_share": 0.00055,
+  "id": "freesound:9b7702dc-4f8d-4876-b174-8991d49c8ebd",
+  "title": "Typewriter - single key - type 3.wav",
+  "kind": "sfx",
+  "name": "typewriter"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 0.744,
+  "id": "freesound:45e39673-e775-48d1-82e5-f5f0c5fdcf06",
+  "title": "Typewriter snippet 03",
+  "kind": "sfx",
+  "name": "typewriter"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 0.696,
+  "id": "freesound:429995b2-de41-4f90-b175-2f1c272fa888",
+  "title": "button click",
+  "kind": "sfx",
+  "name": "typewriter"
  }
 ]
