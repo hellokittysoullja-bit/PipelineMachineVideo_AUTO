@@ -460,3 +460,20 @@ def test_local_ingest_records_the_ai_clause():
     Флаг едет с записью, чтобы вопрос «можно ли публиковать её эмбеддинги»
     имел ответ в данных, а не в чьей-то памяти."""
     assert '"allow_ai_embeddings"' in inspect.getsource(sl.ingest_dir)
+
+
+def test_promote_and_audition_use_the_same_ordering():
+    """Номер N в `promote --take N` обязан указывать на тот же файл, что
+    `audition` записал как `0N_...` и что звучит N-м на демо-ленте. Три
+    места считают этот порядок порознь; разойдись они — человек сказал бы
+    «возьми третью», а система взяла бы другую запись, и заметить это можно
+    было бы только ушами на готовом ролике.
+
+    Проверяется, что обе функции сортируют одинаково и по одному ключу.
+    """
+    a = inspect.getsource(sl.audition)
+    p = inspect.getsource(sl.promote)
+    key = 'near.sort(key=lambda v: -(v.get("clap_margin") or -9.0))'
+    assert key in a and key in p
+    filt = 'all(_debatable(r) for r in v["reasons"])'
+    assert filt in a and filt in p
