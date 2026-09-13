@@ -190,9 +190,11 @@ class TestFailOpen:
                             lambda q, **k: (_ for _ in ()).throw(OSError("сеть")))
         monkeypatch.setattr(ms, "search_cleveland", lambda q, **k: [{"id": "cleveland:1"}])
         monkeypatch.setattr(ms, "search_chicago", lambda q, **k: [])
-        monkeypatch.setattr(ms, "_SOURCES", (("met", ms.search_met),
-                                             ("cleveland", ms.search_cleveland),
-                                             ("chicago", ms.search_chicago)))
+        # Раньше здесь стояла ещё и пересборка _SOURCES: кортеж держал ССЫЛКИ
+        # на функции, взятые при импорте, и патч одной функции до вызова не
+        # доходил. Теперь источник резолвится по имени в момент вызова, и
+        # обходной строки не нужно — если она понадобится снова, значит
+        # позднее связывание опять сломано.
         ms._SEARCH_CACHE.clear()
         monkeypatch.setattr(ms.feature_flags, "enabled", lambda *a, **k: True)
         assert ms.search_museums("q") == [{"id": "cleveland:1"}]
@@ -326,3 +328,124 @@ class TestPexelsOutageDoesNotKillOtherSources:
             "Гейт вызова pexels_photo()/pexels_video() снова завязан на "
             "use_pexels — обрыв Pexels опять погасит музеи/архивы/Openverse "
             "для всего оставшегося эпизода, не только для Pexels")
+
+
+class TestSearchDepth:
+    """Глубина выдачи — наш собственный потолок, а не бедность корпуса.
+
+    Замер 13.09 на 42 авторских запросах эпизода 02_ne-mechom (живые API,
+    ключи не нужны): у 27 запросов из 42 поиск Мет отдаёт БОЛЬШЕ 12 objectID
+    (медиана 19.5, максимум 2992). Выход после паспортных фильтров на глубине
+    12 против 60: 7->42, 6->24, 3->20, 10->26, 5->12. У Чикаго страница 20
+    против 100: 12-17 -> 48-80, и это РОВНО ОДИН запрос в обоих случаях.
+
+    Тест держит решение, а не красивое число: вернуть 12 значит вернуть
+    голодающий пул, из-за которого в опубликованный эпизод ушли космонавт и
+    танк (см. докстринг модуля)."""
+
+    def test_met_depth_is_past_the_old_ceiling(self):
+        assert ms.MET_MAX_DETAIL_FETCHES >= 60
+
+    def test_single_request_museums_take_a_full_page(self):
+        assert ms.SEARCH_PAGE_SIZE >= 100
+
+    def test_met_detail_order_follows_search_relevance(self, monkeypatch):
+        """Карточки тянутся параллельно, но порядок обязан остаться порядком
+        выдачи поиска: место кандидата в пуле решает, кого гейты увидят
+        первым (чередование по запросам в pipeline_smart.pexels_photo)."""
+        ids = [101, 102, 103, 104, 105]
+
+        def fake_get(url):
+            if "/search" in url:
+                return {"objectIDs": ids}
+            oid = int(url.rsplit("/", 1)[1])
+            # Нарочно разная «задержка» порядка: параллельный map обязан
+            # восстановить исходную последовательность.
+            return {"isPublicDomain": True, "primaryImage": f"http://x/{oid}.jpg",
+                    "objectBeginDate": 1400, "objectEndDate": 1450,
+                    "culture": "French", "title": f"Item {oid}",
+                    "objectURL": f"http://met/{oid}"}
+
+        monkeypatch.setattr(ms, "_get_json", fake_get)
+        out = ms.search_met("sword")
+        assert [c["id"] for c in out] == [f"met:{i}" for i in ids]
+
+
+class TestMetPoliteness:
+    """403 от Мет — не гипотеза, а пойманный вживую отказ (13.09): при замере
+    глубины подряд ушло ~600 запросов за пару минут, и Мет ответил 403 уже на
+    ПОИСК, то есть источник выключился целиком. Через минуту доступ вернулся
+    сам — это троттлинг. Глубина 60 делает такой всплеск штатным, поэтому
+    ограничитель, повтор и остывание — часть той же правки, а не отдельная
+    перестраховка."""
+
+    @pytest.fixture(autouse=True)
+    def _reset(self, monkeypatch):
+        ms._SEARCH_CACHE.clear()
+        ms._MET_COOLDOWN_UNTIL[0] = 0.0
+        ms._MET_NEXT_SLOT[0] = 0.0
+        for k in ms.FETCH_STATS:
+            ms.FETCH_STATS[k] = 0
+        monkeypatch.setattr(ms, "MET_RETRY_PAUSE_SEC", 0.0)
+        monkeypatch.setattr(ms, "MET_MAX_REQUESTS_PER_SEC", 10000.0)
+        yield
+        ms._MET_COOLDOWN_UNTIL[0] = 0.0
+        ms._SEARCH_CACHE.clear()
+
+    def _http_error(self, code):
+        import urllib.error
+        return urllib.error.HTTPError("http://met", code, "no", {}, None)
+
+    def test_transient_code_is_retried_once_then_recovers(self, monkeypatch):
+        calls = []
+
+        def flaky(url):
+            calls.append(url)
+            if len(calls) == 1:
+                raise self._http_error(429)
+            return {"objectIDs": [1]}
+
+        monkeypatch.setattr(ms, "_get_json", flaky)
+        assert ms._met_get("http://met/search") == {"objectIDs": [1]}
+        assert len(calls) == 2
+        assert not ms.met_is_cooling_down()
+
+    def test_persistent_throttle_puts_source_on_cooldown(self, monkeypatch):
+        monkeypatch.setattr(ms, "_get_json",
+                            lambda url: (_ for _ in ()).throw(self._http_error(403)))
+        assert ms._met_get("http://met/search") is None
+        assert ms.met_is_cooling_down()
+        assert ms.FETCH_STATS["met_cooldowns"] == 1
+        # На остывании запросов больше не делается вообще.
+        before = ms.FETCH_STATS["met_requests"]
+        assert ms._met_get("http://met/objects/1") is None
+        assert ms.FETCH_STATS["met_requests"] == before
+
+    def test_lost_card_is_counted_not_silent(self, monkeypatch):
+        """Поредевший пул обязан быть отличим от бедного корпуса — иначе это
+        ровно та тихая деградация, которую в проекте ловили уже трижды."""
+        def half_broken(url):
+            if "/search" in url:
+                return {"objectIDs": [1, 2]}
+            if url.endswith("/1"):
+                raise self._http_error(500)
+            return {"isPublicDomain": True, "primaryImage": "http://x/2.jpg",
+                    "objectBeginDate": 1400, "objectEndDate": 1450,
+                    "culture": "French", "title": "Item 2", "objectURL": "u"}
+
+        monkeypatch.setattr(ms, "_get_json", half_broken)
+        out = ms.search_met("sword")
+        assert [c["id"] for c in out] == ["met:2"]
+        assert ms.FETCH_STATS["met_cards_lost"] == 1
+
+    def test_source_is_resolved_at_call_time(self, monkeypatch):
+        """Позднее связывание источника — не стиль, а условие проверяемости:
+        пока _SOURCES держал ссылки, взятые при импорте, патч «пусть Мет
+        падает» молча не применялся и тест вместо изоляции уходил в ЖИВОЙ
+        API (поймано на этом же файле 13.09)."""
+        monkeypatch.setattr(ms, "search_met", lambda q, **k: [{"id": "met:fake"}])
+        monkeypatch.setattr(ms, "search_cleveland", lambda q, **k: [])
+        monkeypatch.setattr(ms, "search_chicago", lambda q, **k: [])
+        monkeypatch.setattr(ms.feature_flags, "enabled", lambda *a, **k: True)
+        ms._SEARCH_CACHE.clear()
+        assert ms.search_museums("sword") == [{"id": "met:fake"}]

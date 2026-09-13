@@ -37,8 +37,12 @@ Fail-open на каждом шаге: недоступный музей возв
 продолжает собираться из остальных источников — ни один слот не пустеет
 из-за этого модуля.
 """
+import concurrent.futures
 import json
 import os
+import threading
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -76,8 +80,33 @@ CHICAGO_API = "https://api.artic.edu/api/v1/artworks/search"
 # Met отдаёт только objectID в поиске — карточка каждого предмета это
 # ОТДЕЛЬНЫЙ запрос. Потолок держит цену слота вменяемой; кэш ниже делает
 # повторные прогоны бесплатными.
-MET_MAX_DETAIL_FETCHES = 12
-SEARCH_PAGE_SIZE = 20
+#
+# ГЛУБИНА ИЗМЕРЕНА, А НЕ ВЫБРАНА НА ГЛАЗ (13.09, 42 авторских запроса эпизода
+# 02_ne-mechom, живые API без ключей). Потолок 12 был не ценой корпуса, а
+# нашим собственным: у 27 запросов из 42 поиск Мет отдаёт БОЛЬШЕ 12 objectID
+# (медиана 19.5, максимум 2992 на "medieval poleaxe weapon"). То есть слот
+# голодал не потому, что в музее нет предметов, а потому что мы смотрели
+# первые двенадцать. Выход, прошедший паспортные фильтры (public domain +
+# era_overlaps + culture_is_foreign), на глубине 12 против 60:
+#     medieval poleaxe weapon          7 -> 42
+#     medieval sword museum display    6 -> 24
+#     medieval plate armour museum     3 -> 20
+#     medieval manuscript knight battle 10 -> 26
+#     medieval rondel dagger           5 -> 12
+# Цена по времени НЕ выросла: карточки тянутся параллельно
+# (MET_DETAIL_WORKERS), 60 штук приходят за 1.7-6.5с — примерно столько же,
+# сколько занимали 12 последовательных запросов. Порядок выдачи сохраняется
+# (ex.map отдаёт результаты в порядке входа), поэтому релевантность поиска
+# Мет по-прежнему определяет место кандидата в пуле.
+MET_MAX_DETAIL_FETCHES = 60
+MET_DETAIL_WORKERS = 12
+
+# Кливленд и Чикаго отдают полную карточку прямо в поиске — там глубина стоит
+# РОВНО ОДИН запрос, независимо от limit. Тем же замером: Чикаго на limit=20
+# даёт 12-17 прошедших паспорт кандидатов, на limit=100 — 48-80 (четырёхкратно,
+# бесплатно). Кливленд на средневековой европейской теме отдаёт 0-1 при любом
+# limit (его коллекция про другое) — там выигрыша нет, но и цены тоже.
+SEARCH_PAGE_SIZE = 100
 
 _SEARCH_CACHE = {}
 
@@ -86,6 +115,85 @@ def _get_json(url):
     req = urllib.request.Request(url, headers={"User-Agent": UA})
     with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as r:
         return json.load(r)
+
+
+# --- ВЕЖЛИВОСТЬ К МЕТ -------------------------------------------------------
+# Не перестраховка, а реальный, пойманный вживую отказ (13.09): при замере
+# глубины подряд ушло ~600 запросов карточек за пару минут, и Мет ответил
+# HTTP 403 уже на ПОИСК — то есть источник выключился целиком, а не одна
+# карточка. Через минуту доступ вернулся сам: это троттлинг, а не бан.
+# Глубина 60 делает такой всплеск штатным (42 запроса эпизода x 60 карточек),
+# поэтому у Мет теперь есть три вещи, которых не было:
+#   1) общий на процесс ограничитель скорости (не на пул потоков одного
+#      запроса — иначе каждый следующий слот начинал бы заново с полной
+#      скорости);
+#   2) один повтор с паузой на «временных» кодах, ПОСЛЕ которого карточка
+#      честно считается потерянной;
+#   3) счётчик потерь и пауза-остывание на весь источник: молча уменьшившийся
+#      пул неотличим от бедного корпуса, а это ровно тот класс тихой
+#      деградации, который в этом проекте ловили уже трижды.
+MET_MAX_REQUESTS_PER_SEC = 10.0
+MET_RETRY_STATUSES = (403, 429, 500, 502, 503, 504)
+MET_RETRY_PAUSE_SEC = 2.0
+MET_COOLDOWN_SEC = 60.0
+
+_MET_LOCK = threading.Lock()
+_MET_NEXT_SLOT = [0.0]
+_MET_COOLDOWN_UNTIL = [0.0]
+# Видимость деградации: сколько карточек потеряно и сколько раз источник
+# уходил в остывание за этот прогон. Читается вызывающим кодом/тестами.
+FETCH_STATS = {"met_cards_lost": 0, "met_cooldowns": 0, "met_requests": 0}
+
+
+def _met_throttle():
+    """Общий на процесс интервал между запросами к Мет."""
+    with _MET_LOCK:
+        now = time.monotonic()
+        slot = max(now, _MET_NEXT_SLOT[0])
+        _MET_NEXT_SLOT[0] = slot + 1.0 / MET_MAX_REQUESTS_PER_SEC
+        FETCH_STATS["met_requests"] += 1
+    delay = slot - time.monotonic()
+    if delay > 0:
+        time.sleep(delay)
+
+
+def met_is_cooling_down():
+    return time.monotonic() < _MET_COOLDOWN_UNTIL[0]
+
+
+def _met_enter_cooldown():
+    with _MET_LOCK:
+        if not met_is_cooling_down():
+            _MET_COOLDOWN_UNTIL[0] = time.monotonic() + MET_COOLDOWN_SEC
+            FETCH_STATS["met_cooldowns"] += 1
+            print(f"    Мет: троттлинг, источник на паузе {MET_COOLDOWN_SEC:.0f}с "
+                  f"(остальные музеи работают)")
+
+
+def _met_get(url):
+    """Запрос к Мет через ограничитель, с одним повтором на временных кодах.
+
+    Возвращает None вместо исключения — вызывающий код обязан отличать
+    «карточка не пришла» от «карточка не подошла по паспорту»."""
+    if met_is_cooling_down():
+        return None
+    for attempt in (0, 1):
+        _met_throttle()
+        try:
+            return _get_json(url)
+        except urllib.error.HTTPError as e:
+            if e.code in MET_RETRY_STATUSES and attempt == 0:
+                time.sleep(MET_RETRY_PAUSE_SEC)
+                continue
+            if e.code in MET_RETRY_STATUSES:
+                _met_enter_cooldown()
+            return None
+        except Exception:
+            if attempt == 0:
+                time.sleep(MET_RETRY_PAUSE_SEC)
+                continue
+            return None
+    return None
 
 
 def _profile():
@@ -167,14 +275,32 @@ def search_met(query, limit=MET_MAX_DETAIL_FETCHES):
     """Метрополитен: отдел Arms and Armor — лучшая в мире коллекция
     европейского доспеха, всё public domain, ключ не нужен."""
     out = []
-    data = _get_json(f"{MET_API}/search?hasImages=true&q=" +
-                     urllib.parse.quote(query))
-    for oid in (data.get("objectIDs") or [])[:limit]:
-        try:
-            o = _get_json(f"{MET_API}/objects/{oid}")
-        except Exception:
-            continue
-        if not o.get("isPublicDomain"):
+    data = _met_get(f"{MET_API}/search?hasImages=true&q=" +
+                    urllib.parse.quote(query))
+    oids = ((data or {}).get("objectIDs") or [])[:limit]
+    if not oids:
+        return out
+
+    def _detail(oid):
+        # Fail-open ПОКАРТОЧНО, как и было в последовательной версии: упавший
+        # запрос одной карточки не должен уносить остальные 59. Потеря
+        # считается — иначе поредевший пул выглядел бы бедным корпусом.
+        o = _met_get(f"{MET_API}/objects/{oid}")
+        if o is None:
+            with _MET_LOCK:
+                FETCH_STATS["met_cards_lost"] += 1
+        return o
+
+    # ex.map сохраняет ПОРЯДОК входа — кандидаты остаются в порядке
+    # релевантности поиска Мет, как при последовательном обходе. Это важно:
+    # место кандидата в пуле определяет, кого гейты увидят первым (см.
+    # чередование по запросам в pipeline_smart.pexels_photo).
+    workers = max(1, min(MET_DETAIL_WORKERS, len(oids)))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+        objects = list(ex.map(_detail, oids))
+
+    for oid, o in zip(oids, objects):
+        if not o or not o.get("isPublicDomain"):
             continue
         # Полноразмерный снимок, а не web-версия: замер — 1.4-2 МБ против
         # 55-84 КБ (495x624). Кадр рендерится в 1920x1080 И проходит зум
@@ -257,7 +383,25 @@ def search_chicago(query, limit=SEARCH_PAGE_SIZE):
     return out
 
 
-_SOURCES = (("met", search_met), ("cleveland", search_cleveland),
+def _sources():
+    """Источники, собираемые В МОМЕНТ ВЫЗОВА, а не при импорте.
+
+    Раньше это был кортеж-константа со ССЫЛКАМИ на функции — и это не мелочь
+    стиля: подменить источник (тестом, монкипатчем, будущей заменой
+    реализации) было невозможно, вызов всё равно уходил в объект, захваченный
+    при импорте. В тесте это выглядело особенно скверно: патч «пусть Мет
+    падает» молча не применялся, и тест вместо изоляции уходил в ЖИВОЙ API
+    (поймано 13.09). Тот же принцип, что у реестра флагов: значение читается
+    в момент вызова.
+
+    Имена функций стоят здесь ЯВНО, а не собираются через globals() по
+    строке: строковый резолв работает точно так же, но делает источники
+    невидимыми для статического анализа — первая версия этой правки ровно
+    так и уронила tests/test_no_dead_layers.py, объявив search_chicago/
+    search_cleveland мёртвыми. Позднее связывание не обязано стоить
+    проверяемости.
+    """
+    return (("met", search_met), ("cleveland", search_cleveland),
             ("chicago", search_chicago))
 
 
@@ -273,7 +417,7 @@ def search_museums(query):
     if query in _SEARCH_CACHE:
         return _SEARCH_CACHE[query]
     out = []
-    for name, fn in _SOURCES:
+    for name, fn in _sources():
         try:
             out.extend(fn(query))
         except Exception:
