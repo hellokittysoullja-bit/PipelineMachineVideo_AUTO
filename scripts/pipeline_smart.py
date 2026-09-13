@@ -1402,6 +1402,90 @@ def process_voice(voice_path, out_path):
     return out_path
 
 
+_REVEAL_SFX_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                "assets", "sfx", "reveal")
+REVEAL_RISER_PATH = os.path.join(_REVEAL_SFX_DIR, "reveal_riser.flac")
+REVEAL_HIT_PATH = os.path.join(_REVEAL_SFX_DIR, "reveal_hit.flac")
+REVEAL_SFX_ENABLED = (feature_flags.enabled("REVEAL_SFX")
+                       and os.path.exists(REVEAL_RISER_PATH) and os.path.exists(REVEAL_HIT_PATH))
+# Ассеты сведены генератором ТИХО (пик ок. -14 dBFS, см. его докстринг), но
+# -14 dBFS пика — это примерно уровень самой программы после мастеринга в
+# -14 LUFS, то есть акцент звучал бы вровень с голосом. -8 дБ опускает пик
+# примерно до -22 dBFS: отчётливо слышно как вес, но заведомо ПОД речью.
+# Выбрано консервативно и сознательно: поднять по одному прослушиванию
+# дешевле, чем объяснять зрителю бухающий звук поверх реплики.
+REVEAL_SFX_GAIN_DB = -8.0
+
+
+def add_reveal_sfx(mix_path, climax_times, total_dur, out_path):
+    """Звуковой акцент на моменты [climax] — нарастание ПЕРЕД ключевой
+    репликой и низкий удар РОВНО в её начало.
+
+    РЕАЛЬНЫЙ, ранее не закрытый пробел. `scripts/generate_reveal_sfx.py`
+    существует, сгенерировал оба ассета (они лежат в `assets/sfx/reveal/`),
+    и его докстринг прямо называет дыру, ради которой он написан: «момент,
+    когда сценарий говорит "вот главный ответ", проходил вообще без
+    звукового усиления, только музыкальный дип». Но прямая проверка
+    `grep -rn "reveal_hit\|reveal_riser" scripts/*.py` (вне самого
+    генератора) давала ПУСТО — шаг сборки, на который тот же докстринг
+    ссылается как на `scripts/mix_reveal_sfx.py`, не был написан НИКОГДА.
+    Итог: за весь 23-минутный ролик звучал ровно один эффект (щелчки
+    машинки) и только на 2 плашках из 11. Тот же класс пробела, что уже
+    ловили у Openverse и Pixabay: код есть, ассеты есть, вклад в ролик ноль.
+
+    ТАЙМИНГ — не выдуман, а взят из уже существующей конвенции:
+    climax_times здесь те же самые, что уже кормят музыкальный провал
+    (`_climax_dip_expr`), то есть звук и музыка гарантированно говорят об
+    одном моменте, а не о двух слегка разных. Нарастание ЗАКАНЧИВАЕТСЯ
+    ровно на этом моменте (старт = момент минус его собственная
+    длительность), удар с него НАЧИНАЕТСЯ — ровно то, что описывает
+    докстринг генератора («нарастание НАПРЯЖЕНИЯ перед репликой», «удар
+    РОВНО в момент, когда начинается ключевая реплика»). Длительность
+    нарастания читается у файла, а не зашита числом: перегенерация ассета
+    другой длины не должна тихо сдвинуть акцент.
+
+    Ставится ПОСЛЕ музыки и дакинга, но ДО финального loudnorm — тот же
+    порядок и та же причина, что у щелчков машинки: сайдчейн не должен
+    реагировать на сам акцент, но акцент обязан участвовать в мастеринге
+    громкости, а не лежать поверх уже откалиброванного микса.
+
+    Fail-open: нет ассетов, нет моментов [climax], флаг выключен или ffmpeg
+    вернул ошибку — возвращается исходный микс без единого изменения.
+    """
+    if not climax_times or not REVEAL_SFX_ENABLED:
+        return mix_path
+    try:
+        riser_dur = get_media_duration(REVEAL_RISER_PATH)
+    except Exception:
+        return mix_path
+    cmd = ["ffmpeg", "-y", "-i", mix_path]
+    parts, mix_inputs = [], ["[0:a]"]
+    n = 0
+    for t in sorted(climax_times):
+        # Нарастание заканчивается НА моменте; если момент ближе к началу
+        # ролика, чем длится нарастание, оно просто начинается с нуля —
+        # обрезать хвост нельзя, иначе удар потеряет подводку.
+        riser_at = max(0.0, float(t) - riser_dur)
+        for path, at in ((REVEAL_RISER_PATH, riser_at), (REVEAL_HIT_PATH, float(t))):
+            cmd += ["-i", path]
+            ms = max(0, int(at * 1000))
+            n += 1
+            parts.append(f"[{n}:a]adelay={ms}|{ms},volume={REVEAL_SFX_GAIN_DB}dB[rv{n}]")
+            mix_inputs.append(f"[rv{n}]")
+    if not n:
+        return mix_path
+    parts.append("".join(mix_inputs) + f"amix=inputs={n + 1}:duration=first:normalize=0[out]")
+    cmd += ["-filter_complex", ";".join(parts), "-map", "[out]",
+            "-t", f"{total_dur:.3f}", "-ar", "48000", "-ac", "2", out_path]
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if r.returncode != 0:
+        print(f"  ВНИМАНИЕ: акценты кульминации не наложились: {r.stderr[-200:].strip()}")
+        return mix_path
+    print(f"  Акценты кульминации: {len(climax_times)} момент(ов) "
+          f"(нарастание {riser_dur:.1f}с + удар, {REVEAL_SFX_GAIN_DB}дБ)")
+    return out_path
+
+
 def add_typewriter_clicks(mix_path, click_times, total_dur, out_path):
     """D4: звук печатной машинки — щелчок на КАЖДЫЙ символ, ровно в момент,
     когда он появляется на экране (тот же TYPEWRITER_CHAR_DUR, что и в
@@ -12380,6 +12464,12 @@ def main():
     if typewriter_click_times:
         premix_clicks = os.path.join(TEMP_FOLDER, "premix_clicks.wav")
         premix = add_typewriter_clicks(premix, typewriter_click_times, total, premix_clicks)
+    # Акценты на [climax] — те же climax_times, что уже дали музыкальный
+    # провал выше, поэтому звук и музыка говорят об ОДНОМ моменте. Порядок
+    # тот же, что у щелчков: после дакинга, до финального loudnorm.
+    if climax_times:
+        premix_reveal = os.path.join(TEMP_FOLDER, "premix_reveal.wav")
+        premix = add_reveal_sfx(premix, climax_times, total, premix_reveal)
     # loudnorm — целевая громкость YouTube (-14 LUFS integrated, -1.5dB
     # true peak потолок, LRA 11) вместо "как есть от TTS". Было -16: на
     # этой платформе тише целевой означает, что ролик звучит глуше соседних

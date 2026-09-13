@@ -104,4 +104,9 @@ def test_real_episode_hook_is_no_longer_starved(capsys):
     ps.lint_authored_queries(q, blocks)
     out = capsys.readouterr().out
     assert "HOOK:" not in out, out
-    assert len(q["HOOK"]) >= 8
+    # Проверяем НАСТОЯЩИЙ инвариант, а не конкретное число запросов: их
+    # количество — осознанное решение автора (8 давало более плотный пул, но
+    # заметно удлиняло подбор видео, поэтому остановились на 6). Тест обязан
+    # ловить возврат к голодающему пулу, а не фиксировать одну цифру.
+    hook_slots = sum(1 for b in blocks if b["section"].startswith("HOOK"))
+    assert hook_slots / len(q["HOOK"]) <= ps.QUERY_SLOTS_PER_QUERY_WARN
