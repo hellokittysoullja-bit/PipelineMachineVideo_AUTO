@@ -184,3 +184,67 @@ def test_no_markup_means_no_object_layer_at_all():
                                        object_asset_for=_assets)
     assert not [c for c in acc if c["kind"] == "object"]
     assert not [c for c in drop if c["kind"] == "object"]
+
+
+# --------------------------------------------------- сведение и резолвер
+def test_bed_carries_its_own_envelope_not_the_mixer():
+    """Микшер обязан остаться тупым исполнителем плана: длительность и
+    фейды несёт САМ кюй. Иначе единственным способом проверить правило
+    станет «отрендери ролик и послушай»."""
+    blocks, starts, weights = _episode({2: [{"name": "fire", "word_pos": 2}]})
+    acc, _ = sfx_plan.plan_sfx_cues(blocks, starts, weights, 200.0,
+                                    object_asset_for=_assets)
+    bed = [c for c in acc if c["cls"] == sfx_plan.OBJECT_CLASS_BED][0]
+    assert bed["trim_sec"] == sfx_plan.OBJECT_BED_SEC
+    assert 0 < bed["fade_in_sec"] <= sfx_plan.OBJECT_BED_FADE_IN_SEC
+    assert 0 < bed["fade_out_sec"] <= sfx_plan.OBJECT_BED_FADE_OUT_SEC
+    # фейды обязаны помещаться в саму длительность
+    assert bed["fade_in_sec"] + bed["fade_out_sec"] <= bed["trim_sec"]
+
+
+def test_point_gets_no_envelope():
+    """Удар с полуторасекундным нарастанием смазан — точке фейды не нужны."""
+    blocks, starts, weights = _episode({2: [{"name": "hammer", "word_pos": 2}]})
+    acc, _ = sfx_plan.plan_sfx_cues(blocks, starts, weights, 200.0,
+                                    object_asset_for=_assets)
+    pt = [c for c in acc if c["cls"] == sfx_plan.OBJECT_CLASS_POINT][0]
+    assert "trim_sec" not in pt and "fade_in_sec" not in pt
+
+
+def test_bed_trim_never_exceeds_the_asset():
+    """Иначе в хвосте окажется тишина с фейдом из ниоткуда."""
+    short_bed = lambda n: (("/x/f.flac", 2.0, sfx_plan.OBJECT_CLASS_BED)
+                           if n == "fire" else None)
+    blocks, starts, weights = _episode({2: [{"name": "fire", "word_pos": 2}]})
+    acc, _ = sfx_plan.plan_sfx_cues(blocks, starts, weights, 200.0,
+                                    object_asset_for=short_bed)
+    bed = [c for c in acc if c["kind"] == "object"][0]
+    assert bed["trim_sec"] == 2.0
+
+
+def test_mixer_applies_the_envelope_the_cue_asks_for():
+    import inspect
+
+    import pipeline_smart as ps
+
+    src = inspect.getsource(ps.add_planned_sfx)
+    for token in ('c.get("trim_sec")', "atrim=0:", "afade=t=in", "afade=t=out"):
+        assert token in src, token
+
+
+def test_resolver_classifies_by_concept_then_by_duration():
+    """Словарь говорит ТОЛЬКО как звук ведёт себя во времени — упомянут ли
+    предмет, уже сказал автор тегом. Поэтому список короткий и не растёт с
+    нишей: незнакомый концепт классифицируется по длительности файла."""
+    import pipeline_smart as ps
+
+    assert "fire" in ps.OBJECT_BED_CONCEPTS
+    assert "hammer" not in ps.OBJECT_BED_CONCEPTS
+    assert ps.OBJECT_POINT_MAX_SEC > 0
+
+
+def test_resolver_returns_none_for_unknown_concept():
+    import pipeline_smart as ps
+
+    assert ps.object_asset_for("определённо_нет_такого_звука") is None
+    assert ps.object_asset_for("") is None

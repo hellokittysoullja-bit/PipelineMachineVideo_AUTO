@@ -261,11 +261,21 @@ def object_cues(blocks, sub_starts, real_weights, asset_for=None,
                 # Опережение не влезает в начало ролика — ставим с нуля,
                 # а не выбрасываем: звук нужен, просто без разбега.
                 t = 0.0
-            cands.append(dict(base, time=t, anchor=anchor, asset=path,
-                              asset_dur=float(asset_dur or 0.0),
-                              cls=cls,
-                              gain_db=(OBJECT_BED_GAIN_DB if cls == OBJECT_CLASS_BED
-                                       else OBJECT_POINT_GAIN_DB)))
+            cue = dict(base, time=t, anchor=anchor, asset=path,
+                       asset_dur=float(asset_dur or 0.0), cls=cls,
+                       gain_db=(OBJECT_BED_GAIN_DB if cls == OBJECT_CLASS_BED
+                                else OBJECT_POINT_GAIN_DB))
+            if cls == OBJECT_CLASS_BED:
+                # Длительность и фейды НЕСЁТ САМ КЮЙ, а не логика сведения:
+                # микшер обязан остаться тупым исполнителем плана, иначе
+                # единственным способом проверить правило станет «отрендери
+                # ролик и послушай». Обрезка не длиннее самого ассета —
+                # иначе в хвосте окажется тишина с фейдом из ниоткуда.
+                keep = min(OBJECT_BED_SEC, float(asset_dur or OBJECT_BED_SEC))
+                cue["trim_sec"] = keep
+                cue["fade_in_sec"] = min(OBJECT_BED_FADE_IN_SEC, keep / 3.0)
+                cue["fade_out_sec"] = min(OBJECT_BED_FADE_OUT_SEC, keep / 2.0)
+            cands.append(cue)
     return cands, dropped
 
 

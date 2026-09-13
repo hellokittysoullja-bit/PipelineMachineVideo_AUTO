@@ -1610,7 +1610,22 @@ def add_planned_sfx(mix_path, cues, total_dur, out_path):
         cmd += ["-i", path]
         ms = max(0, int(float(c["time"]) * 1000))
         gain = float(c.get("gain_db", SFX_PLATE_GAIN_DB))
-        parts.append(f"[{n}:a]adelay={ms}|{ms},volume={gain}dB[px{n}]")
+        # Обрезка и фейды берутся ИЗ КЮЯ, если план их задал (протяжённый
+        # объект), и не задаются здесь: функция остаётся исполнителем, а не
+        # вторым местом, где принимаются решения о звуке.
+        chain = [f"[{n}:a]"]
+        trim = c.get("trim_sec")
+        fi = float(c.get("fade_in_sec") or 0.0)
+        fo = float(c.get("fade_out_sec") or 0.0)
+        if trim:
+            chain.append(f"atrim=0:{float(trim):.3f},asetpts=N/SR/TB")
+        if fi > 0:
+            chain.append(f"afade=t=in:st=0:d={fi:.3f}")
+        if fo > 0 and trim:
+            chain.append(f"afade=t=out:st={max(0.0, float(trim) - fo):.3f}:d={fo:.3f}")
+        chain.append(f"adelay={ms}|{ms}")
+        chain.append(f"volume={gain}dB")
+        parts.append(",".join(chain).replace(f"[{n}:a],", f"[{n}:a]") + f"[px{n}]")
         mix_inputs.append(f"[px{n}]")
     if not n:
         return mix_path
@@ -1622,6 +1637,46 @@ def add_planned_sfx(mix_path, cues, total_dur, out_path):
         print(f"  ВНИМАНИЕ: запланированные эффекты не наложились: {r.stderr[-200:].strip()}")
         return mix_path
     return out_path
+
+
+# Класс концепта: удар или состояние. Это ЕДИНСТВЕННОЕ, что словарь
+# говорит о звуке — не «упомянут ли предмет» (это уже сказал автор тегом
+# [sfx:...] в сценарии), а только как звук себя ведёт во времени. Поэтому
+# список короткий и не растёт с нишей: новый концепт без записи здесь
+# считается ударом по длительности своего файла.
+OBJECT_BED_CONCEPTS = {
+    "fire", "rain", "wind", "river", "sea", "crowd", "forest", "night",
+    "market", "storm", "snow", "hall", "cave", "forge", "camp", "battle",
+}
+# Длиннее этого одиночный ассет физически не «удар» — страховка на случай,
+# когда концепта нет в списке выше.
+OBJECT_POINT_MAX_SEC = 2.5
+
+
+def object_asset_for(name):
+    """Концепт из [sfx:...] -> (путь, длительность, класс) или None.
+
+    Ищет в библиотеке настоящих звуков (kind="object"). Нет записи — None,
+    и планировщик честно ставит тишину с причиной `no_asset`: подменять
+    «похожим» звуком под конкретным словом нельзя, такая ошибка слышна
+    мгновенно, а тишина — нет.
+    """
+    import sfx_plan
+    key = str(name or "").strip().lower()
+    if not key:
+        return None
+    files = library_sounds("object", key)
+    if not files:
+        return None
+    # Ротация по имени концепта: у вида несколько записей, и один и тот же
+    # файл на каждое упоминание за три ролика становится подписью самоделки.
+    idx = int(hashlib.sha1(key.encode("utf-8")).hexdigest()[:8], 16) % len(files)
+    path = files[idx]
+    dur = get_media_duration(path)
+    cls = (sfx_plan.OBJECT_CLASS_BED
+           if (key in OBJECT_BED_CONCEPTS or (dur or 0.0) > OBJECT_POINT_MAX_SEC)
+           else sfx_plan.OBJECT_CLASS_POINT)
+    return (path, dur or 0.0, cls)
 
 
 def run_sfx_director(mix_path, video_dir, blocks, sub_starts, real_weights, total_dur,
@@ -1645,7 +1700,8 @@ def run_sfx_director(mix_path, video_dir, blocks, sub_starts, real_weights, tota
         accepted, dropped = sfx_plan.plan_sfx_cues(
             blocks, sub_starts, real_weights, total_dur,
             chapter_variants=chapter_sfx_variants(),
-            plate_cues=plate_cues, reserved_windows=reserved)
+            plate_cues=plate_cues, reserved_windows=reserved,
+            object_asset_for=object_asset_for)
     except Exception as e:
         print(f"  ВНИМАНИЕ: планировщик эффектов не отработал ({type(e).__name__}), "
               f"звук собирается как раньше.")
@@ -1655,7 +1711,11 @@ def run_sfx_director(mix_path, video_dir, blocks, sub_starts, real_weights, tota
         tmp = report_path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump({"enabled": SFX_DIRECTOR_ENABLED,
-                       "gains_db": {"chapter": SFX_CHAPTER_GAIN_DB, "plate": SFX_PLATE_GAIN_DB},
+                       "gains_db": {"chapter": SFX_CHAPTER_GAIN_DB,
+                                    "plate": SFX_PLATE_GAIN_DB,
+                                    "object_point": sfx_plan.OBJECT_POINT_GAIN_DB,
+                                    "object_bed": sfx_plan.OBJECT_BED_GAIN_DB},
+                       "object_pre_lap_sec": sfx_plan.OBJECT_PRE_LAP_SEC,
                        "summary": sfx_plan.summarize(accepted, dropped),
                        "accepted": accepted, "dropped": dropped}, f, ensure_ascii=False, indent=2)
         os.replace(tmp, report_path)
