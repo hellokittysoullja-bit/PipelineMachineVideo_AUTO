@@ -349,6 +349,181 @@
     "title": "Birds in park near forest"
    },
    "imported_at": 1789319348
+  },
+  "assets/library/ambience/night/freesound_704c9212_07e8_4262_940e_187ddbe5ed82.flac": {
+   "kind": "ambience",
+   "name": "night",
+   "source": "openverse:freesound",
+   "id": "freesound:704c9212-07e8-4262-940e-187ddbe5ed82",
+   "title": "Night Ambience w/ Crickets",
+   "creator": "cliftonmcarlson",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/253/253664_3530854-hq.mp3",
+   "landing": "https://freesound.org/people/cliftonmcarlson/sounds/253664",
+   "query": "night ambience crickets",
+   "scores": {
+    "reasons": [],
+    "duration": 57.384,
+    "clipping_share": 0.0,
+    "hum_db": 9.4,
+    "silence_share": 0.0,
+    "lufs": -37.9,
+    "lra": 1.0,
+    "true_peak": -28.0,
+    "clap_pos": 0.3301,
+    "clap_margin": 0.2118,
+    "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
+    "ast": {
+     "Music": 0.001,
+     "Singing": 0.0,
+     "Speech": 0.0,
+     "Vehicle": 0.001
+    },
+    "id": "freesound:704c9212-07e8-4262-940e-187ddbe5ed82",
+    "title": "Night Ambience w/ Crickets"
+   },
+   "imported_at": 1789319607
+  },
+  "assets/library/ambience/night/freesound_cd49dea5_2267_4761_997e_ca601b817b78.flac": {
+   "kind": "ambience",
+   "name": "night",
+   "source": "openverse:freesound",
+   "id": "freesound:cd49dea5-2267-4761-997e-ca601b817b78",
+   "title": "Night at the countryside with cows and crickets.wav",
+   "creator": "BonnyOrbit",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/645/645862_5902878-hq.mp3",
+   "landing": "https://freesound.org/people/BonnyOrbit/sounds/645862",
+   "query": "night countryside ambience",
+   "scores": {
+    "reasons": [],
+    "duration": 50.112,
+    "clipping_share": 0.0,
+    "hum_db": 13.9,
+    "silence_share": 0.0,
+    "lufs": -38.6,
+    "lra": 1.9,
+    "true_peak": -27.1,
+    "clap_pos": 0.2067,
+    "clap_margin": 0.152,
+    "clap_worst_neg": "music, melody, musical instruments, singing",
+    "ast": {
+     "Music": 0.035,
+     "Singing": 0.0,
+     "Speech": 0.001,
+     "Vehicle": 0.003
+    },
+    "id": "freesound:cd49dea5-2267-4761-997e-ca601b817b78",
+    "title": "Night at the countryside with cows and crickets.wav"
+   },
+   "imported_at": 1789319622
+  },
+  "assets/library/ambience/night/freesound_951e6c56_5952_40ee_b652_bdc74e83374f.flac": {
+   "kind": "ambience",
+   "name": "night",
+   "source": "openverse:freesound",
+   "id": "freesound:951e6c56-5952-40ee-b652-bdc74e83374f",
+   "title": "Forest at night, crickets, cicadas and insects in the Sian Ka'an Biosphere Reserve",
+   "creator": "felix.blume",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/328/328293_1661766-hq.mp3",
+   "landing": "https://freesound.org/people/felix.blume/sounds/328293",
+   "query": "night ambience crickets",
+   "scores": {
+    "reasons": [],
+    "duration": 300.696,
+    "clipping_share": 0.0,
+    "hum_db": 6.8,
+    "silence_share": 0.0,
+    "lufs": -33.6,
+    "lra": 2.3,
+    "true_peak": -22.3,
+    "clap_pos": 0.2098,
+    "clap_margin": 0.1323,
+    "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
+    "ast": {
+     "Music": 0.006,
+     "Singing": 0.0,
+     "Speech": 0.002,
+     "Vehicle": 0.001
+    },
+    "id": "freesound:951e6c56-5952-40ee-b652-bdc74e83374f",
+    "title": "Forest at night, crickets, cicadas and insects in the Sian Ka'an Biosphere Reserve"
+   },
+   "imported_at": 1789319710
+  },
+  "assets/library/ambience/night/freesound_b0377c8d_8b6e_459c_b8d1_92eddbd41ef1.flac": {
+   "kind": "ambience",
+   "name": "night",
+   "source": "openverse:freesound",
+   "id": "freesound:b0377c8d-8b6e-459c-b8d1-92eddbd41ef1",
+   "title": "CRICKETS_NIGHT",
+   "creator": "studiogreenhill",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/732/732246_13090201-hq.mp3",
+   "landing": "https://freesound.org/people/studiogreenhill/sounds/732246",
+   "query": "night countryside ambience",
+   "scores": {
+    "reasons": [],
+    "duration": 128.4,
+    "clipping_share": 0.0,
+    "hum_db": 10.4,
+    "silence_share": 0.021,
+    "lufs": -45.2,
+    "lra": 4.6,
+    "true_peak": -25.9,
+    "clap_pos": 0.223,
+    "clap_margin": 0.1175,
+    "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+    "ast": {
+     "Music": 0.003,
+     "Singing": 0.0,
+     "Speech": 0.001,
+     "Vehicle": 0.011
+    },
+    "id": "freesound:b0377c8d-8b6e-459c-b8d1-92eddbd41ef1",
+    "title": "CRICKETS_NIGHT"
+   },
+   "imported_at": 1789319749
+  },
+  "assets/library/ambience/night/freesound_91170c71_99b8_418a_8917_c79e5e7dbcd5.flac": {
+   "kind": "ambience",
+   "name": "night",
+   "source": "openverse:freesound",
+   "id": "freesound:91170c71-99b8-418a-8917-c79e5e7dbcd5",
+   "title": "Forest ambience 3 (night at the pond)",
+   "creator": "TheParappa",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/560/560292_2187813-hq.mp3",
+   "landing": "https://freesound.org/people/TheParappa/sounds/560292",
+   "query": "night forest ambience",
+   "scores": {
+    "reasons": [],
+    "duration": 67.008,
+    "clipping_share": 0.0,
+    "hum_db": 9.7,
+    "silence_share": 0.0,
+    "lufs": -37.8,
+    "lra": 5.2,
+    "true_peak": -7.0,
+    "clap_pos": 0.3252,
+    "clap_margin": 0.1075,
+    "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
+    "ast": {
+     "Music": 0.007,
+     "Singing": 0.0,
+     "Speech": 0.019,
+     "Vehicle": 0.012
+    },
+    "id": "freesound:91170c71-99b8-418a-8917-c79e5e7dbcd5",
+    "title": "Forest ambience 3 (night at the pond)"
+   },
+   "imported_at": 1789319770
   }
  }
 }

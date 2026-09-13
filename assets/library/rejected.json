@@ -1169,5 +1169,366 @@
   "title": "Forest at night, crickets, cicadas and insects in the Sian Ka'an Biosphere Reserve",
   "kind": "ambience",
   "name": "forest_birds"
+ },
+ {
+  "id": "freesound:a34b8621-0868-4945-9cf3-04fecc73dd5c",
+  "title": "Night outdoor city with crickets Noche en exterior en la ciudad con grillos",
+  "kind": "ambience",
+  "name": "night",
+  "reasons": [
+   "title:city"
+  ]
+ },
+ {
+  "reasons": [
+   "too_much_silence",
+   "too_dynamic"
+  ],
+  "duration": 185.976,
+  "clipping_share": 0.0,
+  "hum_db": 9.0,
+  "silence_share": 0.292,
+  "lufs": -25.3,
+  "lra": 20.4,
+  "true_peak": -1.6,
+  "id": "freesound:41675695-b8c7-4d1f-985b-1c4b6934fb15",
+  "title": "Atmosphere with crickets and dogs at night (rural land)",
+  "kind": "ambience",
+  "name": "night"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 220.752,
+  "clipping_share": 0.0,
+  "hum_db": 14.4,
+  "silence_share": 0.0,
+  "lufs": -25.6,
+  "lra": 2.0,
+  "true_peak": -11.7,
+  "id": "freesound:0868820c-162e-4370-8e35-a1d30bb660e9",
+  "title": "Village Night Crickets",
+  "kind": "ambience",
+  "name": "night"
+ },
+ {
+  "reasons": [
+   "too_much_silence"
+  ],
+  "duration": 293.616,
+  "clipping_share": 0.0,
+  "hum_db": 8.5,
+  "silence_share": 1.0,
+  "lufs": -65.9,
+  "lra": 2.9,
+  "true_peak": -20.0,
+  "id": "freesound:53e3662d-57e5-4070-a582-7db377315620",
+  "title": "2020_July_11_Portugal_Evora_Night_Cattle_Cows_Crickets_Distance_Night_Ambience.WAV",
+  "kind": "ambience",
+  "name": "night"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 289.272,
+  "clipping_share": 0.0,
+  "hum_db": 30.2,
+  "silence_share": 0.0,
+  "lufs": -19.0,
+  "lra": 0.9,
+  "true_peak": -4.7,
+  "id": "freesound:f798cc7c-65a9-4b80-8711-0c7ed295b4df",
+  "title": "Japan_Ina_Night_Fields_Farm_Crickets_Bugs_TAKE2_24bit_96KHz.wav",
+  "kind": "ambience",
+  "name": "night"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 250.704,
+  "clipping_share": 0.0,
+  "hum_db": 19.8,
+  "silence_share": 0.0,
+  "lufs": -13.9,
+  "lra": 3.5,
+  "true_peak": 0.6,
+  "id": "freesound:3a238d37-794c-4c8b-9b4c-6927dc4a4587",
+  "title": "Japan_Ina_Night_Fields_Farm_Crickets_Bugs_TAKE1_24bit_96KHz.wav",
+  "kind": "ambience",
+  "name": "night"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 301.848,
+  "clipping_share": 0.0,
+  "hum_db": 17.8,
+  "silence_share": 0.007,
+  "lufs": -47.5,
+  "lra": 2.9,
+  "true_peak": -32.0,
+  "id": "freesound:ade453b8-5dca-4d81-9110-dd7947497108",
+  "title": "AMBIENCE-EXTERIOR-EVENING-COUNTRYSIDE-CRICKETS",
+  "kind": "ambience",
+  "name": "night"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 124.728,
+  "clipping_share": 0.001783,
+  "hum_db": 7.7,
+  "silence_share": 0.0,
+  "lufs": -20.6,
+  "lra": 17.5,
+  "true_peak": 0.0,
+  "id": "freesound:8ca8e63c-cdba-49b6-8a6a-ff5d11ec34f3",
+  "title": "Forest at night.wav",
+  "kind": "ambience",
+  "name": "night"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 96.624,
+  "clipping_share": 0.0,
+  "hum_db": 15.0,
+  "silence_share": 0.0,
+  "lufs": -14.6,
+  "lra": 6.0,
+  "true_peak": 0.2,
+  "id": "freesound:07b87c26-8f61-43d7-b797-29f23c78c395",
+  "title": "Tribal Dark Night Forest Sounds Thriller Horror Scary Atmo Folk Ethno Drum Cinematic Surrround.wav",
+  "kind": "ambience",
+  "name": "night"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 78.048,
+  "clipping_share": 0.0,
+  "hum_db": 19.6,
+  "silence_share": 0.0,
+  "lufs": -34.6,
+  "lra": 4.8,
+  "true_peak": -17.2,
+  "id": "freesound:6fa35fee-c11a-409f-b4bb-507374a449ee",
+  "title": "amb_forest_night.wav",
+  "kind": "ambience",
+  "name": "night"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins"
+  ],
+  "duration": 67.536,
+  "clipping_share": 0.0,
+  "hum_db": 13.9,
+  "silence_share": 0.0,
+  "lufs": -18.1,
+  "lra": 6.7,
+  "true_peak": -0.6,
+  "clap_pos": -0.0274,
+  "clap_margin": -0.1931,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "ast": {
+   "Music": 0.04,
+   "Singing": 0.0,
+   "Speech": 0.057,
+   "Vehicle": 0.199
+  },
+  "id": "freesound:90c76f88-520f-4f0b-b654-f65171011df6",
+  "title": "Night ambience in Japanese forest, strong wind, some rain drops on cement",
+  "kind": "ambience",
+  "name": "night"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 63.312,
+  "clipping_share": 0.0,
+  "hum_db": 6.8,
+  "silence_share": 0.0,
+  "lufs": -32.1,
+  "lra": 14.6,
+  "true_peak": -0.6,
+  "clap_pos": 0.1582,
+  "clap_margin": -0.0565,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "ast": {
+   "Music": 0.023,
+   "Singing": 0.001,
+   "Speech": 0.007,
+   "Vehicle": 0.012
+  },
+  "id": "freesound:f84bfca5-9193-4109-8fe0-0791667dab14",
+  "title": "Ambience Night in countryside",
+  "kind": "ambience",
+  "name": "night"
+ },
+ {
+  "reasons": [
+   "too_much_silence"
+  ],
+  "duration": 61.056,
+  "clipping_share": 1.5e-05,
+  "hum_db": 8.8,
+  "silence_share": 0.38,
+  "lufs": -14.6,
+  "lra": 13.6,
+  "true_peak": -2.2,
+  "id": "freesound:c36a5ac3-a460-4dd5-a083-c7e414740686",
+  "title": "tawny owl and Robin early Night",
+  "kind": "ambience",
+  "name": "night"
+ },
+ {
+  "reasons": [
+   "too_much_silence"
+  ],
+  "duration": 50.688,
+  "clipping_share": 0.0,
+  "hum_db": 10.5,
+  "silence_share": 0.999,
+  "lufs": -68.1,
+  "lra": 0.1,
+  "true_peak": -55.8,
+  "id": "freesound:aa38cde0-8e82-491e-a8c2-6a8fb4b2eaad",
+  "title": "sfx_amb_forest_winter_night.wav",
+  "kind": "ambience",
+  "name": "night"
+ },
+ {
+  "reasons": [
+   "too_much_silence"
+  ],
+  "duration": 46.08,
+  "clipping_share": 0.0,
+  "hum_db": 9.5,
+  "silence_share": 0.999,
+  "lufs": -60.1,
+  "lra": 1.1,
+  "true_peak": -47.6,
+  "id": "freesound:6a64d9b6-89f5-49e6-81e5-2b60d114e569",
+  "title": "Crickets, distant barks summer night.wav",
+  "kind": "ambience",
+  "name": "night"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 187.488,
+  "clipping_share": 0.0,
+  "hum_db": 16.0,
+  "silence_share": 0.0,
+  "lufs": -36.4,
+  "lra": 1.5,
+  "true_peak": -17.9,
+  "id": "freesound:d2fd6602-c43d-4cd2-b443-9c843cb110cb",
+  "title": "Cricket on Summer Night (binaural)",
+  "kind": "ambience",
+  "name": "night"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 262.584,
+  "clipping_share": 0.0,
+  "hum_db": 8.6,
+  "silence_share": 0.0,
+  "lufs": -30.2,
+  "lra": 7.1,
+  "true_peak": -6.1,
+  "clap_pos": 0.1881,
+  "clap_margin": -0.061,
+  "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
+  "ast": {
+   "Music": 0.01,
+   "Singing": 0.0,
+   "Speech": 0.031,
+   "Vehicle": 0.027
+  },
+  "id": "freesound:822fd027-57c5-4fde-858d-6db86f922fd5",
+  "title": "Small wood at night close to Rio de Janeiro (on the way to Pedra Bonita)",
+  "kind": "ambience",
+  "name": "night"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 303.048,
+  "clipping_share": 0.0,
+  "hum_db": 20.1,
+  "silence_share": 0.0,
+  "lufs": -19.9,
+  "lra": 0.5,
+  "true_peak": -7.1,
+  "id": "freesound:024cc6e8-2e04-4bc0-ae84-00e32cfe16f3",
+  "title": "Maine Crickets",
+  "kind": "ambience",
+  "name": "night"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 195.888,
+  "clipping_share": 5.2e-05,
+  "hum_db": 9.9,
+  "silence_share": 0.01,
+  "lufs": -20.9,
+  "lra": 16.2,
+  "true_peak": -0.7,
+  "clap_pos": 0.1365,
+  "clap_margin": -0.0389,
+  "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
+  "ast": {
+   "Music": 0.002,
+   "Singing": 0.0,
+   "Speech": 0.004,
+   "Vehicle": 0.001
+  },
+  "id": "freesound:c74a7158-514c-493f-b7a3-f403a1ac0fc9",
+  "title": "Insects and frogs at night.wav",
+  "kind": "ambience",
+  "name": "night"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins"
+  ],
+  "duration": 232.656,
+  "clipping_share": 0.0,
+  "hum_db": 9.2,
+  "silence_share": 0.0,
+  "lufs": -25.8,
+  "lra": 1.8,
+  "true_peak": 0.5,
+  "clap_pos": 0.0053,
+  "clap_margin": -0.0981,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "ast": {
+   "Music": 0.001,
+   "Singing": 0.0,
+   "Speech": 0.002,
+   "Vehicle": 0.002
+  },
+  "id": "freesound:cd4a826e-0e42-491f-bb40-ab16192b2bad",
+  "title": "forest drop rain.wav",
+  "kind": "ambience",
+  "name": "night"
  }
 ]
