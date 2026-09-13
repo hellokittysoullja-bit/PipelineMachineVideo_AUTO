@@ -477,12 +477,20 @@ def _run(cmd):
 
 
 def probe_sample_rate(path):
+    """Частота дискретизации первой аудиодорожки, 0 — не определилась.
+
+    Берётся ПЕРВАЯ группа цифр, а не `int()` от всей строки: `-of csv=p=0`
+    на одном поле всё равно печатает висячую запятую («16000,»), и `int()`
+    на ней падает. Первая версия ловила это широким `except` и возвращала
+    0, то есть гейт частоты был молчаливым no-op — он не отбраковал даже
+    тот файл на 16 кГц, ради которого писался. Ровно тот же класс отказа,
+    что уже дважды ловили у пустого шва: код возврата нулевой, ошибок нет,
+    результата тоже нет.
+    """
     r = _run(["ffprobe", "-v", "error", "-select_streams", "a:0",
               "-show_entries", "stream=sample_rate", "-of", "csv=p=0", path])
-    try:
-        return int(r.stdout.strip().splitlines()[0])
-    except Exception:
-        return 0
+    m = re.search(r"\d+", r.stdout or "")
+    return int(m.group(0)) if m else 0
 
 
 def probe_duration(path):

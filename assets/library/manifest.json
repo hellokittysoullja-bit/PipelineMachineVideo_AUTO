@@ -33,7 +33,7 @@
     "id": "freesound:09b78116-2b50-47f5-bdc7-3e45c5d587bb",
     "title": "Wind blowing across open marshland",
     "kind_winner": "wind_open",
-    "kind_gap": 0.1385
+    "kind_gap": 0.1483
    },
    "imported_at": 1789318739
   },
@@ -70,7 +70,7 @@
     "id": "freesound:923528bf-dc69-4c33-902c-3a4d2c9715a9",
     "title": "windy-mountain-plains by dwightsabeast (improved).flac",
     "kind_winner": "wind_open",
-    "kind_gap": 0.0367
+    "kind_gap": 0.0423
    },
    "imported_at": 1789318840
   },
@@ -107,7 +107,7 @@
     "id": "freesound:8e0829f6-24cf-42a7-9ec2-a17db2d00f63",
     "title": "Field ambience 01.wav",
     "kind_winner": "wind_open",
-    "kind_gap": 0.0283
+    "kind_gap": 0.0095
    },
    "imported_at": 1789318875
   },
@@ -144,7 +144,7 @@
     "id": "freesound:2e65d059-0863-4473-87dc-8c2f72c6c5ca",
     "title": "ATM_EXT_OpenFarmlandDayGrassBirdsMoreWindREJ_F8ST021019T04.wav",
     "kind_winner": "wind_open",
-    "kind_gap": 0.0495
+    "kind_gap": 0.0725
    },
    "imported_at": 1789318895
   },
@@ -181,7 +181,7 @@
     "id": "freesound:704c9212-07e8-4262-940e-187ddbe5ed82",
     "title": "Night Ambience w/ Crickets",
     "kind_winner": "night",
-    "kind_gap": 0.1556
+    "kind_gap": 0.1569
    },
    "imported_at": 1789319607
   },
@@ -218,7 +218,7 @@
     "id": "freesound:cd49dea5-2267-4761-997e-ca601b817b78",
     "title": "Night at the countryside with cows and crickets.wav",
     "kind_winner": "night",
-    "kind_gap": 0.1521
+    "kind_gap": 0.1486
    },
    "imported_at": 1789319622
   },
@@ -255,7 +255,7 @@
     "id": "freesound:951e6c56-5952-40ee-b652-bdc74e83374f",
     "title": "Forest at night, crickets, cicadas and insects in the Sian Ka'an Biosphere Reserve",
     "kind_winner": "night",
-    "kind_gap": 0.1475
+    "kind_gap": 0.1456
    },
    "imported_at": 1789319710
   },
@@ -292,7 +292,7 @@
     "id": "freesound:b0377c8d-8b6e-459c-b8d1-92eddbd41ef1",
     "title": "CRICKETS_NIGHT",
     "kind_winner": "night",
-    "kind_gap": 0.1973
+    "kind_gap": 0.1959
    },
    "imported_at": 1789319749
   },
@@ -329,7 +329,7 @@
     "id": "freesound:91170c71-99b8-418a-8917-c79e5e7dbcd5",
     "title": "Forest ambience 3 (night at the pond)",
     "kind_winner": "night",
-    "kind_gap": 0.0616
+    "kind_gap": 0.0734
    },
    "imported_at": 1789319770
   },
@@ -366,7 +366,7 @@
     "id": "freesound:63f26ee8-ba9d-4f4b-8cf1-18238e343df4",
     "title": "The Fireplace 3.wav",
     "kind_winner": "forge_fire",
-    "kind_gap": 0.2079
+    "kind_gap": 0.2188
    },
    "imported_at": 1789320137
   },
@@ -403,7 +403,7 @@
     "id": "freesound:a01145da-3883-4eb5-99bb-e9cdc22f30e8",
     "title": "crackling_fire_021012.wav",
     "kind_winner": "forge_fire",
-    "kind_gap": 0.1795
+    "kind_gap": 0.1943
    },
    "imported_at": 1789320199
   },
@@ -440,7 +440,7 @@
     "id": "freesound:c53d4b40-474b-46e9-ae5b-a40458000f65",
     "title": "Bonfire HQ.wav",
     "kind_winner": "forge_fire",
-    "kind_gap": 0.1918
+    "kind_gap": 0.2036
    },
    "imported_at": 1789320230
   },
@@ -477,7 +477,7 @@
     "id": "freesound:bdf6194e-9fdf-4f9d-92ed-79a0dc63fe6a",
     "title": "Wood_Firestove.wav",
     "kind_winner": "forge_fire",
-    "kind_gap": 0.1805
+    "kind_gap": 0.1843
    },
    "imported_at": 1789320339
   },
@@ -514,7 +514,7 @@
     "id": "freesound:af18388a-5a7a-4ffa-8f08-3a6cf3027ded",
     "title": "Fireplace for Six Minutes (Stereo)",
     "kind_winner": "forge_fire",
-    "kind_gap": 0.201
+    "kind_gap": 0.2027
    },
    "imported_at": 1789320474
   },
@@ -551,7 +551,7 @@
     "id": "freesound:19c3bf2c-164c-48b4-840e-acc74c33a74f",
     "title": "Rain on grass and leaves",
     "kind_winner": "rain_mud",
-    "kind_gap": 0.1302
+    "kind_gap": 0.1448
    },
    "imported_at": 1789320772
   },
@@ -588,7 +588,7 @@
     "id": "freesound:f0848c95-ab5b-4fd9-952b-3636b2e34cca",
     "title": "Rain on grass pt. 2",
     "kind_winner": "rain_mud",
-    "kind_gap": 0.0638
+    "kind_gap": 0.0636
    },
    "imported_at": 1789320793
   },
@@ -625,7 +625,7 @@
     "id": "freesound:398ee690-ed60-446d-9231-56de047725e1",
     "title": "Rain on grass pt. 1",
     "kind_winner": "rain_mud",
-    "kind_gap": 0.0347
+    "kind_gap": 0.0355
    },
    "imported_at": 1789320811
   },
@@ -662,7 +662,7 @@
     "id": "freesound:d17d6090-87bb-4147-8417-d9055922da0a",
     "title": "Light Rain on Woodland Floor and Running Stream.wav",
     "kind_winner": "rain_mud",
-    "kind_gap": 0.0827
+    "kind_gap": 0.0779
    },
    "imported_at": 1789320860
   },
@@ -699,7 +699,7 @@
     "id": "freesound:cd4a826e-0e42-491f-bb40-ab16192b2bad",
     "title": "forest drop rain.wav",
     "kind_winner": "rain_mud",
-    "kind_gap": 0.039
+    "kind_gap": 0.0322
    },
    "imported_at": 1789320942
   },
@@ -736,7 +736,7 @@
     "id": "freesound:d49fa0cf-ed6f-4916-8da1-6d8ad7a20b4e",
     "title": "River",
     "kind_winner": "river_stream",
-    "kind_gap": 0.1521
+    "kind_gap": 0.1503
    },
    "imported_at": 1789321466
   },
@@ -773,7 +773,7 @@
     "id": "freesound:23ca228c-8b57-4d0c-a5a2-5155003fa994",
     "title": "Water flowing in a small river. Aquatic sound.",
     "kind_winner": "river_stream",
-    "kind_gap": 0.1804
+    "kind_gap": 0.1837
    },
    "imported_at": 1789321501
   },
@@ -810,7 +810,7 @@
     "id": "freesound:1884ad24-93e1-4a00-b33e-3080eb819a57",
     "title": "stream2.wav",
     "kind_winner": "river_stream",
-    "kind_gap": 0.1523
+    "kind_gap": 0.1512
    },
    "imported_at": 1789321558
   },
@@ -847,7 +847,7 @@
     "id": "freesound:0ffeffe4-47d0-4b37-b573-ee1634325748",
     "title": "CreekDec182011.wav",
     "kind_winner": "river_stream",
-    "kind_gap": 0.1405
+    "kind_gap": 0.1427
    },
    "imported_at": 1789321617
   },
@@ -1364,7 +1364,7 @@
     "id": "freesound:7b6eb088-18fe-4859-abdc-fda68870c4ac",
     "title": "Birds forest woodpecker.wav",
     "kind_winner": "forest_birds",
-    "kind_gap": 0.1058
+    "kind_gap": 0.0757
    },
    "imported_at": 1789322009
   },
@@ -1401,7 +1401,7 @@
     "id": "freesound:e506b55e-0613-4b0a-8250-e709841c6736",
     "title": "sfx_amb_forest_spring_afternoon-02.wav",
     "kind_winner": "forest_birds",
-    "kind_gap": 0.1419
+    "kind_gap": 0.1588
    },
    "imported_at": 1789322010
   },
@@ -1438,7 +1438,7 @@
     "id": "freesound:c2cfc52c-a5c1-4467-8d16-bef13043692a",
     "title": "Forest Birds 02",
     "kind_winner": "forest_birds",
-    "kind_gap": 0.0413
+    "kind_gap": 0.0671
    },
    "imported_at": 1789322025
   },
@@ -1475,7 +1475,7 @@
     "id": "freesound:630ec162-11ae-42fe-9090-1a46f1ac589b",
     "title": "sfx_amb_forest_spring_afternoon-01.wav",
     "kind_winner": "forest_birds",
-    "kind_gap": 0.1497
+    "kind_gap": 0.1512
    },
    "imported_at": 1789322026
   },
@@ -1512,7 +1512,7 @@
     "id": "freesound:9c53f3f3-48d1-4157-816a-5e82549769db",
     "title": "Forest ambience with singing birds",
     "kind_winner": "forest_birds",
-    "kind_gap": 0.0426
+    "kind_gap": 0.0448
    },
    "imported_at": 1789322137
   },
@@ -1736,7 +1736,7 @@
     "clap_margin": 0.0523,
     "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
     "kind_winner": "stone_hall",
-    "kind_gap": 0.0521,
+    "kind_gap": 0.0319,
     "ast": {
      "Music": 0.741,
      "Singing": 0.0,
@@ -1776,7 +1776,7 @@
     "clap_margin": 0.0835,
     "clap_worst_neg": "one person speaking clearly, announcement through a loudspeaker",
     "kind_winner": "crowd_market",
-    "kind_gap": 0.2859,
+    "kind_gap": 0.2751,
     "ast": {
      "Music": 0.159,
      "Singing": 0.001,
@@ -1816,7 +1816,7 @@
     "clap_margin": 0.0792,
     "clap_worst_neg": "digital distortion, clipping, glitch, static",
     "kind_winner": "crowd_market",
-    "kind_gap": 0.2333,
+    "kind_gap": 0.223,
     "ast": {
      "Music": 0.078,
      "Singing": 0.002,
@@ -1856,7 +1856,7 @@
     "clap_margin": 0.0442,
     "clap_worst_neg": "one person speaking clearly, announcement through a loudspeaker",
     "kind_winner": "crowd_market",
-    "kind_gap": 0.1576,
+    "kind_gap": 0.1492,
     "ast": {
      "Music": 0.118,
      "Singing": 0.004,

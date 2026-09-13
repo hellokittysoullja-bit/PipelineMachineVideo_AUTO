@@ -371,3 +371,22 @@ def test_sfx_peak_is_measured_after_channel_conversion():
     head = src.split('if kind != "ambience":')[1].split("lufs, _, _")[0]
     assert '"-ac", "2", conv' in head, "сначала приведение к стерео"
     assert head.index('"-ac", "2", conv') < head.index("volumedetect")
+
+
+def test_sample_rate_parsing_survives_the_trailing_comma(monkeypatch):
+    """Реальный молчаливый no-op: `-of csv=p=0` на одном поле печатает
+    висячую запятую («16000,»), `int()` на ней падает, широкий except
+    возвращал 0 — и гейт частоты не отбраковал даже тот файл на 16 кГц,
+    ради которого писался. Прогон verify показал «удалено 0».
+    """
+    class R:
+        stdout = "16000,\n"
+    monkeypatch.setattr(sl, "_run", lambda cmd: R())
+    assert sl.probe_sample_rate("x") == 16000
+
+
+def test_sample_rate_parsing_returns_zero_when_absent(monkeypatch):
+    class R:
+        stdout = "\n"
+    monkeypatch.setattr(sl, "_run", lambda cmd: R())
+    assert sl.probe_sample_rate("x") == 0
