@@ -1486,6 +1486,142 @@ def add_reveal_sfx(mix_path, climax_times, total_dur, out_path):
     return out_path
 
 
+_TRANSITION_SFX_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                    "assets", "sfx", "transition")
+_UI_SFX_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "assets", "sfx", "ui")
+CHAPTER_SFX_PATHS = (os.path.join(_TRANSITION_SFX_DIR, "chapter_turn_short.flac"),
+                      os.path.join(_TRANSITION_SFX_DIR, "chapter_turn_long.flac"))
+PLATE_TICK_PATH = os.path.join(_UI_SFX_DIR, "plate_tick.flac")
+# Ассеты нормированы генератором к ЯВНОМУ пику -10 dBFS (PEAK_DBFS в
+# scripts/generate_sfx_pack.py — объявлен там одним числом и печатается при
+# генерации, а не подразумевается). Отсюда и ослабление здесь:
+#   переход  -12 дБ -> пик ок. -22 dBFS: слышен как акцент, заведомо под речью;
+#   тик      -16 дБ -> пик ок. -26 dBFS: отметка появления элемента, а не удар.
+# Два числа вместо одного «подобранного» — потому что ровно на одном числе
+# эта связка уже разъезжалась: v2 generate_reveal_sfx.py подняла пики своих
+# ассетов с -14 до -10/-7 dBFS, а REVEAL_SFX_GAIN_DB и комментарий рядом с
+# ним остались от v1 и до сих пор считают пик равным -14 — расчётный
+# уровень акцента разошёлся с реальным на 6-7 дБ, и увидеть это было негде.
+SFX_CHAPTER_GAIN_DB = -12.0
+SFX_PLATE_GAIN_DB = -16.0
+SFX_DIRECTOR_ENABLED = feature_flags.enabled("SFX_DIRECTOR")
+
+
+def chapter_sfx_variants():
+    """[(путь, длительность), ...] реально существующих вариантов звука
+    перехода. Длительность читается У ФАЙЛА, а не зашита числом: варианты
+    подбираются планировщиком под реальный размер паузы, и ассет, чья
+    длина разошлась с ожидаемой, ставил бы эффект поверх первого слова —
+    ровно то, что вся эта конструкция и должна исключать."""
+    out = []
+    for path in CHAPTER_SFX_PATHS:
+        if not os.path.exists(path):
+            continue
+        try:
+            dur = get_media_duration(path)
+        except Exception:
+            continue
+        if dur and dur > 0:
+            out.append((path, float(dur)))
+    return out
+
+
+def add_planned_sfx(mix_path, cues, total_dur, out_path):
+    """Наложение эффектов по готовому плану (scripts/sfx_plan.py).
+
+    Сознательно ТУПАЯ функция: никаких решений о том, что и когда звучит,
+    здесь не принимается — только adelay+volume+amix по уже утверждённому
+    списку. Вся логика расстановки живёт в планировщике, который чистый
+    python и потому проверяем тестами без ffmpeg; смешивать её со сведением
+    означало бы, что единственный способ проверить правило — отрендерить
+    ролик и послушать.
+
+    Ставится ПОСЛЕ музыки/дакинга и ДО финального loudnorm — тот же порядок
+    и та же причина, что у щелчков машинки и акцентов кульминации: сайдчейн
+    не должен реагировать на сами эффекты, но эффекты обязаны участвовать в
+    мастеринге громкости, а не лежать поверх уже откалиброванного микса.
+
+    Fail-open: пустой план, выключенный флаг или ошибка ffmpeg — возвращается
+    исходный микс без единого изменения.
+    """
+    if not cues or not SFX_DIRECTOR_ENABLED:
+        return mix_path
+    cmd = ["ffmpeg", "-y", "-i", mix_path]
+    parts, mix_inputs = [], ["[0:a]"]
+    n = 0
+    for c in cues:
+        path = c.get("asset")
+        if not path or not os.path.exists(path):
+            continue
+        n += 1
+        cmd += ["-i", path]
+        ms = max(0, int(float(c["time"]) * 1000))
+        gain = float(c.get("gain_db", SFX_PLATE_GAIN_DB))
+        parts.append(f"[{n}:a]adelay={ms}|{ms},volume={gain}dB[px{n}]")
+        mix_inputs.append(f"[px{n}]")
+    if not n:
+        return mix_path
+    parts.append("".join(mix_inputs) + f"amix=inputs={n + 1}:duration=first:normalize=0[out]")
+    cmd += ["-filter_complex", ";".join(parts), "-map", "[out]",
+            "-t", f"{total_dur:.3f}", "-ar", "48000", "-ac", "2", out_path]
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if r.returncode != 0:
+        print(f"  ВНИМАНИЕ: запланированные эффекты не наложились: {r.stderr[-200:].strip()}")
+        return mix_path
+    return out_path
+
+
+def run_sfx_director(mix_path, video_dir, blocks, sub_starts, real_weights, total_dur,
+                     climax_times=(), plate_cues=(), out_path=None):
+    """Спланировать и наложить эффекты + записать аудит-трейл.
+
+    Отчёт пишется ВСЕГДА, даже когда не принят ни один эффект — тот же
+    принцип честной записи «нечего сообщить», что у остальных отчётов
+    эпизода. Без него ответ на вопрос «почему на этой границе главы тихо»
+    существовал бы только в голове, а в файле — нет: причина отказа
+    (`no_alignment` / `gap_too_short` / `climax_window` / `too_close` /
+    `density_cap`) сохраняется по каждому отвергнутому моменту поимённо.
+    """
+    import sfx_plan
+    accepted, dropped = [], []
+    try:
+        # Окно кульминации отдаётся акценту разоблачения целиком — те же
+        # границы, что уже считает _climax_dip_window() для музыкального
+        # провала, не вторая копия той же арифметики.
+        reserved = [_climax_dip_window(t) for t in (climax_times or ())]
+        accepted, dropped = sfx_plan.plan_sfx_cues(
+            blocks, sub_starts, real_weights, total_dur,
+            chapter_variants=chapter_sfx_variants(),
+            plate_cues=plate_cues, reserved_windows=reserved)
+    except Exception as e:
+        print(f"  ВНИМАНИЕ: планировщик эффектов не отработал ({type(e).__name__}), "
+              f"звук собирается как раньше.")
+    try:
+        report_path = os.path.join(video_dir, "media_plan", "sfx_plan.json")
+        os.makedirs(os.path.dirname(report_path), exist_ok=True)
+        tmp = report_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"enabled": SFX_DIRECTOR_ENABLED,
+                       "gains_db": {"chapter": SFX_CHAPTER_GAIN_DB, "plate": SFX_PLATE_GAIN_DB},
+                       "summary": sfx_plan.summarize(accepted, dropped),
+                       "accepted": accepted, "dropped": dropped}, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, report_path)
+    except Exception:
+        pass
+    summary = sfx_plan.summarize(accepted, dropped)
+    if accepted or dropped:
+        by_kind = ", ".join(f"{k}: {v}" for k, v in sorted(summary["accepted_by_kind"].items())) or "нет"
+        print(f"  Эффекты по плану: принято {len(accepted)} ({by_kind}), "
+              f"отклонено {len(dropped)} — см. media_plan/sfx_plan.json")
+        for reason, cnt in sorted(summary["dropped_by_reason"].items()):
+            print(f"    отклонено «{reason}»: {cnt}")
+    if not accepted:
+        return mix_path
+    return add_planned_sfx(mix_path, accepted, total_dur,
+                            out_path or os.path.join(TEMP_FOLDER, "premix_sfx.wav"))
+
+
 def add_typewriter_clicks(mix_path, click_times, total_dur, out_path):
     """D4: звук печатной машинки — щелчок на КАЖДЫЙ символ, ровно в момент,
     когда он появляется на экране (тот же TYPEWRITER_CHAR_DUR, что и в
@@ -5834,6 +5970,28 @@ KEYBOARD_CLICKS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspa
 KEYBOARD_CLICK_PATHS = sorted(glob.glob(os.path.join(KEYBOARD_CLICKS_DIR, "click_*.flac")))
 TYPEWRITER_CLICK_ENABLED = feature_flags.enabled("TYPEWRITER_CLICKS") and bool(KEYBOARD_CLICK_PATHS)
 TYPEWRITER_CLICK_GAIN_DB = -6.0
+
+
+# Запас в конце блока при пересчёте момента плашки. У машинки он большой
+# (1.2с) — ей нужно место на саму посимвольную печать; тику хватает его
+# собственной длины с небольшим запасом.
+STAT_REVEAL_TAIL_TYPEWRITER_SEC = 1.2
+STAT_REVEAL_TAIL_TICK_SEC = 0.3
+
+
+def stat_reveal_moment(stat_delay, real_dur, tail_margin):
+    """Момент появления плашки на АУДИО-шкале (смещение от начала блока).
+
+    stat_delay считается от ДЛИТЕЛЬНОСТИ КЛИПА (durs[i], в неё входит бюджет
+    xfade), а любой звук живёт на шкале sub_starts/sub_baseline — той же,
+    что субтитры. Складывать одно с другим напрямую значит получить
+    смещение, которого на звуковой дорожке нет. Машинка это уже учитывала
+    инлайн; функция вынесена, чтобы второй потребитель (тик появления
+    плашки) не завёл вторую, слегка другую копию того же пересчёта — ровно
+    тот класс расхождения, ради которого рядом уже стоит
+    typewriter_reveal_timing().
+    """
+    return max(0.0, min(float(stat_delay), max(0.0, float(real_dur) - float(tail_margin))))
 
 
 def typewriter_reveal_timing(n_chars, delay, dur, fin_dur=0.25, hold_margin=0.5):
@@ -11357,6 +11515,10 @@ def main():
         director_report[i] = {"decision": reason}
 
     typewriter_click_times = []   # D4: абсолютные секунды щелчков клавиатуры на весь ролик
+    # Появления плашек, у которых СВОЕГО звука нет. Вариант 4 (печатная
+    # машинка) сюда не попадает намеренно: у него уже есть посимвольные
+    # щелчки, и тик поверх них читался бы как сдвоенный звук.
+    plate_sfx_cues = []
     # HOOK_KINETIC_CAPTIONS_ENABLED=False (см. его комментарий выше) -> hook_words
     # остаётся [] на весь эпизод, ни один клип хука не получит captions — тот
     # же честный откат, что и при отсутствии alignment.csv (D2).
@@ -11400,11 +11562,27 @@ def main():
         # что уже используется для субтитров (см. комментарий у sub_baseline).
         if stat and stat_variant % 5 == 4:
             real_dur = sub_baseline[i]
-            real_delay = max(0.0, min(stat_delay, real_dur - 1.2))
+            real_delay = stat_reveal_moment(stat_delay, real_dur, STAT_REVEAL_TAIL_TYPEWRITER_SEC)
             click_text = stat.upper() if FONT_IS_DISPLAY else stat
             _, click_cd = typewriter_reveal_timing(len(click_text), real_delay, real_dur)
             typewriter_click_times.extend(
                 sub_starts[i] + real_delay + k * click_cd for k in range(len(click_text)))
+        elif stat:
+            # Тик появления плашки — РОВНО тот же момент, что уже управляет
+            # появлением текста в кадре (sub_starts[i] + stat_delay, та же
+            # пара значений, что уходит в add_overlays). Отдельной формулы
+            # для звука нет сознательно: две независимые формулы одного
+            # момента — это ровно тот класс бага, ради которого
+            # typewriter_reveal_timing() вынесена в общую функцию.
+            plate_sfx_cues.append({
+                "time": sub_starts[i] + stat_reveal_moment(
+                    stat_delay, sub_baseline[i], STAT_REVEAL_TAIL_TICK_SEC),
+                "block": i,
+                "section": b["section"],
+                "stat": stat,
+                "asset": PLATE_TICK_PATH,
+                "gain_db": SFX_PLATE_GAIN_DB,
+            })
         # Хэш параметров рендера в имени — иначе правка script.txt (текст,
         # тайминг, плашка) без ручной чистки temp_smart/ молча оставляла
         # старый клип под новые данные (тот же класс бага, что уже правили
@@ -12497,6 +12675,23 @@ def main():
     if climax_times:
         premix_reveal = os.path.join(TEMP_FOLDER, "premix_reveal.wav")
         premix = add_reveal_sfx(premix, climax_times, total, premix_reveal)
+    # Единый планировщик остальных эффектов (переход между главами, тик
+    # появления плашки). Идёт ПОСЛЕ акцентов кульминации и получает их
+    # моменты как зарезервированные окна — то есть расступается перед уже
+    # поставленным звуком, а не спорит с ним за одну и ту же секунду.
+    # real_weights передаются ТОЛЬКО на PHRASE LOCK-ветке, и это не
+    # перестраховка. Тишина перед главой считается как
+    # sub_starts[prev] + real_weights[prev] .. sub_starts[i]; real_weights —
+    # всегда РЕАЛЬНАЯ (после обрезки пауз) длительность речи из alignment,
+    # а sub_starts на ветке БЕЗ онсетов — это оценка block_durations() с
+    # клэмпом, rescale и сдвигами границ. Сложить одно с другим значит
+    # получить «паузу», которой нет в аудио, и поставить звук перехода
+    # поверх слова — ровно тот класс рассинхрона (локальная шкала пополам с
+    # глобальной), который этот файл уже ловил у protected_windows и у веса
+    # блока. Без онсетов переходы честно не ставятся вообще.
+    premix = run_sfx_director(premix, VIDEO_FOLDER, blocks, sub_starts,
+                               real_weights if phrase_locked else None, total,
+                               climax_times=climax_times, plate_cues=plate_sfx_cues)
     # loudnorm — целевая громкость YouTube (-14 LUFS integrated, -1.5dB
     # true peak потолок, LRA 11) вместо "как есть от TTS". Было -16: на
     # этой платформе тише целевой означает, что ролик звучит глуше соседних
