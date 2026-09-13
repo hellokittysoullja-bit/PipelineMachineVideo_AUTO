@@ -524,6 +524,181 @@
     "title": "Forest ambience 3 (night at the pond)"
    },
    "imported_at": 1789319770
+  },
+  "assets/library/ambience/forge_fire/freesound_63f26ee8_ba9d_4f4b_8cf1_18238e343df4.flac": {
+   "kind": "ambience",
+   "name": "forge_fire",
+   "source": "openverse:freesound",
+   "id": "freesound:63f26ee8-ba9d-4f4b-8cf1-18238e343df4",
+   "title": "The Fireplace 3.wav",
+   "creator": "NoOneIsReal",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/387/387128_7252788-hq.mp3",
+   "landing": "https://freesound.org/people/NoOneIsReal/sounds/387128",
+   "query": "fireplace crackling",
+   "scores": {
+    "reasons": [],
+    "duration": 93.544,
+    "clipping_share": 0.0,
+    "hum_db": 12.3,
+    "silence_share": 0.015,
+    "lufs": -39.2,
+    "lra": 10.1,
+    "true_peak": -2.2,
+    "clap_pos": 0.4288,
+    "clap_margin": 0.4258,
+    "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
+    "ast": {
+     "Music": 0.001,
+     "Singing": 0.0,
+     "Speech": 0.003,
+     "Vehicle": 0.002
+    },
+    "id": "freesound:63f26ee8-ba9d-4f4b-8cf1-18238e343df4",
+    "title": "The Fireplace 3.wav"
+   },
+   "imported_at": 1789320137
+  },
+  "assets/library/ambience/forge_fire/freesound_a01145da_3883_4eb5_99bb_e9cdc22f30e8.flac": {
+   "kind": "ambience",
+   "name": "forge_fire",
+   "source": "openverse:freesound",
+   "id": "freesound:a01145da-3883-4eb5-99bb-e9cdc22f30e8",
+   "title": "crackling_fire_021012.wav",
+   "creator": "sagetyrtle",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/145/145774_43834-hq.mp3",
+   "landing": "https://freesound.org/people/sagetyrtle/sounds/145774",
+   "query": "fireplace crackling",
+   "scores": {
+    "reasons": [],
+    "duration": 182.832,
+    "clipping_share": 0.0,
+    "hum_db": 7.0,
+    "silence_share": 0.0,
+    "lufs": -46.4,
+    "lra": 7.9,
+    "true_peak": -5.5,
+    "clap_pos": 0.44,
+    "clap_margin": 0.4207,
+    "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+    "ast": {
+     "Music": 0.006,
+     "Singing": 0.0,
+     "Speech": 0.003,
+     "Vehicle": 0.006
+    },
+    "id": "freesound:a01145da-3883-4eb5-99bb-e9cdc22f30e8",
+    "title": "crackling_fire_021012.wav"
+   },
+   "imported_at": 1789320199
+  },
+  "assets/library/ambience/forge_fire/freesound_c53d4b40_474b_46e9_ae5b_a40458000f65.flac": {
+   "kind": "ambience",
+   "name": "forge_fire",
+   "source": "openverse:freesound",
+   "id": "freesound:c53d4b40-474b-46e9-ae5b-a40458000f65",
+   "title": "Bonfire HQ.wav",
+   "creator": "tosha73",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/513/513280_10725617-hq.mp3",
+   "landing": "https://freesound.org/people/tosha73/sounds/513280",
+   "query": "fireplace crackling",
+   "scores": {
+    "reasons": [],
+    "duration": 83.496,
+    "clipping_share": 4e-06,
+    "hum_db": 7.5,
+    "silence_share": 0.0,
+    "lufs": -37.0,
+    "lra": 13.5,
+    "true_peak": -0.3,
+    "clap_pos": 0.4458,
+    "clap_margin": 0.4107,
+    "clap_worst_neg": "digital distortion, clipping, glitch, static",
+    "ast": {
+     "Music": 0.005,
+     "Singing": 0.0,
+     "Speech": 0.002,
+     "Vehicle": 0.001
+    },
+    "id": "freesound:c53d4b40-474b-46e9-ae5b-a40458000f65",
+    "title": "Bonfire HQ.wav"
+   },
+   "imported_at": 1789320230
+  },
+  "assets/library/ambience/forge_fire/freesound_bdf6194e_9fdf_4f9d_92ed_79a0dc63fe6a.flac": {
+   "kind": "ambience",
+   "name": "forge_fire",
+   "source": "openverse:freesound",
+   "id": "freesound:bdf6194e-9fdf-4f9d-92ed-79a0dc63fe6a",
+   "title": "Wood_Firestove.wav",
+   "creator": "uniuniversal",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/620/620007_13601611-hq.mp3",
+   "landing": "https://freesound.org/people/uniuniversal/sounds/620007",
+   "query": "campfire crackling",
+   "scores": {
+    "reasons": [],
+    "duration": 307.296,
+    "clipping_share": 0.0,
+    "hum_db": 12.6,
+    "silence_share": 0.153,
+    "lufs": -40.4,
+    "lra": 19.4,
+    "true_peak": 1.0,
+    "clap_pos": 0.4557,
+    "clap_margin": 0.394,
+    "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
+    "ast": {
+     "Music": 0.001,
+     "Singing": 0.0,
+     "Speech": 0.003,
+     "Vehicle": 0.002
+    },
+    "id": "freesound:bdf6194e-9fdf-4f9d-92ed-79a0dc63fe6a",
+    "title": "Wood_Firestove.wav"
+   },
+   "imported_at": 1789320339
+  },
+  "assets/library/ambience/forge_fire/freesound_af18388a_5a7a_4ffa_8f08_3a6cf3027ded.flac": {
+   "kind": "ambience",
+   "name": "forge_fire",
+   "source": "openverse:freesound",
+   "id": "freesound:af18388a-5a7a-4ffa-8f08-3a6cf3027ded",
+   "title": "Fireplace for Six Minutes (Stereo)",
+   "creator": "petebuchwald",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/496/496130_2367139-hq.mp3",
+   "landing": "https://freesound.org/people/petebuchwald/sounds/496130",
+   "query": "fireplace crackling",
+   "scores": {
+    "reasons": [],
+    "duration": 369.552,
+    "clipping_share": 2e-06,
+    "hum_db": 7.3,
+    "silence_share": 0.0,
+    "lufs": -33.5,
+    "lra": 4.3,
+    "true_peak": -0.5,
+    "clap_pos": 0.4082,
+    "clap_margin": 0.3713,
+    "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
+    "ast": {
+     "Music": 0.008,
+     "Singing": 0.0,
+     "Speech": 0.015,
+     "Vehicle": 0.05
+    },
+    "id": "freesound:af18388a-5a7a-4ffa-8f08-3a6cf3027ded",
+    "title": "Fireplace for Six Minutes (Stereo)"
+   },
+   "imported_at": 1789320474
   }
  }
 }

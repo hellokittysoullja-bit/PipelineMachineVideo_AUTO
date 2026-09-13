@@ -1777,5 +1777,288 @@
   "title": "Buddhist temple hum 01",
   "kind": "ambience",
   "name": "stone_hall"
+ },
+ {
+  "id": "freesound:b084c7ff-89c3-40fa-b6ee-7e1f1c0297bb",
+  "title": "Yet More Fireworks",
+  "kind": "ambience",
+  "name": "forge_fire",
+  "reasons": [
+   "title:fireworks"
+  ]
+ },
+ {
+  "id": "freesound:866dabfe-6268-46f5-a925-99b551b1da1e",
+  "title": "Denholm Scotland. Bonfire night fireworks 2021(6).m4a",
+  "kind": "ambience",
+  "name": "forge_fire",
+  "reasons": [
+   "title:fireworks"
+  ]
+ },
+ {
+  "id": "freesound:f4261001-7cc5-4bc4-b61a-eed2f4ebf859",
+  "title": "Fireworks 2014",
+  "kind": "ambience",
+  "name": "forge_fire",
+  "reasons": [
+   "title:fireworks"
+  ]
+ },
+ {
+  "id": "freesound:7e61ab57-777f-48cd-bf00-8eace0ce2daa",
+  "title": "Fireworks - 1.wav",
+  "kind": "ambience",
+  "name": "forge_fire",
+  "reasons": [
+   "title:fireworks"
+  ]
+ },
+ {
+  "id": "freesound:77d67603-eb91-4453-adce-7f7b1e20762d",
+  "title": "Fire (generated using Pure Data)",
+  "kind": "ambience",
+  "name": "forge_fire",
+  "reasons": [
+   "title:generated"
+  ]
+ },
+ {
+  "reasons": [
+   "too_dynamic"
+  ],
+  "duration": 191.64,
+  "clipping_share": 0.0,
+  "hum_db": 8.4,
+  "silence_share": 0.184,
+  "lufs": -41.2,
+  "lra": 22.5,
+  "true_peak": -0.8,
+  "id": "freesound:310244b8-c10a-4855-87cc-79bd86f79489",
+  "title": "BonFire In UK Woods",
+  "kind": "ambience",
+  "name": "forge_fire"
+ },
+ {
+  "reasons": [
+   "ast_speech"
+  ],
+  "duration": 383.256,
+  "clipping_share": 4e-06,
+  "hum_db": 7.7,
+  "silence_share": 0.0,
+  "lufs": -41.0,
+  "lra": 12.5,
+  "true_peak": -0.8,
+  "clap_pos": 0.3416,
+  "clap_margin": 0.2266,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "ast": {
+   "Music": 0.007,
+   "Singing": 0.001,
+   "Speech": 0.189,
+   "Vehicle": 0.001
+  },
+  "id": "freesound:b7988eef-419b-4d39-8edc-0b7e9eac0aa5",
+  "title": "bonfire, sausage hiss, three men munching, outdoor, large courtyard, cutlery, crackling, grunts, lorries on road in distance.wav",
+  "kind": "ambience",
+  "name": "forge_fire"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 58.056,
+  "clipping_share": 0.000123,
+  "hum_db": 6.7,
+  "silence_share": 0.0,
+  "lufs": -31.3,
+  "lra": 8.9,
+  "true_peak": 1.8,
+  "id": "freesound:d2e222bc-3028-4791-b3e2-bbc1567f4ce7",
+  "title": "crackling-fireplace-nature-sounds-8012.mp3",
+  "kind": "ambience",
+  "name": "forge_fire"
+ },
+ {
+  "reasons": [
+   "too_much_silence",
+   "too_dynamic"
+  ],
+  "duration": 51.48,
+  "clipping_share": 0.0,
+  "hum_db": 9.1,
+  "silence_share": 0.589,
+  "lufs": -37.1,
+  "lra": 24.2,
+  "true_peak": -1.8,
+  "id": "freesound:96712b5b-3361-4aec-9e11-cafec9ef3b11",
+  "title": "FX-Fire Bonfire Wood 01 STR_Zoom_H4nPro.wav",
+  "kind": "ambience",
+  "name": "forge_fire"
+ },
+ {
+  "reasons": [
+   "too_much_silence"
+  ],
+  "duration": 286.56,
+  "clipping_share": 0.0,
+  "hum_db": 8.0,
+  "silence_share": 0.491,
+  "lufs": -39.2,
+  "lra": 17.9,
+  "true_peak": -5.9,
+  "id": "freesound:70e96533-b3fe-47f1-8ce0-e39b8abb4331",
+  "title": "crackling-fire.aiff",
+  "kind": "ambience",
+  "name": "forge_fire"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 252.048,
+  "clipping_share": 0.00031,
+  "hum_db": 6.0,
+  "silence_share": 0.003,
+  "lufs": -24.4,
+  "lra": 8.2,
+  "true_peak": 1.8,
+  "id": "freesound:80a99d5c-0596-41d5-803f-04822b920ea8",
+  "title": "Fire crackles in the fireplace",
+  "kind": "ambience",
+  "name": "forge_fire"
+ },
+ {
+  "reasons": [
+   "mains_hum",
+   "too_dynamic"
+  ],
+  "duration": 330.048,
+  "clipping_share": 0.0,
+  "hum_db": 19.6,
+  "silence_share": 0.101,
+  "lufs": -23.2,
+  "lra": 21.6,
+  "true_peak": 0.4,
+  "id": "freesound:4371e27b-426a-468c-a3c9-3a40f73608dd",
+  "title": "Guy Fawkes/Bonfire Night",
+  "kind": "ambience",
+  "name": "forge_fire"
+ },
+ {
+  "reasons": [
+   "too_much_silence"
+  ],
+  "duration": 122.976,
+  "clipping_share": 0.0,
+  "hum_db": 7.9,
+  "silence_share": 0.898,
+  "lufs": -59.3,
+  "lra": 5.8,
+  "true_peak": -23.9,
+  "id": "freesound:2025faa6-ce76-4978-8c4b-3fd5926d7835",
+  "title": "Fireplace 1 stereo",
+  "kind": "ambience",
+  "name": "forge_fire"
+ },
+ {
+  "reasons": [
+   "ast_speech"
+  ],
+  "duration": 90.456,
+  "clipping_share": 0.0,
+  "hum_db": 6.8,
+  "silence_share": 0.0,
+  "lufs": -21.3,
+  "lra": 6.4,
+  "true_peak": -10.3,
+  "clap_pos": 0.2248,
+  "clap_margin": 0.1368,
+  "clap_worst_neg": "people talking, human speech, voices",
+  "ast": {
+   "Music": 0.045,
+   "Singing": 0.0,
+   "Speech": 0.823,
+   "Vehicle": 0.044
+  },
+  "id": "freesound:7c3a7497-37ed-4498-b096-671445dc8b31",
+  "title": "bonfire crowd mono.wav",
+  "kind": "ambience",
+  "name": "forge_fire"
+ },
+ {
+  "reasons": [
+   "too_much_silence"
+  ],
+  "duration": 88.464,
+  "clipping_share": 0.0,
+  "hum_db": 13.9,
+  "silence_share": 0.493,
+  "lufs": -53.7,
+  "lra": 9.5,
+  "true_peak": -10.0,
+  "id": "freesound:075a109a-cb02-41e0-98ad-112f7fb66d09",
+  "title": "Fire in the fireplace",
+  "kind": "ambience",
+  "name": "forge_fire"
+ },
+ {
+  "reasons": [
+   "too_much_silence"
+  ],
+  "duration": 83.688,
+  "clipping_share": 0.0,
+  "hum_db": 5.6,
+  "silence_share": 0.421,
+  "lufs": -43.9,
+  "lra": 11.0,
+  "true_peak": -7.6,
+  "id": "freesound:cff25dd0-d989-4c08-bbb1-a28bdf23c29f",
+  "title": "Campfire (Position 1)",
+  "kind": "ambience",
+  "name": "forge_fire"
+ },
+ {
+  "reasons": [
+   "ast_vehicle"
+  ],
+  "duration": 73.344,
+  "clipping_share": 0.0,
+  "hum_db": 7.3,
+  "silence_share": 0.0,
+  "lufs": -30.6,
+  "lra": 3.0,
+  "true_peak": -0.2,
+  "clap_pos": 0.4363,
+  "clap_margin": 0.3345,
+  "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
+  "ast": {
+   "Music": 0.005,
+   "Singing": 0.0,
+   "Speech": 0.008,
+   "Vehicle": 0.316
+  },
+  "id": "freesound:22b3250e-4b4d-4750-9335-f411d037c1e0",
+  "title": "Fire_Burning_03.flac",
+  "kind": "ambience",
+  "name": "forge_fire"
+ },
+ {
+  "reasons": [
+   "too_much_silence",
+   "too_dynamic"
+  ],
+  "duration": 68.127,
+  "clipping_share": 0.0,
+  "hum_db": 6.8,
+  "silence_share": 0.926,
+  "lufs": -40.3,
+  "lra": 23.8,
+  "true_peak": -3.7,
+  "id": "freesound:738dd207-26ca-4516-abaa-e70f732c9309",
+  "title": "The Fireplace 2.wav",
+  "kind": "ambience",
+  "name": "forge_fire"
  }
 ]
