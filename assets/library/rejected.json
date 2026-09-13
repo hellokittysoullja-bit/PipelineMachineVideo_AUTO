@@ -2060,5 +2060,578 @@
   "title": "The Fireplace 2.wav",
   "kind": "ambience",
   "name": "forge_fire"
+ },
+ {
+  "id": "freesound:e6b6b62f-aee6-428c-8e3f-6d4e88e4cf26",
+  "title": "Seaside Morning Post Rain Ambience - Hambantota, Sri Lanka",
+  "kind": "ambience",
+  "name": "rain_mud",
+  "reasons": [
+   "title:sea"
+  ]
+ },
+ {
+  "id": "freesound:db793596-5bbd-4609-af92-34777ce88f76",
+  "title": "Gentle Rain on leaves, babbling stream & Birds (Loopable)",
+  "kind": "ambience",
+  "name": "rain_mud",
+  "reasons": [
+   "title:loop"
+  ]
+ },
+ {
+  "id": "freesound:3090bbda-815a-4eb8-80c0-33e85a6e4d8f",
+  "title": "Gently-falling rain and thunder Johor Bahru #2",
+  "kind": "ambience",
+  "name": "rain_mud",
+  "reasons": [
+   "title:thunder"
+  ]
+ },
+ {
+  "id": "freesound:cb231d5b-2595-4468-a129-2a473025b5d3",
+  "title": "distant storm 2.WAV",
+  "kind": "ambience",
+  "name": "rain_mud",
+  "reasons": [
+   "title:storm"
+  ]
+ },
+ {
+  "id": "freesound:585e4db4-954b-4f46-9d3b-e71b27e43831",
+  "title": "102610_distant_thunder_01.wav",
+  "kind": "ambience",
+  "name": "rain_mud",
+  "reasons": [
+   "title:thunder"
+  ]
+ },
+ {
+  "id": "freesound:493c7c5b-74ea-4ce2-9a4a-44c64aad61e9",
+  "title": "Rain and thunder.wav",
+  "kind": "ambience",
+  "name": "rain_mud",
+  "reasons": [
+   "title:thunder"
+  ]
+ },
+ {
+  "id": "freesound:5d5c66cc-82d3-4988-b355-7435fc474fa5",
+  "title": "Heavy thunder Brighton beach UK",
+  "kind": "ambience",
+  "name": "rain_mud",
+  "reasons": [
+   "title:thunder"
+  ]
+ },
+ {
+  "id": "freesound:cb799e12-28b7-46b8-8aba-d7aeb76ab4b6",
+  "title": "Medium Rain Ambience Tin Roof Top edlarez vsnr.wav",
+  "kind": "ambience",
+  "name": "rain_mud",
+  "reasons": [
+   "title:roof"
+  ]
+ },
+ {
+  "id": "freesound:47ed3bb8-6ecf-4630-8f80-b7ab04e2eef7",
+  "title": "Rain and Thunders",
+  "kind": "ambience",
+  "name": "rain_mud",
+  "reasons": [
+   "title:thunder"
+  ]
+ },
+ {
+  "id": "freesound:92e515de-4e11-4410-a599-1dc974dba59f",
+  "title": "thunder and gentle rain_01.flac",
+  "kind": "ambience",
+  "name": "rain_mud",
+  "reasons": [
+   "title:thunder"
+  ]
+ },
+ {
+  "id": "freesound:319ada6e-6641-4317-bbab-2ce341b748ab",
+  "title": "Rain&ThunderLoop1Light.wav",
+  "kind": "ambience",
+  "name": "rain_mud",
+  "reasons": [
+   "title:loop"
+  ]
+ },
+ {
+  "id": "freesound:95bb3648-3ef1-4605-a2ec-4d346ee1ec79",
+  "title": "Thunder, Rain, Ambience, Storm_3",
+  "kind": "ambience",
+  "name": "rain_mud",
+  "reasons": [
+   "title:thunder"
+  ]
+ },
+ {
+  "id": "freesound:d9e0c5cf-2afd-4293-a921-52d4ec7470c4",
+  "title": "Thunder, Rain, Ambience, Storm_5",
+  "kind": "ambience",
+  "name": "rain_mud",
+  "reasons": [
+   "title:thunder"
+  ]
+ },
+ {
+  "id": "freesound:328f029b-9a21-4ef8-81bd-e374eb0826f5",
+  "title": "Thunder, Rain, Ambience, Storm_4",
+  "kind": "ambience",
+  "name": "rain_mud",
+  "reasons": [
+   "title:thunder"
+  ]
+ },
+ {
+  "id": "freesound:ae16de1e-8f39-4ef9-ba43-c44297e9a5c6",
+  "title": "Thunder, Rain, Ambience, Storm_2",
+  "kind": "ambience",
+  "name": "rain_mud",
+  "reasons": [
+   "title:thunder"
+  ]
+ },
+ {
+  "id": "freesound:ea5e1c36-0680-42b2-88bb-379a2004d566",
+  "title": "Rain From Under An Umbrella",
+  "kind": "ambience",
+  "name": "rain_mud",
+  "reasons": [
+   "title:umbrella"
+  ]
+ },
+ {
+  "id": "freesound:3a56e5e9-21cd-43da-9d22-34db4c1f4377",
+  "title": "Thunder and lightning ambience rooftop Brighton UK",
+  "kind": "ambience",
+  "name": "rain_mud",
+  "reasons": [
+   "title:roof"
+  ]
+ },
+ {
+  "id": "freesound:060ceb31-878f-410e-a4ac-29a59c85d3dd",
+  "title": "Thunder, Rain, Ambience, Storm_1",
+  "kind": "ambience",
+  "name": "rain_mud",
+  "reasons": [
+   "title:thunder"
+  ]
+ },
+ {
+  "id": "freesound:31b8278a-c0e4-43a0-9c78-95c6b8eefab6",
+  "title": "Stormy Night",
+  "kind": "ambience",
+  "name": "rain_mud",
+  "reasons": [
+   "title:storm"
+  ]
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 208.056,
+  "clipping_share": 0.0,
+  "hum_db": 9.9,
+  "silence_share": 0.0,
+  "lufs": -36.7,
+  "lra": 3.9,
+  "true_peak": -16.2,
+  "clap_pos": 0.1273,
+  "clap_margin": 0.0258,
+  "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
+  "ast": {
+   "Music": 0.009,
+   "Singing": 0.0,
+   "Speech": 0.014,
+   "Vehicle": 0.012
+  },
+  "id": "freesound:2aa1fbb6-7eb7-41d4-a959-016f5944db27",
+  "title": "Bako National Park, Borneo Island, Rain Forest Ambience near a water stream daytime 01.10.2013 Roland R-26 OMNI Mics.wav",
+  "kind": "ambience",
+  "name": "rain_mud"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 302.064,
+  "clipping_share": 0.0,
+  "hum_db": 14.5,
+  "silence_share": 0.0,
+  "lufs": -44.5,
+  "lra": 2.1,
+  "true_peak": -20.5,
+  "id": "freesound:89cb5966-3c11-43f5-ad2a-1ba6439515c5",
+  "title": "Rain Sound and Forest and Nature Sounds.mp3",
+  "kind": "ambience",
+  "name": "rain_mud"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins",
+   "ast_music"
+  ],
+  "duration": 154.368,
+  "clipping_share": 0.0,
+  "hum_db": 6.0,
+  "silence_share": 0.0,
+  "lufs": -14.3,
+  "lra": 12.7,
+  "true_peak": 0.3,
+  "clap_pos": 0.015,
+  "clap_margin": -0.1989,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "ast": {
+   "Music": 0.27,
+   "Singing": 0.0,
+   "Speech": 0.015,
+   "Vehicle": 0.249
+  },
+  "id": "freesound:bca613b8-56ca-49cd-8c59-d73b82eebdae",
+  "title": "Winter Fantasy Witch Dark Forest River Coyote Rain Snow Wind Birds Dogs Nature Atmosphere Ambient Surround.wav",
+  "kind": "ambience",
+  "name": "rain_mud"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins"
+  ],
+  "duration": 67.536,
+  "clipping_share": 0.0,
+  "hum_db": 13.9,
+  "silence_share": 0.0,
+  "lufs": -18.1,
+  "lra": 6.7,
+  "true_peak": -0.6,
+  "clap_pos": 0.0166,
+  "clap_margin": -0.2016,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "ast": {
+   "Music": 0.04,
+   "Singing": 0.0,
+   "Speech": 0.057,
+   "Vehicle": 0.199
+  },
+  "id": "freesound:90c76f88-520f-4f0b-b654-f65171011df6",
+  "title": "Night ambience in Japanese forest, strong wind, some rain drops on cement",
+  "kind": "ambience",
+  "name": "rain_mud"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 64.056,
+  "clipping_share": 0.0,
+  "hum_db": 11.1,
+  "silence_share": 0.0,
+  "lufs": -30.8,
+  "lra": 6.9,
+  "true_peak": -18.0,
+  "clap_pos": 0.112,
+  "clap_margin": 0.0002,
+  "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
+  "ast": {
+   "Music": 0.002,
+   "Singing": 0.0,
+   "Speech": 0.003,
+   "Vehicle": 0.006
+  },
+  "id": "freesound:346d24b7-d2fc-49cc-a63d-9eff9fb0bb8d",
+  "title": "Bako National Park, Borneo Island, Rain Forest Ambience daytime 01.10.2013 Roland R-26 XY Mics.wav",
+  "kind": "ambience",
+  "name": "rain_mud"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 63.912,
+  "clipping_share": 0.0,
+  "hum_db": 16.4,
+  "silence_share": 0.0,
+  "lufs": -34.9,
+  "lra": 6.1,
+  "true_peak": -22.4,
+  "id": "freesound:b81def76-f736-44a1-9040-2086ec722d87",
+  "title": "Bako National Park, Borneo Island, Rain Forest Ambience daytime 01.10.2013 Roland R-26 OMNI Mics.wav",
+  "kind": "ambience",
+  "name": "rain_mud"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 63.36,
+  "clipping_share": 0.00209,
+  "hum_db": 7.9,
+  "silence_share": 0.0,
+  "lufs": -18.4,
+  "lra": 15.3,
+  "true_peak": -0.3,
+  "id": "freesound:effacdfe-6eb7-4b81-b56f-913d6f1394c4",
+  "title": "Forest rain Atmo Monsters",
+  "kind": "ambience",
+  "name": "rain_mud"
+ },
+ {
+  "reasons": [
+   "too_dynamic"
+  ],
+  "duration": 240.144,
+  "clipping_share": 0.0,
+  "hum_db": 6.2,
+  "silence_share": 0.0,
+  "lufs": -18.8,
+  "lra": 21.8,
+  "true_peak": -0.4,
+  "id": "freesound:9df463a7-c243-4e7d-9251-20ca3b8f8cce",
+  "title": "Rain Sound and Rainforest.mp3",
+  "kind": "ambience",
+  "name": "rain_mud"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins"
+  ],
+  "duration": 228.624,
+  "clipping_share": 0.0,
+  "hum_db": 7.4,
+  "silence_share": 0.0,
+  "lufs": -25.0,
+  "lra": 16.3,
+  "true_peak": -4.1,
+  "clap_pos": 0.0361,
+  "clap_margin": 0.0145,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "ast": {
+   "Music": 0.016,
+   "Singing": 0.0,
+   "Speech": 0.003,
+   "Vehicle": 0.001
+  },
+  "id": "freesound:bba95665-1b81-483d-b4c2-9abd6db3b3a3",
+  "title": "forest_after_rain_210429_0075.wav",
+  "kind": "ambience",
+  "name": "rain_mud"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 272.064,
+  "clipping_share": 0.0,
+  "hum_db": 7.8,
+  "silence_share": 0.0,
+  "lufs": -41.4,
+  "lra": 7.5,
+  "true_peak": -20.1,
+  "clap_pos": 0.1989,
+  "clap_margin": 0.023,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "ast": {
+   "Music": 0.002,
+   "Singing": 0.0,
+   "Speech": 0.003,
+   "Vehicle": 0.001
+  },
+  "id": "freesound:2f815ecb-ff27-4238-8e70-a9c8378e26b7",
+  "title": "Rain in nature",
+  "kind": "ambience",
+  "name": "rain_mud"
+ },
+ {
+  "reasons": [
+   "clap_low_positive"
+  ],
+  "duration": 151.776,
+  "clipping_share": 5.4e-05,
+  "hum_db": 6.9,
+  "silence_share": 0.004,
+  "lufs": -25.0,
+  "lra": 9.1,
+  "true_peak": -0.2,
+  "clap_pos": 0.0579,
+  "clap_margin": 0.0809,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "ast": {
+   "Music": 0.002,
+   "Singing": 0.0,
+   "Speech": 0.006,
+   "Vehicle": 0.004
+  },
+  "id": "freesound:124c11ea-ddce-4791-9929-465fa802f8ed",
+  "title": "steps on wet field.wav",
+  "kind": "ambience",
+  "name": "rain_mud"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins",
+   "ast_music"
+  ],
+  "duration": 96.048,
+  "clipping_share": 0.0,
+  "hum_db": 9.8,
+  "silence_share": 0.0,
+  "lufs": -15.0,
+  "lra": 3.1,
+  "true_peak": -0.5,
+  "clap_pos": 0.0163,
+  "clap_margin": -0.1194,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "ast": {
+   "Music": 0.685,
+   "Singing": 0.002,
+   "Speech": 0.105,
+   "Vehicle": 0.101
+  },
+  "id": "freesound:28a06ce8-61af-4dd8-9446-1b1462737d92",
+  "title": "Forest rain Atmo Fantasy",
+  "kind": "ambience",
+  "name": "rain_mud"
+ },
+ {
+  "reasons": [
+   "too_much_silence"
+  ],
+  "duration": 82.651,
+  "clipping_share": 0.0,
+  "hum_db": 9.3,
+  "silence_share": 0.509,
+  "lufs": -48.6,
+  "lra": 11.9,
+  "true_peak": -21.6,
+  "id": "freesound:16b646ec-b223-48f4-93eb-32d052196da7",
+  "title": "rainforest_2.wav",
+  "kind": "ambience",
+  "name": "rain_mud"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 82.224,
+  "clipping_share": 0.0,
+  "hum_db": 15.7,
+  "silence_share": 0.0,
+  "lufs": -19.4,
+  "lra": 6.0,
+  "true_peak": -4.5,
+  "id": "freesound:29f7c30e-2c7b-4ea2-8b5e-8d9d8810c4c1",
+  "title": "Birds Chirping Light Rain Ambience",
+  "kind": "ambience",
+  "name": "rain_mud"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 80.064,
+  "clipping_share": 0.000108,
+  "hum_db": 11.5,
+  "silence_share": 0.0,
+  "lufs": -18.6,
+  "lra": 8.4,
+  "true_peak": -0.4,
+  "id": "freesound:f9b214c1-bfa4-4d31-9304-643206a0c065",
+  "title": "Dark Scape Forest rain",
+  "kind": "ambience",
+  "name": "rain_mud"
+ },
+ {
+  "reasons": [
+   "duration_short"
+  ],
+  "duration": 36.696,
+  "id": "freesound:a252352d-90c7-4d8d-9271-fbfd79e6ceb4",
+  "title": "rain in suburban forest",
+  "kind": "ambience",
+  "name": "rain_mud"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 195.0,
+  "clipping_share": 0.0,
+  "hum_db": 4.9,
+  "silence_share": 0.0,
+  "lufs": -30.5,
+  "lra": 7.1,
+  "true_peak": -6.7,
+  "clap_pos": 0.0956,
+  "clap_margin": 0.001,
+  "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
+  "ast": {
+   "Music": 0.001,
+   "Singing": 0.001,
+   "Speech": 0.002,
+   "Vehicle": 0.001
+  },
+  "id": "freesound:9a965918-c3de-4c49-a9f9-ae40d5691f60",
+  "title": "Birds in Rain Sounds (Scotland).wav",
+  "kind": "ambience",
+  "name": "rain_mud"
+ },
+ {
+  "reasons": [
+   "mains_hum",
+   "too_much_silence"
+  ],
+  "duration": 207.432,
+  "clipping_share": 0.0,
+  "hum_db": 28.6,
+  "silence_share": 0.991,
+  "lufs": -59.4,
+  "lra": 2.3,
+  "true_peak": -34.9,
+  "id": "freesound:e9be7765-7916-404e-a57d-94fafb90e1fb",
+  "title": "Ambience - Living Room with Clocks, Wind Chimes and Rainfall",
+  "kind": "ambience",
+  "name": "rain_mud"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 359.592,
+  "clipping_share": 0.0,
+  "hum_db": 17.8,
+  "silence_share": 0.0,
+  "lufs": -35.0,
+  "lra": 5.9,
+  "true_peak": -18.3,
+  "id": "freesound:743bcd77-82a5-4641-96fa-c41532486eb6",
+  "title": "Birds In Rain",
+  "kind": "ambience",
+  "name": "rain_mud"
+ },
+ {
+  "reasons": [
+   "too_dynamic"
+  ],
+  "duration": 183.048,
+  "clipping_share": 0.0,
+  "hum_db": 8.3,
+  "silence_share": 0.067,
+  "lufs": -25.1,
+  "lra": 27.1,
+  "true_peak": -6.7,
+  "id": "freesound:2e2a3e1a-9b22-4f10-a3c4-b52fd3baff09",
+  "title": "French Woods - Rainy Morning (take 2)",
+  "kind": "ambience",
+  "name": "rain_mud"
  }
 ]

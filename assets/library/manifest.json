@@ -699,6 +699,181 @@
     "title": "Fireplace for Six Minutes (Stereo)"
    },
    "imported_at": 1789320474
+  },
+  "assets/library/ambience/rain_mud/freesound_19c3bf2c_164c_48b4_840e_acc74c33a74f.flac": {
+   "kind": "ambience",
+   "name": "rain_mud",
+   "source": "openverse:freesound",
+   "id": "freesound:19c3bf2c-164c-48b4-840e-acc74c33a74f",
+   "title": "Rain on grass and leaves",
+   "creator": "SamsterBirdies",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/584/584268_5487341-hq.mp3",
+   "landing": "https://freesound.org/people/SamsterBirdies/sounds/584268",
+   "query": "rain on grass field",
+   "scores": {
+    "reasons": [],
+    "duration": 170.016,
+    "clipping_share": 0.0,
+    "hum_db": 7.4,
+    "silence_share": 0.0,
+    "lufs": -33.0,
+    "lra": 1.2,
+    "true_peak": -4.4,
+    "clap_pos": 0.37,
+    "clap_margin": 0.2583,
+    "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
+    "ast": {
+     "Music": 0.002,
+     "Singing": 0.0,
+     "Speech": 0.002,
+     "Vehicle": 0.001
+    },
+    "id": "freesound:19c3bf2c-164c-48b4-840e-acc74c33a74f",
+    "title": "Rain on grass and leaves"
+   },
+   "imported_at": 1789320772
+  },
+  "assets/library/ambience/rain_mud/freesound_f0848c95_ab5b_4fd9_952b_3636b2e34cca.flac": {
+   "kind": "ambience",
+   "name": "rain_mud",
+   "source": "openverse:freesound",
+   "id": "freesound:f0848c95-ab5b-4fd9-952b-3636b2e34cca",
+   "title": "Rain on grass pt. 2",
+   "creator": "Mjeno",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/399/399276_3958938-hq.mp3",
+   "landing": "https://freesound.org/people/Mjeno/sounds/399276",
+   "query": "rain on grass field",
+   "scores": {
+    "reasons": [],
+    "duration": 57.6,
+    "clipping_share": 0.0,
+    "hum_db": 10.2,
+    "silence_share": 0.0,
+    "lufs": -32.2,
+    "lra": 1.7,
+    "true_peak": -3.5,
+    "clap_pos": 0.3424,
+    "clap_margin": 0.2555,
+    "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
+    "ast": {
+     "Music": 0.003,
+     "Singing": 0.0,
+     "Speech": 0.004,
+     "Vehicle": 0.002
+    },
+    "id": "freesound:f0848c95-ab5b-4fd9-952b-3636b2e34cca",
+    "title": "Rain on grass pt. 2"
+   },
+   "imported_at": 1789320793
+  },
+  "assets/library/ambience/rain_mud/freesound_398ee690_ed60_446d_9231_56de047725e1.flac": {
+   "kind": "ambience",
+   "name": "rain_mud",
+   "source": "openverse:freesound",
+   "id": "freesound:398ee690-ed60-446d-9231-56de047725e1",
+   "title": "Rain on grass pt. 1",
+   "creator": "Mjeno",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/399/399275_3958938-hq.mp3",
+   "landing": "https://freesound.org/people/Mjeno/sounds/399275",
+   "query": "rain on grass field",
+   "scores": {
+    "reasons": [],
+    "duration": 49.728,
+    "clipping_share": 0.0,
+    "hum_db": 7.5,
+    "silence_share": 0.0,
+    "lufs": -31.0,
+    "lra": 1.5,
+    "true_peak": -1.8,
+    "clap_pos": 0.2985,
+    "clap_margin": 0.2178,
+    "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
+    "ast": {
+     "Music": 0.004,
+     "Singing": 0.0,
+     "Speech": 0.005,
+     "Vehicle": 0.001
+    },
+    "id": "freesound:398ee690-ed60-446d-9231-56de047725e1",
+    "title": "Rain on grass pt. 1"
+   },
+   "imported_at": 1789320811
+  },
+  "assets/library/ambience/rain_mud/freesound_d17d6090_87bb_4147_8417_d9055922da0a.flac": {
+   "kind": "ambience",
+   "name": "rain_mud",
+   "source": "openverse:freesound",
+   "id": "freesound:d17d6090-87bb-4147-8417-d9055922da0a",
+   "title": "Light Rain on Woodland Floor and Running Stream.wav",
+   "creator": "thinkingfish",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/695/695571_5392691-hq.mp3",
+   "landing": "https://freesound.org/people/thinkingfish/sounds/695571",
+   "query": "gentle rain nature",
+   "scores": {
+    "reasons": [],
+    "duration": 157.128,
+    "clipping_share": 0.0,
+    "hum_db": 10.0,
+    "silence_share": 0.0,
+    "lufs": -42.0,
+    "lra": 1.4,
+    "true_peak": -9.6,
+    "clap_pos": 0.3246,
+    "clap_margin": 0.1939,
+    "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
+    "ast": {
+     "Music": 0.002,
+     "Singing": 0.0,
+     "Speech": 0.007,
+     "Vehicle": 0.004
+    },
+    "id": "freesound:d17d6090-87bb-4147-8417-d9055922da0a",
+    "title": "Light Rain on Woodland Floor and Running Stream.wav"
+   },
+   "imported_at": 1789320860
+  },
+  "assets/library/ambience/rain_mud/freesound_cd4a826e_0e42_491f_bb40_ab16192b2bad.flac": {
+   "kind": "ambience",
+   "name": "rain_mud",
+   "source": "openverse:freesound",
+   "id": "freesound:cd4a826e-0e42-491f-bb40-ab16192b2bad",
+   "title": "forest drop rain.wav",
+   "creator": "bruno.auzet",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/670/670303_11519060-hq.mp3",
+   "landing": "https://freesound.org/people/bruno.auzet/sounds/670303",
+   "query": "rain forest ambience",
+   "scores": {
+    "reasons": [],
+    "duration": 232.656,
+    "clipping_share": 0.0,
+    "hum_db": 9.2,
+    "silence_share": 0.0,
+    "lufs": -25.8,
+    "lra": 1.8,
+    "true_peak": 0.5,
+    "clap_pos": 0.2839,
+    "clap_margin": 0.1782,
+    "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
+    "ast": {
+     "Music": 0.001,
+     "Singing": 0.0,
+     "Speech": 0.002,
+     "Vehicle": 0.002
+    },
+    "id": "freesound:cd4a826e-0e42-491f-bb40-ab16192b2bad",
+    "title": "forest drop rain.wav"
+   },
+   "imported_at": 1789320942
   }
  }
 }
