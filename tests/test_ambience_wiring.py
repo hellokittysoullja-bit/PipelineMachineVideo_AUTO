@@ -57,12 +57,20 @@ def test_level_is_measured_not_a_constant():
     assert "unmeasured" in src
 
 
-def test_no_sources_means_exact_no_op():
-    """Генератор ещё не запускали — слой обязан быть точным нулём."""
+def test_sources_are_all_or_nothing():
+    """Частично записанные источники хуже, чем никаких: слой звучал бы
+    неполным, и заметить это можно было бы только ушами."""
     for bed in ap.AMBIENCE_VOCAB:
         layers = ps.ambience_layers(bed)
-        assert layers == [] or len(layers) == len(ap.AMBIENCE_LAYER_SECONDS), \
-            "частично записанные источники — хуже, чем никаких: слой звучал бы неполным"
+        assert layers == [] or len(layers) == len(ap.AMBIENCE_LAYER_SECONDS)
+        for path, dur in layers:
+            assert os.path.exists(path) and dur > 0
+
+
+def test_no_sources_means_exact_no_op(monkeypatch):
+    """Пока генератор не запускали, слой обязан быть точным нулём — именно
+    отсутствие источников и есть выключатель (см. --preview у генератора)."""
+    monkeypatch.setattr(ps, "ambience_layers", lambda bed: [])
     assert ps.build_ambience_track([{"start": 0.0, "end": 10.0, "bed": "wind_open", "seed": 1}],
                                     10.0, tempfile.mkdtemp()) is None
 
