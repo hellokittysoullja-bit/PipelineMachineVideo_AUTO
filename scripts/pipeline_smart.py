@@ -3675,8 +3675,47 @@ FAST_VIDEO_RELEVANCE_MAX_TRIES = 1
 FAST_VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP = 3
 
 
+# ДЕЙСТВУЮЩАЯ граница быстрого режима в этом прогоне. Инициализируется полом
+# FAST_MODE_START_INDEX и уточняется main() по РЕАЛЬНОЙ длине хука — см.
+# fast_mode_start_for_blocks(). Модульное состояние, а не аргумент, потому
+# что читатели ниже (_director_min_pool_for и соседи) вызываются из
+# pexels_photo/pexels_video, куда номер границы иначе пришлось бы тащить
+# через полдесятка сигнатур.
+_FAST_MODE_START = FAST_MODE_START_INDEX
+
+
+def fast_mode_start_for_blocks(blocks):
+    """С какого слота включается урезанный пул — по РЕАЛЬНОЙ длине хука.
+
+    РЕАЛЬНЫЙ, ИЗМЕРЕННЫЙ дефект, а не придирка к числу. Замысел константы
+    описан у неё же: «первые FAST_MODE_START_INDEX клипов (хук + немного
+    после — самый важный по удержанию участок) держат полный пул». Логика
+    верная, но 15 откалибровано под эпизод, чей хук помещался в 15 блоков.
+
+    Замер на videos/02_ne-mechom: после split_long_blocks() хук занимает
+    слоты 0..29 — ТРИДЦАТЬ слотов. То есть слоты 15..29, ровно половина
+    хука, шли на урезанном бюджете: 2 кандидата на сравнение вместо 4,
+    пул Директора 2 вместо 8, попыток дедупа 5 вместо 20, скачиваний
+    видео 1 вместо 3. И это при том, что по золотому набору
+    опубликованного эпизода годность хука — 0 кадров из 10, то есть
+    урезался бюджет у самой слабой и самой критичной по удержанию части
+    ролика.
+
+    FAST_MODE_START_INDEX остаётся ПОЛОМ, а не заменяется: у эпизода с
+    коротким хуком граница не должна опуститься ниже уже откалиброванной
+    (там сохраняется прежнее «хук + немного после» байт-в-байт). Функция
+    может только РАСШИРИТЬ зону полного пула, никогда не сузить — поэтому
+    у неё нет случая, в котором подбор становится беднее, чем был.
+    """
+    hook_end = 0
+    for i, b in enumerate(blocks or []):
+        if str(b.get("section", "")).startswith("HOOK"):
+            hook_end = i + 1
+    return max(FAST_MODE_START_INDEX, hook_end)
+
+
 def _director_min_pool_for(index):
-    return DIRECTOR_MIN_POOL if index < FAST_MODE_START_INDEX else FAST_DIRECTOR_MIN_POOL
+    return DIRECTOR_MIN_POOL if index < _FAST_MODE_START else FAST_DIRECTOR_MIN_POOL
 
 
 # Пол пула, НЕЗАВИСИМЫЙ от VISUAL_DIRECTOR_MODE. Реальный, найденный вживую
@@ -3723,11 +3762,11 @@ VIDEO_DIRECTOR_SCORE_VERSION = 2
 
 
 def _base_min_pool_for(index):
-    return BASE_MIN_POOL if index < FAST_MODE_START_INDEX else FAST_BASE_MIN_POOL
+    return BASE_MIN_POOL if index < _FAST_MODE_START else FAST_BASE_MIN_POOL
 
 
 def _photo_dedup_max_tries_for(index):
-    return PHOTO_DEDUP_MAX_TRIES if index < FAST_MODE_START_INDEX else FAST_PHOTO_DEDUP_MAX_TRIES
+    return PHOTO_DEDUP_MAX_TRIES if index < _FAST_MODE_START else FAST_PHOTO_DEDUP_MAX_TRIES
 
 
 def _pool_cleared_both_gates(candidates_info):
@@ -7715,7 +7754,9 @@ def _selection_stack_signature():
         feature_flags.mode("VLM_ARBITER_MODE"),
         feature_flags.mode("VISUAL_DIRECTOR_MODE"),
         DIRECTOR_MIN_POOL, PHOTO_DEDUP_MAX_TRIES, BASE_MIN_POOL, FAST_BASE_MIN_POOL,
-        FAST_MODE_START_INDEX, FAST_DIRECTOR_MIN_POOL, FAST_PHOTO_DEDUP_MAX_TRIES,
+        # ДЕЙСТВУЮЩАЯ граница (не пол): у эпизода с длинным хуком она другая,
+        # а значит другой и размер пула, из которого выбран победитель.
+        _FAST_MODE_START, FAST_DIRECTOR_MIN_POOL, FAST_PHOTO_DEDUP_MAX_TRIES,
         VIDEO_RELEVANCE_MAX_TRIES, VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP,
         FAST_VIDEO_RELEVANCE_MAX_TRIES, FAST_VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP,
         # Openverse — НОВЫЙ ИСТОЧНИК кандидатов, конкурирующий с Pexels в том
@@ -8935,11 +8976,11 @@ VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP = 30
 
 
 def _video_relevance_max_tries_for(index):
-    return VIDEO_RELEVANCE_MAX_TRIES if index < FAST_MODE_START_INDEX else FAST_VIDEO_RELEVANCE_MAX_TRIES
+    return VIDEO_RELEVANCE_MAX_TRIES if index < _FAST_MODE_START else FAST_VIDEO_RELEVANCE_MAX_TRIES
 
 
 def _video_relevance_max_tries_hard_cap_for(index):
-    return (VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP if index < FAST_MODE_START_INDEX
+    return (VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP if index < _FAST_MODE_START
             else FAST_VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP)
 
 
@@ -10573,6 +10614,20 @@ def main():
     # ПОСЛЕ split — sub-cuts добавляют новые склейки, бюджет должен их
     # учитывать. estimate_xfade_budget() — точная оценка по категориям
     # перехода (2.4), не плоская (n-1)*XFADE_DUR.
+    # Граница урезанного пула — по РЕАЛЬНОЙ длине хука этого эпизода, а не
+    # по фиксированному числу (см. fast_mode_start_for_blocks): на 02 хук
+    # занимает 30 слотов, и при фиксированных 15 ровно его вторая половина
+    # собиралась урезанным бюджетом. Ставится ЗДЕСЬ, после split/merge (состав
+    # блоков окончателен) и до первого обращения к candidate_gate_signature()
+    # — та кэширует подпись на первом вызове, и более поздняя правка границы
+    # в неё бы уже не попала.
+    global _FAST_MODE_START
+    _FAST_MODE_START = fast_mode_start_for_blocks(blocks)
+    _hook_slots = sum(1 for b in blocks if b["section"].startswith("HOOK"))
+    print(f"Полный пул кандидатов: слоты 0..{_FAST_MODE_START - 1} "
+          f"(хук — {_hook_slots} слот(ов)), дальше урезанный "
+          f"(пол реестра — {FAST_MODE_START_INDEX})")
+
     xfade_budget = estimate_xfade_budget(blocks)
     target = total + xfade_budget
     durs = block_durations(blocks, target, real_weights=real_weights)
@@ -11740,6 +11795,13 @@ def main():
         "vlm_arbiter_mode": feature_flags.value("VLM_ARBITER_MODE"),
         "gemini_key_present": bool(os.environ.get("GEMINI_API_KEY")),
         "shotlist_locked_slots_used": shotlist_locked_used,
+        # Раньше по артефактам готового ролика нельзя было узнать, что
+        # большая его часть собиралась урезанным бюджетом подбора: граница
+        # зашита в код, в реестр флагов не входит и в feature_flags.json не
+        # попадает. Теперь она записана там же, где остальные ответы на
+        # вопрос "каким пайплайном собран этот ролик".
+        "full_pool_until_slot": _FAST_MODE_START,
+        "full_pool_floor": FAST_MODE_START_INDEX,
     }
     shotlist_file = write_shotlist(VIDEO_FOLDER, shot_entries, selection_gates, prev=prev_shotlist)
     print(f"  Шотлист: media_plan/shotlist.json ({len(shot_entries)} слотов, "
