@@ -1,0 +1,179 @@
+{
+ "items": {
+  "assets/library/ambience/wind_open/freesound_09b78116_2b50_47f5_bdc7_3e45c5d587bb.flac": {
+   "kind": "ambience",
+   "name": "wind_open",
+   "source": "openverse:freesound",
+   "id": "freesound:09b78116-2b50-47f5-bdc7-3e45c5d587bb",
+   "title": "Wind blowing across open marshland",
+   "creator": "James2nd",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/328/328709_5029555-hq.mp3",
+   "landing": "https://freesound.org/people/James2nd/sounds/328709",
+   "query": "wind open field",
+   "scores": {
+    "reasons": [],
+    "duration": 77.688,
+    "clipping_share": 0.0,
+    "hum_db": 8.4,
+    "silence_share": 0.0,
+    "lufs": -22.1,
+    "lra": 7.8,
+    "true_peak": -6.4,
+    "clap_pos": 0.2938,
+    "clap_margin": 0.1916,
+    "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+    "ast": {
+     "Music": 0.005,
+     "Singing": 0.0,
+     "Speech": 0.024,
+     "Vehicle": 0.03
+    },
+    "id": "freesound:09b78116-2b50-47f5-bdc7-3e45c5d587bb",
+    "title": "Wind blowing across open marshland"
+   },
+   "imported_at": 1789318739
+  },
+  "assets/library/ambience/wind_open/freesound_923528bf_dc69_4c33_902c_3a4d2c9715a9.flac": {
+   "kind": "ambience",
+   "name": "wind_open",
+   "source": "openverse:freesound",
+   "id": "freesound:923528bf-dc69-4c33-902c-3a4d2c9715a9",
+   "title": "windy-mountain-plains by dwightsabeast (improved).flac",
+   "creator": "Godhasspoken4",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/581/581531_4479667-hq.mp3",
+   "landing": "https://freesound.org/people/Godhasspoken4/sounds/581531",
+   "query": "windy plain",
+   "scores": {
+    "reasons": [],
+    "duration": 331.248,
+    "clipping_share": 0.0,
+    "hum_db": 6.7,
+    "silence_share": 0.047,
+    "lufs": -31.9,
+    "lra": 18.2,
+    "true_peak": -5.3,
+    "clap_pos": 0.2129,
+    "clap_margin": 0.1782,
+    "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+    "ast": {
+     "Music": 0.001,
+     "Singing": 0.0,
+     "Speech": 0.002,
+     "Vehicle": 0.019
+    },
+    "id": "freesound:923528bf-dc69-4c33-902c-3a4d2c9715a9",
+    "title": "windy-mountain-plains by dwightsabeast (improved).flac"
+   },
+   "imported_at": 1789318840
+  },
+  "assets/library/ambience/wind_open/freesound_239700a4_dc2f_4480_ac49_fd7575e27b6e.flac": {
+   "kind": "ambience",
+   "name": "wind_open",
+   "source": "openverse:freesound",
+   "id": "freesound:239700a4-dc2f-4480-ac49-fd7575e27b6e",
+   "title": "wind_long_grass_24_96_mono.wav",
+   "creator": "dhi67540",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/94/94931_1499659-hq.mp3",
+   "landing": "https://freesound.org/people/dhi67540/sounds/94931",
+   "query": "field ambience wind",
+   "scores": {
+    "reasons": [],
+    "duration": 48.504,
+    "clipping_share": 0.0,
+    "hum_db": 10.6,
+    "silence_share": 0.0,
+    "lufs": -29.8,
+    "lra": 6.9,
+    "true_peak": -9.5,
+    "clap_pos": 0.199,
+    "clap_margin": 0.146,
+    "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+    "ast": {
+     "Music": 0.013,
+     "Singing": 0.001,
+     "Speech": 0.011,
+     "Vehicle": 0.022
+    },
+    "id": "freesound:239700a4-dc2f-4480-ac49-fd7575e27b6e",
+    "title": "wind_long_grass_24_96_mono.wav"
+   },
+   "imported_at": 1789318840
+  },
+  "assets/library/ambience/wind_open/freesound_8e0829f6_24cf_42a7_9ec2_a17db2d00f63.flac": {
+   "kind": "ambience",
+   "name": "wind_open",
+   "source": "openverse:freesound",
+   "id": "freesound:8e0829f6-24cf-42a7-9ec2-a17db2d00f63",
+   "title": "Field ambience 01.wav",
+   "creator": "szelestamas",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/620/620099_13130621-hq.mp3",
+   "landing": "https://freesound.org/people/szelestamas/sounds/620099",
+   "query": "wind open field",
+   "scores": {
+    "reasons": [],
+    "duration": 114.552,
+    "clipping_share": 0.0,
+    "hum_db": 6.5,
+    "silence_share": 0.073,
+    "lufs": -49.0,
+    "lra": 9.2,
+    "true_peak": -21.9,
+    "clap_pos": 0.2255,
+    "clap_margin": 0.0902,
+    "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+    "ast": {
+     "Music": 0.004,
+     "Singing": 0.0,
+     "Speech": 0.001,
+     "Vehicle": 0.005
+    },
+    "id": "freesound:8e0829f6-24cf-42a7-9ec2-a17db2d00f63",
+    "title": "Field ambience 01.wav"
+   },
+   "imported_at": 1789318875
+  },
+  "assets/library/ambience/wind_open/freesound_2e65d059_0863_4473_87dc_8c2f72c6c5ca.flac": {
+   "kind": "ambience",
+   "name": "wind_open",
+   "source": "openverse:freesound",
+   "id": "freesound:2e65d059-0863-4473-87dc-8c2f72c6c5ca",
+   "title": "ATM_EXT_OpenFarmlandDayGrassBirdsMoreWindREJ_F8ST021019T04.wav",
+   "creator": "tbsound101",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/487/487183_10432520-hq.mp3",
+   "landing": "https://freesound.org/people/tbsound101/sounds/487183",
+   "query": "wind open field",
+   "scores": {
+    "reasons": [],
+    "duration": 68.4,
+    "clipping_share": 0.0,
+    "hum_db": 7.9,
+    "silence_share": 0.0,
+    "lufs": -23.9,
+    "lra": 6.2,
+    "true_peak": -2.2,
+    "clap_pos": 0.2049,
+    "clap_margin": 0.0799,
+    "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
+    "ast": {
+     "Music": 0.032,
+     "Singing": 0.001,
+     "Speech": 0.014,
+     "Vehicle": 0.011
+    },
+    "id": "freesound:2e65d059-0863-4473-87dc-8c2f72c6c5ca",
+    "title": "ATM_EXT_OpenFarmlandDayGrassBirdsMoreWindREJ_F8ST021019T04.wav"
+   },
+   "imported_at": 1789318895
+  }
+ }
+}
