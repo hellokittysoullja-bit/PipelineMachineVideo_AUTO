@@ -666,5 +666,508 @@
   "title": "Forest ambience with singing birds",
   "kind": "ambience",
   "name": "wind_open"
+ },
+ {
+  "id": "freesound:9a965918-c3de-4c49-a9f9-ae40d5691f60",
+  "title": "Birds in Rain Sounds (Scotland).wav",
+  "kind": "ambience",
+  "name": "forest_birds",
+  "reasons": [
+   "title:rain"
+  ]
+ },
+ {
+  "id": "freesound:25163d91-4dce-4419-ae96-565e5b670f3e",
+  "title": "Binaural Birds LOOP 1.wav",
+  "kind": "ambience",
+  "name": "forest_birds",
+  "reasons": [
+   "title:loop"
+  ]
+ },
+ {
+  "id": "freesound:ff51dace-7d68-455a-9ac6-b0862592087a",
+  "title": "Binaural Birds LOOP 2.wav",
+  "kind": "ambience",
+  "name": "forest_birds",
+  "reasons": [
+   "title:loop"
+  ]
+ },
+ {
+  "id": "freesound:743bcd77-82a5-4641-96fa-c41532486eb6",
+  "title": "Birds In Rain",
+  "kind": "ambience",
+  "name": "forest_birds",
+  "reasons": [
+   "title:rain"
+  ]
+ },
+ {
+  "id": "freesound:2e2a3e1a-9b22-4f10-a3c4-b52fd3baff09",
+  "title": "French Woods - Rainy Morning (take 2)",
+  "kind": "ambience",
+  "name": "forest_birds",
+  "reasons": [
+   "title:rain"
+  ]
+ },
+ {
+  "id": "freesound:2f815ecb-ff27-4238-8e70-a9c8378e26b7",
+  "title": "Rain in nature",
+  "kind": "ambience",
+  "name": "forest_birds",
+  "reasons": [
+   "title:rain"
+  ]
+ },
+ {
+  "id": "freesound:4949ecdc-97cf-4b75-aa0d-a0c737c9d79e",
+  "title": "Nature in spring in the city park with birds and background noise",
+  "kind": "ambience",
+  "name": "forest_birds",
+  "reasons": [
+   "title:city"
+  ]
+ },
+ {
+  "id": "freesound:0a570744-0575-4ca8-9e6e-ae3e16a2d3d3",
+  "title": "EXT Suburban Birds & Traffic 2.wav",
+  "kind": "ambience",
+  "name": "forest_birds",
+  "reasons": [
+   "title:traffic"
+  ]
+ },
+ {
+  "id": "freesound:60c85088-b159-4d2a-9fae-5910257aff3d",
+  "title": "Spring Birds 2019 (processed loop)",
+  "kind": "ambience",
+  "name": "forest_birds",
+  "reasons": [
+   "title:loop"
+  ]
+ },
+ {
+  "id": "freesound:7e6d4464-2321-4899-b544-94f3820832a3",
+  "title": "empty city park.wav",
+  "kind": "ambience",
+  "name": "forest_birds",
+  "reasons": [
+   "title:city"
+  ]
+ },
+ {
+  "id": "freesound:85268817-eb17-402b-86d4-ad5355eb9486",
+  "title": "spring birds loop with low cut new jersey LOOPED AND CLEANED",
+  "kind": "ambience",
+  "name": "forest_birds",
+  "reasons": [
+   "title:loop"
+  ]
+ },
+ {
+  "id": "freesound:c2a5114d-d378-4be2-a3e2-e9802ec487aa",
+  "title": "Ukraine_forest_atmo_in_May.wav",
+  "kind": "ambience",
+  "name": "forest_birds",
+  "reasons": [
+   "title:rain"
+  ]
+ },
+ {
+  "id": "freesound:9629cb0b-5ecb-42d4-95ac-d3fbc8e05584",
+  "title": "forest_ambience_steady_breeze_summer_sweden_leaves_light_wind_distant_highway_loop_m10.wav",
+  "kind": "ambience",
+  "name": "forest_birds",
+  "reasons": [
+   "title:loop"
+  ]
+ },
+ {
+  "id": "freesound:f47fc1c1-f646-4519-b84e-74a26fbb68a8",
+  "title": "Outside City Nature Ambience Sounds, Birds & Cars",
+  "kind": "ambience",
+  "name": "forest_birds",
+  "reasons": [
+   "title:city"
+  ]
+ },
+ {
+  "id": "freesound:6c3e7dcc-dc25-40b8-8790-be3159c92713",
+  "title": "EXT Suburban Birds & Traffic 1.wav",
+  "kind": "ambience",
+  "name": "forest_birds",
+  "reasons": [
+   "title:traffic"
+  ]
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 296.064,
+  "clipping_share": 0.0,
+  "hum_db": 15.5,
+  "silence_share": 0.0,
+  "lufs": -35.1,
+  "lra": 14.5,
+  "true_peak": -14.1,
+  "id": "freesound:4404a57f-1343-46df-9fa1-5a5084267b07",
+  "title": "EXT Park urban with birds morning.WAV",
+  "kind": "ambience",
+  "name": "forest_birds"
+ },
+ {
+  "reasons": [
+   "too_much_silence"
+  ],
+  "duration": 156.216,
+  "clipping_share": 0.0,
+  "hum_db": 7.2,
+  "silence_share": 1.0,
+  "lufs": -64.5,
+  "lra": 4.4,
+  "true_peak": -44.3,
+  "id": "freesound:b5133bb1-59e2-49bd-94a0-0e03bff06969",
+  "title": "Forest, quiet, birdsong, distant roar of trees branches in wind, could pass as a distant river.wav",
+  "kind": "ambience",
+  "name": "forest_birds"
+ },
+ {
+  "reasons": [
+   "mains_hum",
+   "too_dynamic"
+  ],
+  "duration": 126.768,
+  "clipping_share": 0.0,
+  "hum_db": 26.7,
+  "silence_share": 0.0,
+  "lufs": -16.4,
+  "lra": 24.9,
+  "true_peak": -2.7,
+  "id": "freesound:df4c5ccb-82fd-4eeb-9915-be0a7dad5959",
+  "title": "Birds singing in spring - European robin - Forest - Rotkehlchen",
+  "kind": "ambience",
+  "name": "forest_birds"
+ },
+ {
+  "reasons": [
+   "too_much_silence"
+  ],
+  "duration": 366.048,
+  "clipping_share": 0.0,
+  "hum_db": 8.7,
+  "silence_share": 1.0,
+  "lufs": -67.2,
+  "lra": 2.9,
+  "true_peak": -50.5,
+  "id": "freesound:9c53f3f3-48d1-4157-816a-5e82549769db",
+  "title": "Forest ambience with singing birds",
+  "kind": "ambience",
+  "name": "forest_birds"
+ },
+ {
+  "reasons": [
+   "too_much_silence"
+  ],
+  "duration": 321.648,
+  "clipping_share": 0.0,
+  "hum_db": 7.9,
+  "silence_share": 0.887,
+  "lufs": -58.5,
+  "lra": 9.5,
+  "true_peak": -32.4,
+  "id": "freesound:7b6eb088-18fe-4859-abdc-fda68870c4ac",
+  "title": "Birds forest woodpecker.wav",
+  "kind": "ambience",
+  "name": "forest_birds"
+ },
+ {
+  "reasons": [
+   "too_much_silence"
+  ],
+  "duration": 186.696,
+  "clipping_share": 0.0,
+  "hum_db": 12.7,
+  "silence_share": 0.983,
+  "lufs": -58.0,
+  "lra": 7.9,
+  "true_peak": -40.2,
+  "id": "freesound:dfa9d73b-78a8-4b36-87ee-0ac4e98c1b0d",
+  "title": "AMB_Park_Birds_Pigeons.wav",
+  "kind": "ambience",
+  "name": "forest_birds"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 177.888,
+  "clipping_share": 0.0,
+  "hum_db": 6.8,
+  "silence_share": 0.0,
+  "lufs": -44.3,
+  "lra": 3.6,
+  "true_peak": -4.2,
+  "clap_pos": 0.1072,
+  "clap_margin": 0.0281,
+  "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
+  "ast": {
+   "Music": 0.001,
+   "Singing": 0.0,
+   "Speech": 0.001,
+   "Vehicle": 0.001
+  },
+  "id": "freesound:813be22f-01f3-441a-b2e5-bd04e00a4b6b",
+  "title": "Forest Morning #1",
+  "kind": "ambience",
+  "name": "forest_birds"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins"
+  ],
+  "duration": 157.248,
+  "clipping_share": 0.0,
+  "hum_db": 5.2,
+  "silence_share": 0.0,
+  "lufs": -29.0,
+  "lra": 3.7,
+  "true_peak": -8.1,
+  "clap_pos": 0.0562,
+  "clap_margin": 0.0014,
+  "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
+  "ast": {
+   "Music": 0.001,
+   "Singing": 0.0,
+   "Speech": 0.001,
+   "Vehicle": 0.002
+  },
+  "id": "freesound:aab6839c-a921-49d6-9e8d-d9e29ba58966",
+  "title": "Forest Morning #2",
+  "kind": "ambience",
+  "name": "forest_birds"
+ },
+ {
+  "reasons": [
+   "clap_low_positive"
+  ],
+  "duration": 122.664,
+  "clipping_share": 0.0,
+  "hum_db": 11.4,
+  "silence_share": 0.015,
+  "lufs": -19.2,
+  "lra": 12.5,
+  "true_peak": -0.5,
+  "clap_pos": 0.0736,
+  "clap_margin": 0.1074,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "ast": {
+   "Music": 0.002,
+   "Singing": 0.0,
+   "Speech": 0.002,
+   "Vehicle": 0.001
+  },
+  "id": "freesound:4edd8399-a00e-4e5f-86bc-0e2a9f3da2e3",
+  "title": "birds on morning",
+  "kind": "ambience",
+  "name": "forest_birds"
+ },
+ {
+  "reasons": [
+   "mains_hum",
+   "too_much_silence"
+  ],
+  "duration": 121.08,
+  "clipping_share": 0.0,
+  "hum_db": 14.8,
+  "silence_share": 0.999,
+  "lufs": -65.6,
+  "lra": 6.3,
+  "true_peak": -44.7,
+  "id": "freesound:687f1ceb-43f0-4c93-8211-72de10d4862e",
+  "title": "amb, ext, high desert park, distant voices, birds, dog barks, bformat-fuma.wav",
+  "kind": "ambience",
+  "name": "forest_birds"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 120.576,
+  "clipping_share": 0.0,
+  "hum_db": 15.2,
+  "silence_share": 0.0,
+  "lufs": -27.9,
+  "lra": 7.4,
+  "true_peak": -8.3,
+  "id": "freesound:23b7945b-19c5-404e-ba3c-1d7f77529cfc",
+  "title": "Salt Marsh Morning Birds",
+  "kind": "ambience",
+  "name": "forest_birds"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 118.464,
+  "clipping_share": 0.0,
+  "hum_db": 14.4,
+  "silence_share": 0.043,
+  "lufs": -36.6,
+  "lra": 15.5,
+  "true_peak": -10.5,
+  "id": "freesound:23ce6e11-ec95-4419-a0be-e48bc5c742d7",
+  "title": "Woodland Bird Calls in Spring",
+  "kind": "ambience",
+  "name": "forest_birds"
+ },
+ {
+  "reasons": [
+   "clap_low_positive"
+  ],
+  "duration": 80.472,
+  "clipping_share": 5e-05,
+  "hum_db": 5.8,
+  "silence_share": 0.146,
+  "lufs": -13.7,
+  "lra": 13.6,
+  "true_peak": -0.9,
+  "clap_pos": 0.077,
+  "clap_margin": 0.0809,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "ast": {
+   "Music": 0.009,
+   "Singing": 0.001,
+   "Speech": 0.006,
+   "Vehicle": 0.0
+  },
+  "id": "freesound:c2188555-46b8-47aa-9879-15ef597ed52b",
+  "title": "Forest Birds .wav",
+  "kind": "ambience",
+  "name": "forest_birds"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 60.408,
+  "clipping_share": 7.9e-05,
+  "hum_db": 22.7,
+  "silence_share": 0.0,
+  "lufs": -18.1,
+  "lra": 10.6,
+  "true_peak": -0.6,
+  "id": "freesound:eded143d-1f03-4d21-bc28-b8ed6bbf5267",
+  "title": "Morning Birds Ambience.wav",
+  "kind": "ambience",
+  "name": "forest_birds"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 59.112,
+  "clipping_share": 0.0,
+  "hum_db": 18.2,
+  "silence_share": 0.0,
+  "lufs": -50.1,
+  "lra": 11.6,
+  "true_peak": -27.6,
+  "id": "freesound:d613a6ab-725c-457e-9e55-aadf806ece93",
+  "title": "Quiet Spring Woodland Ambience.wav",
+  "kind": "ambience",
+  "name": "forest_birds"
+ },
+ {
+  "reasons": [
+   "too_much_silence"
+  ],
+  "duration": 58.54,
+  "clipping_share": 0.0,
+  "hum_db": 12.5,
+  "silence_share": 0.904,
+  "lufs": -56.1,
+  "lra": 12.5,
+  "true_peak": -33.0,
+  "id": "freesound:da260b7e-425c-4d8c-a214-113e58602134",
+  "title": "Woodland Birds.wav",
+  "kind": "ambience",
+  "name": "forest_birds"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 58.056,
+  "clipping_share": 0.0,
+  "hum_db": 24.2,
+  "silence_share": 0.07,
+  "lufs": -44.9,
+  "lra": 2.2,
+  "true_peak": -29.6,
+  "id": "freesound:8a1dd547-36ae-4433-b237-07c8849b148a",
+  "title": "Birdsongs in Montreal's Parc de la Visitation.wav",
+  "kind": "ambience",
+  "name": "forest_birds"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 49.728,
+  "clipping_share": 0.0,
+  "hum_db": 14.8,
+  "silence_share": 0.0,
+  "lufs": -30.2,
+  "lra": 13.1,
+  "true_peak": -8.9,
+  "id": "freesound:f29c70a1-3949-4771-9884-10909cfbcb0e",
+  "title": "Exterior Ambiance Parking Lot with birds.wav",
+  "kind": "ambience",
+  "name": "forest_birds"
+ },
+ {
+  "reasons": [
+   "too_much_silence"
+  ],
+  "duration": 48.72,
+  "clipping_share": 0.0,
+  "hum_db": 7.4,
+  "silence_share": 0.53,
+  "lufs": -52.7,
+  "lra": 8.7,
+  "true_peak": -28.9,
+  "id": "freesound:c2cfc52c-a5c1-4467-8d16-bef13043692a",
+  "title": "Forest Birds 02",
+  "kind": "ambience",
+  "name": "forest_birds"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 300.696,
+  "clipping_share": 0.0,
+  "hum_db": 6.8,
+  "silence_share": 0.0,
+  "lufs": -33.6,
+  "lra": 2.3,
+  "true_peak": -22.3,
+  "clap_pos": 0.1082,
+  "clap_margin": 0.0248,
+  "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
+  "ast": {
+   "Music": 0.006,
+   "Singing": 0.0,
+   "Speech": 0.002,
+   "Vehicle": 0.001
+  },
+  "id": "freesound:951e6c56-5952-40ee-b652-bdc74e83374f",
+  "title": "Forest at night, crickets, cicadas and insects in the Sian Ka'an Biosphere Reserve",
+  "kind": "ambience",
+  "name": "forest_birds"
  }
 ]
