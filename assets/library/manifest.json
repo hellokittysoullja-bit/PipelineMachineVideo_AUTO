@@ -1206,6 +1206,102 @@
     "title": "whoosh.wav"
    },
    "imported_at": 1789321645
+  },
+  "assets/library/sfx/plate_tick/freesound_ea9dc47e_7f07_45dd_8aa6_8c9e25609251.flac": {
+   "kind": "sfx",
+   "name": "plate_tick",
+   "source": "openverse:freesound",
+   "id": "freesound:ea9dc47e-7f07-45dd-8aa6-8c9e25609251",
+   "title": "SFX UI Button Click",
+   "creator": "suntemple",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/253/253168_4404552-hq.mp3",
+   "landing": "https://freesound.org/people/suntemple/sounds/253168",
+   "query": "menu click",
+   "scores": {
+    "reasons": [],
+    "duration": 0.209,
+    "clipping_share": 0.0,
+    "clap_pos": 0.4342,
+    "clap_margin": 0.4189,
+    "clap_worst_neg": "digital distortion, clipping, glitch, static",
+    "id": "freesound:ea9dc47e-7f07-45dd-8aa6-8c9e25609251",
+    "title": "SFX UI Button Click"
+   },
+   "imported_at": 1789321667
+  },
+  "assets/library/sfx/plate_tick/freesound_a1e70c65_8528_4b76_98e0_f09f815f7207.flac": {
+   "kind": "sfx",
+   "name": "plate_tick",
+   "source": "openverse:freesound",
+   "id": "freesound:a1e70c65-8528-4b76-98e0-f09f815f7207",
+   "title": "Click Tick.wav",
+   "creator": "malle99",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/384/384187_6712901-hq.mp3",
+   "landing": "https://freesound.org/people/malle99/sounds/384187",
+   "query": "ui tick",
+   "scores": {
+    "reasons": [],
+    "duration": 0.216,
+    "clipping_share": 0.0,
+    "clap_pos": 0.3363,
+    "clap_margin": 0.3367,
+    "clap_worst_neg": "digital distortion, clipping, glitch, static",
+    "id": "freesound:a1e70c65-8528-4b76-98e0-f09f815f7207",
+    "title": "Click Tick.wav"
+   },
+   "imported_at": 1789321667
+  },
+  "assets/library/sfx/plate_tick/freesound_aa763a9d_65bd_4f53_b1ad_a38a4dc1e475.flac": {
+   "kind": "sfx",
+   "name": "plate_tick",
+   "source": "openverse:freesound",
+   "id": "freesound:aa763a9d-65bd-4f53-b1ad-a38a4dc1e475",
+   "title": "Soft UI Button Click",
+   "creator": "Jummit",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/528/528561_10360410-hq.mp3",
+   "landing": "https://freesound.org/people/Jummit/sounds/528561",
+   "query": "ui tick",
+   "scores": {
+    "reasons": [],
+    "duration": 0.287,
+    "clipping_share": 0.0,
+    "clap_pos": 0.3926,
+    "clap_margin": 0.2726,
+    "clap_worst_neg": "digital distortion, clipping, glitch, static",
+    "id": "freesound:aa763a9d-65bd-4f53-b1ad-a38a4dc1e475",
+    "title": "Soft UI Button Click"
+   },
+   "imported_at": 1789321668
+  },
+  "assets/library/sfx/plate_tick/freesound_f21e36db_e0b1_4209_b277_912f88d61f35.flac": {
+   "kind": "sfx",
+   "name": "plate_tick",
+   "source": "openverse:freesound",
+   "id": "freesound:f21e36db-e0b1-4209-b277-912f88d61f35",
+   "title": "button",
+   "creator": "Leszek_Szary",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/171/171521_2437358-hq.mp3",
+   "landing": "https://freesound.org/people/Leszek_Szary/sounds/171521",
+   "query": "menu click",
+   "scores": {
+    "reasons": [],
+    "duration": 0.183,
+    "clipping_share": 0.0,
+    "clap_pos": 0.267,
+    "clap_margin": 0.2626,
+    "clap_worst_neg": "digital distortion, clipping, glitch, static",
+    "id": "freesound:f21e36db-e0b1-4209-b277-912f88d61f35",
+    "title": "button"
+   },
+   "imported_at": 1789321669
   }
  }
 }
