@@ -1932,6 +1932,236 @@ def build_music_mix(voice_path, total_dur, out_path, hook_end=0.0, final_start=N
     return out_path
 
 
+_AMBIENCE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                              "assets", "ambience")
+AMBIENCE_ENABLED = feature_flags.enabled("AMBIENCE_BED")
+# Границы измеренного усиления — та же защита, что у музыки: битый или
+# пустой источник даёт -inf LUFS и попросил бы абсурдного усиления.
+AMBIENCE_GAIN_MIN_DB = -40.0
+AMBIENCE_GAIN_MAX_DB = 0.0
+AMBIENCE_FADE_SEC = 2.5          # вход/выход участка — атмосфера не включается рубильником
+AMBIENCE_DRIFT_DEPTH = 0.22      # глубина медленного «дыхания» громкости слоя
+
+
+def ambience_layers(bed):
+    """[(путь, длительность_сек), ...] источников атмосферы bed.
+
+    Пустой список (папки нет — генератор ещё не запускали) и есть
+    выключатель слоя: ровно поэтому scripts/generate_ambience.py --preview
+    НЕ пишет эти файлы, а кладёт демонстрацию отдельно — «послушать» не
+    должно незаметно включать атмосферу в следующем рендере.
+    """
+    import ambience_plan
+    out = []
+    for name, seconds in zip(("low", "mid", "high"), ambience_plan.AMBIENCE_LAYER_SECONDS):
+        path = os.path.join(_AMBIENCE_DIR, bed, f"{name}_{seconds}s.flac")
+        if os.path.exists(path):
+            out.append((path, seconds))
+    return out if len(out) == len(ambience_plan.AMBIENCE_LAYER_SECONDS) else []
+
+
+def _ambience_segment(bed, duration, seed, out_path):
+    """Один участок атмосферы: слои крутятся независимо, каждый со своего
+    сдвига и под своей медленной кривой громкости.
+
+    Сдвиг (offset) — то, что делает ДВА участка одной атмосферы разными на
+    слух: без него вторая глава с тем же ветром начиналась бы ровно тем же
+    звуком, и повтор был бы слышен именно как повтор.
+
+    Периоды «дыхания» (AMBIENCE_DRIFT_SECONDS) простые и взаимно простые и
+    между собой, и с длинами слоёв — поэтому ни слои, ни их громкости
+    никогда не приходят в одну и ту же фазу на длине эпизода.
+    """
+    import ambience_plan
+    layers = ambience_layers(bed)
+    if not layers:
+        return None
+    cmd = ["ffmpeg", "-y"]
+    parts, mix_inputs = [], []
+    for idx, ((path, seconds), drift) in enumerate(
+            zip(layers, ambience_plan.AMBIENCE_DRIFT_SECONDS)):
+        cmd += ["-stream_loop", "-1", "-i", path]
+        offset = (seed * (idx + 3)) % max(1, seconds)
+        drift_expr = f"{1.0 - AMBIENCE_DRIFT_DEPTH}+{AMBIENCE_DRIFT_DEPTH}*sin(2*PI*t/{drift})"
+        parts.append(
+            f"[{idx}:a]atrim={offset}:{offset + duration:.3f},asetpts=N/SR/TB,"
+            f"volume=eval=frame:volume='{drift_expr}'[al{idx}]")
+        mix_inputs.append(f"[al{idx}]")
+    fade_out_at = max(0.0, duration - AMBIENCE_FADE_SEC)
+    parts.append("".join(mix_inputs) + f"amix=inputs={len(layers)}:duration=first:normalize=0,"
+                 f"afade=t=in:st=0:d={AMBIENCE_FADE_SEC},"
+                 f"afade=t=out:st={fade_out_at:.3f}:d={AMBIENCE_FADE_SEC}[out]")
+    cmd += ["-filter_complex", ";".join(parts), "-map", "[out]",
+            "-t", f"{duration:.3f}", "-ar", "48000", "-ac", "2", out_path]
+    return _run_ok(cmd, out_path)
+
+
+def _run_ok(cmd, out_path):
+    """ffmpeg-вызов, который не имеет права уронить рендер.
+
+    Не только ненулевой код возврата: самого ffmpeg может не быть в PATH,
+    и тогда subprocess бросает FileNotFoundError ещё до запуска. Слой
+    атмосферы необязательный — он обязан деградировать в тишину, а не
+    обрывать сборку ролика (тот же принцип, что у всех остальных
+    необязательных слоёв здесь).
+    """
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    except Exception as e:
+        print(f"  ВНИМАНИЕ: ffmpeg не запустился ({type(e).__name__}) — атмосфера пропущена.")
+        return None
+    return out_path if r.returncode == 0 else None
+
+
+def _silent_segment(duration, out_path):
+    return _run_ok(["ffmpeg", "-y", "-f", "lavfi", "-i",
+                    "anullsrc=channel_layout=stereo:sample_rate=48000",
+                    "-t", f"{duration:.3f}", "-ar", "48000", "-ac", "2", out_path], out_path)
+
+
+def build_ambience_track(plan, total_dur, out_dir):
+    """Дорожка атмосферы на весь ролик по плану, или None.
+
+    Участки без атмосферы собираются как ЯВНАЯ тишина, а не пропускаются:
+    дорожка обязана совпадать с роликом по длине секунда в секунду, иначе
+    всё, что после пропуска, поедет — тот же класс ошибки, что уже ловили
+    у build_mood_timeline (57.5с вместо 60).
+    """
+    if not AMBIENCE_ENABLED or not plan:
+        return None
+    # Ни одной главы с РЕАЛЬНО доступными источниками — выходим сразу, не
+    # собирая дорожку вообще. Иначе на эпизоде без атмосферы пайплайн
+    # молча рендерил бы 25 минут тишины и подмешивал её в микс: работа,
+    # которая не может ничего изменить, но может сломаться.
+    if not any(seg.get("bed") and ambience_layers(seg["bed"]) for seg in plan):
+        return None
+    parts = []
+    for k, seg in enumerate(plan):
+        dur = float(seg["end"]) - float(seg["start"])
+        if dur <= 0:
+            continue
+        path = os.path.join(out_dir, f"amb_{k:02d}.wav")
+        made = (_ambience_segment(seg["bed"], dur, int(seg.get("seed", 0)), path)
+                if seg.get("bed") else _silent_segment(dur, path))
+        if made is None:
+            made = _silent_segment(dur, path)
+        if made is None:
+            return None
+        parts.append(made)
+    if not parts:
+        return None
+    list_path = os.path.join(out_dir, "amb_list.txt")
+    with open(list_path, "w", encoding="utf-8") as f:
+        for path in parts:
+            f.write(f"file '{os.path.abspath(path)}'\n")
+    out_path = os.path.join(out_dir, "ambience.wav")
+    made = _run_ok(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_path,
+                    "-t", f"{total_dur:.3f}", "-ar", "48000", "-ac", "2", out_path], out_path)
+    if made is None:
+        print("  ВНИМАНИЕ: дорожка атмосферы не собралась — слой пропущен.")
+    return made
+
+
+def ambience_gain_db(voice_path, ambience_path):
+    """Усиление атмосферы под ЭТОТ голос: (дБ, чем обосновано).
+
+    Считается замером, а не константой — ровно по той же причине, по
+    которой это уже делает музыка: константа один раз молча разошлась с
+    реальностью на 11 LU, и увидеть это по отчётам было нельзя, потому что
+    итоговый loudnorm выравнивает микс целиком.
+    """
+    import ambience_plan
+    voice_lufs = measure_integrated_lufs(voice_path)
+    amb_lufs = measure_integrated_lufs(ambience_path)
+    detail = {"voice_lufs": voice_lufs, "ambience_lufs": amb_lufs,
+              "target_gap_lu": ambience_plan.AMBIENCE_GAP_LU}
+    if voice_lufs is None or amb_lufs is None:
+        detail.update(gain_db=None, source="unmeasured")
+        print("  ВНИМАНИЕ: громкость атмосферы не измерилась — слой НЕ добавлен "
+              "(тихо угадывать уровень фона нельзя: он звучит все 25 минут)")
+        return None, detail
+    raw = voice_lufs - ambience_plan.AMBIENCE_GAP_LU - amb_lufs
+    gain = max(AMBIENCE_GAIN_MIN_DB, min(AMBIENCE_GAIN_MAX_DB, raw))
+    detail.update(gain_db=round(gain, 2), raw_gain_db=round(raw, 2), source="measured",
+                  clamped=abs(gain - raw) > 1e-6)
+    print(f"  Атмосфера: голос {voice_lufs:.1f} LUFS, слой {amb_lufs:.1f} LUFS "
+          f"-> усиление {gain:+.1f} dB (разрыв {ambience_plan.AMBIENCE_GAP_LU:.0f} LU)")
+    return gain, detail
+
+
+def add_ambience_bed(mix_path, ambience_path, voice_path, total_dur, out_path):
+    """Атмосфера подмешивается ПОСЛЕ музыки и дакинга — и намеренно НЕ
+    прижимается сайдчейном.
+
+    Музыка обязана уступать словам, иначе спорит с ними. Атмосфера — нет:
+    это место действия, оно не выключается, когда человек говорит. Прижми
+    её тем же сайдчейном (9:1) — и она пропадала бы на 90% ролика, где
+    речь идёт непрерывно, а в паузах наплывала: это качание и есть самый
+    слышимый признак автомата. На уровне -24 LU под голосом она физически
+    не может перебить речь, поэтому ей и не нужен дакинг.
+
+    По той же причине она не получает и климакс-провал: музыка на
+    разоблачении уходит, а комната остаётся — ровно так это делает живой
+    звукорежиссёр.
+    """
+    if not AMBIENCE_ENABLED or not ambience_path:
+        return mix_path, None
+    gain, detail = ambience_gain_db(voice_path, ambience_path)
+    if gain is None:
+        return mix_path, detail
+    fc = (f"[1:a]volume={gain}dB[amb];"
+          f"[0:a][amb]amix=inputs=2:duration=first:weights=1 1:normalize=0[out]")
+    made = _run_ok(["ffmpeg", "-y", "-i", mix_path, "-i", ambience_path,
+                    "-filter_complex", fc, "-map", "[out]",
+                    "-t", f"{total_dur:.3f}", "-ar", "48000", "-ac", "2", out_path], out_path)
+    if made is None:
+        print("  ВНИМАНИЕ: атмосфера не подмешалась — микс идёт без неё.")
+        return mix_path, detail
+    return made, detail
+
+
+def run_ambience(mix_path, video_dir, blocks, sub_starts, total_dur, voice_path):
+    """Спланировать, собрать и подмешать атмосферу + записать аудит-трейл.
+
+    Отчёт пишется ВСЕГДА — включая случай «ни одной главы не озвучено»: по
+    каждой главе сохраняется причина (`low_confidence` / `ambiguous` /
+    `over_distinct_cap` / `run_too_short`), иначе «почему под этой главой
+    тишина» существовало бы только в голове.
+    """
+    import ambience_plan
+    plan, detail = [], None
+    try:
+        plan = ambience_plan.merge_adjacent(ambience_plan.plan_ambience(
+            blocks, sub_starts, total_dur, block_text=lambda b: str(b.get("text", ""))))
+    except Exception as e:
+        print(f"  ВНИМАНИЕ: планировщик атмосферы не отработал ({type(e).__name__}).")
+    track = None
+    if plan and any(s["bed"] for s in plan):
+        track = build_ambience_track(plan, total_dur, TEMP_FOLDER)
+    out = mix_path
+    if track:
+        out, detail = add_ambience_bed(mix_path, track, voice_path, total_dur,
+                                        os.path.join(TEMP_FOLDER, "premix_ambience.wav"))
+    try:
+        report_path = os.path.join(video_dir, "media_plan", "ambience_plan.json")
+        os.makedirs(os.path.dirname(report_path), exist_ok=True)
+        tmp = report_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"enabled": AMBIENCE_ENABLED, "applied": out != mix_path,
+                       "gain": detail, "summary": ambience_plan.summarize(plan),
+                       "segments": plan}, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, report_path)
+    except Exception:
+        pass
+    if plan:
+        summary = ambience_plan.summarize(plan)
+        beds = ", ".join(f"{k} {v:.0f}с" for k, v in sorted(summary["seconds_by_bed"].items())) or "нет"
+        print(f"  Атмосфера: {summary['distinct_beds']} вид(ов) на "
+              f"{summary['covered_share'] * 100:.0f}% ролика ({beds}) — "
+              f"см. media_plan/ambience_plan.json")
+    return out
+
+
 _FRAME_MEASURE_CACHE = {}   # {(fn_name, path, size, mtime_ns, args, kwargs): результат} — см. memoize_by_frame
 
 
@@ -12662,6 +12892,10 @@ def main():
     pause_windows_real = _exclude_climax_overlapping_windows(pause_windows_real, climax_times)
     premix = build_music_mix(voice_processed, total, premix, hook_end=hook_end, final_start=final_start,
                               climax_times=climax_times, pause_windows_real=pause_windows_real)
+    # Атмосферный слой — ПОСЛЕ музыки и дакинга и намеренно БЕЗ дакинга
+    # (см. add_ambience_bed): место действия не выключается, когда человек
+    # говорит. Уровень считается замером под ЭТОТ голос, не константой.
+    premix = run_ambience(premix, VIDEO_FOLDER, blocks, sub_starts, total, voice_processed)
     # D4: щелчки клавиатуры поверх готового микса — ПОСЛЕ музыки/дакинга
     # (иначе сайдчейн реагировал бы и на сами щелчки), ДО финального loudnorm
     # (клики тоже участвуют в мастеринге громкости целиком, не бесплатный
