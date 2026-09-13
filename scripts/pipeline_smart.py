@@ -630,9 +630,18 @@ def film_look(photo_hash, section="", brightness_bias=0.0, energy_bias=0.0, leve
     mood = MOOD_GRADE["HOOK"] if section.startswith("HOOK") else (
            MOOD_GRADE["FINAL"] if section.startswith("FINAL") else MOOD_GRADE["BODY"])
     eb = max(-0.5, min(0.5, energy_bias))
-    c = mood["c0"] + (photo_hash % 100) / 100 * 0.05 + eb * 0.06
-    s = mood["s0"] + ((photo_hash >> 7) % 100) / 100 * 0.08 + eb * 0.05
-    b = ((photo_hash >> 14) % 100) / 100 * 0.02 + brightness_bias
+    # Хэш-джиттер (см. GRADE_HASH_JITTER в реестре флагов): случайная, НИКАК
+    # не связанная с содержимым кадра вариация. Замер на 40 кадрах
+    # опубликованного эпизода показал, что он расширяет разброс яркости
+    # (169.3 -> 174.3) и скачок насыщенности между соседними кадрами
+    # (16.5 -> 17.5) — то есть работает против главной задачи грейда на
+    # сборке из разных источников. Выключен по умолчанию; energy_bias
+    # (реальная громкость голоса в этом отрезке) и три содержательных
+    # модулятора ниже остаются на месте.
+    jit = 1.0 if feature_flags.enabled("GRADE_HASH_JITTER") else 0.0
+    c = mood["c0"] + jit * (photo_hash % 100) / 100 * 0.05 + eb * 0.06
+    s = mood["s0"] + jit * ((photo_hash >> 7) % 100) / 100 * 0.08 + eb * 0.05
+    b = jit * ((photo_hash >> 14) % 100) / 100 * 0.02 + brightness_bias
     al_c, al_b = auto_levels_params(levels)
     norm_stage = f"eq=contrast={al_c:.4f}:brightness={al_b:.4f}," if (al_c != 1.0 or al_b != 0.0) else ""
     wb_r, wb_g, wb_b = auto_wb_params(wb)
@@ -5511,7 +5520,14 @@ QUERY_ERA_ANCHORS = tuple(
     CHANNEL_PROFILE.get("query_era_anchors", _QUERY_ERA_ANCHORS_DEFAULT)
 )
 
-def lint_authored_queries(authored_queries):
+# Сколько слотов на ОДИН авторский запрос уже считается голодающим пулом.
+# Не измеренный оптимум, а консервативная эвристика от единственного
+# измеренного провала: 30 слотов хука на 3 запроса (10.0) дали 0 годных
+# кадров из 10 по золотому набору опубликованного эпизода.
+QUERY_SLOTS_PER_QUERY_WARN = 5.0
+
+
+def lint_authored_queries(authored_queries, blocks=None):
     """Авторский запрос, который просит ровно то, что канал сам запрещает.
 
     РЕАЛЬНЫЙ найденный случай (07.09), из-за которого этот линт и написан.
@@ -5570,6 +5586,42 @@ def lint_authored_queries(authored_queries):
               f"дало ботинок Caterpillar, «muddy trench» — окоп ПМВ):")
         for section, q in unanchored:
             print(f"    {section}: «{q}» -> добавь предметный/эпохальный якорь")
+
+    # Третья ось, добавлена 13.09 по РЕАЛЬНОМУ провалу хука эпизода 01:
+    # годность кадров хука по золотому набору — 0 из 10. Разбор показал, что
+    # дело не в гейтах (их правки закрыли и метафору «milk bottle hand», и
+    # современное вторжение), а в ПЛОТНОСТИ ПУЛА: на 30 слотов хука
+    # приходилось 3 авторских запроса, то есть с каждого требовалось 10
+    # РАЗНЫХ годных кадров подряд. Дедуп по id/aHash заставляет брать 7-й и
+    # 8-й результат выдачи, где по узкому средневековому запросу уже нет ни
+    # Европы, ни рыцарей — система честно показывает «лучшее из плохого».
+    #
+    # Увидеть это было негде: обе оси выше смотрят на ТЕКСТ запроса и ничего
+    # не знают о том, сколько слотов он должен закрыть. Порог — не измеренный
+    # оптимум, а консервативная эвристика от единственного измеренного
+    # провала (10.0 слотов на запрос = 0 годных кадров из 10); ничего не
+    # блокирует, печатается один раз за прогон.
+    if blocks:
+        per_section = {}
+        for b in blocks:
+            key = str(b.get("section", "")).split(":")[0].strip()
+            per_section[key] = per_section.get(key, 0) + 1
+        starved = []
+        for section, pool in sorted((authored_queries or {}).items()):
+            n_q = len([q for q in (pool or []) if q])
+            if not n_q:
+                continue
+            n_slots = per_section.get(section.replace("_", " ").strip(), 0)
+            if n_slots and n_slots / n_q > QUERY_SLOTS_PER_QUERY_WARN:
+                starved.append((section, n_slots, n_q, n_slots / n_q))
+        if starved:
+            print(f"  ВНИМАНИЕ: {len(starved)} секци(й) с голодающим пулом — на один "
+                  f"авторский запрос приходится больше {QUERY_SLOTS_PER_QUERY_WARN} слотов, "
+                  f"то есть с него требуется столько РАЗНЫХ годных кадров подряд "
+                  f"(на хуке эпизода 01 это дало 0 годных кадров из 10):")
+            for section, n_slots, n_q, ratio in sorted(starved, key=lambda z: -z[3]):
+                print(f"    {section}: {n_slots} слотов на {n_q} запрос(ов) = "
+                      f"{ratio:.1f} на запрос -> допиши запросов в === PEXELS QUERIES ===")
     return hits
 
 
@@ -10966,7 +11018,7 @@ def main():
     if authored_queries:
         print(f"  Авторские PEXELS QUERIES: {sum(len(v) for v in authored_queries.values())} "
               f"запрос(ов) на {len(authored_queries)} секци(й)")
-        lint_authored_queries(authored_queries)
+        lint_authored_queries(authored_queries, blocks)
     queries = resolve_queries(blocks, authored_queries=authored_queries)
     # Пул запросов СЕКЦИИ на каждый блок (см. extra_queries в pexels_photo).
     # Раньше авторские запросы раздавались блокам ПОЗИЦИОННО ПО КРУГУ
