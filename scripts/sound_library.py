@@ -923,10 +923,20 @@ def import_file(src, dst, kind, dur):
     peak_target = AMBIENCE_PEAK_DBFS if kind == "ambience" else SFX_PEAK_DBFS
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     if kind != "ambience":
-        r = _run(["ffmpeg", "-v", "info", "-i", src, "-af", "volumedetect", "-f", "null", "-"])
+        # Пик меряется ПОСЛЕ приведения к 48к/стерео, а не у исходника.
+        # Реальный найденный перекос: ffmpeg при mono -> stereo применяет
+        # -3 дБ на канал (сохраняет суммарную мощность), и эффект из моно
+        # выходил на 3 дБ тише объявленного пика. На слух это значило, что
+        # варианты ОДНОГО эффекта звучат на 3 дБ врозь случайным образом
+        # (замер: стерео-исходники ровно -10.0, моно -13.0..-13.2).
+        conv = os.path.join(CACHE_DIR, "sfx_" + hashlib.sha1(dst.encode()).hexdigest()[:12] + ".wav")
+        if _run(["ffmpeg", "-y", "-v", "error", "-i", src,
+                 "-ar", "48000", "-ac", "2", conv]).returncode != 0:
+            return False
+        r = _run(["ffmpeg", "-v", "info", "-i", conv, "-af", "volumedetect", "-f", "null", "-"])
         m = re.findall(r"max_volume:\s*(-?[\d.]+) dB", r.stderr)
         gain = peak_target - (float(m[-1]) if m else 0.0)
-        return _run(["ffmpeg", "-y", "-v", "error", "-i", src, "-af", f"volume={gain:.2f}dB",
+        return _run(["ffmpeg", "-y", "-v", "error", "-i", conv, "-af", f"volume={gain:.2f}dB",
                      "-ar", "48000", "-ac", "2", "-c:a", "flac", "-compression_level", "8",
                      dst]).returncode == 0
 

@@ -360,3 +360,14 @@ def test_crossfade_duration_comes_from_the_extracted_pieces():
     assert "probe_duration(head)" in body and "probe_duration(tail)" in body
     assert "math.floor(d * 1000)" in body
     assert body.index("math.floor(d * 1000)") < body.index("[0:a][1:a]acrossfade")
+
+
+def test_sfx_peak_is_measured_after_channel_conversion():
+    """Реальный найденный перекос: ffmpeg при mono -> stereo применяет -3 дБ
+    на канал, и эффект из моно выходил на 3 дБ тише объявленного пика — то
+    есть варианты ОДНОГО эффекта звучали врозь случайным образом (замер:
+    стерео-исходники ровно -10.0, моно -13.0..-13.2)."""
+    src = inspect.getsource(sl.import_file)
+    head = src.split('if kind != "ambience":')[1].split("lufs, _, _")[0]
+    assert '"-ac", "2", conv' in head, "сначала приведение к стерео"
+    assert head.index('"-ac", "2", conv') < head.index("volumedetect")
