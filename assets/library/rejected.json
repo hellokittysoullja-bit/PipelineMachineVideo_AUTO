@@ -3575,5 +3575,154 @@
   "title": "Ambience Outdoor River Wind Riu Besos Singuerlin",
   "kind": "ambience",
   "name": "river_stream"
+ },
+ {
+  "id": "freesound:b7858c99-1a8d-4103-917f-4ba387e0e095",
+  "title": "Punch 2",
+  "kind": "sfx",
+  "name": "chapter_turn",
+  "reasons": [
+   "title:punch"
+  ]
+ },
+ {
+  "id": "freesound:518ead89-8e89-4614-b954-bb7a844f3c42",
+  "title": "Fast Sword Swing Sound",
+  "kind": "sfx",
+  "name": "chapter_turn",
+  "reasons": [
+   "title:sword"
+  ]
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 0.576,
+  "clipping_share": 0.005785,
+  "id": "freesound:416a411f-c8e5-4279-a985-466c19f21794",
+  "title": "13th Whoosh Swing Sound",
+  "kind": "sfx",
+  "name": "chapter_turn"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 0.504,
+  "clipping_share": 0.002421,
+  "id": "freesound:b7ae7822-8ec5-4a82-b6f8-d539b51caa61",
+  "title": "Swipe Whoosh",
+  "kind": "sfx",
+  "name": "chapter_turn"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 0.48,
+  "clipping_share": 0.000351,
+  "id": "freesound:7843f159-6886-426c-9d36-85f0d8d775f9",
+  "title": "Swoosh 15 Windy",
+  "kind": "sfx",
+  "name": "chapter_turn"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 0.384,
+  "clipping_share": 0.003597,
+  "id": "freesound:c13b364e-9ee9-40a5-a8f7-2ee14af565d3",
+  "title": "swosh-08.flac - 'stick cutting air'",
+  "kind": "sfx",
+  "name": "chapter_turn"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 1.752,
+  "id": "freesound:b20a62c8-e952-4e37-9165-785371ef7e21",
+  "title": "wipe3.wav",
+  "kind": "sfx",
+  "name": "chapter_turn"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 1.296,
+  "clipping_share": 0.001343,
+  "id": "freesound:87747d96-4e00-4c30-b72b-17dfe7682e6b",
+  "title": "Fast Warp In",
+  "kind": "sfx",
+  "name": "chapter_turn"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 0.84,
+  "clipping_share": 0.000107,
+  "id": "freesound:4015d3f1-8c89-4871-aa62-24ed015ee62b",
+  "title": "whip01.wav",
+  "kind": "sfx",
+  "name": "chapter_turn"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 0.72,
+  "clipping_share": 0.000591,
+  "id": "freesound:6f89faae-61ba-47fd-bd9e-a1a0b7c0f62f",
+  "title": "whip02.wav",
+  "kind": "sfx",
+  "name": "chapter_turn"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 0.624,
+  "clipping_share": 0.001665,
+  "id": "freesound:2010de05-225d-4f4b-82c1-bfa0625cc8e0",
+  "title": "swosh-03.flac",
+  "kind": "sfx",
+  "name": "chapter_turn"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 0.6,
+  "clipping_share": 0.001447,
+  "id": "freesound:1fbddd97-208e-47a0-ba02-f59638f9b290",
+  "title": "Slow Swosh 40",
+  "kind": "sfx",
+  "name": "chapter_turn"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 0.48,
+  "clipping_share": 0.001837,
+  "id": "freesound:d3884069-9894-4d58-90a3-2a5200c607a9",
+  "title": "whip03.wav",
+  "kind": "sfx",
+  "name": "chapter_turn"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 0.336,
+  "clipping_share": 0.004591,
+  "id": "freesound:ffe271d9-f7c0-4d40-98be-2f1da058154c",
+  "title": "SWOSH-01 44.1kHz.flac",
+  "kind": "sfx",
+  "name": "chapter_turn"
  }
 ]
