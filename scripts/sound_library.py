@@ -62,7 +62,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LIBRARY_ROOT = os.path.join(ROOT, "assets", "library")
 MANIFEST_PATH = os.path.join(LIBRARY_ROOT, "manifest.json")
 CACHE_DIR = os.path.join(ROOT, "temp_library")
-UA = "PipelineMachineVideo/1.0 (+sound library, CC0 only)"
+# Браузерный User-Agent — тот же урок, что у Pexels в pipeline_smart.py
+# («urllib с браузерным User-Agent, иначе Cloudflare 403»): Openverse за
+# Cloudflare периодически отвечал на «PipelineMachineVideo/1.0» страницей
+# «Just a moment...» (HTTP 403), по одному запросу на вид.
+UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
 
 OPENVERSE_AUDIO = "https://api.openverse.org/v1/audio/"
 FREESOUND_SEARCH = "https://freesound.org/apiv2/search/text/"
@@ -240,7 +245,7 @@ def _get_json(url, headers=None, timeout=40, retries=3):
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 return json.load(r)
         except urllib.error.HTTPError as e:
-            if e.code == 429 and attempt < retries:
+            if e.code in (429, 403, 502, 503) and attempt < retries:
                 time.sleep(20.0 * (attempt + 1))
                 continue
             raise
