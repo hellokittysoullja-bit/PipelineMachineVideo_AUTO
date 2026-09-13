@@ -1678,12 +1678,28 @@ def test_wrap_caption_text_never_loses_words_beyond_max_lines():
 
 
 def test_write_subtitles_wraps_long_block(tmp_path):
+    """Длинный блок не выезжает за стандарт субтитра.
+
+    Тест раньше проверял РЕАЛИЗАЦИЮ ("весь блок целиком лежит в файле
+    одним cue"), а не намерение, и тем самым фиксировал сам дефект:
+    _wrap_caption_text() дописывает не влезший остаток в последнюю
+    строку, поэтому "один cue на блок" гарантированно давал строку
+    длиннее стандарта на каждом длинном блоке (замер на реальном
+    сценарии — 36% cue, до 139 символов в строке). Теперь длинный блок
+    показывается несколькими cue подряд (_split_caption_into_cues), и
+    проверяется то, ради чего тест и писался: ни одной строки сверх
+    лимита и ни одного потерянного слова."""
     raw_text = ("Обычный одноручный рыцарский меч — рабочая лошадка всего "
                 "средневековья — весит от килограмма до полутора")
     blocks = [{"text": raw_text, "pause_after": 0.0}]
     path = pipeline_smart.write_subtitles(str(tmp_path), blocks, [0.0], [8.0])
     content = open(path, encoding="utf-8").read()
-    assert pipeline_smart._wrap_caption_text(raw_text) in content
+    body_lines = [l for chunk in content.strip().split("\n\n")
+                  for l in chunk.split("\n")[2:] if l.strip()]
+    assert body_lines
+    for line in body_lines:
+        assert len(line) <= pipeline_smart.SRT_MAX_LINE_CHARS, line
+    assert " ".join(body_lines).split() == raw_text.split()
 
 
 # ---------- _load_arc_stage_by_index (arc-stage awareness Look Management/Visual Director) ----------

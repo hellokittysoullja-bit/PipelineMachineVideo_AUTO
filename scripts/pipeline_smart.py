@@ -6112,6 +6112,102 @@ def _wrap_caption_text(text, max_line_chars=SRT_MAX_LINE_CHARS, max_lines=SRT_MA
     return "\n".join(lines)
 
 
+# Сколько текста реально помещается в один субтитр-кадр по тому же стандарту
+# (SRT_MAX_LINES строк по SRT_MAX_LINE_CHARS символов). Всё, что длиннее,
+# физически не может быть показано за раз — см. _split_caption_into_cues().
+SRT_MAX_CUE_CHARS = SRT_MAX_LINE_CHARS * SRT_MAX_LINES
+
+
+def _split_caption_into_cues(text, max_chars=SRT_MAX_CUE_CHARS,
+                             max_line_chars=SRT_MAX_LINE_CHARS,
+                             max_lines=SRT_MAX_LINES):
+    """Разбить текст ОДНОГО блока на несколько последовательных субтитр-cue.
+
+    РЕАЛЬНЫЙ, ИЗМЕРЕННЫЙ дефект готового файла (не гипотеза). До этой
+    функции write_subtitles() писала строго один cue на блок, а
+    _wrap_caption_text() честно признавала в своём докстринге, что остаток,
+    не влезший в SRT_MAX_LINES строк, дописывается В ПОСЛЕДНЮЮ строку
+    ("длиннее стандарта, но ничего не теряется"). Прямой прогон по
+    videos/02_ne-mechom/script.txt: 94 cue из 259 (36%) получали строку
+    длиннее стандарта 42 символа, САМАЯ ДЛИННАЯ — 139 символов. На
+    YouTube это не "чуть длиннее": плеер переносит такую строку сам и
+    закрывает текстом треть кадра поверх картинки, ради которой весь
+    остальной пайплайн и работает.
+
+    Причина дефекта была не в переносе, а в единице нарезки: у блока после
+    split_long_blocks() может быть 35+ слов и 14 секунд окна — это не один
+    субтитр, это три. Показывать их одновременно нельзя, а резать было
+    нечем.
+
+    Разбивка жадная по границам слов (никогда внутри слова) с ВЫРАВНИВАНИЕМ:
+    сначала считаем, сколько cue нужно минимум (n = ceil(len/max_chars)), и
+    наполняем до len/n, а не до max_chars. Без выравнивания жадность даёт
+    хвост вида "и всё." отдельным кадром — одинокий обрывок на экране
+    читается как сбой вёрстки, ровно тот же класс претензии, из-за которого
+    fallback_card.py выбирает ЗАКОНЧЕННУЮ клаузу, а не обрезанную первую.
+
+    Текст, который и так влезает в один субтитр-кадр, возвращается ОДНИМ
+    элементом — для таких блоков вывод write_subtitles() остаётся
+    байт-в-байт прежним. Проверка «влезает» — не по длине в символах,
+    а прогоном через сам _wrap_caption_text() (цикл ниже): 11 блоков
+    того же эпизода короче max_chars и всё равно не укладывались в две
+    строки, потому что ломаются по словам неудачно — ранний выход по
+    длине их и пропускал.
+    """
+    words = (text or "").split()
+    if not words:
+        return [text or ""]
+
+    def _fits(chunk):
+        wrapped = _wrap_caption_text(chunk).split("\n")
+        return len(wrapped) <= max_lines and all(len(l) <= max_line_chars for l in wrapped)
+
+    def _fill(limit_chars):
+        """Жадно набирает cue, пока следующий шаг не ломает стандарт.
+        limit_chars — мягкая цель по длине (для балансировки); жёсткое
+        условие всегда одно и то же — _fits(), то есть РЕАЛЬНЫЙ перенос."""
+        out, cur = [], ""
+        for w in words:
+            cand = f"{cur} {w}".strip()
+            if cur and (len(cand) > limit_chars or not _fits(cand)):
+                out.append(cur)
+                cur = w
+            else:
+                cur = cand
+        if cur:
+            out.append(cur)
+        return out
+
+    # Шаг 1 — максимально плотная набивка: даёт МИНИМАЛЬНО возможное число
+    # cue. Минимальное здесь важно не из экономии: каждый лишний cue режет
+    # окно блока на более короткие куски, а cue короче ~0.7с читается как
+    # мигание, а не как субтитр (реальный регресс первой версии этой
+    # функции — она дробила на n частей "по формуле" и на 259 блоках
+    # эпизода 02 дала 44 cue короче 0.7с, которых до неё не было ни одного).
+    packed = _fill(max_chars)
+    # Шаг 2 — балансировка на ТО ЖЕ число cue: жадная набивка оставляет
+    # хвост вида "и всё." отдельным кадром, а одинокий обрывок на экране
+    # читается как сбой вёрстки (тот же класс претензии, из-за которого
+    # fallback_card.py берёт ЗАКОНЧЕННУЮ клаузу, а не обрезанную первую).
+    # Берём балансировку ТОЛЬКО если она не увеличила число cue и каждый
+    # кусок по-прежнему проходит _fits(); иначе остаётся плотный вариант.
+    if len(packed) > 1:
+        total = len(" ".join(words))
+        # Перебор мягкой цели от самой ровной (total/n) до плотной
+        # (max_chars): первая, что укладывается в то же число cue и
+        # проходит _fits() — самая ровная из возможных. Одной попытки
+        # (ровно total/n) не хватает: на неудачной границе слова она
+        # ломается, и код откатывался на плотный вариант с хвостом в 4
+        # символа — 14 таких сирот на эпизоде 02. Перебор конечен и
+        # заведомо результативен: на limit == max_chars он вырождается
+        # ровно в packed.
+        for limit in range(math.ceil(total / len(packed)), max_chars + 1):
+            balanced = _fill(limit)
+            if len(balanced) <= len(packed) and all(_fits(c) for c in balanced):
+                return balanced
+    return packed
+
+
 def write_subtitles(video_dir, blocks, starts, durs, real_weights=None):
     """SRT — бесплатный побочный продукт уже посчитанного тайминга: реальный
     посимвольный alignment.csv (см. load_alignment_weights) уже участвует в
@@ -6141,15 +6237,32 @@ def write_subtitles(video_dir, blocks, starts, durs, real_weights=None):
         text = b["text"].strip()
         if not text:
             continue
-        text = _wrap_caption_text(text)
         pause_after = b.get("pause_after") or 0.0
         w = real_weights[i] if (real_weights and i < len(real_weights) and real_weights[i]) else None
         visible_d = d * (1.0 - pause_after / (w + pause_after)) if (pause_after > 0 and w) else d
-        n += 1
-        lines.append(str(n))
-        lines.append(f"{_srt_timestamp(s)} --> {_srt_timestamp(s + max(visible_d, 0.3))}")
-        lines.append(text)
-        lines.append("")
+        # Блок длиннее одного субтитр-кадра показывается НЕСКОЛЬКИМИ cue
+        # подряд (см. _split_caption_into_cues): окно блока делится между
+        # ними ПРОПОРЦИОНАЛЬНО числу символов. Это оценка внутри блока, но
+        # строго более точная, чем то, что было: раньше весь текст блока
+        # висел на экране целиком всё его окно, то есть последняя фраза
+        # блока показывалась с самого начала — за секунды до того, как её
+        # произнесут. Границы cue вычисляются нарастающим итогом от одного
+        # и того же старта, чтобы они плотно покрыли окно без щелей и
+        # нахлёстов (та же дисциплина "квантуем границы, а не длительности",
+        # что и в phrase_locked_durations).
+        cues = _split_caption_into_cues(text)
+        chars_total = sum(len(c) for c in cues) or 1
+        acc_chars = 0
+        for c in cues:
+            cue_start = s + visible_d * (acc_chars / chars_total)
+            acc_chars += len(c)
+            cue_end = s + visible_d * (acc_chars / chars_total)
+            n += 1
+            lines.append(str(n))
+            lines.append(f"{_srt_timestamp(cue_start)} --> "
+                         f"{_srt_timestamp(max(cue_end, cue_start + 0.3))}")
+            lines.append(_wrap_caption_text(c))
+            lines.append("")
     open(path, "w", encoding="utf-8").write("\n".join(lines))
     return path
 
