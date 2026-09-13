@@ -76,6 +76,26 @@ SAFE_LICENSES = ("cc0",)
 AMBIENCE_PEAK_DBFS = -12.0
 SFX_PEAK_DBFS = -10.0
 AMBIENCE_MAX_SEC = 180.0
+# Обработка атмосферы при импорте — по трём дефектам, найденным замером на
+# 29 принятых записях (13.09), а не по общим соображениям:
+#  * ШОВ ЗАЦИКЛИВАНИЯ. Запись крутится под главой в 2-11 минут через
+#    -stream_loop, а её конец и начало не совпадают: разброс от +25.1 дБ
+#    (конец громче начала) до -137.9 дБ (файл кончается тишиной от
+#    авторского fade-out). Каждый круг — слышимый рез. У синтезированных
+#    ассетов это решал _seamless() в генераторе, у записей не решал никто.
+#  * МОНО, РАСТИРАЖИРОВАННОЕ В ДВА КАНАЛА. У трёх принятых записей
+#    корреляция каналов ровно 1.000, у одной вообще NaN (второй канал
+#    пустой) — то есть ровно тот дефект, за который я сам критиковал свою
+#    первую версию синтеза: фон схлопывается в точку и садится в центр, где
+#    идёт голос.
+#  * НЧ-МУСОР. Доля энергии ниже 40 Гц доходит до 0.906 (ночь), 0.862 (лес),
+#    0.523-0.584 (ветер, огонь) — микрофонный ветровой «бум» и рокот. Под
+#    закадром это мутная подложка, а не атмосфера.
+AMBIENCE_LOOP_XFADE_SEC = 3.0     # шов: хвост подмешивается в начало
+AMBIENCE_HIGHPASS_HZ = 70.0       # срез рокота; голос начинается выше
+AMBIENCE_WIDEN_DELAY_SEC = 2.3    # моно -> два канала с разным сдвигом
+MONO_CORRELATION = 0.98           # выше этого запись считается моно
+LF_SHARE_WARN = 0.35              # доля энергии <40 Гц ДО обработки, в отчёт
 CLAP_WINDOW_SEC = 10.0
 CLAP_WINDOW_FRACS = (0.15, 0.5, 0.85)
 
@@ -202,7 +222,10 @@ LIBRARY_SPEC = {
             queries=["market crowd ambience", "crowd murmur walla", "village market crowd",
                      "medieval fair crowd", "outdoor crowd ambience distant", "crowd walla outdoor",
                      "distant crowd murmur", "people murmur background", "busy street market ambience"],
-            prompt="distant murmur of a crowd at an outdoor market, indistinct voices, no clear words",
+            # Промпт описывает то, ЧЕМ запись является, а не чего в ней нет:
+            # формулировка «no clear words» давала положительный скор 0.03-0.09
+            # на настоящих рыночных записях, то есть ниже порога уверенности.
+            prompt="many people talking at once outdoors, busy crowd, hubbub of voices",
             # Цель — голоса, поэтому общая ловушка «people talking» здесь
             # неприменима (первый прогон: 0 из 30, все — ей). Свой список:
             # разборчивая речь одного человека, громкоговоритель, музыка,
@@ -460,6 +483,33 @@ def silence_share(path, duration, lufs=None):
     return total / min(duration, 190.0) if duration else 0.0
 
 
+def channel_correlation(path, seconds=8.0):
+    """Корреляция левого и правого канала. ~1.0 — моно, растиражированное в
+    стерео; NaN (пустой канал) считается моно."""
+    import numpy as np
+    r = subprocess.run(["ffmpeg", "-v", "error", "-t", f"{seconds}", "-i", path,
+                        "-f", "f32le", "-ac", "2", "-ar", "48000", "-"], capture_output=True)
+    a = np.frombuffer(r.stdout, dtype=np.float32)
+    if a.size < 9600:
+        return 1.0
+    a = a.reshape(-1, 2).T
+    if a[0].std() < 1e-9 or a[1].std() < 1e-9:
+        return 1.0
+    c = float(np.corrcoef(a[0], a[1])[0, 1])
+    return 1.0 if c != c else c
+
+
+def lf_share(samples, sr=48000, cutoff=40.0):
+    """Доля энергии ниже cutoff — микрофонный рокот у полевых записей."""
+    import numpy as np
+    n = min(samples.size, sr * 8)
+    if n < sr:
+        return 0.0
+    X = np.abs(np.fft.rfft(samples[:n] * np.hanning(n))) ** 2
+    f = np.fft.rfftfreq(n, 1.0 / sr)
+    return float(X[f < cutoff].sum() / (X[f < 12000].sum() + 1e-12))
+
+
 def clipping_share(samples):
     import numpy as np
     if samples.size == 0:
@@ -561,7 +611,7 @@ def ast_probs(windows16k, labels):
 def _measure_key(path, spec):
     negs = negatives_for(spec)
     raw = "|".join([os.path.basename(path), str(os.path.getsize(path)), spec["prompt"], *negs,
-                    "clap:laion/larger_clap_general", "ast:MIT/ast-finetuned-audioset-10-10-0.4593", "v4"])
+                    "clap:laion/larger_clap_general", "ast:MIT/ast-finetuned-audioset-10-10-0.4593", "v5"])
     return hashlib.sha1(raw.encode()).hexdigest()[:20]
 
 
@@ -598,6 +648,8 @@ def measure(path, kind, spec):
     m["clipping_share"] = round(max(clipping_share(w) for w in win48), 6)
     if kind == "ambience":
         m["hum_db"] = round(max(hum_prominence_db(w, 48000) for w in win48), 1)
+        m["lf_share"] = round(max(lf_share(w) for w in win48), 3)
+        m["channel_corr"] = round(channel_correlation(path), 3)
         lufs, lra, tp = measure_loudness(path)
         m.update(lufs=lufs, lra=lra, true_peak=tp)
         m["silence_share"] = round(silence_share(path, dur, lufs), 3)
@@ -636,7 +688,9 @@ def judge(m, kind, spec):
         v["reasons"].append("clipping")
     if kind == "ambience":
         v.update(hum_db=m.get("hum_db"), silence_share=m.get("silence_share"),
-                 lufs=m.get("lufs"), lra=m.get("lra"), true_peak=m.get("true_peak"))
+                 lufs=m.get("lufs"), lra=m.get("lra"), true_peak=m.get("true_peak"),
+                 lf_share=m.get("lf_share"), channel_corr=m.get("channel_corr"),
+                 mono=bool((m.get("channel_corr") or 0) >= MONO_CORRELATION))
         if (m.get("hum_db") or 0) > HUM_PROMINENCE_DB:
             v["reasons"].append("mains_hum")
         if (m.get("silence_share") or 0) > AMB_MAX_SILENCE_SHARE:
@@ -675,23 +729,90 @@ def evaluate(item, path, kind, name, spec):
     return v
 
 
+def _trim_bounds(src, lufs):
+    """(старт, конец) без ведущей и хвостовой тишины — относительно громкости
+    самой записи. Авторский fade-out в конце файла при зацикливании даёт
+    провал в тишину и резкий вход обратно."""
+    noise = max(-70.0, (lufs - 30.0)) if lufs is not None else -50.0
+    r = _run(["ffmpeg", "-v", "info", "-i", src, "-af",
+              f"silencedetect=noise={noise:.0f}dB:d=0.4", "-f", "null", "-"])
+    dur = probe_duration(src) or 0.0
+    start, end = 0.0, dur
+    for m in re.finditer(r"silence_start:\s*(-?[\d.]+)[\s\S]*?silence_end:\s*([\d.]+)", r.stderr):
+        a, b = float(m.group(1)), float(m.group(2))
+        if a <= 0.15:
+            start = max(start, b)
+        if b >= dur - 0.15:
+            end = min(end, a)
+    if end - start < 10.0:
+        return 0.0, dur
+    return start, end
+
+
 def import_file(src, dst, kind, dur):
-    """-> FLAC 48k stereo с объявленным пиком; атмосфера режется до
-    AMBIENCE_MAX_SEC (начиная со 2-й секунды: в начале записей часто шорох
-    рук/кнопки)."""
+    """-> FLAC 48k stereo с объявленным пиком.
+
+    Атмосфера дополнительно приводится к состоянию, в котором её можно
+    крутить под главой (см. константы AMBIENCE_* выше): срез рокота,
+    расширение моно, обрезка тишины по краям и подмешивание хвоста в начало
+    для бесшовной петли. Эффекты не трогаются — они звучат один раз.
+    """
     peak_target = AMBIENCE_PEAK_DBFS if kind == "ambience" else SFX_PEAK_DBFS
-    r = _run(["ffmpeg", "-v", "info", "-i", src, "-af", "volumedetect", "-f", "null", "-"])
-    m = re.findall(r"max_volume:\s*(-?[\d.]+) dB", r.stderr)
-    cur_peak = float(m[-1]) if m else 0.0
-    gain = peak_target - cur_peak
-    cmd = ["ffmpeg", "-y", "-v", "error"]
-    if kind == "ambience":
-        cmd += ["-ss", "2" if dur > AMBIENCE_MAX_SEC + 4 else "0", "-t", f"{AMBIENCE_MAX_SEC:.1f}"]
-    cmd += ["-i", src, "-af", f"volume={gain:.2f}dB", "-ar", "48000", "-ac", "2",
-            "-c:a", "flac", "-compression_level", "8", dst]
     os.makedirs(os.path.dirname(dst), exist_ok=True)
-    r = _run(cmd)
-    return r.returncode == 0
+    if kind != "ambience":
+        r = _run(["ffmpeg", "-v", "info", "-i", src, "-af", "volumedetect", "-f", "null", "-"])
+        m = re.findall(r"max_volume:\s*(-?[\d.]+) dB", r.stderr)
+        gain = peak_target - (float(m[-1]) if m else 0.0)
+        return _run(["ffmpeg", "-y", "-v", "error", "-i", src, "-af", f"volume={gain:.2f}dB",
+                     "-ar", "48000", "-ac", "2", "-c:a", "flac", "-compression_level", "8",
+                     dst]).returncode == 0
+
+    lufs, _, _ = measure_loudness(src)
+    t0, t1 = _trim_bounds(src, lufs)
+    t1 = min(t1, t0 + AMBIENCE_MAX_SEC)
+    body = t1 - t0
+    xf = AMBIENCE_LOOP_XFADE_SEC if body > 4 * AMBIENCE_LOOP_XFADE_SEC else 0.0
+    mono = channel_correlation(src) >= MONO_CORRELATION
+
+    stage = os.path.join(CACHE_DIR, "stage_" + hashlib.sha1(dst.encode()).hexdigest()[:12] + ".wav")
+    pre = [f"highpass=f={AMBIENCE_HIGHPASS_HZ:.0f}"]
+    if mono:
+        # Моно -> два канала с РАЗНЫМ сдвигом одной записи. Для стационарной
+        # текстуры (ветер, дождь, гул) это прозрачно и даёт настоящую
+        # декорреляцию; задержка на секунды, а не миллисекунды, поэтому
+        # гребёнчатой окраски, как у Хааса, не возникает.
+        d = int(AMBIENCE_WIDEN_DELAY_SEC * 1000)
+        pre.append(f"aformat=channel_layouts=mono,asplit=2[wl][wr0];"
+                   f"[wr0]adelay={d}[wr];[wl][wr]join=inputs=2:channel_layout=stereo")
+    r = _run(["ffmpeg", "-y", "-v", "error", "-ss", f"{t0:.3f}", "-t", f"{body:.3f}", "-i", src,
+              "-filter_complex", ",".join(pre) if not mono else
+              f"[0:a]{pre[0]},{pre[1]}", "-ar", "48000", "-ac", "2", stage])
+    if r.returncode != 0:
+        r = _run(["ffmpeg", "-y", "-v", "error", "-ss", f"{t0:.3f}", "-t", f"{body:.3f}", "-i", src,
+                  "-af", f"highpass=f={AMBIENCE_HIGHPASS_HZ:.0f}", "-ar", "48000", "-ac", "2", stage])
+        if r.returncode != 0:
+            return False
+
+    if xf > 0:
+        # Бесшовная петля: хвост длиной xf подмешивается в начало с обратной
+        # кривой, тело идёт следом. Итог короче на xf, зато его конец
+        # переходит в его же начало непрерывно.
+        fc = (f"[0:a]atrim=0:{xf:.3f},asetpts=N/SR/TB[head];"
+              f"[0:a]atrim={xf:.3f}:{body - xf:.3f},asetpts=N/SR/TB[body];"
+              f"[0:a]atrim={body - xf:.3f}:{body:.3f},asetpts=N/SR/TB[tail];"
+              f"[tail][head]acrossfade=d={xf:.3f}:c1=tri:c2=tri[seam];"
+              f"[seam][body]concat=n=2:v=0:a=1[out]")
+        looped = os.path.join(CACHE_DIR, "loop_" + hashlib.sha1(dst.encode()).hexdigest()[:12] + ".wav")
+        if _run(["ffmpeg", "-y", "-v", "error", "-i", stage, "-filter_complex", fc,
+                 "-map", "[out]", "-ar", "48000", "-ac", "2", looped]).returncode == 0:
+            stage = looped
+
+    r = _run(["ffmpeg", "-v", "info", "-i", stage, "-af", "volumedetect", "-f", "null", "-"])
+    m = re.findall(r"max_volume:\s*(-?[\d.]+) dB", r.stderr)
+    gain = peak_target - (float(m[-1]) if m else 0.0)
+    return _run(["ffmpeg", "-y", "-v", "error", "-i", stage, "-af", f"volume={gain:.2f}dB",
+                 "-ar", "48000", "-ac", "2", "-c:a", "flac", "-compression_level", "8",
+                 dst]).returncode == 0
 
 
 def load_manifest():
@@ -771,6 +892,85 @@ def build_kind(kind, name, max_candidates=18, manifest=None, rejected_log=None):
     return kept
 
 
+KIND_DECOYS = {
+    "surf": "ocean waves breaking on a beach, sea surf",
+    "traffic_city": "city street with traffic and cars",
+}
+
+
+def kind_competition(path, want, spec_by_name):
+    """Побеждает ли ЗАЯВЛЕННЫЙ вид среди всех остальных видов атмосферы плюс
+    приманок (прибой, город)?
+
+    Замена акустической части блоклиста по названиям. Признаковый разделитель
+    (периодичность огибающей у прибоя, плотность ВЧ-транзиентов у дождя,
+    НЧ-скос у ветра) проверен на этом же корпусе и НЕ работает: у прибоя
+    периодичность 0.081 — НИЖЕ, чем у ветра (0.097-0.268) и леса
+    (0.076-0.424); плотность транзиентов у дождя 0.007-0.018 — тот же
+    диапазон, что у ветра, леса и реки. Конкуренция видов внутри CLAP на тех
+    же файлах даёт 29 из 30 (единственный промах — моно-запись ветра,
+    которую перебил прибой).
+
+    Возвращает (победитель, отрыв_от_второго, {вид: скор}).
+    """
+    dur = probe_duration(path) or 0.0
+    starts = ([max(0.0, min(dur - CLAP_WINDOW_SEC, f * dur - CLAP_WINDOW_SEC / 2))
+               for f in CLAP_WINDOW_FRACS] if dur > CLAP_WINDOW_SEC + 1 else [0.0])
+    wins = [decode_f32(path, st, min(CLAP_WINDOW_SEC, dur), 48000) for st in starts]
+    wins = [w for w in wins if w.size > 4800]
+    if not wins:
+        return None, 0.0, {}
+    names = list(spec_by_name) + list(KIND_DECOYS)
+    prompts = [spec_by_name[n]["prompt"] for n in spec_by_name] + list(KIND_DECOYS.values())
+    rows = clap_scores(wins, prompts)
+    avg = [sum(r[i] for r in rows) / len(rows) for i in range(len(names))]
+    order = sorted(range(len(names)), key=lambda i: -avg[i])
+    winner = names[order[0]]
+    gap = avg[order[0]] - avg[order[1]]
+    return winner, round(gap, 4), {n: round(v, 4) for n, v in zip(names, avg)}
+
+
+def verify(manifest):
+    """Проверка библиотеки конкуренцией видов: запись, у которой выигрывает
+    ЧУЖОЙ вид, удаляется. Отдельной командой, а не внутри build: конкуренция
+    сравнивает вид со всеми остальными, то есть имеет смысл только когда
+    словарь видов уже собран целиком."""
+    spec_by_name = LIBRARY_SPEC["ambience"]
+    dropped = 0
+    for rel, it in list(manifest["items"].items()):
+        if it.get("kind") != "ambience":
+            continue
+        path = os.path.join(ROOT, rel)
+        if not os.path.exists(path):
+            continue
+        winner, gap, scores = kind_competition(path, it["name"], spec_by_name)
+        it["scores"]["kind_winner"] = winner
+        it["scores"]["kind_gap"] = gap
+        ok = winner == it["name"]
+        print(f"  {'OK ' if ok else '-- '}{it['name']:14s} -> {str(winner):14s} отрыв {gap:+.3f}  {it['title'][:38]!r}")
+        if not ok:
+            os.remove(path)
+            manifest["items"].pop(rel, None)
+            dropped += 1
+    save_manifest(manifest)
+    print(f"Удалено записей, где выигрывает чужой вид: {dropped}")
+    return 0
+
+
+def reimport(manifest):
+    """Переимпортировать библиотеку из кэша скачанного — без поиска и без
+    моделей. Нужно, когда меняется ОБРАБОТКА при импорте (срез рокота,
+    расширение моно, бесшовная петля), а отбор остаётся прежним."""
+    done = 0
+    for rel, it in manifest.get("items", {}).items():
+        dst = os.path.join(ROOT, rel)
+        src = download({"url": it["url"], "title": it.get("title", "")}, "hq")
+        if src and import_file(src, dst, it["kind"], it["scores"].get("duration", 0.0)):
+            done += 1
+    print(f"Переимпортировано: {done}")
+    return 0
+
+
 def restore(manifest):
     """Воспроизвести библиотеку ПО МАНИФЕСТУ: скачать ровно те же файлы по
     тем же URL и импортировать с теми же нормировками — без поиска и без
@@ -793,13 +993,17 @@ def restore(manifest):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("cmd", choices=["build", "report", "restore"])
+    ap.add_argument("cmd", choices=["build", "report", "restore", "reimport", "verify"])
     ap.add_argument("--kinds", default="", help="kind:name через запятую; пусто = всё")
     ap.add_argument("--max", type=int, default=30)
     args = ap.parse_args()
     manifest = load_manifest()
     if args.cmd == "restore":
         return restore(manifest)
+    if args.cmd == "reimport":
+        return reimport(manifest)
+    if args.cmd == "verify":
+        return verify(manifest)
     if args.cmd == "report":
         for rel, it in sorted(manifest["items"].items()):
             print(f"{rel:60s} {it['scores'].get('duration', 0):7.1f}с  margin {it['scores'].get('clap_margin'):+.3f}  {it['title'][:50]!r}")

@@ -130,3 +130,42 @@ def test_title_block_catches_the_real_misses():
     for title in ("WindChimes1.wav", "Big waves breaking and splashing", "Door_and_whistling_wind.mp3"):
         assert sl.title_blocked("wind_open", title), title
     assert sl.title_blocked("wind_open", "Wind blowing across open marshland") is None
+
+
+def test_ambience_import_constants_are_sane():
+    """Три дефекта, найденных замером на 29 принятых записях: шов петли,
+    моно в двух каналах, НЧ-рокот. Константы обработки обязаны остаться
+    в рабочем диапазоне."""
+    assert 1.0 <= sl.AMBIENCE_LOOP_XFADE_SEC <= 6.0
+    assert 40.0 <= sl.AMBIENCE_HIGHPASS_HZ <= 100.0, "выше 100 Гц срежет низ атмосферы"
+    assert sl.AMBIENCE_WIDEN_DELAY_SEC > 0.05, "задержка порядка Хааса дала бы гребёнку"
+    assert 0.9 < sl.MONO_CORRELATION <= 1.0
+
+
+def test_channel_correlation_flags_duplicated_mono(tmp_path):
+    import subprocess
+    mono, stereo = str(tmp_path / "m.wav"), str(tmp_path / "s.wav")
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
+                    "anoisesrc=d=3:c=pink:r=48000", "-ac", "2", mono], check=True)
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "anoisesrc=d=3:c=pink:r=48000:seed=1",
+                    "-f", "lavfi", "-i", "anoisesrc=d=3:c=pink:r=48000:seed=2",
+                    "-filter_complex", "[0:a][1:a]join=inputs=2:channel_layout=stereo",
+                    stereo], check=True)
+    assert sl.channel_correlation(mono) >= sl.MONO_CORRELATION
+    assert sl.channel_correlation(stereo) < sl.MONO_CORRELATION
+
+
+def test_lf_share_separates_rumble_from_clean():
+    sr = 48000
+    t = np.arange(sr * 8) / sr
+    rng = np.random.default_rng(3)
+    clean = rng.normal(0, 0.1, t.size).astype(np.float32)
+    assert sl.lf_share(clean) < 0.05
+    rumble = (clean + 2.0 * np.sin(2 * np.pi * 18.0 * t)).astype(np.float32)
+    assert sl.lf_share(rumble) > 0.5
+
+
+def test_kind_decoys_cover_the_acoustic_neighbours():
+    """Приманки — то, с чем виды реально путаются по звуку, а не по слову."""
+    joined = " ".join(sl.KIND_DECOYS.values()).lower()
+    assert "waves" in joined and "traffic" in joined
