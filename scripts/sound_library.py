@@ -789,6 +789,52 @@ def _trim_bounds(src, lufs):
     return start, end
 
 
+def _seamless_loop(stage, dst, body, xf):
+    """Собрать бесшовную петлю: хвост длиной xf подмешивается в начало с
+    обратной кривой, тело идёт следом. Конец итога переходит в его же начало
+    непрерывно, потому что стык — это одно и то же место исходника.
+
+    Кроссфейд считается ДВУМЯ ОТДЕЛЬНЫМИ ФАЙЛАМИ, а не тремя ветками одного
+    `asplit` в одном filter_complex — и это исправление реального,
+    измеренного бага, а не стилистика. Прежняя версия делала
+    `[0:a]atrim.. -> [tail][head]acrossfade -> concat` в один проход, и
+    acrossfade в такой схеме отдавал ПУСТОЙ поток: на выходе оставалось
+    только тело, то есть «бесшовная петля» не собиралась НИ РАЗУ, ни у
+    одной записи. Видно это было только по длительности (174с вместо 177с)
+    и по замеру щелчка на стыке — код возврата ffmpeg был нулевой.
+    """
+    h = hashlib.sha1(dst.encode()).hexdigest()[:12]
+    head = os.path.join(CACHE_DIR, f"lh_{h}.wav")
+    tail = os.path.join(CACHE_DIR, f"lt_{h}.wav")
+    mid = os.path.join(CACHE_DIR, f"lb_{h}.wav")
+    seam = os.path.join(CACHE_DIR, f"ls_{h}.wav")
+    out = os.path.join(CACHE_DIR, f"loop_{h}.wav")
+    steps = [
+        ["ffmpeg", "-y", "-v", "error", "-i", stage, "-t", f"{xf:.3f}",
+         "-ar", "48000", "-ac", "2", head],
+        ["ffmpeg", "-y", "-v", "error", "-ss", f"{body - xf:.3f}", "-i", stage,
+         "-t", f"{xf:.3f}", "-ar", "48000", "-ac", "2", tail],
+        ["ffmpeg", "-y", "-v", "error", "-ss", f"{xf:.3f}", "-i", stage,
+         "-t", f"{body - 2 * xf:.3f}", "-ar", "48000", "-ac", "2", mid],
+        ["ffmpeg", "-y", "-v", "error", "-i", tail, "-i", head, "-filter_complex",
+         f"[0:a][1:a]acrossfade=d={xf:.3f}:c1=tri:c2=tri[o]", "-map", "[o]",
+         "-ar", "48000", "-ac", "2", seam],
+    ]
+    for cmd in steps:
+        if _run(cmd).returncode != 0:
+            return None
+    # шов обязан быть непустым: именно молчаливая пустота и была багом
+    if not probe_duration(seam):
+        return None
+    lst = os.path.join(CACHE_DIR, f"lc_{h}.txt")
+    with open(lst, "w", encoding="utf-8") as f:
+        f.write("file '%s'\nfile '%s'\n" % (os.path.abspath(seam), os.path.abspath(mid)))
+    if _run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", lst,
+             "-ar", "48000", "-ac", "2", out]).returncode != 0:
+        return None
+    return out if probe_duration(out) else None
+
+
 def _widen_mono(stage, dst):
     """Моно -> два канала КРУГОВЫМ сдвигом одной записи, после сборки петли.
 
@@ -856,17 +902,8 @@ def import_file(src, dst, kind, dur):
         return False
 
     if xf > 0:
-        # Бесшовная петля: хвост длиной xf подмешивается в начало с обратной
-        # кривой, тело идёт следом. Итог короче на xf, зато его конец
-        # переходит в его же начало непрерывно.
-        fc = (f"[0:a]atrim=0:{xf:.3f},asetpts=N/SR/TB[head];"
-              f"[0:a]atrim={xf:.3f}:{body - xf:.3f},asetpts=N/SR/TB[body];"
-              f"[0:a]atrim={body - xf:.3f}:{body:.3f},asetpts=N/SR/TB[tail];"
-              f"[tail][head]acrossfade=d={xf:.3f}:c1=tri:c2=tri[seam];"
-              f"[seam][body]concat=n=2:v=0:a=1[out]")
-        looped = os.path.join(CACHE_DIR, "loop_" + hashlib.sha1(dst.encode()).hexdigest()[:12] + ".wav")
-        if _run(["ffmpeg", "-y", "-v", "error", "-i", stage, "-filter_complex", fc,
-                 "-map", "[out]", "-ar", "48000", "-ac", "2", looped]).returncode == 0:
+        looped = _seamless_loop(stage, dst, body, xf)
+        if looped:
             stage = looped
 
     if mono:

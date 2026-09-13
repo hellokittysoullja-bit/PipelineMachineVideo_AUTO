@@ -263,7 +263,7 @@ def test_mono_widening_happens_after_the_loop_is_built():
     """
     src = inspect.getsource(sl.import_file)
     assert "adelay" not in src, "adelay удлиняет файл и ломает петлю"
-    assert src.index("acrossfade") < src.index("_widen_mono("), \
+    assert src.index("_seamless_loop(") < src.index("_widen_mono("), \
         "расширение обязано идти ПОСЛЕ сборки петли"
 
 
@@ -277,3 +277,33 @@ def test_mono_widening_is_a_circular_shift_not_a_delay():
     assert "adelay" not in body
     # слишком короткую запись поворот не делает независимой — не трогаем
     assert "dur <= 3 * shift" in src
+
+
+def test_seamless_loop_is_built_from_separate_files():
+    """Реальный, измеренный баг: прежняя версия делала
+    atrim -> acrossfade -> concat в ОДНОМ filter_complex, и acrossfade в
+    такой схеме отдавал ПУСТОЙ поток — на выходе оставалось только тело,
+    то есть бесшовная петля не собиралась НИ РАЗУ ни у одной записи.
+    Код возврата ffmpeg при этом был нулевой; видно было только по
+    длительности (174с вместо 177с).
+    """
+    src = inspect.getsource(sl._seamless_loop)
+    body = src.split('"""')[-1]
+    # кроссфейд считается двумя ОТДЕЛЬНЫМИ входами-файлами
+    assert '"-i", tail, "-i", head' in body
+    assert "asplit" not in body and "[0:a]atrim" not in body
+
+
+def test_seamless_loop_refuses_an_empty_seam():
+    """Пустой шов — это и был баг. Молчать про него нельзя."""
+    body = inspect.getsource(sl._seamless_loop).split('"""')[-1]
+    assert "if not probe_duration(seam):" in body
+    assert body.index("probe_duration(seam)") < body.index("concat")
+
+
+def test_import_falls_back_to_unlooped_audio_if_loop_fails():
+    """Не собралась петля — запись всё равно идёт в библиотеку, просто без
+    петли: пустой слот хуже слышимого стыка раз в три минуты."""
+    src = inspect.getsource(sl.import_file)
+    assert "looped = _seamless_loop(" in src
+    assert "if looped:" in src
