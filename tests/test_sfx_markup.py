@@ -165,8 +165,16 @@ def test_object_density_is_stricter_than_service_effects():
 
 
 def test_bed_and_point_get_different_levels():
-    """Подзвучник тише точечного удара: это фон под фразой, не сцена."""
-    assert sfx_plan.OBJECT_BED_GAIN_DB < sfx_plan.OBJECT_POINT_GAIN_DB
+    """Подзвучник тише точечного удара — но проверяется это по ЦЕЛЕВОМУ
+    РАЗРЫВУ, а не по усилению в дБ.
+
+    Первая версия теста требовала OBJECT_BED_GAIN_DB < OBJECT_POINT_GAIN_DB
+    и была НЕВЕРНА: у полевой записи фона громкость низкая относительно
+    пика, и чтобы попасть в свой (более тихий) коридор, ей нужно БОЛЬШЕ
+    усиления, чем резкому удару. Порядок чисел в дБ противоположен порядку
+    громкостей — ровно то, из-за чего объявленные уровни и разъехались.
+    """
+    assert sfx_plan.OBJECT_BED_GAP_LU > sfx_plan.OBJECT_POINT_GAP_LU
     blocks, starts, weights = _episode({1: [{"name": "fire", "word_pos": 2}],
                                         6: [{"name": "hammer", "word_pos": 2}]})
     acc, _ = sfx_plan.plan_sfx_cues(blocks, starts, weights, 200.0,
@@ -174,7 +182,6 @@ def test_bed_and_point_get_different_levels():
     by = {c["name"]: c for c in acc if c["kind"] == "object"}
     assert by["fire"]["cls"] == sfx_plan.OBJECT_CLASS_BED
     assert by["hammer"]["cls"] == sfx_plan.OBJECT_CLASS_POINT
-    assert by["fire"]["gain_db"] < by["hammer"]["gain_db"]
 
 
 def test_no_markup_means_no_object_layer_at_all():
@@ -248,3 +255,63 @@ def test_resolver_returns_none_for_unknown_concept():
 
     assert ps.object_asset_for("определённо_нет_такого_звука") is None
     assert ps.object_asset_for("") is None
+
+
+# ------------------------------------------------------------- уровни
+def test_levels_are_targets_in_lu_not_declared_decibels():
+    """Уровни задаются РАЗРЫВОМ с голосом и выводятся замером. Прямая
+    причина, измеренная на реальных ассетах против голоса на -16 LUFS:
+    объявленные -20 дБ давали точке 22.0 LU под голосом при цели 26-30
+    (на 4 дБ громче — удар выскакивал бы поверх реплики), а -26 дБ давали
+    подзвучнику 52.1 LU при цели 30-34 (на 18 дБ тише, не слышно).
+
+    Обе ошибки от одной причины: нормировка библиотеки задаёт ПИК, а не
+    громкость. Ровно на этом уже сгорела музыкальная подложка.
+    """
+    assert sfx_plan.OBJECT_POINT_GAP_LU == 28.0
+    assert sfx_plan.OBJECT_BED_GAP_LU == 32.0
+    # подзвучник обязан быть тише точки
+    assert sfx_plan.OBJECT_BED_GAP_LU > sfx_plan.OBJECT_POINT_GAP_LU
+    # и он не громче атмосферы места — это подзвучник под фразой, не сцена
+    import ambience_plan
+    assert sfx_plan.OBJECT_BED_GAP_LU >= ambience_plan.AMBIENCE_GAP_LU
+
+
+def test_gain_is_measured_against_this_voice_and_this_asset():
+    import inspect
+
+    import pipeline_smart as ps
+
+    src = inspect.getsource(ps.object_gain_db)
+    assert "measure_max_momentary_lufs" in src or "_object_gain_cached" in src
+    assert "fallback_constant" in src, "не измерилось — честная константа и предупреждение"
+    # громче исходного ассета не поднимаем никогда
+    assert sfx_plan.OBJECT_GAIN_MAX_DB <= 0.0
+
+
+def test_momentary_not_integrated_for_transients():
+    """Интеграл по 0.6-секундному удару занижает его в разы (замер: -42.0 I
+    против -37.7 M), а ухо сравнивает транзиент с речью в момент удара."""
+    import inspect
+
+    import pipeline_smart as ps
+
+    assert "M:" in inspect.getsource(ps.measure_max_momentary_lufs)
+
+
+def test_planner_takes_the_measured_gain_and_does_not_invent_one():
+    got = lambda n: ("/x/a.flac", 1.0, sfx_plan.OBJECT_CLASS_POINT, -26.3, "measured")
+    blocks, starts, weights = _episode({2: [{"name": "hammer", "word_pos": 2}]})
+    acc, _ = sfx_plan.plan_sfx_cues(blocks, starts, weights, 200.0, object_asset_for=got)
+    cue = [c for c in acc if c["kind"] == "object"][0]
+    assert cue["gain_db"] == -26.3
+    assert cue["gain_source"] == "measured"
+
+
+def test_planner_falls_back_when_resolver_gives_no_gain():
+    """Старый контракт из трёх значений обязан продолжать работать."""
+    got = lambda n: ("/x/a.flac", 1.0, sfx_plan.OBJECT_CLASS_POINT)
+    blocks, starts, weights = _episode({2: [{"name": "hammer", "word_pos": 2}]})
+    acc, _ = sfx_plan.plan_sfx_cues(blocks, starts, weights, 200.0, object_asset_for=got)
+    cue = [c for c in acc if c["kind"] == "object"][0]
+    assert cue["gain_db"] == sfx_plan.OBJECT_POINT_GAIN_DB

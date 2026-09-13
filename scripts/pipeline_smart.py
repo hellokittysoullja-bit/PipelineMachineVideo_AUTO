@@ -1653,6 +1653,62 @@ OBJECT_BED_CONCEPTS = {
 OBJECT_POINT_MAX_SEC = 2.5
 
 
+def measure_max_momentary_lufs(path):
+    """Максимальная МГНОВЕННАЯ громкость (окно 400мс), LUFS или None.
+
+    Для транзиента интегральная громкость занижает его в разы (замер: удар
+    -42.0 I против -37.7 M), а ухо сравнивает его с речью именно в момент
+    удара. На стационарном материале обе меры совпадают, поэтому мгновенная
+    годится как единая мера для обоих классов объектного слоя.
+    """
+    r = subprocess.run(["ffmpeg", "-v", "info", "-i", path, "-af",
+                        "ebur128=peak=true", "-f", "null", "-"],
+                       capture_output=True, text=True, encoding="utf-8",
+                       errors="replace")
+    vals = [float(x) for x in re.findall(r"M:\s*(-?[\d.]+)", r.stderr or "")]
+    vals = [v for v in vals if v > -70.0]
+    return max(vals) if vals else None
+
+
+@functools.lru_cache(maxsize=256)
+def _object_gain_cached(path, mtime, gap_lu, voice_lufs):
+    asset = measure_max_momentary_lufs(path)
+    if asset is None or voice_lufs is None:
+        return None
+    raw = float(voice_lufs) - float(gap_lu) - asset
+    import sfx_plan
+    return max(sfx_plan.OBJECT_GAIN_MIN_DB, min(sfx_plan.OBJECT_GAIN_MAX_DB, raw))
+
+
+def object_gain_db(path, cls, voice_lufs):
+    """Усиление объектного звука под ЭТОТ голос и ЭТОТ ассет.
+
+    Считается, а не берётся константой, по той же причине, по которой это
+    уже делает music_bed_gain_db(): нормировка библиотеки задаёт ПИК, а не
+    громкость, и для удара с фоном при одном пике громкость различается на
+    десятки децибел. Замер обеих сторон — единственный способ удержать
+    задуманный разрыв.
+
+    Не измерилось — запасная константа и честное предупреждение, а не
+    молчаливый выход на неизвестный уровень.
+    """
+    import sfx_plan
+    bed = cls == sfx_plan.OBJECT_CLASS_BED
+    gap = sfx_plan.OBJECT_BED_GAP_LU if bed else sfx_plan.OBJECT_POINT_GAP_LU
+    fallback = sfx_plan.OBJECT_BED_GAIN_DB if bed else sfx_plan.OBJECT_POINT_GAIN_DB
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return fallback, "no_file"
+    got = _object_gain_cached(path, mtime, gap, voice_lufs)
+    if got is None:
+        print(f"  ВНИМАНИЕ: громкость {os.path.basename(path)} не измерилась — "
+              f"объектный звук идёт по запасной константе {fallback} dB, "
+              f"задуманный разрыв {gap:.0f} LU НЕ гарантирован")
+        return fallback, "fallback_constant"
+    return round(got, 2), "measured"
+
+
 def object_asset_for(name):
     """Концепт из [sfx:...] -> (путь, длительность, класс) или None.
 
@@ -1680,7 +1736,7 @@ def object_asset_for(name):
 
 
 def run_sfx_director(mix_path, video_dir, blocks, sub_starts, real_weights, total_dur,
-                     climax_times=(), plate_cues=(), out_path=None):
+                     climax_times=(), plate_cues=(), out_path=None, voice_path=None):
     """Спланировать и наложить эффекты + записать аудит-трейл.
 
     Отчёт пишется ВСЕГДА, даже когда не принят ни один эффект — тот же
@@ -1692,6 +1748,21 @@ def run_sfx_director(mix_path, video_dir, blocks, sub_starts, real_weights, tota
     """
     import sfx_plan
     accepted, dropped = [], []
+    # Громкость ЭТОГО голоса — вторая сторона разрыва. Без неё уровни
+    # объектного слоя пришлось бы объявлять, а не мерить (см. object_gain_db).
+    voice_lufs = measure_integrated_lufs(voice_path) if voice_path else None
+    if voice_path and voice_lufs is None:
+        print("  ВНИМАНИЕ: громкость голоса не измерилась — объектный слой "
+              "идёт по запасным константам, разрыв с речью НЕ гарантирован")
+
+    def _asset_for(name):
+        got = object_asset_for(name)
+        if not got:
+            return None
+        path, dur, cls = got
+        gain, src = object_gain_db(path, cls, voice_lufs)
+        return (path, dur, cls, gain, src)
+
     try:
         # Окно кульминации отдаётся акценту разоблачения целиком — те же
         # границы, что уже считает _climax_dip_window() для музыкального
@@ -1701,7 +1772,7 @@ def run_sfx_director(mix_path, video_dir, blocks, sub_starts, real_weights, tota
             blocks, sub_starts, real_weights, total_dur,
             chapter_variants=chapter_sfx_variants(),
             plate_cues=plate_cues, reserved_windows=reserved,
-            object_asset_for=object_asset_for)
+            object_asset_for=_asset_for)
     except Exception as e:
         print(f"  ВНИМАНИЕ: планировщик эффектов не отработал ({type(e).__name__}), "
               f"звук собирается как раньше.")
@@ -1995,7 +2066,8 @@ def build_episode_audio_layers(voice_path, video_dir, temp_dir, blocks, sub_star
     # блока. Без онсетов переходы честно не ставятся вообще.
     premix = run_sfx_director(premix, video_dir, blocks, sub_starts,
                                real_weights if phrase_locked else None, total,
-                               climax_times=climax_times, plate_cues=plate_sfx_cues)
+                               climax_times=climax_times, plate_cues=plate_sfx_cues,
+                               voice_path=voice_path)
     return premix
 
 
