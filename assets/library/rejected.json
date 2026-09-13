@@ -2633,5 +2633,721 @@
   "title": "French Woods - Rainy Morning (take 2)",
   "kind": "ambience",
   "name": "rain_mud"
+ },
+ {
+  "id": "freesound:7e64902d-a8b3-42ad-beb5-774d362fb7ae",
+  "title": "crowd ext small walla murmur arabic children and preteens at Friday fence border protest some close voices and some english words +distant motorcycle pass Gaza 2016.wav",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:test "
+  ]
+ },
+ {
+  "id": "freesound:c90cf4a8-dbb0-4298-82d6-ca862a7c2e73",
+  "title": "Thailand Phuket crowd ext medium restaurant covered eating area heavy walla murmur and metal serving sounds + Thai tour guide in english walking around talking to group.flac",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:restaurant"
+  ]
+ },
+ {
+  "id": "freesound:34633bc7-5de4-404d-91a7-3e08318326e3",
+  "title": "G28-09-Indoor Crowd Murmur - Varies.wav",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:indoor"
+  ]
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins",
+   "ast_speech"
+  ],
+  "duration": 179.472,
+  "clipping_share": 0.0,
+  "hum_db": 12.7,
+  "silence_share": 0.0,
+  "lufs": -27.9,
+  "lra": 7.2,
+  "true_peak": -5.5,
+  "clap_pos": 0.0312,
+  "clap_margin": -0.0744,
+  "clap_worst_neg": "announcement, narration",
+  "ast": {
+   "Music": 0.029,
+   "Singing": 0.0,
+   "Speech": 0.938,
+   "Vehicle": 0.011
+  },
+  "id": "freesound:17680d8c-51de-44c1-a033-0ad67ab1f2dc",
+  "title": "Pistachio and nuts seller anouncing on loudspeaker in a market fair with distant crowd hubbub",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 79.44,
+  "clipping_share": 0.0,
+  "hum_db": 28.4,
+  "silence_share": 0.0,
+  "lufs": -30.6,
+  "lra": 8.6,
+  "true_peak": -8.2,
+  "id": "freesound:f39d2449-12e1-4f62-8b80-67402924cd28",
+  "title": "S13-06 Crowd walla at outdoor farmers’ market.wav",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins",
+   "ast_speech"
+  ],
+  "duration": 212.736,
+  "clipping_share": 0.0,
+  "hum_db": 10.8,
+  "silence_share": 0.0,
+  "lufs": -28.3,
+  "lra": 3.2,
+  "true_peak": -13.0,
+  "clap_pos": 0.0555,
+  "clap_margin": -0.0115,
+  "clap_worst_neg": "announcement, narration",
+  "ast": {
+   "Music": 0.243,
+   "Singing": 0.001,
+   "Speech": 0.92,
+   "Vehicle": 0.013
+  },
+  "id": "freesound:cceadbd4-42f3-45d7-9799-d832059293bf",
+  "title": "Market fair ambience with music, street seller loudspeaker far, carousel and crowd hubbub",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 352.152,
+  "clipping_share": 4e-06,
+  "hum_db": 19.1,
+  "silence_share": 0.0,
+  "lufs": -20.5,
+  "lra": 12.1,
+  "true_peak": 0.5,
+  "id": "freesound:0b9c9c7c-3c20-4677-919a-57cec50bf0e4",
+  "title": "crowd int large bingo hall chatty walla, game starts, crowd settles down, numbers called over PA, murmur.wav",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins",
+   "ast_speech"
+  ],
+  "duration": 210.072,
+  "clipping_share": 0.0,
+  "hum_db": 11.2,
+  "silence_share": 0.0,
+  "lufs": -28.3,
+  "lra": 9.3,
+  "true_peak": -5.4,
+  "clap_pos": 0.06,
+  "clap_margin": -0.2132,
+  "clap_worst_neg": "announcement, narration",
+  "ast": {
+   "Music": 0.126,
+   "Singing": 0.001,
+   "Speech": 0.833,
+   "Vehicle": 0.026
+  },
+  "id": "freesound:4adf177b-530b-423e-a962-a1ab0a841c61",
+  "title": "Seller speech in spanish in loudspeaker at market fair, cars passing and crowd",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 151.944,
+  "clipping_share": 0.0,
+  "hum_db": 15.0,
+  "silence_share": 0.0,
+  "lufs": -28.2,
+  "lra": 3.7,
+  "true_peak": -6.9,
+  "id": "freesound:d1065598-04a8-4033-9402-5d185b6cd9fd",
+  "title": "Frame seller announcing aloud in a market fair with crowd hubbub",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins",
+   "ast_speech"
+  ],
+  "duration": 136.56,
+  "clipping_share": 0.0,
+  "hum_db": 9.1,
+  "silence_share": 0.0,
+  "lufs": -27.9,
+  "lra": 4.9,
+  "true_peak": -12.4,
+  "clap_pos": 0.0265,
+  "clap_margin": -0.1953,
+  "clap_worst_neg": "announcement, narration",
+  "ast": {
+   "Music": 0.037,
+   "Singing": 0.001,
+   "Speech": 0.891,
+   "Vehicle": 0.021
+  },
+  "id": "freesound:45bcbe23-0a7e-42b0-ac3e-cb86576b615a",
+  "title": "Keychain seller anouncing on loudspeaker in a market fair with crowd hubbub and cars far",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins",
+   "ast_speech",
+   "ast_music"
+  ],
+  "duration": 111.216,
+  "clipping_share": 0.0,
+  "hum_db": 11.0,
+  "silence_share": 0.0,
+  "lufs": -27.8,
+  "lra": 5.9,
+  "true_peak": -12.2,
+  "clap_pos": 0.0527,
+  "clap_margin": -0.1095,
+  "clap_worst_neg": "announcement, narration",
+  "ast": {
+   "Music": 0.319,
+   "Singing": 0.001,
+   "Speech": 0.882,
+   "Vehicle": 0.1
+  },
+  "id": "freesound:8a1895b9-b0b5-4306-a414-98282734f938",
+  "title": "Keychain seller anouncing on loudspeaker in a market fair with crowd hubbub and cars passing sometimes",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "ast_speech",
+   "ast_music"
+  ],
+  "duration": 99.96,
+  "clipping_share": 0.0,
+  "hum_db": 8.8,
+  "silence_share": 0.0,
+  "lufs": -29.0,
+  "lra": 5.0,
+  "true_peak": -2.3,
+  "clap_pos": 0.0806,
+  "clap_margin": -0.0182,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "ast": {
+   "Music": 0.535,
+   "Singing": 0.002,
+   "Speech": 0.712,
+   "Vehicle": 0.249
+  },
+  "id": "freesound:bf062830-e4dc-45e9-99d3-b9991f27b505",
+  "title": "Market fair ambience with crowd hubbub far and cars passing",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins",
+   "ast_speech"
+  ],
+  "duration": 92.28,
+  "clipping_share": 0.0,
+  "hum_db": 10.5,
+  "silence_share": 0.0,
+  "lufs": -27.8,
+  "lra": 4.4,
+  "true_peak": -11.0,
+  "clap_pos": 0.0051,
+  "clap_margin": -0.1909,
+  "clap_worst_neg": "announcement, narration",
+  "ast": {
+   "Music": 0.022,
+   "Singing": 0.0,
+   "Speech": 0.926,
+   "Vehicle": 0.013
+  },
+  "id": "freesound:bd0af5f9-eeaf-48a7-9e45-de9e4930ac2d",
+  "title": "Seller announcing in loudspeaker during market fair with crowd hubbub",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins",
+   "ast_speech",
+   "ast_music"
+  ],
+  "duration": 61.56,
+  "clipping_share": 0.0,
+  "hum_db": 9.7,
+  "silence_share": 0.0,
+  "lufs": -27.8,
+  "lra": 2.7,
+  "true_peak": -13.3,
+  "clap_pos": 0.0365,
+  "clap_margin": -0.144,
+  "clap_worst_neg": "announcement, narration",
+  "ast": {
+   "Music": 0.563,
+   "Singing": 0.003,
+   "Speech": 0.852,
+   "Vehicle": 0.015
+  },
+  "id": "freesound:af4308ed-63ad-4095-b9e6-a76ba7cb5fe8",
+  "title": "Fair seller speaking in loudspeaker in spanish with distant crowd hubbub",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "ast_speech"
+  ],
+  "duration": 58.704,
+  "clipping_share": 0.0,
+  "hum_db": 10.0,
+  "silence_share": 0.0,
+  "lufs": -31.5,
+  "lra": 0.8,
+  "true_peak": -15.0,
+  "clap_pos": 0.0936,
+  "clap_margin": -0.0148,
+  "clap_worst_neg": "people talking, human speech, voices",
+  "ast": {
+   "Music": 0.109,
+   "Singing": 0.001,
+   "Speech": 0.594,
+   "Vehicle": 0.01
+  },
+  "id": "freesound:eaa1dd44-9e8a-4b36-941a-9326d8c4ed8f",
+  "title": "crowd int show movement walla murmur active whispers no steps nice smooth detailed sweetener.flac",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "duration_short"
+  ],
+  "duration": 26.88,
+  "id": "freesound:c88804ad-d001-4282-873b-4e08f0b75d8e",
+  "title": "crowd int medium students murmur walla large theatre active cinema politica Concordia short Montreal, Canada.flac",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins",
+   "ast_speech"
+  ],
+  "duration": 181.8,
+  "clipping_share": 0.0,
+  "hum_db": 7.1,
+  "silence_share": 0.0,
+  "lufs": -27.9,
+  "lra": 2.9,
+  "true_peak": -11.0,
+  "clap_pos": 0.0182,
+  "clap_margin": -0.1351,
+  "clap_worst_neg": "announcement, narration",
+  "ast": {
+   "Music": 0.016,
+   "Singing": 0.0,
+   "Speech": 0.894,
+   "Vehicle": 0.237
+  },
+  "id": "freesound:ff9c05e4-5c30-4655-926d-3f6b8783ecb5",
+  "title": "Fair seller speaking in loudspeaker in spanish with crowd hubbub",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins",
+   "ast_speech"
+  ],
+  "duration": 175.56,
+  "clipping_share": 0.0,
+  "hum_db": 6.8,
+  "silence_share": 0.0,
+  "lufs": -27.8,
+  "lra": 8.1,
+  "true_peak": -7.0,
+  "clap_pos": 0.0157,
+  "clap_margin": -0.0968,
+  "clap_worst_neg": "announcement, narration",
+  "ast": {
+   "Music": 0.148,
+   "Singing": 0.001,
+   "Speech": 0.854,
+   "Vehicle": 0.019
+  },
+  "id": "freesound:1d655b6b-2646-42b1-812d-13810b5f5d7c",
+  "title": "Walnut seller screaming in market fair with loudspeaker feedback",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins",
+   "ast_speech",
+   "ast_vehicle"
+  ],
+  "duration": 162.912,
+  "clipping_share": 0.0,
+  "hum_db": 7.3,
+  "silence_share": 0.0,
+  "lufs": -22.4,
+  "lra": 14.9,
+  "true_peak": -0.4,
+  "clap_pos": 0.0367,
+  "clap_margin": -0.0579,
+  "clap_worst_neg": "announcement, narration",
+  "ast": {
+   "Music": 0.02,
+   "Singing": 0.0,
+   "Speech": 0.855,
+   "Vehicle": 0.544
+  },
+  "id": "freesound:83e87a58-f32a-487e-ab2a-ebfa0e5a6a21",
+  "title": "Market in a small village, calling, motorcycle, horns, people, speaker",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 118.056,
+  "clipping_share": 0.0,
+  "hum_db": 22.9,
+  "silence_share": 0.037,
+  "lufs": -26.4,
+  "lra": 6.8,
+  "true_peak": -1.1,
+  "id": "freesound:658bb889-5864-4fca-9698-8f59d26110b2",
+  "title": "Semi Outdoor Montreal Market Ambiance.wav",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins",
+   "ast_speech"
+  ],
+  "duration": 78.792,
+  "clipping_share": 0.0,
+  "hum_db": 10.9,
+  "silence_share": 0.0,
+  "lufs": -16.2,
+  "lra": 3.8,
+  "true_peak": -0.6,
+  "clap_pos": 0.0132,
+  "clap_margin": -0.0815,
+  "clap_worst_neg": "people talking, human speech, voices",
+  "ast": {
+   "Music": 0.149,
+   "Singing": 0.001,
+   "Speech": 0.97,
+   "Vehicle": 0.022
+  },
+  "id": "freesound:96eea9fb-b01a-437f-b9f6-744f263bcccd",
+  "title": "Esperaza market crowd binaural (France)",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 66.048,
+  "clipping_share": 0.0,
+  "hum_db": 45.4,
+  "silence_share": 0.01,
+  "lufs": -29.7,
+  "lra": 5.6,
+  "true_peak": -3.8,
+  "id": "freesound:23fe5c69-2752-48bc-93ef-416937b26c48",
+  "title": "G28-05-Low Murmuring Crowd.wav",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "duration_short"
+  ],
+  "duration": 28.056,
+  "id": "freesound:2c99b37f-4600-473b-bd0b-8c0560e44fdc",
+  "title": "Small Crowd Walla",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 190.056,
+  "clipping_share": 0.0,
+  "hum_db": 24.0,
+  "silence_share": 0.003,
+  "lufs": -25.1,
+  "lra": 8.0,
+  "true_peak": -1.4,
+  "id": "freesound:854798da-29fd-4970-acbf-b8e497e7c9ad",
+  "title": "ramallah_Market.wav",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "ast_speech",
+   "ast_vehicle"
+  ],
+  "duration": 292.728,
+  "clipping_share": 1.3e-05,
+  "hum_db": 9.0,
+  "silence_share": 0.0,
+  "lufs": -25.1,
+  "lra": 5.7,
+  "true_peak": -2.9,
+  "clap_pos": 0.0944,
+  "clap_margin": -0.0139,
+  "clap_worst_neg": "people talking, human speech, voices",
+  "ast": {
+   "Music": 0.009,
+   "Singing": 0.0,
+   "Speech": 0.88,
+   "Vehicle": 0.801
+  },
+  "id": "freesound:4d565546-ca5f-4ad5-8997-7b63e145ccd9",
+  "title": "2022-07-01-zoom-f3-okm-ii-BINAURAL-xichangst-flea-market.wav",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 191.136,
+  "clipping_share": 0.0,
+  "hum_db": 21.2,
+  "silence_share": 0.0,
+  "lufs": -24.4,
+  "lra": 11.9,
+  "true_peak": -0.6,
+  "id": "freesound:f6e069c2-bca1-49f4-9e20-9dea848a2765",
+  "title": "Esperaza Market Binaural walkthough",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "ast_speech"
+  ],
+  "duration": 255.624,
+  "clipping_share": 0.0,
+  "hum_db": 12.5,
+  "silence_share": 0.0,
+  "lufs": -29.1,
+  "lra": 9.2,
+  "true_peak": -0.4,
+  "clap_pos": 0.0893,
+  "clap_margin": -0.0749,
+  "clap_worst_neg": "announcement, narration",
+  "ast": {
+   "Music": 0.016,
+   "Singing": 0.0,
+   "Speech": 0.858,
+   "Vehicle": 0.268
+  },
+  "id": "freesound:5587b5a3-84d1-4f41-8f4a-4427012d8c78",
+  "title": "Esperaza Market Walkthrough (France)",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins",
+   "ast_speech"
+  ],
+  "duration": 167.328,
+  "clipping_share": 0.0,
+  "hum_db": 6.2,
+  "silence_share": 0.004,
+  "lufs": -29.1,
+  "lra": 6.6,
+  "true_peak": -5.9,
+  "clap_pos": 0.0655,
+  "clap_margin": -0.0643,
+  "clap_worst_neg": "announcement, narration",
+  "ast": {
+   "Music": 0.05,
+   "Singing": 0.001,
+   "Speech": 0.804,
+   "Vehicle": 0.082
+  },
+  "id": "freesound:0c6fa44b-3b20-4fa5-8e33-4923a5a24b9b",
+  "title": "CROWD",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins",
+   "ast_speech"
+  ],
+  "duration": 139.99,
+  "clipping_share": 0.0,
+  "hum_db": 7.8,
+  "silence_share": 0.0,
+  "lufs": -26.8,
+  "lra": 5.2,
+  "true_peak": -5.3,
+  "clap_pos": -0.0969,
+  "clap_margin": -0.1916,
+  "clap_worst_neg": "music, melody, musical instruments, singing",
+  "ast": {
+   "Music": 0.03,
+   "Singing": 0.003,
+   "Speech": 0.648,
+   "Vehicle": 0.001
+  },
+  "id": "freesound:1f64e325-097e-47aa-88e3-d85147f67491",
+  "title": "crowd_male.wav",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 89.472,
+  "clipping_share": 0.0,
+  "hum_db": 24.6,
+  "silence_share": 0.0,
+  "lufs": -36.5,
+  "lra": 4.8,
+  "true_peak": -10.1,
+  "id": "freesound:21c139fb-5b7d-4c23-a43c-ea1906f3aa1d",
+  "title": "German sales talk on the market place - The corn-fed chicken / maize-fed chicken",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins",
+   "ast_speech"
+  ],
+  "duration": 71.4,
+  "clipping_share": 0.0,
+  "hum_db": 12.4,
+  "silence_share": 0.0,
+  "lufs": -28.7,
+  "lra": 10.8,
+  "true_peak": -6.2,
+  "clap_pos": 0.0727,
+  "clap_margin": -0.0469,
+  "clap_worst_neg": "announcement, narration",
+  "ast": {
+   "Music": 0.159,
+   "Singing": 0.001,
+   "Speech": 0.842,
+   "Vehicle": 0.013
+  },
+  "id": "freesound:77bd7b6e-00f7-4fac-b53b-b543444c865e",
+  "title": "Weekend Fair in Chapultepec Park Mexico City",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins",
+   "ast_speech"
+  ],
+  "duration": 70.464,
+  "clipping_share": 0.0,
+  "hum_db": 9.0,
+  "silence_share": 0.0,
+  "lufs": -26.3,
+  "lra": 3.1,
+  "true_peak": -9.9,
+  "clap_pos": 0.0509,
+  "clap_margin": -0.0987,
+  "clap_worst_neg": "people talking, human speech, voices",
+  "ast": {
+   "Music": 0.067,
+   "Singing": 0.002,
+   "Speech": 0.795,
+   "Vehicle": 0.004
+  },
+  "id": "freesound:22094b27-88f9-4047-a06c-6b35433a2417",
+  "title": "walla nike headquarters large hall dutch english.wav",
+  "kind": "ambience",
+  "name": "crowd_market"
+ },
+ {
+  "reasons": [
+   "clap_low_positive",
+   "clap_negative_wins",
+   "ast_speech"
+  ],
+  "duration": 66.768,
+  "clipping_share": 0.0,
+  "hum_db": 9.3,
+  "silence_share": 0.0,
+  "lufs": -22.8,
+  "lra": 2.5,
+  "true_peak": -6.2,
+  "clap_pos": 0.0716,
+  "clap_margin": -0.018,
+  "clap_worst_neg": "announcement, narration",
+  "ast": {
+   "Music": 0.118,
+   "Singing": 0.004,
+   "Speech": 0.862,
+   "Vehicle": 0.017
+  },
+  "id": "freesound:5af1591f-03e1-4dbb-9be5-0e10cc8e6784",
+  "title": "Farmer's market front",
+  "kind": "ambience",
+  "name": "crowd_market"
  }
 ]

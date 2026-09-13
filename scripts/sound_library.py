@@ -110,7 +110,11 @@ TITLE_BLOCK = {
     "stone_hall": ("outdoor", "street", "traffic", "crowd", "concert", "organ", "choir"),
     "forge_fire": ("rain", "storm", "fireworks", "explosion", "gun"),
     "rain_mud": ("indoor", "inside", "window", "roof", "car", "tent", "umbrella", "thunder", "storm", "sea", "wave"),
-    "crowd_market": ("stadium", "concert", "protest", "applause", "cheer", "traffic", "indoor", "restaurant", "cafe"),
+    "crowd_market": ("stadium", "concert", "protest", "applause", "cheer", "traffic", "indoor", "restaurant", "cafe",
+                     # реальный прогон: продавцы в громкоговоритель, бинго-зал, студенты,
+                     # офисный холл — всё «толпа», но не рынок под открытым небом
+                     "seller", "announc", "loudspeaker", "speech", "talk", "scream", "calling",
+                     "bingo", "student", "headquarters", "office", "int ", "interior", "binaural"),
     "river_stream": ("sea", "wave", "surf", "rain", "waterfall", "fountain", "tap", "sink", "toilet", "shower"),
     "chapter_turn": ("sword", "hit", "impact", "explosion", "punch"),
     "plate_tick": ("clock", "metronome", "loop"),
@@ -133,6 +137,16 @@ def title_relevance(spec, title):
              if w not in ("ambience", "ambient", "sound", "sounds", "single", "short", "soft", "cinematic")}
     t = (title or "").lower()
     return sum(1 for w in words if w in t)
+
+
+def negatives_for(spec):
+    """Ловушки вида: свой полный список (`neg`) ИЛИ общий плюс `extra_neg`.
+    Полная замена нужна там, где общая ловушка совпадает с целью: у толпы
+    цель — далёкие голоса, и «people talking» как ловушка перебивала
+    положительный промпт на всех 30 кандидатах."""
+    if "neg" in spec:
+        return list(spec["neg"])
+    return list(NEGATIVE_PROMPTS) + list(spec.get("extra_neg", ()))
 
 
 NEGATIVE_PROMPTS = (
@@ -186,11 +200,18 @@ LIBRARY_SPEC = {
             min_sec=45, keep=5),
         "crowd_market": dict(
             queries=["market crowd ambience", "crowd murmur walla", "village market crowd",
-                     "medieval fair crowd", "outdoor crowd ambience distant"],
+                     "medieval fair crowd", "outdoor crowd ambience distant", "crowd walla outdoor",
+                     "distant crowd murmur", "people murmur background", "busy street market ambience"],
             prompt="distant murmur of a crowd at an outdoor market, indistinct voices, no clear words",
-            # речь тут допустима как далёкий гомон — ловушка «разборчивые слова»
-            extra_neg=("a person speaking clearly into a microphone", "announcement, narration"),
-            min_sec=30, keep=5, ast_veto={"Music": 0.25, "Vehicle": 0.30}),
+            # Цель — голоса, поэтому общая ловушка «people talking» здесь
+            # неприменима (первый прогон: 0 из 30, все — ей). Свой список:
+            # разборчивая речь одного человека, громкоговоритель, музыка,
+            # транспорт, дисторшн.
+            neg=("one person speaking clearly, announcement through a loudspeaker",
+                 "music, melody, musical instruments, singing",
+                 "traffic, car engine, motor vehicle, airplane",
+                 "digital distortion, clipping, glitch, static"),
+            min_sec=30, keep=5, ast_veto={"Music": 0.30, "Vehicle": 0.30}),
         "river_stream": dict(
             queries=["stream water flowing", "river ambience", "brook water", "creek ambience"],
             prompt="a small stream of water flowing gently over stones",
@@ -531,9 +552,9 @@ def ast_probs(windows16k, labels):
 
 # ------------------------------------------------------------- оценка
 def _measure_key(path, spec):
-    negs = list(NEGATIVE_PROMPTS) + list(spec.get("extra_neg", ()))
+    negs = negatives_for(spec)
     raw = "|".join([os.path.basename(path), str(os.path.getsize(path)), spec["prompt"], *negs,
-                    "clap:laion/larger_clap_general", "ast:MIT/ast-finetuned-audioset-10-10-0.4593", "v3"])
+                    "clap:laion/larger_clap_general", "ast:MIT/ast-finetuned-audioset-10-10-0.4593", "v4"])
     return hashlib.sha1(raw.encode()).hexdigest()[:20]
 
 
@@ -573,12 +594,12 @@ def measure(path, kind, spec):
         lufs, lra, tp = measure_loudness(path)
         m.update(lufs=lufs, lra=lra, true_peak=tp)
         m["silence_share"] = round(silence_share(path, dur, lufs), 3)
-    negs = list(NEGATIVE_PROMPTS) + list(spec.get("extra_neg", ()))
+    negs = negatives_for(spec)
     rows = clap_scores(win48, [spec["prompt"]] + negs)
     m["clap_rows"] = [[round(x, 4) for x in r] for r in rows]
     m["neg_names"] = negs
     if kind == "ambience":
-        labels = sorted(set(AST_VETO) | set(spec.get("ast_veto", {})))
+        labels = sorted(set(AST_VETO) | set(spec.get("ast_veto", {}) or {}))
         win16 = [decode_f32(path, st, min(CLAP_WINDOW_SEC, dur), 16000) for st in starts]
         probs = ast_probs([w for w in win16 if w.size > 1600], labels)
         m["ast"] = {lab: round(max(p.get(lab, 0.0) for p in probs), 3) for lab in labels}
@@ -624,8 +645,10 @@ def judge(m, kind, spec):
     if margin < CLAP_MIN_MARGIN:
         v["reasons"].append("clap_negative_wins")
     if kind == "ambience" and m.get("ast"):
-        veto = dict(AST_VETO)
-        veto.update(spec.get("ast_veto", {}))
+        # Переопределение вида ЗАМЕНЯЕТ общий набор целиком. Первая версия
+        # делала update(): у толпы Speech-вето оставалось от общего набора и
+        # срезало все 30 кандидатов — гомон толпы для AST и есть «Speech».
+        veto = dict(spec["ast_veto"]) if "ast_veto" in spec else dict(AST_VETO)
         v["ast"] = m["ast"]
         for lab, thr in veto.items():
             if m["ast"].get(lab, 0.0) > thr:
