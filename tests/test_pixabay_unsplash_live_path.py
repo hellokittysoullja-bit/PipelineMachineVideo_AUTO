@@ -238,8 +238,11 @@ def test_sources_are_actually_called_from_the_pools():
     import inspect
     photo = inspect.getsource(ps.pexels_photo)
     video = inspect.getsource(ps.pexels_video)
-    assert "_pixabay_search_photos(api_q)" in photo
-    assert "_unsplash_search_photos(api_q)" in photo
+    # Фото-источники собираются в кортеж и обходятся по кругу (чередование,
+    # см. POOL_SOURCE_INTERLEAVE_VERSION) — имя функции в этом кортеже и
+    # есть факт вызова.
+    assert "_pixabay_search_photos" in photo and "for fetch in (" in photo
+    assert "_unsplash_search_photos" in photo
     assert "_pixabay_search_videos(api_q)" in video
 
 
@@ -252,11 +255,16 @@ def test_flags_participate_in_the_selection_signature():
     assert "UNSPLASH_ENABLED" in sig
 
 
-def test_new_sources_are_appended_after_pexels(monkeypatch):
-    """Порядок «в конец» оставляет взаимный порядок уже существовавших
-    кандидатов прежним: новый источник выигрывает слот только по скорингу,
-    а не потому что оказался раньше в списке при равенстве."""
+def test_sources_interleave_in_the_documented_order(monkeypatch):
+    """Было «в конец после Pexels» — измеренно заменено чередованием (A/B,
+    13.09: глубокий музейный список вытеснял Openverse/Pexels из пробной
+    выборки целиком). Порядок кругов фиксирован: музей (паспорт предмета),
+    архив, Pexels, Pixabay, Unsplash — Pixabay/Unsplash по-прежнему после
+    Pexels ВНУТРИ круга, то есть при равенстве не обгоняют его."""
     import inspect
     photo = inspect.getsource(ps.pexels_photo)
-    assert photo.index("_pexels_search_photos(api_q)") < photo.index("_pixabay_search_photos(api_q)")
-    assert photo.index("_pixabay_search_photos(api_q)") < photo.index("_unsplash_search_photos(api_q)")
+    tup = photo[photo.index("for fetch in ("):photo.index("):", photo.index("for fetch in ("))]
+    order = [n for n in ("_museum_search_photos", "_openverse_search_photos", "_pexels_search_photos",
+                         "_pixabay_search_photos", "_unsplash_search_photos")]
+    idx = [tup.index(n) for n in order]
+    assert idx == sorted(idx), tup

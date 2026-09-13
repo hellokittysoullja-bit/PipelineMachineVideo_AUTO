@@ -24,7 +24,7 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def _isolate_from_real_dotenv(monkeypatch):
+def _isolate_from_real_dotenv(monkeypatch, tmp_path):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("SHOT_DIRECTOR_MODE", raising=False)
     # VLM_ARBITER_MODE — по той же причине, но с обратным знаком: его дефолт
@@ -52,6 +52,22 @@ def _isolate_from_real_dotenv(monkeypatch):
     # музейных API — а Met на каждый предмет делает отдельный запрос.
     monkeypatch.delenv("MUSEUM_SOURCES_ENABLED", raising=False)
     monkeypatch.setenv("MUSEUM_SOURCES_ENABLED", "0")
+    # Дисковые кэши поиска (музеи, Openverse) — в СВОЮ папку на тест: иначе
+    # положительный тест с реалистичным ответом кладёт результат в общий
+    # temp_*_cache/, а следующий тест «сеть упала -> пусто» получает из кэша
+    # прошлый ответ и падает (поймано 13.09 на test_openverse_live_path).
+    monkeypatch.setenv("MUSEUM_CACHE_DIR", str(tmp_path / "museum_cache"))
+    monkeypatch.setenv("OPENVERSE_CACHE_DIR", str(tmp_path / "openverse_cache"))
+    try:
+        import museum_sources as _ms
+        monkeypatch.setattr(_ms, "MUSEUM_CACHE_DIR", str(tmp_path / "museum_cache"))
+    except Exception:
+        pass
+    try:
+        import pipeline_smart as _ps
+        monkeypatch.setattr(_ps, "OPENVERSE_CACHE_DIR", str(tmp_path / "openverse_cache"), raising=False)
+    except Exception:
+        pass
     # PIXABAY_ENABLED/UNSPLASH_ENABLED — та же причина и тот же дефолт-1, что у
     # музеев: без этих двух строк любой тест, дошедший до сборки пула, ходил бы
     # живьём в Pixabay/Unsplash, если в окружении вдруг оказался ключ.

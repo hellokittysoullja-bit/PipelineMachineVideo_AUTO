@@ -449,3 +449,140 @@ class TestMetPoliteness:
         monkeypatch.setattr(ms.feature_flags, "enabled", lambda *a, **k: True)
         ms._SEARCH_CACHE.clear()
         assert ms.search_museums("sword") == [{"id": "met:fake"}]
+
+
+class TestDiskCache:
+    """Музейный поиск не зависит от эпизода — «medieval rondel dagger» в Мете
+    один для всех роликов канала. Дисковый кэш переносит цену запросов между
+    прогонами и эпизодами. В кэш попадают только ПОЛНЫЕ ответы: заморозить
+    на месяц результат, полученный во время остывания Мет, значило бы
+    превратить временный отказ в постоянную дыру."""
+
+    @pytest.fixture(autouse=True)
+    def _isolated(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(ms, "MUSEUM_CACHE_DIR", str(tmp_path / "cache"))
+        monkeypatch.setattr(ms.feature_flags, "enabled", lambda *a, **k: True)
+        monkeypatch.setattr(ms, "MET_RETRY_PAUSE_SEC", 0.0)
+        ms.reset_fetch_stats()
+        ms._SEARCH_CACHE.clear()
+        yield
+        ms._SEARCH_CACHE.clear()
+        ms.reset_fetch_stats()
+
+    def _fake_get(self, url):
+        if "/search" in url:
+            return {"objectIDs": [1, 2]}
+        if "/objects/" in url:
+            oid = int(url.rsplit("/", 1)[1])
+            return {"isPublicDomain": True, "primaryImage": f"http://x/{oid}.jpg",
+                    "objectBeginDate": 1400, "objectEndDate": 1450, "culture": "French",
+                    "title": f"Item {oid}", "objectURL": "u"}
+        if "clevelandart" in url:
+            return {"data": []}
+        return {"data": [], "config": {"iiif_url": "http://iiif"}}
+
+    def test_second_process_reads_from_disk_without_network(self, monkeypatch):
+        monkeypatch.setattr(ms, "_get_json", self._fake_get)
+        first = ms.search_museums("sword")
+        assert [c["id"] for c in first] == ["met:1", "met:2"]
+        assert ms.FETCH_STATS["search_cache_misses"] == 1
+        # «Новый процесс»: кэш в памяти пуст, сеть недоступна вовсе.
+        ms._SEARCH_CACHE.clear()
+        monkeypatch.setattr(ms, "_get_json",
+                            lambda url: (_ for _ in ()).throw(AssertionError("сеть тронута")))
+        again = ms.search_museums("sword")
+        assert again == first
+        assert ms.FETCH_STATS["search_cache_hits"] == 1
+
+    def test_key_changes_with_depth_and_era(self, monkeypatch):
+        k0 = ms._disk_cache_key("sword")
+        monkeypatch.setattr(ms, "MET_MAX_DETAIL_FETCHES", ms.MET_MAX_DETAIL_FETCHES + 1)
+        assert ms._disk_cache_key("sword") != k0
+        monkeypatch.setattr(ms, "era_window", lambda: (1, 2))
+        assert ms._disk_cache_key("sword") not in (k0,)
+
+    def test_incomplete_result_is_not_cached(self, monkeypatch):
+        monkeypatch.setattr(ms, "_get_json", self._fake_get)
+        monkeypatch.setattr(ms, "search_chicago",
+                            lambda q, **k: (_ for _ in ()).throw(OSError("сеть")))
+        out = ms.search_museums("sword")
+        assert out and not os.path.exists(ms._disk_cache_path("sword"))
+
+    def test_result_during_cooldown_is_not_cached(self, monkeypatch):
+        monkeypatch.setattr(ms, "_get_json", self._fake_get)
+        ms._MET_COOLDOWN_UNTIL[0] = ms.time.monotonic() + 100
+        ms.search_museums("sword")
+        assert not os.path.exists(ms._disk_cache_path("sword"))
+
+    def test_expired_entry_is_ignored(self, monkeypatch):
+        monkeypatch.setattr(ms, "_get_json", self._fake_get)
+        ms.search_museums("sword")
+        path = ms._disk_cache_path("sword")
+        old = ms.time.time() - ms.MUSEUM_CACHE_TTL_SEC - 10
+        os.utime(path, (old, old))
+        ms._SEARCH_CACHE.clear()
+        calls = []
+        monkeypatch.setattr(ms, "_get_json", lambda url: (calls.append(url), self._fake_get(url))[1])
+        ms.search_museums("sword")
+        assert calls, "просроченный кэш обязан перечитаться из сети"
+
+
+class TestAdaptiveRate:
+    """Стартовая скорость получена отказом (403 на 289-м запросе при 10/с),
+    поэтому каждый следующий отказ вдвое снижает скорость до конца прогона."""
+
+    @pytest.fixture(autouse=True)
+    def _reset(self):
+        ms.reset_fetch_stats()
+        yield
+        ms.reset_fetch_stats()
+
+    def test_each_cooldown_halves_the_rate_down_to_the_floor(self):
+        assert ms._MET_RATE[0] == ms.MET_MAX_REQUESTS_PER_SEC
+        ms._met_enter_cooldown()
+        assert ms._MET_RATE[0] == ms.MET_MAX_REQUESTS_PER_SEC / 2
+        assert ms.FETCH_STATS["met_rate_final"] == ms._MET_RATE[0]
+        for _ in range(10):
+            ms._MET_COOLDOWN_UNTIL[0] = 0.0
+            ms._met_enter_cooldown()
+        assert ms._MET_RATE[0] == ms.MET_MIN_REQUESTS_PER_SEC
+
+    def test_start_rate_is_below_the_measured_break_point(self):
+        assert ms.MET_MAX_REQUESTS_PER_SEC <= 5.0
+
+
+class TestServerSideFilters:
+    def test_met_search_asks_for_public_domain_and_era_window(self, monkeypatch):
+        """867 -> 450 objectID по одному запросу: каждая из 60 карточек не
+        тратится на предмет XIX века или закрытый снимок. Паспортная
+        проверка ниже остаётся — фильтр экономит запросы, не заменяет
+        доказательство."""
+        seen = []
+
+        def fake(url):
+            seen.append(url)
+            return {"objectIDs": []}
+
+        monkeypatch.setattr(ms, "_get_json", fake)
+        monkeypatch.setattr(ms, "MET_RETRY_PAUSE_SEC", 0.0)
+        ms.reset_fetch_stats()
+        ms.search_met("sword")
+        lo, hi = ms.era_window()
+        assert seen and "isPublicDomain=true" in seen[0]
+        assert f"dateBegin={lo}" in seen[0] and f"dateEnd={hi}" in seen[0]
+
+
+class TestMuseumsInterleave:
+    def test_three_museums_alternate_instead_of_concatenating(self, monkeypatch, tmp_path):
+        """С глубиной Мет 60 кливлендский «Tilting Suit» (лучший кандидат
+        слота, relevance 0.325) стоял 61-м и не попадал в пробную выборку из
+        20 — побеждала керамическая тарелка Мет (A/B, 13.09)."""
+        monkeypatch.setattr(ms, "MUSEUM_CACHE_DIR", str(tmp_path / "c"))
+        monkeypatch.setattr(ms.feature_flags, "enabled", lambda *a, **k: True)
+        ms._SEARCH_CACHE.clear()
+        monkeypatch.setattr(ms, "search_met", lambda q, **k: [{"id": f"met:{i}"} for i in range(5)])
+        monkeypatch.setattr(ms, "search_cleveland", lambda q, **k: [{"id": "cleveland:1"}])
+        monkeypatch.setattr(ms, "search_chicago", lambda q, **k: [{"id": "chicago:1"}, {"id": "chicago:2"}])
+        ids = [c["id"] for c in ms.search_museums("armour")]
+        assert ids[:3] == ["met:0", "cleveland:1", "chicago:1"], ids
+        assert ids[3:5] == ["met:1", "chicago:2"]
