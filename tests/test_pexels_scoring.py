@@ -62,6 +62,60 @@ def test_relevance_beats_aesthetic():
     assert base is relevant
 
 
+# --- RANKING_ORDER_VERSION=2 (14.09): предмет выше ритма крупностей ---
+# size_ok на фото-пути — это ритм крупностей (estimate_shot_size in
+# recent_sizes[-2:]), а не разрешение. Старый порядок (is_dup_free, size_ok,
+# is_relevant, ...) отдавал слот кадру НЕ ПО ТЕМЕ со свежей крупностью против
+# кадра ПО ТЕМЕ с повторённой. Найдено чтением кортежа при внешнем разборе.
+# Контроль: со старым порядком оба теста ниже падают (проверено, поменяв
+# кортеж обратно).
+
+def test_relevance_beats_shot_size_rhythm():
+    irrelevant_fresh_size = _cand("irrelevant_fresh_size", is_relevant=0, size_ok=1,
+                                  aesthetic_val=10.0)
+    relevant_repeated_size = _cand("relevant_repeated_size", is_relevant=1, size_ok=0,
+                                   aesthetic_val=-10.0)
+    base, _ = ps._score_and_pick([irrelevant_fresh_size, relevant_repeated_size])
+    assert base is relevant_repeated_size, (
+        "кадр по теме с повторённой крупностью обязан бить кадр не по теме со "
+        "свежей — ритм крупностей арбитр СРЕДИ релевантных, не поверх")
+
+
+def test_director_branch_keeps_relevance_above_shot_size():
+    irrelevant_fresh_size = _cand("irrelevant_fresh_size", is_relevant=0, size_ok=1)
+    relevant_repeated_size = _cand("relevant_repeated_size", is_relevant=1, size_ok=0)
+    # extra-скор Директора у нерелевантного намного выше — не должно помочь.
+    fn = lambda path, candidate_query=None, aesthetic_val=None: (
+        100.0 if path == "irrelevant_fresh_size" else 0.0)
+    _, director = ps._score_and_pick([irrelevant_fresh_size, relevant_repeated_size],
+                                     director_score_fn=fn)
+    assert director is relevant_repeated_size
+
+
+def test_shot_size_rhythm_still_decides_among_relevant():
+    """Перестановка не отменяет ритм: среди двух релевантных побеждает
+    свежая крупность, даже если она менее эстетична."""
+    relevant_repeated = _cand("relevant_repeated", is_relevant=1, size_ok=0, aesthetic_val=10.0)
+    relevant_fresh = _cand("relevant_fresh", is_relevant=1, size_ok=1, aesthetic_val=-10.0)
+    base, _ = ps._score_and_pick([relevant_repeated, relevant_fresh])
+    assert base is relevant_fresh
+
+
+def test_dup_still_beats_relevance():
+    """is_dup_free остаётся первым ключом: дубль не спасает тема."""
+    dup_relevant = _cand("dup_relevant", is_dup_free=0, is_relevant=1)
+    unique_irrelevant = _cand("unique_irrelevant", is_dup_free=1, is_relevant=0)
+    base, _ = ps._score_and_pick([dup_relevant, unique_irrelevant])
+    assert base is unique_irrelevant
+
+
+def test_ranking_order_version_is_in_selection_signature():
+    """Перестановка ключей меняет победителя на том же пуле — без подписи
+    кэш-хит клипа на прогретом temp_smart/ отдал бы старого."""
+    assert ps.RANKING_ORDER_VERSION == 2
+    assert repr(ps.RANKING_ORDER_VERSION) in ps._selection_stack_signature()
+
+
 def test_aesthetic_beats_luma():
     pretty = _cand("pretty", aesthetic_val=5.0, luma_score=-10.0)
     dull = _cand("dull", aesthetic_val=0.0, luma_score=0.0)
