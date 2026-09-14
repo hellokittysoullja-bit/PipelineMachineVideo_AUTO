@@ -6090,11 +6090,13 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
         # Sidecar — чтобы СЛЕДУЮЩИЙ прогон, который возьмёт этот файл кэш-хитом
         # (или вообще не дойдёт до подбора, потому что кэширован сам клип),
         # смог вернуть кадр в анти-дубль. См. write_media_sidecar().
+        _prov = candidate_provenance(pick)
+        log_candidate_license(_prov, query)
         write_media_sidecar(
             cf, pexels_id=pick.get("id"), query=query, kind="photo",
             ahash_hex=_picked_ahash,
             relevance=(winner.get("relevance") if winner else None),
-            chosen_by=chosen_by)
+            chosen_by=chosen_by, provenance=_prov)
         if recent_sizes is not None:
             try:
                 recent_sizes.append(estimate_shot_size(cf))
@@ -8924,7 +8926,8 @@ def media_sidecar_path(media_path):
 
 
 def write_media_sidecar(media_path, *, pexels_id=None, query=None, kind=None,
-                        ahash_hex=None, relevance=None, chosen_by=None):
+                        ahash_hex=None, relevance=None, chosen_by=None,
+                        provenance=None):
     """Записать, ЧТО именно лежит в кэш-файле кандидата.
 
     РЕАЛЬНАЯ, найденная вживую дыра (04.09), которую это закрывает: имя
@@ -8950,10 +8953,72 @@ def write_media_sidecar(media_path, *, pexels_id=None, query=None, kind=None,
         payload = {"pexels_id": pexels_id, "query": query, "kind": kind,
                    "ahash": ahash_hex, "relevance": relevance,
                    "chosen_by": chosen_by, "written_at": time.time()}
+        # Провенанс переживает кэш-хит ровно потому, что лежит рядом с
+        # файлом: на повторном прогоне подбор не вызывается вообще, и
+        # другого места, где происхождение кадра ещё известно, нет.
+        if provenance:
+            payload["provenance"] = provenance
         tmp = media_sidecar_path(media_path) + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False)
         os.replace(tmp, media_sidecar_path(media_path))
+    except Exception:
+        pass
+
+
+_LICENSE_MANIFEST_SEEN = set()
+
+
+def candidate_provenance(p):
+    """Происхождение кандидата в едином виде — или None для обычного стока.
+
+    Музеи и Openverse кладут в кандидата `_museum_meta`/`_openverse_meta`
+    (эпоха, культура, лицензия, страница предмета). До этой правки оба поля
+    ставились и не читались НИ ОДНОЙ строкой кода: комментарий у
+    _openverse_meta прямо обещал «пригодится, если кандидат победит и
+    понадобится атрибуция/аудит источника», но забирать их было некому.
+    Следствие не юридическое (берётся только CC0 и public domain, атрибуция
+    не требуется по решению владельца), а следственное: по готовому ролику
+    нельзя было ответить, из какого архива пришёл конкретный кадр — а именно
+    это нужно, если источник однажды промаркирует чужую работу ошибочно.
+
+    Юридический след при этом СУЩЕСТВОВАЛ, но только в
+    stock_fetch_multisource.py (Шаг 4, ручной мультисток) — то есть не на том
+    пути, которым эти кандидаты реально попадают в эпизод.
+    """
+    if not isinstance(p, dict):
+        return None
+    meta = p.get("_museum_meta") or p.get("_openverse_meta")
+    if not meta:
+        return None
+    out = {"id": p.get("id"), "title": p.get("alt") or None,
+           "page": p.get("url") or None}
+    out.update({k: v for k, v in meta.items() if v not in (None, "", {})})
+    return out
+
+
+def log_candidate_license(provenance, query):
+    """Дописать происхождение победившего кадра в журнал эпизода.
+
+    Append-only, по одной строке на кандидата: перезапись целиком повторила
+    бы уже описанную дыру merge_slot_report() — на частичном ре-рендере
+    журнал остался бы почти пустым, хотя кадры в ролике те же. Повтор в
+    пределах прогона гасится по id. Ошибка записи не роняет подбор: потерять
+    кадр из-за строчки в журнале хуже, чем потерять строчку.
+    """
+    if not provenance:
+        return
+    key = str(provenance.get("id"))
+    if key in _LICENSE_MANIFEST_SEEN:
+        return
+    try:
+        d = os.path.join(VIDEO_FOLDER, "media_plan")
+        os.makedirs(d, exist_ok=True)
+        row = dict(provenance, query=query, logged_at=time.time())
+        with open(os.path.join(d, "source_license_manifest.jsonl"),
+                  "a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        _LICENSE_MANIFEST_SEEN.add(key)
     except Exception:
         pass
 

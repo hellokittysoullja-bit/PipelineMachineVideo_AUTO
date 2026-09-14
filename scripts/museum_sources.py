@@ -328,7 +328,11 @@ def search_met(query, limit=MET_MAX_DETAIL_FETCHES):
             f"met:{oid}", o.get("title"), img, o.get("objectURL"),
             {"source": "met", "begin": o.get("objectBeginDate"),
              "end": o.get("objectEndDate"), "culture": o.get("culture"),
-             "country": o.get("country"), "department": o.get("department")}))
+             "country": o.get("country"), "department": o.get("department"),
+             # Признак, ПО КОТОРОМУ предмет сюда попал (isPublicDomain /
+             # share_license_status=="CC0" / is_public_domain). Журнал
+             # лицензий без самой лицензии наполовину бесполезен.
+             "license": "public_domain", "license_field": "isPublicDomain"}))
     return out
 
 
@@ -359,7 +363,8 @@ def search_cleveland(query, limit=SEARCH_PAGE_SIZE):
         out.append(_candidate(
             f"cleveland:{a.get('id')}", a.get("title"), img, a.get("url"),
             {"source": "cleveland", "begin": a.get("creation_date_earliest"),
-             "end": a.get("creation_date_latest"), "culture": culture}))
+             "end": a.get("creation_date_latest"), "culture": culture,
+             "license": "cc0", "license_field": "share_license_status"}))
     return out
 
 
@@ -388,7 +393,8 @@ def search_chicago(query, limit=SEARCH_PAGE_SIZE):
             f"{iiif}/{a['image_id']}/full/1920,/0/default.jpg",
             f"https://www.artic.edu/artworks/{a.get('id')}",
             {"source": "chicago", "begin": a.get("date_start"),
-             "end": a.get("date_end"), "place": a.get("place_of_origin")},
+             "end": a.get("date_end"), "place": a.get("place_of_origin"),
+             "license": "public_domain", "license_field": "is_public_domain"},
             headers=CHICAGO_IMAGE_HEADERS))
     return out
 
