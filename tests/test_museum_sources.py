@@ -616,3 +616,56 @@ class TestMuseumsInterleave:
         ids = [c["id"] for c in ms.search_museums("armour")]
         assert ids[:3] == ["met:0", "cleveland:1", "chicago:1"], ids
         assert ids[3:5] == ["met:1", "chicago:2"]
+
+
+class TestCultureQualifierStaysOutOfMuseum:
+    """Уточнитель культуры («european» перед «sword») — защита для СТОКОВ,
+    у которых нет паспорта предмета. В музейный поиск он уходить не должен.
+
+    Замер на живом API Мет 14.09, отдел 4, окно 900-1600:
+      «dagger»       -> 52 предмета; «european dagger» -> 33, потеряно 19.
+      Среди потерянных — «Dagger pommel | French», «Dagger grip | Italian»,
+      «Rapier | Italian»: подлинники нужной культуры, выпавшие только потому,
+      что слова «european» нет в их описании.
+      Заодно уходят «Blade for a dagger (Tantō) | Japanese» и «Dagger (Katar)
+      | South Indian» — но их И ТАК снимает culture_is_foreign() ПОСЛЕ поиска.
+      «helmet visor»  -> 60; «european helmet visor» -> 184, потеряно 0 —
+      то есть на другом запросе тот же уточнитель работает в обратную
+      сторону: выдача Мет по `q` не И-логика, и предсказать знак эффекта
+      нельзя. Непредсказуемый рычаг поверх точного паспорта — не защита.
+    """
+
+    def test_passport_removes_exactly_what_the_qualifier_removes(self):
+        """Обоснование правки: паспорт снимает чужие культуры ЗНАНИЕМ, и
+        делает это точнее, чем совпадение слова в описании."""
+        for foreign in ("Japanese", "South Indian, Vijayanagara",
+                        "Turkish, in the style of Turkman armor"):
+            assert ms.culture_is_foreign(foreign) is True, foreign
+        for ours in ("French", "Italian, Milan", "Flemish, possibly Antwerp",
+                     "Spanish, possibly Granada", "European, Italy, Spain"):
+            assert ms.culture_is_foreign(ours) is False, ours
+
+    def test_museum_gets_the_authored_query_stocks_get_the_qualified_one(self):
+        """Ровно та развилка, ради которой правка сделана. Если её потерять,
+        музей снова начнёт терять французские и итальянские подлинники."""
+        src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"),
+                   encoding="utf-8").read()
+        start = src.index("for source_name, fetch in ((\"museum\"")
+        block = src[start:start + 3000]
+        assert 'fetch(pq, department=department)' in block, (
+            "музейный источник больше не получает АВТОРСКИЙ запрос — "
+            "уточнитель культуры вернулся туда, где он теряет подлинники")
+        assert 'else fetch(api_q)' in block, (
+            "стоки обязаны и дальше получать уточнённый запрос: у них нет "
+            "паспорта предмета, и уточнитель там единственная защита")
+
+    def test_change_is_in_the_selection_signature(self):
+        """Состав музейных кандидатов меняется — без подписи правка не дошла
+        бы до экрана на прогретом temp_smart/."""
+        import pipeline_smart as _ps
+        src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"),
+                   encoding="utf-8").read()
+        start = src.index("def _selection_stack_signature")
+        block = src[start:src.index("\ndef candidate_gate_signature", start)]
+        assert "MUSEUM_RAW_QUERY_VERSION" in block
+        assert isinstance(_ps.MUSEUM_RAW_QUERY_VERSION, int)

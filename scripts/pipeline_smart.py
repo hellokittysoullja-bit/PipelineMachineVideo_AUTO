@@ -5631,6 +5631,10 @@ OPENVERSE_QUERY_CASCADE_VERSION = 1
 # не корпус музея. Версия поднята, потому что меняется СОСТАВ пула — на
 # прогретом temp_smart/ иначе правка не дошла бы до экрана.
 MUSEUM_SOURCES_VERSION = 2
+# Уточнитель культуры (disambiguate_search_query) НЕ уходит в музейный
+# поиск — там культура известна из паспорта предмета, а не угадывается
+# по слову в описании. См. замер у места вызова.
+MUSEUM_RAW_QUERY_VERSION = 1
 # Ниже двух слов не опускаемся ни на одной ступени — см. коммент про танк.
 OPENVERSE_QUERY_MIN_WORDS = 2
 
@@ -6265,7 +6269,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             # на «plate armour» исчезают целиком). Тип не определён -> `any`
             # -> прежний маршрут во все источники, ноль регрессии.
             shot_type = shot_type_of_query(pq)
-            department = met_department_for_query(api_q, shot_type)
+            department = met_department_for_query(pq, shot_type)
             per_source = []
             for source_name, fetch in (("museum", _museum_search_photos),
                                         ("openverse", _openverse_search_photos),
@@ -6275,7 +6279,22 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                 if not source_allowed_for(source_name, shot_type):
                     continue
                 src_list = []
-                fetched = (fetch(api_q, department=department)
+                # В МУЗЕЙ уходит АВТОРСКИЙ запрос, без уточнителя культуры.
+                # Замер 14.09 на живом API Мет (отдел 4, окно 900-1600):
+                #   «dagger» -> +european теряет 19 предметов, и среди них
+                #   «Dagger pommel | French», «Dagger grip | Italian»,
+                #   «Rapier | Italian» — подлинники, которые нужны;
+                #   заодно уходят «Blade for a dagger (Tantō) | Japanese» и
+                #   «Dagger (Katar) | South Indian» — но их И ТАК убирает
+                #   паспортный фильтр culture_is_foreign() ПОСЛЕ поиска
+                #   (проверено поимённо: Japanese/South Indian/Turkish ->
+                #   True, French/Italian/Flemish/Spanish -> False).
+                # То есть на музейном пути польза уточнителя ДУБЛИРУЕТ
+                # паспорт, а его потери паспорт вернуть не может: он
+                # отсекает ЗНАНИЕМ о культуре предмета, а уточнитель —
+                # совпадением слова в описании. Стоки паспорта не имеют,
+                # там уточнитель остаётся единственной защитой и не тронут.
+                fetched = (fetch(pq, department=department)
                            if source_name == "museum" else fetch(api_q))
                 for p in fetched:
                     # Из какого запроса кандидат пришёл — гейт релевантности
@@ -9816,6 +9835,10 @@ def _selection_stack_signature():
         # какие BASE_MIN_POOL из них вообще дойдут до оценки — ровно тот
         # же класс изменения, что чередование источников выше.
         feature_flags.enabled("QUERY_FUSION"), query_fusion.QUERY_FUSION_VERSION,
+        # В музей уходит авторский запрос, а не уточнённый — другой
+        # состав музейных кандидатов, без подписи правка не дошла бы
+        # до экрана на прогретом temp_smart/.
+        MUSEUM_RAW_QUERY_VERSION,
         # ДЕЙСТВУЮЩАЯ граница (не пол): у эпизода с длинным хуком она другая,
         # а значит другой и размер пула, из которого выбран победитель.
         _FAST_MODE_START, FAST_DIRECTOR_MIN_POOL, FAST_PHOTO_DEDUP_MAX_TRIES,
