@@ -8,6 +8,7 @@ assets/library/manifest.json с числами по каждому файлу. �
 """
 import inspect
 import os
+import shutil
 import sys
 
 import numpy as np
@@ -144,6 +145,8 @@ def test_ambience_import_constants_are_sane():
     assert 0.9 < sl.MONO_CORRELATION <= 1.0
 
 
+@pytest.mark.skipif(shutil.which("ffmpeg") is None,
+                    reason="ffmpeg не найден в PATH")
 def test_channel_correlation_flags_duplicated_mono(tmp_path):
     import subprocess
     mono, stereo = str(tmp_path / "m.wav"), str(tmp_path / "s.wav")
