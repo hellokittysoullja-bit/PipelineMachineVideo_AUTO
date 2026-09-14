@@ -170,6 +170,49 @@ class TestDensityBudget:
                                             "text": "", "card_text": ""})
         assert not _ps.fallback_card_allowed(999, 165)
 
+    def test_no_media_cards_do_not_consume_bad_frame_budget(self, _ps):
+        """Две гарантии — два счётчика (FALLBACK_CARD_BUDGET_VERSION=3).
+
+        Карточка «нет медиа» ставится вне бюджета (ей нечего заменять, кроме
+        выпавшего блока), но раньше писалась в тот же список и съедала
+        потолок карточек за БРАК. Здесь: полный потолок пустых слотов уже
+        стоит — карточка за брак всё равно разрешена. Контроль: со старым
+        кодом (len(FALLBACK_CARD_SLOTS) >= cap) этот тест падает.
+        """
+        n = 165
+        cap = int(n * _ps.FALLBACK_CARD_MAX_SHARE)
+        for k in range(cap + 2):
+            _ps.FALLBACK_CARD_SLOTS.append({"index": k * 10, "reason": _ps.FALLBACK_NO_MEDIA_REASON,
+                                            "text": "", "card_text": ""})
+        assert _ps.fallback_card_allowed(155, n), "пустые слоты съели бюджет брака"
+
+    def test_bad_frame_budget_is_still_capped_on_its_own(self, _ps):
+        n = 165
+        cap = int(n * _ps.FALLBACK_CARD_MAX_SHARE)
+        for k in range(cap):
+            _ps.FALLBACK_CARD_SLOTS.append({"index": k * 10, "reason": "below_relevance_threshold",
+                                            "text": "", "card_text": ""})
+        assert not _ps.fallback_card_allowed(155, n)
+
+    def test_no_media_card_still_counts_for_visual_gap(self, _ps):
+        """Интервал — визуальное правило: две карточки подряд читаются как
+        сбой вёрстки, какой бы ни была причина каждой."""
+        _ps.FALLBACK_CARD_SLOTS.append({"index": 40, "reason": _ps.FALLBACK_NO_MEDIA_REASON,
+                                        "text": "", "card_text": ""})
+        assert not _ps.fallback_card_allowed(41, 165)
+        assert not _ps.fallback_card_allowed(42, 165)
+        assert _ps.fallback_card_allowed(43, 165)
+
+    def test_no_media_reason_is_the_one_main_uses(self, _ps):
+        """Константа и место вызова — одно имя: разъедутся — бюджет снова
+        станет общим, а тесты выше останутся зелёными."""
+        src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"), encoding="utf-8").read()
+        assert 'build_slot_fallback_card(i, b["text"], FALLBACK_NO_MEDIA_REASON)' in src
+        assert src.count('FALLBACK_NO_MEDIA_REASON = "no_media_at_all"') == 1
+        # Ни один ВЫЗОВ не передаёт литерал мимо константы (в комментариях
+        # он встречаться может — там он ничего не решает).
+        assert '"no_media_at_all")' not in src, "литерал причины передан в вызов мимо константы"
+
     def test_flag_off_disables_the_whole_ladder(self, _ps, monkeypatch):
         monkeypatch.setattr(_ps, "FALLBACK_CARD_ENABLED", False)
         assert not _ps.fallback_card_allowed(10, 165)

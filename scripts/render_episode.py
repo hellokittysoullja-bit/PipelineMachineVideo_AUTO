@@ -350,6 +350,12 @@ def preflight_and_run(video_dir, strict, legacy_allow_degraded, legacy_allow_unr
     tv_status, tv_report = _timing_verification(video_dir)
     manifest["stages"]["timing_verification"] = {"status": tv_status,
                                                   "report": tv_report}
+    # ПАПКА-ОТЧЁТ по готовому файлу (scripts/segment_report.py) — контактный
+    # лист, доля карточек, скачки тона между соседними планами, распределение
+    # длительностей планов, отказы по причинам. Идёт ДО строгой остановки по
+    # таймингу: файл уже есть, и смотреть на него надо именно тогда, когда
+    # что-то не так. Fail-open: отчёт не имеет права уронить сборку.
+    manifest["stages"]["segment_report"] = _segment_report(video_dir)
     if tv_status in ("drift", "cuts_across_speech") and strict and not legacy_allow_degraded:
         _write_manifest(video_dir, manifest)
         print(f"  СТОП (--strict-production): измеренный тайминг готового файла — "
@@ -388,6 +394,24 @@ def _timing_verification(video_dir):
     if verdict in ("low_coverage", "no_reference", "no_video"):
         return "not_measured", report
     return "ok", report
+
+
+def _segment_report(video_dir):
+    """Собрать media_plan/segment_report/ прямо в процессе (нужен сам отчёт —
+    его сводка уезжает в timeline_manifest.json). Нет ffmpeg/numpy/PIL —
+    статус честно «not_built», ролик от этого не пропадает."""
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import segment_report
+        report, path = segment_report.build(video_dir)
+        print("  Отчёт по готовому файлу:")
+        print("    " + segment_report.summarize(report).replace("\n", "\n    "))
+        print(f"    {path}")
+        return {"status": "built", "path": path,
+                "video_measured": (report.get("video_measured") or {}).get("status"),
+                "cards": (report.get("artifacts") or {}).get("cards")}
+    except Exception as e:
+        return {"status": "not_built", "error": f"{type(e).__name__}: {e}"}
 
 
 def _write_manifest(video_dir, manifest):

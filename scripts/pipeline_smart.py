@@ -4443,7 +4443,15 @@ FALLBACK_CARD_MAX_SHARE = 0.08   # не больше 8% слотов эпизо�
 # Версия правила выдачи бюджета (сами константы не изменились, изменилось
 # КОМУ он достаётся) — для _selection_stack_signature(): без неё на прогретом
 # temp_smart/ карточки остались бы на старых местах.
-FALLBACK_CARD_BUDGET_VERSION = 2
+FALLBACK_CARD_BUDGET_VERSION = 3
+# Причина карточки на слоте, у которого медиа НЕТ ВООБЩЕ (main(), ветка после
+# local_photo(allow_cycle=True)). Такая карточка ставится вне бюджета — ей
+# нечего заменять, кроме выпавшего блока. ДО 14.09 она всё равно писалась в
+# FALLBACK_CARD_SLOTS и СЪЕДАЛА потолок карточек за БРАК: пять пустых слотов
+# в начале эпизода — и на брак дальше бюджета почти не оставалось. Две разные
+# гарантии («слот не пуст» и «брак закрыт в пределах 8%») делили один
+# счётчик. Найдено вопросом внешнего разбора «что при кластере пустых слотов».
+FALLBACK_NO_MEDIA_REASON = "no_media_at_all"
 FALLBACK_CARD_MIN_GAP = 3        # минимум столько слотов между двумя карточками
 FALLBACK_CARD_SLOTS = []   # [{"index", "reason", "text", "card_text"}, ...]
 # Слоты, где заведомо плохое ВИДЕО заменено фотографией (см. ступень
@@ -4571,8 +4579,14 @@ def fallback_card_allowed(index, n_slots, is_opening=False):
     # беззащитным.
     total_cap = max(1, int(n_slots * FALLBACK_CARD_MAX_SHARE))
     position_cap = max(1, math.ceil((index + 1) * FALLBACK_CARD_MAX_SHARE))
-    if len(FALLBACK_CARD_SLOTS) >= min(total_cap, position_cap):
+    # Потолок — только по карточкам, заменившим БРАК. Карточка «нет медиа»
+    # (FALLBACK_NO_MEDIA_REASON) бюджета не тратит: у неё другая гарантия.
+    budgeted = [s for s in FALLBACK_CARD_SLOTS
+                if s.get("reason") != FALLBACK_NO_MEDIA_REASON]
+    if len(budgeted) >= min(total_cap, position_cap):
         return False
+    # Интервал — по ВСЕМ карточкам, включая «нет медиа»: две карточки подряд
+    # читаются как сбой вёрстки независимо от того, почему они тут стоят.
     return all(abs(index - s["index"]) >= FALLBACK_CARD_MIN_GAP
                for s in FALLBACK_CARD_SLOTS)
 
@@ -5156,6 +5170,13 @@ def _pool_cleared_both_gates(candidates_info):
     return any(c["is_relevant"] and c["sharp_ok"] for c in candidates_info)
 
 
+# Версия ПОРЯДКА ключей кортежа ранжирования — для _selection_stack_signature():
+# перестановка is_relevant выше size_ok меняет победителя на том же пуле, и
+# без подписи на прогретом temp_smart/ кэш-хит клипа отдал бы старого.
+# 2 -> is_relevant выше size_ok (см. докстринг _score_and_pick).
+RANKING_ORDER_VERSION = 2
+
+
 def _score_and_pick(candidates_info, director_score_fn=None):
     """Чистая функция без сети/диска — построение и сравнение кортежей
     ранжирования по УЖЕ ПОСЧИТАННЫМ метрикам кандидатов (см. цикл в
@@ -5172,12 +5193,26 @@ def _score_and_pick(candidates_info, director_score_fn=None):
     Возвращает (base_winner, director_winner) — оба элемента
     candidates_info (или None на пустом списке/если ни один кандидат не
     улучшил стартовый счёт). base_winner — 8-элементный
-    лексикографический кортеж (is_dup_free, size_ok, is_relevant, sharp_ok,
-    rel_bucket, aesthetic_val, luma_score, min_d) — rel_bucket добавлен
-    13.09 (см. RELEVANCE_RANK_BUCKET), остальное — то же строгое ">"
-    сравнение и тот же порядок кандидатов, что был инлайн в pexels_photo()
-    до рефакторинга — при равенстве кортежей побеждает ПЕРВЫЙ встреченный
-    кандидат, не последний (важно для байт-в-байт совместимости).
+    лексикографический кортеж (is_dup_free, is_relevant, size_ok, sharp_ok,
+    rel_bucket, aesthetic_val, luma_score, min_d), строгое ">" сравнение —
+    при равенстве кортежей побеждает ПЕРВЫЙ встреченный кандидат.
+
+    ПОРЯДОК is_relevant / size_ok (RANKING_ORDER_VERSION=2, 14.09). До этого
+    кортеж был (is_dup_free, size_ok, is_relevant, ...) — ровно как инлайн в
+    pexels_photo() до рефакторинга. А size_ok на фото-пути — это НЕ
+    разрешение картинки, а ритм крупностей (estimate_shot_size(trial) in
+    recent_sizes[-2:], см. pexels_photo()). То есть кадр НЕ ПО ТЕМЕ, но со
+    свежей крупностью, лексикографически бил кадр ПО ТЕМЕ с повторённой
+    крупностью. Монтажёр берёт верный предмет и подрезает кадрирование, а не
+    наоборот — ритм крупностей арбитр СРЕДИ релевантных, не поверх
+    релевантности. is_dup_free остаётся первым: дубль не спасает ни тема, ни
+    крупность.
+
+    rel_bucket (RELEVANCE_RANK_BUCKET, 13.09) — ТОНКАЯ ось «насколько по
+    теме» среди уже прошедших бинарный гейт; стоит перед эстетикой, но
+    ПОСЛЕ ритма крупностей: иначе разница релевантности в 0.02 забирала бы
+    ритм крупностей себе целиком и он перестал бы работать вообще. Две
+    правки одного кортежа от 13.09 и 14.09 совмещены, ни одна не отменена.
 
     director_winner считается, ТОЛЬКО если передан director_score_fn(path,
     candidate_query=None, aesthetic_val=None) -> float (scripts/
@@ -5205,9 +5240,10 @@ def _score_and_pick(candidates_info, director_score_fn=None):
     for c in candidates_info:
         sharp_ok = c.get("sharp_ok", 1)
         # rel_bucket — см. RELEVANCE_RANK_BUCKET: «насколько по теме» решает
-        # раньше «насколько красиво», гейты остаются гейтами.
+        # раньше «насколько красиво», гейты остаются гейтами. is_relevant
+        # (бинарный) при этом стоит выше ритма крупностей — см. докстринг.
         rel_bucket = relevance_rank_bucket(c.get("relevance"))
-        score = (c["is_dup_free"], c["size_ok"], c["is_relevant"], sharp_ok, rel_bucket,
+        score = (c["is_dup_free"], c["is_relevant"], c["size_ok"], sharp_ok, rel_bucket,
                   c["aesthetic_val"], c["luma_score"], c["min_d"])
         if score > base_score:
             base_best, base_score = c, score
@@ -5226,7 +5262,7 @@ def _score_and_pick(candidates_info, director_score_fn=None):
             # У Директора своя, более сильная ось смысла (extra — relevance
             # ПОЛНОЙ фразы ансамблем), поэтому корзина relevance по запросу
             # стоит ПОСЛЕ неё: разбивает ничьи Директора до эстетики.
-            dscore = (c["is_dup_free"], c["size_ok"], c["is_relevant"], sharp_ok, extra,
+            dscore = (c["is_dup_free"], c["is_relevant"], c["size_ok"], sharp_ok, extra,
                        rel_bucket, c["aesthetic_val"], c["luma_score"], c["min_d"])
             if dscore > dir_score:
                 dir_best, dir_score = c, dscore
@@ -9824,6 +9860,9 @@ def _selection_stack_signature():
         # уже прошедших гейты видео-кандидатов, без флага здесь смена
         # алгоритма ранжирования не дошла бы до экрана на прогретом кэше.
         VIDEO_DIRECTOR_SCORE_VERSION,
+        # Порядок ключей кортежа _score_and_pick(): is_relevant выше size_ok
+        # (14.09) — другой победитель на том же пуле.
+        RANKING_ORDER_VERSION,
     ))
 
 
@@ -13617,7 +13656,7 @@ def main():
             # Медиа нет вообще. Раньше блок просто выпадал из ролика (а при
             # RENDER_STRICT_GATE=1 — останавливал всю сборку). Карточка здесь
             # сильнее любого повтора: она про эту самую фразу.
-            card = build_slot_fallback_card(i, b["text"], "no_media_at_all")
+            card = build_slot_fallback_card(i, b["text"], FALLBACK_NO_MEDIA_REASON)
             if card:
                 photo = card
         if not photo and not video:
