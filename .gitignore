@@ -1,4 +1,10 @@
 .env
+# Любая копия .env — ключи те же самые. Реальный случай 14.09: `cp .env .env.bak`
+# перед `--create-template` (lumean_tts.persist_env_value переписывает файл
+# целиком) оставил untracked файл с живыми ключами, который правило `.env` не
+# покрывало. Один символ разницы в имени — и ключи коммитятся.
+.env.*
+!.env.example
 secrets/
 *.key
 videos/
