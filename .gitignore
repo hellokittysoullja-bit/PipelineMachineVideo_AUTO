@@ -52,3 +52,7 @@ temp_museum_cache/
 
 # Дисковый кэш поиска Openverse — тот же принцип, что temp_museum_cache/.
 temp_openverse_cache/
+
+# Локальный каталог Мет: дамп 303 МБ + индекс. ПРОДУКТ, а не исходник —
+# пересобирается 'python scripts/met_catalog.py build'.
+temp_met_catalog/

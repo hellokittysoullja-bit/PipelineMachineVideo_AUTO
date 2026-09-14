@@ -52,6 +52,14 @@ def _isolate_from_real_dotenv(monkeypatch, tmp_path):
     # музейных API — а Met на каждый предмет делает отдельный запрос.
     monkeypatch.delenv("MUSEUM_SOURCES_ENABLED", raising=False)
     monkeypatch.setenv("MUSEUM_SOURCES_ENABLED", "0")
+    # MET_CATALOG — тот же приём и та же причина, но дефект здесь другого
+    # рода и найден сразу пятью упавшими тестами: каталог читает РЕАЛЬНЫЙ
+    # индекс с диска (temp_met_catalog/index.json). Тест, который замокал
+    # _met_get и ждёт свои три objectID, получал к ним тридцать настоящих
+    # и падал — не потому, что код сломан, а потому что на машине, где
+    # индекс собран, тесты переставали быть герметичными. Дефолт реестра 1.
+    monkeypatch.delenv("MET_CATALOG", raising=False)
+    monkeypatch.setenv("MET_CATALOG", "0")
     # Дисковые кэши поиска (музеи, Openverse) — в СВОЮ папку на тест: иначе
     # положительный тест с реалистичным ответом кладёт результат в общий
     # temp_*_cache/, а следующий тест «сеть упала -> пусто» получает из кэша

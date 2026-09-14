@@ -196,7 +196,11 @@ class TestFailOpen:
         # обходной строки не нужно — если она понадобится снова, значит
         # позднее связывание опять сломано.
         ms._SEARCH_CACHE.clear()
-        monkeypatch.setattr(ms.feature_flags, "enabled", lambda *a, **k: True)
+        # Все флаги включены, КРОМЕ локального каталога: он читает реальный
+        # индекс с диска, и тест про музейный кэш не должен зависеть от
+        # того, собран ли на этой машине дамп на 300 МБ.
+        monkeypatch.setattr(ms.feature_flags, "enabled",
+                            lambda name, *a, **k: name != "MET_CATALOG")
         assert ms.search_museums("q") == [{"id": "cleveland:1"}]
 
     def test_flag_off_makes_no_requests(self, monkeypatch):
@@ -476,7 +480,11 @@ class TestMetPoliteness:
         monkeypatch.setattr(ms, "search_met", lambda q, **k: [{"id": "met:fake"}])
         monkeypatch.setattr(ms, "search_cleveland", lambda q, **k: [])
         monkeypatch.setattr(ms, "search_chicago", lambda q, **k: [])
-        monkeypatch.setattr(ms.feature_flags, "enabled", lambda *a, **k: True)
+        # Все флаги включены, КРОМЕ локального каталога: он читает реальный
+        # индекс с диска, и тест про музейный кэш не должен зависеть от
+        # того, собран ли на этой машине дамп на 300 МБ.
+        monkeypatch.setattr(ms.feature_flags, "enabled",
+                            lambda name, *a, **k: name != "MET_CATALOG")
         ms._SEARCH_CACHE.clear()
         assert ms.search_museums("sword") == [{"id": "met:fake"}]
 
@@ -491,7 +499,11 @@ class TestDiskCache:
     @pytest.fixture(autouse=True)
     def _isolated(self, tmp_path, monkeypatch):
         monkeypatch.setattr(ms, "MUSEUM_CACHE_DIR", str(tmp_path / "cache"))
-        monkeypatch.setattr(ms.feature_flags, "enabled", lambda *a, **k: True)
+        # Все флаги включены, КРОМЕ локального каталога: он читает реальный
+        # индекс с диска, и тест про музейный кэш не должен зависеть от
+        # того, собран ли на этой машине дамп на 300 МБ.
+        monkeypatch.setattr(ms.feature_flags, "enabled",
+                            lambda name, *a, **k: name != "MET_CATALOG")
         monkeypatch.setattr(ms, "MET_RETRY_PAUSE_SEC", 0.0)
         ms.reset_fetch_stats()
         ms._SEARCH_CACHE.clear()
@@ -608,7 +620,11 @@ class TestMuseumsInterleave:
         слота, relevance 0.325) стоял 61-м и не попадал в пробную выборку из
         20 — побеждала керамическая тарелка Мет (A/B, 13.09)."""
         monkeypatch.setattr(ms, "MUSEUM_CACHE_DIR", str(tmp_path / "c"))
-        monkeypatch.setattr(ms.feature_flags, "enabled", lambda *a, **k: True)
+        # Все флаги включены, КРОМЕ локального каталога: он читает реальный
+        # индекс с диска, и тест про музейный кэш не должен зависеть от
+        # того, собран ли на этой машине дамп на 300 МБ.
+        monkeypatch.setattr(ms.feature_flags, "enabled",
+                            lambda name, *a, **k: name != "MET_CATALOG")
         ms._SEARCH_CACHE.clear()
         monkeypatch.setattr(ms, "search_met", lambda q, **k: [{"id": f"met:{i}"} for i in range(5)])
         monkeypatch.setattr(ms, "search_cleveland", lambda q, **k: [{"id": "cleveland:1"}])

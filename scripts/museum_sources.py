@@ -73,7 +73,36 @@ DEFAULT_FOREIGN_CULTURE_TERMS = (
     "islamic", "arab", "syria", "syrian", "mughal", "nepal", "nepalese",
     "thai", "burmese", "vietnam", "african", "mesoamerican", "aztec", "maya",
     "inca", "peru", "peruvian", "assyrian", "babylonian", "sumerian",
+    # Дополнено 14.09 ПО ЗАМЕРУ, а не по интуиции: локальный каталог Мет
+    # (scripts/met_catalog.py) впервые показал ВЕСЬ корпус, прошедший
+    # паспорт, — 31 182 предмета, — и в нём нашлись культуры, которых в
+    # списке не было. На узком запросе это било в полную силу: у
+    # «european longsword blade macro» выдача состояла ИЗ ДВУХ предметов, и
+    # оба были из этой дыры («Knife blade, Afghan», «Blade (Kudi
+    # tranchang), Javanese»). Дефект не каталога — он всё это время
+    # действовал и на живом API-пути, просто там его нечем было увидеть.
+    # Счёт в индексе: javanese 54, mongol 5, afghan 4.
+    "javanese", "java", "afghan", "mongol", "iraq",
 )
+
+# СПОРНЫЕ культуры — решение творческое, а не техническое, и поэтому за
+# владельцем, а не за кодом. Все четыре паспорт сегодня пропускает:
+#   Byzantine, Coptic — христианские, средневековые по датам, но не
+#     западноевропейские; византийский доспех в ролике про Азенкур это
+#     вопрос вкуса, а не анахронизм в том же смысле, что яванский крис.
+#   Armenian (4 предмета), Georgian (1) — Кавказ, та же развилка.
+# Добавить их — одна строка в channel_profile.json ("foreign_culture_terms"),
+# и список выше не трогается. Молча решать это за канал я не стал.
+
+# departmentId у API и название отдела в дампе — одно и то же, но выражены
+# по-разному. Таблица нужна, чтобы локальный поиск фильтровал ровно тот же
+# отдел, что и структурный запрос к API (см. scripts/shot_types.py).
+MET_DEPARTMENT_NAMES = {
+    4: "Arms and Armor",
+    7: "The Cloisters",
+    11: "European Paintings",
+    17: "Medieval Art",
+}
 
 MET_API = "https://collectionapi.metmuseum.org/public/collection/v1"
 CLEVELAND_API = "https://openaccess-api.clevelandart.org/api/artworks"
@@ -179,6 +208,7 @@ _MET_RATE = [MET_MAX_REQUESTS_PER_SEC]
 # уходил в остывание и на какой скорости закончил. Читается вызывающим
 # кодом/тестами и уезжает в media_plan/source_contribution.json.
 FETCH_STATS = {"met_cards_lost": 0, "met_cooldowns": 0, "met_requests": 0,
+               "met_catalog_hits": 0,
                "met_rate_final": MET_MAX_REQUESTS_PER_SEC,
                "search_cache_hits": 0, "search_cache_misses": 0}
 
@@ -186,6 +216,7 @@ FETCH_STATS = {"met_cards_lost": 0, "met_cooldowns": 0, "met_requests": 0,
 def reset_fetch_stats():
     """Один прогон — один счёт. Нужен тестам и повторным вызовам в процессе."""
     for k in ("met_cards_lost", "met_cooldowns", "met_requests",
+              "met_catalog_hits",
               "search_cache_hits", "search_cache_misses"):
         FETCH_STATS[k] = 0
     _MET_RATE[0] = MET_MAX_REQUESTS_PER_SEC
@@ -350,11 +381,41 @@ def search_met(query, limit=MET_MAX_DETAIL_FETCHES, department=None):
     # правами снимок (замер 13.09). Паспортная проверка НИЖЕ остаётся —
     # серверный фильтр экономит запросы, а не заменяет доказательство.
     era_from, era_to = era_window()
+
+    # ЛОКАЛЬНЫЙ КАТАЛОГ ИДЁТ ПЕРВЫМ, И БЮДЖЕТ КАРТОЧЕК ОТ ЭТОГО НЕ РАСТЁТ.
+    #
+    # Поиск Мет по `q=` отвечает совпадением по ОПИСАНИЯМ, поэтому из 60
+    # вытянутых карточек паспорт проходит около трети — сорок запросов
+    # тратятся на предметы, которые будут отброшены. ID из каталога паспорт
+    # уже прошли ЛОКАЛЬНО (те же era_overlaps/culture_is_foreign, см.
+    # met_catalog.build), то есть выживают все до одного.
+    #
+    # Отсюда правило: общий потолок `limit` остаётся прежним, каталог просто
+    # занимает его начало, а выдача API дозаполняет остаток. Цена в запросах
+    # та же, доля полезных карточек выше. Каталога нет или он ничего не нашёл
+    # (например, «longsword» — слова нет в словаре Мет, там `Sword` и
+    # `Two-hand sword») — путь БАЙТ-В-БАЙТ прежний, ноль регрессии.
+    cat_ids = []
+    if feature_flags is None or feature_flags.enabled("MET_CATALOG"):
+        try:
+            import met_catalog
+            if met_catalog.available():
+                dept_name = MET_DEPARTMENT_NAMES.get(department)
+                cat_ids = [int(r["id"]) for r in met_catalog.search(
+                    query, department_name=dept_name, limit=limit)
+                    if str(r.get("id") or "").isdigit()]
+                FETCH_STATS["met_catalog_hits"] += len(cat_ids)
+        except Exception:
+            cat_ids = []   # fail-open: каталог не обязан существовать
+
     data = _met_get(f"{MET_API}/search?hasImages=true&isPublicDomain=true"
                     f"&dateBegin={int(era_from)}&dateEnd={int(era_to)}"
                     + (f"&departmentId={int(department)}" if department else "")
                     + "&q=" + urllib.parse.quote(query))
-    oids = ((data or {}).get("objectIDs") or [])[:limit]
+    api_ids = (data or {}).get("objectIDs") or []
+    seen = set(cat_ids)
+    oids = cat_ids + [i for i in api_ids if i not in seen]
+    oids = oids[:limit]
     if not oids:
         return out
 
