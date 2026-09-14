@@ -185,6 +185,25 @@ def negatives_for(spec):
     return list(NEGATIVE_PROMPTS) + list(spec.get("extra_neg", ()))
 
 
+# Группы, внутри которых виды конкурируют между собой. sfx сюда НЕ входит:
+# его виды (переход главы, тик плашки, нарастание, удар) — роли в монтаже,
+# а не разные места или предметы, и «нарастание против удара» акустически
+# осмысленного победителя не имеет.
+# Ловушки тихого фоли, общие для ВСЕХ предметных концептов. Выведены не из
+# интуиции, а из измеренных ложных приёмов на реальном пакете (Kenney RPG
+# Audio, 51 файл, прогон 14.09): «выхват меча» выигрывали скрип двери и
+# застёжка ремня, «выстрел из лука» — три шага и кожаный ремешок, «молот по
+# наковальне» — книга, положенная на стол. Общие NEGATIVE_PROMPTS тут не
+# работают по устройству: речь/музыка/транспорт/гул/дисторшн любой сухой
+# фоли-удар обходит даром, то есть маржа была положительной ни за что.
+# Ловушка «шаг» сознательно НЕ добавлена в footsteps_mud — там это цель.
+OBJECT_FOLEY_DECOYS = (
+    "clothing rustle, fabric or leather being handled",
+    "paper pages, a book placed on a table",
+)
+
+KIND_COMPETITION_KINDS = ("ambience", "object")
+
 KIND_DECOYS = {
     "surf": "ocean waves breaking on a beach, sea surf",
     "traffic_city": "city street with traffic and cars",
@@ -294,7 +313,9 @@ LIBRARY_SPEC = {
             queries=["sword unsheathe", "sword draw scabbard", "metal blade slide",
                      "sword sheath metal", "blade unsheathing"],
             prompt="a single steel sword being drawn from a scabbard, one metallic slide",
-            extra_neg=["orchestral music sting", "person talking"],
+            extra_neg=["orchestral music sting", "person talking",
+                       *OBJECT_FOLEY_DECOYS,
+                       "a wooden door hinge creaking"],
             min_sec=0.25, max_sec=2.5, keep=4),
         "armour_clank": dict(
             # Первый прогон: 0 кандидатов из 0 — пул был ПУСТ, а не гейты
@@ -310,25 +331,34 @@ LIBRARY_SPEC = {
             queries=["chainmail", "armor foley", "knight armor",
                      "chain rattle", "metal clank"],
             prompt="metal armour and chainmail clanking as someone moves, foley recording",
-            extra_neg=["keys jingling in a pocket", "coins in a jar", "person talking"],
+            extra_neg=["keys jingling in a pocket", "coins in a jar", "person talking",
+                       *OBJECT_FOLEY_DECOYS,
+                       "a wooden door closing, door latch"],
             min_sec=0.3, max_sec=2.5, keep=4),
         "arrow_shot": dict(
             queries=["arrow whoosh", "bow release arrow", "arrow flyby",
                      "archery bow shot", "arrow swoosh past"],
             prompt="a single arrow released from a bow and whooshing past",
-            extra_neg=["gunshot", "orchestral music sting"],
+            extra_neg=["gunshot", "orchestral music sting",
+                       *OBJECT_FOLEY_DECOYS,
+                       "a single footstep on the ground",
+                       "clothing rustle, fabric movement"],
             min_sec=0.2, max_sec=2.0, keep=4),
         "hammer_anvil": dict(
             queries=["blacksmith hammer anvil", "hammer strike metal anvil",
                      "forge hammer hit", "anvil strike single"],
             prompt="a blacksmith hammer striking hot steel on an anvil, single strike",
-            extra_neg=["construction site machinery", "church bell", "person talking"],
+            extra_neg=["construction site machinery", "church bell", "person talking",
+                       *OBJECT_FOLEY_DECOYS,
+                       "a wooden door closing, door latch",
+                       "a metal pot or pan in a kitchen"],
             min_sec=0.2, max_sec=2.5, keep=4),
         "footsteps_mud": dict(
             queries=["footsteps mud", "walking in mud squelch", "boots mud steps",
                      "footsteps wet ground", "squelching mud footsteps"],
             prompt="heavy boots stepping in thick wet mud, squelching footsteps",
-            extra_neg=["footsteps on a wooden floor indoors", "person talking"],
+            extra_neg=["footsteps on a wooden floor indoors", "person talking",
+                       *OBJECT_FOLEY_DECOYS],
             min_sec=0.3, max_sec=2.5, keep=4),
     },
     "sfx": {
@@ -766,8 +796,14 @@ def measure(path, kind, spec):
     rows = clap_scores(win48, [spec["prompt"]] + negs)
     m["clap_rows"] = [[round(x, 4) for x in r] for r in rows]
     m["neg_names"] = negs
-    if kind == "ambience":
-        by_name = {n: sp for n, sp in LIBRARY_SPEC["ambience"].items()}
+    if kind in KIND_COMPETITION_KINDS:
+        # Конкуренция видов — ВНУТРИ своей группы (LIBRARY_SPEC[kind]).
+        # Раньше здесь стояло kind == "ambience", и это была не осторожность,
+        # а дыра: у object конкуренции не было вообще, то есть кандидату
+        # хватало обойти пять общих приманок (речь/музыка/транспорт/гул/
+        # дисторшн), которые любой сухой фоли-удар обходит даром. Ничто не
+        # спрашивало «это скорее выхват меча или шаг?».
+        by_name = {n: sp for n, sp in LIBRARY_SPEC[kind].items()}
         names = list(by_name) + list(KIND_DECOYS)
         kp = [by_name[n]["prompt"] for n in by_name] + list(KIND_DECOYS.values())
         krows = clap_scores(win48, kp)
@@ -776,6 +812,10 @@ def measure(path, kind, spec):
         m["kind_winner"] = names[korder[0]]
         m["kind_gap"] = round(kavg[korder[0]] - kavg[korder[1]], 4)
         m["kind_scores"] = {n: round(x, 4) for n, x in zip(names, kavg)}
+    if kind == "ambience":
+        # AST-вето откалибровано на длинных полевых записях и сознательно
+        # НЕ распространяется на object этим заходом — это отдельное решение
+        # со своей калибровкой, а не довесок к починке конкуренции видов.
         labels = sorted(set(AST_VETO) | set(spec.get("ast_veto", {}) or {}))
         win16 = [decode_f32(path, st, min(CLAP_WINDOW_SEC, dur), 16000) for st in starts]
         probs = ast_probs([w for w in win16 if w.size > 1600], labels)
@@ -832,7 +872,7 @@ def judge(m, kind, spec):
              clap_worst_neg=negs[max(range(len(negs)), key=lambda j: rows[k][1 + j])])
     if margin < CLAP_MIN_MARGIN:
         v["reasons"].append("clap_negative_wins")
-    if kind == "ambience" and m.get("kind_scores"):
+    if m.get("kind_scores"):
         # Вид обязан выиграть у всех остальных видов и приманок. Это замена
         # акустической части словесного блоклиста — см. kind_competition().
         v["kind_winner"] = m.get("kind_winner")

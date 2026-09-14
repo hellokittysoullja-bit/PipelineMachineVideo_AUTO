@@ -547,3 +547,63 @@ def test_sample_rate_is_confirmed_on_hq_not_judged_on_the_preview():
     finally:
         sl.download = sl_download
         sl.probe_sample_rate = sl_probe
+
+
+# --------------------------------------------------------- конкуренция видов
+# Найдено ЗАМЕРОМ 14.09 на реальном пакете (Kenney RPG Audio, 51 файл, CC0):
+# конкуренция видов стояла под `if kind == "ambience"`, то есть у предметного
+# слоя её не было вообще. Следствие было не теоретическим: ОДИН И ТОТ ЖЕ файл
+# knifeSlice.ogg проходил сразу в три концепта (sword_draw +0.415,
+# hammer_anvil +0.290, arrow_shot +0.117), три записи шагов уезжали в
+# arrow_shot, а два закрывания двери — в armour_clank. Кандидату хватало
+# обойти пять общих ловушек (речь/музыка/транспорт/гул/дисторшн), которые
+# любой сухой фоли-удар обходит даром; вопрос «это скорее выхват меча или
+# шаг?» не задавался никем.
+
+def test_object_kinds_take_part_in_kind_competition():
+    assert "object" in sl.KIND_COMPETITION_KINDS
+    assert "ambience" in sl.KIND_COMPETITION_KINDS
+
+
+def test_sfx_deliberately_stays_out_of_kind_competition():
+    """Виды sfx — роли в монтаже (переход главы, тик плашки, нарастание,
+    удар), а не разные места или предметы: «нарастание против удара»
+    акустически осмысленного победителя не имеет, и конкуренция там
+    отбрасывала бы верные записи."""
+    assert "sfx" not in sl.KIND_COMPETITION_KINDS
+
+
+def _measurement(duration=0.6, winner="arrow_shot"):
+    return {"duration": duration, "clipping_share": 0.0, "source_sample_rate": 48000,
+            "clap_rows": [[0.30, 0.10]], "neg_names": ["person talking"],
+            "kind_winner": winner, "kind_gap": 0.05,
+            "kind_scores": {"sword_draw": 0.2, "arrow_shot": 0.3}}
+
+
+def test_object_candidate_losing_to_another_concept_is_rejected():
+    spec = dict(sl.LIBRARY_SPEC["object"]["sword_draw"], _name="sword_draw")
+    v = sl.judge(_measurement(winner="arrow_shot"), "object", spec)
+    assert "kind_lost_to_arrow_shot" in v["reasons"]
+
+
+def test_object_candidate_winning_its_own_concept_passes():
+    spec = dict(sl.LIBRARY_SPEC["object"]["sword_draw"], _name="sword_draw")
+    v = sl.judge(_measurement(winner="sword_draw"), "object", spec)
+    assert not [r for r in v["reasons"] if r.startswith("kind_lost_to_")]
+
+
+def test_object_decoys_cover_the_measured_foley_false_accepts():
+    """Ловушки предметного слоя выведены из измеренных ложных приёмов, а не
+    из интуиции: общие NEGATIVE_PROMPTS не ловят тихое фоли по устройству."""
+    for name in ("sword_draw", "armour_clank", "arrow_shot", "hammer_anvil"):
+        negs = " ".join(sl.negatives_for(sl.LIBRARY_SPEC["object"][name])).lower()
+        assert "cloth" in negs or "fabric" in negs or "leather" in negs, name
+
+
+def test_footsteps_never_gets_a_footstep_decoy_outdoors():
+    """У шагов в грязи шаг — ЦЕЛЬ. Ловушка «шаг на земле» там запретила бы
+    ровно то, что ищется; допустим только шаг по деревянному полу в помещении."""
+    negs = [n.lower() for n in sl.negatives_for(sl.LIBRARY_SPEC["object"]["footsteps_mud"])]
+    for n in negs:
+        if "footstep" in n:
+            assert "wooden floor" in n or "indoors" in n, n
