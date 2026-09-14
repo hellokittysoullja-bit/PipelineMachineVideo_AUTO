@@ -110,6 +110,20 @@ MET_DETAIL_WORKERS = 12
 # limit (его коллекция про другое) — там выигрыша нет, но и цены тоже.
 SEARCH_PAGE_SIZE = 100
 
+# Глубина выдачи для ДОПОЛНИТЕЛЬНОЙ (более широкой) формулировки слота при
+# слиянии рангов — см. scripts/query_fusion.py. Широкая формулировка нужна
+# ради СОГЛАСИЯ с точной, а вес её позиций и так убывает: кандидат на 20-й
+# позиции формулировки с весом 0.5 приносит 0.5/(10+21) = 0.016, тогда как
+# первое место точной формулировки стоит 1/11 = 0.091.
+#
+# ЧЕСТНО: это граница ЦЕНЫ, а не доказательство бесполезности хвоста —
+# бонус 0.016 всё ещё способен поднять кандидата примерно на четыре позиции
+# в точном списке, и более глубокая широкая выдача что-то бы добавляла.
+# Без границы слот стоил бы 3x60=180 карточек Мет вместо 60 (на эпизоде из
+# 42 запросов это 7560 запросов к API, гарантированный 403 и получасовой
+# прогон); с границей — 60+20+20=100, то есть 1.67x, и это названо прямо.
+VARIANT_DETAIL_FETCHES = 20
+
 _SEARCH_CACHE = {}
 
 
@@ -503,23 +517,27 @@ def _mapping_signature():
     return _MAPPING_SIG[0]
 
 
-def _disk_cache_key(query, department=None):
+def _disk_cache_key(query, department=None, limit=None):
     # Отдел ОБЯЗАН входить в ключ: тот же запрос со структурным сужением и
     # без него даёт разные списки, и общий ключ молча отдавал бы чужой.
-    payload = json.dumps([MUSEUM_CACHE_SCHEMA, query, MET_MAX_DETAIL_FETCHES, SEARCH_PAGE_SIZE,
+    # Глубина ОБЯЗАНА входить в ключ: укороченная выдача широкой формулировки
+    # и полная выдача точной — разные списки, общий ключ молча отдал бы чужой.
+    payload = json.dumps([MUSEUM_CACHE_SCHEMA, query,
+                          MET_MAX_DETAIL_FETCHES if limit is None else limit,
+                          SEARCH_PAGE_SIZE if limit is None else limit,
                           list(era_window()), sorted(foreign_culture_terms()),
                           [n for n, _ in _sources()], department, _mapping_signature()],
                          ensure_ascii=False, sort_keys=True)
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
 
-def _disk_cache_path(query, department=None):
-    return os.path.join(MUSEUM_CACHE_DIR, _disk_cache_key(query, department) + ".json")
+def _disk_cache_path(query, department=None, limit=None):
+    return os.path.join(MUSEUM_CACHE_DIR, _disk_cache_key(query, department, limit) + ".json")
 
 
-def _disk_cache_get(query, department=None):
+def _disk_cache_get(query, department=None, limit=None):
     try:
-        path = _disk_cache_path(query, department)
+        path = _disk_cache_path(query, department, limit)
         if not os.path.exists(path):
             return None
         if time.time() - os.path.getmtime(path) > MUSEUM_CACHE_TTL_SEC:
@@ -533,10 +551,10 @@ def _disk_cache_get(query, department=None):
         return None   # битый файл — как будто его нет
 
 
-def _disk_cache_put(query, results, department=None):
+def _disk_cache_put(query, results, department=None, limit=None):
     try:
         os.makedirs(MUSEUM_CACHE_DIR, exist_ok=True)
-        path = _disk_cache_path(query, department)
+        path = _disk_cache_path(query, department, limit)
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump({"query": query, "cached_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -546,7 +564,7 @@ def _disk_cache_put(query, results, department=None):
         pass   # кэш — ускорение, не условие корректности
 
 
-def search_museums(query, department=None):
+def search_museums(query, department=None, limit=None):
     """Кандидаты из всех трёх музеев, уже отфильтрованные по эпохе и культуре.
 
     Порядок источников фиксирован (Met первым — у него профильная коллекция
@@ -555,10 +573,10 @@ def search_museums(query, department=None):
     """
     if feature_flags is not None and not feature_flags.enabled("MUSEUM_SOURCES_ENABLED"):
         return []
-    mem_key = (query, department)
+    mem_key = (query, department, limit)
     if mem_key in _SEARCH_CACHE:
         return _SEARCH_CACHE[mem_key]
-    cached = _disk_cache_get(query, department)
+    cached = _disk_cache_get(query, department, limit)
     if cached is not None:
         FETCH_STATS["search_cache_hits"] += 1
         _SEARCH_CACHE[mem_key] = cached
@@ -570,7 +588,7 @@ def search_museums(query, department=None):
     was_cooling = met_is_cooling_down()
     for name, fn in _sources(department):
         try:
-            per_museum.append(list(fn(query)))
+            per_museum.append(list(fn(query) if limit is None else fn(query, limit=limit)))
         except Exception:
             # Fail-open ПОИСТОЧНИКОВО: упавший музей не должен уносить с
             # собой два оставшихся и уж тем более ронять слот.
@@ -591,5 +609,5 @@ def search_museums(query, department=None):
     complete = (errors == 0 and not was_cooling
                 and FETCH_STATS["met_cooldowns"] == cooldowns_before)
     if out and complete:
-        _disk_cache_put(query, out, department)
+        _disk_cache_put(query, out, department, limit)
     return out

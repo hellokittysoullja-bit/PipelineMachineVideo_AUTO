@@ -210,19 +210,49 @@ class TestFailOpen:
 
 class TestWiredIntoPipeline:
     def test_pipeline_wrapper_uses_the_query_cascade(self, monkeypatch):
-        """Длинный запрос не находит ничего и в музейном поиске тоже — тот же
-        каскад, что у архивов."""
+        """Откат QUERY_FUSION=0 обязан быть БАЙТ-В-БАЙТ прежним каскадом:
+        первая непустая формулировка побеждает, и на полной глубине.
+
+        Это не «тест ради теста»: слияние формулировок меняет и порядок, и
+        цену запроса к API, поэтому выключатель обязан возвращать ровно
+        прежнее поведение, а не похожее на него."""
         seen = []
 
-        def fake(q, department=None):
-            seen.append(q)
+        def fake(q, department=None, limit=None):
+            seen.append((q, limit))
             return [{"id": "met:1"}] if q == "medieval helmet" else []
 
         monkeypatch.setattr(ms, "search_museums", fake)
+        monkeypatch.setenv("QUERY_FUSION", "0")
         ps._MUSEUM_SEARCH_CACHE.clear()
         out = ps._museum_search_photos("medieval helmet lying dirt")
         assert out == [{"id": "met:1"}]
-        assert seen == ["medieval helmet lying dirt", "medieval helmet"]
+        assert seen == [("medieval helmet lying dirt", None),
+                        ("medieval helmet", None)]
+
+    def test_fusion_merges_all_variants_and_spares_depth_on_broad_ones(self, monkeypatch):
+        """При включённом слиянии берутся ВСЕ формулировки (в этом весь
+        смысл: точная могла найти НЕ ТО, а не ничего), но полную глубину
+        получает только точная — иначе слот стоил бы втрое больше карточек
+        Мет, см. museum_sources.VARIANT_DETAIL_FETCHES."""
+        seen = []
+
+        def fake(q, department=None, limit=None):
+            seen.append((q, limit))
+            if q == "medieval helmet lying dirt":
+                return [{"id": "met:wrong"}, {"id": "met:right"}]
+            return [{"id": "met:right"}]
+
+        monkeypatch.setattr(ms, "search_museums", fake)
+        monkeypatch.setenv("QUERY_FUSION", "1")
+        ps._MUSEUM_SEARCH_CACHE.clear()
+        out = ps._museum_search_photos("medieval helmet lying dirt")
+        assert [c["id"] for c in out] == ["met:right", "met:wrong"], (
+            "кандидат, найденный ДВУМЯ формулировками, обязан обойти "
+            "найденного только точной — ради этого модуль и написан")
+        assert seen[0] == ("medieval helmet lying dirt", None)
+        assert all(limit == ms.VARIANT_DETAIL_FETCHES for _, limit in seen[1:])
+        assert len(seen) >= 2
 
     def test_download_merges_candidate_headers(self):
         """Скачивающий код не знает про конкретные музеи — заголовки едут в

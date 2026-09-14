@@ -40,6 +40,7 @@ import stage_timer
 # объявлены ТАМ, а не литералом в каждой точке чтения: расхождение
 # кода с CLAUDE.md уже случалось молча (см. докстринг реестра).
 import feature_flags
+import query_fusion
 
 try:
     import numpy as np
@@ -5344,13 +5345,11 @@ def _museum_search_photos(api_query, department=None):
     results = []
     try:
         import museum_sources
-        for variant in _openverse_query_cascade(api_query):
-            results = museum_sources.search_museums(variant, department=department)
-            if results:
-                if variant != api_query:
-                    print(f"    Музеи: {api_query!r} -> ничего, взят более "
-                          f"общий запрос {variant!r} ({len(results)} канд.)")
-                break
+        results = _search_with_variants(
+            "Музеи", api_query,
+            lambda v, first: museum_sources.search_museums(
+                v, department=department,
+                limit=None if first else museum_sources.VARIANT_DETAIL_FETCHES))
     except Exception as e:
         _note_source_search_error("museum", e, api_query)
         results = []
@@ -5578,6 +5577,58 @@ def _openverse_query_cascade(api_query):
     return out
 
 
+def _search_with_variants(label, api_query, fetch_one):
+    """Выдачи ВСЕХ формулировок слота, слитые по рангу (см. query_fusion.py).
+
+    Заменяет прежнюю лестницу «первая непустая формулировка побеждает». Та
+    ветка работала только когда точная формулировка не нашла НИЧЕГО, и была
+    бессильна в самом частом случае — когда точная нашла НЕ ТО: оба брака,
+    оставшихся после маршрутизации по типу кадра (A/B 14.09), пришли из
+    непустой выдачи точной формулировки, и до второй формулировки дело не
+    доходило вообще.
+
+    Цена названа прямо: каждая дополнительная формулировка — РЕАЛЬНЫЙ запрос
+    к API, который каскад экономил. Потолок — query_fusion.MAX_VARIANTS,
+    оба источника (музеи и Openverse) держат дисковый кэш, так что повторный
+    прогон и следующий эпизод с теми же запросами не платят.
+
+    Флаг выключен -> прежнее поведение каскада БАЙТ-В-БАЙТ (первая непустая,
+    то же сообщение в консоли), чтобы откат был настоящим, а не «почти».
+    """
+    # fetch_one(variant, is_exact) — источник сам решает, что значит
+    # «неполная глубина» для него (у Openverse страница фиксирована API, у
+    # музеев это число карточек).
+    variants = _openverse_query_cascade(api_query)
+    if not feature_flags.enabled("QUERY_FUSION"):
+        for variant in variants:
+            # Откат обязан быть БАЙТ-В-БАЙТ прежним: прежний каскад ходил за
+            # каждой формулировкой на ПОЛНУЮ глубину, поэтому здесь first=True
+            # всегда, а не «первая итерация».
+            results = fetch_one(variant, True)
+            if results:
+                if variant != api_query:
+                    print(f"    {label}: {api_query!r} -> ничего, взят более "
+                          f"общий запрос {variant!r} ({len(results)} канд.)")
+                return results
+        return []
+    variants = variants[:query_fusion.MAX_VARIANTS]
+    lists, spent = [], []
+    for vi, variant in enumerate(variants):
+        # Полная глубина — только точной формулировке. Более широкая нужна
+        # ради СОГЛАСИЯ с ней, а вес её позиций и так убывает; без этой
+        # границы слот стоил бы втрое больше запросов к API (см.
+        # museum_sources.VARIANT_DETAIL_FETCHES, там же честная цена).
+        got = fetch_one(variant, vi == 0)
+        lists.append(got)
+        spent.append((variant, len(got)))
+    fused = query_fusion.fuse(lists, lambda c: c.get("id"))
+    if len(variants) > 1 and fused:
+        detail = ", ".join(f"{v!r}:{n}" for v, n in spent)
+        print(f"    {label}: слияние {len(variants)} формулировок "
+              f"({detail}) -> {len(fused)} канд.")
+    return fused
+
+
 def _openverse_search_photos(api_query):
     """Выдача институциональных архивов (Met/Wikimedia/Rijksmuseum/...) в
     ФОРМЕ PEXELS-КАНДИДАТА — чтобы конкурировать в ОДНОМ пуле с Pexels под
@@ -5618,14 +5669,8 @@ def _openverse_search_photos(api_query):
         return _OPENVERSE_SEARCH_CACHE[api_query]
     try:
         import stock_fetch_multisource as _ov
-        results = []
-        for variant in _openverse_query_cascade(api_query):
-            results = _openverse_fetch_one(variant, _ov)
-            if results:
-                if variant != api_query:
-                    print(f"    Архивы: {api_query!r} -> ничего, взят более "
-                          f"общий запрос {variant!r} ({len(results)} канд.)")
-                break
+        results = _search_with_variants(
+            "Архивы", api_query, lambda v, first: _openverse_fetch_one(v, _ov))
         _OPENVERSE_SEARCH_CACHE[api_query] = results
         return results
     except Exception as e:
@@ -6260,6 +6305,53 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                     break
                 winner = new_winner
                 chosen_by = chosen_by + "+sharp_repick"
+            # ФАЙЛ ОБЯЗАН СУЩЕСТВОВАТЬ. Реальный дефект, найденный замером
+            # (14.09, прогон разметки эпизода 02): при провале скачивания
+            # ПОЛНОРАЗМЕРНОГО файла победителя (Wikimedia отвечает 429 на
+            # всплеск, Чикаго — 403 без своего заголовка) `except` выше
+            # ставил sharp_ok_full=False, цикл выходил по исчерпании
+            # повторов, и функция возвращала ПУТЬ К НЕСУЩЕСТВУЮЩЕМУ ФАЙЛУ.
+            # Слоты #18 и #23 из 42 получили такой путь, и ни один отчёт
+            # этого не показывал: слот числился успешно подобранным, sidecar
+            # писался, used_ids пополнялся, а кадра не было. Дальше по
+            # цепочке это либо выпавший блок, либо остановка сборки на
+            # RENDER_STRICT_GATE — и причина была бы уже неизвестна.
+            #
+            # Тот же принцип, что давно действует на стороне рендера
+            # (verify_clip(): нулевой код возврата ffmpeg НЕ доказывает, что
+            # файл записан нужной длины) — здесь он переносится на
+            # скачивание, где его не было.
+            if not _downloaded_ok(cf):
+                _source_bump(candidate_source(pick), "download_errors")
+                tried = {id(pick)}
+                rescued = None
+                for nxt in ([c["p"] for c in candidates_info] + list(candidates)):
+                    if id(nxt) in tried:
+                        continue
+                    tried.add(id(nxt))
+                    try:
+                        download(nxt, cf)
+                    except Exception:
+                        pass
+                    if _downloaded_ok(cf):
+                        rescued = nxt
+                        break
+                    _source_bump(candidate_source(nxt), "download_errors")
+                if rescued is None:
+                    # Честное «кадра нет» вместо пути в никуда: слот уходит
+                    # на лестницу фолбэков (FALLBACK_CARD), которая ровно для
+                    # этого и существует, а не притворяется подобранным.
+                    print(f"  слот {index}: ни один кандидат не скачался "
+                          f"(запрос {query!r}) — слот остаётся без медиа")
+                    for c in candidates_info:
+                        try:
+                            os.remove(c["path"])
+                        except OSError:
+                            pass
+                    return None
+                pick = rescued
+                winner = next((c for c in candidates_info if c["p"] is rescued), None)
+                chosen_by = chosen_by + "+download_rescue"
             for c in candidates_info:
                 try:
                     os.remove(c["path"])
@@ -8395,6 +8487,19 @@ def _download_host_throttle(url):
         time.sleep(delay)
 
 
+def _downloaded_ok(path):
+    """Файл реально лежит на диске и непустой.
+
+    Существует потому, что «скачивание не бросило исключение» и «файл
+    записан» — РАЗНЫЕ утверждения, и их смешение уже стоило двух слотов
+    эпизода (см. вызов в pexels_photo()). Нулевой размер считается
+    отсутствием: оборванная закачка оставляет именно такой файл."""
+    try:
+        return os.path.exists(path) and os.path.getsize(path) > 0
+    except OSError:
+        return False
+
+
 def atomic_url_download(req, dest, timeout):
     """Тот же принцип, что render_tmp_path/finalize_render, но для скачки
     стокового медиа (pexels_photo/pexels_video) — реальный баг, пойманный
@@ -9331,6 +9436,10 @@ def _selection_stack_signature():
         # при тех же гейтах; без подписи на прогретом temp_smart/ правка не
         # дошла бы до экрана (13.09, A/B на 9 слотах эпизода 02).
         RELEVANCE_RANK_BUCKET, POOL_SOURCE_INTERLEAVE_VERSION, SHOT_TYPE_ROUTING_VERSION,
+        # Слияние формулировок меняет ПОРЯДОК кандидатов в пуле, то есть
+        # какие BASE_MIN_POOL из них вообще дойдут до оценки — ровно тот
+        # же класс изменения, что чередование источников выше.
+        feature_flags.enabled("QUERY_FUSION"), query_fusion.QUERY_FUSION_VERSION,
         # ДЕЙСТВУЮЩАЯ граница (не пол): у эпизода с длинным хуком она другая,
         # а значит другой и размер пула, из которого выбран победитель.
         _FAST_MODE_START, FAST_DIRECTOR_MIN_POOL, FAST_PHOTO_DEDUP_MAX_TRIES,
