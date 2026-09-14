@@ -37,6 +37,10 @@ class _FakePS:
     import re as _re
     ALIGNMENT_TAG_RE = _re.compile(r'\[short pause\]|\[pause\]')
     ALIGNMENT_STRIP_TAGS = ("[energetic]", "[slowly]", "[emphasis]")
+    # Дубль настоящего pipeline_smart.ALIGNMENT_TAG_SPAN_RE: любой [...] в
+    # alignment — разметка, а не речь (список имён отставал от словаря тегов,
+    # см. tests/test_pipeline_only_tags.py).
+    ALIGNMENT_TAG_SPAN_RE = _re.compile(r'\[[^\]]*\]')
 
     def __init__(self, media_duration):
         self._media_duration = media_duration

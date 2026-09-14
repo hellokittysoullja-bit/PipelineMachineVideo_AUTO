@@ -135,11 +135,13 @@ def local_pause_events(chars, ps):
         if seg:
             events.append((seg[0][1], seg[-1][2]))
         tag_positions.update(range(m.start(), m.end()))
-    for tag in ps.ALIGNMENT_STRIP_TAGS:
-        idx = text.find(tag)
-        while idx != -1:
-            tag_positions.update(range(idx, idx + len(tag)))
-            idx = text.find(tag, idx + 1)
+    # Тот же спан-фильтр, что у ps._clean_timed_chars (см. ALIGNMENT_TAG_SPAN_RE):
+    # здесь стоял список из трёх имён, и буквы незнакомого тега проходили в
+    # real_chars как РЕЧЬ — то есть закрывали собой натуральный разрыв ровно
+    # там, где его и надо было найти. Спан-события пауз выше остаются на
+    # ALIGNMENT_TAG_RE: там нужны именно тег-паузы, а не любая разметка.
+    for m in ps.ALIGNMENT_TAG_SPAN_RE.finditer(text):
+        tag_positions.update(range(m.start(), m.end()))
     real_chars = [(s, e) for j, (c, s, e) in enumerate(chars) if j not in tag_positions]
     for (s1, e1), (s2, e2) in zip(real_chars, real_chars[1:]):
         if s2 - e1 >= GAP_MIN_SEC:

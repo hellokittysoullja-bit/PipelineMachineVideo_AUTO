@@ -85,6 +85,9 @@ except ImportError:
     pass
 
 import wordcount  # noqa: E402  (clean_words — тот же счётчик, что ЧАСТЬ 9 CLAUDE.md)
+# Словарь пайплайн-only маркеров — ОТТУДА, где он объявлен и где он растёт.
+# Своя копия здесь уже стоила эпизоду PHRASE LOCK (см. PIPELINE_ONLY_TAG_RE).
+from script_parser import strip_pipeline_only_tags  # noqa: E402
 
 BASE = "https://api.lumean.app/api/public"
 DEFAULT_MODEL_ID = "eleven_v3"      # ЧАСТЬ 10 CLAUDE.md — теги [pause]/[energetic]/... это теги v3
@@ -126,10 +129,11 @@ def extract_section_texts(path):
     В отличие от parse_blocks() (тот стирает [...] теги ради видео-тайминга
     и словосчёта), здесь теги ОСТАЮТСЯ буква-в-букву — это теги ElevenLabs
     v3 (ЧАСТЬ 10 CLAUDE.md), TTS должен их увидеть, как увидел бы при ручном
-    копировании текста в веб ElevenLabs. Вырезаются только ДВА
-    пайплайн-only маркера, которых TTS никогда не должен произнести:
-    [stat:...] (цифра-плашка на экран) и [climax] (сигнал для музыки/пауз,
-    добавляется отдельно scripts/script_parser.py при разборе)."""
+    копировании текста в веб ElevenLabs. Вырезаются только пайплайн-only
+    маркеры, которых TTS никогда не должен произнести — их список живёт в
+    script_parser.PIPELINE_ONLY_TAG_RE, а не здесь: своя копия из двух
+    регекспов не узнала про [sfx:]/[hush] и уронила PHRASE LOCK эпизода
+    (замер 14.09, подробности у самой константы)."""
     raw = open(path, encoding="utf-8").read()
     parts = SECTION_SPLIT_RE.split(raw)
     out = []
@@ -138,8 +142,7 @@ def extract_section_texts(path):
         if not name.startswith(("HOOK", "BLOCK", "FINAL")):
             continue
         body = parts[i + 1] if i + 1 < len(parts) else ""
-        body = re.sub(r'\[stat:.*?\]', ' ', body)
-        body = body.replace("[climax]", " ")
+        body = strip_pipeline_only_tags(body)
         body = re.sub(r'[ \t]+', ' ', body).strip()
         if body:
             out.append((name, body))

@@ -3425,6 +3425,26 @@ def get_audio_duration():
 ALIGNMENT_DIR = os.path.join(VIDEO_FOLDER, "media_plan", "alignment")
 ALIGNMENT_TAG_RE = re.compile(r'\[short pause\]|\[pause\]')
 ALIGNMENT_STRIP_TAGS = ("[energetic]", "[slowly]", "[emphasis]")
+
+# Любой [...] в потоке символов alignment — разметка, а не речь.
+#
+# Почему СПАН, а не список тегов (реальный случай 14.09, videos/_test60s):
+# speech_chars_of_text() ниже уже годами чистит текст блока обобщённо
+# (`\[[^\]]*\]`), а _clean_timed_chars() чистила alignment ПО СПИСКУ из трёх
+# имён — при том что её докстринг и докстринг speech_chars_of_text() оба
+# обещают "та же нормализация". Обещание было неверным, и цена этого
+# измерена: тег [sfx:armour_clank] уехал в заказ Lumean (его словарь тоже
+# отстал, см. script_parser.PIPELINE_ONLY_TAG_RE), вслух прочитан НЕ был
+# (0.0115 с/символ против 0.049 у речи), но буквы "sfx:armour_clank" в
+# alignment остались — скобки снимал фильтр строкой ниже, а содержимое нет.
+# Сходство текста блока с озвученным: 1.000 -> 0.889 при пороге 0.9, то есть
+# PHRASE LOCK выключился на ВЕСЬ эпизод, и кадры поехали по оценочным
+# длительностям вместо реальных онсетов речи — ровно тот рассинхрон, против
+# которого PHRASE LOCK и написан.
+#
+# Спан покрывает весь прежний список плюс всё, что появится завтра: список
+# имён отстаёт от словаря тегов по построению, форма "[...]" — нет.
+ALIGNMENT_TAG_SPAN_RE = re.compile(r'\[[^\]]*\]')
 PAUSE_CUTS_PATH = os.path.join(VIDEO_FOLDER, "media_plan", "pause_cuts.json")
 _PAUSE_CUTS_CACHE = None   # ленивый кэш на процесс — файл не меняется за время рендера
 
@@ -3552,12 +3572,8 @@ def _clean_timed_chars(segment):
     иначе они молча разошлись бы при следующей правке."""
     text = "".join(c for c, s, e in segment)
     excluded = set()
-    for tag in ALIGNMENT_STRIP_TAGS:
-        idx = text.find(tag)
-        while idx != -1:
-            for j in range(idx, idx + len(tag)):
-                excluded.add(j)
-            idx = text.find(tag, idx + 1)
+    for m in ALIGNMENT_TAG_SPAN_RE.finditer(text):
+        excluded.update(range(m.start(), m.end()))
     return [(c, s, e) for j, (c, s, e) in enumerate(segment)
             if j not in excluded and re.match(r'[^\s\[\]]', c or "")]
 
@@ -4077,13 +4093,12 @@ def load_hook_word_timings(blocks=None, sub_starts=None, sub_baseline=None, real
                 return real_start + frac * real_dur
         return real_t   # вне всех сегментов (хвостовой мусор) — не подменяем произвольно
 
+    # Тот же спан-фильтр, что у _clean_timed_chars (см. ALIGNMENT_TAG_SPAN_RE):
+    # здесь стоял ТРЕТИЙ список тех же имён, и незнакомый тег стал бы здесь не
+    # просто мусором, а отдельным СЛОВОМ хук-подписи с собственным временем.
     excluded = set()
-    for tag in ALIGNMENT_STRIP_TAGS + ("[pause]", "[short pause]"):
-        idx = text.find(tag)
-        while idx != -1:
-            for j in range(idx, idx + len(tag)):
-                excluded.add(j)
-            idx = text.find(tag, idx + 1)
+    for m in ALIGNMENT_TAG_SPAN_RE.finditer(text):
+        excluded.update(range(m.start(), m.end()))
     # Вырезанный тег ТОЖЕ обязан рвать слово, не только пробел — в сыром
     # тексте тег часто стоит БЕЗ пробела ("...убеждают.[short pause]Так
     # говорят" — точка сразу перед тегом, слово сразу после), простое
@@ -12747,6 +12762,70 @@ def _timed_render(render_fn, clip_idx, *args, **kwargs):
         return render_fn(*args, **kwargs)
 
 
+# Фильтры ffmpeg, без которых включённый слой не соберёт НИ ОДНОГО клипа.
+# Ключ — имя флага реестра, значение — фильтры, которые этот слой реально
+# вызывает. Проверяются только ВКЛЮЧЁННЫЕ слои: выключенный deflicker на
+# сборке без deflicker не проблема.
+REQUIRED_FFMPEG_FILTERS = {
+    None:                ("zoompan", "xfade", "scale"),   # ядро, всегда
+    "ON_SCREEN_TEXT":    ("drawtext",),
+    "GRAIN_ENABLED":     ("blend",),
+    "DEFLICKER_ENABLED": ("deflicker",),
+    "MUSIC_BED":         ("sidechaincompress", "loudnorm"),
+}
+
+_FFMPEG_FILTERS_CACHE = None
+
+
+def available_ffmpeg_filters():
+    """Множество имён фильтров у ТОГО ffmpeg, который реально будет вызван."""
+    global _FFMPEG_FILTERS_CACHE
+    if _FFMPEG_FILTERS_CACHE is not None:
+        return _FFMPEG_FILTERS_CACHE
+    try:
+        out = subprocess.run(["ffmpeg", "-hide_banner", "-filters"],
+                             capture_output=True, text=True, timeout=30).stdout
+        _FFMPEG_FILTERS_CACHE = set(re.findall(r'^\s*[A-Z.]{3}\s+(\S+)', out, re.M))
+    except Exception:
+        _FFMPEG_FILTERS_CACHE = set()   # не смогли спросить — не гейтим
+    return _FFMPEG_FILTERS_CACHE
+
+
+def check_ffmpeg_filters():
+    """Назвать отсутствующий фильтр ДО рендера, а не после трёх попыток.
+
+    Реальный случай 14.09, стоивший целого прогона: в контейнере ffmpeg шёл
+    из imageio-ffmpeg (символьная ссылка /usr/local/bin/ffmpeg), собранного
+    БЕЗ drawtext — ffmpeg 7 требует для него libharfbuzz. Каждый клип с
+    плашкой/титром падал с 'Filter not found', три попытки подряд, и только
+    RENDER_STRICT_GATE не дал собрать ролик молча без экранного текста.
+    Сообщение при этом не называло НИ отсутствующий фильтр (его имя тонуло
+    в эхе всего filter_complex), НИ причину — диагностика заняла больше,
+    чем сам рендер.
+
+    Ничего не блокирует: печатает предупреждение и возвращает список — тот
+    же fail-open, что у остальных проверок окружения. Сборка всё равно
+    остановится на RENDER_STRICT_GATE, но теперь с названной причиной."""
+    have = available_ffmpeg_filters()
+    if not have:
+        return []
+    missing = []
+    for flag, filters in REQUIRED_FFMPEG_FILTERS.items():
+        if flag is not None and not feature_flags.enabled(flag):
+            continue
+        for f in filters:
+            if f not in have:
+                missing.append((f, flag or "ядро рендера"))
+    if missing:
+        print("  ВНИМАНИЕ: у этого ffmpeg НЕТ фильтров, которые нужны включённым слоям:")
+        for f, flag in missing:
+            print(f"    {f} — нужен для {flag}")
+        print("    Клипы с этим слоем упадут с 'Filter not found'. Поставить сборку"
+              " ffmpeg с этими фильтрами (например системный пакет вместо"
+              " imageio-ffmpeg) либо выключить слой в .env.")
+    return missing
+
+
 def main():
     if not os.path.exists(AUDIO_FILE):
         print(f"Аудио не найдено: {AUDIO_FILE}")
@@ -12757,6 +12836,7 @@ def main():
     # Дорогой слой, выключенный в .env, раньше было видно только по
     # отсутствию строк в логе где-то в середине рендера (или не видно вовсе).
     feature_flags.print_summary()
+    check_ffmpeg_filters()
     feature_flags.write_snapshot(VIDEO_FOLDER)
     audio_qc(AUDIO_FILE)
     os.makedirs(TEMP_FOLDER, exist_ok=True)
