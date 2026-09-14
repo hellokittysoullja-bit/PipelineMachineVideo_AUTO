@@ -4704,6 +4704,55 @@ QUERY_DISAMBIGUATION_RULES = (
 QUERY_DISAMBIGUATION_RULES = tuple(CHANNEL_PROFILE.get("query_disambiguation_rules", QUERY_DISAMBIGUATION_RULES))
 
 
+# Как термин правила сопоставляется с реальным запросом.
+#
+# ЗАМЕР 14.09 на настоящем словаре канала, а не на предположении. В 42
+# авторских запросах эпизода 02: "armour" — 13 вхождений, второе по частоте
+# слово после "medieval" (35), а "armor" — НИ ОДНОГО. Правило знало только
+# "armor" и на главном слове канала не срабатывало никогда. Отдельно:
+# `\bsword\b` не совпадает внутри "longsword"/"greatsword" — границы слова
+# между частями составного нет. Прогон 12 реальных запросов канала: мимо
+# правила проходили 11.
+#
+# Цена была не теоретической: в золотом наборе 4 утечки из 9 (44%) дал один
+# запрос `greatsword warrior fight`, который первая линия защиты не трогала
+# вообще — и он приносил `men-fighting-in-forest`,
+# `traditional-martial-arts-duel`, то есть ровно тот брак (non_european,
+# modern_intrusion), против которого эта линия и заведена.
+QUERY_TERM_SPELLINGS = {
+    # Британское и американское написание — одна и та же вещь.
+    "armor": ("armor", "armour"),
+}
+# Слова, которые СОДЕРЖАТ термин как хвост составного, но не имеют к нему
+# отношения. Список короткий и явный — тот же приём, что уже держит словарь
+# атмосферы от «зал» внутри «ЗАЛП»: составное сопоставление без списка
+# ловушек однажды сработает не там.
+QUERY_TERM_TRAPS = ("password", "crossword", "shakespeare")
+# Суффиксы, реально встречающиеся в запросах этого канала (множественное
+# число и производные): swords, helmets, armoured, spearman, battlefield.
+# Множественное число и производное МОГУТ сочетаться: "swordsman" это
+# sword + s + man, и одной альтернативой это не берётся.
+QUERY_TERM_SUFFIXES = "(?:s|es|ed|y)?(?:man|men|field)?"
+
+
+@functools.lru_cache(maxsize=64)
+def _query_term_regex(term):
+    forms = QUERY_TERM_SPELLINGS.get(term, (term,))
+    alt = "|".join(re.escape(f) for f in forms)
+    # \w*? — составное слово (longsword, greatsword); ленивый квантификатор,
+    # чтобы совпадение начиналось как можно правее и ловушка читалась целиком.
+    return re.compile(r"\b\w*?(?:" + alt + r")" + QUERY_TERM_SUFFIXES + r"\b")
+
+
+def query_mentions_term(query_lower, term):
+    """Упомянут ли термин правила в запросе — с учётом составных слов,
+    британского написания и множественного числа. Ловушки исключены."""
+    for m in _query_term_regex(term).finditer(query_lower):
+        if m.group(0) not in QUERY_TERM_TRAPS:
+            return True
+    return False
+
+
 def disambiguate_search_query(query):
     """Возвращает уточнённую строку запроса ТОЛЬКО для реального вызова
     Pexels API (см. QUERY_DISAMBIGUATION_RULES выше) — исходный query для
@@ -4715,7 +4764,7 @@ def disambiguate_search_query(query):
     баг первой версии этой функции)."""
     ql = query.lower()
     for rule in QUERY_DISAMBIGUATION_RULES:
-        if not re.search(r"\b" + re.escape(rule["term"]) + r"\b", ql):
+        if not query_mentions_term(ql, rule["term"]):
             continue
         if any(re.search(r"\b" + re.escape(u) + r"\b", ql) for u in rule.get("unless", ())):
             continue
@@ -9089,6 +9138,13 @@ def candidate_gate_signature():
             is_relevant_candidate, visual_domain_guard_violation,
             video_domain_guard_violation, video_negative_anchor_violation,
             disambiguate_search_query,
+            # Сопоставление термина правила с запросом — ОТДЕЛЬНАЯ функция, и
+            # без неё здесь правка «как ищем термин» (составные слова,
+            # британское написание, ловушки) не меняла бы подпись, то есть на
+            # прогретом кэше не дошла бы до экрана. Тот же класс пробела, что
+            # уже описан выше: список терминов в подписи был, а логика его
+            # применения — нет.
+            query_mentions_term,
             is_risky_query,
             # image_sharpness_score/video_sharpness_ok — резкость кандидата
             # (PHOTO_SHARPNESS_REJECT/VIDEO_SHARPNESS_REJECT) — ТОЖЕ правило
@@ -9142,6 +9198,12 @@ def candidate_gate_signature():
             CLIP_RELEVANCE_THRESHOLD, RISKY_QUERY_MARGIN, NEGATIVE_ANCHOR_PROMPT,
             RISKY_GENERIC_TERMS, VISUAL_DOMAIN_GUARDS, VIDEO_DOMAIN_GUARD_SAMPLE_FRACS,
             CONTENT_ALT_BLOCKLIST, QUERY_DISAMBIGUATION_RULES,
+            # Данные, по которым термин правила ищется в запросе. Сами правила
+            # (QUERY_DISAMBIGUATION_RULES) в подписи были, а написания,
+            # ловушки и суффиксы — нет: правка любого из трёх меняет, у КАКИХ
+            # запросов появится уточнение, и обязана инвалидировать кандидатов,
+            # скачанных по неуточнённому запросу.
+            QUERY_TERM_SPELLINGS, QUERY_TERM_TRAPS, QUERY_TERM_SUFFIXES,
             CONTENT_NEGATIVE_ANCHORS, NEGATIVE_VETO_MARGIN, NEGATIVE_VETO_ENABLED,
             PHOTO_SHARPNESS_REJECT, VIDEO_SHARPNESS_REJECT, VIDEO_SHARPNESS_SAMPLE_FRACS,
             SHARPNESS_PROBE_MAX_SIDE, CANDIDATE_GATE_RULES_VERSION,
