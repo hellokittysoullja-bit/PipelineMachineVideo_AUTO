@@ -132,6 +132,19 @@ HUM_PROMINENCE_DB = 14.0     # узкая линия 50/60 Гц над сосе�
 # waves» роняла настоящий ветер с +0.075 до -0.089), а в названии автор
 # пишет прямо: «Big waves breaking», «Hail Comes In», «Door and wind».
 TITLE_BLOCK_COMMON = ("loop", "synth", "generated", "processed", "reverb test", "test ")
+# Музыкальные инструменты — общая ловушка ПРЕДМЕТНОГО слоя, и ловится она
+# только по названию. Замер 14.09 на пакете Sonniss GDC-2019: запись
+# «INSTRU STRING Double Bass, Bowed, Harmonic» прошла CLAP с маржой +0.087 и
+# была принята как ОБНАЖЕНИЕ МЕЧА. Проверено, что вето AST её не поймало бы:
+# у неё Music 0.019 при пороге AST_VETO 0.25, и это НИЖЕ, чем у двух законных
+# записей sword_draw с Freesound (0.017 и 0.020) — по всем 25 записям
+# объектного слоя Music лежит в 0.002..0.035, то есть класс «Music» на
+# коротком смычковом флажолете не срабатывает в принципе. Расширять AST на
+# object (что код честно называл отдельным решением со своей калибровкой)
+# эту дыру НЕ закрывает — замер это опроверг. Закрывает список слов.
+TITLE_BLOCK_INSTRUMENT = ("instru", "guitar", "piano", "violin", "cello", "double bass",
+                          "bowed", "harmonic", "drum", "cymbal", "flute", "trumpet",
+                          "orchestr", "chord", "melod", "bass ")
 TITLE_BLOCK = {
     "wind_open": ("wave", "sea", "surf", "ocean", "beach", "rain", "hail", "thunder", "storm",
                   "door", "window", "indoor", "inside", "room", "car", "train", "city", "street",
@@ -157,6 +170,19 @@ TITLE_BLOCK = {
     "reveal_riser": (),
     "reveal_hit": ("cymbal", "drum kit", "snare", "gun", "explosion", "kick", "bell", "808"),
     "typewriter": ("loop", "typing fast", "sequence"),
+    # Предметный слой до 14.09 не имел блоклиста ни у одного вида — при том
+    # что у всех тринадцати остальных он есть. Слова ниже взяты НЕ из головы,
+    # а из того, что реально доехало до гейтов на живом пакете Sonniss.
+    "sword_draw": TITLE_BLOCK_INSTRUMENT + ("saw", "circular", "door", "tank", "barrel", "factory"),
+    "armour_clank": TITLE_BLOCK_INSTRUMENT + ("bag", "wallet", "backpack", "ikea", "zipper",
+                                              "keys", "coins", "door"),
+    "arrow_shot": TITLE_BLOCK_INSTRUMENT + ("jet", "train", "car", "engine", "compressor",
+                                            "boat", "ferry", "motorcycle", "helicopter",
+                                            "fair ride", "race"),
+    "hammer_anvil": TITLE_BLOCK_INSTRUMENT + ("concrete", "wall", "construction", "jackhammer",
+                                              "howitzer", "gun", "glass"),
+    "footsteps_mud": TITLE_BLOCK_INSTRUMENT + ("helicopter", "car", "honda", "bmw", "industrial",
+                                               "rocks", "shooting", "gallery", "ambience"),
 }
 
 
