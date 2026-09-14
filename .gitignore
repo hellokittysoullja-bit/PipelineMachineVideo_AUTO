@@ -45,3 +45,10 @@ temp_emb_cache/
 # Записи объектного слоя (предметные звуки) — как и атмосфера, сотни МБ и
 # продукт закупки/отбора, не исходник. Восстанавливаются по манифесту.
 assets/library/object/
+
+# Дисковый кэш музейного поиска (temp_museum_cache/) — продукт, не исходник:
+# восстанавливается сам при следующем прогоне (см. museum_sources.search_museums).
+temp_museum_cache/
+
+# Дисковый кэш поиска Openverse — тот же принцип, что temp_museum_cache/.
+temp_openverse_cache/

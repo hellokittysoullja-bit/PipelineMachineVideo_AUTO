@@ -19,10 +19,12 @@ import os
 import re
 import subprocess
 import tempfile
+import threading
 import sys
 import time
 import urllib.parse
 import urllib.request
+import urllib.error
 
 try:
     from dotenv import load_dotenv
@@ -39,6 +41,7 @@ import stage_timer
 # объявлены ТАМ, а не литералом в каждой точке чтения: расхождение
 # кода с CLAUDE.md уже случалось молча (см. докстринг реестра).
 import feature_flags
+import query_fusion
 
 try:
     import numpy as np
@@ -1106,7 +1109,8 @@ HOOK_MAX_CLIP = 3.6     # в хуке кадры короче и чаще — к
 # из pipeline_smart.py. Реэкспортированы здесь под теми же именами: ничего
 # не сломано у существующих вызовов вида pipeline_smart.parse_blocks(...) /
 # тестов, патчащих pipeline_smart.PAUSE_DURATIONS.
-from script_parser import PAUSE_DURATIONS, parse_blocks, parse_pexels_queries, _normalize_section_key  # noqa: E402
+from script_parser import (PAUSE_DURATIONS, parse_blocks, parse_pexels_queries,  # noqa: E402
+                            parse_query_shot_types, _normalize_section_key)
 
 # Russo One — фирменный "рубленый" дисплейный шрифт (CHANNEL.md house
 # style), не системный DejaVu. OFL, бесплатно (Google Fonts / google/fonts
@@ -1514,8 +1518,6 @@ def process_voice(voice_path, out_path):
     return out_path
 
 
-_SOUND_LIBRARY_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                   "assets", "library")
 SOUND_LIBRARY_ENABLED = feature_flags.enabled("SOUND_LIBRARY")
 
 
@@ -1526,10 +1528,14 @@ def library_sounds(kind, name):
     вызывающий код берёт синтезированный ассет как запасной путь."""
     if not SOUND_LIBRARY_ENABLED:
         return []
-    d = os.path.join(_SOUND_LIBRARY_DIR, kind, name)
-    if not os.path.isdir(d):
-        return []
-    return sorted(os.path.join(d, f) for f in os.listdir(d) if f.endswith(".flac"))
+    # ОДНА реализация — sound_library.library_files(). Здесь лежала её
+    # копия (те же четыре строки, свой путь к папке); машинная проверка
+    # достижимости (tests/test_no_dead_layers.py) показала оригинал
+    # «мёртвым», потому что рендер звал копию. У sound_library на уровне
+    # модуля только stdlib (ML-стек он импортирует лениво внутри функций),
+    # так что дублировать ради «не тянуть в рендер» было незачем.
+    import sound_library
+    return sound_library.library_files(kind, name)
 
 
 def _library_first(kind, name, fallback):
@@ -4240,6 +4246,104 @@ def block_durations(blocks, total, energy_mults=None, real_weights=None):
 
 
 PEXELS_BROKEN = False       # взводится только на реальном отказе API, не на пустой выдаче
+
+# --- УЧЁТ ВКЛАДА КАЖДОГО ИСТОЧНИКА ЗА ПРОГОН ----------------------------------
+# Зачем. Источник кандидатов может молча давать НОЛЬ, и узнать об этом было
+# неоткуда: fail-open у каждого из них возвращает пустой список на любую
+# ошибку, а пул собирается из остальных как ни в чём не бывало. Ровно так
+# Openverse отвечал 401 (поймано вживую 13.09), Pexels до правки 11.09 гасил
+# музеи вместе с собой, а до 07.09 Openverse/Pixabay/Unsplash не вызывались
+# вовсе — и во всех трёх случаях готовый ролик выглядел штатно собранным.
+# Теперь по каждому источнику считается: сколько кандидатов он ПРЕДЛОЖИЛ в
+# пул, сколько из них РЕАЛЬНО рассмотрено (скачано и прогнано через гейты),
+# сколько ПРОШЛО гейты, сколько ВЫИГРАЛО слот, и сколько раз его поиск
+# УПАЛ. Сводка печатается в конце прогона и пишется в
+# media_plan/source_contribution.json — «этот ролик собран из музеев на 40%,
+# Openverse дал ноль из-за 12 ошибок» становится проверяемым фактом.
+SOURCE_STATS = {}
+_SOURCE_STAT_FIELDS = ("offered", "considered", "gate_passed", "won", "search_errors",
+                       "download_errors")
+_SOURCE_ERROR_PRINTED = set()
+
+
+def candidate_source(p):
+    """Источник кандидата по префиксу его id: met:/chicago:/cleveland:/
+    openverse:/pixabay:/unsplash:; числовой id без префикса — Pexels."""
+    pid = str((p or {}).get("id", "") if isinstance(p, dict) else (p or ""))
+    for prefix in ("met", "chicago", "cleveland", "openverse", "pixabay", "unsplash"):
+        if pid.startswith(prefix + ":"):
+            return prefix
+    return "pexels"
+
+
+def _source_bump(source, field, n=1):
+    st = SOURCE_STATS.setdefault(source, {f: 0 for f in _SOURCE_STAT_FIELDS})
+    st[field] += n
+
+
+def _note_source_search_error(source, exc, label=""):
+    """Ошибка поиска у источника — считается и печатается один раз за прогон
+    на источник (не на каждый слот: сотни одинаковых строк скрыли бы лог)."""
+    _source_bump(source, "search_errors")
+    if source not in _SOURCE_ERROR_PRINTED:
+        _SOURCE_ERROR_PRINTED.add(source)
+        code = getattr(exc, "code", None)
+        print(f"  {source}: поиск не отвечает ({'HTTP %s' % code if code else type(exc).__name__}"
+              f"{(': ' + label) if label else ''}) — источник даёт ноль, пул собирается из остальных; "
+              f"итог по источникам — в конце прогона и в media_plan/source_contribution.json")
+
+
+def reset_source_stats():
+    """Один прогон — один счёт: обнуляет учёт источников и счётчики музейного
+    модуля. Вызывается в начале main(); тестам и повторным вызовам в одном
+    процессе — тоже отсюда."""
+    SOURCE_STATS.clear()
+    _SOURCE_ERROR_PRINTED.clear()
+    for k in ("requests", "cache_hits", "cache_misses"):
+        OPENVERSE_STATS[k] = 0
+    try:
+        import museum_sources as _mus
+        _mus.reset_fetch_stats()
+    except Exception:
+        pass
+
+
+def write_source_contribution(video_dir):
+    """Сводка вклада источников — печать и media_plan/source_contribution.json.
+    Пишется ВСЕГДА, даже если ни один источник не дал ничего: «нечего
+    сообщить» — тоже факт, а не отсутствие файла."""
+    report = {"schema_version": 1, "sources": {}, "museum_fetch": None,
+              "openverse_fetch": dict(OPENVERSE_STATS)}
+    for src in sorted(SOURCE_STATS):
+        report["sources"][src] = dict(SOURCE_STATS[src])
+    try:
+        import museum_sources as _mus
+        report["museum_fetch"] = dict(_mus.FETCH_STATS)
+    except Exception:
+        pass
+    total_won = sum(v["won"] for v in report["sources"].values()) or 0
+    report["total_won"] = total_won
+    silent = [src for src, v in report["sources"].items()
+              if (v["offered"] == 0 and v["search_errors"] > 0)
+              or (v["offered"] > 0 and v["considered"] == 0 and v.get("download_errors", 0) > 0)]
+    report["silent_sources"] = silent
+    path = os.path.join(video_dir, "media_plan", "source_contribution.json")
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path + ".tmp", "w", encoding="utf-8") as f:
+            json.dump(report, f, ensure_ascii=False, indent=2)
+        os.replace(path + ".tmp", path)
+    except Exception:
+        pass
+    if report["sources"]:
+        print("  Вклад источников (предложено / рассмотрено / прошло гейты / ВЫИГРАЛО / ошибок поиска / ошибок скачки):")
+        for src, v in report["sources"].items():
+            share = (100.0 * v["won"] / total_won) if total_won else 0.0
+            print(f"    {src:10} {v['offered']:5} / {v['considered']:4} / {v['gate_passed']:4} / "
+                  f"{v['won']:4} ({share:4.0f}%) / {v['search_errors']} / {v.get('download_errors', 0)}")
+        if silent:
+            print(f"    ВНИМАНИЕ: источники, давшие ноль из-за ошибок поиска: {', '.join(silent)}")
+    return path
 PEXELS_FAIL_STREAK = 0      # подряд идущих сбоев любого рода (см. _note_pexels_failure)
 PEXELS_FAIL_STREAK_LIMIT = 6
 
@@ -4348,6 +4452,57 @@ FALLBACK_CARD_SLOTS = []   # [{"index", "reason", "text", "card_text"}, ...]
 # Видео-корпус Pexels на исторические темы объективно тоньше фото-корпуса,
 # а музейные API видео не отдают вообще.
 VIDEO_RESCUED_BY_PHOTO = []   # [{"index", "reason", "query"}, ...]
+
+
+_WIKIMEDIA_RE = re.compile(r"^https?://upload\.wikimedia\.org/wikipedia/commons/"
+                            r"(?:thumb/)?[0-9a-f]/[0-9a-f]{2}/([^/?#]+)", re.I)
+
+
+def wikimedia_thumb_url(url, width=640):
+    """Ссылка на Wikimedia-файл ЗАДАННОЙ ШИРИНЫ через официальный
+    Special:FilePath — не оригинал и не превью через чужой API.
+
+    Две измеренные причины, обе пойманы на живых прогонах:
+
+    1. Поле `thumbnail` у Openverse — это URL ЧЕРЕЗ ЕГО API
+       (api.openverse.org/v1/images/<id>/thumb/), у которого лимит 20
+       запросов в минуту на всё; в прогоне 14.09 он отвечал HTTP 424, и
+       кандидаты Openverse молча выпадали из выборки на скачке превью.
+    2. Оригиналы upload.wikimedia.org отдают **HTTP 429** с текстом
+       «please ... instead use thumbnail images in sizes listed on
+       w.wiki/GHai» — то есть скачивание оригиналов там прямо не
+       приветствуется, и на прогоне это стоило 49 сорванных скачек и
+       ПУСТОГО слота «medieval castle moat water».
+
+    Special:FilePath?width= — документированный способ получить любую
+    ширину для любого формата (jpg/png/tif/svg), без знания хэш-путей и
+    без отдельных правил на каждый формат. Проверено вживую: оригинал 429,
+    та же картинка через FilePath шириной 640 — 190 КБ, 200 OK.
+
+    None — ссылка не на Wikimedia, там остаётся URL источника."""
+    m = _WIKIMEDIA_RE.match(url or "")
+    if not m:
+        return None
+    name = m.group(1)
+    return (f"https://commons.wikimedia.org/wiki/Special:FilePath/{name}"
+            f"?width={int(width)}")
+
+
+def candidate_probe_url(p):
+    """URL УМЕНЬШЕННОЙ версии кандидата для оценки (гейты, ранжирование,
+    дедуп) — полноразмерная качается только у победителя.
+
+    Почему это не потеря точности: CLIP ViT-B/32 смотрит на 224 px, SigLIP2
+    Директора — на 384, aHash дедупа — на 8x8, эстетический head — на CLIP-
+    признаках. Единственное, что нельзя мерить на превью, — резкость
+    (уменьшение «лечит» размытие); она проверяется на полноразмерном файле
+    победителя (см. pexels_photo, повторный выбор при провале).
+
+    Поля по источникам: Pexels src.medium (350 px по высоте), музеи и
+    Openverse/Pixabay/Unsplash кладут превью в src.medium сами (см. их
+    сборку кандидата). Нет превью — полный URL, как раньше."""
+    src = (p or {}).get("src") or {}
+    return src.get("medium") or src.get("small") or src.get("large2x") or src.get("large")
 
 
 def _slot_miss_snapshot(index):
@@ -4884,8 +5039,81 @@ def _director_min_pool_for(index):
 # relevance) — они каждый вызов CLIP ViT-B/32 на CPU (доли секунды), не
 # ensemble. Дать им реальную альтернативу для сравнения — расходы на
 # несколько лишних скачиваний и дешёвых CLIP-проходов, не на тяжёлую модель.
-BASE_MIN_POOL = 4
-FAST_BASE_MIN_POOL = 2   # тот же компромисс "быстрый хвост", что у Директора
+# Сколько прошедших гейты кандидатов сравнить, прежде чем остановить перебор
+# пробной выборки. Было 4 — когда каждый кандидат стоил ПОЛНОРАЗМЕРНОЙ
+# скачки (музейные снимки 1.4-4 МБ). Измеренная цена этой экономии (A/B на
+# 9 слотах эпизода 02, 13.09): на «medieval plate armour museum» первые
+# четыре прошедших порог 0.19 были керамические тарелки и восковые печати
+# (0.21-0.25), а настоящий доспех (0.325) стоял десятым и не рассматривался
+# вообще. Теперь кандидаты оцениваются по ПРЕВЬЮ (см. candidate_probe_url —
+# CLIP/эстетика/дедуп и так работают на 224-384 px), полный файл качается
+# только у победителя, и цена сравнения всей пробной выборки (20 штук)
+# ниже, чем стоили 4 полноразмерных. Пол = размер выборки.
+BASE_MIN_POOL = 20
+# Relevance — ось РАНЖИРОВАНИЯ среди прошедших гейты, а не только гейт.
+# Найдено тем же A/B (13.09): в базовом кортеже _score_and_pick() relevance
+# участвовала как 0/1, и среди прошедших порог 0.19 победителя выбирала
+# ЭСТЕТИКА. С глубоким пулом это означает «самый красивый из прошедших», а
+# не «самый по теме»: на «medieval castle moat water» рукопись (0.21,
+# эстетика 6.1) обходила фотографию замка (0.28, эстетика 7.2) только
+# потому, что оказалась в пробной выборке одна. Корзина 0.02 выбрана по
+# измеренному разбросу relevance у ПРОШЕДШИХ кандидатов: настоящие
+# предметы одного вида лежат в 0.30-0.33 (кинжалы, мечи — разница 0.01-0.03),
+# а «по теме» против «мимо» — 0.28 против 0.20. Внутри одной корзины
+# по-прежнему решает эстетика: красота не отменена, она подчинена смыслу.
+# CLIP недоступен -> relevance None -> корзина 0 у всех -> прежнее
+# поведение байт-в-байт.
+RELEVANCE_RANK_BUCKET = 0.02
+# Сколько раз победителя можно заменить следующим, если его полноразмерный
+# файл оказался размытым (гейт резкости — на полном файле, см. pexels_photo).
+SHARP_REPICK_MAX = 3
+# Версия чередования источников внутри запроса (см. сборку пула в
+# pexels_photo) — для _selection_stack_signature().
+POOL_SOURCE_INTERLEAVE_VERSION = 1
+# Маршрутизация запроса по источникам и структурный запрос к музею
+# (scripts/shot_types.py) — меняют И состав пула, И сам запрос к API,
+# поэтому версия входит в подпись отбора.
+SHOT_TYPE_ROUTING_VERSION = 1
+# {текст запроса: тип кадра} — ЯВНАЯ разметка автора из === PEXELS QUERIES ===
+# (`medieval sword macro [object]`). Заполняется в main(); пусто -> тип
+# выводится из слов запроса, а если и там сигнала нет — `any`, то есть
+# сегодняшний маршрут во все источники.
+SHOT_TYPE_EXPLICIT = {}
+
+
+def shot_type_of_query(query):
+    """Тип кадра для запроса: явная разметка автора важнее вывода по словам.
+    Модуль опционален — без него всё работает как раньше (`any`)."""
+    try:
+        import shot_types
+        return shot_types.shot_type_for(query, SHOT_TYPE_EXPLICIT.get((query or "").strip()))
+    except Exception:
+        return "any"
+
+
+def source_allowed_for(source, shot_type):
+    """Умеет ли источник этот тип кадра (таблица shot_types.SOURCE_CAPABILITIES)."""
+    try:
+        import shot_types
+        return shot_types.source_supports(source, shot_type)
+    except Exception:
+        return True
+
+
+def met_department_for_query(query, shot_type):
+    """Отдел коллекции Мет для структурного запроса; None — свободный текст."""
+    try:
+        import shot_types
+        return shot_types.met_department_for(query, shot_type)
+    except Exception:
+        return None
+
+
+def relevance_rank_bucket(relevance):
+    if relevance is None:
+        return 0
+    return int(round(float(relevance) / RELEVANCE_RANK_BUCKET))
+FAST_BASE_MIN_POOL = 5   # = FAST_PHOTO_DEDUP_MAX_TRIES: вся урезанная выборка, по той же причине
 
 # Видео-путь теперь ранжирует кандидатов ТЕМ ЖЕ visual_director.
 # compute_extra_score(), что и фото (см. main(): video_sentence_fn = ...
@@ -4943,11 +5171,12 @@ def _score_and_pick(candidates_info, director_score_fn=None):
 
     Возвращает (base_winner, director_winner) — оба элемента
     candidates_info (или None на пустом списке/если ни один кандидат не
-    улучшил стартовый счёт). base_winner — 7-элементный
+    улучшил стартовый счёт). base_winner — 8-элементный
     лексикографический кортеж (is_dup_free, size_ok, is_relevant, sharp_ok,
-    aesthetic_val, luma_score, min_d), то же строгое ">" сравнение и тот же
-    порядок кандидатов, что был инлайн в pexels_photo() до этого
-    рефакторинга — при равенстве кортежей побеждает ПЕРВЫЙ встреченный
+    rel_bucket, aesthetic_val, luma_score, min_d) — rel_bucket добавлен
+    13.09 (см. RELEVANCE_RANK_BUCKET), остальное — то же строгое ">"
+    сравнение и тот же порядок кандидатов, что был инлайн в pexels_photo()
+    до рефакторинга — при равенстве кортежей побеждает ПЕРВЫЙ встреченный
     кандидат, не последний (важно для байт-в-байт совместимости).
 
     director_winner считается, ТОЛЬКО если передан director_score_fn(path,
@@ -4971,11 +5200,14 @@ def _score_and_pick(candidates_info, director_score_fn=None):
     этапе отбора). Стоит СРАЗУ после is_relevant, ДО aesthetic — та же
     логика приоритета, что и у extra Директора: "не размыто" важнее
     "красиво", но не важнее "по теме"/"не дубль"/"нужный размер"."""
-    base_best, base_score = None, (-1, -1, -1, -1, -100.0, -1.0, -1)
-    dir_best, dir_score = None, (-1, -1, -1, -1, -100.0, -100.0, -1.0, -1)
+    base_best, base_score = None, (-1, -1, -1, -1, -1, -100.0, -1.0, -1)
+    dir_best, dir_score = None, (-1, -1, -1, -1, -100.0, -1, -100.0, -1.0, -1)
     for c in candidates_info:
         sharp_ok = c.get("sharp_ok", 1)
-        score = (c["is_dup_free"], c["size_ok"], c["is_relevant"], sharp_ok,
+        # rel_bucket — см. RELEVANCE_RANK_BUCKET: «насколько по теме» решает
+        # раньше «насколько красиво», гейты остаются гейтами.
+        rel_bucket = relevance_rank_bucket(c.get("relevance"))
+        score = (c["is_dup_free"], c["size_ok"], c["is_relevant"], sharp_ok, rel_bucket,
                   c["aesthetic_val"], c["luma_score"], c["min_d"])
         if score > base_score:
             base_best, base_score = c, score
@@ -4991,8 +5223,11 @@ def _score_and_pick(candidates_info, director_score_fn=None):
             with stage_timer.stage("ensemble_score"):
                 extra = director_score_fn(c["path"], candidate_query=c["p"].get("_origin_query"),
                                            aesthetic_val=c["aesthetic_val"])
+            # У Директора своя, более сильная ось смысла (extra — relevance
+            # ПОЛНОЙ фразы ансамблем), поэтому корзина relevance по запросу
+            # стоит ПОСЛЕ неё: разбивает ничьи Директора до эстетики.
             dscore = (c["is_dup_free"], c["size_ok"], c["is_relevant"], sharp_ok, extra,
-                       c["aesthetic_val"], c["luma_score"], c["min_d"])
+                       rel_bucket, c["aesthetic_val"], c["luma_score"], c["min_d"])
             if dscore > dir_score:
                 dir_best, dir_score = c, dscore
     return base_best, dir_best
@@ -5164,6 +5399,11 @@ def _pexels_search_photos(api_query):
     за счёт used_ids/used_hashes (анти-дубль), а не за счёт разной выдачи."""
     if api_query in _PEXELS_SEARCH_CACHE:
         return _PEXELS_SEARCH_CACHE[api_query]
+    if not PEXELS_API_KEY:
+        # Без ключа Pexels — ПУСТОЙ вклад этого источника, а не выход из всего
+        # отбора: музеи, Openverse, Pixabay и Unsplash от ключа Pexels не
+        # зависят (см. снятый гейт в pexels_photo/pexels_video).
+        return []
     q = urllib.parse.quote(api_query)
     req = urllib.request.Request(
         f"https://api.pexels.com/v1/search?query={q}&per_page=80&orientation=landscape",
@@ -5176,6 +5416,131 @@ def _pexels_search_photos(api_query):
 
 
 _OPENVERSE_SEARCH_CACHE = {}   # {api_query: [candidate, ...]} — тот же принцип, что у Pexels выше
+
+# --- OPENVERSE: КВОТА, КЭШ, КЛЮЧ ---------------------------------------------
+# Измерено по заголовкам ответа (13.09): анонимный лимит — 20 запросов в
+# МИНУТУ и 200 в ДЕНЬ. Каскад делает до 3 запросов на авторский запрос, на
+# эпизоде из 42 запросов это ~100+ обращений за минуты — то есть анонимно
+# Openverse гарантированно упирается в лимит посреди КАЖДОГО эпизода, а
+# fail-open превращает это в «источник дал ноль» без единой строки.
+# Отсюда три вещи: (1) общий на процесс интервал между запросами под
+# анонимный burst; (2) дисковый кэш результатов (запрос не зависит от
+# эпизода, TTL 30 дней, только полные ответы) — повторный рендер и следующий
+# эпизод не тратят квоту вовсе; (3) регистрационный ключ
+# (OPENVERSE_CLIENT_ID/OPENVERSE_CLIENT_SECRET, бесплатно: POST
+# /v1/auth_tokens/register/) — bearer-токен по client_credentials, лимит
+# выше на порядки, страница 100 вместо 20. Без ключа — анонимный режим, как
+# раньше, но с интервалом и кэшем.
+OPENVERSE_ANON_MIN_INTERVAL_SEC = 3.1      # 20/мин с запасом
+OPENVERSE_AUTH_MIN_INTERVAL_SEC = 0.3
+OPENVERSE_ANON_PAGE_SIZE = 20              # больше анонимно API не отдаёт (401)
+OPENVERSE_AUTH_PAGE_SIZE = 100
+OPENVERSE_CACHE_DIR = os.environ.get("OPENVERSE_CACHE_DIR") or os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "temp_openverse_cache")
+OPENVERSE_CACHE_TTL_SEC = 30 * 86400
+OPENVERSE_CACHE_SCHEMA = 1
+_OPENVERSE_NEXT_SLOT = [0.0]
+_OPENVERSE_LOCK = threading.Lock()
+_OPENVERSE_TOKEN = {"value": None, "expires_at": 0.0, "failed": False}
+OPENVERSE_STATS = {"requests": 0, "cache_hits": 0, "cache_misses": 0, "auth": False}
+
+
+def _openverse_bearer():
+    """Bearer-токен по client_credentials; None — анонимный режим. Ошибка
+    получения токена запоминается на прогон (не долбить auth-эндпоинт на
+    каждом запросе) и печатается один раз."""
+    cid = os.environ.get("OPENVERSE_CLIENT_ID", "").strip()
+    sec = os.environ.get("OPENVERSE_CLIENT_SECRET", "").strip()
+    if not cid or not sec or _OPENVERSE_TOKEN["failed"]:
+        return None
+    if _OPENVERSE_TOKEN["value"] and time.time() < _OPENVERSE_TOKEN["expires_at"] - 60:
+        return _OPENVERSE_TOKEN["value"]
+    try:
+        body = urllib.parse.urlencode({"client_id": cid, "client_secret": sec,
+                                       "grant_type": "client_credentials"}).encode()
+        req = urllib.request.Request("https://api.openverse.org/v1/auth_tokens/token/",
+                                     data=body, headers={"User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            tok = json.load(r)
+        _OPENVERSE_TOKEN["value"] = tok.get("access_token")
+        _OPENVERSE_TOKEN["expires_at"] = time.time() + float(tok.get("expires_in") or 3600)
+        OPENVERSE_STATS["auth"] = bool(_OPENVERSE_TOKEN["value"])
+        return _OPENVERSE_TOKEN["value"]
+    except Exception as e:
+        _OPENVERSE_TOKEN["failed"] = True
+        print(f"  openverse: ключ не принят ({type(e).__name__}) — работаю анонимно, "
+              f"лимит 20/мин и 200/день")
+        return None
+
+
+def _openverse_throttle(authenticated):
+    interval = OPENVERSE_AUTH_MIN_INTERVAL_SEC if authenticated else OPENVERSE_ANON_MIN_INTERVAL_SEC
+    with _OPENVERSE_LOCK:
+        now = time.monotonic()
+        slot = max(now, _OPENVERSE_NEXT_SLOT[0])
+        _OPENVERSE_NEXT_SLOT[0] = slot + interval
+        OPENVERSE_STATS["requests"] += 1
+    delay = slot - time.monotonic()
+    if delay > 0:
+        time.sleep(delay)
+
+
+_OPENVERSE_MAPPING_SIG = [None]
+
+
+def _openverse_mapping_signature():
+    """Подпись КОДА, который собирает кандидата из ответа Openverse.
+
+    Реальный, пойманный на A/B дефект собственного кэша (14.09): кэш хранит
+    ГОТОВЫХ кандидатов, а ключ покрывал только запрос и лицензии. После
+    правки «превью не через API, а по конвенции Wikimedia» кэш продолжал
+    отдавать кандидатов, собранных СТАРЫМ кодом, — и превью снова уходили
+    на api.openverse.org, где отвечали HTTP 424. То есть правка не дошла до
+    экрана ровно тем же способом, которым до неё не доходили правки гейтов
+    (см. candidate_gate_signature). Подпись берётся у исходника функций, а
+    не у номера версии, который забывают поднять."""
+    if _OPENVERSE_MAPPING_SIG[0] is None:
+        try:
+            import inspect
+            src = "".join(inspect.getsource(fn) for fn in
+                          (_openverse_fetch_one, wikimedia_thumb_url, candidate_probe_url))
+        except Exception:
+            src = "unavailable"
+        _OPENVERSE_MAPPING_SIG[0] = hashlib.sha1(src.encode("utf-8")).hexdigest()[:12]
+    return _OPENVERSE_MAPPING_SIG[0]
+
+
+def _openverse_cache_path(api_query, _ov):
+    payload = json.dumps([OPENVERSE_CACHE_SCHEMA, api_query, sorted(_ov.OPENVERSE_SAFE_LICENSES),
+                          sorted(_ov.OPENVERSE_TRUSTED_SOURCES), _openverse_mapping_signature()],
+                         ensure_ascii=False, sort_keys=True)
+    return os.path.join(OPENVERSE_CACHE_DIR, hashlib.sha1(payload.encode("utf-8")).hexdigest() + ".json")
+
+
+def _openverse_cache_get(api_query, _ov):
+    try:
+        path = _openverse_cache_path(api_query, _ov)
+        if not os.path.exists(path) or time.time() - os.path.getmtime(path) > OPENVERSE_CACHE_TTL_SEC:
+            return None
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        if data.get("query") != api_query or not isinstance(data.get("results"), list):
+            return None
+        return data["results"]
+    except Exception:
+        return None
+
+
+def _openverse_cache_put(api_query, _ov, results):
+    try:
+        os.makedirs(OPENVERSE_CACHE_DIR, exist_ok=True)
+        path = _openverse_cache_path(api_query, _ov)
+        with open(path + ".tmp", "w", encoding="utf-8") as f:
+            json.dump({"query": api_query, "cached_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                       "results": results}, f, ensure_ascii=False)
+        os.replace(path + ".tmp", path)
+    except Exception:
+        pass
 _MUSEUM_SEARCH_CACHE = {}      # то же для прямых API музеев (Met на объект = отдельный запрос)
 
 
@@ -5234,7 +5599,7 @@ MUSEUM_SOURCES_VERSION = 2
 OPENVERSE_QUERY_MIN_WORDS = 2
 
 
-def _museum_search_photos(api_query):
+def _museum_search_photos(api_query, department=None):
     """Кандидаты из прямых API музеев (Met/Cleveland/Chicago) — тот же каскад
     запросов, что и у архивов: длинный запрос не находит ничего и в музейном
     поиске тоже.
@@ -5249,21 +5614,21 @@ def _museum_search_photos(api_query):
     Fail-open, как и у Openverse: любая ошибка — пустой список, пул
     продолжает собираться из остальных источников.
     """
-    if api_query in _MUSEUM_SEARCH_CACHE:
-        return _MUSEUM_SEARCH_CACHE[api_query]
+    cache_key = (api_query, department)
+    if cache_key in _MUSEUM_SEARCH_CACHE:
+        return _MUSEUM_SEARCH_CACHE[cache_key]
     results = []
     try:
         import museum_sources
-        for variant in _openverse_query_cascade(api_query):
-            results = museum_sources.search_museums(variant)
-            if results:
-                if variant != api_query:
-                    print(f"    Музеи: {api_query!r} -> ничего, взят более "
-                          f"общий запрос {variant!r} ({len(results)} канд.)")
-                break
-    except Exception:
+        results = _search_with_variants(
+            "Музеи", api_query,
+            lambda v, first: museum_sources.search_museums(
+                v, department=department,
+                limit=None if first else museum_sources.VARIANT_DETAIL_FETCHES))
+    except Exception as e:
+        _note_source_search_error("museum", e, api_query)
         results = []
-    _MUSEUM_SEARCH_CACHE[api_query] = results
+    _MUSEUM_SEARCH_CACHE[cache_key] = results
     return results
 
 
@@ -5330,12 +5695,14 @@ def _pixabay_search_photos(api_query):
                 "alt": ", ".join(tags),
                 "url": h.get("pageURL") or "",
                 "tags": tags,
-                "src": {"large2x": img, "large": img},
+                "src": {"large2x": img, "large": img,
+                        "medium": h.get("webformatURL") or img},
             })
-    except Exception:
+    except Exception as e:
         # Fail-open НА УРОВНЕ ИСТОЧНИКА — тот же принцип, что у Openverse и
         # музеев: недоступный Pixabay не должен ронять слот, у которого есть
         # рабочий Pexels-путь. Пустой список = пул собирается как раньше.
+        _note_source_search_error("pixabay", e, api_query)
         out = []
     _PIXABAY_PHOTO_CACHE[api_query] = out
     return out
@@ -5386,7 +5753,8 @@ def _pixabay_search_videos(api_query):
                 "duration": h.get("duration"),
                 "video_files": files,
             })
-    except Exception:
+    except Exception as e:
+        _note_source_search_error("pixabay", e, api_query)
         out = []
     _PIXABAY_VIDEO_CACHE[api_query] = out
     return out
@@ -5432,9 +5800,11 @@ def _unsplash_search_photos(api_query):
                 "id": f"unsplash:{h.get('id')}",
                 "alt": alt,
                 "url": ((h.get("links") or {}).get("html")) or "",
-                "src": {"large2x": img, "large": img},
+                "src": {"large2x": img, "large": img,
+                        "medium": urls.get("small") or img},
             })
-    except Exception:
+    except Exception as e:
+        _note_source_search_error("unsplash", e, api_query)
         out = []
     _UNSPLASH_PHOTO_CACHE[api_query] = out
     return out
@@ -5482,6 +5852,58 @@ def _openverse_query_cascade(api_query):
     return out
 
 
+def _search_with_variants(label, api_query, fetch_one):
+    """Выдачи ВСЕХ формулировок слота, слитые по рангу (см. query_fusion.py).
+
+    Заменяет прежнюю лестницу «первая непустая формулировка побеждает». Та
+    ветка работала только когда точная формулировка не нашла НИЧЕГО, и была
+    бессильна в самом частом случае — когда точная нашла НЕ ТО: оба брака,
+    оставшихся после маршрутизации по типу кадра (A/B 14.09), пришли из
+    непустой выдачи точной формулировки, и до второй формулировки дело не
+    доходило вообще.
+
+    Цена названа прямо: каждая дополнительная формулировка — РЕАЛЬНЫЙ запрос
+    к API, который каскад экономил. Потолок — query_fusion.MAX_VARIANTS,
+    оба источника (музеи и Openverse) держат дисковый кэш, так что повторный
+    прогон и следующий эпизод с теми же запросами не платят.
+
+    Флаг выключен -> прежнее поведение каскада БАЙТ-В-БАЙТ (первая непустая,
+    то же сообщение в консоли), чтобы откат был настоящим, а не «почти».
+    """
+    # fetch_one(variant, is_exact) — источник сам решает, что значит
+    # «неполная глубина» для него (у Openverse страница фиксирована API, у
+    # музеев это число карточек).
+    variants = _openverse_query_cascade(api_query)
+    if not feature_flags.enabled("QUERY_FUSION"):
+        for variant in variants:
+            # Откат обязан быть БАЙТ-В-БАЙТ прежним: прежний каскад ходил за
+            # каждой формулировкой на ПОЛНУЮ глубину, поэтому здесь first=True
+            # всегда, а не «первая итерация».
+            results = fetch_one(variant, True)
+            if results:
+                if variant != api_query:
+                    print(f"    {label}: {api_query!r} -> ничего, взят более "
+                          f"общий запрос {variant!r} ({len(results)} канд.)")
+                return results
+        return []
+    variants = variants[:query_fusion.MAX_VARIANTS]
+    lists, spent = [], []
+    for vi, variant in enumerate(variants):
+        # Полная глубина — только точной формулировке. Более широкая нужна
+        # ради СОГЛАСИЯ с ней, а вес её позиций и так убывает; без этой
+        # границы слот стоил бы втрое больше запросов к API (см.
+        # museum_sources.VARIANT_DETAIL_FETCHES, там же честная цена).
+        got = fetch_one(variant, vi == 0)
+        lists.append(got)
+        spent.append((variant, len(got)))
+    fused = query_fusion.fuse(lists, lambda c: c.get("id"))
+    if len(variants) > 1 and fused:
+        detail = ", ".join(f"{v!r}:{n}" for v, n in spent)
+        print(f"    {label}: слияние {len(variants)} формулировок "
+              f"({detail}) -> {len(fused)} канд.")
+    return fused
+
+
 def _openverse_search_photos(api_query):
     """Выдача институциональных архивов (Met/Wikimedia/Rijksmuseum/...) в
     ФОРМЕ PEXELS-КАНДИДАТА — чтобы конкурировать в ОДНОМ пуле с Pexels под
@@ -5522,34 +5944,42 @@ def _openverse_search_photos(api_query):
         return _OPENVERSE_SEARCH_CACHE[api_query]
     try:
         import stock_fetch_multisource as _ov
-        results = []
-        for variant in _openverse_query_cascade(api_query):
-            results = _openverse_fetch_one(variant, _ov)
-            if results:
-                if variant != api_query:
-                    print(f"    Архивы: {api_query!r} -> ничего, взят более "
-                          f"общий запрос {variant!r} ({len(results)} канд.)")
-                break
+        results = _search_with_variants(
+            "Архивы", api_query, lambda v, first: _openverse_fetch_one(v, _ov))
         _OPENVERSE_SEARCH_CACHE[api_query] = results
         return results
-    except Exception:
+    except Exception as e:
         # Fail-open на уровне ИСТОЧНИКА — тот же принцип, что PEXELS_BROKEN:
         # недоступный Openverse не должен ронять слот, у которого и так есть
         # рабочий Pexels-путь. Пустой список — кандидатов из архива не будет
         # в этом запросе, пул продолжает собираться из Pexels как раньше.
+        # Но НЕ молча: Openverse отвечал 401 (поймано вживую 13.09), и до
+        # этой строки узнать, что источник даёт ноль, было неоткуда.
+        _note_source_search_error("openverse", e, api_query)
         _OPENVERSE_SEARCH_CACHE[api_query] = []
         return []
 
 
 def _openverse_fetch_one(api_query, _ov):
-    """Один запрос к Openverse -> кандидаты в форме Pexels. Без кэша и без
-    перехвата исключений: и то и другое — забота вызывающего каскада."""
+    """Один запрос к Openverse -> кандидаты в форме Pexels. Без перехвата
+    исключений (это забота вызывающего каскада). Дисковый кэш и интервал
+    между запросами — здесь, потому что именно здесь уходит запрос."""
+    cached = _openverse_cache_get(api_query, _ov)
+    if cached is not None:
+        OPENVERSE_STATS["cache_hits"] += 1
+        return cached
+    OPENVERSE_STATS["cache_misses"] += 1
+    token = _openverse_bearer()
     q = urllib.parse.quote(api_query)
     url = ("https://api.openverse.org/v1/images/?q=" + q +
            "&license=" + ",".join(sorted(_ov.OPENVERSE_SAFE_LICENSES)) +
            "&source=" + ",".join(sorted(_ov.OPENVERSE_TRUSTED_SOURCES)) +
-           "&page_size=20&mature=false")
-    req = urllib.request.Request(url, headers={"User-Agent": UA})
+           f"&page_size={OPENVERSE_AUTH_PAGE_SIZE if token else OPENVERSE_ANON_PAGE_SIZE}&mature=false")
+    headers = {"User-Agent": UA}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    _openverse_throttle(bool(token))
+    req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=20) as r:
         data = json.load(r)
     results = []
@@ -5569,7 +5999,11 @@ def _openverse_fetch_one(api_query, _ov):
             "id": f"openverse:{res.get('id')}",
             "alt": res.get("title") or "",
             "url": res.get("foreign_landing_url") or img_url,
-            "src": {"large2x": img_url},
+            # Рабочий файл у Wikimedia тоже берётся ограниченной ширины
+            # (2000 px при кадре 1920x1080 — с запасом на Ken Burns): их
+            # оригиналы отвечают 429 и прямо просят пользоваться превью.
+            "src": {"large2x": wikimedia_thumb_url(img_url, 2000) or img_url,
+                    "medium": wikimedia_thumb_url(img_url, 640) or img_url},
             # Провенанс — та же информация, что _log_openverse_manifest()
             # уже пишет в pre-fetch пути, здесь нужна на случай, если
             # кандидат победит и понадобится атрибуция/аудит источника.
@@ -5581,6 +6015,9 @@ def _openverse_fetch_one(api_query, _ov):
                 "foreign_landing_url": res.get("foreign_landing_url"),
             },
         })
+    # В кэш — только непустой ответ: пустой может быть следствием квоты, а не корпуса.
+    if results:
+        _openverse_cache_put(api_query, _ov, results)
     return results
 
 
@@ -5730,15 +6167,16 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
         except Exception:
             _reset_pexels_streak()
             return cf
-    if not PEXELS_API_KEY:
-        # Досюда доходим и в случае "кэш есть, но он визуальный дубль уже
-        # показанного" (см. ветку used_hashes выше). Без ключа заменить
-        # его нечем — вернуть дубль честнее, чем потерять кадр целиком:
-        # пустой слот при RENDER_STRICT_GATE=1 останавливает всю сборку.
-        if os.path.exists(cf) and os.path.getsize(cf) > 0:
-            _reset_pexels_streak()
-            return cf
-        return None
+    # Ключевого гейта здесь БОЛЬШЕ НЕТ — и это исправление, а не упрощение.
+    # Раньше `if not PEXELS_API_KEY: return None` стоял ДО сборки пула, то
+    # есть без ключа Pexels молча умирали ВСЕ остальные источники — музеи,
+    # Openverse, Pixabay, Unsplash, у которых свои ключи или ключ не нужен.
+    # Тест test_search_call_is_not_gated_by_use_pexels защищал тот же
+    # инвариант в main(), а внутри самой функции он нарушался на строку
+    # ниже. Найдено 13.09 при попытке измерить отбор без ключа Pexels: все
+    # слоты вернули None за 0 секунд. Теперь без ключа Pexels просто не
+    # вносит кандидатов (см. _pexels_search_photos), а пустой пул ниже
+    # честно даёт None, как и раньше.
     try:
         # Пул кандидатов собирается из ВСЕХ запросов секции сразу, а не из
         # одного (см. extra_queries в докстринге) — победителя дальше выбирает
@@ -5765,40 +6203,58 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             # пикселям, а прочитаны из паспорта предмета (см. докстринг
             # museum_sources.py). Победителя по-прежнему решают общие гейты и
             # скоринг — порядок только определяет место в списке при равенстве.
-            for p in _museum_search_photos(api_q):
-                p = dict(p)
-                p["_origin_query"] = pq
-                lst.append(p)
-            for p in _openverse_search_photos(api_q):
-                p = dict(p)
-                p["_origin_query"] = pq
-                lst.append(p)
-            for p in _pexels_search_photos(api_q):
-                # Из какого запроса кандидат пришёл — гейт релевантности ниже
-                # должен сверять его с ЕГО запросом, иначе кандидат из второго
-                # запроса секции сравнивался бы с чужим текстом и честно
-                # отбраковывался бы ни за что.
-                p = dict(p)
-                p["_origin_query"] = pq
-                lst.append(p)
-            # Pixabay/Unsplash — ПОСЛЕ Pexels, в отличие от музеев и архивов
-            # выше. Разница не в важности источника, а в том, на что мы
-            # вправе опираться: у музейного кандидата эпоха и культура
-            # прочитаны из паспорта предмета, поэтому его место впереди
-            # осмысленно. Pixabay и Unsplash — такой же общий фотосток, что
-            # и Pexels, никакого преимущества у них нет. Добавление В КОНЕЦ
-            # оставляет взаимный порядок уже существовавших кандидатов
-            # ровно прежним: новый источник может выиграть слот только если
-            # реально обошёл всех по скорингу, а не потому что оказался
-            # раньше в списке при равенстве.
-            for p in _pixabay_search_photos(api_q):
-                p = dict(p)
-                p["_origin_query"] = pq
-                lst.append(p)
-            for p in _unsplash_search_photos(api_q):
-                p = dict(p)
-                p["_origin_query"] = pq
-                lst.append(p)
+            # ЧЕРЕДОВАНИЕ ПО ИСТОЧНИКАМ внутри запроса — измеренное исправление
+            # регресса, а не вкус (A/B на 9 реальных слотах эпизода 02, 13.09).
+            # Раньше список шёл «все музеи, потом весь Openverse, потом весь
+            # Pexels...». Пока музей давал 12-23 кандидата, дальше него
+            # доходили; с глубиной 60-111 первые PHOTO_DEDUP_MAX_TRIES (20)
+            # кандидатов пробной выборки оказывались ВСЕ музейными, и
+            # Openverse/Pexels не рассматривались вообще. На слоте «medieval
+            # castle moat water» это стоило фотографии замка (relevance 0.28,
+            # Openverse): её место заняла рукопись (0.21) — единственный
+            # музейный кандидат, прошедший гейт. Теперь кандидаты источников
+            # идут по кругу (музей, архив, Pexels, Pixabay, Unsplash, музей,
+            # ...): ни один источник не может вытеснить другие из пробной
+            # выборки, а побеждает по-прежнему тот, кто выше по гейтам и
+            # ранжированию. Порядок ВНУТРИ источника сохранён (релевантность
+            # его же поиска); музей стартует первым по прежней причине —
+            # паспорт предмета, а не догадка по пикселям.
+            # МАРШРУТИЗАЦИЯ ПО ТИПУ КАДРА (scripts/shot_types.py). Музей —
+            # каталог предметов с паспортом, а не фотобанк сцен: на
+            # «medieval castle moat water» он отдаёт «Мадонну с младенцем»
+            # (relevance 0.14-0.21), и в A/B такой кандидат выигрывал слот
+            # только потому, что стоял первым в списке. Теперь сценический
+            # запрос туда не уходит вовсе, а предметный уходит СТРУКТУРНО —
+            # по отделу коллекции, а не свободным текстом (замер: тарелки
+            # на «plate armour» исчезают целиком). Тип не определён -> `any`
+            # -> прежний маршрут во все источники, ноль регрессии.
+            shot_type = shot_type_of_query(pq)
+            department = met_department_for_query(api_q, shot_type)
+            per_source = []
+            for source_name, fetch in (("museum", _museum_search_photos),
+                                        ("openverse", _openverse_search_photos),
+                                        ("pexels", _pexels_search_photos),
+                                        ("pixabay", _pixabay_search_photos),
+                                        ("unsplash", _unsplash_search_photos)):
+                if not source_allowed_for(source_name, shot_type):
+                    continue
+                src_list = []
+                fetched = (fetch(api_q, department=department)
+                           if source_name == "museum" else fetch(api_q))
+                for p in fetched:
+                    # Из какого запроса кандидат пришёл — гейт релевантности
+                    # ниже должен сверять его с ЕГО запросом, иначе кандидат
+                    # из второго запроса секции сравнивался бы с чужим текстом
+                    # и честно отбраковывался бы ни за что.
+                    p = dict(p)
+                    p["_origin_query"] = pq
+                    p["_shot_type"] = shot_type
+                    src_list.append(p)
+                per_source.append(src_list)
+            for row in itertools.zip_longest(*per_source):
+                for p in row:
+                    if p is not None:
+                        lst.append(p)
             per_query.append(lst)
         # ЧЕРЕДОВАНИЕ по запросам, а не подряд — реальный дефект первой
         # версии этого пула, найденный покадровым просмотром рендера: Pexels
@@ -5822,7 +6278,16 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
         if not photos:
             return None
         photos = filter_alt_blocklist(photos)
+        for _p in photos:
+            _source_bump(candidate_source(_p), "offered")
         candidates = [p for p in photos if used_ids is None or p.get("id") not in used_ids] or photos
+
+        def download_probe(p, dest):
+            """Превью кандидата для оценки — см. candidate_probe_url()."""
+            url = candidate_probe_url(p)
+            headers = {"User-Agent": UA}
+            headers.update(p.get("_download_headers") or {})
+            atomic_url_download(urllib.request.Request(url, headers=headers), dest, timeout=20)
 
         def download(p, dest):
             url = p["src"].get("large2x") or p["src"].get("large")
@@ -5896,7 +6361,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             trial_paths = {id(p): cf + f".trial_{p.get('id')}.jpg" for p in trial_slice}
             prefetch_pool = concurrent.futures.ThreadPoolExecutor(
                 max_workers=max(1, min(PHOTO_PREFETCH_WORKERS, len(trial_slice) or 1)))
-            prefetch_futures = {id(p): prefetch_pool.submit(download, p, trial_paths[id(p)])
+            prefetch_futures = {id(p): prefetch_pool.submit(download_probe, p, trial_paths[id(p)])
                                  for p in trial_slice}
             for p in trial_slice:
                 trial = trial_paths[id(p)]
@@ -5905,7 +6370,20 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                         prefetch_futures[id(p)].result()
                     h = ahash(trial)
                 except Exception:
-                    continue
+                    # Превью не скачалось (или не читается) — одна попытка
+                    # ПОЛНЫМ файлом, прежде чем терять кандидата: молчаливая
+                    # потеря на скачке уже один раз обнулила целый источник
+                    # (см. wikimedia_thumb_url). Потеря считается по источнику.
+                    try:
+                        if candidate_probe_url(p) != (p["src"].get("large2x") or p["src"].get("large")):
+                            download(p, trial)
+                            h = ahash(trial)
+                        else:
+                            raise
+                    except Exception:
+                        _source_bump(candidate_source(p), "download_errors")
+                        continue
+                _source_bump(candidate_source(p), "considered")
                 min_d = min((hamming(h, uh) for uh in used_hashes), default=99)
                 is_dup_free = 1 if min_d > PHOTO_DEDUP_HAMMING else 0
                 size_ok = 1
@@ -5943,8 +6421,10 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                 # проход (visual_qc.py, часто не запускается). None (сбой
                 # декода/недоступность numpy) -> не гейтит, тот же безопасный
                 # откат, что у остальных опциональных осей.
-                sharp = image_sharpness_score(trial)
-                sharp_ok = 1 if (sharp is None or sharp >= PHOTO_SHARPNESS_REJECT) else 0
+                # Резкость на ПРЕВЬЮ не меряется — уменьшение «лечит» размытие,
+                # и гейт врал бы в плюс. Проверяется на полноразмерном файле
+                # победителя ниже; провал -> следующий по ранжированию.
+                sharp_ok = 1
                 # Эстетика — доп. измерение, НЕ повышает good_needed само по
                 # себе (в отличие от target_luma) — иначе каждый выбор фото
                 # тратил бы вдвое больше скачиваний/Pexels-трафика по
@@ -5969,6 +6449,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                     "luma_score": luma_score, "min_d": min_d, "relevance": relevance,
                 })
                 if is_dup_free and size_ok and is_relevant and sharp_ok:
+                    _source_bump(candidate_source(p), "gate_passed")
                     good_seen += 1
                     if good_seen >= good_needed:
                         break   # набрали, сколько нужно для честного сравнения — не жжём оставшиеся попытки
@@ -6066,18 +6547,91 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                     "index": index, "kind": "photo", "query": query,
                     "n_candidates_examined": len(candidates_info),
                 })
-            for c in candidates_info:
-                if winner is None or c["path"] != winner["path"]:
-                    try:
-                        os.remove(c["path"])
-                    except OSError:
-                        pass
-            if winner is None:
-                pick = candidates[0]
-                download(pick, cf)
-            else:
+            # Полноразмерный файл качается ТОЛЬКО у победителя, и резкость
+            # проверяется на нём (на превью её мерить нельзя, см. цикл выше).
+            # Размытый или недокачавшийся победитель -> следующий по тому же
+            # ранжированию (sharp_ok=0 демотирует его ниже всех резких), не
+            # больше SHARP_REPICK_MAX раз; если резких нет вовсе — честно
+            # остаёмся на лучшем и пишем это в лог, слот не пустеет.
+            repicks = 0
+            while True:
+                if winner is None:
+                    pick = candidates[0]
+                    download(pick, cf)
+                    break
                 pick = winner["p"]
-                os.replace(winner["path"], cf)
+                try:
+                    download(pick, cf)
+                    sharp = image_sharpness_score(cf)
+                    sharp_ok_full = (sharp is None or sharp >= PHOTO_SHARPNESS_REJECT)
+                except Exception:
+                    sharp_ok_full = False
+                if sharp_ok_full or repicks >= SHARP_REPICK_MAX:
+                    if not sharp_ok_full:
+                        print(f"  слот {index}: победитель остался размытым/недокачанным после "
+                              f"{repicks} повторных выборов — резких кандидатов не нашлось")
+                    break
+                repicks += 1
+                winner["sharp_ok"] = 0
+                base_winner, director_winner = _score_and_pick(candidates_info, director_score_fn)
+                new_winner = (director_winner if (director_assist and director_winner is not None)
+                              else base_winner)
+                if new_winner is None or new_winner is winner:
+                    break
+                winner = new_winner
+                chosen_by = chosen_by + "+sharp_repick"
+            # ФАЙЛ ОБЯЗАН СУЩЕСТВОВАТЬ. Реальный дефект, найденный замером
+            # (14.09, прогон разметки эпизода 02): при провале скачивания
+            # ПОЛНОРАЗМЕРНОГО файла победителя (Wikimedia отвечает 429 на
+            # всплеск, Чикаго — 403 без своего заголовка) `except` выше
+            # ставил sharp_ok_full=False, цикл выходил по исчерпании
+            # повторов, и функция возвращала ПУТЬ К НЕСУЩЕСТВУЮЩЕМУ ФАЙЛУ.
+            # Слоты #18 и #23 из 42 получили такой путь, и ни один отчёт
+            # этого не показывал: слот числился успешно подобранным, sidecar
+            # писался, used_ids пополнялся, а кадра не было. Дальше по
+            # цепочке это либо выпавший блок, либо остановка сборки на
+            # RENDER_STRICT_GATE — и причина была бы уже неизвестна.
+            #
+            # Тот же принцип, что давно действует на стороне рендера
+            # (verify_clip(): нулевой код возврата ffmpeg НЕ доказывает, что
+            # файл записан нужной длины) — здесь он переносится на
+            # скачивание, где его не было.
+            if not _downloaded_ok(cf):
+                _source_bump(candidate_source(pick), "download_errors")
+                tried = {id(pick)}
+                rescued = None
+                for nxt in ([c["p"] for c in candidates_info] + list(candidates)):
+                    if id(nxt) in tried:
+                        continue
+                    tried.add(id(nxt))
+                    try:
+                        download(nxt, cf)
+                    except Exception:
+                        pass
+                    if _downloaded_ok(cf):
+                        rescued = nxt
+                        break
+                    _source_bump(candidate_source(nxt), "download_errors")
+                if rescued is None:
+                    # Честное «кадра нет» вместо пути в никуда: слот уходит
+                    # на лестницу фолбэков (FALLBACK_CARD), которая ровно для
+                    # этого и существует, а не притворяется подобранным.
+                    print(f"  слот {index}: ни один кандидат не скачался "
+                          f"(запрос {query!r}) — слот остаётся без медиа")
+                    for c in candidates_info:
+                        try:
+                            os.remove(c["path"])
+                        except OSError:
+                            pass
+                    return None
+                pick = rescued
+                winner = next((c for c in candidates_info if c["p"] is rescued), None)
+                chosen_by = chosen_by + "+download_rescue"
+            for c in candidates_info:
+                try:
+                    os.remove(c["path"])
+                except OSError:
+                    pass
         if used_ids is not None:
             used_ids.add(pick.get("id"))
         _picked_ahash = None
@@ -6102,6 +6656,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                 recent_sizes.append(estimate_shot_size(cf))
             except Exception:
                 pass
+        _source_bump(candidate_source(pick), "won")
         _reset_pexels_streak()
         return cf
     except Exception as e:
@@ -6692,6 +7247,27 @@ def lint_authored_queries(authored_queries, blocks=None):
 
     Возвращает список (секция, запрос, термин) — для теста и отчёта.
     """
+    # Четвёртая ось линта: ТИП КАДРА (scripts/shot_types.py). Он решает, в
+    # какой источник уйдёт запрос, и запрос без типа едет прежним маршрутом
+    # во все источники — это не ошибка, но автор должен видеть, где
+    # маршрутизация не работает. Печатается сводкой, ничего не блокирует.
+    by_type = {}
+    unmarked = []
+    for section, pool in sorted((authored_queries or {}).items()):
+        for q in pool or []:
+            t = shot_type_of_query(q)
+            by_type[t] = by_type.get(t, 0) + 1
+            if t == "any":
+                unmarked.append((section, q))
+    if by_type:
+        print("  Типы кадра авторских запросов: "
+              + ", ".join(f"{t}={n}" for t, n in sorted(by_type.items())))
+    if unmarked:
+        print(f"    без типа ({len(unmarked)}) — маршрут во все источники, как раньше; "
+              f"пометить в сценарии `запрос [object|scene|illustration|texture|map]`:")
+        for section, q in unmarked[:8]:
+            print(f"      [{section}] {q}")
+
     hits = []
     for section, pool in sorted((authored_queries or {}).items()):
         for q in pool or []:
@@ -8134,6 +8710,73 @@ def run_ffmpeg_with_retry(build_cmd, tmp_out, expected_dur, label=""):
     return False, last_reason
 
 
+# --- ВЕЖЛИВОСТЬ К ХОСТУ ПРИ СКАЧИВАНИИ КАНДИДАТОВ ----------------------------
+# Измеренная причина (прогон 14.09): пробная выборка качает до 20 кандидатов
+# ПАРАЛЛЕЛЬНО (PHOTO_PREFETCH_WORKERS), и Wikimedia отвечает на такой всплеск
+# HTTP 429 — 25 кандидатов из 145 предложенных Openverse молча не дошли до
+# гейтов. Раньше это выглядело бы как «архив дал мало»; теперь потери видны
+# (download_errors), а всплеск разведён по времени. Интервал — на ХОСТ, не
+# общий: Pexels и музеи от чужого лимита страдать не должны.
+DOWNLOAD_HOST_MIN_INTERVAL = {
+    "commons.wikimedia.org": 0.35,
+    "upload.wikimedia.org": 0.35,
+}
+# User-Agent для хостов Викимедиа: их политика требует называть инструмент и
+# давать ссылку, а браузероподобная строка (нужная Pexels/Cloudflare, см.
+# ЧАСТЬ 14) там прямо не приветствуется. ЧЕСТНО: сегодняшние 429 этим НЕ
+# лечатся — прямой замер 14.09 дал 0 успешных из 6 и с браузерной строкой, и
+# с политикой, то есть ограничение стоит на адресе после наших же сотен
+# тестовых запросов, а не на строке. Это соответствие правилам источника, а
+# не измеренное улучшение, и выдавать его за улучшение нельзя.
+DOWNLOAD_HOST_USER_AGENT = {
+    "commons.wikimedia.org": "FacelessPipeline/1.0 (https://github.com/hellokittysoullja-bit/PipelineMachineVideo_AUTO)",
+    "upload.wikimedia.org": "FacelessPipeline/1.0 (https://github.com/hellokittysoullja-bit/PipelineMachineVideo_AUTO)",
+}
+DOWNLOAD_RETRY_STATUSES = (429, 503)
+DOWNLOAD_RETRY_PAUSE_SEC = 2.0
+_DOWNLOAD_HOST_LOCK = threading.Lock()
+_DOWNLOAD_HOST_NEXT = {}
+
+
+def host_user_agent(url, default=None):
+    """User-Agent по хосту: правила источника важнее общей строки."""
+    try:
+        host = urllib.parse.urlsplit(url).hostname or ""
+    except Exception:
+        return default
+    return DOWNLOAD_HOST_USER_AGENT.get(host, default)
+
+
+def _download_host_throttle(url):
+    try:
+        host = urllib.parse.urlsplit(url).hostname or ""
+    except Exception:
+        return
+    interval = DOWNLOAD_HOST_MIN_INTERVAL.get(host)
+    if not interval:
+        return
+    with _DOWNLOAD_HOST_LOCK:
+        now = time.monotonic()
+        slot = max(now, _DOWNLOAD_HOST_NEXT.get(host, 0.0))
+        _DOWNLOAD_HOST_NEXT[host] = slot + interval
+    delay = slot - time.monotonic()
+    if delay > 0:
+        time.sleep(delay)
+
+
+def _downloaded_ok(path):
+    """Файл реально лежит на диске и непустой.
+
+    Существует потому, что «скачивание не бросило исключение» и «файл
+    записан» — РАЗНЫЕ утверждения, и их смешение уже стоило двух слотов
+    эпизода (см. вызов в pexels_photo()). Нулевой размер считается
+    отсутствием: оборванная закачка оставляет именно такой файл."""
+    try:
+        return os.path.exists(path) and os.path.getsize(path) > 0
+    except OSError:
+        return False
+
+
 def atomic_url_download(req, dest, timeout):
     """Тот же принцип, что render_tmp_path/finalize_render, но для скачки
     стокового медиа (pexels_photo/pexels_video) — реальный баг, пойманный
@@ -8149,9 +8792,24 @@ def atomic_url_download(req, dest, timeout):
     переименовываем атомарно только при успехе — как рендер клипов."""
     tmp = dest + ".download.part"
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            with open(tmp, "wb") as f:
-                f.write(r.read())
+        url_for_policy = getattr(req, "full_url", "") or ""
+        ua = host_user_agent(url_for_policy)
+        if ua:
+            req.add_header("User-agent", ua)
+        for attempt in (0, 1):
+            _download_host_throttle(url_for_policy)
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as r:
+                    with open(tmp, "wb") as f:
+                        f.write(r.read())
+                break
+            except urllib.error.HTTPError as e:
+                # 429/503 — «слишком часто», а не «нет файла»: один повтор
+                # с паузой вместо потери кандидата (см. замер выше).
+                if e.code in DOWNLOAD_RETRY_STATUSES and attempt == 0:
+                    time.sleep(DOWNLOAD_RETRY_PAUSE_SEC)
+                    continue
+                raise
         if os.path.getsize(tmp) == 0:
             raise IOError("скачан 0-байтный файл")
         os.replace(tmp, dest)
@@ -9113,6 +9771,15 @@ def _selection_stack_signature():
         feature_flags.mode("VLM_ARBITER_MODE"),
         feature_flags.mode("VISUAL_DIRECTOR_MODE"),
         DIRECTOR_MIN_POOL, PHOTO_DEDUP_MAX_TRIES, BASE_MIN_POOL, FAST_BASE_MIN_POOL,
+        # Ранжирование среди прошедших гейты (корзина relevance до эстетики) и
+        # чередование источников внутри запроса — оба меняют, КТО побеждает,
+        # при тех же гейтах; без подписи на прогретом temp_smart/ правка не
+        # дошла бы до экрана (13.09, A/B на 9 слотах эпизода 02).
+        RELEVANCE_RANK_BUCKET, POOL_SOURCE_INTERLEAVE_VERSION, SHOT_TYPE_ROUTING_VERSION,
+        # Слияние формулировок меняет ПОРЯДОК кандидатов в пуле, то есть
+        # какие BASE_MIN_POOL из них вообще дойдут до оценки — ровно тот
+        # же класс изменения, что чередование источников выше.
+        feature_flags.enabled("QUERY_FUSION"), query_fusion.QUERY_FUSION_VERSION,
         # ДЕЙСТВУЮЩАЯ граница (не пол): у эпизода с длинным хуком она другая,
         # а значит другой и размер пула, из которого выбран победитель.
         _FAST_MODE_START, FAST_DIRECTOR_MIN_POOL, FAST_PHOTO_DEDUP_MAX_TRIES,
@@ -10470,6 +11137,8 @@ def _pexels_search_videos(api_query):
     пула из всех запросов секции упёрся бы в квоту 200/час."""
     if api_query in _PEXELS_VIDEO_SEARCH_CACHE:
         return _PEXELS_VIDEO_SEARCH_CACHE[api_query]
+    if not PEXELS_API_KEY:
+        return []   # см. _pexels_search_photos: без ключа — пустой вклад, не выход
     q = urllib.parse.quote(api_query)
     req = urllib.request.Request(
         f"https://api.pexels.com/videos/search?query={q}&per_page=80&orientation=landscape",
@@ -10542,8 +11211,8 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
         register_cached_media(cf, used_ids=used_ids, used_hashes=None, kind="video")
         _reset_pexels_streak()
         return cf
-    if not PEXELS_API_KEY:
-        return None
+    # Ключевой гейт снят — см. pexels_photo: без ключа Pexels не вносит
+    # кандидатов, остальные источники видео (Pixabay) работают.
     try:
         # Пул из ВСЕХ запросов секции — то же, что уже сделано для фото
         # (см. extra_queries в pexels_photo). До этого видео-слот жёстко
@@ -10599,6 +11268,8 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                 videos.append(v)
         if not videos:
             return None
+        for _v in videos:
+            _source_bump(candidate_source(_v), "offered")
         ordered = videos
         if used_ids is not None:
             ordered = ([v for v in videos if v.get("id") not in used_ids]
@@ -10803,6 +11474,7 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                 # — сдвиг индексов молча перепутал бы путь/id/hash/origin_query
                 # местами. Приоритет в сравнении всё равно даёт сам sort key
                 # ниже, не позиция в кортеже.
+                _source_bump(candidate_source(v), "gate_passed")
                 good.append((sent_score, luma_ok, trial, v.get("id"), cand_hash,
                             v.get("_origin_query"), shot_size_ok))
                 # Без смыслового скоринга сравнивать нечего — прежнее
@@ -10919,6 +11591,7 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                 used_hashes.append(best[4])
             write_media_sidecar(cf, pexels_id=best[3], query=query, kind="video",
                                 ahash_hex=best[4], chosen_by="video_relevance_best")
+            _source_bump(candidate_source(best[3]), "won")
             _reset_pexels_streak()
             return cf
         chosen = dup_fallback or plain_fallback
@@ -12281,12 +12954,16 @@ def main():
     # переживает молча уже отрендеренные клипы.
     global RENDER_RECIPE_SIG
     RENDER_RECIPE_SIG = recipe_sig = render_recipe_signature()
+    reset_source_stats()
     use_local = os.path.isdir(MEDIA_FOLDER) and bool(local_photo(0))
     use_pexels = bool(PEXELS_API_KEY)
     # === PEXELS QUERIES === написан вручную по протоколу (CLAUDE.md ЧАСТЬ 13,
     # Шаг 3), но до этой строки НИКОГДА не читался пайплайном — см. докстринг
     # resolve_queries()/authored_queries. {} у эпизодов без этой секции
     # (напр. тестовые скрипты) -> ноль влияния, прежнее поведение.
+    SHOT_TYPE_EXPLICIT.update(parse_query_shot_types(SCRIPT_FILE))
+    if SHOT_TYPE_EXPLICIT:
+        print(f"  Типы кадра из сценария: {len(SHOT_TYPE_EXPLICIT)} запрос(ов) размечены явно")
     authored_queries = parse_pexels_queries(SCRIPT_FILE)
     if authored_queries:
         print(f"  Авторские PEXELS QUERIES: {sum(len(v) for v in authored_queries.values())} "
@@ -13306,7 +13983,9 @@ def main():
         "full_pool_until_slot": _FAST_MODE_START,
         "full_pool_floor": FAST_MODE_START_INDEX,
     }
+    selection_gates["source_contribution"] = {src: dict(v) for src, v in SOURCE_STATS.items()}
     shotlist_file = write_shotlist(VIDEO_FOLDER, shot_entries, selection_gates, prev=prev_shotlist)
+    write_source_contribution(VIDEO_FOLDER)
     print(f"  Шотлист: media_plan/shotlist.json ({len(shot_entries)} слотов, "
           f"{shotlist_locked_used} по lock) — контактный лист: python scripts/shotlist_contact.py {VIDEO_FOLDER}")
 
@@ -13316,7 +13995,12 @@ def main():
     # записи, что уже применяет look_manifest.json чуть ниже — пишем ВСЕГДА
     # (даже пустой список), не пропускаем файл молча.
     relevance_report_path = os.path.join(VIDEO_FOLDER, "media_plan", "relevance_gate_report.json")
-    relevance_checked = bool(use_pexels and CLIP_ENABLED and not CLIP_BROKEN and _clip_model is not None)
+    # Гейт релевантности работает над ЛЮБЫМ удалённым источником (музеи,
+    # Openverse, Pixabay, Unsplash, Pexels), не только над Pexels — раньше
+    # отчёт писал «CLIP-гейт не выполнялся (нет ключа Pexels)», при том что
+    # музейные кандидаты через него проходили. Загруженная модель — и есть
+    # факт, что гейт кого-то проверял.
+    relevance_checked = bool(CLIP_ENABLED and not CLIP_BROKEN and _clip_model is not None)
     # merge_slot_report, а не запись целиком: слоты, отданные кэш-хитом клипа,
     # в этом прогоне не проверялись — стирать про них прошлый вердикт значит
     # выдавать неведение за чистый результат (см. докстринг merge_slot_report).

@@ -58,10 +58,6 @@ ALLOWED_UNREACHABLE = {
     "shot_director.reset_call_counter":
         "сброс счётчика живых вызовов между прогонами — нужен тестам, в "
         "продовом однопрогонном пути вызывать нечего",
-    "sound_library.library_files":
-        "тот же резолвер, что pipeline_smart.library_sounds; sound_library "
-        "намеренно НЕ импортируется рендером (у него свой ML-стек). "
-        "Синхронность двух копий заперта тестом ниже",
     "stress_placement.accentize_with_homograph_correction":
         "полная правка ударения в ТЕКСТЕ — сознательно не подключена к "
         "рендеру (см. CLAUDE.md: резы завязаны на [pause]-границы, не на "
@@ -234,26 +230,28 @@ def test_every_registered_flag_is_read_somewhere():
         "выставить их в .env значит ничего не изменить: " + ", ".join(missing))
 
 
-def test_two_sound_resolvers_stay_in_sync(tmp_path, monkeypatch):
-    """Обещание из ALLOWED_UNREACHABLE выше: sound_library.library_files и
-    pipeline_smart.library_sounds — одно и то же правило в двух модулях
-    (второй не импортирует первый намеренно: у sound_library свой ML-стек,
-    тянуть его в рендер незачем). Тот же приём, что уже держит
-    DIRECTOR_MIN_POOL и коды возврата: расхождение копий должно падать
-    тестом, а не жить в проде месяцами."""
+def test_sound_resolver_has_one_implementation(tmp_path, monkeypatch):
+    """Раньше здесь был тест «две копии не разошлись» — это компромисс, а не
+    решение: дубликат лишь сторожился. Теперь pipeline_smart.library_sounds()
+    ДЕЛЕГИРУЕТ в sound_library.library_files(), и тест держит именно это:
+    подмена оригинала обязана быть видна через обёртку, копии не существует."""
     import sound_library as sl
     import pipeline_smart as ps
+
+    src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"), encoding="utf-8").read()
+    assert "_SOUND_LIBRARY_DIR" not in src, "в pipeline_smart снова завёлся свой путь к библиотеке"
 
     root = tmp_path / "library"
     d = root / "sfx" / "plate_tick"
     d.mkdir(parents=True)
     for name in ("b.flac", "a.flac", "c.wav"):
         (d / name).write_bytes(b"")
-
     monkeypatch.setattr(sl, "LIBRARY_ROOT", str(root))
-    monkeypatch.setattr(ps, "_SOUND_LIBRARY_DIR", str(root))
     monkeypatch.setattr(ps, "SOUND_LIBRARY_ENABLED", True)
-
-    assert sl.library_files("sfx", "plate_tick") == ps.library_sounds("sfx", "plate_tick")
     assert [os.path.basename(p) for p in ps.library_sounds("sfx", "plate_tick")] == ["a.flac", "b.flac"]
-    assert sl.library_files("sfx", "missing") == ps.library_sounds("sfx", "missing") == []
+
+    monkeypatch.setattr(sl, "library_files", lambda kind, name: ["/patched/only.flac"])
+    assert ps.library_sounds("sfx", "plate_tick") == ["/patched/only.flac"]
+
+    monkeypatch.setattr(ps, "SOUND_LIBRARY_ENABLED", False)
+    assert ps.library_sounds("sfx", "plate_tick") == []

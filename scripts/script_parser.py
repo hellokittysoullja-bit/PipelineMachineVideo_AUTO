@@ -215,6 +215,17 @@ def parse_pexels_queries(path):
     Нет файла / нет секции / секция пуста -> {} (честный откат — вызывающий
     код в pipeline_smart.resolve_queries() просто не находит authored-
     запрос для секции и работает как раньше, query_for()/THEMES)."""
+    return {key: [_strip_shot_type(q) for q in queries]
+            for key, queries in (_parse_query_section(path) or {}).items()}
+
+
+def _parse_query_section(path):
+    """СЫРЫЕ строки запросов секции — вместе с пометкой типа кадра.
+
+    Один разбор на двоих: parse_pexels_queries() снимает пометку (в API
+    должен уйти чистый запрос), parse_query_shot_types() её читает. Пока
+    это были два независимых прохода, второй получал уже очищенный текст
+    и не видел ни одной пометки — поймано тестом, а не на проде."""
     try:
         raw = open(path, encoding="utf-8").read()
     except Exception:
@@ -240,3 +251,42 @@ def parse_pexels_queries(path):
         if queries:
             result[key] = queries
     return result
+
+
+def _strip_shot_type(raw):
+    """Снять пометку типа кадра `[object]` с запроса. Модуль опционален —
+    без него запрос возвращается как есть."""
+    try:
+        import shot_types
+        return shot_types.parse_query_spec(raw)[0]
+    except Exception:
+        return raw
+
+
+def parse_query_shot_types(path):
+    """{текст запроса: тип кадра} из === PEXELS QUERIES ===.
+
+    Автор помечает тип прямо в строке запроса:
+
+        HOOK: medieval helmet visor slit [object], medieval camp tent [scene]
+
+    Тип решает, В КАКОЙ ИСТОЧНИК уйдёт запрос и в каком виде (см.
+    scripts/shot_types.py): музей — каталог предметов с паспортом, и
+    сценический запрос туда отправлять бессмысленно, а предметный нужно
+    отправлять структурно, по отделу коллекции. Разметки нет — тип
+    выводится из слов запроса, а без сигнала остаётся `any`, то есть
+    прежний маршрут во все источники.
+
+    Ключ — ОЧИЩЕННЫЙ текст запроса (без скобки), тот же, что вернёт
+    parse_pexels_queries() и что реально уйдёт в API."""
+    try:
+        import shot_types
+    except Exception:
+        return {}
+    out = {}
+    for queries in (_parse_query_section(path) or {}).values():
+        for raw in queries:
+            text, shot_type = shot_types.parse_query_spec(raw)
+            if shot_type:
+                out[text] = shot_type
+    return out

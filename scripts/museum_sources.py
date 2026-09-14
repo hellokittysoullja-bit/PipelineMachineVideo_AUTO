@@ -38,6 +38,8 @@ Fail-open на каждом шаге: недоступный музей возв
 из-за этого модуля.
 """
 import concurrent.futures
+import hashlib
+import itertools
 import json
 import os
 import threading
@@ -108,6 +110,20 @@ MET_DETAIL_WORKERS = 12
 # limit (его коллекция про другое) — там выигрыша нет, но и цены тоже.
 SEARCH_PAGE_SIZE = 100
 
+# Глубина выдачи для ДОПОЛНИТЕЛЬНОЙ (более широкой) формулировки слота при
+# слиянии рангов — см. scripts/query_fusion.py. Широкая формулировка нужна
+# ради СОГЛАСИЯ с точной, а вес её позиций и так убывает: кандидат на 20-й
+# позиции формулировки с весом 0.5 приносит 0.5/(10+21) = 0.016, тогда как
+# первое место точной формулировки стоит 1/11 = 0.091.
+#
+# ЧЕСТНО: это граница ЦЕНЫ, а не доказательство бесполезности хвоста —
+# бонус 0.016 всё ещё способен поднять кандидата примерно на четыре позиции
+# в точном списке, и более глубокая широкая выдача что-то бы добавляла.
+# Без границы слот стоил бы 3x60=180 карточек Мет вместо 60 (на эпизоде из
+# 42 запросов это 7560 запросов к API, гарантированный 403 и получасовой
+# прогон); с границей — 60+20+20=100, то есть 1.67x, и это названо прямо.
+VARIANT_DETAIL_FETCHES = 20
+
 _SEARCH_CACHE = {}
 
 
@@ -132,7 +148,17 @@ def _get_json(url):
 #   3) счётчик потерь и пауза-остывание на весь источник: молча уменьшившийся
 #      пул неотличим от бедного корпуса, а это ровно тот класс тихой
 #      деградации, который в этом проекте ловили уже трижды.
-MET_MAX_REQUESTS_PER_SEC = 10.0
+# Скорость — АДАПТИВНАЯ, и стартовое значение получено отказом, а не выбрано.
+# Второй замер (13.09, все 42 запроса эпизода подряд): при 10 запросах/с
+# Мет ответил 403 на 289-м запросе, через ~39 секунд — то есть ~7.5/с в
+# устойчивом режиме для него уже много, при том что 199 запросов за 23с
+# прошли чисто. Порог документирован Метом как «80/с», на практике
+# срабатывает раньше и, судя по всему, считается по окну в минуту.
+# Поэтому: старт 5/с, и КАЖДЫЙ 403 вдвое снижает скорость до конца прогона
+# (пол — 1/с) вдобавок к паузе-остыванию. Итоговая скорость пишется в
+# FETCH_STATS — по артефактам видно, до чего дошло.
+MET_MAX_REQUESTS_PER_SEC = 5.0
+MET_MIN_REQUESTS_PER_SEC = 1.0
 MET_RETRY_STATUSES = (403, 429, 500, 502, 503, 504)
 # На паузу источник уходит ТОЛЬКО по сигналам троттлинга/недоступности, а не
 # по любой ошибке из списка повторов. Разница не косметическая: 500 на одной
@@ -148,9 +174,24 @@ MET_COOLDOWN_SEC = 60.0
 _MET_LOCK = threading.Lock()
 _MET_NEXT_SLOT = [0.0]
 _MET_COOLDOWN_UNTIL = [0.0]
-# Видимость деградации: сколько карточек потеряно и сколько раз источник
-# уходил в остывание за этот прогон. Читается вызывающим кодом/тестами.
-FETCH_STATS = {"met_cards_lost": 0, "met_cooldowns": 0, "met_requests": 0}
+_MET_RATE = [MET_MAX_REQUESTS_PER_SEC]
+# Видимость деградации: сколько карточек потеряно, сколько раз источник
+# уходил в остывание и на какой скорости закончил. Читается вызывающим
+# кодом/тестами и уезжает в media_plan/source_contribution.json.
+FETCH_STATS = {"met_cards_lost": 0, "met_cooldowns": 0, "met_requests": 0,
+               "met_rate_final": MET_MAX_REQUESTS_PER_SEC,
+               "search_cache_hits": 0, "search_cache_misses": 0}
+
+
+def reset_fetch_stats():
+    """Один прогон — один счёт. Нужен тестам и повторным вызовам в процессе."""
+    for k in ("met_cards_lost", "met_cooldowns", "met_requests",
+              "search_cache_hits", "search_cache_misses"):
+        FETCH_STATS[k] = 0
+    _MET_RATE[0] = MET_MAX_REQUESTS_PER_SEC
+    FETCH_STATS["met_rate_final"] = MET_MAX_REQUESTS_PER_SEC
+    _MET_COOLDOWN_UNTIL[0] = 0.0
+    _MET_NEXT_SLOT[0] = 0.0
 
 
 def _met_throttle():
@@ -158,7 +199,7 @@ def _met_throttle():
     with _MET_LOCK:
         now = time.monotonic()
         slot = max(now, _MET_NEXT_SLOT[0])
-        _MET_NEXT_SLOT[0] = slot + 1.0 / MET_MAX_REQUESTS_PER_SEC
+        _MET_NEXT_SLOT[0] = slot + 1.0 / _MET_RATE[0]
         FETCH_STATS["met_requests"] += 1
     delay = slot - time.monotonic()
     if delay > 0:
@@ -174,8 +215,10 @@ def _met_enter_cooldown():
         if not met_is_cooling_down():
             _MET_COOLDOWN_UNTIL[0] = time.monotonic() + MET_COOLDOWN_SEC
             FETCH_STATS["met_cooldowns"] += 1
-            print(f"    Мет: троттлинг, источник на паузе {MET_COOLDOWN_SEC:.0f}с "
-                  f"(остальные музеи работают)")
+            _MET_RATE[0] = max(MET_MIN_REQUESTS_PER_SEC, _MET_RATE[0] / 2.0)
+            FETCH_STATS["met_rate_final"] = _MET_RATE[0]
+            print(f"    Мет: троттлинг, источник на паузе {MET_COOLDOWN_SEC:.0f}с, "
+                  f"дальше {_MET_RATE[0]:.1f} запр/с (остальные музеи работают)")
 
 
 def _met_get(url):
@@ -262,10 +305,14 @@ CHICAGO_IMAGE_HEADERS = {
 }
 
 
-def _candidate(cid, title, image_url, page_url, meta, headers=None):
+def _candidate(cid, title, image_url, page_url, meta, headers=None, thumb_url=None):
     """Кандидат в ФОРМЕ PEXELS — чтобы конкурировать в общем пуле под теми же
     гейтами, что Pexels и Openverse, а не жить отдельной веткой отбора (тот
-    же приём, что _openverse_search_photos)."""
+    же приём, что _openverse_search_photos).
+
+    thumb_url -> src["medium"]: уменьшенная версия для ОЦЕНКИ кандидата
+    (CLIP/эстетика/дедуп работают на 224-384 px), полноразмерная качается
+    только у победителя — см. candidate_probe_url() в pipeline_smart."""
     out = {
         "id": cid,
         "alt": title or "",
@@ -273,6 +320,8 @@ def _candidate(cid, title, image_url, page_url, meta, headers=None):
         "src": {"large2x": image_url},
         "_museum_meta": meta,
     }
+    if thumb_url:
+        out["src"]["medium"] = thumb_url
     if headers:
         # Заголовки едут ВМЕСТЕ с кандидатом, а не ищутся по его источнику в
         # чужом модуле: скачивающий код не должен знать, у какого музея какие
@@ -281,12 +330,30 @@ def _candidate(cid, title, image_url, page_url, meta, headers=None):
     return out
 
 
-def search_met(query, limit=MET_MAX_DETAIL_FETCHES):
+def search_met(query, limit=MET_MAX_DETAIL_FETCHES, department=None):
     """Метрополитен: отдел Arms and Armor — лучшая в мире коллекция
-    европейского доспеха, всё public domain, ключ не нужен."""
+    европейского доспеха, всё public domain, ключ не нужен.
+
+    department — СТРУКТУРНЫЙ запрос по полю API вместо свободного текста
+    (см. scripts/shot_types.py). Замер 14.09: «medieval plate armour
+    museum» свободным текстом даёт 480 objectID, среди первых — настенные
+    часы и керамические тарелки («Plate with Water Bird»), потому что Мет
+    ищет слово *plate* по описаниям; с `departmentId=4` — 277, и первые
+    шесть все до одного латы. На предметном запросе, где отдел и так
+    совпадал («medieval rondel dagger»), выдача не потеряла ничего: 17 -> 15,
+    те же кинжалы."""
     out = []
-    data = _met_get(f"{MET_API}/search?hasImages=true&q=" +
-                    urllib.parse.quote(query))
+    # Фильтры НА СТОРОНЕ ПОИСКА: public domain и окно эпохи канала. Мет их
+    # поддерживает, и это меняет цену глубины: без них 867 objectID по
+    # «medieval sword museum display», с ними — 450, и каждая из 60 карточек,
+    # которые мы тянем, уже не тратится на предмет XIX века или на закрытый
+    # правами снимок (замер 13.09). Паспортная проверка НИЖЕ остаётся —
+    # серверный фильтр экономит запросы, а не заменяет доказательство.
+    era_from, era_to = era_window()
+    data = _met_get(f"{MET_API}/search?hasImages=true&isPublicDomain=true"
+                    f"&dateBegin={int(era_from)}&dateEnd={int(era_to)}"
+                    + (f"&departmentId={int(department)}" if department else "")
+                    + "&q=" + urllib.parse.quote(query))
     oids = ((data or {}).get("objectIDs") or [])[:limit]
     if not oids:
         return out
@@ -332,7 +399,8 @@ def search_met(query, limit=MET_MAX_DETAIL_FETCHES):
              # Признак, ПО КОТОРОМУ предмет сюда попал (isPublicDomain /
              # share_license_status=="CC0" / is_public_domain). Журнал
              # лицензий без самой лицензии наполовину бесполезен.
-             "license": "public_domain", "license_field": "isPublicDomain"}))
+             "license": "public_domain", "license_field": "isPublicDomain"},
+            thumb_url=o.get("primaryImageSmall")))
     return out
 
 
@@ -350,6 +418,7 @@ def search_cleveland(query, limit=SEARCH_PAGE_SIZE):
         images = a.get("images") or {}
         img = ((images.get("print") or {}).get("url") or
                (images.get("web") or {}).get("url"))
+        thumb = (images.get("web") or {}).get("url")
         if not img:
             continue
         if not era_overlaps(a.get("creation_date_earliest"),
@@ -364,7 +433,8 @@ def search_cleveland(query, limit=SEARCH_PAGE_SIZE):
             f"cleveland:{a.get('id')}", a.get("title"), img, a.get("url"),
             {"source": "cleveland", "begin": a.get("creation_date_earliest"),
              "end": a.get("creation_date_latest"), "culture": culture,
-             "license": "cc0", "license_field": "share_license_status"}))
+             "license": "cc0", "license_field": "share_license_status"},
+            thumb_url=thumb))
     return out
 
 
@@ -395,11 +465,14 @@ def search_chicago(query, limit=SEARCH_PAGE_SIZE):
             {"source": "chicago", "begin": a.get("date_start"),
              "end": a.get("date_end"), "place": a.get("place_of_origin"),
              "license": "public_domain", "license_field": "is_public_domain"},
-            headers=CHICAGO_IMAGE_HEADERS))
+            headers=CHICAGO_IMAGE_HEADERS,
+            # Превью для оценки — IIIF отдаёт любую ширину; 400 px хватает
+            # CLIP/эстетике, полный 1920 качается только у победителя.
+            thumb_url=f"{iiif}/{a['image_id']}/full/400,/0/default.jpg"))
     return out
 
 
-def _sources():
+def _sources(department=None):
     """Источники, собираемые В МОМЕНТ ВЫЗОВА, а не при импорте.
 
     Раньше это был кортеж-константа со ССЫЛКАМИ на функции — и это не мелочь
@@ -417,11 +490,97 @@ def _sources():
     search_cleveland мёртвыми. Позднее связывание не обязано стоить
     проверяемости.
     """
-    return (("met", search_met), ("cleveland", search_cleveland),
+    met = (lambda q, **kw: search_met(q, department=department, **kw)) if department else search_met
+    return (("met", met), ("cleveland", search_cleveland),
             ("chicago", search_chicago))
 
 
-def search_museums(query):
+# --- ДИСКОВЫЙ КЭШ ПОИСКА ------------------------------------------------------
+# Музейный поиск — самая дорогая по запросам часть пула (до 60 карточек Мет на
+# запрос), а его результат не зависит от эпизода: «medieval rondel dagger»
+# в Мете один и тот же для всех роликов канала. Кэш на процесс (выше) держал
+# цену в пределах одного прогона; дисковый — переносит её между прогонами и
+# между эпизодами. Ключ включает всё, от чего зависит ответ: запрос, глубину,
+# окно эпохи и список чужих культур из профиля — смена любого из них даёт
+# другой файл, а не устаревший ответ под старым именем (тот же принцип, что у
+# candidate_gate_signature()). TTL — коллекции меняются медленно, месяц.
+#
+# В кэш попадают ТОЛЬКО полные ответы: если в ходе запроса Мет ушёл в
+# остывание или какой-то музей упал, результат неполный, и заморозить его на
+# месяц значило бы превратить временный отказ в постоянную дыру.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MUSEUM_CACHE_DIR = os.environ.get("MUSEUM_CACHE_DIR") or os.path.join(_REPO_ROOT, "temp_museum_cache")
+MUSEUM_CACHE_TTL_SEC = 30 * 86400
+MUSEUM_CACHE_SCHEMA = 1
+
+
+_MAPPING_SIG = [None]
+
+
+def _mapping_signature():
+    """Подпись кода, который СОБИРАЕТ кандидата (см. тот же дефект у
+    Openverse-кэша в pipeline_smart._openverse_mapping_signature): кэш
+    хранит готовых кандидатов, и правка полей — превью, разрешения,
+    заголовков — обязана менять ключ, иначе месяц отдаётся старая форма."""
+    if _MAPPING_SIG[0] is None:
+        try:
+            import inspect
+            src = "".join(inspect.getsource(fn) for fn in
+                          (_candidate, search_met, search_cleveland, search_chicago))
+        except Exception:
+            src = "unavailable"
+        _MAPPING_SIG[0] = hashlib.sha1(src.encode("utf-8")).hexdigest()[:12]
+    return _MAPPING_SIG[0]
+
+
+def _disk_cache_key(query, department=None, limit=None):
+    # Отдел ОБЯЗАН входить в ключ: тот же запрос со структурным сужением и
+    # без него даёт разные списки, и общий ключ молча отдавал бы чужой.
+    # Глубина ОБЯЗАНА входить в ключ: укороченная выдача широкой формулировки
+    # и полная выдача точной — разные списки, общий ключ молча отдал бы чужой.
+    payload = json.dumps([MUSEUM_CACHE_SCHEMA, query,
+                          MET_MAX_DETAIL_FETCHES if limit is None else limit,
+                          SEARCH_PAGE_SIZE if limit is None else limit,
+                          list(era_window()), sorted(foreign_culture_terms()),
+                          [n for n, _ in _sources()], department, _mapping_signature()],
+                         ensure_ascii=False, sort_keys=True)
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+
+
+def _disk_cache_path(query, department=None, limit=None):
+    return os.path.join(MUSEUM_CACHE_DIR, _disk_cache_key(query, department, limit) + ".json")
+
+
+def _disk_cache_get(query, department=None, limit=None):
+    try:
+        path = _disk_cache_path(query, department, limit)
+        if not os.path.exists(path):
+            return None
+        if time.time() - os.path.getmtime(path) > MUSEUM_CACHE_TTL_SEC:
+            return None
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        if data.get("query") != query or not isinstance(data.get("results"), list):
+            return None
+        return data["results"]
+    except Exception:
+        return None   # битый файл — как будто его нет
+
+
+def _disk_cache_put(query, results, department=None, limit=None):
+    try:
+        os.makedirs(MUSEUM_CACHE_DIR, exist_ok=True)
+        path = _disk_cache_path(query, department, limit)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"query": query, "cached_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                       "results": results}, f, ensure_ascii=False)
+        os.replace(tmp, path)
+    except Exception:
+        pass   # кэш — ускорение, не условие корректности
+
+
+def search_museums(query, department=None, limit=None):
     """Кандидаты из всех трёх музеев, уже отфильтрованные по эпохе и культуре.
 
     Порядок источников фиксирован (Met первым — у него профильная коллекция
@@ -430,15 +589,41 @@ def search_museums(query):
     """
     if feature_flags is not None and not feature_flags.enabled("MUSEUM_SOURCES_ENABLED"):
         return []
-    if query in _SEARCH_CACHE:
-        return _SEARCH_CACHE[query]
-    out = []
-    for name, fn in _sources():
+    mem_key = (query, department, limit)
+    if mem_key in _SEARCH_CACHE:
+        return _SEARCH_CACHE[mem_key]
+    cached = _disk_cache_get(query, department, limit)
+    if cached is not None:
+        FETCH_STATS["search_cache_hits"] += 1
+        _SEARCH_CACHE[mem_key] = cached
+        return cached
+    FETCH_STATS["search_cache_misses"] += 1
+    per_museum = []
+    errors = 0
+    cooldowns_before = FETCH_STATS["met_cooldowns"]
+    was_cooling = met_is_cooling_down()
+    for name, fn in _sources(department):
         try:
-            out.extend(fn(query))
+            per_museum.append(list(fn(query) if limit is None else fn(query, limit=limit)))
         except Exception:
             # Fail-open ПОИСТОЧНИКОВО: упавший музей не должен уносить с
             # собой два оставшихся и уж тем более ронять слот.
+            errors += 1
             continue
-    _SEARCH_CACHE[query] = out
+    # ЧЕРЕДОВАНИЕ музеев, а не «весь Мет, потом Кливленд, потом Чикаго».
+    # Измеренная причина (A/B, 13.09): с глубиной Мет 60 кливлендский
+    # «Tilting Suit» (relevance 0.325, лучший кандидат слота «medieval plate
+    # armour museum») оказывался 61-м в списке и не попадал в пробную
+    # выборку из 20 — побеждала керамическая тарелка Мет (0.24). Порядок
+    # ВНУТРИ музея сохранён (его собственная релевантность поиска).
+    out = []
+    for row in itertools.zip_longest(*per_museum):
+        for c in row:
+            if c is not None:
+                out.append(c)
+    _SEARCH_CACHE[mem_key] = out
+    complete = (errors == 0 and not was_cooling
+                and FETCH_STATS["met_cooldowns"] == cooldowns_before)
+    if out and complete:
+        _disk_cache_put(query, out, department, limit)
     return out
