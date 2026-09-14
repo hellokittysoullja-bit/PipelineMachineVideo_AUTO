@@ -306,9 +306,18 @@ def _candidate(cid, title, image_url, page_url, meta, headers=None, thumb_url=No
     return out
 
 
-def search_met(query, limit=MET_MAX_DETAIL_FETCHES):
+def search_met(query, limit=MET_MAX_DETAIL_FETCHES, department=None):
     """Метрополитен: отдел Arms and Armor — лучшая в мире коллекция
-    европейского доспеха, всё public domain, ключ не нужен."""
+    европейского доспеха, всё public domain, ключ не нужен.
+
+    department — СТРУКТУРНЫЙ запрос по полю API вместо свободного текста
+    (см. scripts/shot_types.py). Замер 14.09: «medieval plate armour
+    museum» свободным текстом даёт 480 objectID, среди первых — настенные
+    часы и керамические тарелки («Plate with Water Bird»), потому что Мет
+    ищет слово *plate* по описаниям; с `departmentId=4` — 277, и первые
+    шесть все до одного латы. На предметном запросе, где отдел и так
+    совпадал («medieval rondel dagger»), выдача не потеряла ничего: 17 -> 15,
+    те же кинжалы."""
     out = []
     # Фильтры НА СТОРОНЕ ПОИСКА: public domain и окно эпохи канала. Мет их
     # поддерживает, и это меняет цену глубины: без них 867 objectID по
@@ -318,8 +327,9 @@ def search_met(query, limit=MET_MAX_DETAIL_FETCHES):
     # серверный фильтр экономит запросы, а не заменяет доказательство.
     era_from, era_to = era_window()
     data = _met_get(f"{MET_API}/search?hasImages=true&isPublicDomain=true"
-                    f"&dateBegin={int(era_from)}&dateEnd={int(era_to)}&q=" +
-                    urllib.parse.quote(query))
+                    f"&dateBegin={int(era_from)}&dateEnd={int(era_to)}"
+                    + (f"&departmentId={int(department)}" if department else "")
+                    + "&q=" + urllib.parse.quote(query))
     oids = ((data or {}).get("objectIDs") or [])[:limit]
     if not oids:
         return out
@@ -432,7 +442,7 @@ def search_chicago(query, limit=SEARCH_PAGE_SIZE):
     return out
 
 
-def _sources():
+def _sources(department=None):
     """Источники, собираемые В МОМЕНТ ВЫЗОВА, а не при импорте.
 
     Раньше это был кортеж-константа со ССЫЛКАМИ на функции — и это не мелочь
@@ -450,7 +460,8 @@ def _sources():
     search_cleveland мёртвыми. Позднее связывание не обязано стоить
     проверяемости.
     """
-    return (("met", search_met), ("cleveland", search_cleveland),
+    met = (lambda q, **kw: search_met(q, department=department, **kw)) if department else search_met
+    return (("met", met), ("cleveland", search_cleveland),
             ("chicago", search_chicago))
 
 
@@ -473,20 +484,42 @@ MUSEUM_CACHE_TTL_SEC = 30 * 86400
 MUSEUM_CACHE_SCHEMA = 1
 
 
-def _disk_cache_key(query):
+_MAPPING_SIG = [None]
+
+
+def _mapping_signature():
+    """Подпись кода, который СОБИРАЕТ кандидата (см. тот же дефект у
+    Openverse-кэша в pipeline_smart._openverse_mapping_signature): кэш
+    хранит готовых кандидатов, и правка полей — превью, разрешения,
+    заголовков — обязана менять ключ, иначе месяц отдаётся старая форма."""
+    if _MAPPING_SIG[0] is None:
+        try:
+            import inspect
+            src = "".join(inspect.getsource(fn) for fn in
+                          (_candidate, search_met, search_cleveland, search_chicago))
+        except Exception:
+            src = "unavailable"
+        _MAPPING_SIG[0] = hashlib.sha1(src.encode("utf-8")).hexdigest()[:12]
+    return _MAPPING_SIG[0]
+
+
+def _disk_cache_key(query, department=None):
+    # Отдел ОБЯЗАН входить в ключ: тот же запрос со структурным сужением и
+    # без него даёт разные списки, и общий ключ молча отдавал бы чужой.
     payload = json.dumps([MUSEUM_CACHE_SCHEMA, query, MET_MAX_DETAIL_FETCHES, SEARCH_PAGE_SIZE,
                           list(era_window()), sorted(foreign_culture_terms()),
-                          [n for n, _ in _sources()]], ensure_ascii=False, sort_keys=True)
+                          [n for n, _ in _sources()], department, _mapping_signature()],
+                         ensure_ascii=False, sort_keys=True)
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
 
-def _disk_cache_path(query):
-    return os.path.join(MUSEUM_CACHE_DIR, _disk_cache_key(query) + ".json")
+def _disk_cache_path(query, department=None):
+    return os.path.join(MUSEUM_CACHE_DIR, _disk_cache_key(query, department) + ".json")
 
 
-def _disk_cache_get(query):
+def _disk_cache_get(query, department=None):
     try:
-        path = _disk_cache_path(query)
+        path = _disk_cache_path(query, department)
         if not os.path.exists(path):
             return None
         if time.time() - os.path.getmtime(path) > MUSEUM_CACHE_TTL_SEC:
@@ -500,10 +533,10 @@ def _disk_cache_get(query):
         return None   # битый файл — как будто его нет
 
 
-def _disk_cache_put(query, results):
+def _disk_cache_put(query, results, department=None):
     try:
         os.makedirs(MUSEUM_CACHE_DIR, exist_ok=True)
-        path = _disk_cache_path(query)
+        path = _disk_cache_path(query, department)
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump({"query": query, "cached_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -513,7 +546,7 @@ def _disk_cache_put(query, results):
         pass   # кэш — ускорение, не условие корректности
 
 
-def search_museums(query):
+def search_museums(query, department=None):
     """Кандидаты из всех трёх музеев, уже отфильтрованные по эпохе и культуре.
 
     Порядок источников фиксирован (Met первым — у него профильная коллекция
@@ -522,19 +555,20 @@ def search_museums(query):
     """
     if feature_flags is not None and not feature_flags.enabled("MUSEUM_SOURCES_ENABLED"):
         return []
-    if query in _SEARCH_CACHE:
-        return _SEARCH_CACHE[query]
-    cached = _disk_cache_get(query)
+    mem_key = (query, department)
+    if mem_key in _SEARCH_CACHE:
+        return _SEARCH_CACHE[mem_key]
+    cached = _disk_cache_get(query, department)
     if cached is not None:
         FETCH_STATS["search_cache_hits"] += 1
-        _SEARCH_CACHE[query] = cached
+        _SEARCH_CACHE[mem_key] = cached
         return cached
     FETCH_STATS["search_cache_misses"] += 1
     per_museum = []
     errors = 0
     cooldowns_before = FETCH_STATS["met_cooldowns"]
     was_cooling = met_is_cooling_down()
-    for name, fn in _sources():
+    for name, fn in _sources(department):
         try:
             per_museum.append(list(fn(query)))
         except Exception:
@@ -553,9 +587,9 @@ def search_museums(query):
         for c in row:
             if c is not None:
                 out.append(c)
-    _SEARCH_CACHE[query] = out
+    _SEARCH_CACHE[mem_key] = out
     complete = (errors == 0 and not was_cooling
                 and FETCH_STATS["met_cooldowns"] == cooldowns_before)
     if out and complete:
-        _disk_cache_put(query, out)
+        _disk_cache_put(query, out, department)
     return out

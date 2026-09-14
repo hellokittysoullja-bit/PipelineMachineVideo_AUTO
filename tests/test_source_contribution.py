@@ -71,7 +71,7 @@ class TestPexelsKeyGatesOnlyPexels:
         cand = {"id": "met:1", "alt": "Rondel Dagger", "url": "http://met/1",
                 "src": {"large2x": "file://" + img}}
         monkeypatch.setattr(ps, "PEXELS_API_KEY", "")
-        monkeypatch.setattr(ps, "_museum_search_photos", lambda q: [dict(cand)])
+        monkeypatch.setattr(ps, "_museum_search_photos", lambda q, department=None: [dict(cand)])
         monkeypatch.setattr(ps, "_openverse_search_photos", lambda q: [])
         monkeypatch.setattr(ps, "_pixabay_search_photos", lambda q: [])
         monkeypatch.setattr(ps, "_unsplash_search_photos", lambda q: [])

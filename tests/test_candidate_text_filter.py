@@ -164,10 +164,13 @@ class TestAuthoredQueryLint:
         assert hits == [("BLOCK6", "katana sword", "katana")]
         assert "katana" in capsys.readouterr().out
 
-    def test_clean_queries_produce_no_noise(self, capsys):
+    def test_clean_queries_produce_no_blocklist_noise(self, capsys):
+        """Линт печатает сводку типов кадра всегда (это четвёртая ось, см.
+        shot_types) — «нет шума» означает «нет ЖАЛОБ», а не «нет вывода»."""
         hits = ps.lint_authored_queries({"HOOK": ["medieval knight sword battle"]})
         assert hits == []
-        assert capsys.readouterr().out == ""
+        out = capsys.readouterr().out
+        assert "противоречат" not in out and "ВНИМАНИЕ" not in out
 
     def test_no_authored_queries_is_not_an_error(self):
         assert ps.lint_authored_queries(None) == []

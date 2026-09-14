@@ -81,12 +81,16 @@ class TestSourceInterleave:
                 seen_order.append(c["p"]["id"])
             return candidates_info[0], None
 
+        # Запрос ПРЕДМЕТНЫЙ («armour»): маршрутизация по типу кадра
+        # (shot_types) отправляет в музеи только предметные и
+        # иллюстративные слоты, у сценического музейного пула не будет
+        # вовсе — и тест про вытеснение источников проверял бы пустоту.
         met = [{"id": f"met:{i}", "alt": "x", "url": "u", "src": {"large2x": "file:///nonexistent"}}
                for i in range(60)]
         ov = [{"id": f"openverse:{i}", "alt": "x", "url": "u", "src": {"large2x": "file:///nonexistent"}}
               for i in range(3)]
         monkeypatch.setattr(ps, "PEXELS_API_KEY", "")
-        monkeypatch.setattr(ps, "_museum_search_photos", lambda q: list(met))
+        monkeypatch.setattr(ps, "_museum_search_photos", lambda q, department=None: list(met))
         monkeypatch.setattr(ps, "_openverse_search_photos", lambda q: list(ov))
         monkeypatch.setattr(ps, "_pixabay_search_photos", lambda q: [])
         monkeypatch.setattr(ps, "_unsplash_search_photos", lambda q: [])
@@ -109,7 +113,7 @@ class TestSourceInterleave:
             return real_bump(source, field, n)
 
         monkeypatch.setattr(ps, "_source_bump", spy_bump)
-        ps.pexels_photo("medieval castle", 0, used_ids=set(), used_hashes=[], text_key="interleave")
+        ps.pexels_photo("medieval armour", 0, used_ids=set(), used_hashes=[], text_key="interleave")
         first20 = order[:20]
         assert first20.count("openverse") == 3, first20
         assert first20[:2] == ["met", "openverse"], first20

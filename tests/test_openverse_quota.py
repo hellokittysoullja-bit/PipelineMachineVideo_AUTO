@@ -90,11 +90,14 @@ class TestDiskCache:
 
 
 class TestPreviewNeverGoesThroughTheApi:
-    def test_wikimedia_file_gets_storage_thumb_not_api_thumb(self, monkeypatch):
+    def test_wikimedia_file_is_requested_by_width_not_through_the_api(self, monkeypatch):
         monkeypatch.setattr(ps.urllib.request, "urlopen", _fake_urlopen(_WIKI))
         c = ps._openverse_fetch_one("allington castle", ov)[0]
         assert "api.openverse.org" not in c["src"]["medium"]
-        assert c["src"]["medium"].endswith("/640px-Allington_Castle.jpg")
+        # Special:FilePath?width= — и превью, и рабочий файл: оригиналы
+        # upload.wikimedia.org отвечают 429 и просят брать превью.
+        assert c["src"]["medium"].endswith("Special:FilePath/Allington_Castle.jpg?width=640")
+        assert "upload.wikimedia.org" not in c["src"]["large2x"]
 
 
 class TestAnonymousMode:

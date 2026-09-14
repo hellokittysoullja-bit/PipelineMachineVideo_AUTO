@@ -23,6 +23,7 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+import urllib.error
 
 try:
     from dotenv import load_dotenv
@@ -1106,7 +1107,8 @@ HOOK_MAX_CLIP = 3.6     # в хуке кадры короче и чаще — к
 # из pipeline_smart.py. Реэкспортированы здесь под теми же именами: ничего
 # не сломано у существующих вызовов вида pipeline_smart.parse_blocks(...) /
 # тестов, патчащих pipeline_smart.PAUSE_DURATIONS.
-from script_parser import PAUSE_DURATIONS, parse_blocks, parse_pexels_queries, _normalize_section_key  # noqa: E402
+from script_parser import (PAUSE_DURATIONS, parse_blocks, parse_pexels_queries,  # noqa: E402
+                            parse_query_shot_types, _normalize_section_key)
 
 # Russo One — фирменный "рубленый" дисплейный шрифт (CHANNEL.md house
 # style), не системный DejaVu. OFL, бесплатно (Google Fonts / google/fonts
@@ -4225,24 +4227,38 @@ FALLBACK_CARD_SLOTS = []   # [{"index", "reason", "text", "card_text"}, ...]
 VIDEO_RESCUED_BY_PHOTO = []   # [{"index", "reason", "query"}, ...]
 
 
-_WIKIMEDIA_RE = re.compile(r"^(https?://upload\.wikimedia\.org/wikipedia/commons)/([0-9a-f])/([0-9a-f]{2})/([^/?#]+\.(?:jpe?g|png))$", re.I)
+_WIKIMEDIA_RE = re.compile(r"^https?://upload\.wikimedia\.org/wikipedia/commons/"
+                            r"(?:thumb/)?[0-9a-f]/[0-9a-f]{2}/([^/?#]+)", re.I)
 
 
 def wikimedia_thumb_url(url, width=640):
-    """Превью Wikimedia по конвенции самого хранилища (без API и без квоты):
-    .../commons/X/XY/Name.jpg -> .../commons/thumb/X/XY/Name.jpg/640px-Name.jpg.
+    """Ссылка на Wikimedia-файл ЗАДАННОЙ ШИРИНЫ через официальный
+    Special:FilePath — не оригинал и не превью через чужой API.
 
-    Найдено измерением (A/B ab4, 13.09): первая версия превью-оценки брала
-    у Openverse поле `thumbnail`, а это URL ЧЕРЕЗ API Openverse
-    (api.openverse.org/v1/images/<id>/thumb/) — каждая скачка превью
-    считается запросом к API с лимитом 20/мин, и все кандидаты Openverse
-    молча выпадали из пробной выборки на скачке. Только jpg/png: для tif/svg
-    у Wikimedia другое имя превью, там честнее полный файл."""
+    Две измеренные причины, обе пойманы на живых прогонах:
+
+    1. Поле `thumbnail` у Openverse — это URL ЧЕРЕЗ ЕГО API
+       (api.openverse.org/v1/images/<id>/thumb/), у которого лимит 20
+       запросов в минуту на всё; в прогоне 14.09 он отвечал HTTP 424, и
+       кандидаты Openverse молча выпадали из выборки на скачке превью.
+    2. Оригиналы upload.wikimedia.org отдают **HTTP 429** с текстом
+       «please ... instead use thumbnail images in sizes listed on
+       w.wiki/GHai» — то есть скачивание оригиналов там прямо не
+       приветствуется, и на прогоне это стоило 49 сорванных скачек и
+       ПУСТОГО слота «medieval castle moat water».
+
+    Special:FilePath?width= — документированный способ получить любую
+    ширину для любого формата (jpg/png/tif/svg), без знания хэш-путей и
+    без отдельных правил на каждый формат. Проверено вживую: оригинал 429,
+    та же картинка через FilePath шириной 640 — 190 КБ, 200 OK.
+
+    None — ссылка не на Wikimedia, там остаётся URL источника."""
     m = _WIKIMEDIA_RE.match(url or "")
     if not m:
         return None
-    base, d1, d2, name = m.groups()
-    return f"{base}/thumb/{d1}/{d2}/{name}/{int(width)}px-{name}"
+    name = m.group(1)
+    return (f"https://commons.wikimedia.org/wiki/Special:FilePath/{name}"
+            f"?width={int(width)}")
 
 
 def candidate_probe_url(p):
@@ -4778,6 +4794,43 @@ SHARP_REPICK_MAX = 3
 # Версия чередования источников внутри запроса (см. сборку пула в
 # pexels_photo) — для _selection_stack_signature().
 POOL_SOURCE_INTERLEAVE_VERSION = 1
+# Маршрутизация запроса по источникам и структурный запрос к музею
+# (scripts/shot_types.py) — меняют И состав пула, И сам запрос к API,
+# поэтому версия входит в подпись отбора.
+SHOT_TYPE_ROUTING_VERSION = 1
+# {текст запроса: тип кадра} — ЯВНАЯ разметка автора из === PEXELS QUERIES ===
+# (`medieval sword macro [object]`). Заполняется в main(); пусто -> тип
+# выводится из слов запроса, а если и там сигнала нет — `any`, то есть
+# сегодняшний маршрут во все источники.
+SHOT_TYPE_EXPLICIT = {}
+
+
+def shot_type_of_query(query):
+    """Тип кадра для запроса: явная разметка автора важнее вывода по словам.
+    Модуль опционален — без него всё работает как раньше (`any`)."""
+    try:
+        import shot_types
+        return shot_types.shot_type_for(query, SHOT_TYPE_EXPLICIT.get((query or "").strip()))
+    except Exception:
+        return "any"
+
+
+def source_allowed_for(source, shot_type):
+    """Умеет ли источник этот тип кадра (таблица shot_types.SOURCE_CAPABILITIES)."""
+    try:
+        import shot_types
+        return shot_types.source_supports(source, shot_type)
+    except Exception:
+        return True
+
+
+def met_department_for_query(query, shot_type):
+    """Отдел коллекции Мет для структурного запроса; None — свободный текст."""
+    try:
+        import shot_types
+        return shot_types.met_department_for(query, shot_type)
+    except Exception:
+        return None
 
 
 def relevance_rank_bucket(relevance):
@@ -5156,9 +5209,35 @@ def _openverse_throttle(authenticated):
         time.sleep(delay)
 
 
+_OPENVERSE_MAPPING_SIG = [None]
+
+
+def _openverse_mapping_signature():
+    """Подпись КОДА, который собирает кандидата из ответа Openverse.
+
+    Реальный, пойманный на A/B дефект собственного кэша (14.09): кэш хранит
+    ГОТОВЫХ кандидатов, а ключ покрывал только запрос и лицензии. После
+    правки «превью не через API, а по конвенции Wikimedia» кэш продолжал
+    отдавать кандидатов, собранных СТАРЫМ кодом, — и превью снова уходили
+    на api.openverse.org, где отвечали HTTP 424. То есть правка не дошла до
+    экрана ровно тем же способом, которым до неё не доходили правки гейтов
+    (см. candidate_gate_signature). Подпись берётся у исходника функций, а
+    не у номера версии, который забывают поднять."""
+    if _OPENVERSE_MAPPING_SIG[0] is None:
+        try:
+            import inspect
+            src = "".join(inspect.getsource(fn) for fn in
+                          (_openverse_fetch_one, wikimedia_thumb_url, candidate_probe_url))
+        except Exception:
+            src = "unavailable"
+        _OPENVERSE_MAPPING_SIG[0] = hashlib.sha1(src.encode("utf-8")).hexdigest()[:12]
+    return _OPENVERSE_MAPPING_SIG[0]
+
+
 def _openverse_cache_path(api_query, _ov):
     payload = json.dumps([OPENVERSE_CACHE_SCHEMA, api_query, sorted(_ov.OPENVERSE_SAFE_LICENSES),
-                          sorted(_ov.OPENVERSE_TRUSTED_SOURCES)], ensure_ascii=False, sort_keys=True)
+                          sorted(_ov.OPENVERSE_TRUSTED_SOURCES), _openverse_mapping_signature()],
+                         ensure_ascii=False, sort_keys=True)
     return os.path.join(OPENVERSE_CACHE_DIR, hashlib.sha1(payload.encode("utf-8")).hexdigest() + ".json")
 
 
@@ -5244,7 +5323,7 @@ MUSEUM_SOURCES_VERSION = 2
 OPENVERSE_QUERY_MIN_WORDS = 2
 
 
-def _museum_search_photos(api_query):
+def _museum_search_photos(api_query, department=None):
     """Кандидаты из прямых API музеев (Met/Cleveland/Chicago) — тот же каскад
     запросов, что и у архивов: длинный запрос не находит ничего и в музейном
     поиске тоже.
@@ -5259,13 +5338,14 @@ def _museum_search_photos(api_query):
     Fail-open, как и у Openverse: любая ошибка — пустой список, пул
     продолжает собираться из остальных источников.
     """
-    if api_query in _MUSEUM_SEARCH_CACHE:
-        return _MUSEUM_SEARCH_CACHE[api_query]
+    cache_key = (api_query, department)
+    if cache_key in _MUSEUM_SEARCH_CACHE:
+        return _MUSEUM_SEARCH_CACHE[cache_key]
     results = []
     try:
         import museum_sources
         for variant in _openverse_query_cascade(api_query):
-            results = museum_sources.search_museums(variant)
+            results = museum_sources.search_museums(variant, department=department)
             if results:
                 if variant != api_query:
                     print(f"    Музеи: {api_query!r} -> ничего, взят более "
@@ -5274,7 +5354,7 @@ def _museum_search_photos(api_query):
     except Exception as e:
         _note_source_search_error("museum", e, api_query)
         results = []
-    _MUSEUM_SEARCH_CACHE[api_query] = results
+    _MUSEUM_SEARCH_CACHE[cache_key] = results
     return results
 
 
@@ -5599,7 +5679,11 @@ def _openverse_fetch_one(api_query, _ov):
             "id": f"openverse:{res.get('id')}",
             "alt": res.get("title") or "",
             "url": res.get("foreign_landing_url") or img_url,
-            "src": {"large2x": img_url, "medium": wikimedia_thumb_url(img_url) or img_url},
+            # Рабочий файл у Wikimedia тоже берётся ограниченной ширины
+            # (2000 px при кадре 1920x1080 — с запасом на Ken Burns): их
+            # оригиналы отвечают 429 и прямо просят пользоваться превью.
+            "src": {"large2x": wikimedia_thumb_url(img_url, 2000) or img_url,
+                    "medium": wikimedia_thumb_url(img_url, 640) or img_url},
             # Провенанс — та же информация, что _log_openverse_manifest()
             # уже пишет в pre-fetch пути, здесь нужна на случай, если
             # кандидат победит и понадобится атрибуция/аудит источника.
@@ -5815,17 +5899,36 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             # ранжированию. Порядок ВНУТРИ источника сохранён (релевантность
             # его же поиска); музей стартует первым по прежней причине —
             # паспорт предмета, а не догадка по пикселям.
+            # МАРШРУТИЗАЦИЯ ПО ТИПУ КАДРА (scripts/shot_types.py). Музей —
+            # каталог предметов с паспортом, а не фотобанк сцен: на
+            # «medieval castle moat water» он отдаёт «Мадонну с младенцем»
+            # (relevance 0.14-0.21), и в A/B такой кандидат выигрывал слот
+            # только потому, что стоял первым в списке. Теперь сценический
+            # запрос туда не уходит вовсе, а предметный уходит СТРУКТУРНО —
+            # по отделу коллекции, а не свободным текстом (замер: тарелки
+            # на «plate armour» исчезают целиком). Тип не определён -> `any`
+            # -> прежний маршрут во все источники, ноль регрессии.
+            shot_type = shot_type_of_query(pq)
+            department = met_department_for_query(api_q, shot_type)
             per_source = []
-            for fetch in (_museum_search_photos, _openverse_search_photos, _pexels_search_photos,
-                          _pixabay_search_photos, _unsplash_search_photos):
+            for source_name, fetch in (("museum", _museum_search_photos),
+                                        ("openverse", _openverse_search_photos),
+                                        ("pexels", _pexels_search_photos),
+                                        ("pixabay", _pixabay_search_photos),
+                                        ("unsplash", _unsplash_search_photos)):
+                if not source_allowed_for(source_name, shot_type):
+                    continue
                 src_list = []
-                for p in fetch(api_q):
+                fetched = (fetch(api_q, department=department)
+                           if source_name == "museum" else fetch(api_q))
+                for p in fetched:
                     # Из какого запроса кандидат пришёл — гейт релевантности
                     # ниже должен сверять его с ЕГО запросом, иначе кандидат
                     # из второго запроса секции сравнивался бы с чужим текстом
                     # и честно отбраковывался бы ни за что.
                     p = dict(p)
                     p["_origin_query"] = pq
+                    p["_shot_type"] = shot_type
                     src_list.append(p)
                 per_source.append(src_list)
             for row in itertools.zip_longest(*per_source):
@@ -6775,6 +6878,27 @@ def lint_authored_queries(authored_queries, blocks=None):
 
     Возвращает список (секция, запрос, термин) — для теста и отчёта.
     """
+    # Четвёртая ось линта: ТИП КАДРА (scripts/shot_types.py). Он решает, в
+    # какой источник уйдёт запрос, и запрос без типа едет прежним маршрутом
+    # во все источники — это не ошибка, но автор должен видеть, где
+    # маршрутизация не работает. Печатается сводкой, ничего не блокирует.
+    by_type = {}
+    unmarked = []
+    for section, pool in sorted((authored_queries or {}).items()):
+        for q in pool or []:
+            t = shot_type_of_query(q)
+            by_type[t] = by_type.get(t, 0) + 1
+            if t == "any":
+                unmarked.append((section, q))
+    if by_type:
+        print("  Типы кадра авторских запросов: "
+              + ", ".join(f"{t}={n}" for t, n in sorted(by_type.items())))
+    if unmarked:
+        print(f"    без типа ({len(unmarked)}) — маршрут во все источники, как раньше; "
+              f"пометить в сценарии `запрос [object|scene|illustration|texture|map]`:")
+        for section, q in unmarked[:8]:
+            print(f"      [{section}] {q}")
+
     hits = []
     for section, pool in sorted((authored_queries or {}).items()):
         for q in pool or []:
@@ -8217,6 +8341,60 @@ def run_ffmpeg_with_retry(build_cmd, tmp_out, expected_dur, label=""):
     return False, last_reason
 
 
+# --- ВЕЖЛИВОСТЬ К ХОСТУ ПРИ СКАЧИВАНИИ КАНДИДАТОВ ----------------------------
+# Измеренная причина (прогон 14.09): пробная выборка качает до 20 кандидатов
+# ПАРАЛЛЕЛЬНО (PHOTO_PREFETCH_WORKERS), и Wikimedia отвечает на такой всплеск
+# HTTP 429 — 25 кандидатов из 145 предложенных Openverse молча не дошли до
+# гейтов. Раньше это выглядело бы как «архив дал мало»; теперь потери видны
+# (download_errors), а всплеск разведён по времени. Интервал — на ХОСТ, не
+# общий: Pexels и музеи от чужого лимита страдать не должны.
+DOWNLOAD_HOST_MIN_INTERVAL = {
+    "commons.wikimedia.org": 0.35,
+    "upload.wikimedia.org": 0.35,
+}
+# User-Agent для хостов Викимедиа: их политика требует называть инструмент и
+# давать ссылку, а браузероподобная строка (нужная Pexels/Cloudflare, см.
+# ЧАСТЬ 14) там прямо не приветствуется. ЧЕСТНО: сегодняшние 429 этим НЕ
+# лечатся — прямой замер 14.09 дал 0 успешных из 6 и с браузерной строкой, и
+# с политикой, то есть ограничение стоит на адресе после наших же сотен
+# тестовых запросов, а не на строке. Это соответствие правилам источника, а
+# не измеренное улучшение, и выдавать его за улучшение нельзя.
+DOWNLOAD_HOST_USER_AGENT = {
+    "commons.wikimedia.org": "FacelessPipeline/1.0 (https://github.com/hellokittysoullja-bit/PipelineMachineVideo_AUTO)",
+    "upload.wikimedia.org": "FacelessPipeline/1.0 (https://github.com/hellokittysoullja-bit/PipelineMachineVideo_AUTO)",
+}
+DOWNLOAD_RETRY_STATUSES = (429, 503)
+DOWNLOAD_RETRY_PAUSE_SEC = 2.0
+_DOWNLOAD_HOST_LOCK = threading.Lock()
+_DOWNLOAD_HOST_NEXT = {}
+
+
+def host_user_agent(url, default=None):
+    """User-Agent по хосту: правила источника важнее общей строки."""
+    try:
+        host = urllib.parse.urlsplit(url).hostname or ""
+    except Exception:
+        return default
+    return DOWNLOAD_HOST_USER_AGENT.get(host, default)
+
+
+def _download_host_throttle(url):
+    try:
+        host = urllib.parse.urlsplit(url).hostname or ""
+    except Exception:
+        return
+    interval = DOWNLOAD_HOST_MIN_INTERVAL.get(host)
+    if not interval:
+        return
+    with _DOWNLOAD_HOST_LOCK:
+        now = time.monotonic()
+        slot = max(now, _DOWNLOAD_HOST_NEXT.get(host, 0.0))
+        _DOWNLOAD_HOST_NEXT[host] = slot + interval
+    delay = slot - time.monotonic()
+    if delay > 0:
+        time.sleep(delay)
+
+
 def atomic_url_download(req, dest, timeout):
     """Тот же принцип, что render_tmp_path/finalize_render, но для скачки
     стокового медиа (pexels_photo/pexels_video) — реальный баг, пойманный
@@ -8232,9 +8410,24 @@ def atomic_url_download(req, dest, timeout):
     переименовываем атомарно только при успехе — как рендер клипов."""
     tmp = dest + ".download.part"
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            with open(tmp, "wb") as f:
-                f.write(r.read())
+        url_for_policy = getattr(req, "full_url", "") or ""
+        ua = host_user_agent(url_for_policy)
+        if ua:
+            req.add_header("User-agent", ua)
+        for attempt in (0, 1):
+            _download_host_throttle(url_for_policy)
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as r:
+                    with open(tmp, "wb") as f:
+                        f.write(r.read())
+                break
+            except urllib.error.HTTPError as e:
+                # 429/503 — «слишком часто», а не «нет файла»: один повтор
+                # с паузой вместо потери кандидата (см. замер выше).
+                if e.code in DOWNLOAD_RETRY_STATUSES and attempt == 0:
+                    time.sleep(DOWNLOAD_RETRY_PAUSE_SEC)
+                    continue
+                raise
         if os.path.getsize(tmp) == 0:
             raise IOError("скачан 0-байтный файл")
         os.replace(tmp, dest)
@@ -9137,7 +9330,7 @@ def _selection_stack_signature():
         # чередование источников внутри запроса — оба меняют, КТО побеждает,
         # при тех же гейтах; без подписи на прогретом temp_smart/ правка не
         # дошла бы до экрана (13.09, A/B на 9 слотах эпизода 02).
-        RELEVANCE_RANK_BUCKET, POOL_SOURCE_INTERLEAVE_VERSION,
+        RELEVANCE_RANK_BUCKET, POOL_SOURCE_INTERLEAVE_VERSION, SHOT_TYPE_ROUTING_VERSION,
         # ДЕЙСТВУЮЩАЯ граница (не пол): у эпизода с длинным хуком она другая,
         # а значит другой и размер пула, из которого выбран победитель.
         _FAST_MODE_START, FAST_DIRECTOR_MIN_POOL, FAST_PHOTO_DEDUP_MAX_TRIES,
@@ -12306,6 +12499,9 @@ def main():
     # Шаг 3), но до этой строки НИКОГДА не читался пайплайном — см. докстринг
     # resolve_queries()/authored_queries. {} у эпизодов без этой секции
     # (напр. тестовые скрипты) -> ноль влияния, прежнее поведение.
+    SHOT_TYPE_EXPLICIT.update(parse_query_shot_types(SCRIPT_FILE))
+    if SHOT_TYPE_EXPLICIT:
+        print(f"  Типы кадра из сценария: {len(SHOT_TYPE_EXPLICIT)} запрос(ов) размечены явно")
     authored_queries = parse_pexels_queries(SCRIPT_FILE)
     if authored_queries:
         print(f"  Авторские PEXELS QUERIES: {sum(len(v) for v in authored_queries.values())} "

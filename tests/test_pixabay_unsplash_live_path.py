@@ -238,11 +238,13 @@ def test_sources_are_actually_called_from_the_pools():
     import inspect
     photo = inspect.getsource(ps.pexels_photo)
     video = inspect.getsource(ps.pexels_video)
-    # Фото-источники собираются в кортеж и обходятся по кругу (чередование,
-    # см. POOL_SOURCE_INTERLEAVE_VERSION) — имя функции в этом кортеже и
-    # есть факт вызова.
-    assert "_pixabay_search_photos" in photo and "for fetch in (" in photo
-    assert "_unsplash_search_photos" in photo
+    # Фото-источники собираются в кортеж (имя источника, функция) и
+    # обходятся по кругу (чередование, POOL_SOURCE_INTERLEAVE_VERSION);
+    # маршрутизация по типу кадра решает, какие из них вызвать
+    # (SHOT_TYPE_ROUTING_VERSION). Имя функции в этом кортеже и есть факт
+    # вызова.
+    assert '("pixabay", _pixabay_search_photos)' in photo
+    assert '("unsplash", _unsplash_search_photos)' in photo
     assert "_pixabay_search_videos(api_q)" in video
 
 
@@ -263,7 +265,8 @@ def test_sources_interleave_in_the_documented_order(monkeypatch):
     Pexels ВНУТРИ круга, то есть при равенстве не обгоняют его."""
     import inspect
     photo = inspect.getsource(ps.pexels_photo)
-    tup = photo[photo.index("for fetch in ("):photo.index("):", photo.index("for fetch in ("))]
+    start = photo.index('for source_name, fetch in ((')
+    tup = photo[start:photo.index("):", start)]
     order = [n for n in ("_museum_search_photos", "_openverse_search_photos", "_pexels_search_photos",
                          "_pixabay_search_photos", "_unsplash_search_photos")]
     idx = [tup.index(n) for n in order]

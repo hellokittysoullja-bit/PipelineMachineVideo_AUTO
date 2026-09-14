@@ -76,7 +76,7 @@ class TestWholeSliceIsEvaluated:
             thumb = _jpeg(str(d / f"thumb{i}.jpg"), (10 * i, 50, 50), size=(320, 180))
             cands.append(_cand(f"met:{i}", full, thumb))
             rel[os.path.basename(thumb)] = 0.20 + 0.02 * i     # лучший — met:5 (0.30)
-        monkeypatch.setattr(ps, "_museum_search_photos", lambda q: [dict(c) for c in cands])
+        monkeypatch.setattr(ps, "_museum_search_photos", lambda q, department=None: [dict(c) for c in cands])
         monkeypatch.setattr(ps, "clip_relevance",
                             lambda path, text: rel.get(os.path.basename(path).split("trial_")[-1].replace(".jpg", ""), None)
                             if False else rel.get(_which(path), 0.0))
@@ -108,7 +108,7 @@ class TestSharpnessOnFullSizeWinner:
             full = _jpeg(str(d / f"full{i}.jpg"), (100, 20 * i, 20))
             thumb = _jpeg(str(d / f"thumb{i}.jpg"), (100, 20 * i, 20), size=(320, 180))
             cands.append(_cand(f"met:{i}", full, thumb))
-        monkeypatch.setattr(ps, "_museum_search_photos", lambda q: [dict(c) for c in cands])
+        monkeypatch.setattr(ps, "_museum_search_photos", lambda q, department=None: [dict(c) for c in cands])
         # relevance: met:0 лучший, но его ПОЛНЫЙ файл размыт
         monkeypatch.setattr(ps, "clip_relevance",
                             lambda path, text: {"0": 0.35, "1": 0.30, "2": 0.25}[
@@ -132,28 +132,51 @@ class TestSharpnessOnFullSizeWinner:
 
 
 class TestOpenverseProbeDoesNotBurnTheApiQuota:
-    def test_wikimedia_thumb_follows_storage_convention(self):
-        """Поле `thumbnail` у Openverse — URL через ЕГО API с лимитом 20/мин на
-        каждую скачку: в A/B ab4 все кандидаты Openverse молча выпали из
-        пробной выборки на скачке превью. Превью берётся по конвенции самого
-        Wikimedia — без API и без квоты."""
+    def test_wikimedia_files_are_requested_at_a_bounded_width(self):
+        """Две измеренные причины, обе с живых прогонов: поле `thumbnail` у
+        Openverse — URL через ЕГО API (лимит 20/мин, в прогоне отвечал 424),
+        а оригиналы upload.wikimedia.org отвечают 429 с прямой просьбой
+        пользоваться превью — это стоило 49 сорванных скачек и ПУСТОГО
+        слота «medieval castle moat water». Special:FilePath?width= —
+        документированный способ получить любую ширину для любого формата."""
         u = "https://upload.wikimedia.org/wikipedia/commons/2/22/Allington_Castle.jpg"
-        assert ps.wikimedia_thumb_url(u) == (
-            "https://upload.wikimedia.org/wikipedia/commons/thumb/2/22/Allington_Castle.jpg/640px-Allington_Castle.jpg")
-        # tif/svg — другое имя превью у Wikimedia; честнее полный файл
-        assert ps.wikimedia_thumb_url("https://upload.wikimedia.org/wikipedia/commons/2/22/Map.tif") is None
+        assert ps.wikimedia_thumb_url(u, 640) == (
+            "https://commons.wikimedia.org/wiki/Special:FilePath/Allington_Castle.jpg?width=640")
+        # Формат значения не имеет — правило одно на все
+        assert ps.wikimedia_thumb_url(
+            "https://upload.wikimedia.org/wikipedia/commons/2/22/Map.tif", 2000).endswith(
+            "Special:FilePath/Map.tif?width=2000")
         assert ps.wikimedia_thumb_url("https://example.org/x.jpg") is None
+
+    def test_openverse_candidate_never_points_at_a_wikimedia_original(self, monkeypatch, tmp_path):
+        import io as _io, json as _json
+        import stock_fetch_multisource as ov
+
+        class _Resp(_io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        payload = {"results": [{"id": "w", "title": "Castle", "license": "cc0", "source": "wikimedia",
+                                "url": "https://upload.wikimedia.org/wikipedia/commons/2/22/Castle.jpg",
+                                "foreign_landing_url": "http://page"}]}
+        monkeypatch.setattr(ps, "OPENVERSE_CACHE_DIR", str(tmp_path))
+        monkeypatch.setattr(ps, "OPENVERSE_ANON_MIN_INTERVAL_SEC", 0.0)
+        monkeypatch.setattr(ps.urllib.request, "urlopen",
+                            lambda req, timeout=None: _Resp(_json.dumps(payload).encode()))
+        c = ps._openverse_fetch_one("castle", ov)[0]
+        assert "upload.wikimedia.org" not in c["src"]["large2x"]
+        assert "width=2000" in c["src"]["large2x"] and "width=640" in c["src"]["medium"]
 
     def test_failed_probe_falls_back_to_full_file_and_is_counted(self, selection_env, monkeypatch):
         d = selection_env
         full = _jpeg(str(d / "full.jpg"), (90, 90, 90))
         cand = {"id": "openverse:1", "alt": "x", "url": "u",
                 "src": {"large2x": "file://" + full, "medium": "file:///nonexistent/thumb.jpg"}}
-        monkeypatch.setattr(ps, "_museum_search_photos", lambda q: [dict(cand)])
+        monkeypatch.setattr(ps, "_museum_search_photos", lambda q, department=None: [dict(cand)])
         monkeypatch.setattr(ps, "clip_relevance", lambda path, text: 0.30)
         monkeypatch.setattr(ps, "is_relevant_candidate", lambda path, q, relevance=None: True)
         monkeypatch.setattr(ps, "image_sharpness_score", lambda p: 100.0)
-        out = ps.pexels_photo("medieval castle", 0, used_ids=set(), used_hashes=[], target_luma=0.4,
+        out = ps.pexels_photo("medieval armour", 0, used_ids=set(), used_hashes=[], target_luma=0.4,
                               text_key="probe-fallback")
         assert out is not None
         st = ps.SOURCE_STATS["openverse"]
@@ -162,7 +185,87 @@ class TestOpenverseProbeDoesNotBurnTheApiQuota:
     def test_unreachable_candidate_is_counted_as_download_error(self, selection_env, monkeypatch):
         cand = {"id": "openverse:2", "alt": "x", "url": "u",
                 "src": {"large2x": "file:///nonexistent/full.jpg", "medium": "file:///nonexistent/t.jpg"}}
-        monkeypatch.setattr(ps, "_museum_search_photos", lambda q: [dict(cand)])
-        out = ps.pexels_photo("medieval castle", 0, used_ids=set(), used_hashes=[], target_luma=0.4,
+        monkeypatch.setattr(ps, "_museum_search_photos", lambda q, department=None: [dict(cand)])
+        out = ps.pexels_photo("medieval armour", 0, used_ids=set(), used_hashes=[], target_luma=0.4,
                               text_key="probe-dead")
         assert ps.SOURCE_STATS["openverse"]["download_errors"] == 1
+
+
+class TestDownloadPoliteness:
+    """Пробная выборка качает до 20 кандидатов параллельно, и Wikimedia
+    отвечает на такой всплеск HTTP 429: в прогоне 14.09 так молча потерялись
+    25 кандидатов из 145, предложенных Openverse. Интервал — на ХОСТ, чтобы
+    чужой лимит не замедлял Pexels и музеи."""
+
+    def test_only_listed_hosts_are_slowed_down(self, monkeypatch):
+        monkeypatch.setattr(ps, "DOWNLOAD_HOST_MIN_INTERVAL", {"commons.wikimedia.org": 0.05})
+        ps._DOWNLOAD_HOST_NEXT.clear()
+        import time as _t
+        t0 = _t.monotonic()
+        for _ in range(3):
+            ps._download_host_throttle("https://commons.wikimedia.org/wiki/Special:FilePath/X.jpg")
+        slowed = _t.monotonic() - t0
+        t0 = _t.monotonic()
+        for _ in range(3):
+            ps._download_host_throttle("https://images.pexels.com/photos/1.jpg")
+        free = _t.monotonic() - t0
+        assert slowed >= 0.09 and free < 0.02
+
+    def test_429_is_retried_once_then_succeeds(self, monkeypatch, tmp_path):
+        import io as _io
+        import urllib.error
+        calls = []
+
+        class _Resp(_io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def flaky(req, timeout=None):
+            calls.append(1)
+            if len(calls) == 1:
+                raise urllib.error.HTTPError(req.full_url, 429, "slow down", {}, _io.BytesIO(b""))
+            return _Resp(b"payload")
+
+        monkeypatch.setattr(ps, "DOWNLOAD_RETRY_PAUSE_SEC", 0.0)
+        monkeypatch.setattr(ps.urllib.request, "urlopen", flaky)
+        dest = str(tmp_path / "x.jpg")
+        ps.atomic_url_download(ps.urllib.request.Request("https://commons.wikimedia.org/x.jpg"), dest, 10)
+        assert open(dest, "rb").read() == b"payload" and len(calls) == 2
+
+    def test_404_is_not_retried(self, monkeypatch, tmp_path):
+        import io as _io
+        import urllib.error
+        calls = []
+
+        def gone(req, timeout=None):
+            calls.append(1)
+            raise urllib.error.HTTPError(req.full_url, 404, "no", {}, _io.BytesIO(b""))
+
+        monkeypatch.setattr(ps.urllib.request, "urlopen", gone)
+        with pytest.raises(urllib.error.HTTPError):
+            ps.atomic_url_download(ps.urllib.request.Request("https://x/y.jpg"), str(tmp_path / "y"), 10)
+        assert len(calls) == 1
+
+    def test_wikimedia_gets_the_user_agent_their_policy_asks_for(self, monkeypatch, tmp_path):
+        """Соответствие правилам источника, а НЕ измеренное улучшение:
+        прямой замер 14.09 дал 0 успешных из 6 и с браузерной строкой, и с
+        политикой — сегодняшние 429 стоят на адресе. Pexels при этом
+        обязан остаться на браузероподобной строке (ЧАСТЬ 14)."""
+        import io as _io
+        seen = {}
+
+        class _Resp(_io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def spy(req, timeout=None):
+            seen[urllib.parse.urlsplit(req.full_url).hostname] = req.get_header("User-agent")
+            return _Resp(b"x")
+
+        import urllib.parse
+        monkeypatch.setattr(ps.urllib.request, "urlopen", spy)
+        for url in ("https://commons.wikimedia.org/a.jpg", "https://images.pexels.com/b.jpg"):
+            r = ps.urllib.request.Request(url, headers={"User-Agent": ps.UA})
+            ps.atomic_url_download(r, str(tmp_path / "f.jpg"), 10)
+        assert "PipelineMachineVideo_AUTO" in seen["commons.wikimedia.org"]
+        assert seen["images.pexels.com"] == ps.UA

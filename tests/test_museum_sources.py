@@ -214,7 +214,7 @@ class TestWiredIntoPipeline:
         каскад, что у архивов."""
         seen = []
 
-        def fake(q):
+        def fake(q, department=None):
             seen.append(q)
             return [{"id": "met:1"}] if q == "medieval helmet" else []
 
