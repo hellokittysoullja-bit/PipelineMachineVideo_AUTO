@@ -105,6 +105,30 @@ def thumbnail_for(path):
             os.remove(tmp)
 
 
+def fit_one_line(text, font, max_w, draw):
+    """Обрезать строку по РЕАЛЬНОЙ ширине, а не по числу символов.
+
+    Заголовок плитки резался как `head[:70]`, и на секции с длинным именем
+    («BLOCK 1: ЛОЖЬ ПЕРВАЯ — "ДОСПЕХ БЫЛ ГРОБОМ"») подпись уезжала за
+    границу плитки и налезала на соседнюю — две подписи сливались в одну
+    нечитаемую строку. 70 символов кириллицы шире 70 символов латиницы, и
+    никакое одно число символов не бывает верным для пропорционального
+    шрифта. Лист — материал для разметки глазами, нечитаемая подпись
+    обесценивает саму разметку.
+    """
+    text = text or ""
+    if draw.textlength(text, font=font) <= max_w:
+        return text
+    lo, hi = 0, len(text)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if draw.textlength(text[:mid] + "…", font=font) <= max_w:
+            lo = mid
+        else:
+            hi = mid - 1
+    return text[:lo] + "…"
+
+
 def wrap_text(text, font, max_w, draw, max_lines=3):
     words = (text or "").split()
     lines, cur = [], ""
@@ -141,9 +165,20 @@ def render_page(shots, video_dir, cols, out_path):
             ImageDraw.Draw(thumb).text((14, 14), "НЕТ ФАЙЛА / не прочитан", fill=(255, 200, 200), font=font_head)
         page.paste(thumb, (x0, y0))
         lock = " 🔒" if shot.get("lock") else ""
-        head = f"#{shot.get('index', 0) + 1}  {shot.get('section', '')}  [{shot.get('kind') or '—'}/{shot.get('source', '')}]{lock}"
+        # Провенанс и релевантность идут в подпись плитки, потому что именно
+        # этот лист человек и размечает глазами: без «откуда кадр» разметка
+        # не отвечает на вопрос, какой источник даёт годное, а какой брак.
+        # Отсутствующие поля (кадр скачан до появления sidecar) просто не
+        # печатаются — плитка не должна врать прочерком там, где нет данных.
+        who = shot.get("provider") or shot.get("source", "")
+        rel = shot.get("relevance")
+        rel_s = f" rel {rel:.2f}" if isinstance(rel, (int, float)) else ""
+        head = (f"#{shot.get('index', 0) + 1}  [{shot.get('kind') or '—'}/{who}]{rel_s}{lock}"
+                f"  {shot.get('section', '')}")
         color = (255, 220, 120) if shot.get("lock") else (220, 220, 220)
-        draw.text((x0 + 2, y0 + THUMB_H + 4), head[:70], fill=color, font=font_head)
+        draw.text((x0 + 2, y0 + THUMB_H + 4),
+                  fit_one_line(head, font_head, THUMB_W - 4, draw),
+                  fill=color, font=font_head)
         for j, line in enumerate(wrap_text(shot.get("text", ""), font_text, THUMB_W - 4, draw)):
             draw.text((x0 + 2, y0 + THUMB_H + 26 + j * 16), line, fill=(180, 180, 180), font=font_text)
     page.save(out_path, quality=85)

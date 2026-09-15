@@ -104,7 +104,7 @@ def test_lock_key_changes_with_file_content(tmp_path):
 def test_source_classification(tmp_path):
     vd = str(tmp_path)
     assert ps.shotlist_source_for(os.path.join(vd, "media", "001.jpg"), vd) == "local"
-    assert ps.shotlist_source_for(os.path.join(vd, "temp_smart", "pexels_cache", "a.jpg"), vd) == "pexels"
+    assert ps.shotlist_source_for(os.path.join(vd, "temp_smart", "pexels_cache", "a.jpg"), vd) == "picked"
     assert ps.shotlist_source_for(os.path.join(vd, "media", "001.jpg"), vd, locked=True) == "shotlist_lock"
     assert ps.shotlist_source_for(None, vd) == "missing"
 

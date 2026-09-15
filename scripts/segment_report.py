@@ -213,18 +213,28 @@ def collect_artifacts(video_dir):
     n = len(shots)
     out["n_shots"] = n
     out["gates"] = shotlist.get("gates", {})
-    by_source, by_kind = {}, {}
+    by_source, by_kind, by_provider = {}, {}, {}
+    rel_known = 0
     for s in shots:
         by_source[s.get("source") or "unknown"] = by_source.get(s.get("source") or "unknown", 0) + 1
         by_kind[s.get("kind") or "unknown"] = by_kind.get(s.get("kind") or "unknown", 0) + 1
+        # provider — КТО принёс кадр (met/cleveland/chicago/openverse/pixabay/
+        # unsplash/pexels), source — КАК слот разрешён (picked/local/lock/
+        # cache_hit/missing). Раньше здесь была только вторая ось, и в ней всё
+        # подобранное называлось «pexels»: на videos/_test60s это давало
+        # «pexels: 10» при пяти реально победивших источниках.
+        p = s.get("provider")
+        if p:
+            by_provider[p] = by_provider.get(p, 0) + 1
+        if s.get("relevance") is not None:
+            rel_known += 1
     out["by_source"] = by_source
     out["by_kind"] = by_kind
-    # Честный предел: шотлист различает только pexels/local/cache_hit/lock/
-    # missing — музей, Openverse, Pixabay и Unsplash в нём все «pexels»
-    # (кэш-файл называется {слот}_{хэш запроса}_{подпись гейтов}.jpg, источник
-    # в имени не закодирован). Разбивка по реальному источнику — отдельная
-    # задача, здесь она не подделывается прикидкой по имени файла.
-    out["by_source_limit"] = "архивы/музеи/Pixabay/Unsplash учтены как pexels — шотлист их не различает"
+    out["by_provider"] = by_provider
+    # Слоты без провенанса — не ноль и не ошибка: кадр мог быть скачан до
+    # появления sidecar. Называем их числом, а не молчанием.
+    out["provenance_unknown"] = n - sum(by_provider.values())
+    out["relevance_known"] = rel_known
 
     cards = _load(os.path.join(mp, "fallback_cards_report.json")) or {}
     misses = cards.get("misses") or []

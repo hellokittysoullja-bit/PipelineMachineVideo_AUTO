@@ -7378,6 +7378,13 @@ def shotlist_lock_key(photo, video):
 
 
 def shotlist_source_for(path, video_dir, locked=False):
+    """КАК слот был разрешён: залочен человеком / взят из media/ / подобран.
+
+    Возвращает ПУТЬ РАЗРЕШЕНИЯ, а не поставщика кадра. Имя "pexels" здесь —
+    историческое и означает "подобран циклом отбора": на момент, когда эта
+    функция писалась, других источников в пуле не было. Кто именно принёс
+    кадр, отвечает shotlist_provenance() ниже — не путать их.
+    """
     if locked:
         return "shotlist_lock"
     if not path:
@@ -7385,7 +7392,57 @@ def shotlist_source_for(path, video_dir, locked=False):
     ap = os.path.abspath(path)
     if ap.startswith(os.path.abspath(os.path.join(video_dir, "media")) + os.sep):
         return "local"
-    return "pexels"
+    return "picked"
+
+
+def shotlist_provenance(path):
+    """КТО принёс кадр и с каким числом он выиграл — из sidecar рядом с файлом.
+
+    РЕАЛЬНАЯ, измеренная дыра (15.09, videos/_test60s): шотлист писал
+    source="pexels" на ВСЕ десять слотов, тогда как source_contribution.json
+    того же прогона показывал пять разных победивших источников (pexels 5,
+    met 2, pixabay 2, cleveland 1) — ярлык был неверен на половине слотов.
+    Причина не в потере данных: shotlist_source_for() возвращала литерал, а
+    настоящий источник всё это время лежал в sidecar соседним файлом
+    (pexels_id="pixabay:2565957"). Никто просто не связывал одно с другим.
+
+    Цена этого была не косметической. Разметка эпизода владельцем — сегодня
+    единственный способ откалибровать отбор (см. золотой набор), и без
+    ответа "откуда пришёл этот кадр" она не отвечает на главный вопрос —
+    какие источники дают годное, а какие брак.
+
+    Sidecar живёт ровно столько же, сколько сам файл, поэтому провенанс
+    переживает кэш-хит клипа, когда подбор не вызывается вообще и другого
+    места, где происхождение ещё известно, не существует.
+
+    Fail-open: нет sidecar (кадр скачан до этой правки), битый JSON, нет
+    файла — пустой словарь, поля просто не появятся. Слот из-за метаданных
+    не теряется.
+    """
+    if not path:
+        return {}
+    try:
+        with open(media_sidecar_path(path), encoding="utf-8") as f:
+            meta = json.load(f)
+        if not isinstance(meta, dict):
+            return {}
+    except Exception:
+        return {}
+    out = {}
+    cid = meta.get("pexels_id")
+    if cid is not None:
+        # candidate_source() — та же функция, что считает вклад источников в
+        # source_contribution.json. Вторая копия разбора префикса молча
+        # разошлась бы с ней при добавлении следующего источника.
+        out["provider"] = candidate_source(cid)
+        out["candidate_id"] = cid
+    for key in ("relevance", "chosen_by"):
+        if meta.get(key) is not None:
+            out[key] = meta[key]
+    prov = meta.get("provenance")
+    if prov:
+        out["provenance"] = prov
+    return out
 
 
 def write_shotlist(video_dir, shots, gates, prev=None):
@@ -11828,6 +11885,16 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
         # попавшимся": собираются и сравниваются по смыслу полной фразы
         # (sentence_score_fn) и читаемости кадра — так же, как у фото.
         good = []              # [(sentence_score, luma_ok, путь, id, hash, origin_query, shot_size_ok)]
+        # Релевантность победителя раньше НЕ доходила до sidecar: в отчёте у
+        # каждого видео-слота стояло relevance: null, в том числе у слотов с
+        # chosen_by="video_relevance_best" — то есть число, которым гейт
+        # ПРИНЯЛ решение, нигде не сохранялось, и половина слотов эпизода
+        # (видео) была физически неаудируема. Карта по пути кандидата, а не
+        # восьмой элемент кортежа `good`: он разбирается по позиции в трёх
+        # местах ниже (_build_video_arbiter_shortlist, _build_opening_video_
+        # shortlist, сборка победителя), и сдвиг индексов — ровно тот класс,
+        # от которого предостерегает комментарий у shot_size_ok.
+        cand_relevance = {}
         tries = 0
         # РЕАЛЬНЫЙ баг, найденный покадровым просмотром готового рендера
         # (не гипотеза): VIDEO_RELEVANCE_MAX_TRIES=3 калибровалась под
@@ -11885,7 +11952,9 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                     # та же причина, что подробно расписаны у фото-пути в
                     # pexels_photo() (кандидат из соседнего запроса секции
                     # проходил «по своему» и попадал в чужой по смыслу блок).
-                    relevant = is_relevant_candidate(probe, query)
+                    cand_rel = clip_relevance(probe, query)
+                    relevant = is_relevant_candidate(probe, query, relevance=cand_rel)
+                    cand_relevance[trial] = cand_rel
                     if used_hashes is not None:
                         try:
                             cand_hash = ahash(probe)
@@ -12108,19 +12177,22 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                         os.remove(fb[0])
                     except OSError:
                         pass
+            best_rel = cand_relevance.get(best[2])
             os.replace(best[2], cf)
             if used_ids is not None:
                 used_ids.add(best[3])
             if used_hashes is not None and best[4] is not None:
                 used_hashes.append(best[4])
             write_media_sidecar(cf, pexels_id=best[3], query=query, kind="video",
-                                ahash_hex=best[4], chosen_by="video_relevance_best")
+                                ahash_hex=best[4], relevance=best_rel,
+                                chosen_by="video_relevance_best")
             _source_bump(candidate_source(best[3]), "won")
             _reset_pexels_streak()
             return cf
         chosen = dup_fallback or plain_fallback
         if chosen is not None:
             path, vid, cand_hash = chosen
+            chosen_rel = cand_relevance.get(path)
             if chosen is plain_fallback:
                 # Ни один кандидат не прошёл relevance-гейт вообще (не
                 # только "похож на уже показанное", как у dup_fallback) —
@@ -12137,6 +12209,10 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                     "index": index, "query": query, "relevance": rel,
                     "threshold": CLIP_RELEVANCE_THRESHOLD, "kind": "video",
                 })
+                # Пересчёт идёт по ИТОГОВОМУ кадру, а не по пробнику — это
+                # число точнее, поэтому в sidecar едет именно оно.
+                if rel is not None:
+                    chosen_rel = rel
                 # STOCK_EXHAUSTED_MISSES — см. её докстринг у объявления выше.
                 # Мы уже ЗДЕСЬ (chosen is plain_fallback) только когда good
                 # пуст И dup_fallback пуст — то есть НИ ОДИН из tries
@@ -12154,6 +12230,7 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                 used_hashes.append(cand_hash)
             write_media_sidecar(
                 cf, pexels_id=vid, query=query, kind="video", ahash_hex=cand_hash,
+                relevance=chosen_rel,
                 chosen_by=("video_dup_fallback" if chosen is dup_fallback
                            else "video_plain_fallback"))
             _reset_pexels_streak()
@@ -14025,7 +14102,9 @@ def main():
                 shot_entries[i] = {"index": i, "section": b["section"], "text": b["text"], "query": queries[i],
                                    "kind": prev_shot.get("kind"), "file": prev_shot.get("file"),
                                    "source": "shotlist_lock" if (lock_photo or lock_video) else "cache_hit",
-                                   "clip": os.path.basename(out)}
+                                   "clip": os.path.basename(out),
+                                   **shotlist_provenance(
+                                       shotlist_resolve_file(prev_shot.get("file"), VIDEO_FOLDER))}
                 # QC дублей (qc_report) считается по media_log — раньше кэш-хит
                 # в него не попадал вообще (аудит 04.09: 9 из 18 слотов
                 # байт-идентичны, отчёт пуст). Файл известен из шотлиста.
@@ -14305,7 +14384,8 @@ def main():
                            "kind": "video" if video else "photo",
                            "file": shotlist_relative_file(video or photo, VIDEO_FOLDER),
                            "source": shotlist_source_for(video or photo, VIDEO_FOLDER, locked=locked_shot),
-                           "clip": os.path.basename(out)}
+                           "clip": os.path.basename(out),
+                           **shotlist_provenance(video or photo)}
         recent_media_types.append("video" if video else "photo")
         del recent_media_types[:-6]
         # Semantic Visual Director — аудит-трейл + скользящее окно
