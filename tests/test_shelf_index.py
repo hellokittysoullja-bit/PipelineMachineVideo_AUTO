@@ -145,3 +145,56 @@ def test_stats_reports_what_is_actually_on_disk(indexed):
     assert st["available"] is True
     assert st["items"] == 6 and st["dim"] == 8
     assert st["model"] == shelf_index.SHELF_MODEL
+
+
+def test_name_agreement_is_zero_when_the_shelf_answers_about_something_else(indexed, monkeypatch):
+    """Полка всегда возвращает соседей — даже когда предмета нет вообще.
+    Проверка ОТВЕТА по имени предмета из каталога обязана это показать."""
+    d = indexed(n=3, dim=8)
+    import json as _json
+    rows = [_json.loads(l) for l in open(d / "items.jsonl", encoding="utf-8")]
+    for r, nm in zip(rows, ["Shield", "Mail brayette", "Crossbow"]):
+        r["name"] = nm
+    with open(d / "items.jsonl", "w", encoding="utf-8") as f:
+        for r in rows:
+            f.write(_json.dumps(r, ensure_ascii=False) + "\n")
+    shelf_index._CACHE.update({"loaded": False, "vectors": None, "items": None})
+    monkeypatch.setattr(shelf_index, "_brief_vector",
+                        lambda _t: np.ones(8, dtype="float32") / np.sqrt(8))
+    hits, seen = shelf_index.name_agreement(
+        "a manuscript illumination of a battle between armoured knights", limit=3)
+    assert seen == 3 and hits == 0
+
+
+def test_name_agreement_counts_the_right_object(indexed, monkeypatch):
+    d = indexed(n=2, dim=8)
+    import json as _json
+    rows = [_json.loads(l) for l in open(d / "items.jsonl", encoding="utf-8")]
+    rows[0]["name"] = "Breastplate"
+    rows[1]["name"] = "Crossbow"
+    with open(d / "items.jsonl", "w", encoding="utf-8") as f:
+        for r in rows:
+            f.write(_json.dumps(r, ensure_ascii=False) + "\n")
+    shelf_index._CACHE.update({"loaded": False, "vectors": None, "items": None})
+    monkeypatch.setattr(shelf_index, "_brief_vector",
+                        lambda _t: np.ones(8, dtype="float32") / np.sqrt(8))
+    hits, seen = shelf_index.name_agreement("a plain steel breastplate", limit=2)
+    assert seen == 2 and hits == 1
+
+
+def test_british_spelling_is_not_a_false_miss(indexed, monkeypatch):
+    """`armour` против `armor` — реальный найденный промах первой версии
+    сверки: ни одно из слов не префикс другого, и «Armor» не засчитывался
+    к брифу «plate armour». Правила написания живут в pipeline_smart и
+    переиспользуются, а не копируются сюда."""
+    d = indexed(n=1, dim=8)
+    import json as _json
+    rows = [_json.loads(l) for l in open(d / "items.jsonl", encoding="utf-8")]
+    rows[0]["name"] = "Armor in the style of the 15th century"
+    with open(d / "items.jsonl", "w", encoding="utf-8") as f:
+        f.write(_json.dumps(rows[0], ensure_ascii=False) + "\n")
+    shelf_index._CACHE.update({"loaded": False, "vectors": None, "items": None})
+    monkeypatch.setattr(shelf_index, "_brief_vector",
+                        lambda _t: np.ones(8, dtype="float32") / np.sqrt(8))
+    hits, _ = shelf_index.name_agreement("a suit of plate armour standing", limit=1)
+    assert hits == 1
