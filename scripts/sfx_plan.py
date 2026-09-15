@@ -421,8 +421,23 @@ def object_cues(blocks, sub_starts, real_weights, asset_for=None,
                 slot = _silence_slot_for(i, sub_starts, real_weights,
                                          float(asset_dur or 0.0), anchor)
                 if slot is None:
-                    dropped.append(dict(base, reason="no_silence_for_object",
-                                        anchor=round(anchor, 3)))
+                    # Причина без числа не говорит автору НИЧЕГО. Реальный
+                    # случай 14.09: тег стоял после [short pause], которому
+                    # движок дал 0.169с (замер по alignment), — туда не
+                    # влезает ни один ассет, и починка это правка сценария
+                    # на полный [pause], а не настройка порогов. Раньше
+                    # отчёт писал только «нет тишины», и понять, что дело в
+                    # выборе тега, было неоткуда.
+                    gap = speech_gap_before(i, sub_starts, real_weights)
+                    have = round(gap[1] - gap[0], 3) if gap else None
+                    dropped.append(dict(
+                        base, reason="no_silence_for_object",
+                        anchor=round(anchor, 3),
+                        gap_sec=have,
+                        needed_sec=round(float(asset_dur or 0.0) + CHAPTER_HEADROOM_SEC, 3),
+                        hint=("перед тегом [sfx:] нужна полная пауза [pause]: "
+                              "[short pause] движок сводит почти в ноль")
+                              if have is not None else "нет сигнала о тишине"))
                     continue
                 t = slot
             else:

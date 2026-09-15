@@ -1091,6 +1091,28 @@ def grain_blend_complex(label_in, grain_input_idx, label_out, opacity_scale=1.0)
 # точной по построению.
 XFADE_DUR = 10 / FPS       # ~0.42с — диссолв на границах секций и часть обычных склеек
 XFADE_DUR_HARD = 1 / FPS   # один кадр — минимально возможный нахлёст, читается как жёсткий cut
+
+# СКОЛЬКО КЛИПА РЕЗЕРВИРУЕТСЯ ПОД STAT-ПЛАШКУ, и почему это не 1.2.
+#
+# Замер на готовом файле (videos/_test60s, 14.09): плашка «20–30 КГ» видна
+# на экране с 34.0 по 34.5с — 0.5 секунды вместо задуманных 1.2. Прочитать
+# двузначное число с единицей измерения за полсекунды нельзя, а весь канал
+# держится на числах.
+#
+# Причина не в клампе, а в ШКАЛЕ: он считает хвост в времени КЛИПА
+# (dur - 1.2), а последний xfade НАКЛАДЫВАЕТ конец клипа на начало
+# следующего — плашка доживает свой резерв уже под наплывом и гаснет
+# вместе с уходящим кадром. Тот же класс, что уже задокументирован у
+# hook_visual_starts(): величина, посчитанная ДО сжатия таймлайна, до
+# зрителя не доезжает.
+#
+# Поэтому резерв = читаемая часть ПЛЮС то, что съест переход. Берётся
+# максимальный из переходов (XFADE_DUR): у хука переход короче
+# (XFADE_DUR_HARD, один кадр), там резерв получается с запасом — плашка
+# просто повисит дольше. Правка односторонняя по построению: она может
+# только УДЛИНИТЬ присутствие плашки, никогда не укоротить.
+STAT_PLATE_READABLE_SEC = 1.2                              # было единственным числом
+STAT_PLATE_TAIL_SEC = STAT_PLATE_READABLE_SEC + XFADE_DUR  # резерв в шкале клипа
 # hblur/hlwind/hrwind (смаз в движении — читается как whip pan, разные
 # направления — не один и тот же смаз на каждой склейке) и zoomin
 # (панч-переход) — одна мотивированная категория "движение камеры", не
@@ -1110,7 +1132,8 @@ HOOK_MAX_CLIP = 3.6     # в хуке кадры короче и чаще — к
 # не сломано у существующих вызовов вида pipeline_smart.parse_blocks(...) /
 # тестов, патчащих pipeline_smart.PAUSE_DURATIONS.
 from script_parser import (PAUSE_DURATIONS, parse_blocks, parse_pexels_queries,  # noqa: E402
-                            parse_query_shot_types, _normalize_section_key)
+                            parse_query_shot_types, _normalize_section_key,
+                            ALIGNMENT_TAG_SPAN_RE)
 
 # Russo One — фирменный "рубленый" дисплейный шрифт (CHANNEL.md house
 # style), не системный DejaVu. OFL, бесплатно (Google Fonts / google/fonts
@@ -3425,6 +3448,11 @@ def get_audio_duration():
 ALIGNMENT_DIR = os.path.join(VIDEO_FOLDER, "media_plan", "alignment")
 ALIGNMENT_TAG_RE = re.compile(r'\[short pause\]|\[pause\]')
 ALIGNMENT_STRIP_TAGS = ("[energetic]", "[slowly]", "[emphasis]")
+
+# ALIGNMENT_TAG_SPAN_RE импортируется из script_parser (см. его докстринг:
+# словарь тегов живёт в ОДНОМ месте — копии уже стоили эпизоду PHRASE LOCK).
+# Имя переэкспортируется здесь, потому что на pipeline_smart.ALIGNMENT_TAG_SPAN_RE
+# ссылается section_sync.py и тесты.
 PAUSE_CUTS_PATH = os.path.join(VIDEO_FOLDER, "media_plan", "pause_cuts.json")
 _PAUSE_CUTS_CACHE = None   # ленивый кэш на процесс — файл не меняется за время рендера
 
@@ -3552,12 +3580,8 @@ def _clean_timed_chars(segment):
     иначе они молча разошлись бы при следующей правке."""
     text = "".join(c for c, s, e in segment)
     excluded = set()
-    for tag in ALIGNMENT_STRIP_TAGS:
-        idx = text.find(tag)
-        while idx != -1:
-            for j in range(idx, idx + len(tag)):
-                excluded.add(j)
-            idx = text.find(tag, idx + 1)
+    for m in ALIGNMENT_TAG_SPAN_RE.finditer(text):
+        excluded.update(range(m.start(), m.end()))
     return [(c, s, e) for j, (c, s, e) in enumerate(segment)
             if j not in excluded and re.match(r'[^\s\[\]]', c or "")]
 
@@ -4077,13 +4101,12 @@ def load_hook_word_timings(blocks=None, sub_starts=None, sub_baseline=None, real
                 return real_start + frac * real_dur
         return real_t   # вне всех сегментов (хвостовой мусор) — не подменяем произвольно
 
+    # Тот же спан-фильтр, что у _clean_timed_chars (см. ALIGNMENT_TAG_SPAN_RE):
+    # здесь стоял ТРЕТИЙ список тех же имён, и незнакомый тег стал бы здесь не
+    # просто мусором, а отдельным СЛОВОМ хук-подписи с собственным временем.
     excluded = set()
-    for tag in ALIGNMENT_STRIP_TAGS + ("[pause]", "[short pause]"):
-        idx = text.find(tag)
-        while idx != -1:
-            for j in range(idx, idx + len(tag)):
-                excluded.add(j)
-            idx = text.find(tag, idx + 1)
+    for m in ALIGNMENT_TAG_SPAN_RE.finditer(text):
+        excluded.update(range(m.start(), m.end()))
     # Вырезанный тег ТОЖЕ обязан рвать слово, не только пробел — в сыром
     # тексте тег часто стоит БЕЗ пробела ("...убеждают.[short pause]Так
     # говорят" — точка сразу перед тегом, слово сразу после), простое
@@ -4537,6 +4560,13 @@ def _slot_miss_restore(snapshot):
         lst.extend(snapshot.get(name) or ())
 
 
+# Насколько НИЖЕ своего пола должен быть скор Директора, чтобы слот считался
+# заведомо негодным и получил карточку. См. разбор у самого использования в
+# _slot_known_bad_reason(): «ниже пола» само по себе слишком слабый сигнал —
+# абстрактная фраза роняет скор любой картинке.
+DIRECTOR_CARD_DECISIVE_FRACTION = 0.5
+
+
 def _slot_known_bad_reason(index):
     """Почему система САМА считает кадр этого слота негодным (или None).
 
@@ -4550,6 +4580,34 @@ def _slot_known_bad_reason(index):
         return "stock_exhausted"
     if any(m["index"] == index for m in RELEVANCE_GATE_MISSES):
         return "below_relevance_threshold"
+    # Самый слабый из сигналов и поэтому последний: Директор оценивает
+    # кандидата по РЕАЛЬНОМУ тексту блока, а абстрактная фраза («Я его
+    # назову. Но если сказать прямо сейчас...») даёт низкий скор ЛЮБОЙ
+    # картинке — там виноват не кадр.
+    #
+    # Отсюда требование решительности, а не просто «ниже пола». Замер на
+    # videos/_test60s (9 слотов, 4 промаха Директора, вердикты глазами):
+    #   слот 4  0.20x пола  брак (современный музей вместо поля боя)
+    #   слот 7  0.40x пола  терпимо
+    #   слот 6  0.94x пола  ГОДНО
+    #   слот 1  0.95x пола  терпимо
+    # Бюджет карточек на таком эпизоде равен ЕДИНИЦЕ (8% от 9 слотов), и
+    # правило «любой промах» потратило бы её на слот 1 — тот, что у самого
+    # пола и на экране приемлем, — оставив слот 4 в ролике. Порядок выдачи
+    # решает вместо качества, ровно как уже ловили у самого бюджета.
+    #
+    # ЧЕСТНО про 0.5: это консервативное круглое число («вдвое ниже пола —
+    # уже другой порядок, а не пограничный случай»), а НЕ измеренный
+    # оптимум: четыре точки и мои глаза — не калибровка. Оно может только
+    # УМЕНЬШИТЬ число карточек против наивного правила, и на замеренном
+    # эпизоде отделяет единственный брак от единственного годного.
+    for m in DIRECTOR_RELEVANCE_MISSES:
+        if m["index"] != index:
+            continue
+        floor = float(m.get("threshold") or 0.0)
+        rel = float(m.get("relevance") or 0.0)
+        if floor > 0 and rel < floor * DIRECTOR_CARD_DECISIVE_FRACTION:
+            return "director_relevance_decisive"
     return None
 
 
@@ -7754,8 +7812,11 @@ def add_overlays(vf_base, dur, title=None, stat=None, stat_variant=0, stat_delay
         # заметно раньше, чем её произносили. delay — момент внутри клипа,
         # когда число уже озвучено; clamp оставляет минимум ~1.2с на сам
         # fade-in/hold/fade-out, даже если delay пришёлся почти на конец
-        # клипа (не даём плашке исчезнуть, не успев появиться).
-        delay = max(0.0, min(stat_delay, dur - 1.2))
+        # клипа (не даём плашке исчезнуть, не успев появиться). Резерв —
+        # STAT_PLATE_TAIL_SEC (читаемые 1.2с ПЛЮС длительность уходящего
+        # xfade, см. её комментарий: на готовом файле плашка жила 0.5с
+        # вместо 1.2 именно потому, что резерв считался в шкале клипа).
+        delay = max(0.0, min(stat_delay, dur - STAT_PLATE_TAIL_SEC))
         fin = delay + fin_dur
         hold = max(fin, dur - 0.5)
         text = stat.upper() if FONT_IS_DISPLAY else stat
@@ -9052,10 +9113,12 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
     # дублирования логики в каждой ветке. Движение после паузы продолжает
     # с того же места, откуда остановилось (не теряет фазу), а не рестартует.
     if stat and stat_delay > 0.5:
-        # Тот же кламп, что у add_overlays (delay = min(stat_delay, dur-1.2)):
-        # аудит 04.09 — при [stat:] в конце фразы плашка появлялась на dur-1.2,
-        # а «пауза перед цифрой» по сырому stat_delay случалась ПОСЛЕ неё.
-        eff_delay = max(0.0, min(stat_delay, dur - 1.2))
+        # ТОТ ЖЕ кламп, что у add_overlays, и через ту же константу — два
+        # литерала 1.2 уже жили здесь порознь, а расхождение значило бы, что
+        # «пауза перед цифрой» и сама цифра случаются в разные моменты.
+        # Аудит 04.09: при [stat:] в конце фразы плашка появлялась на
+        # dur-резерв, а пауза по сырому stat_delay случалась ПОСЛЕ неё.
+        eff_delay = max(0.0, min(stat_delay, dur - STAT_PLATE_TAIL_SEC))
         freeze_start_f = max(0, round((eff_delay - FREEZE_HOLD_DUR) * FPS))
         freeze_end_f = round(eff_delay * FPS)
         if freeze_end_f > freeze_start_f:
@@ -12518,6 +12581,35 @@ def _internal_sentence_boundaries(words):
     return bounds
 
 
+def _usable_split_points(points, total_words, est, min_part):
+    """Точки реза, после которых КАЖДЫЙ кусок дотягивает до min_part.
+
+    Реальный случай (videos/_test60s, замер 14.09): у блока хука на 8.10с
+    граница предложения стоит после «Я его назову.» — первый кусок 1.10с.
+    split_long_blocks честно резала там, а merge_short_phrase_locked_blocks
+    тут же склеивала обратно (1.10с ниже пола клипа хука 2.2с), и блок
+    оставался 8.10с. Другую точку при этом никто не пробовал: fallback-и
+    (контраст-союзы / число / середина) стоят под `if not split_at`, а
+    список был НЕ пуст — в нём лежала непригодная точка.
+    Итог замера: хук 3 кадра, средняя 6.94с при норме ЧАСТИ 14 «3-6 сек».
+
+    Жадно слева направо: точка принимается, только если и кусок от
+    предыдущей принятой, и весь оставшийся хвост не короче min_part."""
+    if not points or not total_words or not est:
+        return []
+    out, last = [], 0
+    for p in sorted(set(points)):
+        if not (0 < p < total_words):
+            continue
+        if est * ((p - last) / total_words) < min_part:
+            continue
+        if est * ((total_words - p) / total_words) < min_part:
+            continue
+        out.append(p)
+        last = p
+    return out
+
+
 def split_long_blocks(blocks, real_weights):
     """Один блок = один клип 4-20 сек — механическая сетка "одна мысль = одна
     картинка". Профессиональный монтаж на одну длинную фразу даёт 2-3
@@ -12552,7 +12644,8 @@ def split_long_blocks(blocks, real_weights):
         # SOURCE_DUR=8.0), но составным по смыслу (3 предложения). Без этого
         # условия оба ранних выхода отсекли бы ровно тот блок, который и
         # нужно резать.
-        sentence_bounds = _internal_sentence_boundaries(words)
+        sentence_bounds = _usable_split_points(
+            _internal_sentence_boundaries(words), len(words), est, min_part)
         if est < min_source and not sentence_bounds:
             new_blocks.append(b)
             new_weights.append(w)
@@ -12563,14 +12656,18 @@ def split_long_blocks(blocks, real_weights):
             continue
         split_at = list(sentence_bounds)
         if not split_at:
+            trigger = []
             for i, word in enumerate(words):
                 wl = word.strip(",.!?—–:;»«").lower()
                 if wl in SUBCUT_CONTRAST_WORDS and 2 <= i <= len(words) - 3:
-                    split_at.append(i)
+                    trigger.append(i)
             for i, word in enumerate(words):
                 if re.search(r'\d', word) and i > len(words) // 4:
-                    split_at.append(i)
+                    trigger.append(i)
                     break
+            # Те же грабли, что у границ предложений выше: непригодная точка
+            # не должна закрывать дорогу следующему триггеру.
+            split_at = _usable_split_points(trigger, len(words), est, min_part)
         if not split_at:
             # Без смыслового триггера резать РОВНО посередине по счёту слов
             # означало иногда рвать словосочетание внутри одной фразы ("в
@@ -12587,7 +12684,24 @@ def split_long_blocks(blocks, real_weights):
                         break
                 if found is not None:
                     break
-            split_at = [found if found is not None else mid]
+            # Кандидаты в порядке предпочтения: сперва пунктуационная
+            # граница (рез попадает на естественную паузу произношения),
+            # потом сырая середина. Раньше `mid` был недостижим, если
+            # пунктуация нашлась вообще — и блок оставался нерезаным, даже
+            # когда середина делила его на два законных куска. Замер
+            # 14.09: блок хука 8.10с, пунктуация на 2.95с (ниже пола 3.0),
+            # середина 4.05/4.05 — годится, но не пробовалась.
+            split_at = []
+            for cand in ([found] if found is not None else []) + [mid]:
+                split_at = _usable_split_points([cand], len(words), est, min_part)
+                if split_at:
+                    break
+            if not split_at:
+                # Блок физически не делится на два куска выше пола — оставляем
+                # как есть. Это честный отказ, а не молчаливый рез пополам.
+                new_blocks.append(b)
+                new_weights.append(w)
+                continue
         bounds = sorted(set([0] + split_at + [len(words)]))
         chunks = [(a, c) for a, c in zip(bounds, bounds[1:]) if c > a]
         # Склеиваем куски короче SUBCUT_MIN_PART_DUR (по доле слов от est)
@@ -12601,6 +12715,14 @@ def split_long_blocks(blocks, real_weights):
                 merged[-1] = (pa, c)
             else:
                 merged.append((a, c))
+        # Дыра в цикле выше: у ПЕРВОГО куска `merged` ещё пуст, поэтому
+        # короткий первый кусок проходил без всякой проверки — склеивать его
+        # было не с чем НАЗАД. Склеиваем ВПЕРЁД. Само по себе это схлопывает
+        # рез обратно, поэтому главная защита — _usable_split_points() выше
+        # (не выбирать такую точку вовсе); здесь второй, страховочный слой.
+        while len(merged) >= 2 and est * ((merged[0][1] - merged[0][0]) / total_w) < min_part:
+            (a0, _c0), (_a1, c1) = merged[0], merged[1]
+            merged[:2] = [(a0, c1)]
         if len(merged) < 2:
             new_blocks.append(b)
             new_weights.append(w)
@@ -12630,6 +12752,17 @@ def split_long_blocks(blocks, real_weights):
             # тишина-акцент, попадает в ПЕРВЫЙ получившийся под-кадр, не во
             # все (dict(b) выше скопировал бы флаг во все k без явного сброса).
             nb["is_climax"] = b.get("is_climax", False) if k == 0 else False
+            # sfx добавлен ПОЗЖЕ stat/climax и остался без сброса: dict(b)
+            # копировал ВЕСЬ список в каждый под-кадр, а word_pos оставался
+            # от исходного блока. Замер 14.09: один тег [sfx:armour_clank] в
+            # сценарии дал ДВА кюя (блоки 5 и 6) с чужими позициями. Тот же
+            # класс и то же лекарство, что уже применены к плашке: кюй живёт
+            # в ТОМ куске, куда попала его позиция, и она пересчитывается
+            # относительно начала этого куска.
+            nb["sfx"] = [dict(x, word_pos=max(0, int(x.get("word_pos", 0)) - a))
+                         for x in (b.get("sfx") or [])
+                         if a <= int(x.get("word_pos", 0)) < c
+                         or (int(x.get("word_pos", 0)) <= 0 and k == 0)]
             new_blocks.append(nb)
             new_weights.append((w * (c - a) / total_w) if w is not None else None)
     return new_blocks, new_weights
@@ -12861,6 +12994,71 @@ def _timed_render(render_fn, clip_idx, *args, **kwargs):
         return render_fn(*args, **kwargs)
 
 
+# Фильтры ffmpeg, без которых включённый слой не соберёт НИ ОДНОГО клипа.
+# Ключ — имя флага реестра, значение — фильтры, которые этот слой реально
+# вызывает. Проверяются только ВКЛЮЧЁННЫЕ слои: выключенный deflicker на
+# сборке без deflicker не проблема.
+REQUIRED_FFMPEG_FILTERS = {
+    None:                ("zoompan", "xfade", "scale"),   # ядро, всегда
+    "ON_SCREEN_TEXT":    ("drawtext",),
+    "GRAIN_ENABLED":     ("blend",),
+    "DEFLICKER_ENABLED": ("deflicker",),
+    "MUSIC_BED":         ("sidechaincompress", "loudnorm"),
+}
+
+_FFMPEG_FILTERS_CACHE = None
+
+
+def available_ffmpeg_filters():
+    """Множество имён фильтров у ТОГО ffmpeg, который реально будет вызван."""
+    global _FFMPEG_FILTERS_CACHE
+    if _FFMPEG_FILTERS_CACHE is not None:
+        return _FFMPEG_FILTERS_CACHE
+    try:
+        out = subprocess.run(["ffmpeg", "-hide_banner", "-filters"],
+                             capture_output=True, text=True, encoding="utf-8",
+                             errors="replace", timeout=30).stdout
+        _FFMPEG_FILTERS_CACHE = set(re.findall(r'^\s*[A-Z.]{3}\s+(\S+)', out, re.M))
+    except Exception:
+        _FFMPEG_FILTERS_CACHE = set()   # не смогли спросить — не гейтим
+    return _FFMPEG_FILTERS_CACHE
+
+
+def check_ffmpeg_filters():
+    """Назвать отсутствующий фильтр ДО рендера, а не после трёх попыток.
+
+    Реальный случай 14.09, стоивший целого прогона: в контейнере ffmpeg шёл
+    из imageio-ffmpeg (символьная ссылка /usr/local/bin/ffmpeg), собранного
+    БЕЗ drawtext — ffmpeg 7 требует для него libharfbuzz. Каждый клип с
+    плашкой/титром падал с 'Filter not found', три попытки подряд, и только
+    RENDER_STRICT_GATE не дал собрать ролик молча без экранного текста.
+    Сообщение при этом не называло НИ отсутствующий фильтр (его имя тонуло
+    в эхе всего filter_complex), НИ причину — диагностика заняла больше,
+    чем сам рендер.
+
+    Ничего не блокирует: печатает предупреждение и возвращает список — тот
+    же fail-open, что у остальных проверок окружения. Сборка всё равно
+    остановится на RENDER_STRICT_GATE, но теперь с названной причиной."""
+    have = available_ffmpeg_filters()
+    if not have:
+        return []
+    missing = []
+    for flag, filters in REQUIRED_FFMPEG_FILTERS.items():
+        if flag is not None and not feature_flags.enabled(flag):
+            continue
+        for f in filters:
+            if f not in have:
+                missing.append((f, flag or "ядро рендера"))
+    if missing:
+        print("  ВНИМАНИЕ: у этого ffmpeg НЕТ фильтров, которые нужны включённым слоям:")
+        for f, flag in missing:
+            print(f"    {f} — нужен для {flag}")
+        print("    Клипы с этим слоем упадут с 'Filter not found'. Поставить сборку"
+              " ffmpeg с этими фильтрами (например системный пакет вместо"
+              " imageio-ffmpeg) либо выключить слой в .env.")
+    return missing
+
+
 def main():
     if not os.path.exists(AUDIO_FILE):
         print(f"Аудио не найдено: {AUDIO_FILE}")
@@ -12871,6 +13069,7 @@ def main():
     # Дорогой слой, выключенный в .env, раньше было видно только по
     # отсутствию строк в логе где-то в середине рендера (или не видно вовсе).
     feature_flags.print_summary()
+    check_ffmpeg_filters()
     feature_flags.write_snapshot(VIDEO_FOLDER)
     audio_qc(AUDIO_FILE)
     os.makedirs(TEMP_FOLDER, exist_ok=True)
@@ -13916,6 +14115,31 @@ def main():
         # большой (сток из разных источников редко совпадает по свету),
         # подмешиваем небольшую компенсацию в brightness, а не выравниваем
         # целиком (иначе пропала бы естественная вариативность вообще).
+        # ВТОРАЯ точка решения о карточке. Нужна из-за ПОРЯДКА, а не из-за
+        # новой логики, и это измеренный дефект, а не перестраховка.
+        #
+        # Вердикт Директора про ЭТОТ слот записывается в
+        # DIRECTOR_RELEVANCE_MISSES строками выше — то есть ПОСЛЕ того, как
+        # медиа уже выбрано (иначе нечего оценивать). А первая проверка
+        # `_slot_known_bad_reason(i)` стоит ДО отбора, и список для текущего
+        # слота там всегда пуст. Замер 14.09 (videos/_test60s): слот с
+        # современным музеем на фразе про упавшего рыцаря получил 0.20x от
+        # пола Директора, причина честно срабатывала в юнит-тесте — и была
+        # ИНЕРТНОЙ в проде: карточек в ролике ноль, кадр остался на экране.
+        #
+        # Остальные причины (отказ арбитра, исчерпанный сток, порог
+        # релевантности) известны РАНЬШЕ отбора и обслуживаются первой
+        # проверкой — её трогать нельзя, иначе видео-путь потеряет
+        # спасение фотографией, которое идёт до карточки.
+        if (photo or video) and not locked_shot and not any(
+                sl.get("index") == i for sl in FALLBACK_CARD_SLOTS):
+            late_reason = _slot_known_bad_reason(i)
+            if (late_reason == "director_relevance_decisive"
+                    and fallback_card_allowed(i, len(blocks),
+                                              is_opening=is_opening_shot)):
+                late_card = build_slot_fallback_card(i, b["text"], late_reason)
+                if late_card:
+                    photo, video = late_card, None
         luma = measure_luma(photo, is_video=False) if photo else measure_luma(video, is_video=True)
         if luma is not None:
             brightness_bias = 0.0 if luma_ema is None else max(-0.035, min(0.035, (luma_ema - luma) * 0.35))

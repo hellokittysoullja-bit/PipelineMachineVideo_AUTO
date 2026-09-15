@@ -3016,17 +3016,45 @@ def test_internal_sentence_boundaries_ignores_year_with_trailing_dot():
 
 
 def test_split_long_blocks_splits_short_multi_sentence_block_despite_duration():
+    """Находка жива: составной по смыслу блок режется, даже если он КОРОЧЕ
+    SUBCUT_MIN_SOURCE_DUR=8.0. Изменился только пример — см. тест ниже."""
+    text = ("Этот доспех мастер делал почти четыре года подряд без перерыва. "
+            "Платил за него барон столько же, сколько деревня отдавала налогов.")
+    blocks = [{"text": text, "words": len(text.split()), "pause_after": 0.0,
+               "section": "HOOK", "stat": None}]
+    # 7.0с — короче min_source=8.0, но граница предложения стоит посередине,
+    # и оба куска (3.5с) выходят выше пола под-кадра.
+    new_blocks, new_weights = pipeline_smart.split_long_blocks(blocks, [7.0])
+    assert len(new_blocks) >= 2, "составной по смыслу блок должен резаться даже при короткой длительности"
+    assert new_blocks[0]["text"].rstrip().endswith("перерыва.")
+    assert "Платил за него" in new_blocks[1]["text"]
+    assert abs(sum(new_weights) - 7.0) < 1e-9, "сумма весов кусков должна сохраняться"
+
+
+def test_split_long_blocks_refuses_a_split_that_breaks_the_part_floor():
+    """ИЗМЕНЁННОЕ ПОВЕДЕНИЕ, осознанно, с замером (14.09).
+
+    Здесь раньше стоял прежний пример: 19 слов, вес 4.125с, граница
+    предложения после «да.» на 4-м слове. Рез там даёт куски 0.868с + 3.257с,
+    и 0.868с ниже ВСЕХ порогов пайплайна — SUBCUT_MIN_PART_DUR=3.0 и
+    HOOK_MIN_CLIP=2.2. Проходило это ровно через дыру в цикле склейки: у
+    ПЕРВОГО куска список merged ещё пуст, и проверка `if merged and ...`
+    его не касалась. То есть код нарушал собственную константу.
+
+    Дальше по конвейеру такой кусок всё равно склеивался обратно
+    (merge_short_phrase_locked_blocks), то есть рез был бесполезен, а на
+    эпизодах без alignment — вреден: в ролик уходил кадр меньше секунды.
+
+    Чтобы оба куска дотянули до 3.0с, блоку нужно минимум 6.0с. У этого
+    4.125с, поэтому законного реза не существует, и блок честно остаётся
+    одним кадром."""
     text = ("Готов спорить, что да. Герой на экране заносит клинок двумя "
             "руками, рычит, враг падает — вместе с конём, разумеется.")
     blocks = [{"text": text, "words": len(text.split()), "pause_after": 0.0,
                "section": "HOOK", "stat": None}]
-    # Реальный вес — 4.125с (как в живом рендере эпизода), заведомо короче
-    # SUBCUT_MIN_SOURCE_DUR=8.0 — без нового триггера блок остался бы целым.
     new_blocks, new_weights = pipeline_smart.split_long_blocks(blocks, [4.125])
-    assert len(new_blocks) >= 2, "составной по смыслу блок должен резаться даже при короткой длительности"
-    assert new_blocks[0]["text"].rstrip().endswith("да.")
-    assert "заносит клинок" in new_blocks[1]["text"]
-    assert abs(sum(new_weights) - 4.125) < 1e-9, "сумма весов кусков должна сохраняться"
+    assert len(new_blocks) == 1
+    assert abs(sum(new_weights) - 4.125) < 1e-9
 
 
 def test_split_long_blocks_single_sentence_short_block_unaffected():
