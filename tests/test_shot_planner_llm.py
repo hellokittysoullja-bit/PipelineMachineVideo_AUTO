@@ -11,6 +11,7 @@
 21-26 с на юнит, около часа на эпизод из 142 юнитов — разово и кэшируемо.
 """
 import json
+import ast
 import os
 import sys
 import tempfile
@@ -181,6 +182,112 @@ class TestValidationRefusesGarbage:
         import pipeline_smart as ps
         for fn in sp.VALID_FUNCTIONS:
             ps.source_allowed_for("pexels", fn)   # не должно бросать
+
+
+class TestValidatorMakesRegressionStructurallyImpossible:
+    """Главный пропущенный ход, взятый из внешней оценки 16.09 и признанный
+    верным: модель НЕ обязана быть права всегда — она обязана быть ПРАВА
+    ИЛИ МОЛЧАТЬ.
+
+    Заявка либо проходит детерминированную проверку и улучшает слот, либо
+    отбрасывается, и слот идёт ровно как сегодня. Тогда ухудшение
+    невозможно ПО ПОСТРОЕНИЮ, а не по результату замера — и планка
+    репозитория «ничьи и победы, ноль регрессов» становится выполнимой
+    честно, а не вечным блокиратором на восьми вручную выбранных фразах.
+
+    Все случаи ниже — РЕАЛЬНЫЕ ответы модели из замеров v2/v3
+    (docs/quality/shot_planner_eval_v*.json), а не выдуманные.
+    """
+
+    @pytest.mark.parametrize("shot,phrase,why", [
+        ("You have not been injured. The worst is yet to come.",
+         "Тебя ещё не ранили. Вот что самое страшное.", "пересказ"),
+        ("He was at their feet",
+         "При этом он был под ногами у каждого из них.", "пересказ"),
+        ("A person wearing full-body protective gear",
+         "Представь драку, где у всех ножи.", "современное снаряжение"),
+        ("A person standing up", "Тебе нужно всего лишь встать.", "эпоха"),
+    ])
+    def test_measured_failures_are_rejected(self, shot, phrase, why):
+        ok, reason = sp.brief_is_safe(shot, phrase, blocklist=())
+        assert ok is False, (shot, why)
+        assert reason
+
+    @pytest.mark.parametrize("shot,phrase", [
+        ("A medieval sword, shining in the light", "Возьми настоящий боевой меч"),
+        ("A warrior lying face down in mud", "ты лежишь лицом в грязи"),
+        ("a dented steel breastplate, close up", "Стрела скользнула по нагруднику."),
+    ])
+    def test_good_briefs_pass(self, shot, phrase):
+        ok, reason = sp.brief_is_safe(shot, phrase, blocklist=())
+        assert ok is True, reason
+
+    def test_simile_rule_is_deliberately_absent(self):
+        """ЧЕСТНЫЙ ПРЕДЕЛ, доказанный собственным тестом.
+
+        Внешняя оценка предлагала запрещать предмет сравнения («как
+        холодильник»). Первая версия такой проверки сравнивала РУССКОЕ
+        слово из фразы с АНГЛИЙСКИМ описанием кадра — «холод» против «a
+        refrigerator» — и была мёртвым кодом: сработать не могла ни разу.
+
+        Мини-словарь соответствий не заводится: тот же ненадёжный приём,
+        что уже отвергнут для «crane» (журавль законен на миниатюре) и в
+        stress_placement для «атлас». Случай закрыт промптом v3, и замер
+        это подтвердил.
+        """
+        ok, _ = sp.brief_is_safe("a refrigerator in a field",
+                                 "рыцарь весил как холодильник", blocklist=())
+        assert ok is True
+        src = open(os.path.join(SCRIPTS_DIR, "shot_planner_llm.py"),
+                   encoding="utf-8").read()
+        assert "SIMILE_MARKERS" not in src, "мёртвое правило вернулось"
+
+    def test_blocklist_is_the_channel_one_not_a_second_copy(self):
+        import ast
+        src = open(os.path.join(SCRIPTS_DIR, "shot_planner_llm.py"),
+                   encoding="utf-8").read()
+        tree = ast.parse(src)
+        fn = next(n for n in ast.walk(tree)
+                  if isinstance(n, ast.FunctionDef) and n.name == "channel_blocklist")
+        attrs = {getattr(n, "attr", None) for n in ast.walk(fn)}
+        assert "CONTENT_ALT_BLOCKLIST" in attrs, sorted(a for a in attrs if a)
+
+    def test_rejected_briefs_are_recorded_not_silent(self):
+        blocks = [{"text": "Тебе нужно всего лишь встать.", "shot_brief": None}]
+        plan = {sp.unit_key(blocks[0]["text"], sp.unit_context(blocks, 0)):
+                {"shot_en": "A person standing up"}}
+        del sp.REJECTED[:]
+        assert sp.fill_briefs(blocks, plan) == 0
+        assert blocks[0]["shot_brief"] is None
+        assert len(sp.REJECTED) == 1
+        assert sp.REJECTED[0]["reason"]
+
+
+class TestSamplingIsDeterministic:
+    """Найдено внешней оценкой 16.09 и подтверждено проверкой: у llama.cpp
+    `--seed` по умолчанию -1 (случайный), а температура стояла 0.2 — не
+    ноль. Значит сравнение промптов v2 и v3 было НЕВОСПРОИЗВОДИМЫМ, и
+    разница могла оказаться шумом выборки, а не эффектом правки.
+
+    Планирование — не творческая задача: на один и тот же вопрос нужен
+    один и тот же ответ, иначе теряет смысл и кэш по тексту фразы."""
+
+    def test_temperature_zero_and_fixed_seed(self):
+        import ast
+        src = open(os.path.join(SCRIPTS_DIR, "shot_planner_llm.py"),
+                   encoding="utf-8").read()
+        tree = ast.parse(src)
+        fn = next(n for n in ast.walk(tree)
+                  if isinstance(n, ast.FunctionDef) and n.name == "_run_model")
+        consts = [c.value for c in ast.walk(fn)
+                  if isinstance(c, ast.Constant) and isinstance(c.value, str)]
+        assert "--seed" in consts
+        i = consts.index("--temp")
+        assert consts[i + 1] == "0", consts[i:i + 2]
+
+    def test_seed_is_overridable_but_never_random(self):
+        assert isinstance(sp.SAMPLING_SEED, int)
+        assert sp.SAMPLING_SEED >= 0
 
 
 class TestAuthorAlwaysWins:
@@ -524,3 +631,89 @@ class TestStalePlanNamesItsOwnCause:
         self._write(tmp_path, model="qwen-before.gguf")
         assert sp.load_plan(str(tmp_path)) == {}
         assert "моделью qwen-before.gguf" in capsys.readouterr().out
+
+
+class TestOneTranslationRuleNotTwo:
+    """Две копии одного правила — тот самый класс, который уже стоил этому
+    репозиторию PHRASE LOCK на целый эпизод. Вторая версия (местоимение
+    где-угодно И глагол где-угодно) удалена по ЗАМЕРУ ЗАПАСА: три реальных
+    авторских брифа уже выполняют её половину («…crushed into it», «…wounds
+    on it», «…no hole in it») и выживают только потому, что в них не
+    случилось глагола из списка."""
+
+    def test_the_second_copy_is_gone(self):
+        assert not hasattr(sp, "_looks_like_translation")
+        src = open(os.path.join(SCRIPTS_DIR, "shot_planner_llm.py"),
+                   encoding="utf-8").read()
+        tree = ast.parse(src)
+        checks = [n.name for n in ast.walk(tree)
+                  if isinstance(n, ast.FunctionDef)
+                  and "translation" in n.name.lower()]
+        assert checks == []
+
+    def test_the_validator_uses_the_surviving_rule(self):
+        ok, why = sp.brief_is_safe("He was at their feet", "любая фраза")
+        assert ok is False and "пересказ" in why
+
+    def test_real_author_briefs_survive_the_validator(self):
+        """Ровно те три брифа, на которых удалённое правило стояло в одном
+        слове от ложного отказа."""
+        for good in ("a steel helmet with a deep dent crushed into it",
+                     "a human skull with wounds on it",
+                     "an undamaged breastplate with no hole in it"):
+            assert sp.brief_is_shot_like(good) is True
+        # И тот же бриф, переформулированный с личной формой глагола —
+        # удалённое правило отвергло бы его, форма не отвергает.
+        assert sp.brief_is_shot_like(
+            "a breastplate that has a hole in it") is True
+
+    def test_the_surviving_rule_catches_what_the_removed_one_missed(self):
+        """«lies» нет в списке глаголов удалённого правила — оно пропустило
+        бы этот пересказ. Форма ловит."""
+        assert sp.brief_is_shot_like("He lies in the mud") is False
+        assert sp.brief_is_shot_like("It rests on dark cloth") is False
+
+
+class TestShotIsOneMoment:
+    """Кадр — ОДИН момент, а не рассказ. Правило откалибровано на КОРПУСЕ
+    из 142 авторских брифов, а не на выборке из восьми: более одного
+    предложения среди них — НОЛЬ, ни один не оканчивается даже точкой,
+    медиана 9 слов. Ловит ровно тот промах, который детерминированный
+    замер оставил стоять: «Sword struck helmet - steel held. Arrow slid
+    over cuirass and missed.» — дословный перевод фразы без единого
+    местоимения, поэтому признак начала его не берёт."""
+
+    def test_two_sentences_are_rejected(self):
+        assert sp.brief_is_shot_like(
+            "Sword struck helmet - steel held. Arrow slid over cuirass "
+            "and missed.") is False
+
+    def test_a_trailing_period_is_not_a_second_sentence(self):
+        """Хвостовая точка — законный кадр, и одна из реальных верных
+        заявок замера её имеет. Спутать эти два случая значило бы отнять
+        годный кадр."""
+        assert sp.brief_is_shot_like(
+            "A warrior lying face down in mud, seemingly about to die."
+        ) is True
+
+    def test_no_author_brief_is_multi_sentence(self):
+        path = os.path.join(os.path.dirname(SCRIPTS_DIR),
+                            "videos", "02_ne-mechom", "script.txt")
+        if not os.path.exists(path):
+            pytest.skip("нет сценария эпизода 02")
+        import script_parser
+        briefs = [(b.get("shot_brief") or "").strip()
+                  for b in script_parser.parse_blocks(path)]
+        briefs = [b for b in briefs if b]
+        assert len(briefs) >= 100
+        assert [b for b in briefs if not sp.brief_is_shot_like(b)] == []
+
+    def test_the_deterministic_eval_loses_nothing_good(self):
+        """Пять остальных заявок детерминированного замера обязаны
+        пережить правило — иначе это не гейт, а глушилка."""
+        for good in ("A warrior in full chainmail armor being struck by "
+                     "a real battle sword",
+                     "A man stepping onto a battlefield",
+                     "A warrior in full protective gear",
+                     "A warrior standing up"):
+            assert sp.brief_is_shot_like(good) is True

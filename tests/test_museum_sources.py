@@ -694,3 +694,51 @@ class TestCultureQualifierStaysOutOfMuseum:
         block = src[start:src.index("\ndef candidate_gate_signature", start)]
         assert "MUSEUM_RAW_QUERY_VERSION" in block
         assert isinstance(_ps.MUSEUM_RAW_QUERY_VERSION, int)
+
+
+def test_precolumbian_america_is_foreign():
+    """Намерение списка культур («доколумбова Америка — чужая») должно
+    выполняться на ИМЕНАХ, которыми Мет реально каталогизирует эти
+    предметы, а не только на mesoamerican/aztec/maya/inca.
+
+    Найдено 16.09 негативным контролем на живом брифе: «a steel gorget and
+    bevor covering the throat and the neck» первыми четырьмя ответами
+    каталога дал неожерелья доколумбовой Америки.
+    """
+    for culture in ("Tairona", "Tairona People; Gayraca style", "Olmec",
+                    "Indigenous American (Pre-Columbian)",
+                    "Indigenous American (Olmec peoples)",
+                    "Indigenous American (Costa Rican)", "Costa Rica",
+                    "Costa Rican", "Colombia", "Colombian", "Ecuador",
+                    "Veracruz", "Mixtec", "Toltec", "Panamanian"):
+        assert ms.culture_is_foreign(culture), culture
+
+
+def test_european_cultures_survive_the_precolumbian_terms():
+    """Негативный контроль той же правки: ни одна европейская культура
+    канала не стала чужой. Без этой половины список можно было бы
+    «улучшать» до полного обнуления корпуса."""
+    for culture in ("Italian, Venice", "French", "German, Nuremberg",
+                    "Flemish, possibly Antwerp", "Spanish, possibly Granada",
+                    "Western European", "British", "Swiss",
+                    "Italian, probably Milan", "possibly French or Flemish"):
+        assert not ms.culture_is_foreign(culture), culture
+
+
+def test_honduras_stays_out_of_the_list():
+    """ЛОВУШКА, пойманная негативным контролем и намеренно НЕ внесённая.
+
+    Единственное совпадение «honduras» во всём корпусе — «Casket, Italian,
+    Venice» (термин попал не в culture), то есть правило удалило бы
+    подлинный венецианский ларец. Тот же класс, что «зал» внутри «ЗАЛП».
+    Тест держит решение: вернуть термин можно только с новым замером.
+    """
+    assert "honduras" not in ms.DEFAULT_FOREIGN_CULTURE_TERMS
+
+
+def test_mexican_is_left_to_the_owner():
+    """Спорная культура кодом НЕ решается — тот же принцип, что у
+    Byzantine/Coptic/Armenian/Georgian. Выборка 485 предметов смешанная:
+    доколумбовы фигуры лежат рядом с колониальными розариями и триптихами
+    XVI века европейской формы, и поле culture у них одинаковое."""
+    assert not ms.culture_is_foreign("Mexican")

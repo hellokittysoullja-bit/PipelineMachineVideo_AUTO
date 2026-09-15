@@ -198,7 +198,17 @@ def test_allowlist_has_no_stale_entries(analysis):
 
 def _flag_read_sites():
     """Где в коде реально читается флаг: feature_flags.enabled("X"),
-    feature_flags.mode("X"), os.environ.get("X"), os.getenv("X")."""
+    feature_flags.mode("X"), feature_flags.value("X"), os.environ.get("X"),
+    os.getenv("X").
+
+    `value` добавлен 16.09 по РЕАЛЬНОМУ ложному срабатыванию, а не впрок:
+    `LUMA_MATCH` читается в pipeline_smart через `feature_flags.value()`,
+    и охранник объявлял живой флаг мёртвым. Ложная тревога здесь дороже
+    молчания: она учит не верить охраннику, после чего он перестаёт
+    ловить и настоящие находки. Список читателей обязан совпадать с тем,
+    что реально экспортирует feature_flags, — это проверяется отдельным
+    тестом ниже, иначе следующий новый читатель повторит ту же историю.
+    """
     sites = {}
     for fn in sorted(os.listdir(SCRIPTS_DIR)):
         if not fn.endswith(".py"):
@@ -206,7 +216,7 @@ def _flag_read_sites():
         path = os.path.join(SCRIPTS_DIR, fn)
         with open(path, encoding="utf-8") as f:
             src = f.read()
-        for m in re.finditer(r"""(?:enabled|mode|environ\.get|getenv)\(\s*["']([A-Z0-9_]+)["']""", src):
+        for m in re.finditer(r"""(?:enabled|mode|value|environ\.get|getenv)\(\s*["']([A-Z0-9_]+)["']""", src):
             sites.setdefault(m.group(1), set()).add(fn[:-3])
     return sites
 
@@ -255,3 +265,26 @@ def test_sound_resolver_has_one_implementation(tmp_path, monkeypatch):
 
     monkeypatch.setattr(ps, "SOUND_LIBRARY_ENABLED", False)
     assert ps.library_sounds("sfx", "plate_tick") == []
+
+
+def test_the_guard_knows_every_public_reader_of_the_registry():
+    """Охранник ищет чтение флага по ИМЕНИ функции-читателя. Появись в
+    feature_flags новый публичный читатель — охранник перестал бы его
+    видеть и объявил бы живой флаг мёртвым. Ровно это и случилось с
+    `value()` и `LUMA_MATCH`: красный тест доехал до общей ветки.
+    Поэтому список читателей сверяется с самим модулем, а не живёт
+    отдельной копией в регулярном выражении.
+    """
+    readers = {n for n in dir(feature_flags)
+               if not n.startswith("_")
+               and callable(getattr(feature_flags, n))
+               and n in ("enabled", "mode", "value")}
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "test_no_dead_layers.py"), encoding="utf-8").read()
+    pattern = re.search(r"re\.finditer\(r\"{3}(.+?)\"{3}", src, re.S)
+    assert pattern, "не найдено выражение поиска читателей"
+    known = pattern.group(1)
+    unseen = sorted(r for r in readers if r not in known)
+    assert not unseen, (
+        "feature_flags экспортирует читателей, которых охранник не ищет — "
+        "живой флаг будет объявлен мёртвым: " + ", ".join(unseen))
