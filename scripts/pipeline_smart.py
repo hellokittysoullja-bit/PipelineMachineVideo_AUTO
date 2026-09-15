@@ -6218,7 +6218,8 @@ def _openverse_fetch_one(api_query, _ov):
 
 def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=None, target_luma=None,
                   director_score_fn=None, director_assist=False, director_report=None,
-                  extra_queries=None, text_key=None, arbiter_text=None, is_opening_shot=False):
+                  extra_queries=None, text_key=None, arbiter_text=None, is_opening_shot=False,
+                  shot_brief=None):
     """used_ids — множество ID уже показанных в этом ролике фото (мутируется на
     месте). Разные блоки часто ловят один и тот же тематический запрос — без
     этого им всем доставался бы top-1 результат, то есть одна и та же картинка
@@ -6459,7 +6460,16 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                 if source_name == "museum":
                     fetched = fetch(pq, department=department)
                 elif source_name == "shelf":
-                    fetched = fetch(pq)
+                    # ПОЛКЕ уходит БРИФ — описание кадра, написанное автором
+                    # для ЭТОЙ фразы ([shot:...] рядом с ней в script.txt), а
+                    # не запрос секции, который делят десять слотов. В этом и
+                    # весь смысл: полка сравнивает описание с изображениями, и
+                    # чем полнее описание, тем точнее ответ — ровно наоборот
+                    # к поиску по словам, где каждое лишнее слово сужает
+                    # выдачу до нуля (замер на Europeana: пятисловные запросы
+                    # эпизода дают 0 на всех девяти). Брифа нет — берём
+                    # авторский запрос, то есть прежнее поведение.
+                    fetched = fetch(pq, brief=shot_brief or None)
                 else:
                     fetched = fetch(api_q)
                 for p in fetched:
@@ -13919,14 +13929,16 @@ def main():
                                       director_score_fn=director_score_fn, director_assist=director_assist,
                                       director_report=director_entry,
                                       extra_queries=section_query_pool.get(b["section"]), text_key=sem_text,
-                                      arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot)
+                                      arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot,
+                                      shot_brief=b.get("shot_brief"))
             else:
                 photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
                                       recent_sizes=recent_shot_sizes, target_luma=luma_ema,
                                       director_score_fn=director_score_fn, director_assist=director_assist,
                                       director_report=director_entry,
                                       extra_queries=section_query_pool.get(b["section"]), text_key=sem_text,
-                                      arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot)
+                                      arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot,
+                                      shot_brief=b.get("shot_brief"))
                 if not photo and d >= MIN_CLIP + 1.0:
                     video = pexels_video(queries[i], i, used_ids=used_video_ids, used_hashes=used_photo_hashes,
                                          action_qualifier=act_qual,

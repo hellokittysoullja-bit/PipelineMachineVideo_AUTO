@@ -39,7 +39,7 @@ PAUSE_DURATIONS = {"[pause]": 0.8, "[short pause]": 0.4,
 # посимвольный alignment он попал, сходство текста блока с озвученным упало
 # 1.000 -> 0.889 при пороге 0.9, и PHRASE LOCK выключился на ВЕСЬ эпизод:
 # кадры поехали по оценочным длительностям вместо реальных онсетов речи.
-PIPELINE_ONLY_TAG_RE = re.compile(r'\[(?:stat:[^\]]*|climax|sfx:[^\]]*|hush)\]',
+PIPELINE_ONLY_TAG_RE = re.compile(r'\[(?:stat:[^\]]*|climax|sfx:[^\]]*|hush|shot:[^\]]*)\]',
                                   re.IGNORECASE)
 
 
@@ -134,6 +134,19 @@ def parse_blocks(path):
     # Оба — пайплайн-only маркеры, как [stat:...] и [climax]: в текст для
     # TTS не попадают (см. ЧАСТЬ 10 CLAUDE.md).
     content = re.sub(r'\[sfx:(.*?)\]', lambda m: f"\x03SFX:{m.group(1)}\x03", content)
+    # [shot:описание кадра] — ЗАПИСКА АВТОРА О ТОМ, ЧТО ПОКАЗАТЬ, стоящая
+    # рядом с той самой фразой, о которой она написана.
+    #
+    # Почему инлайн, а не отдельная секция сценария. Секция пришлось бы
+    # ключевать по номеру юнита, а номера сдвигаются от ЛЮБОЙ правки текста
+    # выше по сценарию — и бриф молча описывал бы чужую фразу. Ровно тот
+    # баг, от которого защищается lock в шотлисте («lock действует только
+    # при совпадении фразы блока с текущим script.txt»). Инлайн-тег ездит
+    # ВМЕСТЕ со своей фразой, разъехаться физически не может.
+    #
+    # Блок он НЕ режет и в TTS не уезжает — общий словарь пайплайн-only
+    # тегов выше, тот же механизм, что у [sfx:].
+    content = re.sub(r'\[shot:(.*?)\]', lambda m: f"\x05SHOT:{m.group(1)}\x05", content)
     content = content.replace("[hush]", "\x04HUSH\x04")
     processed = content
     for tag in sorted(PAUSE_DURATIONS, key=len, reverse=True):
@@ -152,9 +165,10 @@ def parse_blocks(path):
               f"[long pause] запрещён явно (ломает TTS-артефактами) — проверь script.txt.")
     processed = re.sub(r'\[.*?\]', '', processed)
     parts = re.split(r'(__PAUSE_[\d.]+__|\x00SECTION:.*?\x00|\x01STAT:.*?\x01|\x02CLIMAX\x02'
-                     r'|\x03SFX:.*?\x03|\x04HUSH\x04)', processed)
+                     r'|\x03SFX:.*?\x03|\x04HUSH\x04|\x05SHOT:.*?\x05)', processed)
     blocks, cur, pause, stat, stat_word_pos, pending_climax = [], "", 0.0, None, None, False
     sfx, hush = [], False
+    shot_brief = None
     # [sfx:...] стоит ВНУТРИ фразы и монтаж не режет. Но он разбивает строку
     # на части, и если к этому моменту висит несъеденная пауза (она осталась
     # от [pause] перед блоком), следующий же огрызок — хоть одна точка —
@@ -164,14 +178,16 @@ def parse_blocks(path):
     section = "BODY"
 
     def flush():
-        nonlocal cur, pause, stat, stat_word_pos, pending_climax, sfx, hush
+        nonlocal cur, pause, stat, stat_word_pos, pending_climax, sfx, hush, shot_brief
         if cur:
             blocks.append({"text": cur, "pause_after": pause,
                            "words": len(cur.split()), "section": section, "stat": stat,
                            "stat_word_pos": stat_word_pos, "is_climax": pending_climax,
-                           "sfx": list(sfx), "hush": hush})
+                           "sfx": list(sfx), "hush": hush,
+                           "shot_brief": shot_brief})
         cur, pause, stat, stat_word_pos, pending_climax = "", 0.0, None, None, False
         sfx, hush = [], False
+        shot_brief = None
 
     for part in parts:
         mp = re.match(r'__PAUSE_([\d.]+)__', part)
@@ -235,6 +251,16 @@ def parse_blocks(path):
             name = part[len("\x03SFX:"):-1].strip()
             if name:
                 sfx.append({"name": name, "word_pos": len(cur.split())})
+            merge_next = bool(cur)
+        elif part.startswith("\x05SHOT:"):
+            # Тег описывает ВЕСЬ юнит, поэтому граница блока здесь такая же,
+            # как у [sfx:]: пауза уже открыта -> это начало следующей фразы,
+            # и бриф принадлежит ЕЙ, а не предыдущей.
+            if pause > 0 and cur:
+                flush()
+            brief = part[len("\x05SHOT:"):-1].strip()
+            if brief:
+                shot_brief = brief
             merge_next = bool(cur)
         elif part == "\x04HUSH\x04":
             hush = True
