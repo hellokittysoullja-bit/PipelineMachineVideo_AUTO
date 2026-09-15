@@ -24,6 +24,9 @@ sys.argv = ["pipeline_smart.py", tempfile.gettempdir()]
 
 import shot_planner_llm as sp  # noqa: E402
 
+# Пустой контекст для проверок, которые про контекст НЕ говорят.
+NOCTX = {"section": "", "prev": []}
+
 FIX = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                    "fixtures", "shot_planner")
 
@@ -184,15 +187,15 @@ class TestAuthorAlwaysWins:
     def test_author_brief_is_never_overwritten(self):
         blocks = [{"text": "Стрела скользнула по нагруднику.",
                    "shot_brief": "a dented breastplate, close up"}]
-        plan = {sp.unit_key(blocks[0]["text"]): {"shot_en": "something else",
-                                                 "function": "object"}}
+        plan = {sp.unit_key(blocks[0]["text"], sp.unit_context(blocks, 0)):
+                {"shot_en": "something else", "function": "object"}}
         filled = sp.fill_briefs(blocks, plan)
         assert filled == 0
         assert blocks[0]["shot_brief"] == "a dented breastplate, close up"
 
     def test_empty_brief_is_filled(self):
         blocks = [{"text": "Рыцарей убивала земля.", "shot_brief": None}]
-        plan = {sp.unit_key(blocks[0]["text"]):
+        plan = {sp.unit_key(blocks[0]["text"], sp.unit_context(blocks, 0)):
                 {"shot_en": "muddy churned battlefield ground", "function": "scene"}}
         assert sp.fill_briefs(blocks, plan) == 1
         assert blocks[0]["shot_brief"] == "muddy churned battlefield ground"
@@ -200,7 +203,8 @@ class TestAuthorAlwaysWins:
 
     def test_whitespace_brief_counts_as_absent(self):
         blocks = [{"text": "Рыцарей убивала земля.", "shot_brief": "   "}]
-        plan = {sp.unit_key(blocks[0]["text"]): {"shot_en": "muddy ground wide"}}
+        plan = {sp.unit_key(blocks[0]["text"], sp.unit_context(blocks, 0)):
+                {"shot_en": "muddy ground wide"}}
         assert sp.fill_briefs(blocks, plan) == 1
 
     def test_no_plan_changes_nothing(self):
@@ -215,21 +219,23 @@ class TestKeyedByPhraseNotIndex:
     защищается lock в шотлисте и ради которого [shot:] сделан инлайновым."""
 
     def test_same_text_same_key(self):
-        assert sp.unit_key("Рыцарей убивала земля.") == sp.unit_key("Рыцарей убивала земля.")
+        assert sp.unit_key("Рыцарей убивала земля.", NOCTX) == \
+            sp.unit_key("Рыцарей убивала земля.", NOCTX)
 
     def test_whitespace_is_normalised(self):
-        assert sp.unit_key("Рыцарей  убивала\n земля.") == sp.unit_key("Рыцарей убивала земля.")
+        assert sp.unit_key("Рыцарей  убивала\n земля.", NOCTX) == \
+            sp.unit_key("Рыцарей убивала земля.", NOCTX)
 
     def test_different_text_different_key(self):
-        assert sp.unit_key("Первая фраза.") != sp.unit_key("Вторая фраза.")
+        assert sp.unit_key("Первая фраза.", NOCTX) != sp.unit_key("Вторая фраза.", NOCTX)
 
     def test_prompt_version_enters_the_key(self, monkeypatch):
         """Переписанный промпт обязан считаться заново, иначе план молча
         останется от прошлой формулировки — тот же класс, что уже закрыт у
         кэша вердиктов VLM-арбитра."""
-        a = sp.unit_key("Фраза.")
+        a = sp.unit_key("Фраза.", NOCTX)
         monkeypatch.setattr(sp, "PLANNER_PROMPT_VERSION", sp.PLANNER_PROMPT_VERSION + 1)
-        assert sp.unit_key("Фраза.") != a
+        assert sp.unit_key("Фраза.", NOCTX) != a
 
 
 class TestFailOpenNeverBreaksTheRender:
@@ -263,7 +269,7 @@ class TestFailOpenNeverBreaksTheRender:
         monkeypatch.setitem(sp.STATS, "calls", sp.MAX_CALLS_PER_RUN)
         called = []
         monkeypatch.setattr(sp, "_run_model", lambda p: called.append(1))
-        assert sp.plan_unit("любая фраза", None) is None
+        assert sp.plan_unit("любая фраза", NOCTX, None) is None
         assert called == []
 
 
@@ -288,3 +294,233 @@ class TestWiredIntoTheRender:
         src = open(os.path.join(SCRIPTS_DIR, "feature_flags.py"),
                    encoding="utf-8").read()
         assert 'Flag("SHOT_PLANNER_LLM", "0"' in src
+
+
+class TestContextReachesTheModel:
+    """ИЗМЕРЕННЫЙ дефект, а не гипотеза: на эпизоде 02 у 24 юнитов из 142
+    (17%) отсылка стоит в первых трёх словах, то есть антецедент физически
+    вне юнита. Архетип — «При этом ОН был под ногами у каждого из НИХ»:
+    модель без контекста ответила на него пересказом «He was at their
+    feet», хотя «он» объяснён предыдущей фразой («Главного убийцу рыцарей
+    нельзя выковать»).
+    """
+
+    def test_previous_phrases_are_in_the_context(self):
+        blocks = [{"text": "Главного убийцу рыцарей нельзя выковать.",
+                   "section": "HOOK"},
+                  {"text": "И вот тут начинается главное.", "section": "HOOK"},
+                  {"text": "При этом он был под ногами у каждого из них.",
+                   "section": "HOOK"}]
+        ctx = sp.unit_context(blocks, 2)
+        assert ctx["section"] == "HOOK"
+        assert ctx["prev"] == ["Главного убийцу рыцарей нельзя выковать.",
+                               "И вот тут начинается главное."]
+
+    def test_context_reaches_the_prompt(self):
+        blocks = [{"text": "Главного убийцу рыцарей нельзя выковать."},
+                  {"text": "При этом он был под ногами."}]
+        prompt = sp.build_prompt(blocks[1]["text"], sp.unit_context(blocks, 1))
+        assert "Главного убийцу рыцарей нельзя выковать." in prompt
+        # Сама фраза обязана остаться на месте и ПОСЛЕ контекста: модель
+        # описывает кадр для неё, а не для предыстории.
+        assert prompt.index("Главного убийцу") < prompt.index("При этом он был")
+
+    def test_context_enters_the_cache_key(self):
+        """Не войди контекст в ключ — правка соседней фразы оставила бы
+        ответ, данный на ДРУГОЙ вопрос, и увидеть это было бы негде. Тот же
+        класс, ради которого заведён candidate_brief_key."""
+        a = [{"text": "Главного убийцу рыцарей нельзя выковать."},
+             {"text": "При этом он был под ногами."}]
+        b = [{"text": "Возьми настоящий боевой меч."},
+             {"text": "При этом он был под ногами."}]
+        ka = sp.unit_key(a[1]["text"], sp.unit_context(a, 1))
+        kb = sp.unit_key(b[1]["text"], sp.unit_context(b, 1))
+        assert ka != kb
+
+    def test_planning_and_filling_agree_on_the_key(self):
+        """Обе стороны обязаны строить контекст ОДНОЙ функцией. Разойдись
+        они — план был бы записан под одним ключом, а прочитан по другому,
+        и заявка молча не доезжала бы до брифа."""
+        blocks = [{"text": "Главного убийцу рыцарей нельзя выковать.",
+                   "section": "HOOK"},
+                  {"text": "При этом он был под ногами.", "section": "HOOK",
+                   "shot_brief": None}]
+        plan = {sp.unit_key(blocks[1]["text"], sp.unit_context(blocks, 1)):
+                {"shot_en": "churned wet earth underfoot", "function": "scene"}}
+        assert sp.fill_briefs(blocks, plan) == 1
+        assert blocks[1]["shot_brief"] == "churned wet earth underfoot"
+
+    def test_context_does_not_look_forward(self):
+        """Эпизод намеренно придерживает ответ («Я его назову. Но если
+        сказать прямо сейчас, ты пожмёшь плечами») — кадр, собранный по ещё
+        не прозвучавшей фразе, выдал бы разгадку раньше диктора."""
+        blocks = [{"text": "Я его назову."},
+                  {"text": "Рыцарей убивала земля."}]
+        ctx = sp.unit_context(blocks, 0)
+        assert ctx["prev"] == []
+        assert "земля" not in sp.build_prompt(blocks[0]["text"], ctx)
+
+    def test_first_unit_has_no_previous_and_still_works(self):
+        blocks = [{"text": "Первая фраза эпизода.", "section": "HOOK"}]
+        ctx = sp.unit_context(blocks, 0)
+        assert ctx["prev"] == []
+        assert sp.unit_key(blocks[0]["text"], ctx)
+        assert "Фраза диктора" in sp.build_prompt(blocks[0]["text"], ctx)
+
+    def test_context_is_fail_open_on_junk(self):
+        for bad in ([], [None], ["строка"], [{"text": None}]):
+            ctx = sp.unit_context(bad, 0)
+            assert isinstance(ctx, dict)
+            assert isinstance(sp.context_text(ctx), str)
+        assert sp.context_text(None) == ""
+
+    def test_forgetting_the_context_is_loud(self):
+        """Параметр без значения по умолчанию — намеренно: забывчивый
+        вызывающий получает TypeError сразу, а не тихо чужой кадр. Тот же
+        довод, по которому отказ VLM-арбитра сделан отдельным типом."""
+        import pytest
+        with pytest.raises(TypeError):
+            sp.unit_key("Фраза.")
+        with pytest.raises(TypeError):
+            sp.build_prompt("Фраза.")
+
+
+class TestShotShapeGate:
+    """Описание кадра начинается с того, ЧТО в кадре. Начало с местоимения
+    означает пересказ фразы вместо картинки.
+
+    ИЗМЕРЕНО на данных этого канала, не предположено:
+      * 142 авторских брифа эпизода 02 — ложных отказов НОЛЬ;
+      * записанные ответы модели v3 — пойман 1 из 8, годных не потеряно;
+      * записанные ответы модели v2 — поймано 2 из 8, ровно те два, что
+        переписывание промпта закрывало словами.
+    """
+
+    def test_real_model_failure_is_rejected(self):
+        assert sp.brief_is_shot_like("He was at their feet") is False
+        assert sp.brief_is_shot_like("You have not been injured.") is False
+        assert sp.brief_is_shot_like("This object will be revisited") is False
+
+    def test_real_model_successes_survive(self):
+        for good in ("A warrior standing up",
+                     "A warrior in full iron armor being struck by a battle sword",
+                     "A warrior lying face down in mud, seemingly about to die.",
+                     "A sword strikes a helmet; the helmet resists."):
+            assert sp.brief_is_shot_like(good) is True
+
+    def test_no_author_brief_of_the_real_episode_is_rejected(self):
+        """Самая сильная проверка: правило прогоняется по ВСЕМУ корпусу
+        настоящих авторских брифов эпизода, а не по придуманным примерам."""
+        path = os.path.join(os.path.dirname(SCRIPTS_DIR),
+                            "videos", "02_ne-mechom", "script.txt")
+        if not os.path.exists(path):
+            import pytest
+            pytest.skip("нет сценария эпизода 02")
+        import script_parser
+        briefs = [(b.get("shot_brief") or "").strip()
+                  for b in script_parser.parse_blocks(path)]
+        briefs = [b for b in briefs if b]
+        assert len(briefs) >= 100          # выборка обязана быть настоящей
+        rejected = [b for b in briefs if not sp.brief_is_shot_like(b)]
+        assert rejected == []
+
+    def test_the_gate_is_wired_into_parse_reply(self):
+        got = sp.parse_reply('{"shot_en": "He was at their feet", '
+                             '"function": "scene"}')
+        assert got is None
+        ok = sp.parse_reply('{"shot_en": "churned wet earth underfoot", '
+                            '"function": "scene"}')
+        assert ok and ok["shot_en"] == "churned wet earth underfoot"
+
+    def test_rejection_is_counted_separately_from_invalid(self):
+        before = dict(sp.STATS)
+        sp.parse_reply('{"shot_en": "He was at their feet"}')
+        assert sp.STATS["not_a_shot"] == before["not_a_shot"] + 1
+        assert sp.STATS["invalid"] == before["invalid"]
+
+    def test_word_boundary_is_respected(self):
+        """«Itinerant», «Theatre», «Wedge» начинаются с тех же букв и
+        кадрами являются. Правило стоит на СЛОВЕ, а не на префиксе — тот
+        же приём, что уже держит словарь атмосферы от «зал» внутри «ЗАЛП»."""
+        for good in ("Itinerant merchants on a muddy road",
+                     "Theatre of war seen from a hill",
+                     "Wedge formation of armoured knights",
+                     "Iron gauntlet on dark cloth",
+                     "Weapons rack in a stone hall"):
+            assert sp.brief_is_shot_like(good) is True
+
+
+class TestPlanningWalksTheFullScript:
+    """Контекст юнита — соседние фразы СЦЕНАРИЯ, включая те, у которых бриф
+    уже написан автором. Иди цикл по отфильтрованному списку — «предыдущей»
+    оказалась бы фраза через две главы. Тот же класс промаха, что уже стоил
+    arc_stage 151 слота из 165 (N4 аудита), когда стадия бралась по индексу
+    ЦИКЛА вместо исходного индекса блока.
+    """
+
+    def _blocks(self):
+        return [{"text": "Главного убийцу рыцарей нельзя выковать.",
+                 "section": "HOOK", "shot_brief": "a dark empty museum case"},
+                {"text": "При этом он был под ногами.",
+                 "section": "HOOK", "shot_brief": None}]
+
+    def test_context_of_a_planned_unit_sees_the_authored_neighbour(
+            self, tmp_path, monkeypatch):
+        seen = []
+
+        def fake_run(prompt):
+            seen.append(prompt)
+            return '{"shot_en": "churned wet earth underfoot", "function": "scene"}'
+
+        monkeypatch.setattr(sp, "_run_model", fake_run)
+        blocks = self._blocks()
+        plan = sp.plan_episode(str(tmp_path), blocks, verbose=False)
+        assert len(seen) == 1                      # авторский юнит не спрашивали
+        assert "Главного убийцу рыцарей нельзя выковать." in seen[0]
+        # И тем же ключом заявка обязана доехать до брифа.
+        assert sp.fill_briefs(blocks, plan) == 1
+        assert blocks[1]["shot_brief"] == "churned wet earth underfoot"
+
+    def test_plan_survives_a_round_trip_through_disk(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            sp, "_run_model",
+            lambda prompt: '{"shot_en": "churned wet earth underfoot"}')
+        blocks = self._blocks()
+        sp.plan_episode(str(tmp_path), blocks, verbose=False)
+        fresh = self._blocks()
+        assert sp.fill_briefs(fresh, sp.load_plan(str(tmp_path))) == 1
+
+
+class TestStalePlanNamesItsOwnCause:
+    """Версия промпта и имя модели входят в unit_key, поэтому план от
+    прошлой версии не совпал бы ни одним ключом и так. Проверка нужна
+    ради ПРИЧИНЫ: без неё рендер объяснял бы пустой результат правкой
+    сценария и валил бы на автора то, что сделало обновление кода."""
+
+    def _write(self, tmp_path, **over):
+        mp = tmp_path / "media_plan"
+        mp.mkdir(parents=True, exist_ok=True)
+        data = {"version": sp.PLANNER_PROMPT_VERSION,
+                "model": os.path.basename(sp.LLAMA_MODEL),
+                "units": {"abc": {"shot_en": "muddy ground"}}}
+        data.update(over)
+        (mp / sp.PLAN_NAME).write_text(
+            json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+    def test_current_plan_loads(self, tmp_path):
+        self._write(tmp_path)
+        assert sp.load_plan(str(tmp_path)) == {"abc": {"shot_en": "muddy ground"}}
+
+    def test_plan_of_an_older_prompt_is_dropped_with_a_reason(
+            self, tmp_path, capsys):
+        self._write(tmp_path, version=sp.PLANNER_PROMPT_VERSION - 1)
+        assert sp.load_plan(str(tmp_path)) == {}
+        out = capsys.readouterr().out
+        assert "промптом v" in out and "перезапусти" in out
+
+    def test_plan_of_another_model_is_dropped_with_a_reason(
+            self, tmp_path, capsys, monkeypatch):
+        monkeypatch.setattr(sp, "LLAMA_MODEL", "/models/qwen-now.gguf")
+        self._write(tmp_path, model="qwen-before.gguf")
+        assert sp.load_plan(str(tmp_path)) == {}
+        assert "моделью qwen-before.gguf" in capsys.readouterr().out

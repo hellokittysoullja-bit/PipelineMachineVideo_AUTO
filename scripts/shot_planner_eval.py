@@ -85,7 +85,11 @@ def main(argv):
     for n, (i, b, cls) in enumerate(units, 1):
         text = (b.get("text") or "").strip()
         t1 = time.time()
-        got = planner.plan_unit(text, None)      # без кэша: меряем модель
+        # Контекст строится ТОЙ ЖЕ функцией, что в проде. Мерить модель на
+        # промпте, отличном от рабочего, — значит получить число, которое
+        # ни к чему не относится.
+        ctx = planner.unit_context(blocks, i)
+        got = planner.plan_unit(text, ctx, None)  # без кэша: меряем модель
         dt = time.time() - t1
         print(f"[{i:3}] ({cls}) {text[:88]}")
         if got:
