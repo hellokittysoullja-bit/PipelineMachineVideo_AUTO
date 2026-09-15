@@ -293,3 +293,34 @@ def test_contact_sheet_reports_answer_diversity(monkeypatch, tmp_path, capsys):
                           encoding="utf-8"))
     assert rep["distinct_top1"] == 2 and rep["top1_answers"] == 3
     assert rep["most_repeated_top1"][1] == 2
+
+
+# --------------------------------------- атрибуция источника в отчёте
+
+def test_every_candidate_prefix_is_named_in_the_report():
+    """Неизвестный префикс id молча падает в ветку «числовой id» и
+    записывается как Pexels.
+
+    Реальная цена, найденная сквозным прогоном 15.09: `euro:` в списке не
+    было, и победа кандидата Europeana попала в `source_contribution.json`
+    как победа Pexels — на машине, где ключа Pexels вообще нет. То есть
+    отчёт называл источником кадра тот, который в прогоне не участвовал."""
+    import pipeline_smart as ps
+
+    assert ps.candidate_source({"id": "euro:/9200122/X"}) == "euro"
+    assert ps.candidate_source({"id": "met:32684"}) == "met"
+    assert ps.candidate_source({"id": "33508363"}) == "pexels"
+
+
+def test_shelf_candidate_ids_are_covered_by_the_prefix_table():
+    """Список префиксов обязан покрывать КАЖДЫЙ префикс, который реально
+    выдаёт хоть один сборщик кандидатов. Проверяем не список против списка,
+    а против того, что модули действительно строят."""
+    import pipeline_smart as ps
+
+    built = {"met:32684", "euro:/9200122/X", "openverse:uuid", "pixabay:12",
+             "unsplash:abc", "chicago:1", "cleveland:2"}
+    for cid in built:
+        prefix = cid.split(":", 1)[0]
+        assert ps.candidate_source({"id": cid}) == prefix, cid
+        assert prefix in ps.CANDIDATE_ID_PREFIXES

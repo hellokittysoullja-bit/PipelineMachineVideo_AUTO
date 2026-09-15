@@ -4371,11 +4371,26 @@ _SOURCE_STAT_FIELDS = ("offered", "considered", "gate_passed", "won", "search_er
 _SOURCE_ERROR_PRINTED = set()
 
 
+#: Префиксы id -> имя источника в отчёте. Список ДОЛЖЕН покрывать каждый
+#: префикс, который реально выдаёт хоть один сборщик кандидатов: неизвестный
+#: префикс молча падает в ветку «числовой id» и записывается как Pexels.
+#: Реальная цена, найденная сквозным прогоном 15.09: `euro:` в списке не
+#: было, и победа кандидата Europeana попала в отчёт как победа Pexels — на
+#: машине, где ключа Pexels вообще нет. То есть `source_contribution.json`
+#: называл источником кадра тот, который в прогоне не участвовал, а вклад
+#: реально работавшего корпуса был невидим. Тот же класс, что этот файл уже
+#: закрывал счётчиками SOURCE_STATS: «источник мог молча давать НОЛЬ, и
+#: узнать об этом было неоткуда» — здесь наоборот, источник молча давал
+#: чужое имя.
+CANDIDATE_ID_PREFIXES = ("met", "euro", "chicago", "cleveland", "openverse",
+                         "pixabay", "unsplash")
+
+
 def candidate_source(p):
-    """Источник кандидата по префиксу его id: met:/chicago:/cleveland:/
-    openverse:/pixabay:/unsplash:; числовой id без префикса — Pexels."""
+    """Источник кандидата по префиксу его id; числовой id без префикса —
+    Pexels (единственный источник, отдающий голые числовые id)."""
     pid = str((p or {}).get("id", "") if isinstance(p, dict) else (p or ""))
-    for prefix in ("met", "chicago", "cleveland", "openverse", "pixabay", "unsplash"):
+    for prefix in CANDIDATE_ID_PREFIXES:
         if pid.startswith(prefix + ":"):
             return prefix
     return "pexels"
