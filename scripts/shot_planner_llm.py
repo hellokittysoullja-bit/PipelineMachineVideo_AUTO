@@ -127,7 +127,7 @@ PLAN_NAME = "shot_plan.json"
 # У плана может быть два автора: пофразовый планировщик (версия промпта)
 # и режиссёр главы (версия пакета). Поле `planner` в файле называет, чей
 # он, — иначе предупреждение о версии сравнивало бы разные шкалы.
-PACKET_VERSION_OF = {"shot_brief_director": 2}
+PACKET_VERSION_OF = {"shot_brief_director": 3}
 CACHE_DIR_NAME = "shot_plan_cache"
 
 SYSTEM_PROMPT = (

@@ -57,7 +57,7 @@ import shot_planner_llm     # noqa: E402
 # Версия ПАКЕТА и разбора. Входит в ключ кэша главы: переписанный пакет
 # обязан считаться заново, иначе план молча останется от прошлой
 # формулировки — тот же класс, что уже закрыт у кэша вердиктов арбитра.
-PACKET_VERSION = 2
+PACKET_VERSION = 3
 
 PLAN_NAME = shot_planner_llm.PLAN_NAME
 CACHE_DIR_NAME = "shot_brief_cache"
@@ -333,6 +333,34 @@ def render_prompt(packet):
 
 _ROW_RE = re.compile(r"^\s*\**\s*(\d{1,3})\s*[|.)]\s*(.*)$")
 
+# Слова из описаний кадра в FEWSHOT. Пример стоит в промпте НАРОЧНО на
+# чужой теме (Рим, дороги): бриф из этого же эпизода подсказал бы модели
+# готовые ответы ровно на тех фразах, на которых её потом меряют. Побочный
+# эффект измерен: 1 заявка из ~80 у 7B копирует пример дословно — «a
+# battlefield with a straight roman stone road in the background» и «a
+# roman stone road in a hilly landscape, 1461 AD». Второе ушло бы в сток
+# как есть и принесло римскую дорогу в эпизод про Войну Роз; ни один гейт
+# этого не ловит — слова эпохи там формально нет, а `roman` не в блоклисте.
+#
+# Проверка НЕ про Рим, а про КОПИРОВАНИЕ ПРИМЕРА: она останется верной,
+# если пример когда-нибудь заменят на другой. Заодно это довод в пользу
+# заведомо чужой темы примера — утечка из неё ВИДНА, а утечка из
+# средневекового примера выглядела бы правдоподобно и прошла бы мимо.
+_FEWSHOT_SHOTS = [ln.split("|")[-1].strip().lower()
+                  for ln in FEWSHOT.splitlines() if "|" in ln]
+# Строка-прочерк («3 | - | -») значимых слов не даёт вовсе, а набор короче
+# порога совпасть с ним не может. Пустой набор в списке сделал бы гвард
+# тихим no-op на этой строке и заодно ронял собственный тест — поймано
+# тестом до коммита, а не рассуждением.
+_FEWSHOT_WORDS = [w for w in (set(re.findall(r"[a-z]{4,}", shot))
+                              for shot in _FEWSHOT_SHOTS) if len(w) >= 3]
+
+
+def copies_the_example(shot_en, min_shared=3):
+    """Заявка пересказывает пример из промпта, а не отвечает на фразу."""
+    words = set(re.findall(r"[a-z]{4,}", (shot_en or "").lower()))
+    return any(len(words & ex) >= min_shared for ex in _FEWSHOT_WORDS if ex)
+
 
 def parse_answer(raw, packet):
     """Ответ модели -> {номер фразы: заявка}. Битая строка теряет себя одну."""
@@ -359,6 +387,8 @@ def parse_answer(raw, packet):
         if not shot_planner_llm._LATIN_RE.search(shot):
             continue
         if not (2 <= len(shot.split()) <= 16):
+            continue
+        if copies_the_example(shot):
             continue
         got[n] = {"shot_en": shot, "function": fn, "forbidden": None,
                   "subject": None}

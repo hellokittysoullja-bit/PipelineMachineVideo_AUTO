@@ -289,3 +289,49 @@ def test_inline_never_overwrites_the_author(tmp_path):
                                      {0: {"shot_en": "something else"}},
                                      dry_run=True)
     assert placed == 0 and skipped[0][1] == "у автора уже есть бриф"
+
+
+# --- УТЕЧКА ПРИМЕРА ИЗ ПРОМПТА ---------------------------------------------
+#
+# Пример в промпте стоит на ЧУЖОЙ теме (Рим, дороги) намеренно: пример из
+# этого же эпизода подсказал бы готовые ответы ровно на тех фразах, на
+# которых модель потом меряют. Побочный эффект измерен на живых прогонах:
+# 1 заявка из ~80 у 7B копирует пример дословно.
+
+@pytest.mark.parametrize("shot", [
+    "a battlefield with a straight roman stone road in the background",
+    "a roman stone road in a hilly landscape, 1461 AD",
+    "A medieval stone road stretching across a landscape",
+])
+def test_example_leak_is_caught(shot):
+    """Все три — реальные заявки Qwen2.5-7B на фразы про вес доспеха, про
+    хроники и про кузницу. Вторая ушла бы в сток как есть и принесла бы
+    римскую дорогу в эпизод про Войну Роз; ни один существующий гейт её
+    не ловит — слова эпохи там формально нет."""
+    import shot_brief_director as d
+    assert d.copies_the_example(shot)
+
+
+@pytest.mark.parametrize("shot", [
+    "a dented steel breastplate, close up",
+    "a manuscript illumination of armoured men advancing on foot",
+    "a rondel dagger with both round discs, the whole weapon",
+    "an archaeological excavation of a mass grave with human bones",
+    "a steel gorget and bevor covering the throat and the neck",
+    "a straight european sword with a plain steel blade, the whole sword",
+])
+def test_example_guard_touches_nothing_real(shot):
+    """Негативный контроль, без которого проверка ничего не стоит: на 142
+    брифах автора, 107 брифах Claude и 111 заявках пофразовой 7B гвард
+    ловит НОЛЬ."""
+    import shot_brief_director as d
+    assert not d.copies_the_example(shot)
+
+
+def test_guard_is_about_copying_not_about_rome():
+    """Проверка обязана пережить замену примера: она про совпадение с
+    ТЕКУЩИМ FEWSHOT, а не про список слов про Рим."""
+    import shot_brief_director as d
+    assert d._FEWSHOT_WORDS, "пример разобран пустым — гвард стал no-op"
+    for words in d._FEWSHOT_WORDS:
+        assert d.copies_the_example(" ".join(sorted(words)))
