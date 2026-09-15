@@ -5971,7 +5971,13 @@ def _shelf_question_active():
         return False
     try:
         import shelf_index
-        return bool(shelf_index.available())
+        # index_present(), а НЕ available(): вторая зовёт load(), то есть
+        # читает всю матрицу векторов (136 МБ на полном индексе) и тянет
+        # `import torch, transformers` через сверку стека. Платить этим за
+        # строку ключа кэша нельзя — тем более что на сценическом слоте
+        # полка не спрашивается вообще (source_allowed_for("shelf",
+        # "scene") == False), и вся эта цена была бы чистой потерей.
+        return bool(shelf_index.index_present())
     except Exception:
         return False
 

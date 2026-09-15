@@ -36,6 +36,8 @@ import sys
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "scripts"))
 
+import pipeline_smart  # noqa: E402  (резолвер вопроса к полке — общий с рендером)
+
 
 def review(video_dir, top=3, missing_only=False, limit=None):
     import script_parser
@@ -73,14 +75,27 @@ def review(video_dir, top=3, missing_only=False, limit=None):
             print(f"\n=== {section}")
         phrase = (b.get("text") or "").strip()
         print(f"\n[{i:3}] {phrase[:96]}")
-        if not brief:
-            print("      бриф: — (слот пойдёт на авторский запрос секции, как раньше)")
+        # ЧЕМ полку спросят НА САМОМ ДЕЛЕ — тем же резолвером, что и
+        # продакшен. Найденный дефект (16.09): здесь печаталось «слот
+        # пойдёт на авторский запрос секции, как раньше», и это перестало
+        # быть правдой в тот момент, когда pexels_photo начал спрашивать
+        # полку фразой блока. Инструмент, существующий ровно для того,
+        # чтобы показать автору ответ полки ДО рендера, показывал не то,
+        # что сделает рендер. Вторая копия правила прожила меньше суток —
+        # ровно тот класс, ради которого shelf_question() и заведена.
+        question = pipeline_smart.shelf_question(brief, phrase)
+        if brief:
+            print(f"      бриф: {brief}")
+        elif question:
+            print(f"      бриф: — спрашиваем ФРАЗОЙ блока (полка сравнивает "
+                  f"описание с изображениями, ей запрос секции не нужен)")
+        else:
+            print("      бриф: — и фразы нет: слот пойдёт на авторский запрос секции")
             continue
-        print(f"      бриф: {brief}")
         if not shelf_ok:
             continue
-        res = shelf_index.search(brief, limit=top)
-        agr = shelf_index.name_agreement(brief)
+        res = shelf_index.search(question, limit=top)
+        agr = shelf_index.name_agreement(question)
         if agr is not None:
             hits, seen = agr
             mark = "" if hits else "   <-- полка отвечает НЕ О ТОМ, что просил бриф"
