@@ -240,6 +240,10 @@ def parse_reply(raw):
     """
     if not raw:
         return None
+    # Чистка и ЗДЕСЬ, а не только в _run_model: разбор вызывают и на
+    # сохранённых фикстурах, и на чужом выводе. Оформление потока —
+    # свойство источника, а не вызова, и защита обязана стоять у разбора.
+    raw = _clean_stream(raw)
     chunk = _last_json_object(raw)
     if not chunk:
         return None
@@ -283,11 +287,38 @@ def parse_reply(raw):
             "subject": subject}
 
 
+# Управляющие последовательности и одиночные символы, которыми llama-cli
+# оформляет поток (цвет, спиннер загрузки, перерисовка строки). В JSON они
+# попадают ВНУТРЬ слов — найдено на Q8-модели, где ответ выглядел так:
+#     "subject?": "?? человек??",  "?": "shot?_?en?": "a??? person?"
+# Q4 ту же ломку проскакивал случайно, то есть дефект был всё время и
+# ждал другой модели или другой скорости вывода.
+_CTRL_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _clean_stream(text):
+    """Снять оформление потока, не трогая сам текст."""
+    return _CTRL_RE.sub("", text or "")
+
+
 def _run_model(prompt):
     """Один живой вызов llama.cpp. Любая беда -> None, без исключения."""
+    # Промпт уходит ФАЙЛОМ, а не аргументом -p: он многострочный, содержит
+    # кавычки и разметку ChatML, и передача через argv зависит от шелла и
+    # длины командной строки. Файл убирает обе зависимости.
+    tmp_prompt = None
+    try:
+        import tempfile
+        fd, tmp_prompt = tempfile.mkstemp(suffix=".txt", text=True)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(prompt)
+    except Exception:
+        return None
     cmd = [LLAMA_BIN, "-m", LLAMA_MODEL, "-t", str(LLAMA_THREADS),
            "-c", "2048", "-n", str(MAX_TOKENS), "--temp", "0.2",
-           "--no-warmup", "--single-turn", "-p", prompt]
+           "--no-warmup", "--single-turn",
+           "--log-disable", "--log-colors", "off",
+           "-f", tmp_prompt]
     try:
         r = subprocess.run(cmd, capture_output=True, timeout=CALL_TIMEOUT_SEC,
                            encoding="utf-8", errors="replace")
@@ -296,13 +327,18 @@ def _run_model(prompt):
         return None
     except Exception:
         return None
+    finally:
+        if tmp_prompt:
+            try:
+                os.remove(tmp_prompt)
+            except OSError:
+                pass
     if r.returncode != 0:
         return None
     # Возвращается ВЕСЬ вывод: ответ из него достаёт _last_json_object().
     # Маркер `<|im_start|>assistant` для этого не годится — llama-cli
     # обрезает эхо промпта, и маркера в stdout нет.
-    out = r.stdout or ""
-    return out
+    return _clean_stream(r.stdout or "")
 
 
 def plan_unit(text, cache_dir=None):

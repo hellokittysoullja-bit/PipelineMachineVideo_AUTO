@@ -86,6 +86,64 @@ class TestParsingRealModelOutput:
         assert got["forbidden"] and "холодильник" in got["forbidden"]
 
 
+class TestStreamFormattingIsStripped:
+    """НАЙДЕНО СМЕНОЙ МОДЕЛИ, а не чтением кода (16.09).
+
+    llama-cli оформляет поток: цвет, спиннер загрузки, перерисовка строки.
+    Эти байты попадали ВНУТРЬ слов ответа, и на Q8-модели весь замер дал
+    0 разобранных из 8:
+
+        "subject?": "?? человек??",  "?": "shot?_?en?": "a??? person?"
+
+    Q4 ту же ломку проскакивал случайно — то есть дефект жил в модуле всё
+    время и ждал другой модели или другой скорости вывода. Если бы этот
+    результат был принят за КАЧЕСТВО Q8, вывод «более точная квантовка
+    хуже» был бы ложным.
+    """
+
+    def test_ansi_colour_inside_a_word_is_removed(self):
+        dirty = '{\x1b[32m"shot_en"\x1b[0m: "a warrior standing up"}'
+        got = sp.parse_reply(dirty)
+        assert got is not None
+        assert got["shot_en"] == "a warrior standing up"
+
+    def test_control_bytes_inside_a_word_are_removed(self):
+        got = sp.parse_reply('{"shot_en": "a\x08 warrior\x0c standing up"}')
+        assert got is not None
+        assert got["shot_en"] == "a warrior standing up"
+
+    def test_real_text_is_untouched(self):
+        clean = '{"shot_en": "a dented steel breastplate", "subject": "нагрудник"}'
+        assert sp.parse_reply(clean)["subject"] == "нагрудник"
+
+    def test_cleaning_lives_at_the_parser_not_only_at_the_call(self):
+        """Разбор зовут и на сохранённых фикстурах, и на чужом выводе:
+        оформление — свойство ИСТОЧНИКА, а не вызова."""
+        import ast
+        src = open(os.path.join(SCRIPTS_DIR, "shot_planner_llm.py"),
+                   encoding="utf-8").read()
+        tree = ast.parse(src)
+        fn = next(n for n in ast.walk(tree)
+                  if isinstance(n, ast.FunctionDef) and n.name == "parse_reply")
+        called = {getattr(c.func, "id", None) for c in ast.walk(fn)
+                  if isinstance(c, ast.Call)}
+        assert "_clean_stream" in called
+
+    def test_prompt_goes_through_a_file_not_argv(self):
+        """Промпт многострочный, с кавычками и разметкой ChatML: передача
+        через argv зависит от шелла и длины командной строки."""
+        import ast
+        src = open(os.path.join(SCRIPTS_DIR, "shot_planner_llm.py"),
+                   encoding="utf-8").read()
+        tree = ast.parse(src)
+        fn = next(n for n in ast.walk(tree)
+                  if isinstance(n, ast.FunctionDef) and n.name == "_run_model")
+        flags = [c.value for c in ast.walk(fn)
+                 if isinstance(c, ast.Constant) and isinstance(c.value, str)]
+        assert "-f" in flags and "-p" not in flags
+        assert "--log-disable" in flags
+
+
 class TestValidationRefusesGarbage:
     """Рендер никогда не доверяет плану без проверки — тот же принцип, что
     у speech_plan.json. Невалидный ответ обязан дать None, а не мусор."""
