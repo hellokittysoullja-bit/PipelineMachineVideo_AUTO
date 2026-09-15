@@ -8789,7 +8789,8 @@ MOTION_MODES = ("classic_kb", "static_hold", "snap_push", "slow_pull",
                  "horizontal_pan", "micro_drift")
 
 
-def choose_motion_mode(b, is_section_start, photo_hash, shot_size=None):
+def choose_motion_mode(b, is_section_start, photo_hash, shot_size=None,
+                       arc_stage=None):
     """Все кадры "дышат" одним и тем же классом движения (smoothstep
     zoom+pan) — фирменный почерк автослайдшоу, даже с anti-repeat на
     выборе направления. Профессиональный монтаж чередует статику, быстрый
@@ -8815,6 +8816,27 @@ def choose_motion_mode(b, is_section_start, photo_hash, shot_size=None):
         if shot_size in ("close", "detail"):
             return "micro_drift"
         return "micro_drift" if (photo_hash & 4) else "static_hold"
+    # ЯЗЫК КАМЕРЫ — драматургическая стадия выбирает ПАЛИТРУ уместных
+    # режимов, хэш остаётся разводящим ВНУТРИ неё. Стоит ровно здесь и
+    # ни строкой выше: всё, что над этой строкой, — места, где смысл уже
+    # решает (цифра обязана читаться, деталь не тянет внимание,
+    # открывашка раздела это establishing), и там менять нечего.
+    #
+    # Замер, ради которого это написано (эпизод 02, 142 кадра, 15.09):
+    # ниже этой строки сегодня попадает 104 кадра из 142, и все 104
+    # получают режим движения по ХЭШУ ИМЕНИ ФАЙЛА — 96 из них один и тот
+    # же classic_kb. Драматургическая стадия при этом посчитана у 142 из
+    # 142 и до камеры не доходила вообще.
+    #
+    # Нет стадии (эпизод без speech_plan.json), выключенный флаг,
+    # неизвестное имя стадии -> палитры нет -> дальше прежние правила
+    # БАЙТ-В-БАЙТ. Отдельный тест это запирает.
+    if arc_stage and feature_flags.enabled("CAMERA_LANGUAGE"):
+        import camera_language
+        _mode = camera_language.pick_from_palette(
+            camera_language.camera_palette(arc_stage, shot_size), photo_hash)
+        if _mode:
+            return _mode
     if shot_size == "wide":
         return "horizontal_pan" if (photo_hash & 1) else "slow_pull"
     if shot_size in ("close", "detail"):
@@ -13295,6 +13317,86 @@ def split_long_blocks(blocks, real_weights):
     return new_blocks, new_weights
 
 
+#: Счётчики языка камеры за прогон. Существуют по той же причине, что и
+#: SOURCE_STATS: слой, который принимает решения и не оставляет следа,
+#: невозможно ни проверить, ни опровергнуть по готовому ролику.
+CAMERA_LANGUAGE_STATS = {
+    "with_stage": 0,            # кадров, у которых стадия рассказа известна
+    "without_stage": 0,         # кадров без стадии -> прежнее поведение
+    "stage_had_direction": 0,   # стадия имела мнение о наезде/отъезде
+    "direction_overridden_by_antirepeat": 0,   # и сколько раз его перебило вето
+    "modes": {},                # какие режимы движения реально выпали
+}
+
+
+def reset_camera_language_stats():
+    """Один прогон — один счёт (тот же принцип, что reset_source_stats)."""
+    CAMERA_LANGUAGE_STATS["with_stage"] = 0
+    CAMERA_LANGUAGE_STATS["without_stage"] = 0
+    CAMERA_LANGUAGE_STATS["stage_had_direction"] = 0
+    CAMERA_LANGUAGE_STATS["direction_overridden_by_antirepeat"] = 0
+    CAMERA_LANGUAGE_STATS["modes"] = {}
+
+
+def write_camera_language_report(video_dir):
+    """media_plan/camera_language_report.json — ЧЕМ на самом деле решалось
+    движение в этом ролике.
+
+    Пишется ВСЕГДА, даже когда слой не сработал ни разу: «нечего сообщить»
+    — тоже факт, а не отсутствие файла (тот же принцип, что у остальных
+    отчётов эпизода). Без него ответ на вопрос «камера в этом ролике
+    ездила по смыслу или по хэшу имени файла» существовал бы только в
+    чьей-то памяти — ровно то состояние, из которого этот слой и вырос."""
+    try:
+        import camera_language
+        total = CAMERA_LANGUAGE_STATS["with_stage"] + CAMERA_LANGUAGE_STATS["without_stage"]
+        report = {
+            "schema_version": 1,
+            "enabled": bool(feature_flags.enabled("CAMERA_LANGUAGE")),
+            "version": camera_language.CAMERA_LANGUAGE_VERSION,
+            "shots_total": total,
+            "shots_with_stage": CAMERA_LANGUAGE_STATS["with_stage"],
+            "shots_without_stage": CAMERA_LANGUAGE_STATS["without_stage"],
+            "stage_had_direction": CAMERA_LANGUAGE_STATS["stage_had_direction"],
+            "direction_overridden_by_antirepeat":
+                CAMERA_LANGUAGE_STATS["direction_overridden_by_antirepeat"],
+            "modes": dict(CAMERA_LANGUAGE_STATS["modes"]),
+            # САМИ ПРАВИЛА, а не только их следствия: по готовому ролику
+            # нужно уметь ответить не только «что выпало», но и «по какому
+            # закону». Тот же принцип, по которому feature_flags.json
+            # отвечает на вопрос «каким пайплайном собран этот ролик».
+            "language": {st: camera_language.describe(st)
+                         for st in camera_language.STAGE_CAMERA},
+        }
+        d = os.path.join(video_dir, "media_plan")
+        os.makedirs(d, exist_ok=True)
+        tmp = os.path.join(d, "camera_language_report.json.tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(report, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, os.path.join(d, "camera_language_report.json"))
+        return report
+    except Exception:
+        # Отчёт вспомогательный: потерять ролик из-за строчки в журнале
+        # хуже, чем потерять строчку (тот же fail-open, что у sidecar).
+        return None
+
+
+def _camera_language_recipe_source():
+    """Якорь для render_recipe_signature() — см. комментарий в её списке.
+
+    Пустая функция-держатель не годилась бы: подпись берёт ИСХОДНИК того,
+    что ей передали, поэтому здесь перечислены сами функции языка камеры.
+    Правка палитры внутри модуля меняет их исходник и, значит, подпись."""
+    import inspect
+    import camera_language
+    return "".join(inspect.getsource(f) for f in (
+        camera_language.camera_palette,
+        camera_language.pick_from_palette,
+        camera_language.stage_zoom_in,
+    )) + repr(camera_language.STAGE_CAMERA) + repr(camera_language.STAGE_ZOOM_IN) \
+       + repr(camera_language.SHOT_SIZE_DROP)
+
+
 def render_recipe_signature():
     """Отпечаток САМОГО РЕЦЕПТА картинки (исходный код функций рендера +
     ключевые константы) — входит в params_hash кэша temp_smart/ (см. main()).
@@ -13326,6 +13428,14 @@ def render_recipe_signature():
             film_look, _scene_bias, _warm_mult, grain_blend_complex,
             add_overlays, add_kinetic_captions, kenburns, video_render,
             parallax_kenburns, choose_motion_mode, piecewise_ease_expr,
+            # ЯЗЫК КАМЕРЫ живёт ОТДЕЛЬНЫМ модулем, и его таблица — это
+            # рецепт, а не рантайм-параметр: правка палитры стадии меняет
+            # движение уже отрендеренного клипа, при этом исходник
+            # choose_motion_mode остаётся прежним побайтово. Берём исходник
+            # самих функций модуля (а не номер версии, который забывают
+            # поднять) — тот же приём, что уже стоит на дисковых кэшах
+            # кандидатов.
+            _camera_language_recipe_source,
             # is_parallax_highlight — ТОЖЕ часть рецепта, не рантайм-параметр:
             # правка её условий (например, что считать highlight-моментом)
             # меняет, КАКОЙ путь рендера (parallax_kenburns vs обычный
@@ -13393,6 +13503,15 @@ def render_recipe_signature():
             # попавший.
             estimate_depth, fill_crop_canvas,
         )]
+        # ЯЗЫК КАМЕРЫ живёт ОТДЕЛЬНЫМ модулем, и его ТАБЛИЦА — это рецепт,
+        # а не рантайм-параметр: правка палитры стадии меняет движение уже
+        # отрендеренного клипа, при этом исходник choose_motion_mode
+        # остаётся побайтово прежним. Берётся РЕЗУЛЬТАТ вызова, а не
+        # inspect.getsource() функции-якоря: собственный промах, пойманный
+        # своим же тестом — текст якоря от правки таблицы не меняется, и
+        # подпись оставалась прежней, то есть гвард выглядел поставленным и
+        # не работал.
+        parts.append(_camera_language_recipe_source())
         parts.append(repr((
             sorted(MOOD_GRADE.items()), sorted(DOMAIN_WARM_PUSH_SCALE.items()),
             GRAIN_ENABLED, GRAIN_OPACITY, DEFLICKER_ENABLED, DOF_ENABLED,
@@ -13859,6 +13978,7 @@ def main():
     global RENDER_RECIPE_SIG
     RENDER_RECIPE_SIG = recipe_sig = render_recipe_signature()
     reset_source_stats()
+    reset_camera_language_stats()
     use_local = os.path.isdir(MEDIA_FOLDER) and bool(local_photo(0))
     use_pexels = bool(PEXELS_API_KEY)
     # === PEXELS QUERIES === написан вручную по протоколу (CLAUDE.md ЧАСТЬ 13,
@@ -14760,7 +14880,30 @@ def main():
                 # anti-repetition: хэш сам по себе не мешает 3 зумам подряд случайно
                 # совпасть — держим окно последних решений и форсируем смену при повторе.
                 _, zi_cand, pd_cand = kb_hash_choices(photo)
-                zoom_in = pick_no_repeat(zoom_hist, zi_cand, [True, False], max_repeat=2)
+                # НАПРАВЛЕНИЕ (наезд или отъезд) сегодня решает бит хэша
+                # имени файла — у ВСЕХ кадров без исключения (замер на
+                # эпизоде 02: 142 из 142). Там, где стадия рассказа имеет
+                # содержательное мнение — придвинуться к разоблачению,
+                # отпустить на выводе, открыть место на заходе — кандидатом
+                # становится оно, а не монетка.
+                #
+                # anti-repeat СОХРАНЯЕТ право вето: три одинаковых движения
+                # подряд читаются как штамп независимо от того, насколько
+                # осмысленно каждое по отдельности. Сколько раз вето реально
+                # перебило стадию — пишется в отчёт (camera_language_report),
+                # а не остаётся догадкой.
+                _stage = arc_stage_for(b)
+                _stage_zi = None
+                if _stage and feature_flags.enabled("CAMERA_LANGUAGE"):
+                    import camera_language
+                    _stage_zi = camera_language.stage_zoom_in(_stage)
+                zoom_in = pick_no_repeat(
+                    zoom_hist, zi_cand if _stage_zi is None else _stage_zi,
+                    [True, False], max_repeat=2)
+                if _stage_zi is not None:
+                    CAMERA_LANGUAGE_STATS["stage_had_direction"] += 1
+                    if zoom_in != _stage_zi:
+                        CAMERA_LANGUAGE_STATS["direction_overridden_by_antirepeat"] += 1
                 pan_dir = pick_no_repeat(pan_hist, pd_cand, PAN_DIRECTIONS, max_repeat=2)
                 # Параллакс — только на самые заметные точки ролика (хук целиком +
                 # первый кадр каждого раздела + момент [climax]), не на все фото:
@@ -14794,7 +14937,15 @@ def main():
                 if not ok:
                     photo_hash, _, _ = kb_hash_choices(photo)
                     cur_shot_size = recent_shot_sizes[-1] if recent_shot_sizes else None
-                    motion_mode = choose_motion_mode(b, is_section_start, photo_hash, shot_size=cur_shot_size)
+                    motion_mode = choose_motion_mode(b, is_section_start, photo_hash,
+                                                     shot_size=cur_shot_size,
+                                                     arc_stage=_stage)
+                    CAMERA_LANGUAGE_STATS["modes"][motion_mode] = \
+                        CAMERA_LANGUAGE_STATS["modes"].get(motion_mode, 0) + 1
+                    if _stage:
+                        CAMERA_LANGUAGE_STATS["with_stage"] += 1
+                    else:
+                        CAMERA_LANGUAGE_STATS["without_stage"] += 1
                     if render_pool:
                         future = render_pool.submit(
                             _timed_render, kenburns, i, photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
@@ -14922,6 +15073,7 @@ def main():
     selection_gates["source_contribution"] = {src: dict(v) for src, v in SOURCE_STATS.items()}
     shotlist_file = write_shotlist(VIDEO_FOLDER, shot_entries, selection_gates, prev=prev_shotlist)
     write_source_contribution(VIDEO_FOLDER)
+    write_camera_language_report(VIDEO_FOLDER)
     print(f"  Шотлист: media_plan/shotlist.json ({len(shot_entries)} слотов, "
           f"{shotlist_locked_used} по lock) — контактный лист: python scripts/shotlist_contact.py {VIDEO_FOLDER}")
 
