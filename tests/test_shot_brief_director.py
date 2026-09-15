@@ -444,3 +444,75 @@ def test_mood_is_optional():
     assert d.parse_mood("1 | object | a sword") is None
     assert d.parse_answer("1 | object | a rondel dagger blade",
                           _packet(["а"])) != {}
+
+
+# --- СКВОЗНАЯ ПРОВЕРКА НА ЧУЖОЙ НИШЕ ----------------------------------------
+#
+# Фикстура — настоящий сценарий из другой ниши (психология избегания), не
+# синтетика: она нужна именно потому, что абстракций в ней много, а
+# предметов мало — то есть ровно тот случай, на котором исторические
+# правила и словари ломаются.
+
+FIXTURE = os.path.join(REPO, "tests", "fixtures", "other_niche")
+
+
+def _clean_channel(monkeypatch):
+    """Свежий канал: ни мира кадра, ни блоклиста, ни якорей эпохи."""
+    import pipeline_smart as ps
+    monkeypatch.setattr(ps, "CHANNEL_PROFILE", {}, raising=False)
+    monkeypatch.setattr(ps, "CONTENT_ALT_BLOCKLIST", (), raising=False)
+    monkeypatch.setattr(ps, "OPENVERSE_ERA_ANCHORS", ())
+    monkeypatch.setattr(ps, "OPENVERSE_DOMAIN_NOUNS", ())
+
+
+def test_other_niche_prompt_carries_nothing_medieval(monkeypatch, tmp_path):
+    import shutil
+    import script_parser
+    import shot_brief_director as d
+    _clean_channel(monkeypatch)
+    shutil.copy(os.path.join(FIXTURE, "script_psychology.txt"),
+                tmp_path / "script.txt")
+    blocks = script_parser.parse_blocks(str(tmp_path / "script.txt"))
+    assert len(blocks) >= 15
+    for packet in d.packets(str(tmp_path), blocks):
+        prompt = d.render_prompt(packet).lower()
+        for w in ("medieval", "knight", "armour", "рыцар", "доспех", "эпоха"):
+            assert w not in prompt, f"{w!r} просочилось в чужую нишу"
+        assert "ситуацией" in prompt      # заземление абстракции на месте
+        assert "mood |" in prompt
+
+
+def test_other_niche_runs_end_to_end(monkeypatch, tmp_path):
+    """Заявки принимаются, настроение разбирается, теги встают в сценарий."""
+    import shutil
+    import script_parser
+    import shot_brief_director as d
+    _clean_channel(monkeypatch)
+    monkeypatch.setattr(d, "MOODS", {})
+    shutil.copy(os.path.join(FIXTURE, "script_psychology.txt"),
+                tmp_path / "script.txt")
+    blocks = script_parser.parse_blocks(str(tmp_path / "script.txt"))
+    found = d.run(str(tmp_path), blocks,
+                  d.FileBrain(os.path.join(FIXTURE, "answers")),
+                  cache_dir=None, verbose=False)
+    assert len(found) >= 14, f"принято всего {len(found)}"
+    assert len(d.MOODS) == 2, d.MOODS
+    assert d.MOODS["HOOK"]["tone"] == -1.0
+    placed, skipped = d.write_inline(str(tmp_path), blocks, found)
+    assert placed == len(found) and not skipped
+    again = script_parser.parse_blocks(str(tmp_path / "script.txt"))
+    assert sum(1 for x in again if (x.get("shot_brief") or "").strip()) == placed
+
+
+def test_other_niche_stock_queries_stay_clean(monkeypatch):
+    """Ни один запрос чужой ниши не должен уехать в сток со средневековым
+    якорем. Реальный замер до правки: `medieval phone lying face down`."""
+    import pipeline_smart as ps
+    _clean_channel(monkeypatch)
+    briefs = ["an open laptop with a blank document on a dark desk",
+              "a mug of cold coffee with a skin on the surface, close up",
+              "a thumb scrolling a phone feed, close up"]
+    for b in briefs:
+        q = ps.brief_to_stock_query(b)
+        assert "medieval" not in q and "knight" not in q, q
+        assert q.split()[0] in b.lower()
