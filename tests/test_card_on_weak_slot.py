@@ -85,3 +85,40 @@ def test_fraction_can_only_reduce_cards():
     """Гарантия односторонности: доля строго меньше единицы, то есть новый
     сигнал никогда не помечает больше слотов, чем наивное «ниже пола»."""
     assert 0.0 < ps.DIRECTOR_CARD_DECISIVE_FRACTION < 1.0
+
+
+class TestTheReasonIsNotInertInProduction:
+    """Правка, которая работает в тесте и молчит в проде, — не правка.
+
+    Замер 14.09 (videos/_test60s, полный рендер): слот с современным музеем
+    на фразе про упавшего рыцаря получил 0.20x от пола Директора, причина
+    `director_relevance_decisive` честно возвращалась юнит-тестом — а
+    карточек в ролике оказалось НОЛЬ. Причина в порядке: вердикт Директора
+    пишется ПОСЛЕ отбора (иначе нечего оценивать), а решение о карточке
+    принималось ДО, читая список, который для текущего слота всегда пуст."""
+
+    SRC = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"), encoding="utf-8").read()
+
+    def test_a_decision_point_exists_after_the_director_verdict(self):
+        i_verdict = self.SRC.index("DIRECTOR_RELEVANCE_MISSES.append")
+        i_late = self.SRC.index("late_reason = _slot_known_bad_reason(i)")
+        assert i_verdict < i_late, "поздняя проверка обязана стоять ПОСЛЕ вердикта"
+
+    def test_the_late_point_runs_before_the_clip_is_queued(self):
+        """Иначе карточка не доедет до экрана — клип уже отрендерен."""
+        i_late = self.SRC.index("late_reason = _slot_known_bad_reason(i)")
+        # Именно ВЫЗОВ, а не упоминание в комментарии выше по файлу.
+        i_submit = self.SRC.index("future = render_pool.submit(")
+        assert i_late < i_submit
+
+    def test_the_late_point_handles_only_the_late_reason(self):
+        """Остальные причины известны раньше отбора, и их обслуживает первая
+        проверка — она же даёт видео-пути спасение фотографией ДО карточки."""
+        tail = self.SRC[self.SRC.index("late_reason = _slot_known_bad_reason(i)"):]
+        head = tail[:tail.index("luma = measure_luma")]
+        assert 'late_reason == "director_relevance_decisive"' in head
+
+    def test_a_slot_already_carded_is_not_carded_twice(self):
+        tail = self.SRC[self.SRC.index("# ВТОРАЯ точка решения о карточке"):]
+        head = tail[:tail.index("luma = measure_luma")]
+        assert "FALLBACK_CARD_SLOTS" in head

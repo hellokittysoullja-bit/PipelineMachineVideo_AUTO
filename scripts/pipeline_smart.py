@@ -14001,6 +14001,31 @@ def main():
         # большой (сток из разных источников редко совпадает по свету),
         # подмешиваем небольшую компенсацию в brightness, а не выравниваем
         # целиком (иначе пропала бы естественная вариативность вообще).
+        # ВТОРАЯ точка решения о карточке. Нужна из-за ПОРЯДКА, а не из-за
+        # новой логики, и это измеренный дефект, а не перестраховка.
+        #
+        # Вердикт Директора про ЭТОТ слот записывается в
+        # DIRECTOR_RELEVANCE_MISSES строками выше — то есть ПОСЛЕ того, как
+        # медиа уже выбрано (иначе нечего оценивать). А первая проверка
+        # `_slot_known_bad_reason(i)` стоит ДО отбора, и список для текущего
+        # слота там всегда пуст. Замер 14.09 (videos/_test60s): слот с
+        # современным музеем на фразе про упавшего рыцаря получил 0.20x от
+        # пола Директора, причина честно срабатывала в юнит-тесте — и была
+        # ИНЕРТНОЙ в проде: карточек в ролике ноль, кадр остался на экране.
+        #
+        # Остальные причины (отказ арбитра, исчерпанный сток, порог
+        # релевантности) известны РАНЬШЕ отбора и обслуживаются первой
+        # проверкой — её трогать нельзя, иначе видео-путь потеряет
+        # спасение фотографией, которое идёт до карточки.
+        if (photo or video) and not locked_shot and not any(
+                sl.get("index") == i for sl in FALLBACK_CARD_SLOTS):
+            late_reason = _slot_known_bad_reason(i)
+            if (late_reason == "director_relevance_decisive"
+                    and fallback_card_allowed(i, len(blocks),
+                                              is_opening=is_opening_shot)):
+                late_card = build_slot_fallback_card(i, b["text"], late_reason)
+                if late_card:
+                    photo, video = late_card, None
         luma = measure_luma(photo, is_video=False) if photo else measure_luma(video, is_video=True)
         if luma is not None:
             brightness_bias = 0.0 if luma_ema is None else max(-0.035, min(0.035, (luma_ema - luma) * 0.35))
