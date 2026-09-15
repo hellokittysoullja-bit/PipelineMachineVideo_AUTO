@@ -136,8 +136,11 @@ def test_author_briefs_are_not_rejected(shot):
 
 
 @pytest.mark.parametrize("shot,part", [
-    ("A man stepping onto a battlefield", "эпох"),
-    ("A person standing up", "эпох"),
+    # Причина переименована 15.09 вместе с переездом словаря в профиль:
+    # правило теперь про МИР КАНАЛА, а не про эпоху — эпоха была частным
+    # случаем одной ниши.
+    ("A man stepping onto a battlefield", "мир"),
+    ("A person standing up", "мир"),
     ("A warrior in full protective gear", "снаряжение"),
     ("He was at their feet", "пересказ"),
 ])
@@ -335,3 +338,109 @@ def test_guard_is_about_copying_not_about_rome():
     assert d._FEWSHOT_WORDS, "пример разобран пустым — гвард стал no-op"
     for words in d._FEWSHOT_WORDS:
         assert d.copies_the_example(" ".join(sorted(words)))
+
+
+# --- РАБОТА В ЛЮБОЙ НИШЕ ----------------------------------------------------
+#
+# ЧАСТЬ 24 CLAUDE.md прямо требует, чтобы клон репозитория не тащил
+# творческие характеристики старой ниши. Замер 15.09 нашёл два места, где
+# он их тащил, и оба молча.
+
+PSYCH_BRIEFS = [
+    "a man sitting alone in an empty waiting room",
+    "a person's hands clenched on a kitchen table",
+    "a phone lying face down on a bedside table at night",
+    "a woman looking out of a rain-streaked window",
+    "an empty chair opposite a made bed",
+    "a human figure small against a huge office corridor",
+]
+MEDIEVAL_WORDS = ("medieval", "knight", "warrior", "armour", "armor",
+                  "sword", "helmet", "castle", "manuscript")
+
+
+@pytest.mark.parametrize("shot", PSYCH_BRIEFS)
+def test_other_niche_briefs_pass_when_channel_declares_no_world(shot, monkeypatch):
+    """Канал без объявленного мира кадра не должен получать чужой.
+
+    Со средневековым словарём, зашитым в код до 15.09, три из этих шести
+    законных психологических брифов отклонялись правилом «человек без
+    привязки к эпохе» — то есть система запрещала показывать человека
+    каналу, у которого человек и есть предмет разговора.
+    """
+    import pipeline_smart as ps
+    import shot_planner_llm as p
+    monkeypatch.setattr(ps, "CHANNEL_PROFILE", {}, raising=False)
+    ok, why = p.brief_is_safe(shot, "фраза", blocklist=())
+    assert ok, why
+
+
+def test_the_old_hardcoded_list_really_did_reject_them():
+    """Негативный контроль: без него предыдущий тест зелен по построению
+    и ничего не доказывает."""
+    import shot_planner_llm as p
+    rejected = [s for s in PSYCH_BRIEFS
+                if not p.brief_is_safe(s, "ф", blocklist=(),
+                                       era_words=MEDIEVAL_WORDS)[0]]
+    assert len(rejected) == 3, rejected
+
+
+def test_this_channel_keeps_its_world(monkeypatch):
+    """А исторический канал обязан остаться строгим: правило не отменено,
+    оно переехало в channel_profile.json."""
+    import shot_planner_llm as p
+    assert p.domain_anchor_words(), "канал объявил мир кадра — список не пуст"
+    assert not p.brief_is_safe("A man stepping onto a battlefield", "ф",
+                               blocklist=())[0]
+
+
+def test_prompt_has_no_hardcoded_niche():
+    """В промпте не должно быть ниши, которой канал не объявлял."""
+    import shot_brief_director as d
+    pkt = _packet(["Ему стало нечем дышать."])
+    prompt = d.render_prompt(pkt)
+    assert "историческ" not in prompt.lower()
+    assert "СИТУАЦИЕЙ" in prompt      # заземление абстракции
+    assert "MOOD |" in prompt         # настроение
+
+
+def test_stock_query_gets_no_era_anchor_without_a_profile(monkeypatch):
+    """Клон под психологию не должен просить у стока «medieval phone».
+
+    Реальный замер до правки: бриф «a phone lying face down on a bedside
+    table at night» превращался в запрос `medieval phone lying face down`
+    — и так С КАЖДЫМ запросом, потому что якорь подставлялся из
+    ЗАШИТОГО В КОД средневекового списка.
+    """
+    import pipeline_smart as ps
+    monkeypatch.setattr(ps, "OPENVERSE_ERA_ANCHORS", ())
+    monkeypatch.setattr(ps, "OPENVERSE_DOMAIN_NOUNS", ())
+    q = ps.brief_to_stock_query("a phone lying face down on a bedside table")
+    assert "medieval" not in q and "phone" in q
+
+
+def test_code_default_carries_no_niche():
+    """Сам дефолт в коде обязан быть пустым: иначе клон получает нишу
+    репозитория молча, даже не зная, что она где-то объявлена."""
+    import pipeline_smart as ps
+    assert ps._OPENVERSE_ERA_ANCHORS_DEFAULT == ()
+    assert ps._OPENVERSE_DOMAIN_NOUNS_DEFAULT == ()
+
+
+@pytest.mark.parametrize("line,tone,tension", [
+    ("MOOD | -2 | 3 | безысходность", -2.0, 3.0),
+    ("MOOD | 1 | 0 | спокойно", 1.0, 0.0),
+    ("MOOD | -5 | 9 | край", -2.0, 3.0),          # зажим в диапазон
+])
+def test_mood_is_parsed_and_clamped(line, tone, tension):
+    import shot_brief_director as d
+    got = d.parse_mood(line + "\n1 | object | a sword")
+    assert got["tone"] == tone and got["tension"] == tension
+
+
+def test_mood_is_optional():
+    """Строки настроения нет — глава считается как раньше, ни один кадр
+    из-за этого не теряется."""
+    import shot_brief_director as d
+    assert d.parse_mood("1 | object | a sword") is None
+    assert d.parse_answer("1 | object | a rondel dagger blade",
+                          _packet(["а"])) != {}

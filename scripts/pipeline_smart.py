@@ -5866,18 +5866,26 @@ _OPENVERSE_QUERY_MODIFIERS_DEFAULT = (
 # Из запроса НЕ выбрасывается никогда: без него "plate armour" первым
 # результатом даёт "MkIV-Tank-Plate" (замерено) — тот же танк, от которого
 # всё и началось.
-_OPENVERSE_ERA_ANCHORS_DEFAULT = (
-    "medieval", "knight", "knights", "armour", "armor", "crusader", "gothic",
-    "castle", "chivalry",
-)
+# ПУСТО В КОДЕ ПО ЗАМЕРУ, а не по вкусу. Здесь лежал средневековый список,
+# и `brief_to_stock_query()` подставляет первый якорь В КАЖДЫЙ запрос, у
+# которого своего якоря нет. Для этого канала это верно и задокументировано
+# («0 запросов из 142 без якоря эпохи»). Но ЧАСТЬ 24 CLAUDE.md прямо
+# предупреждает, что клон репозитория под другую нишу не должен молча
+# тащить творческие характеристики старой, — и вот измеренный пример того,
+# как он их тащил: у канала про психологию бриф
+#     "a phone lying face down on a bedside table at night"
+# превращался в запрос `medieval phone lying face down`. С КАЖДЫМ запросом.
+#
+# Списки этого канала переехали в channel_profile.json. Канал, который их
+# не объявил, якорь не получает вовсе — код это уже умеет
+# (`if anchor is None and OPENVERSE_ERA_ANCHORS`), просто пустой список
+# туда никогда не попадал.
+_OPENVERSE_ERA_ANCHORS_DEFAULT = ()
 # Предметные существительные канала — по ним строится последняя ступень
 # каскада "эпоха + предмет". Одиночное слово сюда не годится принципиально:
 # "knight" в одиночку даёт 240 результатов, где первые — орденские медали.
-_OPENVERSE_DOMAIN_NOUNS_DEFAULT = (
-    "armour", "armor", "helmet", "sword", "dagger", "knight", "castle",
-    "manuscript", "shield", "mail", "gauntlet", "lance", "axe", "siege",
-    "tomb", "effigy", "banner", "horse",
-)
+# Тоже переехали в профиль по той же причине.
+_OPENVERSE_DOMAIN_NOUNS_DEFAULT = ()
 OPENVERSE_QUERY_MODIFIERS = tuple(CHANNEL_PROFILE.get(
     "openverse_query_modifiers", _OPENVERSE_QUERY_MODIFIERS_DEFAULT))
 OPENVERSE_ERA_ANCHORS = tuple(CHANNEL_PROFILE.get(

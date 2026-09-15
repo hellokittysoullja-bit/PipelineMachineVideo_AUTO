@@ -408,22 +408,36 @@ def channel_blocklist():
         return ()
 
 
-# Слова, по которым видно, что кадр всё-таки привязан к эпохе или к её
-# материальному следу. Археологические добавлены 15.09 по ЗАМЕРУ, а не на
-# всякий случай: правило «человек без привязки к эпохе» отклоняло три
-# брифа автора подряд — «a human skull from an archaeological excavation»,
-# «human bones laid out from an excavation», «a human skull with wounds on
-# it», — то есть весь блок эпизода про братскую могилу при Таутоне, ради
-# которого этот блок и написан. Череп из раскопа не «современный человек
-# в футболке», а главное вещественное доказательство главы.
-ERA_ANCHOR_WORDS = ("medieval", "knight", "warrior", "armour", "armor",
-                    "sword", "helmet", "castle", "manuscript",
-                    "skull", "bones", "skeleton", "excavation", "grave",
-                    "effigy", "tomb")
+def domain_anchor_words():
+    """Слова, по которым видно, что кадр принадлежит МИРУ ЭТОГО КАНАЛА.
+
+    ЧИТАЮТСЯ У КАНАЛА (`channel_profile.json` -> `shot_domain`), а не
+    зашиты здесь. До 15.09 это был литеральный средневековый список, и он
+    молча применялся бы к любому клону репозитория: канал про психологию,
+    игры или сторителлинг получал бы требование «knight/armour/castle» и
+    отказ на кадре обычного человека в комнате — то есть ровно на том
+    кадре, который такой нише и нужен.
+
+    Канал ничего не объявил — правило «человек без привязки к миру»
+    ВЫКЛЮЧЕНО целиком. Это не послабление: включённое правило с чужим
+    словарём отклоняет годные кадры, а выключенное просто пропускает их
+    дальше, к гейтам отбора, которые и так стоят.
+
+    Археологические слова в списке этого канала — из ЗАМЕРА, а не на
+    всякий случай: правило отклоняло три брифа автора подряд («a human
+    skull from an archaeological excavation» и соседние), то есть весь
+    блок эпизода про братскую могилу при Таутоне.
+    """
+    try:
+        import pipeline_smart
+        words = pipeline_smart.CHANNEL_PROFILE.get("shot_domain", {}).get(
+            "anchor_words")
+        return tuple(w.lower() for w in words) if words else ()
+    except Exception:
+        return ()
 
 
-def brief_is_safe(shot_en, phrase, blocklist=None,
-                  era_words=ERA_ANCHOR_WORDS):
+def brief_is_safe(shot_en, phrase, blocklist=None, era_words=None):
     """Можно ли выпускать эту заявку в отбор. (ok, причина отказа).
 
     Отказ — НЕ ошибка: слот просто идёт прежним путём. Поэтому проверки
@@ -466,9 +480,12 @@ def brief_is_safe(shot_en, phrase, blocklist=None,
         t = str(term).lower().strip()
         if t and t in low:
             return False, f"блоклист канала ({t})"
-    has_era = any(e in low for e in era_words)
-    if not has_era and any(f" {g} " in f" {low} " for g in GENERIC_PEOPLE):
-        return False, "человек без привязки к эпохе"
+    anchors = domain_anchor_words() if era_words is None else tuple(era_words)
+    # Канал не объявил свой мир — правило не применяется вовсе.
+    if anchors:
+        has_anchor = any(e in low for e in anchors)
+        if not has_anchor and any(f" {g} " in f" {low} " for g in GENERIC_PEOPLE):
+            return False, "человек без привязки к миру канала"
     return True, None
 
 
