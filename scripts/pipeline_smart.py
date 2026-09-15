@@ -5909,11 +5909,20 @@ def _shelf_search_photos(api_query, brief=None, limit=None):
                     # уже подходящего размера, полноразмерный берётся
                     # победителю.
                     "src": {"large2x": img, "medium": r.get("thumb") or img},
+                    # Право берётся ИЗ САМОЙ записи индекса, а не
+                    # подставляется константой: на полке теперь два
+                    # корпуса (предметы Мет по `isPublicDomain` и записи
+                    # Europeana по CC0/PDM), и зашитая строка означала бы,
+                    # что отчёт эпизода называет право, которого у кадра
+                    # может не быть. Старые записи индекса поля не имеют —
+                    # для них остаётся прежнее значение.
                     "_shelf_meta": {"score": r.get("score"), "dept": r.get("dept"),
                                     "begin": r.get("b"), "end": r.get("e"),
                                     "culture": r.get("culture"),
                                     "license": "public_domain",
-                                    "license_field": "isPublicDomain"},
+                                    "license_field": r.get("rights") or "isPublicDomain",
+                                    "corpus": r.get("source") or "met",
+                                    "provider": r.get("provider") or r.get("dept")},
                 })
     except Exception as e:
         _note_source_search_error("shelf", e, text)

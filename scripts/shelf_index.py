@@ -371,6 +371,41 @@ def _iter_catalog_rows(departments, limit):
     return rows
 
 
+def _iter_europeana_rows(limit):
+    """Строки второго корпуса полки. Ходит в живой API Europeana — там нет
+    локального дампа, как у Мет, поэтому выгрузка идёт страницами по ходу
+    сборки. Отказ источника — пустой список, а не падение сборки: полка на
+    предметах Мет остаётся ровно такой, какой была."""
+    try:
+        import europeana_corpus as ec
+        return list(ec.harvest(limit=limit))
+    except Exception as exc:
+        print(f"Europeana недоступна ({type(exc).__name__}: {exc}) — "
+              f"собираю только корпус Мет")
+        return []
+
+
+def _corpus_rows(corpus, departments, limit):
+    """Строки всех затребованных корпусов В ПОРЯДКЕ ПРИОРИТЕТА.
+
+    Корпуса идут подряд, а не вперемешку: сборка резюмируемая и её можно
+    оборвать на любой минуте, поэтому первым обязан лежать тот материал,
+    который закрывает измеренное молчание полки. У Мет это отделы
+    (`--departments`), у Europeana — коллекции (`COLLECTION_PRIORITY`)."""
+    names = [c.strip().lower() for c in corpus if c.strip()]
+    if "all" in names:
+        names = ["europeana", "met"]
+    rows = []
+    for name in names:
+        if name == "met":
+            rows += _iter_catalog_rows(departments, limit)
+        elif name == "europeana":
+            rows += _iter_europeana_rows(limit)
+        else:
+            raise SystemExit(f"Неизвестный корпус: {name}")
+    return rows
+
+
 def _image_url_for(object_id):
     """Ссылка на снимок предмета. Ходит в API Мет ЧЕРЕЗ museum_sources._met_get —
     там уже стоит адаптивный лимитер (старт 5 запр/с, каждый 403 режет
@@ -389,7 +424,20 @@ def _image_url_for(object_id):
     return small, full, o
 
 
-def build(departments=DEFAULT_DEPARTMENTS, limit=None, keep_images=False):
+def _row_id(row):
+    """Единый ID предмета на всю систему.
+
+    У строки Europeana он уже готов (`euro:/9200122/...`), у строки
+    каталога Мет собирается из номера. Оба обязаны совпадать с тем, что
+    отдаёт живой музейный путь (`met:<objectID>`): общий `used_ids` и
+    дедуп должны видеть один предмет как один, каким бы путём он ни
+    нашёлся."""
+    rid = row.get("id")
+    return rid if isinstance(rid, str) and ":" in rid else f"met:{rid}"
+
+
+def build(departments=DEFAULT_DEPARTMENTS, limit=None, keep_images=False,
+          corpus=("met",)):
     """Разовая сборка индекса. Резюмируемая: пропускает уже посчитанные id."""
     import numpy as np
     import urllib.request
@@ -398,8 +446,8 @@ def build(departments=DEFAULT_DEPARTMENTS, limit=None, keep_images=False):
     os.makedirs(INDEX_DIR, exist_ok=True)
     os.makedirs(IMAGES_DIR, exist_ok=True)
     done = {it.get("id") for it in _read_items()}
-    rows = _iter_catalog_rows(departments, limit)
-    todo = [r for r in rows if f"met:{r['id']}" not in done]
+    rows = _corpus_rows(corpus, departments, limit)
+    todo = [r for r in rows if _row_id(r) not in done]
     print(f"Полка: {len(rows)} предметов каталога, уже посчитано {len(done)}, "
           f"осталось {len(todo)}")
     if not todo:
@@ -412,11 +460,21 @@ def build(departments=DEFAULT_DEPARTMENTS, limit=None, keep_images=False):
             open(VECTORS_PATH, "ab") as vec_f:
         for n, r in enumerate(todo, 1):
             oid = r["id"]
+            rid = _row_id(r)
             try:
-                small, full, o = _image_url_for(oid)
+                if r.get("image") or r.get("thumb"):
+                    # Строка корпуса принесла ссылки с собой (Europeana) —
+                    # лишний запрос к чужому API за тем, что уже известно,
+                    # это не осторожность, а трата чужой квоты.
+                    small = r.get("thumb") or r.get("image")
+                    full = r.get("image") or r.get("thumb")
+                    o = None
+                else:
+                    small, full, o = _image_url_for(oid)
                 if not small:
                     continue
-                path = os.path.join(IMAGES_DIR, f"{oid}.jpg")
+                path = os.path.join(IMAGES_DIR,
+                                    rid.replace(":", "_").replace("/", "_") + ".jpg")
                 if not (os.path.exists(path) and os.path.getsize(path) > 2000):
                     req = urllib.request.Request(small, headers=ua)
                     with urllib.request.urlopen(req, timeout=60) as resp:
@@ -432,13 +490,20 @@ def build(departments=DEFAULT_DEPARTMENTS, limit=None, keep_images=False):
                 if not norm:
                     continue
                 arr = arr / norm
-                rec = {"id": f"met:{oid}", "dim": int(arr.shape[0]),
+                rec = {"id": rid, "dim": int(arr.shape[0]),
                        "model": SHELF_MODEL, "version": SHELF_INDEX_VERSION,
                        "name": r.get("name"), "title": r.get("title"),
                        "culture": r.get("culture"), "b": r.get("b"), "e": r.get("e"),
                        "dept": r.get("dept"),
                        "image": full or small, "thumb": small,
-                       "page": (o or {}).get("objectURL")}
+                       "page": r.get("page") or (o or {}).get("objectURL"),
+                       # Право на публикацию хранится в самой строке
+                       # индекса, а не во втором файле-манифесте: две
+                       # копии одних и тех же данных рано или поздно
+                       # разойдутся, и тогда непонятно, какой верить.
+                       "source": r.get("source") or "met",
+                       "rights": r.get("rights") or "isPublicDomain",
+                       "provider": r.get("provider") or r.get("dept")}
                 # Порядок важен: сперва метаданные, потом вектор. Обрыв между
                 # ними даёт метаданные без вектора — это ловит load() по
                 # длине матрицы. Обратный порядок дал бы вектор без подписи,
@@ -479,6 +544,10 @@ def main():
                    help='список отделов через запятую, либо "all"')
     b.add_argument("--keep-images", action="store_true",
                    help="не удалять скачанные превью (для отладки/контактных листов)")
+    b.add_argument("--corpus", default="met",
+                   help='какие корпуса собирать: "met", "europeana", '
+                        '"met,europeana" или "all" (Europeana первой — её '
+                        'материал закрывает измеренное молчание полки)')
     s = sub.add_parser("search")
     s.add_argument("brief")
     s.add_argument("--limit", type=int, default=10)
@@ -486,7 +555,9 @@ def main():
     a = ap.parse_args()
     if a.cmd == "build":
         deps = tuple(x.strip() for x in a.departments.split(",") if x.strip())
-        build(departments=deps, limit=a.limit, keep_images=a.keep_images)
+        corpus = tuple(x.strip() for x in a.corpus.split(",") if x.strip())
+        build(departments=deps, limit=a.limit, keep_images=a.keep_images,
+              corpus=corpus)
     elif a.cmd == "search":
         res = search(a.brief, limit=a.limit)
         if not res:
