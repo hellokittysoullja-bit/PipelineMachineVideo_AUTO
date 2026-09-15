@@ -4396,6 +4396,37 @@ def candidate_source(p):
     return "pexels"
 
 
+def candidate_channel(p):
+    """КТО принёс кандидата в пул — канал поиска, а не пространство id.
+
+    Реальный пробел, найденный разбором собственной правки: все счётчики
+    `SOURCE_STATS` выводятся из ПРЕФИКСА id (`candidate_source`), а у
+    визуальной полки id обязан оставаться тем же `met:<objectID>`, что у
+    музейного пути, — общий `used_ids` должен видеть один предмет как один
+    (это отдельный, намеренный инвариант, и трогать его нельзя). Следствие:
+    кандидат, найденный ПОЛКОЙ по описанию кадра, и кандидат, найденный
+    музейным API по словам, попадали в отчёт под одним именем `met`, то
+    есть на вопрос «дала ли полка этому эпизоду хоть один кадр» —
+    единственный вопрос, ради которого полка и строилась, — по артефактам
+    готового ролика ответить было нельзя.
+
+    Это ровно тот же класс, что уже дважды чинён в этом файле: источник,
+    который молча даёт ноль (Openverse), и источник, который молча даёт
+    ЧУЖОЕ ИМЯ (победа Europeana в отчёте как победа Pexels).
+
+    Ключ один на канал (`shelf`), а не `shelf:<корпус>`: сумма `won` по
+    источникам обязана совпадать с числом выигранных слотов, а из какого
+    корпуса пришёл конкретный кадр, и так записано рядом с ним —
+    `_shelf_meta.corpus` уезжает в шотлист и в sidecar. Имя совпадает с
+    тем, под которым уже считаются ошибки поиска полки
+    (`_note_source_search_error("shelf", ...)`), иначе строка ошибок жила
+    бы отдельно от строки вкладa и помечалась бы «молчащим источником»
+    при работающей полке."""
+    if isinstance(p, dict) and p.get("_shelf_meta"):
+        return "shelf"
+    return candidate_source(p)
+
+
 def candidate_path_token(p):
     """ID кандидата в виде, пригодном для ИМЕНИ ФАЙЛА.
 
@@ -5989,9 +6020,9 @@ SHELF_SEARCH_LIMIT = 24
 def _shelf_search_photos(api_query, brief=None, limit=None):
     """Кандидаты ВИЗУАЛЬНОЙ ПОЛКИ в форме Pexels-кандидата.
 
-    Отличие от `_museum_search_photos` — не в источнике (корпус тот же,
-    предметы Мет с уже проверенным паспортом эпохи и культуры), а в том,
-    ЧЕМ задаётся вопрос. Музейный путь спрашивает СЛОВАМИ и получает ответ
+    Отличие от `_museum_search_photos` — прежде всего в том, ЧЕМ задаётся
+    вопрос, а не в материале: корпуса полки (предметы Мет и записи
+    Europeana) уже прошли паспорт эпохи и культуры на сборке индекса. Музейный путь спрашивает СЛОВАМИ и получает ответ
     по совпадению в описании; полка спрашивает ОПИСАНИЕМ КАДРА и получает
     ответ по сходству с самими изображениями.
 
@@ -6006,10 +6037,14 @@ def _shelf_search_photos(api_query, brief=None, limit=None):
 
     ADDITIVE ПО УСТРОЙСТВУ: кандидаты ДОБАВЛЯЮТСЯ в общий пул и судятся теми
     же гейтами (relevance/контрастивное вето/домен-гвард/резкость/дедуп) и
-    тем же ранжированием. ID — `met:<objectID>`, ровно тот же, что у
-    музейного пути: общий `used_ids` обязан видеть один и тот же предмет как
-    один предмет, независимо от того, каким путём он найден, иначе дедуп
-    молча пропустил бы дубль.
+    тем же ранжированием. ID кандидата — тот, что у записи индекса:
+    `met:<objectID>` для предмета Мет (ровно тот же, что у музейного пути:
+    общий `used_ids` обязан видеть один и тот же предмет как один предмет,
+    каким бы путём он ни нашёлся) и `euro:/<...>` для записи Europeana, у
+    которой второго пути в пайплайне нет. Именно поэтому «кто принёс кадр»
+    считается НЕ по префиксу id, а по `_shelf_meta` (см.
+    `candidate_channel`): иначе вклад полки был бы неотличим от вклада
+    музейного API.
 
     Fail-open: нет индекса на диске, нет numpy/torch, флаг выключен, любая
     ошибка -> пустой список, пул собирается ровно как раньше."""
@@ -6623,9 +6658,13 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
         # поэтому положение решает только при равенстве. Смысл добавления —
         # у слота впервые появляется стоковый запрос, написанный про ЕГО
         # два предложения, а не про секцию, которую делят 6-10 слотов.
-        _bq = brief_to_stock_query(shot_brief, fallback=None)
-        if _bq and _bq not in pool_queries:
-            pool_queries = [_bq] + pool_queries
+        # ТОТ ЖЕ `_brief_key`, что ушёл в ключ кэша выше, а не второй
+        # вызов той же функции: разойдись они (другой fallback, другой
+        # аргумент) — и ключ кэша перестал бы описывать пул, который он
+        # ключует. Вторая копия одного правила в этом репозитории уже
+        # стоила эпизоду PHRASE LOCK.
+        if _brief_key and _brief_key not in pool_queries:
+            pool_queries = [_brief_key] + pool_queries
         per_query = []
         for pq in pool_queries:
             lst = []
@@ -6758,7 +6797,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             return None
         photos = filter_alt_blocklist(photos)
         for _p in photos:
-            _source_bump(candidate_source(_p), "offered")
+            _source_bump(candidate_channel(_p), "offered")
         candidates = [p for p in photos if used_ids is None or p.get("id") not in used_ids] or photos
 
         def download_probe(p, dest):
@@ -6861,9 +6900,9 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                         else:
                             raise
                     except Exception:
-                        _source_bump(candidate_source(p), "download_errors")
+                        _source_bump(candidate_channel(p), "download_errors")
                         continue
-                _source_bump(candidate_source(p), "considered")
+                _source_bump(candidate_channel(p), "considered")
                 min_d = min((hamming(h, uh) for uh in used_hashes), default=99)
                 is_dup_free = 1 if min_d > PHOTO_DEDUP_HAMMING else 0
                 size_ok = 1
@@ -6929,7 +6968,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                     "luma_score": luma_score, "min_d": min_d, "relevance": relevance,
                 })
                 if is_dup_free and size_ok and is_relevant and sharp_ok:
-                    _source_bump(candidate_source(p), "gate_passed")
+                    _source_bump(candidate_channel(p), "gate_passed")
                     good_seen += 1
                     if good_seen >= good_needed:
                         break   # набрали, сколько нужно для честного сравнения — не жжём оставшиеся попытки
@@ -7077,7 +7116,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             # файл записан нужной длины) — здесь он переносится на
             # скачивание, где его не было.
             if not _downloaded_ok(cf):
-                _source_bump(candidate_source(pick), "download_errors")
+                _source_bump(candidate_channel(pick), "download_errors")
                 tried = {id(pick)}
                 rescued = None
                 for nxt in ([c["p"] for c in candidates_info] + list(candidates)):
@@ -7091,7 +7130,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                     if _downloaded_ok(cf):
                         rescued = nxt
                         break
-                    _source_bump(candidate_source(nxt), "download_errors")
+                    _source_bump(candidate_channel(nxt), "download_errors")
                 if rescued is None:
                     # Честное «кадра нет» вместо пути в никуда: слот уходит
                     # на лестницу фолбэков (FALLBACK_CARD), которая ровно для
@@ -7136,7 +7175,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                 recent_sizes.append(estimate_shot_size(cf))
             except Exception:
                 pass
-        _source_bump(candidate_source(pick), "won")
+        _source_bump(candidate_channel(pick), "won")
         _reset_pexels_streak()
         return cf
     except Exception as e:
@@ -10188,11 +10227,32 @@ def candidate_provenance(p):
     """
     if not isinstance(p, dict):
         return None
-    meta = p.get("_museum_meta") or p.get("_openverse_meta")
+    shelf = p.get("_shelf_meta")
+    meta = p.get("_museum_meta") or p.get("_openverse_meta") or shelf
     if not meta:
         return None
     out = {"id": p.get("id"), "title": p.get("alt") or None,
-           "page": p.get("url") or None}
+           "page": p.get("url") or None,
+           # КАНАЛ, а не пространство id: у кандидата полки id обязан
+           # остаться `met:<objectID>`/`euro:/...`, и без этого поля
+           # запись о происхождении не отвечала бы на вопрос, каким путём
+           # кадр найден.
+           "channel": candidate_channel(p)}
+    if meta is shelf:
+        # ПРОБЕЛ, найденный разбором собственной правки 15.09: кандидат
+        # ВИЗУАЛЬНОЙ ПОЛКИ нёс только `_shelf_meta`, а сюда смотрели ровно
+        # два других поля — то есть победивший кадр полки уходил в ролик
+        # БЕЗ единой строки о происхождении: ни записи в
+        # `source_license_manifest.jsonl`, ни ссылки на предмет в шотлисте.
+        # Докстринг этой же функции объясняет, зачем след вообще нужен —
+        # «если источник однажды промаркирует чужую работу ошибочно», — а
+        # у второго корпуса полки основание публикации как раз самое
+        # слабое из всех: Public Domain Mark это не отказ от прав, а
+        # пометка «ограничений не известно» (см. докстринг
+        # europeana_corpus). То есть след пропадал ровно там, где он
+        # нужнее всего. Проверено прогоном до правки:
+        # candidate_provenance(кандидат_полки) -> None.
+        meta = {k: v for k, v in meta.items() if k != "score"}
     out.update({k: v for k, v in meta.items() if v not in (None, "", {})})
     return out
 
@@ -11850,7 +11910,7 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
         if not videos:
             return None
         for _v in videos:
-            _source_bump(candidate_source(_v), "offered")
+            _source_bump(candidate_channel(_v), "offered")
         ordered = videos
         if used_ids is not None:
             ordered = ([v for v in videos if v.get("id") not in used_ids]
@@ -12067,7 +12127,7 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                 # — сдвиг индексов молча перепутал бы путь/id/hash/origin_query
                 # местами. Приоритет в сравнении всё равно даёт сам sort key
                 # ниже, не позиция в кортеже.
-                _source_bump(candidate_source(v), "gate_passed")
+                _source_bump(candidate_channel(v), "gate_passed")
                 good.append((sent_score, luma_ok, trial, v.get("id"), cand_hash,
                             v.get("_origin_query"), shot_size_ok))
                 # Без смыслового скоринга сравнивать нечего — прежнее
@@ -12186,7 +12246,7 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
             write_media_sidecar(cf, pexels_id=best[3], query=query, kind="video",
                                 ahash_hex=best[4], relevance=best_rel,
                                 chosen_by="video_relevance_best")
-            _source_bump(candidate_source(best[3]), "won")
+            _source_bump(candidate_channel(best[3]), "won")
             _reset_pexels_streak()
             return cf
         chosen = dup_fallback or plain_fallback

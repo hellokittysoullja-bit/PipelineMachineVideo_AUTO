@@ -20,6 +20,8 @@ load_dotenv() на импорте — до этого коммита GEMINI_API_
 накатывается поверх и побеждает — см. документацию pytest про порядок
 autouse). Ничего не ломает существующие тесты, которые уже сами
 управляют этими переменными."""
+import os
+
 import pytest
 
 
@@ -89,6 +91,94 @@ def _isolate_from_real_dotenv(monkeypatch, tmp_path):
     for _flag in ("PIXABAY_ENABLED", "UNSPLASH_ENABLED"):
         monkeypatch.delenv(_flag, raising=False)
         monkeypatch.setenv(_flag, "0")
+
+
+@pytest.fixture(scope="session")
+def _suite_working_root(tmp_path_factory):
+    return tmp_path_factory.mktemp("suite_work")
+
+
+@pytest.fixture(autouse=True)
+def _private_working_folders(monkeypatch, _suite_working_root):
+    """Рабочая папка эпизода задаётся ФИКСТУРОЙ, а не подменой sys.argv.
+
+    РЕАЛЬНЫЙ, измеренный 15.09 дефект, а не гигиена: `VIDEO_FOLDER` и
+    `TEMP_FOLDER` вычисляются из `sys.argv` ОДИН РАЗ на импорте
+    pipeline_smart, и 69 тест-файлов подменяют `sys.argv` перед импортом,
+    чтобы увести кэш во временную папку. Работает ровно ОДНА подмена — та,
+    что случилась первой; у остальных 68 строка не делает ничего, и
+    рабочей папкой всей суиты становится argv первого по алфавиту файла,
+    то есть путь к чужому `.py`. Симптом: `tests/test_thumbnail_first.py`
+    в одиночку зелёный, а после соседнего файла — четыре падения с
+    `NotADirectoryError: tests/test_brief_stock_query.py/temp_smart`.
+    Суита, результат которой зависит от порядка файлов, не защищает ни от
+    чего — и именно так четыре красных теста доехали до HEAD незамеченными.
+
+    Фикстура не отменяет ничьих настроек: тест, который задаёт папку сам,
+    накатывает свой `monkeypatch` ПОВЕРХ этого и побеждает. Заодно ни один
+    тест больше не может писать кэш в рабочую копию репозитория.
+
+    Папка ОДНА НА СЕССИЮ, а не на каждый тест, и это измеренный выбор, а не
+    небрежность. Дефект, ради которого фикстура существует, — в том, ЧТО
+    это за путь (чужой `.py` вместо папки), и он закрывается общей
+    временной папкой полностью: порядок файлов больше ни на что не влияет.
+    Отдельная папка НА КАЖДЫЙ тест добавила бы сверх этого только защиту
+    от утечки через ТЁПЛЫЙ КЭШ между тестами — утечки, ни одного случая
+    которой замер не показал, — и стоила бы реального времени: кэш клипов
+    перестаёт переиспользоваться, и каждый тест рендера зовёт ffmpeg
+    заново (прогон замедлялся примерно вдвое). Ставить дорогую защиту от
+    отказа, которого не наблюдали, — ровно то, за что этот файл уже
+    критиковал сам себя (User-Agent для Викимедиа, троттлинг Europeana).
+    Появится измеренный случай утечки — фикстуре достаточно сменить
+    scope."""
+    import sys
+    ps = sys.modules.get("pipeline_smart")
+    if ps is not None:
+        root = str(_suite_working_root)
+        monkeypatch.setattr(ps, "VIDEO_FOLDER", root, raising=False)
+        monkeypatch.setattr(ps, "TEMP_FOLDER", os.path.join(root, "temp_smart"),
+                            raising=False)
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _clear_process_level_search_caches():
+    """Кэши поиска живут НА ПРОЦЕСС — значит переживают границу теста.
+
+    ЧЕСТНО О ПРОИСХОЖДЕНИИ: это была ГИПОТЕЗА о причине падений
+    `tests/test_thumbnail_first.py` после соседнего файла, и замер её НЕ
+    подтвердил — очистка кэшей не починила ни одного из четырёх падений,
+    настоящей причиной оказался `TEMP_FOLDER`, указывавший на чужой `.py`
+    (см. фикстуру выше). Фикстура оставлена не «на всякий случай», а
+    потому что сам факт проверяем и от результата гипотезы не зависит:
+    `_MUSEUM_SEARCH_CACHE`/`_SHELF_SEARCH_CACHE`/`_PEXELS_VIDEO_SEARCH_CACHE`
+    действительно живут на процесс, и заполненный одним файлом кэш
+    действительно отдаёт готовый ответ другому — тогда
+    `monkeypatch.setattr(ps, "_museum_search_photos", ...)` следующего
+    теста не вызывается ВООБЩЕ, и тест молча проверяет чужие данные.
+    Наблюдённого случая такой утечки пока нет; стоит она ноль.
+
+    Список кэшей НЕ перечисляется руками: ровно такой список (в фикстуре
+    одного файла чистился только `_PEXELS_SEARCH_CACHE` из девяти) и
+    отстал. Берётся по ФОРМЕ имени — правило переживает добавление
+    следующего источника, а перечисление не переживало."""
+    import sys
+    ps = sys.modules.get("pipeline_smart")
+    if ps is None:
+        # Тест, который pipeline_smart вообще не импортировал, не должен
+        # платить за его импорт (там тяжёлый стек и load_dotenv).
+        yield
+        return
+    for name in dir(ps):
+        if name.startswith("_") and name.endswith("CACHE"):
+            obj = getattr(ps, name, None)
+            if isinstance(obj, dict):
+                obj.clear()
+    try:
+        ps.reset_source_stats()
+    except Exception:
+        pass
+    yield
 
 
 def pytest_configure(config):

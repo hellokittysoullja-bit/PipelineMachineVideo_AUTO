@@ -62,7 +62,12 @@ def _cached_thumb(rec):
     if not url:
         return None
     os.makedirs(CACHE_DIR, exist_ok=True)
-    name = str(rec.get("id", "x")).replace(":", "_").replace("/", "_") + ".jpg"
+    # Имя файла из id — одно правило на систему (см. shelf_index._path_token
+    # и pipeline_smart.candidate_path_token). Третья копия «заменить ':' и
+    # '/'» здесь молча разошлась бы с ними на первом же id с пробелом или
+    # '?', а id приходит из чужого API.
+    import shelf_index
+    name = shelf_index._path_token(rec.get("id", "x")) + ".jpg"
     path = os.path.join(CACHE_DIR, name)
     if not (os.path.exists(path) and os.path.getsize(path) > 2000):
         try:

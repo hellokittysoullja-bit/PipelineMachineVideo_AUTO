@@ -19,6 +19,16 @@ import pytest
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS_DIR = os.path.join(REPO_ROOT, "scripts")
 sys.path.insert(0, SCRIPTS_DIR)
+# TEMP_FOLDER задаётся ФИКСТУРОЙ (см. selection_env), а не подменой
+# sys.argv на импорте. Подмена работала ровно до тех пор, пока ЭТОТ файл
+# первым импортировал pipeline_smart: VIDEO_FOLDER/TEMP_FOLDER считаются
+# ОДИН РАЗ на импорте модуля, поэтому любой тест-файл, который в алфавите
+# раньше и тоже импортирует pipeline_smart, забирал это право себе — и
+# TEMP_FOLDER становился путём к .py-файлу самого того теста
+# (`tests/test_brief_stock_query.py/temp_smart`, NotADirectoryError на
+# первом же makedirs). Измерено 15.09: файл в одиночку зелёный, после
+# соседнего — четыре падения; суита, результат которой зависит от порядка
+# файлов, не является защитой ни от чего.
 sys.argv = ["pipeline_smart.py", tempfile.mkdtemp(prefix="thumbfirst_")]
 import pipeline_smart as ps  # noqa: E402
 
@@ -59,6 +69,10 @@ def selection_env(monkeypatch, tmp_path):
     monkeypatch.setattr(ps, "measure_luma", lambda p, **k: 0.4)
     monkeypatch.setattr(ps, "aesthetic_score", lambda p: 5.0)
     monkeypatch.setattr(ps, "PHOTO_SHARPNESS_REJECT", 10.0)
+    # Рабочая папка кэша — своя на каждый тест и НЕ зависит от того, кто
+    # первым импортировал модуль (см. комментарий у sys.argv выше).
+    monkeypatch.setattr(ps, "VIDEO_FOLDER", str(tmp_path))
+    monkeypatch.setattr(ps, "TEMP_FOLDER", str(tmp_path / "temp_smart"))
     ps._PEXELS_SEARCH_CACHE.clear()
     ps.reset_source_stats()
     return tmp_path
@@ -83,10 +97,19 @@ class TestWholeSliceIsEvaluated:
         monkeypatch.setattr(ps, "is_relevant_candidate", lambda path, q, relevance=None: (relevance or 0) >= 0.19)
         monkeypatch.setattr(ps, "image_sharpness_score", lambda p: 100.0)
 
+        # Обратное соответствие «имя trial-файла -> кандидат» строится ТОЙ
+        # ЖЕ функцией, которой имя строит прод (`candidate_path_token`), а не
+        # разбором написания. Первая версия резала id по ':' — и замолчала,
+        # когда прод стал санитизировать id для имени файла (двоеточие
+        # запрещено на Windows, слэш уводил путь в несуществующий каталог).
+        # Тест при этом не нашёл ни одного дефекта: все кандидаты получили
+        # relevance 0.0, победил первый, и падение указывало на ранжирование
+        # вместо собственной подсказки.
+        _tok = {ps.candidate_path_token(f"met:{i}"): f"thumb{i}.jpg" for i in range(6)}
+
         def _which(path):
-            # trial-файл именуется по id кандидата: cf.trial_<id>.jpg
             tid = path.rsplit(".trial_", 1)[-1].replace(".jpg", "")
-            return f"thumb{tid.split(':')[-1]}.jpg"
+            return _tok.get(tid, "")
         globals()["_which"] = _which
 
         out = ps.pexels_photo("medieval armour", 0, used_ids=set(), used_hashes=[], target_luma=0.4,
@@ -110,9 +133,12 @@ class TestSharpnessOnFullSizeWinner:
             cands.append(_cand(f"met:{i}", full, thumb))
         monkeypatch.setattr(ps, "_museum_search_photos", lambda q, department=None: [dict(c) for c in cands])
         # relevance: met:0 лучший, но его ПОЛНЫЙ файл размыт
+        # Та же причина, что выше: соответствие строится функцией прода.
+        _rel = {ps.candidate_path_token(f"met:{i}"): r
+                for i, r in enumerate((0.35, 0.30, 0.25))}
         monkeypatch.setattr(ps, "clip_relevance",
-                            lambda path, text: {"0": 0.35, "1": 0.30, "2": 0.25}[
-                                path.rsplit(".trial_met:", 1)[-1][0]])
+                            lambda path, text: _rel[
+                                path.rsplit(".trial_", 1)[-1].replace(".jpg", "")])
         monkeypatch.setattr(ps, "is_relevant_candidate", lambda path, q, relevance=None: True)
         monkeypatch.setattr(ps, "image_sharpness_score",
                             lambda p: 1.0 if os.path.basename(p).startswith("0000_") and _is_full0(p) else 100.0)

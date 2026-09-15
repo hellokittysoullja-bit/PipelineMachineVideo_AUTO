@@ -190,7 +190,7 @@ def test_a_row_with_its_own_image_never_calls_the_met_api(monkeypatch, tmp_path)
 
 def test_unknown_corpus_name_fails_loudly():
     with pytest.raises(SystemExit):
-        shelf_index._corpus_rows(("нетакого",), (), None)
+        shelf_index._corpus_rows(("нетакого",), ())
 
 
 # ------------------------------------------------- контактный лист брифов
@@ -374,3 +374,321 @@ def test_collection_order_can_be_overridden_at_call_time(monkeypatch):
     names = [q.split('"')[1] for qf in asked for q in qf
              if q.startswith("europeana_collectionName")]
     assert names == ["ТОЛЬКО_ЭТА"], names
+
+
+# ---------------------------------------- устойчивость самой выгрузки
+#
+# Всё, что ниже, найдено ПРОГОНОМ по собственному коду 15.09, а не чтением:
+# каждый случай сначала воспроизведён на подставном `_search`, и только
+# потом исправлен. Контрольный прогон со снятой правкой роняет
+# соответствующий тест — иначе тест не проверяет ничего.
+
+def _fake_pages(n_pages=4, per_page=5, prefix="x"):
+    """Подставной поиск: n страниц по per_page годных записей."""
+    state = {"n": 0}
+
+    def _search(params, timeout=60):
+        state["n"] += 1
+        items = [{
+            "id": f"/900/{prefix}{state['n']}_{i}",
+            "rights": [ec.CC0],
+            "dataProvider": ["Rijksmuseum"],
+            "year": ["1372"],
+            "edmIsShownBy": [f"http://img/{state['n']}_{i}.jpg"],
+            "title": ["T"],
+            "dcTypeLangAware": {"en": ["Manuscript"]},
+        } for i in range(per_page)]
+        return {"items": items,
+                "nextCursor": f"c{state['n']}" if state["n"] < n_pages else None}
+    return _search, state
+
+
+@pytest.fixture
+def no_page_pause(monkeypatch):
+    monkeypatch.setattr(ec, "PAGE_PAUSE_SEC", 0)
+    monkeypatch.setattr(ec, "SEARCH_RETRY_PAUSE_SEC", 0)
+
+
+def test_harvest_stats_are_readable_before_the_generator_is_exhausted(
+        monkeypatch, no_page_pause):
+    """`harvest.stats = stats` в КОНЦЕ генератора выполняется только при
+    полном исчерпании. Любой потребитель с ранним break (islice, свой
+    лимит, ошибка выше по стеку) читал бы пустой словарь из прошлой жизни:
+    проверено прогоном — `harvest.stats['kept']` роняло KeyError."""
+    search, _ = _fake_pages()
+    monkeypatch.setattr(ec, "_search", search)
+    monkeypatch.setattr(ec.harvest, "stats", {})
+    gen = ec.harvest(collections=["A"], sizes=["large"])
+    [next(gen) for _ in range(3)]
+    assert ec.harvest.stats.get("kept") == 3
+    assert ec.harvest.stats.get("seen") == 3
+
+
+def test_three_digit_years_are_not_fetched_and_then_thrown_away():
+    """`year_clause` НАМЕРЕННО добавляет ветку без дополнения нулями — там
+    77 записей окна, у которых год хранится трёхзначным. Принимать в
+    `record_years` только четыре цифры значило запрашивать их страницами и
+    выбрасывать каждую как «нет года»: ветка запроса была бы no-op, и
+    молча. Оба конца правила держатся ОДНИМ тестом, чтобы их нельзя было
+    рассогласовать по отдельности."""
+    assert "YEAR:[900 TO 999]" in ec.year_clause(900, 1600)
+    assert ec.record_years({"year": ["950"]}) == (950, 950)
+    assert ec.record_years({"year": ["1372"]}) == (1372, 1372)
+    # Мусор по-прежнему не год: паспорт остаётся fail-closed.
+    assert ec.record_years({"year": ["12"]}) is None
+    assert ec.record_years({"year": ["14xx"]}) is None
+    assert ec.record_years({"year": []}) is None
+
+
+def test_a_record_in_two_collections_is_yielded_once(monkeypatch, no_page_pause):
+    """Одна запись может лежать в ДВУХ коллекциях приоритета. Дубль стоит
+    второго вектора (2.28с эмбеддинга), второй строки индекса и двух
+    кандидатов ОДНОГО предмета в пуле одного слота."""
+    def one(params, timeout=60):
+        return {"items": [{"id": "/9/same", "rights": [ec.CC0],
+                           "dataProvider": ["Rijksmuseum"], "year": ["1372"],
+                           "edmIsShownBy": ["http://i.jpg"], "title": ["T"]}],
+                "nextCursor": None}
+    monkeypatch.setattr(ec, "_search", one)
+    rows = list(ec.harvest(collections=["A", "B"], sizes=["large"]))
+    assert [r["id"] for r in rows] == ["euro:/9/same"]
+    assert ec.harvest.stats["rejected"].get("duplicate") == 1
+
+
+def test_one_transient_failure_does_not_cost_the_rest_of_the_collection(
+        monkeypatch, no_page_pause):
+    """Сборка идёт часами. Разовый сетевой сбой обрывал коллекцию молча и
+    на середине — `cursor` после этого восстановить уже нечем."""
+    calls = {"n": 0}
+
+    def flaky(params, timeout=60):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OSError("transient")
+        return {"items": [{"id": "/9/ok", "rights": [ec.CC0],
+                           "dataProvider": ["Rijksmuseum"], "year": ["1372"],
+                           "edmIsShownBy": ["http://i.jpg"], "title": ["T"]}],
+                "nextCursor": None}
+    monkeypatch.setattr(ec, "_search", flaky)
+    rows = list(ec.harvest(collections=["A"], sizes=["large"]))
+    assert len(rows) == 1 and calls["n"] == 2
+
+
+def test_a_search_that_keeps_failing_is_still_fail_open(monkeypatch, no_page_pause):
+    """Повтор — не бесконечность: упавшее учреждение отдаёт ноль строк и не
+    уносит с собой ни остальные коллекции, ни сборку."""
+    calls = {"n": 0}
+
+    def dead(params, timeout=60):
+        calls["n"] += 1
+        raise OSError("down")
+    monkeypatch.setattr(ec, "_search", dead)
+    assert list(ec.harvest(collections=["A"], sizes=["large"])) == []
+    assert calls["n"] == ec.SEARCH_ATTEMPTS
+    assert ec.harvest.stats["errors"] == 1
+
+
+def test_a_cursor_that_repeats_itself_terminates(monkeypatch, no_page_pause):
+    """Курсор, равный текущему, — это бесконечный цикл, а не следующая
+    страница. Своей выдачей Europeana такого не давала; цикл без потолка
+    пишется один раз и живёт годами."""
+    calls = {"n": 0}
+
+    def stuck(params, timeout=60):
+        calls["n"] += 1
+        return {"items": [{"id": f"/9/i{calls['n']}", "rights": [ec.CC0],
+                           "dataProvider": ["Rijksmuseum"], "year": ["1372"],
+                           "edmIsShownBy": ["http://i.jpg"], "title": ["T"]}],
+                "nextCursor": "SAME"}
+    monkeypatch.setattr(ec, "_search", stuck)
+    rows = list(ec.harvest(collections=["A"], sizes=["large"]))
+    assert calls["n"] == 2 and len(rows) == 2
+
+
+# ------------------------------------------------- лимит и ленивость сборки
+
+def _stub_index_paths(monkeypatch, tmp_path):
+    monkeypatch.setattr(shelf_index, "INDEX_DIR", str(tmp_path))
+    monkeypatch.setattr(shelf_index, "ITEMS_PATH", str(tmp_path / "items.jsonl"))
+    monkeypatch.setattr(shelf_index, "VECTORS_PATH", str(tmp_path / "v.f32"))
+    monkeypatch.setattr(shelf_index, "IMAGES_DIR", str(tmp_path / "img"))
+
+
+def test_limit_counts_new_items_not_rows_looked_at(monkeypatch, tmp_path):
+    """`--limit` — сколько НОВЫХ предметов добавить, а не сколько строк
+    посмотреть. При старом счёте повторный запуск той же команды на полке,
+    где лимит уже набран, печатал «осталось 0» и останавливался, хотя в
+    корпусе оставались десятки тысяч записей: выглядело как «полка
+    собрана»."""
+    rows = [{"id": f"euro:/1/{i}", "image": f"http://x/{i}.jpg",
+             "thumb": f"http://x/{i}_s.jpg", "b": 1400, "e": 1450,
+             "source": "europeana"} for i in range(10)]
+    monkeypatch.setattr(shelf_index, "_corpus_rows", lambda *a, **k: iter(rows))
+    monkeypatch.setattr(shelf_index, "_read_items",
+                        lambda: [{"id": "euro:/1/0"}, {"id": "euro:/1/1"}])
+    _stub_index_paths(monkeypatch, tmp_path)
+
+    tried = []
+
+    def fake_urlopen(req, timeout=None):
+        tried.append(getattr(req, "full_url", str(req)))
+        raise OSError("сеть в тестах не нужна")
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    shelf_index.build(corpus=("europeana",), limit=3)
+    # Именно ТРИ ПЕРВЫЕ НОВЫЕ строки (2, 3, 4), а не «первые три строки
+    # корпуса», две из которых уже посчитаны.
+    assert tried == ["http://x/2_s.jpg", "http://x/3_s.jpg", "http://x/4_s.jpg"]
+
+
+def test_the_corpus_is_read_lazily_and_stops_where_the_build_stops(
+        monkeypatch, tmp_path):
+    """Выдача корпусов ленивая: лимит прогона не имеет права стоить полного
+    прохода по чужому API за строками, которые тут же выбрасываются.
+    Проверяется не намерением, а тем, сколько строк реально прочитано."""
+    read = []
+
+    def endless():
+        for i in range(10_000):
+            read.append(i)
+            yield {"id": f"euro:/1/{i}", "image": f"http://x/{i}.jpg",
+                   "thumb": f"http://x/{i}_s.jpg", "b": 1400, "e": 1450,
+                   "source": "europeana"}
+    monkeypatch.setattr(shelf_index, "_corpus_rows", lambda *a, **k: endless())
+    monkeypatch.setattr(shelf_index, "_read_items", lambda: [])
+    _stub_index_paths(monkeypatch, tmp_path)
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen",
+                        lambda *a, **k: (_ for _ in ()).throw(OSError("нет сети")))
+    shelf_index.build(corpus=("europeana",), limit=5)
+    assert len(read) == 5
+
+
+def test_an_already_indexed_item_is_never_embedded_twice(monkeypatch, tmp_path):
+    """`done` снимается ОДИН раз до цикла, поэтому дубль внутри одной
+    выдачи он не видит. Второй вектор одного предмета — это не только
+    потраченные 2.28с, но и два кандидата ОДНОГО предмета в пуле слота."""
+    rows = [{"id": "euro:/1/a", "thumb": "http://x/a.jpg", "image": "http://x/a.jpg",
+             "b": 1400, "e": 1450, "source": "europeana"}] * 3
+    monkeypatch.setattr(shelf_index, "_corpus_rows", lambda *a, **k: iter(rows))
+    monkeypatch.setattr(shelf_index, "_read_items", lambda: [])
+    _stub_index_paths(monkeypatch, tmp_path)
+    tried = []
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen",
+                        lambda req, timeout=None: tried.append(1) or
+                        (_ for _ in ()).throw(OSError("нет сети")))
+    shelf_index.build(corpus=("europeana",))
+    assert len(tried) == 1
+
+
+def test_an_unknown_corpus_name_still_fails_at_call_time(monkeypatch):
+    """У генератора тело не выполняется до первого `next()`. Неизвестное имя
+    корпуса обязано всплыть в момент запуска, а не посреди сборки — и не
+    исчезнуть вовсе, если выдачу никто не дочитал."""
+    with pytest.raises(SystemExit):
+        shelf_index._corpus_rows(("нетакого",), ())
+
+
+# ------------------------------------------------------ кто принёс кадр
+
+def test_the_shelf_is_told_apart_from_the_museum_api_in_the_report():
+    """id кандидата полки обязан оставаться `met:<objectID>` — общий
+    `used_ids` должен видеть один предмет как один. Именно поэтому «кто
+    принёс кадр» считается по `_shelf_meta`, а не по префиксу id: иначе
+    вклад полки неотличим от вклада музейного API, и на единственный
+    вопрос, ради которого полка строилась, по отчёту не ответить."""
+    import pipeline_smart as ps
+    museum = {"id": "met:32684"}
+    shelf = {"id": "met:32684", "_shelf_meta": {"score": 0.3, "corpus": "met"}}
+    euro = {"id": "euro:/9200122/X", "_shelf_meta": {"corpus": "europeana"}}
+    assert ps.candidate_source(shelf) == "met"        # id-пространство не тронуто
+    assert ps.candidate_channel(museum) == "met"
+    assert ps.candidate_channel(shelf) == "shelf"
+    assert ps.candidate_channel(euro) == "shelf"
+    assert ps.candidate_channel({"id": "33508363"}) == "pexels"
+
+
+def test_every_contribution_counter_goes_through_the_channel():
+    """Счётчики вклада обязаны считать КАНАЛ, а не пространство id — иначе
+    правка выше молча перестала бы действовать на половину счётчиков."""
+    import re as _re
+    src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"),
+               encoding="utf-8").read()
+    assert not _re.search(r"_source_bump\(candidate_source\(", src)
+    assert _re.search(r"_source_bump\(candidate_channel\(", src)
+
+
+def test_the_shelf_build_and_the_selection_sanitize_ids_the_same_way():
+    """Второй, ослабленной копии правила «id -> имя файла» быть не должно:
+    id со слэшами уже стоил проекту КАЖДОГО кандидата Europeana,
+    потерянного до гейтов, а двоеточие в имени файла запрещено на Windows.
+    Сегодня обе формы совпадают побайтово — уже скачанные превью не
+    осиротели; расходиться им запрещено впредь."""
+    import pipeline_smart as ps
+    for rid in ("euro:/9200122/BibliographicResource_1000056125434",
+                "met:32684", "openverse:e8b7760f-aee4", "12345",
+                # Формы, на которых наивная замена ":" и "/" расходится с
+                # общим правилом: пробел и "?" в имени файла Windows тоже
+                # не прощает, а id приходит из чужого API.
+                "euro:/9/a b?c", "euro:/9/x*y"):
+        assert shelf_index._path_token(rid) == ps.candidate_path_token(rid)
+    # И то, ради чего правило вообще существует.
+    assert "/" not in shelf_index._path_token("euro:/9/x")
+    assert ":" not in shelf_index._path_token("euro:/9/x")
+
+
+# ------------------------------------------- след происхождения у полки
+
+def test_a_shelf_winner_leaves_a_provenance_record():
+    """Победивший кадр ПОЛКИ уходил в ролик без единой строки о
+    происхождении: `candidate_provenance()` смотрела только `_museum_meta`
+    и `_openverse_meta`, а кандидат полки несёт `_shelf_meta`. Ни записи в
+    `source_license_manifest.jsonl`, ни ссылки на предмет в шотлисте —
+    притом что у второго корпуса полки основание публикации самое слабое
+    из всех (PDM — пометка «ограничений не известно», а не отказ от прав).
+    Проверено прогоном до правки: возвращался None."""
+    import pipeline_smart as ps
+    cand = {"id": "euro:/9200122/X", "alt": "Miniature",
+            "url": "https://www.europeana.eu/item/9200122/X",
+            "_shelf_meta": {"score": 0.31, "dept": "KB", "begin": 1372, "end": 1372,
+                            "culture": None, "license": "public_domain",
+                            "license_field": ec.PDM, "corpus": "europeana",
+                            "provider": "KB, National Library of the Netherlands"}}
+    prov = ps.candidate_provenance(cand)
+    assert prov is not None
+    assert prov["id"] == "euro:/9200122/X"
+    assert prov["page"].endswith("/9200122/X")
+    assert prov["license_field"] == ec.PDM
+    assert prov["provider"].startswith("KB")
+    assert prov["corpus"] == "europeana"
+    # Канал, а не пространство id: без него запись не отвечает на вопрос,
+    # каким путём кадр найден.
+    assert prov["channel"] == "shelf"
+    # Скор поиска — не происхождение: в юридическом журнале ему не место.
+    assert "score" not in prov
+
+
+def test_the_museum_path_provenance_did_not_change_shape():
+    """Правка обязана только ДОБАВЛЯТЬ: у уже работавшего пути состав полей
+    прежний, плюс канал."""
+    import pipeline_smart as ps
+    prov = ps.candidate_provenance({"id": "met:32684", "alt": "Dagger",
+                                    "url": "https://metmuseum.org/x",
+                                    "_museum_meta": {"culture": "French",
+                                                     "license": "public_domain"}})
+    assert prov["culture"] == "French"
+    assert prov["license"] == "public_domain"
+    assert prov["channel"] == "met"
+    assert ps.candidate_provenance({"id": "12345"}) is None
+
+
+def test_the_contact_sheet_uses_the_same_path_rule():
+    """Третья копия «заменить ':' и '/'» жила в контактном листе брифов и
+    молча разошлась бы с остальными на первом же id с пробелом."""
+    import shelf_contact  # noqa: F401
+    src = open(os.path.join(REPO, "scripts", "shelf_contact.py"),
+               encoding="utf-8").read()
+    assert '.replace(":", "_").replace("/", "_")' not in src
+    assert "_path_token(" in src

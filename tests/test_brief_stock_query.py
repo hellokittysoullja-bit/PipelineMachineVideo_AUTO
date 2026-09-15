@@ -74,13 +74,31 @@ def test_query_stays_short_enough_for_a_text_api():
 
 def test_brief_query_is_added_not_substituted():
     """Additive по построению: авторский запрос и запросы секции остаются
-    в пуле, бриф только добавляет свой."""
+    в пуле, бриф только добавляет свой.
+
+    Тест проверяет УСТРОЙСТВО, а не написание. Первая версия сверяла
+    буквальную строку `_bq = brief_to_stock_query(shot_brief` — и упала от
+    переименования переменной, не найдя ни одного дефекта: ровно тот класс
+    пустой проверки, который в этом репозитории уже ломал три теста рядом
+    с `fix_pauses` («считать надо то, ради чего тест написан»). Теперь имя
+    переменной свободно, а инвариант — нет: пул обязан НАЧИНАТЬСЯ с
+    авторского запроса и запросов секции, добавка обязана быть именно
+    добавкой (`pool_queries = [X] + pool_queries`), и X обязан выводиться
+    из брифа, а не из чего-нибудь ещё."""
+    import re
     src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"),
                encoding="utf-8").read()
     start = src.index("pool_queries = [query]")
-    block = src[start:start + 1200]
-    assert "_bq = brief_to_stock_query(shot_brief" in block
-    assert "pool_queries = [_bq] + pool_queries" in block
+    block = src[start:start + 1500]
+    # 1. Авторский запрос и запросы секции остаются основой пула.
+    assert re.search(r"pool_queries = \[query\] \+ \[q for q in \(extra_queries",
+                     block)
+    # 2. Бриф ДОБАВЛЯЕТСЯ в начало, а не заменяет собой пул.
+    m = re.search(r"pool_queries = \[(\w+)\] \+ pool_queries", block)
+    assert m, "запрос из брифа обязан именно ДОБАВЛЯТЬСЯ к пулу"
+    # 3. И добавляется именно запрос из брифа, а не что-нибудь ещё.
+    var = m.group(1)
+    assert re.search(re.escape(var) + r"\s*=\s*brief_to_stock_query\(shot_brief", src)
 
 
 def test_brief_is_in_the_candidate_cache_key():

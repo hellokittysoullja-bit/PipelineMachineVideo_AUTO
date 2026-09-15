@@ -31,7 +31,14 @@ import pipeline_smart as ps  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
-def _fresh_stats():
+def _fresh_stats(monkeypatch, tmp_path):
+    # Рабочая папка задаётся ФИКСТУРОЙ, а не подменой sys.argv на импорте:
+    # VIDEO_FOLDER/TEMP_FOLDER считаются один раз на импорте модуля, и
+    # подмена действует ровно до тех пор, пока ЭТОТ файл импортирует
+    # pipeline_smart первым. Стоит запустить его после соседнего файла —
+    # и TEMP_FOLDER оказывается путём к чужому .py (измерено 15.09).
+    monkeypatch.setattr(ps, "VIDEO_FOLDER", str(tmp_path))
+    monkeypatch.setattr(ps, "TEMP_FOLDER", str(tmp_path / "temp_smart"))
     ps.reset_source_stats()
     yield
     ps.reset_source_stats()

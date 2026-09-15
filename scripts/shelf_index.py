@@ -85,6 +85,7 @@ Ctrl-C, обрыв сети продолжаются с того же места
 import argparse
 import json
 import os
+import re
 import sys
 import time
 
@@ -345,7 +346,7 @@ def search(brief, limit=40, min_score=None):
 
 # ---------------------------------------------------------------- сборка
 
-def _iter_catalog_rows(departments, limit):
+def _iter_catalog_rows(departments, limit=None):
     import met_catalog
     idx = met_catalog._load()
     if not idx:
@@ -371,39 +372,62 @@ def _iter_catalog_rows(departments, limit):
     return rows
 
 
-def _iter_europeana_rows(limit):
-    """Строки второго корпуса полки. Ходит в живой API Europeana — там нет
-    локального дампа, как у Мет, поэтому выгрузка идёт страницами по ходу
-    сборки. Отказ источника — пустой список, а не падение сборки: полка на
+def _iter_europeana_rows():
+    """Строки второго корпуса полки, ЛЕНИВО. Ходит в живой API Europeana —
+    локального дампа, как у Мет, там нет, поэтому выгрузка идёт страницами
+    по ходу сборки.
+
+    Генератор, а не список, по двум причинам, и обе измеримы. Первая:
+    `list(harvest(limit=N))` выкачивал N строк ДО того, как станет
+    известно, сколько из них уже посчитано, — то есть резюмируемая сборка
+    платила полный проход по API за строки, которые тут же выбрасывались.
+    Вторая: список терял ВСЁ при сбое на последней странице, потому что
+    исключение уносило уже собранное; генератор отдаёт собранное до сбоя.
+
+    Отказ источника — конец выдачи, а не падение сборки: полка на
     предметах Мет остаётся ровно такой, какой была."""
     try:
         import europeana_corpus as ec
-        return list(ec.harvest(limit=limit))
     except Exception as exc:
         print(f"Europeana недоступна ({type(exc).__name__}: {exc}) — "
               f"собираю только корпус Мет")
-        return []
+        return
+    try:
+        for row in ec.harvest():
+            yield row
+    except Exception as exc:
+        print(f"Europeana оборвалась ({type(exc).__name__}: {exc}) — "
+              f"собранное до этого места остаётся")
 
 
-def _corpus_rows(corpus, departments, limit):
-    """Строки всех затребованных корпусов В ПОРЯДКЕ ПРИОРИТЕТА.
+def _corpus_rows(corpus, departments):
+    """Строки всех затребованных корпусов В ПОРЯДКЕ ПРИОРИТЕТА, лениво.
 
     Корпуса идут подряд, а не вперемешку: сборка резюмируемая и её можно
     оборвать на любой минуте, поэтому первым обязан лежать тот материал,
     который закрывает измеренное молчание полки. У Мет это отделы
-    (`--departments`), у Europeana — коллекции (`COLLECTION_PRIORITY`)."""
+    (`--departments`), у Europeana — коллекции (`COLLECTION_PRIORITY`).
+
+    Имена корпусов проверяются СРАЗУ, до первой строки: у генератора тело
+    не выполняется до первого `next()`, и неизвестное имя иначе всплыло бы
+    не в момент запуска, а посреди сборки — или не всплыло бы вовсе, если
+    выдачу никто не дочитал."""
     names = [c.strip().lower() for c in corpus if c.strip()]
     if "all" in names:
         names = ["europeana", "met"]
-    rows = []
     for name in names:
-        if name == "met":
-            rows += _iter_catalog_rows(departments, limit)
-        elif name == "europeana":
-            rows += _iter_europeana_rows(limit)
-        else:
+        if name not in ("met", "europeana"):
             raise SystemExit(f"Неизвестный корпус: {name}")
-    return rows
+
+    def _gen():
+        for name in names:
+            if name == "met":
+                for row in _iter_catalog_rows(departments):
+                    yield row
+            else:
+                for row in _iter_europeana_rows():
+                    yield row
+    return _gen()
 
 
 def _image_url_for(object_id):
@@ -436,6 +460,39 @@ def _row_id(row):
     return rid if isinstance(rid, str) and ":" in rid else f"met:{rid}"
 
 
+_PATH_TOKEN_FN = [None]   # см. _path_token(): разрешение запоминается один раз
+
+
+def _path_token(rid):
+    """ID предмета в виде, пригодном для ИМЕНИ ФАЙЛА.
+
+    Правило одно на всю систему и живёт в одном месте
+    (`pipeline_smart.candidate_path_token`): id со слэшами уже стоил
+    проекту КАЖДОГО кандидата Europeana, потерянного до гейтов, а
+    двоеточие в имени файла запрещено на Windows — то есть вторая,
+    ослабленная копия этого правила здесь означала бы, что сборка полки
+    наступает на те же грабли отдельно от отбора. Сегодня обе формы дают
+    один и тот же результат побайтово (проверено тестом), поэтому уже
+    скачанные превью не осиротеют; расходиться им запрещено впредь.
+
+    Запасной путь на случай, если тяжёлый модуль отбора не импортируется
+    (сборка полки не обязана тянуть PIL/numpy ради одной строки). Результат
+    разрешения запоминается: НЕУДАЧНЫЙ импорт Python в `sys.modules` не
+    кэширует, то есть без памятки сломанный или отсутствующий
+    `pipeline_smart` заново пытался бы подняться на КАЖДОЙ строке каталога
+    — десятки тысяч раз за одну сборку."""
+    fn = _PATH_TOKEN_FN[0]
+    if fn is None:
+        try:
+            import pipeline_smart as ps
+            fn = ps.candidate_path_token
+        except Exception:
+            def fn(x):
+                return re.sub(r"[^A-Za-z0-9._-]", "_", str(x)) or "noid"
+        _PATH_TOKEN_FN[0] = fn
+    return fn(rid)
+
+
 def build(departments=DEFAULT_DEPARTMENTS, limit=None, keep_images=False,
           corpus=("met",)):
     """Разовая сборка индекса. Резюмируемая: пропускает уже посчитанные id."""
@@ -446,10 +503,38 @@ def build(departments=DEFAULT_DEPARTMENTS, limit=None, keep_images=False,
     os.makedirs(INDEX_DIR, exist_ok=True)
     os.makedirs(IMAGES_DIR, exist_ok=True)
     done = {it.get("id") for it in _read_items()}
-    rows = _corpus_rows(corpus, departments, limit)
-    todo = [r for r in rows if _row_id(r) not in done]
-    print(f"Полка: {len(rows)} предметов каталога, уже посчитано {len(done)}, "
-          f"осталось {len(todo)}")
+    # `--limit` — сколько НОВЫХ предметов добавить этим прогоном, а не
+    # сколько строк корпуса посмотреть. Разница поймана на своей же
+    # сборке: при старом счёте повторный запуск той же команды
+    # (`--limit 6000` на полке, где 6000 уже есть) честно печатал
+    # «осталось 0» и останавливался, хотя в корпусе оставалось 32 тысячи
+    # записей, — выглядело как «полка собрана». Сейчас лимит считает
+    # работу, а не просмотр, и выдача корпусов ленивая: лишних страниц у
+    # чужого API не запрашивается вообще.
+    #
+    # `seen` начинается с уже посчитанного и пополняется ПО ХОДУ: одна и
+    # та же запись может прийти дважды (две коллекции приоритета, два
+    # корпуса), а `done` снимается один раз до цикла и такого дубля не
+    # видит — он стоил бы второго вектора и второго кандидата одного и
+    # того же предмета в пуле одного слота.
+    seen = set(done)
+    todo = []
+    for r in _corpus_rows(corpus, departments):
+        rid = _row_id(r)
+        if rid in seen:
+            continue
+        seen.add(rid)
+        todo.append(r)
+        # Очередь у Europeana собирается ПО СЕТИ, страницами: без лимита
+        # это минуты полного молчания перед первой строкой прогресса, и
+        # отличить «идёт» от «повисло» человеку нечем. Строка раз в 500
+        # предметов стоит ноль и отвечает на этот вопрос.
+        if len(todo) % 500 == 0:
+            print(f"  очередь: {len(todo)}...", flush=True)
+        if limit and len(todo) >= int(limit):
+            break
+    print(f"Полка: уже посчитано {len(done)}, к сборке {len(todo)}"
+          f"{' (лимит прогона)' if limit and len(todo) >= int(limit) else ''}")
     if not todo:
         return 0
 
@@ -473,8 +558,7 @@ def build(departments=DEFAULT_DEPARTMENTS, limit=None, keep_images=False,
                     small, full, o = _image_url_for(oid)
                 if not small:
                     continue
-                path = os.path.join(IMAGES_DIR,
-                                    rid.replace(":", "_").replace("/", "_") + ".jpg")
+                path = os.path.join(IMAGES_DIR, _path_token(rid) + ".jpg")
                 if not (os.path.exists(path) and os.path.getsize(path) > 2000):
                     req = urllib.request.Request(small, headers=ua)
                     with urllib.request.urlopen(req, timeout=60) as resp:
