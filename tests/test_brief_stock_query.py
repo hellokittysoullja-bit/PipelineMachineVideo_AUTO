@@ -103,10 +103,17 @@ def test_brief_query_is_added_not_substituted():
 
 def test_brief_is_in_the_candidate_cache_key():
     """Бриф меняет состав пула — без него прогретый temp_smart/ отдал бы
-    кандидата, выбранного до появления брифа."""
+    кандидата, выбранного до появления брифа.
+
+    Ключ считает candidate_brief_key() (15.09): прежняя формула клала в
+    ключ только СТОКОВЫЙ ПЕРЕВОД брифа, и два брифа, отличающиеся ракурсом,
+    давали одно имя файла при разных вопросах к полке (замер: 3 совпадения
+    из 3). Инвариант этого теста прежний и стал строже — проверяется он
+    теперь по резолверу, а не по букве старой строки."""
+    assert ps.candidate_brief_key("a dented steel breastplate, close up") != ""
     src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"),
                encoding="utf-8").read()
-    start = src.index("_brief_key = brief_to_stock_query")
+    start = src.index("_brief_key = candidate_brief_key")
     assert "[_brief_key] if _brief_key else []" in src[start:start + 600]
 
 

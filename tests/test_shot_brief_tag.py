@@ -90,12 +90,21 @@ def test_subcut_inherits_the_brief_of_its_phrase():
 def test_shelf_gets_the_brief_stocks_get_the_query():
     """Развилка, ради которой всё сделано. Полка сравнивает описание с
     изображениями — ей нужен полный бриф; у стоков текстовый API, где каждое
-    лишнее слово сужает выдачу, им по-прежнему уходит короткий запрос."""
+    лишнее слово сужает выдачу, им по-прежнему уходит короткий запрос.
+
+    Развилка не изменилась (15.09): полке по-прежнему уходит бриф, стокам —
+    короткий запрос. Добавилось только то, что при ОТСУТСТВИИ брифа полка
+    получает фразу блока вместо запроса секции, который делят 6-10 слотов.
+    Функциональная проверка самого приоритета живёт рядом, в
+    tests/test_shelf_question.py (там pipeline_smart уже импортирован);
+    здесь — что развилка источников на месте."""
     src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"),
                encoding="utf-8").read()
+    # Та же граница по коду, а не по числу символов: 6000 — такое же
+    # магическое число, как прежние 4000, и сломалось бы так же.
     start = src.index("for source_name, fetch in (")
-    block = src[start:start + 4000]
-    assert 'fetch(pq, brief=shot_brief or None)' in block
+    block = src[start:src.index("for row in itertools.zip_longest(*per_source)", start)]
+    assert 'fetch(pq, brief=shelf_question(shot_brief, block_text) or None)' in block
     assert 'fetch(api_q)' in block
 
 

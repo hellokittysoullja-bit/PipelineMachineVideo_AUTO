@@ -5955,6 +5955,92 @@ def brief_to_stock_query(brief, fallback=None, max_words=BRIEF_STOCK_QUERY_MAX_W
 
 
 
+def _shelf_question_active():
+    """Спрашивают ли полку НА САМОМ ДЕЛЕ в этом прогоне (флаг И индекс на диске).
+
+    Нужна ровно для ключа кэша кандидата ниже: включать в ключ вопрос к
+    полке имеет смысл только там, где полка реально отвечает. Без индекса
+    ключ обязан остаться БАЙТ-В-БАЙТ прежним — иначе владелец без собранной
+    полки заплатил бы полным перерендером эпизода за изменение, которого у
+    него физически не происходит.
+
+    load() кэширует матрицу в процессе, поэтому вызов стоит один раз за
+    прогон. Любая ошибка -> False (прежнее поведение), не исключение.
+    """
+    if not feature_flags.enabled("SHELF_INDEX"):
+        return False
+    try:
+        import shelf_index
+        return bool(shelf_index.available())
+    except Exception:
+        return False
+
+
+def shelf_question(shot_brief, block_text=None):
+    """ЧЕМ спрашивают полку: бриф автора, иначе фраза блока, иначе ничего.
+
+    Одна функция, а не два совпадающих выражения в ключе кэша и в вызове
+    полки. Ровно эта пара уже разъезжалась в этом репозитории с настоящими
+    последствиями: словарь пайплайн-тегов жил в двух местах, одно отстало,
+    и `[sfx:armour_clank]` уехал в платный заказ TTS, выключив PHRASE LOCK
+    на весь эпизод. Здесь цена расхождения такая же по классу: ключ кэша
+    перестал бы соответствовать заданному вопросу, и слот молча отдавал бы
+    кандидата, найденного под другой текст.
+
+    Пустая строка (а не None) для «спрашивать нечем» — вызывающий сам решает,
+    что с этим делать: ключу нужна строка, вызову полки нужен None.
+    """
+    # .strip() ДО выбора, а не после: бриф из одних пробелов истинен, и
+    # `(a or b).strip()` отдавал бы пустую строку вместо фразы — полка
+    # осталась бы без вопроса вообще. Поймано собственным тестом, не
+    # рассуждением.
+    return (shot_brief or "").strip() or (block_text or "").strip()
+
+
+def candidate_brief_key(shot_brief, block_text=None, uses_shelf=True):
+    """Часть ключа кэша кандидата, отвечающая за ВОПРОСЫ этого слота.
+
+    РЕАЛЬНЫЙ БАГ, ради которого функция заведена (найден аудитом 15.09,
+    измерен, а не предположен). Ключ считался так:
+
+        _brief_key = brief_to_stock_query(shot_brief, fallback=None) or ""
+
+    то есть в имя кэш-файла уходил ПЕРЕВОД брифа на язык стоков — якорь
+    эпохи плюс пять слов. А в полку уходит бриф ЦЕЛИКОМ, и для сравнения с
+    изображениями «close up» и «seen from the front» — разные вопросы с
+    разными ответами. Прогон трёх реалистичных пар брифов, отличающихся
+    только ракурсом, дал ТРИ СОВПАДЕНИЯ ИЗ ТРЁХ:
+
+        breastplate, close up            -> medieval dented steel breastplate
+        breastplate, seen from the front -> medieval dented steel breastplate
+
+    Следствие: на прогретом temp_smart/ слот молча отдаёт кандидата,
+    выбранного под ДРУГОЙ вопрос к полке. Тот же класс, ради которого
+    заведена candidate_gate_signature(), только в ключе запроса, а не гейтов.
+
+    Здесь ключ называет ОБА вопроса отдельно: чем спросили стоки (текст,
+    он же и есть настоящий запрос) и чем спросили полку (хэш — сам текст
+    длинный и в имя файла не годится). Вопрос к полке входит в ключ только
+    когда полка реально отвечает (см. _shelf_question_active): без индекса
+    поведение прежнее байт-в-байт.
+    """
+    stock_q = brief_to_stock_query(shot_brief, fallback=None) or ""
+    parts = [stock_q] if stock_q else []
+    # То, чем РЕАЛЬНО спрашивают полку: бриф автора, иначе фраза блока.
+    # Ровно та же развилка, что у вызова _shelf_search_photos ниже — второй
+    # её копии здесь не заводится, значения берутся одни и те же.
+    shelf_q = shelf_question(shot_brief, block_text)
+    # uses_shelf=False — видео-путь: полка отдаёт СТАТИЧНЫЕ предметы музея и
+    # в сборке видео-пула не участвует вообще (проверено: единственный вызов
+    # _shelf_search_photos живёт в pexels_photo). Включать её вопрос в ключ
+    # видео значило бы перекачивать видео-кандидатов при смене текста, от
+    # которого их отбор не зависит ни на байт.
+    if shelf_q and uses_shelf and _shelf_question_active():
+        parts.append("shelf:" + hashlib.md5(shelf_q.encode("utf-8")).hexdigest()[:8])
+    return "|".join(parts)
+
+
+
 def _museum_search_photos(api_query, department=None):
     """Кандидаты из прямых API музеев (Met/Cleveland/Chicago) — тот же каскад
     запросов, что и у архивов: длинный запрос не находит ничего и в музейном
@@ -6488,7 +6574,7 @@ def _openverse_fetch_one(api_query, _ov):
 def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=None, target_luma=None,
                   director_score_fn=None, director_assist=False, director_report=None,
                   extra_queries=None, text_key=None, arbiter_text=None, is_opening_shot=False,
-                  shot_brief=None):
+                  shot_brief=None, block_text=None):
     """used_ids — множество ID уже показанных в этом ролике фото (мутируется на
     месте). Разные блоки часто ловят один и тот же тематический запрос — без
     этого им всем доставался бы top-1 результат, то есть одна и та же картинка
@@ -6586,7 +6672,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
     # Бриф входит в ключ кэша кандидата: он МЕНЯЕТ состав пула, и без него
     # слот на прогретом temp_smart/ молча отдал бы кандидата, выбранного до
     # появления брифа (тот же урок, что у candidate_gate_signature).
-    _brief_key = brief_to_stock_query(shot_brief, fallback=None) or ""
+    _brief_key = candidate_brief_key(shot_brief, block_text)
     qkey = "|".join([query] + sorted(q for q in (extra_queries or []) if q and q != query)
                      + ([text_key] if text_key else [])
                      + ([_brief_key] if _brief_key else []))
@@ -6756,7 +6842,28 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                     # выдачу до нуля (замер на Europeana: пятисловные запросы
                     # эпизода дают 0 на всех девяти). Брифа нет — берём
                     # авторский запрос, то есть прежнее поведение.
-                    fetched = fetch(pq, brief=shot_brief or None)
+                    # Брифа нет -> спрашиваем полку ФРАЗОЙ БЛОКА, а не
+                    # запросом секции. Причина, по которой бриф пишут руками,
+                    # у полки отсутствует лишь НАПОЛОВИНУ, и это важно не
+                    # переоценить: И-логика текстового API к полке правда не
+                    # относится (она сравнивает эмбеддинги, а не слова), но
+                    # вторая половина — перевод «что СКАЗАНО» в «что ПОКАЗАТЬ»
+                    # — относится полностью. На отрицании и абстракции фраза
+                    # упирается в потолок класса моделей (часть B бенчмарка
+                    # репозитория: 12-38% top-1 у ВСЕХ трёх), и бриф автора
+                    # остаётся сильнее. Поэтому фраза — не замена брифу, а
+                    # замена ЗАПРОСУ СЕКЦИИ, который делят 6-10 слотов.
+                    #
+                    # Берётся b["text"], а не semantic_context_text: замер
+                    # реальным токенизатором so400m по 142 блокам эпизода 02
+                    # — фраза блока превышает лимит 64 токена у 14 блоков
+                    # (10%), sem_text у 20 (14%). Обрезка молчаливая, поэтому
+                    # выбран вход с меньшей долей обрезанных.
+                    #
+                    # Ущерб ограничен по построению: кандидат полки судится
+                    # is_relevant_candidate() против АВТОРСКОГО запроса, а не
+                    # против текста, которым его нашли.
+                    fetched = fetch(pq, brief=shelf_question(shot_brief, block_text) or None)
                 else:
                     fetched = fetch(api_q)
                 for p in fetched:
@@ -11817,7 +11924,7 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
     # он меняет СОСТАВ пула, а на прогретом temp_smart/ кэш-хит делает
     # continue ДО переподбора кандидата — без этого правка брифа не дошла
     # бы до экрана вообще.
-    _brief_key = brief_to_stock_query(shot_brief, fallback=None) or ""
+    _brief_key = candidate_brief_key(shot_brief, uses_shelf=False)
     qkey = "|".join([query] + sorted(q for q in (extra_queries or []) if q and q != query)
                      + ([text_key] if text_key else []) + ([_brief_key] if _brief_key else []))
     qhash = hashlib.md5(qkey.encode()).hexdigest()[:8]
@@ -14343,7 +14450,7 @@ def main():
                                       director_report=director_entry,
                                       extra_queries=section_query_pool.get(b["section"]), text_key=sem_text,
                                       arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot,
-                                      shot_brief=b.get("shot_brief"))
+                                      shot_brief=b.get("shot_brief"), block_text=b["text"])
             else:
                 photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
                                       recent_sizes=recent_shot_sizes, target_luma=luma_ema,
@@ -14351,7 +14458,7 @@ def main():
                                       director_report=director_entry,
                                       extra_queries=section_query_pool.get(b["section"]), text_key=sem_text,
                                       arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot,
-                                      shot_brief=b.get("shot_brief"))
+                                      shot_brief=b.get("shot_brief"), block_text=b["text"])
                 if not photo and d >= MIN_CLIP + 1.0:
                     video = pexels_video(queries[i], i, used_ids=used_video_ids, used_hashes=used_photo_hashes,
                                          action_qualifier=act_qual,
