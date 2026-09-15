@@ -525,12 +525,14 @@ def make_silence(seconds, path, reference):
     probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0",
                             "-show_entries", "stream=sample_rate,channels",
                             "-of", "csv=p=0", reference],
-                           capture_output=True, text=True, timeout=30).stdout.strip()
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=30).stdout.strip()
     sr, ch = (probe.split(",") + ["44100", "1"])[:2]
     subprocess.run(["ffmpeg", "-y", "-f", "lavfi",
                     "-i", f"anullsrc=r={sr}:cl={'stereo' if ch.strip() == '2' else 'mono'}",
                     "-t", f"{seconds:.4f}", "-c:a", "libmp3lame", "-q:a", "2", path],
-                   capture_output=True, text=True, timeout=60)
+                   capture_output=True, text=True, encoding="utf-8",
+                   errors="replace", timeout=60)
     return path
 
 

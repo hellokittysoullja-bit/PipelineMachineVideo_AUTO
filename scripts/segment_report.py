@@ -72,6 +72,15 @@ LONG_PLAN_SEC = 12.0
 # Ниже этого покрытия распределение длительностей НЕ считается измеренным —
 # тот же порог, что у verify_timing.MIN_COVERAGE.
 MIN_CUT_COVERAGE = 0.5
+# Покрытие ВЫШЕ этого — резов найдено заметно больше, чем слотов в шотлисте.
+# Замер 14.09 (videos/_test60s): 10 планов на 9 слотов, покрытие 1.111.
+# Причина не в монтаже — у стокового ВИДЕО бывает своя внутренняя склейка,
+# и детектор честно видит её как рез. Следствие важное: «план» в этом отчёте
+# перестаёт быть синонимом слота, а «скачок тона между СОСЕДНИМИ планами»
+# частично меряет перепад ВНУТРИ одного клипа. Молчать об этом нельзя — на
+# том же прогоне два «плана» оказались одним клипом на 6.9с, и прочитать это
+# по отчёту было невозможно.
+MAX_CUT_COVERAGE = 1.05
 
 REPORT_FILES = ("relevance_gate_report.json", "stock_exhausted_report.json",
                 "arbiter_rejected_report.json", "director_relevance_report.json")
@@ -157,9 +166,16 @@ def analyze_video(video_path, expected_plans=None):
     coverage = None
     if expected_plans:
         coverage = round(len(spans) / float(expected_plans), 3)
-    measured = coverage is None or coverage >= MIN_CUT_COVERAGE
+    if coverage is None:
+        status = "measured"
+    elif coverage < MIN_CUT_COVERAGE:
+        status = "low_coverage"
+    elif coverage > MAX_CUT_COVERAGE:
+        status = "over_coverage"
+    else:
+        status = "measured"
     return {
-        "status": "measured" if measured else "low_coverage",
+        "status": status,
         "stage": "пиксели final.mp4 — остаток после всей цепочки рендера",
         "fps": fps, "duration_sec": round(total, 3),
         "plans_found": len(spans), "plans_expected": expected_plans, "cut_coverage": coverage,
@@ -172,6 +188,8 @@ def analyze_video(video_path, expected_plans=None):
                   for (a, b), l, s in zip(spans, mid_luma, mid_sat)],
         "limits": ["диссолв может не дать пика: низкое покрытие — отсутствие измерения, "
                    "а не длинные планы",
+                   "покрытие > %.2f: резов больше, чем слотов — у стокового видео своя "
+                   "внутренняя склейка, и «план» тут НЕ равен слоту" % MAX_CUT_COVERAGE,
                    "тон — один кадр из середины плана, не среднее по плану",
                    "квантование — один кадр"],
     }
@@ -301,7 +319,7 @@ def summarize(report):
              f"Карточек: {a.get('cards', {}).get('n')} ({a.get('cards', {}).get('share')}) "
              f"по причинам {a.get('cards', {}).get('by_reason')}",
              f"Отказы: {a.get('rejections')}"]
-    if v.get("status") in ("measured", "low_coverage"):
+    if v.get("status") in ("measured", "low_coverage", "over_coverage"):
         d = v["plan_duration_sec"]
         lines.append(f"Планов в пикселях: {v['plans_found']} (покрытие {v['cut_coverage']}, "
                      f"{v['status']}); длительность медиана {d.get('median')}с "

@@ -1091,6 +1091,28 @@ def grain_blend_complex(label_in, grain_input_idx, label_out, opacity_scale=1.0)
 # точной по построению.
 XFADE_DUR = 10 / FPS       # ~0.42с — диссолв на границах секций и часть обычных склеек
 XFADE_DUR_HARD = 1 / FPS   # один кадр — минимально возможный нахлёст, читается как жёсткий cut
+
+# СКОЛЬКО КЛИПА РЕЗЕРВИРУЕТСЯ ПОД STAT-ПЛАШКУ, и почему это не 1.2.
+#
+# Замер на готовом файле (videos/_test60s, 14.09): плашка «20–30 КГ» видна
+# на экране с 34.0 по 34.5с — 0.5 секунды вместо задуманных 1.2. Прочитать
+# двузначное число с единицей измерения за полсекунды нельзя, а весь канал
+# держится на числах.
+#
+# Причина не в клампе, а в ШКАЛЕ: он считает хвост в времени КЛИПА
+# (dur - 1.2), а последний xfade НАКЛАДЫВАЕТ конец клипа на начало
+# следующего — плашка доживает свой резерв уже под наплывом и гаснет
+# вместе с уходящим кадром. Тот же класс, что уже задокументирован у
+# hook_visual_starts(): величина, посчитанная ДО сжатия таймлайна, до
+# зрителя не доезжает.
+#
+# Поэтому резерв = читаемая часть ПЛЮС то, что съест переход. Берётся
+# максимальный из переходов (XFADE_DUR): у хука переход короче
+# (XFADE_DUR_HARD, один кадр), там резерв получается с запасом — плашка
+# просто повисит дольше. Правка односторонняя по построению: она может
+# только УДЛИНИТЬ присутствие плашки, никогда не укоротить.
+STAT_PLATE_READABLE_SEC = 1.2                              # было единственным числом
+STAT_PLATE_TAIL_SEC = STAT_PLATE_READABLE_SEC + XFADE_DUR  # резерв в шкале клипа
 # hblur/hlwind/hrwind (смаз в движении — читается как whip pan, разные
 # направления — не один и тот же смаз на каждой склейке) и zoomin
 # (панч-переход) — одна мотивированная категория "движение камеры", не
@@ -7684,8 +7706,11 @@ def add_overlays(vf_base, dur, title=None, stat=None, stat_variant=0, stat_delay
         # заметно раньше, чем её произносили. delay — момент внутри клипа,
         # когда число уже озвучено; clamp оставляет минимум ~1.2с на сам
         # fade-in/hold/fade-out, даже если delay пришёлся почти на конец
-        # клипа (не даём плашке исчезнуть, не успев появиться).
-        delay = max(0.0, min(stat_delay, dur - 1.2))
+        # клипа (не даём плашке исчезнуть, не успев появиться). Резерв —
+        # STAT_PLATE_TAIL_SEC (читаемые 1.2с ПЛЮС длительность уходящего
+        # xfade, см. её комментарий: на готовом файле плашка жила 0.5с
+        # вместо 1.2 именно потому, что резерв считался в шкале клипа).
+        delay = max(0.0, min(stat_delay, dur - STAT_PLATE_TAIL_SEC))
         fin = delay + fin_dur
         hold = max(fin, dur - 0.5)
         text = stat.upper() if FONT_IS_DISPLAY else stat
@@ -8982,10 +9007,12 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
     # дублирования логики в каждой ветке. Движение после паузы продолжает
     # с того же места, откуда остановилось (не теряет фазу), а не рестартует.
     if stat and stat_delay > 0.5:
-        # Тот же кламп, что у add_overlays (delay = min(stat_delay, dur-1.2)):
-        # аудит 04.09 — при [stat:] в конце фразы плашка появлялась на dur-1.2,
-        # а «пауза перед цифрой» по сырому stat_delay случалась ПОСЛЕ неё.
-        eff_delay = max(0.0, min(stat_delay, dur - 1.2))
+        # ТОТ ЖЕ кламп, что у add_overlays, и через ту же константу — два
+        # литерала 1.2 уже жили здесь порознь, а расхождение значило бы, что
+        # «пауза перед цифрой» и сама цифра случаются в разные моменты.
+        # Аудит 04.09: при [stat:] в конце фразы плашка появлялась на
+        # dur-резерв, а пауза по сырому stat_delay случалась ПОСЛЕ неё.
+        eff_delay = max(0.0, min(stat_delay, dur - STAT_PLATE_TAIL_SEC))
         freeze_start_f = max(0, round((eff_delay - FREEZE_HOLD_DUR) * FPS))
         freeze_end_f = round(eff_delay * FPS)
         if freeze_end_f > freeze_start_f:
@@ -12805,7 +12832,8 @@ def available_ffmpeg_filters():
         return _FFMPEG_FILTERS_CACHE
     try:
         out = subprocess.run(["ffmpeg", "-hide_banner", "-filters"],
-                             capture_output=True, text=True, timeout=30).stdout
+                             capture_output=True, text=True, encoding="utf-8",
+                             errors="replace", timeout=30).stdout
         _FFMPEG_FILTERS_CACHE = set(re.findall(r'^\s*[A-Z.]{3}\s+(\S+)', out, re.M))
     except Exception:
         _FFMPEG_FILTERS_CACHE = set()   # не смогли спросить — не гейтим

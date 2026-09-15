@@ -168,3 +168,32 @@ def test_render_episode_calls_the_report_last():
     src = open(os.path.join(SCRIPTS_DIR, "render_episode.py"), encoding="utf-8").read()
     assert "segment_report" in src
     assert src.index("segment_report.build(") > src.index("_timing_verification(")
+
+
+class TestCoverageVerdict:
+    """Покрытие > 1 — не «всё хорошо», а «план не равен слоту».
+
+    Замер 14.09 (videos/_test60s): 10 планов на 9 слотов. Причина не в
+    монтаже — у стокового видео своя внутренняя склейка, детектор честно
+    видит её как рез. Два «плана» там оказались ОДНИМ клипом на 6.9с, и
+    по отчёту это было не прочитать: статус стоял «measured»."""
+
+    def test_over_coverage_is_named(self, episode):
+        v = sr.analyze_video(os.path.join(episode, "final.mp4"), expected_plans=2)
+        assert v["status"] == "over_coverage", v["cut_coverage"]
+        assert v["cut_coverage"] > sr.MAX_CUT_COVERAGE
+
+    def test_exact_match_is_still_measured(self, episode):
+        v = sr.analyze_video(os.path.join(episode, "final.mp4"), expected_plans=4)
+        assert v["status"] == "measured"
+
+    def test_limit_is_written_into_the_report(self, episode):
+        v = sr.analyze_video(os.path.join(episode, "final.mp4"), expected_plans=4)
+        assert any("внутренняя склейка" in s for s in v["limits"]), v["limits"]
+
+    def test_over_coverage_still_reports_the_numbers(self, episode):
+        """Честность — не отказ от измерения: числа остаются, меняется их
+        трактовка."""
+        report, _ = sr.build(episode, with_contact=False)
+        text = sr.summarize(report)
+        assert "Планов в пикселях" in text
