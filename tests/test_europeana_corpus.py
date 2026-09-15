@@ -324,3 +324,32 @@ def test_shelf_candidate_ids_are_covered_by_the_prefix_table():
         prefix = cid.split(":", 1)[0]
         assert ps.candidate_source({"id": cid}) == prefix, cid
         assert prefix in ps.CANDIDATE_ID_PREFIXES
+
+
+def test_candidate_id_with_slashes_never_becomes_a_path(tmp_path):
+    """Дефект, из-за которого КАЖДЫЙ кандидат Europeana терялся до гейтов.
+
+    Имя файла-пробника собиралось из id буквально, а id записи Europeana —
+    `euro:/9200122/...` со СЛЭШАМИ: путь уезжал в несуществующий каталог,
+    запись падала FileNotFoundError, и relevance-гейт, контрастивное вето,
+    домен-гвард, дедуп и ранжирование не отрабатывали по этим кандидатам
+    ВООБЩЕ — победитель брался по позиции в списке."""
+    import pipeline_smart as ps
+
+    cf = str(tmp_path / "0000_slot.jpg")
+    for cid in ("euro:/9200122/BibliographicResource_1000056125434",
+                "met:32684", "openverse:a-b-c", "33508363"):
+        trial = cf + f".trial_{ps.candidate_path_token({'id': cid})}.jpg"
+        assert os.path.dirname(trial) == str(tmp_path), cid
+        open(trial, "wb").write(b"x")          # запись обязана состояться
+        assert os.path.exists(trial)
+
+
+def test_path_token_keeps_candidates_distinct():
+    """Санитизация не имеет права склеить двух РАЗНЫХ кандидатов в один
+    файл — иначе пул молча потерял бы половину выборки."""
+    import pipeline_smart as ps
+
+    ids = ["euro:/9200122/A", "euro:/9200122/B", "met:1", "met:2"]
+    tokens = [ps.candidate_path_token({"id": i}) for i in ids]
+    assert len(set(tokens)) == len(ids)

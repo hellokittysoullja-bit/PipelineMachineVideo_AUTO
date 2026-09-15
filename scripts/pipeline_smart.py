@@ -4396,6 +4396,39 @@ def candidate_source(p):
     return "pexels"
 
 
+def candidate_path_token(p):
+    """ID кандидата в виде, пригодном для ИМЕНИ ФАЙЛА.
+
+    Реальный дефект, найденный сквозным прогоном 15.09, а не чтением кода:
+    имя файла-пробника собиралось из id кандидата буквально
+    (`cf + f".trial_{p.get('id')}.jpg"`), а id записи Europeana — это
+    `euro:/9200122/BibliographicResource_1000056125434`, то есть со
+    СЛЭШАМИ. Путь уезжал в несуществующий каталог, запись падала
+    `FileNotFoundError`, и КАЖДЫЙ кандидат Europeana терялся ещё ДО гейтов.
+
+    Цена была не «20 строк в отчёте»: relevance-гейт, контрастивное вето,
+    домен-гвард, дедуп по aHash и всё ранжирование не отрабатывали по
+    кандидатам Europeana ВООБЩЕ, победитель брался по позиции в списке.
+    То есть слой был подключён, кандидаты доезжали до пула — и пул их
+    молча выбрасывал. Ровно тот класс, против которого заведены счётчики
+    `SOURCE_STATS`: без них это выглядело бы как «Europeana просто не
+    выигрывает».
+
+    Точность формулировки важна: у прежних источников имя файла всё-таки
+    МЕНЯЕТСЯ (`met:32684` -> `met_32684`, двоеточие не разделитель пути, но
+    и не буква) — неизменным остаётся ПОВЕДЕНИЕ, потому что это временные
+    файлы-пробники, живущие рядом с кэшем одного слота и не входящие ни в
+    один ключ кэша. Побайтово прежним результат остаётся только у Pexels,
+    чей id и так состоит из цифр.
+
+    Побочно закрыт латентный дефект Windows: двоеточие в имени файла там
+    запрещено, то есть на машине владельца пробники музейных кандидатов
+    падали бы ровно так же, как падали кандидаты Europeana здесь.
+    """
+    token = str((p or {}).get("id", "") if isinstance(p, dict) else (p or ""))
+    return re.sub(r"[^A-Za-z0-9._-]", "_", token) or "noid"
+
+
 def _source_bump(source, field, n=1):
     st = SOURCE_STATS.setdefault(source, {f: 0 for f in _SOURCE_STAT_FIELDS})
     st[field] += n
@@ -6804,7 +6837,8 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             # меняется только то, что к моменту очереди файл обычно уже
             # скачан (или качается параллельно с обработкой предыдущего),
             # а не ждёт своей синхронной очереди с нуля.
-            trial_paths = {id(p): cf + f".trial_{p.get('id')}.jpg" for p in trial_slice}
+            trial_paths = {id(p): cf + f".trial_{candidate_path_token(p)}.jpg"
+                           for p in trial_slice}
             prefetch_pool = concurrent.futures.ThreadPoolExecutor(
                 max_workers=max(1, min(PHOTO_PREFETCH_WORKERS, len(trial_slice) or 1)))
             prefetch_futures = {id(p): prefetch_pool.submit(download_probe, p, trial_paths[id(p)])
@@ -11821,7 +11855,7 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
             if not files:
                 continue
             best = min(files, key=lambda f: abs(f["width"] - WIDTH))
-            trial = cf + f".trial_{v.get('id')}.mp4"
+            trial = cf + f".trial_{candidate_path_token(v)}.mp4"
             try:
                 vid_req = urllib.request.Request(best["link"], headers={"User-Agent": UA})
                 atomic_url_download(vid_req, trial, timeout=40)
