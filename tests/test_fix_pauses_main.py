@@ -20,9 +20,17 @@ import fix_pauses   # noqa: E402
 
 
 class _FakeCompleted:
-    def __init__(self, returncode, stderr=""):
+    """Дубль результата subprocess.run(capture_output=True, text=True).
+
+    `stdout` здесь не для красоты: у настоящего вызова с `capture_output`
+    это поле есть ВСЕГДА, и дубль без него — не более строгий тест, а
+    расхождение с контрактом, на котором main() честно падал.
+    """
+
+    def __init__(self, returncode, stderr="", stdout=""):
         self.returncode = returncode
         self.stderr = stderr
+        self.stdout = stdout
 
 
 def _patch_main_deps(monkeypatch, tmp_path, sil, total, protected_windows=None):
@@ -45,6 +53,11 @@ def _run_main_capturing_ffmpeg(monkeypatch, video_dir):
 
     def fake_run(cmd, **kw):
         calls.append(cmd)
+        if cmd and cmd[0] == "ffprobe":
+            # Замер формата исходника, а не рендер: писать сюда «готовый
+            # файл» по последнему аргументу значило бы затереть сам
+            # исходник — cmd[-1] у ffprobe это путь ко ВХОДУ.
+            return _FakeCompleted(0, stdout="44100,2\n")
         out_path = cmd[-1]
         open(out_path, "wb").write(b"fake flac bytes")
         return _FakeCompleted(0)
@@ -57,6 +70,21 @@ def _run_main_capturing_ffmpeg(monkeypatch, video_dir):
     finally:
         sys.argv = old_argv
     return rc, calls
+
+
+def _render_calls(calls):
+    """Только вызовы, которые РЕНДЕРЯТ результат.
+
+    Раньше тесты считали, что `main()` делает ровно ОДИН вызов
+    подпроцесса, и сравнивали `len(calls) == 1`. Это было верно для того
+    кода, а не для задачи: рядом с рендером у `main()` появились
+    измерительные вызовы (формат исходника через ffprobe, тонкая
+    `detect_fine_silences`), и три честных теста упали, не обнаружив ни
+    одного дефекта. Считать надо то, ради чего тест написан, — сколько
+    раз собран результат, — иначе любой новый ЗАМЕР ломает проверки,
+    которые про него ничего не утверждают."""
+    return [c for c in calls
+            if c and c[0] == "ffmpeg" and str(c[-1]).endswith("audio_fixed.flac")]
 
 
 def _filter_complex_arg(cmd):
@@ -74,8 +102,9 @@ def test_main_no_silences_normalizes_only(tmp_path, monkeypatch):
     _patch_main_deps(monkeypatch, tmp_path, sil=[], total=10.0)
     rc, calls = _run_main_capturing_ffmpeg(monkeypatch, str(tmp_path))
     assert rc == 0
-    assert len(calls) == 1
-    assert "-filter_complex" not in calls[0]   # ветка "нечего резать" — простой -af
+    render = _render_calls(calls)
+    assert len(render) == 1
+    assert "-filter_complex" not in render[0]   # ветка "нечего резать" — простой -af
     assert os.path.exists(tmp_path / "audio_fixed.flac")
     cuts = json.load(open(tmp_path / "media_plan" / "pause_cuts.json", encoding="utf-8"))
     assert cuts["cuts"] == []
@@ -88,8 +117,9 @@ def test_main_builds_one_atrim_segment_per_speech_and_pause_chunk(tmp_path, monk
     _patch_main_deps(monkeypatch, tmp_path, sil=sil, total=6.0)
     rc, calls = _run_main_capturing_ffmpeg(monkeypatch, str(tmp_path))
     assert rc == 0
-    assert len(calls) == 1
-    filt = _filter_complex_arg(calls[0])
+    render = _render_calls(calls)
+    assert len(render) == 1
+    filt = _filter_complex_arg(render[0])
     assert filt.count("atrim=") == 3
     assert filt.count("afade=t=in") == 3
     assert filt.count("afade=t=out") == 3
@@ -118,8 +148,11 @@ def test_main_degenerate_all_segments_too_short_falls_back_to_plain_normalize(tm
     _patch_main_deps(monkeypatch, tmp_path, sil=sil, total=0.015)
     rc, calls = _run_main_capturing_ffmpeg(monkeypatch, str(tmp_path))
     assert rc == 0
-    assert len(calls) == 1
-    assert "-filter_complex" not in calls[0]   # откат на -af, не concat=n=0
+    render = _render_calls(calls)
+    # Ровно один собранный результат и БЕЗ concat — то, ради чего тест
+    # написан: откат на -af, а не concat=n=0, на котором ffmpeg упал бы.
+    assert len(render) == 1
+    assert "-filter_complex" not in render[0]
     assert os.path.exists(tmp_path / "audio_fixed.flac")
 
 
@@ -149,7 +182,7 @@ def test_main_respects_protected_window_over_curve(tmp_path, monkeypatch):
     _patch_main_deps(monkeypatch, tmp_path, sil=sil, total=6.0, protected_windows=protected)
     rc, calls = _run_main_capturing_ffmpeg(monkeypatch, str(tmp_path))
     assert rc == 0
-    filt = _filter_complex_arg(calls[0])
+    filt = _filter_complex_arg(_render_calls(calls)[0])
     assert "atrim=start=2.000000:end=3.800000" in filt   # 2.0 + 1.8 из плана, не с кривой
 
     cuts = json.load(open(tmp_path / "media_plan" / "pause_cuts.json", encoding="utf-8"))
@@ -182,3 +215,40 @@ def test_detect_silences_unchanged_when_end_marker_present(monkeypatch):
 
     monkeypatch.setattr(fix_pauses.subprocess, "run", lambda *a, **k: _R())
     assert fix_pauses.detect_silences("audio.mp3", total=12.0) == [(3.0, 4.5), (9.0, 12.0)]
+
+
+def test_missing_ffprobe_degrades_to_defaults_instead_of_killing_the_step(tmp_path, monkeypatch, capsys):
+    """Замер формата исходника — ЖЕЛАТЕЛЬНЫЙ, а не обязательный.
+
+    Голый вызов ронял `main()` на `FileNotFoundError`, если ffprobe нет в
+    PATH, — то есть измерительный шаг уносил с собой ВЕСЬ этап подрезки
+    пауз, к нему отношения не имеющий. Ровно тот класс, который в этом
+    репозитории уже оплачен на `get_media_duration()`: один битый вход
+    убирал из ролика весь звуковой слой. Тишина при отказе вставляется по
+    объявленным дефолтам, и об этом печатается строка.
+    """
+    sil = [(2.0, 4.0)]
+    _patch_main_deps(monkeypatch, tmp_path, sil=sil, total=6.0)
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        if cmd and cmd[0] == "ffprobe":
+            raise FileNotFoundError("ffprobe")
+        open(cmd[-1], "wb").write(b"fake flac bytes")
+        return _FakeCompleted(0)
+
+    monkeypatch.setattr(fix_pauses.subprocess, "run", fake_run)
+    old_argv = sys.argv
+    sys.argv = ["fix_pauses.py", str(tmp_path)]
+    try:
+        rc = fix_pauses.main()
+    finally:
+        sys.argv = old_argv
+
+    assert rc == 0
+    assert os.path.exists(tmp_path / "audio_fixed.flac")
+    out = capsys.readouterr().out
+    assert "Формат исходника не измерен" in out
+    filt = _filter_complex_arg(_render_calls(calls)[0])
+    assert f"anullsrc=r={fix_pauses.SILENCE_RATE}" in filt or "atrim=" in filt

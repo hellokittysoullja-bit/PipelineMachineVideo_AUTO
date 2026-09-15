@@ -553,11 +553,27 @@ def main():
     # сегментов: подрезка уже отработала, а две логики не пересекаются по
     # построению (см. TAG_PAUSE_TARGETS).
     global SILENCE_RATE, SILENCE_LAYOUT
-    probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0",
-                            "-show_entries", "stream=sample_rate,channels",
-                            "-of", "csv=p=0", src],
-                           capture_output=True, text=True, encoding="utf-8",
-                           errors="replace").stdout.strip()
+    # Замер формата исходника — ЖЕЛАТЕЛЬНЫЙ, а не обязательный: вставляемая
+    # тишина обязана совпасть с ним по частоте и каналам, иначе concat
+    # упрётся в несовпадение. Но сам замер права уронить весь шаг подрезки
+    # пауз не имеет — при недоступном ffprobe остаются объявленные выше
+    # дефолты (48 кГц/mono), и это ровно тот же fail-open, которым в этом
+    # репозитории уже закрыт `get_media_duration()` (`check=True` на пустом
+    # выводе ffprobe уносил ВЕСЬ звуковой слой ролика вместе с эффектами,
+    # к битому файлу отношения не имевшими). Голый вызов здесь ронял `main()`
+    # на `FileNotFoundError` без ffprobe в PATH и на AttributeError, если
+    # вызов вообще не дал вывода.
+    probe = ""
+    try:
+        done = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0",
+                               "-show_entries", "stream=sample_rate,channels",
+                               "-of", "csv=p=0", src],
+                              capture_output=True, text=True, encoding="utf-8",
+                              errors="replace")
+        probe = (getattr(done, "stdout", "") or "").strip()
+    except Exception as exc:
+        print(f"  Формат исходника не измерен ({type(exc).__name__}) — "
+              f"тишина вставляется как {SILENCE_RATE} Гц/{SILENCE_LAYOUT}")
     if probe:
         bits = (probe.split(",") + ["", ""])[:2]
         if bits[0].strip().isdigit():
