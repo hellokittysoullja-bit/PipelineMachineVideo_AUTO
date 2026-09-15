@@ -353,3 +353,24 @@ def test_path_token_keeps_candidates_distinct():
     ids = ["euro:/9200122/A", "euro:/9200122/B", "met:1", "met:2"]
     tokens = [ps.candidate_path_token({"id": i}) for i in ids]
     assert len(set(tokens)) == len(ids)
+
+
+def test_collection_order_can_be_overridden_at_call_time(monkeypatch):
+    """`collections=COLLECTION_PRIORITY` в СИГНАТУРЕ запоминал список на
+    момент импорта: подмена `ec.COLLECTION_PRIORITY` снаружи молча не
+    действовала, сборка шла по старому порядку и выглядела рабочей.
+
+    Поймано собственным замером 15.09 — опыт «собрать только Альбертину»
+    вернул рукописи KB и отчитался «осталось 0». Тот же принцип «читать в
+    момент вызова», которым в этом репозитории уже закрыт реестр флагов.
+    """
+    asked = []
+    monkeypatch.setattr(ec, "_search",
+                        lambda params, timeout=60: asked.append(params["qf"]) or
+                        {"items": [], "nextCursor": None})
+    monkeypatch.setattr(ec.time, "sleep", lambda *_a: None)
+    monkeypatch.setattr(ec, "COLLECTION_PRIORITY", ("ТОЛЬКО_ЭТА",))
+    list(ec.harvest(sizes=("large",)))
+    names = [q.split('"')[1] for qf in asked for q in qf
+             if q.startswith("europeana_collectionName")]
+    assert names == ["ТОЛЬКО_ЭТА"], names

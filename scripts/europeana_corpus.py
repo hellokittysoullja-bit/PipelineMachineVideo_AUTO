@@ -404,8 +404,8 @@ def _row(rec):
     }, None
 
 
-def harvest(limit=None, collections=COLLECTION_PRIORITY, page_size=100,
-            era=None, on_page=None, sizes=IMAGE_SIZE_PRIORITY):
+def harvest(limit=None, collections=None, page_size=100,
+            era=None, on_page=None, sizes=None):
     """Строки корпуса по приоритету коллекций и разрешения снимка.
 
     Генератор — корпус большой, а сборка индекса всё равно идёт по одной
@@ -417,6 +417,20 @@ def harvest(limit=None, collections=COLLECTION_PRIORITY, page_size=100,
     `sizes=None` — без разбиения по разрешению, включая `small`."""
     import museum_sources as ms
 
+    # Списки читаются В МОМЕНТ ВЫЗОВА, а не связываются значением по
+    # умолчанию при объявлении функции. Разница не стилистическая:
+    # `collections=COLLECTION_PRIORITY` в сигнатуре запоминает СПИСОК на
+    # момент импорта, и подмена `ec.COLLECTION_PRIORITY` снаружи (замер,
+    # эксперимент, правка порядка сборки из другого модуля) молча не
+    # действовала — сборка шла по старому порядку и выглядела рабочей.
+    # Поймано собственным замером 15.09: опыт «собрать только Альбертину»
+    # вернул рукописи KB и отчитался «осталось 0». Тот же принцип «читать
+    # в момент вызова», которым в этом репозитории уже закрыт реестр
+    # флагов.
+    if collections is None:
+        collections = COLLECTION_PRIORITY
+    if sizes is None:
+        sizes = IMAGE_SIZE_PRIORITY
     lo, hi = era or ms.era_window()
     stats = {"seen": 0, "kept": 0, "pages": 0, "errors": 0,
              "rejected": {}, "by_provider": {}, "by_size": {}}
