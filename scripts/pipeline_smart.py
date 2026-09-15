@@ -5698,6 +5698,101 @@ MUSEUM_RAW_QUERY_VERSION = 1
 # Ниже двух слов не опускаемся ни на одной ступени — см. коммент про танк.
 OPENVERSE_QUERY_MIN_WORDS = 2
 
+# СЛОВА РАКУРСА — НЕ ТО ЖЕ САМОЕ, что OPENVERSE_QUERY_MODIFIERS выше, и
+# путать их нельзя. Тот список режет слова, чтобы РАСШИРИТЬ узкий архивный
+# запрос, и поэтому включает `mud`, `field`, `battlefield`, `camp` — для
+# архива это сужающие уточнения. Для БРИФА ровно эти слова и есть предмет
+# сцены: «рыцарь лицом в грязи» без грязи превращается в другой кадр.
+# Здесь режется только то, что описывает КАМЕРУ и композицию, а не то, что
+# в кадре. Тест держит оба инварианта: списки различны, и предметные слова
+# сцены переживают извлечение.
+BRIEF_FRAMING_WORDS = (
+    "close", "closeup", "close-up", "up", "macro", "detail", "seen", "view",
+    "shot", "angle", "frontal", "front", "whole", "figure", "background",
+    "apart", "together",
+)
+_BRIEF_STOP_WORDS = (
+    "a", "an", "the", "of", "with", "and", "in", "on", "at", "for", "from",
+    "by", "into", "to", "its", "his", "her", "their", "it", "is", "are",
+    "that", "this", "no", "not", "without", "beside", "next", "one",
+)
+# Маркер версии для _selection_stack_signature(): извлечение меняет СОСТАВ
+# пула (в него приходит запрос, которого раньше не существовало), а не
+# только порядок внутри него.
+BRIEF_STOCK_QUERY_VERSION = 1
+BRIEF_STOCK_QUERY_MAX_WORDS = 5
+
+
+def brief_to_stock_query(brief, fallback=None, max_words=BRIEF_STOCK_QUERY_MAX_WORDS):
+    """Короткий запрос для СТОКА, извлечённый из брифа ЭТОЙ фразы.
+
+    Зачем. Бриф (`[shot:...]`, ЧАСТЬ 13) уходит в полку целиком — она
+    сравнивает описание с изображениями, и чем описание полнее, тем ответ
+    точнее. У стоков ровно наоборот: текстовый API с И-логикой, где каждое
+    лишнее слово сужает выдачу (замер на Europeana: пятисловные запросы
+    эпизода дают ноль на всех девяти). Поэтому стокам уходил запрос СЕКЦИИ,
+    и 142 брифа эпизода не влияли на них вообще — при том что у владельца
+    с ключами именно стоки дают большинство кандидатов.
+
+    Здесь бриф не отбрасывается, а ПЕРЕВОДИТСЯ в то, что сток умеет
+    принять: якорь эпохи + предметные существительные + остаток описания,
+    обрезанный до нескольких слов. Порядок «якорь, потом предметы» взят из
+    уже измеренного правила каскада (`_openverse_query_cascade`), а не
+    придуман заново.
+
+    Якорь эпохи НИКОГДА не теряется — то же условие, что у каскада: без
+    него одиночное `plate armour` первым результатом даёт «MkIV-Tank-Plate».
+    Нет якоря в самом брифе — берётся из запроса, который слот получил бы и
+    без брифа; нет и там — из словаря канала.
+
+    Ничего не извлеклось (бриф из одних слов ракурса, пустой, не на
+    латинице) -> возвращается `fallback`, то есть БАЙТ-В-БАЙТ сегодняшнее
+    поведение."""
+    text = (brief or "").strip().lower()
+    if not text:
+        return fallback
+    words = [w for w in re.findall(r"[a-z][a-z\-]*", text) if w]
+    framing = {w.lower() for w in BRIEF_FRAMING_WORDS}
+    stop = set(_BRIEF_STOP_WORDS)
+    content, seen = [], set()
+    for w in words:
+        if w in framing or w in stop or len(w) < 3:
+            continue
+        if w in seen:
+            continue
+        seen.add(w)
+        content.append(w)
+    if not content:
+        return fallback
+    # ПОРЯДОК АВТОРА сохраняется — это измеренное решение, а не вкус.
+    # Первая версия выносила предметные существительные вперёд (по аналогии
+    # с каскадом) и на реальных брифах эпизода давала систематически худший
+    # запрос: «английский лучник с кинжалом» превращался в `medieval dagger
+    # english longbowman`, а «рондельный кинжал» — в `medieval dagger rondel`
+    # вместо настоящего термина `rondel dagger`. Причина простая: автор
+    # пишет подлежащее первым, и перестановка ломает именно то, ради чего
+    # бриф написан. Правило каскада «брать ПОСЛЕДНЕЕ существительное» тут
+    # неприменимо: оно решало другую задачу — сжать готовый запрос до двух
+    # слов, а не сохранить смысл описания.
+    era = {a.lower() for a in OPENVERSE_ERA_ANCHORS}
+    cap = max(OPENVERSE_QUERY_MIN_WORDS, int(max_words))
+    # Якорь эпохи обязан ВЫЖИТЬ обрезку, а не просто присутствовать в брифе:
+    # реальный найденный промах — «manuscript illumination of a battle
+    # between armoured knights», где единственный якорь `knights` стоял
+    # шестым словом и обрезался, оставляя запрос без эпохи вообще.
+    if not any(w in era for w in content[: cap - 1]):
+        anchor = next((w for w in re.findall(r"[a-z]+", (fallback or "").lower())
+                       if w in era), None)
+        if anchor is None and OPENVERSE_ERA_ANCHORS:
+            anchor = OPENVERSE_ERA_ANCHORS[0].lower()
+        if anchor:
+            content = [anchor] + [w for w in content if w != anchor]
+    out = content[:cap]
+    if len(out) < OPENVERSE_QUERY_MIN_WORDS:
+        return fallback
+    return " ".join(out)
+
+
 
 def _museum_search_photos(api_query, department=None):
     """Кандидаты из прямых API музеев (Met/Cleveland/Chicago) — тот же каскад
@@ -6314,8 +6409,13 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
     # решённого base/director победителя, см. её блок-комментарий в
     # shot_director.py. None -> арбитраж не запускается вообще, прежнее
     # поведение.
+    # Бриф входит в ключ кэша кандидата: он МЕНЯЕТ состав пула, и без него
+    # слот на прогретом temp_smart/ молча отдал бы кандидата, выбранного до
+    # появления брифа (тот же урок, что у candidate_gate_signature).
+    _brief_key = brief_to_stock_query(shot_brief, fallback=None) or ""
     qkey = "|".join([query] + sorted(q for q in (extra_queries or []) if q and q != query)
-                     + ([text_key] if text_key else []))
+                     + ([text_key] if text_key else [])
+                     + ([_brief_key] if _brief_key else []))
     qhash = hashlib.md5(qkey.encode()).hexdigest()[:8]
     gate_sig = candidate_gate_signature().split(":", 1)[-1]
     cf = os.path.join(cache, f"{index:04d}_{qhash}_{gate_sig}.jpg")
@@ -6378,6 +6478,15 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
         # одного (см. extra_queries в докстринге) — победителя дальше выбирает
         # director_score_fn по ПОЛНОЙ фразе блока.
         pool_queries = [query] + [q for q in (extra_queries or []) if q and q != query]
+        # ЗАПРОС ИЗ БРИФА ЭТОЙ ФРАЗЫ — первым в пуле. Не заменяет ни
+        # авторский запрос, ни запросы секции: он ДОБАВЛЯЕТСЯ, а кандидаты
+        # источников всё равно чередуются между запросами (zip_longest ниже),
+        # поэтому положение решает только при равенстве. Смысл добавления —
+        # у слота впервые появляется стоковый запрос, написанный про ЕГО
+        # два предложения, а не про секцию, которую делят 6-10 слотов.
+        _bq = brief_to_stock_query(shot_brief, fallback=None)
+        if _bq and _bq not in pool_queries:
+            pool_queries = [_bq] + pool_queries
         per_query = []
         for pq in pool_queries:
             lst = []
@@ -10041,6 +10150,11 @@ def _selection_stack_signature():
         # меняет состав пула так же, как включение Openverse.
         feature_flags.enabled("MUSEUM_SOURCES_ENABLED"),
         MUSEUM_SOURCES_VERSION,
+        # Запрос из брифа — НОВЫЙ запрос в пуле слота, то есть другой состав
+        # кандидатов у каждого источника. Без подписи это не дошло бы до
+        # экрана на прогретом temp_smart/.
+        BRIEF_STOCK_QUERY_VERSION,
+        BRIEF_STOCK_QUERY_MAX_WORDS,
         # Визуальная полка — источник, который приносит В ПУЛ ДРУГИХ
         # кандидатов на тот же запрос (сравнение идёт с изображениями, а не
         # со словами описания). Без подписи включение полки на прогретом
