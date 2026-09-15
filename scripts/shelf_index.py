@@ -503,7 +503,12 @@ def build(departments=DEFAULT_DEPARTMENTS, limit=None, keep_images=False,
                        # разойдутся, и тогда непонятно, какой верить.
                        "source": r.get("source") or "met",
                        "rights": r.get("rights") or "isPublicDomain",
-                       "provider": r.get("provider") or r.get("dept")}
+                       "provider": r.get("provider") or r.get("dept"),
+                       # Разрешение источника: по готовому ролику иначе не
+                       # ответить, был ли кадр мягким из-за самого снимка.
+                       # У Мет поля нет — там медиана короткой стороны 2857
+                       # по замеру, вопрос не стоит.
+                       "image_size": r.get("image_size")}
                 # Порядок важен: сперва метаданные, потом вектор. Обрыв между
                 # ними даёт метаданные без вектора — это ловит load() по
                 # длине матрицы. Обратный порядок дал бы вектор без подписи,

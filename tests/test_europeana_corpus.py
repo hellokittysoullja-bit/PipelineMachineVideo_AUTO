@@ -216,3 +216,47 @@ def test_brief_contact_sheet_does_not_copy_the_text_wrapper():
     assert "from shotlist_contact import load_font, wrap_text" in src
     assert "def wrap_text" not in src
     assert "def load_font" not in src
+
+
+# ------------------------------------------------- разрешение снимка
+
+def test_small_images_are_not_harvested_by_default():
+    """Замерено на скачанных файлах: `small` у KB это 750x500 альбомных,
+    то есть 2.56x растяжения до 1920 ещё ДО зума Ken Burns. `medium` той
+    же коллекции — 750x1094 портретных, которые `aspect_fit_backdrop()`
+    вписывает по высоте почти один к одному. Разные случаи, и фасет
+    Europeana их разделяет точно."""
+    assert "small" not in ec.IMAGE_SIZE_PRIORITY
+    assert "small" in ec.IMAGE_SIZE_EXCLUDED
+    assert ec.IMAGE_SIZE_PRIORITY[0] == "extra_large"
+
+
+def test_harvest_walks_big_images_first_inside_each_collection(monkeypatch):
+    """Приоритет, а не фильтр: сборка резюмируемая и её обрывают на любой
+    минуте, поэтому крупные снимки обязаны попасть в индекс раньше
+    мелких — и внутри КАЖДОЙ коллекции, а не в среднем по корпусу."""
+    asked = []
+
+    def fake_search(params, timeout=60):
+        asked.append([q for q in params["qf"]])
+        return {"items": [], "nextCursor": None}
+
+    monkeypatch.setattr(ec, "_search", fake_search)
+    monkeypatch.setattr(ec.time, "sleep", lambda *_a: None)
+    list(ec.harvest(collections=("A", "B"), sizes=("extra_large", "medium")))
+    order = [(next(q.split('"')[1] for q in qf if q.startswith("europeana_collectionName")),
+              next(q.split(":", 1)[1] for q in qf if q.startswith("IMAGE_SIZE")))
+             for qf in asked]
+    assert order == [("A", "extra_large"), ("A", "medium"),
+                     ("B", "extra_large"), ("B", "medium")]
+
+
+def test_harvested_row_records_the_resolution_bucket(monkeypatch):
+    """Разрешение обязано доехать до строки индекса: по готовому ролику
+    иначе не ответить, был ли кадр мягким из-за источника."""
+    monkeypatch.setattr(ec, "_search",
+                        lambda params, timeout=60: {"items": [_record()],
+                                                    "nextCursor": None})
+    monkeypatch.setattr(ec.time, "sleep", lambda *_a: None)
+    rows = list(ec.harvest(collections=("A",), sizes=("large",)))
+    assert rows and rows[0]["image_size"] == "large"

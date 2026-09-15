@@ -168,6 +168,33 @@ COLLECTION_PRIORITY = (
     "816_Leiden_University_Libraries_Bibliotheca_Thysiana",
 )
 
+#: Разрешение снимка — СТРУКТУРНОЕ поле Europeana (`IMAGE_SIZE`), а не
+#: догадка: тот же принцип, что `departmentId` у Мет. Спрашивать им
+#: обязательно, и это найдено собственной ошибкой, а не рассуждением.
+#:
+#: Замер 15.09, по 24 реально скачанным снимкам полки: у КАЖДОГО из них
+#: короткая сторона 750 px при кадре 1080, медиана Мет для сравнения —
+#: 2857. Разбор по фасету объяснил, почему так вышло: коллекция, которую я
+#: поставил ПЕРВОЙ в приоритет, состоит из `medium` (2905) и `small`
+#: (1317) и не содержит НИ ОДНОГО снимка выше — то есть по разрешению я
+#: сам выбрал худшее, что есть в корпусе. У Альбертины 3114 `large` +
+#: 2956 `extra_large`, у Рейксмузеума 13 000 `extra_large`.
+#:
+#: Почему `small` отброшен, а `medium` оставлен — это РАЗНЫЕ случаи, и
+#: разницу видно на скачанных файлах. `medium` у KB это 750x1094,
+#: портретный: `aspect_fit_backdrop()` вписывает такой кадр ПО ВЫСОТЕ в
+#: 0.92*1080 = 994, то есть работает почти один к одному, без растяжения.
+#: `small` у той же коллекции — 750x500, альбомный: до 1920 по ширине это
+#: 2.56x растяжения ещё ДО зума Ken Burns. Первое терпимо, второе нет.
+#:
+#: Порядок именно приоритет, а не фильтр: сборка резюмируемая и её можно
+#: оборвать на любой минуте, поэтому крупные снимки обязаны попасть в
+#: индекс раньше мелких — внутри КАЖДОЙ коллекции.
+IMAGE_SIZE_PRIORITY = ("extra_large", "large", "medium")
+
+#: `small` (2 138 записей окна) намеренно не входит в приоритет выше.
+IMAGE_SIZE_EXCLUDED = ("small",)
+
 #: Ширина превью для эмбеддинга. Модель полки работает на 384 px, поэтому
 #: 400 достаточно, а снимок идёт с CDN самой Europeana — это и вежливее к
 #: учреждениям, и однороднее: не нужно знать про 429 у одного хранилища и
@@ -378,19 +405,25 @@ def _row(rec):
 
 
 def harvest(limit=None, collections=COLLECTION_PRIORITY, page_size=100,
-            era=None, on_page=None):
-    """Строки корпуса по приоритету коллекций. Генератор — корпус большой,
-    а сборка индекса всё равно идёт по одной картинке.
+            era=None, on_page=None, sizes=IMAGE_SIZE_PRIORITY):
+    """Строки корпуса по приоритету коллекций и разрешения снимка.
+
+    Генератор — корпус большой, а сборка индекса всё равно идёт по одной
+    картинке. Внутри каждой коллекции сначала идут крупные снимки: сборка
+    резюмируемая, и оборвать её можно на любой минуте.
 
     `collections=None` — один сплошной проход по всему окну эпохи без
-    разбиения по коллекциям (полнее, но порядок произвольный)."""
+    разбиения по коллекциям (полнее, но порядок произвольный).
+    `sizes=None` — без разбиения по разрешению, включая `small`."""
     import museum_sources as ms
 
     lo, hi = era or ms.era_window()
     stats = {"seen": 0, "kept": 0, "pages": 0, "errors": 0,
-             "rejected": {}, "by_provider": {}}
+             "rejected": {}, "by_provider": {}, "by_size": {}}
     taken = 0
-    for coll in (list(collections) if collections else [None]):
+    buckets = [(c, z) for c in (list(collections) if collections else [None])
+               for z in (list(sizes) if sizes else [None])]
+    for coll, size in buckets:
         if limit and taken >= limit:
             break
         cursor = "*"
@@ -400,6 +433,8 @@ def harvest(limit=None, collections=COLLECTION_PRIORITY, page_size=100,
             qf = ["TYPE:IMAGE", year_clause(lo, hi), _rights_clause()]
             if coll:
                 qf.append(f'europeana_collectionName:"{coll}"')
+            if size:
+                qf.append(f"IMAGE_SIZE:{size}")
             params = {"wskey": api_key(), "query": "*:*", "rows": int(page_size),
                       "profile": "rich", "reusability": "open", "cursor": cursor,
                       "qf": qf}
@@ -409,7 +444,8 @@ def harvest(limit=None, collections=COLLECTION_PRIORITY, page_size=100,
                 # Fail-open поисточниково: упавшее учреждение не уносит с
                 # собой остальные — тот же принцип, что у музеев.
                 stats["errors"] += 1
-                print(f"  [{coll}] поиск упал: {type(exc).__name__}: {exc}")
+                print(f"  [{coll}/{size}] поиск упал: "
+                      f"{type(exc).__name__}: {exc}")
                 break
             stats["pages"] += 1
             items = data.get("items") or []
@@ -421,6 +457,8 @@ def harvest(limit=None, collections=COLLECTION_PRIORITY, page_size=100,
                 if row is None:
                     stats["rejected"][why] = stats["rejected"].get(why, 0) + 1
                     continue
+                row["image_size"] = size
+                stats["by_size"][size] = stats["by_size"].get(size, 0) + 1
                 stats["kept"] += 1
                 stats["by_provider"][row["dept"]] = \
                     stats["by_provider"].get(row["dept"], 0) + 1
@@ -484,6 +522,8 @@ def main():
           f"отклонено {st['rejected']}")
     for prov, cnt in sorted(st["by_provider"].items(), key=lambda x: -x[1]):
         print(f"  {cnt:>6}  {prov}")
+    for size, cnt in sorted(st["by_size"].items(), key=lambda x: -x[1]):
+        print(f"  {cnt:>6}  разрешение: {size}")
     return 0
 
 

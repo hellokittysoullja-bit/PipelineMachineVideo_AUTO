@@ -187,7 +187,8 @@ def main(argv=None):
                          "shelf": {k: (c["rec"] or {}).get(k)
                                    for k in ("id", "score", "name", "title",
                                              "dept", "b", "e", "source",
-                                             "rights", "page")} if c["rec"] else None}
+                                             "rights", "image_size", "page")}
+                                   if c["rec"] else None}
                         for c in cells]}
     with open(os.path.join(out_dir, "shelf_contact.json"), "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
