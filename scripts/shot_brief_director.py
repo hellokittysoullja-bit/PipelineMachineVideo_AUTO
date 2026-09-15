@@ -517,6 +517,35 @@ def write_plan(video_dir, blocks, found, brain_name):
     return os.path.join(mp, PLAN_NAME)
 
 
+# Минимальная длина куска фразы, по которому ищется место в файле.
+# Короче — и совпадение перестаёт быть однозначным («И ты не встаёшь.»
+# короткое, но встречается один раз; «Смотри.» встретится где угодно).
+ANCHOR_MIN_CHARS = 28
+
+
+def _unique_anchor(body, text):
+    """Где в сыром файле начинается эта фраза. None — если непонятно.
+
+    Полный текст юнита искать нельзя: парсер СКЛЕИВАЕТ куски вокруг
+    внутренних тегов, и фраза с `[stat:ГЕНРИХ V, 1422]` внутри в файле
+    буквально не встречается ни разу. Живой прогон дал ровно это: три
+    юнита из 107 пропущены с «встречается 0 раз».
+
+    Поэтому ищется самый ДЛИННЫЙ префикс фразы, который встречается в
+    файле ровно один раз, и не короче ANCHOR_MIN_CHARS. Длинный префикс
+    предпочтительнее короткого: чем он длиннее, тем меньше шанс, что
+    однозначность случайна.
+    """
+    text = (text or "").strip()
+    if len(text) < ANCHOR_MIN_CHARS:
+        return body.index(text) if body.count(text) == 1 else None
+    for cut in range(len(text), ANCHOR_MIN_CHARS - 1, -1):
+        piece = text[:cut]
+        if body.count(piece) == 1:
+            return body.index(piece)
+    return None
+
+
 def write_inline(video_dir, blocks, found, dry_run=False):
     """Проставить `[shot:...]` прямо в script.txt перед своей фразой.
 
@@ -548,15 +577,15 @@ def write_inline(video_dir, blocks, found, dry_run=False):
         if (blocks[idx].get("shot_brief") or "").strip():
             skipped.append((text, "у автора уже есть бриф"))
             continue
-        if body.count(text) != 1:
-            skipped.append((text, f"фраза встречается {body.count(text)} раз"))
+        at = _unique_anchor(body, text)
+        if at is None:
+            skipped.append((text, "нет однозначного места в файле"))
             continue
         # Второй проверки «тег уже стоит» не заводится: её уже сделал
         # парсер — если тег есть, он лежит в blocks[idx]["shot_brief"], и
         # юнит отсеян строкой выше. Собственная эвристика по тексту файла
         # была бы вторым ответом на тот же вопрос и рано или поздно
         # разошлась бы с первым.
-        at = body.index(text)
         body = body[:at] + f"[shot:{brief}]" + body[at:]
         placed += 1
 

@@ -247,3 +247,45 @@ def test_channel_blocklist_reaches_the_prompt_from_one_source():
     assert "ЭТИХ СЛОВ" in prompt
     for term in list(banned)[:5]:
         assert term in prompt
+
+
+def test_inline_anchor_survives_a_tag_inside_the_phrase():
+    """Фраза с внутренним тегом в сыром файле буквально не встречается.
+
+    Парсер СКЛЕИВАЕТ куски вокруг `[stat:...]`, поэтому поиск полного
+    текста давал «встречается 0 раз». Живой прогон: три юнита из 107
+    пропускались молча по этой причине. Ищется самый длинный префикс,
+    встречающийся ровно один раз.
+    """
+    import shot_brief_director as d
+    body = ("=== BLOCK 10 ===\n"
+            "Генрих Пятый умер в тысяча четыреста двадцать втором году в "
+            "Венсене.[stat:ГЕНРИХ V, 1422] Не в бою.[pause]")
+    text = ("Генрих Пятый умер в тысяча четыреста двадцать втором году в "
+            "Венсене. Не в бою.")
+    assert body.count(text) == 0          # именно из-за этого и ломалось
+    at = d._unique_anchor(body, text)
+    assert at is not None and body[at:].startswith("Генрих Пятый умер")
+
+
+def test_inline_anchor_refuses_when_the_place_is_ambiguous():
+    """Две одинаковые фразы — тег поставить некуда, и угадывать нельзя:
+    он молча описал бы чужой слот."""
+    import shot_brief_director as d
+    text = "Он не висит в музее под стеклом и не имеет клейма мастера."
+    assert d._unique_anchor(text + " " + text, text) is None
+
+
+def test_inline_never_overwrites_the_author(tmp_path):
+    """Бриф автора сильнее заявки модели — правило всего модуля."""
+    import shot_brief_director as d
+    script = tmp_path / "script.txt"
+    script.write_text("[shot:a rondel dagger, the whole dagger]"
+                      "Рондельный кинжал появляется здесь впервые.",
+                      encoding="utf-8")
+    blocks = [{"text": "Рондельный кинжал появляется здесь впервые.",
+               "shot_brief": "a rondel dagger, the whole dagger"}]
+    placed, skipped = d.write_inline(str(tmp_path), blocks,
+                                     {0: {"shot_en": "something else"}},
+                                     dry_run=True)
+    assert placed == 0 and skipped[0][1] == "у автора уже есть бриф"
