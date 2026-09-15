@@ -1,0 +1,102 @@
+{
+  "model": "qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf",
+  "prompt_version": 2,
+  "rows": [
+    {
+      "index": 1,
+      "class": "метафора",
+      "text": "Меч ударил по шлему — сталь выдержала. Стрела скользнула по нагруднику и ушла в сторону. Доспех отработал каждую монету, которую ты за него отдал, а отдал ты за него как за деревню вместе с крестьянами.",
+      "result": {
+        "shot_en": "Armor resisting the sword and arrow",
+        "function": "object",
+        "forbidden": null,
+        "subject": "доспех"
+      },
+      "sec": 21.3
+    },
+    {
+      "index": 0,
+      "class": "отрицание",
+      "text": "Тебя ещё не ранили. Вот что самое страшное.",
+      "result": {
+        "shot_en": "You have not been injured. The worst is yet to come.",
+        "function": "object",
+        "forbidden": null,
+        "subject": "тебя"
+      },
+      "sec": 19.7
+    },
+    {
+      "index": 5,
+      "class": "число",
+      "text": "А пока — простой опыт. Возьми настоящий боевой меч: полтора килограмма стали, кромка снимает волос с руки. И ударь им человека в полном латном доспехе.",
+      "result": {
+        "shot_en": "A medieval sword, shining in the light",
+        "function": "object",
+        "forbidden": "человека",
+        "subject": "боевой меч"
+      },
+      "sec": 19.2
+    },
+    {
+      "index": 13,
+      "class": "сцена",
+      "text": "При этом он был под ногами у каждого из них. С первого шага на поле.",
+      "result": {
+        "shot_en": "Each person stepping onto the field",
+        "function": "scene",
+        "forbidden": null,
+        "subject": "каждого из них"
+      },
+      "sec": 17.1
+    },
+    {
+      "index": 22,
+      "class": "вопрос",
+      "text": "Представь драку, где у всех ножи, а тебе одному разрешили надеть защиту с головы до ног. Ты ведь не станешь ныть, что она тяжёлая? Ты спросишь, надёжно ли закрыта шея.",
+      "result": {
+        "shot_en": "A person wearing full-body protective gear",
+        "function": "object",
+        "forbidden": null,
+        "subject": "защиту"
+      },
+      "sec": 18.3
+    },
+    {
+      "index": 3,
+      "class": "простая",
+      "text": "Тебе нужно всего лишь встать.",
+      "result": {
+        "shot_en": "A person standing up",
+        "function": "object",
+        "forbidden": null,
+        "subject": "человек"
+      },
+      "sec": 16.3
+    },
+    {
+      "index": 2,
+      "class": "отрицание",
+      "text": "И всё равно ты лежишь лицом в грязи и, кажется, сейчас умрёшь. Хотя броню твою так никто и не пробил.",
+      "result": {
+        "shot_en": "A person lying face down in dirt, seemingly about to die",
+        "function": "object",
+        "forbidden": "броню пробил",
+        "subject": "ты"
+      },
+      "sec": 17.8
+    },
+    {
+      "index": 4,
+      "class": "простая",
+      "text": "Запомни это. Мы сюда вернёмся.",
+      "result": {
+        "shot_en": "This object will be revisited",
+        "function": "object",
+        "forbidden": null,
+        "subject": "это"
+      },
+      "sec": 15.7
+    }
+  ]
+}

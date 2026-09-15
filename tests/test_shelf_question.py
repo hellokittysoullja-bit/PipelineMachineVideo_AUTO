@@ -273,3 +273,118 @@ class TestShelfStackDrift:
     def test_signature_is_real_on_this_machine(self):
         sig = si.stack_signature()
         assert sig is None or ("torch" in sig and "tf" in sig)
+
+
+class TestKeyComputationIsCheapAndPure:
+    """Найдено враждебной самопроверкой (16.09) в правке предыдущего дня.
+
+    candidate_brief_key() — чистая строковая операция, но через
+    _shelf_question_active() она звала shelf_index.available(), а та зовёт
+    load(): чтение ВСЕЙ матрицы векторов (136 МБ на индексе из 30 957
+    предметов) плюс `import torch, transformers` через сверку стека.
+
+    Цена бывала и вовсе напрасной: source_allowed_for("shelf", "scene")
+    равно False, то есть на сценическом слоте полка не спрашивается, а
+    ключ платил полную цену.
+
+    Второй, менее заметный вред — недетерминизм: ключ зависел от того,
+    УДАЛОСЬ ли загрузить индекс, и транзиентный сбой переключал ключ всего
+    прогона, делая уже скачанные кандидаты недостижимыми.
+    """
+
+    def test_activity_check_never_loads_the_matrix(self):
+        import ast
+        src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"),
+                   encoding="utf-8").read()
+        tree = ast.parse(src)
+        fn = next(n for n in ast.walk(tree)
+                  if isinstance(n, ast.FunctionDef) and n.name == "_shelf_question_active")
+        called = {getattr(c.func, "attr", None) for c in ast.walk(fn)
+                  if isinstance(c, ast.Call)}
+        assert "index_present" in called
+        assert "available" not in called, "available() зовёт load() — 136 МБ ради строки"
+
+    def test_index_present_is_pure_file_check(self):
+        import ast
+        src = open(os.path.join(SCRIPTS_DIR, "shelf_index.py"), encoding="utf-8").read()
+        tree = ast.parse(src)
+        fn = next(n for n in ast.walk(tree)
+                  if isinstance(n, ast.FunctionDef) and n.name == "index_present")
+        # Докстринг ОБЯЗАН объяснять, почему load() здесь не зовут, — и
+        # поэтому содержит слова «load», «fromfile», «stack_signature».
+        # Проверять надо ВЫЗОВЫ, а не текст: на этой же ошибке тесты этой
+        # сессии падали уже четырежды.
+        called = {getattr(c.func, "attr", None) or getattr(c.func, "id", None)
+                  for c in ast.walk(fn) if isinstance(c, ast.Call)}
+        for forbidden in ("load", "_read_items", "fromfile", "stack_signature"):
+            assert forbidden not in called, f"{forbidden} вызывается в index_present"
+        assert "getsize" in called
+
+    def test_absent_index_is_false_not_an_exception(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(si, "ITEMS_PATH", str(tmp_path / "нет.jsonl"))
+        monkeypatch.setattr(si, "VECTORS_PATH", str(tmp_path / "нет.f32"))
+        assert si.index_present() is False
+
+    def test_empty_files_do_not_count_as_an_index(self, monkeypatch, tmp_path):
+        """Сборка создаёт файлы до первой записи — пустые не должны
+        объявлять полку работающей."""
+        items = tmp_path / "items.jsonl"
+        vecs = tmp_path / "vectors.f32"
+        items.write_text("", encoding="utf-8")
+        vecs.write_bytes(b"")
+        monkeypatch.setattr(si, "ITEMS_PATH", str(items))
+        monkeypatch.setattr(si, "VECTORS_PATH", str(vecs))
+        assert si.index_present() is False
+        items.write_text('{"id": "met:1"}\n', encoding="utf-8")
+        vecs.write_bytes(b"\x00" * 16)
+        assert si.index_present() is True
+
+
+class TestReviewToolShowsWhatProductionDoes:
+    """Инструмент предпросмотра прожил с ложью меньше суток.
+
+    После того как pexels_photo начал спрашивать полку фразой блока,
+    shot_brief_review.py продолжал печатать «слот пойдёт на авторский
+    запрос секции, как раньше» — то есть инструмент, существующий ровно
+    для того, чтобы показать автору ответ полки ДО рендера, показывал не
+    то, что сделает рендер.
+    """
+
+    def _src(self):
+        return open(os.path.join(SCRIPTS_DIR, "shot_brief_review.py"),
+                    encoding="utf-8").read()
+
+    def test_review_uses_the_production_resolver(self):
+        src = self._src()
+        assert "pipeline_smart.shelf_question(brief, phrase)" in src
+
+    def test_the_stale_lie_is_no_longer_printed(self):
+        """Проверяются СТРОКОВЫЕ ЛИТЕРАЛЫ кода, а не файл целиком: та же
+        фраза законно стоит в комментарии рядом как история находки."""
+        import ast
+        tree = ast.parse(self._src())
+        printed = [n.value for n in ast.walk(tree)
+                   if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+        # Докстринги функций/модуля из рассмотрения убираем — они объясняют,
+        # а не печатаются.
+        docs = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.Module)):
+                d = ast.get_docstring(node, clean=False)
+                if d:
+                    docs.add(d)
+        live = [t for t in printed if t not in docs]
+        assert not any("как раньше" in t for t in live), \
+            [t for t in live if "как раньше" in t]
+
+    def test_shelf_is_asked_with_the_resolved_question_not_the_brief(self):
+        import ast
+        tree = ast.parse(self._src())
+        args = []
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call)
+                    and getattr(node.func, "attr", None) in ("search", "name_agreement")
+                    and getattr(getattr(node.func, "value", None), "id", None) == "shelf_index"):
+                args.append(getattr(node.args[0], "id", None))
+        assert args, "вызовы полки не найдены"
+        assert set(args) == {"question"}, args

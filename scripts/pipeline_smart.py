@@ -5971,7 +5971,13 @@ def _shelf_question_active():
         return False
     try:
         import shelf_index
-        return bool(shelf_index.available())
+        # index_present(), а НЕ available(): вторая зовёт load(), то есть
+        # читает всю матрицу векторов (136 МБ на полном индексе) и тянет
+        # `import torch, transformers` через сверку стека. Платить этим за
+        # строку ключа кэша нельзя — тем более что на сценическом слоте
+        # полка не спрашивается вообще (source_allowed_for("shelf",
+        # "scene") == False), и вся эта цена была бы чистой потерей.
+        return bool(shelf_index.index_present())
     except Exception:
         return False
 
@@ -13747,6 +13753,34 @@ def main():
     if not blocks:
         print("Сценарий не найден/пуст")
         return 1
+    # ЛОКАЛЬНЫЙ РЕЖИССЁР (SHOT_PLANNER_LLM, дефолт 0). Заполняет РОВНО ТО ЖЕ
+    # поле shot_brief, которое пишет автор тегом [shot:...] — и поэтому не
+    # заводит ни одной новой связи: вопрос к полке (shelf_question), перевод
+    # в короткий стоковый запрос (brief_to_stock_query), ключ кэша кандидата
+    # (candidate_brief_key) и его инвалидация уже умеют работать с этим
+    # полем. Бриф АВТОРА не перезаписывается никогда: он проверен человеком,
+    # заявка модели — нет.
+    #
+    # Читается ГОТОВЫЙ план с диска, живых вызовов здесь не делается:
+    # планирование — отдельная команда (scripts/shot_planner_llm.py), потому
+    # что оно идёт ~час на эпизод и не имеет права стоять внутри рендера,
+    # который и так перезапускают.
+    try:
+        import shot_planner_llm
+        if shot_planner_llm.enabled():
+            _plan = shot_planner_llm.load_plan(VIDEO_FOLDER)
+            _filled = shot_planner_llm.fill_briefs(blocks, _plan)
+            if _filled:
+                print(f"  Локальный режиссёр: заявка проставлена на {_filled} "
+                      f"юнитов из {len(blocks)} (авторские брифы не тронуты)")
+            elif _plan:
+                print("  Локальный режиссёр: план есть, но ни одна заявка не "
+                      "подошла к текущему script.txt — текст правился после "
+                      "планирования, перезапусти shot_planner_llm.py")
+    except Exception as _e:
+        # Fail-open той же дисциплины, что у остальных надстроек: сбой
+        # планировщика не имеет права уронить рендер.
+        print(f"  Локальный режиссёр пропущен ({type(_e).__name__})")
     # ИСХОДНЫЙ индекс блока — единственное, что связывает блок монтажа с юнитом
     # speech_plan.json ПОСЛЕ split_long_blocks()/merge_short_phrase_locked_blocks().
     # N4 из docs/AUDIT_2026-09_DEEP.md, измерено на этом эпизоде: главный цикл
