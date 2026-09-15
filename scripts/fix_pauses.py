@@ -26,6 +26,7 @@ pipeline_smart.py (load_hook_word_timings/load_alignment_weights) раньше
 1:1 сюда же (media_plan/pause_cuts.json), и pipeline_smart.py умеет
 пересчитывать alignment.csv В ТОЧНОСТИ на реальную (обрезанную) шкалу
 вместо приближения."""
+import csv
 import hashlib
 import json
 import os
@@ -105,6 +106,29 @@ def duration(path):
                         "format=duration", "-of", "csv=p=0", path],
                        capture_output=True, text=True, encoding="utf-8", errors="replace", check=True)
     return float(r.stdout.strip())
+
+
+def detect_fine_silences(path):
+    """Тишина ЛЮБОЙ длины от FINE_SILENCE_MIN_SEC — отдельный, более мелкий
+    проход, чем detect_silences().
+
+    Нужен ровно для одного: измерить, сколько тишины РЕАЛЬНО есть вокруг
+    тег-паузы. detect_silences() по устройству не показывает ничего короче
+    THRESH_SEC=1.0с, и это не придирка — замер 14.09: на границе секций
+    лежало 0.95с (0.243 сам тег плюс 0.705, вставленных склейкой lumean),
+    то есть чуть НИЖЕ порога. Код её не видел, считал паузу равной 0.243с и
+    добавлял сверху ещё 0.557 — двойной счёт, пойманный замером до рендера.
+
+    Тот же приём, что уже применён в section_sync.py («низкопороговый
+    silencedetect по всему audio.mp3»), и та же причина: подрезка и ИЗМЕРЕНИЕ
+    отвечают на разные вопросы и не обязаны делить один порог."""
+    r = subprocess.run(["ffmpeg", "-i", path, "-af",
+                        f"silencedetect=noise={NOISE_DB}:d={FINE_SILENCE_MIN_SEC}",
+                        "-f", "null", "-"], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    starts = [float(x) for x in re.findall(r'silence_start:\s*([\d.]+)', r.stderr)]
+    ends = [float(x) for x in re.findall(r'silence_end:\s*([\d.]+)', r.stderr)]
+    return list(zip(starts, ends))
 
 
 def detect_silences(path, total=None):
@@ -292,7 +316,136 @@ def _keep_sec_for(ss, se, protected_windows=None):
     return max(0.15, min(raw_dur, keep))
 
 
-def save_cuts(video_dir, sil, src, out, protected_windows=None):
+# Доведение тег-паузы до её ДОКУМЕНТИРОВАННОЙ длины (ЧАСТЬ 10 CLAUDE.md).
+#
+# Почему это нужно системно, а не как заплатка под один эпизод. Замер по
+# alignment реального оплаченного заказа (14.09) показал, что движок держит
+# длину тега как придётся:
+#     [pause]        в середине текста   1.027с   (документировано 0.8)
+#     [pause]        в конце заказа      0.243с
+#     [short pause]  в середине текста   0.169с   (документировано 0.4)
+# То есть расхождение до шести раз, и в ОБЕ стороны. Весь звуковой монтаж
+# при этом считает тишину по факту: звук перехода главы и объектный кюй
+# живут ТОЛЬКО в реальной паузе (см. sfx_plan.py), и в 0.169с не влезает ни
+# один ассет — кюй честно отбрасывается с причиной no_silence_for_object.
+#
+# Правка убирает зависимость от добросовестности движка целиком: тишину
+# задаёт ПЛАН, речь — движок. Она ОДНОСТОРОННЯЯ по построению — только
+# доводит короткую паузу до её же документированной длины и никогда не
+# укорачивает: подрезка живёт выше THRESH_SEC=1.0с, оба целевых значения
+# (0.8 и 0.4) ниже, поэтому две логики физически не пересекаются.
+# Формат вставляемой тишины. Считывается у исходника в main() — жёстко
+# зашитые 44100/mono дали бы несовпадение с потоком и падение concat.
+# Порог ИЗМЕРЕНИЯ тишины (не подрезки): достаточно мелкий, чтобы увидеть
+# паузу в 0.17с, и достаточно крупный, чтобы не считать паузой смычку между
+# словами.
+FINE_SILENCE_MIN_SEC = 0.08
+
+SILENCE_RATE = 48000
+SILENCE_LAYOUT = "mono"
+
+TAG_PAUSE_TARGETS = {"[pause]": 0.8, "[short pause]": 0.4}
+TAG_PAUSE_TOLERANCE = 0.05     # ближе этого к цели — не трогаем вообще
+_ALIGNMENT_TAG_RE = re.compile(r'\[(?:short\s+)?pause\]', re.I)
+
+
+def planned_tag_pauses(video_dir):
+    """[(сырой_старт, сырой_конец, цель_сек, тег), ...] по alignment секций.
+
+    Источник истины — посимвольный alignment (где тег РЕАЛЬНО звучал) плюс
+    section_offsets.json (глобальное смещение секции). Нет alignment или нет
+    карты смещений для секции — эта секция просто не попадает в список:
+    угадывать положение паузы нельзя, а молча промахнуться мимо неё хуже,
+    чем не трогать."""
+    plan_dir = os.path.join(video_dir, "media_plan")
+    align_dir = os.path.join(plan_dir, "alignment")
+    if not os.path.isdir(align_dir):
+        return []
+    try:
+        with open(os.path.join(plan_dir, "section_offsets.json"), encoding="utf-8") as f:
+            offsets = [float(v) for v in json.load(f).values()]
+    except Exception:
+        return []
+    out = []
+    for idx, off in enumerate(sorted(offsets)):
+        path = os.path.join(align_dir, f"{idx:02d}.csv")
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, encoding="utf-8") as f:
+                rows = list(csv.DictReader(f))
+            chars = [(r["char"], float(r["start"]), float(r["end"])) for r in rows]
+        except Exception:
+            continue
+        text = "".join(c for c, _s, _e in chars)
+        for m in _ALIGNMENT_TAG_RE.finditer(text):
+            seg = chars[m.start():m.end()]
+            if not seg:
+                continue
+            tag = "[short pause]" if "short" in m.group(0).lower() else "[pause]"
+            out.append((seg[0][1] + off, seg[-1][2] + off, TAG_PAUSE_TARGETS[tag], tag))
+    return sorted(out)
+
+
+def real_silence_at(ps, pe, sil, protected_windows=None, fine=None):
+    """Сколько тишины РЕАЛЬНО останется в готовом файле вокруг тег-паузы.
+
+    Считать по длине самого тега в alignment нельзя, и это не теория:
+    на границе секций lumean_tts.py уже вставляет свою паузу при склейке
+    (SECTION_GAP_TARGET_SEC), а тег при этом остаётся коротким. Первая
+    версия этой функции сравнивала цель с длиной ТЕГА и добавила 0.557с
+    поверх уже вставленных 0.705с — двойной счёт, пойманный замером до
+    рендера. Поэтому берём объединение тега с реально найденными тишинами
+    вокруг него и вычитаем то, что подрезка из этого куска уносит."""
+    s0, s1 = ps, pe
+    # Растём по МЕЛКИМ тишинам, пока есть что присоединить: тег и
+    # вставленная склейкой пауза стоят встык, а не внахлёст, и одного
+    # прохода объединения не хватило бы.
+    for _ in range(8):
+        grew = False
+        for ss, se in (fine if fine is not None else (sil or [])):
+            if se > s0 - 0.05 and ss < s1 + 0.05 and (ss < s0 or se > s1):
+                s0, s1 = min(s0, ss), max(s1, se)
+                grew = True
+        if not grew:
+            break
+    kept = s1 - s0
+    for ss, se in sil or []:
+        if se <= s0 or ss >= s1:
+            continue
+        keep = _keep_sec_for(ss, se, protected_windows)
+        removed_start = min(se, ss + keep)
+        kept -= max(0.0, min(s1, se) - max(s0, removed_start))
+    return max(0.0, kept)
+
+
+def apply_tag_pause_targets(segments, planned, sil=None, protected_windows=None, fine=None):
+    """Довести короткие тег-паузы до цели, вставив тишину в разрез сегмента.
+
+    Возвращает (новые_сегменты, вставки), где сегмент — это либо
+    ("copy", a, b) кусок исходника, либо ("silence", секунды, сырая_позиция).
+    Вставки — [(сырая_позиция, секунды), ...] для pause_cuts.json."""
+    segs = [("copy", a, b) for a, b in segments]
+    inserts = []
+    for ps, pe, target, _tag in planned:
+        have = real_silence_at(ps, pe, sil, protected_windows, fine)
+        need = target - have
+        if need <= TAG_PAUSE_TOLERANCE:
+            continue
+        mid = (ps + pe) / 2.0
+        for i, item in enumerate(segs):
+            if item[0] != "copy":
+                continue
+            _k, a, b = item
+            if not (a < mid < b):
+                continue
+            segs[i:i + 1] = [("copy", a, mid), ("silence", need, mid), ("copy", mid, b)]
+            inserts.append((round(mid, 6), round(need, 6)))
+            break
+    return segs, sorted(inserts)
+
+
+def save_cuts(video_dir, sil, src, out, protected_windows=None, pause_inserts=None):
     """Сохраняет РЕАЛЬНО вырезанные интервалы (сырое время audio.mp3) —
     только ту часть каждой тишины, что реально ушла (see _keep_sec_for —
     protected-паузы, hold-паузы и короткие тишины теряют разную долю) +
@@ -336,7 +489,9 @@ def save_cuts(video_dir, sil, src, out, protected_windows=None):
     with open(os.path.join(plan_dir, "pause_cuts.json"), "w", encoding="utf-8") as f:
         json.dump({"source_audio_md5": _audio_fingerprint(src),
                     "fixed_audio_md5": _audio_fingerprint(out) if os.path.exists(out) else None,
-                    "cuts": cuts, "pause_windows": pause_windows}, f)
+                    "cuts": cuts, "pause_windows": pause_windows,
+                    "pause_inserts": [[round(p, 6), round(sec, 6)]
+                                      for p, sec in (pause_inserts or [])]}, f)
 
 
 def main():
@@ -394,9 +549,41 @@ def main():
     # (fade — это огибающая внутри уже вырезанных границ, не сдвиг границ) —
     # безопасно для pause_cuts.json/raw_to_real_time, которые считаются по
     # границам сегментов, не по амплитуде.
+    # Тег-паузы доводятся до документированной длины ПОСЛЕ построения
+    # сегментов: подрезка уже отработала, а две логики не пересекаются по
+    # построению (см. TAG_PAUSE_TARGETS).
+    global SILENCE_RATE, SILENCE_LAYOUT
+    probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0",
+                            "-show_entries", "stream=sample_rate,channels",
+                            "-of", "csv=p=0", src],
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace").stdout.strip()
+    if probe:
+        bits = (probe.split(",") + ["", ""])[:2]
+        if bits[0].strip().isdigit():
+            SILENCE_RATE = int(bits[0].strip())
+        SILENCE_LAYOUT = "stereo" if bits[1].strip() == "2" else "mono"
+    planned_pauses = planned_tag_pauses(video_dir)
+    segments, pause_inserts = apply_tag_pause_targets(
+        segments, planned_pauses, sil, protected_windows, detect_fine_silences(src))
+    if pause_inserts:
+        print(f"  Тег-паузы доведены до документированной длины: {len(pause_inserts)} "
+              f"(+{sum(sec for _p, sec in pause_inserts):.2f}с) — движок отдал их короче")
+
     SPLICE_FADE_SEC = 0.008
     parts, filt = [], ""
-    for i, (a, b) in enumerate(segments):
+    for i, item in enumerate(segments):
+        if item[0] == "silence":
+            _k, sec, _pos = item
+            if sec <= 0.001:
+                continue
+            # Тишина В ТОМ ЖЕ формате, что и куски исходника — иначе concat
+            # упрётся в несовпадение частоты/каналов.
+            filt += (f"anullsrc=r={SILENCE_RATE}:cl={SILENCE_LAYOUT},"
+                     f"atrim=end={sec:.6f},asetpts=PTS-STARTPTS[a{i}];")
+            parts.append(f"[a{i}]")
+            continue
+        _k, a, b = item
         dur = b - a
         if dur <= 0.02:
             continue
@@ -443,7 +630,7 @@ def main():
     if r.returncode != 0 or not os.path.exists(out):
         print("Ошибка ffmpeg:", r.stderr[-400:])
         return 1
-    save_cuts(video_dir, sil, src, out, protected_windows)
+    save_cuts(video_dir, sil, src, out, protected_windows, pause_inserts)
     protected_note = f", из них по плану Speech Director: {protected_used}" if protected_windows else ""
     print(f"Готово: {out} | подрезано пауз: {len(sil)} (из них длинных hold-пауз: {long_holds}"
           f"{protected_note}) | было {total:.1f}с → стало {duration(out):.1f}с")

@@ -1941,7 +1941,7 @@ def sfx_plan_gain_bounds():
     return f"{sfx_plan.OBJECT_GAIN_MIN_DB}, {sfx_plan.OBJECT_GAIN_MAX_DB}"
 
 
-def object_asset_for(name):
+def object_asset_for(name, max_sec=None):
     """Концепт из [sfx:...] -> (путь, длительность, класс) или None.
 
     Ищет в библиотеке настоящих звуков (kind="object"). Нет записи — None,
@@ -1959,11 +1959,28 @@ def object_asset_for(name):
     files = library_sounds("object", key)
     if not files:
         return None
+    # ДЛИНА РЕШАЕТ РАНЬШЕ РОТАЦИИ, и это измеренная причина, а не вкус.
+    # Замер 14.09: у концепта armour_clank четыре записи — 0.60, 1.93, 2.00
+    # и 2.27с. Ротация по хэшу имени выдавала 2.27с, точечный кюй по правилу
+    # слоя живёт ТОЛЬКО в реальной паузе, и в паузу такой длины не влезает
+    # ни одна пауза сценария — кюй отбрасывался с причиной
+    # no_silence_for_object, хотя запись на 0.60с в библиотеке лежала.
+    #
+    # Тот же приём, что уже работает у переходов глав (sfx_plan.pick_variant,
+    # «самый длинный из помещающихся»): сперва отсекаем то, что физически не
+    # поместится, и только СРЕДИ ОСТАВШИХСЯ крутим ротацию. Обе цели целы —
+    # звук звучит И не повторяется тем же файлом из ролика в ролик. Без
+    # max_sec поведение прежнее байт-в-байт: фильтр не применяется.
+    variants = [(f, media_duration_or_none(f)) for f in files]
+    if max_sec is not None:
+        fits = [(f, d) for f, d in variants if d is not None and d <= float(max_sec)]
+        if not fits:
+            return None
+        variants = fits
     # Ротация по имени концепта: у вида несколько записей, и один и тот же
-    # файл на каждое упоминание за три ролика становится подписью самоделки.
-    idx = int(hashlib.sha1(key.encode("utf-8")).hexdigest()[:8], 16) % len(files)
-    path = files[idx]
-    dur = media_duration_or_none(path)
+    # файл на каждое упоминание за три ролика становится подписью автомата.
+    idx = int(hashlib.sha1(key.encode("utf-8")).hexdigest()[:8], 16) % len(variants)
+    path, dur = variants[idx]
     cls = (sfx_plan.OBJECT_CLASS_BED
            if (key in OBJECT_BED_CONCEPTS or (dur or 0.0) > OBJECT_POINT_MAX_SEC)
            else sfx_plan.OBJECT_CLASS_POINT)
@@ -1990,8 +2007,8 @@ def run_sfx_director(mix_path, video_dir, blocks, sub_starts, real_weights, tota
         print("  ВНИМАНИЕ: громкость голоса не измерилась — объектный слой "
               "идёт по запасным константам, разрыв с речью НЕ гарантирован")
 
-    def _asset_for(name, at=None):
-        got = object_asset_for(name)
+    def _asset_for(name, at=None, max_sec=None):
+        got = object_asset_for(name, max_sec=max_sec)
         if not got:
             return None
         path, dur, cls = got
@@ -3531,6 +3548,30 @@ def load_pause_windows():
     return _PAUSE_WINDOWS_CACHE
 
 
+_PAUSE_INSERTS_CACHE = None
+
+
+def load_pause_inserts():
+    """[(сырая_позиция, секунд_вставлено), ...] из того же pause_cuts.json.
+
+    Отдельный ключ, а не третий элемент cuts: raw_to_real_time()
+    распаковывает cuts строго как пары (a, b) по всему файлу, и менять эту
+    форму ради нового потребителя — тот же класс, что уже ловили у
+    pause_windows. Нет ключа (эпизод старше правки) -> [] и прежнее
+    поведение."""
+    global _PAUSE_INSERTS_CACHE
+    if _PAUSE_INSERTS_CACHE is not None:
+        return _PAUSE_INSERTS_CACHE
+    try:
+        with open(PAUSE_CUTS_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        items = [(float(a), float(b)) for a, b in (data.get("pause_inserts") or [])]
+        _PAUSE_INSERTS_CACHE = sorted(items)
+    except Exception:
+        _PAUSE_INSERTS_CACHE = []
+    return _PAUSE_INSERTS_CACHE
+
+
 def raw_to_real_time(t, cuts):
     """Точный (не приближённый по тегам) пересчёт сырого времени alignment.csv
     (до обрезки пауз в fix_pauses.py) в реальное время audio_fixed.mp3 —
@@ -3542,7 +3583,21 @@ def raw_to_real_time(t, cuts):
         if a >= t:
             break
         removed += min(t, b) - a
-    return t - removed
+    # ВСТАВЛЕННАЯ тишина — вторая половина той же карты, и читается она
+    # ЗДЕСЬ, а не у шести вызывающих. Причина ровно та, что уже дважды
+    # стоила этому репозиторию сломанного тайминга: карту времени, которую
+    # надо передавать руками, рано или поздно кто-нибудь не передаст.
+    # Вставки появляются, когда fix_pauses.py доводит тег-паузу до её
+    # документированной длины (ЧАСТЬ 10): движок отдаёт [short pause] как
+    # 0.169с вместо 0.4 (замер 14.09), и без доведения звук в такую щель не
+    # влезает никогда. Старый эпизод без ключа pause_inserts даёт пустой
+    # список — поведение байт-в-байт прежнее.
+    added = 0.0
+    for pos, sec in load_pause_inserts():
+        if pos >= t:
+            break
+        added += float(sec)
+    return t - removed + added
 
 
 _SECTION_OFFSETS_CACHE = None   # ленивый кэш на процесс, как и _PAUSE_CUTS_CACHE

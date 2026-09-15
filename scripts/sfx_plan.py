@@ -291,7 +291,7 @@ def word_anchor_time(block, word_pos, start, speech_dur):
     return float(start) + (pos / float(words)) * float(speech_dur)
 
 
-def _call_asset_for(fn, name, at):
+def _call_asset_for(fn, name, at, max_sec=None):
     """Вызвать резолвер ассета, поддерживая обе арности.
 
     Арность проверяется явно, а не ловится через TypeError: перехват
@@ -307,6 +307,17 @@ def _call_asset_for(fn, name, at):
             n = max(n, 2)
     except (TypeError, ValueError):
         n = 1
+    # max_sec передаётся ТОЛЬКО резолверу, который его объявил — тем же
+    # способом (разбор сигнатуры), что и момент выше, и по той же причине:
+    # ловить TypeError значило бы замаскировать настоящую ошибку внутри
+    # резолвера под «старый контракт».
+    if max_sec is not None:
+        try:
+            if "max_sec" in inspect.signature(fn).parameters:
+                return fn(name, at, max_sec=max_sec) if n >= 2 else fn(name, max_sec=max_sec)
+        except (TypeError, ValueError):
+            pass
+        return None
     return fn(name, at) if n >= 2 else fn(name)
 
 
@@ -395,6 +406,24 @@ def object_cues(blocks, sub_starts, real_weights, asset_for=None,
                 dropped.append(dict(base, reason="no_asset"))
                 continue
             path, asset_dur, cls = got[0], got[1], got[2]
+            # ДЛИНА АССЕТА ПОД ДОСТУПНУЮ ТИШИНУ — там, где точечному кюю
+            # иначе негде прозвучать. Замер 14.09: концепт armour_clank
+            # имеет записи 0.60/1.93/2.00/2.27с, ротация по имени выдавала
+            # 2.27с, и кюй отбрасывался с no_silence_for_object, хотя
+            # подходящая запись лежала в той же папке. Тот же приём, что
+            # уже работает у переходов глав (pick_variant).
+            #
+            # Спрашиваем ПОВТОРНО и только когда природный выбор не влез:
+            # правка строго добавляющая — она может лишь найти
+            # помещающийся вариант, но никогда не отнять прежний.
+            if cls == OBJECT_CLASS_POINT and asset_for:
+                gap = speech_gap_before(i, sub_starts, real_weights)
+                room = (gap[1] - CHAPTER_HEADROOM_SEC - gap[0]) if gap else None
+                if room and room > 0 and asset_dur > room:
+                    fitting = _call_asset_for(asset_for, name, anchor, max_sec=room)
+                    if fitting:
+                        got = fitting
+                        path, asset_dur, cls = got[0], got[1], got[2]
             gain_db = got[3] if len(got) > 3 else None
             gain_src = got[4] if len(got) > 4 else "constant"
             ref_lufs = got[5] if len(got) > 5 else None
