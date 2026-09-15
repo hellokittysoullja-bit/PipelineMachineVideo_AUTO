@@ -195,3 +195,32 @@ class TestPadLengthComesFromTheRealFile:
         src = open(os.path.join(SCRIPTS_DIR, "lumean_tts.py"), encoding="utf-8").read()
         assert src.index("real_pads = concat_audio(") < src.index("global_offset += real_pads[idx]")
         assert "global_offset += pads[idx]" not in src
+
+
+class TestDropReasonCarriesNumbers:
+    """Причина без числа не говорит автору ничего.
+
+    Реальный случай 14.09: тег [sfx:] стоял после [short pause], которому
+    движок дал 0.169с (замер по alignment того же заказа: [pause] в середине
+    текста — 1.027с, [short pause] — 0.169с). Туда не влезает ни один ассет,
+    и лечится это правкой СЦЕНАРИЯ, а не порогами. Отчёт при этом писал
+    только «no_silence_for_object», и понять причину было неоткуда."""
+
+    def test_object_drop_reports_gap_and_requirement(self, monkeypatch):
+        import sfx_plan as sp_plan
+        rec = {}
+
+        def fake_gap(i, sub_starts, real_weights):
+            return (10.0, 10.169)      # ровно измеренный [short pause]
+
+        monkeypatch.setattr(sp_plan, "speech_gap_before", fake_gap)
+        gap = sp_plan.speech_gap_before(0, None, None)
+        rec["have"] = round(gap[1] - gap[0], 3)
+        assert rec["have"] == 0.169
+
+    def test_the_hint_names_the_authoring_fix(self):
+        """Подсказка обязана называть ДЕЙСТВИЕ, а не диагноз."""
+        src = open(os.path.join(SCRIPTS_DIR, "sfx_plan.py"), encoding="utf-8").read()
+        assert "нужна полная пауза [pause]" in src
+        assert "gap_sec=have" in src
+        assert "needed_sec=" in src
