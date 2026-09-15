@@ -221,3 +221,29 @@ def test_museum_vocabulary_is_optional_and_silent_without_index():
     off = d.render_prompt(dict(_packet(["а", "б"]), use_vocabulary=False))
     assert plain == off
     assert "СЛОВАРЬ МУЗЕЯ" not in plain
+
+
+def test_channel_blocklist_reaches_the_prompt_from_one_source():
+    """Мозгу называют слова, которые проверка всё равно отклонит.
+
+    Найдено замером, а не рассуждением: бриф «a page from a medieval
+    fencing manual» отклонялся блоклистом канала, где `fencing` стоит
+    против СОВРЕМЕННОГО спортивного фехтования (45 из 655 живых
+    кандидатов Pexels). А глава 2 эпизода 02 буквально про Тальхоффера и
+    Фиоре — то есть канал сам просит фехтбух. Ослаблять гвард по двум
+    случаям нельзя; правильный ход — сказать слова заранее, чтобы мозг
+    выбрал другую формулировку, а не потерял слот.
+
+    Список берётся из ЕДИНСТВЕННОГО источника (channel_profile.json через
+    pipeline_smart.CONTENT_ALT_BLOCKLIST). Второй копии здесь нет — иначе
+    промпт запрещал бы одно, а проверка отклоняла другое.
+    """
+    import shot_brief_director as d
+    import shot_planner_llm as p
+    banned = p.channel_blocklist()
+    if not banned:
+        pytest.skip("блоклист канала недоступен в этом окружении")
+    prompt = d.render_prompt(_packet(["Открой любой фехтбух."]))
+    assert "ЭТИХ СЛОВ" in prompt
+    for term in list(banned)[:5]:
+        assert term in prompt

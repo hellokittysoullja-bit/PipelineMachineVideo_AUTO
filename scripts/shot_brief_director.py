@@ -57,7 +57,7 @@ import shot_planner_llm     # noqa: E402
 # Версия ПАКЕТА и разбора. Входит в ключ кэша главы: переписанный пакет
 # обязан считаться заново, иначе план молча останется от прошлой
 # формулировки — тот же класс, что уже закрыт у кэша вердиктов арбитра.
-PACKET_VERSION = 1
+PACKET_VERSION = 2
 
 PLAN_NAME = shot_planner_llm.PLAN_NAME
 CACHE_DIR_NAME = "shot_brief_cache"
@@ -313,6 +313,12 @@ def render_prompt(packet):
             mark.append(f"стадия: {u['arc_stage']}")
         tail = f"   ({'; '.join(mark)})" if mark else ""
         lines.append(f" {u['n']}. {u['text']}{tail}")
+    banned = shot_planner_llm.channel_blocklist()
+    if banned:
+        lines.append("")
+        lines.append("ЭТИХ СЛОВ В ОТВЕТЕ БЫТЬ НЕ ДОЛЖНО — канал их не берёт, "
+                     "и заявка с ними будет отклонена целиком:")
+        lines.append("  " + ", ".join(sorted(banned)))
     vocab = corpus_vocabulary(packet) if packet.get("use_vocabulary") else []
     if vocab:
         lines.append("")
@@ -511,6 +517,59 @@ def write_plan(video_dir, blocks, found, brain_name):
     return os.path.join(mp, PLAN_NAME)
 
 
+def write_inline(video_dir, blocks, found, dry_run=False):
+    """Проставить `[shot:...]` прямо в script.txt перед своей фразой.
+
+    ЗАЧЕМ ИМЕННО ТУДА. CLAUDE.md объясняет выбор инлайнового тега: бриф,
+    лежащий отдельной секцией, пришлось бы ключевать по НОМЕРУ юнита, а
+    номера сдвигаются от любой правки текста выше по сценарию — и бриф
+    молча описывал бы чужую фразу. Инлайн ездит ВМЕСТЕ со своей фразой и
+    разъехаться физически не может. Плюс `script_parser` читает `[shot:]`
+    штатно, то есть после этой записи план и флаг больше не нужны вовсе.
+
+    ОСТОРОЖНО И НАМЕРЕННО УЗКО. Правится ЧУЖОЙ исходник — сценарий,
+    который человек писал руками. Поэтому:
+      * тег ставится только там, где текст фразы встречается в файле
+        РОВНО ОДИН раз (иначе непонятно, к какой из копий);
+      * фраза, у которой уже есть `[shot:`, не трогается никогда —
+        бриф автора сильнее заявки модели, это правило всего модуля;
+      * перед записью делается `.bak` (тот же урок, что с копией .env:
+        без копии откат невозможен);
+      * что не удалось проставить — печатается поимённо, а не молчит.
+    """
+    path = os.path.join(video_dir, "script.txt")
+    with open(path, encoding="utf-8") as f:
+        body = f.read()
+
+    placed, skipped = 0, []
+    for idx in sorted(found):
+        text = _clean(blocks[idx].get("text"))
+        brief = found[idx]["shot_en"]
+        if (blocks[idx].get("shot_brief") or "").strip():
+            skipped.append((text, "у автора уже есть бриф"))
+            continue
+        if body.count(text) != 1:
+            skipped.append((text, f"фраза встречается {body.count(text)} раз"))
+            continue
+        # Второй проверки «тег уже стоит» не заводится: её уже сделал
+        # парсер — если тег есть, он лежит в blocks[idx]["shot_brief"], и
+        # юнит отсеян строкой выше. Собственная эвристика по тексту файла
+        # была бы вторым ответом на тот же вопрос и рано или поздно
+        # разошлась бы с первым.
+        at = body.index(text)
+        body = body[:at] + f"[shot:{brief}]" + body[at:]
+        placed += 1
+
+    if not dry_run and placed:
+        with open(path + ".bak", "w", encoding="utf-8") as f:
+            f.write(open(path, encoding="utf-8").read())
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(body)
+        os.replace(tmp, path)
+    return placed, skipped
+
+
 def main(argv):
     ap = argparse.ArgumentParser(
         description="Режиссёрская разработка главы: контекст вместо фразы")
@@ -522,6 +581,9 @@ def main(argv):
     ap.add_argument("--threads", type=int, default=4)
     ap.add_argument("--out-packets", help="куда выложить промпты глав")
     ap.add_argument("--no-cache", action="store_true")
+    ap.add_argument("--write-inline", action="store_true",
+                    help="проставить [shot:...] прямо в script.txt "
+                         "(делается .bak, брифы автора не трогаются)")
     ap.add_argument("--vocabulary", action="store_true",
                     help="подать режиссёру реальные имена предметов из "
                          "каталога Мет (шаг «слово автора -> слово каталога»)")
@@ -557,6 +619,12 @@ def main(argv):
     found = run(a.video_dir, blocks, brain, cache_dir=cache,
                 use_vocabulary=a.vocabulary)
     path = write_plan(a.video_dir, blocks, found, brain.name)
+    if a.write_inline:
+        placed, skipped = write_inline(a.video_dir, blocks, found)
+        print(f"В script.txt проставлено [shot:] — {placed}; "
+              f"не проставлено {len(skipped)}")
+        for text, why in skipped[:20]:
+            print(f"  [{why}] {text[:70]}")
     print(f"\nГлав {STATS['chapters']}, вопросов {STATS['asked']}, "
           f"из кэша {STATS['cache_hits']}, заявок {STATS['rows']}, "
           f"отклонено проверкой {STATS['rejected']}, "
