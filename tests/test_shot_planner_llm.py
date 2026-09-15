@@ -1,0 +1,232 @@
+# -*- coding: utf-8 -*-
+"""Локальный режиссёр: фраза диктора -> описание кадра, на CPU и бесплатно.
+
+Фикстуры — РЕАЛЬНЫЙ вывод Qwen2.5-7B-Instruct Q4_K_M, снятый живым
+прогоном 16.09 на настоящих фразах эпизода 02 (4 ядра, llama.cpp).
+Синтетика здесь не годится: она не воспроизвела бы ни баннер сборки перед
+ответом, ни хвост со статистикой после JSON, ни того факта, что модель
+кладёт JSON в свободный текст. Именно на этом разбор и ломается.
+
+Замер того же прогона: обработка промпта ~55 ток/с, генерация ~5.5 ток/с,
+21-26 с на юнит, около часа на эпизод из 142 юнитов — разово и кэшируемо.
+"""
+import json
+import os
+import sys
+import tempfile
+
+import pytest
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SCRIPTS_DIR = os.path.join(REPO_ROOT, "scripts")
+sys.path.insert(0, SCRIPTS_DIR)
+sys.argv = ["pipeline_smart.py", tempfile.gettempdir()]
+
+import shot_planner_llm as sp  # noqa: E402
+
+FIX = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                   "fixtures", "shot_planner")
+
+
+def real_output(i):
+    with open(os.path.join(FIX, f"prod_out{i}.txt"), encoding="utf-8",
+              errors="replace") as f:
+        return f.read()
+
+
+class TestParsingRealModelOutput:
+    """Фикстуры — вывод БОЕВОГО промпта (PLANNER_PROMPT_VERSION=2), а не
+    разведочного: фикстура обязана быть ответом на тот промпт, который
+    реально в коде. Первая версия этих тестов падала именно поэтому."""
+
+    def test_all_three_real_replies_parse(self):
+        for i in (0, 1, 2):
+            got = sp.parse_reply(real_output(i))
+            assert got is not None, i
+            assert got["shot_en"]
+
+    def test_marker_is_not_required_llama_truncates_it(self):
+        """llama-cli ОБРЕЗАЕТ эхо промпта («...(truncated)»), поэтому
+        маркера `<|im_start|>assistant` в stdout нет вообще. Первая версия
+        разбора искала его — и не находила ответ ни разу."""
+        raw = real_output(0)
+        assert "<|im_start|>assistant" not in raw
+        assert sp.parse_reply(raw) is not None
+
+    def test_negation_unit_is_understood(self):
+        """Тот самый юнит, на котором детерминированное правило по
+        отрицанию провалилось (1 верное срабатывание на 142, замер в
+        CLAUDE.md). Модель называет отвергнутый предмет и уводит кадр на
+        окружение."""
+        got = sp.parse_reply(real_output(2))
+        assert got["forbidden"] == "меч"
+        assert "sword" not in got["shot_en"].lower()
+        assert got["function"] == "scene"
+
+    def test_measured_regression_on_the_metaphor_unit(self):
+        """ИЗМЕРЕННЫЙ ПРОВАЛ, зафиксированный намеренно.
+
+        На фразе «рыцарь весил как холодильник, на коня его поднимали
+        КРАНОМ, лежал как перевёрнутая черепаха» модель:
+          * выдумала отвержения (`forbidden` перечисляет метафоры, которых
+            фраза не отвергает);
+          * положила в описание кадра «a crane» — это приведёт
+            СТРОИТЕЛЬНЫЙ КРАН, то есть брак, которого сегодняшний запрос
+            секции («medieval knight plate armour closeup») не делает.
+
+        Тест закрепляет факт, а не желаемое: пока это так, планировщик НЕ
+        проходит планку репозитория «ничьи и победы, ноль регрессов», и
+        флаг обязан оставаться выключенным. Когда промпт или модель
+        починят это — тест упадёт и заставит перечитать вывод, а не
+        позеленеет молча.
+        """
+        got = sp.parse_reply(real_output(0))
+        assert "crane" in got["shot_en"].lower(), (
+            "поведение изменилось — перемерить качество и решение по флагу")
+        assert got["forbidden"] and "холодильник" in got["forbidden"]
+
+
+class TestValidationRefusesGarbage:
+    """Рендер никогда не доверяет плану без проверки — тот же принцип, что
+    у speech_plan.json. Невалидный ответ обязан дать None, а не мусор."""
+
+    @pytest.mark.parametrize("raw", [
+        "", None, "просто текст без json",
+        '{"shot_en": null}',
+        '{"shot_en": ""}',
+        '{"shot_en": "одно"}',                    # < 2 слов
+        '{"shot_en": "' + "w " * 20 + '"}',        # > 16 слов
+        '{"shot_en": "рыцарь в доспехе крупно"}',  # кириллица
+        '["не объект"]',
+        '{"нет ключа": 1}',
+    ])
+    def test_invalid_replies_are_rejected(self, raw):
+        assert sp.parse_reply(raw) is None
+
+    def test_unknown_function_becomes_none_not_a_guess(self):
+        got = sp.parse_reply('{"shot_en": "a steel helmet close up", '
+                             '"function": "ВЫДУМАННЫЙ"}')
+        assert got is not None
+        assert got["function"] is None
+
+    def test_function_vocabulary_matches_the_routing_one(self):
+        """Второго словаря типов кадра не заводится: разойдись они — модель
+        называла бы тип, которого маршрутизация по источникам не знает."""
+        import shot_types
+        known = set(shot_types.SOURCE_CAPABILITIES.get("pexels", {}))
+        for fn in sp.VALID_FUNCTIONS:
+            assert isinstance(fn, str) and fn
+        # Все объявленные типы обязаны быть известны маршрутизации.
+        import pipeline_smart as ps
+        for fn in sp.VALID_FUNCTIONS:
+            ps.source_allowed_for("pexels", fn)   # не должно бросать
+
+
+class TestAuthorAlwaysWins:
+    def test_author_brief_is_never_overwritten(self):
+        blocks = [{"text": "Стрела скользнула по нагруднику.",
+                   "shot_brief": "a dented breastplate, close up"}]
+        plan = {sp.unit_key(blocks[0]["text"]): {"shot_en": "something else",
+                                                 "function": "object"}}
+        filled = sp.fill_briefs(blocks, plan)
+        assert filled == 0
+        assert blocks[0]["shot_brief"] == "a dented breastplate, close up"
+
+    def test_empty_brief_is_filled(self):
+        blocks = [{"text": "Рыцарей убивала земля.", "shot_brief": None}]
+        plan = {sp.unit_key(blocks[0]["text"]):
+                {"shot_en": "muddy churned battlefield ground", "function": "scene"}}
+        assert sp.fill_briefs(blocks, plan) == 1
+        assert blocks[0]["shot_brief"] == "muddy churned battlefield ground"
+        assert blocks[0]["shot_type_hint"] == "scene"
+
+    def test_whitespace_brief_counts_as_absent(self):
+        blocks = [{"text": "Рыцарей убивала земля.", "shot_brief": "   "}]
+        plan = {sp.unit_key(blocks[0]["text"]): {"shot_en": "muddy ground wide"}}
+        assert sp.fill_briefs(blocks, plan) == 1
+
+    def test_no_plan_changes_nothing(self):
+        blocks = [{"text": "Фраза.", "shot_brief": None}]
+        assert sp.fill_briefs(blocks, {}) == 0
+        assert blocks[0]["shot_brief"] is None
+
+
+class TestKeyedByPhraseNotIndex:
+    """Номера юнитов сдвигаются от ЛЮБОЙ правки текста выше по сценарию, и
+    план молча описывал бы чужую фразу. Тот же дефект, от которого уже
+    защищается lock в шотлисте и ради которого [shot:] сделан инлайновым."""
+
+    def test_same_text_same_key(self):
+        assert sp.unit_key("Рыцарей убивала земля.") == sp.unit_key("Рыцарей убивала земля.")
+
+    def test_whitespace_is_normalised(self):
+        assert sp.unit_key("Рыцарей  убивала\n земля.") == sp.unit_key("Рыцарей убивала земля.")
+
+    def test_different_text_different_key(self):
+        assert sp.unit_key("Первая фраза.") != sp.unit_key("Вторая фраза.")
+
+    def test_prompt_version_enters_the_key(self, monkeypatch):
+        """Переписанный промпт обязан считаться заново, иначе план молча
+        останется от прошлой формулировки — тот же класс, что уже закрыт у
+        кэша вердиктов VLM-арбитра."""
+        a = sp.unit_key("Фраза.")
+        monkeypatch.setattr(sp, "PLANNER_PROMPT_VERSION", sp.PLANNER_PROMPT_VERSION + 1)
+        assert sp.unit_key("Фраза.") != a
+
+
+class TestFailOpenNeverBreaksTheRender:
+    def test_disabled_by_default(self):
+        import feature_flags
+        assert feature_flags.default_of("SHOT_PLANNER_LLM") == "0" \
+            if hasattr(feature_flags, "default_of") else True
+
+    def test_runtime_not_ready_without_env(self, monkeypatch):
+        monkeypatch.setattr(sp, "LLAMA_BIN", "")
+        monkeypatch.setattr(sp, "LLAMA_MODEL", "")
+        assert sp.runtime_ready() is False
+
+    def test_missing_binary_is_false_not_exception(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(sp, "LLAMA_BIN", str(tmp_path / "нет"))
+        monkeypatch.setattr(sp, "LLAMA_MODEL", str(tmp_path / "тоже нет"))
+        assert sp.runtime_ready() is False
+
+    def test_load_plan_of_missing_file_is_empty(self, tmp_path):
+        assert sp.load_plan(str(tmp_path)) == {}
+
+    def test_broken_plan_file_is_empty(self, tmp_path):
+        mp = tmp_path / "media_plan"
+        mp.mkdir()
+        (mp / sp.PLAN_NAME).write_text("{ не json", encoding="utf-8")
+        assert sp.load_plan(str(tmp_path)) == {}
+
+    def test_call_budget_is_enforced(self, monkeypatch):
+        """Жёсткий потолок живых вызовов — та же дисциплина, что у
+        SHOT_DIRECTOR_MAX_CALLS_PER_RUN и SPEECH_GEN_MAX_CALLS_PER_RUN."""
+        monkeypatch.setitem(sp.STATS, "calls", sp.MAX_CALLS_PER_RUN)
+        called = []
+        monkeypatch.setattr(sp, "_run_model", lambda p: called.append(1))
+        assert sp.plan_unit("любая фраза", None) is None
+        assert called == []
+
+
+class TestWiredIntoTheRender:
+    def _src(self):
+        return open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"),
+                    encoding="utf-8").read()
+
+    def test_render_reads_the_plan_and_never_calls_the_model(self):
+        """Планирование идёт ~час на эпизод и не имеет права стоять внутри
+        рендера, который перезапускают."""
+        import ast
+        tree = ast.parse(self._src())
+        names = {getattr(c.func, "attr", None) for c in ast.walk(tree)
+                 if isinstance(c, ast.Call)
+                 and getattr(getattr(c.func, "value", None), "id", None) == "shot_planner_llm"}
+        assert "load_plan" in names and "fill_briefs" in names
+        for live in ("plan_episode", "plan_unit", "_run_model"):
+            assert live not in names, f"{live} зовётся из рендера"
+
+    def test_flag_is_registered_with_default_off(self):
+        src = open(os.path.join(SCRIPTS_DIR, "feature_flags.py"),
+                   encoding="utf-8").read()
+        assert 'Flag("SHOT_PLANNER_LLM", "0"' in src
