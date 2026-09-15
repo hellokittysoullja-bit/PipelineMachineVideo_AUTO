@@ -328,13 +328,43 @@ class TestKeyedByPhraseNotIndex:
     def test_different_text_different_key(self):
         assert sp.unit_key("Первая фраза.") != sp.unit_key("Вторая фраза.")
 
-    def test_prompt_version_enters_the_key(self, monkeypatch):
-        """Переписанный промпт обязан считаться заново, иначе план молча
-        останется от прошлой формулировки — тот же класс, что уже закрыт у
-        кэша вердиктов VLM-арбитра."""
+    def test_prompt_version_enters_the_cache_key(self, monkeypatch):
+        """Переписанный промпт обязан считаться заново — но на уровне
+        КЭША ОТВЕТА, а не ключа юнита в плане.
+
+        Гарантия не отменена, а перенесена туда, где она работает.
+        Раньше версия входила в `unit_key()`, и у этого был измеренный
+        побочный отказ: имя модели входило туда же, а рендер идёт БЕЗ
+        LLAMA_MODEL_GGUF, поэтому ключ не совпадал и план не находился
+        ЦЕЛИКОМ — ноль брифов молча, при включённом флаге и готовом
+        плане. Тихий отказ вместо предупреждения.
+
+        Теперь: пересчёт обеспечивает `cache_key` (версия + модель),
+        устаревший план — громкое предупреждение в `load_plan`,
+        а `unit_key` называет ФРАЗУ и только её."""
+        a = sp.cache_key("Фраза.")
+        monkeypatch.setattr(sp, "PLANNER_PROMPT_VERSION", sp.PLANNER_PROMPT_VERSION + 1)
+        assert sp.cache_key("Фраза.") != a
+
+    def test_unit_key_names_the_phrase_and_nothing_else(self, monkeypatch):
+        """Ключ юнита обязан пережить и смену версии, и отсутствие модели."""
         a = sp.unit_key("Фраза.")
         monkeypatch.setattr(sp, "PLANNER_PROMPT_VERSION", sp.PLANNER_PROMPT_VERSION + 1)
-        assert sp.unit_key("Фраза.") != a
+        monkeypatch.setattr(sp, "LLAMA_MODEL", "")
+        assert sp.unit_key("Фраза.") == a
+
+    def test_stale_plan_warns_instead_of_vanishing(self, tmp_path, capsys):
+        """Устаревший план обязан СКАЗАТЬ о себе, а не исчезнуть."""
+        import json
+        mp = tmp_path / "media_plan"
+        mp.mkdir()
+        (mp / "shot_plan.json").write_text(json.dumps(
+            {"version": sp.PLANNER_PROMPT_VERSION + 7,
+             "units": {"abc": {"shot_en": "a rondel dagger"}}}),
+            encoding="utf-8")
+        units = sp.load_plan(str(tmp_path))
+        assert units == {"abc": {"shot_en": "a rondel dagger"}}
+        assert "ВНИМАНИЕ" in capsys.readouterr().out
 
 
 class TestFailOpenNeverBreaksTheRender:

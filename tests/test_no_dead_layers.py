@@ -40,6 +40,19 @@ import feature_flags  # noqa: E402
 # Публичные функции, сознательно НЕ достижимые из рабочих путей. Ключ —
 # "модуль.функция", значение — причина, которую обязан назвать автор.
 ALLOWED_UNREACHABLE = {
+    # Предел АНАЛИЗАТОРА, а не мёртвый слой: `ask` вызывается как
+    # `brain.ask(prompt, chapter_no)` — метод на объекте, выбранном в
+    # рантайме (LocalBrain / FileBrain). Граф по ast.Call такой диспетч
+    # не атрибутирует ни к одному классу. Проверено прогоном:
+    # shot_brief_director.run() зовёт его на каждой главе, и замер
+    # рук B/C/D целиком стоит на этом вызове.
+    "shot_brief_director.ask":
+        "метод интерфейса мозга, вызывается как brain.ask(...) из "
+        "shot_brief_director.run() — статический граф не видит диспетч "
+        "по объекту",
+    "shot_brief_eval.ask_system":
+        "то же самое у измерительной оснастки: EvalBrain.ask_system "
+        "вызывается из arm_per_phrase() через объект brain",
     **{f"level_regression.{f}":
        "обратный замер уровней по отрендеренному звуку — измерительная "
        "оснастка регрессии (tests/test_level_regression.py), в рендер не "
@@ -198,7 +211,16 @@ def test_allowlist_has_no_stale_entries(analysis):
 
 def _flag_read_sites():
     """Где в коде реально читается флаг: feature_flags.enabled("X"),
-    feature_flags.mode("X"), os.environ.get("X"), os.getenv("X")."""
+    feature_flags.mode("X"), feature_flags.value("X"), os.environ.get("X"),
+    os.getenv("X").
+
+    `value(` добавлен 15.09: без него гвард ложно объявлял мёртвым
+    `LUMA_MATCH`, который читается строкой
+    `feature_flags.value("LUMA_MATCH")` в pipeline_smart.luma_match_params().
+    Детектор знал три аксессора из четырёх, и четвёртый — не экзотика, а
+    штатный способ прочитать флаг со списком значений. Добавление может
+    только превратить ложное падение в проход: `value(` — настоящее
+    чтение, и мёртвый флаг им не замаскируешь."""
     sites = {}
     for fn in sorted(os.listdir(SCRIPTS_DIR)):
         if not fn.endswith(".py"):
@@ -206,7 +228,7 @@ def _flag_read_sites():
         path = os.path.join(SCRIPTS_DIR, fn)
         with open(path, encoding="utf-8") as f:
             src = f.read()
-        for m in re.finditer(r"""(?:enabled|mode|environ\.get|getenv)\(\s*["']([A-Z0-9_]+)["']""", src):
+        for m in re.finditer(r"""(?:enabled|mode|value|environ\.get|getenv)\(\s*["']([A-Z0-9_]+)["']""", src):
             sites.setdefault(m.group(1), set()).add(fn[:-3])
     return sites
 

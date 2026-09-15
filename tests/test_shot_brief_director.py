@@ -184,3 +184,40 @@ def test_known_traps_stay_out_of_the_list(term):
     «ЗАЛП» в словаре атмосферы."""
     import museum_sources as ms
     assert term not in ms.DEFAULT_FOREIGN_CULTURE_TERMS
+
+
+def test_arc_stage_really_reaches_the_prompt(tmp_path):
+    """Драматургическая стадия обязана ДОЕХАТЬ до режиссёра, а не просто
+    быть прочитанной.
+
+    Ветка читает speech_plan.json по СХЕМЕ speech_planner (plan["units"],
+    у юнита "text" и "arc_stage"). Разойдись схема — ветка стала бы тихим
+    no-op: стадии нет ни у одного юнита, промпт прежний, и снаружи это
+    неотличимо от «эпизод без speech_plan». Ровно тот класс, который
+    закрывает tests/test_no_dead_layers.py на уровне вызовов.
+    """
+    import json
+    import shot_brief_director as d
+
+    mp = tmp_path / "media_plan"
+    mp.mkdir()
+    (mp / "speech_plan.json").write_text(json.dumps({"units": [
+        {"unit_id": 1, "section": "BLOCK 4", "text": "Рыцарей убивала земля.",
+         "arc_stage": "слом"}]}), encoding="utf-8")
+
+    stages = d.arc_stages(str(tmp_path))
+    assert stages == {"Рыцарей убивала земля.": "слом"}
+
+    packet = _packet(["Рыцарей убивала земля."])
+    packet["units"][0]["arc_stage"] = stages["Рыцарей убивала земля."]
+    assert "стадия: слом" in d.render_prompt(packet)
+
+
+def test_museum_vocabulary_is_optional_and_silent_without_index():
+    """Заземление на словарь музея — additive: индекса нет, промпт
+    возвращается к прежнему виду байт-в-байт."""
+    import shot_brief_director as d
+    plain = d.render_prompt(_packet(["а", "б"]))
+    off = d.render_prompt(dict(_packet(["а", "б"]), use_vocabulary=False))
+    assert plain == off
+    assert "СЛОВАРЬ МУЗЕЯ" not in plain

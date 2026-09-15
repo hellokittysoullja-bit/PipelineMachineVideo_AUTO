@@ -124,6 +124,10 @@ MAX_CALLS_PER_RUN = int(os.environ.get("SHOT_PLANNER_MAX_CALLS", "400") or 400)
 CALL_TIMEOUT_SEC = int(os.environ.get("SHOT_PLANNER_TIMEOUT", "180") or 180)
 
 PLAN_NAME = "shot_plan.json"
+# У плана может быть два автора: пофразовый планировщик (версия промпта)
+# и режиссёр главы (версия пакета). Поле `planner` в файле называет, чей
+# он, — иначе предупреждение о версии сравнивало бы разные шкалы.
+PACKET_VERSION_OF = {"shot_brief_director": 1}
 CACHE_DIR_NAME = "shot_plan_cache"
 
 SYSTEM_PROMPT = (
@@ -579,13 +583,34 @@ def plan_episode(video_dir, blocks, verbose=True):
 
 
 def load_plan(video_dir):
-    """Готовый план с диска, или пустой словарь."""
+    """Готовый план с диска, или пустой словарь.
+
+    ВЕРСИЯ ПРОМПТА ПРОВЕРЯЕТСЯ ЗДЕСЬ, а не в ключе юнита. Раньше она
+    входила в `unit_key()`, и смена версии означала, что план перестаёт
+    находиться ЦЕЛИКОМ и молча — ноль проставленных брифов вместо
+    предупреждения. Это не защита от устаревшего плана, это тихий отказ,
+    неотличимый от «плана нет».
+
+    Теперь план собранный другой версией промпта ИСПОЛЬЗУЕТСЯ (он
+    настоящий артефакт, и выбрасывать его молча хуже), но прогон громко
+    говорит, что режиссёра надо перезапустить. Пересчёт же обеспечивает
+    ключ КЭША (`cache_key`), куда версия и модель входят.
+    """
     try:
         with open(os.path.join(video_dir, "media_plan", PLAN_NAME),
                   encoding="utf-8") as f:
             data = json.load(f)
         units = data.get("units")
-        return units if isinstance(units, dict) else {}
+        if not isinstance(units, dict):
+            return {}
+        made_by = data.get("version")
+        current = (PACKET_VERSION_OF.get(data.get("planner"))
+                   or PLANNER_PROMPT_VERSION)
+        if made_by is not None and made_by != current:
+            print(f"  ВНИМАНИЕ: {PLAN_NAME} собран версией {made_by}, "
+                  f"сейчас {current} — брифы от прошлой формулировки. "
+                  f"Перезапусти режиссёра, чтобы пересчитать.")
+        return units
     except Exception:
         return {}
 
