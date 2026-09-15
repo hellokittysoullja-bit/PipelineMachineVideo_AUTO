@@ -124,8 +124,8 @@ def detect_fine_silences(path):
     отвечают на разные вопросы и не обязаны делить один порог."""
     r = subprocess.run(["ffmpeg", "-i", path, "-af",
                         f"silencedetect=noise={NOISE_DB}:d={FINE_SILENCE_MIN_SEC}",
-                        "-f", "null", "-"], capture_output=True, text=True,
-                       encoding="utf-8", errors="replace")
+                        "-f", "null", "-"],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
     starts = [float(x) for x in re.findall(r'silence_start:\s*([\d.]+)', r.stderr)]
     ends = [float(x) for x in re.findall(r'silence_end:\s*([\d.]+)', r.stderr)]
     return list(zip(starts, ends))

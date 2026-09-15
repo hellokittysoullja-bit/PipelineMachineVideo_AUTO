@@ -157,3 +157,59 @@ class TestTimeMapKnowsAboutInserts:
         body = src[src.index("def raw_to_real_time(t, cuts):"):]
         body = body[:body.index("\n\n\n")]
         assert "load_pause_inserts()" in body
+
+
+class TestSilenceIsMeasuredNotEstimated:
+    """Тишина между блоками считалась сложением ИЗМЕРЕНИЯ и ОЦЕНКИ.
+
+    Онсеты берутся посимвольно из alignment (точно), а вес блока после
+    split_long_blocks делится между кусками ПРОПОРЦИОНАЛЬНО СЛОВАМ, то есть
+    является оценкой. `онсет + вес` как «конец речи» — сложение двух шкал,
+    ровно тот класс, который CLAUDE.md запрещает.
+
+    Цена измерена (14.09, videos/_test60s): у 3 границ из 9 «конец речи»
+    оказывался ПОЗЖЕ онсета следующего блока, тишина выходила
+    ОТРИЦАТЕЛЬНОЙ, и speech_gap_before() честно возвращала «нет сигнала» —
+    молча пропадали и переход главы, и объектный кюй."""
+
+    def test_onsets_expose_a_measured_end_for_every_block(self):
+        src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"), encoding="utf-8").read()
+        body = src[src.index("def load_alignment_onsets(blocks):"):]
+        body = body[:body.index("\nPHRASE_LOCK")]
+        assert "SPEECH_ENDS.append(" in body
+        # Конец берётся из ТЕХ ЖЕ символов, что и начало, а не из веса.
+        assert "clean[pos + len(want) - 1][2]" in body
+
+    def test_the_list_is_reset_per_call(self):
+        """Иначе второй эпизод в одном процессе получил бы чужие концы."""
+        src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"), encoding="utf-8").read()
+        body = src[src.index("def load_alignment_onsets(blocks):"):]
+        # Сброс обязан стоять ДО первого заполнения — проверяем порядок, а не
+        # попадание в произвольный срез файла.
+        assert body.index("del SPEECH_ENDS[:]") < body.index("SPEECH_ENDS.append(")
+
+    def test_planner_gets_measured_spans_when_available(self):
+        src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"), encoding="utf-8").read()
+        block = src[src.index("measured_spans = ("):]
+        block = block[:block.index("premix = run_sfx_director")]
+        assert "SPEECH_ENDS" in block
+        # Нет измеренных концов — прежнее поведение, а не пустота.
+        assert "real_weights if phrase_locked else None" in block
+
+    def test_a_negative_gap_can_no_longer_be_produced(self):
+        """Измеренный конец по построению не может быть позже следующего
+        онсета: оба берутся из одного посимвольного прохода."""
+        import sfx_plan
+        onsets = [0.0, 5.0, 10.0]
+        measured = [4.8, 4.9, 4.0]          # концы речи ВНУТРИ своих блоков
+        for i in (1, 2):
+            gap = sfx_plan.speech_gap_before(i, onsets, measured)
+            assert gap is not None and gap[1] > gap[0], (i, gap)
+
+    def test_estimated_weights_could_produce_one(self):
+        """Негативный контроль самой постановки задачи: с весами, какими они
+        были, та же граница даёт None."""
+        import sfx_plan
+        onsets = [0.0, 25.40, 31.18]
+        weights = [4.6, 6.02, 3.25]          # реальные числа того прогона
+        assert sfx_plan.speech_gap_before(2, onsets, weights) is None
