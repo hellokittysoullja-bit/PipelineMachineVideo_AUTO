@@ -180,6 +180,111 @@ class TestValidationRefusesGarbage:
             ps.source_allowed_for("pexels", fn)   # не должно бросать
 
 
+class TestValidatorMakesRegressionStructurallyImpossible:
+    """Главный пропущенный ход, взятый из внешней оценки 16.09 и признанный
+    верным: модель НЕ обязана быть права всегда — она обязана быть ПРАВА
+    ИЛИ МОЛЧАТЬ.
+
+    Заявка либо проходит детерминированную проверку и улучшает слот, либо
+    отбрасывается, и слот идёт ровно как сегодня. Тогда ухудшение
+    невозможно ПО ПОСТРОЕНИЮ, а не по результату замера — и планка
+    репозитория «ничьи и победы, ноль регрессов» становится выполнимой
+    честно, а не вечным блокиратором на восьми вручную выбранных фразах.
+
+    Все случаи ниже — РЕАЛЬНЫЕ ответы модели из замеров v2/v3
+    (docs/quality/shot_planner_eval_v*.json), а не выдуманные.
+    """
+
+    @pytest.mark.parametrize("shot,phrase,why", [
+        ("You have not been injured. The worst is yet to come.",
+         "Тебя ещё не ранили. Вот что самое страшное.", "пересказ"),
+        ("He was at their feet",
+         "При этом он был под ногами у каждого из них.", "пересказ"),
+        ("A person wearing full-body protective gear",
+         "Представь драку, где у всех ножи.", "современное снаряжение"),
+        ("A person standing up", "Тебе нужно всего лишь встать.", "эпоха"),
+    ])
+    def test_measured_failures_are_rejected(self, shot, phrase, why):
+        ok, reason = sp.brief_is_safe(shot, phrase, blocklist=())
+        assert ok is False, (shot, why)
+        assert reason
+
+    @pytest.mark.parametrize("shot,phrase", [
+        ("A medieval sword, shining in the light", "Возьми настоящий боевой меч"),
+        ("A warrior lying face down in mud", "ты лежишь лицом в грязи"),
+        ("a dented steel breastplate, close up", "Стрела скользнула по нагруднику."),
+    ])
+    def test_good_briefs_pass(self, shot, phrase):
+        ok, reason = sp.brief_is_safe(shot, phrase, blocklist=())
+        assert ok is True, reason
+
+    def test_simile_rule_is_deliberately_absent(self):
+        """ЧЕСТНЫЙ ПРЕДЕЛ, доказанный собственным тестом.
+
+        Внешняя оценка предлагала запрещать предмет сравнения («как
+        холодильник»). Первая версия такой проверки сравнивала РУССКОЕ
+        слово из фразы с АНГЛИЙСКИМ описанием кадра — «холод» против «a
+        refrigerator» — и была мёртвым кодом: сработать не могла ни разу.
+
+        Мини-словарь соответствий не заводится: тот же ненадёжный приём,
+        что уже отвергнут для «crane» (журавль законен на миниатюре) и в
+        stress_placement для «атлас». Случай закрыт промптом v3, и замер
+        это подтвердил.
+        """
+        ok, _ = sp.brief_is_safe("a refrigerator in a field",
+                                 "рыцарь весил как холодильник", blocklist=())
+        assert ok is True
+        src = open(os.path.join(SCRIPTS_DIR, "shot_planner_llm.py"),
+                   encoding="utf-8").read()
+        assert "SIMILE_MARKERS" not in src, "мёртвое правило вернулось"
+
+    def test_blocklist_is_the_channel_one_not_a_second_copy(self):
+        import ast
+        src = open(os.path.join(SCRIPTS_DIR, "shot_planner_llm.py"),
+                   encoding="utf-8").read()
+        tree = ast.parse(src)
+        fn = next(n for n in ast.walk(tree)
+                  if isinstance(n, ast.FunctionDef) and n.name == "channel_blocklist")
+        attrs = {getattr(n, "attr", None) for n in ast.walk(fn)}
+        assert "CONTENT_ALT_BLOCKLIST" in attrs, sorted(a for a in attrs if a)
+
+    def test_rejected_briefs_are_recorded_not_silent(self):
+        blocks = [{"text": "Тебе нужно всего лишь встать.", "shot_brief": None}]
+        plan = {sp.unit_key(blocks[0]["text"]): {"shot_en": "A person standing up"}}
+        del sp.REJECTED[:]
+        assert sp.fill_briefs(blocks, plan) == 0
+        assert blocks[0]["shot_brief"] is None
+        assert len(sp.REJECTED) == 1
+        assert sp.REJECTED[0]["reason"]
+
+
+class TestSamplingIsDeterministic:
+    """Найдено внешней оценкой 16.09 и подтверждено проверкой: у llama.cpp
+    `--seed` по умолчанию -1 (случайный), а температура стояла 0.2 — не
+    ноль. Значит сравнение промптов v2 и v3 было НЕВОСПРОИЗВОДИМЫМ, и
+    разница могла оказаться шумом выборки, а не эффектом правки.
+
+    Планирование — не творческая задача: на один и тот же вопрос нужен
+    один и тот же ответ, иначе теряет смысл и кэш по тексту фразы."""
+
+    def test_temperature_zero_and_fixed_seed(self):
+        import ast
+        src = open(os.path.join(SCRIPTS_DIR, "shot_planner_llm.py"),
+                   encoding="utf-8").read()
+        tree = ast.parse(src)
+        fn = next(n for n in ast.walk(tree)
+                  if isinstance(n, ast.FunctionDef) and n.name == "_run_model")
+        consts = [c.value for c in ast.walk(fn)
+                  if isinstance(c, ast.Constant) and isinstance(c.value, str)]
+        assert "--seed" in consts
+        i = consts.index("--temp")
+        assert consts[i + 1] == "0", consts[i:i + 2]
+
+    def test_seed_is_overridable_but_never_random(self):
+        assert isinstance(sp.SAMPLING_SEED, int)
+        assert sp.SAMPLING_SEED >= 0
+
+
 class TestAuthorAlwaysWins:
     def test_author_brief_is_never_overwritten(self):
         blocks = [{"text": "Стрела скользнула по нагруднику.",
