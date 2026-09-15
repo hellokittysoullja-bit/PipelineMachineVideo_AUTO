@@ -215,3 +215,54 @@ class TestAgainstTheRealEpisode:
         # Тот самый факт, из-за которого правка и написана: победителей
         # больше одного, а прежний ярлык называл их всех "pexels".
         assert len(by_provider) > 1
+
+
+class TestContactSheetHeaderIsReadable:
+    """Подпись плитки резалась по ЧИСЛУ СИМВОЛОВ (`head[:70]`), и на секции
+    с длинным именем уезжала за границу плитки, налезая на соседнюю — две
+    подписи сливались в нечитаемую строку. Найдено на том же листе, где
+    появились provider/rel: собственная правка сделала строку длиннее и
+    вытащила дефект наружу.
+
+    Лист — материал для разметки глазами; нечитаемая подпись обесценивает
+    саму разметку, ради которой провенанс и добавлялся.
+    """
+
+    def _draw(self):
+        from PIL import Image, ImageDraw, ImageFont
+        img = Image.new("RGB", (400, 60))
+        return ImageDraw.Draw(img), ImageFont.load_default()
+
+    def test_long_header_is_cut_to_the_tile_width(self):
+        import shotlist_contact as sc
+        draw, font = self._draw()
+        head = ('#5  [photo/cleveland] rel 0.32  BLOCK 1: ЛОЖЬ ПЕРВАЯ — '
+                '«ДОСПЕХ БЫЛ ГРОБОМ»')
+        out = sc.fit_one_line(head, font, 200, draw)
+        assert draw.textlength(out, font=font) <= 200
+        assert out.endswith("…")
+
+    def test_short_header_is_untouched(self):
+        import shotlist_contact as sc
+        draw, font = self._draw()
+        assert sc.fit_one_line("#1 [photo/met]", font, 400, draw) == "#1 [photo/met]"
+
+    def test_provider_and_relevance_survive_the_cut(self):
+        """Обрезается ХВОСТ, поэтому впереди стоит то, ради чего лист
+        размечают: вид, источник и число гейта. Имя секции — контекст."""
+        import shotlist_contact as sc
+        draw, font = self._draw()
+        head = ('#5  [photo/cleveland] rel 0.32  BLOCK 1: ЛОЖЬ ПЕРВАЯ — '
+                '«ДОСПЕХ БЫЛ ГРОБОМ»')
+        out = sc.fit_one_line(head, font, 200, draw)
+        assert "cleveland" in out and "0.32" in out
+
+    def test_the_draw_call_measures_instead_of_counting(self):
+        # Якорь — сам ВЫЗОВ отрисовки: старая форма `head[:70]` упомянута в
+        # докстринге как история, и первая версия этого теста ловила её там.
+        src = open(os.path.join(SCRIPTS_DIR, "shotlist_contact.py"),
+                   encoding="utf-8").read()
+        block = src[src.index("draw.text((x0 + 2, y0 + THUMB_H + 4)"):]
+        block = block[:block.index("font=font_head)")]
+        assert "fit_one_line(head" in block
+        assert "[:70]" not in block
