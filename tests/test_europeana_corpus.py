@@ -260,3 +260,36 @@ def test_harvested_row_records_the_resolution_bucket(monkeypatch):
     monkeypatch.setattr(ec.time, "sleep", lambda *_a: None)
     rows = list(ec.harvest(collections=("A",), sizes=("large",)))
     assert rows and rows[0]["image_size"] == "large"
+
+
+def test_contact_sheet_reports_answer_diversity(monkeypatch, tmp_path, capsys):
+    """Молчание полки видно сразу, а повтор — нет: то, что она отвечает на
+    РАЗНЫЕ описания ОДНИМ предметом, по плиткам заметно, только если
+    разложить девять страниц рядом. Число обязано считаться само."""
+    import json as _json
+    import shelf_contact
+    import shelf_index as si
+
+    monkeypatch.setattr(si, "available", lambda: True)
+    monkeypatch.setattr(si, "stats", lambda: {"items": 1462, "model": si.SHELF_MODEL,
+                                              "available": True, "dim": 8})
+    same = {"id": "met:22292", "score": 0.15, "name": "Breastplate",
+            "title": "Breastplate", "dept": "Arms and Armor", "b": 1540, "e": 1540,
+            "thumb": None, "image": None}
+    cells = [{"index": i, "rank": 0, "section": "HOOK", "text": f"фраза {i}",
+              "brief": f"brief {i}", "rec": dict(same)} for i in range(3)]
+    cells[2]["rec"] = dict(same, id="met:99999", name="Sword")
+    monkeypatch.setattr(shelf_contact, "collect",
+                        lambda *a, **k: (cells, si.stats()))
+    monkeypatch.setattr(shelf_contact, "render_page",
+                        lambda cells, cols, out: out)
+
+    rc = shelf_contact.main([str(tmp_path)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Разных предметов в top-1: 2 на 3" in out
+    assert "голод корпуса" in out
+    rep = _json.load(open(tmp_path / "media_plan" / "shelf_contact.json",
+                          encoding="utf-8"))
+    assert rep["distinct_top1"] == 2 and rep["top1_answers"] == 3
+    assert rep["most_repeated_top1"][1] == 2

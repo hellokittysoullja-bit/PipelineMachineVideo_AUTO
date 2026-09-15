@@ -32,6 +32,7 @@
 Ничего не чинит, ничего не блокирует, рендер не трогает.
 """
 import argparse
+import collections
 import json
 import os
 import sys
@@ -170,8 +171,26 @@ def main(argv=None):
     os.makedirs(out_dir, exist_ok=True)
 
     silent = sum(1 for c in cells if not c.get("rec"))
+    # РАЗНООБРАЗИЕ ОТВЕТА — число, которое иначе существует только в чужой
+    # голове. Молчание полки видно сразу, а вот то, что она отвечает на
+    # РАЗНЫЕ описания ОДНИМ И ТЕМ ЖЕ предметом, по плиткам заметно только
+    # если разложить девять страниц рядом. Замер 15.09 на полке 1462:
+    # 142 брифа эпизода 02 получили всего 77 разных предметов — один
+    # манускрипт выиграл 6 брифов, один нагрудник 5. Цена не косметическая:
+    # на рендере дедуп (`used_ids`/aHash) не даст поставить предмет дважды,
+    # значит для этих слотов полка отдаст ВТОРОГО кандидата, которого лист
+    # не показывает, — то есть реальная картина хуже, чем на плитках.
+    top1 = [c["rec"]["id"] for c in cells if c.get("rec") and c["rank"] == 0]
+    distinct = len(set(top1))
     print(f"Полка: {st['items']} предметов, модель {st['model']}")
     print(f"Брифов на листе: {len(cells)}   молчит: {silent}")
+    if top1:
+        worst = collections.Counter(top1).most_common(1)[0]
+        print(f"Разных предметов в top-1: {distinct} на {len(top1)} брифов"
+              f"   самый частый повтор: {worst[1]}x")
+        if distinct < len(top1):
+            print("  Повтор — не ошибка ранжирования, а голод корпуса: автор "
+                  "написал разные описания, а полке нечем их различить.")
 
     pages = []
     for p in range(0, len(cells), a.per_page):
@@ -180,6 +199,9 @@ def main(argv=None):
         print("  ", out)
 
     report = {"shelf": st, "briefs": len(cells), "silent": silent,
+              "distinct_top1": distinct, "top1_answers": len(top1),
+              "most_repeated_top1": (collections.Counter(top1).most_common(1)[0]
+                                     if top1 else None),
               "pages": [os.path.basename(p) for p in pages],
               "cells": [{"index": c["index"], "rank": c["rank"],
                          "section": c["section"], "text": c["text"],
