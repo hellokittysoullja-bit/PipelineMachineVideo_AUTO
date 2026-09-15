@@ -76,6 +76,11 @@ def main(argv):
                          "сравнения рук, посчитанных на разных наборах)")
     ap.add_argument("--corpus", action="store_true",
                     help="считать ось каталога (медленно: поиск по 30k строк)")
+    ap.add_argument("--fallback", default=None, metavar="ФАЙЛ:КЛЮЧ",
+                    help="чем закрывается молчащий юнит в проде (обычно "
+                         "рука A: запрос секции). Без этого руки, которая "
+                         "честно молчит, сравниваются несправедливо — "
+                         "в проде слот не пустеет, он идёт прежним путём")
     ap.add_argument("--out", default=None)
     a = ap.parse_args(argv[1:])
 
@@ -88,6 +93,11 @@ def main(argv):
 
     ref = {i: d._clean(b.get("shot_brief")) for i, b in enumerate(blocks)}
     universe = keep if keep is not None else set(ref)
+
+    fb = {}
+    if a.fallback:
+        fpath, fkey = a.fallback.rsplit(":", 1)
+        fb = load_arm(fpath, fkey)
 
     table, detail = [], {}
     for spec in a.arm:
@@ -111,6 +121,22 @@ def main(argv):
             ok = [v for v in vals if v is not None]
             row["каталог отвечает"] = (round(sum(ok) / max(1, len(ok)), 3)
                                        if ok else None)
+        if fb:
+            # ЭФФЕКТИВНАЯ рука: бриф там, где он есть, иначе прежний путь.
+            # Это и есть то, что реально увидит эпизод: режиссёр ничего не
+            # отнимает у молчащего слота, он только добавляет там, где
+            # сказал. Сравнивать «долю от всех» без этого значит штрафовать
+            # честное молчание, которого в проде не существует.
+            eff_hits, eff_said = 0, 0
+            for i in universe:
+                r = said.get(i) or fb.get(i)
+                if not r or not r.get("shot_en"):
+                    continue
+                eff_said += 1
+                eff_hits += bool(r["subject_hit"])
+            row["с откатом: ответов"] = eff_said
+            row["с откатом: совпало"] = eff_hits
+            row["с откатом: доля"] = round(eff_hits / max(1, len(universe)), 3)
         table.append(row)
         detail[name] = {str(i): said[i]["shot_en"] for i in sorted(said)}
 
