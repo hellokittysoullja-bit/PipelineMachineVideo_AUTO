@@ -215,17 +215,47 @@ def runtime_ready():
 
 
 def unit_key(text):
-    """Ключ кэша — по ТЕКСТУ фразы, а не по номеру юнита.
+    """Ключ ЮНИТА В ПЛАНЕ — по ТЕКСТУ фразы, и больше ни по чему.
 
     Номера сдвигаются от любой правки сценария выше по тексту, и план
     молча описывал бы чужую фразу. Ровно тот дефект, от которого уже
     защищается lock в шотлисте и ради которого `[shot:]` сделан инлайновым.
+
+    ИЗ КЛЮЧА УБРАНЫ ВЕРСИЯ ПРОМПТА И ИМЯ МОДЕЛИ — правка по измеренному
+    отказу, а не по вкусу. Планирование и рендер — РАЗНЫЕ запуски:
+    план считают один раз, ролик собирают потом, и `LLAMA_MODEL_GGUF` при
+    сборке обычно не выставлен (он для сборки не нужен). Тогда
+    `os.path.basename("")` даёт пустую строку, ключ при рендере не
+    совпадает с ключом при планировании, и `fill_briefs()` не находит НИ
+    ОДНОГО юнита. Проверено прямым прогоном: план на диске, флаг включён,
+    заявок 0 — молча.
+
+    Это тот же класс «слой есть, и он ничего не даёт», который в этом
+    репозитории уже пять раз находили глазами по готовому ролику
+    (Openverse, Pixabay/Unsplash, reveal-акценты, фильтр по видео-пути,
+    DEFLICKER под чужим именем) — здесь он был внутри самого режиссёра.
+
+    Чем СПРАШИВАЛИ (промпт, модель) — свойство КЭША, а не плана: там
+    пересчёт при смене модели и нужен. Ключ кэша — `cache_key()` ниже.
+    """
+    h = hashlib.md5()
+    h.update(b"unit-v1\x00")
+    h.update(" ".join((text or "").split()).encode("utf-8"))
+    return h.hexdigest()[:16]
+
+
+def cache_key(text):
+    """Ключ КЭША ОТВЕТА — сюда версия промпта и модель входят обязательно.
+
+    Переписанный промпт или другая модель должны спрашиваться заново,
+    иначе ответ молча останется от прошлой формулировки — тот же класс,
+    что уже закрыт у кэша вердиктов VLM-арбитра.
     """
     h = hashlib.md5()
     h.update(f"v{PLANNER_PROMPT_VERSION}\x00".encode("utf-8"))
     h.update(os.path.basename(LLAMA_MODEL).encode("utf-8"))
     h.update(b"\x00")
-    h.update(" ".join((text or "").split()).encode("utf-8"))
+    h.update(unit_key(text).encode("utf-8"))
     return h.hexdigest()[:16]
 
 
@@ -330,8 +360,15 @@ GENERIC_PEOPLE = ("person", "people", "man", "woman", "human", "guy",
 
 # Слова, которые в стоке означают СОВРЕМЕННОЕ снаряжение. «protective gear»
 # — реальный промах замера: приводит защитный костюм, а не доспех.
+#
+# «equipment» УБРАНО 15.09 по замеру на брифах автора эпизода 02. Оно
+# попало сюда по догадке, рядом с единственным измеренным случаем, и
+# оказалось обычным английским словом: бриф «an English archer's simple
+# clothing and equipment», написанный человеком и ушедший в эпизод, эта
+# строка отклоняла. Ни одного измеренного промаха ЗА «equipment» при этом
+# нет — «protective gear» закрывает настоящий случай сам.
 MODERN_GEAR = ("protective gear", "safety", "helmet cam", "uniform",
-               "equipment", "outfit", "costume")
+               "outfit", "costume")
 
 def _looks_like_translation(shot_en, phrase):
     """Ответ пересказывает фразу вместо описания кадра.
@@ -367,10 +404,22 @@ def channel_blocklist():
         return ()
 
 
+# Слова, по которым видно, что кадр всё-таки привязан к эпохе или к её
+# материальному следу. Археологические добавлены 15.09 по ЗАМЕРУ, а не на
+# всякий случай: правило «человек без привязки к эпохе» отклоняло три
+# брифа автора подряд — «a human skull from an archaeological excavation»,
+# «human bones laid out from an excavation», «a human skull with wounds on
+# it», — то есть весь блок эпизода про братскую могилу при Таутоне, ради
+# которого этот блок и написан. Череп из раскопа не «современный человек
+# в футболке», а главное вещественное доказательство главы.
+ERA_ANCHOR_WORDS = ("medieval", "knight", "warrior", "armour", "armor",
+                    "sword", "helmet", "castle", "manuscript",
+                    "skull", "bones", "skeleton", "excavation", "grave",
+                    "effigy", "tomb")
+
+
 def brief_is_safe(shot_en, phrase, blocklist=None,
-                  era_words=("medieval", "knight", "warrior",
-                             "armour", "armor", "sword",
-                             "helmet", "castle", "manuscript")):
+                  era_words=ERA_ANCHOR_WORDS):
     """Можно ли выпускать эту заявку в отбор. (ok, причина отказа).
 
     Отказ — НЕ ошибка: слот просто идёт прежним путём. Поэтому проверки
@@ -469,7 +518,7 @@ def _run_model(prompt):
 
 def plan_unit(text, cache_dir=None):
     """Заявка для одной фразы: кэш -> живой вызов -> проверка."""
-    key = unit_key(text)
+    key = cache_key(text)
     path = os.path.join(cache_dir, key + ".json") if cache_dir else None
     if path and os.path.exists(path):
         try:

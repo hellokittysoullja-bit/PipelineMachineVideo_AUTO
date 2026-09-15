@@ -110,6 +110,45 @@ def available():
     return _load() is not None
 
 
+# Дамп у Мет лежит под git-LFS, и «сырая» ссылка на файл отдаёт не его, а
+# 134-байтовый УКАЗАТЕЛЬ на него. Найдено живой попыткой собрать индекс
+# 15.09, а не чтением: сборка прошла успешно, вернула код 0 и записала
+# индекс из НУЛЯ предметов — «всего 2 · public domain 0 · в индексе: 0».
+# Дальше `available()` честно сказал бы «каталог есть», и путь отбора
+# молча остался бы без единого музейного кандидата.
+#
+# Настоящий файл — media.githubusercontent.com/media/... (317 МБ).
+LFS_POINTER_HEAD = b"version https://git-lfs"
+# Меньше этого числа строк дамп быть не может: в нём 484 956 записей.
+# Порог намеренно грубый — он ловит «не тот файл», а не «файл чуть
+# устарел».
+MIN_DUMP_ROWS = 100_000
+
+
+def _refuse_if_not_a_dump(csv_path):
+    """Отказаться ГРОМКО, если на входе не каталог.
+
+    Тихо собранный пустой индекс — худший из возможных исходов: он
+    выглядит как готовый каталог и отнимает у эпизода весь музейный пул.
+    """
+    try:
+        size = os.path.getsize(csv_path)
+        with open(csv_path, "rb") as f:
+            head = f.read(len(LFS_POINTER_HEAD))
+    except OSError as exc:
+        raise SystemExit(f"Каталог не читается: {exc}")
+    if head == LFS_POINTER_HEAD:
+        raise SystemExit(
+            f"{csv_path} — это указатель git-LFS, а не сам дамп "
+            f"({size} байт). Скачивать надо по адресу "
+            "https://media.githubusercontent.com/media/metmuseum/openaccess/"
+            "master/MetObjects.csv (~317 МБ).")
+    if size < 50_000_000:
+        raise SystemExit(
+            f"{csv_path} — {size} байт, а дамп Мет весит ~317 МБ. "
+            "Скорее всего скачалась страница ошибки, а не каталог.")
+
+
 def build(csv_path=CSV_PATH, out_path=INDEX_PATH):
     """Собрать индекс из дампа ТЕМИ ЖЕ паспортными правилами, что и API-путь.
 
@@ -118,6 +157,7 @@ def build(csv_path=CSV_PATH, out_path=INDEX_PATH):
     проходит или не проходит в зависимости от того, каким путём он найден.
     """
     import museum_sources as ms
+    _refuse_if_not_a_dump(csv_path)
     csv.field_size_limit(10_000_000)
     rows, stats = [], {"total": 0, "public_domain": 0, "in_era": 0, "foreign": 0}
     with open(csv_path, encoding="utf-8-sig", newline="") as f:
@@ -146,6 +186,11 @@ def build(csv_path=CSV_PATH, out_path=INDEX_PATH):
                 "medium": r.get("Medium"), "cls": r.get("Classification"),
                 "tags": r.get("Tags"),
             })
+    if stats["total"] < MIN_DUMP_ROWS:
+        raise SystemExit(
+            f"В дампе {stats['total']} записей вместо сотен тысяч — "
+            "индекс не пишется. Пустой каталог, выглядящий как готовый, "
+            "хуже отсутствующего.")
     payload = {"version": CATALOG_VERSION, "built_at": time.strftime("%Y-%m-%d"),
                "era": list(ms.era_window()), "stats": stats, "rows": rows}
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
