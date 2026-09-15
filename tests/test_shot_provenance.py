@@ -60,6 +60,7 @@ class TestProvenanceComesFromTheSidecar:
     @pytest.mark.parametrize("cid,provider", [
         ("met:32684", "met"), ("cleveland:1234", "cleveland"),
         ("chicago:77", "chicago"), ("openverse:e8b7", "openverse"),
+        ("euro:2048128/x", "euro"),          # Europeana — префикс именно "euro"
         ("unsplash:abc", "unsplash"), (33508363, "pexels"), ("33508363", "pexels"),
     ])
     def test_provider_matches_the_contribution_counter(self, tmp_path, cid, provider):
