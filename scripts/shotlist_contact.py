@@ -141,7 +141,16 @@ def render_page(shots, video_dir, cols, out_path):
             ImageDraw.Draw(thumb).text((14, 14), "НЕТ ФАЙЛА / не прочитан", fill=(255, 200, 200), font=font_head)
         page.paste(thumb, (x0, y0))
         lock = " 🔒" if shot.get("lock") else ""
-        head = f"#{shot.get('index', 0) + 1}  {shot.get('section', '')}  [{shot.get('kind') or '—'}/{shot.get('source', '')}]{lock}"
+        # Провенанс и релевантность идут в подпись плитки, потому что именно
+        # этот лист человек и размечает глазами: без «откуда кадр» разметка
+        # не отвечает на вопрос, какой источник даёт годное, а какой брак.
+        # Отсутствующие поля (кадр скачан до появления sidecar) просто не
+        # печатаются — плитка не должна врать прочерком там, где нет данных.
+        who = shot.get("provider") or shot.get("source", "")
+        rel = shot.get("relevance")
+        rel_s = f" rel {rel:.2f}" if isinstance(rel, (int, float)) else ""
+        head = (f"#{shot.get('index', 0) + 1}  {shot.get('section', '')}  "
+                f"[{shot.get('kind') or '—'}/{who}]{rel_s}{lock}")
         color = (255, 220, 120) if shot.get("lock") else (220, 220, 220)
         draw.text((x0 + 2, y0 + THUMB_H + 4), head[:70], fill=color, font=font_head)
         for j, line in enumerate(wrap_text(shot.get("text", ""), font_text, THUMB_W - 4, draw)):
