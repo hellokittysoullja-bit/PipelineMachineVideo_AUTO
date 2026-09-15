@@ -87,7 +87,8 @@ except ImportError:
 import wordcount  # noqa: E402  (clean_words — тот же счётчик, что ЧАСТЬ 9 CLAUDE.md)
 # Словарь пайплайн-only маркеров — ОТТУДА, где он объявлен и где он растёт.
 # Своя копия здесь уже стоила эпизоду PHRASE LOCK (см. PIPELINE_ONLY_TAG_RE).
-from script_parser import strip_pipeline_only_tags  # noqa: E402
+from script_parser import (strip_pipeline_only_tags,  # noqa: E402
+                           speech_bounds_from_alignment)
 
 BASE = "https://api.lumean.app/api/public"
 DEFAULT_MODEL_ID = "eleven_v3"      # ЧАСТЬ 10 CLAUDE.md — теги [pause]/[energetic]/... это теги v3
@@ -463,12 +464,105 @@ def audio_duration(path):
     return float(json.loads(r.stdout)["format"]["duration"])
 
 
-def concat_audio(paths, out_path, temp_dir):
+# ПАУЗА НА ГРАНИЦЕ СЕКЦИЙ — вставляется склейкой, а не тегом в тексте.
+#
+# Замер 14.09 (videos/_test60s), из-за которого это существует. Автор
+# честно написал [pause] в конце HOOK, как предписывает ЧАСТЬ 10. Движок
+# дал ему 0.243с вместо 0.8: у тега в КОНЦЕ заказа нет текста после него,
+# и он сворачивается почти в ноль. Тот же [pause] в СЕРЕДИНЕ текста той же
+# секции дал 1.027с — вчетверо больше. Плюс склейка шла встык, без единой
+# миллисекунды между секциями. Итог — 0.271с на границе глав, при том что
+# внутри блока пауза больше секунды.
+#
+# Цена измерена: звук перехода главы (chapter_turn_short 0.38с +
+# CHAPTER_HEADROOM_SEC 0.03) в такую щель не влезает НИКОГДА, и
+# sfx_plan.json честно отклонял его с причиной gap_too_short. То есть
+# граница глав — самый крупный структурный разрыв эпизода — оставалась и
+# без дыхания, и без звука, а починить это тегом в тексте нельзя в
+# принципе: тег всегда оказывается последним в своём заказе.
+#
+# Цель — суммарная тишина на стыке, а не слепая добавка: уже имеющийся
+# хвост/зачин секции засчитывается, добавляется только недостающее.
+# 0.95с выбраны двумя границами, а не на глаз: снизу chapter_turn_long
+# (0.90с) + запас 0.03с, сверху THRESH_SEC=1.0с у fix_pauses.py — тишина
+# длиннее секунды подрезается, и вставленная пауза уехала бы обратно.
+SECTION_GAP_TARGET_SEC = 0.95
+
+
+def section_edge_silence(alignment, duration):
+    """(тишина в начале секции, тишина в хвосте) по её же alignment.
+
+    Хвостовой [pause] — это тишина, а не голос, поэтому границы берутся по
+    РЕЧЕВЫМ символам (speech_bounds_from_alignment, общий словарь тегов).
+    Нет alignment — (0.0, 0.0): не знаем, значит не засчитываем, и стык
+    получит полную целевую паузу вместо заниженной."""
+    if not alignment or not duration:
+        return 0.0, 0.0
+    bounds = speech_bounds_from_alignment(alignment)
+    if not bounds:
+        return 0.0, 0.0
+    first, last = bounds
+    return max(0.0, float(first)), max(0.0, float(duration) - float(last))
+
+
+def section_gap_pads(section_results):
+    """Сколько тишины дописать ПЕРЕД каждой секцией, кроме первой.
+
+    Список длиной len(section_results); [0] всегда 0.0 — перед первой
+    секцией паузе взяться неоткуда и незачем."""
+    pads = [0.0]
+    for i in range(1, len(section_results)):
+        prev, cur = section_results[i - 1], section_results[i]
+        _, tail = section_edge_silence(prev.get("alignment"), audio_duration(prev["audio_path"]))
+        head, _ = section_edge_silence(cur.get("alignment"), audio_duration(cur["audio_path"]))
+        pads.append(max(0.0, round(SECTION_GAP_TARGET_SEC - tail - head, 4)))
+    return pads
+
+
+def make_silence(seconds, path, reference):
+    """Кусок тишины В ТОМ ЖЕ формате, что и секции — иначе concat demuxer
+    со stream copy откатится на полное перекодирование всего эпизода."""
+    probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0",
+                            "-show_entries", "stream=sample_rate,channels",
+                            "-of", "csv=p=0", reference],
+                           capture_output=True, text=True, timeout=30).stdout.strip()
+    sr, ch = (probe.split(",") + ["44100", "1"])[:2]
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi",
+                    "-i", f"anullsrc=r={sr}:cl={'stereo' if ch.strip() == '2' else 'mono'}",
+                    "-t", f"{seconds:.4f}", "-c:a", "libmp3lame", "-q:a", "2", path],
+                   capture_output=True, text=True, timeout=60)
+    return path
+
+
+def concat_audio(paths, out_path, temp_dir, pads=None):
     """ffmpeg concat demuxer (stream copy, откат на re-encode) — тот же
-    принцип, что concat_fragment_audio() в speech_generate.py."""
+    принцип, что concat_fragment_audio() в speech_generate.py.
+
+    pads[i] — тишина ПЕРЕД секцией i (см. SECTION_GAP_TARGET_SEC).
+
+    ВОЗВРАЩАЕТ РЕАЛЬНЫЕ длительности вставленных пауз, а не запрошенные, и
+    это не педантизм. Замер 14.09: запрошено 0.679с — mp3 отдал 0.705с
+    (кадр 1152 сэмпла ≈ 26мс, короче не бывает). Посчитай section_offsets по
+    ЗАПРОШЕННОМУ — и каждая секция после первой уезжает на эти 26мс, при том
+    что весь допуск привязки реза к фразе — полкадра, 21мс. Тот же класс, что
+    уже ловили у бесшовной петли («ffmpeg отдаёт чуть меньше, чем просили»):
+    длина берётся у РЕАЛЬНОГО файла, а не у намерения."""
     concat_list = os.path.join(temp_dir, "lumean_concat.txt")
+    real_pads = []
     with open(concat_list, "w", encoding="utf-8") as f:
-        for p in paths:
+        for i, p in enumerate(paths):
+            pad = float((pads or [])[i]) if pads and i < len(pads) else 0.0
+            real = 0.0
+            if pad > 0.001:
+                sp_path = os.path.join(temp_dir, f"gap_{i:02d}.mp3")
+                make_silence(pad, sp_path, p)
+                real = audio_duration(sp_path) or 0.0
+                if real > 0.0:
+                    f.write(f"file '{os.path.abspath(sp_path)}'\n")
+                else:
+                    print(f"  ВНИМАНИЕ: пауза на стыке перед секцией {i} не собралась — "
+                          f"стык остаётся как есть")
+            real_pads.append(real)
             f.write(f"file '{os.path.abspath(p)}'\n")
     tmp_out = out_path + ".tmp.mp3"
     r = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list,
@@ -480,6 +574,7 @@ def concat_audio(paths, out_path, temp_dir):
         if r2.returncode != 0:
             raise RuntimeError(f"склейка секций не удалась (copy и re-encode): {r2.stderr[-300:]}")
     os.replace(tmp_out, out_path)
+    return real_pads
 
 
 # ---------- одна секция целиком: заказ -> опрос -> скачивание ----------
@@ -743,8 +838,23 @@ def main():
 
     section_offsets = {}
     alignment_written = []
+    # Паузы на стыках обязаны попасть и в section_offsets: карта смещений
+    # описывает РЕАЛЬНЫЙ собранный audio.mp3, и забыть про них значило бы
+    # сдвинуть весь тайминг после первой секции — ровно тот класс, ради
+    # которого section_offsets.json вообще существует (см. Шаг 7 CLAUDE.md).
+    pads = section_gap_pads(section_results)
+    # Склейка ИДЁТ ПЕРВОЙ: смещения секций обязаны считаться по РЕАЛЬНОЙ
+    # длине вставленных пауз (mp3 округляет до кадра), а её знает только
+    # собранный файл — см. докстринг concat_audio.
+    real_pads = concat_audio([r["audio_path"] for r in section_results],
+                             audio_out, temp_dir, pads) or [0.0] * len(section_results)
+    if any(p > 0.001 for p in real_pads):
+        print("  Пауза на границе секций: " + ", ".join(
+            f"{section_results[i]['section'][:22]}+{real_pads[i]:.2f}с"
+            for i in range(len(real_pads)) if real_pads[i] > 0.001))
     global_offset = 0.0
     for idx, r in enumerate(section_results):
+        global_offset += real_pads[idx] if idx < len(real_pads) else 0.0
         section_offsets[r["section"]] = round(global_offset, 5)
         if r["alignment"]:
             path = write_alignment_csv(os.path.join(video_dir, "media_plan", "alignment"),
@@ -752,7 +862,6 @@ def main():
             alignment_written.append(r["section"])
         global_offset += audio_duration(r["audio_path"])
 
-    concat_audio([r["audio_path"] for r in section_results], audio_out, temp_dir)
     total_duration = audio_duration(audio_out)
 
     atomic_write_json(os.path.join(video_dir, "media_plan", "section_offsets.json"), section_offsets)

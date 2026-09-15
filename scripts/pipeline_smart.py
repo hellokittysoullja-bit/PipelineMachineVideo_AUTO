@@ -1110,7 +1110,8 @@ HOOK_MAX_CLIP = 3.6     # в хуке кадры короче и чаще — к
 # не сломано у существующих вызовов вида pipeline_smart.parse_blocks(...) /
 # тестов, патчащих pipeline_smart.PAUSE_DURATIONS.
 from script_parser import (PAUSE_DURATIONS, parse_blocks, parse_pexels_queries,  # noqa: E402
-                            parse_query_shot_types, _normalize_section_key)
+                            parse_query_shot_types, _normalize_section_key,
+                            ALIGNMENT_TAG_SPAN_RE)
 
 # Russo One — фирменный "рубленый" дисплейный шрифт (CHANNEL.md house
 # style), не системный DejaVu. OFL, бесплатно (Google Fonts / google/fonts
@@ -3426,25 +3427,10 @@ ALIGNMENT_DIR = os.path.join(VIDEO_FOLDER, "media_plan", "alignment")
 ALIGNMENT_TAG_RE = re.compile(r'\[short pause\]|\[pause\]')
 ALIGNMENT_STRIP_TAGS = ("[energetic]", "[slowly]", "[emphasis]")
 
-# Любой [...] в потоке символов alignment — разметка, а не речь.
-#
-# Почему СПАН, а не список тегов (реальный случай 14.09, videos/_test60s):
-# speech_chars_of_text() ниже уже годами чистит текст блока обобщённо
-# (`\[[^\]]*\]`), а _clean_timed_chars() чистила alignment ПО СПИСКУ из трёх
-# имён — при том что её докстринг и докстринг speech_chars_of_text() оба
-# обещают "та же нормализация". Обещание было неверным, и цена этого
-# измерена: тег [sfx:armour_clank] уехал в заказ Lumean (его словарь тоже
-# отстал, см. script_parser.PIPELINE_ONLY_TAG_RE), вслух прочитан НЕ был
-# (0.0115 с/символ против 0.049 у речи), но буквы "sfx:armour_clank" в
-# alignment остались — скобки снимал фильтр строкой ниже, а содержимое нет.
-# Сходство текста блока с озвученным: 1.000 -> 0.889 при пороге 0.9, то есть
-# PHRASE LOCK выключился на ВЕСЬ эпизод, и кадры поехали по оценочным
-# длительностям вместо реальных онсетов речи — ровно тот рассинхрон, против
-# которого PHRASE LOCK и написан.
-#
-# Спан покрывает весь прежний список плюс всё, что появится завтра: список
-# имён отстаёт от словаря тегов по построению, форма "[...]" — нет.
-ALIGNMENT_TAG_SPAN_RE = re.compile(r'\[[^\]]*\]')
+# ALIGNMENT_TAG_SPAN_RE импортируется из script_parser (см. его докстринг:
+# словарь тегов живёт в ОДНОМ месте — копии уже стоили эпизоду PHRASE LOCK).
+# Имя переэкспортируется здесь, потому что на pipeline_smart.ALIGNMENT_TAG_SPAN_RE
+# ссылается section_sync.py и тесты.
 PAUSE_CUTS_PATH = os.path.join(VIDEO_FOLDER, "media_plan", "pause_cuts.json")
 _PAUSE_CUTS_CACHE = None   # ленивый кэш на процесс — файл не меняется за время рендера
 
@@ -4552,6 +4538,13 @@ def _slot_miss_restore(snapshot):
         lst.extend(snapshot.get(name) or ())
 
 
+# Насколько НИЖЕ своего пола должен быть скор Директора, чтобы слот считался
+# заведомо негодным и получил карточку. См. разбор у самого использования в
+# _slot_known_bad_reason(): «ниже пола» само по себе слишком слабый сигнал —
+# абстрактная фраза роняет скор любой картинке.
+DIRECTOR_CARD_DECISIVE_FRACTION = 0.5
+
+
 def _slot_known_bad_reason(index):
     """Почему система САМА считает кадр этого слота негодным (или None).
 
@@ -4565,6 +4558,34 @@ def _slot_known_bad_reason(index):
         return "stock_exhausted"
     if any(m["index"] == index for m in RELEVANCE_GATE_MISSES):
         return "below_relevance_threshold"
+    # Самый слабый из сигналов и поэтому последний: Директор оценивает
+    # кандидата по РЕАЛЬНОМУ тексту блока, а абстрактная фраза («Я его
+    # назову. Но если сказать прямо сейчас...») даёт низкий скор ЛЮБОЙ
+    # картинке — там виноват не кадр.
+    #
+    # Отсюда требование решительности, а не просто «ниже пола». Замер на
+    # videos/_test60s (9 слотов, 4 промаха Директора, вердикты глазами):
+    #   слот 4  0.20x пола  брак (современный музей вместо поля боя)
+    #   слот 7  0.40x пола  терпимо
+    #   слот 6  0.94x пола  ГОДНО
+    #   слот 1  0.95x пола  терпимо
+    # Бюджет карточек на таком эпизоде равен ЕДИНИЦЕ (8% от 9 слотов), и
+    # правило «любой промах» потратило бы её на слот 1 — тот, что у самого
+    # пола и на экране приемлем, — оставив слот 4 в ролике. Порядок выдачи
+    # решает вместо качества, ровно как уже ловили у самого бюджета.
+    #
+    # ЧЕСТНО про 0.5: это консервативное круглое число («вдвое ниже пола —
+    # уже другой порядок, а не пограничный случай»), а НЕ измеренный
+    # оптимум: четыре точки и мои глаза — не калибровка. Оно может только
+    # УМЕНЬШИТЬ число карточек против наивного правила, и на замеренном
+    # эпизоде отделяет единственный брак от единственного годного.
+    for m in DIRECTOR_RELEVANCE_MISSES:
+        if m["index"] != index:
+            continue
+        floor = float(m.get("threshold") or 0.0)
+        rel = float(m.get("relevance") or 0.0)
+        if floor > 0 and rel < floor * DIRECTOR_CARD_DECISIVE_FRACTION:
+            return "director_relevance_decisive"
     return None
 
 
