@@ -352,8 +352,20 @@ def _iter_catalog_rows(departments, limit):
         raise SystemExit("Нет каталога Мет. Сначала: python scripts/met_catalog.py build")
     rows = idx.get("rows") or []
     if departments and departments != ("all",):
-        allowed = set(departments)
-        rows = [r for r in rows if (r.get("dept") or "") in allowed]
+        # Список отделов — это ПРИОРИТЕТ, а не только фильтр. Сборка идёт
+        # часами и переживает обрывы, поэтому порядок решает, что успеет
+        # попасть в индекс раньше. Цена ошибки измерена 15.09: первые 700
+        # предметов ушли в Arms and Armor, а молчание полки на брифах
+        # эпизода оказалось сосредоточено в рукописях (Medieval Art, The
+        # Cloisters) — тот же бюджет времени покрыл бы заметно больше
+        # эпизода при другом порядке. Первая версия принимала список и
+        # МОЛЧА игнорировала его порядок, сохраняя порядок каталога: флаг
+        # выглядел как приоритет и им не был (проверено перебором очереди —
+        # 298 предметов оружия в первых 300). Внутри отдела порядок
+        # каталога сохраняется, поэтому сборка остаётся детерминированной.
+        priority = {d: i for i, d in enumerate(departments)}
+        rows = [r for r in rows if (r.get("dept") or "") in priority]
+        rows.sort(key=lambda r: priority.get(r.get("dept") or "", len(priority)))
     if limit:
         rows = rows[: int(limit)]
     return rows
