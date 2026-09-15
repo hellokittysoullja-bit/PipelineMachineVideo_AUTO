@@ -5674,6 +5674,101 @@ def _museum_search_photos(api_query, department=None):
     return results
 
 
+_SHELF_SEARCH_CACHE = {}
+
+
+def shelf_index_version():
+    """Подпись СОСТОЯНИЯ полки для ключа кэша отбора.
+
+    В подпись входит не только версия способа сборки, но и РАЗМЕР индекса:
+    полка на 2000 предметов и на 8000 отвечает на один и тот же запрос
+    разными кандидатами, то есть меняет победителя. Без размера дособранная
+    полка молча не доходила бы до экрана на прогретом temp_smart/ — ровно
+    тот класс дефекта, ради которого заведена candidate_gate_signature.
+    Честная цена названа прямо: каждая дособранная порция индекса
+    перерендеривает кэш клипов. Fail-open — нет полки, нет и подписи."""
+    try:
+        import shelf_index
+        vecs, items = shelf_index.load()
+        if items is None:
+            return ("shelf", 0, 0)
+        return ("shelf", shelf_index.SHELF_INDEX_VERSION, len(items))
+    except Exception:
+        return ("shelf", 0, 0)
+
+# Сколько кандидатов полка предлагает на запрос. Не «чем больше тем лучше»:
+# пул собирается чередованием источников, и слишком длинный список полки
+# вытеснил бы остальных из пробной выборки — ровно тот регресс, который уже
+# был измерен 13.09 на глубине музеев 60-111 и вылечен чередованием.
+SHELF_SEARCH_LIMIT = 24
+
+
+def _shelf_search_photos(api_query, brief=None, limit=None):
+    """Кандидаты ВИЗУАЛЬНОЙ ПОЛКИ в форме Pexels-кандидата.
+
+    Отличие от `_museum_search_photos` — не в источнике (корпус тот же,
+    предметы Мет с уже проверенным паспортом эпохи и культуры), а в том,
+    ЧЕМ задаётся вопрос. Музейный путь спрашивает СЛОВАМИ и получает ответ
+    по совпадению в описании; полка спрашивает ОПИСАНИЕМ КАДРА и получает
+    ответ по сходству с самими изображениями.
+
+    Почему это не косметика — три измеренных провала словарного пути
+    (подробности и числа в докстринге scripts/shelf_index.py):
+      * `poleaxe` у Мет нет ни одного — предмет лежит под `Halberd`;
+      * `medieval castle moat water` -> «Holy-water font» (слово «water»);
+      * `european longsword blade macro` -> «Axe blade» (слово «blade»).
+    На тех же формулировках полка отвечает алебардами, замками и мечами —
+    сравнение 6 из 6 в пользу картинок на общем подкорпусе из 70 предметов,
+    куда ловушки были положены НАМЕРЕННО.
+
+    ADDITIVE ПО УСТРОЙСТВУ: кандидаты ДОБАВЛЯЮТСЯ в общий пул и судятся теми
+    же гейтами (relevance/контрастивное вето/домен-гвард/резкость/дедуп) и
+    тем же ранжированием. ID — `met:<objectID>`, ровно тот же, что у
+    музейного пути: общий `used_ids` обязан видеть один и тот же предмет как
+    один предмет, независимо от того, каким путём он найден, иначе дедуп
+    молча пропустил бы дубль.
+
+    Fail-open: нет индекса на диске, нет numpy/torch, флаг выключен, любая
+    ошибка -> пустой список, пул собирается ровно как раньше."""
+    if not feature_flags.enabled("SHELF_INDEX"):
+        return []
+    text = (brief or api_query or "").strip()
+    if not text:
+        return []
+    cache_key = (text, int(limit or SHELF_SEARCH_LIMIT))
+    if cache_key in _SHELF_SEARCH_CACHE:
+        return _SHELF_SEARCH_CACHE[cache_key]
+    results = []
+    try:
+        import shelf_index
+        if shelf_index.available():
+            for r in shelf_index.search(text, limit=int(limit or SHELF_SEARCH_LIMIT)):
+                img = r.get("image") or r.get("thumb")
+                if not img:
+                    continue
+                results.append({
+                    "id": r.get("id"),
+                    "alt": " ".join(x for x in (r.get("title"), r.get("name"),
+                                                r.get("culture")) if x),
+                    "url": r.get("page") or img,
+                    # Превью для оценки и рабочий файл — те же поля, что
+                    # читает download() в pexels_photo(); у Мет web-large
+                    # уже подходящего размера, полноразмерный берётся
+                    # победителю.
+                    "src": {"large2x": img, "medium": r.get("thumb") or img},
+                    "_shelf_meta": {"score": r.get("score"), "dept": r.get("dept"),
+                                    "begin": r.get("b"), "end": r.get("e"),
+                                    "culture": r.get("culture"),
+                                    "license": "public_domain",
+                                    "license_field": "isPublicDomain"},
+                })
+    except Exception as e:
+        _note_source_search_error("shelf", e, text)
+        results = []
+    _SHELF_SEARCH_CACHE[cache_key] = results
+    return results
+
+
 _PIXABAY_PHOTO_CACHE = {}
 _PIXABAY_VIDEO_CACHE = {}
 _UNSPLASH_PHOTO_CACHE = {}
@@ -6273,7 +6368,8 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             shot_type = shot_type_of_query(pq)
             department = met_department_for_query(pq, shot_type)
             per_source = []
-            for source_name, fetch in (("museum", _museum_search_photos),
+            for source_name, fetch in (("shelf", _shelf_search_photos),
+                                        ("museum", _museum_search_photos),
                                         ("openverse", _openverse_search_photos),
                                         ("pexels", _pexels_search_photos),
                                         ("pixabay", _pixabay_search_photos),
@@ -6296,8 +6392,18 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                 # отсекает ЗНАНИЕМ о культуре предмета, а уточнитель —
                 # совпадением слова в описании. Стоки паспорта не имеют,
                 # там уточнитель остаётся единственной защитой и не тронут.
-                fetched = (fetch(pq, department=department)
-                           if source_name == "museum" else fetch(api_q))
+                # В ПОЛКУ уходит АВТОРСКИЙ запрос, не уточнённый культурой —
+                # по той же причине, что и в музей: паспорт предмета уже
+                # прочитан при сборке каталога, а уточнитель «european»
+                # выбрасывал бы подлинники, у которых этого слова нет в
+                # описании. И тем более он не нужен там, где сравнение идёт
+                # с изображением, а не с текстом описания.
+                if source_name == "museum":
+                    fetched = fetch(pq, department=department)
+                elif source_name == "shelf":
+                    fetched = fetch(pq)
+                else:
+                    fetched = fetch(api_q)
                 for p in fetched:
                     # Из какого запроса кандидат пришёл — гейт релевантности
                     # ниже должен сверять его с ЕГО запросом, иначе кандидат
@@ -9862,6 +9968,14 @@ def _selection_stack_signature():
         # меняет состав пула так же, как включение Openverse.
         feature_flags.enabled("MUSEUM_SOURCES_ENABLED"),
         MUSEUM_SOURCES_VERSION,
+        # Визуальная полка — источник, который приносит В ПУЛ ДРУГИХ
+        # кандидатов на тот же запрос (сравнение идёт с изображениями, а не
+        # со словами описания). Без подписи включение полки на прогретом
+        # temp_smart/ не дошло бы до экрана: клип уже отрендерен по
+        # кандидату, выбранному до неё.
+        feature_flags.enabled("SHELF_INDEX"),
+        shelf_index_version(),
+        SHELF_SEARCH_LIMIT,
         # Pixabay/Unsplash — ровно та же причина, что у двух флагов выше:
         # включение источника меняет СОСТАВ пула, а значит и победителя, и
         # без подписи такая смена на прогретом temp_smart/ не дошла бы до

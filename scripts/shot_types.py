@@ -60,6 +60,15 @@ ANY = "any"
 # же гейтами, и лучше слабый кандидат в пуле, чем пустой слот (ЧАСТЬ 13).
 SOURCE_CAPABILITIES = {
     "museum":    {"supports": ("object", "illustration", "map", ANY), "structured": True},
+    # Полка (scripts/shelf_index.py) — тот же корпус Мет, что у "museum", но
+    # спрашивается НЕ словами, а сравнением описания кадра с самими
+    # изображениями. Типы кадра пока объявлены ТЕ ЖЕ, что у музея: на
+    # `scene` музейный корпус измеренно слаб, и хотя визуальный поиск
+    # находит там рукописные миниатюры с битвами (замер 15.09), отдельного
+    # A/B по победителям сценических слотов ещё не было — расширять список
+    # без замера значило бы повторить ровно ту ошибку, которую замер
+    # маршрутизации 14.09 уже исправил.
+    "shelf":     {"supports": ("object", "illustration", "map", ANY), "structured": True},
     "openverse": {"supports": ("object", "scene", "illustration", "texture", "map", ANY)},
     "pexels":    {"supports": ("object", "scene", "illustration", "texture", "map", ANY)},
     "pixabay":   {"supports": ("object", "scene", "illustration", "texture", "map", ANY)},

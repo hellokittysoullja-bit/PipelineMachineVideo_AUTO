@@ -65,3 +65,7 @@ temp_openverse_cache/
 # Локальный каталог Мет: дамп 303 МБ + индекс. ПРОДУКТ, а не исходник —
 # пересобирается 'python scripts/met_catalog.py build'.
 temp_met_catalog/
+
+# Визуальная полка: матрица эмбеддингов + скачанные превью. ПРОДУКТ —
+# пересобирается 'python scripts/shelf_index.py build'.
+temp_shelf_index/

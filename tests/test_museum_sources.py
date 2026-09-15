@@ -666,12 +666,16 @@ class TestCultureQualifierStaysOutOfMuseum:
         музей снова начнёт терять французские и итальянские подлинники."""
         src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"),
                    encoding="utf-8").read()
-        start = src.index("for source_name, fetch in ((\"museum\"")
-        block = src[start:start + 3000]
+        # Якорь по ИМЕНИ цикла, а не по первому источнику в кортеже: список
+        # источников растёт (15.09 первой строкой встала визуальная полка), и
+        # привязка к «("museum"» роняла тест на добавлении источника, хотя
+        # сам инвариант не нарушен. Проверяем то, ради чего тест написан.
+        start = src.index("for source_name, fetch in (")
+        block = src[start:start + 4000]
         assert 'fetch(pq, department=department)' in block, (
             "музейный источник больше не получает АВТОРСКИЙ запрос — "
             "уточнитель культуры вернулся туда, где он теряет подлинники")
-        assert 'else fetch(api_q)' in block, (
+        assert 'fetch(api_q)' in block, (
             "стоки обязаны и дальше получать уточнённый запрос: у них нет "
             "паспорта предмета, и уточнитель там единственная защита")
 
