@@ -109,3 +109,59 @@ def test_change_is_in_the_selection_signature():
 ])
 def test_the_subject_of_the_shot_reaches_the_query(brief, must):
     assert must in _q(brief)
+
+
+# ------------------------------------------- бриф доходит и до видео-пути
+
+def test_video_path_asks_the_stock_with_the_brief_too(tmp_path, monkeypatch):
+    """Асимметрия из того же класса, что уже дважды стоила этому
+    репозиторию половины эпизода: `filter_alt_blocklist()` жила только в
+    `pexels_photo()` и на видео не вызывалась НИ РАЗУ, `director_score_fn`
+    поднимал только фото. Здесь было то же — 142 брифа эпизода влияли на
+    фото-слоты и не влияли на видео, при том что видео это примерно
+    половина слотов."""
+    import pipeline_smart as ps
+
+    seen = []
+    monkeypatch.setattr(ps, "TEMP_FOLDER", str(tmp_path))
+    monkeypatch.setattr(ps, "_pexels_search_videos",
+                        lambda q, **k: seen.append(q) or [])
+    monkeypatch.setattr(ps, "_pixabay_search_videos", lambda q, **k: [])
+
+    ps.pexels_video("medieval battle", 7, used_ids=set(), used_hashes=[],
+                    extra_queries=["medieval camp"],
+                    shot_brief="a dented steel breastplate, close up")
+
+    assert seen, "видео-путь вообще не спросил сток — тест не про то"
+    brief_q = ps.brief_to_stock_query("a dented steel breastplate, close up",
+                                      fallback=None)
+    assert brief_q and brief_q in seen
+    # И именно ПЕРВЫМ: кандидаты чередуются между запросами, перебирается
+    # лишь VIDEO_RELEVANCE_MAX_TRIES штук, поэтому позиция решает при
+    # равенстве.
+    assert seen[0] == ps.apply_action_qualifier(
+        ps.disambiguate_search_query(brief_q), None)
+
+
+def test_video_cache_key_moves_with_the_brief(tmp_path, monkeypatch):
+    """На прогретом temp_smart/ кэш-хит делает continue ДО переподбора —
+    без брифа в ключе правка брифа не дошла бы до экрана вообще."""
+    import pipeline_smart as ps
+
+    paths = []
+    monkeypatch.setattr(ps, "TEMP_FOLDER", str(tmp_path))
+    monkeypatch.setattr(ps, "_pexels_search_videos", lambda q, **k: [])
+    monkeypatch.setattr(ps, "_pixabay_search_videos", lambda q, **k: [])
+    real_join = os.path.join
+
+    def spy(*parts):
+        p = real_join(*parts)
+        if p.endswith(".mp4"):
+            paths.append(os.path.basename(p))
+        return p
+    monkeypatch.setattr(ps.os.path, "join", spy)
+    for brief in ("a dented steel breastplate, close up",
+                  "a manuscript illumination of a battle"):
+        ps.pexels_video("medieval battle", 7, used_ids=set(), used_hashes=[],
+                        shot_brief=brief)
+    assert len(set(paths)) == len(paths) >= 2, paths

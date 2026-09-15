@@ -11608,7 +11608,7 @@ def _pexels_search_videos(api_query):
 
 def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier=None,
                   extra_queries=None, sentence_score_fn=None, text_key=None, arbiter_text=None,
-                  is_opening_shot=False, recent_sizes=None, slot_dur=None):
+                  is_opening_shot=False, recent_sizes=None, slot_dur=None, shot_brief=None):
     """Раньше брала ПЕРВОЕ ещё не показанное видео из выдачи без единой
     проверки релевантности/риска (реальный, ранее не закрытый структурный
     пробел, найденный внешним аудитом + прямой проверкой на реальном
@@ -11647,8 +11647,13 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
     # text_key — та же причина и та же механика, что в pexels_photo() (см. её
     # докстринг у qkey): без этого правка текста сценария может не поменять
     # ни запрос, ни ключ кэша, и видео под старую фразу тихо остаётся стоять.
+    # Запрос из брифа входит в ключ кэша по той же причине, что и у фото:
+    # он меняет СОСТАВ пула, а на прогретом temp_smart/ кэш-хит делает
+    # continue ДО переподбора кандидата — без этого правка брифа не дошла
+    # бы до экрана вообще.
+    _brief_key = brief_to_stock_query(shot_brief, fallback=None) or ""
     qkey = "|".join([query] + sorted(q for q in (extra_queries or []) if q and q != query)
-                     + ([text_key] if text_key else []))
+                     + ([text_key] if text_key else []) + ([_brief_key] if _brief_key else []))
     qhash = hashlib.md5(qkey.encode()).hexdigest()[:8]
     gate_sig = candidate_gate_signature().split(":", 1)[-1]
     cf = os.path.join(cache, f"{index:04d}_{qhash}_{gate_sig}.mp4")
@@ -11677,6 +11682,20 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
         # фраза "сколько весил настоящий боевой меч" получила зал
         # кинотеатра, потому что позиции достался запрос про кино.
         pool_queries = [query] + [q for q in (extra_queries or []) if q and q != query]
+        # Бриф фразы — ПЕРВЫМ запросом пула, ровно как у фото. Асимметрия,
+        # которую это закрывает, из того же класса, что уже дважды стоил
+        # этому репозиторию половины эпизода: filter_alt_blocklist() жила
+        # только в pexels_photo() и на видео не вызывалась ни разу, и
+        # director_score_fn поднимал только фото — при том что видео это
+        # примерно половина слотов. Здесь было то же самое: 142 брифа
+        # эпизода влияли на фото-слоты и не влияли на видео.
+        # Функция перевода та же самая и уже замерена (138 РАЗНЫХ запросов
+        # против 42 запросов секции, ноль запросов без якоря эпохи) —
+        # новым здесь является только точка вызова.
+        # ЧЕСТНО: что это принесёт ЛУЧШИЕ видео-кадры — не измерено, для
+        # этого нужен прогон с ключами стоков, которых в контейнере нет.
+        if _brief_key and _brief_key not in pool_queries:
+            pool_queries = [_brief_key] + pool_queries
         per_query = []
         for pq in pool_queries:
             # action_qualifier — движение из текста блока (см.
@@ -14127,7 +14146,8 @@ def main():
                                      extra_queries=section_query_pool.get(b["section"]),
                                      sentence_score_fn=video_sentence_fn, text_key=sem_text,
                                      arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot,
-                                     recent_sizes=recent_shot_sizes, slot_dur=d)
+                                     recent_sizes=recent_shot_sizes, slot_dur=d,
+                                     shot_brief=b.get("shot_brief"))
                 if not video:
                     photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
                                       recent_sizes=recent_shot_sizes, target_luma=luma_ema,
@@ -14150,7 +14170,8 @@ def main():
                                          extra_queries=section_query_pool.get(b["section"]),
                                          sentence_score_fn=video_sentence_fn, text_key=sem_text,
                                          arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot,
-                                         recent_sizes=recent_shot_sizes, slot_dur=d)
+                                         recent_sizes=recent_shot_sizes, slot_dur=d,
+                                         shot_brief=b.get("shot_brief"))
             # Раньше Pexels отключался навсегда после ЛЮБОГО промаха, включая
             # обычную пустую выдачу по одному неудачному запросу. Гасим источник
             # только если API реально отвалился.
