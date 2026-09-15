@@ -12467,6 +12467,35 @@ def _internal_sentence_boundaries(words):
     return bounds
 
 
+def _usable_split_points(points, total_words, est, min_part):
+    """Точки реза, после которых КАЖДЫЙ кусок дотягивает до min_part.
+
+    Реальный случай (videos/_test60s, замер 14.09): у блока хука на 8.10с
+    граница предложения стоит после «Я его назову.» — первый кусок 1.10с.
+    split_long_blocks честно резала там, а merge_short_phrase_locked_blocks
+    тут же склеивала обратно (1.10с ниже пола клипа хука 2.2с), и блок
+    оставался 8.10с. Другую точку при этом никто не пробовал: fallback-и
+    (контраст-союзы / число / середина) стоят под `if not split_at`, а
+    список был НЕ пуст — в нём лежала непригодная точка.
+    Итог замера: хук 3 кадра, средняя 6.94с при норме ЧАСТИ 14 «3-6 сек».
+
+    Жадно слева направо: точка принимается, только если и кусок от
+    предыдущей принятой, и весь оставшийся хвост не короче min_part."""
+    if not points or not total_words or not est:
+        return []
+    out, last = [], 0
+    for p in sorted(set(points)):
+        if not (0 < p < total_words):
+            continue
+        if est * ((p - last) / total_words) < min_part:
+            continue
+        if est * ((total_words - p) / total_words) < min_part:
+            continue
+        out.append(p)
+        last = p
+    return out
+
+
 def split_long_blocks(blocks, real_weights):
     """Один блок = один клип 4-20 сек — механическая сетка "одна мысль = одна
     картинка". Профессиональный монтаж на одну длинную фразу даёт 2-3
@@ -12501,7 +12530,8 @@ def split_long_blocks(blocks, real_weights):
         # SOURCE_DUR=8.0), но составным по смыслу (3 предложения). Без этого
         # условия оба ранних выхода отсекли бы ровно тот блок, который и
         # нужно резать.
-        sentence_bounds = _internal_sentence_boundaries(words)
+        sentence_bounds = _usable_split_points(
+            _internal_sentence_boundaries(words), len(words), est, min_part)
         if est < min_source and not sentence_bounds:
             new_blocks.append(b)
             new_weights.append(w)
@@ -12512,14 +12542,18 @@ def split_long_blocks(blocks, real_weights):
             continue
         split_at = list(sentence_bounds)
         if not split_at:
+            trigger = []
             for i, word in enumerate(words):
                 wl = word.strip(",.!?—–:;»«").lower()
                 if wl in SUBCUT_CONTRAST_WORDS and 2 <= i <= len(words) - 3:
-                    split_at.append(i)
+                    trigger.append(i)
             for i, word in enumerate(words):
                 if re.search(r'\d', word) and i > len(words) // 4:
-                    split_at.append(i)
+                    trigger.append(i)
                     break
+            # Те же грабли, что у границ предложений выше: непригодная точка
+            # не должна закрывать дорогу следующему триггеру.
+            split_at = _usable_split_points(trigger, len(words), est, min_part)
         if not split_at:
             # Без смыслового триггера резать РОВНО посередине по счёту слов
             # означало иногда рвать словосочетание внутри одной фразы ("в
@@ -12536,7 +12570,24 @@ def split_long_blocks(blocks, real_weights):
                         break
                 if found is not None:
                     break
-            split_at = [found if found is not None else mid]
+            # Кандидаты в порядке предпочтения: сперва пунктуационная
+            # граница (рез попадает на естественную паузу произношения),
+            # потом сырая середина. Раньше `mid` был недостижим, если
+            # пунктуация нашлась вообще — и блок оставался нерезаным, даже
+            # когда середина делила его на два законных куска. Замер
+            # 14.09: блок хука 8.10с, пунктуация на 2.95с (ниже пола 3.0),
+            # середина 4.05/4.05 — годится, но не пробовалась.
+            split_at = []
+            for cand in ([found] if found is not None else []) + [mid]:
+                split_at = _usable_split_points([cand], len(words), est, min_part)
+                if split_at:
+                    break
+            if not split_at:
+                # Блок физически не делится на два куска выше пола — оставляем
+                # как есть. Это честный отказ, а не молчаливый рез пополам.
+                new_blocks.append(b)
+                new_weights.append(w)
+                continue
         bounds = sorted(set([0] + split_at + [len(words)]))
         chunks = [(a, c) for a, c in zip(bounds, bounds[1:]) if c > a]
         # Склеиваем куски короче SUBCUT_MIN_PART_DUR (по доле слов от est)
@@ -12550,6 +12601,14 @@ def split_long_blocks(blocks, real_weights):
                 merged[-1] = (pa, c)
             else:
                 merged.append((a, c))
+        # Дыра в цикле выше: у ПЕРВОГО куска `merged` ещё пуст, поэтому
+        # короткий первый кусок проходил без всякой проверки — склеивать его
+        # было не с чем НАЗАД. Склеиваем ВПЕРЁД. Само по себе это схлопывает
+        # рез обратно, поэтому главная защита — _usable_split_points() выше
+        # (не выбирать такую точку вовсе); здесь второй, страховочный слой.
+        while len(merged) >= 2 and est * ((merged[0][1] - merged[0][0]) / total_w) < min_part:
+            (a0, _c0), (_a1, c1) = merged[0], merged[1]
+            merged[:2] = [(a0, c1)]
         if len(merged) < 2:
             new_blocks.append(b)
             new_weights.append(w)
@@ -12579,6 +12638,17 @@ def split_long_blocks(blocks, real_weights):
             # тишина-акцент, попадает в ПЕРВЫЙ получившийся под-кадр, не во
             # все (dict(b) выше скопировал бы флаг во все k без явного сброса).
             nb["is_climax"] = b.get("is_climax", False) if k == 0 else False
+            # sfx добавлен ПОЗЖЕ stat/climax и остался без сброса: dict(b)
+            # копировал ВЕСЬ список в каждый под-кадр, а word_pos оставался
+            # от исходного блока. Замер 14.09: один тег [sfx:armour_clank] в
+            # сценарии дал ДВА кюя (блоки 5 и 6) с чужими позициями. Тот же
+            # класс и то же лекарство, что уже применены к плашке: кюй живёт
+            # в ТОМ куске, куда попала его позиция, и она пересчитывается
+            # относительно начала этого куска.
+            nb["sfx"] = [dict(x, word_pos=max(0, int(x.get("word_pos", 0)) - a))
+                         for x in (b.get("sfx") or [])
+                         if a <= int(x.get("word_pos", 0)) < c
+                         or (int(x.get("word_pos", 0)) <= 0 and k == 0)]
             new_blocks.append(nb)
             new_weights.append((w * (c - a) / total_w) if w is not None else None)
     return new_blocks, new_weights
