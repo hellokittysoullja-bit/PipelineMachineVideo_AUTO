@@ -110,6 +110,46 @@ SHELF_INDEX_VERSION = 1
 # сверяется при загрузке.
 SHELF_MODEL = "siglip2-so400m-patch14-384"
 
+
+def stack_signature():
+    """Версии библиотек, которыми СЧИТАЛИСЬ векторы полки.
+
+    Имени модели недостаточно, и это не теория: дрейф ML-стека в этом
+    репозитории уже задокументирован и уже сдвигал кадр золотого набора
+    (`ep01_032`, 0.2006 при пороге 0.19) через порог БЕЗ единой правки кода.
+    Полка — самый уязвимый к этому объект проекта: она собирается часами,
+    лежит месяцами и переживает любое `pip install -U`. Имя модели при этом
+    совпадает, гвард молчит, а векторы уже из слегка другого пространства.
+
+    Не ошибка, а предупреждение — намеренно. Отказ обнулил бы 20 часов
+    сборки из-за обновления библиотеки; молчание скрыло бы причину странного
+    подбора. Правильное поведение — назвать расхождение и работать дальше.
+
+    Сбой импорта -> None, тогда сверять нечего и никто ничего не печатает.
+    """
+    try:
+        import torch, transformers
+        return f"torch{torch.__version__}/tf{transformers.__version__}"
+    except Exception:
+        return None
+
+
+def stack_drift(items, now):
+    """Стеки, на которых собраны записи, но которые НЕ равны текущему.
+
+    Отдельная чистая функция, а не три строки внутри load(): проверить её
+    можно без собранного индекса и без 4 ГБ моделей, а внутри load() она
+    была бы доступна только через постройку фикстуры из JSONL и сырой
+    матрицы — то есть проверялась бы разглядыванием исходника.
+
+    Пустое множество означает «сверять нечего ИЛИ всё совпало» — оба случая
+    ведут к молчанию, и это намеренно: записи без поля `stack` (индексы,
+    собранные до этой правки) не должны печатать предупреждение вечно.
+    """
+    if not now:
+        return set()
+    return {it.get("stack") for it in (items or []) if it.get("stack")} - {now}
+
 # Отделы Мет, которые реально про этот канал. Полный каталог (30 957) тоже
 # допустим (--departments all), это вопрос только времени сборки.
 DEFAULT_DEPARTMENTS = ("Arms and Armor", "Medieval Art", "The Cloisters",
@@ -162,6 +202,18 @@ def load():
               f"ожидается {SHELF_MODEL}. Полка НЕ используется — пересобрать: "
               f"python scripts/shelf_index.py build")
         return (None, None)
+    # Стек — ПРЕДУПРЕЖДЕНИЕ, а не отказ (см. stack_signature): имя модели
+    # совпадает, а версии библиотек могли уехать, и тогда векторы полки и
+    # вектор запроса считаны слегка разными реализациями одной модели.
+    # Строки без "stack" — индексы, собранные до этой правки; молчим про них,
+    # иначе предупреждение печаталось бы на каждом старом индексе без повода.
+    now = stack_signature()
+    drifted = stack_drift(items, now)
+    if drifted:
+        print(f"  ВНИМАНИЕ: полка собрана на другом ML-стеке "
+              f"({', '.join(sorted(map(str, drifted)))}), сейчас {now}. "
+              f"Полка используется, но скоры могли поехать — при странном "
+              f"подборе пересобрать: python scripts/shelf_index.py build")
     dim = items[0].get("dim")
     if not dim:
         return (None, None)
@@ -455,6 +507,9 @@ def build(departments=DEFAULT_DEPARTMENTS, limit=None, keep_images=False,
 
     t0 = time.time()
     added = 0
+    # Считается ОДИН раз на сборку, а не на запись: значение постоянно внутри
+    # прогона, а вызов тянет импорт torch/transformers.
+    _BUILD_STACK = stack_signature()
     ua = {"User-Agent": "Mozilla/5.0 (faceless-pipeline shelf index)"}
     with open(ITEMS_PATH, "a", encoding="utf-8") as items_f, \
             open(VECTORS_PATH, "ab") as vec_f:
@@ -492,6 +547,7 @@ def build(departments=DEFAULT_DEPARTMENTS, limit=None, keep_images=False,
                 arr = arr / norm
                 rec = {"id": rid, "dim": int(arr.shape[0]),
                        "model": SHELF_MODEL, "version": SHELF_INDEX_VERSION,
+                       "stack": _BUILD_STACK,
                        "name": r.get("name"), "title": r.get("title"),
                        "culture": r.get("culture"), "b": r.get("b"), "e": r.get("e"),
                        "dept": r.get("dept"),
