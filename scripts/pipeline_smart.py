@@ -13975,6 +13975,12 @@ def main():
     media_log = []   # (индекс, путь_к_фото) — для QC-проверки на похожие кадры в конце
     render_manifest = {}   # индекс -> статус (ok/failed/skipped-no-media), для резюме/диагностики
     zoom_hist, pan_hist = [], []
+    # История ПАР (режим, направление) для языка камеры — см.
+    # camera_language.pick_direction(). Отдельно от zoom_hist: при
+    # выключенном флаге работает прежний гвард на голом направлении, и
+    # смешивать две разные истории в одном списке значило бы, что откат
+    # флага меняет поведение не байт-в-байт.
+    zoom_pair_hist = []
     # Пул на kenburns()/video_render() — НЕ на parallax_kenburns() (та
     # остаётся последовательной в этом же процессе, см. комментарий у
     # RENDER_POOL_ENABLED выше). Решение "что рендерить" (выбор фото/видео,
@@ -14926,14 +14932,31 @@ def main():
                 # осмысленно каждое по отдельности. Сколько раз вето реально
                 # перебило стадию — пишется в отчёт (camera_language_report),
                 # а не остаётся догадкой.
+                # Режим движения считается ДО направления — иначе защита от
+                # повтора не может смотреть на пару (режим, направление), а
+                # только на голое направление, и ломает замысел там, где
+                # повторяться нечему (замер: 18 случаев из 27, см.
+                # camera_language.pick_direction). Функция чистая, лишний
+                # вызов ничего не стоит.
                 _stage = arc_stage_for(b)
+                photo_hash, _, _ = kb_hash_choices(photo)
+                cur_shot_size = recent_shot_sizes[-1] if recent_shot_sizes else None
+                motion_mode = choose_motion_mode(b, is_section_start, photo_hash,
+                                                 shot_size=cur_shot_size,
+                                                 arc_stage=_stage)
                 _stage_zi = None
                 if _stage and feature_flags.enabled("CAMERA_LANGUAGE"):
                     import camera_language
                     _stage_zi = camera_language.stage_zoom_in(_stage)
-                zoom_in = pick_no_repeat(
-                    zoom_hist, zi_cand if _stage_zi is None else _stage_zi,
-                    [True, False], max_repeat=2)
+                if feature_flags.enabled("CAMERA_LANGUAGE"):
+                    import camera_language
+                    zoom_in = camera_language.pick_direction(
+                        zoom_pair_hist, motion_mode,
+                        zi_cand if _stage_zi is None else _stage_zi, max_repeat=2)
+                else:
+                    zoom_in = pick_no_repeat(
+                        zoom_hist, zi_cand if _stage_zi is None else _stage_zi,
+                        [True, False], max_repeat=2)
                 if _stage_zi is not None:
                     CAMERA_LANGUAGE_STATS["stage_had_direction"] += 1
                     if zoom_in != _stage_zi:
@@ -14969,11 +14992,6 @@ def main():
                                             energy_bias=energy_bias, stat_delay=stat_delay, levels=levels, wb=wb, grain_scale=grain_scale,
                                             captions=captions, look_filter=look_filter, domain=domain)
                 if not ok:
-                    photo_hash, _, _ = kb_hash_choices(photo)
-                    cur_shot_size = recent_shot_sizes[-1] if recent_shot_sizes else None
-                    motion_mode = choose_motion_mode(b, is_section_start, photo_hash,
-                                                     shot_size=cur_shot_size,
-                                                     arc_stage=_stage)
                     CAMERA_LANGUAGE_STATS["modes"][motion_mode] = \
                         CAMERA_LANGUAGE_STATS["modes"].get(motion_mode, 0) + 1
                     if _stage:

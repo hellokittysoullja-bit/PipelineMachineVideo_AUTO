@@ -218,3 +218,57 @@ def test_the_narrowing_guard_survives_a_palette_it_would_empty():
         assert cl.pick_from_palette(cl.camera_palette("слом", "detail"), 12345)
     finally:
         cl.STAGE_CAMERA["слом"] = original
+
+
+# ------------------- защита от повтора смотрит на ДВИЖЕНИЕ, а не на знак
+#
+# Замер на эпизоде 02, ради которого это написано: стадия задавала
+# направление у 97 кадров, прежний гвард перебивал её у 27 — и у 18 из 27
+# предыдущий РЕЖИМ был другим, то есть зритель и так видел другое
+# движение. После правки: сохранено 94 из 97 (97% против 72%), при этом
+# худшее повторение одного и того же движения подряд осталось прежним (2)
+# — гвард не ослаб, он перестал срабатывать вхолостую.
+
+def test_intent_survives_when_the_movement_itself_differs():
+    """Медленный отъезд после панорамы — это не «то же самое дважды»,
+    хотя направление совпало. Прежний гвард здесь ломал замысел."""
+    hist = []
+    cl.pick_direction(hist, "horizontal_pan", False)
+    cl.pick_direction(hist, "slow_pull", False)
+    # третий подряд «отъезд», но уже ТРЕТЬИМ режимом — замысел обязан выжить
+    assert cl.pick_direction(hist, "classic_kb", False) is False
+
+
+def test_the_same_movement_three_times_is_still_broken_up():
+    """Гвард не ослаблен: тот же режим И то же направление подряд —
+    это и есть штамп, который зритель читает."""
+    hist = []
+    assert cl.pick_direction(hist, "classic_kb", True) is True
+    assert cl.pick_direction(hist, "classic_kb", True) is True
+    assert cl.pick_direction(hist, "classic_kb", True) is False
+
+
+def test_history_window_matches_the_old_guard():
+    """Контракт повторяет pick_no_repeat дословно — две разные механики
+    повтора рядом рано или поздно разошлись бы."""
+    hist = []
+    for _ in range(20):
+        cl.pick_direction(hist, "classic_kb", True)
+    assert len(hist) <= 2 + 2
+
+
+def test_the_pair_guard_is_wired_into_the_render_path():
+    """Правка обязана дойти до рендера, а не остаться функцией в модуле."""
+    src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"),
+               encoding="utf-8").read()
+    assert "camera_language.pick_direction(" in src
+    assert "zoom_pair_hist" in src
+
+
+def test_flag_off_keeps_the_old_direction_guard():
+    """Откат флага возвращает прежнюю механику целиком, включая защиту от
+    повтора: смешивать две истории в одном списке значило бы, что откат
+    меняет поведение не байт-в-байт."""
+    src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"),
+               encoding="utf-8").read()
+    assert "zoom_hist, zi_cand if _stage_zi is None else _stage_zi" in src

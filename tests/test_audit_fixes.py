@@ -184,14 +184,45 @@ def test_ffmpeg_filter_path_escapes_drive_colon_and_backslashes():
 
 def test_all_subprocess_text_calls_declare_utf8():
     """На Windows text=True без encoding декодирует вывод ffmpeg в cp1251 —
-    кириллица в пути роняла verify_clip на КАЖДОМ клипе."""
+    кириллица в пути роняла verify_clip на КАЖДОМ клипе.
+
+    Разбор КОДА, а не поиск подстроки. Прежний регексп
+    (`text=True(?![^\n]*encoding=)`) ошибался в обе стороны, и обе ошибки
+    реальные, а не теоретические:
+      * ложное срабатывание — `tempfile.mkstemp(suffix=".txt", text=True)`
+        в shot_planner_llm.py: там `text=True` означает «открыть файл в
+        текстовом режиме» и к декодированию вывода подпроцесса отношения
+        не имеет (поймано живым прогоном 15.09);
+      * ложный пропуск — настоящий `subprocess.run(..., text=True,` с
+        `encoding=` на СЛЕДУЮЩЕЙ строке регексп считал нарушением, а вот
+        `text=True` с `encoding=` где-то дальше в многострочном вызове он
+        бы пропустил как чистый.
+    `ast` знает, что это за вызов и какие у него аргументы, и не зависит
+    от того, как вызов разбит на строки."""
+    import ast as _ast
+    SUBPROCESS_CALLS = {"run", "Popen", "check_output", "call", "check_call"}
     offenders = []
-    for name in os.listdir(SCRIPTS):
+    for name in sorted(os.listdir(SCRIPTS)):
         if not name.endswith(".py"):
             continue
         src = io.open(os.path.join(SCRIPTS, name), encoding="utf-8").read()
-        for m in re.finditer(r"text=True(?![^\n]*encoding=)", src):
-            offenders.append(f"{name}:{src[:m.start()].count(chr(10)) + 1}")
+        try:
+            tree = _ast.parse(src)
+        except SyntaxError:
+            continue
+        for node in _ast.walk(tree):
+            if not isinstance(node, _ast.Call):
+                continue
+            fn = node.func
+            is_sub = (isinstance(fn, _ast.Attribute) and fn.attr in SUBPROCESS_CALLS
+                      and isinstance(fn.value, _ast.Name) and fn.value.id == "subprocess")
+            if not is_sub:
+                continue
+            kw = {k.arg for k in node.keywords if k.arg}
+            text_on = any(k.arg == "text" and getattr(k.value, "value", None) is True
+                          for k in node.keywords)
+            if text_on and "encoding" not in kw:
+                offenders.append(f"{name}:{node.lineno}")
     assert not offenders, offenders
 
 
