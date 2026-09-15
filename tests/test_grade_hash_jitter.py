@@ -75,3 +75,49 @@ def test_energy_bias_is_untouched(monkeypatch):
     quiet = _eq_values(ps.film_look(1, "BLOCK 1", energy_bias=-0.4))
     loud = _eq_values(ps.film_look(1, "BLOCK 1", energy_bias=0.4))
     assert quiet != loud
+
+
+# --- Согласование яркости соседних планов (LUMA_MATCH, 16.09) -----------
+#
+# Замер на 40 кадрах опубликованного эпизода: рычаг упирается в потолок у
+# 26 кадров из 40 и оставляет скачок 36.4/255 при 45.1 без коррекции.
+# Профили дают выбор, дефолт при этом обязан остаться прежним байт-в-байт.
+
+def test_luma_match_default_is_byte_identical(monkeypatch):
+    """Дефолт — ровно те числа, что стояли в коде до появления флага."""
+    monkeypatch.delenv("LUMA_MATCH", raising=False)
+    assert ps.luma_match_params() == (0.035, 0.35)
+
+
+def test_luma_match_profiles_are_ordered_by_strength(monkeypatch):
+    """none < normal < strong < max по обоим параметрам — иначе имя профиля
+    врёт о том, что он делает."""
+    got = []
+    for name in ("none", "normal", "strong", "max"):
+        monkeypatch.setenv("LUMA_MATCH", name)
+        got.append(ps.luma_match_params())
+    assert [c for c, _ in got] == sorted(c for c, _ in got)
+    assert [g for _, g in got] == sorted(g for _, g in got)
+
+
+def test_luma_match_typo_falls_back_to_working_default(monkeypatch):
+    """Опечатка в .env НЕ должна выключать работающий слой.
+
+    mode() откатывается на "off", если он легален для флага. Поэтому
+    отключающее значение здесь называется "none": иначе опечатка молча
+    давала бы (0.0, 0.0) — состояние ХУЖЕ дефолта.
+    """
+    monkeypatch.setenv("LUMA_MATCH", "ОПЕЧАТКА")
+    assert ps.luma_match_params() == (0.035, 0.35)
+    monkeypatch.setenv("LUMA_MATCH", "off")      # тоже не имя профиля
+    assert ps.luma_match_params() == (0.035, 0.35)
+
+
+def test_luma_match_is_declared_as_a_string_mode():
+    """Флаг без списка значений молча считается булевым, value() отдаёт
+    "1"/"0", ни один профиль не совпадает — слой становится тихим no-op.
+    Ровно это и случилось при первой версии правки, поймано прогоном."""
+    import feature_flags
+    spec = feature_flags.FLAGS["LUMA_MATCH"]
+    assert not spec.is_boolean
+    assert set(spec.allowed) == {"none", "normal", "strong", "max"}
