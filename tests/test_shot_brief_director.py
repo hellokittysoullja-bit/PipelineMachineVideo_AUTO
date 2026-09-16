@@ -777,3 +777,50 @@ def test_world_rule_survives_switching_extras_off(monkeypatch):
     finally:
         monkeypatch.delenv("SHOT_BRIEF_EXTRA_RULES")
         importlib.reload(d)
+
+
+# --- ЧУЖОЙ МИР КАНАЛА НЕ ТОЛЬКО ФИЛЬТРУЕТ, НО И РУЛИТ -----------------------
+#
+# Самая опасная находка всей работы. Предохранитель по доле отказов
+# (test_foreign_profile_is_loud) ловит случай, когда чужой мир РЕЖЕТ
+# хорошие кадры. Но живой прогон психологического сценария в этом
+# репозитории показал другое: модель ПОСЛУШАЛАСЬ объявленного
+# средневекового мира и выдала «a knight in armor standing beside a closed
+# chest» и «a monk's hand touching a cracked mirror» — на текст про пустой
+# файл в ноутбуке. Отклонять было нечего, предохранитель промолчал.
+#
+# Автоматически отличить «модель послушалась чужого мира» от «модель
+# права» нечем: обе выдачи формально безупречны. Поэтому защита здесь не
+# автоматическая, а громкая — объявленный мир печатается в начале КАЖДОГО
+# прогона, и его можно выключить одной переменной.
+
+def test_declared_world_is_printed_loudly(capsys):
+    import script_parser
+    import shot_brief_director as d
+    blocks = script_parser.parse_blocks(
+        os.path.join(REPO, "videos", "02_ne-mechom", "script.txt"))[:3]
+
+    class Silent:
+        name = "silent"
+
+        def ask(self, prompt, chapter_no):
+            return ""
+
+    d.run(os.path.join(REPO, "videos", "02_ne-mechom"), blocks, Silent(),
+          cache_dir=None, verbose=True)
+    out = capsys.readouterr().out
+    assert "МИР КАДРА ЭТОГО КАНАЛА" in out
+    assert "SHOT_BRIEF_WORLD=off" in out
+
+
+def test_world_can_be_switched_off_for_a_foreign_episode(monkeypatch):
+    """Эпизод из чужой ниши в этом репозитории обязан иметь способ НЕ
+    получать средневековый мир."""
+    import shot_brief_director as d
+    assert d.domain_contract(), "у этого канала мир объявлен"
+    monkeypatch.setenv("SHOT_BRIEF_WORLD", "off")
+    assert d.domain_contract() == ""
+    prompt = d.render_prompt(_packet(["Ему стало нечем дышать."]))
+    assert "МИР КАДРА" not in prompt
+    for w in ("knight", "warrior", "armour"):
+        assert w not in prompt.lower()

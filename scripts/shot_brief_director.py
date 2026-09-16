@@ -142,6 +142,15 @@ def domain_contract():
     требование показывать рыцарей только потому, что репозиторий
     начинался как исторический.
     """
+    # Мир канала выключается для эпизода из ЧУЖОЙ ниши. Нужно потому, что
+    # он не только фильтрует, но и РУЛИТ: живой прогон психологического
+    # сценария в этом репозитории (профиль объявляет Средневековье) выдал
+    # «a knight in armor standing beside a closed chest» и «a monk's hand
+    # touching a cracked mirror» — на текст про пустой файл в ноутбуке.
+    # Модель послушалась объявленного мира, отклонять было нечего, и
+    # предохранитель по доле отказов промолчал.
+    if os.environ.get("SHOT_BRIEF_WORLD", "") == "off":
+        return ""
     try:
         import pipeline_smart
         d = pipeline_smart.CHANNEL_PROFILE.get("shot_domain") or {}
@@ -662,6 +671,15 @@ def _cache_key(packet, brain_name):
 def run(video_dir, blocks, brain, cache_dir=None, verbose=True,
         max_units=None, only_sections=None, use_vocabulary=False):
     """Пройти эпизод главами. Возвращает {индекс блока: заявка}."""
+    contract = domain_contract()
+    if verbose:
+        if contract:
+            print(f"  МИР КАДРА ЭТОГО КАНАЛА: {contract}")
+            print("  Если эпизод НЕ про этот мир — он будет диктовать кадры. "
+                  "Выключить: SHOT_BRIEF_WORLD=off")
+        else:
+            print("  Мир кадра не объявлен — доменных правил нет "
+                  "(channel_profile.json -> shot_domain)")
     out = {}
     for chapter_no, packet in enumerate(
             packets(video_dir, blocks, max_units=max_units,
