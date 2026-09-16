@@ -1034,3 +1034,74 @@ class TestInlineWriteIsTheDefault:
 
     def test_brain_defaults_to_local(self):
         assert self._parser_defaults().brain == "local"
+
+
+class TestChapterFitsInTheContextWindow:
+    """Молчаливая обрезка входа по лимиту модели в этом репозитории УЖЕ
+    случалась: SIGLIP2_MAX_TEXT_LENGTH=64 резала 25% фраз, и увидеть это
+    было негде, пока не измерили. У режиссёра тот же риск и он опаснее:
+    обрежется ХВОСТ главы, то есть последние фразы просто не дойдут до
+    модели, а ответ на них она всё равно обязана дать.
+
+    Замер 16.09 настоящим токенизатором Qwen3-4B на эпизоде 02: худшая
+    глава 3133 токена входа из 8192, ответ 364 из 900 — двукратный запас
+    по обеим осям. Тест сторожит не сам замер (для него нужна модель, а
+    её в CI нет), а то, ЧТО ЕГО ЛОМАЕТ: раздувшийся промпт.
+
+    Оценка сверху нарочно грубая и завышенная — символы делятся на 2, а
+    не на 3.5-4, как реально даёт токенизатор на смеси русского с
+    английским. Тест обязан падать РАНЬШЕ настоящей обрезки, а не после.
+    """
+
+    CHARS_PER_TOKEN = 2.0          # заведомо пессимистично
+    TOKENS_PER_ANSWER_LINE = 22    # замер: 364 токена на 16 строк + шапка
+
+    @property
+    def n_ctx(self):
+        """Читается ИЗ КОДА, а не держится константой рядом.
+
+        Первая версия теста писала 8192 литералом — и контрольный прогон
+        показал, что при n_ctx=2048 она остаётся ЗЕЛЁНОЙ, то есть не
+        сторожит ровно тот случай, ради которого написана. Тот же класс,
+        что этот файл уже дважды ловил на рассинхроне двух копий одного
+        значения."""
+        import inspect
+        import shot_brief_director as d
+        return inspect.signature(d.LocalBrain.__init__).parameters["n_ctx"].default
+
+    def _packets(self):
+        import script_parser
+        import shot_brief_director as d
+        path = os.path.join(REPO, "videos", "02_ne-mechom", "script.txt")
+        if not os.path.exists(path):
+            pytest.skip("эпизод 02 недоступен")
+        blocks = script_parser.parse_blocks(path)
+        return d, list(d.packets(os.path.join(REPO, "videos", "02_ne-mechom"),
+                                 blocks))
+
+    def test_prompt_plus_answer_leaves_room(self):
+        d, packets = self._packets()
+        assert packets, "пакеты глав не собрались — тест ослеп"
+        worst = []
+        for p in packets:
+            est = len(d.render_prompt(p)) / self.CHARS_PER_TOKEN
+            est += len(p["units"]) * self.TOKENS_PER_ANSWER_LINE
+            worst.append((est, p["section"]))
+        est, section = max(worst)
+        assert est < self.n_ctx, (
+            f"глава {section!r} по грубой оценке просит {est:.0f} токенов "
+            f"при n_ctx={self.n_ctx}. Хвост главы обрежется МОЛЧА: модель "
+            f"не увидит последние фразы, но ответ на них всё равно обязана "
+            f"дать. Поднять n_ctx у LocalBrain или резать главу на части.")
+
+    def test_answer_cap_covers_the_longest_chapter(self):
+        """Потолок генерации обязан покрывать САМУЮ длинную главу: обрыв
+        на потолке теряет последние заявки главы, и снаружи это
+        неотличимо от «модель про них промолчала»."""
+        import shot_brief_director as d
+        _, packets = self._packets()
+        longest = max(len(p["units"]) for p in packets)
+        need = longest * self.TOKENS_PER_ANSWER_LINE
+        assert d.LocalBrain.DEFAULT_MAX_TOKENS >= need, (
+            f"самая длинная глава — {longest} фраз (~{need} токенов ответа), "
+            f"а потолок {d.LocalBrain.DEFAULT_MAX_TOKENS}")
