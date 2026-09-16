@@ -765,7 +765,8 @@ def main(argv):
         return 2
     video_dir = argv[1]
     if not enabled():
-        print("SHOT_PLANNER_LLM выключен (дефолт) — плана не будет")
+        print("SHOT_PLANNER_LLM выключен (дефолт с 16.09 — 1, значит "
+              "выключено явной переменной окружения) — плана не будет")
         return 0
     if not runtime_ready():
         print("Нет LLAMA_CLI_BIN или LLAMA_MODEL_GGUF в окружении — "
