@@ -51,6 +51,7 @@ import time
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "scripts"))
 
+import feature_flags         # noqa: E402
 import script_parser        # noqa: E402
 import shot_planner_llm     # noqa: E402
 
@@ -652,7 +653,8 @@ class FileBrain:
 # --- ПРОГОН -----------------------------------------------------------------
 
 STATS = {"chapters": 0, "asked": 0, "cache_hits": 0, "rows": 0,
-         "rejected": 0, "empty_chapters": 0}
+         "rejected": 0, "empty_chapters": 0,
+         "critique_asked": 0, "critique_cache_hits": 0, "critique_rewrites": 0}
 REJECTED = []
 # Настроение по главам: аудит-трейл, а не решение. Сегодня оно только
 # пишется в план и печатается; кто им воспользуется (грейд, музыка, язык
@@ -660,12 +662,108 @@ REJECTED = []
 MOODS = {}
 
 
-def _cache_key(packet, brain_name):
+def _cache_key_text(text, brain_name):
+    """Общий ключ по СОДЕРЖИМОМУ запроса, а не по номеру версии — так
+    его используют оба вызова модели за главу (черновик и самопроверка),
+    и у них разный текст промпта, значит разный ключ без всякой ручной
+    метки. Второй копии этой функции для критики заводить незачем."""
     import hashlib
     h = hashlib.md5()
     h.update(f"p{PACKET_VERSION}\x00{brain_name}\x00".encode("utf-8"))
-    h.update(render_prompt(packet).encode("utf-8"))
+    h.update(text.encode("utf-8"))
     return h.hexdigest()[:16]
+
+
+def _cache_key(packet, brain_name):
+    return _cache_key_text(render_prompt(packet), brain_name)
+
+
+def render_critique_prompt(packet, draft_raw):
+    """Второй проход: та же глава, СВОЙ уже написанный черновик, проверка
+    двух КОНКРЕТНЫХ измеренных классов ошибок — не общее «сделай лучше»
+    (расплывчатая инструкция моделям этого размера ничего не чинит, тот
+    же урок, что уже записан про молчание модели: без позитивного сигнала
+    трогать заявку вредно).
+
+    Оба класса взяты не из головы, а из докстринга shot_brief_eval /
+    CLAUDE.md, как задокументированные остаточные промахи режиссёра главы:
+    1) местоимение/отсылка разрешена НЕ на реальный антецедент (юнит [13]
+       эпизода 02 — «он» стал случайным мужчиной, хотя это земля, названная
+       двумя фразами раньше);
+    2) кадр — грамматически чистый, но не про тот предмет («A warrior...
+       struck by a real battle sword» на «возьми настоящий боевой меч» —
+       меч должен быть В РУКЕ, а не бить воина).
+
+    SHOT_BRIEF_CRITIQUE=0/1, дефолт `0` — эффект НЕ измерен ни разу, это
+    второй звонок модели ценой ~того же времени, что первый (~35 с на
+    главу), и включать его без замера значило бы удвоить время эпизода
+    вслепую.
+    """
+    lines = [
+        "Ты только что описал кадры к этой же главе. Вот твой черновик "
+        "построчно:", "", draft_raw.strip(), "",
+        "Перепроверь ТОЛЬКО две вещи по каждой строке, глядя на фразы "
+        "главы ниже:",
+        "1) местоимение или отсылка («он», «это», «та сцена») разрешены "
+        "на РЕАЛЬНЫЙ предмет ИЗ ЭТИХ ФРАЗ, а не угаданы;",
+        "2) названный предмет — то, о чём физически говорит фраза, а не "
+        "грамматически похожая, но другая по смыслу картинка.",
+        "",
+        "Строка верна — повтори её БЕЗ ИЗМЕНЕНИЙ. Строка неверна — "
+        "перепиши ТОЛЬКО описание кадра, номер и тип оставь. Отвечай ТЕМ "
+        "ЖЕ ФОРМАТОМ (номер | тип | описание по-английски), ровно по "
+        "одной строке на фразу, без MOOD и без пояснений от себя.",
+        "", "ФРАЗЫ ГЛАВЫ:",
+    ]
+    for u in packet["units"]:
+        lines.append(f" {u['n']}. {u['text']}")
+    return "\n".join(lines)
+
+
+def merge_critique(draft_rows, critique_rows):
+    """Критика может ИСПРАВИТЬ существующую заявку и не может добавить
+    новую там, где черновик промолчал — молчание черновика уже прошло
+    свою собственную проверку (brief_is_safe у ПЕРВОГО прохода), и вторая
+    модель того же размера, отвечающая на юнит, которого не видела первой
+    попыткой, не более надёжна, чем сам первый проход на нём. Additive
+    только в одну сторону: заменить, никогда не породить с нуля."""
+    merged = dict(draft_rows)
+    for n, row in critique_rows.items():
+        if n in merged:
+            merged[n] = row
+    return merged
+
+
+def _ask_cached(brain, prompt_text, chapter_no, cache_dir, verbose, label,
+                 stat_asked, stat_hit):
+    """Один вызов мозга с диск-кэшем по содержимому промпта. Черновик и
+    критика зовут эту же функцию с РАЗНЫМ текстом — ключи расходятся сами,
+    второй копии кэш-логики заводить незачем (см. `_cache_key_text`)."""
+    key = _cache_key_text(prompt_text, brain.name)
+    path = os.path.join(cache_dir, key + ".txt") if cache_dir else None
+    if path and os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                raw = f.read()
+            STATS[stat_hit] += 1
+            return raw
+        except OSError:
+            pass
+    t0 = time.time()
+    raw = brain.ask(prompt_text, chapter_no)
+    STATS[stat_asked] += 1
+    if verbose:
+        print(f"  {label:<52}         {time.time() - t0:5.0f}с")
+    if path and raw:
+        try:
+            os.makedirs(cache_dir, exist_ok=True)
+            tmp = path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(raw)
+            os.replace(tmp, path)
+        except OSError:
+            pass
+    return raw
 
 
 def run(video_dir, blocks, brain, cache_dir=None, verbose=True,
@@ -680,6 +778,7 @@ def run(video_dir, blocks, brain, cache_dir=None, verbose=True,
         else:
             print("  Мир кадра не объявлен — доменных правил нет "
                   "(channel_profile.json -> shot_domain)")
+    critique_on = feature_flags.enabled("SHOT_BRIEF_CRITIQUE")
     out = {}
     for chapter_no, packet in enumerate(
             packets(video_dir, blocks, max_units=max_units,
@@ -687,35 +786,31 @@ def run(video_dir, blocks, brain, cache_dir=None, verbose=True,
         if only_sections and _section_key(packet["section"]) not in only_sections:
             continue
         STATS["chapters"] += 1
-        raw, key = None, _cache_key(packet, brain.name)
-        path = os.path.join(cache_dir, key + ".txt") if cache_dir else None
-        if path and os.path.exists(path):
-            try:
-                with open(path, encoding="utf-8") as f:
-                    raw = f.read()
-                STATS["cache_hits"] += 1
-            except OSError:
-                raw = None
-        if raw is None:
-            t0 = time.time()
-            raw = brain.ask(render_prompt(packet), chapter_no)
-            STATS["asked"] += 1
-            if verbose:
-                print(f"  {_clean(packet['section'])[:52]:<52} "
-                      f"{len(packet['units']):2d} фраз  {time.time() - t0:5.0f}с")
-            if path and raw:
-                try:
-                    os.makedirs(cache_dir, exist_ok=True)
-                    tmp = path + ".tmp"
-                    with open(tmp, "w", encoding="utf-8") as f:
-                        f.write(raw)
-                    os.replace(tmp, path)
-                except OSError:
-                    pass
+        label = _clean(packet["section"])[:52]
+        raw = _ask_cached(brain, render_prompt(packet), chapter_no,
+                          cache_dir, verbose, f"{label} ({len(packet['units'])} фраз)",
+                          "asked", "cache_hits")
         rows = parse_answer(raw, packet)
         mood = parse_mood(raw)
         if mood:
             MOODS[_clean(packet["section"])] = mood
+        # Самопроверка — ВТОРОЙ вызов ТОЙ ЖЕ модели по ЧЕРНОВИКУ, а не
+        # эвристика: единственный класс промахов, который она способна
+        # закрыть (неверно разрешённая отсылка, грамматически чистый, но
+        # не тот предмет), не ловится правилами формы (`brief_is_safe`).
+        # Выключено по умолчанию — эффект не измерен ни разу, см.
+        # докстринг render_critique_prompt.
+        if critique_on and rows:
+            crit_raw = _ask_cached(
+                brain, render_critique_prompt(packet, raw), chapter_no,
+                cache_dir, verbose, f"{label} (критика)",
+                "critique_asked", "critique_cache_hits")
+            crit_rows = parse_answer(crit_raw, packet)
+            merged = merge_critique(rows, crit_rows)
+            STATS["critique_rewrites"] += sum(
+                1 for n, r in merged.items()
+                if n in rows and r["shot_en"] != rows[n]["shot_en"])
+            rows = merged
         if not rows:
             STATS["empty_chapters"] += 1
         by_n = {u["n"]: u for u in packet["units"]}
@@ -983,6 +1078,10 @@ def main(argv):
           f"из кэша {STATS['cache_hits']}, заявок {STATS['rows']}, "
           f"отклонено проверкой {STATS['rejected']}, "
           f"глав без единого разбора {STATS['empty_chapters']}")
+    if feature_flags.enabled("SHOT_BRIEF_CRITIQUE"):
+        print(f"Критика: {STATS['critique_asked']} вопросов, "
+              f"{STATS['critique_cache_hits']} из кэша, "
+              f"переписано строк {STATS['critique_rewrites']}")
     print(f"План: {path}")
     return 0
 

@@ -1111,3 +1111,115 @@ class TestChapterFitsInTheContextWindow:
         assert d.LocalBrain.DEFAULT_MAX_TOKENS >= need, (
             f"самая длинная глава — {longest} фраз (~{need} токенов ответа), "
             f"а потолок {d.LocalBrain.DEFAULT_MAX_TOKENS}")
+
+
+# --- Самопроверка режиссёра (SHOT_BRIEF_CRITIQUE) ---------------------------
+#
+# Контроль: снятая правка (вернуть merge_critique к `return dict(draft_rows,
+# **critique_rows)` или удалить проверку `if critique_on and rows`) валит
+# test_merge_never_adds_a_unit_the_draft_skipped и
+# test_critique_off_by_default_means_one_call_per_chapter.
+
+class _FakeBrain:
+    """Считает вызовы и различает черновик от критики по тексту промпта —
+    так же, как это делает render_critique_prompt (маркер «Ты только что
+    описал»), а не по порядковому номеру вызова."""
+
+    def __init__(self, draft_text, critique_text=None):
+        self.name = "fake"
+        self.calls = []
+        self.draft_text = draft_text
+        self.critique_text = critique_text
+
+    def ask(self, prompt, chapter_no):
+        is_critique = "Ты только что описал" in prompt
+        self.calls.append(("critique" if is_critique else "draft", chapter_no))
+        if is_critique:
+            return self.critique_text if self.critique_text is not None else self.draft_text
+        return self.draft_text
+
+
+def _one_packet(monkeypatch, tmp_path):
+    import shutil
+    import script_parser
+    import shot_brief_director as d
+    _clean_channel(monkeypatch)
+    shutil.copy(os.path.join(FIXTURE, "script_psychology.txt"),
+                tmp_path / "script.txt")
+    blocks = script_parser.parse_blocks(str(tmp_path / "script.txt"))
+    packet = next(iter(d.packets(str(tmp_path), blocks)))
+    return d, blocks, packet
+
+
+def test_merge_never_adds_a_unit_the_draft_skipped():
+    """Критика ответила на юнит 3, которого не было в черновике — merge
+    его выбрасывает. Молчание черновика уже прошло свою проверку;
+    ответ второй попытки той же модели на нём не надёжнее первой."""
+    import shot_brief_director as d
+    draft = {1: {"shot_en": "a", "function": "object"},
+             2: {"shot_en": "b", "function": "object"}}
+    critique = {2: {"shot_en": "b-fixed", "function": "object"},
+                3: {"shot_en": "c-new", "function": "object"}}
+    merged = d.merge_critique(draft, critique)
+    assert set(merged) == {1, 2}, "критика добавила юнит, которого не было в черновике"
+    assert merged[2]["shot_en"] == "b-fixed"
+    assert merged[1]["shot_en"] == "a"
+
+
+def test_critique_prompt_carries_the_draft_and_the_phrases(monkeypatch, tmp_path):
+    d, _, packet = _one_packet(monkeypatch, tmp_path)
+    draft_raw = "1 | object | a closed door\n2 | scene | an empty room"
+    prompt = d.render_critique_prompt(packet, draft_raw)
+    assert draft_raw in prompt
+    assert packet["units"][0]["text"] in prompt
+    # Оба задокументированных класса промахов названы явно, не общим
+    # «сделай лучше» — расплывчатая инструкция моделям этого размера
+    # ничего не чинит (тот же урок, что уже записан про молчание модели).
+    assert "отсыл" in prompt.lower()
+    assert "предмет" in prompt.lower()
+
+
+def test_critique_cache_key_differs_from_draft(monkeypatch, tmp_path):
+    """Одна и та же функция ключа (`_cache_key_text`) на РАЗНОМ тексте —
+    черновик и критика не должны читать/писать один файл кэша."""
+    d, _, packet = _one_packet(monkeypatch, tmp_path)
+    draft_prompt = d.render_prompt(packet)
+    draft_raw = "1 | object | a closed door"
+    crit_prompt = d.render_critique_prompt(packet, draft_raw)
+    assert (d._cache_key_text(draft_prompt, "fake")
+            != d._cache_key_text(crit_prompt, "fake"))
+
+
+def test_critique_off_by_default_means_one_call_per_chapter(monkeypatch, tmp_path):
+    """Флаг не выставлен — второго вызова модели нет вообще, ноль лишней
+    цены для всех, кто ничего не менял в .env."""
+    monkeypatch.delenv("SHOT_BRIEF_CRITIQUE", raising=False)
+    d, blocks, _ = _one_packet(monkeypatch, tmp_path)
+    monkeypatch.setattr(d, "MOODS", {})
+    brain = _FakeBrain("1 | object | a closed door\n2 | scene | an empty room")
+    d.run(str(tmp_path), blocks, brain, cache_dir=None, verbose=False)
+    assert all(kind == "draft" for kind, _ in brain.calls), brain.calls
+
+
+def test_critique_on_rewrites_via_second_call(monkeypatch, tmp_path):
+    """Флаг включён — второй, отличимый по промпту вызов реально
+    происходит, и его ответ доходит до итоговой заявки."""
+    import shot_planner_llm
+    monkeypatch.setenv("SHOT_BRIEF_CRITIQUE", "1")
+    d, blocks, packet = _one_packet(monkeypatch, tmp_path)
+    monkeypatch.setattr(d, "MOODS", {})
+    first_unit_text = packet["units"][0]["text"]
+    n1 = packet["units"][0]["n"]
+    draft = f"{n1} | object | a generic wrong picture that is safe text"
+    fixed = f"{n1} | object | a specific correct picture that is safe text"
+    # brief_is_safe должна принимать обе — тест про перенос критики,
+    # не про сам гейт безопасности.
+    monkeypatch.setattr(shot_planner_llm, "brief_is_safe",
+                        lambda shot, text: (True, None))
+    brain = _FakeBrain(draft, critique_text=fixed)
+    found = d.run(str(tmp_path), blocks, brain, cache_dir=None, verbose=False,
+                  only_sections={d._section_key(packet["section"])})
+    assert any(k == "critique" for k, _ in brain.calls), (
+        "SHOT_BRIEF_CRITIQUE=1, а второго вызова не было")
+    block_index = packet["units"][0]["block_index"]
+    assert found[block_index]["shot_en"] == "a specific correct picture that is safe text"
