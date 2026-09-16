@@ -74,8 +74,14 @@ def build(data, out_path, per_page=4):
             dr.text((PAD, y), f"[{s['index']}] {s['text'][:110]}",
                     font=f_phrase, fill=(235, 235, 240))
             y += 26
+            # В режиме двух мозгов правая рука использует ТОТ ЖЕ бриф, что
+            # левая, и отличается только добавленным в пул запросом. Писать
+            # под ней чужой бриф было бы неправдой о том, чем нашли кадр.
+            right_key = ("second_brain_query"
+                         if (data.get("summary") or {}).get("mode") == "one_vs_two_brains"
+                         else "brief_local")
             for col, (arm, brief_key) in enumerate(
-                    (("claude_file", "brief_claude"), ("local_file", "brief_local"))):
+                    (("claude_file", "brief_claude"), ("local_file", right_key))):
                 x = PAD + col * (CELL_W + PAD)
                 try:
                     with Image.open(s[arm]) as im:

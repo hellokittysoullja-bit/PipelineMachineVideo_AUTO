@@ -38,6 +38,29 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "scripts"))
 
 
+def _file_digest(path):
+    import hashlib
+    try:
+        with open(path, "rb") as f:
+            return hashlib.md5(f.read()).hexdigest()
+    except OSError:
+        return None
+
+
+def _content_differs(a, b):
+    """Разный ли КАДР, а не разное ли имя файла.
+
+    Имя несёт ключ кэша кандидата, в который входит состав запросов слота,
+    поэтому у двух рук оно расходится и тогда, когда победил один и тот же
+    снимок. Не прочиталось — честное False: «не смогли сравнить» это не
+    «сменилось».
+    """
+    if not (a and b):
+        return False
+    da, db = _file_digest(a), _file_digest(b)
+    return bool(da and db and da != db)
+
+
 def local_briefs(path):
     """Брифы локальной модели из замороженного прогона замера."""
     with open(path, encoding="utf-8") as f:
@@ -148,9 +171,14 @@ def main(argv):
                 row[arm + "_error"] = f"{type(e).__name__}: {e}"
             row[arm + "_file"] = got
             print(f"  [{i:3d}] {arm:<6} -> {os.path.basename(got) if got else 'НЕТ'}")
-        row["frame_changed"] = bool(
-            row.get("claude_file") and row.get("local_file")
-            and row["claude_file"] != row["local_file"])
+        # СОДЕРЖИМОЕ, а не имя файла. Реальный дефект этого замера,
+        # найденный глазами на контактном листе: в режиме двух мозгов ключ
+        # кэша кандидата включает `extra_queries`, поэтому ИМЯ различается
+        # всегда — и сравнение по имени дало «сменилось 12 из 12» при
+        # девяти побайтово одинаковых картинках. Число выглядело победой и
+        # измеряло не то.
+        row["frame_changed"] = _content_differs(row.get("claude_file"),
+                                                row.get("local_file"))
         results.append(row)
 
     changed = sum(1 for r in results if r["frame_changed"])
