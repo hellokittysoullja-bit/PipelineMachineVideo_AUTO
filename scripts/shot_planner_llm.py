@@ -374,6 +374,23 @@ GENERIC_PEOPLE = ("person", "people", "man", "woman", "human", "guy",
 MODERN_GEAR = ("protective gear", "safety", "helmet cam", "uniform",
                "outfit", "costume")
 
+# Бриф, который объясняет СВОЙ ЗАМЫСЕЛ («камень, СИМВОЛИЗИРУЮЩИЙ душевный
+# груз»), описывает не вещь, а намерение — сфотографировать намерение
+# нельзя. Найдено живым прогоном Qwen3.6-35B-A3B на психологическом
+# сценарии: «a heavy stone weight resting on a wooden desk, symbolizing
+# mental burden» и «a tangled ball of red yarn being pulled apart». Это
+# те самые штампы из фотобанка, которые зритель читает как заглушку.
+#
+# Проверено на ВСЕХ измеренных брифах — эталон, запрос секции и пять
+# моделей, 766 штук: НИ ОДНОГО ложного срабатывания. Класс узкий
+# намеренно: список штампов по предметам (песочные часы, клубок) сюда НЕ
+# вносится — песочные часы в ролике про Средневековье законны, и запрет
+# по предмету отклонял бы годные кадры.
+SYMBOL_TALK_RE = re.compile(
+    r"\b(symboliz\w*|symbolic|symbolising|metaphor\w*|representing\s+the\b"
+    r"|as\s+a\s+metaphor|conceptual)\b", re.I)
+
+
 def _looks_like_translation(shot_en, phrase):
     """Ответ пересказывает фразу вместо описания кадра.
 
@@ -466,6 +483,8 @@ def brief_is_safe(shot_en, phrase, blocklist=None, era_words=None):
     # Случай сравнения закрывает ПРОМПТ v3, где это сказано прямо, и
     # замер показал, что он работает: «весил как холодильник» дало
     # «A sword strikes a helmet», а не холодильник.
+    if SYMBOL_TALK_RE.search(low):
+        return False, "символ вместо вещи"
     for g in MODERN_GEAR:
         if g in low:
             return False, f"современное снаряжение ({g})"

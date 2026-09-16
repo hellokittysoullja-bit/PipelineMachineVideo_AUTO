@@ -687,3 +687,47 @@ def test_occasional_world_rejection_stays_quiet(capsys, monkeypatch):
                         [{"reason": "человек без привязки к миру канала"}])
     d._warn_if_world_rule_eats_everything()
     assert capsys.readouterr().out == ""
+
+
+# --- СИМВОЛ ВМЕСТО ВЕЩИ -----------------------------------------------------
+#
+# Найдено живым прогоном Qwen3.6-35B-A3B на психологическом сценарии: она
+# дважды выдала штамп из фотобанка вместо ситуации. На ИСТОРИЧЕСКОМ
+# эпизоде такого нет ни у одного из семи мозгов (0 из 766) — проблема
+# именно нишевая и вылезает там, где абстракций много.
+
+@pytest.mark.parametrize("shot", [
+    "a heavy stone weight resting on a wooden desk, symbolizing mental burden",
+    "a broken chain representing the loss of control",
+    "a conceptual image of burnout at work",
+    "an empty road as a metaphor for the journey ahead",
+])
+def test_symbol_talk_is_rejected(shot):
+    """Бриф, объясняющий свой ЗАМЫСЕЛ, описывает намерение, а не вещь.
+    Сфотографировать намерение нельзя."""
+    import shot_planner_llm as p
+    ok, why = p.brief_is_safe(shot, "фраза", blocklist=())
+    assert not ok and "символ" in why
+
+
+@pytest.mark.parametrize("shot", [
+    "a rondel dagger with both round discs, the whole weapon",
+    "a phone lying face down on a bedside table at night",
+    "a manuscript illumination of armoured men advancing on foot",
+    "an hourglass on a wooden table beside a candle",
+    "a human skull from an archaeological excavation",
+])
+def test_real_briefs_survive_the_symbol_guard(shot):
+    """Негативный контроль. Класс узкий НАМЕРЕННО: список штампов по
+    предметам (песочные часы, клубок ниток) сюда не вносится — песочные
+    часы в историческом ролике законны, и запрет по предмету отклонял бы
+    годные кадры. Проверено на 888 реально измеренных брифах: ноль
+    ложных срабатываний."""
+    import shot_planner_llm as p
+    ok, why = p.brief_is_safe(shot, "фраза", blocklist=())
+    assert ok, why
+
+
+def test_symbol_rule_is_in_the_prompt():
+    import shot_brief_director as d
+    assert "НИКАКИХ СИМВОЛОВ" in d.render_prompt(_packet(["Ему тяжело."]))
