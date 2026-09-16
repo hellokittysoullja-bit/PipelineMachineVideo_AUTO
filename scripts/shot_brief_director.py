@@ -57,7 +57,7 @@ import shot_planner_llm     # noqa: E402
 # Версия ПАКЕТА и разбора. Входит в ключ кэша главы: переписанный пакет
 # обязан считаться заново, иначе план молча останется от прошлой
 # формулировки — тот же класс, что уже закрыт у кэша вердиктов арбитра.
-PACKET_VERSION = 5
+PACKET_VERSION = 6
 
 PLAN_NAME = shot_planner_llm.PLAN_NAME
 CACHE_DIR_NAME = "shot_brief_cache"
