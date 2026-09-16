@@ -365,10 +365,15 @@ MEDIEVAL_WORDS = ("medieval", "knight", "warrior", "armour", "armor",
 def test_other_niche_briefs_pass_when_channel_declares_no_world(shot, monkeypatch):
     """Канал без объявленного мира кадра не должен получать чужой.
 
-    Со средневековым словарём, зашитым в код до 15.09, три из этих шести
-    законных психологических брифов отклонялись правилом «человек без
-    привязки к эпохе» — то есть система запрещала показывать человека
+    Со средневековым словарём, зашитым в код до 15.09, ЧЕТЫРЕ из этих
+    шести законных психологических брифов отклонялись правилом «человек
+    без привязки к эпохе» — то есть система запрещала показывать человека
     каналу, у которого человек и есть предмет разговора.
+
+    Было «три», стало «четыре» 16.09, и это не переписанное задним числом
+    число: совпадение стало считаться по ГРАНИЦЕ СЛОВА вместо пробелов с
+    обеих сторон, и `a person's hands` перестал прятаться за апострофом.
+    То есть чужой мир кусался ещё сильнее, чем показывал прежний замер.
     """
     import pipeline_smart as ps
     import shot_planner_llm as p
@@ -384,7 +389,10 @@ def test_the_old_hardcoded_list_really_did_reject_them():
     rejected = [s for s in PSYCH_BRIEFS
                 if not p.brief_is_safe(s, "ф", blocklist=(),
                                        era_words=MEDIEVAL_WORDS)[0]]
-    assert len(rejected) == 3, rejected
+    assert len(rejected) == 4, rejected
+    # Поимённо, а не числом: иначе «четыре» удержится и в случае, когда
+    # отклоняются совсем другие четыре брифа.
+    assert "a person's hands clenched on a kitchen table" in rejected
 
 
 def test_this_channel_keeps_its_world(monkeypatch):

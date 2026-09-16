@@ -139,8 +139,36 @@ def _clean_stream(text):
 # «Человек вообще» приведёт современного человека в футболке. Историческому
 # ролику нужен носитель эпохи. Список — из реальных промахов замера v2
 # («a person standing up», «a person wearing full-body protective gear»).
+#
+# `soldier`/`soldiers`/`troops` добавлены 16.09 по ЖИВОМУ прогону, а не по догадке:
+# первый же бесфлаговый запуск локальной модели выдал «a muddy trench with
+# soldiers walking slowly», и заявка прошла — `soldier` не якорь эпохи и не
+# был «человеком вообще», то есть правило про привязку к эпохе не
+# срабатывало вовсе, а слово «trench» тянет Первую мировую. Это тот же
+# класс, что и «a man», просто другое слово.
+#
+# Негативный контроль обязателен и пройден на 142 брифах эталона эпизода
+# 02: `soldiers` встречается у ПЯТИ, и все пять несут якорь `manuscript`
+# («a manuscript illumination of soldiers killing fallen knights») — то
+# есть ложных отказов ровно НОЛЬ. `fighter`/`fighters` НЕ внесены: в
+# корпусе их нет ни разу, а слово, которое сегодня не отсекает ничего,
+# завтра отсечёт неизвестно что (то же правило, что закрыло `honduras`).
+#
+# `men`/`women`/`humans` ПРОВЕРЕНЫ И НЕ ВНЕСЕНЫ: переменные мерились по
+# одной за раз, и именно эта даёт ложный отказ законному брифу автора
+# «a long pole weapon held upright among many men» — предмет назван, эпоха
+# держится на нём, а не на человеке. Границу слова и `soldier(s)`/`troops`
+# по отдельности эталон переживает без единого отказа (0 из 142).
 GENERIC_PEOPLE = ("person", "people", "man", "woman", "human", "guy",
-                  "someone", "individual")
+                  "someone", "individual", "soldier", "soldiers", "troops")
+
+# Совпадение по ГРАНИЦЕ СЛОВА, а не по пробелам с обеих сторон. Прежняя
+# форма `f" {g} " in f" {low} "` пропускала слово, к которому прилипла
+# пунктуация: «two rows of soldiers: one marching» и «a man, standing» не
+# совпадали ни с чем. Найдено живым прогоном, проверено на эталоне: ноль
+# ложных отказов из 142.
+GENERIC_PEOPLE_RE = re.compile(
+    r"\b(" + "|".join(GENERIC_PEOPLE) + r")\b", re.IGNORECASE)
 
 # Слова, которые в стоке означают СОВРЕМЕННОЕ снаряжение. «protective gear»
 # — реальный промах замера: приводит защитный костюм, а не доспех.
@@ -292,7 +320,7 @@ def brief_is_safe(shot_en, phrase, blocklist=None, era_words=None):
     # Канал не объявил свой мир — правило не применяется вовсе.
     if anchors:
         has_anchor = any(e in low for e in anchors)
-        if not has_anchor and any(f" {g} " in f" {low} " for g in GENERIC_PEOPLE):
+        if not has_anchor and GENERIC_PEOPLE_RE.search(low):
             return False, "человек без привязки к миру канала"
     return True, None
 

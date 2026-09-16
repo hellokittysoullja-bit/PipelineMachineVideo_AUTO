@@ -225,3 +225,77 @@ class TestWiredIntoTheRender:
         assert sp.load_plan(str(tmp_path)) == {}
         assert sp.fill_briefs(blocks, sp.load_plan(str(tmp_path))) == 0
         assert blocks == before
+
+
+class TestGenericPeopleGapFoundByLiveRun:
+    """Дыра найдена ПЕРВЫМ бесфлаговым прогоном локальной модели (16.09),
+    а не чтением кода: заявка «a muddy trench with soldiers walking slowly»
+    прошла проверку целиком. `soldier` не был ни якорем эпохи, ни
+    «человеком вообще» — правило про привязку к миру канала не
+    срабатывало вовсе, а слово «trench» тянет Первую мировую.
+
+    Каждая переменная мерилась ОТДЕЛЬНО на 142 брифах эталона эпизода 02:
+    граница слова — 0 ложных отказов, `soldier(s)`/`troops` — 0,
+    `men`/`women`/`humans` — 1, поэтому третья не внесена.
+    """
+
+    def test_soldiers_without_era_anchor_is_refused(self):
+        ok, why = sp.brief_is_safe(
+            "a muddy trench with soldiers walking slowly, backs bent", "x")
+        assert not ok and "привязки" in why
+
+    def test_punctuation_no_longer_hides_the_word(self):
+        """Прежнее совпадение требовало пробелов с ОБЕИХ сторон, поэтому
+        слово с прилипшей пунктуацией не совпадало ни с чем."""
+        for brief in ("two rows of soldiers: one marching forward",
+                      "a man, standing alone in a field",
+                      "people, seen from behind"):
+            ok, _ = sp.brief_is_safe(brief, "x")
+            assert not ok, brief
+
+    def test_same_word_with_an_anchor_still_passes(self):
+        """Правило про ЧЕЛОВЕКА БЕЗ ЭПОХИ, а не про слово «soldier»: все
+        пять брифов эталона с этим словом несут якорь и обязаны проходить."""
+        for brief in (
+                "a manuscript illumination of soldiers killing fallen knights",
+                "a manuscript illumination of a column of soldiers pressed together",
+                "a soldier kneeling in mud, soil clinging to his armour"):
+            ok, why = sp.brief_is_safe(brief, "x")
+            assert ok, (brief, why)
+
+    def test_men_deliberately_not_included(self):
+        """Защита от тихой регрессии решения: `men` дал бы ложный отказ
+        законному брифу автора, где эпоху держит предмет, а не человек."""
+        assert "men" not in sp.GENERIC_PEOPLE
+        ok, why = sp.brief_is_safe(
+            "a long pole weapon held upright among many men", "x")
+        assert ok, why
+
+    # Единственный бриф эталона, который проверка отклоняет, — и он
+    # отклоняется НЕ этим правилом, а блоклистом канала. Слово `parade`
+    # внесено 07.09 против костюмированных фестивалей (все 13 живых
+    # кандидатов Pexels по нему были ими), и оно совпадает внутри
+    # настоящего музейного термина `parade armour`. Тот же класс, что уже
+    # записан про `fencing`: слово блоклиста внутри законного термина.
+    # Держится ПОИМЁННО, а не общим «отказов ноль»: исчезнет отсюда —
+    # значит блоклист или правило изменились, и это надо заметить.
+    KNOWN_BLOCKLIST_COLLISION = "a richly etched and gilded parade armour, whole figure"
+
+    def test_reference_has_no_rejects_beyond_the_known_collision(self):
+        """Негативный контроль ЦЕЛИКОМ, а не на выбранных примерах.
+
+        Первая версия этого теста требовала ровно ноль отказов и упала —
+        тем и полезна: она нашла пре-существующий отказ, о котором я не
+        знал, и он оказался не от правила про человека, а от блоклиста."""
+        import script_parser
+        path = os.path.join(REPO_ROOT, "videos", "02_ne-mechom", "script.txt")
+        if not os.path.exists(path):
+            pytest.skip("эпизод 02 недоступен")
+        refs = [b.get("shot_brief")
+                for b in script_parser.parse_blocks(path)]
+        bad = {r: sp.brief_is_safe(r, "x")[1]
+               for r in refs if r and not sp.brief_is_safe(r, "x")[0]}
+        assert set(bad) == {self.KNOWN_BLOCKLIST_COLLISION}, bad
+        # И причина именно блоклистовая: если этот бриф однажды начнёт
+        # падать по «человеку без эпохи», тест обязан это показать.
+        assert "блоклист" in bad[self.KNOWN_BLOCKLIST_COLLISION]
