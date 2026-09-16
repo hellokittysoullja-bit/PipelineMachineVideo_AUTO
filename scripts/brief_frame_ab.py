@@ -45,14 +45,20 @@ def local_briefs(path):
     return {int(k): v["shot_en"] for k, v in rows.items() if v.get("shot_en")}
 
 
-def pick_slots(blocks, local, limit, stride):
+def pick_slots(blocks, local, limit, stride, briefs=None):
     """Слоты, где брифы РЕАЛЬНО различаются. Берём с шагом по эпизоду, а
     не первые подряд: первые главы — это хук, у него свой характер, и
-    выборка из одного хука не описывала бы эпизод."""
+    выборка из одного хука не описывала бы эпизод.
+
+    `briefs` подменяет первую руку: по умолчанию ею служит бриф автора
+    из `script.txt`, а в режиме двух мозгов — бриф ПЕРВОЙ модели, потому
+    что сравниваются не авторы, а размер пула.
+    """
     import shot_brief_director as d
     out = []
     for i, b in enumerate(blocks):
-        mine = d._clean(b.get("shot_brief"))
+        mine = d._clean(briefs.get(i) if briefs is not None
+                        else b.get("shot_brief"))
         theirs = d._clean(local.get(i))
         if not mine or not theirs or mine.lower() == theirs.lower():
             continue
@@ -65,6 +71,10 @@ def main(argv):
     ap.add_argument("video_dir")
     ap.add_argument("--local-run", required=True,
                     help="JSON замера локальной модели (docs/quality/...)")
+    ap.add_argument("--second-run", default=None,
+                    help="JSON ВТОРОГО мозга. Включает режим «один мозг "
+                         "против двух»: рука A — бриф первого как сегодня, "
+                         "рука B — он же ПЛЮС запрос второго в пуле слота.")
     ap.add_argument("--limit", type=int, default=12,
                     help="сколько слотов сравнить (квота Pexels 200/час)")
     ap.add_argument("--stride", type=int, default=3)
@@ -75,9 +85,20 @@ def main(argv):
     import pipeline_smart as ps
 
     blocks = script_parser.parse_blocks(os.path.join(a.video_dir, "script.txt"))
-    local = local_briefs(a.local_run)
-    slots = pick_slots(blocks, local, a.limit, a.stride)
-    print(f"слотов с РАЗНЫМИ брифами взято: {len(slots)}\n")
+    two_brains = bool(a.second_run)
+    if two_brains:
+        # В режиме двух мозгов сравниваются не «чей бриф лучше», а «один
+        # запрос в пуле против двух». Поэтому первый мозг ОДИН И ТОТ ЖЕ у
+        # обеих рук, а слоты берутся там, где ВТОРОЙ реально говорит другое.
+        local = local_briefs(a.local_run)
+        second = local_briefs(a.second_run)
+        primary = {i: local.get(i) for i in set(local) | set(second)}
+        slots = pick_slots(blocks, second, a.limit, a.stride, briefs=primary)
+    else:
+        local = local_briefs(a.local_run)
+        slots = pick_slots(blocks, local, a.limit, a.stride)
+    print(f"слотов с РАЗНЫМИ брифами взято: {len(slots)}"
+          f"{' (режим: один мозг против двух)' if two_brains else ''}\n")
 
     # Ровно то же, что делает main(): авторские запросы из
     # `=== PEXELS QUERIES ===` кормят и resolve_queries, и пул секции.
@@ -98,15 +119,29 @@ def main(argv):
     results = []
     for i, mine, theirs in slots:
         b = blocks[i]
+        section_pool = pool.get(b.get("section"))
         row = {"index": i, "text": b.get("text", "")[:160],
                "section": b.get("section"), "query": queries[i],
                "brief_claude": mine, "brief_local": theirs}
-        for arm, brief in (("claude", mine), ("local", theirs)):
+        if two_brains:
+            # Второй мозг входит в пул ЗАПРОСОМ, через уже существующий
+            # `extra_queries`, а не новой веткой в пути отбора: пул слота
+            # с самого начала собирается из нескольких запросов, и его
+            # ключ кэша их уже учитывает. Честный предел назван здесь же:
+            # в ПОЛКУ (`shelf_question`) уходит только первый бриф —
+            # там параметр один, и второе описание её не спрашивает.
+            second_q = ps.brief_to_stock_query(theirs, fallback=None)
+            row["second_brain_query"] = second_q
+            extra_b = ([second_q] if second_q else []) + list(section_pool or [])
+            arms = (("claude", mine, section_pool), ("local", mine, extra_b))
+        else:
+            arms = (("claude", mine, section_pool), ("local", theirs, section_pool))
+        for arm, brief, extra in arms:
             ids, hashes = state[arm]
             try:
                 got = ps.pexels_photo(
                     queries[i], i, used_ids=ids, used_hashes=hashes,
-                    extra_queries=pool.get(b.get("section")),
+                    extra_queries=extra,
                     shot_brief=brief, block_text=b.get("text"))
             except Exception as e:
                 got = None
@@ -122,7 +157,13 @@ def main(argv):
     both = sum(1 for r in results if r.get("claude_file") and r.get("local_file"))
     summary = {"slots_compared": len(results), "both_arms_got_a_frame": both,
                "frame_changed": changed,
-               "frame_changed_share": round(changed / both, 3) if both else None}
+               "frame_changed_share": round(changed / both, 3) if both else None,
+               # Режим пишется в сам отчёт: подписи контактного листа берутся
+               # отсюда, а не помнятся — «слева Claude» на листе, собранном
+               # из прогона двух мозгов, было бы прямой неправдой о кадре.
+               "mode": "one_vs_two_brains" if two_brains else "claude_vs_local",
+               "arm_labels": (["один мозг", "два мозга (второй запрос в пуле)"]
+                              if two_brains else ["бриф Claude", "бриф локальной модели"])}
     print("\n" + json.dumps(summary, ensure_ascii=False, indent=2))
     with open(a.out, "w", encoding="utf-8") as f:
         json.dump({"summary": summary, "slots": results}, f,

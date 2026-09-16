@@ -62,7 +62,12 @@ def build(data, out_path, per_page=4):
         H = ROW_H * len(chunk) + PAD * 2 + 40
         sheet = Image.new("RGB", (W, H), (16, 16, 18))
         dr = ImageDraw.Draw(sheet)
-        dr.text((PAD, PAD), "СЛЕВА — бриф Claude       СПРАВА — бриф локальной модели",
+        # Подписи рук берутся ИЗ ОТЧЁТА, а не зашиты: тот же файл собирается
+        # и для сравнения двух мозгов, и «слева Claude» там было бы неправдой
+        # о том, что на плитке.
+        labels = (data.get("summary") or {}).get(
+            "arm_labels") or ["бриф Claude", "бриф локальной модели"]
+        dr.text((PAD, PAD), f"СЛЕВА — {labels[0]}       СПРАВА — {labels[1]}",
                 font=f_head, fill=(255, 220, 120))
         y = PAD + 40
         for s in chunk:
