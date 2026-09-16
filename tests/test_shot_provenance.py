@@ -205,6 +205,16 @@ class TestAgainstTheRealEpisode:
         contrib = json.load(open(os.path.join(mp, "source_contribution.json"),
                                  encoding="utf-8"))["sources"]
         won = {k: v["won"] for k, v in contrib.items() if v["won"]}
+        # Докстринг выше это уже предупреждал, а гварда не было: правка,
+        # не трогающая отбор (например пересчёт уровней SFX), запускает
+        # рендер с прогретым temp_smart/ — клипы берутся из кэша, ни один
+        # кандидат не побеждает заново, и `won` честно пуст. shotlist.json
+        # при этом хранит провенанс ПРЕДЫДУЩЕГО прогона, где отбор реально
+        # шёл. Сравнивать пустой счётчик с непустым провенансом — ровно та
+        # заведомо ложная проверка, от которой докстринг предостерегал.
+        if not won:
+            pytest.skip("прогон был по прогретому кэшу (won пуст) — "
+                        "сравнение не имеет смысла, см. докстринг метода")
         by_provider = {}
         for s in shots:
             f = ps.shotlist_resolve_file(s.get("file"), vd)
