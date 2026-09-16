@@ -677,7 +677,37 @@ def run(video_dir, blocks, brain, cache_dir=None, verbose=True,
                 continue
             out[unit["block_index"]] = dict(got, text=unit["text"])
             STATS["rows"] += 1
+    _warn_if_world_rule_eats_everything()
     return out
+
+
+# Доля отклонений правилом мира канала, после которой это перестаёт быть
+# нормой и становится подозрением на чужой профиль.
+FOREIGN_PROFILE_SHARE = 0.25
+
+
+def _warn_if_world_rule_eats_everything():
+    """Сказать ГРОМКО, если мир канала отклоняет слишком много заявок.
+
+    Измерено живым прогоном: психологический сценарий, прогнанный в
+    репозитории с объявленным СРЕДНЕВЕКОВЫМ миром, потерял четыре
+    заявки из двенадцати — и все четыре были правильными кадрами («a
+    person slumped over a desk, head in hands», «a human hand recoiling
+    sharply from a hot stove burner»). Отказ при этом молчит: заявки
+    просто не появляются, и снаружи это неотличимо от «модель не
+    справилась».
+
+    ЧАСТЬ 24 CLAUDE.md предупреждает не копировать чужой
+    channel_profile.json, но предупреждение в документе не срабатывает в
+    момент ошибки. Эта строка — срабатывает.
+    """
+    world = sum(1 for r in REJECTED if "мир" in (r.get("reason") or ""))
+    total = STATS["rows"] + STATS["rejected"]
+    if total and world / total >= FOREIGN_PROFILE_SHARE:
+        print(f"  ВНИМАНИЕ: правило мира канала отклонило {world} заявок из "
+              f"{total}. Если канал не про этот мир — в channel_profile.json "
+              f"остался shot_domain от другого канала (ЧАСТЬ 24). Убрать "
+              f"ключ или заменить своим.")
 
 
 def write_plan(video_dir, blocks, found, brain_name):

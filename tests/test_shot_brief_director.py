@@ -659,3 +659,31 @@ def test_hardening_changes_nothing_on_real_measured_runs():
     got = d.parse_answer(real, _packet(["а", "б", "в"]))
     assert set(got) == {1, 2}
     assert d.parse_mood(real)["tone"] == -1.0
+
+
+def test_foreign_profile_is_loud(capsys, monkeypatch):
+    """Чужой мир канала обязан СКАЗАТЬ о себе, а не молча съесть кадры.
+
+    Измерено живым прогоном: психологический сценарий в репозитории с
+    объявленным средневековым миром потерял четыре заявки из двенадцати,
+    и все четыре были правильными кадрами («a person slumped over a desk,
+    head in hands», «a human hand recoiling sharply from a hot stove
+    burner»). Заявки просто не появлялись — снаружи неотличимо от «модель
+    не справилась».
+    """
+    import shot_brief_director as d
+    monkeypatch.setattr(d, "STATS", dict(d.STATS, rows=8, rejected=4))
+    monkeypatch.setattr(d, "REJECTED",
+                        [{"reason": "человек без привязки к миру канала"}] * 4)
+    d._warn_if_world_rule_eats_everything()
+    assert "ВНИМАНИЕ" in capsys.readouterr().out
+
+
+def test_occasional_world_rejection_stays_quiet(capsys, monkeypatch):
+    """Одиночный отказ — норма работы гварда, а не повод кричать."""
+    import shot_brief_director as d
+    monkeypatch.setattr(d, "STATS", dict(d.STATS, rows=100, rejected=1))
+    monkeypatch.setattr(d, "REJECTED",
+                        [{"reason": "человек без привязки к миру канала"}])
+    d._warn_if_world_rule_eats_everything()
+    assert capsys.readouterr().out == ""
