@@ -553,3 +553,63 @@ def test_marking_sheet_has_no_positional_bias():
     # ни одна система не должна стоять первой чаще, чем в половине случаев
     assert max(first.values()) < len(list(first.elements())) * 0.5, first
     assert len(first) == 5, "не все позиции встречаются первыми"
+
+
+def test_marking_round_trip(tmp_path):
+    """Лист -> разметка -> вердикт. Круг обязан сходиться.
+
+    Проверяется на ЗАРАНЕЕ ИЗВЕСТНОМ ответе: во всех юнитах отмечается
+    буква, под которой стоит система «победитель», и счёт обязан отдать
+    ей все голоса. Без этого скорер мог бы молча сдвинуть расшифровку на
+    одну позицию — а буква у каждого юнита своя, и такую ошибку по
+    итоговой таблице не увидеть.
+    """
+    import json
+    import brief_marking_sheet as ms
+    import brief_marking_score as sc
+
+    names = ["победитель", "второй", "третий"]
+    units, lines = [], []
+    for n, text in enumerate(["Первая фраза.", "Вторая фраза тут.",
+                              "Третья фраза здесь.", "Четвёртая фраза."], 1):
+        order = ms._order(text, len(names))
+        mapping = {ms.LETTERS[pos]: names[ai] for pos, ai in enumerate(order)}
+        units.append({"unit": n, "phrase": text, "map": mapping})
+        letter = next(l for l, nm in mapping.items() if nm == "победитель")
+        lines += [f"### {n}. SECTION", "", f"> {text}", "",
+                  f"лучший: {letter}    почему: ____", ""]
+
+    sheet = tmp_path / "s.md"
+    sheet.write_text("\n".join(lines), encoding="utf-8")
+    key = tmp_path / "k.json"
+    key.write_text(json.dumps({"arms": names, "units": units}),
+                   encoding="utf-8")
+
+    marks = sc.read_sheet(str(sheet))
+    assert len(marks) == 4
+    decoded = [units[i - 1]["map"][marks[i][0]] for i in sorted(marks)]
+    assert decoded == ["победитель"] * 4
+    # буквы обязаны быть РАЗНЫМИ хотя бы у части юнитов, иначе тест
+    # проходил бы и при фиксированном порядке
+    assert len({marks[i][0] for i in marks}) > 1
+
+
+def test_marking_reads_none_and_ties():
+    """«нет» не приписывается никому, а несколько букв — это несколько
+    голосов, а не ошибка разбора."""
+    import brief_marking_score as sc
+    import tempfile
+    import os as _os
+    body = ("### 1. S\n\n> ф\n\nлучший: нет    почему: ____\n\n"
+            "### 2. S\n\n> ф\n\nлучший: А, В    почему: ____\n\n"
+            "### 3. S\n\n> ф\n\nлучший: ____    почему: ____\n")
+    fd, path = tempfile.mkstemp(suffix=".md")
+    with _os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(body)
+    try:
+        marks = sc.read_sheet(path)
+    finally:
+        _os.remove(path)
+    assert marks[1] is None
+    assert marks[2] == ["А", "В"]
+    assert 3 not in marks
