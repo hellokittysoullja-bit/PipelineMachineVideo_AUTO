@@ -230,55 +230,67 @@ class TestWiredIntoTheRender:
 class TestGenericPeopleGapFoundByLiveRun:
     """Дыра найдена ПЕРВЫМ бесфлаговым прогоном локальной модели (16.09),
     а не чтением кода: заявка «a muddy trench with soldiers walking slowly»
-    прошла проверку целиком. `soldier` не был ни якорем эпохи, ни
-    «человеком вообще» — правило про привязку к миру канала не
-    срабатывало вовсе, а слово «trench» тянет Первую мировую.
+    прошла проверку целиком.
 
-    Каждая переменная мерилась ОТДЕЛЬНО на 142 брифах эталона эпизода 02:
-    граница слова — 0 ложных отказов, `soldier(s)`/`troops` — 0,
-    `men`/`women`/`humans` — 1, поэтому третья не внесена.
+    Из двух напрашивавшихся правок внесена ОДНА — та, которая ничего не
+    стоит по метрике. Вторая (`soldier`/`troops` в списке «человек
+    вообще») построена, измерена и ОТКЛОНЕНА: на сохранённых ответах
+    моделей она стоит два попадания у Qwen3-4B (74 -> 72, 15 лишних
+    отказов), то есть регресс у той самой маленькой модели, которая
+    теперь мозг по умолчанию. Тесты ниже сторожат ОБА решения.
     """
-
-    def test_soldiers_without_era_anchor_is_refused(self):
-        ok, why = sp.brief_is_safe(
-            "a muddy trench with soldiers walking slowly, backs bent", "x")
-        assert not ok and "привязки" in why
 
     def test_punctuation_no_longer_hides_the_word(self):
         """Прежнее совпадение требовало пробелов с ОБЕИХ сторон, поэтому
-        слово с прилипшей пунктуацией не совпадало ни с чем."""
-        for brief in ("two rows of soldiers: one marching forward",
-                      "a man, standing alone in a field",
+        слово с прилипшей пунктуацией не совпадало ни с чем. Замер: ноль
+        лишних отказов и ноль потерянных попаданий на обеих моделях."""
+        for brief in ("a man, standing alone in a field",
+                      "a person's hands clenched on a kitchen table",
                       "people, seen from behind"):
-            ok, _ = sp.brief_is_safe(brief, "x")
-            assert not ok, brief
-
-    def test_same_word_with_an_anchor_still_passes(self):
-        """Правило про ЧЕЛОВЕКА БЕЗ ЭПОХИ, а не про слово «soldier»: все
-        пять брифов эталона с этим словом несут якорь и обязаны проходить."""
-        for brief in (
-                "a manuscript illumination of soldiers killing fallen knights",
-                "a manuscript illumination of a column of soldiers pressed together",
-                "a soldier kneeling in mud, soil clinging to his armour"):
             ok, why = sp.brief_is_safe(brief, "x")
-            assert ok, (brief, why)
+            assert not ok, brief
+            assert "привязки" in why
+
+    def test_soldier_deliberately_not_in_the_list(self):
+        """Защита от тихой регрессии ОТКЛОНЁННОГО решения.
+
+        Соблазн внести слово будет возвращаться — повод-то настоящий.
+        Тест держит вместе и решение, и его цену: вносить можно только
+        вместе с новым замером, который покажет, что двух попаданий
+        больше не теряется."""
+        assert "soldier" not in sp.GENERIC_PEOPLE
+        assert "troops" not in sp.GENERIC_PEOPLE
+        ok, _ = sp.brief_is_safe(
+            "a muddy trench with soldiers walking slowly", "x")
+        assert ok, ("заявка с «trench» сегодня проходит — это известный и "
+                    "записанный предел, а не случайность")
 
     def test_men_deliberately_not_included(self):
-        """Защита от тихой регрессии решения: `men` дал бы ложный отказ
-        законному брифу автора, где эпоху держит предмет, а не человек."""
+        """Третья переменная того же замера, отклонённая по другой
+        причине: `men` даёт ложный отказ законному брифу автора, где
+        эпоху держит предмет, а не человек."""
         assert "men" not in sp.GENERIC_PEOPLE
         ok, why = sp.brief_is_safe(
             "a long pole weapon held upright among many men", "x")
         assert ok, why
+
+    def test_word_with_an_anchor_still_passes(self):
+        """Правило про ЧЕЛОВЕКА БЕЗ ЭПОХИ, а не про слово: бриф с якорем
+        обязан проходить, иначе граница слова стала бы косить подряд."""
+        for brief in (
+                "a manuscript illumination of soldiers killing fallen knights",
+                "a man, kneeling, in full plate armour",
+                "a person's hands on a medieval manuscript"):
+            ok, why = sp.brief_is_safe(brief, "x")
+            assert ok, (brief, why)
 
     # Единственный бриф эталона, который проверка отклоняет, — и он
     # отклоняется НЕ этим правилом, а блоклистом канала. Слово `parade`
     # внесено 07.09 против костюмированных фестивалей (все 13 живых
     # кандидатов Pexels по нему были ими), и оно совпадает внутри
     # настоящего музейного термина `parade armour`. Тот же класс, что уже
-    # записан про `fencing`: слово блоклиста внутри законного термина.
-    # Держится ПОИМЁННО, а не общим «отказов ноль»: исчезнет отсюда —
-    # значит блоклист или правило изменились, и это надо заметить.
+    # записан про `fencing`. Держится ПОИМЁННО, а не общим «отказов ноль»:
+    # исчезнет отсюда — значит блоклист или правило изменились.
     KNOWN_BLOCKLIST_COLLISION = "a richly etched and gilded parade armour, whole figure"
 
     def test_reference_has_no_rejects_beyond_the_known_collision(self):
@@ -296,6 +308,4 @@ class TestGenericPeopleGapFoundByLiveRun:
         bad = {r: sp.brief_is_safe(r, "x")[1]
                for r in refs if r and not sp.brief_is_safe(r, "x")[0]}
         assert set(bad) == {self.KNOWN_BLOCKLIST_COLLISION}, bad
-        # И причина именно блоклистовая: если этот бриф однажды начнёт
-        # падать по «человеку без эпохи», тест обязан это показать.
         assert "блоклист" in bad[self.KNOWN_BLOCKLIST_COLLISION]
