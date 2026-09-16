@@ -72,11 +72,6 @@ ALLOWED_UNREACHABLE = {
         "полная правка ударения в ТЕКСТЕ — сознательно не подключена к "
         "рендеру (см. CLAUDE.md: резы завязаны на [pause]-границы, не на "
         "слог). Живой путь использует detected_homographs() того же модуля",
-    "shot_brief_planner.channel_era_window": "исследовательский модуль локального "
-        "режиссёра (docs/quality/DIRECTOR_LOCAL_LLM.md) — в рендер не подключён",
-    "shot_brief_planner.generate": "то же",
-    "shot_brief_planner.load": "то же",
-    "shot_brief_planner.validate_brief": "то же",
     "visual_director.cache_signature":
         "вызывается через ССЫЛКУ НА МОДУЛЬ-ПАРАМЕТР "
         "(pipeline_smart._visual_director_cache_signature(director_ref)) — "
