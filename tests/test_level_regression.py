@@ -605,3 +605,134 @@ def test_corridor_versions_are_actually_distinguishable(tmp_path):
         f"версии коридора неразличимы: минимальный разброс в окне кюя "
         f"{min(spreads):.2f} дБ при пороге {MIN_VERSION_SPREAD_DB} дБ "
         f"(на первой, неверно размещённой ленте было 0.13 дБ)")
+
+
+# ------------------------------------ ЧЕТВЁРТАЯ авария того же класса (16.09)
+# Переход главы и тик плашки — узнано при разборе жалобы «в готовом
+# рендере не слышно вообще никакого SFX». Тот же диагноз, что и у трёх
+# аварий из шапки файла (пик ассета — не его громкость), плюс отдельный,
+# более грубый дефект: переход НЕ ИМЕЛ своего gain_db вовсе и молча занимал
+# ЧУЖУЮ константу.
+
+
+def test_chapter_without_gain_db_no_longer_borrows_the_plate_constant(tmp_path):
+    """Реальный найденный баг: sfx_plan.plan_sfx_cues() никогда не пишет
+    `gain_db` кюю перехода, а add_planned_sfx() при отсутствии `gain_db`
+    подставляла SFX_PLATE_GAIN_DB ДЛЯ ЛЮБОГО вида кюя — то есть переход
+    главы годами звучал на -16 дБ вместо задуманных -12 (в media_plan/
+    sfx_plan.json готового рендера у kind="chapter" поля gain_db не было
+    вовсе). Мера прямая: тон известной амплитуды без gain_db обязан выйти
+    на SFX_CHAPTER_GAIN_DB, а не на SFX_PLATE_GAIN_DB — разница 4 дБ,
+    видна по пику сэмплов без всякого ebur128.
+    """
+    import subprocess
+
+    import numpy as np
+    import pipeline_smart as ps
+    import level_regression as lr
+
+    silence = os.path.join(str(tmp_path), "silence.wav")
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
+                    "anullsrc=r=48000:cl=stereo", "-t", "3",
+                    silence], capture_output=True)
+    tone = os.path.join(str(tmp_path), "tone.wav")
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
+                    "sine=f=1000:d=1.0", "-ar", "48000", "-ac", "2",
+                    tone], capture_output=True)
+
+    # Пик тона у lavfi sine — НЕ 0 dBFS (замер: -18 дБ), поэтому усиление
+    # вычисляется относительно СОБСТВЕННОГО пика исходника, замеренного
+    # тем же decode_mono, что и результат — иначе сравнение зависит от
+    # произвольного значения амплитуды генератора, а не от факта «какой
+    # gain_db реально применился».
+    tone_peak = float(np.max(np.abs(lr.decode_mono(tone))))
+    tone_db = 20 * np.log10(tone_peak + 1e-12)
+
+    cue = {"kind": "chapter", "time": 1.0, "asset": tone}  # НЕТ gain_db
+    out = ps.add_planned_sfx(silence, [cue], 3.0,
+                             os.path.join(str(tmp_path), "out.wav"))
+    assert out != silence, "кюй не наложился вообще"
+
+    samples = lr.window(lr.decode_mono(out), 1.05, 1.5)  # без фронта тона
+    peak = float(np.max(np.abs(samples)))
+    got_gain = 20 * np.log10(peak + 1e-12) - tone_db
+    assert abs(got_gain - ps.SFX_CHAPTER_GAIN_DB) < 1.0, (
+        f"чужой кюй без gain_db наложился с усилением {got_gain:.1f} дБ — "
+        f"похоже на SFX_PLATE_GAIN_DB={ps.SFX_PLATE_GAIN_DB}, а не на "
+        f"свой SFX_CHAPTER_GAIN_DB={ps.SFX_CHAPTER_GAIN_DB}")
+    assert abs(got_gain - ps.SFX_PLATE_GAIN_DB) > 2.0
+
+
+def test_run_sfx_director_measures_chapter_and_plate_gain():
+    """Источник обязан звать sfx_cue_gain_db() на ОБА вида — иначе правка
+    молча откатится к тому состоянию, где gain_db для перехода не
+    проставлялся вовсе."""
+    import inspect
+
+    import pipeline_smart as ps
+
+    src = inspect.getsource(ps.run_sfx_director)
+    assert "sfx_cue_gain_db(" in src
+    assert '"chapter"' in src and '"plate"' in src
+
+
+def _crest_burst(tmp, dur, vol=-10.0, pad=0.5):
+    """Короткий шумовой всплеск на объявленном пике `vol` dBFS — та же
+    ФОРМА несоответствия, что у настоящих ассетов библиотеки (пик задан
+    нормировкой, мгновенная громкость от него далека), не копия реального
+    файла. Дольше всплеск -> выше мгновенная громкость при том же пике —
+    ровно то поведение, которое отличает транзиент от устойчивого сигнала.
+    """
+    import subprocess
+
+    p = os.path.join(tmp, f"burst_{dur}.wav")
+    tail_start = max(0.0, dur - dur * 0.3)
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
+         f"anoisesrc=d={dur}:c=white:r=48000", "-af",
+         f"afade=t=out:st={tail_start:.4f}:d={dur * 0.3:.4f},"
+         f"volume={vol}dB,apad=whole_dur={pad}",
+         "-ar", "48000", "-ac", "2", p], capture_output=True)
+    return p
+
+
+@pytest.mark.parametrize("kind,dur", [("chapter", 0.025), ("plate", 0.008)])
+def test_cue_gain_targets_measured_loudness_not_the_old_peak_guess(tmp_path, kind, dur):
+    """Реальный найденный баг: SFX_CHAPTER_GAIN_DB/SFX_PLATE_GAIN_DB
+    рассчитаны из допущения «пик ассета = его громкость» (верно для
+    процедурного генератора, scripts/generate_sfx_pack.py; неверно для
+    реальных записей библиотеки, у которых теперь приоритет — замер живых
+    ассетов этого канала: chapter_turn пик -9.9 dBFS при мгновенной
+    громкости всего -24.3 LUFS, plate_tick пик -10.0 при -29.5 LUFS).
+    Применённая по этому допущению константа проваливалась на 14-20 дБ
+    мимо творческой цели, которую сама же и объявляла в докстринге.
+    """
+    import subprocess
+
+    import pipeline_smart as ps
+
+    asset = _crest_burst(str(tmp_path), dur)
+    measured_before = ps.measure_max_momentary_lufs(asset)
+    assert measured_before is not None
+
+    gain, src = ps.sfx_cue_gain_db(asset, kind)
+    assert src == "measured", (gain, src)
+
+    old_flat = ps.SFX_CHAPTER_GAIN_DB if kind == "chapter" else ps.SFX_PLATE_GAIN_DB
+    target = ps.SFX_CUE_TARGET_LUFS[kind]
+
+    old_result = measured_before + old_flat
+    assert target - old_result > 8.0, (
+        f"старая константа {old_flat} dB на этой форме сигнала давала бы "
+        f"{old_result:.1f} LUFS против цели {target} — регрессия ожидалась "
+        f"большой (в реальном рендере вышло 14-20 дБ), а вышла всего "
+        f"{target - old_result:.1f} дБ")
+
+    gained = os.path.join(str(tmp_path), f"gained_{kind}.wav")
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", asset, "-af",
+                    f"volume={gain}dB", "-ar", "48000", "-ac", "2",
+                    gained], capture_output=True)
+    after = ps.measure_max_momentary_lufs(gained)
+    assert after is not None
+    assert abs(after - target) <= 1.5, (
+        f"{kind}: усиленный ассет даёт {after:.1f} LUFS против цели {target}")

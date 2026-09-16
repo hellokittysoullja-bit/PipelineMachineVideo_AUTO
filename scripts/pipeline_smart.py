@@ -1660,19 +1660,76 @@ _UI_SFX_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 CHAPTER_SFX_PATHS = (os.path.join(_TRANSITION_SFX_DIR, "chapter_turn_short.flac"),
                       os.path.join(_TRANSITION_SFX_DIR, "chapter_turn_long.flac"))
 PLATE_TICK_PATH = _library_first("sfx", "plate_tick", os.path.join(_UI_SFX_DIR, "plate_tick.flac"))
-# Ассеты нормированы генератором к ЯВНОМУ пику -10 dBFS (PEAK_DBFS в
-# scripts/generate_sfx_pack.py — объявлен там одним числом и печатается при
-# генерации, а не подразумевается). Отсюда и ослабление здесь:
-#   переход  -12 дБ -> пик ок. -22 dBFS: слышен как акцент, заведомо под речью;
-#   тик      -16 дБ -> пик ок. -26 dBFS: отметка появления элемента, а не удар.
-# Два числа вместо одного «подобранного» — потому что ровно на одном числе
-# эта связка уже разъезжалась: v2 generate_reveal_sfx.py подняла пики своих
-# ассетов с -14 до -10/-7 dBFS, а REVEAL_SFX_GAIN_DB и комментарий рядом с
-# ним остались от v1 и до сих пор считают пик равным -14 — расчётный
-# уровень акцента разошёлся с реальным на 6-7 дБ, и увидеть это было негде.
+# ЗАПАСНЫЕ константы на случай, если громкость ассета не измерится (см.
+# sfx_cue_gain_db() ниже — основной путь меряет, а не угадывает). Раньше
+# это были единственные числа, и расчёт держался на допущении «ассет
+# нормирован к пику -10 dBFS, значит пик и есть громкость» — для процедурного
+# генератора (scripts/generate_sfx_pack.py, PEAK_DBFS) это верно, но
+# библиотека реальных записей (Freesound), которая теперь имеет приоритет
+# (library_sounds()), даёт тот же пик при СОВСЕМ другой громкости: замер
+# живых ассетов этого канала — chapter_turn пик -9.9 dBFS при максимальной
+# МГНОВЕННОЙ громкости всего -24.3 LUFS (провал 14.4 дБ), plate_tick пик
+# -10.0 dBFS при -29.5 LUFS (провал 19.5 дБ, это почти чистый транзиент).
+# Тот же класс ошибки, что уже нашёлся и был исправлен у MUSIC_BED_GAIN_DB
+# и REVEAL_SFX_GAIN_DB (пик — не громкость), только сюда миграция ещё не
+# доехала. Ниже эти две константы остаются ТОЛЬКО запасными.
 SFX_CHAPTER_GAIN_DB = -12.0
 SFX_PLATE_GAIN_DB = -16.0
+# Цель — та же ТВОРЧЕСКАЯ громкость, что описывал старый комментарий
+# («переход слышен как акцент под речью», «тик — отметка появления, не
+# удар»), просто по ПРАВИЛЬНОЙ метрике: максимальная МГНОВЕННАЯ громкость
+# ассета (measure_max_momentary_lufs — та же функция, что уже верно считает
+# объектный слой, см. её докстринг про то, почему транзиенту нужна именно
+# эта мера, не интегральная), а не сырой пик. -22/-26 LUFS — те же числа,
+# что раньше ошибочно ждали от «пик минус dB», теперь это ЦЕЛЬ громкости.
+SFX_CUE_TARGET_LUFS = {"chapter": -22.0, "plate": -26.0}
+# Шире объектных [-40, 0] (см. sfx_plan.OBJECT_GAIN_MIN_DB/MAX_DB): эти два
+# кюя — созданные под конкретную творческую цель акценты, а не объект,
+# который нельзя поднимать громче своей записи. +6 — тот же потолок, что
+# уже разрешён подложке (MUSIC_BED_GAIN_MAX_DB).
+SFX_CUE_GAIN_MIN_DB, SFX_CUE_GAIN_MAX_DB = -20.0, 6.0
 SFX_DIRECTOR_ENABLED = feature_flags.enabled("SFX_DIRECTOR")
+
+
+@functools.lru_cache(maxsize=256)
+def _sfx_cue_gain_cached(path, mtime, target_lufs):
+    """(усиление, расчётное_до_обрезки) или None — та же форма ответа, что
+    у _object_gain_cached(), тем же приёмом (mtime в ключе кэша — сменился
+    файл на диске, кэш не соврёт)."""
+    asset = measure_max_momentary_lufs(path)
+    if asset is None:
+        return None
+    raw = float(target_lufs) - asset
+    return (max(SFX_CUE_GAIN_MIN_DB, min(SFX_CUE_GAIN_MAX_DB, raw)), raw)
+
+
+def sfx_cue_gain_db(path, kind):
+    """Усиление перехода/тика (дБ, чем обосновано) — измеренное, не угаданное
+    по пику. См. комментарий у SFX_CUE_TARGET_LUFS: тот же принцип, что уже
+    работает для объектного слоя (object_gain_db) и подложки
+    (music_bed_gain_db) — константа на пике однажды уже разошлась с
+    реальностью для обоих, и без замера здесь регрессия та же, просто пока
+    не пойманная."""
+    fallback = SFX_CHAPTER_GAIN_DB if kind == "chapter" else SFX_PLATE_GAIN_DB
+    target = SFX_CUE_TARGET_LUFS.get(kind)
+    if target is None or not path:
+        return fallback, "fallback_constant"
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return fallback, "no_file"
+    got = _sfx_cue_gain_cached(path, mtime, target)
+    if got is None:
+        print(f"  ВНИМАНИЕ: громкость {os.path.basename(path)} не измерилась — "
+              f"эффект «{kind}» идёт по запасной константе {fallback} dB")
+        return fallback, "fallback_constant"
+    gain, raw = got
+    if abs(gain - raw) > 0.05:
+        print(f"  ВНИМАНИЕ: расчётное усиление {os.path.basename(path)} "
+              f"{raw:+.1f} dB вышло за [{SFX_CUE_GAIN_MIN_DB}, {SFX_CUE_GAIN_MAX_DB}] — "
+              f"обрезано до {gain:+.1f} dB")
+        return round(gain, 2), "measured_clamped"
+    return round(gain, 2), "measured"
 
 
 def chapter_sfx_variants():
@@ -1740,7 +1797,15 @@ def add_planned_sfx(mix_path, cues, total_dur, out_path):
         n += 1
         cmd += ["-i", path]
         ms = max(0, int(float(c["time"]) * 1000))
-        gain = float(c.get("gain_db", SFX_PLATE_GAIN_DB))
+        # Фолбэк — ПО СВОЕМУ виду кюя, не всегда plate: раньше «нет
+        # gain_db» у ЛЮБОГО кюя молча падало на SFX_PLATE_GAIN_DB, и это
+        # ровно тот путь, по которому переход главы годами звучал на -16 дБ
+        # вместо -12 (см. sfx_cue_gain_db() — теперь run_sfx_director()
+        # проставляет gain_db явно ДО этой функции, но фолбэк остаётся
+        # честным на случай, если кто-то соберёт кюй в обход планировщика).
+        _default_gain = (SFX_CHAPTER_GAIN_DB if c.get("kind") == "chapter"
+                          else SFX_PLATE_GAIN_DB)
+        gain = float(c.get("gain_db", _default_gain))
         # Обрезка и фейды берутся ИЗ КЮЯ, если план их задал (протяжённый
         # объект), и не задаются здесь: функция остаётся исполнителем, а не
         # вторым местом, где принимаются решения о звуке.
@@ -2029,6 +2094,23 @@ def run_sfx_director(mix_path, video_dir, blocks, sub_starts, real_weights, tota
             chapter_variants=chapter_sfx_variants(),
             plate_cues=plate_cues, reserved_windows=reserved,
             object_asset_for=_asset_for)
+        # Уровень перехода/тика — ЗДЕСЬ, после того как планировщик выбрал
+        # конкретный файл (chapter — ротацией по помещающейся длине; plate —
+        # тем, что дала plan_stat_sound_cues() ДО вызова этой функции, с
+        # захардкоженной SFX_PLATE_GAIN_DB). Оба ПЕРЕЗАПИСЫВАЮТСЯ измеренным
+        # значением — реальный найденный баг (16.09): у chapter gain_db не
+        # было вовсе, и add_planned_sfx() молча брал SFX_PLATE_GAIN_DB
+        # (фолбэк на ЛЮБОЙ кюй без gain_db), то есть переход главы годами
+        # звучал на -16 дБ вместо задуманных -12 — и оба эти числа сами по
+        # себе были рассчитаны по ПИКУ ассета, а не по его реальной
+        # громкости (см. sfx_cue_gain_db()). Объектный слой этой ошибки уже
+        # избежал (object_gain_db() меряет), сюда чинка не доезжала.
+        for c in accepted:
+            if c.get("kind") not in ("chapter", "plate"):
+                continue
+            gain, src = sfx_cue_gain_db(c.get("asset"), c["kind"])
+            c["gain_db"] = gain
+            c["gain_source"] = src
     except Exception as e:
         print(f"  ВНИМАНИЕ: планировщик эффектов не отработал ({type(e).__name__}), "
               f"звук собирается как раньше.")
@@ -2048,6 +2130,7 @@ def run_sfx_director(mix_path, video_dir, blocks, sub_starts, real_weights, tota
             json.dump({"enabled": SFX_DIRECTOR_ENABLED,
                        "gains_db": {"chapter": SFX_CHAPTER_GAIN_DB,
                                     "plate": SFX_PLATE_GAIN_DB},
+                       "target_lufs": dict(SFX_CUE_TARGET_LUFS),
                        "object_levels": {
                            "voice_lufs": voice_lufs,
                            "target_gap_lu": {
