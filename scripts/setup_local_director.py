@@ -34,6 +34,12 @@ MODELS = {
         "name": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
         "url": ("https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF"
                 "/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf"),
+        # Q4_K_M, а не менее сжатая — ЗАМЕРЕНО 16.09, не выбрано по вкусу:
+        # та же модель в Q8_0 (4.0 ГБ) даёт РОВНО столько же попаданий
+        # (73 против 73 на эпизоде 02, одно задание, packet_version=6),
+        # а F16 (7.5 ГБ) отклонена по скорости — 13 минут на главу против
+        # 50 секунд, то есть ~3 часа на эпизод. Сырые числа —
+        # docs/quality/quant_q4_k_m.json и quant_q8_0.json.
         "gb": 2.3, "need_ram_gb": 6, "score": 63, "minutes": 10,
     },
 }
