@@ -19,9 +19,48 @@
 """
 import argparse
 import os
+import platform
 import shutil
 import subprocess
 import sys
+
+# Движок, которым крутится модель. Версия ЗАКРЕПЛЕНА и индекс указан явно —
+# это не осторожность, а найденный блокер (16.09): на PyPI у
+# llama-cpp-python лежит ТОЛЬКО sdist, ни одной готовой сборки, поэтому
+# обычный `pip install llama-cpp-python` на Windows требует компилятор C++.
+# Официальный индекс автора пакета готовые сборки содержит, но отстаёт от
+# PyPI: последняя версия там 0.3.19 против 0.3.35 на PyPI.
+#
+# Что 0.3.19 подходит — ПРОВЕРЕНО, а не предположено: колесо под Windows
+# скачано и распаковано, в llama.dll найдены строки архитектур `qwen3`
+# (модель 4B) и `qwen3moe` (модель 30B-A3B). Обе модели ниже запустятся.
+ENGINE_VERSION = "0.3.19"
+ENGINE_WHEEL_INDEX = "https://abetlen.github.io/llama-cpp-python/whl/cpu"
+
+
+def engine_install_command(py=None, system=None):
+    """Команда установки движка — РАЗНАЯ ПО СИСТЕМАМ, и это замер.
+
+    Windows: обычный `pip install llama-cpp-python` требует компилятор C++
+    (на PyPI лежит только sdist). Официальный индекс автора пакета отдаёт
+    готовое колесо, и проверено распаковкой, что в его llama.dll есть
+    архитектуры `qwen3` и `qwen3moe` — обе наши модели.
+
+    Linux/macOS: тот же индекс НЕ подходит, и это поймано живой установкой,
+    а не прочитано. Колесо оттуда собрано под musl (Alpine), и на обычном
+    дистрибутиве импорт падает: `libc.musl-x86_64.so.1: cannot open shared
+    object file`. Зато сборка из исходников с PyPI там проходит штатно
+    (в этом контейнере так и стоит рабочая 0.3.35), компилятор есть почти
+    везде. Поэтому здесь — обычный pip, без индекса и без закрепления.
+
+    Одна команда на все системы была бы неверна ровно на одной из них.
+    """
+    py = py or os.path.basename(sys.executable)
+    system = system or platform.system()
+    if system == "Windows":
+        return [f"{py} -m pip install llama-cpp-python=={ENGINE_VERSION} ^",
+                f"    --extra-index-url {ENGINE_WHEEL_INDEX}"]
+    return [f"{py} -m pip install llama-cpp-python"]
 
 MODELS = {
     "30b": {
@@ -119,8 +158,21 @@ def main(argv):
         import llama_cpp  # noqa: F401
         print("llama-cpp-python: установлен")
     except ImportError:
-        print("\nСНАЧАЛА: pip install llama-cpp-python")
-        print("Без него модель запускать нечем.")
+        print("\nСНАЧАЛА поставить движок. Команда — РОВНО ТАКАЯ:\n")
+        for line in engine_install_command():
+            print("  " + line)
+        if platform.system() == "Windows":
+            print("\nПочему не просто «pip install llama-cpp-python»: на PyPI")
+            print("у этого пакета ЛЕЖАТ ТОЛЬКО ИСХОДНИКИ, и обычная установка")
+            print("на Windows потребует компилятор C++ (Visual Studio Build")
+            print("Tools). Индекс выше — официальный, автора того же пакета,")
+            print(f"и проверено, что сборка {ENGINE_VERSION} знает архитектуры")
+            print("qwen3 и qwen3moe, то есть обе модели ниже.")
+        else:
+            print("\nЗдесь собирается из исходников и это нормально: нужен")
+            print("компилятор C (на Linux/macOS он почти всегда есть).")
+            print("Готовые сборки из официального индекса тут НЕ подходят —")
+            print("они под musl, и импорт падает на обычном дистрибутиве.")
         return 2
 
     os.makedirs(a.dir, exist_ok=True)
