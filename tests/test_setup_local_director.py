@@ -51,6 +51,26 @@ class TestEngineInstallCommand:
         assert sum("pip install" in x for x in lines) == 1
 
 
+class TestSmallModelIsTheDefault:
+    """Решение владельца 16.09, подкреплённое замером времени: крупная
+    впятеро медленнее (180 с на главу против 35) и занимает 11 ГБ ОЗУ, а
+    её преимущество по качеству на текущем задании НЕ установлено."""
+
+    @pytest.mark.parametrize("ram_gb", [4, 8, 16, 64, 128, None])
+    def test_small_model_regardless_of_ram(self, ram_gb):
+        assert d.pick(ram_gb) == "4b"
+
+    def test_big_model_still_reachable_explicitly(self):
+        """Не удалена — тот, кто захочет перемерить её сам, должен мочь."""
+        assert d.pick(64, forced="30b") == "30b"
+        assert "30b" in d.MODELS
+
+    def test_speed_cost_is_recorded_not_remembered(self):
+        small, big = d.MODELS["4b"], d.MODELS["30b"]
+        assert small["sec_per_chapter"] < big["sec_per_chapter"]
+        assert big["sec_per_chapter"] / small["sec_per_chapter"] >= 3
+
+
 class TestModelChoiceIsBackedByNumbers:
     def test_every_model_carries_its_measured_score(self):
         """Скрипт выбирает модель за пользователя — значит обязан уметь
@@ -60,13 +80,19 @@ class TestModelChoiceIsBackedByNumbers:
             assert m["score"] > 0, key
             assert m.get("gb", 0) > 0 and m.get("need_ram_gb", 0) > 0, key
 
-    def test_bigger_model_is_only_preferred_if_it_measured_better(self):
-        """Иначе пользователь качает лишние гигабайты просто так."""
-        big, small = d.MODELS["30b"], d.MODELS["4b"]
-        if big["gb"] > small["gb"]:
-            assert big["score"] > small["score"], (
-                "крупная модель тяжелее, но не лучше по замеру — "
-                "рекомендовать её нельзя")
+    def test_stale_score_is_never_used_to_recommend(self):
+        """Скор, снятый СТАРЫМ заданием, нельзя сравнивать с новым — это
+        та же ловушка, что уже поймана на квантовке (менялись две
+        переменные разом). Модель с таким скором не имеет права стать
+        выбором по умолчанию, пока её не перемерят."""
+        for key, m in d.MODELS.items():
+            if m.get("score_stale"):
+                assert not m.get("default"), (
+                    f"{key}: скор устарел, но модель предлагается по умолчанию")
+
+    def test_exactly_one_default_model(self):
+        defaults = [k for k, m in d.MODELS.items() if m.get("default")]
+        assert defaults == ["4b"], defaults
 
     def test_ram_requirement_exceeds_the_file(self):
         """Веса грузятся в память целиком: требовать памяти меньше, чем
