@@ -731,3 +731,49 @@ def test_real_briefs_survive_the_symbol_guard(shot):
 def test_symbol_rule_is_in_the_prompt():
     import shot_brief_director as d
     assert "НИКАКИХ СИМВОЛОВ" in d.render_prompt(_packet(["Ему тяжело."]))
+
+
+# --- ВЫКЛЮЧАТЕЛЬ ДОБАВЛЕННЫХ ПРАВИЛ -----------------------------------------
+#
+# Правила поверх ядра (заземление абстракции, настроение, «показывай
+# новое», противопоставление) измерены и оказались НЕ БЕСПЛАТНЫМИ: на
+# Qwen3-30B-A3B точность та же (58.9% -> 59.1%), а ответов стало 88
+# вместо 107 — от длинного свода модель осторожничает. Выключатель делает
+# этот обмен выбором, а не побочным эффектом.
+
+def test_extra_rules_off_keeps_the_core(monkeypatch):
+    import importlib
+    import shot_brief_director as d
+    monkeypatch.setenv("SHOT_BRIEF_EXTRA_RULES", "0")
+    importlib.reload(d)
+    try:
+        prompt = d.render_prompt(_packet(["Ему тяжело."]))
+        # ядро на месте
+        assert "1. Кадр" in prompt and "5. Показывать нечего" in prompt
+        # добавленные — нет
+        for head in ("АБСТРАКЦИЮ", "ПОКАЗЫВАЙ НОВОЕ",
+                     "ПРОТИВОПОСТАВЛЕНИЕ", "НАСТРОЕНИЕ"):
+            assert head not in prompt, head
+    finally:
+        monkeypatch.delenv("SHOT_BRIEF_EXTRA_RULES")
+        importlib.reload(d)
+
+
+def test_extra_rules_on_by_default():
+    import shot_brief_director as d
+    prompt = d.render_prompt(_packet(["Ему тяжело."]))
+    assert "АБСТРАКЦИЮ" in prompt and "НАСТРОЕНИЕ" in prompt
+
+
+def test_world_rule_survives_switching_extras_off(monkeypatch):
+    """Мир канала — не «добавленное правило», а паспорт ниши: он обязан
+    остаться в обоих режимах."""
+    import importlib
+    import shot_brief_director as d
+    monkeypatch.setenv("SHOT_BRIEF_EXTRA_RULES", "0")
+    importlib.reload(d)
+    try:
+        assert "МИР КАДРА" in d.render_prompt(_packet(["ф"]))
+    finally:
+        monkeypatch.delenv("SHOT_BRIEF_EXTRA_RULES")
+        importlib.reload(d)

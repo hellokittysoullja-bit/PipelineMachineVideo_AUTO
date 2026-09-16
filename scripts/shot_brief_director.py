@@ -157,11 +157,45 @@ def domain_contract():
     return " ".join(parts)
 
 
+# Правила, ДОБАВЛЕННЫЕ поверх ядра по разбору и по литературе: заземление
+# абстракции, настроение, «показывай новое», противопоставление, запрет
+# символа. Измерены на Qwen3-30B-A3B и ОКАЗАЛИСЬ НЕ БЕСПЛАТНЫМИ: точность
+# на сказанном та же (58.9% -> 59.1%), но ответов стало 88 вместо 107 —
+# от длинного свода модель осторожничает и чаще ставит прочерк.
+#
+# Выключатель нужен, чтобы этот обмен был ВЫБОРОМ, а не побочным
+# эффектом: у исторического канала с богатым предметным рядом дороже
+# покрытие, у канала про психологию — заземление абстракции, без него
+# кадра не будет вовсе.
+EXTRA_RULES = os.environ.get("SHOT_BRIEF_EXTRA_RULES", "1") != "0"
+
+# Номера правил ядра, которые добавлены поверх базовых шести.
+_EXTRA_RULE_HEADS = ("6. АБСТРАКЦИЮ", "7. ПОКАЗЫВАЙ НОВОЕ",
+                     "8. ПРОТИВОПОСТАВЛЕНИЕ", "9. НАСТРОЕНИЕ")
+
+
+def core_rules():
+    """Ядро правил; без EXTRA_RULES — только базовые шесть."""
+    if EXTRA_RULES:
+        return RULES_CORE
+    out, skip = [], False
+    for line in RULES_CORE.splitlines():
+        head = line.strip()
+        if any(head.startswith(h) for h in _EXTRA_RULE_HEADS):
+            skip = True
+        elif head[:2].rstrip(".").isdigit() and ". " in head[:5]:
+            skip = False
+        if not skip:
+            out.append(line)
+    return "\n".join(out)
+
+
 def rules_for(contract):
     """Ядро правил плюс доменное правило, если канал его объявил."""
+    base = core_rules()
     if not contract:
-        return RULES_CORE
-    return RULES_CORE + (
+        return base
+    return base + (
         "\n10. МИР КАДРА — обязателен. " + contract +
         " Общее слово вроде «a person» или «a man» приведёт случайного "
         "современного человека.")
