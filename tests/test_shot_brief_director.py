@@ -613,3 +613,49 @@ def test_marking_reads_none_and_ties():
     assert marks[1] is None
     assert marks[2] == ["А", "В"]
     assert 3 not in marks
+
+
+# --- РАЗДЕЛИТЕЛЬ В СТРОКЕ ОБЯЗАТЕЛЕН ----------------------------------------
+#
+# Найдено живым прогоном «думающей» Qwen3.6-35B-A3B: она рассуждает вслух
+# НУМЕРОВАННЫМИ пунктами, и в план ушли семнадцать «заявок» вида
+# «1. Analyze User Input» и «2. Resolve pronouns to actual subjects» —
+# пересказ собственных правил промпта. Ни один гейт их не ловил:
+# латиница, длина в норме, местоимений нет, снаряжение не современное.
+
+@pytest.mark.parametrize("junk", [
+    "1. Analyze User Input:",
+    "2. Resolve pronouns to actual subjects from context",
+    "3. Adjacent frames must be different",
+    "4) Show abstraction as situation or bodily sign",
+])
+def test_reasoning_lines_are_not_briefs(junk):
+    import shot_brief_director as d
+    assert d.parse_answer(junk, _packet(["а", "б", "в", "г"])) == {}
+
+
+def test_proper_rows_still_pass():
+    """Ужесточение не имеет права съесть настоящий ответ."""
+    import shot_brief_director as d
+    got = d.parse_answer("1 | object | a rondel dagger blade, close up\n"
+                         "2 | scene | a churned muddy field under grey sky\n",
+                         _packet(["а", "б"]))
+    assert set(got) == {1, 2}
+    assert got[1]["shot_en"] == "a rondel dagger blade, close up"
+
+
+def test_hardening_changes_nothing_on_real_measured_runs():
+    """Контроль, без которого ужесточение отменяло бы прежние числа.
+
+    Проверено на всех снятых замерах (7B, 7B+словарь, 30B, Qwen3-4B,
+    30B+словарь): строк без разделителя там НОЛЬ. Тест держит сам
+    инвариант на образцах реальных ответов этих моделей.
+    """
+    import shot_brief_director as d
+    real = ("MOOD | -1 | 2 | тяжело\n"
+            " 1 | object | a narrow rondel dagger with two round guards\n"
+            " 2 | scene | a fallen knight lying in mud\n"
+            " 3 | - | -\n")
+    got = d.parse_answer(real, _packet(["а", "б", "в"]))
+    assert set(got) == {1, 2}
+    assert d.parse_mood(real)["tone"] == -1.0

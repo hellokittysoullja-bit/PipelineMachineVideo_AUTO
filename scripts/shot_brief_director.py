@@ -472,11 +472,23 @@ def parse_answer(raw, packet):
         if n not in valid_n or n in got:
             continue
         rest = m.group(2)
+        # РАЗДЕЛИТЕЛЬ ОБЯЗАТЕЛЕН. Без него нумерованной строкой оказывается
+        # любой список в тексте модели — и это не теория: «думающая»
+        # Qwen3.6-35B-A3B рассуждает вслух нумерованными пунктами, и в план
+        # ушли семнадцать «заявок» вида «1. Analyze User Input» и
+        # «2. Resolve pronouns to actual subjects» — пересказ моих же
+        # правил. Ни один гейт их не ловил: латиница, длина в норме,
+        # местоимений нет, снаряжение не современное.
+        #
+        # Промпт просит ровно формат «номер | тип | описание», и требовать
+        # его — единственная проверка, которую нельзя обойти случайно.
+        # Проверено на всех уже снятых замерах (7B, 7B+словарь, 30B,
+        # Qwen3-4B, 30B+словарь): строк без разделителя там НОЛЬ, то есть
+        # ужесточение не отменяет ни одного прежнего числа.
+        if "|" not in rest:
+            continue
         parts = [p.strip() for p in rest.split("|")]
-        if len(parts) >= 2:
-            fn, shot = parts[0].lower(), "|".join(parts[1:]).strip()
-        else:
-            fn, shot = "", parts[0]
+        fn, shot = parts[0].lower(), "|".join(parts[1:]).strip()
         shot = _clean(shot.strip(" *`"))
         if not shot or shot in {"-", "—", "null", "none"}:
             continue
@@ -535,10 +547,25 @@ class LocalBrain:
     # главой. У семейства Qwen режим выключается служебной строкой в конце
     # запроса.
     NO_THINK = os.environ.get("SHOT_BRIEF_NO_THINK", "") == "1"
+    # Служебная строка «/no_think» ПРОВЕРЕНА И НЕ СРАБОТАЛА: модель
+    # рассуждала по-прежнему (замер на короткой главе). Работает другое —
+    # затравка ответа УЖЕ ЗАКРЫТЫМ пустым блоком размышления: модели
+    # нечего продолжать, и она сразу пишет ответ.
+    THINK_OPEN, THINK_CLOSE = "<think>", "</think>"
+
+    def _ask_without_thinking(self, prompt):
+        """Чат-разметка вручную, с закрытым блоком размышления в затравке."""
+        text = (f"<|im_start|>user\n{prompt}<|im_end|>\n"
+                f"<|im_start|>assistant\n"
+                f"{self.THINK_OPEN}\n\n{self.THINK_CLOSE}\n\n")
+        r = self.llm.create_completion(
+            prompt=text, temperature=0.0, seed=self.seed,
+            max_tokens=self.max_tokens, stop=["<|im_end|>"])
+        return r["choices"][0]["text"] or ""
 
     def ask(self, prompt, chapter_no):
         if self.NO_THINK:
-            prompt = prompt + "\n/no_think"
+            return self._ask_without_thinking(prompt)
         # temperature=0 + фиксированный seed: два прогона на одном вопросе
         # обязаны дать один ответ, иначе сравнение версий недействительно
         # (урок замера 16.09, где temp стояла 0.2 при случайном seed).
