@@ -1285,3 +1285,49 @@ def test_shift_guard_does_not_block_a_real_unrelated_fix():
     merged = d.merge_critique(draft, critique)
     assert merged[1]["shot_en"] == "a rusted iron gate, chain wrapped around it"
     assert d.STATS["critique_shift_caught"] == 0
+
+
+# --- Рассуждение внутри строки (SHOT_BRIEF_REASONING) -----------------------
+#
+# Контроль: убрать `_REF_BRACKET_RE.match(shot)` из parse_answer (не
+# снимать скобку) — test_reference_bracket_is_stripped_before_validation
+# падает, потому что "[ref: он=земля] a churned..." не проходит проверку
+# длины слов (скобка считается словами) или остаётся в shot_en как есть.
+
+def test_reference_bracket_is_stripped_before_validation():
+    """Заметка о ссылке уходит из текста ДО всех проверок — включая
+    подсчёт слов, иначе сама скобка исказила бы длину описания."""
+    import shot_brief_director as d
+    pkt = _packet(["Земля тянет.", "При этом он был под ногами у каждого."])
+    got = d.parse_answer(
+        "1 | object | a churned muddy field, boot prints everywhere\n"
+        "2 | object | [ref: он=земля] a churned field seen underfoot, "
+        "trampled soil\n", pkt)
+    assert got[2]["shot_en"] == "a churned field seen underfoot, trampled soil"
+    assert got[2]["referent"] == "он=земля"
+    assert got[1]["referent"] is None
+
+
+def test_bracket_only_matches_at_the_start():
+    """Скобка ПОСЕРЕДИНЕ описания — не заметка о ссылке, а часть кадра.
+    Снимать её значило бы терять текст без всякой причины."""
+    import shot_brief_director as d
+    pkt = _packet(["Дверь со стеклянной вставкой."])
+    got = d.parse_answer(
+        "1 | object | a wooden door [glass panel] standing ajar\n", pkt)
+    assert got[1]["shot_en"] == "a wooden door [glass panel] standing ajar"
+    assert got[1]["referent"] is None
+
+
+def test_reasoning_instruction_is_off_by_default(monkeypatch):
+    monkeypatch.delenv("SHOT_BRIEF_REASONING", raising=False)
+    import shot_brief_director as d
+    prompt = d.render_prompt(_packet(["а", "б"]))
+    assert "[ref:" not in prompt
+
+
+def test_reasoning_instruction_appears_when_enabled(monkeypatch):
+    monkeypatch.setenv("SHOT_BRIEF_REASONING", "1")
+    import shot_brief_director as d
+    prompt = d.render_prompt(_packet(["а", "б"]))
+    assert "[ref:" in prompt

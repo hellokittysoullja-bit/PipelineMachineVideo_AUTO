@@ -414,8 +414,18 @@ def render_prompt(packet):
         "строке на фразу, ничего лишнего.",
         "MOOD | тон | напряжение | 2-4 слова",
         "номер | тип | описание кадра по-английски, 4-12 слов",
-        "", FEWSHOT, "", "ФРАЗЫ ГЛАВЫ:",
     ]
+    if feature_flags.enabled("SHOT_BRIEF_REASONING"):
+        lines += [
+            "",
+            "ЕСЛИ ВО ФРАЗЕ ЕСТЬ МЕСТОИМЕНИЕ ИЛИ ОТСЫЛКА («он», «она», «это», "
+            "«тот», «та») — перед описанием кадра, В ТОЙ ЖЕ СТРОКЕ, укажи "
+            "в квадратных скобках, на какой предмет из фразы выше это "
+            "местоимение ссылается: [ref: он=земля]. Если местоимений и "
+            "отсылок нет — скобку не пиши вообще.",
+            "номер | тип | [ref: слово=предмет] описание кадра",
+        ]
+    lines += ["", FEWSHOT, "", "ФРАЗЫ ГЛАВЫ:"]
     for u in packet["units"]:
         mark = []
         if u.get("stat"):
@@ -538,6 +548,15 @@ def parse_answer(raw, packet):
         parts = [p.strip() for p in rest.split("|")]
         fn, shot = parts[0].lower(), "|".join(parts[1:]).strip()
         shot = _clean(shot.strip(" *`"))
+        referent = None
+        m_ref = _REF_BRACKET_RE.match(shot)
+        if m_ref:
+            # "ref:" — часть конвенции промпта ([ref: он=земля]), не часть
+            # самого значения; хранится очищенным, чтобы сверка/аудит
+            # сравнивали "он=земля", а не строку с меняющимся префиксом.
+            referent = re.sub(r"^ref\s*:\s*", "", m_ref.group(1).strip(),
+                              flags=re.I)
+            shot = _clean(shot[m_ref.end():])
         if not shot or shot in {"-", "—", "null", "none"}:
             continue
         if fn not in shot_planner_llm.VALID_FUNCTIONS:
@@ -549,8 +568,17 @@ def parse_answer(raw, packet):
         if copies_the_example(shot):
             continue
         got[n] = {"shot_en": shot, "function": fn, "forbidden": None,
-                  "subject": None}
+                  "subject": None, "referent": referent}
     return got
+
+
+# Заметка о разрешённой отсылке — необязательный префикс В ОДНОЙ строке,
+# не вторая строка и не вторая колонка: `рестр.split("|")` не меняется,
+# а значит существующий парсер (fn/shot из тех же позиций) не трогается.
+# Строгий якорь ^\[...\] — заметка обязана стоять В НАЧАЛЕ описания, а не
+# где угодно внутри него (иначе текст вроде «a door [glass panel]» терял
+# бы половину описания по ошибке).
+_REF_BRACKET_RE = re.compile(r"^\[([^\[\]]{0,80})\]\s*")
 
 
 # --- МОЗГИ ------------------------------------------------------------------
