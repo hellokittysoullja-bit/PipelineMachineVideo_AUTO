@@ -397,10 +397,18 @@ class TestWiredIntoTheRender:
         for live in ("plan_episode", "plan_unit", "_run_model"):
             assert live not in names, f"{live} зовётся из рендера"
 
-    def test_flag_is_registered_with_default_off(self):
+    def test_flag_is_registered_with_default_on(self):
+        """Дефолт переключён 0 -> 1 (16.09) по живому прогону на всех 142
+        юнитах эпизода: 94 прошли полный валидатор, из них 92 верны по
+        содержанию при ручной проверке (CLAUDE.md, финальный блок раздела).
+        Переключение безопасно вдвойне: без LLAMA_CLI_BIN/LLAMA_MODEL_GGUF
+        в окружении runtime_ready()=False — точный no-op; там, где модель
+        есть, plan_episode() трогает только юниты БЕЗ авторского shot_brief,
+        то есть уже написанные вручную эпизоды (в т.ч. 02_ne-mechom,
+        142/142 брифов) флаг не меняет байт-в-байт."""
         src = open(os.path.join(SCRIPTS_DIR, "feature_flags.py"),
                    encoding="utf-8").read()
-        assert 'Flag("SHOT_PLANNER_LLM", "0"' in src
+        assert 'Flag("SHOT_PLANNER_LLM", "1"' in src
 
 
 class TestContextReachesTheModel:
