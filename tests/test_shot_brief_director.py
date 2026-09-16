@@ -1331,3 +1331,41 @@ def test_reasoning_instruction_appears_when_enabled(monkeypatch):
     import shot_brief_director as d
     prompt = d.render_prompt(_packet(["а", "б"]))
     assert "[ref:" in prompt
+
+
+# --- Снятие рассуждения перед разбором ---------------------------------
+#
+# Контроль: убрать вызовы `_THINK_RE.sub`/`_UNCLOSED_THINK_RE.sub` из
+# shot_planner_llm._clean_stream — оба теста ниже падают, строки
+# рассуждения снова попадают на разбор `_ROW_RE`.
+
+def test_closed_think_block_is_removed_before_parsing():
+    """Реальный, уже случившийся класс отказа (Qwen3.6-35B-A3B, пересказ
+    правил нумерованными пунктами) — блок рассуждения не должен доехать
+    до построчного разбора вообще."""
+    import shot_brief_director as d
+    pkt = _packet(["а", "б"])
+    raw = ("<think>\n1 | object | это рассуждение, а не ответ, но с "
+           "разделителем\n2 | object | и тут тоже\n</think>\n"
+           "1 | object | a dented steel breastplate, close up\n"
+           "2 | scene | a churned muddy field under grey sky\n")
+    got = d.parse_answer(raw, pkt)
+    assert got[1]["shot_en"] == "a dented steel breastplate, close up"
+    assert got[2]["shot_en"] == "a churned muddy field under grey sky"
+
+
+def test_unclosed_think_block_leaves_nothing_to_salvage():
+    """Модель упёрлась в потолок токенов посреди рассуждения — до ответа
+    не дошла. Честный исход — пустая глава, а не заявки из рассуждения."""
+    import shot_brief_director as d
+    pkt = _packet(["а", "б"])
+    raw = ("<think>\n1 | object | долгое рассуждение без конца, "
+           "которое никогда не закрывается тегом\n")
+    assert d.parse_answer(raw, pkt) == {}
+
+
+def test_a_non_thinking_model_response_is_untouched():
+    """Без тега рассуждения — новый шаг чистый no-op."""
+    import shot_planner_llm as p
+    raw = "1 | object | a dented steel breastplate, close up"
+    assert p._clean_stream(raw) == raw
