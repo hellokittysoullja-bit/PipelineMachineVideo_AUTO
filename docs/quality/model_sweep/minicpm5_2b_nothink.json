@@ -1,0 +1,1495 @@
+{
+  "model": "MiniCPM5-2B-Q4_K_M.gguf",
+  "episode": "02_ne-mechom",
+  "packet_version": 6,
+  "arms": {
+    "C": {
+      "summary": {
+        "arm": "C: глава с контекстом",
+        "units_total": 142,
+        "answered": 122,
+        "answered_share": 0.859,
+        "subject_hit": 25,
+        "subject_hit_of_answered": 0.205,
+        "subject_hit_of_all": 0.176,
+        "era_ok_of_answered": 0.287,
+        "validator_rejects": 0,
+        "translation_shape": 0,
+        "distinct_briefs": 113,
+        "mean_jaccard_of_answered": 0.041
+      },
+      "rows": {
+        "0": {
+          "shot_en": "a shattered longsword blade on stone",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "1": {
+          "shot_en": "a muddy battlefield with fallen knights",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "2": {
+          "shot_en": "a rusted medieval helmet visor slit",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "3": {
+          "shot_en": "a museum display of broken armour",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "4": {
+          "shot_en": "a weathered manuscript knight illustration",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "5": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "6": {
+          "shot_en": "a cold stone floor",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "7": {
+          "shot_en": "a warrior's exhausted stance",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "8": {
+          "shot_en": "a heavy steel sword on a scale",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "9": {
+          "shot_en": "a battlefield with broken spears",
+          "subject_hit": true,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "10": {
+          "shot_en": "a single fallen knight",
+          "subject_hit": true,
+          "jaccard": 0.25,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "11": {
+          "shot_en": "a quiet room with a chair",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "12": {
+          "shot_en": "a museum plaque without a name",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "13": {
+          "shot_en": "a knight's foot on a stone",
+          "subject_hit": true,
+          "jaccard": 0.2,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "14": {
+          "shot_en": "a broken sword hilt",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "15": {
+          "shot_en": "a dark room with a single candle",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "16": {
+          "shot_en": "a cold iron scale on a stone floor",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "17": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "18": {
+          "shot_en": "a loose sandal on a padded seat",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "19": {
+          "shot_en": "a single rusted boot on a step",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "20": {
+          "shot_en": "a broken sandal on a reconstruction table",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "21": {
+          "shot_en": "a different sandal on a different step",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "22": {
+          "shot_en": "a heavy helmet on a head",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "23": {
+          "shot_en": "a sharp blade on a padded sleeve",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "24": {
+          "shot_en": "a heavy helmet on a shoulder",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "25": {
+          "shot_en": "a heavy helmet on a shoulder",
+          "subject_hit": true,
+          "jaccard": 0.5,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "26": {
+          "shot_en": "a worn leather book cover on a wooden shelf",
+          "subject_hit": true,
+          "jaccard": 0.091,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "27": {
+          "shot_en": "a dusty room with a single window",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "28": {
+          "shot_en": "a faded manuscript page with a battle scene",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "29": {
+          "shot_en": "a knight's left hand gripping a blade",
+          "subject_hit": true,
+          "jaccard": 0.429,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "30": {
+          "shot_en": "a short sword resting on a stone",
+          "subject_hit": true,
+          "jaccard": 0.167,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "31": {
+          "shot_en": "a heavy poleaxe in a dark corner",
+          "subject_hit": true,
+          "jaccard": 0.143,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "32": {
+          "shot_en": "two different books on a table",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "33": {
+          "shot_en": "a polished steel blade on a rack",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "34": {
+          "shot_en": "a long poleaxe with a hammer head",
+          "subject_hit": true,
+          "jaccard": 0.3,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "35": {
+          "shot_en": "a steel blade cutting through iron",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "36": {
+          "shot_en": "a heavy iron plate on a table",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "37": {
+          "shot_en": "a fallen sword lying in the mud",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "38": {
+          "shot_en": "a single word: falls",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "39": {
+          "shot_en": "a longbow resting on a stone table",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "40": {
+          "shot_en": "a smooth arrowhead caught in the wind",
+          "subject_hit": true,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "41": {
+          "shot_en": "a manuscript of medieval archery rules",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "42": {
+          "shot_en": "a worn sandal on a cobblestone path",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "43": {
+          "shot_en": "a single arrow piercing the air",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "44": {
+          "shot_en": "a spear thrust into a horse's flank",
+          "subject_hit": true,
+          "jaccard": 0.167,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "45": {
+          "shot_en": "a spearhead lodged in a helmet",
+          "subject_hit": true,
+          "jaccard": 0.143,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "46": {
+          "shot_en": "a spearhead pressed into a chest",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "47": {
+          "shot_en": "a spearhead in a pile of iron",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "48": {
+          "shot_en": "a spearhead in a hand",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "49": {
+          "shot_en": "a spearhead in a hand",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "50": {
+          "shot_en": "mud on worn leather",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "51": {
+          "shot_en": "fallen ground, no rider",
+          "subject_hit": true,
+          "jaccard": 0.143,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "52": {
+          "shot_en": "exhausted soldier, no armor",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "53": {
+          "shot_en": "exhausted soldier, no armor",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "54": {
+          "shot_en": "exhausted soldier, no armor",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "55": {
+          "shot_en": "exhausted soldier, no armor",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "56": {
+          "shot_en": "exhausted soldier, no armor",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "57": {
+          "shot_en": "exhausted soldier, no armor",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "58": {
+          "shot_en": "exhausted soldier, no armor",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "59": {
+          "shot_en": "a narrow field with no path ahead",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "60": {
+          "shot_en": "a worn boot on cracked earth, close up",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "61": {
+          "shot_en": "a wide view of scattered stones and empty hills",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "62": {
+          "shot_en": "a sweat-stained shirt on a flat surface",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "63": {
+          "shot_en": "a tired figure resting against a wall",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "64": {
+          "shot_en": "a broken spear shaft in the mud",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "65": {
+          "shot_en": "two rows of soldiers looking at each other",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "66": {
+          "shot_en": "a long sword resting on a stone",
+          "subject_hit": true,
+          "jaccard": 0.1,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "67": {
+          "shot_en": "a quiet room with a single chair",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "68": {
+          "shot_en": "a half-empty canteen on a table",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "69": {
+          "shot_en": "a wooden stake in the dirt",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "70": {
+          "shot_en": "a narrow path through tall grass",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "71": {
+          "shot_en": "a rusted iron gate",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "72": {
+          "shot_en": "a crowded room with no clear exit",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "73": {
+          "shot_en": "a torn leather belt",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "74": {
+          "shot_en": "a clenched fist",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "75": {
+          "shot_en": "a stack of books on a desk",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "76": {
+          "shot_en": "a single white shoe",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "77": {
+          "shot_en": "a muddy field with a broken leg",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "78": {
+          "shot_en": "a half-empty bottle",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "79": {
+          "shot_en": "a quiet room with a window",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "80": {
+          "shot_en": "a narrow medieval dagger blade on stone",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "81": {
+          "shot_en": "a warrior standing in a ruined hall",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "82": {
+          "shot_en": "a broken sword on a stone step",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "83": {
+          "shot_en": "a dagger blade, no sharp edge",
+          "subject_hit": true,
+          "jaccard": 0.286,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "84": {
+          "shot_en": "a dagger blade with two rings, close up",
+          "subject_hit": true,
+          "jaccard": 0.125,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "85": {
+          "shot_en": "a dagger blade, thin and sharp",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "86": {
+          "shot_en": "a heavy armor plate on a broken sword",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "87": {
+          "shot_en": "a knight approaching a ruined castle",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "88": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "89": {
+          "shot_en": "two tasks: one standing, one fallen",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "90": {
+          "shot_en": "a son and a broken sword",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "91": {
+          "shot_en": "a memory of a battle in a ruined field",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "92": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "93": {
+          "shot_en": "a gold coin hoard on a stone table",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "94": {
+          "shot_en": "a knight captive in a manuscript, close up",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "95": {
+          "shot_en": "a worn gold coin on a coin purse",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "96": {
+          "shot_en": "a prisoner lying in mud, close up",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "97": {
+          "shot_en": "a letter with two conditions, open",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "98": {
+          "shot_en": "a knight standing in a room, wide shot",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "99": {
+          "shot_en": "a prisoner looking at a coin, close up",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "100": {
+          "shot_en": "a prisoner in a cell, wide shot",
+          "subject_hit": true,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "101": {
+          "shot_en": "a coin on a table, close up",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "102": {
+          "shot_en": "a knight with a sword, wide shot",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "103": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "104": {
+          "shot_en": "a dry field in the foreground, empty",
+          "subject_hit": true,
+          "jaccard": 0.167,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "105": {
+          "shot_en": "a muddy path leading to a distant hill",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "106": {
+          "shot_en": "a faded map of a battlefield, held in a hand",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "107": {
+          "shot_en": "a worn leather glove resting on a saddle",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "108": {
+          "shot_en": "a shallow pond with reeds and a distant boat",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "109": {
+          "shot_en": "a cracked leather boot on a muddy bank",
+          "subject_hit": true,
+          "jaccard": 0.111,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "110": {
+          "shot_en": "a lone figure standing on a rocky outcrop",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "111": {
+          "shot_en": "a single stone, untouched by time",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "112": {
+          "shot_en": "a broken sword on a stone floor",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "113": {
+          "shot_en": "a lone figure in a muddy field",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "114": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "115": {
+          "shot_en": "a long line of soldiers in a dry riverbed",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "116": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "117": {
+          "shot_en": "a faded coat on a stone wall",
+          "subject_hit": true,
+          "jaccard": 0.143,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "118": {
+          "shot_en": "a black prince's empty throne",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "119": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "120": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "121": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "122": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "123": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "124": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "125": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "126": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "127": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "128": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "129": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "130": {
+          "shot_en": "a sword lying on a stone table",
+          "subject_hit": true,
+          "jaccard": 0.143,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "131": {
+          "shot_en": "a blade of steel against stone",
+          "subject_hit": true,
+          "jaccard": 0.167,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "132": {
+          "shot_en": "a spear piercing through a shield",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "133": {
+          "shot_en": "a hammer and a fallen warrior",
+          "subject_hit": true,
+          "jaccard": 0.5,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "134": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "135": {
+          "shot_en": "a warrior in armor",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "136": {
+          "shot_en": "a sword",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "137": {
+          "shot_en": "a fallen warrior",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "138": {
+          "shot_en": "a fallen warrior",
+          "subject_hit": true,
+          "jaccard": 0.5,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "139": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "140": {
+          "shot_en": "a siege wall",
+          "subject_hit": true,
+          "jaccard": 0.25,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "141": {
+          "shot_en": "a question",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        }
+      },
+      "director_stats": {
+        "chapters": 13,
+        "asked": 13,
+        "cache_hits": 0,
+        "rows": 122,
+        "rejected": 6,
+        "empty_chapters": 1,
+        "critique_asked": 0,
+        "critique_cache_hits": 0,
+        "critique_rewrites": 0,
+        "critique_shift_caught": 0
+      },
+      "rejected": [
+        {
+          "section": "BLOCK 7: ТОТ, КТО ПОДХОДИТ ПОСЛЕДНИМ",
+          "text": "Английские лучники при Азенкуре не остались стоять на холме ради красивого залпа",
+          "shot_en": "a poor man in muddy clothes",
+          "reason": "человек без привязки к миру канала"
+        },
+        {
+          "section": "BLOCK 10: ТО, ЧЕГО ВООБЩЕ НЕ ВИДНО",
+          "text": "Болезнь.",
+          "shot_en": "a sick man's cough in a narrow room",
+          "reason": "человек без привязки к миру канала"
+        },
+        {
+          "section": "BLOCK 10: ТО, ЧЕГО ВООБЩЕ НЕ ВИДНО",
+          "text": "Дизентерия выкашивала войска до всякого боя, и знатность от неё не защищала сове",
+          "shot_en": "a dying man's hand on a wooden table",
+          "reason": "человек без привязки к миру канала"
+        },
+        {
+          "section": "BLOCK 10: ТО, ЧЕГО ВООБЩЕ НЕ ВИДНО",
+          "text": "Два лучших полководца своего века. Ни одной боевой раны в причине смерти.",
+          "shot_en": "a wounded man's blood on a shield",
+          "reason": "человек без привязки к миру канала"
+        },
+        {
+          "section": "FINAL",
+          "text": "А убивала земля. Глина, которая не отпускает ногу. Вес своих же товарищей сверху",
+          "shot_en": "a fallen man on the ground",
+          "reason": "человек без привязки к миру канала"
+        },
+        {
+          "section": "FINAL",
+          "text": "Самая страшная секунда наступает не тогда, когда ломается броня. Она наступает, ",
+          "shot_en": "a breathing man",
+          "reason": "человек без привязки к миру канала"
+        }
+      ]
+    }
+  }
+}

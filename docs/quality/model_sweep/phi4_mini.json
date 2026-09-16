@@ -1,0 +1,1537 @@
+{
+  "model": "Phi-4-mini-instruct-Q4_K_M.gguf",
+  "episode": "02_ne-mechom",
+  "packet_version": 6,
+  "arms": {
+    "C": {
+      "summary": {
+        "arm": "C: глава с контекстом",
+        "units_total": 142,
+        "answered": 87,
+        "answered_share": 0.613,
+        "subject_hit": 18,
+        "subject_hit_of_answered": 0.207,
+        "subject_hit_of_all": 0.127,
+        "era_ok_of_answered": 0.609,
+        "validator_rejects": 0,
+        "translation_shape": 0,
+        "distinct_briefs": 87,
+        "mean_jaccard_of_answered": 0.034
+      },
+      "rows": {
+        "0": {
+          "shot_en": "silhouette of a knight falling, with a question mark above him|0|1",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "1": {
+          "shot_en": "a knight in full armor lying face down in the mud, with fallen pieces around him|0|2",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "2": {
+          "shot_en": "a single, shining piece of knight's armor|1|1",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "3": {
+          "shot_en": "a single knight standing up straight|2|0",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "4": {
+          "shot_en": "a determined expression on the knight's face|1|1",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "5": {
+          "shot_en": "a realistic medieval sword|0|1",
+          "subject_hit": true,
+          "jaccard": 0.125,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "6": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "7": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "8": {
+          "shot_en": "a broken sword lying on the ground with a shadow of a knight standing over it|0|1",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "9": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "10": {
+          "shot_en": "a shadowy figure sneaking up on a sleeping knight from behind|0|1",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "11": {
+          "shot_en": "three broken swords lying on the ground, with a shadow of a person pointing at them|0|1",
+          "subject_hit": true,
+          "jaccard": 0.077,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "12": {
+          "shot_en": "an open book with the word \"myth\" written on it, with various medieval weapons scattered around|0|1",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "13": {
+          "shot_en": "a confused expression on a person's face, with medieval weapons pointing at them|0|1",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "14": {
+          "shot_en": "a broken knight's shield with the word \"truth\" written on it in blood|0|1",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "15": {
+          "shot_en": "a broken knight's sword with the word \"preconception\" written on it in blood|0|1",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "16": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "17": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "18": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "19": {
+          "shot_en": "Knight in full armor, standing still",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "20": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "21": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "22": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "23": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "24": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "25": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "26": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "27": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "28": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "29": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "30": {
+          "shot_en": "A knight holding a longsword with his left hand, gripping the blade",
+          "subject_hit": true,
+          "jaccard": 0.111,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "31": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "32": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "33": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "34": {
+          "shot_en": "A blunt broadsword striking a target",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "35": {
+          "shot_en": "A poleaxe being used to strike a wooden shield",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "36": {
+          "shot_en": "A longsword being used to pierce through several layers of armor",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "37": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "38": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "39": {
+          "shot_en": "thousands of medieval arrows raining from the sky",
+          "subject_hit": true,
+          "jaccard": 0.111,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "40": {
+          "shot_en": "elegant depiction of arrows with a somber tone",
+          "subject_hit": true,
+          "jaccard": 0.125,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "41": {
+          "shot_en": "modern crossbow with 70kg draw weight",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "42": {
+          "shot_en": "French crossbowmen advancing on foot",
+          "subject_hit": true,
+          "jaccard": 0.25,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "43": {
+          "shot_en": "tightly spaced crossbowmen",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "44": {
+          "shot_en": "crossbowmen in defensive position",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "45": {
+          "shot_en": "dense mass of heavily armored men",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "46": {
+          "shot_en": "crowd of men with lowered heads and closed ranks",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "47": {
+          "shot_en": "tightly packed crowd of men with no movement",
+          "subject_hit": true,
+          "jaccard": 0.222,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "48": {
+          "shot_en": "crowd of men with no apparent escape",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "49": {
+          "shot_en": "crowd of men with lowered heads and no movement, overwhelmed by arrows",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "50": {
+          "shot_en": "a knight in heavy, rusted armor trudging through mud",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "51": {
+          "shot_en": "the ground covered in thick, clinging mud",
+          "subject_hit": true,
+          "jaccard": 0.111,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "52": {
+          "shot_en": "a fallen sword with a bent blade",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "53": {
+          "shot_en": "a close-up of a knight's gaunt face showing exhaustion",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "54": {
+          "shot_en": "exhausted soldiers retreating under enemy fire",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "55": {
+          "shot_en": "a lone knight with a broken weapon, looking defeated",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "56": {
+          "shot_en": "a line of advancing knights with their backs to the viewer",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "57": {
+          "shot_en": "a fallen knight with his armor scattered around",
+          "subject_hit": true,
+          "jaccard": 0.25,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "58": {
+          "shot_en": "a close-up of a knight's hand, barely able to hold his weapon up",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "59": {
+          "shot_en": "2|шаг за шагом|scene|knight steadily marching across a field",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "60": {
+          "shot_en": "1|accumulated weight|scene|layers of soil visibly disturbed by footsteps",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "61": {
+          "shot_en": "1|determination|scene|knight pauses, looking at his worn-out boots",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "62": {
+          "shot_en": "2|breathlessness|scene|knight stops, panting heavily, with a narrow view ahead",
+          "subject_hit": true,
+          "jaccard": 0.1,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "63": {
+          "shot_en": "1|relief|scene|knight takes a moment to rest, breathing deeply",
+          "subject_hit": true,
+          "jaccard": 0.091,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "64": {
+          "shot_en": "1|disarray|scene|front lines of knights in disorganized battle formation",
+          "subject_hit": true,
+          "jaccard": 0.222,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "65": {
+          "shot_en": "2|frustration|scene|knight struggles to maneuver his long weapon in tight space",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "66": {
+          "shot_en": "1|resignation|scene|knight, exhausted, follows orders without question",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "67": {
+          "shot_en": "2|fatigue|scene|knight, visibly tired, trudges along",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "68": {
+          "shot_en": "1|concern|scene|fallen knight beside the path, unnoticed by others",
+          "subject_hit": true,
+          "jaccard": 0.25,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "69": {
+          "shot_en": "crowd of knights struggling to move a fallen comrade",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "70": {
+          "shot_en": "knights in the midst of a challenging and exhausting effort",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "71": {
+          "shot_en": "a single knight's hand grappling with the weight",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "72": {
+          "shot_en": "another knight's weight pressing down on the first knight's hand",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "73": {
+          "shot_en": "knights in close proximity, unable to move each other",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "74": {
+          "shot_en": "knights pinned down by the weight of others, unable to escape",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "75": {
+          "shot_en": "chroniclers describing the immense and overwhelming weight",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "76": {
+          "shot_en": "members of French nobility succumbing to the weight",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "77": {
+          "shot_en": "a single knight overwhelmed by the weight, unable to breathe",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "78": {
+          "shot_en": "crowd of knights unable to move despite their efforts",
+          "subject_hit": true,
+          "jaccard": 0.111,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "79": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "80": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "81": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "82": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "83": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "84": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "85": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "86": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "87": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "88": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "89": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "90": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "91": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "92": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "93": {
+          "shot_en": "medieval armor being removed by two people",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "94": {
+          "shot_en": "French crown jewels and gold coins",
+          "subject_hit": true,
+          "jaccard": 0.333,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "95": {
+          "shot_en": "medieval checkbook with gold florins",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "96": {
+          "shot_en": "two men weighing on a medieval balance scale",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "97": {
+          "shot_en": "arrow with broadhead being removed from bow",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "98": {
+          "shot_en": "envelope with money and a sword in front of it",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "99": {
+          "shot_en": "medieval judge in court with a scribe taking notes",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "100": {
+          "shot_en": "two men in traditional Japanese clothing",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "101": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "102": {
+          "shot_en": "executioner poisoning prisoner with a dropper",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "103": {
+          "shot_en": "two men in medieval heraldry coats of arms shaking hands",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "104": {
+          "shot_en": "detailed illustration of muddy terrain and muddy soldiers",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "105": {
+          "shot_en": "French and Flemish soldiers struggling in the mud",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "106": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "107": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "108": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "109": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "110": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "111": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "112": {
+          "shot_en": "a medieval camp with tents and a somber atmosphere",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "113": {
+          "shot_en": "a knight standing solemnly in front of a tomb effigy",
+          "subject_hit": true,
+          "jaccard": 0.4,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "114": {
+          "shot_en": "a worn-out medieval manuscript with a faded page",
+          "subject_hit": true,
+          "jaccard": 0.111,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "115": {
+          "shot_en": "a desolate medieval monastery stone interior with decay",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "116": {
+          "shot_en": "a stack of ancient military maps and documents",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "117": {
+          "shot_en": "an old coin with the face of Henry V, 1422",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "118": {
+          "shot_en": "Edward the Black Prince in a regal yet somber pose",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "119": {
+          "shot_en": "two statues of renowned medieval generals with no battle scars",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "120": {
+          "shot_en": "a medieval battlefield with signs of disease and decay",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "121": {
+          "shot_en": "ancient human skulls unearthed at a medieval burial site",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "122": {
+          "shot_en": "detailed illustration of a medieval human skull",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "123": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "124": {
+          "shot_en": "-1|somber realization",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "125": {
+          "shot_en": "close-up illustration of the skulls with visible injuries",
+          "subject_hit": true,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "126": {
+          "shot_en": "-2|intense sadness",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "127": {
+          "shot_en": "-1|determined curiosity",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "128": {
+          "shot_en": "-1|reflective concern",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "129": {
+          "shot_en": "-1|cautious optimism",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "130": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "131": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "132": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "133": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "134": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "135": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "136": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "137": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "138": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "139": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "140": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "141": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        }
+      },
+      "director_stats": {
+        "chapters": 13,
+        "asked": 13,
+        "cache_hits": 0,
+        "rows": 87,
+        "rejected": 13,
+        "empty_chapters": 2,
+        "critique_asked": 0,
+        "critique_cache_hits": 0,
+        "critique_rewrites": 0,
+        "critique_shift_caught": 0
+      },
+      "rejected": [
+        {
+          "section": "BLOCK 1: ЛОЖЬ ПЕРВАЯ — «ДОСПЕХ БЫЛ ГРОБОМ»",
+          "text": "Книга писалась, чтобы его прославить, так что подвиг мог подрасти при пересказе.",
+          "shot_en": "Reenactor climbing a retractable ladder with full armor",
+          "reason": "блоклист канала (reenactor)"
+        },
+        {
+          "section": "BLOCK 1: ЛОЖЬ ПЕРВАЯ — «ДОСПЕХ БЫЛ ГРОБОМ»",
+          "text": "Теперь разверни это в другую сторону, и станет интереснее.",
+          "shot_en": "Reenactors in full armor, running, falling, and getting back up",
+          "reason": "блоклист канала (reenactor)"
+        },
+        {
+          "section": "BLOCK 1: ЛОЖЬ ПЕРВАЯ — «ДОСПЕХ БЫЛ ГРОБОМ»",
+          "text": "Представь драку, где у всех ножи, а тебе одному разрешили надеть защиту с головы",
+          "shot_en": "Mirror reflecting the armored reenactors, showing another side",
+          "reason": "блоклист канала (reenactor)"
+        },
+        {
+          "section": "BLOCK 1: ЛОЖЬ ПЕРВАЯ — «ДОСПЕХ БЫЛ ГРОБОМ»",
+          "text": "Удар, который вскрыл бы плечо человеку в рубахе, скользит по твоему наплечнику. ",
+          "shot_en": "Fencers in full armor, preparing for a match",
+          "reason": "блоклист канала (fencer)"
+        },
+        {
+          "section": "BLOCK 1: ЛОЖЬ ПЕРВАЯ — «ДОСПЕХ БЫЛ ГРОБОМ»",
+          "text": "Так что доспех не был обузой. Он был лучшим вложением в собственную жизнь, какое",
+          "shot_en": "Fencers in full armor, striking with foils, with no injury",
+          "reason": "блоклист канала (fencer)"
+        },
+        {
+          "section": "BLOCK 1: ЛОЖЬ ПЕРВАЯ — «ДОСПЕХ БЫЛ ГРОБОМ»",
+          "text": "Запомни и это тоже. Через десять минут именно доспех станет одной из причин смер",
+          "shot_en": "Reenactor putting on full armor, the weight and effort evident",
+          "reason": "блоклист канала (reenactor)"
+        },
+        {
+          "section": "BLOCK 2: ЛОЖЬ ВТОРАЯ — «МЕЧ БЫЛ ГЛАВНЫМ ОРУЖИЕМ»",
+          "text": "Открой любой фехтбух — учебник боя той эпохи. Талхоффер, Фиоре деи Либери, Кодек",
+          "shot_en": "Ancient fencing manual opened on a medieval table",
+          "reason": "блоклист канала (fencing)"
+        },
+        {
+          "section": "BLOCK 2: ЛОЖЬ ВТОРАЯ — «МЕЧ БЫЛ ГЛАВНЫМ ОРУЖИЕМ»",
+          "text": "Его берут левой рукой за клинок — прямо за лезвие, в латной перчатке это нормаль",
+          "shot_en": "Expert fencer demonstrating techniques in a dojo",
+          "reason": "блоклист канала (fencer)"
+        },
+        {
+          "section": "BLOCK 2: ЛОЖЬ ВТОРАЯ — «МЕЧ БЫЛ ГЛАВНЫМ ОРУЖИЕМ»",
+          "text": "А если и это не выходит, меч переворачивают. Берут за клинок обеими руками и бью",
+          "shot_en": "A fencer executing a parry with a longsword",
+          "reason": "блоклист канала (fencer)"
+        },
+        {
+          "section": "BLOCK 2: ЛОЖЬ ВТОРАЯ — «МЕЧ БЫЛ ГЛАВНЫМ ОРУЖИЕМ»",
+          "text": "Улавливаешь картину? Лучшие фехтовальщики Европы держат собственный меч не той с",
+          "shot_en": "A skilled fencer holding a sword with the back facing the opponent",
+          "reason": "блоклист канала (fencer)"
+        },
+        {
+          "section": "BLOCK 2: ЛОЖЬ ВТОРАЯ — «МЕЧ БЫЛ ГЛАВНЫМ ОРУЖИЕМ»",
+          "text": "Меч при этом никуда не делся. Его вручали при посвящении, носили на поясе всегда",
+          "shot_en": "A longsword being passed from one fencer to another",
+          "reason": "блоклист канала (fencer)"
+        },
+        {
+          "section": "BLOCK 6: ТЫ НЕ ВСТАЁШЬ",
+          "text": "У тебя может быть целый доспех, целый меч и ни одной смертельной раны. А распоря",
+          "shot_en": "a knight's full armor, symbolizing the weight of the situation",
+          "reason": "символ вместо вещи"
+        },
+        {
+          "section": "BLOCK 8: ТЫ СТОИШЬ ДЕНЕГ",
+          "text": "Вдумайся, что это означало по деньгам. Сжечь состояние, которое уже держишь в ру",
+          "shot_en": "broken katana sword",
+          "reason": "блоклист канала (katana)"
+        }
+      ]
+    }
+  }
+}

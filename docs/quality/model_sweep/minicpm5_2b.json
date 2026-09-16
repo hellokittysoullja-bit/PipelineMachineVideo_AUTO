@@ -1,0 +1,1458 @@
+{
+  "model": "MiniCPM5-2B-Q4_K_M.gguf",
+  "episode": "02_ne-mechom",
+  "packet_version": 6,
+  "arms": {
+    "C": {
+      "summary": {
+        "arm": "C: глава с контекстом",
+        "units_total": 142,
+        "answered": 0,
+        "answered_share": 0.0,
+        "subject_hit": 0,
+        "subject_hit_of_answered": 0.0,
+        "subject_hit_of_all": 0.0,
+        "era_ok_of_answered": 0.0,
+        "validator_rejects": 0,
+        "translation_shape": 0,
+        "distinct_briefs": 0,
+        "mean_jaccard_of_answered": 0.0
+      },
+      "rows": {
+        "0": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "1": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "2": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "3": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "4": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "5": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "6": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "7": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "8": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "9": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "10": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "11": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "12": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "13": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "14": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "15": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "16": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "17": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "18": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "19": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "20": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "21": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "22": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "23": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "24": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "25": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "26": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "27": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "28": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "29": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "30": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "31": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "32": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "33": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "34": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "35": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "36": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "37": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "38": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "39": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "40": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "41": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "42": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "43": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "44": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "45": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "46": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "47": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "48": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "49": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "50": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "51": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "52": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "53": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "54": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "55": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "56": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "57": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "58": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "59": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "60": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "61": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "62": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "63": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "64": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "65": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "66": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "67": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "68": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "69": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "70": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "71": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "72": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "73": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "74": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "75": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "76": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "77": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "78": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "79": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "80": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "81": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "82": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "83": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "84": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "85": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "86": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "87": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "88": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "89": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "90": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "91": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "92": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "93": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "94": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "95": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "96": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "97": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "98": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "99": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "100": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "101": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "102": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "103": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "104": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "105": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "106": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "107": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "108": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "109": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "110": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "111": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "112": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "113": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "114": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "115": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "116": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "117": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "118": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "119": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "120": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "121": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "122": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "123": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "124": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "125": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "126": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "127": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "128": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "129": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "130": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "131": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "132": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "133": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "134": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "135": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "136": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "137": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "138": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "139": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "140": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "141": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        }
+      },
+      "director_stats": {
+        "chapters": 13,
+        "asked": 13,
+        "cache_hits": 0,
+        "rows": 0,
+        "rejected": 0,
+        "empty_chapters": 13,
+        "critique_asked": 0,
+        "critique_cache_hits": 0,
+        "critique_rewrites": 0,
+        "critique_shift_caught": 0
+      },
+      "rejected": []
+    }
+  }
+}
