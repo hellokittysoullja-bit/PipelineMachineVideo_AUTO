@@ -445,6 +445,15 @@ def domain_anchor_words():
     skull from an archaeological excavation» и соседние), то есть весь
     блок эпизода про братскую могилу при Таутоне.
     """
+    # ВЫКЛЮЧАТЕЛЬ ДЕЙСТВУЕТ И ЗДЕСЬ. Найдено собственным предохранителем:
+    # SHOT_BRIEF_WORLD=off снимал доменное правило из ЗАДАНИЯ, но не из
+    # ПРОВЕРКИ — она по-прежнему читала словарь профиля и на
+    # психологическом сценарии зарубила 7 годных заявок из 17 («hand
+    # resting on desk», «empty chair beside desk»). Половинчатый
+    # выключатель хуже отсутствующего: задание больше не диктует чужой
+    # мир, а проверка всё ещё требует его слов.
+    if os.environ.get("SHOT_BRIEF_WORLD", "") == "off":
+        return ()
     try:
         import pipeline_smart
         words = pipeline_smart.CHANNEL_PROFILE.get("shot_domain", {}).get(

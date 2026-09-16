@@ -824,3 +824,31 @@ def test_world_can_be_switched_off_for_a_foreign_episode(monkeypatch):
     assert "МИР КАДРА" not in prompt
     for w in ("knight", "warrior", "armour"):
         assert w not in prompt.lower()
+
+
+def test_world_switch_reaches_the_validator_too(monkeypatch):
+    """Выключатель мира обязан действовать И в проверке, не только в задании.
+
+    Найдено собственным предохранителем на живом прогоне:
+    SHOT_BRIEF_WORLD=off снял доменное правило из задания, но проверка
+    по-прежнему читала словарь профиля и зарубила 7 годных заявок из 17
+    («hand resting on desk», «empty chair beside desk»). Половинчатый
+    выключатель хуже отсутствующего: задание уже не диктует чужой мир, а
+    проверка всё ещё требует его слов — и кадры пропадают молча.
+    """
+    import shot_planner_llm as p
+    psych = "a person sitting rigidly at a desk, shoulders tense"
+    assert not p.brief_is_safe(psych, "ф", blocklist=())[0]
+    monkeypatch.setenv("SHOT_BRIEF_WORLD", "off")
+    assert p.domain_anchor_words() == ()
+    assert p.brief_is_safe(psych, "ф", blocklist=())[0]
+
+
+def test_world_switch_off_does_not_weaken_this_channel(monkeypatch):
+    """Снятие выключателя возвращает строгость полностью."""
+    import shot_planner_llm as p
+    monkeypatch.setenv("SHOT_BRIEF_WORLD", "off")
+    monkeypatch.delenv("SHOT_BRIEF_WORLD")
+    assert p.domain_anchor_words()
+    assert not p.brief_is_safe("A man stepping onto a battlefield", "ф",
+                               blocklist=())[0]
