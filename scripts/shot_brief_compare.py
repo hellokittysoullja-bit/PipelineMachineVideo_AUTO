@@ -33,6 +33,35 @@ import shot_brief_eval as ev      # noqa: E402
 
 _W = re.compile(r"[a-z]+")
 
+# Крупность плана по словам самого брифа. Ось отвечает на прямой вопрос
+# «не выглядит ли это шаблонно»: система, у которой все кадры одной
+# крупности, читается как автомат независимо от того, верно ли назван
+# предмет. Замер 15.09: у эталона доля самой частой крупности 65%, у
+# пофразового режима 93% и НИ ОДНОГО крупного плана за эпизод.
+_CLOSE = ("close up", "close-up", "macro", "detail", "tip of", "point of")
+_WIDE = ("whole figure", "whole", "field", "landscape", "from above",
+         "battlefield", "interior", "panorama")
+
+
+def shot_scale(brief):
+    low = (brief or "").lower()
+    if any(k in low for k in _CLOSE):
+        return "крупный"
+    if any(k in low for k in _WIDE):
+        return "общий"
+    return "средний"
+
+
+def scale_profile(briefs):
+    """Доля самой частой крупности. Чем ближе к 1, тем однообразнее."""
+    if not briefs:
+        return None
+    counts = {}
+    for b in briefs:
+        k = shot_scale(b)
+        counts[k] = counts.get(k, 0) + 1
+    return round(max(counts.values()) / len(briefs), 3)
+
 
 def corpus_agrees(brief, limit=5):
     """Достаёт ли бриф из каталога предмет, который он и просил.
@@ -116,6 +145,8 @@ def main(argv):
                                           if not r["validator_ok"]),
                "пересказ фразы": sum(1 for r in said.values()
                                      if r["translation_shape"])}
+        row["однообразие крупностей"] = scale_profile(
+            [r["shot_en"] for r in said.values()])
         if a.corpus:
             vals = [corpus_agrees(r["shot_en"]) for r in said.values()]
             ok = [v for v in vals if v is not None]
@@ -149,6 +180,7 @@ def main(argv):
                 round(len(refs) / max(1, len(universe)), 3),
             "разных описаний": len(set(refs.values())),
             "отклонено проверкой": 0, "пересказ фразы": 0}
+    ctrl["однообразие крупностей"] = scale_profile(list(refs.values()))
     if a.corpus:
         vals = [corpus_agrees(v) for v in refs.values()]
         ok = [v for v in vals if v is not None]
