@@ -1,0 +1,9 @@
+1 | scene | a knight's foot pressing into wet earth, mud rising around it  
+2 | scene | a muddy trench with scattered soil clumps, footprints overlapping  
+3 | scene | a marching column of armored men, rear ranks approaching, front ranks holding line  
+4 | scene | a warrior's face in profile, sweat streaking down, breath visible in cold air  
+5 | scene | soldiers in front colliding, bodies shifting, rear ranks still advancing  
+6 | scene | a soldier in front motionless, one behind him with head down, eyes fixed forward  
+7 | scene | a long spear resting against a soldier's leg, blade pointing down  
+8 | scene | a soldier's hand gripping a worn leather belt, fingers clenched tight  
+9 | scene | a fallen soldier lying on the ground, another man stepping over him, feet close to his chest

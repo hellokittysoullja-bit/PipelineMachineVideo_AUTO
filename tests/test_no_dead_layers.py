@@ -40,6 +40,16 @@ import feature_flags  # noqa: E402
 # Публичные функции, сознательно НЕ достижимые из рабочих путей. Ключ —
 # "модуль.функция", значение — причина, которую обязан назвать автор.
 ALLOWED_UNREACHABLE = {
+    # Предел АНАЛИЗАТОРА, а не мёртвый слой: `ask` вызывается как
+    # `brain.ask(prompt, chapter_no)` — метод на объекте, выбранном в
+    # рантайме (LocalBrain / FileBrain). Граф по ast.Call такой диспетч
+    # не атрибутирует ни к одному классу. Проверено прогоном:
+    # shot_brief_director.run() зовёт его на каждой главе, и замер
+    # рук B/C/D целиком стоит на этом вызове.
+    "shot_brief_director.ask":
+        "метод интерфейса мозга, вызывается как brain.ask(...) из "
+        "shot_brief_director.run() — статический граф не видит диспетч "
+        "по объекту",
     **{f"level_regression.{f}":
        "обратный замер уровней по отрендеренному звуку — измерительная "
        "оснастка регрессии (tests/test_level_regression.py), в рендер не "
@@ -62,11 +72,6 @@ ALLOWED_UNREACHABLE = {
         "полная правка ударения в ТЕКСТЕ — сознательно не подключена к "
         "рендеру (см. CLAUDE.md: резы завязаны на [pause]-границы, не на "
         "слог). Живой путь использует detected_homographs() того же модуля",
-    "shot_brief_planner.channel_era_window": "исследовательский модуль локального "
-        "режиссёра (docs/quality/DIRECTOR_LOCAL_LLM.md) — в рендер не подключён",
-    "shot_brief_planner.generate": "то же",
-    "shot_brief_planner.load": "то же",
-    "shot_brief_planner.validate_brief": "то же",
     "visual_director.cache_signature":
         "вызывается через ССЫЛКУ НА МОДУЛЬ-ПАРАМЕТР "
         "(pipeline_smart._visual_director_cache_signature(director_ref)) — "
@@ -201,14 +206,13 @@ def _flag_read_sites():
     feature_flags.mode("X"), feature_flags.value("X"), os.environ.get("X"),
     os.getenv("X").
 
-    `value` добавлен 16.09 по РЕАЛЬНОМУ ложному срабатыванию, а не впрок:
-    `LUMA_MATCH` читается в pipeline_smart через `feature_flags.value()`,
-    и охранник объявлял живой флаг мёртвым. Ложная тревога здесь дороже
-    молчания: она учит не верить охраннику, после чего он перестаёт
-    ловить и настоящие находки. Список читателей обязан совпадать с тем,
-    что реально экспортирует feature_flags, — это проверяется отдельным
-    тестом ниже, иначе следующий новый читатель повторит ту же историю.
-    """
+    `value(` добавлен 15.09: без него гвард ложно объявлял мёртвым
+    `LUMA_MATCH`, который читается строкой
+    `feature_flags.value("LUMA_MATCH")` в pipeline_smart.luma_match_params().
+    Детектор знал три аксессора из четырёх, и четвёртый — не экзотика, а
+    штатный способ прочитать флаг со списком значений. Добавление может
+    только превратить ложное падение в проход: `value(` — настоящее
+    чтение, и мёртвый флаг им не замаскируешь."""
     sites = {}
     for fn in sorted(os.listdir(SCRIPTS_DIR)):
         if not fn.endswith(".py"):
