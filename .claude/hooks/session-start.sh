@@ -39,11 +39,27 @@ cd "${CLAUDE_PROJECT_DIR:-$(dirname "$0")/../..}" || exit 0
 PY="$(command -v python3 || command -v python)"
 [ -n "$PY" ] || { echo "[hook] python не найден"; exit 0; }
 
-echo "[hook] 1/3 зависимости проекта"
+# ffmpeg — СИСТЕМНАЯ зависимость этого проекта (PART 0, шаг B), а не
+# питоновская: на нём стоит вся сборка, подрезка пауз и разбор звука.
+# Пробел найден живым прогоном 16.09, а не чтением: без него
+# tests/test_clap_canary.py падает с FileNotFoundError: 'ffmpeg' — и это
+# было НЕ видно, пока в контейнере не было torch (тесты просто
+# пропускались раньше, чем доходили до ffmpeg). Ставится ПЕРВЫМ: без него
+# бессмысленна половина остального.
+echo "[hook] 1/4 ffmpeg (системная зависимость сборки)"
+if command -v ffmpeg >/dev/null 2>&1; then
+  echo "[hook] ffmpeg уже стоит"
+else
+  (apt-get install -y ffmpeg >/dev/null 2>&1 \
+    || (apt-get update >/dev/null 2>&1 && apt-get install -y ffmpeg >/dev/null 2>&1)) \
+    || echo "[hook] ffmpeg не поставлен — сборка и разбор звука не поедут"
+fi
+
+echo "[hook] 2/4 зависимости проекта"
 "$PY" -m pip install --quiet -r requirements.txt \
   || echo "[hook] requirements.txt не доставлен — часть тестов не пойдёт"
 
-echo "[hook] 2/3 движок локального режиссёра"
+echo "[hook] 3/4 движок локального режиссёра"
 if "$PY" -c 'import llama_cpp' 2>/dev/null; then
   echo "[hook] движок уже стоит"
 else
@@ -55,7 +71,7 @@ else
     || echo "[hook] движок не собрался — локальный режиссёр будет недоступен"
 fi
 
-echo "[hook] 3/3 модель (пропускается, если уже на месте)"
+echo "[hook] 4/4 модель (пропускается, если уже на месте)"
 "$PY" scripts/setup_local_director.py --yes \
   || echo "[hook] модель не поставлена — режиссёр назовёт команду установки сам"
 

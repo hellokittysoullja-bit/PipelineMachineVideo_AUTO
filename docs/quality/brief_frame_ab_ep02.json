@@ -1,0 +1,142 @@
+{
+  "summary": {
+    "slots_compared": 12,
+    "both_arms_got_a_frame": 12,
+    "frame_changed": 12,
+    "frame_changed_share": 1.0
+  },
+  "slots": [
+    {
+      "index": 0,
+      "text": "Тебя ещё не ранили. Вот что самое страшное.",
+      "section": "HOOK",
+      "query": "medieval knight plate armour closeup",
+      "brief_claude": "a knight in polished unmarked plate armour, whole figure, dark background",
+      "brief_local": "a medieval knight lying in muddy field, face down, armor cracked",
+      "claude_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0000_bf97b8dd_f76bfc7371.jpg",
+      "local_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0000_1496566d_f76bfc7371.jpg",
+      "frame_changed": true
+    },
+    {
+      "index": 3,
+      "text": "Тебе нужно всего лишь встать.",
+      "section": "HOOK",
+      "query": "medieval knight armour fallen mud",
+      "brief_claude": "an armoured leg harness and steel sabaton, close up, the weight of the foot",
+      "brief_local": "a knight standing upright in field, armor intact, dust on shoulders",
+      "claude_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0003_be817629_f76bfc7371.jpg",
+      "local_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0003_8af39701_f76bfc7371.jpg",
+      "frame_changed": true
+    },
+    {
+      "index": 6,
+      "text": "Ничего не произойдёт.",
+      "section": "HOOK",
+      "query": "medieval knight plate armour closeup",
+      "brief_claude": "a plain steel breastplate seen from the front, undamaged, dark background",
+      "brief_local": "a man in full plate armor standing still, no movement",
+      "claude_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0006_995a0da2_f76bfc7371.jpg",
+      "local_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0006_ea1d56d8_f76bfc7371.jpg",
+      "frame_changed": true
+    },
+    {
+      "index": 9,
+      "text": "Но рыцари умирали. При Азенкуре за несколько часов Франция потеряла тысячи людей, и это была не пехота. Это был цвет её знати, в лучших доспехах, какие вообще с",
+      "section": "HOOK",
+      "query": "medieval knight armour fallen mud",
+      "brief_claude": "a manuscript illumination of a battle between armoured knights",
+      "brief_local": "battlefield at Azencourt, 1415, soldiers in full armor, smoke rising",
+      "claude_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0009_526f799e_f76bfc7371.jpg",
+      "local_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0009_c77dbdeb_f76bfc7371.jpg",
+      "frame_changed": true
+    },
+    {
+      "index": 12,
+      "text": "Главного убийцу рыцарей нельзя выковать. Он не висит в музее под стеклом. У него нет клейма мастера и нет цены. Ты не найдёшь его ни в одном каталоге средневеко",
+      "section": "HOOK",
+      "query": "medieval knight plate armour closeup",
+      "brief_claude": "an armourer's maker mark stamped into a steel armour plate, close up",
+      "brief_local": "a dark shadow under armor, no visible figure, in field of battle",
+      "claude_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0012_b0cb6740_f76bfc7371.jpg",
+      "local_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0012_3c799159_f76bfc7371.jpg",
+      "frame_changed": true
+    },
+    {
+      "index": 16,
+      "text": "Ты наверняка слышал: рыцарь весил как холодильник, на коня его поднимали краном, а если он падал — лежал как перевёрнутая черепаха и ждал, пока придут и добьют.",
+      "section": "BLOCK 1: ЛОЖЬ ПЕРВАЯ — «ДОСПЕХ БЫЛ ГРОБОМ»",
+      "query": "medieval plate armour museum",
+      "brief_claude": "a complete heavy plate armour standing, whole figure",
+      "brief_local": "medieval knight in full plate armour falling on stone ground, motion blurred",
+      "claude_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0016_3598e9cd_f76bfc7371.jpg",
+      "local_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0016_67724a76_f76bfc7371.jpg",
+      "frame_changed": true
+    },
+    {
+      "index": 19,
+      "text": "Про маршала Бусико его жизнеописание рассказывает, что в полном доспехе он забирался по приставной лестнице на одних руках, без ног.",
+      "section": "BLOCK 1: ЛОЖЬ ПЕРВАЯ — «ДОСПЕХ БЫЛ ГРОБОМ»",
+      "query": "medieval plate armour museum",
+      "brief_claude": "an articulated steel arm defence with an elbow couter, the joint",
+      "brief_local": "a knight climbing a ladder on one hand, full armor visible, ladder leaning against wall",
+      "claude_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0019_09d029a8_f76bfc7371.jpg",
+      "local_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0019_01a7e8ee_f76bfc7371.jpg",
+      "frame_changed": true
+    },
+    {
+      "index": 22,
+      "text": "Представь драку, где у всех ножи, а тебе одному разрешили надеть защиту с головы до ног. Ты ведь не станешь ныть, что она тяжёлая? Ты спросишь, надёжно ли закры",
+      "section": "BLOCK 1: ЛОЖЬ ПЕРВАЯ — «ДОСПЕХ БЫЛ ГРОБОМ»",
+      "query": "medieval plate armour museum",
+      "brief_claude": "a steel gorget and bevor covering the throat and the neck",
+      "brief_local": "knight in full armor standing with sword, looking at his neck guard with focused expression",
+      "claude_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0022_56394f02_f76bfc7371.jpg",
+      "local_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0022_29b9f8d8_f76bfc7371.jpg",
+      "frame_changed": true
+    },
+    {
+      "index": 25,
+      "text": "Запомни и это тоже. Через десять минут именно доспех станет одной из причин смерти — и не потому, что он подвёл.",
+      "section": "BLOCK 1: ЛОЖЬ ПЕРВАЯ — «ДОСПЕХ БЫЛ ГРОБОМ»",
+      "query": "medieval plate armour museum",
+      "brief_claude": "a heavy closed helmet seen from the front, dark",
+      "brief_local": "knight lying on ground, armor cracked at the back, showing visible damage and blood drip",
+      "claude_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0025_b64e1a34_f76bfc7371.jpg",
+      "local_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0025_ae37b1d2_f76bfc7371.jpg",
+      "frame_changed": true
+    },
+    {
+      "index": 28,
+      "text": "Мечом почти не рубят.",
+      "section": "BLOCK 2: ЛОЖЬ ВТОРАЯ — «МЕЧ БЫЛ ГЛАВНЫМ ОРУЖИЕМ»",
+      "query": "medieval poleaxe weapon",
+      "brief_claude": "a European sword lying still, the whole blade",
+      "brief_local": "a dull, rusted sword blade lying on stone, no sharp edge visible",
+      "claude_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0028_4d3e5967_f76bfc7371.jpg",
+      "local_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0028_ef8a4759_f76bfc7371.jpg",
+      "frame_changed": true
+    },
+    {
+      "index": 31,
+      "text": "А если и это не выходит, меч переворачивают. Берут за клинок обеими руками и бьют противника рукоятью — тяжёлым навершием или крестовиной, как молотком. У немце",
+      "section": "BLOCK 2: ЛОЖЬ ВТОРАЯ — «МЕЧ БЫЛ ГЛАВНЫМ ОРУЖИЕМ»",
+      "query": "medieval poleaxe weapon",
+      "brief_claude": "a heavy sword pommel and cross guard, close up",
+      "brief_local": "a sword with pommel and crossguard, held vertically, striking a wooden dummy",
+      "claude_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0031_b1114ea0_f76bfc7371.jpg",
+      "local_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0031_be3dd046_f76bfc7371.jpg",
+      "frame_changed": true
+    },
+    {
+      "index": 34,
+      "text": "Первым инструментом был полэкс. Длинное древко, на конце молот с одной стороны и клюв или топорик с другой, часто ещё шип сверху. Тяжёлый, некрасивый, страшно д",
+      "section": "BLOCK 2: ЛОЖЬ ВТОРАЯ — «МЕЧ БЫЛ ГЛАВНЫМ ОРУЖИЕМ»",
+      "query": "medieval poleaxe weapon",
+      "brief_claude": "a pole weapon with a hammer head, a beak and a top spike on a long shaft",
+      "brief_local": "a long poleaxe with hammer end and hooked tip, standing upright on ground",
+      "claude_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0034_3c23158d_f76bfc7371.jpg",
+      "local_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0034_a86a850d_f76bfc7371.jpg",
+      "frame_changed": true
+    }
+  ]
+}
