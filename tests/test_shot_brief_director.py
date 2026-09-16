@@ -852,3 +852,30 @@ def test_world_switch_off_does_not_weaken_this_channel(monkeypatch):
     assert p.domain_anchor_words()
     assert not p.brief_is_safe("A man stepping onto a battlefield", "ф",
                                blocklist=())[0]
+
+
+# --- УСТАНОВЩИК ЛОКАЛЬНОГО РЕЖИССЁРА ----------------------------------------
+
+@pytest.mark.parametrize("ram,expect", [
+    (64.0, "30b"), (32.0, "30b"), (16.0, "30b"),
+    (15.0, "30b"),          # ровно граница: замерено, что влезает
+    (14.9, "4b"), (8.0, "4b"), (4.0, "4b"),
+    (None, "4b"),           # не смогли измерить — берём ту, что влезет всюду
+])
+def test_setup_picks_model_by_memory(ram, expect):
+    import setup_local_director as s
+    assert s.pick(ram) == expect
+
+
+def test_setup_respects_manual_choice():
+    import setup_local_director as s
+    assert s.pick(4.0, forced="30b") == "30b"
+
+
+def test_setup_numbers_match_the_measurement():
+    """Числа в установщике — те же, что в отчёте. Разойдись они, человек
+    выбирал бы модель по устаревшему обещанию."""
+    import setup_local_director as s
+    assert s.MODELS["30b"]["score"] == 69
+    assert s.MODELS["4b"]["score"] == 63
+    assert s.MODELS["4b"]["gb"] < s.MODELS["30b"]["gb"] / 4
