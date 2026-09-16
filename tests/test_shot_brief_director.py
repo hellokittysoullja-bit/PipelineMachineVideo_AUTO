@@ -516,3 +516,40 @@ def test_other_niche_stock_queries_stay_clean(monkeypatch):
         q = ps.brief_to_stock_query(b)
         assert "medieval" not in q and "knight" not in q, q
         assert q.split()[0] in b.lower()
+
+
+# --- СЛЕПОЙ ЛИСТ РАЗМЕТКИ ---------------------------------------------------
+#
+# Единственный способ узнать, чей бриф лучше, — глаза владельца. Всё
+# остальное в этом замере считано против эталона, который написал Claude
+# в прошлой сессии, то есть рука «Claude» отчасти мерит саму себя.
+
+def test_marking_sheet_letters_are_deterministic():
+    """Один и тот же лист обязан собираться одинаково: иначе разметку
+    нельзя расшифровать ключом, снятым при прошлом запуске."""
+    import brief_marking_sheet as ms
+    a = ms._order("Рыцарей убивала земля.", 5)
+    b = ms._order("Рыцарей убивала земля.", 5)
+    assert a == b and sorted(a) == list(range(5))
+
+
+def test_marking_sheet_has_no_positional_bias():
+    """Порядок букв обязан быть СВОЙ у каждой фразы.
+
+    Фиксированный порядок означал бы, что «А» — всегда одна и та же
+    система, и привычка руки заменила бы суждение. Проверяется на
+    реальных фразах эпизода, а не на выдуманных строках.
+    """
+    import collections
+    import brief_marking_sheet as ms
+    import script_parser
+    blocks = script_parser.parse_blocks(
+        os.path.join(REPO, "videos", "02_ne-mechom", "script.txt"))
+    first = collections.Counter()
+    for b in blocks:
+        text = (b.get("text") or "").strip()
+        if text:
+            first[ms._order(text, 5)[0]] += 1
+    # ни одна система не должна стоять первой чаще, чем в половине случаев
+    assert max(first.values()) < len(list(first.elements())) * 0.5, first
+    assert len(first) == 5, "не все позиции встречаются первыми"
