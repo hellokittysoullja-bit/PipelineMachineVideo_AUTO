@@ -868,20 +868,70 @@ def write_inline(video_dir, blocks, found, dry_run=False):
     return placed, skipped
 
 
+# Куда setup_local_director.py кладёт модель и что он туда кладёт. Имена
+# продублированы СОЗНАТЕЛЬНО не копией словаря: импортировать оттуда
+# значило бы тянуть в рендер argparse-скрипт установки. Порядок — это
+# ПРЕДПОЧТЕНИЕ по замеру (69 против 63 на срезе 116 юнитов), а не список
+# разрешённых: любой другой .gguf в папке тоже берётся, если этих нет.
+MODELS_DIR_NAME = "models"
+PREFERRED_MODELS = (
+    "Qwen3-30B-A3B-Instruct-2507-Q3_K_S.gguf",
+    "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+)
+
+
+def find_model(explicit=None):
+    """Файл модели без единого флага в обычном случае.
+
+    Порядок: явный --model -> LLAMA_MODEL_GGUF -> models/ рядом с репо.
+    Внутри папки сначала замеренные предпочтения, потом ЛЮБОЙ .gguf в
+    алфавитном порядке — детерминированно, а не «первый попавшийся от
+    файловой системы»: два прогона на одной машине обязаны взять один
+    файл, иначе план молча собран другим мозгом.
+
+    Возвращает путь или None. Решение «что делать без модели» принимает
+    вызывающий: у замера и у рендера оно разное.
+    """
+    for cand in (explicit, os.environ.get("LLAMA_MODEL_GGUF")):
+        if cand and os.path.exists(cand):
+            return cand
+    d = os.path.join(REPO, MODELS_DIR_NAME)
+    if not os.path.isdir(d):
+        return None
+    have = {f for f in os.listdir(d) if f.lower().endswith(".gguf")}
+    for name in PREFERRED_MODELS:
+        if name in have:
+            return os.path.join(d, name)
+    rest = sorted(have)
+    return os.path.join(d, rest[0]) if rest else None
+
+
+
 def main(argv):
     ap = argparse.ArgumentParser(
         description="Режиссёрская разработка главы: контекст вместо фразы")
     ap.add_argument("video_dir")
     ap.add_argument("--brain", choices=("local", "file", "packets"),
-                    default="packets")
+                    default="local",
+                    help="по умолчанию local: модель ищется сама "
+                         "(--model, LLAMA_MODEL_GGUF, models/*.gguf)")
     ap.add_argument("--answers", help="папка с ответами для --brain file")
-    ap.add_argument("--model", default=os.environ.get("LLAMA_MODEL_GGUF", ""))
+    ap.add_argument("--model", default=None,
+                    help="файл .gguf; по умолчанию ищется сам")
     ap.add_argument("--threads", type=int, default=4)
     ap.add_argument("--out-packets", help="куда выложить промпты глав")
     ap.add_argument("--no-cache", action="store_true")
-    ap.add_argument("--write-inline", action="store_true",
-                    help="проставить [shot:...] прямо в script.txt "
-                         "(делается .bak, брифы автора не трогаются)")
+    # Запись включена ПО УМОЛЧАНИЮ: план на диске, который никто не
+    # применил, — это ровно тот класс «слой есть, и его никто не зовёт»,
+    # которым репозиторий горел шесть раз. Безопасность даёт не флаг, а
+    # устройство: .bak перед записью, бриф автора не трогается никогда,
+    # заявка, не прошедшая brief_is_safe(), не пишется вовсе.
+    ap.add_argument("--no-inline", dest="write_inline", action="store_false",
+                    help="только план, НЕ трогать script.txt")
+    ap.add_argument("--write-inline", dest="write_inline",
+                    action="store_true",
+                    help=argparse.SUPPRESS)   # совместимость со старой строкой
+    ap.set_defaults(write_inline=True)
     ap.add_argument("--vocabulary", action="store_true",
                     help="подать режиссёру реальные имена предметов из "
                          "каталога Мет (шаг «слово автора -> слово каталога»)")
@@ -902,10 +952,16 @@ def main(argv):
         return 0
 
     if a.brain == "local":
-        if not a.model or not os.path.exists(a.model):
-            print("Нет модели: --model <файл.gguf> или LLAMA_MODEL_GGUF")
+        model = find_model(a.model)
+        if not model:
+            print("Модели нет. Поставить одной командой:\n"
+                  "    python scripts/setup_local_director.py\n"
+                  "Она сама выберет размер под память машины и положит файл "
+                  f"в {MODELS_DIR_NAME}/. После этого команда выше работает "
+                  "без единого флага.")
             return 2
-        brain = LocalBrain(a.model, n_threads=a.threads)
+        print(f"Мозг: {os.path.basename(model)}")
+        brain = LocalBrain(model, n_threads=a.threads)
     else:
         if not a.answers:
             print("Нужна --answers <папка с ответами>")

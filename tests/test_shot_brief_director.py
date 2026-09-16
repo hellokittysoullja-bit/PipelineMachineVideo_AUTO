@@ -5,6 +5,7 @@
 неё он падает. Тест, который зелен и с правкой, и без неё, не защищает
 ничего — этот урок в репозитории уже оплачен трижды.
 """
+import re
 import os
 import sys
 
@@ -41,18 +42,20 @@ def test_plan_key_survives_missing_model_env(monkeypatch):
     assert blocks[0]["shot_brief"] == "a steel sabaton on bare earth"
 
 
-def test_cache_key_still_separates_models(monkeypatch):
-    """А вот КЭШ ОТВЕТА обязан зависеть от модели и версии промпта:
-    иначе новая модель молча отдавала бы ответ старой."""
-    import importlib
-    import shot_planner_llm as p
-    phrase = "Тебе нужно всего лишь встать."
-    monkeypatch.setenv("LLAMA_MODEL_GGUF", "/models/a.gguf")
-    importlib.reload(p)
-    a = p.cache_key(phrase)
-    monkeypatch.setenv("LLAMA_MODEL_GGUF", "/models/b.gguf")
-    importlib.reload(p)
-    assert p.cache_key(phrase) != a
+def test_cache_key_still_separates_brain_and_prompt():
+    """А вот КЭШ ОТВЕТА обязан зависеть и от мозга, и от версии пакета:
+    иначе новая модель молча отдавала бы ответ старой, а переписанный
+    промпт наследовал бы ответы, снятые по прежним правилам.
+
+    Гарантия переехала с пофразового автомата на главу вместе с мозгом;
+    сам автомат удалён (16.09), а требование к ключу осталось прежним."""
+    import shot_brief_director as d
+    packet = _packet([{"n": 1, "text": "Тебе нужно всего лишь встать."}])
+    a = d._cache_key(packet, "qwen3-30b")
+    assert d._cache_key(packet, "qwen3-4b") != a, "мозг не входит в ключ"
+
+    other = _packet([{"n": 1, "text": "Другая фраза целиком."}])
+    assert d._cache_key(other, "qwen3-30b") != a, "текст главы не входит в ключ"
 
 
 def _packet(units, section="BLOCK 4: ОТВЕТ"):
@@ -879,3 +882,147 @@ def test_setup_numbers_match_the_measurement():
     assert s.MODELS["30b"]["score"] == 69
     assert s.MODELS["4b"]["score"] == 63
     assert s.MODELS["4b"]["gb"] < s.MODELS["30b"]["gb"] / 4
+
+
+class TestSamplingIsDeterministic:
+    """Гарантия переехала сюда вместе с мозгом (16.09).
+
+    Найдено внешней оценкой и подтверждено проверкой: у llama.cpp `--seed`
+    по умолчанию -1 (случайный), а температура у прежнего пофразового
+    автомата стояла 0.2 — не ноль. Значит сравнение промптов v2 и v3 было
+    НЕВОСПРОИЗВОДИМЫМ, и разница могла оказаться шумом выборки, а не
+    эффектом правки.
+
+    Планирование — не творческая задача: на один и тот же вопрос нужен
+    один и тот же ответ, иначе теряет смысл и сравнение версий, и план,
+    который эпизод переиспользует между прогонами.
+
+    Проверяется ИСХОДНИКОМ, а не живым вызовом: llama_cpp — опциональная
+    зависимость, и тест, молча пропускающийся без неё, не сторожил бы
+    ничего именно в том окружении, где мозг работает.
+    """
+
+    def _local_brain_source(self):
+        import inspect
+        import shot_brief_director as d
+        return inspect.getsource(d.LocalBrain)
+
+    def test_seed_default_is_fixed_never_random(self):
+        import inspect
+        import shot_brief_director as d
+        sig = inspect.signature(d.LocalBrain.__init__)
+        seed = sig.parameters["seed"].default
+        assert isinstance(seed, int)
+        assert seed >= 0, "seed=-1 у llama.cpp означает случайный"
+
+    def test_every_generation_call_pins_temperature_and_seed(self):
+        src = self._local_brain_source()
+        calls = [m for m in re.finditer(r"self\.llm\.create_\w+\(", src)]
+        assert calls, "не нашлось ни одного вызова генерации — тест ослеп"
+        for m in calls:
+            tail = src[m.start():m.start() + 400]
+            assert "temperature=0.0" in tail, tail[:200]
+            assert "seed=self.seed" in tail, tail[:200]
+
+
+class TestModelIsFoundWithoutFlags:
+    """«Полностью в коде навсегда»: обычный запуск — одна команда без
+    флагов. Поиск модели обязан быть ДЕТЕРМИНИРОВАННЫМ: два прогона на
+    одной машине, взявшие разные файлы, дали бы план от разных мозгов, и
+    сравнить их было бы нечем.
+    """
+
+    def _dir(self, tmp_path, monkeypatch, names):
+        import shot_brief_director as d
+        monkeypatch.delenv("LLAMA_MODEL_GGUF", raising=False)
+        models = tmp_path / d.MODELS_DIR_NAME
+        models.mkdir()
+        for n in names:
+            (models / n).write_bytes(b"x")
+        monkeypatch.setattr(d, "REPO", str(tmp_path))
+        return d
+
+    def test_explicit_path_wins_over_everything(self, tmp_path, monkeypatch):
+        d = self._dir(tmp_path, monkeypatch, d_names := ["Qwen3-4B-Instruct-2507-Q4_K_M.gguf"])
+        mine = tmp_path / "mine.gguf"
+        mine.write_bytes(b"x")
+        monkeypatch.setenv("LLAMA_MODEL_GGUF", str(tmp_path / d_names[0]))
+        assert d.find_model(str(mine)) == str(mine)
+
+    def test_env_wins_over_directory(self, tmp_path, monkeypatch):
+        d = self._dir(tmp_path, monkeypatch, ["Qwen3-4B-Instruct-2507-Q4_K_M.gguf"])
+        env = tmp_path / "env.gguf"
+        env.write_bytes(b"x")
+        monkeypatch.setenv("LLAMA_MODEL_GGUF", str(env))
+        assert d.find_model(None) == str(env)
+
+    def test_missing_explicit_path_falls_through_not_crashes(self, tmp_path, monkeypatch):
+        """Опечатка в --model не должна ронять прогон молчаливым исключением
+        и не должна выдавать несуществующий путь за найденную модель."""
+        d = self._dir(tmp_path, monkeypatch, ["Qwen3-4B-Instruct-2507-Q4_K_M.gguf"])
+        got = d.find_model("/нет/такого.gguf")
+        assert got and os.path.exists(got)
+
+    def test_measured_preference_order(self, tmp_path, monkeypatch):
+        """30B замерена выше 4B (69 против 63) — при обеих на диске берётся
+        она, а не алфавит (по алфавиту первой была бы 30B случайно, поэтому
+        проверяется и обратный порядок имён)."""
+        d = self._dir(tmp_path, monkeypatch, [
+            "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+            "Qwen3-30B-A3B-Instruct-2507-Q3_K_S.gguf",
+            "aaa-first-in-alphabet.gguf",
+        ])
+        assert os.path.basename(d.find_model(None)) == d.PREFERRED_MODELS[0]
+
+    def test_unknown_model_is_taken_deterministically(self, tmp_path, monkeypatch):
+        """Чужой .gguf тоже берётся — список предпочтений это не белый
+        список. Но при нескольких выбор обязан быть воспроизводимым."""
+        d = self._dir(tmp_path, monkeypatch, ["zeta.gguf", "alpha.gguf"])
+        first = d.find_model(None)
+        assert os.path.basename(first) == "alpha.gguf"
+        assert d.find_model(None) == first
+
+    def test_no_directory_is_none_not_exception(self, tmp_path, monkeypatch):
+        import shot_brief_director as d
+        monkeypatch.delenv("LLAMA_MODEL_GGUF", raising=False)
+        monkeypatch.setattr(d, "REPO", str(tmp_path / "нет"))
+        assert d.find_model(None) is None
+
+    def test_non_gguf_files_are_ignored(self, tmp_path, monkeypatch):
+        d = self._dir(tmp_path, monkeypatch, [])
+        (tmp_path / d.MODELS_DIR_NAME / "README.md").write_text("не модель")
+        assert d.find_model(None) is None
+
+
+class TestInlineWriteIsTheDefault:
+    """План на диске, который никто не применил, — это ровно тот класс
+    «слой есть, и его никто не зовёт», которым репозиторий горел шесть раз
+    (Openverse, Pixabay, Unsplash, reveal-акценты, filter_alt_blocklist,
+    DEFLICKER). Поэтому запись включена по умолчанию, а выключается явно.
+    """
+
+    def _parser_defaults(self):
+        import argparse
+        import shot_brief_director as d
+        parsed = {}
+        real = argparse.ArgumentParser.parse_args
+
+        def spy(self, args=None, namespace=None):
+            ns = real(self, args, namespace)
+            parsed["ns"] = ns
+            raise SystemExit(0)
+        argparse.ArgumentParser.parse_args = spy
+        try:
+            try:
+                d.main(["x", "somewhere"])
+            except SystemExit:
+                pass
+        finally:
+            argparse.ArgumentParser.parse_args = real
+        return parsed["ns"]
+
+    def test_write_inline_defaults_on(self):
+        assert self._parser_defaults().write_inline is True
+
+    def test_brain_defaults_to_local(self):
+        assert self._parser_defaults().brain == "local"

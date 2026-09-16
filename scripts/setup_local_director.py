@@ -49,8 +49,12 @@ def total_ram_gb():
     except OSError:
         pass
     try:                                  # macOS
+        # encoding задан явно: без него text=True берёт кодировку локали,
+        # и вывод ломается там, где она не UTF-8 (правило аудита 04.09,
+        # заперто tests/test_audit_fixes.py).
         out = subprocess.run(["sysctl", "-n", "hw.memsize"],
-                             capture_output=True, text=True, timeout=10)
+                             capture_output=True, text=True,
+                             encoding="utf-8", errors="replace", timeout=10)
         if out.returncode == 0:
             return int(out.stdout.strip()) / 2**30
     except Exception:
@@ -137,10 +141,16 @@ def main(argv):
     py = os.path.basename(sys.executable)
     print("\n" + "=" * 62)
     print("ГОТОВО. Запускать на каждый эпизод так:\n")
-    print(f"  {py} scripts/shot_brief_director.py videos/NN_название \\")
-    print(f"      --brain local --model {dest} --write-inline")
-    print("\nОписания кадров встанут прямо в script.txt, и дальше сборка")
-    print("пойдёт как обычно — ни плана, ни флагов не нужно.")
+    print(f"  {py} scripts/shot_brief_director.py videos/NN_название")
+    print("\nБез единого флага: модель найдётся сама в этой папке, описания")
+    print("кадров встанут прямо в script.txt, и дальше сборка пойдёт как")
+    print("обычно. Перед записью делается .bak, брифы автора не трогаются.")
+    if os.path.abspath(os.path.dirname(dest)) != os.path.join(
+            os.path.abspath(os.path.dirname(os.path.dirname(
+                os.path.abspath(__file__)))), "models"):
+        # Модель положили НЕ туда, где её ищет режиссёр: команда выше без
+        # флага её не найдёт, и молчать об этом нельзя.
+        print(f"\nМодель лежит вне models/ — добавь к команде: --model {dest}")
     print("\nЕсли эпизод НЕ про нишу этого канала — добавить SHOT_BRIEF_WORLD=off,")
     print("иначе объявленный мир канала будет диктовать кадры.")
     print("=" * 62)

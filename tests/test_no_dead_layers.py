@@ -50,9 +50,6 @@ ALLOWED_UNREACHABLE = {
         "метод интерфейса мозга, вызывается как brain.ask(...) из "
         "shot_brief_director.run() — статический граф не видит диспетч "
         "по объекту",
-    "shot_brief_eval.ask_system":
-        "то же самое у измерительной оснастки: EvalBrain.ask_system "
-        "вызывается из arm_per_phrase() через объект brain",
     **{f"level_regression.{f}":
        "обратный замер уровней по отрендеренному звуку — измерительная "
        "оснастка регрессии (tests/test_level_regression.py), в рендер не "

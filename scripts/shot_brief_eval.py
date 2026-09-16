@@ -13,14 +13,24 @@
 самосогласованностью на неизвестную величину. Сравнение между руками,
 не родственными эталону, оговорка не трогает.
 
-ТРИ РУКИ, ОДНА ПЕРЕМЕННАЯ:
+РУКИ, ОДНА ПЕРЕМЕННАЯ:
   A. запрос секции      — то, чем слот обходился до всякого режиссёра;
-  B. пофразовый промпт  — сегодняшний shot_planner_llm (v3), фраза одна;
-  C. глава с контекстом — shot_brief_director, та же модель, тот же движок.
+  C. глава с контекстом — shot_brief_director, та же модель, тот же движок;
+  D. глава с контекстом, мозг — из файлов (человек или Claude).
 
-B и C идут через ОДИН объект LocalBrain: одна модель, одна квантовка, один
-seed, temperature 0. Различается ровно одно — что модель видит на входе.
-Иначе сравнение мерило бы разницу движков, а не разницу постановки.
+РУКА B (пофразовый промпт) УДАЛЕНА 16.09 ВМЕСТЕ С САМИМ АВТОМАТОМ.
+Её числа не потеряны и названы вместе со срезом, на котором сняты
+(116 юнитов, главы 03-13 эпизода 02, тот же эталон и тот же харнесс):
+в проде она давала 49 попаданий против 58 у запроса секции (рука A) и 69
+у лучшей локальной главы с контекстом — то есть проигрывала даже тому,
+что было ДО неё, и держала 92% кадров одной крупности.
+Держать руку, зовущую удалённый код, значило бы иметь красный замер,
+который никто не запускает; числа живут в docs/quality/SHOT_BRIEF_DIRECTOR.md.
+
+A и C сравнимы потому, что C идёт через ОДИН объект LocalBrain: одна
+модель, одна квантовка, один seed, temperature 0. Различается ровно одно
+— что модель видит на входе. Иначе сравнение мерило бы разницу движков,
+а не разницу постановки.
 
 ЧЕСТНАЯ ГРАНИЦА ГЛАВНОЙ МЕТРИКИ, названная до чисел. `subject_hit` —
 это совпадение ПРЕДМЕТА с эталонным брифом. Совпало — кадр почти наверняка
@@ -148,31 +158,6 @@ def arm_section_query(video_dir, blocks):
     return out
 
 
-# --- РУКА B: пофразовый промпт v3 через тот же движок -----------------------
-
-def arm_per_phrase(brain, blocks, limit=None, verbose=True):
-    """Сегодняшний shot_planner_llm: одна фраза, ноль контекста.
-
-    Промпт берётся ИЗ САМОГО МОДУЛЯ (SYSTEM_PROMPT), не переписывается
-    здесь: переписанная копия мерила бы не то, что стоит в проде.
-    """
-    out, t0 = {}, time.time()
-    todo = list(enumerate(blocks))[:limit] if limit else list(enumerate(blocks))
-    for n, (i, b) in enumerate(todo, 1):
-        text = director._clean(b.get("text"))
-        if not text:
-            continue
-        raw = brain.ask_system(shot_planner_llm.SYSTEM_PROMPT,
-                               f"Фраза диктора: «{text}»", max_tokens=320)
-        parsed = shot_planner_llm.parse_reply(raw)
-        shot = parsed["shot_en"] if parsed else None
-        out[i] = dict(score_row(shot, director._clean(b.get("shot_brief")), text),
-                      parsed=bool(parsed))
-        if verbose and n % 10 == 0:
-            print(f"    B: {n}/{len(todo)}  {time.time() - t0:.0f}с", flush=True)
-    return out
-
-
 # --- РУКА C: глава с контекстом ---------------------------------------------
 
 def arm_chapter(brain, video_dir, blocks, cache_dir=None, verbose=True,
@@ -214,12 +199,10 @@ def main(argv):
     ap.add_argument("video_dir")
     ap.add_argument("--model", default=os.environ.get("LLAMA_MODEL_GGUF", ""))
     ap.add_argument("--threads", type=int, default=4)
-    ap.add_argument("--arms", default="ABC")
+    ap.add_argument("--arms", default="AC")
     ap.add_argument("--answers", default=None,
                     help="папка ответов для руки D (мозг, который нельзя "
                          "запустить подпроцессом: человек или Claude)")
-    ap.add_argument("--limit-b", type=int, default=None,
-                    help="сколько юнитов прогнать рукой B (она дороже всех)")
     ap.add_argument("--out", required=True)
     ap.add_argument("--cache", default=None)
     ap.add_argument("--vocabulary", action="store_true")
@@ -255,11 +238,11 @@ def main(argv):
                     "rejected": list(director.REJECTED)}
         print(json.dumps(res["D"]["summary"], ensure_ascii=False, indent=2))
 
-    if "B" in a.arms or "C" in a.arms:
+    if "C" in a.arms:
         if not a.model or not os.path.exists(a.model):
-            print("Нет модели — руки B/C не считаются")
+            print("Нет модели — рука C не считается")
             return 2
-        brain = EvalBrain(a.model, a.threads)
+        brain = director.LocalBrain(a.model, a.threads)
 
     if "C" in a.arms:
         print("\nРука C: главы с контекстом")
@@ -271,35 +254,14 @@ def main(argv):
                     "rejected": director.REJECTED}
         print(json.dumps(res["C"]["summary"], ensure_ascii=False, indent=2))
 
-    if "B" in a.arms:
-        print("\nРука B: пофразовый промпт v3")
-        rows = arm_per_phrase(brain, blocks, limit=a.limit_b)
-        res["B"] = {"summary": summarise("B: пофразовый v3", rows,
-                                         a.limit_b or total),
-                    "rows": {str(k): v for k, v in rows.items()}}
-        print(json.dumps(res["B"]["summary"], ensure_ascii=False, indent=2))
-
     payload = {"model": os.path.basename(a.model) if a.model else None,
                "episode": os.path.basename(a.video_dir.rstrip("/")),
                "packet_version": director.PACKET_VERSION,
-               "prompt_version": shot_planner_llm.PLANNER_PROMPT_VERSION,
                "arms": res}
     with open(a.out, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
     print(f"\nJSON: {a.out}")
     return 0
-
-
-class EvalBrain(director.LocalBrain):
-    """Тот же локальный мозг, плюс вызов с системным промптом — он нужен
-    руке B, потому что пофразовый режим устроен именно так."""
-
-    def ask_system(self, system, user, max_tokens=320):
-        r = self.llm.create_chat_completion(
-            messages=[{"role": "system", "content": system},
-                      {"role": "user", "content": user}],
-            temperature=0.0, seed=self.seed, max_tokens=max_tokens)
-        return r["choices"][0]["message"]["content"] or ""
 
 
 if __name__ == "__main__":

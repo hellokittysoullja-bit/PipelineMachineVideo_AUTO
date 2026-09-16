@@ -65,12 +65,25 @@ python scripts/shot_brief_director.py <video_dir> --brain packets
 
 ```
 python scripts/shot_brief_director.py <video_dir> \
-    --brain file --answers <папка> --write-inline
+    --brain file --answers <папка>
 ```
 
 `[shot:...]` встают перед своими фразами в `script.txt` (с `.bak`), и
 дальше `script_parser` читает их штатно — ни плана, ни флага не нужно.
-Что не проставилось — печатается поимённо.
+Что не проставилось — печатается поимённо. Запись включена ПО УМОЛЧАНИЮ
+(`--no-inline` выключает): план, который никто не применил, — это тот же
+класс «слой есть, и его никто не зовёт», что уже шесть раз стоил этому
+репозиторию слоя.
+
+**Локальной моделью то же самое идёт вообще без флагов:**
+
+```
+python scripts/shot_brief_director.py <video_dir>
+```
+
+Мозг по умолчанию `local`, модель ищется сама (`--model` →
+`LLAMA_MODEL_GGUF` → `models/*.gguf`). Модели нет — команда назовёт
+установку (`python scripts/setup_local_director.py`) и ничего не сделает.
 
 **4. Посмотреть, что из этого достаёт полка** (если индекс собран):
 
