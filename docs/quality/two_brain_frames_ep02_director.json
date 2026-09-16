@@ -1,0 +1,159 @@
+{
+  "summary": {
+    "slots_compared": 12,
+    "both_arms_got_a_frame": 12,
+    "frame_changed": 3,
+    "frame_changed_share": 0.25,
+    "mode": "one_vs_two_brains",
+    "arm_labels": [
+      "один мозг",
+      "два мозга (второй запрос в пуле)"
+    ]
+  },
+  "slots": [
+    {
+      "index": 0,
+      "text": "Тебя ещё не ранили. Вот что самое страшное.",
+      "section": "HOOK",
+      "query": "medieval knight plate armour closeup",
+      "brief_claude": "a medieval knight lying in muddy field, face down, armor cracked",
+      "brief_local": "closeup of a dented medieval helmet visor",
+      "second_brain_query": "dented medieval helmet visor",
+      "claude_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0000_1496566d_bd51c976f0.jpg",
+      "local_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0000_83be2869_bd51c976f0.jpg",
+      "frame_changed": false
+    },
+    {
+      "index": 6,
+      "text": "Ничего не произойдёт.",
+      "section": "HOOK",
+      "query": "medieval knight plate armour closeup",
+      "brief_claude": "a man in full plate armor standing still, no movement",
+      "brief_local": "a single scratch mark on polished plate armour",
+      "second_brain_query": "medieval single scratch mark polished",
+      "claude_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0006_ea1d56d8_bd51c976f0.jpg",
+      "local_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0006_6ea10519_bd51c976f0.jpg",
+      "frame_changed": false
+    },
+    {
+      "index": 13,
+      "text": "При этом он был под ногами у каждого из них. С первого шага на поле.",
+      "section": "HOOK",
+      "query": "european longsword blade macro",
+      "brief_claude": "a knight stepping forward on battlefield, armor touching ground",
+      "brief_local": "muddy ground at the edge of a medieval battlefield",
+      "second_brain_query": "muddy ground edge medieval battlefield",
+      "claude_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0013_f4f41273_bd51c976f0.jpg",
+      "local_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0013_ec4b2bac_bd51c976f0.jpg",
+      "frame_changed": false
+    },
+    {
+      "index": 20,
+      "text": "Книга писалась, чтобы его прославить, так что подвиг мог подрасти при пересказе. Но общий смысл проверяется за десять секунд — посмотри любую запись реконструкт",
+      "section": "BLOCK 1: ЛОЖЬ ПЕРВАЯ — «ДОСПЕХ БЫЛ ГРОБОМ»",
+      "query": "knight armour gauntlet detail",
+      "brief_claude": "modern reconstructor in full plate armor running through a forest, dynamic pose",
+      "brief_local": "group of knights in plate armour moving dynamically across a field",
+      "second_brain_query": "group knights plate armour moving",
+      "claude_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0020_424e2f85_bd51c976f0.jpg",
+      "local_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0020_88b4a63a_bd51c976f0.jpg",
+      "frame_changed": false
+    },
+    {
+      "index": 26,
+      "text": "Открой любой фехтбух — учебник боя той эпохи. Талхоффер, Фиоре деи Либери, Кодекс Валлерштейна. Писали их люди, которые убивали за деньги и учили этому других.",
+      "section": "BLOCK 2: ЛОЖЬ ВТОРАЯ — «МЕЧ БЫЛ ГЛАВНЫМ ОРУЖИЕМ»",
+      "query": "medieval sword hilt pommel macro",
+      "brief_claude": "medieval manuscript page showing combat techniques with armor and swords",
+      "brief_local": "medieval manuscript illumination showing a warrior training with a sword",
+      "second_brain_query": "medieval manuscript illumination showing warrior",
+      "claude_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0026_d66f9b79_bd51c976f0.jpg",
+      "local_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0026_d13f6221_bd51c976f0.jpg",
+      "frame_changed": false
+    },
+    {
+      "index": 31,
+      "text": "А если и это не выходит, меч переворачивают. Берут за клинок обеими руками и бьют противника рукоятью — тяжёлым навершием или крестовиной, как молотком. У немце",
+      "section": "BLOCK 2: ЛОЖЬ ВТОРАЯ — «МЕЧ БЫЛ ГЛАВНЫМ ОРУЖИЕМ»",
+      "query": "medieval poleaxe weapon",
+      "brief_claude": "a sword with pommel and crossguard, held vertically, striking a wooden dummy",
+      "brief_local": "a heavy hammer-like weapon striking a shield with a blunt striking face",
+      "second_brain_query": "medieval heavy hammer-like weapon striking",
+      "claude_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0031_be3dd046_bd51c976f0.jpg",
+      "local_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0031_edd1a3a3_bd51c976f0.jpg",
+      "frame_changed": true
+    },
+    {
+      "index": 36,
+      "text": "Броня прекрасно держит порез. Инерцию она не держит никак: масса, разогнанная на длинном рычаге, ломает ключицу через наплечник и проминает шлем вместе с тем, ч",
+      "section": "BLOCK 2: ЛОЖЬ ВТОРАЯ — «МЕЧ БЫЛ ГЛАВНЫМ ОРУЖИЕМ»",
+      "query": "medieval manuscript illumination combat",
+      "brief_claude": "armor plate cracking under force, showing deformation and movement",
+      "brief_local": "a knight's helmet being visibly dented by a heavy blow",
+      "second_brain_query": "knight helmet being visibly dented",
+      "claude_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0036_8b0bb372_bd51c976f0.jpg",
+      "local_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0036_1f4e1cc5_bd51c976f0.jpg",
+      "frame_changed": false
+    },
+    {
+      "index": 44,
+      "text": "Стрелы выбивали лошадей на флангах, где конница всё-таки была, — у коня брони несравнимо меньше. Стрелы убивали тех, кто победнее и одоспешен хуже, а таких на л",
+      "section": "BLOCK 3: ЛОЖЬ ТРЕТЬЯ — «АНГЛИЙСКИЕ ЛУЧНИКИ РАССТРЕЛЯЛИ РЫЦАРЕЙ»",
+      "query": "medieval archer armour manuscript",
+      "brief_claude": "a horse with broken leg lying in the field, arrow embedded in side",
+      "brief_local": "archers shooting arrows at horses on the edge of a field",
+      "second_brain_query": "medieval archers shooting arrows horses",
+      "claude_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0044_e9b352bf_bd51c976f0.jpg",
+      "local_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0044_1e297bbb_bd51c976f0.jpg",
+      "frame_changed": false
+    },
+    {
+      "index": 50,
+      "text": "Рыцарей убивала земля.",
+      "section": "BLOCK 4: ОТВЕТ",
+      "query": "medieval battlefield armour mud",
+      "brief_claude": "muddy battlefield with fallen knight buried in soil, grass overgrown",
+      "brief_local": "knight armour sinking into thick mud on a battlefield",
+      "second_brain_query": "knight armour sinking thick mud",
+      "claude_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0050_3b96f891_bd51c976f0.jpg",
+      "local_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0050_ae7eef2c_bd51c976f0.jpg",
+      "frame_changed": false
+    },
+    {
+      "index": 56,
+      "text": "Сзади напирают свои — задние ряды не видят, что впереди затор, и продолжают идти вперёд, потому что бой там. Спереди упирается англичанин. Ты теряешь равновесие",
+      "section": "BLOCK 4: ОТВЕТ",
+      "query": "medieval battlefield armour mud",
+      "brief_claude": "two rows of soldiers: front one crouched, back one marching forward",
+      "brief_local": "knight falling backward into deep, viscous mud on the battlefield",
+      "second_brain_query": "knight falling backward deep viscous",
+      "claude_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0056_e7e342b9_bd51c976f0.jpg",
+      "local_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0056_65545acd_bd51c976f0.jpg",
+      "frame_changed": true
+    },
+    {
+      "index": 61,
+      "text": "Остановиться и выбрать дорогу получше никто не даст. Сзади подходят свои, спереди надо держать строй, а над головой звук, из-за которого хочется добраться до ан",
+      "section": "BLOCK 5: ДВЕСТИ МЕТРОВ",
+      "query": "medieval army column armour",
+      "brief_claude": "a marching column of armored men, rear ranks approaching, front ranks holding line",
+      "brief_local": "column of medieval soldiers marching in tight formation",
+      "second_brain_query": "column medieval soldiers marching tight",
+      "claude_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0061_a2df0dc7_bd51c976f0.jpg",
+      "local_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0061_63ad4dc6_bd51c976f0.jpg",
+      "frame_changed": false
+    },
+    {
+      "index": 66,
+      "text": "Теперь попробуй воспользоваться своим длинным оружием. Для замаха нужно место. Чтобы переставить ногу — тоже. Даже отвести локоть иногда некуда, потому что там ",
+      "section": "BLOCK 5: ДВЕСТИ МЕТРОВ",
+      "query": "medieval sabaton armoured foot",
+      "brief_claude": "a long spear resting against a soldier's leg, blade pointing down",
+      "brief_local": "two armoured knights pressed shoulder-to-shoulder in close quarters",
+      "second_brain_query": "two armoured knights pressed shoulder-to-shoulder",
+      "claude_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0066_7d7779c4_bd51c976f0.jpg",
+      "local_file": "videos/02_ne-mechom/temp_smart/pexels_cache/0066_e0778684_bd51c976f0.jpg",
+      "frame_changed": true
+    }
+  ]
+}
