@@ -508,12 +508,19 @@ class LocalBrain:
     ровно ни за что. Здесь модель живёт весь прогон, а вызовов и так 13.
     """
 
+    # Потолок генерации на главу. 900 токенов с запасом покрывают 16 строк
+    # заявок, НО модель с внутренним рассуждением может потратить их на
+    # рассуждение и не дойти до ответа. Поэтому потолок управляем снаружи:
+    # у «думающих» моделей его надо поднимать, и молча обрезанная глава —
+    # худший исход (ответ есть, но его не видно).
+    DEFAULT_MAX_TOKENS = int(os.environ.get("SHOT_BRIEF_MAX_TOKENS", "900") or 900)
+
     def __init__(self, model_path, n_threads=4, n_ctx=8192, seed=1,
-                 max_tokens=900):
+                 max_tokens=None):
         from llama_cpp import Llama
         self.name = os.path.basename(model_path)
         self.seed = seed
-        self.max_tokens = max_tokens
+        self.max_tokens = max_tokens or self.DEFAULT_MAX_TOKENS
         self.llm = Llama(model_path=model_path, n_ctx=n_ctx,
                          n_threads=n_threads, seed=seed, verbose=False)
 
