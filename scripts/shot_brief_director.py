@@ -654,7 +654,8 @@ class FileBrain:
 
 STATS = {"chapters": 0, "asked": 0, "cache_hits": 0, "rows": 0,
          "rejected": 0, "empty_chapters": 0,
-         "critique_asked": 0, "critique_cache_hits": 0, "critique_rewrites": 0}
+         "critique_asked": 0, "critique_cache_hits": 0, "critique_rewrites": 0,
+         "critique_shift_caught": 0}
 REJECTED = []
 # Настроение по главам: аудит-трейл, а не решение. Сегодня оно только
 # пишется в план и печатается; кто им воспользуется (грейд, музыка, язык
@@ -720,17 +721,52 @@ def render_critique_prompt(packet, draft_raw):
     return "\n".join(lines)
 
 
+# Насколько далеко от своей позиции искать совпадение с чужой строкой
+# черновика — сигнатуру сдвига (см. merge_critique). Замер 16.09 дал
+# сдвиг РОВНО на одну позицию (юниты 5-8 главы «ДВЕСТИ МЕТРОВ» эпизода
+# 02, живой прогон, не гипотеза): критика пропустила строку 5 и заново
+# пронумеровала хвост, поэтому каждая следующая строка стала ответом на
+# ЧУЖОЙ, соседний юнит, оставаясь при этом формально безупречной — ни
+# один гейт формы (`brief_is_safe`) такое не ловит, ошибка позиционная,
+# не текстовая. Окно 2 — с запасом на двойной сдвиг, не только на
+# измеренный одинарный.
+CRITIQUE_SHIFT_WINDOW = 2
+
+
+def _looks_like_neighbor_shift(n, shot_en, draft_rows):
+    """Заявка критики слово в слово совпадает с ЧУЖИМ соседним юнитом
+    черновика — почти наверняка не исправление, а тот самый сдвиг
+    нумерации, не совпадение по смыслу."""
+    for k in range(-CRITIQUE_SHIFT_WINDOW, CRITIQUE_SHIFT_WINDOW + 1):
+        if k == 0:
+            continue
+        neighbor = draft_rows.get(n + k)
+        if neighbor and neighbor["shot_en"] == shot_en:
+            return True
+    return False
+
+
 def merge_critique(draft_rows, critique_rows):
     """Критика может ИСПРАВИТЬ существующую заявку и не может добавить
     новую там, где черновик промолчал — молчание черновика уже прошло
     свою собственную проверку (brief_is_safe у ПЕРВОГО прохода), и вторая
     модель того же размера, отвечающая на юнит, которого не видела первой
     попыткой, не более надёжна, чем сам первый проход на нём. Additive
-    только в одну сторону: заменить, никогда не породить с нуля."""
+    только в одну сторону: заменить, никогда не породить с нуля.
+
+    ВТОРОЙ ГВАРД — против сдвига нумерации, найденного живым прогоном
+    16.09 (см. CRITIQUE_SHIFT_WINDOW): если предложенная замена слово в
+    слово повторяет ЧУЖОЙ соседний юнит черновика, это не исправление,
+    заменять нечем — оставляем черновик. `STATS['critique_shift_caught']`
+    считает, сколько раз гвард сработал, а не молчит."""
     merged = dict(draft_rows)
     for n, row in critique_rows.items():
-        if n in merged:
-            merged[n] = row
+        if n not in merged:
+            continue
+        if _looks_like_neighbor_shift(n, row["shot_en"], draft_rows):
+            STATS["critique_shift_caught"] += 1
+            continue
+        merged[n] = row
     return merged
 
 
@@ -1081,7 +1117,8 @@ def main(argv):
     if feature_flags.enabled("SHOT_BRIEF_CRITIQUE"):
         print(f"Критика: {STATS['critique_asked']} вопросов, "
               f"{STATS['critique_cache_hits']} из кэша, "
-              f"переписано строк {STATS['critique_rewrites']}")
+              f"переписано строк {STATS['critique_rewrites']}, "
+              f"отловлено сдвигов {STATS['critique_shift_caught']}")
     print(f"План: {path}")
     return 0
 

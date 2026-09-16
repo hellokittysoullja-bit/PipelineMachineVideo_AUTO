@@ -1223,3 +1223,65 @@ def test_critique_on_rewrites_via_second_call(monkeypatch, tmp_path):
         "SHOT_BRIEF_CRITIQUE=1, а второго вызова не было")
     block_index = packet["units"][0]["block_index"]
     assert found[block_index]["shot_en"] == "a specific correct picture that is safe text"
+
+
+# --- Гвард против сдвига нумерации в критике --------------------------------
+#
+# Фикстура — РЕАЛЬНЫЙ ответ модели (эпизод 02, BLOCK 5 «ДВЕСТИ МЕТРОВ»,
+# живой прогон 16.09), не синтетика: синтетический пример не воспроизвёл
+# бы то, что случилось на самом деле — критика молча пропустила строку 5
+# и заново пронумеровала хвост, каждая следующая строка стала формально
+# безупречным ответом на ЧУЖОЙ юнит. Живой A/B на полном эпизоде (142
+# юнита) дал 65 -> 62 попаданий БЕЗ этого гварда — чистый регресс на трёх
+# юнитах из четырёх задетых сдвигом (пятый совпал с черновиком случайно).
+#
+# Контроль: закомментировать вызов `_looks_like_neighbor_shift` в
+# merge_critique — test_shift_guard_recovers_the_real_regression падает,
+# юниты 5-8 остаются испорченными сдвигом.
+
+_SHIFT_FIXTURE = os.path.join(REPO, "tests", "fixtures", "critique_shift")
+
+
+def _shift_fixture_packet():
+    """Реальный пакет главы BLOCK 5 эпизода 02 — тот же самый, на котором
+    снят живой A/B 16.09. Профиль канала (мир кадра) не подчищаем — он
+    не влияет на разбор ответа, только на текст промпта, которого здесь
+    не строим."""
+    import script_parser
+    import shot_brief_director as d
+    blocks = script_parser.parse_blocks(
+        os.path.join(REPO, "videos", "02_ne-mechom", "script.txt"))
+    for p in d.packets(os.path.join(REPO, "videos", "02_ne-mechom"), blocks):
+        if p["section"].startswith("BLOCK 5"):
+            return d, p
+    raise AssertionError("BLOCK 5 не нашёлся — фикстура эпизода изменилась")
+
+
+def test_shift_guard_recovers_the_real_regression():
+    d, packet = _shift_fixture_packet()
+    with open(os.path.join(_SHIFT_FIXTURE, "draft_block5.txt"), encoding="utf-8") as f:
+        draft_raw = f.read()
+    with open(os.path.join(_SHIFT_FIXTURE, "critique_block5.txt"), encoding="utf-8") as f:
+        crit_raw = f.read()
+    draft_rows = d.parse_answer(draft_raw, packet)
+    crit_rows = d.parse_answer(crit_raw, packet)
+    d.STATS["critique_shift_caught"] = 0
+    merged = d.merge_critique(draft_rows, crit_rows)
+    for n in (5, 6, 7, 8):
+        assert merged[n]["shot_en"] == draft_rows[n]["shot_en"], (
+            f"юнит {n}: гвард не остановил сдвиг, заявка испорчена")
+    assert d.STATS["critique_shift_caught"] == 4, d.STATS["critique_shift_caught"]
+
+
+def test_shift_guard_does_not_block_a_real_unrelated_fix():
+    """Гвард обязан ловить ТОЛЬКО буквальное совпадение с соседом, а не
+    любую замену вообще — иначе критика становится no-op."""
+    import shot_brief_director as d
+    draft = {1: {"shot_en": "a closed wooden door", "function": "object"},
+             2: {"shot_en": "an empty chair by the window", "function": "object"}}
+    critique = {1: {"shot_en": "a rusted iron gate, chain wrapped around it",
+                    "function": "object"}}
+    d.STATS["critique_shift_caught"] = 0
+    merged = d.merge_critique(draft, critique)
+    assert merged[1]["shot_en"] == "a rusted iron gate, chain wrapped around it"
+    assert d.STATS["critique_shift_caught"] == 0
