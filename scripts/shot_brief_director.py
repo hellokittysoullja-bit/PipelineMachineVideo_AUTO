@@ -628,15 +628,70 @@ class LocalBrain:
     # затравка ответа УЖЕ ЗАКРЫТЫМ пустым блоком размышления: модели
     # нечего продолжать, и она сразу пишет ответ.
     THINK_OPEN, THINK_CLOSE = "<think>", "</think>"
+    # Запасная разметка — ChatML семейства Qwen. Она тут ТОЛЬКО на случай,
+    # если у модели нет своего шаблона в метаданных GGUF; основной путь
+    # ниже рендерит шаблон САМОЙ модели.
+    FALLBACK_CHAT_FMT = "<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
+
+    def _chat_prompt(self, prompt):
+        """Промпт по шаблону САМОЙ модели, а не по зашитому ChatML.
+
+        Зашитый ChatML — это молчаливое допущение «модель из семейства
+        Qwen». На MiniCPM5-2B оно стоило целого замера: модель думающая,
+        её `<think>` не закрывался в пределах потолка, все 13 глав вернулись
+        ПУСТЫМИ (замер 16.09) — то есть ровно тот отказ, против которого
+        `_ask_without_thinking` и написана, а затравить её было нечем:
+        разметка чужая. Шаблон лежит в метаданных самого файла GGUF,
+        поэтому спрашивать надо его, а не помнить семейство.
+
+        Проверено на модели по умолчанию: рендер шаблона Qwen3-4B-2507
+        совпадает с прежней зашитой строкой БАЙТ-В-БАЙТ, то есть для этого
+        канала правка — точный no-op.
+
+        Возвращает None, если шаблона нет или он не отрендерился — тогда
+        вызывающий честно откатывается на ChatML и говорит об этом.
+        """
+        try:
+            tpl = (self.llm.metadata or {}).get("tokenizer.chat_template")
+            if not tpl:
+                return None
+            from llama_cpp.llama_chat_format import Jinja2ChatFormatter
+            eos = self.llm._model.token_get_text(self.llm.token_eos())
+            bos_id = self.llm.token_bos()
+            bos = self.llm._model.token_get_text(bos_id) if bos_id != -1 else ""
+            fmt = Jinja2ChatFormatter(template=tpl, eos_token=eos,
+                                      bos_token=bos, add_generation_prompt=True)
+            return fmt(messages=[{"role": "user", "content": prompt}]).prompt
+        except Exception:
+            return None
 
     def _ask_without_thinking(self, prompt):
-        """Чат-разметка вручную, с закрытым блоком размышления в затравке."""
-        text = (f"<|im_start|>user\n{prompt}<|im_end|>\n"
-                f"<|im_start|>assistant\n"
-                f"{self.THINK_OPEN}\n\n{self.THINK_CLOSE}\n\n")
+        """Затравка ответа УЖЕ ЗАКРЫТЫМ блоком размышления.
+
+        Модели нечего продолжать внутри `<think>`, и она сразу пишет ответ.
+        Разметка берётся у самой модели (см. `_chat_prompt`), иначе — ChatML.
+        """
+        head = self._chat_prompt(prompt)
+        if head is None:
+            if not getattr(self, "_warned_no_template", False):
+                print(f"[режиссёр] у {self.name} нет своего чат-шаблона — "
+                      f"затравка идёт разметкой ChatML, она может не подойти")
+                self._warned_no_template = True
+            head = self.FALLBACK_CHAT_FMT.format(prompt=prompt)
+        text = f"{head}{self.THINK_OPEN}\n\n{self.THINK_CLOSE}\n\n"
+        # Стоп-строки: собственный конец хода модели И `<|im_end|>`. Вторая
+        # для модели без ChatML просто никогда не встретится, а её отсутствие
+        # у модели С ChatML стоило бы хвоста следующего хода в ответе.
+        stops = ["<|im_end|>"]
+        try:
+            eos = self.llm._model.token_get_text(self.llm.token_eos())
+            if eos and eos not in stops:
+                stops.append(eos)
+        except Exception:
+            pass
         r = self.llm.create_completion(
             prompt=text, temperature=0.0, seed=self.seed,
-            max_tokens=self.max_tokens, stop=["<|im_end|>"])
+            max_tokens=self.max_tokens, stop=stops)
         return r["choices"][0]["text"] or ""
 
     def ask(self, prompt, chapter_no):

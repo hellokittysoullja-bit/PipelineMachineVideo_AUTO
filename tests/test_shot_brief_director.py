@@ -1369,3 +1369,109 @@ def test_a_non_thinking_model_response_is_untouched():
     import shot_planner_llm as p
     raw = "1 | object | a dented steel breastplate, close up"
     assert p._clean_stream(raw) == raw
+
+
+class _FakeModel:
+    """Минимальный дубль llama.cpp-модели: только то, что читает `_chat_prompt`."""
+
+    def __init__(self, eos="<|im_end|>", bos_id=-1):
+        self._eos, self._bos_id = eos, bos_id
+
+    def token_get_text(self, tok):
+        return self._eos
+
+
+class _FakeLlama:
+    def __init__(self, template, eos="<|im_end|>"):
+        self.metadata = {"tokenizer.chat_template": template} if template else {}
+        self._model = _FakeModel(eos)
+
+    def token_eos(self):
+        return 1
+
+    def token_bos(self):
+        return -1
+
+
+_QWEN_TEMPLATE = (
+    "{% for m in messages %}"
+    "<|im_start|>{{ m['role'] }}\n{{ m['content'] }}<|im_end|>\n"
+    "{% endfor %}"
+    "{% if add_generation_prompt %}<|im_start|>assistant\n{% endif %}"
+)
+
+
+def _brain_with(llm):
+    """Объект LocalBrain без загрузки весов: нужен только `self.llm`."""
+    import shot_brief_director as d
+    b = d.LocalBrain.__new__(d.LocalBrain)
+    b.llm, b.name, b.seed, b.max_tokens = llm, "fake.gguf", 1, 64
+    return b
+
+
+def test_chat_prompt_uses_model_template_and_matches_old_hardcode():
+    """Разметку даёт САМА модель, и для семейства Qwen это БАЙТ-В-БАЙТ то,
+    что было зашито раньше.
+
+    Оба утверждения нужны вместе: первое — что зашитого допущения про
+    семейство больше нет, второе — что у канала на модели по умолчанию
+    ничего не поехало. Проверено и живой моделью: рендер шаблона
+    Qwen3-4B-Instruct-2507 совпал с прежней строкой символ в символ.
+    """
+    pytest.importorskip("llama_cpp")
+    import shot_brief_director as d
+    b = _brain_with(_FakeLlama(_QWEN_TEMPLATE))
+    got = b._chat_prompt("ТЕКСТ")
+    assert got == d.LocalBrain.FALLBACK_CHAT_FMT.format(prompt="ТЕКСТ")
+
+
+def test_chat_prompt_is_not_chatml_for_a_foreign_template():
+    """Модель с ЧУЖОЙ разметкой получает СВОЮ, а не ChatML.
+
+    Ради этого правка и сделана: MiniCPM5-2B — думающая модель, её
+    `<think>` не закрывался в пределах потолка и все 13 глав вернулись
+    пустыми, а затравить закрытым блоком было нечем — ChatML не её.
+    """
+    pytest.importorskip("llama_cpp")
+    b = _brain_with(_FakeLlama("{% for m in messages %}<用户>{{ m['content'] }}<AI>{% endfor %}"))
+    captured = []
+    b.llm.create_completion = lambda **kw: (
+        captured.append(kw) or {"choices": [{"text": "ok"}]})
+    b._ask_without_thinking("ТЕКСТ")
+    # Проверяется ПРОД-путь целиком, а не только рендер: до правки сюда
+    # уходил ChatML независимо от модели, и тест обязан падать именно на
+    # этом, а не на отсутствии новой функции.
+    sent = captured[0]["prompt"]
+    assert "<|im_start|>" not in sent and "<用户>" in sent
+
+
+def test_missing_template_falls_back_loudly(capsys):
+    """Нет шаблона — откат на ChatML, и он НАЗВАН вслух.
+
+    Молчаливый откат здесь означал бы чужую разметку в затравке и пустую
+    главу без единой строки о причине — ровно тот класс, которым этот
+    репозиторий уже горел.
+    """
+    b = _brain_with(_FakeLlama(None))
+    assert b._chat_prompt("ТЕКСТ") is None
+    captured = []
+    b.llm.create_completion = lambda **kw: (
+        captured.append(kw) or {"choices": [{"text": "ok"}]})
+    b._ask_without_thinking("ТЕКСТ")
+    out = capsys.readouterr().out
+    assert "чат-шаблон" in out
+    assert captured[0]["prompt"].startswith("<|im_start|>user\nТЕКСТ")
+
+
+def test_closed_think_block_is_seeded_after_the_model_template():
+    """Затравка закрытым блоком идёт ПОСЛЕ разметки модели, а не вместо неё."""
+    pytest.importorskip("llama_cpp")
+    import shot_brief_director as d
+    b = _brain_with(_FakeLlama(_QWEN_TEMPLATE))
+    captured = []
+    b.llm.create_completion = lambda **kw: (
+        captured.append(kw) or {"choices": [{"text": "ok"}]})
+    b._ask_without_thinking("ТЕКСТ")
+    p = captured[0]["prompt"]
+    assert p.endswith(f"{d.LocalBrain.THINK_OPEN}\n\n{d.LocalBrain.THINK_CLOSE}\n\n")
+    assert p.index("<|im_start|>assistant") < p.index(d.LocalBrain.THINK_OPEN)
