@@ -297,6 +297,9 @@ FLAGS = {f.name: f for f in (
          summary="Музыкальная подложка (нужен assets/music/ambient_bed*.flac)"),
     Flag("MASTER_LIMITER", "1",
          summary="Лимитер в конце мастер-цепочки, после loudnorm (страховка по пикам)"),
+    Flag("NEVER_SHOW_KNOWN_BAD", "1",
+         summary="кадр, забракованный своими же гейтами, НЕ идёт на экран: "
+                 "слот поглощается соседним проверенным кадром"),
     Flag("FALLBACK_CARD", "1",
          summary="Процедурная карточка вместо заведомо плохого кадра (отказ арбитра / пустой сток)"),
     Flag("NEGATIVE_VETO", "1",

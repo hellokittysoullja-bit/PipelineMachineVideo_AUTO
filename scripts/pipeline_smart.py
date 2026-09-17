@@ -4829,6 +4829,12 @@ FALLBACK_CARD_SLOTS = []   # [{"index", "reason", "text", "card_text"}, ...]
 # среди видео-слотов брак 63% (41 из 65), среди фото — 23% (35 из 154).
 # Видео-корпус Pexels на исторические темы объективно тоньше фото-корпуса,
 # а музейные API видео не отдают вообще.
+ABSORBED_SLOTS = []   # [{"index", "reason", "text", "carried_sec"}, ...]
+# Слоты, которые НЕ получили своего кадра и поглощены соседним ПРОВЕРЕННЫМ
+# кадром (он держится на экране дольше и накрывает эту фразу). Заменяет
+# исход «лучший из плохих», который по золотому набору эпизода 01 дал 8
+# браков из 17: гейты забраковали кадр САМИ, а показать было нечего, и
+# правило «слот не может остаться пустым» выводило брак на экран.
 VIDEO_RESCUED_BY_PHOTO = []   # [{"index", "reason", "query"}, ...]
 
 
@@ -14327,6 +14333,17 @@ def main():
                        mp_context=multiprocessing.get_context("spawn"))
                    if RENDER_POOL_ENABLED else None)
     pending_jobs = []   # [{i, out, d, section, block, video, photo, future|None, ok}], в порядке блоков
+    # Накопленное время слотов, поглощённых соседом (см. ABSORBED_SLOTS).
+    _carry_sec = 0.0
+    # «Лучший из плохих» как исход разрешён только при снятом флаге. Читается
+    # ОДИН раз на прогон осознанно: внутри цикла на 200+ слотов это решение
+    # обязано быть одинаковым для всех слотов, иначе половина ролика собрана
+    # одним правилом, половина другим (ровно та жалоба «то работает, то не
+    # работает», из-за которой заведена _selection_stack_signature).
+    never_show_known_bad = feature_flags.enabled("NEVER_SHOW_KNOWN_BAD")
+    # Плашки с цифрой, чьи слоты поглощены: цифра — контент, она переезжает
+    # на поглощающий клип, а не исчезает с экрана.
+    stat_carry = []
     log_render_diagnostics("render_start")
     # Версия рецепта картинки — часть ключа кэша клипов (см.
     # render_recipe_signature): правка грейда/движения/оформления больше не
@@ -14599,6 +14616,16 @@ def main():
     hook_words = rescale_hook_words_to_visual_time(hook_words, blocks, sub_starts, sub_baseline,
                                                      visual_starts, durs)
     for i, (b, d) in enumerate(zip(blocks, durs)):
+        # ПЕРЕНОС ДЛИТЕЛЬНОСТИ ОТ ПОГЛОЩЁННЫХ СЛОТОВ. Слот, которому нечего
+        # честно показать, не получает своего клипа — его время достаётся
+        # ЭТОМУ клипу, то есть предыдущий проверенный кадр (а точнее —
+        # следующий за поглощённым) держится на экране дольше и накрывает
+        # обе фразы. Забираем перенос СРАЗУ и обнуляем: у цикла несколько
+        # ранних continue (кэш-хит, отсутствие медиа), и без обнуления
+        # здесь один и тот же перенос ушёл бы в два клипа.
+        d = d + _carry_sec
+        _carry_sec = 0.0
+        absorb_reason = None
         # Титр темы — только на ПЕРВОМ кадре новой секции (BLOCK N: Название).
         is_section_start = i == 0 or blocks[i]["section"] != blocks[i - 1]["section"]
         title = section_title(b["section"]) if is_section_start else None
@@ -14989,23 +15016,57 @@ def main():
                 _slot_miss_restore(snapshot)
         if (photo or video) and not locked_shot:
             bad_reason = _slot_known_bad_reason(i)
-            if bad_reason and fallback_card_allowed(i, len(blocks),
-                                                     is_opening=is_opening_shot):
-                card = build_slot_fallback_card(i, b["text"], bad_reason)
-                if card:
-                    photo, video = card, None
-        if not photo and not video:
-            # Последняя попытка: локальная папка ПО КРУГУ. Повтор картинки
-            # хуже свежего кадра, но несравнимо лучше пропущенного блока
-            # (тот при RENDER_STRICT_GATE=1 останавливает всю сборку).
+            if bad_reason and not never_show_known_bad:
+                if fallback_card_allowed(i, len(blocks), is_opening=is_opening_shot):
+                    card = build_slot_fallback_card(i, b["text"], bad_reason)
+                    if card:
+                        photo, video = card, None
+            elif bad_reason:
+                # «ЛУЧШИЙ ИЗ ПЛОХИХ» УДАЛЁН КАК ИСХОД. Система только что
+                # сама записала, что этот кадр негодный (арбитр отказал,
+                # сток исчерпан, победитель ниже порога релевантности) —
+                # значит он НЕ идёт на экран. Ни карточкой, ни повтором:
+                # слот поглощается соседним проверенным кадром (решение
+                # владельца, 17.09). Замер, ради которого это сделано: по
+                # золотому набору эпизода 01 ровно так в опубликованный
+                # ролик попали 8 браков из 17 — гейты знали правильный
+                # ответ и не имели чем воспользоваться.
+                photo, video = None, None
+                absorb_reason = bad_reason
+        if not photo and not video and not never_show_known_bad:
+            # Прежнее поведение (флаг снят): последняя попытка — локальная
+            # папка ПО КРУГУ. Повтор картинки хуже свежего кадра, но лучше
+            # пропущенного блока. При включённом флаге повтор запрещён: по
+            # золотому набору `duplicate` — такой же брак, как анахронизм,
+            # а продление соседа не создаёт ни дубля, ни несоответствия.
             photo = local_photo(i, allow_cycle=True)
-        if not photo and not video:
+        if not photo and not video and not never_show_known_bad:
             # Медиа нет вообще. Раньше блок просто выпадал из ролика (а при
             # RENDER_STRICT_GATE=1 — останавливал всю сборку). Карточка здесь
             # сильнее любого повтора: она про эту самую фразу.
             card = build_slot_fallback_card(i, b["text"], FALLBACK_NO_MEDIA_REASON)
             if card:
                 photo = card
+        if not photo and not video and never_show_known_bad:
+            # Поглощение: слот не получает клипа, его время уходит соседу.
+            # Плашка с цифрой — КОНТЕНТ, а не картинка: она наследуется
+            # поглощающим клипом ниже (stat_carry), а не теряется.
+            reason = absorb_reason or FALLBACK_NO_MEDIA_REASON
+            ABSORBED_SLOTS.append({"index": i, "reason": reason,
+                                   "text": b["text"], "carried_sec": round(d, 3)})
+            if stat:
+                stat_carry.append((stat, stat_variant, stat_delay))
+            _carry_sec = d
+            print(f"    [{i+1}] нет проверенного кадра ({reason}) — "
+                  f"{d:.1f}с отдано соседнему кадру")
+            render_manifest[i] = {"index": i, "status": "absorbed",
+                                   "reason": reason, "section": b["section"],
+                                   "duration": d}
+            mark_reports_skipped(i, "absorbed_into_neighbour")
+            shot_entries[i] = {"index": i, "section": b["section"], "text": b["text"],
+                               "query": queries[i], "kind": None, "file": None,
+                               "source": "absorbed", "clip": None}
+            continue
         if not photo and not video:
             print(f"  [{i+1}] нет медиа")
             missing.append(i + 1)
@@ -15015,6 +15076,20 @@ def main():
             shot_entries[i] = {"index": i, "section": b["section"], "text": b["text"], "query": queries[i],
                                "kind": None, "file": None, "source": "missing", "clip": None}
             continue
+        if stat_carry and not stat:
+            # Цифра поглощённого слота переезжает сюда. Задержка берётся
+            # ИСХОДНАЯ: поглощённая фраза звучит в начале объединённого
+            # клипа (клип начинается там, где начинался поглощённый слот),
+            # поэтому её момент появления на экране не сдвигается.
+            stat, stat_variant, stat_delay = stat_carry.pop(0)
+            print(f"    [{i+1}] плашка «{stat}» перенесена с поглощённого слота")
+        elif stat_carry:
+            # У этого клипа своя цифра — двух плашек на один клип add_overlays
+            # не рисует. Говорим вслух, что именно потеряно, а не молчим.
+            lost = [t for t, _v, _d in stat_carry]
+            print(f"    ВНИМАНИЕ: [{i+1}] уже несёт свою плашку, "
+                  f"не перенесены: {lost}")
+            stat_carry.clear()
         # Крупность плана пополнялась только внутри pexels_photo() — локальные и
         # залоченные фото (каждый AI-слот протокола) в окно не попадали, и
         # choose_motion_mode получал крупность ЧУЖОГО кадра (аудит 04.09).
@@ -15418,6 +15493,17 @@ def main():
         render_pool.shutdown(wait=True)
     log_render_diagnostics("render_done")
     print(f"  Рендер завершён: {len(clips)}/{len(blocks)} клипов")
+    if never_show_known_bad and not clips:
+        # Поглощать некого: ни один слот не получил проверенного кадра.
+        # Собирать ролик из брака нельзя (для этого правило и заведено), а
+        # карточки владелец не разрешил — значит честный стоп с причиной, а
+        # не пустой файл и не молчаливая деградация.
+        print("\nСТОП: ни один слот не получил ПРОВЕРЕННОГО кадра — "
+              f"поглощено {len(ABSORBED_SLOTS)} слот(ов), показывать нечего. "
+              "Смотреть media_plan/absorbed_slots_report.json: чаще всего это "
+              "нет ключей стоков, исчерпанная квота или запрос, которому "
+              "мир эпизода противоречит.")
+        return 1
 
     manifest_path = os.path.join(VIDEO_FOLDER, "media_plan", "render_manifest.json")
     os.makedirs(os.path.dirname(manifest_path), exist_ok=True)
@@ -15531,6 +15617,15 @@ def main():
     # Это НЕ повод для тревоги сам по себе (карточка честнее заведомо
     # плохого кадра), но повод посмотреть: много карточек = сток по этой
     # теме исчерпан, нужны архивы или AI-картинки (Шаг 5).
+    # Поглощённые слоты — отдельный отчёт, а не строка в консоли: по
+    # готовому ролику иначе невозможно ответить, почему кадр держится
+    # дольше своей фразы и какая фраза осталась без своего кадра.
+    absorbed_path = os.path.join(VIDEO_FOLDER, "media_plan",
+                                  "absorbed_slots_report.json")
+    merge_slot_report(absorbed_path, ABSORBED_SLOTS,
+                      resolved_slots=RESOLVED_SLOTS_THIS_RUN,
+                      extra={"never_show_known_bad": never_show_known_bad,
+                             "tail_carry_sec": round(_carry_sec, 3)})
     fallback_cards_path = os.path.join(VIDEO_FOLDER, "media_plan",
                                         "fallback_cards_report.json")
     merge_slot_report(fallback_cards_path, FALLBACK_CARD_SLOTS,
@@ -15752,7 +15847,19 @@ def main():
     # багом бюджета xfade. Дважды наказывать за один и тот же осознанный
     # пропуск (сначала пометить missing, потом всё равно не собрать файл)
     # значит не давать lenient-режиму вообще ничего лениться.
-    if pad_gap > PAD_GAP_HARD_CAP_SEC and not (missing and not RENDER_STRICT_GATE):
+    # ХВОСТОВОЕ ПОГЛОЩЕНИЕ — НАМЕРЕННОЕ ПРОДЛЕНИЕ, А НЕ ПОТЕРЯННЫЙ КЛИП.
+    # Если поглощён последний слот эпизода, наследовать его время некому
+    # (следующего клипа нет), и остаток закрывается той же заморозкой
+    # последнего кадра, которой закрывается округление xfade. Допуск
+    # ослабляется РОВНО на эту известную величину: гейт заведён против
+    # тихой потери клипа, а здесь потери нет — есть решение, записанное в
+    # absorbed_slots_report.json. Всё, что сверху неё, по-прежнему стоп.
+    _tail_carry = round(_carry_sec, 3)
+    if _tail_carry > 0.05:
+        print(f"  Хвост эпизода: последние {_tail_carry:.1f}с закрыты "
+              f"продлением последнего проверенного кадра "
+              f"({len(ABSORBED_SLOTS)} поглощённых слот(ов) всего)")
+    if pad_gap - _tail_carry > PAD_GAP_HARD_CAP_SEC and not (missing and not RENDER_STRICT_GATE):
         print(f"\nСТОП: заморозка в хвосте {pad_gap:.1f}с превышает допуск "
               f"{PAD_GAP_HARD_CAP_SEC:.1f}с — final.mp4 НЕ собран (расчёт длительностей "
               f"разошёлся сильнее, чем можно списать на округление xfade).")
