@@ -26,6 +26,7 @@ PEOPLE_IN_FRAME: обычный человек, современная одеж�
 FORBIDDEN: рыцарские доспехи, мечи, средневековые декорации
 ANCHOR_WORDS: empty waiting room, phone face down, cluttered desk, tired eyes, cup of coffee
 BLOCKLIST: medieval armor, knight, sword, castle
+NEGATIVE_ANCHORS: modern city street with cars, asphalt and printed signage; a medieval manuscript with illumination
 USE_MUSEUM_SOURCES: no
 MOOD_TENSION: 2
 CONFIDENCE: 0.86
@@ -40,6 +41,10 @@ class TestParseAnswer:
         assert p["world"].startswith("современный город")
         assert "phone face down" in p["anchor_words"]
         assert "sword" in p["blocklist_additions"]
+        assert p["negative_anchor_additions"] == [
+            "modern city street with cars, asphalt and printed signage",
+            "a medieval manuscript with illumination",
+        ]
         assert p["use_museum_sources"] is False
         assert p["mood_tone"] == -1.0
         assert p["mood_tension"] == 2.0
@@ -148,17 +153,73 @@ class TestMergeContentWorld:
         base = {"content_alt_blocklist": ["katana"]}
         assert cw.merge_content_world(base, str(tmp_path)) is base
 
-    def test_blocklist_is_additive_union_without_duplicates(self, tmp_path):
+    def test_blocklist_additions_land_under_separate_key(self, tmp_path):
+        """Списки НЕ вливаются прямо в "content_alt_blocklist" — под
+        отдельным "..._additions" (см. docstring merge_content_world:
+        реальная найденная дыра — .get(key, DEFAULT) у потребителя теряет
+        код-дефолт, если ключ "появился" в профиле хоть с одной добавкой).
+        Объединение с код-дефолтом делает merged_list() в точке потребления."""
         cw.write_content_world(str(tmp_path), {
             "confidence": 0.9,
             "blocklist_additions": ["Phone", "sword", "modern car"],
         }, source="t")
         base = {"content_alt_blocklist": ["katana", "PHONE"]}
         merged = cw.merge_content_world(base, str(tmp_path))
-        # "PHONE"/"Phone" — тот же термин без учёта регистра, не дублируется.
-        assert merged["content_alt_blocklist"] == ["katana", "PHONE", "sword", "modern car"]
-        # база не мутирована.
+        assert merged["content_alt_blocklist_additions"] == ["Phone", "sword", "modern car"]
+        # канальный список НЕ тронут правкой (merge не мутирует и не заменяет его).
+        assert merged["content_alt_blocklist"] == ["katana", "PHONE"]
         assert base["content_alt_blocklist"] == ["katana", "PHONE"]
+
+    def test_negative_anchor_additions_land_under_separate_key(self, tmp_path):
+        """negative_anchor_additions судится ЭМБЕДДИНГОМ (CLIP margin в
+        negative_anchor_violation), не подстрокой — фразы содержат запятые
+        внутри себя, поэтому разделитель ";", а не ",". Та же защита от
+        потери код-дефолта, что у блоклиста выше."""
+        cw.write_content_world(str(tmp_path), {
+            "confidence": 0.9,
+            "negative_anchor_additions": [
+                "modern city street with cars, asphalt and signage",
+                "a person using a smartphone in a cafe",
+            ],
+        }, source="t")
+        base = {"content_negative_anchors": ["east asian temple, kimono and curved sword"]}
+        merged = cw.merge_content_world(base, str(tmp_path))
+        assert merged["content_negative_anchors_additions"] == [
+            "modern city street with cars, asphalt and signage",
+            "a person using a smartphone in a cafe",
+        ]
+        assert merged["content_negative_anchors"] == ["east asian temple, kimono and curved sword"]
+
+
+class TestMergedList:
+    """merged_list() — финальное объединение "канал-или-код-дефолт" +
+    добавки content_world, в ТОЧКЕ ПОТРЕБЛЕНИЯ (pipeline_smart.py и
+    аналоги), а не внутри merge_content_world() (см. её docstring)."""
+
+    def test_channel_absent_keeps_code_default_plus_additions(self):
+        """РЕГРЕССИОННЫЙ тест на реально найденную дыру 17.09: канал НЕ
+        задал ключ явно (как content_negative_anchors у этого репозитория)
+        — код-дефолт обязан выжить, а не потеряться под добавками."""
+        profile = {"content_negative_anchors_additions": ["a modern city street"]}
+        code_default = ("east asian temple, kimono and curved sword",)
+        result = cw.merged_list(profile, "content_negative_anchors", code_default)
+        assert result == ("east asian temple, kimono and curved sword", "a modern city street")
+
+    def test_channel_explicit_list_wins_over_code_default(self):
+        profile = {"content_alt_blocklist": ["katana"],
+                   "content_alt_blocklist_additions": ["modern car"]}
+        result = cw.merged_list(profile, "content_alt_blocklist", ("some", "code", "default"))
+        assert result == ("katana", "modern car")
+
+    def test_no_additions_returns_channel_or_default_unchanged(self):
+        assert cw.merged_list({}, "content_alt_blocklist", ("a", "b")) == ("a", "b")
+        assert cw.merged_list({"content_alt_blocklist": ["x"]}, "content_alt_blocklist", ("a",)) == ("x",)
+
+    def test_dedup_is_case_insensitive(self):
+        profile = {"content_alt_blocklist": ["Katana"],
+                   "content_alt_blocklist_additions": ["katana", "sword"]}
+        result = cw.merged_list(profile, "content_alt_blocklist")
+        assert result == ("Katana", "sword")
 
     def test_shot_domain_auto_used_when_channel_has_none(self, tmp_path):
         cw.write_content_world(str(tmp_path), {

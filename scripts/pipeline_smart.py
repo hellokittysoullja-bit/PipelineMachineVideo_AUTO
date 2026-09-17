@@ -5243,7 +5243,15 @@ _CONTENT_ALT_BLOCKLIST_DEFAULT = (
 # (военно-исторического) канала, для другой ниши (например, игровой канал,
 # где cosplay/anime — нужный контент, не мусор) заменяется целиком через
 # профиль, не код.
-CONTENT_ALT_BLOCKLIST = tuple(CHANNEL_PROFILE.get("content_alt_blocklist", _CONTENT_ALT_BLOCKLIST_DEFAULT))
+# content_world.merged_list() — НЕ голый .get(key, DEFAULT): содержательные
+# добавки авто-профиля (content_world.py) лежат под отдельным ключом
+# "content_alt_blocklist_additions", а не в "content_alt_blocklist" —
+# иначе на канале без явного этого ключа (как у query_era_anchors/
+# content_negative_anchors ниже) .get() увидел бы "ключ есть" и потерял бы
+# КОД_ДЕФОЛТ целиком. Найдено живой проверкой 17.09, см. докстринг
+# merge_content_world() в content_world.py.
+CONTENT_ALT_BLOCKLIST = content_world.merged_list(
+    CHANNEL_PROFILE, "content_alt_blocklist", _CONTENT_ALT_BLOCKLIST_DEFAULT)
 
 
 def pexels_candidate_text(item):
@@ -6101,10 +6109,11 @@ _OPENVERSE_ERA_ANCHORS_DEFAULT = ()
 _OPENVERSE_DOMAIN_NOUNS_DEFAULT = ()
 OPENVERSE_QUERY_MODIFIERS = tuple(CHANNEL_PROFILE.get(
     "openverse_query_modifiers", _OPENVERSE_QUERY_MODIFIERS_DEFAULT))
-OPENVERSE_ERA_ANCHORS = tuple(CHANNEL_PROFILE.get(
-    "openverse_era_anchors", _OPENVERSE_ERA_ANCHORS_DEFAULT))
-OPENVERSE_DOMAIN_NOUNS = tuple(CHANNEL_PROFILE.get(
-    "openverse_domain_nouns", _OPENVERSE_DOMAIN_NOUNS_DEFAULT))
+# content_world.merged_list() — см. комментарий у CONTENT_ALT_BLOCKLIST.
+OPENVERSE_ERA_ANCHORS = content_world.merged_list(
+    CHANNEL_PROFILE, "openverse_era_anchors", _OPENVERSE_ERA_ANCHORS_DEFAULT)
+OPENVERSE_DOMAIN_NOUNS = content_world.merged_list(
+    CHANNEL_PROFILE, "openverse_domain_nouns", _OPENVERSE_DOMAIN_NOUNS_DEFAULT)
 # Маркер версии каскада для _selection_stack_signature(): каскад меняет, КТО
 # вообще попадает в пул, а не только кто в нём победит — на прогретом
 # temp_smart/ без этого правка не дошла бы до экрана.
@@ -8172,9 +8181,10 @@ _QUERY_ERA_ANCHORS_DEFAULT = (
     "century", "historical", "ancient",
 )
 
+# content_world.merged_list() — см. комментарий у CONTENT_ALT_BLOCKLIST.
 QUERY_ERA_ANCHORS = tuple(
     t.lower() for t in
-    CHANNEL_PROFILE.get("query_era_anchors", _QUERY_ERA_ANCHORS_DEFAULT)
+    content_world.merged_list(CHANNEL_PROFILE, "query_era_anchors", _QUERY_ERA_ANCHORS_DEFAULT)
 )
 
 # Сколько слотов на ОДИН авторский запрос уже считается голодающим пулом.
@@ -10323,8 +10333,12 @@ _CONTENT_NEGATIVE_ANCHORS_DEFAULT = (
 # Override под нишу — тот же паттерн, что CONTENT_ALT_BLOCKLIST/
 # VISUAL_DOMAIN_GUARDS: для канала про современный спорт эти же ловушки были
 # бы ровно нужным контентом, и список заменяется в профиле, а не в коде.
-CONTENT_NEGATIVE_ANCHORS = tuple(CHANNEL_PROFILE.get(
-    "content_negative_anchors", _CONTENT_NEGATIVE_ANCHORS_DEFAULT))
+# content_world.merged_list() — см. комментарий у CONTENT_ALT_BLOCKLIST.
+# Здесь это важнее всего: ловушки вето судятся ЭМБЕДДИНГОМ (смысл кадра),
+# не подстрокой — единственное место, где авто-ниша реально дотягивается
+# до семантического, а не текстового судьи.
+CONTENT_NEGATIVE_ANCHORS = content_world.merged_list(
+    CHANNEL_PROFILE, "content_negative_anchors", _CONTENT_NEGATIVE_ANCHORS_DEFAULT)
 # Кадр отклоняется, если ЛЮБАЯ ловушка набрала не меньше, чем цель минус
 # запас. Отрицательный запас = консервативно: ловушка должна ощутимо
 # ПЕРЕБИВАТЬ цель, а не просто дотягиваться до неё. Именно эта

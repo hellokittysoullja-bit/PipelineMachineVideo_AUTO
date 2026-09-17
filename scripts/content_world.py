@@ -101,6 +101,12 @@ MIN_CONFIDENCE = 0.5
 # случайной догадки.
 WORLD_OVERRIDE_MIN_CONFIDENCE = 0.75
 
+# Суффикс, под которым merge_content_world() кладёт списочные добавки —
+# ОТДЕЛЬНЫМ ключом, не в тот же ключ, что использует channel_profile.json
+# (см. docstring merge_content_world() и merged_list() ниже — реальная
+# найденная дыра, не перестраховка).
+ADDITIONS_SUFFIX = "_additions"
+
 # Поля профиля, которые ДОПОЛНЯЮТ (не заменяют) списки channel_profile.json.
 # (ключ ответа модели -> ключ channel_profile.json)
 _LIST_FIELDS_ADDITIVE = (
@@ -108,6 +114,17 @@ _LIST_FIELDS_ADDITIVE = (
     ("query_era_anchors_additions", "query_era_anchors"),
     ("openverse_era_anchors_additions", "openverse_era_anchors"),
     ("openverse_domain_nouns_additions", "openverse_domain_nouns"),
+    # НЕ словарь-по-подстроке, как остальные пять строк выше. Ловушки
+    # negative_anchor_violation() сравниваются с кандидатом ЭМБЕДДИНГОМ
+    # (CLIP image-vs-text margin, pipeline_smart.negative_anchor_violation),
+    # то есть судят СМЫСЛ картинки, а не совпадение слова в alt/слаге —
+    # ровно тот механизм, который уже в репозитории отвечает за «современное
+    # вторжение в историческую сцену» без единого ключевого слова. Для новой
+    # ниши это самое важное поле из всех: словарный блоклист выше — дешёвая
+    # подстраховка ДО скачивания, а этот список — единственное место, где
+    # авто-профиль реально дотягивается до СЕМАНТИЧЕСКОГО судьи, а не до
+    # текстового фильтра.
+    ("negative_anchor_additions", "content_negative_anchors"),
 )
 
 # Поля, которые ПОБЕЖДАЮТ только если канал их не задал вовсе (см.
@@ -168,6 +185,7 @@ PEOPLE_IN_FRAME: как показывать человека в кадре, е�
 FORBIDDEN: что визуально НЕЛЬЗЯ показывать, чтобы кадр не выглядел чужой темой/эпохой/жанром (конкретно, через запятую)
 ANCHOR_WORDS: 6-12 английских предметных/сценовых слов, которые ДЕЙСТВИТЕЛЬНО про эту тему (через запятую, для англоязычного поиска по стокам)
 BLOCKLIST: английские слова/фразы, которые если появятся в подписи к кандидату — почти наверняка означают ЧУЖУЮ тему/эпоху/жанр (через запятую)
+NEGATIVE_ANCHORS: 3-6 английских ОПИСАНИЙ СЦЕНЫ (не отдельных слов, а того, что реально было бы видно на неподходящем кадре), которые СРАВНИВАЮТСЯ С КАРТИНКОЙ моделью — как выглядела бы явно чужая эпоха/жанр/культура рядом с этой темой (например, для средневековой темы: "modern city street with cars and asphalt"; для темы о психологии/офисе — эта строка обычно НЕ нужна вообще, современность здесь и есть тема; через точку с запятой)
 USE_MUSEUM_SOURCES: yes или no — есть ли смысл искать в музейных каталогах (Метрополитен и т.п.) физические исторические предметы для этой темы?
 MOOD_TONE: число от -2 (тяжёлый) до 2 (светлый)
 MOOD_TENSION: число от 0 (покой) до 3 (предел)
@@ -184,6 +202,13 @@ _LINE_RE = re.compile(r"^\s*([A-Z_]+)\s*:\s*(.*)$")
 
 def _split_list(value):
     return [x.strip() for x in re.split(r"[,;]", value or "") if x.strip()]
+
+
+def _split_list_semicolon(value):
+    """Для полей, где элемент сам — предложение и может содержать запятую
+    (NEGATIVE_ANCHORS: "modern city street with cars, asphalt and signage").
+    Разделитель ТОЛЬКО ";" — запятая внутри описания не режет список."""
+    return [x.strip() for x in (value or "").split(";") if x.strip()]
 
 
 def _to_float(value):
@@ -237,6 +262,8 @@ def parse_answer(text):
         out["anchor_words"] = _split_list(fields["ANCHOR_WORDS"])
     if fields.get("BLOCKLIST"):
         out["blocklist_additions"] = _split_list(fields["BLOCKLIST"])
+    if fields.get("NEGATIVE_ANCHORS"):
+        out["negative_anchor_additions"] = _split_list_semicolon(fields["NEGATIVE_ANCHORS"])
 
     use_museum = _to_bool(fields.get("USE_MUSEUM_SOURCES"))
     if use_museum is not None:
@@ -317,10 +344,23 @@ def merge_content_world(base_profile, video_dir):
     (списки — всегда, shot_domain/era/use_museum_sources — когда канал их
     не задавал) достаточно MIN_CONFIDENCE; ПЕРЕЗАПИСАТЬ то, что канал
     задал ЯВНО (устоявшаяся ниша, осознанный выбор человека), — только при
-    WORLD_OVERRIDE_MIN_CONFIDENCE. Списки при этом безопасны на любом
-    уровне выше MIN_CONFIDENCE независимо от этого порога: объединение
-    никогда не отнимает канальные термины, поэтому у него нет причины
-    требовать более высокой уверенности."""
+    WORLD_OVERRIDE_MIN_CONFIDENCE.
+
+    СПИСКИ ПИШУТСЯ ПОД ОТДЕЛЬНЫМ ИМЕНЕМ `<key>_additions`, А НЕ В ТОТ ЖЕ
+    КЛЮЧ, ЧТО У КАНАЛА — найдено живой проверкой 17.09 на РЕАЛЬНОЙ дыре, не
+    предположено. `content_alt_blocklist`/`query_era_anchors`/
+    `content_negative_anchors` в pipeline_smart.py читаются как
+    `CHANNEL_PROFILE.get(key, КОД_ДЕФОЛТ)` — если бы добавки content_world
+    легли прямо в `merged[key]`, при ОТСУТСТВУЮЩЕМ у канала ключе (у этого
+    самого репозитория `content_negative_anchors` в channel_profile.json
+    просто нет) `.get()` увидел бы "ключ ЕСТЬ" и потерял бы КОД_ДЕФОЛТ
+    ЦЕЛИКОМ (8 стандартных ловушек современного вторжения — молча
+    заменились бы двумя авто-добавками для нового эпизода). Ровно тот
+    класс дефекта, что уже дважды подтверждён в этом репозитории
+    (CONTENT_ALT_BLOCKLIST/_CONTENT_ALT_BLOCKLIST_DEFAULT), только в
+    собственном коде этого модуля, а не в чужом. Финальное объединение
+    "канал-или-код-дефолт + добавки" делает `merged_list()` ниже, в точке
+    потребления, которая одна знает свой код-дефолт."""
     cw = load_content_world(video_dir)
     if not cw:
         return base_profile
@@ -335,19 +375,30 @@ def merge_content_world(base_profile, video_dir):
 
     for cw_key, profile_key in _LIST_FIELDS_ADDITIVE:
         additions = cw.get(cw_key)
-        if not additions:
-            continue
-        existing = list(base_profile.get(profile_key, []) or [])
-        seen = {str(x).lower() for x in existing}
-        new = [x for x in additions if str(x).lower() not in seen]
-        if new:
-            merged[profile_key] = existing + new
+        if additions:
+            merged[profile_key + ADDITIONS_SUFFIX] = list(additions)
 
     for key in _SCALAR_FIELDS_IF_ABSENT:
         if key in cw and (key not in merged or confident_enough_to_override):
             merged[key] = cw[key]
 
     return merged
+
+
+def merged_list(profile, key, code_default=()):
+    """channel-явно-заданный-список-ИЛИ-код-дефолт + аддитивные добавки
+    content_world (см. docstring merge_content_world выше про то, зачем
+    это отдельная функция, а не прямая запись в `merged[key]`). Без
+    дублей, регистронезависимо. Единая точка для ВСЕХ мест пайплайна, что
+    сегодня читают список через `CHANNEL_PROFILE.get(key, КОД_ДЕФОЛТ)` —
+    вторая копия этого объединения в другом файле рано или поздно
+    разойдётся (тот же класс, что уже дважды ловился в этом репозитории)."""
+    base = list(profile.get(key, code_default) or [])
+    additions = profile.get(key + ADDITIONS_SUFFIX) or []
+    if not additions:
+        return tuple(base)
+    seen = {str(x).lower() for x in base}
+    return tuple(base) + tuple(x for x in additions if str(x).lower() not in seen)
 
 
 def _base_channel_profile():
