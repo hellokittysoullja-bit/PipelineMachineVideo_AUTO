@@ -81,6 +81,51 @@ def test_library_recording_varies_by_section_seed(tmp_path, monkeypatch):
     assert picks == set(files)
 
 
+def test_long_run_prefers_a_recording_that_does_not_loop_audibly(tmp_path, monkeypatch):
+    """Прямое следствие снижения нижней границы приёма в библиотеку 45 -> 15
+    (решение владельца 17.09): библиотечный путь крутит ОДИН файл через
+    `-stream_loop -1`, то есть период повтора равен его длине. На участке 470
+    секунд (замеренное покрытие эпизода 02) пятнадцатисекундная запись
+    повторяется ОДИН В ОДИН 31 раз. Выбор обязан учитывать длину участка."""
+    short, long_ = str(tmp_path / "s.flac"), str(tmp_path / "l.flac")
+    durs = {short: 15.0, long_: 180.0}
+    monkeypatch.setattr(ps, "library_sounds", lambda kind, name: [short, long_])
+    monkeypatch.setattr(ps, "get_media_duration", lambda p: durs[p])
+
+    # Длинный участок: короткая запись не рассматривается ни при одном seed.
+    picks = {ps.ambience_layers("wind_open", seed=s, duration=470.0)[0][0]
+             for s in range(6)}
+    assert picks == {long_}, "на длинном участке выбрана слышимо зацикленная запись"
+
+    # Короткий участок: обе годятся, разнообразие по seed сохраняется.
+    picks = {ps.ambience_layers("wind_open", seed=s, duration=45.0)[0][0]
+             for s in range(6)}
+    assert picks == {short, long_}
+
+
+def test_duration_preference_can_never_empty_the_slot(tmp_path, monkeypatch):
+    """Правило одностороннее: нет ни одной достаточно длинной записи — берётся
+    самая длинная из имеющихся, а не тишина. Участок без фона по причине
+    «все записи короткие» был бы регрессом, а не улучшением."""
+    a, b = str(tmp_path / "a.flac"), str(tmp_path / "b.flac")
+    durs = {a: 15.0, b: 22.0}
+    monkeypatch.setattr(ps, "library_sounds", lambda kind, name: [a, b])
+    monkeypatch.setattr(ps, "get_media_duration", lambda p: durs[p])
+    layers = ps.ambience_layers("wind_open", seed=0, duration=900.0)
+    assert layers and layers[0][0] == b
+
+
+def test_without_duration_the_choice_is_unchanged(tmp_path, monkeypatch):
+    """duration=None — прежнее поведение байт-в-байт: тот же выбор по seed
+    среди всех записей. Старые вызовы (build_ambience_track, тесты) ничего
+    не теряют."""
+    files = [str(tmp_path / f"{n}.flac") for n in ("a", "b", "c")]
+    durs = {files[0]: 15.0, files[1]: 60.0, files[2]: 200.0}
+    monkeypatch.setattr(ps, "library_sounds", lambda kind, name: files)
+    monkeypatch.setattr(ps, "get_media_duration", lambda p: durs[p])
+    assert {ps.ambience_layers("wind_open", seed=s)[0][0] for s in range(6)} == set(files)
+
+
 def test_no_sources_means_exact_no_op(monkeypatch):
     """Пока генератор не запускали, слой обязан быть точным нулём — именно
     отсутствие источников и есть выключатель (см. --preview у генератора)."""

@@ -2067,8 +2067,12 @@ def run_sfx_director(mix_path, video_dir, blocks, sub_starts, real_weights, tota
     accepted, dropped = [], []
     # Громкость ЭТОГО голоса — вторая сторона разрыва. Без неё уровни
     # объектного слоя пришлось бы объявлять, а не мерить (см. object_gain_db).
+    object_layer_on = feature_flags.enabled("OBJECT_SFX_ENABLED")
     voice_lufs = measure_integrated_lufs(voice_path) if voice_path else None
-    if voice_path and voice_lufs is None:
+    # Предупреждение про запасные константы — ТОЛЬКО когда объектный слой
+    # реально работает: при выключенном слое оно пугало ровно тем, чего в
+    # ролике нет вообще (найдено разбором 17.09).
+    if object_layer_on and voice_path and voice_lufs is None:
         print("  ВНИМАНИЕ: громкость голоса не измерилась — объектный слой "
               "идёт по запасным константам, разрыв с речью НЕ гарантирован")
 
@@ -2094,7 +2098,7 @@ def run_sfx_director(mix_path, video_dir, blocks, sub_starts, real_weights, tota
         # звучат бутафорски. object_cues() уже написан на None-резолвер —
         # без него теги честно уходят в отклонённые с причиной no_asset,
         # переход главы/тик плашки/акцент кульминации это не затрагивает.
-        object_resolver = _asset_for if feature_flags.enabled("OBJECT_SFX_ENABLED") else None
+        object_resolver = _asset_for if object_layer_on else None
         accepted, dropped = sfx_plan.plan_sfx_cues(
             blocks, sub_starts, real_weights, total_dur,
             chapter_variants=chapter_sfx_variants(),
@@ -2148,6 +2152,12 @@ def run_sfx_director(mix_path, video_dir, blocks, sub_starts, real_weights, tota
                            "gain_bounds_db": [sfx_plan.OBJECT_GAIN_MIN_DB,
                                               sfx_plan.OBJECT_GAIN_MAX_DB]},
                        "object_pre_lap_sec": sfx_plan.OBJECT_PRE_LAP_SEC,
+                       # По готовому отчёту «слой выключен» и «под этот тег нет
+                       # звука» были НЕОТЛИЧИМЫ: обе причины — `no_asset`. Ответ
+                       # существовал только в другом файле (feature_flags.json),
+                       # то есть на вопрос «почему на [sfx:] тихо» этот отчёт
+                       # не отвечал (найдено разбором 17.09).
+                       "object_layer_enabled": object_layer_on,
                        "summary": sfx_plan.summarize(accepted, dropped),
                        "accepted": accepted, "dropped": dropped}, f, ensure_ascii=False, indent=2)
         os.replace(tmp, report_path)
@@ -2701,6 +2711,14 @@ AMBIENCE_GAIN_MIN_DB = -40.0
 AMBIENCE_GAIN_MAX_DB = 0.0
 AMBIENCE_FADE_SEC = 2.5          # вход/выход участка — атмосфера не включается рубильником
 AMBIENCE_DRIFT_DEPTH = 0.22      # глубина медленного «дыхания» громкости слоя
+# Сколько раз библиотечная запись может обернуться на участке, прежде чем
+# ambience_layers() начнёт ПРЕДПОЧИТАТЬ ей более длинную (см. её докстринг).
+# Не гейт: если длиннее ничего нет, берётся самая длинная из имеющихся, и
+# участок никогда не остаётся без фона. Число консервативное, а не
+# измеренный оптимум — честная точка отсчёта от нижней границы участка
+# (AMBIENCE_MIN_RUN_SEC=45): запись короче ~11 секунд на минимальном участке
+# уже слышимо повторяется, и правило начинает работать именно там.
+AMBIENCE_MAX_LOOPS = 4
 # Реальный найденный баг (17.09, живой прогон эпизода с ДВУМЯ видами
 # атмосферы за раз — раньше такого эпизода не было, поэтому промах и не
 # ловился): ambience_gain_db() меряет ОДНУ интегральную громкость ВСЕЙ
@@ -2720,7 +2738,7 @@ AMBIENCE_SEGMENT_TARGET_LUFS = -40.0
 AMBIENCE_SEGMENT_GAIN_MIN_DB, AMBIENCE_SEGMENT_GAIN_MAX_DB = -15.0, 10.0
 
 
-def ambience_layers(bed, seed=0):
+def ambience_layers(bed, seed=0, duration=None):
     """[(путь, длительность_сек), ...] источников атмосферы bed.
 
     ДВА ИСТОЧНИКА, по приоритету:
@@ -2730,6 +2748,21 @@ def ambience_layers(bed, seed=0):
        РАЗНЫЕ записи одного места, а не один и тот же файл со сдвигом.
        Один файл, а не три: три разных леса одновременно — это каша, а не
        лес; живой звукорежиссёр кладёт одну основную запись.
+
+       `duration` (длина участка) СУЖАЕТ выбор до записей, которые на этом
+       участке не крутятся слышимо часто — и это прямое следствие снижения
+       нижней границы приёма в библиотеку 45 -> 15 секунд (решение владельца
+       17.09). Запись крутится через `-stream_loop -1`, то есть период
+       повтора РАВЕН её длине, других слоёв у библиотечного пути нет:
+       пятнадцатисекундная запись на участке 470 секунд (замеренное покрытие
+       эпизода 02) повторилась бы ОДИН В ОДИН 31 раз подряд. Арифметика
+       «НОК 37/53/71 = 38.7 часа» из CLAUDE.md относится к СИНТЕЗУ и к этому
+       пути не имеет отношения вообще.
+
+       Правило одностороннее: сперва берутся записи не короче
+       `duration / AMBIENCE_MAX_LOOPS`, и только если таких нет — прежний
+       выбор среди всех (слот не должен опустеть). `duration=None` — прежнее
+       поведение БАЙТ-В-БАЙТ.
     2. Синтез (три слоя взаимно простой длины, generate_ambience.py) — только
        если библиотека для этого вида пуста. Печатается предупреждение: на
        слух синтез хуже записи, и молча подменять одно другим нельзя.
@@ -2739,13 +2772,27 @@ def ambience_layers(bed, seed=0):
     import ambience_plan
     lib = library_sounds("ambience", bed)
     if lib:
-        path = lib[int(seed) % len(lib)]
-        try:
-            dur = float(get_media_duration(path) or 0.0)
-        except Exception:
-            dur = 0.0
-        if dur > 1.0:
-            return [(path, dur)]
+        durs = {}
+        for p in lib:
+            try:
+                durs[p] = float(get_media_duration(p) or 0.0)
+            except Exception:
+                durs[p] = 0.0
+        usable = [p for p in lib if durs[p] > 1.0]
+        if usable:
+            pool = usable
+            if duration and duration > 0:
+                need = float(duration) / float(AMBIENCE_MAX_LOOPS)
+                long_enough = [p for p in usable if durs[p] >= need]
+                if long_enough:
+                    pool = long_enough
+                elif len(usable) > 1:
+                    # Ни одна запись не дотягивает — берём самую длинную из
+                    # имеющихся: это честный МИНИМУМ повторов, а не отказ.
+                    best = max(durs[p] for p in usable)
+                    pool = [p for p in usable if durs[p] >= best - 0.01]
+            path = pool[int(seed) % len(pool)]
+            return [(path, durs[path])]
     out = []
     for name, seconds in zip(("low", "mid", "high"), ambience_plan.AMBIENCE_LAYER_SECONDS):
         path = os.path.join(_AMBIENCE_DIR, bed, f"{name}_{seconds}s.flac")
@@ -2804,7 +2851,9 @@ def _ambience_segment(bed, duration, seed, out_path):
     независимых кандидата, которые надо сравнивать друг с другом.
     """
     import ambience_plan
-    layers = ambience_layers(bed, seed)
+    # Длина участка нужна самому выбору записи: период повтора библиотечного
+    # файла равен его длине (см. ambience_layers).
+    layers = ambience_layers(bed, seed, duration=duration)
     if not layers:
         return None
     normalize_layers = len(layers) == 1
@@ -6233,6 +6282,35 @@ def candidate_brief_key(shot_brief, block_text=None, uses_shelf=True):
     когда полка реально отвечает (см. _shelf_question_active): без индекса
     поведение прежнее байт-в-байт.
     """
+    return candidate_brief_keys(shot_brief, block_text, uses_shelf=uses_shelf)[1]
+
+
+def candidate_brief_keys(shot_brief, block_text=None, uses_shelf=True):
+    """(запрос_к_стокам, ключ_кэша) — ОДИН вызов вместо двух развилок.
+
+    РЕАЛЬНЫЙ ДЕФЕКТ, ради которого пара разведена (найден разбором 17.09,
+    ПОДТВЕРЖДЁН живым прогоном, не чтением). Фото-путь брал `_brief_key`
+    и клал его ПЕРВЫМ в `pool_queries` — то есть отправлял в поиск всех
+    словесных источников не запрос, а ИМЯ КЭШ-ФАЙЛА:
+
+        ('pexels',   'medieval dented steel breastplate|shelf:953c23ac')
+        ('museum',   'medieval dented steel breastplate|shelf:953c23ac')
+        ('pixabay',  'medieval dented steel breastplate|shelf:953c23ac')
+
+    Хвост `|shelf:<md5>` появился 15.09 вместе с вопросом к полке и был
+    правильным для ключа — но строка ушла ещё и в `fetch(api_q)`. Цена
+    измеряется: у Pixabay И-логика, у Pexels/Unsplash/Мет свободный текст,
+    и токен-хэш обнуляет выдачу — то есть ВЕСЬ BRIEF_STOCK_QUERY на фото-
+    слотах давал ноль кандидатов, плюс пять гарантированно пустых запросов
+    на слот, один из них против квоты Pexels 200/час. Ирония: видео-путь
+    (`uses_shelf=False`) работал верно — асимметрия вывернута наизнанку
+    относительно фикса 15.09, где страдало как раз видео.
+
+    Комментарий на месте вызова требовал «ТОТ ЖЕ `_brief_key`, а не второй
+    вызов той же функции» — требование верное и остаётся в силе, поэтому
+    здесь не заведена вторая формула: обе величины считаются ОДНИМ
+    вызовом и разъехаться не могут по построению.
+    """
     stock_q = brief_to_stock_query(shot_brief, fallback=None) or ""
     parts = [stock_q] if stock_q else []
     # То, чем РЕАЛЬНО спрашивают полку: бриф автора, иначе фраза блока.
@@ -6246,7 +6324,7 @@ def candidate_brief_key(shot_brief, block_text=None, uses_shelf=True):
     # которого их отбор не зависит ни на байт.
     if shelf_q and uses_shelf and _shelf_question_active():
         parts.append("shelf:" + hashlib.md5(shelf_q.encode("utf-8")).hexdigest()[:8])
-    return "|".join(parts)
+    return stock_q, "|".join(parts)
 
 
 
@@ -6881,7 +6959,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
     # Бриф входит в ключ кэша кандидата: он МЕНЯЕТ состав пула, и без него
     # слот на прогретом temp_smart/ молча отдал бы кандидата, выбранного до
     # появления брифа (тот же урок, что у candidate_gate_signature).
-    _brief_key = candidate_brief_key(shot_brief, block_text)
+    _brief_q, _brief_key = candidate_brief_keys(shot_brief, block_text)
     qkey = "|".join([query] + sorted(q for q in (extra_queries or []) if q and q != query)
                      + ([text_key] if text_key else [])
                      + ([_brief_key] if _brief_key else []))
@@ -6953,13 +7031,15 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
         # поэтому положение решает только при равенстве. Смысл добавления —
         # у слота впервые появляется стоковый запрос, написанный про ЕГО
         # два предложения, а не про секцию, которую делят 6-10 слотов.
-        # ТОТ ЖЕ `_brief_key`, что ушёл в ключ кэша выше, а не второй
-        # вызов той же функции: разойдись они (другой fallback, другой
-        # аргумент) — и ключ кэша перестал бы описывать пул, который он
-        # ключует. Вторая копия одного правила в этом репозитории уже
-        # стоила эпизоду PHRASE LOCK.
-        if _brief_key and _brief_key not in pool_queries:
-            pool_queries = [_brief_key] + pool_queries
+        # В ПУЛ идёт `_brief_q` (запрос), в ключ кэша выше — `_brief_key`
+        # (запрос плюс подпись вопроса к полке). Обе величины приходят из
+        # ОДНОГО вызова candidate_brief_keys() — второй копии правила здесь
+        # не заводится, разойтись они не могут по построению. Раньше в пул
+        # уходил сам ключ, вместе с хвостом `|shelf:<md5>`, и поиск во всех
+        # словесных источниках спрашивал строку с хэшем внутри (см.
+        # candidate_brief_keys: измерено живым прогоном, ноль кандидатов).
+        if _brief_q and _brief_q not in pool_queries:
+            pool_queries = [_brief_q] + pool_queries
         per_query = []
         for pq in pool_queries:
             lst = []
@@ -12155,7 +12235,7 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
     # он меняет СОСТАВ пула, а на прогретом temp_smart/ кэш-хит делает
     # continue ДО переподбора кандидата — без этого правка брифа не дошла
     # бы до экрана вообще.
-    _brief_key = candidate_brief_key(shot_brief, uses_shelf=False)
+    _brief_q, _brief_key = candidate_brief_keys(shot_brief, uses_shelf=False)
     qkey = "|".join([query] + sorted(q for q in (extra_queries or []) if q and q != query)
                      + ([text_key] if text_key else []) + ([_brief_key] if _brief_key else []))
     qhash = hashlib.md5(qkey.encode()).hexdigest()[:8]
@@ -12198,8 +12278,12 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
         # новым здесь является только точка вызова.
         # ЧЕСТНО: что это принесёт ЛУЧШИЕ видео-кадры — не измерено, для
         # этого нужен прогон с ключами стоков, которых в контейнере нет.
-        if _brief_key and _brief_key not in pool_queries:
-            pool_queries = [_brief_key] + pool_queries
+        # В ПУЛ — запрос, в ключ кэша — ключ (здесь они сегодня совпадают:
+        # `uses_shelf=False` не добавляет подписи полки). Пара берётся из
+        # одного вызова, чтобы дефект фото-пути — «в поиск ушло имя кэш-файла»
+        # — не мог возникнуть здесь при следующем расширении ключа.
+        if _brief_q and _brief_q not in pool_queries:
+            pool_queries = [_brief_q] + pool_queries
         per_query = []
         for pq in pool_queries:
             # action_qualifier — движение из текста блока (см.
@@ -12293,6 +12377,12 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
         # shortlist, сборка победителя), и сдвиг индексов — ровно тот класс,
         # от которого предостерегает комментарий у shot_size_ok.
         cand_relevance = {}
+        # Крупность уже посчитанного кандидата — по пути файла, а не восьмым
+        # элементом кортежа `good`: тот разбирается ПО ПОЗИЦИИ в трёх местах,
+        # и сдвиг индексов молча перепутал бы путь/id/hash (тот же довод, что
+        # у комментария к shot_size_ok). Нужна затем, чтобы историю крупностей
+        # пополнял сам pexels_video() — см. её использование у победителя.
+        cand_sizes = {}
         tries = 0
         # РЕАЛЬНЫЙ баг, найденный покадровым просмотром готового рендера
         # (не гипотеза): VIDEO_RELEVANCE_MAX_TRIES=3 калибровалась под
@@ -12364,7 +12454,9 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                         cand_luma = None
                     if recent_sizes is not None:
                         try:
-                            shot_size_ok = 0 if estimate_shot_size(probe) in recent_sizes[-2:] else 1
+                            cand_size = estimate_shot_size(probe)
+                            cand_sizes[trial] = cand_size
+                            shot_size_ok = 0 if cand_size in recent_sizes[-2:] else 1
                         except Exception:
                             shot_size_ok = 1
                     if relevant and sentence_score_fn is not None:
@@ -12576,6 +12668,20 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                     except OSError:
                         pass
             best_rel = cand_relevance.get(best[2])
+            # РЕАЛЬНАЯ АСИММЕТРИЯ, найденная разбором 17.09. `pexels_photo()`
+            # годами пополняет историю крупностей САМА, а видео-победитель
+            # попадал в неё только в ветке `elif video:` у main(), которая
+            # живёт под `visual_director is not None` — то есть при дефолте
+            # реестра VISUAL_DIRECTOR_MODE=off не выполнялась вовсе. При этом
+            # `pexels_video()` всё равно СЧИТАЛА shot_size_ok против
+            # recent_sizes: гейт ритма работал в полглаза, сравнивая
+            # кандидата с историей, куда видео не попадало. Тот же класс
+            # «правка работает на фото и не работает на видео», что уже
+            # трижды стоил этому репозиторию половины эпизода.
+            # Крупность берётся из УЖЕ посчитанного при отборе — лишнего
+            # кадра-пробника не извлекается.
+            if recent_sizes is not None and best[2] in cand_sizes:
+                recent_sizes.append(cand_sizes[best[2]])
             os.replace(best[2], cf)
             if used_ids is not None:
                 used_ids.add(best[3])
@@ -14959,15 +15065,14 @@ def main():
                     candidate_domain = visual_director.candidate_domain_for(probe)
                     recent_semantic_tags.append((candidate_domain, director_role))
                     del recent_semantic_tags[:-visual_director.REPETITION_WINDOW]
-                    # recent_shot_sizes — тот же принцип: pexels_video() теперь
-                    # штрафует повтор крупности через recent_sizes (см.
-                    # shot_size_ok в pexels_video()), а история пополнялась
-                    # только фото-победителями (см. ветку ниже). Без этого два
-                    # видео одной крупности подряд не считались бы повтором.
-                    try:
-                        recent_shot_sizes.append(estimate_shot_size(probe))
-                    except Exception:
-                        pass
+                    # recent_shot_sizes ЗДЕСЬ БОЛЬШЕ НЕ ПОПОЛНЯЕТСЯ: с 17.09
+                    # это делает сама pexels_video() у победителя, из уже
+                    # посчитанной при отборе крупности. Причина переноса —
+                    # эта ветка живёт под `visual_director is not None`, то
+                    # есть при дефолте реестра VISUAL_DIRECTOR_MODE=off не
+                    # выполняется вообще, и история видела только фото.
+                    # Двойного учёта быть не должно: один победитель — одна
+                    # запись в окне повтора.
                 finally:
                     if cleanup and os.path.exists(probe):
                         os.remove(probe)

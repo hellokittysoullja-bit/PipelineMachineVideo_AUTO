@@ -313,6 +313,18 @@ def plan_ambience(blocks, sub_starts, total_dur, block_text=None, vocab=None,
                 bed, reason = r["bed"], "switched"
         else:
             bed, reason = r["bed"], "selected"
+        # Решение СЛОВАРЯ запоминается ДО вето — это состояние гистерезиса
+        # для следующих глав, и вето не имеет права его трогать.
+        #
+        # РЕАЛЬНЫЙ ДЕФЕКТ, воспроизведён 17.09, а не вычитан: `current = bed`
+        # стояло ПОСЛЕ вето, то есть снятая у одной главы атмосфера обнуляла
+        # продолжение у СЛЕДУЮЩЕЙ, которой модель не касалась вообще:
+        #   без вето : HOOK windy selected · BLOCK1 windy selected · BLOCK2 windy selected
+        #   вето на BLOCK1: HOOK windy · BLOCK1 None llm_veto · BLOCK2 None run_too_short
+        # BLOCK2 терял фон по чужому вердикту, и причина в отчёте ВРАЛА
+        # (`run_too_short` вместо честного «следствие вето соседа»). Это прямо
+        # опровергало обещание односторонности, записанное абзацем выше.
+        dict_bed = bed
         if bed and llm_veto_fn is not None:
             try:
                 if not llm_veto_fn(r["text"]):
@@ -323,7 +335,7 @@ def plan_ambience(blocks, sub_starts, total_dur, block_text=None, vocab=None,
                     "bed": bed, "reason": reason, "score": r["score"],
                     "runner_up": r["runner_up"],
                     "seed": _stable_seed(r["section"], bed or "silence")})
-        current = bed
+        current = dict_bed
     return out
 
 

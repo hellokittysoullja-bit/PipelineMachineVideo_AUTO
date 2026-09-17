@@ -334,3 +334,49 @@ class TestLlmVeto:
                                 llm_veto_fn=broken_veto)
         assert plan[0]["bed"] == "wind_open"
         assert plan[0]["reason"] == "selected"
+
+    def test_veto_of_one_chapter_does_not_touch_its_neighbours(self):
+        """ГЛАВНАЯ гарантия, и она была НАРУШЕНА — воспроизведено 17.09,
+        а не вычитано. `current = bed` стояло ПОСЛЕ вето, то есть снятая
+        атмосфера обнуляла гистерезис, и следующая глава теряла фон по
+        чужому вердикту:
+
+            без вето : HOOK windy · BLOCK 1 windy · BLOCK 2 windy
+            вето на BLOCK 1: HOOK windy · BLOCK 1 None llm_veto
+                             · BLOCK 2 None run_too_short   <- чужой вердикт
+
+        причём причина в отчёте ВРАЛА: `run_too_short` вместо честного
+        следствия вето соседа. Ни один из четырёх тестов выше этого не
+        видел — все они про ОДНУ главу, а дефект межглавный.
+
+        Здесь проверяется инвариант целиком: план с вето обязан совпадать
+        с планом без вето ВЕЗДЕ, кроме тех глав, где вето сказало «нет»."""
+        text = "поле равнина ветер открытый холм битва сражение войско"
+        # Третья глава короче AMBIENCE_MIN_RUN_SEC — именно она держалась
+        # гистерезисом и теряла фон первой.
+        blocks = [{"section": "HOOK", "text": text, "words": 40},
+                  {"section": "BLOCK 1", "text": text, "words": 40},
+                  {"section": "BLOCK 2", "text": text, "words": 40}]
+        starts = [0.0, 200.0, 400.0]
+        total = 400.0 + (ap.AMBIENCE_MIN_RUN_SEC / 2.0)
+
+        without = ap.plan_ambience(blocks, starts, total,
+                                   block_text=lambda b: b["text"])
+        assert [s["bed"] for s in without] == ["wind_open"] * 3, (
+            "фикстура не про то: без вето все три главы обязаны иметь фон")
+
+        seen = []
+
+        def veto_only_second(text_):
+            seen.append(text_)
+            return len(seen) != 2
+
+        with_veto = ap.plan_ambience(blocks, starts, total,
+                                     block_text=lambda b: b["text"],
+                                     llm_veto_fn=veto_only_second)
+        assert with_veto[1]["bed"] is None and with_veto[1]["reason"] == "llm_veto"
+        for i in (0, 2):
+            assert with_veto[i]["bed"] == without[i]["bed"], (
+                f"глава {i} изменилась от вето у СОСЕДА: "
+                f"{without[i]['bed']} -> {with_veto[i]['bed']}")
+            assert with_veto[i]["reason"] == without[i]["reason"]

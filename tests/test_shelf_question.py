@@ -143,21 +143,39 @@ class TestBothCallSitesUseTheResolver:
         for node in ast.walk(tree):
             if not isinstance(node, ast.Assign):
                 continue
-            names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+            names = []
+            for t in node.targets:
+                if isinstance(t, ast.Name):
+                    names.append(t.id)
+                elif isinstance(t, ast.Tuple):
+                    # с 17.09 ключ приходит парой: `_brief_q, _brief_key = ...`
+                    names += [e.id for e in t.elts if isinstance(e, ast.Name)]
             if "_brief_key" not in names:
                 continue
             fn = node.value.func if isinstance(node.value, ast.Call) else None
             calls.append(getattr(fn, "id", None) or getattr(fn, "attr", None))
         assert calls, "присваивания _brief_key не найдены вообще"
-        assert set(calls) == {"candidate_brief_key"}, calls
+        assert set(calls) == {"candidate_brief_keys"}, calls
+
+    def test_the_pool_query_and_the_cache_key_come_from_one_call(self):
+        """РЕАЛЬНЫЙ ДЕФЕКТ 17.09: ключ кэша уходил в поиск как ЗАПРОС, вместе
+        с хвостом `|shelf:<md5>`. Значения разведены, но обязаны приходить из
+        ОДНОГО вызова — вторая формула рано или поздно разъедется, и ключ
+        перестанет описывать пул, который он ключует."""
+        src = self._src()
+        assert src.count("_brief_q, _brief_key = candidate_brief_keys(") == 2, (
+            "оба пути обязаны брать пару одним вызовом")
+        assert "pool_queries = [_brief_q] + pool_queries" in src
+        assert "pool_queries = [_brief_key] + pool_queries" not in src, (
+            "в поиск снова уходит ключ кэша, а не запрос")
 
     def test_photo_path_passes_the_phrase(self):
         src = self._src()
-        assert "candidate_brief_key(shot_brief, block_text)" in src
+        assert "candidate_brief_keys(shot_brief, block_text)" in src
 
     def test_video_path_declares_it_does_not_use_the_shelf(self):
         src = self._src()
-        assert "candidate_brief_key(shot_brief, uses_shelf=False)" in src
+        assert "candidate_brief_keys(shot_brief, uses_shelf=False)" in src
 
     def test_main_feeds_the_block_phrase_to_photo_only(self):
         src = self._src()

@@ -1180,6 +1180,15 @@ def build_kind(kind, name, max_candidates=18, manifest=None, rejected_log=None):
     cands.sort(key=lambda c: (not (lo <= c["duration"] <= hi), -min(c["duration"], AMBIENCE_MAX_SEC)))
     cap = 420.0 if kind == "ambience" else hi * 1.25
     cands = [c for c in cands if lo * 0.8 <= c["duration"] <= min(cap, hi * 1.25)]
+    # Отклонённое ухом не предлагается заново: без этого пересборка вида
+    # находит тот же файл по тому же запросу, и отказ человека живёт ровно
+    # до следующего `build` — то есть не живёт.
+    by_ear = rejected_ids_for(manifest, kind, name)
+    if by_ear:
+        before = len(cands)
+        cands = [c for c in cands if c["id"] not in by_ear]
+        if before != len(cands):
+            print(f"   отклонённых ухом пропущено: {before - len(cands)}")
     blocked = [(c, title_blocked(name, c["title"])) for c in cands]
     for c, w in blocked:
         if w and rejected_log is not None:
@@ -1357,16 +1366,24 @@ def restore(manifest):
     хранятся, а поисковая выдача со временем меняется: «собрать заново» дало
     бы другой набор, «восстановить» — тот же."""
     done = 0
+    skipped = 0
     for rel, it in manifest.get("items", {}).items():
         dst = os.path.join(ROOT, rel)
         if os.path.exists(dst):
+            continue
+        if it.get("rejected"):
+            # Отказ человека сильнее манифеста: запись физически отсутствует
+            # именно потому, что её убрали ушами, и скачать её обратно по
+            # сохранённому url значило бы отменить это решение молча.
+            skipped += 1
             continue
         item = {"url": it["url"], "title": it.get("title", "")}
         path = download(item, "hq")
         if path and import_file(path, dst, it["kind"], it["scores"].get("duration", 0.0)):
             done += 1
             print(f"   восстановлен {rel}")
-    print(f"Восстановлено файлов: {done}")
+    print(f"Восстановлено файлов: {done}"
+          + (f"; пропущено отклонённых ухом: {skipped}" if skipped else ""))
     return 0
 
 
@@ -1531,6 +1548,48 @@ def set_approved(manifest, patterns, value=True):
     return 0
 
 
+def set_rejected(manifest, patterns, value=True):
+    """Вердикт человека «НЕ брать» — зеркало set_approved и такой же по силе:
+    запись с `rejected` не возвращается ни `restore` (не скачивается обратно
+    по своему же url), ни пересборкой вида (`build_kind` пропускает кандидата
+    с тем же id), и переживает пересборку в манифесте.
+
+    РЕАЛЬНЫЙ ДЕФЕКТ, ради которого это заведено — найден живой проверкой
+    17.09, не чтением кода. Владелец послушал кандидатов и попросил убрать
+    часть звуков; отказ был выражен ПЕРЕМЕЩЕНИЕМ файла в подпапку, то есть в
+    данных не записан нигде. `restore()` пропускает только СУЩЕСТВУЮЩИЕ по
+    своему пути файлы, а у всех девяти перемещённых записей в манифесте
+    остался url — то есть одна штатная команда восстановления молча вернула
+    бы отклонённые звуки в ротацию. Для атмосферы это не гипотетика: она не
+    хранится в git и на машине владельца восстанавливается именно `restore`.
+
+    Асимметрия была ровно в том, что «человек сказал ДА» жило в данных
+    (`approved`), а «человек сказал НЕТ» — только в расположении файла на
+    диске, которого ни один из механизмов восстановления не видит.
+    """
+    hits = _match_items(manifest, patterns)
+    if not hits:
+        print("ничего не найдено по: " + ", ".join(patterns))
+        return 1
+    for rel, it in hits:
+        it["rejected"] = bool(value)
+        it["rejected_at"] = int(time.time()) if value else None
+        print(f"   {'отклонено ухом' if value else 'снят отказ'}: "
+              f"{it['kind']}/{it['name']}  {it.get('title','?')[:44]}")
+    save_manifest(manifest)
+    print(f"Записей затронуто: {len(hits)}")
+    return 0
+
+
+def rejected_ids_for(manifest, kind, name):
+    """id записей, которые человек отклонил для ЭТОГО вида. Нужен build_kind:
+    без него пересборка находит тот же файл по тому же запросу и возвращает
+    его, то есть отказ живёт ровно до следующего `build`."""
+    return {it.get("id") for it in (manifest or {}).get("items", {}).values()
+            if it.get("rejected") and it.get("kind") == kind and it.get("name") == name
+            and it.get("id")}
+
+
 def promote(manifest, kind, name, numbers):
     """Перевести спорную запись из temp_library/audition в библиотеку — по
     номеру, который печатает `audition` и который слышен на демо-ленте.
@@ -1589,7 +1648,8 @@ def promote(manifest, kind, name, numbers):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("cmd", choices=["build", "report", "restore", "reimport", "verify",
-                                    "audition", "approve", "unapprove", "promote", "ingest"])
+                                    "audition", "approve", "unapprove", "reject", "unreject",
+                                    "promote", "ingest"])
     ap.add_argument("--dir", default="", help="ingest: папка с локальными файлами")
     ap.add_argument("--license", default="", help="ingest: лицензия пакета, называет человек")
     ap.add_argument("--license-url", default="", help="ingest: ссылка на текст лицензии")
@@ -1608,11 +1668,13 @@ def main():
         return reimport(manifest)
     if args.cmd == "verify":
         return verify(manifest)
-    if args.cmd in ("approve", "unapprove"):
+    if args.cmd in ("approve", "unapprove", "reject", "unreject"):
         pats = [x.strip() for x in args.match.split(",") if x.strip()]
         if not pats:
             print("нужен --match")
             return 1
+        if args.cmd in ("reject", "unreject"):
+            return set_rejected(manifest, pats, args.cmd == "reject")
         return set_approved(manifest, pats, args.cmd == "approve")
     if args.cmd == "ingest":
         k = [x.strip() for x in args.kinds.split(",") if x.strip()]
@@ -1668,15 +1730,27 @@ def main():
         # новыми, а манифест хранил бы записи об удалённых файлах.
         keep = {rel for rel, it in manifest["items"].items()
                 if it.get("kind") == kind and it.get("name") == name and it.get("approved")}
+        # Отказ ухом обязан пережить пересборку ТАК ЖЕ, как одобрение: иначе
+        # запись выпадает из манифеста, вместе с ней исчезает сам факт
+        # отказа, и следующий же поиск предлагает этот файл заново.
+        keep_verdict = {rel for rel, it in manifest["items"].items()
+                        if it.get("kind") == kind and it.get("name") == name
+                        and (it.get("approved") or it.get("rejected"))}
         keep_names = {os.path.basename(r) for r in keep}
         d = os.path.join(LIBRARY_ROOT, kind, name)
         for f in (os.listdir(d) if os.path.isdir(d) else []):
-            if f not in keep_names:
-                os.remove(os.path.join(d, f))
+            p = os.path.join(d, f)
+            # Пересборка удаляет ФАЙЛЫ вида, а не что попало: подпапка рядом
+            # с записями (например отложенное на переслушивание) роняла весь
+            # прогон IsADirectoryError — воспроизведено, не предположено.
+            if f not in keep_names and os.path.isfile(p):
+                os.remove(p)
         manifest["items"] = {rel: it for rel, it in manifest["items"].items()
-                             if rel in keep or not (it.get("kind") == kind and it.get("name") == name)}
+                             if rel in keep_verdict or not (it.get("kind") == kind and it.get("name") == name)}
         if keep:
             print(f"   одобренных сохранено: {len(keep)}")
+        if len(keep_verdict) > len(keep):
+            print(f"   отказов ухом сохранено: {len(keep_verdict) - len(keep)}")
         build_kind(kind, name, args.max, manifest, rejected)
         save_manifest(manifest)
         with open(rejected_path, "w", encoding="utf-8") as f:

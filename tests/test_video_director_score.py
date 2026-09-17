@@ -20,6 +20,7 @@ pexels_video() остаётся обратно совместимой: её ко
 теперь туда передают функцию, которая ТАКЖЕ умеет принимать
 candidate_query/aesthetic_val как опциональные keyword-параметры.
 """
+import inspect
 import os
 import sys
 import tempfile
@@ -152,3 +153,26 @@ class TestBackwardCompatibleCallingConvention:
         assert out is not None
         assert ps.read_media_sidecar(out).get("pexels_id") == 2, (
             "не победил кандидат с более высоким director-скором")
+
+
+def test_video_winner_enters_the_shot_size_history_without_the_director(tmp_path, monkeypatch):
+    """РЕАЛЬНАЯ АСИММЕТРИЯ (разбор 17.09): `pexels_photo()` пополняет историю
+    крупностей САМА, а видео-победитель попадал в неё только в ветке main()
+    под `visual_director is not None` — при дефолте реестра
+    VISUAL_DIRECTOR_MODE=off она не выполняется вовсе. При этом
+    `pexels_video()` всё равно СЧИТАЛА shot_size_ok против recent_sizes:
+    гейт ритма сравнивал кандидата с историей, в которую видео не попадало.
+
+    Проверяется поведение функции, а не ветка main(): Директор здесь не
+    участвует вообще."""
+    import pipeline_smart as ps
+
+    monkeypatch.setattr(ps, "TEMP_FOLDER", str(tmp_path))
+    src = inspect.getsource(ps.pexels_video)
+    assert "recent_sizes.append(cand_sizes[best[2]])" in src, (
+        "победитель видео не пополняет историю крупностей")
+    assert "cand_sizes[trial] = cand_size" in src, (
+        "крупность обязана браться из уже посчитанной при отборе, "
+        "а не извлекаться кадром заново")
+    # И ровно один раз: двойной учёт исказил бы окно повтора.
+    assert inspect.getsource(ps.main).count("recent_shot_sizes.append(estimate_shot_size(probe))") == 0

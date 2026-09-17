@@ -97,8 +97,60 @@ def test_brief_query_is_added_not_substituted():
     m = re.search(r"pool_queries = \[(\w+)\] \+ pool_queries", block)
     assert m, "запрос из брифа обязан именно ДОБАВЛЯТЬСЯ к пулу"
     # 3. И добавляется именно запрос из брифа, а не что-нибудь ещё.
+    #    ПРОВЕРКА ПО ПОВЕДЕНИЮ, а не по написанию — см.
+    #    test_photo_path_asks_the_stock_with_a_plain_query ниже. Прежняя
+    #    редакция искала здесь строку `<var> = brief_to_stock_query(shot_brief`
+    #    и была ЗЕЛЁНОЙ ПО ПОСТРОЕНИЮ: единственное совпадение в файле — цитата
+    #    старой формулы внутри ДОКСТРИНГА candidate_brief_key(), где она
+    #    приведена как пример уже исправленного бага. Тест не мог упасть и
+    #    честно проспал настоящий дефект (в пул уходило имя кэш-файла).
     var = m.group(1)
-    assert re.search(re.escape(var) + r"\s*=\s*brief_to_stock_query\(shot_brief", src)
+    assert re.search(re.escape(var) + r"\s*(,\s*\w+\s*)?=\s*"
+                     r"(brief_to_stock_query|candidate_brief_keys)\(shot_brief", src), (
+        "запрос из брифа обязан выводиться из самого брифа")
+
+
+def test_photo_path_asks_the_stock_with_a_plain_query(tmp_path, monkeypatch):
+    """У фото-пути этой проверки не было, и ровно поэтому дефект дожил до
+    разбора 17.09: в `pool_queries` клался КЛЮЧ КЭША, а он с 15.09 несёт
+    хвост `|shelf:<md5>` — и эта строка уходила в поиск ВСЕХ словесных
+    источников. Живой прогон до правки:
+
+        ('pexels',  'medieval dented steel breastplate|shelf:953c23ac')
+        ('pixabay', 'medieval dented steel breastplate|shelf:953c23ac')
+
+    У Pixabay И-логика, у остальных свободный текст — токен-хэш обнуляет
+    выдачу. Тест смотрит на то, ЧТО реально ушло в источник, а не на то,
+    как называется переменная."""
+    import pipeline_smart as ps
+
+    seen = []
+    # Хвост `|shelf:` появляется в ключе ТОЛЬКО когда полка реально отвечает,
+    # а `tests/conftest.py` гасит SHELF_INDEX (иначе каждый тест тянул бы
+    # модель на 4.3 ГБ). Без этой строки тест зелёный по построению — первая
+    # его редакция такой и была, и контрольный прогон это поймал: дефект
+    # вернули, тест прошёл. Проверяется именно тот режим, в котором дефект
+    # живёт, — полка на диске есть.
+    monkeypatch.setattr(ps, "_shelf_question_active", lambda: True)
+    monkeypatch.setattr(ps, "TEMP_FOLDER", str(tmp_path))
+    for name in ("_pexels_search_photos", "_pixabay_search_photos",
+                 "_unsplash_search_photos", "_openverse_search_photos"):
+        monkeypatch.setattr(ps, name, lambda q, _n=name, **k: seen.append(q) or [])
+    monkeypatch.setattr(ps, "_museum_search_photos", lambda q, **k: seen.append(q) or [])
+    # Полка отвечает на бриф ЦЕЛИКОМ и к словесным источникам отношения не
+    # имеет — её вопрос в этой проверке не участвует.
+    monkeypatch.setattr(ps, "_shelf_search_photos", lambda q, **k: [])
+
+    brief = "a dented steel breastplate, close up"
+    ps.pexels_photo("medieval breastplate", 3, used_ids=set(), used_hashes=[],
+                    shot_brief=brief, block_text="Стрела скользнула по нагруднику.")
+
+    assert seen, "фото-путь вообще не спросил ни один источник — тест не про то"
+    bad = [q for q in seen if "|" in q or "shelf:" in q]
+    assert not bad, f"в поиск ушёл ключ кэша, а не запрос: {bad[:3]}"
+    brief_q = ps.brief_to_stock_query(brief, fallback=None)
+    assert brief_q and any(brief_q in q for q in seen), (
+        f"запрос из брифа не дошёл до источников: {seen[:3]}")
 
 
 def test_brief_is_in_the_candidate_cache_key():

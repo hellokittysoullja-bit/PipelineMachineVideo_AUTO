@@ -402,8 +402,12 @@ def test_approved_records_survive_a_kind_rebuild():
     src = inspect.getsource(sl.main)
     assert 'it.get("approved")' in src
     assert "keep_names" in src and "if f not in keep_names" in src
-    # и запись остаётся в манифесте
-    assert "if rel in keep or not" in src
+    # и запись остаётся в манифесте. С 17.09 удержание считается по
+    # `keep_verdict` — ОБА вердикта человека, «да» и «нет»: отклонённая ухом
+    # запись обязана пережить пересборку так же, как одобренная, иначе
+    # следующий `build` вернул бы её в ротацию (см. set_rejected).
+    assert "if rel in keep_verdict or not" in src
+    assert 'it.get("rejected")' in src
 
 
 def test_verify_never_rejudges_an_approved_record():
@@ -607,3 +611,99 @@ def test_footsteps_never_gets_a_footstep_decoy_outdoors():
     for n in negs:
         if "footstep" in n:
             assert "wooden floor" in n or "indoors" in n, n
+
+
+# ------------------------------------------- вердикт «НЕ брать» так же вечен
+
+def test_restore_never_brings_back_a_record_rejected_by_ear(tmp_path, monkeypatch):
+    """РЕАЛЬНЫЙ ДЕФЕКТ, найденный живой проверкой 17.09, а не чтением.
+
+    Вердикт человека «убрать» выражался ПЕРЕМЕЩЕНИЕМ файла, а в манифесте
+    оставался только `approved` — симметричного «человек сказал НЕТ» не было
+    вообще. Замер на живом манифесте: девять записей, чей файл отсутствует,
+    все с живым `url`, ни одной `approved`. То есть одна штатная команда
+    восстановления молча вернула бы в ротацию ровно те звуки, которые
+    владелец отслушал и отверг. Цена именно здесь и максимальна: атмосфера
+    в git не хранится и восстанавливается ровно так."""
+    calls = []
+    monkeypatch.setattr(sl, "ROOT", str(tmp_path))
+    monkeypatch.setattr(sl, "download", lambda item, qual: calls.append(item["url"]) or "/tmp/x")
+    monkeypatch.setattr(sl, "import_file", lambda *a, **k: True)
+    manifest = {"items": {
+        "assets/library/ambience/wind_open/keep.flac": {
+            "kind": "ambience", "name": "wind_open", "id": "x:1",
+            "scores": {"duration": 120.0},
+            "url": "https://example.invalid/keep.flac"},
+        "assets/library/ambience/wind_open/nope.flac": {
+            "kind": "ambience", "name": "wind_open", "id": "x:2",
+            "scores": {"duration": 120.0},
+            "url": "https://example.invalid/nope.flac", "rejected": True},
+    }}
+    sl.restore(manifest)
+    assert calls == ["https://example.invalid/keep.flac"], (
+        f"отклонённая ухом запись скачана обратно: {calls}")
+
+
+def test_a_rejected_id_is_not_offered_again_by_a_rebuild():
+    """Второй путь возврата — не восстановление, а новая сборка: поиск
+    отдаёт ту же запись с тем же id, и она проходит те же гейты, потому что
+    дефекта в ней нет — она просто не понравилась. Без фильтра по id
+    отклонение жило бы до первого `build`."""
+    manifest = {"items": {
+        "a.flac": {"kind": "ambience", "name": "wind_open",
+                   "id": "freesound:dead", "rejected": True},
+        "b.flac": {"kind": "ambience", "name": "wind_open", "id": "freesound:live"},
+        "c.flac": {"kind": "sfx", "name": "chapter_turn",
+                   "id": "freesound:other", "rejected": True},
+    }}
+    ids = sl.rejected_ids_for(manifest, "ambience", "wind_open")
+    assert ids == {"freesound:dead"}, ids
+    src = inspect.getsource(sl.build_kind)
+    assert "rejected_ids_for(manifest, kind, name)" in src
+    assert 'c["id"] not in by_ear' in src
+
+
+def test_set_rejected_is_reversible_and_symmetric_to_approve():
+    """Отказ — такой же вердикт, как одобрение, и снимается так же: человек
+    имеет право передумать, а не заводить новую запись руками."""
+    manifest = {"items": {"a.flac": {"kind": "ambience", "name": "wind_open",
+                                     "id": "freesound:x", "title": "t"}}}
+    saved = []
+    import unittest.mock as mock
+    with mock.patch.object(sl, "save_manifest", lambda m: saved.append(m)):
+        assert sl.set_rejected(manifest, ["freesound:x"]) == 0
+        assert manifest["items"]["a.flac"]["rejected"] is True
+        assert manifest["items"]["a.flac"]["rejected_at"]
+        assert sl.set_rejected(manifest, ["freesound:x"], False) == 0
+        assert manifest["items"]["a.flac"]["rejected"] is False
+    assert len(saved) == 2, "вердикт обязан сохраняться на диск, а не только в памяти"
+
+
+def test_reject_commands_are_reachable_from_the_cli():
+    """Ветка разбора без имени в `choices` недостижима: argparse отвергает
+    команду раньше. Проверка отдельная именно потому, что первая редакция
+    этой правки ровно это и забыла."""
+    src = inspect.getsource(sl.main)
+    assert '"reject", "unreject"' in src
+    assert 'args.cmd in ("reject", "unreject")' in src
+
+
+def test_a_subfolder_never_crashes_a_kind_rebuild(tmp_path, monkeypatch):
+    """Воспроизведено до правки: `os.remove` на подпапке вида падал
+    `IsADirectoryError`. Папку рядом с записями человек заводит обычным
+    образом (например, откладывая отклонённое), и пересборка не имеет права
+    от этого умирать."""
+    kind_dir = tmp_path / "wind_open"
+    (kind_dir / "_rejected_by_ear").mkdir(parents=True)
+    (kind_dir / "old.flac").write_bytes(b"x")
+    keep_names = set()
+    removed = []
+    for f in os.listdir(str(kind_dir)):
+        p = os.path.join(str(kind_dir), f)
+        if f not in keep_names and os.path.isfile(p):
+            os.remove(p)
+            removed.append(f)
+    assert removed == ["old.flac"]
+    assert (kind_dir / "_rejected_by_ear").is_dir()
+    src = inspect.getsource(sl.main)
+    assert "if f not in keep_names and os.path.isfile(p)" in src

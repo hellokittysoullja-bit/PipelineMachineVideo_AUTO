@@ -278,10 +278,44 @@ def build_veto_fn(video_dir, model_path=None, threads=4, cache_dir=None):
         packet = {"text": text, "episode_title": ctx["title"], "niche": ctx["niche"]}
         label = _clean_text(text)[:48]
         raw, _ = _ask_cached(brain, render_prompt(packet), 0, cache, True, f"вето: {label}")
-        wants, _, _ = parse_answer(raw)
-        return wants
+        keep, why = veto_decision(raw)
+        if not keep:
+            return False
+        if why:
+            print(f"    вето без вердикта ({why}) — решение словаря остаётся: {label}")
+        return True
 
     return veto
+
+
+def veto_decision(raw):
+    """(оставить_ли_атмосферу, почему_нет_вердикта_или_None) по сырому ответу.
+
+    Вынесено из замыкания отдельной функцией ровно затем, чтобы правило
+    можно было проверить тестом без живой модели на 2.3 ГБ.
+    """
+    wants, _, reason = parse_answer(raw)
+    if wants:
+        return True, None
+    # Атмосфера снимается ТОЛЬКО по явному «none» модели. Всё остальное —
+    # не вердикт, а ОТСУТСТВИЕ вердикта, и решение словаря остаётся.
+    #
+    # Два РЕАЛЬНЫХ дефекта, закрытых этой развилкой (найдены разбором 17.09,
+    # оба подтверждены исходниками, а не догадкой):
+    #  1. Заявленный fail-open не покрывал главный режим отказа.
+    #     `LocalBrain.ask()` при сбое возвращает ПУСТУЮ строку, а не бросает
+    #     исключение (это задокументировано у неё же) — значит `except
+    #     Exception` в plan_ambience не срабатывал, `parse_answer("")` давал
+    #     `empty`, и упавшая модель МОЛЧА снимала атмосферу у КАЖДОЙ главы.
+    #     Fail-open был на бумаге, fail-closed на деле.
+    #  2. `DISCRETE_EVENT_RE` отклоняет описание РАЗОВОГО действия — правило
+    #     писалось для режима, где модель ВЫБИРАЕТ сцену. В режиме вето сцена
+    #     выбрасывается, и «SCENE: wind over a field with distant clashing»
+    #     снимало бы законный `wind_open` из-за одного слова в строке,
+    #     которая на решение всё равно не влияет.
+    if reason == "model_said_none":
+        return False, None
+    return True, reason
 
 
 def main(argv):

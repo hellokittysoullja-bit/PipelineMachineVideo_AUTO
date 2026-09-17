@@ -35,7 +35,9 @@
     "kind_winner": "wind_open",
     "kind_gap": 0.1483
    },
-   "imported_at": 1789318739
+   "imported_at": 1789318739,
+   "rejected": true,
+   "rejected_at": 1789671824
   },
   "assets/library/ambience/wind_open/freesound_923528bf_dc69_4c33_902c_3a4d2c9715a9.flac": {
    "kind": "ambience",
@@ -72,7 +74,9 @@
     "kind_winner": "wind_open",
     "kind_gap": 0.0423
    },
-   "imported_at": 1789318840
+   "imported_at": 1789318840,
+   "rejected": true,
+   "rejected_at": 1789671824
   },
   "assets/library/ambience/wind_open/freesound_8e0829f6_24cf_42a7_9ec2_a17db2d00f63.flac": {
    "kind": "ambience",
@@ -109,7 +113,9 @@
     "kind_winner": "wind_open",
     "kind_gap": 0.0095
    },
-   "imported_at": 1789318875
+   "imported_at": 1789318875,
+   "rejected": true,
+   "rejected_at": 1789671824
   },
   "assets/library/ambience/wind_open/freesound_2e65d059_0863_4473_87dc_8c2f72c6c5ca.flac": {
    "kind": "ambience",
@@ -146,7 +152,9 @@
     "kind_winner": "wind_open",
     "kind_gap": 0.0725
    },
-   "imported_at": 1789318895
+   "imported_at": 1789318895,
+   "rejected": true,
+   "rejected_at": 1789671824
   },
   "assets/library/ambience/night/freesound_704c9212_07e8_4262_940e_187ddbe5ed82.flac": {
    "kind": "ambience",
@@ -875,7 +883,9 @@
     "id": "freesound:cc675aa2-bf77-4bb1-8a62-42c50612babc",
     "title": "Sharp Swosh 18"
    },
-   "imported_at": 1789321640
+   "imported_at": 1789321640,
+   "rejected": true,
+   "rejected_at": 1789671824
   },
   "assets/library/sfx/chapter_turn/freesound_e714df6a_636c_4683_8771_d3e140fd2f61.flac": {
    "kind": "sfx",
@@ -899,7 +909,9 @@
     "id": "freesound:e714df6a-636c-4683-8771-d3e140fd2f61",
     "title": "swosh windy 36.flac"
    },
-   "imported_at": 1789321641
+   "imported_at": 1789321641,
+   "rejected": true,
+   "rejected_at": 1789671824
   },
   "assets/library/sfx/chapter_turn/freesound_34ba7605_bc18_4609_909c_87e4dc25bba9.flac": {
    "kind": "sfx",
@@ -923,7 +935,9 @@
     "id": "freesound:34ba7605-bc18-4609-909c-87e4dc25bba9",
     "title": "Whoosh #1"
    },
-   "imported_at": 1789321641
+   "imported_at": 1789321641,
+   "rejected": true,
+   "rejected_at": 1789671824
   },
   "assets/library/sfx/chapter_turn/freesound_c99dbf43_64e4_4d93_9d30_aba7aaa40a93.flac": {
    "kind": "sfx",
@@ -971,7 +985,9 @@
     "id": "freesound:f1dc6045-7965-41de-87f8-4731d2583fd2",
     "title": "Swosh swoosh whoosh air sound, free, high quality"
    },
-   "imported_at": 1789321643
+   "imported_at": 1789321643,
+   "rejected": true,
+   "rejected_at": 1789671824
   },
   "assets/library/sfx/chapter_turn/freesound_bf5f3ccf_e1f9_479f_aa86_aa0845f01979.flac": {
    "kind": "sfx",
@@ -1019,7 +1035,9 @@
     "id": "freesound:26ab3948-732f-4ca7-802b-130617ed4fd0",
     "title": "whoosh.wav"
    },
-   "imported_at": 1789321645
+   "imported_at": 1789321645,
+   "rejected": true,
+   "rejected_at": 1789671824
   },
   "assets/library/sfx/plate_tick/freesound_ea9dc47e_7f07_45dd_8aa6_8c9e25609251.flac": {
    "kind": "sfx",
