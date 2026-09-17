@@ -253,17 +253,17 @@ LIBRARY_SPEC = {
             queries=["wind open field", "field ambience wind", "wind grass meadow", "moorland wind",
                      "steppe wind ambience", "windy plain"],
             prompt="steady wind blowing over an open field, outdoors, no people",
-            min_sec=45, keep=5),
+            min_sec=15, keep=5),
         "forest_birds": dict(
             queries=["forest birds ambience", "birds spring forest", "woodland birdsong ambience",
                      "forest ambience morning", "park birds ambience"],
             prompt="quiet forest ambience with birds singing softly in the distance",
-            min_sec=45, keep=5),
+            min_sec=15, keep=5),
         "night": dict(
             queries=["night ambience crickets", "night forest ambience", "night countryside ambience",
                      "owl night ambience"],
             prompt="calm night ambience outdoors with crickets and distant owls",
-            min_sec=45, keep=5),
+            min_sec=15, keep=5),
         "stone_hall": dict(
             # Первый прогон: 0 из 11 — пул был пустой (туристы, буддийские
             # храмы, вентиляция), а не гейты слишком строгие. Запросы шире и
@@ -295,7 +295,7 @@ LIBRARY_SPEC = {
             queries=["rain ambience", "light rain outdoors", "rain on grass field", "gentle rain nature",
                      "rain forest ambience"],
             prompt="light steady rain falling outdoors, natural, no people",
-            min_sec=45, keep=5),
+            min_sec=15, keep=5),
         "crowd_market": dict(
             queries=["market crowd ambience", "crowd murmur walla", "village market crowd",
                      "medieval fair crowd", "outdoor crowd ambience distant", "crowd walla outdoor",
@@ -316,7 +316,7 @@ LIBRARY_SPEC = {
         "river_stream": dict(
             queries=["stream water flowing", "river ambience", "brook water", "creek ambience"],
             prompt="a small stream of water flowing gently over stones",
-            min_sec=45, keep=4),
+            min_sec=15, keep=4),
     },
     # ОБЪЕКТНЫЙ СЛОЙ — предметные разовые звуки под конкретным словом
     # сценария (разметка `[sfx:концепт]`). Именно то, чего синтез не умеет:
@@ -542,7 +542,7 @@ def freesound_search(query, key, page_size=30):
 def gather_candidates(spec):
     key = os.environ.get("FREESOUND_API_KEY", "").strip()
     seen, out = set(), []
-    pages = 2 if spec.get("min_sec", 0) >= 30 else 1
+    pages = 2 if spec.get("min_sec", 0) >= 15 else 1
     for q in spec["queries"]:
         for item in openverse_search(q, pages) + freesound_search(q, key):
             fid = item["foreign_id"] or item["id"]
