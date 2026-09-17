@@ -2089,11 +2089,17 @@ def run_sfx_director(mix_path, video_dir, blocks, sub_starts, real_weights, tota
         # границы, что уже считает _climax_dip_window() для музыкального
         # провала, не вторая копия той же арифметики.
         reserved = [_climax_dip_window(t) for t in (climax_times or ())]
+        # Предметный слой ([sfx:концепт]) — по решению владельца 17.09
+        # выключен по умолчанию (OBJECT_SFX_ENABLED=0): короткие эффекты
+        # звучат бутафорски. object_cues() уже написан на None-резолвер —
+        # без него теги честно уходят в отклонённые с причиной no_asset,
+        # переход главы/тик плашки/акцент кульминации это не затрагивает.
+        object_resolver = _asset_for if feature_flags.enabled("OBJECT_SFX_ENABLED") else None
         accepted, dropped = sfx_plan.plan_sfx_cues(
             blocks, sub_starts, real_weights, total_dur,
             chapter_variants=chapter_sfx_variants(),
             plate_cues=plate_cues, reserved_windows=reserved,
-            object_asset_for=_asset_for)
+            object_asset_for=object_resolver)
         # Уровень перехода/тика — ЗДЕСЬ, после того как планировщик выбрал
         # конкретный файл (chapter — ротацией по помещающейся длине; plate —
         # тем, что дала plan_stat_sound_cues() ДО вызова этой функции, с

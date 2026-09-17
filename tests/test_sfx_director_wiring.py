@@ -206,3 +206,36 @@ def test_report_does_not_pass_off_a_fallback_as_the_level_used(tmp_path, monkeyp
                                     sfx_plan.OBJECT_GAIN_MAX_DB]
     # вторая сторона разрыва — громкость ЭТОГО голоса; её отсутствие тоже факт
     assert "voice_lufs" in lv
+
+
+def test_object_layer_off_by_default_but_flag_actually_gates_it(tmp_path, monkeypatch):
+    """Решение владельца 17.09: короткие предметные звуки (лязг/шлепок и
+    т.д.) на слух чаще бутафорские, чем нет — OBJECT_SFX_ENABLED=0 по
+    умолчанию. Флаг обязан реально не пускать резолвер к [sfx:...], а не
+    просто существовать в реестре — иначе тег молча продолжил бы звучать.
+    """
+    monkeypatch.setattr(ps, "TEMP_FOLDER", str(tmp_path))
+    calls = []
+
+    def fake_asset_for(name, max_sec=None):
+        calls.append(name)
+        return ("/tmp/nonexistent_armour_clank.flac", 1.0, sfx_plan.OBJECT_CLASS_POINT)
+
+    monkeypatch.setattr(ps, "object_asset_for", fake_asset_for)
+    blocks = [{"section": "HOOK"},
+              {"section": "BLOCK 1", "sfx": [{"name": "armour_clank"}]}]
+    mix = str(tmp_path / "mix.wav")
+    open(mix, "wb").close()
+
+    monkeypatch.delenv("OBJECT_SFX_ENABLED", raising=False)
+    ps.run_sfx_director(mix, str(tmp_path), blocks, [0.0, 5.0], [4.0, 4.0], 9.0)
+    assert calls == [], "по умолчанию резолвер объекта не должен вызываться вовсе"
+
+    calls.clear()
+    monkeypatch.setenv("OBJECT_SFX_ENABLED", "1")
+    ps.run_sfx_director(mix, str(tmp_path), blocks, [0.0, 5.0], [4.0, 4.0], 9.0)
+    # object_cues() может переспросить резолвер вторым, более узким max_sec
+    # (см. её докстринг) — считаем не число вызовов, а факт, что резолвер
+    # реально дошёл до нужного концепта.
+    assert calls and set(calls) == {"armour_clank"}, \
+        "включённый флаг обязан реально звать резолвер"
