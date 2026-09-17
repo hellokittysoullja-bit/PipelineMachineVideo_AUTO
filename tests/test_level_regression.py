@@ -736,3 +736,99 @@ def test_cue_gain_targets_measured_loudness_not_the_old_peak_guess(tmp_path, kin
     assert after is not None
     assert abs(after - target) <= 1.5, (
         f"{kind}: усиленный ассет даёт {after:.1f} LUFS против цели {target}")
+
+
+# ------------------------------------ ПЯТАЯ авария того же класса (17.09)
+# Атмосферный слой. Найдена не по жалобе, а живым прогоном при проверке
+# двух других фиксов: первый в истории проекта эпизод с ДВУМЯ разными
+# видами атмосферы (forge_fire + wind_open) за раз, поэтому промах раньше
+# было физически негде заметить — на одном виде за эпизод усиление
+# по определению получается «правильным» относительно самого себя.
+
+
+def _noise_at(tmp, name, lufs_target, dur=6.0):
+    """Синтетический шум заданной ИНТЕГРАЛЬНОЙ громкости — приближение
+    двух реальных ситуаций (тихая потрескивающая запись / стационарный
+    широкополосный шум), не копия конкретного файла библиотеки."""
+    import subprocess
+
+    p = os.path.join(tmp, f"{name}.flac")
+    # Подбор через loudnorm по объявленной цели — тот же приём, что уже
+    # использует build_fixture() в level_regression.py для голоса сцены.
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
+         f"anoisesrc=d={dur}:c=pink:r=48000", "-af",
+         f"loudnorm=I={lufs_target}:TP=-3.0", "-ar", "48000", "-ac", "2", p],
+        capture_output=True)
+    return p
+
+
+def test_ambience_segment_gain_targets_the_common_loudness(tmp_path):
+    """Реальный найденный баг: библиотека нормирует файлы к ОДИНАКОВОМУ
+    ПИКУ (-12 dBFS), а не к одинаковой ГРОМКОСТИ. Замер живых ассетов
+    канала: forge_fire (потрескивание, редкие всплески) -45…-53 LUFS,
+    wind_open (стационарный шум) -29…-38 LUFS — разрыв до 24 дБ при одном
+    и том же пике. Оба синтетических файла ниже, до фикса, звучали бы с
+    этим же разрывом; после — оба должны лечь в целевую точку.
+    """
+    import pipeline_smart as ps
+
+    quiet = _noise_at(str(tmp_path), "quiet", -50.0)
+    loud = _noise_at(str(tmp_path), "loud", -30.0)
+
+    before_gap = abs(ps.measure_integrated_lufs(loud) - ps.measure_integrated_lufs(quiet))
+    assert before_gap > 15.0, f"фикстура не воспроизводит реальный разрыв: {before_gap:.1f} дБ"
+
+    for path in (quiet, loud):
+        gain, src = ps.ambience_segment_gain_db(path)
+        assert src == "measured", (path, gain, src)
+        gained = path + ".gained.wav"
+        import subprocess
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", path, "-af",
+                        f"volume={gain}dB", "-ar", "48000", "-ac", "2",
+                        gained], capture_output=True)
+        after = ps.measure_integrated_lufs(gained)
+        assert after is not None
+        assert abs(after - ps.AMBIENCE_SEGMENT_TARGET_LUFS) <= 1.0, (
+            f"{os.path.basename(path)}: {after:.1f} LUFS против цели "
+            f"{ps.AMBIENCE_SEGMENT_TARGET_LUFS}")
+
+
+def test_two_ambience_kinds_no_longer_differ_by_20db(tmp_path, monkeypatch):
+    """Сквозная проверка через РЕАЛЬНУЮ _ambience_segment(), а не только
+    через голую формулу усиления — тот же принцип, что и у остальных
+    тестов этого файла: код, который решает, а не код, который считает.
+    """
+    import pipeline_smart as ps
+
+    quiet = _noise_at(str(tmp_path), "quiet2", -50.0)
+    loud = _noise_at(str(tmp_path), "loud2", -30.0)
+    libs = {"kind_a": [quiet], "kind_b": [loud]}
+    monkeypatch.setattr(ps, "library_sounds",
+                        lambda kind, name: libs.get(name, []))
+
+    out_a = ps._ambience_segment("kind_a", 5.0, 0, os.path.join(str(tmp_path), "seg_a.wav"))
+    out_b = ps._ambience_segment("kind_b", 5.0, 0, os.path.join(str(tmp_path), "seg_b.wav"))
+    assert out_a and out_b, "оба сегмента обязаны собраться"
+
+    lufs_a = ps.measure_integrated_lufs(out_a)
+    lufs_b = ps.measure_integrated_lufs(out_b)
+    gap = abs(lufs_a - lufs_b)
+    assert gap < 6.0, (
+        f"два вида атмосферы разной природной громкости всё ещё расходятся "
+        f"на {gap:.1f} дБ после общей нормировки (было бы ~20 дБ без фикса: "
+        f"kind_a={lufs_a:.1f}, kind_b={lufs_b:.1f})")
+
+
+def test_synthesized_three_layer_ambience_is_not_renormalized():
+    """Пред-нормализация — ТОЛЬКО для единственной библиотечной записи.
+    Три синтезированных слоя (low/mid/high) специально сбалансированы
+    друг относительно друга генератором — нормировать их по отдельности
+    к одной точке значило бы сломать этот баланс, а не исправить его."""
+    import inspect
+
+    import pipeline_smart as ps
+
+    src = inspect.getsource(ps._ambience_segment)
+    assert "len(layers) == 1" in src
+    assert "normalize_layers" in src

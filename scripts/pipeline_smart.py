@@ -2695,6 +2695,23 @@ AMBIENCE_GAIN_MIN_DB = -40.0
 AMBIENCE_GAIN_MAX_DB = 0.0
 AMBIENCE_FADE_SEC = 2.5          # вход/выход участка — атмосфера не включается рубильником
 AMBIENCE_DRIFT_DEPTH = 0.22      # глубина медленного «дыхания» громкости слоя
+# Реальный найденный баг (17.09, живой прогон эпизода с ДВУМЯ видами
+# атмосферы за раз — раньше такого эпизода не было, поэтому промах и не
+# ловился): ambience_gain_db() меряет ОДНУ интегральную громкость ВСЕЙ
+# смонтированной дорожки и применяет ОДНО усиление на весь эпизод. Библиотека
+# нормирует файлы к ОДИНАКОВОМУ ПИКУ (-12 dBFS), но не к одинаковой
+# ГРОМКОСТИ — а разные виды звука при одном пике звучат по-разному тихо:
+# замер живых файлов канала — forge_fire (потрескивание, редкие всплески)
+# −45…−53 LUFS, wind_open (стационарный широкополосный шум) −29…−38 LUFS,
+# то есть разрыв между видами до 24 дБ. Общее усиление подгоняется под
+# СРЕДНЕЕ по дорожке, и тише-от-природы вид остаётся кратно тише цели, а
+# громче-от-природы — кратно громче. На собранном эпизоде это дало 22.4 дБ
+# разницы между «у костра» (практически не слышно) и «через горы» (слышно
+# нормально) — при одном и том же задуманном разрыве от голоса. Правило то
+# же, что уже применено к SFX-переходу/тику (ЧАСТЬ звука выше): не пик, а
+# измеренная громкость, и не общая на дорожку, а СВОЯ на каждый исходник.
+AMBIENCE_SEGMENT_TARGET_LUFS = -40.0
+AMBIENCE_SEGMENT_GAIN_MIN_DB, AMBIENCE_SEGMENT_GAIN_MAX_DB = -15.0, 10.0
 
 
 def ambience_layers(bed, seed=0):
@@ -2736,6 +2753,32 @@ def ambience_layers(bed, seed=0):
     return []
 
 
+@functools.lru_cache(maxsize=256)
+def _ambience_segment_gain_cached(path, mtime):
+    lufs = measure_integrated_lufs(path)
+    if lufs is None:
+        return None
+    raw = AMBIENCE_SEGMENT_TARGET_LUFS - lufs
+    return (max(AMBIENCE_SEGMENT_GAIN_MIN_DB, min(AMBIENCE_SEGMENT_GAIN_MAX_DB, raw)), raw)
+
+
+def ambience_segment_gain_db(path):
+    """Усиление ОДНОГО исходника библиотеки до общей целевой громкости
+    (дБ, чем обосновано) — см. AMBIENCE_SEGMENT_TARGET_LUFS выше про то,
+    какую реальную разницу между видами это закрывает. 0.0 при неудачном
+    замере — честный no-op, а не угаданное число: битый файл не должен
+    получить случайное усиление."""
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return 0.0, "no_file"
+    got = _ambience_segment_gain_cached(path, mtime)
+    if got is None:
+        return 0.0, "unmeasured"
+    gain, raw = got
+    return (round(gain, 2), "measured_clamped" if abs(gain - raw) > 0.05 else "measured")
+
+
 def _ambience_segment(bed, duration, seed, out_path):
     """Один участок атмосферы: слои крутятся независимо, каждый со своего
     сдвига и под своей медленной кривой громкости.
@@ -2747,11 +2790,18 @@ def _ambience_segment(bed, duration, seed, out_path):
     Периоды «дыхания» (AMBIENCE_DRIFT_SECONDS) простые и взаимно простые и
     между собой, и с длинами слоёв — поэтому ни слои, ни их громкости
     никогда не приходят в одну и ту же фазу на длине эпизода.
+
+    Пред-нормализация (ambience_segment_gain_db) применяется ТОЛЬКО к
+    единственному библиотечному файлу (len(layers) == 1) — три
+    синтезированных слоя (low/mid/high) намеренно НЕ трогаются: их
+    взаимный баланс — часть дизайна generate_ambience.py, а не три
+    независимых кандидата, которые надо сравнивать друг с другом.
     """
     import ambience_plan
     layers = ambience_layers(bed, seed)
     if not layers:
         return None
+    normalize_layers = len(layers) == 1
     cmd = ["ffmpeg", "-y"]
     parts, mix_inputs = [], []
     for idx, ((path, seconds), drift) in enumerate(
@@ -2759,9 +2809,10 @@ def _ambience_segment(bed, duration, seed, out_path):
         cmd += ["-stream_loop", "-1", "-i", path]
         offset = (seed * (idx + 3)) % max(1, int(seconds))
         drift_expr = f"{1.0 - AMBIENCE_DRIFT_DEPTH}+{AMBIENCE_DRIFT_DEPTH}*sin(2*PI*t/{drift})"
+        pre_gain = f"volume={ambience_segment_gain_db(path)[0]}dB," if normalize_layers else ""
         parts.append(
             f"[{idx}:a]atrim={offset}:{offset + duration:.3f},asetpts=N/SR/TB,"
-            f"volume=eval=frame:volume='{drift_expr}'[al{idx}]")
+            f"{pre_gain}volume=eval=frame:volume='{drift_expr}'[al{idx}]")
         mix_inputs.append(f"[al{idx}]")
     fade_out_at = max(0.0, duration - AMBIENCE_FADE_SEC)
     parts.append("".join(mix_inputs) + f"amix=inputs={len(layers)}:duration=first:normalize=0,"
