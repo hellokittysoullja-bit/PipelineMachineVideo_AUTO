@@ -532,12 +532,41 @@ def merge_content_world(base_profile, video_dir):
         if key in cw and (key not in merged or confident_enough_to_override):
             merged[key] = cw[key]
 
-    # Только ПУСТОЕ, и никогда поверх объявленного — даже при высокой
-    # уверенности (см. _LIST_FIELDS_IF_ABSENT: добавка к откалиброванному
-    # списку якорей ослабляет гарантию, а не усиливает).
+    # Пустое заполняется всегда (MIN_CONFIDENCE); объявленное каналом
+    # ЗАМЕНЯЕТСЯ — не дополняется — только при высокой уверенности
+    # (WORLD_OVERRIDE_MIN_CONFIDENCE), той же, что у shot_domain выше.
+    #
+    # ПЕРВАЯ ВЕРСИЯ ЭТОГО ПРАВИЛА («канал побеждает всегда, даже при
+    # высокой уверенности») ПРОВЕРЕНА ЖИВЫМ ПРОГОНОМ НА НАСТОЯЩЕМ,
+    # УЖЕ НАСТРОЕННОМ КАНАЛЕ 17.09 И ПРОВАЛИЛАСЬ — тот же класс промаха,
+    # что до появления WORLD_OVERRIDE_MIN_CONFIDENCE ловился на
+    # shot_domain. У этого (военно-исторического) репозитория
+    # `openverse_era_anchors` уже объявлены (9 средневековых слов), а
+    # `brief_to_stock_query()` ставит ОДИН из них В КАЖДЫЙ стоковый
+    # запрос без своего якоря. Живой тестовый эпизод про историю пиццы
+    # (content_world confidence=0.92, свой мир «Неаполь 18-20 века»,
+    # `use_museum_sources=False` — все ЭТИ поля корректно переписались)
+    # получил дословно:
+    #     'a ripe red tomato on a rustic table' -> 'medieval ripe red tomato rustic'
+    #     'a wood-fired brick oven...'          -> 'medieval wood-fired brick oven glowing'
+    # То есть три соседних поля override сработали правильно, а этот
+    # список — нет, и результат ушёл бы в РЕАЛЬНЫЙ вызов Pexels/Openverse
+    # с якорем чужой эпохи. Прежнее обоснование («добавка к
+    # откалиброванному списку ослабляет гарантию») относилось к
+    # ДОБАВЛЕНИЮ эпизодных слов В список канала — оно верно и никуда не
+    # делось (см. `_LIST_FIELDS_ADDITIVE` выше, те списки по-прежнему
+    # только дополняются). Здесь другой случай: список решает, каким
+    # ЯКОРЕМ ЭПОХИ подписывать запросы ЭТОГО эпизода, а не что канал
+    # считает своей нишей вообще, — при высокой уверенности мир эпизода
+    # ПОЛНОСТЬЮ ЗАМЕНЯЕТ канальный (та же логика, что у shot_domain),
+    # а не смешивается с ним: смешение вернуло бы ровно ту порчу запроса,
+    # ради которой список остаётся невставляемым в `_LIST_FIELDS_ADDITIVE`.
     for cw_key, profile_key in _LIST_FIELDS_IF_ABSENT:
-        if cw.get(cw_key) and not merged.get(profile_key):
-            merged[profile_key] = list(cw[cw_key])
+        anchors = cw.get(cw_key)
+        if not anchors:
+            continue
+        if not merged.get(profile_key) or confident_enough_to_override:
+            merged[profile_key] = list(anchors)
 
     return merged
 

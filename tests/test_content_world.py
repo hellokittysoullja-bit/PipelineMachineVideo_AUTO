@@ -541,21 +541,45 @@ class TestRunLocalNoModel:
 
 
 class TestEmptyNicheListsAreFilled:
-    """Авто-ниша заполняет ПУСТЫЕ списки якорей — и только пустые.
+    """Авто-ниша заполняет ПУСТЫЕ списки якорей всегда; ОБЪЯВЛЕННЫЕ каналом
+    заменяет — не дополняет — только при высокой уверенности
+    (WORLD_OVERRIDE_MIN_CONFIDENCE), той же, что у shot_domain.
 
-    ЗАЧЕМ. brief_to_stock_query() ставит якорь эпохи в КАЖДЫЙ запрос без
-    своего (CLAUDE.md: «0 запросов из 142 без якоря эпохи»), а берёт якоря
-    из openverse_era_anchors. После обнуления дефолтов кода (17.09) у канала
-    новой ниши этот список пуст, а парсер ответа модели его не заполнял:
-    ANCHOR_WORDS уходили только в shot_domain. Для эпизода про каменный век
-    это значит, что «a flint hand axe held in a palm» уходит в сток без
-    единого слова об эпохе — ровно тот случай, который в этом файле уже
-    записан числом: одиночное `plate armour` первым результатом даёт
-    «MkIV-Tank-Plate».
+    ЗАЧЕМ ВООБЩЕ ЗАПОЛНЯТЬ. brief_to_stock_query() ставит якорь эпохи в
+    КАЖДЫЙ запрос без своего (CLAUDE.md: «0 запросов из 142 без якоря
+    эпохи»), а берёт якоря из openverse_era_anchors. После обнуления
+    дефолтов кода (17.09) у канала новой ниши этот список пуст, а парсер
+    ответа модели его не заполнял: ANCHOR_WORDS уходили только в
+    shot_domain. Для эпизода про каменный век это значит, что «a flint
+    hand axe held in a palm» уходит в сток без единого слова об эпохе —
+    ровно тот случай, который в этом файле уже записан числом: одиночное
+    `plate armour` первым результатом даёт «MkIV-Tank-Plate».
 
-    ПОЧЕМУ НЕ ДОБАВКОЙ. Канал, объявивший якоря, откалиброван на них: лишние
-    слова означают, что ЧАСТЬ запросов сочтётся «уже с якорем» и перестанет
-    его получать — добавление ОСЛАБИЛО бы гарантию.
+    ЗАЧЕМ ЗАМЕНЯТЬ, А НЕ ТОЛЬКО ЗАПОЛНЯТЬ — ЖИВОЙ ПРОГОН 17.09,
+    А НЕ РАССУЖДЕНИЕ. Первая версия этого правила («канал побеждает
+    всегда, даже при высокой уверенности») была протестирована ниже
+    синтетикой и выглядела безопасной — но на НАСТОЯЩЕМ, уже настроенном
+    военно-историческом канале (этот самый репозиторий, где
+    openverse_era_anchors уже объявлены: 9 средневековых слов) она дала
+    реальный испорченный запрос для тестового эпизода про историю пиццы
+    (confidence=0.92, свой мир «Неаполь 18-20 века»):
+        'a ripe red tomato on a rustic table' -> 'medieval ripe red tomato rustic'
+    Три соседних поля override (shot_domain/use_museum_sources/era) в том
+    же эпизоде сработали правильно — только этот список нёс чужую нишу
+    дальше, в реальный вызов Pexels/Openverse. Раз мир эпизода при высокой
+    уверенности переписывает канальный целиком (shot_domain), список,
+    решающий, каким якорем ЭПОХИ подписывать запросы этого же эпизода,
+    обязан следовать тому же правилу — иначе три «да» и одно «нет» в
+    одном и том же решении о нише самого себя противоречат друг другу.
+
+    ПОЧЕМУ ПРИ УМЕРЕННОЙ УВЕРЕННОСТИ — ПО-ПРЕЖНЕМУ НЕ ДОБАВКОЙ И НЕ
+    ЗАМЕНОЙ. Канал, объявивший якоря, на них откалиброван: подмешать
+    эпизодные слова В список канала значило бы, что ЧАСТЬ запросов
+    сочтётся «уже с якорем» и перестанет получать канальный —
+    добавление ОСЛАБИЛО бы гарантию. Ниже уверенности override —
+    заменить список угадкой, которой сам механизм не доверяет настолько,
+    чтобы переписать даже shot_domain, — тоже неверно. Поэтому при
+    умеренной уверенности список остаётся канальным без изменений.
     """
 
     PROFILE = {
@@ -566,8 +590,8 @@ class TestEmptyNicheListsAreFilled:
                          "cave", "hand axe"],
     }
 
-    def _merged(self, tmp_path, base):
-        cw.write_content_world(str(tmp_path), dict(self.PROFILE), source="test")
+    def _merged(self, tmp_path, base, profile=None):
+        cw.write_content_world(str(tmp_path), dict(profile or self.PROFILE), source="test")
         return cw.merge_content_world(dict(base), str(tmp_path))
 
     @pytest.mark.parametrize("key", ["openverse_era_anchors",
@@ -580,23 +604,53 @@ class TestEmptyNicheListsAreFilled:
     @pytest.mark.parametrize("key", ["openverse_era_anchors",
                                      "openverse_domain_nouns",
                                      "query_era_anchors"])
-    def test_declared_list_is_never_touched(self, tmp_path, key):
-        """Даже при высокой уверенности: здесь заполняется молчание, а не
-        переписывается решение автора."""
+    def test_moderate_confidence_never_touches_declared_list(self, tmp_path, key):
+        """Ниже WORLD_OVERRIDE_MIN_CONFIDENCE (0.75) — ни заполнения, ни
+        замены: угадке не доверяют настолько, чтобы переписать даже
+        shot_domain, значит и список якорей она переписать не вправе."""
+        profile = dict(self.PROFILE, confidence=0.6)
         base = {key: ["medieval", "knight"]}
-        merged = self._merged(tmp_path, base)
+        merged = self._merged(tmp_path, base, profile=profile)
         assert merged[key] == ["medieval", "knight"]
 
-    def test_this_repository_is_unchanged(self, tmp_path):
-        """Канал этого репозитория все три списка объявил — авто-ниша чужой
-        ниши не имеет права подмешать в них ни слова."""
+    @pytest.mark.parametrize("key", ["openverse_era_anchors",
+                                     "openverse_domain_nouns",
+                                     "query_era_anchors"])
+    def test_high_confidence_replaces_declared_list(self, tmp_path, key):
+        """>= WORLD_OVERRIDE_MIN_CONFIDENCE — список ЗАМЕНЯЕТСЯ целиком
+        (не объединяется: смешение вернуло бы ровно ту порчу запроса
+        «medieval ripe red tomato», ради которой список остаётся вне
+        _LIST_FIELDS_ADDITIVE)."""
+        base = {key: ["medieval", "knight"]}
+        merged = self._merged(tmp_path, base)
+        assert merged[key] == self.PROFILE["anchor_words"]
+
+    def test_this_repository_unchanged_at_moderate_confidence(self, tmp_path):
+        """Канал этого репозитория все три списка объявил — шумная догадка
+        (confidence ниже порога override) не имеет права подмешать в них
+        ни слова, та же гарантия, что у shot_domain."""
+        import json
+        base = json.load(open(os.path.join(REPO_ROOT, "channel_profile.json"),
+                              encoding="utf-8"))
+        profile = dict(self.PROFILE, confidence=0.6)
+        merged = self._merged(tmp_path, base, profile=profile)
+        for key in ("openverse_era_anchors", "openverse_domain_nouns",
+                    "query_era_anchors"):
+            assert merged[key] == base[key], key
+
+    def test_this_repository_is_overridden_at_high_confidence(self, tmp_path):
+        """ЖИВОЙ СЛУЧАЙ 17.09: настоящий channel_profile.json этого канала
+        (медиевализм объявлен явно) + уверенный автопрофиль про историю
+        пиццы -> якоря эпохи обязаны стать пиццерийными, а не средневековыми,
+        иначе brief_to_stock_query() подпишет пиццу под «medieval»."""
         import json
         base = json.load(open(os.path.join(REPO_ROOT, "channel_profile.json"),
                               encoding="utf-8"))
         merged = self._merged(tmp_path, base)
         for key in ("openverse_era_anchors", "openverse_domain_nouns",
                     "query_era_anchors"):
-            assert merged[key] == base[key], key
+            assert merged[key] == self.PROFILE["anchor_words"], key
+            assert "medieval" not in merged[key], key
 
     def test_no_anchor_words_changes_nothing(self, tmp_path):
         profile = {k: v for k, v in self.PROFILE.items() if k != "anchor_words"}
