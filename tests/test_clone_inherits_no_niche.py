@@ -32,6 +32,7 @@ PROBE = textwrap.dedent('''
     os.chdir(os.environ["CLONE"])
     import pipeline_smart as ps
     import museum_sources as ms
+    import shot_types as st
     queries = ["stone spear point flint", "tank battle field",
                "spear hunting savanna", "sword smith forging",
                "infantry helmet mud", "surgical blade close up"]
@@ -45,6 +46,9 @@ PROBE = textwrap.dedent('''
         "negative_anchors": len(ps.CONTENT_NEGATIVE_ANCHORS),
         "era_anchors": len(ps.QUERY_ERA_ANCHORS),
         "fallbacks": list(ps.GENERIC_FALLBACKS),
+        "lexicon": len(st._lexicon()),
+        "departments": len(st._met_departments()),
+        "type_of_object_query": st.shot_type_for("medieval plate armour museum"),
         "resolved_without_fallbacks": ps.resolve_queries(
             [{"section": "HOOK", "text": "Фраза одна."},
              {"section": "HOOK", "text": "Фраза два."}], {}),
@@ -151,3 +155,30 @@ class TestGenericFallbacksAreNicheDerived:
         ZeroDivisionError посреди резолва, то есть падение рендера."""
         got = _probe_clone(tmp_path)
         assert got["resolved_without_fallbacks"] is not None
+
+
+class TestShotTypeLexiconIsNicheOwned:
+    """Словарь типов кадра и отделы Мет — тоже характеристики ниши.
+
+    Замер на 15 брифах чужих ниш (психология/медицина/каменный век/техника):
+    словарь даёт `any` в 13 случаях и ОШИБАЕТСЯ в обоих остальных —
+    «a blister pack of pills on a nightstand» и «a phone lying face down on a
+    bedside table at night» помечались СЦЕНОЙ, а это исключает музей и полку
+    из пула. Предметный кадр, потерявший лучший источник по совпадению букв.
+    """
+
+    def test_fresh_clone_has_no_lexicon_and_no_departments(self, tmp_path):
+        got = _probe_clone(tmp_path)
+        assert got["lexicon"] == 0
+        assert got["departments"] == 0
+        # тип остаётся `any` — задокументированный откат «маршрут во все
+        # источники», у которого ноль регрессии
+        assert got["type_of_object_query"] == "any"
+
+    def test_this_channel_keeps_both(self, tmp_path):
+        profile = json.load(open(os.path.join(REPO_ROOT, "channel_profile.json"),
+                                 encoding="utf-8"))
+        got = _probe_clone(tmp_path, profile=profile)
+        assert got["lexicon"] == 5
+        assert got["departments"] == 3
+        assert got["type_of_object_query"] == "object"
