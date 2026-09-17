@@ -251,14 +251,26 @@ def run(video_dir, blocks, brain, cache_dir=None, verbose=True):
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("video_dir")
-    ap.add_argument("--brain", choices=("local", "file"), default="local")
+    ap.add_argument("--brain", choices=("local", "file", "packets"), default="local")
     ap.add_argument("--answers", help="папка с ответами для --brain file")
+    ap.add_argument("--out-packets", help="куда выложить промпты глав для --brain packets")
     ap.add_argument("--model", default=None)
     ap.add_argument("--threads", type=int, default=4)
     ap.add_argument("--no-cache", action="store_true")
     a = ap.parse_args(argv[1:])
 
     blocks = script_parser.parse_blocks(os.path.join(a.video_dir, "script.txt"))
+
+    if a.brain == "packets":
+        dest = a.out_packets or os.path.join(a.video_dir, "media_plan", "ambience_packets")
+        os.makedirs(dest, exist_ok=True)
+        packets = chapter_packets(a.video_dir, blocks)
+        for i, p in enumerate(packets, 1):
+            with open(os.path.join(dest, f"{i:02d}.txt"), "w", encoding="utf-8") as f:
+                f.write(render_prompt(p))
+        print(f"Пакеты глав: {dest} ({len(packets)} глав). Ответы положить рядом "
+              f"под теми же номерами и запустить --brain file --answers <папка>")
+        return 0
 
     if a.brain == "local":
         model = find_model(a.model)
