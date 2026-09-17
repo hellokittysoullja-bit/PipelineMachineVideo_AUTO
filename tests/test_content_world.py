@@ -12,6 +12,8 @@ import json
 import os
 import sys
 
+import pytest
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
 
@@ -536,3 +538,70 @@ class TestRunLocalNoModel:
         monkeypatch.setattr(sbd, "find_model", lambda explicit=None: None)
         profile, source = cw.run_local(str(tmp_path))
         assert profile is None and source == "no_model"
+
+
+class TestEmptyNicheListsAreFilled:
+    """Авто-ниша заполняет ПУСТЫЕ списки якорей — и только пустые.
+
+    ЗАЧЕМ. brief_to_stock_query() ставит якорь эпохи в КАЖДЫЙ запрос без
+    своего (CLAUDE.md: «0 запросов из 142 без якоря эпохи»), а берёт якоря
+    из openverse_era_anchors. После обнуления дефолтов кода (17.09) у канала
+    новой ниши этот список пуст, а парсер ответа модели его не заполнял:
+    ANCHOR_WORDS уходили только в shot_domain. Для эпизода про каменный век
+    это значит, что «a flint hand axe held in a palm» уходит в сток без
+    единого слова об эпохе — ровно тот случай, который в этом файле уже
+    записан числом: одиночное `plate armour` первым результатом даёт
+    «MkIV-Tank-Plate».
+
+    ПОЧЕМУ НЕ ДОБАВКОЙ. Канал, объявивший якоря, откалиброван на них: лишние
+    слова означают, что ЧАСТЬ запросов сочтётся «уже с якорем» и перестанет
+    его получать — добавление ОСЛАБИЛО бы гарантию.
+    """
+
+    PROFILE = {
+        "niche": "каменный век", "confidence": 0.9, "is_historical": True,
+        "era_from": -30000, "era_to": -3000, "use_museum_sources": True,
+        "world": "stone age daily life",
+        "anchor_words": ["prehistoric", "neolithic", "flint", "stone tool",
+                         "cave", "hand axe"],
+    }
+
+    def _merged(self, tmp_path, base):
+        cw.write_content_world(str(tmp_path), dict(self.PROFILE), source="test")
+        return cw.merge_content_world(dict(base), str(tmp_path))
+
+    @pytest.mark.parametrize("key", ["openverse_era_anchors",
+                                     "openverse_domain_nouns",
+                                     "query_era_anchors"])
+    def test_empty_list_is_filled_from_anchor_words(self, tmp_path, key):
+        merged = self._merged(tmp_path, {})
+        assert merged[key] == self.PROFILE["anchor_words"]
+
+    @pytest.mark.parametrize("key", ["openverse_era_anchors",
+                                     "openverse_domain_nouns",
+                                     "query_era_anchors"])
+    def test_declared_list_is_never_touched(self, tmp_path, key):
+        """Даже при высокой уверенности: здесь заполняется молчание, а не
+        переписывается решение автора."""
+        base = {key: ["medieval", "knight"]}
+        merged = self._merged(tmp_path, base)
+        assert merged[key] == ["medieval", "knight"]
+
+    def test_this_repository_is_unchanged(self, tmp_path):
+        """Канал этого репозитория все три списка объявил — авто-ниша чужой
+        ниши не имеет права подмешать в них ни слова."""
+        import json
+        base = json.load(open(os.path.join(REPO_ROOT, "channel_profile.json"),
+                              encoding="utf-8"))
+        merged = self._merged(tmp_path, base)
+        for key in ("openverse_era_anchors", "openverse_domain_nouns",
+                    "query_era_anchors"):
+            assert merged[key] == base[key], key
+
+    def test_no_anchor_words_changes_nothing(self, tmp_path):
+        profile = {k: v for k, v in self.PROFILE.items() if k != "anchor_words"}
+        cw.write_content_world(str(tmp_path), profile, source="test")
+        merged = cw.merge_content_world({}, str(tmp_path))
+        for key in ("openverse_era_anchors", "openverse_domain_nouns",
+                    "query_era_anchors"):
+            assert key not in merged, key

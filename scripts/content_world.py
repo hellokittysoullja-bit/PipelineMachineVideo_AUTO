@@ -137,6 +137,37 @@ _LIST_FIELDS_ADDITIVE = (
 # тихо переписать — см. его использование в historical_default() ниже.
 _SCALAR_FIELDS_IF_ABSENT = ("era_from", "era_to", "use_museum_sources", "is_historical")
 
+# СПИСКИ, КОТОРЫЕ АВТО-НИША ЗАПОЛНЯЕТ ТОЛЬКО ПУСТЫМИ (17.09). Не добавки к
+# канальным, а именно заполнение молчания — и это не осторожность, а
+# измеренная необходимость с обеих сторон.
+#
+# ЗАЧЕМ. `brief_to_stock_query()` ставит якорь эпохи в КАЖДЫЙ запрос без
+# своего (CLAUDE.md: «0 запросов из 142 без якоря эпохи»), а берёт якоря
+# из `openverse_era_anchors`. После того как дефолты кода обнулены
+# (17.09, ни один список ниши больше не дефолт), у канала НОВОЙ ниши этот
+# список пуст, и парсер ответа модели его не заполнял: `ANCHOR_WORDS`
+# уходили только в `shot_domain`. Итог для эпизода про каменный век —
+# «a flint hand axe held in a palm» уходит в сток без единого слова об
+# эпохе, а это ровно тот случай, который в этом файле уже записан числом:
+# одиночное `plate armour` первым результатом даёт «MkIV-Tank-Plate».
+#
+# ПОЧЕМУ НЕ ДОБАВКОЙ. Канал, который якоря объявил, откалиброван на них:
+# лишние слова означают, что ЧАСТЬ запросов сочтётся «уже с якорем» и
+# перестанет его получать — то есть добавление ослабило бы гарантию, а не
+# усилило. Поэтому заполняется только пустое; у этого канала (объявлены
+# openverse_era_anchors/openverse_domain_nouns/query_era_anchors) поведение
+# БАЙТ-В-БАЙТ прежнее.
+#
+# ANCHOR_WORDS — уже существующее поле промпта («6-12 английских
+# предметных/сценовых слов, которые ДЕЙСТВИТЕЛЬНО про эту тему»), то есть
+# ровно то, чем этот канал и заполнил три своих списка вручную. Второго
+# поля под то же самое не заводится.
+_LIST_FIELDS_IF_ABSENT = (
+    ("anchor_words", "openverse_era_anchors"),
+    ("anchor_words", "openverse_domain_nouns"),
+    ("anchor_words", "query_era_anchors"),
+)
+
 
 def content_world_path(video_dir):
     return os.path.join(video_dir, CONTENT_WORLD_RELPATH)
@@ -500,6 +531,13 @@ def merge_content_world(base_profile, video_dir):
     for key in _SCALAR_FIELDS_IF_ABSENT:
         if key in cw and (key not in merged or confident_enough_to_override):
             merged[key] = cw[key]
+
+    # Только ПУСТОЕ, и никогда поверх объявленного — даже при высокой
+    # уверенности (см. _LIST_FIELDS_IF_ABSENT: добавка к откалиброванному
+    # списку якорей ослабляет гарантию, а не усиливает).
+    for cw_key, profile_key in _LIST_FIELDS_IF_ABSENT:
+        if cw.get(cw_key) and not merged.get(profile_key):
+            merged[profile_key] = list(cw[cw_key])
 
     return merged
 
