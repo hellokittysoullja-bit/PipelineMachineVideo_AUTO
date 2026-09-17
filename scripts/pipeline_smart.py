@@ -5250,8 +5250,18 @@ _CONTENT_ALT_BLOCKLIST_DEFAULT = (
 # content_negative_anchors ниже) .get() увидел бы "ключ есть" и потерял бы
 # КОД_ДЕФОЛТ целиком. Найдено живой проверкой 17.09, см. докстринг
 # merge_content_world() в content_world.py.
+# ДЕФОЛТ КОДА ОБНУЛЁН (17.09) — тем же правилом, что правила дизамбигуации,
+# гварды формы, окно эпохи и список чужих культур: ни один список, описывающий
+# НИШУ, не имеет права быть дефолтом кода, иначе клон под новую нишу получает
+# чужой (ЧАСТЬ 24, проверяется tests/test_clone_inherits_no_niche.py).
+# Прежние значения объявлены в channel_profile.json 1-в-1 — поведение этого
+# канала байт-в-байт прежнее. Константа выше остаётся только как
+# происхождение значений и как то, с чем тест сверяет профиль.
+# Для блоклиста цена была самой прямой: в нём katana/samurai/kimono/fencing/
+# parade — то есть канал про историю Японии или про спортивное фехтование
+# блокировал бы РОВНО свою тему по кандидатам, ещё до всех гейтов.
 CONTENT_ALT_BLOCKLIST = content_world.merged_list(
-    CHANNEL_PROFILE, "content_alt_blocklist", _CONTENT_ALT_BLOCKLIST_DEFAULT)
+    CHANNEL_PROFILE, "content_alt_blocklist", ())
 
 
 def pexels_candidate_text(item):
@@ -8283,7 +8293,9 @@ QUERY_ERA_ANCHORS = tuple(
     t.lower() for t in
     content_world.merged_list(
         CHANNEL_PROFILE, "query_era_anchors",
-        content_world.historical_default(CHANNEL_PROFILE, _QUERY_ERA_ANCHORS_DEFAULT))
+        # Дефолт кода обнулён (17.09), см. CONTENT_ALT_BLOCKLIST: значения
+        # объявлены в channel_profile.json, у клона чужих якорей нет.
+        content_world.historical_default(CHANNEL_PROFILE, ()))
 )
 
 # Сколько слотов на ОДИН авторский запрос уже считается голодающим пулом.
@@ -10456,9 +10468,13 @@ _CONTENT_NEGATIVE_ANCHORS_DEFAULT = (
 # этот репозиторий). content_world.merged_list() — см. комментарий у
 # CONTENT_ALT_BLOCKLIST — ловушки вето судятся ЭМБЕДДИНГОМ, не подстрокой,
 # единственное место, где авто-ниша дотягивается до семантического судьи.
+# Дефолт кода обнулён (17.09), см. CONTENT_ALT_BLOCKLIST. Здесь цена особая:
+# ловушки судит ЭМБЕДДИНГ, то есть чужая ловушка не просто лишняя — она
+# ОТКЛОНЯЕТ кандидата. «modern domestic interior, kitchen» на клоне под
+# психологию вето́вало бы законную кухню.
 CONTENT_NEGATIVE_ANCHORS = content_world.merged_list(
     CHANNEL_PROFILE, "content_negative_anchors",
-    content_world.historical_default(CHANNEL_PROFILE, _CONTENT_NEGATIVE_ANCHORS_DEFAULT))
+    content_world.historical_default(CHANNEL_PROFILE, ()))
 # Кадр отклоняется, если ЛЮБАЯ ловушка набрала не меньше, чем цель минус
 # запас. Отрицательный запас = консервативно: ловушка должна ощутимо
 # ПЕРЕБИВАТЬ цель, а не просто дотягиваться до неё. Именно эта

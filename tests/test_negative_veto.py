@@ -68,9 +68,16 @@ class TestConfiguration:
         CONTENT_ALT_BLOCKLIST и VISUAL_DOMAIN_GUARDS, а не в коде намертво.
         """
         assert ps.CONTENT_NEGATIVE_ANCHORS
+        # С 17.09 дефолт кода ПУСТ: ловушки судит эмбеддинг, то есть чужая
+        # ловушка не просто лишняя — она ОТКЛОНЯЕТ кандидата («modern domestic
+        # interior, kitchen» вето́вало бы законную кухню на клоне под
+        # психологию). Источник ровно один — профиль канала.
         assert ps.CONTENT_NEGATIVE_ANCHORS == tuple(
-            ps.CHANNEL_PROFILE.get("content_negative_anchors",
-                                   ps._CONTENT_NEGATIVE_ANCHORS_DEFAULT))
+            ps.CHANNEL_PROFILE["content_negative_anchors"])
+        assert set(ps._CONTENT_NEGATIVE_ANCHORS_DEFAULT) == set(
+            ps.CHANNEL_PROFILE["content_negative_anchors"]), (
+            "константа осталась происхождением значений — она обязана "
+            "совпадать с тем, что канал объявил у себя")
 
     def test_veto_is_part_of_the_selection_signature(self):
         """Новый гейт обязан инвалидировать уже закэшированных кандидатов.

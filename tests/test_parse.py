@@ -572,6 +572,13 @@ def test_hardcoded_defaults_match_committed_channel_profile():
     # тихий дрейф, а осознанное решение автора правки).
     assert pipeline_smart._MOOD_GRADE_DEFAULT == pipeline_smart.CHANNEL_PROFILE["mood_grade"]
     assert set(pipeline_smart._CONTENT_ALT_BLOCKLIST_DEFAULT) == set(pipeline_smart.CHANNEL_PROFILE["content_alt_blocklist"])
+    # С 17.09 константа больше НЕ дефолт: профиль — единственный источник, а
+    # константа осталась происхождением значений и эталоном для сверки выше.
+    # Без этой проверки обнуление дефолта выглядело бы как «инвариант просто
+    # перестал что-то значить» (ЧАСТЬ 24, tests/test_clone_inherits_no_niche.py).
+    assert pipeline_smart.CONTENT_ALT_BLOCKLIST, "профиль обязан объявить блоклист"
+    assert set(pipeline_smart.CONTENT_ALT_BLOCKLIST) == set(
+        pipeline_smart.CHANNEL_PROFILE["content_alt_blocklist"])
 
 
 def test_voice_tuning_matches_channel_profile_file():

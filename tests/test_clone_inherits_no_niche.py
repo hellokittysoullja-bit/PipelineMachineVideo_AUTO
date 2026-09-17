@@ -41,6 +41,9 @@ PROBE = textwrap.dedent('''
         "era_declared": ms.era_window_declared(),
         "cultures_declared": ms.foreign_culture_terms_declared(),
         "distorted": [q for q in queries if ps.disambiguate_search_query(q) != q],
+        "blocklist": len(ps.CONTENT_ALT_BLOCKLIST),
+        "negative_anchors": len(ps.CONTENT_NEGATIVE_ANCHORS),
+        "era_anchors": len(ps.QUERY_ERA_ANCHORS),
     }))
 ''')
 
@@ -77,6 +80,17 @@ class TestFreshCloneInheritsNothing:
         assert got["rules"] == 0
         assert got["guards"] == 0
 
+    def test_no_foreign_blocklist_or_veto_traps(self, tmp_path):
+        """Блоклист и ловушки вето — тоже характеристики ниши, и цена у них
+        разная, но обе прямые: в блоклисте katana/samurai/kimono/fencing/
+        parade (канал про историю Японии блокировал бы РОВНО свою тему по
+        кандидатам, до всех гейтов), а ловушки судит ЭМБЕДДИНГ, то есть
+        чужая ловушка не просто лишняя — она ОТКЛОНЯЕТ кандидата."""
+        got = _probe_clone(tmp_path)
+        assert got["blocklist"] == 0
+        assert got["negative_anchors"] == 0
+        assert got["era_anchors"] == 0
+
     def test_museum_passport_is_not_assumed(self, tmp_path):
         """Окно эпохи и список чужих культур — паспорт предмета. Не объявлены
         — музеи не спрашиваются (см. museum_sources.search_museums), а не
@@ -100,3 +114,6 @@ class TestThisChannelIsUnchanged:
         assert "japanese" in got["cultures_declared"]
         # на своём канале уточнитель обязан работать как раньше
         assert "tank battle field" in got["distorted"]
+        assert got["blocklist"] == 51
+        assert got["negative_anchors"] == 8
+        assert got["era_anchors"] == 45
