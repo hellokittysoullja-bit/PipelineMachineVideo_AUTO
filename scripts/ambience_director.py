@@ -134,13 +134,35 @@ def render_prompt(packet):
 
 _SCENE_RE = re.compile(r"SCENE\s*:\s*(.+)", re.I)
 
+# ПРОВЕРКА ФОРМЫ ПОВЕРХ СУЖДЕНИЯ МОДЕЛИ — не полагаемся на то, что она сама
+# соблюдает правило «текстура, не разовое действие» (промпт v2 просит это
+# прямо, но живой замер на эпизоде 02 показал: BLOCK 4 послушался («wind
+# blowing over muddy battlefield»), BLOCK 5 — нет («steady footfall on muddy
+# ground»), НА ПОЧТИ ОДИНАКОВОМ ТЕКСТЕ. Значит просьбой в промпте это не
+# закрывается надёжно — нужна отдельная, детерминированная проверка ФОРМЫ
+# ответа, тот же приём, что `brief_is_shot_like` уже применяет к брифам
+# кадра: слова, а не суждение, решают форму. Список слов взят из РЕАЛЬНО
+# увиденных ответов модели (footfall/footfalls), плюс очевидные соседи того
+# же класса (единичные удары/крики/выстрелы) — не с потолка.
+DISCRETE_EVENT_RE = re.compile(
+    r"\b(footfall|footfalls|footstep|footsteps|walking|stomp|stomping|"
+    r"thud|impact|strike|striking|clash|clashing|knock|knocking|bang|"
+    r"shout|shouting|scream|screaming|gunshot|explosion|single|one[- ]time)\b",
+    re.I)
+
 
 def parse_answer(raw):
-    """(нужна_ли_атмосфера, сцена_или_None). Мусор от модели -> (False, None)
-    — тот же принцип fail-closed, что и у shot_brief_director: не угадывать
-    смысл невнятного ответа, честно считать его отказом."""
+    """(нужна_ли_атмосфера, сцена_или_None, причина_отказа_или_None).
+
+    Мусор от модели -> (False, None, "empty"/"none") — тот же принцип
+    fail-closed, что и у shot_brief_director: не угадывать смысл невнятного
+    ответа, честно считать его отказом. Сцена, описывающая РАЗОВОЕ действие
+    (см. DISCRETE_EVENT_RE) отклоняется здесь же, а не оставляется на
+    совесть модели — она уже доказала, что не следует этому правилу
+    надёжно на все 100%.
+    """
     if not raw:
-        return False, None
+        return False, None, "empty"
     first_line = _clean_text(raw.splitlines()[0]) if raw.strip() else ""
     if not first_line:
         # иногда модель кладёт пустую первую строку — берём первую непустую
@@ -149,12 +171,16 @@ def parse_answer(raw):
                 first_line = _clean_text(ln)
                 break
     if re.match(r"^none\b", first_line, re.I):
-        return False, None
+        return False, None, "model_said_none"
     m = _SCENE_RE.search(first_line) or _SCENE_RE.search(raw)
-    if m:
-        scene = _clean_text(m.group(1)).strip(" .\"'")
-        return bool(scene), (scene or None)
-    return False, None
+    if not m:
+        return False, None, "unparsed"
+    scene = _clean_text(m.group(1)).strip(" .\"'")
+    if not scene:
+        return False, None, "empty_scene"
+    if DISCRETE_EVENT_RE.search(scene):
+        return False, None, f"rejected_discrete_event:{scene}"
+    return True, scene, None
 
 
 def _cache_key_text(text, brain_name):
@@ -207,13 +233,14 @@ def run(video_dir, blocks, brain, cache_dir=None, verbose=True):
         label = _clean_text(packet["section"])[:48]
         raw, from_cache = _ask_cached(brain, render_prompt(packet), chapter_no,
                                       cache_dir, verbose, label)
-        wants, scene = parse_answer(raw)
+        wants, scene, reject_reason = parse_answer(raw)
         dict_kind = dictionary_verdict(packet["text"])
         rows.append({
             "section": packet["section"],
             "dictionary_kind": dict_kind,
             "model_wants_ambience": wants,
             "model_scene": scene,
+            "reject_reason": reject_reason,
             "agree": bool(dict_kind) == wants,
             "from_cache": from_cache,
             "raw": raw.strip()[:200],
@@ -256,10 +283,13 @@ def main(argv):
         mark = "" if r["agree"] else "  <-- РАСХОЖДЕНИЕ"
         if not r["agree"]:
             disagreements += 1
+        scene_col = r["model_scene"] or ""
+        if r["reject_reason"] and r["reject_reason"].startswith("rejected_discrete_event:"):
+            scene_col = f"(отклонено фильтром: {r['reject_reason'].split(':', 1)[1]})"
         print("{:<28} {:<14} {:<9} {}{}".format(
             r["section"][:28], r["dictionary_kind"] or "—",
             "нужна" if r["model_wants_ambience"] else "нет",
-            r["model_scene"] or "", mark))
+            scene_col, mark))
 
     report_path = os.path.join(a.video_dir, "media_plan", "ambience_director_report.json")
     os.makedirs(os.path.dirname(report_path), exist_ok=True)
