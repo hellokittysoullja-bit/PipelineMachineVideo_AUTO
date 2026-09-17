@@ -317,10 +317,117 @@ def write_content_world(video_dir, profile, source):
     return path
 
 
+# Потолок длины строки, которая уйдёт в текстовую башню CLIP/SigLIP как
+# ловушка вето. Не «на глаз»: у SigLIP2 лимит 64 токена
+# (SIGLIP2_MAX_TEXT_LENGTH), у CLIP ViT-B/32 — 77, и обрезка по лимиту
+# МОЛЧАЛИВАЯ — этот репозиторий уже измерял, как она тихо съедала 25% фраз
+# (см. TEXT_TRUNCATION_REPORT в visual_director.py). Ловушка, обрезанная на
+# середине, сравнивается с кадром НЕ тем текстом, который написан, — и
+# решает при этом судьбу кандидата. 200 символов — консервативный
+# эквивалент ~40-50 слов, заведомо внутри обоих лимитов.
+MAX_ANCHOR_CHARS = 200
+
+# Латиница обязательна для всего, что уходит В МОДЕЛЬ или В ТЕКСТОВЫЙ
+# ПОИСК: текстовые башни CLIP/SigLIP английские, а alt/слаг стоков —
+# латиница. Диагноз не гипотетический, он уже записан в этом репозитории
+# дословно для CLAP: «текстовая башня английская, и сырой русский текст
+# даёт шум», 7 попаданий из 8 на английском против разброса 0.31 на
+# русском. Шум в ЛОВУШКЕ ВЕТО — это не «слой не сработал», это случайные
+# отказы законным кандидатам.
+_LATIN_RE = re.compile(r"[A-Za-z]")
+_CYRILLIC_RE = re.compile(r"[Ѐ-ӿ]")
+
+
+def _is_model_ready_text(s):
+    """Строка годится для английской текстовой башни / текстового поиска."""
+    s = (s or "").strip()
+    if not s or len(s) > MAX_ANCHOR_CHARS:
+        return False
+    return bool(_LATIN_RE.search(s)) and not _CYRILLIC_RE.search(s)
+
+
+def validate_profile(profile):
+    """(очищенный_профиль, список_отклонённого) — проверка СОДЕРЖИМОГО
+    профиля на границе чтения, до того как оно начнёт решать судьбу
+    кандидатов.
+
+    ЗАЧЕМ ИМЕННО ЗДЕСЬ, а не у писателя. Профиль может написать кто
+    угодно — CLI с локальной моделью, сессия Claude, человек руками,
+    будущий скрипт. Проверка у ОДНОГО из писателей защищает только его;
+    проверка на границе чтения защищает пайплайн от всех сразу. Тот же
+    урок уже оплачен в этом репозитории: `brief_is_safe()` стоял в
+    `fill_briefs()`, а измерительный харнесс звал модель мимо него — и всё,
+    что когда-либо было измерено про режиссёра, описывало СЫРУЮ модель.
+
+    ПОЧЕМУ ЭТО НЕ ПРИДИРКИ. Ловушки `negative_anchor_additions` уходят в
+    контрастивное вето (`negative_anchor_violation`), а вето — механизм
+    ОТКАЗА: каждая добавленная ловушка может только УЖЕСТОЧИТЬ отбор.
+    Ловушка-мусор (кириллица в английской башне, обрезанная по лимиту
+    токенов строка) не «не сработает» — она даст ШУМ, то есть случайные
+    отказы кадрам, которые теме подходят. Это прямой источник брака,
+    созданный самим слоем, который от брака защищает.
+
+    ЧЕГО ЗДЕСЬ СОЗНАТЕЛЬНО НЕТ — проверки «ловушка не противоречит самой
+    нише». Она напрашивается (запретить кадр, который сам объявлен
+    предметом ролика) и НЕ реализуема лексически без ложных отказов:
+    у исторической ниши с anchor_words=[armour] законная ловушка
+    «modern military body armour» делит слово с предметом ролика, а
+    незаконная «medieval armour» — то же самое слово. Разделить их можно
+    только по смыслу квалификатора, то есть тем же эмбеддингом, что стоит
+    на отборе. Строковая проверка ошибалась бы в обе стороны и сама стала
+    бы источником отказов — ровно то, что она должна предотвращать.
+    Структурно этот класс уже закрыт с другой стороны: `historical_default()`
+    не даёт списку ловушек ЧУЖОЙ ниши применяться вообще."""
+    rejected = []
+    clean = dict(profile)
+
+    for key in ("negative_anchor_additions", "blocklist_additions",
+                "query_era_anchors_additions", "openverse_era_anchors_additions",
+                "openverse_domain_nouns_additions", "anchor_words"):
+        raw = clean.get(key)
+        if raw is None:
+            continue
+        if not isinstance(raw, (list, tuple)):
+            rejected.append({"field": key, "value": repr(raw)[:80], "reason": "not_a_list"})
+            clean.pop(key, None)
+            continue
+        kept = []
+        for item in raw:
+            if not isinstance(item, str):
+                rejected.append({"field": key, "value": repr(item)[:80], "reason": "not_a_string"})
+            elif not _is_model_ready_text(item):
+                rejected.append({"field": key, "value": item[:80],
+                                  "reason": "not_latin_or_too_long"})
+            else:
+                kept.append(item.strip())
+        if kept:
+            clean[key] = kept
+        else:
+            clean.pop(key, None)
+
+    era_from, era_to = clean.get("era_from"), clean.get("era_to")
+    if era_from is not None and era_to is not None:
+        try:
+            if int(era_from) > int(era_to):
+                rejected.append({"field": "era_window", "value": f"{era_from}..{era_to}",
+                                  "reason": "from_after_to"})
+                clean.pop("era_from", None)
+                clean.pop("era_to", None)
+        except (TypeError, ValueError):
+            rejected.append({"field": "era_window", "value": f"{era_from!r}..{era_to!r}",
+                              "reason": "not_numeric"})
+            clean.pop("era_from", None)
+            clean.pop("era_to", None)
+
+    return clean, rejected
+
+
 def load_content_world(video_dir):
     """{} если файла нет, битый, не словарь, или confidence ниже
     MIN_CONFIDENCE — fail-open ЦЕЛИКОМ файлом, не по полю (см. docstring
-    модуля)."""
+    модуля). Содержимое прошедшего профиля проверяется validate_profile()
+    — непригодные элементы отбрасываются ПОИМЁННО (`_rejected` в
+    результате), а не молча уезжают в вето."""
     if not video_dir:
         return {}
     try:
@@ -333,7 +440,10 @@ def load_content_world(video_dir):
     conf = _to_float(data.get("confidence"))
     if conf is None or conf < MIN_CONFIDENCE:
         return {}
-    return data
+    clean, rejected = validate_profile(data)
+    if rejected:
+        clean["_rejected"] = rejected
+    return clean
 
 
 def merge_content_world(base_profile, video_dir):
@@ -377,6 +487,10 @@ def merge_content_world(base_profile, video_dir):
         sd = _shot_domain_from_profile(cw)
         if sd:
             merged["shot_domain"] = sd
+            # ЧЕЙ это мир — не косметика: мир ЭТОГО эпизода уместен всегда,
+            # а мир КАНАЛА на эпизоде из другой ниши диктует чужую тему
+            # (см. shot_domain_for_prompt — воспроизведено живьём).
+            merged["shot_domain_source"] = "content_world"
 
     for cw_key, profile_key in _LIST_FIELDS_ADDITIVE:
         additions = cw.get(cw_key)
@@ -406,18 +520,63 @@ def merged_list(profile, key, code_default=()):
     return tuple(base) + tuple(x for x in additions if str(x).lower() not in seen)
 
 
+def channel_declares_history(profile):
+    """Канал ОБЪЯВИЛ СЕБЯ историческим — только по однозначным признакам
+    конфига: окно эпохи или якоря эпохи.
+
+    Наличие `shot_domain` само по себе признаком НЕ является, и это не
+    придирка: `shot_domain` объявляет и канал про психологию — просто мир
+    там современный. Считать «мир задан» за «мир исторический» значило бы
+    записать в историки любой настроенный канал, то есть вернуть ту же
+    подмену, от которой уходим."""
+    return bool(profile.get("era_from") or profile.get("era_to")
+                or profile.get("query_era_anchors")
+                or profile.get("openverse_era_anchors"))
+
+
 def resolve_is_historical(profile):
     """True/False/None. Порядок: явный вывод content_world ЭТОГО эпизода
-    (см. `is_historical` в `_SCALAR_FIELDS_IF_ABSENT` выше) -> явные
-    признаки канала (shot_domain задан, ИЛИ era_from/era_to заданы явно —
-    то есть человек сам настроил канал под историческую нишу) -> None,
-    если сигнала нет вообще."""
+    (см. `is_historical` в `_SCALAR_FIELDS_IF_ABSENT` выше) -> канал объявил
+    себя историческим (channel_declares_history) -> None, если сигнала нет
+    вообще."""
     v = profile.get("is_historical")
     if v is not None:
         return bool(v)
-    if profile.get("shot_domain") or "era_from" in profile or "era_to" in profile:
-        return True
-    return None
+    return True if channel_declares_history(profile) else None
+
+
+def shot_domain_for_prompt(profile):
+    """МИР КАДРА, который можно показывать мозгу, пишущему брифы, — или {}.
+
+    РЕАЛЬНО ВОСПРОИЗВЕДЁННЫЙ СЛУЧАЙ (17.09, живой прогон на
+    tests/fixtures/other_niche/script_psychology.txt в ЭТОМ репозитории):
+    авто-ниша уверенно определила «психология / самопомощь»,
+    is_historical=False, музеи выключены, ловушки вето подменены на
+    корректные — а `shot_brief_director.domain_contract()` всё равно выдал
+    мозгу «МИР КАДРА: европейское Средневековье… В кадре не должно быть:
+    современная одежда, техника, снаряжение и интерьеры». То есть сценарию
+    про человека за ноутбуком ПРЯМЫМ ТЕКСТОМ запрещалось показывать
+    ноутбук. Это не «слой не помог» — это слой, который диктует чужую нишу,
+    ровно тот класс, который CLAUDE.md называет самой опасной находкой
+    («ЧУЖОЙ МИР КАНАЛА НЕ ФИЛЬТРУЕТ, А ДИКТУЕТ»), и до этой функции он
+    закрывался только тем, что человек вспомнит выставить
+    SHOT_BRIEF_WORLD=off руками.
+
+    Правило: мир, пришедший ОТ САМОГО ЭПИЗОДА (`shot_domain_source ==
+    "content_world"`), уместен всегда. Мир КАНАЛА подавляется, только
+    когда он заведомо про другое: эпизод определён как нехисторический, а
+    канал объявил себя историческим. Канал про современную нишу свой
+    собственный современный мир при этом сохраняет — именно поэтому
+    признаком историчности канала служит окно/якоря эпохи, а не сам факт
+    наличия мира (см. channel_declares_history)."""
+    sd = profile.get("shot_domain") or {}
+    if not sd:
+        return {}
+    if profile.get("shot_domain_source") == "content_world":
+        return sd
+    if profile.get("is_historical") is False and channel_declares_history(profile):
+        return {}
+    return sd
 
 
 def historical_default(profile, historical_value, other_value=()):

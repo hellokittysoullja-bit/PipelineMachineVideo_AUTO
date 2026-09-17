@@ -327,8 +327,17 @@ class TestHistoricalDefault:
     def test_resolve_none_when_no_signal_at_all(self):
         assert cw.resolve_is_historical({}) is None
 
-    def test_resolve_true_from_shot_domain_presence(self):
-        assert cw.resolve_is_historical({"shot_domain": {"world": "x"}}) is True
+    def test_bare_shot_domain_is_not_a_history_signal(self):
+        """ИСПРАВЛЕНО 17.09 (прошлая версия этого теста требовала True).
+        Наличие мира кадра НЕ означает историчность: `shot_domain` объявляет
+        и канал про психологию, просто мир там современный. Считать «мир
+        задан» за «канал исторический» значило записать в историки любой
+        настроенный канал — и тогда подавление чужого мира (см.
+        shot_domain_for_prompt) сработало бы против законного современного
+        мира. Признак историчности — окно/якоря эпохи."""
+        assert cw.resolve_is_historical({"shot_domain": {"world": "x"}}) is None
+        assert cw.resolve_is_historical({"shot_domain": {"world": "x"},
+                                          "openverse_era_anchors": ["medieval"]}) is True
 
     def test_resolve_true_from_era_window_presence(self):
         assert cw.resolve_is_historical({"era_from": 900}) is True
@@ -373,6 +382,150 @@ class TestEffectiveProfile:
         # важно, что merge не упал и реально читал `other`, а не ENV_VIDEO_DIR.
         assert "shot_domain" not in merged
         assert cw.load_content_world(str(other)).get("niche") == "тест"
+
+
+class TestValidateProfile:
+    """Содержимое профиля проверяется НА ГРАНИЦЕ ЧТЕНИЯ — профиль может
+    написать кто угодно (CLI, локальная модель, сессия, человек руками), и
+    мусор в ловушках вето означает не «слой не сработал», а СЛУЧАЙНЫЕ
+    отказы законным кадрам (см. docstring validate_profile)."""
+
+    def test_cyrillic_anchor_is_rejected(self):
+        """Текстовые башни CLIP/SigLIP английские — кириллица в ловушке даёт
+        шум, а шум в ВЕТО это отказы годным кандидатам. Диагноз уже записан
+        в этом репозитории дословно для CLAP."""
+        clean, rejected = cw.validate_profile(
+            {"negative_anchor_additions": ["a modern city street", "рыцарь в доспехах"]})
+        assert clean["negative_anchor_additions"] == ["a modern city street"]
+        assert [r["reason"] for r in rejected] == ["not_latin_or_too_long"]
+
+    def test_overlong_anchor_is_rejected(self):
+        """Строка длиннее лимита токенов молча ОБРЕЗАЕТСЯ моделью — ловушка
+        сравнивается с кадром не тем текстом, который написан."""
+        clean, rejected = cw.validate_profile(
+            {"negative_anchor_additions": ["a " + "very " * 100 + "long trap"]})
+        assert "negative_anchor_additions" not in clean
+        assert rejected and rejected[0]["reason"] == "not_latin_or_too_long"
+
+    def test_non_string_item_is_rejected(self):
+        clean, rejected = cw.validate_profile({"blocklist_additions": ["knight", 42, None]})
+        assert clean["blocklist_additions"] == ["knight"]
+        assert [r["reason"] for r in rejected] == ["not_a_string", "not_a_string"]
+
+    def test_non_list_field_is_dropped(self):
+        clean, rejected = cw.validate_profile({"anchor_words": "laptop, desk"})
+        assert "anchor_words" not in clean
+        assert rejected[0]["reason"] == "not_a_list"
+
+    def test_inverted_era_window_is_dropped_whole(self):
+        clean, rejected = cw.validate_profile({"era_from": 1900, "era_to": 1800})
+        assert "era_from" not in clean and "era_to" not in clean
+        assert rejected[0]["reason"] == "from_after_to"
+
+    def test_valid_profile_passes_untouched(self):
+        profile = {"negative_anchor_additions": ["a modern city street with cars"],
+                    "blocklist_additions": ["knight"], "era_from": 900, "era_to": 1600}
+        clean, rejected = cw.validate_profile(profile)
+        assert rejected == []
+        assert clean == profile
+
+    def test_load_applies_validation_and_records_rejections(self, tmp_path):
+        cw.write_content_world(str(tmp_path), {
+            "confidence": 0.9,
+            "negative_anchor_additions": ["a modern kitchen", "кириллица"],
+        }, source="t")
+        loaded = cw.load_content_world(str(tmp_path))
+        assert loaded["negative_anchor_additions"] == ["a modern kitchen"]
+        assert len(loaded["_rejected"]) == 1
+
+
+class TestShotDomainForPrompt:
+    """Воспроизведено живьём 17.09: психологический эпизод получал «МИР
+    КАДРА: европейское Средневековье… в кадре не должно быть современной
+    техники» — то есть сценарию про ноутбук запрещался ноутбук."""
+
+    HIST_CHANNEL = {"shot_domain": {"world": "европейское Средневековье"},
+                     "openverse_era_anchors": ["medieval"]}
+
+    def test_foreign_historical_world_is_suppressed_for_non_historical_episode(self):
+        profile = dict(self.HIST_CHANNEL, is_historical=False)
+        assert cw.shot_domain_for_prompt(profile) == {}
+
+    def test_episode_own_world_is_always_used(self):
+        profile = dict(self.HIST_CHANNEL, is_historical=False,
+                       shot_domain={"world": "современная жизнь"},
+                       shot_domain_source="content_world")
+        assert cw.shot_domain_for_prompt(profile)["world"] == "современная жизнь"
+
+    def test_historical_episode_keeps_channel_world(self):
+        profile = dict(self.HIST_CHANNEL, is_historical=True)
+        assert cw.shot_domain_for_prompt(profile)["world"] == "европейское Средневековье"
+
+    def test_no_profile_keeps_channel_world_byte_for_byte(self):
+        assert cw.shot_domain_for_prompt(self.HIST_CHANNEL)["world"] == "европейское Средневековье"
+
+    def test_modern_channel_keeps_its_own_modern_world(self):
+        """Канал про современную нишу НЕ теряет свой мир: признаком
+        историчности канала служит окно/якоря эпохи, а не сам факт наличия
+        мира — иначе подавляли бы законный современный мир."""
+        modern_channel = {"shot_domain": {"world": "современный офис"}}
+        profile = dict(modern_channel, is_historical=False)
+        assert cw.shot_domain_for_prompt(profile)["world"] == "современный офис"
+
+    def test_channel_declares_history_ignores_bare_shot_domain(self):
+        assert cw.channel_declares_history({"shot_domain": {"world": "x"}}) is False
+        assert cw.channel_declares_history({"era_from": 900}) is True
+        assert cw.channel_declares_history({"openverse_era_anchors": ["medieval"]}) is True
+
+
+class TestOrchestratorNicheStage:
+    """Шаг ниши в render_episode.py — тесты здесь, а не в
+    test_render_episode.py, потому что тот файл целиком помечен skipif по
+    отсутствию ffmpeg, а этот шаг к ffmpeg отношения не имеет."""
+
+    def _orchestrator(self):
+        import render_episode
+        return render_episode
+
+    def test_existing_profile_is_reported_as_present_without_running_anything(self, tmp_path, monkeypatch):
+        cw.write_content_world(str(tmp_path), {"confidence": 0.9, "niche": "психология"},
+                                source="t")
+        re_mod = self._orchestrator()
+        calls = []
+        monkeypatch.setattr(re_mod, "_run", lambda *a, **k: calls.append(a) or 0)
+        status, details = re_mod._content_world_stage(str(tmp_path))
+        assert status == "present" and details["niche"] == "психология"
+        assert calls == [], "готовый профиль не должен заново запускать определение"
+
+    def test_missing_profile_triggers_generation_attempt(self, tmp_path, monkeypatch):
+        re_mod = self._orchestrator()
+        calls = []
+
+        def fake_run(script, video_dir, **k):
+            calls.append(script)
+            cw.write_content_world(video_dir, {"confidence": 0.8, "niche": "медицина"},
+                                    source="local:test")
+            return 0
+
+        monkeypatch.setattr(re_mod, "_run", fake_run)
+        status, details = re_mod._content_world_stage(str(tmp_path))
+        assert calls == ["content_world.py"]
+        assert status == "generated" and details["niche"] == "медицина"
+
+    def test_unavailable_when_generation_produces_nothing(self, tmp_path, monkeypatch):
+        re_mod = self._orchestrator()
+        monkeypatch.setattr(re_mod, "_run", lambda *a, **k: 2)
+        status, _ = re_mod._content_world_stage(str(tmp_path))
+        assert status == "unavailable"
+
+    def test_low_confidence_file_is_distinguished_from_missing(self, tmp_path, monkeypatch):
+        """«Профиль есть, но неуверенный» и «мозга нет» — разные диагнозы, и
+        в манифесте они обязаны читаться по-разному."""
+        cw.write_content_world(str(tmp_path), {"confidence": 0.1, "niche": "х"}, source="t")
+        re_mod = self._orchestrator()
+        monkeypatch.setattr(re_mod, "_run", lambda *a, **k: 0)
+        status, _ = re_mod._content_world_stage(str(tmp_path))
+        assert status == "low_confidence"
 
 
 class TestRunLocalNoModel:

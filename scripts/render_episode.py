@@ -243,8 +243,52 @@ def _visual_qc_status(video_dir):
     return ("unresolved", unresolved) if unresolved else ("ok", 0)
 
 
+def _content_world_stage(video_dir):
+    """Ниша эпизода — РЕАЛЬНЫЙ шаг конвейера, а не ручная команда.
+
+    ЗАЧЕМ ЭТОТ ШАГ ВООБЩЕ СУЩЕСТВУЕТ. `content_world.py` читают три модуля
+    (`pipeline_smart.CHANNEL_PROFILE`, `shot_types._profile()`,
+    `museum_sources._profile()`), а ПИСАЛ его до этого шага ровно один
+    вызывающий — человек, набравший команду руками. То есть «генератор сам
+    понимает нишу» существовало только если кто-то вспомнил про markdown-
+    пункт протокола. Это седьмой случай класса «слой есть, и его никто не
+    зовёт», которым этот репозиторий уже горел шесть раз (Openverse,
+    Pixabay, Unsplash, reveal-акценты, видео-блоклист, план режиссёра), — и
+    первый, созданный своими руками в самой авто-нише.
+
+    ПОЧЕМУ ЗДЕСЬ, А НЕ ВНУТРИ pipeline_smart.py. `CHANNEL_PROFILE`
+    вычисляется на ИМПОРТЕ pipeline_smart.py (строка ~3535), то есть до
+    первой строки его `main()`. Профиль, дописанный из самого рендера,
+    пришёл бы уже после того, как эффективные блоклист/ловушки/окно эпохи
+    посчитаны — молча устаревшими. Оркестратор запускает рендер
+    ПОДПРОЦЕССОМ (см. `_run`), поэтому здесь порядок гарантирован
+    устройством, а не соглашением.
+
+    Возвращает (status, details). Модель ищет и запускает сам
+    content_world.py — второй копии логики поиска весов здесь не
+    заводится."""
+    import content_world
+    before = content_world.load_content_world(video_dir)
+    if before:
+        return "present", {"niche": before.get("niche"),
+                            "confidence": before.get("confidence"),
+                            "source": before.get("source"),
+                            "rejected_by_validation": len(before.get("_rejected", []))}
+    rc = _run("content_world.py", video_dir)
+    after = content_world.load_content_world(video_dir)
+    if after:
+        return "generated", {"niche": after.get("niche"),
+                              "confidence": after.get("confidence"),
+                              "source": after.get("source"),
+                              "rejected_by_validation": len(after.get("_rejected", []))}
+    # Файл может существовать и быть отвергнутым по уверенности — это НЕ то
+    # же самое, что «мозга нет», и в манифесте это должно читаться по-разному.
+    exists = os.path.exists(os.path.join(video_dir, "media_plan", "content_world.json"))
+    return ("low_confidence" if exists else "unavailable"), {"exit_code": rc}
+
+
 def preflight_and_run(video_dir, strict, legacy_allow_degraded, legacy_allow_unreviewed_media=False,
-                       legacy_allow_unreviewed_render=False):
+                       legacy_allow_unreviewed_render=False, legacy_allow_unknown_niche=False):
     manifest = {"video_dir": video_dir, "strict_production": strict,
                 "legacy_allow_degraded_timing": legacy_allow_degraded, "stages": {}}
 
@@ -271,6 +315,28 @@ def preflight_and_run(video_dir, strict, legacy_allow_degraded, legacy_allow_unr
                   "выполнен. Пересмотри media_plan/visual_qc_report.json, или "
                   "--legacy-allow-unreviewed-media для явного пропуска.")
         return 1
+
+    # Ниша эпизода — ДО рендера, потому что от неё зависит, какие ловушки
+    # стоят в контрастивном вето, какие термины в блоклисте и спрашиваются
+    # ли музеи/полка вообще (см. _content_world_stage).
+    cw_status, cw_details = _content_world_stage(video_dir)
+    manifest["stages"]["content_world"] = dict(cw_details, status=cw_status)
+    if cw_status in ("present", "generated"):
+        print(f"  Ниша: «{cw_details.get('niche') or '?'}» "
+              f"(confidence {cw_details.get('confidence')}, {cw_status})")
+    elif strict and not legacy_allow_unknown_niche:
+        _write_manifest(video_dir, manifest)
+        print("  СТОП (--strict-production): ниша эпизода не определена "
+              f"({cw_status}) — подбор пошёл бы на профиле КАНАЛА, то есть на "
+              "чужой теме, если этот эпизод из другой ниши. Определи: "
+              "python scripts/content_world.py <video_dir> "
+              "(нужна локальная модель: python scripts/setup_local_director.py) "
+              "или --brain packets, чтобы ответила сессия. "
+              "--legacy-allow-unknown-niche — осознанно рендерить на профиле канала.")
+        return 1
+    else:
+        print(f"  Ниша эпизода НЕ определена ({cw_status}) — подбор идёт на "
+              f"профиле канала.")
 
     n_sections = _section_count(video_dir)
     manifest["section_count"] = n_sections
@@ -431,10 +497,14 @@ def main():
     parser.add_argument("--legacy-allow-degraded-timing", action="store_true")
     parser.add_argument("--legacy-allow-unreviewed-media", action="store_true")
     parser.add_argument("--legacy-allow-unreviewed-render", action="store_true")
+    parser.add_argument("--legacy-allow-unknown-niche", action="store_true",
+                        help="осознанно рендерить на профиле КАНАЛА, когда ниша "
+                             "эпизода не определена (см. _content_world_stage)")
     args = parser.parse_args()
     return preflight_and_run(args.video_dir, args.strict_production, args.legacy_allow_degraded_timing,
                               legacy_allow_unreviewed_media=args.legacy_allow_unreviewed_media,
-                              legacy_allow_unreviewed_render=args.legacy_allow_unreviewed_render)
+                              legacy_allow_unreviewed_render=args.legacy_allow_unreviewed_render,
+                              legacy_allow_unknown_niche=args.legacy_allow_unknown_niche)
 
 
 if __name__ == "__main__":

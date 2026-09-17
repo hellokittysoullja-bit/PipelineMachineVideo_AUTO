@@ -14090,6 +14090,78 @@ def check_ffmpeg_filters():
     return missing
 
 
+def report_effective_content_world():
+    """С КАКИМ ПОНИМАНИЕМ НИШИ реально собран этот ролик —
+    media_plan/content_world_effective.json + одна строка в консоль.
+
+    До этого отчёта ответить на вопрос по артефактам готового ролика было
+    НЕЧЕМ: `feature_flags.json` знает только режимы слоёв, а ниша решает
+    другое — какие ловушки стоят в контрастивном вето, какие термины в
+    блоклисте, спрашиваются ли музеи/полка вообще, какое окно эпохи. Это
+    ровно тот дефект, который этот файл сам называет дефектом в другом
+    месте: «слой, который принимает решения и не оставляет следа». Отдельно
+    важен случай, когда профиля НЕТ: сегодня это была полная тишина, то
+    есть рендер без единого сигнала о нише выглядел в артефактах точно так
+    же, как рендер с уверенно определённой нишей.
+
+    Пишется ВСЕГДА, в том числе когда профиля нет (`profile_found: false`)
+    — тот же принцип честной записи «нечего сообщить», что у остальных
+    отчётов эпизода."""
+    cw = content_world.load_content_world(VIDEO_FOLDER)
+    signal = ("content_world" if cw.get("is_historical") is not None
+              else ("channel_profile" if content_world.resolve_is_historical(CHANNEL_PROFILE)
+                                          is not None else "none"))
+    report = {
+        "profile_found": bool(cw),
+        "niche": cw.get("niche"),
+        "confidence": cw.get("confidence"),
+        "source": cw.get("source"),
+        "min_confidence": content_world.MIN_CONFIDENCE,
+        "world_override_min_confidence": content_world.WORLD_OVERRIDE_MIN_CONFIDENCE,
+        # Как РЕШЕНО про историчность и ЧЕМ — от этого зависит, применяется
+        # ли исторический набор ловушек/якорей вообще (historical_default).
+        "is_historical": content_world.resolve_is_historical(CHANNEL_PROFILE),
+        "is_historical_signal": signal,
+        # Что отбросила проверка содержимого (validate_profile) — молча
+        # уехавшая в вето кириллическая ловушка была бы источником
+        # СЛУЧАЙНЫХ отказов законным кадрам, см. её докстринг.
+        "rejected_by_validation": cw.get("_rejected", []),
+        "effective": {
+            # Ловушки — полностью, а не числом: именно они решают отказы,
+            # и по готовому ролику должно быть видно, чем именно судили.
+            "content_negative_anchors": list(CONTENT_NEGATIVE_ANCHORS),
+            "content_alt_blocklist_count": len(CONTENT_ALT_BLOCKLIST),
+            "query_era_anchors_count": len(QUERY_ERA_ANCHORS),
+            "use_museum_sources": CHANNEL_PROFILE.get("use_museum_sources", True),
+            "era_window": ([CHANNEL_PROFILE["era_from"], CHANNEL_PROFILE["era_to"]]
+                            if "era_from" in CHANNEL_PROFILE and "era_to" in CHANNEL_PROFILE
+                            else None),
+            "shot_domain_world": (CHANNEL_PROFILE.get("shot_domain") or {}).get("world"),
+        },
+    }
+    try:
+        plan = os.path.join(VIDEO_FOLDER, "media_plan")
+        os.makedirs(plan, exist_ok=True)
+        with open(os.path.join(plan, "content_world_effective.json"), "w",
+                  encoding="utf-8") as f:
+            json.dump(report, f, ensure_ascii=False, indent=2, sort_keys=True)
+    except OSError:
+        pass
+    if cw:
+        print(f"  Ниша эпизода: «{cw.get('niche') or '?'}» "
+              f"(источник: {cw.get('source') or '?'}, confidence "
+              f"{cw.get('confidence')}, историческая: {report['is_historical']})")
+        if report["rejected_by_validation"]:
+            print(f"    проверка профиля отбросила элементов: "
+                  f"{len(report['rejected_by_validation'])} — см. "
+                  f"media_plan/content_world_effective.json")
+    else:
+        print("  Ниша эпизода НЕ определена (media_plan/content_world.json нет или "
+              "confidence ниже порога) — подбор идёт на профиле канала. "
+              "Определить: python scripts/content_world.py <video_dir>")
+    return report
+
+
 def main():
     if not os.path.exists(AUDIO_FILE):
         print(f"Аудио не найдено: {AUDIO_FILE}")
@@ -14102,6 +14174,7 @@ def main():
     feature_flags.print_summary()
     check_ffmpeg_filters()
     feature_flags.write_snapshot(VIDEO_FOLDER)
+    report_effective_content_world()
     audio_qc(AUDIO_FILE)
     os.makedirs(TEMP_FOLDER, exist_ok=True)
     # Замер стадий — только при STAGE_TIMER=1, иначе путь не выставляется

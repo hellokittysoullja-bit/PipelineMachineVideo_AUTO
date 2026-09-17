@@ -150,11 +150,21 @@ def domain_contract():
     # touching a cracked mirror» — на текст про пустой файл в ноутбуке.
     # Модель послушалась объявленного мира, отклонять было нечего, и
     # предохранитель по доле отказов промолчал.
+    # SHOT_BRIEF_WORLD=off — РУЧНОЙ выключатель, он остаётся. Но полагаться
+    # только на него значило требовать, чтобы человек вспомнил про него для
+    # каждого эпизода из чужой ниши, — а забытый выключатель здесь стоил
+    # 7 годных кадров из 17 на замере. Поэтому ниже мир берётся не напрямую
+    # из профиля, а через content_world.shot_domain_for_prompt(), которая
+    # подавляет ЧУЖОЙ исторический мир на эпизоде, определённом как
+    # нехисторический (живой прогон: психологическому сценарию выдавалось
+    # «МИР КАДРА: европейское Средневековье… не должно быть современной
+    # техники» — см. её докстринг).
     if os.environ.get("SHOT_BRIEF_WORLD", "") == "off":
         return ""
     try:
         import pipeline_smart
-        d = pipeline_smart.CHANNEL_PROFILE.get("shot_domain") or {}
+        import content_world
+        d = content_world.shot_domain_for_prompt(pipeline_smart.CHANNEL_PROFILE)
     except Exception:
         return ""
     parts = []
