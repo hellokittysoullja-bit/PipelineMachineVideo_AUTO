@@ -143,5 +143,162 @@
     "effigy",
     "banner",
     "horse"
+  ],
+  "_comment_niche_guards": "ТРИ СПИСКА НИЖЕ — АНТИАНАХРОНИЗМ ЭТОГО КАНАЛА (европейское Средневековье). Раньше они жили КОНСТАНТАМИ В КОДЕ и применялись к любому каналу, который их не переопределил, — то есть ко всем, включая этот. Замер 17.09 на запросах чужих ниш: 6 из 10 получали медиевализм приставкой, худшие случаи 'tank battle field' -> 'european medieval tank battle field' и 'spear hunting savanna' -> 'european medieval spear hunting savanna'. Теперь дефолт кода ПУСТ: канал другой ниши не получает чужой антианахронизм вовсе (вместо искажающего), а якорь эпохи ему даёт авто-ниша эпизода (content_world.py -> query_era_anchors). Правила ниже 1-в-1 равны прежним константам — поведение этого канала байт-в-байт прежнее.",
+  "query_disambiguation_rules": [
+    {
+      "term": "sword",
+      "unless": [
+        "katana",
+        "samurai",
+        "chinese",
+        "japanese",
+        "jian",
+        "wuxia",
+        "asian",
+        "kimono"
+      ],
+      "qualifier": "european"
+    },
+    {
+      "term": "helmet",
+      "unless": [
+        "katana",
+        "samurai",
+        "chinese",
+        "japanese",
+        "asian",
+        "sci-fi",
+        "futuristic",
+        "motorcycle",
+        "bike",
+        "football",
+        "construction"
+      ],
+      "qualifier": "european"
+    },
+    {
+      "term": "armor",
+      "unless": [
+        "katana",
+        "samurai",
+        "chinese",
+        "japanese",
+        "asian",
+        "sci-fi",
+        "futuristic",
+        "cosplay",
+        "stormtrooper",
+        "video game"
+      ],
+      "qualifier": "european medieval"
+    },
+    {
+      "term": "spear",
+      "unless": [
+        "african",
+        "tribal",
+        "zulu",
+        "asian",
+        "japanese",
+        "chinese",
+        "maori"
+      ],
+      "qualifier": "european medieval"
+    },
+    {
+      "term": "battle",
+      "unless": [
+        "modern",
+        "sci-fi",
+        "futuristic",
+        "space",
+        "video game",
+        "wwii",
+        "world war"
+      ],
+      "qualifier": "european medieval"
+    }
+  ],
+  "visual_domain_guards": [
+    {
+      "name": "east_asian_sword",
+      "trigger_terms": [
+        "sword",
+        "blade",
+        "katana",
+        "longsword",
+        "saber",
+        "sabre"
+      ],
+      "euro_prompt": "straight double-edged european longsword blade with cross-shaped hilt guard",
+      "asian_prompt": "curved single-edged katana blade with round tsuba guard, or chinese jian sword with diamond pommel and tassel",
+      "margin_threshold": -0.03
+    }
+  ],
+  "foreign_culture_terms": [
+    "acheen",
+    "afghan",
+    "african",
+    "arab",
+    "assyrian",
+    "aztec",
+    "babylonian",
+    "balinese",
+    "burmese",
+    "chimu",
+    "china",
+    "chinese",
+    "colombia",
+    "costa rica",
+    "ecuador",
+    "egypt",
+    "egyptian",
+    "inca",
+    "india",
+    "indian",
+    "indigenous american",
+    "indo",
+    "iran",
+    "iranian",
+    "iraq",
+    "islamic",
+    "japan",
+    "japanese",
+    "java",
+    "javanese",
+    "korea",
+    "korean",
+    "madurese",
+    "maya",
+    "mesoamerican",
+    "mixtec",
+    "mongol",
+    "mughal",
+    "nepal",
+    "nepalese",
+    "nubian",
+    "olmec",
+    "ottoman",
+    "panama",
+    "persia",
+    "persian",
+    "peru",
+    "peruvian",
+    "philippine",
+    "pre-columbian",
+    "sumatran",
+    "sumerian",
+    "syria",
+    "syrian",
+    "tairona",
+    "thai",
+    "tibet",
+    "tibetan",
+    "toltec",
+    "turk",
+    "turkish",
+    "veracruz",
+    "vietnam"
   ]
 }

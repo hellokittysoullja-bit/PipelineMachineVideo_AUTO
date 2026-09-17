@@ -459,6 +459,10 @@ def harvest(limit=None, collections=None, page_size=100,
         collections = COLLECTION_PRIORITY
     if sizes is None:
         sizes = IMAGE_SIZE_PRIORITY
+    if ms.foreign_culture_terms_declared() is None:
+        print("  ВНИМАНИЕ: список чужих культур не объявлен в "
+              "channel_profile.json (foreign_culture_terms) — корпус будет "
+              "собран по списку из константы модуля.")
     if era is None and ms.era_window_declared() is None:
         # Та же причина, что у met_catalog.build(): корпус собирается ЧАСАМИ
         # под окно эпохи, и окно из константы модуля дало бы средневековый

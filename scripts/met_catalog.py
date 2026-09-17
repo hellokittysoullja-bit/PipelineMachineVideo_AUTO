@@ -163,6 +163,12 @@ def build(csv_path=CSV_PATH, out_path=INDEX_PATH):
     # об этом только по пустой выдаче. Живой путь (search_museums) в этом
     # случае музеи просто не спрашивает; здесь команду запускает человек,
     # поэтому достаточно назвать причину громко, а не отказать.
+    if ms.foreign_culture_terms_declared() is None:
+        print("  ВНИМАНИЕ: список чужих культур не объявлен в "
+              "channel_profile.json (foreign_culture_terms) — индекс будет "
+              "собран по списку из константы модуля (европейское "
+              "Средневековье). Для канала другой ниши это отсечёт его "
+              "собственную тему.")
     if ms.era_window_declared() is None:
         lo, hi = ms.era_window()
         print(f"  ВНИМАНИЕ: окно эпохи не объявлено ни в channel_profile.json "

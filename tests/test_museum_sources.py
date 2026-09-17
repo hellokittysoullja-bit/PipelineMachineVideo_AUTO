@@ -238,7 +238,8 @@ class TestFailOpen:
         monkeypatch.setattr(ms, "search_chicago", lambda q, **k: [])
         monkeypatch.setattr(ms.feature_flags, "enabled",
                             lambda name, *a, **k: name != "MET_CATALOG")
-        monkeypatch.setattr(ms, "_profile", lambda: {"era_from": 900, "era_to": 1600})
+        monkeypatch.setattr(ms, "_profile", lambda: {"era_from": 900, "era_to": 1600,
+                                                     "foreign_culture_terms": ["japanese"]})
         ms._SEARCH_CACHE.clear()
         assert ms.search_museums("sword") == [{"id": "met:fake"}]
 
@@ -257,6 +258,52 @@ class TestEraWindowMustBeDeclared:
     «в музее этого нет».
     """
 
+    def test_undeclared_cultures_skip_the_museums_entirely(self, monkeypatch):
+        """Вторая половина паспорта. Список чужих культур тоже был константой
+        европейского Средневековья на весь мир: japanese/chinese/african/
+        indian в нём ЧУЖИЕ. Для канала про историю Японии это отсекало бы
+        ровно его тему, для каменного века — половину корпуса (кремнёвые
+        орудия каталогизированы по всем континентам)."""
+        touched = []
+        monkeypatch.setattr(ms, "search_met",
+                            lambda q, **k: touched.append("met") or [])
+        monkeypatch.setattr(ms, "search_cleveland", lambda q, **k: [])
+        monkeypatch.setattr(ms, "search_chicago", lambda q, **k: [])
+        monkeypatch.setattr(ms.feature_flags, "enabled",
+                            lambda name, *a, **k: name != "MET_CATALOG")
+        monkeypatch.setattr(ms, "_profile",
+                            lambda: {"era_from": 900, "era_to": 1600})
+        ms._SEARCH_CACHE.clear()
+        ms._WARNED.clear()
+        assert ms.search_museums("medieval helmet") == []
+        assert touched == []
+
+    def test_empty_culture_list_is_a_declaration_not_silence(self, monkeypatch):
+        """Пустой список — законное объявление «чужих культур нет» (каменный
+        век, всемирная история техники), и музеи обязаны работать."""
+        monkeypatch.setattr(ms, "search_met", lambda q, **k: [{"id": "met:x"}])
+        monkeypatch.setattr(ms, "search_cleveland", lambda q, **k: [])
+        monkeypatch.setattr(ms, "search_chicago", lambda q, **k: [])
+        monkeypatch.setattr(ms.feature_flags, "enabled",
+                            lambda name, *a, **k: name != "MET_CATALOG")
+        monkeypatch.setattr(ms, "_profile",
+                            lambda: {"era_from": -30000, "era_to": -3000,
+                                     "foreign_culture_terms": []})
+        ms._SEARCH_CACHE.clear()
+        ms._WARNED.clear()
+        assert ms.search_museums("flint hand axe") == [{"id": "met:x"}]
+        assert ms.culture_is_foreign("Japanese") is False
+
+    def test_this_channel_declares_its_cultures_in_the_profile(self):
+        import json
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "channel_profile.json")
+        data = json.load(open(path, encoding="utf-8"))
+        terms = data.get("foreign_culture_terms")
+        assert isinstance(terms, list) and "japanese" in terms
+        # 1-в-1 прежняя константа: поведение канала байт-в-байт прежнее
+        assert set(terms) == set(ms.DEFAULT_FOREIGN_CULTURE_TERMS)
+
     def test_undeclared_window_skips_the_museums_entirely(self, monkeypatch):
         touched = []
         monkeypatch.setattr(ms, "search_met",
@@ -267,7 +314,9 @@ class TestEraWindowMustBeDeclared:
                             lambda q, **k: touched.append("chicago") or [])
         monkeypatch.setattr(ms.feature_flags, "enabled",
                             lambda name, *a, **k: name != "MET_CATALOG")
-        monkeypatch.setattr(ms, "_profile", lambda: {"use_museum_sources": True})
+        monkeypatch.setattr(ms, "_profile",
+                            lambda: {"use_museum_sources": True,
+                                     "foreign_culture_terms": ["japanese"]})
         ms._SEARCH_CACHE.clear()
         ms._WARNED.clear()
         assert ms.search_museums("medieval helmet") == []

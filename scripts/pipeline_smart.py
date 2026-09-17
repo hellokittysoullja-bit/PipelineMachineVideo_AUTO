@@ -5356,7 +5356,25 @@ QUERY_DISAMBIGUATION_RULES = (
      "unless": ("modern", "sci-fi", "futuristic", "space", "video game", "wwii", "world war"),
      "qualifier": "european medieval"},
 )
-QUERY_DISAMBIGUATION_RULES = tuple(CHANNEL_PROFILE.get("query_disambiguation_rules", QUERY_DISAMBIGUATION_RULES))
+# ДЕФОЛТ КОДА ПУСТ (17.09, измерено). Правила выше — антианахронизм ИМЕННО
+# европейского Средневековья, и жили они константой, то есть применялись к
+# любому каналу, который их не переопределил — включая этот (его
+# channel_profile.json их не объявлял). Замер на запросах чужих ниш: 6 из 10
+# получали медиевализм приставкой, причём худшие случаи — не мелочь:
+#   'tank battle field'      -> 'european medieval tank battle field'
+#   'spear hunting savanna'  -> 'european medieval spear hunting savanna'
+#   'infantry helmet mud'    -> 'european infantry helmet mud'
+#   'sword smith forging'    -> 'european sword smith forging'  (ниша Япония)
+# Уточнитель уходит в РЕАЛЬНЫЙ вызов API, то есть это не косметика: пул слота
+# собирается по искажённому запросу. Комментарий выше уже обещал «для другой
+# ниши правила заменяются через профиль» — обещание не выполнялось, потому что
+# профиль их не объявлял и побеждала константа.
+# Теперь значения живут в channel_profile.json (ЧАСТЬ 24), а канал другой
+# ниши не получает чужой антианахронизм ВОВСЕ — вместо искажающего. Якорь
+# эпохи новой нише даёт авто-ниша эпизода (content_world.py ->
+# QUERY_ERA_ANCHORS), то есть слот не остаётся без привязки к эпохе.
+_QUERY_DISAMBIGUATION_RULES_MEDIEVAL = QUERY_DISAMBIGUATION_RULES
+QUERY_DISAMBIGUATION_RULES = tuple(CHANNEL_PROFILE.get("query_disambiguation_rules", ()))
 
 
 # Как термин правила сопоставляется с реальным запросом.
@@ -10365,7 +10383,15 @@ VISUAL_DOMAIN_GUARDS = (
         "margin_threshold": -0.03,
     },
 )
-VISUAL_DOMAIN_GUARDS = tuple(CHANNEL_PROFILE.get("visual_domain_guards", VISUAL_DOMAIN_GUARDS))
+# ДЕФОЛТ КОДА ПУСТ, та же причина и тот же день. Гвард сравнивает форму
+# клинка с ДВУМЯ прописанными промптами (европейский longsword против
+# катаны/цзянь) — на нише, где нет ни того, ни другого, оба промпта неверны,
+# и какой из них победит, решает шум: `blade` стоит в trigger_terms, то есть
+# кремнёвый или хирургический клинок попадал бы под сравнение с
+# средневековым мечом и отклонялся бы примерно случайно. Это не
+# недостающая защита, а защита, работающая против собственного канала.
+_VISUAL_DOMAIN_GUARDS_MEDIEVAL = VISUAL_DOMAIN_GUARDS
+VISUAL_DOMAIN_GUARDS = tuple(CHANNEL_PROFILE.get("visual_domain_guards", ()))
 
 
 # --- Контрастивное вето по ловушкам-негативам ---

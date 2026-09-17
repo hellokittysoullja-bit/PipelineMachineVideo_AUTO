@@ -423,9 +423,33 @@ def era_window():
     return (DEFAULT_ERA_FROM, DEFAULT_ERA_TO)
 
 
-def foreign_culture_terms():
+def foreign_culture_terms_declared():
+    """Список чужих культур, ОБЪЯВЛЕННЫЙ каналом, иначе None.
+
+    Пустой список — законное объявление («для этой темы чужих культур нет»,
+    например каменный век или всемирная история техники), поэтому «пусто» и
+    «не объявлено» обязаны различаться. Ровно та же причина, что у
+    era_window_declared(): вторая половина паспорта предмета.
+    """
     p = _profile()
-    return tuple(p.get("foreign_culture_terms", DEFAULT_FOREIGN_CULTURE_TERMS))
+    terms = p.get("foreign_culture_terms")
+    if terms is None:
+        return None
+    try:
+        return tuple(str(t).lower() for t in terms)
+    except TypeError:
+        return None
+
+
+def foreign_culture_terms():
+    """Термины для паспортной проверки. Не объявлено — прежние константы,
+    но живой путь (search_museums) до этого места уже не доходит: он
+    останавливается, когда паспорт не объявлен. Фолбэк — для офлайн-
+    сборщиков индекса, которые предупреждают об этом явно."""
+    declared = foreign_culture_terms_declared()
+    if declared is not None:
+        return declared
+    return DEFAULT_FOREIGN_CULTURE_TERMS
 
 
 def era_overlaps(begin, end):
@@ -804,6 +828,20 @@ def search_museums(query, department=None, limit=None):
                    "(channel_profile.json: era_from/era_to), ни авто-нишей "
                    "эпизода (media_plan/content_world.json). Паспорт предмета "
                    "не с чем сверять, а подставлять эпоху за автора нельзя.")
+        return []
+    # ВТОРАЯ ПОЛОВИНА ПАСПОРТА — список чужих культур, и он тоже был
+    # константой европейского Средневековья на весь мир: «japanese»,
+    # «chinese», «african», «indian» в нём чужие. Для канала про историю
+    # Японии это отсекало бы РОВНО его тему, для каменного века — половину
+    # корпуса, потому что кремнёвые орудия каталогизированы по всем
+    # континентам. Пустой список — законное объявление, поэтому «пусто» и
+    # «не объявлено» различаются (см. foreign_culture_terms_declared).
+    if foreign_culture_terms_declared() is None:
+        _warn_once("foreign_cultures_undeclared",
+                   "  МУЗЕИ ПРОПУЩЕНЫ: список чужих культур не объявлен "
+                   "(channel_profile.json: foreign_culture_terms). Пустой "
+                   "список — законное объявление «чужих культур нет»; "
+                   "молчание означает, что паспорт сверять нечем.")
         return []
     mem_key = (query, department, limit)
     if mem_key in _SEARCH_CACHE:
