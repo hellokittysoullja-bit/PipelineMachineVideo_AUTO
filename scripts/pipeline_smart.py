@@ -2963,9 +2963,18 @@ def run_ambience(mix_path, video_dir, blocks, sub_starts, total_dur, voice_path)
     """
     import ambience_plan
     plan, detail = [], None
+    veto_fn = None
+    if feature_flags.enabled("AMBIENCE_LLM_VETO"):
+        try:
+            import ambience_director
+            veto_fn = ambience_director.build_veto_fn(video_dir)
+        except Exception as e:
+            print(f"  ВНИМАНИЕ: вето атмосферы не поднялось ({type(e).__name__}) — "
+                  f"решение словаря остаётся как есть.")
     try:
         plan = ambience_plan.merge_adjacent(ambience_plan.plan_ambience(
-            blocks, sub_starts, total_dur, block_text=lambda b: str(b.get("text", ""))))
+            blocks, sub_starts, total_dur, block_text=lambda b: str(b.get("text", "")),
+            llm_veto_fn=veto_fn))
     except Exception as e:
         print(f"  ВНИМАНИЕ: планировщик атмосферы не отработал ({type(e).__name__}).")
     track = None

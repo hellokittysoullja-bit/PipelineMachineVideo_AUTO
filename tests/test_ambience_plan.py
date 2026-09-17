@@ -277,3 +277,60 @@ def test_library_kinds_and_plan_vocabulary_match_exactly():
     lib = set(sl.LIBRARY_SPEC["ambience"])
     assert lib - voc == set(), f"план никогда не выберет: {sorted(lib - voc)}"
     assert voc - lib == set(), f"в библиотеке нет: {sorted(voc - lib)}"
+
+
+# ------------------------------------------------------- вето поверх словаря
+
+def _wind_open_blocks():
+    """Текст, за который словарь уверенно и однозначно выбирает wind_open —
+    та же формулировка, что уже используется в test_bed_does_not_flicker."""
+    blocks = blocks_from(
+        ["поле равнина ветер открытый холм битва сражение войско"])
+    return timeline(blocks, per_block=200.0) + (blocks,)
+
+
+class TestLlmVeto:
+    """AMBIENCE_LLM_VETO — вето, не замена: может только СНЯТЬ то, что уже
+    выбрал словарь, и физически не может добавить то, что словарь не
+    предложил сам. Каждый тест проверяет ровно одну сторону этой гарантии."""
+
+    def test_veto_can_remove_a_bed_the_dictionary_chose(self):
+        starts, total, blocks = _wind_open_blocks()
+        plan = ap.plan_ambience(blocks, starts, total, block_text=lambda b: b["text"],
+                                llm_veto_fn=lambda text: False)
+        assert plan[0]["bed"] is None
+        assert plan[0]["reason"] == "llm_veto"
+
+    def test_veto_is_never_called_when_the_dictionary_already_says_silence(self):
+        """Односторонность — не обещание, а факт вызова: если словарь молчит,
+        вето не спрашивается вообще, значит подтвердить «да» ему и нечем."""
+        def veto_must_not_be_called(text):
+            raise AssertionError("вето вызвано на главе, которую словарь не выбрал")
+
+        blocks = blocks_from(["Это разговор о цифрах и о том, почему источники врут."])
+        starts, total = timeline(blocks, per_block=200.0)
+        plan = ap.plan_ambience(blocks, starts, total, block_text=lambda b: b["text"],
+                                llm_veto_fn=veto_must_not_be_called)
+        assert plan[0]["bed"] is None
+
+    def test_veto_returning_true_changes_nothing(self):
+        """«Согласие» вето не может создать атмосферу заново — оно там уже
+        была от словаря; unset veto и veto=True обязаны дать один план."""
+        starts, total, blocks = _wind_open_blocks()
+        without = ap.plan_ambience(blocks, starts, total, block_text=lambda b: b["text"])
+        with_true = ap.plan_ambience(blocks, starts, total, block_text=lambda b: b["text"],
+                                     llm_veto_fn=lambda text: True)
+        assert [s["bed"] for s in without] == [s["bed"] for s in with_true]
+        assert [s["reason"] for s in without] == [s["reason"] for s in with_true]
+
+    def test_veto_failure_is_fail_open(self):
+        """Сбой вызова (модель упала, сеть) — решение словаря остаётся как
+        было, а не молчаливо теряет атмосферу."""
+        def broken_veto(text):
+            raise RuntimeError("модель недоступна")
+
+        starts, total, blocks = _wind_open_blocks()
+        plan = ap.plan_ambience(blocks, starts, total, block_text=lambda b: b["text"],
+                                llm_veto_fn=broken_veto)
+        assert plan[0]["bed"] == "wind_open"
+        assert plan[0]["reason"] == "selected"

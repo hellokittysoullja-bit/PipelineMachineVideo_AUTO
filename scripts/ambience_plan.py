@@ -245,12 +245,22 @@ def plan_ambience(blocks, sub_starts, total_dur, block_text=None, vocab=None,
                   min_score=AMBIENCE_MIN_SCORE, min_run_sec=AMBIENCE_MIN_RUN_SEC,
                   max_distinct=AMBIENCE_MAX_DISTINCT,
                   switch_margin=AMBIENCE_SWITCH_MARGIN,
-                  ambiguity_margin=AMBIENCE_AMBIGUITY_MARGIN):
+                  ambiguity_margin=AMBIENCE_AMBIGUITY_MARGIN,
+                  llm_veto_fn=None):
     """[(начало, конец, атмосфера_или_None, seed, причина), ...] на весь ролик.
 
     Покрывает таймлайн БЕЗ дыр: участок без атмосферы — это явная запись
     с `None` и причиной, а не пропуск. Иначе «почему здесь тихо» опять
     существовало бы только в голове.
+
+    llm_veto_fn(текст_главы) -> bool, опционально (AMBIENCE_LLM_VETO,
+    scripts/ambience_director.build_veto_fn) — вызывается ТОЛЬКО когда
+    словарь уже решил, что атмосфера нужна, и может её только СНЯТЬ
+    (False), никогда не добавить то, что словарь сам не предложил. Эта
+    односторонность и есть гарантия: вето физически не может ухудшить
+    результат по сравнению со словарём без него, только убрать его
+    собственные ложные срабатывания. Сбой вызова (модель упала, сеть) —
+    fail-open, решение словаря остаётся как было.
     """
     block_text = block_text or (lambda b: str(b.get("text", "")))
     runs = section_runs(blocks, sub_starts, total_dur)
@@ -267,7 +277,7 @@ def plan_ambience(blocks, sub_starts, total_dur, block_text=None, vocab=None,
             runner_up = ranked[1][1] if len(ranked) > 1 else 0
         raw.append({"section": sec, "start": start, "end": end,
                     "bed": best, "score": best_score, "runner_up": runner_up,
-                    "scores": scores})
+                    "scores": scores, "text": text})
 
     # 2. Потолок на число разных атмосфер за эпизод. Оставляем самые
     #    уверенные; остальные главы теряют атмосферу, а не получают чужую.
@@ -303,6 +313,12 @@ def plan_ambience(blocks, sub_starts, total_dur, block_text=None, vocab=None,
                 bed, reason = r["bed"], "switched"
         else:
             bed, reason = r["bed"], "selected"
+        if bed and llm_veto_fn is not None:
+            try:
+                if not llm_veto_fn(r["text"]):
+                    bed, reason = None, "llm_veto"
+            except Exception:
+                pass  # fail-open: сбой вызова оставляет решение словаря как было
         out.append({"section": r["section"], "start": r["start"], "end": r["end"],
                     "bed": bed, "reason": reason, "score": r["score"],
                     "runner_up": r["runner_up"],

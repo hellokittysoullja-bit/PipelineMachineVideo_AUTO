@@ -248,6 +248,42 @@ def run(video_dir, blocks, brain, cache_dir=None, verbose=True):
     return rows
 
 
+def build_veto_fn(video_dir, model_path=None, threads=4, cache_dir=None):
+    """(текст главы) -> True/False — согласна ли модель со словарём, что
+    атмосфера здесь нужна. Нет модели -> None, вызывающий код обязан
+    оставить решение словаря как есть, а не трактовать отсутствие модели
+    как «нет атмосферы».
+
+    ТОЛЬКО ВЕТО, НЕ ЗАМЕНА: `ambience_plan.plan_ambience()` зовёт этот
+    резолвер лишь тогда, когда словарь УЖЕ решил, что атмосфера нужна, и
+    может по его ответу только убрать её, никогда не добавить то, что
+    словарь не предложил сам. Схема доказуемо не может стать хуже словаря:
+    живой прогон на эпизоде 02 (13 глав) дал те же 10 верных из 13, что и
+    полная замена словаря моделью, но БЕЗ её единственной ошибки (глава
+    «ДЕЛО НЕ В ГРЯЗИ» — историческое сравнение битв, которое модель дважды
+    подряд путала со сценой, хотя то же правило верно сработало на очень
+    похожих главах 10/11). AMBIENCE_LLM_VETO=0/1, дефолт `0`.
+    """
+    model = find_model(model_path)
+    if not model:
+        print("  ВНИМАНИЕ: AMBIENCE_LLM_VETO включён, но локальной модели нет "
+              "(python scripts/setup_local_director.py) — вето пропускается, "
+              "решение словаря остаётся как есть.")
+        return None
+    brain = LocalBrain(model, n_threads=threads)
+    ctx = episode_context(video_dir)
+    cache = cache_dir or os.path.join(video_dir, "media_plan", "ambience_veto_cache")
+
+    def veto(text):
+        packet = {"text": text, "episode_title": ctx["title"], "niche": ctx["niche"]}
+        label = _clean_text(text)[:48]
+        raw, _ = _ask_cached(brain, render_prompt(packet), 0, cache, True, f"вето: {label}")
+        wants, _, _ = parse_answer(raw)
+        return wants
+
+    return veto
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("video_dir")
