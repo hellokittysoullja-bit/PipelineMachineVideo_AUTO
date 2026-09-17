@@ -8019,11 +8019,68 @@ def write_shotlist(video_dir, shots, gates, prev=None):
     return path
 
 
-GENERIC_FALLBACKS = [
+# ПОСЛЕДНЯЯ СТУПЕНЬ РЕЗОЛВА ЗАПРОСА — и она была самым буквальным хардкодом
+# ниши во всём пайплайне (найдено 17.09): блок без авторского запроса и без
+# совпадения по словарю получал «medieval sword still life» НА ЛЮБОЙ ТЕМЕ.
+# То есть на психологическом или медицинском сценарии система уходила
+# искать в сток средневековый меч — ровно тот случай, против которого
+# заведена вся авто-ниша.
+#
+# Теперь список берётся из ниши: объявленный каналом (`generic_fallbacks`)
+# -> иначе собранный из якорей ЭТОГО эпизода (авто-ниша заполняет их сама,
+# см. content_world._LIST_FIELDS_IF_ABSENT) -> иначе ПУСТО. Пусто честнее
+# чужого: слот без запроса не пустеет, у него остаётся лестница фолбэков
+# (карточка по фразе, ЧАСТЬ 13), а вот кадр средневекового меча в ролике
+# про прокрастинацию не чинится ничем.
+_GENERIC_FALLBACKS_MEDIEVAL = [
     "medieval sword still life", "knight armor moody light",
     "medieval castle atmosphere", "old manuscript parchment history",
     "cinematic dark fantasy weapon",
 ]
+
+
+def _generic_fallbacks_from_niche():
+    """Резервные запросы из якорей ниши, если канал не объявил свои.
+
+    Пары «якорь эпохи + предметное существительное» — та же форма, что у
+    объявленных вручную («medieval sword still life»), и тот же словарь,
+    которым уже пользуются каскад Openverse и brief_to_stock_query. Нет ни
+    якорей, ни существительных — пустой список, а не чужая ниша.
+    """
+    era = [str(a).strip() for a in OPENVERSE_ERA_ANCHORS if str(a).strip()]
+    nouns = [str(n).strip() for n in OPENVERSE_DOMAIN_NOUNS if str(n).strip()]
+    if not era and not nouns:
+        return []
+    if not era:
+        era = nouns
+    if not nouns:
+        nouns = era
+    # ОБА СПИСКА МОГУТ БЫТЬ ОДНИМ И ТЕМ ЖЕ — и это норма, а не край: авто-ниша
+    # заполняет пустые якоря и существительные из одного поля ANCHOR_WORDS
+    # (см. content_world._LIST_FIELDS_IF_ABSENT). Наивное сложение по индексу
+    # давало «prehistoric prehistoric» — поймано собственным прогоном на
+    # клоне под каменный век. Поэтому пара строится только из РАЗНЫХ слов.
+    #
+    # Одиночное слово сюда не годится принципиально, и это уже измерено в
+    # этом файле: «knight» в одиночку даёт орденские медали, «plate armour» —
+    # «MkIV-Tank-Plate». Поэтому пары, а не слова.
+    out, seen = [], set()
+    for i in range(len(era) * len(nouns)):
+        if len(out) >= 5:
+            break
+        anchor = era[i // len(nouns) % len(era)]
+        noun = nouns[i % len(nouns)]
+        if anchor.lower() == noun.lower():
+            continue
+        pair = f"{anchor} {noun}"
+        if pair.lower() not in seen:
+            seen.add(pair.lower())
+            out.append(pair)
+    return out
+
+
+GENERIC_FALLBACKS = (list(CHANNEL_PROFILE.get("generic_fallbacks") or [])
+                     or _generic_fallbacks_from_niche())
 
 
 def query_for(text, keyword_counts=None):
@@ -8126,10 +8183,11 @@ def _diversify_repeated_query_runs(resolved, blocks):
                             if resolved[j] != current:
                                 alt = resolved[j]
                                 break
-                    if alt is None:
+                    if alt is None and GENERIC_FALLBACKS:
                         alt = GENERIC_FALLBACKS[fallback_cursor % len(GENERIC_FALLBACKS)]
                         fallback_cursor += 1
-                    resolved[k] = alt
+                    if alt is not None:
+                        resolved[k] = alt
             run_start = i
         if not changed:
             break
@@ -8519,7 +8577,12 @@ def resolve_queries(blocks, authored_queries=None):
                 break
     fallback_n = 0
     for i, q in enumerate(resolved):
-        if q is None:
+        # Ниша не дала ни одного резервного запроса — слот остаётся БЕЗ
+        # запроса, и это осознанный исход: у него есть бриф (полка и
+        # стоковый перевод), а если нет и его — лестница фолбэков ставит
+        # карточку по самой фразе. Подставить сюда чужую нишу значило бы
+        # показать средневековый меч в ролике про прокрастинацию.
+        if q is None and GENERIC_FALLBACKS:
             resolved[i] = GENERIC_FALLBACKS[fallback_n % len(GENERIC_FALLBACKS)]
             fallback_n += 1
     _diversify_repeated_query_runs(resolved, blocks)

@@ -44,6 +44,10 @@ PROBE = textwrap.dedent('''
         "blocklist": len(ps.CONTENT_ALT_BLOCKLIST),
         "negative_anchors": len(ps.CONTENT_NEGATIVE_ANCHORS),
         "era_anchors": len(ps.QUERY_ERA_ANCHORS),
+        "fallbacks": list(ps.GENERIC_FALLBACKS),
+        "resolved_without_fallbacks": ps.resolve_queries(
+            [{"section": "HOOK", "text": "Фраза одна."},
+             {"section": "HOOK", "text": "Фраза два."}], {}),
     }))
 ''')
 
@@ -117,3 +121,33 @@ class TestThisChannelIsUnchanged:
         assert got["blocklist"] == 51
         assert got["negative_anchors"] == 8
         assert got["era_anchors"] == 45
+
+
+class TestGenericFallbacksAreNicheDerived:
+    """Последняя ступень резолва запроса была самым буквальным хардкодом ниши.
+
+    Блок без авторского запроса и без совпадения по словарю получал
+    «medieval sword still life» НА ЛЮБОЙ ТЕМЕ — то есть психологический или
+    медицинский сценарий уходил искать в сток средневековый меч. Ровно тот
+    случай, против которого заведена вся авто-ниша.
+    """
+
+    def test_this_channel_keeps_its_own_five(self, tmp_path):
+        profile = json.load(open(os.path.join(REPO_ROOT, "channel_profile.json"),
+                                 encoding="utf-8"))
+        got = _probe_clone(tmp_path, profile=profile)
+        assert got["fallbacks"] == profile["generic_fallbacks"]
+        assert got["fallbacks"][0] == "medieval sword still life"
+
+    def test_fresh_clone_gets_nothing_instead_of_someone_elses_niche(self, tmp_path):
+        """Пусто честнее чужого: слот без запроса не пустеет — у него есть
+        бриф и лестница фолбэков (карточка по фразе, ЧАСТЬ 13), а кадр
+        средневекового меча в ролике про прокрастинацию не чинится ничем."""
+        got = _probe_clone(tmp_path)
+        assert got["fallbacks"] == []
+
+    def test_resolve_queries_survives_an_empty_fallback_list(self, tmp_path):
+        """Оба места брали элемент по модулю длины — на пустом списке это
+        ZeroDivisionError посреди резолва, то есть падение рендера."""
+        got = _probe_clone(tmp_path)
+        assert got["resolved_without_fallbacks"] is not None

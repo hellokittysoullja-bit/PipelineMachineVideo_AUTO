@@ -358,5 +358,12 @@
     "century",
     "historical",
     "ancient"
+  ],
+  "generic_fallbacks": [
+    "medieval sword still life",
+    "knight armor moody light",
+    "medieval castle atmosphere",
+    "old manuscript parchment history",
+    "cinematic dark fantasy weapon"
   ]
 }
