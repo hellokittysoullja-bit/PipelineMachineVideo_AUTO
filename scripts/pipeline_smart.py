@@ -6177,6 +6177,31 @@ BRIEF_STOCK_QUERY_VERSION = 1
 BRIEF_STOCK_QUERY_MAX_WORDS = 5
 
 
+def generic_fallback_queries_effective():
+    """Запасной список ЗАПРОСОВ (не якорей), когда для блока нет ни
+    авторского, ни темы, ни соседа для наследования (см. resolve_queries).
+
+    НАЙДЕНО ЖИВЫМ ПРОБНЫМ ПРОГОНОМ (17.09), не чтением кода: GENERIC_
+    FALLBACKS — третий такой же хардкод, что и _QUERY_ERA_ANCHORS_DEFAULT
+    и старый блоклист (оба уже заменены паспортом), только на этот раз с
+    более коварным следствием. Он уходит в pexels_photo() как САМ `query`,
+    а тот НАПРЯМУЮ, в обход брифа, используется музейным путём (см.
+    MUSEUM_RAW_QUERY_VERSION — «в музей уходит авторский запрос, а не
+    уточнённый»). На тестовом эпизоде про бортовой компьютер «Аполлона»
+    (ниша, где ни одно слово темы канала не совпало) это буквально отдало
+    музею запрос "medieval sword still life", и Метрополитен ответил
+    средневековым мечом на слот про смартфон.
+
+    Паспорт эпизода даёт `expected_subjects` — те же короткие английские
+    фразы, что уже используются в остальном пайплайне как запросы (см.
+    prompt_for_script: «короткие английские названия предметов и сцен»).
+    Нет паспорта или подходящих предметов — прежний GENERIC_FALLBACKS,
+    ноль регрессии."""
+    import world_card
+    subjects = world_card.expected_subjects(episode_world_card())
+    return subjects if subjects else GENERIC_FALLBACKS
+
+
 def brief_to_stock_query(brief, fallback=None, max_words=BRIEF_STOCK_QUERY_MAX_WORDS):
     """Короткий запрос для СТОКА, извлечённый из брифа ЭТОЙ фразы.
 
@@ -8442,9 +8467,10 @@ def resolve_queries(blocks, authored_queries=None):
                 resolved[i] = raw[j]
                 break
     fallback_n = 0
+    _generic = generic_fallback_queries_effective()
     for i, q in enumerate(resolved):
         if q is None:
-            resolved[i] = GENERIC_FALLBACKS[fallback_n % len(GENERIC_FALLBACKS)]
+            resolved[i] = _generic[fallback_n % len(_generic)]
             fallback_n += 1
     _diversify_repeated_query_runs(resolved, blocks)
     return resolved
@@ -13916,7 +13942,8 @@ def print_plan_summary(blocks, durs, queries, total, xfade_budget, n_blocks_befo
     свода поверх них, не отдельный проход."""
     n_sections = len({b["section"] for b in blocks})
     n_subcuts = sum(1 for b in blocks if b.get("is_subcut"))
-    n_generic = sum(1 for q in queries if q in GENERIC_FALLBACKS)
+    n_generic = sum(1 for q in queries
+                    if q in GENERIC_FALLBACKS or q in generic_fallback_queries_effective())
     total_dur = sum(durs)
     predicted_final = total_dur - xfade_budget
 
