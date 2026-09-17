@@ -297,6 +297,10 @@ FLAGS = {f.name: f for f in (
          summary="Музыкальная подложка (нужен assets/music/ambient_bed*.flac)"),
     Flag("MASTER_LIMITER", "1",
          summary="Лимитер в конце мастер-цепочки, после loudnorm (страховка по пикам)"),
+    Flag("SMART_RELEVANCE_VETO", "1",
+         summary="вторая проверка ПОБЕДИТЕЛЯ слота (SigLIP2+Jina, точнее "
+                 "CLIP, но в 33x медленнее — поэтому не на весь пул) "
+                 "поверх быстрого CLIP-фильтра всего пула"),
     Flag("NEVER_SHOW_KNOWN_BAD", "1",
          summary="кадр, забракованный своими же гейтами, НЕ идёт на экран: "
                  "слот поглощается соседним проверенным кадром"),

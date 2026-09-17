@@ -91,6 +91,17 @@ def _isolate_from_real_dotenv(monkeypatch, tmp_path):
     for _flag in ("PIXABAY_ENABLED", "UNSPLASH_ENABLED"):
         monkeypatch.delenv(_flag, raising=False)
         monkeypatch.setenv(_flag, "0")
+    # SMART_RELEVANCE_VETO — ТОТ ЖЕ класс, найден живьём 17.09 при установке
+    # torch/transformers в СЕССИЮ (не в постоянное окружение): дефолт флага
+    # 1, и без этой строки любой тест, дошедший до pexels_photo()/
+    # pexels_video() на машине, где эти пакеты УЖЕ стоят (например, для
+    # другой работы в этой же сессии), реально гонял бы SigLIP2+Jina по
+    # синтетическим тестовым фикстурам — те никогда не были рассчитаны на
+    # настоящую семантическую проверку и получали бы честный отказ модели,
+    # ломая тесты, которые проверяют совсем другое. Ровно так и произошло:
+    # 11 тестов упали в первом же прогоне после установки torch в контейнер.
+    monkeypatch.delenv("SMART_RELEVANCE_VETO", raising=False)
+    monkeypatch.setenv("SMART_RELEVANCE_VETO", "0")
 
 
 @pytest.fixture(scope="session")

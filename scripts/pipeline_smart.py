@@ -4927,6 +4927,11 @@ def _slot_known_bad_reason(index):
     новых проверок не запускает и ничего не пересчитывает. Порядок причин —
     по силе сигнала: отказ арбитра сильнее численного промаха порога.
     """
+    if any(m["index"] == index for m in SMART_VETO_MISSES):
+        # Первым: единственная причина здесь — модель ПОСМОТРЕЛА на
+        # реальный итоговый кадр (не на шорт-лист превью, как арбитр) и
+        # сказала "не то". Прямее сигнала в этом списке нет.
+        return "smart_relevance_veto"
     if any(m["index"] == index for m in ARBITER_REJECTED_ALL):
         return "arbiter_rejected_all"
     if any(m["index"] == index for m in STOCK_EXHAUSTED_MISSES):
@@ -7610,6 +7615,15 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                 used_hashes.append(_picked_ahash)
             except Exception:
                 pass
+        if smart_relevance_veto(cf, query):
+            SMART_VETO_MISSES.append({"index": index, "query": query, "kind": "photo"})
+            try:
+                os.remove(cf)
+            except OSError:
+                pass
+            print(f"  слот {index}: победитель отклонён второй проверкой "
+                  f"(SigLIP2+Jina, запрос {query!r}) — слот остаётся без медиа")
+            return None
         # Sidecar — чтобы СЛЕДУЮЩИЙ прогон, который возьмёт этот файл кэш-хитом
         # (или вообще не дойдёт до подбора, потому что кэширован сам клип),
         # смог вернуть кадр в анти-дубль. См. write_media_sidecar().
@@ -10619,6 +10633,96 @@ def is_relevant_candidate(image_path, query, relevance=None):
     return is_relevant
 
 
+# ВТОРОЙ, БОЛЕЕ ТОЧНЫЙ ВЗГЛЯД НА ПОБЕДИТЕЛЯ — SigLIP2+Jina поверх CLIP,
+# НЕ ВМЕСТО НЕГО (SMART_RELEVANCE_VETO=0/1, дефолт 1, 17.09).
+#
+# ЗАЧЕМ ДВА СЛОЯ, А НЕ ЗАМЕНА ОДНОГО ДРУГИМ — по прямому требованию
+# владельца "модель CLIP старая и глупая, замени её везде на новую".
+# Проверено ИЗМЕРЕНИЕМ, а не мнением, на золотом наборе (40 кадров):
+#
+#   ось                                   CLIP    SigLIP2+Jina
+#   AUC (ранжирует годное выше брака)     0.566   0.610
+#   при нуле ложных отказов годным:
+#     брака поймано                       1/17    1/17
+#     терпимых потеряно                   3/7     2/7
+#
+# Новая модель ДЕЙСТВИТЕЛЬНО отличает лучше (AUC выше, теряет меньше
+# терпимых кадров при той же строгости) — первая попытка сравнения (по
+# средним числам, не по рангу) этого не показывала и была ошибкой метода,
+# не находкой; поймано и исправлено в этом же заходе.
+#
+# НО замена ПОЛНОСТЬЮ, на КАЖДОГО кандидата пула, не сделана — и это не
+# осторожность ради осторожности, а измеренная цена: живой замер на этой
+# машине (15 картинок, текст РАЗНЫЙ на каждый вызов — кэш не участвует):
+#
+#   CLIP           :   72 мс/вызов
+#   SigLIP2+Jina   : 2358 мс/вызов  (32.8x медленнее)
+#
+# is_relevant_candidate() вызывается на КАЖДОГО кандидата пула (десятки за
+# слот, тысячи за эпизод) — на этой частоте 33x медленнее означает часы
+# лишнего времени рендера, а не минуты. Ровно эта цена уже задокументирована
+# в CLAUDE.md для VISUAL_DIRECTOR_MODE (там же дефолт `off` по той же
+# причине) — теперь то же самое измерено для ЭТОЙ модели на ЭТОЙ задаче.
+#
+# Поэтому CLIP остаётся быстрым фильтром ВСЕГО пула (как был, ни одна
+# калиброванная константа не тронута), а новая модель — ОДИН дополнительный
+# взгляд на уже выбранного ПОБЕДИТЕЛЯ слота, перед тем как его принять:
+# ~250 вызовов на эпизод вместо тысяч, те же ~10 минут, а не часы. Тот же
+# архитектурный приём, что уже работает для VLM-арбитра (дорогой ресурс —
+# только на шорт-лист, не на весь пул) и render_sharpness_regression()
+# (проверка готового кадра, не каждого кандидата).
+#
+# Отклонённый победитель НЕ подменяется карточкой и НЕ повторяет соседа
+# сам — он просто возвращает slot туда же, куда уже возвращают отказ
+# арбитра/исчерпанный сток/провал по порогу: в SMART_VETO_MISSES, откуда
+# _slot_known_bad_reason() и (с 17.09) поглощение соседним проверенным
+# кадром (NEVER_SHOW_KNOWN_BAD, см. ЧАСТЬ 13 Шаг 7.3) забирают решение —
+# вторая копия логики "что делать с негодным кадром" не заводится.
+SMART_RELEVANCE_THRESHOLD = -0.01   # см. таблицу выше: нулевая точка золотого набора
+SMART_VETO_MISSES = []   # [{"index", "query", "score"}, ...] — тот же формат, что у соседей
+
+
+def smart_relevance_veto(image_path, query):
+    """True — отклонить УЖЕ ВЫБРАННОГО победителя слота (см. блок-комментарий
+    выше). Вызывается ОДИН раз на слот, не на кандидата — иначе цена, из-за
+    которой этот же комментарий объясняет, почему это не замена CLIP.
+
+    Fail-open, тот же принцип, что и у CLIP-гейтов: недоступна модель (нет
+    torch/transformers/onnxruntime, сбой любого рода) -> False, кадр не
+    теряет уже принятое решение из-за окружения без тяжёлых зависимостей."""
+    if not feature_flags.enabled("SMART_RELEVANCE_VETO"):
+        return False
+    try:
+        import visual_director
+        score = visual_director.sentence_relevance(image_path, query)
+    except Exception:
+        return False
+    if score is None:
+        return False
+    return score < SMART_RELEVANCE_THRESHOLD
+
+
+def video_smart_relevance_veto(video_path, query):
+    """То же, что smart_relevance_veto(), но для ВИДЕО-победителя: своей
+    картинки у видео нет, поэтому берётся один кадр-пробник (та же функция
+    и та же точка t=0.5, что уже использует plain_fallback-пересчёт
+    релевантности чуть выше — вторая формула того же момента не заводится).
+    Пробник удаляется сразу после использования в любом случае."""
+    if not feature_flags.enabled("SMART_RELEVANCE_VETO"):
+        return False
+    probe, cleanup = extract_video_probe_frame(video_path)
+    if probe is None:
+        return False
+    try:
+        return smart_relevance_veto(probe, query)
+    finally:
+        if cleanup and os.path.exists(probe):
+            try:
+                os.remove(probe)
+            except OSError:
+                pass
+
+
 # Версия ПРАВИЛ гейта, которые живут НЕ внутри перечисленных в
 # candidate_gate_signature() функций, а в месте их ВЫЗОВА (pexels_photo/
 # pexels_video) — inspect.getsource() таких изменений не видит, и без явного
@@ -10889,6 +10993,12 @@ def _selection_stack_signature():
         # В подпись входят ЯКОРЯ И ПОРОГ КУЛЬТУРЫ, а не весь файл: правка
         # `notes` не обязана перерендеривать эпизод целиком.
         era_anchors_effective(),
+        # Вторая проверка победителя (SigLIP2+Jina поверх CLIP, см. блок-
+        # комментарий у smart_relevance_veto()) применяется ПОСЛЕ отбора,
+        # но кэш-хит отдаёт файл раньше, чем эта проверка вообще вызвана —
+        # без подписи включение флага (или смена порога) не дошло бы до
+        # уже закэшированных слотов.
+        feature_flags.enabled("SMART_RELEVANCE_VETO"), SMART_RELEVANCE_THRESHOLD,
         # Запрос из брифа — НОВЫЙ запрос в пуле слота, то есть другой состав
         # кандидатов у каждого источника. Без подписи это не дошло бы до
         # экрана на прогретом temp_smart/.
@@ -12721,6 +12831,16 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                         pass
             best_rel = cand_relevance.get(best[2])
             os.replace(best[2], cf)
+            if video_smart_relevance_veto(cf, query):
+                SMART_VETO_MISSES.append({"index": index, "query": query, "kind": "video"})
+                try:
+                    os.remove(cf)
+                except OSError:
+                    pass
+                print(f"  слот {index}: видео-победитель отклонён второй "
+                      f"проверкой (SigLIP2+Jina, запрос {query!r}) — "
+                      f"слот остаётся без медиа")
+                return None
             if used_ids is not None:
                 used_ids.add(best[3])
             if used_hashes is not None and best[4] is not None:
@@ -12766,6 +12886,16 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                     "n_candidates_examined": tries,
                 })
             os.replace(path, cf)
+            if video_smart_relevance_veto(cf, query):
+                SMART_VETO_MISSES.append({"index": index, "query": query, "kind": "video"})
+                try:
+                    os.remove(cf)
+                except OSError:
+                    pass
+                print(f"  слот {index}: видео-победитель (запасной путь) "
+                      f"отклонён второй проверкой (SigLIP2+Jina, запрос "
+                      f"{query!r}) — слот остаётся без медиа")
+                return None
             if used_ids is not None:
                 used_ids.add(vid)
             if used_hashes is not None and cand_hash is not None:
@@ -14024,6 +14154,67 @@ def available_ffmpeg_filters():
     return _FFMPEG_FILTERS_CACHE
 
 
+def check_ml_stack():
+    """Назвать отсутствующий torch/transformers ДО рендера, тем же приёмом,
+    что check_ffmpeg_filters() уже делает для фильтров ffmpeg (см. её
+    докстринг) — тихий fail-open внутри smart_relevance_veto() правильно
+    не роняет рендер, но БЕЗ этой функции узнать, что вторая проверка
+    победителя молча не работала весь прогон, было бы неоткуда.
+
+    ЧЕСТНО ПРО АВТОУСТАНОВКУ (по прямому требованию владельца "включи
+    авто скачивание при рендере, чтобы применялись, а не просто лежали").
+    Не тихая: пакеты весят ~2 ГБ и качаются минуты, а этот же файл в
+    ДРУГОМ месте документирует, почему тяжёлые ML-зависимости в этом
+    проекте НИКОГДА не ставятся неявно (requirements.txt: "безопасный
+    откат, без регрессии" — тот же принцип, что у платных API-вызовов,
+    которые не подтверждаются автоматически, см. --confirm-payg у
+    lumean_tts.py). Автоустановка здесь — тоже ОПТ-ИН, включённый явно
+    переменной AUTO_INSTALL_ML=1 в .env ЭТОГО канала, а не поведение
+    по умолчанию для любого, кто клонирует репозиторий: у владельца
+    другой машины/квоты трафика/дисциплины расходов быть не должно
+    сюрприза "рендер сам скачал два гигабайта".
+
+    С AUTO_INSTALL_ML=1 — реально ставит (pip install, ЭТОТ же интерпретатор
+    sys.executable, не голый "pip" из PATH) ОДИН раз за прогон, если модели
+    ещё нет; печатает, что делает, и почему. Без флага — печатает точную
+    команду и продолжает: SMART_RELEVANCE_VETO молча остаётся no-op (тот же
+    fail-open, что и всегда), CLIP как быстрый гейт всего пула не тронут."""
+    if not feature_flags.enabled("SMART_RELEVANCE_VETO"):
+        return
+    try:
+        import torch  # noqa: F401
+        import transformers  # noqa: F401
+        return
+    except ImportError:
+        pass
+    if os.environ.get("AUTO_INSTALL_ML", "0") == "1":
+        print("  AUTO_INSTALL_ML=1: ставлю torch/transformers/onnxruntime "
+              "(вторая проверка кадра, ~2 ГБ, займёт несколько минут)...")
+        cmd = [sys.executable, "-m", "pip", "install", "-q", "torch",
+               "--index-url", "https://download.pytorch.org/whl/cpu",
+               "transformers", "onnxruntime", "huggingface_hub"]
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=1800)
+            if r.returncode != 0:
+                print(f"  ВНИМАНИЕ: автоустановка не удалась ({r.stderr[-400:]}) — "
+                      f"вторая проверка кадра (SMART_RELEVANCE_VETO) на этом прогоне "
+                      f"работать не будет, CLIP остаётся единственным гейтом.")
+            else:
+                print("  torch/transformers/onnxruntime поставлены.")
+        except Exception as e:
+            print(f"  ВНИМАНИЕ: автоустановка упала ({type(e).__name__}) — "
+                  f"вторая проверка кадра на этом прогоне работать не будет.")
+    else:
+        print("  ВНИМАНИЕ: SMART_RELEVANCE_VETO включён, но torch/transformers не "
+              "установлены — вторая проверка победителя слота (SigLIP2+Jina) на "
+              "этом прогоне НЕ работает, CLIP остаётся единственным гейтом. "
+              "Поставить вручную: pip install torch --index-url "
+              "https://download.pytorch.org/whl/cpu transformers onnxruntime "
+              "huggingface_hub — или один раз положить AUTO_INSTALL_ML=1 в .env, "
+              "чтобы это делалось автоматически (~2 ГБ, минуты, один раз).")
+
+
 def check_ffmpeg_filters():
     """Назвать отсутствующий фильтр ДО рендера, а не после трёх попыток.
 
@@ -14070,6 +14261,7 @@ def main():
     # отсутствию строк в логе где-то в середине рендера (или не видно вовсе).
     feature_flags.print_summary()
     check_ffmpeg_filters()
+    check_ml_stack()
     feature_flags.write_snapshot(VIDEO_FOLDER)
     audio_qc(AUDIO_FILE)
     os.makedirs(TEMP_FOLDER, exist_ok=True)
@@ -15639,6 +15831,21 @@ def main():
               f"ответил «ни один кандидат не подходит», и слот всё равно заполнен выбором "
               f"эмбеддинга — см. media_plan/arbiter_rejected_report.json. Это не «порог не "
               f"взят», а прямой отказ более сильного судьи: кадр надо заменить, а не сверять.")
+
+    # SMART_VETO_MISSES — тот же принцип: отчёт отдельно, не только строка
+    # в absorbed_slots_report.json (см. ЧАСТЬ 13 Шаг 7.3), потому что здесь
+    # известна ДОПОЛНИТЕЛЬНАЯ деталь — какой именно запрос отклонён и какой
+    # моделью, а слотовый отчёт о поглощении этого не знает.
+    smart_veto_path = os.path.join(VIDEO_FOLDER, "media_plan",
+                                    "smart_veto_report.json")
+    merge_slot_report(smart_veto_path, SMART_VETO_MISSES,
+                      resolved_slots=RESOLVED_SLOTS_THIS_RUN)
+    if SMART_VETO_MISSES:
+        idxs = [m["index"] for m in SMART_VETO_MISSES]
+        print(f"  ВНИМАНИЕ: {len(SMART_VETO_MISSES)} слот(ов) {idxs} — вторая проверка "
+              f"(SigLIP2+Jina) отклонила уже выбранного CLIP победителя — см. "
+              f"media_plan/smart_veto_report.json. При NEVER_SHOW_KNOWN_BAD=1 (дефолт) "
+              f"слот поглощён соседним проверенным кадром, а не показан.")
 
     # FALLBACK_CARD_SLOTS — где вместо кадра стоит процедурная карточка.
     # Это НЕ повод для тревоги сам по себе (карточка честнее заведомо
