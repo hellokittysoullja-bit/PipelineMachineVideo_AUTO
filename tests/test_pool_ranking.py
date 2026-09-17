@@ -117,3 +117,96 @@ class TestSourceInterleave:
         first20 = order[:20]
         assert first20.count("openverse") == 3, first20
         assert first20[:2] == ["met", "openverse"], first20
+
+    def test_stock_sources_share_the_pool_evenly_when_museums_are_empty(self, monkeypatch, tmp_path):
+        """ОБРАТНЫЙ случай к тесту выше — и он не был проверен НИ РАЗУ до
+        этого коммита (внешний вопрос владельца: "он должен смотреть во всех
+        источниках, а не где-то больше, где-то меньше", проверено, а не
+        принято на слово). Для ниши без физических музейных предметов
+        (content_world.py гейтит use_museum_sources, шелф/openverse
+        естественно пустые) round-robin обязан честно делить пул между
+        Pexels/Pixabay/Unsplash — тот же общий механизм (zip_longest по
+        источникам), НИКАКОГО отдельного правила под "новую нишу" не
+        заводится и не нужно: он симметричен по построению."""
+        def mk(prefix, n):
+            return [{"id": f"{prefix}:{i}", "alt": "x", "url": "u",
+                      "src": {"large2x": "file:///nonexistent"}} for i in range(n)]
+
+        monkeypatch.setattr(ps, "PEXELS_API_KEY", "fake")
+        monkeypatch.setattr(ps, "_museum_search_photos", lambda q, department=None: [])
+        monkeypatch.setattr(ps, "_openverse_search_photos", lambda q: [])
+        monkeypatch.setattr(ps, "_shelf_search_photos", lambda q, brief=None: [])
+        monkeypatch.setattr(ps, "_pexels_search_photos", lambda q: mk("pexels", 80))
+        monkeypatch.setattr(ps, "_pixabay_search_photos", lambda q: mk("pixabay", 80))
+        monkeypatch.setattr(ps, "_unsplash_search_photos", lambda q: mk("unsplash", 80))
+        monkeypatch.setattr(ps, "filter_alt_blocklist", lambda items: items)
+
+        def fake_download(*a, **k):
+            raise OSError("нет сети")
+
+        monkeypatch.setattr(ps, "atomic_url_download", fake_download)
+        ps.reset_source_stats()
+        ps._PEXELS_SEARCH_CACHE.clear()
+        order = []
+        real_bump = ps._source_bump
+
+        def spy_bump(source, field, n=1):
+            if field == "offered":
+                order.append(source)
+            return real_bump(source, field, n)
+
+        monkeypatch.setattr(ps, "_source_bump", spy_bump)
+        ps.pexels_photo("modern office laptop", 0, used_ids=set(), used_hashes=[],
+                        text_key="reverse-interleave")
+        first20 = order[:20]
+        from collections import Counter
+        counts = Counter(first20)
+        # Ни один сток не должен получить меньше 6 из 20 (равная доля — 6.67)
+        # и ни один — больше 8: позиция "pexels идёт раньше в кортеже
+        # источников" не имеет права дать ему систематическое преимущество.
+        assert counts["pexels"] >= 6 and counts["pixabay"] >= 6 and counts["unsplash"] >= 6, first20
+        assert max(counts.values()) - min(counts.values()) <= 1, first20
+
+
+class TestVideoSourceInterleave:
+    """pexels_video() имел ТОТ ЖЕ дефект, что фото чинили 13.09 — "весь
+    Pexels, потом весь Pixabay" внутри ОДНОГО запроса, — и его никогда не
+    портировали на видео (найдено 17.09 прямой проверкой, а не чтением).
+    Цена не абстрактная: VIDEO_RELEVANCE_MAX_TRIES=3 реально скачивает
+    первых по списку кандидатов, а для однозапросного слота (нет
+    extra_queries — самый частый случай) список был "все Pexels", потом
+    "все Pixabay" — второй видео-корпус, заведённый именно против брака
+    63% у видео, для таких слотов не участвовал в отборе НИКОГДА."""
+
+    def test_pixabay_video_is_actually_tried_within_the_budget(self, monkeypatch, tmp_path):
+        def mk(prefix, n):
+            return [{"id": f"{prefix}:{i}",
+                     "video_files": [{"file_type": "video/mp4", "width": 1920, "link": "http://x"}]}
+                    for i in range(n)]
+
+        monkeypatch.setattr(ps, "PEXELS_API_KEY", "fake")
+        # id без префикса -> candidate_source() читает его как "pexels".
+        monkeypatch.setattr(ps, "_pexels_search_videos", lambda q: mk("9", 40))
+        monkeypatch.setattr(ps, "_pixabay_search_videos", lambda q: mk("pixabay", 40))
+        monkeypatch.setattr(ps, "filter_alt_blocklist", lambda items: items)
+
+        def fake_download(*a, **k):
+            raise OSError("нет сети")
+
+        monkeypatch.setattr(ps, "atomic_url_download", fake_download)
+        ps.reset_source_stats()
+        order = []
+        real_bump = ps._source_bump
+
+        def spy_bump(source, field, n=1):
+            if field == "offered":
+                order.append(source)
+            return real_bump(source, field, n)
+
+        monkeypatch.setattr(ps, "_source_bump", spy_bump)
+        ps.pexels_video("modern office worker typing", 0, used_ids=set(), used_hashes=[])
+        # order — ВЕСЬ собранный пул (обе выдачи по 40 реально попали в
+        # него); настоящая проверка — что источники внутри ordered НЕ идут
+        # блоками. Первые VIDEO_RELEVANCE_MAX_TRIES=3 позиции — это ровно
+        # то, что try_budget реально скачивает и оценивает.
+        assert set(order[:ps.VIDEO_RELEVANCE_MAX_TRIES]) == {"pexels", "pixabay"}, order[:10]
