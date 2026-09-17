@@ -174,6 +174,20 @@ def _term_matches(term, words, low):
 
 
 def _profile():
+    """channel_profile.json канала + авто-профиль ЭТОГО эпизода (см.
+    content_world.py) — та же ЕДИНАЯ точка (`effective_profile()`), что
+    использует pipeline_smart.CHANNEL_PROFILE, а не вторая копия логики
+    "прочитать JSON и слить с content_world" здесь. video_dir модуль не
+    знает (библиотечный, без понятия "текущий эпизод") — content_world
+    читает его из окружения, которое выставляет pipeline_smart при
+    старте. content_world недоступен (крайний случай, например частичная
+    установка) — откат на голый channel_profile.json, как до этого
+    модуля."""
+    try:
+        import content_world
+        return content_world.effective_profile()
+    except Exception:
+        pass
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     try:
         with open(os.path.join(here, "channel_profile.json"), encoding="utf-8") as f:

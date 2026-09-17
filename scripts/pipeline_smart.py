@@ -42,6 +42,10 @@ import stage_timer
 # кода с CLAUDE.md уже случалось молча (см. докстринг реестра).
 import feature_flags
 import query_fusion
+# Авто-определение ниши по тексту сценария (см. его же докстринг) — общая
+# точка слияния channel_profile.json с media_plan/content_world.json,
+# используемая и здесь, и в shot_types.py/museum_sources.py.
+import content_world
 
 try:
     import numpy as np
@@ -153,6 +157,12 @@ RENDER_POOL_WORKERS = _render_workers_from_env()
 _ARGV_FLAGS = {a for a in sys.argv[1:] if a.startswith("--")}
 _ARGV_POSITIONAL = [a for a in sys.argv[1:] if not a.startswith("--")]
 VIDEO_FOLDER = _ARGV_POSITIONAL[0] if _ARGV_POSITIONAL else os.getcwd()
+# shot_types.py/museum_sources.py читают channel_profile.json своими
+# независимыми загрузчиками (библиотечные модули без понятия "текущий
+# эпизод") — content_world.effective_profile() без явного video_dir
+# смотрит именно сюда. Тот же класс межмодульного сигналинга через
+# окружение, что уже применяется в этом пайплайне (CHANNEL_ID и т.п.).
+os.environ[content_world.ENV_VIDEO_DIR] = VIDEO_FOLDER
 # Сухой прогон тайминга (ЧАСТЬ 1 CLAUDE.md, "проверяемое — локально, не жечь
 # токены/деньги на угадывание"): считает блоки/длительности/тематические
 # запросы/титры/субтитры/главы и печатает свод, НЕ трогая ffmpeg вообще —
@@ -3516,8 +3526,13 @@ THEMES = load_themes()
 # только затем, чтобы CHANNEL_PROFILE был готов до первого override. Клон
 # репозитория под другую нишу (см. ЧАСТЬ 24) заводит СВОЙ
 # channel_profile.json — код трогать не нужно.
-CHANNEL_PROFILE = load_json_dict(os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "channel_profile.json"))
+# CHANNEL_PROFILE ниже — НЕ голый channel_profile.json, а его слияние с
+# media_plan/content_world.json ЭТОГО эпизода (content_world.py,
+# effective_profile()) — авто-определённой нишей по тексту сценария, если
+# она есть и достаточно уверенная (см. докстринг content_world.py). Нет
+# content_world.json — CHANNEL_PROFILE байт-в-байт то же самое, что было
+# до этого модуля; гарантия внутри самой функции, не соглашение здесь.
+CHANNEL_PROFILE = content_world.effective_profile(VIDEO_FOLDER)
 
 # Override зашитых творческих констант этого канала значениями из профиля,
 # если он есть (см. комментарий выше) — MOOD_GRADE (грейд по секциям) и

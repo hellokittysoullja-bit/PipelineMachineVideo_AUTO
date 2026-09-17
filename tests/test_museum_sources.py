@@ -211,6 +211,32 @@ class TestFailOpen:
         assert ms.search_museums("medieval helmet") == []
         assert touched == []
 
+    def test_auto_niche_use_museum_sources_false_makes_no_requests(self, monkeypatch):
+        """content_world.py может честно сказать "для этой темы физические
+        музейные предметы не подходят вообще" (психология, современная
+        техника и т.п.) — второй, независимый от MUSEUM_SOURCES_ENABLED
+        гейт: сам источник включён, но не подходит ЭТОЙ теме."""
+        touched = []
+        monkeypatch.setattr(ms, "_get_json", lambda u: touched.append(u))
+        monkeypatch.setattr(ms.feature_flags, "enabled",
+                            lambda name, *a, **k: name != "MET_CATALOG")
+        monkeypatch.setattr(ms, "_profile", lambda: {"use_museum_sources": False})
+        ms._SEARCH_CACHE.clear()
+        assert ms.search_museums("medieval helmet") == []
+        assert touched == []
+
+    def test_auto_niche_absent_key_keeps_museums_on(self, monkeypatch):
+        """.get(..., True) — дефолт остаётся True: канал/эпизод без явного
+        use_museum_sources ведёт себя байт-в-байт как до content_world.py."""
+        monkeypatch.setattr(ms, "search_met", lambda q, **k: [{"id": "met:fake"}])
+        monkeypatch.setattr(ms, "search_cleveland", lambda q, **k: [])
+        monkeypatch.setattr(ms, "search_chicago", lambda q, **k: [])
+        monkeypatch.setattr(ms.feature_flags, "enabled",
+                            lambda name, *a, **k: name != "MET_CATALOG")
+        monkeypatch.setattr(ms, "_profile", lambda: {})
+        ms._SEARCH_CACHE.clear()
+        assert ms.search_museums("sword") == [{"id": "met:fake"}]
+
 
 class TestWiredIntoPipeline:
     def test_pipeline_wrapper_uses_the_query_cascade(self, monkeypatch):

@@ -339,7 +339,15 @@ def _met_get(url):
 
 
 def _profile():
-    """channel_profile.json, если он есть рядом с репозиторием."""
+    """channel_profile.json канала + авто-профиль ЭТОГО эпизода (см.
+    content_world.py) — та же единая точка (`effective_profile()`), что
+    использует pipeline_smart.CHANNEL_PROFILE и shot_types._profile(), а
+    не третья копия одной и той же логики."""
+    try:
+        import content_world
+        return content_world.effective_profile()
+    except Exception:
+        pass
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     path = os.path.join(here, "channel_profile.json")
     try:
@@ -707,6 +715,15 @@ def search_museums(query, department=None, limit=None):
     скоринг: этот модуль только приносит кандидатов в пул.
     """
     if feature_flags is not None and not feature_flags.enabled("MUSEUM_SOURCES_ENABLED"):
+        return []
+    # Авто-ниша эпизода (content_world.py) может честно сказать "для этой
+    # темы физические музейные предметы не подходят вообще" (например,
+    # психология/самопомощь, современная техника) — тогда каждый запрос
+    # к трём музейным API — заведомо потраченное время без единого шанса
+    # на кандидата. .get(..., True) — дефолт True (текущее поведение),
+    # выключает только явное use_museum_sources=False (сам канал или
+    # авто-профиль, никогда угадывание по умолчанию).
+    if _profile().get("use_museum_sources", True) is False:
         return []
     mem_key = (query, department, limit)
     if mem_key in _SEARCH_CACHE:
