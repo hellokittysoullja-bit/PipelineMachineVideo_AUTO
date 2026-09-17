@@ -6426,8 +6426,19 @@ def _shelf_search_photos(api_query, brief=None, limit=None):
     музейного API.
 
     Fail-open: нет индекса на диске, нет numpy/torch, флаг выключен, любая
-    ошибка -> пустой список, пул собирается ровно как раньше."""
+    ошибка -> пустой список, пул собирается ровно как раньше.
+
+    use_museum_sources=False (авто-ниша content_world.py или сам канал) —
+    полка ТОЖЕ не спрашивается, а не только музейный API. Индекс полки
+    состоит ИСКЛЮЧИТЕЛЬНО из предметов музейного каталога (см. докстринг
+    выше), поэтому для нехисторической темы результат неизбежно нулевой по
+    смыслу — гейт релевантности отсеял бы его так же надёжно, но не
+    бесплатно: это матричное сравнение с эмбеддингом всей полки, а не
+    сетевой вызов, цена ниже, чем у museum_sources.search_museums(), но
+    экономить, если решение уже принято, дешевле, чем считать напрасно."""
     if not feature_flags.enabled("SHELF_INDEX"):
+        return []
+    if CHANNEL_PROFILE.get("use_museum_sources", True) is False:
         return []
     text = (brief or api_query or "").strip()
     if not text:
@@ -8193,10 +8204,17 @@ _QUERY_ERA_ANCHORS_DEFAULT = (
     "century", "historical", "ancient",
 )
 
-# content_world.merged_list() — см. комментарий у CONTENT_ALT_BLOCKLIST.
+# content_world.historical_default() — тот же принцип, что у
+# CONTENT_NEGATIVE_ANCHORS: список из "medieval"/"knight"/"armour" — не
+# универсальный код-дефолт, а якоря ИСТОРИЧЕСКОЙ ниши. Здесь цена промаха
+# ниже (только печатается предупреждение линта, ничего не блокирует), но
+# требовать от психологического сценария якорь "castle" — тот же класс
+# бессмысленного шаблона, который эта проверка обязана не создавать.
 QUERY_ERA_ANCHORS = tuple(
     t.lower() for t in
-    content_world.merged_list(CHANNEL_PROFILE, "query_era_anchors", _QUERY_ERA_ANCHORS_DEFAULT)
+    content_world.merged_list(
+        CHANNEL_PROFILE, "query_era_anchors",
+        content_world.historical_default(CHANNEL_PROFILE, _QUERY_ERA_ANCHORS_DEFAULT))
 )
 
 # Сколько слотов на ОДИН авторский запрос уже считается голодающим пулом.
@@ -10345,12 +10363,25 @@ _CONTENT_NEGATIVE_ANCHORS_DEFAULT = (
 # Override под нишу — тот же паттерн, что CONTENT_ALT_BLOCKLIST/
 # VISUAL_DOMAIN_GUARDS: для канала про современный спорт эти же ловушки были
 # бы ровно нужным контентом, и список заменяется в профиле, а не в коде.
-# content_world.merged_list() — см. комментарий у CONTENT_ALT_BLOCKLIST.
-# Здесь это важнее всего: ловушки вето судятся ЭМБЕДДИНГОМ (смысл кадра),
-# не подстрокой — единственное место, где авто-ниша реально дотягивается
-# до семантического, а не текстового судьи.
+#
+# content_world.historical_default() — НЕ голый _CONTENT_NEGATIVE_ANCHORS_
+# DEFAULT. Реальная находка 17.09: сами эти восемь ловушек ("толпа
+# современных зрителей", "современная кухня", "городская улица") кодируют
+# допущение "современность — анахронизм", верное ТОЛЬКО для исторической
+# ниши. Живой прогон на психологическом сценарии показал: кандидат про
+# заброшенный завтрак и пустой холодильник получает высокое сходство с
+# ловушкой "modern domestic interior, kitchen..." — контрастивное вето
+# отклонило бы ровно тот кадр, который этой теме и нужен. Применяется
+# только когда есть основание думать, что ниша историческая (canal явно
+# задал shot_domain/era, либо content_world.py этого эпизода определил
+# is_historical) — см. её докстринг. Нет сигнала вообще -> историческое
+# значение (байт-в-байт как раньше для уже настроенных каналов, включая
+# этот репозиторий). content_world.merged_list() — см. комментарий у
+# CONTENT_ALT_BLOCKLIST — ловушки вето судятся ЭМБЕДДИНГОМ, не подстрокой,
+# единственное место, где авто-ниша дотягивается до семантического судьи.
 CONTENT_NEGATIVE_ANCHORS = content_world.merged_list(
-    CHANNEL_PROFILE, "content_negative_anchors", _CONTENT_NEGATIVE_ANCHORS_DEFAULT)
+    CHANNEL_PROFILE, "content_negative_anchors",
+    content_world.historical_default(CHANNEL_PROFILE, _CONTENT_NEGATIVE_ANCHORS_DEFAULT))
 # Кадр отклоняется, если ЛЮБАЯ ловушка набрала не меньше, чем цель минус
 # запас. Отрицательный запас = консервативно: ловушка должна ощутимо
 # ПЕРЕБИВАТЬ цель, а не просто дотягиваться до неё. Именно эта

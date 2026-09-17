@@ -231,6 +231,22 @@ class TestMergedList:
         assert merged["shot_domain"]["world"] == "современный офис"
         assert "laptop" in merged["shot_domain"]["anchor_words"]
 
+    def test_is_historical_flows_through_merge_at_min_confidence(self, tmp_path):
+        """is_historical не литеральный ключ channel_profile.json (канал
+        никогда его не объявляет руками) — достаточно MIN_CONFIDENCE, не
+        WORLD_OVERRIDE_MIN_CONFIDENCE: здесь нет явного решения человека,
+        которое можно было бы тихо переписать."""
+        cw.write_content_world(str(tmp_path), {
+            "confidence": 0.6, "is_historical": False,
+        }, source="t")
+        base = {"shot_domain": {"world": "европейское Средневековье"}}
+        merged = cw.merge_content_world(base, str(tmp_path))
+        assert merged["is_historical"] is False
+        # мир кадра при этом НЕ переписан (confidence ниже WORLD_OVERRIDE_
+        # MIN_CONFIDENCE) — is_historical и shot_domain это два разных поля
+        # с разными порогами, не связанные одной проверкой.
+        assert merged["shot_domain"]["world"] == "европейское Средневековье"
+
     def test_shot_domain_channel_wins_on_moderate_confidence(self, tmp_path):
         """Устоявшаяся ниша канала — осознанный выбор человека (ЧАСТЬ 24
         CLAUDE.md); неуверенная/пограничная догадка по одному эпизоду не
@@ -299,6 +315,41 @@ class TestMergedList:
         }, source="t")
         merged = cw.merge_content_world({"era_from": 900, "era_to": 1600}, str(tmp_path))
         assert merged["era_from"] == 900 and merged["era_to"] == 1600
+
+
+class TestHistoricalDefault:
+    """historical_default()/resolve_is_historical() — найдено 17.09: список
+    ловушек анти-модерн ("толпа зрителей", "современная кухня") САМ ПО
+    СЕБЕ кодирует "эта ниша историческая", и применять его как
+    "универсальный дефолт" для другой ниши значило бы рисковать отклонить
+    ровно тот кадр, который этой теме и нужен."""
+
+    def test_resolve_none_when_no_signal_at_all(self):
+        assert cw.resolve_is_historical({}) is None
+
+    def test_resolve_true_from_shot_domain_presence(self):
+        assert cw.resolve_is_historical({"shot_domain": {"world": "x"}}) is True
+
+    def test_resolve_true_from_era_window_presence(self):
+        assert cw.resolve_is_historical({"era_from": 900}) is True
+        assert cw.resolve_is_historical({"era_to": 1600}) is True
+
+    def test_content_world_is_historical_wins_over_shot_domain_heuristic(self):
+        """Явный вывод content_world (даже False) — приоритетнее эвристики
+        по shot_domain: канал исторический, но ЭТОТ эпизод — нет."""
+        assert cw.resolve_is_historical(
+            {"shot_domain": {"world": "x"}, "is_historical": False}) is False
+        assert cw.resolve_is_historical({"is_historical": True}) is True
+
+    def test_historical_default_returns_historical_value_when_true_or_unknown(self):
+        # Неизвестно -> прежнее поведение (историческое значение), байт-в-байт.
+        assert cw.historical_default({}, ("trap",)) == ("trap",)
+        assert cw.historical_default({"shot_domain": {"world": "x"}}, ("trap",)) == ("trap",)
+
+    def test_historical_default_returns_other_value_when_confidently_not_historical(self):
+        profile = {"shot_domain": {"world": "средневековье"}, "is_historical": False}
+        assert cw.historical_default(profile, ("modern kitchen trap",)) == ()
+        assert cw.historical_default(profile, ("trap",), other_value=("psych trap",)) == ("psych trap",)
 
 
 class TestEffectiveProfile:

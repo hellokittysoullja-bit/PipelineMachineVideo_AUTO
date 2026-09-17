@@ -129,8 +129,13 @@ _LIST_FIELDS_ADDITIVE = (
 
 # Поля, которые ПОБЕЖДАЮТ только если канал их не задал вовсе (см.
 # docstring — устоявшаяся ниша канала не переписывается догадкой по
-# одному эпизоду).
-_SCALAR_FIELDS_IF_ABSENT = ("era_from", "era_to", "use_museum_sources")
+# одному эпизоду). "is_historical" — не литеральный ключ channel_profile.json
+# (канал никогда не объявляет его руками, в отличие от shot_domain/
+# era_from) — это чистый вывод content_world.py, поэтому для него
+# достаточно MIN_CONFIDENCE, а не более строгого WORLD_OVERRIDE_MIN_
+# CONFIDENCE: здесь нет "явного решения человека", которое можно было бы
+# тихо переписать — см. его использование в historical_default() ниже.
+_SCALAR_FIELDS_IF_ABSENT = ("era_from", "era_to", "use_museum_sources", "is_historical")
 
 
 def content_world_path(video_dir):
@@ -399,6 +404,54 @@ def merged_list(profile, key, code_default=()):
         return tuple(base)
     seen = {str(x).lower() for x in base}
     return tuple(base) + tuple(x for x in additions if str(x).lower() not in seen)
+
+
+def resolve_is_historical(profile):
+    """True/False/None. Порядок: явный вывод content_world ЭТОГО эпизода
+    (см. `is_historical` в `_SCALAR_FIELDS_IF_ABSENT` выше) -> явные
+    признаки канала (shot_domain задан, ИЛИ era_from/era_to заданы явно —
+    то есть человек сам настроил канал под историческую нишу) -> None,
+    если сигнала нет вообще."""
+    v = profile.get("is_historical")
+    if v is not None:
+        return bool(v)
+    if profile.get("shot_domain") or "era_from" in profile or "era_to" in profile:
+        return True
+    return None
+
+
+def historical_default(profile, historical_value, other_value=()):
+    """ДЕФОЛТ-ЗНАЧЕНИЕ, ЗАВИСЯЩЕЕ ОТ НИШИ, А НЕ УНИВЕРСАЛЬНЫЙ КОД-ДЕФОЛТ.
+
+    Найдено 17.09 прямой проверкой: `_CONTENT_NEGATIVE_ANCHORS_DEFAULT` в
+    pipeline_smart.py — восемь ловушек "современного вторжения" (толпа
+    зрителей, современная кухня, городская улица), — при поверхностном
+    взгляде выглядят как безопасный универсальный дефолт, а на деле
+    ЦЕЛИКОМ кодируют допущение "этот канал исторический, современность —
+    анахронизм". Живая проверка на психологическом сценарии в этом же
+    репозитории: кандидат для фразы про пустой холодильник и заброшенный
+    завтрак получает ВЫСОКОЕ сходство с ловушкой "modern domestic interior,
+    kitchen, plastic and household objects" — и контрастивное вето
+    (`negative_anchor_violation`) может ОТКЛОНИТЬ ровно тот кадр, который
+    этой теме и нужен, потому что список ловушек калиброван для чужой
+    ниши. Это не "дефолт, который можно расширить руками" — использование
+    списка САМО ПО СЕБЕ неверно для темы, где современность не анахронизм.
+
+    Поэтому такой список — не КОД_ДЕФОЛТ в обычном смысле (`_OPENVERSE_
+    ERA_ANCHORS_DEFAULT`/`_OPENVERSE_DOMAIN_NOUNS_DEFAULT` уже пусты по
+    коду ровно по этой причине, см. их докстринг), а ЗНАЧЕНИЕ ДЛЯ
+    ИСТОРИЧЕСКОЙ НИШИ, применяемое только когда есть основание думать, что
+    ниша историческая (см. resolve_is_historical). Нет сигнала вообще
+    (совсем новый канал, содержательного профиля ни у канала, ни у
+    content_world нет) -> исторический вариант остаётся ПРЕЖНИМ дефолтом
+    (байт-в-байт поведение для всех уже настроенных каналов, включая этот
+    репозиторий, где shot_domain задан явно) — но НЕ ПОТОМУ, что решили
+    рискнуть, а потому что у существующих каналов сигнал `shot_domain` уже
+    есть и однозначно указывает на историчность."""
+    is_hist = resolve_is_historical(profile)
+    if is_hist is False:
+        return other_value
+    return historical_value
 
 
 def _base_channel_profile():
