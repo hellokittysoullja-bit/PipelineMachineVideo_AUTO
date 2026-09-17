@@ -143,7 +143,18 @@ _MET_DEPARTMENTS_DEFAULT = (
       "breastplate", "gauntlet", "pommel", "hilt", "poleaxe", "halberd",
       "mace", "shield", "chainmail", "crossbow", "longbow", "lance",
       "visor", "sallet", "cuirass", "greave", "weapon", "arrow", "bow",
-      "sabaton", "spur", "barding"), 4, ("object",)),
+      "sabaton", "spur", "barding",
+      # СЛОЖНЫЕ СЛОВА — явными формами, а не префиксом (17.09). Хвост
+      # префикса ограничен словоизменением (INFLECTION_SUFFIXES), и
+      # «arrowhead» перестал совпадать с «arrow»: замер на реальном
+      # эпизоде поймал два брифа («a bodkin arrowhead close up beside a
+      # steel plate», «a bodkin arrowhead, close up»), потерявших
+      # структурный запрос по отделу оружия. Это настоящие предметы Мет, и
+      # чинится это тем же приёмом, которым модуль уже перечисляет ходовые
+      # формы явно, а не возвратом к совпадению с любым хвостом — иначе
+      # вернулся бы весь класс ловушек («night» внутри «nightstand»).
+      "arrowhead", "spearhead", "swordsman", "bowman", "crossbowman",
+      "longbowman", "spear", "poleyn", "bascinet"), 4, ("object",)),
     (("manuscript", "illumination", "illuminated", "codex", "psalter",
       "book of hours", "reliquary", "ivory", "effigy", "tomb", "chalice",
       "crown", "seal", "initial"), 17, ("object", "illustration")),
@@ -160,17 +171,39 @@ _WORD_RE = re.compile(r"[a-z]+")
 # а известные ловушки заперты отдельным тестом.
 MIN_PREFIX_LEN = 5
 
+# ХВОСТ ПРЕФИКСА ОГРАНИЧЕН СЛОВОИЗМЕНЕНИЕМ — измеренная правка, не
+# перестраховка (17.09). Минимальной длины НЕ ХВАТАЛО: все ловушки, которые
+# запирал отдельный тест, короче пяти букв (coin, map, bow), и правило
+# «длинный термин сравнивается по началу слова» на пятибуквенных терминах
+# осталось открытым. Замер на брифах ЧУЖОЙ ниши поймал ровно это:
+#   «a blister pack of pills on a nightstand» -> scene (night + stand)
+#   «a phone lying face down on a bedside table at night» -> scene
+# Первый — предметный кадр, помеченный сценой, то есть музеи и полка
+# исключаются из пула; для ниши, где нужный предмет лежит именно в музейном
+# каталоге (каменный век, ремесло, медицина XIX века), это потеря лучшего
+# источника по случайному совпадению начала слова. Тот же класс дальше:
+# «initial» внутри «initially», «charge» внутри «charger».
+#
+# Все документированные нужные совпадения — СЛОВОИЗМЕНЕНИЕ: armour+ed,
+# blade+s, coin+s, march+ing. Поэтому хвост сравнивается со списком
+# окончаний, а не принимается любым. Это сужение ловит весь класс ловушек
+# сразу, а не по одной строке в тесте: список имён отстаёт по построению,
+# форма окончания — нет (тот же довод, что у ALIGNMENT_TAG_SPAN_RE).
+INFLECTION_SUFFIXES = ("s", "es", "ed", "d", "ing", "ings", "en")
+
 
 def _term_matches(term, words, low):
     """Слово запроса против термина словаря: многословный термин — по
-    подстроке, короткий — по целому слову, длинный — по началу слова."""
+    подстроке, короткий — по целому слову, длинный — по началу слова
+    и только со словоизменительным хвостом (см. INFLECTION_SUFFIXES)."""
     if " " in term:
         return term in low
     if term in words:
         return True
     if len(term) < MIN_PREFIX_LEN:
         return False
-    return any(w.startswith(term) for w in words)
+    return any(w != term and w.startswith(term)
+               and w[len(term):] in INFLECTION_SUFFIXES for w in words)
 
 
 def _profile():

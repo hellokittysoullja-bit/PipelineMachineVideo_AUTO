@@ -77,6 +77,51 @@ def speech_bounds_from_alignment(chars):
     return real[0][0], real[-1][1]
 
 
+SHOT_BRIEF_TYPE_SEP = "|"
+
+
+def split_shot_brief(raw):
+    """`[shot:...]` -> (тип кадра или None, описание).
+
+    ЗАЧЕМ ТИП ВНУТРИ ТЕГА (17.09, измерено). Тип кадра решает, В КАКОЙ
+    ИСТОЧНИК уходит слот (`shot_types.SOURCE_CAPABILITIES`): музей и полка —
+    каталог ПРЕДМЕТОВ, сцены у них измеренно слабые. Мозг, пишущий бриф,
+    этот тип НАЗЫВАЕТ САМ — формат его ответа «номер | тип | описание», —
+    но `write_inline()` записывал в сценарий только описание, и тип
+    выбрасывался. Дальше маршрут восстанавливался словарём английских слов
+    по УЖЕ ОБРЕЗАННОМУ до пяти слов стоковому переводу брифа: замер на
+    реальном эпизоде — 13 брифов из 142 (9%) меняют тип при переводе, в том
+    числе 4 сценических становятся предметными (музей получает
+    структурный запрос по отделу оружия на кадр «сапог, вылезающий из
+    грязи»), а 5 предметных теряют тип совсем (структурный запрос к Мет
+    не строится вовсе — тот самый, что в замере 14.09 давал 277 настоящих
+    лат вместо керамических тарелок).
+    На ЧУЖОЙ нише словарь не просто молчит, а ошибается: из 15 брифов
+    психологии/медицины/каменного века/техники 13 дали `any`, а оба
+    сработавших сработали НЕВЕРНО.
+
+    ФОРМАТ ОБРАТНО СОВМЕСТИМ. Разделитель читается только если слева от
+    первого `|` стоит ИМЕННО имя типа кадра из `shot_types.SHOT_TYPES` —
+    единый список, не вторая его копия здесь. Нет разделителя, слева не
+    тип, тип неизвестен — возвращается весь текст как описание, то есть
+    142 брифа эпизода 02 и любой рукописный бриф читаются БАЙТ-В-БАЙТ как
+    раньше.
+    """
+    raw = (raw or "").strip()
+    if SHOT_BRIEF_TYPE_SEP not in raw:
+        return None, raw
+    head, rest = raw.split(SHOT_BRIEF_TYPE_SEP, 1)
+    head, rest = head.strip().lower(), rest.strip()
+    try:
+        import shot_types
+        valid = set(shot_types.SHOT_TYPES)
+    except Exception:
+        return None, raw
+    if head in valid and rest:
+        return head, rest
+    return None, raw
+
+
 def parse_blocks(path):
     raw = open(path, encoding="utf-8").read()
     # Берём ТОЛЬКО озвучиваемые секции (HOOK / BLOCK* / FINAL). Всё служебное —
@@ -169,6 +214,7 @@ def parse_blocks(path):
     blocks, cur, pause, stat, stat_word_pos, pending_climax = [], "", 0.0, None, None, False
     sfx, hush = [], False
     shot_brief = None
+    shot_type_hint = None
     # [sfx:...] стоит ВНУТРИ фразы и монтаж не режет. Но он разбивает строку
     # на части, и если к этому моменту висит несъеденная пауза (она осталась
     # от [pause] перед блоком), следующий же огрызок — хоть одна точка —
@@ -179,15 +225,18 @@ def parse_blocks(path):
 
     def flush():
         nonlocal cur, pause, stat, stat_word_pos, pending_climax, sfx, hush, shot_brief
+        nonlocal shot_type_hint
         if cur:
             blocks.append({"text": cur, "pause_after": pause,
                            "words": len(cur.split()), "section": section, "stat": stat,
                            "stat_word_pos": stat_word_pos, "is_climax": pending_climax,
                            "sfx": list(sfx), "hush": hush,
-                           "shot_brief": shot_brief})
+                           "shot_brief": shot_brief,
+                           "shot_type_hint": shot_type_hint})
         cur, pause, stat, stat_word_pos, pending_climax = "", 0.0, None, None, False
         sfx, hush = [], False
         shot_brief = None
+        shot_type_hint = None
 
     for part in parts:
         mp = re.match(r'__PAUSE_([\d.]+)__', part)
@@ -258,9 +307,10 @@ def parse_blocks(path):
             # и бриф принадлежит ЕЙ, а не предыдущей.
             if pause > 0 and cur:
                 flush()
-            brief = part[len("\x05SHOT:"):-1].strip()
+            hint, brief = split_shot_brief(part[len("\x05SHOT:"):-1])
             if brief:
                 shot_brief = brief
+                shot_type_hint = hint
             merge_next = bool(cur)
         elif part == "\x04HUSH\x04":
             hush = True

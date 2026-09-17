@@ -210,3 +210,211 @@ class TestCachesCoverTheirBuilders:
         monkeypatch.setattr(ms, "_candidate", lambda *a, **k: {})
         after = ms._disk_cache_key("q", 4)
         assert before != after
+
+
+class TestInflectionTailOnly:
+    """Хвост префиксного совпадения ограничен СЛОВОИЗМЕНЕНИЕМ (17.09).
+
+    MIN_PREFIX_LEN не закрывал класс: все ловушки, запертые тестом выше,
+    короче пяти букв (coin, map, bow), а пятибуквенные термины сравнивались
+    по началу слова с ЛЮБЫМ хвостом. Замер на брифах чужой ниши поймал
+    реальный промах: «a blister pack of pills on a nightstand» -> scene,
+    потому что night внутри nightstand. Предметный кадр, помеченный сценой,
+    исключает музей и полку из пула — для ниши, чей предмет лежит именно в
+    музейном каталоге, это потеря лучшего источника по совпадению букв.
+    """
+
+    @pytest.mark.parametrize("query,trap", [
+        ("a blister pack of pills on a nightstand", "night/nightstand"),
+        ("initially the room was empty", "initial/initially"),
+    ])
+    def test_non_inflectional_tail_does_not_match(self, query, trap):
+        assert st.shot_type_for(query) == st.ANY, trap
+
+    @pytest.mark.parametrize("query", [
+        "medieval sabaton armoured foot",      # armour + ed
+        "medieval blades collection",          # blade + s
+        "knights marching column",             # march + ing
+        "castle ruins overgrown",              # ruins — целым словом
+    ])
+    def test_documented_forms_still_match(self, query):
+        """Нулевая регрессия: все совпадения, ради которых префикс вообще
+        заведён, — словоизменение, и они обязаны сохраниться."""
+        assert st.shot_type_for(query) != st.ANY
+
+    def test_suffix_list_is_inflectional_only(self):
+        """Список окончаний — словоизменение, не произвольные хвосты:
+        «stand», «ly», «box» в нём быть не должно, иначе класс ловушки
+        вернётся тихо."""
+        for tail in ("stand", "ly", "box", "r"):
+            assert tail not in st.INFLECTION_SUFFIXES
+
+
+class TestSlotTypeBeatsQueryType:
+    """ТИП КАДРА СЛОТА НАЗЫВАЕТ МОЗГ, а не словарь английских слов.
+
+    Формат ответа режиссёра — «номер | тип | описание», то есть тип у слота
+    уже есть. Раньше `write_inline()` записывал в сценарий только описание,
+    и маршрут восстанавливался словарём по УЖЕ ОБРЕЗАННОМУ до пяти слов
+    стоковому переводу брифа. Замер на реальном эпизоде 02 (142 брифа):
+    у 13 (9%) тип при переводе МЕНЯЕТСЯ — 4 сценических становятся
+    предметными (музей получает структурный запрос по отделу оружия на
+    кадр «сапог, вылезающий из грязи»), 5 предметных теряют тип совсем
+    (структурный запрос к Мет не строится вовсе — тот самый, что давал 277
+    настоящих лат вместо керамических тарелок).
+
+    На ЧУЖОЙ нише словарь не просто молчит, а ошибается: из 15 брифов
+    психологии/медицины/каменного века/техники 13 дали `any`, и оба
+    сработавших сработали неверно.
+    """
+
+    def test_hint_wins_over_lexicon(self):
+        assert ps.slot_shot_type("a boot pulling out of deep thick mud", "scene") == "scene"
+        # тот же бриф без подсказки словарь читает как предмет (sabaton/steel
+        # нет, но `mud` есть) — проверяем, что подсказка реально решает
+        assert ps.slot_shot_type("an armoured foot in a steel sabaton pressed "
+                                 "into soft ground", "scene") == "scene"
+
+    def test_full_brief_is_used_when_the_brain_did_not_say(self):
+        assert ps.slot_shot_type("a two-handed sword with a long blade", None) == "object"
+
+    def test_unknown_stays_unknown_instead_of_guessing(self):
+        """`any` от словаря — отсутствие сигнала, и оно не имеет права
+        выглядеть решением: вызывающий обязан остаться на типе ЗАПРОСА,
+        то есть на сегодняшнем поведении."""
+        assert ps.slot_shot_type("a stethoscope resting on a hospital bed", None) is None
+        assert ps.slot_shot_type(None, None) is None
+        assert ps.slot_shot_type("whatever", "not-a-shot-type") is None
+
+    def test_declared_object_reaches_the_museum_though_the_section_query_is_a_scene(
+            self, monkeypatch):
+        """Поведенческая проверка: запрос секции сценический (музей по нему
+        не спрашивается), а бриф слота объявлен предметным — музей обязан
+        получить ЗАПРОС ИЗ БРИФА, и со структурным отделом."""
+        seen = []
+        monkeypatch.setattr(ps, "PEXELS_API_KEY", "")
+        monkeypatch.setattr(ps, "_museum_search_photos",
+                            lambda q, department=None: seen.append((q, department)) or [])
+        monkeypatch.setattr(ps, "_openverse_search_photos", lambda q: [])
+        monkeypatch.setattr(ps, "_pixabay_search_photos", lambda q: [])
+        monkeypatch.setattr(ps, "_unsplash_search_photos", lambda q: [])
+        monkeypatch.setattr(ps, "_shelf_search_photos", lambda q, **kw: [])
+        ps._PEXELS_SEARCH_CACHE.clear()
+        ps.pexels_photo("medieval castle moat water", 0, used_ids=set(), used_hashes=[],
+                        text_key="slot-type-object",
+                        shot_brief="a two-handed sword with a long fullered blade",
+                        shot_type_hint="object")
+        assert seen, "музей не спрошен ни разу — запрос из брифа не дошёл"
+        assert any(dep == 4 for _, dep in seen), seen
+
+    def test_declared_scene_keeps_the_museum_out(self, monkeypatch):
+        """Обратная сторона: бриф объявлен сценой, а его стоковый перевод
+        словарь читает как предмет (измеренный случай «armoured foot in a
+        steel sabaton») — музей не должен получить структурный запрос по
+        отделу оружия на кадр земли."""
+        seen = []
+        monkeypatch.setattr(ps, "PEXELS_API_KEY", "")
+        monkeypatch.setattr(ps, "_museum_search_photos",
+                            lambda q, department=None: seen.append((q, department)) or [])
+        monkeypatch.setattr(ps, "_openverse_search_photos", lambda q: [])
+        monkeypatch.setattr(ps, "_pixabay_search_photos", lambda q: [])
+        monkeypatch.setattr(ps, "_unsplash_search_photos", lambda q: [])
+        monkeypatch.setattr(ps, "_shelf_search_photos", lambda q, **kw: [])
+        ps._PEXELS_SEARCH_CACHE.clear()
+        brief = "an armoured foot in a steel sabaton pressed into soft ground"
+        ps.pexels_photo("medieval battlefield churned mud", 0, used_ids=set(),
+                        used_hashes=[], text_key="slot-type-scene",
+                        shot_brief=brief, shot_type_hint="scene")
+        brief_q = ps.brief_to_stock_query(brief, fallback=None)
+        assert all(q != brief_q for q, _ in seen), seen
+
+    def test_section_queries_keep_their_own_type(self, monkeypatch):
+        """Переопределять тип ЗАПРОСА СЕКЦИИ догадкой о соседнем слоте
+        нельзя: запросы секции обслуживают 4-10 слотов, и их текст про то,
+        что в них написано. Сценический запрос секции остаётся вне музея
+        даже когда бриф слота объявлен предметным."""
+        seen = []
+        monkeypatch.setattr(ps, "PEXELS_API_KEY", "")
+        monkeypatch.setattr(ps, "_museum_search_photos",
+                            lambda q, department=None: seen.append(q) or [])
+        monkeypatch.setattr(ps, "_openverse_search_photos", lambda q: [])
+        monkeypatch.setattr(ps, "_pixabay_search_photos", lambda q: [])
+        monkeypatch.setattr(ps, "_unsplash_search_photos", lambda q: [])
+        monkeypatch.setattr(ps, "_shelf_search_photos", lambda q, **kw: [])
+        ps._PEXELS_SEARCH_CACHE.clear()
+        ps.pexels_photo("medieval castle moat water", 0, used_ids=set(), used_hashes=[],
+                        text_key="slot-type-section",
+                        shot_brief="a two-handed sword with a long fullered blade",
+                        shot_type_hint="object")
+        assert "medieval castle moat water" not in seen, seen
+
+
+class TestShotTypeTravelsWithTheBrief:
+    def test_type_prefix_is_parsed_out(self):
+        assert script_parser.split_shot_brief(
+            "object|a dented steel breastplate, close up") == (
+            "object", "a dented steel breastplate, close up")
+
+    @pytest.mark.parametrize("raw", [
+        "a dented steel breastplate, close up",   # как писали 142 брифа эпизода 02
+        "nonsense|something",                     # слева не тип кадра
+        "a wall with a|b pattern",                # труба внутри описания
+        "object|",                                # пустое описание
+        "",
+    ])
+    def test_backward_compatible(self, raw):
+        """Ни один существующий бриф не должен прочитаться иначе."""
+        hint, brief = script_parser.split_shot_brief(raw)
+        assert hint is None
+        assert brief == raw.strip()
+
+    def test_valid_types_are_not_a_second_copy_of_the_list(self):
+        """Список имён типов живёт в shot_types и больше нигде: вторая копия
+        разошлась бы при добавлении типа, и префикс молча стал бы частью
+        описания."""
+        for t in st.SHOT_TYPES:
+            assert script_parser.split_shot_brief(f"{t}|a thing")[0] == t
+
+    def test_parser_puts_the_hint_on_the_block(self, tmp_path):
+        p = tmp_path / "script.txt"
+        p.write_text("=== HOOK ===\n[shot:object|a plain steel helmet]Шлем. [pause]\n"
+                     "[shot:a muddy field]Поле.\n", encoding="utf-8")
+        blocks = script_parser.parse_blocks(str(p))
+        assert blocks[0]["shot_type_hint"] == "object"
+        assert blocks[0]["shot_brief"] == "a plain steel helmet"
+        assert blocks[1]["shot_type_hint"] is None
+        assert blocks[1]["shot_brief"] == "a muddy field"
+
+    def test_real_episode_briefs_parse_unchanged(self):
+        """Нулевая регрессия на настоящем эпизоде: 142 брифа без префикса."""
+        path = os.path.join(REPO_ROOT, "videos", "02_ne-mechom", "script.txt")
+        if not os.path.exists(path):
+            pytest.skip("эпизода нет в поставке")
+        blocks = script_parser.parse_blocks(path)
+        with_brief = [b for b in blocks if b.get("shot_brief")]
+        assert len(with_brief) == 142
+        assert all(b.get("shot_type_hint") is None for b in with_brief)
+
+
+class TestCompoundArmsTermsKeepTheirDepartment:
+    """Найдено СВОЕЙ ЖЕ проверкой нулевой регрессии, а не рассуждением.
+
+    Ограничение хвоста словоизменением отняло совпадение «arrow» внутри
+    «arrowhead»: два реальных брифа эпизода 02 («a bodkin arrowhead close up
+    beside a steel plate», «a bodkin arrowhead, close up») потеряли
+    структурный запрос по отделу оружия, то есть уходили бы в Мет свободным
+    текстом — ровно то, что замер 14.09 показал как источник керамических
+    тарелок вместо лат. Починено явными формами (так этот модуль уже
+    перечисляет ходовые слова), а не возвратом к совпадению с любым хвостом.
+    """
+
+    @pytest.mark.parametrize("brief", [
+        "a bodkin arrowhead close up beside a steel plate",
+        "a bodkin arrowhead, close up",
+        "a bodkin arrowheads group",      # словоизменение поверх формы
+    ])
+    def test_arrowhead_still_gets_arms_and_armor(self, brief):
+        assert st.met_department_for(brief, "object") == 4
+
+    def test_the_trap_class_did_not_come_back(self):
+        assert st.shot_type_for("a blister pack of pills on a nightstand") == st.ANY

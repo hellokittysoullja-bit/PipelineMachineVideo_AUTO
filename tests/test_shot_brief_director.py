@@ -1369,3 +1369,41 @@ def test_a_non_thinking_model_response_is_untouched():
     import shot_planner_llm as p
     raw = "1 | object | a dented steel breastplate, close up"
     assert p._clean_stream(raw) == raw
+
+
+# --- ТИП КАДРА ЕДЕТ ВМЕСТЕ С ОПИСАНИЕМ -------------------------------------
+# Модель называет тип сама (формат ответа «номер | тип | описание»), и тип
+# решает, В КАКОЙ ИСТОЧНИК уходит слот. Раньше write_inline() записывала в
+# сценарий только описание, и маршрут восстанавливался словарём английских
+# слов по УЖЕ ОБРЕЗАННОМУ до пяти слов стоковому переводу брифа: на реальном
+# эпизоде 02 тип менялся у 13 брифов из 142, а на чужой нише словарь давал
+# `any` в 13 случаях из 15 и ошибался в обоих остальных (замер 17.09).
+
+def test_inline_carries_the_declared_shot_type(tmp_path):
+    import shot_brief_director as d
+    import script_parser
+    script = tmp_path / "script.txt"
+    script.write_text("Сапог вылезает из грязи.", encoding="utf-8")
+    blocks = [{"text": "Сапог вылезает из грязи.", "shot_brief": None}]
+    placed, _ = d.write_inline(str(tmp_path), blocks,
+                               {0: {"shot_en": "a boot pulling out of deep thick mud",
+                                    "function": "scene"}})
+    assert placed == 1
+    parsed = script_parser.parse_blocks(str(script))
+    assert parsed[0]["shot_type_hint"] == "scene"
+    assert parsed[0]["shot_brief"] == "a boot pulling out of deep thick mud"
+
+
+@pytest.mark.parametrize("function", [None, "", "narrative", "garbage"])
+def test_inline_without_a_valid_type_is_written_exactly_as_before(tmp_path, function):
+    """Модель тип не назвала или назвала не тип — тег пишется байт-в-байт
+    как раньше, без префикса: иначе `split_shot_brief` прочитал бы мусор
+    как часть описания кадра."""
+    import shot_brief_director as d
+    script = tmp_path / "script.txt"
+    script.write_text("Шлем с узкой щелью.", encoding="utf-8")
+    blocks = [{"text": "Шлем с узкой щелью.", "shot_brief": None}]
+    d.write_inline(str(tmp_path), blocks,
+                   {0: {"shot_en": "a visored helmet with a narrow slit",
+                        "function": function}})
+    assert "[shot:a visored helmet with a narrow slit]" in script.read_text(encoding="utf-8")

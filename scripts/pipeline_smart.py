@@ -5585,7 +5585,12 @@ POOL_SOURCE_INTERLEAVE_VERSION = 2
 # Маршрутизация запроса по источникам и структурный запрос к музею
 # (scripts/shot_types.py) — меняют И состав пула, И сам запрос к API,
 # поэтому версия входит в подпись отбора.
-SHOT_TYPE_ROUTING_VERSION = 1
+# v2 (17.09): тип кадра СЛОТА (названный мозгом в брифе) выше типа,
+# выведенного словарём из обрезанного стокового запроса — см. slot_shot_type();
+# плюс хвост префиксного совпадения в shot_types._term_matches() ограничен
+# словоизменением. Оба меняют, КОГО спрашивают и каким запросом, поэтому без
+# подъёма версии правка не дошла бы до экрана на прогретом temp_smart/.
+SHOT_TYPE_ROUTING_VERSION = 2
 # {текст запроса: тип кадра} — ЯВНАЯ разметка автора из === PEXELS QUERIES ===
 # (`medieval sword macro [object]`). Заполняется в main(); пусто -> тип
 # выводится из слов запроса, а если и там сигнала нет — `any`, то есть
@@ -5601,6 +5606,41 @@ def shot_type_of_query(query):
         return shot_types.shot_type_for(query, SHOT_TYPE_EXPLICIT.get((query or "").strip()))
     except Exception:
         return "any"
+
+
+def slot_shot_type(shot_brief, shot_type_hint=None):
+    """Тип кадра СЛОТА: что названо мозгом, а не выведено из слов.
+
+    ПОРЯДОК СТАРШИНСТВА и почему он такой.
+      1. `shot_type_hint` — тип, КОТОРЫЙ НАЗВАЛ САМ АВТОР БРИФА (формат
+         ответа режиссёра «номер | тип | описание», либо префикс в
+         `[shot:object|...]`, см. script_parser.split_shot_brief). Он
+         прочитал главу целиком и знает, предмет это или сцена; словарь
+         английских слов не знает ничего, кроме слов.
+      2. Вывод по ПОЛНОМУ тексту брифа — если тип не назван. Полный бриф
+         лучше стокового перевода: перевод обрезан до пяти слов, и на
+         реальном эпизоде 13 брифов из 142 (9%) меняли из-за этого тип
+         (4 сценических становились предметными, 5 предметных теряли тип).
+      3. None — решать нечем, вызывающий остаётся на типе ЗАПРОСА, то есть
+         на сегодняшнем поведении байт-в-байт.
+
+    Тип НЕ УГАДЫВАЕТСЯ: `any` от словаря — это отсутствие сигнала, и здесь
+    он возвращается как None, чтобы не выглядеть решением. На чужой нише
+    это главный случай: из 15 брифов психологии/медицины/каменного века
+    словарь дал `any` в 13 и ошибся в обоих остальных (замер 17.09).
+    """
+    hint = (shot_type_hint or "").strip().lower()
+    try:
+        import shot_types
+        if hint in set(shot_types.SHOT_TYPES):
+            return hint
+        if shot_brief:
+            t = shot_types.shot_type_for(shot_brief, None)
+            if t and t != shot_types.ANY:
+                return t
+    except Exception:
+        return None
+    return None
 
 
 def source_allowed_for(source, shot_type):
@@ -6878,7 +6918,7 @@ def _openverse_fetch_one(api_query, _ov):
 def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=None, target_luma=None,
                   director_score_fn=None, director_assist=False, director_report=None,
                   extra_queries=None, text_key=None, arbiter_text=None, is_opening_shot=False,
-                  shot_brief=None, block_text=None):
+                  shot_brief=None, block_text=None, shot_type_hint=None):
     """used_ids — множество ID уже показанных в этом ролике фото (мутируется на
     месте). Разные блоки часто ловят один и тот же тематический запрос — без
     этого им всем доставался бы top-1 результат, то есть одна и та же картинка
@@ -6977,6 +7017,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
     # слот на прогретом temp_smart/ молча отдал бы кандидата, выбранного до
     # появления брифа (тот же урок, что у candidate_gate_signature).
     _brief_q, _brief_key = candidate_brief_keys(shot_brief, block_text)
+    _slot_type = slot_shot_type(shot_brief, shot_type_hint)
     qkey = "|".join([query] + sorted(q for q in (extra_queries or []) if q and q != query)
                      + ([text_key] if text_key else [])
                      + ([_brief_key] if _brief_key else []))
@@ -7103,7 +7144,17 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             # по отделу коллекции, а не свободным текстом (замер: тарелки
             # на «plate armour» исчезают целиком). Тип не определён -> `any`
             # -> прежний маршрут во все источники, ноль регрессии.
+            # ТИП КАДРА СЛОТА ВЫШЕ ТИПА ЗАПРОСА — но только для запроса,
+            # написанного про ЭТОТ слот (`_brief_q`). Запросы секции
+            # обслуживают 4-10 слотов и остаются на своём типе: их текст
+            # действительно про то, что в них написано, и переопределять его
+            # догадкой о соседнем слоте значило бы ломать уже измеренную
+            # маршрутизацию 14.09. Слот при этом не голодает: музей,
+            # исключённый сценическим запросом секции, всё равно спрашивается
+            # предметным запросом из брифа, и наоборот.
             shot_type = shot_type_of_query(pq)
+            if pq == _brief_q:
+                shot_type = _slot_type or shot_type
             department = met_department_for_query(pq, shot_type)
             per_source = []
             for source_name, fetch in (("shelf", _shelf_search_photos),
@@ -15063,7 +15114,8 @@ def main():
                                       director_report=director_entry,
                                       extra_queries=section_query_pool.get(b["section"]), text_key=sem_text,
                                       arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot,
-                                      shot_brief=b.get("shot_brief"), block_text=b["text"])
+                                      shot_brief=b.get("shot_brief"), block_text=b["text"],
+                                      shot_type_hint=b.get("shot_type_hint"))
             else:
                 photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
                                       recent_sizes=recent_shot_sizes, target_luma=luma_ema,
@@ -15071,7 +15123,8 @@ def main():
                                       director_report=director_entry,
                                       extra_queries=section_query_pool.get(b["section"]), text_key=sem_text,
                                       arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot,
-                                      shot_brief=b.get("shot_brief"), block_text=b["text"])
+                                      shot_brief=b.get("shot_brief"), block_text=b["text"],
+                                      shot_type_hint=b.get("shot_type_hint"))
                 if not photo and d >= MIN_CLIP + 1.0:
                     video = pexels_video(queries[i], i, used_ids=used_video_ids, used_hashes=used_photo_hashes,
                                          action_qualifier=act_qual,

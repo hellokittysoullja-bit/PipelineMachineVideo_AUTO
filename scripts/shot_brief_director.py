@@ -54,6 +54,7 @@ sys.path.insert(0, os.path.join(REPO, "scripts"))
 import feature_flags         # noqa: E402
 import script_parser        # noqa: E402
 import shot_planner_llm     # noqa: E402
+import shot_types            # noqa: E402
 
 # Версия ПАКЕТА и разбора. Входит в ключ кэша главы: переписанный пакет
 # обязан считаться заново, иначе план молча останется от прошлой
@@ -1024,7 +1025,19 @@ def write_inline(video_dir, blocks, found, dry_run=False):
         # юнит отсеян строкой выше. Собственная эвристика по тексту файла
         # была бы вторым ответом на тот же вопрос и рано или поздно
         # разошлась бы с первым.
-        body = body[:at] + f"[shot:{brief}]" + body[at:]
+        # ТИП КАДРА ЕДЕТ ВМЕСТЕ С ОПИСАНИЕМ. Модель называет его сама
+        # (формат ответа «номер | тип | описание»), и он решает, в какой
+        # источник уйдёт слот — музей/полка это каталог ПРЕДМЕТОВ, сцены у
+        # них измеренно слабые. Раньше он здесь выбрасывался, и маршрут
+        # восстанавливался словарём английских слов по обрезанному до пяти
+        # слов стоковому переводу брифа: 13 брифов из 142 меняли тип, а на
+        # чужой нише словарь давал `any` в 13 случаях из 15 и ошибался в
+        # обоих остальных (замер 17.09, см. script_parser.split_shot_brief).
+        # Формат обратно совместим: без префикса тег читается как раньше.
+        fn = (found[idx].get("function") or "").strip().lower()
+        tag = (f"{fn}{script_parser.SHOT_BRIEF_TYPE_SEP}{brief}"
+               if fn in set(shot_types.SHOT_TYPES) else brief)
+        body = body[:at] + f"[shot:{tag}]" + body[at:]
         placed += 1
 
     if not dry_run and placed:
