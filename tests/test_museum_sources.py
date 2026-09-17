@@ -227,15 +227,97 @@ class TestFailOpen:
 
     def test_auto_niche_absent_key_keeps_museums_on(self, monkeypatch):
         """.get(..., True) — дефолт остаётся True: канал/эпизод без явного
-        use_museum_sources ведёт себя байт-в-байт как до content_world.py."""
+        use_museum_sources ведёт себя байт-в-байт как до content_world.py.
+
+        Окно эпохи в фикстуре объявлено намеренно: это ВТОРОЕ, независимое
+        условие (см. TestEraWindowMustBeDeclared), и без него тест мерил бы
+        не то, что утверждает.
+        """
         monkeypatch.setattr(ms, "search_met", lambda q, **k: [{"id": "met:fake"}])
         monkeypatch.setattr(ms, "search_cleveland", lambda q, **k: [])
         monkeypatch.setattr(ms, "search_chicago", lambda q, **k: [])
         monkeypatch.setattr(ms.feature_flags, "enabled",
                             lambda name, *a, **k: name != "MET_CATALOG")
-        monkeypatch.setattr(ms, "_profile", lambda: {})
+        monkeypatch.setattr(ms, "_profile", lambda: {"era_from": 900, "era_to": 1600})
         ms._SEARCH_CACHE.clear()
         assert ms.search_museums("sword") == [{"id": "met:fake"}]
+
+
+class TestEraWindowMustBeDeclared:
+    """Эпоха не объявлена — музей не спрашивается, а не спрашивается «под
+    средневековье из константы».
+
+    ИЗМЕРЕНО 17.09 на пустом профиле: era_overlaps(1940, 1945) -> False,
+    era_overlaps(-8000, -6000) -> False. То есть предмет Второй мировой и
+    кремнёвый топор молча выбрасывались паспортом по окну 900-1600, которое
+    не объявлял никто — оно жило константой модуля. Для не средневековой
+    исторической темы это худший исход: авто-ниша честно включает музеи (для
+    каменного века или Рима это верно), а окно из кода выбрасывает КАЖДЫЙ
+    правильный предмет — без единой строки в логе, и причина неотличима от
+    «в музее этого нет».
+    """
+
+    def test_undeclared_window_skips_the_museums_entirely(self, monkeypatch):
+        touched = []
+        monkeypatch.setattr(ms, "search_met",
+                            lambda q, **k: touched.append("met") or [])
+        monkeypatch.setattr(ms, "search_cleveland",
+                            lambda q, **k: touched.append("cleveland") or [])
+        monkeypatch.setattr(ms, "search_chicago",
+                            lambda q, **k: touched.append("chicago") or [])
+        monkeypatch.setattr(ms.feature_flags, "enabled",
+                            lambda name, *a, **k: name != "MET_CATALOG")
+        monkeypatch.setattr(ms, "_profile", lambda: {"use_museum_sources": True})
+        ms._SEARCH_CACHE.clear()
+        ms._WARNED.clear()
+        assert ms.search_museums("medieval helmet") == []
+        assert touched == [], "музеи спрошены при неизвестной эпохе"
+
+    def test_reason_is_printed_once_not_per_query(self, monkeypatch, capsys):
+        # conftest гасит MUSEUM_SOURCES_ENABLED принудительно (иначе любой
+        # тест, дошедший до пула, ходил бы в три живых API) — а при
+        # выключенном флаге search_museums выходит РАНЬШЕ проверки эпохи, и
+        # тест молча мерил бы пустую строку вместо причины.
+        monkeypatch.setattr(ms.feature_flags, "enabled",
+                            lambda name, *a, **k: name != "MET_CATALOG")
+        monkeypatch.setattr(ms, "_profile", lambda: {})
+        ms._SEARCH_CACHE.clear()
+        ms._WARNED.clear()
+        for q in ("a", "b", "c"):
+            ms.search_museums(q)
+        out = capsys.readouterr().out
+        assert out.count("МУЗЕИ ПРОПУЩЕНЫ") == 1, out
+
+    @pytest.mark.parametrize("profile,expected", [
+        ({"era_from": 900, "era_to": 1600}, (900, 1600)),
+        ({"era_from": -30000, "era_to": -3000}, (-30000, -3000)),   # каменный век
+        ({"era_from": 1939, "era_to": 1945}, (1939, 1945)),         # ВМВ
+        ({}, None),
+        ({"era_from": 900}, None),                                   # половины мало
+        ({"era_from": "не число", "era_to": 1600}, None),
+    ])
+    def test_declared_window_is_distinguished_from_defaulted(
+            self, monkeypatch, profile, expected):
+        monkeypatch.setattr(ms, "_profile", lambda: profile)
+        assert ms.era_window_declared() == expected
+
+    def test_this_channel_declares_its_window_in_the_profile(self):
+        """Медиевализм — свойство ЭТОГО канала, и он обязан жить в профиле
+        ниши, а не в константе кода: иначе клон под другую нишу молча
+        получает средневековый паспорт (ЧАСТЬ 24 CLAUDE.md)."""
+        import json
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "channel_profile.json")
+        data = json.load(open(path, encoding="utf-8"))
+        assert data.get("era_from") == 900 and data.get("era_to") == 1600
+
+    def test_non_medieval_era_passes_its_own_objects(self, monkeypatch):
+        """Обратная сторона: объявленное окно каменного века обязано
+        ПРОПУСКАТЬ кремнёвый топор, а не только не мешать."""
+        monkeypatch.setattr(ms, "_profile",
+                            lambda: {"era_from": -30000, "era_to": -3000})
+        assert ms.era_overlaps(-8000, -6000) is True
+        assert ms.era_overlaps(1375, 1475) is False
 
 
 class TestWiredIntoPipeline:

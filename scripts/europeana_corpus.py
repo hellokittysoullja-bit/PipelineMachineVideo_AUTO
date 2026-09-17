@@ -459,6 +459,13 @@ def harvest(limit=None, collections=None, page_size=100,
         collections = COLLECTION_PRIORITY
     if sizes is None:
         sizes = IMAGE_SIZE_PRIORITY
+    if era is None and ms.era_window_declared() is None:
+        # Та же причина, что у met_catalog.build(): корпус собирается ЧАСАМИ
+        # под окно эпохи, и окно из константы модуля дало бы средневековый
+        # корпус каналу любой другой ниши.
+        print("  ВНИМАНИЕ: окно эпохи не объявлено ни в channel_profile.json "
+              "(era_from/era_to), ни авто-нишей — корпус будет собран под "
+              "окно из константы модуля.")
     lo, hi = era or ms.era_window()
     stats = {"seen": 0, "kept": 0, "pages": 0, "errors": 0,
              "rejected": {}, "by_provider": {}, "by_size": {}}
@@ -565,6 +572,10 @@ def main():
 
     if a.cmd == "probe":
         import museum_sources as ms
+        if ms.era_window_declared() is None:
+            print("  ВНИМАНИЕ: окно эпохи не объявлено ни в "
+                  "channel_profile.json (era_from/era_to), ни авто-нишей — "
+                  "цифры ниже посчитаны под окно из константы модуля.")
         lo, hi = ms.era_window()
         data = _search({"wskey": api_key(), "query": "*:*", "rows": 0,
                         "profile": "minimal", "reusability": "open",
