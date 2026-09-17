@@ -73,7 +73,7 @@ class TestBriefKeyNamesTheRealQuestion:
     @pytest.mark.parametrize("a,b", COLLIDING)
     def test_different_briefs_get_different_keys_when_shelf_answers(self, monkeypatch, a, b):
         monkeypatch.setattr(ps, "_shelf_question_active", lambda: True)
-        assert ps.candidate_brief_key(a) != ps.candidate_brief_key(b)
+        assert ps.candidate_brief_keys(a)[1] != ps.candidate_brief_keys(b)[1]
 
     @pytest.mark.parametrize("a,b", COLLIDING)
     def test_without_a_shelf_the_key_is_exactly_as_before(self, monkeypatch, a, b):
@@ -81,45 +81,45 @@ class TestBriefKeyNamesTheRealQuestion:
         которого у него физически не происходит."""
         monkeypatch.setattr(ps, "_shelf_question_active", lambda: False)
         for brief in (a, b):
-            assert ps.candidate_brief_key(brief) == ps.brief_to_stock_query(
+            assert ps.candidate_brief_keys(brief)[1] == ps.brief_to_stock_query(
                 brief, fallback=None)
 
     def test_stock_query_is_still_in_the_key(self, monkeypatch):
         """Стоковый запрос — не хэш, а сам текст: он и есть реальный запрос,
         и по имени файла кэша должно быть видно, чем спрашивали сток."""
         monkeypatch.setattr(ps, "_shelf_question_active", lambda: True)
-        key = ps.candidate_brief_key("a dented steel breastplate, close up")
+        key = ps.candidate_brief_keys("a dented steel breastplate, close up")[1]
         assert key.startswith(ps.brief_to_stock_query(
             "a dented steel breastplate, close up", fallback=None))
 
     def test_no_brief_no_text_is_empty_key(self, monkeypatch):
         monkeypatch.setattr(ps, "_shelf_question_active", lambda: True)
-        assert ps.candidate_brief_key(None) == ""
-        assert ps.candidate_brief_key("", block_text="") == ""
+        assert ps.candidate_brief_keys(None)[1] == ""
+        assert ps.candidate_brief_keys("", block_text="")[1] == ""
 
     def test_phrase_enters_the_key_only_where_the_shelf_is_asked(self, monkeypatch):
         """Видео-путь полку не спрашивает вообще (единственный вызов
         _shelf_search_photos живёт в pexels_photo) — значит смена фразы не
         имеет права перекачивать видео-кандидатов."""
         monkeypatch.setattr(ps, "_shelf_question_active", lambda: True)
-        photo = ps.candidate_brief_key(None, block_text="Стрела скользнула по нагруднику.")
-        video = ps.candidate_brief_key(None, block_text="Стрела скользнула по нагруднику.",
-                                       uses_shelf=False)
+        photo = ps.candidate_brief_keys(None, block_text="Стрела скользнула по нагруднику.")[1]
+        video = ps.candidate_brief_keys(None, block_text="Стрела скользнула по нагруднику.",
+                                       uses_shelf=False)[1]
         assert photo != ""
         assert video == ""
 
     def test_different_phrases_give_different_keys(self, monkeypatch):
         monkeypatch.setattr(ps, "_shelf_question_active", lambda: True)
-        assert (ps.candidate_brief_key(None, block_text="Стрела скользнула по нагруднику.")
-                != ps.candidate_brief_key(None, block_text="Возьми настоящий боевой меч."))
+        assert (ps.candidate_brief_keys(None, block_text="Стрела скользнула по нагруднику.")[1]
+                != ps.candidate_brief_keys(None, block_text="Возьми настоящий боевой меч.")[1])
 
     def test_author_brief_wins_over_the_phrase(self, monkeypatch):
         """Фраза — запасной вопрос, а не замена: там где автор написал бриф,
         спрашивают брифом."""
         monkeypatch.setattr(ps, "_shelf_question_active", lambda: True)
-        with_brief = ps.candidate_brief_key("a dented steel breastplate, close up",
-                                            block_text="совсем другая фраза")
-        brief_only = ps.candidate_brief_key("a dented steel breastplate, close up")
+        with_brief = ps.candidate_brief_keys("a dented steel breastplate, close up",
+                                            block_text="совсем другая фраза")[1]
+        brief_only = ps.candidate_brief_keys("a dented steel breastplate, close up")[1]
         assert with_brief == brief_only
 
 

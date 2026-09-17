@@ -707,3 +707,32 @@ def test_a_subfolder_never_crashes_a_kind_rebuild(tmp_path, monkeypatch):
     assert (kind_dir / "_rejected_by_ear").is_dir()
     src = inspect.getsource(sl.main)
     assert "if f not in keep_names and os.path.isfile(p)" in src
+
+
+def test_short_recording_still_gets_a_loop_crossfade():
+    """Прямое следствие снижения нижней границы 45 -> 15 (17.09).
+
+    Прежнее `xf = 3.0 if body > 12 else 0.0` обнуляло шов на записи, чьё
+    тело короче 12 секунд: 15.2с с авторским затуханием 3.5с даёт body 11.7,
+    и петля щёлкала на КАЖДОМ обороте — молча, без строки в манифесте. При
+    границе 45 эта ветка была недостижима, при 15 стала рабочей.
+
+    Правило масштабирования не дублируется: `_seamless_loop` сама берёт
+    `min(xf, body/4)` и отказывается только ниже 0.1с. Вторая, более грубая
+    копия того же правила и была дефектом."""
+    import inspect
+    src = inspect.getsource(sl.import_file)
+    assert "xf = AMBIENCE_LOOP_XFADE_SEC\n" in src, (
+        "шов снова гасится на коротком теле вместо масштабирования")
+    assert "if body > 4 * AMBIENCE_LOOP_XFADE_SEC" not in src
+
+    loop_src = inspect.getsource(sl._seamless_loop)
+    assert "xf = min(xf, body / 4.0)" in loop_src, (
+        "масштабирование обязано остаться ровно в одном месте")
+    # Короткое тело: шов есть и он короче полного.
+    body = 11.7
+    assert 0.1 < min(sl.AMBIENCE_LOOP_XFADE_SEC, body / 4.0) < sl.AMBIENCE_LOOP_XFADE_SEC
+    # Длинное тело: значение прежнее байт-в-байт — уже принятые записи
+    # импортируются ровно так же, как вчера.
+    for body in (12.1, 45.0, 180.0):
+        assert min(sl.AMBIENCE_LOOP_XFADE_SEC, body / 4.0) == sl.AMBIENCE_LOOP_XFADE_SEC

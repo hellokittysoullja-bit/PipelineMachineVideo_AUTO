@@ -126,11 +126,24 @@ class TestWiring:
         assert calls >= 4, f"ожидалось минимум 4 передачи recent_sizes=recent_shot_sizes, нашлось {calls}"
 
     def test_video_winner_updates_recent_shot_sizes(self):
+        """ПЕРЕЕХАЛО 17.09 из main() в саму `pexels_video()`, и это не
+        переименование, а починка: прежняя точка жила в ветке `elif video:`
+        под `visual_director is not None`, то есть при дефолте реестра
+        VISUAL_DIRECTOR_MODE=off не выполнялась ВООБЩЕ. При этом
+        `pexels_video()` всё равно считала `shot_size_ok` против
+        `recent_sizes` — гейт ритма сравнивал кандидата с историей, куда
+        видео не попадало. Инвариант теста прежний («победитель видео
+        обязан попасть в историю крупностей»), проверяется там, где он
+        теперь держится, и ровно один раз — двойной учёт исказил бы окно
+        повтора."""
         src = self._main_source()
-        start = src.index("elif video:\n")
-        end = src.index("\n        elif director_entry is None", start)
-        block = src[start:end]
-        assert "recent_shot_sizes.append(estimate_shot_size(probe))" in block
+        assert "recent_sizes.append(cand_sizes[best[2]])" in src, (
+            "победитель видео не пополняет историю крупностей")
+        assert src.count("recent_shot_sizes.append(estimate_shot_size(probe))") == 0, (
+            "старая точка в main() осталась — крупность учтётся дважды")
+        # И крупность берётся из УЖЕ посчитанной при отборе, а не извлекается
+        # отдельным кадром-пробником заново.
+        assert "cand_sizes[trial] = cand_size" in src
 
     def test_version_bumped_for_this_change(self):
         assert ps.VIDEO_DIRECTOR_SCORE_VERSION >= 2, (

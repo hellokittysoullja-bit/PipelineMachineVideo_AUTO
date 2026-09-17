@@ -162,7 +162,7 @@ def test_brief_is_in_the_candidate_cache_key():
     давали одно имя файла при разных вопросах к полке (замер: 3 совпадения
     из 3). Инвариант этого теста прежний и стал строже — проверяется он
     теперь по резолверу, а не по букве старой строки."""
-    assert ps.candidate_brief_key("a dented steel breastplate, close up") != ""
+    assert ps.candidate_brief_keys("a dented steel breastplate, close up")[1] != ""
     src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"),
                encoding="utf-8").read()
     start = src.index("_brief_key = candidate_brief_key")
