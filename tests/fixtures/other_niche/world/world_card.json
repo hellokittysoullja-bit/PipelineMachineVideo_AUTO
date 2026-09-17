@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "register": "modern",
+  "era": null,
+  "culture": {
+    "include": [],
+    "exclude": []
+  },
+  "must_not_show": [
+    "plate armour or knight",
+    "castle or fortress",
+    "medieval manuscript",
+    "sword or dagger",
+    "historical costume",
+    "monk or cloister",
+    "stock-photo businessman with thumbs up",
+    "smiling model in a white office",
+    "brain diagram with glowing lights",
+    "motivational quote text",
+    "person crying theatrically to camera",
+    "clock with flying pages"
+  ],
+  "expected_subjects": [
+    "open laptop with an empty document",
+    "phone lying face down on a table",
+    "untouched plate of food",
+    "unmade bed in daylight",
+    "hand resting on a closed notebook",
+    "cluttered desk at night",
+    "kitchen sink with unwashed dishes",
+    "empty chair by a window",
+    "hand on a hot stove edge",
+    "half-drawn curtain",
+    "sticky notes on a wall",
+    "cup of cold coffee"
+  ],
+  "era_anchor_terms": [
+    "contemporary",
+    "everyday",
+    "indoor",
+    "candid"
+  ],
+  "modern_props_allowed": true,
+  "notes": "Сценарий про избегание задачи. Эпоха отсутствует по существу, поэтому era=null и якоря — про регистр, а не про время. Запрещено ДВОЕ: исторический мир старой ниши (доказанная утечка — модель отвечала 'a knight in armor standing beside a closed chest' на психологический сценарий) и штампы фотобанка (улыбающийся менеджер, светящийся мозг, мотивационный текст) — они формально по теме и убивают доверие быстрее анахронизма."
+}

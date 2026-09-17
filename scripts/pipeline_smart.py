@@ -4996,6 +4996,21 @@ def fallback_card_allowed(index, n_slots, is_opening=False):
                for s in FALLBACK_CARD_SLOTS)
 
 
+FALLBACK_CARD_DIR_NAME = "fallback_cards"
+
+
+def is_fallback_card_media(media_path):
+    """Это процедурная карточка, а не найденный кадр.
+
+    Определяется по КАТАЛОГУ, в который её кладёт build_slot_fallback_card,
+    а не по списку имён: список отстаёт по построению (тот же довод, что у
+    ALIGNMENT_TAG_SPAN_RE — форма надёжнее перечисления).
+    """
+    if not media_path:
+        return False
+    return (os.sep + FALLBACK_CARD_DIR_NAME + os.sep) in os.path.normpath(media_path)
+
+
 def build_slot_fallback_card(index, block_text, reason):
     """Собрать карточку для слота. Возвращает путь или None (fail-open).
 
@@ -5004,7 +5019,7 @@ def build_slot_fallback_card(index, block_text, reason):
     """
     try:
         import fallback_card
-        out_dir = os.path.join(TEMP_FOLDER, "fallback_cards")
+        out_dir = os.path.join(TEMP_FOLDER, FALLBACK_CARD_DIR_NAME)
         h = hashlib.md5((block_text or "").encode("utf-8")).hexdigest()[:8]
         out = os.path.join(out_dir, f"card_{index:04d}_{h}.png")
         if os.path.exists(out) and os.path.getsize(out) > 0:
@@ -5214,9 +5229,33 @@ def filter_alt_blocklist(items):
     кандидата из 655, новый (слаг + видео) — 185, из них 96 видео, которые
     раньше не проверялись вообще.
     """
+    terms = content_blocklist_effective()
     filtered = [p for p in items
-                if not any(term in pexels_candidate_text(p) for term in CONTENT_ALT_BLOCKLIST)]
+                if not any(term in pexels_candidate_text(p) for term in terms)]
     return filtered or items
+
+
+def content_blocklist_effective():
+    """Блоклист канала ПЛЮС чужие культуры паспорта этого эпизода.
+
+    Зачем именно так (найдено глазами на готовом ролике 02, 17.09): в
+    эпизоде про Азенкур на экране стоят РИМСКИЕ ЛЕГИОНЕРЫ — правильный
+    континент, не то тысячелетие. Ни один гейт этого не видит: домен-гвард
+    спрашивает «европейский клинок или азиатский», а Рим по этой оси
+    европейский. Блоклист канала слова `roman` не содержал и не должен
+    был — для эпизода про Римскую империю он был бы запретом на сам
+    предмет разговора. Чужая культура — свойство ЭПИЗОДА, а не канала, и
+    теперь она приходит из паспорта.
+
+    Работает ДО скачивания, по тексту кандидата (alt + слаг + теги), то
+    есть бесплатно. Нет паспорта — список ровно тот же, что был.
+    """
+    import world_card
+    extra = world_card.culture_exclude(episode_world_card())
+    if not extra:
+        return CONTENT_ALT_BLOCKLIST
+    return CONTENT_ALT_BLOCKLIST + tuple(
+        t for t in extra if t not in CONTENT_ALT_BLOCKLIST)
 
 
 # Реальный, подтверждённый случай (внешний аудит + прямая проверка на
@@ -6032,6 +6071,60 @@ OPENVERSE_ERA_ANCHORS = tuple(CHANNEL_PROFILE.get(
     "openverse_era_anchors", _OPENVERSE_ERA_ANCHORS_DEFAULT))
 OPENVERSE_DOMAIN_NOUNS = tuple(CHANNEL_PROFILE.get(
     "openverse_domain_nouns", _OPENVERSE_DOMAIN_NOUNS_DEFAULT))
+
+# --- ПАСПОРТ МИРА ЭПИЗОДА (media_plan/world_card.json) --------------------
+#
+# Мир, в котором кадр уместен, до этого жил в ПЯТИ местах, и главное из них
+# было литералом в коде — `_QUERY_ERA_ANCHORS_DEFAULT` ниже, сорок
+# средневековых слов. Для эпизода про психологию или про неандертальцев он
+# не «менее точен», он про другое, и ровно он подставлялся бы в каждый
+# запрос к стоку (измеренный случай в CLAUDE.md: бриф про телефон на
+# тумбочке уезжал как `medieval phone lying face down`).
+#
+# Паспорт эпизода сильнее канала, канал сильнее зашитого дефолта. Нет
+# паспорта — всё работает как раньше, байт-в-байт: правка additive и
+# отнять ничего не может.
+#
+# Загрузка ЛЕНИВАЯ и кэшированная: VIDEO_FOLDER известен уже на импорте, но
+# грузить на импорте нельзя — сломанный паспорт уронил бы любой импорт
+# модуля, включая тесты, которые до отбора и не доходят. Зато main() зовёт
+# accessor первым делом, поэтому в проде сломанный паспорт останавливает
+# работу ДО первого платного шага, а не посреди эпизода.
+_WORLD_CARD_CACHE = {}
+
+
+def episode_world_card(video_dir=None):
+    """Паспорт мира этого эпизода или None. Сломанный файл — исключение,
+    а не None: на паспорте держится приёмка кадра, и «тихо считать, что
+    мира нет» здесь означает «тихо выключить защиту»."""
+    d = video_dir or VIDEO_FOLDER
+    key = os.path.abspath(d)
+    if key not in _WORLD_CARD_CACHE:
+        import world_card
+        _WORLD_CARD_CACHE[key] = world_card.load(d)
+    return _WORLD_CARD_CACHE[key]
+
+
+def reset_world_card_cache():
+    """Сбросить кэш паспорта — нужен тестам и повторному вызову main() в
+    одном процессе (тот же приём, что reset_source_stats)."""
+    _WORLD_CARD_CACHE.clear()
+
+
+def era_anchors_effective():
+    """Якоря для запроса из БРИФА и каскада архивов: паспорт эпизода, иначе
+    список канала."""
+    import world_card
+    return world_card.era_anchors(episode_world_card(),
+                                  fallback=OPENVERSE_ERA_ANCHORS)
+
+
+def query_era_anchors_effective():
+    """Якоря для линта АВТОРСКИХ запросов. Тот же источник истины, другой
+    запасной список: линт исторически знает больше слов, чем каскад."""
+    import world_card
+    return world_card.era_anchors(episode_world_card(),
+                                  fallback=QUERY_ERA_ANCHORS)
 # Маркер версии каскада для _selection_stack_signature(): каскад меняет, КТО
 # вообще попадает в пул, а не только кто в нём победит — на прогретом
 # temp_smart/ без этого правка не дошла бы до экрана.
@@ -6129,17 +6222,35 @@ def brief_to_stock_query(brief, fallback=None, max_words=BRIEF_STOCK_QUERY_MAX_W
     # бриф написан. Правило каскада «брать ПОСЛЕДНЕЕ существительное» тут
     # неприменимо: оно решало другую задачу — сжать готовый запрос до двух
     # слов, а не сохранить смысл описания.
-    era = {a.lower() for a in OPENVERSE_ERA_ANCHORS}
+    _anchors = era_anchors_effective()
+    era = {a for a in _anchors if " " not in a}
+    # МНОГОСЛОВНЫЙ ЯКОРЬ — найденная своя же ошибка (17.09, поймана замером,
+    # не чтением). Паспорт мира эпизода 02 объявляет якорями в том числе
+    # `plate armour` и `manuscript illumination`, а проверка ниже сравнивала
+    # СЛОВА запроса с множеством якорей: двухсловный якорь не совпал бы
+    # никогда ни с одним словом. Следствие было не безобидным — бриф, уже
+    # называющий эпоху («a full field armour harness»), считался
+    # неякоренным, и ему сверху приписывался `medieval`, вытесняя из лимита
+    # пяти слов настоящее слово автора. Замер на 142 брифах эпизода: так
+    # молча менялись 17 запросов. Поэтому фраза проверяется как фраза.
+    era_phrases = tuple(a for a in _anchors if " " in a)
     cap = max(OPENVERSE_QUERY_MIN_WORDS, int(max_words))
     # Якорь эпохи обязан ВЫЖИТЬ обрезку, а не просто присутствовать в брифе:
     # реальный найденный промах — «manuscript illumination of a battle
     # between armoured knights», где единственный якорь `knights` стоял
     # шестым словом и обрезался, оставляя запрос без эпохи вообще.
-    if not any(w in era for w in content[: cap - 1]):
+    _head = content[: cap - 1]
+    _head_joined = " ".join(_head)
+    if not (any(w in era for w in _head)
+            or any(a in _head_joined for a in era_phrases)):
         anchor = next((w for w in re.findall(r"[a-z]+", (fallback or "").lower())
                        if w in era), None)
-        if anchor is None and OPENVERSE_ERA_ANCHORS:
-            anchor = OPENVERSE_ERA_ANCHORS[0].lower()
+        if anchor is None:
+            # Приписывать сверху многословный якорь дорого: из лимита пяти
+            # слов он съедает два. Берём первый ОДНОСЛОВНЫЙ якорь паспорта,
+            # и только если односложных нет вовсе — первый какой есть.
+            anchor = next((a for a in _anchors if " " not in a),
+                          _anchors[0] if _anchors else None)
         if anchor:
             content = [anchor] + [w for w in content if w != anchor]
     out = content[:cap]
@@ -6573,7 +6684,8 @@ def _openverse_query_cascade(api_query):
         return []
     variants = [api_query]
     lower = [w.lower() for w in words]
-    anchors = [w for w, lw in zip(words, lower) if lw in OPENVERSE_ERA_ANCHORS]
+    _era_anchors = era_anchors_effective()
+    anchors = [w for w, lw in zip(words, lower) if lw in _era_anchors]
 
     trimmed = [w for w, lw in zip(words, lower)
                if lw not in OPENVERSE_QUERY_MODIFIERS]
@@ -8180,9 +8292,10 @@ def lint_authored_queries(authored_queries, blocks=None):
     # эпохи/предмета ниши. Тогда даже неудачное назначение запроса слоту
     # вернёт исторический материал, а не современный.
     unanchored = []
+    _lint_anchors = query_era_anchors_effective()
     for section, pool in sorted((authored_queries or {}).items()):
         for q in pool or []:
-            if not any(a in (q or "").lower() for a in QUERY_ERA_ANCHORS):
+            if not any(a in (q or "").lower() for a in _lint_anchors):
                 unanchored.append((section, q))
     if unanchored:
         print(f"  ВНИМАНИЕ: {len(unanchored)} авторских запросов без якоря "
@@ -10736,6 +10849,14 @@ def _selection_stack_signature():
         # меняет состав пула так же, как включение Openverse.
         feature_flags.enabled("MUSEUM_SOURCES_ENABLED"),
         MUSEUM_SOURCES_VERSION,
+        # ПАСПОРТ МИРА ЭПИЗОДА. Меняет якорь, который подставляется в КАЖДЫЙ
+        # запрос из брифа и в каскад архивов, то есть меняет сам текст
+        # запроса и состав пула у всех источников сразу. Без подписи смена
+        # паспорта (или его появление) не дошла бы до экрана на прогретом
+        # temp_smart/ — тот же класс, что уже закрыт для Openverse и музеев.
+        # В подпись входят ЯКОРЯ И ПОРОГ КУЛЬТУРЫ, а не весь файл: правка
+        # `notes` не обязана перерендеривать эпизод целиком.
+        era_anchors_effective(),
         # Запрос из брифа — НОВЫЙ запрос в пуле слота, то есть другой состав
         # кандидатов у каждого источника. Без подписи это не дошло бы до
         # экрана на прогретом temp_smart/.
@@ -15141,6 +15262,18 @@ def main():
                 motion_mode = choose_motion_mode(b, is_section_start, photo_hash,
                                                  shot_size=cur_shot_size,
                                                  arc_stage=_stage)
+                # КАРТОЧКА — ЭТО ТЕКСТ, А НЕ ФОТОГРАФИЯ. Найдено ГЛАЗАМИ на
+                # готовом ролике 02 (17.09): на 200-й секунде надпись
+                # «Лезвие, которое выпустило бы кишки, встречает нагрудни…»
+                # ОБРЕЗАНА по обоим краям кадра. Причина не в вёрстке —
+                # fallback_card.py верстает с переносом ровно в 1920x1080, —
+                # а в том, что дальше карточка идёт общим фото-путём и
+                # получает Ken Burns: на t=200 зум ещё крупный и съедает
+                # края, к t=203 отходит и текст влезает целиком. Для плашки
+                # с цифрой статика форсируется давно (b["stat"] в
+                # choose_motion_mode), для карточки правила не было.
+                if is_fallback_card_media(photo):
+                    motion_mode = "static_hold"
                 _stage_zi = None
                 if _stage and feature_flags.enabled("CAMERA_LANGUAGE"):
                     import camera_language
