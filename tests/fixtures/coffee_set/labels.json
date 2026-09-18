@@ -1,9 +1,10 @@
 {
- "schema_version": 1,
+ "schema_version": 2,
  "source": "videos/_test_coffee — тестовый эпизод НЕ средневековой ниши (история кофе)",
  "labelled_by": "Claude Code, Шаг 7.5 (контактные листы shotlist_contact_01..03)",
  "labelled_at": "2026-09-18",
  "why": "Первый размеченный корпус проекта для чужой ниши. Золотой набор — 40 кадров ОДНОГО средневекового эпизода, и на нём нельзя проверить, переносится ли что-либо на произвольную тему.",
+ "measures": "Отбор ПОСЛЕ правки BRIEF_PRIMARY_QUERY (запрос слота из его собственного [shot:] брифа). Предыдущий снимок того же эпизода тем же способом — в поле baseline_before.",
  "verdicts": {
   "good": "кадр показывает то, о чём фраза, и не ломает время/культуру",
   "tolerable": "не ошибка, но на смысл не работает",
@@ -11,15 +12,28 @@
   "card": "процедурная карточка-фолбэк, кадра нет — из метрики исключается"
  },
  "counts": {
-  "good": 19,
-  "tolerable": 15,
-  "reject": 14,
-  "card": 2
+  "good": 23,
+  "tolerable": 17,
+  "reject": 10
  },
  "reject_reasons": {
-  "modern_intrusion": 9,
+  "modern_intrusion": 6,
   "foreign_culture": 1,
-  "wrong_subject": 4
+  "wrong_subject": 3
+ },
+ "baseline_before": {
+  "counts": {
+   "good": 19,
+   "tolerable": 15,
+   "reject": 14,
+   "card": 2
+  },
+  "reject_reasons": {
+   "modern_intrusion": 9,
+   "foreign_culture": 1,
+   "wrong_subject": 4
+  },
+  "note": "до BRIEF_PRIMARY_QUERY: запрос слота приходил из раздачи авторских запросов секции"
  },
  "honest_limits": [
   "Разметка моя, не владельца. Это тот же статус, что у золотого набора (там тоже Claude, Шаг 7.5).",
@@ -32,132 +46,132 @@
    "verdict": "good",
    "reject_reason": null,
    "kind": "photo",
-   "provider": "pexels",
-   "query": "black coffee cup table",
+   "provider": "pixabay",
+   "query": "steaming cup black coffee dark",
    "text": "Ты пьёшь это каждое утро и даже не знаешь, что этот напиток три раза официально запрещали.",
-   "relevance": 0.27097925543785095,
-   "file": "0000_c341a126_6c9faaad99.jpg"
+   "relevance": 0.3089286983013153,
+   "file": "0000_d963e150_6e3d5ddd8a.jpg"
   },
   {
    "slot": 2,
-   "verdict": "good",
+   "verdict": "tolerable",
    "reject_reason": null,
    "kind": "photo",
-   "provider": "pixabay",
-   "query": "black coffee cup table",
+   "provider": "commons",
+   "query": "ottoman-style coffeehouse interior men sitting",
    "text": "Один правитель приказывал казнить за одну чашку.",
-   "relevance": 0.22649918496608734,
-   "file": "0001_267bb934_6c9faaad99.jpg"
+   "relevance": 0.24771259725093842,
+   "file": "0001_a27bb3fc_6e3d5ddd8a.jpg"
   },
   {
    "slot": 3,
-   "verdict": "good",
+   "verdict": "tolerable",
    "reject_reason": null,
-   "kind": "video",
+   "kind": "photo",
    "provider": "pexels",
-   "query": "ethiopian highland dawn",
+   "query": "raw coffee cherries branch",
    "text": "А начиналось всё с козы, которая не могла уснуть.",
-   "relevance": 0.3072151243686676,
-   "file": "0002_6b07a2ca_6c9faaad99.mp4"
+   "relevance": 0.30696654319763184,
+   "file": "0002_25c5087e_6e3d5ddd8a.jpg"
   },
   {
    "slot": 4,
-   "verdict": "tolerable",
-   "reject_reason": null,
-   "kind": "photo",
-   "provider": "pexels",
-   "query": "coffee cherries branch",
-   "text": "Серьёзно. Пастух заметил, что его стадо скачет по",
-   "relevance": 0.2843831777572632,
-   "file": "0003_bbaf2864_6c9faaad99.jpg"
-  },
-  {
-   "slot": 5,
    "verdict": "good",
    "reject_reason": null,
    "kind": "photo",
+   "provider": "pexels",
+   "query": "coffee foggy ethiopian highland landscape",
+   "text": "Серьёзно. Пастух заметил, что его стадо скачет по",
+   "relevance": 0.3137829601764679,
+   "file": "0003_8f3b0406_6e3d5ddd8a.jpg"
+  },
+  {
+   "slot": 5,
+   "verdict": "tolerable",
+   "reject_reason": null,
+   "kind": "photo",
    "provider": "pixabay",
-   "query": "ethiopian highland dawn",
+   "query": "coffee foggy ethiopian highland landscape",
    "text": "ночам без сна, и решил проверить, что они едят.",
-   "relevance": 0.2630036473274231,
-   "file": "0004_3e250c0b_6c9faaad99.jpg"
+   "relevance": 0.2610049545764923,
+   "file": "0004_ce4048f0_6e3d5ddd8a.jpg"
   },
   {
    "slot": 6,
-   "verdict": "reject",
-   "reject_reason": "modern_intrusion",
+   "verdict": "tolerable",
+   "reject_reason": null,
    "kind": "video",
    "provider": "pexels",
-   "query": "yemeni port old ships",
+   "query": "dried coffee beans rustic sack",
    "text": "По легенде, эфиопский пастух Калди попробовал ягоды сам — и почувствовал прилив бодрости.",
-   "relevance": 0.25427210330963135,
-   "file": "0005_4478a448_6c9faaad99.mp4"
+   "relevance": 0.3051689565181732,
+   "file": "0005_48dacdc6_6e3d5ddd8a.mp4"
   },
   {
    "slot": 7,
-   "verdict": "reject",
-   "reject_reason": "modern_intrusion",
+   "verdict": "good",
+   "reject_reason": null,
    "kind": "photo",
-   "provider": "openverse",
-   "query": "sufi monks candlelight",
+   "provider": "pexels",
+   "query": "coffee group sufi monks dim",
    "text": "Первыми, кто по-настоящему оценил напиток, были суфийские монахи в Йемене.",
-   "relevance": 0.25067591667175293,
-   "file": "0006_ccc37536_6c9faaad99.jpg"
+   "relevance": 0.27413904666900635,
+   "file": "0006_8ba48864_6e3d5ddd8a.jpg"
   },
   {
    "slot": 8,
-   "verdict": "tolerable",
+   "verdict": "good",
    "reject_reason": null,
    "kind": "photo",
    "provider": "pexels",
-   "query": "dried coffee beans sack",
+   "query": "old ceramic coffee pot dallah",
    "text": "Им нужно было бодрствовать на ночных молитвах, и кофе решал эту задачу лучше всего.",
-   "relevance": 0.33872243762016296,
-   "file": "0007_0abb35f4_6c9faaad99.jpg"
+   "relevance": 0.26836585998535156,
+   "file": "0007_9572012a_6e3d5ddd8a.jpg"
   },
   {
    "slot": 9,
-   "verdict": "reject",
-   "reject_reason": "modern_intrusion",
+   "verdict": "tolerable",
+   "reject_reason": null,
    "kind": "video",
    "provider": "pexels",
-   "query": "arabic coffee pot dallah",
+   "query": "coffee busy yemeni port old",
    "text": "Из порта Мокка кофе поплыл дальше — в Мекку, в Каир, в Стамбул.",
-   "relevance": 0.31145456433296204,
-   "file": "0008_13765435_6c9faaad99.mp4"
+   "relevance": 0.28685516119003296,
+   "file": "0008_c2baaef8_6e3d5ddd8a.mp4"
   },
   {
    "slot": 10,
-   "verdict": "card",
+   "verdict": "good",
    "reject_reason": null,
    "kind": "photo",
-   "provider": null,
-   "query": "royal decree document",
+   "provider": "commons",
+   "query": "ottoman sultan throne historical illustration",
    "text": "Османский султан Мурад Четвёртый запретил кофе под страхом смерти.",
-   "relevance": null,
-   "file": "card_0009_b97e6a81.png"
+   "relevance": 0.27570125460624695,
+   "file": "0009_7a4dff9d_6e3d5ddd8a.jpg"
   },
   {
    "slot": 11,
-   "verdict": "tolerable",
+   "verdict": "good",
    "reject_reason": null,
    "kind": "photo",
    "provider": "pexels",
-   "query": "ottoman sultan throne illustration",
+   "query": "coffee wax-sealed royal decree document",
    "text": "Его беспокоило не сама чашка, а то,",
-   "relevance": 0.2670619785785675,
-   "file": "0010_8b4d1a62_6c9faaad99.jpg"
+   "relevance": 0.29670655727386475,
+   "file": "0010_7a499d5e_6e3d5ddd8a.jpg"
   },
   {
    "slot": 12,
    "verdict": "good",
    "reject_reason": null,
    "kind": "photo",
-   "provider": "pixabay",
-   "query": "historical coffeehouse crowd",
+   "provider": "commons",
+   "query": "coffee wax-sealed royal decree document",
    "text": "что происходило вокруг неё: люди собирались, спорили и обсуждали политику.",
-   "relevance": 0.2901277542114258,
-   "file": "0011_cd3b9dcf_6c9faaad99.jpg"
+   "relevance": 0.23279030621051788,
+   "file": "0011_cd8c3ede_6e3d5ddd8a.jpg"
   },
   {
    "slot": 13,
@@ -165,76 +179,76 @@
    "reject_reason": "modern_intrusion",
    "kind": "video",
    "provider": "pexels",
-   "query": "historical coffeehouse crowd",
+   "query": "crowded historical coffeehouse people talking",
    "text": "Кофейни называли \"школами мудрости\" — там читали новости и играли в шахматы задолго до появления газет.",
-   "relevance": 0.20272724330425262,
-   "file": "0012_4e5aedcd_6c9faaad99.mp4"
+   "relevance": 0.21240735054016113,
+   "file": "0012_91838eb2_6e3d5ddd8a.mp4"
   },
   {
    "slot": 14,
-   "verdict": "reject",
-   "reject_reason": "modern_intrusion",
+   "verdict": "good",
+   "reject_reason": null,
    "kind": "photo",
-   "provider": "pexels",
-   "query": "vienna coffeehouse rain",
+   "provider": "commons",
+   "query": "coffee papal seal old document",
    "text": "Позже римские священники требовали, чтобы Папа объявил кофе \"напитком дьявола\" —",
-   "relevance": 0.30878588557243347,
-   "file": "0013_b06ec06e_6c9faaad99.jpg"
+   "relevance": 0.2574545443058014,
+   "file": "0013_c4f5612e_6e3d5ddd8a.jpg"
   },
   {
    "slot": 15,
    "verdict": "reject",
-   "reject_reason": "modern_intrusion",
-   "kind": "video",
-   "provider": "pexels",
-   "query": "royal decree document",
+   "reject_reason": "foreign_culture",
+   "kind": "photo",
+   "provider": "pixabay",
+   "query": "coffee papal seal old document",
    "text": "но, по легенде, он попробовал его сам и благословил.",
-   "relevance": 0.2385588437318802,
-   "file": "0014_78f935b4_6c9faaad99.mp4"
+   "relevance": 0.26536017656326294,
+   "file": "0014_2584e9c7_6e3d5ddd8a.jpg"
   },
   {
    "slot": 16,
-   "verdict": "good",
-   "reject_reason": null,
+   "verdict": "reject",
+   "reject_reason": "modern_intrusion",
    "kind": "photo",
    "provider": "pexels",
-   "query": "vienna coffeehouse rain",
+   "query": "coffee rainy vienna street old",
    "text": "В Европе тоже боялись: в Пруссии и Швеции кофе то облагали налогом,",
-   "relevance": 0.24984878301620483,
-   "file": "0015_b134b9aa_6c9faaad99.jpg"
+   "relevance": 0.24496860802173615,
+   "file": "0015_049484f3_6e3d5ddd8a.jpg"
   },
   {
    "slot": 17,
-   "verdict": "card",
+   "verdict": "good",
    "reject_reason": null,
    "kind": "photo",
-   "provider": null,
-   "query": "ottoman sultan throne illustration",
+   "provider": "pixabay",
+   "query": "coffee rainy vienna street old",
    "text": "то прямо запрещали, опасаясь, что люди перестанут пить пиво и вино.",
-   "relevance": null,
-   "file": "card_0016_56ab6921.png"
+   "relevance": 0.2521001696586609,
+   "file": "0016_aad5b2c1_6e3d5ddd8a.jpg"
   },
   {
    "slot": 18,
-   "verdict": "tolerable",
-   "reject_reason": null,
-   "kind": "photo",
-   "provider": "openverse",
-   "query": "vintage coffee cup spoon",
-   "text": "Кофе в Европу принесла не торговля, а война —",
-   "relevance": 0.29384905099868774,
-   "file": "0017_57ccea30_6c9faaad99.jpg"
-  },
-  {
-   "slot": 19,
-   "verdict": "tolerable",
+   "verdict": "good",
    "reject_reason": null,
    "kind": "video",
    "provider": "pexels",
-   "query": "ottoman military camp tents",
+   "query": "ottoman military camp tents horses",
+   "text": "Кофе в Европу принесла не торговля, а война —",
+   "relevance": 0.2501210868358612,
+   "file": "0017_f5a85719_6e3d5ddd8a.mp4"
+  },
+  {
+   "slot": 19,
+   "verdict": "good",
+   "reject_reason": null,
+   "kind": "photo",
+   "provider": "openverse",
+   "query": "ottoman military camp tents horses",
    "text": "после провалившейся османской осады Вены остались мешки с зелёными зёрнами.",
-   "relevance": 0.28286421298980713,
-   "file": "0018_c17fafb1_6c9faaad99.mp4"
+   "relevance": 0.27270644903182983,
+   "file": "0018_f15f23c3_6e3d5ddd8a.jpg"
   },
   {
    "slot": 20,
@@ -242,21 +256,21 @@
    "reject_reason": null,
    "kind": "photo",
    "provider": "pexels",
-   "query": "capuchin monk monastery",
+   "query": "elegant vintage coffee cup spoon",
    "text": "Никто толком не знал, что с ними делать, пока один человек не открыл первую венскую кофейню.",
-   "relevance": 0.29961568117141724,
-   "file": "0019_a0b3c3b8_6c9faaad99.jpg"
+   "relevance": 0.30477455258369446,
+   "file": "0019_2d722fff_6e3d5ddd8a.jpg"
   },
   {
    "slot": 21,
-   "verdict": "reject",
-   "reject_reason": "foreign_culture",
+   "verdict": "tolerable",
+   "reject_reason": null,
    "kind": "photo",
-   "provider": "pexels",
-   "query": "capuchin monk monastery",
+   "provider": "pixabay",
+   "query": "coffee monk brown robe standing",
    "text": "Название капучино возникло позже — от цвета капюшона монахов-капуцинов, на который похож цвет молочной пенки.",
-   "relevance": 0.2614522874355316,
-   "file": "0020_d750db8d_6c9faaad99.jpg"
+   "relevance": 0.2342485785484314,
+   "file": "0020_322dcf52_6e3d5ddd8a.jpg"
   },
   {
    "slot": 22,
@@ -264,21 +278,21 @@
    "reject_reason": null,
    "kind": "photo",
    "provider": "pexels",
-   "query": "old newspapers cafe table",
+   "query": "coffee old newspapers scattered wooden",
    "text": "Именно в кофейнях зародилась привычка читать газету за чашкой напитка —",
-   "relevance": 0.2834194302558899,
-   "file": "0021_9c90b66c_6c9faaad99.jpg"
+   "relevance": 0.33443161845207214,
+   "file": "0021_6430db75_6e3d5ddd8a.jpg"
   },
   {
    "slot": 23,
-   "verdict": "tolerable",
+   "verdict": "good",
    "reject_reason": null,
    "kind": "photo",
-   "provider": "pixabay",
-   "query": "old newspapers cafe table",
+   "provider": "pexels",
+   "query": "coffee old newspapers scattered wooden",
    "text": "это было место, где встречались торговцы, писатели и заговорщики.",
-   "relevance": 0.21397355198860168,
-   "file": "0022_6f0b6e2e_6c9faaad99.jpg"
+   "relevance": 0.262871116399765,
+   "file": "0022_ca29043d_6e3d5ddd8a.jpg"
   },
   {
    "slot": 24,
@@ -286,21 +300,21 @@
    "reject_reason": "modern_intrusion",
    "kind": "video",
    "provider": "pexels",
-   "query": "london coffeehouse merchants historical",
+   "query": "busy london coffeehouse merchants ship",
    "text": "В Лондоне семнадцатого века кофейни называли \"домами пенни-университета\" —",
-   "relevance": 0.23690165579319,
-   "file": "0023_7aed882f_6c9faaad99.mp4"
+   "relevance": 0.26842883229255676,
+   "file": "0023_fec87d8d_6e3d5ddd8a.mp4"
   },
   {
    "slot": 25,
-   "verdict": "tolerable",
-   "reject_reason": null,
+   "verdict": "reject",
+   "reject_reason": "wrong_subject",
    "kind": "photo",
    "provider": "pexels",
-   "query": "traders exchange market crowd",
+   "query": "busy london coffeehouse merchants ship",
    "text": "за монету можно было час слушать разговоры умнейших людей города.",
-   "relevance": 0.26028355956077576,
-   "file": "0024_ee4395a6_6c9faaad99.jpg"
+   "relevance": 0.2903682589530945,
+   "file": "0024_5f39b8d6_6e3d5ddd8a.jpg"
   },
   {
    "slot": 26,
@@ -308,109 +322,109 @@
    "reject_reason": "modern_intrusion",
    "kind": "video",
    "provider": "pexels",
-   "query": "old handwritten letters string",
+   "query": "coffee old ship insurance documents",
    "text": "Одна такая кофейня у порта постепенно превратилась в место,",
-   "relevance": 0.2446320801973343,
-   "file": "0025_4e722ead_6c9faaad99.mp4"
+   "relevance": 0.22199270129203796,
+   "file": "0025_de2e0b2c_6e3d5ddd8a.mp4"
   },
   {
    "slot": 27,
-   "verdict": "tolerable",
+   "verdict": "good",
    "reject_reason": null,
    "kind": "photo",
    "provider": "pexels",
-   "query": "ship insurance documents quill",
+   "query": "coffee old ship insurance documents",
    "text": "где моряки и купцы страховали свои корабли — сегодня это одна из крупнейших страховых компаний мира.",
-   "relevance": 0.2529546916484833,
-   "file": "0026_8ba0ff0d_6c9faaad99.jpg"
+   "relevance": 0.26663297414779663,
+   "file": "0026_44daea86_6e3d5ddd8a.jpg"
   },
   {
    "slot": 28,
+   "verdict": "reject",
+   "reject_reason": "wrong_subject",
+   "kind": "photo",
+   "provider": "pexels",
+   "query": "coffee traders shouting exchanging papers",
+   "text": "Другая кофейня стала местом, где заключали сделки с акциями —",
+   "relevance": 0.24139218032360077,
+   "file": "0027_03fbf555_6e3d5ddd8a.jpg"
+  },
+  {
+   "slot": 29,
    "verdict": "tolerable",
    "reject_reason": null,
    "kind": "photo",
    "provider": "pexels",
-   "query": "traders exchange market crowd",
-   "text": "Другая кофейня стала местом, где заключали сделки с акциями —",
-   "relevance": 0.23126055300235748,
-   "file": "0027_65bf3db9_6c9faaad99.jpg"
-  },
-  {
-   "slot": 29,
-   "verdict": "reject",
-   "reject_reason": "modern_intrusion",
-   "kind": "photo",
-   "provider": "pixabay",
-   "query": "london coffeehouse merchants historical",
+   "query": "coffee traders shouting exchanging papers",
    "text": "так, вокруг чашки кофе, зародилась одна из первых фондовых бирж.",
-   "relevance": 0.2253694385290146,
-   "file": "0028_ceca0343_6c9faaad99.jpg"
+   "relevance": 0.23659959435462952,
+   "file": "0028_3e0dafbb_6e3d5ddd8a.jpg"
   },
   {
    "slot": 30,
-   "verdict": "good",
-   "reject_reason": null,
-   "kind": "photo",
-   "provider": "pixabay",
-   "query": "old handwritten letters string",
-   "text": "Женщинам вход в такие кофейни обычно был закрыт —",
-   "relevance": 0.298857182264328,
-   "file": "0029_b23d2b83_6c9faaad99.jpg"
-  },
-  {
-   "slot": 31,
-   "verdict": "good",
+   "verdict": "tolerable",
    "reject_reason": null,
    "kind": "photo",
    "provider": "pexels",
-   "query": "ship insurance documents quill",
-   "text": "и некоторые из них в отместку писали памфлеты против самого напитка.",
-   "relevance": 0.28549593687057495,
-   "file": "0030_2063b40e_6c9faaad99.jpg"
+   "query": "coffee stack old handwritten letters",
+   "text": "Женщинам вход в такие кофейни обычно был закрыт —",
+   "relevance": 0.29148292541503906,
+   "file": "0029_0ccde9b0_6e3d5ddd8a.jpg"
   },
   {
-   "slot": 32,
+   "slot": 31,
    "verdict": "tolerable",
    "reject_reason": null,
    "kind": "video",
    "provider": "pexels",
-   "query": "colonial coffee plantation trees",
+   "query": "coffee stack old handwritten letters",
+   "text": "и некоторые из них в отместку писали памфлеты против самого напитка.",
+   "relevance": 0.22258280217647552,
+   "file": "0030_86a819e6_6e3d5ddd8a.mp4"
+  },
+  {
+   "slot": 32,
+   "verdict": "good",
+   "reject_reason": null,
+   "kind": "photo",
+   "provider": "openverse",
+   "query": "colonial era coffee plantation rows",
    "text": "Голландцы вывезли саженцы кофе на остров Ява, а французы — на Карибы,",
-   "relevance": 0.20975662767887115,
-   "file": "0031_b85d9919_6c9faaad99.mp4"
+   "relevance": 0.3257138729095459,
+   "file": "0031_9b832c90_6e3d5ddd8a.jpg"
   },
   {
    "slot": 33,
    "verdict": "good",
    "reject_reason": null,
    "kind": "photo",
-   "provider": "openverse",
-   "query": "hand grinding coffee beans",
+   "provider": "pexels",
+   "query": "colonial era coffee plantation rows",
    "text": "и уже через сто лет напиток из Йемена рос на трёх континентах.",
-   "relevance": 0.29130715131759644,
-   "file": "0032_b1e34c25_6c9faaad99.jpg"
+   "relevance": 0.275829017162323,
+   "file": "0032_bb261eed_6e3d5ddd8a.jpg"
   },
   {
    "slot": 34,
-   "verdict": "good",
+   "verdict": "tolerable",
    "reject_reason": null,
    "kind": "photo",
    "provider": "pixabay",
-   "query": "barista latte art pouring",
+   "query": "hand grinding coffee beans old",
    "text": "Один французский офицер, по легенде, довёз до Мартиники единственный уцелевший саженец,",
-   "relevance": 0.2839865982532501,
-   "file": "0033_50ed465d_6c9faaad99.jpg"
+   "relevance": 0.27078527212142944,
+   "file": "0033_cbb4eefb_6e3d5ddd8a.jpg"
   },
   {
    "slot": 35,
-   "verdict": "good",
-   "reject_reason": null,
+   "verdict": "reject",
+   "reject_reason": "wrong_subject",
    "kind": "photo",
    "provider": "pexels",
-   "query": "hand grinding coffee beans",
+   "query": "hand grinding coffee beans old",
    "text": "поделившись с ним собственным пайком воды во время долгого плавания.",
-   "relevance": 0.24101205170154572,
-   "file": "0034_577dfb6d_6c9faaad99.jpg"
+   "relevance": 0.25152647495269775,
+   "file": "0034_5b29cbf9_6e3d5ddd8a.jpg"
   },
   {
    "slot": 36,
@@ -418,10 +432,10 @@
    "reject_reason": null,
    "kind": "video",
    "provider": "pexels",
-   "query": "modern coffee roastery machines",
+   "query": "modern coffee roastery roasting machines",
    "text": "Сегодня кофе — второй самый торгуемый товар в мире после нефти,",
-   "relevance": 0.3042595684528351,
-   "file": "0035_04e11de0_6c9faaad99.mp4"
+   "relevance": 0.2811811566352844,
+   "file": "0035_aaf01991_6e3d5ddd8a.mp4"
   },
   {
    "slot": 37,
@@ -429,10 +443,10 @@
    "reject_reason": null,
    "kind": "photo",
    "provider": "pexels",
-   "query": "colonial coffee plantation trees",
+   "query": "modern coffee roastery roasting machines",
    "text": "и вся эта цепочка начинается с одного и того же куста.",
-   "relevance": 0.31235799193382263,
-   "file": "0036_1bb4ae09_6c9faaad99.jpg"
+   "relevance": 0.31149032711982727,
+   "file": "0036_4f7e92cf_6e3d5ddd8a.jpg"
   },
   {
    "slot": 38,
@@ -440,65 +454,65 @@
    "reject_reason": null,
    "kind": "photo",
    "provider": "pexels",
-   "query": "modern coffee roastery machines",
+   "query": "coffee barista pouring latte art",
    "text": "А для тебя всё это превращается в тридцать секунд у стойки бариста,",
-   "relevance": 0.30055227875709534,
-   "file": "0037_034fd45f_6c9faaad99.jpg"
+   "relevance": 0.305403470993042,
+   "file": "0037_f9590623_6e3d5ddd8a.jpg"
   },
   {
    "slot": 39,
-   "verdict": "good",
+   "verdict": "tolerable",
    "reject_reason": null,
-   "kind": "photo",
-   "provider": "pixabay",
-   "query": "barista latte art pouring",
+   "kind": "video",
+   "provider": "pexels",
+   "query": "coffee barista pouring latte art",
    "text": "без единой мысли о трёх континентах и трёх запретах позади.",
-   "relevance": 0.21520882844924927,
-   "file": "0038_d540dfec_6c9faaad99.jpg"
+   "relevance": 0.19076211750507355,
+   "file": "0038_848cd377_6e3d5ddd8a.mp4"
   },
   {
    "slot": 40,
-   "verdict": "tolerable",
+   "verdict": "good",
    "reject_reason": null,
    "kind": "photo",
    "provider": "pexels",
-   "query": "19th century european street cafe",
+   "query": "coffee busy century european street",
    "text": "К девятнадцатому веку кофейня перестала быть редкостью и появилась почти на каждом углу крупного европейского города.",
-   "relevance": 0.228224977850914,
-   "file": "0039_df5c64c8_6c9faaad99.jpg"
+   "relevance": 0.25713062286376953,
+   "file": "0039_c5919d97_6e3d5ddd8a.jpg"
   },
   {
    "slot": 41,
-   "verdict": "good",
-   "reject_reason": null,
-   "kind": "photo",
+   "verdict": "reject",
+   "reject_reason": "modern_intrusion",
+   "kind": "video",
    "provider": "pexels",
-   "query": "writers artists cafe table historical",
+   "query": "coffee group writers artists sitting",
    "text": "Именно за такими столиками спорили философы, писали первые",
-   "relevance": 0.2482902705669403,
-   "file": "0040_be670e25_6c9faaad99.jpg"
+   "relevance": 0.24682311713695526,
+   "file": "0040_13cc07c7_6e3d5ddd8a.mp4"
   },
   {
    "slot": 42,
-   "verdict": "good",
-   "reject_reason": null,
+   "verdict": "reject",
+   "reject_reason": "modern_intrusion",
    "kind": "photo",
-   "provider": "pixabay",
-   "query": "writers artists cafe table historical",
+   "provider": "pexels",
+   "query": "coffee group writers artists sitting",
    "text": "заметки журналисты и планировали свои книги будущие знаменитые авторы.",
-   "relevance": 0.24280712008476257,
-   "file": "0041_26969d06_6c9faaad99.jpg"
+   "relevance": 0.22047774493694305,
+   "file": "0041_aafd6bb9_6e3d5ddd8a.jpg"
   },
   {
    "slot": 43,
-   "verdict": "good",
+   "verdict": "tolerable",
    "reject_reason": null,
    "kind": "photo",
-   "provider": "pexels",
-   "query": "vintage espresso machine brass",
+   "provider": "pixabay",
+   "query": "vintage espresso machine brass details",
    "text": "Изобретение паровой машины для эспрессо в конце девятнадцатого века",
-   "relevance": 0.29716217517852783,
-   "file": "0042_587e49fb_6c9faaad99.jpg"
+   "relevance": 0.23011815547943115,
+   "file": "0042_c5824199_6e3d5ddd8a.jpg"
   },
   {
    "slot": 44,
@@ -506,10 +520,10 @@
    "reject_reason": null,
    "kind": "photo",
    "provider": "pexels",
-   "query": "vintage espresso machine brass",
+   "query": "vintage espresso machine brass details",
    "text": "превратило чашку кофе из долгого ритуала в дело нескольких секунд.",
-   "relevance": 0.3141769766807556,
-   "file": "0043_b6b96f71_6c9faaad99.jpg"
+   "relevance": 0.300110399723053,
+   "file": "0043_441ee973_6e3d5ddd8a.jpg"
   },
   {
    "slot": 45,
@@ -517,65 +531,65 @@
    "reject_reason": null,
    "kind": "video",
    "provider": "pexels",
-   "query": "19th century european street cafe",
+   "query": "coffee beans falling burlap sack",
    "text": "А привычная тебе банка растворимого кофе появилась только в двадцатом веке —",
-   "relevance": 0.28755658864974976,
-   "file": "0044_659202c4_6c9faaad99.mp4"
+   "relevance": 0.29122331738471985,
+   "file": "0044_3a5e70ac_6e3d5ddd8a.mp4"
   },
   {
    "slot": 46,
    "verdict": "tolerable",
    "reject_reason": null,
    "kind": "photo",
-   "provider": "pixabay",
-   "query": "coffee beans burlap sack harvest",
+   "provider": "pexels",
+   "query": "coffee beans falling burlap sack",
    "text": "как способ напоить солдат на фронте горячим напитком без всякой варки.",
-   "relevance": 0.2922319173812866,
-   "file": "0045_645d01fe_6c9faaad99.jpg"
+   "relevance": 0.2904484272003174,
+   "file": "0045_0983a92a_6e3d5ddd8a.jpg"
   },
   {
    "slot": 47,
-   "verdict": "reject",
-   "reject_reason": "wrong_subject",
+   "verdict": "good",
+   "reject_reason": null,
    "kind": "photo",
    "provider": "pexels",
-   "query": "coffee coffeehouse",
+   "query": "modern coffee shop people working",
    "text": "Сегодня в почти любом городе мира ты найдёшь кофейню",
-   "relevance": 0.30365127325057983,
-   "file": "0046_27421472_6c9faaad99.jpg"
+   "relevance": 0.27348005771636963,
+   "file": "0046_e908e197_6e3d5ddd8a.jpg"
   },
   {
    "slot": 48,
-   "verdict": "reject",
-   "reject_reason": "wrong_subject",
-   "kind": "photo",
+   "verdict": "good",
+   "reject_reason": null,
+   "kind": "video",
    "provider": "pexels",
-   "query": "coffee ottoman",
+   "query": "modern coffee shop people working",
    "text": "в пределах пяти минут ходьбы, и это никого не удивляет.",
-   "relevance": 0.2918657064437866,
-   "file": "0047_ccb6c621_6c9faaad99.jpg"
+   "relevance": 0.28197821974754333,
+   "file": "0047_0aa4c754_6e3d5ddd8a.mp4"
   },
   {
    "slot": 49,
-   "verdict": "reject",
-   "reject_reason": "wrong_subject",
+   "verdict": "good",
+   "reject_reason": null,
    "kind": "photo",
    "provider": "pexels",
-   "query": "coffee roast",
+   "query": "cup coffee laptop modern desk",
    "text": "Сегодня ты наливаешь эту чашку за тридцать секунд и идёшь дальше.",
-   "relevance": 0.29188889265060425,
-   "file": "0048_066f97ac_6c9faaad99.jpg"
+   "relevance": 0.3127496838569641,
+   "file": "0048_fdbc64a1_6e3d5ddd8a.jpg"
   },
   {
    "slot": 50,
-   "verdict": "reject",
-   "reject_reason": "wrong_subject",
+   "verdict": "tolerable",
+   "reject_reason": null,
    "kind": "photo",
-   "provider": "pixabay",
-   "query": "coffee cafe",
+   "provider": "pexels",
+   "query": "cup coffee laptop modern desk",
    "text": "А когда-то за неё можно было лишиться головы.",
-   "relevance": 0.2635219097137451,
-   "file": "0049_7da08224_6c9faaad99.jpg"
+   "relevance": 0.2804372012615204,
+   "file": "0049_02b464a6_6e3d5ddd8a.jpg"
   }
  ]
 }
