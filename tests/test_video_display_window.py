@@ -49,7 +49,12 @@ def long_source(tmp_path_factory):
     p = str(tmp_path_factory.mktemp("win") / "src48.mp4")
     subprocess.run(
         ["ffmpeg", "-y", "-f", "lavfi", "-i",
-         f"color=c=0x203040:s=320x180:d={SRC_SEC}:r={FPS}",
+         # smptebars, а не заливка: extract_video_probe_frame честно
+         # отбраковывает кадр с нулевой дисперсией как вырожденный (см. её
+         # докстринг), и на заливке тест проверял бы этот отказ, а не окно.
+         # Картинка при этом СТАТИЧНА — measure_motion не включит спид-рамп,
+         # и команда рендера останется простой -ss/-frames:v.
+         f"smptebars=s=320x180:d={SRC_SEC}:r={FPS}",
          "-pix_fmt", "yuv420p", p], capture_output=True, check=True)
     return p
 
@@ -111,20 +116,39 @@ def test_every_gate_probe_lands_inside_the_shown_window(long_source, tmp_path):
                 f"гейт смотрит на {at:.2f}с, а зритель видит {lo:.2f}..{hi:.2f}с")
 
 
-def test_old_full_duration_sampling_was_outside_the_frame(long_source, tmp_path):
-    """Сам дефект, зафиксированный числом: прежняя формула (доли ПОЛНОЙ
-    длительности) не попадала в показанное окно ни одной точкой.
+def test_old_full_duration_sampling_missed_the_frame(long_source, tmp_path):
+    """Сам дефект, зафиксированный числом, — и зафиксированный ЧЕСТНО.
 
-    Тест держит не код, а ПРИЧИНУ: если однажды кто-то вернёт сэмплирование
-    по всей длительности, эта проверка объяснит, что именно сломалось."""
+    Первая редакция этого теста утверждала «ни одной точкой», и он же это
+    утверждение опроверг: при skip=1.518 первая старая точка (7.2с) попадает
+    в САМЫЙ КОНЕЦ показанного окна, а при skip=1.10 — не попадает. То есть
+    «ноль из трёх» зависело от фикстуры, а не от дефекта. Верное при ЛЮБОМ
+    skip утверждение — ниже, и оно даже неприятнее исходного:
+
+      * две поздние точки (24.0 и 40.8с) вне кадра ВСЕГДА — потолок skip
+        равен 1.6с, дальше 7.6с показ не уходит физически;
+      * ПЕРВАЯ ПОЛОВИНА показанного окна не сэмплировалась НИКОГДА, а
+        измеренный брак (толпа современных зрителей на 0.96с) лежал именно
+        там — то есть третья точка, даже когда попадала, попадала в
+        последние доли секунды клипа и этот брак увидеть не могла.
+    """
     ss, frames = _captured_render_window(long_source, SLOT_DUR, str(tmp_path))
     lo, hi = ss, ss + frames / FPS
     old = [max(0.3, min(SRC_SEC - 0.2, SRC_SEC * f))
            for f in ps.VIDEO_DOMAIN_GUARD_SAMPLE_FRACS]
-    assert sum(lo <= at <= hi for at in old) == 0
-    new = ps.video_sample_times(long_source, ps.VIDEO_DOMAIN_GUARD_SAMPLE_FRACS,
-                                SLOT_DUR)
-    assert sum(lo <= at <= hi for at in new) == len(new)
+    late = [at for at in old if at > SRC_SEC * 0.4]
+    assert late and all(not (lo <= at <= hi) for at in late), (
+        "поздние точки обязаны быть вне кадра при любом skip")
+    mid = lo + (hi - lo) / 2
+    assert sum(lo <= at <= mid for at in old) == 0, (
+        "первая половина показанного окна не сэмплировалась прежней формулой")
+
+    new_ats = ps.video_sample_times(long_source, ps.VIDEO_DOMAIN_GUARD_SAMPLE_FRACS,
+                                    SLOT_DUR)
+    assert sum(lo <= at <= hi for at in new_ats) == len(new_ats)
+    assert sum(lo <= at <= mid for at in new_ats) >= 1, (
+        "новая формула обязана смотреть и на начало клипа — там жил "
+        "измеренный брак")
 
 
 def test_without_slot_dur_behaviour_is_the_old_one(long_source):
@@ -170,3 +194,35 @@ def test_window_functions_are_in_the_candidate_gate_signature():
     sig_src = inspect.getsource(ps.candidate_gate_signature)
     for name in ("video_display_window", "video_sample_times", "video_display_skip"):
         assert name in sig_src, f"{name} не входит в подпись гейтов"
+
+def test_every_representative_frame_comes_from_the_window():
+    """Кадр «на посмотреть» берут четыре разных места, и все обязаны брать
+    показанный.
+
+    Найдено тем же разбором: на 0.5с ФАЙЛА судил VLM-арбитр (самый сильный
+    судья в системе), на нём же пересчитывалась релевантность фолбэка,
+    уезжающая в relevance_gate_report и sidecar, и на нём же считалась
+    смысловая релевантность победителя для отчёта Директора. При skip до
+    1.6с все четыре описывали кадр, которого в ролике нет, — и Шаг 7.5
+    разглядывал бы глазами не то, что судили гейты.
+    """
+    src = open(os.path.join(REPO_ROOT, "scripts", "pipeline_smart.py"),
+               encoding="utf-8").read()
+    for call in ("video_probe_in_window(g[2], slot_dur)",
+                 "video_probe_in_window(path, slot_dur)",
+                 "video_probe_in_window(video, d)"):
+        assert call in src, f"представительный кадр берётся мимо окна: {call}"
+
+
+def test_probe_offset_is_measured_from_the_start_of_display(long_source, tmp_path):
+    """Смещение считается от НАЧАЛА ПОКАЗА, а не от начала файла."""
+    ss, _ = _captured_render_window(long_source, SLOT_DUR, str(tmp_path))
+    assert ss > 0.2, "нужен исходник с ненулевым skip, иначе тест бессодержателен"
+    probe, cleanup = ps.video_probe_in_window(long_source, SLOT_DUR)
+    try:
+        assert probe is not None
+    finally:
+        if cleanup and probe and os.path.exists(probe):
+            os.remove(probe)
+    start, _end = ps.video_display_window(long_source, SLOT_DUR)
+    assert abs(start - ss) < 0.01

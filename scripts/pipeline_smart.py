@@ -11353,6 +11353,7 @@ def candidate_gate_signature():
             # отобранных по старому правилу, — иначе на прогретом temp_smart/
             # она не дошла бы до экрана вообще.
             video_display_window, video_sample_times, video_display_skip,
+            video_probe_in_window,
         )]
         parts.append(repr((
             CLIP_RELEVANCE_THRESHOLD, RISKY_QUERY_MARGIN, NEGATIVE_ANCHOR_PROMPT,
@@ -12435,6 +12436,23 @@ def video_sample_times(video_path, fracs, slot_dur=None, actual=None):
     return [max(lo, min(hi, start + span * f)) for f in fracs]
 
 
+def video_probe_in_window(path, slot_dur, offset=0.5):
+    """Кадр-пробник ВНУТРИ показанного окна — одна точка входа для всех, кто
+    берёт «представительный кадр» видео.
+
+    Раньше каждый такой вызов шёл на 0.5с ФАЙЛА, а рендер начинает показ с
+    `skip` (до 1.6с) — то есть VLM-арбитр судил кадр, которого зритель не
+    увидит; пересчитанная релевантность фолбэка, уезжающая в отчёт и sidecar,
+    описывала тот же невидимый кадр; и Шаг 7.5 разглядывал бы глазами не то,
+    что судили гейты. Смещение считается от НАЧАЛА ПОКАЗА, поэтому при
+    skip=0 поведение прежнее байт-в-байт.
+    """
+    win = video_display_window(path, slot_dur)
+    start = win[0] if win else 0.0
+    return extract_video_probe_frame(
+        path, base_at=start + offset,
+        retry_ats=(start + offset + 1.0, start + offset + 2.5))
+
 def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=0,
                   brightness_bias=0.0, energy_bias=0.0, stat_delay=0.0, levels=None, wb=None,
                   grain_scale=1.0, handheld=False, captions=None, ffmpeg_threads=None):
@@ -13152,7 +13170,7 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                     # шорт-листа (не для всего good — дёшево).
                     probes = []
                     for g in shortlist:
-                        p, cleanup = extract_video_probe_frame(g[2])
+                        p, cleanup = video_probe_in_window(g[2], slot_dur)
                         if p is not None:
                             probes.append((g, p, cleanup))
                     arbiter_pick = None
@@ -13238,7 +13256,7 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                 # (extract_video_probe_frame чистит себя сам) — путь ещё цел
                 # (это САМ видеофайл, не пробник), поэтому релевантность
                 # можно честно перепосчитать один раз на итоговом кадре.
-                probe2, cleanup2 = extract_video_probe_frame(path)
+                probe2, cleanup2 = video_probe_in_window(path, slot_dur)
                 rel = clip_relevance(probe2, query) if probe2 is not None else None
                 if cleanup2 and probe2 and os.path.exists(probe2):
                     os.remove(probe2)
@@ -15681,7 +15699,7 @@ def main():
             # гантель для текста про занесённый клинок) — семантически
             # проверить и это тоже, тем же порогом и тем же методом, что и
             # фото (кадр-пробник + sentence_relevance), а не молчать.
-            probe, cleanup = extract_video_probe_frame(video)
+            probe, cleanup = video_probe_in_window(video, d)
             if probe is not None:
                 try:
                     director_rel = visual_director.sentence_relevance(probe, sem_text)
