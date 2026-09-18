@@ -11121,7 +11121,32 @@ def _selection_stack_signature():
         # Порядок ключей кортежа _score_and_pick(): is_relevant выше size_ok
         # (14.09) — другой победитель на том же пуле.
         RANKING_ORDER_VERSION,
-    ))
+    )) + _aesthetic_selection_suffix()
+
+
+def _aesthetic_selection_suffix():
+    """Хвост подписи отбора для ВЫКЛЮЧЕННОЙ эстетики — и только для неё.
+
+    РЕАЛЬНЫЙ, проверенный по коду дефект (найден внешним разбором 18.09,
+    подтверждён grep'ом): aesthetic_score() участвует в ранжировании
+    прошедших гейты кандидатов (_score_and_pick()), то есть напрямую решает,
+    КТО победит в слоте. Но AESTHETIC_SCORE не входил ни в одну подпись:
+    ни в _selection_stack_signature(), ни в candidate_gate_signature().
+    Следствие ровно то же, что уже было закрыто для VISUAL_DIRECTOR_MODE и
+    VLM_ARBITER_MODE выше: на прогретом temp_smart/ выключение эстетики не
+    доходило до экрана вообще — кандидат уже выбран и закэширован, клип
+    берётся по os.path.exists(out) -> continue ДО переподбора. То есть флаг,
+    существующий ради ответа на вопрос «не эстетика ли побеждает смысл»,
+    у того, кто уже отрендерил эпизод, был неработающим.
+
+    Почему суффиксом, а не ещё одним полем кортежа выше: при ДЕФОЛТЕ
+    (AESTHETIC_SCORE=1, эстетика включена) подпись обязана остаться
+    байт-в-байт прежней, иначе сама эта правка перерендерила бы весь
+    прогретый кэш у каждого, кто флаг никогда не трогал — «апгрейд плюс
+    полный перерендер», а не апгрейд. Тот же приём и та же причина, что у
+    arbiter_cache_suffix() в main() и у KENBURNS_ADAPTIVE_CANVAS в
+    render_recipe_signature()."""
+    return "" if AESTHETIC_ENABLED else "|aesthetic:off"
 
 
 def candidate_gate_signature():
@@ -14214,6 +14239,27 @@ def render_recipe_signature():
         # KENBURNS_CANVAS_MARGIN при включённом флаге тоже меняет рецепт.
         if KENBURNS_ADAPTIVE_CANVAS:
             parts.append(repr(("KENBURNS_ADAPTIVE_CANVAS", _kenburns_canvas_size())))
+        # LUMA_MATCH — УСЛОВНО, ровно по той же причине и тем же приёмом, что
+        # KENBURNS_ADAPTIVE_CANVAS строкой выше. Профиль читается из реестра В
+        # МОМЕНТ РЕНДЕРА (luma_match_params() в main()) и даёт brightness_bias
+        # КАЖДОМУ клипу, то есть является частью РЕЦЕПТА картинки — но исходник
+        # самой luma_match_params() при смене значения не меняется ни на байт, и
+        # хэш исходников его не видит. Следствие, проверенное по коду (18.09):
+        # переключение LUMA_MATCH=strong/max/none на прогретом temp_smart/ молча
+        # не меняло ничего — клип брался готовым (os.path.exists(out) ->
+        # continue) ДО того, как профиль вообще прочитан. Рычаг, заведённый
+        # ради выбора между скачком яркости 36/255 и 28/255, был неработающим
+        # ровно у того, кто уже отрендерил эпизод и хотел сравнить два варианта.
+        #
+        # Дефолт ("normal") в подпись НЕ добавляется: иначе сама эта правка
+        # перерендерила бы весь прогретый кэш у каждого, кто флаг не трогал.
+        # Хэшируются реальные (clamp, gain), а не ИМЯ профиля: опечатка в .env
+        # даёт fail-open на "normal" (см. докстринг luma_match_params()), и
+        # подпись в этом случае обязана совпасть с прежней, а не разойтись
+        # из-за текста, который ни на что не влияет.
+        _luma_profile = luma_match_params()
+        if _luma_profile != LUMA_MATCH_PROFILES["normal"]:
+            parts.append(repr(("LUMA_MATCH", _luma_profile)))
     except Exception:
         return "recipe:unknown"
     return "recipe:" + hashlib.md5("".join(parts).encode()).hexdigest()[:10]

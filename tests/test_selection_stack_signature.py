@@ -128,6 +128,98 @@ def test_pool_size_constants_are_in_signature():
         )
 
 
+def _recipe_sig(env_overrides):
+    """render_recipe_signature() в СВЕЖЕМ процессе (та же причина, что у _gate_sig)."""
+    env = dict(os.environ)
+    env.update(env_overrides)
+    env["PYTHONPATH"] = SCRIPTS_DIR + os.pathsep + env.get("PYTHONPATH", "")
+    code = (
+        "import sys, tempfile; "
+        "sys.argv = ['pipeline_smart.py', tempfile.gettempdir()]; "
+        "import pipeline_smart as ps; "
+        "print(ps.render_recipe_signature())"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code], env=env, capture_output=True, text=True,
+        cwd=REPO_ROOT, timeout=300,
+    )
+    assert out.returncode == 0, f"дочерний процесс упал:\n{out.stderr[-2000:]}"
+    return out.stdout.strip().splitlines()[-1]
+
+
+def test_luma_match_profile_changes_render_recipe():
+    """LUMA_MATCH меняет brightness_bias КАЖДОГО клипа -> обязан менять рецепт.
+
+    Реальный дефект, найденный внешним разбором 18.09 и подтверждённый по коду:
+    профиль читается из реестра в момент рендера (luma_match_params() в main()),
+    но исходник самой функции при смене значения не меняется ни на байт — то
+    есть хэш исходников в render_recipe_signature() его не видел. На прогретом
+    temp_smart/ переключение LUMA_MATCH=strong/max/none было молчаливым no-op:
+    клип брался готовым по os.path.exists(out) -> continue ДО чтения профиля.
+    Рычаг, заведённый ради сравнения скачка яркости 36/255 против 28/255, не
+    работал ровно у того, кто уже отрендерил эпизод и хотел сравнить.
+    """
+    base = _recipe_sig({})
+    for profile in ("strong", "max", "none"):
+        assert _recipe_sig({"LUMA_MATCH": profile}) != base, (
+            f"LUMA_MATCH={profile} не меняет render_recipe_signature() — на "
+            "прогретом кэше профиль согласования яркости не дойдёт до экрана"
+        )
+
+
+def test_luma_match_default_keeps_recipe_byte_identical():
+    """Дефолт и опечатка обязаны дать ПРЕЖНЮЮ подпись, а не новую.
+
+    Две разные причины для одного требования:
+    1. "normal" — дефолт. Если бы он попал в подпись, сама правка (добавление
+       LUMA_MATCH в рецепт) перерендерила бы весь прогретый кэш у каждого, кто
+       флаг никогда не трогал: "апгрейд плюс полный перерендер", а не апгрейд.
+    2. Опечатка в .env даёт fail-open на "normal" (см. luma_match_params()),
+       то есть РЕАЛЬНО рендерится тот же рецепт — подпись обязана совпасть, а
+       не разойтись из-за текста, который ни на что не влияет. Поэтому в
+       подпись идут (clamp, gain), а не имя профиля.
+    """
+    base = _recipe_sig({})
+    assert _recipe_sig({"LUMA_MATCH": "normal"}) == base, (
+        "дефолтный профиль попал в подпись — это лишний полный перерендер"
+    )
+    assert _recipe_sig({"LUMA_MATCH": "ОПЕЧАТКА-КОТОРОЙ-НЕТ"}) == base, (
+        "опечатка в .env меняет подпись, хотя fail-open рендерит тот же "
+        "рецепт 'normal' — подпись хэширует имя вместо реальных параметров"
+    )
+
+
+def test_aesthetic_score_flag_changes_candidate_cache_key():
+    """AESTHETIC_SCORE решает ранжирование -> обязан менять ключ кэша кандидата.
+
+    Тот же класс, что VLM_ARBITER_MODE/VISUAL_DIRECTOR_MODE выше, и найден тем
+    же внешним разбором 18.09: aesthetic_score() участвует в выборе победителя
+    среди прошедших гейты кандидатов (_score_and_pick()), но не входил НИ В
+    ОДНУ подпись. На прогретом temp_smart/ выключение эстетики не доходило до
+    экрана — кандидат уже выбран и закэширован. То есть флаг, существующий
+    ровно ради ответа на вопрос «не эстетика ли побеждает смысл», у владельца
+    отрендеренного эпизода был неработающим.
+    """
+    off = _gate_sig({"AESTHETIC_SCORE": "0"})
+    on = _gate_sig({"AESTHETIC_SCORE": "1"})
+    assert off != on, (
+        "выключение AESTHETIC_SCORE не инвалидирует кэш кандидата — "
+        "ранжирование по эстетике нельзя ни выключить, ни сравнить"
+    )
+
+
+def test_aesthetic_enabled_default_keeps_signature_byte_identical():
+    """Дефолт (эстетика включена) обязан дать прежнюю подпись.
+
+    Та же причина, что у LUMA_MATCH выше: суффикс добавляется ТОЛЬКО для
+    выключенной эстетики, иначе правка перерендерила бы кэш всем, кто флаг не
+    трогал. Проверяется и то, что отсутствие переменной эквивалентно "1".
+    """
+    assert _gate_sig({"AESTHETIC_SCORE": "1"}) == _gate_sig({}), (
+        "явная единица и отсутствие переменной дают разные подписи"
+    )
+
+
 def test_clip_cache_key_contains_the_candidate_gate_signature():
     """Подпись отбора обязана входить в ключ КЛИПА, а не только в имя файла
     кандидата.
