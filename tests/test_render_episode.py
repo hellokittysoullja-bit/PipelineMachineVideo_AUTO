@@ -80,6 +80,37 @@ def test_strict_refuses_when_audio_missing(tmp_path, monkeypatch):
     assert manifest["stages"]["audio"]["status"] == "missing"
 
 
+def _write_known_niche(video_dir):
+    """Ниша эпизода, известная ДО рендера.
+
+    Гейт --strict-production появился 17.09 (коммит 77b8288) и справедливо
+    отказывается собирать эпизод неизвестной ниши: от неё зависят ловушки
+    контрастивного вето, блоклист и то, спрашиваются ли музеи с полкой. Но
+    тесты ниже проверяют СВОИ инварианты (section_sync, visual_qc,
+    пост-рендер тайминг), а не нишу — поэтому ниша здесь просто объявлена,
+    как она объявлена у любого реального эпизода. Без этого все восемь
+    падали на чужом гейте и восемь красных тестов доехали до ветки.
+    """
+    plan_dir = video_dir / "media_plan"
+    plan_dir.mkdir(exist_ok=True)
+    (plan_dir / "content_world.json").write_text(json.dumps({
+        "schema_version": 1,
+        "source": "test-fixture",
+        "niche": "европейское Средневековье",
+        "confidence": 0.9,
+        "world": "поле боя и мастерская XIV-XV веков",
+        "people_in_frame": "воины в доспехах",
+        "forbidden": "современная техника",
+        "anchor_words": ["knight", "armour", "sword"],
+        "blocklist_additions": [],
+        "use_museum_sources": True,
+        "era_from": 1300,
+        "era_to": 1500,
+        "mood_tone": -1,
+        "mood_tension": 2,
+    }, ensure_ascii=False), encoding="utf-8")
+
+
 def _write_clean_visual_qc_report(video_dir):
     # Отчёт Шага 5.5, где ВСЕ слоты прошли (нет missing/reject/
     # accepted_below_threshold) — та же структура, что реально пишет
@@ -95,6 +126,7 @@ def test_strict_refuses_when_section_sync_incomplete(tmp_path, monkeypatch):
                  "=== HOOK === Раз два три.\n=== BLOCK 1: X === Четыре пять шесть.\n")
     (tmp_path / "audio.mp3").write_bytes(b"fake-audio")
     _write_clean_visual_qc_report(tmp_path)
+    _write_known_niche(tmp_path)
 
     def fake_run(script_name, video_dir, extra_env=None):
         # section_sync.py "запускается", но не пишет section_offsets.json
@@ -113,6 +145,7 @@ def test_legacy_flag_overrides_strict_refusal(tmp_path, monkeypatch):
                  "=== HOOK === Раз два три.\n=== BLOCK 1: X === Четыре пять шесть.\n")
     (tmp_path / "audio.mp3").write_bytes(b"fake-audio")
     _write_clean_visual_qc_report(tmp_path)
+    _write_known_niche(tmp_path)
     calls = []
 
     def fake_run(script_name, video_dir, extra_env=None):
@@ -163,6 +196,7 @@ def test_legacy_allow_unreviewed_media_overrides_visual_qc_refusal(tmp_path, mon
     write_script(tmp_path / "script.txt", "=== HOOK === Раз два три.\n")
     (tmp_path / "audio.mp3").write_bytes(b"fake-audio")
     # НЕТ visual_qc_report.json — как будто Шаг 5.5 вообще не запускался.
+    _write_known_niche(tmp_path)   # тема теста — visual_qc, не гейт ниши
     calls = []
     monkeypatch.setattr(re_mod, "_run", lambda script_name, video_dir, extra_env=None:
                          (calls.append(script_name), 0)[1])
@@ -176,6 +210,7 @@ def test_visual_qc_clean_report_does_not_block_strict(tmp_path, monkeypatch):
     write_script(tmp_path / "script.txt", "=== HOOK === Раз два три.\n")
     (tmp_path / "audio.mp3").write_bytes(b"fake-audio")
     _write_clean_visual_qc_report(tmp_path)
+    _write_known_niche(tmp_path)
     calls = []
     monkeypatch.setattr(re_mod, "_run", lambda script_name, video_dir, extra_env=None:
                          (calls.append(script_name), 0)[1])
@@ -202,6 +237,7 @@ def test_single_section_skips_section_sync(tmp_path, monkeypatch):
     write_script(tmp_path / "script.txt", "=== HOOK === Раз два три.\n")
     (tmp_path / "audio.mp3").write_bytes(b"fake-audio")
     _write_clean_visual_qc_report(tmp_path)
+    _write_known_niche(tmp_path)
     calls = []
     monkeypatch.setattr(re_mod, "_run", lambda script_name, video_dir, extra_env=None:
                          (calls.append(script_name), 0)[1])
@@ -271,6 +307,7 @@ def test_strict_refuses_when_post_render_reports_unresolved(tmp_path, monkeypatc
     write_script(tmp_path / "script.txt", "=== HOOK === Раз два три.\n")
     (tmp_path / "audio.mp3").write_bytes(b"fake-audio")
     _write_clean_visual_qc_report(tmp_path)
+    _write_known_niche(tmp_path)
 
     def fake_run(script_name, video_dir, extra_env=None):
         if script_name == "pipeline_smart.py":
@@ -290,6 +327,7 @@ def test_legacy_allow_unreviewed_render_overrides_post_render_refusal(tmp_path, 
     write_script(tmp_path / "script.txt", "=== HOOK === Раз два три.\n")
     (tmp_path / "audio.mp3").write_bytes(b"fake-audio")
     _write_clean_visual_qc_report(tmp_path)
+    _write_known_niche(tmp_path)
 
     def fake_run(script_name, video_dir, extra_env=None):
         if script_name == "pipeline_smart.py":
@@ -318,6 +356,7 @@ def video_dir(tmp_path):
         "Шесть семь восемь девять десять одиннадцать.\n",
         encoding="utf-8",
     )
+    _write_known_niche(d)   # тема теста — sequencing тайминга, не гейт ниши
     colors = [(200, 30, 30), (30, 30, 200), (30, 200, 30), (200, 200, 30)]
     for i, color in enumerate(colors):
         img = Image.new("RGB", (1280, 720), color)
