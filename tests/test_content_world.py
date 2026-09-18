@@ -659,3 +659,52 @@ class TestEmptyNicheListsAreFilled:
         for key in ("openverse_era_anchors", "openverse_domain_nouns",
                     "query_era_anchors"):
             assert key not in merged, key
+
+
+class TestChannelGenericFallbacksAreDroppedForForeignNiche:
+    """Резервные запросы канала не должны попадать в эпизод чужой ниши.
+
+    ИЗМЕРЕНО НА ГОТОВОМ РОЛИКЕ, не выведено из кода: в тестовом эпизоде про
+    историю кофе слот #47 ушёл в сток с запросом «knight armor moody light»
+    (из пяти средневековых generic_fallbacks канала) и принёс кадр с
+    релевантностью 0.124 при пороге 0.19 — объективный брак, который система
+    сама признала не по теме и всё равно поставила в ролик.
+
+    Причина механическая: GENERIC_FALLBACKS считается при импорте модуля,
+    то есть ДО того, как известна тема эпизода, и был последним нишевым
+    списком, которого авто-ниша не касалась вообще.
+    """
+
+    CHANNEL = {"generic_fallbacks": ["medieval sword still life",
+                                     "knight armor moody light"]}
+
+    def _profile(self, confidence):
+        return {"niche": "история напитка кофе", "world": "османские кофейни",
+                "anchor_words": ["coffee", "coffeehouse", "roast"],
+                "confidence": confidence}
+
+    def test_confident_foreign_niche_drops_channel_fallbacks(self, tmp_path):
+        cw.write_content_world(str(tmp_path), self._profile(0.92), source="test")
+        merged = cw.merge_content_world(dict(self.CHANNEL), str(tmp_path))
+        assert merged["generic_fallbacks"] == [], (
+            "средневековые резервные запросы канала остались в эпизоде про кофе"
+        )
+
+    def test_low_confidence_keeps_channel_fallbacks(self, tmp_path):
+        """Неуверенная догадка не имеет права снимать настройку канала —
+        тот же порог, что у shot_domain и окна эпохи."""
+        cw.write_content_world(str(tmp_path), self._profile(0.6), source="test")
+        merged = cw.merge_content_world(dict(self.CHANNEL), str(tmp_path))
+        assert merged["generic_fallbacks"] == self.CHANNEL["generic_fallbacks"]
+
+    def test_no_content_world_keeps_channel_fallbacks(self, tmp_path):
+        """Собственный эпизод канала (файла ниши нет) — байт-в-байт прежний."""
+        merged = cw.merge_content_world(dict(self.CHANNEL), str(tmp_path))
+        assert merged["generic_fallbacks"] == self.CHANNEL["generic_fallbacks"]
+
+    def test_channel_without_fallbacks_is_untouched(self, tmp_path):
+        """Ключа не было — он и не появляется: снятие не должно само
+        заводить пустое поле там, где его не объявляли."""
+        cw.write_content_world(str(tmp_path), self._profile(0.92), source="test")
+        merged = cw.merge_content_world({}, str(tmp_path))
+        assert "generic_fallbacks" not in merged
