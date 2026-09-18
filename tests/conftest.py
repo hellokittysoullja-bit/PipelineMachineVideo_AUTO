@@ -54,6 +54,13 @@ def _isolate_from_real_dotenv(monkeypatch, tmp_path):
     # музейных API — а Met на каждый предмет делает отдельный запрос.
     monkeypatch.delenv("MUSEUM_SOURCES_ENABLED", raising=False)
     monkeypatch.setenv("MUSEUM_SOURCES_ENABLED", "0")
+    # FRAME_VERIFIER — тот же класс, и здесь он ещё и ПЛАТНЫЙ: дефолт реестра
+    # "1", и любой тест, дошедший до победителя слота, при живом
+    # ANYMODEL_API_KEY в окружении жёг бы реальный баланс владельца. Гасим и
+    # флаг, и ключ: одного флага мало, если чужой код прочитает ключ напрямую.
+    monkeypatch.delenv("FRAME_VERIFIER", raising=False)
+    monkeypatch.setenv("FRAME_VERIFIER", "0")
+    monkeypatch.delenv("ANYMODEL_API_KEY", raising=False)
     # MET_CATALOG — тот же приём и та же причина, но дефект здесь другого
     # рода и найден сразу пятью упавшими тестами: каталог читает РЕАЛЬНЫЙ
     # индекс с диска (temp_met_catalog/index.json). Тест, который замокал

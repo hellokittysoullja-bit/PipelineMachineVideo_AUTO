@@ -40,6 +40,7 @@ import stage_timer
 # Единый реестр флагов режимов (scripts/feature_flags.py) — дефолты
 # объявлены ТАМ, а не литералом в каждой точке чтения: расхождение
 # кода с CLAUDE.md уже случалось молча (см. докстринг реестра).
+import frame_verifier
 import feature_flags
 import query_fusion
 # Авто-определение ниши по тексту сценария (см. его же докстринг) — общая
@@ -5726,6 +5727,19 @@ RELEVANCE_RANK_BUCKET = 0.02
 # Сколько раз победителя можно заменить следующим, если его полноразмерный
 # файл оказался размытым (гейт резкости — на полном файле, см. pexels_photo).
 SHARP_REPICK_MAX = 3
+
+# Сколько раз слот вправе переспросить зрячий гейт, прежде чем честно остаться
+# на лучшем. Три — не подобранный оптимум, а потолок ЦЕНЫ: каждый переподбор
+# это ещё один платный вопрос (~660 единиц) и ещё одна скачка полноразмерного
+# файла. Слот при этом не пустеет никогда: исчерпав попытки, он остаётся на
+# лучшем кандидате и пишет об этом в отчёт, а решение «лучше карточка, чем
+# чужой кадр» принимает лестница фолбэков, у которой для этого есть причина.
+FRAME_VERIFIER_REPICK_MAX = int(os.environ.get("FRAME_VERIFIER_REPICK_MAX", "3"))
+
+# Каждое «нет» зрячего гейта — с тем, ЧТО он увидел и ЧЕГО не хватило. Это
+# первый отчёт проекта, который отвечает на вопрос владельца его же словами,
+# а не числом похожести; уезжает в media_plan/frame_verifier_report.json.
+FRAME_VERIFIER_MISSES = []
 # Версия чередования источников внутри запроса (см. сборку пула в
 # pexels_photo) — для _selection_stack_signature().
 #
@@ -7830,6 +7844,57 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                     break
                 winner = new_winner
                 chosen_by = chosen_by + "+sharp_repick"
+
+            # ЗРЯЧИЙ ГЕЙТ: показывает ли ЭТОТ кадр то, о чём говорит фраза.
+            # Ставится ПОСЛЕ резкости и на том же шаблоне переподбора, а не
+            # внутри цикла по кандидатам, и это решение по цене: вопрос стоит
+            # ~660 единиц баланса и ~3 секунды, поэтому его задают ПОБЕДИТЕЛЮ,
+            # а не каждому из двадцати кандидатов пула.
+            #
+            # Почему он вообще нужен: все гейты выше спрашивают «похожа ли
+            # картинка на пять слов запроса», и 18.09 пятью независимыми
+            # замерами показано, что на вопрос «есть ли в кадре коза» этот
+            # класс инструмента не отвечает в принципе. Живой замер на восьми
+            # кадрах: модель поймала ВСЕ ШЕСТЬ промахов, названных владельцем
+            # (ягоды вместо козы, зёрна вместе ягод, шатёр вместо мешков,
+            # ровер на земле вместо полёта, кратер вместо парашюта).
+            #
+            # Односторонний по построению: вердикта нет (выключено, нет ключа,
+            # нет сети, исчерпан потолок, ответ не разобрался) -> поведение
+            # БАЙТ-В-БАЙТ прежнее. Отклонить кадр может только явное «no».
+            fv_repicks = 0
+            fv_verdict = None
+            while frame_verifier.enabled() and winner is not None and block_text:
+                fv_verdict = frame_verifier.verify(cf, block_text, VIDEO_FOLDER)
+                if fv_verdict is None or fv_verdict["verdict"] == "yes":
+                    break
+                FRAME_VERIFIER_MISSES.append({
+                    "index": index, "kind": "photo", "query": query,
+                    "text": block_text[:160], "seen": fv_verdict.get("seen"),
+                    "missing": fv_verdict.get("missing"),
+                    "candidate": str(winner["p"].get("id")),
+                })
+                if fv_repicks >= FRAME_VERIFIER_REPICK_MAX:
+                    print(f"  слот {index}: зрячий гейт отклонил всех кандидатов "
+                          f"({fv_repicks + 1}) — остаюсь на лучшем, "
+                          f"видно «{fv_verdict.get('seen')}», нет «{fv_verdict.get('missing')}»")
+                    break
+                fv_repicks += 1
+                # Тот же приём, что у резкости: демотируем отклонённого по УЖЕ
+                # существующей оси ранжирования, а не заводим вторую — иначе
+                # два механизма выбора победителя разошлись бы молча.
+                winner["is_relevant"] = 0
+                base_winner, director_winner = _score_and_pick(candidates_info, director_score_fn)
+                new_winner = (director_winner if (director_assist and director_winner is not None)
+                              else base_winner)
+                if new_winner is None or new_winner is winner:
+                    break
+                winner = new_winner
+                chosen_by = chosen_by + "+frame_verify_repick"
+                try:
+                    download(winner["p"], cf)
+                except Exception:
+                    break
             # ФАЙЛ ОБЯЗАН СУЩЕСТВОВАТЬ. Реальный дефект, найденный замером
             # (14.09, прогон разметки эпизода 02): при провале скачивания
             # ПОЛНОРАЗМЕРНОГО файла победителя (Wikimedia отвечает 429 на
@@ -11341,6 +11406,14 @@ def _selection_stack_signature():
         feature_flags.enabled("PIXABAY_ENABLED"),
         feature_flags.enabled("UNSPLASH_ENABLED"),
         feature_flags.enabled("COMMONS_SOURCE"),
+        # Зрячий гейт меняет ПОБЕДИТЕЛЯ слота (отклонённый демотируется и
+        # берётся следующий), а кэш кандидата отдаёт готовый файл РАНЬШЕ, чем
+        # гейт успевает спросить. Без подписи включение зрячей проверки на
+        # прогретом temp_smart/ не дошло бы до экрана вообще — ровно тот
+        # класс, которым этот файл уже горел с гвардами и блоклистом. Честная
+        # цена названа заранее: первый прогон после включения перерендерит
+        # кандидатов эпизода, в этом и смысл подписи.
+        feature_flags.enabled("FRAME_VERIFIER"),
         # Ступень «негодное видео -> фотография» меняет САМ ТИП медиа в слоте,
         # то есть то, что реально увидит зритель. Ключ клипа считается до
         # резолва медиа — без флага здесь на прогретом temp_smart/ в слоте
@@ -15147,6 +15220,7 @@ def main():
     global RENDER_RECIPE_SIG
     RENDER_RECIPE_SIG = recipe_sig = render_recipe_signature()
     reset_source_stats()
+    frame_verifier.reset_stats()
     reset_camera_language_stats()
     use_local = os.path.isdir(MEDIA_FOLDER) and bool(local_photo(0))
     use_pexels = bool(PEXELS_API_KEY)
@@ -16303,6 +16377,31 @@ def main():
     # равно не остался пустым (философия ЧАСТИ 13). Тот же принцип честной
     # записи, что уже применяет look_manifest.json чуть ниже — пишем ВСЕГДА
     # (даже пустой список), не пропускаем файл молча.
+    # ЗРЯЧИЙ ГЕЙТ: отчёт словами, а не числом похожести — что модель увидела
+    # на кадре и чего не хватило по фразе. Пишется ВСЕГДА, даже пустым (тот же
+    # принцип честной записи «нечего сообщить», что у остальных отчётов): по
+    # пустому файлу видно, что гейт работал и никого не отклонил, а по
+    # отсутствию файла — что он не работал вовсе.
+    fv_path = os.path.join(VIDEO_FOLDER, "media_plan", "frame_verifier_report.json")
+    fv_on = frame_verifier.enabled()
+    merge_slot_report(
+        fv_path, FRAME_VERIFIER_MISSES,
+        resolved_slots=RESOLVED_SLOTS_THIS_RUN,
+        extra={"enabled": fv_on, "model": frame_verifier.model_name(),
+               "stats": dict(frame_verifier.STATS),
+               "note": None if fv_on else
+               "Зрячий гейт НЕ работал (флаг выключен или нет ANYMODEL_API_KEY) — "
+               "пустой список не означает «все кадры по смыслу верные»"})
+    _fv_line = frame_verifier.summary_line()
+    if _fv_line:
+        print(_fv_line)
+    if FRAME_VERIFIER_MISSES:
+        print(f"  Зрячий гейт отклонил кадр на {len(FRAME_VERIFIER_MISSES)} слот(ах) — "
+              f"см. media_plan/frame_verifier_report.json (что видно / чего не хватает)")
+    elif not fv_on:
+        print("  ВНИМАНИЕ: зрячий гейт кадра НЕ работал — смысловое совпадение "
+              "кадра и фразы в этом прогоне никто не проверял")
+
     relevance_report_path = os.path.join(VIDEO_FOLDER, "media_plan", "relevance_gate_report.json")
     # Гейт релевантности работает над ЛЮБЫМ удалённым источником (музеи,
     # Openverse, Pixabay, Unsplash, Pexels), не только над Pexels — раньше
