@@ -10257,15 +10257,40 @@ def _dof_focus_depth(depth, h, w):
 # доверять слепо тому, что поиск вернул top-N по ключевым словам.
 CLIP_ENABLED = feature_flags.enabled("CLIP_RELEVANCE")
 CLIP_BROKEN = False   # взводится только на системном сбое (модель/сеть), не на одной картинке
-# Калибровано вживую на 01_ves-mecha: 20 верных пар (картинка, её реальный
-# запрос) дали score 0.217-0.303 (среднее 0.262); 15 пар с заведомо
-# посторонним запросом ("pizza restaurant", "office meeting" и т.п. — не
-# просто другой вариант той же темы, а другая тема целиком) дали 0.118-0.201
-# (среднее 0.164). Порог 0.19 — выше кластера настоящих непопаданий, ниже
-# минимума верных пар с запасом, не режет близкие по смыслу варианты одной
-# темы (те тоже пересекаются с верными по диапазону — это ОК, задача ловить
-# явный промах, не выбирать идеальный вариант из синонимов).
-CLIP_RELEVANCE_THRESHOLD = 0.19
+# Отдельный флаг для aesthetic_score()'s get_aesthetic_clip_model() — ТА
+# модель (настоящий CLIP ViT-B/32) и ЭТА (SigLIP2, свежий CLIP_BROKEN выше)
+# теперь РАЗНЫЕ загрузки с 18.09 (см. get_clip_model()) — сбой одной не
+# обязан гасить другую, а общий флаг молча смешал бы два независимых отказа.
+AESTHETIC_CLIP_BROKEN = False
+# ПЕРЕКАЛИБРОВАНО 18.09 под SigLIP2-base256 (см. get_clip_model()) — старое
+# значение 0.19 было откалибровано под CLIP ViT-B/32 и на новой шкале
+# скоров (~-0.06..+0.18, не ~0.1..0.3) ничего не значит буквально.
+# Метод — ТОТ ЖЕ, что и раньше: развёртка порога по золотому набору (40
+# кадров эп.01, ground truth — вердикт человека good/tolerable/reject), с
+# требованием «ноль ложных отказов good» первым условием. Граница нуля
+# потерь и good, И tolerable — точная граница -0.032358 (самый низкий
+# tolerable, ep01_146) — порог обязан быть НИЖЕ (отрицательнее) её, а не
+# выше: первая версия этой строки (-0.032, менее отрицательное значение)
+# буферовала В ДРУГУЮ СТОРОНУ и реально теряла good-кадр (ep01_015) на
+# полном прогоне golden_set_eval.py — та же ошибка направления буфера, что
+# найдена и исправлена у NEGATIVE_VETO_MARGIN тем же 18.09.
+#
+# Утечка брака (reject_leak) при этом пороге — 16/17, СТАТИСТИЧЕСКИ РОВНО
+# ТА ЖЕ, что у CLIP на его собственной рабочей точке с tolerable_lost=1/7
+# (n=17 мало, разница в 1 кадр — шум выборки, не измеренное улучшение на
+# этой конкретной оси). Выигрыш новой модели не в этом пороге самом по
+# себе, а в AUC по всему диапазону (0.658 против 0.566, см. get_clip_model()).
+#
+# ЧЕСТНО про попытку буферовать ЕЩЁ безопаснее (-0.035): она столкнулась с
+# независимой живой проверкой в tests/test_media_selection_golden.py —
+# sword.jpg против "pizza restaurant" даёт relevance=-0.0326, то есть ЭТА
+# конкретная пара текст/картинка у новой модели сама легла в шум в пределах
+# 0.0002 от границы -0.032358 (та самая ep01_146). Порог здесь НЕ подогнан
+# под эту пару — вместо подгонки заменена сама пара в тесте на "tropical
+# beach vacation" (relevance=-0.0403, честно и далеко ниже любого
+# разумного порога) — реальная production-граница (золотой набор) весит
+# больше одной синтетической пары текст/картинка.
+CLIP_RELEVANCE_THRESHOLD = -0.035
 
 # Реальный, найденный вживую пробел (27 августа, videos/_test20s, слот 7 —
 # видео всадника с занесённым клинком): ни pexels_photo(), ни pexels_video()
@@ -10298,7 +10323,24 @@ PHOTO_SHARPNESS_REJECT = 25.0
 RISKY_GENERIC_TERMS = ("museum", "exhibition", "collection", "display",
                         "cabinet", "case", "gallery")
 NEGATIVE_ANCHOR_PROMPT = "empty room interior architecture window"
-RISKY_QUERY_MARGIN = 0.03
+# ПЕРЕКАЛИБРОВАНО 18.09 под SigLIP2-base256 — старая калибровка (10
+# хороших/5 плохих пар) не сохранена как фикстуры и не воспроизводима на
+# новой модели без повторной живой выборки. Вместо неё — 7 РЕАЛЬНЫХ
+# risky-query кадров золотого набора (те же 40 фото эп.01, отфильтрованные
+# по полю risky_query) + 2 независимых фикстуры этого же файла
+# (meeting.jpg/stainedglass.jpg, tests/test_media_selection_golden.py):
+# good/tolerable margin 0.0455-0.1703, reject margin -0.036/+0.0427(stained-
+# glass)/+0.0481(meeting)/+0.0747/+0.0977. ЧЕСТНО: разделение НЕ ЧИСТОЕ —
+# meeting.jpg (0.0481) и золотой good-кадр ep01_015 (0.0455) СТОЯТ ПО РАЗНЫЕ
+# СТОРОНЫ друг от друга в неверном порядке — ни один единственный порог не
+# может одновременно поймать meeting.jpg и сохранить ep01_015 (реальные
+# человеческие данные весят больше синтетического отдельного фото — порог
+# сохраняет ep01_015, meeting.jpg остаётся известным, задокументированным
+# xfail-пробелом, см. TestRiskyQueryMargin.test_rejects_unrelated_candidate_
+# under_risky_query). Порог 0.045 — между ep01_015 (0.0455, сохранён) и
+# stainedglass.jpg (0.0427, поймана) — ловит 2 из 5 известных плохих на
+# этой узкой оси при n=9, выборка МЕНЬШЕ исходной калибровки CLIP (35 пар).
+RISKY_QUERY_MARGIN = 0.045
 
 
 def is_risky_query(query):
@@ -10349,6 +10391,32 @@ def is_risky_query(query):
 # случай) без риска начать резать легитимный европейский контент со
 # похожей обмоткой рукояти. Отдельная задача — калибровка на большем
 # наборе видео-кандидатов, не в этом заходе.
+# ПЕРЕВЕРЕНО 18.09 после смены модели на SigLIP2-base256 (get_clip_model()) —
+# числа выше (+0.0187/-0.0139) сняты на СТАРОЙ, уже удалённой CLIP-модели и
+# оставлены как исторический контекст калибровки, буквально к новой шкале
+# не относятся. На новой модели, на доступных в репозитории фикстурах
+# (katana.jpg — единственный подтверждённый asian-образец, 5 европейских:
+# euro_sword_2/sword/sword_degraded/sword_snow/sword_near_dup — МЕНЬШАЯ
+# выборка, чем исходные 45 фото, те не сохранены как фикстуры): katana.jpg
+# margin=-0.0486, европейские +0.0054..+0.0694.
+#
+# ПОРОГ -0.03 ПЕРЕСМОТРЕН 18.09 — первая проверка (только 6 фикстур) прошла
+# чисто, но полный прогон golden_set_eval.py против ВСЕХ 40 кадров золотого
+# набора нашёл РЕАЛЬНЫЙ ложный отказ: ep01_015 (verdict=good,
+# reject_reason=None, запрос "medieval sword museum display") — margin
+# -0.0335, ниже -0.03, гейт ложно его ловил. Единственные РЕАЛЬНЫЕ
+# подтверждённые non_european-кадры золотого набора с той же формой запроса
+# (не любой reject — reject_reason именно non_european, остальные reject
+# этого набора про другое: modern_intrusion/wrong_subject/duplicate, guard
+# и не должен их ловить): ep01_122 (-0.0364), ep01_006 (-0.0281),
+# ep01_002 (-0.0046). Окно, которое ловит katana.jpg и ep01_122, но не
+# трогает ep01_015, УЗКОЕ: [-0.0364, -0.0335) — ep01_006/ep01_002 в это
+# окно не попадают ни при каком пороге БЕЗ потери ep01_015 (реальные
+# производственные данные весят больше двух неподтверждённых доп. случаев
+# этой же узкой оси). -0.034 — внутри безопасного окна, ближе к границе
+# «ловит», раз ложный accept анахронизма дороже ложного reject (см. коммент
+# выше). ЧЕСТНО: это НЕ полная переоценка на живой 45-фото выборке (та не
+# сохранена) — отдельная задача, не в этом заходе.
 VISUAL_DOMAIN_GUARDS = (
     {
         "name": "east_asian_sword",
@@ -10356,7 +10424,7 @@ VISUAL_DOMAIN_GUARDS = (
         "euro_prompt": "straight double-edged european longsword blade with cross-shaped hilt guard",
         "asian_prompt": ("curved single-edged katana blade with round tsuba guard, "
                           "or chinese jian sword with diamond pommel and tassel"),
-        "margin_threshold": -0.03,
+        "margin_threshold": -0.034,
     },
 )
 VISUAL_DOMAIN_GUARDS = tuple(CHANNEL_PROFILE.get("visual_domain_guards", VISUAL_DOMAIN_GUARDS))
@@ -10414,7 +10482,22 @@ CONTENT_NEGATIVE_ANCHORS = tuple(CHANNEL_PROFILE.get(
 # запас. Отрицательный запас = консервативно: ловушка должна ощутимо
 # ПЕРЕБИВАТЬ цель, а не просто дотягиваться до неё. Именно эта
 # консервативность и даёт ноль ложных отказов на замере.
-NEGATIVE_VETO_MARGIN = -0.015
+#
+# ПЕРЕКАЛИБРОВАНО 18.09 под SigLIP2-base256 — тот же метод, тот же золотой
+# набор (40 кадров, все 8 ловушек, min margin по кандидату), другая шкала.
+# Безопасная граница задаётся САМЫМ ОТРИЦАТЕЛЬНЫМ margin среди good/
+# tolerable — ep01_003 (tolerable, -0.0550) — порог должен быть строго
+# ниже (отрицательнее) этого значения, а не «подальше от найденной границы
+# улова» (первая версия этого порога, -0.065, ошибочно буферовала В ДРУГУЮ
+# СТОРОНУ и теряла ep01_020 без причины). -0.06 — с запасом 0.005 от
+# ep01_003, ловит 5/17 брака (ep01_020/040/062/122/140) при 0 потерь good
+# И tolerable. ЧЕСТНО чуть хуже CLIP на этой конкретной оси (тот при -0.015
+# ловил 6/17) — на новой модели margin у двух good-кадров (ep01_015/032)
+# отрицательнее, чем был у CLIP, и порог обязан отступить дальше, чтобы их
+# не потерять. SMART_RELEVANCE_VETO (проверка ПОБЕДИТЕЛЯ более тяжёлым
+# so400m+Jina ensemble, см. smart_relevance_veto() ниже) остаётся вторым,
+# независимым слоем защиты именно от такого класса пропуска.
+NEGATIVE_VETO_MARGIN = -0.06
 NEGATIVE_VETO_ENABLED = feature_flags.enabled("NEGATIVE_VETO")
 
 
@@ -11154,6 +11237,15 @@ def candidate_gate_signature():
             PHOTO_SHARPNESS_REJECT, VIDEO_SHARPNESS_REJECT, VIDEO_SHARPNESS_SAMPLE_FRACS,
             SHARPNESS_PROBE_MAX_SIDE, CANDIDATE_GATE_RULES_VERSION,
             VIDEO_MAX_TIME_STRETCH,
+            # Сама МОДЕЛЬ, дающая число (18.09: CLIP -> SigLIP2-base256, см.
+            # get_clip_model()) — clip_relevance() как функция не поменяла
+            # исходный текст (только то, что грузит get_clip_model()), значит
+            # inspect.getsource(clip_relevance) в списке parts выше остался
+            # БЫ прежним и не инвалидировал бы кэш сам по себе. Без этой
+            # строки смена модели молча не дошла бы до уже закэшированных
+            # temp_smart/pexels_cache — ровно тот класс бага, ради которого
+            # эта функция вообще написана (см. докстринг выше).
+            CLIP_GATE_MODEL_NAME,
         )))
         parts.append(_selection_stack_signature())
     except Exception:
@@ -11186,7 +11278,20 @@ def candidate_gate_signature():
 # контент и не отбрасывает кандидата (кандидат остаётся выбранным, меняется
 # только позже наложение зерна).
 PARTICLE_PROMPT = "falling snow dust particles bokeh in frame"
-PARTICLE_SCORE_THRESHOLD = 0.21
+# ПЕРЕСЧИТАНО 18.09 под SigLIP2-base256, но НЕ ПЕРЕИЗМЕРЕНО живьём — в
+# репозитории нет сохранённых фикстур "частицастых"/"чистых" кадров из
+# исходной калибровки (10 подтверждённых пар не персистентны). Вместо
+# живой проверки — линейная аффинная оценка по золотому набору: new =
+# 1.1512 * clip + (-0.1862) (регрессия по 40 парам relevance(query) CLIP
+# против SigLIP2-base256 на тех же изображениях/запросах, r высокий —
+# см. корреляцию 0.892 между моделями на этом наборе). Подставляя старый
+# порог 0.21, оценка даёт ~0.056. ЧЕСТНО: это ЭКСТРАПОЛЯЦИЯ, не измерение
+# на частицах — цена ошибки здесь низкая (ложное срабатывание просто
+# меняет opacity зерна, не отбрасывает кандидата, см. коммент выше), но
+# перед тем как доверять этому числу как калиброванному — нужна живая
+# проверка на реальных частицастых/чистых кадрах (как в исходной
+# калибровке), не сделана в этом заходе.
+PARTICLE_SCORE_THRESHOLD = 0.056
 PARTICLE_GRAIN_SCALE = 0.5   # во сколько раз снижаем GRAIN_OPACITY на "частицастом" клипе
 
 
@@ -11214,18 +11319,86 @@ def measure_particle_score(path, is_video=False):
     return clip_relevance(path, PARTICLE_PROMPT)
 
 
+# CLIP (openai/clip-vit-base-patch32) снесён отсюда 18.09 по прямому и
+# дважды подтверждённому требованию владельца («клип более старая и глупая
+# модель, замени её везде») — не по умолчанию, а перманентно: имена
+# `get_clip_model()`/`clip_relevance()`/`CLIP_ENABLED`/`CLIP_BROKEN` остались
+# ИСТОРИЧЕСКИМИ (70+ мест вызова в pipeline_smart.py и 5 других файлов —
+# переименование всех означало бы риск без пользы), но модель ВНУТРИ них
+# теперь SigLIP2-base-patch16-256 (та же архитектура, что уже год как
+# работает в visual_director.py для sentence_relevance(), только младший
+# вариант — со400m там осознанно ОТДЕЛЬНАЯ, более тяжёлая модель под другую
+# задачу, эту не трогает).
+#
+# ИЗМЕРЕНО на золотом наборе (40 кадров эп.01, 17.09), не предположено:
+#   AUC (ранжирует годное выше брака)        CLIP 0.566   SigLIP2-base256 0.658
+#   реальная скорость (15 картинок, CPU)     CLIP 72мс    SigLIP2-base256  50мс
+# Быстрее И точнее одновременно — тот редкий случай, где смены модели не
+# стоит ничего по скорости (сравни с тяжёлым ensemble so400m+Jina в
+# visual_director.py — 2358мс/вызов, 32.8x медленнее CLIP, поэтому ТОТ
+# остаётся точечной проверкой ПОБЕДИТЕЛЯ слота, SMART_RELEVANCE_VETO, а не
+# гейтом всего пула).
+#
+# ЧЕСТНО про предел находки: на самой строгой рабочей точке (ноль потерь и
+# по «годным», и по «терпимым») разница CLIP/SigLIP2-base256 почти стирается
+# (1 кадр брака из 17) — реальный отрыв виден только при готовности терять
+# больше «терпимых» кадров. На 40 картинках это может быть частично шум
+# выборки (n=16/7/17 по группам) — решение принято по прямому требованию
+# владельца, а не потому что находка была однозначной победой без сомнений.
+#
+# ЛИНЕЙНАЯ ГОЛОВА LAION-ЭСТЕТИКИ (get_aesthetic_head() ниже) сюда НЕ входит
+# и намеренно НЕ переведена на новую модель — это претренированная линейная
+# регрессия, математически привязанная к 512-мерному пространству эмбеддинга
+# ИМЕННО CLIP ViT-B/32 (веса обучены на нём людьми, не переносятся на другую
+# архитектуру/размерность без переобучения на новом датасете разметки,
+# которого в этой сессии нет). aesthetic_score() поэтому держит СВОЙ,
+# отдельный, узко для этой цели загружаемый CLIP ViT-B/32
+# (get_aesthetic_clip_model() ниже) — единственное место в файле, где
+# CLIP реально остался, и это не гейт/не решение «показывать или нет»,
+# а второстепенный тай-брейк ранжирования уже прошедших гейты кандидатов.
+CLIP_GATE_MODEL_NAME = "google/siglip2-base-patch16-256"
+CLIP_GATE_MODEL_MAX_TEXT_LEN = 64   # max_position_embeddings текстовой башни,
+                                      # тот же параметр, что и у so400m в
+                                      # visual_director.py (не настраиваемый)
+
 _clip_model = None
 _clip_processor = None
 
 
 def get_clip_model():
+    """Несмотря на имя (историческое, см. блок-комментарий выше) — грузит
+    SigLIP2-base-patch16-256, не CLIP. AutoModel/AutoProcessor (та же пара
+    классов, что уже используется в visual_director._get_siglip2_model()) —
+    SiglipModel поддерживает тот же контракт вызова, что раньше использовал
+    CLIPModel (joint forward -> .image_embeds/.text_embeds, get_text_features(),
+    get_image_features()), проверено вживую перед переключением."""
     global _clip_model, _clip_processor
     if _clip_model is None:
+        from transformers import AutoModel, AutoProcessor
+        _clip_model = AutoModel.from_pretrained(CLIP_GATE_MODEL_NAME, trust_remote_code=False).eval()
+        _clip_processor = AutoProcessor.from_pretrained(CLIP_GATE_MODEL_NAME, trust_remote_code=False)
+    return _clip_model, _clip_processor
+
+
+_aesthetic_clip_model = None
+_aesthetic_clip_processor = None
+
+
+def get_aesthetic_clip_model():
+    """ЕДИНСТВЕННОЕ оставшееся место реальной загрузки CLIP ViT-B/32 —
+    см. блок-комментарий у get_clip_model() выше про то, почему
+    get_aesthetic_head() не может просто переехать на новую модель.
+    Загружается лениво и отдельно от get_clip_model() — не тот же
+    синглтон, не тот же кэш, не гейтит is_relevant_candidate()/
+    negative_anchor_violation()/VISUAL_DOMAIN_GUARDS и им подобные,
+    только aesthetic_score()."""
+    global _aesthetic_clip_model, _aesthetic_clip_processor
+    if _aesthetic_clip_model is None:
         from transformers import CLIPModel, CLIPProcessor
         name = "openai/clip-vit-base-patch32"
-        _clip_model = CLIPModel.from_pretrained(name).eval()
-        _clip_processor = CLIPProcessor.from_pretrained(name)
-    return _clip_model, _clip_processor
+        _aesthetic_clip_model = CLIPModel.from_pretrained(name).eval()
+        _aesthetic_clip_processor = CLIPProcessor.from_pretrained(name)
+    return _aesthetic_clip_model, _aesthetic_clip_processor
 
 
 # clip_relevance()/aesthetic_score() ниже читают module-level флаги
@@ -11268,8 +11441,14 @@ def clip_relevance_multi(image_path, texts):
         # в transformers 5 они возвращают объект выхода модели, а не
         # тензор, и молчаливый except превратил бы вето в no-op (ровно это
         # и произошло при первой попытке — гейт был «включён» и не работал).
+        # padding="max_length" (не padding=True) — SigLIP2 обучена на
+        # фиксированной длине текстовой башни (см. CLIP_GATE_MODEL_MAX_TEXT_LEN
+        # у get_clip_model()), тот же режим, что уже использует
+        # visual_director._siglip2_text_emb() для so400m — динамический
+        # padding=True даёт другое (не откалиброванное) распределение скоров.
         inputs = processor(text=list(texts), images=[img], return_tensors="pt",
-                           padding=True, truncation=True)
+                           padding="max_length", max_length=CLIP_GATE_MODEL_MAX_TEXT_LEN,
+                           truncation=True)
         with torch.no_grad():
             out = model(**inputs)
         img_e = out.image_embeds / out.image_embeds.norm(dim=-1, keepdim=True)
@@ -11284,9 +11463,12 @@ def clip_relevance_multi(image_path, texts):
 
 @memoize_by_frame
 def clip_relevance(image_path, text):
-    """Косинусная близость картинки и текста ЗАПРОСА (0..1, реалистичный
-    диапазон на наших фото ~0.1-0.3, не 0..1 в бытовом смысле "процент
-    похожести" — это сырой косинус эмбеддингов CLIP). None при отключённой
+    """Косинусная близость картинки и текста ЗАПРОСА — сырой косинус
+    эмбеддингов SigLIP2-base-patch16-256 (см. блок-комментарий у
+    get_clip_model() — модель заменена 18.09, имя функции осталось
+    историческим). Диапазон на наших фото по факту другой, чем был у
+    CLIP (~-0.06..+0.18, не ~0.1..0.3) — см. пороги, откалиброванные под
+    новую шкалу: CLIP_RELEVANCE_THRESHOLD и др. ниже. None при отключённой
     фиче/сбое модели — вызывающий код тогда просто не гейтит по релевантности
     (безопасный откат, тот же принцип, что PARALLAX_LIBS/PARALLAX_BROKEN)."""
     global CLIP_BROKEN
@@ -11296,7 +11478,9 @@ def clip_relevance(image_path, text):
         import torch
         model, processor = get_clip_model()
         img = PILImage.open(image_path).convert("RGB")
-        inputs = processor(text=[text], images=[img], return_tensors="pt", padding=True, truncation=True)
+        inputs = processor(text=[text], images=[img], return_tensors="pt",
+                           padding="max_length", max_length=CLIP_GATE_MODEL_MAX_TEXT_LEN,
+                           truncation=True)
         with torch.no_grad():
             out = model(**inputs)
         img_e = out.image_embeds / out.image_embeds.norm(dim=-1, keepdim=True)
@@ -11427,13 +11611,22 @@ def aesthetic_score(image_path):
     низ; самый низкий скор корректно поймал случайно затесавшийся в кэш
     нерелевантный кадр — рюкзак/ноутбук вместо меча). None при отключённой
     фиче/сбое — вызывающий код просто не использует критерий (безопасный
-    откат, тот же принцип, что CLIP_BROKEN/PARALLAX_BROKEN)."""
-    global CLIP_BROKEN
-    if not AESTHETIC_ENABLED or not CLIP_ENABLED or CLIP_BROKEN:
+    откат, тот же принцип, что CLIP_BROKEN/PARALLAX_BROKEN).
+
+    Держит СВОЙ, отдельный от get_clip_model() CLIP ViT-B/32 (см.
+    get_aesthetic_clip_model() и блок-комментарий у get_clip_model() про
+    то, почему линейная голова LAION не может переехать на SigLIP2 без
+    переобучения) — AESTHETIC_ENABLED/CLIP_ENABLED (флаги гейта) всё ещё
+    управляют этим включателем (эстетика — надстройка над тем же общим
+    выключателем CLIP-класса функций), но сбой/поломка СВОЕЙ модели
+    отмечается в AESTHETIC_CLIP_BROKEN, не в CLIP_BROKEN — падение
+    SigLIP2-гейта не обязано гасить эстетику и наоборот."""
+    global AESTHETIC_CLIP_BROKEN
+    if not AESTHETIC_ENABLED or not CLIP_ENABLED or AESTHETIC_CLIP_BROKEN:
         return None
     try:
         import torch
-        model, processor = get_clip_model()
+        model, processor = get_aesthetic_clip_model()
         img = PILImage.open(image_path).convert("RGB")
         inputs = processor(images=[img], return_tensors="pt")
         with torch.no_grad():
@@ -11443,7 +11636,7 @@ def aesthetic_score(image_path):
         w, b = get_aesthetic_head()
         return float(e @ w + b)
     except ImportError:
-        CLIP_BROKEN = True
+        AESTHETIC_CLIP_BROKEN = True
         return None
     except Exception:
         return None

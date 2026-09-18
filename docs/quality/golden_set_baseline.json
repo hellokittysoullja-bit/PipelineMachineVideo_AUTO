@@ -1,19 +1,19 @@
 {
   "schema_version": 1,
-  "measured_at": "2026-09-08",
-  "commit": "89f0a44",
-  "stack": null,
-  "stack_note": "Версии torch/transformers, на которых снята эта линия, НЕ были записаны — линия старше этого поля. Из-за этого красный тест нельзя отличить от дрейфа моделей, не сверяя вручную через git stash (делалось дважды). У аудио-канарейки (tests/fixtures/clap_canary/canary.json) такое поле есть с самого начала — здесь оно отсутствовало. Перемерить на рабочей машине владельца: python scripts/golden_set_eval.py, записать сюда summary И stack одним заходом.",
-  "note": "Пол метрики. Обновлён 07.09 после контрастивного вето по ловушкам-негативам: пропуск брака 0.7647 -> 0.5882, анахронизмы 0.6364 -> 0.5455, ложный отказ годным остался ровно 0.0. Второй заход 07.09/08.09: NEGATIVE_VETO_MARGIN -0.02 -> -0.015 (безопасное ужесточение, найдено сканированием margin всех 40 кадров, не подгонкой под один) поймал ep01_000 (кухня на 'milk bottle hand', margin -0.0175) без единого нового ложного отказа — пропуск брака 0.5882 -> 0.5294. Прошлые значения сохранены в previous_summary_* — так видно, что пол двигался только вниз по ошибкам и никогда вверх.",
+  "measured_at": "2026-09-18",
+  "commit": null,
+  "stack": {"torch": "2.14.0+cpu", "transformers": "5.17.0"},
+  "stack_note": "Записано начиная с этого замера (см. историю поля выше про его прежнее отсутствие).",
+  "note": "18.09: CLIP ViT-B/32 удалён из get_clip_model()/clip_relevance() перманентно, заменён на SigLIP2-base-patch16-256 (по прямому и дважды подтверждённому требованию владельца) — см. CLIP_GATE_MODEL_NAME в pipeline_smart.py. Пол ПЕРЕСЧИТАН, не перекалиброван под старое число: это ЧЕСТНО ХУЖЕ на этой конкретной оси, а не улучшение — reject_leak 0.5294 -> 0.7059, anachronism_leak 0.5455 -> 0.6364, good_false_reject остался 0.0 (порог CLIP_RELEVANCE_THRESHOLD откалиброван так же, как раньше — «ноль ложных отказов good/tolerable первым условием»). Причина измерена, не гипотеза: у новой модели margin у нескольких good/tolerable кадров (ep01_015/032/133 и др.) значимо отрицательнее, чем был у CLIP на тех же кадрах, и все зависящие от шкалы пороги (CLIP_RELEVANCE_THRESHOLD/NEGATIVE_VETO_MARGIN/VISUAL_DOMAIN_GUARDS/RISKY_QUERY_MARGIN) были вынуждены отступить дальше, чтобы их не потерять — это стоило части улова брака. Одновременно измерено (не через эту метрику, а отдельным AUC-сравнением на тех же 40 кадрах, см. get_clip_model() в pipeline_smart.py и git-историю): SigLIP2-base256 быстрее CLIP (50мс/72мс) и точнее ПО РАНЖИРОВАНИЮ в среднем (AUC 0.658 против 0.566) — эта метрика гейтов и AUC измеряют РАЗНОЕ (гейт на строгой нулевой точке против ранжирования по всему диапазону), и первое НЕ обязано расти вместе со вторым. previous_summary_* ниже переименованы в *-clip-* чтобы явно отметить: они с другой моделью, не более раннее (худшее) состояние этой же модели — правило «пол двигался только вниз по ошибкам» относится к CLIP-эре и не продолжается через смену модели.",
   "summary": {
     "n_items": 40,
     "n_good": 16,
     "n_tolerable": 7,
     "n_reject": 17,
-    "reject_leak": 0.5294,
+    "reject_leak": 0.7059,
     "good_false_reject": 0.0,
-    "anachronism_leak": 0.5455,
-    "strict_leak": 0.5,
+    "anachronism_leak": 0.6364,
+    "strict_leak": 0.7917,
     "episode_good_rate": 0.4,
     "hook_good_rate": 0.0,
     "by_reason": {
@@ -24,30 +24,37 @@
       "unusable": 1
     },
     "leaked_by_reason": {
-      "modern_intrusion": 4,
+      "wrong_subject": 4,
+      "modern_intrusion": 5,
       "non_european": 2,
-      "duplicate": 1,
-      "wrong_subject": 2
+      "duplicate": 1
     },
-    "domain_guard_hits": 2,
+    "domain_guard_hits": 1,
     "n_candidates": 264,
-    "blocked_share": 0.2765,
+    "blocked_share": 0.2955,
     "blocked_share_photo": 0.25,
-    "blocked_share_video": 0.303,
+    "blocked_share_video": 0.3409,
     "starved_queries": 0
   },
   "corpus_note": "Ось «отсеяно по тексту до скачивания» зафиксирована в состоянии ДО правки 07.09: filter_alt_blocklist() смотрела только в alt и вызывалась только из pexels_photo(). Отсюда blocked_share_video=0.0 — по видео фильтр не работал вообще, при том что половина слотов эпизода видео.",
-  "previous_summary_2026-09-07-initial": {
+  "previous_summary_2026-09-07-clip-initial": {
     "reject_leak": 0.7647,
     "anachronism_leak": 0.6364,
     "strict_leak": 0.75,
     "good_false_reject": 0.0,
     "blocked_share": 0.0795
   },
-  "previous_summary_2026-09-07-negative-veto-0.02": {
+  "previous_summary_2026-09-07-clip-negative-veto-0.02": {
     "reject_leak": 0.5882,
     "anachronism_leak": 0.5455,
     "strict_leak": 0.5417,
+    "good_false_reject": 0.0,
+    "blocked_share": 0.2765
+  },
+  "previous_summary_2026-09-08-clip-final": {
+    "reject_leak": 0.5294,
+    "anachronism_leak": 0.5455,
+    "strict_leak": 0.5,
     "good_false_reject": 0.0,
     "blocked_share": 0.2765
   }

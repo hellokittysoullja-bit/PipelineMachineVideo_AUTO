@@ -134,7 +134,13 @@ def test_qc_verdict_rejects_flat_histogram(tmp_path, monkeypatch):
 
 
 def test_qc_verdict_rejects_low_relevance(tmp_path, monkeypatch):
-    _patch_all_scorers(monkeypatch, relevance=0.05)
+    # relevance=-0.1 (не 0.05, как раньше) — 18.09 pipeline_smart.
+    # CLIP_RELEVANCE_THRESHOLD сменился с ~0.19 (шкала CLIP) на -0.035
+    # (шкала SigLIP2-base256, см. CLIP_GATE_MODEL_NAME в pipeline_smart.py);
+    # 0.05 был ниже старого порога и выше нового — тест проверял не то,
+    # что должен, на новой шкале. Значение ниже НОВОГО порога, тест
+    # по-прежнему про «низкая релевантность отклоняется».
+    _patch_all_scorers(monkeypatch, relevance=-0.1)
     p = _make_photo(tmp_path)
     info = vqc.qc_verdict(p, is_video=False, query="unrelated topic", accepted_hashes={}, slot_label="001")
     assert info["verdict"] == "reject"

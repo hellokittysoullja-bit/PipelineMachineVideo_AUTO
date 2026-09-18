@@ -723,21 +723,32 @@ class TestSentenceRelevanceSiglip2RealModel:
             f"реальная русская фраза сценария про меч должна давать более высокую "
             f"близость к фото меча, чем к фото пиццы: sword={r_sword}, pizza={r_pizza}")
 
-    def test_regression_raw_russian_text_was_near_noise_on_english_only_clip(self):
-        # Документирует РЕАЛЬНУЮ причину фикса: та же фраза через ОДНОЯЗЫЧНУЮ
-        # (английскую) pipeline_smart.clip_relevance() не различает meч/пиццу
-        # на русском тексте — разница в пределах шума. Это не проверка самого
-        # sentence_relevance() (уже проверено выше), а живая регрессия на
-        # СТАРОЕ поведение, чтобы факт бага не потерялся молча, если кто-то
-        # решит "упростить" реализацию обратно.
+    def test_russian_text_is_no_longer_near_noise_since_the_gate_model_became_multilingual(self):
+        # ПЕРЕВЁРНУТО 18.09: этот тест ГОДАМИ документировал, что
+        # ОДНОЯЗЫЧНЫЙ (английский) CLIP ViT-B/32 внутри pipeline_smart.
+        # clip_relevance() не различает меч/пиццу на русском тексте (разница
+        # в пределах шума, <0.05) — и его собственный комментарий прямо
+        # предсказывал: "если это упало — одноязычный CLIP неожиданно
+        # научился различать русский текст, sentence_relevance можно
+        # упростить обратно". Именно это и произошло: get_clip_model()
+        # теперь грузит SigLIP2-base-patch16-256 (многоязычная, 109 языков,
+        # см. CLIP_GATE_MODEL_NAME в pipeline_smart.py), и на этой же фразе
+        # разница sword/pizza выросла с "в пределах шума" до ~0.159.
+        #
+        # ЧЕСТНО: это НЕ повод упрощать sentence_relevance()/ensemble
+        # обратно в этом же заходе — вопрос, нужен ли ещё отдельный
+        # so400m+Jina ensemble поверх теперь-тоже-многоязычного базового
+        # гейта, отдельная архитектурная задача, не затронутая здесь.
+        # Тест теперь документирует ОБРАТНОЕ: что gate-модель РЕАЛЬНО стала
+        # многоязычной, а не молча остался бы неверный докстринг.
         text = "Обычный одноручный рыцарский меч весит от килограмма до полутора."
         r_sword = vd.pipeline_smart.clip_relevance(_GOLDEN_SWORD, text)
         r_pizza = vd.pipeline_smart.clip_relevance(_GOLDEN_PIZZA, text)
         assert r_sword is not None and r_pizza is not None
-        assert abs(r_sword - r_pizza) < 0.05, (
-            "если это упало — одноязычный CLIP неожиданно научился различать "
-            "русский текст, sentence_relevance можно упростить обратно; "
-            "пока что это ожидаемо мал")
+        assert abs(r_sword - r_pizza) > 0.05, (
+            "gate-модель снова перестала различать русский текст — если это "
+            "упало, проверь, не откатился ли get_clip_model() на "
+            "одноязычную модель")
 
 
 # ---------- self-calibrating DIRECTOR_RELEVANCE_FLOOR ----------
