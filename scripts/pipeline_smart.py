@@ -7869,7 +7869,8 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             cf, pexels_id=pick.get("id"), query=query, kind="photo",
             ahash_hex=_picked_ahash,
             relevance=(winner.get("relevance") if winner else None),
-            chosen_by=chosen_by, provenance=_prov)
+            chosen_by=chosen_by, provenance=_prov,
+            candidate_text=pexels_candidate_text(pick))
         if recent_sizes is not None:
             try:
                 recent_sizes.append(estimate_shot_size(cf))
@@ -10992,7 +10993,7 @@ def media_sidecar_path(media_path):
 
 def write_media_sidecar(media_path, *, pexels_id=None, query=None, kind=None,
                         ahash_hex=None, relevance=None, chosen_by=None,
-                        provenance=None):
+                        provenance=None, candidate_text=None):
     """Записать, ЧТО именно лежит в кэш-файле кандидата.
 
     РЕАЛЬНАЯ, найденная вживую дыра (04.09), которую это закрывает: имя
@@ -11023,6 +11024,18 @@ def write_media_sidecar(media_path, *, pexels_id=None, query=None, kind=None,
         # другого места, где происхождение кадра ещё известно, нет.
         if provenance:
             payload["provenance"] = provenance
+        # ТЕКСТ КАНДИДАТА — то, по чему его судит жанровый фильтр
+        # (pexels_candidate_text: alt + слаг url + теги; у Викисклада имя файла
+        # + категории). Раньше он не сохранялся нигде, и цена этого выяснилась
+        # при попытке ИЗМЕРИТЬ текстовую ось вердикта: у золотого набора (40
+        # кадров с глазной разметкой) текста кандидатов нет, эпизод свой
+        # temp_smart не сохранил, а по имени кэш-файла восстановить его нельзя —
+        # то есть единственный размеченный корпус проекта на этой оси
+        # неаудируем, и чтобы её проверить, надо заново идти в чужой API за
+        # кадром, который уже лежит на диске. Строка стоит байты и переживает
+        # кэш-хит ровно так же, как провенанс.
+        if candidate_text:
+            payload["candidate_text"] = candidate_text
         tmp = media_sidecar_path(media_path) + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False)
@@ -12993,6 +13006,11 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
         # у комментария к shot_size_ok). Нужна затем, чтобы историю крупностей
         # пополнял сам pexels_video() — см. её использование у победителя.
         cand_sizes = {}
+        # Тот же приём, что cand_relevance/cand_sizes: текст кандидата
+        # запоминается по пути пробника, а не восьмым элементом кортежа `good`
+        # — тот разбирается по позиции в трёх местах, и сдвиг индексов молча
+        # перепутал бы путь/id/hash (см. комментарий у shot_size_ok).
+        cand_text = {}
         tries = 0
         # РЕАЛЬНЫЙ баг, найденный покадровым просмотром готового рендера
         # (не гипотеза): VIDEO_RELEVANCE_MAX_TRIES=3 калибровалась под
@@ -13027,6 +13045,7 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
             except Exception:
                 continue
             tries += 1
+            cand_text[trial] = pexels_candidate_text(v)
             # Пробник — ВНУТРИ показанного окна, а не на 0.5с файла: при
             # skip=1.6 кадр на 0.5с зритель не увидит вовсе, и relevance
             # считалась по кадру, которого в ролике нет (см.
@@ -13308,7 +13327,8 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                 used_hashes.append(best[4])
             write_media_sidecar(cf, pexels_id=best[3], query=query, kind="video",
                                 ahash_hex=best[4], relevance=best_rel,
-                                chosen_by="video_relevance_best")
+                                chosen_by="video_relevance_best",
+                                candidate_text=cand_text.get(best[2]))
             _source_bump(candidate_channel(best[3]), "won")
             _reset_pexels_streak()
             return cf
@@ -13355,7 +13375,8 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                 cf, pexels_id=vid, query=query, kind="video", ahash_hex=cand_hash,
                 relevance=chosen_rel,
                 chosen_by=("video_dup_fallback" if chosen is dup_fallback
-                           else "video_plain_fallback"))
+                           else "video_plain_fallback"),
+                candidate_text=cand_text.get(path))
             _reset_pexels_streak()
             return cf
         return None
