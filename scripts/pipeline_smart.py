@@ -6428,7 +6428,7 @@ _BRIEF_STOP_WORDS = (
 # Маркер версии для _selection_stack_signature(): извлечение меняет СОСТАВ
 # пула (в него приходит запрос, которого раньше не существовало), а не
 # только порядок внутри него.
-BRIEF_STOCK_QUERY_VERSION = 1
+BRIEF_STOCK_QUERY_VERSION = 2   # 2: порядковое числительное века переживает обрезку (18.09)
 BRIEF_STOCK_QUERY_MAX_WORDS = 5
 
 
@@ -6460,7 +6460,15 @@ def brief_to_stock_query(brief, fallback=None, max_words=BRIEF_STOCK_QUERY_MAX_W
     text = (brief or "").strip().lower()
     if not text:
         return fallback
-    words = [w for w in re.findall(r"[a-z][a-z\-]*", text) if w]
+    # Порядковое числительное века — ОДНО слово с цифрами, которое здесь
+    # нужно: архивы индексируют носитель именно так («18th-century watercolor
+    # paintings», «1845 engravings» — реальные категории Викисклада). Прежний
+    # шаблон требовал, чтобы слово НАЧИНАЛОСЬ с буквы, поэтому «18th» из
+    # брифа «an 18th century engraving…» выпадал целиком, а бессмысленное
+    # «century» оставалось и занимало место в пятисловном запросе. Голые
+    # числа по-прежнему не проходят (шаблон требует букв после цифр), то
+    # есть «15 кг» в запрос не попадёт.
+    words = [w for w in re.findall(r"[a-z][a-z\-]*|\d{1,2}(?:st|nd|rd|th)", text) if w]
     framing = {w.lower() for w in BRIEF_FRAMING_WORDS}
     stop = set(_BRIEF_STOP_WORDS)
     content, seen = [], set()

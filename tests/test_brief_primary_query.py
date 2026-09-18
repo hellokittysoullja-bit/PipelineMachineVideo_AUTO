@@ -71,3 +71,21 @@ def test_query_is_short_like_a_section_query(monkeypatch):
     qs = _resolve(monkeypatch, True)
     for q in qs:
         assert len(q.split()) <= ps.BRIEF_STOCK_QUERY_MAX_WORDS + 1, q
+
+
+def test_century_ordinal_survives_the_trim():
+    """Архивы индексируют носитель веком («18th-century watercolor paintings»,
+    «1845 engravings» — реальные категории Викисклада). Прежний шаблон
+    требовал, чтобы слово начиналось с буквы, и «18th» выпадал целиком,
+    оставляя бессмысленное «century» на месте в пятисловном запросе."""
+    q = ps.brief_to_stock_query(
+        "an 18th century engraving of a london coffee house interior", fallback=None)
+    assert "18th" in q, q
+    assert q.split().count("century") <= 1, q
+
+
+def test_bare_numbers_still_dropped():
+    """Цифры сами по себе стоковому запросу не нужны — шаблон требует букв
+    после цифр, поэтому «15 кг» в запрос не попадает."""
+    q = ps.brief_to_stock_query("a sword weighing 15 kg held in one hand", fallback=None)
+    assert "15" not in q, q
