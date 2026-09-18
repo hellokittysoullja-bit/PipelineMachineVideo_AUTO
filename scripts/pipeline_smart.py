@@ -6179,8 +6179,31 @@ def _pexels_search_photos(api_query):
     req = urllib.request.Request(
         f"https://api.pexels.com/v1/search?query={q}&per_page=80&orientation=landscape",
         headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=15) as r:
-        data = json.load(r)
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            data = json.load(r)
+    except Exception as e:
+        # FAIL-OPEN НА УРОВНЕ ИСТОЧНИКА, а не всего слота — тот же принцип,
+        # что у Openverse/Викисклада/музеев, и та же дыра, что 13.09 уже
+        # закрывали для ОТСУТСТВУЮЩЕГО ключа ("Ключ Pexels гейтил ВСЕ
+        # источники"): тогда починили `return []` без ключа, а СЕТЕВАЯ
+        # ошибка по-прежнему летела наверх, где её ловил один общий
+        # try/except на всё тело pexels_photo() — и слот терял ВМЕСТЕ с
+        # Pexels музей, Викисклад, Openverse, Pixabay и Unsplash.
+        #
+        # Измерено вживую 18.09, а не выведено чтением: на марсианском
+        # эпизоде квота Pexels (200/час, ЧАСТЬ 21) кончилась посреди
+        # прогона, и **39 слотов из 51 (76%) стали карточками-фолбэками**
+        # при том что Викисклад предложил в этом же прогоне 414
+        # кандидатов, а Openverse 200. Бюджет карточек (8%) здесь ни при
+        # чём: слот без медиа ВООБЩЕ получает карточку вне бюджета, и это
+        # правильно — неправильно было то, что он остался без медиа.
+        #
+        # Пустая выдача НЕ кэшируется: 429 — состояние минуты, а не
+        # свойство запроса, и запомнить его на прогон значило бы
+        # выключить Pexels до конца эпизода тем же молчанием.
+        _note_pexels_failure(e, f"Pexels [{api_query}]")
+        return []
     photos = data.get("photos") or []
     _PEXELS_SEARCH_CACHE[api_query] = photos
     return photos
@@ -12822,8 +12845,15 @@ def _pexels_search_videos(api_query):
     req = urllib.request.Request(
         f"https://api.pexels.com/videos/search?query={q}&per_page=80&orientation=landscape",
         headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=15) as r:
-        data = json.load(r)
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            data = json.load(r)
+    except Exception as e:
+        # См. _pexels_search_photos: сбой Pexels стоит вклада Pexels, а не
+        # всего слота. Асимметрия «починили на фото, забыли на видео» уже
+        # четырежды стоила этому репозиторию половины эпизода.
+        _note_pexels_failure(e, f"Pexels video [{api_query}]")
+        return []
     videos = data.get("videos") or []
     _PEXELS_VIDEO_SEARCH_CACHE[api_query] = videos
     return videos
