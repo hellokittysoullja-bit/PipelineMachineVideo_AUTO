@@ -4669,7 +4669,7 @@ def reset_capability_stats():
 #: узнать об этом было неоткуда» — здесь наоборот, источник молча давал
 #: чужое имя.
 CANDIDATE_ID_PREFIXES = ("met", "euro", "chicago", "cleveland", "openverse",
-                         "pixabay", "unsplash")
+                         "pixabay", "unsplash", "commons")
 
 
 def candidate_source(p):
@@ -4781,6 +4781,11 @@ def reset_source_stats():
         _mus.reset_fetch_stats()
     except Exception:
         pass
+    try:
+        import commons_source as _cs
+        _cs.reset_fetch_stats()
+    except Exception:
+        pass
 
 
 def write_source_contribution(video_dir):
@@ -4788,12 +4793,22 @@ def write_source_contribution(video_dir):
     Пишется ВСЕГДА, даже если ни один источник не дал ничего: «нечего
     сообщить» — тоже факт, а не отсутствие файла."""
     report = {"schema_version": 1, "sources": {}, "museum_fetch": None,
+              "commons_fetch": None,
               "openverse_fetch": dict(OPENVERSE_STATS)}
     for src in sorted(SOURCE_STATS):
         report["sources"][src] = dict(SOURCE_STATS[src])
     try:
         import museum_sources as _mus
         report["museum_fetch"] = dict(_mus.FETCH_STATS)
+    except Exception:
+        pass
+    # Викисклад отчитывается своими счётчиками отдельно от общего вклада:
+    # «отклонено по лицензии» и «отклонено по разрешению» — это не отказ
+    # источника и не проигрыш кандидата, а работа его собственной политики,
+    # и смешивать её с гейтами отбора значило бы соврать в обе стороны.
+    try:
+        import commons_source as _cs
+        report["commons_fetch"] = dict(_cs.FETCH_STATS)
     except Exception:
         pass
     total_won = sum(v["won"] for v in report["sources"].values()) or 0
@@ -6980,6 +6995,44 @@ def _search_with_variants(label, api_query, fetch_one):
     return fused
 
 
+_COMMONS_PHOTO_CACHE = {}
+
+
+def _commons_search_photos(api_query):
+    """Кандидаты Викисклада в ФОРМЕ PEXELS-КАНДИДАТА — universal-источник со
+    знанием о содержимом, для ЛЮБОЙ ниши, без ключа и без атрибуции.
+
+    Зачем отдельно от Openverse, который до Викисклада тоже дотягивается:
+    замер 18.09 на живых API — Openverse предложил кофейному эпизоду 158
+    кандидатов и выиграл 3 слота из 50 (6%), потому что берёт только
+    cc0-подмножество и только через свой индекс. Прямой запрос к Викискладу
+    на тех же нишах даёт 59 кандидатов PD/CC0 с короткой стороной >=1080 из
+    172 (кофе, Марс, глубоководные) — треть выдачи проходит политику канала,
+    и это материал, которого в пуле сегодня нет вовсе.
+
+    Почему именно источник, а не ещё одна модель: замер того же дня
+    (docs/quality/so400m_as_judge.json) показал, что усиление модели-СУДЬИ не
+    работает — распределения годных и брака перекрываются целиком, а 11
+    браков из 17 это анахронизм или чужая культура, то есть вопрос ЗНАНИЯ, а
+    не сходства пикселей.
+
+    Флаг читается В МОМЕНТ ВЫЗОВА через реестр (тот же урок, что уже стоил
+    NameError на OPENVERSE_ENABLED), лицензия проверяется fail-closed внутри
+    самого модуля, кандидаты идут в общий пул под общими гейтами.
+    """
+    if not feature_flags.enabled("COMMONS_SOURCE"):
+        return []
+    if api_query in _COMMONS_PHOTO_CACHE:
+        return _COMMONS_PHOTO_CACHE[api_query]
+    try:
+        import commons_source
+        out = commons_source.search_commons(api_query)
+    except Exception as e:
+        _note_source_search_error("commons", e)
+        out = []
+    _COMMONS_PHOTO_CACHE[api_query] = out
+    return out
+
 def _openverse_search_photos(api_query):
     """Выдача институциональных архивов (Met/Wikimedia/Rijksmuseum/...) в
     ФОРМЕ PEXELS-КАНДИДАТА — чтобы конкурировать в ОДНОМ пуле с Pexels под
@@ -7344,7 +7397,8 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                                         ("openverse", _openverse_search_photos),
                                         ("pexels", _pexels_search_photos),
                                         ("pixabay", _pixabay_search_photos),
-                                        ("unsplash", _unsplash_search_photos)):
+                                        ("unsplash", _unsplash_search_photos),
+                                        ("commons", _commons_search_photos)):
                 if not source_allowed_for(source_name, shot_type):
                     continue
                 src_list = []
@@ -11198,6 +11252,7 @@ def _selection_stack_signature():
         # экрана вообще (кандидат уже выбран и закэширован).
         feature_flags.enabled("PIXABAY_ENABLED"),
         feature_flags.enabled("UNSPLASH_ENABLED"),
+        feature_flags.enabled("COMMONS_SOURCE"),
         # Ступень «негодное видео -> фотография» меняет САМ ТИП медиа в слоте,
         # то есть то, что реально увидит зритель. Ключ клипа считается до
         # резолва медиа — без флага здесь на прогретом temp_smart/ в слоте
@@ -12376,7 +12431,20 @@ def video_display_skip(vid, dur, actual=None):
     key = (vid, round(float(dur), 3))
     if key in _VIDEO_SKIP_CACHE:
         return _VIDEO_SKIP_CACHE[key]
-    h = int(hashlib.md5(vid.encode()).hexdigest()[:8], 16)
+    # Джиттер — от СОДЕРЖИМОГО файла, а не от его имени. Найдено разбором
+    # собственной правки: на гейте кандидат лежит во временном `trial_*`, а
+    # на рендере — в кэше под другим именем, и хэш ИМЕНИ давал этим двум
+    # моментам разный пропуск. Для клипа с реальной сменой кадра разницы нет
+    # (её находит сцен-детектор, он content-based), но для статичного плана
+    # гейт смотрел бы окно, сдвинутое относительно показанного на величину
+    # до max_skip. Размер и длительность одинаковы у любой копии файла, и
+    # разнообразие пропуска между РАЗНЫМИ клипами сохраняется — ради него
+    # джиттер и заведён.
+    try:
+        content_key = "%d|%.3f" % (os.path.getsize(vid), float(actual))
+    except Exception:
+        content_key = vid
+    h = int(hashlib.md5(content_key.encode()).hexdigest()[:8], 16)
     max_skip = min(1.6, (actual - dur) * 0.5)
     scene_skip = detect_scene_change_offset(vid, max_skip)
     skip = scene_skip if scene_skip is not None else (

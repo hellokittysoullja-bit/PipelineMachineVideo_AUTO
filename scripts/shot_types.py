@@ -73,6 +73,13 @@ SOURCE_CAPABILITIES = {
     "pexels":    {"supports": ("object", "scene", "illustration", "texture", "map", ANY)},
     "pixabay":   {"supports": ("object", "scene", "illustration", "texture", "map", ANY)},
     "unsplash":  {"supports": ("object", "scene", "illustration", "texture", "map", ANY)},
+    # Викисклад (scripts/commons_source.py) — универсальный архив, у которого
+    # есть человекочитаемое название файла и машиночитаемая лицензия, но НЕТ
+    # паспорта эпохи/культуры, как у музея. Поэтому типы объявлены как у
+    # стоков (все), а в списке кандидатов он идёт ПОСЛЕ Pexels: преимущества
+    # перед уже проверенными источниками у него нет, выигрывать слот он
+    # обязан ранжированием, а не позицией.
+    "commons":   {"supports": ("object", "scene", "illustration", "texture", "map", ANY)},
 }
 
 # Словарь вывода типа по словам запроса. Порядок проверки — сверху вниз,

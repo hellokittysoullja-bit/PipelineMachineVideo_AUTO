@@ -88,7 +88,11 @@ def _isolate_from_real_dotenv(monkeypatch, tmp_path):
     # PIXABAY_ENABLED/UNSPLASH_ENABLED — та же причина и тот же дефолт-1, что у
     # музеев: без этих двух строк любой тест, дошедший до сборки пула, ходил бы
     # живьём в Pixabay/Unsplash, если в окружении вдруг оказался ключ.
-    for _flag in ("PIXABAY_ENABLED", "UNSPLASH_ENABLED"):
+    # COMMONS_SOURCE — та же причина, и здесь она жёстче: Викискладу ключ не
+    # нужен вовсе, то есть без этой строки КАЖДЫЙ тест, дошедший до сборки
+    # пула, ходил бы в чужой API на любой машине, включая CI. Ровно тот же
+    # класс, что уже ловили с OPENVERSE_ENABLED и MUSEUM_SOURCES_ENABLED.
+    for _flag in ("PIXABAY_ENABLED", "UNSPLASH_ENABLED", "COMMONS_SOURCE"):
         monkeypatch.delenv(_flag, raising=False)
         monkeypatch.setenv(_flag, "0")
 
