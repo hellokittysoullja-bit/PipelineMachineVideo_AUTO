@@ -43,7 +43,7 @@ def _stub_common(monkeypatch, tmp_path, n=2):
     monkeypatch.setattr(ps, "extract_video_probe_frame", lambda p, **kw: (p + ".jpg", False))
     monkeypatch.setattr(ps, "is_relevant_candidate", lambda *a, **k: True)
     monkeypatch.setattr(ps, "video_domain_guard_violation", lambda *a, **k: (False, None))
-    monkeypatch.setattr(ps, "video_sharpness_ok", lambda p: True)
+    monkeypatch.setattr(ps, "video_sharpness_ok", lambda p, **k: True)
     monkeypatch.setattr(ps, "measure_luma", lambda p: 0.4)
 
 

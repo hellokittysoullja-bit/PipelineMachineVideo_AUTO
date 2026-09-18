@@ -67,7 +67,10 @@ class TestWiring:
         src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"), encoding="utf-8").read()
         assert src.count("def pexels_video(") == 1
         block = src[src.index("def pexels_video("):]
-        assert "video_negative_anchor_violation(trial, query)" in block
+        # slot_dur обязателен в вызове: без него гейт смотрел бы доли
+        # ПОЛНОЙ длительности файла, а не показанного окна
+        # (см. tests/test_video_display_window.py).
+        assert "video_negative_anchor_violation(trial, query, slot_dur=slot_dur)" in block
 
     def test_part_of_candidate_gate_signature(self):
         src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"), encoding="utf-8").read()

@@ -10752,7 +10752,7 @@ def visual_domain_guard_violation(image_path, query):
 VIDEO_DOMAIN_GUARD_SAMPLE_FRACS = (0.15, 0.5, 0.85)
 
 
-def video_domain_guard_violation(video_path, query):
+def video_domain_guard_violation(video_path, query, slot_dur=None):
     """Тот же visual_domain_guard_violation(), но на НЕСКОЛЬКИХ кадрах видео,
     не на одном (см. pexels_video() — та проверяет relevance/risky-margin
     через ОДИН пробник extract_video_probe_frame(), обычно на 0.5с).
@@ -10771,14 +10771,10 @@ def video_domain_guard_violation(video_path, query):
     trigger_terms — эта функция вызывается ТОЛЬКО когда общий relevance-гейт
     уже прошёл на первом кадре, то есть на подавляющем большинстве обычных
     (не «оружейных») запросов не добавляет ни одного лишнего кадра/вызова."""
-    try:
-        duration = get_media_duration(video_path)
-    except Exception:
-        duration = None
-    if duration and duration > 0.6:
-        ats = [max(0.3, min(duration - 0.2, duration * f)) for f in VIDEO_DOMAIN_GUARD_SAMPLE_FRACS]
-    else:
-        ats = [0.5]
+    # Точки берутся ВНУТРИ показанного окна, а не по всей длительности файла:
+    # см. video_display_window() — гейт обязан судить тот отрезок, который
+    # увидит зритель. slot_dur=None -> окно = весь файл, прежнее поведение.
+    ats = video_sample_times(video_path, VIDEO_DOMAIN_GUARD_SAMPLE_FRACS, slot_dur)
     seen = []
     for at in ats:
         if any(abs(at - s) < 0.2 for s in seen):
@@ -10797,7 +10793,7 @@ def video_domain_guard_violation(video_path, query):
     return False, None
 
 
-def video_negative_anchor_violation(video_path, query):
+def video_negative_anchor_violation(video_path, query, slot_dur=None):
     """Тот же negative_anchor_violation(), но на НЕСКОЛЬКИХ кадрах видео —
     буквально тот же приём и те же точки сэмплирования, что уже работают в
     video_domain_guard_violation() выше (не дублирование ради дублирования:
@@ -10814,14 +10810,10 @@ def video_negative_anchor_violation(video_path, query):
     negative_anchor_violation() на кадре 0.5с -> (False, None), на кадрах
     0.96с и 40.9с -> (True, "crowd of modern spectators..."). Ролик выиграл
     слот и остался бы в готовом эпизоде без этой правки."""
-    try:
-        duration = get_media_duration(video_path)
-    except Exception:
-        duration = None
-    if duration and duration > 0.6:
-        ats = [max(0.3, min(duration - 0.2, duration * f)) for f in VIDEO_DOMAIN_GUARD_SAMPLE_FRACS]
-    else:
-        ats = [0.5]
+    # Точки берутся ВНУТРИ показанного окна, а не по всей длительности файла:
+    # см. video_display_window() — гейт обязан судить тот отрезок, который
+    # увидит зритель. slot_dur=None -> окно = весь файл, прежнее поведение.
+    ats = video_sample_times(video_path, VIDEO_DOMAIN_GUARD_SAMPLE_FRACS, slot_dur)
     seen = []
     for at in ats:
         if any(abs(at - s) < 0.2 for s in seen):
@@ -10856,7 +10848,7 @@ VIDEO_SHARPNESS_REJECT = 400.0
 VIDEO_SHARPNESS_SAMPLE_FRACS = (0.15, 0.5, 0.85)   # та же сетка, что у domain-гварда
 
 
-def video_sharpness_ok(video_path):
+def video_sharpness_ok(video_path, slot_dur=None):
     """Median резкости по нескольким сэмплам (не один кадр — транзиентное
     смазывание в один момент не должно топить весь клип, см. докстринг
     video_domain_guard_violation про "не доверять одному сэмплу"). None
@@ -10871,8 +10863,10 @@ def video_sharpness_ok(video_path):
     if not duration or duration <= 0.6:
         return None
     scores = []
-    for frac in VIDEO_SHARPNESS_SAMPLE_FRACS:
-        at = max(0.3, min(duration - 0.2, duration * frac))
+    # Смаз за пределами показанного окна — не дефект ЭТОГО клипа: рендер
+    # покажет только [skip, skip+dur] исходника (см. video_display_window).
+    for at in video_sample_times(video_path, VIDEO_SHARPNESS_SAMPLE_FRACS,
+                                 slot_dur, actual=duration):
         probe, cleanup = extract_video_probe_frame(video_path, base_at=at, retry_ats=())
         if probe is None:
             continue
@@ -11350,6 +11344,15 @@ def candidate_gate_signature():
             # доходит до гейтов, — значит обязан инвалидировать уже
             # закэшированных кандидатов, отобранных по старому правилу.
             _video_candidate_too_short,
+            # video_display_window/video_sample_times/video_display_skip —
+            # ОТРЕЗОК исходника, который гейты вообще смотрят. До 18.09 они
+            # брали доли полной длительности файла, а рендер показывает
+            # [skip, skip+dur]: проверялись кадры, которых зритель не увидит,
+            # и не проверялись те, которые увидит. Правка меняет вердикт по
+            # тем же самым файлам, значит обязана инвалидировать кандидатов,
+            # отобранных по старому правилу, — иначе на прогретом temp_smart/
+            # она не дошла бы до экрана вообще.
+            video_display_window, video_sample_times, video_display_skip,
         )]
         parts.append(repr((
             CLIP_RELEVANCE_THRESHOLD, RISKY_QUERY_MARGIN, NEGATIVE_ANCHOR_PROMPT,
@@ -12322,6 +12325,116 @@ def detect_scene_change_offset(vid, max_skip, scene_threshold=0.12):
         return None
 
 
+# ---------------------------------------------------------------------------
+# ОКНО ПОКАЗА ВИДЕО — единственная формула на рендер и на все гейты (18.09).
+#
+# Найденное расхождение, измеренное арифметически, а не предположенное. Все
+# видео-гейты (relevance/домен-гвард/контрастивное вето/резкость) брали кадры
+# долями ПОЛНОЙ длительности файла, а video_render() показывает только отрезок
+# [skip, skip+dur] этого файла. На реальном кандидате эпизода (Pexels 855260,
+# 48.0с исходника, слот 6.0с) это значит:
+#     показано зрителю : 1.6 .. 7.6с
+#     проверено гейтами: 7.2 / 24.0 / 40.8с
+# то есть из трёх проверенных точек в кадр попадала ноль целых, а ровно тот
+# дефект, ради которого многокадровая проверка и заведена (толпа современных
+# зрителей на 0.96с — см. докстринг video_negative_anchor_violation), лежал
+# ВНУТРИ показанного окна и не проверялся НИКОГДА. Обратная сторона той же
+# ошибки: брак, найденный на 40.9с, отклонял кандидата за кадр, которого
+# зритель не увидит ни при каких условиях.
+#
+# Ни порогом, ни списком ловушек это не лечится: гейты смотрели не туда.
+# Здесь окно считается ОДИН раз и той же арифметикой, что реально применяет
+# рендер, — вторая копия формулы разошлась бы с первой, и гейты снова начали
+# бы проверять чужой отрезок (тот же довод, что у shelf_question()/
+# library_files(): одно правило — одна функция).
+_VIDEO_SKIP_CACHE = {}
+
+# Сколько СЕКУНД ИСХОДНИКА съедает клип длительностью dur. Без спид-рампа
+# ровно dur; с рампом — dur * сумма(доля*множитель) по SPEED_RAMP_SEGMENTS
+# (сегмент с mult=1.2 проигрывается быстрее, значит исходника тратит больше).
+VIDEO_RAMP_SOURCE_MULT = sum(frac * mult for frac, mult in SPEED_RAMP_SEGMENTS)
+
+
+def video_display_skip(vid, dur, actual=None):
+    """Стартовое смещение показа внутри исходника — то же, что применит рендер.
+
+    Мемоизируется по (путь, dur): формула детерминирована (сцен-детектор
+    ffmpeg + хэш имени файла), а вызывают её теперь и гейты отбора, и сам
+    рендер. Без кэша сцен-анализ прогонялся бы по разу на каждый гейт
+    каждого кандидата; с кэшем цена ровно та же, что была у рендера.
+    """
+    if actual is None:
+        try:
+            actual = get_media_duration(vid)
+        except Exception:
+            actual = dur
+    if not dur or dur <= 0 or actual is None:
+        return 0.0
+    if actual - dur <= 0.6:
+        return 0.0
+    key = (vid, round(float(dur), 3))
+    if key in _VIDEO_SKIP_CACHE:
+        return _VIDEO_SKIP_CACHE[key]
+    h = int(hashlib.md5(vid.encode()).hexdigest()[:8], 16)
+    max_skip = min(1.6, (actual - dur) * 0.5)
+    scene_skip = detect_scene_change_offset(vid, max_skip)
+    skip = scene_skip if scene_skip is not None else (
+        max_skip * (0.5 + ((h >> 20) % 1000) / 1000.0 * 0.5))
+    _VIDEO_SKIP_CACHE[key] = skip
+    return skip
+
+
+def video_display_window(vid, slot_dur, actual=None):
+    """(начало, конец) отрезка ИСХОДНИКА, который реально увидит зритель.
+
+    slot_dur не задан (старые вызовы, отчёты, visual_qc) -> окно = весь файл,
+    то есть БАЙТ-В-БАЙТ прежнее поведение: правка не имеет права менять то,
+    что не знает длительности слота.
+
+    Берётся БОЛЬШЕЕ из двух возможных окон (с рампом и без): применится ли
+    спид-рамп, решают measure_motion() и fps исходника — оба замера дороже
+    самого гейта и оба могут разойтись между отбором и рендером. Надмножество
+    честнее: гейт проверит всё, что МОЖЕТ попасть на экран, и ни одного кадра
+    вне экрана.
+    """
+    if actual is None:
+        try:
+            actual = get_media_duration(vid)
+        except Exception:
+            actual = None
+    if not actual or actual <= 0:
+        return None
+    if not slot_dur or slot_dur <= 0:
+        return 0.0, actual
+    if actual <= slot_dur:
+        # Исходник короче слота — рендер растягивает его ЦЕЛИКОМ (setpts),
+        # значит показано всё до последнего кадра.
+        return 0.0, actual
+    skip = video_display_skip(vid, slot_dur, actual)
+    span = slot_dur * max(1.0, VIDEO_RAMP_SOURCE_MULT)
+    return skip, min(actual, skip + span)
+
+
+def video_sample_times(video_path, fracs, slot_dur=None, actual=None):
+    """Точки сэмплирования ВНУТРИ показанного окна, общие для всех гейтов.
+
+    Раньше эта арифметика стояла отдельной копией в каждом из трёх
+    многокадровых гейтов (домен-гвард, контрастивное вето, резкость) — три
+    копии одного правила, и все три считали доли от ПОЛНОЙ длительности.
+    """
+    win = video_display_window(video_path, slot_dur, actual=actual)
+    if win is None:
+        return [0.5]
+    start, end = win
+    span = end - start
+    if span <= 0.6:
+        return [max(0.3, min(max(end - 0.2, 0.3), start + span * 0.5))]
+    lo, hi = start + 0.3, end - 0.2
+    if hi < lo:
+        lo = hi = max(0.3, start)
+    return [max(lo, min(hi, start + span * f)) for f in fracs]
+
+
 def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=0,
                   brightness_bias=0.0, energy_bias=0.0, stat_delay=0.0, levels=None, wb=None,
                   grain_scale=1.0, handheld=False, captions=None, ffmpeg_threads=None):
@@ -12377,12 +12490,10 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
     # иначе откусили бы от нужной длительности и пришлось бы растягивать
     # (setpts) остаток, что и так уже отдельная ветка ниже. Детерминированный
     # джиттер по хэшу файла — не одна и та же доля пропуска на каждом клипе.
-    skip = 0.0
-    if actual - dur > 0.6:
-        max_skip = min(1.6, (actual - dur) * 0.5)
-        scene_skip = detect_scene_change_offset(vid, max_skip)
-        skip = scene_skip if scene_skip is not None else (
-            max_skip * (0.5 + ((h >> 20) % 1000) / 1000.0 * 0.5))
+    # Одна формула на рендер и на гейты отбора — см. video_display_skip().
+    # Раньше она жила ЗДЕСЬ единственной копией, и гейты о показанном окне
+    # не знали вовсе: проверяли доли полной длительности файла.
+    skip = video_display_skip(vid, dur, actual)
 
     ramp_filter = None
     margin_needed = dur * sum(frac * mult for frac, mult in SPEED_RAMP_SEGMENTS)
@@ -12830,7 +12941,16 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
             except Exception:
                 continue
             tries += 1
-            probe, cleanup = extract_video_probe_frame(trial)
+            # Пробник — ВНУТРИ показанного окна, а не на 0.5с файла: при
+            # skip=1.6 кадр на 0.5с зритель не увидит вовсе, и relevance
+            # считалась по кадру, которого в ролике нет (см.
+            # video_display_window). Смещение то же самое относительно
+            # НАЧАЛА ПОКАЗА, поэтому при skip=0 поведение прежнее.
+            _win = video_display_window(trial, slot_dur)
+            _wstart = _win[0] if _win else 0.0
+            probe, cleanup = extract_video_probe_frame(
+                trial, base_at=_wstart + 0.5,
+                retry_ats=(_wstart + 1.5, _wstart + 3.0))
             relevant = True
             cand_hash = None
             sent_score = 0.0
@@ -12933,7 +13053,7 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
             # когда relevant уже True — на явно нерелевантных candidates,
             # которые и так не пройдут, лишние кадры не тянем.
             if relevant:
-                violated, _ = video_domain_guard_violation(trial, query)
+                violated, _ = video_domain_guard_violation(trial, query, slot_dur=slot_dur)
                 if violated:
                     relevant = False
             # Контрастивное вето по ловушкам — ТА ЖЕ многокадровая логика,
@@ -12944,7 +13064,7 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
             # этого же видео, но не на дефолтных 0.5с, где её проверял
             # relevant выше (см. video_negative_anchor_violation()).
             if relevant:
-                violated, _ = video_negative_anchor_violation(trial, query)
+                violated, _ = video_negative_anchor_violation(trial, query, slot_dur=slot_dur)
                 if violated:
                     relevant = False
             # video_sharpness_ok (VIDEO_SHARPNESS_REJECT) — см. её докстринг:
@@ -12956,7 +13076,7 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
             # пропускать явно смазанное видео) блокирует так же, как домен-
             # анахронизм.
             if relevant:
-                sharp_ok = video_sharpness_ok(trial)
+                sharp_ok = video_sharpness_ok(trial, slot_dur=slot_dur)
                 if sharp_ok is False:
                     relevant = False
             is_dup = (cand_hash is not None and used_hashes and
