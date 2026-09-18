@@ -4630,6 +4630,33 @@ _SOURCE_STAT_FIELDS = ("offered", "considered", "gate_passed", "won", "search_er
 _SOURCE_ERROR_PRINTED = set()
 
 
+# ФАКТ ИСПОЛНЕНИЯ СМЫСЛОВОГО СЛОЯ, а не значение его флага.
+#
+# SOURCE_STATS выше закрывают этот же класс вопроса для ИСТОЧНИКОВ. Для
+# МОДЕЛЕЙ он оставался открытым, и 18.09 это стоило неверного отчёта самому
+# автору карты стека: в media_plan/feature_flags.json трёх тестовых эпизодов
+# честно стояло, что смысловая раздача авторских запросов включена
+# (SEMANTIC_QUERY_ASSIGNMENT=1) и полка включена (SHELF_INDEX=1). По факту
+# не работало ни то, ни другое: onnxruntime в окружении не установлен, а
+# индекса полки на диске нет. Оба слоя fail-open откатились молча, снаружи
+# это было неотличимо от работы, и в документе стека они были записаны как
+# действовавшие.
+#
+# Различать нужно ЧЕТЫРЕ состояния, а не два (внешний разбор 18.09, 2.1):
+#   выключен флагом · заявлен, но не загрузился · загрузился, но не дал
+#   кандидатов · работал. Только последнее — «слой участвовал в ролике».
+CAPABILITY_STATS = {}
+_CAPABILITY_FIELDS = ("sections_assigned", "sections_fell_back", "calls_ok", "calls_failed")
+
+
+def _capability_slot(name):
+    return CAPABILITY_STATS.setdefault(name, {f: 0 for f in _CAPABILITY_FIELDS})
+
+
+def reset_capability_stats():
+    CAPABILITY_STATS.clear()
+
+
 #: Префиксы id -> имя источника в отчёте. Список ДОЛЖЕН покрывать каждый
 #: префикс, который реально выдаёт хоть один сборщик кандидатов: неизвестный
 #: префикс молча падает в ветку «числовой id» и записывается как Pexels.
@@ -4742,6 +4769,11 @@ def reset_source_stats():
     процессе — тоже отсюда."""
     SOURCE_STATS.clear()
     _SOURCE_ERROR_PRINTED.clear()
+    # Счётчики фактического исполнения слоёв живут тот же срок, что и учёт
+    # источников: один прогон — один счёт. Иначе при нескольких эпизодах в
+    # одном процессе отчёт сложил бы чужие цифры и соврал ровно там, где
+    # заведён, чтобы не врать.
+    reset_capability_stats()
     for k in ("requests", "cache_hits", "cache_misses"):
         OPENVERSE_STATS[k] = 0
     try:
@@ -4786,6 +4818,90 @@ def write_source_contribution(video_dir):
                   f"{v['won']:4} ({share:4.0f}%) / {v['search_errors']} / {v.get('download_errors', 0)}")
         if silent:
             print(f"    ВНИМАНИЕ: источники, давшие ноль из-за ошибок поиска: {', '.join(silent)}")
+    return path
+
+
+def capability_report():
+    """Что из ЗАЯВЛЕННОГО реально исполнялось в этом прогоне.
+
+    Отвечает на вопрос, на котором ошибся сам автор карты стека 18.09: флаг
+    включён — это НЕ «слой работал». Каждая запись несёт `declared` (что
+    объявлено конфигурацией) и `active` (что произошло на самом деле), плюс
+    причину расхождения. Ничего не блокирует и ничего не чинит — только
+    называет, и этого достаточно: невидимая деградация опаснее громкой.
+    """
+    rows = {}
+
+    def add(name, declared, active, reason=None, detail=None):
+        rows[name] = {"declared": bool(declared), "active": bool(active),
+                      "reason": None if active else reason, "detail": detail}
+
+    # CLIP — единственный судья релевантности на дефолтной конфигурации.
+    add("clip_relevance", CLIP_ENABLED and not CLIP_BROKEN,
+        CLIP_ENABLED and not CLIP_BROKEN and _clip_model is not None,
+        "модель не загрузилась" if CLIP_BROKEN else "ни один кандидат не оценивался")
+
+    # Смысловая раздача авторских запросов. Откат — ПОЗИЦИОННАЯ раздача.
+    sq = CAPABILITY_STATS.get("semantic_query_assignment", {})
+    assigned, fell_back = sq.get("sections_assigned", 0), sq.get("sections_fell_back", 0)
+    add("semantic_query_assignment", SEMANTIC_QUERY_ASSIGNMENT, assigned > 0,
+        "модель текст-текст недоступна -> запросы розданы ПОЗИЦИОННО"
+        if fell_back else "секций с авторскими запросами не было",
+        {"sections_assigned": assigned, "sections_fell_back": fell_back})
+
+    # Полка: флаг включён != индекс существует.
+    shelf_offered = SOURCE_STATS.get("shelf", {}).get("offered", 0)
+    add("shelf_index", feature_flags.enabled("SHELF_INDEX"), shelf_offered > 0,
+        "индекс не собран или пуст — ни одного кандидата не предложено",
+        {"offered": shelf_offered})
+
+    # Ансамбль SigLIP2+Jina — только при VISUAL_DIRECTOR_MODE in (shadow, assist).
+    vd_mode = feature_flags.mode("VISUAL_DIRECTOR_MODE")
+    vd_declared = vd_mode in ("shadow", "assist")
+    vd_active = vd_declared
+    vd_reason = "VISUAL_DIRECTOR_MODE=off — ранжирует CLIP ViT-B/32"
+    if vd_declared:
+        try:
+            import visual_director as _vd
+            if _vd._SIGLIP2_BROKEN:
+                vd_active, vd_reason = False, "SigLIP2 не загрузилась"
+        except Exception:
+            vd_active, vd_reason = False, "модуль visual_director недоступен"
+    add("visual_director_ensemble", vd_declared, vd_active, vd_reason, {"mode": vd_mode})
+
+    # VLM-арбитр: режим + наличие ключа.
+    arb_mode = feature_flags.mode("VLM_ARBITER_MODE")
+    has_key = bool(os.environ.get("GEMINI_API_KEY"))
+    add("vlm_arbiter", arb_mode == "on", arb_mode == "on" and has_key,
+        "нет GEMINI_API_KEY" if arb_mode == "on" else "VLM_ARBITER_MODE=off")
+
+    # Музеи: флаг реестра И решение авто-ниши по теме эпизода.
+    museum_offered = SOURCE_STATS.get("museum", {}).get("offered", 0)
+    add("museum_sources", feature_flags.enabled("MUSEUM_SOURCES_ENABLED"), museum_offered > 0,
+        "выключены авто-нишей эпизода или не дали кандидатов", {"offered": museum_offered})
+
+    return rows
+
+
+def write_capability_report(video_dir):
+    """media_plan/capability_report.json + ГРОМКАЯ строка про расхождения."""
+    rows = capability_report()
+    path = os.path.join(video_dir, "media_plan", "capability_report.json")
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path + ".tmp", "w", encoding="utf-8") as f:
+            json.dump({"schema_version": 1, "capabilities": rows}, f,
+                      ensure_ascii=False, indent=2)
+        os.replace(path + ".tmp", path)
+    except Exception:
+        pass
+    degraded = [(n, v) for n, v in rows.items() if v["declared"] and not v["active"]]
+    if degraded:
+        print("  ВНИМАНИЕ: слои ЗАЯВЛЕНЫ конфигурацией, но в этом прогоне НЕ РАБОТАЛИ —")
+        print("            отчёт по ним нельзя читать как работу этих слоёв:")
+        for name, v in degraded:
+            print(f"    {name}: {v['reason']}")
+        print("            подробности — media_plan/capability_report.json")
     return path
 PEXELS_FAIL_STREAK = 0      # подряд идущих сбоев любого рода (см. _note_pexels_failure)
 PEXELS_FAIL_STREAK_LIMIT = 6
@@ -5740,7 +5856,12 @@ def _pool_cleared_both_gates(candidates_info):
 # перестановка is_relevant выше size_ok меняет победителя на том же пуле, и
 # без подписи на прогретом temp_smart/ кэш-хит клипа отдал бы старого.
 # 2 -> is_relevant выше size_ok (см. докстринг _score_and_pick).
-RANKING_ORDER_VERSION = 2
+# 3 -> ДОПУСТИМОЕ МНОЖЕСТВО раньше ранжирования (18.09): кандидаты,
+#      провалившие гейт релевантности, больше не соревнуются с прошедшими.
+#      Меняет победителя на том же пуле, значит обязано быть в подписи:
+#      иначе первый прогон после правки отдал бы кэш-хитом кадр, выбранный
+#      по старому правилу, и проверить правку было бы не на чем.
+RANKING_ORDER_VERSION = 3
 
 
 def _score_and_pick(candidates_info, director_score_fn=None):
@@ -5801,9 +5922,42 @@ def _score_and_pick(candidates_info, director_score_fn=None):
     этапе отбора). Стоит СРАЗУ после is_relevant, ДО aesthetic — та же
     логика приоритета, что и у extra Директора: "не размыто" важнее
     "красиво", но не важнее "по теме"/"не дубль"/"нужный размер"."""
+    # ДОПУСТИМОЕ МНОЖЕСТВО СНАЧАЛА, ранжирование — только внутри него.
+    #
+    # Найдено внешним разбором (PDF «От подбора картинок к системе
+    # визуального доказательства», раздел 2.2) и ПОДТВЕРЖДЕНО выполнением
+    # этой самой функции, а не чтением: «гейты» гейтами не были. Цикл
+    # pexels_photo() кладёт в candidates_info ВСЕХ кандидатов, включая
+    # проваливших is_relevant_candidate(), а кортеж ниже начинается с
+    # is_dup_free — то есть уникальный ПОСТОРОННИЙ кадр лексикографически
+    # бил РЕЛЕВАНТНЫЙ повтор. Живой прогон на синтетическом пуле из двух:
+    #     relevant_but_duplicate  (relevance 0.33, is_relevant=1, дубль)
+    #     irrelevant_but_unique   (relevance 0.05, is_relevant=0, уникален)
+    # -> побеждал ВТОРОЙ. Радиус поражения растёт по ходу эпизода: список
+    # использованных хэшей пополняется каждым слотом, поэтому доля
+    # «релевантных повторов» к концу ролика только увеличивается.
+    #
+    # Правильный повтор лучше неправильной новизны: дубль зритель читает
+    # как приём, чужой предмет — как ошибку. Поэтому кандидаты, прошедшие
+    # гейт релевантности, рассматриваются ОТДЕЛЬНО и первыми.
+    #
+    # Почему это НЕ может ничего сломать (правка односторонняя):
+    #   * есть хоть один релевантный -> сравниваются только релевантные, то
+    #     есть выбор может лишь ПЕРЕСТАТЬ быть посторонним;
+    #   * релевантных нет вообще -> множество пустое, сравнивается прежний
+    #     полный список, поведение БАЙТ-В-БАЙТ как раньше (слот не пустеет,
+    #     см. ЧАСТЬ 13: «лучший из плохих» остаётся законным исходом);
+    #   * CLIP недоступен -> is_relevant_candidate() fail-open возвращает
+    #     True на всех, множество = весь список, снова байт-в-байт.
+    # Сам кортеж ниже НЕ ТРОНУТ: внутри допустимого множества порядок осей
+    # (ритм крупностей, rel_bucket, эстетика) остаётся ровно тем, который
+    # калибровался 13.09 и 14.09.
+    admissible = [c for c in candidates_info if c.get("is_relevant")]
+    ranked_pool = admissible or candidates_info
+
     base_best, base_score = None, (-1, -1, -1, -1, -1, -100.0, -1.0, -1)
     dir_best, dir_score = None, (-1, -1, -1, -1, -100.0, -1, -100.0, -1.0, -1)
-    for c in candidates_info:
+    for c in ranked_pool:
         sharp_ok = c.get("sharp_ok", 1)
         # rel_bucket — см. RELEVANCE_RANK_BUCKET: «насколько по теме» решает
         # раньше «насколько красиво», гейты остаются гейтами. is_relevant
@@ -8314,6 +8468,14 @@ def _cached_semantic_query_assignment(block_texts, queries):
     except Exception:
         pass
     result = semantic_query_assignment(block_texts, queries)
+    # Факт исполнения, а не значение флага. SEMANTIC_QUERY_ASSIGNMENT=1 при
+    # недоступной модели молча откатывается на ПОЗИЦИОННУЮ раздачу — ровно
+    # то состояние, которое этот репозиторий однажды измерил как «6 промахов
+    # из 8» и починил, и ровно то, которое 18.09 оказалось активным на трёх
+    # тестовых эпизодах (onnxruntime не установлен -> Jina не грузится).
+    # Снаружи это было неотличимо от работающего слоя.
+    _capability_slot("semantic_query_assignment")[
+        "sections_assigned" if result is not None else "sections_fell_back"] += 1
     if result is not None and cache_path is not None:
         try:
             os.makedirs(os.path.dirname(cache_path), exist_ok=True)
@@ -11062,7 +11224,32 @@ def _selection_stack_signature():
         # Порядок ключей кортежа _score_and_pick(): is_relevant выше size_ok
         # (14.09) — другой победитель на том же пуле.
         RANKING_ORDER_VERSION,
-    ))
+        # ЭСТЕТИКА — ось ранжирования, а не гейт, и до 18.09 её не было ни
+        # здесь, ни в candidate_gate_signature(). Между тем aesthetic_val —
+        # прямой элемент кортежа сравнения (_score_and_pick), то есть
+        # выключение AESTHETIC_SCORE меняет ПОБЕДИТЕЛЯ на том же пуле, а на
+        # прогретом temp_smart/ это не доходило бы до экрана: слот отдавался
+        # бы кэш-хитом кандидата, выбранного с учётом эстетики. Рядом уже
+        # лежат RELEVANCE_RANK_BUCKET и RANKING_ORDER_VERSION, добавленные
+        # ровно по этой логике — этот флаг из неё выпал.
+        #
+        # Дописывается УСЛОВНО, ниже возврата кортежа — см. там же почему.
+    )) + _aesthetic_signature_suffix()
+
+
+def _aesthetic_signature_suffix():
+    """Хвост подписи отбора для выключенной эстетики — пусто при дефолте.
+
+    Почему хвостом, а не ещё одним полем кортежа выше: любое новое поле
+    меняет строку подписи У ВСЕХ, включая тех, кто флага не касался, то есть
+    сама правка обнулила бы каждый прогретый temp_smart/ и стоила бы часов
+    перерендера ради изменения, которого у пользователя не происходит.
+    Первая редакция этой правки именно так и была написана, а комментарий
+    рядом утверждал обратное — поймано проверкой самой подписи, не чтением.
+
+    Тот же приём и та же причина, что у KENBURNS_ADAPTIVE_CANVAS и
+    LUMA_MATCH в render_recipe_signature()."""
+    return "" if AESTHETIC_ENABLED else repr(("AESTHETIC_SCORE", False))
 
 
 def candidate_gate_signature():
@@ -14079,6 +14266,30 @@ def render_recipe_signature():
         # KENBURNS_CANVAS_MARGIN при включённом флаге тоже меняет рецепт.
         if KENBURNS_ADAPTIVE_CANVAS:
             parts.append(repr(("KENBURNS_ADAPTIVE_CANVAS", _kenburns_canvas_size())))
+        # LUMA_MATCH — УСЛОВНО, по той же причине и тем же приёмом, что
+        # KENBURNS_ADAPTIVE_CANVAS выше.
+        #
+        # Пробел найден дважды независимо (внутренний аудит 18.09 и внешний
+        # разбор, у которого это помечено P0 раздела 13.1): согласование
+        # яркости применяется к КАЖДОМУ клипу через luma_match_params(), но
+        # значение берётся из ENV, а не из исходника функций рендера, и хэш
+        # исходника его не видит. Следствие: переключение профиля на
+        # прогретом temp_smart/ было МОЛЧАЛИВЫМ NO-OP — клипы отдавались
+        # кэш-хитом со старым согласованием, и замерить эффект правки было
+        # физически не на чем. Ровно тот класс, ради которого эта подпись и
+        # заведена, только с другой стороны: не «правка рецепта в коде», а
+        # «правка рецепта в окружении».
+        #
+        # Хэшируются РЕАЛЬНЫЕ числа профиля (clamp, gain), а не имя: смена
+        # значений внутри LUMA_MATCH_PROFILES меняет рецепт так же, как
+        # смена имени профиля, и по имени этого было бы не видно.
+        #
+        # Условность обязательна: дефолт "normal" не добавляет в подпись
+        # ничего, поэтому у всех, кто флага не касался, кэш остаётся
+        # валидным. Иначе сама эта правка перерендерила бы каждый прогретый
+        # эпизод ради изменения, которого у пользователя не происходит.
+        if str(feature_flags.value("LUMA_MATCH")).strip().lower() != "normal":
+            parts.append(repr(("LUMA_MATCH", luma_match_params())))
     except Exception:
         return "recipe:unknown"
     return "recipe:" + hashlib.md5("".join(parts).encode()).hexdigest()[:10]
@@ -15737,6 +15948,7 @@ def main():
     selection_gates["source_contribution"] = {src: dict(v) for src, v in SOURCE_STATS.items()}
     shotlist_file = write_shotlist(VIDEO_FOLDER, shot_entries, selection_gates, prev=prev_shotlist)
     write_source_contribution(VIDEO_FOLDER)
+    write_capability_report(VIDEO_FOLDER)
     write_camera_language_report(VIDEO_FOLDER)
     print(f"  Шотлист: media_plan/shotlist.json ({len(shot_entries)} слотов, "
           f"{shotlist_locked_used} по lock) — контактный лист: python scripts/shotlist_contact.py {VIDEO_FOLDER}")

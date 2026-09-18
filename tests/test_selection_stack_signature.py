@@ -152,3 +152,60 @@ def test_clip_cache_key_contains_the_candidate_gate_signature():
     assert "candidate_gate_signature()" in block, (
         "ключ кэша клипа снова не содержит candidate_gate_signature() — "
         "на прогретом кэше правки правил отбора не дойдут до экрана")
+
+
+# ---------- подписи, найденные аудитом 18.09 ----------
+# Оба значения РЕАЛЬНО меняют результат (LUMA_MATCH — яркость каждого клипа,
+# AESTHETIC_SCORE — победителя в _score_and_pick), но в подписи не входили:
+# на прогретом temp_smart/ переключение было молчаливым no-op, и замерить
+# эффект правки было физически не на чем. Найдено дважды независимо —
+# внутренним аудитом и внешним разбором (там помечено P0 раздела 13.1).
+#
+# Оба добавлены УСЛОВНО: при дефолтном значении подпись обязана остаться
+# байт-в-байт, иначе сама правка сожгла бы каждый прогретый кэш ради
+# изменения, которого у пользователя не происходит.
+
+
+def _recipe_sig(env_overrides):
+    """Подпись РЕЦЕПТА РЕНДЕРА в свежем процессе — та же причина отдельного
+    процесса, что у _gate_sig(): значения читаются из окружения на импорте."""
+    env = dict(os.environ)
+    env.update(env_overrides)
+    env["PYTHONPATH"] = SCRIPTS_DIR + os.pathsep + env.get("PYTHONPATH", "")
+    code = (
+        "import sys, tempfile; "
+        "sys.argv = ['pipeline_smart.py', tempfile.gettempdir()]; "
+        "import pipeline_smart as ps; "
+        "print(ps.render_recipe_signature())"
+    )
+    out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True,
+                         text=True, cwd=REPO_ROOT, timeout=300)
+    assert out.returncode == 0, f"дочерний процесс упал:\n{out.stderr[-2000:]}"
+    return out.stdout.strip().splitlines()[-1]
+
+
+def test_luma_match_default_keeps_recipe_signature():
+    """Дефолт не должен ничего инвалидировать: у тех, кто профиль не трогал,
+    прогретый temp_smart/ обязан остаться валидным."""
+    assert _recipe_sig({"LUMA_MATCH": "normal"}) == _recipe_sig({})
+
+
+def test_luma_match_profiles_change_recipe_signature():
+    base = _recipe_sig({"LUMA_MATCH": "normal"})
+    sigs = {p: _recipe_sig({"LUMA_MATCH": p}) for p in ("strong", "max", "none")}
+    for profile, sig in sigs.items():
+        assert sig != base, (
+            f"LUMA_MATCH={profile} не меняет подпись рецепта — на прогретом "
+            f"кэше переключение профиля осталось бы молчаливым no-op"
+        )
+    assert len(set(sigs.values())) == 3, "разные профили обязаны различаться"
+
+
+def test_aesthetic_default_keeps_gate_signature():
+    assert _gate_sig({"AESTHETIC_SCORE": "1"}) == _gate_sig({})
+
+
+def test_aesthetic_disabled_changes_gate_signature():
+    """aesthetic_val — прямой элемент кортежа сравнения, то есть выключение
+    слоя меняет ПОБЕДИТЕЛЯ; без подписи это не дошло бы до экрана."""
+    assert _gate_sig({"AESTHETIC_SCORE": "0"}) != _gate_sig({"AESTHETIC_SCORE": "1"})

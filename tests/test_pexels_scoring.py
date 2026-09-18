@@ -101,18 +101,43 @@ def test_shot_size_rhythm_still_decides_among_relevant():
     assert base is relevant_fresh
 
 
-def test_dup_still_beats_relevance():
-    """is_dup_free остаётся первым ключом: дубль не спасает тема."""
+def test_dup_no_longer_beats_relevance():
+    """РЕШЕНИЕ РАЗВЁРНУТО 18.09, прежнее звучало «дубль не спасает тема».
+
+    Оно было осознанным и держалось этим же тестом — поэтому разворот
+    записан, а не сделан молча. Причина: сравнивать «дубль» с «темой» на
+    равных правах можно только если оба исхода равноценны для зрителя, а они
+    не равноценны. Повтор кадра читается как приём монтажа; чужой предмет
+    читается как ошибка — и именно на него жалуется владелец канала.
+
+    Дедуп при этом НИЧЕГО не потерял: он остаётся первым ключом ВНУТРИ
+    допустимого множества (см. test_dedup_still_first_among_relevant), то
+    есть релевантный уникальный по-прежнему бьёт релевантный повтор. Изменился
+    единственный случай — когда выбор стоит между повтором ПО ТЕМЕ и
+    новизной НЕ ПО ТЕМЕ."""
     dup_relevant = _cand("dup_relevant", is_dup_free=0, is_relevant=1)
     unique_irrelevant = _cand("unique_irrelevant", is_dup_free=1, is_relevant=0)
     base, _ = ps._score_and_pick([dup_relevant, unique_irrelevant])
-    assert base is unique_irrelevant
+    assert base is dup_relevant
+
+
+def test_dedup_still_first_among_relevant():
+    """Цена разворота выше ограничена: среди РЕЛЕВАНТНЫХ дедуп по-прежнему
+    решает первым, то есть повтор никогда не выигрывает у равного по теме
+    уникального кадра."""
+    dup = _cand("relevant_dup", is_dup_free=0, is_relevant=1, aesthetic_val=10.0)
+    unique = _cand("relevant_unique", is_dup_free=1, is_relevant=1, aesthetic_val=-10.0)
+    base, _ = ps._score_and_pick([dup, unique])
+    assert base is unique
 
 
 def test_ranking_order_version_is_in_selection_signature():
     """Перестановка ключей меняет победителя на том же пуле — без подписи
     кэш-хит клипа на прогретом temp_smart/ отдал бы старого."""
-    assert ps.RANKING_ORDER_VERSION == 2
+    # Число закреплено намеренно: подъём версии обязан быть осознанным
+    # действием, а не побочным эффектом правки рядом. 3 -> допустимое
+    # множество раньше ранжирования (18.09).
+    assert ps.RANKING_ORDER_VERSION == 3
     assert repr(ps.RANKING_ORDER_VERSION) in ps._selection_stack_signature()
 
 
@@ -216,19 +241,26 @@ def test_pool_cleared_false_when_nobody_passes_both():
     assert ps._pool_cleared_both_gates(pool) is False
 
 
-def test_pool_cleared_true_even_if_winner_lost_to_dedup():
-    # Реальный случай, который RELEVANCE_GATE_MISSES (победитель-онли) не
-    # ловит: "победитель" в _score_and_pick() мог оказаться нерелевантным
-    # уникальным кандидатом, хотя релевантный+резкий кандидат в пуле БЫЛ,
-    # просто проиграл по is_dup_free (первому элементу кортежа). Пул при
-    # этом не исчерпан — сток есть, просто уже использован где-то ещё.
+def test_pool_cleared_true_and_winner_is_now_the_relevant_one():
+    # ИСТОРИЯ ЭТОГО ТЕСТА ВАЖНЕЕ САМОГО ТЕСТА. В прежней редакции он
+    # утверждал, что победителем становится "unique_but_bad" — нерелевантный
+    # уникальный кандидат, хотя релевантный+резкий в пуле БЫЛ и проиграл
+    # только по is_dup_free. То есть репозиторий знал этот дефект дословно и
+    # вместо починки отбора завёл ОТДЕЛЬНУЮ функцию, чтобы сообщать о нём в
+    # отчёте (_pool_cleared_both_gates). Внешний разбор 18.09 указал на то же
+    # место как на дефект ВЫБОРА, а не отчёта; допустимое множество в
+    # _score_and_pick() закрыло его в источнике.
+    #
+    # Сама _pool_cleared_both_gates() остаётся нужной: она отвечает на другой
+    # вопрос — "исчерпан ли сток" (для stock_exhausted_report), и её ответ не
+    # зависит от того, кто победил.
     pool = [
         _cand("dup_but_good", is_dup_free=0, is_relevant=1, sharp_ok=1),
         _cand("unique_but_bad", is_dup_free=1, is_relevant=0, sharp_ok=1),
     ]
     base_winner, _ = ps._score_and_pick(pool)
-    assert base_winner["path"] == "unique_but_bad"   # победитель — не relevant
-    assert ps._pool_cleared_both_gates(pool) is True   # но пул не исчерпан
+    assert base_winner["path"] == "dup_but_good"      # тема победила новизну
+    assert ps._pool_cleared_both_gates(pool) is True   # и пул не исчерпан
 
 
 def test_pool_cleared_false_on_empty_pool():
@@ -396,3 +428,59 @@ def test_opening_video_shortlist_respects_max_n_cap():
     good = [_vcand(f"c{i}", score=1.0 - i * 0.1) for i in range(6)]
     shortlist = ps._build_opening_video_shortlist(good, max_n=4)
     assert len(shortlist) == 4
+
+
+# ---------- допустимое множество раньше ранжирования ----------
+# Внешний разбор (PDF «От подбора картинок к системе визуального
+# доказательства», 2.2) предсказал дефект по одному лишь описанию кортежа, а
+# выполнение _score_and_pick() его подтвердило: цикл pexels_photo() кладёт в
+# candidates_info ВСЕХ кандидатов, включая проваливших гейт релевантности, и
+# первый ключ кортежа (is_dup_free) отдавал слот уникальному постороннему
+# кадру вместо релевантного повтора. Дубль читается зрителем как приём,
+# чужой предмет — как ошибка.
+
+def test_relevant_duplicate_beats_irrelevant_unique():
+    relevant_dup = _cand("relevant_dup", is_dup_free=0, is_relevant=1, min_d=2)
+    relevant_dup["relevance"] = 0.33
+    irrelevant_unique = _cand("irrelevant_unique", is_dup_free=1, is_relevant=0, min_d=40)
+    irrelevant_unique["relevance"] = 0.05
+
+    base, _ = ps._score_and_pick([relevant_dup, irrelevant_unique])
+    assert base["path"] == "relevant_dup"
+
+
+def test_irrelevant_pool_keeps_previous_behaviour():
+    """Ни одного релевантного — прежнее поведение байт-в-байт: слот не пустеет,
+    среди одинаково негодных побеждает уникальный (ЧАСТЬ 13, «лучший из плохих»
+    остаётся законным исходом, карточку ставит уже лестница фолбэков выше)."""
+    bad_dup = _cand("bad_dup", is_dup_free=0, is_relevant=0, min_d=2)
+    bad_unique = _cand("bad_unique", is_dup_free=1, is_relevant=0, min_d=40)
+
+    base, _ = ps._score_and_pick([bad_dup, bad_unique])
+    assert base["path"] == "bad_unique"
+
+
+def test_shot_size_rhythm_still_decides_inside_admissible_set():
+    """Правка сужает МНОЖЕСТВО, а не переставляет оси внутри него: среди
+    релевантных ритм крупностей по-прежнему бьёт эстетику (калибровка 14.09)."""
+    same_size = _cand("rel_same_size", is_relevant=1, size_ok=0, aesthetic_val=9.0)
+    fresh_size = _cand("rel_fresh_size", is_relevant=1, size_ok=1, aesthetic_val=1.0)
+
+    base, _ = ps._score_and_pick([same_size, fresh_size])
+    assert base["path"] == "rel_fresh_size"
+
+
+def test_director_branch_also_respects_admissible_set():
+    """Вторая ветвь (Директор) считается по тому же суженному множеству —
+    иначе при VISUAL_DIRECTOR_MODE=assist посторонний кадр вернулся бы через
+    неё, и правка работала бы только на дефолтной конфигурации."""
+    relevant_dup = _cand("relevant_dup", is_dup_free=0, is_relevant=1, min_d=2)
+    irrelevant_unique = _cand("irrelevant_unique", is_dup_free=1, is_relevant=0, min_d=40)
+
+    # Директор оценивает посторонний кадр ВЫШЕ — и всё равно не должен его взять.
+    def score_fn(path, candidate_query=None, aesthetic_val=None):
+        return 10.0 if path == "irrelevant_unique" else 0.0
+
+    _, director = ps._score_and_pick([relevant_dup, irrelevant_unique],
+                                     director_score_fn=score_fn)
+    assert director["path"] == "relevant_dup"
