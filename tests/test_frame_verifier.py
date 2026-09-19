@@ -8,11 +8,14 @@
 import io
 import json
 import os
+import shutil
+import subprocess
 import sys
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(REPO, "scripts"))
 import frame_verifier as fv  # noqa: E402
 
 
@@ -272,3 +275,57 @@ def test_browser_user_agent_is_sent(monkeypatch, frame):
     monkeypatch.setattr(fv.urllib.request, "urlopen", urlopen)
     fv.verify(frame, "фраза")
     assert "Mozilla/5.0" in seen["ua"], seen
+
+
+# --- СВОЙ CLI-ПРОЦЕСС ОБЯЗАН ВИДЕТЬ КЛЮЧ ИЗ .env, НЕ ТОЛЬКО ИЗ ОКРУЖЕНИЯ --
+#
+# Найдено 19.09 при живой проверке `python scripts/frame_verifier.py
+# balance`: команда печатала `null` на машине, где .env реально содержит
+# рабочий ANYMODEL_API_KEY. Причина — .env грузит ТОЛЬКО pipeline_smart.py
+# при своём импорте; когда frame_verifier.py запускают своим отдельным
+# процессом (а не изнутри pipeline_smart.py), никто .env не читал вообще.
+# Поймано живым прогоном, а не рассуждением — см. коммит.
+
+def test_standalone_process_sees_key_from_env_file_alone(tmp_path):
+    """Ключ лежит ТОЛЬКО в .env файле (не экспортирован в окружение) —
+    отдельный python-процесс, импортирующий копию модуля, обязан увидеть
+    его через собственный load_dotenv(), а не молчать."""
+    scripts_dir = tmp_path / "scripts"
+    scripts_dir.mkdir()
+    shutil.copy(os.path.join(REPO, "scripts", "frame_verifier.py"),
+                scripts_dir / "frame_verifier.py")
+    (tmp_path / ".env").write_text(
+        "ANYMODEL_API_KEY=probe-from-dotenv-only\n", encoding="utf-8")
+
+    env = {k: v for k, v in os.environ.items() if k != "ANYMODEL_API_KEY"}
+    result = subprocess.run(
+        [sys.executable, "-c",
+         "import sys; sys.path.insert(0, sys.argv[1]); import frame_verifier; "
+         "import os; print(os.environ.get('ANYMODEL_API_KEY'))",
+         str(scripts_dir)],
+        cwd=str(tmp_path), env=env, capture_output=True, text=True, timeout=15)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "probe-from-dotenv-only"
+
+
+def test_standalone_process_respects_already_exported_key(tmp_path):
+    """Переменная, уже заданная в окружении (CI, экспорт руками), не
+    должна быть перетёрта файлом `.env` — override=False, не «файл важнее
+    оболочки»."""
+    scripts_dir = tmp_path / "scripts"
+    scripts_dir.mkdir()
+    shutil.copy(os.path.join(REPO, "scripts", "frame_verifier.py"),
+                scripts_dir / "frame_verifier.py")
+    (tmp_path / ".env").write_text(
+        "ANYMODEL_API_KEY=from-dotenv-file\n", encoding="utf-8")
+
+    env = dict(os.environ)
+    env["ANYMODEL_API_KEY"] = "from-real-shell-export"
+    result = subprocess.run(
+        [sys.executable, "-c",
+         "import sys; sys.path.insert(0, sys.argv[1]); import frame_verifier; "
+         "import os; print(os.environ.get('ANYMODEL_API_KEY'))",
+         str(scripts_dir)],
+        cwd=str(tmp_path), env=env, capture_output=True, text=True, timeout=15)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "from-real-shell-export"

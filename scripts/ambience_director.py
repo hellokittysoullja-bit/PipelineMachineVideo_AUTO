@@ -43,6 +43,17 @@ import time
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "scripts"))
 
+# Тот же довод, что у shot_brief_director.py рядом: AMBIENCE_VETO_BRAIN=
+# cloud читает ANYMODEL_API_KEY из окружения, а собственный CLI-процесс
+# этого файла .env никто не грузил — без строки ниже ключ из .env не
+# виден. override=False — уже заданную переменную (CI, экспорт руками)
+# не перезатирает.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(REPO, ".env"))
+except ImportError:
+    pass
+
 import script_parser  # noqa: E402
 import ambience_plan  # noqa: E402
 from shot_brief_director import (  # noqa: E402

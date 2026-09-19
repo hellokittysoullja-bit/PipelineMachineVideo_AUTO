@@ -61,6 +61,23 @@ import re
 import urllib.error
 import urllib.request
 
+# Ключ читается из окружения (ANYMODEL_API_KEY, шапка CLAUDE.md), а .env
+# грузит только pipeline_smart.py при СВОЁМ импорте — здесь этот модуль
+# уже видит переменную, потому что импортирован ИЗ pipeline_smart.py.
+# Собственный CLI-процесс файла (`python frame_verifier.py balance`) —
+# отдельный процесс, которому .env никто не читал: без строки ниже ключ
+# из файла не виден, и `balance`/ручная проверка вердикта молча отвечают
+# «нет ключа» на машине, где он есть, просто в `.env`. Тот же паттерн,
+# что уже стоит у speech_generate.py/lumean_tts.py/stock_fetch_
+# multisource.py; override=False не перезатирает уже заданную переменную
+# (CI, экспорт руками).
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), ".env"))
+except ImportError:
+    pass
+
 try:                                   # тот же ленивый импорт, что у остальных слоёв
     import feature_flags
 except Exception:                      # pragma: no cover - модуль всегда рядом

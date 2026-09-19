@@ -12,6 +12,8 @@ Exception` не срабатывал, пустой ответ читался к�
 упавшая модель молча гасила фон во всём эпизоде.
 """
 import os
+import shutil
+import subprocess
 import sys
 
 import pytest
@@ -134,3 +136,31 @@ def test_build_veto_fn_default_is_still_local(monkeypatch, tmp_path):
     (tmp_path / "script.txt").write_text("=== METADATA ===\nTITLE: т\n"
                                          "=== HOOK ===\nа.\n", encoding="utf-8")
     assert ad.build_veto_fn(str(tmp_path)) is None
+
+
+# --- СВОЙ CLI-ПРОЦЕСС (AMBIENCE_VETO_BRAIN=cloud) ОБЯЗАН ВИДЕТЬ КЛЮЧ ------
+#
+# Тот же дефект и та же причина, что у shot_brief_director.py/frame_
+# verifier.py рядом: .env грузит только pipeline_smart.py при своём
+# импорте, а собственный CLI-процесс этого файла — отдельный процесс.
+
+def test_standalone_cli_sees_key_from_env_file_alone(tmp_path):
+    scripts_dir = tmp_path / "scripts"
+    scripts_dir.mkdir()
+    shutil.copy(os.path.join(REPO, "scripts", "ambience_director.py"),
+                scripts_dir / "ambience_director.py")
+    (tmp_path / ".env").write_text(
+        "ANYMODEL_API_KEY=probe-from-dotenv-only\n", encoding="utf-8")
+
+    env = {k: v for k, v in os.environ.items() if k != "ANYMODEL_API_KEY"}
+    real_scripts = os.path.join(REPO, "scripts")
+    code = (
+        "import sys; sys.path.insert(0, sys.argv[1]); sys.path.insert(1, sys.argv[2]); "
+        "import ambience_director; import os; "
+        "print(os.environ.get('ANYMODEL_API_KEY'))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(scripts_dir), real_scripts],
+        cwd=str(tmp_path), env=env, capture_output=True, text=True, timeout=15)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "probe-from-dotenv-only"

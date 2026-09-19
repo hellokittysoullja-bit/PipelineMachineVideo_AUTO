@@ -7,6 +7,8 @@
 """
 import re
 import os
+import shutil
+import subprocess
 import sys
 
 import pytest
@@ -1854,3 +1856,36 @@ def test_anchor_instruction_appears_when_enabled(monkeypatch):
     import shot_brief_director as d
     prompt = d.render_prompt(_packet(["а", "б"]))
     assert "[anchor:" in prompt
+
+
+# --- СВОЙ CLI-ПРОЦЕСС (`--brain cloud`) ОБЯЗАН ВИДЕТЬ КЛЮЧ ИЗ .env --------
+#
+# Найдено 19.09 тем же живым прогоном, что и у frame_verifier.py рядом:
+# .env грузит только pipeline_smart.py при своём импорте, а собственный
+# CLI-процесс этого файла (`python shot_brief_director.py <video_dir>
+# --brain cloud`) — отдельный процесс без единой строки, читающей .env.
+# Без фикса `--brain cloud` печатал бы «ANYMODEL_API_KEY не задан» на
+# машине, где ключ реально лежит в файле.
+
+def test_standalone_cli_sees_key_from_env_file_alone(tmp_path):
+    """Импорт КОПИИ модуля из отдельного каталога — без единого символа,
+    экспортированного оболочкой, ключ обязан появиться из .env файла."""
+    scripts_dir = tmp_path / "scripts"
+    scripts_dir.mkdir()
+    shutil.copy(os.path.join(REPO, "scripts", "shot_brief_director.py"),
+                scripts_dir / "shot_brief_director.py")
+    (tmp_path / ".env").write_text(
+        "ANYMODEL_API_KEY=probe-from-dotenv-only\n", encoding="utf-8")
+
+    env = {k: v for k, v in os.environ.items() if k != "ANYMODEL_API_KEY"}
+    real_scripts = os.path.join(REPO, "scripts")
+    code = (
+        "import sys; sys.path.insert(0, sys.argv[1]); sys.path.insert(1, sys.argv[2]); "
+        "import shot_brief_director; import os; "
+        "print(os.environ.get('ANYMODEL_API_KEY'))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(scripts_dir), real_scripts],
+        cwd=str(tmp_path), env=env, capture_output=True, text=True, timeout=15)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "probe-from-dotenv-only"

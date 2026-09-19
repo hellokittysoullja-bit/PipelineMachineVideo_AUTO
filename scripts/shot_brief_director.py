@@ -53,6 +53,22 @@ import urllib.request
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "scripts"))
 
+# Ключ `--brain cloud` читает из окружения (ANYMODEL_API_KEY) — но
+# pipeline_smart.py грузит .env САМ, при импорте этого файла ИЗ pipeline_
+# smart.py env уже на месте. Собственный CLI-процесс этого файла
+# (`python shot_brief_director.py <video_dir> --brain cloud`) — отдельный
+# python-процесс, которому никто .env не читал: без строки ниже ключ из
+# .env физически не виден, и `--brain cloud` без key ложно печатал бы
+# «ANYMODEL_API_KEY не задан» на машине, где он ЕСТЬ, просто в файле.
+# Тот же паттерн, что уже стоит у speech_generate.py/lumean_tts.py/
+# stock_fetch_multisource.py; override=False — уже заданная переменная
+# окружения (CI, экспорт руками) не перезатирается файлом.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(REPO, ".env"))
+except ImportError:
+    pass
+
 import feature_flags         # noqa: E402
 import script_parser        # noqa: E402
 import shot_planner_llm     # noqa: E402
