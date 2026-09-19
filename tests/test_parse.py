@@ -2516,6 +2516,11 @@ def test_estimate_busyness_memoized_across_calls(tmp_path, monkeypatch):
     "Рыцари шли в атаку",
     "Началась осада крепости",
     "Он замахнулся мечом",
+    "Конница мчится через поле",  # найдено 19.09 живым тестом на медиевал-нише:
+                                   # "мчат"/"мчал" в ACTION_STEMS не покрывали
+                                   # настоящее время 3-го лица ("мчится"/
+                                   # "мчимся"/"мчитесь") — самую частую форму
+                                   # для описания кавалерийской атаки.
 ])
 def test_has_action_word_catches_inflected_action_verbs(text):
     assert pipeline_smart.has_action_word(text) is True, (
@@ -2630,6 +2635,14 @@ def test_has_motion_word_no_false_positive_on_homonyms(text):
     assert pipeline_smart.has_motion_word(text) is False, (
         "слово-омоним не должно считаться движением — иначе спокойный блок "
         "получит видео вместо фото")
+
+
+def test_action_qualifier_running_covers_present_tense_charge():
+    # Тот же живой пробел, что у has_action_word рядом: "мчится" (кавалерия
+    # мчится через поле) не давало ни has_action_word=True, ни уточнение
+    # "running" — форма настоящего времени 3-го лица отсутствовала в основе.
+    assert pipeline_smart.action_video_qualifier(
+        "Конница мчится через поле") == "running"
 
 
 def test_action_qualifier_checks_motion_table_too():
