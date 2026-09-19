@@ -1,0 +1,1696 @@
+{
+  "model": "qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf",
+  "prompt_version": 4,
+  "done": 142,
+  "total": 142,
+  "elapsed_sec": 8008,
+  "rows": [
+    {
+      "index": 0,
+      "text": "Тебя ещё не ранили. Вот что самое страшное.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 47.2
+    },
+    {
+      "index": 1,
+      "text": "Меч ударил по шлему — сталь выдержала. Стрела скользнула по нагруднику и ушла в сторону. Доспех отработал каждую монету, которую ты за него отдал, а отдал ты за него как за деревню вместе с крестьянами.",
+      "result": {
+        "shot_en": "A breastplate with an arrow gliding off it",
+        "function": "object",
+        "forbidden": null,
+        "subject": "нагрудник"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 54.0
+    },
+    {
+      "index": 2,
+      "text": "И всё равно ты лежишь лицом в грязи и, кажется, сейчас умрёшь. Хотя броню твою так никто и не пробил.",
+      "result": {
+        "shot_en": "A warrior lying face down in mud, seemingly about to die.",
+        "function": "object",
+        "forbidden": "не пробил",
+        "subject": "воин"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 56.0
+    },
+    {
+      "index": 3,
+      "text": "Тебе нужно всего лишь встать.",
+      "result": {
+        "shot_en": "A warrior stands up",
+        "function": "object",
+        "forbidden": null,
+        "subject": "воин"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 53.4
+    },
+    {
+      "index": 4,
+      "text": "Запомни это. Мы сюда вернёмся.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 49.4
+    },
+    {
+      "index": 5,
+      "text": "А пока — простой опыт. Возьми настоящий боевой меч: полтора килограмма стали, кромка снимает волос с руки. И ударь им человека в полном латном доспехе.",
+      "result": {
+        "shot_en": "A warrior in full plate armor being struck by a real battle sword",
+        "function": "object",
+        "forbidden": null,
+        "subject": "боевой меч"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 53.4
+    },
+    {
+      "index": 6,
+      "text": "Ничего не произойдёт.",
+      "result": {
+        "shot_en": "A man in full metal armor is standing.",
+        "function": "object",
+        "forbidden": "protective gear",
+        "subject": "человек"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 51.6
+    },
+    {
+      "index": 7,
+      "text": "Клинок отскочит и оставит царапину. Можешь бить двадцать минут подряд, пока не отвалятся плечи, — человек внутри будет спокойно ждать, когда ты выдохнешься.",
+      "result": {
+        "shot_en": "A sword rebounds and leaves a scratch",
+        "function": "object",
+        "forbidden": null,
+        "subject": "боевой меч"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 55.1
+    },
+    {
+      "index": 8,
+      "text": "Кино врёт тебе сто лет. На экране меч входит в латы как нож в масло. В жизни хороший доспех — это ходячий сейф, и меч против него работает примерно как отвёртка против банковской двери.",
+      "result": {
+        "shot_en": "a well-made armor",
+        "function": "object",
+        "forbidden": null,
+        "subject": "доспех"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 53.8
+    },
+    {
+      "index": 9,
+      "text": "Но рыцари умирали. При Азенкуре за несколько часов Франция потеряла тысячи людей, и это была не пехота. Это был цвет её знати, в лучших доспехах, какие вообще существовали на планете в тысяча четыреста пятнадцатом году.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 59.9
+    },
+    {
+      "index": 10,
+      "text": "Значит, кто-то их всё-таки убивал.",
+      "result": {
+        "shot_en": "Dead knights lying on the battlefield.",
+        "function": "object",
+        "forbidden": null,
+        "subject": "рыцари"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 56.1
+    },
+    {
+      "index": 11,
+      "text": "И вот тут начинается то, ради чего стоит досмотреть до конца.",
+      "result": {
+        "shot_en": "A knight in full armor being struck down in battle",
+        "function": "scene",
+        "forbidden": null,
+        "subject": "тот момент"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 52.4
+    },
+    {
+      "index": 12,
+      "text": "Главного убийцу рыцарей нельзя выковать. Он не висит в музее под стеклом. У него нет клейма мастера и нет цены. Ты не найдёшь его ни в одном каталоге средневекового оружия.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 60.1
+    },
+    {
+      "index": 13,
+      "text": "При этом он был под ногами у каждого из них. С первого шага на поле.",
+      "result": {
+        "shot_en": "The ground beneath their feet",
+        "function": "object",
+        "forbidden": null,
+        "subject": "он"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 53.2
+    },
+    {
+      "index": 14,
+      "text": "Я его назову. Но если сказать прямо сейчас, ты пожмёшь плечами и уйдёшь — без подготовки это прозвучит скучно и даже глупо.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 52.3
+    },
+    {
+      "index": 15,
+      "text": "Поэтому сперва придётся сломать три вещи, которые ты считаешь правдой про рыцарей. Все три — неправда.",
+      "result": {
+        "shot_en": "Knights breaking three false beliefs",
+        "function": "object",
+        "forbidden": null,
+        "subject": "рыцари"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 53.0
+    },
+    {
+      "index": 16,
+      "text": "Ты наверняка слышал: рыцарь весил как холодильник, на коня его поднимали краном, а если он падал — лежал как перевёрнутая черепаха и ждал, пока придут и добьют.",
+      "result": {
+        "shot_en": "A knight lying on the ground",
+        "function": "object",
+        "forbidden": null,
+        "subject": "рыцарь"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 56.4
+    },
+    {
+      "index": 17,
+      "text": "Полный боевой доспех пятнадцатого века весит двадцать-тридцать килограммов. Примерно столько же тащит на себе современный пехотинец и любой турист с рюкзаком в горах.",
+      "result": {
+        "shot_en": "Full battle armor from the 15th century weighing 20-30 kilograms",
+        "function": "object",
+        "forbidden": null,
+        "subject": "полный боевой доспех"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 61.3
+    },
+    {
+      "index": 18,
+      "text": "Разница в том, что рюкзак висит на плечах и пояснице, а доспех разложен по всему телу: часть на бёдрах, часть на плечах, часть на груди. Ты его не несёшь. Ты его носишь — и это совсем другое ощущение.",
+      "result": {
+        "shot_en": "Armor distributed across body: part on hips, part on shoulders, part on chest",
+        "function": "object",
+        "forbidden": null,
+        "subject": "доспех"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 62.9
+    },
+    {
+      "index": 19,
+      "text": "Про маршала Бусико его жизнеописание рассказывает, что в полном доспехе он забирался по приставной лестнице на одних руках, без ног.",
+      "result": {
+        "shot_en": "A man in full armor climbing a ladder with one hand, supported by a platform",
+        "function": "object",
+        "forbidden": null,
+        "subject": "маршал Бусико"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 63.9
+    },
+    {
+      "index": 20,
+      "text": "Книга писалась, чтобы его прославить, так что подвиг мог подрасти при пересказе. Но общий смысл проверяется за десять секунд — посмотри любую запись реконструкторов: люди в полных латах бегают, кувыркаются и встают с земли.",
+      "result": {
+        "shot_en": "People running, somersaulting, and getting up from the ground",
+        "function": "scene",
+        "forbidden": null,
+        "subject": "люди"
+      },
+      "validator_ok": false,
+      "validator_reason": "человек без привязки к эпохе",
+      "sec": 64.3
+    },
+    {
+      "index": 21,
+      "text": "Теперь разверни это в другую сторону, и станет интереснее.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 55.3
+    },
+    {
+      "index": 22,
+      "text": "Представь драку, где у всех ножи, а тебе одному разрешили надеть защиту с головы до ног. Ты ведь не станешь ныть, что она тяжёлая? Ты спросишь, надёжно ли закрыта шея.",
+      "result": {
+        "shot_en": "A warrior checks the neck closure of his full-body armor.",
+        "function": "object",
+        "forbidden": null,
+        "subject": "воин"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 59.0
+    },
+    {
+      "index": 23,
+      "text": "Удар, который вскрыл бы плечо человеку в рубахе, скользит по твоему наплечнику. Лезвие, которое выпустило бы кишки, встречает нагрудник. Противник вынужден искать другой способ — а пока он ищет, ты успеваешь убить его сам.",
+      "result": {
+        "shot_en": "A sword glides over a pauldron.",
+        "function": "object",
+        "forbidden": null,
+        "subject": "наплечник"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 58.2
+    },
+    {
+      "index": 24,
+      "text": "Так что доспех не был обузой. Он был лучшим вложением в собственную жизнь, какое вообще можно было сделать в ту эпоху, и он честно отрабатывал свою чудовищную цену.",
+      "result": {
+        "shot_en": "Armour effectively repaid its enormous cost.",
+        "function": "object",
+        "forbidden": null,
+        "subject": "доспех"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 60.9
+    },
+    {
+      "index": 25,
+      "text": "Запомни и это тоже. Через десять минут именно доспех станет одной из причин смерти — и не потому, что он подвёл.",
+      "result": {
+        "shot_en": "Armour will be one of the causes of death in ten minutes, not because it failed.",
+        "function": "object",
+        "forbidden": null,
+        "subject": "доспех"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 59.3
+    },
+    {
+      "index": 26,
+      "text": "Открой любой фехтбух — учебник боя той эпохи. Талхоффер, Фиоре деи Либери, Кодекс Валлерштейна. Писали их люди, которые убивали за деньги и учили этому других.",
+      "result": {
+        "shot_en": "Open any fencing book from that era",
+        "function": "object",
+        "forbidden": null,
+        "subject": "фехтбух"
+      },
+      "validator_ok": false,
+      "validator_reason": "блоклист канала (fencing)",
+      "sec": 56.2
+    },
+    {
+      "index": 27,
+      "text": "Найди раздел про бой в доспехах и посмотри, что там нарисовано.",
+      "result": {
+        "shot_en": "Illustration of combat in armor",
+        "function": "illustration",
+        "forbidden": null,
+        "subject": "раздел учебника"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 54.5
+    },
+    {
+      "index": 28,
+      "text": "Мечом почти не рубят.",
+      "result": {
+        "shot_en": "A sword not used for cutting",
+        "function": "object",
+        "forbidden": null,
+        "subject": "меч"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 53.0
+    },
+    {
+      "index": 29,
+      "text": "Его берут левой рукой за клинок — прямо за лезвие, в латной перчатке это нормально — и работают им как коротким копьём. Укол в подмышку. Укол в пах. Укол в смотровую щель забрала.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 60.5
+    },
+    {
+      "index": 30,
+      "text": "Приём называется полумеч. Смысл простой: если рубить бесполезно, надо превратить меч в то, чем можно точно ткнуть в промежуток между пластинами.",
+      "result": {
+        "shot_en": "A soldier demonstrates a thrust with a sword between armor plates.",
+        "function": "illustration",
+        "forbidden": null,
+        "subject": "полумеч"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 57.4
+    },
+    {
+      "index": 31,
+      "text": "А если и это не выходит, меч переворачивают. Берут за клинок обеими руками и бьют противника рукоятью — тяжёлым навершием или крестовиной, как молотком. У немцев это называлось мордхау, «убийственный удар».",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 62.9
+    },
+    {
+      "index": 32,
+      "text": "Улавливаешь картину? Лучшие фехтовальщики Европы держат собственный меч не той стороной, потому что правильная сторона против доспеха не работает.",
+      "result": {
+        "shot_en": "The sword is held with the wrong side facing the armored opponent.",
+        "function": "object",
+        "forbidden": null,
+        "subject": "меч"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 58.8
+    },
+    {
+      "index": 33,
+      "text": "Меч при этом никуда не делся. Его вручали при посвящении, носили на поясе всегда, им гордились. Просто в бою против латника он был не первым инструментом, а последним аргументом.",
+      "result": {
+        "shot_en": "A sword being held by a warrior, worn on a belt, and displayed with pride",
+        "function": "object",
+        "forbidden": null,
+        "subject": "меч"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 61.0
+    },
+    {
+      "index": 34,
+      "text": "Первым инструментом был полэкс. Длинное древко, на конце молот с одной стороны и клюв или топорик с другой, часто ещё шип сверху. Тяжёлый, некрасивый, страшно действенный.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 62.0
+    },
+    {
+      "index": 35,
+      "text": "Он не пытается разрезать сталь. Он передаёт удар сквозь неё.",
+      "result": {
+        "shot_en": "A sword passing through steel",
+        "function": "object",
+        "forbidden": null,
+        "subject": "меч"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 56.1
+    },
+    {
+      "index": 36,
+      "text": "Броня прекрасно держит порез. Инерцию она не держит никак: масса, разогнанная на длинном рычаге, ломает ключицу через наплечник и проминает шлем вместе с тем, что внутри.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 60.1
+    },
+    {
+      "index": 37,
+      "text": "Рыцарь, получивший клювом полэкса по шлему, падает без единой дырки в железе.",
+      "result": {
+        "shot_en": "Knight falls to ground, helmet intact",
+        "function": "scene",
+        "forbidden": null,
+        "subject": "рыцарь"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 54.1
+    },
+    {
+      "index": 38,
+      "text": "Ключевое слово — падает. Держи его в голове, оно скоро понадобится.",
+      "result": {
+        "shot_en": "A knight falling to the ground",
+        "function": "object",
+        "forbidden": null,
+        "subject": "рыцарь"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 53.8
+    },
+    {
+      "index": 39,
+      "text": "Самая известная версия Азенкура выглядит так: тысячи стрел закрывают небо, падают на латников, французы гибнут рядами.",
+      "result": {
+        "shot_en": "thousands of arrows covering the sky",
+        "function": "object",
+        "forbidden": null,
+        "subject": "thousands of arrows"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 55.7
+    },
+    {
+      "index": 40,
+      "text": "Красиво. Только всё было иначе.",
+      "result": {
+        "shot_en": "Arrows falling to the ground",
+        "function": "object",
+        "forbidden": null,
+        "subject": "стрелы"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 52.9
+    },
+    {
+      "index": 41,
+      "text": "Современные тесты стреляют из реплик английского лука с натяжением около семидесяти килограммов по нагрудникам нужной толщины и правильной закалки. На реальной боевой дистанции бронебойный наконечник в лучшем случае оставляет вмятину и застревает. Сталь держит.",
+      "result": {
+        "shot_en": "A replica English arrow penetrates a thick, well-hardened breastplate, leaving a dent and embedding itself.",
+        "function": "object",
+        "forbidden": null,
+        "subject": "нагрудник"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 61.9
+    },
+    {
+      "index": 42,
+      "text": "И тут надо сказать вещь, которую обычно пропускают: основная масса французских латников при Азенкуре шла в атаку пешком. Не конной лавиной, как рисуют. Пешком, по раскисшему полю.",
+      "result": {
+        "shot_en": "Men walking in mud",
+        "function": "object",
+        "forbidden": null,
+        "subject": "французские латники"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 59.7
+    },
+    {
+      "index": 43,
+      "text": "Так что же тогда сделали лучники? Всё. Просто не тем способом, который ты представляешь.",
+      "result": {
+        "shot_en": "Foot soldiers advancing on muddy ground",
+        "function": "object",
+        "forbidden": "конной лавиной",
+        "subject": "английские лучники"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 60.0
+    },
+    {
+      "index": 44,
+      "text": "Стрелы выбивали лошадей на флангах, где конница всё-таки была, — у коня брони несравнимо меньше. Стрелы убивали тех, кто победнее и одоспешен хуже, а таких на любом поле большинство.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 64.1
+    },
+    {
+      "index": 45,
+      "text": "А главное — стрелы заставляли опустить голову. В шлеме есть смотровая щель, и однажды в неё прилетит. Значит, ты идёшь пригнувшись, глядя под ноги, почти вслепую, дыша через отверстие размером с монету.",
+      "result": {
+        "shot_en": "Helmet with visor slit",
+        "function": "object",
+        "forbidden": null,
+        "subject": "шлем"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 59.6
+    },
+    {
+      "index": 46,
+      "text": "И ещё они сжимали строй. Слева лес, справа лес, между ними метров восемьсот открытого поля — а в лицо идёт железный дождь. Люди инстинктивно жмутся от флангов к центру, туда, где кажется безопаснее.",
+      "result": {
+        "shot_en": "Men huddle together",
+        "function": "object",
+        "forbidden": null,
+        "subject": "воины"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 61.4
+    },
+    {
+      "index": 47,
+      "text": "Тысячи человек в доспехах медленно стекаются в одну плотную массу.",
+      "result": {
+        "shot_en": "Armored figures clustering into a dense mass",
+        "function": "object",
+        "forbidden": null,
+        "subject": "человек в доспехах"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 60.5
+    },
+    {
+      "index": 48,
+      "text": "Обстрел не обязан никого убивать, чтобы решить исход. Ему достаточно отобрать у тебя обзор, дыхание и свободу выбирать, куда поставить ногу.",
+      "result": {
+        "shot_en": "A knight with a visor down, struggling to breathe and see clearly.",
+        "function": "object",
+        "forbidden": null,
+        "subject": "воин"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 57.5
+    },
+    {
+      "index": 49,
+      "text": "Ловушка захлопнулась. Дальше англичане могли уже почти ничего не делать — потому что в дело вступил тот самый убийца, которого нет ни в одном оружейном каталоге.",
+      "result": {
+        "shot_en": "The trap snaps shut.",
+        "function": "scene",
+        "forbidden": null,
+        "subject": "ловушка"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 54.7
+    },
+    {
+      "index": 50,
+      "text": "Рыцарей убивала земля.",
+      "result": {
+        "shot_en": "The ground killed the knights.",
+        "function": "object",
+        "forbidden": null,
+        "subject": "рыцари"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 53.7
+    },
+    {
+      "index": 51,
+      "text": "Не метафора и не красивая формулировка. Буквально: поверхность под ногами и та сила, которая тянет тебя к ней.",
+      "result": {
+        "shot_en": "Surface beneath feet pulling down",
+        "function": "object",
+        "forbidden": null,
+        "subject": "поверхность"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 53.7
+    },
+    {
+      "index": 52,
+      "text": "Смотри, как это устроено.",
+      "result": {
+        "shot_en": "Earth's surface pulling knights down",
+        "function": "scene",
+        "forbidden": null,
+        "subject": "земля"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 50.9
+    },
+    {
+      "index": 53,
+      "text": "Двадцать пять килограммов стали — прекрасно, пока ты стоишь. Но добавь глину, которая держит сапог при каждом шаге. Добавь двести метров под обстрелом с опущенной головой. Добавь духоту под шлемом, где давно не хватает воздуха.",
+      "result": {
+        "shot_en": "A soldier standing with a heavy boot, facing a firing range.",
+        "function": "object",
+        "forbidden": null,
+        "subject": "воин"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 55.6
+    },
+    {
+      "index": 54,
+      "text": "В хрониках это записано прямо: французы дошли до английской линии уже вымотанными. Не ранеными. Вымотанными.",
+      "result": {
+        "shot_en": "Tired French soldiers reaching English lines",
+        "function": "object",
+        "forbidden": null,
+        "subject": "французы"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 54.8
+    },
+    {
+      "index": 55,
+      "text": "А теперь тебя толкнули.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 53.3
+    },
+    {
+      "index": 56,
+      "text": "Сзади напирают свои — задние ряды не видят, что впереди затор, и продолжают идти вперёд, потому что бой там. Спереди упирается англичанин. Ты теряешь равновесие и садишься в грязь.",
+      "result": {
+        "shot_en": "A soldier leaning back into the crowd, losing balance and sinking into mud.",
+        "function": "object",
+        "forbidden": null,
+        "subject": "англичанин"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 56.1
+    },
+    {
+      "index": 57,
+      "text": "И ты не встаёшь.",
+      "result": {
+        "shot_en": "A figure lying in mud",
+        "function": "object",
+        "forbidden": null,
+        "subject": "ты"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 52.5
+    },
+    {
+      "index": 58,
+      "text": "Вот и весь ответ. Только он ничего не стоит, пока не почувствуешь, как это происходит. Пройдём эти двести метров вместе.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 52.5
+    },
+    {
+      "index": 59,
+      "text": "Земля тянет ногу вниз. Выдёргиваешь, переносишь вес, ищешь следующую опору — и так каждый шаг, сотни раз подряд.",
+      "result": {
+        "shot_en": "Foot struggles against gravity, lifting and finding support with each step.",
+        "function": "object",
+        "forbidden": null,
+        "subject": "нога"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 52.9
+    },
+    {
+      "index": 60,
+      "text": "Люди впереди уже перемешали верхний слой почвы: там, где прошёл первый ряд, второму не легче, а хуже.",
+      "result": {
+        "shot_en": "People mixing soil with shovels",
+        "function": "object",
+        "forbidden": null,
+        "subject": "люди"
+      },
+      "validator_ok": false,
+      "validator_reason": "человек без привязки к эпохе",
+      "sec": 53.3
+    },
+    {
+      "index": 61,
+      "text": "Остановиться и выбрать дорогу получше никто не даст. Сзади подходят свои, спереди надо держать строй, а над головой звук, из-за которого хочется добраться до англичан побыстрее.",
+      "result": {
+        "shot_en": "Men in formation, following each other, with voices overhead",
+        "function": "scene",
+        "forbidden": null,
+        "subject": "воины"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 55.0
+    },
+    {
+      "index": 62,
+      "text": "Дыхание сбивается, обзор ограничен щелью, пот заливает лицо — вытереть его нечем.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 56.9
+    },
+    {
+      "index": 63,
+      "text": "А ждут тебя отдохнувшие, налегке, на твёрдой земле.",
+      "result": {
+        "shot_en": "Relaxed warriors on solid ground waiting",
+        "function": "object",
+        "forbidden": null,
+        "subject": "отдохнувшие воины"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 54.7
+    },
+    {
+      "index": 64,
+      "text": "Ты наконец доходишь — и никакой аккуратной площадки для поединка там нет. Передние ряды сталкиваются, движение замедляется и местами встаёт, а задние всё ещё подходят.",
+      "result": {
+        "shot_en": "Front rows clashing, movement slowing and stopping in some places",
+        "function": "scene",
+        "forbidden": null,
+        "subject": "Передние ряды"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 55.6
+    },
+    {
+      "index": 65,
+      "text": "Они не видят картины целиком: бой впереди, значит, надо идти вперёд. Человек в первом ряду уже не может сделать шаг, человек в десятом об этом не знает.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 57.2
+    },
+    {
+      "index": 66,
+      "text": "Теперь попробуй воспользоваться своим длинным оружием. Для замаха нужно место. Чтобы переставить ногу — тоже. Даже отвести локоть иногда некуда, потому что там чужое плечо.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 61.7
+    },
+    {
+      "index": 67,
+      "text": "Ещё утром твой опыт позволял выбирать, что сделать. Сейчас ты делаешь только то, что разрешает теснота.",
+      "result": {
+        "shot_en": "A person struggling to move due to lack of space.",
+        "function": "object",
+        "forbidden": null,
+        "subject": "человек"
+      },
+      "validator_ok": false,
+      "validator_reason": "человек без привязки к эпохе",
+      "sec": 56.3
+    },
+    {
+      "index": 68,
+      "text": "Рядом кто-то падает. Ты не видел удара и не знаешь, ранен ли он. Но у твоих ног появился человек, через которого надо переступить, не потеряв равновесия самому.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 57.6
+    },
+    {
+      "index": 69,
+      "text": "Помнишь, с чего мы начали? Тебе нужно было всего лишь встать.",
+      "result": {
+        "shot_en": "A person lying down, unable to rise.",
+        "function": "object",
+        "forbidden": null,
+        "subject": "человек"
+      },
+      "validator_ok": false,
+      "validator_reason": "человек без привязки к эпохе",
+      "sec": 53.9
+    },
+    {
+      "index": 70,
+      "text": "Теперь понятно, почему это может оказаться невыполнимым.",
+      "result": {
+        "shot_en": "A fallen person at your feet.",
+        "function": "object",
+        "forbidden": null,
+        "subject": "человек"
+      },
+      "validator_ok": false,
+      "validator_reason": "человек без привязки к эпохе",
+      "sec": 52.1
+    },
+    {
+      "index": 71,
+      "text": "Доспех тут ни при чём — на свободной площадке ты поднялся бы за несколько секунд.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 53.8
+    },
+    {
+      "index": 72,
+      "text": "Но сначала надо освободить ногу, найти опору для руки и место, куда перенести вес. На каждое движение нужно пространство, а пространство занято другими людьми.",
+      "result": {
+        "shot_en": "A warrior freeing a leg, finding support for an arm, and shifting weight",
+        "function": "object",
+        "forbidden": null,
+        "subject": "воин"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 59.1
+    },
+    {
+      "index": 73,
+      "text": "Ты опираешься на локоть. Сверху толкают ещё одного, он падает на тебя и придавливает ту самую руку, которой ты собирался оттолкнуться.",
+      "result": {
+        "shot_en": "A warrior pressing down on another who falls on his arm",
+        "function": "object",
+        "forbidden": null,
+        "subject": "воин"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 57.1
+    },
+    {
+      "index": 74,
+      "text": "Он не хочет твоей смерти и может даже знать тебя по имени. Только его намерения ничего не решают: он сам зажат и не может убрать свой вес.",
+      "result": {
+        "shot_en": "A trapped person unable to move",
+        "function": "object",
+        "forbidden": null,
+        "subject": "он"
+      },
+      "validator_ok": false,
+      "validator_reason": "человек без привязки к эпохе",
+      "sec": 53.2
+    },
+    {
+      "index": 75,
+      "text": "Хронисты — Ваврен, Монстреле, авторы «Деяний Генриха Пятого» — описывают груды тел выше человеческого роста и англичан, которые залезали на эти кучи, чтобы достать тех, кто ещё шевелился внизу.",
+      "result": {
+        "shot_en": "Piles of bodies towering above human height",
+        "function": "scene",
+        "forbidden": null,
+        "subject": "тела"
+      },
+      "validator_ok": false,
+      "validator_reason": "человек без привязки к эпохе",
+      "sec": 56.9
+    },
+    {
+      "index": 76,
+      "text": "Часть французской знати при Азенкуре погибла, не получив ни одной раны.",
+      "result": {
+        "shot_en": "Dead nobles, unmarked by wounds",
+        "function": "object",
+        "forbidden": null,
+        "subject": "часть французской знати"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 56.6
+    },
+    {
+      "index": 77,
+      "text": "Под весом чужих тел человек перестаёт дышать. Упав лицом в грязь или в воду, он может не суметь повернуть голову. Доспех при этом целый. Он просто не был рассчитан на такую задачу — он закрывает грудь от клинка, а не спасает от того, что на этой груди лежит.",
+      "result": {
+        "shot_en": "Armour intact but crushed by the weight of bodies",
+        "function": "object",
+        "forbidden": null,
+        "subject": "доспех"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 58.5
+    },
+    {
+      "index": 78,
+      "text": "И вот здесь самое неприятное. Чем плотнее люди сбиваются, надеясь продавить противника, тем меньше каждый отдельный человек может изменить хоть что-нибудь.",
+      "result": {
+        "shot_en": "Crowded soldiers pressing against each other",
+        "function": "scene",
+        "forbidden": null,
+        "subject": "люди"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 55.7
+    },
+    {
+      "index": 79,
+      "text": "У тебя может быть целый доспех, целый меч и ни одной смертельной раны. А распоряжаться собственным телом ты уже почти не можешь.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 58.9
+    },
+    {
+      "index": 80,
+      "text": "Но лежащий рыцарь ещё жив. Кто-то должен закончить.",
+      "result": {
+        "shot_en": "A fallen knight lying on the ground",
+        "function": "object",
+        "forbidden": null,
+        "subject": "рыцарь"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 53.1
+    },
+    {
+      "index": 81,
+      "text": "И вот тут появляется самое неромантичное оружие Средневековья.",
+      "result": {
+        "shot_en": "The most unromantic weapon of the Middle Ages appears here.",
+        "function": "object",
+        "forbidden": null,
+        "subject": "оружие"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 52.5
+    },
+    {
+      "index": 82,
+      "text": "Рондельный кинжал. Иногда его называют мизерикорд, от латинского слова «милосердие». Узкий гранёный клинок длиной сантиметров тридцать, без нормальной режущей кромки, с двумя круглыми шайбами вместо гарды.",
+      "result": {
+        "shot_en": "A narrow polished blade, about 30 cm long, with two round discs instead of a guard.",
+        "function": "object",
+        "forbidden": null,
+        "subject": "rondeled dagger"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 57.1
+    },
+    {
+      "index": 83,
+      "text": "Резать им нельзя вообще. Он умеет ровно одно — входить.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 57.2
+    },
+    {
+      "index": 84,
+      "text": "Берёшь его обратным хватом, как ледоруб, ставишь остриё в смотровую щель упавшего и наваливаешься сверху всем весом. Задняя шайба упирается в ладонь и не даёт руке соскользнуть по рукояти.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 64.7
+    },
+    {
+      "index": 85,
+      "text": "Такая игла проходит и сквозь кольчужное плетение — там, где вместо пластины оставлена подвижная вставка. Под мышкой. В паху. В сгибе локтя. В шее между шлемом и латным воротником.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 61.8
+    },
+    {
+      "index": 86,
+      "text": "Доспех — это всегда компромисс между защитой и подвижностью. Слабые места в нём не от халтуры мастера: человек, закованный наглухо, просто не смог бы сделать ни шагу.",
+      "result": {
+        "shot_en": "A knight in full armor struggling to move",
+        "function": "object",
+        "forbidden": null,
+        "subject": "доспех"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 58.1
+    },
+    {
+      "index": 87,
+      "text": "А теперь про то, кто именно подходил.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 54.2
+    },
+    {
+      "index": 88,
+      "text": "Английские лучники при Азенкуре не остались стоять на холме ради красивого залпа. Они спустились вниз, к барахтающимся в грязи людям. Небогатые, легко одетые, без брони — и с полной свободой движения, которой у лежащего уже нет.",
+      "result": {
+        "shot_en": "English archers descending",
+        "function": "object",
+        "forbidden": "без брони",
+        "subject": "английские лучники"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 56.1
+    },
+    {
+      "index": 89,
+      "text": "Сравни две задачи. Победить обученного бойца, который твёрдо стоит и может ответить. И справиться с ним же, когда нога зажата, рука придавлена, а голову не повернуть.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 64.1
+    },
+    {
+      "index": 90,
+      "text": "Человек тот же, доспех тот же. Бой совершенно другой.",
+      "result": {
+        "shot_en": "A man in armor fighting",
+        "function": "object",
+        "forbidden": null,
+        "subject": "человек"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 56.3
+    },
+    {
+      "index": 91,
+      "text": "Сын графа, наследник трёх замков, которого с четырёх лет учили владеть оружием, погибал от кинжала парня, который прошлым летом пас овец. Именно поэтому Азенкур для Франции — не просто проигранная битва, а национальная травма.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 54.7
+    },
+    {
+      "index": 92,
+      "text": "Кстати, если ты решил, что лучники резали всех подряд, — нет. Обычно всё было ровно наоборот, и вот почему это важно.",
+      "result": {
+        "shot_en": "Archers shooting arrows at soldiers",
+        "function": "illustration",
+        "forbidden": "не резали всех подряд",
+        "subject": "лучники"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 57.4
+    },
+    {
+      "index": 93,
+      "text": "Живой рыцарь стоил денег. Иногда чудовищных.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 54.9
+    },
+    {
+      "index": 94,
+      "text": "За короля Иоанна Доброго Франция обязалась заплатить три миллиона золотых экю по договору в Бретиньи. За рядового знатного пленника платили годовой доход его земель — сумму, которая меняла жизнь простого человека навсегда.",
+      "result": {
+        "shot_en": "France paying three million gold ecus",
+        "function": "texture",
+        "forbidden": null,
+        "subject": "Франция"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 54.5
+    },
+    {
+      "index": 95,
+      "text": "Поэтому нормальная логика боя была не «убить», а «свалить, прижать, взять слово». Доспех работал ещё и как ценник: по гербу и по качеству лат за секунду читалось, сколько за тебя дадут.",
+      "result": {
+        "shot_en": "Armour displayed with coat of arms and quality, indicating value",
+        "function": "object",
+        "forbidden": null,
+        "subject": "доспех"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 56.0
+    },
+    {
+      "index": 96,
+      "text": "Для лежащего в грязи это был реальный шанс пережить день, который уже невозможно выиграть.",
+      "result": {
+        "shot_en": "A soldier lying in mud",
+        "function": "object",
+        "forbidden": null,
+        "subject": "воин"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 55.3
+    },
+    {
+      "index": 97,
+      "text": "Только между «за меня заплатят» и «меня спасут» стоит несколько неприятных условий.",
+      "result": {
+        "shot_en": "A soldier lying in mud, injured",
+        "function": "scene",
+        "forbidden": null,
+        "subject": "воин"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 54.7
+    },
+    {
+      "index": 98,
+      "text": "Кто-то должен услышать, что ты сдаёшься, разглядеть, кто ты, и решить, что сумеет тебя удержать и потом получить деньги. Пока это не сложилось, твоё состояние лежит где-то далеко, в землях и доходах, а вооружённый человек стоит прямо здесь.",
+      "result": {
+        "shot_en": "A armed man standing in the foreground.",
+        "function": "scene",
+        "forbidden": null,
+        "subject": "вооружённый человек"
+      },
+      "validator_ok": false,
+      "validator_reason": "человек без привязки к эпохе",
+      "sec": 56.0
+    },
+    {
+      "index": 99,
+      "text": "Можно быть чрезвычайно дорогим пленником и совершенно неудобной добычей.",
+      "result": {
+        "shot_en": "A heavily armed soldier standing guard",
+        "function": "object",
+        "forbidden": null,
+        "subject": "вооружённый человек"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 54.7
+    },
+    {
+      "index": 100,
+      "text": "Особенно если бой ещё не кончился. Охранять пленных — значит отвлекать людей. И когда при Азенкуре Генриху Пятому показалось, что французы готовят новый удар, он приказал пленных убить. Приказ обычно объясняют именно страхом атаки с тыла и нехваткой людей на охрану.",
+      "result": {
+        "shot_en": "A armed man standing guard over a prisoner.",
+        "function": "scene",
+        "forbidden": null,
+        "subject": "вооружённый человек"
+      },
+      "validator_ok": false,
+      "validator_reason": "человек без привязки к эпохе",
+      "sec": 58.0
+    },
+    {
+      "index": 101,
+      "text": "Вдумайся, что это означало по деньгам. Сжечь состояние, которое уже держишь в руках.",
+      "result": {
+        "shot_en": "Burning gold bars",
+        "function": "object",
+        "forbidden": null,
+        "subject": "французские пленные"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 55.1
+    },
+    {
+      "index": 102,
+      "text": "И это сделали. Кинжалами, через щели, за считанные минуты.",
+      "result": {
+        "shot_en": "Men being stabbed through gaps with knives",
+        "function": "object",
+        "forbidden": null,
+        "subject": "пленных"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 53.9
+    },
+    {
+      "index": 103,
+      "text": "Современников возмутила не жестокость — резня их не удивляла. Возмутило, кого убили и кто убивал: благородных господ прикончили простолюдины, буднично, как забивают скот.",
+      "result": {
+        "shot_en": "Commoners killing nobles",
+        "function": "object",
+        "forbidden": null,
+        "subject": "простолюдины"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 54.6
+    },
+    {
+      "index": 104,
+      "text": "Тут легко сделать неверный вывод: не повезло с погодой. Подсохло бы поле — и никакой катастрофы.",
+      "result": {
+        "shot_en": "Dry field",
+        "function": "object",
+        "forbidden": null,
+        "subject": "поле"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 52.2
+    },
+    {
+      "index": 105,
+      "text": "Но грязь под Азенкуром не была какой-то особенной убийственной грязью. Дело в другом: подготовленный воин зависит от условий, в которых способен применить свою подготовку. Убери условия — и от подготовки останется мало.",
+      "result": {
+        "shot_en": "A trained warrior relying on conditions",
+        "function": "object",
+        "forbidden": null,
+        "subject": "воин"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 57.3
+    },
+    {
+      "index": 106,
+      "text": "При Куртре в тысяча триста втором французской коннице противостояла фламандская пехота. Ручьи, канавы и выбранная фламандцами позиция не дали всадникам сделать то, ради чего конница существует, — разогнаться и ударить в строю. Золотых шпор с погибших рыцарей собрали столько, что битву так и запомнили — битвой Золотых шпор.",
+      "result": {
+        "shot_en": "French cavalry facing Flemish infantry",
+        "function": "object",
+        "forbidden": null,
+        "subject": "французская коннице"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 62.2
+    },
+    {
+      "index": 107,
+      "text": "Это не история про то, что ремесленник с дубиной сильнее рыцаря. Это история про то, что рыцарь на коне опасен не сам по себе, а вместе с конём, скоростью, пространством и возможностью держать строй.",
+      "result": {
+        "shot_en": "A knight on a horse",
+        "function": "scene",
+        "forbidden": null,
+        "subject": "рыцарь"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 61.4
+    },
+    {
+      "index": 108,
+      "text": "При Баннокберне в тысяча триста четырнадцатом англичан прижали к болотистой пойме реки. Часть людей погибла при отступлении там, где в обычный день речку переходят вброд.",
+      "result": {
+        "shot_en": "People trapped near a marshy riverbank",
+        "function": "scene",
+        "forbidden": null,
+        "subject": "англичане"
+      },
+      "validator_ok": false,
+      "validator_reason": "человек без привязки к эпохе",
+      "sec": 62.4
+    },
+    {
+      "index": 109,
+      "text": "Замечаешь закономерность? Вода, канава, склон, теснота, раскисшее поле. Каждый раз одно и то же: человек теряет возможность выбирать, куда поставить ногу.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 60.7
+    },
+    {
+      "index": 110,
+      "text": "Проверяется от обратного. Убери вокруг упавшего остальных — он встанет. Поставь на твёрдую землю — найдёт опору. Дай отдохнуть — будет чем бороться.",
+      "result": {
+        "shot_en": "A fallen warrior on the ground",
+        "function": "object",
+        "forbidden": null,
+        "subject": "он"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 56.6
+    },
+    {
+      "index": 111,
+      "text": "Достаточно вернуть одно условие, чтобы исход поменялся. При Азенкуре не вернули ни одного.",
+      "result": {
+        "shot_en": "A soldier lying on the battlefield",
+        "function": "object",
+        "forbidden": null,
+        "subject": "условие"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 53.6
+    },
+    {
+      "index": 112,
+      "text": "Хорошо. На поле боя убийца — падение и всё, что за ним следует.",
+      "result": {
+        "shot_en": "Falling body",
+        "function": "object",
+        "forbidden": null,
+        "subject": "убийца"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 53.7
+    },
+    {
+      "index": 113,
+      "text": "Но если отойти на шаг и посмотреть на жизнь рыцаря целиком, там сидит ещё кое-кто, и этот счёт будет побольше.",
+      "result": {
+        "shot_en": "A full life of a knight, including hidden aspects",
+        "function": "scene",
+        "forbidden": null,
+        "subject": "жизнь рыцаря"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 55.1
+    },
+    {
+      "index": 114,
+      "text": "Болезнь.",
+      "result": {
+        "shot_en": "Disease or illness",
+        "function": "object",
+        "forbidden": null,
+        "subject": "болезнь"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 51.2
+    },
+    {
+      "index": 115,
+      "text": "Средневековая армия в походе — это тысячи людей, неделями стоящих на одном месте. Общий источник воды. Отхожие места выше по течению или вообще никаких. Для любой домодерновой войны это обычное дело: осада на пару месяцев могла стоить больше людей, чем генеральное сражение.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 57.7
+    },
+    {
+      "index": 116,
+      "text": "Дизентерия выкашивала войска до всякого боя, и знатность от неё не защищала совершенно.",
+      "result": {
+        "shot_en": "Dysentery decimating troops",
+        "function": "object",
+        "forbidden": null,
+        "subject": "дизентерия"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 54.6
+    },
+    {
+      "index": 117,
+      "text": "Генрих Пятый — тот самый победитель Азенкура, лучший полководец своего поколения — умер в тысяча четыреста двадцать втором году в Венсене. Не в бою. От болезни, в тридцать пять лет, на пике могущества.",
+      "result": {
+        "shot_en": "A man lying in a bed, ill.",
+        "function": "object",
+        "forbidden": null,
+        "subject": "Генрих Пятый"
+      },
+      "validator_ok": false,
+      "validator_reason": "человек без привязки к эпохе",
+      "sec": 59.0
+    },
+    {
+      "index": 118,
+      "text": "Эдуард Чёрный принц, гроза Франции и победитель при Пуатье, привёз болезнь из испанского похода, несколько лет угасал и умер в постели.",
+      "result": {
+        "shot_en": "Black Prince arriving with disease",
+        "function": "object",
+        "forbidden": null,
+        "subject": "Эдуард Чёрный принц"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 57.4
+    },
+    {
+      "index": 119,
+      "text": "Два лучших полководца своего века. Ни одной боевой раны в причине смерти.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 54.9
+    },
+    {
+      "index": 120,
+      "text": "А тех, кого рана всё-таки настигала, часто добивало заражение. Стрела в бедре сама по себе не смертельна — смертельна грязь, которую она затащила внутрь. Через несколько дней начинался жар, и дальше ни доспех, ни доблесть уже не помогали.",
+      "result": {
+        "shot_en": "An arrow embedded in a thigh",
+        "function": "object",
+        "forbidden": null,
+        "subject": "стрела"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 57.5
+    },
+    {
+      "index": 121,
+      "text": "Всё это пока — хроники. А хроника всегда чья-то: её пишет человек с интересами, симпатиями и заказчиком. Поэтому последний аргумент возьмём не из библиотеки, а из земли.",
+      "result": {
+        "shot_en": "A person writing in a notebook",
+        "function": "object",
+        "forbidden": null,
+        "subject": "человек"
+      },
+      "validator_ok": false,
+      "validator_reason": "человек без привязки к эпохе",
+      "sec": 57.0
+    },
+    {
+      "index": 122,
+      "text": "Тысяча четыреста шестьдесят первый год, Вербное воскресенье, север Англии. Битва при Таутоне — Война Роз, одно из самых кровавых сражений в британской истории.",
+      "result": {
+        "shot_en": "A battlefield with dead and wounded soldiers, the ground stained with blood.",
+        "function": "scene",
+        "forbidden": null,
+        "subject": "field"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 58.9
+    },
+    {
+      "index": 123,
+      "text": "В девяносто шестом году рядом с полем боя нашли братскую могилу. Внутри — больше шестидесяти человек. Останки изучали археологи Брэдфордского университета вместе с судебными медиками, потому что обычных методов не хватало.",
+      "result": {
+        "shot_en": "Brother's grave near battlefield",
+        "function": "object",
+        "forbidden": null,
+        "subject": "brother's grave"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 57.8
+    },
+    {
+      "index": 124,
+      "text": "Что показали кости.",
+      "result": {
+        "shot_en": "Bones revealing injuries",
+        "function": "object",
+        "forbidden": null,
+        "subject": "останки"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 55.1
+    },
+    {
+      "index": 125,
+      "text": "Раны сосредоточены на головах, и на одном черепе насчитали до десяти отдельных повреждений — рубленых, дробящих, колотых. Разное оружие, разные руки, разные направления удара.",
+      "result": {
+        "shot_en": "Skulls with concentrated wounds, one showing up to ten distinct injuries.",
+        "function": "object",
+        "forbidden": null,
+        "subject": "черепа"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 57.4
+    },
+    {
+      "index": 126,
+      "text": "Один вывод здесь важнее прочих: люди в момент смерти были без шлемов. Пока шлем на голове, до головы не добраться. Значит, сначала его сбили, сорвали или человек потерял его сам — и только потом началось то, что осталось на костях.",
+      "result": {
+        "shot_en": "People without helmets.",
+        "function": "object",
+        "forbidden": null,
+        "subject": "люди"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 54.0
+    },
+    {
+      "index": 127,
+      "text": "И второе: много следов дробящего оружия — боевые молоты, полэксы, булавы.",
+      "result": {
+        "shot_en": "Battle maces, halberds, and mauls leaving impact marks",
+        "function": "object",
+        "forbidden": null,
+        "subject": "дробящее оружие"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 59.4
+    },
+    {
+      "index": 128,
+      "text": "Собери картину целиком. Строй ломается, человек падает, шлем слетает, сверху добивают тем, что оказалось в руках.",
+      "result": {
+        "shot_en": "A person falling from a structure",
+        "function": "scene",
+        "forbidden": null,
+        "subject": "человек"
+      },
+      "validator_ok": false,
+      "validator_reason": "человек без привязки к эпохе",
+      "sec": 55.7
+    },
+    {
+      "index": 129,
+      "text": "Никакой дуэли. Никакого обмена репликами. Работа.",
+      "result": {
+        "shot_en": "A worker using tools",
+        "function": "object",
+        "forbidden": null,
+        "subject": "человек"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 53.3
+    },
+    {
+      "index": 130,
+      "text": "Давай соберём всё вместе.",
+      "result": {
+        "shot_en": "A person assembling pieces",
+        "function": "object",
+        "forbidden": null,
+        "subject": "человек"
+      },
+      "validator_ok": false,
+      "validator_reason": "человек без привязки к эпохе",
+      "sec": 50.0
+    },
+    {
+      "index": 131,
+      "text": "Меч почти не убивал — против лат его брали за клинок и работали им как ломом.",
+      "result": {
+        "shot_en": "A sword used as a crowbar",
+        "function": "object",
+        "forbidden": null,
+        "subject": "меч"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 51.0
+    },
+    {
+      "index": 132,
+      "text": "Стрела почти не пробивала доспех — она ослепляла, выбивала коней и загоняла людей туда, откуда не выйти.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 55.6
+    },
+    {
+      "index": 133,
+      "text": "Полэкс и молот работали по-настоящему, но их работа заканчивалась тем, что человек падал.",
+      "result": {
+        "shot_en": "Hammer and poleaxe striking a warrior",
+        "function": "object",
+        "forbidden": null,
+        "subject": "Полэкс и молот"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 54.3
+    },
+    {
+      "index": 134,
+      "text": "А убивала земля. Глина, которая не отпускает ногу. Вес своих же товарищей сверху. Несколько сантиметров воды под Баннокберном. И грязная вода в лагере, которая доедала тех, кого поле не тронуло.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 62.6
+    },
+    {
+      "index": 135,
+      "text": "Средневековый рыцарь — это человек, который потратил состояние и целую жизнь, чтобы стать неуязвимым для оружия. И у него получилось. Он действительно почти перестал быть уязвимым для оружия.",
+      "result": {
+        "shot_en": "A heavily armored knight",
+        "function": "object",
+        "forbidden": null,
+        "subject": "средневековый рыцарь"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 57.6
+    },
+    {
+      "index": 136,
+      "text": "Просто убивало его не оружие.",
+      "result": {
+        "shot_en": "The ground, clinging to his foot.",
+        "function": "object",
+        "forbidden": null,
+        "subject": "его"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 54.3
+    },
+    {
+      "index": 137,
+      "text": "Он защитился от того, что видно. А пришло то, чего не видно.",
+      "result": {
+        "shot_en": "A knight protecting himself with visible armor, with invisible threats approaching.",
+        "function": "object",
+        "forbidden": "оружие",
+        "subject": "рыцарь"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 54.3
+    },
+    {
+      "index": 138,
+      "text": "Поэтому в следующий раз, когда увидишь, как в кино падает рыцарь, посмотри не на меч, который его ударил. Посмотри, куда он упал, кто стоит вокруг и есть ли у него хоть какая-то возможность подняться.",
+      "result": {
+        "shot_en": "A knight falling off his horse",
+        "function": "scene",
+        "forbidden": "меч",
+        "subject": "рыцарь"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 52.3
+    },
+    {
+      "index": 139,
+      "text": "Самая страшная секунда наступает не тогда, когда ломается броня. Она наступает, когда броня целая, ты жив — а твой следующий вдох зависит от того, сдвинется ли человек, лежащий у тебя на груди.",
+      "result": {
+        "shot_en": "A person lying on the ground",
+        "function": "scene",
+        "forbidden": null,
+        "subject": "человек"
+      },
+      "validator_ok": false,
+      "validator_reason": "человек без привязки к эпохе",
+      "sec": 55.3
+    },
+    {
+      "index": 140,
+      "text": "В следующий раз разберём осаду замка: почему огромная армия месяцами стоит под стенами и совершенно не спешит на них лезть. Штурм — это последнее, что делает нормальный полководец, и причина тебе не понравится.",
+      "result": {
+        "shot_en": "A large army encamped outside castle walls for a month",
+        "function": "scene",
+        "forbidden": null,
+        "subject": "армия"
+      },
+      "validator_ok": true,
+      "validator_reason": null,
+      "sec": 57.1
+    },
+    {
+      "index": 141,
+      "text": "Проверяй, что тебе показывают.",
+      "result": null,
+      "validator_ok": null,
+      "validator_reason": null,
+      "sec": 51.9
+    }
+  ],
+  "note": "Полный прогон всех 142 юнитов эпизода 02, ИГНОРИРУЯ авторские брифы (только для замера, script.txt не тронут). Живой llama.cpp, собранный из исходников, Qwen2.5-7B-Instruct Q4_K_M, --temp 0 --seed 1 (детерминировано), промпт v4 с контекстом. 32 null / 16 отклонено валидатором / 94 прошли. Содержательная проверка (не автоматика) всех 94 прошедших — CLAUDE.md, раздел ЛОКАЛЬНЫЙ РЕЖИССЁР НА CPU, финальный блок 16.09: 92 из 94 верны по существу, 1 известный дефект (юнит 5), 1 спорный (юнит 129)."
+}

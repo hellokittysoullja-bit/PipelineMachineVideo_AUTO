@@ -1,0 +1,2704 @@
+[
+ {
+  "id": "freesound:47a9d037-c66d-4200-91cb-9f7c78c32dab",
+  "title": "Church bells in a Pamplona side street 1985",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "reasons": [
+   "title:street"
+  ],
+  "url": "https://cdn.freesound.org/previews/379/379845_182472-hq.mp3",
+  "creator": "plantmonkey",
+  "landing": "https://freesound.org/people/plantmonkey/sounds/379845"
+ },
+ {
+  "id": "freesound:8cf31095-e153-42f0-a401-55787594a3ef",
+  "title": "Busker on a Pamplona side street 1985",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "reasons": [
+   "title:street"
+  ],
+  "url": "https://cdn.freesound.org/previews/379/379848_182472-hq.mp3",
+  "creator": "plantmonkey",
+  "landing": "https://freesound.org/people/plantmonkey/sounds/379848"
+ },
+ {
+  "id": "freesound:d681a09b-247c-4e86-bfc9-4e1c96a58358",
+  "title": "Organ in church.wav",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "reasons": [
+   "title:organ"
+  ],
+  "url": "https://cdn.freesound.org/previews/442/442541_5902878-hq.mp3",
+  "creator": "BonnyOrbit",
+  "landing": "https://freesound.org/people/BonnyOrbit/sounds/442541"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 50.328,
+  "clipping_share": 0.0,
+  "hum_db": 15.9,
+  "silence_share": 0.0,
+  "lufs": -25.3,
+  "lra": 0.7,
+  "true_peak": -11.6,
+  "lf_share": 0.184,
+  "channel_corr": 0.401,
+  "mono": false,
+  "id": "freesound:92eaafad-7cd9-409f-87d1-0ef74bea3f21",
+  "title": "room tone large empty bass hum rumble mosque.flac",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/451/451616_612689-hq.mp3",
+  "creator": "kyles",
+  "landing": "https://freesound.org/people/kyles/sounds/451616"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 235.608,
+  "clipping_share": 0.0,
+  "hum_db": 18.6,
+  "silence_share": 0.0,
+  "lufs": -25.4,
+  "lra": 1.1,
+  "true_peak": -13.1,
+  "lf_share": 0.0,
+  "channel_corr": 0.735,
+  "mono": false,
+  "id": "freesound:a96295b8-409c-45c3-bd16-e2144cdac47c",
+  "title": "room tone, big hall, heavy ventilation hum, extremely sparse people.wav",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/509/509477_5804919-hq.mp3",
+  "creator": "be_a_hero_not_a_patriot",
+  "landing": "https://freesound.org/people/be_a_hero_not_a_patriot/sounds/509477"
+ },
+ {
+  "reasons": [
+   "kind_lost_to_surf"
+  ],
+  "duration": 299.448,
+  "clipping_share": 0.0,
+  "hum_db": 10.5,
+  "silence_share": 0.0,
+  "lufs": -12.8,
+  "lra": 0.5,
+  "true_peak": -0.0,
+  "lf_share": 0.054,
+  "channel_corr": 0.006,
+  "mono": false,
+  "clap_pos": -0.0025,
+  "clap_margin": 0.0439,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "kind_winner": "surf",
+  "kind_gap": 0.0015,
+  "ast": {
+   "Music": 0.597,
+   "Singing": 0.0,
+   "Speech": 0.009,
+   "Vehicle": 0.002
+  },
+  "id": "freesound:a5c7c41f-5720-43d8-91e1-10f952079f21",
+  "title": "ambience in a large cave",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/611/611927_11705708-hq.mp3",
+  "creator": "fonografico",
+  "landing": "https://freesound.org/people/fonografico/sounds/611927"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 108.408,
+  "clipping_share": 0.0,
+  "hum_db": 12.4,
+  "silence_share": 0.0,
+  "lufs": -37.8,
+  "lra": 7.2,
+  "true_peak": -21.7,
+  "lf_share": 0.035,
+  "channel_corr": 0.219,
+  "mono": false,
+  "clap_pos": 0.1876,
+  "clap_margin": -0.0422,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "kind_winner": "stone_hall",
+  "kind_gap": 0.0052,
+  "ast": {
+   "Music": 0.003,
+   "Singing": 0.0,
+   "Speech": 0.001,
+   "Vehicle": 0.272
+  },
+  "id": "freesound:8ff01308-05c0-4dc2-a328-f5c0322b85c0",
+  "title": "AMB_Wind_Howling_empty Church close to window_48kHz.wav",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/557/557380_8698364-hq.mp3",
+  "creator": "Tonmeister88",
+  "landing": "https://freesound.org/people/Tonmeister88/sounds/557380"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 85.488,
+  "clipping_share": 0.0,
+  "hum_db": 34.3,
+  "silence_share": 0.0,
+  "lufs": -55.8,
+  "lra": 4.4,
+  "true_peak": -32.3,
+  "lf_share": 0.51,
+  "channel_corr": -0.381,
+  "mono": false,
+  "id": "freesound:f69cf27c-fe26-4b26-858e-f94d8bd7e11b",
+  "title": "Room Tone Underground Parking",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/387/387340_4638708-hq.mp3",
+  "creator": "kintana24",
+  "landing": "https://freesound.org/people/kintana24/sounds/387340"
+ },
+ {
+  "reasons": [
+   "mains_hum",
+   "too_much_silence",
+   "too_dynamic"
+  ],
+  "duration": 79.8,
+  "clipping_share": 4.6e-05,
+  "hum_db": 28.6,
+  "silence_share": 0.308,
+  "lufs": -15.3,
+  "lra": 24.8,
+  "true_peak": -0.4,
+  "lf_share": 0.0,
+  "channel_corr": 0.668,
+  "mono": false,
+  "id": "freesound:32243624-1fb6-4829-b7e8-8a50e91e5207",
+  "title": "Whirly tube, four pitches, harmonic series, circular swinging, large room.wav",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/577/577327_97550-hq.mp3",
+  "creator": "TRP",
+  "landing": "https://freesound.org/people/TRP/sounds/577327"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "kind_lost_to_wind_open"
+  ],
+  "duration": 60.048,
+  "clipping_share": 0.0,
+  "hum_db": 13.2,
+  "silence_share": 0.0,
+  "lufs": -13.1,
+  "lra": 0.5,
+  "true_peak": -0.4,
+  "lf_share": 0.057,
+  "channel_corr": 0.025,
+  "mono": false,
+  "clap_pos": 0.1496,
+  "clap_margin": -0.0067,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "kind_winner": "wind_open",
+  "kind_gap": 0.0015,
+  "ast": {
+   "Music": 0.029,
+   "Singing": 0.0,
+   "Speech": 0.026,
+   "Vehicle": 0.019
+  },
+  "id": "freesound:adc7ed25-9c21-46f7-a9cc-38977c66a02d",
+  "title": "ambience large cave variation.ogg",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/636/636124_11705708-hq.mp3",
+  "creator": "fonografico",
+  "landing": "https://freesound.org/people/fonografico/sounds/636124"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 254.064,
+  "clipping_share": 0.0,
+  "hum_db": 18.5,
+  "silence_share": 0.0,
+  "lufs": -20.3,
+  "lra": 3.3,
+  "true_peak": -0.3,
+  "lf_share": 0.3,
+  "channel_corr": 0.827,
+  "mono": false,
+  "id": "freesound:6c12a425-d2ee-454c-b313-547b703b5bdd",
+  "title": "Solothurn - in Front of the St. Ursen Cathedral",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/625/625625_522747-hq.mp3",
+  "creator": "Erbsland-Music",
+  "landing": "https://freesound.org/people/Erbsland-Music/sounds/625625"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "kind_lost_to_forest_birds"
+  ],
+  "duration": 343.128,
+  "clipping_share": 0.0,
+  "hum_db": 9.1,
+  "silence_share": 0.0,
+  "lufs": -48.9,
+  "lra": 11.3,
+  "true_peak": -24.4,
+  "lf_share": 0.103,
+  "channel_corr": 1.0,
+  "mono": true,
+  "clap_pos": 0.0875,
+  "clap_margin": -0.0894,
+  "clap_worst_neg": "music with melody and instruments, singing",
+  "kind_winner": "forest_birds",
+  "kind_gap": 0.0068,
+  "ast": {
+   "Music": 0.011,
+   "Singing": 0.0,
+   "Speech": 0.007,
+   "Vehicle": 0.003
+  },
+  "id": "freesound:8dbc598d-6ead-48fb-bed0-9aafa64f6398",
+  "title": "Monastery ruins_1(birds, pigeons, wings, wind).wav",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/475/475649_7009965-hq.mp3",
+  "creator": "o_ciz",
+  "landing": "https://freesound.org/people/o_ciz/sounds/475649"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "kind_lost_to_night"
+  ],
+  "duration": 208.92,
+  "clipping_share": 0.0,
+  "hum_db": 6.2,
+  "silence_share": 0.0,
+  "lufs": -48.0,
+  "lra": 8.8,
+  "true_peak": -20.8,
+  "lf_share": 0.596,
+  "channel_corr": -0.878,
+  "mono": false,
+  "clap_pos": 0.1832,
+  "clap_margin": -0.0279,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "kind_winner": "night",
+  "kind_gap": 0.0165,
+  "ast": {
+   "Music": 0.091,
+   "Singing": 0.001,
+   "Speech": 0.002,
+   "Vehicle": 0.004
+  },
+  "id": "freesound:8ca51f6f-453f-4332-8e56-a17f875e54d6",
+  "title": "room_before_paradise.mp3",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/85/85086_1267745-hq.mp3",
+  "creator": "cormi",
+  "landing": "https://freesound.org/people/cormi/sounds/85086"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 180.096,
+  "clipping_share": 0.0,
+  "hum_db": 16.2,
+  "silence_share": 0.0,
+  "lufs": -21.6,
+  "lra": 3.8,
+  "true_peak": -6.2,
+  "lf_share": 0.007,
+  "channel_corr": 0.882,
+  "mono": false,
+  "id": "freesound:765f7a76-773d-4d8d-9471-1afd7b31ba84",
+  "title": "Dark Dungeon Ambience",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/516/516566_2247456-hq.mp3",
+  "creator": "Kinoton",
+  "landing": "https://freesound.org/people/Kinoton/sounds/516566"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 300.048,
+  "clipping_share": 0.0,
+  "hum_db": 10.3,
+  "silence_share": 0.0,
+  "lufs": -12.8,
+  "lra": 0.5,
+  "true_peak": -0.4,
+  "lf_share": 0.054,
+  "channel_corr": -0.006,
+  "mono": false,
+  "clap_pos": 0.0131,
+  "clap_margin": 0.037,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "kind_winner": "stone_hall",
+  "kind_gap": 0.0137,
+  "ast": {
+   "Music": 0.658,
+   "Singing": 0.0,
+   "Speech": 0.009,
+   "Vehicle": 0.001
+  },
+  "id": "freesound:e7735886-92ee-4026-bd24-5ad4892c00dd",
+  "title": "ambience cave6.ogg",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/636/636109_11705708-hq.mp3",
+  "creator": "fonografico",
+  "landing": "https://freesound.org/people/fonografico/sounds/636109"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "kind_lost_to_surf"
+  ],
+  "duration": 265.08,
+  "clipping_share": 3.5e-05,
+  "hum_db": 13.6,
+  "silence_share": 0.0,
+  "lufs": -9.7,
+  "lra": 0.4,
+  "true_peak": 0.5,
+  "lf_share": 0.01,
+  "channel_corr": -0.088,
+  "mono": false,
+  "clap_pos": -0.027,
+  "clap_margin": 0.0079,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "kind_winner": "surf",
+  "kind_gap": 0.0329,
+  "ast": {
+   "Music": 0.633,
+   "Singing": 0.0,
+   "Speech": 0.01,
+   "Vehicle": 0.003
+  },
+  "id": "freesound:26521018-45d5-418f-83c9-c3b231e114ad",
+  "title": "ambience cave4.ogg",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/636/636105_11705708-hq.mp3",
+  "creator": "fonografico",
+  "landing": "https://freesound.org/people/fonografico/sounds/636105"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "kind_lost_to_forge_fire"
+  ],
+  "duration": 184.056,
+  "clipping_share": 0.0,
+  "hum_db": 9.5,
+  "silence_share": 0.003,
+  "lufs": -25.2,
+  "lra": 1.0,
+  "true_peak": -13.8,
+  "lf_share": 0.0,
+  "channel_corr": -0.45,
+  "mono": false,
+  "clap_pos": -0.1002,
+  "clap_margin": -0.1294,
+  "clap_worst_neg": "music with melody and instruments, singing",
+  "kind_winner": "forge_fire",
+  "kind_gap": 0.0675,
+  "ast": {
+   "Music": 0.731,
+   "Singing": 0.025,
+   "Speech": 0.003,
+   "Vehicle": 0.001
+  },
+  "id": "freesound:e89a89ad-daf0-4f76-b3f2-520046028503",
+  "title": "Mysterious cave with water drop sounds.wav",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/645/645762_13590673-hq.mp3",
+  "creator": "Duisterwho",
+  "landing": "https://freesound.org/people/Duisterwho/sounds/645762"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 180.048,
+  "clipping_share": 0.0,
+  "hum_db": 11.3,
+  "silence_share": 0.0,
+  "lufs": -13.3,
+  "lra": 1.6,
+  "true_peak": -0.5,
+  "lf_share": 0.079,
+  "channel_corr": 0.129,
+  "mono": false,
+  "clap_pos": 0.0037,
+  "clap_margin": 0.0195,
+  "clap_worst_neg": "music with melody and instruments, singing",
+  "kind_winner": "stone_hall",
+  "kind_gap": 0.0384,
+  "ast": {
+   "Music": 0.56,
+   "Singing": 0.0,
+   "Speech": 0.011,
+   "Vehicle": 0.003
+  },
+  "id": "freesound:0a4567cb-00d3-4eae-8ce6-8a2e886658ac",
+  "title": "ambience cave.ogg",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/636/636108_11705708-hq.mp3",
+  "creator": "fonografico",
+  "landing": "https://freesound.org/people/fonografico/sounds/636108"
+ },
+ {
+  "reasons": [
+   "kind_lost_to_forge_fire"
+  ],
+  "duration": 173.064,
+  "clipping_share": 0.0,
+  "hum_db": 8.5,
+  "silence_share": 0.0,
+  "lufs": -41.7,
+  "lra": 10.5,
+  "true_peak": -8.3,
+  "lf_share": 0.888,
+  "channel_corr": 0.033,
+  "mono": false,
+  "clap_pos": 0.1747,
+  "clap_margin": 0.1416,
+  "clap_worst_neg": "one person speaking clearly, conversation",
+  "kind_winner": "forge_fire",
+  "kind_gap": 0.0115,
+  "ast": {
+   "Music": 0.011,
+   "Singing": 0.001,
+   "Speech": 0.028,
+   "Vehicle": 0.002
+  },
+  "id": "freesound:a2173e6b-157f-4903-a5cc-a5406e62186f",
+  "title": "Quarry Tunnel Ambience 1, Large Splash",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/476/476318_2337290-hq.mp3",
+  "creator": "ecfike",
+  "landing": "https://freesound.org/people/ecfike/sounds/476318"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 160.128,
+  "clipping_share": 0.0,
+  "hum_db": 14.1,
+  "silence_share": 0.0,
+  "lufs": -57.6,
+  "lra": 3.5,
+  "true_peak": -38.8,
+  "lf_share": 0.404,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:8194963b-e1d2-4767-b23e-8f937507f0c6",
+  "title": "Monastery ruins_2(birds, pigeons, wings, wind).wav",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/475/475651_7009965-hq.mp3",
+  "creator": "o_ciz",
+  "landing": "https://freesound.org/people/o_ciz/sounds/475651"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 159.6,
+  "clipping_share": 0.0,
+  "hum_db": 18.7,
+  "silence_share": 0.0,
+  "lufs": -22.8,
+  "lra": 6.4,
+  "true_peak": -6.7,
+  "lf_share": 0.003,
+  "channel_corr": 0.515,
+  "mono": false,
+  "id": "freesound:01227ec1-5af3-4c18-b41b-89871c6b8627",
+  "title": "ShadowMaker - Crypt",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/468/468235_3159750-hq.mp3",
+  "creator": "TheMovieMacher",
+  "landing": "https://freesound.org/people/TheMovieMacher/sounds/468235"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 151.632,
+  "clipping_share": 0.0,
+  "hum_db": 9.0,
+  "silence_share": 0.0,
+  "lufs": -30.9,
+  "lra": 2.2,
+  "true_peak": -5.6,
+  "lf_share": 0.938,
+  "channel_corr": 0.057,
+  "mono": false,
+  "clap_pos": 0.1829,
+  "clap_margin": 0.0332,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "kind_winner": "stone_hall",
+  "kind_gap": 0.022,
+  "ast": {
+   "Music": 0.016,
+   "Singing": 0.0,
+   "Speech": 0.001,
+   "Vehicle": 0.075
+  },
+  "id": "freesound:51412885-aa87-47c8-b795-f8f0c4ca2998",
+  "title": "Dungeon Air",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/530/530161_2683450-hq.mp3",
+  "creator": "Flamiffer",
+  "landing": "https://freesound.org/people/Flamiffer/sounds/530161"
+ },
+ {
+  "reasons": [
+   "ast_speech"
+  ],
+  "duration": 140.064,
+  "clipping_share": 0.0,
+  "hum_db": 9.6,
+  "silence_share": 0.0,
+  "lufs": -45.2,
+  "lra": 7.5,
+  "true_peak": -22.4,
+  "lf_share": 0.366,
+  "channel_corr": 0.617,
+  "mono": false,
+  "clap_pos": 0.227,
+  "clap_margin": 0.1018,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "kind_winner": "stone_hall",
+  "kind_gap": 0.1678,
+  "ast": {
+   "Music": 0.035,
+   "Singing": 0.01,
+   "Speech": 0.216,
+   "Vehicle": 0.007
+  },
+  "id": "freesound:798bae20-b76a-40de-a783-719a6d88ada0",
+  "title": "Church with few people",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/637/637118_13504080-hq.mp3",
+  "creator": "xkeril",
+  "landing": "https://freesound.org/people/xkeril/sounds/637118"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "kind_lost_to_forge_fire"
+  ],
+  "duration": 130.056,
+  "clipping_share": 0.0,
+  "hum_db": 6.8,
+  "silence_share": 0.022,
+  "lufs": -25.8,
+  "lra": 0.6,
+  "true_peak": -15.1,
+  "lf_share": 0.0,
+  "channel_corr": -0.0,
+  "mono": false,
+  "clap_pos": -0.1161,
+  "clap_margin": -0.1227,
+  "clap_worst_neg": "music with melody and instruments, singing",
+  "kind_winner": "forge_fire",
+  "kind_gap": 0.1233,
+  "ast": {
+   "Music": 0.824,
+   "Singing": 0.002,
+   "Speech": 0.003,
+   "Vehicle": 0.0
+  },
+  "id": "freesound:8e901828-b785-42bb-86cc-01e70ac776b6",
+  "title": "Dripping cave water drops - ambient atmosphere deep mysterious.wav",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/645/645761_13590673-hq.mp3",
+  "creator": "Duisterwho",
+  "landing": "https://freesound.org/people/Duisterwho/sounds/645761"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 103.176,
+  "clipping_share": 0.0,
+  "hum_db": 10.0,
+  "silence_share": 0.0,
+  "lufs": -34.5,
+  "lra": 12.3,
+  "true_peak": -11.0,
+  "lf_share": 0.438,
+  "channel_corr": 0.584,
+  "mono": false,
+  "clap_pos": 0.1231,
+  "clap_margin": -0.0031,
+  "clap_worst_neg": "music with melody and instruments, singing",
+  "kind_winner": "stone_hall",
+  "kind_gap": 0.0267,
+  "ast": {
+   "Music": 0.133,
+   "Singing": 0.0,
+   "Speech": 0.006,
+   "Vehicle": 0.019
+  },
+  "id": "freesound:65cfce91-3c55-40e4-81fd-5afdb9c5311c",
+  "title": "Gap Cathedral France",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/483/483127_10201334-hq.mp3",
+  "creator": "Astounded",
+  "landing": "https://freesound.org/people/Astounded/sounds/483127"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 92.264,
+  "clipping_share": 0.0,
+  "hum_db": 34.3,
+  "silence_share": 0.0,
+  "lufs": -67.8,
+  "lra": 3.7,
+  "true_peak": -40.4,
+  "lf_share": 0.273,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:cad39006-b791-4c46-8027-7e93901e14fa",
+  "title": "Room Noise 8 Entryway.wav",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/472/472669_8992398-hq.mp3",
+  "creator": "tvilgiat",
+  "landing": "https://freesound.org/people/tvilgiat/sounds/472669"
+ },
+ {
+  "reasons": [
+   "ast_speech"
+  ],
+  "duration": 90.6,
+  "clipping_share": 0.0,
+  "hum_db": 11.0,
+  "silence_share": 0.0,
+  "lufs": -40.2,
+  "lra": 6.5,
+  "true_peak": -19.4,
+  "lf_share": 0.052,
+  "channel_corr": 0.617,
+  "mono": false,
+  "clap_pos": 0.2316,
+  "clap_margin": 0.0765,
+  "clap_worst_neg": "one person speaking clearly, conversation",
+  "kind_winner": "stone_hall",
+  "kind_gap": 0.1117,
+  "ast": {
+   "Music": 0.244,
+   "Singing": 0.001,
+   "Speech": 0.489,
+   "Vehicle": 0.013
+  },
+  "id": "freesound:5254ddd2-d535-4aeb-9c2e-4675a89e7033",
+  "title": "Big hall ambience - some voices, coughing, and keys opening a door",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/579/579570_4437257-hq.mp3",
+  "creator": "leonelmail",
+  "landing": "https://freesound.org/people/leonelmail/sounds/579570"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 68.976,
+  "clipping_share": 1.3e-05,
+  "hum_db": 16.2,
+  "silence_share": 0.0,
+  "lufs": -11.7,
+  "lra": 0.6,
+  "true_peak": -0.1,
+  "lf_share": 0.0,
+  "channel_corr": 0.08,
+  "mono": false,
+  "id": "freesound:9f07b57d-b1b9-446c-9438-60420ec47f70",
+  "title": "ambience cave7.ogg",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/636/636125_11705708-hq.mp3",
+  "creator": "fonografico",
+  "landing": "https://freesound.org/people/fonografico/sounds/636125"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 61.176,
+  "clipping_share": 0.0,
+  "hum_db": 19.1,
+  "silence_share": 0.0,
+  "lufs": -37.2,
+  "lra": 5.3,
+  "true_peak": -19.3,
+  "lf_share": 0.014,
+  "channel_corr": 0.695,
+  "mono": false,
+  "id": "freesound:0ca33c4f-7deb-4f0d-bd33-512c168f2833",
+  "title": "Monastery yard with tourists.wav",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/442/442540_5902878-hq.mp3",
+  "creator": "BonnyOrbit",
+  "landing": "https://freesound.org/people/BonnyOrbit/sounds/442540"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 59.784,
+  "clipping_share": 0.000135,
+  "hum_db": 5.8,
+  "silence_share": 0.0,
+  "lufs": -16.5,
+  "lra": 3.9,
+  "true_peak": -0.3,
+  "lf_share": 0.018,
+  "channel_corr": 0.54,
+  "mono": false,
+  "id": "freesound:614569b3-b56a-4a85-a0e2-b19712db1746",
+  "title": "dungeon ambience + piano",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/591/591037_6958161-hq.mp3",
+  "creator": "kbrecordzz",
+  "landing": "https://freesound.org/people/kbrecordzz/sounds/591037"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 45.408,
+  "clipping_share": 0.0,
+  "hum_db": 20.1,
+  "silence_share": 0.0,
+  "lufs": -43.0,
+  "lra": 2.9,
+  "true_peak": -18.5,
+  "lf_share": 0.007,
+  "channel_corr": -0.324,
+  "mono": false,
+  "id": "freesound:e3e5e0c5-1e45-41de-b66d-202438e0c3ca",
+  "title": "Hall Full of People - Ambience .wav",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/444/444792_8282800-hq.mp3",
+  "creator": "ross_sinc",
+  "landing": "https://freesound.org/people/ross_sinc/sounds/444792"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 42.816,
+  "clipping_share": 0.0,
+  "hum_db": 20.5,
+  "silence_share": 0.014,
+  "lufs": -14.4,
+  "lra": 4.9,
+  "true_peak": -0.6,
+  "lf_share": 0.001,
+  "channel_corr": 0.092,
+  "mono": false,
+  "id": "freesound:09b40fe1-de9e-431c-8655-4313bed4c73d",
+  "title": "Shadow Maker-Dining Room.mp3",
+  "kind": "ambience",
+  "name": "stone_hall",
+  "url": "https://cdn.freesound.org/previews/220/220963_3159750-hq.mp3",
+  "creator": "TheMovieMacher",
+  "landing": "https://freesound.org/people/TheMovieMacher/sounds/220963"
+ },
+ {
+  "id": "freesound:160db3a7-cba9-4460-b41d-5386b78e9cb0",
+  "title": "2022-09-09-bookstore-ambience-zoom-f3-binaural-okm-ii.wav",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:binaural"
+  ],
+  "url": "https://cdn.freesound.org/previews/649/649440_12458758-hq.mp3",
+  "creator": "ilmari_freesound",
+  "landing": "https://freesound.org/people/ilmari_freesound/sounds/649440"
+ },
+ {
+  "id": "freesound:cceadbd4-42f3-45d7-9799-d832059293bf",
+  "title": "Market fair ambience with music, street seller loudspeaker far, carousel and crowd hubbub",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:seller"
+  ],
+  "url": "https://cdn.freesound.org/previews/705/705303_1661766-hq.mp3",
+  "creator": "felix.blume",
+  "landing": "https://freesound.org/people/felix.blume/sounds/705303"
+ },
+ {
+  "id": "freesound:4d565546-ca5f-4ad5-8997-7b63e145ccd9",
+  "title": "2022-07-01-zoom-f3-okm-ii-BINAURAL-xichangst-flea-market.wav",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:binaural"
+  ],
+  "url": "https://cdn.freesound.org/previews/649/649271_12458758-hq.mp3",
+  "creator": "ilmari_freesound",
+  "landing": "https://freesound.org/people/ilmari_freesound/sounds/649271"
+ },
+ {
+  "id": "freesound:f6e069c2-bca1-49f4-9e20-9dea848a2765",
+  "title": "Esperaza Market Binaural walkthough",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:binaural"
+  ],
+  "url": "https://cdn.freesound.org/previews/730/730108_5287430-hq.mp3",
+  "creator": "Sadiquecat",
+  "landing": "https://freesound.org/people/Sadiquecat/sounds/730108"
+ },
+ {
+  "id": "freesound:ff9c05e4-5c30-4655-926d-3f6b8783ecb5",
+  "title": "Fair seller speaking in loudspeaker in spanish with crowd hubbub",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:seller"
+  ],
+  "url": "https://cdn.freesound.org/previews/709/709282_1661766-hq.mp3",
+  "creator": "felix.blume",
+  "landing": "https://freesound.org/people/felix.blume/sounds/709282"
+ },
+ {
+  "id": "freesound:7e64902d-a8b3-42ad-beb5-774d362fb7ae",
+  "title": "crowd ext small walla murmur arabic children and preteens at Friday fence border protest some close voices and some english words +distant motorcycle pass Gaza 2016.wav",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:test "
+  ],
+  "url": "https://cdn.freesound.org/previews/406/406184_612689-hq.mp3",
+  "creator": "kyles",
+  "landing": "https://freesound.org/people/kyles/sounds/406184"
+ },
+ {
+  "id": "freesound:0b9c9c7c-3c20-4677-919a-57cec50bf0e4",
+  "title": "crowd int large bingo hall chatty walla, game starts, crowd settles down, numbers called over PA, murmur.wav",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:bingo"
+  ],
+  "url": "https://cdn.freesound.org/previews/449/449976_612689-hq.mp3",
+  "creator": "kyles",
+  "landing": "https://freesound.org/people/kyles/sounds/449976"
+ },
+ {
+  "id": "freesound:4adf177b-530b-423e-a962-a1ab0a841c61",
+  "title": "Seller speech in spanish in loudspeaker at market fair, cars passing and crowd",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:seller"
+  ],
+  "url": "https://cdn.freesound.org/previews/709/709279_1661766-hq.mp3",
+  "creator": "felix.blume",
+  "landing": "https://freesound.org/people/felix.blume/sounds/709279"
+ },
+ {
+  "id": "freesound:17680d8c-51de-44c1-a033-0ad67ab1f2dc",
+  "title": "Pistachio and nuts seller anouncing on loudspeaker in a market fair with distant crowd hubbub",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:seller"
+  ],
+  "url": "https://cdn.freesound.org/previews/705/705307_1661766-hq.mp3",
+  "creator": "felix.blume",
+  "landing": "https://freesound.org/people/felix.blume/sounds/705307"
+ },
+ {
+  "id": "freesound:1d655b6b-2646-42b1-812d-13810b5f5d7c",
+  "title": "Walnut seller screaming in market fair with loudspeaker feedback",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:seller"
+  ],
+  "url": "https://cdn.freesound.org/previews/709/709284_1661766-hq.mp3",
+  "creator": "felix.blume",
+  "landing": "https://freesound.org/people/felix.blume/sounds/709284"
+ },
+ {
+  "id": "freesound:83e87a58-f32a-487e-ab2a-ebfa0e5a6a21",
+  "title": "Market in a small village, calling, motorcycle, horns, people, speaker",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:calling"
+  ],
+  "url": "https://cdn.freesound.org/previews/725/725412_10038186-hq.mp3",
+  "creator": "Virgile_Loiseau",
+  "landing": "https://freesound.org/people/Virgile_Loiseau/sounds/725412"
+ },
+ {
+  "id": "freesound:d1065598-04a8-4033-9402-5d185b6cd9fd",
+  "title": "Frame seller announcing aloud in a market fair with crowd hubbub",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:seller"
+  ],
+  "url": "https://cdn.freesound.org/previews/709/709283_1661766-hq.mp3",
+  "creator": "felix.blume",
+  "landing": "https://freesound.org/people/felix.blume/sounds/709283"
+ },
+ {
+  "id": "freesound:c90cf4a8-dbb0-4298-82d6-ca862a7c2e73",
+  "title": "Thailand Phuket crowd ext medium restaurant covered eating area heavy walla murmur and metal serving sounds + Thai tour guide in english walking around talking to group.flac",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:restaurant"
+  ],
+  "url": "https://cdn.freesound.org/previews/177/177639_612689-hq.mp3",
+  "creator": "kyles",
+  "landing": "https://freesound.org/people/kyles/sounds/177639"
+ },
+ {
+  "id": "freesound:45bcbe23-0a7e-42b0-ac3e-cb86576b615a",
+  "title": "Keychain seller anouncing on loudspeaker in a market fair with crowd hubbub and cars far",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:seller"
+  ],
+  "url": "https://cdn.freesound.org/previews/705/705305_1661766-hq.mp3",
+  "creator": "felix.blume",
+  "landing": "https://freesound.org/people/felix.blume/sounds/705305"
+ },
+ {
+  "id": "freesound:8a1895b9-b0b5-4306-a414-98282734f938",
+  "title": "Keychain seller anouncing on loudspeaker in a market fair with crowd hubbub and cars passing sometimes",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:seller"
+  ],
+  "url": "https://cdn.freesound.org/previews/705/705306_1661766-hq.mp3",
+  "creator": "felix.blume",
+  "landing": "https://freesound.org/people/felix.blume/sounds/705306"
+ },
+ {
+  "id": "freesound:bd0af5f9-eeaf-48a7-9e45-de9e4930ac2d",
+  "title": "Seller announcing in loudspeaker during market fair with crowd hubbub",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:seller"
+  ],
+  "url": "https://cdn.freesound.org/previews/709/709280_1661766-hq.mp3",
+  "creator": "felix.blume",
+  "landing": "https://freesound.org/people/felix.blume/sounds/709280"
+ },
+ {
+  "id": "freesound:21c139fb-5b7d-4c23-a43c-ea1906f3aa1d",
+  "title": "German sales talk on the market place - The corn-fed chicken / maize-fed chicken",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:talk"
+  ],
+  "url": "https://cdn.freesound.org/previews/529/529621_11724018-hq.mp3",
+  "creator": "EichhoernchenSheriff",
+  "landing": "https://freesound.org/people/EichhoernchenSheriff/sounds/529621"
+ },
+ {
+  "id": "freesound:2adfbda8-6493-4b0d-bdb6-fdda3843e0ec",
+  "title": "G29-48-Men Talking and Laughing.wav",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:talk"
+  ],
+  "url": "https://cdn.freesound.org/previews/438/438408_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/438408"
+ },
+ {
+  "id": "freesound:96eea9fb-b01a-437f-b9f6-744f263bcccd",
+  "title": "Esperaza market crowd binaural (France)",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:binaural"
+  ],
+  "url": "https://cdn.freesound.org/previews/704/704777_5287430-hq.mp3",
+  "creator": "Sadiquecat",
+  "landing": "https://freesound.org/people/Sadiquecat/sounds/704777"
+ },
+ {
+  "id": "freesound:22094b27-88f9-4047-a06c-6b35433a2417",
+  "title": "walla nike headquarters large hall dutch english.wav",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:headquarters"
+  ],
+  "url": "https://cdn.freesound.org/previews/393/393689_123355-hq.mp3",
+  "creator": "hz37",
+  "landing": "https://freesound.org/people/hz37/sounds/393689"
+ },
+ {
+  "id": "freesound:af4308ed-63ad-4095-b9e6-a76ba7cb5fe8",
+  "title": "Fair seller speaking in loudspeaker in spanish with distant crowd hubbub",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:seller"
+  ],
+  "url": "https://cdn.freesound.org/previews/709/709281_1661766-hq.mp3",
+  "creator": "felix.blume",
+  "landing": "https://freesound.org/people/felix.blume/sounds/709281"
+ },
+ {
+  "id": "freesound:eaa1dd44-9e8a-4b36-941a-9326d8c4ed8f",
+  "title": "crowd int show movement walla murmur active whispers no steps nice smooth detailed sweetener.flac",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:int "
+  ],
+  "url": "https://cdn.freesound.org/previews/637/637466_612689-hq.mp3",
+  "creator": "kyles",
+  "landing": "https://freesound.org/people/kyles/sounds/637466"
+ },
+ {
+  "id": "freesound:fcb2a873-c99a-44ac-8708-0f3ba72dc28a",
+  "title": "People talking (Adults & Children)",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:talk"
+  ],
+  "url": "https://cdn.freesound.org/previews/473/473586_9159316-hq.mp3",
+  "creator": "Breviceps",
+  "landing": "https://freesound.org/people/Breviceps/sounds/473586"
+ },
+ {
+  "id": "freesound:34633bc7-5de4-404d-91a7-3e08318326e3",
+  "title": "G28-09-Indoor Crowd Murmur - Varies.wav",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:indoor"
+  ],
+  "url": "https://cdn.freesound.org/previews/438/438368_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/438368"
+ },
+ {
+  "id": "freesound:0f7c88ac-f1e3-4db5-8cbf-1080b1a703ff",
+  "title": "Busy Room Ambience / People talking in background #2",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:talk"
+  ],
+  "url": "https://cdn.freesound.org/previews/465/465699_9159316-hq.mp3",
+  "creator": "Breviceps",
+  "landing": "https://freesound.org/people/Breviceps/sounds/465699"
+ },
+ {
+  "id": "freesound:c88804ad-d001-4282-873b-4e08f0b75d8e",
+  "title": "crowd int medium students murmur walla large theatre active cinema politica Concordia short Montreal, Canada.flac",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "reasons": [
+   "title:student"
+  ],
+  "url": "https://cdn.freesound.org/previews/452/452484_612689-hq.mp3",
+  "creator": "kyles",
+  "landing": "https://freesound.org/people/kyles/sounds/452484"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 79.44,
+  "clipping_share": 0.0,
+  "hum_db": 28.4,
+  "silence_share": 0.0,
+  "lufs": -30.6,
+  "lra": 8.6,
+  "true_peak": -8.2,
+  "lf_share": 0.0,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:f39d2449-12e1-4f62-8b80-67402924cd28",
+  "title": "S13-06 Crowd walla at outdoor farmers’ market.wav",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "url": "https://cdn.freesound.org/previews/675/675026_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/675026"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "ast_music"
+  ],
+  "duration": 99.96,
+  "clipping_share": 0.0,
+  "hum_db": 8.8,
+  "silence_share": 0.0,
+  "lufs": -29.0,
+  "lra": 5.0,
+  "true_peak": -2.3,
+  "lf_share": 0.001,
+  "channel_corr": 0.664,
+  "mono": false,
+  "clap_pos": 0.1202,
+  "clap_margin": 0.0181,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "kind_winner": "crowd_market",
+  "kind_gap": 0.0118,
+  "ast": {
+   "Music": 0.535,
+   "Singing": 0.002,
+   "Speech": 0.712,
+   "Vehicle": 0.249
+  },
+  "id": "freesound:bf062830-e4dc-45e9-99d3-b9991f27b505",
+  "title": "Market fair ambience with crowd hubbub far and cars passing",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "url": "https://cdn.freesound.org/previews/705/705302_1661766-hq.mp3",
+  "creator": "felix.blume",
+  "landing": "https://freesound.org/people/felix.blume/sounds/705302"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 118.056,
+  "clipping_share": 0.0,
+  "hum_db": 22.9,
+  "silence_share": 0.03,
+  "lufs": -26.4,
+  "lra": 6.8,
+  "true_peak": -1.1,
+  "lf_share": 0.01,
+  "channel_corr": 0.468,
+  "mono": false,
+  "id": "freesound:658bb889-5864-4fca-9698-8f59d26110b2",
+  "title": "Semi Outdoor Montreal Market Ambiance.wav",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "url": "https://cdn.freesound.org/previews/522/522989_6605732-hq.mp3",
+  "creator": "vero.marengere",
+  "landing": "https://freesound.org/people/vero.marengere/sounds/522989"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 66.048,
+  "clipping_share": 0.0,
+  "hum_db": 45.4,
+  "silence_share": 0.0,
+  "lufs": -29.7,
+  "lra": 5.6,
+  "true_peak": -3.8,
+  "lf_share": 0.005,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:23fe5c69-2752-48bc-93ef-416937b26c48",
+  "title": "G28-05-Low Murmuring Crowd.wav",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "url": "https://cdn.freesound.org/previews/438/438364_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/438364"
+ },
+ {
+  "reasons": [
+   "duration_short"
+  ],
+  "duration": 28.056,
+  "id": "freesound:2c99b37f-4600-473b-bd0b-8c0560e44fdc",
+  "title": "Small Crowd Walla",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "url": "https://cdn.freesound.org/previews/653/653920_9616576-hq.mp3",
+  "creator": "IENBA",
+  "landing": "https://freesound.org/people/IENBA/sounds/653920"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 190.056,
+  "clipping_share": 0.0,
+  "hum_db": 24.0,
+  "silence_share": 0.0,
+  "lufs": -25.1,
+  "lra": 8.0,
+  "true_peak": -1.4,
+  "lf_share": 0.105,
+  "channel_corr": 0.448,
+  "mono": false,
+  "id": "freesound:854798da-29fd-4970-acbf-b8e497e7c9ad",
+  "title": "ramallah_Market.wav",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "url": "https://cdn.freesound.org/previews/559/559874_7529214-hq.mp3",
+  "creator": "nicotep",
+  "landing": "https://freesound.org/people/nicotep/sounds/559874"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 255.624,
+  "clipping_share": 0.0,
+  "hum_db": 12.5,
+  "silence_share": 0.0,
+  "lufs": -29.1,
+  "lra": 9.2,
+  "true_peak": -0.4,
+  "lf_share": 0.743,
+  "channel_corr": 0.498,
+  "mono": false,
+  "clap_pos": 0.1242,
+  "clap_margin": -0.0388,
+  "clap_worst_neg": "one person speaking clearly, announcement through a loudspeaker",
+  "kind_winner": "crowd_market",
+  "kind_gap": 0.0183,
+  "ast": {
+   "Music": 0.016,
+   "Singing": 0.0,
+   "Speech": 0.858,
+   "Vehicle": 0.268
+  },
+  "id": "freesound:5587b5a3-84d1-4f41-8f4a-4427012d8c78",
+  "title": "Esperaza Market Walkthrough (France)",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "url": "https://cdn.freesound.org/previews/703/703468_5287430-hq.mp3",
+  "creator": "Sadiquecat",
+  "landing": "https://freesound.org/people/Sadiquecat/sounds/703468"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 167.328,
+  "clipping_share": 0.0,
+  "hum_db": 6.2,
+  "silence_share": 0.0,
+  "lufs": -29.1,
+  "lra": 6.6,
+  "true_peak": -5.9,
+  "lf_share": 0.001,
+  "channel_corr": 0.67,
+  "mono": false,
+  "clap_pos": 0.1309,
+  "clap_margin": 0.0239,
+  "clap_worst_neg": "one person speaking clearly, announcement through a loudspeaker",
+  "kind_winner": "crowd_market",
+  "kind_gap": 0.0357,
+  "ast": {
+   "Music": 0.05,
+   "Singing": 0.001,
+   "Speech": 0.804,
+   "Vehicle": 0.082
+  },
+  "id": "freesound:0c6fa44b-3b20-4fa5-8e33-4923a5a24b9b",
+  "title": "CROWD",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "url": "https://cdn.freesound.org/previews/545/545756_8031303-hq.mp3",
+  "creator": "SamuelGremaud",
+  "landing": "https://freesound.org/people/SamuelGremaud/sounds/545756"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "kind_lost_to_traffic_city",
+   "ast_music",
+   "ast_vehicle"
+  ],
+  "duration": 150.552,
+  "clipping_share": 2e-06,
+  "hum_db": 12.6,
+  "silence_share": 0.0,
+  "lufs": -27.0,
+  "lra": 14.7,
+  "true_peak": -0.2,
+  "lf_share": 0.55,
+  "channel_corr": 0.703,
+  "mono": false,
+  "clap_pos": 0.0277,
+  "clap_margin": -0.086,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "kind_winner": "traffic_city",
+  "kind_gap": 0.0027,
+  "ast": {
+   "Music": 0.326,
+   "Singing": 0.001,
+   "Speech": 0.742,
+   "Vehicle": 0.664
+  },
+  "id": "freesound:078bc554-d26d-470b-b855-568a4dd2cbe1",
+  "title": "busy city 06",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "url": "https://cdn.freesound.org/previews/462/462496_2978883-hq.mp3",
+  "creator": "rucisko",
+  "landing": "https://freesound.org/people/rucisko/sounds/462496"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 145.008,
+  "clipping_share": 0.0,
+  "hum_db": 14.5,
+  "silence_share": 0.005,
+  "lufs": -24.1,
+  "lra": 10.4,
+  "true_peak": -4.0,
+  "lf_share": 0.007,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:5ba197b8-7fb9-45c7-9863-7613db82e009",
+  "title": "Aux Cinq Poivres - city market",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "url": "https://cdn.freesound.org/previews/731/731417_13161576-hq.mp3",
+  "creator": "jdpietrzak",
+  "landing": "https://freesound.org/people/jdpietrzak/sounds/731417"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "kind_lost_to_forge_fire"
+  ],
+  "duration": 139.99,
+  "clipping_share": 0.0,
+  "hum_db": 7.8,
+  "silence_share": 0.0,
+  "lufs": -26.8,
+  "lra": 5.2,
+  "true_peak": -5.3,
+  "lf_share": 0.001,
+  "channel_corr": 1.0,
+  "mono": true,
+  "clap_pos": 0.0106,
+  "clap_margin": -0.0816,
+  "clap_worst_neg": "music, melody, musical instruments, singing",
+  "kind_winner": "forge_fire",
+  "kind_gap": 0.0177,
+  "ast": {
+   "Music": 0.03,
+   "Singing": 0.003,
+   "Speech": 0.648,
+   "Vehicle": 0.001
+  },
+  "id": "freesound:1f64e325-097e-47aa-88e3-d85147f67491",
+  "title": "crowd_male.wav",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "url": "https://cdn.freesound.org/previews/76/76366_43834-hq.mp3",
+  "creator": "sagetyrtle",
+  "landing": "https://freesound.org/people/sagetyrtle/sounds/76366"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 60.144,
+  "clipping_share": 0.0,
+  "hum_db": 15.6,
+  "silence_share": 0.0,
+  "lufs": -29.7,
+  "lra": 2.5,
+  "true_peak": -14.6,
+  "lf_share": 0.0,
+  "channel_corr": 0.739,
+  "mono": false,
+  "id": "freesound:b7e83aaf-7bb3-49b8-a892-4f747c6fd408",
+  "title": "Bar Crowd in Belgrade",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "url": "https://cdn.freesound.org/previews/394/394290_2291325-hq.mp3",
+  "creator": "EpicWizard",
+  "landing": "https://freesound.org/people/EpicWizard/sounds/394290"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 49.224,
+  "clipping_share": 0.0,
+  "hum_db": 14.6,
+  "silence_share": 0.0,
+  "lufs": -34.6,
+  "lra": 11.9,
+  "true_peak": -13.1,
+  "lf_share": 0.0,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:fcfa06d4-eacc-4fd0-929d-956e8c430319",
+  "title": "staff canteen background.wav",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "url": "https://cdn.freesound.org/previews/210/210589_3937049-hq.mp3",
+  "creator": "Agonda",
+  "landing": "https://freesound.org/people/Agonda/sounds/210589"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 43.488,
+  "clipping_share": 0.0,
+  "hum_db": 10.0,
+  "silence_share": 0.0,
+  "lufs": -46.6,
+  "lra": 7.9,
+  "true_peak": -27.2,
+  "lf_share": 0.185,
+  "channel_corr": 0.068,
+  "mono": false,
+  "clap_pos": 0.1459,
+  "clap_margin": 0.0105,
+  "clap_worst_neg": "one person speaking clearly, announcement through a loudspeaker",
+  "kind_winner": "crowd_market",
+  "kind_gap": 0.1211,
+  "ast": {
+   "Music": 0.018,
+   "Singing": 0.001,
+   "Speech": 0.949,
+   "Vehicle": 0.002
+  },
+  "id": "freesound:665b96c6-bc68-4adc-b5bc-537e26ae124d",
+  "title": "Amsterdam Atmos - de Pijp - female & higher male voices, stereo, foreigners @ a terrace, store or market, medium wide, medium strong.flac",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "url": "https://cdn.freesound.org/previews/486/486616_5920212-hq.mp3",
+  "creator": "bubbled",
+  "landing": "https://freesound.org/people/bubbled/sounds/486616"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 39.0,
+  "clipping_share": 0.0,
+  "hum_db": 13.6,
+  "silence_share": 0.0,
+  "lufs": -27.4,
+  "lra": 3.0,
+  "true_peak": -13.1,
+  "lf_share": 0.0,
+  "channel_corr": 1.0,
+  "mono": true,
+  "clap_pos": 0.1313,
+  "clap_margin": -0.004,
+  "clap_worst_neg": "one person speaking clearly, announcement through a loudspeaker",
+  "kind_winner": "crowd_market",
+  "kind_gap": 0.0668,
+  "ast": {
+   "Music": 0.023,
+   "Singing": 0.001,
+   "Speech": 0.69,
+   "Vehicle": 0.066
+  },
+  "id": "freesound:decde14a-444f-4bf8-bdbf-34dc38681529",
+  "title": "R08-37-Large Group Murmur.wav",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "url": "https://cdn.freesound.org/previews/480/480760_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/480760"
+ },
+ {
+  "reasons": [
+   "duration_short"
+  ],
+  "duration": 28.2,
+  "id": "freesound:18c47e03-2902-4c3e-b1d0-cef89406bd1f",
+  "title": "R07-04-Large Crowd in Closed Space.wav",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "url": "https://cdn.freesound.org/previews/480/480741_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/480741"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 197.448,
+  "clipping_share": 0.0,
+  "hum_db": 14.6,
+  "silence_share": 0.0,
+  "lufs": -23.5,
+  "lra": 4.9,
+  "true_peak": -9.2,
+  "lf_share": 0.012,
+  "channel_corr": 0.686,
+  "mono": false,
+  "id": "freesound:cc2e50ff-d136-40e1-873d-ca1adc27390e",
+  "title": "marchenoel6.wav",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "url": "https://cdn.freesound.org/previews/212/212587_98337-hq.mp3",
+  "creator": "schafferdavid",
+  "landing": "https://freesound.org/people/schafferdavid/sounds/212587"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 380.63,
+  "clipping_share": 0.0,
+  "hum_db": 35.1,
+  "silence_share": 0.0,
+  "lufs": -39.0,
+  "lra": 10.5,
+  "true_peak": -11.5,
+  "lf_share": 0.444,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:03bd61ac-7589-4101-87ee-f89d073e494c",
+  "title": "0105coffeehouse.wav",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "url": "https://cdn.freesound.org/previews/46/46310_43834-hq.mp3",
+  "creator": "sagetyrtle",
+  "landing": "https://freesound.org/people/sagetyrtle/sounds/46310"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "ast_vehicle"
+  ],
+  "duration": 225.456,
+  "clipping_share": 0.0,
+  "hum_db": 9.7,
+  "silence_share": 0.0,
+  "lufs": -24.0,
+  "lra": 3.2,
+  "true_peak": -6.1,
+  "lf_share": 0.008,
+  "channel_corr": 0.946,
+  "mono": false,
+  "clap_pos": 0.0912,
+  "clap_margin": -0.0482,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "kind_winner": "crowd_market",
+  "kind_gap": 0.038,
+  "ast": {
+   "Music": 0.011,
+   "Singing": 0.0,
+   "Speech": 0.73,
+   "Vehicle": 0.489
+  },
+  "id": "freesound:5fa94756-e562-4d14-8a2d-81866b4e6bcf",
+  "title": "Place d'Epices Marrakesh 5.1",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "url": "https://cdn.freesound.org/previews/520/520226_623488-hq.mp3",
+  "creator": "blaukreuz",
+  "landing": "https://freesound.org/people/blaukreuz/sounds/520226"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 175.44,
+  "clipping_share": 0.0,
+  "hum_db": 14.9,
+  "silence_share": 0.0,
+  "lufs": -24.3,
+  "lra": 7.4,
+  "true_peak": -2.8,
+  "lf_share": 0.003,
+  "channel_corr": 0.987,
+  "mono": true,
+  "id": "freesound:46a26fc7-2b6d-4c21-8d0f-1be8839c0c2e",
+  "title": "Jamaa El Fna Marrakesh Wide 5.1",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "url": "https://cdn.freesound.org/previews/520/520234_623488-hq.mp3",
+  "creator": "blaukreuz",
+  "landing": "https://freesound.org/people/blaukreuz/sounds/520234"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "kind_lost_to_forge_fire"
+  ],
+  "duration": 131.808,
+  "clipping_share": 0.0,
+  "hum_db": 6.4,
+  "silence_share": 0.0,
+  "lufs": -36.5,
+  "lra": 6.0,
+  "true_peak": -13.3,
+  "lf_share": 0.002,
+  "channel_corr": 1.0,
+  "mono": true,
+  "clap_pos": -0.0123,
+  "clap_margin": -0.0787,
+  "clap_worst_neg": "one person speaking clearly, announcement through a loudspeaker",
+  "kind_winner": "forge_fire",
+  "kind_gap": 0.0454,
+  "ast": {
+   "Music": 0.03,
+   "Singing": 0.0,
+   "Speech": 0.516,
+   "Vehicle": 0.144
+  },
+  "id": "freesound:0ba24237-b7b3-452d-ab3b-22bb9417eaff",
+  "title": "Train dining car carriage buffet car",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "url": "https://cdn.freesound.org/previews/727/727846_13508529-hq.mp3",
+  "creator": "AnnickL73",
+  "landing": "https://freesound.org/people/AnnickL73/sounds/727846"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 120.888,
+  "clipping_share": 0.0,
+  "hum_db": 18.9,
+  "silence_share": 0.0,
+  "lufs": -38.4,
+  "lra": 4.9,
+  "true_peak": -20.6,
+  "lf_share": 0.0,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:0c901885-b6dc-4241-a720-89d95b1191e6",
+  "title": "geroezemoes.wav",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "url": "https://cdn.freesound.org/previews/640/640254_3562198-hq.mp3",
+  "creator": "gecop",
+  "landing": "https://freesound.org/people/gecop/sounds/640254"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 115.704,
+  "clipping_share": 4.8e-05,
+  "hum_db": 8.2,
+  "silence_share": 0.0,
+  "lufs": -15.8,
+  "lra": 7.5,
+  "true_peak": -1.5,
+  "lf_share": 0.002,
+  "channel_corr": 0.761,
+  "mono": false,
+  "clap_pos": 0.0787,
+  "clap_margin": 0.021,
+  "clap_worst_neg": "music, melody, musical instruments, singing",
+  "kind_winner": "crowd_market",
+  "kind_gap": 0.0637,
+  "ast": {
+   "Music": 0.16,
+   "Singing": 0.001,
+   "Speech": 0.956,
+   "Vehicle": 0.249
+  },
+  "id": "freesound:015f33b0-a675-41d8-a18a-83dbe067dee4",
+  "title": "Ambiente El Mayoreo.wav",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "url": "https://cdn.freesound.org/previews/364/364635_6411813-hq.mp3",
+  "creator": "orlandorizo",
+  "landing": "https://freesound.org/people/orlandorizo/sounds/364635"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "ast_music"
+  ],
+  "duration": 60.408,
+  "clipping_share": 0.0,
+  "hum_db": 8.6,
+  "silence_share": 0.0,
+  "lufs": -20.0,
+  "lra": 1.8,
+  "true_peak": -5.5,
+  "lf_share": 0.0,
+  "channel_corr": 0.951,
+  "mono": false,
+  "clap_pos": 0.0141,
+  "clap_margin": -0.0673,
+  "clap_worst_neg": "music, melody, musical instruments, singing",
+  "kind_winner": "crowd_market",
+  "kind_gap": 0.044,
+  "ast": {
+   "Music": 0.554,
+   "Singing": 0.001,
+   "Speech": 0.526,
+   "Vehicle": 0.014
+  },
+  "id": "freesound:68feba97-0e13-4e07-a04a-e4c668e10420",
+  "title": "Jamaa El Fna SnakeCharmer Marrakesh 5.1",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "url": "https://cdn.freesound.org/previews/520/520229_623488-hq.mp3",
+  "creator": "blaukreuz",
+  "landing": "https://freesound.org/people/blaukreuz/sounds/520229"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 49.56,
+  "clipping_share": 0.0,
+  "hum_db": 24.7,
+  "silence_share": 0.056,
+  "lufs": -30.1,
+  "lra": 5.8,
+  "true_peak": -9.6,
+  "lf_share": 0.664,
+  "channel_corr": 0.378,
+  "mono": false,
+  "id": "freesound:5f699d53-08b4-4219-8a2d-8d162685b83d",
+  "title": "Butcher Shop in Montreal.wav",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "url": "https://cdn.freesound.org/previews/522/522991_6605732-hq.mp3",
+  "creator": "vero.marengere",
+  "landing": "https://freesound.org/people/vero.marengere/sounds/522991"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "ast_music"
+  ],
+  "duration": 31.848,
+  "clipping_share": 0.0,
+  "hum_db": 13.0,
+  "silence_share": 0.0,
+  "lufs": -25.9,
+  "lra": 8.9,
+  "true_peak": -5.7,
+  "lf_share": 0.0,
+  "channel_corr": 1.0,
+  "mono": true,
+  "clap_pos": 0.0349,
+  "clap_margin": -0.105,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "kind_winner": "crowd_market",
+  "kind_gap": 0.0837,
+  "ast": {
+   "Music": 0.453,
+   "Singing": 0.004,
+   "Speech": 0.602,
+   "Vehicle": 0.151
+  },
+  "id": "freesound:c2931da0-fdf9-432a-86e6-28d3742950fb",
+  "title": "rios_barney_baja_fidelidad_miniplaza_de_mercado.wav",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "url": "https://cdn.freesound.org/previews/335/335135_5848334-hq.mp3",
+  "creator": "artesmediales",
+  "landing": "https://freesound.org/people/artesmediales/sounds/335135"
+ },
+ {
+  "reasons": [
+   "duration_short"
+  ],
+  "duration": 27.072,
+  "id": "freesound:5d6f141e-e395-405f-a416-fd1699b8b471",
+  "title": "AMBTran_FieldRecording_Cinematis_Vol2_TrainStation6_Freebie",
+  "kind": "ambience",
+  "name": "crowd_market",
+  "url": "https://cdn.freesound.org/previews/773/773260_4290180-hq.mp3",
+  "creator": "guidofm",
+  "landing": "https://freesound.org/people/guidofm/sounds/773260"
+ },
+ {
+  "reasons": [
+   "low_sample_rate"
+  ],
+  "duration": 1.476,
+  "clipping_share": 0.0,
+  "clap_pos": 0.2935,
+  "clap_margin": 0.2999,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "id": "freesound:35f06cc9-e1e6-43d2-b6c5-43f1dc586eda",
+  "title": "UI_Menu_Whosh",
+  "kind": "sfx",
+  "name": "chapter_turn",
+  "url": "https://cdn.freesound.org/previews/699/699494_5872390-hq.mp3",
+  "creator": "Valenspire",
+  "landing": "https://freesound.org/people/Valenspire/sounds/699494",
+  "source_sample_rate": 16000
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 3.072,
+  "id": "freesound:7eccb59f-5af3-46e4-b2ec-e933fa46f4ac",
+  "title": "Anvil - Lokomo 125 kg - Hammer on 6mm steel 1 time",
+  "kind": "object",
+  "name": "hammer_anvil",
+  "url": "https://cdn.freesound.org/previews/386/386129_1655965-hq.mp3",
+  "creator": "ldezem",
+  "landing": "https://freesound.org/people/ldezem/sounds/386129"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 3.048,
+  "id": "freesound:1f9008a5-f626-4dc5-a036-84a1e4eb509a",
+  "title": "Power hammer - Billeter Klunz 50kg - Quantized exhaust vent 12 hit",
+  "kind": "object",
+  "name": "hammer_anvil",
+  "url": "https://cdn.freesound.org/previews/386/386365_1655965-hq.mp3",
+  "creator": "ldezem",
+  "landing": "https://freesound.org/people/ldezem/sounds/386365"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 3.048,
+  "id": "freesound:966e1597-6d4d-4a93-a929-d006951e13eb",
+  "title": "Power hammer - Billeter Klunz 50kg - Quantized flat exhaust vent 12 hit",
+  "kind": "object",
+  "name": "hammer_anvil",
+  "url": "https://cdn.freesound.org/previews/386/386372_1655965-hq.mp3",
+  "creator": "ldezem",
+  "landing": "https://freesound.org/people/ldezem/sounds/386372"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 3.048,
+  "id": "freesound:95a2f451-13be-4414-aee6-19c20cc27bbb",
+  "title": "Power hammer - Billeter Klunz 50kg - Quantized flat belt drive 8 hit",
+  "kind": "object",
+  "name": "hammer_anvil",
+  "url": "https://cdn.freesound.org/previews/386/386368_1655965-hq.mp3",
+  "creator": "ldezem",
+  "landing": "https://freesound.org/people/ldezem/sounds/386368"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.536,
+  "clipping_share": 0.000282,
+  "source_sample_rate": 48000,
+  "clap_pos": 0.0475,
+  "clap_margin": 0.0393,
+  "clap_worst_neg": "church bell",
+  "id": "freesound:500d626d-f393-4387-874c-b8653c2b4805",
+  "title": "Power hammer - Billeter Klunz 50kg - Quantized exhaust vent 8 hit",
+  "kind": "object",
+  "name": "hammer_anvil",
+  "url": "https://cdn.freesound.org/previews/386/386366_1655965-hq.mp3",
+  "creator": "ldezem",
+  "landing": "https://freesound.org/people/ldezem/sounds/386366"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.536,
+  "clipping_share": 5.6e-05,
+  "source_sample_rate": 48000,
+  "clap_pos": 0.0889,
+  "clap_margin": 0.0357,
+  "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
+  "id": "freesound:bea3890c-5cc3-4602-858c-dfb3088ee33a",
+  "title": "Power hammer - Billeter Klunz 50kg - Quantized forging red glow 8 hit",
+  "kind": "object",
+  "name": "hammer_anvil",
+  "url": "https://cdn.freesound.org/previews/386/386374_1655965-hq.mp3",
+  "creator": "ldezem",
+  "landing": "https://freesound.org/people/ldezem/sounds/386374"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.536,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "clap_pos": -0.0294,
+  "clap_margin": -0.2032,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:f34f063b-92a7-465b-bfea-20422fb202a0",
+  "title": "Power hammer - Billeter Klunz 50kg - Quantized flat exhaust vent 8 hit",
+  "kind": "object",
+  "name": "hammer_anvil",
+  "url": "https://cdn.freesound.org/previews/386/386373_1655965-hq.mp3",
+  "creator": "ldezem",
+  "landing": "https://freesound.org/people/ldezem/sounds/386373"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.792,
+  "clipping_share": 0.000226,
+  "source_sample_rate": 44100,
+  "clap_pos": 0.1221,
+  "clap_margin": -0.0479,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:c5e84c01-c274-47fc-8b64-8d51db69e176",
+  "title": "Blacksmith Hammer",
+  "kind": "object",
+  "name": "hammer_anvil",
+  "url": "https://cdn.freesound.org/previews/521/521972_311243-hq.mp3",
+  "creator": "Kastenfrosch",
+  "landing": "https://freesound.org/people/Kastenfrosch/sounds/521972"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 3.048,
+  "id": "freesound:e69ccf39-c835-4654-a9bd-0447071658fd",
+  "title": "Anvil - Lokomo A 100 kg - Forging hot steel 1 time",
+  "kind": "object",
+  "name": "hammer_anvil",
+  "url": "https://cdn.freesound.org/previews/386/386116_1655965-hq.mp3",
+  "creator": "ldezem",
+  "landing": "https://freesound.org/people/ldezem/sounds/386116"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 3.048,
+  "id": "freesound:8f6cf46a-78df-4f93-a3a5-35e4e1b858da",
+  "title": "Anvil - Lokomo A 100 kg - Forging extremely hot steel 1 time",
+  "kind": "object",
+  "name": "hammer_anvil",
+  "url": "https://cdn.freesound.org/previews/386/386122_1655965-hq.mp3",
+  "creator": "ldezem",
+  "landing": "https://freesound.org/people/ldezem/sounds/386122"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 2.568,
+  "id": "freesound:b2c6e81c-06d0-434b-944a-8441742cfe28",
+  "title": "Unsheathing the sword",
+  "kind": "object",
+  "name": "sword_draw",
+  "url": "https://cdn.freesound.org/previews/395/395364_1675920-hq.mp3",
+  "creator": "ihitokage",
+  "landing": "https://freesound.org/people/ihitokage/sounds/395364"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.802,
+  "clipping_share": 0.005643,
+  "source_sample_rate": 44100,
+  "clap_pos": 0.1531,
+  "clap_margin": 0.0013,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:7c1977b2-5abc-4204-9c61-5e533bc25a7e",
+  "title": "Retro, SciFi Laser Sword, Unsheathed.wav",
+  "kind": "object",
+  "name": "sword_draw",
+  "url": "https://cdn.freesound.org/previews/657/657939_6142149-hq.mp3",
+  "creator": "MATRIXXX_",
+  "landing": "https://freesound.org/people/MATRIXXX_/sounds/657939"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 2.856,
+  "id": "freesound:5932a217-879d-437e-a946-14c4e8fd492d",
+  "title": "Sword Unsheath",
+  "kind": "object",
+  "name": "sword_draw",
+  "url": "https://cdn.freesound.org/previews/276/276872_1989929-hq.mp3",
+  "creator": "lucabia",
+  "landing": "https://freesound.org/people/lucabia/sounds/276872"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 1.698,
+  "clipping_share": 0.014412,
+  "source_sample_rate": 44100,
+  "id": "freesound:18b4e02f-1bf6-4e1b-9566-ca66dc179b88",
+  "title": "Sword Fast Unsheath.wav",
+  "kind": "object",
+  "name": "sword_draw",
+  "url": "https://cdn.freesound.org/previews/468/468695_3928631-hq.mp3",
+  "creator": "ethanchase7744",
+  "landing": "https://freesound.org/people/ethanchase7744/sounds/468695"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.312,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "clap_pos": 0.2217,
+  "clap_margin": -0.0292,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:e27f5538-6c53-4dca-82c8-144c08f93448",
+  "title": "Drawing Sword Sound 01",
+  "kind": "object",
+  "name": "sword_draw",
+  "url": "https://cdn.freesound.org/previews/684/684747_13091475-hq.mp3",
+  "creator": "Robbnix",
+  "landing": "https://freesound.org/people/Robbnix/sounds/684747"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.312,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": 0.1374,
+  "clap_margin": 0.0037,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:ea536b3f-6365-4304-98a5-622eb024bf83",
+  "title": "Unsheath knife.wav",
+  "kind": "object",
+  "name": "sword_draw",
+  "url": "https://cdn.freesound.org/previews/329/329365_3046293-hq.mp3",
+  "creator": "bassoonrckr",
+  "landing": "https://freesound.org/people/bassoonrckr/sounds/329365"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 2.4,
+  "id": "freesound:cb02c94e-1312-4a4c-a857-41185b6db550",
+  "title": "ARROW_TARGET_IMPACT_SINGLE_ARCHERY_08wav.wav",
+  "kind": "object",
+  "name": "arrow_shot",
+  "url": "https://cdn.freesound.org/previews/534/534949_579267-hq.mp3",
+  "creator": "JoeDinesSound",
+  "landing": "https://freesound.org/people/JoeDinesSound/sounds/534949"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 2.232,
+  "id": "freesound:e6feed0c-2bcd-4cad-b0e4-f65ec8c5a4be",
+  "title": "ARROW_TARGET_IMPACT_SINGLE_ARCHERY_04.wav",
+  "kind": "object",
+  "name": "arrow_shot",
+  "url": "https://cdn.freesound.org/previews/534/534943_579267-hq.mp3",
+  "creator": "JoeDinesSound",
+  "landing": "https://freesound.org/people/JoeDinesSound/sounds/534943"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 2.232,
+  "id": "freesound:65f9c60b-2b04-4d21-9bb9-5b55b5b1dc82",
+  "title": "ARROW_TARGET_IMPACT_SINGLE_ARCHERY_05.wav",
+  "kind": "object",
+  "name": "arrow_shot",
+  "url": "https://cdn.freesound.org/previews/534/534948_579267-hq.mp3",
+  "creator": "JoeDinesSound",
+  "landing": "https://freesound.org/people/JoeDinesSound/sounds/534948"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 2.136,
+  "id": "freesound:f0aeffb8-f160-4116-8955-bac3c970b9f5",
+  "title": "ARROW_SHOOT_SINGLE_03.wav",
+  "kind": "object",
+  "name": "arrow_shot",
+  "url": "https://cdn.freesound.org/previews/534/534940_579267-hq.mp3",
+  "creator": "JoeDinesSound",
+  "landing": "https://freesound.org/people/JoeDinesSound/sounds/534940"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 2.136,
+  "clipping_share": 1e-05,
+  "source_sample_rate": 48000,
+  "clap_pos": 0.1126,
+  "clap_margin": 0.0087,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:73470ab6-6c9f-4249-ae72-0b33921a681d",
+  "title": "footsteps - ice 04.wav",
+  "kind": "object",
+  "name": "footsteps_mud",
+  "url": "https://cdn.freesound.org/previews/405/405631_5923045-hq.mp3",
+  "creator": "Anthousai",
+  "landing": "https://freesound.org/people/Anthousai/sounds/405631"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.632,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "clap_pos": 0.1986,
+  "clap_margin": -0.0232,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:9123f3ee-6e6b-4981-87a4-3b2a001957f9",
+  "title": "footsteps - ice 06.wav",
+  "kind": "object",
+  "name": "footsteps_mud",
+  "url": "https://cdn.freesound.org/previews/405/405637_5923045-hq.mp3",
+  "creator": "Anthousai",
+  "landing": "https://freesound.org/people/Anthousai/sounds/405637"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.32,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "clap_pos": 0.121,
+  "clap_margin": -0.119,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:e906d7c1-7d51-488e-ab76-150db41be1b4",
+  "title": "footsteps - ice 05.wav",
+  "kind": "object",
+  "name": "footsteps_mud",
+  "url": "https://cdn.freesound.org/previews/405/405638_5923045-hq.mp3",
+  "creator": "Anthousai",
+  "landing": "https://freesound.org/people/Anthousai/sounds/405638"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.84,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "clap_pos": 0.1175,
+  "clap_margin": -0.1277,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:c4ee8cd3-44e4-467c-b196-3dbd84847df9",
+  "title": "footsteps - ice 08.wav",
+  "kind": "object",
+  "name": "footsteps_mud",
+  "url": "https://cdn.freesound.org/previews/405/405635_5923045-hq.mp3",
+  "creator": "Anthousai",
+  "landing": "https://freesound.org/people/Anthousai/sounds/405635"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.96,
+  "clipping_share": 0.001999,
+  "source_sample_rate": 44100,
+  "clap_pos": 0.1255,
+  "clap_margin": 0.0274,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:a11fb938-8457-4f17-aa86-90c85e454356",
+  "title": "Step on a slug (Splat!) 2",
+  "kind": "object",
+  "name": "footsteps_mud",
+  "url": "https://cdn.freesound.org/previews/447/447930_9159316-hq.mp3",
+  "creator": "Breviceps",
+  "landing": "https://freesound.org/people/Breviceps/sounds/447930"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.056,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": 0.0212,
+  "clap_margin": -0.0968,
+  "clap_worst_neg": "keys jingling in a pocket",
+  "id": "freesound:6c05abbc-b215-41ff-8386-b1601bd0f17c",
+  "title": "Knight Left Footstep Forest/Grass 4 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384902_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384902"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.056,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": -0.0647,
+  "clap_margin": -0.2915,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:dfb69d74-8637-45be-8285-13802b33f36f",
+  "title": "Knight Left Footstep Forest/Grass 1 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384900_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384900"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.056,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": -0.1111,
+  "clap_margin": -0.3313,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:f65a0935-6eb7-421c-a4ec-d9d14db77bec",
+  "title": "Knight Left Footstep Forest/Grass 3 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384898_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384898"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.056,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": -0.0708,
+  "clap_margin": -0.2407,
+  "clap_worst_neg": "coins in a jar",
+  "id": "freesound:92a25cf0-0479-41ac-be9d-92335f726564",
+  "title": "Knight Left Footstep Forest/Grass 5 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384901_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384901"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.056,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": -0.1183,
+  "clap_margin": -0.3052,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:68f89db1-9a29-4528-9dd5-67138652a1d6",
+  "title": "Knight Left Footstep Forest/Grass 2 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384899_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384899"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.056,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": 0.0154,
+  "clap_margin": -0.181,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:c2b58771-7c12-45e9-8416-6632cf33dca6",
+  "title": "Knight Right Footstep Forest/Grass 6 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384895_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384895"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.936,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": -0.1038,
+  "clap_margin": -0.268,
+  "clap_worst_neg": "keys jingling in a pocket",
+  "id": "freesound:1a112efb-0aaa-4ca0-b44a-188c8abda166",
+  "title": "Knight Right Footstep Forest/Grass 1 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384894_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384894"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.936,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": -0.0223,
+  "clap_margin": -0.1791,
+  "clap_worst_neg": "keys jingling in a pocket",
+  "id": "freesound:e9563bae-8d90-45ea-961c-46fefb402047",
+  "title": "Knight Right Footstep Forest/Grass 2 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384891_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384891"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.936,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": -0.098,
+  "clap_margin": -0.2805,
+  "clap_worst_neg": "keys jingling in a pocket",
+  "id": "freesound:8e178792-9eb0-46d4-888b-a104e11f20fa",
+  "title": "Knight Left Footstep Forest/Grass 6 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384893_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384893"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.936,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": -0.1179,
+  "clap_margin": -0.45,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:dc8cdacc-eb3c-4ebf-a38d-b353994d6145",
+  "title": "Knight Right Footstep Forest/Grass 5 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384897_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384897"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.936,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": -0.1258,
+  "clap_margin": -0.3404,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:99827a6b-b239-4b7a-81d1-a062bb062cf0",
+  "title": "Knight Right Footstep Forest/Grass 4 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384896_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384896"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.936,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": -0.1266,
+  "clap_margin": -0.333,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:9f07cb55-ccaa-46cc-aa42-e70c1f707c5f",
+  "title": "Knight Right Footstep Forest/Grass 3 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384892_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384892"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.576,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": 0.0034,
+  "clap_margin": -0.2014,
+  "clap_worst_neg": "coins in a jar",
+  "id": "freesound:c5ded509-7d4e-412c-9851-f2f942b158d9",
+  "title": "Knight Right Footstep on Gravel 5 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384890_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384890"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.552,
+  "clipping_share": 0.000417,
+  "source_sample_rate": 44100,
+  "clap_pos": -0.0025,
+  "clap_margin": -0.107,
+  "clap_worst_neg": "keys jingling in a pocket",
+  "id": "freesound:dceafb13-1fda-4120-a27a-ef1714ba56ff",
+  "title": "Knight Left Footstep on Gravel 2 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384881_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384881"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.552,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": 0.0878,
+  "clap_margin": -0.1309,
+  "clap_worst_neg": "coins in a jar",
+  "id": "freesound:312b40d5-12a6-4a27-87bd-c668b31bcf7e",
+  "title": "Knight Right Footstep on Gravel 1 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384887_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384887"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.552,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": -0.0063,
+  "clap_margin": -0.0828,
+  "clap_worst_neg": "keys jingling in a pocket",
+  "id": "freesound:4cae3539-c9f6-44cc-9e00-46292f7bd0fa",
+  "title": "Knight Right Footstep on Gravel 2 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384886_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384886"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.552,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "clap_pos": 0.0994,
+  "clap_margin": -0.1171,
+  "clap_worst_neg": "coins in a jar",
+  "id": "freesound:a4afe37c-8398-492a-ba8e-603bf3f3744b",
+  "title": "Knight Left Footstep on Gravel 4 (With Chainmail)",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/384/384885_984733-hq.mp3",
+  "creator": "Ali_6868",
+  "landing": "https://freesound.org/people/Ali_6868/sounds/384885"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.392,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "clap_pos": -0.0564,
+  "clap_margin": -0.0832,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:338466be-7bab-4f9c-9bd6-ec103d4dcc6a",
+  "title": "Metallic Clank 3.wav",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/682/682150_10938187-hq.mp3",
+  "creator": "HenKonen",
+  "landing": "https://freesound.org/people/HenKonen/sounds/682150"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 1.08,
+  "clipping_share": 0.000184,
+  "source_sample_rate": 48000,
+  "clap_pos": -0.081,
+  "clap_margin": -0.1341,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "id": "freesound:654b53d3-35a3-4a91-a4e6-29bad83226a4",
+  "title": "Metallic Clank 1.wav",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/682/682148_10938187-hq.mp3",
+  "creator": "HenKonen",
+  "landing": "https://freesound.org/people/HenKonen/sounds/682148"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 2.544,
+  "id": "freesound:aa542a84-b2d5-4c57-a3dc-ab7ee7b4ca93",
+  "title": "Chain rattling",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/593/593458_11182796-hq.mp3",
+  "creator": "georgesavic",
+  "landing": "https://freesound.org/people/georgesavic/sounds/593458"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 0.768,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "clap_pos": -0.0163,
+  "clap_margin": -0.0824,
+  "clap_worst_neg": "coins in a jar",
+  "id": "freesound:ad7065d6-247a-4d3e-adbe-94c7b9119024",
+  "title": "Empty Beer Bottles Clinking, Clanking.wav",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/416/416288_6857156-hq.mp3",
+  "creator": "Fugeni",
+  "landing": "https://freesound.org/people/Fugeni/sounds/416288"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 2.568,
+  "id": "freesound:bd3598da-a7a9-4d72-be03-be551f8e39e7",
+  "title": "Grab your weapon - heavy dark deep low",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/644/644084_13590673-hq.mp3",
+  "creator": "Duisterwho",
+  "landing": "https://freesound.org/people/Duisterwho/sounds/644084"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 2.568,
+  "id": "freesound:351db3d7-6551-4829-8f81-ea69b3388866",
+  "title": "Grab your shield - warrior vocal fight defence",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/644/644083_13590673-hq.mp3",
+  "creator": "Duisterwho",
+  "landing": "https://freesound.org/people/Duisterwho/sounds/644083"
+ },
+ {
+  "reasons": [
+   "duration_long"
+  ],
+  "duration": 2.568,
+  "id": "freesound:9d614a7a-8276-4609-b531-671c23fb8524",
+  "title": "Grab your sword - vocal",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/644/644082_13590673-hq.mp3",
+  "creator": "Duisterwho",
+  "landing": "https://freesound.org/people/Duisterwho/sounds/644082"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 2.232,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "clap_pos": 0.1154,
+  "clap_margin": -0.2477,
+  "clap_worst_neg": "keys jingling in a pocket",
+  "id": "freesound:353df86b-82e3-4b28-87e1-33c13c1a1f2d",
+  "title": "Picking Up Keys",
+  "kind": "object",
+  "name": "armour_clank",
+  "url": "https://cdn.freesound.org/previews/267/267711_3666787-hq.mp3",
+  "creator": "WeeJee_vdH",
+  "landing": "https://freesound.org/people/WeeJee_vdH/sounds/267711"
+ }
+]

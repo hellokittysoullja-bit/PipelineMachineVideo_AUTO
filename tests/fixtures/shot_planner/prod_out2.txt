@@ -1,0 +1,44 @@
+
+
+Loading model... |-\|/-\|/-\|/-\|/ 
+
+▄▄ ▄▄
+██ ██
+██ ██  ▀▀█▄ ███▄███▄  ▀▀█▄    ▄████ ████▄ ████▄
+██ ██ ▄█▀██ ██ ██ ██ ▄█▀██    ██    ██ ██ ██ ██
+██ ██ ▀█▄██ ██ ██ ██ ▀█▄██ ██ ▀████ ████▀ ████▀
+                                    ██    ██
+                                    ▀▀    ▀▀
+
+build      : b1-38a5b42
+model      : /tmp/claude-0/gguf/qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf
+ftype      : Q4_K - Medium
+modalities : text
+
+available commands:
+  /exit or Ctrl+C     stop or exit
+  /regen              regenerate the last response
+  /clear              clear the chat history
+  /read <file>        add a text file
+  /glob <pattern>     add text files using globbing pattern
+
+
+
+> <|im_start|>system
+Ты режиссёр монтажа документального ролика. По фразе диктора реши, ЧТО показать на экране в этот момент.
+Ответь СТРОГО одним JSON-объектом, без пояснений до и после.
+Ключи:
+  "subject" — главный предмет или герой кадра (по-русски, кратко);
+  "action" — что с ним происходит (по-р� ... (truncated)
+{
+  "subject": "рыцарь",
+  "action": "падает",
+  "forbidden": "меч",
+  "function": "scene",
+  "shot_en": "A fallen knight, his surroundings, people around him"
+}
+
+[ Prompt: 59.0 t/s | Generation: 5.5 t/s ]
+
+
+Exiting...

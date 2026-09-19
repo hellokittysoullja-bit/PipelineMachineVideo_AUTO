@@ -1,0 +1,9 @@
+MOOD | -1 | 1 | тихое застревание
+1 | scene | an open laptop with a blank document on a dark desk
+2 | scene | a person sitting sideways to a desk, not facing the screen
+3 | object | a mug of cold coffee with a skin on the surface, close up
+4 | scene | an empty desk with the chair pushed away in daylight
+5 | object | a wall clock in a dim room showing late evening
+6 | object | a hand resting on a closed laptop lid, not opening it
+7 | object | a face turning away from a glowing screen in the dark
+8 | - | -

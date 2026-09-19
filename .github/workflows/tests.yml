@@ -1,0 +1,120 @@
+# Прогон тестов там, где есть ffmpeg (п.2.10 docs/AUDIT_2026-08_NEXT_UPGRADES.md).
+#
+# Зачем: 168 из 859 тестов пропускаются в любом окружении без ffmpeg/torch —
+# включая дымовой прогон полной сборки, самый ценный тест репозитория. У
+# пользователя ffmpeg локально есть, но ручной прогон никто не гарантирует, а
+# pipeline_smart.py — 9.5к строк в одном файле: тихая регрессия здесь стоит
+# часов рендера и реальных денег на озвучку (ЧАСТЬ 1 CLAUDE.md).
+#
+# Ключи CI не нужны и не выдаются: tests/conftest.py принудительно гасит
+# GEMINI_API_KEY, а платные/сетевые пути (Lumean, ElevenLabs, Pexels, Gemini)
+# в тестах замоканы. Ни один job ничего не публикует.
+name: tests
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Воскресенье, 03:00 UTC — только для тяжёлых job'ов ниже (windows/ml),
+    # они намеренно НЕ висят на каждом пуше: Windows-минуты приватного репо
+    # тарифицируются с коэффициентом 2, а ML-job качает веса моделей.
+    - cron: '0 3 * * 0'
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    # Основной job: на каждый пуш и PR. Единственный, который обязан быть
+    # зелёным всегда.
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: ffmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          ffmpeg -version | head -1
+      - name: Зависимости
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Тесты
+        run: pytest tests/ -q --durations=10
+      - name: Сводка флагов режимов
+        # Дешёвая страховка от того же класса, что чинили 03.09: если реестр
+        # (scripts/feature_flags.py) перестанет импортироваться или загремит
+        # на мусорном значении, это видно здесь, а не на рендере.
+        run: python scripts/feature_flags.py
+
+  windows:
+    # Основная платформа пользователя (ЧАСТЬ 3 CLAUDE.md). Именно на ней
+    # ловились баги, невоспроизводимые на Linux: лимит длины командной строки
+    # 32767 в fix_pauses.py, учёт памяти через /proc/meminfo, разделители
+    # путей. По расписанию/вручную, не на каждый пуш — см. комментарий к cron.
+    if: github.event_name != 'push' && github.event_name != 'pull_request'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: ffmpeg
+        run: choco install ffmpeg -y --no-progress
+      - name: Зависимости
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Тесты
+        run: pytest tests/ -q --durations=10
+
+  ml:
+    # Опциональные ML-зависимости (torch/transformers/onnxruntime/ruaccent) —
+    # закомментированы в requirements.txt как опциональные, поэтому основной
+    # job их не ставит. Здесь они реальные: разблокируют живые CLIP-тесты
+    # (_domain_scores_from_text и др. — та самая функция, что была мертва
+    # месяцами под широким except) и ensemble-путь Директора.
+    if: github.event_name != 'push' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: ffmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+      - name: Кэш весов Hugging Face
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ runner.os }}-clip-siglip2-jina-v1
+      - name: Зависимости
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install transformers onnxruntime
+      - name: ruaccent (опционально)
+        # Отдельным шагом и с continue-on-error: подсказки по ударению —
+        # выключенный по умолчанию слой (STRESS_HINTS_ENABLED=0), его
+        # несовместимость по версиям не должна ронять весь ML-job. Провал
+        # виден в UI отдельной строкой, а не проглатывается молча.
+        continue-on-error: true
+        run: pip install ruaccent
+      - name: Тесты
+        run: pytest tests/ -q --durations=10

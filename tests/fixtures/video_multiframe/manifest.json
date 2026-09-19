@@ -1,0 +1,11 @@
+{
+ "source": "Pexels видео id 855260 (url-слаг \"warriors-fighting-855260\"), реально скачано и оценено во время рендера videos/_test20s 08.09 (VIDEO_DIRECTOR_SCORE_VERSION=2 верификация). Выиграло хук-слот \"Готов спорить, что да. Герой на экране заносит клинок двумя руками...\" по запросу \"warrior on horseback with sword\".",
+ "finding": "Толпа современных зрителей в кадре видна на t=0.96с и t=40.87с этого 48-секундного видео, но НЕ видна на t=0.5с (дефолтный однокадровый пробник extract_video_probe_frame(), которым is_relevant_candidate() проверял кандидата на этапе отбора). Кандидат прошёл negative_anchor_violation() и выиграл слот.",
+ "images": {
+  "crowd_start.jpg": {"at_sec": 0.96, "expected_veto": true, "anchor": "crowd of modern spectators in casual clothes watching an event"},
+  "clean_mid.jpg": {"at_sec": 24.04, "expected_veto": false, "note": "тот же диапазон, что дефолтный пробник 0.5с — толпы не видно, is_relevant_candidate() не смог поймать анахронизм по одному этому кадру"},
+  "crowd_end.jpg": {"at_sec": 40.87, "expected_veto": true, "anchor": "crowd of modern spectators in casual clothes watching an event"}
+ },
+ "resized_to": 768,
+ "note": "clean_mid.jpg взят на t=24.04с (0.5 доли длительности), а не ровно на t=0.5с — так удобнее переиспользовать во всех тестах один и тот же набор VIDEO_DOMAIN_GUARD_SAMPLE_FRACS (0.15, 0.5, 0.85), которым video_negative_anchor_violation() реально сэмплирует кадры; сам факт (толпа не видна в середине ролика) идентичен дефолтному пробнику 0.5с — измерено отдельно и совпадает."
+}

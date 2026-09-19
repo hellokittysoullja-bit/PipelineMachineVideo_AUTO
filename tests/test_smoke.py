@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PIPELINE = os.path.join(REPO_ROOT, "scripts", "pipeline_smart.py")
@@ -43,8 +43,28 @@ def video_dir(tmp_path):
         encoding="utf-8",
     )
 
-    for i, color in enumerate([(200, 30, 30), (30, 30, 200)]):
-        Image.new("RGB", (1280, 720), color).save(media / f"{i:02d}.jpg", quality=90)
+    # 4 РАЗНЫХ картинки со СТРУКТУРОЙ (не голая заливка), под сценарий на
+    # 4 sub-cut блока (см. ниже). Причина в две ступени, обе честно пойманы
+    # эмпирически, не догадкой:
+    # 1) local_photo() циклит по индексу (index % len(photos)) — при 2 фото
+    #    на 4 блока блоки 3-4 получали БУКВАЛЬНО те же файлы, что 1-2.
+    # 2) ahash() (см. qc_report) — average hash: перевод в grayscale, бит=1
+    #    если пиксель ЯРЧЕ среднего по кадру. У ЗАЛИТОГО одним цветом кадра
+    #    КАЖДЫЙ пиксель ровно на среднем — весь хэш нулевой НЕЗАВИСИМО от
+    #    цвета заливки, то есть 4 разных цвета сами по себе не спасали —
+    #    проверено вживую (после увеличения до 4 файлов тест всё ещё падал
+    #    с теми же 6 парами дублей). Нужна реальная ПРОСТРАНСТВЕННАЯ
+    #    структура (не только другой цвет), чтобы у 8x8-даунсемпла было
+    #    что различать — прямоугольник в углу разного размера/цвета на
+    #    каждом кадре.
+    colors = [(200, 30, 30), (30, 30, 200), (30, 200, 30), (200, 200, 30)]
+    for i, color in enumerate(colors):
+        img = Image.new("RGB", (1280, 720), color)
+        draw = ImageDraw.Draw(img)
+        accent = colors[(i + 1) % len(colors)]
+        box_w = 200 + i * 150
+        draw.rectangle([50, 50, 50 + box_w, 50 + box_w], fill=accent)
+        img.save(media / f"{i:02d}.jpg", quality=90)
 
     r = subprocess.run(
         ["ffmpeg", "-y", "-f", "lavfi", "-i", f"sine=frequency=440:duration={AUDIO_DURATION}",
