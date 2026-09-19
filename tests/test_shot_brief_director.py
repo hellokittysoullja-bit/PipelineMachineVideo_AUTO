@@ -1407,3 +1407,144 @@ def test_inline_without_a_valid_type_is_written_exactly_as_before(tmp_path, func
                    {0: {"shot_en": "a visored helmet with a narrow slit",
                         "function": function}})
     assert "[shot:a visored helmet with a narrow slit]" in script.read_text(encoding="utf-8")
+
+
+# --- ОБЛАЧНЫЙ МОЗГ НА ПЕРВЫХ N ЮНИТАХ (18.09) --------------------------------
+#
+# Прямой запрос владельца: платный ключ бьёт по карману на каждом вызове,
+# значит не на весь эпизод, а на самое важное по удержанию место — начало.
+# Решение по ГЛАВЕ (не по юниту), потому что вызов режиссёра — один вопрос
+# на всю главу; резать её пополам означало бы либо переплатить за неё
+# дважды, либо оставить хвост фраз без контекста соседей.
+
+def _synthetic_blocks(sizes):
+    """`sizes` — сколько юнитов в каждой секции, по порядку."""
+    out = []
+    for i, n in enumerate(sizes):
+        for j in range(n):
+            out.append({"section": f"BLOCK {i}", "text": f"фраза {i}.{j}",
+                       "shot_brief": None})
+    return out
+
+
+def test_chapters_covering_first_units_rounds_up_to_whole_chapters(tmp_path):
+    """Границу видно на настоящей главе: 16+10+13 юнитов, окно 25 —
+    захватывает главы 1 и 2 целиком (0-25), а не режет главу 2 по юниту 25."""
+    import shot_brief_director as d
+    script = tmp_path / "script.txt"
+    blocks = _synthetic_blocks([16, 10, 13])
+    script.write_text("\n".join(b["text"] for b in blocks), encoding="utf-8")
+    chapters = d.chapters_covering_first_units(str(tmp_path), blocks, 25)
+    assert chapters == {1, 2}
+
+
+def test_chapters_covering_first_units_disabled_at_zero(tmp_path):
+    import shot_brief_director as d
+    blocks = _synthetic_blocks([5, 5])
+    (tmp_path / "script.txt").write_text(
+        "\n".join(b["text"] for b in blocks), encoding="utf-8")
+    assert d.chapters_covering_first_units(str(tmp_path), blocks, 0) == set()
+
+
+def test_chapters_covering_first_units_can_cover_whole_episode(tmp_path):
+    """Окно шире эпизода — облако получает все главы, не только первую."""
+    import shot_brief_director as d
+    blocks = _synthetic_blocks([5, 5, 5])
+    (tmp_path / "script.txt").write_text(
+        "\n".join(b["text"] for b in blocks), encoding="utf-8")
+    assert d.chapters_covering_first_units(str(tmp_path), blocks, 999) == {1, 2, 3}
+
+
+def test_hybrid_brain_routes_by_chapter_number():
+    import shot_brief_director as d
+
+    class Stub:
+        def __init__(self, tag):
+            self.name = tag
+            self.seen = []
+
+        def ask(self, prompt, chapter_no):
+            self.seen.append(chapter_no)
+            return f"{self.name}:{chapter_no}"
+
+    cloud, local = Stub("cloud"), Stub("local")
+    hybrid = d.HybridBrain(cloud, {1, 2}, fallback=local)
+    assert hybrid.ask("p", 1) == "cloud:1"
+    assert hybrid.ask("p", 2) == "cloud:2"
+    assert hybrid.ask("p", 3) == "local:3"
+    assert cloud.seen == [1, 2]
+    assert local.seen == [3]
+
+
+def test_hybrid_brain_without_fallback_returns_empty_past_the_window():
+    """Нет локальной модели — юниты после облачного окна не получают
+    заявку вообще (пустая строка), а не падение: `run()` читает это как
+    «глава без единого разбора» и юнит остаётся на прежнем пути."""
+    import shot_brief_director as d
+
+    class Stub:
+        name = "cloud"
+
+        def ask(self, prompt, chapter_no):
+            return "1|object|a thing"
+
+    hybrid = d.HybridBrain(Stub(), {1}, fallback=None)
+    assert hybrid.ask("p", 1) == "1|object|a thing"
+    assert hybrid.ask("p", 2) == ""
+
+
+def test_hybrid_brain_name_names_both_sides():
+    import shot_brief_director as d
+
+    class Stub:
+        def __init__(self, name):
+            self.name = name
+
+    hybrid = d.HybridBrain(Stub("cloud:qwen"), {1, 2}, fallback=Stub("local:q4"))
+    assert "cloud:qwen" in hybrid.name
+    assert "local:q4" in hybrid.name
+
+    hybrid_no_fb = d.HybridBrain(Stub("cloud:qwen"), {1}, fallback=None)
+    assert "none" in hybrid_no_fb.name
+
+
+def test_cloud_brain_without_key_is_a_silent_noop(monkeypatch):
+    """Без ANYMODEL_API_KEY вызов не идёт в сеть вообще — control-run:
+    подмени urlopen на исключение и убедись, что до него дело не доходит."""
+    import shot_brief_director as d
+    monkeypatch.delenv("ANYMODEL_API_KEY", raising=False)
+
+    def boom(*a, **kw):
+        raise AssertionError("сеть вызвана без ключа")
+
+    monkeypatch.setattr(d.urllib.request, "urlopen", boom)
+    brain = d.CloudBrain("qwen/qwen3.7-plus")
+    assert brain.ask("prompt", 1) == ""
+    assert brain.calls == 0
+    assert brain.errors == 0
+
+
+def test_cloud_brain_network_error_is_fail_open(monkeypatch):
+    """Сбой сети (таймаут/403/что угодно) — глава остаётся без заявки, а
+    не роняет весь прогон. Ошибка считается, а не молчит."""
+    import shot_brief_director as d
+    monkeypatch.setenv("ANYMODEL_API_KEY", "sk-test")
+
+    def boom(*a, **kw):
+        raise d.urllib.error.URLError("сеть недоступна")
+
+    monkeypatch.setattr(d.urllib.request, "urlopen", boom)
+    brain = d.CloudBrain("qwen/qwen3.7-plus")
+    assert brain.ask("prompt", 1) == ""
+    assert brain.errors == 1
+    assert brain.calls == 0
+
+
+def test_cloud_brain_default_model_is_the_measured_cheap_one():
+    """Замер 18.09 (тот же харнесс, что у LocalBrain, эталон — 142 брифа
+    эпизода 02): qwen3.7-plus дал 73/142 против 65/142 у локальной модели,
+    13 вызовов на весь эпизод, самая дешёвая из проверенных облачных."""
+    import shot_brief_director as d
+    assert d.CloudBrain.DEFAULT_MODEL == "qwen/qwen3.7-plus"
+    assert d.CloudBrain().model == "qwen/qwen3.7-plus"
+    assert d.CloudBrain("xai/grok-4.3").model == "xai/grok-4.3"

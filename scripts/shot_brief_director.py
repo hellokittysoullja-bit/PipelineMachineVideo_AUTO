@@ -47,6 +47,8 @@ import os
 import re
 import sys
 import time
+import urllib.error
+import urllib.request
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "scripts"))
@@ -662,6 +664,127 @@ class LocalBrain:
         return r["choices"][0]["message"]["content"] or ""
 
 
+class CloudBrain:
+    """Платный облачный шлюз (anymodel.org) — тот же ключ, что у зрячего
+    гейта кадра (`frame_verifier.ANYMODEL_API_KEY`), тот же обход
+    Cloudflare (браузерный User-Agent — без него urllib получает 403
+    `error code 1010`, изолировано перекрёстной проверкой ещё в гейте).
+
+    Замер 18.09 на живом ключе, эталон — 142 брифа `[shot:]` эпизода 02,
+    ТОТ ЖЕ харнесс, что и у LocalBrain (`shot_brief_eval.py`, рука C):
+    `qwen/qwen3.7-plus` дал 73/142 попаданий (65/142 у локальной модели,
+    2.3 ГБ, сейчас в проде) за 13 вызовов на весь эпизод (глава — один
+    вопрос, не фраза) — ~62 тыс. токенов, при коэффициенте 0.25 это
+    единицы тысяч условных единиц за эпизод, на два порядка дешевле
+    зрячего гейта или VLM-арбитра на весь эпизод (там на каждый СЛОТ
+    уходит картинка, здесь один текстовый вызов на ГЛАВУ).
+    """
+
+    DEFAULT_MODEL = "qwen/qwen3.7-plus"
+    DEFAULT_MAX_TOKENS = int(os.environ.get("SHOT_BRIEF_CLOUD_MAX_TOKENS",
+                                             "1600") or 1600)
+    TIMEOUT_SEC = 90
+    BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/125.0 Safari/537.36")
+
+    def __init__(self, model=None, max_tokens=None):
+        self.model = model or os.environ.get("SHOT_BRIEF_CLOUD_MODEL",
+                                              self.DEFAULT_MODEL)
+        self.name = "cloud:" + self.model.replace("/", "_")
+        self.max_tokens = max_tokens or self.DEFAULT_MAX_TOKENS
+        self.calls = 0
+        self.errors = 0
+        self.tokens = 0
+
+    def ask(self, prompt, chapter_no):
+        key = os.environ.get("ANYMODEL_API_KEY")
+        base = (os.environ.get("ANYMODEL_BASE_URL")
+                or "https://anymodel.org/v1").rstrip("/")
+        if not key:
+            return ""
+        body = json.dumps({
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "temperature": 0,
+            "messages": [{"role": "user", "content": prompt}],
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            base + "/chat/completions", data=body,
+            headers={"Authorization": "Bearer " + key,
+                     "Content-Type": "application/json",
+                     "User-Agent": self.BROWSER_UA})
+        try:
+            with urllib.request.urlopen(req, timeout=self.TIMEOUT_SEC) as r:
+                d = json.load(r)
+        except Exception as e:
+            # Сетевой сбой стоит главы, а не всего прогона — та же дисциплина
+            # fail-open, что у LocalBrain на пустом ответе: юниты главы
+            # просто не получат заявку и останутся на прежнем пути (запрос
+            # секции), а не свалят весь режиссёрский прогон.
+            self.errors += 1
+            print(f"    ОШИБКА облака на главе {chapter_no}: "
+                  f"{type(e).__name__}: {str(e)[:120]}")
+            return ""
+        self.calls += 1
+        usage = d.get("usage") or {}
+        self.tokens += int(usage.get("total_tokens") or 0)
+        try:
+            return d["choices"][0]["message"]["content"] or ""
+        except (KeyError, IndexError, TypeError):
+            return ""
+
+
+class HybridBrain:
+    """Облако на ПЕРВЫХ N юнитах эпизода, дальше — другой мозг (или ничего).
+
+    Прямой запрос владельца: платный облачный ключ бьёт по карману на
+    каждом вызове — значит не на весь эпизод, а туда, где промах дороже
+    всего (начало, хук и следующие за ним главы, самое важное по удержанию
+    место ролика, см. ЧАСТЬ 9 CLAUDE.md).
+
+    Решение — по ГЛАВЕ, не по юниту: вызов режиссёра идёт главой целиком
+    (одним вопросом на все её фразы), резать главу пополам по номеру юнита
+    означало бы либо дважды платить за одну главу, либо оставить половину
+    её фраз без контекста соседей — то, ради чего вся конструкция
+    «глава, а не фраза» и написана. Поэтому граница округляется ВВЕРХ до
+    конца главы: если в главу попал хотя бы один юнит с индексом меньше
+    `first_n`, вся глава уходит в облако. Отсюда «может быть чуть больше
+    хука» — честно, а не по недосмотру.
+    """
+
+    def __init__(self, primary, cloud_chapters, fallback=None):
+        self.primary = primary
+        self.cloud_chapters = set(cloud_chapters)
+        self.fallback = fallback
+        fb_name = fallback.name if fallback else "none"
+        self.name = f"hybrid:{primary.name}<{sorted(self.cloud_chapters)}>+{fb_name}"
+
+    def ask(self, prompt, chapter_no):
+        if chapter_no in self.cloud_chapters:
+            return self.primary.ask(prompt, chapter_no)
+        if self.fallback is not None:
+            return self.fallback.ask(prompt, chapter_no)
+        return ""
+
+
+def chapters_covering_first_units(video_dir, blocks, first_n,
+                                   use_vocabulary=False):
+    """Номера глав (1-индекс, тот же, что у `run()`), покрывающих первые
+    `first_n` юнитов эпизода (индекс — `block_index`, сквозной по всему
+    сценарию). Секции идут подряд и не перемешиваются (см. `packets()`),
+    поэтому «глава пересекает окно» проверяется по первому юниту главы.
+    """
+    if first_n <= 0:
+        return set()
+    out = set()
+    for chapter_no, packet in enumerate(
+            packets(video_dir, blocks, use_vocabulary=use_vocabulary), 1):
+        idxs = [u["block_index"] for u in packet["units"]]
+        if idxs and min(idxs) < first_n:
+            out.add(chapter_no)
+    return out
+
+
 class FileBrain:
     """Ответы лежат файлом: по файлу на главу, имя — номер главы.
 
@@ -1117,6 +1240,16 @@ def main(argv):
     ap.add_argument("--vocabulary", action="store_true",
                     help="подать режиссёру реальные имена предметов из "
                          "каталога Мет (шаг «слово автора -> слово каталога»)")
+    ap.add_argument(
+        "--cloud-first-units", type=int,
+        default=int(os.environ.get("SHOT_BRIEF_CLOUD_FIRST_UNITS", "0") or 0),
+        help="платный облачный ключ (ANYMODEL_API_KEY) — только для глав, "
+             "покрывающих первые N юнитов эпизода (хук и немного после, "
+             "округляется вверх до конца главы); 0 — выключено. Дальше — "
+             "--brain как обычно. Замер и модель по умолчанию — в "
+             "докстринге CloudBrain.")
+    ap.add_argument("--cloud-model", default=None,
+                    help=f"модель шлюза (по умолчанию {CloudBrain.DEFAULT_MODEL})")
     a = ap.parse_args(argv[1:])
 
     blocks = script_parser.parse_blocks(os.path.join(a.video_dir, "script.txt"))
@@ -1133,22 +1266,53 @@ def main(argv):
               f"под теми же номерами и запустить --brain file --answers <папка>")
         return 0
 
+    fallback_brain = None
     if a.brain == "local":
         model = find_model(a.model)
         if not model:
-            print("Модели нет. Поставить одной командой:\n"
-                  "    python scripts/setup_local_director.py\n"
-                  "Она сама выберет размер под память машины и положит файл "
-                  f"в {MODELS_DIR_NAME}/. После этого команда выше работает "
-                  "без единого флага.")
-            return 2
-        print(f"Мозг: {os.path.basename(model)}")
-        brain = LocalBrain(model, n_threads=a.threads)
+            # Без --cloud-first-units отсутствие локальной модели — жёсткий
+            # отказ, как и раньше. С ней — не фатально: юниты после
+            # облачного окна просто останутся без брифа (прежний путь,
+            # запрос секции), а не свалят весь прогон.
+            if a.cloud_first_units <= 0:
+                print("Модели нет. Поставить одной командой:\n"
+                      "    python scripts/setup_local_director.py\n"
+                      "Она сама выберет размер под память машины и положит "
+                      f"файл в {MODELS_DIR_NAME}/. После этого команда выше "
+                      "работает без единого флага.")
+                return 2
+            print("Локальной модели нет — юниты после облачного окна "
+                  "останутся без брифа (прежний путь: запрос секции).")
+        else:
+            print(f"Мозг: {os.path.basename(model)}")
+            fallback_brain = LocalBrain(model, n_threads=a.threads)
     else:
         if not a.answers:
             print("Нужна --answers <папка с ответами>")
             return 2
-        brain = FileBrain(a.answers)
+        fallback_brain = FileBrain(a.answers)
+
+    brain = fallback_brain
+    if a.cloud_first_units > 0:
+        if not os.environ.get("ANYMODEL_API_KEY"):
+            print("ANYMODEL_API_KEY не задан в .env — --cloud-first-units "
+                  "проигнорирован, работаем как обычно.")
+        else:
+            cloud_chapters = chapters_covering_first_units(
+                a.video_dir, blocks, a.cloud_first_units,
+                use_vocabulary=a.vocabulary)
+            cloud_brain = CloudBrain(a.cloud_model)
+            brain = HybridBrain(cloud_brain, cloud_chapters,
+                                fallback=fallback_brain)
+            fb_label = fallback_brain.name if fallback_brain else \
+                "ничего (прежний путь: запрос секции)"
+            print(f"Облако {cloud_brain.model} — главы {sorted(cloud_chapters)} "
+                  f"(первые {a.cloud_first_units} юнитов), дальше — {fb_label}")
+
+    if brain is None:
+        print("Нет ни одного мозга (ни локальной модели, ни облака) — "
+              "нечего запускать.")
+        return 2
 
     cache = None if a.no_cache else os.path.join(a.video_dir, "media_plan",
                                                  CACHE_DIR_NAME)
@@ -1170,6 +1334,10 @@ def main(argv):
               f"{STATS['critique_cache_hits']} из кэша, "
               f"переписано строк {STATS['critique_rewrites']}, "
               f"отловлено сдвигов {STATS['critique_shift_caught']}")
+    cb = getattr(brain, "primary", None)
+    if isinstance(cb, CloudBrain):
+        print(f"Облако {cb.model}: реальных вызовов {cb.calls}, "
+              f"токенов {cb.tokens}, ошибок {cb.errors}")
     print(f"План: {path}")
     return 0
 
