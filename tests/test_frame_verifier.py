@@ -146,6 +146,114 @@ def test_no_key_literal_in_source():
     assert "sk-" not in src
 
 
+# --- МИР КАНАЛА В ПРОМПТЕ: облачный судья видит не только фразу -----------
+#
+# Прямой ответ на запрос владельца «сделать облачный API умнее не в
+# конкретных случаях, а везде»: без мира канала зрячий гейт сравнивает кадр
+# ТОЛЬКО с буквальной фразой и пропустит современного туриста на кадре,
+# где во фразе нет ни одного предметного слова про эпоху — тот же класс
+# промаха, что VISUAL_DOMAIN_GUARDS уже закрывает узким CLIP-анкором формы
+# клинка, здесь — общим зрением модели.
+
+def test_empty_world_renders_byte_for_byte_prompt(monkeypatch, frame):
+    """Канал без объявленной ниши (SHOT_BRIEF_WORLD=off, новый канал,
+    сбой domain_contract()) — промпт ДОЛЖЕН остаться тем же самым текстом,
+    что был до появления мира: третий параметр не добавляет ни одного
+    лишнего токена, когда сказать нечего."""
+    monkeypatch.setenv("FRAME_VERIFIER", "1")
+    monkeypatch.setenv("ANYMODEL_API_KEY", "sk-test")
+    fv.reset_stats()
+    monkeypatch.setattr(fv, "_world_context", lambda video_dir=None: "")
+    seen = {}
+
+    def urlopen(req, timeout=None):
+        seen["body"] = json.loads(req.data.decode())
+        return _fake_response({"choices": [{"message": {"content":
+                               '{"verdict":"yes","seen":"x","missing":""}'}}],
+                               "usage": {"total_tokens": 10}})
+
+    monkeypatch.setattr(fv.urllib.request, "urlopen", urlopen)
+    fv.verify(frame, "коза не могла уснуть")
+    text = seen["body"]["messages"][0]["content"][0]["text"]
+    assert "Ты монтажёр документального ролика. Тебе дан КАДР" in text
+    assert "Канал, для которого сделан ролик" not in text
+
+
+def test_world_context_reaches_the_prompt_sent_to_the_model(monkeypatch, frame):
+    """Непустой мир канала обязан реально дойти до текста, который уходит
+    в модель — иначе `_world_context()` был бы ровно тем классом «слой
+    есть, и его никто не зовёт», которым этот репозиторий горел семь раз."""
+    monkeypatch.setenv("FRAME_VERIFIER", "1")
+    monkeypatch.setenv("ANYMODEL_API_KEY", "sk-test")
+    fv.reset_stats()
+    world = "МИР КАДРА: европейское Средневековье, 900-1600."
+    monkeypatch.setattr(fv, "_world_context", lambda video_dir=None: world)
+    seen = {}
+
+    def urlopen(req, timeout=None):
+        seen["body"] = json.loads(req.data.decode())
+        return _fake_response({"choices": [{"message": {"content":
+                               '{"verdict":"no","seen":"турист","missing":"рыцарь"}'}}],
+                               "usage": {"total_tokens": 10}})
+
+    monkeypatch.setattr(fv.urllib.request, "urlopen", urlopen)
+    fv.verify(frame, "рыцарь надевает доспех")
+    text = seen["body"]["messages"][0]["content"][0]["text"]
+    assert world in text
+    assert "чужероден этому миру" in text
+
+
+def test_world_context_asks_domain_contract_with_this_episode(monkeypatch, tmp_path):
+    """`_world_context()` обязана передать video_dir дальше, в
+    `domain_contract(video_dir)` — без этого та функция лезет за
+    `import pipeline_smart`, а pipeline_smart.py сам импортирует
+    frame_verifier: во время реального рендера это заново выполнило бы
+    файл целиком под вторым именем модуля."""
+    calls = []
+
+    class FakeSBD:
+        @staticmethod
+        def domain_contract(video_dir=None):
+            calls.append(video_dir)
+            return "МИР"
+
+    monkeypatch.setitem(sys.modules, "shot_brief_director", FakeSBD)
+    out = fv._world_context(str(tmp_path))
+    assert out == "МИР"
+    assert calls == [str(tmp_path)]
+
+
+def test_world_context_fails_open_on_any_error(monkeypatch):
+    class Boom:
+        @staticmethod
+        def domain_contract(video_dir=None):
+            raise RuntimeError("boom")
+
+    monkeypatch.setitem(sys.modules, "shot_brief_director", Boom)
+    assert fv._world_context("videos/01") == ""
+
+
+def test_cache_key_separates_different_worlds(monkeypatch, frame, tmp_path):
+    """Один и тот же кадр и одна и та же фраза, но мир канала поменялся
+    (переезд на другую нишу, ЧАСТЬ 24, или включили content_world.json для
+    эпизода) — это ДРУГОЙ вопрос модели, и старый вердикт не должен молча
+    выжить под ним."""
+    monkeypatch.setenv("FRAME_VERIFIER", "1")
+    monkeypatch.setenv("ANYMODEL_API_KEY", "sk-test")
+    fv.reset_stats()
+    vd = str(tmp_path)
+
+    monkeypatch.setattr(fv, "_world_context", lambda video_dir=None: "мир А")
+    _stub(monkeypatch, '{"verdict":"yes","seen":"x","missing":""}')
+    fv.verify(frame, "фраза", vd)
+
+    monkeypatch.setattr(fv, "_world_context", lambda video_dir=None: "мир Б")
+    _stub(monkeypatch, '{"verdict":"no","seen":"y","missing":"z"}')
+    out = fv.verify(frame, "фраза", vd)
+    assert out["verdict"] == "no"
+    assert fv.STATS["cache_hits"] == 0
+
+
 def test_browser_user_agent_is_sent(monkeypatch, frame):
     """Cloudflare шлюза отдаёт 403 (error code 1010) на UA питоновского urllib
     и пропускает curl — изолировано перекрёстной проверкой 18.09. Без

@@ -105,8 +105,8 @@ STATS = {"calls": 0, "cache_hits": 0, "yes": 0, "no": 0,
          "errors": 0, "budget_stops": 0, "tokens": 0}
 
 PROMPT = (
-    "Ты монтажёр документального ролика. Тебе дан КАДР и ФРАЗА диктора, "
-    "которая звучит поверх этого кадра.\n\n"
+    "Ты монтажёр документального ролика.{world}Тебе дан КАДР и ФРАЗА "
+    "диктора, которая звучит поверх этого кадра.\n\n"
     "ФРАЗА: «{phrase}»\n\n"
     "Вопрос ровно один: показывает ли этот кадр то, о чём говорит фраза? "
     "Не «подходит ли по теме вообще», а видно ли на кадре именно то, что "
@@ -117,6 +117,46 @@ PROMPT = (
     '{{"verdict": "yes"|"no", "seen": "что реально на кадре, 3-6 слов", '
     '"missing": "чего не хватает по фразе, 3-6 слов или пусто"}}'
 )
+
+# Мир кадра ЭТОГО канала, та же строка, что уже получает режиссёр брифов
+# (shot_brief_director.domain_contract(), channel_profile.json -> shot_
+# domain) — не вторая копия правила. Прямой ответ на запрос владельца
+# «сделать облачный API умнее не в конкретных случаях, а везде»: без этого
+# зрячий гейт сравнивает кадр ТОЛЬКО с буквальной фразой и не знает, что
+# канал — например, «европейское Средневековье, 900-1600» — современный
+# турист или техника в кадре на фразе без предметных слов формально
+# «показывает то, что сказано», хотя очевидно чужероден миру ролика; тот
+# же класс промаха, что уже ловит VISUAL_DOMAIN_GUARDS для формы клинка, но
+# здесь — общим зрением, а не одним анкором. Пусто (мир не объявлен —
+# психология, новый канал, SHOT_BRIEF_WORLD=off) — промпт байт-в-байт как
+# раньше, третий параметр не добавляет ни одного лишнего токена.
+WORLD_CLAUSE = (
+    " Канал, для которого сделан ролик: {world} Если кадр явно чужероден "
+    "этому миру (современная одежда, техника, интерьер там, где их не "
+    "должно быть) — это брак, даже если формально по фразе всё на месте. "
+)
+
+
+def _world_context(video_dir=None):
+    """domain_contract() того же режиссёра брифов, лениво — без цикла
+    импорта (frame_verifier грузится РАНЬШЕ shot_brief_director внутри
+    pipeline_smart.py, но эта функция читается только в момент вызова
+    verify(), когда все модули уже загружены). Сбой любого рода -> "" —
+    тот же fail-open, что у самого domain_contract().
+
+    video_dir передаётся ДАЛЬШЕ, в domain_contract(video_dir) — не для
+    красоты: без него та функция лезет за `import pipeline_smart`, а
+    pipeline_smart.py — это модуль, который САМ импортирует frame_verifier
+    (шапка pipeline_smart.py, `import frame_verifier`). Во время реального
+    рендера это уже `__main__`, и `import pipeline_smart` изнутри
+    domain_contract() заново выполнил бы файл целиком под вторым именем
+    модуля. video_dir у verify() уже есть — платить за это незачем (см.
+    докстринг domain_contract())."""
+    try:
+        import shot_brief_director
+        return shot_brief_director.domain_contract(video_dir)
+    except Exception:
+        return ""
 
 
 def reset_stats():
@@ -148,10 +188,19 @@ def _cache_path(video_dir, key):
     return os.path.join(d, key + ".json")
 
 
-def _cache_key(image_path, phrase):
+def _cache_key(image_path, phrase, world=""):
     """Ключ по СОДЕРЖИМОМУ кадра, а не по его пути: один и тот же файл может
     лежать под разными именами кэша кандидата, а вердикт у него один. Плюс
-    фраза, модель и версия промпта — вопрос изменился, значит и ответ другой."""
+    фраза, модель и версия промпта — вопрос изменился, значит и ответ другой.
+
+    world входит ХЭШЕМ, не отдельным полем: если владелец поменяет мир
+    канала в channel_profile.json (переезд на другую нишу, ЧАСТЬ 24) или
+    включит content_world.json для нового эпизода, эффективный вопрос
+    модели меняется, а прежний ключ (кадр+фраза+модель) остался бы тем же
+    — вердикт «да, показывает то, что сказано» молча выжил бы после смены
+    мира, хотя вопрос уже задан другой. Пустой world (SHOT_BRIEF_WORLD=off,
+    новый канал без объявленной ниши) даёт тот же хэш, что и раньше этой
+    правки — старый кэш таких эпизодов не протухает беспричинно."""
     h = hashlib.md5()
     try:
         with open(image_path, "rb") as f:
@@ -167,6 +216,8 @@ def _cache_key(image_path, phrase):
     h.update(b"|")
     h.update(model_name().encode("utf-8"))
     h.update(b"|v%d" % PROMPT_VERSION)
+    h.update(b"|w")
+    h.update((world or "").encode("utf-8"))
     return h.hexdigest()
 
 
@@ -195,15 +246,19 @@ def _parse(txt):
             "missing": str(d.get("missing") or "")[:120]}
 
 
-def _ask(phrase, data_url):
+def _ask(phrase, data_url, world=""):
     key = _env("ANYMODEL_API_KEY")
     base = _env("ANYMODEL_BASE_URL", DEFAULT_BASE_URL).rstrip("/")
+    # world пуст (SHOT_BRIEF_WORLD=off, канал без объявленной ниши, сбой
+    # domain_contract()) -> {world} рендерится ОДНИМ пробелом — байт-в-байт
+    # тот же текст промпта, что был до этой правки ("ролика. Тебе дан...").
+    world_clause = WORLD_CLAUSE.format(world=world) if world else " "
     body = json.dumps({
         "model": model_name(),
         "max_tokens": 200,
         "temperature": 0,
         "messages": [{"role": "user", "content": [
-            {"type": "text", "text": PROMPT.format(phrase=phrase)},
+            {"type": "text", "text": PROMPT.format(phrase=phrase, world=world_clause)},
             {"type": "image_url", "image_url": {"url": data_url}},
         ]}],
     }).encode("utf-8")
@@ -234,7 +289,8 @@ def verify(image_path, phrase, video_dir=None):
     if not os.path.exists(image_path):
         return None
 
-    key = _cache_key(image_path, phrase)
+    world = _world_context(video_dir)
+    key = _cache_key(image_path, phrase, world)
     cpath = _cache_path(video_dir, key) if (video_dir and key) else None
     if cpath and os.path.exists(cpath):
         try:
@@ -258,7 +314,7 @@ def verify(image_path, phrase, video_dir=None):
 
     try:
         STATS["calls"] += 1
-        txt = _ask(phrase, data_url)
+        txt = _ask(phrase, data_url, world)
     except Exception:
         # Fail-open на уровне слоя: недоступный шлюз не имеет права ни ронять
         # рендер, ни отклонять кадр. Считается и печатается вызывающим.

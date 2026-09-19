@@ -164,13 +164,33 @@ def _clean(s):
     return " ".join((s or "").split())
 
 
-def domain_contract():
+def domain_contract(video_dir=None):
     """Мир кадра ЭТОГО канала — из `channel_profile.json`, не из кода.
 
     Пусто — доменного правила в промпте нет вовсе. Это и есть условие
     работы «в любой нише»: канал про психологию не должен получать
     требование показывать рыцарей только потому, что репозиторий
     начинался как исторический.
+
+    video_dir — папка ЭТОГО эпизода. Дан явно (`run()`, `frame_verifier.
+    verify()`, где video_dir уже параметр вызывающей функции) -> профиль
+    берётся ПРЯМЫМ вызовом `content_world.effective_profile(video_dir)`,
+    той же единой точкой входа, что у shot_types.py/museum_sources.py —
+    без единого обращения к pipeline_smart. Не дан (историческое
+    поведение: собственный CLI-процесс этого файла, `python shot_brief_
+    director.py <video_dir>` — там sys.argv[1] совпадает с video_dir по
+    той же позиционной конвенции, что и у pipeline_smart.py) -> прежний
+    путь через `pipeline_smart.CHANNEL_PROFILE`, байт-в-байт.
+
+    Разница не косметическая: `frame_verifier.py` импортирован САМИМ
+    pipeline_smart.py (`import frame_verifier`, шапка того файла) — если
+    бы эта функция и там лезла за `import pipeline_smart`, во время
+    реального рендера (`python pipeline_smart.py ...`, файл уже исполнен
+    как `__main__`) это заново выполнило бы pipeline_smart.py ЦЕЛИКОМ под
+    вторым именем модуля в sys.modules — тот же результат `CHANNEL_
+    PROFILE`, но лишний полный проход по ~16000 строкам импортов/регэкспов
+    на каждый первый вызов зрячего гейта. video_dir у вызывающей стороны
+    уже есть — платить за это незачем.
     """
     # Мир канала выключается для эпизода из ЧУЖОЙ ниши. Нужно потому, что
     # он не только фильтрует, но и РУЛИТ: живой прогон психологического
@@ -191,9 +211,13 @@ def domain_contract():
     if os.environ.get("SHOT_BRIEF_WORLD", "") == "off":
         return ""
     try:
-        import pipeline_smart
         import content_world
-        d = content_world.shot_domain_for_prompt(pipeline_smart.CHANNEL_PROFILE)
+        if video_dir:
+            profile = content_world.effective_profile(video_dir)
+        else:
+            import pipeline_smart
+            profile = pipeline_smart.CHANNEL_PROFILE
+        d = content_world.shot_domain_for_prompt(profile)
     except Exception:
         return ""
     parts = []
@@ -1130,7 +1154,7 @@ def _ask_cached(brain, prompt_text, chapter_no, cache_dir, verbose, label,
 def run(video_dir, blocks, brain, cache_dir=None, verbose=True,
         max_units=None, only_sections=None, use_vocabulary=False):
     """Пройти эпизод главами. Возвращает {индекс блока: заявка}."""
-    contract = domain_contract()
+    contract = domain_contract(video_dir)
     if verbose:
         if contract:
             print(f"  МИР КАДРА ЭТОГО КАНАЛА: {contract}")
@@ -1395,10 +1419,14 @@ def main(argv):
     ap = argparse.ArgumentParser(
         description="Режиссёрская разработка главы: контекст вместо фразы")
     ap.add_argument("video_dir")
-    ap.add_argument("--brain", choices=("local", "file", "packets"),
+    ap.add_argument("--brain", choices=("local", "cloud", "file", "packets"),
                     default="local",
                     help="по умолчанию local: модель ищется сама "
-                         "(--model, LLAMA_MODEL_GGUF, models/*.gguf)")
+                         "(--model, LLAMA_MODEL_GGUF, models/*.gguf). "
+                         "cloud — весь эпизод через ANYMODEL_API_KEY, без "
+                         "локальной модели вообще (см. --cloud-model); "
+                         "переключение local<->cloud — один флаг, не правка "
+                         "кода.")
     ap.add_argument("--answers", help="папка с ответами для --brain file")
     ap.add_argument("--model", default=None,
                     help="файл .gguf; по умолчанию ищется сам")
@@ -1444,6 +1472,28 @@ def main(argv):
         print(f"Пакеты глав: {dest} ({i} глав). Ответы положить рядом "
               f"под теми же номерами и запустить --brain file --answers <папка>")
         return 0
+
+    if a.brain == "cloud":
+        # Прямой ответ на запрос "максимальная свобода — включить облако
+        # целиком одним флагом, без огрызка --brain local + огромный
+        # --cloud-first-units". Локальная модель здесь НЕ нужна вообще —
+        # это не HybridBrain (нет смысла заводить окно и резервный мозг,
+        # когда резерв не нужен), а CloudBrain напрямую, тот же класс, что
+        # уже измерен и включён по умолчанию для первых N юнитов.
+        if not os.environ.get("ANYMODEL_API_KEY"):
+            print("ANYMODEL_API_KEY не задан в .env — --brain cloud "
+                  "работать не может.")
+            return 2
+        if a.cloud_first_units > 0:
+            print("--cloud-first-units игнорируется: --brain cloud уже "
+                  "покрывает весь эпизод.")
+        brain = CloudBrain(a.cloud_model)
+        print(f"Мозг: облако {brain.model} (весь эпизод)")
+        cache = None if a.no_cache else os.path.join(a.video_dir, "media_plan",
+                                                     CACHE_DIR_NAME)
+        found = run(a.video_dir, blocks, brain, cache_dir=cache,
+                    use_vocabulary=a.vocabulary)
+        return _finish(a, blocks, found, brain)
 
     fallback_brain = None
     if a.brain == "local":
@@ -1497,6 +1547,13 @@ def main(argv):
                                                  CACHE_DIR_NAME)
     found = run(a.video_dir, blocks, brain, cache_dir=cache,
                 use_vocabulary=a.vocabulary)
+    return _finish(a, blocks, found, brain)
+
+
+def _finish(a, blocks, found, brain):
+    """Хвост main(), общий для ветки `--brain cloud` (без локального
+    резерва) и ветки local/file (с HybridBrain или без) — план, запись в
+    script.txt и сводка статистики одни на оба пути, а не две копии."""
     path = write_plan(a.video_dir, blocks, found, brain.name)
     if a.write_inline:
         placed, skipped = write_inline(a.video_dir, blocks, found)
@@ -1516,7 +1573,10 @@ def main(argv):
     if feature_flags.enabled("SHOT_BRIEF_ANCHOR"):
         print(f"Якорь: без цитаты {STATS['anchor_missing']}, "
               f"отклонено по несовпадению {STATS['anchor_rejected']}")
-    cb = getattr(brain, "primary", None)
+    # CloudBrain — либо сам brain (--brain cloud, без резерва), либо
+    # brain.primary (HybridBrain, окно первых N юнитов) — печатаем
+    # реальную цену в любом случае, а не только в одном из двух путей.
+    cb = brain if isinstance(brain, CloudBrain) else getattr(brain, "primary", None)
     if isinstance(cb, CloudBrain):
         print(f"Облако {cb.model}: реальных вызовов {cb.calls}, "
               f"токенов {cb.tokens}, ошибок {cb.errors}")

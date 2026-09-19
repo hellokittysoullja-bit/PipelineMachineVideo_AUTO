@@ -865,6 +865,67 @@ def test_world_switch_off_does_not_weaken_this_channel(monkeypatch):
                                blocklist=())[0]
 
 
+# --- domain_contract(video_dir): без похода за import pipeline_smart ------
+#
+# frame_verifier.py импортирован САМИМ pipeline_smart.py («import
+# frame_verifier», его шапка) — если бы domain_contract() без video_dir
+# лезла за `import pipeline_smart` изнутри уже запущенного pipeline_smart.py
+# (там он `__main__`), это заново выполнило бы файл целиком под вторым
+# именем модуля в sys.modules. video_dir у вызывающей стороны уже есть
+# (frame_verifier.verify(), shot_brief_director.run()) — платить незачем.
+
+def test_domain_contract_with_video_dir_skips_pipeline_smart_import(monkeypatch, tmp_path):
+    import shot_brief_director as d
+    import content_world
+
+    monkeypatch.setattr(content_world, "effective_profile",
+                         lambda vd=None: {"shot_domain": {"world": "тест-мир"}})
+    monkeypatch.delitem(sys.modules, "pipeline_smart", raising=False)
+
+    class Poison:
+        def __getattr__(self, name):
+            raise AssertionError("domain_contract(video_dir) не должна "
+                                  "трогать pipeline_smart вообще")
+
+    monkeypatch.setitem(sys.modules, "pipeline_smart", Poison())
+    out = d.domain_contract(str(tmp_path))
+    assert "тест-мир" in out
+
+
+def test_domain_contract_without_video_dir_keeps_old_path(monkeypatch):
+    """Байт-в-байт прежнее поведение, когда video_dir не передан (собственный
+    CLI-процесс этого файла, где sys.argv[1] совпадает с video_dir)."""
+    import shot_brief_director as d
+    assert d.domain_contract(), "у этого канала мир объявлен"
+    assert d.domain_contract() == d.domain_contract(None)
+
+
+def test_run_passes_its_own_video_dir_to_domain_contract(monkeypatch, capsys):
+    """`run()` уже получает video_dir параметром — он обязан дойти до
+    domain_contract(), а не потеряться на полпути."""
+    import shot_brief_director as d
+    import content_world
+
+    seen = []
+
+    def fake_effective_profile(vd=None):
+        seen.append(vd)
+        return {"shot_domain": {"world": "мир эпизода"}}
+
+    monkeypatch.setattr(content_world, "effective_profile", fake_effective_profile)
+
+    class Silent:
+        name = "silent"
+
+        def ask(self, prompt, chapter_no):
+            return ""
+
+    d.run("videos/_test_world_dir", [{"text": "фраза.", "shot_brief": None}],
+          Silent(), cache_dir=None, verbose=True)
+    assert "videos/_test_world_dir" in seen
+    assert "мир эпизода" in capsys.readouterr().out
+
+
 # --- УСТАНОВЩИК ЛОКАЛЬНОГО РЕЖИССЁРА ----------------------------------------
 
 @pytest.mark.parametrize("ram", [64.0, 32.0, 16.0, 15.0, 14.9, 8.0, 4.0, None])
@@ -1538,6 +1599,61 @@ def test_cloud_brain_network_error_is_fail_open(monkeypatch):
     assert brain.ask("prompt", 1) == ""
     assert brain.errors == 1
     assert brain.calls == 0
+
+
+def test_brain_cloud_is_a_first_class_choice(tmp_path, monkeypatch):
+    """Прямой ответ на запрос «максимальная свобода»: --brain cloud
+    покрывает ВЕСЬ эпизод без единой локальной модели, а не через огрызок
+    --brain local + огромный --cloud-first-units. Локальный резерв здесь
+    не нужен и не заводится (HybridBrain — только для окна первых N)."""
+    import shot_brief_director as d
+    monkeypatch.setenv("ANYMODEL_API_KEY", "sk-test")
+    script = tmp_path / "script.txt"
+    script.write_text("=== METADATA ===\nTITLE: т\n"
+                      "=== HOOK ===\nПервая фраза эпизода.\n", encoding="utf-8")
+
+    def fake_urlopen(req, timeout=None):
+        import io
+        import json as _json
+
+        class Resp:
+            def __enter__(self_):
+                return self_
+
+            def __exit__(self_, *a):
+                return False
+
+            def read(self_):
+                return b""
+
+        body = _json.dumps({
+            "choices": [{"message": {"content":
+                "MOOD | 0 | 1 | ровно\n1 | scene | [anchor: фразы] a wide "
+                "open field at dawn\n"}}],
+            "usage": {"total_tokens": 123},
+        }).encode()
+
+        class FakeCtx:
+            def __enter__(self_):
+                return io.BytesIO(body)
+
+            def __exit__(self_, *a):
+                return False
+        return FakeCtx()
+
+    monkeypatch.setattr(d.urllib.request, "urlopen", fake_urlopen)
+    rc = d.main(["shot_brief_director.py", str(tmp_path), "--brain", "cloud"])
+    assert rc == 0
+    plan_path = tmp_path / "media_plan" / "shot_plan.json"
+    assert plan_path.exists()
+
+
+def test_brain_cloud_without_key_fails_loudly(tmp_path, monkeypatch):
+    import shot_brief_director as d
+    monkeypatch.delenv("ANYMODEL_API_KEY", raising=False)
+    (tmp_path / "script.txt").write_text("=== HOOK ===\nа.\n", encoding="utf-8")
+    rc = d.main(["shot_brief_director.py", str(tmp_path), "--brain", "cloud"])
+    assert rc == 2
 
 
 def test_cloud_brain_default_model_is_the_measured_cheap_one():

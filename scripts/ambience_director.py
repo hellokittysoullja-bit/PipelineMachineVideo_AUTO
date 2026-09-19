@@ -46,7 +46,7 @@ sys.path.insert(0, os.path.join(REPO, "scripts"))
 import script_parser  # noqa: E402
 import ambience_plan  # noqa: E402
 from shot_brief_director import (  # noqa: E402
-    episode_context, LocalBrain, FileBrain, find_model, _clean,
+    episode_context, LocalBrain, FileBrain, CloudBrain, find_model, _clean,
 )
 
 PROMPT_VERSION = 2
@@ -248,7 +248,8 @@ def run(video_dir, blocks, brain, cache_dir=None, verbose=True):
     return rows
 
 
-def build_veto_fn(video_dir, model_path=None, threads=4, cache_dir=None):
+def build_veto_fn(video_dir, model_path=None, threads=4, cache_dir=None,
+                   brain=None):
     """(текст главы) -> True/False — согласна ли модель со словарём, что
     атмосфера здесь нужна. Нет модели -> None, вызывающий код обязан
     оставить решение словаря как есть, а не трактовать отсутствие модели
@@ -263,14 +264,31 @@ def build_veto_fn(video_dir, model_path=None, threads=4, cache_dir=None):
     «ДЕЛО НЕ В ГРЯЗИ» — историческое сравнение битв, которое модель дважды
     подряд путала со сценой, хотя то же правило верно сработало на очень
     похожих главах 10/11). AMBIENCE_LLM_VETO=0/1, дефолт `0`.
+
+    МОЗГ — тот же ПЕРЕИСПОЛЬЗУЕМЫЙ харнесс, что у `shot_brief_director.py`
+    (не вторая копия): `brain` можно передать явно (любой объект с
+    `.ask(prompt, chapter_no)`), а без него — свобода переключения ОДНОЙ
+    переменной `.env`, не правкой кода. `AMBIENCE_VETO_BRAIN=cloud`
+    поднимает `CloudBrain` (`AMBIENCE_VETO_CLOUD_MODEL`, по умолчанию —
+    та же измеренная дешёвая модель, что у режиссёра брифов); без неё или
+    при `local` — прежнее поведение байт-в-байт, локальная модель как раньше.
     """
-    model = find_model(model_path)
-    if not model:
-        print("  ВНИМАНИЕ: AMBIENCE_LLM_VETO включён, но локальной модели нет "
-              "(python scripts/setup_local_director.py) — вето пропускается, "
-              "решение словаря остаётся как есть.")
-        return None
-    brain = LocalBrain(model, n_threads=threads)
+    if brain is None:
+        if (os.environ.get("AMBIENCE_VETO_BRAIN") or "local").strip().lower() == "cloud":
+            if not os.environ.get("ANYMODEL_API_KEY"):
+                print("  ВНИМАНИЕ: AMBIENCE_VETO_BRAIN=cloud, но "
+                      "ANYMODEL_API_KEY не задан — вето пропускается, "
+                      "решение словаря остаётся как есть.")
+                return None
+            brain = CloudBrain(os.environ.get("AMBIENCE_VETO_CLOUD_MODEL") or None)
+        else:
+            model = find_model(model_path)
+            if not model:
+                print("  ВНИМАНИЕ: AMBIENCE_LLM_VETO включён, но локальной "
+                      "модели нет (python scripts/setup_local_director.py) "
+                      "— вето пропускается, решение словаря остаётся как есть.")
+                return None
+            brain = LocalBrain(model, n_threads=threads)
     ctx = episode_context(video_dir)
     cache = cache_dir or os.path.join(video_dir, "media_plan", "ambience_veto_cache")
 
@@ -321,10 +339,14 @@ def veto_decision(raw):
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("video_dir")
-    ap.add_argument("--brain", choices=("local", "file", "packets"), default="local")
+    ap.add_argument("--brain", choices=("local", "cloud", "file", "packets"),
+                    default="local")
     ap.add_argument("--answers", help="папка с ответами для --brain file")
     ap.add_argument("--out-packets", help="куда выложить промпты глав для --brain packets")
     ap.add_argument("--model", default=None)
+    ap.add_argument("--cloud-model", default=None,
+                    help=f"модель шлюза для --brain cloud (по умолчанию "
+                         f"{CloudBrain.DEFAULT_MODEL})")
     ap.add_argument("--threads", type=int, default=4)
     ap.add_argument("--no-cache", action="store_true")
     a = ap.parse_args(argv[1:])
@@ -342,7 +364,14 @@ def main(argv):
               f"под теми же номерами и запустить --brain file --answers <папка>")
         return 0
 
-    if a.brain == "local":
+    if a.brain == "cloud":
+        if not os.environ.get("ANYMODEL_API_KEY"):
+            print("ANYMODEL_API_KEY не задан в .env — --brain cloud "
+                  "работать не может.")
+            return 2
+        brain = CloudBrain(a.cloud_model)
+        print(f"Мозг: облако {brain.model}")
+    elif a.brain == "local":
         model = find_model(a.model)
         if not model:
             print("Модели нет. python scripts/setup_local_director.py")
