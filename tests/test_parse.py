@@ -2588,6 +2588,106 @@ def test_apply_action_qualifier_passthrough_when_none():
     assert pipeline_smart.apply_action_qualifier("medieval sword", None) == "medieval sword"
 
 
+# ---------- has_motion_word(): выбор ВИДЕО по движению, не только по бою ----------
+# Прямая жалоба владельца: "летит"/"раскрывается"/"зависает"/"опускает" — не
+# бой, ни на одной основе ACTION_STEMS не совпадают, и до этой правки решение
+# падало на голый h_text % 2 (см. комментарий у MOTION_STEMS). Основы
+# проверены на реальном корпусе пяти разных ниш этого репозитория
+# (videos/*/script.txt) — совпадений-ловушек ноль.
+
+@pytest.mark.parametrize("text", [
+    "Представь: аппарат весом в тонну летит к другой планете",
+    "Их аппараты пролетали мимо станции",
+    "Сначала раскрывается парашют размером с небольшой дом",
+    "Механизм разворачивается за секунды",
+    "Дрон зависает над полем на месте",
+    "Спускаемый аппарат медленно опускается к поверхности",
+    "Капсула опустилась на дно океана",
+    "Винт вертится всё быстрее",
+    "Земля вращается вокруг своей оси",
+    "Птица парит над водой",
+    "Обломки дрейфуют в открытом море",
+])
+def test_has_motion_word_catches_named_verbs(text):
+    assert pipeline_smart.has_motion_word(text) is True, (
+        "физическое движение объекта должно форсировать видео — именно эти "
+        "глаголы раньше падали на хэш-монетку")
+
+
+@pytest.mark.parametrize("text", [
+    "Всё зависит от того, что будет дальше",       # "завис" -> зависИТ
+    "Результат зависит от погоды",
+    "Это никак не зависимость",
+    "Спрос снижается второй квартал",               # "сниж" сознательно не в списке
+    "У вертолёта отказал двигатель",                # "верт" -> вертолёт, не вертит
+    "Это очень качественная сталь",                 # "кача" -> качество, не кача-ется
+    "Плавка металла заняла всю ночь",                # "плав" -> плавка, не плава-ет
+    "Наступило запустение после войны",              # "запуст" -> запустение
+    "Летом здесь никого не бывает",                 # "лет" -> летом, не летит
+    "Летний лагерь закрылся на зиму",
+])
+def test_has_motion_word_no_false_positive_on_homonyms(text):
+    assert pipeline_smart.has_motion_word(text) is False, (
+        "слово-омоним не должно считаться движением — иначе спокойный блок "
+        "получит видео вместо фото")
+
+
+def test_action_qualifier_checks_motion_table_too():
+    # action_video_qualifier() теперь смотрит ОБЕ таблицы одной функцией —
+    # реальный риск асимметрии "работает для боя, забыто для движения",
+    # которым этот репозиторий уже горел четыре раза (см. её докстринг).
+    assert pipeline_smart.action_video_qualifier(
+        "Аппарат летит к планете") == "spacecraft flying"
+    assert pipeline_smart.action_video_qualifier(
+        "Раскрывается огромный парашют") == "parachute deploying"
+    assert pipeline_smart.action_video_qualifier(
+        "Дрон зависает над крышей") == "hovering drone"
+
+
+def test_motion_qualifier_rejected_words_stay_out():
+    # Живой Pexels: голое "unfolding" тянуло лепестки цветка и салфетки,
+    # голое "floating" — людей в бассейне. Обе формулировки отвергнуты.
+    quals = {q for _, q in pipeline_smart.MOTION_VIDEO_QUALIFIERS}
+    assert "unfolding" not in quals
+    assert "floating" not in quals
+
+
+def test_action_word_and_motion_word_are_independent_checks():
+    # Комбат-фраза не должна начать считаться "движением" по MOTION_STEMS
+    # (и наоборот) — это ДВЕ независимые категории, не одна.
+    assert pipeline_smart.has_action_word("Аппарат летит к планете") is False
+    assert pipeline_smart.has_motion_word("Рыцари шли в атаку") is False
+
+
+def test_candidate_gate_signature_is_stable_across_processes():
+    """ACTION_STEM_EXCLUDE — frozenset: голый repr() даёт РАЗНЫЙ порядок в
+    разных процессах (хэш-рандомизация Python), то есть подпись гейта была
+    бы недетерминированной не на правке кода, а на КАЖДОМ запуске пайплайна
+    — весь кэш кандидатов инвалидировался бы зря каждый раз. Три реальных
+    запуска подряд (control-run, без sorted()) дали три разные строки repr;
+    с sorted() — три одинаковые.
+
+    Сравнение через отдельные процессы, а не reload(): сигнатура мемоизирует
+    результат в модульную глобаль, повторный вызов в одном процессе просто
+    вернул бы кэш."""
+    import subprocess
+    import sys
+    code = (
+        "import sys; sys.path.insert(0, 'scripts'); "
+        "sys.argv = ['pipeline_smart.py', '/tmp']; "
+        "import pipeline_smart as ps; "
+        "print(ps.candidate_gate_signature())"
+    )
+    sigs = set()
+    for _ in range(3):
+        r = subprocess.run([sys.executable, "-c", code], cwd=REPO_ROOT,
+                           capture_output=True, text=True, timeout=60)
+        assert r.returncode == 0, r.stderr[-2000:]
+        sigs.add(r.stdout.strip())
+    assert len(sigs) == 1, (
+        f"подпись гейта нестабильна между процессами: {sigs}")
+
+
 # ---------- semantic_context_text(): смысловой контекст для коротких блоков ----------
 # Реальный случай, увиденный на готовом кадре: блок "Не дрались. Несли."
 # (3 слова, ни одного зрительного существительного) — его смысл целиком в

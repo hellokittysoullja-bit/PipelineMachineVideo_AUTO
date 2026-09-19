@@ -1548,3 +1548,193 @@ def test_cloud_brain_default_model_is_the_measured_cheap_one():
     assert d.CloudBrain.DEFAULT_MODEL == "qwen/qwen3.7-plus"
     assert d.CloudBrain().model == "qwen/qwen3.7-plus"
     assert d.CloudBrain("xai/grok-4.3").model == "xai/grok-4.3"
+
+
+# --- ЯКОРЬ: БРИФ ОБЯЗАН НАЗЫВАТЬ ПРЕДМЕТ СВОЕЙ ФРАЗЫ (SHOT_BRIEF_ANCHOR) ----
+#
+# Реальные именные дефекты владельца (замер 18.09, кофейный эпизод, ДО
+# BRIEF_PRIMARY_QUERY): «Калди попробовал ягоды» судился запросом «мешки
+# зёрен», «бодрствовать на молитвах» — «чайники». Проверка ниже — прямой
+# ответ: цитата якоря обязана реально встречаться в СВОЕЙ или более ранней
+# фразе главы.
+
+def test_anchor_matches_own_phrase():
+    import shot_brief_director as d
+    pkt = _packet(["Калди попробовал ягоды сам."])
+    assert d.anchor_matches_context("ягоды", 1, pkt) is True
+
+
+def test_anchor_rejected_when_it_belongs_to_a_neighbour_only():
+    """Ровно найденный дефект: якорь «зёрна» цитирует предмет ДРУГОЙ,
+    соседней фразы («мешки зёрен»), а не своей («попробовал ягоды»)."""
+    import shot_brief_director as d
+    pkt = _packet(["Калди попробовал ягоды сам.",
+                   "Остались мешки с зелёными зёрнами."])
+    assert d.anchor_matches_context("зёрна", 1, pkt) is False
+    assert d.anchor_matches_context("зёрна", 2, pkt) is True
+
+
+def test_anchor_can_reach_back_like_ref_does():
+    """Тот же охват, что уже разрешён [ref:]: юнит "он" глядит на предмет,
+    названный РАНЬШЕ в этой же главе — легитимно, не дрифт."""
+    import shot_brief_director as d
+    pkt = _packet(["Рыцарей убивала земля.",
+                   "При этом он был под ногами у каждого."])
+    assert d.anchor_matches_context("земля", 2, pkt) is True
+
+
+def test_anchor_does_not_look_forward():
+    """Юнит 1 не может ссылаться на слово, сказанное только в юните 2 —
+    иначе якорь проверял бы будущее, а не то, что модель УЖЕ прочитала."""
+    import shot_brief_director as d
+    pkt = _packet(["Что-то случилось с аппаратом.",
+                   "Раскрывается парашют."])
+    assert d.anchor_matches_context("парашют", 1, pkt) is False
+    assert d.anchor_matches_context("парашют", 2, pkt) is True
+
+
+def test_anchor_matches_by_stem_not_exact_form():
+    """«ягоду» (винительный падеж) должно совпасть с «ягоды» во фразе —
+    тот же приём (совпадение по основе слова), что уже проверен для
+    английского в shot_brief_eval.subject_hit(), перенесённый на кириллицу."""
+    import shot_brief_director as d
+    pkt = _packet(["Пастух попробовал ягоду."])
+    assert d.anchor_matches_context("ягоды", 1, pkt) is True
+
+
+def test_anchor_strips_leading_negation_prefix():
+    """Реальный ложный отказ живого прогона 18.09 (episode 02, qwen3.7-
+    plus): фраза «...чего НЕ ВИДНО» (раздельно) дала якорь «невидно»
+    (слитно) — префиксное сравнение с начала слова расходится сразу («н»
+    против «в»). Снятие приставки «не»/«ни» перед сравнением чинит этот
+    класс, частый именно для стиля этого канала («негативный
+    параллелизм», ЧАСТЬ 8 CLAUDE.md)."""
+    import shot_brief_director as d
+    pkt = _packet(["Он защитился от того, что видно. "
+                   "А пришло то, чего не видно."])
+    assert d.anchor_matches_context("невидно", 1, pkt) is True
+
+
+def test_anchor_negation_strip_does_not_break_short_words():
+    """«небо» короче порога (len(w) > len(p)+2), приставка не снимается —
+    иначе «не»+«бо» дал бы двухбуквенный, заведомо шумный остаток."""
+    import shot_brief_director as d
+    variants = list(d._ru_word_variants("небо"))
+    assert variants == ["небо"]
+
+
+def test_anchor_empty_or_too_short_never_matches():
+    import shot_brief_director as d
+    pkt = _packet(["Коза не могла уснуть."])
+    assert d.anchor_matches_context("", 1, pkt) is False
+    assert d.anchor_matches_context(None, 1, pkt) is False
+    assert d.anchor_matches_context("и", 1, pkt) is False  # короче 3 букв
+
+
+def test_parse_answer_extracts_anchor_alongside_ref():
+    """Обе заметки на одной строке, в любом порядке — не коллизия. До
+    правки 18.09 generic-регекс `_REF_BRACKET_RE` съедал ЛЮБУЮ скобку как
+    referent, включая "anchor: ...", буквально."""
+    import shot_brief_director as d
+    pkt = _packet(["Земля тянет.", "При этом он был под ногами."])
+    got = d.parse_answer(
+        "1 | object | a churned field\n"
+        "2 | object | [ref: он=земля][anchor: земля] a muddy field underfoot\n",
+        pkt)
+    assert got[2]["referent"] == "он=земля"
+    assert got[2]["anchor"] == "земля"
+    assert got[2]["shot_en"] == "a muddy field underfoot"
+    # Порядок скобок не важен
+    got2 = d.parse_answer(
+        "2 | object | [anchor: земля][ref: он=земля] a muddy field underfoot\n",
+        pkt)
+    assert got2[2]["referent"] == "он=земля"
+    assert got2[2]["anchor"] == "земля"
+
+
+def test_parse_answer_anchor_only_without_ref():
+    import shot_brief_director as d
+    pkt = _packet(["Калди попробовал ягоды."])
+    got = d.parse_answer(
+        "1 | object | [anchor: ягоды] ripe red coffee cherries on a branch\n",
+        pkt)
+    assert got[1]["anchor"] == "ягоды"
+    assert got[1]["referent"] is None
+    assert got[1]["shot_en"] == "ripe red coffee cherries on a branch"
+
+
+def test_run_rejects_row_whose_anchor_belongs_to_a_neighbour(monkeypatch):
+    """Сквозной прогон run(): заявка с якорем, указывающим на предмет
+    СОСЕДНЕЙ фразы, отклоняется — юнит остаётся без брифа (прежний путь,
+    запрос секции), а не получает чужой предмет."""
+    import shot_brief_director as d
+    monkeypatch.setenv("SHOT_BRIEF_ANCHOR", "1")
+    blocks = [{"text": "Калди попробовал ягоды сам.", "section": "BLOCK 1",
+              "shot_brief": None},
+             {"text": "Остались мешки с зелёными зёрнами.",
+              "section": "BLOCK 1", "shot_brief": None}]
+
+    class Stub:
+        name = "stub"
+
+        def ask(self, prompt, chapter_no):
+            return ("MOOD | 0 | 1 | ровно\n"
+                    "1 | object | [anchor: зёрна] a rustic sack of dried "
+                    "green coffee beans\n"
+                    "2 | object | [anchor: зёрна] a rustic sack of dried "
+                    "green coffee beans\n")
+
+    d.STATS.update({k: 0 for k in d.STATS})
+    del d.REJECTED[:]
+    out = d.run("/tmp", blocks, Stub(), cache_dir=None, verbose=False)
+    assert 0 not in out, "якорь «зёрна» принадлежит юниту 2, а не юниту 1"
+    assert 1 in out, "у юнита 2 якорь совпадает со своей же фразой"
+    assert d.STATS["anchor_rejected"] == 1
+
+
+def test_run_keeps_row_without_anchor_when_flag_off(monkeypatch):
+    """Флаг явно выключен — заявка без якоря или с любым якорем проходит
+    как раньше, байт-в-байт. (Дефолт реестра — `1`, измерено 18.09; здесь
+    проверяется именно путь ВЫКЛЮЧЕНО, не дефолт.)"""
+    import shot_brief_director as d
+    monkeypatch.setenv("SHOT_BRIEF_ANCHOR", "0")
+    blocks = [{"text": "Калди попробовал ягоды сам.", "section": "BLOCK 1",
+              "shot_brief": None}]
+
+    class Stub:
+        name = "stub"
+
+        def ask(self, prompt, chapter_no):
+            return ("MOOD | 0 | 1 | ровно\n"
+                    "1 | object | [anchor: зёрна] a rustic sack of dried "
+                    "green coffee beans\n")
+
+    d.STATS.update({k: 0 for k in d.STATS})
+    del d.REJECTED[:]
+    out = d.run("/tmp", blocks, Stub(), cache_dir=None, verbose=False)
+    assert 0 in out
+    assert d.STATS["anchor_rejected"] == 0
+
+
+def test_anchor_instruction_absent_when_explicitly_disabled(monkeypatch):
+    monkeypatch.setenv("SHOT_BRIEF_ANCHOR", "0")
+    import shot_brief_director as d
+    prompt = d.render_prompt(_packet(["а", "б"]))
+    assert "[anchor:" not in prompt
+
+
+def test_anchor_instruction_present_by_default(monkeypatch):
+    """Дефолт реестра — `1` (измерено 18.09, см. feature_flags.py):
+    инструкция должна появляться, даже когда переменная вообще не
+    задана."""
+    monkeypatch.delenv("SHOT_BRIEF_ANCHOR", raising=False)
+    import shot_brief_director as d
+    prompt = d.render_prompt(_packet(["а", "б"]))
+    assert "[anchor:" in prompt
+
+
+def test_anchor_instruction_appears_when_enabled(monkeypatch):
+    monkeypatch.setenv("SHOT_BRIEF_ANCHOR", "1")
+    import shot_brief_director as d
+    prompt = d.render_prompt(_packet(["а", "б"]))
+    assert "[anchor:" in prompt
