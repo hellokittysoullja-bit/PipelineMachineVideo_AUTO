@@ -257,6 +257,95 @@ def test_cache_key_separates_different_worlds(monkeypatch, frame, tmp_path):
     assert fv.STATS["cache_hits"] == 0
 
 
+# --- РАЗРЕШЁННЫЙ БРИФ АВТОРА В САМОМ ВОПРОСЕ (PROMPT_VERSION 2, 19.09) ----
+#
+# Реальный, живым прогоном найденный случай, не гипотеза: фраза «Он весил
+# меньше, чем ты думаешь — грамм триста» без разрешённого местоимения («он»
+# = кинжал, названный двумя фразами раньше в сценарии) заставила гейт
+# засчитать кандидата «gauntlet держит МЕЧ» вердиктом «да» — тот же самый
+# облачный вызов на том же кадре, ПОЛУЧИВ разрешённый бриф автора
+# (`[shot:scene|a gauntleted hand holding THE DAGGER effortlessly]`),
+# ответил «нет: gauntleted hands holding sword hilt, missing dagger held
+# by the tip». Разрыв был не в модели, а в том, какой вопрос ей задавали:
+# CLIP-поиск и сток уже получают разрешённое автором описание, а зрячий
+# гейт — только голую, местами неоднозначную фразу диктора.
+
+def test_empty_brief_renders_byte_for_byte_prompt(monkeypatch, frame):
+    """Юнит без [shot:] (старый эпизод, режиссёр брифов не гонялся) —
+    промпт ДОЛЖЕН остаться тем же самым текстом, что был до PROMPT_VERSION
+    2: пустой бриф не добавляет ни одного лишнего токена, когда автор
+    ничего не уточнил."""
+    monkeypatch.setenv("FRAME_VERIFIER", "1")
+    monkeypatch.setenv("ANYMODEL_API_KEY", "sk-test")
+    fv.reset_stats()
+    monkeypatch.setattr(fv, "_world_context", lambda video_dir=None: "")
+    seen = {}
+
+    def urlopen(req, timeout=None):
+        seen["body"] = json.loads(req.data.decode())
+        return _fake_response({"choices": [{"message": {"content":
+                               '{"verdict":"yes","seen":"x","missing":""}'}}],
+                               "usage": {"total_tokens": 10}})
+
+    monkeypatch.setattr(fv.urllib.request, "urlopen", urlopen)
+    fv.verify(frame, "коза не могла уснуть")
+    text = seen["body"]["messages"][0]["content"][0]["text"]
+    assert "Уточнение автора сценария" not in text
+    assert "а точнее — то, что названо в уточнении автора" not in text
+    assert "Вопрос ровно один: показывает ли этот кадр то, о чём говорит фраза? " in text
+
+
+def test_shot_brief_reaches_the_prompt_sent_to_the_model(monkeypatch, frame):
+    """Непустой бриф обязан реально дойти до текста, который уходит в
+    модель — иначе это ровно тот класс «слой есть, и его никто не зовёт»,
+    которым этот репозиторий уже горел восемь раз."""
+    monkeypatch.setenv("FRAME_VERIFIER", "1")
+    monkeypatch.setenv("ANYMODEL_API_KEY", "sk-test")
+    fv.reset_stats()
+    monkeypatch.setattr(fv, "_world_context", lambda video_dir=None: "")
+    seen = {}
+
+    def urlopen(req, timeout=None):
+        seen["body"] = json.loads(req.data.decode())
+        return _fake_response({"choices": [{"message": {"content":
+                               '{"verdict":"no","seen":"меч","missing":"кинжал"}'}}],
+                               "usage": {"total_tokens": 10}})
+
+    monkeypatch.setattr(fv.urllib.request, "urlopen", urlopen)
+    brief = "a gauntleted hand holding the dagger effortlessly by the very tip"
+    fv.verify(frame, "Он весил меньше, чем ты думаешь — грамм триста.",
+              shot_brief=brief)
+    text = seen["body"]["messages"][0]["content"][0]["text"]
+    assert brief in text
+    assert "а точнее — то, что названо в уточнении автора" in text
+
+
+def test_cache_key_separates_different_briefs(monkeypatch, frame, tmp_path):
+    """Один кадр, одна фраза, но РАЗНЫЙ бриф — это разные вопросы: вердикт
+    без брифа не должен молча выжить под брифом (и наоборот)."""
+    monkeypatch.setenv("FRAME_VERIFIER", "1")
+    monkeypatch.setenv("ANYMODEL_API_KEY", "sk-test")
+    fv.reset_stats()
+    vd = str(tmp_path)
+    _stub(monkeypatch, '{"verdict":"yes","seen":"меч","missing":""}')
+    fv.verify(frame, "фраза", vd)   # без брифа
+
+    _stub(monkeypatch, '{"verdict":"no","seen":"меч","missing":"кинжал"}')
+    out = fv.verify(frame, "фраза", vd, shot_brief="a dagger held by the tip")
+    assert out["verdict"] == "no"
+    assert fv.STATS["cache_hits"] == 0
+
+
+def test_empty_brief_is_a_no_op_for_the_cache_key(monkeypatch, frame, tmp_path):
+    """shot_brief=None и shot_brief="" — тот же ключ, что и вовсе без
+    параметра (обратная совместимость со старыми вызовами verify())."""
+    vd = str(tmp_path)
+    k1 = fv._cache_key(frame, "фраза", "")
+    k2 = fv._cache_key(frame, "фраза", "", shot_brief=None)
+    k3 = fv._cache_key(frame, "фраза", "", shot_brief="")
+    assert k1 == k2 == k3
+
+
 def test_browser_user_agent_is_sent(monkeypatch, frame):
     """Cloudflare шлюза отдаёт 403 (error code 1010) на UA питоновского urllib
     и пропускает curl — изолировано перекрёстной проверкой 18.09. Без

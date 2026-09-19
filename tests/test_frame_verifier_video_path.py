@@ -75,7 +75,10 @@ class TestWiring:
         src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"), encoding="utf-8").read()
         assert src.count("def pexels_video(") == 1
         block = src[src.index("def pexels_video("):src.index("def quantize_dur_to_frame")]
-        assert "frame_verifier.verify(probe_fv, block_text, VIDEO_FOLDER)" in block
+        assert "frame_verifier.verify(probe_fv, block_text, VIDEO_FOLDER," in block
+        # 19.09: бриф автора уходит в gate тем же вызовом — см.
+        # tests/test_frame_verifier_brief_intent.py про сам эффект.
+        assert "shot_brief=shot_brief" in block
 
     def test_block_text_param_exists(self):
         src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"), encoding="utf-8").read()

@@ -8048,7 +8048,8 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             fv_repicks = 0
             fv_verdict = None
             while frame_verifier.enabled() and winner is not None and block_text:
-                fv_verdict = frame_verifier.verify(cf, block_text, VIDEO_FOLDER)
+                fv_verdict = frame_verifier.verify(cf, block_text, VIDEO_FOLDER,
+                                                    shot_brief=shot_brief)
                 if fv_verdict is None or fv_verdict["verdict"] == "yes":
                     break
                 FRAME_VERIFIER_MISSES.append({
@@ -11608,6 +11609,19 @@ def _selection_stack_signature():
         # цена названа заранее: первый прогон после включения перерендерит
         # кандидатов эпизода, в этом и смысл подписи.
         feature_flags.enabled("FRAME_VERIFIER"),
+        # РЕАЛЬНЫЙ, живым прогоном найденный пробел в подписи ВЫШЕ (19.09):
+        # булев флаг ловит включение/выключение слоя, но не САМ ВОПРОС,
+        # который слой задаёт. Кандидат, принятый зрячим гейтом ПОД СТАРЫЙ
+        # промпт (например, «гauntlet держит меч» на фразе с неразрешённым
+        # местоимением «он», см. PROMPT_VERSION у frame_verifier.py), лежит
+        # в temp_smart/pexels_cache готовым файлом — переписанный ВОПРОС
+        # (добавлен разрешённый бриф автора) на кэш-хите не доходит до
+        # экрана ВООБЩЕ: sharp_repick/frame_verify-цикл внутри pexels_photo()/
+        # pexels_video() на кэш-хите не запускается заново. Тот же класс,
+        # что уже описан парой абзацев выше про VLM-арбитр/Директор — там
+        # хэшировался режим, но не версия конкретного вопроса; тут не было
+        # ни того, ни другого для ВОПРОСА, только для факта включения слоя.
+        frame_verifier.PROMPT_VERSION,
         # Ступень «негодное видео -> фотография» меняет САМ ТИП медиа в слоте,
         # то есть то, что реально увидит зритель. Ключ клипа считается до
         # резолва медиа — без флага здесь на прогретом temp_smart/ в слоте
@@ -13696,7 +13710,8 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                 if probe_fv is None:
                     break
                 try:
-                    fv_verdict = frame_verifier.verify(probe_fv, block_text, VIDEO_FOLDER)
+                    fv_verdict = frame_verifier.verify(probe_fv, block_text, VIDEO_FOLDER,
+                                                        shot_brief=shot_brief)
                 finally:
                     if cleanup_fv and os.path.exists(probe_fv):
                         os.remove(probe_fv)

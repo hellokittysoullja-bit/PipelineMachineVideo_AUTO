@@ -128,6 +128,37 @@ def test_pool_size_constants_are_in_signature():
         )
 
 
+def test_frame_verifier_prompt_version_is_in_signature(monkeypatch):
+    """Булев флаг FRAME_VERIFIER ловит вкл/выкл слоя, но не САМ ВОПРОС,
+    который слой задаёт кадру — а зрячий гейт умеет менять этот вопрос
+    (PROMPT_VERSION, 19.09: разрешённый бриф автора в промпте, реальный
+    живой случай — «gauntlet держит меч» проходил как «да» без брифа и
+    отклонялся с ним). Без версии промпта здесь правка вопроса не
+    доходила бы до экрана на прогретом temp_smart/: кандидат, принятый
+    под старый вопрос, лежит готовым файлом кэша и возвращается сразу,
+    минуя весь цикл sharp_repick/frame_verify внутри pexels_photo()/
+    pexels_video().
+
+    Сравнение ДВУХ подписей при разных PROMPT_VERSION, а не substring-
+    проверка магического числа: у "1" как подстроки repr()-кортежа с
+    десятками других констант шанс совпасть случайно слишком велик —
+    первая версия этого теста проходила даже на коде БЕЗ самой правки."""
+    sys.argv = ["pipeline_smart.py", tempfile.gettempdir()]
+    sys.path.insert(0, SCRIPTS_DIR)
+    import pipeline_smart as ps
+    import frame_verifier
+
+    monkeypatch.setattr(frame_verifier, "PROMPT_VERSION", 1001)
+    sig_a = ps._selection_stack_signature()
+    monkeypatch.setattr(frame_verifier, "PROMPT_VERSION", 1002)
+    sig_b = ps._selection_stack_signature()
+    assert sig_a != sig_b, (
+        "смена frame_verifier.PROMPT_VERSION не меняет _selection_stack_"
+        "signature() — правка вопроса зрячего гейта не дойдёт до экрана "
+        "на прогретом temp_smart/"
+    )
+
+
 def test_clip_cache_key_contains_the_candidate_gate_signature():
     """Подпись отбора обязана входить в ключ КЛИПА, а не только в имя файла
     кандидата.
