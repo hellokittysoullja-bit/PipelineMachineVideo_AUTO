@@ -186,3 +186,57 @@ class TestSnapshotRestoreIncludesFrameVerifier:
         ps._slot_miss_snapshot(5)   # спасение удалось, restore НЕ вызываем
         assert ps.FRAME_VERIFIER_GAVE_UP == []
         assert ps._slot_known_bad_reason(5) is None
+
+
+class TestPhotoPickStaysInSyncAcrossFrameVerifyRepicks:
+    """РЕАЛЬНЫЙ найденный баг (19.09, поймано прямым сравнением байтов
+    файла с его же sidecar на живом прогоне): `pick` в pexels_photo()
+    синхронизировалась с `winner` на КАЖДОЙ итерации цикла резкости
+    (`pick = winner["p"]` внутри `while True`), но цикл зрячего гейта
+    переставляет `winner` и перекачивает `cf` под НОВОГО победителя, ни
+    разу не трогая `pick`. Если гейт хоть раз отклонил кандидата, `pick`
+    замирает на ПЕРВОМ (уже отвергнутом) кандидате, а сам файл на диске
+    (`cf`) и `winner` в памяти — на последнем принятом.
+
+    Всё, что ниже читает `pick` — dedup `used_ids`, `pexels_id`/
+    `candidate_text` в sidecar, кредит источника (`_source_bump`),
+    провенанс/лицензия — после этого называет ДРУГОГО кандидата, чем тот,
+    что реально попал в кадр. Живой пример: meta.json называл кандидата
+    "gauntlets holding a sword" (id 349455, первая попытка), а сам jpg на
+    диске оказался рукописной миниатюрой битвы (openverse, кандидат после
+    третьего переподбора зрячим гейтом)."""
+
+    def test_sidecar_and_dedup_reference_the_final_accepted_candidate(
+            self, tmp_path, monkeypatch):
+        _stub_photo(monkeypatch, tmp_path)
+        # Первые два кандидата (id 1, 2) отклоняются зрячим гейтом, третий
+        # (id 3) принимается — ровно тот сценарий, где `pick` и `winner`
+        # расходятся, если синхронизации нет.
+        calls = {"n": 0}
+
+        def fake_verify(path, text, video_folder, shot_brief=None):
+            calls["n"] += 1
+            if calls["n"] <= 2:
+                return {"verdict": "no", "seen": "не то", "missing": "кинжал"}
+            return {"verdict": "yes", "seen": "кинжал", "missing": ""}
+
+        monkeypatch.setattr(frame_verifier, "enabled", lambda: True)
+        monkeypatch.setattr(frame_verifier, "verify", fake_verify)
+        used_ids = set()
+        out = ps.pexels_photo(
+            "dagger", 3, used_ids=used_ids, used_hashes=[],
+            block_text="Вот кинжал.")
+        assert out is not None
+        assert calls["n"] == 3, "гейт обязан был отклонить дважды и принять на третьей попытке"
+
+        import json
+        meta = json.loads(open(out + ".meta.json").read())
+        # Реальный найденный дефект: без синхронизации здесь стоял бы id
+        # ПЕРВОГО (уже отвергнутого) кандидата, а used_ids не содержал бы
+        # id реально показанного кадра вовсе.
+        assert meta["pexels_id"] == 3, (
+            f"sidecar называет кандидата {meta['pexels_id']!r}, а принят был id=3 — "
+            "pick разошёлся с winner после переподбора зрячим гейтом"
+        )
+        assert 3 in used_ids, "дедуп обязан видеть РЕАЛЬНО показанный кадр"
+        assert 1 not in used_ids, "дедуп не должен помнить отвергнутого кандидата как показанного"
