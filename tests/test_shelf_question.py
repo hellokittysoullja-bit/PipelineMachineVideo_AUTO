@@ -179,14 +179,24 @@ class TestBothCallSitesUseTheResolver:
 
     def test_main_feeds_the_block_phrase_to_both_paths(self):
         """До 19.09 было ровно 2 (только pexels_photo — полка и зрячий гейт
-        там). Теперь 4: зрячий гейт (см. tests/test_frame_verifier_video_
+        там). Стало 4: зрячий гейт (см. tests/test_frame_verifier_video_
         path.py) подключён и к pexels_video(), и main() кормит его тем же
         block_text=b["text"] на обоих вызовах видео-пути — та же дисциплина,
         что и у фото. Полка (`uses_shelf=False` на видео) от этого не
         меняется — см. test_video_path_declares_it_does_not_use_the_shelf
-        выше, это разные вопросы одному и тому же block_text."""
+        выше, это разные вопросы одному и тому же block_text.
+
+        Стало 5 (тем же 19.09, другим заходом): пятое место — вызов
+        pexels_photo() внутри VIDEO_PHOTO_RESCUE (ступень «видео -> фото»,
+        см. CLAUDE.md). Он не передавал block_text вообще, из-за чего
+        зрячий гейт внутри был структурно не способен сработать на
+        спасённом кандидате (`while ... and block_text:` с пустым
+        block_text ложно с первой итерации) — ровно там, где он нужнее
+        всего: слот уже помечен известно плохим. См. tests/test_museum_
+        sources.py::TestVideoPhotoRescue::test_rescue_call_passes_block_
+        text_so_frame_verifier_still_runs."""
         src = self._src()
-        assert src.count('block_text=b["text"]') == 4
+        assert src.count('block_text=b["text"]') == 5
 
 
 class TestShelfIsAskedWithThePhrase:
