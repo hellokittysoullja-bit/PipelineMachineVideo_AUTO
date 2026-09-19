@@ -122,7 +122,7 @@ class TestThisChannelIsUnchanged:
         assert "japanese" in got["cultures_declared"]
         # на своём канале уточнитель обязан работать как раньше
         assert "tank battle field" in got["distorted"]
-        assert got["blocklist"] == 51
+        assert got["blocklist"] == 52  # +1 "oriental", 19.09 (jambiya-кинжал)
         assert got["negative_anchors"] == 8
         assert got["era_anchors"] == 45
 

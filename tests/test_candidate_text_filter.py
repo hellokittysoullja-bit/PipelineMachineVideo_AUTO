@@ -108,6 +108,22 @@ class TestFilterOnRealSample:
                 "url": "https://www.pexels.com/video/knight-on-horseback-with-longsword-1/"}
         assert ps.filter_alt_blocklist([item, good]) == [good]
 
+    def test_oriental_jambiya_dagger_is_filtered_out(self):
+        """Реальный кадр, найденный при живой проверке зрячего гейта (19.09):
+        слот «Но именно он решал исход поединка, когда меч уже бесполезен»
+        (медиевал-тест, кинжал должен решить исход) выиграл Pixabay id
+        1341217 — изогнутый ближневосточный/османский джамбия в латунных
+        ножнах, а не европейский кинжал. relevance 0.31, домен-гвард
+        (калиброван на паре европейский longsword/катана-цзянь) и негативное
+        вето (нет ловушки под эту форму клинка) на нём молчат — прошёл бы
+        все гейты чисто. Единственный сигнал — тег самого Pixabay,
+        буквально "dagger, crooked dagger, knife, oriental, black"."""
+        item = {"id": "pixabay:1341217", "alt": "dagger, crooked dagger, knife, oriental, black",
+                "url": "https://pixabay.com/photos/dagger-crooked-dagger-knife-1341217/"}
+        good = {"id": "pixabay:2", "alt": "medieval dagger steel blade",
+                "url": "https://pixabay.com/photos/medieval-dagger-2/"}
+        assert ps.filter_alt_blocklist([item, good]) == [good]
+
     def test_authentic_candidates_survive(self):
         """Вторая ось: фильтр не имеет права выкашивать нужное."""
         keep = [
