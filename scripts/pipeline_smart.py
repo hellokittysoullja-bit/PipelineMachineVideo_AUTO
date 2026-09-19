@@ -5008,7 +5008,20 @@ def capability_report():
         "нет GEMINI_API_KEY" if arb_mode == "on" else "VLM_ARBITER_MODE=off")
 
     # Музеи: флаг реестра И решение авто-ниши по теме эпизода.
-    museum_offered = SOURCE_STATS.get("museum", {}).get("offered", 0)
+    #
+    # Реальный дефект, найденный живым прогоном 19.09, не чтением: ключа
+    # "museum" в SOURCE_STATS не существует и не существовало никогда —
+    # candidate_source() отдаёт ТРИ отдельных префикса ("met"/"cleveland"/
+    # "chicago", см. CANDIDATE_ID_PREFIXES выше), а не общий "museum".
+    # Значит .get("museum", {}) всегда {} и museum_offered всегда 0 —
+    # отчёт лгал «музеи не дали кандидатов» даже на прогоне, где Мет и
+    # Кливленд реально выиграли слоты (медиевал-тест 19.09: met offered
+    # 102/won 1, cleveland offered 6/won 1, а capability_report писал
+    # offered=0). Суммируем по всем трём префиксам, а не заводим четвёртый
+    # агрегатный ключ в SOURCE_STATS — это была бы вторая копия одних и
+    # тех же чисел, которая рано или поздно разойдётся с первой.
+    museum_offered = sum(SOURCE_STATS.get(name, {}).get("offered", 0)
+                          for name in ("met", "cleveland", "chicago"))
     add("museum_sources", feature_flags.enabled("MUSEUM_SOURCES_ENABLED"), museum_offered > 0,
         "выключены авто-нишей эпизода или не дали кандидатов", {"offered": museum_offered})
 

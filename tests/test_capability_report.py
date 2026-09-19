@@ -75,6 +75,35 @@ def test_shelf_flag_on_without_index_is_degraded(monkeypatch):
     assert row["detail"]["offered"] == 0
 
 
+def test_museum_sources_counts_all_three_museums(monkeypatch):
+    """Найдено живым прогоном 19.09, не чтением: candidate_source() отдаёт
+    ТРИ отдельных префикса ('met'/'cleveland'/'chicago'), общего ключа
+    'museum' в SOURCE_STATS не существует и не существовало никогда.
+    Отчёт лгал «музеи не дали кандидатов» даже когда Мет и Кливленд реально
+    выиграли слоты (медиевал-тест: met offered 102, cleveland offered 6,
+    capability_report при этом писал offered=0)."""
+    monkeypatch.setattr(ps.feature_flags, "enabled",
+                        lambda name: True if name == "MUSEUM_SOURCES_ENABLED" else False)
+    monkeypatch.setitem(ps.SOURCE_STATS, "met", {"offered": 102})
+    monkeypatch.setitem(ps.SOURCE_STATS, "cleveland", {"offered": 6})
+    monkeypatch.setitem(ps.SOURCE_STATS, "chicago", {"offered": 225})
+    row = ps.capability_report()["museum_sources"]
+    assert row["declared"] is True
+    assert row["active"] is True
+    assert row["detail"]["offered"] == 102 + 6 + 225
+
+
+def test_museum_sources_degraded_when_all_three_empty(monkeypatch):
+    monkeypatch.setattr(ps.feature_flags, "enabled",
+                        lambda name: True if name == "MUSEUM_SOURCES_ENABLED" else False)
+    for name in ("met", "cleveland", "chicago"):
+        monkeypatch.delitem(ps.SOURCE_STATS, name, raising=False)
+    row = ps.capability_report()["museum_sources"]
+    assert row["declared"] is True
+    assert row["active"] is False
+    assert row["detail"]["offered"] == 0
+
+
 def test_report_file_written_and_lists_degraded(tmp_path):
     ps._capability_slot("semantic_query_assignment")["sections_fell_back"] = 1
     path = ps.write_capability_report(str(tmp_path))
