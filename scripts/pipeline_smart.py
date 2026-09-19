@@ -5235,7 +5235,13 @@ def _slot_miss_snapshot(index):
     taken = {}
     for name, lst in (("relevance", RELEVANCE_GATE_MISSES),
                       ("stock", STOCK_EXHAUSTED_MISSES),
-                      ("arbiter", ARBITER_REJECTED_ALL)):
+                      ("arbiter", ARBITER_REJECTED_ALL),
+                      # 19.09: тот же класс дефекта, ради которого написана
+                      # вся эта функция — вердикт зрячего гейта на ОТВЕРГНУТОМ
+                      # видео иначе остался бы висеть на слоте после того,
+                      # как видео-фото-спасение (VIDEO_PHOTO_RESCUE ниже)
+                      # заменит его совсем другим кадром.
+                      ("frame_verifier", FRAME_VERIFIER_GAVE_UP)):
         taken[name] = [m for m in lst if m.get("index") == index]
         lst[:] = [m for m in lst if m.get("index") != index]
     return taken
@@ -5245,7 +5251,8 @@ def _slot_miss_restore(snapshot):
     """Вернуть вердикты на место — спасение не состоялось, кадр прежний."""
     for name, lst in (("relevance", RELEVANCE_GATE_MISSES),
                       ("stock", STOCK_EXHAUSTED_MISSES),
-                      ("arbiter", ARBITER_REJECTED_ALL)):
+                      ("arbiter", ARBITER_REJECTED_ALL),
+                      ("frame_verifier", FRAME_VERIFIER_GAVE_UP)):
         lst.extend(snapshot.get(name) or ())
 
 
@@ -5263,6 +5270,19 @@ def _slot_known_bad_reason(index):
     новых проверок не запускает и ничего не пересчитывает. Порядок причин —
     по силе сигнала: отказ арбитра сильнее численного промаха порога.
     """
+    # НАЙДЕНО ЖИВЫМ ПРОГОНОМ 19.09, САМЫЙ СИЛЬНЫЙ СИГНАЛ ИЗ ЧЕТЫРЁХ, И ДО
+    # ЭТОЙ ПРАВКИ ОН БЫЛ НЕ ПОДКЛЮЧЁН ВООБЩЕ. Комментарий у объявления
+    # FRAME_VERIFIER_GAVE_UP годами обещал, что лестница фолбэков получает
+    # это решение — не получала. Ставится ПЕРВЫМ, выше отказа арбитра: это
+    # вердикт модели, реально посмотревшей на ИТОГОВЫЙ показанный кадр (не
+    # на пул кандидатов до выбора, как арбитр) и прямо сказавшей «нет».
+    # Прямая жалоба владельца («стрела скользит по нагруднику» -> кухонные
+    # ножи; «он не поднимается» -> турнирная сшибка) — оба случая система
+    # уже correctly диагностировала (chosen_by содержал frame_verify_repick,
+    # консоль печатала «отклонил всех кандидатов»), просто карточку за это
+    # не включала.
+    if any(m["index"] == index for m in FRAME_VERIFIER_GAVE_UP):
+        return "frame_verifier_gave_up"
     if any(m["index"] == index for m in ARBITER_REJECTED_ALL):
         return "arbiter_rejected_all"
     if any(m["index"] == index for m in STOCK_EXHAUSTED_MISSES):
@@ -5877,6 +5897,32 @@ FRAME_VERIFIER_REPICK_MAX = int(os.environ.get("FRAME_VERIFIER_REPICK_MAX", "3")
 # первый отчёт проекта, который отвечает на вопрос владельца его же словами,
 # а не числом похожести; уезжает в media_plan/frame_verifier_report.json.
 FRAME_VERIFIER_MISSES = []
+
+# РЕАЛЬНЫЙ, найденный живым прогоном 19.09 пробел: комментарий ВЫШЕ уже
+# годами обещал «решение "лучше карточка, чем чужой кадр" принимает
+# лестница фолбэков» — а `_slot_known_bad_reason()` (её и читает лестница)
+# никогда не проверяла FRAME_VERIFIER_MISSES вообще. Прямая жалоба
+# владельца («стрела скользит по нагруднику» -> современные кухонные
+# ножи; «он не поднимается — доспех держит человека» -> турнирная сшибка
+# на конях) разобрана до конца: зрячий гейт КОРРЕКТНО отклонял эти кадры
+# (chosen_by содержал "frame_verify_repick" — исчерпал попытки и честно
+# остался на лучшем из плохих), консоль печатала «отклонил всех
+# кандидатов», отчёт был на диске — а решение «показать карточку вместо
+# этого» никто не принимал, потому что сигнал никуда не был подключён.
+# Тот же класс, что уже закрыт для VLM-арбитра (ARBITER_REJECTED_ALL,
+# см. NO_CANDIDATE_FITS выше) — просто не перенесённый на зрячий гейт,
+# построенный позже.
+#
+# ОТДЕЛЬНЫЙ от FRAME_VERIFIER_MISSES список, а не «любой индекс там же»:
+# MISSES копит КАЖДУЮ отклонённую попытку, включая те, после которых
+# переподбор нашёл нормальный кадр и цикл завершился вердиктом «да» — по
+# одному присутствию в MISSES нельзя понять, чем кончился слот. Здесь —
+# только ФИНАЛЬНЫЙ исход: цикл кончился, а последний известный вердикт
+# всё ещё «нет» (неважно, из-за исчерпанного бюджета переподбора, из-за
+# того, что переподбор не нашёл НОВОГО кандидата, или из-за len(good)<=1
+# на видео-пути — единая проверка «fv_verdict всё ещё no после цикла»
+# покрывает все три пути молчаливого/явного отказа одинаково).
+FRAME_VERIFIER_GAVE_UP = []
 # Версия чередования источников внутри запроса (см. сборку пула в
 # pexels_photo) — для _selection_stack_signature().
 #
@@ -8032,6 +8078,17 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                     download(winner["p"], cf)
                 except Exception:
                     break
+            # Цикл кончился, а последний известный вердикт всё ещё «нет» —
+            # неважно, по какой из трёх причин (бюджет исчерпан и напечатано
+            # выше / переподбор не нашёл НОВОГО кандидата / скачивание
+            # упало) — слот показывает кадр, который зрячий гейт только что
+            # отклонил. См. докстринг FRAME_VERIFIER_GAVE_UP у объявления:
+            # это и есть сигнал, которого не хватало лестнице фолбэков.
+            if fv_verdict is not None and fv_verdict.get("verdict") == "no":
+                FRAME_VERIFIER_GAVE_UP.append({
+                    "index": index, "kind": "photo",
+                    "seen": fv_verdict.get("seen"), "missing": fv_verdict.get("missing"),
+                })
             # ФАЙЛ ОБЯЗАН СУЩЕСТВОВАТЬ. Реальный дефект, найденный замером
             # (14.09, прогон разметки эпизода 02): при провале скачивания
             # ПОЛНОРАЗМЕРНОГО файла победителя (Wikimedia отвечает 429 на
@@ -13659,6 +13716,15 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                 fv_repicks += 1
                 good.remove(best)
                 best = good[0]
+
+            # Тот же сигнал, что у фото-пути — см. докстринг FRAME_VERIFIER_
+            # GAVE_UP у её объявления: цикл кончился, последний известный
+            # вердикт всё ещё «нет».
+            if fv_verdict is not None and fv_verdict.get("verdict") == "no":
+                FRAME_VERIFIER_GAVE_UP.append({
+                    "index": index, "kind": "video",
+                    "seen": fv_verdict.get("seen"), "missing": fv_verdict.get("missing"),
+                })
 
             for g in good:
                 if g is best:

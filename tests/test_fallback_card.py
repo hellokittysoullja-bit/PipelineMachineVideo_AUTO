@@ -223,6 +223,7 @@ class TestDensityBudget:
         _ps.ARBITER_REJECTED_ALL.clear()
         _ps.STOCK_EXHAUSTED_MISSES.clear()
         _ps.RELEVANCE_GATE_MISSES.clear()
+        _ps.FRAME_VERIFIER_GAVE_UP.clear()
         try:
             assert _ps._slot_known_bad_reason(4) is None
             _ps.RELEVANCE_GATE_MISSES.append({"index": 4})
@@ -230,10 +231,16 @@ class TestDensityBudget:
             _ps.ARBITER_REJECTED_ALL.append({"index": 4})
             # Отказ арбитра сильнее численного промаха порога.
             assert _ps._slot_known_bad_reason(4) == "arbiter_rejected_all"
+            # НАЙДЕНО 19.09: зрячий гейт, реально посмотревший на ИТОГОВЫЙ
+            # показанный кадр, — самый сильный сигнал из четырёх, сильнее
+            # даже отказа арбитра (тот отвечает про пул ДО выбора).
+            _ps.FRAME_VERIFIER_GAVE_UP.append({"index": 4})
+            assert _ps._slot_known_bad_reason(4) == "frame_verifier_gave_up"
         finally:
             _ps.ARBITER_REJECTED_ALL.clear()
             _ps.STOCK_EXHAUSTED_MISSES.clear()
             _ps.RELEVANCE_GATE_MISSES.clear()
+            _ps.FRAME_VERIFIER_GAVE_UP.clear()
 
     def test_never_on_the_opening_shot(self, _ps):
         """Самый первый кадр ролика — единственное место, где карточка хуже
