@@ -509,6 +509,21 @@ class TestVideoPhotoRescue:
         assert "block_text=b[\"text\"]" in block
         assert "shot_brief=b.get(\"shot_brief\")" in block
 
+    def test_snapshot_is_actually_bound_before_use(self):
+        """РЕАЛЬНЫЙ КРАШ, найденный чистым живым прогоном (19.09, сразу
+        после фикса block_text/shot_brief выше): `snapshot` использовалась
+        строкой ниже (reason = ...snapshot.items()..., _slot_miss_restore
+        (snapshot)) без единого присваивания `snapshot = _slot_miss_
+        snapshot(i)` где-либо выше — NameError на первом же слоте, где
+        VIDEO_PHOTO_RESCUE реально срабатывает. Седьмой случай класса
+        «слой написан и задокументирован, но не вызван» — и первый, что
+        не молчит fail-open, а рушит весь рендер."""
+        src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"),
+                   encoding="utf-8").read()
+        start = src.index("if (video and not photo and not locked_shot")
+        block = src[start:src.index("if rescue:", start)]
+        assert "snapshot = _slot_miss_snapshot(i)" in block
+
 
 class TestPexelsOutageDoesNotKillOtherSources:
     """Реальный катастрофический баг, найденный вживую 11.09 (эпизод 02):
