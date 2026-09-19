@@ -35,10 +35,17 @@ def test_brief_of_pure_framing_words_falls_back():
 def test_era_anchor_survives_the_word_cap():
     """Реальный найденный промах: единственный якорь эпохи стоял шестым
     словом и обрезался, оставляя запрос без эпохи вообще. Одиночное
-    `plate armour` первым результатом даёт танк — см. каскад."""
+    `plate armour` первым результатом даёт танк — см. каскад.
+
+    Сравнение — через query_mentions_term (составные слова/множественное
+    число/британское-американское написание), не точным `w in era`: сам
+    брифа несёт "armoured" (форма якоря "armour"), и правильный, ФАКТИЧЕСКИ
+    авторский якорь обязан пережить обрезку — а не абстрактное слово из
+    fallback, найденное только потому, что старая проверка не узнавала
+    словоформу."""
     q = _q("a manuscript illumination of a battle between armoured knights")
-    era = {a.lower() for a in ps.OPENVERSE_ERA_ANCHORS}
-    assert any(w in era for w in q.split()), q
+    era_terms = [a.lower() for a in ps.OPENVERSE_ERA_ANCHORS]
+    assert any(ps.query_mentions_term(w, term) for w in q.split() for term in era_terms), q
 
 
 def test_author_word_order_is_preserved():
@@ -242,3 +249,56 @@ def test_video_cache_key_moves_with_the_brief(tmp_path, monkeypatch):
         ps.pexels_video("medieval battle", 7, used_ids=set(), used_hashes=[],
                         shot_brief=brief)
     assert len(set(paths)) == len(paths) >= 2, paths
+
+
+def test_wrong_word_is_not_injected_when_the_real_anchor_is_just_a_variant(monkeypatch):
+    """РЕАЛЬНЫЙ найденный баг (19.09, живая жалоба на готовом рендере):
+    «Конница мчится через поле прямо на пехоту» получала запрос к стоку
+    `dagger armored knights warhorses galloping» — кинжал в начале запроса
+    сцены, где о нём ни слова.
+
+    Причина — `w in era` сравнивал ТОКЕН БРИФА со словом якоря БУКВА В
+    БУКВУ: «knights» (множественное число) не равно «knight», «armored»
+    (американское написание автора) не равно «armour» (якорь канала).
+    Хотя нужное слово физически стояло в брифе, код решал, что якоря нет
+    вообще, и подставлял ПЕРВОЕ слово списка якорей («dagger») — только
+    потому, что оно первое, а не потому, что относится к сцене.
+
+    Якоря монкипатчены на РЕАЛЬНЫЙ список эпизода, где баг найден —
+    `content_world.json` этого конкретного эпизода объявлял только
+    единственную (не множественную) и только одну (не обе) форму
+    написания, ровно как содержательно и пишет модель, заполняющая
+    авто-нишу. Продовый `channel_profile.json` этого репозитория к тому
+    моменту уже перечислял "knight"/"knights"/"armor"/"armour" отдельными
+    строками — обходной путь, замаскировавший бы регрессию именно для
+    этого канала, но не для нового эпизода с чистым авто-профилем."""
+    monkeypatch.setattr(ps, "OPENVERSE_ERA_ANCHORS",
+                         ("dagger", "sword", "armour", "knight", "cavalry",
+                          "battlefield"))
+    q = ps.brief_to_stock_query(
+        "armored knights on warhorses galloping across a muddy field "
+        "towards pikemen",
+        fallback="medieval cavalry charge field",
+    )
+    assert "dagger" not in q.split(), q
+    assert "knights" in q.split(), q
+
+    q2 = ps.brief_to_stock_query(
+        "a steel gauntlet stuck in mud, unable to lift heavy armor",
+        fallback="medieval breastplate arrow",
+    )
+    assert "dagger" not in q2.split(), q2
+    # Якорь физически ЕСТЬ в брифе (armor), просто дальше окна усечения —
+    # честнее поднять его словоформу, чем вставить чужое слово.
+    assert "armor" in q2.split(), q2
+
+
+def test_era_anchor_lookup_is_bidirectional_on_spelling():
+    """`QUERY_TERM_SPELLINGS` ключуется американским написанием
+    ("armor" -> ("armor", "armour")); спросить его британским ("armour",
+    ровно то написание, которым этот канал объявляет якорь эпохи) `.get()`
+    раньше находил только `("armour",)` и не видел «armor» в брифе автора.
+    `_spelling_forms()` обязана отвечать одинаково с любой стороны."""
+    assert ps._spelling_forms("armour") == ps._spelling_forms("armor")
+    assert ps.query_mentions_term("a suit of plate armor", "armour")
+    assert ps.query_mentions_term("a suit of plate armour", "armor")

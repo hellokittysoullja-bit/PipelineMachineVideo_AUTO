@@ -5732,9 +5732,27 @@ QUERY_TERM_TRAPS = ("password", "crossword", "shakespeare")
 QUERY_TERM_SUFFIXES = "(?:s|es|ed|y)?(?:man|men|field)?"
 
 
+def _spelling_forms(term):
+    """Формы термина по QUERY_TERM_SPELLINGS — с ЛЮБОЙ стороны словаря.
+
+    Реальный найденный баг (19.09): словарь ключуется американским
+    написанием ("armor" -> ("armor", "armour")), а спросить его британским
+    ("armour", ровно то написание, которым этот канал объявляет якорь
+    эпохи в channel_profile.json) `.get()` не находил ничего и отдавал
+    ("armour",) — то есть проверка "есть ли armour" не видела "armor" в
+    брифе автора. Симметрия нужна независимо от того, с какой стороны
+    спрашивают."""
+    if term in QUERY_TERM_SPELLINGS:
+        return QUERY_TERM_SPELLINGS[term]
+    for forms in QUERY_TERM_SPELLINGS.values():
+        if term in forms:
+            return forms
+    return (term,)
+
+
 @functools.lru_cache(maxsize=64)
 def _query_term_regex(term):
-    forms = QUERY_TERM_SPELLINGS.get(term, (term,))
+    forms = _spelling_forms(term)
     alt = "|".join(re.escape(f) for f in forms)
     # \w*? — составное слово (longsword, greatsword); ленивый квантификатор,
     # чтобы совпадение начиналось как можно правее и ловушка читалась целиком.
@@ -6650,7 +6668,7 @@ _BRIEF_STOP_WORDS = (
 # Маркер версии для _selection_stack_signature(): извлечение меняет СОСТАВ
 # пула (в него приходит запрос, которого раньше не существовало), а не
 # только порядок внутри него.
-BRIEF_STOCK_QUERY_VERSION = 2   # 2: порядковое числительное века переживает обрезку (18.09)
+BRIEF_STOCK_QUERY_VERSION = 3   # 3: якорь ищется через query_mentions_term, не точным сравнением (19.09)
 BRIEF_STOCK_QUERY_MAX_WORDS = 5
 
 
@@ -6713,15 +6731,43 @@ def brief_to_stock_query(brief, fallback=None, max_words=BRIEF_STOCK_QUERY_MAX_W
     # бриф написан. Правило каскада «брать ПОСЛЕДНЕЕ существительное» тут
     # неприменимо: оно решало другую задачу — сжать готовый запрос до двух
     # слов, а не сохранить смысл описания.
-    era = {a.lower() for a in OPENVERSE_ERA_ANCHORS}
+    era_terms = [a.lower() for a in OPENVERSE_ERA_ANCHORS]
     cap = max(OPENVERSE_QUERY_MIN_WORDS, int(max_words))
+
+    def _first_era_word(words):
+        """Первое слово списка, несущее якорь эпохи — ЧЕРЕЗ query_mentions_term
+        (составные слова/множественное число/британское-американское
+        написание), а не точным сравнением строк."""
+        for w in words:
+            if any(query_mentions_term(w, term) for term in era_terms):
+                return w
+        return None
+
     # Якорь эпохи обязан ВЫЖИТЬ обрезку, а не просто присутствовать в брифе:
     # реальный найденный промах — «manuscript illumination of a battle
     # between armoured knights», где единственный якорь `knights` стоял
     # шестым словом и обрезался, оставляя запрос без эпохи вообще.
-    if not any(w in era for w in content[: cap - 1]):
-        anchor = next((w for w in re.findall(r"[a-z]+", (fallback or "").lower())
-                       if w in era), None)
+    #
+    # РЕАЛЬНЫЙ НАЙДЕННЫЙ БАГ (19.09, живой прогон): проверка была "w in era"
+    # — точное сравнение токена брифа со словом якоря. «Конница мчится через
+    # поле прямо на пехоту» получала бриф «armored knights on warhorses
+    # galloping…», и «knights» (множественное число) никогда не равнялось
+    # «knight» (якорь канала), «armored» (американское написание брифа)
+    # никогда не равнялось «armour» (британское написание якоря) — хотя
+    # оба слова СТОЯЛИ в брифе буква в букву близко к нужному смыслу. Код
+    # решал, что якоря нет вообще, и подставлял ПЕРВЫЙ якорь СПИСКА
+    # («dagger» — только потому, что он первый, а не потому, что относится
+    # к сцене) в запрос про конницу, где о кинжале ни слова: итоговый запрос
+    # к стоку — `dagger armored knights warhorses galloping`, кинжал в
+    # начале запроса засорял поиск сцены, где его вообще нет.
+    if not _first_era_word(content[: cap - 1]):
+        # Якорь может физически ЕСТЬ в брифе, просто дальше окна усечения
+        # (реальный случай: «armor» восьмым словом в брифе про застрявшую в
+        # грязи латную перчатку). Тогда честнее ПОДНЯТЬ словоформу автора
+        # («armor»), а не вставлять чужое слово с другим смыслом.
+        anchor = _first_era_word(content)
+        if anchor is None:
+            anchor = _first_era_word(re.findall(r"[a-z]+", (fallback or "").lower()))
         if anchor is None and OPENVERSE_ERA_ANCHORS:
             anchor = OPENVERSE_ERA_ANCHORS[0].lower()
         if anchor:
