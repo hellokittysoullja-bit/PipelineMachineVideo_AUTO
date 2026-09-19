@@ -490,6 +490,25 @@ class TestVideoPhotoRescue:
                    encoding="utf-8").read()
         assert src.index("VIDEO_PHOTO_RESCUE") < src.index("build_slot_fallback_card(i, b[\"text\"], bad_reason)")
 
+    def test_rescue_call_passes_block_text_so_frame_verifier_still_runs(self):
+        """РЕАЛЬНЫЙ, живым прогоном найденный дефект (19.09, шестой случай
+        класса «работает на основном пути, забыто на запасном»): вызов
+        pexels_photo() внутри VIDEO_PHOTO_RESCUE не передавал block_text —
+        а цикл зрячего гейта внутри pexels_photo() стоит на `while ... and
+        block_text:`, пустой block_text делает условие ложным с первой
+        итерации. Спасённый кандидат проходил БЕЗ единой проверки гейтом,
+        который как раз и отклонил видео, ради которого спасение
+        запускалось. Живой пример: слот «Но именно он решал исход
+        поединка» отклонил видео 855260 (толпа современных зрителей)
+        правильно, ушёл на спасение — и спасённым кандидатом стало фото
+        сломанного мотоцикла в грязи, мимо любого гейта."""
+        src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"),
+                   encoding="utf-8").read()
+        start = src.index("if (video and not photo and not locked_shot")
+        block = src[start:src.index("if rescue:", start)]
+        assert "block_text=b[\"text\"]" in block
+        assert "shot_brief=b.get(\"shot_brief\")" in block
+
 
 class TestPexelsOutageDoesNotKillOtherSources:
     """Реальный катастрофический баг, найденный вживую 11.09 (эпизод 02):

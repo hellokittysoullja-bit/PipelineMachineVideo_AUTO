@@ -16181,7 +16181,25 @@ def main():
                 and _slot_known_bad_reason(i)):
             # Вердикты отвергнутого видео снимаем ДО попытки: что запишет
             # фото-путь, то и станет правдой о слоте. Не вышло — возвращаем.
-            snapshot = _slot_miss_snapshot(i)
+            #
+            # РЕАЛЬНЫЙ, живым прогоном найденный дефект (19.09, шестой по
+            # счёту случай класса «работает на основном пути, забыто на
+            # запасном» — filter_alt_blocklist 07.09, director_score_fn
+            # 08.09, бриф стокам 15.09, video_negative_anchor_violation
+            # 08.09, frame_verifier на видео-пути 19.09): этот вызов НЕ
+            # передавал ни shot_brief, ни block_text. Для frame_verifier
+            # это не «чуть хуже» — это ПОЛНОЕ ОТКЛЮЧЕНИЕ гейта: цикл внутри
+            # pexels_photo() стоит на `while ... and block_text:`, и пустой
+            # block_text делает условие ложным с первой итерации, гейт не
+            # вызывается вообще. Живой пример: слот «Но именно он решал
+            # исход поединка» отклонил видео 855260 (толпа современных
+            # зрителей) правильно, ушёл на это спасение — и спасённым
+            # кандидатом стал pexels:14000755, «фото сломанного мотоцикла
+            # в грязи», мимо любого гейта, потому что спасение единственное
+            # место всего файла, где frame_verifier в принципе не мог
+            # сработать. Тот же провал, что уже был у отсутствия proверки
+            # на видео-пути целиком (см. запись 19.09 выше) — только на
+            # соседнем, менее очевидном вызове той же функции.
             rescue = pexels_photo(queries[i], i, used_ids=used_photo_ids,
                                   used_hashes=used_photo_hashes,
                                   recent_sizes=recent_shot_sizes, target_luma=luma_ema,
@@ -16190,7 +16208,9 @@ def main():
                                   director_report=director_entry,
                                   extra_queries=section_query_pool.get(b["section"]),
                                   text_key=sem_text, arbiter_text=hook_arbiter_text,
-                                  is_opening_shot=is_opening_shot)
+                                  is_opening_shot=is_opening_shot,
+                                  shot_brief=b.get("shot_brief"), block_text=b["text"],
+                                  shot_type_hint=b.get("shot_type_hint"))
             if rescue:
                 reason = ", ".join(sorted(k for k, v in snapshot.items() if v))
                 print(f"    [{i+1}] негодное видео заменено фотографией ({reason})")
