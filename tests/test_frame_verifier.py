@@ -346,6 +346,68 @@ def test_empty_brief_is_a_no_op_for_the_cache_key(monkeypatch, frame, tmp_path):
     assert k1 == k2 == k3
 
 
+# --- БРИФ КАК ЧЕК-ЛИСТ ВСЕХ ДЕТАЛЕЙ, А НЕ ПРЕДМЕТА (PROMPT_VERSION 3, ---
+# --- 19.09, живая жалоба владельца «система стала тупее») -----------------
+#
+# Прямая жалоба: после версии 2 гейт стал отклонять РЕАЛЬНЫЕ, годные
+# кандидаты, найденные по авторскому брифу, потому что требовал совпадения
+# ВСЕХ деталей брифа (фон, материал, поза), а не только предмета/действия.
+# Живой контрольный вызов на настоящем музейном кинжале (met:32684, белый
+# фон, докстринг PROMPT_VERSION): версия 2 — «no, missing: dark wood
+# background»; версия 3 — «yes» на том же кадре, том же вопросе, только
+# со вторым предложением INTENT_CLAUSE. Мокнутые тесты ниже проверяют, что
+# текст промпта реально несёт формулировку, снимающую второстепенные
+# детали с обязательной проверки — живой перелом ответа модели уже
+# подтверждён вручную и задокументирован в CLAUDE.md.
+
+def test_intent_clause_names_incidental_details_as_optional(monkeypatch, frame):
+    """Непустой бриф обязан нести формулировку «обязателен только предмет
+    или действие» — без неё модель молча возвращается к вычитыванию брифа
+    как списка всех деталей (реальный найденный регресс версии 2)."""
+    monkeypatch.setenv("FRAME_VERIFIER", "1")
+    monkeypatch.setenv("ANYMODEL_API_KEY", "sk-test")
+    fv.reset_stats()
+    monkeypatch.setattr(fv, "_world_context", lambda video_dir=None: "")
+    seen = {}
+
+    def urlopen(req, timeout=None):
+        seen["body"] = json.loads(req.data.decode())
+        return _fake_response({"choices": [{"message": {"content":
+                               '{"verdict":"yes","seen":"x","missing":""}'}}],
+                               "usage": {"total_tokens": 10}})
+
+    monkeypatch.setattr(fv.urllib.request, "urlopen", urlopen)
+    brief = "a medieval rondel dagger with circular guard resting on dark wood"
+    fv.verify(frame, "Вот кинжал.", shot_brief=brief)
+    text = seen["body"]["messages"][0]["content"][0]["text"]
+    assert brief in text
+    assert "Обязателен для вердикта только ПРЕДМЕТ ИЛИ ДЕЙСТВИЕ" in text
+    assert "не повод для «нет»" in text
+
+
+def test_empty_brief_still_renders_byte_for_byte_prompt_v3(monkeypatch, frame):
+    """Юнит без [shot:] — промпт остаётся байт-в-байт прежним и с версией 3:
+    второе предложение INTENT_CLAUSE условно на непустом брифе, как и
+    первое, и не добавляет ни одного лишнего токена без него."""
+    monkeypatch.setenv("FRAME_VERIFIER", "1")
+    monkeypatch.setenv("ANYMODEL_API_KEY", "sk-test")
+    fv.reset_stats()
+    monkeypatch.setattr(fv, "_world_context", lambda video_dir=None: "")
+    seen = {}
+
+    def urlopen(req, timeout=None):
+        seen["body"] = json.loads(req.data.decode())
+        return _fake_response({"choices": [{"message": {"content":
+                               '{"verdict":"yes","seen":"x","missing":""}'}}],
+                               "usage": {"total_tokens": 10}})
+
+    monkeypatch.setattr(fv.urllib.request, "urlopen", urlopen)
+    fv.verify(frame, "коза не могла уснуть")
+    text = seen["body"]["messages"][0]["content"][0]["text"]
+    assert "Уточнение автора сценария" not in text
+    assert "Обязателен для вердикта только" not in text
+
+
 def test_browser_user_agent_is_sent(monkeypatch, frame):
     """Cloudflare шлюза отдаёт 403 (error code 1010) на UA питоновского urllib
     и пропускает curl — изолировано перекрёстной проверкой 18.09. Без
