@@ -2521,6 +2521,10 @@ def test_estimate_busyness_memoized_across_calls(tmp_path, monkeypatch):
                                    # настоящее время 3-го лица ("мчится"/
                                    # "мчимся"/"мчитесь") — самую частую форму
                                    # для описания кавалерийской атаки.
+    "Клинок влетает в узкую щель между пластинами доспеха",
+    # найдено 19.09 живым тестом (прямая жалоба владельца): фраза про
+    # движение клинка в момент удара получала статичное ФОТО — ровно тот
+    # класс момента, ради которого весь этот словарь заведён.
 ])
 def test_has_action_word_catches_inflected_action_verbs(text):
     assert pipeline_smart.has_action_word(text) is True, (
@@ -2643,6 +2647,14 @@ def test_action_qualifier_running_covers_present_tense_charge():
     # "running" — форма настоящего времени 3-го лица отсутствовала в основе.
     assert pipeline_smart.action_video_qualifier(
         "Конница мчится через поле") == "running"
+
+
+def test_action_qualifier_covers_blade_darting_into_gap():
+    # Живая жалоба владельца 19.09: "Клинок влетает в узкую щель между
+    # пластинами доспеха" получало статичное фото, хотя фраза буквально
+    # описывает движение клинка в момент удара.
+    assert pipeline_smart.action_video_qualifier(
+        "Клинок влетает в узкую щель между пластинами доспеха") == "thrusting"
 
 
 def test_action_qualifier_checks_motion_table_too():

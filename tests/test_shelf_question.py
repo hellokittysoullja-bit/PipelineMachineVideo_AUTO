@@ -177,9 +177,16 @@ class TestBothCallSitesUseTheResolver:
         src = self._src()
         assert "candidate_brief_keys(shot_brief, uses_shelf=False)" in src
 
-    def test_main_feeds_the_block_phrase_to_photo_only(self):
+    def test_main_feeds_the_block_phrase_to_both_paths(self):
+        """До 19.09 было ровно 2 (только pexels_photo — полка и зрячий гейт
+        там). Теперь 4: зрячий гейт (см. tests/test_frame_verifier_video_
+        path.py) подключён и к pexels_video(), и main() кормит его тем же
+        block_text=b["text"] на обоих вызовах видео-пути — та же дисциплина,
+        что и у фото. Полка (`uses_shelf=False` на видео) от этого не
+        меняется — см. test_video_path_declares_it_does_not_use_the_shelf
+        выше, это разные вопросы одному и тому же block_text."""
         src = self._src()
-        assert src.count('block_text=b["text"]') == 2
+        assert src.count('block_text=b["text"]') == 4
 
 
 class TestShelfIsAskedWithThePhrase:

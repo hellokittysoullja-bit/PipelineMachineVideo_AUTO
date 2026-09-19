@@ -3601,6 +3601,14 @@ ACTION_STEMS = (
     "драл", "драк", "дерут", "дерёт", "режет", "резал", "резать",
     "пада", "упал", "рычит", "рычал", "отбива", "отбил", "парир",
     "швыр", "метнул", "метание", "бой",
+    # "влет" — найдено живым прогоном 19.09 (жалоба владельца): «Клинок
+    # влетает в узкую щель между пластинами доспеха» получало ФОТО,
+    # хотя фраза описывает движение клинка в момент удара — ровно тот
+    # класс момента, ради которого весь этот словарь заведён. Коллизий
+    # нет (проверено по всему корпусу script.txt репозитория): "влет"
+    # как ПРЕФИКС слова совпадает только с "влетает"/"влетел"/"влетала",
+    # не с "полёт"/"самолёт"/"вылет"/"налетел" (разные приставки).
+    "влет",
 )
 # Омонимы, которые основа выше всё-таки цепляет — проверяются ПЕРВЫМИ.
 # Каждое слово здесь либо реально встретилось в тексте канала, либо
@@ -3727,7 +3735,7 @@ ACTION_VIDEO_QUALIFIERS = (
     (("занос", "занёс", "занес", "замахн", "замахив", "размах", "взмах",
       "махал", "махнул"), "wielding"),
     (("рубил", "рубит", "рубят", "рубить", "рубк", "сеча", "сечи", "сечь"), "slashing"),
-    (("колол", "колющ", "укол", "вонз"), "thrusting"),
+    (("колол", "колющ", "укол", "вонз", "влет"), "thrusting"),
     (("фехт", "поедин", "дуэл"), "fencing duel"),
     (("битв", "сражен", "сража", "схватк", "рукопашн", "драл", "драк", "бой",
       "резн"), "fighting"),
@@ -13097,7 +13105,8 @@ def _pexels_search_videos(api_query):
 
 def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier=None,
                   extra_queries=None, sentence_score_fn=None, text_key=None, arbiter_text=None,
-                  is_opening_shot=False, recent_sizes=None, slot_dur=None, shot_brief=None):
+                  is_opening_shot=False, recent_sizes=None, slot_dur=None, shot_brief=None,
+                  block_text=None):
     """Раньше брала ПЕРВОЕ ещё не показанное видео из выдачи без единой
     проверки релевантности/риска (реальный, ранее не закрытый структурный
     пробел, найденный внешним аудитом + прямой проверкой на реальном
@@ -13602,6 +13611,55 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                                 os.remove(p)
                             except OSError:
                                 pass
+
+            # ЗРЯЧИЙ ГЕЙТ КАДРА — тот же принцип и то же место в порядке
+            # проверок, что у pexels_photo() (после relevance/резкости/VLM-
+            # арбитра, на уже определённом победителе). РЕАЛЬНЫЙ, найденный
+            # живым прогоном 19.09 случай (не гипотеза): gate стоял ТОЛЬКО
+            # внутри pexels_photo() — единственный вызов frame_verifier.verify()
+            # во всём файле, — а видео-путь его не звал НИ РАЗУ. Тот же класс
+            # асимметрии «работает на фото и забыто на видео», что уже
+            # четырежды стоил этому репозиторию половины эпизода
+            # (filter_alt_blocklist 07.09, director_score_fn 08.09, бриф
+            # стокам 15.09, negative_anchor_violation 08.09). Живой эффект:
+            # медиевал-тест, слот «Конница мчится через поле прямо на
+            # пехоту» — победило видео современного реконструкторского
+            # фестиваля с толпой зрителей в кадре (мир канала это прямо
+            # запрещает), хотя на фото-пути точно такой кадр отклонил бы
+            # именно этот гейт.
+            #
+            # good уже отсортирован (лучший первый) и все элементы прошли
+            # relevance/домен/вето/резкость — поэтому вместо демоции по
+            # словарю (как у фото, там winner — dict) просто идём по уже
+            # готовому порядку good.remove(best); best = good[0].
+            fv_repicks = 0
+            fv_verdict = None
+            while frame_verifier.enabled() and best is not None and block_text:
+                probe_fv, cleanup_fv = video_probe_in_window(best[2], slot_dur)
+                if probe_fv is None:
+                    break
+                try:
+                    fv_verdict = frame_verifier.verify(probe_fv, block_text, VIDEO_FOLDER)
+                finally:
+                    if cleanup_fv and os.path.exists(probe_fv):
+                        os.remove(probe_fv)
+                if fv_verdict is None or fv_verdict["verdict"] == "yes":
+                    break
+                FRAME_VERIFIER_MISSES.append({
+                    "index": index, "kind": "video", "query": query,
+                    "text": block_text[:160], "seen": fv_verdict.get("seen"),
+                    "missing": fv_verdict.get("missing"),
+                    "candidate": str(best[3]),
+                })
+                if fv_repicks >= FRAME_VERIFIER_REPICK_MAX or len(good) <= 1:
+                    print(f"  слот {index}: зрячий гейт отклонил всех видео-кандидатов "
+                          f"({fv_repicks + 1}) — остаюсь на лучшем, "
+                          f"видно «{fv_verdict.get('seen')}», нет «{fv_verdict.get('missing')}»")
+                    break
+                fv_repicks += 1
+                good.remove(best)
+                best = good[0]
+
             for g in good:
                 if g is best:
                     continue
@@ -15977,7 +16035,7 @@ def main():
                                      sentence_score_fn=video_sentence_fn, text_key=sem_text,
                                      arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot,
                                      recent_sizes=recent_shot_sizes, slot_dur=d,
-                                     shot_brief=b.get("shot_brief"))
+                                     shot_brief=b.get("shot_brief"), block_text=b["text"])
                 if not video:
                     photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
                                       recent_sizes=recent_shot_sizes, target_luma=luma_ema,
@@ -16003,7 +16061,7 @@ def main():
                                          sentence_score_fn=video_sentence_fn, text_key=sem_text,
                                          arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot,
                                          recent_sizes=recent_shot_sizes, slot_dur=d,
-                                         shot_brief=b.get("shot_brief"))
+                                         shot_brief=b.get("shot_brief"), block_text=b["text"])
             # Раньше Pexels отключался навсегда после ЛЮБОГО промаха, включая
             # обычную пустую выдачу по одному неудачному запросу. Гасим источник
             # только если API реально отвалился.
