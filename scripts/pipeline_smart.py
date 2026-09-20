@@ -11888,6 +11888,13 @@ def _selection_stack_signature():
         # запросов эпизода 02), то есть меняет САМ СОСТАВ пула, а не только
         # ранжирование внутри него.
         OPENVERSE_QUERY_CASCADE_VERSION,
+        # VIDEO_QUERY_CASCADE — ДРУГОЙ случай, чем SHOT_DIRECTOR_MODE выше:
+        # тот меняет ПЕРЕДАННЫЙ параметр query/extra_queries (qhash уже
+        # видит разницу без подписи), этот вычисляет доп. вариант ВНУТРИ
+        # pexels_video() из уже полученного query — qkey/qhash об этом
+        # знать не может. Без явного элемента здесь переключение флага на
+        # прогретом temp_smart/pexels_video_cache/ не дошло бы до экрана.
+        feature_flags.enabled("VIDEO_QUERY_CASCADE"),
         # Прямые API музеев — НОВЫЙ источник кандидатов с известной эпохой,
         # меняет состав пула так же, как включение Openverse.
         feature_flags.enabled("MUSEUM_SOURCES_ENABLED"),
@@ -13612,6 +13619,27 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
         # — не мог возникнуть здесь при следующем расширении ключа.
         if _brief_q and _brief_q not in pool_queries:
             pool_queries = [_brief_q] + pool_queries
+        # Живой разбор слота "armored knights warhorses galloping across
+        # pikemen" (_test_anchor_medieval, 20.09): узкий запрос НЕ пустой
+        # (Pexels отдаёт 30+ кандидатов) — реальный брак не в отсутствии
+        # выдачи, а в её жанре (реконструкция Наполеоновских войн, Рим,
+        # современные парады). Поэтому _openverse_query_cascade() здесь
+        # НЕ фолбэк на пустую выдачу (как у музеев/архивов, где он уже
+        # работает) — тот механизм слот 6 не спас бы: первая же ступень
+        # непустая, каскад остановился бы на ней же. Здесь САМАЯ ШИРОКАЯ
+        # ступень добавляется В ПУЛ ДОПОЛНИТЕЛЬНО, не заменяя узкую: живой
+        # запрос Pixabay нашёл кандидата (id 316611, "knights medieval
+        # army horses battle epic cinematic riding"), которого узкий
+        # запрос не видел — тег-поиск Pixabay ближе к короткой фразе, чем
+        # к длинному предложению из брифа. Только ОДИН, самый широкий
+        # вариант — не вся лестница: каждый лишний запрос — лишние вызовы
+        # к Pexels (квота 200/час), а не бесплатная операция.
+        # НЕ измерено на готовых кадрах (нужен рендер с ключами стоков) —
+        # дефолт выключен до этого замера.
+        if feature_flags.enabled("VIDEO_QUERY_CASCADE"):
+            cascade = _openverse_query_cascade(disambiguate_search_query(query))
+            if cascade and cascade[-1] not in pool_queries:
+                pool_queries.append(cascade[-1])
         per_query = []
         for pq in pool_queries:
             # action_qualifier — движение из текста блока (см.
