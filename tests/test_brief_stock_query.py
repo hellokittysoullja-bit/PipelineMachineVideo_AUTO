@@ -302,3 +302,58 @@ def test_era_anchor_lookup_is_bidirectional_on_spelling():
     assert ps._spelling_forms("armour") == ps._spelling_forms("armor")
     assert ps.query_mentions_term("a suit of plate armor", "armour")
     assert ps.query_mentions_term("a suit of plate armour", "armor")
+
+
+def test_unrelated_word_is_not_forced_when_the_brief_has_its_own_era_word(monkeypatch):
+    """РЕАЛЬНЫЙ живой баг (20.09, слот 8 медиевал-теста, жалоба владельца
+    на контактном листе): «Стрела скользит по нагруднику» получила бриф
+    `a steel arrowhead scraping and deflecting off a curved steel
+    breastplate» — ни слова про кинжал. Но узкий словарь якорей ЭТОГО
+    эпизода (`content_world.json`, объявлен confidence 0.95) — всего шесть
+    предметных слов («dagger», «sword», «armour», «knight», «cavalry»,
+    «battlefield»), и ни одно из них не встречается в брифе про стрелу.
+    Код решал «якоря нет вообще» и слепо форсировал ПЕРВОЕ слово списка —
+    «dagger» — в начало запроса: `dagger steel arrowhead scraping
+    deflecting`. Сток честно нашёл нож вместо стрелы.
+
+    `arrowhead` и `breastplate` сами по себе однозначно средневековые
+    термины — просто не входят в куцый список ЭТОГО эпизода. Детекция
+    якоря теперь смотрит и в широкий исторический словарь
+    (`_QUERY_ERA_ANCHORS_DEFAULT`), где оба слова есть, поэтому кинжал не
+    подставляется вообще: своих предметных слов в брифе достаточно."""
+    monkeypatch.setattr(ps, "OPENVERSE_ERA_ANCHORS",
+                         ("dagger", "sword", "armour", "knight", "cavalry",
+                          "battlefield"))
+    q = ps.brief_to_stock_query(
+        "a steel arrowhead scraping and deflecting off a curved steel "
+        "breastplate",
+        fallback="dagger steel arrowhead scraping deflecting",
+    )
+    assert "dagger" not in q.split(), q
+    assert "arrowhead" in q.split(), q
+
+
+def test_present_anchor_is_not_dropped_by_the_word_cap(monkeypatch):
+    """РЕАЛЬНЫЙ живой баг (20.09, слот 3 медиевал-теста): «Но именно он
+    решал исход поединка, когда меч уже бесполезен» получила бриф `a
+    broken longsword lying in the mud next to a drawn dagger» — «dagger»
+    физически стоит в брифе, это самое важное слово фразы. Но слово
+    «longsword» само содержит «sword» и засчитывалось якорем уже на
+    второй позиции — проверка «есть ли якорь в начале» успокаивалась и
+    дальше не смотрела, а лимит 5 слов срезал «dagger» (шестое слово) без
+    следа. Итоговый запрос `broken longsword lying mud drawn» не содержал
+    ни одного слова про кинжал, и сток честно нашёл лежащего в траве
+    зубра по слову «lying».
+
+    Теперь собираются ВСЕ слова-якоря брифа, и обрубка обязана оставить их
+    все — при нехватке места вытесняются не-якорные слова хвоста, а не
+    единственный найденный якорь."""
+    monkeypatch.setattr(ps, "OPENVERSE_ERA_ANCHORS",
+                         ("dagger", "sword", "armour", "knight", "cavalry",
+                          "battlefield"))
+    q = ps.brief_to_stock_query(
+        "a broken longsword lying in the mud next to a drawn dagger",
+        fallback="broken longsword lying mud drawn",
+    )
+    assert "dagger" in q.split(), q
+    assert len(q.split()) <= ps.BRIEF_STOCK_QUERY_MAX_WORDS, q

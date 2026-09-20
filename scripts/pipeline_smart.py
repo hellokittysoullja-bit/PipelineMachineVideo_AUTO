@@ -6713,7 +6713,8 @@ _BRIEF_STOP_WORDS = (
 # Маркер версии для _selection_stack_signature(): извлечение меняет СОСТАВ
 # пула (в него приходит запрос, которого раньше не существовало), а не
 # только порядок внутри него.
-BRIEF_STOCK_QUERY_VERSION = 3   # 3: якорь ищется через query_mentions_term, не точным сравнением (19.09)
+BRIEF_STOCK_QUERY_VERSION = 4   # 3: якорь через query_mentions_term (19.09); 4: детекция якоря по широкому
+                                # словарю + гарантия, что найденный якорь не срезается обрубкой (20.09)
 BRIEF_STOCK_QUERY_MAX_WORDS = 5
 
 
@@ -6779,45 +6780,117 @@ def brief_to_stock_query(brief, fallback=None, max_words=BRIEF_STOCK_QUERY_MAX_W
     era_terms = [a.lower() for a in OPENVERSE_ERA_ANCHORS]
     cap = max(OPENVERSE_QUERY_MIN_WORDS, int(max_words))
 
-    def _first_era_word(words):
+    # СЛОВАРЬ ДЕТЕКЦИИ ШИРЕ СЛОВАРЯ ИНЪЕКЦИИ, и это два разных списка с
+    # разной работой (реальный найденный баг, живая жалоба владельца на
+    # готовом рендере, 20.09). `OPENVERSE_ERA_ANCHORS` — куратор ЭТОГО
+    # эпизода (несколько предметных слов из content_world.json, ЧАСТЬ 13) —
+    # из него берётся то единственное слово, которое можно НАСИЛЬНО
+    # подставить, если якоря в брифе нет вообще. Но у отдельной ФРАЗЫ (не
+    # секции) якоря конкретного эпизода часто нет физически: бриф «a steel
+    # arrowhead scraping and deflecting off a curved steel breastplate»
+    # (наконечник стрелы скользит по нагруднику) не содержит ни dagger, ни
+    # sword, ни armour, ни knight/cavalry/battlefield — весь список ЭТОГО
+    # эпизода, — хотя arrowhead и breastplate сами по себе однозначно
+    # средневековые термины. Без более широкой детекции код решал бы «якоря
+    # нет» и заменял бы верное предметное слово чужим: `dagger` — просто
+    # потому что он первый в списке эпизода, — засоряя поиск кинжалом на
+    # кадре, где его вообще нет (живой пример: Pixabay/Pexels честно нашли
+    # по такому запросу нож в современных штанах вместо стрелы).
+    #
+    # `_QUERY_ERA_ANCHORS_DEFAULT` определён ниже в этом файле, но глобалы
+    # резолвятся при ВЫЗОВЕ функции, а не при её определении — порядок в
+    # файле тут не важен. Он не куратор канала, а фиксированный богатый
+    # словарь ("arrowhead", "breastplate", "sabaton", "gauntlet", …), и на
+    # ДРУГОЙ нише (психология/кофе/каменный век) его слова почти ни с чем в
+    # брифе не совпадут — то есть на чужой нише эта строка чистый no-op, а
+    # не тихая протечка медиевализма (тот же довод, что уже защищает
+    # CONTENT_ALT_BLOCKLIST/QUERY_ERA_ANCHORS от клона в другую нишу).
+    detect_terms = era_terms + [a.lower() for a in _QUERY_ERA_ANCHORS_DEFAULT]
+
+    def _is_era_word(w, terms=detect_terms):
+        return any(query_mentions_term(w, term) for term in terms)
+
+    def _first_era_word(words, terms=detect_terms):
         """Первое слово списка, несущее якорь эпохи — ЧЕРЕЗ query_mentions_term
         (составные слова/множественное число/британское-американское
         написание), а не точным сравнением строк."""
         for w in words:
-            if any(query_mentions_term(w, term) for term in era_terms):
+            if _is_era_word(w, terms):
                 return w
         return None
 
-    # Якорь эпохи обязан ВЫЖИТЬ обрезку, а не просто присутствовать в брифе:
-    # реальный найденный промах — «manuscript illumination of a battle
-    # between armoured knights», где единственный якорь `knights` стоял
-    # шестым словом и обрезался, оставляя запрос без эпохи вообще.
+    # Якорь эпохи обязан ВЫЖИТЬ обрезку, а не просто присутствовать в
+    # брифе. Раньше это проверялось ТОЛЬКО «нашёлся ли якорь в первых
+    # cap-1 словах» — и если да, обрезка дальше не трогалась вообще. Второй
+    # реальный найденный баг (20.09, живая жалоба): «a broken longsword
+    # lying in the mud next to a drawn dagger» (сломанный меч рядом с
+    # обнажённым кинжалом) — слово `longsword` само содержит `sword` и
+    # засчитывалось якорем СРАЗУ на второй позиции, проверка успокаивалась
+    # и дальше не смотрела, а по-настоящему нужное слово этой фразы —
+    # `dagger`, шестое по счёту, — тихо срезалось лимитом в 5 слов. Итоговый
+    # запрос к стоку («broken longsword lying mud drawn») не содержал ни
+    # одного слова про кинжал вообще, и поиск честно нашёл что-то по слову
+    # «lying» — лежащего в траве зубра.
     #
-    # РЕАЛЬНЫЙ НАЙДЕННЫЙ БАГ (19.09, живой прогон): проверка была "w in era"
-    # — точное сравнение токена брифа со словом якоря. «Конница мчится через
-    # поле прямо на пехоту» получала бриф «armored knights on warhorses
-    # galloping…», и «knights» (множественное число) никогда не равнялось
-    # «knight» (якорь канала), «armored» (американское написание брифа)
-    # никогда не равнялось «armour» (британское написание якоря) — хотя
-    # оба слова СТОЯЛИ в брифе буква в букву близко к нужному смыслу. Код
-    # решал, что якоря нет вообще, и подставлял ПЕРВЫЙ якорь СПИСКА
-    # («dagger» — только потому, что он первый, а не потому, что относится
-    # к сцене) в запрос про конницу, где о кинжале ни слова: итоговый запрос
-    # к стоку — `dagger armored knights warhorses galloping`, кинжал в
-    # начале запроса засорял поиск сцены, где его вообще нет.
-    if not _first_era_word(content[: cap - 1]):
-        # Якорь может физически ЕСТЬ в брифе, просто дальше окна усечения
-        # (реальный случай: «armor» восьмым словом в брифе про застрявшую в
-        # грязи латную перчатку). Тогда честнее ПОДНЯТЬ словоформу автора
-        # («armor»), а не вставлять чужое слово с другим смыслом.
-        anchor = _first_era_word(content)
-        if anchor is None:
-            anchor = _first_era_word(re.findall(r"[a-z]+", (fallback or "").lower()))
+    # Правило теперь другое: собрать ВСЕ слова брифа, несущие якорь эпохи
+    # (в порядке появления, без дублей), и гарантировать, что НИ ОДНО из
+    # них не потеряется при обрубке до `cap` слов — при нехватке места
+    # вытесняются НЕ-якорные слова с конца, а не наоборот. Порядок автора
+    # среди уже сохранённых слов не трогается (см. комментарий выше).
+    anchors_present, _seen_anchor = [], set()
+    for w in content:
+        if _is_era_word(w) and w not in _seen_anchor:
+            _seen_anchor.add(w)
+            anchors_present.append(w)
+
+    if anchors_present:
+        kept = content[:cap]
+        kept_anchor_set = {w for w in kept if w in _seen_anchor}
+        missing = [a for a in anchors_present if a not in kept_anchor_set]
+        for a in missing:
+            if len(kept) < cap:
+                kept.append(a)
+                kept_anchor_set.add(a)
+                continue
+            # Вытесняем последнее НЕ-якорное слово хвоста, чтобы освободить
+            # место якорю — а не первое попавшееся, чтобы меньше портить
+            # порядок автора у слов, стоящих раньше.
+            for i in range(len(kept) - 1, -1, -1):
+                if kept[i] not in kept_anchor_set:
+                    kept.pop(i)
+                    break
+            else:
+                break  # весь хвост уже якоря — дальше вытеснять нечего
+            kept.append(a)
+            kept_anchor_set.add(a)
+        out = kept[:cap]
+    else:
+        # Ни одного якоря эпохи нигде в брифе целиком (ни в узком словаре
+        # эпизода, ни в широком историческом словаре) — честно нет сигнала.
+        # `OPENVERSE_ERA_ANCHORS` пуст (канал/эпизод вообще не объявляли
+        # эпоху, например клон под психологию) — НИЧЕГО не форсируется,
+        # БАЙТ-В-БАЙТ прежнее поведение (иначе клон получил бы «medieval
+        # phone lying face down» из зашитого в код словаря — ровно тот
+        # класс регрессии, для защиты от которого заведён
+        # tests/test_clone_inherits_no_niche.py). Объявлен — сначала ищем
+        # якорь в запросе, который слот получил бы и без брифа (fallback,
+        # тем же УЗКИМ словарём канала, что и раньше); не нашли —
+        # предпочитаем ОБЩЕЕ слово эпохи из СОБСТВЕННОГО списка канала
+        # («medieval»/«historical»/«ancient», если канал его туда положил —
+        # не привязано к конкретному предмету, в отличие от «dagger»); и
+        # только если в списке канала такого нет — прежний, более грубый
+        # запасной путь (первое слово списка канала), чтобы никогда не
+        # остаться без единого слова об эпохе (тот самый танк на
+        # одиночном «plate armour»).
+        anchor = _first_era_word(re.findall(r"[a-z]+", (fallback or "").lower()), era_terms)
         if anchor is None and OPENVERSE_ERA_ANCHORS:
-            anchor = OPENVERSE_ERA_ANCHORS[0].lower()
+            anchor = next((w for w in era_terms
+                           if w in ("medieval", "historical", "ancient")), None)
+            if anchor is None:
+                anchor = OPENVERSE_ERA_ANCHORS[0].lower()
         if anchor:
             content = [anchor] + [w for w in content if w != anchor]
-    out = content[:cap]
+        out = content[:cap]
     if len(out) < OPENVERSE_QUERY_MIN_WORDS:
         return fallback
     return " ".join(out)
