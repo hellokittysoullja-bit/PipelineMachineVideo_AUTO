@@ -110,10 +110,32 @@ def _fewshot_text():
     якоря: у неё нет кадра вообще («3 | - | -»), а якорь без описания
     кадра рядом ничего бы не показал и учил бы модель ставить скобку
     там, где смысла в ней нет.
+
+    Фраза 4 (SHOT_BRIEF_DECOMPOSE_ACTION) — ДОБАВЛЕНА отдельной строкой,
+    а не заменяет фразу 1/2, ровно чтобы не конфликтовать с .replace()
+    анкера выше: оба флага должны компоноваться, не гасить друг друга.
+    Первый живой прогон (20.09) показал ту же болезнь, что уже измерена
+    для anchor, — 2 из 9 слотов проигнорировали инструкцию без примера
+    («armored knights on horses charging across open field», «arrow
+    deflecting off curved metal plate surface» — оба буквально описывают
+    момент действия, ровно то, что правило запрещает). Демонстрация
+    добавлена по тому же принципу: не абстрактная формулировка, а
+    видимая пара «мгновение действия -> разложенный статичный элемент».
     """
+    text = FEWSHOT
+    if feature_flags.enabled("SHOT_BRIEF_DECOMPOSE_ACTION"):
+        text = text.replace(
+            " 3. Запомни эту цифру. Она пригодится.\nответ:",
+            " 3. Запомни эту цифру. Она пригодится.\n"
+            " 4. Атака захлебнулась о частокол с разбега.\nответ:",
+        ).replace(
+            " 3 | - | -",
+            " 3 | - | -\n 4 | texture | splintered wooden stakes and "
+            "churned mud at the base of a palisade, close up",
+        )
     if not feature_flags.enabled("SHOT_BRIEF_ANCHOR"):
-        return FEWSHOT
-    return FEWSHOT.replace(
+        return text
+    return text.replace(
         "a straight roman stone road running across empty hills",
         "[anchor: дорогами] a straight roman stone road running across "
         "empty hills",
