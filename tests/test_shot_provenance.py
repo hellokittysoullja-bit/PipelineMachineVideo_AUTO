@@ -169,11 +169,14 @@ class TestVideoRelevanceIsRecorded:
         assert "relevance=chosen_rel" in block
 
     def test_gate_receives_the_precomputed_value_no_second_forward(self):
-        """is_relevant_candidate() принимает готовое число именно для этого
-        случая — считать его вторым вызовом значило бы платить лишним
-        прогоном модели на каждого кандидата."""
+        """candidate_passes_guards() принимает готовое число именно для
+        этого случая — считать его вторым вызовом значило бы платить лишним
+        прогоном модели на каждого кандидата. С 19.09 (CANDIDATE_GATE_RULES_
+        VERSION=3) видео-путь зовёт candidate_passes_guards() напрямую, а
+        не is_relevant_candidate() — слабый CLIP-порог больше не решает
+        членство в пуле, см. её докстринг."""
         src = self._src()
-        assert "is_relevant_candidate(probe, query, relevance=cand_rel)" in src
+        assert "candidate_passes_guards(probe, query, relevance=cand_rel)" in src
 
     def test_relevance_is_keyed_by_path_not_by_tuple_position(self):
         """Кортеж `good` разбирается по позиции в трёх местах — восьмой

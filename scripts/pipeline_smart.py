@@ -5104,6 +5104,19 @@ RELEVANCE_GATE_MISSES = []   # [{"index", "query", "relevance", "threshold", "ki
 DIRECTOR_RELEVANCE_MISSES = []   # [{"index", "text", "photo", "relevance", "threshold"}, ...]
                                   # — см. её докстринг в main() у DIRECTOR_RELEVANCE_FLOOR
 
+# Слоты, где ПОБЕДИТЕЛЬ провалил калиброванные защиты от анахронизма/
+# культуры/архитектурной ловушки (candidate_passes_guards() — risky-margin,
+# домен-гвард, контрастивное вето), а не просто набрал низкий сырой скор
+# сходства с запросом (см. RELEVANCE_GATE_MISSES выше — это ДРУГОЙ,
+# СЛАБЕЕ разделяющий сигнал, см. docs/quality/so400m_as_judge.json).
+# До 19.09 оба случая жили одним полем — "победитель не прошёл is_relevant"
+# — и различить "не похож на запрос" от "реально пойманный анахронизм"
+# было нельзя. Это происходит только когда допустимое множество
+# _score_and_pick() было пусто и слот откатился на весь пул (см. её
+# докстринг про "лучший из плохих остаётся законным исходом") — то есть
+# ЭТОТ гейт сработал правильно, просто ничего лучше в пуле не нашлось.
+ANACHRONISM_GUARD_MISSES = []   # [{"index", "kind", "query"}, ...]
+
 # РЕАЛЬНЫЙ, найденный вживую пробел в самом RELEVANCE_GATE_MISSES выше
 # (deep-audit, videos/_test20s, слот 7 "warrior on horseback with sword",
 # 28 августа) — комментарий у RELEVANCE_GATE_MISSES утверждает "ВЕСЬ
@@ -5247,6 +5260,10 @@ def _slot_miss_snapshot(index):
     """
     taken = {}
     for name, lst in (("relevance", RELEVANCE_GATE_MISSES),
+                      # 19.09: тот же класс — победитель, отвергнутый ДРУГИМ
+                      # (сильнее разделяющим) гейтом, чем сырая релевантность,
+                      # см. её докстринг у объявления выше.
+                      ("anachronism", ANACHRONISM_GUARD_MISSES),
                       ("stock", STOCK_EXHAUSTED_MISSES),
                       ("arbiter", ARBITER_REJECTED_ALL),
                       # 19.09: тот же класс дефекта, ради которого написана
@@ -5263,6 +5280,7 @@ def _slot_miss_snapshot(index):
 def _slot_miss_restore(snapshot):
     """Вернуть вердикты на место — спасение не состоялось, кадр прежний."""
     for name, lst in (("relevance", RELEVANCE_GATE_MISSES),
+                      ("anachronism", ANACHRONISM_GUARD_MISSES),
                       ("stock", STOCK_EXHAUSTED_MISSES),
                       ("arbiter", ARBITER_REJECTED_ALL),
                       ("frame_verifier", FRAME_VERIFIER_GAVE_UP)):
@@ -5300,6 +5318,13 @@ def _slot_known_bad_reason(index):
         return "arbiter_rejected_all"
     if any(m["index"] == index for m in STOCK_EXHAUSTED_MISSES):
         return "stock_exhausted"
+    # Калиброванная защита (risky-margin/домен-гвард/контрастивное вето) —
+    # см. ANACHRONISM_GUARD_MISSES у объявления: реально разделяет годное и
+    # брак (0 ложных отказов на золотом наборе), сильнее промаха по сырому
+    # порогу сходства с запросом ниже — тот почти не разделяет (AUC 0.566,
+    # docs/quality/so400m_as_judge.json).
+    if any(m["index"] == index for m in ANACHRONISM_GUARD_MISSES):
+        return "anachronism_guard_miss"
     if any(m["index"] == index for m in RELEVANCE_GATE_MISSES):
         return "below_relevance_threshold"
     # Самый слабый из сигналов и поэтому последний: Директор оценивает
@@ -6098,12 +6123,14 @@ def _photo_dedup_max_tries_for(index):
 
 def _pool_cleared_both_gates(candidates_info):
     """True, если хотя бы ОДИН кандидат из candidates_info прошёл И
-    relevance, И резкость — НЕЗАВИСИМО от дедупа/размера/итогового
-    победителя. Ось STOCK_EXHAUSTED_MISSES (см. её докстринг у объявления
-    выше): строго более сильный сигнал, чем "победитель не идеален" —
-    "стоку тут физически нечего предложить". Извлечена в отдельную функцию
-    ради тестируемости, тот же принцип, что и _score_and_pick() (см.
-    докстринг tests/test_pexels_scoring.py)."""
+    калиброванные защиты (is_relevant — см. её докстринг в _score_and_pick,
+    с 19.09 это candidate_passes_guards(), не порог сырой релевантности), И
+    резкость — НЕЗАВИСИМО от дедупа/размера/итогового победителя. Ось
+    STOCK_EXHAUSTED_MISSES (см. её докстринг у объявления выше): строго
+    более сильный сигнал, чем "победитель не идеален" — "стоку тут
+    физически нечего предложить". Извлечена в отдельную функцию ради
+    тестируемости, тот же принцип, что и _score_and_pick() (см. докстринг
+    tests/test_pexels_scoring.py)."""
     return any(c["is_relevant"] and c["sharp_ok"] for c in candidates_info)
 
 
@@ -6131,6 +6158,19 @@ def _score_and_pick(candidates_info, director_score_fn=None):
     candidates_info — список dict, каждый с готовыми числами:
     path, p (сырой Pexels-объект), is_dup_free, size_ok, is_relevant,
     sharp_ok (опционально, см. ниже), aesthetic_val, luma_score, min_d.
+
+    is_relevant С 19.09 (CANDIDATE_GATE_RULES_VERSION=3) — ПРОШЁЛ ЛИ
+    КАЛИБРОВАННЫЕ ЗАЩИТЫ (candidate_passes_guards(): risky-margin/домен-
+    гвард/контрастивное вето), а НЕ порог сырой релевантности CLIP к
+    запросу — тот больше не решает членство в допустимом множестве, см.
+    "ДОПУСТИМОЕ МНОЖЕСТВО" ниже. Тонкая релевантность продолжает ранжировать
+    непрерывным rel_bucket сразу после size_ok/sharp_ok в кортеже, просто
+    больше не гейт. Это прямая правка по требованию владельца («слабая
+    модель не должна решать, кого пускать в пул») и по собственному замеру
+    (docs/quality/so400m_as_judge.json): и слабая, и сильная embedding-
+    модель дают ПОЛНОЕ перекрытие распределений годных/брака на этом
+    пороге — держать его хард-гейтом значило бы отбрасывать кандидатов
+    монеткой, включая настоящие годные кадры.
 
     Возвращает (base_winner, director_winner) — оба элемента
     candidates_info (или None на пустом списке/если ни один кандидат не
@@ -6195,6 +6235,11 @@ def _score_and_pick(candidates_info, director_score_fn=None):
     # Правильный повтор лучше неправильной новизны: дубль зритель читает
     # как приём, чужой предмет — как ошибку. Поэтому кандидаты, прошедшие
     # гейт релевантности, рассматриваются ОТДЕЛЬНО и первыми.
+    #
+    # С 19.09 «прошедшие гейт» здесь значит «прошедшие calibrated-guards
+    # (candidate_passes_guards)», не «сырой CLIP-порог» — довод только
+    # усиливается: анахронизм/чужая культура — измеримо более серьёзная
+    # ошибка, чем случайный повтор, а не более слабая, как был weak-порог.
     #
     # Почему это НЕ может ничего сломать (правка односторонняя):
     #   * есть хоть один релевантный -> сравниваются только релевантные, то
@@ -7929,10 +7974,17 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                 # глубины выбора.
                 with stage_timer.stage("cheap_gate_clip", clip_idx=index):
                     relevance = clip_relevance(trial, query)
-                    # Порог + risky-margin гейт (museum/exhibition/collection/... —
-                    # см. RISKY_GENERIC_TERMS) — см. is_relevant_candidate(), та же
-                    # функция, что проверяет golden-тест media-selection.
-                    is_relevant = 1 if is_relevant_candidate(trial, query, relevance=relevance) else 0
+                    # ГЕЙТ ПУЛА — только калиброванные защиты (risky-margin,
+                    # домен-гвард, контрастивное вето), БЕЗ порога сырой
+                    # релевантности CLIP_RELEVANCE_THRESHOLD — см. подробный
+                    # разбор у candidate_passes_guards() выше: слабая модель
+                    # больше не решает, кто попадёт в допустимое множество
+                    # _score_and_pick(), сырая релевантность ранжирует внутри
+                    # него непрерывным rel_bucket. is_relevant_candidate() (та
+                    # же функция, что golden-тест media-selection) НЕ тронута —
+                    # используется отдельно только для честного лога/отчёта
+                    # ниже (RELEVANCE_GATE_MISSES), не для решения пула.
+                    is_relevant = 1 if candidate_passes_guards(trial, query, relevance=relevance) else 0
                 # sharp_ok (PHOTO_SHARPNESS_REJECT) — см. её докстринг: реальный
                 # найденный случай, ни один кандидат никогда не проверялся на
                 # резкость на этапе отбора, только опциональный постфактум-
@@ -8045,21 +8097,40 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                     elif arbiter_pick is not None:
                         winner = next(c for c in shortlist if c["path"] == arbiter_pick)
                         chosen_by = "arbiter"
-            if winner is not None and not winner["is_relevant"]:
-                # Весь просмотренный пул провалил relevance-гейт — см.
-                # RELEVANCE_GATE_MISSES выше. Победитель всё равно есть
-                # (слот не должен остаться пустым), но промах теперь
-                # честно записан, а не молчит.
+            # ДВА РАЗНЫХ СИГНАЛА, РАЗДЕЛЕНЫ 19.09 (раньше жили одним полем
+            # winner["is_relevant"], означавшим ОБА условия сразу — с
+            # переходом is_relevant на "прошёл ли анахронизм-гварды" (см.
+            # candidate_passes_guards() выше) их нельзя было бы отличить).
+            #
+            # 1) Сырая релевантность победителя ниже слабого порога — сам
+            # порог больше НИЧЕГО не решает (см. CANDIDATE_GATE_RULES_
+            # VERSION=3), но число всё равно диагностическое: стоит
+            # проверить глазами на Шаге 7.5, раз даже слабая модель не
+            # уверена. Проверяется НЕЗАВИСИМО от is_relevant — иначе
+            # печатался бы "below_relevance_threshold" на слоте, где
+            # порог вообще-то взят, а не взят анахронизм-гвард (и наоборот).
+            if winner is not None and winner.get("relevance") is not None \
+                    and winner["relevance"] < CLIP_RELEVANCE_THRESHOLD:
                 RELEVANCE_GATE_MISSES.append({
                     "index": index, "query": query,
                     "relevance": winner.get("relevance"),
                     "threshold": CLIP_RELEVANCE_THRESHOLD, "kind": "photo",
                 })
+            # 2) Победитель не прошёл калиброванные защиты (risky-margin/
+            # домен-гвард/контрастивное вето) — то есть допустимое множество
+            # _score_and_pick() было пусто и сработал откат на весь пул
+            # (см. её докстринг). Это СИЛЬНЕЕ промаха по (1): защиты реально
+            # разделяют годное и брак (0 ложных отказов на золотом наборе),
+            # слабый порог релевантности — нет.
+            if winner is not None and not winner["is_relevant"]:
+                ANACHRONISM_GUARD_MISSES.append({
+                    "index": index, "kind": "photo", "query": query,
+                })
             # STOCK_EXHAUSTED_MISSES — см. её докстринг у объявления выше:
             # True-пул-вайд проверка (независимо от дедупа), а не только по
-            # победителю, как RELEVANCE_GATE_MISSES. candidates_info уже
-            # содержит relevance/sharp_ok на КАЖДОГО кандидата — переиспользуем
-            # то, что и так посчитано, ни одного нового вызова.
+            # победителю. candidates_info уже содержит is_relevant (=прошёл
+            # ли анахронизм-гварды)/sharp_ok на КАЖДОГО кандидата —
+            # переиспользуем то, что и так посчитано, ни одного нового вызова.
             if candidates_info and not _pool_cleared_both_gates(candidates_info):
                 STOCK_EXHAUSTED_MISSES.append({
                     "index": index, "kind": "photo", "query": query,
@@ -11367,6 +11438,57 @@ def video_sharpness_ok(video_path, slot_dur=None):
     return median >= VIDEO_SHARPNESS_REJECT
 
 
+def candidate_passes_guards(image_path, query, relevance=None):
+    """Калиброванные защиты от анахронизма/чужой культуры/архитектурной
+    ловушки (risky-margin, домен-гвард, контрастивное вето) — БЕЗ порога
+    сырой релевантности (CLIP_RELEVANCE_THRESHOLD). Раньше все четыре
+    проверки жили ОДНИМ гейтом в is_relevant_candidate(), и порог по сырому
+    косинусу CLIP решал, войдёт ли кандидат в пул для ранжирования вообще —
+    прямой запрос владельца (19.09) убрать слабую модель ровно из ЭТОЙ роли.
+
+    Причина не «CLIP плохой, а другой лучше» — это уже проверено и
+    отклонено дважды на этом же наборе (docs/quality/so400m_as_judge.json,
+    коммит 65b4031): и слабый clip-vit-base-patch32, и сильный SigLIP2-
+    so400m дают ПОЛНОЕ перекрытие распределений годных/брака на пороге
+    сходства с запросом — 76% реального брака (модерн-вторжение/чужая
+    культура/дубль) в принципе не видно ни одной embedding-модели, потому
+    что пиксельно реконструкторский фестиваль и подлинник неотличимы.
+    Держать здесь ЛЮБОЙ порог по сходству с запросом хард-гейтом значило бы
+    выбрасывать кандидатов из рассмотрения монеткой (AUC 0.566 — почти
+    случайное ранжирование), включая настоящие годные кадры, которых
+    слабая модель просто не смогла оценить правильно.
+
+    Три защиты здесь — ДРУГОЙ класс проверки: не «похоже ли на пять слов
+    запроса», а margin НА ОДНОЙ картинке между целевым запросом и конкретной
+    ловушкой/анти-подсказкой — калиброваны отдельно, реально разделяют
+    (домен-гвард: 0 ложных отказов на золотом наборе; контрастивное вето:
+    6 браков из 17 при 0 ложных отказов) и остаются гейтами. Раньше они
+    вообще не проверялись, если сырой порог уже отклонил кандидата
+    (короткое замыкание "if is_relevant:") — теперь проверяются ВСЕГДА,
+    то есть на большем числе кандидатов, чем раньше, а не на меньшем.
+
+    Сырая релевантность продолжает участвовать — но как РАНЖИРУЮЩИЙ сигнал
+    (relevance_rank_bucket() в _score_and_pick(), непрерывный, не бинарный),
+    а не как решение "рассматривать кандидата вообще или нет". См.
+    докстринг _score_and_pick() и is_relevant_candidate() ниже."""
+    if relevance is not None and is_risky_query(query):
+        anchor_relevance = clip_relevance(image_path, NEGATIVE_ANCHOR_PROMPT)
+        if anchor_relevance is not None and (relevance - anchor_relevance) < RISKY_QUERY_MARGIN:
+            return False
+    violated, _ = visual_domain_guard_violation(image_path, query)
+    if violated:
+        return False
+    # Контрастивное вето по ловушкам — см. negative_anchor_violation():
+    # обобщение того же margin-механизма с одной оси (европейский клинок
+    # против восточноазиатского) на восемь классов современного
+    # вторжения. Стоит один прогон картинки, ловит 6 браков из 17 при
+    # нуле ложных отказов на золотом наборе.
+    vetoed, _ = negative_anchor_violation(image_path, query)
+    if vetoed:
+        return False
+    return True
+
+
 def is_relevant_candidate(image_path, query, relevance=None):
     """Итоговое решение "релевантен ли кандидат query" — тот же порог +
     risky-margin гейт, что раньше жил инлайном в цикле подбора фото (см.
@@ -11376,27 +11498,21 @@ def is_relevant_candidate(image_path, query, relevance=None):
     отдельную копию тех же трёх строк, которая могла бы молча разойтись
     с рабочим кодом при следующей правке. relevance можно передать уже
     посчитанным (вызывающий код часто уже считал его для других целей) —
-    иначе считается здесь же."""
+    иначе считается здесь же.
+
+    ФУНКЦИЯ НЕ ТРОНУТА (19.09) — байт-в-байт то же самое решение, что и
+    раньше (порог AND risky-margin AND домен-гвард AND негативное вето, три
+    последних теперь через candidate_passes_guards() выше, логическое AND
+    не зависит от порядка вычисления). Golden-тест и golden_set_baseline.json
+    продолжают мерить РОВНО ТО ЖЕ, что и всегда — только пул-отбор в
+    pexels_photo()/pexels_video() больше не зовёт эту функцию напрямую, а
+    зовёт candidate_passes_guards() без порога (см. CANDIDATE_GATE_RULES_
+    VERSION=3 у объявления ниже)."""
     if relevance is None:
         relevance = clip_relevance(image_path, query)
     is_relevant = relevance is None or relevance >= CLIP_RELEVANCE_THRESHOLD
-    if is_relevant and relevance is not None and is_risky_query(query):
-        anchor_relevance = clip_relevance(image_path, NEGATIVE_ANCHOR_PROMPT)
-        if anchor_relevance is not None and (relevance - anchor_relevance) < RISKY_QUERY_MARGIN:
-            is_relevant = False
     if is_relevant:
-        violated, _ = visual_domain_guard_violation(image_path, query)
-        if violated:
-            is_relevant = False
-    if is_relevant:
-        # Контрастивное вето по ловушкам — см. negative_anchor_violation():
-        # обобщение того же margin-механизма с одной оси (европейский клинок
-        # против восточноазиатского) на восемь классов современного
-        # вторжения. Стоит один прогон картинки, ловит 6 браков из 17 при
-        # нуле ложных отказов на золотом наборе.
-        vetoed, _ = negative_anchor_violation(image_path, query)
-        if vetoed:
-            is_relevant = False
+        is_relevant = candidate_passes_guards(image_path, query, relevance=relevance)
     return is_relevant
 
 
@@ -11409,7 +11525,15 @@ def is_relevant_candidate(image_path, query, relevance=None):
 # 2 -> гейт релевантности сверяет кандидата с запросом ЕГО БЛОКА, а не с тем
 #      запросом пула, из которого кандидат приплыл (28 августа, см. разбор у
 #      вызова is_relevant_candidate() в pexels_photo()).
-CANDIDATE_GATE_RULES_VERSION = 2
+# 3 -> СЛАБЫЙ CLIP-порог сходства с запросом больше не решает членство в
+#      пуле для ранжирования/дедупа (photo: is_relevant в _score_and_pick(),
+#      video: good.append) — только калиброванные защиты (candidate_passes_
+#      guards(): risky-margin/домен-гвард/контрастивное вето), см. её
+#      докстринг. Прямой запрос владельца (19.09) + собственный замер
+#      65b4031/so400m_as_judge.json: и слабая, и сильная embedding-модель
+#      дают полное перекрытие распределений на этом пороге, держать его
+#      хард-гейтом значило бы отбрасывать кандидатов монеткой.
+CANDIDATE_GATE_RULES_VERSION = 3
 
 _CANDIDATE_GATE_SIG = None   # см. candidate_gate_signature(), считается лениво один раз
 
@@ -11803,7 +11927,15 @@ def candidate_gate_signature():
     try:
         import inspect
         parts = [inspect.getsource(f) for f in (
-            is_relevant_candidate, visual_domain_guard_violation,
+            is_relevant_candidate,
+            # candidate_passes_guards — РЕАЛЬНЫЙ путь принятия решения в
+            # pexels_photo()/pexels_video() с 19.09 (см. CANDIDATE_GATE_
+            # RULES_VERSION=3): is_relevant_candidate() выше её больше не
+            # оборачивает на пути отбора, только для golden-теста/отчётов.
+            # Без явного перечисления здесь правка ЕЁ тела (не is_relevant_
+            # candidate) не инвалидировала бы уже закэшированных кандидатов.
+            candidate_passes_guards,
+            visual_domain_guard_violation,
             video_domain_guard_violation, video_negative_anchor_violation,
             disambiguate_search_query,
             # Сопоставление термина правила с запросом — ОТДЕЛЬНАЯ функция, и
@@ -13562,7 +13694,16 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                     # pexels_photo() (кандидат из соседнего запроса секции
                     # проходил «по своему» и попадал в чужой по смыслу блок).
                     cand_rel = clip_relevance(probe, query)
-                    relevant = is_relevant_candidate(probe, query, relevance=cand_rel)
+                    # Тот же принцип, что у фото-пути (см. candidate_passes_
+                    # guards() и её докстринг) — слабый CLIP-порог сходства с
+                    # запросом больше НЕ решает, войдёт ли кандидат в `good`
+                    # вообще: здесь это даже жёстче, чем у фото (`good.append`
+                    # ниже — прямое включение/исключение, не тай-брейк в
+                    # кортеже). Калиброванные защиты (risky-margin/домен-
+                    # гвард/контрастивное вето) остаются гейтом. Ранжирует
+                    # выбор среди прошедших sentence_score_fn (сильный
+                    # SigLIP2+Jina ансамбль, см. main()), не сырой CLIP.
+                    relevant = candidate_passes_guards(probe, query, relevance=cand_rel)
                     cand_relevance[trial] = cand_rel
                     if used_hashes is not None:
                         try:
@@ -13879,10 +14020,13 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
             path, vid, cand_hash = chosen
             chosen_rel = cand_relevance.get(path)
             if chosen is plain_fallback:
-                # Ни один кандидат не прошёл relevance-гейт вообще (не
-                # только "похож на уже показанное", как у dup_fallback) —
-                # тот же случай, что RELEVANCE_GATE_MISSES ловит у фото
-                # (см. её докстринг выше). probe уже удалён к этому моменту
+                # Ни один кандидат не прошёл `relevant` (calibrated-guards
+                # гейт, см. candidate_passes_guards() выше) — не только
+                # "похож на уже показанное", как у dup_fallback. Это ТОЧНО
+                # тот случай, что ANACHRONISM_GUARD_MISSES ловит у фото (см.
+                # её докстринг): попасть в эту ветку можно только провалив
+                # калиброванные защиты, сырой порог сходства с запросом на
+                # это больше не влияет. probe уже удалён к этому моменту
                 # (extract_video_probe_frame чистит себя сам) — путь ещё цел
                 # (это САМ видеофайл, не пробник), поэтому релевантность
                 # можно честно перепосчитать один раз на итоговом кадре.
@@ -13890,10 +14034,17 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                 rel = clip_relevance(probe2, query) if probe2 is not None else None
                 if cleanup2 and probe2 and os.path.exists(probe2):
                     os.remove(probe2)
-                RELEVANCE_GATE_MISSES.append({
-                    "index": index, "query": query, "relevance": rel,
-                    "threshold": CLIP_RELEVANCE_THRESHOLD, "kind": "video",
+                ANACHRONISM_GUARD_MISSES.append({
+                    "index": index, "kind": "video", "query": query,
                 })
+                # RELEVANCE_GATE_MISSES — отдельный, СЛАБЕЕ сигнал (см. её
+                # докстринг): проверяется НЕЗАВИСИМО, только если сырой скор
+                # реально ниже слабого порога, а не как синоним предыдущего.
+                if rel is not None and rel < CLIP_RELEVANCE_THRESHOLD:
+                    RELEVANCE_GATE_MISSES.append({
+                        "index": index, "query": query, "relevance": rel,
+                        "threshold": CLIP_RELEVANCE_THRESHOLD, "kind": "video",
+                    })
                 # Пересчёт идёт по ИТОГОВОМУ кадру, а не по пробнику — это
                 # число точнее, поэтому в sidecar едет именно оно.
                 if rel is not None:
@@ -16846,6 +16997,19 @@ def main():
     if not relevance_checked:
         print("  ВНИМАНИЕ: релевантность/анахронизмы кандидатов НЕ проверялись (CLIP не загружен или нет Pexels) — "
               "смотреть кадры глазами обязательно (Шаг 7.5)")
+    # ANACHRONISM_GUARD_MISSES — см. её докстринг у объявления: победитель
+    # провалил КАЛИБРОВАННЫЕ защиты (не сырой порог) — сильнее сигнал, чем
+    # RELEVANCE_GATE_MISSES выше, и по устройству срабатывает только когда
+    # весь допустимый пул был пуст (см. _score_and_pick).
+    anachronism_report_path = os.path.join(VIDEO_FOLDER, "media_plan", "anachronism_guard_report.json")
+    merge_slot_report(anachronism_report_path, ANACHRONISM_GUARD_MISSES,
+                      resolved_slots=RESOLVED_SLOTS_THIS_RUN)
+    if ANACHRONISM_GUARD_MISSES:
+        idxs = [m["index"] for m in ANACHRONISM_GUARD_MISSES]
+        print(f"  ВНИМАНИЕ: {len(ANACHRONISM_GUARD_MISSES)} слот(ов) {idxs} — победитель провалил "
+              f"калиброванную защиту (risky-margin/домен-гвард/контрастивное вето), ничего лучше "
+              f"в пуле не нашлось — см. media_plan/anachronism_guard_report.json, сверить глазами.")
+
     if RELEVANCE_GATE_MISSES:
         # Формулировка "весь пул провалил гейт" здесь исторически неточна —
         # см. докстринг STOCK_EXHAUSTED_MISSES выше: на деле проверяется
@@ -17318,6 +17482,7 @@ def main():
     # и ни одна строка лога об этом не говорила, число жило только в JSON.
     # Отчёт, который никто не открывает в момент сдачи, знанием не является.
     known_bad_idx = ({m["index"] for m in RELEVANCE_GATE_MISSES} |
+                     {m["index"] for m in ANACHRONISM_GUARD_MISSES} |
                      {m["index"] for m in STOCK_EXHAUSTED_MISSES} |
                      {m["index"] for m in ARBITER_REJECTED_ALL})
     shipped_bad = sorted(known_bad_idx - {s["index"] for s in FALLBACK_CARD_SLOTS})
