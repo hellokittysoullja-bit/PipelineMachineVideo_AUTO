@@ -14081,9 +14081,19 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                 used_ids.add(best[3])
             if used_hashes is not None and best[4] is not None:
                 used_hashes.append(best[4])
+            # РЕАЛЬНЫЙ найденный баг (20.09): "video_relevance_best" писался
+            # ЛИТЕРАЛОМ независимо от того, сколько раз зрячий гейт выше
+            # отклонил кандидата и переподобрал — в отличие от фото-пути
+            # (`chosen_by = chosen_by + "+frame_verify_repick"`), видео-путь
+            # никогда не отражал переподбор в самом chosen_by. Снаружи
+            # (shotlist.json, контактный лист) это выглядело так, будто
+            # зрячий гейт видео вообще не смотрел, хотя цикл выше мог его
+            # трижды отклонить и честно переподобрать — аудит-трейл врал
+            # именно там, где владелец и разбирает происхождение брака.
+            video_chosen_by = "video_relevance_best" + "+frame_verify_repick" * fv_repicks
             write_media_sidecar(cf, pexels_id=best[3], query=query, kind="video",
                                 ahash_hex=best[4], relevance=best_rel,
-                                chosen_by="video_relevance_best",
+                                chosen_by=video_chosen_by,
                                 candidate_text=cand_text.get(best[2]))
             _source_bump(candidate_channel(best[3]), "won")
             _reset_pexels_streak()

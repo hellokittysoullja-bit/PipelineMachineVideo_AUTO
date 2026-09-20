@@ -160,7 +160,16 @@ class TestVideoRelevanceIsRecorded:
         block = src[src.index("write_media_sidecar(cf, pexels_id=best[3]"):]
         block = block[:block.index(")\n")]
         assert "relevance=best_rel" in block
-        assert 'chosen_by="video_relevance_best"' in block
+        # 20.09: chosen_by больше не литерал "video_relevance_best" —
+        # он обязан отражать РЕАЛЬНОЕ число переподборов зрячим гейтом
+        # (video_chosen_by = "video_relevance_best" + "+frame_verify_repick"
+        # * fv_repicks), иначе аудит-трейл видео-слота лжёт о том, сколько
+        # раз гейт отклонил кандидата.
+        assert "chosen_by=video_chosen_by" in block
+        assert (
+            'video_chosen_by = "video_relevance_best" '
+            '+ "+frame_verify_repick" * fv_repicks'
+        ) in src
 
     def test_fallbacks_write_theirs(self):
         src = self._src()
