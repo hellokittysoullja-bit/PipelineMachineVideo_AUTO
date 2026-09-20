@@ -78,7 +78,10 @@
     "fencer",
     "epee",
     "parade",
-    "military wedding"
+    "military wedding",
+    "off road vehicle",
+    "overturned vehicle",
+    "pottery"
   ],
   "voice": {
     "highpass_hz": 80,

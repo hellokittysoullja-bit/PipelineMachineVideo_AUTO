@@ -5576,6 +5576,27 @@ _CONTENT_ALT_BLOCKLIST_DEFAULT = (
     # фильтр научился читать слаг url (см. pexels_candidate_text) — у видео
     # alt приходит пустым, и раньше их текста никто не видел.
     "fencing", "fencer", "epee", "parade", "military wedding",
+    # Найдено вживую 20.09, разбор слота "steel gauntlet stuck mud armor"
+    # (тест _test_anchor_medieval): запрос со словами "stuck"+"mud" в
+    # ЖИВОЙ выдаче Pexels даёт офф-роуд внедорожники, застрявшие в грязи
+    # ("Rescue operation for an overturned vehicle in muddy terrain",
+    # "Person in helmet checks a stuck yellow off-road vehicle") — слова
+    # коллизируют с современным контентом про бездорожье. "armored hand
+    # mud" тем же способом тянет гончарное дело (руки в глине). Ни один
+    # существующий гвард это не ловит — предмет в кадре (машина/гончарный
+    # круг) не похож на клинок другой культуры, только текст отличает.
+    # Термин БЕЗ дефиса ("off road", не "off-road") — pexels_candidate_text()
+    # заменяет "-/_" на пробел ДО сравнения (см. её докстринг про слаги),
+    # и версия с дефисом молча не совпадает НИКОГДА; поймано прямым тестом
+    # на реальном alt-тексте кандидата, не прочтением кода.
+    "off road vehicle", "overturned vehicle",
+    # ОДНО слово, не фраза "pottery wheel" — Pixabay отдаёт теги ЧЕРЕЗ
+    # ЗАПЯТУЮ отдельными словами ("hands, pottery, pot, brown, wheel,
+    # mud, craftsmanship, clay" — реальный живой тег с 20.09), запятая
+    # не входит в набор символов, которые pexels_candidate_text() стирает
+    # (только "-/_"), и многословная фраза не совпала бы НИКОГДА с этим
+    # форматом — поймано тем же прямым тестом на реальных данных.
+    "pottery",
 )
 # Override из channel_profile.json (см. CHANNEL_PROFILE выше) — тот же
 # принцип, что MOOD_GRADE/VOICE_*: список выше — хардкод по умолчанию ЭТОГО
