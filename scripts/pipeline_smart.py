@@ -12202,6 +12202,25 @@ def get_clip_model():
 _CLIP_TEXT_EMB_CACHE = {}
 
 
+def _siglip2_relevance_multi(image_path, texts):
+    """SigLIP2-эквивалент clip_relevance_multi(): картинка кэширована по
+    файлу, текст — по строке (visual_director._siglip2_image_emb/_text_emb),
+    поэтому повторный вызов на том же кадре/тех же анкерах (8 ловушек
+    негативного вето, десятки кандидатов) не пересчитывает башню заново —
+    тот же практический эффект, что у батч-прохода clip_relevance_multi(),
+    просто через уже существующий кэш, а не отдельный batched forward.
+    Все-или-ничего, как исходный контракт: одна ошибка внутри — весь
+    список None, а не частично отсутствующие значения."""
+    import visual_director as _vd
+    out = []
+    for t in texts:
+        v = _vd._siglip2_relevance(image_path, t)
+        if v is None:
+            return None
+        out.append(v)
+    return out
+
+
 def clip_relevance_multi(image_path, texts):
     """Косинусы ОДНОЙ картинки против НЕСКОЛЬКИХ текстов за один прогон.
 
@@ -12221,6 +12240,8 @@ def clip_relevance_multi(image_path, texts):
     global CLIP_BROKEN
     if not CLIP_ENABLED or CLIP_BROKEN or not texts:
         return None
+    if feature_flags.enabled("GATE_MODEL_SIGLIP2"):
+        return _siglip2_relevance_multi(image_path, texts)
     try:
         import torch
         model, processor = get_clip_model()
@@ -12255,6 +12276,9 @@ def clip_relevance(image_path, text):
     global CLIP_BROKEN
     if not CLIP_ENABLED or CLIP_BROKEN:
         return None
+    if feature_flags.enabled("GATE_MODEL_SIGLIP2"):
+        import visual_director as _vd
+        return _vd._siglip2_relevance(image_path, text)
     try:
         import torch
         model, processor = get_clip_model()

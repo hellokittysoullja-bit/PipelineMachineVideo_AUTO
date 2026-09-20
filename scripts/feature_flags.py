@@ -349,6 +349,23 @@ FLAGS = {f.name: f for f in (
          summary="Щелчки печатной машинки под stat-плашкой варианта 5 (нужны assets/sfx/keyboard_clicks/)"),
     Flag("ON_SCREEN_TEXT", "1",
          summary="Отрисовка титров/stat-плашек поверх кадра (текст сценария не трогается)"),
+    # Замена модели ГЕЙТА (clip_relevance()/clip_relevance_multi() —
+    # relevance-скор, домен-гвард, негативное вето) с clip-vit-base-patch32
+    # на SigLIP2-so400m (та же модель, что уже стоит РАНЖИРОВАНИЕМ в
+    # visual_director.sentence_relevance()). Решение владельца 20.09,
+    # ПОСЛЕ прямого предупреждения числом: докстринг so400m_as_judge.json
+    # (18.09) уже измерил тот же вопрос на золотом наборе — сильная модель
+    # ловит 2 брака из 17 против 1 у слабой, то есть выигрыш на оси ГЕЙТА
+    # почти нулевой (распределения годных/брака перекрываются целиком
+    # независимо от силы модели — 65-76% брака это анахронизм/культура,
+    # вопрос ЗНАНИЯ, не сходства). Все пороги (CLIP_RELEVANCE_THRESHOLD,
+    # NEGATIVE_VETO_MARGIN, VISUAL_DOMAIN_GUARDS.margin_threshold,
+    # RISKY_QUERY_MARGIN, PARTICLE_SCORE_THRESHOLD) пересчитаны под новую
+    # шкалу отдельно (см. GATE_SIGLIP2_* в pipeline_smart.py) — сырые скоры
+    # SigLIP2 в разы меньше CLIP (0.02-0.13 против 0.17-0.33 на живых
+    # кандидатах), старые числа на новой модели значили бы «отклонить всё».
+    Flag("GATE_MODEL_SIGLIP2", "0",
+         summary="Модель гейта (relevance/домен-гвард/вето) — SigLIP2-so400m вместо clip-vit-base-patch32"),
 )}
 
 _warned = set()
