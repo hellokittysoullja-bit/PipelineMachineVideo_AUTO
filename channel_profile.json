@@ -121,6 +121,11 @@
     "castle",
     "chivalry"
   ],
+  "content_blocked_candidate_ids": [
+    "pexels:855260",
+    "pexels:35687472",
+    "pexels:31595410"
+  ],
   "openverse_domain_nouns": [
     "armour",
     "armor",
