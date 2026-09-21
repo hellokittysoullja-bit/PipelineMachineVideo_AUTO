@@ -142,6 +142,25 @@ class TestArtifactsAxis:
         assert a["by_kind"] == {"photo": 4}
         assert a["gates"]["pexels_api_key"] is False
 
+    def test_absorbed_and_selection_only_are_not_counted_as_render_failures(self, tmp_path):
+        """render_manifest несёт четыре статуса (ok/failed/absorbed/
+        skipped_selection_only) — прежний `!= "ok"` считал ПОГЛОЩЁННЫЙ
+        слот (намеренный, успешный исход NEVER_SHOW_KNOWN_BAD) и слот
+        SELECTION_ONLY-прогона (рендера не было по замыслу режима) той
+        же "render_manifest:failed", что и настоящий сорванный рендер —
+        найдено тем же аудитом 21.09, что чинил контактный лист."""
+        mp = tmp_path / "media_plan"
+        mp.mkdir()
+        (mp / "shotlist.json").write_text(json.dumps({"version": 1, "shots": []}), encoding="utf-8")
+        (mp / "render_manifest.json").write_text(json.dumps({"clips": [
+            {"index": 0, "status": "ok"},
+            {"index": 1, "status": "absorbed", "reason": "frame_verifier_gave_up"},
+            {"index": 2, "status": "skipped_selection_only"},
+            {"index": 3, "status": "failed", "reason": "ffmpeg crashed"},
+        ]}), encoding="utf-8")
+        a = sr.collect_artifacts(str(tmp_path))
+        assert a["rejections"].get("render_manifest:failed") == 1, a["rejections"]
+
 
 class TestBuild:
     def test_build_writes_report_and_contact_pages(self, episode):

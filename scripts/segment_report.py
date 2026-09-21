@@ -253,7 +253,20 @@ def collect_artifacts(video_dir):
             key = f"{name[:-5]}:{m.get('kind', '?')}"
             rejections[key] = rejections.get(key, 0) + 1
     rm = _load(os.path.join(mp, "render_manifest.json")) or {}
-    failed = [c for c in rm.get("clips") or [] if c.get("status") != "ok"]
+    # render_manifest несёт ЧЕТЫРЕ статуса (ok/failed/absorbed/
+    # skipped_selection_only), не два — прежний `!= "ok"` считал
+    # ПОГЛОЩЁННЫЙ слот (NEVER_SHOW_KNOWN_BAD, 21.09, намеренный и
+    # успешный исход) и слот SELECTION_ONLY-прогона (рендера вообще не
+    # было по замыслу режима) за ту же "render_manifest:failed", что и
+    # настоящий сорванный рендер — тот самый класс, из-за которого этот
+    # репозиторий уже когда-то завёл отдельные коды возврата EXIT_OK/
+    # EXIT_NOT_BUILT/EXIT_BUILT_WITH_WARNINGS (см. комментарий у них в
+    # pipeline_smart.py: "render_episode.py писал status='failed' для
+    # совершенно нормального рендера с парой похожих кадров"). Поглощение
+    # уже честно посчитано выше через by_source["absorbed"] — дважды, да
+    # ещё и под именем "failed", его считать не нужно.
+    failed = [c for c in rm.get("clips") or []
+              if c.get("status") not in ("ok", "absorbed", "skipped_selection_only")]
     if failed:
         rejections["render_manifest:failed"] = len(failed)
     qc = _load(os.path.join(mp, "render_qc_report.json")) or {}
