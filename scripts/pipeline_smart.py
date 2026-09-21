@@ -4904,11 +4904,28 @@ def _slot_miss_snapshot(index):
     Нужно, потому что отчёты ключуются по слоту: вердикт, вынесенный
     ОТВЕРГНУТОМУ видео, иначе остался бы висеть на слоте, где в итоге стоит
     совсем другой кадр, и итоговая строка считала бы спасённый слот браком.
+
+    РЕАЛЬНЫЙ найденный пробел (21.09, videos/94_dagger_test, слот "Конница
+    мчится через поле прямо на пехоту"): список из трёх категорий был
+    списком-КОПИЕЙ того, что реально проверяет _slot_known_bad_reason() —
+    та смотрит СНАЧАЛА SMART_VETO_MISSES (сильнейший сигнал, "модель
+    посмотрела на итоговый кадр"), а этот снимок про него не знал вообще.
+    Следствие не только косметическое (пустая строка reason в отчёте): видео
+    было отвергнуто ИМЕННО smart_relevance_veto, `_slot_known_bad_reason()`
+    это увидела и запустила спасение фотографией — а `_slot_miss_snapshot()`
+    не забрала эту запись, и `media_plan/video_photo_rescue_report.json`
+    печатал `"reason": ""` там, где должно быть `"reason": "smart_veto"` —
+    то есть отчёт молчал о РЕАЛЬНОЙ причине ровно там, где она была известна
+    точнее всего. DIRECTOR_RELEVANCE_MISSES — тот же список, что четвёртым
+    (самым слабым) пунктом проверяет _slot_known_bad_reason() — добавлен по
+    той же причине, не выборочно.
     """
     taken = {}
     for name, lst in (("relevance", RELEVANCE_GATE_MISSES),
                       ("stock", STOCK_EXHAUSTED_MISSES),
-                      ("arbiter", ARBITER_REJECTED_ALL)):
+                      ("arbiter", ARBITER_REJECTED_ALL),
+                      ("smart_veto", SMART_VETO_MISSES),
+                      ("director", DIRECTOR_RELEVANCE_MISSES)):
         taken[name] = [m for m in lst if m.get("index") == index]
         lst[:] = [m for m in lst if m.get("index") != index]
     return taken
@@ -4918,7 +4935,9 @@ def _slot_miss_restore(snapshot):
     """Вернуть вердикты на место — спасение не состоялось, кадр прежний."""
     for name, lst in (("relevance", RELEVANCE_GATE_MISSES),
                       ("stock", STOCK_EXHAUSTED_MISSES),
-                      ("arbiter", ARBITER_REJECTED_ALL)):
+                      ("arbiter", ARBITER_REJECTED_ALL),
+                      ("smart_veto", SMART_VETO_MISSES),
+                      ("director", DIRECTOR_RELEVANCE_MISSES)):
         lst.extend(snapshot.get(name) or ())
 
 
