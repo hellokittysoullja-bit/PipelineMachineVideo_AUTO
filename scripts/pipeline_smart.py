@@ -6734,6 +6734,17 @@ MUSEUM_SOURCES_VERSION = 5
 MUSEUM_RAW_QUERY_VERSION = 1
 # Ниже двух слов не опускаемся ни на одной ступени — см. коммент про танк.
 OPENVERSE_QUERY_MIN_WORDS = 2
+# Кэш-хит pexels_photo()/pexels_video() СТАЛ повторно спрашивать
+# frame_verifier перед тем, как отдать файл (21.09, найдено живым прогоном —
+# слот «Вот кинжал.» отдавал файл, на который frame_verdicts/ уже хранил
+# «no»). Сам факт включения FRAME_VERIFIER уже входит в подпись выше — но это
+# правка ПОВЕДЕНИЯ кэш-хита при уже включённом флаге, а не переключения
+# флага. Без версии здесь смена не дошла бы до экрана на прогретом
+# temp_smart/: уже отрендеренный клип, чей исходный кандидат теперь был бы
+# отклонён именно этой проверкой, продолжал бы отдаваться как есть —
+# ровно тот класс, что описан комментарием у frame_verifier.PROMPT_VERSION
+# парой абзацев выше, только для ЛОГИКИ кэш-хита, а не для вопроса гейта.
+FRAME_VERIFIER_CACHE_HIT_VERSION = 1
 
 # СЛОВА РАКУРСА — НЕ ТО ЖЕ САМОЕ, что OPENVERSE_QUERY_MODIFIERS выше, и
 # путать их нельзя. Тот список режет слова, чтобы РАСШИРИТЬ узкий архивный
@@ -12006,6 +12017,10 @@ def _selection_stack_signature():
         # хэшировался режим, но не версия конкретного вопроса; тут не было
         # ни того, ни другого для ВОПРОСА, только для факта включения слоя.
         frame_verifier.PROMPT_VERSION,
+        # Кэш-хит стал повторно спрашивать frame_verifier (21.09) — правка
+        # ПОВЕДЕНИЯ при уже включённом флаге, не переключения. См. коммент
+        # у FRAME_VERIFIER_CACHE_HIT_VERSION.
+        FRAME_VERIFIER_CACHE_HIT_VERSION,
         # Ступень «негодное видео -> фотография» меняет САМ ТИП медиа в слоте,
         # то есть то, что реально увидит зритель. Ключ клипа считается до
         # резолва медиа — без флага здесь на прогретом temp_smart/ в слоте
@@ -12018,6 +12033,14 @@ def _selection_stack_signature():
         feature_flags.enabled("FALLBACK_CARD"),
         FALLBACK_CARD_MAX_SHARE, FALLBACK_CARD_MIN_GAP,
         FALLBACK_CARD_BUDGET_VERSION,
+        # «Лучший из плохих» как исход (21.09) — меняет, ЧТО реально
+        # окажется в слоте (пусто/соседний клип вместо брака), а не только
+        # как выбирается кандидат: тот же класс, что FALLBACK_CARD строкой
+        # выше, и по той же причине — ключ клипа считается ДО резолва
+        # медиа, без флага здесь переключение на прогретом temp_smart/ не
+        # доходило бы до экрана (найдено аудитом 21.09, тот же день, что
+        # сам механизм был портирован).
+        feature_flags.enabled("NEVER_SHOW_KNOWN_BAD"),
         # Видео-путь получил тот же compute_extra_score(), что и фото (см.
         # VIDEO_DIRECTOR_SCORE_VERSION выше) — меняет, кто побеждает среди
         # уже прошедших гейты видео-кандидатов, без флага здесь смена
@@ -16285,10 +16308,59 @@ def main():
     # десятки слотов это решение обязано быть одинаковым для всех, иначе
     # половина ролика собрана одним правилом, половина другим.
     _carry_sec = 0.0
+    # Визуальный старт ПЕРВОГО слота цепочки поглощения — отдельно от
+    # _carry_sec (длительность). Реальный, найденный аудитом 21.09 риск:
+    # `visual_starts` — статический массив, посчитанный ДО цикла в
+    # предположении, что у каждого блока свой клип; кинетические подписи
+    # хука (hook_captions_for_block) читают `visual_starts[i]` СВОЕГО
+    # индекса. Если слот i поглощён, клип, который на экране реально
+    # СТОИТ на месте i, строится на итерации i+1 — и без переноса он
+    # получил бы подписи от `visual_starts[i+1]` (на durs[i] позже
+    # истинного начала) вместо `visual_starts[i]`. Цепочка из нескольких
+    # подряд поглощённых слотов обязана донести САМЫЙ РАННИЙ старт, не
+    # промежуточный — тот же принцип, что уже несёт _carry_sec.
+    _carry_visual_start = None
     never_show_known_bad = feature_flags.enabled("NEVER_SHOW_KNOWN_BAD")
     # Плашки с цифрой, чьи слоты поглощены: цифра — контент, она переезжает
     # на поглощающий клип, а не исчезает с экрана.
     stat_carry = []
+
+    def _absorb_known_bad_slot(i, b, d, reason, stat, stat_variant, stat_delay, chain_start):
+        """Общее тело поглощения — вызывается из ДВУХ точек решения.
+
+        Первая знает bad_reason ДО отбора медиа (арбитр/сток/анахронизм/
+        порог релевантности — см. _slot_known_bad_reason()). Вторая узнаёт
+        `director_relevance_decisive` только ПОСЛЕ того, как медиа уже
+        выбрано (Директор оценивает готового победителя). Найдено аудитом
+        21.09: вторая точка при исчерпанном бюджете карточек не делала
+        НИЧЕГО — известный брак так и оставался на экране, потому что
+        `NEVER_SHOW_KNOWN_BAD` там не проверялся вовсе. Тело поглощения
+        вынесено в одну функцию, а не продублировано во втором месте:
+        разошедшаяся копия — ровно тот класс расхождения, которым этот
+        файл уже горел (`library_sounds`/`library_files`,
+        `CONTENT_ALT_BLOCKLIST`/`_CONTENT_ALT_BLOCKLIST_DEFAULT`).
+
+        `chain_start` — истинный визуальный старт ЦЕПОЧКИ (см. коммент у
+        _carry_visual_start), переносится дальше на следующий слот, а не
+        собственный `visual_starts[i]` этого слота: если ОН сам продолжает
+        уже начавшуюся цепочку, его собственный старт был бы позже истинного."""
+        nonlocal _carry_sec, _carry_visual_start
+        ABSORBED_SLOTS.append({"index": i, "reason": reason, "text": b["text"],
+                               "carried_sec": round(d, 3)})
+        if stat:
+            stat_carry.append((stat, stat_variant, stat_delay))
+        _carry_sec = d
+        _carry_visual_start = chain_start
+        print(f"    [{i+1}] нет проверенного кадра ({reason}) — "
+              f"{d:.1f}с отдано соседнему кадру")
+        render_manifest[i] = {"index": i, "status": "absorbed",
+                               "reason": reason, "section": b["section"],
+                               "duration": d}
+        mark_reports_skipped(i, "absorbed_into_neighbour")
+        shot_entries[i] = {"index": i, "section": b["section"], "text": b["text"],
+                           "query": queries[i], "kind": None, "file": None,
+                           "source": "absorbed", "clip": None}
+
     for i, (b, d) in enumerate(zip(blocks, durs)):
         # ПЕРЕНОС ДЛИТЕЛЬНОСТИ ОТ ПОГЛОЩЁННЫХ СЛОТОВ. Слот, которому нечего
         # честно показать, не получает своего клипа — его время достаётся
@@ -16299,6 +16371,14 @@ def main():
         # ушёл бы в два клипа.
         d = d + _carry_sec
         _carry_sec = 0.0
+        # Истинный визуальный старт ЭТОГО клипа: либо унаследован от цепочки
+        # поглощённых перед ним слотов, либо (нет цепочки) собственный
+        # visual_starts[i]. Читается один раз в начале итерации, чтобы
+        # caption-код ниже и возможное дальнейшее поглощение этого же слота
+        # (chain_visual_start передаётся дальше) видели одно и то же.
+        chain_visual_start = (_carry_visual_start if _carry_visual_start is not None
+                              else visual_starts[i])
+        _carry_visual_start = None
         absorb_reason = None
         # Титр темы — только на ПЕРВОМ кадре новой секции (BLOCK N: Название).
         is_section_start = i == 0 or blocks[i]["section"] != blocks[i - 1]["section"]
@@ -16310,11 +16390,15 @@ def main():
         # D2: кинетические подписи — только ХУК, только если alignment.csv
         # реально дал слова на эту секцию. hook_words уже пересчитаны в
         # ВИЗУАЛЬНУЮ шкалу (rescale_hook_words_to_visual_time, P0-3) —
-        # поэтому здесь тоже visual_starts[i]/d (реальный старт/длительность
-        # ЭТОГО клипа на шкале монтажа), а не sub_starts/sub_baseline
-        # (аудио-шкала — она бы совпала с визуальной только без "очелове-
-        # чивающих" сдвигов durs, см. apply_within_cut_shift и соседей).
-        captions = (hook_captions_for_block(hook_words, visual_starts[i], d)
+        # поэтому здесь тоже chain_visual_start/d (реальный старт/
+        # длительность ЭТОГО клипа на шкале монтажа), а не sub_starts/
+        # sub_baseline (аудио-шкала — она бы совпала с визуальной только без
+        # "очеловечивающих" сдвигов durs, см. apply_within_cut_shift и
+        # соседей). НЕ голый visual_starts[i]: если этому клипу переданы
+        # секунды поглощённого соседа, он реально стоит на экране там, где
+        # начинался ПЕРВЫЙ слот цепочки поглощения, а не на своей исходной
+        # (более поздней) позиции — см. _carry_visual_start у объявления.
+        captions = (hook_captions_for_block(hook_words, chain_visual_start, d)
                     if (hook_words and b["section"].startswith("HOOK")) else None)
         if stat:
             stat_count += 1
@@ -16772,20 +16856,8 @@ def main():
             # Плашка с цифрой — КОНТЕНТ, а не картинка: она наследуется
             # поглощающим клипом ниже (stat_carry), а не теряется.
             reason = absorb_reason or FALLBACK_NO_MEDIA_REASON
-            ABSORBED_SLOTS.append({"index": i, "reason": reason,
-                                   "text": b["text"], "carried_sec": round(d, 3)})
-            if stat:
-                stat_carry.append((stat, stat_variant, stat_delay))
-            _carry_sec = d
-            print(f"    [{i+1}] нет проверенного кадра ({reason}) — "
-                  f"{d:.1f}с отдано соседнему кадру")
-            render_manifest[i] = {"index": i, "status": "absorbed",
-                                   "reason": reason, "section": b["section"],
-                                   "duration": d}
-            mark_reports_skipped(i, "absorbed_into_neighbour")
-            shot_entries[i] = {"index": i, "section": b["section"], "text": b["text"],
-                               "query": queries[i], "kind": None, "file": None,
-                               "source": "absorbed", "clip": None}
+            _absorb_known_bad_slot(i, b, d, reason, stat, stat_variant, stat_delay,
+                                   chain_visual_start)
             continue
         if not photo and not video:
             print(f"  [{i+1}] нет медиа")
@@ -16935,15 +17007,29 @@ def main():
         # релевантности) известны РАНЬШЕ отбора и обслуживаются первой
         # проверкой — её трогать нельзя, иначе видео-путь потеряет
         # спасение фотографией, которое идёт до карточки.
+        late_reason = None
         if (photo or video) and not locked_shot and not any(
                 sl.get("index") == i for sl in FALLBACK_CARD_SLOTS):
             late_reason = _slot_known_bad_reason(i)
-            if (late_reason == "director_relevance_decisive"
-                    and fallback_card_allowed(i, len(blocks),
-                                              is_opening=is_opening_shot)):
-                late_card = build_slot_fallback_card(i, b["text"], late_reason)
-                if late_card:
-                    photo, video = late_card, None
+            if late_reason == "director_relevance_decisive":
+                if fallback_card_allowed(i, len(blocks), is_opening=is_opening_shot):
+                    late_card = build_slot_fallback_card(i, b["text"], late_reason)
+                    if late_card:
+                        photo, video = late_card, None
+                elif never_show_known_bad:
+                    # РЕАЛЬНЫЙ, найденный аудитом 21.09 пробел: эта, вторая
+                    # точка решения проверяла ТОЛЬКО бюджет карточки — при
+                    # исчерпанном бюджете известный по Директору брак
+                    # оставался на экране как есть, хотя первая точка на
+                    # ту же ситуацию уже давно отвечает поглощением.
+                    # NEVER_SHOW_KNOWN_BAD обязан работать симметрично для
+                    # ОБЕИХ причин, а не только для тех, что известны до
+                    # отбора медиа.
+                    photo, video = None, None
+        if not photo and not video and never_show_known_bad and late_reason == "director_relevance_decisive":
+            _absorb_known_bad_slot(i, b, d, late_reason, stat, stat_variant, stat_delay,
+                                   chain_visual_start)
+            continue
         luma = measure_luma(photo, is_video=False) if photo else measure_luma(video, is_video=True)
         if luma is not None:
             _clamp, _gain = luma_match_params()
@@ -17233,6 +17319,17 @@ def main():
         # файл и не молчаливая деградация. SELECTION_ONLY здесь не считается
         # — в этом режиме clips пуст ВСЕГДА по замыслу (рендера вообще не
         # было), и это не то же самое, что «показывать нечего».
+        # РЕАЛЬНЫЙ, найденный живым прогоном 21.09 баг: сообщение отсылало к
+        # absorbed_slots_report.json, а сам отчёт писался НИЖЕ этого return —
+        # на полном провале эпизода файл, названный причиной, не существовал
+        # вообще. Пишем здесь же, тем же вызовом, что и на обычном пути (он
+        # ниже не выполнится — return завершает функцию раньше, дублирующей
+        # записи не возникает).
+        merge_slot_report(
+            os.path.join(VIDEO_FOLDER, "media_plan", "absorbed_slots_report.json"),
+            ABSORBED_SLOTS, resolved_slots=RESOLVED_SLOTS_THIS_RUN,
+            extra={"never_show_known_bad": never_show_known_bad,
+                   "tail_carry_sec": round(_carry_sec, 3)})
         print("\nСТОП: ни один слот не получил ПРОВЕРЕННОГО кадра — "
               f"поглощено {len(ABSORBED_SLOTS)} слот(ов), показывать нечего. "
               "Смотреть media_plan/absorbed_slots_report.json: чаще всего это "

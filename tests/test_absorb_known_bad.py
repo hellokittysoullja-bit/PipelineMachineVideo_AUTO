@@ -151,3 +151,49 @@ def test_flag_off_restores_the_old_behaviour(episode):
     if report.exists():
         assert not json.load(open(report, encoding="utf-8"))["misses"], \
             "при снятом флаге поглощений быть не должно"
+
+
+@pytest.fixture
+def episode_no_media(tmp_path):
+    """Тот же эпизод, но БЕЗ единого локального файла — поглощать нечего,
+    ни один слот не может получить проверенный кадр. Прямая проверка
+    честного стопа (найдено живым прогоном 21.09 на videos/_test_
+    anchor_medieval: все 9 слотов реального эпизода отклонены зрячим
+    гейтом, и сообщение стопа отсылало к absorbed_slots_report.json,
+    которого на диске не было — отчёт писался ПОСЛЕ return)."""
+    d = tmp_path / "absorb_ep_empty"
+    (d / "media").mkdir(parents=True)
+    words = "раз два три четыре пять шесть семь восемь девять десять"
+    phrases = [f"{words} фраза номер {n}." for n in range(1, N_BLOCKS + 1)]
+    (d / "script.txt").write_text(
+        "=== HOOK === " + "[pause]".join(phrases[:2]) + "\n\n"
+        "=== BLOCK 1: Тест === " + "[pause]".join(phrases[2:4]) + "\n\n"
+        "=== FINAL === " + "[pause]".join(phrases[4:]) + "\n",
+        encoding="utf-8")
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i",
+                    f"sine=frequency=320:duration={AUDIO_SEC}",
+                    "-c:a", "libmp3lame", str(d / "audio.mp3")],
+                   capture_output=True, check=True)
+    return d
+
+
+def test_total_failure_writes_report_before_the_hard_stop(episode_no_media):
+    """Стоп на полном провале обязан оставить след, а не отсылать к файлу,
+    которого нет. Без локальных файлов и без сети ни один слот не может
+    получить проверенный кадр — это код возврата 1, а не 0/2."""
+    r = _run(episode_no_media, {"NEVER_SHOW_KNOWN_BAD": "1"})
+    assert r.returncode == 1, (
+        f"ожидался честный стоп (return 1) на полном провале, получено "
+        f"{r.returncode}:\n{r.stdout[-3000:]}\n{r.stderr[-1500:]}")
+    assert "СТОП" in r.stdout, r.stdout[-2000:]
+    assert not (episode_no_media / "final.mp4").exists()
+
+    report = episode_no_media / "media_plan" / "absorbed_slots_report.json"
+    assert report.exists(), (
+        "стоп сослался на absorbed_slots_report.json, а файла нет — "
+        "сообщение указывает не на существующую причину")
+    data = json.load(open(report, encoding="utf-8"))
+    absorbed = {row["index"] for row in data["misses"]}
+    assert len(absorbed) == N_BLOCKS, (
+        f"ожидалось, что ВСЕ {N_BLOCKS} слотов поглощены (показывать "
+        f"нечего никому), получено {absorbed}")
