@@ -76,6 +76,50 @@ def resolve_thumb_source(shot, video_dir):
     return direct
 
 
+def build_absorption_cover_map(all_shots):
+    """Слот без своего кадра (`source == "absorbed"`) не остаётся на экране
+    пустым — `pipeline_smart.py` переносит его длительность на СОСЕДНИЙ
+    проверенный слот (см. `_absorb_known_bad_slot`/`NEVER_SHOW_KNOWN_BAD`
+    в CLAUDE.md, 21.09): обычно ВПЕРЁД, на ближайший следующий слот с
+    настоящим кадром (перенос длительности копится по цепочке, пока не
+    дойдёт до первого проверенного); а если поглощён ХВОСТ эпизода (нести
+    вперёд некуда — слотов больше нет) — назад, заморозкой последнего
+    проверенного кадра (см. "ХВОСТОВОЕ ПОГЛОЩЕНИЕ" в pipeline_smart.py).
+
+    До этой функции контактный лист рисовал ОДИНАКОВЫЙ тёмно-красный
+    прямоугольник «НЕТ ФАЙЛА» и для честного отсутствия кандидата, и для
+    поглощённого слота — а поглощённый слот в реальном final.mp4 пустым
+    не бывает НИКОГДА, там стоит картинка соседа. Лист без этой поправки
+    выглядит так, будто половина ролика — чёрные дыры, хотя на самом деле
+    там просто меньше уникальных кадров, чем реплик.
+
+    Считается ПО ПОЛНОМУ списку (все страницы разом, по индексу слота, не
+    по позиции в срезе страницы) — иначе сосед на следующей странице был бы
+    не виден, а первая версия этой функции как раз на этом бы и ловилась.
+    Возвращает {index поглощённого слота: shot-запись соседа}; слот без
+    доступного соседа (во всём эпизоде нет ни одного проверенного слота) в
+    словарь не попадает — для него лист честно останется красным."""
+    ordered = sorted(all_shots, key=lambda s: s.get("index", 0))
+    n = len(ordered)
+    cover = {}
+    for k, shot in enumerate(ordered):
+        if shot.get("source") != "absorbed":
+            continue
+        neighbour = None
+        for j in range(k + 1, n):
+            if ordered[j].get("source") != "absorbed":
+                neighbour = ordered[j]
+                break
+        if neighbour is None:
+            for j in range(k - 1, -1, -1):
+                if ordered[j].get("source") != "absorbed":
+                    neighbour = ordered[j]
+                    break
+        if neighbour is not None:
+            cover[shot.get("index", k)] = neighbour
+    return cover
+
+
 def thumbnail_for(path):
     """PIL-картинка THUMB_W x THUMB_H (вписана, чёрные поля) или None."""
     if not path or not os.path.exists(path):
@@ -149,7 +193,8 @@ def wrap_text(text, font, max_w, draw, max_lines=3):
     return lines
 
 
-def render_page(shots, video_dir, cols, out_path):
+def render_page(shots, video_dir, cols, out_path, cover_map=None):
+    cover_map = cover_map or {}
     rows = (len(shots) + cols - 1) // cols
     cell_w, cell_h = THUMB_W + PAD, THUMB_H + CAPTION_H + PAD
     page = Image.new("RGB", (cols * cell_w + PAD, rows * cell_h + PAD), (28, 28, 28))
@@ -159,10 +204,26 @@ def render_page(shots, video_dir, cols, out_path):
     for k, shot in enumerate(shots):
         x0 = PAD + (k % cols) * cell_w
         y0 = PAD + (k // cols) * cell_h
-        thumb = thumbnail_for(resolve_thumb_source(shot, video_dir))
+        absorbed = shot.get("source") == "absorbed"
+        neighbour = cover_map.get(shot.get("index")) if absorbed else None
+        thumb_source = resolve_thumb_source(neighbour, video_dir) if neighbour else resolve_thumb_source(shot, video_dir)
+        thumb = thumbnail_for(thumb_source)
         if thumb is None:
             thumb = Image.new("RGB", (THUMB_W, THUMB_H), (70, 20, 20))
             ImageDraw.Draw(thumb).text((14, 14), "НЕТ ФАЙЛА / не прочитан", fill=(255, 200, 200), font=font_head)
+        elif absorbed and neighbour is not None:
+            # Честно, но не тревожно: слот поглощён, картинка — не его
+            # собственная. В final.mp4 здесь НЕТ пустого места (см.
+            # build_absorption_cover_map) — экран занимает сосед, просто
+            # дольше. Полупрозрачная плашка поверх кадра соседа отличает
+            # «одолжено» от «своё», не пряча при этом сам кадр целиком —
+            # именно то, что реально увидит зритель.
+            overlay = Image.new("RGBA", thumb.size, (0, 0, 0, 0))
+            ImageDraw.Draw(overlay).rectangle([0, 0, THUMB_W, 24], fill=(30, 20, 60, 190))
+            thumb = Image.alpha_composite(thumb.convert("RGBA"), overlay).convert("RGB")
+            ImageDraw.Draw(thumb).text(
+                (6, 3), f"ПОГЛОЩЁН → экран слота #{neighbour.get('index', 0) + 1}",
+                fill=(210, 190, 255), font=font_text)
         page.paste(thumb, (x0, y0))
         lock = " 🔒" if shot.get("lock") else ""
         # Провенанс и релевантность идут в подпись плитки, потому что именно
@@ -206,13 +267,17 @@ def main(argv=None):
     print(f"Гейты этого прогона: {json.dumps(gates, ensure_ascii=False)}")
     if off:
         print(f"  выключено/не сработало: {', '.join(off)}")
+    cover_map = build_absorption_cover_map(shots)
     outputs = []
     for p in range(0, len(shots), args.per_page):
         page_no = p // args.per_page + 1
         out = os.path.join(args.video_dir, "media_plan", f"shotlist_contact_{page_no:02d}.jpg")
-        outputs.append(render_page(shots[p:p + args.per_page], args.video_dir, args.cols, out))
-    missing = [s["index"] + 1 for s in shots if not s.get("file")]
+        outputs.append(render_page(shots[p:p + args.per_page], args.video_dir, args.cols, out, cover_map))
+    absorbed = [s["index"] + 1 for s in shots if s.get("source") == "absorbed"]
+    missing = [s["index"] + 1 for s in shots if not s.get("file") and s.get("source") != "absorbed"]
     print(f"Готово: {len(outputs)} страниц(ы) — {', '.join(outputs)}")
+    if absorbed:
+        print(f"  поглощены соседом (в final.mp4 — не пустые, экран соседа дольше): {absorbed}")
     if missing:
         print(f"  слоты без файла: {missing}")
     return 0

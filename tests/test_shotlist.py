@@ -169,6 +169,71 @@ def test_contact_sheet_without_shotlist(tmp_path):
     assert shotlist_contact.main([str(tmp_path)]) == 1
 
 
+def test_absorbed_slot_shows_neighbours_frame_not_a_blank_box(tmp_path):
+    """Найдено живой жалобой владельца 21.09: контактный лист рисовал
+    ОДИНАКОВЫЙ тёмно-красный «НЕТ ФАЙЛА» и для честного отсутствия
+    кандидата, и для поглощённого слота (NEVER_SHOW_KNOWN_BAD) — хотя
+    поглощённый слот в final.mp4 никогда не пуст, там стоит картинка
+    соседа с продлённой длительностью. Слот 0 поглощён и переносит на
+    слот 1 (следующий проверенный) — лист обязан показать КАДР СЛОТА 1,
+    а не заливку."""
+    vd = tmp_path
+    _photo(vd, "media/001.jpg")
+    shots = [
+        {"index": 0, "section": "HOOK", "text": "поглощённая фраза", "query": "q",
+         "kind": None, "file": None, "source": "absorbed"},
+        {"index": 1, "section": "HOOK", "text": "фраза с кадром", "query": "q",
+         "kind": "photo", "file": "media/001.jpg", "source": "local"},
+    ]
+    _shotlist(vd, shots)
+    assert shotlist_contact.main([str(vd), "--cols", "2", "--per-page", "24"]) == 0
+    img = Image.open(vd / "media_plan" / "shotlist_contact_01.jpg")
+    # JPEG (quality=85) шумит пиксели — сравнение "!= (70,20,20)" точным
+    # тюплом было бы тавтологией (само сжатие уже гарантирует неравенство
+    # даже БЕЗ фикса). Сравниваем с допуском против обоих опорных цветов:
+    # заливка «НЕТ ФАЙЛА» — (70, 20, 20); кадр соседа — media/001.jpg,
+    # залитый (120, 80, 40). Середина нижней трети плитки — точно внутри
+    # вписанного фото (thumbnail_for центрирует 64x36 в 480x270 letterbox),
+    # не задета оверлеем подписи ПОГЛОЩЁН (тот стоит у верхнего края).
+    y = shotlist_contact.PAD + shotlist_contact.THUMB_H // 2
+    left_pixel = img.getpixel((shotlist_contact.PAD + shotlist_contact.THUMB_W // 2, y))
+
+    def _close(a, b, tol=25):
+        return all(abs(a[k] - b[k]) <= tol for k in range(3))
+
+    assert not _close(left_pixel, (70, 20, 20)), \
+        f"слот 0 остался красной заливкой ({left_pixel}), кадр соседа не подставлен"
+    assert _close(left_pixel, (120, 80, 40)), \
+        f"слот 0 не показывает кадр соседа (получено {left_pixel})"
+
+
+def test_absorption_cover_looks_across_pages_by_index_not_position(tmp_path):
+    """Первая наивная версия резолвила соседа только ВНУТРИ среза текущей
+    страницы (позиция в списке, не индекс слота) — сосед на следующей
+    странице был бы не виден. Три слота на одной странице (per-page=1),
+    первый поглощён, второй с кадром — сосед на СЛЕДУЮЩЕЙ странице."""
+    vd = tmp_path
+    _photo(vd, "media/001.jpg")
+    shots = [
+        {"index": 0, "section": "HOOK", "text": "поглощённая фраза", "query": "q",
+         "kind": None, "file": None, "source": "absorbed"},
+        {"index": 1, "section": "HOOK", "text": "фраза с кадром", "query": "q",
+         "kind": "photo", "file": "media/001.jpg", "source": "local"},
+    ]
+    _shotlist(vd, shots)
+    assert shotlist_contact.main([str(vd), "--cols", "1", "--per-page", "1"]) == 0
+    img = Image.open(vd / "media_plan" / "shotlist_contact_01.jpg")
+    y = shotlist_contact.PAD + shotlist_contact.THUMB_H // 2
+    px = img.getpixel((shotlist_contact.PAD + shotlist_contact.THUMB_W // 2, y))
+
+    def _close(a, b, tol=25):
+        return all(abs(a[k] - b[k]) <= tol for k in range(3))
+
+    assert not _close(px, (70, 20, 20)), \
+        f"сосед на следующей странице не найден по индексу ({px})"
+    assert _close(px, (120, 80, 40)), f"неверный кадр подставлен ({px})"
+
+
 @pytest.mark.parametrize("mode,needle", [
     ("softlight", "blend=all_mode=softlight:all_opacity=0.2000"),
     ("grainmerge", "blend=all_mode=grainmerge:all_opacity=0.1000"),
