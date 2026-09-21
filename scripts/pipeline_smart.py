@@ -4792,7 +4792,8 @@ DIRECTOR_RELEVANCE_MISSES = []   # [{"index", "text", "photo", "relevance", "thr
 # и render_episode.py). Не меняет отбор победителя (тот же принцип "слот не
 # должен остаться пустым", ЧАСТЬ 13) — только делает этот более редкий и
 # более серьёзный случай видимым отдельно от обычного relevance-промаха.
-STOCK_EXHAUSTED_MISSES = []   # [{"index", "kind", "query", "n_candidates_examined"}, ...]
+STOCK_EXHAUSTED_MISSES = []   # [{"index", "kind", "query", "n_candidates_examined",
+                              #   "n_candidates_available"}, ...]
 
 # Слоты, где VLM-арбитр ЯВНО ответил "ни один из кандидатов не подходит"
 # (shot_director.NO_CANDIDATE_FITS). Сильнее любого численного промаха выше:
@@ -5447,8 +5448,57 @@ def disambiguate_search_query(query):
                          if not re.search(r"\b" + re.escape(w) + r"\b", ql)]
         if not missing_words:
             continue
-        return f"{' '.join(missing_words)} {query}"
-    return query
+        return _enforce_era_anchor(f"{' '.join(missing_words)} {query}")
+    return _enforce_era_anchor(query)
+
+
+def _enforce_era_anchor(query):
+    """Авторский запрос БЕЗ якоря эпохи получает якорь перед уходом в сток.
+
+    АСИММЕТРИЯ, которую это снимает (найдена аудитом 21.09): запрос из БРИФА
+    якорь получает всегда — `brief_to_stock_query()` его гарантирует и даже
+    переносит вперёд, чтобы пережить обрезку («0 запросов из 142 без якоря
+    эпохи»). Авторский запрос о том же самом получал только ПРЕДУПРЕЖДЕНИЕ
+    линта. Один и тот же пайплайн, один и тот же стоковый API, две разные
+    гарантии.
+
+    Цена warn-only измерена на живом прогоне: линт напечатал
+        HOOK: «small dagger in palm hand size» -> добавь якорь
+    и ничего не сделал — на фразу «Вот кинжал» встал современный нож в
+    ножнах. Предсказание сбылось дословно.
+
+    ЧЕСТНО О СИЛЕ ПРАВКИ (живой замер того же запроса к Pexels): якорь
+    сдвигает выдачу в нужный мир (появляются medieval gown / hooded warrior /
+    medieval attire), но НЕ вычищает её полностью — в первой восьмёрке всё
+    ещё встречаются татуировка и флешка. Это направленное улучшение, а не
+    серебряная пуля; основную работу на этом слоте делают вето паспорта
+    (ловушка `modern tactical knife`) и ре-пик после отказа вето.
+
+    Включается ТОЛЬКО когда эпизод сам объявил свой мир (есть паспорт с
+    era_anchor_terms). Нет паспорта — прежнее поведение байт-в-байт, и
+    клон репозитория под чужую нишу не получает чужих якорей: тот же
+    принцип, по которому пуст `_OPENVERSE_ERA_ANCHORS_DEFAULT`.
+    """
+    if not feature_flags.enabled("QUERY_ERA_ANCHOR_ENFORCE"):
+        return query
+    try:
+        import world_card
+        card = episode_world_card()
+        if not card:
+            return query
+        # Добавляем ТЕМ ЖЕ якорем, которым пользуется путь брифа, а наличие
+        # проверяем ШИРОКИМ списком линта: так запрос, уже стоящий в своём
+        # мире синонимом ("knight", "14th century"), не получает второго.
+        add = world_card.era_anchors(card, fallback=())
+        if not add:
+            return query
+        known = query_era_anchors_effective()
+        ql = (query or "").lower()
+        if any(a in ql for a in known):
+            return query
+        return f"{add[0]} {query}".strip()
+    except Exception:
+        return query
 
 
 PHOTO_DEDUP_HAMMING = 6   # тот же порог, что в qc_report() — "заметно похоже"
@@ -5587,6 +5637,15 @@ RELEVANCE_RANK_BUCKET = 0.02
 # Сколько раз победителя можно заменить следующим, если его полноразмерный
 # файл оказался размытым (гейт резкости — на полном файле, см. pexels_photo).
 SHARP_REPICK_MAX = 3
+# То же самое, но для ВТОРОЙ проверки (smart_relevance_veto, SigLIP2+Jina).
+# Заведено 21.09 по прямому замеру: у слота, оставшегося БЕЗ КАДРА, в пуле
+# было 232 кандидата и 19 из 20 просмотренных прошли ВСЕ гейты — вето
+# отклоняло одного победителя и слот умирал целиком (`return None`), хотя
+# следующий по ранжированию лежал рядом. Значение равно SHARP_REPICK_MAX
+# СОЗНАТЕЛЬНО — это симметрия с уже принятым решением соседнего цикла, а не
+# измеренный оптимум; каждый ре-пик стоит одну полноразмерную скачку плюс
+# один вызов ensemble (~2.5-3с на CPU), поэтому предел нужен.
+VETO_REPICK_MAX = 3
 # Версия чередования источников внутри запроса (см. сборку пула в
 # pexels_photo) — для _selection_stack_signature().
 POOL_SOURCE_INTERLEAVE_VERSION = 1
@@ -7571,6 +7630,11 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                 STOCK_EXHAUSTED_MISSES.append({
                     "index": index, "kind": "photo", "query": query,
                     "n_candidates_examined": len(candidates_info),
+                    # Сколько пул вообще предложил. Без этого числа строка
+                    # отчёта «сток не дал ни одного» читалась как «на стоке
+                    # пусто», хотя просмотрена могла быть горстка из сотен
+                    # (замер 21.09: 3 просмотренных при 232 в пуле).
+                    "n_candidates_available": len(photos),
                 })
             # Полноразмерный файл качается ТОЛЬКО у победителя, и резкость
             # проверяется на нём (на превью её мерить нельзя, см. цикл выше).
@@ -7657,6 +7721,71 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                     os.remove(c["path"])
                 except OSError:
                     pass
+        # ВТОРАЯ ПРОВЕРКА ТЕПЕРЬ ИТЕРАТИВНАЯ, А НЕ ТЕРМИНАЛЬНАЯ (21.09).
+        #
+        # РЕАЛЬНЫЙ ЗАМЕР, ради которого это переписано (videos/94_dagger_test,
+        # слот «Клинок влетает в узкую щель между пластинами доспеха», прямой
+        # дамп пула теми же сборщиками источников, что в проде): пул этого
+        # слота — 232 уникальных кандидата (pexels 129 / pixabay 83 /
+        # openverse 20), из первых 20 просмотренных ВСЕ ГЕЙТЫ ПРОШЛИ 19, среди
+        # них нормальные предметные кадры («close up of several ornate
+        # daggers», relevance 0.137; «an array of intricately designed antique
+        # daggers», 0.116). А на экране у слота не было НИЧЕГО.
+        #
+        # Причина была ровно здесь: вето отклоняло ОДНОГО победителя и делало
+        # `return None` — весь слот объявлялся безнадёжным, хотя 18 других
+        # прошедших гейт кандидатов лежали в candidates_info рядом. Снаружи
+        # это выглядело как «сток пуст» и толкало к неверному выводу «надо
+        # ослабить гейты» (гейты как раз пропускают почти всё: 19 из 20).
+        #
+        # Теперь отклонённый кандидат ДЕМОТИРУЕТСЯ ровно тем же приёмом, что
+        # уже годами работает на резкости выше (winner["sharp_ok"] = 0 ->
+        # _score_and_pick заново) — только через is_relevant, потому что
+        # вторая модель говорит именно «не по смыслу». Предел заимствован у
+        # соседа (SHARP_REPICK_MAX), а не подобран замером — честно: это
+        # симметрия с уже принятым решением, не оптимум.
+        #
+        # Провал скачивания ре-пика обрабатывается тем же путём, что отказ
+        # вето: иначе цикл вышел бы на несуществующем файле и вернул путь в
+        # никуда — класс бага, который в этой же функции уже задокументирован
+        # выше («ФАЙЛ ОБЯЗАН СУЩЕСТВОВАТЬ»).
+        #
+        # used_ids/used_hashes пополняются ПОСЛЕ цикла, а не до него: раньше
+        # отклонённый вето кандидат успевал попасть в анти-дубль и занимал
+        # собой место, хотя на экран не попадал.
+        veto_repicks = 0
+        while True:
+            file_ok = _downloaded_ok(cf)
+            if file_ok and not smart_relevance_veto(cf, query):
+                break
+            nxt = None
+            if winner is not None and veto_repicks < VETO_REPICK_MAX:
+                winner["is_relevant"] = 0
+                _bw, _dw = _score_and_pick(candidates_info, director_score_fn)
+                cand = _dw if (director_assist and _dw is not None) else _bw
+                if cand is not None and cand is not winner:
+                    nxt = cand
+            if nxt is None:
+                SMART_VETO_MISSES.append({"index": index, "query": query, "kind": "photo"})
+                try:
+                    os.remove(cf)
+                except OSError:
+                    pass
+                print(f"  слот {index}: вторая проверка (SigLIP2+Jina, запрос {query!r}) "
+                      f"отклонила всех проверенных кандидатов ({veto_repicks + 1}) — "
+                      f"слот остаётся без медиа")
+                return None
+            veto_repicks += 1
+            winner = nxt
+            pick = winner["p"]
+            try:
+                download(pick, cf)
+            except Exception:
+                pass
+            chosen_by = chosen_by + "+veto_repick"
+        if veto_repicks:
+            print(f"  слот {index}: вторая проверка отклонила {veto_repicks} "
+                  f"кандидат(ов), взят следующий по ранжированию")
         if used_ids is not None:
             used_ids.add(pick.get("id"))
         _picked_ahash = None
@@ -7666,15 +7795,6 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                 used_hashes.append(_picked_ahash)
             except Exception:
                 pass
-        if smart_relevance_veto(cf, query):
-            SMART_VETO_MISSES.append({"index": index, "query": query, "kind": "photo"})
-            try:
-                os.remove(cf)
-            except OSError:
-                pass
-            print(f"  слот {index}: победитель отклонён второй проверкой "
-                  f"(SigLIP2+Jina, запрос {query!r}) — слот остаётся без медиа")
-            return None
         # Sidecar — чтобы СЛЕДУЮЩИЙ прогон, который возьмёт этот файл кэш-хитом
         # (или вообще не дойдёт до подбора, потому что кэширован сам клип),
         # смог вернуть кадр в анти-дубль. См. write_media_sidecar().
@@ -10636,6 +10756,45 @@ NEGATIVE_VETO_MARGIN = -0.06
 NEGATIVE_VETO_ENABLED = feature_flags.enabled("NEGATIVE_VETO")
 
 
+def episode_forbidden_anchors(video_dir=None):
+    """Ловушки ЭТОГО эпизода — `must_not_show` из паспорта мира, пустой
+    кортеж, если паспорта нет.
+
+    САМАЯ КРУПНАЯ находка аудита 21.09, и это был не баг в гейте, а ОТСУТСТВИЕ
+    ПРОВОДА. `world_card.forbidden_classes()` существует с самого появления
+    паспорта, её докстринг прямо говорит «Что в кадре этого эпизода — брак.
+    Уходит в вопрос приёмки кадра», а прямой grep показал: её не вызывает
+    НИКТО. Паспорт тестового эпизода при этом дословно перечисляет
+    `modern tactical knife`, `napoleonic uniform`, `firearm` — и ровно это
+    уехало на экран: на фразу «Вот кинжал» встал современный тактический нож,
+    на «Конница мчится» — наполеоновский гусар с ружьём.
+
+    Замер на РЕАЛЬНЫХ победителях прогона (clip_relevance_multi, те же числа,
+    что видит прод; margin = ловушка минус цель, порог NEGATIVE_VETO_MARGIN):
+
+        кадр                          ловушка паспорта      канальные 8
+        современный нож               +0.0276  ОТКАЗ        -0.0849  слепы
+        слабый доспех (rel 0.02)      +0.0728  ОТКАЗ        +0.0569
+        наполеоновский гусар          -0.0155  ОТКАЗ        -0.0944  слепы
+        упавший рыцарь (годный)       -0.0886  проходит     -0.1177
+        финальный всадник (годный)    -0.0741  проходит     -0.0940
+
+    То есть канальный список слеп ровно там, где паспорт видит сразу: его
+    восемь ловушек — про СОВРЕМЕННОСТЬ и культуру клинка, а весь пойманный
+    брак был про ЭПОХУ, и такого гварда не существовало вообще.
+
+    Порог берётся ТОТ ЖЕ (NEGATIVE_VETO_MARGIN) — новое калиброванное число
+    на семи точках одного эпизода было бы подгонкой, а не калибровкой.
+
+    Нет паспорта — пустой кортеж, поведение байт-в-байт прежнее.
+    """
+    try:
+        import world_card
+        return tuple(world_card.forbidden_classes(episode_world_card(video_dir)))
+    except Exception:
+        return ()
+
+
 def negative_anchor_violation(image_path, query):
     """(отклонён_ли_кадр, какая_ловушка_сработала) — контрастивное вето.
 
@@ -10643,16 +10802,24 @@ def negative_anchor_violation(image_path, query):
     (clip_relevance_multi), поэтому стоит примерно столько же, сколько один
     обычный вызов clip_relevance. (False, None) при выключенном режиме или
     недоступной модели — тот же безопасный откат, что у остальных гейтов.
+
+    Ловушки = КАНАЛЬНЫЕ (CONTENT_NEGATIVE_ANCHORS, про современность/культуру)
+    ПЛЮС ловушки ЭТОГО ЭПИЗОДА из паспорта мира (см. episode_forbidden_anchors
+    — там замер, ради которого провод и появился). Одним прогоном, как и было:
+    clip_relevance_multi берёт все тексты за один forward картинки.
     """
-    if not NEGATIVE_VETO_ENABLED or not CONTENT_NEGATIVE_ANCHORS:
+    if not NEGATIVE_VETO_ENABLED:
         return False, None
-    scores = clip_relevance_multi(image_path, [query] + list(CONTENT_NEGATIVE_ANCHORS))
+    anchors = tuple(CONTENT_NEGATIVE_ANCHORS) + episode_forbidden_anchors()
+    if not anchors:
+        return False, None
+    scores = clip_relevance_multi(image_path, [query] + list(anchors))
     if not scores:
         return False, None
     target, negatives = scores[0], scores[1:]
     worst = max(range(len(negatives)), key=lambda k: negatives[k])
     if (target - negatives[worst]) < NEGATIVE_VETO_MARGIN:
-        return True, CONTENT_NEGATIVE_ANCHORS[worst]
+        return True, anchors[worst]
     return False, None
 
 
@@ -11399,6 +11566,16 @@ def candidate_gate_signature():
             # скачанных по неуточнённому запросу.
             QUERY_TERM_SPELLINGS, QUERY_TERM_TRAPS, QUERY_TERM_SUFFIXES,
             CONTENT_NEGATIVE_ANCHORS, NEGATIVE_VETO_MARGIN, NEGATIVE_VETO_ENABLED,
+            # Ловушки ПАСПОРТА ЭПИЗОДА (must_not_show). Их значения приходят
+            # не из кода, а из media_plan/world_card.json — правка паспорта
+            # меняет, кого отсеет вето, не трогая ни одной строки исходника,
+            # и без этой строки на прогретом кэше не дошла бы до экрана.
+            # Кортеж (не множество) — порядок из JSON стабилен между
+            # процессами, в отличие от repr(frozenset), см. разбор ниже.
+            episode_forbidden_anchors(),
+            # Сколько раз вето вправе взять следующего кандидата вместо того,
+            # чтобы убить слот (см. VETO_REPICK_MAX) — меняет победителя.
+            VETO_REPICK_MAX,
             # frozenset, не сам объект: repr(frozenset) перебирает элементы в
             # порядке их хэшей, а хэш строк рандомизирован ПОПРОЦЕССНО
             # (PYTHONHASHSEED) — вставленный напрямую, он давал бы разную
@@ -12929,10 +13106,29 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
         # каждый запрос пула (иначе большинство запросов не участвует в
         # сравнении вообще), с потолком против неограниченного трафика на
         # секции с большим числом авторских запросов.
-        try_budget = _video_relevance_max_tries_for(index)
-        if sentence_score_fn is not None:
-            try_budget = min(_video_relevance_max_tries_hard_cap_for(index),
-                             max(_video_relevance_max_tries_for(index), len(pool_queries)))
+        # БЮДЖЕТ ПОПЫТОК БОЛЬШЕ НЕ ЗАВИСИТ ОТ ТОГО, ВКЛЮЧЁН ЛИ ДИРЕКТОР (21.09).
+        #
+        # Раньше расширение стояло под `if sentence_score_fn is not None`, а
+        # sentence_score_fn строится только при VISUAL_DIRECTOR_MODE in
+        # (shadow, assist) — дефолт реестра `off`. То есть на ДЕФОЛТНОЙ
+        # конфигурации канала видео-слот скачивал ровно три кандидата и
+        # сдавался, сколько бы их ни было в пуле.
+        #
+        # Замер, которым это найдено (videos/94_dagger_test, слот «Клинок
+        # влетает в узкую щель»): в пуле 232 кандидата, отчёт сообщил
+        # «n_candidates_examined: 3» и «весь просмотренный пул честно
+        # исчерпан» — формально правда, а читается как «на стоке ничего нет».
+        #
+        # Это СЕДЬМОЙ случай того же класса в этом файле, и шестой из них —
+        # буквально тот же самый баг у фото: BASE_MIN_POOL заведён 07.09
+        # ровно потому, что good_needed поднимался «ТОЛЬКО если передан
+        # director_score_fn», и на дефолте пул фото схлопывался до первого
+        # кандидата. Видео тогда не тронули.
+        #
+        # Формула НЕ меняется (то же max(порог, число запросов) под тем же
+        # hard cap) — снимается только случайная привязка к флагу Директора.
+        try_budget = min(_video_relevance_max_tries_hard_cap_for(index),
+                         max(_video_relevance_max_tries_for(index), len(pool_queries)))
         for v in ordered:
             if tries >= try_budget:
                 break
@@ -13183,13 +13379,6 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                                 os.remove(p)
                             except OSError:
                                 pass
-            for g in good:
-                if g is best:
-                    continue
-                try:
-                    os.remove(g[2])
-                except OSError:
-                    pass
             for fb in (dup_fallback, plain_fallback):
                 if fb is not None and os.path.exists(fb[0]):
                     try:
@@ -13198,16 +13387,54 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                         pass
             best_rel = cand_relevance.get(best[2])
             os.replace(best[2], cf)
-            if video_smart_relevance_veto(cf, query):
-                SMART_VETO_MISSES.append({"index": index, "query": query, "kind": "video"})
+            # ИТЕРАТИВНОЕ ВЕТО — тот же разбор и та же правка, что на фото-пути
+            # (см. большой комментарий в pexels_photo). Здесь она нужна ровно
+            # по той же причине и с той же историей: асимметрия «починили фото,
+            # забыли видео» в этом файле уже трижды стоила половины эпизода
+            # (filter_alt_blocklist 07.09, director_score_fn 08.09, запрос из
+            # брифа 15.09). Отличие только техническое: у видео кандидаты —
+            # это УЖЕ СКАЧАННЫЕ файлы в good, поэтому их удаление отложено до
+            # конца цикла (раньше оно стояло ДО вето, и следующего кандидата
+            # физически не существовало бы на диске).
+            veto_repicks = 0
+            tried = {id(best)}
+            while video_smart_relevance_veto(cf, query):
+                nxt = None
+                if veto_repicks < VETO_REPICK_MAX:
+                    nxt = next((g for g in good
+                                if id(g) not in tried and os.path.exists(g[2])), None)
+                if nxt is None:
+                    SMART_VETO_MISSES.append({"index": index, "query": query, "kind": "video"})
+                    try:
+                        os.remove(cf)
+                    except OSError:
+                        pass
+                    print(f"  слот {index}: вторая проверка (SigLIP2+Jina, запрос "
+                          f"{query!r}) отклонила всех проверенных видео-кандидатов "
+                          f"({veto_repicks + 1}) — слот остаётся без медиа")
+                    for g in good:
+                        if id(g) in tried or not os.path.exists(g[2]):
+                            continue
+                        try:
+                            os.remove(g[2])
+                        except OSError:
+                            pass
+                    return None
+                veto_repicks += 1
+                tried.add(id(nxt))
+                best = nxt
+                best_rel = cand_relevance.get(best[2])
+                os.replace(best[2], cf)
+            if veto_repicks:
+                print(f"  слот {index}: вторая проверка отклонила {veto_repicks} "
+                      f"видео-кандидат(ов), взят следующий по ранжированию")
+            for g in good:
+                if id(g) in tried or not os.path.exists(g[2]):
+                    continue
                 try:
-                    os.remove(cf)
+                    os.remove(g[2])
                 except OSError:
                     pass
-                print(f"  слот {index}: видео-победитель отклонён второй "
-                      f"проверкой (SigLIP2+Jina, запрос {query!r}) — "
-                      f"слот остаётся без медиа")
-                return None
             if used_ids is not None:
                 used_ids.add(best[3])
             if used_hashes is not None and best[4] is not None:
@@ -13251,18 +13478,36 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                 STOCK_EXHAUSTED_MISSES.append({
                     "index": index, "kind": "video", "query": query,
                     "n_candidates_examined": tries,
+                    "n_candidates_available": len(ordered),
                 })
             os.replace(path, cf)
             if video_smart_relevance_veto(cf, query):
-                SMART_VETO_MISSES.append({"index": index, "query": query, "kind": "video"})
-                try:
-                    os.remove(cf)
-                except OSError:
-                    pass
-                print(f"  слот {index}: видео-победитель (запасной путь) "
-                      f"отклонён второй проверкой (SigLIP2+Jina, запрос "
-                      f"{query!r}) — слот остаётся без медиа")
-                return None
+                # Та же правка, что у итеративного вето выше, в масштабе этого
+                # яруса: запасных путей ровно два (dup_fallback/plain_fallback),
+                # и отказ одного не обязан убивать слот, пока второй цел.
+                alt = next((fb for fb in (dup_fallback, plain_fallback)
+                            if fb is not None and fb is not chosen
+                            and os.path.exists(fb[0])), None)
+                accepted = False
+                if alt is not None:
+                    chosen = alt
+                    path, vid, cand_hash = alt
+                    chosen_rel = cand_relevance.get(path)
+                    os.replace(path, cf)
+                    accepted = not video_smart_relevance_veto(cf, query)
+                    if accepted:
+                        print(f"  слот {index}: первый запасной отклонён второй "
+                              f"проверкой, взят второй запасной")
+                if not accepted:
+                    SMART_VETO_MISSES.append({"index": index, "query": query, "kind": "video"})
+                    try:
+                        os.remove(cf)
+                    except OSError:
+                        pass
+                    print(f"  слот {index}: видео-кандидаты запасного пути "
+                          f"отклонены второй проверкой (SigLIP2+Jina, запрос "
+                          f"{query!r}) — слот остаётся без медиа")
+                    return None
             if used_ids is not None:
                 used_ids.add(vid)
             if used_hashes is not None and cand_hash is not None:
@@ -16199,10 +16444,21 @@ def main():
                       resolved_slots=RESOLVED_SLOTS_THIS_RUN)
     if STOCK_EXHAUSTED_MISSES:
         idxs = [m["index"] for m in STOCK_EXHAUSTED_MISSES]
-        print(f"  ВНИМАНИЕ: {len(STOCK_EXHAUSTED_MISSES)} слот(ов) {idxs} — сток не дал НИ ОДНОГО "
-              f"кандидата, прошедшего и relevance, и резкость (весь просмотренный пул честно "
-              f"исчерпан) — см. media_plan/stock_exhausted_report.json. Для этих слотов сток — "
-              f"тупик, не проверка глазами: нужна AI-картинка/видео (Шаг 5) вместо стока.")
+        # ЧЕСТНАЯ ФОРМУЛИРОВКА (21.09). Раньше здесь стояло «весь просмотренный
+        # пул честно исчерпан», и это читалось — в том числе мной при разборе —
+        # как «на стоке для этой фразы физически ничего нет». Прямой дамп пула
+        # показал обратное: у слота, получившего эту строку, в пуле было 232
+        # кандидата, а ПРОСМОТРЕНО из них три (бюджет попыток видео). Число
+        # «сколько было предложено» теперь печатается рядом с «сколько
+        # просмотрено», чтобы вывод «сток — тупик» делался по фактам.
+        seen = sum(m.get("n_candidates_examined") or 0 for m in STOCK_EXHAUSTED_MISSES)
+        avail = sum(m.get("n_candidates_available") or 0 for m in STOCK_EXHAUSTED_MISSES)
+        scope = (f"просмотрено {seen} кандидат(ов) из {avail} предложенных пулом"
+                 if avail else f"просмотрено {seen} кандидат(ов)")
+        print(f"  ВНИМАНИЕ: {len(STOCK_EXHAUSTED_MISSES)} слот(ов) {idxs} — среди ПРОСМОТРЕННЫХ "
+              f"кандидатов ни один не прошёл и relevance, и резкость ({scope}) — см. "
+              f"media_plan/stock_exhausted_report.json. Если просмотрено заметно меньше, чем "
+              f"предложено, это упёрлось в бюджет попыток, а не в пустой сток.")
 
     # ARBITER_REJECTED_ALL — самый сильный из сигналов о подборе: не «порог
     # не взят» (число), а «модель посмотрела кандидатов и сказала: ни один

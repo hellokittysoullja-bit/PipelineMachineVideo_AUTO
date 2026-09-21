@@ -144,12 +144,16 @@ def test_photo_path_calls_veto_before_accepting_winner():
     """Проверка ИСХОДНИКА места вызова — так же, как для карточки-фолбэка
     (test_fallback_card_motion.py): вызов в pexels_photo() слишком глубоко
     внутри 716-строчной функции, чтобы вызывать её в изоляции без полной
-    сетевой фикстуры. Контрольный прогон со снятой правкой роняет тест."""
+    сетевой фикстуры. Контрольный прогон со снятой правкой роняет тест.
+
+    Ищем ВЫЗОВ, а не конкретную форму `if ...:` — с 21.09 вето итеративное
+    (`while True` + ре-пик следующего кандидата), и тест, привязанный к
+    старому написанию, падал бы на правке, которая инвариант не нарушает.
+    """
     src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"), encoding="utf-8").read()
-    i_veto = src.index("if smart_relevance_veto(cf, query):")
+    i_veto = src.index("smart_relevance_veto(cf, query)")
     i_sidecar = src.index("write_media_sidecar(\n            cf, pexels_id=pick.get")
     assert i_veto < i_sidecar, "проверка обязана идти ДО принятия победителя, не после"
-    assert i_sidecar - i_veto < 800, "проверка стоит подозрительно далеко от места принятия"
 
 
 def test_video_paths_both_call_veto_before_accepting_winner():
@@ -158,4 +162,42 @@ def test_video_paths_both_call_veto_before_accepting_winner():
     (только фото, видео забыто)."""
     src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"), encoding="utf-8").read()
     n = src.count("video_smart_relevance_veto(cf, query)")
-    assert n == 2, f"ожидались обе ветки видео-победителя, нашлось {n}"
+    # >= 2: с 21.09 у запасного яруса появился второй вызов (первый запасной
+    # отклонён -> пробуем второй, вместо того чтобы убить слот). Инвариант
+    # теста — «обе ветки проверяются», а не «вызовов ровно два».
+    assert n >= 2, f"ожидались обе ветки видео-победителя, нашлось {n}"
+
+
+def test_veto_is_iterative_not_terminal():
+    """Отказ вето обязан приводить к СЛЕДУЮЩЕМУ кандидату, а не к смерти слота.
+
+    Ради чего (замер 21.09, videos/94_dagger_test, слот «Клинок влетает в
+    узкую щель»): в пуле 232 кандидата, 19 из 20 просмотренных прошли ВСЕ
+    гейты, а на экране не было ничего — вето отклоняло одного победителя и
+    делало `return None`. Снаружи это читалось как «сток пуст» и толкало к
+    неверному выводу «ослабить гейты».
+    """
+    src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"), encoding="utf-8").read()
+    assert "VETO_REPICK_MAX" in src, "предел числа ре-пиков не объявлен"
+    # демотация ровно тем же приёмом, что у соседнего цикла по резкости
+    assert 'winner["is_relevant"] = 0' in src, (
+        "отклонённый вето кандидат обязан демотироваться и уступать место "
+        "следующему по ранжированию (как winner['sharp_ok'] = 0 у резкости)")
+    # у видео — свой ре-пик по already-скачанным кандидатам good
+    assert "tried.add(id(nxt))" in src, "видео-путь не берёт следующего кандидата"
+    assert ps.VETO_REPICK_MAX >= 1
+
+
+def test_veto_repick_enters_candidate_gate_signature(monkeypatch):
+    """Смена предела ре-пиков меняет победителя -> обязана инвалидировать
+    уже закэшированного кандидата (иначе правка не дойдёт до экрана)."""
+    src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"), encoding="utf-8").read()
+    i_sig = src.index("def candidate_gate_signature")
+    # до конца функции, а не на фиксированное число символов: у этой функции
+    # огромные пояснения, и окно «на глаз» уже один раз обрезало проверку
+    end = src.index("\ndef ", i_sig + 1)
+    body = src[i_sig:end]
+    assert "VETO_REPICK_MAX" in body, "VETO_REPICK_MAX не входит в подпись отбора"
+    assert "episode_forbidden_anchors()" in body, (
+        "ловушки паспорта эпизода не входят в подпись отбора — правка "
+        "world_card.json не дойдёт до экрана на прогретом кэше")

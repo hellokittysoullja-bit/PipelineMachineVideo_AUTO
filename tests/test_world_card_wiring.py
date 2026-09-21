@@ -243,3 +243,75 @@ def test_multiword_anchor_is_matched_as_a_phrase(episode, monkeypatch):
     ps.reset_world_card_cache()
     got = ps.brief_to_stock_query("wet churned earth underfoot", fallback="x y")
     assert got.split()[0] == "medieval", got
+
+
+# --- ЧЕТВЁРТАЯ ВЕЩЬ (21.09): must_not_show доходит до ВЕТО, а не только до
+# запроса. До этого дня `world_card.forbidden_classes()` не вызывал НИКТО —
+# прямой grep по scripts/ давал пусто, при том что её докстринг обещает
+# «уходит в вопрос приёмки кадра». Цена была измерена на реальном эпизоде:
+# паспорт дословно запрещал `modern tactical knife` и `napoleonic uniform`,
+# и ровно это стояло на экране (нож на фразу «Вот кинжал», наполеоновский
+# гусар на «Конница мчится»), потому что канальные 8 ловушек — про
+# современность и культуру клинка, а весь брак был про ЭПОХУ.
+
+def test_forbidden_classes_reach_the_veto(episode, monkeypatch):
+    """Ловушки паспорта обязаны попадать в список, по которому судит вето."""
+    monkeypatch.setattr(ps, "VIDEO_FOLDER", str(episode))
+    _write(episode, _psy_card())
+    ps.reset_world_card_cache()
+    anchors = ps.episode_forbidden_anchors(str(episode))
+    assert "plate armour" in anchors and "castle" in anchors, anchors
+
+
+def test_veto_judges_against_channel_plus_episode(episode, monkeypatch):
+    """negative_anchor_violation() судит по СУММЕ: канал + паспорт эпизода.
+
+    Ловим сам факт подмешивания (какие тексты ушли в модель), а не вердикт:
+    вердикт зависит от весов модели, а состав списка — от провода, который
+    и был оборван.
+    """
+    monkeypatch.setattr(ps, "VIDEO_FOLDER", str(episode))
+    _write(episode, _psy_card())
+    ps.reset_world_card_cache()
+    seen = {}
+
+    def fake_multi(path, texts):
+        seen["texts"] = list(texts)
+        return [0.5] + [0.0] * (len(texts) - 1)   # цель уверенно выигрывает
+
+    monkeypatch.setattr(ps, "clip_relevance_multi", fake_multi)
+    monkeypatch.setattr(ps, "NEGATIVE_VETO_ENABLED", True)
+    rejected, _ = ps.negative_anchor_violation("x.jpg", "some query")
+    assert rejected is False
+    assert seen["texts"][0] == "some query"
+    for a in ps.CONTENT_NEGATIVE_ANCHORS:
+        assert a in seen["texts"], "канальные ловушки пропали из вето"
+    assert "plate armour" in seen["texts"], "ловушки паспорта не дошли до вето"
+
+
+def test_no_card_keeps_veto_list_byte_identical(episode, monkeypatch):
+    """Нет паспорта — список ловушек ровно прежний, ни одной лишней строки."""
+    monkeypatch.setattr(ps, "VIDEO_FOLDER", str(episode))
+    ps.reset_world_card_cache()
+    assert ps.episode_forbidden_anchors(str(episode)) == ()
+    seen = {}
+
+    def fake_multi(path, texts):
+        seen["texts"] = list(texts)
+        return [0.5] + [0.0] * (len(texts) - 1)
+
+    monkeypatch.setattr(ps, "clip_relevance_multi", fake_multi)
+    monkeypatch.setattr(ps, "NEGATIVE_VETO_ENABLED", True)
+    ps.negative_anchor_violation("x.jpg", "q")
+    assert seen["texts"] == ["q"] + list(ps.CONTENT_NEGATIVE_ANCHORS)
+
+
+def test_broken_card_does_not_kill_selection(episode, monkeypatch):
+    """Сломанный паспорт не должен ронять отбор ЧЕРЕЗ вето: гейт обязан
+    остаться в прежнем (канальном) составе, а не выбросить исключение
+    посреди подбора кадра."""
+    monkeypatch.setattr(ps, "VIDEO_FOLDER", str(episode))
+    with open(wc.path(str(episode)), "w", encoding="utf-8") as f:
+        f.write("{ это не json")
+    ps.reset_world_card_cache()
+    assert ps.episode_forbidden_anchors(str(episode)) == ()
