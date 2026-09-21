@@ -10584,10 +10584,32 @@ CONTENT_NEGATIVE_ANCHORS = tuple(CHANNEL_PROFILE.get(
 # вывод (не реализован здесь, решение владельца): для этого конкретного
 # слота надёжнее принудительно взять фото вместо видео (через lock в
 # shotlist.json), а не продолжать ID-блокировку до бесконечности.
+#
+# ПРОВЕРЕНО НЕЗАВИСИМО, ВНЕ ПАЙПЛАЙНА (21.09, прямой запрос к Pexels API
+# в обход всех гейтов вообще) — гипотеза «сток просто засорён» стала
+# измеренным фактом, не подозрением. `videos/search?query=medieval cavalry
+# charge field` отдаёт `total_results: 8000`, но живой просмотр первых 15 —
+# ни одного медиевального: "soldiers riding horseback with drawn swords"
+# (это и есть pexels:9466647 выше), "people marhing in traditional clothing"
+# (pexels:12170117 выше), "revolutionary soldiers protecting a woman from
+# the cavalry", "traditional cavalry display at CULTURAL FESTIVAL" (дословно
+# современный фестиваль), "a man riding a horse firing the RIFLE" (огнестрел).
+# Второй запрос `knight horseback armor` (total_results: 4860) — та же
+# картина плюс "horse riding and jousting training": по превью это СОВРЕМЕННЫЙ
+# конно-спортивный манеж (цветные шары-мишени, конус, столб ЛЭП), голый
+# торс всадника, никакого доспеха. Четвёртый победитель этого же слота,
+# pexels:9466305 ("man riding a horse while surrounding the revolutionary
+# soldiers"), — из ТОГО ЖЕ первого запроса, наполеоновская/гусарская форма,
+# тоже добавлен. Вывод для практики: гейты здесь НЕ виноваты и ослаблять их
+# было бы неверным диагнозом — ровно эти четыре кандидата УЖЕ прошли
+# relevance/домен-гвард/негативный якорь с приемлемым скором, поймать их
+# смогла только ручная проверка глазами (или, у части, вторая модель). Сама
+# видео-выдача по этому понятию на этом стоке — не тонкая, а системно НЕ ТОЙ
+# эпохи; больше кандидатов в этот список добавлять малополезно.
 _CONTENT_BLOCKED_CANDIDATE_IDS_DEFAULT = (
     "pexels:855260", "pexels:35687472", "pexels:31595410",
     "pexels:12170117", "openverse:e5690140-6fc2-46fc-880a-3028b8478606",
-    "pexels:9466647",
+    "pexels:9466647", "pexels:9466305",
 )
 CONTENT_BLOCKED_CANDIDATE_IDS = frozenset(str(x) for x in CHANNEL_PROFILE.get(
     "content_blocked_candidate_ids", _CONTENT_BLOCKED_CANDIDATE_IDS_DEFAULT))
