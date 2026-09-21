@@ -5199,6 +5199,28 @@ FALLBACK_CARD_SLOTS = []   # [{"index", "reason", "text", "card_text"}, ...]
 # а музейные API видео не отдают вообще.
 VIDEO_RESCUED_BY_PHOTO = []   # [{"index", "reason", "query"}, ...]
 
+# «ЛУЧШИЙ ИЗ ПЛОХИХ» УДАЛЁН КАК ИСХОД (NEVER_SHOW_KNOWN_BAD=0/1, дефолт 1,
+# 21.09). Прямой ответ на живую жалобу: карточка-заглушка спасает слот,
+# только если бюджет (FALLBACK_CARD_MAX_SHARE/FALLBACK_CARD_MIN_GAP) ещё не
+# исчерпан — на коротком эпизоде (9 слотов) это ОДНА карточка, а `_slot_
+# known_bad_reason()` в реальном прогоне назвал негодными пять. Остальные
+# четыре показывали кандидата, который система САМА уже пометила браком —
+# молча, без карточки, без предупреждения на экране. Бюджет решал верную
+# задачу (не превращать длинный эпизод в слайд-шоу из текста), но решал её
+# ценой того, что при исчерпании бюджет ПРОПУСКАЛ брак на экран, а не
+# отказывался от него.
+#
+# Теперь у известного брака только один допустимый исход — слот НЕ получает
+# кадра вообще, а время достаётся соседнему уже проверенному клипу (тот
+# держится на экране дольше и накрывает обе фразы). Ни карточка, ни повтор
+# из local_photo(allow_cycle=True) сюда не подключаются никогда: бюджет
+# карточек по-прежнему действует, но только для явного правила «слот без
+# медиа вообще» (FALLBACK_NO_MEDIA_REASON), не для «слот получил кадр, но
+# система знает, что он брак». Если во всём эпизоде не набралось ни одного
+# проверенного кадра — рендер останавливается прямо, а не собирает ролик из
+# брака (см. проверку сразу после печати "Рендер завершён" в main()).
+ABSORBED_SLOTS = []   # [{"index", "reason", "text", "carried_sec"}, ...]
+
 
 _WIKIMEDIA_RE = re.compile(r"^https?://upload\.wikimedia\.org/wikipedia/commons/"
                             r"(?:thumb/)?[0-9a-f]/[0-9a-f]{2}/([^/?#]+)", re.I)
@@ -7700,7 +7722,51 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
     # size>0, не просто exists — см. atomic_url_download: старые (до этого
     # фикса) прерванные закачки могли уже оставить 0-байтный файл под этим
     # именем, и голый exists() принял бы его за валидный кэш.
-    if os.path.exists(cf) and os.path.getsize(cf) > 0:
+    #
+    # КЭШ-ХИТ БЫЛ СЛЕП К СОБСТВЕННОМУ ЖЕ ВЕРДИКТУ ЗРЯЧЕГО ГЕЙТА (найдено
+    # живым прогоном 21.09, не чтением). Победитель этого имени файла мог
+    # быть подобран прошлым прогоном, который частично прошёл цикл
+    # frame_verifier (несколько переподборов, все отклонены), но не успел
+    # ДОПИСАТЬ финальные отчёты (SIGKILL/OOM/`timeout`-убийство — реальный
+    # найденный случай: `timeout 280` оборвал прогон ПОСЛЕ того, как файл
+    # уже лежал на диске). Вердикт «нет» при этом УЖЕ посчитан и лежит в
+    # `media_plan/frame_verdicts/` — тот же кэш, ключуемый по содержимому
+    # кадра+фразы+мира+брифа, — но старый код сюда ни разу не заглядывал:
+    # `if os.path.exists(cf): return cf` отдавал файл немедленно. Живая
+    # проверка: слот «Вот кинжал.» отдал рисунок двух мечей с Wikimedia,
+    # хотя `frame_verdicts/` по этому же файлу+фразе хранил готовое
+    # `{"verdict": "no", "seen": "бронзовый церемониальный меч-скипетр",
+    # "missing": "средневековый кинжал рондель"}` — система уже знала
+    # правильный ответ и не читала его.
+    #
+    # Починка НЕ добавляет платных вызовов: `frame_verifier.verify()` сам
+    # кэшируется по (кадр, фраза, модель, мир, версия промпта, бриф) — если
+    # этот же вопрос этому же кадру уже задавали (а он уже задавался, раз
+    # файл лежит под этим именем и прошлый прогон дошёл до его подбора),
+    # ответ приходит из ЕГО ЖЕ кэша без единого сетевого запроса. Платный
+    # вызов случится только если кэш-файл появился НЕ из цикла подбора
+    # (например, руками положен через `lock`) — крайне редкий путь, и цена
+    # для него та же, что и у обычного первого вызова на свежем кандидате.
+    cf_frame_ok = True
+    if (os.path.exists(cf) and os.path.getsize(cf) > 0
+            and frame_verifier.enabled() and block_text):
+        _cache_fv = frame_verifier.verify(cf, block_text, VIDEO_FOLDER, shot_brief=shot_brief)
+        if _cache_fv is not None and _cache_fv.get("verdict") == "no":
+            cf_frame_ok = False
+            FRAME_VERIFIER_MISSES.append({
+                "index": index, "kind": "photo", "query": query,
+                "text": block_text[:160], "seen": _cache_fv.get("seen"),
+                "missing": _cache_fv.get("missing"), "candidate": "cache_hit",
+            })
+            FRAME_VERIFIER_GAVE_UP.append({
+                "index": index, "kind": "photo",
+                "seen": _cache_fv.get("seen"), "missing": _cache_fv.get("missing"),
+            })
+            print(f"  слот {index}: кэш-хит отклонён зрячим гейтом задним числом "
+                  f"(вердикт уже был посчитан, файл на диске не читал его) — "
+                  f"видно «{_cache_fv.get('seen')}», нет «{_cache_fv.get('missing')}»,"
+                  f" переподбираю заново")
+    if os.path.exists(cf) and os.path.getsize(cf) > 0 and cf_frame_ok:
         if used_hashes is None:
             if recent_sizes is not None:
                 try:
@@ -13582,7 +13648,41 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
     # блок из ролика без единой строчки в логе (ffmpeg на пустом файле не
     # печатает никакого "непредвиденного сбоя" уровня main() — падает
     # молча внутри рендер-функции).
-    if os.path.exists(cf) and os.path.getsize(cf) > 0:
+    # ТОТ ЖЕ БАЙПАС, ЧТО У ФОТО (см. её докстринг у pexels_photo()), тем же
+    # заходом 21.09 — не отдаём кэш-хит слепо, спрашиваем уже посчитанный
+    # вердикт зрячего гейта на кадре-пробнике этого видео. Пробник живёт
+    # только на время вопроса (тот же extract-verify-cleanup, что и в живом
+    # repick-цикле ниже); verify() сам кэширован по содержимому пробника —
+    # платного вызова не будет, если этот вопрос уже когда-то задавался.
+    cf_frame_ok = True
+    if (os.path.exists(cf) and os.path.getsize(cf) > 0
+            and frame_verifier.enabled() and block_text):
+        _probe_cache, _cleanup_cache = video_probe_in_window(cf, slot_dur)
+        if _probe_cache is not None:
+            try:
+                _cache_fv = frame_verifier.verify(_probe_cache, block_text, VIDEO_FOLDER,
+                                                    shot_brief=shot_brief)
+            finally:
+                if _cleanup_cache and os.path.exists(_probe_cache):
+                    try:
+                        os.remove(_probe_cache)
+                    except OSError:
+                        pass
+            if _cache_fv is not None and _cache_fv.get("verdict") == "no":
+                cf_frame_ok = False
+                FRAME_VERIFIER_MISSES.append({
+                    "index": index, "kind": "video", "query": query,
+                    "text": (block_text or "")[:160], "seen": _cache_fv.get("seen"),
+                    "missing": _cache_fv.get("missing"), "candidate": "cache_hit",
+                })
+                FRAME_VERIFIER_GAVE_UP.append({
+                    "index": index, "kind": "video",
+                    "seen": _cache_fv.get("seen"), "missing": _cache_fv.get("missing"),
+                })
+                print(f"  слот {index}: видео-кэш-хит отклонён зрячим гейтом задним числом "
+                      f"— видно «{_cache_fv.get('seen')}», нет «{_cache_fv.get('missing')}»,"
+                      f" переподбираю заново")
+    if os.path.exists(cf) and os.path.getsize(cf) > 0 and cf_frame_ok:
         # N8, видео-ветка: кэш-хит отдавал файл, не сообщив анти-дублю ни ID,
         # ни хэша — тот же слот мог всплыть ещё раз под другим индексом. ID
         # берём из sidecar; aHash по видео здесь сознательно не считаем (нужен
@@ -16179,7 +16279,27 @@ def main():
     # rescale_hook_words_to_visual_time().
     hook_words = rescale_hook_words_to_visual_time(hook_words, blocks, sub_starts, sub_baseline,
                                                      visual_starts, durs)
+    # Накопленное время слотов, поглощённых соседом (см. ABSORBED_SLOTS у
+    # её объявления). «Лучший из плохих» как исход разрешён только при
+    # снятом флаге — читается ОДИН раз на прогон осознанно: внутри цикла на
+    # десятки слотов это решение обязано быть одинаковым для всех, иначе
+    # половина ролика собрана одним правилом, половина другим.
+    _carry_sec = 0.0
+    never_show_known_bad = feature_flags.enabled("NEVER_SHOW_KNOWN_BAD")
+    # Плашки с цифрой, чьи слоты поглощены: цифра — контент, она переезжает
+    # на поглощающий клип, а не исчезает с экрана.
+    stat_carry = []
     for i, (b, d) in enumerate(zip(blocks, durs)):
+        # ПЕРЕНОС ДЛИТЕЛЬНОСТИ ОТ ПОГЛОЩЁННЫХ СЛОТОВ. Слот, которому нечего
+        # честно показать, не получает своего клипа — его время достаётся
+        # ЭТОМУ клипу (следующему за поглощённым проверенному кадру), тот
+        # держится на экране дольше и накрывает обе фразы. Забираем перенос
+        # СРАЗУ и обнуляем: у цикла несколько ранних continue (кэш-хит,
+        # отсутствие медиа), и без обнуления здесь один и тот же перенос
+        # ушёл бы в два клипа.
+        d = d + _carry_sec
+        _carry_sec = 0.0
+        absorb_reason = None
         # Титр темы — только на ПЕРВОМ кадре новой секции (BLOCK N: Название).
         is_section_start = i == 0 or blocks[i]["section"] != blocks[i - 1]["section"]
         title = section_title(b["section"]) if is_section_start else None
@@ -16620,23 +16740,53 @@ def main():
                 _slot_miss_restore(snapshot)
         if (photo or video) and not locked_shot:
             bad_reason = _slot_known_bad_reason(i)
-            if bad_reason and fallback_card_allowed(i, len(blocks),
-                                                     is_opening=is_opening_shot):
-                card = build_slot_fallback_card(i, b["text"], bad_reason)
-                if card:
-                    photo, video = card, None
-        if not photo and not video:
-            # Последняя попытка: локальная папка ПО КРУГУ. Повтор картинки
-            # хуже свежего кадра, но несравнимо лучше пропущенного блока
-            # (тот при RENDER_STRICT_GATE=1 останавливает всю сборку).
+            if bad_reason and not never_show_known_bad:
+                if fallback_card_allowed(i, len(blocks), is_opening=is_opening_shot):
+                    card = build_slot_fallback_card(i, b["text"], bad_reason)
+                    if card:
+                        photo, video = card, None
+            elif bad_reason:
+                # «ЛУЧШИЙ ИЗ ПЛОХИХ» УДАЛЁН КАК ИСХОД (см. ABSORBED_SLOTS у
+                # её объявления). Система только что сама записала, что этот
+                # кадр негодный — значит он НЕ идёт на экран, ни карточкой
+                # (та ограничена бюджетом), ни как есть. Слот поглощается
+                # соседним проверенным кадром.
+                photo, video = None, None
+                absorb_reason = bad_reason
+        if not photo and not video and not never_show_known_bad:
+            # Прежнее поведение (флаг снят): последняя попытка — локальная
+            # папка ПО КРУГУ. Повтор картинки хуже свежего кадра, но лучше
+            # пропущенного блока. При включённом флаге повтор запрещён: он
+            # такой же брак, как показ уже отклонённого кандидата, а
+            # продление соседа не создаёт ни дубля, ни несоответствия.
             photo = local_photo(i, allow_cycle=True)
-        if not photo and not video:
+        if not photo and not video and not never_show_known_bad:
             # Медиа нет вообще. Раньше блок просто выпадал из ролика (а при
             # RENDER_STRICT_GATE=1 — останавливал всю сборку). Карточка здесь
             # сильнее любого повтора: она про эту самую фразу.
             card = build_slot_fallback_card(i, b["text"], FALLBACK_NO_MEDIA_REASON)
             if card:
                 photo = card
+        if not photo and not video and never_show_known_bad:
+            # Поглощение: слот не получает клипа, его время уходит соседу.
+            # Плашка с цифрой — КОНТЕНТ, а не картинка: она наследуется
+            # поглощающим клипом ниже (stat_carry), а не теряется.
+            reason = absorb_reason or FALLBACK_NO_MEDIA_REASON
+            ABSORBED_SLOTS.append({"index": i, "reason": reason,
+                                   "text": b["text"], "carried_sec": round(d, 3)})
+            if stat:
+                stat_carry.append((stat, stat_variant, stat_delay))
+            _carry_sec = d
+            print(f"    [{i+1}] нет проверенного кадра ({reason}) — "
+                  f"{d:.1f}с отдано соседнему кадру")
+            render_manifest[i] = {"index": i, "status": "absorbed",
+                                   "reason": reason, "section": b["section"],
+                                   "duration": d}
+            mark_reports_skipped(i, "absorbed_into_neighbour")
+            shot_entries[i] = {"index": i, "section": b["section"], "text": b["text"],
+                               "query": queries[i], "kind": None, "file": None,
+                               "source": "absorbed", "clip": None}
+            continue
         if not photo and not video:
             print(f"  [{i+1}] нет медиа")
             missing.append(i + 1)
@@ -16646,6 +16796,20 @@ def main():
             shot_entries[i] = {"index": i, "section": b["section"], "text": b["text"], "query": queries[i],
                                "kind": None, "file": None, "source": "missing", "clip": None}
             continue
+        if stat_carry and not stat:
+            # Цифра поглощённого слота переезжает сюда. Задержка берётся
+            # ИСХОДНАЯ: поглощённая фраза звучит в начале объединённого
+            # клипа (клип начинается там, где начинался поглощённый слот),
+            # поэтому её момент появления на экране не сдвигается.
+            stat, stat_variant, stat_delay = stat_carry.pop(0)
+            print(f"    [{i+1}] плашка «{stat}» перенесена с поглощённого слота")
+        elif stat_carry:
+            # У этого клипа своя цифра — add_overlays не рисует две плашки
+            # на один клип. Говорим вслух, что именно потеряно, а не молчим.
+            lost = [t for t, _v, _d in stat_carry]
+            print(f"    ВНИМАНИЕ: [{i+1}] уже несёт свою плашку, "
+                  f"не перенесены: {lost}")
+            stat_carry.clear()
         # Крупность плана пополнялась только внутри pexels_photo() — локальные и
         # залоченные фото (каждый AI-слот протокола) в окно не попадали, и
         # choose_motion_mode получал крупность ЧУЖОГО кадра (аудит 04.09).
@@ -17061,6 +17225,20 @@ def main():
         render_pool.shutdown(wait=True)
     log_render_diagnostics("render_done")
     print(f"  Рендер завершён: {len(clips)}/{len(blocks)} клипов")
+    if (never_show_known_bad and not clips
+            and not feature_flags.enabled("SELECTION_ONLY")):
+        # Поглощать некого: ни один слот не получил проверенного кадра.
+        # Собирать ролик из брака нельзя (правило NEVER_SHOW_KNOWN_BAD ради
+        # этого и заведено), значит честный стоп с причиной, а не пустой
+        # файл и не молчаливая деградация. SELECTION_ONLY здесь не считается
+        # — в этом режиме clips пуст ВСЕГДА по замыслу (рендера вообще не
+        # было), и это не то же самое, что «показывать нечего».
+        print("\nСТОП: ни один слот не получил ПРОВЕРЕННОГО кадра — "
+              f"поглощено {len(ABSORBED_SLOTS)} слот(ов), показывать нечего. "
+              "Смотреть media_plan/absorbed_slots_report.json: чаще всего это "
+              "нет ключей стоков, исчерпанная квота или запрос, которому "
+              "мир эпизода противоречит.")
+        return 1
 
     manifest_path = os.path.join(VIDEO_FOLDER, "media_plan", "render_manifest.json")
     os.makedirs(os.path.dirname(manifest_path), exist_ok=True)
@@ -17223,6 +17401,23 @@ def main():
               f"карточкой вместо кадра — см. media_plan/fallback_cards_report.json. "
               f"Это осознанная замена заведомо плохого кадра, но если карточек много — "
               f"стоку по этой теме нечего предложить: нужны архивы или AI-картинки (Шаг 5).")
+
+    # ABSORBED_SLOTS — слоты, поглощённые соседом (см. её докстринг у
+    # объявления). Отдельный отчёт, а не строка в консоли: по готовому
+    # ролику иначе невозможно ответить, почему кадр держится дольше своей
+    # фразы и какая фраза осталась без своего кадра.
+    absorbed_path = os.path.join(VIDEO_FOLDER, "media_plan",
+                                  "absorbed_slots_report.json")
+    merge_slot_report(absorbed_path, ABSORBED_SLOTS,
+                      resolved_slots=RESOLVED_SLOTS_THIS_RUN,
+                      extra={"never_show_known_bad": never_show_known_bad,
+                             "tail_carry_sec": round(_carry_sec, 3)})
+    if ABSORBED_SLOTS:
+        idxs = [m["index"] for m in ABSORBED_SLOTS]
+        print(f"  {len(ABSORBED_SLOTS)} слот(ов) {idxs} поглощены соседним проверенным "
+              f"кадром — не получили своего медиа, потому что система сама "
+              f"пометила подобранного кандидата браком (см. "
+              f"media_plan/absorbed_slots_report.json).")
 
     # VIDEO_RESCUED_BY_PHOTO — слоты, где негодное видео уступило место
     # фотографии. Пишется отдельно от карточек: это не «нечего показать», а
@@ -17443,7 +17638,19 @@ def main():
     # багом бюджета xfade. Дважды наказывать за один и тот же осознанный
     # пропуск (сначала пометить missing, потом всё равно не собрать файл)
     # значит не давать lenient-режиму вообще ничего лениться.
-    if pad_gap > PAD_GAP_HARD_CAP_SEC and not (missing and not RENDER_STRICT_GATE):
+    # ХВОСТОВОЕ ПОГЛОЩЕНИЕ — НАМЕРЕННОЕ ПРОДЛЕНИЕ, А НЕ ПОТЕРЯННЫЙ КЛИП. Если
+    # поглощён ПОСЛЕДНИЙ слот эпизода, наследовать его время некому
+    # (следующего клипа нет), и остаток закрывается той же заморозкой
+    # последнего кадра, которой закрывается округление xfade. Допуск
+    # ослабляется РОВНО на эту известную величину: гейт заведён против тихой
+    # потери клипа, а здесь потери нет — есть решение, записанное в
+    # absorbed_slots_report.json. Всё, что сверху неё, по-прежнему стоп.
+    _tail_carry = round(_carry_sec, 3)
+    if _tail_carry > 0.05:
+        print(f"  Хвост эпизода: последние {_tail_carry:.1f}с закрыты "
+              f"продлением последнего проверенного кадра "
+              f"({len(ABSORBED_SLOTS)} поглощённых слот(ов) всего)")
+    if pad_gap - _tail_carry > PAD_GAP_HARD_CAP_SEC and not (missing and not RENDER_STRICT_GATE):
         print(f"\nСТОП: заморозка в хвосте {pad_gap:.1f}с превышает допуск "
               f"{PAD_GAP_HARD_CAP_SEC:.1f}с — final.mp4 НЕ собран (расчёт длительностей "
               f"разошёлся сильнее, чем можно списать на округление xfade).")
