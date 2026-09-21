@@ -1,0 +1,2262 @@
+{
+ "measured_at": "2026-09-18",
+ "question": "Даёт ли ТЕКСТ-ТЕКСТ (собственный текст кандидата против запроса) сигнал сверх списка слов блоклиста — там, где image-text не даёт ничего?",
+ "answer": "ДА, предварительно. Нижний хвост состоит из кандидатов, которые по своему же описанию не про запрос, включая ДВА брака, независимо размеченных глазами в этом репозитории.",
+ "corpus": "tests/fixtures/pexels_slugs_sample.json — замороженная живая выдача Pexels по запросам опубликованного эпизода 01_ves-mecha (снята 07.09)",
+ "n_candidates": 264,
+ "n_queries": 22,
+ "blocklist_kept": 264,
+ "blocklist_cut": 0,
+ "model": "Jina CLIP v2 (text-text), visual_director.text_text_similarity",
+ "stats": {
+  "min": 0.596379816532135,
+  "median": 0.7537760734558105,
+  "max": 0.9119570255279541,
+  "photo_median": 0.7784612476825714,
+  "video_median": 0.7317178249359131
+ },
+ "bottom_15": [
+  {
+   "sim": 0.596379816532135,
+   "kind": "photo",
+   "query": "milk bottle hand",
+   "text": "a close up of a person preparing a raspberry dish on a kitchen counter. https: www.pexels.com photo a person preparing food on the countertop 9788609"
+  },
+  {
+   "sim": 0.6060632467269897,
+   "kind": "photo",
+   "query": "landsknecht mercenary engraving",
+   "text": "intricate stone and gold relief on a historic building facade. https: www.pexels.com photo ornate architectural detail of historical building in poland 37614284"
+  },
+  {
+   "sim": 0.6166126132011414,
+   "kind": "video",
+   "query": "medieval castle hall",
+   "text": "https: www.pexels.com video ungraded apple prores log footage 27814738"
+  },
+  {
+   "sim": 0.623322606086731,
+   "kind": "video",
+   "query": "landsknecht mercenary engraving",
+   "text": "https: www.pexels.com video paint brushes and figurines 855865"
+  },
+  {
+   "sim": 0.62949538230896,
+   "kind": "photo",
+   "query": "spear pike soldiers",
+   "text": "colorful parade in yogyakarta showcasing cultural heritage and traditional uniforms. https: www.pexels.com photo traditional yogyakarta parade with soldiers in uniform 35339042"
+  },
+  {
+   "sim": 0.630069375038147,
+   "kind": "photo",
+   "query": "landsknecht mercenary engraving",
+   "text": "detailed close up of an ornate carved wooden art piece featuring a mythical face with intricate patterns. https: www.pexels.com photo brown wooden carved wall 13121457"
+  },
+  {
+   "sim": 0.6306371688842773,
+   "kind": "video",
+   "query": "ornate sword display",
+   "text": "https: www.pexels.com video abstract artistic painting with textured frame 29466025"
+  },
+  {
+   "sim": 0.63715660572052,
+   "kind": "video",
+   "query": "milk bottle hand",
+   "text": "https: www.pexels.com video a person mixing cereal in a bowl 5593396"
+  },
+  {
+   "sim": 0.6398555040359497,
+   "kind": "video",
+   "query": "medieval sword collection museum",
+   "text": "https: www.pexels.com video gothic quarter barcelona 28115459"
+  },
+  {
+   "sim": 0.6414523720741272,
+   "kind": "photo",
+   "query": "spear pike soldiers",
+   "text": "side profile of a roman soldier reenactor in detailed armor, thoughtful pose. https: www.pexels.com photo roman soldier in historical reenactment 38141658"
+  },
+  {
+   "sim": 0.6428847908973694,
+   "kind": "photo",
+   "query": "roman gladius sword",
+   "text": "stone statue of ancient warrior set against urban backdrop with foliage. https: www.pexels.com photo decorative sculptures in city 17970851"
+  },
+  {
+   "sim": 0.6431896686553955,
+   "kind": "video",
+   "query": "medieval sword museum display",
+   "text": "https: www.pexels.com video ceramic vases on the shelves 5745370"
+  },
+  {
+   "sim": 0.6435499787330627,
+   "kind": "video",
+   "query": "ceremonial sword museum",
+   "text": "https: www.pexels.com video historic european banquet hall interior 36883801"
+  },
+  {
+   "sim": 0.6452063918113708,
+   "kind": "video",
+   "query": "roman gladius sword",
+   "text": "https: www.pexels.com video historical reenactment event with kids 38103941"
+  },
+  {
+   "sim": 0.6476456522941589,
+   "kind": "photo",
+   "query": "landsknecht mercenary engraving",
+   "text": "detailed close up of intricately designed medieval armor plates with gold accents and leather straps. https: www.pexels.com photo close up of ornate medieval armor plates 31350031"
+  }
+ ],
+ "top_5": [
+  {
+   "sim": 0.878899097442627,
+   "kind": "photo",
+   "query": "knight armor plate close up",
+   "text": "detailed close up of intricately designed medieval armor plates with gold accents and leather straps. https: www.pexels.com photo close up of ornate medieval armor plates 31350031"
+  },
+  {
+   "sim": 0.8835880756378174,
+   "kind": "video",
+   "query": "milk bottle hand",
+   "text": "https: www.pexels.com video hand holding milk 11331111"
+  },
+  {
+   "sim": 0.8897850513458252,
+   "kind": "photo",
+   "query": "knight armor exhibit",
+   "text": "a knight's armor and swords displayed in a historic room with stone walls. https: www.pexels.com photo medieval armor display in historic setting 31474665"
+  },
+  {
+   "sim": 0.9049842953681946,
+   "kind": "photo",
+   "query": "medieval sword close up blade",
+   "text": "close up of an intricately designed historical sword with ornate details on blade and hilt. https: www.pexels.com photo intricately designed historical sword close up 31350049"
+  },
+  {
+   "sim": 0.9119570255279541,
+   "kind": "photo",
+   "query": "knight armor exhibit",
+   "text": "a striking display of medieval knight armor, showcasing breastplates and steel suits in a museum. https: www.pexels.com photo stainless steel armor 63852"
+  }
+ ],
+ "honest_limits": [
+  "Метки здесь мои, по чтению слага — то есть ось и метка из ОДНОГО источника (текста). Это не глазная разметка и приёмкой не является.",
+  "Порог НЕ подбирался: распределения годных/брака на этом корпусе не размечены, и подгонка порога под 264 строки была бы ровно тем, за что этот репозиторий уже трижды критиковал сам себя.",
+  "Блоклист на этой выборке не отсеял НИ ОДНОГО кандидата (264 из 264 прошли) — то есть измерена именно работа ПОСЛЕ него, что и требовалось, но сравнить две оси между собой на этих данных нельзя.",
+  "Честная проверка — image + текст + вердикт глазами на одном и том же кадре: её даёт перегон эпизода с новым sidecar (текст кандидата теперь сохраняется) плюс разметка Шага 7.5."
+ ],
+ "rows": [
+  {
+   "query": "blacksmith forging sword",
+   "kind": "photo",
+   "id": 30074354,
+   "text": "close up of blacksmiths working with heated metal in a workshop, capturing traditional craftsmanship. https: www.pexels.com photo artisan blacksmith crafting metal object 30074354",
+   "sim": 0.8410546183586121,
+   "blocklist_kept": true
+  },
+  {
+   "query": "blacksmith forging sword",
+   "kind": "photo",
+   "id": 34367173,
+   "text": "a blacksmith in period clothing is forging metal on an anvil outdoors with tongs and hammer. https: www.pexels.com photo traditional blacksmith forging metal outdoors 34367173",
+   "sim": 0.8635774254798889,
+   "blocklist_kept": true
+  },
+  {
+   "query": "blacksmith forging sword",
+   "kind": "photo",
+   "id": 34116082,
+   "text": "a skilled blacksmith working in his rustic workshop, crafting metal with traditional tools. https: www.pexels.com photo blacksmith at work in rustic workshop 34116082",
+   "sim": 0.8589874505996704,
+   "blocklist_kept": true
+  },
+  {
+   "query": "blacksmith forging sword",
+   "kind": "photo",
+   "id": 33739120,
+   "text": "two men collaborating in a blacksmith shop, working with hammers and an anvil under a rustic roof. https: www.pexels.com photo two blacksmiths working together outdoors 33739120",
+   "sim": 0.8202154636383057,
+   "blocklist_kept": true
+  },
+  {
+   "query": "blacksmith forging sword",
+   "kind": "photo",
+   "id": 33739127,
+   "text": "blacksmith forging metal beside fire in rustic workshop, creating artisanal crafts. https: www.pexels.com photo traditional blacksmith at work in rustic setting 33739127",
+   "sim": 0.8499875068664551,
+   "blocklist_kept": true
+  },
+  {
+   "query": "blacksmith forging sword",
+   "kind": "photo",
+   "id": 33739126,
+   "text": "a blacksmith works at a traditional forge outdoors, wearing an apron and holding tools. https: www.pexels.com photo blacksmith working in historic forge outdoors 33739126",
+   "sim": 0.8606160283088684,
+   "blocklist_kept": true
+  },
+  {
+   "query": "blacksmith forging sword",
+   "kind": "video",
+   "id": 31638148,
+   "text": "https: www.pexels.com video blacksmith hammering metal in workshop 31638148",
+   "sim": 0.8456233739852905,
+   "blocklist_kept": true
+  },
+  {
+   "query": "blacksmith forging sword",
+   "kind": "video",
+   "id": 5846461,
+   "text": "https: www.pexels.com video young man working at smithy workshop 5846461",
+   "sim": 0.786357581615448,
+   "blocklist_kept": true
+  },
+  {
+   "query": "blacksmith forging sword",
+   "kind": "video",
+   "id": 5846380,
+   "text": "https: www.pexels.com video young man working at smithy workshop 5846380",
+   "sim": 0.787921667098999,
+   "blocklist_kept": true
+  },
+  {
+   "query": "blacksmith forging sword",
+   "kind": "video",
+   "id": 38103748,
+   "text": "https: www.pexels.com video blacksmith hammering metal on anvil block 38103748",
+   "sim": 0.8345379829406738,
+   "blocklist_kept": true
+  },
+  {
+   "query": "blacksmith forging sword",
+   "kind": "video",
+   "id": 5846319,
+   "text": "https: www.pexels.com video forging hot metal 5846319",
+   "sim": 0.8038889765739441,
+   "blocklist_kept": true
+  },
+  {
+   "query": "blacksmith forging sword",
+   "kind": "video",
+   "id": 38103754,
+   "text": "https: www.pexels.com video traditional blacksmith forging metal outdoors 38103754",
+   "sim": 0.8708620071411133,
+   "blocklist_kept": true
+  },
+  {
+   "query": "ceremonial sword museum",
+   "kind": "photo",
+   "id": 31474665,
+   "text": "a knight's armor and swords displayed in a historic room with stone walls. https: www.pexels.com photo medieval armor display in historic setting 31474665",
+   "sim": 0.7984678745269775,
+   "blocklist_kept": true
+  },
+  {
+   "query": "ceremonial sword museum",
+   "kind": "photo",
+   "id": 14645000,
+   "text": "historic medieval armor and weapons displayed on a wall in nesvizh, belarus museum. https: www.pexels.com photo swords helmets and shield hanging on wall 14645000",
+   "sim": 0.7629584670066833,
+   "blocklist_kept": true
+  },
+  {
+   "query": "ceremonial sword museum",
+   "kind": "photo",
+   "id": 31350048,
+   "text": "detailed close up of a historical saber with ornate gold embellishments and star motifs on its blade. https: www.pexels.com photo intricately designed historical saber on display 31350048",
+   "sim": 0.7958660125732422,
+   "blocklist_kept": true
+  },
+  {
+   "query": "ceremonial sword museum",
+   "kind": "photo",
+   "id": 34093013,
+   "text": "line of military officers in ceremonial uniforms with swords during a formal parade. https: www.pexels.com photo majestic parade of military officers in uniform 34093013",
+   "sim": 0.6926637291908264,
+   "blocklist_kept": true
+  },
+  {
+   "query": "ceremonial sword museum",
+   "kind": "photo",
+   "id": 31350049,
+   "text": "close up of an intricately designed historical sword with ornate details on blade and hilt. https: www.pexels.com photo intricately designed historical sword close up 31350049",
+   "sim": 0.7827936410903931,
+   "blocklist_kept": true
+  },
+  {
+   "query": "ceremonial sword museum",
+   "kind": "photo",
+   "id": 34093012,
+   "text": "military personnel in ceremonial uniforms holding swords during a parade. https: www.pexels.com photo ceremonial military parade with sword bearers 34093012",
+   "sim": 0.7438125610351562,
+   "blocklist_kept": true
+  },
+  {
+   "query": "ceremonial sword museum",
+   "kind": "video",
+   "id": 32676827,
+   "text": "https: www.pexels.com video traditional korean warrior archery demonstration 32676827",
+   "sim": 0.7510697841644287,
+   "blocklist_kept": true
+  },
+  {
+   "query": "ceremonial sword museum",
+   "kind": "video",
+   "id": 29117383,
+   "text": "https: www.pexels.com video traditional korean guard ceremony at palace 29117383",
+   "sim": 0.7098936438560486,
+   "blocklist_kept": true
+  },
+  {
+   "query": "ceremonial sword museum",
+   "kind": "video",
+   "id": 29233129,
+   "text": "https: www.pexels.com video traditional korean guard ceremony outdoors 29233129",
+   "sim": 0.704913854598999,
+   "blocklist_kept": true
+  },
+  {
+   "query": "ceremonial sword museum",
+   "kind": "video",
+   "id": 36883801,
+   "text": "https: www.pexels.com video historic european banquet hall interior 36883801",
+   "sim": 0.6435499787330627,
+   "blocklist_kept": true
+  },
+  {
+   "query": "ceremonial sword museum",
+   "kind": "video",
+   "id": 4300002,
+   "text": "https: www.pexels.com video guards carrying swords 4300002",
+   "sim": 0.7344651818275452,
+   "blocklist_kept": true
+  },
+  {
+   "query": "ceremonial sword museum",
+   "kind": "video",
+   "id": 32676829,
+   "text": "https: www.pexels.com video korean martial arts demonstration at suwon fortress 32676829",
+   "sim": 0.7444615364074707,
+   "blocklist_kept": true
+  },
+  {
+   "query": "greatsword warrior fight",
+   "kind": "photo",
+   "id": 19117454,
+   "text": "two martial artists engaged in a high flying sword fight in a dense forest. https: www.pexels.com photo men fighting in forest 19117454",
+   "sim": 0.8274515867233276,
+   "blocklist_kept": true
+  },
+  {
+   "query": "greatsword warrior fight",
+   "kind": "photo",
+   "id": 13172739,
+   "text": "a knight in full armor engaged in a lively medieval reenactment outdoors. https: www.pexels.com photo knight during reenactment 13172739",
+   "sim": 0.7510889768600464,
+   "blocklist_kept": true
+  },
+  {
+   "query": "greatsword warrior fight",
+   "kind": "photo",
+   "id": 5030527,
+   "text": "three men in medieval armor and swords standing in a forest, ready for battle. https: www.pexels.com photo angry warriors holding weapons while looking at the camera 5030527",
+   "sim": 0.7784594297409058,
+   "blocklist_kept": true
+  },
+  {
+   "query": "greatsword warrior fight",
+   "kind": "photo",
+   "id": 35474230,
+   "text": "two men engage in a traditional martial arts duel outdoors during sunset. https: www.pexels.com photo traditional martial arts duel at sunset 35474230",
+   "sim": 0.7548635601997375,
+   "blocklist_kept": true
+  },
+  {
+   "query": "greatsword warrior fight",
+   "kind": "photo",
+   "id": 7186550,
+   "text": "intense scene of gladiators engaging in combat with swords in an ancient style arena. https: www.pexels.com photo shirtless men fighting with sword 7186550",
+   "sim": 0.8479641079902649,
+   "blocklist_kept": true
+  },
+  {
+   "query": "greatsword warrior fight",
+   "kind": "photo",
+   "id": 25755,
+   "text": "dramatic scene of medieval knights charging in a reenactment battle under stormy skies. https: www.pexels.com photo man s holding swords clip art 25755",
+   "sim": 0.805682897567749,
+   "blocklist_kept": true
+  },
+  {
+   "query": "greatsword warrior fight",
+   "kind": "video",
+   "id": 9466657,
+   "text": "https: www.pexels.com video a man riding a horse while pulling out a sword 9466657",
+   "sim": 0.7925591468811035,
+   "blocklist_kept": true
+  },
+  {
+   "query": "greatsword warrior fight",
+   "kind": "video",
+   "id": 7777754,
+   "text": "https: www.pexels.com video people wearing costume having a fight 7777754",
+   "sim": 0.8200086355209351,
+   "blocklist_kept": true
+  },
+  {
+   "query": "greatsword warrior fight",
+   "kind": "video",
+   "id": 7777387,
+   "text": "https: www.pexels.com video man and woman doing martial arts 7777387",
+   "sim": 0.7701320052146912,
+   "blocklist_kept": true
+  },
+  {
+   "query": "greatsword warrior fight",
+   "kind": "video",
+   "id": 7780090,
+   "text": "https: www.pexels.com video woman wearing kimono fighting a person 7780090",
+   "sim": 0.7619011402130127,
+   "blocklist_kept": true
+  },
+  {
+   "query": "greatsword warrior fight",
+   "kind": "video",
+   "id": 7045187,
+   "text": "https: www.pexels.com video man showing his martial art skills 7045187",
+   "sim": 0.7428528666496277,
+   "blocklist_kept": true
+  },
+  {
+   "query": "greatsword warrior fight",
+   "kind": "video",
+   "id": 10653785,
+   "text": "https: www.pexels.com video man with sword in winter forest 10653785",
+   "sim": 0.7534060478210449,
+   "blocklist_kept": true
+  },
+  {
+   "query": "hammer tool grip",
+   "kind": "photo",
+   "id": 25049507,
+   "text": "hands using a hammer to crack nuts on a stone surface, showcasing traditional methods. https: www.pexels.com photo woman opening nuts with hammer 25049507",
+   "sim": 0.7382000088691711,
+   "blocklist_kept": true
+  },
+  {
+   "query": "hammer tool grip",
+   "kind": "photo",
+   "id": 7484798,
+   "text": "close up of a hand reaching for a hammer in a workshop with various tools. https: www.pexels.com photo person holding a hammer 7484798",
+   "sim": 0.8267906904220581,
+   "blocklist_kept": true
+  },
+  {
+   "query": "hammer tool grip",
+   "kind": "photo",
+   "id": 5583139,
+   "text": "unique hammer with a colorful handle on textured black leather surface. https: www.pexels.com photo glazed porcelain hammer 5583139",
+   "sim": 0.7507966756820679,
+   "blocklist_kept": true
+  },
+  {
+   "query": "hammer tool grip",
+   "kind": "photo",
+   "id": 7484795,
+   "text": "neatly organized tools hanging on a workshop wall, including hammers and scissors. https: www.pexels.com photo hammer and mallets hanging on the wall 7484795",
+   "sim": 0.740247368812561,
+   "blocklist_kept": true
+  },
+  {
+   "query": "hammer tool grip",
+   "kind": "photo",
+   "id": 5357150,
+   "text": "a flat lay photograph of various hand tools on a black wooden surface, ideal for workshops. https: www.pexels.com photo close up of tools 5357150",
+   "sim": 0.7339304089546204,
+   "blocklist_kept": true
+  },
+  {
+   "query": "hammer tool grip",
+   "kind": "photo",
+   "id": 5894313,
+   "text": "a leather artisan uses a mallet to craft leather goods on a workbench. https: www.pexels.com photo person in white gloves holding a hammer 5894313",
+   "sim": 0.7693002223968506,
+   "blocklist_kept": true
+  },
+  {
+   "query": "hammer tool grip",
+   "kind": "video",
+   "id": 31638148,
+   "text": "https: www.pexels.com video blacksmith hammering metal in workshop 31638148",
+   "sim": 0.7251946926116943,
+   "blocklist_kept": true
+  },
+  {
+   "query": "hammer tool grip",
+   "kind": "video",
+   "id": 8488113,
+   "text": "https: www.pexels.com video person hammering nail on wooden surface 8488113",
+   "sim": 0.781299889087677,
+   "blocklist_kept": true
+  },
+  {
+   "query": "hammer tool grip",
+   "kind": "video",
+   "id": 20713630,
+   "text": "https: www.pexels.com video hammering tyre 20713630",
+   "sim": 0.7504133582115173,
+   "blocklist_kept": true
+  },
+  {
+   "query": "hammer tool grip",
+   "kind": "video",
+   "id": 14514806,
+   "text": "https: www.pexels.com video man pounding metal with a hammer 14514806",
+   "sim": 0.8053463697433472,
+   "blocklist_kept": true
+  },
+  {
+   "query": "hammer tool grip",
+   "kind": "video",
+   "id": 12270585,
+   "text": "https: www.pexels.com video hitting stud with hammer 12270585",
+   "sim": 0.8039372563362122,
+   "blocklist_kept": true
+  },
+  {
+   "query": "hammer tool grip",
+   "kind": "video",
+   "id": 4958033,
+   "text": "https: www.pexels.com video person using hammer 4958033",
+   "sim": 0.8194180727005005,
+   "blocklist_kept": true
+  },
+  {
+   "query": "katana sword",
+   "kind": "photo",
+   "id": 7778825,
+   "text": "a woman in an ornate kimono brandishing a katana, exuding elegance and strength. https: www.pexels.com photo woman in floral kimono holding katana in hand 7778825",
+   "sim": 0.7707536816596985,
+   "blocklist_kept": true
+  },
+  {
+   "query": "katana sword",
+   "kind": "photo",
+   "id": 4235351,
+   "text": "a couple demonstrating martial arts with katanas in a serene forest setting. https: www.pexels.com photo full shot of a man and a woman holding katana swords 4235351",
+   "sim": 0.7815210819244385,
+   "blocklist_kept": true
+  },
+  {
+   "query": "katana sword",
+   "kind": "photo",
+   "id": 18100380,
+   "text": "black and white portrait of a teenager in a kimono holding a katana sword in a japanese styled setting. https: www.pexels.com photo teenage boy holding a katana 18100380",
+   "sim": 0.7837549448013306,
+   "blocklist_kept": true
+  },
+  {
+   "query": "katana sword",
+   "kind": "photo",
+   "id": 7585034,
+   "text": "brutal ethnic male with dark short hair and sharp heavy katana in black formal jacket in studio https: www.pexels.com photo serious asian man with katana in hand in elegant suit 7585034",
+   "sim": 0.7788767218589783,
+   "blocklist_kept": true
+  },
+  {
+   "query": "katana sword",
+   "kind": "photo",
+   "id": 18100368,
+   "text": "young boy in traditional setting practicing martial arts with a sword, showcasing focus. https: www.pexels.com photo boy holding a sword 18100368",
+   "sim": 0.7620605230331421,
+   "blocklist_kept": true
+  },
+  {
+   "query": "katana sword",
+   "kind": "photo",
+   "id": 18035046,
+   "text": "a woman in colorful cosplay posing with a samurai sword in a studio setting. https: www.pexels.com photo woman in a costume posing with a samurai sword 18035046",
+   "sim": 0.7536341547966003,
+   "blocklist_kept": true
+  },
+  {
+   "query": "katana sword",
+   "kind": "video",
+   "id": 7125226,
+   "text": "https: www.pexels.com video a footage of a sharp samurai 7125226",
+   "sim": 0.7996516227722168,
+   "blocklist_kept": true
+  },
+  {
+   "query": "katana sword",
+   "kind": "video",
+   "id": 8765059,
+   "text": "https: www.pexels.com video a woman holding a sword while looking at camera 8765059",
+   "sim": 0.7568248510360718,
+   "blocklist_kept": true
+  },
+  {
+   "query": "katana sword",
+   "kind": "video",
+   "id": 8765056,
+   "text": "https: www.pexels.com video a woman with eyes closed holding a katana 8765056",
+   "sim": 0.7904314994812012,
+   "blocklist_kept": true
+  },
+  {
+   "query": "katana sword",
+   "kind": "video",
+   "id": 7818412,
+   "text": "https: www.pexels.com video people cosplaying characters from game characters 7818412",
+   "sim": 0.6729668974876404,
+   "blocklist_kept": true
+  },
+  {
+   "query": "katana sword",
+   "kind": "video",
+   "id": 4734306,
+   "text": "https: www.pexels.com video silhouette of a person holding a sword 4734306",
+   "sim": 0.7694920897483826,
+   "blocklist_kept": true
+  },
+  {
+   "query": "katana sword",
+   "kind": "video",
+   "id": 8765053,
+   "text": "https: www.pexels.com video emotionless woman pulling a katana from a scabbard 8765053",
+   "sim": 0.8029427528381348,
+   "blocklist_kept": true
+  },
+  {
+   "query": "knight armor exhibit",
+   "kind": "photo",
+   "id": 31474665,
+   "text": "a knight's armor and swords displayed in a historic room with stone walls. https: www.pexels.com photo medieval armor display in historic setting 31474665",
+   "sim": 0.8897850513458252,
+   "blocklist_kept": true
+  },
+  {
+   "query": "knight armor exhibit",
+   "kind": "photo",
+   "id": 2046779,
+   "text": "medieval knight in full armor with a swordsman and armored horse indoors. https: www.pexels.com photo medieval armor 2046779",
+   "sim": 0.8510618805885315,
+   "blocklist_kept": true
+  },
+  {
+   "query": "knight armor exhibit",
+   "kind": "photo",
+   "id": 63852,
+   "text": "a striking display of medieval knight armor, showcasing breastplates and steel suits in a museum. https: www.pexels.com photo stainless steel armor 63852",
+   "sim": 0.9119570255279541,
+   "blocklist_kept": true
+  },
+  {
+   "query": "knight armor exhibit",
+   "kind": "photo",
+   "id": 15301240,
+   "text": "a collection of medieval knight helmets on display in a london museum, showcasing historical armor. https: www.pexels.com photo rows of medieval knights armor 15301240",
+   "sim": 0.8740125894546509,
+   "blocklist_kept": true
+  },
+  {
+   "query": "knight armor exhibit",
+   "kind": "photo",
+   "id": 11868476,
+   "text": "close up of an ornate medieval helmet with feathers on display at a museum exhibition. https: www.pexels.com photo knights helmet in a museum 11868476",
+   "sim": 0.811767578125,
+   "blocklist_kept": true
+  },
+  {
+   "query": "knight armor exhibit",
+   "kind": "photo",
+   "id": 31350031,
+   "text": "detailed close up of intricately designed medieval armor plates with gold accents and leather straps. https: www.pexels.com photo close up of ornate medieval armor plates 31350031",
+   "sim": 0.7616305351257324,
+   "blocklist_kept": true
+  },
+  {
+   "query": "knight armor exhibit",
+   "kind": "video",
+   "id": 37685632,
+   "text": "https: www.pexels.com video medieval parade with knights in armor 37685632",
+   "sim": 0.8037545680999756,
+   "blocklist_kept": true
+  },
+  {
+   "query": "knight armor exhibit",
+   "kind": "video",
+   "id": 855260,
+   "text": "https: www.pexels.com video warriors fighting 855260",
+   "sim": 0.7219514846801758,
+   "blocklist_kept": true
+  },
+  {
+   "query": "knight armor exhibit",
+   "kind": "video",
+   "id": 37709379,
+   "text": "https: www.pexels.com video medieval festival parade with costumed participants 37709379",
+   "sim": 0.7325078248977661,
+   "blocklist_kept": true
+  },
+  {
+   "query": "knight armor exhibit",
+   "kind": "video",
+   "id": 37685634,
+   "text": "https: www.pexels.com video medieval festival reenactment with knights parade 37685634",
+   "sim": 0.7743726968765259,
+   "blocklist_kept": true
+  },
+  {
+   "query": "knight armor exhibit",
+   "kind": "video",
+   "id": 39157153,
+   "text": "https: www.pexels.com video terracotta warrior close up in museum 39157153",
+   "sim": 0.7683354020118713,
+   "blocklist_kept": true
+  },
+  {
+   "query": "knight armor exhibit",
+   "kind": "video",
+   "id": 38103937,
+   "text": "https: www.pexels.com video roman legionnaire historical reenactment parade 38103937",
+   "sim": 0.7630808353424072,
+   "blocklist_kept": true
+  },
+  {
+   "query": "knight armor plate close up",
+   "kind": "photo",
+   "id": 31350031,
+   "text": "detailed close up of intricately designed medieval armor plates with gold accents and leather straps. https: www.pexels.com photo close up of ornate medieval armor plates 31350031",
+   "sim": 0.878899097442627,
+   "blocklist_kept": true
+  },
+  {
+   "query": "knight armor plate close up",
+   "kind": "photo",
+   "id": 350784,
+   "text": "close up shot of vintage medieval knight armor in monochrome. https: www.pexels.com photo gray scale photography of knight 350784",
+   "sim": 0.8210691809654236,
+   "blocklist_kept": true
+  },
+  {
+   "query": "knight armor plate close up",
+   "kind": "photo",
+   "id": 349455,
+   "text": "detailed view of medieval armor gauntlets holding a sword. https: www.pexels.com photo silver and brown sword and armor 349455",
+   "sim": 0.8168905973434448,
+   "blocklist_kept": true
+  },
+  {
+   "query": "knight armor plate close up",
+   "kind": "photo",
+   "id": 11952611,
+   "text": "close up of medieval knight armor with detailed design against a rustic brick wall. https: www.pexels.com photo close up photo of a medieval armor 11952611",
+   "sim": 0.8651180267333984,
+   "blocklist_kept": true
+  },
+  {
+   "query": "knight armor plate close up",
+   "kind": "photo",
+   "id": 2046779,
+   "text": "medieval knight in full armor with a swordsman and armored horse indoors. https: www.pexels.com photo medieval armor 2046779",
+   "sim": 0.7822611331939697,
+   "blocklist_kept": true
+  },
+  {
+   "query": "knight armor plate close up",
+   "kind": "photo",
+   "id": 15301240,
+   "text": "a collection of medieval knight helmets on display in a london museum, showcasing historical armor. https: www.pexels.com photo rows of medieval knights armor 15301240",
+   "sim": 0.7990901470184326,
+   "blocklist_kept": true
+  },
+  {
+   "query": "knight armor plate close up",
+   "kind": "video",
+   "id": 855260,
+   "text": "https: www.pexels.com video warriors fighting 855260",
+   "sim": 0.6777448058128357,
+   "blocklist_kept": true
+  },
+  {
+   "query": "knight armor plate close up",
+   "kind": "video",
+   "id": 10586228,
+   "text": "https: www.pexels.com video close up shot of a person moving antique chess pieces 10586228",
+   "sim": 0.6744415163993835,
+   "blocklist_kept": true
+  },
+  {
+   "query": "knight armor plate close up",
+   "kind": "video",
+   "id": 39157153,
+   "text": "https: www.pexels.com video terracotta warrior close up in museum 39157153",
+   "sim": 0.7569054365158081,
+   "blocklist_kept": true
+  },
+  {
+   "query": "knight armor plate close up",
+   "kind": "video",
+   "id": 38103931,
+   "text": "https: www.pexels.com video roman soldiers engaging in historical reenactment 38103931",
+   "sim": 0.6823493242263794,
+   "blocklist_kept": true
+  },
+  {
+   "query": "knight armor plate close up",
+   "kind": "video",
+   "id": 4584747,
+   "text": "https: www.pexels.com video grill marks on sliced bread 4584747",
+   "sim": 0.7008879780769348,
+   "blocklist_kept": true
+  },
+  {
+   "query": "knight armor plate close up",
+   "kind": "video",
+   "id": 38103934,
+   "text": "https: www.pexels.com video roman soldiers in historic shield formation 38103934",
+   "sim": 0.755865216255188,
+   "blocklist_kept": true
+  },
+  {
+   "query": "landsknecht mercenary engraving",
+   "kind": "photo",
+   "id": 31350031,
+   "text": "detailed close up of intricately designed medieval armor plates with gold accents and leather straps. https: www.pexels.com photo close up of ornate medieval armor plates 31350031",
+   "sim": 0.6476456522941589,
+   "blocklist_kept": true
+  },
+  {
+   "query": "landsknecht mercenary engraving",
+   "kind": "photo",
+   "id": 31350042,
+   "text": "close up of a silver shield showcasing detailed ornate patterns and engravings. https: www.pexels.com photo intricate silver shield with ornate patterns 31350042",
+   "sim": 0.669649064540863,
+   "blocklist_kept": true
+  },
+  {
+   "query": "landsknecht mercenary engraving",
+   "kind": "photo",
+   "id": 6175101,
+   "text": "explore the intricate details of a historic stone carving, showcasing masterful craftsmanship. https: www.pexels.com photo a close up shot of art carved on a concrete wall 6175101",
+   "sim": 0.6902674436569214,
+   "blocklist_kept": true
+  },
+  {
+   "query": "landsknecht mercenary engraving",
+   "kind": "photo",
+   "id": 13121457,
+   "text": "detailed close up of an ornate carved wooden art piece featuring a mythical face with intricate patterns. https: www.pexels.com photo brown wooden carved wall 13121457",
+   "sim": 0.630069375038147,
+   "blocklist_kept": true
+  },
+  {
+   "query": "landsknecht mercenary engraving",
+   "kind": "photo",
+   "id": 31350035,
+   "text": "close up of an intricately designed antique metal shield with detailed engravings and brass rivets. https: www.pexels.com photo intricate design on antique metal shield 31350035",
+   "sim": 0.68316251039505,
+   "blocklist_kept": true
+  },
+  {
+   "query": "landsknecht mercenary engraving",
+   "kind": "photo",
+   "id": 37614284,
+   "text": "intricate stone and gold relief on a historic building facade. https: www.pexels.com photo ornate architectural detail of historical building in poland 37614284",
+   "sim": 0.6060632467269897,
+   "blocklist_kept": true
+  },
+  {
+   "query": "landsknecht mercenary engraving",
+   "kind": "video",
+   "id": 39400711,
+   "text": "https: www.pexels.com video artisan engraving a copper vase intricately 39400711",
+   "sim": 0.6741852760314941,
+   "blocklist_kept": true
+  },
+  {
+   "query": "landsknecht mercenary engraving",
+   "kind": "video",
+   "id": 38043815,
+   "text": "https: www.pexels.com video ancient stone relief with historical figures 38043815",
+   "sim": 0.6981802582740784,
+   "blocklist_kept": true
+  },
+  {
+   "query": "landsknecht mercenary engraving",
+   "kind": "video",
+   "id": 34240702,
+   "text": "https: www.pexels.com video high precision laser engraving process in action 34240702",
+   "sim": 0.6813682317733765,
+   "blocklist_kept": true
+  },
+  {
+   "query": "landsknecht mercenary engraving",
+   "kind": "video",
+   "id": 37709379,
+   "text": "https: www.pexels.com video medieval festival parade with costumed participants 37709379",
+   "sim": 0.6724600791931152,
+   "blocklist_kept": true
+  },
+  {
+   "query": "landsknecht mercenary engraving",
+   "kind": "video",
+   "id": 855865,
+   "text": "https: www.pexels.com video paint brushes and figurines 855865",
+   "sim": 0.623322606086731,
+   "blocklist_kept": true
+  },
+  {
+   "query": "landsknecht mercenary engraving",
+   "kind": "video",
+   "id": 34498747,
+   "text": "https: www.pexels.com video traditional leather crafting artistry 34498747",
+   "sim": 0.6817345023155212,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval castle hall",
+   "kind": "photo",
+   "id": 12823298,
+   "text": "spacious historic castle hall showcasing intricate woodwork and geometric flooring design. https: www.pexels.com photo interior of a castle 12823298",
+   "sim": 0.8620759844779968,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval castle hall",
+   "kind": "photo",
+   "id": 31725663,
+   "text": "intricate marble statues line the ornate hallway in pierrefonds castle, france. https: www.pexels.com photo historic statues inside pierrefonds castle hall 31725663",
+   "sim": 0.7586023211479187,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval castle hall",
+   "kind": "photo",
+   "id": 19829180,
+   "text": "explore the serene gothic architecture of a cathedral hallway with elegant arches. https: www.pexels.com photo hall in a castle 19829180",
+   "sim": 0.8435037136077881,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval castle hall",
+   "kind": "photo",
+   "id": 27040517,
+   "text": "explore the ornate interior of the knights hall in bouzov castle, czech republic. https: www.pexels.com photo interior of the knights hall in the bouzov castle bouzov czech republic 27040517",
+   "sim": 0.8274008631706238,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval castle hall",
+   "kind": "photo",
+   "id": 14354788,
+   "text": "a beautifully restored carriage inside an elegant castle's grand hall, showcasing luxury and history. https: www.pexels.com photo old luxury carriage in hall 14354788",
+   "sim": 0.7794421911239624,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval castle hall",
+   "kind": "photo",
+   "id": 8890530,
+   "text": "explore the grandeur of a historic gothic hall with vaulted ceilings and chandeliers in prague, czechia. https: www.pexels.com photo people walking inside brown building 8890530",
+   "sim": 0.7947978377342224,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval castle hall",
+   "kind": "video",
+   "id": 27814738,
+   "text": "https: www.pexels.com video ungraded apple prores log footage 27814738",
+   "sim": 0.6166126132011414,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval castle hall",
+   "kind": "video",
+   "id": 34282626,
+   "text": "https: www.pexels.com video drone footage of perchtoldsdorf castle austria 34282626",
+   "sim": 0.6583865880966187,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval castle hall",
+   "kind": "video",
+   "id": 12233889,
+   "text": "https: www.pexels.com video drone video of the castle thouars in bordeaux france 12233889",
+   "sim": 0.6537033915519714,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval castle hall",
+   "kind": "video",
+   "id": 28222225,
+   "text": "https: www.pexels.com video a stone room with a stone bench and a stone wall 28222225",
+   "sim": 0.741206705570221,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval castle hall",
+   "kind": "video",
+   "id": 9659276,
+   "text": "https: www.pexels.com video people walking at the castle 9659276",
+   "sim": 0.7987002730369568,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval castle hall",
+   "kind": "video",
+   "id": 8720681,
+   "text": "https: www.pexels.com video interior of a church 8720681",
+   "sim": 0.7300726175308228,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval knight sword battle",
+   "kind": "photo",
+   "id": 13172739,
+   "text": "a knight in full armor engaged in a lively medieval reenactment outdoors. https: www.pexels.com photo knight during reenactment 13172739",
+   "sim": 0.8384555578231812,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval knight sword battle",
+   "kind": "photo",
+   "id": 8116144,
+   "text": "knights in full armor engage in a sword performance on an urban street. https: www.pexels.com photo people in armour in front of building 8116144",
+   "sim": 0.8308075666427612,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval knight sword battle",
+   "kind": "photo",
+   "id": 31474665,
+   "text": "a knight's armor and swords displayed in a historic room with stone walls. https: www.pexels.com photo medieval armor display in historic setting 31474665",
+   "sim": 0.8060965538024902,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval knight sword battle",
+   "kind": "photo",
+   "id": 25755,
+   "text": "dramatic scene of medieval knights charging in a reenactment battle under stormy skies. https: www.pexels.com photo man s holding swords clip art 25755",
+   "sim": 0.8669569492340088,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval knight sword battle",
+   "kind": "photo",
+   "id": 9493319,
+   "text": "close up of a medieval knight holding a sword in armor outdoors, embodying historic warfare. https: www.pexels.com photo a knight holding a sword 9493319",
+   "sim": 0.849574625492096,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval knight sword battle",
+   "kind": "photo",
+   "id": 349455,
+   "text": "detailed view of medieval armor gauntlets holding a sword. https: www.pexels.com photo silver and brown sword and armor 349455",
+   "sim": 0.8208978176116943,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval knight sword battle",
+   "kind": "video",
+   "id": 855260,
+   "text": "https: www.pexels.com video warriors fighting 855260",
+   "sim": 0.7935565710067749,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval knight sword battle",
+   "kind": "video",
+   "id": 28309301,
+   "text": "https: www.pexels.com video a man in armor is climbing up a wall 28309301",
+   "sim": 0.749393880367279,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval knight sword battle",
+   "kind": "video",
+   "id": 38103940,
+   "text": "https: www.pexels.com video roman legionaries marching in formation outdoors 38103940",
+   "sim": 0.734417736530304,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval knight sword battle",
+   "kind": "video",
+   "id": 5801419,
+   "text": "https: www.pexels.com video a boy doing acting 5801419",
+   "sim": 0.6964982151985168,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval knight sword battle",
+   "kind": "video",
+   "id": 6537092,
+   "text": "https: www.pexels.com video two fencers at their fighting position 6537092",
+   "sim": 0.7671676874160767,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval knight sword battle",
+   "kind": "video",
+   "id": 38103939,
+   "text": "https: www.pexels.com video roman soldiers historical reenactment event 38103939",
+   "sim": 0.7803457379341125,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval pikemen battle",
+   "kind": "photo",
+   "id": 13172739,
+   "text": "a knight in full armor engaged in a lively medieval reenactment outdoors. https: www.pexels.com photo knight during reenactment 13172739",
+   "sim": 0.7911637425422668,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval pikemen battle",
+   "kind": "photo",
+   "id": 34732747,
+   "text": "a close up of a viking warrior in traditional armor during a reenactment in szczecin, poland. https: www.pexels.com photo viking reenactment in szczecin poland 34732747",
+   "sim": 0.7713590264320374,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval pikemen battle",
+   "kind": "photo",
+   "id": 334068,
+   "text": "medieval reenactment scene with performers and audience in a sunny park filled with dandelions. https: www.pexels.com photo group of people standing on ground 334068",
+   "sim": 0.7454285621643066,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval pikemen battle",
+   "kind": "photo",
+   "id": 334201,
+   "text": "historical reenactors perform a medieval battle in a vibrant field of flowers, watched by a large audience. https: www.pexels.com photo woman woman kneeling on grass field 334201",
+   "sim": 0.7507344484329224,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval pikemen battle",
+   "kind": "photo",
+   "id": 25755,
+   "text": "dramatic scene of medieval knights charging in a reenactment battle under stormy skies. https: www.pexels.com photo man s holding swords clip art 25755",
+   "sim": 0.8139007687568665,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval pikemen battle",
+   "kind": "photo",
+   "id": 29189097,
+   "text": "a medieval knight in armor ziplining across a castle wall in an outdoor setting. https: www.pexels.com photo medieval knight ziplining over castle wall 29189097",
+   "sim": 0.7401343584060669,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval pikemen battle",
+   "kind": "video",
+   "id": 38103940,
+   "text": "https: www.pexels.com video roman legionaries marching in formation outdoors 38103940",
+   "sim": 0.7349856495857239,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval pikemen battle",
+   "kind": "video",
+   "id": 38103931,
+   "text": "https: www.pexels.com video roman soldiers engaging in historical reenactment 38103931",
+   "sim": 0.7836499214172363,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval pikemen battle",
+   "kind": "video",
+   "id": 38103932,
+   "text": "https: www.pexels.com video roman legion reenactment with shields and armor 38103932",
+   "sim": 0.7644563913345337,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval pikemen battle",
+   "kind": "video",
+   "id": 38103939,
+   "text": "https: www.pexels.com video roman soldiers historical reenactment event 38103939",
+   "sim": 0.7582301497459412,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval pikemen battle",
+   "kind": "video",
+   "id": 9466657,
+   "text": "https: www.pexels.com video a man riding a horse while pulling out a sword 9466657",
+   "sim": 0.7566599249839783,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval pikemen battle",
+   "kind": "video",
+   "id": 7579783,
+   "text": "https: www.pexels.com video close up shot of a rusted canon 7579783",
+   "sim": 0.6589300632476807,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword close up blade",
+   "kind": "photo",
+   "id": 31350049,
+   "text": "close up of an intricately designed historical sword with ornate details on blade and hilt. https: www.pexels.com photo intricately designed historical sword close up 31350049",
+   "sim": 0.9049842953681946,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword close up blade",
+   "kind": "photo",
+   "id": 6414383,
+   "text": "detailed view of swords against a snowy tree in a winter forest setting. https: www.pexels.com photo swords beside the tree 6414383",
+   "sim": 0.7523269653320312,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword close up blade",
+   "kind": "photo",
+   "id": 33548606,
+   "text": "a stone sculpture hand holding a large sword against a bright sky, symbolizing power and strength. https: www.pexels.com photo stone statue hand raising sword skyward 33548606",
+   "sim": 0.7058781981468201,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword close up blade",
+   "kind": "photo",
+   "id": 9493319,
+   "text": "close up of a medieval knight holding a sword in armor outdoors, embodying historic warfare. https: www.pexels.com photo a knight holding a sword 9493319",
+   "sim": 0.8296351432800293,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword close up blade",
+   "kind": "photo",
+   "id": 7540069,
+   "text": "close up of several ornate daggers with detailed engravings and colored jewel inlays. https: www.pexels.com photo close up of ornamented daggers 7540069",
+   "sim": 0.7681560516357422,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword close up blade",
+   "kind": "photo",
+   "id": 6831795,
+   "text": "dynamic close up of a fencer's hand gripping a foil sword during a match with a blurred background. https: www.pexels.com photo hand of a man wearing gloves while holding a fencing sword 6831795",
+   "sim": 0.7583999633789062,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword close up blade",
+   "kind": "video",
+   "id": 7125226,
+   "text": "https: www.pexels.com video a footage of a sharp samurai 7125226",
+   "sim": 0.7003796696662903,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword close up blade",
+   "kind": "video",
+   "id": 12293805,
+   "text": "https: www.pexels.com video close up of a person engraving a metal blade 12293805",
+   "sim": 0.7077749967575073,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword close up blade",
+   "kind": "video",
+   "id": 6537015,
+   "text": "https: www.pexels.com video a fencing mask and a sword on a wooden bench 6537015",
+   "sim": 0.7380845546722412,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword close up blade",
+   "kind": "video",
+   "id": 9466657,
+   "text": "https: www.pexels.com video a man riding a horse while pulling out a sword 9466657",
+   "sim": 0.7085255980491638,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword close up blade",
+   "kind": "video",
+   "id": 855260,
+   "text": "https: www.pexels.com video warriors fighting 855260",
+   "sim": 0.6504254937171936,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword close up blade",
+   "kind": "video",
+   "id": 5735012,
+   "text": "https: www.pexels.com video knife maker workshop 5735012",
+   "sim": 0.661200225353241,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword collection museum",
+   "kind": "photo",
+   "id": 31474665,
+   "text": "a knight's armor and swords displayed in a historic room with stone walls. https: www.pexels.com photo medieval armor display in historic setting 31474665",
+   "sim": 0.8395805358886719,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword collection museum",
+   "kind": "photo",
+   "id": 14645000,
+   "text": "historic medieval armor and weapons displayed on a wall in nesvizh, belarus museum. https: www.pexels.com photo swords helmets and shield hanging on wall 14645000",
+   "sim": 0.7818493843078613,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword collection museum",
+   "kind": "photo",
+   "id": 31350049,
+   "text": "close up of an intricately designed historical sword with ornate details on blade and hilt. https: www.pexels.com photo intricately designed historical sword close up 31350049",
+   "sim": 0.7793094515800476,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword collection museum",
+   "kind": "photo",
+   "id": 33889077,
+   "text": "a historic armory display featuring swords and armor, captured indoors with modern architecture. https: www.pexels.com photo historic armory display in leeds museum 33889077",
+   "sim": 0.8375378847122192,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword collection museum",
+   "kind": "photo",
+   "id": 963625,
+   "text": "detailed close up of a vintage sword hilt in black and white, showcasing texture. https: www.pexels.com photo grayscale photo of metal sword 963625",
+   "sim": 0.6772960424423218,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword collection museum",
+   "kind": "photo",
+   "id": 31350048,
+   "text": "detailed close up of a historical saber with ornate gold embellishments and star motifs on its blade. https: www.pexels.com photo intricately designed historical saber on display 31350048",
+   "sim": 0.7780925035476685,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword collection museum",
+   "kind": "video",
+   "id": 9466657,
+   "text": "https: www.pexels.com video a man riding a horse while pulling out a sword 9466657",
+   "sim": 0.7322695851325989,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword collection museum",
+   "kind": "video",
+   "id": 38103931,
+   "text": "https: www.pexels.com video roman soldiers engaging in historical reenactment 38103931",
+   "sim": 0.7000874280929565,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword collection museum",
+   "kind": "video",
+   "id": 30567732,
+   "text": "https: www.pexels.com video historic st augustine museum exhibit with boat 30567732",
+   "sim": 0.6971113085746765,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword collection museum",
+   "kind": "video",
+   "id": 28115459,
+   "text": "https: www.pexels.com video gothic quarter barcelona 28115459",
+   "sim": 0.6398555040359497,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword collection museum",
+   "kind": "video",
+   "id": 38103932,
+   "text": "https: www.pexels.com video roman legion reenactment with shields and armor 38103932",
+   "sim": 0.7223553657531738,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword collection museum",
+   "kind": "video",
+   "id": 10653785,
+   "text": "https: www.pexels.com video man with sword in winter forest 10653785",
+   "sim": 0.7101202011108398,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword museum display",
+   "kind": "photo",
+   "id": 31474665,
+   "text": "a knight's armor and swords displayed in a historic room with stone walls. https: www.pexels.com photo medieval armor display in historic setting 31474665",
+   "sim": 0.8610332012176514,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword museum display",
+   "kind": "photo",
+   "id": 14645000,
+   "text": "historic medieval armor and weapons displayed on a wall in nesvizh, belarus museum. https: www.pexels.com photo swords helmets and shield hanging on wall 14645000",
+   "sim": 0.8120226263999939,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword museum display",
+   "kind": "photo",
+   "id": 31350049,
+   "text": "close up of an intricately designed historical sword with ornate details on blade and hilt. https: www.pexels.com photo intricately designed historical sword close up 31350049",
+   "sim": 0.7790951728820801,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword museum display",
+   "kind": "photo",
+   "id": 33889077,
+   "text": "a historic armory display featuring swords and armor, captured indoors with modern architecture. https: www.pexels.com photo historic armory display in leeds museum 33889077",
+   "sim": 0.8723923563957214,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword museum display",
+   "kind": "photo",
+   "id": 963625,
+   "text": "detailed close up of a vintage sword hilt in black and white, showcasing texture. https: www.pexels.com photo grayscale photo of metal sword 963625",
+   "sim": 0.6758151650428772,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword museum display",
+   "kind": "photo",
+   "id": 11952611,
+   "text": "close up of medieval knight armor with detailed design against a rustic brick wall. https: www.pexels.com photo close up photo of a medieval armor 11952611",
+   "sim": 0.7181413173675537,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword museum display",
+   "kind": "video",
+   "id": 855260,
+   "text": "https: www.pexels.com video warriors fighting 855260",
+   "sim": 0.6635340452194214,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword museum display",
+   "kind": "video",
+   "id": 38103931,
+   "text": "https: www.pexels.com video roman soldiers engaging in historical reenactment 38103931",
+   "sim": 0.6932287812232971,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword museum display",
+   "kind": "video",
+   "id": 5745370,
+   "text": "https: www.pexels.com video ceramic vases on the shelves 5745370",
+   "sim": 0.6431896686553955,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword museum display",
+   "kind": "video",
+   "id": 9466657,
+   "text": "https: www.pexels.com video a man riding a horse while pulling out a sword 9466657",
+   "sim": 0.7267710566520691,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword museum display",
+   "kind": "video",
+   "id": 38383811,
+   "text": "https: www.pexels.com video exploring historic exhibits at guangzhou museum 38383811",
+   "sim": 0.718532383441925,
+   "blocklist_kept": true
+  },
+  {
+   "query": "medieval sword museum display",
+   "kind": "video",
+   "id": 38103932,
+   "text": "https: www.pexels.com video roman legion reenactment with shields and armor 38103932",
+   "sim": 0.7228506207466125,
+   "blocklist_kept": true
+  },
+  {
+   "query": "milk bottle hand",
+   "kind": "photo",
+   "id": 33508363,
+   "text": "a newborn baby being bottle fed in a hospital setting by a gloved hand. https: www.pexels.com photo newborn baby feeding with bottle in hospital 33508363",
+   "sim": 0.7438430190086365,
+   "blocklist_kept": true
+  },
+  {
+   "query": "milk bottle hand",
+   "kind": "photo",
+   "id": 8285555,
+   "text": "a woman in a black dress pours milk from a clay bottle into a glass at an elegantly set table. https: www.pexels.com photo a person pouring milk in the glass 8285555",
+   "sim": 0.737825870513916,
+   "blocklist_kept": true
+  },
+  {
+   "query": "milk bottle hand",
+   "kind": "photo",
+   "id": 6150644,
+   "text": "person pouring cereal into a bowl with a bottle of milk nearby, ready for breakfast. https: www.pexels.com photo a woman holding a glass with cereals 6150644",
+   "sim": 0.6824307441711426,
+   "blocklist_kept": true
+  },
+  {
+   "query": "milk bottle hand",
+   "kind": "photo",
+   "id": 5674152,
+   "text": "tattooed person pouring milk in a rustic kitchen setting with variety of ingredients on table. https: www.pexels.com photo a tattooed person getting the plastic bottle with milk on the table 5674152",
+   "sim": 0.7555524706840515,
+   "blocklist_kept": true
+  },
+  {
+   "query": "milk bottle hand",
+   "kind": "photo",
+   "id": 9788609,
+   "text": "a close up of a person preparing a raspberry dish on a kitchen counter. https: www.pexels.com photo a person preparing food on the countertop 9788609",
+   "sim": 0.596379816532135,
+   "blocklist_kept": true
+  },
+  {
+   "query": "milk bottle hand",
+   "kind": "photo",
+   "id": 8509947,
+   "text": "close up of hands on peaches around a wooden table with milk indoors. https: www.pexels.com photo a person holding peach fruits 8509947",
+   "sim": 0.6886835098266602,
+   "blocklist_kept": true
+  },
+  {
+   "query": "milk bottle hand",
+   "kind": "video",
+   "id": 11331111,
+   "text": "https: www.pexels.com video hand holding milk 11331111",
+   "sim": 0.8835880756378174,
+   "blocklist_kept": true
+  },
+  {
+   "query": "milk bottle hand",
+   "kind": "video",
+   "id": 6804173,
+   "text": "https: www.pexels.com video non dairy milk options 6804173",
+   "sim": 0.7509719729423523,
+   "blocklist_kept": true
+  },
+  {
+   "query": "milk bottle hand",
+   "kind": "video",
+   "id": 8107396,
+   "text": "https: www.pexels.com video a man pouring milk into a bowl 8107396",
+   "sim": 0.7742717266082764,
+   "blocklist_kept": true
+  },
+  {
+   "query": "milk bottle hand",
+   "kind": "video",
+   "id": 4820932,
+   "text": "https: www.pexels.com video a young girl pouring milk in a glass 4820932",
+   "sim": 0.7568602561950684,
+   "blocklist_kept": true
+  },
+  {
+   "query": "milk bottle hand",
+   "kind": "video",
+   "id": 5593396,
+   "text": "https: www.pexels.com video a person mixing cereal in a bowl 5593396",
+   "sim": 0.63715660572052,
+   "blocklist_kept": true
+  },
+  {
+   "query": "milk bottle hand",
+   "kind": "video",
+   "id": 6144407,
+   "text": "https: www.pexels.com video a person pouring cereals in a bowl 6144407",
+   "sim": 0.6786272525787354,
+   "blocklist_kept": true
+  },
+  {
+   "query": "ornate sword display",
+   "kind": "photo",
+   "id": 31350048,
+   "text": "detailed close up of a historical saber with ornate gold embellishments and star motifs on its blade. https: www.pexels.com photo intricately designed historical saber on display 31350048",
+   "sim": 0.8511698246002197,
+   "blocklist_kept": true
+  },
+  {
+   "query": "ornate sword display",
+   "kind": "photo",
+   "id": 31350049,
+   "text": "close up of an intricately designed historical sword with ornate details on blade and hilt. https: www.pexels.com photo intricately designed historical sword close up 31350049",
+   "sim": 0.8446569442749023,
+   "blocklist_kept": true
+  },
+  {
+   "query": "ornate sword display",
+   "kind": "photo",
+   "id": 14645000,
+   "text": "historic medieval armor and weapons displayed on a wall in nesvizh, belarus museum. https: www.pexels.com photo swords helmets and shield hanging on wall 14645000",
+   "sim": 0.8031749129295349,
+   "blocklist_kept": true
+  },
+  {
+   "query": "ornate sword display",
+   "kind": "photo",
+   "id": 31474665,
+   "text": "a knight's armor and swords displayed in a historic room with stone walls. https: www.pexels.com photo medieval armor display in historic setting 31474665",
+   "sim": 0.8564304113388062,
+   "blocklist_kept": true
+  },
+  {
+   "query": "ornate sword display",
+   "kind": "photo",
+   "id": 7540069,
+   "text": "close up of several ornate daggers with detailed engravings and colored jewel inlays. https: www.pexels.com photo close up of ornamented daggers 7540069",
+   "sim": 0.8177579641342163,
+   "blocklist_kept": true
+  },
+  {
+   "query": "ornate sword display",
+   "kind": "photo",
+   "id": 6832212,
+   "text": "close up of a fencing duel in an ornate, dark interior setting. https: www.pexels.com photo people holding silver metal rod near black fireplace 6832212",
+   "sim": 0.7956446409225464,
+   "blocklist_kept": true
+  },
+  {
+   "query": "ornate sword display",
+   "kind": "video",
+   "id": 29466025,
+   "text": "https: www.pexels.com video abstract artistic painting with textured frame 29466025",
+   "sim": 0.6306371688842773,
+   "blocklist_kept": true
+  },
+  {
+   "query": "ornate sword display",
+   "kind": "video",
+   "id": 8907412,
+   "text": "https: www.pexels.com video a person holding a bronze pitcher 8907412",
+   "sim": 0.6984918117523193,
+   "blocklist_kept": true
+  },
+  {
+   "query": "ornate sword display",
+   "kind": "video",
+   "id": 4285927,
+   "text": "https: www.pexels.com video flowers on a gold sculpture 4285927",
+   "sim": 0.7213522791862488,
+   "blocklist_kept": true
+  },
+  {
+   "query": "ornate sword display",
+   "kind": "video",
+   "id": 7724734,
+   "text": "https: www.pexels.com video close up shot of metal figurine 7724734",
+   "sim": 0.7307142019271851,
+   "blocklist_kept": true
+  },
+  {
+   "query": "ornate sword display",
+   "kind": "video",
+   "id": 3695993,
+   "text": "https: www.pexels.com video bronze statues on display in an airport terminal 3695993",
+   "sim": 0.7224944829940796,
+   "blocklist_kept": true
+  },
+  {
+   "query": "ornate sword display",
+   "kind": "video",
+   "id": 3002345,
+   "text": "https: www.pexels.com video an egyptian artifact in display 3002345",
+   "sim": 0.7516815066337585,
+   "blocklist_kept": true
+  },
+  {
+   "query": "roman gladius sword",
+   "kind": "photo",
+   "id": 7186550,
+   "text": "intense scene of gladiators engaging in combat with swords in an ancient style arena. https: www.pexels.com photo shirtless men fighting with sword 7186550",
+   "sim": 0.7784630656242371,
+   "blocklist_kept": true
+  },
+  {
+   "query": "roman gladius sword",
+   "kind": "photo",
+   "id": 31452323,
+   "text": "two gladiators engaged in intense combat in a historical arena setting. https: www.pexels.com photo gladiator combat scene in historical arena 31452323",
+   "sim": 0.7620137929916382,
+   "blocklist_kept": true
+  },
+  {
+   "query": "roman gladius sword",
+   "kind": "photo",
+   "id": 38143372,
+   "text": "a detailed scene of a roman legion reenactment during the wrocław historical festival, featuring participants in traditional armor. https: www.pexels.com photo reenactment of roman legion in wroclaw festival 38143372",
+   "sim": 0.7113362550735474,
+   "blocklist_kept": true
+  },
+  {
+   "query": "roman gladius sword",
+   "kind": "photo",
+   "id": 38125823,
+   "text": "roman soldier reenactors in historical attire at an outdoor event. https: www.pexels.com photo roman soldier reenactors at historical event 38125823",
+   "sim": 0.6816282868385315,
+   "blocklist_kept": true
+  },
+  {
+   "query": "roman gladius sword",
+   "kind": "photo",
+   "id": 17970851,
+   "text": "stone statue of ancient warrior set against urban backdrop with foliage. https: www.pexels.com photo decorative sculptures in city 17970851",
+   "sim": 0.6428847908973694,
+   "blocklist_kept": true
+  },
+  {
+   "query": "roman gladius sword",
+   "kind": "photo",
+   "id": 7186544,
+   "text": "a dynamic black and white scene depicting gladiators engaging in an intense reenactment outdoors. https: www.pexels.com photo men in costumes fighting on street 7186544",
+   "sim": 0.7387464046478271,
+   "blocklist_kept": true
+  },
+  {
+   "query": "roman gladius sword",
+   "kind": "video",
+   "id": 38103933,
+   "text": "https: www.pexels.com video roman soldiers reenactment at historical event 38103933",
+   "sim": 0.7271454930305481,
+   "blocklist_kept": true
+  },
+  {
+   "query": "roman gladius sword",
+   "kind": "video",
+   "id": 38103940,
+   "text": "https: www.pexels.com video roman legionaries marching in formation outdoors 38103940",
+   "sim": 0.6934785842895508,
+   "blocklist_kept": true
+  },
+  {
+   "query": "roman gladius sword",
+   "kind": "video",
+   "id": 38103941,
+   "text": "https: www.pexels.com video historical reenactment event with kids 38103941",
+   "sim": 0.6452063918113708,
+   "blocklist_kept": true
+  },
+  {
+   "query": "roman gladius sword",
+   "kind": "video",
+   "id": 38103939,
+   "text": "https: www.pexels.com video roman soldiers historical reenactment event 38103939",
+   "sim": 0.7344974279403687,
+   "blocklist_kept": true
+  },
+  {
+   "query": "roman gladius sword",
+   "kind": "video",
+   "id": 38103942,
+   "text": "https: www.pexels.com video roman soldiers historical reenactment outdoors 38103942",
+   "sim": 0.7162647247314453,
+   "blocklist_kept": true
+  },
+  {
+   "query": "roman gladius sword",
+   "kind": "video",
+   "id": 28753008,
+   "text": "https: www.pexels.com video intense fencing duel in indoor gym 28753008",
+   "sim": 0.649661123752594,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sledgehammer tool",
+   "kind": "photo",
+   "id": 37466955,
+   "text": "black and white photo of vintage industrial tools including chains and sledgehammer. https: www.pexels.com photo vintage industrial tools in black and white 37466955",
+   "sim": 0.778709352016449,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sledgehammer tool",
+   "kind": "photo",
+   "id": 5427749,
+   "text": "a person in a clown costume smashing a car windshield with a sledgehammer near an abandoned house. https: www.pexels.com photo evil clown smashing a car windshield with a sledge hammer 5427749",
+   "sim": 0.781248152256012,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sledgehammer tool",
+   "kind": "photo",
+   "id": 27001161,
+   "text": "two men clearing debris by a riverside, using hammers amidst construction materials. https: www.pexels.com photo men hitting hammers on the concrete 27001161",
+   "sim": 0.7809714078903198,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sledgehammer tool",
+   "kind": "photo",
+   "id": 5427750,
+   "text": "a man aggressively smashes a car windshield with a sledgehammer in an outdoor setting. https: www.pexels.com photo person smashing car windshield with a sledge hammer 5427750",
+   "sim": 0.7810954451560974,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sledgehammer tool",
+   "kind": "photo",
+   "id": 6110239,
+   "text": "two fashionable women in a desert landscape with a sledgehammer and old tvs, creating a bold scene. https: www.pexels.com photo blonde women with sunglasses posing on desert with sledgehammer 6110239",
+   "sim": 0.6762085556983948,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sledgehammer tool",
+   "kind": "photo",
+   "id": 5427746,
+   "text": "a creepy clown in costume with a sledgehammer aggressively smashing a car windshield outdoors. https: www.pexels.com photo evil clown smashing a car windshield 5427746",
+   "sim": 0.7362003922462463,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sledgehammer tool",
+   "kind": "video",
+   "id": 20713630,
+   "text": "https: www.pexels.com video hammering tyre 20713630",
+   "sim": 0.7539179921150208,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sledgehammer tool",
+   "kind": "video",
+   "id": 29373538,
+   "text": "https: www.pexels.com video person using sledgehammer in industrial setting 29373538",
+   "sim": 0.8419591188430786,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sledgehammer tool",
+   "kind": "video",
+   "id": 29373544,
+   "text": "https: www.pexels.com video worker in protective gear demolishes a wall 29373544",
+   "sim": 0.7202823758125305,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sledgehammer tool",
+   "kind": "video",
+   "id": 38104096,
+   "text": "https: www.pexels.com video historical blacksmithing demonstration 38104096",
+   "sim": 0.7643797993659973,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sledgehammer tool",
+   "kind": "video",
+   "id": 31638148,
+   "text": "https: www.pexels.com video blacksmith hammering metal in workshop 31638148",
+   "sim": 0.7452545762062073,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sledgehammer tool",
+   "kind": "video",
+   "id": 5846313,
+   "text": "https: www.pexels.com video forging hot metal 5846313",
+   "sim": 0.731133222579956,
+   "blocklist_kept": true
+  },
+  {
+   "query": "spear pike soldiers",
+   "kind": "photo",
+   "id": 2753662,
+   "text": "military historical reconstruction male group in metal helmets and weapons in sunny warm day https: www.pexels.com photo men on historical reconstruction of military events 2753662",
+   "sim": 0.7595288753509521,
+   "blocklist_kept": true
+  },
+  {
+   "query": "spear pike soldiers",
+   "kind": "photo",
+   "id": 35339042,
+   "text": "colorful parade in yogyakarta showcasing cultural heritage and traditional uniforms. https: www.pexels.com photo traditional yogyakarta parade with soldiers in uniform 35339042",
+   "sim": 0.62949538230896,
+   "blocklist_kept": true
+  },
+  {
+   "query": "spear pike soldiers",
+   "kind": "photo",
+   "id": 16563722,
+   "text": "reenactment of a historical battle with soldiers in smoke, almansa, spain. https: www.pexels.com photo a group of soldiers in vintage costumes shooting guns at a festival 16563722",
+   "sim": 0.7347845435142517,
+   "blocklist_kept": true
+  },
+  {
+   "query": "spear pike soldiers",
+   "kind": "photo",
+   "id": 38141658,
+   "text": "side profile of a roman soldier reenactor in detailed armor, thoughtful pose. https: www.pexels.com photo roman soldier in historical reenactment 38141658",
+   "sim": 0.6414523720741272,
+   "blocklist_kept": true
+  },
+  {
+   "query": "spear pike soldiers",
+   "kind": "photo",
+   "id": 9268723,
+   "text": "a soldier in historical attire aims a musket during a reenactment on a grassy battlefield. https: www.pexels.com photo man in french military uniform standing on grass field aiming a rifle 9268723",
+   "sim": 0.7703967094421387,
+   "blocklist_kept": true
+  },
+  {
+   "query": "spear pike soldiers",
+   "kind": "photo",
+   "id": 13127593,
+   "text": "a captivating knight statue wielding a spear and shield against a clear blue sky in alicante, spain. https: www.pexels.com photo soldier with spear 13127593",
+   "sim": 0.7056350708007812,
+   "blocklist_kept": true
+  },
+  {
+   "query": "spear pike soldiers",
+   "kind": "video",
+   "id": 32676830,
+   "text": "https: www.pexels.com video korean martial arts reenactment at historical fortress 32676830",
+   "sim": 0.7173759937286377,
+   "blocklist_kept": true
+  },
+  {
+   "query": "spear pike soldiers",
+   "kind": "video",
+   "id": 38103940,
+   "text": "https: www.pexels.com video roman legionaries marching in formation outdoors 38103940",
+   "sim": 0.7341508269309998,
+   "blocklist_kept": true
+  },
+  {
+   "query": "spear pike soldiers",
+   "kind": "video",
+   "id": 38103932,
+   "text": "https: www.pexels.com video roman legion reenactment with shields and armor 38103932",
+   "sim": 0.7483781576156616,
+   "blocklist_kept": true
+  },
+  {
+   "query": "spear pike soldiers",
+   "kind": "video",
+   "id": 38103941,
+   "text": "https: www.pexels.com video historical reenactment event with kids 38103941",
+   "sim": 0.7311660647392273,
+   "blocklist_kept": true
+  },
+  {
+   "query": "spear pike soldiers",
+   "kind": "video",
+   "id": 29240314,
+   "text": "https: www.pexels.com video traditional guard ceremony at korean palace 29240314",
+   "sim": 0.6691202521324158,
+   "blocklist_kept": true
+  },
+  {
+   "query": "spear pike soldiers",
+   "kind": "video",
+   "id": 9466272,
+   "text": "https: www.pexels.com video people walking while holding guns 9466272",
+   "sim": 0.7563009858131409,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sword balance point finger",
+   "kind": "photo",
+   "id": 8461245,
+   "text": "adult martial artist in black training with swords on grassy field. https: www.pexels.com photo man practicing martial arts with swords 8461245",
+   "sim": 0.7687523365020752,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sword balance point finger",
+   "kind": "photo",
+   "id": 38383564,
+   "text": "group practicing martial arts indoors, focus on adult man with sword. https: www.pexels.com photo martial arts class practicing indoors with swords 38383564",
+   "sim": 0.7411875128746033,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sword balance point finger",
+   "kind": "photo",
+   "id": 6539000,
+   "text": "detailed image of a fencer's gloved hand gripping an epee, highlighting fencing gear. https: www.pexels.com photo a fencer holding his epee 6539000",
+   "sim": 0.7567690014839172,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sword balance point finger",
+   "kind": "photo",
+   "id": 8461247,
+   "text": "a martial artist practicing sword techniques in a scenic grassy field under a cloudy sky. https: www.pexels.com photo man posing with swords 8461247",
+   "sim": 0.7621299028396606,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sword balance point finger",
+   "kind": "photo",
+   "id": 38480953,
+   "text": "a silhouette of a samurai balancing on a fence with a sword, evoking calm and focus. https: www.pexels.com photo serene samurai balancing on fence at sunset 38480953",
+   "sim": 0.7215245962142944,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sword balance point finger",
+   "kind": "photo",
+   "id": 3779434,
+   "text": "a man in a red shirt with a blurred face points his finger directly at the camera lens. https: www.pexels.com photo selective focus photo of man s index finger 3779434",
+   "sim": 0.6981831789016724,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sword balance point finger",
+   "kind": "video",
+   "id": 6536895,
+   "text": "https: www.pexels.com video masked fencers posing back to back 6536895",
+   "sim": 0.683508574962616,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sword balance point finger",
+   "kind": "video",
+   "id": 10340310,
+   "text": "https: www.pexels.com video woman in fencing equipment and with sword 10340310",
+   "sim": 0.7372279763221741,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sword balance point finger",
+   "kind": "video",
+   "id": 6536341,
+   "text": "https: www.pexels.com video people standing back to back while holding swords 6536341",
+   "sim": 0.7874182462692261,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sword balance point finger",
+   "kind": "video",
+   "id": 28753008,
+   "text": "https: www.pexels.com video intense fencing duel in indoor gym 28753008",
+   "sim": 0.7145333886146545,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sword balance point finger",
+   "kind": "video",
+   "id": 5972848,
+   "text": "https: www.pexels.com video two people practising fencing 5972848",
+   "sim": 0.7187570929527283,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sword balance point finger",
+   "kind": "video",
+   "id": 5968252,
+   "text": "https: www.pexels.com video a woman doing fencing 5968252",
+   "sim": 0.726530134677887,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sword hilt hand grip",
+   "kind": "photo",
+   "id": 8765042,
+   "text": "close up of a woman's hand gripping a sword against a vibrant red backdrop. https: www.pexels.com photo a woman holding a sword 8765042",
+   "sim": 0.7728272080421448,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sword hilt hand grip",
+   "kind": "photo",
+   "id": 33548606,
+   "text": "a stone sculpture hand holding a large sword against a bright sky, symbolizing power and strength. https: www.pexels.com photo stone statue hand raising sword skyward 33548606",
+   "sim": 0.7518746256828308,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sword hilt hand grip",
+   "kind": "photo",
+   "id": 31350049,
+   "text": "close up of an intricately designed historical sword with ornate details on blade and hilt. https: www.pexels.com photo intricately designed historical sword close up 31350049",
+   "sim": 0.7737834453582764,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sword hilt hand grip",
+   "kind": "photo",
+   "id": 6831795,
+   "text": "dynamic close up of a fencer's hand gripping a foil sword during a match with a blurred background. https: www.pexels.com photo hand of a man wearing gloves while holding a fencing sword 6831795",
+   "sim": 0.8031328320503235,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sword hilt hand grip",
+   "kind": "photo",
+   "id": 6539000,
+   "text": "detailed image of a fencer's gloved hand gripping an epee, highlighting fencing gear. https: www.pexels.com photo a fencer holding his epee 6539000",
+   "sim": 0.7968908548355103,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sword hilt hand grip",
+   "kind": "photo",
+   "id": 6538980,
+   "text": "close up of a fencer's hand gripping an epee sword, showcasing the sport's precision and gear. https: www.pexels.com photo a fencer holding an epee 6538980",
+   "sim": 0.8164992332458496,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sword hilt hand grip",
+   "kind": "video",
+   "id": 4265375,
+   "text": "https: www.pexels.com video woman pressing hand grips 4265375",
+   "sim": 0.7528126239776611,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sword hilt hand grip",
+   "kind": "video",
+   "id": 6572844,
+   "text": "https: www.pexels.com video close up shot of a man holding on pommel horse grip 6572844",
+   "sim": 0.8024529218673706,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sword hilt hand grip",
+   "kind": "video",
+   "id": 33153696,
+   "text": "https: www.pexels.com video close up of hand tightening a brass nut 33153696",
+   "sim": 0.7138848304748535,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sword hilt hand grip",
+   "kind": "video",
+   "id": 5837646,
+   "text": "https: www.pexels.com video person putting powder chalk on hands 5837646",
+   "sim": 0.6552216410636902,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sword hilt hand grip",
+   "kind": "video",
+   "id": 7673614,
+   "text": "https: www.pexels.com video a person s grip on a pull up ring 7673614",
+   "sim": 0.7379944920539856,
+   "blocklist_kept": true
+  },
+  {
+   "query": "sword hilt hand grip",
+   "kind": "video",
+   "id": 4742626,
+   "text": "https: www.pexels.com video person holding at the metal bar 4742626",
+   "sim": 0.7433815598487854,
+   "blocklist_kept": true
+  },
+  {
+   "query": "zweihander two handed sword",
+   "kind": "photo",
+   "id": 39284181,
+   "text": "two actors in period uniforms reenacting a duel with swords held high under a clear blue sky. https: www.pexels.com photo historical reenactment swords crossed in duel 39284181",
+   "sim": 0.7844170928001404,
+   "blocklist_kept": true
+  },
+  {
+   "query": "zweihander two handed sword",
+   "kind": "photo",
+   "id": 33548606,
+   "text": "a stone sculpture hand holding a large sword against a bright sky, symbolizing power and strength. https: www.pexels.com photo stone statue hand raising sword skyward 33548606",
+   "sim": 0.7499932050704956,
+   "blocklist_kept": true
+  },
+  {
+   "query": "zweihander two handed sword",
+   "kind": "photo",
+   "id": 349455,
+   "text": "detailed view of medieval armor gauntlets holding a sword. https: www.pexels.com photo silver and brown sword and armor 349455",
+   "sim": 0.7843810319900513,
+   "blocklist_kept": true
+  },
+  {
+   "query": "zweihander two handed sword",
+   "kind": "photo",
+   "id": 6832212,
+   "text": "close up of a fencing duel in an ornate, dark interior setting. https: www.pexels.com photo people holding silver metal rod near black fireplace 6832212",
+   "sim": 0.7597374320030212,
+   "blocklist_kept": true
+  },
+  {
+   "query": "zweihander two handed sword",
+   "kind": "photo",
+   "id": 6831808,
+   "text": "blurry focus on fencing duel indoors, showcasing intensity and motion. https: www.pexels.com photo men in a fencing match 6831808",
+   "sim": 0.6611613035202026,
+   "blocklist_kept": true
+  },
+  {
+   "query": "zweihander two handed sword",
+   "kind": "photo",
+   "id": 9493319,
+   "text": "close up of a medieval knight holding a sword in armor outdoors, embodying historic warfare. https: www.pexels.com photo a knight holding a sword 9493319",
+   "sim": 0.7609039545059204,
+   "blocklist_kept": true
+  },
+  {
+   "query": "zweihander two handed sword",
+   "kind": "video",
+   "id": 5972844,
+   "text": "https: www.pexels.com video footage of two fencers training 5972844",
+   "sim": 0.6832032799720764,
+   "blocklist_kept": true
+  },
+  {
+   "query": "zweihander two handed sword",
+   "kind": "video",
+   "id": 5972848,
+   "text": "https: www.pexels.com video two people practising fencing 5972848",
+   "sim": 0.7172541618347168,
+   "blocklist_kept": true
+  },
+  {
+   "query": "zweihander two handed sword",
+   "kind": "video",
+   "id": 6832371,
+   "text": "https: www.pexels.com video two athletes practising fencing by a fireplace 6832371",
+   "sim": 0.7049245834350586,
+   "blocklist_kept": true
+  },
+  {
+   "query": "zweihander two handed sword",
+   "kind": "video",
+   "id": 6537028,
+   "text": "https: www.pexels.com video two fencer standing in the gym holding their sword 6537028",
+   "sim": 0.7717665433883667,
+   "blocklist_kept": true
+  },
+  {
+   "query": "zweihander two handed sword",
+   "kind": "video",
+   "id": 6832380,
+   "text": "https: www.pexels.com video two people practising fencing 6832380",
+   "sim": 0.7243397831916809,
+   "blocklist_kept": true
+  },
+  {
+   "query": "zweihander two handed sword",
+   "kind": "video",
+   "id": 6536349,
+   "text": "https: www.pexels.com video an athlete wearing protective gear while practicing 6536349",
+   "sim": 0.6498381495475769,
+   "blocklist_kept": true
+  }
+ ]
+}

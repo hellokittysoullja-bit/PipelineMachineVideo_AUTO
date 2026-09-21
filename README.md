@@ -16,6 +16,7 @@
 | `bootstrap.ps1` / `bootstrap.sh` | Автоустановка: ffmpeg, Python-venv, зависимости, папки. Claude запускает сам. |
 | `requirements.txt` | Python-зависимости. |
 | `Dockerfile` | Воспроизводимое headless-ядро сборки видео (ffmpeg + скрипты). |
+| `.github/workflows/tests.yml` | CI: вся суита с ffmpeg на каждый пуш; Windows и ML-прогоны (torch/CLIP) — по расписанию. Ключи не нужны, ничего не публикует. |
 
 ---
 

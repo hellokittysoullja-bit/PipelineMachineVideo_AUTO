@@ -1,0 +1,93 @@
+{
+  "model": "qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf",
+  "prompt_version": 4,
+  "rows": [
+    {
+      "index": 1,
+      "class": "метафора",
+      "text": "Меч ударил по шлему — сталь выдержала. Стрела скользнула по нагруднику и ушла в сторону. Доспех отработал каждую монету, которую ты за него отдал, а отдал ты за него как за деревню вместе с крестьянами.",
+      "result": {
+        "shot_en": "A breastplate with an arrow gliding off it",
+        "function": "object",
+        "forbidden": null,
+        "subject": "нагрудник"
+      },
+      "sec": 54.4
+    },
+    {
+      "index": 0,
+      "class": "отрицание",
+      "text": "Тебя ещё не ранили. Вот что самое страшное.",
+      "result": null,
+      "sec": 47.0
+    },
+    {
+      "index": 5,
+      "class": "число",
+      "text": "А пока — простой опыт. Возьми настоящий боевой меч: полтора килограмма стали, кромка снимает волос с руки. И ударь им человека в полном латном доспехе.",
+      "result": {
+        "shot_en": "A warrior in full plate armor being struck by a real battle sword",
+        "function": "object",
+        "forbidden": null,
+        "subject": "боевой меч"
+      },
+      "sec": 54.2
+    },
+    {
+      "index": 13,
+      "class": "сцена",
+      "text": "При этом он был под ногами у каждого из них. С первого шага на поле.",
+      "result": {
+        "shot_en": "The ground beneath their feet",
+        "function": "object",
+        "forbidden": null,
+        "subject": "он"
+      },
+      "sec": 53.2
+    },
+    {
+      "index": 22,
+      "class": "вопрос",
+      "text": "Представь драку, где у всех ножи, а тебе одному разрешили надеть защиту с головы до ног. Ты ведь не станешь ныть, что она тяжёлая? Ты спросишь, надёжно ли закрыта шея.",
+      "result": {
+        "shot_en": "A warrior checks the neck closure of his full-body armor.",
+        "function": "object",
+        "forbidden": null,
+        "subject": "воин"
+      },
+      "sec": 59.0
+    },
+    {
+      "index": 3,
+      "class": "простая",
+      "text": "Тебе нужно всего лишь встать.",
+      "result": {
+        "shot_en": "A warrior stands up",
+        "function": "object",
+        "forbidden": null,
+        "subject": "воин"
+      },
+      "sec": 53.3
+    },
+    {
+      "index": 2,
+      "class": "отрицание",
+      "text": "И всё равно ты лежишь лицом в грязи и, кажется, сейчас умрёшь. Хотя броню твою так никто и не пробил.",
+      "result": {
+        "shot_en": "A warrior lying face down in mud, seemingly about to die.",
+        "function": "object",
+        "forbidden": "не пробил",
+        "subject": "воин"
+      },
+      "sec": 55.8
+    },
+    {
+      "index": 4,
+      "class": "простая",
+      "text": "Запомни это. Мы сюда вернёмся.",
+      "result": null,
+      "sec": 49.2
+    }
+  ],
+  "note": "Живой прогон (не мок), с контекстом (unit_context), промпт v4. llama.cpp собран из исходников в сессии, Qwen2.5-7B-Instruct Q4_K_M, --temp 0 --seed 1 (детерминировано). Сравнение с shot_planner_eval_v3_det.json (те же 8 юнитов, без контекста, тот же детерминизм) — в CLAUDE.md."
+}
