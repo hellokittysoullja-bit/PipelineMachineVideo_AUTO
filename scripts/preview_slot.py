@@ -64,6 +64,24 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, f"slot_{args.index:04d}_preview.mp4")
 
+    if "path" not in entry and not args.photo:
+        # "path" пишется ТОЛЬКО для status="ok" — у "absorbed" (поглощён
+        # соседом, NEVER_SHOW_KNOWN_BAD), "failed" (сорванный рендер) и
+        # "skipped_selection_only" (SELECTION_ONLY=1, клип не рендерился
+        # вовсе) своего клипа физически нет. Прежде здесь падал голый
+        # KeyError вместо честного сообщения (найдено тем же аудитом
+        # 21.09, что чинил контактный лист на этот же класс расхождения
+        # — консьюмер render_manifest.json, написанный до появления
+        # статусов "absorbed"/"skipped_selection_only"). Реальный кадр на
+        # экране слота "absorbed" в этот момент — у соседа, который его
+        # поглотил (см. absorbed_slots_report.json / build_absorption_
+        # cover_map в shotlist_contact.py).
+        status = entry.get("status", "?")
+        print(f"Слот {args.index} без готового клипа (status={status}, "
+              f"причина: {entry.get('reason', '?')}) — задай свою картинку через --photo, "
+              f"или смотри media_plan/absorbed_slots_report.json / render_manifest.json.")
+        return 1
+
     photo = args.photo
     if photo and not os.path.isabs(photo):
         photo = os.path.join(args.video_dir, photo)
@@ -96,7 +114,7 @@ def main():
                 neighbor_clips.append((out_path, dur))
                 continue
             nentry = clips_by_index.get(j)
-            if nentry is None:
+            if nentry is None or "path" not in nentry:
                 continue
             npath = os.path.join(args.video_dir, nentry["path"]) if not os.path.isabs(nentry["path"]) else nentry["path"]
             if os.path.exists(npath):
