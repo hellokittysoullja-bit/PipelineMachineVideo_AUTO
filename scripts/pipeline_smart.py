@@ -5219,6 +5219,41 @@ VIDEO_RESCUED_BY_PHOTO = []   # [{"index", "reason", "query"}, ...]
 # система знает, что он брак». Если во всём эпизоде не набралось ни одного
 # проверенного кадра — рендер останавливается прямо, а не собирает ролик из
 # брака (см. проверку сразу после печати "Рендер завершён" в main()).
+#
+# ПОГЛОЩЕНИЕ БЕЗ ПОТОЛКА СТЯГИВАЛО ЦЕЛЫЙ ЭПИЗОД В ОДИН ПОВТОРЯЮЩИЙСЯ КАДР —
+# найдено первым же живым полным рендером после включения флага (21.09,
+# videos/_test_anchor_medieval): 1 слот из 9 прошёл верификацию, остальные
+# 8 (89% эпизода) поглощены ОДНИМ соседним клипом (видео скачущих лошадиных
+# ног) — 34-секундный ролик, 30+ секунд которого один и тот же повторяющийся
+# кадр. Формально верно («никогда не показываем известный брак»), по факту
+# — не работающий пайплайн: контактный лист выглядит сломанным, а не
+# честным. «Никогда не показывать известный брак» не отменяется — карточка
+# НЕ является браком, она про ту же самую фразу текста; отменяется только
+# НЕОГРАНИЧЕННОЕ растяжение ОДНОГО клипа на весь провальный участок.
+#
+# ABSORB_CHAIN_MAX — потолок по ЧИСЛУ слотов подряд, поглощённых в одну
+# цепочку (не по секундам: при накоплении ВПЕРЁД длительность будущего
+# проверенного соседа заранее не известна — известно только количество уже
+# поглощённых слотов). При достижении потолка следующий слот НЕ поглощается
+# дальше — вместо этого он получает КАРТОЧКУ (см. FALLBACK_ABSORB_OVERFLOW_
+# REASON ниже), которая накрывает собой весь накопленный к этому моменту
+# «мёртвый» отрезок ОДНИМ текстовым слайдом (текст этого слота — не
+# посторонний, весь отрезок и так об одном и том же по сюжету), после чего
+# цепочка обнуляется и следующий слот снова может поглощаться с нуля.
+# Дефолт 2 — тот же принцип, что и у DIRECTOR_CARD_DECISIVE_FRACTION ниже:
+# консервативное круглое число («три одинаковых кадра подряд — уже другой
+# порядок, не пограничный случай»), не измеренный оптимум.
+ABSORB_CHAIN_MAX = int(os.environ.get("ABSORB_CHAIN_MAX", "2"))
+# Карточка-предохранитель поверх потолка цепочки. В отличие от обычной
+# карточки за брак, эта НЕ проверяется через fallback_card_allowed() —
+# бюджет/MIN_GAP не имеют права заблокировать единственный работающий
+# предохранитель от бесконечного растяжения (если бы блокировали, потолок
+# цепочки был бы фикцией: сработал бы cap, карточка не встала бы из-за
+# бюджета, и код всё равно вернулся бы к безлимитному поглощению). Карточка
+# всё равно попадает в FALLBACK_CARD_SLOTS (build_slot_fallback_card это
+# делает сама) — обычные, бюджетные карточки по-прежнему видят её при
+# проверке MIN_GAP.
+FALLBACK_ABSORB_OVERFLOW_REASON = "absorb_chain_overflow"
 ABSORBED_SLOTS = []   # [{"index", "reason", "text", "carried_sec"}, ...]
 
 
@@ -16320,12 +16355,20 @@ def main():
     # подряд поглощённых слотов обязана донести САМЫЙ РАННИЙ старт, не
     # промежуточный — тот же принцип, что уже несёт _carry_sec.
     _carry_visual_start = None
+    # Число уже поглощённых слотов подряд в ТЕКУЩЕЙ незавершённой цепочке —
+    # см. ABSORB_CHAIN_MAX у её объявления. Тот же принцип персистентности,
+    # что и у _carry_sec/_carry_visual_start: не обнуляется молча на каждой
+    # итерации, а читается-и-обнуляется ЯВНО в начале итерации (см. ниже),
+    # чтобы decision-точки этой же итерации видели унаследованное значение
+    # ДО того, как цикл потенциально спишет его в ноль для следующей.
+    _carry_chain_len = 0
     never_show_known_bad = feature_flags.enabled("NEVER_SHOW_KNOWN_BAD")
     # Плашки с цифрой, чьи слоты поглощены: цифра — контент, она переезжает
     # на поглощающий клип, а не исчезает с экрана.
     stat_carry = []
 
-    def _absorb_known_bad_slot(i, b, d, reason, stat, stat_variant, stat_delay, chain_start):
+    def _absorb_known_bad_slot(i, b, d, reason, stat, stat_variant, stat_delay, chain_start,
+                                chain_len_so_far=0):
         """Общее тело поглощения — вызывается из ДВУХ точек решения.
 
         Первая знает bad_reason ДО отбора медиа (арбитр/сток/анахронизм/
@@ -16343,14 +16386,21 @@ def main():
         `chain_start` — истинный визуальный старт ЦЕПОЧКИ (см. коммент у
         _carry_visual_start), переносится дальше на следующий слот, а не
         собственный `visual_starts[i]` этого слота: если ОН сам продолжает
-        уже начавшуюся цепочку, его собственный старт был бы позже истинного."""
-        nonlocal _carry_sec, _carry_visual_start
+        уже начавшуюся цепочку, его собственный старт был бы позже истинного.
+
+        `chain_len_so_far` — сколько слотов УЖЕ поглощено в эту цепочку ДО
+        этого вызова (0 — цепочка начинается этим слотом). Функция сама
+        решение о потолке (ABSORB_CHAIN_MAX) не принимает — оба вызывающих
+        места обязаны проверить его ДО вызова (см. их комментарии), эта
+        функция только сохраняет счётчик +1 для следующей итерации."""
+        nonlocal _carry_sec, _carry_visual_start, _carry_chain_len
         ABSORBED_SLOTS.append({"index": i, "reason": reason, "text": b["text"],
                                "carried_sec": round(d, 3)})
         if stat:
             stat_carry.append((stat, stat_variant, stat_delay))
         _carry_sec = d
         _carry_visual_start = chain_start
+        _carry_chain_len = chain_len_so_far + 1
         print(f"    [{i+1}] нет проверенного кадра ({reason}) — "
               f"{d:.1f}с отдано соседнему кадру")
         render_manifest[i] = {"index": i, "status": "absorbed",
@@ -16379,6 +16429,13 @@ def main():
         chain_visual_start = (_carry_visual_start if _carry_visual_start is not None
                               else visual_starts[i])
         _carry_visual_start = None
+        # Сколько слотов УЖЕ поглощено в цепочку, что вот-вот может
+        # продолжиться этим слотом (см. ABSORB_CHAIN_MAX / _carry_chain_len
+        # у их объявления) — читаем-и-обнуляем тем же приёмом, что и
+        # chain_visual_start выше: если этот слот НЕ поглощается сам,
+        # значение остаётся 0 для следующей итерации (цепочка прервана).
+        chain_len_so_far = _carry_chain_len
+        _carry_chain_len = 0
         absorb_reason = None
         # Титр темы — только на ПЕРВОМ кадре новой секции (BLOCK N: Название).
         is_section_start = i == 0 or blocks[i]["section"] != blocks[i - 1]["section"]
@@ -16852,13 +16909,36 @@ def main():
             if card:
                 photo = card
         if not photo and not video and never_show_known_bad:
-            # Поглощение: слот не получает клипа, его время уходит соседу.
-            # Плашка с цифрой — КОНТЕНТ, а не картинка: она наследуется
-            # поглощающим клипом ниже (stat_carry), а не теряется.
             reason = absorb_reason or FALLBACK_NO_MEDIA_REASON
-            _absorb_known_bad_slot(i, b, d, reason, stat, stat_variant, stat_delay,
-                                   chain_visual_start)
-            continue
+            if chain_len_so_far >= ABSORB_CHAIN_MAX and FALLBACK_CARD_ENABLED:
+                # ПОТОЛОК ЦЕПОЧКИ (см. ABSORB_CHAIN_MAX у объявления): этот
+                # слот стал бы уже (chain_len_so_far + 1)-м подряд без
+                # собственного кадра, растягивая ОДИН соседний клип дальше
+                # измеренного безопасного предела. Карточка здесь накрывает
+                # СРАЗУ весь накопленный к этому моменту «мёртвый» отрезок
+                # (d уже включает унаследованные секунды, см. перенос
+                # длительности выше) одним текстовым слайдом по фразе ЭТОГО
+                # слота — не постороннее, т.к. вся цепочка и так об одном.
+                # Идёт МИМО fallback_card_allowed(): бюджет/MIN_GAP не имеют
+                # права заблокировать единственный предохранитель от
+                # бесконечного растяжения (иначе потолок был бы фикцией).
+                # FALLBACK_CARD_ENABLED — глобальный рубильник владельца
+                # (карточки выключены вообще) всё же уважается: снят целиком
+                # он снимает и этот предохранитель, откат на прежнее
+                # безлимитное поглощение — осознанный выбор владельца, не
+                # молчаливая дыра.
+                overflow_card = build_slot_fallback_card(
+                    i, b["text"], FALLBACK_ABSORB_OVERFLOW_REASON)
+                if overflow_card:
+                    photo, video = overflow_card, None
+            if not photo and not video:
+                # Поглощение: слот не получает клипа, его время уходит
+                # соседу. Плашка с цифрой — КОНТЕНТ, а не картинка: она
+                # наследуется поглощающим клипом ниже (stat_carry), а не
+                # теряется.
+                _absorb_known_bad_slot(i, b, d, reason, stat, stat_variant, stat_delay,
+                                       chain_visual_start, chain_len_so_far)
+                continue
         if not photo and not video:
             print(f"  [{i+1}] нет медиа")
             missing.append(i + 1)
@@ -17027,9 +17107,19 @@ def main():
                     # отбора медиа.
                     photo, video = None, None
         if not photo and not video and never_show_known_bad and late_reason == "director_relevance_decisive":
-            _absorb_known_bad_slot(i, b, d, late_reason, stat, stat_variant, stat_delay,
-                                   chain_visual_start)
-            continue
+            # Тот же потолок цепочки, что и у первой точки решения выше
+            # (см. ABSORB_CHAIN_MAX / комментарий там) — вторая точка не
+            # имеет права быть исключением из него, иначе поглощение здесь
+            # снова растягивалось бы без предела.
+            if chain_len_so_far >= ABSORB_CHAIN_MAX and FALLBACK_CARD_ENABLED:
+                overflow_card = build_slot_fallback_card(
+                    i, b["text"], FALLBACK_ABSORB_OVERFLOW_REASON)
+                if overflow_card:
+                    photo, video = overflow_card, None
+            if not photo and not video:
+                _absorb_known_bad_slot(i, b, d, late_reason, stat, stat_variant, stat_delay,
+                                       chain_visual_start, chain_len_so_far)
+                continue
         luma = measure_luma(photo, is_video=False) if photo else measure_luma(video, is_video=True)
         if luma is not None:
             _clamp, _gain = luma_match_params()

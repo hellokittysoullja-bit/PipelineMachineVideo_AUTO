@@ -73,13 +73,16 @@ def _dur(path):
     return float(json.loads(r.stdout)["format"]["duration"])
 
 
-@pytest.fixture
-def episode(tmp_path):
-    d = tmp_path / "absorb_ep"
+def _build_episode(tmp_path, name, media_for, n_blocks=N_BLOCKS, audio_sec=AUDIO_SEC):
+    """Общий сборщик синтетического эпизода — параметризован по тому,
+    КАКИЕ 1-based слоты получают локальный файл, остальным нечего честно
+    показать. Вынесено из фикстуры `episode`, чтобы тест потолка цепочки
+    (ниже) не дублировал разметку скрипта/аудио отдельной копией."""
+    d = tmp_path / name
     media = d / "media"
     media.mkdir(parents=True)
     words = "раз два три четыре пять шесть семь восемь девять десять"
-    phrases = [f"{words} фраза номер {n}." for n in range(1, N_BLOCKS + 1)]
+    phrases = [f"{words} фраза номер {n}." for n in range(1, n_blocks + 1)]
     (d / "script.txt").write_text(
         "=== HOOK === " + "[pause]".join(phrases[:2]) + "\n\n"
         "=== BLOCK 1: Тест === " + "[pause]".join(phrases[2:4]) + "\n\n"
@@ -88,17 +91,22 @@ def episode(tmp_path):
     # Структурные (не залитые) картинки: ahash на однотонной заливке нулевой
     # у любого цвета, и QC считал бы их дублями (см. test_smoke.py).
     cols = [(200, 40, 40), (40, 60, 200), (40, 180, 70)]
-    for k, n in enumerate(MEDIA_FOR):
+    for k, n in enumerate(media_for):
         img = Image.new("RGB", (1600, 900), cols[k % 3])
         dr = ImageDraw.Draw(img)
         dr.rectangle([60 + k * 40, 60, 60 + k * 40 + 300 + k * 120, 460], fill=cols[(k + 1) % 3])
         dr.ellipse([900, 300, 900 + 200 + k * 90, 300 + 180], fill=cols[(k + 2) % 3])
         img.save(media / f"{n:03d}_stock.jpg", quality=92)
     subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i",
-                    f"sine=frequency=320:duration={AUDIO_SEC}",
+                    f"sine=frequency=320:duration={audio_sec}",
                     "-c:a", "libmp3lame", str(d / "audio.mp3")],
                    capture_output=True, check=True)
     return d
+
+
+@pytest.fixture
+def episode(tmp_path):
+    return _build_episode(tmp_path, "absorb_ep", MEDIA_FOR)
 
 
 def _run(episode, extra_env):
@@ -180,8 +188,19 @@ def episode_no_media(tmp_path):
 def test_total_failure_writes_report_before_the_hard_stop(episode_no_media):
     """Стоп на полном провале обязан оставить след, а не отсылать к файлу,
     которого нет. Без локальных файлов и без сети ни один слот не может
-    получить проверенный кадр — это код возврата 1, а не 0/2."""
-    r = _run(episode_no_media, {"NEVER_SHOW_KNOWN_BAD": "1"})
+    получить проверенный кадр — это код возврата 1, а не 0/2.
+
+    FALLBACK_CARD явно выключен: иначе потолок цепочки (ABSORB_CHAIN_MAX,
+    21.09) сам вмешался бы и подставил карточки на переполнении — ЭТО
+    правильное, желаемое поведение (см. test_chain_cap_breaks_up_a_long_run_
+    with_a_card ниже), но оно меняет исход именно ЭТОГО сценария: episode_
+    no_media на N_BLOCKS=6 при ABSORB_CHAIN_MAX=2 перестал бы быть «полным
+    провалом» и вместо стопа получил бы частичный рендер из карточек. Этот
+    тест проверяет ДРУГОЙ, более узкий инвариант (текст стопа не лжёт про
+    несуществующий отчёт) — предохранитель здесь сознательно снят, чтобы
+    сценарий остался тем самым «показать вообще нечего ни при каком исходе»,
+    ради которого тест и написан."""
+    r = _run(episode_no_media, {"NEVER_SHOW_KNOWN_BAD": "1", "FALLBACK_CARD": "0"})
     assert r.returncode == 1, (
         f"ожидался честный стоп (return 1) на полном провале, получено "
         f"{r.returncode}:\n{r.stdout[-3000:]}\n{r.stderr[-1500:]}")
@@ -197,3 +216,83 @@ def test_total_failure_writes_report_before_the_hard_stop(episode_no_media):
     assert len(absorbed) == N_BLOCKS, (
         f"ожидалось, что ВСЕ {N_BLOCKS} слотов поглощены (показывать "
         f"нечего никому), получено {absorbed}")
+
+
+LONG_RUN_BLOCKS = 6
+LONG_RUN_AUDIO_SEC = 14.0
+LONG_RUN_MEDIA_FOR = (1,)   # только первый слот — остальные пять подряд без кадра
+
+
+@pytest.fixture
+def episode_long_bad_run(tmp_path):
+    """Пять слотов подряд без своего кадра (только слот 1 из шести имеет
+    медиа) — тот самый живой сценарий 21.09 (videos/_test_anchor_medieval,
+    8 из 9 слотов поглощены ОДНИМ клипом), сжатый до детерминированного
+    прогона без сети."""
+    return _build_episode(tmp_path, "absorb_ep_long_run", LONG_RUN_MEDIA_FOR,
+                          n_blocks=LONG_RUN_BLOCKS, audio_sec=LONG_RUN_AUDIO_SEC)
+
+
+def _consecutive_runs(indices):
+    """Разбить множество индексов на цепочки подряд идущих чисел.
+    {1,2,4,5,6} -> [[1,2],[4,5,6]]."""
+    ordered = sorted(indices)
+    runs, cur = [], []
+    for idx in ordered:
+        if cur and idx != cur[-1] + 1:
+            runs.append(cur)
+            cur = []
+        cur.append(idx)
+    if cur:
+        runs.append(cur)
+    return runs
+
+
+def test_chain_cap_breaks_up_a_long_run_with_a_card(episode_long_bad_run):
+    """Прямой ответ на живую жалобу (21.09): без потолка пять слотов подряд
+    без кадра поглощались ОДНИМ соседним клипом целиком — контактный лист
+    выглядел как один и тот же кадр, повторённый почти на весь ролик.
+    ABSORB_CHAIN_MAX обязан оборвать такую цепочку карточкой ЗНАЧИТЕЛЬНО
+    раньше её естественного конца, и ролик обязан остаться той же длины,
+    что аудио (арифметика переноса длительности не сломана самим обрывом)."""
+    r = _run(episode_long_bad_run, {"NEVER_SHOW_KNOWN_BAD": "1"})
+    assert r.returncode in (0, 2), f"сборка упала:\n{r.stdout[-3000:]}\n{r.stderr[-1500:]}"
+
+    final = episode_long_bad_run / "final.mp4"
+    assert final.exists(), f"final.mp4 не собран\n{r.stdout[-3000:]}"
+    got = _dur(str(final))
+    assert abs(got - LONG_RUN_AUDIO_SEC) <= 0.5, (
+        f"длительность {got:.2f}с против аудио {LONG_RUN_AUDIO_SEC}с — обрыв "
+        f"цепочки карточкой не сохранил арифметику переноса длительности")
+
+    cards_path = episode_long_bad_run / "media_plan" / "fallback_cards_report.json"
+    assert cards_path.exists(), "потолок цепочки не сработал — карточек не появилось вовсе"
+    cards = json.load(open(cards_path, encoding="utf-8"))
+    overflow_cards = [m for m in cards["misses"] if m.get("reason") == "absorb_chain_overflow"]
+    assert overflow_cards, (
+        f"ожидалась хотя бы одна карточка-предохранитель цепочки "
+        f"(reason=absorb_chain_overflow), получено {cards['misses']}")
+
+    report = episode_long_bad_run / "media_plan" / "absorbed_slots_report.json"
+    data = json.load(open(report, encoding="utf-8"))
+    absorbed = {row["index"] for row in data["misses"]}
+    assert absorbed, "ожидались поглощённые слоты (пять слотов подряд без кадра)"
+    # Главная проверка: ни одна ЦЕПОЧКА поглощённых-подряд индексов не
+    # длиннее ABSORB_CHAIN_MAX — иначе потолок не потолок, а декорация.
+    longest = max((len(r) for r in _consecutive_runs(absorbed)), default=0)
+    assert longest <= 2, (
+        f"цепочка поглощения длиной {longest} превышает потолок (2) — "
+        f"absorbed={sorted(absorbed)}")
+
+    # Контактный лист теперь показывает РАЗНЫЕ клипы, не один и тот же кадр
+    # на весь провальный участок: реальных (не поглощённых) слотов должно
+    # быть больше одного — сам первый (media_for=(1,)) плюс хотя бы одна
+    # карточка-предохранитель.
+    manifest = json.load(open(episode_long_bad_run / "media_plan" / "render_manifest.json",
+                              encoding="utf-8"))
+    clips = manifest["clips"] if isinstance(manifest, dict) else manifest
+    real_indices = {c["index"] for c in clips if c.get("status") == "ok"}
+    assert len(real_indices) >= 2, (
+        f"ожидалось хотя бы 2 реальных (не поглощённых) клипа — единственный "
+        f"исходный плюс минимум одна карточка-предохранитель, получено "
+        f"{sorted(real_indices)}")
