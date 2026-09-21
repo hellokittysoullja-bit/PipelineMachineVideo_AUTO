@@ -279,15 +279,25 @@ def _stack_versions():
 
 
 def contact_sheets(video_dir, out_dir, cols=4, per_page=24):
-    """Те же страницы, что shotlist_contact.py, в папку отчёта."""
+    """Те же страницы, что shotlist_contact.py, в папку отчёта.
+
+    ВТОРОЙ, независимый вызов render_page() — тот же класс расхождения,
+    которым этот репозиторий уже горел не раз (filter_alt_blocklist на
+    видео-пути, director_score_fn, бриф стокам): правка в главной точке
+    входа (shotlist_contact.main()) не дошла бы сюда сама по себе. Без
+    cover_map поглощённые слоты (NEVER_SHOW_KNOWN_BAD, 21.09) на ЭТОМ
+    контактном листе снова рисовались бы красной заливкой «НЕТ ФАЙЛА»,
+    хотя в final.mp4 они никогда не пустуют — ровно тот баг, который
+    21.09 нашли и закрыли в shotlist_contact.main(), но не здесь."""
     import shotlist_contact as sc
     data = _load(os.path.join(video_dir, "media_plan", "shotlist.json")) or {}
     shots = sorted([s for s in data.get("shots", []) if isinstance(s, dict)],
                    key=lambda s: s.get("index", 0))
+    cover_map = sc.build_absorption_cover_map(shots)
     pages = []
     for p in range(0, len(shots), per_page):
         out = os.path.join(out_dir, f"contact_{p // per_page + 1:02d}.jpg")
-        pages.append(sc.render_page(shots[p:p + per_page], video_dir, cols, out))
+        pages.append(sc.render_page(shots[p:p + per_page], video_dir, cols, out, cover_map))
     return pages
 
 

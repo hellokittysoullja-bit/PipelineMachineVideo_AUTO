@@ -162,6 +162,40 @@ class TestBuild:
         assert report["artifacts"]["n_shots"] == 0
 
 
+def test_contact_sheets_cover_absorbed_slots_too(tmp_path):
+    """segment_report.contact_sheets() — ВТОРОЙ, независимый вызов
+    shotlist_contact.render_page() (см. её же комментарий у
+    build_absorption_cover_map, найдено 21.09 тем же прогоном, что и
+    основной баг в shotlist_contact.main()): без cover_map поглощённые
+    слоты здесь по-прежнему рисовались бы красной заливкой «НЕТ ФАЙЛА»,
+    хотя в final.mp4 они никогда не пустуют. Проверяем НАПРЯМУЮ, не через
+    tяжёлый синтетический рендер эпизода — контактный лист не рендерит
+    видео, ему нужен только shotlist.json."""
+    from PIL import Image
+    vd = tmp_path
+    (vd / "media").mkdir()
+    (vd / "media" / "001.jpg").parent.mkdir(exist_ok=True)
+    Image.new("RGB", (64, 36), (120, 80, 40)).save(vd / "media" / "001.jpg")
+    (vd / "media_plan").mkdir()
+    shots = [
+        {"index": 0, "section": "HOOK", "text": "поглощённая фраза", "query": "q",
+         "kind": None, "file": None, "source": "absorbed"},
+        {"index": 1, "section": "HOOK", "text": "фраза с кадром", "query": "q",
+         "kind": "photo", "file": "media/001.jpg", "source": "local"},
+    ]
+    (vd / "media_plan" / "shotlist.json").write_text(
+        json.dumps({"version": 1, "locked": False, "shots": shots}, ensure_ascii=False), encoding="utf-8")
+    out_dir = tmp_path / "report_contact"
+    out_dir.mkdir()
+    pages = sr.contact_sheets(str(vd), str(out_dir), cols=2, per_page=24)
+    assert pages and os.path.exists(pages[0])
+    import shotlist_contact as sc
+    img = Image.open(pages[0])
+    px = img.getpixel((sc.PAD + sc.THUMB_W // 2, sc.PAD + sc.THUMB_H // 2))
+    assert not all(abs(px[k] - c) <= 25 for k, c in enumerate((70, 20, 20))), \
+        f"поглощённый слот остался красной заливкой в отчётном листе ({px})"
+
+
 def test_render_episode_calls_the_report_last():
     """«Одна команда»: render_episode.py обязан заканчиваться этим отчётом —
     иначе он снова станет слоем, который есть и который никто не зовёт."""
