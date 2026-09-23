@@ -112,3 +112,26 @@ def test_shot_size_rhythm_is_not_meaning():
     sharp_repeat = dict(_c("b", 3), size_ok=0)
     assert ps._repick([blurred, sharp_repeat], blurred, None, False, {id(blurred)},
                       same_meaning=True) is sharp_repeat
+
+
+def test_tie_rejudge_does_not_make_a_same_score_frame_worse_in_meaning():
+    """Живой случай эп.94, слот 3: кинжалы с оценкой 3 после переспроса ничьей
+    получили 3 и 2; второй не считался заменой «того же смысла»."""
+    a, b = _c("a", 3), _c("b", 3)
+    a["judge_tie"], b["judge_tie"] = 3, 2
+    assert ps._meaning_key(a) == ps._meaning_key(b)
+
+
+def test_photo_download_failure_is_not_a_same_meaning_rejection():
+    src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"), encoding="utf-8").read()
+    body = src[src.index("repicks = 0\n            blurred = set()"):]
+    body = body[:body.index("+sharp_repick")]
+    assert "same_meaning=fetched" in body
+
+
+def test_download_rescue_goes_by_ranking_not_list_order():
+    src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"), encoding="utf-8").read()
+    body = src[src.index("rescued = None\n"):]
+    body = body[:body.index("+download_rescue")]
+    assert "_score_and_pick(left)" in body
+    assert "for nxt in (ranked + list(candidates))" in body

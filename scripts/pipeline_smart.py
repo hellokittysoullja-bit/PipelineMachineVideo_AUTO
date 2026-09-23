@@ -6029,14 +6029,18 @@ def _score_and_pick(candidates_info, director_score_fn=None):
 
 
 def _meaning_key(c):
-    """Ключи СМЫСЛА кандидата: дубль, оценка судьи, релевантность.
+    """Ключи СМЫСЛА кандидата: дубль, читаемость, оценка судьи,
+    релевантность. Переспрос ничьей (judge_tie) сюда не входит: он уточняет
+    порядок равных, а не делает кадр с первой оценкой 3 «хуже по смыслу»,
+    чем другой с той же оценкой — иначе техническая замена размытого
+    кандидата отменялась бы из-за второго замера того же судьи.
 
     Ритм крупностей (size_ok) сюда НЕ входит, хотя в кортеже _score_and_pick
     стоит выше резкости: это монтажный ритм, а не смысл. С ним в ключе
     размытый победитель со «свежей» крупностью оставался на экране, если
     резкий кандидат того же смысла повторял крупность соседнего кадра, —
     ритм решал за смысл ровно там, где его место ниже."""
-    return (c["is_dup_free"], c.get("is_readable", 1), judge_rank(c), judge_tie_rank(c), c["is_relevant"])
+    return (c["is_dup_free"], c.get("is_readable", 1), judge_rank(c), c["is_relevant"])
 
 
 def _repick(candidates_info, failed, score_fn, director_assist, excluded, same_meaning):
@@ -7925,10 +7929,12 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                     download(pick, cf)
                     break
                 pick = winner["p"]
+                fetched = False
                 try:
                     download(pick, cf)
-                    sharp = image_sharpness_score(cf)
-                    sharp_ok_full = (sharp is None or sharp >= PHOTO_SHARPNESS_REJECT)
+                    fetched = _downloaded_ok(cf)
+                    sharp = image_sharpness_score(cf) if fetched else None
+                    sharp_ok_full = fetched and (sharp is None or sharp >= PHOTO_SHARPNESS_REJECT)
                 except Exception:
                     sharp_ok_full = False
                 if sharp_ok_full or repicks >= SHARP_REPICK_MAX:
@@ -7939,8 +7945,14 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                 repicks += 1
                 winner["sharp_ok"] = 0
                 blurred.add(id(winner))
+                # Размытость — технический отказ: замена только того же
+                # смысла. Файл НЕ СКАЧАЛСЯ — о кадре ничего не известно, и
+                # правило «не хуже по смыслу» здесь неприменимо: следующий
+                # по ранжированию. Живой случай (эпизод 94, слот 3): два
+                # чикагских кинжала с оценкой 3 не скачались, следующий
+                # «считался хуже» — и слот ушёл на страховку.
                 new_winner = _repick(candidates_info, winner, director_score_fn, director_assist,
-                                     blurred, same_meaning=True)
+                                     blurred, same_meaning=fetched)
                 if new_winner is None:
                     break
                 winner = new_winner
@@ -7965,7 +7977,21 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                 _source_bump(candidate_channel(pick), "download_errors")
                 tried = {id(pick)}
                 rescued = None
-                for nxt in ([c["p"] for c in candidates_info] + list(candidates)):
+                # По РАНЖИРОВАНИЮ, а не по порядку списка: после каскада
+                # список идёт по сходству с описанием, и первым в нём стоял
+                # почти чёрный кадр (эпизод 94, слот 3), который ранжирование
+                # ставило последним.
+                ranked, left = [], [c for c in candidates_info]
+                while left:
+                    # Базовое ранжирование: скоринг Директора ~3 с на кандидата,
+                    # в цикле он стал бы квадратичным ради редкого пути.
+                    top, _d = _score_and_pick(left)
+                    if top is None:
+                        break
+                    ranked.append(top["p"])
+                    left = [c for c in left if c is not top]
+                ranked += [c["p"] for c in left]
+                for nxt in (ranked + list(candidates)):
                     if id(nxt) in tried:
                         continue
                     tried.add(id(nxt))
