@@ -76,6 +76,16 @@ class Gateway:
         self._open = opener or urllib.request.urlopen
         self._lock = threading.Lock()
         self._prices = None
+        # Фактическая цена вызова против оценки, по модели. Замер 23.09:
+        # маршрут cc/ (Claude через шлюз) брал ~150 тыс. токенов баланса за
+        # ОДИН вызов сетки судьи при оценке в несколько тысяч — скрытая
+        # надбавка на вызов. Потолок проверялся по оценке, параллельные
+        # сетки все прошли проверку, и прогон с потолком 80 тыс. потратил
+        # 647 тыс. Теперь резерв умножается на наблюдённое отношение, а
+        # первый вызов незнакомой модели идёт один, без параллельных: его
+        # цена успевает стать известной до следующего.
+        self._ratio = {}
+        self._first_call = {}
         self.spent = 0          # фактически списано (по usage ответов)
         self.reserved = 0       # зарезервировано вызовами в полёте
         self.calls = 0
@@ -189,7 +199,16 @@ class Gateway:
             raise GatewayError(f"шлюз выключен до конца прогона: {self.dead}")
         if not self.configured:
             raise GatewayError("нет LLM_GATEWAY_API_KEY")
-        reserve = self.cost(model, estimate_prompt_tokens, max_tokens)
+        with self._lock:
+            first = self._first_call.setdefault(model, threading.Lock())
+        if model in self._ratio:
+            return self._chat(model, content, max_tokens, estimate_prompt_tokens, temperature, timeout)
+        with first:
+            return self._chat(model, content, max_tokens, estimate_prompt_tokens, temperature, timeout)
+
+    def _chat(self, model, content, max_tokens, estimate_prompt_tokens, temperature, timeout):
+        base = self.cost(model, estimate_prompt_tokens, max_tokens)
+        reserve = math.ceil(base * max(1.0, self._ratio.get(model, 1.0)))
         with self._lock:
             if self.spend_cap is not None and self.spent + self.reserved + reserve > self.spend_cap:
                 raise BudgetExhausted(f"потолок {self.spend_cap}: потрачено {self.spent}, "
@@ -220,6 +239,8 @@ class Gateway:
         with self._lock:
             self.spent += price
             self.calls += 1
+            if base > 0:
+                self._ratio[model] = max(self._ratio.get(model, 0.0), price / base)
         choice = (r.get("choices") or [{}])[0]
         text = (choice.get("message") or {}).get("content") or ""
         if not text.strip():

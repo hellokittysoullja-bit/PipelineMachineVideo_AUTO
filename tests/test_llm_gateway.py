@@ -224,3 +224,35 @@ def test_refused_prompt_is_not_retried():
     with pytest.raises(lg.GatewayError):
         lg.Gateway(api_key="k", opener=op).image("m/img-free", "p", "1024x1024")
     assert len([r for r in op.requests if "images" in r.full_url]) == 1
+
+
+def test_hidden_per_call_overhead_cannot_blow_through_the_cap():
+    """Живой случай 23.09: маршрут со скрытой надбавкой на вызов (оценка —
+    сотни, факт — десятки тысяч) и параллельные сетки. Потолок проверялся по
+    оценке, все вызовы проходили проверку разом, и прогон с потолком 80 тыс.
+    потратил 647 тыс. Теперь первый вызов модели идёт один, его цена
+    становится резервом следующих, и потолок держит."""
+    import concurrent.futures
+    op = Opener([ok(pt=50000, ct=10) for _ in range(8)])
+    gw = lg.Gateway(api_key="k", opener=op, spend_cap=60000)
+    content = [{"type": "text", "text": "q"}]
+
+    def call(_):
+        try:
+            gw.chat("m/vision", content, 50, 1000)
+            return "ok"
+        except lg.BudgetExhausted:
+            return "cap"
+    with concurrent.futures.ThreadPoolExecutor(6) as ex:
+        res = list(ex.map(call, range(6)))
+    assert gw.spent <= 60000, f"потрачено {gw.spent} при потолке 60000"
+    assert res.count("ok") >= 1 and "cap" in res
+
+
+def test_known_price_keeps_calls_parallel():
+    """После первого вызова цена известна: дальше вызовы не сериализуются."""
+    op = Opener([ok(pt=100, ct=10) for _ in range(3)])
+    gw = lg.Gateway(api_key="k", opener=op)
+    for _ in range(3):
+        gw.chat("m/vision", [{"type": "text", "text": "q"}], 50, 1000)
+    assert "m/vision" in gw._ratio and gw.spent == 3 * (100 * 0.5 + 10 * 2)
