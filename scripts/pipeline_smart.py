@@ -4568,6 +4568,16 @@ def block_durations(blocks, total, energy_mults=None, real_weights=None):
 
 
 PEXELS_BROKEN = False       # взводится только на реальном отказе API, не на пустой выдаче
+# Бюджет часовой квоты Pexels (200 запросов/час на ключ). Остаток приходит
+# заголовком X-Ratelimit-Remaining каждого ответа поиска; запас — сколько
+# запросов ещё нужно СОБСТВЕННЫМ запросам оставшихся слотов (фото и видео),
+# его выставляет main() перед каждым слотом. Дополнительные запросы пула
+# (запросы фразы от планировщика, запросы секции) уходят в Pexels, только
+# пока остаток больше запаса: иначе квота кончится на середине эпизода,
+# пойдут 429 подряд, и PEXELS_BROKEN отключит сток до конца прогона.
+PEXELS_QUOTA_LEFT = None
+PEXELS_QUOTA_RESERVE = 0
+PEXELS_LOW_PRIORITY_SKIPPED = 0
 
 # --- УЧЁТ ВКЛАДА КАЖДОГО ИСТОЧНИКА ЗА ПРОГОН ----------------------------------
 # Зачем. Источник кандидатов может молча давать НОЛЬ, и узнать об этом было
@@ -4698,8 +4708,10 @@ def reset_source_stats():
     """Один прогон — один счёт: обнуляет учёт источников и счётчики музейного
     модуля. Вызывается в начале main(); тестам и повторным вызовам в одном
     процессе — тоже отсюда."""
+    global PEXELS_QUOTA_LEFT, PEXELS_LOW_PRIORITY_SKIPPED
     SOURCE_STATS.clear()
     _SOURCE_ERROR_PRINTED.clear()
+    PEXELS_QUOTA_LEFT, PEXELS_LOW_PRIORITY_SKIPPED = None, 0
     for k in ("requests", "cache_hits", "cache_misses"):
         OPENVERSE_STATS[k] = 0
     try:
@@ -4728,6 +4740,11 @@ def write_source_contribution(video_dir):
               if (v["offered"] == 0 and v["search_errors"] > 0)
               or (v["offered"] > 0 and v["considered"] == 0 and v.get("download_errors", 0) > 0)]
     report["silent_sources"] = silent
+    if PEXELS_LOW_PRIORITY_SKIPPED:
+        # Пишется только когда бюджет что-то срезал: отчёт без срезов тот же,
+        # что раньше, байт-в-байт.
+        report["pexels_quota"] = {"left": PEXELS_QUOTA_LEFT,
+                                  "low_priority_skipped": PEXELS_LOW_PRIORITY_SKIPPED}
     path = os.path.join(video_dir, "media_plan", "source_contribution.json")
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -4744,6 +4761,9 @@ def write_source_contribution(video_dir):
                   f"{v['won']:4} ({share:4.0f}%) / {v['search_errors']} / {v.get('download_errors', 0)}")
         if silent:
             print(f"    ВНИМАНИЕ: источники, давшие ноль из-за ошибок поиска: {', '.join(silent)}")
+    if PEXELS_LOW_PRIORITY_SKIPPED:
+        print(f"  Квота Pexels: {PEXELS_LOW_PRIORITY_SKIPPED} дополнительных запросов не отправлено "
+              f"(остаток {PEXELS_QUOTA_LEFT}, запас держался для собственных запросов слотов)")
     return path
 PEXELS_FAIL_STREAK = 0      # подряд идущих сбоев любого рода (см. _note_pexels_failure)
 PEXELS_FAIL_STREAK_LIMIT = 6
@@ -6178,10 +6198,66 @@ def _pexels_search_photos(api_query):
         f"https://api.pexels.com/v1/search?query={q}&per_page=80&orientation=landscape",
         headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
     with urllib.request.urlopen(req, timeout=15) as r:
+        _note_pexels_quota(r)
         data = json.load(r)
     photos = data.get("photos") or []
     _PEXELS_SEARCH_CACHE[api_query] = photos
     return photos
+
+
+def _note_pexels_quota(resp):
+    """Остаток часовой квоты из заголовка ответа (нет заголовка — остаток
+    неизвестен, и бюджет ничего не режет)."""
+    global PEXELS_QUOTA_LEFT
+    try:
+        v = resp.headers.get("X-Ratelimit-Remaining")
+        if v is not None:
+            PEXELS_QUOTA_LEFT = int(v)
+    except Exception:
+        pass
+
+
+def pexels_query_allowed(api_query, cache, low_priority):
+    """Можно ли спросить Pexels этим запросом сейчас. Уже спрошенное (кэш) —
+    всегда: это бесплатно. Собственный запрос слота — всегда. Дополнительный
+    — только пока известный остаток квоты больше запаса на собственные
+    запросы оставшихся слотов."""
+    global PEXELS_LOW_PRIORITY_SKIPPED
+    if not low_priority or api_query in cache or PEXELS_QUOTA_LEFT is None:
+        return True
+    if PEXELS_QUOTA_LEFT > PEXELS_QUOTA_RESERVE:
+        return True
+    PEXELS_LOW_PRIORITY_SKIPPED += 1
+    return False
+
+
+def apply_phrase_queries(blocks, queries):
+    """Собственный запрос слота — первый запрос его фразы из плана
+    (stock_query_planner); у блока без плана запрос прежний."""
+    out = list(queries)
+    for i, b in enumerate(blocks):
+        if b.get("phrase_queries"):
+            out[i] = b["phrase_queries"][0]
+    return out
+
+
+def slot_extra_queries(block, section_pool):
+    """Пул запросов слота сверх его собственного: остальные запросы его
+    фразы (план stock_query_planner), затем запросы секции, без повторов."""
+    out = []
+    for q in list((block.get("phrase_queries") or [])[1:]) + list(section_pool or []):
+        if q and q not in out:
+            out.append(q)
+    return out or section_pool
+
+
+def slot_own_queries(request):
+    """Собственные запросы слота: его запрос и перевод его брифа."""
+    own = {request.query}
+    bq = brief_stock_query_of(request)
+    if bq:
+        own.add(bq)
+    return own
 
 
 _OPENVERSE_SEARCH_CACHE = {}   # {api_query: [candidate, ...]} — тот же принцип, что у Pexels выше
@@ -7506,6 +7582,9 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                 # is_relevant_candidate() против АВТОРСКОГО запроса, а не
                 # против текста, которым его нашли.
                 fetched = fetch(pq, brief=shelf_question(shot_brief, block_text) or None)
+            elif source_name == "pexels" and not pexels_query_allowed(
+                    api_q, _PEXELS_SEARCH_CACHE, pq not in slot_own_queries(request)):
+                fetched = []
             else:
                 fetched = fetch(api_q)
             for p in fetched:
@@ -13124,6 +13203,7 @@ def _pexels_search_videos(api_query):
         f"https://api.pexels.com/videos/search?query={q}&per_page=80&orientation=landscape",
         headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
     with urllib.request.urlopen(req, timeout=15) as r:
+        _note_pexels_quota(r)
         data = json.load(r)
     videos = data.get("videos") or []
     _PEXELS_VIDEO_SEARCH_CACHE[api_query] = videos
@@ -13232,8 +13312,13 @@ class VideoAdapter(selection_engine.MediaAdapter):
 
     def sources(self, request, pq):
         api_q = apply_action_qualifier(disambiguate_search_query(pq), request.action_qualifier)
+        low = pq not in slot_own_queries(request)
         out = []
         for fetch in (_pexels_search_videos, _pixabay_search_videos):
+            if (fetch is _pexels_search_videos
+                    and not pexels_query_allowed(api_q, _PEXELS_VIDEO_SEARCH_CACHE, low)):
+                out.append([])
+                continue
             out.append([dict(v, _origin_query=pq) for v in fetch(api_q)])
         return out
 
@@ -14858,6 +14943,7 @@ def check_ffmpeg_filters():
 
 
 def main():
+    global PEXELS_QUOTA_RESERVE
     if not os.path.exists(AUDIO_FILE):
         print(f"Аудио не найдено: {AUDIO_FILE}")
         return 1
@@ -14929,6 +15015,17 @@ def main():
         # Fail-open той же дисциплины, что у остальных надстроек: сбой
         # планировщика не имеет права уронить рендер.
         print(f"  Локальный режиссёр пропущен ({type(_e).__name__})")
+    # Запросы к стокам на каждую фразу (scripts/stock_query_planner.py) —
+    # готовый план с диска, живых вызовов здесь нет. Проставляется ДО
+    # нарезки блоков: под-кадры наследуют поле через dict(b).
+    try:
+        import stock_query_planner
+        _sq = stock_query_planner.attach(blocks, stock_query_planner.load(VIDEO_FOLDER))
+        if _sq:
+            print(f"  Запросы фраз: на {_sq} из {len(blocks)} блоков (media_plan/"
+                  f"{stock_query_planner.PLAN_NAME})")
+    except Exception as _e:
+        print(f"  Запросы фраз пропущены ({type(_e).__name__})")
     # ИСХОДНЫЙ индекс блока — единственное, что связывает блок монтажа с юнитом
     # speech_plan.json ПОСЛЕ split_long_blocks()/merge_short_phrase_locked_blocks().
     # N4 из docs/AUDIT_2026-09_DEEP.md, измерено на этом эпизоде: главный цикл
@@ -15201,6 +15298,11 @@ def main():
               f"запрос(ов) на {len(authored_queries)} секци(й)")
         lint_authored_queries(authored_queries, blocks)
     queries = resolve_queries(blocks, authored_queries=authored_queries)
+    # Собственный запрос слота — первый запрос его фразы из плана: план
+    # написан для ЭТОЙ фразы, раздача авторских запросов по смыслу — нет
+    # (живой промах: хук эпизода 94, см. stock_query_planner). Остальные
+    # запросы фразы идут в пул слота перед запросами секции.
+    queries = apply_phrase_queries(blocks, queries)
     # Пул запросов СЕКЦИИ на каждый блок (см. extra_queries в pexels_photo).
     # Раньше авторские запросы раздавались блокам ПОЗИЦИОННО ПО КРУГУ
     # (pool[idx % len(pool)]) — на секции из 16 блоков и 3 запросов это
@@ -15792,9 +15894,10 @@ def main():
             # фотографией ниже. Раньше каждая попытка перечисляла аргументы
             # заново, и спасающий вызов годами шёл без брифа фразы
             # (shot_brief/block_text): в эпизоде 94 так искались 5 слотов из 8.
+            PEXELS_QUOTA_RESERVE = 2 * (len(blocks) - i)
             request = build_slot_request(
                 index=i, query=queries[i],
-                extra_queries=section_query_pool.get(b["section"]),
+                extra_queries=slot_extra_queries(b, section_query_pool.get(b["section"])),
                 text_key=sem_text, shot_brief=b.get("shot_brief"), block_text=b["text"],
                 arbiter_text=hook_arbiter_text, is_opening=is_opening_shot,
                 slot_dur=d, action_qualifier=act_qual, target_luma=luma_ema,
