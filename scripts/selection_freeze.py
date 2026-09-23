@@ -912,6 +912,22 @@ def shot_diff(x, y, signature_changed):
     return diff
 
 
+def strip_cache_signature(value):
+    """Отчёт с именами файлов кэша без подписи отбора — рекурсивно по
+    вложенным словарям и спискам. Нужна при объявленной смене подписи:
+    журнал прогона пишет полный путь кадра, и без этого тот же файл под
+    новой подписью читался бы как расхождение слота (найдено на приёмке
+    этапа 3: слот 1 совпал бит-в-бит, а журнал разошёлся одной строкой
+    пути)."""
+    if isinstance(value, str):
+        return _CACHE_SIG_RE.sub(r"_<sig>\1", value)
+    if isinstance(value, list):
+        return [strip_cache_signature(v) for v in value]
+    if isinstance(value, dict):
+        return {k: strip_cache_signature(v) for k, v in value.items()}
+    return value
+
+
 def rewritten_slot(xa, xb, shot_a, shot_b, kinds):
     """Слот, где решал переписанный вид медиа.
 
@@ -1130,6 +1146,8 @@ def compare(a, b, expect=None):
     reports, reports_bad = {}, []
     for name in sorted(set(a.get("reports", {})) | set(b.get("reports", {})) | set(rep_expect)):
         ra, rb = a.get("reports", {}).get(name), b.get("reports", {}).get(name)
+        if sig_expect:
+            ra, rb = strip_cache_signature(ra), strip_cache_signature(rb)
         if ra == rb:
             if name in rep_expect:
                 reports_bad.append(name)      # заявленное изменение не произошло

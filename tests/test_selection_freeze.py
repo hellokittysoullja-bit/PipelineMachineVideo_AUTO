@@ -667,3 +667,17 @@ def test_pool_capture_covers_the_video_adapter_too(tmp_path):
     assert fake.VIDEO_ADAPTER.choose(se.SlotRequest(**fields), [{"id": 5}], "cf") == 5
     rec = json.loads(open(path, encoding="utf-8").read())
     assert rec["kind"] == "video" and rec["pool"][0]["probe_url"] == "b"
+
+
+def test_declared_signature_is_stripped_from_reports_too():
+    """Журнал пишет полный путь кадра; при объявленной смене подписи тот же
+    файл под новой подписью — не расхождение слота. Без объявления — да."""
+    ja = [{"index": 0, "media": "<EP>/temp_smart/pexels_cache/0000_53160ff1_8510b79bf9.jpg"}]
+    jb = [{"index": 0, "media": "<EP>/temp_smart/pexels_cache/0000_53160ff1_dfbe74d1d1.jpg"}]
+    a = _result([_shot(0)], reports={"run_journal.jsonl": ja})
+    b = _result([_shot(0)], reports={"run_journal.jsonl": jb})
+    assert "run_journal.jsonl" in sf.compare(a, b)["reports_unexpected"]
+    assert sf.compare(a, b, {"signature": "видео-ядро в подписи"})["ok"]
+    jb[0]["media"] = "<EP>/temp_smart/pexels_cache/0000_99999999_dfbe74d1d1.jpg"
+    assert "run_journal.jsonl" in sf.compare(a, b, {"signature": "x"})["reports_unexpected"], \
+        "другой файл остаётся расхождением"
