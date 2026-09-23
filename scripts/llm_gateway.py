@@ -16,11 +16,23 @@
     вместе проскочили бы потолок);
   * 429 — пауза по Retry-After; 5xx и обрыв связи — повтор с нарастающей
     паузой; 402 (кончились деньги) и 401/403 — сразу громкая остановка без
-    повторов: повтор тут ничего не исправит, а 402 означает реальные деньги.
+    повторов: повтор тут ничего не исправит, а 402 означает реальные деньги;
+  * обрыв ПОСЛЕ того, как сервис начал отвечать (IncompleteRead, обрезанный
+    JSON), — тоже повтор, но такой ответ сервис, скорее всего, уже списал:
+    его резерв засчитывается в расход как потраченный. Иначе потолок
+    считал бы деньги, которых больше нет, как свободные. Найдено живым
+    прогоном: один обрыв ронял весь прогон брифов исключением http.client,
+    которого список повторяемых ошибок не знал;
+  * пустой ответ — ошибка, а не пустая строка. Рассуждающая модель может
+    израсходовать весь max_tokens на рассуждение и вернуть content="" с
+    finish_reason="length": 13 оплаченных вызовов DeepSeek на прогоне
+    брифов дали ноль ответов, и снаружи это выглядело как «модель молчит».
+    Ошибка называет finish_reason и число токенов рассуждения.
 
 Сервис закрыт Cloudflare-правилом, отвергающим стандартную подпись
 Python-клиента (ошибка 1010) — заголовок User-Agent обязателен.
 """
+import http.client
 import json
 import math
 import os
@@ -47,6 +59,10 @@ class BudgetExhausted(GatewayError):
     """Вызов превысил бы потолок расходов прогона — не делается."""
 
 
+class EmptyAnswer(GatewayError):
+    """Сервис ответил и списал деньги, но текста ответа нет."""
+
+
 def _env(name, default=None):
     v = os.environ.get(name)
     return v.strip() if v and v.strip() else default
@@ -64,6 +80,8 @@ class Gateway:
         self.reserved = 0       # зарезервировано вызовами в полёте
         self.calls = 0
         self.failures = 0
+        self.lost_bodies = 0    # ответы, оборванные после начала: засчитаны резервом
+        self.empty_answers = 0  # оплаченные ответы без текста
         self.dead = None        # причина, по которой шлюз выключен до конца прогона
 
     @property
@@ -72,7 +90,9 @@ class Gateway:
 
     # ---------------------------------------------------------------- транспорт
 
-    def _request(self, method, path, body=None, timeout=120):
+    def _request(self, method, path, body=None, timeout=120, on_lost_body=None):
+        """on_lost_body() зовётся на каждый ответ, оборвавшийся после того,
+        как сервис начал его отдавать: такой вызов, скорее всего, оплачен."""
         data = json.dumps(body).encode("utf-8") if body is not None else None
         req = urllib.request.Request(self.base_url + path, data=data, method=method, headers={
             "Authorization": "Bearer " + self.api_key, "Content-Type": "application/json",
@@ -81,7 +101,15 @@ class Gateway:
         for attempt in range(MAX_ATTEMPTS):
             try:
                 with self._open(req, timeout=timeout) as r:
-                    return json.loads(r.read().decode("utf-8"))
+                    try:
+                        return json.loads(r.read().decode("utf-8"))
+                    except (http.client.HTTPException, ValueError, ConnectionError, TimeoutError) as e:
+                        # Статус 200 уже получен — тело оборвалось или битое.
+                        if on_lost_body is not None:
+                            on_lost_body()
+                        last = f"ответ оборван: {type(e).__name__}"
+                        time.sleep(BACKOFF_SEC[min(attempt, len(BACKOFF_SEC) - 1)])
+                        continue
             except urllib.error.HTTPError as e:
                 info = self._error_info(e)
                 if e.code == 402:
@@ -93,7 +121,8 @@ class Gateway:
                     time.sleep(self._retry_after(e, attempt))
                     continue
                 raise GatewayError(f"{e.code} ({info})")
-            except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
+            except (urllib.error.URLError, TimeoutError, ConnectionError, OSError,
+                    http.client.HTTPException) as e:
                 last = type(e).__name__
                 time.sleep(BACKOFF_SEC[min(attempt, len(BACKOFF_SEC) - 1)])
         raise GatewayError(f"повторы исчерпаны: {last}")
@@ -146,10 +175,15 @@ class Gateway:
                 raise BudgetExhausted(f"потолок {self.spend_cap}: потрачено {self.spent}, "
                                       f"в полёте {self.reserved}, нужно ещё до {reserve}")
             self.reserved += reserve
+        def lost_body():
+            with self._lock:
+                self.spent += reserve
+                self.lost_bodies += 1
         try:
             r = self._request("POST", "/chat/completions", {
                 "model": model, "temperature": temperature, "max_tokens": max_tokens,
-                "messages": [{"role": "user", "content": content}]}, timeout=timeout)
+                "messages": [{"role": "user", "content": content}]}, timeout=timeout,
+                on_lost_body=lost_body)
         except PaymentRequired as e:
             self.dead = str(e)
             raise
@@ -166,9 +200,19 @@ class Gateway:
         with self._lock:
             self.spent += price
             self.calls += 1
-        text = ((r.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+        choice = (r.get("choices") or [{}])[0]
+        text = (choice.get("message") or {}).get("content") or ""
+        if not text.strip():
+            reasoning = (u.get("completion_tokens_details") or {}).get("reasoning_tokens")
+            with self._lock:
+                self.failures += 1
+                self.empty_answers += 1
+            raise EmptyAnswer(f"{model}: пустой ответ (finish_reason={choice.get('finish_reason')}, "
+                              f"токенов рассуждения {reasoning}, выход {u.get('completion_tokens')} "
+                              f"из {max_tokens}); оплачено {price}")
         return text, u, price
 
     def summary(self):
         return {"base_url": self.base_url, "calls": self.calls, "failures": self.failures,
+                "lost_bodies": self.lost_bodies, "empty_answers": self.empty_answers,
                 "spent": self.spent, "spend_cap": self.spend_cap, "dead": self.dead}

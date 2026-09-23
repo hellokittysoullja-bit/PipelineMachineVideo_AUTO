@@ -166,6 +166,20 @@ def test_every_branch_anchor_resolves_exactly_once():
     assert not lost, f"якоря покрытия потеряны: {lost}"
 
 
+def test_revision_scoped_classes_are_real_and_scoped_to_one_side():
+    """Класс «только этой ревизии» с опечаткой в имени молча перестал бы
+    быть ограничен ревизией. И каждая ревизия видео-отбора обязана иметь
+    свои ветви — иначе разметка ревизии ничего не различает."""
+    names = {cls for cls, _forms in sf.BRANCH_ANCHORS}
+    assert set(sf.ANCHOR_REVISION) <= names
+    assert set(sf.ANCHOR_REVISION.values()) == {"legacy", "engine"}
+    src = open(sf.PIPELINE, encoding="utf-8").read()
+    anchors = sf._anchor_lines(src.split("\n"), ast.parse(src))
+    absent = {cls for cls, a in anchors.items() if "absent" in a}
+    rev = "engine" if "class VideoAdapter(" in src else "legacy"
+    assert absent == {c for c, r in sf.ANCHOR_REVISION.items() if r != rev}
+
+
 # ------------------------------------------------------------------ трассировка
 
 def test_tracer_sees_lines_inside_comprehensions():
@@ -563,3 +577,93 @@ def test_pool_capture_is_absent_for_code_without_the_engine(tmp_path):
     import types
     assert not sf.install_pool_capture(types.SimpleNamespace(), str(tmp_path / "p.jsonl"))
     assert not (tmp_path / "p.jsonl").exists()
+
+
+# ------------------------------------------------------------------ этап 3
+
+def test_declared_signature_change_compares_cache_names_without_it():
+    """Этап меняет подпись отбора — меняются имена ВСЕХ файлов кэша, в том
+    числе у слотов, где кадр тот же. Объявленная смена подписи сверяет имя
+    без неё; тот же файл с теми же байтами — тот же кадр. Байты другие —
+    расхождение остаётся расхождением."""
+    a = _result([_shot(0, file="temp_smart/pexels_cache/0000_aaaa1111_8510b79bf9.jpg",
+                       clip="clip_0000_1.mp4")])
+    b = _result([_shot(0, file="temp_smart/pexels_cache/0000_aaaa1111_0123456789.jpg",
+                       clip="clip_0000_2.mp4")])
+    assert not sf.compare(a, b)["ok"], "без объявления смена подписи — расхождение"
+    rep = sf.compare(a, b, {"signature": "видео-ядро вошло в подпись отбора"})
+    assert rep["ok"] and rep["slots"][0]["class"] == "СОВПАЛ"
+    b["shots"][0]["file_sha256"] = "другие байты"
+    rep = sf.compare(a, b, {"signature": "x"})
+    assert not rep["ok"] and set(rep["slots"][0]["fields"]) == {"file_sha256", "clip"}
+
+
+def _vslot(i, shown_kind, attempts):
+    return _shot(i, kind=shown_kind, file_sha256=f"{shown_kind}{i}"), attempts
+
+
+def test_rewritten_kind_allows_only_slots_it_could_have_changed():
+    """Видео переписано целиком — исход слота с видео-попыткой предсказать
+    нельзя, и такой слот вправе измениться. Но если в обоих прогонах на
+    экране фото, и фото-попытка получила тот же запрос, переписанная
+    видео-попытка просто проиграла — слот ОБЯЗАН совпасть. Слот без
+    видео-попытки — как всегда."""
+    exp = {"rewritten_kinds": {"video": "видео в общем ядре"}}
+    a = _result([_shot(0), _shot(1, file_sha256="p1"), _shot(2, file_sha256="p2")])
+    b = _result([_shot(0), _shot(1, kind="video", file_sha256="v1"), _shot(2, file_sha256="p2-other")])
+    same_photo = [_att("video", query="q"), _att("photo", query="q")]
+    a["slot_attempts"] = {"1": same_photo, "2": same_photo}
+    b["slot_attempts"] = {"1": [_att("video", query="q")], "2": same_photo}
+    rep = sf.compare(a, b, exp)
+    classes = [s["class"] for s in rep["slots"]]
+    assert classes == ["СОВПАЛ", "ВИД ПЕРЕПИСАН", "РАЗОШЁЛСЯ"], classes
+    assert not rep["ok"], "фото-исход при том же фото-запросе изменился — это провал"
+    b["shots"][2]["file_sha256"] = "p2"
+    rep = sf.compare(a, b, exp)
+    assert rep["ok"] and rep["rewritten_slots"] == [1, 2] and rep["rewritten_changed"] == [1]
+
+
+def test_rewrite_that_changed_nothing_is_not_an_acceptance():
+    exp = {"rewritten_kinds": {"video": "видео в общем ядре"}}
+    a = _result([_shot(0)])
+    a["slot_attempts"] = {"0": [_att("video", query="q"), _att("photo", query="q")]}
+    b = json.loads(json.dumps(a))
+    rep = sf.compare(a, b, exp)
+    assert not rep["ok"] and rep["rewrite_unseen"]
+    assert sf.compare(a, b)["ok"], "без объявления это обычное совпадение"
+
+
+def test_rewritten_kind_expectation_is_validated():
+    with pytest.raises(ValueError):
+        sf.parse_expect_ext({"rewritten_kinds": {"audio": "x"}})
+    with pytest.raises(ValueError):
+        sf.parse_expect_ext({"rewritten_kinds": {"video": ""}})
+    with pytest.raises(ValueError):
+        sf.parse_expect_ext({"signature": " "})
+
+
+def test_pool_capture_covers_the_video_adapter_too(tmp_path):
+    """Видео-пул размечается тем же способом, что фото; адрес превью —
+    средний кадр ленты превью, тот, по которому судят гейты."""
+    import types
+    import selection_engine as se
+
+    class Adapter:
+        def __init__(self, kind):
+            self.kind = kind
+
+        def choose(self, request, pool, cf):
+            return pool[0]["id"]
+
+    fake = types.SimpleNamespace(
+        PHOTO_ADAPTER=Adapter("photo"), VIDEO_ADAPTER=Adapter("video"),
+        candidate_channel=lambda c: "pexels", pexels_candidate_text=lambda c: "",
+        candidate_probe_url=lambda c: None,
+        video_preview_urls=lambda c: ["a", "b", "c"])
+    path = str(tmp_path / "pools.jsonl")
+    assert sf.install_pool_capture(fake, path)
+    fields = {f.name: None for f in dataclasses.fields(se.SlotRequest)}
+    fields.update(index=1, query="q", extra_queries=())
+    assert fake.VIDEO_ADAPTER.choose(se.SlotRequest(**fields), [{"id": 5}], "cf") == 5
+    rec = json.loads(open(path, encoding="utf-8").read())
+    assert rec["kind"] == "video" and rec["pool"][0]["probe_url"] == "b"
