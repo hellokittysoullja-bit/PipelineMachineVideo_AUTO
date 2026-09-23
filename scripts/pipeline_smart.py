@@ -7698,10 +7698,9 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                 # честный cost-tradeoff расширения пула).
                 good_needed = max(good_needed, _director_min_pool_for(index))
             candidates_info = []
-            casc_paths = {}
             if shot_judge_active():
-                candidates, casc_paths = cascade_reorder(
-                    candidates, request.shot_brief or query, cf, download_probe, index)
+                candidates = cascade_reorder(candidates, request.shot_brief or query,
+                                             cf, download_probe, index)
             trial_slice = candidates[:_photo_dedup_max_tries_for(index)]
             # Скачивание кандидатов — сетевой I/O, не CPU (см. докстринг
             # PHOTO_PREFETCH_WORKERS выше) — заранее запускаем ВСЕ загрузки
@@ -7715,14 +7714,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                            for p in trial_slice}
             prefetch_pool = concurrent.futures.ThreadPoolExecutor(
                 max_workers=max(1, min(PHOTO_PREFETCH_WORKERS, len(trial_slice) or 1)))
-            def _probe_into(p, dest):
-                # Превью, уже скачанное каскадом, не качается второй раз.
-                src = casc_paths.pop(id(p), None)
-                if src and _downloaded_ok(src):
-                    os.replace(src, dest)
-                    return
-                download_probe(p, dest)
-            prefetch_futures = {id(p): prefetch_pool.submit(_probe_into, p, trial_paths[id(p)])
+            prefetch_futures = {id(p): prefetch_pool.submit(download_probe, p, trial_paths[id(p)])
                                  for p in trial_slice}
             for p in trial_slice:
                 trial = trial_paths[id(p)]
@@ -7827,11 +7819,6 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                 if id(p) not in _processed_ids:
                     prefetch_futures[id(p)].cancel()
             prefetch_pool.shutdown(wait=False)
-            for _src in list(casc_paths.values()):
-                try:
-                    os.remove(_src)
-                except OSError:
-                    pass
             # Судья кадров (SHOT_JUDGE, см. judge_candidates) — до выбора
             # победителя: его оценка первый ключ после анти-дубля. Не
             # отработал по всему слоту — оценок нет ни у кого, порядок прежний.
@@ -11414,55 +11401,145 @@ def _shot_judge_gateway():
     return st["gateway"]
 
 
-# КАСКАД: КОГО СУДЬЯ ВООБЩЕ УВИДИТ. Пул слота — 600-950 кандидатов, а
+# КАСКАД: КОГО СУДЬЯ ВООБЩЕ УВИДИТ. Пул слота — 200-950 кандидатов, а
 # гейты и судья смотрят ~20: первые по порядку пула (источники вперемешку).
-# Опыт 23.09 (эпизод 94, три слота, судья оценивал оба набора в одном
-# прогоне): у первых 18 высшую оценку 3 получили 1/0/0 кадров, у 18 лучших
-# по локальной модели среди всего пула — 8/3/7; лучший кадр слота 3/2/2
-# против 3/3/3. Среди первых 100 пула — лучший 3/2/3. Поэтому превью первых
-# CASCADE_PREVIEW_N кандидатов качаются заранее, локальная модель (та же,
-# что в гейте) ранжирует их по описанию кадра, и гейты с судьёй получают
-# лучших, а не первых. Цена — ~9 с сети и ~18 с модели на слот (замер на
-# 4 ядрах): на эпизоде в 250 слотов около двух часов сверху. Только при
+# Опыт 23.09 (эпизод 94, девять фото-слотов; судья оценивал все наборы в
+# одном прогоне, сетки перемешаны):
+#   кого видит судья            слотов с лучшим «3»   кадров с «3»
+#   первые 18 пула              3 из 9                3
+#   лучшие 18 из первых 100     4 из 9                —
+#   лучшие 18 из всего пула     7 из 9                26
+# ни один слот не стал хуже. Поэтому ранжируется ВЕСЬ пул: превью каждого
+# кандидата оценивается локальной моделью гейта по описанию кадра, и гейты
+# с судьёй получают лучших, а не первых.
+#
+# ЦЕНА И КЭШ. Проход модели — ~0.155 с на картинку на 4 ядрах (замер;
+# пакетом не быстрее по одной). Эмбеддинг картинки от описания не зависит,
+# а пулы соседних слотов делят половину кандидатов (эпизод 94: 3 175
+# уникальных фото на 6 571 позицию) — поэтому эмбеддинг кэшируется на диск
+# по адресу превью (3 КБ), превью удаляется сразу после оценки. Первый
+# рендер эпизода — около минуты сверху на слот; повторный — только новые
+# кандидаты. CASCADE_PREVIEW_N в .env сужает окно ради скорости. Только при
 # работающем судье: опыт мерил этот случай; без ключа отбор прежний.
-CASCADE_PREVIEW_N = 100
+CASCADE_DEFAULT_PREVIEW_N = 1000
 CASCADE_WORKERS = 8
+_CASCADE_EMB = {}
 
 
-def cascade_reorder(candidates, text, cf, probe_fn, index=None):
-    """(новый порядок кандидатов, {id(кандидата): путь превью}).
-    Превью первых CASCADE_PREVIEW_N ранжируются по близости к text; не
-    скачавшиеся идут следом в прежнем порядке, хвост пула — за ними. Модель
-    недоступна или превью меньше двух — порядок прежний, превью удалены."""
-    head = candidates[:CASCADE_PREVIEW_N]
-    if len(head) < 2 or not text:
-        return candidates, {}
-    paths = {id(p): cf + f".casc_{candidate_path_token(p)}.jpg" for p in head}
+def cascade_preview_n():
+    raw = (os.environ.get("CASCADE_PREVIEW_N") or "").strip()
+    try:
+        return max(2, int(raw)) if raw else CASCADE_DEFAULT_PREVIEW_N
+    except ValueError:
+        return CASCADE_DEFAULT_PREVIEW_N
 
-    def get(p):
-        try:
-            probe_fn(p, paths[id(p)])
-            return _downloaded_ok(paths[id(p)])
-        except Exception:
-            return False
-    with concurrent.futures.ThreadPoolExecutor(CASCADE_WORKERS) as ex:
-        ok = list(ex.map(get, head))
-    got = [p for p, k in zip(head, ok) if k]
-    with stage_timer.stage("cascade_rank", clip_idx=index):
-        scores = clip_relevance_batch([paths[id(p)] for p in got], text)
-    scored = [(sc, k, p) for k, (sc, p) in enumerate(zip(scores, got)) if sc is not None]
-    if len(scored) < 2:
-        for p in head:
+
+def _gate_embed(images=None, text=None):
+    """Нормированные эмбеддинги модели гейта — те же числа, что у
+    clip_relevance() (проверено: разница 0.0). None — модели нет."""
+    global CLIP_BROKEN
+    if not CLIP_ENABLED or CLIP_BROKEN:
+        return None
+    try:
+        import torch
+        model, processor = get_clip_model()
+        with torch.no_grad():
+            if text is not None:
+                inp = processor(text=[text], return_tensors="pt", padding="max_length",
+                                max_length=CLIP_GATE_MODEL_MAX_TEXT_LEN, truncation=True)
+                out = model.get_text_features(**inp)
+            else:
+                out = model.get_image_features(**processor(images=images, return_tensors="pt"))
+        e = out if torch.is_tensor(out) else out.pooler_output
+        e = e / e.norm(dim=-1, keepdim=True)
+        return e.numpy().astype("float32")
+    except ImportError:
+        CLIP_BROKEN = True
+        return None
+    except Exception:
+        return None
+
+
+def _cascade_key(url):
+    return hashlib.md5(f"{CLIP_GATE_MODEL_NAME}|{url}".encode("utf-8")).hexdigest()
+
+
+def _cascade_cached(key, cache_dir):
+    v = _CASCADE_EMB.get(key)
+    if v is None:
+        fp = os.path.join(cache_dir, key + ".npy")
+        if os.path.exists(fp):
             try:
-                os.remove(paths[id(p)])
+                v = np.load(fp)
+                _CASCADE_EMB[key] = v
+            except Exception:
+                v = None
+    return v
+
+
+def cascade_reorder(candidates, text, cf, probe_fn, index=None, batch=16):
+    """Новый порядок кандидатов: первые cascade_preview_n() ранжированы по
+    близости превью к text; кандидаты без превью — следом в прежнем порядке,
+    хвост пула — за ними. Модель недоступна или оценено меньше двух —
+    порядок прежний. Превью на диске не остаются."""
+    n = cascade_preview_n()
+    head = candidates[:n]
+    if len(head) < 2 or not text or np is None:
+        return candidates
+    t_emb = _gate_embed(text=text)
+    if t_emb is None:
+        return candidates
+    cache_dir = os.path.join(TEMP_FOLDER, "cascade_embed_cache")
+    keys = {id(p): _cascade_key(candidate_probe_url(p)) for p in head}
+    emb = {id(p): _cascade_cached(keys[id(p)], cache_dir) for p in head}
+    need = [p for p in head if emb[id(p)] is None]
+    fresh = 0
+    if need:
+        os.makedirs(cache_dir, exist_ok=True)
+        tmp = {id(p): cf + f".casc_{candidate_path_token(p)}.jpg" for p in need}
+
+        def get(p):
+            try:
+                probe_fn(p, tmp[id(p)])
+                return _downloaded_ok(tmp[id(p)])
+            except Exception:
+                return False
+        with concurrent.futures.ThreadPoolExecutor(CASCADE_WORKERS) as ex:
+            got = [p for p, ok in zip(need, ex.map(get, need)) if ok]
+        with stage_timer.stage("cascade_rank", clip_idx=index):
+            for k in range(0, len(got), batch):
+                part, imgs = [], []
+                for p in got[k:k + batch]:
+                    try:
+                        with PILImage.open(tmp[id(p)]) as im:
+                            imgs.append(im.convert("RGB"))
+                        part.append(p)
+                    except Exception:
+                        pass
+                vecs = _gate_embed(images=imgs) if imgs else None
+                if vecs is None:
+                    continue
+                for p, v in zip(part, vecs):
+                    emb[id(p)] = v
+                    _CASCADE_EMB[keys[id(p)]] = v
+                    try:
+                        np.save(os.path.join(cache_dir, keys[id(p)] + ".npy"), v)
+                    except Exception:
+                        pass
+                    fresh += 1
+        for f in tmp.values():
+            try:
+                os.remove(f)
             except OSError:
                 pass
-        return candidates, {}
+    scored = [(float(emb[id(p)] @ t_emb[0]), k, p) for k, p in enumerate(head) if emb[id(p)] is not None]
+    if len(scored) < 2:
+        return candidates
     ranked = [p for _sc, _k, p in sorted(scored, key=lambda x: (-x[0], x[1]))]
     seen = {id(p) for p in ranked}
-    order = ranked + [p for p in head if id(p) not in seen] + list(candidates[CASCADE_PREVIEW_N:])
-    print(f"  слот {index}: каскад — {len(ranked)} превью из {len(head)} ранжированы по описанию кадра")
-    return order, {id(p): paths[id(p)] for p in got}
+    print(f"  слот {index}: каскад — {len(ranked)} из {len(head)} кандидатов ранжированы "
+          f"по описанию кадра (новых оценок {fresh})")
+    return ranked + [p for p in head if id(p) not in seen] + list(candidates[n:])
 
 
 def judge_rank(c):
@@ -11580,7 +11657,7 @@ def shot_judge_signature():
         return ""
     import shot_judge
     return repr(("judge", shot_judge_model(), shot_judge.PROMPT_VERSION, SHOT_JUDGE_MIN_SCORE,
-                 "tie", "cascade", CASCADE_PREVIEW_N))
+                 "tie", "cascade", cascade_preview_n()))
 
 
 def shot_judge_active():
@@ -12375,52 +12452,6 @@ def clip_relevance(image_path, text):
         return None
     except Exception:
         return None
-
-
-def clip_relevance_batch(image_paths, text, batch=16):
-    """То же, что clip_relevance(), для многих картинок и ОДНОГО текста:
-    текст считается один раз, картинки — пачками. По одной картинке за
-    вызов модель пересчитывала текст и не использовала пакетную обработку:
-    замер 23.09 — 100 превью за 320 с. Возвращает список той же длины;
-    None у картинки, которая не открылась, и у всех — при недоступной
-    модели (вызывающий код тогда не переупорядочивает)."""
-    global CLIP_BROKEN
-    out = [None] * len(image_paths)
-    if not image_paths or not CLIP_ENABLED or CLIP_BROKEN:
-        return out
-    try:
-        import torch
-        model, processor = get_clip_model()
-    except ImportError:
-        CLIP_BROKEN = True
-        return out
-    except Exception:
-        return out
-    for start in range(0, len(image_paths), batch):
-        idx, imgs = [], []
-        for k in range(start, min(start + batch, len(image_paths))):
-            try:
-                with PILImage.open(image_paths[k]) as im:
-                    imgs.append(im.convert("RGB"))
-                idx.append(k)
-            except Exception:
-                pass
-        if not imgs:
-            continue
-        try:
-            inputs = processor(text=[text], images=imgs, return_tensors="pt",
-                               padding="max_length", max_length=CLIP_GATE_MODEL_MAX_TEXT_LEN,
-                               truncation=True)
-            with torch.no_grad():
-                res = model(**inputs)
-            img_e = res.image_embeds / res.image_embeds.norm(dim=-1, keepdim=True)
-            txt_e = res.text_embeds / res.text_embeds.norm(dim=-1, keepdim=True)
-            sims = (img_e @ txt_e.T)[:, 0].tolist()
-        except Exception:
-            continue
-        for k, v in zip(idx, sims):
-            out[k] = float(v)
-    return out
 
 
 # --- Эстетическая оценка кадра (LAION aesthetic predictor v1, линейная

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Каскад: гейты и судья видят лучших по описанию кадра, а не первых по
-порядку пула. Опыт эпизода 94: высшую оценку у первых 18 — 1/0/0 кадров,
-у 18 лучших по локальной модели — 8/3/7."""
+"""Каскад: гейты и судья видят лучших по описанию кадра из всего пула, а не
+первых по порядку. Опыт эпизода 94 (9 фото-слотов): слотов с лучшим «3» —
+3 у первых 18, 7 у лучших 18 всего пула; ни один не стал хуже."""
 import os
 import sys
 
+import numpy as np
 from PIL import Image
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -18,58 +19,74 @@ def _cands(n):
     return [{"id": f"c{k}", "src": {"large": f"http://x/{k}.jpg"}} for k in range(n)]
 
 
-def _probe(fail=()):
+def _world(tmp_path, monkeypatch, rel, fail=()):
+    """rel: {id: сходство с описанием}; эмбеддинг картинки кодирует id цветом."""
+    monkeypatch.setattr(ps, "TEMP_FOLDER", str(tmp_path / "temp"))
+    monkeypatch.setattr(ps, "_CASCADE_EMB", {})
+    calls = {"images": 0}
+    ids = sorted(rel)
+
     def probe(p, dest):
         if p["id"] in fail:
             raise OSError("нет превью")
-        Image.new("RGB", (8, 8), (int(p["id"][1:]) * 20 % 255, 0, 0)).save(dest, "JPEG")
-    return probe
+        Image.new("RGB", (8, 8), (ids.index(p["id"]) * 10, 0, 0)).save(dest, "JPEG")
+
+    def embed(images=None, text=None):
+        if text is not None:
+            return np.ones((1, 1), dtype="float32")
+        calls["images"] += len(images)
+        return np.array([[rel[ids[round(im.getpixel((4, 4))[0] / 10)]]] for im in images], "float32")
+    monkeypatch.setattr(ps, "_gate_embed", embed)
+    return probe, calls
 
 
-def test_best_by_brief_go_first_failed_after_tail_last(tmp_path, monkeypatch):
-    cands = _cands(5)
-    rel = {"c0": 0.01, "c1": 0.05, "c2": None, "c3": 0.09, "c4": 0.02}
-    monkeypatch.setattr(ps, "CASCADE_PREVIEW_N", 4)
-
-    def fake_batch(paths, text):
-        assert text == "a rondel dagger"
-        return [rel[os.path.basename(p).split("casc_")[1].split(".")[0]] for p in paths]
-    monkeypatch.setattr(ps, "clip_relevance_batch", fake_batch)
-    order, paths = ps.cascade_reorder(cands, "a rondel dagger", str(tmp_path / "cf.jpg"),
-                                      _probe(fail={"c2"}), 0)
-    assert [p["id"] for p in order] == ["c3", "c1", "c0", "c2", "c4"]
-    assert set(paths) == {id(cands[k]) for k in (0, 1, 3)}, "c2 не скачался — превью у него нет"
-    assert all(os.path.exists(v) for v in paths.values())
+def test_best_by_brief_first_failed_after(tmp_path, monkeypatch):
+    rel = {"c0": 0.01, "c1": 0.05, "c2": 0.9, "c3": 0.09, "c4": 0.02}
+    probe, _ = _world(tmp_path, monkeypatch, rel, fail={"c2"})
+    order = ps.cascade_reorder(_cands(5), "a rondel dagger", str(tmp_path / "cf.jpg"), probe, 0)
+    assert [p["id"] for p in order] == ["c3", "c1", "c4", "c0", "c2"]
+    assert not [f for f in os.listdir(tmp_path) if "casc_" in f], "превью не остаются на диске"
 
 
-def test_no_model_keeps_order_and_leaves_no_files(tmp_path, monkeypatch):
+def test_window_limits_ranking_tail_keeps_order(tmp_path, monkeypatch):
+    rel = {"c0": 0.01, "c1": 0.05, "c2": 0.9, "c3": 0.09}
+    probe, _ = _world(tmp_path, monkeypatch, rel)
+    monkeypatch.setenv("CASCADE_PREVIEW_N", "2")
+    order = ps.cascade_reorder(_cands(4), "x", str(tmp_path / "cf.jpg"), probe, 0)
+    assert [p["id"] for p in order] == ["c1", "c0", "c2", "c3"]
+
+
+def test_embeddings_are_cached_across_slots(tmp_path, monkeypatch):
+    rel = {"c0": 0.1, "c1": 0.2, "c2": 0.3}
+    probe, calls = _world(tmp_path, monkeypatch, rel)
+    ps.cascade_reorder(_cands(3), "x", str(tmp_path / "a.jpg"), probe, 0)
+    assert calls["images"] == 3
+    monkeypatch.setattr(ps, "_CASCADE_EMB", {})        # новый процесс — кэш на диске
+    ps.cascade_reorder(_cands(3), "y", str(tmp_path / "b.jpg"), probe, 1)
+    assert calls["images"] == 3, "картинка оценивается один раз, в любом слоте и прогоне"
+
+
+def test_no_model_keeps_order(tmp_path, monkeypatch):
+    monkeypatch.setattr(ps, "_gate_embed", lambda images=None, text=None: None)
     cands = _cands(4)
-    monkeypatch.setattr(ps, "clip_relevance_batch", lambda paths, text: [None] * len(paths))
-    order, paths = ps.cascade_reorder(cands, "x", str(tmp_path / "cf.jpg"), _probe(), 0)
-    assert order is cands and paths == {}
-    assert not [f for f in os.listdir(tmp_path) if "casc_" in f]
+    assert ps.cascade_reorder(cands, "x", str(tmp_path / "cf.jpg"), lambda p, d: None, 0) is cands
 
 
 def test_cascade_runs_only_with_an_active_judge():
     src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"), encoding="utf-8").read()
-    i = src.index("candidates, casc_paths = cascade_reorder(")
-    assert "if shot_judge_active():" in src[i - 120:i]
-    assert "CASCADE_PREVIEW_N" in src[src.index("def shot_judge_signature"):][:1500]
+    i = src.index("candidates = cascade_reorder(")
+    assert "if shot_judge_active():" in src[i - 80:i]
+    assert "cascade_preview_n()" in src[src.index("def shot_judge_signature"):][:1500]
 
 
-def test_batch_matches_single_image_scores(tmp_path):
-    ps_ok = ps.clip_relevance(str(_img(tmp_path, "a", (200, 30, 30))), "a red square")
-    if ps_ok is None:
+def test_separate_embeddings_match_the_gate_score(tmp_path):
+    p = tmp_path / "r.jpg"
+    Image.new("RGB", (64, 64), (200, 30, 30)).save(p)
+    single = ps.clip_relevance(str(p), "a red square")
+    if single is None:
         import pytest
         pytest.skip("модель гейта недоступна")
-    paths = [str(_img(tmp_path, n, c)) for n, c in (("a", (200, 30, 30)), ("b", (20, 20, 220)))]
-    one = [ps.clip_relevance(p, "a red square") for p in paths]
-    batch = ps.clip_relevance_batch(paths + [str(tmp_path / "missing.jpg")], "a red square")
-    assert batch[2] is None
-    assert all(abs(a - b) < 1e-4 for a, b in zip(one, batch[:2]))
-
-
-def _img(tmp_path, name, color):
-    p = tmp_path / f"{name}.jpg"
-    Image.new("RGB", (64, 64), color).save(p)
-    return p
+    with Image.open(p) as im:
+        img = ps._gate_embed(images=[im.convert("RGB")])
+    txt = ps._gate_embed(text="a red square")
+    assert abs(float(img[0] @ txt[0]) - single) < 1e-4
