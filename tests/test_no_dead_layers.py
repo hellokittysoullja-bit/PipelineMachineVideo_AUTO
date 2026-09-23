@@ -49,6 +49,16 @@ ALLOWED_UNREACHABLE = {
        for f in ("build_fixture", "decode_mono", "layer_contribution",
                  "limiter_reduction_db", "loudness_of_samples", "render_scene",
                  "window")},
+    **{name:
+       "генерация кадра по брифу — ЗАДЕЛ, сознательно не подключённый к "
+       "отбору (решение владельца 23.09: все цели подбора выполняются на "
+       "найденных кадрах, генерация — будущая добавка). Модуль и клиент "
+       "шлюза держатся рабочими своими тестами (test_shot_generator.py, "
+       "test_llm_gateway.py). Подключат — эти строки обязаны уйти: "
+       "устаревшая запись валит тест так же, как новая находка"
+       for name in ("shot_generator.generate", "shot_generator.prompt_for",
+                    "shot_generator.cache_key", "llm_gateway.image",
+                    "llm_gateway.image_cost")},
     "assemble.estimate_xfade_budget":
         "альтернативный сборщик по слотам (assemble.py) — второй, ручной путь "
         "сборки; в основной рендер (pipeline_smart.py) не входит",
