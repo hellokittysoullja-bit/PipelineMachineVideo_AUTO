@@ -32,6 +32,8 @@ sys.path.insert(0, SCRIPTS_DIR)
 sys.argv = ["pipeline_smart.py", tempfile.gettempdir()]
 
 import pipeline_smart as ps  # noqa: E402
+from _media_calls import pick_video  # noqa: E402
+from _video_world import QUERY, infra, video  # noqa: E402,F401
 
 
 def _with_sidecar(tmp_path, payload, name="a.jpg"):
@@ -145,42 +147,43 @@ class TestBothRecordSitesCarryIt:
 
 
 class TestVideoRelevanceIsRecorded:
-    """До правки relevance у видео было null на ВСЕХ выходах, включая
-    chosen_by="video_relevance_best"."""
+    """До правки 15.09 relevance у видео было null на ВСЕХ выходах, включая
+    победу по релевантности. Проверяется поведением VideoAdapter, а не
+    буквой исходника: прежние проверки искали строки видео-добытчика,
+    которого после переноса видео в общее ядро нет."""
 
-    def _src(self):
-        return open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"),
-                    encoding="utf-8").read()
+    def _run(self, infra, monkeypatch, rel, relevant):
+        calls = []
+        real = ps.clip_relevance
 
-    def test_winner_writes_its_relevance(self):
-        # Якорь — сам ВЫЗОВ, а не строка "video_relevance_best": она же
-        # встречается в комментарии выше по файлу, и первая версия этого
-        # теста проверяла комментарий вместо кода.
-        src = self._src()
-        block = src[src.index("write_media_sidecar(cf, pexels_id=best[3]"):]
-        block = block[:block.index(")\n")]
-        assert "relevance=best_rel" in block
-        assert 'chosen_by="video_relevance_best"' in block
+        def counted(p, q):
+            calls.append(p)
+            return real(p, q)
+        monkeypatch.setattr(ps, "clip_relevance", counted)
+        seen_rel = []
+        monkeypatch.setattr(ps, "is_relevant_candidate",
+                            lambda p, q, relevance=None: seen_rel.append(relevance) or
+                            any(f"prev_{v}_" in os.path.basename(p) for v in relevant))
+        infra["videos"] = [video(1), video(2)]
+        infra["rel"] = rel
+        out = pick_video(ps, QUERY, 3, used_ids=set(), used_hashes=[])
+        return out, calls, seen_rel
 
-    def test_fallbacks_write_theirs(self):
-        src = self._src()
-        block = src[src.index("write_media_sidecar(\n                cf, pexels_id=vid"):]
-        block = block[:block.index("))\n")]
-        assert "relevance=chosen_rel" in block
+    def test_winner_writes_its_relevance(self, infra, monkeypatch):
+        out, _calls, _seen = self._run(infra, monkeypatch, {1: 0.12, 2: 0.31}, {1, 2})
+        meta = ps.read_media_sidecar(out)
+        assert meta["pexels_id"] == 2 and meta["relevance"] == pytest.approx(0.31)
 
-    def test_gate_receives_the_precomputed_value_no_second_forward(self):
-        """is_relevant_candidate() принимает готовое число именно для этого
-        случая — считать его вторым вызовом значило бы платить лишним
-        прогоном модели на каждого кандидата."""
-        src = self._src()
-        assert "is_relevant_candidate(probe, query, relevance=cand_rel)" in src
+    def test_below_threshold_winner_writes_its_relevance_too(self, infra, monkeypatch):
+        out, _calls, _seen = self._run(infra, monkeypatch, {1: 0.02, 2: 0.05}, set())
+        meta = ps.read_media_sidecar(out)
+        assert meta["relevance"] is not None and "below_threshold" in meta["chosen_by"]
 
-    def test_relevance_is_keyed_by_path_not_by_tuple_position(self):
-        """Кортеж `good` разбирается по позиции в трёх местах — восьмой
-        элемент молча перепутал бы путь/id/hash местами."""
-        src = self._src()
-        assert "cand_relevance[trial] = cand_rel" in src
-        assert "cand_relevance.get(best[2])" in src
+    def test_relevance_is_computed_once_and_handed_to_the_gate(self, infra, monkeypatch):
+        """is_relevant_candidate() получает готовое число: второй прогон
+        модели на каждого кандидата был бы чистой потерей времени."""
+        _out, calls, seen = self._run(infra, monkeypatch, {1: 0.12, 2: 0.31}, {1, 2})
+        assert len(calls) == 2 and sorted(seen) == [pytest.approx(0.12), pytest.approx(0.31)]
 
 
 @pytest.mark.skipif(

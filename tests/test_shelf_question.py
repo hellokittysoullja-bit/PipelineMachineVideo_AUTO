@@ -149,13 +149,16 @@ class TestBothCallSitesUseTheResolver:
             fn = node.value.func if isinstance(node.value, ast.Call) else None
             calls.append(getattr(fn, "id", None) or getattr(fn, "attr", None))
         assert calls, "присваивания _brief_key не найдены вообще"
-        # Фото-адаптер берёт ключ через свой brief_query — тот обязан звать
-        # тот же единственный резолвер, а не собственную формулу.
-        assert set(calls) <= {"candidate_brief_key", "brief_query"}, calls
-        adapter = next(n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == "PhotoAdapter")
-        bq = next(n for n in adapter.body if isinstance(n, ast.FunctionDef) and n.name == "brief_query")
-        used = {getattr(c.func, "id", None) for c in ast.walk(bq) if isinstance(c, ast.Call)}
-        assert used == {"candidate_brief_key"}, used
+        # Ключ кэша у обоих адаптеров — только через единственный резолвер.
+        assert set(calls) == {"candidate_brief_key"}, calls
+        # А ЗАПРОС пула (brief_query адаптера) — через свою единственную
+        # функцию, не через ключ: до 23.09 это было одно значение, и при
+        # собранной полке в поиск стоков уходил хвост «|shelf:<хэш>».
+        for cls in ("PhotoAdapter", "VideoAdapter"):
+            adapter = next(n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == cls)
+            bq = next(n for n in adapter.body if isinstance(n, ast.FunctionDef) and n.name == "brief_query")
+            used = {getattr(c.func, "id", None) for c in ast.walk(bq) if isinstance(c, ast.Call)}
+            assert used == {"brief_stock_query_of"}, (cls, used)
 
     def test_photo_path_passes_the_phrase(self):
         src = self._src()
@@ -163,7 +166,7 @@ class TestBothCallSitesUseTheResolver:
 
     def test_video_path_declares_it_does_not_use_the_shelf(self):
         src = self._src()
-        assert "candidate_brief_key(shot_brief, uses_shelf=False)" in src
+        assert "candidate_brief_key(request.shot_brief, uses_shelf=False)" in src
 
     def test_main_feeds_the_block_phrase_to_photo_only(self):
         src = self._src()

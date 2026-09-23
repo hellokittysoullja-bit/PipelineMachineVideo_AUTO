@@ -294,49 +294,6 @@ def test_shortlist_picks_best_of_multiple_same_query_candidates_by_aesthetic():
     assert "own_ok" not in paths
 
 
-# ---------- _build_video_arbiter_shortlist (VLM-арбитр, видео-путь) ----------
-# good — (sent_score, luma_ok, trial_path, id, hash, origin_query), уже
-# отсортирован по (luma_ok, sent_score) убыванием (см. pexels_video()).
-
-def _vcand(path, origin_query=None, score=0.0, luma_ok=1, vid=None):
-    return (score, luma_ok, path, vid or path, None, origin_query)
-
-
-def test_video_shortlist_includes_winner_and_own_query_match():
-    winner = _vcand("winner", origin_query="other query", score=1.0)
-    own_match = _vcand("own_match", origin_query="scale", score=0.5)
-    good = [winner, own_match]
-    shortlist = ps._build_video_arbiter_shortlist(good, own_query="scale")
-    paths = {g[2] for g in shortlist}
-    assert paths == {"winner", "own_match"}
-
-
-def test_video_shortlist_falls_back_to_runner_up_without_own_query_match():
-    winner = _vcand("winner", origin_query="other", score=1.0)
-    runner_up = _vcand("runner_up", origin_query="another", score=0.5)
-    good = [winner, runner_up]
-    shortlist = ps._build_video_arbiter_shortlist(good, own_query="scale")
-    paths = {g[2] for g in shortlist}
-    assert paths == {"winner", "runner_up"}
-
-
-def test_video_shortlist_dedupes_when_own_query_match_is_the_winner():
-    winner = _vcand("winner", origin_query="scale", score=1.0)
-    good = [winner]
-    shortlist = ps._build_video_arbiter_shortlist(good, own_query="scale")
-    assert len(shortlist) == 1
-    assert shortlist[0][2] == "winner"
-
-
-def test_video_shortlist_respects_max_n_cap():
-    winner = _vcand("winner", origin_query="other", score=1.0)
-    own_match = _vcand("own_match", origin_query="scale", score=0.7)
-    runner_up = _vcand("runner_up", origin_query="another", score=0.5)
-    good = [winner, own_match, runner_up]
-    shortlist = ps._build_video_arbiter_shortlist(good, own_query="scale", max_n=2)
-    assert len(shortlist) == 2
-
-
 # ---------- _build_opening_shortlist (открывающий кадр — критерий
 # эффектности, не буквальной точности запроса; см. /goal 29 августа) ----------
 
@@ -381,18 +338,3 @@ def test_opening_shortlist_respects_max_n_cap():
     assert len(shortlist) == 3
 
 
-# ---------- _build_opening_video_shortlist ----------
-
-def test_opening_video_shortlist_includes_cross_pollinated_candidates():
-    winner = _vcand("winner", origin_query="scale", score=1.0)
-    cross = _vcand("cross_pollinated", origin_query="warrior on horseback", score=0.8)
-    good = [winner, cross]
-    shortlist = ps._build_opening_video_shortlist(good)
-    paths = {g[2] for g in shortlist}
-    assert paths == {"winner", "cross_pollinated"}
-
-
-def test_opening_video_shortlist_respects_max_n_cap():
-    good = [_vcand(f"c{i}", score=1.0 - i * 0.1) for i in range(6)]
-    shortlist = ps._build_opening_video_shortlist(good, max_n=4)
-    assert len(shortlist) == 4

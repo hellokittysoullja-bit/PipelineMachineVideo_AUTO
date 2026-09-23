@@ -269,17 +269,23 @@ def _stage_assignments(fn, target):
             and any(isinstance(t, ast.Name) and t.id == target for t in n.targets)]
 
 
-def test_video_fetcher_writes_only_into_its_attempt():
-    """Каждая запись файла кадра в добытчике идёт ПОСЛЕ перевода пути кэша
-    в стейджинг попытки: запись раньше этой строки — это файл в кэше до
-    решения, то есть ровно воскрешение выброшенного кадра."""
-    fn = next(n for n in PIPELINE_TREE.body
-              if isinstance(n, ast.FunctionDef) and n.name == "_select_video")
-    stage_lines = _stage_assignments(fn, "cf")
-    assert len(stage_lines) == 1, stage_lines
-    writers = _frame_writes(fn)
-    assert writers, "не найдено ни одной записи кадра — проверка пуста"
-    assert all(line > stage_lines[0] for line in writers), (stage_lines, writers)
+@pytest.mark.parametrize("adapter_name", ["PhotoAdapter", "VideoAdapter"])
+def test_adapters_never_compute_their_own_staging(adapter_name):
+    """Путь стейджинга вычисляет ТОЛЬКО ядро (selection_engine.select), и
+    адаптер любого вида медиа пишет кадр лишь в переданный ему cf. Адаптер,
+    сам зовущий stage_path или пишущий в путь кэша, мог бы положить файл в
+    кэш до решения — ровно воскрешение выброшенного кадра. Раньше это
+    проверялось по одной функции видео-добытчика; теперь добытчика нет, и
+    правило одно на оба адаптера."""
+    cls = next(n for n in PIPELINE_TREE.body
+               if isinstance(n, ast.ClassDef) and n.name == adapter_name)
+    stage_calls = [n.lineno for n in ast.walk(cls) if isinstance(n, ast.Call)
+                   and isinstance(n.func, ast.Attribute) and n.func.attr == "stage_path"]
+    assert not stage_calls, stage_calls
+    assert _frame_writes(cls), "проверка пуста: адаптер не пишет кадр в cf"
+    select = next(n for n in PIPELINE_TREE.body if isinstance(n, ast.FunctionDef)
+                  and n.name == ("_select_video" if adapter_name == "VideoAdapter" else "_select_photo"))
+    assert "selection_engine.select" in ast.unparse(select)
 
 
 def test_engine_hands_the_adapter_only_a_staged_path():

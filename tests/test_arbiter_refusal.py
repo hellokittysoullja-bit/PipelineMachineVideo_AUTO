@@ -29,7 +29,10 @@ sys.path.insert(0, SCRIPTS_DIR)
 sys.argv = ["pipeline_smart.py", tempfile.gettempdir()]
 import pipeline_smart  # noqa: E402
 import shot_director  # noqa: E402
-from _media_calls import pick_photo, pick_video  # noqa: E402
+from _media_calls import pick_photo  # noqa: E402
+from _video_world import QUERY, infra, video  # noqa: E402,F401
+import selection_engine  # noqa: E402
+import dataclasses  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -54,80 +57,73 @@ def _stub_common(monkeypatch, tmp_path):
 
 
 class TestVideoPath:
-    """Видео-путь: здесь же был риск уронить рендер NameError.
+    """Видео-путь (VideoAdapter в общем ядре). Раньше здесь был риск уронить
+    рендер NameError: `import shot_director` стоял внутри ветки длинного
+    шорт-листа. Теперь арбитр зовётся тем же построением шорт-листа, что у
+    фото, — эти тесты держат, что отказ записывается, сентинел не становится
+    путём, короткий шорт-лист не зовёт арбитра, а обычный выбор применяется."""
 
-    `import shot_director` в этой ветке стоит ВНУТРИ `if len(probes) >= 2`,
-    поэтому сравнение с сентинелом обязано идти после проверки на None —
-    иначе при коротком шорт-листе имени в скоупе нет и падает весь рендер.
-    """
+    def _world(self, infra, monkeypatch):
+        # Шорт-лист арбитра — победитель и лучший по СВОЕМУ запросу слота:
+        # кандидаты приходят из разных запросов пула, иначе он из одного.
+        infra["videos"] = [video(1), video(2)]
+        infra["relevant"] = {1, 2}
+        infra["rel"] = {1: 0.1, 2: 0.4}
+        monkeypatch.setattr(pipeline_smart, "_pexels_search_videos",
+                            lambda q: [video(1)] if "sword" in q else [video(2)])
+        monkeypatch.setattr(pipeline_smart.feature_flags, "mode",
+                            lambda n: "on" if n == "VLM_ARBITER_MODE" else "off")
 
-    def _stub_video(self, monkeypatch, tmp_path, ids=(1, 2)):
-        _stub_common(monkeypatch, tmp_path)
-        monkeypatch.setattr(pipeline_smart, "_pexels_search_videos", lambda q: [
-            {"id": i, "url": f"https://www.pexels.com/video/knight-armor-{i}/",
-             "video_files": [{"file_type": "video/mp4", "width": 1920,
-                              "link": f"http://x/{i}.mp4"}]}
-            for i in ids])
-        monkeypatch.setattr(pipeline_smart, "extract_video_probe_frame",
-                            lambda p, **kw: (p + ".jpg", False))
-        monkeypatch.setattr(pipeline_smart, "video_domain_guard_violation",
-                            lambda *a, **k: (False, None))
-        monkeypatch.setattr(pipeline_smart, "measure_luma", lambda p: 0.4)
+    def _run(self, index, **kw):
+        att = pipeline_smart.new_attempt(index, "video")
+        fields = {f.name: None for f in dataclasses.fields(selection_engine.SlotRequest)}
+        fields.update(index=index, query=QUERY, extra_queries=("mounted knight field",),
+                      is_opening=False, director_assist=False, arbiter_text="Текст.")
+        fields.update(kw)
+        with pipeline_smart.selection_attempt.activate(att):
+            out = pipeline_smart.select_media(pipeline_smart.build_slot_request(**fields), "video")
+        return out, [v for k, v in att.verdicts if k == "arbiter"]
 
-    def test_refusal_is_recorded_and_does_not_crash(self, tmp_path, monkeypatch):
-        self._stub_video(monkeypatch, tmp_path)
+    def test_refusal_is_recorded_and_does_not_crash(self, infra, monkeypatch):
+        self._world(infra, monkeypatch)
         monkeypatch.setattr(shot_director, "arbitrate_hook_candidates",
                             lambda *a, **k: shot_director.NO_CANDIDATE_FITS)
-        out = pick_video(pipeline_smart, 
-            "medieval sword close up", 7, used_ids=set(), used_hashes=[],
-            sentence_score_fn=lambda probe: 0.5,
-            arbiter_text="Вот это. Это вес настоящего боевого меча.")
-        # Слот по-прежнему заполнен: лестница фолбэков — отдельный шаг, здесь
-        # проверяется только то, что отказ ЗАМЕЧЕН, а не что он уже обработан.
-        assert out is not None
-        assert os.path.exists(out)
-        assert [m["index"] for m in pipeline_smart.ARBITER_REJECTED_ALL] == [7]
-        assert pipeline_smart.ARBITER_REJECTED_ALL[0]["kind"] == "video"
+        out, refusals = self._run(7, arbiter_text="Вот это. Это вес настоящего боевого меча.")
+        # Слот заполнен: что делать с отказом, решает лестница после
+        # отбора; здесь проверяется, что отказ ЗАМЕЧЕН.
+        assert out is not None and os.path.exists(out)
+        assert [r["index"] for r in refusals] == [7] and refusals[0]["kind"] == "video"
 
-    def test_sentinel_is_never_treated_as_a_file_path(self, tmp_path, monkeypatch):
-        """Главная защита: сентинел не должен доехать до файловой системы."""
-        self._stub_video(monkeypatch, tmp_path)
+    def test_sentinel_is_never_treated_as_a_file_path(self, infra, monkeypatch):
+        self._world(infra, monkeypatch)
         monkeypatch.setattr(shot_director, "arbitrate_hook_candidates",
                             lambda *a, **k: shot_director.NO_CANDIDATE_FITS)
-        out = pick_video(pipeline_smart, 
-            "medieval sword close up", 3, used_ids=set(), used_hashes=[],
-            sentence_score_fn=lambda probe: 0.5, arbiter_text="Текст.")
+        out, _ = self._run(3)
         assert isinstance(out, str) and out.endswith(".mp4")
 
-    def test_short_shortlist_does_not_raise_name_error(self, tmp_path, monkeypatch):
-        """Один кандидат -> арбитр не зовётся, shot_director не импортирован.
+    def test_short_shortlist_does_not_call_the_arbiter(self, infra, monkeypatch):
+        self._world(infra, monkeypatch)
+        infra["videos"] = [video(1)]
+        monkeypatch.setattr(pipeline_smart, "_pexels_search_videos", lambda q: [video(1)])
+        called = []
+        monkeypatch.setattr(shot_director, "arbitrate_hook_candidates",
+                            lambda *a, **k: called.append(1))
+        out, refusals = self._run(4)
+        assert out is not None and refusals == [] and called == []
 
-        Именно здесь наивная проверка `arbiter_pick is shot_director.NO_...`
-        уронила бы весь рендер NameError после часов работы.
-        """
-        self._stub_video(monkeypatch, tmp_path, ids=(1,))
-        out = pick_video(pipeline_smart, 
-            "medieval sword close up", 4, used_ids=set(), used_hashes=[],
-            sentence_score_fn=lambda probe: 0.5, arbiter_text="Текст.")
-        assert out is not None
-        assert pipeline_smart.ARBITER_REJECTED_ALL == []
-
-    def test_normal_pick_still_works(self, tmp_path, monkeypatch):
-        """Ноль регрессии: обычный выбор арбитра по-прежнему применяется."""
-        self._stub_video(monkeypatch, tmp_path)
+    def test_normal_pick_still_works(self, infra, monkeypatch):
+        self._world(infra, monkeypatch)
         seen = {}
 
         def fake(text, paths, ids, video_dir, is_opening=False):
-            seen["paths"] = list(paths)
+            seen["ids"] = list(ids)
             return paths[-1]
-
         monkeypatch.setattr(shot_director, "arbitrate_hook_candidates", fake)
-        out = pick_video(pipeline_smart, 
-            "medieval sword close up", 5, used_ids=set(), used_hashes=[],
-            sentence_score_fn=lambda probe: 0.5, arbiter_text="Текст.")
-        assert out is not None
-        assert pipeline_smart.ARBITER_REJECTED_ALL == []
-        assert len(seen.get("paths", [])) >= 2
+        out, refusals = self._run(5)
+        assert out is not None and refusals == []
+        assert len(seen.get("ids", [])) >= 2
+        # Скачан именно выбранный арбитром кандидат.
+        assert infra["downloads"][0] == seen["ids"][-1]
 
 
 class TestPhotoPath:

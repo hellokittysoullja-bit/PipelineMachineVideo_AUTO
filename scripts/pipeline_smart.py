@@ -5715,8 +5715,6 @@ DIRECTOR_MIN_POOL = 8   # Semantic Visual Director (scripts/visual_director.py) 
 FAST_MODE_START_INDEX = 15         # 0-based индекс блока; блоки 0..14 — полный пул
 FAST_DIRECTOR_MIN_POOL = 2
 FAST_PHOTO_DEDUP_MAX_TRIES = 5
-FAST_VIDEO_RELEVANCE_MAX_TRIES = 1
-FAST_VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP = 3
 
 
 # ДЕЙСТВУЮЩАЯ граница быстрого режима в этом прогоне. Инициализируется полом
@@ -6065,50 +6063,6 @@ def _build_opening_shortlist(candidates_info, base_winner, director_winner, max_
             shortlist.append(c)
             seen.add(c["path"])
     return shortlist[:max_n]
-
-
-def _build_video_arbiter_shortlist(good, own_query, max_n=3):
-    """Аналог _build_arbiter_shortlist() для видео-пути (pexels_video) —
-    good уже отсортирован по (shot_size_ok, luma_ok, sent_score) убыванию,
-    элементы — (sent_score, luma_ok, trial_path, id, hash, origin_query,
-    shot_size_ok — добавлен ПОСЛЕДНИМ полем, не сдвигая уже разбираемые по
-    позиции 0-5), все уже прошли гейты. Победитель (good[0]) + лучший кандидат СВОЕГО запроса
-    слота, если не совпал (см. SAME_QUERY_BONUS), + второй по счёту
-    (good[1]), если отличается от уже добавленных — та же неопределённость
-    "какой сигнал прав", что у фото-версии, только без раздельных base/
-    director победителей (видео-путь считает один общий sent_score)."""
-    seen = set()
-    shortlist = [good[0]]
-    seen.add(good[0][2])
-    own_matches = [g for g in good if g[5] == own_query]
-    if own_matches and own_matches[0][2] not in seen:
-        shortlist.append(own_matches[0])
-        seen.add(own_matches[0][2])
-    if len(good) > 1 and good[1][2] not in seen:
-        shortlist.append(good[1])
-        seen.add(good[1][2])
-    return shortlist[:max_n]
-
-
-def _build_opening_video_shortlist(good, max_n=4):
-    """Видео-версия _build_opening_shortlist() — good уже отсортирован по
-    (luma_ok, sent_score) и уже включает кросс-опылённых кандидатов всех
-    запросов секции, не только своего слота (см. extra_queries в
-    pexels_video()). В отличие от фото-версии здесь нет отдельной
-    эстетической метрики на кандидата — берёт первые max_n РАЗЛИЧНЫХ (по
-    trial_path) элементов уже отсортированного good без own_query-
-    приоритета обычной видео-версии (_build_video_arbiter_shortlist),
-    чтобы явно "эффектные" кросс-опылённые кандидаты не отсеивались молча
-    в пользу буквальной точности своего запроса."""
-    seen = set()
-    shortlist = []
-    for g in good:
-        if g[2] not in seen:
-            shortlist.append(g)
-            seen.add(g[2])
-        if len(shortlist) >= max_n:
-            break
-    return shortlist
 
 
 SEMANTIC_CONTEXT_MIN_WORDS = 9   # короче — фраза сама себя не описывает
@@ -6674,6 +6628,19 @@ def candidate_brief_key(shot_brief, block_text=None, uses_shelf=True):
 
 
 
+def brief_stock_query_of(request):
+    """Запрос к стокам из брифа фразы — то, чем пул СПРАШИВАЕТ источники.
+
+    Не путать с ключом кэша (candidate_brief_key): тот НАЗЫВАЕТ вопросы
+    слота и при собранной полке несёт хвост «|shelf:<хэш>». До 23.09 одно
+    значение служило обоим, и при собранной полке в поиск Pexels, Pixabay
+    и музеев уходила строка «medieval dented steel breastplate|shelf:953c23ac»
+    (дефект с 15.09, когда вопрос к полке вошёл в ключ; воспроизведено
+    вызовом ядра). Ключ по-прежнему описывает пул: он НАЧИНАЕТСЯ с этого
+    запроса (тест держит), а без полки совпадает с ним байт-в-байт."""
+    return brief_to_stock_query(request.shot_brief, fallback=None) or None
+
+
 def _museum_search_photos(api_query, department=None):
     """Кандидаты из прямых API музеев (Met/Cleveland/Chicago) — тот же каскад
     запросов, что и у архивов: длинный запрос не находит ничего и в музейном
@@ -6928,6 +6895,7 @@ def _pixabay_search_videos(api_query):
             if not files:
                 continue
             tags = [t.strip() for t in (h.get("tags") or "").split(",") if t.strip()]
+            thumb = ((h.get("videos") or {}).get("medium") or {}).get("thumbnail")
             out.append({
                 "id": f"pixabay:{h.get('id')}",
                 "alt": ", ".join(tags),
@@ -6935,6 +6903,9 @@ def _pixabay_search_videos(api_query):
                 "tags": tags,
                 "duration": h.get("duration"),
                 "video_files": files,
+                # Кадр-обложка — превью для оценки без скачивания ролика
+                # (у Pixabay один кадр; у Pexels — video_pictures).
+                "_preview_frames": [thumb] if thumb else [],
             })
     except Exception as e:
         _note_source_search_error("pixabay", e, api_query)
@@ -7274,7 +7245,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
     kind = "photo"
 
     def brief_query(self, request):
-        return candidate_brief_key(request.shot_brief, request.block_text)
+        return brief_stock_query_of(request)
 
     def cache_path(self, request):
         query, index = request.query, request.index
@@ -7318,7 +7289,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
         # Бриф входит в ключ кэша кандидата: он МЕНЯЕТ состав пула, и без него
         # слот на прогретом temp_smart/ молча отдал бы кандидата, выбранного до
         # появления брифа (тот же урок, что у candidate_gate_signature).
-        _brief_key = self.brief_query(request)
+        _brief_key = candidate_brief_key(request.shot_brief, request.block_text)
         qkey = "|".join([query] + sorted(q for q in (extra_queries or []) if q and q != query)
                          + ([text_key] if text_key else [])
                          + ([_brief_key] if _brief_key else []))
@@ -11040,98 +11011,11 @@ def visual_domain_guard_violation(image_path, query):
     return False, None
 
 
-# Доли длительности ролика, где берутся дополнительные кадры-пробники для
-# video_domain_guard_violation() ниже — не научный подбор, просто разброс
-# "начало/середина/конец", чтобы не зависеть от одной случайной секунды.
+# Доли длительности ролика, по которым видео проверяется покадрово
+# (VideoAdapter: превью источника в этих точках) — не научный подбор, просто
+# разброс "начало/середина/конец", чтобы не зависеть от одной случайной
+# секунды.
 VIDEO_DOMAIN_GUARD_SAMPLE_FRACS = (0.15, 0.5, 0.85)
-
-
-def video_domain_guard_violation(video_path, query):
-    """Тот же visual_domain_guard_violation(), но на НЕСКОЛЬКИХ кадрах видео,
-    не на одном (см. pexels_video() — та проверяет relevance/risky-margin
-    через ОДИН пробник extract_video_probe_frame(), обычно на 0.5с).
-    Реальный, живьём найденный предел метода (не гипотеза): у видео по
-    запросу "sword blade close up" кадр на 0.5с показывал ТОЛЬКО ромбовидную
-    оплётку рукояти катаны — anchor-промпты домен-гварда описывают форму
-    КЛИНКА/ГАРДЫ (см. VISUAL_DOMAIN_GUARDS), которых на этом кадре просто
-    не видно, поэтому CLIP не мог сработать — а дальше по тому же ролику
-    клинок/гарда уже попадали в кадр. Берём несколько точек по длительности
-    (не только начало), нарушение НА ЛЮБОЙ из них — нарушение кандидата
-    целиком (тот же принцип "не доверять одному сэмплу", что уже применяет
-    measure_levels() против measure_luma() — см. её докстринг). Каждый
-    сэмпл — свой независимый вызов extract_video_probe_frame() (с его же
-    защитой от чёрного/вырожденного кадра). Дешёво в среднем: guard сам по
-    себе не делает ни одного CLIP-вызова, если query не совпал ни с одним
-    trigger_terms — эта функция вызывается ТОЛЬКО когда общий relevance-гейт
-    уже прошёл на первом кадре, то есть на подавляющем большинстве обычных
-    (не «оружейных») запросов не добавляет ни одного лишнего кадра/вызова."""
-    try:
-        duration = get_media_duration(video_path)
-    except Exception:
-        duration = None
-    if duration and duration > 0.6:
-        ats = [max(0.3, min(duration - 0.2, duration * f)) for f in VIDEO_DOMAIN_GUARD_SAMPLE_FRACS]
-    else:
-        ats = [0.5]
-    seen = []
-    for at in ats:
-        if any(abs(at - s) < 0.2 for s in seen):
-            continue   # слишком близко к уже проверенной точке — тот же кадр
-        seen.append(at)
-        probe, cleanup = extract_video_probe_frame(video_path, base_at=at, retry_ats=())
-        if probe is None:
-            continue
-        try:
-            violated, name = visual_domain_guard_violation(probe, query)
-        finally:
-            if cleanup and os.path.exists(probe):
-                os.remove(probe)
-        if violated:
-            return True, name
-    return False, None
-
-
-def video_negative_anchor_violation(video_path, query):
-    """Тот же negative_anchor_violation(), но на НЕСКОЛЬКИХ кадрах видео —
-    буквально тот же приём и те же точки сэмплирования, что уже работают в
-    video_domain_guard_violation() выше (не дублирование ради дублирования:
-    is_relevant_candidate() зовёт negative_anchor_violation() на ОДНОМ
-    кадре-пробнике — обычно на 0.5с, — и этого достаточно для фото, но не
-    для видео, где содержимое кадра меняется по ходу ролика).
-
-    Реальный, живьём найденный случай (08.09, videos/_test20s, хук-слот
-    «Готов спорить, что да. Герой на экране заносит клинок...», запрос
-    "warrior on horseback with sword", Pexels id 855260): толпа современных
-    зрителей видна на 0.96с и на 40.9с ЭТОГО ЖЕ видео, но НЕ видна на
-    дефолтном пробнике 0.5с — is_relevant_candidate() проверил ровно тот
-    момент, где толпы не видно, и кандидат прошёл. Замерено напрямую:
-    negative_anchor_violation() на кадре 0.5с -> (False, None), на кадрах
-    0.96с и 40.9с -> (True, "crowd of modern spectators..."). Ролик выиграл
-    слот и остался бы в готовом эпизоде без этой правки."""
-    try:
-        duration = get_media_duration(video_path)
-    except Exception:
-        duration = None
-    if duration and duration > 0.6:
-        ats = [max(0.3, min(duration - 0.2, duration * f)) for f in VIDEO_DOMAIN_GUARD_SAMPLE_FRACS]
-    else:
-        ats = [0.5]
-    seen = []
-    for at in ats:
-        if any(abs(at - s) < 0.2 for s in seen):
-            continue   # слишком близко к уже проверенной точке — тот же кадр
-        seen.append(at)
-        probe, cleanup = extract_video_probe_frame(video_path, base_at=at, retry_ats=())
-        if probe is None:
-            continue
-        try:
-            violated, name = negative_anchor_violation(probe, query)
-        finally:
-            if cleanup and os.path.exists(probe):
-                os.remove(probe)
-        if violated:
-            return True, name
-    return False, None
 
 
 # Реальный, найденный вживую случай (27 августа, videos/_test20s, слот 7):
@@ -11362,15 +11246,20 @@ def judge_candidates(index, kind, phrase, brief, candidates_info):
     for c in candidates_info:
         c["judge"] = None
     gw = _shot_judge_gateway()
-    judged = [c for c in candidates_info if c.get("is_dup_free") and os.path.exists(c["path"])]
+    # У видео судья смотрит ленту из трёх кадров ролика (judge_path), у
+    # фото — сам кадр.
+    judged = [c for c in candidates_info
+              if c.get("is_dup_free") and os.path.exists(c.get("judge_path") or c["path"])]
     if gw is None or not judged:
         return False
     import shot_judge
     model = shot_judge_model()
     rep = {}
     scores = shot_judge.judge(gw, model, phrase=phrase, brief=brief,
-                              candidates=[(str(c["p"].get("id")), c["path"]) for c in judged],
-                              cache_dir=os.path.join(TEMP_FOLDER, "shot_judge_cache"), report=rep)
+                              candidates=[(str(c["p"].get("id")), c.get("judge_path") or c["path"])
+                                          for c in judged],
+                              cache_dir=os.path.join(TEMP_FOLDER, "shot_judge_cache"), report=rep,
+                              kind=kind)
     SHOT_JUDGE_LOG.append({"index": index, "kind": kind, "model": model, "brief": brief,
                            "scores": scores, **rep})
     if scores is None:
@@ -11676,8 +11565,9 @@ def _selection_stack_signature():
         # ДЕЙСТВУЮЩАЯ граница (не пол): у эпизода с длинным хуком она другая,
         # а значит другой и размер пула, из которого выбран победитель.
         _FAST_MODE_START, FAST_DIRECTOR_MIN_POOL, FAST_PHOTO_DEDUP_MAX_TRIES,
-        VIDEO_RELEVANCE_MAX_TRIES, VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP,
-        FAST_VIDEO_RELEVANCE_MAX_TRIES, FAST_VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP,
+        # Видео — общее ядро (VideoAdapter): пул оценки по превью и версия
+        # устройства видео-пути вместо прежних бюджетов скачиваний.
+        VIDEO_PREVIEW_POOL, VIDEO_ENGINE_VERSION,
         # Openverse — НОВЫЙ ИСТОЧНИК кандидатов, конкурирующий с Pexels в том
         # же пуле (см. _openverse_search_photos). Включение архивов меняет
         # состав пула для уже закэшированного слота так же, как включение
@@ -11816,7 +11706,10 @@ def candidate_gate_signature():
         import inspect
         parts = [inspect.getsource(f) for f in (
             is_relevant_candidate, visual_domain_guard_violation,
-            video_domain_guard_violation, video_negative_anchor_violation,
+            # Видео судится покадрово по превью источника: какие кадры
+            # (video_preview_urls) и как (video_frames_violate) — правило
+            # отбора, как и гварды выше.
+            video_preview_urls, video_frames_violate,
             disambiguate_search_query,
             # Сопоставление термина правила с запросом — ОТДЕЛЬНАЯ функция, и
             # без неё здесь правка «как ищем термин» (составные слова,
@@ -11850,10 +11743,9 @@ def candidate_gate_signature():
             # сам анахронизм-гвард, ради которого эта сигнатура и была
             # создана изначально), и в NEGATIVE_ANCHOR_PROMPT-проверке.
             clip_relevance,
-            # extract_video_probe_frame — из video_domain_guard_violation()/
-            # video_sharpness_ok(): решает, КАКОЙ именно кадр видео (с
-            # ретраями от вырожденного/чёрного) идёт на CLIP-проверку домена
-            # и резкости — другой выбранный кадр даёт другой результат гейта.
+            # extract_video_probe_frame — из video_sharpness_ok(): решает,
+            # КАКОЙ именно кадр видео (с ретраями от вырожденного/чёрного)
+            # идёт на проверку резкости — другой кадр даёт другой результат.
             extract_video_probe_frame,
             # filter_alt_blocklist/pexels_candidate_text — жанровый фильтр по
             # ТЕКСТУ кандидата. Сам список терминов (CONTENT_ALT_BLOCKLIST)
@@ -13173,41 +13065,6 @@ def _video_candidate_too_short(item, slot_dur):
     return dur * VIDEO_MAX_TIME_STRETCH < slot_dur
 
 
-VIDEO_RELEVANCE_MAX_TRIES = 3  # сколько видео-кандидатов реально СКАЧАТЬ и
-                                # проверить на релевантность, прежде чем
-                                # сдаться (тот же принцип, что
-                                # PHOTO_DEDUP_MAX_TRIES у фото — здесь
-                                # меньше, видео тяжелее по трафику/времени)
-# Реальный, найденный вживую случай (27 августа, videos/_test20s, слот 7,
-# ПОСЛЕ добавления video_sharpness_ok в гейт релевантности): при 8 запросах
-# пула round-robin-чередование (zip_longest) даёт КАЖДОМУ запросу только
-# ОДНУ попытку в пределах try_budget=8 (см. try_budget ниже: max(3,8)=8,
-# min(10,8)=8) — если у ПЕРВОГО кандидата "sword blade close up" сорвался
-# новый гейт резкости (частый случай — экшн-сток по мечам почти всегда с
-# motion-blur, прямая проверка вживую: 4 из первых 4 кандидатов не прошли
-# резкость), до второго кандидата ТОЙ ЖЕ темы перебор физически не доходит
-# — и слот получает видео из СОВСЕМ ДРУГОГО запроса пула (гантель вместо
-# занесённого клинка), semantically разгромно проигрывающее непроверенному
-# 5-му кандидату (id=855260 в прямой проверке — резкий, sentence_relevance
-# 0.118 против отданного варианта). Тот же класс проблемы, что уже была
-# закрыта в этом же файле для ДРУГОГО бюджета (комментарий "РЕАЛЬНЫЙ баг,
-# найденный покадровым просмотром" ниже, про кухонные весы) — гейт стал
-# строже, бюджет под него не подрос. 10->30: та же ЛОГИКА компромисса, что
-# уже применена к PHOTO_DEDUP_MAX_TRIES (6->20) — не буквальное число из
-# внешнего аудита, обоснованный запас (round-robin из 8 запросов теперь
-# реально доходит до ~3-4 попытки на запрос, а не только до первой).
-VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP = 30
-
-
-def _video_relevance_max_tries_for(index):
-    return VIDEO_RELEVANCE_MAX_TRIES if index < _FAST_MODE_START else FAST_VIDEO_RELEVANCE_MAX_TRIES
-
-
-def _video_relevance_max_tries_hard_cap_for(index):
-    return (VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP if index < _FAST_MODE_START
-            else FAST_VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP)
-
-
 VIDEO_MIN_LUMA_HARD = 0.06     # ниже — кадр практически чёрный, отбраковка
 VIDEO_PREFER_MIN_LUMA = 0.18   # ниже — кадр читается плохо, уступает более светлому
 _PEXELS_VIDEO_SEARCH_CACHE = {}
@@ -13232,635 +13089,334 @@ def _pexels_search_videos(api_query):
     return videos
 
 
-def _select_video(request):
-    """Раньше брала ПЕРВОЕ ещё не показанное видео из выдачи без единой
-    проверки релевантности/риска (реальный, ранее не закрытый структурный
-    пробел, найденный внешним аудитом + прямой проверкой на реальном
-    ролике — см. коммит: фото-путь через is_relevant_candidate() уже давно
-    гейтит кандидатов, видео-путь был полностью незащищён, из-за чего
-    восточноазиатский клинок в видео-B-roll проходил без единой проверки).
-    Теперь — тот же принцип, что pexels_photo(): перебираем выдачу
-    (до VIDEO_RELEVANCE_MAX_TRIES реально скачанных кандидатов), для
-    каждого извлекаем кадр-пробник (extract_video_probe_frame() — устойчив
-    к чёрному лидеру/fade-in) и прогоняем через is_relevant_candidate() —
-    тот же relevance/risky-margin/visual-domain-guard гейт, что у фото.
-    Ни один слот не остаётся пустым: если НИ ОДИН кандидат не прошёл гейт
-    (или пробник не извлёкся — тогда гейт просто не может сработать, кандидат
-    считается допустимым, тот же безопасный откат, что у остальных
-    опциональных CLIP-проверок), в кэш уходит первый реально скачанный —
-    честная деградация, не сорванный слот. Из доступных video_files берём
-    ближайшее по ширине к целевому 1920 — не тянем 4K ради 1080p-выхода.
+# ОТБОР ВИДЕО В ОБЩЕМ ЯДРЕ (этап 3 перестройки).
+#
+# Раньше видео отбиралось своей рукописной копией алгоритма (pexels_video,
+# затем _select_video) — и каждое улучшение фото доезжало до видео поздно
+# или никогда (CLAUDE.md перечисляет семь таких случаев). Главное узкое
+# место было физическим: чтобы проверить кандидата, ролик СКАЧИВАЛСЯ
+# целиком ради одного кадра-пробника, поэтому смотрели 3-5 роликов из
+# сотен (замер эпизода 94: 3-5 из 163-492), и бюджет решал, а не смысл.
+#
+# Теперь кандидат оценивается по ПРЕВЬЮ-КАДРАМ, которые источник отдаёт сам:
+# у Pexels — 15 кадров по длине ролика (берутся 15/50/85% — ровно те точки,
+# на которых видео проверялось и раньше, VIDEO_DOMAIN_GUARD_SAMPLE_FRACS),
+# у Pixabay — один кадр-обложка. Скачивается только победитель; резкость и
+# вторая проверка — на настоящем файле, провал — следующий по ранжированию.
+#
+# Проверки и ранжирование — ТЕ ЖЕ функции, что у фото: is_relevant_candidate
+# на среднем кадре плюс гварды на каждом кадре (нарушение на любом —
+# нарушение ролика, та же семантика, что у многокадровых гвардов), судья
+# кадров — на ленте из трёх кадров, выбор — _score_and_pick.
+VIDEO_PREVIEW_FRACS = VIDEO_DOMAIN_GUARD_SAMPLE_FRACS
+# Сколько кандидатов оценивать по превью. Превью — три маленьких JPEG и
+# три прохода CLIP (доли секунды), поэтому пул видео равен пулу фото и НЕ
+# урезается после хука: урезание было ценой скачивания роликов, а его нет.
+VIDEO_PREVIEW_POOL = BASE_MIN_POOL
+# Версия устройства видео-пути: входит в подпись отбора — смена того, КАК
+# отбирается видео, обязана перевыбрать кадры на прогретом кэше.
+VIDEO_ENGINE_VERSION = 1
 
-    used_hashes — общий (на весь эпизод, тот же список, что пробрасывается в
-    pexels_photo()) aHash-дедуп. Раньше видео сверялось с уже показанным
-    медиа ТОЛЬКО по ID Pexels — визуальный дубль под другим ID (частый
-    случай: одна и та же студийная съёмка продаётся и фотостоком, и
-    клипом) проходил как новый. Пробный кадр здесь и так извлекается ради
-    проверки релевантности — лишних вычислений дедуп не добавляет, только
-    ahash() уже открытого файла. Кандидат, прошедший relevance, но визуально
-    похожий на уже выбранное медиа, не отбрасывается — он остаётся вторым
-    приоритетом (relevant_dup_fallback): дедуп не должен пустить слот
-    впустую, только предпочесть менее похожий вариант, если он есть среди
-    уже скачанных попыток."""
-    # Имена прежних аргументов — поля запроса слота (SlotRequest). Перенос
-    # самого отбора видео в ядро (selection_engine) — этап 3 перестройки.
-    query, index = request.query, request.index
-    used_ids, used_hashes = request.used_video_ids, request.used_hashes
-    action_qualifier, extra_queries = request.action_qualifier, request.extra_queries
-    sentence_score_fn, text_key = request.video_score_fn, request.text_key
-    arbiter_text, is_opening_shot = request.arbiter_text, request.is_opening
-    recent_sizes, slot_dur, shot_brief = request.recent_sizes, request.slot_dur, request.shot_brief
-    global PEXELS_BROKEN
-    cache = os.path.join(TEMP_FOLDER, "pexels_video_cache")
-    os.makedirs(cache, exist_ok=True)
-    # gate_sig — см. pexels_photo()/candidate_gate_signature(): без него улучшение
-    # анахронизм-гварда не переоценивает уже закэшированное видео, отобранное
-    # по старым правилам (реальный найденный случай — катана в кэше этого файла).
-    # text_key — та же причина и та же механика, что в pexels_photo() (см. её
-    # докстринг у qkey): без этого правка текста сценария может не поменять
-    # ни запрос, ни ключ кэша, и видео под старую фразу тихо остаётся стоять.
-    # Запрос из брифа входит в ключ кэша по той же причине, что и у фото:
-    # он меняет СОСТАВ пула, а на прогретом temp_smart/ кэш-хит делает
-    # continue ДО переподбора кандидата — без этого правка брифа не дошла
-    # бы до экрана вообще.
-    _brief_key = candidate_brief_key(shot_brief, uses_shelf=False)
-    qkey = "|".join([query] + sorted(q for q in (extra_queries or []) if q and q != query)
-                     + ([text_key] if text_key else []) + ([_brief_key] if _brief_key else []))
-    qhash = hashlib.md5(qkey.encode()).hexdigest()[:8]
-    gate_sig = candidate_gate_signature().split(":", 1)[-1]
-    cf = os.path.join(cache, f"{index:04d}_{qhash}_{gate_sig}.mp4")
-    # size>0, не просто exists — см. atomic_url_download: реальный случай,
-    # пойманный вживую на этом эпизоде — 0-байтный файл от прерванной
-    # закачки прошлого прогона тихо "проходил" как готовый кэш и ронял
-    # блок из ролика без единой строчки в логе (ffmpeg на пустом файле не
-    # печатает никакого "непредвиденного сбоя" уровня main() — падает
-    # молча внутри рендер-функции).
-    if os.path.exists(cf) and os.path.getsize(cf) > 0:
-        # N8, видео-ветка: кэш-хит отдавал файл, не сообщив анти-дублю ни ID,
-        # ни хэша — тот же слот мог всплыть ещё раз под другим индексом. ID
-        # берём из sidecar; aHash по видео здесь сознательно не считаем (нужен
-        # прогон ffmpeg за кадром-пробником на каждом кэш-хите, см.
-        # register_cached_media()).
-        register_cached_media(cf, used_ids=used_ids, used_hashes=None, kind="video")
+
+def video_preview_urls(v):
+    """Адреса превью-кадров кандидата по порядку времени (<= 3)."""
+    pics = [p for p in (v.get("video_pictures") or []) if p.get("picture")]
+    if pics:
+        pics = sorted(pics, key=lambda p: p.get("nr", 0))
+        idx = list(dict.fromkeys(round((len(pics) - 1) * f) for f in VIDEO_PREVIEW_FRACS))
+        return [pics[k]["picture"] for k in idx]
+    return [u for u in (v.get("_preview_frames") or []) if u]
+
+
+def video_strip(frames, dest, height=240):
+    """Лента из кадров одного ролика слева направо — то, что видит судья."""
+    from PIL import Image
+    ims = []
+    for f in frames:
+        im = Image.open(f).convert("RGB")
+        ims.append(im.resize((max(1, int(im.width * height / im.height)), height)))
+    strip = Image.new("RGB", (sum(i.width for i in ims) + 6 * (len(ims) - 1), height), (0, 0, 0))
+    x = 0
+    for im in ims:
+        strip.paste(im, (x, 0))
+        x += im.width + 6
+    strip.save(dest, quality=88)
+    return dest
+
+
+def video_frames_violate(frames, query):
+    """Гварды домена и ловушек на КАЖДОМ кадре: нарушение на любом —
+    нарушение ролика (та же семантика, что у многокадровых гвардов по файлу:
+    брак в одном месте ролика не виден в другом)."""
+    for f in frames:
+        if visual_domain_guard_violation(f, query)[0] or negative_anchor_violation(f, query)[0]:
+            return True
+    return False
+
+
+class VideoAdapter(selection_engine.MediaAdapter):
+    """Адаптер видео для ядра отбора. Контракт — как у PhotoAdapter;
+    отличия идут только от природы видео (превью-кадры, лента для судьи,
+    скачивание одного победителя)."""
+    kind = "video"
+
+    def cache_path(self, request):
+        cache = os.path.join(TEMP_FOLDER, "pexels_video_cache")
+        os.makedirs(cache, exist_ok=True)
+        _brief_key = candidate_brief_key(request.shot_brief, uses_shelf=False)
+        qkey = "|".join([request.query] + sorted(q for q in (request.extra_queries or [])
+                                                 if q and q != request.query)
+                        + ([request.text_key] if request.text_key else [])
+                        + ([_brief_key] if _brief_key else []))
+        qhash = hashlib.md5(qkey.encode()).hexdigest()[:8]
+        gate_sig = candidate_gate_signature().split(":", 1)[-1]
+        return os.path.join(cache, f"{request.index:04d}_{qhash}_{gate_sig}.mp4")
+
+    def cache_hit(self, request, cf):
+        """Как у фото: кадр из кэша, визуально повторяющий уже показанное,
+        не принимается (раньше видео проверялось только по id). Отпечаток
+        кадра берётся из sidecar — ffmpeg на кэш-хите не нужен."""
+        used_hashes = request.used_hashes
+        h = read_media_sidecar(cf).get("ahash")
+        if used_hashes and h and min((hamming(h, uh) for uh in used_hashes), default=99) \
+                <= PHOTO_DEDUP_HAMMING:
+            return None
+        register_cached_media(cf, used_ids=request.used_video_ids,
+                              used_hashes=request.used_hashes, kind="video")
         _reset_pexels_streak()
         return cf
-    # Дальше — только в приватный каталог попытки (см. pexels_photo): в кэш
-    # файл попадёт коммитом, если видео встанет на экран.
-    cf = selection_attempt.stage_path(cf)
-    # Ключевой гейт снят — см. pexels_photo: без ключа Pexels не вносит
-    # кандидатов, остальные источники видео (Pixabay) работают.
-    try:
-        # Пул из ВСЕХ запросов секции — то же, что уже сделано для фото
-        # (см. extra_queries в pexels_photo). До этого видео-слот жёстко
-        # держался одного позиционно доставшегося запроса, и никакого
-        # смыслового выбора у него не было вообще: на реальном рендере
-        # фраза "сколько весил настоящий боевой меч" получила зал
-        # кинотеатра, потому что позиции достался запрос про кино.
-        pool_queries = [query] + [q for q in (extra_queries or []) if q and q != query]
-        # Бриф фразы — ПЕРВЫМ запросом пула, ровно как у фото. Асимметрия,
-        # которую это закрывает, из того же класса, что уже дважды стоил
-        # этому репозиторию половины эпизода: filter_alt_blocklist() жила
-        # только в pexels_photo() и на видео не вызывалась ни разу, и
-        # director_score_fn поднимал только фото — при том что видео это
-        # примерно половина слотов. Здесь было то же самое: 142 брифа
-        # эпизода влияли на фото-слоты и не влияли на видео.
-        # Функция перевода та же самая и уже замерена (138 РАЗНЫХ запросов
-        # против 42 запросов секции, ноль запросов без якоря эпохи) —
-        # новым здесь является только точка вызова.
-        # ЧЕСТНО: что это принесёт ЛУЧШИЕ видео-кадры — не измерено, для
-        # этого нужен прогон с ключами стоков, которых в контейнере нет.
-        if _brief_key and _brief_key not in pool_queries:
-            pool_queries = [_brief_key] + pool_queries
-        per_query = []
-        for pq in pool_queries:
-            # action_qualifier — движение из текста блока (см.
-            # action_video_qualifier): только в строку к API, не в ключ кэша
-            # и не в relevance-скоринг, как и disambiguate_search_query().
-            api_q = apply_action_qualifier(disambiguate_search_query(pq), action_qualifier)
-            lst = []
-            # Тот же жанровый фильтр по тексту кандидата, что у фото. До
-            # 07.09 видео-путь не звал его НИ РАЗУ: filter_alt_blocklist()
-            # существовала только внутри pexels_photo(). Живой замер по 30
-            # запросам этого эпизода — 96 из 330 видео-кандидатов отсеиваются
-            # (спортивное фехтование, костюмированные фестивали,
-            # реконструкторские парады), и именно оттуда пришли кадры,
-            # на которые пожаловался владелец канала.
-            for v in filter_alt_blocklist(_pexels_search_videos(api_q)):
-                v = dict(v)
-                v["_origin_query"] = pq
-                lst.append(v)
-            # Второй независимый видео-корпус — см. _pixabay_search_videos():
-            # среди ВИДЕО-слотов брак 63% против 23% у фото (замер эпизода
-            # 02), потому что видео-корпус Pexels на исторические темы тоньше,
-            # а музеи видео не отдают вообще. Через ТОТ ЖЕ жанровый фильтр по
-            # тексту кандидата и в КОНЕЦ списка (см. фото-ветку про порядок).
-            for v in filter_alt_blocklist(_pixabay_search_videos(api_q)):
-                v = dict(v)
-                v["_origin_query"] = pq
-                lst.append(v)
-            per_query.append(lst)
-        # Чередование по запросам — см. тот же комментарий в pexels_photo():
-        # перебирается лишь VIDEO_RELEVANCE_MAX_TRIES кандидатов, и при
-        # склейке "подряд" все они были бы из первого запроса. Реально
-        # найдено покадрово: фраза "сколько весил настоящий боевой меч"
-        # получала зал кинотеатра, потому что позиции достался запрос про
-        # кино и до запросов про меч перебор не доходил.
-        videos = []
-        seen_ids = set()
-        for row in itertools.zip_longest(*per_query):
-            for v in row:
-                if v is None:
-                    continue
-                vid = v.get("id")
-                if vid in seen_ids:
-                    continue
-                seen_ids.add(vid)
-                videos.append(v)
-        if not videos:
-            return None
-        for _v in videos:
-            _source_bump(candidate_channel(_v), "offered")
-        ordered = videos
-        if used_ids is not None:
-            ordered = ([v for v in videos if v.get("id") not in used_ids]
-                       + [v for v in videos if v.get("id") in used_ids])
-        # Кандидаты, которых нельзя показать без сломанного замедления (см.
-        # VIDEO_MAX_TIME_STRETCH), убираются ДО скачивания — не только ради
-        # трафика: бюджет попыток (try_budget ниже) ограничен, и раньше он
-        # тратился в том числе на клипы, чей результат заведомо испорчен.
-        #
-        # Фильтр НИКОГДА не опустошает пул: если длины не хватает вообще
-        # ни у кого, список остаётся прежним и слот собирается ровно как
-        # раньше (та же дисциплина "ни один слот не остаётся пустым", что
-        # у visual_qc.py и остальных гейтов этого файла). Порядок
-        # выживших не меняется — это отсев, а не переранжирование, и на
-        # баланс relevance/домена он не влияет.
-        if slot_dur:
-            long_enough = [v for v in ordered
-                           if not _video_candidate_too_short(v, slot_dur)]
-            if long_enough and len(long_enough) < len(ordered):
-                VIDEO_TOO_SHORT_FILTERED.append(
-                    {"index": index, "dropped": len(ordered) - len(long_enough),
-                     "kept": len(long_enough), "slot_dur": round(float(slot_dur), 2)})
-                ordered = long_enough
-        # Три уровня приоритета для кандидата, который не оказался
-        # немедленным победителем: relevant+уникальный (лучший, принимается
-        # сразу) > relevant, но визуальный дубль уже показанного >
-        # первый вообще скачанный (старое поведение "ни один не прошёл
-        # relevance" — честная деградация, не пустой слот).
-        dup_fallback = None    # (путь, id, hash) — прошёл relevance, похож на уже показанное
-        plain_fallback = None  # (путь, id, hash) — первый скачанный, безопасная сетка
-        # Кандидаты, прошедшие все гейты, больше НЕ принимаются "первым
-        # попавшимся": собираются и сравниваются по смыслу полной фразы
-        # (sentence_score_fn) и читаемости кадра — так же, как у фото.
-        good = []              # [(sentence_score, luma_ok, путь, id, hash, origin_query, shot_size_ok)]
-        # Релевантность победителя раньше НЕ доходила до sidecar: в отчёте у
-        # каждого видео-слота стояло relevance: null, в том числе у слотов с
-        # chosen_by="video_relevance_best" — то есть число, которым гейт
-        # ПРИНЯЛ решение, нигде не сохранялось, и половина слотов эпизода
-        # (видео) была физически неаудируема. Карта по пути кандидата, а не
-        # восьмой элемент кортежа `good`: он разбирается по позиции в трёх
-        # местах ниже (_build_video_arbiter_shortlist, _build_opening_video_
-        # shortlist, сборка победителя), и сдвиг индексов — ровно тот класс,
-        # от которого предостерегает комментарий у shot_size_ok.
-        cand_relevance = {}
-        tries = 0
-        # РЕАЛЬНЫЙ баг, найденный покадровым просмотром готового рендера
-        # (не гипотеза): VIDEO_RELEVANCE_MAX_TRIES=3 калибровалась под
-        # СТАРУЮ логику "до 3 попыток на ОДИН запрос". После расширения пула
-        # (см. extra_queries выше) список кандидатов чередуется по ВСЕМ
-        # запросам секции — на HOOK из 8 запросов бюджет в 3 попытки
-        # покрывает буквально первые 3 запроса из 8 и ни разу не доходит до
-        # "warrior on horseback with sword". На реальном рендере это отдало
-        # фразу "герой заносит клинок... враг падает" видео с кухонными
-        # весами — единственным кандидатом, до которого хватило попыток,
-        # хотя по смыслу разгромно проигрывающим не опробованному всаднику
-        # с занесённым мечом. С пулом бюджет — минимум одна попытка на
-        # каждый запрос пула (иначе большинство запросов не участвует в
-        # сравнении вообще), с потолком против неограниченного трафика на
-        # секции с большим числом авторских запросов.
-        # БЮДЖЕТ ПОПЫТОК БОЛЬШЕ НЕ ЗАВИСИТ ОТ ТОГО, ВКЛЮЧЁН ЛИ ДИРЕКТОР (21.09).
-        #
-        # Раньше расширение стояло под `if sentence_score_fn is not None`, а
-        # sentence_score_fn строится только при VISUAL_DIRECTOR_MODE in
-        # (shadow, assist) — дефолт реестра `off`. То есть на ДЕФОЛТНОЙ
-        # конфигурации канала видео-слот скачивал ровно три кандидата и
-        # сдавался, сколько бы их ни было в пуле.
-        #
-        # Замер, которым это найдено (videos/94_dagger_test, слот «Клинок
-        # влетает в узкую щель»): в пуле 232 кандидата, отчёт сообщил
-        # «n_candidates_examined: 3» и «весь просмотренный пул честно
-        # исчерпан» — формально правда, а читается как «на стоке ничего нет».
-        #
-        # Это СЕДЬМОЙ случай того же класса в этом файле, и шестой из них —
-        # буквально тот же самый баг у фото: BASE_MIN_POOL заведён 07.09
-        # ровно потому, что good_needed поднимался «ТОЛЬКО если передан
-        # director_score_fn», и на дефолте пул фото схлопывался до первого
-        # кандидата. Видео тогда не тронули.
-        #
-        # Формула НЕ меняется (то же max(порог, число запросов) под тем же
-        # hard cap) — снимается только случайная привязка к флагу Директора.
-        try_budget = min(_video_relevance_max_tries_hard_cap_for(index),
-                         max(_video_relevance_max_tries_for(index), len(pool_queries)))
-        for v in ordered:
-            if tries >= try_budget:
-                break
-            files = [f for f in (v.get("video_files") or [])
-                     if f.get("file_type") == "video/mp4" and f.get("width")]
-            if not files:
-                continue
-            best = min(files, key=lambda f: abs(f["width"] - WIDTH))
-            trial = cf + f".trial_{candidate_path_token(v)}.mp4"
-            try:
-                vid_req = urllib.request.Request(best["link"], headers={"User-Agent": UA})
-                atomic_url_download(vid_req, trial, timeout=40)
-            except Exception:
-                continue
-            tries += 1
-            probe, cleanup = extract_video_probe_frame(trial)
-            relevant = True
-            cand_hash = None
-            sent_score = 0.0
-            cand_luma = None
-            # shot_size_ok — то же ограничение ритма крупностей, что уже
-            # годами работает в pexels_photo() (см. recent_sizes/size_ok там),
-            # раньше видео в нём не участвовало вообще: recent_sizes не
-            # принимался, крупность кандидата не считалась, а победивший
-            # видео-клип не пополнял историю для СЛЕДУЮЩИХ слотов (ни фото,
-            # ни видео) — то есть два видео-плана одной крупности подряд, или
-            # видео той же крупности сразу за фото, ничем не отличались от
-            # разнообразной последовательности. Считается на ИЗВЛЕЧЁННОМ
-            # кадре-пробнике (estimate_shot_size — функция для статичных
-            # изображений), не на самом .mp4.
-            shot_size_ok = 1
-            if probe is not None:
-                try:
-                    # Гейт сверяется с запросом ЭТОГО БЛОКА (`query`), не с тем,
-                    # из которого кандидат приплыл в общий пул — тот же разбор и
-                    # та же причина, что подробно расписаны у фото-пути в
-                    # pexels_photo() (кандидат из соседнего запроса секции
-                    # проходил «по своему» и попадал в чужой по смыслу блок).
-                    cand_rel = clip_relevance(probe, query)
-                    relevant = is_relevant_candidate(probe, query, relevance=cand_rel)
-                    cand_relevance[trial] = cand_rel
-                    if used_hashes is not None:
-                        try:
-                            cand_hash = ahash(probe)
-                        except Exception:
-                            cand_hash = None
-                    try:
-                        cand_luma = measure_luma(probe)
-                    except Exception:
-                        cand_luma = None
-                    if recent_sizes is not None:
-                        try:
-                            shot_size_ok = 0 if estimate_shot_size(probe) in recent_sizes[-2:] else 1
-                        except Exception:
-                            shot_size_ok = 1
-                    if relevant and sentence_score_fn is not None:
-                        try:
-                            s = sentence_score_fn(probe)
-                            sent_score = float(s) if s is not None else 0.0
-                        except Exception:
-                            sent_score = 0.0
-                        # SAME_QUERY_BONUS (см. visual_director.py) — тот же
-                        # фикс, что и у фото: кандидат из ЧУЖОГО запроса пула
-                        # не должен побеждать кандидата, назначенного этому
-                        # слоту ПО СМЫСЛУ, только за счёт того, что общая
-                        # тема эпизода перетягивает sentence_score. visual_
-                        # director — модуль, не глобальная переменная этой
-                        # функции (та живёт только внутри main()) — ленивый
-                        # импорт, тот же fail-open паттерн, что у
-                        # visual_qc_bonus() в visual_director.py.
-                        if v.get("_origin_query") == query:
-                            try:
-                                import visual_director as _vd
-                                sent_score += _vd.SAME_QUERY_BONUS
-                            except Exception:
-                                pass
-                        # OPENING_AESTHETIC_WEIGHT (см. visual_director.py) —
-                        # та же архитектурная причина, что у фото-пути:
-                        # семантика почти всегда предпочитает буквальный, но
-                        # скучный кандидат раньше, чем эстетика успевает
-                        # сравниться — для открывающего кадра ролика решает
-                        # ДАЖЕ без VLM-арбитра/Gemini. probe — реальный кадр
-                        # ЭТОГО видео-кандидата, ещё не удалён (см. finally
-                        # ниже) — тот же aesthetic_score(), что фото-путь.
-                        if is_opening_shot:
-                            try:
-                                import visual_director as _vd
-                                av = aesthetic_score(probe)
-                                if av is not None:
-                                    norm = max(0.0, min(1.5, (av - _vd.AESTHETIC_NORM_MIN) / _vd.AESTHETIC_NORM_RANGE))
-                                    sent_score += norm * _vd.OPENING_AESTHETIC_WEIGHT
-                            except Exception:
-                                pass
-                finally:
-                    if cleanup and os.path.exists(probe):
-                        os.remove(probe)
-            # Практически чёрный кадр — отбраковываем жёстко: грейд канала
-            # темнит и без того, зритель просто не увидит, что показано
-            # (реальный случай на рендере — кадр с еле различимой полоской
-            # клинка). Порог 0.06 намеренно НИЖЕ реально встреченных тёмных
-            # кандидатов (0.113/0.118): осознанно тёмный кадр — часть стиля
-            # канала и отбраковываться не должен, режем только то, где
-            # разглядеть нечего физически.
-            if cand_luma is not None and cand_luma < VIDEO_MIN_LUMA_HARD:
-                relevant = False
-            luma_ok = 1 if (cand_luma is None or cand_luma >= VIDEO_PREFER_MIN_LUMA) else 0
-            # Домен-гвард (анахронизм-защита) — ДОПОЛНИТЕЛЬНО на нескольких
-            # кадрах по всей длительности ролика, не только на том же одном
-            # пробнике, что уже участвовал в relevant выше: is_relevant_
-            # candidate() сама по себе тоже гейтит домен, но ТОЛЬКО на этом
-            # первом кадре — реальный найденный случай, когда именно ПЕРВЫЙ
-            # кадр был тесным кропом на рукояти без клинка/гарды и гейт
-            # ничего не поймал (см. video_domain_guard_violation()). Только
-            # когда relevant уже True — на явно нерелевантных candidates,
-            # которые и так не пройдут, лишние кадры не тянем.
-            if relevant:
-                violated, _ = video_domain_guard_violation(trial, query)
-                if violated:
-                    relevant = False
-            # Контрастивное вето по ловушкам — ТА ЖЕ многокадровая логика,
-            # что домен-гвард строкой выше, тем же честным поводом: is_
-            # relevant_candidate() уже прогнал negative_anchor_violation(),
-            # но только на ПЕРВОМ кадре-пробнике. Реальный найденный случай
-            # (08.09) — толпа современных зрителей видна на 0.96с и 40.9с
-            # этого же видео, но не на дефолтных 0.5с, где её проверял
-            # relevant выше (см. video_negative_anchor_violation()).
-            if relevant:
-                violated, _ = video_negative_anchor_violation(trial, query)
-                if violated:
-                    relevant = False
-            # video_sharpness_ok (VIDEO_SHARPNESS_REJECT) — см. её докстринг:
-            # реальный найденный случай (videos/_test20s, слот 7) — видео-
-            # кандидаты НИКОГДА не проверялись на резкость, только фото. Тот
-            # же принцип, что домен-гвард выше: только когда relevant уже
-            # True — на заведомо провальных кандидатах лишний многокадровый
-            # проход не тянем. False (не None — сбой decode не должен молча
-            # пропускать явно смазанное видео) блокирует так же, как домен-
-            # анахронизм.
-            if relevant:
-                sharp_ok = video_sharpness_ok(trial)
-                if sharp_ok is False:
-                    relevant = False
-            is_dup = (cand_hash is not None and used_hashes and
-                      min((hamming(cand_hash, uh) for uh in used_hashes), default=99)
-                      <= PHOTO_DEDUP_HAMMING)
-            if relevant and not is_dup:
-                # shot_size_ok — ДОБАВЛЕН В КОНЕЦ кортежа, не в середину: g[2]/
-                # g[3]/g[4]/g[5]/best[2..4] уже разбираются по позиции в
-                # нескольких местах ниже (_build_video_arbiter_shortlist,
-                # _build_opening_video_shortlist, финальная сборка победителя)
-                # — сдвиг индексов молча перепутал бы путь/id/hash/origin_query
-                # местами. Приоритет в сравнении всё равно даёт сам sort key
-                # ниже, не позиция в кортеже.
-                _source_bump(candidate_channel(v), "gate_passed")
-                good.append((sent_score, luma_ok, trial, v.get("id"), cand_hash,
-                            v.get("_origin_query"), shot_size_ok))
-                # Без смыслового скоринга сравнивать нечего — прежнее
-                # поведение "первый прошедший побеждает" (ноль регресса для
-                # вызовов без sentence_score_fn). С пулом ранний обрыв по
-                # фиксированному числу "хороших" кандидатов — тот же баг,
-                # что try_budget выше чинит для попыток скачивания: первые
-                # найденные "хорошие" почти всегда из ранних запросов пула
-                # (дальние запросы просто не успевают дать кандидата). Обрыв
-                # только по исчерпанию try_budget — тот уже ограничен
-                # VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP, второй потолок не нужен.
-                if sentence_score_fn is None:
-                    break
-                continue
-            if relevant and dup_fallback is None:
-                dup_fallback = (trial, v.get("id"), cand_hash)
-            elif plain_fallback is None:
-                plain_fallback = (trial, v.get("id"), cand_hash)
-            else:
-                os.remove(trial)
-        if good:
-            # Ритм крупностей (g[6]=shot_size_ok) — та же приоритетная
-            # позиция, что size_ok занимает у фото в _score_and_pick() (сразу
-            # после дедупа/резкости, ДО эстетики/смыслового скора): кандидат,
-            # повторяющий крупность одного из двух последних клипов, не
-            # исключается (слот не должен опустеть), но проигрывает любому
-            # кандидату, предлагающему другую крупность. Читаемость кадра
-            # (luma_ok) важнее тонкой разницы в смысловом скоре — нерелевант-
-            # ных здесь уже нет (все прошли гейт), а невидимый кадр бесполезен
-            # независимо от того, что на нём изображено.
-            good.sort(key=lambda g: (g[6], g[1], g[0]), reverse=True)
-            best = good[0]
-            # VLM-АРБИТР (см. shot_director.arbitrate_hook_candidates и
-            # _build_video_arbiter_shortlist) — тот же принцип, что уже
-            # применён к pexels_photo(): реальный найденный случай (idx4,
-            # videos/_test20s, 29 августа) — видео-путь раньше вообще не
-            # был подключён к арбитру (только к SAME_QUERY_BONUS в
-            # sent_score), и модерн-реконструкция с толпой зрителей/
-            # телефонами (не ловится ни CLIP-релевантностью, ни
-            # CONTENT_ALT_BLOCKLIST, если alt-текст Pexels не содержит ни
-            # одного из его терминов) так и оставалась победителем.
-            if (arbiter_text is not None and
-                    feature_flags.mode("VLM_ARBITER_MODE") == "on"):
-                # Открывающий кадр — та же логика, что у pexels_photo()
-                # (см. is_opening_shot там): шире шорт-лист, критерий
-                # эффектности вместо буквальной точности запроса.
-                if is_opening_shot:
-                    shortlist = _build_opening_video_shortlist(good)
-                else:
-                    shortlist = _build_video_arbiter_shortlist(good, query)
-                if len(shortlist) >= 2:
-                    # Реальный найденный баг: shortlist здесь — пути к
-                    # ВИДЕОФАЙЛАМ (.mp4), а Gemini vision принимает только
-                    # статичные картинки — сырой .mp4 под mime_type=image/*
-                    # дал HTTP 400 Bad Request (videos/_test20s, idx4, 29
-                    # августа). Пробник уже удалён к этому моменту (см.
-                    # finally у extract_video_probe_frame выше) — исходный
-                    # видеофайл ещё цел, извлекаем заново ТОЛЬКО для
-                    # шорт-листа (не для всего good — дёшево).
-                    probes = []
-                    for g in shortlist:
-                        p, cleanup = extract_video_probe_frame(g[2])
-                        if p is not None:
-                            probes.append((g, p, cleanup))
-                    arbiter_pick = None
-                    if len(probes) >= 2:
-                        import shot_director
-                        arbiter_pick = shot_director.arbitrate_hook_candidates(
-                            arbiter_text, [p for _, p, _ in probes],
-                            [g[3] for g, _, _ in probes], VIDEO_FOLDER, is_opening=is_opening_shot)
-                    # Проверка на None ПЕРВОЙ, а не сравнение с сентинелом:
-                    # shot_director импортируется выше внутри `if len(probes)
-                    # >= 2`, и при коротком шорт-листе имени в скоупе нет —
-                    # обращение к нему уронило бы весь рендер NameError.
-                    if arbiter_pick is not None:
-                        if arbiter_pick is shot_director.NO_CANDIDATE_FITS:
-                            # Тот же разбор, что на фото-пути выше: явный отказ
-                            # модели — знание, а не молчание. Раньше терялся.
-                            selection_attempt.record_verdict("arbiter", {
-                                "index": index, "kind": "video", "query": query,
-                                "text": arbiter_text,
-                                "n_candidates": len(probes),
-                                "is_opening": bool(is_opening_shot),
-                            })
-                            print(f"  [арбитр] слот {index} (видео): ни один из {len(probes)} "
-                                  f"кандидатов не подходит под «{(arbiter_text or '')[:50]}»")
-                        else:
-                            match = next((g for g, p, _ in probes if p == arbiter_pick), None)
-                            if match is not None:
-                                best = match
-                    for _, p, cleanup in probes:
-                        if cleanup and os.path.exists(p):
-                            try:
-                                os.remove(p)
-                            except OSError:
-                                pass
-            for fb in (dup_fallback, plain_fallback):
-                if fb is not None and os.path.exists(fb[0]):
-                    try:
-                        os.remove(fb[0])
-                    except OSError:
-                        pass
-            best_rel = cand_relevance.get(best[2])
-            os.replace(best[2], cf)
-            # ИТЕРАТИВНОЕ ВЕТО — тот же разбор и та же правка, что на фото-пути
-            # (см. большой комментарий в pexels_photo). Здесь она нужна ровно
-            # по той же причине и с той же историей: асимметрия «починили фото,
-            # забыли видео» в этом файле уже трижды стоила половины эпизода
-            # (filter_alt_blocklist 07.09, director_score_fn 08.09, запрос из
-            # брифа 15.09). Отличие только техническое: у видео кандидаты —
-            # это УЖЕ СКАЧАННЫЕ файлы в good, поэтому их удаление отложено до
-            # конца цикла (раньше оно стояло ДО вето, и следующего кандидата
-            # физически не существовало бы на диске).
-            veto_repicks = 0
-            tried = {id(best)}
-            while video_smart_relevance_veto(cf, query):
-                nxt = None
-                if veto_repicks < VETO_REPICK_MAX:
-                    nxt = next((g for g in good
-                                if id(g) not in tried and os.path.exists(g[2])), None)
-                if nxt is None:
-                    selection_attempt.record_verdict("smart_veto", {"index": index, "query": query, "kind": "video"})
-                    try:
-                        os.remove(cf)
-                    except OSError:
-                        pass
-                    print(f"  слот {index}: вторая проверка (SigLIP2+Jina, запрос "
-                          f"{query!r}) отклонила всех проверенных видео-кандидатов "
-                          f"({veto_repicks + 1}) — слот остаётся без медиа")
-                    for g in good:
-                        if id(g) in tried or not os.path.exists(g[2]):
-                            continue
-                        try:
-                            os.remove(g[2])
-                        except OSError:
-                            pass
-                    return None
-                veto_repicks += 1
-                tried.add(id(nxt))
-                best = nxt
-                best_rel = cand_relevance.get(best[2])
-                os.replace(best[2], cf)
-            if veto_repicks:
-                print(f"  слот {index}: вторая проверка отклонила {veto_repicks} "
-                      f"видео-кандидат(ов), взят следующий по ранжированию")
-            for g in good:
-                if id(g) in tried or not os.path.exists(g[2]):
-                    continue
-                try:
-                    os.remove(g[2])
-                except OSError:
-                    pass
-            if used_ids is not None:
-                selection_attempt.record_effect("reserve_id", used_ids, best[3])
-            if used_hashes is not None and best[4] is not None:
-                selection_attempt.record_effect("reserve_hash", used_hashes, best[4])
-            write_media_sidecar(cf, pexels_id=best[3], query=query, kind="video",
-                                ahash_hex=best[4], relevance=best_rel,
-                                chosen_by="video_relevance_best")
-            selection_attempt.record_effect("source_won", candidate_channel(best[3]))
-            _reset_pexels_streak()
-            return cf
-        chosen = dup_fallback or plain_fallback
-        if chosen is not None:
-            path, vid, cand_hash = chosen
-            chosen_rel = cand_relevance.get(path)
-            if chosen is plain_fallback:
-                # Ни один кандидат не прошёл relevance-гейт вообще (не
-                # только "похож на уже показанное", как у dup_fallback) —
-                # тот же случай, что RELEVANCE_GATE_MISSES ловит у фото
-                # (см. её докстринг выше). probe уже удалён к этому моменту
-                # (extract_video_probe_frame чистит себя сам) — путь ещё цел
-                # (это САМ видеофайл, не пробник), поэтому релевантность
-                # можно честно перепосчитать один раз на итоговом кадре.
-                probe2, cleanup2 = extract_video_probe_frame(path)
-                rel = clip_relevance(probe2, query) if probe2 is not None else None
-                if cleanup2 and probe2 and os.path.exists(probe2):
-                    os.remove(probe2)
-                selection_attempt.record_verdict("relevance", {
-                    "index": index, "query": query, "relevance": rel,
-                    "threshold": CLIP_RELEVANCE_THRESHOLD, "kind": "video",
-                })
-                # Пересчёт идёт по ИТОГОВОМУ кадру, а не по пробнику — это
-                # число точнее, поэтому в sidecar едет именно оно.
-                if rel is not None:
-                    chosen_rel = rel
-                # STOCK_EXHAUSTED_MISSES — см. её докстринг у объявления выше.
-                # Мы уже ЗДЕСЬ (chosen is plain_fallback) только когда good
-                # пуст И dup_fallback пуст — то есть НИ ОДИН из tries
-                # просмотренных кандидатов не прошёл relevant+sharp_ok,
-                # независимо от дедупа. Ничего заново считать не нужно —
-                # сам факт, что мы в этой ветке, и есть искомый сигнал.
-                selection_attempt.record_verdict("stock", {
-                    "index": index, "kind": "video", "query": query,
-                    "n_candidates_examined": tries,
-                    "n_candidates_available": len(ordered),
-                })
-            os.replace(path, cf)
-            if video_smart_relevance_veto(cf, query):
-                # Та же правка, что у итеративного вето выше, в масштабе этого
-                # яруса: запасных путей ровно два (dup_fallback/plain_fallback),
-                # и отказ одного не обязан убивать слот, пока второй цел.
-                alt = next((fb for fb in (dup_fallback, plain_fallback)
-                            if fb is not None and fb is not chosen
-                            and os.path.exists(fb[0])), None)
-                accepted = False
-                if alt is not None:
-                    chosen = alt
-                    path, vid, cand_hash = alt
-                    chosen_rel = cand_relevance.get(path)
-                    os.replace(path, cf)
-                    accepted = not video_smart_relevance_veto(cf, query)
-                    if accepted:
-                        print(f"  слот {index}: первый запасной отклонён второй "
-                              f"проверкой, взят второй запасной")
-                if not accepted:
-                    selection_attempt.record_verdict("smart_veto", {"index": index, "query": query, "kind": "video"})
-                    try:
-                        os.remove(cf)
-                    except OSError:
-                        pass
-                    print(f"  слот {index}: видео-кандидаты запасного пути "
-                          f"отклонены второй проверкой (SigLIP2+Jina, запрос "
-                          f"{query!r}) — слот остаётся без медиа")
-                    return None
-            if used_ids is not None:
-                selection_attempt.record_effect("reserve_id", used_ids, vid)
-            if used_hashes is not None and cand_hash is not None:
-                selection_attempt.record_effect("reserve_hash", used_hashes, cand_hash)
-            # Победа запасного яруса — тоже победа источника. Раньше её не
-            # считал никто: слот, закрытый запасным видео, в
-            # source_contribution.json не принадлежал ни одному источнику.
-            selection_attempt.record_effect("source_won", candidate_channel(vid))
-            write_media_sidecar(
-                cf, pexels_id=vid, query=query, kind="video", ahash_hex=cand_hash,
-                relevance=chosen_rel,
-                chosen_by=("video_dup_fallback" if chosen is dup_fallback
-                           else "video_plain_fallback"))
-            _reset_pexels_streak()
-            return cf
-        return None
-    except Exception as e:
-        _note_pexels_failure(e, f"Pexels video [{query}]")
-        return None
 
+    def brief_query(self, request):
+        return brief_stock_query_of(request)
+
+    def sources(self, request, pq):
+        api_q = apply_action_qualifier(disambiguate_search_query(pq), request.action_qualifier)
+        out = []
+        for fetch in (_pexels_search_videos, _pixabay_search_videos):
+            out.append([dict(v, _origin_query=pq) for v in fetch(api_q)])
+        return out
+
+    def filter_pool(self, request, pool):
+        pool = filter_alt_blocklist(pool)
+        used_ids, slot_dur = request.used_video_ids, request.slot_dur
+        if used_ids is not None:
+            pool = ([v for v in pool if v.get("id") not in used_ids]
+                    + [v for v in pool if v.get("id") in used_ids])
+        if slot_dur:
+            long_enough = [v for v in pool if not _video_candidate_too_short(v, slot_dur)]
+            if long_enough and len(long_enough) < len(pool):
+                VIDEO_TOO_SHORT_FILTERED.append(
+                    {"index": request.index, "dropped": len(pool) - len(long_enough),
+                     "kept": len(long_enough), "slot_dur": round(float(slot_dur), 2)})
+                pool = long_enough
+        return pool
+
+    def note_offered(self, pool):
+        for v in pool:
+            _source_bump(candidate_channel(v), "offered")
+
+    def on_failure(self, request, exc):
+        _note_pexels_failure(exc, f"Pexels video [{request.query}]")
+
+    def _preview(self, v, cf):
+        """Кадры превью на диск: список путей по времени или None."""
+        paths = []
+        for k, url in enumerate(video_preview_urls(v)):
+            dest = cf + f".prev_{candidate_path_token(v)}_{k}.jpg"
+            atomic_url_download(urllib.request.Request(url, headers={"User-Agent": UA}),
+                                dest, timeout=20)
+            if not _downloaded_ok(dest):
+                return None
+            paths.append(dest)
+        return paths or None
+
+    def _download(self, v, dest):
+        files = [f for f in (v.get("video_files") or [])
+                 if f.get("file_type") == "video/mp4" and f.get("width")]
+        if not files:
+            raise ValueError("нет mp4")
+        best = min(files, key=lambda f: abs(f["width"] - WIDTH))
+        atomic_url_download(urllib.request.Request(best["link"], headers={"User-Agent": UA}),
+                            dest, timeout=40)
+
+    def choose(self, request, pool, cf):
+        query, index = request.query, request.index
+        used_hashes, recent_sizes = request.used_hashes, request.recent_sizes
+        score_fn, arbiter_text = request.video_score_fn, request.arbiter_text
+        trial_slice = pool[:VIDEO_PREVIEW_POOL]
+        with concurrent.futures.ThreadPoolExecutor(
+                max_workers=max(1, min(PHOTO_PREFETCH_WORKERS, len(trial_slice)))) as ex:
+            previews = list(ex.map(lambda v: self._safe_preview(v, cf), trial_slice))
+        candidates_info = []
+        for v, frames in zip(trial_slice, previews):
+            if not frames:
+                _source_bump(candidate_channel(v), "download_errors")
+                continue
+            _source_bump(candidate_channel(v), "considered")
+            mid = frames[len(frames) // 2]
+            try:
+                h = ahash(mid)
+            except Exception:
+                h = None
+            min_d = (min((hamming(h, uh) for uh in used_hashes), default=99)
+                     if (h is not None and used_hashes) else 99)
+            size_ok = 1
+            if recent_sizes is not None:
+                try:
+                    size_ok = 0 if estimate_shot_size(mid) in recent_sizes[-2:] else 1
+                except Exception:
+                    size_ok = 1
+            relevance = clip_relevance(mid, query)
+            relevant = is_relevant_candidate(mid, query, relevance=relevance)
+            if relevant and video_frames_violate([f for f in frames if f != mid], query):
+                relevant = False
+            luma = None
+            try:
+                luma = measure_luma(mid)
+            except Exception:
+                pass
+            if luma is not None and luma < VIDEO_MIN_LUMA_HARD:
+                relevant = False
+            aesthetic = aesthetic_score(mid)
+            strip = video_strip(frames, cf + f".strip_{candidate_path_token(v)}.jpg")
+            candidates_info.append({
+                "path": mid, "judge_path": strip, "frames": frames, "p": v, "hash": h,
+                "is_dup_free": 1 if min_d > PHOTO_DEDUP_HAMMING else 0, "size_ok": size_ok,
+                # Читаемость кадра — ось ТЕХНИЧЕСКОЙ годности (рядом с
+                # резкостью): тёмный ролик плохо читается на экране при
+                # любом смысле, поэтому уступает читаемому выше тонкой
+                # разницы релевантности, но ниже самого прохождения гейтов —
+                # то же правило, что прежний видео-путь держал отдельным
+                # сравнением; здесь — тем же ранжированием, что у фото.
+                "is_relevant": 1 if relevant else 0,
+                "sharp_ok": 1 if (luma is None or luma >= VIDEO_PREFER_MIN_LUMA) else 0,
+                "aesthetic_val": aesthetic if aesthetic is not None else 0.0,
+                "luma_score": 0.0,
+                "min_d": min_d, "relevance": relevance,
+            })
+            if relevant and min_d > PHOTO_DEDUP_HAMMING:
+                _source_bump(candidate_channel(v), "gate_passed")
+        try:
+            return self._pick(request, candidates_info, cf, len(pool))
+        finally:
+            for c in candidates_info:
+                for f in c["frames"] + [c["judge_path"]]:
+                    try:
+                        os.remove(f)
+                    except OSError:
+                        pass
+
+    def _safe_preview(self, v, cf):
+        try:
+            return self._preview(v, cf)
+        except Exception:
+            return None
+
+    def _pick(self, request, candidates_info, cf, n_available):
+        query, index = request.query, request.index
+        if not candidates_info:
+            return None
+        judged = judge_candidates(index, "video", request.block_text,
+                                  request.shot_brief or query, candidates_info)
+        score_fn = request.video_score_fn
+        base, director = _score_and_pick(candidates_info, score_fn)
+        winner = director if (request.director_assist and director is not None) else base
+        chosen_by = "video_director" if winner is director and director is not base else "video_ranked"
+        if (request.arbiter_text is not None and winner is not None
+                and feature_flags.mode("VLM_ARBITER_MODE") == "on"):
+            shortlist = (_build_opening_shortlist(candidates_info, base, director)
+                         if request.is_opening else
+                         _build_arbiter_shortlist(candidates_info, base, director, query))
+            if len(shortlist) >= 2:
+                import shot_director
+                pick = shot_director.arbitrate_hook_candidates(
+                    request.arbiter_text, [c["path"] for c in shortlist],
+                    [c["p"].get("id") for c in shortlist], VIDEO_FOLDER,
+                    is_opening=request.is_opening)
+                if pick is shot_director.NO_CANDIDATE_FITS:
+                    selection_attempt.record_verdict("arbiter", {
+                        "index": index, "kind": "video", "query": query,
+                        "text": request.arbiter_text, "n_candidates": len(shortlist),
+                        "is_opening": bool(request.is_opening)})
+                elif pick is not None:
+                    match = next((c for c in shortlist if c["path"] == pick), None)
+                    if match is not None:
+                        winner, chosen_by = match, "video_arbiter"
+        # Скачивается только победитель. Провал скачивания, резкости или
+        # второй проверки (кроме одобренного судьёй) — кандидат уступает
+        # место следующему, тем же приёмом, что у фото.
+        repicks = 0
+        while winner is not None:
+            ok = True
+            try:
+                self._download(winner["p"], cf)
+            except Exception:
+                ok = False
+            if ok and not _downloaded_ok(cf):
+                ok = False
+            if not ok:
+                _source_bump(candidate_channel(winner["p"]), "download_errors")
+                winner["is_dup_free"] = 0
+            elif video_sharpness_ok(cf) is False:
+                winner["sharp_ok"] = 0
+                ok = False
+            elif not judge_approved(winner) and video_smart_relevance_veto(cf, query):
+                winner["is_relevant"] = 0
+                ok = False
+            if ok:
+                break
+            if repicks >= VETO_REPICK_MAX:
+                winner = None
+                break
+            repicks += 1
+            chosen_by = chosen_by + "+repick" if "+repick" not in chosen_by else chosen_by
+            base, director = _score_and_pick(candidates_info, score_fn)
+            nxt = director if (request.director_assist and director is not None) else base
+            winner = nxt if nxt is not winner else None
+        if winner is None:
+            selection_attempt.record_verdict("smart_veto", {"index": index, "query": query, "kind": "video"})
+            try:
+                os.remove(cf)
+            except OSError:
+                pass
+            print(f"  слот {index}: ни один видео-кандидат не прошёл скачивание, резкость "
+                  f"и вторую проверку — слот остаётся без видео")
+            return None
+        if not winner["is_relevant"]:
+            selection_attempt.record_verdict("relevance", {
+                "index": index, "query": query, "relevance": winner.get("relevance"),
+                "threshold": CLIP_RELEVANCE_THRESHOLD, "kind": "video"})
+            selection_attempt.record_verdict("stock", {
+                "index": index, "kind": "video", "query": query,
+                "n_candidates_examined": len(candidates_info),
+                "n_candidates_available": n_available})
+            chosen_by = "video_below_threshold"
+        if judged:
+            chosen_by += "+judge"
+            if not judge_approved(winner):
+                selection_attempt.record_verdict("judge", {
+                    "index": index, "kind": "video", "query": query,
+                    "brief": request.shot_brief, "score": winner.get("judge"),
+                    "model": shot_judge_model()})
+        pick = winner["p"]
+        if request.used_video_ids is not None:
+            selection_attempt.record_effect("reserve_id", request.used_video_ids, pick.get("id"))
+        if request.used_hashes is not None and winner["hash"] is not None:
+            selection_attempt.record_effect("reserve_hash", request.used_hashes, winner["hash"])
+        selection_attempt.record_effect("license", candidate_provenance(pick), query)
+        selection_attempt.record_effect("source_won", candidate_channel(pick))
+        write_media_sidecar(cf, pexels_id=pick.get("id"), query=query, kind="video",
+                            ahash_hex=winner["hash"], relevance=winner.get("relevance"),
+                            chosen_by=chosen_by, provenance=candidate_provenance(pick))
+        _reset_pexels_streak()
+        return cf
+
+
+VIDEO_ADAPTER = VideoAdapter()
+
+
+def _select_video(request):
+    return selection_engine.select(request, VIDEO_ADAPTER)
 
 
 def _select_photo(request):

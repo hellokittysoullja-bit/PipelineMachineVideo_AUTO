@@ -13,12 +13,10 @@ director_score_fn.
 
 Тестируется здесь НЕ сам compute_extra_score() (это делает
 test_visual_director.py) — а то, что main() реально передаёт его в видео-
-путь (source-level, main() слишком велика для end-to-end юнит-теста) и что
-pexels_video() остаётся обратно совместимой: её контракт "sentence_score_fn
-вызывается одним позиционным аргументом" (см. tests/test_parse.py — там
-лямбды принимают ровно один параметр) не должен сломаться оттого, что
-теперь туда передают функцию, которая ТАКЖЕ умеет принимать
-candidate_query/aesthetic_val как опциональные keyword-параметры.
+путь (source-level, main() слишком велика для end-to-end юнит-теста), что
+функция вызываема и одним позиционным аргументом, и что видео (VideoAdapter
+в общем ядре) подчиняется режиму Режиссёра так же, как фото: в assist
+решает, в shadow — нет.
 """
 import os
 import sys
@@ -33,6 +31,7 @@ sys.path.insert(0, SCRIPTS_DIR)
 sys.argv = ["pipeline_smart.py", tempfile.gettempdir()]
 import pipeline_smart as ps  # noqa: E402
 from _media_calls import pick_photo, pick_video  # noqa: E402
+from _video_world import QUERY, infra, video  # noqa: E402,F401
 
 
 def _main_video_selection_block():
@@ -104,52 +103,24 @@ class TestBackwardCompatibleCallingConvention:
         # Ровно так, как это делает pexels_video(): один позиционный аргумент.
         assert fn("probe.jpg") == 0.5
 
-    def test_pexels_video_ranks_by_director_style_score(self, tmp_path, monkeypatch):
-        """Функциональная проверка: два кандидата различаются ТОЛЬКО
-        director-стиля бонусом (переданным через sentence_score_fn) —
-        побеждает тот, у кого бонус выше, ровно как раньше побеждал тот, у
-        кого выше был голый sentence_relevance()."""
-        monkeypatch.setattr(ps, "PEXELS_API_KEY", "k")
-        monkeypatch.setattr(ps, "TEMP_FOLDER", str(tmp_path))
-        monkeypatch.setattr(ps, "_pexels_search_videos", lambda q: [
-            {"id": 1, "url": "https://www.pexels.com/video/knight-armor-1/",
-             "video_files": [{"file_type": "video/mp4", "width": 1920, "link": "http://x/1.mp4"}]},
-            {"id": 2, "url": "https://www.pexels.com/video/knight-armor-2/",
-             "video_files": [{"file_type": "video/mp4", "width": 1920, "link": "http://x/2.mp4"}]},
-        ])
+    @pytest.mark.parametrize("assist, winner", [(True, 2), (False, 1)])
+    def test_video_obeys_the_director_mode_like_photo(self, infra, monkeypatch, assist, winner):
+        """Два кандидата различаются ТОЛЬКО бонусом Режиссёра. В assist
+        побеждает тот, у кого бонус выше; в shadow Режиссёр НЕ трогает выбор
+        (как у фото, CLAUDE.md: «shadow — реальный выбор не трогает»).
+        Прежний видео-добытчик применял скоринг Режиссёра и в shadow —
+        асимметрия с фото, закрытая общим ядром."""
+        infra["videos"] = [video(1), video(2)]
+        infra["relevant"] = {1, 2}
+        infra["rel"] = {1: 0.30, 2: 0.30}
+        # Базовое ранжирование при равенстве прочего решает эстетикой:
+        # кандидат 1 красивее, кандидат 2 сильнее по Режиссёру.
+        monkeypatch.setattr(ps, "aesthetic_score",
+                            lambda p: 6.0 if "prev_1_" in os.path.basename(p) else 5.0)
 
-        def fake_download(req, dest, timeout=None):
-            with open(dest, "wb") as f:
-                f.write(b"1" if "1.mp4" in req.full_url else b"2")
-
-        monkeypatch.setattr(ps, "atomic_url_download", fake_download)
-        monkeypatch.setattr(ps, "extract_video_probe_frame",
-                            lambda p, **kw: (p + ".jpg", False))
-        monkeypatch.setattr(ps, "is_relevant_candidate", lambda *a, **k: True)
-        monkeypatch.setattr(ps, "video_domain_guard_violation", lambda *a, **k: (False, None))
-        monkeypatch.setattr(ps, "video_sharpness_ok", lambda p: True)
-        monkeypatch.setattr(ps, "measure_luma", lambda p: 0.4)
-
-        def _candidate_id(probe_path):
-            # НЕ "2.mp4" in probe: cf сам заканчивается на ".mp4" (см.
-            # pexels_video()), поэтому полный путь пробника содержит ".mp4"
-            # ДВАЖДЫ — суффикс кэш-ключа (gate_sig, зависит от текущего
-            # состояния кода) при некоторых хэшах случайно порождает
-            # подстроку "2.mp4" внутри себя (реально пойманная ложная
-            # коллизия, не гипотеза) и ломает наивный substring-матч. Якорим
-            # по единственно надёжной части имени — "trial_<id>.mp4".
-            import re
-            m = re.search(r"trial_(\d+)\.mp4", probe_path)
-            return int(m.group(1)) if m else None
-
-        def director_style(probe, candidate_query=None, aesthetic_val=None):
-            # Кандидат 2 явно сильнее по director-сигналу (аналог более
-            # выигрышной крупности плана/домена), при равной "смысловой"
-            # части — то, что раньше решал только голый sentence_relevance.
-            return 0.9 if _candidate_id(probe) == 2 else 0.1
-
-        out = pick_video(ps, "medieval sword close up", 9, used_ids=set(),
-                              used_hashes=[], sentence_score_fn=director_style)
+        def director_style(path, candidate_query=None, aesthetic_val=None):
+            return 0.9 if "prev_2_" in os.path.basename(path) else 0.1
+        out = pick_video(ps, QUERY, 9, used_ids=set(), used_hashes=[],
+                         sentence_score_fn=director_style, director_assist=assist)
         assert out is not None
-        assert ps.read_media_sidecar(out).get("pexels_id") == 2, (
-            "не победил кандидат с более высоким director-скором")
+        assert infra["downloads"] == [winner]

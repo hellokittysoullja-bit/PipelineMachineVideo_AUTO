@@ -29,6 +29,8 @@ SCRIPTS_DIR = os.path.join(REPO_ROOT, "scripts")
 sys.path.insert(0, SCRIPTS_DIR)
 
 import pipeline_smart as ps  # noqa: E402
+from _media_calls import pick_video  # noqa: E402
+from _video_world import QUERY, infra, video  # noqa: E402,F401
 
 
 @pytest.fixture(autouse=True)
@@ -153,36 +155,47 @@ def test_photo_path_calls_veto_before_accepting_winner():
     assert i_veto < i_sidecar, "проверка обязана идти ДО принятия победителя, не после"
 
 
-def test_video_paths_both_call_veto_before_accepting_winner():
-    """Обе ветки победителя видео (video_relevance_best И dup/plain
-    fallback) — тот класс, что уже трижды находили недоделанным наполовину
-    (только фото, видео забыто)."""
-    src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"), encoding="utf-8").read()
-    n = src.count("video_smart_relevance_veto(cf, query)")
-    # >= 2: с 21.09 у запасного яруса появился второй вызов (первый запасной
-    # отклонён -> пробуем второй, вместо того чтобы убить слот). Инвариант
-    # теста — «обе ветки проверяются», а не «вызовов ровно два».
-    assert n >= 2, f"ожидались обе ветки видео-победителя, нашлось {n}"
+def test_video_veto_runs_before_the_winner_is_accepted(infra):
+    """Видео-победитель проходит вторую проверку ДО того, как станет кадром:
+    отклонённый ею кандидат не получает sidecar и не встаёт на экран, слот
+    уходит следующему. Поведением, а не буквой исходника: прежняя проверка
+    считала вызовы в видео-добытчике, которого после переноса видео в общее
+    ядро нет."""
+    infra["videos"] = [video(1), video(2)]
+    infra["relevant"] = {1, 2}
+    infra["rel"] = {1: 0.40, 2: 0.10}
+    infra["veto"] = {1}
+    out = pick_video(ps, QUERY, 0)
+    assert infra["downloads"] == [1, 2]
+    assert ps.read_media_sidecar(out)["pexels_id"] == 2
 
 
-def test_veto_is_iterative_not_terminal():
+def test_veto_is_iterative_not_terminal(infra):
     """Отказ вето обязан приводить к СЛЕДУЮЩЕМУ кандидату, а не к смерти слота.
 
     Ради чего (замер 21.09, videos/94_dagger_test, слот «Клинок влетает в
     узкую щель»): в пуле 232 кандидата, 19 из 20 просмотренных прошли ВСЕ
     гейты, а на экране не было ничего — вето отклоняло одного победителя и
-    делало `return None`. Снаружи это читалось как «сток пуст» и толкало к
-    неверному выводу «ослабить гейты».
+    делало `return None`.
+
+    Прежняя версия проверяла строку `tried.add(id(nxt))` — и была зелёной
+    случайно: эта строка стоит в спасении СКАЧИВАНИЯ фото, а не в ре-пике
+    вето. Теперь — поведением: вето отклоняет кандидатов по очереди, и слот
+    получает кадр, пока предел ре-пиков не исчерпан; после предела —
+    честный отказ, а не последний отклонённый кадр.
     """
-    src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"), encoding="utf-8").read()
-    assert "VETO_REPICK_MAX" in src, "предел числа ре-пиков не объявлен"
-    # демотация ровно тем же приёмом, что у соседнего цикла по резкости
-    assert 'winner["is_relevant"] = 0' in src, (
-        "отклонённый вето кандидат обязан демотироваться и уступать место "
-        "следующему по ранжированию (как winner['sharp_ok'] = 0 у резкости)")
-    # у видео — свой ре-пик по already-скачанным кандидатам good
-    assert "tried.add(id(nxt))" in src, "видео-путь не берёт следующего кандидата"
     assert ps.VETO_REPICK_MAX >= 1
+    n = ps.VETO_REPICK_MAX + 1
+    infra["videos"] = [video(k) for k in range(1, n + 2)]
+    infra["relevant"] = set(range(1, n + 2))
+    infra["rel"] = {k: 0.5 - 0.01 * k for k in range(1, n + 2)}
+    infra["veto"] = set(range(1, n))          # отклонены все, кроме последнего в пределе
+    out = pick_video(ps, QUERY, 0)
+    assert out is not None and ps.read_media_sidecar(out)["pexels_id"] == n
+    infra["downloads"].clear()
+    infra["veto"] = set(range(1, n + 2))      # отклонены все
+    assert pick_video(ps, QUERY, 1) is None
+    assert len(infra["downloads"]) == n, "предел ре-пиков соблюдён"
 
 
 def test_veto_repick_enters_candidate_gate_signature(monkeypatch):
