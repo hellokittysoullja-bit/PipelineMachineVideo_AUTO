@@ -13,7 +13,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 import llm_gateway as lg  # noqa: E402
 
 CATALOG = {"data": [{"id": "m/vision", "billing": {"coefficient": {"input": 0.5, "output": 2}}},
-                    {"id": "m/free", "billing": {"coefficient": {"input": 0, "output": 0}}}]}
+                    {"id": "m/free", "billing": {"coefficient": {"input": 0, "output": 0}}},
+                    {"id": "m/img", "billing": {"unit": "image", "base_tokens": 100000,
+                                                "scales": {"quality": {"low": 0.25, "high": 4},
+                                                           "size": {"1792x1024": 1.75}},
+                                                "coefficient": {"input": 1.5, "output": 1.5}}},
+                    {"id": "m/img-free", "billing": {"unit": "image", "base_tokens": 100000,
+                                                     "coefficient": {"input": 0, "output": 0}}}]}
 
 
 class Resp(io.BytesIO):
@@ -170,3 +176,51 @@ def test_brief_brain_turns_a_chapter_failure_into_an_empty_chapter():
     assert sbd.GatewayBrain("m", gateway=Gw(lg.EmptyAnswer("пусто"))).ask("q", 3) == ""
     with pytest.raises(lg.PaymentRequired):
         sbd.GatewayBrain("m", gateway=Gw(lg.PaymentRequired("402"))).ask("q", 3)
+
+
+# ------------------------------------------------------------------ картинки
+
+def _img_answer(n=1):
+    import base64
+    return {"data": [{"b64_json": base64.b64encode(b"img%d" % k).decode()} for k in range(n)]}
+
+
+def test_image_price_follows_the_catalog_ladder():
+    gw = lg.Gateway(api_key="k", opener=Opener([]))
+    assert gw.image_cost("m/img", "1792x1024") == 100000 * 1.75 * 1.5
+    assert gw.image_cost("m/img", "1792x1024", quality="low") == 100000 * 0.25 * 1.75 * 1.5
+    assert gw.image_cost("m/img", "999x999") == 150000, "нет в лестнице — множитель 1, как auto"
+    assert gw.image_cost("m/img-free", "1792x1024") == 0
+    with pytest.raises(lg.GatewayError):
+        gw.image_cost("m/vision", "1024x1024")
+
+
+def test_image_decodes_and_charges_what_arrived():
+    op = Opener([_img_answer(1)])
+    gw = lg.Gateway(api_key="k", opener=op)
+    images, price = gw.image("m/img", "p", "1792x1024")
+    assert images == [b"img0"] and price == gw.spent == 262500
+    body = json.loads(op.requests[-1].data)
+    assert body["response_format"] == "b64_json" and body["size"] == "1792x1024"
+
+
+def test_image_spend_cap_refuses_before_the_call():
+    op = Opener([])
+    gw = lg.Gateway(api_key="k", opener=op, spend_cap=100000)
+    with pytest.raises(lg.BudgetExhausted):
+        gw.image("m/img", "p", "1792x1024")
+    assert not [r for r in op.requests if "images" in r.full_url]
+
+
+def test_image_answer_without_pictures_is_an_error_not_a_frame():
+    gw = lg.Gateway(api_key="k", opener=Opener([{"data": []}]))
+    with pytest.raises(lg.EmptyAnswer):
+        gw.image("m/img-free", "p", "1024x1024")
+    assert gw.spent == 0
+
+
+def test_refused_prompt_is_not_retried():
+    op = Opener([http_error(400, {"error": {"code": "content_policy", "request_id": "r"}}), _img_answer()])
+    with pytest.raises(lg.GatewayError):
+        lg.Gateway(api_key="k", opener=op).image("m/img-free", "p", "1024x1024")
+    assert len([r for r in op.requests if "images" in r.full_url]) == 1
