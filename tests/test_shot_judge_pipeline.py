@@ -168,3 +168,79 @@ def test_transparent_download_is_flattened_for_gates_and_render(tmp_path):
     before = open(opaque, "rb").read()
     assert ps.flatten_transparency(opaque) is False
     assert open(opaque, "rb").read() == before
+
+
+def _tie_setup(tmp_path, monkeypatch, first, second):
+    paths = []
+    for k in range(3):
+        p = tmp_path / f"t{k}.jpg"
+        Image.new("RGB", (32, 32), (k * 60, 0, 0)).save(p)
+        paths.append(str(p))
+    info = [_c("sword", path=paths[0]), _c("dagger", path=paths[1]), _c("other", path=paths[2])]
+    calls = []
+
+    def fake_judge(gw, model, *, phrase, brief, candidates, cache_dir=None, report=None, kind, setting=None):
+        calls.append([cid for cid, _p in candidates])
+        return first if len(calls) == 1 else second
+    import shot_judge
+    monkeypatch.setattr(shot_judge, "judge", fake_judge)
+    monkeypatch.setattr(ps, "_shot_judge_gateway", lambda: object())
+    return info, calls
+
+
+def test_top_tie_is_asked_again_in_one_grid_and_decides(tmp_path, monkeypatch):
+    """Живой случай «Вот кинжал»: кинжал и меч оба с 3; ничью решал
+    эмбеддинг — в пользу меча. Переспрос разделивших высшую оценку одной
+    сеткой (в обратном порядке) решает её раньше эмбеддинга."""
+    info, calls = _tie_setup(tmp_path, monkeypatch,
+                             {"sword": 3, "dagger": 3, "other": 1}, {"dagger": 3, "sword": 2})
+    info[0]["relevance"], info[0]["aesthetic_val"] = 0.3, 9.0   # эмбеддинг за меч
+    assert ps.judge_candidates(0, "photo", "Вот кинжал.", "a rondel dagger", info)
+    assert calls[1] == ["dagger", "sword"], "переспрашиваются только разделившие высшую, в обратном порядке"
+    base, _d = ps._score_and_pick(info)
+    assert base["p"]["id"] == "dagger"
+
+
+def test_no_tie_or_low_top_asks_once(tmp_path, monkeypatch):
+    info, calls = _tie_setup(tmp_path, monkeypatch, {"sword": 3, "dagger": 2, "other": 1}, None)
+    assert ps.judge_candidates(0, "photo", "x", "y", info) and len(calls) == 1
+    info, calls = _tie_setup(tmp_path, monkeypatch, {"sword": 1, "dagger": 1, "other": 0}, None)
+    assert ps.judge_candidates(0, "photo", "x", "y", info) and len(calls) == 1
+
+
+def test_failed_tie_question_keeps_first_scores(tmp_path, monkeypatch):
+    info, calls = _tie_setup(tmp_path, monkeypatch, {"sword": 3, "dagger": 3, "other": 1}, None)
+    assert ps.judge_candidates(0, "photo", "x", "y", info)
+    assert [c["judge"] for c in info] == [3, 3, 1]
+    assert all(ps.judge_tie_rank(c) == -1 for c in info)
+
+
+def test_budget_forecast_warns_once_early(monkeypatch, capsys):
+    """Замер эпизода 94: ~2 300 на слот, 250 слотов при потолке 300 тыс. —
+    судья выключился бы посреди ролика молча. Прогноз называет это один раз."""
+    class GW:
+        spend_cap, spent = 300000, 0
+    gw = GW()
+    monkeypatch.setattr(ps, "SHOT_JUDGE_EPISODE_SLOTS", 250)
+    monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "slots", set())
+    monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "warned", False)
+    monkeypatch.setattr(ps, "SHOT_JUDGE_LOG", [])
+    for i in range(8):
+        gw.spent += 2300
+        ps._judge_budget_forecast(i, gw)
+    out = capsys.readouterr().out
+    assert out.count("прогноз") == 1 and "SHOT_JUDGE_MAX_SPEND" in out
+    assert ps.SHOT_JUDGE_LOG[0]["cutoff_slot"] == 130
+
+
+def test_budget_forecast_silent_when_it_fits(monkeypatch, capsys):
+    class GW:
+        spend_cap, spent = 300000, 0
+    gw = GW()
+    monkeypatch.setattr(ps, "SHOT_JUDGE_EPISODE_SLOTS", 50)
+    monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "slots", set())
+    monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "warned", False)
+    for i in range(10):
+        gw.spent += 2300
+        ps._judge_budget_forecast(i, gw)
+    assert "прогноз" not in capsys.readouterr().out

@@ -5989,8 +5989,8 @@ def _score_and_pick(candidates_info, director_score_fn=None):
     этапе отбора). Стоит СРАЗУ после is_relevant, ДО aesthetic — та же
     логика приоритета, что и у extra Директора: "не размыто" важнее
     "красиво", но не важнее "по теме"/"не дубль"/"нужный размер"."""
-    base_best, base_score = None, (-1, -2, -1, -1, -1, -1, -100.0, -1.0, -1)
-    dir_best, dir_score = None, (-1, -2, -1, -1, -1, -100.0, -1, -100.0, -1.0, -1)
+    base_best, base_score = None, (-1, -2, -2, -1, -1, -1, -1, -100.0, -1.0, -1)
+    dir_best, dir_score = None, (-1, -2, -2, -1, -1, -1, -100.0, -1, -100.0, -1.0, -1)
     for c in candidates_info:
         sharp_ok = c.get("sharp_ok", 1)
         # rel_bucket — см. RELEVANCE_RANK_BUCKET: «насколько по теме» решает
@@ -6002,7 +6002,7 @@ def _score_and_pick(candidates_info, director_score_fn=None):
         # сам кадр с описанием кадра и рассуждает, а эмбеддинг сравнивает
         # числа. Судьи не было — у всех кандидатов одно и то же -1, порядок
         # остальных ключей байт-в-байт прежний.
-        score = (c["is_dup_free"], judge_rank(c), c["is_relevant"], c["size_ok"], sharp_ok,
+        score = (c["is_dup_free"], judge_rank(c), judge_tie_rank(c), c["is_relevant"], c["size_ok"], sharp_ok,
                  rel_bucket, c["aesthetic_val"], c["luma_score"], c["min_d"])
         if score > base_score:
             base_best, base_score = c, score
@@ -6021,7 +6021,7 @@ def _score_and_pick(candidates_info, director_score_fn=None):
             # У Директора своя, более сильная ось смысла (extra — relevance
             # ПОЛНОЙ фразы ансамблем), поэтому корзина relevance по запросу
             # стоит ПОСЛЕ неё: разбивает ничьи Директора до эстетики.
-            dscore = (c["is_dup_free"], judge_rank(c), c["is_relevant"], c["size_ok"], sharp_ok,
+            dscore = (c["is_dup_free"], judge_rank(c), judge_tie_rank(c), c["is_relevant"], c["size_ok"], sharp_ok,
                       extra, rel_bucket, c["aesthetic_val"], c["luma_score"], c["min_d"])
             if dscore > dir_score:
                 dir_best, dir_score = c, dscore
@@ -6036,7 +6036,7 @@ def _meaning_key(c):
     размытый победитель со «свежей» крупностью оставался на экране, если
     резкий кандидат того же смысла повторял крупность соседнего кадра, —
     ритм решал за смысл ровно там, где его место ниже."""
-    return (c["is_dup_free"], judge_rank(c), c["is_relevant"])
+    return (c["is_dup_free"], judge_rank(c), judge_tie_rank(c), c["is_relevant"])
 
 
 def _repick(candidates_info, failed, score_fn, director_assist, excluded, same_meaning):
@@ -11333,8 +11333,10 @@ def smart_relevance_veto(image_path, query):
 # ПОЧЕМУ ВЫШЕ ГЕЙТОВ ЭМБЕДДИНГА. Косинус картинки и текста не рассуждает:
 # современный нож и средневековый кинжал для него почти одно и то же, лук
 # у него «огнестрел» (живой случай эпизода 94). Судья на тех же кадрах
-# ставит современному ножу 0, подлинным кинжалам 3, и ни разу не принял
-# брак за годный (замер в shot_judge.py).
+# ставит современному ножу 0, подлинным кинжалам 3. Безошибочным он НЕ
+# является: на живом прогоне 23.09 он дал 3 мечу на «кинжал» и 2
+# наполеоновской кавалерии на «средневековая конница» — предел зрения
+# модели по эпохе (замер в shot_judge.py).
 #
 # ДЕНЬГИ. Флаг включён, но без LLM_GATEWAY_API_KEY судья не делает ничего:
 # ключ в .env — явное согласие владельца. Потолок расходов прогона —
@@ -11351,6 +11353,15 @@ SHOT_JUDGE_MIN_SCORE = 2       # 2 = «предмет тот, действие/�
 SHOT_JUDGE_MISSES = []         # слоты, где лучший кадр по оценке судьи — брак
 SHOT_JUDGE_LOG = []            # по вызову на попытку: оценки, цена, кэш, отказ
 _SHOT_JUDGE_STATE = {"gateway": None, "made": False, "refused": None}
+# Прогноз цены эпизода. Потолок срабатывает посреди ролика: дальше слоты
+# идут без судьи, и качество эпизода становится неровным — начало с судьёй,
+# хвост без. Замер (эпизод 94, 9 слотов): 20 832 токена баланса, ~2 300 на
+# слот; эпизод в 250 слотов — ~580 тыс. при потолке 300 тыс. Цена в код не
+# зашивается: после SHOT_JUDGE_FORECAST_AFTER оценённых слотов реальная
+# трата на слот экстраполируется на весь эпизод, и перерасход называется
+# ОДИН раз, в начале ролика, с числом и именем переменной.
+SHOT_JUDGE_EPISODE_SLOTS = 0   # число слотов эпизода, ставит main()
+SHOT_JUDGE_FORECAST_AFTER = 5
 
 
 def shot_judge_model():
@@ -11398,6 +11409,7 @@ def judge_candidates(index, kind, phrase, brief, candidates_info):
     возвращает True, если судья отработал по всему слоту."""
     for c in candidates_info:
         c["judge"] = None
+        c["judge_tie"] = None
     gw = _shot_judge_gateway()
     # У видео судья смотрит ленту из трёх кадров ролика (judge_path), у
     # фото — сам кадр.
@@ -11422,7 +11434,69 @@ def judge_candidates(index, kind, phrase, brief, candidates_info):
         return False
     for c in judged:
         c["judge"] = scores[str(c["p"].get("id"))]
+    _judge_top_tie(index, kind, phrase, brief, judged, gw, model, setting)
+    _judge_budget_forecast(index, gw)
     return True
+
+
+def _judge_budget_forecast(index, gw):
+    """Прогноз цены эпизода по уже потраченному; перерасход — одна громкая
+    строка и запись в журнал судьи. Прогноз по оценённым слотам, поэтому
+    при кэш-хитах он завышен — ошибка в сторону раннего предупреждения."""
+    st = _SHOT_JUDGE_STATE
+    st.setdefault("slots", set()).add(index)
+    n, total = len(st["slots"]), SHOT_JUDGE_EPISODE_SLOTS
+    cap = getattr(gw, "spend_cap", None)
+    if st.get("warned") or not cap or total <= 0 or n < SHOT_JUDGE_FORECAST_AFTER:
+        return
+    projected = int(gw.spent / n * total)
+    if projected <= cap:
+        return
+    st["warned"] = True
+    at = int(cap / max(gw.spent / n, 1))
+    print(f"  ВНИМАНИЕ: судья кадров — прогноз {projected} токенов баланса на эпизод "
+          f"({total} слотов, ~{gw.spent // n} на слот) при потолке {cap}: судья "
+          f"выключится примерно на слоте {at}, дальше кадры без него. Поднять "
+          f"потолок — SHOT_JUDGE_MAX_SPEND в .env.")
+    SHOT_JUDGE_LOG.append({"forecast": projected, "cap": cap, "slots": total,
+                           "per_slot": gw.spent // n, "cutoff_slot": at})
+
+
+def _judge_top_tie(index, kind, phrase, brief, judged, gw, model, setting):
+    """Ничья на высшей оценке — переспрос одной сеткой, в обратном порядке.
+
+    Оценки кандидатов из РАЗНЫХ сеток даны относительно разных соседей, и
+    одна оценка шумит: на стенде (36 кадров) повтор того же вопроса без
+    кэша давал верных пар 94/101/91, среднее двух прогонов — 106-111.
+    Живой случай (эпизод 94, «Вот кинжал»): рондельный кинжал Мет и меч
+    Pixabay оба получили 3, и ничью решили эмбеддинг и эстетика — в пользу
+    меча. Переспрашиваются только разделившие высшую оценку (одна сетка),
+    их вторая оценка — ключ сразу после первой (judge_tie_rank). Сбой
+    переспроса — ничья остаётся прежней, первые оценки не трогаются."""
+    import shot_judge
+    top = max(c["judge"] for c in judged)
+    tied = [c for c in judged if c["judge"] == top]
+    if top < SHOT_JUDGE_MIN_SCORE or len(tied) < 2:
+        return
+    tied = tied[:shot_judge.LAYOUTS[kind][2]]
+    rep = {}
+    again = shot_judge.judge(gw, model, phrase=phrase, brief=brief,
+                             candidates=[(str(c["p"].get("id")), c.get("judge_path") or c["path"])
+                                         for c in reversed(tied)],
+                             cache_dir=os.path.join(TEMP_FOLDER, "shot_judge_cache"), report=rep,
+                             kind=kind, setting=setting)
+    SHOT_JUDGE_LOG.append({"index": index, "kind": kind, "model": model, "brief": brief,
+                           "setting": setting, "tie_of": top, "scores": again, **rep})
+    if again is None:
+        return
+    for c in tied:
+        c["judge_tie"] = again[str(c["p"].get("id"))]
+
+
+def judge_tie_rank(c):
+    """Оценка переспроса ничьей на высшей оценке; не было — -1."""
+    v = c.get("judge_tie")
+    return v if isinstance(v, int) else -1
 
 
 def shot_judge_signature():
@@ -14999,7 +15073,7 @@ def check_ffmpeg_filters():
 
 
 def main():
-    global PEXELS_QUOTA_RESERVE
+    global PEXELS_QUOTA_RESERVE, SHOT_JUDGE_EPISODE_SLOTS
     if not os.path.exists(AUDIO_FILE):
         print(f"Аудио не найдено: {AUDIO_FILE}")
         return 1
@@ -15105,6 +15179,7 @@ def main():
         print(f"Реальный тайминг (alignment.csv): {known}/{len(blocks)} блоков")
     n_before = len(blocks)
     blocks, real_weights = split_long_blocks(blocks, real_weights)
+    SHOT_JUDGE_EPISODE_SLOTS = len(blocks)
     if len(blocks) != n_before:
         print(f"Sub-cuts: {n_before} -> {len(blocks)} блоков")
     # См. merge_short_phrase_locked_blocks() — PHRASE LOCK ветка строит
@@ -15334,7 +15409,7 @@ def main():
     RUN_JOURNAL.clear()
     selection_attempt.reset_attempt_ids()
     # Шлюз судьи и его потолок расходов — на прогон, а не на процесс.
-    _SHOT_JUDGE_STATE.update(gateway=None, made=False, refused=None)
+    _SHOT_JUDGE_STATE.update(gateway=None, made=False, refused=None, slots=set(), warned=False)
     SHOT_JUDGE_LOG.clear()
     # Каталоги попыток прерванного процесса — мусор: живых попыток при
     # старте нет, и в кэш такой файл не попадёт никогда.
