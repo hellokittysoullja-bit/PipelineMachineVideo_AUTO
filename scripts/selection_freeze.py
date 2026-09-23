@@ -122,6 +122,9 @@ _ENV_INDEX_RE = re.compile(r"""os\.environ\[\s*["']([A-Z][A-Z0-9_]+)["']\s*\]"""
 # record_verdict). Разрешается ровно одна форма; если в исходнике нашлись
 # две — это неоднозначность, и класс тоже «потерян», а не выбран наугад.
 _P, _V = ("PhotoAdapter.choose", "_select_photo", "pexels_photo"), ("_select_video", "pexels_video")
+# Видео в общем ядре (этап 3): те же классы ветвей, где они пережили
+# переписывание, — в методах VideoAdapter.
+_VA = ("VideoAdapter._pick",)
 
 
 def _forms(fns, *frags, occ=(1, 1)):
@@ -145,27 +148,62 @@ BRANCH_ANCHORS = (
     ("фото: победитель ниже порога", _forms(_P, 'record_verdict("relevance", {',
                                              "RELEVANCE_GATE_MISSES.append(")),
     ("фото: арбитр отказал всем", _forms(_P, 'record_verdict("arbiter", {', "ARBITER_REJECTED_ALL.append(")),
-    ("видео: кэш-хит", _forms(_V, "register_cached_media(cf, used_ids=used_ids")),
-    ("видео: фильтр длины отсеял", _forms(_V, "VIDEO_TOO_SHORT_FILTERED.append(")),
+    ("фото: судья не одобрил победителя", _forms(_P, 'record_verdict("judge", {')),
+    ("видео: кэш-хит", _forms(_V, "register_cached_media(cf, used_ids=used_ids")
+     + _forms(("VideoAdapter.cache_hit",), "register_cached_media(cf, used_ids=request.used_video_ids")),
+    ("видео: кэш-хит отвергнут как повтор", _forms(("VideoAdapter.cache_hit",),
+                                                   "            return None")),
+    ("видео: фильтр длины отсеял", _forms(_V + ("VideoAdapter.filter_pool",),
+                                          "VIDEO_TOO_SHORT_FILTERED.append(")),
+    ("видео: оценено по превью", _forms(("VideoAdapter.choose",), "candidates_info.append({")),
+    ("видео: превью не скачалось", _forms(("VideoAdapter.choose",),
+                                          '_source_bump(candidate_channel(v), "download_errors")')),
+    ("видео: ре-пик после скачивания", _forms(_VA, "repicks += 1")),
+    ("видео: судья не одобрил победителя", _forms(_VA, 'record_verdict("judge", {')),
     ("видео: есть прошедшие гейт", _forms(_V, "        if good:")),
     ("видео: запасной — релевантный дубль", _forms(_V, 'dup_fallback = (trial, v.get("id"), cand_hash)')),
     ("видео: запасной — первый скачанный", _forms(_V, 'plain_fallback = (trial, v.get("id"), cand_hash)')),
-    ("видео: арбитр отказал всем", _forms(_V, 'record_verdict("arbiter", {', "ARBITER_REJECTED_ALL.append(")),
+    ("видео: арбитр отказал всем", _forms(_V + _VA, 'record_verdict("arbiter", {', "ARBITER_REJECTED_ALL.append(")),
     ("видео: ре-пик вето", _forms(_V, "veto_repicks += 1")),
     ("видео: вето отклонило всех (основной путь)", _forms(
         _V, 'record_verdict("smart_veto", {"index": index, "query": query, "kind": "video"})',
-        'SMART_VETO_MISSES.append({"index": index, "query": query, "kind": "video"})', occ=(1, 2))),
+        'SMART_VETO_MISSES.append({"index": index, "query": query, "kind": "video"})', occ=(1, 2))
+     + _forms(_VA, 'record_verdict("smart_veto", {"index": index, "query": query, "kind": "video"})')),
     ("видео: вето отклонило всех (запасной путь)", _forms(
         _V, 'record_verdict("smart_veto", {"index": index, "query": query, "kind": "video"})',
         'SMART_VETO_MISSES.append({"index": index, "query": query, "kind": "video"})', occ=(2, 2))),
     ("видео: второй запасной принят", _forms(_V, "взят второй запасной")),
-    ("видео: победитель ниже порога", _forms(_V, 'record_verdict("relevance", {',
+    ("видео: победитель ниже порога", _forms(_V + _VA, 'record_verdict("relevance", {',
                                               "RELEVANCE_GATE_MISSES.append(")),
-    ("видео: сток исчерпан", _forms(_V, 'record_verdict("stock", {', "STOCK_EXHAUSTED_MISSES.append(")),
+    ("видео: сток исчерпан", _forms(_V + _VA, 'record_verdict("stock", {', "STOCK_EXHAUSTED_MISSES.append(")),
     ("слот: видео заменено фото", _forms(("main",), "VIDEO_RESCUED_BY_PHOTO.append(")),
     ("слот: поглощён", _forms(("main",), "ABSORBED_SLOTS.append(")),
 )
 TRACED_FUNCTIONS = tuple(sorted({fn for _cls, forms in BRANCH_ANCHORS for fn, _f, _o in forms}))
+
+# Ветви, существующие только в одной ревизии видео-отбора. Переписывание
+# видео (этап 3) убрало ветви прежнего добытчика (запасные ярусы, отдельный
+# цикл вето) и принесло свои (оценка по превью, судья). Класс чужой ревизии —
+# «ветви нет в этой ревизии», а не «якорь потерян»: потерянный якорь
+# означает, что правка кода незаметно сдвинула ветку, и роняет тест.
+# Ревизия узнаётся по коду, а не объявляется: есть VideoAdapter._pick — ядро.
+ANCHOR_REVISION = {
+    "видео: есть прошедшие гейт": "legacy",
+    "видео: запасной — релевантный дубль": "legacy",
+    "видео: запасной — первый скачанный": "legacy",
+    "видео: ре-пик вето": "legacy",
+    "видео: вето отклонило всех (запасной путь)": "legacy",
+    "видео: второй запасной принят": "legacy",
+    "видео: кэш-хит отвергнут как повтор": "engine",
+    "видео: оценено по превью": "engine",
+    "видео: превью не скачалось": "engine",
+    "видео: ре-пик после скачивания": "engine",
+    "видео: судья не одобрил победителя": "engine",
+}
+
+
+def video_revision(funcs):
+    return "engine" if "VideoAdapter._pick" in funcs else "legacy"
 
 
 # ------------------------------------------------------------------ окружение
@@ -480,7 +518,9 @@ ATTEMPT_FIELDS = {
               "text_key", "arbiter_text", "is_opening", "shot_brief", "block_text"),
     "video": ("query", "index", "used_video_ids", "used_hashes", "action_qualifier",
               "extra_queries", "video_score_fn", "text_key", "arbiter_text", "is_opening",
-              "recent_sizes", "slot_dur", "shot_brief"),
+              "recent_sizes", "slot_dur", "shot_brief",
+              # читаются с этапа 3 (судья видит фразу; Режиссёр решает, как у фото)
+              "block_text", "director_assist"),
 }
 
 
@@ -577,7 +617,11 @@ def _anchor_lines(src_lines, tree):
             if isinstance(m, ast.FunctionDef):
                 funcs[f"{cls.name}.{m.name}"] = m
     out = {}
+    revision = video_revision(funcs)
     for cls, forms in BRANCH_ANCHORS:
+        if ANCHOR_REVISION.get(cls, revision) != revision:
+            out[cls] = {"absent": f"ветви нет в этой ревизии видео-отбора ({revision})"}
+            continue
         resolved, notes = [], []
         for fname, frag, (nth, total) in forms:
             node = funcs.get(fname)
@@ -609,6 +653,8 @@ def coverage_from(source, hits):
     for cls, a in anchors.items():
         if "error" in a:
             cov[cls] = {"state": "якорь потерян", "detail": a["error"]}
+        elif "absent" in a:
+            cov[cls] = {"state": "нет в ревизии", "detail": a["absent"]}
         else:
             hit = a["line"] in set(hits.get(a["function"], ()))
             cov[cls] = {"state": "покрыто" if hit else "НЕ покрыто", "line": a["line"]}
@@ -669,32 +715,44 @@ def install_pool_capture(pipeline_smart, path):
 
     Кандидат сохраняется компактно (id, канал, текст, адрес превью и нужные
     для скачивания заголовки) — полный объект источника не нужен и весит
-    мегабайты. Код без ядра отбора (до этапа 2) пулов не отдаёт: файла нет."""
-    adapter = getattr(pipeline_smart, "PHOTO_ADAPTER", None)
-    if adapter is None:
-        return False
+    мегабайты. Пулы отдают адаптеры ядра: фото с этапа 2, видео с этапа 3;
+    код без ядра пулов не отдаёт — файла нет."""
     ps = pipeline_smart
-    original = adapter.choose
+    adapters = [a for a in (getattr(ps, "PHOTO_ADAPTER", None), getattr(ps, "VIDEO_ADAPTER", None))
+                if a is not None]
+    if not adapters:
+        return False
     lock = threading.Lock()
 
-    def choose(request, pool, cf):
-        rows = []
-        for c in pool:
-            rows.append({
-                "id": c.get("id"), "channel": ps.candidate_channel(c),
-                "via": c.get("_origin_query"),
-                "text": (ps.pexels_candidate_text(c) or "")[:300],
-                "probe_url": ps.candidate_probe_url(c),
-                "headers": c.get("_download_headers") or {},
-            })
-        rec = {"index": request.index, "kind": adapter.kind, "query": request.query,
-               "extra_queries": list(request.extra_queries), "shot_brief": request.shot_brief,
-               "block_text": request.block_text, "pool": rows}
-        with lock, open(path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-        return original(request, pool, cf)
+    def wrap(adapter):
+        original = adapter.choose
 
-    adapter.choose = choose
+        def probe_url(c):
+            if adapter.kind == "photo":
+                return ps.candidate_probe_url(c)
+            urls = ps.video_preview_urls(c)   # середина — кадр, по которому судят гейты
+            return urls[len(urls) // 2] if urls else None
+
+        def choose(request, pool, cf):
+            rows = []
+            for c in pool:
+                rows.append({
+                    "id": c.get("id"), "channel": ps.candidate_channel(c),
+                    "via": c.get("_origin_query"),
+                    "text": (ps.pexels_candidate_text(c) or "")[:300],
+                    "probe_url": probe_url(c),
+                    "headers": c.get("_download_headers") or {},
+                })
+            rec = {"index": request.index, "kind": adapter.kind, "query": request.query,
+                   "extra_queries": list(request.extra_queries), "shot_brief": request.shot_brief,
+                   "block_text": request.block_text, "pool": rows}
+            with lock, open(path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            return original(request, pool, cf)
+        adapter.choose = choose
+
+    for a in adapters:
+        wrap(a)
     return True
 
 
@@ -784,17 +842,24 @@ def parse_expect(expect):
     {"slots":      {"3": "причина"},              — слот ОБЯЗАН разойтись;
      "reports":    {"run_journal.jsonl": "причина"}, — отчёт ОБЯЗАН разойтись;
      "returncode": "причина",                     — код возврата ОБЯЗАН измениться;
-     "attempt_fields": {"shot_brief": "причина"}} — поле запроса попытки,
+     "attempt_fields": {"shot_brief": "причина"}, — поле запроса попытки,
                                                     которое этап вправе менять
                                                     (см. compare: причина слота
-                                                    «ЗАПРОС ПОПЫТКИ ИЗМЕНИЛСЯ»).
+                                                    «ЗАПРОС ПОПЫТКИ ИЗМЕНИЛСЯ»);
+     "signature":  "причина",                     — подпись отбора сменилась:
+                                                    имена файлов кэша сверяются
+                                                    без неё;
+     "rewritten_kinds": {"video": "причина"}}     — вид медиа переписан
+                                                    целиком (см. compare:
+                                                    «ВИД ПЕРЕПИСАН»).
     Плоский словарь {"3": "причина"} — прежняя форма, только слоты.
 
     Остальные слоты «ниже по течению» автор не перечисляет: харнесс сам
     видит, у каких слотов изменился ВХОД (общее состояние на начало слота) и
     в каких журнал показывает утечку по старой семантике, — см. compare()."""
     expect = expect or {}
-    if not ({"slots", "reports", "returncode", "attempt_fields"} & set(expect)):
+    if not ({"slots", "reports", "returncode", "attempt_fields", "signature",
+             "rewritten_kinds"} & set(expect)):
         expect = {"slots": expect}
     must = {}
     for k, v in (expect.get("slots") or {}).items():
@@ -809,6 +874,68 @@ def parse_expect(expect):
         if not isinstance(v, str) or not v.strip():
             raise ValueError(f"поле попытки {k}: причина обязана быть непустой строкой")
     return must, dict(expect.get("reports") or {}), rc, fields
+
+
+def parse_expect_ext(expect):
+    """Ожидания, добавленные этапом 3: смена подписи отбора и переписанный
+    вид медиа. Отдельно от parse_expect, чтобы прежние вызовы не менялись."""
+    expect = expect or {}
+    sig = expect.get("signature")
+    if sig is not None and (not isinstance(sig, str) or not sig.strip()):
+        raise ValueError("signature: причина обязана быть непустой строкой")
+    kinds = dict(expect.get("rewritten_kinds") or {})
+    for k, v in kinds.items():
+        if k not in ("photo", "video"):
+            raise ValueError(f"rewritten_kinds: неизвестный вид медиа {k!r}")
+        if not isinstance(v, str) or not v.strip():
+            raise ValueError(f"rewritten_kinds.{k}: причина обязана быть непустой строкой")
+    return sig, kinds
+
+
+# Имя файла кэша кончается подписью отбора: <слот>_<запрос>_<подпись>.<ext>.
+_CACHE_SIG_RE = re.compile(r"_[0-9a-f]{10}(\.[A-Za-z0-9]+)$")
+
+
+def shot_diff(x, y, signature_changed):
+    """Поля кадра, в которых прогоны разошлись. При объявленной смене
+    подписи имя файла кэша сверяется без неё, а имя клипа (оно выводится из
+    пути файла) — только если сам файл разошёлся: тот же файл с теми же
+    байтами под другой подписью — тот же кадр."""
+    diff = [k for k in SHOT_FIELDS if x.get(k) != y.get(k)]
+    if not signature_changed:
+        return diff
+    fa, fb = (_CACHE_SIG_RE.sub(r"_<sig>\1", v.get("file") or "") for v in (x, y))
+    if "file" in diff and fa == fb:
+        diff.remove("file")
+    if "clip" in diff and "file" not in diff and "file_sha256" not in diff:
+        diff.remove("clip")
+    return diff
+
+
+def rewritten_slot(xa, xb, shot_a, shot_b, kinds):
+    """Слот, где решал переписанный вид медиа.
+
+    Возвращает (затронут ли слот, обязан ли совпасть). Слот затронут, если
+    хоть в одном прогоне в нём была попытка переписанного вида. Обязан
+    совпасть он, если в обоих прогонах на экране кадр НЕ переписанного вида
+    и попытка, давшая его, получила одинаковый запрос: тогда переписанная
+    попытка только проиграла, и её переписывание не может менять исход.
+    Так харнесс не превращает «вид переписан» в разрешение на любое
+    расхождение слота."""
+    kinds_a = {e.get("kind") for e in (xa or [])}
+    kinds_b = {e.get("kind") for e in (xb or [])}
+    if not ((kinds_a | kinds_b) & set(kinds)):
+        return False, False
+    ka, kb = (shot_a or {}).get("kind"), (shot_b or {}).get("kind")
+    if ka is None or kb is None or ka in kinds or kb in kinds or ka != kb:
+        return True, False
+    last_a = next((e for e in reversed(xa or []) if e.get("kind") == ka), None)
+    last_b = next((e for e in reversed(xb or []) if e.get("kind") == kb), None)
+    if last_a is None or last_b is None:
+        return True, False
+    fa, fb = last_a.get("fields") or {}, last_b.get("fields") or {}
+    same = all(fa[f] == fb[f] for f in set(fa) & set(fb))
+    return True, same
 
 
 def journal_leak_slots(result):
@@ -947,18 +1074,20 @@ def compare(a, b, expect=None):
     только в слотах, у которых есть причина (ожидание, изменившийся вход,
     утечка) — по меткам слотов обоих прогонов."""
     must, rep_expect, rc_expect, field_expect = parse_expect(expect)
+    sig_expect, kind_expect = parse_expect_ext(expect)
     aa, ab = a.get("slot_attempts") or {}, b.get("slot_attempts") or {}
     leaks = journal_leak_slots(b)
     ia, ib = a.get("slot_inputs") or {}, b.get("slot_inputs") or {}
     sa = {s["index"]: s for s in a.get("shots", [])}
     sb = {s["index"]: s for s in b.get("shots", [])}
     slots, allowed = [], set(must) | leaks
+    rewritten_touched, rewritten_changed = [], []
     for i in sorted(set(sa) | set(sb)):
         x, y = sa.get(i), sb.get(i)
         if x is None or y is None:
             diff = ["слот отсутствует в одном из прогонов"]
         else:
-            diff = [k for k in SHOT_FIELDS if x.get(k) != y.get(k)]
+            diff = shot_diff(x, y, bool(sig_expect))
         xin, yin = ia.get(str(i)), ib.get(str(i))
         changed_in = sorted(n for n in set(xin or {}) | set(yin or {})
                             if (xin or {}).get(n) != (yin or {}).get(n)) if (xin and yin) else []
@@ -968,6 +1097,12 @@ def compare(a, b, expect=None):
         declared_att = bool(changed_att) and changed_att <= set(field_expect)
         if declared_att:
             allowed.add(i)
+        touched, must_match = rewritten_slot(aa.get(str(i)), ab.get(str(i)), x, y, kind_expect)
+        if touched:
+            allowed.add(i)      # сеть слота законно другая: переписанная попытка ходит иначе
+            rewritten_touched.append(i)
+            if diff:
+                rewritten_changed.append(i)
         reason = None
         if i in must:
             klass = "ОЖИДАЕМО РАЗОШЁЛСЯ" if diff else "НЕОЖИДАННО СОВПАЛ"
@@ -980,6 +1115,9 @@ def compare(a, b, expect=None):
         elif declared_att:
             klass = "ЗАПРОС ПОПЫТКИ ИЗМЕНИЛСЯ"
             reason = "; ".join(f"{f}: {field_expect[f]}" for f in sorted(changed_att))
+        elif touched and not must_match:
+            klass = "ВИД ПЕРЕПИСАН"
+            reason = "; ".join(f"{k}: {v}" for k, v in sorted(kind_expect.items()))
         elif i in leaks:
             klass = "УТЕЧКА УСТРАНЕНА"
             reason = "в слоте была утечка старой семантики (журнал)"
@@ -1004,12 +1142,14 @@ def compare(a, b, expect=None):
             # и победители те же) И новый счёт сходится с экраном.
             ok_b, diff_b = contribution_vs_screen(b)
             ok_a, diff_a = contribution_vs_screen(a)
-            slots_moved = any(s["class"] not in ("СОВПАЛ", "РАЗОШЁЛСЯ") and s["fields"]
-                              for s in slots)
+            # Переписанный вид меняет счёт «предложено/рассмотрено» и там,
+            # где его попытка проиграла, — это тоже законная причина.
+            slots_moved = (any(s["class"] not in ("СОВПАЛ", "РАЗОШЁЛСЯ") and s["fields"]
+                               for s in slots) or bool(rewritten_touched))
             reports[name] = {"a": ra, "b": rb, "expected_reason": None,
                              "won_vs_screen": {"a": diff_a, "b": diff_b}}
             if slots_moved and ok_b:
-                reports[name]["expected_reason"] = ("сменились победители слотов с причиной; "
+                reports[name]["expected_reason"] = ("сменились слоты с причиной; "
                                                     "побед у источников = кадров на экране")
             else:
                 reports_bad.append(name)
@@ -1051,14 +1191,20 @@ def compare(a, b, expect=None):
     # Счёт источников в шапке гейтов — копия сводного отчёта, судится вместе
     # с ним (выше); остальная шапка обязана совпасть.
     gates_differ = _gates_sans_contribution(a) != _gates_sans_contribution(b)
+    # Объявленное переписывание обязано быть наблюдаемым: вид переписан, а
+    # ни один слот с его попыткой не изменился — либо правка не доехала до
+    # испытуемого кода, либо эпизод её не задевает; оба случая — не приёмка.
+    rewrite_unseen = bool(kind_expect) and not rewritten_changed
     ok = (not bad and not reports_bad and not net_bad and not div_bad and not clock_bad
-          and not gates_differ and rc_ok)
+          and not gates_differ and rc_ok and not rewrite_unseen)
     return {"ok": ok, "slots": slots, "reports_differ": reports, "reports_unexpected": reports_bad,
             "gates_differ": gates_differ,
             "returncode": [a.get("returncode"), b.get("returncode")],
             "net_calls_differ": net_diff, "net_unexpected": net_bad,
             "replay_divergences": divergences, "divergences_unexpected": div_bad,
-            "clock_divergences": clock_bad, "leak_slots": sorted(leaks)}
+            "clock_divergences": clock_bad, "leak_slots": sorted(leaks),
+            "rewritten_slots": rewritten_touched, "rewritten_changed": rewritten_changed,
+            "rewrite_unseen": rewrite_unseen}
 
 
 def print_report(rep, a, b):
@@ -1076,6 +1222,13 @@ def print_report(rep, a, b):
         first = first.get("key") if isinstance(first, dict) else first
         print(f"\nрешения по часам вне записи и вне слотов с причиной: "
               f"{len(rep['clock_divergences'])} (первое: {first})")
+    if rep.get("rewritten_slots"):
+        print(f"\nпереписанный вид: попытки в слотах "
+              f"{', '.join(str(i + 1) for i in rep['rewritten_slots'])}; изменились "
+              f"{', '.join(str(i + 1) for i in rep['rewritten_changed']) or 'НИ ОДИН'}")
+    if rep.get("rewrite_unseen"):
+        print("    ПЕРЕПИСЫВАНИЕ НЕ НАБЛЮДАЕТСЯ: ни один слот с попыткой переписанного "
+              "вида не изменился — правка не доехала до испытуемого кода или эпизод её не задевает")
     print(f"\nшапка гейтов: {'РАЗОШЛАСЬ' if rep['gates_differ'] else 'совпала'}")
     print(f"коды возврата: {rep['returncode'][0]} / {rep['returncode'][1]}")
     print(f"отчёты отбора: {'разошлись: ' + ', '.join(rep['reports_differ']) if rep['reports_differ'] else 'совпали'}")
