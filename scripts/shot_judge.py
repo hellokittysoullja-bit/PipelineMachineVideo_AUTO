@@ -287,3 +287,88 @@ def judge(gateway, model, *, phrase, brief, candidates, cache_dir=None, report=N
         for k, (cid, _p) in enumerate(chunk, start=1):
             result[cid] = scores[k]
     return result
+
+
+# ПРОВЕРКА МИРА ПОБЕДИТЕЛЯ — узкий вопрос по ОДНОМУ кадру. Шкала в сетке
+# одобряет кадры чужой эпохи и с современными вещами стабильно, во всех
+# прогонах (марокканское конное шоу, реконструкция Гражданской войны США,
+# видео со стрелами в табличках «HOMEWORK»). Тот же вопрос по одному
+# кадру — «может ли то, что на нём, существовать в мире эпизода» — модель
+# видит: называет тбуриду с баннерами Coca-Cola, мундиры XIX-XX века.
+# Замер 23.09 (36 размеченных кадров эпизода 94, два прогона без кэша,
+# совпадение ответов 32 из 36): брак (0) проходит 1-2 из 13, «не тот
+# предмет/эпоха/культура» (1) — 5 из 16, годные (2) — 3-4 из 7 (два из
+# отклонённых годных — рыцарский турнир с современными зрителями). Из
+# семи кадров, которые сетка одобряла во всех прогонах, отклонены шесть.
+# Цена — ~200 токенов баланса на кадр. Вопрос — ровно замеренный (второй
+# пункт про предмет в нём остаётся ради тождества замеру, но не читается:
+# он требует точной композиции и отклоняет годные).
+WORLD_CHECK_VERSION = 1
+WORLD_PROMPT = """You check one shot for a documentary video.
+Narration line: «{phrase}»
+Required shot: «{brief}»
+The episode's world: {setting}.
+Look at the picture carefully and answer two questions:
+1. world: does it show anything that could NOT exist in that world — modern people, modern clothing or haircuts, modern objects or vehicles, printed text or signs, spectators of a modern show, or a different era or culture?
+2. subject: is the main subject the kind of thing the required shot asks for?
+Reply with JSON only: {{"world_ok": true/false, "subject_ok": true/false, "why": "<short>"}}"""
+WORLD_VIDEO_NOTE = "\nThe picture shows three frames (beginning, middle, end) of ONE video clip."
+
+
+def parse_world(text):
+    """(True/False, почему) или (None, None) — ответ не разобран."""
+    import re
+    m = re.search(r"\{.*\}", text or "", re.S)
+    if not m:
+        return None, None
+    try:
+        j = json.loads(m.group(0))
+    except ValueError:
+        return None, None
+    ok = j.get("world_ok")
+    return (ok, str(j.get("why") or "")[:300]) if isinstance(ok, bool) else (None, None)
+
+
+def world_check(gateway, model, *, phrase, brief, setting, path, kind="photo", cache_dir=None):
+    """(True — мир не нарушен / False — нарушен / None — проверки не было,
+    почему, {"cost", "call", "cache_hit"}). Без строки мира не спрашивает:
+    «чужая эпоха» без мира не определена."""
+    if not setting or gateway is None or not path or not os.path.exists(path):
+        return None, None, {}
+    text = WORLD_PROMPT.format(phrase=phrase or "—", brief=brief or phrase or "—", setting=setting)
+    if kind == "video":
+        text += WORLD_VIDEO_NOTE
+    h = hashlib.sha256()
+    for part in ("world", str(WORLD_CHECK_VERSION), model, text, _file_digest(path)):
+        h.update(part.encode("utf-8"))
+        h.update(b"\0")
+    cp = os.path.join(cache_dir, "world_" + h.hexdigest() + ".json") if cache_dir else None
+    if cp and os.path.exists(cp):
+        try:
+            c = json.load(open(cp, encoding="utf-8"))
+            return c["ok"], c["why"], {"cache_hit": True}
+        except Exception:
+            pass
+    from PIL import Image
+    try:
+        with Image.open(path) as im:
+            im = flat_rgb(im)
+        im.thumbnail((1024, 1024))
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=88)
+    except Exception:
+        return None, None, {}
+    content = [{"type": "text", "text": text}, {"type": "image_url", "image_url": {
+        "url": "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()}}]
+    try:
+        answer, _u, price = gateway.chat(model, content, 400, 1200)
+    except Exception as e:  # noqa: BLE001 — сбой шлюза: проверки не было
+        return None, None, {"refused": f"{type(e).__name__}: {e}"[:200]}
+    ok, why = parse_world(answer)
+    if ok is not None and cp:
+        os.makedirs(cache_dir, exist_ok=True)
+        tmp = f"{cp}.{os.getpid()}.{threading.get_ident()}.part"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"ok": ok, "why": why, "model": model}, f, ensure_ascii=False)
+        os.replace(tmp, cp)
+    return ok, why, {"cost": price, "call": True}

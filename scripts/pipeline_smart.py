@@ -8063,7 +8063,9 @@ class PhotoAdapter(selection_engine.MediaAdapter):
         vetoed = set()
         while True:
             file_ok = _downloaded_ok(cf)
-            if file_ok and (judge_approved(winner) or not smart_relevance_veto(cf, query)):
+            world_bad = file_ok and judge_world_violation(index, "photo", request, cf)
+            if file_ok and not world_bad and (
+                    judge_approved(winner) or not smart_relevance_veto(cf, query)):
                 break
             nxt = None
             if winner is not None and veto_repicks < VETO_REPICK_MAX:
@@ -11696,6 +11698,32 @@ def _judge_top_tie(index, kind, phrase, brief, judged, gw, model, setting):
         c["judge_tie"] = again[str(c["p"].get("id"))]
 
 
+def judge_world_violation(index, kind, request, path):
+    """True — судья по ОДНОМУ кадру видит в нём то, чего не может быть в мире
+    эпизода (shot_judge.world_check: замер и почему не шкалой в сетке).
+    Нет судьи, нет паспорта мира, сбой, потолок — False: проверки не было,
+    кадр не бракуется."""
+    if not shot_judge_active():
+        return False
+    gw = _shot_judge_gateway()
+    if gw is None:
+        return False
+    import shot_judge
+    import world_card
+    setting = world_card.judge_setting(episode_world_card())
+    ok, why, info = shot_judge.world_check(
+        gw, shot_judge_model(), phrase=request.block_text,
+        brief=request.shot_brief or request.query, setting=setting, path=path, kind=kind,
+        cache_dir=os.path.join(TEMP_FOLDER, "shot_judge_cache"))
+    if ok is None and not info:
+        return False
+    SHOT_JUDGE_LOG.append({"index": index, "kind": kind, "model": shot_judge_model(),
+                           "world_ok": ok, "why": why, "setting": setting, **info})
+    if ok is False:
+        print(f"  слот {index}: проверка мира отклонила кадр — {why}")
+    return ok is False
+
+
 def judge_tie_rank(c):
     """Оценка переспроса ничьей на высшей оценке; не было — -1."""
     v = c.get("judge_tie")
@@ -11716,7 +11744,8 @@ def shot_judge_signature():
         return ""
     import shot_judge
     return repr(("judge", shot_judge_model(), shot_judge.PROMPT_VERSION, SHOT_JUDGE_MIN_SCORE,
-                 "tie", "cascade", cascade_preview_n(), "readable",
+                 "tie", "cascade", cascade_preview_n(), "world", shot_judge.WORLD_CHECK_VERSION,
+                 "readable",
                  UNREADABLE_DARK_LEVEL, UNREADABLE_DARK_SHARE))
 
 
@@ -13822,6 +13851,9 @@ class VideoAdapter(selection_engine.MediaAdapter):
             elif video_sharpness_ok(cf) is False:
                 reason = "sharpness"
                 winner["sharp_ok"] = 0
+            elif judge_world_violation(index, "video", request, winner.get("judge_path")):
+                reason = "world"
+                winner["is_relevant"] = 0
             elif not judge_approved(winner) and video_smart_relevance_veto(cf, query):
                 reason = "smart_veto"
                 winner["is_relevant"] = 0
