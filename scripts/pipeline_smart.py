@@ -5989,8 +5989,8 @@ def _score_and_pick(candidates_info, director_score_fn=None):
     этапе отбора). Стоит СРАЗУ после is_relevant, ДО aesthetic — та же
     логика приоритета, что и у extra Директора: "не размыто" важнее
     "красиво", но не важнее "по теме"/"не дубль"/"нужный размер"."""
-    base_best, base_score = None, (-1, -2, -2, -1, -1, -1, -1, -100.0, -1.0, -1)
-    dir_best, dir_score = None, (-1, -2, -2, -1, -1, -1, -100.0, -1, -100.0, -1.0, -1)
+    base_best, base_score = None, (-1, -1, -2, -2, -1, -1, -1, -1, -100.0, -1.0, -1)
+    dir_best, dir_score = None, (-1, -1, -2, -2, -1, -1, -1, -100.0, -1, -100.0, -1.0, -1)
     for c in candidates_info:
         sharp_ok = c.get("sharp_ok", 1)
         # rel_bucket — см. RELEVANCE_RANK_BUCKET: «насколько по теме» решает
@@ -6002,7 +6002,7 @@ def _score_and_pick(candidates_info, director_score_fn=None):
         # сам кадр с описанием кадра и рассуждает, а эмбеддинг сравнивает
         # числа. Судьи не было — у всех кандидатов одно и то же -1, порядок
         # остальных ключей байт-в-байт прежний.
-        score = (c["is_dup_free"], judge_rank(c), judge_tie_rank(c), c["is_relevant"], c["size_ok"], sharp_ok,
+        score = (c["is_dup_free"], c.get("is_readable", 1), judge_rank(c), judge_tie_rank(c), c["is_relevant"], c["size_ok"], sharp_ok,
                  rel_bucket, c["aesthetic_val"], c["luma_score"], c["min_d"])
         if score > base_score:
             base_best, base_score = c, score
@@ -6021,7 +6021,7 @@ def _score_and_pick(candidates_info, director_score_fn=None):
             # У Директора своя, более сильная ось смысла (extra — relevance
             # ПОЛНОЙ фразы ансамблем), поэтому корзина relevance по запросу
             # стоит ПОСЛЕ неё: разбивает ничьи Директора до эстетики.
-            dscore = (c["is_dup_free"], judge_rank(c), judge_tie_rank(c), c["is_relevant"], c["size_ok"], sharp_ok,
+            dscore = (c["is_dup_free"], c.get("is_readable", 1), judge_rank(c), judge_tie_rank(c), c["is_relevant"], c["size_ok"], sharp_ok,
                       extra, rel_bucket, c["aesthetic_val"], c["luma_score"], c["min_d"])
             if dscore > dir_score:
                 dir_best, dir_score = c, dscore
@@ -6036,7 +6036,7 @@ def _meaning_key(c):
     размытый победитель со «свежей» крупностью оставался на экране, если
     резкий кандидат того же смысла повторял крупность соседнего кадра, —
     ритм решал за смысл ровно там, где его место ниже."""
-    return (c["is_dup_free"], judge_rank(c), judge_tie_rank(c), c["is_relevant"])
+    return (c["is_dup_free"], c.get("is_readable", 1), judge_rank(c), judge_tie_rank(c), c["is_relevant"])
 
 
 def _repick(candidates_info, failed, score_fn, director_assist, excluded, same_meaning):
@@ -7798,6 +7798,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                         pass
                 candidates_info.append({
                     "path": trial, "p": p, "is_dup_free": is_dup_free, "size_ok": size_ok,
+                    "is_readable": frame_readable(trial),
                     "is_relevant": is_relevant, "sharp_ok": sharp_ok, "aesthetic_val": aesthetic_val,
                     "luma_score": luma_score, "min_d": min_d, "relevance": relevance,
                 })
@@ -11542,6 +11543,37 @@ def cascade_reorder(candidates, text, cf, probe_fn, index=None, batch=16):
     return ranked + [p for p in head if id(p) not in seen] + list(candidates[n:])
 
 
+# ЧИТАЕМОСТЬ КАДРА — ФИЗИКА, А НЕ СМЫСЛ. Судья оценивает кадр по описанию
+# буквально и не проверяет, виден ли предмет: живой случай (эпизод 94,
+# «Но именно он решал исход поединка», бриф «...sharp point catching
+# light») — высшую оценку 3 получил почти чёрный кадр с тонким бликом
+# иглы: средняя яркость 16 из 255, 93% пикселей почти чёрные. Гейты
+# эмбеддинга (и прежняя яркостная проверка видео) стоят в ранжировании
+# НИЖЕ оценки судьи, поэтому такой кадр побеждал. Ключ читаемости стоит
+# ВЫШЕ судьи и нечитаемые кадры судье не показываются.
+# Порог — физический и с запасом, а не подгонка: на золотом наборе
+# (40 размеченных кадров опубликованного эпизода) самый тёмный ГОДНЫЙ
+# кадр — 56% почти чёрных пикселей (осознанно тёмный грейд канала), брак
+# в эпизоде 94 — 93%; порог 85% не задевает ни одного годного и
+# терпимого кадра.
+UNREADABLE_DARK_LEVEL = 25
+UNREADABLE_DARK_SHARE = 0.85
+
+
+def frame_readable(path):
+    """1 — на кадре что-то видно, 0 — кадр почти целиком чёрный. Сбой
+    чтения — 1: не проверили, значит не бракуем."""
+    try:
+        with PILImage.open(path) as im:
+            g = im.convert("L")
+            g.thumbnail((256, 256))
+            h = g.histogram()
+        n = sum(h)
+        return 0 if n and sum(h[:UNREADABLE_DARK_LEVEL]) / n >= UNREADABLE_DARK_SHARE else 1
+    except Exception:
+        return 1
+
+
 def judge_rank(c):
     """Ключ ранжирования по оценке судьи; нет оценки — -1."""
     v = c.get("judge")
@@ -11558,7 +11590,8 @@ def judge_candidates(index, kind, phrase, brief, candidates_info):
     # У видео судья смотрит ленту из трёх кадров ролика (judge_path), у
     # фото — сам кадр.
     judged = [c for c in candidates_info
-              if c.get("is_dup_free") and os.path.exists(c.get("judge_path") or c["path"])]
+              if c.get("is_dup_free") and c.get("is_readable", 1)
+              and os.path.exists(c.get("judge_path") or c["path"])]
     if gw is None or not judged:
         return False
     import shot_judge
@@ -11657,7 +11690,8 @@ def shot_judge_signature():
         return ""
     import shot_judge
     return repr(("judge", shot_judge_model(), shot_judge.PROMPT_VERSION, SHOT_JUDGE_MIN_SCORE,
-                 "tie", "cascade", cascade_preview_n()))
+                 "tie", "cascade", cascade_preview_n(), "readable",
+                 UNREADABLE_DARK_LEVEL, UNREADABLE_DARK_SHARE))
 
 
 def shot_judge_active():
@@ -13681,6 +13715,7 @@ class VideoAdapter(selection_engine.MediaAdapter):
             strip = video_strip(frames, cf + f".strip_{candidate_path_token(v)}.jpg")
             candidates_info.append({
                 "path": mid, "judge_path": strip, "frames": frames, "p": v, "hash": h,
+                "is_readable": frame_readable(mid),
                 "is_dup_free": 1 if min_d > PHOTO_DEDUP_HAMMING else 0, "size_ok": size_ok,
                 # Читаемость кадра — ось ТЕХНИЧЕСКОЙ годности (рядом с
                 # резкостью): тёмный ролик плохо читается на экране при
