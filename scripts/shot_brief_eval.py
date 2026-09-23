@@ -16,7 +16,8 @@
 РУКИ, ОДНА ПЕРЕМЕННАЯ:
   A. запрос секции      — то, чем слот обходился до всякого режиссёра;
   C. глава с контекстом — shot_brief_director, та же модель, тот же движок;
-  D. глава с контекстом, мозг — из файлов (человек или Claude).
+  D. глава с контекстом, мозг — из файлов (человек или Claude);
+  G. глава с контекстом, мозг — модель через шлюз (llm_gateway).
 
 РУКА B (пофразовый промпт) УДАЛЕНА 16.09 ВМЕСТЕ С САМИМ АВТОМАТОМ.
 Её числа не потеряны и названы вместе со срезом, на котором сняты
@@ -206,6 +207,8 @@ def main(argv):
     ap.add_argument("--out", required=True)
     ap.add_argument("--cache", default=None)
     ap.add_argument("--vocabulary", action="store_true")
+    ap.add_argument("--gateway-model", default=None,
+                    help="модель шлюза для руки G (мозг через llm_gateway)")
     a = ap.parse_args(argv[1:])
 
     blocks = script_parser.parse_blocks(os.path.join(a.video_dir, "script.txt"))
@@ -237,6 +240,23 @@ def main(argv):
                     "director_stats": dict(director.STATS),
                     "rejected": list(director.REJECTED)}
         print(json.dumps(res["D"]["summary"], ensure_ascii=False, indent=2))
+
+    if "G" in a.arms:
+        if not a.gateway_model:
+            print("Рука G требует --gateway-model")
+            return 2
+        print(f"\nРука G: главы с контекстом, мозг — {a.gateway_model} через шлюз")
+        director.STATS.update({k: 0 for k in director.STATS})
+        del director.REJECTED[:]
+        gbrain = director.GatewayBrain(a.gateway_model)
+        rows = arm_chapter(gbrain, a.video_dir, blocks, cache_dir=a.cache, verbose=False)
+        res["G"] = {"summary": summarise(f"G: глава, {a.gateway_model}", rows, total),
+                    "rows": {str(k): v for k, v in rows.items()},
+                    "director_stats": dict(director.STATS),
+                    "rejected": list(director.REJECTED),
+                    "gateway": gbrain.gateway.summary()}
+        print(json.dumps(res["G"]["summary"], ensure_ascii=False, indent=2))
+        print("шлюз:", gbrain.gateway.summary())
 
     if "C" in a.arms:
         if not a.model or not os.path.exists(a.model):

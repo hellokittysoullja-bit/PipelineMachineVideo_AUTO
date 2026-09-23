@@ -695,7 +695,9 @@ class TestCultureQualifierStaysOutOfMuseum:
         # тест упал, хотя инвариант цел). Магическое число здесь обязано было
         # сломаться рано или поздно; граница по коду сломаться не может.
         start = src.index("for source_name, fetch in (")
-        block = src[start:src.index("for row in itertools.zip_longest(*per_source)", start)]
+        # Сборка источников живёт в методе sources фото-адаптера; граница —
+        # следующий метод класса (по коду, а не по числу символов).
+        block = src[start:src.index("\n    def ", start)]
         assert 'fetch(pq, department=department)' in block, (
             "музейный источник больше не получает АВТОРСКИЙ запрос — "
             "уточнитель культуры вернулся туда, где он теряет подлинники")

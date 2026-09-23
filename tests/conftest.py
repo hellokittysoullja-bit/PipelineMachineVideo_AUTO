@@ -102,6 +102,12 @@ def _isolate_from_real_dotenv(monkeypatch, tmp_path):
     # 11 тестов упали в первом же прогоне после установки torch в контейнер.
     monkeypatch.delenv("SMART_RELEVANCE_VETO", raising=False)
     monkeypatch.setenv("SMART_RELEVANCE_VETO", "0")
+    # SHOT_JUDGE — платный судья кадров через шлюз. Дефолт реестра 1, и на
+    # машине с LLM_GATEWAY_API_KEY в окружении любой тест, дошедший до
+    # выбора победителя, ходил бы в сеть и тратил деньги владельца.
+    monkeypatch.delenv("SHOT_JUDGE", raising=False)
+    monkeypatch.setenv("SHOT_JUDGE", "0")
+    monkeypatch.delenv("LLM_GATEWAY_API_KEY", raising=False)
 
 
 @pytest.fixture(scope="session")

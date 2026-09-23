@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Судья кадров: разбор ответа, кэш по содержимому, отказ без частичных оценок."""
+import json
+import os
+import re
+import sys
+import threading
+
+import pytest
+from PIL import Image
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
+import shot_judge as sj  # noqa: E402
+
+
+def _img(tmp_path, name, color):
+    p = tmp_path / f"{name}.jpg"
+    Image.new("RGB", (64, 48), color).save(p)
+    return str(p)
+
+
+class FakeGateway:
+    """Отвечает на СВОЙ запрос, а не по очереди: сетки одного слота
+    спрашиваются параллельно. answers — {число кадров в сетке: ответ} или
+    список (один вызов на ответ, для одиночной сетки)."""
+
+    def __init__(self, answers):
+        self.answers = answers
+        self.calls = []
+        self.lock = threading.Lock()
+
+    def chat(self, model, content, max_tokens, est):
+        with self.lock:
+            self.calls.append(content)
+            if isinstance(self.answers, dict):
+                n = int(re.search(r"grid of (\d+)", content[0]["text"]).group(1))
+                a = self.answers[n]
+            else:
+                a = self.answers.pop(0)
+        if isinstance(a, Exception):
+            raise a
+        return a, {}, 7
+
+
+@pytest.mark.parametrize("text,expect", [
+    ('{"scores": {"1": 3, "2": 0}}', {1: 3, 2: 0}),
+    ('```json\n{"scores": {"1": 2, "2": 1}}\n```', {1: 2, 2: 1}),
+    ('{"scores": {"1": 3}}', None),                 # номер 2 без оценки
+    ('{"scores": {"1": 4, "2": 0}}', None),         # вне шкалы
+    ('{"scores": {"1": 1.5, "2": 0}}', None),       # не целое
+    ('{"scores": {"1": true, "2": 0}}', None),      # bool — не число
+    ('не json', None),
+])
+def test_parse_demands_a_score_for_every_tile(text, expect):
+    assert sj.parse_scores(text, 2) == expect
+
+
+def test_scores_map_back_to_candidates_and_are_cached(tmp_path):
+    cands = [("a", _img(tmp_path, "a", (200, 0, 0))), ("b", _img(tmp_path, "b", (0, 200, 0)))]
+    gw = FakeGateway(['{"scores": {"1": 3, "2": 1}}'])
+    rep = {}
+    s = sj.judge(gw, "m", phrase="Вот кинжал.", brief="a dagger", candidates=cands,
+                 cache_dir=str(tmp_path / "c"), report=rep)
+    assert s == {"a": 3, "b": 1} and rep["calls"] == 1 and rep["cost"] == 7
+    again = sj.judge(FakeGateway([]), "m", phrase="Вот кинжал.", brief="a dagger", candidates=cands,
+                     cache_dir=str(tmp_path / "c"), report=rep)
+    assert again == s and rep["cache_hits"] == 1, "повторный прогон не платит"
+
+
+def test_cache_key_follows_image_bytes_not_ids(tmp_path):
+    a = _img(tmp_path, "a", (200, 0, 0))
+    k1 = sj.cache_key("m", "q", [a])
+    Image.new("RGB", (64, 48), (0, 0, 200)).save(a)
+    assert sj.cache_key("m", "q", [a]) != k1, "другая картинка под тем же путём — другой ответ"
+
+
+def test_any_gateway_failure_means_no_judge_at_all(tmp_path):
+    cands = [(str(k), _img(tmp_path, str(k), (k * 20, 0, 0))) for k in range(11)]
+    gw = FakeGateway({9: '{"scores": {' + ", ".join(f'"{k}": 2' for k in range(1, 10)) + "}}",
+                      2: RuntimeError("503")})
+    rep = {}
+    assert sj.judge(gw, "m", phrase="p", brief="b", candidates=cands, report=rep) is None, \
+        "вторая сетка не ответила — оценок нет ни у кого, без смешивания"
+    assert "503" in rep["refused"]
+
+
+def test_grid_is_split_into_nines(tmp_path):
+    cands = [(str(k), _img(tmp_path, str(k), (k * 20, 0, 0))) for k in range(11)]
+    gw = FakeGateway({9: '{"scores": {' + ", ".join(f'"{k}": 2' for k in range(1, 10)) + "}}",
+                      2: '{"scores": {"1": 3, "2": 0}}'})
+    s = sj.judge(gw, "m", phrase="p", brief="b", candidates=cands)
+    assert len(gw.calls) == 2 and s["9"] == 3 and s["10"] == 0 and s["0"] == 2
+
+
+def test_prompt_is_the_measured_one():
+    """Мир эпизода в вопросе ухудшил обе модели на замере — вопрос не должен
+    незаметно обрасти ни этой строкой, ни чем-то ещё без нового замера."""
+    q = sj.question("фраза", "brief", 9)
+    assert "Episode setting" not in q and "brief" in q and "фраза" in q
+    assert sj.PROMPT_VERSION == 1
+
+
+class ColourGateway:
+    def __init__(self, reply):
+        self.reply = reply
+
+    def chat(self, model, content, max_tokens, est):
+        return self.reply(content), {}, 1
+
+
+def test_vision_check_catches_a_blind_model():
+    """qwen3.8-max молча ставил всем кадрам 0 — такой судья браковал бы всё."""
+    ok, why = sj.vision_check(ColourGateway(lambda c: "I do not have vision support."), "m")
+    assert not ok and "не видит" in why
+
+
+def test_vision_check_is_not_passed_by_one_lucky_word():
+    ok, _ = sj.vision_check(ColourGateway(lambda c: "red"), "m")
+    assert not ok, "два цвета: одно угаданное слово — не зрение"
+
+
+def test_vision_check_passes_a_seeing_model():
+    import base64 as b64
+    import io as io_
+    from PIL import Image as Im
+
+    def see(content):
+        raw = b64.b64decode(content[1]["image_url"]["url"].split(",", 1)[1])
+        r, g, b = Im.open(io_.BytesIO(raw)).convert("RGB").getpixel((32, 32))
+        return "Red." if r > b else "Blue"
+    assert sj.vision_check(ColourGateway(see), "m") == (True, "")

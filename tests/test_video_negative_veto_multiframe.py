@@ -65,8 +65,11 @@ class TestWiring:
 
     def test_called_from_pexels_video(self):
         src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"), encoding="utf-8").read()
-        assert src.count("def pexels_video(") == 1
-        block = src[src.index("def pexels_video("):]
+        # Видео-путь после этапа 2 — _select_video (запрос слота вместо
+        # полутора десятков именованных аргументов).
+        assert src.count("def _select_video(") == 1
+        start = src.index("def _select_video(")
+        block = src[start:src.index("\ndef ", start + 1)]
         assert "video_negative_anchor_violation(trial, query)" in block
 
     def test_part_of_candidate_gate_signature(self):

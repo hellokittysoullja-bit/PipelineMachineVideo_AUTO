@@ -239,3 +239,29 @@ def test_calls_are_labelled_by_slot(tmp_path, restore_urlopen):
         rec.uninstall()
     (by_slot,) = rec.summary()["slots_by_key"].values()
     assert by_slot == {"2": 2, "none": 1}
+
+
+def test_extra_root_continues_the_recorded_sequence(tmp_path, restore_urlopen):
+    """Слой живых запросов другого прогона продолжает запись: второй
+    ответ на тот же адрес и новый адрес берутся из слоя, без сети."""
+    fake = FakeNet({"https://a/1": [(200, [], b"one")]})
+    _record(tmp_path, fake, ["https://a/1"])
+    fake2 = FakeNet({"https://a/1": [(200, [], b"two")], "https://a/new": [(200, [], b"new")]})
+    urllib.request.urlopen = fake2
+    hybrid = nr.NetRecorder(str(tmp_path / "net"), nr.REPLAY, overlay=str(tmp_path / "ov")).install()
+    try:
+        _observe("https://a/1")
+        _observe("https://a/1")
+        _observe("https://a/new")
+    finally:
+        hybrid.uninstall()
+
+    def no_network(*a, **kw):
+        raise AssertionError("обращение к сети")
+    urllib.request.urlopen = no_network
+    rep = nr.NetRecorder(str(tmp_path / "net"), nr.REPLAY, extra_roots=(str(tmp_path / "ov"),)).install()
+    try:
+        got = [_observe(u)[5] for u in ("https://a/1", "https://a/1", "https://a/new")]
+    finally:
+        rep.uninstall()
+    assert got == [b"one", b"two", b"new"] and not rep.divergences

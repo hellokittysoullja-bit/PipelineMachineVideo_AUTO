@@ -230,16 +230,36 @@ def reachable(defs, alias, from_imports, graph, classes=None):
             return seen
 
 
+def is_interface_stub(fn):
+    """Объявление интерфейса: тело — только докстринг и `raise
+    NotImplementedError`. Такой метод ничего не делает и слоем, «который
+    есть, но ролику не даёт ничего», быть не может; работу делают его
+    реализации в подклассах, и их достижимость проверяется как обычно."""
+    body = list(fn.body)
+    if body and isinstance(body[0], ast.Expr) and isinstance(getattr(body[0], "value", None), ast.Constant) \
+            and isinstance(body[0].value.value, str):
+        body = body[1:]
+    if len(body) != 1 or not isinstance(body[0], ast.Raise) or body[0].exc is None:
+        return False
+    exc = body[0].exc.func if isinstance(body[0].exc, ast.Call) else body[0].exc
+    return isinstance(exc, ast.Name) and exc.id == "NotImplementedError"
+
+
+def _interface_stubs(mods):
+    return {(m, n.name) for m, tree in mods.items() for n in ast.walk(tree)
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and is_interface_stub(n)}
+
+
 @pytest.fixture(scope="module")
 def analysis():
     mods, defs, alias, from_imports, graph = build_graph()
-    return {"defs": defs, "graph": graph,
+    return {"defs": defs, "graph": graph, "stubs": _interface_stubs(mods),
             "seen": reachable(defs, alias, from_imports, graph, _class_methods(mods))}
 
 
 def test_no_public_function_is_unreachable(analysis):
     public = [(m, n) for (m, n) in analysis["graph"]
-              if n != "<module>" and not n.startswith("_")]
+              if n != "<module>" and not n.startswith("_") and (m, n) not in analysis["stubs"]]
     dead = sorted(f"{m}.{n}" for (m, n) in public
                   if (m, n) not in analysis["seen"])
     unexplained = [d for d in dead if d not in ALLOWED_UNREACHABLE]
@@ -396,3 +416,24 @@ def test_method_rule_keeps_dead_code_dead():
         assert ("lib", live) in seen, f"{live} обязан быть живым"
     for dead in ("never_called", "orphan"):
         assert ("lib", dead) not in seen, f"{dead} ожил — охранник ослеп"
+
+
+def test_interface_stub_rule_is_narrow():
+    """Исключаются ТОЛЬКО объявления без тела; метод с настоящей работой
+    остаётся под проверкой, даже если рядом стоит raise NotImplementedError."""
+    tree = ast.parse(
+        "class A:\n"
+        "    def stub(self):\n"
+        "        \"\"\"doc\"\"\"\n"
+        "        raise NotImplementedError\n"
+        "    def stub_call(self):\n"
+        "        raise NotImplementedError('x')\n"
+        "    def real(self, x):\n"
+        "        if not x:\n"
+        "            raise NotImplementedError\n"
+        "        return x\n"
+        "    def other_error(self):\n"
+        "        raise ValueError\n")
+    got = {n.name: is_interface_stub(n) for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+    assert got == {"stub": True, "stub_call": True, "real": False, "other_error": False}
+

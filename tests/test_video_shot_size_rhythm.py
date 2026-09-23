@@ -28,6 +28,7 @@ sys.path.insert(0, SCRIPTS_DIR)
 
 sys.argv = ["pipeline_smart.py", tempfile.gettempdir()]
 import pipeline_smart as ps  # noqa: E402
+from _media_calls import pick_photo, pick_video  # noqa: E402
 
 
 def _stub_common(monkeypatch, tmp_path, n=2):
@@ -66,7 +67,7 @@ class TestShotSizeRhythm:
         _stub_common(monkeypatch, tmp_path, n=2)
         monkeypatch.setattr(ps, "estimate_shot_size", lambda p: (
             "wide" if _id_from_probe(p) == 1 else "detail"))
-        out = ps.pexels_video(
+        out = pick_video(ps, 
             "medieval sword close up", 9, used_ids=set(), used_hashes=[],
             sentence_score_fn=lambda probe: 0.5,
             recent_sizes=["wide", "wide"])
@@ -78,7 +79,7 @@ class TestShotSizeRhythm:
         та же философия "лучший из плохих", что и у остальных гейтов."""
         _stub_common(monkeypatch, tmp_path, n=2)
         monkeypatch.setattr(ps, "estimate_shot_size", lambda p: "wide")
-        out = ps.pexels_video(
+        out = pick_video(ps, 
             "medieval sword close up", 9, used_ids=set(), used_hashes=[],
             sentence_score_fn=lambda probe: 0.5,
             recent_sizes=["wide", "wide"])
@@ -90,7 +91,7 @@ class TestShotSizeRhythm:
         _stub_common(monkeypatch, tmp_path, n=2)
         called = []
         monkeypatch.setattr(ps, "estimate_shot_size", lambda p: called.append(p) or "wide")
-        out = ps.pexels_video(
+        out = pick_video(ps, 
             "medieval sword close up", 9, used_ids=set(), used_hashes=[],
             sentence_score_fn=lambda probe: 0.5)
         assert out is not None
@@ -107,7 +108,7 @@ class TestShotSizeRhythm:
         def score(probe):
             return 0.9 if _id_from_probe(probe) == 1 else 0.1   # кандидат 1 "смысловее"
 
-        out = ps.pexels_video(
+        out = pick_video(ps, 
             "medieval sword close up", 9, used_ids=set(), used_hashes=[],
             sentence_score_fn=score, recent_sizes=["wide", "wide"])
         assert _winner_id(out) == 2, (
@@ -121,9 +122,14 @@ class TestWiring:
 
     def test_main_passes_recent_sizes_to_both_video_call_sites(self):
         src = self._main_source()
-        calls = src.count("recent_sizes=recent_shot_sizes")
-        # 2 фото-вызова (уже были) + 2 видео-вызова (новые) = 4.
-        assert calls >= 4, f"ожидалось минимум 4 передачи recent_sizes=recent_shot_sizes, нашлось {calls}"
+        # Запрос слота строится один раз и уходит ВСЕМ попыткам слота — и
+        # фото, и видео (tests/test_selection_engine.py держит, что попытки
+        # получают одну и ту же переменную запроса). Здесь — что ритм в него
+        # входит и что видео-путь его читает.
+        assert src.count("recent_sizes=recent_shot_sizes") == 1
+        import inspect
+        vsrc = inspect.getsource(ps._select_video)
+        assert "request.recent_sizes" in vsrc
 
     def test_video_winner_updates_recent_shot_sizes(self):
         src = self._main_source()

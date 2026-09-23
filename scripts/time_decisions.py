@@ -16,8 +16,8 @@ met_requests 161 -> 160. Эквивалентность без этой запи
 вход в остывание), а не к порядку во времени: карточки Мет тянутся
 параллельно, и глобальный порядок решений между потоками не определён.
 При воспроизведении ответ берётся из записи; решения, которого в записи
-нет, — названное расхождение (и живой ответ часов, чтобы прогон дошёл до
-конца), а не тихая подстановка.
+нет, — названное расхождение со слотом, в котором оно случилось (и живой
+ответ часов, чтобы прогон дошёл до конца), а не тихая подстановка.
 """
 import json
 import os
@@ -38,6 +38,11 @@ class MetCooldownRecorder:
         self.divergences = []
         self.decisions = 0
         self._real = {}
+        # Слот, в котором принималось решение (харнесс ставит его так же, как
+        # NetRecorder.tagger). Без привязки расхождение по часам нельзя
+        # отнести к слоту с названной причиной, и законно новый запрос в
+        # изменившемся слоте выглядел бы как необъяснённый сбой.
+        self.tagger = None
         if mode == REPLAY:
             if os.path.exists(path):
                 with open(path, encoding="utf-8") as f:
@@ -66,8 +71,9 @@ class MetCooldownRecorder:
             return value
         if key in self.recorded:
             return self.recorded[key]
+        slot = self.tagger() if self.tagger is not None else None
         with self._lock:
-            self.divergences.append(key)
+            self.divergences.append({"key": key, "slot": slot})
         return bool(self._real["cool"]())
 
     def _within(self, site, fn, url=None):

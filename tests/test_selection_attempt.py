@@ -147,11 +147,16 @@ def test_sweep_removes_orphaned_attempt_dirs(tmp_path):
     assert not root.exists()
 
 
-def test_attempt_ids_are_deterministic_order_not_time(tmp_path):
-    a = sa.Attempt(1, "photo", str(tmp_path))
-    b = sa.Attempt(1, "photo", str(tmp_path))
-    na, nb = int(a.attempt_id.split("-")[0]), int(b.attempt_id.split("-")[0])
-    assert nb == na + 1 and a.attempt_id.endswith("-1-photo")
+def test_attempt_ids_are_local_to_the_slot(tmp_path):
+    """Номер попытки считается внутри слота: лишняя попытка одного слота не
+    сдвигает id попыток других слотов (иначе журналы двух прогонов
+    расходились бы везде после первого изменившегося слота)."""
+    a = sa.Attempt(101, "photo", str(tmp_path))
+    b = sa.Attempt(101, "video", str(tmp_path))
+    c = sa.Attempt(102, "photo", str(tmp_path))
+    na = int(a.attempt_id.rsplit("-", 1)[1])
+    assert a.attempt_id.startswith("101-photo-") and b.attempt_id == f"101-video-{na + 1}"
+    assert c.attempt_id == "102-photo-1"
 
 
 # ------------------------------------------------------------------ инварианты
@@ -244,18 +249,7 @@ def test_only_close_slot_commits_or_discards():
         assert owners <= {"close_slot"}, (method, owners)
 
 
-@pytest.mark.parametrize("fetcher", ["_select_photo", "_select_video"])
-def test_fetcher_writes_only_into_its_attempt(fetcher):
-    """Каждая запись файла кадра в добытчике идёт ПОСЛЕ перевода пути кэша
-    в стейджинг попытки: запись раньше этой строки — это файл в кэше до
-    решения, то есть ровно воскрешение выброшенного кадра."""
-    fn = next(n for n in PIPELINE_TREE.body
-              if isinstance(n, ast.FunctionDef) and n.name == fetcher)
-    stage_lines = [n.lineno for n in ast.walk(fn)
-                   if isinstance(n, ast.Assign) and isinstance(n.value, ast.Call)
-                   and isinstance(n.value.func, ast.Attribute) and n.value.func.attr == "stage_path"
-                   and any(isinstance(t, ast.Name) and t.id == "cf" for t in n.targets)]
-    assert len(stage_lines) == 1, stage_lines
+def _frame_writes(fn):
     writers = []
     for n in ast.walk(fn):
         if not isinstance(n, ast.Call):
@@ -265,8 +259,49 @@ def test_fetcher_writes_only_into_its_attempt(fetcher):
         if name in ("download", "replace", "write_media_sidecar", "atomic_url_download") and \
                 any(a.id == "cf" for a in args):
             writers.append(n.lineno)
+    return writers
+
+
+def _stage_assignments(fn, target):
+    return [n.lineno for n in ast.walk(fn)
+            if isinstance(n, ast.Assign) and isinstance(n.value, ast.Call)
+            and isinstance(n.value.func, ast.Attribute) and n.value.func.attr == "stage_path"
+            and any(isinstance(t, ast.Name) and t.id == target for t in n.targets)]
+
+
+def test_video_fetcher_writes_only_into_its_attempt():
+    """Каждая запись файла кадра в добытчике идёт ПОСЛЕ перевода пути кэша
+    в стейджинг попытки: запись раньше этой строки — это файл в кэше до
+    решения, то есть ровно воскрешение выброшенного кадра."""
+    fn = next(n for n in PIPELINE_TREE.body
+              if isinstance(n, ast.FunctionDef) and n.name == "_select_video")
+    stage_lines = _stage_assignments(fn, "cf")
+    assert len(stage_lines) == 1, stage_lines
+    writers = _frame_writes(fn)
     assert writers, "не найдено ни одной записи кадра — проверка пуста"
     assert all(line > stage_lines[0] for line in writers), (stage_lines, writers)
+
+
+def test_engine_hands_the_adapter_only_a_staged_path():
+    """Ядро переводит путь кэша в стейджинг ДО того, как отдаёт его адаптеру,
+    а адаптер фото пишет файл кадра только в переданный ему путь и сам
+    стейджинг не вычисляет (иначе мог бы вычислить не тот)."""
+    engine = ast.parse(open(os.path.join(SCRIPTS, "selection_engine.py"), encoding="utf-8").read())
+    select = next(n for n in engine.body if isinstance(n, ast.FunctionDef) and n.name == "select")
+    staged = _stage_assignments(select, "cf")
+    assert len(staged) == 1
+    choose_calls = [n.lineno for n in ast.walk(select) if isinstance(n, ast.Call)
+                    and isinstance(n.func, ast.Attribute) and n.func.attr == "choose"]
+    assert choose_calls and all(c > staged[0] for c in choose_calls)
+    assert not _frame_writes(select), "ядро само не пишет файл кадра"
+    adapter = next(n for n in PIPELINE_TREE.body
+                   if isinstance(n, ast.ClassDef) and n.name == "PhotoAdapter")
+    methods = {m.name: m for m in adapter.body if isinstance(m, ast.FunctionDef)}
+    assert _frame_writes(methods["choose"]), "проверка пуста: адаптер фото не пишет кадр"
+    assert not _stage_assignments(methods["choose"], "cf")
+    for name, m in methods.items():
+        if name != "choose":
+            assert not _frame_writes(m), f"{name} пишет файл кадра до решения"
 
 
 def test_the_invariant_checks_are_not_vacuous():

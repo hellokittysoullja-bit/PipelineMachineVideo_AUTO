@@ -9,6 +9,7 @@
 настоящего эпизода и без сети.
 """
 import ast
+import dataclasses
 import hashlib
 import json
 import os
@@ -272,7 +273,18 @@ def test_clock_decision_outside_the_record_breaks_equivalence():
     a = _result([_shot(0)])
     b = _result([_shot(0)])
     b["net"]["time_decisions"] = {"divergences": ["get|0|u"]}
-    assert not sf.compare(a, b)["ok"]
+    assert not sf.compare(a, b)["ok"], "старый формат без слота — судить не по чему"
+    b["net"]["time_decisions"] = {"divergences": [{"key": "get|0|u", "slot": 0}]}
+    assert not sf.compare(a, b)["ok"], "слот без причины"
+
+
+def test_clock_decision_inside_a_slot_with_cause_is_allowed():
+    a = _result([_shot(0), _shot(1)])
+    b = _result([_shot(0), _shot(1, file_sha256="x")])
+    b["net"]["time_decisions"] = {"divergences": [{"key": "get|0|u", "slot": 1}]}
+    assert sf.compare(a, b, {"slots": {"1": "fix"}})["ok"]
+    b["net"]["time_decisions"] = {"divergences": [{"key": "get|0|u", "slot": None}]}
+    assert not sf.compare(a, b, {"slots": {"1": "fix"}})["ok"]
 
 
 @pytest.mark.parametrize("bad", [{"slots": {"1": {"downstream_of": 0}}}, {"slots": {"1": ""}}])
@@ -316,6 +328,24 @@ def test_network_may_differ_only_inside_expected_slots():
     stray = _result([_shot(0), _shot(1, file_sha256="x")], net=_net(
         {"k": 1}, {"k": {"1": 1}}, [{"method": "GET", "url": "u", "seq": 0, "slot": 0}]))
     assert not sf.compare(base, stray, exp)["ok"]
+
+
+def test_shared_address_is_judged_per_slot():
+    """Реальный случай эпизода 93: адрес превью звучал в 18 слотах, новый код
+    добавил ОДНО обращение в слоте с причиной. Раньше адрес целиком считался
+    разошедшимся «вне слотов с причиной», хотя в остальных 18 слотах число
+    обращений совпало."""
+    base = _result([_shot(0), _shot(1)], net=_net({"k": 2}, {"k": {"0": 1, "1": 1}}))
+    extra_in_cause = _result([_shot(0), _shot(1, file_sha256="x")],
+                             net=_net({"k": 3}, {"k": {"0": 1, "1": 2}}))
+    rep = sf.compare(base, extra_in_cause, {"slots": {"1": "fix"}})
+    assert rep["ok"] and rep["net_calls_differ"]["k"]["slots_changed"] == ["1"]
+    extra_elsewhere = _result([_shot(0), _shot(1, file_sha256="x")],
+                              net=_net({"k": 3}, {"k": {"0": 2, "1": 1}}))
+    assert sf.compare(base, extra_elsewhere, {"slots": {"1": "fix"}})["net_unexpected"] == ["k"]
+    untagged = _result([_shot(0), _shot(1, file_sha256="x")], net=_net({"k": 3}, {}))
+    assert sf.compare(base, untagged, {"slots": {"1": "fix"}})["net_unexpected"] == ["k"], \
+        "разное число обращений без разметки слотами — судить не по чему"
 
 
 def test_slot_loop_range_is_the_loop_that_resolves_slots():
@@ -412,3 +442,124 @@ def test_returncode_may_change_only_when_named():
     assert not sf.compare(a, b)["ok"]
     assert sf.compare(a, b, {"returncode": "пустых слотов больше нет"})["ok"]
     assert not sf.compare(a, json.loads(json.dumps(a)), {"returncode": "заявлено, но не изменилось"})["ok"]
+
+
+def _att(kind, **fields):
+    return {"kind": kind, "fields": fields}
+
+
+def test_changed_attempt_request_is_a_cause_only_when_declared():
+    """Спасающая фото-попытка теперь получает бриф фразы: её запрос
+    изменился при том же входе слота. Причина засчитывается, только если
+    этап объявил поле заранее; необъявленное — ошибка передачи запроса."""
+    a = _result([_shot(0, file_sha256="old")])
+    b = _result([_shot(0, file_sha256="new")])
+    a["slot_attempts"] = {"0": [_att("video", query="q"), _att("photo", query="q", shot_brief="n")]}
+    b["slot_attempts"] = {"0": [_att("video", query="q"), _att("photo", query="q", shot_brief="b")]}
+    rep = sf.compare(a, b, {"attempt_fields": {"shot_brief": "бриф в спасающей попытке"}})
+    assert rep["ok"] and rep["slots"][0]["class"] == "ЗАПРОС ПОПЫТКИ ИЗМЕНИЛСЯ"
+    assert not sf.compare(a, b)["ok"], "необъявленное изменение запроса объяснило само себя"
+    b["slot_attempts"]["0"][1]["fields"]["query"] = "other"
+    assert not sf.compare(a, b, {"attempt_fields": {"shot_brief": "x"}})["ok"], \
+        "изменилось и необъявленное поле — причина не засчитывается"
+
+
+def test_attempts_after_a_kind_mismatch_are_consequences():
+    xa = [_att("video", q="1"), _att("photo", q="1")]
+    xb = [_att("photo", q="2")]
+    assert sf.attempt_input_changes(xa, xb) == set()
+
+
+def test_old_and_new_call_shapes_map_to_the_same_fields():
+    """Аргументы добытчика этапа 1 и поля SlotRequest — одни и те же
+    величины под разными именами; отпечатки обязаны совпасть."""
+    import types
+    loc_old = {"query": "q", "index": 3, "used_ids": {1, 2}, "used_hashes": ["h"],
+               "is_opening_shot": False, "extra_queries": None, "shot_brief": "b",
+               "block_text": "t", "director_score_fn": lambda x: x}
+    kind, old = sf.attempt_fields_from_call("_select_photo", loc_old)
+    req = types.SimpleNamespace(query="q", index=3, used_photo_ids={2, 1}, used_hashes=["h"],
+                                is_opening=False, extra_queries=(), shot_brief="b",
+                                block_text="t", director_score_fn=print, recent_sizes=None,
+                                target_luma=None, director_assist=None, director_report=None,
+                                text_key=None, arbiter_text=None)
+    kind2, new = sf.attempt_fields_from_call("select_media", {"request": req, "kind": "photo"})
+    assert kind == kind2 == "photo" and old == new
+
+
+def test_journal_like_list_report_is_compared_by_slot():
+    a = [{"record": "slot", "index": 0, "outcome": "shown"},
+         {"record": "slot", "index": 1, "outcome": "absorbed"}]
+    b = [{"record": "slot", "index": 0, "outcome": "shown"},
+         {"record": "slot", "index": 1, "outcome": "shown"}]
+    assert sf.slot_report_stray(a, b, allowed={1}) == []
+    assert sf.slot_report_stray(a, b, allowed=set()) == [1]
+
+
+def _contrib(**won):
+    return {"sources": {k: {"won": v, "offered": 10 + v} for k, v in won.items()}}
+
+
+def test_contribution_report_is_judged_against_the_screen():
+    """Сводный счёт источников по слотам не раскладывается. Законно его
+    расхождение, только когда сменились слоты с причиной И побед у каждого
+    источника ровно столько, сколько его кадров на экране. Реальный случай
+    эпизода 93: старый код писал Pexels 24 победы при 23 кадрах на экране."""
+    a = _result([_shot(0), _shot(1)], reports={sf.CONTRIBUTION_REPORT: _contrib(pexels=3)})
+    moved = [_shot(0), _shot(1, provider="pixabay", file_sha256="x")]
+    exp = {"slots": {"1": "fix"}}
+    good = _result(moved, reports={sf.CONTRIBUTION_REPORT: _contrib(pexels=1, pixabay=1)})
+    rep = sf.compare(a, good, exp)
+    assert rep["ok"]
+    assert rep["reports_differ"][sf.CONTRIBUTION_REPORT]["won_vs_screen"] == {
+        "a": {"pexels": [3, 2]}, "b": {}}
+    lying = _result(moved, reports={sf.CONTRIBUTION_REPORT: _contrib(pexels=2, pixabay=1)})
+    assert sf.CONTRIBUTION_REPORT in sf.compare(a, lying, exp)["reports_unexpected"]
+    unmoved = _result([_shot(0), _shot(1)], reports={sf.CONTRIBUTION_REPORT: _contrib(pexels=2)})
+    assert sf.CONTRIBUTION_REPORT in sf.compare(a, unmoved)["reports_unexpected"], \
+        "слоты не менялись — сводный счёт обязан совпасть"
+
+
+def test_gates_header_copy_of_contribution_is_judged_with_the_report():
+    a = _result([_shot(0)], gates={"g": 1, "source_contribution": {"pexels": 1}})
+    b = _result([_shot(0)], gates={"g": 1, "source_contribution": {"pexels": 2}})
+    assert not sf.compare(a, b)["gates_differ"]
+    c = _result([_shot(0)], gates={"g": 2, "source_contribution": {"pexels": 1}})
+    assert sf.compare(a, c)["gates_differ"]
+
+
+def test_pool_capture_records_the_pool_the_ranking_receives(tmp_path):
+    """Разметка качества обязана смотреть на ТОТ пул, из которого выбирает
+    код, — перехват стоит на входе ранжирования, а решение не меняется."""
+    import types
+    import selection_engine as se
+
+    class Adapter:
+        kind = "photo"
+
+        def choose(self, request, pool, cf):
+            return f"chosen:{pool[0]['id']}"
+
+    fake = types.SimpleNamespace(
+        PHOTO_ADAPTER=Adapter(),
+        candidate_channel=lambda c: "pexels",
+        pexels_candidate_text=lambda c: c.get("alt"),
+        candidate_probe_url=lambda c: f"https://x/{c['id']}.jpg",
+    )
+    path = str(tmp_path / "pools.jsonl")
+    assert sf.install_pool_capture(fake, path)
+    fields = {f.name: None for f in dataclasses.fields(se.SlotRequest)}
+    fields.update(index=3, query="q", extra_queries=("e",), shot_brief="b", block_text="t")
+    req = se.SlotRequest(**fields)
+    pool = [{"id": 7, "alt": "sword", "_origin_query": "q"}, {"id": 8, "alt": "axe"}]
+    assert fake.PHOTO_ADAPTER.choose(req, pool, "cf") == "chosen:7"
+    rec = json.loads(open(path, encoding="utf-8").read())
+    assert rec["index"] == 3 and rec["shot_brief"] == "b" and rec["extra_queries"] == ["e"]
+    assert [r["id"] for r in rec["pool"]] == [7, 8]
+    assert rec["pool"][0]["probe_url"] == "https://x/7.jpg" and rec["pool"][0]["via"] == "q"
+
+
+def test_pool_capture_is_absent_for_code_without_the_engine(tmp_path):
+    import types
+    assert not sf.install_pool_capture(types.SimpleNamespace(), str(tmp_path / "p.jsonl"))
+    assert not (tmp_path / "p.jsonl").exists()

@@ -149,11 +149,17 @@ class TestBothCallSitesUseTheResolver:
             fn = node.value.func if isinstance(node.value, ast.Call) else None
             calls.append(getattr(fn, "id", None) or getattr(fn, "attr", None))
         assert calls, "присваивания _brief_key не найдены вообще"
-        assert set(calls) == {"candidate_brief_key"}, calls
+        # Фото-адаптер берёт ключ через свой brief_query — тот обязан звать
+        # тот же единственный резолвер, а не собственную формулу.
+        assert set(calls) <= {"candidate_brief_key", "brief_query"}, calls
+        adapter = next(n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == "PhotoAdapter")
+        bq = next(n for n in adapter.body if isinstance(n, ast.FunctionDef) and n.name == "brief_query")
+        used = {getattr(c.func, "id", None) for c in ast.walk(bq) if isinstance(c, ast.Call)}
+        assert used == {"candidate_brief_key"}, used
 
     def test_photo_path_passes_the_phrase(self):
         src = self._src()
-        assert "candidate_brief_key(shot_brief, block_text)" in src
+        assert "candidate_brief_key(request.shot_brief, request.block_text)" in src
 
     def test_video_path_declares_it_does_not_use_the_shelf(self):
         src = self._src()
@@ -161,7 +167,10 @@ class TestBothCallSitesUseTheResolver:
 
     def test_main_feeds_the_block_phrase_to_photo_only(self):
         src = self._src()
-        assert src.count('block_text=b["text"]') == 2
+        # Запрос слота один на все попытки (selection_engine.SlotRequest):
+        # фраза попадает в него ровно в одном месте, а видео-путь её для
+        # полки не берёт (test_video_path_declares_it_does_not_use_the_shelf).
+        assert src.count('block_text=b["text"]') == 1
 
 
 class TestShelfIsAskedWithThePhrase:

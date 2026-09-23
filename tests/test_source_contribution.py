@@ -28,6 +28,7 @@ sys.path.insert(0, SCRIPTS_DIR)
 _TMP_VIDEO_DIR = tempfile.mkdtemp(prefix="srcstats_")
 sys.argv = ["pipeline_smart.py", _TMP_VIDEO_DIR]
 import pipeline_smart as ps  # noqa: E402
+from _media_calls import pick_photo, pick_video  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -84,7 +85,7 @@ class TestPexelsKeyGatesOnlyPexels:
         monkeypatch.setattr(ps, "_unsplash_search_photos", lambda q: [])
         monkeypatch.setattr(ps, "filter_alt_blocklist", lambda items: items)
         ps._PEXELS_SEARCH_CACHE.clear()
-        out = ps.pexels_photo("medieval rondel dagger", 0, used_ids=set(), used_hashes=None,
+        out = pick_photo(ps, "medieval rondel dagger", 0, used_ids=set(), used_hashes=None,
                               text_key="t-no-key")
         assert out is not None and os.path.exists(out) and os.path.getsize(out) > 0
         st = ps.SOURCE_STATS["met"]

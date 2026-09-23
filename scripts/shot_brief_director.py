@@ -651,6 +651,31 @@ class LocalBrain:
         return r["choices"][0]["message"]["content"] or ""
 
 
+class GatewayBrain:
+    """Модель через шлюз (scripts/llm_gateway.py): сильный текстовый мозг
+    без локального железа. Вопрос главы тот же, что у любого мозга, —
+    меняется только, кто отвечает; проверка заявок и формат плана общие.
+
+    temperature 0 — два прогона на одном вопросе обязаны давать один ответ
+    (тот же урок, что у LocalBrain). Ответы кэшируются по содержимому
+    вопроса (_ask_cached), повторный прогон главы не платит."""
+
+    MAX_TOKENS = 3000
+    EST_PROMPT_TOKENS = 6000
+
+    def __init__(self, model, gateway=None):
+        import llm_gateway
+        self.model = model
+        self.name = "gateway:" + model
+        self.gateway = gateway or llm_gateway.Gateway()
+
+    def ask(self, prompt, chapter_no):
+        text, _usage, _price = self.gateway.chat(
+            self.model, [{"type": "text", "text": prompt}],
+            self.MAX_TOKENS, self.EST_PROMPT_TOKENS)
+        return text
+
+
 class FileBrain:
     """Ответы лежат файлом: по файлу на главу, имя — номер главы.
 
@@ -1070,11 +1095,13 @@ def main(argv):
     ap = argparse.ArgumentParser(
         description="Режиссёрская разработка главы: контекст вместо фразы")
     ap.add_argument("video_dir")
-    ap.add_argument("--brain", choices=("local", "file", "packets"),
+    ap.add_argument("--brain", choices=("local", "file", "packets", "gateway"),
                     default="local",
                     help="по умолчанию local: модель ищется сама "
                          "(--model, LLAMA_MODEL_GGUF, models/*.gguf)")
     ap.add_argument("--answers", help="папка с ответами для --brain file")
+    ap.add_argument("--gateway-model", default=None,
+                    help="модель шлюза для --brain gateway (например qwen/qwen3.8-max)")
     ap.add_argument("--model", default=None,
                     help="файл .gguf; по умолчанию ищется сам")
     ap.add_argument("--threads", type=int, default=4)
@@ -1121,6 +1148,16 @@ def main(argv):
             return 2
         print(f"Мозг: {os.path.basename(model)}")
         brain = LocalBrain(model, n_threads=a.threads)
+    elif a.brain == "gateway":
+        model = a.gateway_model or os.environ.get("SHOT_BRIEF_GATEWAY_MODEL", "").strip()
+        if not model:
+            print("Нужна --gateway-model (или SHOT_BRIEF_GATEWAY_MODEL в .env)")
+            return 2
+        brain = GatewayBrain(model)
+        if not brain.gateway.configured:
+            print("Нет LLM_GATEWAY_API_KEY в окружении")
+            return 2
+        print(f"Мозг: {brain.name}")
     else:
         if not a.answers:
             print("Нужна --answers <папка с ответами>")

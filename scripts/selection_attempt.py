@@ -37,7 +37,6 @@ commit, без второй ветки кода.
 каждому месту, где эффекты применяются.
 """
 import contextvars
-import itertools
 import os
 import shutil
 import threading
@@ -45,7 +44,7 @@ import threading
 OPEN, COMMITTED, DISCARDED = "open", "committed", "discarded"
 
 _CURRENT = contextvars.ContextVar("selection_attempt", default=None)
-_SEQ = itertools.count(1)
+_SEQ = {}                 # номер слота -> сколько попыток у него уже было
 _SEQ_LOCK = threading.Lock()
 
 
@@ -53,22 +52,24 @@ class AttemptStateError(RuntimeError):
     """Запись в закрытую попытку, повторное закрытие, чужой поток."""
 
 
-def _next_seq():
+def _next_seq(index):
     with _SEQ_LOCK:
-        return next(_SEQ)
+        _SEQ[index] = _SEQ.get(index, 0) + 1
+        return _SEQ[index]
 
 
 class Attempt:
     """Одна попытка добыть медиа для слота.
 
-    attempt_id детерминирован порядком создания в процессе — не временем и
-    не случайностью: два прогона одного эпизода дают одинаковые id, и журнал
-    прогона сравним побайтно (харнесс эквивалентности на этом стоит)."""
+    attempt_id — «<слот>-<вид>-<номер попытки этого слота>»: детерминирован
+    и МЕСТЕН для слота. Сквозной счётчик процесса сдвигал бы id во всех
+    последующих слотах, стоило одному слоту сделать на попытку больше, — и
+    журналы двух прогонов расходились бы там, где ничего не менялось."""
 
     def __init__(self, index, kind, staging_root):
         self.index = index
         self.kind = kind
-        self.attempt_id = f"{_next_seq():05d}-{index}-{kind}"
+        self.attempt_id = f"{index}-{kind}-{_next_seq(index)}"
         self.state = OPEN
         self.verdicts = []    # [(kind, record)] в порядке записи
         self.effects = []     # [(kind, args)] в порядке записи
@@ -155,6 +156,13 @@ class Attempt:
 
     def _drop_root(self):
         shutil.rmtree(self._root, ignore_errors=True)
+
+
+def reset_attempt_ids():
+    """Новый прогон — нумерация попыток с начала (два прогона в одном
+    процессе обязаны дать одинаковые id)."""
+    with _SEQ_LOCK:
+        _SEQ.clear()
 
 
 def current():

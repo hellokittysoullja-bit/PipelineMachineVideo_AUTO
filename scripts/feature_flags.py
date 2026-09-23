@@ -297,6 +297,10 @@ FLAGS = {f.name: f for f in (
          summary="Музыкальная подложка (нужен assets/music/ambient_bed*.flac)"),
     Flag("MASTER_LIMITER", "1",
          summary="Лимитер в конце мастер-цепочки, после loudnorm (страховка по пикам)"),
+    Flag("SHOT_JUDGE", "1",
+         summary="судья кадров: модель «зрение+язык» через шлюз оценивает "
+                 "кандидатов слота сеткой по описанию кадра; платит ТОЛЬКО при "
+                 "LLM_GATEWAY_API_KEY, с потолком SHOT_JUDGE_MAX_SPEND"),
     Flag("SMART_RELEVANCE_VETO", "1",
          summary="вторая проверка ПОБЕДИТЕЛЯ слота (SigLIP2+Jina, точнее "
                  "CLIP, но в 33x медленнее — поэтому не на весь пул) "

@@ -31,6 +31,7 @@ sys.path.insert(0, SCRIPTS_DIR)
 # файлов, не является защитой ни от чего.
 sys.argv = ["pipeline_smart.py", tempfile.mkdtemp(prefix="thumbfirst_")]
 import pipeline_smart as ps  # noqa: E402
+from _media_calls import pick_photo, pick_video  # noqa: E402
 
 
 def _jpeg(path, colour, size=(640, 360)):
@@ -112,7 +113,7 @@ class TestWholeSliceIsEvaluated:
             return _tok.get(tid, "")
         globals()["_which"] = _which
 
-        out = ps.pexels_photo("medieval armour", 0, used_ids=set(), used_hashes=[], target_luma=0.4,
+        out = pick_photo(ps, "medieval armour", 0, used_ids=set(), used_hashes=[], target_luma=0.4,
                               text_key="whole-slice")
         assert out is not None
         assert ps.SOURCE_STATS["met"]["considered"] == 6, ps.SOURCE_STATS
@@ -150,7 +151,7 @@ class TestSharpnessOnFullSizeWinner:
             return Image.open(p).getpixel((0, 0))[1] < 10   # met:0 -> зелёный канал 0
         globals()["_is_full0"] = _is_full0
 
-        out = ps.pexels_photo("medieval armour", 0, used_ids=set(), used_hashes=[], target_luma=0.4,
+        out = pick_photo(ps, "medieval armour", 0, used_ids=set(), used_hashes=[], target_luma=0.4,
                               text_key="sharp-repick")
         sidecar = ps.read_media_sidecar(out)
         assert str(sidecar.get("pexels_id")) == "met:1"
@@ -202,7 +203,7 @@ class TestOpenverseProbeDoesNotBurnTheApiQuota:
         monkeypatch.setattr(ps, "clip_relevance", lambda path, text: 0.30)
         monkeypatch.setattr(ps, "is_relevant_candidate", lambda path, q, relevance=None: True)
         monkeypatch.setattr(ps, "image_sharpness_score", lambda p: 100.0)
-        out = ps.pexels_photo("medieval armour", 0, used_ids=set(), used_hashes=[], target_luma=0.4,
+        out = pick_photo(ps, "medieval armour", 0, used_ids=set(), used_hashes=[], target_luma=0.4,
                               text_key="probe-fallback")
         assert out is not None
         st = ps.SOURCE_STATS["openverse"]
@@ -212,7 +213,7 @@ class TestOpenverseProbeDoesNotBurnTheApiQuota:
         cand = {"id": "openverse:2", "alt": "x", "url": "u",
                 "src": {"large2x": "file:///nonexistent/full.jpg", "medium": "file:///nonexistent/t.jpg"}}
         monkeypatch.setattr(ps, "_museum_search_photos", lambda q, department=None: [dict(cand)])
-        out = ps.pexels_photo("medieval armour", 0, used_ids=set(), used_hashes=[], target_luma=0.4,
+        out = pick_photo(ps, "medieval armour", 0, used_ids=set(), used_hashes=[], target_luma=0.4,
                               text_key="probe-dead")
         assert ps.SOURCE_STATS["openverse"]["download_errors"] == 1
 

@@ -80,7 +80,20 @@ def test_unrecorded_decision_is_named(tmp_path):
     rep = td.MetCooldownRecorder(path, td.REPLAY).install(ms2)
     ms2._met_get("a")
     ms2._met_get("new")
-    assert rep.summary()["divergences"] == ["get|0|new"]
+    assert rep.summary()["divergences"] == [{"key": "get|0|new", "slot": None}]
+
+
+def test_unrecorded_decision_carries_its_slot(tmp_path):
+    """Без слота харнесс не может отнести новое решение к слоту с названной
+    причиной — законно новый запрос в изменившемся слоте был бы провалом."""
+    path = str(tmp_path / "time.jsonl")
+    td.MetCooldownRecorder(path, td.RECORD).install(_fake_module([0.0], {}))
+    ms2 = _fake_module([0.0], {})
+    rep = td.MetCooldownRecorder(path, td.REPLAY).install(ms2)
+    slot = {"i": 7}
+    rep.tagger = lambda: slot["i"]
+    ms2._met_get("new")
+    assert rep.summary()["divergences"] == [{"key": "get|0|new", "slot": 7}]
 
 
 def test_keys_do_not_depend_on_thread_interleaving(tmp_path):

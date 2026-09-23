@@ -29,6 +29,7 @@ sys.path.insert(0, SCRIPTS_DIR)
 sys.argv = ["pipeline_smart.py", tempfile.gettempdir()]
 import pipeline_smart  # noqa: E402
 import shot_director  # noqa: E402
+from _media_calls import pick_photo, pick_video  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -77,7 +78,7 @@ class TestVideoPath:
         self._stub_video(monkeypatch, tmp_path)
         monkeypatch.setattr(shot_director, "arbitrate_hook_candidates",
                             lambda *a, **k: shot_director.NO_CANDIDATE_FITS)
-        out = pipeline_smart.pexels_video(
+        out = pick_video(pipeline_smart, 
             "medieval sword close up", 7, used_ids=set(), used_hashes=[],
             sentence_score_fn=lambda probe: 0.5,
             arbiter_text="Вот это. Это вес настоящего боевого меча.")
@@ -93,7 +94,7 @@ class TestVideoPath:
         self._stub_video(monkeypatch, tmp_path)
         monkeypatch.setattr(shot_director, "arbitrate_hook_candidates",
                             lambda *a, **k: shot_director.NO_CANDIDATE_FITS)
-        out = pipeline_smart.pexels_video(
+        out = pick_video(pipeline_smart, 
             "medieval sword close up", 3, used_ids=set(), used_hashes=[],
             sentence_score_fn=lambda probe: 0.5, arbiter_text="Текст.")
         assert isinstance(out, str) and out.endswith(".mp4")
@@ -105,7 +106,7 @@ class TestVideoPath:
         уронила бы весь рендер NameError после часов работы.
         """
         self._stub_video(monkeypatch, tmp_path, ids=(1,))
-        out = pipeline_smart.pexels_video(
+        out = pick_video(pipeline_smart, 
             "medieval sword close up", 4, used_ids=set(), used_hashes=[],
             sentence_score_fn=lambda probe: 0.5, arbiter_text="Текст.")
         assert out is not None
@@ -121,7 +122,7 @@ class TestVideoPath:
             return paths[-1]
 
         monkeypatch.setattr(shot_director, "arbitrate_hook_candidates", fake)
-        out = pipeline_smart.pexels_video(
+        out = pick_video(pipeline_smart, 
             "medieval sword close up", 5, used_ids=set(), used_hashes=[],
             sentence_score_fn=lambda probe: 0.5, arbiter_text="Текст.")
         assert out is not None
@@ -158,7 +159,7 @@ class TestPhotoPath:
         # выключенном Visual Director арбитр на фото-пути не вызывается
         # вообще. В .env этого канала стоит assist, поэтому в проде он
         # работает; тест воспроизводит именно продовую конфигурацию.
-        out = pipeline_smart.pexels_photo(
+        out = pick_photo(pipeline_smart, 
             "milk bottle hand", 5, used_ids=set(), used_hashes=[],
             is_opening_shot=True, director_score_fn=lambda *a, **k: 0.5,
             arbiter_text="Не вставай никуда. Просто вспомни, сколько весит пакет молока.")
@@ -186,7 +187,7 @@ class TestPhotoPath:
         called = []
         monkeypatch.setattr(shot_director, "arbitrate_hook_candidates",
                             lambda *a, **k: called.append(1) or shot_director.NO_CANDIDATE_FITS)
-        out = pipeline_smart.pexels_photo(
+        out = pick_photo(pipeline_smart, 
             "milk bottle hand", 6, used_ids=set(), used_hashes=[],
             is_opening_shot=True, arbiter_text="Текст.")
         assert out is not None

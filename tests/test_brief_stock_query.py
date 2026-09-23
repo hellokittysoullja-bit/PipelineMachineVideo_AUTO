@@ -14,6 +14,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "scripts"))
 
 import pipeline_smart as ps  # noqa: E402
+from _media_calls import pick_photo, pick_video  # noqa: E402
 
 
 def _q(brief, fallback="medieval knight"):
@@ -153,7 +154,7 @@ def test_video_path_asks_the_stock_with_the_brief_too(tmp_path, monkeypatch):
                         lambda q, **k: seen.append(q) or [])
     monkeypatch.setattr(ps, "_pixabay_search_videos", lambda q, **k: [])
 
-    ps.pexels_video("medieval battle", 7, used_ids=set(), used_hashes=[],
+    pick_video(ps, "medieval battle", 7, used_ids=set(), used_hashes=[],
                     extra_queries=["medieval camp"],
                     shot_brief="a dented steel breastplate, close up")
 
@@ -189,7 +190,7 @@ def test_video_cache_key_moves_with_the_brief(tmp_path, monkeypatch):
     for brief in ("a dented steel breastplate, close up",
                   "a manuscript illumination of a battle"):
         paths.clear()
-        ps.pexels_video("medieval battle", 7, used_ids=set(), used_hashes=[],
+        pick_video(ps, "medieval battle", 7, used_ids=set(), used_hashes=[],
                         shot_brief=brief)
         # Имя кэша вычисляется и для места в кэше, и для стейджинга попытки
         # (selection_attempt) — это ОДНО имя; важно только, что оно одно.

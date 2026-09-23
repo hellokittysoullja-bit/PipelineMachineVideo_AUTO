@@ -29,6 +29,7 @@ sys.path.insert(0, SCRIPTS_DIR)
 
 sys.argv = ["pipeline_smart.py", tempfile.gettempdir()]
 import pipeline_smart as ps  # noqa: E402
+from _media_calls import pick_photo, pick_video  # noqa: E402
 
 
 def _valid_png_bytes():
@@ -67,7 +68,7 @@ class TestPoolFloorWithoutDirector:
         processed = []
         monkeypatch.setattr(ps, "aesthetic_score",
                             lambda p: processed.append(p) or 5.0)
-        ps.pexels_photo("medieval sword", 0, used_ids=set(), used_hashes=[],
+        pick_photo(ps, "medieval sword", 0, used_ids=set(), used_hashes=[],
                         target_luma=0.4)
         # Пол пула = ВСЯ пробная выборка (BASE_MIN_POOL=20 при оценке по
         # превью, 13.09); в стабе кандидатов меньше — значит обработаны все.
@@ -85,7 +86,7 @@ class TestPoolFloorWithoutDirector:
         scores = {1: 1.0, 2: 2.0, 3: 9.0, 4: 3.0}
         monkeypatch.setattr(ps, "aesthetic_score",
                             lambda p: scores.get(_id_from_trial(p), 2.0))
-        out = ps.pexels_photo("medieval sword", 0, used_ids=set(), used_hashes=[],
+        out = pick_photo(ps, "medieval sword", 0, used_ids=set(), used_hashes=[],
                               target_luma=0.4)
         assert out is not None
         meta = ps.read_media_sidecar(out)
@@ -98,7 +99,7 @@ class TestPoolFloorWithoutDirector:
         processed = []
         monkeypatch.setattr(ps, "aesthetic_score",
                             lambda p: processed.append(p) or 5.0)
-        ps.pexels_photo("medieval sword", ps.FAST_MODE_START_INDEX + 1,
+        pick_photo(ps, "medieval sword", ps.FAST_MODE_START_INDEX + 1,
                         used_ids=set(), used_hashes=[], target_luma=0.4)
         assert len(processed) == ps.FAST_BASE_MIN_POOL
         assert ps.FAST_BASE_MIN_POOL >= 2, "хвостовой пол не должен схлопываться до 1"
@@ -118,7 +119,7 @@ class TestDirectorStillWins:
         processed = []
         monkeypatch.setattr(ps, "aesthetic_score",
                             lambda p: processed.append(p) or 5.0)
-        ps.pexels_photo("medieval sword", 0, used_ids=set(), used_hashes=[],
+        pick_photo(ps, "medieval sword", 0, used_ids=set(), used_hashes=[],
                         target_luma=0.4, director_score_fn=lambda *a, **k: 0.5)
         # Директору достаётся не меньше его собственного пола — а с полом
         # базового отбора в целую выборку (BASE_MIN_POOL=20) и больше.
