@@ -6029,9 +6029,14 @@ def _score_and_pick(candidates_info, director_score_fn=None):
 
 
 def _meaning_key(c):
-    """Ключи СМЫСЛА кандидата — всё, что в кортеже _score_and_pick стоит
-    выше технических осей (резкость, эстетика, яркость)."""
-    return (c["is_dup_free"], judge_rank(c), c["is_relevant"], c["size_ok"])
+    """Ключи СМЫСЛА кандидата: дубль, оценка судьи, релевантность.
+
+    Ритм крупностей (size_ok) сюда НЕ входит, хотя в кортеже _score_and_pick
+    стоит выше резкости: это монтажный ритм, а не смысл. С ним в ключе
+    размытый победитель со «свежей» крупностью оставался на экране, если
+    резкий кандидат того же смысла повторял крупность соседнего кадра, —
+    ритм решал за смысл ровно там, где его место ниже."""
+    return (c["is_dup_free"], judge_rank(c), c["is_relevant"])
 
 
 def _repick(candidates_info, failed, score_fn, director_assist, excluded, same_meaning):
@@ -7625,6 +7630,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
             headers = {"User-Agent": UA}
             headers.update(p.get("_download_headers") or {})
             atomic_url_download(urllib.request.Request(url, headers=headers), dest, timeout=20)
+            flatten_transparency(dest)
 
         def download(p, dest):
             url = p["src"].get("large2x") or p["src"].get("large")
@@ -7636,6 +7642,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
             headers.update(p.get("_download_headers") or {})
             req_img = urllib.request.Request(url, headers=headers)
             atomic_url_download(req_img, dest, timeout=20)
+            flatten_transparency(dest)
 
         # Дефолты ДО развилки: ветка used_hashes is None (вызов без анти-дубля —
         # тесты, служебные прогоны) минует весь блок выбора победителя ниже, где
@@ -8057,6 +8064,8 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                   f"кандидат(ов), взят следующий по ранжированию")
         if used_ids is not None:
             selection_attempt.record_effect("reserve_id", used_ids, pick.get("id"))
+        if judged:
+            selection_attempt.record_note("judge_score", winner.get("judge") if winner else None)
         if judged and not judge_approved(winner):
             # Лучший кадр слота по оценке судьи — брак. Кадр остаётся у
             # попытки (как у отказа арбитра), решение о показе — у слота:
@@ -10290,6 +10299,32 @@ def _download_host_throttle(url):
         time.sleep(delay)
 
 
+def flatten_transparency(path):
+    """PNG с прозрачным фоном -> тот же кадр на светлом фоне, на месте.
+
+    Судья смотрит кадр через shot_judge.flat_rgb (прозрачное — на светлый
+    фон), а гейты читают файл через convert("RGB"), рендер — через ffmpeg,
+    и оба показывают произвольный цвет прозрачных пикселей: у кинжалов
+    Pixabay «isolated» это были полосы. Одобренный судьёй кадр ушёл бы на
+    экран испорченным. Поэтому фон выравнивается ОДИН раз, при скачивании,
+    той же функцией, что у судьи: все три читателя видят одну картинку.
+    Непрозрачный файл не переписывается. Сбой — файл как был."""
+    try:
+        from PIL import Image
+        import shot_judge
+        with Image.open(path) as im:
+            has_alpha = im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info)
+            if not has_alpha or im.convert("RGBA").getchannel("A").getextrema()[0] == 255:
+                return False
+            flat = shot_judge.flat_rgb(im)
+        tmp = path + ".flat.jpg"
+        flat.save(tmp, "JPEG", quality=95)
+        os.replace(tmp, path)
+        return True
+    except Exception:
+        return False
+
+
 def _downloaded_ok(path):
     """Файл реально лежит на диске и непустой.
 
@@ -11410,6 +11445,26 @@ def shot_judge_active():
     """Судья в этом прогоне вообще возможен: флаг и ключ. Без сети."""
     return (feature_flags.enabled("SHOT_JUDGE")
             and bool((os.environ.get("LLM_GATEWAY_API_KEY") or "").strip()))
+
+
+def pick_kind_by_judge(first_kind, first_score, other_score, prefer_video):
+    """Какой вид медиа ставить в слот, когда добыты оба: фото и видео.
+
+    Решает оценка судьи — какой кадр лучше показывает фразу, а не хэш
+    текста и не порядок попыток. Равные оценки — прежнее правило вида
+    (действие во фразе, ритм чередования): оно арбитр среди равных по
+    смыслу, а не поверх смысла. У второго вида нет оценки (кэш-хит,
+    судья не ответил) — он берётся, только если первый судья забраковал:
+    неизвестное лучше известного брака, известное годное — нет.
+    Возвращает "photo" или "video"."""
+    other_kind = "video" if first_kind == "photo" else "photo"
+    if not isinstance(first_score, int):
+        return first_kind
+    if not isinstance(other_score, int):
+        return other_kind if first_score < SHOT_JUDGE_MIN_SCORE else first_kind
+    if other_score != first_score:
+        return other_kind if other_score > first_score else first_kind
+    return "video" if prefer_video else "photo"
 
 
 def judge_approved(c):
@@ -13522,6 +13577,7 @@ class VideoAdapter(selection_engine.MediaAdapter):
             chosen_by = "video_below_threshold"
         if judged:
             chosen_by += "+judge"
+            selection_attempt.record_note("judge_score", winner.get("judge"))
             if not judge_approved(winner):
                 selection_attempt.record_verdict("judge", {
                     "index": index, "kind": "video", "query": query,
@@ -15913,6 +15969,31 @@ def main():
                 photo = fetch_in_attempt(slot_attempts, i, "photo", select_media, request, "photo")
                 if not photo and d >= MIN_CLIP + 1.0:
                     video = fetch_in_attempt(slot_attempts, i, "video", select_media, request, "video")
+            # ФОТО ИЛИ ВИДЕО — ПО ОЦЕНКЕ СУДЬИ. Первый вид выбран правилом
+            # выше (действие во фразе, ритм), но это догадка по тексту: какой
+            # кадр лучше показывает фразу, знает только тот, кто на кадры
+            # посмотрел. Живой случай (эпизод 94, слот 7): фото встало лишь
+            # потому, что все видео провалили проверки. Второй вид добывается,
+            # только если первый не получил высшую оценку — при высшей второй
+            # может лишь сравняться, а ничью решает то же правило вида.
+            # Под плашкой с цифрой видео не бывает (движущийся фон мешает
+            # читать число), короткому слоту видео не хватает длины.
+            import shot_judge
+            first_att = attempt_of(slot_attempts, photo or video)
+            first_score = first_att.notes.get("judge_score") if first_att else None
+            if (shot_judge_active() and not stat and d >= MIN_CLIP + 1.0
+                    and isinstance(first_score, int) and first_score < shot_judge.SCORE_MAX):
+                first_kind = "video" if video else "photo"
+                other_kind = "photo" if video else "video"
+                other = fetch_in_attempt(slot_attempts, i, other_kind, select_media, request, other_kind)
+                if other:
+                    other_att = attempt_of(slot_attempts, other)
+                    other_score = other_att.notes.get("judge_score") if other_att else None
+                    kind = pick_kind_by_judge(first_kind, first_score, other_score, prefer_video)
+                    print(f"    [{i+1}] {first_kind} {first_score} против {other_kind} "
+                          f"{other_score if other_score is not None else '—'} -> {kind}")
+                    if kind == other_kind:
+                        photo, video = (other, None) if other_kind == "photo" else (None, other)
             # Раньше Pexels отключался навсегда после ЛЮБОГО промаха, включая
             # обычную пустую выдачу по одному неудачному запросу. Гасим источник
             # только если API реально отвалился.
@@ -15939,6 +16020,9 @@ def main():
         video_att = attempt_of(slot_attempts, video)
         if (video and not photo and not locked_shot
                 and feature_flags.enabled("VIDEO_PHOTO_RESCUE")
+                # Фото уже добывалось и проиграло видео по оценке судьи —
+                # повторная добыча дала бы тот же проигравший кадр.
+                and not any(a.kind == "photo" and a.media for a in slot_attempts)
                 and video_att is not None and known_bad_reason(video_att.verdicts)):
             # Вердикты отвергнутого видео принадлежат ЕГО попытке: снимать и
             # возвращать их не нужно — правдой о слоте станут вердикты той

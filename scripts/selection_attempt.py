@@ -74,6 +74,10 @@ class Attempt:
         self.verdicts = []    # [(kind, record)] в порядке записи
         self.effects = []     # [(kind, args)] в порядке записи
         self.media = None     # что добытчик вернул (путь в стейджинге или вне его)
+        # Сведения о победителе для решения СЛОТА (например, оценка судьи —
+        # по ней слот выбирает между фото и видео). Не вердикт (в отчёты не
+        # уходит) и не эффект (состояния эпизода не меняет).
+        self.notes = {}
         self._owner = threading.get_ident()
         self._root = os.path.join(staging_root, self.attempt_id)
         self._dirs = {}       # final_dir -> staged_dir
@@ -167,6 +171,15 @@ def reset_attempt_ids():
 
 def current():
     return _CURRENT.get()
+
+
+def record_note(key, value):
+    """Сведение о победителе попытки для решения слота (см. Attempt.notes)."""
+    att = _CURRENT.get()
+    if att is None:
+        raise AttemptStateError("сведение вне попытки: добытчик обязан работать внутри run_attempt()")
+    att._check_open()
+    att.notes[key] = value
 
 
 def record_verdict(kind, record):

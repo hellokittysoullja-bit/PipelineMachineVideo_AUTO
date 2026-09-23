@@ -102,3 +102,13 @@ def test_same_meaning_refuses_a_worse_meaning_replacement():
     a, b = _c("a", 3), _c("b", 2)
     assert ps._repick([a, b], a, None, False, {id(a)}, same_meaning=True) is None
     assert ps._repick([a, b], a, None, False, {id(a)}, same_meaning=False) is b
+
+
+def test_shot_size_rhythm_is_not_meaning():
+    """Размытый победитель со «свежей» крупностью не остаётся на экране,
+    если резкий кандидат того же смысла повторяет крупность соседа: ритм
+    крупностей — монтаж, а не смысл."""
+    blurred = _c("a", 3)
+    sharp_repeat = dict(_c("b", 3), size_ok=0)
+    assert ps._repick([blurred, sharp_repeat], blurred, None, False, {id(blurred)},
+                      same_meaning=True) is sharp_repeat

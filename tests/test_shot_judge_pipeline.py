@@ -146,3 +146,25 @@ def test_tests_never_reach_the_paid_gateway():
     """conftest гасит судью: дефолт реестра 1, ключ мог быть в окружении."""
     assert os.environ.get("SHOT_JUDGE") == "0" and not os.environ.get("LLM_GATEWAY_API_KEY")
     assert not ps.shot_judge_active()
+
+
+def test_transparent_download_is_flattened_for_gates_and_render(tmp_path):
+    """Гейты и рендер видят тот же кадр, что и судья: прозрачное — на
+    светлом фоне, а не произвольный цвет прозрачных пикселей."""
+    import numpy as np
+    from PIL import Image
+    arr = np.zeros((40, 40, 4), dtype=np.uint8)
+    arr[..., 0] = 255                      # «мусор» под прозрачностью — красный
+    arr[10:30, 10:30] = (20, 20, 20, 255)  # сам предмет
+    p = str(tmp_path / "cand.jpg")
+    Image.fromarray(arr, "RGBA").save(p, "PNG")
+    assert ps.flatten_transparency(p) is True
+    im = Image.open(p)
+    assert im.mode == "RGB"
+    assert im.getpixel((0, 0))[0] < 245 and abs(im.getpixel((0, 0))[1] - 235) < 12
+    assert max(im.getpixel((20, 20))) < 40
+    opaque = str(tmp_path / "opaque.jpg")
+    Image.new("RGB", (8, 8), (1, 2, 3)).save(opaque, "JPEG")
+    before = open(opaque, "rb").read()
+    assert ps.flatten_transparency(opaque) is False
+    assert open(opaque, "rb").read() == before
