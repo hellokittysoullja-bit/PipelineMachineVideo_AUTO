@@ -26,6 +26,7 @@ import wordcount                # noqa: E402
 import stock_fetch_multisource  # noqa: E402
 import shot_director            # noqa: E402
 import fix_pauses               # noqa: E402
+from _media_calls import pick_photo, pick_video  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -1890,7 +1891,7 @@ def _patch_pexels_video_infra(monkeypatch, tmp_path, videos, relevant_ids, hash_
 def test_pexels_video_skips_irrelevant_candidate_and_picks_next(monkeypatch, tmp_path):
     videos = [_fake_video_entry(111), _fake_video_entry(222)]
     _patch_pexels_video_infra(monkeypatch, tmp_path, videos, relevant_ids={222})
-    result = pipeline_smart.pexels_video("european medieval sword close up", 0)
+    result = pick_video(pipeline_smart, "european medieval sword close up", 0)
     assert result is not None and os.path.exists(result)
 
 
@@ -1900,7 +1901,7 @@ def test_pexels_video_respects_max_tries_bound(monkeypatch, tmp_path):
     # перебрать всю выдачу.
     videos = [_fake_video_entry(i) for i in range(10)]
     downloaded = _patch_pexels_video_infra(monkeypatch, tmp_path, videos, relevant_ids=set())
-    result = pipeline_smart.pexels_video("european medieval sword close up", 1)
+    result = pick_video(pipeline_smart, "european medieval sword close up", 1)
     assert result is not None   # честный fallback на первого скачанного, слот не пуст
     assert len(downloaded) <= pipeline_smart.VIDEO_RELEVANCE_MAX_TRIES
 
@@ -1908,7 +1909,7 @@ def test_pexels_video_respects_max_tries_bound(monkeypatch, tmp_path):
 def test_pexels_video_falls_back_to_first_when_none_relevant(monkeypatch, tmp_path):
     videos = [_fake_video_entry(333), _fake_video_entry(444)]
     _patch_pexels_video_infra(monkeypatch, tmp_path, videos, relevant_ids=set())
-    result = pipeline_smart.pexels_video("european medieval sword close up", 2)
+    result = pick_video(pipeline_smart, "european medieval sword close up", 2)
     assert result is not None and os.path.exists(result), (
         "ни один кандидат не прошёл гейт — слот всё равно не должен остаться пустым")
 
@@ -1916,7 +1917,7 @@ def test_pexels_video_falls_back_to_first_when_none_relevant(monkeypatch, tmp_pa
 def test_pexels_video_first_candidate_relevant_downloads_once(monkeypatch, tmp_path):
     videos = [_fake_video_entry(555), _fake_video_entry(666)]
     downloaded = _patch_pexels_video_infra(monkeypatch, tmp_path, videos, relevant_ids={555})
-    result = pipeline_smart.pexels_video("european medieval sword close up", 3)
+    result = pick_video(pipeline_smart, "european medieval sword close up", 3)
     assert result is not None
     assert len(downloaded) == 1, "первый же релевантный кандидат — не нужно скачивать остальных"
 
@@ -1942,7 +1943,7 @@ def test_pexels_video_prefers_fresh_over_duplicate_of_already_used_media(monkeyp
     _patch_pexels_video_infra(monkeypatch, tmp_path, videos, relevant_ids={111, 222},
                               hash_by_id={111: DUP_HASH, 222: FRESH_HASH})
     used_hashes = [DUP_HASH]   # хэш уже выбранного медиа (мог прийти от фото)
-    result = pipeline_smart.pexels_video("european medieval sword close up", 4,
+    result = pick_video(pipeline_smart, "european medieval sword close up", 4,
                                          used_hashes=used_hashes)
     assert result is not None
     assert "222" in result or True   # cf-имя от query+index, не от id — проверяем через hashes
@@ -1958,7 +1959,7 @@ def test_pexels_video_accepts_duplicate_rather_than_empty_slot(monkeypatch, tmp_
     _patch_pexels_video_infra(monkeypatch, tmp_path, videos, relevant_ids={333},
                               hash_by_id={333: DUP_HASH})
     used_hashes = [DUP_HASH]
-    result = pipeline_smart.pexels_video("european medieval sword close up", 5,
+    result = pick_video(pipeline_smart, "european medieval sword close up", 5,
                                          used_hashes=used_hashes)
     assert result is not None and os.path.exists(result)
 
@@ -1968,7 +1969,7 @@ def test_pexels_video_without_used_hashes_behaves_as_before(monkeypatch, tmp_pat
     # первый релевантный кандидат побеждает как и раньше.
     videos = [_fake_video_entry(777), _fake_video_entry(888)]
     downloaded = _patch_pexels_video_infra(monkeypatch, tmp_path, videos, relevant_ids={777, 888})
-    result = pipeline_smart.pexels_video("european medieval sword close up", 6)
+    result = pick_video(pipeline_smart, "european medieval sword close up", 6)
     assert result is not None
     assert len(downloaded) == 1
 
@@ -2671,7 +2672,7 @@ def test_pexels_video_pools_all_section_queries(tmp_path, monkeypatch):
         # Кандидат 2 (из ВТОРОГО запроса секции) — семантически лучший.
         seen[probe] = 1
         return 0.9 if "2.mp4" in probe else 0.1
-    out = pipeline_smart.pexels_video(
+    out = pick_video(pipeline_smart, 
         "medieval sword close up", 0, used_ids=set(), used_hashes=[],
         extra_queries=["dark cinema movie theatre screen"], sentence_score_fn=score)
     assert out is not None
@@ -2708,7 +2709,7 @@ def test_pexels_video_rejects_near_black_frame(tmp_path, monkeypatch):
     # Кандидат 1 — практически чёрный, 2 — нормальный.
     monkeypatch.setattr(pipeline_smart, "measure_luma",
                         lambda p: 0.01 if ".trial_1." in p else 0.4)
-    out = pipeline_smart.pexels_video(
+    out = pick_video(pipeline_smart, 
         "medieval sword close up", 0, used_ids=set(), used_hashes=[],
         sentence_score_fn=lambda probe: 0.5)
     assert out is not None
@@ -2735,7 +2736,7 @@ def test_pexels_video_prefers_readable_frame_over_slightly_better_meaning(tmp_pa
 
     def score(probe):
         return 0.95 if ".trial_1." in probe else 0.20
-    out = pipeline_smart.pexels_video(
+    out = pick_video(pipeline_smart, 
         "medieval sword close up", 0, used_ids=set(), used_hashes=[],
         sentence_score_fn=score)
     captured["out"] = out
@@ -2759,7 +2760,7 @@ def test_pexels_video_without_sentence_fn_keeps_first_match_behaviour(tmp_path, 
     monkeypatch.setattr(pipeline_smart, "video_domain_guard_violation", lambda *a, **k: (False, None))
     monkeypatch.setattr(pipeline_smart, "measure_luma", lambda p: 0.4)
     monkeypatch.setattr(pipeline_smart, "ahash", lambda p: 0)
-    out = pipeline_smart.pexels_video("medieval sword close up", 0,
+    out = pick_video(pipeline_smart, "medieval sword close up", 0,
                                        used_ids=set(), used_hashes=[])
     assert out is not None
     assert len(calls) == 1, "без смысловой оценки — прежнее поведение, одна закачка"
@@ -2829,7 +2830,7 @@ def test_pexels_video_try_budget_scales_with_pool_size(tmp_path, monkeypatch):
     monkeypatch.setattr(pipeline_smart, "video_domain_guard_violation", lambda *a, **k: (False, None))
     monkeypatch.setattr(pipeline_smart, "measure_luma", lambda p: 0.4)
     monkeypatch.setattr(pipeline_smart, "ahash", lambda p: 0)
-    out = pipeline_smart.pexels_video(
+    out = pick_video(pipeline_smart, 
         "q0", 0, used_ids=set(), used_hashes=[],
         extra_queries=[f"q{i}" for i in range(1, 6)],
         sentence_score_fn=lambda probe: 0.5)
@@ -2939,8 +2940,8 @@ def test_pexels_photo_text_key_changes_cache_path_for_same_query(tmp_path, monke
     monkeypatch.setattr(pipeline_smart, "atomic_url_download",
                         lambda req, dest, timeout=None: open(dest, "wb").write(b"x"))
 
-    out1 = pipeline_smart.pexels_photo("medieval sword", 0, text_key="Не дрались. Несли.")
-    out2 = pipeline_smart.pexels_photo("medieval sword", 0, text_key="Первое: размер.")
+    out1 = pick_photo(pipeline_smart, "medieval sword", 0, text_key="Не дрались. Несли.")
+    out2 = pick_photo(pipeline_smart, "medieval sword", 0, text_key="Первое: размер.")
     assert out1 != out2, (
         "один и тот же запрос на одной и той же позиции, но РАЗНЫЙ текст блока "
         "обязан давать РАЗНЫЙ файл кэша — иначе правка сценария молча "
@@ -2958,7 +2959,7 @@ def test_pexels_photo_without_text_key_keeps_old_cache_path(tmp_path, monkeypatc
     monkeypatch.setattr(pipeline_smart, "filter_alt_blocklist", lambda ph: ph)
     monkeypatch.setattr(pipeline_smart, "atomic_url_download",
                         lambda req, dest, timeout=None: open(dest, "wb").write(b"x"))
-    out = pipeline_smart.pexels_photo("medieval sword", 0)
+    out = pick_photo(pipeline_smart, "medieval sword", 0)
     qhash = pipeline_smart.hashlib.md5("medieval sword".encode()).hexdigest()[:8]
     assert qhash in out
 
@@ -2980,8 +2981,8 @@ def test_pexels_video_text_key_changes_cache_path_for_same_query(tmp_path, monke
     monkeypatch.setattr(pipeline_smart, "measure_luma", lambda p: 0.4)
     monkeypatch.setattr(pipeline_smart, "ahash", lambda p: 0)
 
-    out1 = pipeline_smart.pexels_video("medieval sword", 0, text_key="Не дрались. Несли.")
-    out2 = pipeline_smart.pexels_video("medieval sword", 0, text_key="Первое: размер.")
+    out1 = pick_video(pipeline_smart, "medieval sword", 0, text_key="Не дрались. Несли.")
+    out2 = pick_video(pipeline_smart, "medieval sword", 0, text_key="Первое: размер.")
     assert out1 != out2
 
 

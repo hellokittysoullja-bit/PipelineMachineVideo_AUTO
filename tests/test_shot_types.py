@@ -29,6 +29,7 @@ sys.argv = ["pipeline_smart.py", tempfile.mkdtemp(prefix="shottypes_")]
 import shot_types as st  # noqa: E402
 import pipeline_smart as ps  # noqa: E402
 import script_parser  # noqa: E402
+from _media_calls import pick_photo, pick_video  # noqa: E402
 
 
 class TestExplicitMarkup:
@@ -159,7 +160,7 @@ class TestWiredIntoSelection:
         monkeypatch.setattr(ps, "_pixabay_search_photos", lambda q: [])
         monkeypatch.setattr(ps, "_unsplash_search_photos", lambda q: [])
         ps._PEXELS_SEARCH_CACHE.clear()
-        ps.pexels_photo("medieval castle moat water", 0, used_ids=set(), used_hashes=[],
+        pick_photo(ps, "medieval castle moat water", 0, used_ids=set(), used_hashes=[],
                         text_key="routing-scene")
         assert called == []
 
@@ -172,7 +173,7 @@ class TestWiredIntoSelection:
         monkeypatch.setattr(ps, "_pixabay_search_photos", lambda q: [])
         monkeypatch.setattr(ps, "_unsplash_search_photos", lambda q: [])
         ps._PEXELS_SEARCH_CACHE.clear()
-        ps.pexels_photo("medieval plate armour museum", 0, used_ids=set(), used_hashes=[],
+        pick_photo(ps, "medieval plate armour museum", 0, used_ids=set(), used_hashes=[],
                         text_key="routing-object")
         assert seen.get("dep") == 4
 

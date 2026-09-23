@@ -43,6 +43,7 @@ import stage_timer
 import feature_flags
 import query_fusion
 import selection_attempt
+import selection_engine
 
 try:
     import numpy as np
@@ -4942,6 +4943,10 @@ def known_bad_reason(verdicts):
     по силе сигнала: отказ арбитра сильнее численного промаха порога.
     """
     kinds = {k for k, _rec in verdicts}
+    if "judge" in kinds:
+        # Судья кадров посмотрел на кандидатов сеткой ВМЕСТЕ с описанием
+        # кадра и оценил лучшего как брак — сильнейший сигнал в списке.
+        return "shot_judge_rejected"
     if "smart_veto" in kinds:
         # Первым: единственная причина здесь — модель ПОСМОТРЕЛА на
         # реальный итоговый кадр (не на шорт-лист превью, как арбитр) и
@@ -4988,6 +4993,7 @@ def known_bad_reason(verdicts):
 # сами списки: тест или повторный main() может подменить список на модуле, и
 # проекция обязана попасть в тот, что стоит на модуле СЕЙЧАС.
 VERDICT_REPORT_LISTS = {
+    "judge": "SHOT_JUDGE_MISSES",
     "smart_veto": "SMART_VETO_MISSES",
     "arbiter": "ARBITER_REJECTED_ALL",
     "stock": "STOCK_EXHAUSTED_MISSES",
@@ -5125,6 +5131,16 @@ def attempt_of(slot_attempts, media):
         if att.media == media:
             return att
     return None
+
+
+def build_slot_request(**fields):
+    """Единственное место, где строится SlotRequest. Ключевые слова вместо
+    позиций, чтобы порядок полей не мог перепутаться; список полей
+    SlotRequest задан без значений по умолчанию — пропущенное поле здесь
+    же падает TypeError, а не превращается в тихий None."""
+    extra = fields.get("extra_queries")
+    fields["extra_queries"] = tuple(extra) if extra else ()
+    return selection_engine.SlotRequest(**fields)
 
 
 def select_standalone(kind, index, fn, *args, **kwargs):
@@ -5955,16 +5971,21 @@ def _score_and_pick(candidates_info, director_score_fn=None):
     этапе отбора). Стоит СРАЗУ после is_relevant, ДО aesthetic — та же
     логика приоритета, что и у extra Директора: "не размыто" важнее
     "красиво", но не важнее "по теме"/"не дубль"/"нужный размер"."""
-    base_best, base_score = None, (-1, -1, -1, -1, -1, -100.0, -1.0, -1)
-    dir_best, dir_score = None, (-1, -1, -1, -1, -100.0, -1, -100.0, -1.0, -1)
+    base_best, base_score = None, (-1, -2, -1, -1, -1, -1, -100.0, -1.0, -1)
+    dir_best, dir_score = None, (-1, -2, -1, -1, -1, -100.0, -1, -100.0, -1.0, -1)
     for c in candidates_info:
         sharp_ok = c.get("sharp_ok", 1)
         # rel_bucket — см. RELEVANCE_RANK_BUCKET: «насколько по теме» решает
         # раньше «насколько красиво», гейты остаются гейтами. is_relevant
         # (бинарный) при этом стоит выше ритма крупностей — см. докстринг.
         rel_bucket = relevance_rank_bucket(c.get("relevance"))
-        score = (c["is_dup_free"], c["is_relevant"], c["size_ok"], sharp_ok, rel_bucket,
-                  c["aesthetic_val"], c["luma_score"], c["min_d"])
+        # judge_rank — оценка судьи кадров (SHOT_JUDGE, см. judge_candidates):
+        # сразу после анти-дубля, ВЫШЕ гейтов эмбеддинга — судья смотрит на
+        # сам кадр с описанием кадра и рассуждает, а эмбеддинг сравнивает
+        # числа. Судьи не было — у всех кандидатов одно и то же -1, порядок
+        # остальных ключей байт-в-байт прежний.
+        score = (c["is_dup_free"], judge_rank(c), c["is_relevant"], c["size_ok"], sharp_ok,
+                 rel_bucket, c["aesthetic_val"], c["luma_score"], c["min_d"])
         if score > base_score:
             base_best, base_score = c, score
         if director_score_fn is not None:
@@ -5982,8 +6003,8 @@ def _score_and_pick(candidates_info, director_score_fn=None):
             # У Директора своя, более сильная ось смысла (extra — relevance
             # ПОЛНОЙ фразы ансамблем), поэтому корзина relevance по запросу
             # стоит ПОСЛЕ неё: разбивает ничьи Директора до эстетики.
-            dscore = (c["is_dup_free"], c["is_relevant"], c["size_ok"], sharp_ok, extra,
-                       rel_bucket, c["aesthetic_val"], c["luma_score"], c["min_d"])
+            dscore = (c["is_dup_free"], judge_rank(c), c["is_relevant"], c["size_ok"], sharp_ok,
+                      extra, rel_bucket, c["aesthetic_val"], c["luma_score"], c["min_d"])
             if dscore > dir_score:
                 dir_best, dir_score = c, dscore
     return base_best, dir_best
@@ -7184,20 +7205,14 @@ def _openverse_fetch_one(api_query, _ov):
     return results
 
 
-def pexels_photo(query, index, *args, **kwargs):
-    """Подбор фото для слота. Контракт и параметры — у _select_photo ниже.
+class PhotoAdapter(selection_engine.MediaAdapter):
+    """Адаптер фото для ядра отбора (selection_engine.select).
 
-    Внутри слотового цикла main() работает в попытке, которую открыл main();
-    вызов вне него — «выбрать и сразу принять» (select_standalone): то же
-    закрытие, что в main(), без второй ветки."""
-    return select_standalone("photo", index, _select_photo, query, index, *args, **kwargs)
+    Ниже — контракт прежнего pexels_photo(); имена его аргументов живут
+    теперь полями SlotRequest: used_ids -> used_photo_ids, is_opening_shot ->
+    is_opening, остальные совпадают.
 
-
-def _select_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=None, target_luma=None,
-                  director_score_fn=None, director_assist=False, director_report=None,
-                  extra_queries=None, text_key=None, arbiter_text=None, is_opening_shot=False,
-                  shot_brief=None, block_text=None):
-    """used_ids — множество ID уже показанных в этом ролике фото (мутируется на
+    used_ids — множество ID уже показанных в этом ролике фото (мутируется на
     месте). Разные блоки часто ловят один и тот же тематический запрос — без
     этого им всем доставался бы top-1 результат, то есть одна и та же картинка
     по нескольку раз за ролик. Перебираем выдачу (per_page=80 — Pexels-максимум,
@@ -7255,56 +7270,66 @@ def _select_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=No
     только если реально подходит и теме ЭТОГО блока — см. развёрнутый разбор
     у самого вызова is_relevant_candidate() ниже. None/[] -> прежнее
     поведение."""
-    global PEXELS_BROKEN
-    cache = os.path.join(TEMP_FOLDER, "pexels_cache")
-    os.makedirs(cache, exist_ok=True)
-    # Хэш запроса в имени файла — иначе смена themes.json без чистки temp_smart/
-    # молча оставляет картинку под старый запрос (кэш бил только по номеру блока).
-    # Хэш правил отбора (candidate_gate_signature()) в имени файла ТУДА ЖЕ —
-    # иначе улучшение relevance/анахронизм-гварда молча не переоценивает уже
-    # закэшированного кандидата, отобранного по старым, менее строгим правилам
-    # (реальный найденный баг, см. докстринг candidate_gate_signature()).
-    # В ключ входит ВЕСЬ набор запросов пула (не только основной): смена
-    # состава пула меняет, из чего вообще выбирался кадр — переиспользовать
-    # старый файл в этом случае значит молча остаться на прежнем, более
-    # бедном выборе (тот же класс бага, что закрывает candidate_gate_signature).
-    # text_key — РЕАЛЬНЫЙ пробел, найденный по прямому запросу пользователя
-    # (не гипотеза): кэш до этого бил по (индекс слота, ЗАПРОС, версия
-    # кода) — но ЗАПРОС для слота считает resolve_queries() либо по
-    # словарю тем, либо циклическим курсором по авторскому пулу секции.
-    # Правка текста в script.txt (перефразировка, добавленное/убранное
-    # предложение) может ОСТАВИТЬ вычисленный запрос тем же самым (то же
-    # слово темы) или же — из-за сдвига позиций при циклическом курсоре —
-    # ПОЗИЦИОННО попасть на ту же самую строку запроса, что была у СОВСЕМ
-    # ДРУГОГО предложения раньше. В обоих случаях кэш-файл на диске уже
-    # существует под этим же именем и молча отдаётся — фото, подобранное
-    # под старый текст, беззвучно остаётся стоять под новый. text_key
-    # (semantic_context_text() того же блока — та же строка, что реально
-    # идёт в сравнение по смыслу) — это то немногое, что ОДНОЗНАЧНО
-    # привязывает кэш к КОНКРЕТНОЙ фразе, а не к производному от неё
-    # запросу. None (вызов без блока сценария, напр. тесты) -> прежнее
-    # поведение, ноль регрессии.
-    #
-    # arbiter_text — РЕАЛЬНЫЙ (не дополненный соседями) текст блока, только
-    # для HOOK-слотов (см. вызов в main(), VLM_ARBITER_MODE) — включает
-    # VLM-арбитра (shot_director.arbitrate_hook_candidates) поверх уже
-    # решённого base/director победителя, см. её блок-комментарий в
-    # shot_director.py. None -> арбитраж не запускается вообще, прежнее
-    # поведение.
-    # Бриф входит в ключ кэша кандидата: он МЕНЯЕТ состав пула, и без него
-    # слот на прогретом temp_smart/ молча отдал бы кандидата, выбранного до
-    # появления брифа (тот же урок, что у candidate_gate_signature).
-    _brief_key = candidate_brief_key(shot_brief, block_text)
-    qkey = "|".join([query] + sorted(q for q in (extra_queries or []) if q and q != query)
-                     + ([text_key] if text_key else [])
-                     + ([_brief_key] if _brief_key else []))
-    qhash = hashlib.md5(qkey.encode()).hexdigest()[:8]
-    gate_sig = candidate_gate_signature().split(":", 1)[-1]
-    cf = os.path.join(cache, f"{index:04d}_{qhash}_{gate_sig}.jpg")
-    # size>0, не просто exists — см. atomic_url_download: старые (до этого
-    # фикса) прерванные закачки могли уже оставить 0-байтный файл под этим
-    # именем, и голый exists() принял бы его за валидный кэш.
-    if os.path.exists(cf) and os.path.getsize(cf) > 0:
+
+    kind = "photo"
+
+    def brief_query(self, request):
+        return candidate_brief_key(request.shot_brief, request.block_text)
+
+    def cache_path(self, request):
+        query, index = request.query, request.index
+        extra_queries, text_key = request.extra_queries, request.text_key
+        shot_brief, block_text = request.shot_brief, request.block_text
+        cache = os.path.join(TEMP_FOLDER, "pexels_cache")
+        os.makedirs(cache, exist_ok=True)
+        # Хэш запроса в имени файла — иначе смена themes.json без чистки temp_smart/
+        # молча оставляет картинку под старый запрос (кэш бил только по номеру блока).
+        # Хэш правил отбора (candidate_gate_signature()) в имени файла ТУДА ЖЕ —
+        # иначе улучшение relevance/анахронизм-гварда молча не переоценивает уже
+        # закэшированного кандидата, отобранного по старым, менее строгим правилам
+        # (реальный найденный баг, см. докстринг candidate_gate_signature()).
+        # В ключ входит ВЕСЬ набор запросов пула (не только основной): смена
+        # состава пула меняет, из чего вообще выбирался кадр — переиспользовать
+        # старый файл в этом случае значит молча остаться на прежнем, более
+        # бедном выборе (тот же класс бага, что закрывает candidate_gate_signature).
+        # text_key — РЕАЛЬНЫЙ пробел, найденный по прямому запросу пользователя
+        # (не гипотеза): кэш до этого бил по (индекс слота, ЗАПРОС, версия
+        # кода) — но ЗАПРОС для слота считает resolve_queries() либо по
+        # словарю тем, либо циклическим курсором по авторскому пулу секции.
+        # Правка текста в script.txt (перефразировка, добавленное/убранное
+        # предложение) может ОСТАВИТЬ вычисленный запрос тем же самым (то же
+        # слово темы) или же — из-за сдвига позиций при циклическом курсоре —
+        # ПОЗИЦИОННО попасть на ту же самую строку запроса, что была у СОВСЕМ
+        # ДРУГОГО предложения раньше. В обоих случаях кэш-файл на диске уже
+        # существует под этим же именем и молча отдаётся — фото, подобранное
+        # под старый текст, беззвучно остаётся стоять под новый. text_key
+        # (semantic_context_text() того же блока — та же строка, что реально
+        # идёт в сравнение по смыслу) — это то немногое, что ОДНОЗНАЧНО
+        # привязывает кэш к КОНКРЕТНОЙ фразе, а не к производному от неё
+        # запросу. None (вызов без блока сценария, напр. тесты) -> прежнее
+        # поведение, ноль регрессии.
+        #
+        # arbiter_text — РЕАЛЬНЫЙ (не дополненный соседями) текст блока, только
+        # для HOOK-слотов (см. вызов в main(), VLM_ARBITER_MODE) — включает
+        # VLM-арбитра (shot_director.arbitrate_hook_candidates) поверх уже
+        # решённого base/director победителя, см. её блок-комментарий в
+        # shot_director.py. None -> арбитраж не запускается вообще, прежнее
+        # поведение.
+        # Бриф входит в ключ кэша кандидата: он МЕНЯЕТ состав пула, и без него
+        # слот на прогретом temp_smart/ молча отдал бы кандидата, выбранного до
+        # появления брифа (тот же урок, что у candidate_gate_signature).
+        _brief_key = self.brief_query(request)
+        qkey = "|".join([query] + sorted(q for q in (extra_queries or []) if q and q != query)
+                         + ([text_key] if text_key else [])
+                         + ([_brief_key] if _brief_key else []))
+        qhash = hashlib.md5(qkey.encode()).hexdigest()[:8]
+        gate_sig = candidate_gate_signature().split(":", 1)[-1]
+        cf = os.path.join(cache, f"{index:04d}_{qhash}_{gate_sig}.jpg")
+        return cf
+
+    def cache_hit(self, request, cf):
+        used_ids, used_hashes = request.used_photo_ids, request.used_hashes
+        recent_sizes = request.recent_sizes
         if used_hashes is None:
             if recent_sizes is not None:
                 try:
@@ -7347,193 +7372,163 @@ def _select_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=No
         except Exception:
             _reset_pexels_streak()
             return cf
-    # Дальше файл пишется в ПРИВАТНЫЙ каталог попытки, а не в кэш: в кэш он
-    # попадёт только коммитом, если кадр встанет на экран. Раньше победитель
-    # ложился в кэш до решения, и поглощённый кадр на следующем прогоне
-    # возвращался кэш-хитом — без единого вердикта (см. selection_attempt).
-    cf = selection_attempt.stage_path(cf)
-    # Ключевого гейта здесь БОЛЬШЕ НЕТ — и это исправление, а не упрощение.
-    # Раньше `if not PEXELS_API_KEY: return None` стоял ДО сборки пула, то
-    # есть без ключа Pexels молча умирали ВСЕ остальные источники — музеи,
-    # Openverse, Pixabay, Unsplash, у которых свои ключи или ключ не нужен.
-    # Тест test_search_call_is_not_gated_by_use_pexels защищал тот же
-    # инвариант в main(), а внутри самой функции он нарушался на строку
-    # ниже. Найдено 13.09 при попытке измерить отбор без ключа Pexels: все
-    # слоты вернули None за 0 секунд. Теперь без ключа Pexels просто не
-    # вносит кандидатов (см. _pexels_search_photos), а пустой пул ниже
-    # честно даёт None, как и раньше.
-    try:
-        # Пул кандидатов собирается из ВСЕХ запросов секции сразу, а не из
-        # одного (см. extra_queries в докстринге) — победителя дальше выбирает
-        # director_score_fn по ПОЛНОЙ фразе блока.
-        pool_queries = [query] + [q for q in (extra_queries or []) if q and q != query]
-        # ЗАПРОС ИЗ БРИФА ЭТОЙ ФРАЗЫ — первым в пуле. Не заменяет ни
-        # авторский запрос, ни запросы секции: он ДОБАВЛЯЕТСЯ, а кандидаты
-        # источников всё равно чередуются между запросами (zip_longest ниже),
-        # поэтому положение решает только при равенстве. Смысл добавления —
-        # у слота впервые появляется стоковый запрос, написанный про ЕГО
-        # два предложения, а не про секцию, которую делят 6-10 слотов.
-        # ТОТ ЖЕ `_brief_key`, что ушёл в ключ кэша выше, а не второй
-        # вызов той же функции: разойдись они (другой fallback, другой
-        # аргумент) — и ключ кэша перестал бы описывать пул, который он
-        # ключует. Вторая копия одного правила в этом репозитории уже
-        # стоила эпизоду PHRASE LOCK.
-        if _brief_key and _brief_key not in pool_queries:
-            pool_queries = [_brief_key] + pool_queries
-        per_query = []
-        for pq in pool_queries:
-            lst = []
-            api_q = disambiguate_search_query(pq)
-            # Openverse (институциональные архивы — Met/Wikimedia/Rijksmuseum/
-            # Europeana/Смитсоновский) — В ТОТ ЖЕ пул, ПЕРЕД Pexels. Реальный
-            # пробел (найдено 07.09): код написан и включён (OPENVERSE_ENABLED),
-            # но живой путь отбора его не вызывал ни разу, вклад в
-            # опубликованный эпизод — ноль. Архивы идут первыми не по
-            # приоритету победы (гейты и скоринг ниже те же для всех), а
-            # потому что квота Pexels (200/час) — реальное ограничение, а у
-            # Openverse его в этом коде нет: если архив уже дал релевантного
-            # кандидата, нет смысла тратить Pexels-вызов заранее — но сам
-            # ВЫЗОВ _pexels_search_photos всё равно происходит (кэш на
-            # процесс уже покрывал этот запрос на 9 из 10 повторных слотов),
-            # так что порядок здесь не экономит квоту, только определяет
-            # порядок в списке при равенстве скоров.
-            # Музеи ПЕРВЫМИ: у их кандидатов эпоха и культура не угаданы по
-            # пикселям, а прочитаны из паспорта предмета (см. докстринг
-            # museum_sources.py). Победителя по-прежнему решают общие гейты и
-            # скоринг — порядок только определяет место в списке при равенстве.
-            # ЧЕРЕДОВАНИЕ ПО ИСТОЧНИКАМ внутри запроса — измеренное исправление
-            # регресса, а не вкус (A/B на 9 реальных слотах эпизода 02, 13.09).
-            # Раньше список шёл «все музеи, потом весь Openverse, потом весь
-            # Pexels...». Пока музей давал 12-23 кандидата, дальше него
-            # доходили; с глубиной 60-111 первые PHOTO_DEDUP_MAX_TRIES (20)
-            # кандидатов пробной выборки оказывались ВСЕ музейными, и
-            # Openverse/Pexels не рассматривались вообще. На слоте «medieval
-            # castle moat water» это стоило фотографии замка (relevance 0.28,
-            # Openverse): её место заняла рукопись (0.21) — единственный
-            # музейный кандидат, прошедший гейт. Теперь кандидаты источников
-            # идут по кругу (музей, архив, Pexels, Pixabay, Unsplash, музей,
-            # ...): ни один источник не может вытеснить другие из пробной
-            # выборки, а побеждает по-прежнему тот, кто выше по гейтам и
-            # ранжированию. Порядок ВНУТРИ источника сохранён (релевантность
-            # его же поиска); музей стартует первым по прежней причине —
-            # паспорт предмета, а не догадка по пикселям.
-            # МАРШРУТИЗАЦИЯ ПО ТИПУ КАДРА (scripts/shot_types.py). Музей —
-            # каталог предметов с паспортом, а не фотобанк сцен: на
-            # «medieval castle moat water» он отдаёт «Мадонну с младенцем»
-            # (relevance 0.14-0.21), и в A/B такой кандидат выигрывал слот
-            # только потому, что стоял первым в списке. Теперь сценический
-            # запрос туда не уходит вовсе, а предметный уходит СТРУКТУРНО —
-            # по отделу коллекции, а не свободным текстом (замер: тарелки
-            # на «plate armour» исчезают целиком). Тип не определён -> `any`
-            # -> прежний маршрут во все источники, ноль регрессии.
-            shot_type = shot_type_of_query(pq)
-            department = met_department_for_query(pq, shot_type)
-            per_source = []
-            for source_name, fetch in (("shelf", _shelf_search_photos),
-                                        ("museum", _museum_search_photos),
-                                        ("openverse", _openverse_search_photos),
-                                        ("pexels", _pexels_search_photos),
-                                        ("pixabay", _pixabay_search_photos),
-                                        ("unsplash", _unsplash_search_photos)):
-                if not source_allowed_for(source_name, shot_type):
-                    continue
-                src_list = []
-                # В МУЗЕЙ уходит АВТОРСКИЙ запрос, без уточнителя культуры.
-                # Замер 14.09 на живом API Мет (отдел 4, окно 900-1600):
-                #   «dagger» -> +european теряет 19 предметов, и среди них
-                #   «Dagger pommel | French», «Dagger grip | Italian»,
-                #   «Rapier | Italian» — подлинники, которые нужны;
-                #   заодно уходят «Blade for a dagger (Tantō) | Japanese» и
-                #   «Dagger (Katar) | South Indian» — но их И ТАК убирает
-                #   паспортный фильтр culture_is_foreign() ПОСЛЕ поиска
-                #   (проверено поимённо: Japanese/South Indian/Turkish ->
-                #   True, French/Italian/Flemish/Spanish -> False).
-                # То есть на музейном пути польза уточнителя ДУБЛИРУЕТ
-                # паспорт, а его потери паспорт вернуть не может: он
-                # отсекает ЗНАНИЕМ о культуре предмета, а уточнитель —
-                # совпадением слова в описании. Стоки паспорта не имеют,
-                # там уточнитель остаётся единственной защитой и не тронут.
-                # В ПОЛКУ уходит АВТОРСКИЙ запрос, не уточнённый культурой —
-                # по той же причине, что и в музей: паспорт предмета уже
-                # прочитан при сборке каталога, а уточнитель «european»
-                # выбрасывал бы подлинники, у которых этого слова нет в
-                # описании. И тем более он не нужен там, где сравнение идёт
-                # с изображением, а не с текстом описания.
-                if source_name == "museum":
-                    fetched = fetch(pq, department=department)
-                elif source_name == "shelf":
-                    # ПОЛКЕ уходит БРИФ — описание кадра, написанное автором
-                    # для ЭТОЙ фразы ([shot:...] рядом с ней в script.txt), а
-                    # не запрос секции, который делят десять слотов. В этом и
-                    # весь смысл: полка сравнивает описание с изображениями, и
-                    # чем полнее описание, тем точнее ответ — ровно наоборот
-                    # к поиску по словам, где каждое лишнее слово сужает
-                    # выдачу до нуля (замер на Europeana: пятисловные запросы
-                    # эпизода дают 0 на всех девяти). Брифа нет — берём
-                    # авторский запрос, то есть прежнее поведение.
-                    # Брифа нет -> спрашиваем полку ФРАЗОЙ БЛОКА, а не
-                    # запросом секции. Причина, по которой бриф пишут руками,
-                    # у полки отсутствует лишь НАПОЛОВИНУ, и это важно не
-                    # переоценить: И-логика текстового API к полке правда не
-                    # относится (она сравнивает эмбеддинги, а не слова), но
-                    # вторая половина — перевод «что СКАЗАНО» в «что ПОКАЗАТЬ»
-                    # — относится полностью. На отрицании и абстракции фраза
-                    # упирается в потолок класса моделей (часть B бенчмарка
-                    # репозитория: 12-38% top-1 у ВСЕХ трёх), и бриф автора
-                    # остаётся сильнее. Поэтому фраза — не замена брифу, а
-                    # замена ЗАПРОСУ СЕКЦИИ, который делят 6-10 слотов.
-                    #
-                    # Берётся b["text"], а не semantic_context_text: замер
-                    # реальным токенизатором so400m по 142 блокам эпизода 02
-                    # — фраза блока превышает лимит 64 токена у 14 блоков
-                    # (10%), sem_text у 20 (14%). Обрезка молчаливая, поэтому
-                    # выбран вход с меньшей долей обрезанных.
-                    #
-                    # Ущерб ограничен по построению: кандидат полки судится
-                    # is_relevant_candidate() против АВТОРСКОГО запроса, а не
-                    # против текста, которым его нашли.
-                    fetched = fetch(pq, brief=shelf_question(shot_brief, block_text) or None)
-                else:
-                    fetched = fetch(api_q)
-                for p in fetched:
-                    # Из какого запроса кандидат пришёл — гейт релевантности
-                    # ниже должен сверять его с ЕГО запросом, иначе кандидат
-                    # из второго запроса секции сравнивался бы с чужим текстом
-                    # и честно отбраковывался бы ни за что.
-                    p = dict(p)
-                    p["_origin_query"] = pq
-                    p["_shot_type"] = shot_type
-                    src_list.append(p)
-                per_source.append(src_list)
-            for row in itertools.zip_longest(*per_source):
-                for p in row:
-                    if p is not None:
-                        lst.append(p)
-            per_query.append(lst)
-        # ЧЕРЕДОВАНИЕ по запросам, а не подряд — реальный дефект первой
-        # версии этого пула, найденный покадровым просмотром рендера: Pexels
-        # отдаёт до 80 результатов на запрос, а перебирается лишь первые
-        # PHOTO_DEDUP_MAX_TRIES кандидатов, поэтому при склейке "подряд" ВСЕ
-        # они оказывались из первого (позиционно доставшегося) запроса, и до
-        # остальных запросов секции дело не доходило вообще — расширение
-        # пула существовало только на бумаге. При чередовании сравниваемая
-        # выборка гарантированно охватывает все запросы секции.
-        photos = []
-        seen_ids = set()
-        for row in itertools.zip_longest(*per_query):
-            for p in row:
-                if p is None:
-                    continue
-                pid = p.get("id")
-                if pid in seen_ids:
-                    continue
-                seen_ids.add(pid)
-                photos.append(p)
-        if not photos:
-            return None
-        photos = filter_alt_blocklist(photos)
-        for _p in photos:
+        # Коллизия с уже показанным кадром: кэш негоден, отбираем заново.
+        return None
+
+    def sources(self, request, pq):
+        # Ключевого гейта здесь БОЛЬШЕ НЕТ — и это исправление, а не упрощение.
+        # Раньше `if not PEXELS_API_KEY: return None` стоял ДО сборки пула, то
+        # есть без ключа Pexels молча умирали ВСЕ остальные источники — музеи,
+        # Openverse, Pixabay, Unsplash, у которых свои ключи или ключ не нужен.
+        # Тест test_search_call_is_not_gated_by_use_pexels защищал тот же
+        # инвариант в main(), а внутри самой функции он нарушался на строку
+        # ниже. Найдено 13.09 при попытке измерить отбор без ключа Pexels: все
+        # слоты вернули None за 0 секунд. Теперь без ключа Pexels просто не
+        # вносит кандидатов (см. _pexels_search_photos), а пустой пул ниже
+        # честно даёт None, как и раньше.
+        shot_brief, block_text = request.shot_brief, request.block_text
+        api_q = disambiguate_search_query(pq)
+        # Openverse (институциональные архивы — Met/Wikimedia/Rijksmuseum/
+        # Europeana/Смитсоновский) — В ТОТ ЖЕ пул, ПЕРЕД Pexels. Реальный
+        # пробел (найдено 07.09): код написан и включён (OPENVERSE_ENABLED),
+        # но живой путь отбора его не вызывал ни разу, вклад в
+        # опубликованный эпизод — ноль. Архивы идут первыми не по
+        # приоритету победы (гейты и скоринг ниже те же для всех), а
+        # потому что квота Pexels (200/час) — реальное ограничение, а у
+        # Openverse его в этом коде нет: если архив уже дал релевантного
+        # кандидата, нет смысла тратить Pexels-вызов заранее — но сам
+        # ВЫЗОВ _pexels_search_photos всё равно происходит (кэш на
+        # процесс уже покрывал этот запрос на 9 из 10 повторных слотов),
+        # так что порядок здесь не экономит квоту, только определяет
+        # порядок в списке при равенстве скоров.
+        # Музеи ПЕРВЫМИ: у их кандидатов эпоха и культура не угаданы по
+        # пикселям, а прочитаны из паспорта предмета (см. докстринг
+        # museum_sources.py). Победителя по-прежнему решают общие гейты и
+        # скоринг — порядок только определяет место в списке при равенстве.
+        # ЧЕРЕДОВАНИЕ ПО ИСТОЧНИКАМ внутри запроса — измеренное исправление
+        # регресса, а не вкус (A/B на 9 реальных слотах эпизода 02, 13.09).
+        # Раньше список шёл «все музеи, потом весь Openverse, потом весь
+        # Pexels...». Пока музей давал 12-23 кандидата, дальше него
+        # доходили; с глубиной 60-111 первые PHOTO_DEDUP_MAX_TRIES (20)
+        # кандидатов пробной выборки оказывались ВСЕ музейными, и
+        # Openverse/Pexels не рассматривались вообще. На слоте «medieval
+        # castle moat water» это стоило фотографии замка (relevance 0.28,
+        # Openverse): её место заняла рукопись (0.21) — единственный
+        # музейный кандидат, прошедший гейт. Теперь кандидаты источников
+        # идут по кругу (музей, архив, Pexels, Pixabay, Unsplash, музей,
+        # ...): ни один источник не может вытеснить другие из пробной
+        # выборки, а побеждает по-прежнему тот, кто выше по гейтам и
+        # ранжированию. Порядок ВНУТРИ источника сохранён (релевантность
+        # его же поиска); музей стартует первым по прежней причине —
+        # паспорт предмета, а не догадка по пикселям.
+        # МАРШРУТИЗАЦИЯ ПО ТИПУ КАДРА (scripts/shot_types.py). Музей —
+        # каталог предметов с паспортом, а не фотобанк сцен: на
+        # «medieval castle moat water» он отдаёт «Мадонну с младенцем»
+        # (relevance 0.14-0.21), и в A/B такой кандидат выигрывал слот
+        # только потому, что стоял первым в списке. Теперь сценический
+        # запрос туда не уходит вовсе, а предметный уходит СТРУКТУРНО —
+        # по отделу коллекции, а не свободным текстом (замер: тарелки
+        # на «plate armour» исчезают целиком). Тип не определён -> `any`
+        # -> прежний маршрут во все источники, ноль регрессии.
+        shot_type = shot_type_of_query(pq)
+        department = met_department_for_query(pq, shot_type)
+        per_source = []
+        for source_name, fetch in (("shelf", _shelf_search_photos),
+                                    ("museum", _museum_search_photos),
+                                    ("openverse", _openverse_search_photos),
+                                    ("pexels", _pexels_search_photos),
+                                    ("pixabay", _pixabay_search_photos),
+                                    ("unsplash", _unsplash_search_photos)):
+            if not source_allowed_for(source_name, shot_type):
+                continue
+            src_list = []
+            # В МУЗЕЙ уходит АВТОРСКИЙ запрос, без уточнителя культуры.
+            # Замер 14.09 на живом API Мет (отдел 4, окно 900-1600):
+            #   «dagger» -> +european теряет 19 предметов, и среди них
+            #   «Dagger pommel | French», «Dagger grip | Italian»,
+            #   «Rapier | Italian» — подлинники, которые нужны;
+            #   заодно уходят «Blade for a dagger (Tantō) | Japanese» и
+            #   «Dagger (Katar) | South Indian» — но их И ТАК убирает
+            #   паспортный фильтр culture_is_foreign() ПОСЛЕ поиска
+            #   (проверено поимённо: Japanese/South Indian/Turkish ->
+            #   True, French/Italian/Flemish/Spanish -> False).
+            # То есть на музейном пути польза уточнителя ДУБЛИРУЕТ
+            # паспорт, а его потери паспорт вернуть не может: он
+            # отсекает ЗНАНИЕМ о культуре предмета, а уточнитель —
+            # совпадением слова в описании. Стоки паспорта не имеют,
+            # там уточнитель остаётся единственной защитой и не тронут.
+            # В ПОЛКУ уходит АВТОРСКИЙ запрос, не уточнённый культурой —
+            # по той же причине, что и в музей: паспорт предмета уже
+            # прочитан при сборке каталога, а уточнитель «european»
+            # выбрасывал бы подлинники, у которых этого слова нет в
+            # описании. И тем более он не нужен там, где сравнение идёт
+            # с изображением, а не с текстом описания.
+            if source_name == "museum":
+                fetched = fetch(pq, department=department)
+            elif source_name == "shelf":
+                # ПОЛКЕ уходит БРИФ — описание кадра, написанное автором
+                # для ЭТОЙ фразы ([shot:...] рядом с ней в script.txt), а
+                # не запрос секции, который делят десять слотов. В этом и
+                # весь смысл: полка сравнивает описание с изображениями, и
+                # чем полнее описание, тем точнее ответ — ровно наоборот
+                # к поиску по словам, где каждое лишнее слово сужает
+                # выдачу до нуля (замер на Europeana: пятисловные запросы
+                # эпизода дают 0 на всех девяти). Брифа нет — берём
+                # авторский запрос, то есть прежнее поведение.
+                # Брифа нет -> спрашиваем полку ФРАЗОЙ БЛОКА, а не
+                # запросом секции. Причина, по которой бриф пишут руками,
+                # у полки отсутствует лишь НАПОЛОВИНУ, и это важно не
+                # переоценить: И-логика текстового API к полке правда не
+                # относится (она сравнивает эмбеддинги, а не слова), но
+                # вторая половина — перевод «что СКАЗАНО» в «что ПОКАЗАТЬ»
+                # — относится полностью. На отрицании и абстракции фраза
+                # упирается в потолок класса моделей (часть B бенчмарка
+                # репозитория: 12-38% top-1 у ВСЕХ трёх), и бриф автора
+                # остаётся сильнее. Поэтому фраза — не замена брифу, а
+                # замена ЗАПРОСУ СЕКЦИИ, который делят 6-10 слотов.
+                #
+                # Берётся b["text"], а не semantic_context_text: замер
+                # реальным токенизатором so400m по 142 блокам эпизода 02
+                # — фраза блока превышает лимит 64 токена у 14 блоков
+                # (10%), sem_text у 20 (14%). Обрезка молчаливая, поэтому
+                # выбран вход с меньшей долей обрезанных.
+                #
+                # Ущерб ограничен по построению: кандидат полки судится
+                # is_relevant_candidate() против АВТОРСКОГО запроса, а не
+                # против текста, которым его нашли.
+                fetched = fetch(pq, brief=shelf_question(shot_brief, block_text) or None)
+            else:
+                fetched = fetch(api_q)
+            for p in fetched:
+                # Из какого запроса кандидат пришёл — гейт релевантности
+                # ниже должен сверять его с ЕГО запросом, иначе кандидат
+                # из второго запроса секции сравнивался бы с чужим текстом
+                # и честно отбраковывался бы ни за что.
+                p = dict(p)
+                p["_origin_query"] = pq
+                p["_shot_type"] = shot_type
+                src_list.append(p)
+            per_source.append(src_list)
+        return per_source
+
+    def filter_pool(self, request, pool):
+        return filter_alt_blocklist(pool)
+
+    def note_offered(self, pool):
+        for _p in pool:
             _source_bump(candidate_channel(_p), "offered")
+
+    def on_failure(self, request, exc):
+        _note_pexels_failure(exc, f"Pexels [{request.query}]")
+
+    def choose(self, request, pool, cf):
+        query, index, photos = request.query, request.index, pool
+        used_ids, used_hashes = request.used_photo_ids, request.used_hashes
+        recent_sizes, target_luma = request.recent_sizes, request.target_luma
+        director_score_fn = request.director_score_fn
+        director_assist = request.director_assist
+        director_report = request.director_report
+        arbiter_text, is_opening_shot = request.arbiter_text, request.is_opening
         candidates = [p for p in photos if used_ids is None or p.get("id") not in used_ids] or photos
 
         def download_probe(p, dest):
@@ -7721,6 +7716,11 @@ def _select_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=No
                 if id(p) not in _processed_ids:
                     prefetch_futures[id(p)].cancel()
             prefetch_pool.shutdown(wait=False)
+            # Судья кадров (SHOT_JUDGE, см. judge_candidates) — до выбора
+            # победителя: его оценка первый ключ после анти-дубля. Не
+            # отработал по всему слоту — оценок нет ни у кого, порядок прежний.
+            judged = judge_candidates(index, "photo", request.block_text,
+                                      request.shot_brief or query, candidates_info)
             # _score_and_pick (см. выше) — чистое сравнение по уже скачанному
             # пулу, вынесенное отдельно ради тестируемости. Файлы-неудачники
             # раньше удалялись СРАЗУ по ходу цикла (экономия диска) — теперь
@@ -7924,10 +7924,14 @@ def _select_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=No
         # used_ids/used_hashes пополняются ПОСЛЕ цикла, а не до него: раньше
         # отклонённый вето кандидат успевал попасть в анти-дубль и занимал
         # собой место, хотя на экран не попадал.
+        # Кадр, одобренный судьёй кадров, вторая проверка эмбеддингом не
+        # отменяет: судья смотрел на кадр вместе с описанием кадра и
+        # рассуждал, эмбеддинг — нет. Более слабый сигнал не перебивает более
+        # сильный (лук, принятый эмбеддингом за огнестрел, — живой случай).
         veto_repicks = 0
         while True:
             file_ok = _downloaded_ok(cf)
-            if file_ok and not smart_relevance_veto(cf, query):
+            if file_ok and (judge_approved(winner) or not smart_relevance_veto(cf, query)):
                 break
             nxt = None
             if winner is not None and veto_repicks < VETO_REPICK_MAX:
@@ -7959,6 +7963,14 @@ def _select_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=No
                   f"кандидат(ов), взят следующий по ранжированию")
         if used_ids is not None:
             selection_attempt.record_effect("reserve_id", used_ids, pick.get("id"))
+        if judged and not judge_approved(winner):
+            # Лучший кадр слота по оценке судьи — брак. Кадр остаётся у
+            # попытки (как у отказа арбитра), решение о показе — у слота:
+            # known_bad_reason -> поглощение соседним проверенным кадром.
+            selection_attempt.record_verdict("judge", {
+                "index": index, "kind": "photo", "query": query,
+                "brief": request.shot_brief, "score": winner.get("judge") if winner else None,
+                "model": shot_judge_model()})
         _picked_ahash = None
         if used_hashes is not None:
             try:
@@ -7984,9 +7996,20 @@ def _select_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=No
         selection_attempt.record_effect("source_won", candidate_channel(pick))
         _reset_pexels_streak()
         return cf
-    except Exception as e:
-        _note_pexels_failure(e, f"Pexels [{query}]")
-        return None
+
+
+PHOTO_ADAPTER = PhotoAdapter()
+
+
+def select_media(request, kind):
+    """Отобрать медиа вида kind ("photo" / "video") для слота по его
+    запросу. Внутри слотового цикла main() работает в попытке, которую
+    открыл main(); вне него — «выбрать и сразу принять» (select_standalone).
+    Других точек входа в отбор нет: запрос слота один на все его попытки,
+    и забыть поле в одной из них невозможно по построению."""
+    if not isinstance(request, selection_engine.SlotRequest):
+        raise TypeError(f"select_media ждёт SlotRequest, получено {type(request).__name__}")
+    return select_standalone(kind, request.index, MEDIA_SELECTORS[kind], request)
 
 
 _LOCAL_PHOTOS_CACHE = None
@@ -11258,6 +11281,127 @@ def smart_relevance_veto(image_path, query):
     return score < SMART_RELEVANCE_THRESHOLD
 
 
+# СУДЬЯ КАДРОВ (SHOT_JUDGE=0/1, дефолт 1; платит только при ключе шлюза).
+#
+# Модель «зрение + язык» через шлюз (scripts/llm_gateway.py) смотрит на
+# кандидатов слота сеткой и ставит каждому 0..3 по описанию кадра и фразе
+# (scripts/shot_judge.py: шкала, замер, почему сеткой). Оценка — главный
+# ключ ранжирования после анти-дубля (judge_rank в _score_and_pick).
+#
+# ПОЧЕМУ ВЫШЕ ГЕЙТОВ ЭМБЕДДИНГА. Косинус картинки и текста не рассуждает:
+# современный нож и средневековый кинжал для него почти одно и то же, лук
+# у него «огнестрел» (живой случай эпизода 94). Судья на тех же кадрах
+# ставит современному ножу 0, подлинным кинжалам 3, и ни разу не принял
+# брак за годный (замер в shot_judge.py).
+#
+# ДЕНЬГИ. Флаг включён, но без LLM_GATEWAY_API_KEY судья не делает ничего:
+# ключ в .env — явное согласие владельца. Потолок расходов прогона —
+# SHOT_JUDGE_MAX_SPEND (токенов баланса шлюза); превышение — судья молча не
+# зовётся до конца прогона, и это пишется в отчёт, а не теряется. 402
+# (кончились деньги) выключает шлюз до конца прогона.
+#
+# ОТКАЗ — БЕЗ ПОЛУМЕР. Судья не ответил по всем кандидатам слота — оценок нет
+# ни у кого (shot_judge.judge возвращает None): смешать оценённых с
+# неоценёнными значило бы ранжировать случайно.
+SHOT_JUDGE_DEFAULT_MODEL = "qwen/qwen3.7-plus"
+SHOT_JUDGE_DEFAULT_SPEND_CAP = 300000
+SHOT_JUDGE_MIN_SCORE = 2       # 2 = «предмет тот, действие/композиция иные»
+SHOT_JUDGE_MISSES = []         # слоты, где лучший кадр по оценке судьи — брак
+SHOT_JUDGE_LOG = []            # по вызову на попытку: оценки, цена, кэш, отказ
+_SHOT_JUDGE_STATE = {"gateway": None, "made": False, "refused": None}
+
+
+def shot_judge_model():
+    return (os.environ.get("SHOT_JUDGE_MODEL") or "").strip() or SHOT_JUDGE_DEFAULT_MODEL
+
+
+def _shot_judge_gateway():
+    """Шлюз судьи на прогон или None (флаг выключен, нет ключа)."""
+    if not feature_flags.enabled("SHOT_JUDGE"):
+        return None
+    st = _SHOT_JUDGE_STATE
+    if not st["made"]:
+        st["made"] = True
+        import llm_gateway
+        raw = (os.environ.get("SHOT_JUDGE_MAX_SPEND") or "").strip()
+        try:
+            cap = int(raw) if raw else SHOT_JUDGE_DEFAULT_SPEND_CAP
+        except ValueError:
+            print(f"  SHOT_JUDGE_MAX_SPEND={raw!r} — не число, беру {SHOT_JUDGE_DEFAULT_SPEND_CAP}")
+            cap = SHOT_JUDGE_DEFAULT_SPEND_CAP
+        gw = llm_gateway.Gateway(spend_cap=cap)
+        if gw.configured:
+            import shot_judge
+            sees, why = shot_judge.vision_check(gw, shot_judge_model())
+            if sees:
+                st["gateway"] = gw
+                print(f"  Судья кадров: {shot_judge_model()} через {gw.base_url}, потолок {cap}")
+            else:
+                st["refused"] = why
+                print(f"  ВНИМАНИЕ: судья кадров ВЫКЛЮЧЕН на этот прогон — {why}. "
+                      f"Кадры ранжируются без него; проверь SHOT_JUDGE_MODEL.")
+        else:
+            print("  Судья кадров: нет LLM_GATEWAY_API_KEY — кадры ранжируются без него")
+    return st["gateway"]
+
+
+def judge_rank(c):
+    """Ключ ранжирования по оценке судьи; нет оценки — -1."""
+    v = c.get("judge")
+    return v if isinstance(v, int) else -1
+
+
+def judge_candidates(index, kind, phrase, brief, candidates_info):
+    """Проставляет c["judge"] каждому кандидату без дубля (или никому) и
+    возвращает True, если судья отработал по всему слоту."""
+    for c in candidates_info:
+        c["judge"] = None
+    gw = _shot_judge_gateway()
+    judged = [c for c in candidates_info if c.get("is_dup_free") and os.path.exists(c["path"])]
+    if gw is None or not judged:
+        return False
+    import shot_judge
+    model = shot_judge_model()
+    rep = {}
+    scores = shot_judge.judge(gw, model, phrase=phrase, brief=brief,
+                              candidates=[(str(c["p"].get("id")), c["path"]) for c in judged],
+                              cache_dir=os.path.join(TEMP_FOLDER, "shot_judge_cache"), report=rep)
+    SHOT_JUDGE_LOG.append({"index": index, "kind": kind, "model": model, "brief": brief,
+                           "scores": scores, **rep})
+    if scores is None:
+        print(f"  слот {index}: судья кадров не ответил ({rep.get('refused')}) — ранжирование без него")
+        return False
+    for c in judged:
+        c["judge"] = scores[str(c["p"].get("id"))]
+    return True
+
+
+def shot_judge_signature():
+    """Кто судит кадры в этом прогоне — входит в подпись отбора: включение
+    судьи, смена модели или вопроса меняют победителя, и без подписи
+    прогретый кэш кандидатов отдавал бы выбор, сделанный без судьи. Наличие
+    ключа входит сюда же: без ключа судья не работает вовсе. Шлюз при этом
+    не создаётся — подпись не должна печатать и не ходит в сеть.
+
+    Судья не работает (флаг выключен или нет ключа) — пустая строка: отбор
+    тогда байт-в-байт прежний, и менять ключи кэша значило бы заставить
+    владельца без ключа перекачать эпизод ради изменения, которого нет."""
+    if not shot_judge_active():
+        return ""
+    import shot_judge
+    return repr(("judge", shot_judge_model(), shot_judge.PROMPT_VERSION, SHOT_JUDGE_MIN_SCORE))
+
+
+def shot_judge_active():
+    """Судья в этом прогоне вообще возможен: флаг и ключ. Без сети."""
+    return (feature_flags.enabled("SHOT_JUDGE")
+            and bool((os.environ.get("LLM_GATEWAY_API_KEY") or "").strip()))
+
+
+def judge_approved(c):
+    return c is not None and isinstance(c.get("judge"), int) and c["judge"] >= SHOT_JUDGE_MIN_SCORE
+
+
 def video_smart_relevance_veto(video_path, query):
     """То же, что smart_relevance_veto(), но для ВИДЕО-победителя: своей
     картинки у видео нет, поэтому берётся один кадр-пробник (та же функция
@@ -11507,7 +11651,7 @@ def _selection_stack_signature():
 
     Читается В МОМЕНТ ВЫЗОВА (не на импорте) — как и весь остальной код,
     работающий с реестром режимов."""
-    return "sel:" + repr((
+    return "sel:" + shot_judge_signature() + repr((
         feature_flags.mode("VLM_ARBITER_MODE"),
         feature_flags.mode("VISUAL_DIRECTOR_MODE"),
         DIRECTOR_MIN_POOL, PHOTO_DEDUP_MAX_TRIES, BASE_MIN_POOL, FAST_BASE_MIN_POOL,
@@ -13083,15 +13227,7 @@ def _pexels_search_videos(api_query):
     return videos
 
 
-def pexels_video(query, index, *args, **kwargs):
-    """Подбор видео для слота. Контракт и параметры — у _select_video ниже;
-    попытка и закрытие — как у pexels_photo."""
-    return select_standalone("video", index, _select_video, query, index, *args, **kwargs)
-
-
-def _select_video(query, index, used_ids=None, used_hashes=None, action_qualifier=None,
-                  extra_queries=None, sentence_score_fn=None, text_key=None, arbiter_text=None,
-                  is_opening_shot=False, recent_sizes=None, slot_dur=None, shot_brief=None):
+def _select_video(request):
     """Раньше брала ПЕРВОЕ ещё не показанное видео из выдачи без единой
     проверки релевантности/риска (реальный, ранее не закрытый структурный
     пробел, найденный внешним аудитом + прямой проверкой на реальном
@@ -13121,6 +13257,14 @@ def _select_video(query, index, used_ids=None, used_hashes=None, action_qualifie
     приоритетом (relevant_dup_fallback): дедуп не должен пустить слот
     впустую, только предпочесть менее похожий вариант, если он есть среди
     уже скачанных попыток."""
+    # Имена прежних аргументов — поля запроса слота (SlotRequest). Перенос
+    # самого отбора видео в ядро (selection_engine) — этап 3 перестройки.
+    query, index = request.query, request.index
+    used_ids, used_hashes = request.used_video_ids, request.used_hashes
+    action_qualifier, extra_queries = request.action_qualifier, request.extra_queries
+    sentence_score_fn, text_key = request.video_score_fn, request.text_key
+    arbiter_text, is_opening_shot = request.arbiter_text, request.is_opening
+    recent_sizes, slot_dur, shot_brief = request.recent_sizes, request.slot_dur, request.shot_brief
     global PEXELS_BROKEN
     cache = os.path.join(TEMP_FOLDER, "pexels_video_cache")
     os.makedirs(cache, exist_ok=True)
@@ -13712,6 +13856,15 @@ def _select_video(query, index, used_ids=None, used_hashes=None, action_qualifie
         _note_pexels_failure(e, f"Pexels video [{query}]")
         return None
 
+
+
+def _select_photo(request):
+    return selection_engine.select(request, PHOTO_ADAPTER)
+
+
+# Отбор по виду медиа. Фото — ядро с адаптером фото; видео — пока своим
+# путём (этап 3 переносит его в то же ядро).
+MEDIA_SELECTORS = {"photo": _select_photo, "video": _select_video}
 
 # Мгновенный рез после stat-плашки. Раньше 0.03с — при FPS=24 это 0.72 кадра,
 # то есть физически НЕ короче обычного hardcut: ffmpeg всё равно округлял его
@@ -15421,6 +15574,10 @@ def main():
     reset_source_stats()
     reset_camera_language_stats()
     RUN_JOURNAL.clear()
+    selection_attempt.reset_attempt_ids()
+    # Шлюз судьи и его потолок расходов — на прогон, а не на процесс.
+    _SHOT_JUDGE_STATE.update(gateway=None, made=False, refused=None)
+    SHOT_JUDGE_LOG.clear()
     # Каталоги попыток прерванного процесса — мусор: живых попыток при
     # старте нет, и в кэш такой файл не попадёт никогда.
     selection_attempt.sweep_orphans(os.path.join(TEMP_FOLDER, "staging"))
@@ -15889,6 +16046,7 @@ def main():
         # Все попытки этого слота. Решение о слоте закрывает их разом в
         # close_slot(): одна принимается, остальные — отказом.
         slot_attempts = []
+        request = None
         # Откуда взялся текущий кандидат на экран: "fetch" — из попытки
         # отбора (slot_attempts), иначе "locked"/"local"/"card" — такой файл
         # встаёт на экран тем же коммитом, через попытку-носитель
@@ -16025,42 +16183,28 @@ def main():
             # НЕ дополненный соседями текст блока (в отличие от sem_text) —
             # VLM понимает короткую фразу саму по себе.
             hook_arbiter_text = b["text"] if b["section"].startswith("HOOK") else None
+            # ОДИН запрос на слот — для всех его попыток, включая спасение
+            # фотографией ниже. Раньше каждая попытка перечисляла аргументы
+            # заново, и спасающий вызов годами шёл без брифа фразы
+            # (shot_brief/block_text): в эпизоде 94 так искались 5 слотов из 8.
+            request = build_slot_request(
+                index=i, query=queries[i],
+                extra_queries=section_query_pool.get(b["section"]),
+                text_key=sem_text, shot_brief=b.get("shot_brief"), block_text=b["text"],
+                arbiter_text=hook_arbiter_text, is_opening=is_opening_shot,
+                slot_dur=d, action_qualifier=act_qual, target_luma=luma_ema,
+                director_score_fn=director_score_fn, director_assist=director_assist,
+                director_report=director_entry, video_score_fn=video_sentence_fn,
+                used_photo_ids=used_photo_ids, used_video_ids=used_video_ids,
+                used_hashes=used_photo_hashes, recent_sizes=recent_shot_sizes)
             if prefer_video:
-                video = fetch_in_attempt(slot_attempts, i, "video", pexels_video,
-                                         queries[i], i, used_ids=used_video_ids, used_hashes=used_photo_hashes,
-                                         action_qualifier=act_qual,
-                                         extra_queries=section_query_pool.get(b["section"]),
-                                         sentence_score_fn=video_sentence_fn, text_key=sem_text,
-                                         arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot,
-                                         recent_sizes=recent_shot_sizes, slot_dur=d,
-                                         shot_brief=b.get("shot_brief"))
+                video = fetch_in_attempt(slot_attempts, i, "video", select_media, request, "video")
                 if not video:
-                    photo = fetch_in_attempt(slot_attempts, i, "photo", pexels_photo,
-                                             queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
-                                             recent_sizes=recent_shot_sizes, target_luma=luma_ema,
-                                             director_score_fn=director_score_fn, director_assist=director_assist,
-                                             director_report=director_entry,
-                                             extra_queries=section_query_pool.get(b["section"]), text_key=sem_text,
-                                             arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot,
-                                             shot_brief=b.get("shot_brief"), block_text=b["text"])
+                    photo = fetch_in_attempt(slot_attempts, i, "photo", select_media, request, "photo")
             else:
-                photo = fetch_in_attempt(slot_attempts, i, "photo", pexels_photo,
-                                         queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
-                                         recent_sizes=recent_shot_sizes, target_luma=luma_ema,
-                                         director_score_fn=director_score_fn, director_assist=director_assist,
-                                         director_report=director_entry,
-                                         extra_queries=section_query_pool.get(b["section"]), text_key=sem_text,
-                                         arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot,
-                                         shot_brief=b.get("shot_brief"), block_text=b["text"])
+                photo = fetch_in_attempt(slot_attempts, i, "photo", select_media, request, "photo")
                 if not photo and d >= MIN_CLIP + 1.0:
-                    video = fetch_in_attempt(slot_attempts, i, "video", pexels_video,
-                                             queries[i], i, used_ids=used_video_ids, used_hashes=used_photo_hashes,
-                                             action_qualifier=act_qual,
-                                             extra_queries=section_query_pool.get(b["section"]),
-                                             sentence_score_fn=video_sentence_fn, text_key=sem_text,
-                                             arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot,
-                                             recent_sizes=recent_shot_sizes, slot_dur=d,
-                                             shot_brief=b.get("shot_brief"))
+                    video = fetch_in_attempt(slot_attempts, i, "video", select_media, request, "video")
             # Раньше Pexels отключался навсегда после ЛЮБОГО промаха, включая
             # обычную пустую выдачу по одному неудачному запросу. Гасим источник
             # только если API реально отвалился.
@@ -16091,16 +16235,7 @@ def main():
             # Вердикты отвергнутого видео принадлежат ЕГО попытке: снимать и
             # возвращать их не нужно — правдой о слоте станут вердикты той
             # попытки, чей кадр встанет на экран (close_slot).
-            rescue = fetch_in_attempt(slot_attempts, i, "photo", pexels_photo,
-                                      queries[i], i, used_ids=used_photo_ids,
-                                      used_hashes=used_photo_hashes,
-                                      recent_sizes=recent_shot_sizes, target_luma=luma_ema,
-                                      director_score_fn=director_score_fn,
-                                      director_assist=director_assist,
-                                      director_report=director_entry,
-                                      extra_queries=section_query_pool.get(b["section"]),
-                                      text_key=sem_text, arbiter_text=hook_arbiter_text,
-                                      is_opening_shot=is_opening_shot)
+            rescue = fetch_in_attempt(slot_attempts, i, "photo", select_media, request, "photo")
             if rescue:
                 reason = ", ".join(sorted({k for k, _rec in video_att.verdicts}))
                 print(f"    [{i+1}] негодное видео заменено фотографией ({reason})")
@@ -16767,6 +16902,27 @@ def main():
               f"ответил «ни один кандидат не подходит», и слот всё равно заполнен выбором "
               f"эмбеддинга — см. media_plan/arbiter_rejected_report.json. Это не «порог не "
               f"взят», а прямой отказ более сильного судьи: кадр надо заменить, а не сверять.")
+
+    # Судья кадров: слоты, где лучший кадр по его оценке — брак (как у
+    # соседних отчётов), и полный журнал оценок с ценой — чтобы по готовому
+    # ролику было видно, кто и во сколько решил каждый слот.
+    gw = _SHOT_JUDGE_STATE["gateway"]
+    if gw is not None:
+        merge_slot_report(os.path.join(VIDEO_FOLDER, "media_plan", "shot_judge_report.json"),
+                          SHOT_JUDGE_MISSES, resolved_slots=RESOLVED_SLOTS_THIS_RUN)
+    if gw is not None or SHOT_JUDGE_LOG:
+        with open(os.path.join(VIDEO_FOLDER, "media_plan", "shot_judge_log.json"), "w",
+                  encoding="utf-8") as f:
+            json.dump({"model": shot_judge_model(), "gateway": gw.summary() if gw else None,
+                       "calls": SHOT_JUDGE_LOG}, f, ensure_ascii=False, indent=1)
+        if gw is not None:
+            s_ = gw.summary()
+            print(f"  Судья кадров: вызовов {s_['calls']}, сбоев {s_['failures']}, потрачено "
+                  f"{s_['spent']} из {s_['spend_cap']}" + (f" — ВЫКЛЮЧЕН: {s_['dead']}" if s_['dead'] else ""))
+    if SHOT_JUDGE_MISSES:
+        print(f"  ВНИМАНИЕ: {len(SHOT_JUDGE_MISSES)} слот(ов) {[m['index'] for m in SHOT_JUDGE_MISSES]} — "
+              f"судья кадров оценил лучший найденный кадр как брак — см. "
+              f"media_plan/shot_judge_report.json")
 
     # SMART_VETO_MISSES — тот же принцип: отчёт отдельно, не только строка
     # в absorbed_slots_report.json (см. ЧАСТЬ 13 Шаг 7.3), потому что здесь

@@ -32,6 +32,7 @@ sys.path.insert(0, SCRIPTS_DIR)
 
 sys.argv = ["pipeline_smart.py", tempfile.gettempdir()]
 import pipeline_smart as ps  # noqa: E402
+from _media_calls import pick_photo, pick_video  # noqa: E402
 
 
 class _FakeResponse:
@@ -185,7 +186,7 @@ class TestWiredIntoPoolAssembly:
         monkeypatch.setattr(ps, "atomic_url_download",
                             lambda req, dest, timeout=None: open(dest, "wb").write(png.getvalue()))
 
-        out = ps.pexels_photo("medieval map", 0, used_ids=set(), used_hashes=[],
+        out = pick_photo(ps, "medieval map", 0, used_ids=set(), used_hashes=[],
                               target_luma=0.4)
         assert out is not None
         meta = ps.read_media_sidecar(out)

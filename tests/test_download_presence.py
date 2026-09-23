@@ -58,7 +58,7 @@ def test_photo_path_is_verified_before_being_returned():
     симптом (выпавший блок или остановка сборки) проявится на часы позже и
     в другом месте."""
     src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"), encoding="utf-8").read()
-    start = src.index("def _select_photo(")
+    start = src.index("class PhotoAdapter(")
     body = src[start:src.index("\ndef ", start + 10)]
     assert "_downloaded_ok(cf)" in body, (
         "pexels_photo() больше не проверяет, что файл победителя реально "
@@ -73,7 +73,7 @@ def test_unrecoverable_download_returns_none_not_a_path(monkeypatch, tmp_path):
     (слот уходит на лестницу фолбэков, которая ровно для этого и написана),
     а не путь к несуществующему файлу."""
     src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"), encoding="utf-8").read()
-    start = src.index("def _select_photo(")
+    start = src.index("class PhotoAdapter(")
     body = src[start:src.index("\ndef ", start + 10)]
     block = body[body.index("_downloaded_ok(cf)"):]
     marker = block.index("слот остаётся без медиа")

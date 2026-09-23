@@ -144,7 +144,7 @@ class NetRecorder:
                         картинка в разных слотах хранится один раз.
     """
 
-    def __init__(self, root, mode, overlay=None, tagger=None):
+    def __init__(self, root, mode, overlay=None, tagger=None, extra_roots=()):
         if mode not in (RECORD, REPLAY):
             raise ValueError(f"неизвестный режим {mode!r}")
         if overlay is not None and mode != REPLAY:
@@ -167,12 +167,19 @@ class NetRecorder:
         if mode == REPLAY:
             if not os.path.exists(self.index_path):
                 raise FileNotFoundError(f"нет записи сети: {self.index_path}")
-            with open(self.index_path, encoding="utf-8") as f:
-                for line in f:
-                    rec = json.loads(line)
-                    self._recorded.setdefault(rec["key"], []).append(rec)
-            for recs in self._recorded.values():
-                recs.sort(key=lambda r: r["seq"])
+            # Основная запись, затем дополнительные слои (живые запросы
+            # другого прогона): по каждому адресу — последовательность
+            # основной записи, продолженная последовательностью слоя.
+            for root_dir in (root,) + tuple(extra_roots):
+                per_key = {}
+                with open(os.path.join(root_dir, "index.jsonl"), encoding="utf-8") as f:
+                    for line in f:
+                        rec = json.loads(line)
+                        rec["_root"] = root_dir
+                        per_key.setdefault(rec["key"], []).append(rec)
+                for key, recs in per_key.items():
+                    recs.sort(key=lambda r: r["seq"])
+                    self._recorded.setdefault(key, []).extend(recs)
 
     # -- хранилище тел -------------------------------------------------------
 
@@ -190,8 +197,10 @@ class NetRecorder:
             os.replace(tmp, path)
         return digest
 
-    def _load_body(self, digest):
-        with open(self._body_path(digest), "rb") as f:
+    def _load_body(self, digest, root_dir=None):
+        path = (self._body_path(digest) if root_dir in (None, self.root)
+                else os.path.join(root_dir, "bodies", digest[:2], digest))
+        with open(path, "rb") as f:
             return f.read()
 
     def _append(self, rec):
@@ -290,11 +299,11 @@ class NetRecorder:
         rec = recs[seq]
         kind = rec["kind"]
         if kind == "response":
-            payload = self._load_body(rec["body"])
+            payload = self._load_body(rec["body"], rec.get("_root"))
             return urllib.response.addinfourl(io.BytesIO(payload), _headers_message(rec["headers"]),
                                               rec.get("final_url") or shown, rec["status"])
         if kind == "http_error":
-            payload = self._load_body(rec["body"])
+            payload = self._load_body(rec["body"], rec.get("_root"))
             raise urllib.error.HTTPError(shown, rec["status"], rec.get("reason", ""),
                                          _headers_message(rec["headers"]), io.BytesIO(payload))
         raise _rebuild_exception(rec)

@@ -32,6 +32,7 @@ sys.path.insert(0, SCRIPTS_DIR)
 
 sys.argv = ["pipeline_smart.py", tempfile.gettempdir()]
 import pipeline_smart as ps  # noqa: E402
+from _media_calls import pick_photo, pick_video  # noqa: E402
 
 
 def _main_video_selection_block():
@@ -147,7 +148,7 @@ class TestBackwardCompatibleCallingConvention:
             # части — то, что раньше решал только голый sentence_relevance.
             return 0.9 if _candidate_id(probe) == 2 else 0.1
 
-        out = ps.pexels_video("medieval sword close up", 9, used_ids=set(),
+        out = pick_video(ps, "medieval sword close up", 9, used_ids=set(),
                               used_hashes=[], sentence_score_fn=director_style)
         assert out is not None
         assert ps.read_media_sidecar(out).get("pexels_id") == 2, (

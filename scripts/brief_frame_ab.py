@@ -10,7 +10,7 @@
 бороться за разрыв.
 
 КАК. Берутся слоты, где два брифа РАЗЛИЧАЮТСЯ, и для каждого дважды
-вызывается ТОТ ЖЕ `pexels_photo()`, которым собирается настоящий ролик —
+вызывается ТОТ ЖЕ отбор (`select_media`), которым собирается настоящий ролик —
 с одинаковым запросом, одинаковыми extra_queries, одинаковым индексом.
 Отличается РОВНО ОДИН аргумент: `shot_brief`. Всё остальное, включая
 гейты, дедуп и ранжирование, — общий прод-путь, не копия.
@@ -104,10 +104,18 @@ def main(argv):
         for arm, brief in (("claude", mine), ("local", theirs)):
             ids, hashes = state[arm]
             try:
-                got = ps.pexels_photo(
-                    queries[i], i, used_ids=ids, used_hashes=hashes,
-                    extra_queries=pool.get(b.get("section")),
-                    shot_brief=brief, block_text=b.get("text"))
+                # Руки отличаются ТОЛЬКО брифом: остальные поля запроса —
+                # явные нули (без Режиссёра, арбитра и ритма), одинаковые
+                # для обеих рук, иначе сравнение мерило бы не бриф.
+                request = ps.build_slot_request(
+                    index=i, query=queries[i], extra_queries=pool.get(b.get("section")),
+                    text_key=None, shot_brief=brief, block_text=b.get("text"),
+                    arbiter_text=None, is_opening=False, slot_dur=None,
+                    action_qualifier=None, target_luma=None, director_score_fn=None,
+                    director_assist=False, director_report=None, video_score_fn=None,
+                    used_photo_ids=ids, used_video_ids=None, used_hashes=hashes,
+                    recent_sizes=None)
+                got = ps.select_media(request, "photo")
             except Exception as e:
                 got = None
                 row[arm + "_error"] = f"{type(e).__name__}: {e}"

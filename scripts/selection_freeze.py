@@ -75,6 +75,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS = os.path.join(REPO_ROOT, "scripts")
@@ -98,7 +99,7 @@ SELECTION_REPORTS = (
     "absorbed_slots_report.json", "fallback_cards_report.json",
     "video_photo_rescue_report.json", "director_relevance_report.json",
     "visual_director_report.json", "source_contribution.json",
-    "text_truncation_report.json", "run_journal.jsonl",
+    "text_truncation_report.json", "run_journal.jsonl", "shot_judge_report.json",
 )
 
 SHOT_FIELDS = ("index", "section", "text", "query", "kind", "file", "file_sha256",
@@ -120,7 +121,7 @@ _ENV_INDEX_RE = re.compile(r"""os\.environ\[\s*["']([A-Z][A-Z0-9_]+)["']\s*\]"""
 # pexels_photo, вердикт SMART_VETO_MISSES.append), и новую (_select_photo,
 # record_verdict). Разрешается ровно одна форма; если в исходнике нашлись
 # две — это неоднозначность, и класс тоже «потерян», а не выбран наугад.
-_P, _V = ("_select_photo", "pexels_photo"), ("_select_video", "pexels_video")
+_P, _V = ("PhotoAdapter.choose", "_select_photo", "pexels_photo"), ("_select_video", "pexels_video")
 
 
 def _forms(fns, *frags, occ=(1, 1)):
@@ -128,7 +129,10 @@ def _forms(fns, *frags, occ=(1, 1)):
 
 
 BRANCH_ANCHORS = (
-    ("фото: кэш-хит", _forms(_P, "if os.path.exists(cf) and os.path.getsize(cf) > 0:")),
+    ("фото: кэш-хит", _forms(("_select_photo", "pexels_photo"),
+                             "if os.path.exists(cf) and os.path.getsize(cf) > 0:")
+     + _forms(("PhotoAdapter.cache_hit",),
+              "used_ids, used_hashes = request.used_photo_ids, request.used_hashes")),
     ("фото: путь без анти-дубля", _forms(_P, "            pick = candidates[0]")),
     ("фото: оценка Режиссёра", _forms(("_score_and_pick",), "extra = director_score_fn(")),
     ("фото: ре-пик по резкости", _forms(_P, '"+sharp_repick"')),
@@ -316,7 +320,7 @@ def prune_run_media(sandbox):
 
 
 def run_pipeline(freeze, mode, label, hashseed, keep_media=False, pipeline=None,
-                 live_fallback=False):
+                 live_fallback=False, overlay_from=None):
     meta = json.load(open(os.path.join(freeze, "meta.json"), encoding="utf-8"))
     run_dir = os.path.join(freeze, "runs", label)
     if os.path.exists(run_dir):
@@ -327,8 +331,11 @@ def run_pipeline(freeze, mode, label, hashseed, keep_media=False, pipeline=None,
     env = child_env(meta["env"], run_dir, hashseed)
     pipeline = os.path.abspath(pipeline or PIPELINE)
     overlay = os.path.join(run_dir, "net_overlay") if live_fallback else ""
+    extra = os.path.join(freeze, "runs", overlay_from, "net_overlay") if overlay_from else ""
+    if extra and not os.path.exists(os.path.join(extra, "index.jsonl")):
+        raise SystemExit(f"у прогона {overlay_from!r} нет слоя живых запросов: {extra}")
     cmd = [sys.executable, os.path.abspath(__file__), "_child", mode,
-           os.path.join(freeze, "net"), sandbox, run_dir, pipeline, overlay]
+           os.path.join(freeze, "net"), sandbox, run_dir, pipeline, overlay, extra]
     with open(os.path.join(run_dir, "stdout.log"), "w", encoding="utf-8") as out, \
             open(os.path.join(run_dir, "stderr.log"), "w", encoding="utf-8") as err:
         started = datetime.datetime.now(datetime.timezone.utc)
@@ -342,6 +349,7 @@ def run_pipeline(freeze, mode, label, hashseed, keep_media=False, pipeline=None,
     result["mode"] = mode
     result["pipeline"] = pipeline
     result["live_fallback"] = bool(live_fallback)
+    result["net_overlay_from"] = overlay_from
     result["seconds"] = round(took, 1)
     with open(os.path.join(run_dir, "result.json"), "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=1, sort_keys=True)
@@ -391,12 +399,17 @@ def collect(sandbox, run_dir):
     ip = os.path.join(run_dir, "slot_inputs.json")
     if os.path.exists(ip):
         inputs = json.load(open(ip, encoding="utf-8"))
+    attempts = {}
+    ap = os.path.join(run_dir, "slot_attempts.json")
+    if os.path.exists(ap):
+        attempts = json.load(open(ap, encoding="utf-8"))
     cov = {}
     cp = os.path.join(run_dir, "coverage.json")
     if os.path.exists(cp):
         cov = json.load(open(cp, encoding="utf-8"))
     return _normalize_paths({"shots": shots, "gates": gates, "reports": reports,
-                             "net": net, "coverage": cov, "slot_inputs": inputs}, sandbox)
+                             "net": net, "coverage": cov, "slot_inputs": inputs,
+                             "slot_attempts": attempts}, sandbox)
 
 
 # ------------------------------------------------------------------ дочерний процесс
@@ -450,6 +463,49 @@ def _digest(value):
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
+def _resolve(module, dotted):
+    obj = module
+    for part in dotted.split("."):
+        obj = getattr(obj, part, None)
+        if obj is None:
+            return None
+    return obj
+
+
+# Поля запроса слота, которые читает каждый вид отбора — по сигнатурам
+# добытчиков этапа 1 (их аргументы и есть эти поля под прежними именами).
+ATTEMPT_FIELDS = {
+    "photo": ("query", "index", "used_photo_ids", "used_hashes", "recent_sizes", "target_luma",
+              "director_score_fn", "director_assist", "director_report", "extra_queries",
+              "text_key", "arbiter_text", "is_opening", "shot_brief", "block_text"),
+    "video": ("query", "index", "used_video_ids", "used_hashes", "action_qualifier",
+              "extra_queries", "video_score_fn", "text_key", "arbiter_text", "is_opening",
+              "recent_sizes", "slot_dur", "shot_brief"),
+}
+
+
+def _field_digest(name, value):
+    if callable(value):
+        value = "<callable>"      # адрес объекта в процессе смыслом не обладает
+    elif name == "extra_queries":
+        value = list(value or [])  # None и пустой кортеж — одно и то же «нет»
+    return _digest(value)
+
+
+def attempt_fields_from_call(entry, loc):
+    """(вид медиа, {поле запроса: отпечаток}) по кадру вызова отбора."""
+    if entry == "select_media":
+        req, kind = loc.get("request"), loc.get("kind")
+        values = {f: getattr(req, f, None) for f in ATTEMPT_FIELDS.get(kind, ())}
+    else:
+        kind = "photo" if entry == "_select_photo" else "video"
+        alias = {"used_ids": "used_photo_ids" if kind == "photo" else "used_video_ids",
+                 "is_opening_shot": "is_opening", "sentence_score_fn": "video_score_fn"}
+        values = {alias.get(k, k): v for k, v in loc.items()}
+        values = {f: values.get(f) for f in ATTEMPT_FIELDS[kind]}
+    return kind, {f: _field_digest(f, v) for f, v in values.items()}
+
+
 def _install_tracer(pipeline_smart, slot_range=None):
     """Исполненные строки функций отбора. Трассируются только их кадры:
     на остальных вызовах трассировщик возвращает None, цена — одна проверка
@@ -457,10 +513,21 @@ def _install_tracer(pipeline_smart, slot_range=None):
     строка main() внутри слотового цикла -> его `i`, вне цикла -> None."""
     targets = {}
     for name in TRACED_FUNCTIONS:
-        fn = getattr(pipeline_smart, name, None)
+        fn = _resolve(pipeline_smart, name)
         if fn is not None:
             for code in nested_code_objects(fn.__code__):
                 targets[code] = name
+    # Вход каждой попытки отбора: у кода с запросом слота — select_media,
+    # у кода этапа 1 — сами добытчики (их аргументы приводятся к именам
+    # полей запроса, см. attempt_fields_from_call).
+    entry_names = (("select_media",) if hasattr(pipeline_smart, "select_media")
+                   else ("_select_photo", "_select_video"))
+    entries = {}
+    for name in entry_names:
+        fn = getattr(pipeline_smart, name, None)
+        if fn is not None:
+            entries[fn.__code__] = name
+    attempts = {}
     hits = {name: set() for name in targets.values()}
     main_fn = getattr(pipeline_smart, "main", None)
     main_code = main_fn.__code__ if main_fn is not None else None
@@ -481,7 +548,13 @@ def _install_tracer(pipeline_smart, slot_range=None):
         return local
 
     def glob(frame, event, _arg):
-        if event == "call" and frame.f_code in targets:
+        if event != "call":
+            return None
+        entry = entries.get(frame.f_code)
+        if entry is not None and slot["i"] is not None:
+            kind, fields = attempt_fields_from_call(entry, frame.f_locals)
+            attempts.setdefault(slot["i"], []).append({"kind": kind, "fields": fields})
+        if frame.f_code in targets:
             return local
         return None
 
@@ -490,6 +563,7 @@ def _install_tracer(pipeline_smart, slot_range=None):
     threading.settrace(glob)
     hits["__slot__"] = slot
     hits["__inputs__"] = inputs
+    hits["__attempts__"] = attempts
     return hits
 
 
@@ -498,6 +572,10 @@ def _anchor_lines(src_lines, tree):
     # Только верхний уровень модуля — ровно то, что трассировщик берёт через
     # getattr(модуль, имя): одноимённая вложенная функция не подменит якорь.
     funcs = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+    for cls in (n for n in tree.body if isinstance(n, ast.ClassDef)):
+        for m in cls.body:
+            if isinstance(m, ast.FunctionDef):
+                funcs[f"{cls.name}.{m.name}"] = m
     out = {}
     for cls, forms in BRANCH_ANCHORS:
         resolved, notes = [], []
@@ -580,7 +658,47 @@ def load_module_from_source(name, path, source):
     return mod
 
 
-def child(mode, net_dir, sandbox, run_dir, pipeline=PIPELINE, overlay=""):
+POOL_FIELDS = ("id", "_origin_query")
+
+
+def install_pool_capture(pipeline_smart, path):
+    """Пишет в path (jsonl) пул каждого вызова ядра отбора ровно в том виде,
+    в каком его получает ранжирование: после сборки из источников, дедупа и
+    жанрового фильтра. Это вход разметки качества: размечается ТОТ пул, из
+    которого выбирает код, а не пересобранный рядом по памяти.
+
+    Кандидат сохраняется компактно (id, канал, текст, адрес превью и нужные
+    для скачивания заголовки) — полный объект источника не нужен и весит
+    мегабайты. Код без ядра отбора (до этапа 2) пулов не отдаёт: файла нет."""
+    adapter = getattr(pipeline_smart, "PHOTO_ADAPTER", None)
+    if adapter is None:
+        return False
+    ps = pipeline_smart
+    original = adapter.choose
+    lock = threading.Lock()
+
+    def choose(request, pool, cf):
+        rows = []
+        for c in pool:
+            rows.append({
+                "id": c.get("id"), "channel": ps.candidate_channel(c),
+                "via": c.get("_origin_query"),
+                "text": (ps.pexels_candidate_text(c) or "")[:300],
+                "probe_url": ps.candidate_probe_url(c),
+                "headers": c.get("_download_headers") or {},
+            })
+        rec = {"index": request.index, "kind": adapter.kind, "query": request.query,
+               "extra_queries": list(request.extra_queries), "shot_brief": request.shot_brief,
+               "block_text": request.block_text, "pool": rows}
+        with lock, open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        return original(request, pool, cf)
+
+    adapter.choose = choose
+    return True
+
+
+def child(mode, net_dir, sandbox, run_dir, pipeline=PIPELINE, overlay="", extra_net=""):
     """Дочерний процесс прогона. pipeline — КАКОЙ код отбора гонять: по
     умолчанию соседний, но харнесс умеет судить и код другой ревизии
     (например, из git worktree) — харнесс и испытуемый код разделены."""
@@ -592,7 +710,8 @@ def child(mode, net_dir, sandbox, run_dir, pipeline=PIPELINE, overlay=""):
     sys.path.insert(0, os.path.dirname(os.path.abspath(pipeline)))
     import dotenv
     dotenv.load_dotenv = lambda *a, **k: False   # окружение целиком передал родитель
-    rec = net_recorder.NetRecorder(net_dir, mode, overlay=overlay or None).install()
+    rec = net_recorder.NetRecorder(net_dir, mode, overlay=overlay or None,
+                                   extra_roots=(extra_net,) if extra_net else ()).install()
     import museum_sources
     clock = time_decisions.MetCooldownRecorder(
         os.path.join(net_dir, "time_decisions.jsonl"), mode).install(museum_sources)
@@ -600,6 +719,7 @@ def child(mode, net_dir, sandbox, run_dir, pipeline=PIPELINE, overlay=""):
     rc = 1
     hits = {}
     slot_inputs = {}
+    slot_attempts = {}
     # Исходник снимается один раз, и модуль компилируется ИМЕННО из этого
     # снимка: якоря покрытия, хэш кода в результате и исполняемый код —
     # один и тот же текст. Читать файл с диска повторно нельзя: его могли
@@ -613,8 +733,10 @@ def child(mode, net_dir, sandbox, run_dir, pipeline=PIPELINE, overlay=""):
         hits = _install_tracer(pipeline_smart, slot_loop_range(tree))
         slot = hits.pop("__slot__")
         slot_inputs = hits.pop("__inputs__")
+        slot_attempts = hits.pop("__attempts__")
         rec.tagger = lambda: slot["i"]
         clock.tagger = rec.tagger
+        install_pool_capture(pipeline_smart, os.path.join(run_dir, "pools.jsonl"))
         try:
             rc = pipeline_smart.main()
         except SystemExit as e:
@@ -623,12 +745,16 @@ def child(mode, net_dir, sandbox, run_dir, pipeline=PIPELINE, overlay=""):
         sys.settrace(None)
         hits.pop("__slot__", None)
         hits.pop("__inputs__", None)
+        hits.pop("__attempts__", None)
         summary = rec.summary()
         summary["time_decisions"] = clock.summary()
         with open(os.path.join(run_dir, "net_summary.json"), "w", encoding="utf-8") as f:
             json.dump(summary, f, ensure_ascii=False, indent=1)
         with open(os.path.join(run_dir, "slot_inputs.json"), "w", encoding="utf-8") as f:
             json.dump({str(k): v for k, v in sorted(slot_inputs.items())}, f,
+                      ensure_ascii=False, indent=1)
+        with open(os.path.join(run_dir, "slot_attempts.json"), "w", encoding="utf-8") as f:
+            json.dump({str(k): v for k, v in sorted(slot_attempts.items())}, f,
                       ensure_ascii=False, indent=1)
         rec.uninstall()
         cov = coverage_from(loaded_src, hits)
@@ -657,14 +783,18 @@ def parse_expect(expect):
 
     {"slots":      {"3": "причина"},              — слот ОБЯЗАН разойтись;
      "reports":    {"run_journal.jsonl": "причина"}, — отчёт ОБЯЗАН разойтись;
-     "returncode": "причина"}                     — код возврата ОБЯЗАН измениться.
+     "returncode": "причина",                     — код возврата ОБЯЗАН измениться;
+     "attempt_fields": {"shot_brief": "причина"}} — поле запроса попытки,
+                                                    которое этап вправе менять
+                                                    (см. compare: причина слота
+                                                    «ЗАПРОС ПОПЫТКИ ИЗМЕНИЛСЯ»).
     Плоский словарь {"3": "причина"} — прежняя форма, только слоты.
 
     Остальные слоты «ниже по течению» автор не перечисляет: харнесс сам
     видит, у каких слотов изменился ВХОД (общее состояние на начало слота) и
     в каких журнал показывает утечку по старой семантике, — см. compare()."""
     expect = expect or {}
-    if not ({"slots", "reports", "returncode"} & set(expect)):
+    if not ({"slots", "reports", "returncode", "attempt_fields"} & set(expect)):
         expect = {"slots": expect}
     must = {}
     for k, v in (expect.get("slots") or {}).items():
@@ -674,7 +804,11 @@ def parse_expect(expect):
     rc = expect.get("returncode")
     if rc is not None and (not isinstance(rc, str) or not rc.strip()):
         raise ValueError("returncode: причина обязана быть непустой строкой")
-    return must, dict(expect.get("reports") or {}), rc
+    fields = dict(expect.get("attempt_fields") or {})
+    for k, v in fields.items():
+        if not isinstance(v, str) or not v.strip():
+            raise ValueError(f"поле попытки {k}: причина обязана быть непустой строкой")
+    return must, dict(expect.get("reports") or {}), rc, fields
 
 
 def journal_leak_slots(result):
@@ -714,6 +848,9 @@ def slot_report_stray(ra, rb, allowed):
     allowed. Возвращает слоты с расхождением без причины ([] — всё
     объяснено) или None, если отчёт не по слотам или разошлось что-то вне
     записей (такое расхождение объяснить слотом нельзя)."""
+    if isinstance(ra, list) and isinstance(rb, list):
+        # Отчёт-список записей (журнал прогона): тот же разбор по слотам.
+        ra, rb = {"records": ra}, {"records": rb}
     if not (isinstance(ra, dict) and isinstance(rb, dict)):
         return None
     keys = _slot_lists(ra) | _slot_lists(rb)
@@ -740,6 +877,21 @@ def slot_report_stray(ra, rb, allowed):
             return None
         stray |= {i for i in set(ga) | set(gb) if ga.get(i) != gb.get(i) and i not in allowed}
     return sorted(stray)
+
+
+def attempt_input_changes(xa, xb):
+    """Поля запроса, в которых разошлись попытки слота. Сравниваются пары
+    попыток одного вида ДО первого расхождения видов: дальнейшие попытки —
+    следствие изменившегося исхода, а не его причина."""
+    if not xa or not xb:
+        return set()
+    changed = set()
+    for ea, eb in zip(xa, xb):
+        if ea.get("kind") != eb.get("kind"):
+            break
+        fa, fb = ea.get("fields") or {}, eb.get("fields") or {}
+        changed |= {f for f in set(fa) & set(fb) if fa[f] != fb[f]}
+    return changed
 
 
 CONTRIBUTION_REPORT = "source_contribution.json"
@@ -778,6 +930,11 @@ def compare(a, b, expect=None):
                              правка не сработала);
       ВХОД ИЗМЕНИЛСЯ       — слот изменился, и у него изменилось общее
                              состояние на входе (названы поля);
+      ЗАПРОС ПОПЫТКИ ИЗМЕНИЛСЯ — вход слота тот же, но у его попытки
+                             изменились поля запроса, и ВСЕ они объявлены
+                             этапом в attempt_fields (необъявленное поле
+                             причиной не считается — иначе ошибка передачи
+                             запроса объясняла бы сама себя);
       УТЕЧКА УСТРАНЕНА     — слот изменился при том же входе, и журнал
                              нового прогона показывает в нём утечку старой
                              семантики;
@@ -789,7 +946,8 @@ def compare(a, b, expect=None):
     Сеть: расхождение числа обращений или обращение вне записи допустимо
     только в слотах, у которых есть причина (ожидание, изменившийся вход,
     утечка) — по меткам слотов обоих прогонов."""
-    must, rep_expect, rc_expect = parse_expect(expect)
+    must, rep_expect, rc_expect, field_expect = parse_expect(expect)
+    aa, ab = a.get("slot_attempts") or {}, b.get("slot_attempts") or {}
     leaks = journal_leak_slots(b)
     ia, ib = a.get("slot_inputs") or {}, b.get("slot_inputs") or {}
     sa = {s["index"]: s for s in a.get("shots", [])}
@@ -806,6 +964,10 @@ def compare(a, b, expect=None):
                             if (xin or {}).get(n) != (yin or {}).get(n)) if (xin and yin) else []
         if changed_in:
             allowed.add(i)
+        changed_att = attempt_input_changes(aa.get(str(i)), ab.get(str(i)))
+        declared_att = bool(changed_att) and changed_att <= set(field_expect)
+        if declared_att:
+            allowed.add(i)
         reason = None
         if i in must:
             klass = "ОЖИДАЕМО РАЗОШЁЛСЯ" if diff else "НЕОЖИДАННО СОВПАЛ"
@@ -815,6 +977,9 @@ def compare(a, b, expect=None):
         elif changed_in:
             klass = "ВХОД ИЗМЕНИЛСЯ"
             reason = "изменилось на входе: " + ", ".join(changed_in)
+        elif declared_att:
+            klass = "ЗАПРОС ПОПЫТКИ ИЗМЕНИЛСЯ"
+            reason = "; ".join(f"{f}: {field_expect[f]}" for f in sorted(changed_att))
         elif i in leaks:
             klass = "УТЕЧКА УСТРАНЕНА"
             reason = "в слоте была утечка старой семантики (журнал)"
@@ -979,7 +1144,8 @@ def cmd_replay(args):
     freeze = os.path.abspath(args.freeze)
     label = args.label or f"replay-seed{args.hashseed}"
     res = run_pipeline(freeze, "replay", label, args.hashseed, args.keep_media,
-                       pipeline=args.pipeline, live_fallback=args.live_fallback)
+                       pipeline=args.pipeline, live_fallback=args.live_fallback,
+                       overlay_from=args.net_overlay_from)
     print(f"воспроизведено за {res['seconds']}с: код {res['returncode']}, "
           f"вне записи {len(res['net'].get('divergences', []))}")
     return 0
@@ -1007,7 +1173,8 @@ def cmd_verify(args):
     seed = args.hashseed if args.hashseed is not None else meta["hashseed"]
     label = args.label or f"verify-seed{seed}"
     run_pipeline(freeze, "replay", label, seed, args.keep_media,
-                 pipeline=args.pipeline, live_fallback=args.live_fallback)
+                 pipeline=args.pipeline, live_fallback=args.live_fallback,
+                 overlay_from=args.net_overlay_from)
     a, b = _load_result(freeze, args.against), _load_result(freeze, label)
     rep = compare(a, b, _expect(args.expect))
     print_report(rep, a, b)
@@ -1020,7 +1187,7 @@ def cmd_verify(args):
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if argv and argv[0] == "_child":
-        return child(*argv[1:7])
+        return child(*argv[1:8])
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("record")
@@ -1043,6 +1210,9 @@ def main(argv=None):
     for sp in (r, rp, v):
         sp.add_argument("--pipeline", help="какой pipeline_smart.py гонять (по умолчанию соседний)")
     for sp in (rp, v):
+        sp.add_argument("--net-overlay-from", metavar="ПРОГОН",
+                        help="дополнительно отдавать живые запросы указанного прогона "
+                             "(его net_overlay), продолжая по каждому адресу запись")
         sp.add_argument("--live-fallback", action="store_true",
                         help="запросы вне записи выполнять живьём в отдельный слой (названные)")
     v.add_argument("--against", default="record",

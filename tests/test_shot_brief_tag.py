@@ -103,7 +103,9 @@ def test_shelf_gets_the_brief_stocks_get_the_query():
     # Та же граница по коду, а не по числу символов: 6000 — такое же
     # магическое число, как прежние 4000, и сломалось бы так же.
     start = src.index("for source_name, fetch in (")
-    block = src[start:src.index("for row in itertools.zip_longest(*per_source)", start)]
+    # Сборка источников живёт в методе sources фото-адаптера; граница —
+    # следующий метод класса (по коду, а не по числу символов).
+    block = src[start:src.index("\n    def ", start)]
     assert 'fetch(pq, brief=shelf_question(shot_brief, block_text) or None)' in block
     assert 'fetch(api_q)' in block
 

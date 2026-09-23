@@ -25,6 +25,7 @@ SCRIPTS_DIR = os.path.join(REPO_ROOT, "scripts")
 sys.path.insert(0, SCRIPTS_DIR)
 sys.argv = ["pipeline_smart.py", tempfile.mkdtemp(prefix="poolrank_")]
 import pipeline_smart as ps  # noqa: E402
+from _media_calls import pick_photo, pick_video  # noqa: E402
 
 
 def _cand(cid, relevance, aesthetic, dup_free=1, size_ok=1, relevant=1, sharp=1):
@@ -113,7 +114,7 @@ class TestSourceInterleave:
             return real_bump(source, field, n)
 
         monkeypatch.setattr(ps, "_source_bump", spy_bump)
-        ps.pexels_photo("medieval armour", 0, used_ids=set(), used_hashes=[], text_key="interleave")
+        pick_photo(ps, "medieval armour", 0, used_ids=set(), used_hashes=[], text_key="interleave")
         first20 = order[:20]
         assert first20.count("openverse") == 3, first20
         assert first20[:2] == ["met", "openverse"], first20

@@ -115,7 +115,7 @@ def test_photo_winner_actually_calls_the_journal():
     написанными и никем не вызванными — ровно то, что здесь чинится."""
     src = open(os.path.join(REPO_ROOT, "scripts", "pipeline_smart.py"),
                encoding="utf-8").read()
-    start = src.index("def _select_photo(")
+    start = src.index("class PhotoAdapter(")
     block = src[start:src.index("\ndef ", start + 10)]
     # Строка журнала — эффект попытки: пишется коммитом, только если кадр
     # встал на экран (выброшенный кадр в журнал лицензий не попадает).
