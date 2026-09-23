@@ -40,16 +40,6 @@ import feature_flags  # noqa: E402
 # Публичные функции, сознательно НЕ достижимые из рабочих путей. Ключ —
 # "модуль.функция", значение — причина, которую обязан назвать автор.
 ALLOWED_UNREACHABLE = {
-    # Предел АНАЛИЗАТОРА, а не мёртвый слой: `ask` вызывается как
-    # `brain.ask(prompt, chapter_no)` — метод на объекте, выбранном в
-    # рантайме (LocalBrain / FileBrain). Граф по ast.Call такой диспетч
-    # не атрибутирует ни к одному классу. Проверено прогоном:
-    # shot_brief_director.run() зовёт его на каждой главе, и замер
-    # рук B/C/D целиком стоит на этом вызове.
-    "shot_brief_director.ask":
-        "метод интерфейса мозга, вызывается как brain.ask(...) из "
-        "shot_brief_director.run() — статический граф не видит диспетч "
-        "по объекту",
     **{f"level_regression.{f}":
        "обратный замер уровней по отрендеренному звуку — измерительная "
        "оснастка регрессии (tests/test_level_regression.py), в рендер не "
@@ -62,9 +52,6 @@ ALLOWED_UNREACHABLE = {
     "assemble.estimate_xfade_budget":
         "альтернативный сборщик по слотам (assemble.py) — второй, ручной путь "
         "сборки; в основной рендер (pipeline_smart.py) не входит",
-    "feature_flags.is_boolean":
-        "служебный интроспектор реестра — используется тестами и отчётами, "
-        "не рендером",
     "pipeline_smart.reset_world_card_cache":
         "сброс кэша паспорта мира между прогонами — нужен тестам и "
         "повторному вызову main() в одном процессе; в продовом "
@@ -101,6 +88,24 @@ def _func_defs(tree):
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
 
 
+# Метка «атрибут на выражении, а не на имени»: такое имя никогда не
+# разрешается как функция модуля, оно учитывается только как имя метода.
+ATTR_ON_EXPR = "<expr>"
+
+
+def _def_references(m, tree):
+    """(модуль, имя) -> ссылки. Узел графа — ИМЯ, а одноимённых определений
+    в модуле бывает несколько (методы разных классов, `install` у двух
+    классов). Прежде словарь по имени оставлял последнее определение, и
+    ссылки остальных молча терялись: живое, вызываемое только из них,
+    объявлялось мёртвым. Теперь ссылки объединяются."""
+    out = {}
+    for n in ast.walk(tree):
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            out.setdefault((m, n.name), set()).update(_references(n))
+    return out
+
+
 def _references(node):
     """И вызовы, и ССЫЛКИ на функции: в этом коде функция сплошь и рядом
     передаётся значением (director_score_fn, render_pool.submit(kenburns,...),
@@ -110,9 +115,12 @@ def _references(node):
     for n in ast.walk(node):
         if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load):
             out.add((None, n.id))
-        elif (isinstance(n, ast.Attribute) and isinstance(n.ctx, ast.Load)
-              and isinstance(n.value, ast.Name)):
-            out.add((n.value.id, n.attr))
+        elif isinstance(n, ast.Attribute) and isinstance(n.ctx, ast.Load):
+            # `mod.f` — ссылка на функцию модуля; `obj.method` при ЛЮБОМ
+            # выражении слева (в том числе `Cls(...).install()`) — ещё и
+            # вызов метода по имени, см. reachable().
+            base = n.value.id if isinstance(n.value, ast.Name) else ATTR_ON_EXPR
+            out.add((base, n.attr))
     return out
 
 
@@ -134,8 +142,7 @@ def build_graph():
 
     graph = {}
     for m, tree in mods.items():
-        for name, node in defs[m].items():
-            graph[(m, name)] = _references(node)
+        graph.update(_def_references(m, tree))
         top = set()
         for n in tree.body:
             if not isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -144,9 +151,31 @@ def build_graph():
     return mods, defs, alias, from_imports, graph
 
 
-def reachable(defs, alias, from_imports, graph):
+def _class_methods(mods):
+    """Модуль -> {класс: [имена его методов]} для классов верхнего уровня."""
+    out = {}
+    for m, tree in mods.items():
+        out[m] = {n.name: [b.name for b in n.body
+                           if isinstance(b, (ast.FunctionDef, ast.AsyncFunctionDef))]
+                  for n in tree.body if isinstance(n, ast.ClassDef)}
+    return out
+
+
+def reachable(defs, alias, from_imports, graph, classes=None):
     """Точки входа — модульный уровень каждого скрипта и его main(): ровно то,
-    что реально запускает протокол производства (ЧАСТЬ 13 CLAUDE.md)."""
+    что реально запускает протокол производства (ЧАСТЬ 13 CLAUDE.md).
+
+    МЕТОДЫ. Вызов метода на объекте (`rec.install()`, `brain.ask(...)`)
+    статически не привязывается к классу: тип `rec` известен только в
+    рантайме. Раньше из-за этого живые методы объявлялись мёртвыми и
+    вносились в список исключений поимённо. Теперь правило: метод живой,
+    если его КЛАСС упомянут из живого кода (создан, передан, унаследован) И
+    имя метода вызывается как атрибут где-то в живом коде; конструктор и
+    прочие dunder-методы живы вместе с классом — их зовёт сам язык.
+    Требуются оба условия: класс, на который никто не ссылается, остаётся
+    мёртвым целиком, а метод, чьё имя не зовёт никто, — мёртвым внутри
+    живого класса."""
+    classes = classes or {}
     entries = [(m, "<module>") for m in defs]
     entries += [(m, "main") for m in defs if "main" in defs[m]]
 
@@ -162,22 +191,50 @@ def reachable(defs, alias, from_imports, graph):
         real = alias.get(m, {}).get(mod, mod)
         return (real, name) if (real in defs and name in defs[real]) else None
 
+    def resolve_class(m, ref):
+        mod, name = ref
+        if mod is None:
+            if name in classes.get(m, {}):
+                return (m, name)
+            if name in from_imports.get(m, {}):
+                mm, nn = from_imports[m][name]
+                return (mm, nn) if nn in classes.get(mm, {}) else None
+            return None
+        real = alias.get(m, {}).get(mod, mod)
+        return (real, name) if name in classes.get(real, {}) else None
+
     seen, stack = set(), list(entries)
-    while stack:
-        cur = stack.pop()
-        seen.add(cur)
-        for ref in graph.get(cur, ()):
-            nxt = resolve(cur[0], ref)
-            if nxt and nxt not in seen:
-                stack.append(nxt)
-    return seen
+    live_classes, attr_names = set(), set()
+    while True:
+        while stack:
+            cur = stack.pop()
+            if cur in seen:
+                continue
+            seen.add(cur)
+            for ref in graph.get(cur, ()):
+                if ref[0] is not None:
+                    attr_names.add(ref[1])
+                nxt = resolve(cur[0], ref)
+                if nxt and nxt not in seen:
+                    stack.append(nxt)
+                cls = resolve_class(cur[0], ref)
+                if cls:
+                    live_classes.add(cls)
+        for cm, cn in live_classes:
+            for meth in classes[cm][cn]:
+                node = (cm, meth)
+                dunder = meth.startswith("__") and meth.endswith("__")
+                if node not in seen and (dunder or meth in attr_names):
+                    stack.append(node)
+        if not stack:
+            return seen
 
 
 @pytest.fixture(scope="module")
 def analysis():
     mods, defs, alias, from_imports, graph = build_graph()
     return {"defs": defs, "graph": graph,
-            "seen": reachable(defs, alias, from_imports, graph)}
+            "seen": reachable(defs, alias, from_imports, graph, _class_methods(mods))}
 
 
 def test_no_public_function_is_unreachable(analysis):
@@ -297,3 +354,45 @@ def test_the_guard_knows_every_public_reader_of_the_registry():
     assert not unseen, (
         "feature_flags экспортирует читателей, которых охранник не ищет — "
         "живой флаг будет объявлен мёртвым: " + ", ".join(unseen))
+
+
+def test_method_rule_keeps_dead_code_dead():
+    """Правило методов не должно ослеплять охранника: живой класс не делает
+    живыми ВСЕ свои методы, а класс без ссылок не оживает вовсе."""
+    src = {
+        "app": ("import lib\n"
+                "def main():\n"
+                "    lib.Rec(1).install()\n"
+                "    lib.helper()\n"),
+        "lib": ("def helper():\n"
+                "    return 1\n"
+                "def used_by_method():\n"
+                "    return 2\n"
+                "def orphan():\n"
+                "    return 3\n"
+                "class Rec:\n"
+                "    def __init__(self, x):\n"
+                "        self.x = x\n"
+                "    def install(self):\n"
+                "        return self._inner()\n"
+                "    def _inner(self):\n"
+                "        return used_by_method()\n"
+                "    def never_called(self):\n"
+                "        return orphan()\n"
+                "class Unused:\n"
+                "    def install(self):\n"
+                "        return 0\n"),
+    }
+    mods = {m: ast.parse(s) for m, s in src.items()}
+    defs = {m: _func_defs(t) for m, t in mods.items()}
+    alias = {"app": {"lib": "lib"}, "lib": {}}
+    from_imports = {"app": {}, "lib": {}}
+    graph = {}
+    for m, tree in mods.items():
+        graph.update(_def_references(m, tree))
+        graph[(m, "<module>")] = set()
+    seen = reachable(defs, alias, from_imports, graph, _class_methods(mods))
+    for live in ("helper", "install", "_inner", "used_by_method", "__init__"):
+        assert ("lib", live) in seen, f"{live} обязан быть живым"
+    for dead in ("never_called", "orphan"):
+        assert ("lib", dead) not in seen, f"{dead} ожил — охранник ослеп"

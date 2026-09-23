@@ -162,6 +162,26 @@ VIDEO_FOLDER = _ARGV_POSITIONAL[0] if _ARGV_POSITIONAL else os.getcwd()
 # VISUAL_DIRECTOR_MODE/CLIP_RELEVANCE, реальные сетевые вызовы к Pexels
 # ради данных, которые физически известны за секунды до единой закачки.
 PLAN_ONLY = "--plan-only" in _ARGV_FLAGS
+# ОТБОР БЕЗ РЕНДЕРА. Весь конвейер выбора кадра исполняется как обычно —
+# сборка пула, гейты, вето, ранжирование, лестница попыток, поглощение, —
+# и пишутся ВСЕ артефакты отбора (shotlist.json, отчёты промахов, вклад
+# источников, отчёт Режиссёра). Не рендерится ни один клип и не
+# перезаписывается ни один артефакт рендера (render_manifest.json,
+# render_qc_report.json, look_manifest.json, camera_language_report.json).
+#
+# Зачем: решение о кадре принимается внутри многочасового рендера, и
+# увидеть его до готового final.mp4 было нельзя (Шаг 7.2 CLAUDE.md). На
+# эпизоде из 9 слотов полный прогон занял 55 минут, из них рендер —
+# большая часть. Плюс это единственный способ гонять настоящий main()
+# в харнессе эквивалентности (scripts/selection_freeze.py), а не вторую
+# копию его логики.
+#
+# ТОЧКА СРЕЗА стоит сразу после обновления luma_ema: это последняя строка
+# итерации, меняющая состояние, от которого зависит отбор СЛЕДУЮЩЕГО слота.
+# Всё ниже неё (уровни, частицы, лук, домен, язык камеры, диспетчер рендера)
+# — параметры рендера. Инвариант держит tests/test_select_only.py: в хвосте
+# итерации запрещена любая мутация состояния отбора.
+SELECT_ONLY = "--select-only" in _ARGV_FLAGS
 
 
 def _argv_float(name, default):
@@ -14662,6 +14682,34 @@ def render_recipe_signature():
 RENDER_RECIPE_SIG = None   # считается один раз в main() (см. render_recipe_signature)
 
 
+def _stock_api_pacing(i, use_pexels, use_local):
+    """Пауза раз в 10 слотов, пока идёт отбор из стока (квота Pexels
+    200 запросов/час). Одна функция на оба пути — обычный прогон и
+    --select-only: пейсинг влияет на то, словит ли сток 429, то есть на
+    сетевое поведение, и расходиться между режимами он не имеет права."""
+    if use_pexels and not use_local and i % 10 == 9:
+        time.sleep(0.4)
+
+
+def finish_select_only(shot_entries, n_blocks):
+    """Итог режима --select-only. Коды возврата — ТЕ ЖЕ, что у рендера
+    (EXIT_OK/EXIT_BUILT_WITH_WARNINGS/EXIT_NOT_BUILT), со смыслом «отбор»
+    вместо «сборка»: 0 — каждый слот получил проверенный кадр; 2 — часть
+    слотов поглощена или осталась без медиа; 1 — не выбрано ничего. Новой
+    семантики кодов не заводится: render_episode.py и render_with_retry.py
+    уже понимают эти три числа."""
+    with_media = sorted(i for i, e in shot_entries.items() if e.get("file"))
+    _have = set(with_media)
+    without = [i for i in range(n_blocks) if i not in _have]
+    print(f"ОТБОР ГОТОВ (без рендера): кадр выбран у {len(with_media)} из {n_blocks} слот(ов)"
+          + (f"; без кадра: {[i + 1 for i in without]}" if without else ""))
+    print(f"  Шотлист и отчёты отбора — {os.path.join(VIDEO_FOLDER, 'media_plan')}. "
+          f"Артефакты рендера не тронуты.")
+    if not with_media:
+        return EXIT_NOT_BUILT
+    return EXIT_BUILT_WITH_WARNINGS if without else EXIT_OK
+
+
 def check_jobs_in_order(pending_jobs):
     """pending_jobs обязан идти строго по ВОЗРАСТАНИЮ индекса блока — этого
     (и только этого) требует xfade-склейка ниже: кадры должны попасть в
@@ -15183,7 +15231,7 @@ def main():
     render_pool = (concurrent.futures.ProcessPoolExecutor(
                        max_workers=RENDER_POOL_WORKERS,
                        mp_context=multiprocessing.get_context("spawn"))
-                   if RENDER_POOL_ENABLED else None)
+                   if RENDER_POOL_ENABLED and not SELECT_ONLY else None)
     pending_jobs = []   # [{i, out, d, section, block, video, photo, future|None, ok}], в порядке блоков
     # Накопленное время слотов, поглощённых соседом (см. ABSORBED_SLOTS).
     _carry_sec = 0.0
@@ -16085,6 +16133,11 @@ def main():
             luma_ema = luma if luma_ema is None else luma_ema * 0.6 + luma * 0.4
         else:
             brightness_bias = 0.0
+        if SELECT_ONLY:
+            # ТОЧКА СРЕЗА (см. SELECT_ONLY): состояние отбора для следующего
+            # слота уже полностью обновлено, всё ниже — параметры рендера.
+            _stock_api_pacing(i, use_pexels, use_local)
+            continue
         # Адаптивная ТЕХНИЧЕСКАЯ нормализация экспозиции ЭТОГО кадра (auto-
         # levels по перцентилям, см. measure_levels()/auto_levels_params()) —
         # решает другую задачу, чем brightness_bias выше (тот сглаживает
@@ -16279,92 +16332,102 @@ def main():
                   f"{'в очереди' if future is not None else 'готово' if ok else 'пропуск'})")
         if i % 10 == 9:
             log_render_diagnostics(f"block_{i+1}/{len(blocks)}")
-        if use_pexels and not use_local and i % 10 == 9:
-            time.sleep(0.4)
+        _stock_api_pacing(i, use_pexels, use_local)
 
-    # Резолвим отложенные (в пуле) рендеры — future.result() блокирует, только
-    # если этот конкретный клип ещё не доехал, к этому моменту у воркеров уже
-    # было всё время работы цикла выше, чтобы прогрызть очередь. Порядок —
-    # строго по индексу блока (pending_jobs собран в порядке цикла), не по
-    # порядку завершения — xfade-склейка ниже требует правильную последовательность.
-    check_jobs_in_order(pending_jobs)
-    for job in pending_jobs:
-        if job["future"] is not None:
-            try:
-                job["ok"] = job["future"].result()
-            except Exception as e:
-                print(f"  [{job['i']+1}] непредвиденный сбой рендера в пуле, пропускаю кадр: "
-                      f"{type(e).__name__} {e}")
-                job["ok"] = False
-        if job["ok"]:
-            clips.append(job["out"])
-            clip_durs.append(job["d"])
-            clip_sections.append(job["section"])
-            clip_blocks.append(job["block"])
-            if not job["video"] and job["photo"]:
-                media_log.append((job["i"], job["photo"]))
-                # Пост-рендер QC (RENDER_SHARPNESS_DROP_RATIO выше) — единственная
-                # проверка в пайплайне, которая смотрит на ГОТОВЫЙ кадр, а не на
-                # исходное фото ДО Ken Burns/параллакса/ГРИП/грейда. Дёшево (Лапла-
-                # сиан на уже скачанном исходнике + один кадр-пробник уже готового
-                # клипа, без новой модели/сети) — считается синхронно здесь же, не
-                # в пуле, лишние доли секунды на клип не стоят отдельного воркера.
-                flagged, ratio = render_sharpness_regression(job["photo"], job["out"])
-                if flagged:
-                    RENDER_QC_REPORT.append({
-                        "index": job["i"], "source": job["photo"], "rendered": job["out"],
-                        "ratio": ratio, "threshold": RENDER_SHARPNESS_DROP_RATIO,
-                    })
-            elif job["video"]:
-                # Второй, независимый предохранитель поверх селекционного
-                # гейта (video_sharpness_ok в pexels_video()): если ВЕСЬ пул
-                # кандидатов был смазан (fallback всё равно не оставляет слот
-                # пустым, см. философию ЧАСТИ 13), это честно всплывает здесь
-                # на ГОТОВОМ клипе — та же логика, что render_sharpness_
-                # regression() даёт фото, но для видео нет "источника"
-                # отдельно от рендера (клип и есть исходник, без Ken Burns/
-                # ГРИП поверх), поэтому проверяем абсолютную резкость, не
-                # отношение.
-                v_sharp_ok = video_sharpness_ok(job["out"])
-                if v_sharp_ok is False:
-                    RENDER_QC_REPORT.append({
-                        "index": job["i"], "source": None, "rendered": job["out"],
-                        "ratio": None, "threshold": VIDEO_SHARPNESS_REJECT,
-                        "reason": "video_median_sharpness_below_threshold",
-                    })
-            render_manifest[job["i"]] = {"index": job["i"], "status": "ok", "path": job["out"],
-                                          "section": job["section"], "duration": job["d"],
-                                          "kind": "video" if job["video"] else "photo"}
-        else:
-            missing.append(job["i"] + 1)
-            render_manifest[job["i"]] = {"index": job["i"], "status": "failed",
-                                          "reason": "см. консольный лог выше (run_ffmpeg_with_retry) — "
-                                                    f"после {RENDER_RETRY_ATTEMPTS} попыток",
-                                          "section": job["section"], "duration": job["d"]}
-    if render_pool:
-        render_pool.shutdown(wait=True)
-    log_render_diagnostics("render_done")
-    print(f"  Рендер завершён: {len(clips)}/{len(blocks)} клипов")
-    if never_show_known_bad and not clips:
-        # Поглощать некого: ни один слот не получил проверенного кадра.
-        # Собирать ролик из брака нельзя (для этого правило и заведено), а
-        # карточки владелец не разрешил — значит честный стоп с причиной, а
-        # не пустой файл и не молчаливая деградация.
-        print("\nСТОП: ни один слот не получил ПРОВЕРЕННОГО кадра — "
-              f"поглощено {len(ABSORBED_SLOTS)} слот(ов), показывать нечего. "
-              "Смотреть media_plan/absorbed_slots_report.json: чаще всего это "
-              "нет ключей стоков, исчерпанная квота или запрос, которому "
-              "мир эпизода противоречит.")
-        return 1
+    if not SELECT_ONLY:
+        # Резолвим отложенные (в пуле) рендеры — future.result() блокирует, только
+        # если этот конкретный клип ещё не доехал, к этому моменту у воркеров уже
+        # было всё время работы цикла выше, чтобы прогрызть очередь. Порядок —
+        # строго по индексу блока (pending_jobs собран в порядке цикла), не по
+        # порядку завершения — xfade-склейка ниже требует правильную последовательность.
+        check_jobs_in_order(pending_jobs)
+        for job in pending_jobs:
+            if job["future"] is not None:
+                try:
+                    job["ok"] = job["future"].result()
+                except Exception as e:
+                    print(f"  [{job['i']+1}] непредвиденный сбой рендера в пуле, пропускаю кадр: "
+                          f"{type(e).__name__} {e}")
+                    job["ok"] = False
+            if job["ok"]:
+                clips.append(job["out"])
+                clip_durs.append(job["d"])
+                clip_sections.append(job["section"])
+                clip_blocks.append(job["block"])
+                if not job["video"] and job["photo"]:
+                    media_log.append((job["i"], job["photo"]))
+                    # Пост-рендер QC (RENDER_SHARPNESS_DROP_RATIO выше) — единственная
+                    # проверка в пайплайне, которая смотрит на ГОТОВЫЙ кадр, а не на
+                    # исходное фото ДО Ken Burns/параллакса/ГРИП/грейда. Дёшево (Лапла-
+                    # сиан на уже скачанном исходнике + один кадр-пробник уже готового
+                    # клипа, без новой модели/сети) — считается синхронно здесь же, не
+                    # в пуле, лишние доли секунды на клип не стоят отдельного воркера.
+                    flagged, ratio = render_sharpness_regression(job["photo"], job["out"])
+                    if flagged:
+                        RENDER_QC_REPORT.append({
+                            "index": job["i"], "source": job["photo"], "rendered": job["out"],
+                            "ratio": ratio, "threshold": RENDER_SHARPNESS_DROP_RATIO,
+                        })
+                elif job["video"]:
+                    # Второй, независимый предохранитель поверх селекционного
+                    # гейта (video_sharpness_ok в pexels_video()): если ВЕСЬ пул
+                    # кандидатов был смазан (fallback всё равно не оставляет слот
+                    # пустым, см. философию ЧАСТИ 13), это честно всплывает здесь
+                    # на ГОТОВОМ клипе — та же логика, что render_sharpness_
+                    # regression() даёт фото, но для видео нет "источника"
+                    # отдельно от рендера (клип и есть исходник, без Ken Burns/
+                    # ГРИП поверх), поэтому проверяем абсолютную резкость, не
+                    # отношение.
+                    v_sharp_ok = video_sharpness_ok(job["out"])
+                    if v_sharp_ok is False:
+                        RENDER_QC_REPORT.append({
+                            "index": job["i"], "source": None, "rendered": job["out"],
+                            "ratio": None, "threshold": VIDEO_SHARPNESS_REJECT,
+                            "reason": "video_median_sharpness_below_threshold",
+                        })
+                render_manifest[job["i"]] = {"index": job["i"], "status": "ok", "path": job["out"],
+                                              "section": job["section"], "duration": job["d"],
+                                              "kind": "video" if job["video"] else "photo"}
+            else:
+                missing.append(job["i"] + 1)
+                render_manifest[job["i"]] = {"index": job["i"], "status": "failed",
+                                              "reason": "см. консольный лог выше (run_ffmpeg_with_retry) — "
+                                                        f"после {RENDER_RETRY_ATTEMPTS} попыток",
+                                              "section": job["section"], "duration": job["d"]}
+        if render_pool:
+            render_pool.shutdown(wait=True)
+        log_render_diagnostics("render_done")
+        print(f"  Рендер завершён: {len(clips)}/{len(blocks)} клипов")
+        if never_show_known_bad and not clips:
+            # Поглощать некого: ни один слот не получил проверенного кадра.
+            # Собирать ролик из брака нельзя (для этого правило и заведено), а
+            # карточки владелец не разрешил — значит честный стоп с причиной, а
+            # не пустой файл и не молчаливая деградация.
+            print("\nСТОП: ни один слот не получил ПРОВЕРЕННОГО кадра — "
+                  f"поглощено {len(ABSORBED_SLOTS)} слот(ов), показывать нечего. "
+                  "Смотреть media_plan/absorbed_slots_report.json: чаще всего это "
+                  "нет ключей стоков, исчерпанная квота или запрос, которому "
+                  "мир эпизода противоречит.")
+            return 1
 
-    manifest_path = os.path.join(VIDEO_FOLDER, "media_plan", "render_manifest.json")
-    os.makedirs(os.path.dirname(manifest_path), exist_ok=True)
-    manifest_tmp = manifest_path + ".tmp"
-    with open(manifest_tmp, "w", encoding="utf-8") as f:
-        json.dump({"total_blocks": len(blocks), "ok": len(clips), "missing": missing,
-                    "clips": [render_manifest[i] for i in sorted(render_manifest)]},
-                   f, ensure_ascii=False, indent=2)
-    os.replace(manifest_tmp, manifest_path)
+        manifest_path = os.path.join(VIDEO_FOLDER, "media_plan", "render_manifest.json")
+        os.makedirs(os.path.dirname(manifest_path), exist_ok=True)
+        manifest_tmp = manifest_path + ".tmp"
+        with open(manifest_tmp, "w", encoding="utf-8") as f:
+            json.dump({"total_blocks": len(blocks), "ok": len(clips), "missing": missing,
+                        "clips": [render_manifest[i] for i in sorted(render_manifest)]},
+                       f, ensure_ascii=False, indent=2)
+        os.replace(manifest_tmp, manifest_path)
+    else:
+        # Режим отбора: клипов нет по построению, поэтому «есть ли что показать»
+        # считается по самим решениям отбора, а не по отрендеренным клипам.
+        # Тот же честный стоп, что у рендера строками выше, по той же причине.
+        if never_show_known_bad and not any(
+                e.get("file") for e in shot_entries.values()):
+            print("\nСТОП (отбор): ни один слот не получил ПРОВЕРЕННОГО кадра — "
+                  f"поглощено {len(ABSORBED_SLOTS)} слот(ов). Смотреть "
+                  "media_plan/absorbed_slots_report.json.")
+            return EXIT_NOT_BUILT
 
     # Шотлист — что РЕАЛЬНО выбрано под каждую фразу и какие гейты реально
     # работали (см. блок-комментарий у SHOTLIST_VERSION). Пишется всегда.
@@ -16393,7 +16456,8 @@ def main():
     selection_gates["source_contribution"] = {src: dict(v) for src, v in SOURCE_STATS.items()}
     shotlist_file = write_shotlist(VIDEO_FOLDER, shot_entries, selection_gates, prev=prev_shotlist)
     write_source_contribution(VIDEO_FOLDER)
-    write_camera_language_report(VIDEO_FOLDER)
+    if not SELECT_ONLY:
+        write_camera_language_report(VIDEO_FOLDER)
     print(f"  Шотлист: media_plan/shotlist.json ({len(shot_entries)} слотов, "
           f"{shotlist_locked_used} по lock) — контактный лист: python scripts/shotlist_contact.py {VIDEO_FOLDER}")
 
@@ -16544,10 +16608,11 @@ def main():
     # не hard-reject — тот же принцип честной записи, что и у остальных
     # отчётов здесь.
     render_qc_path = os.path.join(VIDEO_FOLDER, "media_plan", "render_qc_report.json")
-    render_qc_tmp = render_qc_path + ".tmp"
-    with open(render_qc_tmp, "w", encoding="utf-8") as f:
-        json.dump({"flagged": RENDER_QC_REPORT}, f, ensure_ascii=False, indent=2)
-    os.replace(render_qc_tmp, render_qc_path)
+    if not SELECT_ONLY:
+        render_qc_tmp = render_qc_path + ".tmp"
+        with open(render_qc_tmp, "w", encoding="utf-8") as f:
+            json.dump({"flagged": RENDER_QC_REPORT}, f, ensure_ascii=False, indent=2)
+        os.replace(render_qc_tmp, render_qc_path)
     if RENDER_QC_REPORT:
         print(f"  ВНИМАНИЕ: {len(RENDER_QC_REPORT)} клип(ов) заметно размытее своего исходника "
               f"(rendered/source < {RENDER_SHARPNESS_DROP_RATIO}) — см. media_plan/render_qc_report.json, "
@@ -16596,15 +16661,16 @@ def main():
     # пустой отчёт с enabled=False, не пропускаем файл молча (тот же принцип
     # честной записи "нечего сообщить", что уже применяет speech_validator.py
     # к media_plan/pause_decisions.json).
-    look_manifest_path = os.path.join(VIDEO_FOLDER, "media_plan", "look_manifest.json")
-    look_manifest_tmp = look_manifest_path + ".tmp"
-    cache_hits_skipped_analysis = sum(1 for e in look_report.values() if e.get("decision") == "skipped_cache_hit")
-    with open(look_manifest_tmp, "w", encoding="utf-8") as f:
-        json.dump({"enabled": look_ref is not None,
-                    "cache_hits_skipped_analysis": cache_hits_skipped_analysis,
-                    "clips": [look_report[i] for i in sorted(look_report)]},
-                   f, ensure_ascii=False, indent=2)
-    os.replace(look_manifest_tmp, look_manifest_path)
+    if not SELECT_ONLY:
+        look_manifest_path = os.path.join(VIDEO_FOLDER, "media_plan", "look_manifest.json")
+        look_manifest_tmp = look_manifest_path + ".tmp"
+        cache_hits_skipped_analysis = sum(1 for e in look_report.values() if e.get("decision") == "skipped_cache_hit")
+        with open(look_manifest_tmp, "w", encoding="utf-8") as f:
+            json.dump({"enabled": look_ref is not None,
+                        "cache_hits_skipped_analysis": cache_hits_skipped_analysis,
+                        "clips": [look_report[i] for i in sorted(look_report)]},
+                       f, ensure_ascii=False, indent=2)
+        os.replace(look_manifest_tmp, look_manifest_path)
     # Честное предупреждение: shadow/assist на уже отрендеренном эпизоде
     # (temp_smart/ содержит кэш из прошлого прогона) не анализирует
     # кэш-хиты — у них физически нет сохранённого пути к исходному фото на
@@ -16612,7 +16678,7 @@ def main():
     # НЕ полная симуляция assist — печатаем это явно, не оставляем
     # оператора гадать, почему клипов в look_manifest.json меньше, чем
     # блоков в эпизоде.
-    if look_ref is not None and cache_hits_skipped_analysis:
+    if not SELECT_ONLY and look_ref is not None and cache_hits_skipped_analysis:
         print(f"  Look Management: {cache_hits_skipped_analysis} клип(ов) пропущено анализом "
               f"(кэш из прошлого прогона) — для честного shadow/assist-прогона на этом эпизоде "
               f"очисти temp_smart/ и перезапусти.")
@@ -16641,6 +16707,9 @@ def main():
         print(f"  Visual Director: {director_cache_hits_skipped} клип(ов) пропущено анализом "
               f"(кэш из прошлого прогона) — для честного shadow/assist-прогона на этом эпизоде "
               f"очисти temp_smart/ и перезапусти.")
+
+    if SELECT_ONLY:
+        return finish_select_only(shot_entries, len(blocks))
 
     # Жёсткий финальный гейт: цель не "никогда не упасть" (нечестное
     # обещание — сеть/диск/память могут отказать всегда), а чтобы одиночный

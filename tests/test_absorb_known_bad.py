@@ -19,91 +19,30 @@ final.mp4 разойдётся с аудио, и это увидит ffprobe, а
 import json
 import os
 import shutil
-import subprocess
 import sys
 
 import pytest
-from PIL import Image, ImageDraw
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PIPELINE = os.path.join(REPO_ROOT, "scripts", "pipeline_smart.py")
-
-AUDIO_SEC = 14.0   # короче некуда: при 6 фразах клипы уже по ~2с, а суита не должна удваиваться из-за одного теста
-N_BLOCKS = 6          # шесть фраз, разделённых [pause]
-MEDIA_FOR = (1, 2, 5)  # 1-based имена файлов: media/001_*, 002_*, 005_*
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _episode_factory import AUDIO_SEC, build_episode, media_duration, run_pipeline  # noqa: E402
 
 pytestmark = pytest.mark.skipif(
     shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
     reason="ffmpeg/ffprobe не найдены в PATH",
 )
 
-OFFLINE_ENV = {
-    # Ни одного удалённого источника: слот без локального файла обязан
-    # остаться без кадра, а не поймать случайного кандидата из сети.
-    "OPENVERSE_ENABLED": "0",
-    "MUSEUM_SOURCES_ENABLED": "0",
-    "PIXABAY_ENABLED": "0",
-    "UNSPLASH_ENABLED": "0",
-    "SHELF_INDEX": "0",
-    "MET_CATALOG": "0",
-    "PEXELS_API_KEY": "",
-    "PARALLAX": "0",          # без depth-моделей
-    "VLM_ARBITER_MODE": "off",
-    "AMBIENCE_BED": "0",
-    "MUSIC_BED": "0",
-    # Этот тест собирает ролик из ЗАЛИТЫХ ЦВЕТОМ прямоугольников — они не
-    # рассчитаны на настоящую семантическую проверку. С torch/transformers,
-    # установленными в окружение (для другой работы в этой же сессии),
-    # реальный CLIP и SigLIP2+Jina честно отклоняют такие кадры, и тест
-    # путает этот отказ с тем самым «нет медиа», который он же и создаёт
-    # нарочно (media меньше слотов) — тест обязан проверять АРИФМЕТИКУ
-    # переноса длительности, а не быть заложником того, стоит ли ML-стек
-    # в общем окружении сессии. Тот же класс изоляции, что и остальные
-    # флаги здесь, только для гейтов, которых раньше в этом файле не было,
-    # потому что раньше в контейнере не было и самого torch.
-    "SMART_RELEVANCE_VETO": "0",
-    "CLIP_RELEVANCE": "0",
-}
-
 
 def _dur(path):
-    r = subprocess.run(["ffprobe", "-v", "quiet", "-print_format", "json",
-                        "-show_format", path], capture_output=True, text=True, check=True)
-    return float(json.loads(r.stdout)["format"]["duration"])
+    return media_duration(path)
 
 
 @pytest.fixture
 def episode(tmp_path):
-    d = tmp_path / "absorb_ep"
-    media = d / "media"
-    media.mkdir(parents=True)
-    words = "раз два три четыре пять шесть семь восемь девять десять"
-    phrases = [f"{words} фраза номер {n}." for n in range(1, N_BLOCKS + 1)]
-    (d / "script.txt").write_text(
-        "=== HOOK === " + "[pause]".join(phrases[:2]) + "\n\n"
-        "=== BLOCK 1: Тест === " + "[pause]".join(phrases[2:4]) + "\n\n"
-        "=== FINAL === " + "[pause]".join(phrases[4:]) + "\n",
-        encoding="utf-8")
-    # Структурные (не залитые) картинки: ahash на однотонной заливке нулевой
-    # у любого цвета, и QC считал бы их дублями (см. test_smoke.py).
-    cols = [(200, 40, 40), (40, 60, 200), (40, 180, 70)]
-    for k, n in enumerate(MEDIA_FOR):
-        img = Image.new("RGB", (1600, 900), cols[k % 3])
-        dr = ImageDraw.Draw(img)
-        dr.rectangle([60 + k * 40, 60, 60 + k * 40 + 300 + k * 120, 460], fill=cols[(k + 1) % 3])
-        dr.ellipse([900, 300, 900 + 200 + k * 90, 300 + 180], fill=cols[(k + 2) % 3])
-        img.save(media / f"{n:03d}_stock.jpg", quality=92)
-    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i",
-                    f"sine=frequency=320:duration={AUDIO_SEC}",
-                    "-c:a", "libmp3lame", str(d / "audio.mp3")],
-                   capture_output=True, check=True)
-    return d
+    return build_episode(tmp_path / "absorb_ep")
 
 
 def _run(episode, extra_env):
-    env = dict(os.environ, **OFFLINE_ENV, **extra_env)
-    return subprocess.run([sys.executable, PIPELINE, str(episode)],
-                          capture_output=True, text=True, timeout=900, env=env)
+    return run_pipeline(episode, extra_env)
 
 
 def test_absorbed_slots_keep_the_timeline_and_never_show_bad_media(episode):
