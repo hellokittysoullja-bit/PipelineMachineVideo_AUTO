@@ -6008,6 +6008,44 @@ def _score_and_pick(candidates_info, director_score_fn=None):
     return base_best, dir_best
 
 
+def _meaning_key(c):
+    """Ключи СМЫСЛА кандидата — всё, что в кортеже _score_and_pick стоит
+    выше технических осей (резкость, эстетика, яркость)."""
+    return (c["is_dup_free"], judge_rank(c), c["is_relevant"], c["size_ok"])
+
+
+def _repick(candidates_info, failed, score_fn, director_assist, excluded, same_meaning):
+    """Следующий победитель после того, как `failed` не прошёл проверку
+    ПОСЛЕ выбора (скачивание, резкость, вторая проверка).
+
+    Отвергнутые кандидаты (`excluded`, по id словаря) в выбор не
+    возвращаются НИКОГДА. Раньше отказник только понижался по одному ключу
+    кортежа (sharp_ok=0 / is_relevant=0 / is_dup_free=0) и ранжировался
+    заново. С судьёй кадров оценка стоит в кортеже ВЫШЕ этих ключей, и
+    понижение переставало понижать: отвергнутый оставался первым. Замер
+    (эпизод 94, прогон judge3): на видео-пути цикл сдавался сразу после
+    первого отказа по резкости во всех восьми слотах, а два равных по
+    оценке отказника скачивались по кругу, пока не кончался лимит
+    повторов.
+
+    same_meaning=True — ТЕХНИЧЕСКИЙ отказ (резкость): замена берётся только
+    не хуже по смыслу (_meaning_key), иначе None. Это ровно прежнее правило
+    «резкий того же смысла, а не резкий хуже по смыслу» — изменилось только
+    то, что отказник больше не мешает его выполнить. same_meaning=False —
+    отказ ПО СМЫСЛУ или сбой скачивания: следующий по тому же ранжированию,
+    как и задумано у итеративного вето."""
+    pool = [c for c in candidates_info if id(c) not in excluded]
+    if not pool:
+        return None
+    base, director = _score_and_pick(pool, score_fn)
+    nxt = director if (director_assist and director is not None) else base
+    if nxt is None or nxt is failed:
+        return None
+    if same_meaning and _meaning_key(nxt) < _meaning_key(failed):
+        return None
+    return nxt
+
+
 def _build_arbiter_shortlist(candidates_info, base_winner, director_winner, own_query, max_n=3):
     """Шорт-лист для VLM-арбитра (shot_director.arbitrate_hook_candidates,
     см. её блок-комментарий) — до max_n РАЗЛИЧНЫХ (по path) уже прошедших
@@ -7790,6 +7828,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
             # больше SHARP_REPICK_MAX раз; если резких нет вовсе — честно
             # остаёмся на лучшем и пишем это в лог, слот не пустеет.
             repicks = 0
+            blurred = set()
             while True:
                 if winner is None:
                     pick = candidates[0]
@@ -7809,10 +7848,10 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                     break
                 repicks += 1
                 winner["sharp_ok"] = 0
-                base_winner, director_winner = _score_and_pick(candidates_info, director_score_fn)
-                new_winner = (director_winner if (director_assist and director_winner is not None)
-                              else base_winner)
-                if new_winner is None or new_winner is winner:
+                blurred.add(id(winner))
+                new_winner = _repick(candidates_info, winner, director_score_fn, director_assist,
+                                     blurred, same_meaning=True)
+                if new_winner is None:
                     break
                 winner = new_winner
                 chosen_by = chosen_by + "+sharp_repick"
@@ -7905,6 +7944,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
         # рассуждал, эмбеддинг — нет. Более слабый сигнал не перебивает более
         # сильный (лук, принятый эмбеддингом за огнестрел, — живой случай).
         veto_repicks = 0
+        vetoed = set()
         while True:
             file_ok = _downloaded_ok(cf)
             if file_ok and (judge_approved(winner) or not smart_relevance_veto(cf, query)):
@@ -7912,10 +7952,9 @@ class PhotoAdapter(selection_engine.MediaAdapter):
             nxt = None
             if winner is not None and veto_repicks < VETO_REPICK_MAX:
                 winner["is_relevant"] = 0
-                _bw, _dw = _score_and_pick(candidates_info, director_score_fn)
-                cand = _dw if (director_assist and _dw is not None) else _bw
-                if cand is not None and cand is not winner:
-                    nxt = cand
+                vetoed.add(id(winner))
+                nxt = _repick(candidates_info, winner, director_score_fn, director_assist,
+                              vetoed, same_meaning=False)
             if nxt is None:
                 selection_attempt.record_verdict("smart_veto", {"index": index, "query": query, "kind": "photo"})
                 try:
@@ -13346,41 +13385,44 @@ class VideoAdapter(selection_engine.MediaAdapter):
         # второй проверки (кроме одобренного судьёй) — кандидат уступает
         # место следующему, тем же приёмом, что у фото.
         repicks = 0
+        rejected, rejected_ids = [], set()
         while winner is not None:
-            ok = True
+            reason = None
             try:
                 self._download(winner["p"], cf)
+                if not _downloaded_ok(cf):
+                    reason = "download"
             except Exception:
-                ok = False
-            if ok and not _downloaded_ok(cf):
-                ok = False
-            if not ok:
+                reason = "download"
+            if reason == "download":
                 _source_bump(candidate_channel(winner["p"]), "download_errors")
                 winner["is_dup_free"] = 0
             elif video_sharpness_ok(cf) is False:
+                reason = "sharpness"
                 winner["sharp_ok"] = 0
-                ok = False
             elif not judge_approved(winner) and video_smart_relevance_veto(cf, query):
+                reason = "smart_veto"
                 winner["is_relevant"] = 0
-                ok = False
-            if ok:
+            if reason is None:
                 break
+            rejected.append({"id": winner["p"].get("id"), "reason": reason})
+            rejected_ids.add(id(winner))
             if repicks >= VETO_REPICK_MAX:
                 winner = None
                 break
             repicks += 1
             chosen_by = chosen_by + "+repick" if "+repick" not in chosen_by else chosen_by
-            base, director = _score_and_pick(candidates_info, score_fn)
-            nxt = director if (request.director_assist and director is not None) else base
-            winner = nxt if nxt is not winner else None
+            winner = _repick(candidates_info, winner, score_fn, request.director_assist,
+                             rejected_ids, same_meaning=(reason == "sharpness"))
         if winner is None:
-            selection_attempt.record_verdict("smart_veto", {"index": index, "query": query, "kind": "video"})
+            selection_attempt.record_verdict("smart_veto", {"index": index, "query": query, "kind": "video",
+                                                            "rejected": rejected})
             try:
                 os.remove(cf)
             except OSError:
                 pass
-            print(f"  слот {index}: ни один видео-кандидат не прошёл скачивание, резкость "
-                  f"и вторую проверку — слот остаётся без видео")
+            why = ", ".join(f"{r['id']}: {r['reason']}" for r in rejected) or "нет кандидатов"
+            print(f"  слот {index}: видео не принято ({why}) — слот остаётся без видео")
             return None
         if not winner["is_relevant"]:
             selection_attempt.record_verdict("relevance", {

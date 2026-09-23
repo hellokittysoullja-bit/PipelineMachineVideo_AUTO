@@ -168,7 +168,7 @@ BRANCH_ANCHORS = (
     ("видео: вето отклонило всех (основной путь)", _forms(
         _V, 'record_verdict("smart_veto", {"index": index, "query": query, "kind": "video"})',
         'SMART_VETO_MISSES.append({"index": index, "query": query, "kind": "video"})', occ=(1, 2))
-     + _forms(_VA, 'record_verdict("smart_veto", {"index": index, "query": query, "kind": "video"})')),
+     + _forms(_VA, 'record_verdict("smart_veto", {"index": index, "query": query, "kind": "video",')),
     ("видео: вето отклонило всех (запасной путь)", _forms(
         _V, 'record_verdict("smart_veto", {"index": index, "query": query, "kind": "video"})',
         'SMART_VETO_MISSES.append({"index": index, "query": query, "kind": "video"})', occ=(2, 2))),
