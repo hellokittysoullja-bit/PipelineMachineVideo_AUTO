@@ -60,30 +60,25 @@ def _manifest():
 
 
 class TestWiring:
-    """Source-level: video_negative_anchor_violation() реально вызывается
-    из pexels_video() и участвует в подписи отбора."""
+    """Source-level: покадровое вето реально стоит в отборе видео и
+    участвует в подписи отбора."""
 
-    def test_called_from_pexels_video(self):
-        src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"), encoding="utf-8").read()
-        # Видео-путь после этапа 2 — _select_video (запрос слота вместо
-        # полутора десятков именованных аргументов).
-        assert src.count("def _select_video(") == 1
-        start = src.index("def _select_video(")
-        block = src[start:src.index("\ndef ", start + 1)]
-        assert "video_negative_anchor_violation(trial, query)" in block
+    def test_called_from_the_video_adapter(self):
+        import inspect
+        src = inspect.getsource(ps.VideoAdapter.choose)
+        assert "video_frames_violate(" in src and "is_relevant_candidate(mid, query" in src
+        assert "negative_anchor_violation(f, query)" in inspect.getsource(ps.video_frames_violate)
 
     def test_part_of_candidate_gate_signature(self):
         src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"), encoding="utf-8").read()
         start = src.index("def candidate_gate_signature")
         block = src[start:src.index("_CANDIDATE_GATE_SIG = \"gate:\"", start)]
-        assert "video_negative_anchor_violation" in block
+        assert "video_frames_violate" in block and "video_preview_urls" in block
 
     def test_reuses_the_same_sample_points_as_domain_guard(self):
-        """Не изобретает новый набор точек сэмплирования — переиспользует
-        уже откалиброванный VIDEO_DOMAIN_GUARD_SAMPLE_FRACS."""
-        import inspect
-        src = inspect.getsource(ps.video_negative_anchor_violation)
-        assert "VIDEO_DOMAIN_GUARD_SAMPLE_FRACS" in src
+        """Не изобретает новый набор точек — превью берутся в уже
+        откалиброванных VIDEO_DOMAIN_GUARD_SAMPLE_FRACS."""
+        assert ps.VIDEO_PREVIEW_FRACS == ps.VIDEO_DOMAIN_GUARD_SAMPLE_FRACS
 
 
 @pytest.mark.skipif(not HAS_TORCH, reason="нужны torch/transformers")
@@ -123,38 +118,18 @@ class TestOnRealVideoFrames:
             f"так, что это стало ловиться, обнови тест на положительное "
             f"утверждение поимки, гэп не потерян молча")
 
-    def test_multi_frame_wiring_still_propagates_a_violation_from_any_sample(self, monkeypatch, tmp_path):
-        """Архитектурная проверка (не про ЭТО видео): если ХОТЬ ОДИН сэмпл
-        показывает нарушение, video_negative_anchor_violation() обязана его
-        не потерять — многокадровый механизм сам по себе, независимо от
-        того, ловит ли контрастивное вето именно сцену crowd_*.jpg на
-        текущей модели (см. test_other_frames_..._no_longer_show_the_crowd_
-        on_the_new_model выше — это ЕЁ предел, не предел самой проводки).
-        Синтетический "виновный" сэмпл с заведомо отрицательным margin —
-        через monkeypatch самого negative_anchor_violation(), не через
-        реальные фикстуры, которые эту сцену больше не показывают."""
-        manifest = _manifest()
-        fake_video = str(tmp_path / "fake.mp4")
-        open(fake_video, "wb").close()
-        monkeypatch.setattr(ps, "get_media_duration", lambda p: 48.08)
+    def test_multi_frame_wiring_still_propagates_a_violation_from_any_sample(self, monkeypatch):
+        """Архитектурная проверка (не про ЭТО видео): если ХОТЬ ОДИН кадр
+        показывает нарушение, video_frames_violate() обязана его не потерять
+        — независимо от того, ловит ли вето сцену crowd_*.jpg на текущей
+        модели. Один кадр объявляется нарушением напрямую, остальные идут
+        через настоящую модель."""
+        frames = [os.path.join(FIXTURES, n) for n in ("crowd_start.jpg", "clean_mid.jpg", "crowd_end.jpg")]
+        real = ps.negative_anchor_violation
 
-        def fake_extract(path, base_at=0.5, retry_ats=()):
-            best = min(manifest["images"].items(),
-                       key=lambda kv: abs(kv[1]["at_sec"] - base_at))
-            return os.path.join(FIXTURES, best[0]), False
-
-        monkeypatch.setattr(ps, "extract_video_probe_frame", fake_extract)
-        # Ровно один сэмпл (средняя доля 0.5, clean_mid.jpg) объявляется
-        # нарушением напрямую — остальные реальные вызовы отрабатывают как
-        # обычно (реальная модель, не мок), проверяем именно "любой сэмпл
-        # тянет за собой весь кандидат", а не переоткалиброванный порог.
-        real_negative_anchor_violation = ps.negative_anchor_violation
-
-        def fake_negative_anchor_violation(path, query):
-            if path == os.path.join(FIXTURES, "clean_mid.jpg"):
+        def fake(path, query):
+            if path.endswith("clean_mid.jpg"):
                 return True, "synthetic_violation_for_wiring_test"
-            return real_negative_anchor_violation(path, query)
-        monkeypatch.setattr(ps, "negative_anchor_violation", fake_negative_anchor_violation)
-        vetoed, who = ps.video_negative_anchor_violation(fake_video, QUERY)
-        assert vetoed, "многокадровая проверка не поймала то, что ловит хотя бы один сэмпл"
-        assert who == "synthetic_violation_for_wiring_test"
+            return real(path, query)
+        monkeypatch.setattr(ps, "negative_anchor_violation", fake)
+        assert ps.video_frames_violate(frames, QUERY) is True

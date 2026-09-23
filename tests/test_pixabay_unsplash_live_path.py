@@ -237,7 +237,7 @@ def test_sources_are_actually_called_from_the_pools():
     существовать и не вызываться ни разу."""
     import inspect
     photo = inspect.getsource(ps.PhotoAdapter)
-    video = inspect.getsource(ps._select_video)
+    video = inspect.getsource(ps.VideoAdapter.sources)
     # Фото-источники собираются в кортеж (имя источника, функция) и
     # обходятся по кругу (чередование, POOL_SOURCE_INTERLEAVE_VERSION);
     # маршрутизация по типу кадра решает, какие из них вызвать
@@ -245,7 +245,7 @@ def test_sources_are_actually_called_from_the_pools():
     # вызова.
     assert '("pixabay", _pixabay_search_photos)' in photo
     assert '("unsplash", _unsplash_search_photos)' in photo
-    assert "_pixabay_search_videos(api_q)" in video
+    assert "_pixabay_search_videos" in video and "_pexels_search_videos" in video
 
 
 def test_flags_participate_in_the_selection_signature():

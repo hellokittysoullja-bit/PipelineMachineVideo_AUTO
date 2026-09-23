@@ -73,49 +73,64 @@ def test_query_stays_short_enough_for_a_text_api():
     assert ps.OPENVERSE_QUERY_MIN_WORDS <= len(q.split()) <= ps.BRIEF_STOCK_QUERY_MAX_WORDS
 
 
-def test_brief_query_is_added_not_substituted():
+def _slot_request(**over):
+    import dataclasses
+    import selection_engine
+    f = {x.name: None for x in dataclasses.fields(selection_engine.SlotRequest)}
+    f.update(index=7, query="medieval battle", extra_queries=("medieval camp",),
+             is_opening=False, director_assist=False)
+    f.update(over)
+    return ps.build_slot_request(**f)
+
+
+BRIEF = "a dented steel breastplate, close up"
+
+
+@pytest.mark.parametrize("adapter", ["PHOTO_ADAPTER", "VIDEO_ADAPTER"])
+def test_brief_query_is_added_not_substituted(adapter):
     """Additive по построению: авторский запрос и запросы секции остаются
-    в пуле, бриф только добавляет свой.
-
-    Тест проверяет УСТРОЙСТВО, а не написание. Первая версия сверяла
-    буквальную строку `_bq = brief_to_stock_query(shot_brief` — и упала от
-    переименования переменной, не найдя ни одного дефекта: ровно тот класс
-    пустой проверки, который в этом репозитории уже ломал три теста рядом
-    с `fix_pauses` («считать надо то, ради чего тест написан»). Теперь имя
-    переменной свободно, а инвариант — нет: пул обязан НАЧИНАТЬСЯ с
-    авторского запроса и запросов секции, добавка обязана быть именно
-    добавкой (`pool_queries = [X] + pool_queries`), и X обязан выводиться
-    из брифа, а не из чего-нибудь ещё."""
-    import re
-    src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"),
-               encoding="utf-8").read()
-    start = src.index("pool_queries = [query]")
-    block = src[start:start + 1500]
-    # 1. Авторский запрос и запросы секции остаются основой пула.
-    assert re.search(r"pool_queries = \[query\] \+ \[q for q in \(extra_queries",
-                     block)
-    # 2. Бриф ДОБАВЛЯЕТСЯ в начало, а не заменяет собой пул.
-    m = re.search(r"pool_queries = \[(\w+)\] \+ pool_queries", block)
-    assert m, "запрос из брифа обязан именно ДОБАВЛЯТЬСЯ к пулу"
-    # 3. И добавляется именно запрос из брифа, а не что-нибудь ещё.
-    var = m.group(1)
-    assert re.search(re.escape(var) + r"\s*=\s*brief_to_stock_query\(shot_brief", src)
+    в пуле, запрос из брифа ДОБАВЛЯЕТСЯ первым. Проверяется ядром отбора —
+    тем же вызовом, которым пул строится в проде, а не буквой исходника
+    (прежняя версия искала строку кода, которой после переноса в ядро нет)."""
+    import selection_engine
+    ad = getattr(ps, adapter)
+    req = _slot_request(shot_brief=BRIEF, block_text="Стрела скользнула по нагруднику.")
+    q = selection_engine.pool_queries(req, ad.brief_query(req))
+    assert q == [ps.brief_to_stock_query(BRIEF, fallback=None), "medieval battle", "medieval camp"]
+    no_brief = _slot_request()
+    assert selection_engine.pool_queries(no_brief, ad.brief_query(no_brief)) == \
+        ["medieval battle", "medieval camp"]
 
 
-def test_brief_is_in_the_candidate_cache_key():
-    """Бриф меняет состав пула — без него прогретый temp_smart/ отдал бы
-    кандидата, выбранного до появления брифа.
+@pytest.mark.parametrize("adapter", ["PHOTO_ADAPTER", "VIDEO_ADAPTER"])
+def test_pool_query_never_carries_the_cache_key_tail(adapter, monkeypatch):
+    """Реальный дефект (15.09 -> 23.09): при собранной полке ключ кэша
+    несёт хвост «|shelf:<хэш>», и одно значение служило и ключом, и ЗАПРОСОМ
+    пула — в поиск стоков уходила строка «...breastplate|shelf:953c23ac».
+    Проверено контрольным прогоном со снятой правкой: этот тест падает."""
+    import selection_engine
+    monkeypatch.setattr(ps, "_shelf_question_active", lambda: True)
+    ad = getattr(ps, adapter)
+    req = _slot_request(shot_brief=BRIEF, block_text="Стрела скользнула по нагруднику.")
+    for q in selection_engine.pool_queries(req, ad.brief_query(req)):
+        assert "|" not in q and "shelf:" not in q, q
 
-    Ключ считает candidate_brief_key() (15.09): прежняя формула клала в
-    ключ только СТОКОВЫЙ ПЕРЕВОД брифа, и два брифа, отличающиеся ракурсом,
-    давали одно имя файла при разных вопросах к полке (замер: 3 совпадения
-    из 3). Инвариант этого теста прежний и стал строже — проверяется он
-    теперь по резолверу, а не по букве старой строки."""
-    assert ps.candidate_brief_key("a dented steel breastplate, close up") != ""
-    src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"),
-               encoding="utf-8").read()
-    start = src.index("_brief_key = candidate_brief_key")
-    assert "[_brief_key] if _brief_key else []" in src[start:start + 600]
+
+def test_cache_key_starts_with_the_pool_query_and_moves_with_the_brief(tmp_path, monkeypatch):
+    """Ключ кэша обязан описывать пул, который он ключует: он НАЧИНАЕТСЯ с
+    запроса из брифа; вопрос к полке — только добавка к нему. И смена брифа
+    меняет имя файла кэша у обоих видов медиа: на прогретом temp_smart/
+    кэш-хит отдаёт готовый файл без переподбора, и без брифа в ключе правка
+    брифа не дошла бы до экрана."""
+    monkeypatch.setattr(ps, "TEMP_FOLDER", str(tmp_path))
+    monkeypatch.setattr(ps, "_shelf_question_active", lambda: True)
+    stock = ps.brief_to_stock_query(BRIEF, fallback=None)
+    key = ps.candidate_brief_key(BRIEF, "Стрела скользнула по нагруднику.")
+    assert key.split("|")[0] == stock
+    for ad in (ps.PHOTO_ADAPTER, ps.VIDEO_ADAPTER):
+        a = ad.cache_path(_slot_request(shot_brief=BRIEF))
+        b = ad.cache_path(_slot_request(shot_brief="a manuscript illumination of a battle"))
+        assert a != b, ad.kind
 
 
 def test_change_is_in_the_selection_signature():

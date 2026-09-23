@@ -65,16 +65,36 @@ def test_judge_candidates_scores_only_non_duplicates(tmp_path, monkeypatch):
     info = [_c("a", path=paths[0]), _c("b", path=paths[1]), _c("dup", path=paths[2], dup_free=0)]
     seen = {}
 
-    def fake_judge(gw, model, *, phrase, brief, candidates, cache_dir=None, report=None):
+    def fake_judge(gw, model, *, phrase, brief, candidates, cache_dir=None, report=None, kind):
         seen["ids"] = [cid for cid, _p in candidates]
-        seen["brief"], seen["phrase"] = brief, phrase
+        seen["brief"], seen["phrase"], seen["kind"] = brief, phrase, kind
         return {"a": 3, "b": 1}
     import shot_judge
     monkeypatch.setattr(shot_judge, "judge", fake_judge)
     monkeypatch.setattr(ps, "_shot_judge_gateway", lambda: object())
     assert ps.judge_candidates(0, "photo", "Вот кинжал.", "a dagger", info)
-    assert seen["ids"] == ["a", "b"] and seen["brief"] == "a dagger"
+    assert seen["ids"] == ["a", "b"] and seen["brief"] == "a dagger" and seen["kind"] == "photo"
     assert [c["judge"] for c in info] == [3, 1, None]
+
+
+def test_video_candidates_are_judged_by_their_strip(tmp_path, monkeypatch):
+    """Видео судья видит лентой кадров превью (judge_path), а не одним
+    средним кадром, по которому считаются гейты: движение — это смена
+    кадров, одним кадром его не показать."""
+    strip, mid = tmp_path / "strip.jpg", tmp_path / "mid.jpg"
+    for p in (strip, mid):
+        Image.new("RGB", (32, 32), (9, 9, 9)).save(p)
+    info = [dict(_c("v", path=str(mid)), judge_path=str(strip))]
+    seen = {}
+
+    def fake_judge(gw, model, *, phrase, brief, candidates, cache_dir=None, report=None, kind):
+        seen["paths"], seen["kind"] = [p for _cid, p in candidates], kind
+        return {"v": 2}
+    import shot_judge
+    monkeypatch.setattr(shot_judge, "judge", fake_judge)
+    monkeypatch.setattr(ps, "_shot_judge_gateway", lambda: object())
+    assert ps.judge_candidates(0, "video", "Стрела летит.", "an arrow in flight", info)
+    assert seen == {"paths": [str(strip)], "kind": "video"} and info[0]["judge"] == 2
 
 
 def test_failed_judge_clears_every_score(monkeypatch):

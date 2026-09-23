@@ -95,4 +95,4 @@ def test_pexels_video_accepts_slot_dur():
     import selection_engine
     field = {f.name: f for f in dataclasses.fields(selection_engine.SlotRequest)}["slot_dur"]
     assert field.default is dataclasses.MISSING, "без значения по умолчанию: забыть нельзя"
-    assert "request.slot_dur" in inspect.getsource(pipeline_smart._select_video)
+    assert "request.slot_dur" in inspect.getsource(pipeline_smart.VideoAdapter.filter_pool)

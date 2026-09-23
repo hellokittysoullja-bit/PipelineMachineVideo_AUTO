@@ -78,12 +78,13 @@ def test_only_leading_hook_section_counts_not_a_later_mention():
     ("_director_min_pool_for", "DIRECTOR_MIN_POOL", "FAST_DIRECTOR_MIN_POOL"),
     ("_base_min_pool_for", "BASE_MIN_POOL", "FAST_BASE_MIN_POOL"),
     ("_photo_dedup_max_tries_for", "PHOTO_DEDUP_MAX_TRIES", "FAST_PHOTO_DEDUP_MAX_TRIES"),
-    ("_video_relevance_max_tries_for", "VIDEO_RELEVANCE_MAX_TRIES", "FAST_VIDEO_RELEVANCE_MAX_TRIES"),
 ])
 def test_all_budget_helpers_follow_the_effective_boundary(monkeypatch, fn, full, fast):
-    """Все четыре бюджета обязаны читать ДЕЙСТВУЮЩУЮ границу. Если хоть один
+    """Все бюджеты обязаны читать ДЕЙСТВУЮЩУЮ границу. Если хоть один
     остался на константе, половина хука продолжит собираться урезанно, а
-    остальные три будут выглядеть исправленными."""
+    остальные будут выглядеть исправленными. (Бюджет скачиваний видео
+    ушёл вместе со скачиванием кандидатов: видео судится по превью, пул
+    превью не урезается — test_video_adapter.)"""
     monkeypatch.setattr(ps, "_FAST_MODE_START", 30)
     assert getattr(ps, fn)(29) == getattr(ps, full)
     assert getattr(ps, fn)(30) == getattr(ps, fast)

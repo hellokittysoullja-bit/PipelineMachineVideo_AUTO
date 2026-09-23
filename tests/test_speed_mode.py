@@ -36,22 +36,8 @@ def test_photo_dedup_max_tries_reduced_from_threshold():
     assert ps._photo_dedup_max_tries_for(ps.FAST_MODE_START_INDEX) == ps.FAST_PHOTO_DEDUP_MAX_TRIES
 
 
-def test_video_relevance_max_tries_full_before_threshold():
-    assert ps._video_relevance_max_tries_for(0) == ps.VIDEO_RELEVANCE_MAX_TRIES
-    assert (ps._video_relevance_max_tries_hard_cap_for(0)
-            == ps.VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP)
-
-
-def test_video_relevance_max_tries_reduced_from_threshold():
-    assert ps._video_relevance_max_tries_for(ps.FAST_MODE_START_INDEX) == ps.FAST_VIDEO_RELEVANCE_MAX_TRIES
-    assert (ps._video_relevance_max_tries_hard_cap_for(ps.FAST_MODE_START_INDEX)
-            == ps.FAST_VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP)
-
-
 def test_fast_mode_values_are_smaller_than_full_quality():
     # Быстрый режим обязан быть ДЕЙСТВИТЕЛЬНО быстрее, не равным/большим —
     # иначе весь смысл переключения теряется.
     assert ps.FAST_DIRECTOR_MIN_POOL < ps.DIRECTOR_MIN_POOL
     assert ps.FAST_PHOTO_DEDUP_MAX_TRIES < ps.PHOTO_DEDUP_MAX_TRIES
-    assert ps.FAST_VIDEO_RELEVANCE_MAX_TRIES <= ps.VIDEO_RELEVANCE_MAX_TRIES
-    assert ps.FAST_VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP < ps.VIDEO_RELEVANCE_MAX_TRIES_HARD_CAP
