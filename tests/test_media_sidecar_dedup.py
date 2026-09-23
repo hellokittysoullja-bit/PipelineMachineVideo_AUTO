@@ -39,6 +39,17 @@ pytestmark = pytest.mark.skipif(
     not os.path.exists(SWORD), reason="нет golden-фикстур")
 
 
+def _register(*args, **kwargs):
+    """Как в main(): возврат кадра в анти-дубль — эффект попытки, и
+    применяет его коммит (close_slot), а не сама функция."""
+    import selection_attempt
+    att = ps.new_attempt(0, "clip_cache")
+    with selection_attempt.activate(att):
+        done = ps.register_cached_media(*args, **kwargs)
+    ps.close_slot(0, [att], shown=att, decisive=att, outcome="clip_cache_hit")
+    return done
+
+
 def test_sidecar_roundtrip(tmp_path):
     f = tmp_path / "0001_q_g.jpg"
     f.write_bytes(b"x")
@@ -72,7 +83,7 @@ def test_register_returns_pexels_id_into_used_ids(tmp_path):
     f.write_bytes(open(SWORD, "rb").read())
     ps.write_media_sidecar(str(f), pexels_id=31474665, kind="photo")
     used_ids, used_hashes = set(), []
-    assert ps.register_cached_media(str(f), used_ids, used_hashes, kind="photo")
+    assert _register(str(f), used_ids, used_hashes, kind="photo")
     assert 31474665 in used_ids
 
 
@@ -86,7 +97,7 @@ def test_register_computes_ahash_for_legacy_cache_without_sidecar(tmp_path):
     f.write_bytes(open(SWORD, "rb").read())
     assert not os.path.exists(ps.media_sidecar_path(str(f)))
     used_ids, used_hashes = set(), []
-    assert ps.register_cached_media(str(f), used_ids, used_hashes, kind="photo")
+    assert _register(str(f), used_ids, used_hashes, kind="photo")
     assert used_hashes and len(used_hashes[0]) == 64
     assert not used_ids
 
@@ -110,7 +121,7 @@ def test_cache_hit_slot_makes_identical_photo_a_detected_duplicate(tmp_path):
     used_ids, used_hashes = set(), []
     # Слот A: клип взят из кэша, подбор не вызывался — раньше здесь не
     # происходило РОВНО НИЧЕГО, и в этом был баг.
-    ps.register_cached_media(str(a), used_ids, used_hashes, kind="photo")
+    _register(str(a), used_ids, used_hashes, kind="photo")
 
     # Слот B: подбор идёт заново, кандидат — тот же кадр.
     h_b = ps.ahash(str(b))
@@ -129,7 +140,7 @@ def test_distinct_photos_are_not_falsely_flagged(tmp_path):
     a.write_bytes(open(SWORD, "rb").read())
     b.write_bytes(open(KATANA, "rb").read())
     used_ids, used_hashes = set(), []
-    ps.register_cached_media(str(a), used_ids, used_hashes, kind="photo")
+    _register(str(a), used_ids, used_hashes, kind="photo")
     distance = min(ps.hamming(ps.ahash(str(b)), uh) for uh in used_hashes)
     assert distance > ps.PHOTO_DEDUP_HAMMING, (
         f"два разных кадра приняты за дубль (расстояние {distance})"
@@ -142,6 +153,6 @@ def test_video_registration_uses_id_only(tmp_path):
     f.write_bytes(b"not really a video")
     ps.write_media_sidecar(str(f), pexels_id=5846389, kind="video")
     used_ids, used_hashes = set(), []
-    assert ps.register_cached_media(str(f), used_ids, used_hashes, kind="video")
+    assert _register(str(f), used_ids, used_hashes, kind="video")
     assert 5846389 in used_ids
     assert used_hashes == []

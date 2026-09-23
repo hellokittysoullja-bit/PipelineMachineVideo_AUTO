@@ -130,7 +130,7 @@ class TestBothRecordSitesCarryIt:
     def test_normal_pick_site(self):
         src = self._src()
         block = src[src.index('"source": shotlist_source_for(video or photo'):]
-        block = block[:block.index("recent_media_types.append")]
+        block = block[:block.index("luma = measure_luma(photo")]
         assert "**shotlist_provenance(video or photo)" in block
 
     def test_cache_hit_site_reads_the_file_not_the_old_entry(self):

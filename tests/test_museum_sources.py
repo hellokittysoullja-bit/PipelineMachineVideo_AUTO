@@ -286,38 +286,57 @@ class TestVideoPhotoRescue:
     отдают вообще. Поэтому заведомо негодное видео уступает место фотографии
     ДО карточки-фолбэка."""
 
-    def test_snapshot_removes_verdicts_from_every_report(self):
-        ps.RELEVANCE_GATE_MISSES[:] = [{"index": 5}, {"index": 7}]
-        ps.STOCK_EXHAUSTED_MISSES[:] = [{"index": 5}]
-        ps.ARBITER_REJECTED_ALL[:] = [{"index": 9}]
-        snap = ps._slot_miss_snapshot(5)
-        assert [m["index"] for m in ps.RELEVANCE_GATE_MISSES] == [7]
-        assert ps.STOCK_EXHAUSTED_MISSES == []
-        assert ps.ARBITER_REJECTED_ALL == [{"index": 9}]
-        assert snap["relevance"] == [{"index": 5}]
-        assert snap["stock"] == [{"index": 5}]
+    # Вердикт принадлежит попытке, добывшей кадр (этап 1 перестройки
+    # отбора): снимать его со слота и возвращать назад больше не нужно —
+    # в отчёт слота идут вердикты той попытки, по которой принято решение.
 
-    def test_restore_puts_them_back_when_rescue_fails(self):
-        """Не нашлось фото — кадр прежний, значит и вердикт о нём прежний."""
-        ps.RELEVANCE_GATE_MISSES[:] = [{"index": 5}]
+    @staticmethod
+    def _attempt(kind, *verdicts):
+        att = ps.new_attempt(5, kind)
+        for v in verdicts:
+            att.verdict(*v)
+        return att
+
+    @staticmethod
+    def _clear():
+        ps.RELEVANCE_GATE_MISSES[:] = []
         ps.STOCK_EXHAUSTED_MISSES[:] = []
         ps.ARBITER_REJECTED_ALL[:] = []
-        snap = ps._slot_miss_snapshot(5)
-        assert ps.RELEVANCE_GATE_MISSES == []
-        ps._slot_miss_restore(snap)
-        assert ps.RELEVANCE_GATE_MISSES == [{"index": 5}]
 
-    def test_rescued_slot_is_not_counted_as_shipped_bad(self):
+    def test_rescued_slot_reports_only_the_shown_photo(self):
         """Итоговая строка считает брак по этим спискам — вердикт про
         отвергнутое видео иначе висел бы на слоте, где стоит другой кадр."""
-        ps.RELEVANCE_GATE_MISSES[:] = [{"index": 5}]
-        ps.STOCK_EXHAUSTED_MISSES[:] = []
-        ps.ARBITER_REJECTED_ALL[:] = []
-        ps._slot_miss_snapshot(5)          # спасение удалось, откат не делаем
+        self._clear()
+        video = self._attempt("video", ("relevance", {"index": 5}), ("stock", {"index": 5}))
+        photo = self._attempt("photo")
+        photo.media = "photo.jpg"
+        ps.close_slot(5, [video, photo], shown=photo, decisive=photo)
         known = ({m["index"] for m in ps.RELEVANCE_GATE_MISSES} |
                  {m["index"] for m in ps.STOCK_EXHAUSTED_MISSES} |
                  {m["index"] for m in ps.ARBITER_REJECTED_ALL})
         assert known == set()
+        assert video.state == "discarded"
+
+    def test_failed_rescue_keeps_the_video_verdict(self):
+        """Не нашлось фото — кадр прежний, значит и вердикт о нём прежний."""
+        self._clear()
+        video = self._attempt("video", ("relevance", {"index": 5}))
+        video.media = "video.mp4"
+        rescue = self._attempt("photo", ("stock", {"index": 5}))
+        ps.close_slot(5, [video, rescue], shown=video, decisive=video)
+        assert ps.RELEVANCE_GATE_MISSES == [{"index": 5}]
+        # вердикт неудавшейся попытки описывает кадр, которого нет на экране
+        assert ps.STOCK_EXHAUSTED_MISSES == []
+
+    def test_empty_slot_reports_why_every_attempt_failed(self):
+        """Кадра нет вовсе — «почему пусто» — это объединение вердиктов всех
+        попыток; единственный случай, где объединение законно."""
+        self._clear()
+        video = self._attempt("video", ("relevance", {"index": 5}))
+        photo = self._attempt("photo", ("stock", {"index": 5}))
+        ps.close_slot(5, [video, photo], shown=None, decisive=None)
+        assert ps.RELEVANCE_GATE_MISSES == [{"index": 5}]
+        assert ps.STOCK_EXHAUSTED_MISSES == [{"index": 5}]
 
     def test_rescue_flag_is_part_of_the_selection_signature(self):
         src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"),

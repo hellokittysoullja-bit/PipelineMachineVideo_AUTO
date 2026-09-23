@@ -197,3 +197,45 @@ def test_concurrent_recording_loses_nothing(tmp_path, restore_urlopen):
     rep, r = _replay(tmp_path, urls)
     assert [x[5] for x in rep] == [u.encode() for u in urls]
     assert not r.divergences
+
+
+def test_overlay_serves_missing_requests_live_and_names_them(tmp_path, restore_urlopen):
+    """Новый код законно просит файл, которого старый не просил: запрос
+    выполняется живьём, пишется в отдельный слой и остаётся названным
+    расхождением — не тихой подменой записи."""
+    fake = FakeNet({"https://a/1": [(200, [], b"old")], "https://a/new": [(200, [], b"fresh")]})
+    urllib.request.urlopen = fake
+    rec = nr.NetRecorder(str(tmp_path / "net"), nr.RECORD).install()
+    try:
+        _observe("https://a/1")
+    finally:
+        rec.uninstall()
+    slot = {"i": 3}
+    rep = nr.NetRecorder(str(tmp_path / "net"), nr.REPLAY, overlay=str(tmp_path / "overlay"),
+                         tagger=lambda: slot["i"]).install()
+    try:
+        got_old = _observe("https://a/1")
+        got_new = _observe("https://a/new")
+    finally:
+        rep.uninstall()
+    assert got_old[5] == b"old" and got_new[5] == b"fresh"
+    assert fake.hits == ["https://a/1", "https://a/new"], "записанный запрос ушёл в сеть повторно"
+    assert [(d["url"], d["served"], d["slot"]) for d in rep.divergences] == [("https://a/new", "live", 3)]
+    overlay = (tmp_path / "overlay" / "index.jsonl").read_text(encoding="utf-8")
+    assert "https://a/new" in overlay and "https://a/1" not in overlay
+
+
+def test_calls_are_labelled_by_slot(tmp_path, restore_urlopen):
+    fake = FakeNet({"https://a/x": [(200, [], b"1"), (200, [], b"2"), (200, [], b"3")]})
+    urllib.request.urlopen = fake
+    state = {"slot": None}
+    rec = nr.NetRecorder(str(tmp_path / "net"), nr.RECORD, tagger=lambda: state["slot"]).install()
+    try:
+        _observe("https://a/x")
+        state["slot"] = 2
+        _observe("https://a/x")
+        _observe("https://a/x")
+    finally:
+        rec.uninstall()
+    (by_slot,) = rec.summary()["slots_by_key"].values()
+    assert by_slot == {"2": 2, "none": 1}

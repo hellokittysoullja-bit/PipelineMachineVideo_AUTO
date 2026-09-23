@@ -6,6 +6,10 @@
 что забракованы глазами, — а карточек-фолбэков поставил НОЛЬ. Причина не в
 бюджете: `_slot_known_bad_reason()` просто не считала вердикт Директора
 причиной вообще, и знание выбрасывалось.
+
+С этапа 1 перестройки отбора вердикт принадлежит ПОПЫТКЕ, добывшей кадр
+(`known_bad_reason(вердикты попытки)`), а не номеру слота; числа замера и
+правила те же.
 """
 import os
 import sys
@@ -26,22 +30,19 @@ MEASURED = [(4, 0.0122, "брак"), (7, 0.0244, "терпимо"),
 FLOOR = 0.061249086480936965
 
 
-@pytest.fixture
-def misses(monkeypatch):
-    monkeypatch.setattr(ps, "ARBITER_REJECTED_ALL", [])
-    monkeypatch.setattr(ps, "STOCK_EXHAUSTED_MISSES", [])
-    monkeypatch.setattr(ps, "RELEVANCE_GATE_MISSES", [])
-    monkeypatch.setattr(ps, "DIRECTOR_RELEVANCE_MISSES",
-                        [{"index": i, "relevance": r, "threshold": FLOOR}
-                         for i, r, _ in MEASURED])
+def _director(relevance, floor=FLOOR):
+    return [("director", {"relevance": relevance, "threshold": floor})]
 
 
-def test_decisive_miss_is_a_reason(misses):
+VERDICTS = {i: _director(r) for i, r, _ in MEASURED}
+
+
+def test_decisive_miss_is_a_reason():
     """Слот 4 — музей в Барселоне на фразе про упавшего рыцаря, 0.20x пола."""
-    assert ps._slot_known_bad_reason(4) == "director_relevance_decisive"
+    assert ps.known_bad_reason(VERDICTS[4]) == "director_relevance_decisive"
 
 
-def test_marginal_miss_is_not_a_reason(misses):
+def test_marginal_miss_is_not_a_reason():
     """Слоты У САМОГО ПОЛА (0.94x и 0.95x) карточку НЕ получают: там низкий
     скор даёт абстрактная фраза, а не плохой кадр. Негативный контроль
     правки — без порога решительности единственная карточка бюджета ушла бы
@@ -53,32 +54,26 @@ def test_marginal_miss_is_not_a_reason(misses):
     среди помеченных нет ни одного годного кадра. Обещать здесь большее
     значило бы подогнать число под четыре точки и свой глаз."""
     for index in (1, 6):
-        assert ps._slot_known_bad_reason(index) is None, index
+        assert ps.known_bad_reason(VERDICTS[index]) is None, index
 
 
-def test_the_split_matches_the_eye_verdicts_on_the_measured_episode(misses):
+def test_the_split_matches_the_eye_verdicts_on_the_measured_episode():
     """Ось «решительный промах» обязана отделить брак от годного на тех
     самых числах, по которым порог и выбирался."""
-    flagged = {i for i, _, _ in MEASURED if ps._slot_known_bad_reason(i)}
+    flagged = {i for i, _, _ in MEASURED if ps.known_bad_reason(VERDICTS[i])}
     good = {i for i, _, v in MEASURED if v == "годно"}
     assert flagged & good == set(), flagged & good
     assert 4 in flagged
 
 
-def test_stronger_signals_still_win(monkeypatch, misses):
+def test_stronger_signals_still_win():
     """Порядок причин — по силе сигнала, вердикт Директора самый слабый."""
-    monkeypatch.setattr(ps, "ARBITER_REJECTED_ALL", [{"index": 4}])
-    assert ps._slot_known_bad_reason(4) == "arbiter_rejected_all"
+    assert ps.known_bad_reason([("arbiter", {})] + VERDICTS[4]) == "arbiter_rejected_all"
 
 
-def test_no_floor_never_flags(monkeypatch):
+def test_no_floor_never_flags():
     """Пол 0 (Директор не работал) — не повод объявлять слот негодным."""
-    monkeypatch.setattr(ps, "ARBITER_REJECTED_ALL", [])
-    monkeypatch.setattr(ps, "STOCK_EXHAUSTED_MISSES", [])
-    monkeypatch.setattr(ps, "RELEVANCE_GATE_MISSES", [])
-    monkeypatch.setattr(ps, "DIRECTOR_RELEVANCE_MISSES",
-                        [{"index": 3, "relevance": 0.0, "threshold": 0.0}])
-    assert ps._slot_known_bad_reason(3) is None
+    assert ps.known_bad_reason(_director(0.0, floor=0.0)) is None
 
 
 def test_fraction_can_only_reduce_cards():
@@ -100,13 +95,13 @@ class TestTheReasonIsNotInertInProduction:
     SRC = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"), encoding="utf-8").read()
 
     def test_a_decision_point_exists_after_the_director_verdict(self):
-        i_verdict = self.SRC.index("DIRECTOR_RELEVANCE_MISSES.append")
-        i_late = self.SRC.index("late_reason = _slot_known_bad_reason(i)")
+        i_verdict = self.SRC.index('shown_att.verdict("director"')
+        i_late = self.SRC.index("late_reason = known_bad_reason(shown_att.verdicts)")
         assert i_verdict < i_late, "поздняя проверка обязана стоять ПОСЛЕ вердикта"
 
     def test_the_late_point_runs_before_the_clip_is_queued(self):
         """Иначе карточка не доедет до экрана — клип уже отрендерен."""
-        i_late = self.SRC.index("late_reason = _slot_known_bad_reason(i)")
+        i_late = self.SRC.index("late_reason = known_bad_reason(shown_att.verdicts)")
         # Именно ВЫЗОВ, а не упоминание в комментарии выше по файлу.
         i_submit = self.SRC.index("future = render_pool.submit(")
         assert i_late < i_submit
@@ -114,7 +109,7 @@ class TestTheReasonIsNotInertInProduction:
     def test_the_late_point_handles_only_the_late_reason(self):
         """Остальные причины известны раньше отбора, и их обслуживает первая
         проверка — она же даёт видео-пути спасение фотографией ДО карточки."""
-        tail = self.SRC[self.SRC.index("late_reason = _slot_known_bad_reason(i)"):]
+        tail = self.SRC[self.SRC.index("late_reason = known_bad_reason(shown_att.verdicts)"):]
         head = tail[:tail.index("luma = measure_luma")]
         assert 'late_reason == "director_relevance_decisive"' in head
 

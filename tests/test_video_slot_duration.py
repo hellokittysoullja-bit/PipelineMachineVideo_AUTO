@@ -91,6 +91,6 @@ def test_gate_signature_covers_the_new_rule():
 
 def test_pexels_video_accepts_slot_dur():
     import inspect
-    sig = inspect.signature(pipeline_smart.pexels_video)
+    sig = inspect.signature(pipeline_smart._select_video)
     assert "slot_dur" in sig.parameters
     assert sig.parameters["slot_dur"].default is None

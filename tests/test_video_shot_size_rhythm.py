@@ -130,7 +130,7 @@ class TestWiring:
         start = src.index("elif video:\n")
         end = src.index("\n        elif director_entry is None", start)
         block = src[start:end]
-        assert "recent_shot_sizes.append(estimate_shot_size(probe))" in block
+        assert 'shown_att.effect("shot_size", recent_shot_sizes, estimate_shot_size(probe))' in block
 
     def test_version_bumped_for_this_change(self):
         assert ps.VIDEO_DIRECTOR_SCORE_VERSION >= 2, (

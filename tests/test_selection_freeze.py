@@ -201,15 +201,147 @@ def test_repeated_anchor_needs_declared_occurrence_count(monkeypatch):
     tree = ast.parse(src)
     lines = src.split("\n")
     monkeypatch.setattr(sf, "BRANCH_ANCHORS", (
-        ("первая", "f", "log.append(1)", (1, 2)),
-        ("вторая", "f", "log.append(1)", (2, 2)),
-        ("без номера", "f", "log.append(1)"),
-        ("число сменилось", "f", "log.append(1)", (1, 3)),
+        ("первая", (("f", "log.append(1)", (1, 2)),)),
+        ("вторая", (("f", "log.append(1)", (2, 2)),)),
+        ("без номера", (("f", "log.append(1)", (1, 1)),)),
+        ("число сменилось", (("f", "log.append(1)", (1, 3)),)),
     ))
     got = sf._anchor_lines(lines, tree)
     assert got["первая"]["line"] == 3 and got["вторая"]["line"] == 5
     assert "error" in got["без номера"], "дословный повтор без номера обязан теряться, а не брать первое"
     assert "error" in got["число сменилось"]
+
+
+def test_two_resolving_forms_are_ambiguous_not_a_guess(monkeypatch):
+    """Старая и новая форма одной ветки нашлись обе — харнесс не знает, какую
+    из двух считать веткой, и честно говорит об этом."""
+    src = "def old(a):\n    X.append(1)\n\ndef new(a):\n    record(1)\n"
+    monkeypatch.setattr(sf, "BRANCH_ANCHORS", (
+        ("ветка", sf._forms(("new", "old"), "record(1)", "X.append(1)")),))
+    got = sf._anchor_lines(src.split("\n"), ast.parse(src))
+    assert "неоднозначно" in got["ветка"]["error"]
+
+
+def test_coverage_is_recomputed_from_raw_lines(tmp_path, monkeypatch):
+    src = "def f(a):\n    if a:\n        X.append(1)\n"
+    monkeypatch.setattr(sf, "BRANCH_ANCHORS", (("ветка", sf._forms(("f",), "X.append(1)")),))
+    cov = sf.coverage_from(src, {"f": {3}})
+    assert cov["ветка"]["state"] == "покрыто"
+    assert sf.coverage_from(src, {"f": {2}})["ветка"]["state"] == "НЕ покрыто"
+
+
+# ------------------------------------------------------------------ ожидания этапа
+
+def _inputs(**per_slot):
+    return {str(k[1:]): v for k, v in per_slot.items()}
+
+
+def test_slot_may_differ_only_with_a_measured_cause():
+    """Слот изменился при том же входе и без утечки в нём — провал; с
+    изменившимся входом — законно, и отчёт называет, ЧТО изменилось."""
+    a = _result([_shot(0), _shot(1), _shot(2)])
+    a["slot_inputs"] = _inputs(s0={"luma_ema": "x"}, s1={"luma_ema": "x"}, s2={"luma_ema": "x"})
+    b = _result([_shot(0), _shot(1, file_sha256="fixed"), _shot(2, file_sha256="shifted")])
+    b["slot_inputs"] = _inputs(s0={"luma_ema": "x"}, s1={"luma_ema": "x"}, s2={"luma_ema": "y"})
+    rep = sf.compare(a, b, {"slots": {"1": "вердикт чужой попытки"}})
+    assert rep["ok"], rep
+    assert [s["class"] for s in rep["slots"]] == ["СОВПАЛ", "ОЖИДАЕМО РАЗОШЁЛСЯ", "ВХОД ИЗМЕНИЛСЯ"]
+    assert "luma_ema" in rep["slots"][2]["expected_reason"]
+    b["slot_inputs"]["2"] = {"luma_ema": "x"}
+    rep = sf.compare(a, b, {"slots": {"1": "вердикт чужой попытки"}})
+    assert not rep["ok"] and rep["slots"][2]["class"] == "РАЗОШЁЛСЯ"
+
+
+def test_leak_in_the_slot_itself_is_a_cause():
+    """Отброшенная попытка несла резерв — по старой семантике он был бы
+    применён; устранение утечки вправе изменить исход этого слота."""
+    journal = [
+        {"record": "attempt", "attempt_id": "v", "index": 0, "effects": [{"effect": "reserve_hash"}],
+         "verdicts": []},
+        {"record": "attempt", "attempt_id": "p", "index": 0, "effects": [], "verdicts": []},
+        {"record": "slot", "index": 0, "shown": "p", "decisive": "p", "attempts": ["v", "p"]},
+    ]
+    a = _result([_shot(0)])
+    b = _result([_shot(0, file_sha256="other")], reports={"run_journal.jsonl": journal})
+    rep = sf.compare(a, b, {"reports": {"run_journal.jsonl": "журнал появился"}})
+    assert rep["ok"] and rep["slots"][0]["class"] == "УТЕЧКА УСТРАНЕНА"
+    assert sf.journal_leak_slots(b) == {0}
+
+
+def test_clock_decision_outside_the_record_breaks_equivalence():
+    a = _result([_shot(0)])
+    b = _result([_shot(0)])
+    b["net"]["time_decisions"] = {"divergences": ["get|0|u"]}
+    assert not sf.compare(a, b)["ok"]
+
+
+@pytest.mark.parametrize("bad", [{"slots": {"1": {"downstream_of": 0}}}, {"slots": {"1": ""}}])
+def test_expectation_is_a_named_reason(bad):
+    with pytest.raises(ValueError):
+        sf.parse_expect(bad)
+
+
+def test_expected_report_must_actually_differ():
+    a = _result([_shot(0)], reports={"run_journal.jsonl": [{"record": "slot", "index": 0,
+                                                           "attempts": [], "shown": None,
+                                                           "decisive": None}]})
+    same = json.loads(json.dumps(a))
+    exp = {"reports": {"run_journal.jsonl": "журнал появился"}}
+    assert not sf.compare(a, same, exp)["ok"], "заявленное изменение отчёта не произошло"
+    changed = json.loads(json.dumps(a))
+    changed["reports"]["run_journal.jsonl"][0]["outcome"] = "shown"
+    assert sf.compare(a, changed, exp)["ok"]
+
+
+def _net(calls, slots, divergences=()):
+    return {"calls_by_key": calls, "slots_by_key": slots, "divergences": list(divergences)}
+
+
+def test_network_may_differ_only_inside_expected_slots():
+    """Правка слота 1 законно меняет его скачивания — но если сеть поехала в
+    слоте 0 или вне слотового цикла, это уже не та правка."""
+    base = _result([_shot(0), _shot(1)], net=_net({"k": 1}, {"k": {"1": 1}}))
+    inside = _result([_shot(0), _shot(1, file_sha256="x")],
+                     net=_net({"k": 2}, {"k": {"1": 2}},
+                              [{"method": "GET", "url": "u", "seq": 0, "slot": 1, "served": "live"}]))
+    exp = {"slots": {"1": "fix"}}
+    assert sf.compare(base, inside, exp)["ok"]
+    outside = _result([_shot(0), _shot(1, file_sha256="x")],
+                      net=_net({"k": 1, "j": 1}, {"k": {"1": 1}, "j": {"0": 1}}))
+    rep = sf.compare(base, outside, exp)
+    assert not rep["ok"] and rep["net_unexpected"] == ["j"]
+    unlabelled = _result([_shot(0), _shot(1, file_sha256="x")],
+                         net=_net({"k": 1, "j": 1}, {"k": {"1": 1}, "j": {"none": 1}}))
+    assert not sf.compare(base, unlabelled, exp)["ok"], "обращение вне слотового цикла не приписано правке"
+    stray = _result([_shot(0), _shot(1, file_sha256="x")], net=_net(
+        {"k": 1}, {"k": {"1": 1}}, [{"method": "GET", "url": "u", "seq": 0, "slot": 0}]))
+    assert not sf.compare(base, stray, exp)["ok"]
+
+
+def test_slot_loop_range_is_the_loop_that_resolves_slots():
+    src = ("def main():\n"
+           "    for i in range(3):\n"
+           "        prep(i)\n"
+           "    for i, b in enumerate(blocks):\n"
+           "        for j in range(2):\n"
+           "            pass\n"
+           "        RESOLVED_SLOTS_THIS_RUN.add(i)\n"
+           "        fetch(i)\n"
+           "    done()\n")
+    assert sf.slot_loop_range(ast.parse(src)) == (4, 8, 5)
+
+
+def test_slot_report_may_differ_only_in_slots_with_a_cause():
+    base = {"slots_evaluated_this_run": [0, 1], "misses": [{"index": 0}, {"index": 1}]}
+    fixed = {"slots_evaluated_this_run": [0, 1], "misses": [{"index": 0}]}
+    assert sf.slot_report_stray(base, fixed, allowed={1}) == []
+    assert sf.slot_report_stray(base, fixed, allowed={0}) == [1]
+    other_field = dict(fixed, slots_evaluated_this_run=[0])
+    assert sf.slot_report_stray(base, other_field, allowed={1}) is None
+    a = _result([_shot(0), _shot(1, file_sha256="x")], reports={"r.json": base})
+    b = _result([_shot(0), _shot(1, file_sha256="y")], reports={"r.json": fixed})
+    assert sf.compare(a, b, {"slots": {"1": "исправление"}})["ok"]
+    assert not sf.compare(a, b, {"slots": {"0": "не тот слот"}})["ok"]
 
 
 def test_run_media_is_pruned_only_after_hashes_are_taken(tmp_path, monkeypatch):
@@ -244,3 +376,39 @@ def test_run_media_is_pruned_only_after_hashes_are_taken(tmp_path, monkeypatch):
     res2 = sf.run_pipeline(str(freeze), "replay", "t2", "0", keep_media=True)
     assert (freeze / "runs" / "t2" / "episode" / "temp_smart").exists()
     assert res2["shots"][0]["file_sha256"] == res["shots"][0]["file_sha256"]
+
+
+
+def test_module_is_executed_from_the_snapshot_not_from_disk(tmp_path):
+    """Файл на диске поменялся после снимка — исполняется снимок."""
+    path = tmp_path / "m.py"
+    path.write_text("def f():\n    return 'новое на диске'\n")
+    mod = sf.load_module_from_source("_freeze_probe_mod", str(path),
+                                     "def f():\n    return 'снимок'\n")
+    try:
+        import inspect
+        assert mod.f() == "снимок"
+        assert sys.modules["_freeze_probe_mod"] is mod
+        # подписи кэша пайплайна строятся inspect.getsource — он обязан видеть
+        # исполняемый снимок, а не файл на диске
+        assert "снимок" in inspect.getsource(mod.f)
+    finally:
+        sys.modules.pop("_freeze_probe_mod", None)
+        import linecache
+        linecache.cache.pop(str(path), None)
+
+
+def test_any_list_of_indexed_records_is_compared_by_slot():
+    """Не только misses: например, clips отчёта Режиссёра."""
+    base = {"enabled": False, "clips": [{"index": 0, "d": "a"}, {"index": 1, "d": "absorbed"}]}
+    new = {"enabled": False, "clips": [{"index": 0, "d": "a"}, {"index": 1, "d": "skipped"}]}
+    assert sf.slot_report_stray(base, new, allowed={1}) == []
+    assert sf.slot_report_stray(base, new, allowed=set()) == [1]
+
+
+def test_returncode_may_change_only_when_named():
+    a = _result([_shot(0)], rc=2)
+    b = _result([_shot(0)], rc=0)
+    assert not sf.compare(a, b)["ok"]
+    assert sf.compare(a, b, {"returncode": "пустых слотов больше нет"})["ok"]
+    assert not sf.compare(a, json.loads(json.dumps(a)), {"returncode": "заявлено, но не изменилось"})["ok"]

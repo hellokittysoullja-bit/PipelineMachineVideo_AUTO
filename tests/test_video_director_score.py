@@ -67,7 +67,7 @@ class TestWiring:
         start = src.index("elif video:\n")
         end = src.index("\n        elif director_entry is None", start)
         block = src[start:end]
-        assert "recent_semantic_tags.append((candidate_domain, director_role))" in block
+        assert 'shown_att.effect("history", recent_semantic_tags,' in block
 
     def test_version_marker_is_part_of_the_selection_signature(self):
         """Без версии в подписи включение этой фичи не инвалидирует

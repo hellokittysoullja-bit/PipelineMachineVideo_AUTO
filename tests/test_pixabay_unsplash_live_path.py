@@ -236,8 +236,8 @@ def test_sources_are_actually_called_from_the_pools():
     """Тот самый пробел, ради которого написан модуль: функция может
     существовать и не вызываться ни разу."""
     import inspect
-    photo = inspect.getsource(ps.pexels_photo)
-    video = inspect.getsource(ps.pexels_video)
+    photo = inspect.getsource(ps._select_photo)
+    video = inspect.getsource(ps._select_video)
     # Фото-источники собираются в кортеж (имя источника, функция) и
     # обходятся по кругу (чередование, POOL_SOURCE_INTERLEAVE_VERSION);
     # маршрутизация по типу кадра решает, какие из них вызвать
@@ -264,7 +264,7 @@ def test_sources_interleave_in_the_documented_order(monkeypatch):
     архив, Pexels, Pixabay, Unsplash — Pixabay/Unsplash по-прежнему после
     Pexels ВНУТРИ круга, то есть при равенстве не обгоняют его."""
     import inspect
-    photo = inspect.getsource(ps.pexels_photo)
+    photo = inspect.getsource(ps._select_photo)
     start = photo.index('for source_name, fetch in ((')
     tup = photo[start:photo.index("):", start)]
     order = [n for n in ("_museum_search_photos", "_openverse_search_photos", "_pexels_search_photos",

@@ -185,8 +185,14 @@ def test_video_cache_key_moves_with_the_brief(tmp_path, monkeypatch):
             paths.append(os.path.basename(p))
         return p
     monkeypatch.setattr(ps.os.path, "join", spy)
+    names = []
     for brief in ("a dented steel breastplate, close up",
                   "a manuscript illumination of a battle"):
+        paths.clear()
         ps.pexels_video("medieval battle", 7, used_ids=set(), used_hashes=[],
                         shot_brief=brief)
-    assert len(set(paths)) == len(paths) >= 2, paths
+        # Имя кэша вычисляется и для места в кэше, и для стейджинга попытки
+        # (selection_attempt) — это ОДНО имя; важно только, что оно одно.
+        assert len(set(paths)) == 1, paths
+        names.append(paths[0])
+    assert names[0] != names[1], names

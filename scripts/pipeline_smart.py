@@ -42,6 +42,7 @@ import stage_timer
 # кода с CLAUDE.md уже случалось молча (см. докстринг реестра).
 import feature_flags
 import query_fusion
+import selection_attempt
 
 try:
     import numpy as np
@@ -4919,73 +4920,38 @@ def candidate_probe_url(p):
     return src.get("medium") or src.get("small") or src.get("large2x") or src.get("large")
 
 
-def _slot_miss_snapshot(index):
-    """Вынуть из отчётов все вердикты по слоту (и вернуть их для отката).
-
-    Нужно, потому что отчёты ключуются по слоту: вердикт, вынесенный
-    ОТВЕРГНУТОМУ видео, иначе остался бы висеть на слоте, где в итоге стоит
-    совсем другой кадр, и итоговая строка считала бы спасённый слот браком.
-
-    РЕАЛЬНЫЙ найденный пробел (21.09, videos/94_dagger_test, слот "Конница
-    мчится через поле прямо на пехоту"): список из трёх категорий был
-    списком-КОПИЕЙ того, что реально проверяет _slot_known_bad_reason() —
-    та смотрит СНАЧАЛА SMART_VETO_MISSES (сильнейший сигнал, "модель
-    посмотрела на итоговый кадр"), а этот снимок про него не знал вообще.
-    Следствие не только косметическое (пустая строка reason в отчёте): видео
-    было отвергнуто ИМЕННО smart_relevance_veto, `_slot_known_bad_reason()`
-    это увидела и запустила спасение фотографией — а `_slot_miss_snapshot()`
-    не забрала эту запись, и `media_plan/video_photo_rescue_report.json`
-    печатал `"reason": ""` там, где должно быть `"reason": "smart_veto"` —
-    то есть отчёт молчал о РЕАЛЬНОЙ причине ровно там, где она была известна
-    точнее всего. DIRECTOR_RELEVANCE_MISSES — тот же список, что четвёртым
-    (самым слабым) пунктом проверяет _slot_known_bad_reason() — добавлен по
-    той же причине, не выборочно.
-    """
-    taken = {}
-    for name, lst in (("relevance", RELEVANCE_GATE_MISSES),
-                      ("stock", STOCK_EXHAUSTED_MISSES),
-                      ("arbiter", ARBITER_REJECTED_ALL),
-                      ("smart_veto", SMART_VETO_MISSES),
-                      ("director", DIRECTOR_RELEVANCE_MISSES)):
-        taken[name] = [m for m in lst if m.get("index") == index]
-        lst[:] = [m for m in lst if m.get("index") != index]
-    return taken
-
-
-def _slot_miss_restore(snapshot):
-    """Вернуть вердикты на место — спасение не состоялось, кадр прежний."""
-    for name, lst in (("relevance", RELEVANCE_GATE_MISSES),
-                      ("stock", STOCK_EXHAUSTED_MISSES),
-                      ("arbiter", ARBITER_REJECTED_ALL),
-                      ("smart_veto", SMART_VETO_MISSES),
-                      ("director", DIRECTOR_RELEVANCE_MISSES)):
-        lst.extend(snapshot.get(name) or ())
-
-
 # Насколько НИЖЕ своего пола должен быть скор Директора, чтобы слот считался
 # заведомо негодным и получил карточку. См. разбор у самого использования в
-# _slot_known_bad_reason(): «ниже пола» само по себе слишком слабый сигнал —
+# known_bad_reason(): «ниже пола» само по себе слишком слабый сигнал —
 # абстрактная фраза роняет скор любой картинке.
 DIRECTOR_CARD_DECISIVE_FRACTION = 0.5
 
 
-def _slot_known_bad_reason(index):
-    """Почему система САМА считает кадр этого слота негодным (или None).
+def known_bad_reason(verdicts):
+    """Почему система САМА считает кадр негодным (или None) — по вердиктам
+    ТОЙ ПОПЫТКИ, которая этот кадр добыла.
 
-    Смотрит ровно те записи, которые подбор уже сделал в этом прогоне —
-    новых проверок не запускает и ничего не пересчитывает. Порядок причин —
+    Раньше функция принимала номер слота и смотрела во все отчёты разом —
+    то есть в вердикты ЛЮБОЙ попытки этого слота. Реальный случай
+    (videos/94_dagger_test, слот 4): видео-попытка вернула «ничего» с
+    отказом второй проверки, фото-попытка нашла годный кадр 38104230 — и
+    слот поглотили по вердикту видео, которого на экране не было вовсе.
+    Вердикт принадлежит кадру, а не номеру слота.
+
+    Новых проверок не запускает и ничего не пересчитывает. Порядок причин —
     по силе сигнала: отказ арбитра сильнее численного промаха порога.
     """
-    if any(m["index"] == index for m in SMART_VETO_MISSES):
+    kinds = {k for k, _rec in verdicts}
+    if "smart_veto" in kinds:
         # Первым: единственная причина здесь — модель ПОСМОТРЕЛА на
         # реальный итоговый кадр (не на шорт-лист превью, как арбитр) и
         # сказала "не то". Прямее сигнала в этом списке нет.
         return "smart_relevance_veto"
-    if any(m["index"] == index for m in ARBITER_REJECTED_ALL):
+    if "arbiter" in kinds:
         return "arbiter_rejected_all"
-    if any(m["index"] == index for m in STOCK_EXHAUSTED_MISSES):
+    if "stock" in kinds:
         return "stock_exhausted"
-    if any(m["index"] == index for m in RELEVANCE_GATE_MISSES):
+    if "relevance" in kinds:
         return "below_relevance_threshold"
     # Самый слабый из сигналов и поэтому последний: Директор оценивает
     # кандидата по РЕАЛЬНОМУ тексту блока, а абстрактная фраза («Я его
@@ -5008,14 +4974,183 @@ def _slot_known_bad_reason(index):
     # оптимум: четыре точки и мои глаза — не калибровка. Оно может только
     # УМЕНЬШИТЬ число карточек против наивного правила, и на замеренном
     # эпизоде отделяет единственный брак от единственного годного.
-    for m in DIRECTOR_RELEVANCE_MISSES:
-        if m["index"] != index:
+    for k, m in verdicts:
+        if k != "director":
             continue
         floor = float(m.get("threshold") or 0.0)
         rel = float(m.get("relevance") or 0.0)
         if floor > 0 and rel < floor * DIRECTOR_CARD_DECISIVE_FRACTION:
             return "director_relevance_decisive"
     return None
+
+
+# Вердикт попытки -> отчёт, в который он проецируется. Имена отчётов, а не
+# сами списки: тест или повторный main() может подменить список на модуле, и
+# проекция обязана попасть в тот, что стоит на модуле СЕЙЧАС.
+VERDICT_REPORT_LISTS = {
+    "smart_veto": "SMART_VETO_MISSES",
+    "arbiter": "ARBITER_REJECTED_ALL",
+    "stock": "STOCK_EXHAUSTED_MISSES",
+    "relevance": "RELEVANCE_GATE_MISSES",
+    "director": "DIRECTOR_RELEVANCE_MISSES",
+}
+
+# Журнал прогона: по записи на каждую закрытую попытку и на каждое решение
+# о слоте. Отчёты промахов — ПРОЕКЦИЯ того же решения (_project_verdicts),
+# поэтому «отчёт говорит брак, а на экране кадр» невыразимо: и экран, и
+# отчёт берут одну попытку.
+RUN_JOURNAL = []
+
+
+def new_attempt(index, kind):
+    return selection_attempt.Attempt(index, kind, os.path.join(TEMP_FOLDER, "staging"))
+
+
+def apply_selection_effect(kind, *args):
+    """Единственное место, где отобранное меняет состояние эпизода.
+    Вызывается только из Attempt.commit()."""
+    if kind == "reserve_id":
+        container, value = args
+        container.add(value)
+    elif kind in ("reserve_hash", "shot_size"):
+        container, value = args
+        container.append(value)
+    elif kind == "history":
+        container, value, window = args
+        container.append(value)
+        del container[:-window]
+    elif kind == "source_won":
+        (channel,) = args
+        _source_bump(channel, "won")
+    elif kind == "license":
+        prov, query = args
+        log_candidate_license(prov, query)
+    else:
+        raise ValueError(f"неизвестный эффект отбора: {kind!r}")
+
+
+# Какой аргумент эффекта — его суть для журнала (контейнер анти-дубля или
+# ритма — объект процесса, в журнале он не нужен и не сериализуем).
+_EFFECT_JOURNAL_ARG = {"reserve_id": 1, "reserve_hash": 1, "shot_size": 1,
+                       "history": 1, "source_won": 0, "license": 0}
+
+
+def _journal_value(v):
+    if isinstance(v, (str, int, float, bool, type(None))):
+        return v
+    try:
+        return json.loads(json.dumps(v, ensure_ascii=False, sort_keys=True))
+    except (TypeError, ValueError):
+        return str(v)
+
+
+def _journal_attempt(att, final_media):
+    RUN_JOURNAL.append({
+        "record": "attempt", "attempt_id": att.attempt_id, "index": att.index,
+        "kind": att.kind, "state": att.state, "media": final_media,
+        "verdicts": [{"kind": k, **rec} for k, rec in att.verdicts],
+        # Контейнер эффекта — объект процесса, в журнал идёт только суть.
+        "effects": [{"effect": k, "value": _journal_value(a[_EFFECT_JOURNAL_ARG[k]])}
+                    for k, a in att.effects],
+    })
+
+
+def _project_verdicts(verdicts):
+    for kind, rec in verdicts:
+        globals()[VERDICT_REPORT_LISTS[kind]].append(rec)
+
+
+def close_slot(index, attempts, shown=None, decisive=None, outcome=None):
+    """ЕДИНСТВЕННАЯ точка, где решение о слоте становится состоянием.
+
+    shown    — попытка, чей кадр встаёт на экран (или None): её эффекты
+               применяются, файлы переносятся в кэш;
+    decisive — попытка, по вердиктам которой принято решение (обычно та же,
+               что shown; у поглощённого или заменённого карточкой слота —
+               та, чей кадр отвергнут). Её вердикты уходят в отчёты.
+               None — ни одна попытка ничего не добыла: тогда причина
+               «почему пусто» — объединение вердиктов всех попыток
+               (единственный случай, где объединение законно).
+    Остальные попытки закрываются отказом: ни резерва, ни файла в кэше, ни
+    вердикта в отчёте слота; всё, что они узнали, остаётся в журнале.
+    Возвращает итоговый путь медиа shown (или None)."""
+    final = None
+    for att in attempts:
+        if att is shown:
+            final = att.commit(apply_selection_effect)
+            _journal_attempt(att, final)
+            continue
+        if att.state == selection_attempt.OPEN:
+            att.discard()
+        # Уже закрытая отказом (исключение внутри добытчика) — тоже в журнал:
+        # «попытка была и ничего не дала» — факт, а не пропуск.
+        _journal_attempt(att, None)
+    if decisive is not None:
+        _project_verdicts(decisive.verdicts)
+    else:
+        for att in attempts:
+            _project_verdicts(att.verdicts)
+    RUN_JOURNAL.append({
+        "record": "slot", "index": index,
+        "outcome": outcome or ("shown" if shown is not None else "empty"),
+        "shown": shown.attempt_id if shown is not None else None,
+        "decisive": decisive.attempt_id if decisive is not None else None,
+        "attempts": [a.attempt_id for a in attempts],
+    })
+    return final
+
+
+def fetch_in_attempt(slot_attempts, index, kind, fn, *args, **kwargs):
+    """Запустить добытчика в новой попытке слота (main())."""
+    att = new_attempt(index, kind)
+    slot_attempts.append(att)
+    return selection_attempt.run_attempt(att, fn, *args, **kwargs)
+
+
+def given_attempt(slot_attempts, index, kind, media):
+    """Попытка-носитель для кадра, который не добывался отбором: залоченный
+    шотлистом, локальный файл, карточка. Эффекты кадра (ритм крупностей,
+    история видов медиа) она несёт так же, как попытка отбора."""
+    att = new_attempt(index, kind)
+    att.media = media
+    slot_attempts.append(att)
+    return att
+
+
+def attempt_of(slot_attempts, media):
+    """Попытка, добывшая этот файл (последняя, если их несколько)."""
+    if not media:
+        return None
+    for att in reversed(slot_attempts):
+        if att.media == media:
+            return att
+    return None
+
+
+def select_standalone(kind, index, fn, *args, **kwargs):
+    """Добытчик, вызванный ВНЕ слотового цикла main() (тест, утилита вроде
+    brief_frame_ab.py): «выбрать и сразу принять». Та же попытка и тот же
+    close_slot, что в main(), — второй ветки кода нет. Внутри открытой
+    попытки (её открыл main()) добытчик просто работает в ней."""
+    att = selection_attempt.current()
+    if att is not None:
+        if att.kind != kind or att.index != index:
+            raise selection_attempt.AttemptStateError(
+                f"добытчик {kind}#{index} вызван внутри чужой попытки {att.attempt_id}")
+        return fn(*args, **kwargs)
+    att = new_attempt(index, kind)
+    media = selection_attempt.run_attempt(att, fn, *args, **kwargs)
+    return close_slot(index, [att], shown=att if media else None, decisive=att)
+
+
+def write_run_journal(video_folder):
+    path = os.path.join(video_folder, "media_plan", "run_journal.jsonl")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        for rec in RUN_JOURNAL:
+            f.write(json.dumps(rec, ensure_ascii=False, sort_keys=True, default=str) + "\n")
+    os.replace(tmp, path)
 
 
 def fallback_card_allowed(index, n_slots, is_opening=False):
@@ -7049,7 +7184,16 @@ def _openverse_fetch_one(api_query, _ov):
     return results
 
 
-def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=None, target_luma=None,
+def pexels_photo(query, index, *args, **kwargs):
+    """Подбор фото для слота. Контракт и параметры — у _select_photo ниже.
+
+    Внутри слотового цикла main() работает в попытке, которую открыл main();
+    вызов вне него — «выбрать и сразу принять» (select_standalone): то же
+    закрытие, что в main(), без второй ветки."""
+    return select_standalone("photo", index, _select_photo, query, index, *args, **kwargs)
+
+
+def _select_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=None, target_luma=None,
                   director_score_fn=None, director_assist=False, director_report=None,
                   extra_queries=None, text_key=None, arbiter_text=None, is_opening_shot=False,
                   shot_brief=None, block_text=None):
@@ -7164,7 +7308,8 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
         if used_hashes is None:
             if recent_sizes is not None:
                 try:
-                    recent_sizes.append(estimate_shot_size(cf))
+                    selection_attempt.record_effect("shot_size", recent_sizes,
+                                                    estimate_shot_size(cf))
                 except Exception:
                     pass
             _reset_pexels_streak()
@@ -7181,7 +7326,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
         try:
             h = ahash(cf)
             if min((hamming(h, uh) for uh in used_hashes), default=99) > PHOTO_DEDUP_HAMMING:
-                used_hashes.append(h)
+                selection_attempt.record_effect("reserve_hash", used_hashes, h)
                 # N8 (docs/AUDIT_2026-09_DEEP.md:299): на кэш-хите Pexels-ID
                 # раньше не попадал в used_ids вообще — дедуп ПО ID был мёртв
                 # для всех закэшированных слотов, спасал только aHash. ID берём
@@ -7190,10 +7335,11 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                 if used_ids is not None:
                     _pid = read_media_sidecar(cf).get("pexels_id")
                     if _pid is not None:
-                        used_ids.add(_pid)
+                        selection_attempt.record_effect("reserve_id", used_ids, _pid)
                 if recent_sizes is not None:
                     try:
-                        recent_sizes.append(estimate_shot_size(cf))
+                        selection_attempt.record_effect("shot_size", recent_sizes,
+                                                        estimate_shot_size(cf))
                     except Exception:
                         pass
                 _reset_pexels_streak()
@@ -7201,6 +7347,11 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
         except Exception:
             _reset_pexels_streak()
             return cf
+    # Дальше файл пишется в ПРИВАТНЫЙ каталог попытки, а не в кэш: в кэш он
+    # попадёт только коммитом, если кадр встанет на экран. Раньше победитель
+    # ложился в кэш до решения, и поглощённый кадр на следующем прогоне
+    # возвращался кэш-хитом — без единого вердикта (см. selection_attempt).
+    cf = selection_attempt.stage_path(cf)
     # Ключевого гейта здесь БОЛЬШЕ НЕТ — и это исправление, а не упрощение.
     # Раньше `if not PEXELS_API_KEY: return None` стоял ДО сборки пула, то
     # есть без ключа Pexels молча умирали ВСЕ остальные источники — музеи,
@@ -7620,7 +7771,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                         # неотличимо от «арбитра не было» и молча терялось —
                         # так в хук опубликованного ролика попал младенец с
                         # бутылочкой на фразу про вес пакета молока.
-                        ARBITER_REJECTED_ALL.append({
+                        selection_attempt.record_verdict("arbiter", {
                             "index": index, "kind": "photo", "query": query,
                             "text": arbiter_text,
                             "n_candidates": len(shortlist),
@@ -7636,7 +7787,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                 # RELEVANCE_GATE_MISSES выше. Победитель всё равно есть
                 # (слот не должен остаться пустым), но промах теперь
                 # честно записан, а не молчит.
-                RELEVANCE_GATE_MISSES.append({
+                selection_attempt.record_verdict("relevance", {
                     "index": index, "query": query,
                     "relevance": winner.get("relevance"),
                     "threshold": CLIP_RELEVANCE_THRESHOLD, "kind": "photo",
@@ -7647,7 +7798,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             # содержит relevance/sharp_ok на КАЖДОГО кандидата — переиспользуем
             # то, что и так посчитано, ни одного нового вызова.
             if candidates_info and not _pool_cleared_both_gates(candidates_info):
-                STOCK_EXHAUSTED_MISSES.append({
+                selection_attempt.record_verdict("stock", {
                     "index": index, "kind": "photo", "query": query,
                     "n_candidates_examined": len(candidates_info),
                     # Сколько пул вообще предложил. Без этого числа строка
@@ -7786,7 +7937,7 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
                 if cand is not None and cand is not winner:
                     nxt = cand
             if nxt is None:
-                SMART_VETO_MISSES.append({"index": index, "query": query, "kind": "photo"})
+                selection_attempt.record_verdict("smart_veto", {"index": index, "query": query, "kind": "photo"})
                 try:
                     os.remove(cf)
                 except OSError:
@@ -7807,19 +7958,19 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             print(f"  слот {index}: вторая проверка отклонила {veto_repicks} "
                   f"кандидат(ов), взят следующий по ранжированию")
         if used_ids is not None:
-            used_ids.add(pick.get("id"))
+            selection_attempt.record_effect("reserve_id", used_ids, pick.get("id"))
         _picked_ahash = None
         if used_hashes is not None:
             try:
                 _picked_ahash = ahash(cf)
-                used_hashes.append(_picked_ahash)
+                selection_attempt.record_effect("reserve_hash", used_hashes, _picked_ahash)
             except Exception:
                 pass
         # Sidecar — чтобы СЛЕДУЮЩИЙ прогон, который возьмёт этот файл кэш-хитом
         # (или вообще не дойдёт до подбора, потому что кэширован сам клип),
         # смог вернуть кадр в анти-дубль. См. write_media_sidecar().
         _prov = candidate_provenance(pick)
-        log_candidate_license(_prov, query)
+        selection_attempt.record_effect("license", _prov, query)
         write_media_sidecar(
             cf, pexels_id=pick.get("id"), query=query, kind="photo",
             ahash_hex=_picked_ahash,
@@ -7827,10 +7978,10 @@ def pexels_photo(query, index, used_ids=None, used_hashes=None, recent_sizes=Non
             chosen_by=chosen_by, provenance=_prov)
         if recent_sizes is not None:
             try:
-                recent_sizes.append(estimate_shot_size(cf))
+                selection_attempt.record_effect("shot_size", recent_sizes, estimate_shot_size(cf))
             except Exception:
                 pass
-        _source_bump(candidate_channel(pick), "won")
+        selection_attempt.record_effect("source_won", candidate_channel(pick))
         _reset_pexels_streak()
         return cf
     except Exception as e:
@@ -11080,7 +11231,7 @@ def is_relevant_candidate(image_path, query, relevance=None):
 # Отклонённый победитель НЕ подменяется карточкой и НЕ повторяет соседа
 # сам — он просто возвращает slot туда же, куда уже возвращают отказ
 # арбитра/исчерпанный сток/провал по порогу: в SMART_VETO_MISSES, откуда
-# _slot_known_bad_reason() и (с 17.09) поглощение соседним проверенным
+# known_bad_reason() и (с 17.09) поглощение соседним проверенным
 # кадром (NEVER_SHOW_KNOWN_BAD, см. ЧАСТЬ 13 Шаг 7.3) забирают решение —
 # вторая копия логики "что делать с негодным кадром" не заводится.
 SMART_RELEVANCE_THRESHOLD = -0.01   # см. таблицу выше: нулевая точка золотого набора
@@ -11294,12 +11445,16 @@ def register_cached_media(media_path, used_ids=None, used_hashes=None, kind="pho
     сознательно — нужен прогон ffmpeg за кадром-пробником, а это заметная цена
     на каждом кэш-хите ради вторичной проверки; видео дедуплицируется по ID из
     sidecar. Возвращает True, если удалось зарегистрировать хоть что-то.
+
+    Регистрирует в ТЕКУЩУЮ попытку (selection_attempt), а применяет коммит:
+    вернуть кадр в анти-дубль — такое же изменение состояния эпизода, как и
+    выбрать его, и у него та же единственная точка применения.
     """
     meta = read_media_sidecar(media_path)
     done = False
     pid = meta.get("pexels_id")
     if used_ids is not None and pid is not None:
-        used_ids.add(pid)
+        selection_attempt.record_effect("reserve_id", used_ids, pid)
         done = True
     if used_hashes is not None:
         h = meta.get("ahash")
@@ -11309,7 +11464,7 @@ def register_cached_media(media_path, used_ids=None, used_hashes=None, kind="pho
             except Exception:
                 h = None
         if h is not None:
-            used_hashes.append(h)
+            selection_attempt.record_effect("reserve_hash", used_hashes, h)
             done = True
     return done
 
@@ -12928,7 +13083,13 @@ def _pexels_search_videos(api_query):
     return videos
 
 
-def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier=None,
+def pexels_video(query, index, *args, **kwargs):
+    """Подбор видео для слота. Контракт и параметры — у _select_video ниже;
+    попытка и закрытие — как у pexels_photo."""
+    return select_standalone("video", index, _select_video, query, index, *args, **kwargs)
+
+
+def _select_video(query, index, used_ids=None, used_hashes=None, action_qualifier=None,
                   extra_queries=None, sentence_score_fn=None, text_key=None, arbiter_text=None,
                   is_opening_shot=False, recent_sizes=None, slot_dur=None, shot_brief=None):
     """Раньше брала ПЕРВОЕ ещё не показанное видео из выдачи без единой
@@ -12994,6 +13155,9 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
         register_cached_media(cf, used_ids=used_ids, used_hashes=None, kind="video")
         _reset_pexels_streak()
         return cf
+    # Дальше — только в приватный каталог попытки (см. pexels_photo): в кэш
+    # файл попадёт коммитом, если видео встанет на экран.
+    cf = selection_attempt.stage_path(cf)
     # Ключевой гейт снят — см. pexels_photo: без ключа Pexels не вносит
     # кандидатов, остальные источники видео (Pixabay) работают.
     try:
@@ -13381,7 +13545,7 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                         if arbiter_pick is shot_director.NO_CANDIDATE_FITS:
                             # Тот же разбор, что на фото-пути выше: явный отказ
                             # модели — знание, а не молчание. Раньше терялся.
-                            ARBITER_REJECTED_ALL.append({
+                            selection_attempt.record_verdict("arbiter", {
                                 "index": index, "kind": "video", "query": query,
                                 "text": arbiter_text,
                                 "n_candidates": len(probes),
@@ -13424,7 +13588,7 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                     nxt = next((g for g in good
                                 if id(g) not in tried and os.path.exists(g[2])), None)
                 if nxt is None:
-                    SMART_VETO_MISSES.append({"index": index, "query": query, "kind": "video"})
+                    selection_attempt.record_verdict("smart_veto", {"index": index, "query": query, "kind": "video"})
                     try:
                         os.remove(cf)
                     except OSError:
@@ -13456,13 +13620,13 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                 except OSError:
                     pass
             if used_ids is not None:
-                used_ids.add(best[3])
+                selection_attempt.record_effect("reserve_id", used_ids, best[3])
             if used_hashes is not None and best[4] is not None:
-                used_hashes.append(best[4])
+                selection_attempt.record_effect("reserve_hash", used_hashes, best[4])
             write_media_sidecar(cf, pexels_id=best[3], query=query, kind="video",
                                 ahash_hex=best[4], relevance=best_rel,
                                 chosen_by="video_relevance_best")
-            _source_bump(candidate_channel(best[3]), "won")
+            selection_attempt.record_effect("source_won", candidate_channel(best[3]))
             _reset_pexels_streak()
             return cf
         chosen = dup_fallback or plain_fallback
@@ -13481,7 +13645,7 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                 rel = clip_relevance(probe2, query) if probe2 is not None else None
                 if cleanup2 and probe2 and os.path.exists(probe2):
                     os.remove(probe2)
-                RELEVANCE_GATE_MISSES.append({
+                selection_attempt.record_verdict("relevance", {
                     "index": index, "query": query, "relevance": rel,
                     "threshold": CLIP_RELEVANCE_THRESHOLD, "kind": "video",
                 })
@@ -13495,7 +13659,7 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                 # просмотренных кандидатов не прошёл relevant+sharp_ok,
                 # независимо от дедупа. Ничего заново считать не нужно —
                 # сам факт, что мы в этой ветке, и есть искомый сигнал.
-                STOCK_EXHAUSTED_MISSES.append({
+                selection_attempt.record_verdict("stock", {
                     "index": index, "kind": "video", "query": query,
                     "n_candidates_examined": tries,
                     "n_candidates_available": len(ordered),
@@ -13519,7 +13683,7 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                         print(f"  слот {index}: первый запасной отклонён второй "
                               f"проверкой, взят второй запасной")
                 if not accepted:
-                    SMART_VETO_MISSES.append({"index": index, "query": query, "kind": "video"})
+                    selection_attempt.record_verdict("smart_veto", {"index": index, "query": query, "kind": "video"})
                     try:
                         os.remove(cf)
                     except OSError:
@@ -13529,9 +13693,13 @@ def pexels_video(query, index, used_ids=None, used_hashes=None, action_qualifier
                           f"{query!r}) — слот остаётся без медиа")
                     return None
             if used_ids is not None:
-                used_ids.add(vid)
+                selection_attempt.record_effect("reserve_id", used_ids, vid)
             if used_hashes is not None and cand_hash is not None:
-                used_hashes.append(cand_hash)
+                selection_attempt.record_effect("reserve_hash", used_hashes, cand_hash)
+            # Победа запасного яруса — тоже победа источника. Раньше её не
+            # считал никто: слот, закрытый запасным видео, в
+            # source_contribution.json не принадлежал ни одному источнику.
+            selection_attempt.record_effect("source_won", candidate_channel(vid))
             write_media_sidecar(
                 cf, pexels_id=vid, query=query, kind="video", ahash_hex=cand_hash,
                 relevance=chosen_rel,
@@ -15252,6 +15420,10 @@ def main():
     RENDER_RECIPE_SIG = recipe_sig = render_recipe_signature()
     reset_source_stats()
     reset_camera_language_stats()
+    RUN_JOURNAL.clear()
+    # Каталоги попыток прерванного процесса — мусор: живых попыток при
+    # старте нет, и в кэш такой файл не попадёт никогда.
+    selection_attempt.sweep_orphans(os.path.join(TEMP_FOLDER, "staging"))
     use_local = os.path.isdir(MEDIA_FOLDER) and bool(local_photo(0))
     use_pexels = bool(PEXELS_API_KEY)
     # === PEXELS QUERIES === написан вручную по протоколу (CLAUDE.md ЧАСТЬ 13,
@@ -15694,11 +15866,15 @@ def main():
                 # дедуп по файлу из шотлиста: анти-дубль снова видит ВЕСЬ
                 # эпизод, а не только пересобранные в этом прогоне слоты.
                 if prev_file and os.path.exists(prev_file):
-                    register_cached_media(
-                        prev_file, used_ids=(used_photo_ids if prev_shot.get("kind") == "photo"
-                                             else used_video_ids),
-                        used_hashes=used_photo_hashes,
-                        kind=(prev_shot.get("kind") or "photo"))
+                    _cached = new_attempt(i, "clip_cache")
+                    with selection_attempt.activate(_cached):
+                        register_cached_media(
+                            prev_file, used_ids=(used_photo_ids if prev_shot.get("kind") == "photo"
+                                                 else used_video_ids),
+                            used_hashes=used_photo_hashes,
+                            kind=(prev_shot.get("kind") or "photo"))
+                    close_slot(i, [_cached], shown=_cached, decisive=_cached,
+                               outcome="clip_cache_hit")
             else:
                 qc_unknown_cache_hits.append(i + 1)
                 shot_entries[i] = {"index": i, "section": b["section"], "text": b["text"], "query": queries[i],
@@ -15710,11 +15886,20 @@ def main():
         # них — и только про них — текущий прогон вправе что-то утверждать в
         # отчётах; см. merge_slot_report().
         RESOLVED_SLOTS_THIS_RUN.add(i)
+        # Все попытки этого слота. Решение о слоте закрывает их разом в
+        # close_slot(): одна принимается, остальные — отказом.
+        slot_attempts = []
+        # Откуда взялся текущий кандидат на экран: "fetch" — из попытки
+        # отбора (slot_attempts), иначе "locked"/"local"/"card" — такой файл
+        # встаёт на экран тем же коммитом, через попытку-носитель
+        # (given_attempt).
+        media_origin = None
         locked_shot = bool(lock_photo or lock_video)
         if locked_shot:
             # Шотлист решил за нас — ни Pexels, ни гейтов, ни локального
             # перебора: ровно тот файл, который человек проверил и залочил.
             photo, video = lock_photo, lock_video
+            media_origin = "locked"
             shotlist_locked_used += 1
         else:
             photo = local_photo(i) if use_local else None
@@ -15738,6 +15923,8 @@ def main():
                         {"index": i, "file": os.path.basename(photo), "query": queries[i]})
                     photo = None
             video = None
+            if photo:
+                media_origin = "local"
         # Semantic Visual Director — role/text_domain/director_score_fn
         # существуют для этой итерации независимо от того, каким путём в
         # итоге получено медиа (используются ниже при записи director_report),
@@ -15839,44 +16026,50 @@ def main():
             # VLM понимает короткую фразу саму по себе.
             hook_arbiter_text = b["text"] if b["section"].startswith("HOOK") else None
             if prefer_video:
-                video = pexels_video(queries[i], i, used_ids=used_video_ids, used_hashes=used_photo_hashes,
-                                     action_qualifier=act_qual,
-                                     extra_queries=section_query_pool.get(b["section"]),
-                                     sentence_score_fn=video_sentence_fn, text_key=sem_text,
-                                     arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot,
-                                     recent_sizes=recent_shot_sizes, slot_dur=d,
-                                     shot_brief=b.get("shot_brief"))
-                if not video:
-                    photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
-                                      recent_sizes=recent_shot_sizes, target_luma=luma_ema,
-                                      director_score_fn=director_score_fn, director_assist=director_assist,
-                                      director_report=director_entry,
-                                      extra_queries=section_query_pool.get(b["section"]), text_key=sem_text,
-                                      arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot,
-                                      shot_brief=b.get("shot_brief"), block_text=b["text"])
-            else:
-                photo = pexels_photo(queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
-                                      recent_sizes=recent_shot_sizes, target_luma=luma_ema,
-                                      director_score_fn=director_score_fn, director_assist=director_assist,
-                                      director_report=director_entry,
-                                      extra_queries=section_query_pool.get(b["section"]), text_key=sem_text,
-                                      arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot,
-                                      shot_brief=b.get("shot_brief"), block_text=b["text"])
-                if not photo and d >= MIN_CLIP + 1.0:
-                    video = pexels_video(queries[i], i, used_ids=used_video_ids, used_hashes=used_photo_hashes,
+                video = fetch_in_attempt(slot_attempts, i, "video", pexels_video,
+                                         queries[i], i, used_ids=used_video_ids, used_hashes=used_photo_hashes,
                                          action_qualifier=act_qual,
                                          extra_queries=section_query_pool.get(b["section"]),
                                          sentence_score_fn=video_sentence_fn, text_key=sem_text,
                                          arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot,
                                          recent_sizes=recent_shot_sizes, slot_dur=d,
                                          shot_brief=b.get("shot_brief"))
+                if not video:
+                    photo = fetch_in_attempt(slot_attempts, i, "photo", pexels_photo,
+                                             queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
+                                             recent_sizes=recent_shot_sizes, target_luma=luma_ema,
+                                             director_score_fn=director_score_fn, director_assist=director_assist,
+                                             director_report=director_entry,
+                                             extra_queries=section_query_pool.get(b["section"]), text_key=sem_text,
+                                             arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot,
+                                             shot_brief=b.get("shot_brief"), block_text=b["text"])
+            else:
+                photo = fetch_in_attempt(slot_attempts, i, "photo", pexels_photo,
+                                         queries[i], i, used_ids=used_photo_ids, used_hashes=used_photo_hashes,
+                                         recent_sizes=recent_shot_sizes, target_luma=luma_ema,
+                                         director_score_fn=director_score_fn, director_assist=director_assist,
+                                         director_report=director_entry,
+                                         extra_queries=section_query_pool.get(b["section"]), text_key=sem_text,
+                                         arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot,
+                                         shot_brief=b.get("shot_brief"), block_text=b["text"])
+                if not photo and d >= MIN_CLIP + 1.0:
+                    video = fetch_in_attempt(slot_attempts, i, "video", pexels_video,
+                                             queries[i], i, used_ids=used_video_ids, used_hashes=used_photo_hashes,
+                                             action_qualifier=act_qual,
+                                             extra_queries=section_query_pool.get(b["section"]),
+                                             sentence_score_fn=video_sentence_fn, text_key=sem_text,
+                                             arbiter_text=hook_arbiter_text, is_opening_shot=is_opening_shot,
+                                             recent_sizes=recent_shot_sizes, slot_dur=d,
+                                             shot_brief=b.get("shot_brief"))
             # Раньше Pexels отключался навсегда после ЛЮБОГО промаха, включая
             # обычную пустую выдачу по одному неудачному запросу. Гасим источник
             # только если API реально отвалился.
             if not photo and not video and PEXELS_BROKEN:
                 use_pexels = False
+            if photo or video:
+                media_origin = "fetch"
         # ЛЕСТНИЦА ФОЛБЭКОВ, уровень «не может быть неверным» (см.
-        # _slot_known_bad_reason/fallback_card.py). Слот заполнен, но система
+        # known_bad_reason/fallback_card.py). Слот заполнен, но система
         # САМА только что записала, что кадр негодный: арбитр отказал, сток
         # исчерпан или победитель ниже порога релевантности. Раньше это
         # оставалось строчкой в отчёте, а зрителю показывали «лучшего из
@@ -15891,36 +16084,40 @@ def main():
         # фотографию — подлинный кинжал 1450 года с медленным зумом сильнее и
         # мусорного видео, и текстовой карточки. Пробуем ДО карточки: карточка
         # остаётся последним уровнем, а не первым.
+        video_att = attempt_of(slot_attempts, video)
         if (video and not photo and not locked_shot
                 and feature_flags.enabled("VIDEO_PHOTO_RESCUE")
-                and _slot_known_bad_reason(i)):
-            # Вердикты отвергнутого видео снимаем ДО попытки: что запишет
-            # фото-путь, то и станет правдой о слоте. Не вышло — возвращаем.
-            snapshot = _slot_miss_snapshot(i)
-            rescue = pexels_photo(queries[i], i, used_ids=used_photo_ids,
-                                  used_hashes=used_photo_hashes,
-                                  recent_sizes=recent_shot_sizes, target_luma=luma_ema,
-                                  director_score_fn=director_score_fn,
-                                  director_assist=director_assist,
-                                  director_report=director_entry,
-                                  extra_queries=section_query_pool.get(b["section"]),
-                                  text_key=sem_text, arbiter_text=hook_arbiter_text,
-                                  is_opening_shot=is_opening_shot)
+                and video_att is not None and known_bad_reason(video_att.verdicts)):
+            # Вердикты отвергнутого видео принадлежат ЕГО попытке: снимать и
+            # возвращать их не нужно — правдой о слоте станут вердикты той
+            # попытки, чей кадр встанет на экран (close_slot).
+            rescue = fetch_in_attempt(slot_attempts, i, "photo", pexels_photo,
+                                      queries[i], i, used_ids=used_photo_ids,
+                                      used_hashes=used_photo_hashes,
+                                      recent_sizes=recent_shot_sizes, target_luma=luma_ema,
+                                      director_score_fn=director_score_fn,
+                                      director_assist=director_assist,
+                                      director_report=director_entry,
+                                      extra_queries=section_query_pool.get(b["section"]),
+                                      text_key=sem_text, arbiter_text=hook_arbiter_text,
+                                      is_opening_shot=is_opening_shot)
             if rescue:
-                reason = ", ".join(sorted(k for k, v in snapshot.items() if v))
+                reason = ", ".join(sorted({k for k, _rec in video_att.verdicts}))
                 print(f"    [{i+1}] негодное видео заменено фотографией ({reason})")
                 VIDEO_RESCUED_BY_PHOTO.append(
                     {"index": i, "reason": reason, "query": queries[i]})
                 photo, video = rescue, None
-            else:
-                _slot_miss_restore(snapshot)
+        # Попытка, чей кадр сейчас кандидат на экран, — она и решает судьбу
+        # слота. У локального/залоченного файла попытки отбора нет.
+        decisive_att = attempt_of(slot_attempts, photo or video)
         if (photo or video) and not locked_shot:
-            bad_reason = _slot_known_bad_reason(i)
+            bad_reason = known_bad_reason(decisive_att.verdicts) if decisive_att else None
             if bad_reason and not never_show_known_bad:
                 if fallback_card_allowed(i, len(blocks), is_opening=is_opening_shot):
                     card = build_slot_fallback_card(i, b["text"], bad_reason)
                     if card:
                         photo, video = card, None
+                        media_origin = "card"
             elif bad_reason:
                 # «ЛУЧШИЙ ИЗ ПЛОХИХ» УДАЛЁН КАК ИСХОД. Система только что
                 # сама записала, что этот кадр негодный (арбитр отказал,
@@ -15940,6 +16137,8 @@ def main():
             # золотому набору `duplicate` — такой же брак, как анахронизм,
             # а продление соседа не создаёт ни дубля, ни несоответствия.
             photo = local_photo(i, allow_cycle=True)
+            if photo:
+                media_origin = "local"
         if not photo and not video and not never_show_known_bad:
             # Медиа нет вообще. Раньше блок просто выпадал из ролика (а при
             # RENDER_STRICT_GATE=1 — останавливал всю сборку). Карточка здесь
@@ -15947,11 +16146,18 @@ def main():
             card = build_slot_fallback_card(i, b["text"], FALLBACK_NO_MEDIA_REASON)
             if card:
                 photo = card
+                media_origin = "card"
         if not photo and not video and never_show_known_bad:
             # Поглощение: слот не получает клипа, его время уходит соседу.
             # Плашка с цифрой — КОНТЕНТ, а не картинка: она наследуется
             # поглощающим клипом ниже (stat_carry), а не теряется.
             reason = absorb_reason or FALLBACK_NO_MEDIA_REASON
+            # Ни одна попытка не принята: ни резерва, ни файла в кэше. В
+            # отчёт слота идут вердикты отвергнутого кадра, а если кадра не
+            # было вовсе — вердикты всех попыток (почему пусто).
+            close_slot(i, slot_attempts, shown=None,
+                       decisive=decisive_att if absorb_reason else None,
+                       outcome="absorbed")
             ABSORBED_SLOTS.append({"index": i, "reason": reason,
                                    "text": b["text"], "carried_sec": round(d, 3)})
             if stat:
@@ -15968,6 +16174,7 @@ def main():
                                "source": "absorbed", "clip": None}
             continue
         if not photo and not video:
+            close_slot(i, slot_attempts, shown=None, decisive=None, outcome="missing")
             print(f"  [{i+1}] нет медиа")
             missing.append(i + 1)
             render_manifest[i] = {"index": i, "status": "failed",
@@ -15990,22 +16197,21 @@ def main():
             print(f"    ВНИМАНИЕ: [{i+1}] уже несёт свою плашку, "
                   f"не перенесены: {lost}")
             stat_carry.clear()
+        # Попытка, которая понесёт этот кадр на экран. У кадра из отбора она
+        # уже есть; локальный, залоченный файл или карточка получают
+        # попытку-носитель — на экран всё встаёт одним и тем же коммитом.
+        if media_origin == "fetch":
+            shown_att = attempt_of(slot_attempts, photo or video)
+        else:
+            shown_att = given_attempt(slot_attempts, i, media_origin, photo or video)
         # Крупность плана пополнялась только внутри pexels_photo() — локальные и
         # залоченные фото (каждый AI-слот протокола) в окно не попадали, и
         # choose_motion_mode получал крупность ЧУЖОГО кадра (аудит 04.09).
         if photo and (locked_shot or photo.startswith(MEDIA_FOLDER)):
             try:
-                recent_shot_sizes.append(estimate_shot_size(photo))
+                shown_att.effect("shot_size", recent_shot_sizes, estimate_shot_size(photo))
             except Exception:
                 pass
-        shot_entries[i] = {"index": i, "section": b["section"], "text": b["text"], "query": queries[i],
-                           "kind": "video" if video else "photo",
-                           "file": shotlist_relative_file(video or photo, VIDEO_FOLDER),
-                           "source": shotlist_source_for(video or photo, VIDEO_FOLDER, locked=locked_shot),
-                           "clip": os.path.basename(out),
-                           **shotlist_provenance(video or photo)}
-        recent_media_types.append("video" if video else "photo")
-        del recent_media_types[:-6]
         # Semantic Visual Director — аудит-трейл + скользящее окно
         # (domain, role) для repetition_penalty. director_entry.get(
         # "base_winner") — надёжный маркер того, что pexels_photo() реально
@@ -16044,23 +16250,24 @@ def main():
                     # видео-победителей тоже, иначе два видео подряд в одном
                     # домене/роли не считаются повтором вообще.
                     candidate_domain = visual_director.candidate_domain_for(probe)
-                    recent_semantic_tags.append((candidate_domain, director_role))
-                    del recent_semantic_tags[:-visual_director.REPETITION_WINDOW]
+                    shown_att.effect("history", recent_semantic_tags,
+                                     (candidate_domain, director_role),
+                                     visual_director.REPETITION_WINDOW)
                     # recent_shot_sizes — тот же принцип: pexels_video() теперь
                     # штрафует повтор крупности через recent_sizes (см.
                     # shot_size_ok в pexels_video()), а история пополнялась
                     # только фото-победителями (см. ветку ниже). Без этого два
                     # видео одной крупности подряд не считались бы повтором.
                     try:
-                        recent_shot_sizes.append(estimate_shot_size(probe))
+                        shown_att.effect("shot_size", recent_shot_sizes, estimate_shot_size(probe))
                     except Exception:
                         pass
                 finally:
                     if cleanup and os.path.exists(probe):
                         os.remove(probe)
                 if director_rel is not None and director_rel < visual_director.DIRECTOR_RELEVANCE_FLOOR:
-                    DIRECTOR_RELEVANCE_MISSES.append({
-                        "index": i, "text": sem_text, "photo": video, "kind": "video",
+                    shown_att.verdict("director", {
+                        "index": i, "text": sem_text, "photo": shown_att.final_path(video), "kind": "video",
                         "relevance": director_rel, "threshold": visual_director.DIRECTOR_RELEVANCE_FLOOR,
                     })
         elif director_entry is None or director_entry.get("base_winner") is None:
@@ -16071,8 +16278,8 @@ def main():
             director_entry["text_domain"] = director_text_domain
             director_report[i] = director_entry
             candidate_domain = visual_director.candidate_domain_for(photo)
-            recent_semantic_tags.append((candidate_domain, director_role))
-            del recent_semantic_tags[:-visual_director.REPETITION_WINDOW]
+            shown_att.effect("history", recent_semantic_tags, (candidate_domain, director_role),
+                             visual_director.REPETITION_WINDOW)
             # DIRECTOR_RELEVANCE_MISSES — тот же принцип, что RELEVANCE_GATE_
             # MISSES (см. её докстринг): is_relevant в кортеже _score_and_pick
             # гейтит только по ORIGIN QUERY (английский запрос-посредник),
@@ -16091,8 +16298,8 @@ def main():
             # ЧЕМ его заменить, когда весь пул одинаково слаб).
             director_rel = visual_director.sentence_relevance(photo, sem_text)
             if director_rel is not None and director_rel < visual_director.DIRECTOR_RELEVANCE_FLOOR:
-                DIRECTOR_RELEVANCE_MISSES.append({
-                    "index": i, "text": sem_text, "photo": photo, "kind": "photo",
+                shown_att.verdict("director", {
+                    "index": i, "text": sem_text, "photo": shown_att.final_path(photo), "kind": "photo",
                     "relevance": director_rel, "threshold": visual_director.DIRECTOR_RELEVANCE_FLOOR,
                 })
         # Непрерывность экспозиции: измеряем яркость ИМЕННО этого кадра,
@@ -16103,11 +16310,10 @@ def main():
         # ВТОРАЯ точка решения о карточке. Нужна из-за ПОРЯДКА, а не из-за
         # новой логики, и это измеренный дефект, а не перестраховка.
         #
-        # Вердикт Директора про ЭТОТ слот записывается в
-        # DIRECTOR_RELEVANCE_MISSES строками выше — то есть ПОСЛЕ того, как
-        # медиа уже выбрано (иначе нечего оценивать). А первая проверка
-        # `_slot_known_bad_reason(i)` стоит ДО отбора, и список для текущего
-        # слота там всегда пуст. Замер 14.09 (videos/_test60s): слот с
+        # Вердикт Директора про ЭТОТ кадр записывается в его попытку строками
+        # выше — то есть ПОСЛЕ того, как медиа уже выбрано (иначе нечего
+        # оценивать). А первая проверка known_bad_reason() стоит раньше, и
+        # вердикта Директора там ещё нет. Замер 14.09 (videos/_test60s): слот с
         # современным музеем на фразе про упавшего рыцаря получил 0.20x от
         # пола Директора, причина честно срабатывала в юнит-тесте — и была
         # ИНЕРТНОЙ в проде: карточек в ролике ноль, кадр остался на экране.
@@ -16118,13 +16324,34 @@ def main():
         # спасение фотографией, которое идёт до карточки.
         if (photo or video) and not locked_shot and not any(
                 sl.get("index") == i for sl in FALLBACK_CARD_SLOTS):
-            late_reason = _slot_known_bad_reason(i)
+            late_reason = known_bad_reason(shown_att.verdicts)
             if (late_reason == "director_relevance_decisive"
                     and fallback_card_allowed(i, len(blocks),
                                               is_opening=is_opening_shot)):
                 late_card = build_slot_fallback_card(i, b["text"], late_reason)
                 if late_card:
+                    # Решил отвергнутый кадр (его вердикт уходит в отчёт), а
+                    # на экран идёт карточка: резервы отвергнутого кадра не
+                    # применяются, кэш его не получает.
+                    decisive_att = shown_att
                     photo, video = late_card, None
+                    media_origin = "card"
+                    shown_att = given_attempt(slot_attempts, i, "card", late_card)
+        shown_att.effect("history", recent_media_types, "video" if video else "photo", 6)
+        # РЕШЕНИЕ ПРИНЯТО — единственная точка, где оно становится
+        # состоянием эпизода (см. close_slot).
+        _final = close_slot(i, slot_attempts, shown=shown_att, decisive=decisive_att,
+                            outcome=("shown" if media_origin == "fetch" else media_origin))
+        if video:
+            video = _final
+        else:
+            photo = _final
+        shot_entries[i] = {"index": i, "section": b["section"], "text": b["text"], "query": queries[i],
+                           "kind": "video" if video else "photo",
+                           "file": shotlist_relative_file(video or photo, VIDEO_FOLDER),
+                           "source": shotlist_source_for(video or photo, VIDEO_FOLDER, locked=locked_shot),
+                           "clip": os.path.basename(out),
+                           **shotlist_provenance(video or photo)}
         luma = measure_luma(photo, is_video=False) if photo else measure_luma(video, is_video=True)
         if luma is not None:
             _clamp, _gain = luma_match_params()
@@ -16456,6 +16683,7 @@ def main():
     selection_gates["source_contribution"] = {src: dict(v) for src, v in SOURCE_STATS.items()}
     shotlist_file = write_shotlist(VIDEO_FOLDER, shot_entries, selection_gates, prev=prev_shotlist)
     write_source_contribution(VIDEO_FOLDER)
+    write_run_journal(VIDEO_FOLDER)
     if not SELECT_ONLY:
         write_camera_language_report(VIDEO_FOLDER)
     print(f"  Шотлист: media_plan/shotlist.json ({len(shot_entries)} слотов, "
@@ -16697,7 +16925,9 @@ def main():
                     "scored": director_scored,
                     "diverged_from_base": director_diverged,
                     "cache_hits_skipped_analysis": director_cache_hits_skipped,
-                    "clips": [director_report[i] for i in sorted(director_report)]},
+                    # Номер слота — в самой записи: позиция в списке совпадает
+                    # со слотом только пока в отчёте нет пропусков.
+                    "clips": [{"index": i, **director_report[i]} for i in sorted(director_report)]},
                    f, ensure_ascii=False, indent=2)
     os.replace(director_manifest_tmp, director_manifest_path)
     # То же честное предупреждение, что уже есть у Look Management чуть выше

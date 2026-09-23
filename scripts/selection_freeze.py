@@ -98,7 +98,7 @@ SELECTION_REPORTS = (
     "absorbed_slots_report.json", "fallback_cards_report.json",
     "video_photo_rescue_report.json", "director_relevance_report.json",
     "visual_director_report.json", "source_contribution.json",
-    "text_truncation_report.json",
+    "text_truncation_report.json", "run_journal.jsonl",
 )
 
 SHOT_FIELDS = ("index", "section", "text", "query", "kind", "file", "file_sha256",
@@ -112,38 +112,56 @@ _ENV_INDEX_RE = re.compile(r"""os\.environ\[\s*["']([A-Z][A-Z0-9_]+)["']\s*\]"""
 # ровно тогда, когда исполнена ветка. Фрагмент обязан встречаться в своей
 # функции ровно один раз — иначе класс печатается как «якорь потерян».
 # Если строка ветки дословно повторяется в функции (две разные ветки пишут
-# одну и ту же запись), четвёртым элементом задаётся (номер, всего): якорь —
-# N-е вхождение из РОВНО стольких. Поменялось число вхождений — якорь
-# потерян, а не молча сдвинут на соседнюю ветку.
+# одну и ту же запись), у фрагмента задаётся (номер, всего): якорь — N-е
+# вхождение из РОВНО стольких. Поменялось число вхождений — якорь потерян, а
+# не молча сдвинут на соседнюю ветку.
+#
+# Одна ветка — несколько ФОРМ: харнесс судит и старую ревизию (добытчик
+# pexels_photo, вердикт SMART_VETO_MISSES.append), и новую (_select_photo,
+# record_verdict). Разрешается ровно одна форма; если в исходнике нашлись
+# две — это неоднозначность, и класс тоже «потерян», а не выбран наугад.
+_P, _V = ("_select_photo", "pexels_photo"), ("_select_video", "pexels_video")
+
+
+def _forms(fns, *frags, occ=(1, 1)):
+    return tuple((fn, frag, occ) for fn in fns for frag in frags)
+
+
 BRANCH_ANCHORS = (
-    ("фото: кэш-хит", "pexels_photo", "if os.path.exists(cf) and os.path.getsize(cf) > 0:"),
-    ("фото: путь без анти-дубля", "pexels_photo", "            pick = candidates[0]"),
-    ("фото: оценка Режиссёра", "_score_and_pick", "extra = director_score_fn("),
-    ("фото: ре-пик по резкости", "pexels_photo", '"+sharp_repick"'),
-    ("фото: спасение скачивания", "pexels_photo", '"+download_rescue"'),
-    ("фото: ре-пик вето", "pexels_photo", '"+veto_repick"'),
-    ("фото: вето отклонило всех", "pexels_photo", 'SMART_VETO_MISSES.append({"index": index, "query": query, "kind": "photo"})'),
-    ("фото: сток исчерпан", "pexels_photo", "STOCK_EXHAUSTED_MISSES.append("),
-    ("фото: победитель ниже порога", "pexels_photo", "RELEVANCE_GATE_MISSES.append("),
-    ("фото: арбитр отказал всем", "pexels_photo", "ARBITER_REJECTED_ALL.append("),
-    ("видео: кэш-хит", "pexels_video", "register_cached_media(cf, used_ids=used_ids"),
-    ("видео: фильтр длины отсеял", "pexels_video", "VIDEO_TOO_SHORT_FILTERED.append("),
-    ("видео: есть прошедшие гейт", "pexels_video", "        if good:"),
-    ("видео: запасной — релевантный дубль", "pexels_video", "dup_fallback = (trial, v.get(\"id\"), cand_hash)"),
-    ("видео: запасной — первый скачанный", "pexels_video", "plain_fallback = (trial, v.get(\"id\"), cand_hash)"),
-    ("видео: арбитр отказал всем", "pexels_video", "ARBITER_REJECTED_ALL.append("),
-    ("видео: ре-пик вето", "pexels_video", "veto_repicks += 1"),
-    ("видео: вето отклонило всех (основной путь)", "pexels_video",
-     'SMART_VETO_MISSES.append({"index": index, "query": query, "kind": "video"})', (1, 2)),
-    ("видео: вето отклонило всех (запасной путь)", "pexels_video",
-     'SMART_VETO_MISSES.append({"index": index, "query": query, "kind": "video"})', (2, 2)),
-    ("видео: второй запасной принят", "pexels_video", "взят второй запасной"),
-    ("видео: победитель ниже порога", "pexels_video", "RELEVANCE_GATE_MISSES.append("),
-    ("видео: сток исчерпан", "pexels_video", "STOCK_EXHAUSTED_MISSES.append("),
-    ("слот: видео заменено фото", "main", "VIDEO_RESCUED_BY_PHOTO.append("),
-    ("слот: поглощён", "main", "ABSORBED_SLOTS.append("),
+    ("фото: кэш-хит", _forms(_P, "if os.path.exists(cf) and os.path.getsize(cf) > 0:")),
+    ("фото: путь без анти-дубля", _forms(_P, "            pick = candidates[0]")),
+    ("фото: оценка Режиссёра", _forms(("_score_and_pick",), "extra = director_score_fn(")),
+    ("фото: ре-пик по резкости", _forms(_P, '"+sharp_repick"')),
+    ("фото: спасение скачивания", _forms(_P, '"+download_rescue"')),
+    ("фото: ре-пик вето", _forms(_P, '"+veto_repick"')),
+    ("фото: вето отклонило всех", _forms(
+        _P, 'record_verdict("smart_veto", {"index": index, "query": query, "kind": "photo"})',
+        'SMART_VETO_MISSES.append({"index": index, "query": query, "kind": "photo"})')),
+    ("фото: сток исчерпан", _forms(_P, 'record_verdict("stock", {', "STOCK_EXHAUSTED_MISSES.append(")),
+    ("фото: победитель ниже порога", _forms(_P, 'record_verdict("relevance", {',
+                                             "RELEVANCE_GATE_MISSES.append(")),
+    ("фото: арбитр отказал всем", _forms(_P, 'record_verdict("arbiter", {', "ARBITER_REJECTED_ALL.append(")),
+    ("видео: кэш-хит", _forms(_V, "register_cached_media(cf, used_ids=used_ids")),
+    ("видео: фильтр длины отсеял", _forms(_V, "VIDEO_TOO_SHORT_FILTERED.append(")),
+    ("видео: есть прошедшие гейт", _forms(_V, "        if good:")),
+    ("видео: запасной — релевантный дубль", _forms(_V, 'dup_fallback = (trial, v.get("id"), cand_hash)')),
+    ("видео: запасной — первый скачанный", _forms(_V, 'plain_fallback = (trial, v.get("id"), cand_hash)')),
+    ("видео: арбитр отказал всем", _forms(_V, 'record_verdict("arbiter", {', "ARBITER_REJECTED_ALL.append(")),
+    ("видео: ре-пик вето", _forms(_V, "veto_repicks += 1")),
+    ("видео: вето отклонило всех (основной путь)", _forms(
+        _V, 'record_verdict("smart_veto", {"index": index, "query": query, "kind": "video"})',
+        'SMART_VETO_MISSES.append({"index": index, "query": query, "kind": "video"})', occ=(1, 2))),
+    ("видео: вето отклонило всех (запасной путь)", _forms(
+        _V, 'record_verdict("smart_veto", {"index": index, "query": query, "kind": "video"})',
+        'SMART_VETO_MISSES.append({"index": index, "query": query, "kind": "video"})', occ=(2, 2))),
+    ("видео: второй запасной принят", _forms(_V, "взят второй запасной")),
+    ("видео: победитель ниже порога", _forms(_V, 'record_verdict("relevance", {',
+                                              "RELEVANCE_GATE_MISSES.append(")),
+    ("видео: сток исчерпан", _forms(_V, 'record_verdict("stock", {', "STOCK_EXHAUSTED_MISSES.append(")),
+    ("слот: видео заменено фото", _forms(("main",), "VIDEO_RESCUED_BY_PHOTO.append(")),
+    ("слот: поглощён", _forms(("main",), "ABSORBED_SLOTS.append(")),
 )
-TRACED_FUNCTIONS = tuple(sorted({a[1] for a in BRANCH_ANCHORS}))
+TRACED_FUNCTIONS = tuple(sorted({fn for _cls, forms in BRANCH_ANCHORS for fn, _f, _o in forms}))
 
 
 # ------------------------------------------------------------------ окружение
@@ -251,11 +269,11 @@ def _ignore(src_dir, names):
     return out
 
 
-def _git_rev():
+def _git_rev(root=REPO_ROOT):
     try:
-        r = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, capture_output=True,
+        r = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True,
                            text=True, encoding="utf-8", errors="replace")
-        dirty = subprocess.run(["git", "status", "--porcelain", "scripts"], cwd=REPO_ROOT,
+        dirty = subprocess.run(["git", "status", "--porcelain", "scripts"], cwd=root,
                                capture_output=True, text=True, encoding="utf-8",
                                errors="replace").stdout.strip()
         return {"head": r.stdout.strip(), "scripts_dirty": bool(dirty)}
@@ -297,7 +315,8 @@ def prune_run_media(sandbox):
     return freed
 
 
-def run_pipeline(freeze, mode, label, hashseed, keep_media=False):
+def run_pipeline(freeze, mode, label, hashseed, keep_media=False, pipeline=None,
+                 live_fallback=False):
     meta = json.load(open(os.path.join(freeze, "meta.json"), encoding="utf-8"))
     run_dir = os.path.join(freeze, "runs", label)
     if os.path.exists(run_dir):
@@ -306,8 +325,10 @@ def run_pipeline(freeze, mode, label, hashseed, keep_media=False):
     sandbox = os.path.join(run_dir, "episode")
     shutil.copytree(os.path.join(freeze, "input"), sandbox)
     env = child_env(meta["env"], run_dir, hashseed)
+    pipeline = os.path.abspath(pipeline or PIPELINE)
+    overlay = os.path.join(run_dir, "net_overlay") if live_fallback else ""
     cmd = [sys.executable, os.path.abspath(__file__), "_child", mode,
-           os.path.join(freeze, "net"), sandbox, run_dir]
+           os.path.join(freeze, "net"), sandbox, run_dir, pipeline, overlay]
     with open(os.path.join(run_dir, "stdout.log"), "w", encoding="utf-8") as out, \
             open(os.path.join(run_dir, "stderr.log"), "w", encoding="utf-8") as err:
         started = datetime.datetime.now(datetime.timezone.utc)
@@ -319,6 +340,8 @@ def run_pipeline(freeze, mode, label, hashseed, keep_media=False):
     result["returncode"] = rc
     result["hashseed"] = str(hashseed)
     result["mode"] = mode
+    result["pipeline"] = pipeline
+    result["live_fallback"] = bool(live_fallback)
     result["seconds"] = round(took, 1)
     with open(os.path.join(run_dir, "result.json"), "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=1, sort_keys=True)
@@ -357,17 +380,23 @@ def collect(sandbox, run_dir):
     for name in SELECTION_REPORTS:
         p = os.path.join(mp, name)
         if os.path.exists(p):
-            reports[name] = json.load(open(p, encoding="utf-8"))
+            with open(p, encoding="utf-8") as f:
+                reports[name] = ([json.loads(line) for line in f if line.strip()]
+                                 if name.endswith(".jsonl") else json.load(f))
     net = {}
     np_ = os.path.join(run_dir, "net_summary.json")
     if os.path.exists(np_):
         net = json.load(open(np_, encoding="utf-8"))
+    inputs = {}
+    ip = os.path.join(run_dir, "slot_inputs.json")
+    if os.path.exists(ip):
+        inputs = json.load(open(ip, encoding="utf-8"))
     cov = {}
     cp = os.path.join(run_dir, "coverage.json")
     if os.path.exists(cp):
         cov = json.load(open(cp, encoding="utf-8"))
     return _normalize_paths({"shots": shots, "gates": gates, "reports": reports,
-                             "net": net, "coverage": cov}, sandbox)
+                             "net": net, "coverage": cov, "slot_inputs": inputs}, sandbox)
 
 
 # ------------------------------------------------------------------ дочерний процесс
@@ -387,10 +416,45 @@ def nested_code_objects(code):
     return out
 
 
-def _install_tracer(pipeline_smart):
+def slot_loop_range(tree):
+    """Строки слотового цикла main(): тот for, внутри которого слот
+    объявляется разрешённым (RESOLVED_SLOTS_THIS_RUN.add(i)). Только внутри
+    него номер слота — это `i` цикла; до и после сеть слоту не принадлежит."""
+    main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "main")
+    for node in ast.walk(main):
+        if not isinstance(node, ast.For):
+            continue
+        for sub in ast.walk(node):
+            if (isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute)
+                    and sub.func.attr == "add" and isinstance(sub.func.value, ast.Name)
+                    and sub.func.value.id == "RESOLVED_SLOTS_THIS_RUN"):
+                inner = [f for f in ast.walk(node) if isinstance(f, ast.For) and f is not node
+                         and f.lineno <= sub.lineno <= f.end_lineno]
+                if not inner:
+                    return node.lineno, node.end_lineno, node.body[0].lineno
+    raise ValueError("слотовый цикл main() не найден")
+
+
+# Общее состояние, с которым слот входит в отбор: всё, через что один слот
+# влияет на следующий. Два прогона с одинаковым входом слота и без утечки в
+# нём самом обязаны выбрать одно и то же.
+SLOT_INPUT_NAMES = ("used_photo_ids", "used_video_ids", "used_photo_hashes",
+                    "recent_shot_sizes", "recent_media_types", "recent_semantic_tags",
+                    "luma_ema", "_carry_sec", "stat_carry", "use_pexels", "use_local")
+
+
+def _digest(value):
+    if isinstance(value, (set, frozenset)):
+        value = sorted(value, key=repr)
+    raw = json.dumps(value, ensure_ascii=False, sort_keys=True, default=repr)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _install_tracer(pipeline_smart, slot_range=None):
     """Исполненные строки функций отбора. Трассируются только их кадры:
     на остальных вызовах трассировщик возвращает None, цена — одна проверка
-    на вызов функции."""
+    на вызов функции. Попутно — номер текущего слота (для меток сети):
+    строка main() внутри слотового цикла -> его `i`, вне цикла -> None."""
     targets = {}
     for name in TRACED_FUNCTIONS:
         fn = getattr(pipeline_smart, name, None)
@@ -398,10 +462,22 @@ def _install_tracer(pipeline_smart):
             for code in nested_code_objects(fn.__code__):
                 targets[code] = name
     hits = {name: set() for name in targets.values()}
+    main_fn = getattr(pipeline_smart, "main", None)
+    main_code = main_fn.__code__ if main_fn is not None else None
+    slot = {"i": None}
+    inputs = {}
+    lo, hi, first = slot_range if slot_range is not None else (None, None, None)
 
     def local(frame, event, _arg):
         if event == "line":
             hits[targets[frame.f_code]].add(frame.f_lineno)
+            if frame.f_code is main_code and lo is not None:
+                inside = lo <= frame.f_lineno <= hi
+                loc = frame.f_locals if inside else None
+                cur = loc.get("i") if inside else None
+                slot["i"] = cur if isinstance(cur, int) else None
+                if frame.f_lineno == first and isinstance(cur, int):
+                    inputs[cur] = {n: _digest(loc.get(n)) for n in SLOT_INPUT_NAMES}
         return local
 
     def glob(frame, event, _arg):
@@ -412,6 +488,8 @@ def _install_tracer(pipeline_smart):
     import threading
     sys.settrace(glob)
     threading.settrace(glob)
+    hits["__slot__"] = slot
+    hits["__inputs__"] = inputs
     return hits
 
 
@@ -421,60 +499,145 @@ def _anchor_lines(src_lines, tree):
     # getattr(модуль, имя): одноимённая вложенная функция не подменит якорь.
     funcs = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
     out = {}
-    for anchor in BRANCH_ANCHORS:
-        cls, fname, frag = anchor[:3]
-        nth, total = anchor[3] if len(anchor) > 3 else (1, 1)
-        node = funcs.get(fname)
-        if node is None:
-            out[cls] = {"error": f"функции {fname} нет"}
-            continue
-        # Фрагмент с ведущими пробелами сравнивается с НАЧАЛОМ строки: тогда
-        # отступ значим, и ветка на одном уровне не путается с одноимённой
-        # строкой глубже (pick = candidates[0] встречается в pexels_photo дважды).
-        hit = ((lambda ln: ln.startswith(frag)) if frag.startswith(" ")
-               else (lambda ln: frag in ln))
-        lines = [i for i in range(node.lineno, node.end_lineno + 1) if hit(src_lines[i - 1])]
-        if len(lines) != total:
-            out[cls] = {"error": f"якорь потерян: {len(lines)} совпадений в {fname}, "
-                                 f"ожидалось {total}"}
+    for cls, forms in BRANCH_ANCHORS:
+        resolved, notes = [], []
+        for fname, frag, (nth, total) in forms:
+            node = funcs.get(fname)
+            if node is None:
+                continue
+            # Фрагмент с ведущими пробелами сравнивается с НАЧАЛОМ строки: тогда
+            # отступ значим, и ветка на одном уровне не путается с одноимённой
+            # строкой глубже (pick = candidates[0] встречается в добытчике дважды).
+            hit = ((lambda ln, f=frag: ln.startswith(f)) if frag.startswith(" ")
+                   else (lambda ln, f=frag: f in ln))
+            lines = [i for i in range(node.lineno, node.end_lineno + 1) if hit(src_lines[i - 1])]
+            if len(lines) == total:
+                resolved.append({"function": fname, "line": lines[nth - 1]})
+            elif lines:
+                notes.append(f"{len(lines)} совпадений в {fname}, ожидалось {total}")
+        if len(resolved) == 1:
+            out[cls] = resolved[0]
+        elif resolved:
+            out[cls] = {"error": f"неоднозначно: {len(resolved)} форм разрешились"}
         else:
-            out[cls] = {"function": fname, "line": lines[nth - 1]}
+            out[cls] = {"error": "якорь потерян" + (": " + "; ".join(notes) if notes else "")}
     return out
 
 
-def child(mode, net_dir, sandbox, run_dir):
+def coverage_from(source, hits):
+    """Классы ветвей по исполненным строкам (hits: функция -> строки)."""
+    anchors = _anchor_lines(source.split("\n"), ast.parse(source))
+    cov = {}
+    for cls, a in anchors.items():
+        if "error" in a:
+            cov[cls] = {"state": "якорь потерян", "detail": a["error"]}
+        else:
+            hit = a["line"] in set(hits.get(a["function"], ()))
+            cov[cls] = {"state": "покрыто" if hit else "НЕ покрыто", "line": a["line"]}
+    return cov
+
+
+def recompute_coverage(freeze, label):
+    """Пересчитать покрытие прогона по его сырым строкам — например, после
+    того как якоря научились узнавать форму ветки другой ревизии. Исходник
+    берётся по пути из результата и обязан совпасть по хэшу с исполненным:
+    иначе номера строк относятся к другому тексту, и пересчёт был бы ложью."""
+    run_dir = os.path.join(freeze, "runs", label)
+    res_path = os.path.join(run_dir, "result.json")
+    res = json.load(open(res_path, encoding="utf-8"))
+    cov_path = os.path.join(run_dir, "coverage.json")
+    raw = json.load(open(cov_path, encoding="utf-8"))
+    src = open(res["pipeline"], encoding="utf-8").read()
+    if hashlib.sha256(src.encode("utf-8")).hexdigest() != raw.get("pipeline_sha256"):
+        raise SystemExit(f"{res['pipeline']} не совпадает с исполненным кодом прогона {label!r}")
+    raw["branches"] = coverage_from(src, raw.get("lines") or {})
+    with open(cov_path, "w", encoding="utf-8") as f:
+        json.dump(raw, f, ensure_ascii=False, indent=1)
+    res["coverage"] = raw
+    with open(res_path, "w", encoding="utf-8") as f:
+        json.dump(res, f, ensure_ascii=False, indent=1, sort_keys=True)
+    return raw["branches"]
+
+
+def load_module_from_source(name, path, source):
+    """Импорт модуля из заданного текста (а не из файла на диске): модуль
+    регистрируется в sys.modules до исполнения — как при обычном импорте,
+    поэтому модули, импортирующие его в ответ, получают этот же объект."""
+    import linecache
+    import types
+    # inspect.getsource() (им пайплайн строит подписи кэша) читает текст
+    # через linecache, то есть с ДИСКА. Запись без mtime linecache не
+    # перепроверяет — getsource видит ровно исполняемый снимок.
+    linecache.cache[path] = (len(source), None, source.splitlines(True), path)
+    mod = types.ModuleType(name)
+    mod.__file__ = path
+    sys.modules[name] = mod
+    try:
+        exec(compile(source, path, "exec"), mod.__dict__)
+    except BaseException:
+        sys.modules.pop(name, None)
+        raise
+    return mod
+
+
+def child(mode, net_dir, sandbox, run_dir, pipeline=PIPELINE, overlay=""):
+    """Дочерний процесс прогона. pipeline — КАКОЙ код отбора гонять: по
+    умолчанию соседний, но харнесс умеет судить и код другой ревизии
+    (например, из git worktree) — харнесс и испытуемый код разделены."""
+    # Модули ХАРНЕССА берутся из харнесса, модули ОТБОРА — из испытуемого
+    # кода: у старой ревизии свои, более старые копии net_recorder и т.п.
     sys.path.insert(0, SCRIPTS)
+    import net_recorder
+    import time_decisions
+    sys.path.insert(0, os.path.dirname(os.path.abspath(pipeline)))
     import dotenv
     dotenv.load_dotenv = lambda *a, **k: False   # окружение целиком передал родитель
-    import net_recorder
-    rec = net_recorder.NetRecorder(net_dir, mode).install()
-    sys.argv = [PIPELINE, sandbox, "--select-only"]
+    rec = net_recorder.NetRecorder(net_dir, mode, overlay=overlay or None).install()
+    import museum_sources
+    clock = time_decisions.MetCooldownRecorder(
+        os.path.join(net_dir, "time_decisions.jsonl"), mode).install(museum_sources)
+    sys.argv = [pipeline, sandbox, "--select-only"]
     rc = 1
     hits = {}
+    slot_inputs = {}
+    # Исходник снимается один раз, и модуль компилируется ИМЕННО из этого
+    # снимка: якоря покрытия, хэш кода в результате и исполняемый код —
+    # один и тот же текст. Читать файл с диска повторно нельзя: его могли
+    # поправить за время прогона (так и случилось: запись длилась полчаса,
+    # якоря посчитались по чужой версии и все вышли «потерянными»).
+    with open(pipeline, encoding="utf-8") as f:
+        loaded_src = f.read()
+    tree = ast.parse(loaded_src)
     try:
-        import pipeline_smart
-        hits = _install_tracer(pipeline_smart)
+        pipeline_smart = load_module_from_source("pipeline_smart", pipeline, loaded_src)
+        hits = _install_tracer(pipeline_smart, slot_loop_range(tree))
+        slot = hits.pop("__slot__")
+        slot_inputs = hits.pop("__inputs__")
+        rec.tagger = lambda: slot["i"]
         try:
             rc = pipeline_smart.main()
         except SystemExit as e:
             rc = e.code if isinstance(e.code, int) else 1
     finally:
         sys.settrace(None)
+        hits.pop("__slot__", None)
+        hits.pop("__inputs__", None)
+        summary = rec.summary()
+        summary["time_decisions"] = clock.summary()
         with open(os.path.join(run_dir, "net_summary.json"), "w", encoding="utf-8") as f:
-            json.dump(rec.summary(), f, ensure_ascii=False, indent=1)
+            json.dump(summary, f, ensure_ascii=False, indent=1)
+        with open(os.path.join(run_dir, "slot_inputs.json"), "w", encoding="utf-8") as f:
+            json.dump({str(k): v for k, v in sorted(slot_inputs.items())}, f,
+                      ensure_ascii=False, indent=1)
         rec.uninstall()
-        src = open(PIPELINE, encoding="utf-8").read()
-        anchors = _anchor_lines(src.split("\n"), ast.parse(src))
-        cov = {}
-        for cls, a in anchors.items():
-            if "error" in a:
-                cov[cls] = {"state": "якорь потерян", "detail": a["error"]}
-            else:
-                hit = a["line"] in hits.get(a["function"], set())
-                cov[cls] = {"state": "покрыто" if hit else "НЕ покрыто", "line": a["line"]}
+        cov = coverage_from(loaded_src, hits)
         with open(os.path.join(run_dir, "coverage.json"), "w", encoding="utf-8") as f:
             json.dump({"branches": cov,
-                       "lines_executed": {k: len(v) for k, v in hits.items()}},
+                       "pipeline_sha256": hashlib.sha256(loaded_src.encode("utf-8")).hexdigest(),
+                       "lines_executed": {k: len(v) for k, v in hits.items()},
+                       # Сырые строки — чтобы покрытие можно было пересчитать
+                       # по тому же исходнику, не повторяя прогон.
+                       "lines": {k: sorted(v) for k, v in hits.items()}},
                       f, ensure_ascii=False, indent=1)
     sys.exit(rc if isinstance(rc, int) else 1)
 
@@ -488,46 +651,193 @@ def _load_result(freeze, label):
     return json.load(open(p, encoding="utf-8"))
 
 
+def parse_expect(expect):
+    """Ожидания этапа, законно меняющего вывод:
+
+    {"slots":      {"3": "причина"},              — слот ОБЯЗАН разойтись;
+     "reports":    {"run_journal.jsonl": "причина"}, — отчёт ОБЯЗАН разойтись;
+     "returncode": "причина"}                     — код возврата ОБЯЗАН измениться.
+    Плоский словарь {"3": "причина"} — прежняя форма, только слоты.
+
+    Остальные слоты «ниже по течению» автор не перечисляет: харнесс сам
+    видит, у каких слотов изменился ВХОД (общее состояние на начало слота) и
+    в каких журнал показывает утечку по старой семантике, — см. compare()."""
+    expect = expect or {}
+    if not ({"slots", "reports", "returncode"} & set(expect)):
+        expect = {"slots": expect}
+    must = {}
+    for k, v in (expect.get("slots") or {}).items():
+        if not isinstance(v, str) or not v.strip():
+            raise ValueError(f"слот {k}: причина обязана быть непустой строкой, дано {v!r}")
+        must[int(k)] = v
+    rc = expect.get("returncode")
+    if rc is not None and (not isinstance(rc, str) or not rc.strip()):
+        raise ValueError("returncode: причина обязана быть непустой строкой")
+    return must, dict(expect.get("reports") or {}), rc
+
+
+def journal_leak_slots(result):
+    """Слоты, где у НОВОГО прогона есть утечка по СТАРОЙ семантике: попытка,
+    кадр которой не встал на экран, несла резервы/победу источника (старый
+    код применял их в момент добычи) или вердикты, не определявшие исход
+    (старый код держал их в отчётах слота и решал по ним). Только в таких
+    слотах, и ниже них через изменившийся вход, правка этапа 1 вправе
+    изменить исход."""
+    journal = (result.get("reports") or {}).get("run_journal.jsonl") or []
+    attempts = {r["attempt_id"]: r for r in journal if r.get("record") == "attempt"}
+    leaks = set()
+    for r in journal:
+        if r.get("record") != "slot":
+            continue
+        for aid in r.get("attempts") or []:
+            att = attempts.get(aid) or {}
+            if aid == r.get("shown"):
+                continue
+            if att.get("effects"):
+                leaks.add(r["index"])
+            if att.get("verdicts") and r.get("decisive") is not None and aid != r.get("decisive"):
+                leaks.add(r["index"])
+    return leaks
+
+
+def _slot_lists(report):
+    """Ключи отчёта, значения которых — списки записей с номером слота."""
+    return {k for k, v in report.items()
+            if isinstance(v, list) and v and all(isinstance(m, dict) and "index" in m for m in v)}
+
+
+def slot_report_stray(ra, rb, allowed):
+    """Отчёт с записями по слотам ({"misses": [{"index": …}, …], …}; так же
+    любой другой ключ со списком записей, несущих "index"): поля вне этих
+    списков обязаны совпасть, записи — расходиться только в слотах из
+    allowed. Возвращает слоты с расхождением без причины ([] — всё
+    объяснено) или None, если отчёт не по слотам или разошлось что-то вне
+    записей (такое расхождение объяснить слотом нельзя)."""
+    if not (isinstance(ra, dict) and isinstance(rb, dict)):
+        return None
+    keys = _slot_lists(ra) | _slot_lists(rb)
+    for k in list(keys):
+        if not (isinstance(ra.get(k), list) and isinstance(rb.get(k), list)):
+            return None
+    keys |= {k for k in ("misses",) if isinstance(ra.get(k), list) and isinstance(rb.get(k), list)}
+    if not keys:
+        return None
+    if {k: v for k, v in ra.items() if k not in keys} != {k: v for k, v in rb.items() if k not in keys}:
+        return None
+
+    def by_slot(misses):
+        out = {}
+        for m in misses:
+            if not isinstance(m, dict) or "index" not in m:
+                return None
+            out.setdefault(m["index"], []).append(m)
+        return out
+    stray = set()
+    for k in keys:
+        ga, gb = by_slot(ra[k]), by_slot(rb[k])
+        if ga is None or gb is None:
+            return None
+        stray |= {i for i in set(ga) | set(gb) if ga.get(i) != gb.get(i) and i not in allowed}
+    return sorted(stray)
+
+
 def compare(a, b, expect=None):
-    """Классификация по слоту. expect: {index: причина} — слоты, которые
-    ОБЯЗАНЫ разойтись; разошедшийся слот без названной причины — провал,
-    совпавший слот из expect — тоже провал (правка не сработала)."""
-    expect = {int(k): v for k, v in (expect or {}).items()}
+    """Классификация по слоту — ровно один класс на слот:
+
+      СОВПАЛ               — все поля слота совпали;
+      ОЖИДАЕМО РАЗОШЁЛСЯ   — автор назвал слот исправлением, и он изменился;
+      НЕОЖИДАННО СОВПАЛ    — назван исправлением, но не изменился (провал:
+                             правка не сработала);
+      ВХОД ИЗМЕНИЛСЯ       — слот изменился, и у него изменилось общее
+                             состояние на входе (названы поля);
+      УТЕЧКА УСТРАНЕНА     — слот изменился при том же входе, и журнал
+                             нового прогона показывает в нём утечку старой
+                             семантики;
+      РАЗОШЁЛСЯ            — изменился без всякой причины (провал).
+
+    Отчёты: названные в ожиданиях обязаны разойтись; отчёты по слотам
+    (misses) вправе расходиться только в записях слотов с причиной; прочие —
+    совпасть.
+    Сеть: расхождение числа обращений или обращение вне записи допустимо
+    только в слотах, у которых есть причина (ожидание, изменившийся вход,
+    утечка) — по меткам слотов обоих прогонов."""
+    must, rep_expect, rc_expect = parse_expect(expect)
+    leaks = journal_leak_slots(b)
+    ia, ib = a.get("slot_inputs") or {}, b.get("slot_inputs") or {}
     sa = {s["index"]: s for s in a.get("shots", [])}
     sb = {s["index"]: s for s in b.get("shots", [])}
-    slots = []
+    slots, allowed = [], set(must) | leaks
     for i in sorted(set(sa) | set(sb)):
         x, y = sa.get(i), sb.get(i)
         if x is None or y is None:
             diff = ["слот отсутствует в одном из прогонов"]
         else:
             diff = [k for k in SHOT_FIELDS if x.get(k) != y.get(k)]
-        if not diff:
-            klass = "НЕОЖИДАННО СОВПАЛ" if i in expect else "СОВПАЛ"
+        xin, yin = ia.get(str(i)), ib.get(str(i))
+        changed_in = sorted(n for n in set(xin or {}) | set(yin or {})
+                            if (xin or {}).get(n) != (yin or {}).get(n)) if (xin and yin) else []
+        if changed_in:
+            allowed.add(i)
+        reason = None
+        if i in must:
+            klass = "ОЖИДАЕМО РАЗОШЁЛСЯ" if diff else "НЕОЖИДАННО СОВПАЛ"
+            reason = must[i]
+        elif not diff:
+            klass = "СОВПАЛ"
+        elif changed_in:
+            klass = "ВХОД ИЗМЕНИЛСЯ"
+            reason = "изменилось на входе: " + ", ".join(changed_in)
+        elif i in leaks:
+            klass = "УТЕЧКА УСТРАНЕНА"
+            reason = "в слоте была утечка старой семантики (журнал)"
         else:
-            klass = "ОЖИДАЕМО РАЗОШЁЛСЯ" if i in expect else "РАЗОШЁЛСЯ"
+            klass = "РАЗОШЁЛСЯ"
         slots.append({"index": i, "class": klass, "fields": diff,
                       "a": {k: (x or {}).get(k) for k in diff},
                       "b": {k: (y or {}).get(k) for k in diff},
-                      "expected_reason": expect.get(i)})
-    reports = {}
-    for name in sorted(set(a.get("reports", {})) | set(b.get("reports", {}))):
+                      "expected_reason": reason})
+    reports, reports_bad = {}, []
+    for name in sorted(set(a.get("reports", {})) | set(b.get("reports", {})) | set(rep_expect)):
         ra, rb = a.get("reports", {}).get(name), b.get("reports", {}).get(name)
-        if ra != rb:
-            reports[name] = {"a": ra, "b": rb}
+        if ra == rb:
+            if name in rep_expect:
+                reports_bad.append(name)      # заявленное изменение не произошло
+            continue
+        if name in rep_expect:
+            reports[name] = {"a": ra, "b": rb, "expected_reason": rep_expect[name]}
+            continue
+        stray = slot_report_stray(ra, rb, allowed)
+        reports[name] = {"a": ra, "b": rb, "expected_reason": None,
+                         "slots_outside_cause": stray}
+        if stray is None or stray:
+            reports_bad.append(name)
     ca = a.get("net", {}).get("calls_by_key", {})
     cb = b.get("net", {}).get("calls_by_key", {})
-    net_diff = {k: [ca.get(k, 0), cb.get(k, 0)] for k in sorted(set(ca) | set(cb))
-                if ca.get(k, 0) != cb.get(k, 0)}
+    ta = a.get("net", {}).get("slots_by_key", {})
+    tb = b.get("net", {}).get("slots_by_key", {})
+    net_diff, net_bad = {}, []
+    for k in sorted(set(ca) | set(cb)):
+        if ca.get(k, 0) == cb.get(k, 0) and ta.get(k) == tb.get(k):
+            continue
+        labels = set((ta.get(k) or {}).keys()) | set((tb.get(k) or {}).keys())
+        net_diff[k] = {"calls": [ca.get(k, 0), cb.get(k, 0)],
+                       "slots": [ta.get(k), tb.get(k)]}
+        if not (labels and all(lb != "none" and int(lb) in allowed for lb in labels)):
+            net_bad.append(k)
     divergences = b.get("net", {}).get("divergences", [])
+    div_bad = [d for d in divergences if d.get("slot") not in allowed]
+    clock_bad = (b.get("net", {}).get("time_decisions") or {}).get("divergences") or []
     bad = [s for s in slots if s["class"] in ("РАЗОШЁЛСЯ", "НЕОЖИДАННО СОВПАЛ")]
-    ok = (not bad and not reports and not net_diff and not divergences
-          and a.get("gates") == b.get("gates")
-          and a.get("returncode") == b.get("returncode"))
-    return {"ok": ok, "slots": slots, "reports_differ": reports,
+    rc_ok = ((a.get("returncode") != b.get("returncode")) if rc_expect
+             else (a.get("returncode") == b.get("returncode")))
+    ok = (not bad and not reports_bad and not net_bad and not div_bad and not clock_bad
+          and a.get("gates") == b.get("gates") and rc_ok)
+    return {"ok": ok, "slots": slots, "reports_differ": reports, "reports_unexpected": reports_bad,
             "gates_differ": a.get("gates") != b.get("gates"),
             "returncode": [a.get("returncode"), b.get("returncode")],
-            "net_calls_differ": net_diff, "replay_divergences": divergences}
+            "net_calls_differ": net_diff, "net_unexpected": net_bad,
+            "replay_divergences": divergences, "divergences_unexpected": div_bad,
+            "clock_divergences": clock_bad, "leak_slots": sorted(leaks)}
 
 
 def print_report(rep, a, b):
@@ -539,17 +849,27 @@ def print_report(rep, a, b):
                                           for k in s["fields"])
         if s["expected_reason"]:
             extra += f"  [причина: {s['expected_reason']}]"
-        print(f"  #{s['index'] + 1:<3} {s['class']:<18}{extra}")
+        print(f"  #{s['index'] + 1:<3} {s['class']:<19}{extra}")
+    if rep.get("clock_divergences"):
+        print(f"\nрешения по часам вне записи: {len(rep['clock_divergences'])} "
+              f"(первое: {rep['clock_divergences'][0]})")
     print(f"\nшапка гейтов: {'РАЗОШЛАСЬ' if rep['gates_differ'] else 'совпала'}")
     print(f"коды возврата: {rep['returncode'][0]} / {rep['returncode'][1]}")
     print(f"отчёты отбора: {'разошлись: ' + ', '.join(rep['reports_differ']) if rep['reports_differ'] else 'совпали'}")
+    if rep["reports_unexpected"]:
+        print(f"    БЕЗ названной причины (или ожидались, но не разошлись): "
+              f"{', '.join(rep['reports_unexpected'])}")
     na, nb = a.get("net", {}), b.get("net", {})
     print(f"сеть: {na.get('distinct_requests')} адресов / {na.get('total_calls')} обращений  против  "
           f"{nb.get('distinct_requests')} / {nb.get('total_calls')}; "
           f"расходящихся ключей {len(rep['net_calls_differ'])}; "
           f"запросов вне записи {len(rep['replay_divergences'])}")
     for d in rep["replay_divergences"][:10]:
-        print(f"    вне записи: {d['method']} {d['url']} (обращение #{d['seq'] + 1})")
+        print(f"    вне записи: {d['method']} {d['url']} (обращение #{d['seq'] + 1}, "
+              f"слот {d.get('slot')}, {d.get('served', 'refused')})")
+    if rep["net_unexpected"] or rep["divergences_unexpected"]:
+        print(f"    сеть расходится ВНЕ слотов с названной причиной: ключей "
+              f"{len(rep['net_unexpected'])}, запросов вне записи {len(rep['divergences_unexpected'])}")
     cov = b.get("coverage", {}).get("branches", {})
     if cov:
         print("\nПОКРЫТИЕ ВЕТВЕЙ ОТБОРА:")
@@ -573,12 +893,15 @@ def cmd_record(args):
     shutil.copytree(episode, os.path.join(freeze, "input"), ignore=_ignore)
     meta = {"freeze_version": FREEZE_VERSION, "episode": os.path.basename(episode.rstrip("/")),
             "source_path": episode, "created": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "git": _git_rev(), "stack": _stack_versions(), "hashseed": str(args.hashseed),
+            "git": _git_rev(os.path.dirname(os.path.dirname(os.path.abspath(args.pipeline or PIPELINE)))),
+            "pipeline": os.path.abspath(args.pipeline or PIPELINE),
+            "stack": _stack_versions(), "hashseed": str(args.hashseed),
             "env": env_snapshot()}
     with open(os.path.join(freeze, "meta.json"), "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=1, sort_keys=True)
     print(f"запись: {meta['episode']} -> {freeze}")
-    res = run_pipeline(freeze, "record", "record", args.hashseed, args.keep_media)
+    res = run_pipeline(freeze, "record", "record", args.hashseed, args.keep_media,
+                       pipeline=args.pipeline)
     shots_with = sum(1 for s in res["shots"] if s.get("file"))
     print(f"записано за {res['seconds']}с: код {res['returncode']}, слотов {len(res['shots'])}, "
           f"с кадром {shots_with}, сеть {res['net'].get('distinct_requests')} адресов / "
@@ -589,7 +912,8 @@ def cmd_record(args):
 def cmd_replay(args):
     freeze = os.path.abspath(args.freeze)
     label = args.label or f"replay-seed{args.hashseed}"
-    res = run_pipeline(freeze, "replay", label, args.hashseed, args.keep_media)
+    res = run_pipeline(freeze, "replay", label, args.hashseed, args.keep_media,
+                       pipeline=args.pipeline, live_fallback=args.live_fallback)
     print(f"воспроизведено за {res['seconds']}с: код {res['returncode']}, "
           f"вне записи {len(res['net'].get('divergences', []))}")
     return 0
@@ -616,11 +940,13 @@ def cmd_verify(args):
     meta = json.load(open(os.path.join(freeze, "meta.json"), encoding="utf-8"))
     seed = args.hashseed if args.hashseed is not None else meta["hashseed"]
     label = args.label or f"verify-seed{seed}"
-    run_pipeline(freeze, "replay", label, seed, args.keep_media)
-    a, b = _load_result(freeze, "record"), _load_result(freeze, label)
+    run_pipeline(freeze, "replay", label, seed, args.keep_media,
+                 pipeline=args.pipeline, live_fallback=args.live_fallback)
+    a, b = _load_result(freeze, args.against), _load_result(freeze, label)
     rep = compare(a, b, _expect(args.expect))
     print_report(rep, a, b)
-    with open(os.path.join(freeze, "runs", label, "compare_vs_record.json"), "w", encoding="utf-8") as f:
+    with open(os.path.join(freeze, "runs", label, f"compare_vs_{args.against}.json"), "w",
+              encoding="utf-8") as f:
         json.dump(rep, f, ensure_ascii=False, indent=1)
     return 0 if rep["ok"] else 1
 
@@ -628,7 +954,7 @@ def cmd_verify(args):
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if argv and argv[0] == "_child":
-        return child(*argv[1:5])
+        return child(*argv[1:7])
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("record")
@@ -649,9 +975,21 @@ def main(argv=None):
     v.add_argument("--expect", help="JSON {индекс слота: причина} — слоты, обязанные разойтись")
     v.set_defaults(fn=cmd_verify)
     for sp in (r, rp, v):
+        sp.add_argument("--pipeline", help="какой pipeline_smart.py гонять (по умолчанию соседний)")
+    for sp in (rp, v):
+        sp.add_argument("--live-fallback", action="store_true",
+                        help="запросы вне записи выполнять живьём в отдельный слой (названные)")
+    v.add_argument("--against", default="record",
+                   help="с каким прогоном сравнивать (по умолчанию запись)")
+    for sp in (r, rp, v):
         sp.add_argument("--keep-media", action="store_true",
                         help="оставить скачанные прогоном файлы (для глазной проверки); "
                              "по умолчанию удаляются после подсчёта хэшей")
+    cv = sub.add_parser("coverage", help="пересчитать покрытие прогона по сырым строкам")
+    cv.add_argument("freeze")
+    cv.add_argument("label")
+    cv.set_defaults(fn=lambda a: (print(json.dumps(recompute_coverage(os.path.abspath(a.freeze), a.label),
+                                                   ensure_ascii=False, indent=1)), 0)[1])
     c = sub.add_parser("compare")
     c.add_argument("freeze")
     c.add_argument("a")

@@ -54,7 +54,7 @@ def test_preview_runs_before_any_media_is_fetched_or_rendered():
     src = inspect.getsource(ps.main)
     assert "write_audio_preview(" in src
     assert src.index("if PLAN_ONLY:") < src.index("write_audio_preview(")
-    assert src.index("write_audio_preview(") < src.index("photo = pexels_photo(")
+    assert src.index("write_audio_preview(") < src.index("fetch_in_attempt(slot_attempts, i, \"photo\", pexels_photo")
     assert src.index("write_audio_preview(") < src.index("run_ffmpeg_with_retry")
 
 

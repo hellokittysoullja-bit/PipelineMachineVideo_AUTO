@@ -23,6 +23,18 @@ europeana_corpus, stock_fetch_multisource, shot_director): ни одного
 построению, тогда как исход отбора от него не зависит (обработка идёт
 последовательно, см. prefetch в pexels_photo).
 
+ГИБРИДНЫЙ РЕЖИМ (overlay): запрос, которого нет в записи, выполняется
+живьём и записывается в ОТДЕЛЬНЫЙ слой, а в divergences остаётся с
+пометкой served="live". Нужен, когда новый код законно выбирает другой кадр
+и просит файл, которого старый не просил: чистое воспроизведение тут
+отказало бы на скачивании и исказило бы исход, а живая перезапись всего
+эпизода смешала бы правку кода с дрейфом выдачи стоков.
+
+МЕТКА СЛОТА. tagger (если задан) возвращает номер слота, в котором идёт
+обращение; сводка раскладывает обращения по слотам (slots_by_key), и
+сравнение может требовать, чтобы сеть расходилась только в слотах с
+названной причиной.
+
 ЗАПРОС, КОТОРОГО НЕТ В ЗАПИСИ, при воспроизведении — не тишина. Он попадает
 в `divergences` с ключом и адресом, а вызывающему коду уходит URLError:
 продакшн-код обработает его как обычный сетевой отказ, и расхождение
@@ -132,11 +144,16 @@ class NetRecorder:
                         картинка в разных слотах хранится один раз.
     """
 
-    def __init__(self, root, mode):
+    def __init__(self, root, mode, overlay=None, tagger=None):
         if mode not in (RECORD, REPLAY):
             raise ValueError(f"неизвестный режим {mode!r}")
+        if overlay is not None and mode != REPLAY:
+            raise ValueError("слой живых запросов бывает только у воспроизведения")
         self.root = root
         self.mode = mode
+        self.tagger = tagger
+        self.slot_calls = {}     # ключ -> {метка слота: число обращений}
+        self._overlay = NetRecorder(overlay, RECORD) if overlay is not None else None
         self.index_path = os.path.join(root, "index.jsonl")
         self.bodies = os.path.join(root, "bodies")
         self._lock = threading.Lock()
@@ -188,6 +205,8 @@ class NetRecorder:
         if self._real is not None:
             raise RuntimeError("транспорт уже установлен")
         self._real = urllib.request.urlopen
+        if self._overlay is not None:
+            self._overlay._real = self._real
         urllib.request.urlopen = self._urlopen
         return self
 
@@ -196,21 +215,26 @@ class NetRecorder:
             urllib.request.urlopen = self._real
             self._real = None
 
-    def _next_seq(self, key):
+    def _next_seq(self, key, tag=None):
         with self._lock:
             n = self._seq.get(key, 0)
             self._seq[key] = n + 1
             self.calls[key] = n + 1
+            per = self.slot_calls.setdefault(key, {})
+            label = "none" if tag is None else str(tag)
+            per[label] = per.get(label, 0) + 1
             return n
 
     def _urlopen(self, url_or_req, data=None, timeout=None, *args, **kwargs):
         method, url, body = _request_parts(url_or_req, data)
         key = request_key(method, url, body)
-        seq = self._next_seq(key)
+        tag = self.tagger() if self.tagger is not None else None
+        seq = self._next_seq(key, tag)
         shown = redact(url, self.secrets)
         if self.mode == RECORD:
             return self._record(key, seq, method, shown, url_or_req, data, timeout, args, kwargs)
-        return self._replay(key, seq, method, shown)
+        return self._replay(key, seq, method, shown, tag,
+                            (url_or_req, data, timeout, args, kwargs))
 
     def _record(self, key, seq, method, shown, url_or_req, data, timeout, args, kwargs):
         base = {"key": key, "seq": seq, "method": method, "url": shown}
@@ -248,12 +272,18 @@ class NetRecorder:
         return urllib.response.addinfourl(io.BytesIO(payload), _headers_message(pairs),
                                           final_url, status)
 
-    def _replay(self, key, seq, method, shown):
+    def _replay(self, key, seq, method, shown, tag=None, live=None):
         recs = self._recorded.get(key, [])
         if seq >= len(recs):
+            served = "live" if self._overlay is not None else "refused"
             with self._lock:
                 self.divergences.append({"key": key, "seq": seq, "method": method, "url": shown,
-                                         "recorded": len(recs)})
+                                         "recorded": len(recs), "slot": tag, "served": served})
+            if self._overlay is not None:
+                url_or_req, data, timeout, args, kwargs = live
+                oseq = self._overlay._next_seq(key, tag)
+                return self._overlay._record(key, oseq, method, shown, url_or_req, data,
+                                             timeout, args, kwargs)
             raise urllib.error.URLError(
                 f"freeze: запроса нет в записи ({method} {shown}, обращение #{seq + 1}, "
                 f"записано {len(recs)})")
@@ -278,4 +308,5 @@ class NetRecorder:
             "total_calls": sum(self.calls.values()),
             "divergences": list(self.divergences),
             "calls_by_key": dict(sorted(self.calls.items())),
+            "slots_by_key": {k: dict(sorted(v.items())) for k, v in sorted(self.slot_calls.items())},
         }

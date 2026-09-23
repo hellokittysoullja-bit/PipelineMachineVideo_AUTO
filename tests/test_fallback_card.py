@@ -218,22 +218,15 @@ class TestDensityBudget:
         assert not _ps.fallback_card_allowed(10, 165)
 
     def test_known_bad_reason_reads_existing_records_only(self, _ps):
-        """Функция не запускает новых проверок — читает то, что подбор уже
-        записал в этом прогоне, и ранжирует причины по силе сигнала."""
-        _ps.ARBITER_REJECTED_ALL.clear()
-        _ps.STOCK_EXHAUSTED_MISSES.clear()
-        _ps.RELEVANCE_GATE_MISSES.clear()
-        try:
-            assert _ps._slot_known_bad_reason(4) is None
-            _ps.RELEVANCE_GATE_MISSES.append({"index": 4})
-            assert _ps._slot_known_bad_reason(4) == "below_relevance_threshold"
-            _ps.ARBITER_REJECTED_ALL.append({"index": 4})
-            # Отказ арбитра сильнее численного промаха порога.
-            assert _ps._slot_known_bad_reason(4) == "arbiter_rejected_all"
-        finally:
-            _ps.ARBITER_REJECTED_ALL.clear()
-            _ps.STOCK_EXHAUSTED_MISSES.clear()
-            _ps.RELEVANCE_GATE_MISSES.clear()
+        """Функция не запускает новых проверок — читает вердикты, которые
+        попытка уже записала, и ранжирует причины по силе сигнала."""
+        verdicts = []
+        assert _ps.known_bad_reason(verdicts) is None
+        verdicts.append(("relevance", {"index": 4}))
+        assert _ps.known_bad_reason(verdicts) == "below_relevance_threshold"
+        verdicts.append(("arbiter", {"index": 4}))
+        # Отказ арбитра сильнее численного промаха порога.
+        assert _ps.known_bad_reason(verdicts) == "arbiter_rejected_all"
 
     def test_never_on_the_opening_shot(self, _ps):
         """Самый первый кадр ролика — единственное место, где карточка хуже

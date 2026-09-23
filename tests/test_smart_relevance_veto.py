@@ -88,12 +88,9 @@ def test_veto_score_none_is_not_rejected(monkeypatch):
 def test_known_bad_reason_reports_smart_veto_first(monkeypatch):
     """Прямой сигнал (модель посмотрела на РЕАЛЬНЫЙ финальный кадр) обязан
     иметь приоритет: это сильнее, чем отказ арбитра на превью шорт-листа."""
-    ps.ARBITER_REJECTED_ALL.append({"index": 5, "kind": "photo"})
-    ps.SMART_VETO_MISSES.append({"index": 5, "query": "q", "kind": "photo"})
-    try:
-        assert ps._slot_known_bad_reason(5) == "smart_relevance_veto"
-    finally:
-        ps.ARBITER_REJECTED_ALL.clear()
+    verdicts = [("arbiter", {"index": 5, "kind": "photo"}),
+                ("smart_veto", {"index": 5, "query": "q", "kind": "photo"})]
+    assert ps.known_bad_reason(verdicts) == "smart_relevance_veto"
 
 
 def test_video_helper_extracts_probe_and_cleans_up(monkeypatch, tmp_path):
