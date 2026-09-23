@@ -42,7 +42,17 @@ class Opener:
         a = self.answers.pop(0)
         if isinstance(a, Exception):
             raise a
+        if isinstance(a, Resp):
+            return a
         return Resp(json.dumps(a).encode())
+
+
+class Truncated(Resp):
+    """Статус 200 получен, тело оборвалось на середине (живой случай)."""
+
+    def read(self, *a):
+        import http.client
+        raise http.client.IncompleteRead(b'{"choi')
 
 
 def ok(text="{}", pt=100, ct=10):
@@ -112,3 +122,51 @@ def test_error_message_never_contains_the_key():
     with pytest.raises(lg.GatewayError) as e:
         lg.Gateway(api_key="sk-secret-value", opener=op).chat("m/free", [], 10, 10)
     assert "sk-secret-value" not in str(e.value) and "r9" in str(e.value)
+
+
+def test_truncated_body_is_retried_and_counted_as_spent():
+    """Живой прогон брифов упал целиком на http.client.IncompleteRead:
+    исключения не было в списке повторяемых. Оборванный ответ сервис,
+    скорее всего, уже списал — его резерв засчитывается в расход."""
+    op = Opener([Truncated(), ok("fine", pt=100, ct=10)])
+    gw = lg.Gateway(api_key="k", opener=op)
+    text, _u, price = gw.chat("m/vision", [], 50, 1000)
+    reserve = 1000 * 0.5 + 50 * 2
+    assert text == "fine" and gw.lost_bodies == 1
+    assert gw.spent == reserve + price and gw.reserved == 0
+
+
+def test_truncated_bodies_exhaust_retries_with_a_gateway_error():
+    op = Opener([Truncated() for _ in range(lg.MAX_ATTEMPTS)])
+    gw = lg.Gateway(api_key="k", opener=op)
+    with pytest.raises(lg.GatewayError, match="оборван"):
+        gw.chat("m/free", [], 10, 10)
+    assert gw.lost_bodies == lg.MAX_ATTEMPTS
+
+
+def test_empty_answer_is_an_error_that_names_the_reason():
+    """Рассуждающая модель израсходовала max_tokens на рассуждение: 13
+    оплаченных вызовов, ноль ответов, и снаружи это выглядело как
+    «модель промолчала». Теперь это ошибка с причиной, а деньги учтены."""
+    empty = {"choices": [{"message": {"content": ""}, "finish_reason": "length"}],
+             "usage": {"prompt_tokens": 100, "completion_tokens": 50,
+                       "completion_tokens_details": {"reasoning_tokens": 50}}}
+    gw = lg.Gateway(api_key="k", opener=Opener([empty]))
+    with pytest.raises(lg.EmptyAnswer) as e:
+        gw.chat("m/vision", [], 50, 1000)
+    assert "length" in str(e.value) and "50" in str(e.value)
+    assert gw.spent == 100 * 0.5 + 50 * 2 and gw.empty_answers == 1
+
+
+def test_brief_brain_turns_a_chapter_failure_into_an_empty_chapter():
+    import shot_brief_director as sbd
+
+    class Gw:
+        def __init__(self, exc):
+            self.exc = exc
+
+        def chat(self, *a, **k):
+            raise self.exc
+    assert sbd.GatewayBrain("m", gateway=Gw(lg.EmptyAnswer("пусто"))).ask("q", 3) == ""
+    with pytest.raises(lg.PaymentRequired):
+        sbd.GatewayBrain("m", gateway=Gw(lg.PaymentRequired("402"))).ask("q", 3)

@@ -670,9 +670,20 @@ class GatewayBrain:
         self.gateway = gateway or llm_gateway.Gateway()
 
     def ask(self, prompt, chapter_no):
-        text, _usage, _price = self.gateway.chat(
-            self.model, [{"type": "text", "text": prompt}],
-            self.MAX_TOKENS, self.EST_PROMPT_TOKENS)
+        """Сбой одной главы — пустая глава с названной причиной, а не обрыв
+        всего прогона: пустой ответ в кэш не пишется, повторный прогон
+        спросит эту главу снова. Кончились деньги (402) — остановка: каждый
+        следующий вызов упал бы так же."""
+        import llm_gateway
+        try:
+            text, _usage, _price = self.gateway.chat(
+                self.model, [{"type": "text", "text": prompt}],
+                self.MAX_TOKENS, self.EST_PROMPT_TOKENS)
+        except llm_gateway.PaymentRequired:
+            raise
+        except llm_gateway.GatewayError as e:
+            print(f"  глава {chapter_no}: мозг не ответил — {e}")
+            return ""
         return text
 
 
