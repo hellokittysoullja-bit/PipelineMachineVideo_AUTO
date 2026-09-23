@@ -272,7 +272,18 @@ def test_clock_decision_outside_the_record_breaks_equivalence():
     a = _result([_shot(0)])
     b = _result([_shot(0)])
     b["net"]["time_decisions"] = {"divergences": ["get|0|u"]}
-    assert not sf.compare(a, b)["ok"]
+    assert not sf.compare(a, b)["ok"], "старый формат без слота — судить не по чему"
+    b["net"]["time_decisions"] = {"divergences": [{"key": "get|0|u", "slot": 0}]}
+    assert not sf.compare(a, b)["ok"], "слот без причины"
+
+
+def test_clock_decision_inside_a_slot_with_cause_is_allowed():
+    a = _result([_shot(0), _shot(1)])
+    b = _result([_shot(0), _shot(1, file_sha256="x")])
+    b["net"]["time_decisions"] = {"divergences": [{"key": "get|0|u", "slot": 1}]}
+    assert sf.compare(a, b, {"slots": {"1": "fix"}})["ok"]
+    b["net"]["time_decisions"] = {"divergences": [{"key": "get|0|u", "slot": None}]}
+    assert not sf.compare(a, b, {"slots": {"1": "fix"}})["ok"]
 
 
 @pytest.mark.parametrize("bad", [{"slots": {"1": {"downstream_of": 0}}}, {"slots": {"1": ""}}])
@@ -316,6 +327,24 @@ def test_network_may_differ_only_inside_expected_slots():
     stray = _result([_shot(0), _shot(1, file_sha256="x")], net=_net(
         {"k": 1}, {"k": {"1": 1}}, [{"method": "GET", "url": "u", "seq": 0, "slot": 0}]))
     assert not sf.compare(base, stray, exp)["ok"]
+
+
+def test_shared_address_is_judged_per_slot():
+    """Реальный случай эпизода 93: адрес превью звучал в 18 слотах, новый код
+    добавил ОДНО обращение в слоте с причиной. Раньше адрес целиком считался
+    разошедшимся «вне слотов с причиной», хотя в остальных 18 слотах число
+    обращений совпало."""
+    base = _result([_shot(0), _shot(1)], net=_net({"k": 2}, {"k": {"0": 1, "1": 1}}))
+    extra_in_cause = _result([_shot(0), _shot(1, file_sha256="x")],
+                             net=_net({"k": 3}, {"k": {"0": 1, "1": 2}}))
+    rep = sf.compare(base, extra_in_cause, {"slots": {"1": "fix"}})
+    assert rep["ok"] and rep["net_calls_differ"]["k"]["slots_changed"] == ["1"]
+    extra_elsewhere = _result([_shot(0), _shot(1, file_sha256="x")],
+                              net=_net({"k": 3}, {"k": {"0": 2, "1": 1}}))
+    assert sf.compare(base, extra_elsewhere, {"slots": {"1": "fix"}})["net_unexpected"] == ["k"]
+    untagged = _result([_shot(0), _shot(1, file_sha256="x")], net=_net({"k": 3}, {}))
+    assert sf.compare(base, untagged, {"slots": {"1": "fix"}})["net_unexpected"] == ["k"], \
+        "разное число обращений без разметки слотами — судить не по чему"
 
 
 def test_slot_loop_range_is_the_loop_that_resolves_slots():
@@ -412,3 +441,35 @@ def test_returncode_may_change_only_when_named():
     assert not sf.compare(a, b)["ok"]
     assert sf.compare(a, b, {"returncode": "пустых слотов больше нет"})["ok"]
     assert not sf.compare(a, json.loads(json.dumps(a)), {"returncode": "заявлено, но не изменилось"})["ok"]
+
+
+def _contrib(**won):
+    return {"sources": {k: {"won": v, "offered": 10 + v} for k, v in won.items()}}
+
+
+def test_contribution_report_is_judged_against_the_screen():
+    """Сводный счёт источников по слотам не раскладывается. Законно его
+    расхождение, только когда сменились слоты с причиной И побед у каждого
+    источника ровно столько, сколько его кадров на экране. Реальный случай
+    эпизода 93: старый код писал Pexels 24 победы при 23 кадрах на экране."""
+    a = _result([_shot(0), _shot(1)], reports={sf.CONTRIBUTION_REPORT: _contrib(pexels=3)})
+    moved = [_shot(0), _shot(1, provider="pixabay", file_sha256="x")]
+    exp = {"slots": {"1": "fix"}}
+    good = _result(moved, reports={sf.CONTRIBUTION_REPORT: _contrib(pexels=1, pixabay=1)})
+    rep = sf.compare(a, good, exp)
+    assert rep["ok"]
+    assert rep["reports_differ"][sf.CONTRIBUTION_REPORT]["won_vs_screen"] == {
+        "a": {"pexels": [3, 2]}, "b": {}}
+    lying = _result(moved, reports={sf.CONTRIBUTION_REPORT: _contrib(pexels=2, pixabay=1)})
+    assert sf.CONTRIBUTION_REPORT in sf.compare(a, lying, exp)["reports_unexpected"]
+    unmoved = _result([_shot(0), _shot(1)], reports={sf.CONTRIBUTION_REPORT: _contrib(pexels=2)})
+    assert sf.CONTRIBUTION_REPORT in sf.compare(a, unmoved)["reports_unexpected"], \
+        "слоты не менялись — сводный счёт обязан совпасть"
+
+
+def test_gates_header_copy_of_contribution_is_judged_with_the_report():
+    a = _result([_shot(0)], gates={"g": 1, "source_contribution": {"pexels": 1}})
+    b = _result([_shot(0)], gates={"g": 1, "source_contribution": {"pexels": 2}})
+    assert not sf.compare(a, b)["gates_differ"]
+    c = _result([_shot(0)], gates={"g": 2, "source_contribution": {"pexels": 1}})
+    assert sf.compare(a, c)["gates_differ"]

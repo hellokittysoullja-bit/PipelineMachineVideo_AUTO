@@ -614,6 +614,7 @@ def child(mode, net_dir, sandbox, run_dir, pipeline=PIPELINE, overlay=""):
         slot = hits.pop("__slot__")
         slot_inputs = hits.pop("__inputs__")
         rec.tagger = lambda: slot["i"]
+        clock.tagger = rec.tagger
         try:
             rc = pipeline_smart.main()
         except SystemExit as e:
@@ -741,6 +742,33 @@ def slot_report_stray(ra, rb, allowed):
     return sorted(stray)
 
 
+CONTRIBUTION_REPORT = "source_contribution.json"
+
+
+def _gates_sans_contribution(run):
+    return {k: v for k, v in (run.get("gates") or {}).items() if k != "source_contribution"}
+
+
+def contribution_vs_screen(run):
+    """Сводный счёт побед источников против кадров на экране.
+
+    Сводный отчёт нельзя разложить по слотам, поэтому его расхождение
+    судится не разрешением, а проверкой: побед у каждого источника ровно
+    столько, сколько его кадров на экране. Возвращает (сходится?, различия)
+    или (None, None), если отчёта нет."""
+    rep = (run.get("reports") or {}).get(CONTRIBUTION_REPORT)
+    if not isinstance(rep, dict):
+        return None, None
+    won = {k: v.get("won", 0) for k, v in (rep.get("sources") or {}).items() if v.get("won")}
+    screen = {}
+    for s in run.get("shots", []):
+        if s.get("provider"):
+            screen[s["provider"]] = screen.get(s["provider"], 0) + 1
+    diff = {k: [won.get(k, 0), screen.get(k, 0)] for k in set(won) | set(screen)
+            if won.get(k, 0) != screen.get(k, 0)}
+    return not diff, diff
+
+
 def compare(a, b, expect=None):
     """Классификация по слоту — ровно один класс на слот:
 
@@ -806,6 +834,21 @@ def compare(a, b, expect=None):
         if name in rep_expect:
             reports[name] = {"a": ra, "b": rb, "expected_reason": rep_expect[name]}
             continue
+        if name == CONTRIBUTION_REPORT:
+            # Законно, только если изменились слоты с причиной (иначе пулы
+            # и победители те же) И новый счёт сходится с экраном.
+            ok_b, diff_b = contribution_vs_screen(b)
+            ok_a, diff_a = contribution_vs_screen(a)
+            slots_moved = any(s["class"] not in ("СОВПАЛ", "РАЗОШЁЛСЯ") and s["fields"]
+                              for s in slots)
+            reports[name] = {"a": ra, "b": rb, "expected_reason": None,
+                             "won_vs_screen": {"a": diff_a, "b": diff_b}}
+            if slots_moved and ok_b:
+                reports[name]["expected_reason"] = ("сменились победители слотов с причиной; "
+                                                    "побед у источников = кадров на экране")
+            else:
+                reports_bad.append(name)
+            continue
         stray = slot_report_stray(ra, rb, allowed)
         reports[name] = {"a": ra, "b": rb, "expected_reason": None,
                          "slots_outside_cause": stray}
@@ -819,21 +862,34 @@ def compare(a, b, expect=None):
     for k in sorted(set(ca) | set(cb)):
         if ca.get(k, 0) == cb.get(k, 0) and ta.get(k) == tb.get(k):
             continue
-        labels = set((ta.get(k) or {}).keys()) | set((tb.get(k) or {}).keys())
+        sa, sb = ta.get(k) or {}, tb.get(k) or {}
+        # Судится пара «адрес × слот», а не адрес целиком: общий адрес
+        # (превью, поиск по запросу секции) звучит во многих слотах, и
+        # лишнее обращение в слоте с названной причиной не делает
+        # необъяснёнными слоты, где число обращений совпало. Нет разметки
+        # слотами при разном числе обращений — судить не по чему, провал.
+        changed = {lb for lb in set(sa) | set(sb) if sa.get(lb, 0) != sb.get(lb, 0)}
         net_diff[k] = {"calls": [ca.get(k, 0), cb.get(k, 0)],
-                       "slots": [ta.get(k), tb.get(k)]}
-        if not (labels and all(lb != "none" and int(lb) in allowed for lb in labels)):
+                       "slots": [ta.get(k), tb.get(k)], "slots_changed": sorted(changed)}
+        if not (changed and all(lb != "none" and int(lb) in allowed for lb in changed)):
             net_bad.append(k)
     divergences = b.get("net", {}).get("divergences", [])
     div_bad = [d for d in divergences if d.get("slot") not in allowed]
-    clock_bad = (b.get("net", {}).get("time_decisions") or {}).get("divergences") or []
+    clock = (b.get("net", {}).get("time_decisions") or {}).get("divergences") or []
+    # Решение по часам вне записи законно только в слоте с причиной; запись
+    # без слота (старый формат, решение вне цикла слотов) — провал.
+    clock_bad = [d for d in clock
+                 if not (isinstance(d, dict) and d.get("slot") in allowed)]
     bad = [s for s in slots if s["class"] in ("РАЗОШЁЛСЯ", "НЕОЖИДАННО СОВПАЛ")]
     rc_ok = ((a.get("returncode") != b.get("returncode")) if rc_expect
              else (a.get("returncode") == b.get("returncode")))
+    # Счёт источников в шапке гейтов — копия сводного отчёта, судится вместе
+    # с ним (выше); остальная шапка обязана совпасть.
+    gates_differ = _gates_sans_contribution(a) != _gates_sans_contribution(b)
     ok = (not bad and not reports_bad and not net_bad and not div_bad and not clock_bad
-          and a.get("gates") == b.get("gates") and rc_ok)
+          and not gates_differ and rc_ok)
     return {"ok": ok, "slots": slots, "reports_differ": reports, "reports_unexpected": reports_bad,
-            "gates_differ": a.get("gates") != b.get("gates"),
+            "gates_differ": gates_differ,
             "returncode": [a.get("returncode"), b.get("returncode")],
             "net_calls_differ": net_diff, "net_unexpected": net_bad,
             "replay_divergences": divergences, "divergences_unexpected": div_bad,
@@ -851,11 +907,21 @@ def print_report(rep, a, b):
             extra += f"  [причина: {s['expected_reason']}]"
         print(f"  #{s['index'] + 1:<3} {s['class']:<19}{extra}")
     if rep.get("clock_divergences"):
-        print(f"\nрешения по часам вне записи: {len(rep['clock_divergences'])} "
-              f"(первое: {rep['clock_divergences'][0]})")
+        first = rep["clock_divergences"][0]
+        first = first.get("key") if isinstance(first, dict) else first
+        print(f"\nрешения по часам вне записи и вне слотов с причиной: "
+              f"{len(rep['clock_divergences'])} (первое: {first})")
     print(f"\nшапка гейтов: {'РАЗОШЛАСЬ' if rep['gates_differ'] else 'совпала'}")
     print(f"коды возврата: {rep['returncode'][0]} / {rep['returncode'][1]}")
     print(f"отчёты отбора: {'разошлись: ' + ', '.join(rep['reports_differ']) if rep['reports_differ'] else 'совпали'}")
+    wvs = (rep["reports_differ"].get(CONTRIBUTION_REPORT) or {}).get("won_vs_screen") \
+        if isinstance(rep["reports_differ"], dict) else None
+    if wvs:
+        for side, lbl in (("a", "было"), ("b", "стало")):
+            d = wvs.get(side)
+            print(f"    побед источников против кадров на экране ({lbl}): "
+                  + ("сходится" if d == {} else ("нет отчёта" if d is None else
+                     ", ".join(f"{k} {w} побед / {n} кадров" for k, (w, n) in sorted(d.items())))))
     if rep["reports_unexpected"]:
         print(f"    БЕЗ названной причины (или ожидались, но не разошлись): "
               f"{', '.join(rep['reports_unexpected'])}")
