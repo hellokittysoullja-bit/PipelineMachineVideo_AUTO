@@ -61,3 +61,5 @@ def test_main_compares_kinds_and_does_not_refetch_a_losing_photo():
     assert "pick_kind_by_judge(first_kind" in body
     assert body.index("pick_kind_by_judge(first_kind") < body.index('"VIDEO_PHOTO_RESCUE"')
     assert 'a.kind == "photo" and a.media' in body
+    assert "other_tried = any(a.kind == other_kind for a in slot_attempts)" in body
+    assert "and not other_tried" in body

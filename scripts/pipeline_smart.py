@@ -16201,10 +16201,13 @@ def main():
             import shot_judge
             first_att = attempt_of(slot_attempts, photo or video)
             first_score = first_att.notes.get("judge_score") if first_att else None
-            if (shot_judge_active() and not stat and d >= MIN_CLIP + 1.0
+            first_kind = "video" if video else "photo"
+            other_kind = "photo" if video else "video"
+            # Второй вид уже добывался в этом слоте (первый не дал кадра, и
+            # слот перешёл к нему) — повтор дал бы тот же отказ.
+            other_tried = any(a.kind == other_kind for a in slot_attempts)
+            if (shot_judge_active() and not stat and d >= MIN_CLIP + 1.0 and not other_tried
                     and isinstance(first_score, int) and first_score < shot_judge.SCORE_MAX):
-                first_kind = "video" if video else "photo"
-                other_kind = "photo" if video else "video"
                 other = fetch_in_attempt(slot_attempts, i, other_kind, select_media, request, other_kind)
                 if other:
                     other_att = attempt_of(slot_attempts, other)
