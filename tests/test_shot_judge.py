@@ -94,11 +94,36 @@ def test_grid_is_split_into_nines(tmp_path):
 
 
 def test_prompt_is_the_measured_one():
-    """Мир эпизода в вопросе ухудшил обе модели на замере — вопрос не должен
-    незаметно обрасти ни этой строкой, ни чем-то ещё без нового замера."""
+    """Паспорт целиком ухудшил судью, одна строка мира — улучшила (оба замера
+    в докстринге модуля). Вопрос не должен незаметно обрасти ни паспортом,
+    ни чем-то ещё без нового замера: без мира он прежний, с миром — ровно
+    одна строка при описании кадра."""
     q = sj.question("фраза", "brief", 9)
-    assert "Episode setting" not in q and "brief" in q and "фраза" in q
-    assert sj.PROMPT_VERSION == 1
+    assert "setting" not in q and "«brief»" in q and "фраза" in q
+    qs = sj.question("фраза", "brief", 9, setting="historical, 1300 AD-1500 AD")
+    assert "«brief — setting: historical, 1300 AD-1500 AD»" in qs
+    assert qs.replace(" — setting: historical, 1300 AD-1500 AD", "") == q
+    assert sj.PROMPT_VERSION == 2
+
+
+def test_setting_changes_the_cache_key_and_reaches_the_model(tmp_path):
+    cands = [("a", _img(tmp_path, "a", (10, 0, 0)))]
+    gw = FakeGateway({1: '{"scores": {"1": 2}}'})
+    sj.judge(gw, "m", phrase="p", brief="b", candidates=cands, cache_dir=str(tmp_path / "c"),
+             setting="historical, 1300 AD-1500 AD")
+    sj.judge(gw, "m", phrase="p", brief="b", candidates=cands, cache_dir=str(tmp_path / "c"))
+    assert len(gw.calls) == 2, "вопрос с миром и без мира — разные ключи кэша"
+
+
+def test_transparent_png_is_flattened_not_striped():
+    """Цвет прозрачных пикселей произволен: простое convert("RGB") показывал
+    его полосами (кинжалы Pixabay «isolated» в сетке судьи)."""
+    from PIL import Image
+    im = Image.new("RGBA", (4, 1), (255, 0, 255, 0))     # мусорный цвет, прозрачно
+    im.putpixel((0, 0), (10, 20, 30, 255))               # один видимый пиксель
+    flat = sj.flat_rgb(im)
+    assert flat.mode == "RGB" and flat.getpixel((0, 0)) == (10, 20, 30)
+    assert flat.getpixel((3, 0)) == (235, 235, 235), "прозрачное — фон, а не мусорный цвет"
 
 
 class ColourGateway:

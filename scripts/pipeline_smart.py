@@ -11294,13 +11294,15 @@ def judge_candidates(index, kind, phrase, brief, candidates_info):
     import shot_judge
     model = shot_judge_model()
     rep = {}
+    import world_card
+    setting = world_card.judge_setting(episode_world_card())
     scores = shot_judge.judge(gw, model, phrase=phrase, brief=brief,
                               candidates=[(str(c["p"].get("id")), c.get("judge_path") or c["path"])
                                           for c in judged],
                               cache_dir=os.path.join(TEMP_FOLDER, "shot_judge_cache"), report=rep,
-                              kind=kind)
+                              kind=kind, setting=setting)
     SHOT_JUDGE_LOG.append({"index": index, "kind": kind, "model": model, "brief": brief,
-                           "scores": scores, **rep})
+                           "setting": setting, "scores": scores, **rep})
     if scores is None:
         print(f"  слот {index}: судья кадров не ответил ({rep.get('refused')}) — ранжирование без него")
         return False

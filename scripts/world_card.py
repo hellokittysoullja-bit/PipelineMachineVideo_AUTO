@@ -267,6 +267,27 @@ def era_window(card):
     return None
 
 
+def judge_setting(card):
+    """Мир эпизода ОДНОЙ строкой для судьи кадров: регистр, окно эпохи и
+    культуры «включить», только из паспорта. Нечего сказать — None (судья
+    спрашивается как раньше). Списки «чужое» и «запрещено» сюда не входят
+    сознательно: длинный список запретов по замеру сжимал оценки судьи к
+    единице (см. shot_judge.question)."""
+    if not card:
+        return None
+    parts = []
+    reg = card.get("register")
+    if isinstance(reg, str) and reg.strip():
+        parts.append(reg.strip())
+    w = era_window(card)
+    if w:
+        def y(v):
+            return f"{-v} BC" if v < 0 else f"{v} AD"
+        parts.append(f"{y(w[0])}-{y(w[1])}")
+    parts.extend(culture_include(card))
+    return ", ".join(parts) or None
+
+
 def expected_subjects(card):
     """Предметы и сцены, которых эпизод реально требует, короткими
     английскими фразами — читатель: generic_fallback_queries_effective()

@@ -22,12 +22,14 @@
 дешевле вызовов по одному и не хуже по точности (Qwen стал точнее: 46 -> 54
 верных пар).
 
-МИРА ЭПИЗОДА В ВОПРОСЕ НЕТ — ПО ЗАМЕРУ. Строка из паспорта (годы, чужие
-культуры, «запрещено в кадре») ухудшила обе модели на тех же кадрах
-(верных пар из 61 при разметке строго по шкале ниже: Qwen 53 -> 45,
-Gemini 57 -> 42): длинный список запретов сжимает оценки к единице.
-Эпоху модель берёт из брифа и фразы. Вернуть её в вопрос — только после
-пользы на большой слепой разметке.
+МИР ЭПИЗОДА — ОДНОЙ СТРОКОЙ, А НЕ ПАСПОРТОМ (оба замера на кадрах эп. 94).
+Паспорт целиком (годы, чужие культуры, «запрещено в кадре») ухудшил обе
+модели (верных пар из 61: Qwen 53 -> 45, Gemini 57 -> 42): длинный список
+запретов сжимает оценки к единице. Одна строка «регистр, годы» из того же
+паспорта (world_card.judge_setting) — наоборот: брак чужой эпохи и
+культуры, одобренный Qwen, 10 -> 4 кадров из 36, верных пар 93 -> 116 из
+201 (см. question()). Без строки судья не знает эпохи, если описание кадра
+её не называет («a narrow rondel dagger blade» — современный нож проходил).
 
 ШКАЛА (та же, что замерена):
   3 — показан требуемый предмет и действие, в нужной эпохе и культуре;
@@ -53,7 +55,7 @@ import json
 import os
 import threading
 
-PROMPT_VERSION = 1
+PROMPT_VERSION = 2
 GRID_COLS = 3
 GRID_MAX = 9
 TILE = (400, 300)
@@ -98,8 +100,34 @@ LAYOUTS = {"photo": (GRID_COLS, TILE, GRID_MAX, PROMPT),
            "video": (1, (1200, 240), 6, PROMPT_VIDEO)}
 
 
-def question(phrase, brief, n, kind="photo"):
-    return LAYOUTS[kind][3].format(phrase=phrase or "—", brief=brief or phrase or "—", n=n)
+def question(phrase, brief, n, kind="photo", setting=None):
+    """Вопрос судье. setting — мир эпизода одной строкой (world_card.
+    judge_setting): без него судья не знает эпохи, если её нет в самом
+    описании кадра. Замер 23.09 (эпизод 94, 36 кадров, разметка автора
+    правки): Qwen 3.7 Plus одобрял брак чужой эпохи и культуры в 10 кадрах
+    из 36 (марокканское конное шоу — 3, современный нож на «кинжал» — 3),
+    со строкой мира — в 4; верных попарных сравнений 93 -> 116 из 201.
+    Полный паспорт (годы, чужие культуры, список запретов) по прежнему
+    замеру УХУДШАЛ судью — поэтому одна строка, а не паспорт."""
+    brief = brief or phrase or "—"
+    if setting:
+        brief = f"{brief} — setting: {setting}"
+    return LAYOUTS[kind][3].format(phrase=phrase or "—", brief=brief, n=n)
+
+
+def flat_rgb(im):
+    """RGB без мусора прозрачности. У PNG с прозрачным фоном (предмет
+    «isolated» со стока) цвет прозрачных пикселей произволен, и простое
+    convert("RGB") показывает его полосами — судья видел испорченный кадр
+    (живой случай: кинжалы Pixabay в сетке слота «Вот кинжал»). Прозрачное
+    кладётся на светлый фон, как такие снимки и задуманы."""
+    if im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info):
+        from PIL import Image
+        rgba = im.convert("RGBA")
+        bg = Image.new("RGB", rgba.size, (235, 235, 235))
+        bg.paste(rgba, mask=rgba.getchannel("A"))
+        return bg
+    return im.convert("RGB")
 
 
 def _grid_bytes(paths, kind="photo"):
@@ -116,7 +144,7 @@ def _grid_bytes(paths, kind="photo"):
             font = ImageFont.truetype(fp, 40)
             break
     for k, p in enumerate(paths):
-        im = Image.open(p).convert("RGB")
+        im = flat_rgb(Image.open(p))
         im.thumbnail((tile[0] - 8, tile[1] - 8))
         x, y = (k % cols) * tile[0], (k // cols) * tile[1]
         g.paste(im, (x + (tile[0] - im.width) // 2, y + (tile[1] - im.height) // 2))
@@ -220,7 +248,8 @@ def _judge_chunk(gateway, model, text, chunk, cache_dir, kind="photo"):
     return scores, {"cost": price, "call": True}
 
 
-def judge(gateway, model, *, phrase, brief, candidates, cache_dir=None, report=None, kind="photo"):
+def judge(gateway, model, *, phrase, brief, candidates, cache_dir=None, report=None, kind="photo",
+          setting=None):
     """candidates — [(id, путь к картинке)] в порядке прежнего ранжирования.
     Возвращает {id: оценка 0..3} для ВСЕХ кандидатов или None (судьи не было:
     нет ключа, сбой, неполный ответ, потолок расходов). Частичных ответов нет.
@@ -238,7 +267,7 @@ def judge(gateway, model, *, phrase, brief, candidates, cache_dir=None, report=N
     chunks = [candidates[i:i + per_grid] for i in range(0, len(candidates), per_grid)]
     with concurrent.futures.ThreadPoolExecutor(len(chunks)) as ex:
         answers = list(ex.map(lambda ch: _judge_chunk(gateway, model,
-                                                      question(phrase, brief, len(ch), kind),
+                                                      question(phrase, brief, len(ch), kind, setting),
                                                       ch, cache_dir, kind),
                               chunks))
     refused = None

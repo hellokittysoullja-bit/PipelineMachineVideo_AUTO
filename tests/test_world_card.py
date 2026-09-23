@@ -202,3 +202,12 @@ def test_prompt_carries_the_whole_script_and_asks_for_signed_years():
 
 def test_describe_never_lies_about_absent_card():
     assert "не задан" in wc.describe(None)
+
+
+def test_judge_setting_is_one_line_from_the_card_only():
+    card = {"register": "historical", "era": {"from": -2600, "to": -30},
+            "culture": {"include": ["egyptian"], "exclude": ["roman"]},
+            "must_not_show": ["modern tourist"]}
+    assert wc.judge_setting(card) == "historical, 2600 BC-30 BC, egyptian"
+    assert wc.judge_setting({"register": "abstract"}) == "abstract"
+    assert wc.judge_setting(None) is None and wc.judge_setting({}) is None

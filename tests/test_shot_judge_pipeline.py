@@ -65,7 +65,7 @@ def test_judge_candidates_scores_only_non_duplicates(tmp_path, monkeypatch):
     info = [_c("a", path=paths[0]), _c("b", path=paths[1]), _c("dup", path=paths[2], dup_free=0)]
     seen = {}
 
-    def fake_judge(gw, model, *, phrase, brief, candidates, cache_dir=None, report=None, kind):
+    def fake_judge(gw, model, *, phrase, brief, candidates, cache_dir=None, report=None, kind, setting=None):
         seen["ids"] = [cid for cid, _p in candidates]
         seen["brief"], seen["phrase"], seen["kind"] = brief, phrase, kind
         return {"a": 3, "b": 1}
@@ -75,6 +75,30 @@ def test_judge_candidates_scores_only_non_duplicates(tmp_path, monkeypatch):
     assert ps.judge_candidates(0, "photo", "Вот кинжал.", "a dagger", info)
     assert seen["ids"] == ["a", "b"] and seen["brief"] == "a dagger" and seen["kind"] == "photo"
     assert [c["judge"] for c in info] == [3, 1, None]
+
+
+def test_episode_world_reaches_the_judge_as_one_line(tmp_path, monkeypatch):
+    """Строка мира берётся ТОЛЬКО из паспорта эпизода; паспорта нет — None,
+    вопрос прежний."""
+    p = tmp_path / "a.jpg"
+    Image.new("RGB", (32, 32), (60, 0, 0)).save(p)
+    seen = {}
+
+    def fake_judge(gw, model, *, phrase, brief, candidates, cache_dir=None, report=None, kind,
+                   setting=None):
+        seen["setting"] = setting
+        return {"a": 2}
+    import shot_judge
+    monkeypatch.setattr(shot_judge, "judge", fake_judge)
+    monkeypatch.setattr(ps, "_shot_judge_gateway", lambda: object())
+    card = {"schema_version": 1, "register": "historical", "era": {"from": 1300, "to": 1500},
+            "culture": {"include": [], "exclude": ["asian"]}, "must_not_show": ["firearm"]}
+    monkeypatch.setattr(ps, "episode_world_card", lambda video_dir=None: card)
+    ps.judge_candidates(0, "photo", "Вот кинжал.", "a dagger", [_c("a", path=str(p))])
+    assert seen["setting"] == "historical, 1300 AD-1500 AD", "запреты и чужие культуры не входят"
+    monkeypatch.setattr(ps, "episode_world_card", lambda video_dir=None: None)
+    ps.judge_candidates(0, "photo", "Вот кинжал.", "a dagger", [_c("a", path=str(p))])
+    assert seen["setting"] is None
 
 
 def test_video_candidates_are_judged_by_their_strip(tmp_path, monkeypatch):
@@ -87,7 +111,7 @@ def test_video_candidates_are_judged_by_their_strip(tmp_path, monkeypatch):
     info = [dict(_c("v", path=str(mid)), judge_path=str(strip))]
     seen = {}
 
-    def fake_judge(gw, model, *, phrase, brief, candidates, cache_dir=None, report=None, kind):
+    def fake_judge(gw, model, *, phrase, brief, candidates, cache_dir=None, report=None, kind, setting=None):
         seen["paths"], seen["kind"] = [p for _cid, p in candidates], kind
         return {"v": 2}
     import shot_judge
