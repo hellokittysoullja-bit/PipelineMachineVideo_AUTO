@@ -7556,6 +7556,11 @@ class PhotoAdapter(selection_engine.MediaAdapter):
         # регрессионными тестами кэш-пути (test_parse.py), не на глаз.
         winner = None
         chosen_by = "first_result_no_dedup"
+        # Судья работает только в ветке с анти-дублем (там есть пул
+        # проверенных кандидатов); без неё судить нечего. Флаг обязан
+        # существовать в обеих ветках — иначе путь без анти-дубля падал бы
+        # UnboundLocalError и слот молча оставался пустым.
+        judged = False
         if used_hashes is None:
             pick = candidates[0]
             download(pick, cf)
