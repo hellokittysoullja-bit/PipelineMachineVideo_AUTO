@@ -24,6 +24,18 @@
       кадр, 1 — годная замена, 0 — брак. Печатает по слоту лучшую метку в
       пуле до фильтров, после фильтров и в первых N каждого порядка.
 
+  snapshot RUN_DIR... --labels L --episode EP --out FIXTURE
+      Снимок для гейта регрессий: пулы всех прогонов (вход каскада), их
+      эмбеддинги превью из дисковых кэшей каскада, метки и спецификации
+      кадров эпизода. Метки — {"<слот>|<вид>|<id>": 0|1|2}, у каждой
+      разметки своё имя оценщика (--rater); метки владельца старше.
+  rankcheck FIXTURE [--write-baseline]
+      Гейт регрессий: порядок пула считает ПРОД-код (cascade_reorder) на
+      всех снятых пулах. Падает, если в каком-то пуле лучший размеченный
+      кадр ушёл из первых --handoff (их видит судья) или годных там стало
+      меньше в сумме. Формулу каскада нельзя сменить, не пройдя все прошлые
+      пулы — так проверяется не один последний прогон, а все.
+
 ЧЕСТНЫЕ ПРЕДЕЛЫ. «Лучшее в пуле» — лучшее среди РАЗМЕЧЕННЫХ: размечается
 объединение верхушек порядков, а не весь пул в 700 кандидатов, поэтому
 recall@pool — оценка снизу. Порядок «по описанию кадра» — тот же каскад,
@@ -516,6 +528,171 @@ def cmd_bench(a):
     return 0
 
 
+# --- гейт регрессий каскада -------------------------------------------------
+
+RATER_PRIORITY = ("owner", "claude")   # первым — чья метка побеждает
+
+
+def _cand(row, kind):
+    """Кандидат в той форме, которую ждёт cascade_reorder: id и признак
+    видео (по нему у Pixabay выбирается имя превью в кэше)."""
+    p = {"id": row.get("id"), "_probe": row.get("probe_url")}
+    if kind == "video":
+        p["video_files"] = [None]
+    return p
+
+
+def cmd_snapshot(a):
+    import numpy as np
+    import pipeline_smart as ps
+    os.makedirs(a.out, exist_ok=True)
+    n = ps.cascade_preview_n()
+    pools, want = [], {}
+    for run_dir in a.run_dir:
+        name = os.path.basename(os.path.normpath(run_dir))
+        for (index, kind), rec in sorted(load_pools(run_dir).items()):
+            rows = [{"id": r.get("id"), "probe_url": r.get("probe_url")} for r in rec["pool"][:n]]
+            pools.append({"run": name, "index": index, "kind": kind,
+                          "block_text": rec.get("block_text"), "shot_brief": rec.get("shot_brief"),
+                          "query": rec.get("query"), "rows": rows})
+            for r in rows:
+                key = ps._cascade_key(ps._cascade_ident(_cand(r, kind), r["probe_url"]))
+                want[key] = None
+    for d in a.emb_cache or []:
+        for key in want:
+            if want[key] is None:
+                fp = os.path.join(d, key + ".npy")
+                if os.path.exists(fp):
+                    want[key] = np.load(fp)
+    keys = sorted(k for k, v in want.items() if v is not None)
+    np.savez_compressed(os.path.join(a.out, "emb.npz"), keys=np.array(keys),
+                        vecs=np.stack([want[k] for k in keys]).astype(np.float16))
+    import gzip
+    with gzip.open(os.path.join(a.out, "pools.json.gz"), "wt", encoding="utf-8") as f:
+        json.dump(pools, f, ensure_ascii=False)
+    with open(os.path.join(a.episode, "media_plan", "stock_queries.json"), encoding="utf-8") as f:
+        plan = json.load(f)
+    texts = {rec.get("block_text") for rec in pools}
+    plan = {"units": {k: u for k, u in (plan.get("units") or {}).items() if u.get("text") in texts}}
+    with open(os.path.join(a.out, "specs.json"), "w", encoding="utf-8") as f:
+        json.dump(plan, f, ensure_ascii=False, indent=1)
+    lab_path = os.path.join(a.out, "labels.json")
+    labels = json.load(open(lab_path, encoding="utf-8")) if os.path.exists(lab_path) else {}
+    with open(a.labels, encoding="utf-8") as f:
+        new = json.load(f)
+    labels.setdefault(a.rater, {}).update(
+        {k: (v[0] if isinstance(v, list) else v) for k, v in new.items()})
+    with open(lab_path, "w", encoding="utf-8") as f:
+        json.dump(labels, f, ensure_ascii=False, indent=0, sort_keys=True)
+    print(f"пулов {len(pools)}, эмбеддингов {len(keys)} из {len(want)}, "
+          f"меток {sum(len(v) for v in labels.values())}")
+
+
+def merged_labels(labels):
+    """Одна метка на кадр: у кого выше приоритет, того и метка."""
+    out = {}
+    for rater in reversed(RATER_PRIORITY):
+        out.update(labels.get(rater, {}))
+    for rater, d in labels.items():
+        if rater not in RATER_PRIORITY:
+            for k, v in d.items():
+                out.setdefault(k, v)
+    return out
+
+
+def fixture_orders(fix):
+    """Порядок каждого снятого пула по ПРОД-коду каскада. Эмбеддинги превью
+    — из снимка (в кэш каскада процесса), скачиваний нет."""
+    import numpy as np
+    import pipeline_smart as ps
+    z = np.load(os.path.join(fix, "emb.npz"))
+    for k, v in zip(z["keys"], z["vecs"]):
+        ps._CASCADE_EMB[str(k)] = v.astype(np.float32)
+    import gzip
+    with gzip.open(os.path.join(fix, "pools.json.gz"), "rt", encoding="utf-8") as f:
+        pools = json.load(f)
+    plan = json.load(open(os.path.join(fix, "specs.json"), encoding="utf-8"))
+    specs = {u.get("text"): u for u in ((plan or {}).get("units") or {}).values()}
+
+    def no_probe(p, path):
+        raise OSError("снимок: превью без эмбеддинга не скачивается")
+
+    import shutil
+    out = {}
+    tmp = tempfile.mkdtemp(prefix="rankcheck_")
+    try:
+        for rec in pools:
+            kind = rec["kind"]
+            cands = [_cand(r, kind) for r in rec["rows"]]
+            spec = specs.get(rec.get("block_text"))
+            brief = rec.get("shot_brief") or rec.get("query")
+            ranked = ps.cascade_reorder(
+                cands, ps.cascade_texts(spec, brief, kind), os.path.join(tmp, "x"), no_probe,
+                index=rec["index"], url_of=lambda p: p["_probe"],
+                claims=ps.cascade_claims(spec, kind))
+            out[f"{rec['run']}|{rec['index']}|{kind}"] = [str(p["id"]) for p in ranked]
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return out
+
+
+def rank_metrics(orders, labels, handoff):
+    """По каждому пулу: лучшая метка среди первых handoff и сколько там
+    годных (метка >= 1). Пулы без меток в первых handoff не считаются."""
+    lab = merged_labels(labels)
+    out = {}
+    for key, ids in orders.items():
+        run, index, kind = key.split("|")
+        head = [lab.get(f"{index}|{kind}|{i}") for i in ids[:handoff]]
+        head = [x for x in head if x is not None]
+        pool = [lab.get(f"{index}|{kind}|{i}") for i in ids]
+        pool = [x for x in pool if x is not None]
+        if not pool:
+            continue
+        out[key] = {"best": max(head) if head else None, "good": sum(1 for x in head if x >= 1),
+                    "best_in_pool": max(pool)}
+    return out
+
+
+def rankcheck_failures(now, base):
+    """Что стало хуже против базовой линии: лучший кадр ушёл из головы в
+    каком-то пуле, либо годных в головах стало меньше в сумме."""
+    bad = []
+    for key, b in base.items():
+        m = now.get(key)
+        if m is None:
+            bad.append(f"{key}: пул пропал из замера")
+            continue
+        if (m["best"] if m["best"] is not None else -1) < (b["best"] if b["best"] is not None else -1):
+            bad.append(f"{key}: лучший в первых — {m['best']} вместо {b['best']}")
+    g_now = sum(m["good"] for m in now.values())
+    g_base = sum(b["good"] for b in base.values())
+    if g_now < g_base:
+        bad.append(f"годных в первых всего {g_now} вместо {g_base}")
+    return bad
+
+
+def cmd_rankcheck(a):
+    labels = json.load(open(os.path.join(a.fixture, "labels.json"), encoding="utf-8"))
+    now = rank_metrics(fixture_orders(a.fixture), labels, a.handoff)
+    base_path = os.path.join(a.fixture, "baseline.json")
+    for key in sorted(now):
+        m = now[key]
+        print(f"  {key:22} лучший {m['best']}  годных {m['good']:2}  (лучший в пуле {m['best_in_pool']})")
+    print(f"годных в первых {a.handoff}: {sum(m['good'] for m in now.values())}")
+    if a.write_baseline:
+        with open(base_path, "w", encoding="utf-8") as f:
+            json.dump({"handoff": a.handoff, "metrics": now}, f, ensure_ascii=False, indent=1, sort_keys=True)
+        print(f"базовая линия записана: {base_path}")
+        return 0
+    base = json.load(open(base_path, encoding="utf-8"))
+    bad = rankcheck_failures(now, base["metrics"])
+    for line in bad:
+        print("  ХУЖЕ:", line)
+    print("гейт регрессий:", "ПРОЙДЕН" if not bad else f"НЕ ПРОЙДЕН ({len(bad)})")
+    return 1 if bad else 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -557,6 +734,19 @@ def main(argv=None):
     b.add_argument("--grid", action="store_true", help="плюс сетка судьи: разводит равные уровни")
     b.add_argument("--out")
     b.set_defaults(fn=cmd_bench)
+    sn = sub.add_parser("snapshot")
+    sn.add_argument("run_dir", nargs="+")
+    sn.add_argument("--labels", required=True)
+    sn.add_argument("--rater", default="claude")
+    sn.add_argument("--episode", required=True)
+    sn.add_argument("--out", required=True)
+    sn.add_argument("--emb-cache", action="append")
+    sn.set_defaults(fn=cmd_snapshot)
+    rc = sub.add_parser("rankcheck")
+    rc.add_argument("fixture")
+    rc.add_argument("--handoff", type=int, default=20)
+    rc.add_argument("--write-baseline", action="store_true")
+    rc.set_defaults(fn=cmd_rankcheck)
     for sp in (s, r, b):
         sp.add_argument("--phrase-queries", help="media_plan/stock_queries.json эпизода")
         sp.add_argument("--emb-cache", action="append",

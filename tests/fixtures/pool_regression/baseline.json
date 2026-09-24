@@ -1,0 +1,250 @@
+{
+ "handoff": 20,
+ "metrics": {
+  "judge11|0|photo": {
+   "best": 2,
+   "best_in_pool": 2,
+   "good": 16
+  },
+  "judge11|1|photo": {
+   "best": 2,
+   "best_in_pool": 2,
+   "good": 5
+  },
+  "judge11|2|photo": {
+   "best": 2,
+   "best_in_pool": 2,
+   "good": 4
+  },
+  "judge11|3|photo": {
+   "best": 1,
+   "best_in_pool": 1,
+   "good": 16
+  },
+  "judge11|3|video": {
+   "best": 1,
+   "best_in_pool": 1,
+   "good": 1
+  },
+  "judge11|4|photo": {
+   "best": 2,
+   "best_in_pool": 2,
+   "good": 9
+  },
+  "judge11|4|video": {
+   "best": 1,
+   "best_in_pool": 1,
+   "good": 1
+  },
+  "judge11|5|photo": {
+   "best": 1,
+   "best_in_pool": 1,
+   "good": 3
+  },
+  "judge11|5|video": {
+   "best": 0,
+   "best_in_pool": 0,
+   "good": 0
+  },
+  "judge11|6|photo": {
+   "best": 2,
+   "best_in_pool": 2,
+   "good": 10
+  },
+  "judge11|6|video": {
+   "best": 1,
+   "best_in_pool": 1,
+   "good": 1
+  },
+  "judge11|7|photo": {
+   "best": 1,
+   "best_in_pool": 1,
+   "good": 10
+  },
+  "judge11|7|video": {
+   "best": 0,
+   "best_in_pool": 1,
+   "good": 0
+  },
+  "judge11|8|photo": {
+   "best": 1,
+   "best_in_pool": 1,
+   "good": 8
+  },
+  "judge11|8|video": {
+   "best": 1,
+   "best_in_pool": 1,
+   "good": 4
+  },
+  "judge12|0|photo": {
+   "best": 2,
+   "best_in_pool": 2,
+   "good": 16
+  },
+  "judge12|1|photo": {
+   "best": 2,
+   "best_in_pool": 2,
+   "good": 5
+  },
+  "judge12|1|video": {
+   "best": 0,
+   "best_in_pool": 1,
+   "good": 0
+  },
+  "judge12|2|photo": {
+   "best": 2,
+   "best_in_pool": 2,
+   "good": 4
+  },
+  "judge12|2|video": {
+   "best": 1,
+   "best_in_pool": 1,
+   "good": 2
+  },
+  "judge12|3|photo": {
+   "best": 1,
+   "best_in_pool": 1,
+   "good": 16
+  },
+  "judge12|3|video": {
+   "best": 1,
+   "best_in_pool": 1,
+   "good": 1
+  },
+  "judge12|4|photo": {
+   "best": 2,
+   "best_in_pool": 2,
+   "good": 9
+  },
+  "judge12|4|video": {
+   "best": 1,
+   "best_in_pool": 1,
+   "good": 1
+  },
+  "judge12|5|photo": {
+   "best": 1,
+   "best_in_pool": 1,
+   "good": 3
+  },
+  "judge12|5|video": {
+   "best": 0,
+   "best_in_pool": 0,
+   "good": 0
+  },
+  "judge12|6|photo": {
+   "best": 2,
+   "best_in_pool": 2,
+   "good": 10
+  },
+  "judge12|6|video": {
+   "best": 1,
+   "best_in_pool": 1,
+   "good": 1
+  },
+  "judge12|7|photo": {
+   "best": 1,
+   "best_in_pool": 1,
+   "good": 9
+  },
+  "judge12|7|video": {
+   "best": 0,
+   "best_in_pool": 1,
+   "good": 0
+  },
+  "judge12|8|photo": {
+   "best": 1,
+   "best_in_pool": 1,
+   "good": 8
+  },
+  "judge12|8|video": {
+   "best": 1,
+   "best_in_pool": 1,
+   "good": 4
+  },
+  "judge9|0|photo": {
+   "best": 2,
+   "best_in_pool": 2,
+   "good": 13
+  },
+  "judge9|1|photo": {
+   "best": 2,
+   "best_in_pool": 2,
+   "good": 5
+  },
+  "judge9|1|video": {
+   "best": 0,
+   "best_in_pool": 1,
+   "good": 0
+  },
+  "judge9|2|photo": {
+   "best": 2,
+   "best_in_pool": 2,
+   "good": 5
+  },
+  "judge9|2|video": {
+   "best": 1,
+   "best_in_pool": 1,
+   "good": 2
+  },
+  "judge9|3|photo": {
+   "best": 1,
+   "best_in_pool": 1,
+   "good": 5
+  },
+  "judge9|3|video": {
+   "best": 1,
+   "best_in_pool": 1,
+   "good": 1
+  },
+  "judge9|4|photo": {
+   "best": 2,
+   "best_in_pool": 2,
+   "good": 5
+  },
+  "judge9|4|video": {
+   "best": 1,
+   "best_in_pool": 1,
+   "good": 2
+  },
+  "judge9|5|photo": {
+   "best": 1,
+   "best_in_pool": 2,
+   "good": 1
+  },
+  "judge9|5|video": {
+   "best": 0,
+   "best_in_pool": 0,
+   "good": 0
+  },
+  "judge9|6|photo": {
+   "best": 2,
+   "best_in_pool": 2,
+   "good": 1
+  },
+  "judge9|6|video": {
+   "best": 1,
+   "best_in_pool": 1,
+   "good": 2
+  },
+  "judge9|7|photo": {
+   "best": 1,
+   "best_in_pool": 1,
+   "good": 2
+  },
+  "judge9|7|video": {
+   "best": 0,
+   "best_in_pool": 1,
+   "good": 0
+  },
+  "judge9|8|photo": {
+   "best": 1,
+   "best_in_pool": 1,
+   "good": 6
+  },
+  "judge9|8|video": {
+   "best": 1,
+   "best_in_pool": 1,
+   "good": 2
+  }
+ }
+}
