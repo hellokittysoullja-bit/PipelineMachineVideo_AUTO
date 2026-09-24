@@ -82,3 +82,5 @@ temp_selection_freeze/
 # правило — весь класс (тот же урок, что с .env.bak).
 models/
 *.gguf
+# Кэш сырых ответов поиска Wikimedia Commons (commons_source.py) — продукт, не исходник
+temp_commons_cache/

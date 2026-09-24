@@ -51,7 +51,10 @@ def test_clean_query_keeps_only_short_latin_queries():
     assert sqp.clean_query(' "Medieval Battle Reenactment". ') == "medieval battle reenactment"
     assert sqp.clean_query("1. knight armour mud") == "knight armour mud"
     assert sqp.clean_query("рыцарь в грязи") is None
-    assert sqp.clean_query("a b c d e f g") is None
+    # Запрос-знание называет работу архивным названием: до 7 слов, с годом.
+    assert sqp.clean_query("Battle of Poitiers 1356 miniature") == "battle of poitiers 1356 miniature"
+    assert sqp.clean_query("a b c d e f g") == "a b c d e f g"
+    assert sqp.clean_query("a b c d e f g h") is None
     assert sqp.clean_query("") is None
 
 

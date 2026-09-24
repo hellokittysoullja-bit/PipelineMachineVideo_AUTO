@@ -6638,6 +6638,65 @@ def auto_plan_episode(blocks, video_dir=None):
               f"отбор идёт по плану с диска, если он есть")
 
 
+RESEARCH_ROUND_LOG = []        # по слоту: новые запросы второго круга и чем кончилось
+_RESEARCH_GATEWAY = []
+
+
+def _research_gateway():
+    """Шлюз второго круга поиска — один на прогон, со своим потолком
+    расходов (RESEARCH_MAX_SPEND, по умолчанию как у планировщика): это та
+    же работа мозга, что спецификации фраз, но по слотам, где первый круг
+    ничего не дал."""
+    if not _RESEARCH_GATEWAY:
+        import llm_gateway
+        raw = (os.environ.get("RESEARCH_MAX_SPEND") or "").strip()
+        cap = int(raw) if raw.isdigit() else PLANNER_DEFAULT_SPEND_CAP
+        _RESEARCH_GATEWAY.append(llm_gateway.Gateway(spend_cap=cap))
+    return _RESEARCH_GATEWAY[0]
+
+
+def research_round_request(index, block, request):
+    """Запрос слота для второго круга поиска или None.
+
+    Первый круг ничего годного не дал (проверка отклонила всех финалистов).
+    Мозг получает фразу, пункты, опробованные запросы и причины отказов
+    (shot_research) и пишет новые запросы; куча второго круга собирается
+    ТОЛЬКО из них — со старыми запросами сортировка снова поставила бы
+    перед судьёй тот же мусор. None — второго круга не будет: флаг снят,
+    нет ключа или спецификации, модель ничего нового не предложила."""
+    if not feature_flags.enabled("RESEARCH_ROUND"):
+        return None
+    spec = block.get("shot_spec")
+    if not spec or not (os.environ.get("LLM_GATEWAY_API_KEY") or "").strip():
+        return None
+    import dataclasses
+    import shot_research
+    import stock_query_planner
+    import world_card
+    tried = shot_research.tried_queries(spec, (request.query, *request.extra_queries))
+    rejections = shot_research.rejections_from_log(SHOT_JUDGE_LOG, index)
+    setting = world_card.judge_setting(episode_world_card())
+    entry = {"index": index, "phrase": block.get("text"), "tried": tried, "rejections": rejections}
+    try:
+        items, origin = shot_research.new_queries(
+            VIDEO_FOLDER, _research_gateway(), stock_query_planner.DEFAULT_MODEL,
+            phrase=block.get("text"), spec=spec, setting=setting, tried=tried, rejections=rejections)
+    except Exception as e:  # noqa: BLE001 — второй круг не имеет права уронить слот
+        entry["error"] = f"{type(e).__name__}: {str(e)[:200]}"
+        RESEARCH_ROUND_LOG.append(entry)
+        print(f"    [{index+1}] второй круг поиска не состоялся: {entry['error']}")
+        return None
+    entry.update({"queries": [it["q"] for it in items], "origin": origin})
+    RESEARCH_ROUND_LOG.append(entry)
+    if not items:
+        print(f"    [{index+1}] второй круг поиска: модель не предложила новых запросов")
+        return None
+    print(f"    [{index+1}] второй круг поиска ({origin}): " + "; ".join(it["q"] for it in items))
+    return dataclasses.replace(
+        request, query=items[0]["q"], extra_queries=tuple(it["q"] for it in items[1:]),
+        shot_spec=dict(spec, queries=shot_research.as_spec_queries(items)))
+
+
 def episode_world_card(video_dir=None):
     """Паспорт мира этого эпизода или None. Сломанный файл — исключение,
     а не None: на паспорте держится приёмка кадра, и «тихо считать, что
@@ -7820,6 +7879,13 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                 # против текста, которым его нашли.
                 fetched = fetch(pq, brief=shelf_question(shot_brief, block_text,
                                                          request.shot_spec) or None)
+            elif source_name == "commons":
+                # В АРХИВ — запрос планировщика как есть, без стоковой
+                # приписки эпохи (тот же довод, что у музея выше): поиск
+                # Commons требует ВСЕ слова, и «european medieval» перед
+                # «battle of agincourt chronicle» только сужает выдачу. Эпоху
+                # и культуру кадра проверяет судья мира, а не слово в запросе.
+                fetched = fetch(pq)
             elif source_name == "pexels" and not pexels_query_allowed(
                     api_q, _PEXELS_SEARCH_CACHE, pq not in slot_own_queries(request)):
                 fetched = []
@@ -16394,6 +16460,9 @@ def main():
                              world_votes=None)
     _VIDEO_UNSHARP_CACHE.clear()
     SHOT_JUDGE_LOG.clear()
+    # Второй круг поиска — журнал и шлюз (со своим потолком) на прогон.
+    RESEARCH_ROUND_LOG.clear()
+    _RESEARCH_GATEWAY.clear()
     # Каталоги попыток прерванного процесса — мусор: живых попыток при
     # старте нет, и в кэш такой файл не попадёт никогда.
     selection_attempt.sweep_orphans(os.path.join(TEMP_FOLDER, "staging"))
@@ -17085,6 +17154,28 @@ def main():
                 if page2 and page2_att is not None and not known_bad_reason(page2_att.verdicts):
                     print(f"    [{i+1}] кадр найден на второй странице каскада")
                     photo, video = page2, None
+            # ВТОРОЙ КРУГ ПОИСКА (shot_research): годного кадра нет и на
+            # второй странице — значит его нет в том, что принесли запросы
+            # первого круга (замер глубины пула эп.94, места 21-200). Мозг
+            # видит причины отказов и пишет новые запросы; новая куча
+            # проходит того же судью. Нашлось — кадр на экран, нет — прежний
+            # путь (поглощение соседним кадром).
+            cur_att = attempt_of(slot_attempts, photo or video)
+            if (shot_judge_active(i) and not locked_shot
+                    and (cur_att is None or known_bad_reason(cur_att.verdicts))):
+                req2 = research_round_request(i, b, request)
+                if req2 is not None:
+                    import stock_query_planner
+                    kinds = (["video", "photo"] if stock_query_planner.has_motion(req2.shot_spec, must=True)
+                             and d >= MIN_CLIP + 1.0 and not stat else ["photo"])
+                    for k2 in kinds:
+                        got = fetch_in_attempt(slot_attempts, i, k2, select_media, req2, k2)
+                        got_att = attempt_of(slot_attempts, got)
+                        if got and got_att is not None and not known_bad_reason(got_att.verdicts):
+                            print(f"    [{i+1}] кадр найден вторым кругом поиска ({k2})")
+                            photo, video = (got, None) if k2 == "photo" else (None, got)
+                            RESEARCH_ROUND_LOG[-1]["found"] = k2
+                            break
             # Раньше Pexels отключался навсегда после ЛЮБОГО промаха, включая
             # обычную пустую выдачу по одному неудачному запросу. Гасим источник
             # только если API реально отвалился.
@@ -17809,6 +17900,17 @@ def main():
             s_ = gw.summary()
             print(f"  Судья кадров: вызовов {s_['calls']}, сбоев {s_['failures']}, потрачено "
                   f"{s_['spent']} из {s_['spend_cap']}" + (f" — ВЫКЛЮЧЕН: {s_['dead']}" if s_['dead'] else ""))
+    if RESEARCH_ROUND_LOG:
+        # Второй круг поиска: какие новые запросы написал мозг по какому
+        # слоту и нашёлся ли с ними кадр — иначе по готовому ролику не
+        # ответить, откуда взялся кадр и во сколько обошёлся.
+        rgw = _RESEARCH_GATEWAY[0] if _RESEARCH_GATEWAY else None
+        with open(os.path.join(VIDEO_FOLDER, "media_plan", "research_round_report.json"), "w",
+                  encoding="utf-8") as f:
+            json.dump({"gateway": rgw.summary() if rgw else None, "slots": RESEARCH_ROUND_LOG},
+                      f, ensure_ascii=False, indent=1)
+        found = sum(1 for e in RESEARCH_ROUND_LOG if e.get("found"))
+        print(f"  Второй круг поиска: слотов {len(RESEARCH_ROUND_LOG)}, кадр найден в {found}")
     if SHOT_JUDGE_MISSES:
         print(f"  ВНИМАНИЕ: {len(SHOT_JUDGE_MISSES)} слот(ов) {[m['index'] for m in SHOT_JUDGE_MISSES]} — "
               f"судья кадров оценил лучший найденный кадр как брак — см. "

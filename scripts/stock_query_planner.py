@@ -74,6 +74,7 @@ CORE_ID = "core"
 # расход квоты стоков на одну фразу.
 MAX_CLAIMS = 5
 MAX_QUERIES = 6
+QUERY_MAX_WORDS = 7
 # Модель выбрана замером 24.09 (58 фраз трёх ниш — кинжал, психология,
 # глубоководье — без авторских описаний кадра, одна инструкция на всех):
 # DeepSeek v4 Flash разобрал 58/58 во всех прогонах, главное конкретное и
@@ -95,10 +96,9 @@ focus — the new thing this line says, understood in the context of the chapter
 
 core — WHO or WHAT must be visible: the single thing (an object, a person, an animal, a place) that, even alone in a picture, still makes the viewer think of this line — with the state that defines it, if any ("an exhausted person", "a burnt letter"). Name the thing, not an event: what it does goes into the claims. Ask yourself: if the picture could show only one thing, which one? When the line is about something happening to, on or around something else, the core is what the line is about — usually the thing that moves, acts or changes — not the surface, place or object it happens on. When the line is abstract (a feeling, an idea, a process, an argument), the core is a concrete situation, a bodily sign or an object left behind that a camera can photograph and a viewer reads as this idea — never a bare "a person is visible" or an invisible thing like "a memory" or "a brain decision": say what makes the picture show THIS line ("a person slumped over an untouched plate", "a crumpled paper covered in red corrections"). Never make words, captions, labels, signs or logos in the picture part of the core or of a claim — the viewer hears the words, the picture shows things — unless the line is about that very document, chart, headline, sign or screen. Write it as a statement: "a ball is visible".
 
-
 claims — 1 to {c1} more statements checkable by looking at the picture, most important first. Each checks ONE thing (an object, an action, a place, a detail) and does not repeat the core. "tier": "must" if without it the picture does not show this line, "should" if it only makes the picture better. If the line is about a movement that only footage can show, one claim has "motion": true and describes this movement; lines about objects, places or states have no motion claim.
 
-queries — 3 to {q} different search queries, each 2 to 4 English words, for free stock sites (photos and videos) and museum or archive search. Write queries for what really exists in such libraries for this setting: things photographed or filmed today (people, staged scenes, re-enactments, museum objects, places, nature, close-ups) and, where the setting is historical, old artworks (paintings, engravings, manuscript miniatures). "for" lists the ids of what the query can find ("core" or claim ids). "type" says what kind of picture the query finds: "object" (one thing on its own, a museum object), "scene" (people, a place, an event), "illustration" (a painting, engraving or manuscript), "map" or "texture". Most queries look for the core; try different ways to find it (another kind of picture, another wording), not the same words with an extra word.
+queries — 3 to {q} different search queries for free stock sites (photos and videos) and museum or archive search, each 2 to 4 English words. Write queries for what really exists in such libraries for this setting: things photographed or filmed today (people, staged scenes, re-enactments, museum objects, places, nature, close-ups) and, where the setting is historical, old artworks (paintings, engravings, manuscript miniatures). When the setting is historical and you know an old artwork that shows this very event, moment or thing — a chronicle or manuscript illustration, a drawing from a period treatise, a known painting — add one query that names it the way an archive titles it (the event or the work, the chronicle, manuscript or artist; up to 7 words, a year is allowed) with "type": "illustration". Name only works you know exist; if you know none, add none. Every word of a query must mean only what you want: a word with another common meaning that a search engine would match (fall — autumn, bank — money, crane — bird) needs a word that fixes its meaning. "for" lists the ids of what the query can find ("core" or claim ids). "type" says what kind of picture the query finds: "object" (one thing on its own, a museum object), "scene" (people, a place, an event), "illustration" (a painting, engraving or manuscript), "map" or "texture". Most queries look for the core; try different ways to find it (another kind of picture, another wording), not the same words with an extra word.
 
 Example from another film, «The ball bounced off the wall and rolled away» — the core is the ball, not the wall:
 {{"n": 3, "focus": "a ball bouncing off a wall", "core": "a ball is visible", "claims": [{{"id": "c1", "text": "the ball bounces off a wall", "tier": "must", "motion": true}}, {{"id": "c2", "text": "a wall", "tier": "should"}}], "queries": [{{"q": "ball bouncing wall", "for": ["core", "c1", "c2"], "type": "scene"}}, {{"q": "ball rolling", "for": ["core"], "type": "scene"}}, {{"q": "ball close up", "for": ["core"], "type": "object"}}]}}
@@ -109,7 +109,9 @@ Answer with one JSON object per narration line, one per line, and nothing else �
 
 RETRY_NOTE = "\n\n(Answer again: one JSON object per numbered line, every line, nothing else.)"
 
-_QUERY_RE = re.compile(r"^[a-z][a-z'\- ]*[a-z]$")
+# Цифры разрешены: запрос-знание называет работу архивным названием, и год
+# или век в нём — часть названия («battle of poitiers 1356 miniature»).
+_QUERY_RE = re.compile(r"^[a-z0-9][a-z0-9'\- ]*[a-z0-9]$")
 
 
 def _clean(s):
@@ -118,13 +120,15 @@ def _clean(s):
 
 def clean_query(q):
     """Запрос в той форме, что принимает сток, или None. Модель иногда
-    ставит кавычки, нумерацию, точку; всё, что не 1..5 латинских слов, —
-    не запрос."""
+    ставит кавычки, нумерацию, точку; всё, что не 1..7 латинских слов, —
+    не запрос. Семь, а не пять: запрос, называющий известное изображение
+    так, как его называет архив (событие, хроника, трактат, автор), длиннее
+    стокового — прототип эп.94 находил нужные кадры именно такими."""
     q = _clean(q).strip(" \"'«».,;:-*").lower()
     q = re.sub(r"^\d+[.)]\s*", "", q)
     if not q or not _QUERY_RE.match(q):
         return None
-    if not 1 <= len(q.split()) <= 5:
+    if not 1 <= len(q.split()) <= QUERY_MAX_WORDS:
         return None
     return q
 
