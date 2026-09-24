@@ -1,0 +1,2628 @@
+{
+ "0:photo": {
+  "1": {
+   "id": "chicago:10927",
+   "removed": false,
+   "reason": null,
+   "text": "saint benedict presenting his rule to benedictine and cistercian monks in a historiated initial \"o\" from a choirbook https: www.artic.edu artworks 10927"
+  },
+  "2": {
+   "id": "met:32684",
+   "removed": false,
+   "reason": null,
+   "text": "dagger https: www.metmuseum.org art collection search 32684"
+  },
+  "3": {
+   "id": "met:32672",
+   "removed": false,
+   "reason": null,
+   "text": "roundel dagger https: www.metmuseum.org art collection search 32672"
+  },
+  "4": {
+   "id": "met:35679",
+   "removed": false,
+   "reason": null,
+   "text": "rapier https: www.metmuseum.org art collection search 35679"
+  },
+  "5": {
+   "id": "met:35716",
+   "removed": false,
+   "reason": null,
+   "text": "thrusting sword (<i>spada da stocco< i>) https: www.metmuseum.org art collection search 35716"
+  },
+  "6": {
+   "id": "openverse:2338b505-2263-49fb-9073-b21ffc2615ae",
+   "removed": false,
+   "reason": null,
+   "text": "dagger https: www.metmuseum.org art collection search 465353"
+  },
+  "7": {
+   "id": "openverse:084191d5-21ff-473e-aee0-40041e0313e7",
+   "removed": false,
+   "reason": null,
+   "text": "gatekeeper in armor carved wood on buddhist pulpit ayutthaya https: commons.wikimedia.org w index.php?curid=173660812"
+  },
+  "8": {
+   "id": "openverse:2b06fb01-52fb-4b28-8d98-e1a2749a2796",
+   "removed": false,
+   "reason": null,
+   "text": "file:nlw penrice and margam deeds 2046 (front) (8634691430).jpg https: commons.wikimedia.org w index.php?curid=42894512"
+  },
+  "9": {
+   "id": 31350049,
+   "removed": false,
+   "reason": null,
+   "text": "close up of an intricately designed historical sword with ornate details on blade and hilt. https: www.pexels.com photo intricately designed historical sword close up 31350049"
+  },
+  "10": {
+   "id": 7540062,
+   "removed": false,
+   "reason": null,
+   "text": "an array of intricately designed antique daggers with ornate handles on a red display surface. https: www.pexels.com photo close up of historic knifes 7540062"
+  },
+  "11": {
+   "id": "pixabay:1341217",
+   "removed": false,
+   "reason": null,
+   "text": "dagger, crooked dagger, knife, oriental, black, dagger, dagger, dagger, dagger, dagger https: pixabay.com photos dagger crooked dagger knife 1341217 dagger crooked dagger knife oriental black dagger dagger dagger dagger dagger"
+  },
+  "12": {
+   "id": "pixabay:5693094",
+   "removed": false,
+   "reason": null,
+   "text": "castle, towers, building, fortress, museum, gutenberg castle, facade, fortification, masonry, trees, mountains, nature, liechtenstein, landscape, castle, castle, castle, liechtenstein, liechtenstein, liechtenstein, liechtenstein, liechtenstein https: pixabay.com photos castle towers building fortres"
+  },
+  "13": {
+   "id": "pixabay:4361876",
+   "removed": false,
+   "reason": null,
+   "text": "army, military, soldier, man, guard, brown, war, ancient, history, medieval, weapon, metal, modern, object, retro, steel, tool, vintage, sword, antique, old, battle, warrior, gladiator, knights, sword, sword, sword, sword, sword https: pixabay.com photos army military soldier man guard 4361876 army "
+  },
+  "14": {
+   "id": "chicago:3687",
+   "removed": false,
+   "reason": null,
+   "text": "st. george killing the dragon https: www.artic.edu artworks 3687"
+  },
+  "15": {
+   "id": "chicago:239643",
+   "removed": false,
+   "reason": null,
+   "text": "parrying dagger https: www.artic.edu artworks 239643"
+  },
+  "16": {
+   "id": "chicago:117080",
+   "removed": false,
+   "reason": null,
+   "text": "roundel dagger and scabbard https: www.artic.edu artworks 117080"
+  },
+  "17": {
+   "id": "met:27458",
+   "removed": false,
+   "reason": null,
+   "text": "sword https: www.metmuseum.org art collection search 27458"
+  },
+  "18": {
+   "id": "cleveland:96115",
+   "removed": false,
+   "reason": null,
+   "text": "dagger https: clevelandart.org art 1916.1865"
+  },
+  "19": {
+   "id": "chicago:117067",
+   "removed": false,
+   "reason": null,
+   "text": "ballock dagger https: www.artic.edu artworks 117067"
+  },
+  "20": {
+   "id": "cleveland:95934",
+   "removed": false,
+   "reason": null,
+   "text": "parrying dagger https: clevelandart.org art 1916.1657"
+  },
+  "21": {
+   "id": "met:32238",
+   "removed": false,
+   "reason": null,
+   "text": "sword https: www.metmuseum.org art collection search 32238"
+  },
+  "22": {
+   "id": "chicago:117070",
+   "removed": false,
+   "reason": null,
+   "text": "ballock dagger https: www.artic.edu artworks 117070"
+  },
+  "23": {
+   "id": "met:27516",
+   "removed": false,
+   "reason": null,
+   "text": "sword https: www.metmuseum.org art collection search 27516"
+  }
+ },
+ "1:photo": {
+  "1": {
+   "id": "chicago:10927",
+   "removed": false,
+   "reason": null,
+   "text": "saint benedict presenting his rule to benedictine and cistercian monks in a historiated initial \"o\" from a choirbook https: www.artic.edu artworks 10927"
+  },
+  "2": {
+   "id": "chicago:3687",
+   "removed": false,
+   "reason": null,
+   "text": "st. george killing the dragon https: www.artic.edu artworks 3687"
+  },
+  "3": {
+   "id": "cleveland:106397",
+   "removed": false,
+   "reason": null,
+   "text": "the knight (from the tarocchi, series e: conditions of man, #6) https: clevelandart.org art 1924.432.6"
+  },
+  "4": {
+   "id": "met:32684",
+   "removed": false,
+   "reason": null,
+   "text": "dagger https: www.metmuseum.org art collection search 32684"
+  },
+  "5": {
+   "id": "met:35716",
+   "removed": false,
+   "reason": null,
+   "text": "thrusting sword (<i>spada da stocco< i>) https: www.metmuseum.org art collection search 35716"
+  },
+  "6": {
+   "id": "openverse:2338b505-2263-49fb-9073-b21ffc2615ae",
+   "removed": false,
+   "reason": null,
+   "text": "dagger https: www.metmuseum.org art collection search 465353"
+  },
+  "7": {
+   "id": "openverse:2b06fb01-52fb-4b28-8d98-e1a2749a2796",
+   "removed": false,
+   "reason": null,
+   "text": "file:nlw penrice and margam deeds 2046 (front) (8634691430).jpg https: commons.wikimedia.org w index.php?curid=42894512"
+  },
+  "8": {
+   "id": "pixabay:1341217",
+   "removed": false,
+   "reason": null,
+   "text": "dagger, crooked dagger, knife, oriental, black, dagger, dagger, dagger, dagger, dagger https: pixabay.com photos dagger crooked dagger knife 1341217 dagger crooked dagger knife oriental black dagger dagger dagger dagger dagger"
+  },
+  "9": {
+   "id": 7772543,
+   "removed": false,
+   "reason": null,
+   "text": "crop anonymous person against blank backdrop showing dark flash drive placed on palm https: www.pexels.com photo crop hand with flash drive 7772543"
+  },
+  "10": {
+   "id": 63852,
+   "removed": false,
+   "reason": null,
+   "text": "a striking display of medieval knight armor, showcasing breastplates and steel suits in a museum. https: www.pexels.com photo stainless steel armor 63852"
+  },
+  "11": {
+   "id": "pixabay:3588162",
+   "removed": false,
+   "reason": null,
+   "text": "hand, palm, skin, fingers, dirty, hand, hand, hand, hand, hand, palm, skin, dirty, dirty, dirty https: pixabay.com photos hand palm skin fingers dirty 3588162 hand palm skin fingers dirty hand hand hand hand hand palm skin dirty dirty dirty"
+  },
+  "12": {
+   "id": "pixabay:437987",
+   "removed": false,
+   "reason": null,
+   "text": "couple, holding hands, lovers, relationship, affection, love, together, jeans, casual, man, woman, pair, couple, couple, couple, couple, couple, holding hands, holding hands, holding hands, lovers, lovers, relationship, relationship, love, jeans, jeans https: pixabay.com photos couple holding hands "
+  },
+  "13": {
+   "id": "pixabay:1090536",
+   "removed": false,
+   "reason": null,
+   "text": "pebble, stones, pebbles, multicoloured, rubble, close up, stones, stones, stones, stones, stones, pebbles, pebbles https: pixabay.com photos pebble stones pebbles multicoloured 1090536 pebble stones pebbles multicoloured rubble close up stones stones stones stones stones pebbles pebbles"
+  },
+  "14": {
+   "id": "chicago:106237",
+   "removed": false,
+   "reason": null,
+   "text": "dagger with two awls and sheath for the bodyguard of the elector of saxony https: www.artic.edu artworks 106237"
+  },
+  "15": {
+   "id": 7540062,
+   "removed": false,
+   "reason": null,
+   "text": "an array of intricately designed antique daggers with ornate handles on a red display surface. https: www.pexels.com photo close up of historic knifes 7540062"
+  },
+  "16": {
+   "id": "pixabay:2761551",
+   "removed": false,
+   "reason": null,
+   "text": "lovers, nature, silhouette, sunset, together, hand in hand, love, in love, togetherness, as a couple, fun, friendship, valentine's day, connectedness https: pixabay.com photos lovers silhouette sunset together 2761551 lovers nature silhouette sunset together hand in hand love in love togetherness as"
+  },
+  "17": {
+   "id": 22609497,
+   "removed": false,
+   "reason": null,
+   "text": "a woman in steampunk attire poses with a dagger amidst lush forest greens. https: www.pexels.com photo woman in dress costume hat and with dagger 22609497"
+  },
+  "18": {
+   "id": 15863782,
+   "removed": false,
+   "reason": null,
+   "text": "detailed close up of a fish shaped steel box cutter, highlighting its cutting edge and intricate pattern. https: www.pexels.com photo cutting edge of a steel box opener in the shape of an arowana fish 15863782"
+  },
+  "19": {
+   "id": 36558324,
+   "removed": false,
+   "reason": null,
+   "text": "close up of a handcrafted knife with a black handle held in hand, showcasing detailed craftsmanship and design. https: www.pexels.com photo handcrafted knife with black handle in hand 36558324"
+  },
+  "20": {
+   "id": 36558323,
+   "removed": false,
+   "reason": null,
+   "text": "close up of a handcrafted knife featuring a sleek black handle held in hand, perfect for precision use. https: www.pexels.com photo handcrafted knife with black handle close up 36558323"
+  },
+  "21": {
+   "id": "pixabay:790815",
+   "removed": false,
+   "reason": null,
+   "text": "sword, victory, triumph, weapon, war, warrior, knight, courage, brave, medieval, historical, fight, gladiator, arms, soldier, strong, man, armed, rage, vintage, history, metal, battle, sword, sword, sword, sword, sword https: pixabay.com photos sword victory triumph weapon war 790815 sword victory t"
+  },
+  "22": {
+   "id": 15863780,
+   "removed": false,
+   "reason": null,
+   "text": "close up of a fish shaped metal keychain being held outdoors, showcasing intricate handmade design. https: www.pexels.com photo holding steel box opener in the shape of an arowana fish 15863780"
+  },
+  "23": {
+   "id": 36342421,
+   "removed": false,
+   "reason": null,
+   "text": "a shiny hunting knife with a wooden handle is embedded in a tree stump outdoors. https: www.pexels.com photo sharp hunting knife embedded in tree stump 36342421"
+  },
+  "24": {
+   "id": 34495213,
+   "removed": false,
+   "reason": null,
+   "text": "detailed close up of a stone carved tool held in a person's hand. https: www.pexels.com photo close up of stone carved tool in hand 34495213"
+  },
+  "25": {
+   "id": "pixabay:1729902",
+   "removed": false,
+   "reason": null,
+   "text": "weapon, knife, blade, dagger, middle ages, sharp, metal, dagger, dagger, dagger, dagger, dagger https: pixabay.com photos weapon knife blade dagger 1729902 weapon knife blade dagger middle ages sharp metal dagger dagger dagger dagger dagger"
+  },
+  "26": {
+   "id": 33548606,
+   "removed": false,
+   "reason": null,
+   "text": "a stone sculpture hand holding a large sword against a bright sky, symbolizing power and strength. https: www.pexels.com photo stone statue hand raising sword skyward 33548606"
+  },
+  "27": {
+   "id": 33633035,
+   "removed": false,
+   "reason": null,
+   "text": "detailed view of a folding knife with wooden handle held in hand, highlighting the blade and grip. https: www.pexels.com photo close up of a hand holding a folding knife 33633035"
+  }
+ },
+ "1:video": {
+  "1": {
+   "id": 13370112,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video close up view of human hand 13370112"
+  },
+  "2": {
+   "id": 10653788,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video woman holding sword during snowfall 10653788"
+  },
+  "3": {
+   "id": 4820372,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video a person wearing a bird looking mask 4820372"
+  },
+  "4": {
+   "id": 9055571,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video ampoule on a person s hand 9055571"
+  },
+  "5": {
+   "id": 28309302,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video a close up of a stone wall with a stone wall 28309302"
+  },
+  "6": {
+   "id": "pixabay:16166",
+   "removed": false,
+   "reason": null,
+   "text": "fishes, small, aquarium, small fish, sea creatures, underwater, hover, weightlessness https: pixabay.com videos id 16166 fishes small aquarium small fish sea creatures underwater hover weightlessness"
+  },
+  "7": {
+   "id": "pixabay:191354",
+   "removed": false,
+   "reason": null,
+   "text": "volcano, mountain, jungle, aerial, drone, forest, palm trees, island, exotic, bali, nature, indonesia https: pixabay.com videos id 191354 volcano mountain jungle aerial drone forest palm trees island exotic bali nature indonesia"
+  },
+  "8": {
+   "id": "pixabay:101795",
+   "removed": false,
+   "reason": null,
+   "text": "cigarette, tobacco, smoke, smoking, hand, addiction, burning, holding https: pixabay.com videos id 101795 cigarette tobacco smoke smoking hand addiction burning holding"
+  },
+  "9": {
+   "id": "pixabay:73847",
+   "removed": false,
+   "reason": null,
+   "text": "sand, hand, beach, dessert, sea, live wallpaper https: pixabay.com videos id 73847 sand hand beach dessert sea live wallpaper"
+  },
+  "10": {
+   "id": "pixabay:189018",
+   "removed": false,
+   "reason": null,
+   "text": "lipstick, make up, bride, woman, fashion, wedding, close up, texture https: pixabay.com videos id 189018 lipstick make up bride woman fashion wedding close up texture"
+  },
+  "11": {
+   "id": 5671377,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video slow motion video of a person punching 5671377"
+  },
+  "12": {
+   "id": 38045743,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video close up of shovel and worker outdoors 38045743"
+  },
+  "13": {
+   "id": "pixabay:135860",
+   "removed": false,
+   "reason": null,
+   "text": "beach, ocean, relaxation, golden beach, sea, palm, beach palm, calm, maldives, nature https: pixabay.com videos id 135860 beach ocean relaxation golden beach sea palm beach palm calm maldives nature"
+  },
+  "14": {
+   "id": 6670603,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video a woman tearing a photograph and throwing it away 6670603"
+  },
+  "15": {
+   "id": 6943915,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video a man stepping on a board with nails 6943915"
+  },
+  "16": {
+   "id": 7676214,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video a person holding rose petals tightly 7676214"
+  },
+  "17": {
+   "id": 4957782,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video a person sharpening a pencil with a knife 4957782"
+  },
+  "18": {
+   "id": 39209569,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video hands holding fresh blackberries outdoors 39209569"
+  },
+  "19": {
+   "id": 6654781,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video a leatherworker using a tool to putting a hole on a belt 6654781"
+  },
+  "20": {
+   "id": 4125742,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video hands art neon preparation 4125742"
+  },
+  "21": {
+   "id": 6344466,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video close up video of a hand 6344466"
+  },
+  "22": {
+   "id": 7690485,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video close up video of a moving hand 7690485"
+  },
+  "23": {
+   "id": 31403763,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video close up of cross pendants on striped shirt 31403763"
+  }
+ },
+ "2:photo": {
+  "1": {
+   "id": "chicago:10927",
+   "removed": false,
+   "reason": null,
+   "text": "saint benedict presenting his rule to benedictine and cistercian monks in a historiated initial \"o\" from a choirbook https: www.artic.edu artworks 10927"
+  },
+  "2": {
+   "id": "chicago:3687",
+   "removed": false,
+   "reason": null,
+   "text": "st. george killing the dragon https: www.artic.edu artworks 3687"
+  },
+  "3": {
+   "id": "chicago:111777",
+   "removed": false,
+   "reason": null,
+   "text": "close helmet https: www.artic.edu artworks 111777"
+  },
+  "4": {
+   "id": "met:32684",
+   "removed": false,
+   "reason": null,
+   "text": "dagger https: www.metmuseum.org art collection search 32684"
+  },
+  "5": {
+   "id": "met:35716",
+   "removed": false,
+   "reason": null,
+   "text": "thrusting sword (<i>spada da stocco< i>) https: www.metmuseum.org art collection search 35716"
+  },
+  "6": {
+   "id": "openverse:2338b505-2263-49fb-9073-b21ffc2615ae",
+   "removed": false,
+   "reason": null,
+   "text": "dagger https: www.metmuseum.org art collection search 465353"
+  },
+  "7": {
+   "id": 22609497,
+   "removed": false,
+   "reason": null,
+   "text": "a woman in steampunk attire poses with a dagger amidst lush forest greens. https: www.pexels.com photo woman in dress costume hat and with dagger 22609497"
+  },
+  "8": {
+   "id": 31350049,
+   "removed": false,
+   "reason": null,
+   "text": "close up of an intricately designed historical sword with ornate details on blade and hilt. https: www.pexels.com photo intricately designed historical sword close up 31350049"
+  },
+  "9": {
+   "id": "openverse:2b06fb01-52fb-4b28-8d98-e1a2749a2796",
+   "removed": false,
+   "reason": null,
+   "text": "file:nlw penrice and margam deeds 2046 (front) (8634691430).jpg https: commons.wikimedia.org w index.php?curid=42894512"
+  },
+  "10": {
+   "id": 7540062,
+   "removed": false,
+   "reason": null,
+   "text": "an array of intricately designed antique daggers with ornate handles on a red display surface. https: www.pexels.com photo close up of historic knifes 7540062"
+  },
+  "11": {
+   "id": "pixabay:7121617",
+   "removed": false,
+   "reason": null,
+   "text": "basketball, basket, ball, hits, point, hoop, basketball, basketball, basketball, basketball, basketball https: pixabay.com photos basketball basket ball hits point 7121617 basketball basket ball hits point hoop basketball basketball basketball basketball basketball"
+  },
+  "12": {
+   "id": "pixabay:7316770",
+   "removed": false,
+   "reason": null,
+   "text": "grass, dewdrop, blades of grass, dew, morning dew, close up, flora, green, nature, dew, dew, dew, dew, dew, morning dew, green, nature https: pixabay.com photos grass dewdrop blades of grass dew 7316770 grass dewdrop blades of grass dew morning dew close up flora green nature dew dew dew dew dew mor"
+  },
+  "13": {
+   "id": "chicago:106237",
+   "removed": false,
+   "reason": null,
+   "text": "dagger with two awls and sheath for the bodyguard of the elector of saxony https: www.artic.edu artworks 106237"
+  },
+  "14": {
+   "id": "pixabay:1090536",
+   "removed": false,
+   "reason": null,
+   "text": "pebble, stones, pebbles, multicoloured, rubble, close up, stones, stones, stones, stones, stones, pebbles, pebbles https: pixabay.com photos pebble stones pebbles multicoloured 1090536 pebble stones pebbles multicoloured rubble close up stones stones stones stones stones pebbles pebbles"
+  },
+  "15": {
+   "id": "chicago:14698",
+   "removed": false,
+   "reason": null,
+   "text": "decorated initial \"g\" in pink with curling leaves from a manuscript https: www.artic.edu artworks 14698"
+  },
+  "16": {
+   "id": "chicago:106523",
+   "removed": false,
+   "reason": null,
+   "text": "close helmet https: www.artic.edu artworks 106523"
+  },
+  "17": {
+   "id": "chicago:117067",
+   "removed": false,
+   "reason": null,
+   "text": "ballock dagger https: www.artic.edu artworks 117067"
+  },
+  "18": {
+   "id": "chicago:117070",
+   "removed": false,
+   "reason": null,
+   "text": "ballock dagger https: www.artic.edu artworks 117070"
+  },
+  "19": {
+   "id": 7033822,
+   "removed": false,
+   "reason": null,
+   "text": "detailed macro shot of a sharp metal needle against a dark background. https: www.pexels.com photo macro shot of a sharp needle 7033822"
+  },
+  "20": {
+   "id": "chicago:117080",
+   "removed": false,
+   "reason": null,
+   "text": "roundel dagger and scabbard https: www.artic.edu artworks 117080"
+  },
+  "21": {
+   "id": 11816071,
+   "removed": false,
+   "reason": null,
+   "text": "close up of a hypodermic needle's sharp point against a white background. https: www.pexels.com photo macro shot of a syringe needle 11816071"
+  },
+  "22": {
+   "id": 6971132,
+   "removed": false,
+   "reason": null,
+   "text": "black and white from above of puddle with circles and falling droplets on street with shadow in evening time https: www.pexels.com photo puddle with waterdrops on dark street 6971132"
+  },
+  "23": {
+   "id": "chicago:117089",
+   "removed": false,
+   "reason": null,
+   "text": "gunner's stiletto https: www.artic.edu artworks 117089"
+  },
+  "24": {
+   "id": "met:27514",
+   "removed": false,
+   "reason": null,
+   "text": "gothic sword https: www.metmuseum.org art collection search 27514"
+  },
+  "25": {
+   "id": "pixabay:790815",
+   "removed": false,
+   "reason": null,
+   "text": "sword, victory, triumph, weapon, war, warrior, knight, courage, brave, medieval, historical, fight, gladiator, arms, soldier, strong, man, armed, rage, vintage, history, metal, battle, sword, sword, sword, sword, sword https: pixabay.com photos sword victory triumph weapon war 790815 sword victory t"
+  },
+  "26": {
+   "id": "met:26195",
+   "removed": false,
+   "reason": null,
+   "text": "roncone https: www.metmuseum.org art collection search 26195"
+  }
+ },
+ "2:video": {
+  "1": {
+   "id": "pixabay:125459",
+   "removed": false,
+   "reason": null,
+   "text": "medieval, weapon, fire, flame, abstract, battle, blade, breath, burn, fiery, glowing, horde, inferno, knights, metal, monster, power, rage, spark, sword, ukraine, war, wings, fantasy https: pixabay.com videos id 125459 medieval weapon fire flame abstract battle blade breath burn fiery glowing horde "
+  },
+  "2": {
+   "id": "pixabay:21758",
+   "removed": false,
+   "reason": null,
+   "text": "valley, lozoya, landscape, point of view, darling, clouds, moutains, time lapse, sierra, guadarrama, winter, snow, timelapse, sierra de madrid https: pixabay.com videos id 21758 valley lozoya landscape point of view darling clouds moutains time lapse sierra guadarrama winter snow timelapse sierra de"
+  },
+  "3": {
+   "id": "pixabay:189018",
+   "removed": false,
+   "reason": null,
+   "text": "lipstick, make up, bride, woman, fashion, wedding, close up, texture https: pixabay.com videos id 189018 lipstick make up bride woman fashion wedding close up texture"
+  },
+  "4": {
+   "id": "pixabay:16166",
+   "removed": false,
+   "reason": null,
+   "text": "fishes, small, aquarium, small fish, sea creatures, underwater, hover, weightlessness https: pixabay.com videos id 16166 fishes small aquarium small fish sea creatures underwater hover weightlessness"
+  },
+  "5": {
+   "id": "pixabay:160767",
+   "removed": false,
+   "reason": null,
+   "text": "ocean, beach, waves, breaking waves, drone, urban, european architecture, europe, coastal nature, nature, portugal, aerial https: pixabay.com videos id 160767 ocean beach waves breaking waves drone urban european architecture europe coastal nature nature portugal aerial"
+  },
+  "6": {
+   "id": "pixabay:125899",
+   "removed": false,
+   "reason": null,
+   "text": "sword, metal, blade, battle, breath, burn, fantasy, fiery, fire, flame, glowing, horde, inferno, knights, medieval, monster, orange, power, rage, spark, weapon, wings, abstract https: pixabay.com videos id 125899 sword metal blade battle breath burn fantasy fiery fire flame glowing horde inferno kni"
+  },
+  "7": {
+   "id": "pixabay:26493",
+   "removed": false,
+   "reason": null,
+   "text": "colours, pattern, texture, abstract, macro, close up https: pixabay.com videos id 26493 colours pattern texture abstract macro close up"
+  },
+  "8": {
+   "id": "pixabay:88031",
+   "removed": false,
+   "reason": null,
+   "text": "versus, against, action, banner, clash, beautiful wallpaper, competition, competitive, abstract, art, battle, blue, boxing, challenge, championship, comic, concept, conflict, confrontation, contest, duel, fight, background https: pixabay.com videos id 88031 versus against action banner clash beautif"
+  },
+  "9": {
+   "id": "pixabay:27539",
+   "removed": false,
+   "reason": null,
+   "text": "running, bridge, mountains, men running, running in morning, running in winters, running on old bridge, drone view running, running aerial view, men running in morning, monsoon running, men running in hills https: pixabay.com videos id 27539 running bridge mountains men running running in morning ru"
+  },
+  "10": {
+   "id": "pixabay:55714",
+   "removed": false,
+   "reason": null,
+   "text": "gear, mechanism, device, equipment, metal, technology, impeller, steel, machine, power, rotating mechanism, blade, industrial, 3d, industry, engineering, energy https: pixabay.com videos id 55714 gear mechanism device equipment metal technology impeller steel machine power rotating mechanism blade i"
+  },
+  "11": {
+   "id": "pixabay:202559",
+   "removed": false,
+   "reason": null,
+   "text": "recycling, recycle, re use, dump, tip, clean point https: pixabay.com videos id 202559 recycling recycle re use dump tip clean point"
+  },
+  "12": {
+   "id": "pixabay:30470",
+   "removed": true,
+   "reason": "too_short",
+   "text": "bee, honey bee, insect, pollen, close up, live wallpaper https: pixabay.com videos id 30470 bee honey bee insect pollen close up live wallpaper"
+  },
+  "13": {
+   "id": "pixabay:240531",
+   "removed": true,
+   "reason": "too_short",
+   "text": "bacon, pan, hot, belly bacon, meal, food, close up https: pixabay.com videos id 240531 bacon pan hot belly bacon meal food close up"
+  },
+  "14": {
+   "id": "pixabay:4948",
+   "removed": false,
+   "reason": null,
+   "text": "coffee, grains, black, pour, close up, coffee beans, fried, dark https: pixabay.com videos id 4948 coffee grains black pour close up coffee beans fried dark"
+  },
+  "15": {
+   "id": "pixabay:205119",
+   "removed": true,
+   "reason": "too_short",
+   "text": "harbour, skyline, sydney, australia, sydney city, sydney centre point https: pixabay.com videos id 205119 harbour skyline sydney australia sydney city sydney centre point"
+  },
+  "16": {
+   "id": "pixabay:13100",
+   "removed": false,
+   "reason": null,
+   "text": "universe, jar, colourful, experiment, close up, particles, oil, ink, water, abstract, galaxy, pouring https: pixabay.com videos id 13100 universe jar colourful experiment close up particles oil ink water abstract galaxy pouring"
+  },
+  "17": {
+   "id": "pixabay:199545",
+   "removed": true,
+   "reason": "too_short",
+   "text": "beef, patty, hamburger, burger, grill, electric grill, meal, flesh, tasty, close up, food https: pixabay.com videos id 199545 beef patty hamburger burger grill electric grill meal flesh tasty close up food"
+  },
+  "18": {
+   "id": 38045743,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video close up of shovel and worker outdoors 38045743"
+  },
+  "19": {
+   "id": 2386581,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video sparks from grinding a metal 2386581"
+  },
+  "20": {
+   "id": 5846458,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video polishing metal with angle grinder 5846458"
+  },
+  "21": {
+   "id": 9465813,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video a man drawing his sword 9465813"
+  },
+  "22": {
+   "id": "pixabay:151629",
+   "removed": false,
+   "reason": null,
+   "text": "rain, raindrops, close up, spring, heavy rain https: pixabay.com videos id 151629 rain raindrops close up spring heavy rain"
+  },
+  "23": {
+   "id": "pixabay:5404",
+   "removed": false,
+   "reason": null,
+   "text": "time, beautiful wallpaper, watch, clock, minute, antique, luxury, hour, hand, old, second, steel, background https: pixabay.com videos id 5404 time beautiful wallpaper watch clock minute antique luxury hour hand old second steel background"
+  },
+  "24": {
+   "id": 6536349,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video an athlete wearing protective gear while practicing 6536349"
+  },
+  "25": {
+   "id": 32912371,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video intense arm wrestling challenge captured dramatically 32912371"
+  },
+  "26": {
+   "id": 9644650,
+   "removed": true,
+   "reason": "blocklist:fencing",
+   "text": "https: www.pexels.com video a person wearing fencing mask while holding a foil 9644650"
+  },
+  "27": {
+   "id": 10340306,
+   "removed": true,
+   "reason": "blocklist:fencing",
+   "text": "https: www.pexels.com video person in fencing uniform doing a swing with the foil 10340306"
+  },
+  "28": {
+   "id": 6537015,
+   "removed": true,
+   "reason": "blocklist:fencing",
+   "text": "https: www.pexels.com video a fencing mask and a sword on a wooden bench 6537015"
+  },
+  "29": {
+   "id": 10340311,
+   "removed": true,
+   "reason": "blocklist:fencer",
+   "text": "https: www.pexels.com video close up on fencer face in helmet 10340311"
+  },
+  "30": {
+   "id": 5972848,
+   "removed": true,
+   "reason": "blocklist:fencing",
+   "text": "https: www.pexels.com video two people practising fencing 5972848"
+  }
+ },
+ "3:photo": {
+  "1": {
+   "id": "chicago:10927",
+   "removed": false,
+   "reason": null,
+   "text": "saint benedict presenting his rule to benedictine and cistercian monks in a historiated initial \"o\" from a choirbook https: www.artic.edu artworks 10927"
+  },
+  "2": {
+   "id": "chicago:106237",
+   "removed": false,
+   "reason": null,
+   "text": "dagger with two awls and sheath for the bodyguard of the elector of saxony https: www.artic.edu artworks 106237"
+  },
+  "3": {
+   "id": "chicago:116363",
+   "removed": false,
+   "reason": null,
+   "text": "field armor for man https: www.artic.edu artworks 116363"
+  },
+  "4": {
+   "id": "cleveland:141444",
+   "removed": false,
+   "reason": null,
+   "text": "armor for man and horse with völs colonna arms https: clevelandart.org art 1964.88"
+  },
+  "5": {
+   "id": "met:32684",
+   "removed": false,
+   "reason": null,
+   "text": "dagger https: www.metmuseum.org art collection search 32684"
+  },
+  "6": {
+   "id": "met:35716",
+   "removed": false,
+   "reason": null,
+   "text": "thrusting sword (<i>spada da stocco< i>) https: www.metmuseum.org art collection search 35716"
+  },
+  "7": {
+   "id": "openverse:2338b505-2263-49fb-9073-b21ffc2615ae",
+   "removed": false,
+   "reason": null,
+   "text": "dagger https: www.metmuseum.org art collection search 465353"
+  },
+  "8": {
+   "id": 31350031,
+   "removed": false,
+   "reason": null,
+   "text": "detailed close up of intricately designed medieval armor plates with gold accents and leather straps. https: www.pexels.com photo close up of ornate medieval armor plates 31350031"
+  },
+  "9": {
+   "id": "openverse:2b06fb01-52fb-4b28-8d98-e1a2749a2796",
+   "removed": false,
+   "reason": null,
+   "text": "file:nlw penrice and margam deeds 2046 (front) (8634691430).jpg https: commons.wikimedia.org w index.php?curid=42894512"
+  },
+  "10": {
+   "id": 22609497,
+   "removed": false,
+   "reason": null,
+   "text": "a woman in steampunk attire poses with a dagger amidst lush forest greens. https: www.pexels.com photo woman in dress costume hat and with dagger 22609497"
+  },
+  "11": {
+   "id": "pixabay:2565957",
+   "removed": false,
+   "reason": null,
+   "text": "knight, warrior, artillery, horse, soldier, nature, war, battle, military, man https: pixabay.com photos knight warrior artillery horse 2565957 knight warrior artillery horse soldier nature war battle military man"
+  },
+  "12": {
+   "id": "pixabay:8267220",
+   "removed": false,
+   "reason": null,
+   "text": "european shorthair, cat, kitten, domestic animal, young cat, animal, domestic cat, mammal, nature, pet, close up, feline https: pixabay.com photos european shorthair cat kitten 8267220 european shorthair cat kitten domestic animal young cat animal domestic cat mammal nature pet close up feline"
+  },
+  "13": {
+   "id": "pixabay:4361876",
+   "removed": false,
+   "reason": null,
+   "text": "army, military, soldier, man, guard, brown, war, ancient, history, medieval, weapon, metal, modern, object, retro, steel, tool, vintage, sword, antique, old, battle, warrior, gladiator, knights, sword, sword, sword, sword, sword https: pixabay.com photos army military soldier man guard 4361876 army "
+  },
+  "14": {
+   "id": "chicago:117075",
+   "removed": false,
+   "reason": null,
+   "text": "baselard https: www.artic.edu artworks 117075"
+  },
+  "15": {
+   "id": "chicago:106377",
+   "removed": false,
+   "reason": null,
+   "text": "portions of a field armor https: www.artic.edu artworks 106377"
+  },
+  "16": {
+   "id": "chicago:118551",
+   "removed": false,
+   "reason": null,
+   "text": "armor for field and tournament https: www.artic.edu artworks 118551"
+  },
+  "17": {
+   "id": 34874947,
+   "removed": false,
+   "reason": null,
+   "text": "close up of a rusty metal surface with bolts and rivets creating an industrial texture. https: www.pexels.com photo rusty metal texture with bolts and rivets 34874947"
+  },
+  "18": {
+   "id": "chicago:106494",
+   "removed": false,
+   "reason": null,
+   "text": "ahlspiess https: www.artic.edu artworks 106494"
+  },
+  "19": {
+   "id": 11816071,
+   "removed": false,
+   "reason": null,
+   "text": "close up of a hypodermic needle's sharp point against a white background. https: www.pexels.com photo macro shot of a syringe needle 11816071"
+  },
+  "20": {
+   "id": "cleveland:95934",
+   "removed": false,
+   "reason": null,
+   "text": "parrying dagger https: clevelandart.org art 1916.1657"
+  },
+  "21": {
+   "id": "met:27514",
+   "removed": false,
+   "reason": null,
+   "text": "gothic sword https: www.metmuseum.org art collection search 27514"
+  },
+  "22": {
+   "id": "chicago:117066",
+   "removed": false,
+   "reason": null,
+   "text": "ballock dagger https: www.artic.edu artworks 117066"
+  },
+  "23": {
+   "id": "chicago:116680",
+   "removed": false,
+   "reason": null,
+   "text": "ahlspiess https: www.artic.edu artworks 116680"
+  },
+  "24": {
+   "id": "met:32238",
+   "removed": false,
+   "reason": null,
+   "text": "sword https: www.metmuseum.org art collection search 32238"
+  },
+  "25": {
+   "id": 9178660,
+   "removed": false,
+   "reason": null,
+   "text": "close up of a rusty metal surface with a diamond shaped pattern, showcasing textures and colors. https: www.pexels.com photo a black stained surface with steel diamond shape design 9178660"
+  },
+  "26": {
+   "id": "chicago:117070",
+   "removed": false,
+   "reason": null,
+   "text": "ballock dagger https: www.artic.edu artworks 117070"
+  }
+ },
+ "3:video": {
+  "1": {
+   "id": 4201553,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video a person holding a dual sim card holder slot 4201553"
+  },
+  "2": {
+   "id": 10653788,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video woman holding sword during snowfall 10653788"
+  },
+  "3": {
+   "id": 9055571,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video ampoule on a person s hand 9055571"
+  },
+  "4": {
+   "id": 28309302,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video a close up of a stone wall with a stone wall 28309302"
+  },
+  "5": {
+   "id": "pixabay:21758",
+   "removed": false,
+   "reason": null,
+   "text": "valley, lozoya, landscape, point of view, darling, clouds, moutains, time lapse, sierra, guadarrama, winter, snow, timelapse, sierra de madrid https: pixabay.com videos id 21758 valley lozoya landscape point of view darling clouds moutains time lapse sierra guadarrama winter snow timelapse sierra de"
+  },
+  "6": {
+   "id": "pixabay:56075",
+   "removed": false,
+   "reason": null,
+   "text": "knight, warrior, medieval, 3d, cartoon, armor, dance, dancing, salsa, fun, man, history, middle ages, male https: pixabay.com videos id 56075 knight warrior medieval 3d cartoon armor dance dancing salsa fun man history middle ages male"
+  },
+  "7": {
+   "id": "pixabay:189018",
+   "removed": false,
+   "reason": null,
+   "text": "lipstick, make up, bride, woman, fashion, wedding, close up, texture https: pixabay.com videos id 189018 lipstick make up bride woman fashion wedding close up texture"
+  },
+  "8": {
+   "id": "pixabay:29224",
+   "removed": false,
+   "reason": null,
+   "text": "castle, church, tower, city, architecture, building, religion, barcelona, monument, sky, gilded, faith, spain, travel, tourism, historic, medieval, knights, king, priest, pray, cathedral, great https: pixabay.com videos id 29224 castle church tower city architecture building religion barcelona monum"
+  },
+  "9": {
+   "id": "pixabay:16166",
+   "removed": true,
+   "reason": "too_short",
+   "text": "fishes, small, aquarium, small fish, sea creatures, underwater, hover, weightlessness https: pixabay.com videos id 16166 fishes small aquarium small fish sea creatures underwater hover weightlessness"
+  },
+  "10": {
+   "id": "pixabay:160767",
+   "removed": true,
+   "reason": "too_short",
+   "text": "ocean, beach, waves, breaking waves, drone, urban, european architecture, europe, coastal nature, nature, portugal, aerial https: pixabay.com videos id 160767 ocean beach waves breaking waves drone urban european architecture europe coastal nature nature portugal aerial"
+  },
+  "11": {
+   "id": 38103940,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video roman legionaries marching in formation outdoors 38103940"
+  },
+  "12": {
+   "id": "pixabay:146380",
+   "removed": false,
+   "reason": null,
+   "text": "knight, 3d, cartoon, middle, ages, medieval, man, people, soldier, armor, real, estate, house, home, property, sale, sell https: pixabay.com videos id 146380 knight 3d cartoon middle ages medieval man people soldier armor real estate house home property sale sell"
+  },
+  "13": {
+   "id": "pixabay:26493",
+   "removed": false,
+   "reason": null,
+   "text": "colours, pattern, texture, abstract, macro, close up https: pixabay.com videos id 26493 colours pattern texture abstract macro close up"
+  },
+  "14": {
+   "id": "pixabay:185803",
+   "removed": false,
+   "reason": null,
+   "text": "man, knight, warrior, armor, medieval, history, fantasy, historical, cartoon, fun, 3d, talk https: pixabay.com videos id 185803 man knight warrior armor medieval history fantasy historical cartoon fun 3d talk"
+  },
+  "15": {
+   "id": "pixabay:30470",
+   "removed": true,
+   "reason": "too_short",
+   "text": "bee, honey bee, insect, pollen, close up, live wallpaper https: pixabay.com videos id 30470 bee honey bee insect pollen close up live wallpaper"
+  },
+  "16": {
+   "id": 28309301,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video a man in armor is climbing up a wall 28309301"
+  },
+  "17": {
+   "id": 38556266,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video captivating abstract motion animation 38556266"
+  },
+  "18": {
+   "id": 5846319,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video forging hot metal 5846319"
+  },
+  "19": {
+   "id": 5735109,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video a worker holding an unfinished knife 5735109"
+  },
+  "20": {
+   "id": 4248456,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video video of wood cutting 4248456"
+  },
+  "21": {
+   "id": 2386581,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video sparks from grinding a metal 2386581"
+  },
+  "22": {
+   "id": 31638148,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video blacksmith hammering metal in workshop 31638148"
+  },
+  "23": {
+   "id": 34741560,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video close up of cardboard box corner with label 34741560"
+  },
+  "24": {
+   "id": 5846591,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video crop person working on metal with plasma cutter 5846591"
+  },
+  "25": {
+   "id": 12522351,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video close up of a pile of nails 12522351"
+  },
+  "26": {
+   "id": 14459242,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video moving part of machine 14459242"
+  },
+  "27": {
+   "id": 8190630,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video close up shot of a smoke 8190630"
+  }
+ },
+ "4:photo": {
+  "1": {
+   "id": "openverse:2b06fb01-52fb-4b28-8d98-e1a2749a2796",
+   "removed": false,
+   "reason": null,
+   "text": "file:nlw penrice and margam deeds 2046 (front) (8634691430).jpg https: commons.wikimedia.org w index.php?curid=42894512"
+  },
+  "2": {
+   "id": "openverse:4f52d5ab-0a5f-43ff-ba39-73b116d01452",
+   "removed": false,
+   "reason": null,
+   "text": "study of medieval armor and a crossbow (recto); studies of a medieval helmet (verso) https: www.metmuseum.org art collection search 747500"
+  },
+  "3": {
+   "id": "met:197211",
+   "removed": false,
+   "reason": null,
+   "text": "wine cooler with a pageant battle with elephants https: www.metmuseum.org art collection search 197211"
+  },
+  "4": {
+   "id": "met:22408",
+   "removed": false,
+   "reason": null,
+   "text": "breastplate https: www.metmuseum.org art collection search 22408"
+  },
+  "5": {
+   "id": 63852,
+   "removed": false,
+   "reason": null,
+   "text": "a striking display of medieval knight armor, showcasing breastplates and steel suits in a museum. https: www.pexels.com photo stainless steel armor 63852"
+  },
+  "6": {
+   "id": 33091810,
+   "removed": false,
+   "reason": null,
+   "text": "a knight in full medieval armor standing outdoors in höxter, germany. https: www.pexels.com photo medieval armor knight in hoxter landscape 33091810"
+  },
+  "7": {
+   "id": 31350031,
+   "removed": false,
+   "reason": null,
+   "text": "detailed close up of intricately designed medieval armor plates with gold accents and leather straps. https: www.pexels.com photo close up of ornate medieval armor plates 31350031"
+  },
+  "8": {
+   "id": "pixabay:3092747",
+   "removed": false,
+   "reason": null,
+   "text": "cavalry, farm, mammal, field, nature https: pixabay.com photos cavalry farm mammal field nature 3092747 cavalry farm mammal field nature"
+  },
+  "9": {
+   "id": "pixabay:2565957",
+   "removed": false,
+   "reason": null,
+   "text": "knight, warrior, artillery, horse, soldier, nature, war, battle, military, man https: pixabay.com photos knight warrior artillery horse 2565957 knight warrior artillery horse soldier nature war battle military man"
+  },
+  "10": {
+   "id": 33344395,
+   "removed": false,
+   "reason": null,
+   "text": "traditional riders perform a cavalry show with vibrant flags at an outdoor festival. https: www.pexels.com photo traditional equestrian cavalry performance at festival 33344395"
+  },
+  "11": {
+   "id": "openverse:6ff19fc9-acbd-4816-bc7c-bbc90ed5562d",
+   "removed": false,
+   "reason": null,
+   "text": "study of medieval armor and a crossbow (recto); studies of a medieval helmet (verso) https: www.metmuseum.org art collection search 747500"
+  },
+  "12": {
+   "id": "chicago:10927",
+   "removed": false,
+   "reason": null,
+   "text": "saint benedict presenting his rule to benedictine and cistercian monks in a historiated initial \"o\" from a choirbook https: www.artic.edu artworks 10927"
+  },
+  "13": {
+   "id": 2046779,
+   "removed": false,
+   "reason": null,
+   "text": "medieval knight in full armor with a swordsman and armored horse indoors. https: www.pexels.com photo medieval armor 2046779"
+  },
+  "14": {
+   "id": 15301240,
+   "removed": false,
+   "reason": null,
+   "text": "a collection of medieval knight helmets on display in a london museum, showcasing historical armor. https: www.pexels.com photo rows of medieval knights armor 15301240"
+  },
+  "15": {
+   "id": 11046287,
+   "removed": false,
+   "reason": null,
+   "text": "a medieval knight in protective armor holding a sword in a historic stone setting. https: www.pexels.com photo a man wearing bronze helmet holding a sword 11046287"
+  },
+  "16": {
+   "id": "pixabay:930798",
+   "removed": false,
+   "reason": null,
+   "text": "knight, blond, portrait, fighter, armor, medieval, knight, knight, knight, knight, knight, medieval https: pixabay.com photos knight blond portrait fighter 930798 knight blond portrait fighter armor medieval knight knight knight knight knight medieval"
+  },
+  "17": {
+   "id": "pixabay:321443",
+   "removed": false,
+   "reason": null,
+   "text": "knight, beaten, medieval, battle, ancient, metal, middle ages, dark ages, knight, knight, knight, knight, knight, medieval, medieval, medieval, battle, battle https: pixabay.com photos knight beaten medieval battle 321443 knight beaten medieval battle ancient metal middle ages dark ages knight knigh"
+  },
+  "18": {
+   "id": "pixabay:2433161",
+   "removed": false,
+   "reason": null,
+   "text": "jousting, knight, armor, medieval, military, sword, old, man, army, arms, warrior, soldier, history, chivalry, armour, jousting, knight, knight, knight, knight, knight, armor, armor, medieval, medieval, medieval, medieval, sword, sword, sword, army, army, warrior, warrior, chivalry, armour, armour h"
+  },
+  "19": {
+   "id": "pixabay:3759228",
+   "removed": false,
+   "reason": null,
+   "text": "knight, armour, sword, battle, armor, medieval, history, helmet, historic, fight https: pixabay.com photos knight armour sword battle armor 3759228 knight armour sword battle armor medieval history helmet historic fight"
+  },
+  "20": {
+   "id": 32985186,
+   "removed": false,
+   "reason": null,
+   "text": "a fallen terracotta warrior amidst ruins in xi'an, shaanxi, china. https: www.pexels.com photo terracotta warrior ruins in xi an china 32985186"
+  },
+  "21": {
+   "id": "pixabay:3319865",
+   "removed": false,
+   "reason": null,
+   "text": "wood, nature, tree, outdoors, people, knight, medieval, soldier, warrior, armor, shield, knight, knight, knight, knight, knight, medieval, medieval, soldier, warrior, warrior, warrior, warrior, armor, shield, shield, shield https: pixabay.com photos wood nature tree outdoors people 3319865 wood natu"
+  },
+  "22": {
+   "id": "pixabay:7405192",
+   "removed": false,
+   "reason": null,
+   "text": "armor, cool backgrounds, knight, hd wallpaper, free wallpaper, wallpaper hd, beautiful wallpaper, 4k wallpaper 1920x1080, wallpaper 4k, history, laptop wallpaper, windows wallpaper, 4k wallpaper, desktop backgrounds, free background, warrior, wallpaper, background, military, steel, blue, heavy caval"
+  },
+  "23": {
+   "id": 289831,
+   "removed": false,
+   "reason": null,
+   "text": "a medieval armor helmet, sword, and glove against a stone wall depicting historical combat gear. https: www.pexels.com photo silver knight helmet 289831"
+  },
+  "24": {
+   "id": 9777909,
+   "removed": false,
+   "reason": null,
+   "text": "a knight in armor sits in a field, holding a sword, evoking scenes of medieval times. https: www.pexels.com photo a man in knight costume sitting on green grass 9777909"
+  },
+  "25": {
+   "id": "pixabay:1931077",
+   "removed": false,
+   "reason": null,
+   "text": "gladiator, warrior, gear, weapons, arena, roman, history, soldier, ancient, spartan, hero, armour, fight, man, helmet, knight, armor, battle, war, steel, gray history, gray war, gray hero, gladiator, warrior, warrior, history, history, history, history, history, hero, fight, knight, armor, battle, w"
+  },
+  "26": {
+   "id": 39125516,
+   "removed": false,
+   "reason": null,
+   "text": "bearded medieval warrior in armor and shield, poised for combat against a stormy backdrop. https: www.pexels.com photo valiant medieval warrior in armor ready for battle 39125516"
+  },
+  "27": {
+   "id": 334068,
+   "removed": true,
+   "reason": "blocklist:reenactment",
+   "text": "medieval reenactment scene with performers and audience in a sunny park filled with dandelions. https: www.pexels.com photo group of people standing on ground 334068"
+  }
+ },
+ "4:video": {
+  "1": {
+   "id": 34618735,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video medieval knight armor display in museum 34618735"
+  },
+  "2": {
+   "id": "pixabay:24410",
+   "removed": true,
+   "reason": "too_short",
+   "text": "knight, 3d, medieval, shield, armor, warrior, knights, middle ages, history, soldier, cartoon, christian, cross, castle, run, fighter, fight, character, man https: pixabay.com videos id 24410 knight 3d medieval shield armor warrior knights middle ages history soldier cartoon christian cross castle r"
+  },
+  "3": {
+   "id": "pixabay:56075",
+   "removed": false,
+   "reason": null,
+   "text": "knight, warrior, medieval, 3d, cartoon, armor, dance, dancing, salsa, fun, man, history, middle ages, male https: pixabay.com videos id 56075 knight warrior medieval 3d cartoon armor dance dancing salsa fun man history middle ages male"
+  },
+  "4": {
+   "id": "pixabay:160767",
+   "removed": true,
+   "reason": "too_short",
+   "text": "ocean, beach, waves, breaking waves, drone, urban, european architecture, europe, coastal nature, nature, portugal, aerial https: pixabay.com videos id 160767 ocean beach waves breaking waves drone urban european architecture europe coastal nature nature portugal aerial"
+  },
+  "5": {
+   "id": "pixabay:578",
+   "removed": true,
+   "reason": "too_short",
+   "text": "free of charge, cost, money, business, price, gratis, offer, service, commerce, word, text, no charge, sign, sale, purchase https: pixabay.com videos id 578 free of charge cost money business price gratis offer service commerce word text no charge sign sale purchase"
+  },
+  "6": {
+   "id": "pixabay:165003",
+   "removed": false,
+   "reason": null,
+   "text": "river, bridge, steel, railway, construction https: pixabay.com videos id 165003 river bridge steel railway construction"
+  },
+  "7": {
+   "id": 7888284,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video close up video of man having deep thoughts 7888284"
+  },
+  "8": {
+   "id": 5916863,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video black and white footage of a man crying 5916863"
+  },
+  "9": {
+   "id": 38103940,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video roman legionaries marching in formation outdoors 38103940"
+  },
+  "10": {
+   "id": 9466657,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video a man riding a horse while pulling out a sword 9466657"
+  },
+  "11": {
+   "id": "pixabay:125459",
+   "removed": false,
+   "reason": null,
+   "text": "medieval, weapon, fire, flame, abstract, battle, blade, breath, burn, fiery, glowing, horde, inferno, knights, metal, monster, power, rage, spark, sword, ukraine, war, wings, fantasy https: pixabay.com videos id 125459 medieval weapon fire flame abstract battle blade breath burn fiery glowing horde "
+  },
+  "12": {
+   "id": "pixabay:146380",
+   "removed": true,
+   "reason": "too_short",
+   "text": "knight, 3d, cartoon, middle, ages, medieval, man, people, soldier, armor, real, estate, house, home, property, sale, sell https: pixabay.com videos id 146380 knight 3d cartoon middle ages medieval man people soldier armor real estate house home property sale sell"
+  },
+  "13": {
+   "id": 28309302,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video a close up of a stone wall with a stone wall 28309302"
+  },
+  "14": {
+   "id": "pixabay:125899",
+   "removed": false,
+   "reason": null,
+   "text": "sword, metal, blade, battle, breath, burn, fantasy, fiery, fire, flame, glowing, horde, inferno, knights, medieval, monster, orange, power, rage, spark, weapon, wings, abstract https: pixabay.com videos id 125899 sword metal blade battle breath burn fantasy fiery fire flame glowing horde inferno kni"
+  },
+  "15": {
+   "id": "pixabay:185803",
+   "removed": false,
+   "reason": null,
+   "text": "man, knight, warrior, armor, medieval, history, fantasy, historical, cartoon, fun, 3d, talk https: pixabay.com videos id 185803 man knight warrior armor medieval history fantasy historical cartoon fun 3d talk"
+  },
+  "16": {
+   "id": "pixabay:137978",
+   "removed": false,
+   "reason": null,
+   "text": "aerial drone, building, urban, landmark, style, art, tourist, famous, european, historical, culture, history, historic, blue, tourism, sky, view, castles, cathedral, monastery, abbey, medieval castle, scenic, beautiful, countryside https: pixabay.com videos id 137978 aerial drone building urban land"
+  },
+  "17": {
+   "id": 36926095,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video terracotta warriors in xi an china 36926095"
+  },
+  "18": {
+   "id": 26655204,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video forest fire and environmental disaster 26655204"
+  },
+  "19": {
+   "id": 31867115,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video dramatic trenches in steamy battlefield scene 31867115"
+  },
+  "20": {
+   "id": 6134628,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video a man with blue eyes 6134628"
+  },
+  "21": {
+   "id": 35753133,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video aerial view of farmer working in rice field 35753133"
+  },
+  "22": {
+   "id": 6093292,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video a footage of burning charcoal 6093292"
+  },
+  "23": {
+   "id": 35393787,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video aerial view of rugged landscape with forest edge 35393787"
+  },
+  "24": {
+   "id": 9332715,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video video of a crab under water 9332715"
+  },
+  "25": {
+   "id": 3171929,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video an uprooted tree lying down on the ground 3171929"
+  },
+  "26": {
+   "id": 11956221,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video a woman chained to a bed during a horror movie scene 11956221"
+  }
+ },
+ "5:photo": {
+  "1": {
+   "id": "chicago:10927",
+   "removed": false,
+   "reason": null,
+   "text": "saint benedict presenting his rule to benedictine and cistercian monks in a historiated initial \"o\" from a choirbook https: www.artic.edu artworks 10927"
+  },
+  "2": {
+   "id": "chicago:109635",
+   "removed": false,
+   "reason": null,
+   "text": "battle between cavalry and foot soldiers https: www.artic.edu artworks 109635"
+  },
+  "3": {
+   "id": "openverse:2b06fb01-52fb-4b28-8d98-e1a2749a2796",
+   "removed": false,
+   "reason": null,
+   "text": "file:nlw penrice and margam deeds 2046 (front) (8634691430).jpg https: commons.wikimedia.org w index.php?curid=42894512"
+  },
+  "4": {
+   "id": "met:22408",
+   "removed": false,
+   "reason": null,
+   "text": "breastplate https: www.metmuseum.org art collection search 22408"
+  },
+  "5": {
+   "id": "pixabay:4124656",
+   "removed": false,
+   "reason": null,
+   "text": "beach, horses, sea, sand, water, ocean, coast, nature, seascape, sunrise, shore, coastline, dawn, sunset https: pixabay.com photos beach horses sea sand water ocean 4124656 beach horses sea sand water ocean coast nature seascape sunrise shore coastline dawn sunset"
+  },
+  "6": {
+   "id": 35327453,
+   "removed": false,
+   "reason": null,
+   "text": "a medieval warrior in armor riding a horse holding a flag, outdoors in konya, türkiye. https: www.pexels.com photo medieval warrior on horseback with red flag 35327453"
+  },
+  "7": {
+   "id": "pixabay:2565957",
+   "removed": false,
+   "reason": null,
+   "text": "knight, warrior, artillery, horse, soldier, nature, war, battle, military, man https: pixabay.com photos knight warrior artillery horse 2565957 knight warrior artillery horse soldier nature war battle military man"
+  },
+  "8": {
+   "id": 63852,
+   "removed": false,
+   "reason": null,
+   "text": "a striking display of medieval knight armor, showcasing breastplates and steel suits in a museum. https: www.pexels.com photo stainless steel armor 63852"
+  },
+  "9": {
+   "id": "pixabay:3092747",
+   "removed": false,
+   "reason": null,
+   "text": "cavalry, farm, mammal, field, nature https: pixabay.com photos cavalry farm mammal field nature 3092747 cavalry farm mammal field nature"
+  },
+  "10": {
+   "id": 33344395,
+   "removed": false,
+   "reason": null,
+   "text": "traditional riders perform a cavalry show with vibrant flags at an outdoor festival. https: www.pexels.com photo traditional equestrian cavalry performance at festival 33344395"
+  },
+  "11": {
+   "id": 36710485,
+   "removed": false,
+   "reason": null,
+   "text": "dynamic shot of wild horses running in a snowy landscape, creating a dramatic scene. https: www.pexels.com photo black and white horses galloping across snowy field 36710485"
+  },
+  "12": {
+   "id": "pixabay:7405192",
+   "removed": false,
+   "reason": null,
+   "text": "armor, cool backgrounds, knight, hd wallpaper, free wallpaper, wallpaper hd, beautiful wallpaper, 4k wallpaper 1920x1080, wallpaper 4k, history, laptop wallpaper, windows wallpaper, 4k wallpaper, desktop backgrounds, free background, warrior, wallpaper, background, military, steel, blue, heavy caval"
+  },
+  "13": {
+   "id": "chicago:30",
+   "removed": false,
+   "reason": null,
+   "text": "the battle around the shield and lance https: www.artic.edu artworks 30"
+  },
+  "14": {
+   "id": "pixabay:7637951",
+   "removed": false,
+   "reason": null,
+   "text": "horse, carriage, buggy, wagon, nature, field, amish, country https: pixabay.com photos horse carriage buggy wagon field 7637951 horse carriage buggy wagon nature field amish country"
+  },
+  "15": {
+   "id": 9268883,
+   "removed": false,
+   "reason": null,
+   "text": "group of men reenacting a historical military scene with soldiers on foot and horseback in a grassy field. https: www.pexels.com photo soldiers fighting on a grass field 9268883"
+  },
+  "16": {
+   "id": 4261000,
+   "removed": false,
+   "reason": null,
+   "text": "polish soldiers on horseback holding flags, showcasing historical military cavalry. https: www.pexels.com photo men riding on horses with polish flags 4261000"
+  },
+  "17": {
+   "id": 4261005,
+   "removed": false,
+   "reason": null,
+   "text": "five polish cavalry soldiers on horses holding flags in an open field. https: www.pexels.com photo men riding on horses with polish flags 4261005"
+  },
+  "18": {
+   "id": "pixabay:4596827",
+   "removed": false,
+   "reason": null,
+   "text": "horse, soldier, warrior, war, battle, military, history, knight, silhouette, weapon, legend, rider, army, shield, gun, nature, force, hun, hungarian, old, iron, metallic, metal, mountain, steel, bratislava https: pixabay.com photos horse soldier warrior war battle 4596827 horse soldier warrior war b"
+  },
+  "19": {
+   "id": 6920322,
+   "removed": false,
+   "reason": null,
+   "text": "moroccan horsemen perform a tbourida at el jadida's festival, showcasing tradition and skill. https: www.pexels.com photo al jadida horse festival in morocco 6920322"
+  },
+  "20": {
+   "id": 30272139,
+   "removed": false,
+   "reason": null,
+   "text": "spectacular display of moroccan fantasia with riders and horses in ain el aouda. https: www.pexels.com photo traditional moroccan fantasia in ain el aouda 30272139"
+  },
+  "21": {
+   "id": 28915399,
+   "removed": false,
+   "reason": null,
+   "text": "a captivating scene of moroccan horsemen performing a traditional fantasia charge in el jadida. https: www.pexels.com photo traditional moroccan fantasia horsemen charge 28915399"
+  },
+  "22": {
+   "id": 9269151,
+   "removed": false,
+   "reason": null,
+   "text": "men in historical uniforms and soldier on horseback reenact a battle scene outdoors. https: www.pexels.com photo soldiers in historical military uniforms exercising in the grass field 9269151"
+  },
+  "23": {
+   "id": 38695579,
+   "removed": false,
+   "reason": null,
+   "text": "vibrant display of moroccan fantasia horsemen in rabat showcasing cultural heritage and horsemanship skills. https: www.pexels.com photo traditional moroccan fantasia horsemen performance 38695579"
+  },
+  "24": {
+   "id": "pixabay:5298638",
+   "removed": false,
+   "reason": null,
+   "text": "soldiers, the military, infantry, weapon, attack, storm, uniform, helmets, staging, great war, first world war, allies https: pixabay.com photos soldiers the military infantry 5298638 soldiers the military infantry weapon attack storm uniform helmets staging great war first world war allies"
+  },
+  "25": {
+   "id": 4260999,
+   "removed": false,
+   "reason": null,
+   "text": "uhlan cavalryman in uniform holding a lance on a brown horse under dramatic skies. https: www.pexels.com photo soldier on a horse 4260999"
+  },
+  "26": {
+   "id": 34073524,
+   "removed": true,
+   "reason": "blocklist:reenactment",
+   "text": "two riders in historical uniforms reenact a battle scene on horseback with visible dust clouds. https: www.pexels.com photo dramatic historical reenactment on horseback 34073524"
+  },
+  "27": {
+   "id": "pixabay:4617066",
+   "removed": true,
+   "reason": "blocklist:reenactment",
+   "text": "reenactment, beamish, lancers, horses, soldiers, england, heritage, wartime, ww1, britain, beamish, ww1, ww1, ww1, ww1, ww1 https: pixabay.com photos reenactment beamish lancers horses 4617066 reenactment beamish lancers horses soldiers england heritage wartime ww1 britain beamish ww1 ww1 ww1 ww1 ww"
+  },
+  "28": {
+   "id": 9269149,
+   "removed": true,
+   "reason": "blocklist:reenactment",
+   "text": "reenactment of historical military horseback and infantry in outdoor setting. https: www.pexels.com photo men in historical clothes with swords riding horses 9269149"
+  },
+  "29": {
+   "id": 334068,
+   "removed": true,
+   "reason": "blocklist:reenactment",
+   "text": "medieval reenactment scene with performers and audience in a sunny park filled with dandelions. https: www.pexels.com photo group of people standing on ground 334068"
+  },
+  "30": {
+   "id": 9268906,
+   "removed": true,
+   "reason": "blocklist:reenactment",
+   "text": "group of soldiers on horseback in historical military uniforms during a reenactment outdoors. https: www.pexels.com photo soldiers ridding brown horses 9268906"
+  }
+ },
+ "5:video": {
+  "1": {
+   "id": 6668563,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video a footage of an archer 6668563"
+  },
+  "2": {
+   "id": "pixabay:27539",
+   "removed": true,
+   "reason": "too_short",
+   "text": "running, bridge, mountains, men running, running in morning, running in winters, running on old bridge, drone view running, running aerial view, men running in morning, monsoon running, men running in hills https: pixabay.com videos id 27539 running bridge mountains men running running in morning ru"
+  },
+  "3": {
+   "id": "pixabay:206294",
+   "removed": true,
+   "reason": "too_short",
+   "text": "horses, animals, wildlife, running, ice, nature https: pixabay.com videos id 206294 horses animals wildlife running ice nature"
+  },
+  "4": {
+   "id": "pixabay:24410",
+   "removed": true,
+   "reason": "too_short",
+   "text": "knight, 3d, medieval, shield, armor, warrior, knights, middle ages, history, soldier, cartoon, christian, cross, castle, run, fighter, fight, character, man https: pixabay.com videos id 24410 knight 3d medieval shield armor warrior knights middle ages history soldier cartoon christian cross castle r"
+  },
+  "5": {
+   "id": 9466645,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video a man riding a horse firing the rifle 9466645"
+  },
+  "6": {
+   "id": 9466650,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video a young man performing as a cavalry soldier 9466650"
+  },
+  "7": {
+   "id": 7357964,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video walking on fallen leaves 7357964"
+  },
+  "8": {
+   "id": 6668673,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video a man holding bow and arrows 6668673"
+  },
+  "9": {
+   "id": 9466543,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video close up of a horseman going around soldiers in a formation 9466543"
+  },
+  "10": {
+   "id": 9466657,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video a man riding a horse while pulling out a sword 9466657"
+  },
+  "11": {
+   "id": "pixabay:8947",
+   "removed": true,
+   "reason": "too_short",
+   "text": "earth running, blue planet, space, 3d, time back, universe, solar system https: pixabay.com videos id 8947 earth running blue planet space 3d time back universe solar system"
+  },
+  "12": {
+   "id": "pixabay:220268",
+   "removed": false,
+   "reason": null,
+   "text": "wild horses, primeval horse, running, mane, wildlife https: pixabay.com videos id 220268 wild horses primeval horse running mane wildlife"
+  },
+  "13": {
+   "id": 9466311,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video men riding a horse while surrounding a group of soldiers 9466311"
+  },
+  "14": {
+   "id": 5087763,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video aerial view of horses running in farm 5087763"
+  },
+  "15": {
+   "id": "pixabay:160767",
+   "removed": true,
+   "reason": "too_short",
+   "text": "ocean, beach, waves, breaking waves, drone, urban, european architecture, europe, coastal nature, nature, portugal, aerial https: pixabay.com videos id 160767 ocean beach waves breaking waves drone urban european architecture europe coastal nature nature portugal aerial"
+  },
+  "16": {
+   "id": 9466306,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video revolutionary soldiers riding a horse at the field 9466306"
+  },
+  "17": {
+   "id": 9466526,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video a group of soldiers riding a horse on the field 9466526"
+  },
+  "18": {
+   "id": 9466310,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video a group of men during historical recreation 9466310"
+  },
+  "19": {
+   "id": 9466537,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video a men riding horses together 9466537"
+  },
+  "20": {
+   "id": 9466540,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video french revolutionary soldiers riding horses together 9466540"
+  },
+  "21": {
+   "id": 9466314,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video a group of men riding a horse 9466314"
+  },
+  "22": {
+   "id": 9466139,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video french revolutionary soldiers training in a field with their rifles 9466139"
+  },
+  "23": {
+   "id": 9466527,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video revolutionary soldiers riding horses together 9466527"
+  },
+  "24": {
+   "id": 9466304,
+   "removed": true,
+   "reason": "blocklist:reenactment",
+   "text": "https: www.pexels.com video men dressed in military uniforms during historical reenactment 9466304"
+  }
+ },
+ "6:photo": {
+  "1": {
+   "id": "openverse:2b06fb01-52fb-4b28-8d98-e1a2749a2796",
+   "removed": false,
+   "reason": null,
+   "text": "file:nlw penrice and margam deeds 2046 (front) (8634691430).jpg https: commons.wikimedia.org w index.php?curid=42894512"
+  },
+  "2": {
+   "id": "openverse:817a9c69-c70a-49a3-9dcc-69b998c3c87e",
+   "removed": false,
+   "reason": null,
+   "text": "cardinal james gibbons https: npg.si.edu object npg npg.91.196"
+  },
+  "3": {
+   "id": "openverse:4f52d5ab-0a5f-43ff-ba39-73b116d01452",
+   "removed": false,
+   "reason": null,
+   "text": "study of medieval armor and a crossbow (recto); studies of a medieval helmet (verso) https: www.metmuseum.org art collection search 747500"
+  },
+  "4": {
+   "id": "chicago:116363",
+   "removed": false,
+   "reason": null,
+   "text": "field armor for man https: www.artic.edu artworks 116363"
+  },
+  "5": {
+   "id": "chicago:10927",
+   "removed": false,
+   "reason": null,
+   "text": "saint benedict presenting his rule to benedictine and cistercian monks in a historiated initial \"o\" from a choirbook https: www.artic.edu artworks 10927"
+  },
+  "6": {
+   "id": "met:22408",
+   "removed": false,
+   "reason": null,
+   "text": "breastplate https: www.metmuseum.org art collection search 22408"
+  },
+  "7": {
+   "id": 63852,
+   "removed": false,
+   "reason": null,
+   "text": "a striking display of medieval knight armor, showcasing breastplates and steel suits in a museum. https: www.pexels.com photo stainless steel armor 63852"
+  },
+  "8": {
+   "id": 10068847,
+   "removed": false,
+   "reason": null,
+   "text": "a viking warrior in armor holding a sword, showcasing historical attire. https: www.pexels.com photo man wearing a warrior costume 10068847"
+  },
+  "9": {
+   "id": 33091810,
+   "removed": false,
+   "reason": null,
+   "text": "a knight in full medieval armor standing outdoors in höxter, germany. https: www.pexels.com photo medieval armor knight in hoxter landscape 33091810"
+  },
+  "10": {
+   "id": "pixabay:3092747",
+   "removed": false,
+   "reason": null,
+   "text": "cavalry, farm, mammal, field, nature https: pixabay.com photos cavalry farm mammal field nature 3092747 cavalry farm mammal field nature"
+  },
+  "11": {
+   "id": "pixabay:321443",
+   "removed": false,
+   "reason": null,
+   "text": "knight, beaten, medieval, battle, ancient, metal, middle ages, dark ages, knight, knight, knight, knight, knight, medieval, medieval, medieval, battle, battle https: pixabay.com photos knight beaten medieval battle 321443 knight beaten medieval battle ancient metal middle ages dark ages knight knigh"
+  },
+  "12": {
+   "id": 31350031,
+   "removed": false,
+   "reason": null,
+   "text": "detailed close up of intricately designed medieval armor plates with gold accents and leather straps. https: www.pexels.com photo close up of ornate medieval armor plates 31350031"
+  },
+  "13": {
+   "id": 32677287,
+   "removed": false,
+   "reason": null,
+   "text": "dramatic clash between knights in a colorful medieval jousting event. https: www.pexels.com photo medieval jousting tournament in norten hardenberg 32677287"
+  },
+  "14": {
+   "id": "openverse:6ff19fc9-acbd-4816-bc7c-bbc90ed5562d",
+   "removed": false,
+   "reason": null,
+   "text": "study of medieval armor and a crossbow (recto); studies of a medieval helmet (verso) https: www.metmuseum.org art collection search 747500"
+  },
+  "15": {
+   "id": "pixabay:1931077",
+   "removed": false,
+   "reason": null,
+   "text": "gladiator, warrior, gear, weapons, arena, roman, history, soldier, ancient, spartan, hero, armour, fight, man, helmet, knight, armor, battle, war, steel, gray history, gray war, gray hero, gladiator, warrior, warrior, history, history, history, history, history, hero, fight, knight, armor, battle, w"
+  },
+  "16": {
+   "id": 289831,
+   "removed": false,
+   "reason": null,
+   "text": "a medieval armor helmet, sword, and glove against a stone wall depicting historical combat gear. https: www.pexels.com photo silver knight helmet 289831"
+  },
+  "17": {
+   "id": "pixabay:7405192",
+   "removed": false,
+   "reason": null,
+   "text": "armor, cool backgrounds, knight, hd wallpaper, free wallpaper, wallpaper hd, beautiful wallpaper, 4k wallpaper 1920x1080, wallpaper 4k, history, laptop wallpaper, windows wallpaper, 4k wallpaper, desktop backgrounds, free background, warrior, wallpaper, background, military, steel, blue, heavy caval"
+  },
+  "18": {
+   "id": "pixabay:3181275",
+   "removed": false,
+   "reason": null,
+   "text": "steel, iron, armor, machine, helmet, knight, military, army, protection, officer, man, war, equipment, medieval, brown office, brown army, brown war, armor, armor, armor, armor, armor, knight, knight, knight, army https: pixabay.com photos steel iron armor machine helmet 3181275 steel iron armor mac"
+  },
+  "19": {
+   "id": "pixabay:3759228",
+   "removed": false,
+   "reason": null,
+   "text": "knight, armour, sword, battle, armor, medieval, history, helmet, historic, fight https: pixabay.com photos knight armour sword battle armor 3759228 knight armour sword battle armor medieval history helmet historic fight"
+  },
+  "20": {
+   "id": "pixabay:978558",
+   "removed": false,
+   "reason": null,
+   "text": "helmet, knight, armor, museum, view, knight, knight, knight, knight, knight, armor, armor https: pixabay.com photos helmet knight armor museum view 978558 helmet knight armor museum view knight knight knight knight knight armor armor"
+  },
+  "21": {
+   "id": "pixabay:3319865",
+   "removed": false,
+   "reason": null,
+   "text": "wood, nature, tree, outdoors, people, knight, medieval, soldier, warrior, armor, shield, knight, knight, knight, knight, knight, medieval, medieval, soldier, warrior, warrior, warrior, warrior, armor, shield, shield, shield https: pixabay.com photos wood nature tree outdoors people 3319865 wood natu"
+  },
+  "22": {
+   "id": "pixabay:2823663",
+   "removed": false,
+   "reason": null,
+   "text": "knight, armor, middle ages, armor knight, knight armor, historical, helmet, metal, old knight armor, protection, knight helmet, wrought, war, jousting, isolated, knight, knight, knight, armor, armor, armor, armor, armor, knight armor, knight helmet https: pixabay.com photos knight armor middle ages "
+  },
+  "23": {
+   "id": "pixabay:2433161",
+   "removed": false,
+   "reason": null,
+   "text": "jousting, knight, armor, medieval, military, sword, old, man, army, arms, warrior, soldier, history, chivalry, armour, jousting, knight, knight, knight, knight, knight, armor, armor, medieval, medieval, medieval, medieval, sword, sword, sword, army, army, warrior, warrior, chivalry, armour, armour h"
+  }
+ },
+ "6:video": {
+  "1": {
+   "id": "pixabay:24410",
+   "removed": true,
+   "reason": "too_short",
+   "text": "knight, 3d, medieval, shield, armor, warrior, knights, middle ages, history, soldier, cartoon, christian, cross, castle, run, fighter, fight, character, man https: pixabay.com videos id 24410 knight 3d medieval shield armor warrior knights middle ages history soldier cartoon christian cross castle r"
+  },
+  "2": {
+   "id": "pixabay:152801",
+   "removed": true,
+   "reason": "too_short",
+   "text": "rain, water, road, ground https: pixabay.com videos id 152801 rain water road ground"
+  },
+  "3": {
+   "id": "pixabay:56075",
+   "removed": true,
+   "reason": "too_short",
+   "text": "knight, warrior, medieval, 3d, cartoon, armor, dance, dancing, salsa, fun, man, history, middle ages, male https: pixabay.com videos id 56075 knight warrior medieval 3d cartoon armor dance dancing salsa fun man history middle ages male"
+  },
+  "4": {
+   "id": "pixabay:21849",
+   "removed": false,
+   "reason": null,
+   "text": "scotland, edinburgh, european union, protest, brexit, referendum, vote, flag, people, united kingdom, movement https: pixabay.com videos id 21849 scotland edinburgh european union protest brexit referendum vote flag people united kingdom movement"
+  },
+  "5": {
+   "id": "pixabay:165003",
+   "removed": false,
+   "reason": null,
+   "text": "river, bridge, steel, railway, construction https: pixabay.com videos id 165003 river bridge steel railway construction"
+  },
+  "6": {
+   "id": 7085682,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video drone footage of a castle 7085682"
+  },
+  "7": {
+   "id": 6689888,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video chess pieces 6689888"
+  },
+  "8": {
+   "id": 5916863,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video black and white footage of a man crying 5916863"
+  },
+  "9": {
+   "id": 38103940,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video roman legionaries marching in formation outdoors 38103940"
+  },
+  "10": {
+   "id": 9466657,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video a man riding a horse while pulling out a sword 9466657"
+  },
+  "11": {
+   "id": "pixabay:215729",
+   "removed": false,
+   "reason": null,
+   "text": "smoke, ground, backdrop, light, storytelling, dream, fantasy https: pixabay.com videos id 215729 smoke ground backdrop light storytelling dream fantasy"
+  },
+  "12": {
+   "id": "pixabay:21847",
+   "removed": false,
+   "reason": null,
+   "text": "scotland, edinburgh, european union, protest, brexit, referendum, vote, vigil, people, demonstration, united kingdom, movement https: pixabay.com videos id 21847 scotland edinburgh european union protest brexit referendum vote vigil people demonstration united kingdom movement"
+  },
+  "13": {
+   "id": "pixabay:146380",
+   "removed": true,
+   "reason": "too_short",
+   "text": "knight, 3d, cartoon, middle, ages, medieval, man, people, soldier, armor, real, estate, house, home, property, sale, sell https: pixabay.com videos id 146380 knight 3d cartoon middle ages medieval man people soldier armor real estate house home property sale sell"
+  },
+  "14": {
+   "id": 10583315,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video man climbing on rocks 10583315"
+  },
+  "15": {
+   "id": "pixabay:24413",
+   "removed": true,
+   "reason": "too_short",
+   "text": "knight, 3d, medieval, shield, armor, warrior, knights, middle ages, history, soldier, cartoon, christian, cross, castle, run, fighter, fight, character, man https: pixabay.com videos id 24413 knight 3d medieval shield armor warrior knights middle ages history soldier cartoon christian cross castle r"
+  },
+  "16": {
+   "id": "pixabay:24412",
+   "removed": true,
+   "reason": "too_short",
+   "text": "knight, 3d, medieval, shield, armor, warrior, knights, middle ages, history, soldier, cartoon, christian, cross, castle, run, fighter, fight, character, man https: pixabay.com videos id 24412 knight 3d medieval shield armor warrior knights middle ages history soldier cartoon christian cross castle r"
+  },
+  "17": {
+   "id": "pixabay:233550",
+   "removed": true,
+   "reason": "too_short",
+   "text": "knight, armor, warrior, medieval, fantasy, metal, helmet, man, fight, 3d, cartoon, europe, middle ages, thumb, like, good, hand, positive, yes, okay https: pixabay.com videos id 233550 knight armor warrior medieval fantasy metal helmet man fight 3d cartoon europe middle ages thumb like good hand pos"
+  },
+  "18": {
+   "id": 34618735,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video medieval knight armor display in museum 34618735"
+  },
+  "19": {
+   "id": "pixabay:31210",
+   "removed": true,
+   "reason": "too_short",
+   "text": "knight, 3d, medieval, armor, man, fantasy, history, soldier, character, ancient, code, laptop, internet, coding, programming, hacker, computer, bug, virus, protection, hacking, thief https: pixabay.com videos id 31210 knight 3d medieval armor man fantasy history soldier character ancient code laptop"
+  },
+  "20": {
+   "id": "pixabay:119050",
+   "removed": true,
+   "reason": "too_short",
+   "text": "knight, man, medieval, 3d, cartoon, wine, alcohol, glass, red, shield, middle ages, historical, fun, celebration, party, victory, bordeaux, bourgogne, france https: pixabay.com videos id 119050 knight man medieval 3d cartoon wine alcohol glass red shield middle ages historical fun celebration party "
+  },
+  "21": {
+   "id": 28309301,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video a man in armor is climbing up a wall 28309301"
+  },
+  "22": {
+   "id": "pixabay:140972",
+   "removed": true,
+   "reason": "too_short",
+   "text": "knight, medieval, soldier, 3d, cartoon, man, middle, ages, europe, flag, country, nation, denmark, danish https: pixabay.com videos id 140972 knight medieval soldier 3d cartoon man middle ages europe flag country nation denmark danish"
+  },
+  "23": {
+   "id": 37067292,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video aerial view of rural farm with grazing horses 37067292"
+  }
+ },
+ "7:photo": {
+  "1": {
+   "id": "chicago:10927",
+   "removed": false,
+   "reason": null,
+   "text": "saint benedict presenting his rule to benedictine and cistercian monks in a historiated initial \"o\" from a choirbook https: www.artic.edu artworks 10927"
+  },
+  "2": {
+   "id": "met:24660",
+   "removed": false,
+   "reason": null,
+   "text": "cuirass and tassets (torso and hip defense) https: www.metmuseum.org art collection search 24660"
+  },
+  "3": {
+   "id": "met:22408",
+   "removed": false,
+   "reason": null,
+   "text": "breastplate https: www.metmuseum.org art collection search 22408"
+  },
+  "4": {
+   "id": "openverse:2b06fb01-52fb-4b28-8d98-e1a2749a2796",
+   "removed": false,
+   "reason": null,
+   "text": "file:nlw penrice and margam deeds 2046 (front) (8634691430).jpg https: commons.wikimedia.org w index.php?curid=42894512"
+  },
+  "5": {
+   "id": 35316801,
+   "removed": false,
+   "reason": null,
+   "text": "a woman in historical costume aiming a bow and arrow outdoors, demonstrating archery skills. https: www.pexels.com photo woman in historical dress practicing archery outdoors 35316801"
+  },
+  "6": {
+   "id": 6540726,
+   "removed": false,
+   "reason": null,
+   "text": "a female archer adjusts arrows on a target during a sunny day, showcasing precise archery skills. https: www.pexels.com photo woman pulling arrows from archery target board 6540726"
+  },
+  "7": {
+   "id": "openverse:4f52d5ab-0a5f-43ff-ba39-73b116d01452",
+   "removed": false,
+   "reason": null,
+   "text": "study of medieval armor and a crossbow (recto); studies of a medieval helmet (verso) https: www.metmuseum.org art collection search 747500"
+  },
+  "8": {
+   "id": 63852,
+   "removed": false,
+   "reason": null,
+   "text": "a striking display of medieval knight armor, showcasing breastplates and steel suits in a museum. https: www.pexels.com photo stainless steel armor 63852"
+  },
+  "9": {
+   "id": "openverse:f03d3db5-e9ac-4161-b37d-2937deea3ce9",
+   "removed": false,
+   "reason": null,
+   "text": "panel with armored soldier https: www.metmuseum.org art collection search 467388"
+  },
+  "10": {
+   "id": "pixabay:3092747",
+   "removed": false,
+   "reason": null,
+   "text": "cavalry, farm, mammal, field, nature https: pixabay.com photos cavalry farm mammal field nature 3092747 cavalry farm mammal field nature"
+  },
+  "11": {
+   "id": "pixabay:8905121",
+   "removed": false,
+   "reason": null,
+   "text": "darts, sport, dart board, arrow, accuracy, game, dart https: pixabay.com photos darts sport dart board arrow 8905121 darts sport dart board arrow accuracy game dart"
+  },
+  "12": {
+   "id": 20434827,
+   "removed": false,
+   "reason": null,
+   "text": "a female archer with bow and arrow poised in a studio background. https: www.pexels.com photo woman with bow and arrows 20434827"
+  },
+  "13": {
+   "id": 31350031,
+   "removed": false,
+   "reason": null,
+   "text": "detailed close up of intricately designed medieval armor plates with gold accents and leather straps. https: www.pexels.com photo close up of ornate medieval armor plates 31350031"
+  },
+  "14": {
+   "id": "chicago:116222",
+   "removed": false,
+   "reason": null,
+   "text": "breastplate https: www.artic.edu artworks 116222"
+  },
+  "15": {
+   "id": "met:23148",
+   "removed": false,
+   "reason": null,
+   "text": "breastplate with applied stop rib https: www.metmuseum.org art collection search 23148"
+  },
+  "16": {
+   "id": "chicago:116348",
+   "removed": false,
+   "reason": null,
+   "text": "breastplate with lance rest and fauld https: www.artic.edu artworks 116348"
+  },
+  "17": {
+   "id": "met:22998",
+   "removed": false,
+   "reason": null,
+   "text": "breastplate https: www.metmuseum.org art collection search 22998"
+  },
+  "18": {
+   "id": "met:22996",
+   "removed": false,
+   "reason": null,
+   "text": "breastplate https: www.metmuseum.org art collection search 22996"
+  },
+  "19": {
+   "id": "met:23143",
+   "removed": false,
+   "reason": null,
+   "text": "breastplate https: www.metmuseum.org art collection search 23143"
+  },
+  "20": {
+   "id": "met:22359",
+   "removed": false,
+   "reason": null,
+   "text": "cuirass https: www.metmuseum.org art collection search 22359"
+  },
+  "21": {
+   "id": "met:24826",
+   "removed": false,
+   "reason": null,
+   "text": "breastplate https: www.metmuseum.org art collection search 24826"
+  },
+  "22": {
+   "id": "chicago:112137",
+   "removed": false,
+   "reason": null,
+   "text": "breastplate https: www.artic.edu artworks 112137"
+  },
+  "23": {
+   "id": "met:22997",
+   "removed": false,
+   "reason": null,
+   "text": "breastplate https: www.metmuseum.org art collection search 22997"
+  },
+  "24": {
+   "id": "chicago:112138",
+   "removed": false,
+   "reason": null,
+   "text": "breastplate https: www.artic.edu artworks 112138"
+  }
+ },
+ "7:video": {
+  "1": {
+   "id": 6668634,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video a man shooting a target using an archer 6668634"
+  },
+  "2": {
+   "id": 6668765,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video close up of arrow hitting target 6668765"
+  },
+  "3": {
+   "id": 3800721,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video a large clock is hanging from the ceiling of a building 3800721"
+  },
+  "4": {
+   "id": "pixabay:1437",
+   "removed": true,
+   "reason": "too_short",
+   "text": "candle, animated, blow off, party, birthday, flame, light, wax, drawing, fume, festive, 147147280 https: pixabay.com videos id 1437 candle animated blow off party birthday flame light wax drawing fume festive 147147280"
+  },
+  "5": {
+   "id": "pixabay:19512",
+   "removed": true,
+   "reason": "too_short",
+   "text": "darts, board, dart board, direct hit, accurate, center, target, game of darts, arrow, purposefully, game, meet, precision sports, goal, accuracy, sports, dart, hits, bulls, eye, twenty, world championship, world cup, christmas https: pixabay.com videos id 19512 darts board dart board direct hit accu"
+  },
+  "6": {
+   "id": "pixabay:56075",
+   "removed": true,
+   "reason": "too_short",
+   "text": "knight, warrior, medieval, 3d, cartoon, armor, dance, dancing, salsa, fun, man, history, middle ages, male https: pixabay.com videos id 56075 knight warrior medieval 3d cartoon armor dance dancing salsa fun man history middle ages male"
+  },
+  "7": {
+   "id": "pixabay:165003",
+   "removed": false,
+   "reason": null,
+   "text": "river, bridge, steel, railway, construction https: pixabay.com videos id 165003 river bridge steel railway construction"
+  },
+  "8": {
+   "id": "pixabay:24410",
+   "removed": true,
+   "reason": "too_short",
+   "text": "knight, 3d, medieval, shield, armor, warrior, knights, middle ages, history, soldier, cartoon, christian, cross, castle, run, fighter, fight, character, man https: pixabay.com videos id 24410 knight 3d medieval shield armor warrior knights middle ages history soldier cartoon christian cross castle r"
+  },
+  "9": {
+   "id": "pixabay:578",
+   "removed": true,
+   "reason": "too_short",
+   "text": "free of charge, cost, money, business, price, gratis, offer, service, commerce, word, text, no charge, sign, sale, purchase https: pixabay.com videos id 578 free of charge cost money business price gratis offer service commerce word text no charge sign sale purchase"
+  },
+  "10": {
+   "id": 5383027,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video arrow head on the screw driver 5383027"
+  },
+  "11": {
+   "id": 6540482,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video archery shoots 6540482"
+  },
+  "12": {
+   "id": 29725527,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video aerial view of nazca lines in peru 29725527"
+  },
+  "13": {
+   "id": 38103940,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video roman legionaries marching in formation outdoors 38103940"
+  },
+  "14": {
+   "id": "pixabay:29224",
+   "removed": true,
+   "reason": "too_short",
+   "text": "castle, church, tower, city, architecture, building, religion, barcelona, monument, sky, gilded, faith, spain, travel, tourism, historic, medieval, knights, king, priest, pray, cathedral, great https: pixabay.com videos id 29224 castle church tower city architecture building religion barcelona monum"
+  },
+  "15": {
+   "id": "pixabay:146380",
+   "removed": true,
+   "reason": "too_short",
+   "text": "knight, 3d, cartoon, middle, ages, medieval, man, people, soldier, armor, real, estate, house, home, property, sale, sell https: pixabay.com videos id 146380 knight 3d cartoon middle ages medieval man people soldier armor real estate house home property sale sell"
+  },
+  "16": {
+   "id": 6655843,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video girl learning archery 6655843"
+  },
+  "17": {
+   "id": 38103934,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video roman soldiers in historic shield formation 38103934"
+  },
+  "18": {
+   "id": 6540239,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video a man and woman having conversation about bow and arrow 6540239"
+  },
+  "19": {
+   "id": 6540242,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video a woman doing archery 6540242"
+  },
+  "20": {
+   "id": 6655887,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video a boy pulling and throwing an arrow 6655887"
+  },
+  "21": {
+   "id": 6655772,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video a person pulling an arrow from the bow 6655772"
+  },
+  "22": {
+   "id": 6668610,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video person removing arrow from bullseye 6668610"
+  },
+  "23": {
+   "id": 6540233,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video a woman holding a bow and arrow while talking to a man 6540233"
+  }
+ },
+ "8:photo": {
+  "1": {
+   "id": "chicago:112092",
+   "removed": false,
+   "reason": null,
+   "text": "portions of a jousting helmet https: www.artic.edu artworks 112092"
+  },
+  "2": {
+   "id": "openverse:6abd931d-8e48-4960-8a48-b9a4a8ea2694",
+   "removed": false,
+   "reason": null,
+   "text": "medieval knight puppets from hortus deliciarum https: commons.wikimedia.org w index.php?curid=90965255"
+  },
+  "3": {
+   "id": "cleveland:149380",
+   "removed": false,
+   "reason": null,
+   "text": "panel from a casket with scenes from courtly romances https: clevelandart.org art 1978.39.a"
+  },
+  "4": {
+   "id": "chicago:82451",
+   "removed": false,
+   "reason": null,
+   "text": "jonah cast up by the whale https: www.artic.edu artworks 82451"
+  },
+  "5": {
+   "id": "cleveland:96632",
+   "removed": false,
+   "reason": null,
+   "text": "powder flask with standing figures of a man and woman https: clevelandart.org art 1916.37"
+  },
+  "6": {
+   "id": 38009881,
+   "removed": false,
+   "reason": null,
+   "text": "a dramatic silhouette of a knight on horseback statue under a clear evening sky. https: www.pexels.com photo silhouette of equestrian knight statue at dusk 38009881"
+  },
+  "7": {
+   "id": 39125516,
+   "removed": false,
+   "reason": null,
+   "text": "bearded medieval warrior in armor and shield, poised for combat against a stormy backdrop. https: www.pexels.com photo valiant medieval warrior in armor ready for battle 39125516"
+  },
+  "8": {
+   "id": 11046287,
+   "removed": false,
+   "reason": null,
+   "text": "a medieval knight in protective armor holding a sword in a historic stone setting. https: www.pexels.com photo a man wearing bronze helmet holding a sword 11046287"
+  },
+  "9": {
+   "id": 9777909,
+   "removed": false,
+   "reason": null,
+   "text": "a knight in armor sits in a field, holding a sword, evoking scenes of medieval times. https: www.pexels.com photo a man in knight costume sitting on green grass 9777909"
+  },
+  "10": {
+   "id": "pixabay:6823431",
+   "removed": false,
+   "reason": null,
+   "text": "baby, child, grandchild, feet, baby feet, infant, children's feet, toes, cute, baby, baby, baby, baby, baby https: pixabay.com photos baby child grandchild feet 6823431 baby child grandchild feet baby feet infant children's feet toes cute baby baby baby baby baby"
+  },
+  "11": {
+   "id": "pixabay:2565957",
+   "removed": false,
+   "reason": null,
+   "text": "knight, warrior, artillery, horse, soldier, nature, war, battle, military, man https: pixabay.com photos knight warrior artillery horse 2565957 knight warrior artillery horse soldier nature war battle military man"
+  },
+  "12": {
+   "id": 32677287,
+   "removed": false,
+   "reason": null,
+   "text": "dramatic clash between knights in a colorful medieval jousting event. https: www.pexels.com photo medieval jousting tournament in norten hardenberg 32677287"
+  },
+  "13": {
+   "id": "pixabay:5616861",
+   "removed": false,
+   "reason": null,
+   "text": "woman, bride, smile, make up, getting ready, lashes, mascara, hairstyle, wedding, married, getting ready, lashes, lashes, lashes, lashes, lashes, mascara, mascara https: pixabay.com photos woman bride smile make up 5616861 woman bride smile make up getting ready lashes mascara hairstyle wedding marr"
+  },
+  "14": {
+   "id": "pixabay:4437756",
+   "removed": false,
+   "reason": null,
+   "text": "architecture, historian, house, borgo, italy, landscape, rustico, facade, village, construction, sassi, rural, ancient, abruzzo, village, construction, abruzzo, abruzzo, abruzzo, abruzzo, abruzzo https: pixabay.com photos architecture historian house borgo 4437756 architecture historian house borgo "
+  },
+  "15": {
+   "id": 30736362,
+   "removed": false,
+   "reason": null,
+   "text": "a turkish warrior in historical armor on horseback faces a vast landscape in konya, türkiye. https: www.pexels.com photo turkish warrior on horseback in konya landscape 30736362"
+  },
+  "16": {
+   "id": "pixabay:7512342",
+   "removed": false,
+   "reason": null,
+   "text": "knight, warrior, fighter, medieval, polearm, knight, knight, knight, knight, knight, warrior, warrior, warrior https: pixabay.com photos knight warrior fighter medieval 7512342 knight warrior fighter medieval polearm knight knight knight knight knight warrior warrior warrior"
+  },
+  "17": {
+   "id": 7472009,
+   "removed": false,
+   "reason": null,
+   "text": "drone shot of a man lying on dry soil, captured from above, symbolizing peace and solitude. https: www.pexels.com photo top view of a man lying on an empty field 7472009"
+  },
+  "18": {
+   "id": "pixabay:3319865",
+   "removed": false,
+   "reason": null,
+   "text": "wood, nature, tree, outdoors, people, knight, medieval, soldier, warrior, armor, shield, knight, knight, knight, knight, knight, medieval, medieval, soldier, warrior, warrior, warrior, warrior, armor, shield, shield, shield https: pixabay.com photos wood nature tree outdoors people 3319865 wood natu"
+  },
+  "19": {
+   "id": 8971361,
+   "removed": false,
+   "reason": null,
+   "text": "person standing alone in a winter forest clearing with snow and bare trees, serene and introspective. https: www.pexels.com photo a person standing alone on a field 8971361"
+  },
+  "20": {
+   "id": "pixabay:2763831",
+   "removed": false,
+   "reason": null,
+   "text": "fantasy, knight, battle, warrior, armor, weapon, symbol, king, old, kingdom, history, character, medieval, ancient, fairy, shire, horse, historic, nature, historical, brown fantasy, brown horse, brown history, brown old, brown king https: pixabay.com photos fantasy knight battle warrior 2763831 fant"
+  },
+  "21": {
+   "id": 30736363,
+   "removed": false,
+   "reason": null,
+   "text": "a historical turkish warrior in armor on horseback in konya, türkiye, captured outdoors. https: www.pexels.com photo medieval warrior on horseback in turkish landscape 30736363"
+  },
+  "22": {
+   "id": "pixabay:2826704",
+   "removed": false,
+   "reason": null,
+   "text": "knight, soldier, warrior, medieval, war, helmet, metal, man, guard, hero, brown war, brown metal, brown hero, knight, knight, knight, knight, knight, warrior, hero, hero, hero https: pixabay.com photos knight soldier warrior medieval 2826704 knight soldier warrior medieval war helmet metal man guard"
+  },
+  "23": {
+   "id": 35327453,
+   "removed": false,
+   "reason": null,
+   "text": "a medieval warrior in armor riding a horse holding a flag, outdoors in konya, türkiye. https: www.pexels.com photo medieval warrior on horseback with red flag 35327453"
+  },
+  "24": {
+   "id": 35327478,
+   "removed": true,
+   "reason": "blocklist:reenactor",
+   "text": "a historical reenactor in armor riding horseback carries the turkish flag in konya, türkiye. https: www.pexels.com photo turkish cavalryman with flag in konya 35327478"
+  }
+ },
+ "8:video": {
+  "1": {
+   "id": 5481188,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video a person walking with his hands behind his back 5481188"
+  },
+  "2": {
+   "id": 38103940,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video roman legionaries marching in formation outdoors 38103940"
+  },
+  "3": {
+   "id": 9466645,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video a man riding a horse firing the rifle 9466645"
+  },
+  "4": {
+   "id": "pixabay:3627",
+   "removed": true,
+   "reason": "too_short",
+   "text": "shoes, walking, feet, legs, many, crowd, people, city, town https: pixabay.com videos id 3627 shoes walking feet legs many crowd people city town"
+  },
+  "5": {
+   "id": "pixabay:130293",
+   "removed": true,
+   "reason": "too_short",
+   "text": "apse of a church, middle ages, crusader, crusade, knight, architecture, saint anne church, dome of a medieval church, medieval https: pixabay.com videos id 130293 apse of a church middle ages crusader crusade knight architecture saint anne church dome of a medieval church medieval"
+  },
+  "6": {
+   "id": "pixabay:121840",
+   "removed": true,
+   "reason": "too_short",
+   "text": "medieval, man, cartoon, 3d, europe, middle, ages, history, thumbs, up, ice cream, ice, cream, dessert, chocolate, nuts, france, french https: pixabay.com videos id 121840 medieval man cartoon 3d europe middle ages history thumbs up ice cream ice cream dessert chocolate nuts france french"
+  },
+  "7": {
+   "id": "pixabay:78804",
+   "removed": true,
+   "reason": "too_short",
+   "text": "man, abstract, black, shadow, circle, circling, alone, human, mind, thought, idea, think, inspiration, silhouette, thinking, soul, science, stand, standing https: pixabay.com videos id 78804 man abstract black shadow circle circling alone human mind thought idea think inspiration silhouette thinking"
+  },
+  "8": {
+   "id": 9466657,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video a man riding a horse while pulling out a sword 9466657"
+  },
+  "9": {
+   "id": 5916863,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video black and white footage of a man crying 5916863"
+  },
+  "10": {
+   "id": 9466315,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video men wearing military uniform standing in an open field while holding their rifles 9466315"
+  },
+  "11": {
+   "id": "pixabay:89769",
+   "removed": true,
+   "reason": "too_short",
+   "text": "desert, drought, muddy, river https: pixabay.com videos id 89769 desert drought muddy river"
+  },
+  "12": {
+   "id": "pixabay:140923",
+   "removed": true,
+   "reason": "too_short",
+   "text": "knight, cartoon, 3d, man, medieval, middle, ages, iceland, europe, flag, country https: pixabay.com videos id 140923 knight cartoon 3d man medieval middle ages iceland europe flag country"
+  },
+  "13": {
+   "id": "pixabay:189018",
+   "removed": true,
+   "reason": "too_short",
+   "text": "lipstick, make up, bride, woman, fashion, wedding, close up, texture https: pixabay.com videos id 189018 lipstick make up bride woman fashion wedding close up texture"
+  },
+  "14": {
+   "id": "pixabay:56075",
+   "removed": true,
+   "reason": "too_short",
+   "text": "knight, warrior, medieval, 3d, cartoon, armor, dance, dancing, salsa, fun, man, history, middle ages, male https: pixabay.com videos id 56075 knight warrior medieval 3d cartoon armor dance dancing salsa fun man history middle ages male"
+  },
+  "15": {
+   "id": 9466650,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video a young man performing as a cavalry soldier 9466650"
+  },
+  "16": {
+   "id": 13602960,
+   "removed": false,
+   "reason": null,
+   "text": "https: www.pexels.com video man with backpack walking on sand 13602960"
+  },
+  "17": {
+   "id": 20583507,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video a person walking down a dirt road at sunset 20583507"
+  },
+  "18": {
+   "id": 5633936,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video close up footage of a worn black shoe 5633936"
+  },
+  "19": {
+   "id": 5973751,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video woman walking in desert wearing traditional abaya 5973751"
+  },
+  "20": {
+   "id": 12249073,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video riding horse on riverbank 12249073"
+  },
+  "21": {
+   "id": 30272556,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video roman soldier riding horse in open fields 30272556"
+  },
+  "22": {
+   "id": 10133010,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video a person wearing a trench coat while blowing by the wind 10133010"
+  },
+  "23": {
+   "id": "pixabay:233550",
+   "removed": true,
+   "reason": "too_short",
+   "text": "knight, armor, warrior, medieval, fantasy, metal, helmet, man, fight, 3d, cartoon, europe, middle ages, thumb, like, good, hand, positive, yes, okay https: pixabay.com videos id 233550 knight armor warrior medieval fantasy metal helmet man fight 3d cartoon europe middle ages thumb like good hand pos"
+  },
+  "24": {
+   "id": 5833000,
+   "removed": true,
+   "reason": "too_short",
+   "text": "https: www.pexels.com video person walking on a rocky pathway 5833000"
+  },
+  "25": {
+   "id": "pixabay:24412",
+   "removed": true,
+   "reason": "too_short",
+   "text": "knight, 3d, medieval, shield, armor, warrior, knights, middle ages, history, soldier, cartoon, christian, cross, castle, run, fighter, fight, character, man https: pixabay.com videos id 24412 knight 3d medieval shield armor warrior knights middle ages history soldier cartoon christian cross castle r"
+  },
+  "26": {
+   "id": 10556692,
+   "removed": true,
+   "reason": "blocklist:barefoot",
+   "text": "https: www.pexels.com video feet of barefoot woman in natural setting 10556692"
+  }
+ }
+}

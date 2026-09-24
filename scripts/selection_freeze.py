@@ -705,6 +705,28 @@ def load_module_from_source(name, path, source):
 
 
 POOL_FIELDS = ("id", "_origin_query")
+PENDING_REMOVED = {}
+
+
+ABLATIONS = {
+    # запрос уходит в источник как написан: без уточнителя культуры и якоря эпохи
+    "nolengthen": lambda ps: setattr(ps, "disambiguate_search_query", lambda q: q),
+    # жанровый список запретов канала не действует (запрещённые id — действуют)
+    "noblocklist": lambda ps: setattr(ps, "content_blocklist_effective", lambda: []),
+}
+
+
+def apply_ablation(pipeline_smart, spec):
+    """Замер этапа 0: выключить слой ИСПЫТУЕМОГО кода, не правя его файл.
+    spec — имена через запятую из ABLATIONS; неизвестное имя — отказ, а не
+    тихий прогон без абляции (он выглядел бы как измерение)."""
+    names = [n.strip() for n in (spec or "").split(",") if n.strip()]
+    unknown = [n for n in names if n not in ABLATIONS]
+    if unknown:
+        raise SystemExit(f"ОТКАЗ: неизвестная абляция {unknown}; есть {sorted(ABLATIONS)}")
+    for n in names:
+        ABLATIONS[n](pipeline_smart)
+    return names
 
 
 def install_pool_capture(pipeline_smart, path):
@@ -733,21 +755,63 @@ def install_pool_capture(pipeline_smart, path):
             urls = ps.video_preview_urls(c)   # середина — кадр, по которому судят гейты
             return urls[len(urls) // 2] if urls else None
 
-        def choose(request, pool, cf):
-            rows = []
+        def row(c):
+            return {
+                "id": c.get("id"), "channel": ps.candidate_channel(c),
+                "via": c.get("_origin_query"),
+                "text": (ps.pexels_candidate_text(c) or "")[:300],
+                "probe_url": probe_url(c),
+                "headers": c.get("_download_headers") or {},
+                "duration": c.get("duration"),
+            }
+
+        original_filter = getattr(adapter, "filter_pool", None)
+
+        def filter_pool(request, pool):
+            # Что фильтр ВЫБРОСИЛ и почему — это вход замера «есть ли нужный
+            # кадр в выдаче до фильтров» (план, этап 0). Причина считается
+            # теми же функциями, что решают в проде, а не своей копией.
+            out = original_filter(request, pool)
+            kept = {id(c) for c in out}
+            removed = []
+            terms = ps.content_blocklist_effective()
             for c in pool:
-                rows.append({
-                    "id": c.get("id"), "channel": ps.candidate_channel(c),
-                    "via": c.get("_origin_query"),
-                    "text": (ps.pexels_candidate_text(c) or "")[:300],
-                    "probe_url": probe_url(c),
-                    "headers": c.get("_download_headers") or {},
-                })
+                if id(c) in kept:
+                    continue
+                text = ps.pexels_candidate_text(c) or ""
+                hit = next((t for t in terms if t in text), None)
+                if hit:
+                    reason = f"blocklist:{hit}"
+                elif ps._candidate_block_key(c) in ps.CONTENT_BLOCKED_CANDIDATE_IDS:
+                    reason = "blocked_id"
+                elif adapter.kind == "video" and getattr(request, "slot_dur", None) \
+                        and ps._video_candidate_too_short(c, request.slot_dur):
+                    reason = "too_short"
+                else:
+                    reason = "other"
+                removed.append(dict(row(c), reason=reason))
+            PENDING_REMOVED[(request.index, adapter.kind, threading.get_ident())] = (
+                removed, [c.get("id") for c in pool])
+            return out
+        if original_filter is not None:
+            adapter.filter_pool = filter_pool
+
+        def choose(request, pool, cf):
+            removed, order = PENDING_REMOVED.pop(
+                (request.index, adapter.kind, threading.get_ident()), ([], []))
+            # slot_dur пишется, потому что в режиме «только пул» слот не
+            # получает кадра и его время уходит следующему: фильтр длины
+            # видео у следующих слотов тогда режет по раздутой длительности.
+            # Анализ пересчитывает его по настоящей (pool_recall.base_slot_durs).
             rec = {"index": request.index, "kind": adapter.kind, "query": request.query,
                    "extra_queries": list(request.extra_queries), "shot_brief": request.shot_brief,
-                   "block_text": request.block_text, "pool": rows}
+                   "block_text": request.block_text, "slot_dur": getattr(request, "slot_dur", None),
+                   "pool": [row(c) for c in pool], "removed": removed,
+                   "prefilter_order": order}
             with lock, open(path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            if os.environ.get("SELECTION_POOL_ONLY") == "1":
+                return None   # замер пула: без скачиваний и без судьи
             return original(request, pool, cf)
         adapter.choose = choose
 
@@ -795,6 +859,7 @@ def child(mode, net_dir, sandbox, run_dir, pipeline=PIPELINE, overlay="", extra_
         rec.tagger = lambda: slot["i"]
         clock.tagger = rec.tagger
         install_pool_capture(pipeline_smart, os.path.join(run_dir, "pools.jsonl"))
+        apply_ablation(pipeline_smart, os.environ.get("SELECTION_ABLATE", ""))
         try:
             rc = pipeline_smart.main()
         except SystemExit as e:
