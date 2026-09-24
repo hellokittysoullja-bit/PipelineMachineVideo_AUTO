@@ -95,14 +95,13 @@ focus — the new thing this line says, understood in the context of the chapter
 
 core — WHO or WHAT must be visible: the single thing (an object, a person, an animal, a place) that, even alone in a picture, still makes the viewer think of this line — with the state that defines it, if any ("an exhausted person", "a burnt letter"). Name the thing, not an event: what it does goes into the claims. Ask yourself: if the picture could show only one thing, which one? When the line is about something happening to, on or around something else, the core is what the line is about — usually the thing that moves, acts or changes — not the surface, place or object it happens on. When the line is abstract (a feeling, an idea, a process, an argument), the core is a concrete situation, a bodily sign or an object left behind that a camera can photograph and a viewer reads as this idea — never a bare "a person is visible" or an invisible thing like "a memory" or "a brain decision": say what makes the picture show THIS line ("a person slumped over an untouched plate", "a crumpled paper covered in red corrections"). Never make words, captions, labels, signs or logos in the picture part of the core or of a claim — the viewer hears the words, the picture shows things — unless the line is about that very document, chart, headline, sign or screen. Write it as a statement: "a ball is visible".
 
-subject — the thing the line is ABOUT, as a bare noun phrase of 1 to 4 English words ("a dagger", "an arrow", "a tired person"): the thing that must be in the picture for the picture to be about this line at all. Name its GENERAL kind, the word anyone would use — not its type, model, material or part: "a guitar", not "a flamenco guitar", "a guitar neck" or "a wooden guitar"; "a dog", not "a sleeping dog". A picture of another type of the same thing still shows the subject; the exact type belongs in the claims. Only the thing — no action, no place, no other object. For an abstract line, the subject is the thing in the core ("a crumpled paper"). If nothing concrete can be named, give an empty string.
 
 claims — 1 to {c1} more statements checkable by looking at the picture, most important first. Each checks ONE thing (an object, an action, a place, a detail) and does not repeat the core. "tier": "must" if without it the picture does not show this line, "should" if it only makes the picture better. If the line is about a movement that only footage can show, one claim has "motion": true and describes this movement; lines about objects, places or states have no motion claim.
 
 queries — 3 to {q} different search queries, each 2 to 4 English words, for free stock sites (photos and videos) and museum or archive search. Write queries for what really exists in such libraries for this setting: things photographed or filmed today (people, staged scenes, re-enactments, museum objects, places, nature, close-ups) and, where the setting is historical, old artworks (paintings, engravings, manuscript miniatures). "for" lists the ids of what the query can find ("core" or claim ids). "type" says what kind of picture the query finds: "object" (one thing on its own, a museum object), "scene" (people, a place, an event), "illustration" (a painting, engraving or manuscript), "map" or "texture". Most queries look for the core; try different ways to find it (another kind of picture, another wording), not the same words with an extra word.
 
 Example from another film, «The ball bounced off the wall and rolled away» — the core is the ball, not the wall:
-{{"n": 3, "focus": "a ball bouncing off a wall", "subject": "a ball", "core": "a ball is visible", "claims": [{{"id": "c1", "text": "the ball bounces off a wall", "tier": "must", "motion": true}}, {{"id": "c2", "text": "a wall", "tier": "should"}}], "queries": [{{"q": "ball bouncing wall", "for": ["core", "c1", "c2"], "type": "scene"}}, {{"q": "ball rolling", "for": ["core"], "type": "scene"}}, {{"q": "ball close up", "for": ["core"], "type": "object"}}]}}
+{{"n": 3, "focus": "a ball bouncing off a wall", "core": "a ball is visible", "claims": [{{"id": "c1", "text": "the ball bounces off a wall", "tier": "must", "motion": true}}, {{"id": "c2", "text": "a wall", "tier": "should"}}], "queries": [{{"q": "ball bouncing wall", "for": ["core", "c1", "c2"], "type": "scene"}}, {{"q": "ball rolling", "for": ["core"], "type": "scene"}}, {{"q": "ball close up", "for": ["core"], "type": "object"}}]}}
 
 Answer with one JSON object per narration line, one per line, and nothing else — no explanations, no reasoning, no markdown.
 
@@ -259,9 +258,6 @@ def parse_spec(raw, packet):
             continue
         spec = {"focus": focus, "claims": claims,
                 "queries": _parse_queries(obj.get("queries"), {c["id"] for c in claims})}
-        subject = clean_text(obj.get("subject"), lo=1, hi=5)
-        if subject:
-            spec["subject"] = subject
         if not focus_query_count(spec):
             continue
         spec["queries"] = order_queries(spec)
@@ -440,7 +436,7 @@ def load(video_dir):
 
 
 def load_specs(video_dir):
-    """{ключ юнита: {"focus", "claims", "queries"[, "subject"]}} из плана текущей версии, или
+    """{ключ юнита: {"focus", "claims", "queries"}} из плана версии 3, или
     {}. План старой версии спецификаций не даёт: его ступени — ровно то,
     от чего версия 3 уходит, и молча смешивать их с новыми нельзя."""
     path = os.path.join(video_dir, "media_plan", PLAN_NAME)
@@ -461,8 +457,6 @@ def load_specs(video_dir):
         if isinstance(v, dict) and v.get("claims") and v.get("focus"):
             out[k] = {"focus": v["focus"], "claims": v["claims"],
                       "queries": v.get("queries_for") or []}
-            if v.get("subject"):
-                out[k]["subject"] = v["subject"]
     return out
 
 
