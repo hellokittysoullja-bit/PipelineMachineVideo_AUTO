@@ -6656,11 +6656,47 @@ def _research_gateway():
     return _RESEARCH_GATEWAY[0]
 
 
-def research_round_request(index, block, request):
+def research_trigger(att):
+    """Нужен ли слоту второй круг поиска и почему: "failed" — кадра нет или
+    он брак; "weak" — кадр есть, но главного фразы на нём проверка не нашла
+    (ближайшая замена, focus_met=False); None — не нужен.
+
+    Слабая замена — ровно тот случай, ради которого второй круг и заведён:
+    замер глубины пула эп.94 показал, что нужного кадра нет в том, что
+    принесли запросы первого круга, а не что его плохо отсортировали. До
+    правки второй круг включался только при полном провале, и замена без
+    главного (живой случай judge14: «кинжал на ладони» — рука с ножом в
+    кулаке) шла на экран без второй попытки."""
+    if att is None or known_bad_reason(att.verdicts):
+        return "failed"
+    if att.notes.get("focus_met") is False:
+        return "weak"
+    return None
+
+
+def research_takes_over(trigger, cur_att, got_att):
+    """Встаёт ли кадр второго круга вместо текущего. Брак — никогда. После
+    провала первого круга — любой годный. Вместо ближайшей замены — только
+    СТРОГО лучший по проверке (вектор утверждений той же спецификации,
+    затем оценка сетки — то же сравнение, что выбирает фото или видео):
+    второй круг не имеет права сделать слот хуже."""
+    if got_att is None or not got_att.media or known_bad_reason(got_att.verdicts):
+        return False
+    if trigger != "weak":
+        return True
+    new_q = _as_quality(got_att.notes.get("quality"))
+    cur_q = _as_quality(cur_att.notes.get("quality")) if cur_att is not None else None
+    if new_q is None:
+        return False
+    return cur_q is None or new_q[:2] > cur_q[:2]
+
+
+def research_round_request(index, block, request, trigger="failed"):
     """Запрос слота для второго круга поиска или None.
 
-    Первый круг ничего годного не дал (проверка отклонила всех финалистов).
-    Мозг получает фразу, пункты, опробованные запросы и причины отказов
+    Первый круг ничего годного не дал (проверка отклонила всех финалистов)
+    или дал только замену без главного фразы (research_trigger). Мозг
+    получает фразу, пункты, опробованные запросы и причины отказов
     (shot_research) и пишет новые запросы; куча второго круга собирается
     ТОЛЬКО из них — со старыми запросами сортировка снова поставила бы
     перед судьёй тот же мусор. None — второго круга не будет: флаг снят,
@@ -6677,11 +6713,13 @@ def research_round_request(index, block, request):
     tried = shot_research.tried_queries(spec, (request.query, *request.extra_queries))
     rejections = shot_research.rejections_from_log(SHOT_JUDGE_LOG, index)
     setting = world_card.judge_setting(episode_world_card())
-    entry = {"index": index, "phrase": block.get("text"), "tried": tried, "rejections": rejections}
+    entry = {"index": index, "phrase": block.get("text"), "trigger": trigger, "tried": tried,
+             "rejections": rejections}
     try:
         items, origin = shot_research.new_queries(
             VIDEO_FOLDER, _research_gateway(), stock_query_planner.DEFAULT_MODEL,
-            phrase=block.get("text"), spec=spec, setting=setting, tried=tried, rejections=rejections)
+            phrase=block.get("text"), spec=spec, setting=setting, tried=tried, rejections=rejections,
+            trigger=trigger)
     except Exception as e:  # noqa: BLE001 — второй круг не имеет права уронить слот
         entry["error"] = f"{type(e).__name__}: {str(e)[:200]}"
         RESEARCH_ROUND_LOG.append(entry)
@@ -17320,9 +17358,10 @@ def main():
             # проходит того же судью. Нашлось — кадр на экран, нет — прежний
             # путь (поглощение соседним кадром).
             cur_att = attempt_of(slot_attempts, photo or video)
-            if (shot_judge_active(i) and not locked_shot
-                    and (cur_att is None or known_bad_reason(cur_att.verdicts))):
-                req2 = research_round_request(i, b, request)
+            trigger = (research_trigger(cur_att) if shot_judge_active(i) and not locked_shot
+                       else None)
+            if trigger:
+                req2 = research_round_request(i, b, request, trigger)
                 if req2 is not None:
                     import stock_query_planner
                     kinds = (["video", "photo"] if stock_query_planner.has_motion(req2.shot_spec, must=True)
@@ -17330,11 +17369,15 @@ def main():
                     for k2 in kinds:
                         got = fetch_in_attempt(slot_attempts, i, k2, select_media, req2, k2)
                         got_att = attempt_of(slot_attempts, got)
-                        if got and got_att is not None and not known_bad_reason(got_att.verdicts):
-                            print(f"    [{i+1}] кадр найден вторым кругом поиска ({k2})")
+                        if got and research_takes_over(trigger, cur_att, got_att):
+                            print(f"    [{i+1}] кадр найден вторым кругом поиска ({k2})"
+                                  + (" — лучше ближайшей замены" if trigger == "weak" else ""))
                             photo, video = (got, None) if k2 == "photo" else (None, got)
                             RESEARCH_ROUND_LOG[-1]["found"] = k2
                             break
+                        if got and trigger == "weak":
+                            print(f"    [{i+1}] второй круг: {k2} не лучше ближайшей замены — "
+                                  f"остаётся прежний кадр")
             # Раньше Pexels отключался навсегда после ЛЮБОГО промаха, включая
             # обычную пустую выдачу по одному неудачному запросу. Гасим источник
             # только если API реально отвалился.
@@ -18073,8 +18116,12 @@ def main():
                   encoding="utf-8") as f:
             json.dump({"gateway": rgw.summary() if rgw else None, "slots": RESEARCH_ROUND_LOG},
                       f, ensure_ascii=False, indent=1)
-        found = sum(1 for e in RESEARCH_ROUND_LOG if e.get("found"))
-        print(f"  Второй круг поиска: слотов {len(RESEARCH_ROUND_LOG)}, кадр найден в {found}")
+        for trig, name in (("failed", "после провала первого круга"),
+                           ("weak", "вместо замены без главного")):
+            rows = [e for e in RESEARCH_ROUND_LOG if e.get("trigger", "failed") == trig]
+            if rows:
+                found = sum(1 for e in rows if e.get("found"))
+                print(f"  Второй круг поиска {name}: слотов {len(rows)}, кадр лучше найден в {found}")
     if SHOT_JUDGE_MISSES:
         print(f"  ВНИМАНИЕ: {len(SHOT_JUDGE_MISSES)} слот(ов) {[m['index'] for m in SHOT_JUDGE_MISSES]} — "
               f"судья кадров оценил лучший найденный кадр как брак — см. "

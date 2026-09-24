@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Второй круг поиска кадра: ничего не прошло проверку — мозг видит, что
-нашлось и почему отклонено, и пишет НОВЫЕ запросы.
+"""Второй круг поиска кадра: ничего не прошло проверку (или лучший кадр —
+замена без главного фразы) — мозг видит, что нашлось и почему отклонено, и
+пишет НОВЫЕ запросы.
 
 ЗАЧЕМ. Замер глубины пула эпизода 94 (docs/quality/RESEARCHER_PROTO_EP94.md):
 на фразах про действие нужного кадра не было ни в первых 20 кандидатах, ни
@@ -33,11 +34,26 @@ import json
 import os
 import re
 
-PROMPT_VERSION = 1
+PROMPT_VERSION = 2
+# Почему нужен второй круг: всё найденное отклонено, или лучший кадр —
+# ближайшая замена без главного фразы. Модели это разные задачи: во втором
+# случае найденное годится, не хватает именно главного.
+VERDICTS = {
+    "failed": "A reviewer looked at the best pictures they found and rejected every one:",
+    "weak": ("A reviewer looked at the best pictures they found: none shows the main thing "
+             "of the line, the best one is only a substitute:"),
+}
 MAX_NEW_QUERIES = 4
 MAX_REJECTIONS = 8
 FILE_NAME = "research_queries.json"
-MAX_TOKENS = 400
+# Мозг второго круга — та же модель, что у планировщика (DeepSeek v4 Flash),
+# и она РАССУЖДАЕТ до ответа. Первая версия давала 400 токенов выхода, и
+# живой прогон judge14 (24.09) получил пустой ответ: finish_reason=length,
+# рассуждение съело весь запас, второй круг не состоялся ни разу — ровно тот
+# класс, что уже стоил 13 оплаченных вызовов на прогоне брифов (см.
+# llm_gateway.EmptyAnswer). Запас — как у планировщика по порядку величины:
+# сам ответ — четыре коротких запроса, остальное — место для рассуждения.
+MAX_TOKENS = 4000
 EST_PROMPT_TOKENS = 900
 
 PROMPT = """You find pictures for a documentary video. Setting: {setting}.
@@ -46,7 +62,7 @@ What the viewer must see: {focus}
 Required in the picture: {musts}
 
 These searches were tried: {tried}
-A reviewer looked at the best pictures they found and rejected every one:
+{verdict}
 {rejections}
 
 Write {n} NEW search queries that could find a picture that does show this line. Think where such a picture really exists: stock photo and video sites (people, staged scenes, re-enactments, places, close-ups), museum collections (objects), and — when the setting is historical — public archives of old artworks (chronicle and manuscript illustrations, drawings from period treatises, paintings, engravings). You may name a specific artwork, manuscript or series the way an archive titles it — only one you know exists. If no picture can show this exact moment, search for the closest picture a viewer still reads as this line: the moment just before or after it, a close-up detail, an object that stands for it. Do not repeat a tried query. Every word must mean only what you want: a word with another common meaning (fall — autumn, bank — money) needs a word that fixes it. Each query 2 to 7 English words.
@@ -88,19 +104,19 @@ def rejections_from_log(log, index, limit=MAX_REJECTIONS):
     return out
 
 
-def signature(model, setting, phrase, spec, tried):
+def signature(model, setting, phrase, spec, tried, trigger="failed"):
     focus = (spec or {}).get("focus") or ""
-    payload = json.dumps([PROMPT_VERSION, PROMPT, model, setting or "", phrase or "", focus, list(tried)],
-                         ensure_ascii=False)
+    payload = json.dumps([PROMPT_VERSION, PROMPT, VERDICTS.get(trigger, ""), model, setting or "",
+                          phrase or "", focus, list(tried)], ensure_ascii=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
-def render_prompt(phrase, spec, setting, tried, rejections):
+def render_prompt(phrase, spec, setting, tried, rejections, trigger="failed"):
     musts = [c["text"] for c in (spec or {}).get("claims") or [] if c.get("tier") == "must"]
     return PROMPT.format(
         setting=setting or "not specified", phrase=phrase or "—",
         focus=(spec or {}).get("focus") or "—", musts="; ".join(musts) or "—",
-        tried="; ".join(tried) or "—",
+        tried="; ".join(tried) or "—", verdict=VERDICTS.get(trigger, VERDICTS["failed"]),
         rejections="\n".join(f"- {r}" for r in rejections) or "- (no picture passed the check)",
         n=MAX_NEW_QUERIES)
 
@@ -159,24 +175,25 @@ def save(video_dir, data):
     os.replace(path + ".tmp", path)
 
 
-def new_queries(video_dir, gateway, model, *, phrase, spec, setting, tried, rejections):
+def new_queries(video_dir, gateway, model, *, phrase, spec, setting, tried, rejections,
+                trigger="failed"):
     """(запросы, откуда): с диска, если эта фраза с тем же поиском уже
     исследовалась, иначе — вопрос модели и запись на диск. Пустой ответ на
     диск не пишется: следующий прогон спросит снова."""
     key = unit_key(phrase)
-    sig = signature(model, setting, phrase, spec, tried)
+    sig = signature(model, setting, phrase, spec, tried, trigger)
     data = load(video_dir)
     entry = data.get(key)
     if isinstance(entry, dict) and entry.get("sig") == sig and entry.get("queries"):
         return entry["queries"], "disk"
-    prompt = render_prompt(phrase, spec, setting, tried, rejections)
+    prompt = render_prompt(phrase, spec, setting, tried, rejections, trigger)
     raw, _usage, _price = gateway.chat(model, [{"type": "text", "text": prompt}], MAX_TOKENS,
                                        EST_PROMPT_TOKENS)
     items = parse(raw, tried)
     if items:
         data = load(video_dir)
         data[key] = {"sig": sig, "model": model, "phrase": phrase, "queries": items,
-                     "rejections": list(rejections)}
+                     "rejections": list(rejections), "trigger": trigger}
         save(video_dir, data)
     return items, "model"
 

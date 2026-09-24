@@ -152,3 +152,91 @@ def test_gateway_failure_does_not_break_the_slot(monkeypatch, tmp_path):
         video_score_fn=None, used_photo_ids=set(), used_video_ids=set(), used_hashes=[], recent_sizes=[])
     assert ps.research_round_request(0, {"text": PHRASE, "shot_spec": SPEC}, req) is None
     assert "gateway down" in ps.RESEARCH_ROUND_LOG[-1]["error"]
+
+
+# ---------- второй круг и для замены без главного фразы ----------
+
+def test_weak_trigger_changes_the_question_and_the_signature():
+    failed = sr.render_prompt(PHRASE, SPEC, None, ["q"], ["r"], trigger="failed")
+    weak = sr.render_prompt(PHRASE, SPEC, None, ["q"], ["r"], trigger="weak")
+    assert sr.VERDICTS["failed"] in failed and sr.VERDICTS["weak"] in weak
+    assert sr.VERDICTS["failed"] not in weak
+    assert sr.signature("m", None, PHRASE, SPEC, ["q"], "weak") != \
+        sr.signature("m", None, PHRASE, SPEC, ["q"], "failed"), \
+        "другой вопрос — другая запись на диске"
+
+
+def test_weak_trigger_reaches_the_model_and_the_disk(tmp_path):
+    gw = FakeGW('{"queries": [{"q": "dagger lying on open palm", "type": "object"}]}')
+    items, origin = sr.new_queries(str(tmp_path), gw, "m", phrase=PHRASE, spec=SPEC, setting=None,
+                                   tried=["q"], rejections=["a fist grip, not an open palm"],
+                                   trigger="weak")
+    assert origin == "model" and items[0]["q"] == "dagger lying on open palm"
+    assert sr.VERDICTS["weak"] in gw.prompts[0]
+    assert sr.load(str(tmp_path))[sr.unit_key(PHRASE)]["trigger"] == "weak"
+
+
+def _att(tmp_path, *, media="x.jpg", verdicts=(), **notes):
+    import selection_attempt
+    a = selection_attempt.Attempt(7, "photo", str(tmp_path))
+    a.media = media
+    a.verdicts = list(verdicts)
+    a.notes = dict(notes)
+    return a
+
+
+def test_research_trigger_failed_weak_or_none(tmp_path):
+    import pipeline_smart as ps
+    assert ps.research_trigger(None) == "failed"
+    assert ps.research_trigger(_att(tmp_path, verdicts=[("judge", {"index": 7})])) == "failed"
+    assert ps.research_trigger(_att(tmp_path, focus_met=False)) == "weak"
+    assert ps.research_trigger(_att(tmp_path, focus_met=True)) is None
+    assert ps.research_trigger(_att(tmp_path)) is None, "без судьи (нет focus_met) — не трогаем"
+
+
+def test_weak_substitute_is_replaced_only_by_a_strictly_better_frame(tmp_path):
+    import pipeline_smart as ps
+    cur = _att(tmp_path, focus_met=False, quality=((1, 0, 1), 2, False))
+    better = _att(tmp_path, media="y.jpg", quality=((1, 1, 0), 2, False))
+    same = _att(tmp_path, media="z.jpg", quality=((1, 0, 1), 2, False))
+    worse = _att(tmp_path, media="w.jpg", quality=((1, 0, 0), 3, False))
+    bad = _att(tmp_path, media="v.jpg", quality=((1, 1, 1), 3, True), verdicts=[("judge", {})])
+    assert ps.research_takes_over("weak", cur, better)
+    assert not ps.research_takes_over("weak", cur, same), "ничья — остаётся прежний кадр"
+    assert not ps.research_takes_over("weak", cur, worse)
+    assert not ps.research_takes_over("weak", cur, bad), "брак не встаёт никогда"
+    assert not ps.research_takes_over("weak", cur, _att(tmp_path, media=None, quality=None))
+    # после провала первого круга годный кадр второго ставится всегда
+    assert ps.research_takes_over("failed", None, same)
+    assert not ps.research_takes_over("failed", None, bad)
+
+
+def test_main_runs_the_second_round_through_the_trigger():
+    import inspect
+    import pipeline_smart as ps
+    src = inspect.getsource(ps.main)
+    assert "trigger = (research_trigger(cur_att)" in src
+    assert "research_takes_over(trigger, cur_att, got_att)" in src
+
+
+class ReasoningGW:
+    """Двойник рассуждающей модели: до ответа тратит ~1000 токенов на
+    рассуждение; меньший запас выхода — пустой ответ, как у шлюза вживую
+    (judge14, 24.09: finish_reason=length, выход 1024 из 400)."""
+
+    def __init__(self, answer):
+        self.answer, self.budgets = answer, []
+
+    def chat(self, model, content, max_tokens, est, **kw):
+        import llm_gateway
+        self.budgets.append(max_tokens)
+        if max_tokens < 1500:
+            raise llm_gateway.EmptyAnswer(f"{model}: пустой ответ (finish_reason=length)")
+        return self.answer, {}, 0
+
+
+def test_reasoning_model_has_room_to_answer(tmp_path):
+    gw = ReasoningGW('{"queries": [{"q": "froissart battle miniature", "type": "illustration"}]}')
+    items, origin = sr.new_queries(str(tmp_path), gw, "ds/deepseek-v4-flash", phrase=PHRASE, spec=SPEC,
+                                   setting=None, tried=[], rejections=[])
+    assert origin == "model" and items and items[0]["q"] == "froissart battle miniature"
