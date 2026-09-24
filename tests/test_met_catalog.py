@@ -74,6 +74,9 @@ class TestBudgetInvariant:
 
         monkeypatch.setitem(sys.modules, "met_catalog", FakeCat)
         monkeypatch.setattr(ms.feature_flags, "enabled", lambda *a, **k: True)
+        # Карточки качаются параллельно: порядок ЗАПРОСОВ в журнале — гонка
+        # потоков. Проверяется порядок ОЧЕРЕДИ, поэтому один поток.
+        monkeypatch.setattr(ms, "MET_DETAIL_WORKERS", 1)
 
         seen = []
         monkeypatch.setattr(ms, "_met_get", lambda url: (
@@ -102,6 +105,7 @@ class TestBudgetInvariant:
 
         monkeypatch.setitem(sys.modules, "met_catalog", EmptyCat)
         monkeypatch.setattr(ms.feature_flags, "enabled", lambda *a, **k: True)
+        monkeypatch.setattr(ms, "MET_DETAIL_WORKERS", 1)
         seen = []
         monkeypatch.setattr(ms, "_met_get", lambda url: (
             {"objectIDs": [7, 8, 9]} if "/search?" in url
