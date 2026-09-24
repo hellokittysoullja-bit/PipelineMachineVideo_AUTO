@@ -11727,13 +11727,6 @@ def _cascade_cached(key, cache_dir):
     return v
 
 
-def query_tiers_source():
-    """Ярусы пула (selection_engine.query_tiers) — для подписи отбора: они
-    меняют порядок пула, а живут в другом модуле."""
-    import selection_engine
-    return selection_engine.query_tiers
-
-
 def cascade_texts(spec, brief, kind="photo"):
     """Тексты, по которым каскад ранжирует превью: поисковые запросы
     спецификации кадра (их пишет планировщик под эту фразу), без
@@ -12254,24 +12247,11 @@ def shot_judge_signature(index=None):
     строка: судья его не видит."""
     if not shot_judge_active(index):
         return ""
-    import inspect
     import shot_judge
-    import world_card
-    # Логика ранжирования и вопроса — исходником, а не номером версии,
-    # который забывают поднять: правка любой из этих функций меняет
-    # победителя, и прогретый кэш не должен отдавать прежний выбор.
-    logic = hashlib.sha256("".join(inspect.getsource(f) for f in (
-        shot_judge.claims_vector, shot_judge.claim_values, shot_judge.focus_met,
-        shot_judge.nothing_met, shot_judge.musts_met_clean, shot_judge.asked_claims,
-        shot_judge.subject_claim,
-        shot_judge.claims_question, _verify_finalists, verify_finalists_of, verify_key,
-        judge_candidates, judge_rejected, judge_approved, screen_allowed, claims_checked,
-        filter_pool_by_text,
-        blocklist_clearable, world_veto_active, _record_world_vote,
-        cascade_texts, cascade_claims, _interleave, cascade_reorder, world_card.claims_setting,
-        shot_judge.world_only_question, shot_judge.world_of_image)).encode("utf-8")
-        + shot_judge.CLAIMS_PROMPT.encode("utf-8")
-        + shot_judge.WORLD_ONLY_PROMPT.encode("utf-8")).hexdigest()[:12]
+    # Код судьи — собирается сам (judge_code_signature, см. code_signature.py);
+    # тексты вопросов — константы, их объявляем явно.
+    logic = hashlib.sha256((judge_code_signature() + shot_judge.CLAIMS_PROMPT
+                            + shot_judge.WORLD_ONLY_PROMPT).encode("utf-8")).hexdigest()[:12]
     return repr(("judge", shot_judge_model(), shot_judge.PROMPT_VERSION, SHOT_JUDGE_MIN_SCORE,
                  "cascade", cascade_preview_n(), "claims", shot_judge.CLAIMS_VERSION, logic,
                  shot_judge.VERIFY_MAX_SIDE, VERIFY_FINALISTS, VERIFY_REASONING,
@@ -12837,75 +12817,11 @@ def candidate_gate_signature(index=None):
     if _CANDIDATE_GATE_SIG is not None:
         return _with_judge_signature(_CANDIDATE_GATE_SIG, index)
     try:
-        import inspect
-        parts = [inspect.getsource(f) for f in (
-            is_relevant_candidate, visual_domain_guard_violation,
-            # Видео судится покадрово по превью источника: какие кадры
-            # (video_preview_urls) и как (video_frames_violate) — правило
-            # отбора, как и гварды выше.
-            video_preview_urls, video_frames_violate,
-            disambiguate_search_query, _qualifier_fits_world,
-            # Сопоставление термина правила с запросом — ОТДЕЛЬНАЯ функция, и
-            # без неё здесь правка «как ищем термин» (составные слова,
-            # британское написание, ловушки) не меняла бы подпись, то есть на
-            # прогретом кэше не дошла бы до экрана. Тот же класс пробела, что
-            # уже описан выше: список терминов в подписи был, а логика его
-            # применения — нет.
-            query_mentions_term,
-            is_risky_query,
-            # image_sharpness_score/video_sharpness_ok — резкость кандидата
-            # (PHOTO_SHARPNESS_REJECT/VIDEO_SHARPNESS_REJECT) — ТОЖЕ правило
-            # отбора, хоть и не внутри is_relevant_candidate() самой (вызывается
-            # отдельно в pexels_photo()/pexels_video()) — тот же класс пробела,
-            # что уже описан в докстринге этой функции выше (анахронизм пережил
-            # свой фикс) — без явного перечисления здесь правка порога/формулы
-            # резкости молча не инвалидировала бы уже закэшированный размытый
-            # кандидат, отобранный до этого фикса (реальный случай — слот 7,
-            # videos/_test20s, 27 августа).
-            image_sharpness_score, video_sharpness_ok,
-            # _selection_stack_signature() ниже — РЕЖИМЫ и РАЗМЕР ПУЛА, а не
-            # функции; см. её докстринг, там же разбор реального симптома.
-            # Найдено самоаудитом 03.09 (тот же принцип, что уже применён к
-            # image_sharpness_score/video_sharpness_ok выше): вызываются по
-            # имени изнутри уже перечисленных функций, реально влияют на
-            # решение гейта, @memoize_by_frame их не защищает МЕЖДУ
-            # прогонами (та же оговорка, что у render_recipe_signature()).
-            #
-            # clip_relevance — САМА функция, дающая число: используется и в
-            # is_relevant_candidate() (порог CLIP_RELEVANCE_THRESHOLD), и в
-            # visual_domain_guard_violation() (euro/asian margin — то есть
-            # сам анахронизм-гвард, ради которого эта сигнатура и была
-            # создана изначально), и в NEGATIVE_ANCHOR_PROMPT-проверке.
-            clip_relevance,
-            # extract_video_probe_frame — из video_sharpness_ok(): решает,
-            # КАКОЙ именно кадр видео (с ретраями от вырожденного/чёрного)
-            # идёт на проверку резкости — другой кадр даёт другой результат.
-            extract_video_probe_frame,
-            # filter_alt_blocklist/pexels_candidate_text — жанровый фильтр по
-            # ТЕКСТУ кандидата. Сам список терминов (CONTENT_ALT_BLOCKLIST)
-            # в подписи уже был, а логика его применения — нет: правка 07.09
-            # (читать слаг url, а не только alt, и применять фильтр к видео)
-            # изменила, КОГО отсеет тот же самый список, не тронув ни одной
-            # перечисленной ниже константы. Без этих двух строк такая правка
-            # молча не инвалидировала бы кандидатов, отобранных по старому
-            # правилу — ровно тот класс пробела, о котором докстринг выше.
-            filter_alt_blocklist, pexels_candidate_text, filter_pool_by_text,
-            query_tiers_source(), cascade_texts, verify_finalists_of,
-            # _candidate_block_key/candidate_source — логика CONTENT_BLOCKED_
-            # CANDIDATE_IDS ниже: список id в подписи уже есть, а то, КАК id
-            # кандидата сопоставляется с ним (префикс источника) — нет; без
-            # этих двух строк правка сопоставления не дошла бы до кэша.
-            _candidate_block_key, candidate_source,
-            # negative_anchor_violation — новый гейт внутри
-            # is_relevant_candidate(); его правка меняет, кто пройдёт отбор,
-            # и обязана инвалидировать уже закэшированных кандидатов.
-            negative_anchor_violation,
-            # _video_candidate_too_short — отсев видео, которое нельзя
-            # показать без сломанного растяжения. Меняет, КТО вообще
-            # доходит до гейтов, — значит обязан инвалидировать уже
-            # закэшированных кандидатов, отобранных по старому правилу.
-            _video_candidate_too_short,
-        )]
+        # Код отбора — собирается сам от адаптеров фото и видео (см.
+        # code_signature.py): ручной список функций здесь отставал по
+        # построению (25.09: 109 из 161 достижимой функции не входили),
+        # и каждая забытая функция означала правку, не дошедшую до экрана.
+        parts = [selection_code_signature()]
         parts.append(repr((
             CLIP_RELEVANCE_THRESHOLD, RISKY_QUERY_MARGIN, NEGATIVE_ANCHOR_PROMPT,
             RISKY_GENERIC_TERMS, VISUAL_DOMAIN_GUARDS, VIDEO_DOMAIN_GUARD_SAMPLE_FRACS,
@@ -12960,6 +12876,43 @@ def candidate_gate_signature(index=None):
         return _CANDIDATE_GATE_SIG
     _CANDIDATE_GATE_SIG = "gate:" + hashlib.md5("".join(parts).encode()).hexdigest()[:10]
     return _with_judge_signature(_CANDIDATE_GATE_SIG, index)
+
+
+# Модули, в код которых заходит подпись отбора. Остальное — внешние
+# библиотеки: их версия — забота подписи стека моделей.
+SELECTION_CODE_MODULES = (
+    "pipeline_smart", "selection_engine", "selection_attempt", "shot_judge", "world_card",
+    "museum_sources", "shot_types", "query_fusion", "stock_query_planner", "met_catalog",
+    "shelf_index", "visual_director", "shot_director", "europeana_corpus", "source_health",
+    "channel_profile")
+_CODE_SIGS = {}
+
+
+def _judge_code_entries():
+    """Код, который работает только при судье: его правка не должна
+    перекачивать слоты вне платной зоны."""
+    return (judge_candidates, cascade_reorder, _verify_finalists, verify_finalists_of)
+
+
+def selection_code_signature():
+    """Хэш кода отбора кандидата: всё, что достижимо от адаптеров фото и
+    видео, кроме кода судьи (у него своя подпись). Один раз на процесс."""
+    if "sel" not in _CODE_SIGS:
+        import code_signature
+        import selection_engine
+        _CODE_SIGS["sel"] = code_signature.signature(
+            [PhotoAdapter, VideoAdapter, selection_engine.select], SELECTION_CODE_MODULES,
+            stop=_judge_code_entries())[0]
+    return _CODE_SIGS["sel"]
+
+
+def judge_code_signature():
+    """Хэш кода судьи и всего, что он вызывает."""
+    if "judge" not in _CODE_SIGS:
+        import code_signature
+        _CODE_SIGS["judge"] = code_signature.signature(
+            list(_judge_code_entries()), SELECTION_CODE_MODULES)[0]
+    return _CODE_SIGS["judge"]
 
 
 def _with_judge_signature(base, index):

@@ -73,7 +73,8 @@ class TestWiring:
         src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"), encoding="utf-8").read()
         start = src.index("def candidate_gate_signature")
         block = src[start:src.index("_CANDIDATE_GATE_SIG = \"gate:\"", start)]
-        assert "video_frames_violate" in block and "video_preview_urls" in block
+        names = _selection_code_names()
+        assert "video_frames_violate" in names and "video_preview_urls" in names
 
     def test_reuses_the_same_sample_points_as_domain_guard(self):
         """Не изобретает новый набор точек — превью берутся в уже
@@ -133,3 +134,13 @@ class TestOnRealVideoFrames:
             return real(path, query)
         monkeypatch.setattr(ps, "negative_anchor_violation", fake)
         assert ps.video_frames_violate(frames, QUERY) is True
+
+
+def _selection_code_names():
+    """Имена функций, чей код входит в подпись отбора (code_signature)."""
+    import code_signature
+    import selection_engine
+    import pipeline_smart as _ps
+    code = code_signature.reachable([_ps.PhotoAdapter, _ps.VideoAdapter, selection_engine.select],
+                                    _ps.SELECTION_CODE_MODULES, stop=_ps._judge_code_entries())
+    return {k.split(".", 1)[1] for k in code}

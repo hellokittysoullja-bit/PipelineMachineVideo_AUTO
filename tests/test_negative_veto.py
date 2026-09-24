@@ -82,7 +82,7 @@ class TestConfiguration:
                    encoding="utf-8").read()
         start = src.index("def candidate_gate_signature")
         block = src[start:src.index("_CANDIDATE_GATE_SIG = \"gate:\"", start)]
-        assert "negative_anchor_violation" in block
+        assert "negative_anchor_violation" in _selection_code_names()
         assert "CONTENT_NEGATIVE_ANCHORS" in block
         assert "NEGATIVE_VETO_MARGIN" in block
 
@@ -268,3 +268,13 @@ class TestOnRealFrames:
             if vetoed:
                 wrongly.append((name, who))
         assert not wrongly, f"вето отклонило годные кадры: {wrongly}"
+
+
+def _selection_code_names():
+    """Имена функций, чей код входит в подпись отбора (code_signature)."""
+    import code_signature
+    import selection_engine
+    import pipeline_smart as _ps
+    code = code_signature.reachable([_ps.PhotoAdapter, _ps.VideoAdapter, selection_engine.select],
+                                    _ps.SELECTION_CODE_MODULES, stop=_ps._judge_code_entries())
+    return {k.split(".", 1)[1] for k in code}

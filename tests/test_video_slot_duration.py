@@ -85,7 +85,7 @@ def test_gate_signature_covers_the_new_rule():
     класс бага, ради которого candidate_gate_signature() и написана)."""
     import inspect
     body = inspect.getsource(pipeline_smart.candidate_gate_signature)
-    assert "_video_candidate_too_short" in body
+    assert "_video_candidate_too_short" in _selection_code_names()
     assert "VIDEO_MAX_TIME_STRETCH" in body
 
 
@@ -96,3 +96,13 @@ def test_pexels_video_accepts_slot_dur():
     field = {f.name: f for f in dataclasses.fields(selection_engine.SlotRequest)}["slot_dur"]
     assert field.default is dataclasses.MISSING, "без значения по умолчанию: забыть нельзя"
     assert "request.slot_dur" in inspect.getsource(pipeline_smart.VideoAdapter.filter_pool)
+
+
+def _selection_code_names():
+    """Имена функций, чей код входит в подпись отбора (code_signature)."""
+    import code_signature
+    import selection_engine
+    import pipeline_smart as _ps
+    code = code_signature.reachable([_ps.PhotoAdapter, _ps.VideoAdapter, selection_engine.select],
+                                    _ps.SELECTION_CODE_MODULES, stop=_ps._judge_code_entries())
+    return {k.split(".", 1)[1] for k in code}
