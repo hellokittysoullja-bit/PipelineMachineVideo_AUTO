@@ -459,7 +459,7 @@ def harvest(limit=None, collections=None, page_size=100,
         collections = COLLECTION_PRIORITY
     if sizes is None:
         sizes = IMAGE_SIZE_PRIORITY
-    lo, hi = era or ms.era_window()
+    lo, hi = era or ms.era_window() or (-10 ** 7, 10 ** 7)
     stats = {"seen": 0, "kept": 0, "pages": 0, "errors": 0,
              "rejected": {}, "by_provider": {}, "by_size": {}}
     # Счётчики публикуются СРАЗУ, живым словарём, а не в конце генератора.
@@ -565,7 +565,7 @@ def main():
 
     if a.cmd == "probe":
         import museum_sources as ms
-        lo, hi = ms.era_window()
+        lo, hi = ms.era_window() or (-10 ** 7, 10 ** 7)
         data = _search({"wskey": api_key(), "query": "*:*", "rows": 0,
                         "profile": "minimal", "reusability": "open",
                         "qf": ["TYPE:IMAGE", year_clause(lo, hi),

@@ -139,17 +139,17 @@ def unique_by_id(candidates):
 
 
 def query_tiers(request, queries):
-    """Запросы пула по ярусам: сначала запросы, которые ищут ЭТУ фразу
-    (спецификация кадра, stock_query_planner v3, и перевод брифа), затем —
-    общие запросы секции. Внутри яруса — по кругу, ярусы — друг за другом:
+    """Запросы пула по ярусам: сначала запросы спецификации кадра этой фразы
+    (stock_query_planner v3) в её порядке, затем — всё остальное: перевод
+    брифа, общие запросы секции. Внутри яруса — по кругу, ярусы — друг за другом:
     без этого запросы секции, общие на 6-9 слотов, занимали 75-85% пула
     (docs/quality/POOL_RECALL_EP94.md) и вытесняли кадры фокуса фразы.
     Нет спецификации — один ярус, порядок прежний."""
     spec = getattr(request, "shot_spec", None)
     if not spec:
         return [queries]
-    own = {x["q"] for x in spec.get("queries") or []} | {request.query}
-    first = [q for q in queries if q in own or q == queries[0]]
+    own = [x["q"] for x in spec.get("queries") or []]
+    first = [q for q in own if q in queries] or [request.query]
     rest = [q for q in queries if q not in first]
     return [t for t in (first, rest) if t]
 

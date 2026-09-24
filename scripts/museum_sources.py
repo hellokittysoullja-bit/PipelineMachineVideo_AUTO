@@ -349,15 +349,65 @@ def _profile():
         return {}
 
 
-def era_window():
+# МИР ЭПИЗОДА СИЛЬНЕЕ КАНАЛА, КАНАЛ СИЛЬНЕЕ ПУСТОТЫ (план 24.09). Окно
+# эпохи и чужие культуры решают, какой музейный предмет вообще попадёт в пул,
+# — до этого они всегда брались из средневековых дефолтов кода, и эпизод про
+# Египет или космос на этом канале получал ноль музейных кадров, а клон
+# репозитория под другую нишу — средневековый фильтр по умолчанию.
+# Теперь:
+#   * паспорт эпизода (set_episode_world) — окно эпохи из паспорта; чужие
+#     культуры — список канала плюс исключения паспорта, МИНУС всё, что
+#     паспорт называет своим (culture.include: эпизод про Египет снимает
+#     «egypt» из списка средневекового канала);
+#   * нет паспорта — профиль канала (channel_profile.json: era_from/era_to и
+#     foreign_culture_terms); список DEFAULT_FOREIGN_CULTURE_TERMS выше — это
+#     выверенные по каталогу Мет имена, и применяется он только каналом,
+#     который объявил эпоху в профиле;
+#   * нет ни того, ни другого — фильтра эпохи и культуры нет вовсе.
+_EPISODE_WORLD = {}
+
+
+def set_episode_world(card):
+    """Мир эпизода из паспорта (world_card) или None — сбросить."""
+    _EPISODE_WORLD.clear()
+    if not card:
+        return
+    era = card.get("era")
+    if isinstance(era, dict) and isinstance(era.get("from"), int) and isinstance(era.get("to"), int):
+        _EPISODE_WORLD["era"] = (era["from"], era["to"])
+    cult = card.get("culture") or {}
+    _EPISODE_WORLD["exclude"] = tuple(str(t).lower() for t in cult.get("exclude") or () if str(t).strip())
+    _EPISODE_WORLD["include"] = tuple(str(t).lower() for t in cult.get("include") or () if str(t).strip())
+    _EPISODE_WORLD["set"] = True
+
+
+def _channel_era():
     p = _profile()
-    return (int(p.get("era_from", DEFAULT_ERA_FROM)),
-            int(p.get("era_to", DEFAULT_ERA_TO)))
+    if "era_from" in p and "era_to" in p:
+        return int(p["era_from"]), int(p["era_to"])
+    return None
+
+
+def era_window():
+    """(от, до) или None — эпоху не фильтровать."""
+    if _EPISODE_WORLD.get("set"):
+        return _EPISODE_WORLD.get("era")
+    return _channel_era()
 
 
 def foreign_culture_terms():
     p = _profile()
-    return tuple(p.get("foreign_culture_terms", DEFAULT_FOREIGN_CULTURE_TERMS))
+    channel = ()
+    if "foreign_culture_terms" in p:
+        channel = tuple(p["foreign_culture_terms"])
+    elif _channel_era() is not None:
+        channel = DEFAULT_FOREIGN_CULTURE_TERMS
+    if not _EPISODE_WORLD.get("set"):
+        return channel
+    own = _EPISODE_WORLD["include"]
+    terms = [t for t in channel if not any(t in i or i in t for i in own)]
+    terms += [t for t in _EPISODE_WORLD["exclude"] if t not in terms]
+    return tuple(terms)
 
 
 def era_overlaps(begin, end):
@@ -369,7 +419,10 @@ def era_overlaps(begin, end):
     подлинники. Японский доспех 1701-1800 при окне 900-1600 не пересекается
     и отсеивается — то, ради чего фильтр и нужен.
     """
-    lo, hi = era_window()
+    win = era_window()
+    if win is None:
+        return True
+    lo, hi = win
     try:
         b, e = int(begin), int(end)
     except (TypeError, ValueError):
@@ -438,7 +491,7 @@ def search_met(query, limit=MET_MAX_DETAIL_FETCHES, department=None):
     # которые мы тянем, уже не тратится на предмет XIX века или на закрытый
     # правами снимок (замер 13.09). Паспортная проверка НИЖЕ остаётся —
     # серверный фильтр экономит запросы, а не заменяет доказательство.
-    era_from, era_to = era_window()
+    window = era_window()
 
     # ЛОКАЛЬНЫЙ КАТАЛОГ ИДЁТ ПЕРВЫМ, И БЮДЖЕТ КАРТОЧЕК ОТ ЭТОГО НЕ РАСТЁТ.
     #
@@ -467,7 +520,7 @@ def search_met(query, limit=MET_MAX_DETAIL_FETCHES, department=None):
             cat_ids = []   # fail-open: каталог не обязан существовать
 
     data = _met_get(f"{MET_API}/search?hasImages=true&isPublicDomain=true"
-                    f"&dateBegin={int(era_from)}&dateEnd={int(era_to)}"
+                    + (f"&dateBegin={int(window[0])}&dateEnd={int(window[1])}" if window else "")
                     + (f"&departmentId={int(department)}" if department else "")
                     + "&q=" + urllib.parse.quote(query))
     api_ids = (data or {}).get("objectIDs") or []
@@ -660,7 +713,7 @@ def _disk_cache_key(query, department=None, limit=None):
     payload = json.dumps([MUSEUM_CACHE_SCHEMA, query,
                           MET_MAX_DETAIL_FETCHES if limit is None else limit,
                           SEARCH_PAGE_SIZE if limit is None else limit,
-                          list(era_window()), sorted(foreign_culture_terms()),
+                          list(era_window() or ()), sorted(foreign_culture_terms()),
                           [n for n, _ in _sources()], department, _mapping_signature()],
                          ensure_ascii=False, sort_keys=True)
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()

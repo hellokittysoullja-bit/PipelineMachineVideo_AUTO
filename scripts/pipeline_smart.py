@@ -3579,6 +3579,17 @@ ACTION_STEM_EXCLUDE = frozenset((
 ))
 
 
+def wants_handheld(block):
+    """Лёгкая «ручная» тряска видео: фраза про движение. Со спецификацией
+    кадра решает её обязательное утверждение движения; без неё — прежний
+    словарь (он остаётся запасным путём для фраз без плана)."""
+    spec = block.get("shot_spec")
+    if spec:
+        import stock_query_planner
+        return stock_query_planner.has_motion(spec, must=True)
+    return has_action_word(block["text"])
+
+
 def has_action_word(text):
     """Описывает ли блок физическое действие/движение — критерий заказа
     ВИДЕО вместо фото (см. main()). Сравнение по основе слова, см. подробный
@@ -5672,6 +5683,28 @@ def disambiguate_search_query(query):
     return _enforce_era_anchor(query)
 
 
+def stock_api_query(request, pq, video=False):
+    """Строка, которая уходит в стоковый API для запроса пула pq.
+
+    Запрос спецификации кадра (stock_query_planner v3) модель написала, уже
+    зная главу, мир эпизода и то, что лежит в стоках, — словарные приписки
+    к нему («european medieval», якорь эпохи, слова движения по русскому
+    словарю) только портят его в чужой нише: «bulls bears battle» про биржу
+    превращался в «european medieval battle bulls bears». Поэтому:
+      * слова движения к запросу спецификации не приписываются никогда — у
+        спецификации есть свои запросы под утверждение движения;
+      * «european»/якорь эпохи — только в историческом эпизоде (там это пока
+        единственная защита от чужой культуры клинка в слотах без проверки
+        кадра; снять — после замера выдачи с припиской и без).
+    Запрос без спецификации — прежний путь."""
+    spec = getattr(request, "shot_spec", None)
+    if spec and pq in {x["q"] for x in spec.get("queries") or []}:
+        import world_card
+        return disambiguate_search_query(pq) if world_card.is_historical(episode_world_card()) else pq
+    api_q = disambiguate_search_query(pq)
+    return apply_action_qualifier(api_q, request.action_qualifier) if video else api_q
+
+
 def _enforce_era_anchor(query):
     """Авторский запрос БЕЗ якоря эпохи получает якорь перед уходом в сток.
 
@@ -5886,6 +5919,16 @@ def shot_type_of_query(query):
         return shot_types.shot_type_for(query, SHOT_TYPE_EXPLICIT.get((query or "").strip()))
     except Exception:
         return "any"
+
+
+def art_museums_fit_episode():
+    """Художественные музеи (Мет, Кливленд, Чикаго, полка из их снимков) —
+    для эпизода про прошлое. У современного, научного и абстрактного
+    эпизода их выдача — чужие предметы по совпадению слов (замер разбора
+    24.09: «coral reef» приносит коралловые чётки и амулеты), и она только
+    тратит квоту и места в пуле. Нет паспорта — как раньше, музеи в пуле."""
+    card = episode_world_card()
+    return not card or card.get("register") not in ("modern", "abstract", "scientific")
 
 
 def source_allowed_for(source, shot_type):
@@ -6529,6 +6572,47 @@ OPENVERSE_DOMAIN_NOUNS = tuple(CHANNEL_PROFILE.get(
 # accessor первым делом, поэтому в проде сломанный паспорт останавливает
 # работу ДО первого платного шага, а не посреди эпизода.
 _WORLD_CARD_CACHE = {}
+
+
+PLANNER_DEFAULT_SPEND_CAP = 30000
+
+
+def auto_plan_episode(blocks, video_dir=None):
+    """Паспорт мира и спецификации кадров эпизода — до отбора, сам рендер.
+
+    Раньше оба запускались руками, и эпизод без них молча шёл старым путём:
+    без мира и без понимания, что показывать на каждой фразе. Теперь при
+    ключе шлюза (ключ — и есть согласие владельца на платные вызовы):
+      1. паспорт — один вызов модели по всему сценарию; ручной паспорт не
+         трогается, свой пересобирается только при правке сценария;
+      2. спецификации — по главам, из кэша; спрашиваются только главы с
+         новыми или изменёнными фразами.
+    Без ключа или при нехватке денег — громкая строка и прежний путь (план с
+    диска, если он есть). Сбой здесь не роняет рендер."""
+    d = video_dir or VIDEO_FOLDER
+    if not (os.environ.get("LLM_GATEWAY_API_KEY") or "").strip():
+        print("  План кадров: нет LLM_GATEWAY_API_KEY — паспорт мира и спецификации кадров "
+              "берутся только с диска (если есть)")
+        return
+    try:
+        import llm_gateway
+        import stock_query_planner
+        import world_card
+        raw = (os.environ.get("PLANNER_MAX_SPEND") or "").strip()
+        cap = int(raw) if raw.isdigit() else PLANNER_DEFAULT_SPEND_CAP
+        gw = llm_gateway.Gateway(spend_cap=cap)
+        card, what = world_card.generate(d, gw)
+        reset_world_card_cache()
+        label = {"manual": "ручной", "fresh": "свой, сценарий не менялся",
+                 "made": "составлен моделью"}.get(what, what)
+        print(f"  Паспорт мира ({label}): " + (world_card.describe(card) if card else "нет"))
+        if stock_query_planner.needs_planning(d, blocks):
+            n = stock_query_planner.plan_episode(d, blocks, gw, verbose=False)
+            print(f"  Спецификации кадров: {n} фраз ({stock_query_planner.DEFAULT_MODEL}), "
+                  f"потрачено {gw.spent}")
+    except Exception as e:  # noqa: BLE001 — план не имеет права уронить рендер
+        print(f"  ВНИМАНИЕ: план кадров не обновлён ({type(e).__name__}: {str(e)[:200]}) — "
+              f"отбор идёт по плану с диска, если он есть")
 
 
 def episode_world_card(video_dir=None):
@@ -7550,7 +7634,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
         # вносит кандидатов (см. _pexels_search_photos), а пустой пул ниже
         # честно даёт None, как и раньше.
         shot_brief, block_text = request.shot_brief, request.block_text
-        api_q = disambiguate_search_query(pq)
+        api_q = stock_api_query(request, pq)
         # Openverse (институциональные архивы — Met/Wikimedia/Rijksmuseum/
         # Europeana/Смитсоновский) — В ТОТ ЖЕ пул, ПЕРЕД Pexels. Реальный
         # пробел (найдено 07.09): код написан и включён (OPENVERSE_ENABLED),
@@ -7603,6 +7687,8 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                                     ("pixabay", _pixabay_search_photos),
                                     ("unsplash", _unsplash_search_photos)):
             if not source_allowed_for(source_name, shot_type):
+                continue
+            if source_name in ("shelf", "museum") and not art_museums_fit_episode():
                 continue
             src_list = []
             # В МУЗЕЙ уходит АВТОРСКИЙ запрос, без уточнителя культуры.
@@ -8680,7 +8766,11 @@ def _diversify_repeated_query_runs(resolved, blocks):
                                 alt = resolved[j]
                                 break
                     if alt is None:
-                        alt = GENERIC_FALLBACKS[fallback_cursor % len(GENERIC_FALLBACKS)]
+                        # Запасные запросы — из паспорта эпизода (его
+                        # expected_subjects), а не средневековый список кода:
+                        # иначе они протекали в любую нишу (разбор 24.09).
+                        pool = generic_fallback_queries_effective()
+                        alt = pool[fallback_cursor % len(pool)]
                         fallback_cursor += 1
                     resolved[k] = alt
             run_start = i
@@ -14049,7 +14139,7 @@ class VideoAdapter(selection_engine.MediaAdapter):
         return brief_stock_query_of(request)
 
     def sources(self, request, pq):
-        api_q = apply_action_qualifier(disambiguate_search_query(pq), request.action_qualifier)
+        api_q = stock_api_query(request, pq, video=True)
         low = pq not in slot_own_queries(request)
         out = []
         for fetch in (_pexels_search_videos, _pixabay_search_videos):
@@ -15740,6 +15830,11 @@ def main():
     if not blocks:
         print("Сценарий не найден/пуст")
         return 1
+    auto_plan_episode(blocks)
+    # Мир эпизода — в музейный фильтр: окно эпохи и чужие культуры из
+    # паспорта, а не из дефолтов канала (см. museum_sources.set_episode_world).
+    import museum_sources
+    museum_sources.set_episode_world(episode_world_card())
     # ЛОКАЛЬНЫЙ РЕЖИССЁР (SHOT_PLANNER_LLM, дефолт 1). Заполняет РОВНО ТО ЖЕ
     # поле shot_brief, которое пишет автор тегом [shot:...] — и поэтому не
     # заводит ни одной новой связи: вопрос к полке (shelf_question), перевод
@@ -17100,14 +17195,14 @@ def main():
                         _timed_render, video_render, i, video, out, d, title=title, stat=stat, section=b["section"],
                         stat_variant=stat_variant, brightness_bias=brightness_bias,
                         energy_bias=energy_bias, stat_delay=stat_delay, levels=levels, wb=wb, grain_scale=grain_scale,
-                        handheld=has_action_word(b["text"]), captions=captions,
+                        handheld=wants_handheld(b), captions=captions,
                         ffmpeg_threads=RENDER_FFMPEG_THREADS)
                     ok = None
                 else:
                     ok = _timed_render(video_render, i, video, out, d, title=title, stat=stat, section=b["section"],
                                        stat_variant=stat_variant, brightness_bias=brightness_bias,
                                        energy_bias=energy_bias, stat_delay=stat_delay, levels=levels, wb=wb, grain_scale=grain_scale,
-                                       handheld=has_action_word(b["text"]), captions=captions)
+                                       handheld=wants_handheld(b), captions=captions)
             else:
                 # anti-repetition: хэш сам по себе не мешает 3 зумам подряд случайно
                 # совпасть — держим окно последних решений и форсируем смену при повторе.

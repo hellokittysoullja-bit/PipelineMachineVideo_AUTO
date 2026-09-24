@@ -90,7 +90,7 @@ For EVERY numbered line decide what the viewer must SEE while hearing it.
 
 focus — the new thing this line says, understood in the context of the chapter (resolve pronouns and references from the lines around it). 3 to 12 English words.
 
-core — WHO or WHAT must be visible: the single thing (an object, a person, an animal, a place) that, even alone in a picture, still makes the viewer think of this line — with the state that defines it, if any ("an exhausted person", "a burnt letter"). Name the thing, not an event: what it does goes into the claims. Ask yourself: if the picture could show only one thing, which one? When the line is about something happening to, on or around something else, the core is what the line is about — usually the thing that moves, acts or changes — not the surface, place or object it happens on. When the line is abstract (a feeling, an idea, a process, an argument), the core is a concrete situation, a bodily sign or an object left behind that a camera can photograph and a viewer reads as this idea — never a bare "a person is visible" or an invisible thing like "a memory" or "a brain decision": say what makes the picture show THIS line ("a person slumped over an untouched plate", "a crumpled paper covered in red corrections"). Never make words, captions, labels, signs or logos in the picture part of the core or of a claim — the viewer hears the words, the picture shows things. Write it as a statement: "a ball is visible".
+core — WHO or WHAT must be visible: the single thing (an object, a person, an animal, a place) that, even alone in a picture, still makes the viewer think of this line — with the state that defines it, if any ("an exhausted person", "a burnt letter"). Name the thing, not an event: what it does goes into the claims. Ask yourself: if the picture could show only one thing, which one? When the line is about something happening to, on or around something else, the core is what the line is about — usually the thing that moves, acts or changes — not the surface, place or object it happens on. When the line is abstract (a feeling, an idea, a process, an argument), the core is a concrete situation, a bodily sign or an object left behind that a camera can photograph and a viewer reads as this idea — never a bare "a person is visible" or an invisible thing like "a memory" or "a brain decision": say what makes the picture show THIS line ("a person slumped over an untouched plate", "a crumpled paper covered in red corrections"). Never make words, captions, labels, signs or logos in the picture part of the core or of a claim — the viewer hears the words, the picture shows things — unless the line is about that very document, chart, headline, sign or screen. Write it as a statement: "a ball is visible".
 
 claims — 1 to {c1} more statements checkable by looking at the picture, most important first. Each checks ONE thing (an object, an action, a place, a detail) and does not repeat the core. "tier": "must" if without it the picture does not show this line, "should" if it only makes the picture better. If the line is about a movement that only footage can show, one claim has "motion": true and describes this movement; lines about objects, places or states have no motion claim.
 
@@ -306,40 +306,100 @@ def ask_chapter(gateway, model, packet, setting, cache_dir):
     return got, hit
 
 
-def plan_episode(video_dir, blocks, gateway, model=DEFAULT_MODEL, verbose=True):
+def plan_signature(model, setting):
+    """Что делает спецификации сопоставимыми между прогонами: версия,
+    модель, текст инструкции и мир эпизода. Совпадает — спецификацию фразы с
+    неизменным текстом можно взять из прежнего плана."""
+    return hashlib.sha256(f"{PLAN_VERSION}|{model}|{SPEC_PROMPT}|{setting}".encode("utf-8")).hexdigest()[:16]
+
+
+def _read_plan(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:  # noqa: BLE001 — нет или битый: плана нет
+        return {}
+
+
+def plan_episode(video_dir, blocks, gateway, model=DEFAULT_MODEL, verbose=True, workers=None):
     """Спросить модель по главам и записать план. Возвращает число фраз с
-    запросами. Сбой одной главы не рвёт прогон: глава пропускается с причиной."""
+    запросами. Главы спрашиваются параллельно (вопросы независимы). Сбой
+    одной главы не рвёт прогон: глава пропускается с причиной; нехватка
+    денег (PaymentRequired) поднимается — решает вызывающий.
+
+    Правка одной фразы меняет вопрос всей главы, и модель отвечает заново
+    на каждую её фразу. Спецификация фразы с НЕИЗМЕННЫМ текстом при этом
+    берётся из прежнего плана, если подпись плана (модель, инструкция, мир)
+    та же: иначе правка одного слова перепокупала бы кадры всей главы
+    (спецификация входит в ключ кэша кандидата)."""
+    import concurrent.futures
     import llm_gateway
     import shot_brief_director as sbd
     import shot_planner_llm
     import world_card
     setting = world_card.judge_setting(world_card.load(video_dir, strict=False))
     cache_dir = os.path.join(video_dir, "media_plan", CACHE_DIR_NAME)
-    units = {}
-    for no, packet in enumerate(sbd.packets(video_dir, blocks), 1):
+    path = os.path.join(video_dir, "media_plan", PLAN_NAME)
+    sig = plan_signature(model, setting)
+    old = _read_plan(path)
+    old_units = (old.get("units") or {}) if old.get("sig") == sig else {}
+    packets = list(sbd.packets(video_dir, blocks))
+
+    def one(packet):
         try:
-            got, hit = ask_chapter(gateway, model, packet, setting, cache_dir)
+            return ask_chapter(gateway, model, packet, setting, cache_dir), None
         except llm_gateway.PaymentRequired:
             raise
         except llm_gateway.GatewayError as e:
-            print(f"  глава {no}: модель не ответила — {e}")
+            return None, e
+
+    units, kept = {}, 0
+    with concurrent.futures.ThreadPoolExecutor(max(1, min(workers or len(packets), 8))) as ex:
+        results = list(ex.map(one, packets))
+    for no, (packet, (res, err)) in enumerate(zip(packets, results), 1):
+        if res is None:
+            print(f"  глава {no}: модель не ответила — {err}")
             continue
+        got, hit = res
         for u in packet["units"]:
+            key = shot_planner_llm.unit_key(u["text"])
+            if not hit and key in old_units:
+                units[key] = old_units[key]
+                kept += 1
+                continue
             spec = got.get(u["n"])
             if spec:
-                units[shot_planner_llm.unit_key(u["text"])] = dict(
-                    spec, text=u["text"], queries_for=spec["queries"], queries=flat_queries(spec))
+                units[key] = dict(spec, text=u["text"], queries_for=spec["queries"],
+                                  queries=flat_queries(spec))
         if verbose:
             print(f"  глава {no} «{_clean(packet['section'])[:40]}»: запросы на {len(got)} "
                   f"из {len(packet['units'])} фраз{' (кэш)' if hit else ''}")
-    path = os.path.join(video_dir, "media_plan", PLAN_NAME)
+    if kept and verbose:
+        print(f"  спецификаций сохранено из прежнего плана (текст фразы не менялся): {kept}")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".part"
     with open(tmp, "w", encoding="utf-8") as f:
-        json.dump({"version": PLAN_VERSION, "model": model, "setting": setting, "units": units},
-                  f, ensure_ascii=False, indent=1)
+        json.dump({"version": PLAN_VERSION, "model": model, "setting": setting, "sig": sig,
+                   "units": units}, f, ensure_ascii=False, indent=1)
     os.replace(tmp, path)
     return len(units)
+
+
+def needs_planning(video_dir, blocks, model=DEFAULT_MODEL):
+    """Есть ли в сценарии фразы, которых нет в плане текущей версии и
+    подписи (или плана нет вовсе). Без сети."""
+    import shot_planner_llm
+    import world_card
+    path = os.path.join(video_dir, "media_plan", PLAN_NAME)
+    plan = _read_plan(path)
+    if plan.get("version") != PLAN_VERSION:
+        return True
+    setting = world_card.judge_setting(world_card.load(video_dir, strict=False))
+    if plan.get("sig") != plan_signature(model, setting):
+        return True
+    have = plan.get("units") or {}
+    return any(shot_planner_llm.unit_key(b.get("text") or "") not in have
+               for b in blocks if (b.get("text") or "").strip())
 
 
 def load(video_dir):

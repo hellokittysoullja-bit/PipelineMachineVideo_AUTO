@@ -192,7 +192,7 @@ def build(csv_path=CSV_PATH, out_path=INDEX_PATH):
             "индекс не пишется. Пустой каталог, выглядящий как готовый, "
             "хуже отсутствующего.")
     payload = {"version": CATALOG_VERSION, "built_at": time.strftime("%Y-%m-%d"),
-               "era": list(ms.era_window()), "stats": stats, "rows": rows}
+               "era": list(ms.era_window() or ()), "stats": stats, "rows": rows}
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     tmp = out_path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:

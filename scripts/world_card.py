@@ -405,6 +405,76 @@ def parse_answer(text):
         raise WorldCardError(f"объект JSON не разбирается ({e})")
 
 
+# АВТОПАСПОРТ (решение владельца 24.09): один вызов текстовой модели шлюза по
+# всему сценарию. Паспорт решает эпоху и культуры для ВСЕГО отбора (музейный
+# фильтр, проверка мира на кадре, якоря запросов), поэтому:
+#   * существующий паспорт без пометки "auto:" считается ручным и не
+#     перезаписывается никогда;
+#   * свой (auto:) пересобирается, только когда сценарий изменился;
+#   * ответ, не прошедший validate(), не записывается — остаётся прежнее
+#     состояние, и об этом говорится вслух.
+#
+# Модель — по замеру 24.09 на шести эпизодах с ручными паспортами (02, 90-94):
+# Gemini 3.7 Flash разобран 6/6 и назвал окна, которые ВЕРНЕЕ ручных там, где
+# сценарий сам выходит в современность (Египет: -3100..2026, «mixed» — в тексте
+# раскопки Картера 1922 и томограф; Аполлон: 1960..2026 — в тексте смартфон и
+# дата-центр). DeepSeek v4 Flash с рассуждением срывался на длинных сценариях,
+# без рассуждения дал Аполлону 1955..1980 — смартфон в кадре стал бы «чужим
+# миром». Qwen 3.7 Max закрыл Египет 1922 годом (томограф за окном). Gemini 3.1
+# Pro — те же ответы, что 3.7 Flash, втрое дороже.
+AUTO_PREFIX = "auto:"
+AUTO_MODEL = "ag/gemini-3.7-flash-high"
+
+
+def _script_digest(text):
+    import hashlib
+    return hashlib.sha256((text or "").encode("utf-8")).hexdigest()[:16]
+
+
+def _raw(video_dir):
+    try:
+        with open(path(video_dir), encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:  # noqa: BLE001 — нет или битый: решает load()
+        return None
+
+
+def is_manual(video_dir):
+    """Паспорт на диске есть и написан не моделью (человек, сессия, файл)."""
+    raw = _raw(video_dir)
+    return bool(raw) and not str(raw.get("derived_by") or "").startswith(AUTO_PREFIX)
+
+
+def generate(video_dir, gateway, model=AUTO_MODEL, niche="не указана"):
+    """Паспорт эпизода от модели, если его нет или свой устарел. Возвращает
+    (паспорт | None, что сделано): "manual" — ручной, не трогали;
+    "fresh" — свой и сценарий не менялся; "made" — записан новый;
+    "failed: ..." — модель не дала годного паспорта, на диске прежнее."""
+    sp = os.path.join(video_dir, "script.txt")
+    if not os.path.exists(sp):
+        return None, "failed: нет script.txt"
+    with open(sp, encoding="utf-8") as f:
+        script = f.read()
+    raw = _raw(video_dir)
+    if raw is not None and is_manual(video_dir):
+        return load(video_dir, strict=False), "manual"
+    digest = _script_digest(script)
+    if raw is not None and raw.get("script_sha") == digest and not validate(raw):
+        return raw, "fresh"
+    try:
+        text, _u, _p = gateway.chat(model, [{"type": "text", "text": prompt_for_script(script, niche)}],
+                                    6000, 2500 + len(script) // 2)
+        card = parse_answer(text)
+        card["schema_version"] = SCHEMA_VERSION
+        card["script_sha"] = digest
+        card.pop("derived_by", None)
+        card.pop("derived_at", None)
+        save(video_dir, card, derived_by=AUTO_PREFIX + model)
+        return card, "made"
+    except Exception as e:  # noqa: BLE001 — сбой модели/формата: прежнее состояние
+        return (load(video_dir, strict=False) if raw else None), f"failed: {str(e)[:200]}"
+
+
 def main(argv=None):
     """CLI: собрать вопрос по сценарию (--prompt) или проверить готовый
     паспорт (--check). Записывает паспорт из файла-ответа (--answer) — тот
