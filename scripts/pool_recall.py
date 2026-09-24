@@ -420,6 +420,11 @@ def cmd_bench(a):
             return r, lab, ans, wok, info.get("cost", 0) + winfo.get("cost", 0), grid_path
 
         import concurrent.futures
+        if a.only_head:
+            # Сокращённый замер: только те кадры, из которых выбирается
+            # победитель слота (первые --handoff) — «выбран ли лучший»
+            # считается по ним же, пары — внутри них.
+            rows = rows[:a.handoff]
         if a.finalists:
             # Как в пайплайне: проверяются только лучшие по сетке (оценки
             # сетки — из кэша прошлого прогона со --grid).
@@ -543,6 +548,8 @@ def main(argv=None):
     b.add_argument("--grid-cache", help="кэш оценок сетки (повтор без кэша проверки)")
     b.add_argument("--cache-dir", help="кэш ответов (по умолчанию рядом с index.json)")
     b.add_argument("--world", action="store_true", help="плюс прежняя проверка мира")
+    b.add_argument("--only-head", action="store_true",
+                   help="только первые --handoff кадров слота (вдвое дешевле)")
     b.add_argument("--world-separate", action="store_true",
                    help="мир — отдельным вопросом без фразы, один на картинку")
     b.add_argument("--claims-world", choices=("exclude", "plain"), default="exclude",
