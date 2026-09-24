@@ -221,3 +221,4 @@ def test_old_plan_version_gives_no_specs(tmp_path, capsys):
 def test_prompt_never_tells_the_model_to_drop_the_subject():
     t = sqp.SPEC_PROMPT.lower()
     assert "without the action" not in t and "substitute" not in t
+    assert "never make words, captions" in t, "текст в кадре запрещён — правило терялось при переписывании"
