@@ -11771,6 +11771,21 @@ def _cascade_key(url):
     return hashlib.md5(f"{CLIP_GATE_MODEL_NAME}|{url}".encode("utf-8")).hexdigest()
 
 
+def _cascade_ident(p, url):
+    """Чем называть превью в кэше каскада. Обычно — адресом. У Pixabay
+    адрес превью подписан и меняется от выдачи к выдаче (разбор 24.09:
+    2 770 из 4 027 строк — /get/-адреса, у 1 382 кадров, встреченных и в
+    judge9, адрес другой), поэтому по адресу кэш промахивается и превью
+    качается заново каждый прогон — отсюда 429 от Pixabay. Тот же кадр — тот
+    же номер и тот же размер превью (суффикс _640 и т.п.) — одно имя."""
+    if url and "pixabay.com/get/" in url and p.get("id"):
+        import re
+        size = re.search(r"_(\d+)\.\w+(?:\?|$)", url)
+        kind = "video" if p.get("video_files") else "photo"
+        return f"pixabay-id:{p['id']}|{kind}|{size.group(1) if size else ''}"
+    return url
+
+
 def _cascade_cached(key, cache_dir):
     v = _CASCADE_EMB.get(key)
     if v is None:
@@ -11792,12 +11807,24 @@ def query_tiers_source():
 
 
 def cascade_texts(spec, brief, kind="photo"):
-    """Тексты, по которым каскад ранжирует превью: must-утверждения
-    спецификации кадра по порядку (каждое — отдельно), без спецификации —
-    бриф одной строкой, как раньше. Утверждение движения у фото не
-    ранжирует: фото его выполнить не может, и ранжирование по нему только
-    перемешало бы порядок шумом."""
+    """Тексты, по которым каскад ранжирует превью: поисковые запросы
+    спецификации кадра (их пишет планировщик под эту фразу), без
+    спецификации — бриф одной строкой, как раньше.
+
+    Раньше это были must-утверждения, и кадр ставился по ХУДШЕМУ месту
+    среди них. Разбор 24.09 на 324 размеченных кадрах эп.94: эта формула
+    различает годное и брак на уровне случайности (AUC 0.56 фото, 0.48
+    видео), а на кадрах, которые реально видит судья, ставит их в обратном
+    порядке (0.44) — «худшее место» по нескольким составным утверждениям
+    поднимает компромиссные кадры, посредственные по всем сразу. Лучшее
+    сходство с запросами спецификации — 0.78 / 0.73; годных среди первых
+    10 фото 40% -> 59%; лучший кадр слота среди первых 20 (их видит судья)
+    сохранён или лучше во всех 15 слотах. Картиночные эмбеддинги те же —
+    цена не меняется."""
     if spec:
+        qs = [q.strip() for q in (spec.get("queries") or []) if isinstance(q, str) and q.strip()]
+        if qs:
+            return qs
         import shot_judge
         return [c["text"] for c in shot_judge.asked_claims(spec, kind) if c["tier"] == "must"]
     return [brief] if brief else []
@@ -11809,13 +11836,11 @@ def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=16, url_o
     порядке, хвост пула — за ними. Модель недоступна или оценено меньше
     двух — порядок прежний. Превью на диске не остаются.
 
-    Текстов несколько (must-утверждения спецификации кадра) — у каждого
-    своё ранжирование, и кандидат стоит по ХУДШЕМУ из своих мест: кадр,
-    где нет стрелы, проваливает «видна стрела», как бы хорошо ни совпал
-    с «виден нагрудник». Сравниваются МЕСТА, а не сырые косинусы: косинус
-    SigLIP между разными текстами несопоставим (CLAUDE.md, два замера
-    порога на сырой косинус). Равные по худшему месту — по месту в первом
-    (главном) утверждении. Один текст — прежний порядок по близости."""
+    Текстов несколько (запросы спецификации кадра) — кандидат стоит по
+    ЛУЧШЕМУ сходству с любым из них: запросы — разные формулировки одного
+    кадра, и кадр, точно отвечающий одной из них, годен (см. cascade_texts
+    — замер против прежнего «худшего места»). Один текст — прежний порядок
+    по близости."""
     if isinstance(texts, str):
         texts = [texts]
     texts = [t for t in (texts or []) if t]
@@ -11828,7 +11853,7 @@ def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=16, url_o
         return candidates
     cache_dir = os.path.join(TEMP_FOLDER, "cascade_embed_cache")
     url_of = url_of or candidate_probe_url
-    keys = {id(p): _cascade_key(url_of(p)) for p in head}
+    keys = {id(p): _cascade_key(_cascade_ident(p, url_of(p))) for p in head}
     emb = {id(p): _cascade_cached(keys[id(p)], cache_dir) for p in head}
     need = [p for p in head if emb[id(p)] is None]
     fresh = 0
@@ -11878,12 +11903,8 @@ def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=16, url_o
     have = [(k, p) for k, p in enumerate(head) if emb[id(p)] is not None]
     if len(have) < 2:
         return candidates
-    places = {}
-    for t in t_embs:
-        order = sorted(have, key=lambda kp: (-float(emb[id(kp[1])] @ t[0]), kp[0]))
-        for place, (k, _p) in enumerate(order):
-            places.setdefault(k, []).append(place)
-    ranked = [p for k, p in sorted(have, key=lambda kp: (max(places[kp[0]]), places[kp[0]][0], kp[0]))]
+    best = {k: max(float(emb[id(p)] @ t[0]) for t in t_embs) for k, p in have}
+    ranked = [p for k, p in sorted(have, key=lambda kp: (-best[kp[0]], kp[0]))]
     seen = {id(p) for p in ranked}
     print(f"  слот {index}: каскад — {len(ranked)} из {len(head)} кандидатов ранжированы "
           f"по описанию кадра (новых оценок {fresh})")

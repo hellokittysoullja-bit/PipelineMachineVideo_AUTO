@@ -72,14 +72,14 @@ def test_no_model_keeps_order(tmp_path, monkeypatch):
     assert ps.cascade_reorder(cands, "x", str(tmp_path / "cf.jpg"), lambda p, d: None, 0) is cands
 
 
-def test_several_claims_rank_by_the_worst_place(tmp_path, monkeypatch):
-    """«Стрела скользит по нагруднику»: нагрудник без стрелы отлично
-    совпадает с «нагрудником» и проваливает «стрелу» — он ниже картины, где
-    есть и то, и другое, и ниже полёта стрелы (равное худшее место —
-    решает главное, первое утверждение)."""
+def test_several_texts_rank_by_the_best_match(tmp_path, monkeypatch):
+    """Запросы спецификации — разные формулировки одного кадра: кандидат
+    стоит по лучшему совпадению с любым из них. Прежнее «худшее место» по
+    составным утверждениям поднимало компромиссный кадр, посредственный по
+    всем сразу (замер 24.09: AUC 0.56 против 0.78 у лучшего совпадения)."""
     monkeypatch.setattr(ps, "TEMP_FOLDER", str(tmp_path / "temp"))
     monkeypatch.setattr(ps, "_CASCADE_EMB", {})
-    vec = {"breast": (0.1, 0.9), "painting": (0.8, 0.5), "flying": (0.9, 0.0)}
+    vec = {"exact_a": (0.95, 0.0), "exact_b": (0.0, 0.9), "compromise": (0.6, 0.6)}
     ids = sorted(vec)
 
     def probe(p, dest):
@@ -87,20 +87,22 @@ def test_several_claims_rank_by_the_worst_place(tmp_path, monkeypatch):
 
     def embed(images=None, text=None):
         if text is not None:
-            return np.array([[1.0, 0.0]] if text == "arrow" else [[0.0, 1.0]], "float32")
+            return np.array([[1.0, 0.0]] if text == "query a" else [[0.0, 1.0]], "float32")
         return np.array([vec[ids[round(im.getpixel((4, 4))[0] / 10)]] for im in images], "float32")
     monkeypatch.setattr(ps, "_gate_embed", embed)
-    cands = [{"id": k, "src": {"large": f"http://x/{k}.jpg"}} for k in ("breast", "painting", "flying")]
-    order = ps.cascade_reorder(cands, ["arrow", "breastplate"], str(tmp_path / "cf.jpg"), probe, 0)
-    assert [p["id"] for p in order] == ["painting", "flying", "breast"]
+    cands = [{"id": k, "src": {"large": f"http://x/{k}.jpg"}} for k in ("compromise", "exact_b", "exact_a")]
+    order = ps.cascade_reorder(cands, ["query a", "query b"], str(tmp_path / "cf.jpg"), probe, 0)
+    assert [p["id"] for p in order] == ["exact_a", "exact_b", "compromise"]
 
 
-def test_cascade_texts_come_from_the_must_claims():
-    spec = {"claims": [{"id": "c1", "text": "an arrow", "tier": "must"},
-                       {"id": "c2", "text": "a wall", "tier": "should"},
+def test_cascade_texts_are_the_spec_queries():
+    spec = {"queries": ["rondel dagger blade", " ", "medieval dagger macro"],
+            "claims": [{"id": "c1", "text": "an arrow", "tier": "must"},
                        {"id": "c3", "text": "it bounces", "tier": "must", "motion": True}]}
-    assert ps.cascade_texts(spec, "brief", "video") == ["an arrow", "it bounces"]
-    assert ps.cascade_texts(spec, "brief", "photo") == ["an arrow"], "движение фото не ранжирует"
+    assert ps.cascade_texts(spec, "brief", "photo") == ["rondel dagger blade", "medieval dagger macro"]
+    no_q = dict(spec, queries=[])
+    assert ps.cascade_texts(no_q, "brief", "video") == ["an arrow", "it bounces"]
+    assert ps.cascade_texts(no_q, "brief", "photo") == ["an arrow"], "движение фото не ранжирует"
     assert ps.cascade_texts(None, "brief") == ["brief"]
 
 
@@ -141,3 +143,16 @@ def test_second_page_runs_only_for_a_missing_or_known_bad_frame():
     assert "known_bad_reason(cur_att.verdicts)" in head and "shot_judge_active(i)" in head
     tail = body[i:i + 500]
     assert "not known_bad_reason(page2_att.verdicts)" in tail, "брак второй страницы не заменяет кадр"
+
+
+def test_pixabay_signed_preview_urls_hit_the_same_cache_entry():
+    """Подписанный адрес превью Pixabay меняется от выдачи к выдаче — кэш
+    каскада обязан узнать тот же кадр по номеру, иначе каждый прогон
+    качает превью заново (и ловит 429)."""
+    a = ps._cascade_ident({"id": "pixabay:42"}, "https://pixabay.com/get/gAAA_640.jpg")
+    b = ps._cascade_ident({"id": "pixabay:42"}, "https://pixabay.com/get/gBBB_640.jpg")
+    assert a == b
+    assert a != ps._cascade_ident({"id": "pixabay:42"}, "https://pixabay.com/get/gAAA_1280.jpg")
+    assert a != ps._cascade_ident({"id": "pixabay:42", "video_files": [{}]}, "https://pixabay.com/get/gAAA_640.jpg")
+    other = "https://images.pexels.com/photos/1/x.jpg?w=640"
+    assert ps._cascade_ident({"id": "1"}, other) == other, "прочие источники — по адресу, как раньше"
