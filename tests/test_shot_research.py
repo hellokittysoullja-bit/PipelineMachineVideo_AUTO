@@ -114,6 +114,8 @@ def test_research_request_uses_only_new_queries(monkeypatch, tmp_path):
     assert req2.query == "froissart battle miniature" and req2.extra_queries == ("tomb effigy knight",)
     assert [q["q"] for q in req2.shot_spec["queries"]] == ["froissart battle miniature", "tomb effigy knight"]
     assert req2.used_photo_ids is req.used_photo_ids, "общее состояние эпизода — те же объекты"
+    assert (req2.block_text, req2.shot_brief, req2.index) == (req.block_text, req.shot_brief, req.index), \
+        "второй круг меняет только запросы: фраза и бриф — те же"
     assert "Roman soldiers, not a knight" in gw.prompts[0] and "section query" in gw.prompts[0]
     assert ps.RESEARCH_ROUND_LOG[-1]["queries"] == ["froissart battle miniature", "tomb effigy knight"]
     ps.SHOT_JUDGE_LOG.clear()

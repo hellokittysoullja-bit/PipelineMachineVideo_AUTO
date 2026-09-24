@@ -66,14 +66,25 @@ def test_slot_request_is_built_in_exactly_one_place():
 def test_every_attempt_of_a_slot_gets_the_same_request():
     """Спасающий вызов фото годами шёл без брифа: аргументы перечислялись
     заново в каждом вызове. Теперь все вызовы отбора в main() передают
-    ОДНУ переменную запроса."""
+    ОДНУ переменную запроса.
+
+    Единственное исключение — второй круг поиска (shot_research): он
+    передаёт req2, и req2 рождается ТОЛЬКО из того же request
+    (research_round_request заменяет запросы, бриф, фраза и спецификация
+    остаются прежними — это держит test_shot_research)."""
     main = next(f for f in PIPELINE_TREE.body if isinstance(f, ast.FunctionDef) and f.name == "main")
     calls = [n for n in ast.walk(main) if isinstance(n, ast.Call)
              and getattr(n.func, "id", None) == "fetch_in_attempt"]
     assert len(calls) >= 5
     for c in calls:
         assert isinstance(c.args[3], ast.Name) and c.args[3].id == "select_media"
-        assert isinstance(c.args[4], ast.Name) and c.args[4].id == "request", ast.dump(c)
+        assert isinstance(c.args[4], ast.Name) and c.args[4].id in ("request", "req2"), ast.dump(c)
+    born = [n.value for n in ast.walk(main) if isinstance(n, ast.Assign)
+            and any(isinstance(t, ast.Name) and t.id == "req2" for t in n.targets)]
+    assert born, "req2 передаётся, но нигде не рождается"
+    for call in born:
+        assert isinstance(call, ast.Call) and getattr(call.func, "id", None) == "research_round_request"
+        assert any(isinstance(a, ast.Name) and a.id == "request" for a in call.args), ast.dump(call)
 
 
 # ------------------------------------------------------------------ пул
