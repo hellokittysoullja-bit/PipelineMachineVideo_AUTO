@@ -70,6 +70,13 @@ SCORE_MAX = 3
 # расходов шлюза, а не цена: списывается фактический usage.
 EST_PROMPT_TOKENS = 2500
 MAX_TOKENS = 1200
+# Рассуждение модели в сетке и в проверке зрения ВЫКЛЮЧЕНО явно. Оценки
+# сетки (57/61 пар) сняты, когда Qwen 3.7 Plus на шлюзе по умолчанию не
+# рассуждал; 24.09 провайдер включил рассуждение по умолчанию, и проверка
+# зрения (20 токенов выхода) стала отдавать пустой ответ — судья молча
+# выключился на весь прогон judge10. Явный выключатель возвращает ту
+# конфигурацию, на которой всё замерено, и не зависит от чужого дефолта.
+GRID_REASONING = False
 
 PROMPT = """You check shots for a documentary video.
 Narration line: «{phrase}»
@@ -212,7 +219,7 @@ def vision_check(gateway, model):
                    {"type": "image_url", "image_url": {
                        "url": "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()}}]
         try:
-            answer, _u, _p = gateway.chat(model, content, 20, 400)
+            answer, _u, _p = gateway.chat(model, content, 20, 400, reasoning=False)
         except Exception as e:  # noqa: BLE001
             return False, f"проверка зрения не состоялась: {type(e).__name__}: {e}"[:300]
         if word not in (answer or "").lower():
@@ -236,7 +243,8 @@ def _judge_chunk(gateway, model, text, chunk, cache_dir, kind="photo"):
     content = [{"type": "text", "text": text}, {"type": "image_url", "image_url": {
         "url": "data:image/jpeg;base64," + base64.b64encode(_grid_bytes(paths, kind)).decode()}}]
     try:
-        answer, _usage, price = gateway.chat(model, content, MAX_TOKENS, EST_PROMPT_TOKENS)
+        answer, _usage, price = gateway.chat(model, content, MAX_TOKENS, EST_PROMPT_TOKENS,
+                                             reasoning=GRID_REASONING)
     except Exception as e:  # noqa: BLE001 — любой сбой шлюза: судьи нет
         return None, {"refused": f"{type(e).__name__}: {e}"[:300]}
     scores = parse_scores(answer, len(chunk))

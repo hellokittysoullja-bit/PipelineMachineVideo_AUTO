@@ -30,7 +30,7 @@ class FakeGateway:
         self.calls = []
         self.lock = threading.Lock()
 
-    def chat(self, model, content, max_tokens, est):
+    def chat(self, model, content, max_tokens, est, **_kw):
         with self.lock:
             self.calls.append(content)
             if isinstance(self.answers, dict):
@@ -130,7 +130,7 @@ class ColourGateway:
     def __init__(self, reply):
         self.reply = reply
 
-    def chat(self, model, content, max_tokens, est):
+    def chat(self, model, content, max_tokens, est, **_kw):
         return self.reply(content), {}, 1
 
 

@@ -590,3 +590,20 @@ def test_text_blocklist_off_where_the_world_is_checked_on_the_frame(monkeypatch)
                                                            "era": {"from": 1300, "to": 1500}})
     assert [p["id"] for p in ps.filter_pool_by_text(pool, 3)] == [1]
     assert [p["id"] for p in ps.filter_pool_by_text(pool, 30)] == [], "без проверки — словарь и id"
+
+
+def test_vision_check_and_grid_never_leave_reasoning_to_the_provider_default():
+    """24.09 провайдер включил рассуждение Qwen по умолчанию: проверка зрения
+    (20 токенов) стала пустой, и судья выключился на весь прогон. Рассуждение
+    выключается явно — там, где на нём всё замерено."""
+    import shot_judge
+    seen = []
+
+    class GW:
+        def chat(self, model, content, max_tokens, est, **kw):
+            seen.append(kw.get("reasoning"))
+            return "red blue", {}, 1
+
+    shot_judge.vision_check(GW(), "m")
+    assert seen and all(r is False for r in seen)
+    assert shot_judge.GRID_REASONING is False
