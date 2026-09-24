@@ -198,3 +198,23 @@ def test_world_separately_unparsed_means_no_check(tmp_path):
     ans, info = sj.verify_claims(GW(), "m", phrase="p", spec=spec, setting="historical",
                                  path=path, world_separate=True)
     assert ans is None and "refused" in info
+
+
+def test_cache_that_cannot_be_written_does_not_lose_the_paid_answer(tmp_path):
+    """24.09: замер упал посреди прогона с OSError «нет места» при записи
+    кэша — оплаченный ответ терялся вместе со всем процессом. Кэш — по
+    возможности: ответ возвращается, битого файла не остаётся."""
+    path = _img(tmp_path, "a", (120, 90, 60))
+    blocker = tmp_path / "not_a_dir"
+    blocker.write_text("x")
+    spec = {"focus": "arrow", "claims": [{"id": "c1", "text": "an arrow", "tier": "must"}]}
+
+    class GW:
+        def chat(self, model, content, *a, **k):
+            if "main_in_world: could the MAIN subject of the picture" in content[0]["text"]:
+                return '{"main_in_world": true, "background_foreign": false, "why": ""}', {}, 1
+            return '{"claims": {"c1": "yes"}, "medium": "photo", "why": ""}', {}, 1
+    ans, info = sj.verify_claims(GW(), "m", phrase="p", spec=spec, setting="historical",
+                                 path=path, cache_dir=str(blocker / "cache"), world_separate=True)
+    assert ans and ans["claims"] == {"c1": "yes"} and ans["main_in_world"] is True
+    assert info.get("call")

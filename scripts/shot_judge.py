@@ -192,6 +192,26 @@ def _file_digest(path):
     return h.hexdigest()
 
 
+
+def _cache_write(cp, payload, readable=False):
+    """Запись в кэш — по возможности. Не записалось (кончилось место на
+    диске, 24.09: замер упал с OSError посреди прогона) — ответ модели уже
+    получен и оплачен, работа продолжается, повторный прогон просто
+    спросит заново. Недописанный файл удаляется: битый кэш хуже пустого."""
+    tmp = f"{cp}.{os.getpid()}.{threading.get_ident()}.part"
+    try:
+        os.makedirs(os.path.dirname(cp), exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=not readable)
+        os.replace(tmp, cp)
+        return True
+    except OSError:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        return False
+
 def cache_key(model, text, paths):
     h = hashlib.sha256()
     for part in (model, str(PROMPT_VERSION), text, *(_file_digest(p) for p in paths)):
@@ -251,11 +271,7 @@ def _judge_chunk(gateway, model, text, chunk, cache_dir, kind="photo"):
     if scores is None:
         return None, {"refused": "неполный ответ: " + answer[-200:], "cost": price, "call": True}
     if cp:
-        os.makedirs(cache_dir, exist_ok=True)
-        tmp = f"{cp}.{os.getpid()}.{threading.get_ident()}.part"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump({"model": model, "version": PROMPT_VERSION, "scores": scores}, f)
-        os.replace(tmp, cp)
+        _cache_write(cp, {"model": model, "version": PROMPT_VERSION, "scores": scores}, readable=False)
     return scores, {"cost": price, "call": True}
 
 
@@ -374,11 +390,7 @@ def world_check(gateway, model, *, phrase, brief, setting, path, kind="photo", c
         return None, None, {"refused": f"{type(e).__name__}: {e}"[:200]}
     ok, why = parse_world(answer)
     if ok is not None and cp:
-        os.makedirs(cache_dir, exist_ok=True)
-        tmp = f"{cp}.{os.getpid()}.{threading.get_ident()}.part"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump({"ok": ok, "why": why, "model": model}, f, ensure_ascii=False)
-        os.replace(tmp, cp)
+        _cache_write(cp, {"ok": ok, "why": why, "model": model}, readable=True)
     return ok, why, {"cost": price, "call": True}
 
 
@@ -497,11 +509,7 @@ def world_of_image(gateway, model, *, setting, path, kind="photo", cache_dir=Non
                       "call": True}
     answers = {"main_in_world": j["main_in_world"], "background_foreign": j["background_foreign"]}
     if cp:
-        os.makedirs(cache_dir, exist_ok=True)
-        tmp = f"{cp}.{os.getpid()}.{threading.get_ident()}.part"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump({"answers": answers, "model": model}, f, ensure_ascii=False)
-        os.replace(tmp, cp)
+        _cache_write(cp, {"answers": answers, "model": model}, readable=True)
     return answers, {"cost": price, "call": True}
 
 
@@ -698,9 +706,5 @@ def verify_claims(gateway, model, *, phrase, spec, setting, path, kind="photo", 
         return None, {"refused": "неразобранный ответ: " + (answer or "")[-200:], "cost": price,
                       "call": True}
     if cp:
-        os.makedirs(cache_dir, exist_ok=True)
-        tmp = f"{cp}.{os.getpid()}.{threading.get_ident()}.part"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump({"answers": answers, "model": model}, f, ensure_ascii=False)
-        os.replace(tmp, cp)
+        _cache_write(cp, {"answers": answers, "model": model}, readable=True)
     return answers, {"cost": price, "call": True}
