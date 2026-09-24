@@ -67,28 +67,33 @@ def test_prompt_carries_no_niche_words_and_takes_the_world_from_the_card(tmp_pat
         assert word not in template, f"слово ниши «{word}» в шаблоне вопроса"
 
 
-def test_plan_roundtrip_attaches_queries_by_phrase_text(tmp_path):
+DAGGER = ('{"n": 1, "focus": "a medieval rondel dagger", "core": "a rondel dagger is visible",'
+          ' "claims": [{"id": "c2", "text": "a plain background", "tier": "should"}],'
+          ' "queries": [{"q": "museum dagger", "for": ["c2"]}, {"q": "rondel dagger closeup", "for": ["core"]},'
+          ' {"q": "medieval dagger", "for": ["core", "c2"]}]}\n')
+ARROW = ('{"n": 2, "focus": "an arrow glancing off plate armour", "core": "an arrow is visible",'
+         ' "claims": [{"id": "c1", "text": "the arrow glances off armour", "tier": "must", "motion": true}],'
+         ' "queries": [{"q": "arrow hitting armor", "for": ["core", "c1"]}, {"q": "archer shooting", "for": ["core"]}]}\n')
+
+
+def test_plan_roundtrip_attaches_queries_and_spec_by_phrase_text(tmp_path):
     d, blocks = _episode(tmp_path)
-    gw = FakeGateway(
-        '{"n": 1, "prefer": "photo", "rungs": [{"shot": "a medieval rondel dagger on a plain background",'
-        ' "queries": ["rondel dagger closeup"]}, {"shot": "a medieval dagger in a museum case",'
-        ' "queries": ["medieval dagger"]}]}\n'
-        '{"n": 2, "prefer": "video", "rungs": [{"shot": "an arrow hitting plate armour in a re-enactment",'
-        ' "queries": ["arrow hitting armor", "armour plate"]}]}\n')
+    gw = FakeGateway(DAGGER + ARROW)
     assert sqp.plan_episode(d, blocks, gw, model="m", verbose=False) == 2
-    plan = sqp.load(d)
-    assert sqp.attach(blocks, plan) == 2
-    by_text = {b["text"]: b.get("phrase_queries") for b in blocks}
-    assert by_text["Вот кинжал."] == ["rondel dagger closeup", "medieval dagger"], "ступени по порядку"
-    assert by_text["Итог."] is None, "фраза без ответа идёт прежним путём"
-    specs = sqp.load_specs(d)
-    assert [r["shot"] for r in next(iter(v for v in specs.values() if v["prefer"] == "video"))["rungs"]] \
-        == ["an arrow hitting plate armour in a re-enactment"]
+    assert sqp.attach(blocks, sqp.load(d), sqp.load_specs(d)) == 2
+    by_text = {b["text"]: b for b in blocks}
+    assert by_text["Вот кинжал."]["phrase_queries"] == ["rondel dagger closeup", "medieval dagger",
+                                                        "museum dagger"], "сначала запросы фокуса"
+    arrow = by_text["Стрела скользит по нагруднику."]["shot_spec"]
+    assert arrow["focus"] == "an arrow glancing off plate armour"
+    assert sqp.has_motion(arrow) and not sqp.has_motion(by_text["Вот кинжал."]["shot_spec"])
+    assert "phrase_queries" not in by_text["Итог."] and "shot_spec" not in by_text["Итог."], \
+        "фраза без ответа идёт прежним путём"
 
 
 def test_second_run_is_served_from_cache(tmp_path):
     d, blocks = _episode(tmp_path)
-    gw = FakeGateway('{"n": 1, "rungs": [{"shot": "a medieval rondel dagger close up", "queries": ["rondel dagger"]}]}\n')
+    gw = FakeGateway(DAGGER)
     sqp.plan_episode(d, blocks, gw, model="m", verbose=False)
     hook = [p for p in gw.prompts if "Вот кинжал" in p]
     sqp.plan_episode(d, blocks, gw, model="m", verbose=False)
@@ -156,40 +161,63 @@ def test_video_path_spends_pexels_quota_on_own_query_only(infra, monkeypatch):
     assert len(asked) == 1 and "reenactment" not in asked[0]
 
 
-def test_spec_line_is_parsed_alone_and_bad_rungs_drop():
-    packet = {"units": [{"n": 1}, {"n": 2}, {"n": 3}]}
+def test_spec_line_is_parsed_alone_and_bad_specs_drop():
+    packet = {"units": [{"n": k} for k in range(1, 7)] + [{"n": 9}]}
+    core = '"core": "a knight kneeling in armour"'
+    ok_q = '"queries": [{"q": "knight", "for": ["core"]}]'
     raw = (
-        '{"n": 1, "prefer": "fast", "rungs": [{"shot": "x", "queries": ["knight"]},'
-        ' {"shot": "a knight kneeling in armour on grass", "queries": ["knight kneeling", "Knight \\"1\\""]}]}\n'
+        '{"n": 1, "focus": "a knight kneeling on grass", ' + core + ', "claims": ['
+        '{"id": "c1", "text": "grass field", "tier": "should"}, {"id": "c1", "text": "a duplicate id",'
+        ' "tier": "must"}, {"id": "c3", "text": "sky above", "tier": "maybe"}],'
+        ' "queries": [{"q": "knight kneeling", "for": ["core", "zz"]}, {"q": "Knight \\"1\\"", "for": ["core"]},'
+        ' {"q": "field grass", "for": ["zz"]}]}\n'
         'garbage line\n'
-        '{"n": 2, "rungs": [{"shot": "рыцарь стоит на коленях в поле", "queries": ["knight"]}]}\n'
-        '{"n": 9, "rungs": [{"shot": "a knight kneeling in armour", "queries": ["knight"]}]}\n')
+        '{"n": 2, "focus": "рыцарь на коленях", ' + core + ', "claims": [], ' + ok_q + '}\n'
+        '{"n": 3, "focus": "a knight kneeling", "claims": [{"id": "c1", "text": "grass field", "tier": "must"}], '
+        + ok_q + '}\n'
+        '{"n": 4, "focus": "a knight kneeling", ' + core + ', "claims": [{"id": "c2", "text": "grass field",'
+        ' "tier": "should"}], "queries": [{"q": "green grass", "for": ["c2"]}]}\n'
+        '{"n": 5, "focus": "a knight kneeling", ' + core + ', "claims": [{"id": "c2", "text": "he moves forward",'
+        ' "tier": "must", "motion": true}, {"id": "c3", "text": "he falls down", "tier": "must", "motion": true}], '
+        + ok_q + '}\n'
+        '{"n": 9, "focus": "a knight kneeling", ' + core + ', "claims": [], ' + ok_q + '}\n')
     got = sqp.parse_spec(raw, packet)
-    assert list(got) == [1], "кириллица в описании и чужой номер — не ступени"
-    assert got[1]["prefer"] == "either", "неизвестное предпочтение — either"
-    assert got[1]["rungs"] == [{"shot": "a knight kneeling in armour on grass", "queries": ["knight kneeling"]}]
+    assert sorted(got) == [1, 9], ("кириллица, нет главного, ни одного запроса главного, два движения "
+                                   "— фраза выпадает")
+    assert [c["id"] for c in got[1]["claims"]] == ["core", "c1"], "главное первым; повтор id и чужой tier отброшены"
+    assert got[1]["claims"][0] == {"id": "core", "text": "a knight kneeling in armour", "tier": "must"}
+    assert got[1]["queries"] == [{"q": "knight kneeling", "for": ["core"]}], "цель без утверждения — не цель"
 
 
-def test_flat_queries_keep_rung_order_and_cap():
-    rungs = [{"shot": "s", "queries": ["a b", "c d"]}, {"shot": "t", "queries": ["c d", "e f"]}]
-    assert sqp.flat_queries(rungs) == ["a b", "c d", "e f"]
+def test_model_cannot_smuggle_its_own_core_claim():
+    raw = ('{"n": 1, "focus": "a ball bouncing", "core": "a ball is visible", "claims": [{"id": "core",'
+           ' "text": "a wall is visible", "tier": "must"}], "queries": [{"q": "ball", "for": ["core"]}]}')
+    got = sqp.parse_spec(raw, {"units": [{"n": 1}]})
+    assert got[1]["claims"] == [{"id": "core", "text": "a ball is visible", "tier": "must"}]
 
 
-def test_attach_carries_substitutes_and_kind_preference(tmp_path):
-    d, blocks = _episode(tmp_path)
-    gw = FakeGateway(
-        '{"n": 1, "prefer": "photo", "rungs": [{"shot": "a medieval rondel dagger on a plain background",'
-        ' "queries": ["rondel dagger"]}, {"shot": "a medieval dagger in a museum case",'
-        ' "queries": ["medieval dagger"]}]}\n')
-    sqp.plan_episode(d, blocks, gw, model="m", verbose=False)
-    sqp.attach(blocks, sqp.load(d), sqp.load_specs(d))
-    b = next(b for b in blocks if b["text"] == "Вот кинжал.")
-    assert b["shot_rungs"] == ["a medieval dagger in a museum case"] and b["kind_pref"] == "photo"
-    assert "shot_rungs" not in next(b for b in blocks if b["text"] == "Итог.")
+def test_unknown_unit_number_is_ignored():
+    got = sqp.parse_spec('{"n": 7, "focus": "a b c", "core": "a b", "claims": [],'
+                         ' "queries": [{"q": "a b", "for": ["core"]}]}', {"units": [{"n": 1}]})
+    assert got == {}
 
 
-def test_substitutes_reach_the_verification_question():
-    import shot_judge
-    q = shot_judge.verify_question("фраза", "brief", substitutes=("a dagger in a museum case",))
-    assert "a dagger in a museum case" in q and "substitutes" in q
-    assert "substitutes when" not in shot_judge.verify_question("фраза", "brief")
+def test_queries_ordered_by_importance_of_what_they_look_for():
+    spec = {"claims": [{"id": "a"}, {"id": "b"}, {"id": "c"}],
+            "queries": [{"q": "x", "for": ["c"]}, {"q": "y", "for": ["b", "c"]}, {"q": "z", "for": ["a"]}]}
+    assert [x["q"] for x in sqp.order_queries(spec)] == ["z", "y", "x"]
+
+
+def test_old_plan_version_gives_no_specs(tmp_path, capsys):
+    d, _blocks = _episode(tmp_path)
+    json.dump({"version": 2, "units": {"k": {"text": "t", "queries": ["a b"], "rungs": [], "focus": "f",
+                                             "claims": [{"id": "c1"}]}}},
+              open(os.path.join(d, "media_plan", sqp.PLAN_NAME), "w"))
+    assert sqp.load_specs(d) == {}
+    assert "версия 2" in capsys.readouterr().out
+    assert sqp.load(d) == {"k": ["a b"]}, "запросы старого плана по-прежнему читаются"
+
+
+def test_prompt_never_tells_the_model_to_drop_the_subject():
+    t = sqp.SPEC_PROMPT.lower()
+    assert "without the action" not in t and "substitute" not in t

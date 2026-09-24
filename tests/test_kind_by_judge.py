@@ -66,29 +66,36 @@ def test_main_compares_kinds_and_does_not_refetch_a_losing_photo():
 
 
 def test_verification_quality_decides_between_kinds():
-    """Проверка по пунктам сильнее оценки сетки: точное видео (предмет и
-    действие) бьёт фото-замену, даже если сетка поставила фото выше."""
-    photo_sub = ((1, 0, 1), 3)
-    video_exact = ((2, 1, 1), 2)
-    assert pick("photo", photo_sub, video_exact, prefer_video=False) == "video"
+    """Вектор проверки сильнее оценки сетки: видео, выполнившее фокус,
+    бьёт фото без фокуса, даже если сетка поставила фото выше."""
+    photo_no_focus = ((0.0, 1.0, 1.0), 3)
+    video_focus = ((1.0, 0.0, 1.0), 2)
+    assert pick("photo", photo_no_focus, video_focus, prefer_video=False) == "video"
     assert pick("video", ((-9,), 3), None, prefer_video=True) == "photo", "отказ — берём неизвестное"
-    assert pick("photo", ((1, 0, 1), 1), None, prefer_video=False) == "photo", "одобренная замена остаётся"
+    assert pick("photo", ((1.0, 0.0, 1.0), 1), None, prefer_video=False) == "photo", \
+        "фокус найден — остаётся"
+    assert pick("photo", ((0.0, 1.0, 1.0), 3), None, prefer_video=False) == "video", \
+        "фокус не найден — берём неизвестное"
 
 
 def test_perfect_first_kind_needs_no_second_search():
-    assert ps.quality_perfect(ps._as_quality(((2, 1, 1), 1)))
-    assert not ps.quality_perfect(ps._as_quality(((2, 1, 0), 3))), "чужой фон — ищем второй вид"
+    assert ps.quality_perfect(ps._as_quality(((1.0, 1.0, 1.0), 1)))
+    assert not ps.quality_perfect(ps._as_quality(((1.0, 1.0, 0.0), 3))), "не всё выполнено — ищем второй вид"
+    assert not ps.quality_perfect(ps._as_quality(((-9,), 3)))
     assert ps.quality_perfect(ps._as_quality(3)) and not ps.quality_perfect(ps._as_quality(2))
 
 
 def test_winner_quality_is_none_without_a_judge():
     assert ps.winner_quality({"judge": None, "verify": None}) is None
-    assert ps.winner_quality({"judge": 2, "verify": (1, 1, 1)}) == ((1, 1, 1), 2)
+    assert ps.winner_quality({"judge": 2, "verify": (1.0, 0.5)}) == ((1.0, 0.5), 2)
 
 
-def test_plan_kind_preference_overrides_the_word_rule_in_main():
+def test_spec_motion_decides_the_first_kind_and_rhythm_does_not_override_it():
     src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"), encoding="utf-8").read()
     body = src[src.index("\ndef main("):]
-    i = body.index('want_video = (has_action_word(b["text"])')
-    assert 'b.get("kind_pref") in ("photo", "video") and not stat' in body[i:i + 800]
-    assert "shot_substitutes=tuple(b.get(\"shot_rungs\") or ())" in body
+    i = body.index('spec = b.get("shot_spec")')
+    block = body[i:i + 1500]
+    assert "want_video = stock_query_planner.has_motion(spec)" in block
+    assert block.index("has_motion(spec)") < block.index("else:") < block.index("recent_media_types"), \
+        "ритм — только в ветке без спецификации"
+    assert 'shot_spec=b.get("shot_spec")' in body

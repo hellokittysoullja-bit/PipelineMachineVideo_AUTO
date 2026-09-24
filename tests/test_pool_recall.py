@@ -119,32 +119,26 @@ def test_pool_capture_records_what_the_filter_removed_and_why(tmp_path):
     assert rec["prefilter_order"] == [1, 2] and rec["slot_dur"] == 4.0
 
 
-def test_parse_verify_strict_and_world_optional():
+def test_claims_vector_background_is_penalty_main_is_veto():
     import shot_judge as sj
-    ok = '{"subject": "Yes", "action": "none", "medium": "photo", "why": "x"}'
-    assert sj.parse_verify(ok, False)["subject"] == "yes"
-    assert sj.parse_verify(ok, True) is None          # мир спрошен — пункты мира обязательны
-    assert sj.parse_verify('{"subject": "maybe", "action": "none", "medium": "photo"}', False) is None
-    w = ('{"subject": "close", "action": "yes", "medium": "artwork", "main_in_world": true, '
-         '"background_foreign": false}')
-    assert sj.parse_verify(w, True)["main_in_world"] is True
+    spec = {"claims": [{"id": "core", "text": "a", "tier": "must"},
+                       {"id": "c1", "text": "b", "tier": "should"}]}
 
-
-def test_verify_rank_background_is_penalty_main_is_veto():
-    import shot_judge as sj
-    base = {"subject": "yes", "action": "yes", "medium": "photo", "main_in_world": True,
-            "background_foreign": False}
-    clean = sj.verify_rank(base)
-    spectators = sj.verify_rank(dict(base, background_foreign=True))
-    substitute = sj.verify_rank(dict(base, subject="close"))
-    assert clean > spectators > substitute             # фон — штраф внутри уровня предмета
-    assert sj.verify_rank(dict(base, main_in_world=False)) is None
-    assert sj.verify_rank(dict(base, medium="cg")) is None
-    assert sj.verify_rank(None) < substitute           # не проверено — ниже проверенного годного
+    def ans(core="yes", c1="yes", main=True, bg=False, medium="photo"):
+        return {"claims": {"core": core, "c1": c1}, "medium": medium, "main_in_world": main,
+                "background_foreign": bg}
+    clean = sj.claims_vector(spec, [ans()], "photo")
+    spectators = sj.claims_vector(spec, [ans(bg=True)], "photo")
+    no_detail = sj.claims_vector(spec, [ans(c1="no")], "photo")
+    no_core = sj.claims_vector(spec, [ans(core="no")], "photo")
+    assert clean > no_detail > spectators > no_core, "фон — после must, до should; главное — выше всего"
+    assert sj.claims_vector(spec, [ans(main=False)], "photo") is None
+    assert sj.claims_vector(spec, [ans(medium="cg")], "photo") is None
+    assert sj.claims_vector(spec, [], "photo") is None
 
 
 def test_verify_question_without_world_asks_no_world_items():
     import shot_judge as sj
-    q = sj.verify_question("фраза", "brief")
-    assert "main_in_world" not in q and "world" not in q.split("Reply")[0].lower().replace("worldwide", "")
-    assert "main_in_world" in sj.verify_question("фраза", "brief", setting="historical, 1300 AD")
+    spec = sj.spec_from_brief("фраза", "brief")
+    assert "main_in_world" not in sj.claims_question("фраза", spec)
+    assert "main_in_world" in sj.claims_question("фраза", spec, setting="historical, 1300 AD")

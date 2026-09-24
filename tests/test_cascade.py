@@ -72,6 +72,37 @@ def test_no_model_keeps_order(tmp_path, monkeypatch):
     assert ps.cascade_reorder(cands, "x", str(tmp_path / "cf.jpg"), lambda p, d: None, 0) is cands
 
 
+def test_several_claims_rank_by_the_worst_place(tmp_path, monkeypatch):
+    """«Стрела скользит по нагруднику»: нагрудник без стрелы отлично
+    совпадает с «нагрудником» и проваливает «стрелу» — он ниже картины, где
+    есть и то, и другое, и ниже полёта стрелы (равное худшее место —
+    решает главное, первое утверждение)."""
+    monkeypatch.setattr(ps, "TEMP_FOLDER", str(tmp_path / "temp"))
+    monkeypatch.setattr(ps, "_CASCADE_EMB", {})
+    vec = {"breast": (0.1, 0.9), "painting": (0.8, 0.5), "flying": (0.9, 0.0)}
+    ids = sorted(vec)
+
+    def probe(p, dest):
+        Image.new("RGB", (8, 8), (ids.index(p["id"]) * 10, 0, 0)).save(dest, "JPEG")
+
+    def embed(images=None, text=None):
+        if text is not None:
+            return np.array([[1.0, 0.0]] if text == "arrow" else [[0.0, 1.0]], "float32")
+        return np.array([vec[ids[round(im.getpixel((4, 4))[0] / 10)]] for im in images], "float32")
+    monkeypatch.setattr(ps, "_gate_embed", embed)
+    cands = [{"id": k, "src": {"large": f"http://x/{k}.jpg"}} for k in ("breast", "painting", "flying")]
+    order = ps.cascade_reorder(cands, ["arrow", "breastplate"], str(tmp_path / "cf.jpg"), probe, 0)
+    assert [p["id"] for p in order] == ["painting", "flying", "breast"]
+
+
+def test_cascade_texts_come_from_the_must_claims():
+    spec = {"claims": [{"id": "c1", "text": "an arrow", "tier": "must"},
+                       {"id": "c2", "text": "a wall", "tier": "should"},
+                       {"id": "c3", "text": "it bounces", "tier": "must", "motion": True}]}
+    assert ps.cascade_texts(spec, "brief") == ["an arrow", "it bounces"]
+    assert ps.cascade_texts(None, "brief") == ["brief"]
+
+
 def test_cascade_runs_only_with_an_active_judge():
     src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"), encoding="utf-8").read()
     i = src.index("candidates = cascade_reorder(")

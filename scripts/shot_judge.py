@@ -374,33 +374,12 @@ def world_check(gateway, model, *, phrase, brief, setting, path, kind="photo", c
     return ok, why, {"cost": price, "call": True}
 
 
-# ПРОВЕРКА ФИНАЛИСТА ПО ПУНКТАМ (план 24.09, этап 5). Бинарная проверка мира
-# выше отклоняла кадр за ЛЮБУЮ мелочь чужого мира — и на эпизоде 94 заменила
-# точный кадр более слабым в трёх слотах из пяти, где точный кадр был
-# (docs/quality/POOL_RECALL_EP94.md: упавший рыцарь на турнире со зрителями
-# на фоне -> рыцарь, стоящий в лесу). Здесь модель не выносит приговор, а
-# отвечает на короткие вопросы по ОДНОМУ кадру; решение принимает код:
-#   * главный предмет не из мира фразы, или кадр — 3D/мультфильм/игрушка —
-#     отказ;
-#   * чужое только на фоне — штраф (ниже чистого кадра того же уровня), не
-#     отказ;
-#   * дальше порядок: предмет (тот / близкая замена / нет), затем действие.
-# Мира нет — вопросы про мир не задаются и не влияют.
-VERIFY_VERSION = 3
-VERIFY_PROMPT = """You check one shot for a documentary video.
-Narration line: «{phrase}»
-Required shot: «{brief}»{subs}{world}{caption}
-Look at the picture carefully and answer:
-1. subject: is the main subject the thing the required shot is about? "yes", "close" (same kind of thing, different detail or view, or one of the acceptable substitutes) or "no"
-2. action: if the required shot names an action or state, is it shown? "yes", "no" or "none" (no action required)
-3. medium: "photo", "artwork" (painting, drawing, engraving, manuscript), "object" (museum object on a plain background) or "cg" (3D render, cartoon, toy, video game){world_q}
-Reply with JSON only: {{"subject": "...", "action": "...", "medium": "..."{world_keys}, "why": "<short>"}}"""
+# Общие части вопроса проверки кадра (verify_claims ниже). Прежняя проверка
+# по пунктам «тот ли предмет: yes/close/no» + замены из плана (VERIFY_VERSION
+# 3) удалена: «close» засчитывал замену без главного — нагрудник на фразе
+# «Стрела скользит по нагруднику».
 VERIFY_WORLD = "\nThe episode's world: {setting}."
-VERIFY_WORLD_Q = """
-4. main_in_world: could the MAIN subject exist in that world (era, culture)? true/false
-5. background_foreign: is there anything ELSE in the picture (background, edges, people around) that could not exist in that world — modern people, clothing, objects, vehicles, signs, spectators? true/false"""
 VERIFY_WORLD_KEYS = ', "main_in_world": true/false, "background_foreign": true/false'
-VERIFY_VIDEO_NOTE = "\nThe picture shows three frames (beginning, middle, end) of ONE video clip; judge the clip."
 # Подпись источника — свидетельство рядом с картинкой. Замер 24.09 (эп.94):
 # все три промаха проверки по одной картинке названы в подписи прямо —
 # «moroccan horsemen perform a tbourida», «fish shaped metal keychain»,
@@ -409,29 +388,72 @@ VERIFY_VIDEO_NOTE = "\nThe picture shows three frames (beginning, middle, end) o
 VERIFY_CAPTION = ("\nThe source's own caption for this picture (may be incomplete or wrong; "
                   "use it as evidence, the picture decides): «{caption}»")
 VERIFY_CAPTION_MAX = 240
-# Допустимые замены точного кадра — ступени 2-3 лестницы плана фразы
-# (stock_query_planner v2). Без них «близкую замену» модель судила по
-# своему представлению; с ними — по тому, что автор плана счёл той же мыслью.
-VERIFY_SUBSTITUTES = "\nAcceptable substitutes when the exact shot does not exist: {subs}."
-_VERIFY_ENUMS = {"subject": ("yes", "close", "no"), "action": ("yes", "no", "none"),
-                 "medium": ("photo", "artwork", "object", "cg")}
+MEDIUMS = ("photo", "artwork", "object", "cg")
+# Сторона картинки для проверки. Цена вызова почти целиком — картинка:
+# на 1024 px замер 24.09 дал ~540 токенов баланса за кадр.
+VERIFY_MAX_SIDE = 512
 
 
-def verify_question(phrase, brief, setting=None, kind="photo", caption=None, substitutes=()):
-    world = VERIFY_WORLD.format(setting=setting) if setting else ""
-    subs = "; ".join(f"«{x}»" for x in (substitutes or ()) if x)
+# ПРОВЕРКА ПО УТВЕРЖДЕНИЯМ СПЕЦИФИКАЦИИ (план 24.09, «одна спецификация кадра
+# на фразу»). Прежняя проверка спрашивала «тот ли предмет: yes/close/no», а
+# «close» включал замены из плана — и на фразе «Стрела скользит по
+# нагруднику» нагрудник без стрелы получил «close», то есть «годен». Решать,
+# что в кадре главное, проверка не должна: это смысл фразы, и его уже
+# записал планировщик (stock_query_planner v3) — фокус и утверждения по
+# убыванию важности. Здесь модель только отвечает, выполнено ли каждое
+# утверждение на ЭТОЙ картинке; сравнивает кадры код, по вектору в порядке
+# спецификации (claims_vector). Замена получается сама: картина со стрелами
+# выполняет «видна стрела», нагрудник — нет, и проигрывает ей.
+#
+# Утверждение с движением (motion) фото выполнить не может физически — его не
+# спрашивают и ставят «нет»; у видео спрашивают по кадрам ленты.
+CLAIMS_VERSION = 1
+CLAIM_ANSWERS = {"yes": 2, "unsure": 1, "no": 0}
+CLAIMS_PROMPT = """You check one shot for a documentary video.
+Narration line: «{phrase}»
+What the viewer must see: «{focus}»{world}{caption}{video}
+Look at the picture carefully. For each statement answer "yes", "no" or "unsure" — about THIS picture only:
+{claims}
+Then:
+- medium: "photo", "artwork" (painting, drawing, engraving, manuscript), "object" (museum object on a plain background) or "cg" (3D render, cartoon, toy, video game){world_q}
+Reply with JSON only: {{"claims": {{{keys}}}, "medium": "..."{world_keys}, "why": "<short>"}}"""
+CLAIMS_VIDEO_NOTE = ("\nThe picture shows three frames (beginning, middle, end) of ONE video clip; "
+                     "judge the clip, a movement counts if the frames show it happening.")
+CLAIMS_WORLD_Q = """
+- main_in_world: could the MAIN subject exist in that world (era, culture)? true/false
+- background_foreign: is there anything ELSE in the picture (background, edges, people around) that could not exist in that world — modern people, clothing, objects, vehicles, signs, spectators? true/false"""
+
+
+def spec_from_brief(phrase, brief):
+    """Спецификация без плана: одно must-утверждение — бриф (или сама фраза).
+    Путь один и тот же со спецификацией и без неё."""
+    text = (brief or phrase or "").strip() or "—"
+    return {"focus": text, "claims": [{"id": "c1", "text": text, "tier": "must"}]}
+
+
+def asked_claims(spec, kind):
+    """Утверждения, которые спрашиваются у кадра этого вида: движение у фото
+    не спрашивают — фото его показать не может."""
+    return [c for c in spec["claims"] if kind == "video" or not c.get("motion")]
+
+
+def claims_question(phrase, spec, setting=None, kind="photo", caption=None):
+    asked = asked_claims(spec, kind)
     caption = " ".join(str(caption or "").split())[:VERIFY_CAPTION_MAX]
-    text = VERIFY_PROMPT.format(phrase=phrase or "—", brief=brief or phrase or "—", world=world,
-                                caption=VERIFY_CAPTION.format(caption=caption) if caption else "",
-                                subs=VERIFY_SUBSTITUTES.format(subs=subs) if subs else "",
-                                world_q=VERIFY_WORLD_Q if setting else "",
-                                world_keys=VERIFY_WORLD_KEYS if setting else "")
-    return text + (VERIFY_VIDEO_NOTE if kind == "video" else "")
+    return CLAIMS_PROMPT.format(
+        phrase=phrase or "—", focus=spec.get("focus") or "—",
+        world=VERIFY_WORLD.format(setting=setting) if setting else "",
+        caption=VERIFY_CAPTION.format(caption=caption) if caption else "",
+        video=CLAIMS_VIDEO_NOTE if kind == "video" else "",
+        claims="\n".join(f"{c['id']}: {c['text']}" for c in asked),
+        keys=", ".join(f'"{c["id"]}": "..."' for c in asked),
+        world_q=CLAIMS_WORLD_Q if setting else "",
+        world_keys=VERIFY_WORLD_KEYS if setting else "")
 
 
-def parse_verify(text, with_world):
-    """Ответы {subject, action, medium[, main_in_world, background_foreign], why}
-    или None — хоть один пункт не разобран (угадывать ответ за модель нельзя)."""
+def parse_claims_answer(text, ids, with_world):
+    """{"claims": {id: yes|no|unsure}, "medium", [мир], "why"} или None —
+    хоть один пункт не разобран (угадывать ответ за модель нельзя)."""
     import re
     m = re.search(r"\{.*\}", text or "", re.S)
     if not m:
@@ -440,12 +462,19 @@ def parse_verify(text, with_world):
         j = json.loads(m.group(0))
     except ValueError:
         return None
-    out = {}
-    for key, allowed in _VERIFY_ENUMS.items():
-        v = str(j.get(key, "")).strip().lower()
-        if v not in allowed:
+    got = j.get("claims")
+    if not isinstance(got, dict):
+        return None
+    claims = {}
+    for cid in ids:
+        v = str(got.get(cid, "")).strip().lower()
+        if v not in CLAIM_ANSWERS:
             return None
-        out[key] = v
+        claims[cid] = v
+    medium = str(j.get("medium", "")).strip().lower()
+    if medium not in MEDIUMS:
+        return None
+    out = {"claims": claims, "medium": medium}
     if with_world:
         for key in ("main_in_world", "background_foreign"):
             if not isinstance(j.get(key), bool):
@@ -455,60 +484,116 @@ def parse_verify(text, with_world):
     return out
 
 
-def verify_rank(answers):
-    """Ключ ранжирования по ответам: больше — лучше; None — отказ (кадр не
-    годится ни при каком другом ключе). Ответов нет — (-1, ...): проверки не
-    было, кадр ниже любого проверенного годного, но не отказ."""
-    if answers is None:
-        return (-1, -1, -1)
-    if answers.get("medium") == "cg" or answers.get("main_in_world") is False:
+def claim_values(spec, votes, kind):
+    """{id: 0..2} — среднее по голосам; утверждение, которое этот вид кадра
+    не может выполнить (движение у фото), — 0."""
+    out = {}
+    for c in spec["claims"]:
+        vals = [CLAIM_ANSWERS[v["claims"][c["id"]]] for v in votes if c["id"] in v["claims"]]
+        out[c["id"]] = sum(vals) / len(vals) if vals else 0.0
+    return out
+
+
+def claims_vector(spec, votes, kind):
+    """Ключ сравнения кадров по спецификации; каждый элемент 0..1, больше —
+    лучше, первый — фокус (первое утверждение спецификации всегда must).
+    None — отказ
+    (главный предмет не из мира или кадр — 3D/мультфильм хоть в одном
+    голосе). Порядок: must-утверждения в порядке спецификации, затем чистота
+    фона (чужое только на фоне — штраф, не отказ), затем should. Порядок
+    утверждений задаёт спецификация, код его не меняет."""
+    if not votes:
         return None
-    subject = {"yes": 2, "close": 1, "no": 0}[answers["subject"]]
-    action = 0 if answers["action"] == "no" else 1
-    clean = 0 if answers.get("background_foreign") else 1
-    return (subject, action, clean)
+    if any(v.get("medium") == "cg" or v.get("main_in_world") is False for v in votes):
+        return None
+    top = CLAIM_ANSWERS["yes"]
+    vals = claim_values(spec, votes, kind)
+    musts = [vals[c["id"]] / top for c in spec["claims"] if c["tier"] == "must"]
+    shoulds = [vals[c["id"]] / top for c in spec["claims"] if c["tier"] != "must"]
+    clean = sum(0 if v.get("background_foreign") else 1 for v in votes) / len(votes)
+    return tuple(musts) + (clean,) + tuple(shoulds)
 
 
-# Сторона картинки для проверки. Цена вызова почти целиком — картинка:
-# на 1024 px замер 24.09 дал ~540 токенов баланса за кадр.
-VERIFY_MAX_SIDE = 512
+def focus_met(spec, votes, kind):
+    """Кадр показывает фокус: первое утверждение выполнено единогласно."""
+    if not votes:
+        return False
+    return claim_values(spec, votes, kind)[spec["claims"][0]["id"]] >= CLAIM_ANSWERS["yes"]
 
 
-def verify(gateway, model, *, phrase, brief, setting, path, kind="photo", cache_dir=None,
-           max_side=VERIFY_MAX_SIDE, reasoning=None, caption=None, substitutes=()):
+def nothing_met(spec, votes, kind):
+    """Кадр не показывает из спецификации НИЧЕГО обязательного: каждое
+    must-утверждение — единогласное «нет». Это брак; кадр, который не
+    показал главное, но показал обязательную деталь фразы, — замена,
+    а не брак (он проигрывает любому кадру с главным, но лучше соседнего
+    кадра, растянутого на чужую фразу)."""
+    if not votes:
+        return False
+    vals = claim_values(spec, votes, kind)
+    return all(vals[c["id"]] == 0 for c in spec["claims"] if c["tier"] == "must")
+
+
+def all_met(spec, votes, kind):
+    """Кадр выполняет ВСЁ, что спросила спецификация, и фон чистый — лучше
+    искать незачем."""
+    if claims_vector(spec, votes, kind) is None:
+        return False
+    return (all(v >= CLAIM_ANSWERS["yes"] for v in claim_values(spec, votes, kind).values())
+            and not any(v.get("background_foreign") for v in votes))
+
+
+def needs_second_vote(spec, answers, kind):
+    """Второй голос нужен, когда исход решает сомнение: хоть одно
+    must-утверждение этого вида кадра — «unsure»."""
+    if answers is None:
+        return False
+    return any(c["tier"] == "must" and answers["claims"].get(c["id"]) == "unsure"
+               for c in asked_claims(spec, kind))
+
+
+def _image_content(path, max_side):
+    from PIL import Image
+    with Image.open(path) as im:
+        im = flat_rgb(im)
+    im.thumbnail((max_side, max_side))
+    buf = io.BytesIO()
+    im.save(buf, "JPEG", quality=88)
+    return {"type": "image_url", "image_url": {
+        "url": "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()}}
+
+
+def verify_claims(gateway, model, *, phrase, spec, setting, path, kind="photo", cache_dir=None,
+                  max_side=VERIFY_MAX_SIDE, reasoning=None, caption=None, vote=1):
     """(ответы | None, {"cost", "call", "cache_hit", "refused"}). None —
-    проверки не было (нет шлюза, сбой, неразобранный ответ): вызывающий код
-    остаётся на прежнем ранжировании."""
+    проверки не было (нет шлюза, сбой, неразобранный ответ). vote — номер
+    голоса: у второго голоса свой ключ кэша, иначе он был бы копией первого."""
     if gateway is None or not path or not os.path.exists(path):
         return None, {}
-    text = verify_question(phrase, brief, setting, kind, caption, substitutes)
+    asked = asked_claims(spec, kind)
+    if not asked:
+        return None, {}
+    text = claims_question(phrase, spec, setting, kind, caption)
     h = hashlib.sha256()
-    for part in ("verify", str(VERIFY_VERSION), model, text, str(max_side), repr(reasoning),
-                 _file_digest(path)):
+    for part in ("claims", str(CLAIMS_VERSION), model, text, str(max_side), repr(reasoning),
+                 str(vote), _file_digest(path)):
         h.update(part.encode("utf-8"))
         h.update(b"\0")
-    cp = os.path.join(cache_dir, "verify_" + h.hexdigest() + ".json") if cache_dir else None
+    cp = os.path.join(cache_dir, "claims_" + h.hexdigest() + ".json") if cache_dir else None
     if cp and os.path.exists(cp):
         try:
             return json.load(open(cp, encoding="utf-8"))["answers"], {"cache_hit": True}
         except Exception:
             pass
-    from PIL import Image
     try:
-        with Image.open(path) as im:
-            im = flat_rgb(im)
-        im.thumbnail((max_side, max_side))
-        buf = io.BytesIO()
-        im.save(buf, "JPEG", quality=88)
+        image = _image_content(path, max_side)
     except Exception:
         return None, {}
-    content = [{"type": "text", "text": text}, {"type": "image_url", "image_url": {
-        "url": "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()}}]
     try:
-        answer, _u, price = gateway.chat(model, content, 400, 1200, reasoning=reasoning)
+        answer, _u, price = gateway.chat(model, [{"type": "text", "text": text}, image], 500, 1200,
+                                         reasoning=reasoning)
     except Exception as e:  # noqa: BLE001 — сбой шлюза: проверки не было
         return None, {"refused": f"{type(e).__name__}: {e}"[:200]}
-    answers = parse_verify(answer, bool(setting))
+    answers = parse_claims_answer(answer, [c["id"] for c in asked], bool(setting))
     if answers is None:
         return None, {"refused": "неразобранный ответ: " + (answer or "")[-200:], "cost": price,
                       "call": True}

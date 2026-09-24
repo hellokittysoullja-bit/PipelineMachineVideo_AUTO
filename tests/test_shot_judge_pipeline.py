@@ -210,9 +210,19 @@ def _tie_setup(tmp_path, monkeypatch, first, second):
 
 
 def _fake_verify(answers_by_path):
-    def verify(gw, model, *, path, **_k):
-        return answers_by_path[path], {"call": True}
-    return verify
+    def verify_claims(gw, model, *, path, vote=1, **_k):
+        got = answers_by_path[path]
+        if isinstance(got, list):
+            got = got[vote - 1]
+        return got, {"call": True}
+    return verify_claims
+
+
+def _ans(claims, medium="photo", world=None, why=""):
+    out = {"claims": claims, "medium": medium, "why": why}
+    if world is not None:
+        out["main_in_world"], out["background_foreign"] = world
+    return out
 
 
 def _verify_setup(tmp_path, monkeypatch, n=3):
@@ -232,48 +242,87 @@ def _verify_setup(tmp_path, monkeypatch, n=3):
     return info, paths, shot_judge
 
 
-def test_verification_level_decides_over_the_grid_tie(tmp_path, monkeypatch):
-    """Сетка поставила всем 3 — решает проверка по пунктам: предмет и
-    действие выше, чужой фон — штраф, а не отказ."""
-    info, paths, sj = _verify_setup(tmp_path, monkeypatch)
-    base = {"subject": "yes", "action": "yes", "medium": "photo", "why": ""}
-    monkeypatch.setattr(sj, "verify", _fake_verify({
-        paths[0]: dict(base, subject="close"),
-        paths[1]: dict(base, action="no"),
-        paths[2]: dict(base)}))
-    assert ps.judge_candidates(0, "photo", "x", "y", info)
-    assert ps._score_and_pick(info)[0]["p"]["id"] == "c2"
+ARROW_SPEC = {"focus": "an arrow glancing off a breastplate", "claims": [
+    {"id": "c1", "text": "an arrow is visible", "tier": "must"},
+    {"id": "c2", "text": "the arrow glances off armour", "tier": "must", "motion": True},
+    {"id": "c3", "text": "a steel breastplate", "tier": "should"}]}
+
+
+def test_frame_with_the_focus_beats_the_frame_with_only_the_surface(tmp_path, monkeypatch):
+    """Фраза «Стрела скользит по нагруднику»: нагрудник без стрелы — это
+    невыполненный фокус, и он проигрывает картине, где стрела есть."""
+    info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=2)
+    monkeypatch.setattr(sj, "verify_claims", _fake_verify({
+        paths[0]: _ans({"c1": "no", "c3": "yes"}),
+        paths[1]: _ans({"c1": "yes", "c3": "no"}, medium="artwork")}))
+    assert ps.judge_candidates(0, "photo", "x", "y", info, ARROW_SPEC)
+    winner = ps._score_and_pick(info)[0]
+    assert winner["p"]["id"] == "c1" and ps.judge_approved(winner)
+    assert not ps.judge_approved(info[0]), "нагрудник без стрелы не «одобрен»"
+
+
+def test_motion_claim_is_not_asked_of_a_photo_and_counts_as_unmet():
+    import shot_judge as sj
+    assert [c["id"] for c in sj.asked_claims(ARROW_SPEC, "photo")] == ["c1", "c3"]
+    assert [c["id"] for c in sj.asked_claims(ARROW_SPEC, "video")] == ["c1", "c2", "c3"]
+    photo = sj.claims_vector(ARROW_SPEC, [_ans({"c1": "yes", "c3": "yes"})], "photo")
+    video = sj.claims_vector(ARROW_SPEC, [_ans({"c1": "yes", "c2": "yes", "c3": "no"})], "video")
+    assert video > photo, "видео, где стрела видна в движении, выше фото той же стрелы"
+    assert ps.pick_kind_by_judge("photo", (photo, 3), (video, 3), False) == "video"
+    no_arrow_video = sj.claims_vector(ARROW_SPEC, [_ans({"c1": "no", "c2": "no", "c3": "yes"})], "video")
+    assert ps.pick_kind_by_judge("video", (no_arrow_video, 3), (photo, 3), True) == "photo", \
+        "фото со стрелой выше видео без неё"
 
 
 def test_spectators_on_background_are_a_penalty_not_a_rejection(tmp_path, monkeypatch):
     """Упавший рыцарь на турнире со зрителями на фоне (эп.94, слот 4) — точный
     кадр; бинарная проверка мира заменяла его рыцарем в лесу."""
     info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=2)
-    fallen = {"subject": "yes", "action": "yes", "medium": "photo", "main_in_world": True,
-              "background_foreign": True, "why": ""}
-    standing = {"subject": "close", "action": "no", "medium": "photo", "main_in_world": True,
-                "background_foreign": False, "why": ""}
-    monkeypatch.setattr(sj, "verify", _fake_verify({paths[0]: standing, paths[1]: fallen}))
-    assert ps.judge_candidates(0, "photo", "x", "y", info)
+    monkeypatch.setattr(ps, "episode_world_card", lambda: {"register": "historical"})
+    import world_card
+    monkeypatch.setattr(world_card, "judge_setting", lambda card: "historical, 1400 AD")
+    spec = {"focus": "a knight fallen in mud", "claims": [
+        {"id": "c1", "text": "a knight in armour", "tier": "must"},
+        {"id": "c2", "text": "the knight lies on the ground", "tier": "must"}]}
+    monkeypatch.setattr(sj, "verify_claims", _fake_verify({
+        paths[0]: _ans({"c1": "yes", "c2": "no"}, world=(True, False)),
+        paths[1]: _ans({"c1": "yes", "c2": "yes"}, world=(True, True))}))
+    assert ps.judge_candidates(0, "photo", "x", "y", info, spec)
     winner = ps._score_and_pick(info)[0]
     assert winner["p"]["id"] == "c1" and ps.judge_approved(winner)
 
 
 def test_main_subject_out_of_world_is_rejected(tmp_path, monkeypatch):
     info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=2)
-    knife = {"subject": "yes", "action": "yes", "medium": "photo", "main_in_world": False,
-             "background_foreign": False, "why": "modern tactical knife"}
-    dagger = {"subject": "close", "action": "no", "medium": "object", "main_in_world": True,
-              "background_foreign": False, "why": ""}
-    monkeypatch.setattr(sj, "verify", _fake_verify({paths[0]: knife, paths[1]: dagger}))
+    monkeypatch.setattr(ps, "episode_world_card", lambda: {"register": "historical"})
+    import world_card
+    monkeypatch.setattr(world_card, "judge_setting", lambda card: "historical, 1400 AD")
+    monkeypatch.setattr(sj, "verify_claims", _fake_verify({
+        paths[0]: _ans({"c1": "yes"}, world=(False, False), why="modern tactical knife"),
+        paths[1]: _ans({"c1": "unsure"}, medium="object", world=(True, False))}))
     assert ps.judge_candidates(0, "photo", "x", "y", info)
     assert info[0]["verify"] == "veto" and not ps.judge_approved(info[0])
     assert ps._score_and_pick(info)[0]["p"]["id"] == "c1"
 
 
+def test_unsure_focus_gets_a_second_vote_and_the_mean_decides(tmp_path, monkeypatch):
+    info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=2)
+    asked = []
+
+    def verify_claims(gw, model, *, path, vote=1, **_k):
+        asked.append((path, vote))
+        return {paths[0]: [_ans({"c1": "unsure"}), _ans({"c1": "yes"})],
+                paths[1]: [_ans({"c1": "yes"})]}[path][vote - 1], {"call": True}
+    monkeypatch.setattr(sj, "verify_claims", verify_claims)
+    assert ps.judge_candidates(0, "photo", "x", "y", info)
+    assert sorted(asked) == [(paths[0], 1), (paths[0], 2), (paths[1], 1)], "второй голос — только спорному"
+    assert info[0]["verify"][0] == 0.75 and not info[0]["verify_focus"]
+    assert ps._score_and_pick(info)[0]["p"]["id"] == "c1", "единогласное «да» выше «сомнение + да»"
+
+
 def test_failed_verification_keeps_grid_order(tmp_path, monkeypatch):
     info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=2)
-    monkeypatch.setattr(sj, "verify", lambda *a, **k: (None, {"refused": "сбой"}))
+    monkeypatch.setattr(sj, "verify_claims", lambda *a, **k: (None, {"refused": "сбой"}))
     before = ps._score_and_pick([dict(c) for c in info])[0]["p"]["id"]
     assert ps.judge_candidates(0, "photo", "x", "y", info)
     assert all(ps.verify_key(c) == (-1,) for c in info)
@@ -284,12 +333,37 @@ def test_only_the_grid_finalists_are_verified(tmp_path, monkeypatch):
     info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=ps.VERIFY_FINALISTS + 2)
     asked = []
 
-    def verify(gw, model, *, path, **_k):
+    def verify_claims(gw, model, *, path, **_k):
         asked.append(path)
         return None, {}
-    monkeypatch.setattr(sj, "verify", verify)
+    monkeypatch.setattr(sj, "verify_claims", verify_claims)
     ps.judge_candidates(0, "photo", "x", "y", info)
-    assert len(asked) == ps.VERIFY_FINALISTS
+    assert len(asked) == ps.VERIFY_FINALISTS, "сетка всем поставила поровну — лучшие и первые совпали"
+
+
+def test_finalists_are_grid_best_and_cascade_first():
+    judged = [{"judge": g} for g in (1, 1, 1, 1, 1, 1, 3, 3)]
+    got = ps.verify_finalists_of(judged)
+    assert judged[6] in got and judged[7] in got, "лучшие по сетке"
+    assert all(judged[k] in got for k in range(ps.VERIFY_FINALISTS)), "первые по каскаду"
+    assert len(got) == len({id(c) for c in got})
+
+
+def test_without_a_plan_the_brief_is_the_single_must_claim():
+    import shot_judge as sj
+    spec = sj.spec_from_brief("фраза", "a dagger on a table")
+    assert spec["claims"] == [{"id": "c1", "text": "a dagger on a table", "tier": "must"}]
+    q = sj.claims_question("фраза", spec)
+    assert "c1: a dagger on a table" in q and "close" not in q
+
+
+def test_parse_claims_answer_is_strict():
+    import shot_judge as sj
+    ok = '{"claims": {"c1": "Yes", "c2": "no"}, "medium": "photo", "why": "x"}'
+    assert sj.parse_claims_answer(ok, ["c1", "c2"], False)["claims"] == {"c1": "yes", "c2": "no"}
+    assert sj.parse_claims_answer(ok, ["c1", "c2", "c3"], False) is None, "не ответил на пункт"
+    assert sj.parse_claims_answer(ok, ["c1"], True) is None, "мир спрошен — нужен ответ"
+    assert sj.parse_claims_answer('{"claims": {"c1": "maybe"}, "medium": "photo"}', ["c1"], False) is None
 
 
 def test_binary_world_question_is_gone_from_the_pipeline():
@@ -297,6 +371,8 @@ def test_binary_world_question_is_gone_from_the_pipeline():
     она отклоняла 6 годных из 33 и пропускала 46 брачных из 71."""
     src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"), encoding="utf-8").read()
     assert "judge_world_violation" not in src and "_judge_top_tie" not in src
+    assert "shot_substitutes" not in src and "verify_rank" not in src
+
 
 def test_budget_forecast_warns_once_early(monkeypatch, capsys):
     """~2 300 на слот, 25 платных слотов при потолке 30 тыс. — судья
@@ -354,6 +430,19 @@ def test_candidate_caption_carries_source_text_and_museum_passport():
 
 def test_caption_reaches_the_verification_question():
     import shot_judge
-    q = shot_judge.verify_question("фраза", "brief", caption="moroccan horsemen perform a tbourida")
+    spec = shot_judge.spec_from_brief("фраза", "brief")
+    q = shot_judge.claims_question("фраза", spec, caption="moroccan horsemen perform a tbourida")
     assert "moroccan horsemen" in q and "may be incomplete or wrong" in q
-    assert "caption" not in shot_judge.verify_question("фраза", "brief").lower()
+    assert "caption" not in shot_judge.claims_question("фраза", spec).lower()
+
+
+def test_text_blocklist_off_where_the_world_is_checked_on_the_frame(monkeypatch):
+    """Реконструкция в слоте с проверкой мира не выбрасывается словарём —
+    её судит проверка по кадру; явный id брака выбрасывается везде; вне
+    платной зоны словарь прежний."""
+    pool = [{"id": 1, "alt": "knights in a battle reenactment"}, {"id": 2, "alt": "arrow"}]
+    monkeypatch.setattr(ps, "CONTENT_BLOCKED_CANDIDATE_IDS", {"pexels:2"})
+    monkeypatch.setattr(ps, "content_blocklist_effective", lambda: ("reenactment",))
+    monkeypatch.setattr(ps, "shot_judge_active", lambda index=None: index is not None and index < 25)
+    assert [p["id"] for p in ps.filter_pool_by_text(pool, 3)] == [1]
+    assert [p["id"] for p in ps.filter_pool_by_text(pool, 30)] == [], "без проверки — словарь и id"

@@ -354,7 +354,7 @@ def _label_rows(pools, index, labels, base, emb, plan, kind):
 
 
 def rank_key(rank):
-    """verify_rank -> сравнимый ключ: отказ ниже всего."""
+    """claims_vector -> сравнимый ключ: отказ ниже всего."""
     return (-9,) if rank is None else rank
 
 
@@ -383,7 +383,8 @@ def cmd_bench(a):
              "world_good_rejected": 0, "world_bad_passed": 0, "slots": [], "cost": 0}
     for key, rec, rows in _label_rows(pools, index, labels, base, emb, plan, a.kind):
         brief = rec.get("shot_brief") or rec.get("query")
-        subs = tuple(r["shot"] for r in specs.get(_unit_key(rec.get("block_text") or ""), {}).get("rungs", [])[1:])
+        spec = specs.get(_unit_key(rec.get("block_text") or "")) \
+            or shot_judge.spec_from_brief(rec.get("block_text"), brief)
 
         def ask(item):
             r, lab = item
@@ -391,12 +392,20 @@ def cmd_bench(a):
             if not path:
                 return None
             try:
-                ans, info = shot_judge.verify(gw, model, phrase=rec.get("block_text"), brief=brief,
-                                              setting=setting, path=path, kind=rec["kind"],
-                                              cache_dir=cache, max_side=a.side,
-                                              reasoning={"on": True, "off": False}.get(a.reasoning),
-                                              caption=r.get("text") if a.caption else None,
-                                              substitutes=subs)
+                # Проверка по утверждениям спецификации — как в пайплайне:
+                # второй голос, если сомнение в must-утверждении.
+                kw = dict(phrase=rec.get("block_text"), spec=spec, setting=setting, path=path,
+                          kind=rec["kind"], cache_dir=cache, max_side=a.side,
+                          reasoning={"on": True, "off": False}.get(a.reasoning),
+                          caption=r.get("text") if a.caption else None)
+                ans, info = shot_judge.verify_claims(gw, model, **kw)
+                if ans is not None:
+                    ans = [ans]
+                    if shot_judge.needs_second_vote(spec, ans[0], rec["kind"]):
+                        extra, einfo = shot_judge.verify_claims(gw, model, vote=2, **kw)
+                        info = dict(info, cost=info.get("cost", 0) + einfo.get("cost", 0))
+                        if extra is not None:
+                            ans.append(extra)
                 wok, winfo = None, {}
                 if a.world:
                     wok, _why, winfo = shot_judge.world_check(
@@ -450,7 +459,8 @@ def cmd_bench(a):
             stats["cost"] += cost
             if ans is None:
                 continue
-            rank = shot_judge.verify_rank(ans)
+            rank = shot_judge.claims_vector(spec, ans, rec["kind"])
+            focus = shot_judge.focus_met(spec, ans, rec["kind"])
             if a.grid:
                 gs = grid.get(str(r.get("id")))
                 rank = None if rank is None else rank + ((gs if isinstance(gs, int) else -1),)
@@ -460,7 +470,7 @@ def cmd_bench(a):
                 "grid": grid.get(str(r.get("id"))) if a.grid else None, "pos": len(scored) - 1})
             if lab == 0:
                 stats["bad"] += 1
-                stats["bad_accepted"] += 1 if (rank is not None and rank[0] == 2) else 0
+                stats["bad_accepted"] += 1 if (rank is not None and focus) else 0
                 stats["world_bad_passed"] += 1 if wok else 0
             else:
                 stats["good"] += 1
@@ -521,7 +531,7 @@ def main(argv=None):
     b.add_argument("--side", type=int, default=512, help="сторона картинки для проверки")
     b.add_argument("--reasoning", choices=("default", "on", "off"), default="default")
     b.add_argument("--caption", action="store_true", help="подпись источника в вопрос")
-    b.add_argument("--episode", help="папка эпизода: замены из плана фраз v2 в вопрос")
+    b.add_argument("--episode", help="папка эпизода: спецификации кадров из плана фраз v3")
     b.add_argument("--finalists", type=int, default=0,
                    help="проверять только N лучших по сетке (как в пайплайне)")
     b.add_argument("--grid-cache", help="кэш оценок сетки (повтор без кэша проверки)")

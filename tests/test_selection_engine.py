@@ -186,3 +186,16 @@ def test_select_media_accepts_only_a_slot_request():
     import pipeline_smart as ps
     with pytest.raises(TypeError):
         ps.select_media({"query": "q", "index": 0}, "photo")
+
+
+def test_phrase_queries_fill_the_pool_before_section_queries():
+    """Спецификация фразы: её запросы — первый ярус пула, общие запросы
+    секции — после них, а не вперемешку по кругу."""
+    import types
+    spec = {"queries": [{"q": "arrow armor", "for": ["c1"]}, {"q": "archer", "for": ["c1"]}]}
+    req = types.SimpleNamespace(query="arrow armor", shot_spec=spec)
+    qs = ["arrow armor", "archer", "knight armour", "medieval battle"]
+    assert se.query_tiers(req, qs) == [["arrow armor", "archer"],
+                                                      ["knight armour", "medieval battle"]]
+    no_spec = types.SimpleNamespace(query="arrow armor", shot_spec=None)
+    assert se.query_tiers(no_spec, qs) == [qs], "без спецификации — прежний порядок"

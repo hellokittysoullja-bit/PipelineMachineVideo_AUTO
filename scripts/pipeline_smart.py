@@ -5449,6 +5449,21 @@ def pexels_candidate_text(item):
     return re.sub(r"\s+", " ", re.sub(r"[-/_]+", " ", text)).strip()
 
 
+def filter_pool_by_text(items, index=None):
+    """Жанровый фильтр пула по тексту кандидата — только там, где мир кадра
+    НЕКОМУ проверить. В слотах с проверкой финалистов (shot_judge_active)
+    мир проверяется на самом кадре (main_in_world — отказ, чужое на фоне —
+    штраф), и словарь не нужен: он выбрасывал ровно то, что просит
+    спецификация кадра, — реконструкции и турниры, единственное место в
+    стоках, где рыцарь падает, встаёт и бьётся. Явные id брака
+    (CONTENT_BLOCKED_CANDIDATE_IDS) остаются везде: это проверенные записи,
+    а не словарь. Без проверки (слот вне платной зоны, нет ключа) — фильтр
+    прежний, пока бесплатная проверка мира не замерена (план, этап 7)."""
+    if shot_judge_active(index):
+        return [p for p in items if _candidate_block_key(p) not in CONTENT_BLOCKED_CANDIDATE_IDS]
+    return filter_alt_blocklist(items)
+
+
 def filter_alt_blocklist(items):
     """items — объекты Pexels /v1/search ИЛИ /videos/search. Убирает
     кандидатов, чей текст однозначно сигналит не тот жанр (см.
@@ -7456,7 +7471,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
         qkey = "|".join([query] + sorted(q for q in (extra_queries or []) if q and q != query)
                          + ([text_key] if text_key else [])
                          + ([_brief_key] if _brief_key else [])
-                         + [f"sub:{x}" for x in (request.shot_substitutes or ())])
+                         + spec_key_parts(request.shot_spec))
         qhash = hashlib.md5(qkey.encode()).hexdigest()[:8]
         gate_sig = candidate_gate_signature(request.index).split(":", 1)[-1]
         cf = os.path.join(cache, f"{index:04d}_{qhash}_{gate_sig}.jpg")
@@ -7650,7 +7665,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
         return per_source
 
     def filter_pool(self, request, pool):
-        return filter_alt_blocklist(pool)
+        return filter_pool_by_text(pool, request.index)
 
     def note_offered(self, pool):
         for _p in pool:
@@ -7744,7 +7759,8 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                 good_needed = max(good_needed, _director_min_pool_for(index))
             candidates_info = []
             if shot_judge_active(index):
-                candidates = cascade_reorder(candidates, request.shot_brief or query,
+                candidates = cascade_reorder(candidates,
+                                             cascade_texts(request.shot_spec, request.shot_brief or query),
                                              cf, download_probe, index)
                 skip = CASCADE_PAGE.get() * _photo_dedup_max_tries_for(index)
                 if skip:
@@ -7875,7 +7891,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
             # отработал по всему слоту — оценок нет ни у кого, порядок прежний.
             judged = judge_candidates(index, "photo", request.block_text,
                                       request.shot_brief or query, candidates_info,
-                                      request.shot_substitutes)
+                                      request.shot_spec)
             # _score_and_pick (см. выше) — чистое сравнение по уже скачанному
             # пулу, вынесенное отдельно ради тестируемости. Файлы-неудачники
             # раньше удалялись СРАЗУ по ходу цикла (экономия диска) — теперь
@@ -8147,7 +8163,9 @@ class PhotoAdapter(selection_engine.MediaAdapter):
         if judged:
             selection_attempt.record_note("judge_score", winner.get("judge") if winner else None)
             selection_attempt.record_note("quality", winner_quality(winner))
-        if judged and not judge_approved(winner):
+        if judged:
+            selection_attempt.record_note("focus_met", bool(winner and winner.get("verify_focus")))
+        if judged and judge_rejected(winner):
             # Лучший кадр слота по оценке судьи — брак. Кадр остаётся у
             # попытки (как у отказа арбитра), решение о показе — у слота:
             # known_bad_reason -> поглощение соседним проверенным кадром.
@@ -11577,20 +11595,48 @@ def _cascade_cached(key, cache_dir):
     return v
 
 
-def cascade_reorder(candidates, text, cf, probe_fn, index=None, batch=16):
+def query_tiers_source():
+    """Ярусы пула (selection_engine.query_tiers) — для подписи отбора: они
+    меняют порядок пула, а живут в другом модуле."""
+    import selection_engine
+    return selection_engine.query_tiers
+
+
+def cascade_texts(spec, brief):
+    """Тексты, по которым каскад ранжирует превью: must-утверждения
+    спецификации кадра по порядку (каждое — отдельно), без спецификации —
+    бриф одной строкой, как раньше."""
+    if spec:
+        return [c["text"] for c in spec["claims"] if c["tier"] == "must"]
+    return [brief] if brief else []
+
+
+def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=16, url_of=None):
     """Новый порядок кандидатов: первые cascade_preview_n() ранжированы по
-    близости превью к text; кандидаты без превью — следом в прежнем порядке,
-    хвост пула — за ними. Модель недоступна или оценено меньше двух —
-    порядок прежний. Превью на диске не остаются."""
+    близости превью к текстам; кандидаты без превью — следом в прежнем
+    порядке, хвост пула — за ними. Модель недоступна или оценено меньше
+    двух — порядок прежний. Превью на диске не остаются.
+
+    Текстов несколько (must-утверждения спецификации кадра) — у каждого
+    своё ранжирование, и кандидат стоит по ХУДШЕМУ из своих мест: кадр,
+    где нет стрелы, проваливает «видна стрела», как бы хорошо ни совпал
+    с «виден нагрудник». Сравниваются МЕСТА, а не сырые косинусы: косинус
+    SigLIP между разными текстами несопоставим (CLAUDE.md, два замера
+    порога на сырой косинус). Равные по худшему месту — по месту в первом
+    (главном) утверждении. Один текст — прежний порядок по близости."""
+    if isinstance(texts, str):
+        texts = [texts]
+    texts = [t for t in (texts or []) if t]
     n = cascade_preview_n()
     head = candidates[:n]
-    if len(head) < 2 or not text or np is None:
+    if len(head) < 2 or not texts or np is None:
         return candidates
-    t_emb = _gate_embed(text=text)
-    if t_emb is None:
+    t_embs = [_gate_embed(text=t) for t in texts]
+    if any(e is None for e in t_embs):
         return candidates
     cache_dir = os.path.join(TEMP_FOLDER, "cascade_embed_cache")
-    keys = {id(p): _cascade_key(candidate_probe_url(p)) for p in head}
+    url_of = url_of or candidate_probe_url
+    keys = {id(p): _cascade_key(url_of(p)) for p in head}
     emb = {id(p): _cascade_cached(keys[id(p)], cache_dir) for p in head}
     need = [p for p in head if emb[id(p)] is None]
     fresh = 0
@@ -11632,10 +11678,15 @@ def cascade_reorder(candidates, text, cf, probe_fn, index=None, batch=16):
                 os.remove(f)
             except OSError:
                 pass
-    scored = [(float(emb[id(p)] @ t_emb[0]), k, p) for k, p in enumerate(head) if emb[id(p)] is not None]
-    if len(scored) < 2:
+    have = [(k, p) for k, p in enumerate(head) if emb[id(p)] is not None]
+    if len(have) < 2:
         return candidates
-    ranked = [p for _sc, _k, p in sorted(scored, key=lambda x: (-x[0], x[1]))]
+    places = {}
+    for t in t_embs:
+        order = sorted(have, key=lambda kp: (-float(emb[id(kp[1])] @ t[0]), kp[0]))
+        for place, (k, _p) in enumerate(order):
+            places.setdefault(k, []).append(place)
+    ranked = [p for k, p in sorted(have, key=lambda kp: (max(places[kp[0]]), places[kp[0]][0], kp[0]))]
     seen = {id(p) for p in ranked}
     print(f"  слот {index}: каскад — {len(ranked)} из {len(head)} кандидатов ранжированы "
           f"по описанию кадра (новых оценок {fresh})")
@@ -11679,7 +11730,17 @@ def judge_rank(c):
     return v if isinstance(v, int) else -1
 
 
-def judge_candidates(index, kind, phrase, brief, candidates_info, substitutes=()):
+def spec_key_parts(spec):
+    """Спецификация кадра в ключ кэша кандидата: она меняет, кого проверка
+    считает лучшим, и без неё прогретый кэш отдавал бы выбор по прежней
+    спецификации (или без неё)."""
+    if not spec:
+        return []
+    return ["spec:" + hashlib.sha256(json.dumps(spec, sort_keys=True, ensure_ascii=False)
+                                     .encode("utf-8")).hexdigest()[:12]]
+
+
+def judge_candidates(index, kind, phrase, brief, candidates_info, spec=None):
     """Проставляет c["judge"] каждому кандидату без дубля (или никому) и
     возвращает True, если судья отработал по всему слоту."""
     for c in candidates_info:
@@ -11700,6 +11761,11 @@ def judge_candidates(index, kind, phrase, brief, candidates_info, substitutes=()
     rep = {}
     import world_card
     setting = world_card.judge_setting(episode_world_card())
+    # Сетка спрашивает про ФОКУС спецификации фразы, если она есть: бриф
+    # описывает идеальный кадр целиком («стрела отскакивает от помятого
+    # нагрудника»), и в нём крупный предмет весит столько же, сколько главное.
+    if spec:
+        brief = spec["focus"]
     scores = shot_judge.judge(gw, model, phrase=phrase, brief=brief,
                               candidates=[(str(c["p"].get("id")), c.get("judge_path") or c["path"])
                                           for c in judged],
@@ -11712,7 +11778,7 @@ def judge_candidates(index, kind, phrase, brief, candidates_info, substitutes=()
         return False
     for c in judged:
         c["judge"] = scores[str(c["p"].get("id"))]
-    _verify_finalists(index, kind, phrase, brief, judged, gw, model, setting, substitutes)
+    _verify_finalists(index, kind, phrase, brief, judged, gw, model, setting, spec)
     _judge_budget_forecast(index, gw)
     return True
 
@@ -11741,48 +11807,72 @@ def _judge_budget_forecast(index, gw):
                            "per_slot": gw.spent // n, "cutoff_slot": at})
 
 
-# ПРОВЕРКА ФИНАЛИСТОВ ПО ПУНКТАМ (shot_judge.verify, план 24.09). Сетка
-# сравнивает кандидатов между собой и шумит; бинарная проверка мира,
-# стоявшая здесь раньше, отклоняла кадр за ЛЮБУЮ мелочь чужого мира и на
-# эпизоде 94 заменила точный кадр более слабым в трёх слотах из пяти, где
-# точный был (docs/quality/POOL_RECALL_EP94.md). Теперь лучшие по сетке
-# VERIFY_FINALISTS кадров проходят короткие вопросы по одному кадру;
-# решение — у кода (shot_judge.verify_rank): главный предмет не из мира или
-# 3D/мультфильм — отказ, чужое на фоне — штраф, дальше предмет и действие.
-# Замер на размеченных кадрах эп.94 — docs/quality/POOL_RECALL_EP94.md.
+# ПРОВЕРКА ФИНАЛИСТОВ ПО УТВЕРЖДЕНИЯМ СПЕЦИФИКАЦИИ (shot_judge.verify_claims,
+# план 24.09 «одна спецификация кадра на фразу»). Лучшие по сетке
+# VERIFY_FINALISTS кадров отвечают по одному кадру, выполнено ли каждое
+# утверждение спецификации фразы (фокус и детали по убыванию важности); код
+# сравнивает кадры по вектору в порядке спецификации (shot_judge.
+# claims_vector): главный предмет не из мира или 3D — отказ, фокус выше
+# всего, чужое на фоне — штраф. Нет спецификации — одно утверждение из
+# брифа (shot_judge.spec_from_brief), путь тот же.
+# Прежняя проверка («тот ли предмет: yes/close/no» + замены из плана)
+# засчитала нагрудник без стрелы «близкой заменой» на фразе «Стрела
+# скользит по нагруднику» — см. docs/quality/POOL_RECALL_EP94.md.
 VERIFY_FINALISTS = 5
 # Рассуждение модели в проверке выключено по замеру (эп.94, 223 кадра):
-# без него порядок почти тот же (пары верно 78% против 80% на части
-# кадров с рассуждением и картинкой 1024 px), а вызов в разы быстрее и
-# дешевле (~200 токенов баланса за кадр против ~540) и не обрывается
-# пустым ответом на лимите выхода.
+# без него порядок почти тот же, а вызов в разы быстрее и дешевле
+# (~200 токенов баланса за кадр против ~540) и не обрывается пустым
+# ответом на лимите выхода.
 VERIFY_REASONING = False
 
 
-def _verify_finalists(index, kind, phrase, brief, judged, gw, model, setting, substitutes=()):
-    """c["verify"] лучшим по сетке кандидатам: кортеж уровня или "veto".
-    Сбой проверки кадра — None: кадр стоит ниже проверенных годных, но не
-    бракуется."""
-    import shot_judge
+def verify_finalists_of(judged):
+    """Кого проверять: лучшие по сетке ∪ первые в порядке пула (порядок —
+    каскад по утверждениям спецификации). Сетка оценивает кучки по 9 в своей
+    шкале и шумит; кадр с фокусом, которому она поставила ниже, всё равно
+    доходит до проверки, если каскад поставил его вперёд."""
     order = sorted(range(len(judged)), key=lambda k: (-judge_rank(judged[k]), k))
-    finalists = [judged[k] for k in order[:VERIFY_FINALISTS]]
+    picked = order[:VERIFY_FINALISTS] + list(range(min(VERIFY_FINALISTS, len(judged))))
+    return [judged[k] for k in dict.fromkeys(picked)]
+
+
+def _verify_finalists(index, kind, phrase, brief, judged, gw, model, setting, spec=None):
+    """c["verify"] лучшим по сетке кандидатам: вектор утверждений или "veto";
+    c["verify_focus"] — показан ли фокус. Где исход решает сомнение
+    (must-утверждение «unsure»), кадр спрашивается вторым голосом, и вектор
+    — среднее по голосам. Сбой проверки кадра — None: кадр стоит ниже
+    проверенных, но не бракуется."""
+    import shot_judge
+    spec = spec or shot_judge.spec_from_brief(phrase, brief)
+    finalists = verify_finalists_of(judged)
     cache = os.path.join(TEMP_FOLDER, "shot_judge_cache")
 
-    def ask(c):
-        return shot_judge.verify(gw, model, phrase=phrase, brief=brief, setting=setting,
-                                 path=c.get("judge_path") or c["path"], kind=kind, cache_dir=cache,
-                                 reasoning=VERIFY_REASONING, caption=candidate_caption(c.get("p")),
-                                 substitutes=substitutes)
+    def ask(c, vote=1):
+        return shot_judge.verify_claims(gw, model, phrase=phrase, spec=spec, setting=setting,
+                                        path=c.get("judge_path") or c["path"], kind=kind,
+                                        cache_dir=cache, reasoning=VERIFY_REASONING,
+                                        caption=candidate_caption(c.get("p")), vote=vote)
     with concurrent.futures.ThreadPoolExecutor(max(1, len(finalists))) as ex:
-        answers = list(ex.map(ask, finalists))
-    for c, (ans, info) in zip(finalists, answers):
+        first = list(ex.map(ask, finalists))
+        again = [k for k, (ans, _i) in enumerate(first)
+                 if shot_judge.needs_second_vote(spec, ans, kind)]
+        second = dict(zip(again, ex.map(lambda k: ask(finalists[k], 2), again)))
+    for k, (c, (ans, info)) in enumerate(zip(finalists, first)):
         if ans is None:
             continue
-        rank = shot_judge.verify_rank(ans)
-        c["verify"] = "veto" if rank is None else rank
+        votes = [ans]
+        extra = second.get(k)
+        if extra and extra[0] is not None:
+            votes.append(extra[0])
+        vec = shot_judge.claims_vector(spec, votes, kind)
+        c["verify"] = "veto" if vec is None else vec
+        c["verify_focus"] = shot_judge.focus_met(spec, votes, kind)
+        c["verify_all"] = shot_judge.all_met(spec, votes, kind)
+        c["verify_nothing"] = shot_judge.nothing_met(spec, votes, kind)
         SHOT_JUDGE_LOG.append({"index": index, "kind": kind, "model": model,
-                               "id": str(c["p"].get("id")), "verify": ans, **info})
-        if rank is None:
+                               "id": str(c["p"].get("id")), "claims": [v["claims"] for v in votes],
+                               "verify": ans, "vector": vec, **info})
+        if vec is None:
             print(f"  слот {index}: проверка отклонила кадр — {ans.get('why')}")
 
 
@@ -11829,7 +11919,7 @@ def shot_judge_signature(index=None):
         return ""
     import shot_judge
     return repr(("judge", shot_judge_model(), shot_judge.PROMPT_VERSION, SHOT_JUDGE_MIN_SCORE,
-                 "cascade", cascade_preview_n(), "verify", shot_judge.VERIFY_VERSION,
+                 "cascade", cascade_preview_n(), "claims", shot_judge.CLAIMS_VERSION,
                  shot_judge.VERIFY_MAX_SIDE, VERIFY_FINALISTS, VERIFY_REASONING,
                  "readable",
                  UNREADABLE_DARK_LEVEL, UNREADABLE_DARK_SHARE))
@@ -11853,7 +11943,7 @@ def shot_judge_active(index=None):
 
 
 def winner_quality(c):
-    """Качество победителя для сравнения видов: (ключ проверки, оценка
+    """Качество победителя для сравнения видов: (вектор проверки, оценка
     сетки). Судьи не было — None."""
     if c is None:
         return None
@@ -11873,31 +11963,38 @@ def _as_quality(score):
 
 
 def quality_approved(q):
+    """Одобрено: проверка нашла ФОКУС фразы (первый элемент вектора — первое
+    утверждение спецификации, всегда must); без проверки — оценка сетки."""
     v, g = q
-    if v != (-1,):
+    if v != (-1,) and v != (-9,):
         return v[0] >= 1
+    if v == (-9,):
+        return False
     return g >= SHOT_JUDGE_MIN_SCORE
 
 
 def quality_perfect(q):
-    """Второй вид добывать незачем: точный кадр с действием и чистым фоном,
-    а без проверки — высшая оценка сетки."""
+    """Второй вид добывать незачем: выполнено всё, что спросила спецификация,
+    и фон чистый; без проверки — высшая оценка сетки."""
     import shot_judge
     if q is None:
         return False
     v, g = q
-    return v == (2, 1, 1) if v != (-1,) else g >= shot_judge.SCORE_MAX
+    if v == (-9,):
+        return False
+    return all(x >= 1 for x in v) if v != (-1,) else g >= shot_judge.SCORE_MAX
 
 
 def pick_kind_by_judge(first_kind, first_score, other_score, prefer_video):
     """Какой вид медиа ставить в слот, когда добыты оба: фото и видео.
 
-    Решает оценка судьи — какой кадр лучше показывает фразу, а не хэш
-    текста и не порядок попыток. Равные оценки — прежнее правило вида
-    (действие во фразе, ритм чередования): оно арбитр среди равных по
-    смыслу, а не поверх смысла. У второго вида нет оценки (кэш-хит,
-    судья не ответил) — он берётся, только если первый судья забраковал:
-    неизвестное лучше известного брака, известное годное — нет.
+    Решает проверка: вектор утверждений спецификации одной фразы у обоих
+    видов одинаковой длины и в одном порядке, а движение фото выполнить не
+    может физически (shot_judge.asked_claims) — поэтому видео, где фокус
+    виден в движении, обходит фото, а фото с фокусом обходит видео без него,
+    ровно в том порядке важности, что задала спецификация. Равные — прежнее
+    правило вида. У второго вида нет оценки — он берётся, только если первый
+    не одобрен: неизвестное лучше известного брака, известное годное — нет.
     Возвращает "photo" или "video"."""
     other_kind = "video" if first_kind == "photo" else "photo"
     first, other = _as_quality(first_score), _as_quality(other_score)
@@ -11910,16 +12007,32 @@ def pick_kind_by_judge(first_kind, first_score, other_score, prefer_video):
     return "video" if prefer_video else "photo"
 
 
+def judge_rejected(c):
+    """Кадр — брак по проверке: отказ (главный предмет не из мира, 3D) или не
+    выполнено НИ ОДНО обязательное утверждение фразы; без проверки — оценка
+    сетки ниже порога. Кадр без главного, но с обязательной деталью, — не
+    брак: он остаётся ближайшей заменой, если лучше не нашлось
+    (ставится с пометкой focus_unmet)."""
+    if c is None:
+        return True
+    v = c.get("verify")
+    if v == "veto":
+        return True
+    if isinstance(v, tuple):
+        return bool(c.get("verify_nothing"))
+    return not (isinstance(c.get("judge"), int) and c["judge"] >= SHOT_JUDGE_MIN_SCORE)
+
+
 def judge_approved(c):
-    """Кадр одобрен судьёй: проверка финалиста нашла тот предмет или близкую
-    замену без отказа; без проверки — оценка сетки не ниже порога."""
+    """Кадр одобрен судьёй: проверка нашла фокус фразы; без проверки —
+    оценка сетки не ниже порога."""
     if c is None:
         return False
     v = c.get("verify")
     if v == "veto":
         return False
     if isinstance(v, tuple):
-        return v[0] >= 1
+        return bool(c.get("verify_focus"))
     return isinstance(c.get("judge"), int) and c["judge"] >= SHOT_JUDGE_MIN_SCORE
 
 
@@ -12382,7 +12495,8 @@ def candidate_gate_signature(index=None):
             # перечисленной ниже константы. Без этих двух строк такая правка
             # молча не инвалидировала бы кандидатов, отобранных по старому
             # правилу — ровно тот класс пробела, о котором докстринг выше.
-            filter_alt_blocklist, pexels_candidate_text,
+            filter_alt_blocklist, pexels_candidate_text, filter_pool_by_text,
+            query_tiers_source(), cascade_texts, verify_finalists_of,
             # _candidate_block_key/candidate_source — логика CONTENT_BLOCKED_
             # CANDIDATE_IDS ниже: список id в подписи уже есть, а то, КАК id
             # кандидата сопоставляется с ним (префикс источника) — нет; без
@@ -13768,6 +13882,19 @@ def video_preview_urls(v):
     return [u for u in (v.get("_preview_frames") or []) if u]
 
 
+def video_middle_url(v):
+    """Средний кадр превью ролика — то, по чему каскад его ранжирует."""
+    urls = video_preview_urls(v)
+    return urls[len(urls) // 2] if urls else None
+
+
+def video_middle_probe(v, dest):
+    url = video_middle_url(v)
+    if not url:
+        raise ValueError("нет превью")
+    atomic_url_download(urllib.request.Request(url, headers={"User-Agent": UA}), dest, timeout=20)
+
+
 def video_strip(frames, dest, height=240):
     """Лента из кадров одного ролика слева направо — то, что видит судья."""
     from PIL import Image
@@ -13808,7 +13935,7 @@ class VideoAdapter(selection_engine.MediaAdapter):
                                                  if q and q != request.query)
                         + ([request.text_key] if request.text_key else [])
                         + ([_brief_key] if _brief_key else [])
-                        + [f"sub:{x}" for x in (request.shot_substitutes or ())])
+                        + spec_key_parts(request.shot_spec))
         qhash = hashlib.md5(qkey.encode()).hexdigest()[:8]
         gate_sig = candidate_gate_signature(request.index).split(":", 1)[-1]
         return os.path.join(cache, f"{request.index:04d}_{qhash}_{gate_sig}.mp4")
@@ -13843,7 +13970,7 @@ class VideoAdapter(selection_engine.MediaAdapter):
         return out
 
     def filter_pool(self, request, pool):
-        pool = filter_alt_blocklist(pool)
+        pool = filter_pool_by_text(pool, request.index)
         used_ids, slot_dur = request.used_video_ids, request.slot_dur
         if used_ids is not None:
             pool = ([v for v in pool if v.get("id") not in used_ids]
@@ -13889,6 +14016,12 @@ class VideoAdapter(selection_engine.MediaAdapter):
         query, index = request.query, request.index
         used_hashes, recent_sizes = request.used_hashes, request.recent_sizes
         score_fn, arbiter_text = request.video_score_fn, request.arbiter_text
+        if shot_judge_active(index):
+            # Каскад и у видео (раньше смотрелись 20 первых по кругу — 3-9%
+            # пула): средний кадр превью каждого ролика ранжируется по
+            # утверждениям спецификации, как фото — по своему превью.
+            pool = cascade_reorder(pool, cascade_texts(request.shot_spec, request.shot_brief or query),
+                                   cf, video_middle_probe, index, url_of=video_middle_url)
         trial_slice = pool[:VIDEO_PREVIEW_POOL]
         with concurrent.futures.ThreadPoolExecutor(
                 max_workers=max(1, min(PHOTO_PREFETCH_WORKERS, len(trial_slice)))) as ex:
@@ -13965,7 +14098,7 @@ class VideoAdapter(selection_engine.MediaAdapter):
             return None
         judged = judge_candidates(index, "video", request.block_text,
                                   request.shot_brief or query, candidates_info,
-                                  request.shot_substitutes)
+                                  request.shot_spec)
         score_fn = request.video_score_fn
         base, director = _score_and_pick(candidates_info, score_fn)
         winner = director if (request.director_assist and director is not None) else base
@@ -14046,7 +14179,8 @@ class VideoAdapter(selection_engine.MediaAdapter):
             chosen_by += "+judge"
             selection_attempt.record_note("judge_score", winner.get("judge"))
             selection_attempt.record_note("quality", winner_quality(winner))
-            if not judge_approved(winner):
+            selection_attempt.record_note("focus_met", bool(winner.get("verify_focus")))
+            if judge_rejected(winner):
                 selection_attempt.record_verdict("judge", {
                     "index": index, "kind": "video", "query": query,
                     "brief": request.shot_brief, "score": winner.get("judge"),
@@ -16400,18 +16534,22 @@ def main():
             # 3 фото подряд (иначе монотонно) — то же разнообразие, что уже
             # держат zoom_hist/pan_hist через pick_no_repeat, но асимметрично
             # (видео реже, чем фото, по самой природе приёма).
-            h_text = int(hashlib.md5(b["text"][:40].encode()).hexdigest()[:8], 16)
-            want_video = (has_action_word(b["text"]) or h_text % 2 == 1) and not stat
-            # План фразы (stock_query_planner v2) знает, что фраза про
-            # движение или про предмет — его предпочтение сильнее догадки
-            # по словарю и хэшу. «either» — прежнее правило.
-            if b.get("kind_pref") in ("photo", "video") and not stat:
-                want_video = b["kind_pref"] == "video"
-            if want_video and recent_media_types[-1:] == ["video"]:
-                want_video = False
-            if (not want_video and not stat and len(recent_media_types) >= 3
-                    and all(t == "photo" for t in recent_media_types[-3:])):
-                want_video = True
+            spec = b.get("shot_spec")
+            if spec and not stat:
+                # Спецификация фразы (stock_query_planner v3) знает, требует
+                # ли фокус движения: первым добывается вид, который может его
+                # показать. Ритм смысл не перебивает — сравнение видов ниже
+                # решает по проверке, ритм только разводит равных.
+                import stock_query_planner
+                want_video = stock_query_planner.has_motion(spec)
+            else:
+                h_text = int(hashlib.md5(b["text"][:40].encode()).hexdigest()[:8], 16)
+                want_video = (has_action_word(b["text"]) or h_text % 2 == 1) and not stat
+                if want_video and recent_media_types[-1:] == ["video"]:
+                    want_video = False
+                if (not want_video and not stat and len(recent_media_types) >= 3
+                        and all(t == "photo" for t in recent_media_types[-3:])):
+                    want_video = True
             prefer_video = want_video and d >= MIN_CLIP + 1.0
             act_qual = action_video_qualifier(b["text"])
             # VLM-арбитр — ТОЛЬКО хук (см. shot_director.arbitrate_hook_
@@ -16430,7 +16568,7 @@ def main():
                 index=i, query=queries[i],
                 extra_queries=slot_extra_queries(b, section_query_pool.get(b["section"])),
                 text_key=sem_text, shot_brief=b.get("shot_brief"), block_text=b["text"],
-                shot_substitutes=tuple(b.get("shot_rungs") or ()),
+                shot_spec=b.get("shot_spec"),
                 arbiter_text=hook_arbiter_text, is_opening=is_opening_shot,
                 slot_dur=d, action_qualifier=act_qual, target_luma=luma_ema,
                 director_score_fn=director_score_fn, director_assist=director_assist,

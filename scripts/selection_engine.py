@@ -52,10 +52,10 @@ class SlotRequest:
     extra_queries: tuple
     text_key: object
     shot_brief: object
-    # Допустимые замены точного кадра (ступени 2-3 лестницы из плана
-    # stock_query_planner v2): проверка финалиста судит «близкую замену»
-    # по ним, а не по своему представлению. Нет плана — пустой кортеж.
-    shot_substitutes: tuple
+    # Спецификация кадра фразы (stock_query_planner v3): фокус, утверждения
+    # по убыванию важности, запросы с целями. Проверка финалиста спрашивает
+    # её утверждения, ранжирование сравнивает кадры по ним. Нет плана — None.
+    shot_spec: object
     block_text: object
     arbiter_text: object
     is_opening: bool
@@ -138,10 +138,27 @@ def unique_by_id(candidates):
     return out
 
 
+def query_tiers(request, queries):
+    """Запросы пула по ярусам: сначала запросы, которые ищут ЭТУ фразу
+    (спецификация кадра, stock_query_planner v3, и перевод брифа), затем —
+    общие запросы секции. Внутри яруса — по кругу, ярусы — друг за другом:
+    без этого запросы секции, общие на 6-9 слотов, занимали 75-85% пула
+    (docs/quality/POOL_RECALL_EP94.md) и вытесняли кадры фокуса фразы.
+    Нет спецификации — один ярус, порядок прежний."""
+    spec = getattr(request, "shot_spec", None)
+    if not spec:
+        return [queries]
+    own = {x["q"] for x in spec.get("queries") or []} | {request.query}
+    first = [q for q in queries if q in own or q == queries[0]]
+    rest = [q for q in queries if q not in first]
+    return [t for t in (first, rest) if t]
+
+
 def build_pool(request, adapter):
-    per_query = [round_robin(adapter.sources(request, pq))
-                 for pq in pool_queries(request, adapter.brief_query(request))]
-    pool = unique_by_id(round_robin(per_query))
+    tiers = query_tiers(request, pool_queries(request, adapter.brief_query(request)))
+    pool = unique_by_id([c for tier in tiers
+                         for c in round_robin([round_robin(adapter.sources(request, pq))
+                                               for pq in tier])])
     if not pool:
         return []
     pool = adapter.filter_pool(request, pool)

@@ -30,17 +30,24 @@
 
 Нет плана или фраза в нём не найдена — слот идёт прежним путём, байт-в-байт.
 
-ВЕРСИЯ 2 — ЛЕСТНИЦА ЗАМЕН (план 24.09). Точного кадра фразы в бесплатных
-источниках часто нет вовсе: замер эп.94 — точный кадр есть в пуле у 5
-фото-слотов из 9, у видео ни у одного; живые запросы к видеостоку по
-«рыцарь падает», «стрела бьёт в доспех» приносят римлян, наполеонику и
-спортивную стрельбу. Поэтому на фразу модель пишет не четыре запроса одного
-кадра, а ЛЕСТНИЦУ: ступень 1 — самый точный реальный кадр, ступени 2-3 —
-замены, несущие ту же мысль (предмет без действия, смежная сцена, картина
-или миниатюра события), у каждой свои запросы; плюс предпочтение вида
-(фото/видео). Поле queries плана — запросы ступеней по порядку, поэтому
-прежний путь чтения плана работает как раньше; ступени и предпочтение —
-отдельные поля (load_specs).
+ВЕРСИЯ 3 — СПЕЦИФИКАЦИЯ КАДРА (24.09). Версия 2 писала «лестницу замен» и
+прямо велела модели запасной ступенью брать «предмет без действия». На фразе
+«Стрела скользит по нагруднику» это дало ступень «помятый нагрудник в
+галерее»: главное (стрела) выброшено по инструкции, проверка засчитала
+нагрудник «близкой заменой», и он встал в ролик. Решать, чем пожертвовать,
+нельзя ни словарём, ни порядком в коде — это смысл конкретной фразы.
+
+Теперь модель на фразу пишет:
+  * focus — что новое зритель должен увидеть (понятое в контексте главы:
+    местоимения разрешены; фокус — агент, объект, место или состояние);
+  * claims — 2-5 утверждений, которые проверяются взглядом на картинку, по
+    убыванию важности; первое — сам фокус; must/should; одно утверждение
+    может требовать движения (motion) — его выполняет только видео;
+  * queries — запросы, у каждого помечено, какие утверждения он ищет.
+Замена больше не пишется заранее: побеждает кадр, выполнивший больше важных
+утверждений (shot_judge.claims_vector), и нагрудник без стрелы проигрывает
+любой картине со стрелой. Код смысл не решает — он сравнивает векторы в
+порядке, который задала спецификация.
 """
 import argparse
 import hashlib
@@ -51,28 +58,41 @@ import sys
 
 PLAN_NAME = "stock_queries.json"
 CACHE_DIR_NAME = "stock_query_cache"
-PLAN_VERSION = 2
-MAX_RUNGS = 3
-QUERIES_PER_RUNG = 3
-MAX_PLAN_QUERIES = 8
-PREFER = ("photo", "video", "either")
+PLAN_VERSION = 3
+TIERS = ("must", "should")
+# Главное утверждение фразы — отдельное обязательное поле ответа, а не
+# «первое в списке»: замер 24.09 (эп.94) — при правиле «первое утверждение —
+# главное» Gemini Flash и Qwen Max на фразе «Стрела скользит по нагруднику»
+# ставили первым «виден нагрудник». Прямой вопрос «что одно на картинке
+# напомнит эту фразу» модель решает отдельно, а не порядком.
+CORE_ID = "core"
+# Размеры ответа — цена и внимание модели, а не смысл: утверждений больше
+# пяти человек у кадра не проверяет, запросов больше шести — это уже
+# расход квоты стоков на одну фразу.
+MAX_CLAIMS = 5
+MAX_QUERIES = 6
 DEFAULT_MODEL = "qwen/qwen3.8-max"
-MAX_TOKENS = 2500
+MAX_TOKENS = 8000
 EST_PROMPT_TOKENS = 2500
 
-SPEC_PROMPT = """You plan shots for a documentary video.
+SPEC_PROMPT = """You direct the visuals of a documentary video.
 Episode: «{title}». Setting: {setting}.
-Below are the narration lines of one chapter, in order{prev}. A line may come with the shot the author wants.
+Below are the narration lines of one chapter, in order{prev}. A line may come with the shot the author wants — keep its meaning.
 
-Free stock sites (Pexels, Pixabay) and museum or archive search rarely have the exact shot a line describes. For EVERY numbered line plan a ladder of shots that really exist in such libraries for this setting: things photographed or filmed today (people, staged scenes, re-enactments and tournaments, museum objects, places, nature, close-ups of objects) and, where the setting is historical, old artworks (paintings, engravings, manuscript miniatures).
-- rung 1: the most exact real shot of the line; keep its action if real footage of it can exist;
-- rungs 2 and 3: substitutes that still carry the same idea when rung 1 is not found — the object without the action, a related scene, an artwork of the event;
-- each shot: 4 to 12 English words, something a camera can see; never text, captions or logos;
-- each rung: {q} search queries of 2 to 4 English words, no punctuation, the first the most exact;
-- prefer: "video" if the line is about motion that footage shows better, "photo" if it is about an object or a still state, otherwise "either".
+For EVERY numbered line decide what the viewer must SEE while hearing it.
 
-Answer with one JSON object per narration line, one per line, and nothing else:
-{{"n": 1, "prefer": "photo", "rungs": [{{"shot": "...", "queries": ["...", "..."]}}, {{"shot": "...", "queries": ["..."]}}]}}
+focus — the new thing this line says, understood in the context of the chapter (resolve pronouns and references from the lines around it). 3 to 12 English words.
+
+core — ONE statement a person can check by looking at a picture: the single thing that, even alone in a picture, still makes the viewer think of this line. Ask yourself: if the picture could show only one thing, which one? When the line is about something happening to, on or around something else, the core is what the line is about — usually the thing that moves, acts or changes — not the surface, place or object it happens on. The core can be who acts, what is acted upon, a place or a state.
+
+claims — 1 to {c1} more statements checkable by looking at the picture, most important first. Each checks ONE thing (an object, an action, a place, a detail) and does not repeat the core. "tier": "must" if without it the picture does not show this line, "should" if it only makes the picture better. If the line is about a movement that only footage can show, one claim has "motion": true and describes this movement; lines about objects, places or states have no motion claim.
+
+queries — 3 to {q} different search queries, each 2 to 4 English words, for free stock sites (photos and videos) and museum or archive search. Write queries for what really exists in such libraries for this setting: things photographed or filmed today (people, staged scenes, re-enactments, museum objects, places, nature, close-ups) and, where the setting is historical, old artworks (paintings, engravings, manuscript miniatures). "for" lists the ids of what the query can find ("core" or claim ids). Most queries look for the core; try different ways to find it (another kind of picture, another wording), not the same words with an extra word.
+
+Example from another film, «The ball bounced off the wall and rolled away» — the core is the ball, not the wall:
+{{"n": 3, "focus": "a ball bouncing off a wall", "core": "a ball is visible", "claims": [{{"id": "c1", "text": "the ball bounces off a wall", "tier": "must", "motion": true}}, {{"id": "c2", "text": "a wall", "tier": "should"}}], "queries": [{{"q": "ball bouncing wall", "for": ["core", "c1", "c2"]}}, {{"q": "ball rolling", "for": ["core"]}}, {{"q": "ball close up", "for": ["core"]}}]}}
+
+Answer with one JSON object per narration line, one per line, and nothing else.
 
 {lines}"""
 
@@ -103,65 +123,128 @@ def render_spec_prompt(packet, setting):
         lines.append(f"{u['n']}. «{u['text']}»" + (f" — shot: {brief}" if brief else ""))
     prev = f" (the previous chapter ended with: «{packet['prev_tail']}»)" if packet.get("prev_tail") else ""
     return SPEC_PROMPT.format(title=packet.get("episode_title") or "—", setting=setting or "not specified",
-                              prev=prev, q=QUERIES_PER_RUNG, lines="\n".join(lines))
+                              prev=prev, c1=MAX_CLAIMS - 1, q=MAX_QUERIES, lines="\n".join(lines))
 
 
-def clean_shot(shot):
-    """Описание кадра ступени или None: 3..16 слов латиницей, без кавычек."""
-    shot = _clean(shot).strip(" \"'«».;:")
-    words = shot.split()
-    if not 3 <= len(words) <= 16 or not re.search(r"[a-zA-Z]", shot):
+def clean_text(text, lo=2, hi=16):
+    """Английское описание (фокус, утверждение) или None: lo..hi слов
+    латиницей, без кириллицы и кавычек."""
+    text = _clean(text).strip(" \"'«».;:")
+    words = text.split()
+    if not lo <= len(words) <= hi or not re.search(r"[a-zA-Z]", text):
         return None
-    if re.search(r"[а-яА-ЯёЁ]", shot):
+    if re.search(r"[а-яА-ЯёЁ]", text):
         return None
-    return shot
+    return text
+
+
+def _parse_claims(raw_claims):
+    """Утверждения по порядку важности, или None, если спецификация негодна:
+    первое утверждение обязано быть must (это фокус), id уникальны, движение
+    требует не больше одно утверждение."""
+    claims, ids = [], set()
+    for c in (raw_claims or [])[:MAX_CLAIMS]:
+        if not isinstance(c, dict):
+            continue
+        cid = _clean(str(c.get("id") or "")).lower()
+        text = clean_text(c.get("text"))
+        tier = c.get("tier") if c.get("tier") in TIERS else None
+        if not cid or cid in ids or not text or not tier:
+            continue
+        ids.add(cid)
+        claim = {"id": cid, "text": text, "tier": tier}
+        if c.get("motion") is True:
+            claim["motion"] = True
+        claims.append(claim)
+    if len(claims) < 1 or claims[0]["tier"] != "must" or claims[0]["id"] != CORE_ID:
+        return None
+    if sum(1 for c in claims if c.get("motion")) > 1:
+        return None
+    return claims
+
+
+def _parse_queries(raw_queries, claim_ids):
+    """Запросы с целями; запрос без годной цели не нужен — неизвестно, что
+    он ищет."""
+    out, seen = [], set()
+    for x in (raw_queries or []):
+        if not isinstance(x, dict):
+            continue
+        q = clean_query(x.get("q")) if isinstance(x.get("q"), str) else None
+        targets = [t for t in (_clean(str(t)).lower() for t in (x.get("for") or [])) if t in claim_ids]
+        if not q or q in seen or not targets:
+            continue
+        seen.add(q)
+        out.append({"q": q, "for": list(dict.fromkeys(targets))})
+    return out[:MAX_QUERIES]
+
+
+def order_queries(spec):
+    """Запросы по важности того, что они ищут: сначала те, что ищут первое
+    утверждение (фокус), дальше по самому важному утверждению цели. Порядок
+    — из спецификации, а не из кода."""
+    rank = {c["id"]: i for i, c in enumerate(spec["claims"])}
+    return sorted(spec["queries"], key=lambda x: min(rank[t] for t in x["for"]))
+
+
+def focus_query_count(spec):
+    first = spec["claims"][0]["id"]
+    return sum(1 for x in spec["queries"] if first in x["for"])
+
+
+def json_objects(raw):
+    """Все JSON-объекты ответа по порядку: по строке на объект, массивом, в
+    блоке ```json или объектом на несколько строк. Сорванный объект теряет
+    только себя — разбор продолжается со следующей скобки."""
+    text = raw or ""
+    dec = json.JSONDecoder()
+    i, out = 0, []
+    while True:
+        i = text.find("{", i)
+        if i < 0:
+            return out
+        try:
+            obj, end = dec.raw_decode(text, i)
+        except ValueError:
+            i += 1
+            continue
+        if isinstance(obj, dict) and "n" in obj:
+            out.append(obj)
+            i = end
+        else:
+            i += 1
 
 
 def parse_spec(raw, packet):
-    """{номер юнита: {"rungs": [{"shot", "queries"}], "prefer"}}. Каждая
-    строка разбирается отдельно: сорванная строка теряет одну фразу, а не
-    главу. Ступень без годного описания или без годного запроса выпадает;
-    фраза без ступеней — тоже."""
+    """{номер юнита: спецификация}. Каждая строка разбирается отдельно:
+    сорванная строка теряет одну фразу, а не главу. Фраза без фокуса, без
+    годных утверждений или без ЕДИНОГО запроса, ищущего фокус, выпадает —
+    юнит идёт прежним путём, а не планом, который фокус не ищет."""
     known = {u["n"] for u in packet["units"]}
     out = {}
-    for line in (raw or "").splitlines():
-        m = re.search(r"\{.*\}", line)
-        if not m:
-            continue
-        try:
-            obj = json.loads(m.group(0))
-        except ValueError:
-            continue
+    for obj in json_objects(raw):
         n = obj.get("n")
         if not isinstance(n, int) or n not in known or n in out:
             continue
-        rungs = []
-        for r in (obj.get("rungs") or [])[:MAX_RUNGS]:
-            if not isinstance(r, dict):
-                continue
-            shot = clean_shot(r.get("shot"))
-            qs = []
-            for q in (r.get("queries") or []):
-                q = clean_query(q) if isinstance(q, str) else None
-                if q and q not in qs:
-                    qs.append(q)
-            if shot and qs:
-                rungs.append({"shot": shot, "queries": qs[:QUERIES_PER_RUNG]})
-        if not rungs:
+        focus = clean_text(obj.get("focus"), lo=2)
+        core = clean_text(obj.get("core"), lo=2)
+        rest = [c for c in (obj.get("claims") or []) if isinstance(c, dict)
+                and _clean(str(c.get("id") or "")).lower() != CORE_ID]
+        claims = _parse_claims([{"id": CORE_ID, "text": core, "tier": "must"}] + rest) if core else None
+        if not focus or not claims:
             continue
-        prefer = obj.get("prefer") if obj.get("prefer") in PREFER else "either"
-        out[n] = {"rungs": rungs, "prefer": prefer}
+        spec = {"focus": focus, "claims": claims,
+                "queries": _parse_queries(obj.get("queries"), {c["id"] for c in claims})}
+        if not focus_query_count(spec):
+            continue
+        spec["queries"] = order_queries(spec)
+        out[n] = spec
     return out
 
 
-def flat_queries(rungs):
-    """Запросы ступеней по порядку, без повторов — поле queries плана."""
-    out = []
-    for r in rungs:
-        for q in r["queries"]:
-            if q not in out:
-                out.append(q)
-    return out[:MAX_PLAN_QUERIES]
+def flat_queries(spec):
+    """Строки запросов по порядку — поле queries плана."""
+    return [x["q"] for x in spec["queries"]]
 
 
 def _cache_path(cache_dir, model, prompt):
@@ -209,9 +292,8 @@ def plan_episode(video_dir, blocks, gateway, model=DEFAULT_MODEL, verbose=True):
         for u in packet["units"]:
             spec = got.get(u["n"])
             if spec:
-                units[shot_planner_llm.unit_key(u["text"])] = {
-                    "text": u["text"], "queries": flat_queries(spec["rungs"]),
-                    "rungs": spec["rungs"], "prefer": spec["prefer"]}
+                units[shot_planner_llm.unit_key(u["text"])] = dict(
+                    spec, text=u["text"], queries_for=spec["queries"], queries=flat_queries(spec))
         if verbose:
             print(f"  глава {no} «{_clean(packet['section'])[:40]}»: запросы на {len(got)} "
                   f"из {len(packet['units'])} фраз{' (кэш)' if hit else ''}")
@@ -243,25 +325,39 @@ def load(video_dir):
 
 
 def load_specs(video_dir):
-    """{ключ юнита: {"rungs", "prefer"}} из плана версии 2, или {}."""
+    """{ключ юнита: {"focus", "claims", "queries"}} из плана версии 3, или
+    {}. План старой версии спецификаций не даёт: его ступени — ровно то,
+    от чего версия 3 уходит, и молча смешивать их с новыми нельзя."""
     path = os.path.join(video_dir, "media_plan", PLAN_NAME)
     if not os.path.exists(path):
         return {}
     try:
         with open(path, encoding="utf-8") as f:
-            units = (json.load(f).get("units") or {})
+            data = json.load(f)
     except Exception:  # noqa: BLE001 — причину уже назвал load()
         return {}
-    return {k: {"rungs": v["rungs"], "prefer": v.get("prefer", "either")}
-            for k, v in units.items() if isinstance(v, dict) and v.get("rungs")}
+    if data.get("version") != PLAN_VERSION:
+        print(f"  {PLAN_NAME}: версия {data.get('version')}, нужна {PLAN_VERSION} — "
+              f"спецификации кадров не используются; перепланировать: "
+              f"python scripts/stock_query_planner.py <эпизод>")
+        return {}
+    out = {}
+    for k, v in (data.get("units") or {}).items():
+        if isinstance(v, dict) and v.get("claims") and v.get("focus"):
+            out[k] = {"focus": v["focus"], "claims": v["claims"],
+                      "queries": v.get("queries_for") or []}
+    return out
+
+
+def has_motion(spec):
+    return any(c.get("motion") for c in (spec or {}).get("claims") or [])
 
 
 def attach(blocks, plan, specs=None):
     """Проставить блокам b["phrase_queries"] по тексту фразы, а по плану
-    версии 2 ещё b["shot_rungs"] (описания ступеней замены, без первой) и
-    b["kind_pref"]. Возвращает, скольким блокам нашлись запросы. Под-кадры
-    наследуют поля при нарезке (dict(b) в split_long_blocks), поэтому
-    проставляется ДО неё."""
+    версии 3 ещё b["shot_spec"]. Возвращает, скольким блокам нашлись
+    запросы. Под-кадры наследуют поля при нарезке (dict(b) в
+    split_long_blocks), поэтому проставляется ДО неё."""
     if not plan:
         return 0
     import shot_planner_llm
@@ -274,8 +370,7 @@ def attach(blocks, plan, specs=None):
             n += 1
         spec = (specs or {}).get(key)
         if spec:
-            b["shot_rungs"] = [r["shot"] for r in spec["rungs"][1:]]
-            b["kind_pref"] = spec.get("prefer", "either")
+            b["shot_spec"] = spec
     return n
 
 
