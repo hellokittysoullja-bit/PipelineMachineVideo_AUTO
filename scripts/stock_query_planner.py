@@ -83,7 +83,7 @@ For EVERY numbered line decide what the viewer must SEE while hearing it.
 
 focus — the new thing this line says, understood in the context of the chapter (resolve pronouns and references from the lines around it). 3 to 12 English words.
 
-core — ONE statement a person can check by looking at a picture: the single thing that, even alone in a picture, still makes the viewer think of this line. Ask yourself: if the picture could show only one thing, which one? When the line is about something happening to, on or around something else, the core is what the line is about — usually the thing that moves, acts or changes — not the surface, place or object it happens on. The core can be who acts, what is acted upon, a place or a state.
+core — WHO or WHAT must be visible: the single thing (an object, a person, an animal, a place) that, even alone in a picture, still makes the viewer think of this line — with the state that defines it, if any ("an exhausted person", "a burnt letter"). Name the thing, not an event: what it does goes into the claims. Ask yourself: if the picture could show only one thing, which one? When the line is about something happening to, on or around something else, the core is what the line is about — usually the thing that moves, acts or changes — not the surface, place or object it happens on. Write it as a statement: "a ball is visible".
 
 claims — 1 to {c1} more statements checkable by looking at the picture, most important first. Each checks ONE thing (an object, an action, a place, a detail) and does not repeat the core. "tier": "must" if without it the picture does not show this line, "should" if it only makes the picture better. If the line is about a movement that only footage can show, one claim has "motion": true and describes this movement; lines about objects, places or states have no motion claim.
 
@@ -92,9 +92,11 @@ queries — 3 to {q} different search queries, each 2 to 4 English words, for fr
 Example from another film, «The ball bounced off the wall and rolled away» — the core is the ball, not the wall:
 {{"n": 3, "focus": "a ball bouncing off a wall", "core": "a ball is visible", "claims": [{{"id": "c1", "text": "the ball bounces off a wall", "tier": "must", "motion": true}}, {{"id": "c2", "text": "a wall", "tier": "should"}}], "queries": [{{"q": "ball bouncing wall", "for": ["core", "c1", "c2"]}}, {{"q": "ball rolling", "for": ["core"]}}, {{"q": "ball close up", "for": ["core"]}}]}}
 
-Answer with one JSON object per narration line, one per line, and nothing else.
+Answer with one JSON object per narration line, one per line, and nothing else — no explanations, no reasoning, no markdown.
 
 {lines}"""
+
+RETRY_NOTE = "\n\n(Answer again: one JSON object per numbered line, every line, nothing else.)"
 
 _QUERY_RE = re.compile(r"^[a-z][a-z'\- ]*[a-z]$")
 
@@ -269,6 +271,28 @@ def ask(gateway, model, prompt, cache_dir):
     return text, False
 
 
+def ask_chapter(gateway, model, packet, setting, cache_dir):
+    """Спецификации фраз одной главы: ({номер: спецификация}, из кэша ли).
+    Модель иногда сбивается с формата (рассуждение вместо JSON, обрыв) —
+    тогда глава спрашивается ещё раз, отдельным ключом кэша, и из второго
+    ответа берутся только недостающие фразы. Сбой второго вопроса не
+    отменяет первый ответ."""
+    import llm_gateway
+    prompt = render_spec_prompt(packet, setting)
+    raw, hit = ask(gateway, model, prompt, cache_dir)
+    got = parse_spec(raw, packet)
+    if len(got) < len(packet["units"]):
+        try:
+            raw2, _hit2 = ask(gateway, model, prompt + RETRY_NOTE, cache_dir)
+            for n, spec in parse_spec(raw2, packet).items():
+                got.setdefault(n, spec)
+        except llm_gateway.PaymentRequired:
+            raise
+        except llm_gateway.GatewayError:
+            pass
+    return got, hit
+
+
 def plan_episode(video_dir, blocks, gateway, model=DEFAULT_MODEL, verbose=True):
     """Спросить модель по главам и записать план. Возвращает число фраз с
     запросами. Сбой одной главы не рвёт прогон: глава пропускается с причиной."""
@@ -280,15 +304,13 @@ def plan_episode(video_dir, blocks, gateway, model=DEFAULT_MODEL, verbose=True):
     cache_dir = os.path.join(video_dir, "media_plan", CACHE_DIR_NAME)
     units = {}
     for no, packet in enumerate(sbd.packets(video_dir, blocks), 1):
-        prompt = render_spec_prompt(packet, setting)
         try:
-            raw, hit = ask(gateway, model, prompt, cache_dir)
+            got, hit = ask_chapter(gateway, model, packet, setting, cache_dir)
         except llm_gateway.PaymentRequired:
             raise
         except llm_gateway.GatewayError as e:
             print(f"  глава {no}: модель не ответила — {e}")
             continue
-        got = parse_spec(raw, packet)
         for u in packet["units"]:
             spec = got.get(u["n"])
             if spec:
