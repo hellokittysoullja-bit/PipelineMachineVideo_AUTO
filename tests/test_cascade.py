@@ -90,3 +90,22 @@ def test_separate_embeddings_match_the_gate_score(tmp_path):
         img = ps._gate_embed(images=[im.convert("RGB")])
     txt = ps._gate_embed(text="a red square")
     assert abs(float(img[0] @ txt[0]) - single) < 1e-4
+
+
+def test_second_page_is_scoped_and_skips_the_first_page():
+    assert ps.CASCADE_PAGE.get() == 0
+    with ps.cascade_page(1):
+        assert ps.CASCADE_PAGE.get() == 1
+    assert ps.CASCADE_PAGE.get() == 0
+    src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"), encoding="utf-8").read()
+    assert "skip = CASCADE_PAGE.get() * _photo_dedup_max_tries_for(index)" in src
+
+
+def test_second_page_runs_only_for_a_missing_or_known_bad_frame():
+    src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"), encoding="utf-8").read()
+    body = src[src.index("\ndef main("):]
+    i = body.index("with cascade_page(1):")
+    head = body[i - 400:i]
+    assert "known_bad_reason(cur_att.verdicts)" in head and "shot_judge_active()" in head
+    tail = body[i:i + 500]
+    assert "not known_bad_reason(page2_att.verdicts)" in tail, "брак второй страницы не заменяет кадр"

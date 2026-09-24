@@ -6,6 +6,8 @@
 fallback — Pexels по тематическому запросу.
 Usage: python scripts/pipeline_smart.py <video_dir>"""
 import concurrent.futures
+import contextlib
+import contextvars
 import csv
 import difflib
 import functools
@@ -7705,6 +7707,11 @@ class PhotoAdapter(selection_engine.MediaAdapter):
             if shot_judge_active():
                 candidates = cascade_reorder(candidates, request.shot_brief or query,
                                              cf, download_probe, index)
+                skip = CASCADE_PAGE.get() * _photo_dedup_max_tries_for(index)
+                if skip:
+                    candidates = candidates[skip:]
+                    if not candidates:
+                        return None
             trial_slice = candidates[:_photo_dedup_max_tries_for(index)]
             # Скачивание кандидатов — сетевой I/O, не CPU (см. докстринг
             # PHOTO_PREFETCH_WORKERS выше) — заранее запускаем ВСЕ загрузки
@@ -11453,6 +11460,28 @@ def _shot_judge_gateway():
 CASCADE_DEFAULT_PREVIEW_N = 1000
 CASCADE_WORKERS = 8
 _CASCADE_EMB = {}
+
+
+# ВТОРАЯ СТРАНИЦА КАСКАДА. Судья смотрит лучших ~20 по описанию кадра; если
+# проверка мира отклонила всех, кого он одобрил, или одобренных нет, слот
+# опустеет. Живой случай (эпизод 94, «Он весил меньше, чем ты думаешь»):
+# описание «маленький кинжал на раскрытой ладони» подняло наверх каскада
+# современные ножи в руках — судья одобрил четыре, проверка мира отклонила
+# все четыре. Следующие 18 кандидатов каскада дали семь одобренных, и
+# первый же прошёл проверку мира (кованый клинок на ладони мастера); в
+# двух опустевших или отклонённых слотах из трёх вторая страница нашла
+# кадр. Вторая страница — отдельная попытка слота (main), и только там,
+# где первая не дала годного кадра: платит один провалившийся слот.
+CASCADE_PAGE = contextvars.ContextVar("CASCADE_PAGE", default=0)
+
+
+@contextlib.contextmanager
+def cascade_page(n):
+    token = CASCADE_PAGE.set(n)
+    try:
+        yield
+    finally:
+        CASCADE_PAGE.reset(token)
 
 
 def cascade_preview_n():
@@ -16310,6 +16339,17 @@ def main():
                           f"{other_score if other_score is not None else '—'} -> {kind}")
                     if kind == other_kind:
                         photo, video = (other, None) if other_kind == "photo" else (None, other)
+            # Вторая страница каскада (см. CASCADE_PAGE): кадра нет или он
+            # известен как брак — фото ищется среди следующих кандидатов.
+            cur_att = attempt_of(slot_attempts, photo or video)
+            if (shot_judge_active() and not locked_shot
+                    and (cur_att is None or known_bad_reason(cur_att.verdicts))):
+                with cascade_page(1):
+                    page2 = fetch_in_attempt(slot_attempts, i, "photo", select_media, request, "photo")
+                page2_att = attempt_of(slot_attempts, page2)
+                if page2 and page2_att is not None and not known_bad_reason(page2_att.verdicts):
+                    print(f"    [{i+1}] кадр найден на второй странице каскада")
+                    photo, video = page2, None
             # Раньше Pexels отключался навсегда после ЛЮБОГО промаха, включая
             # обычную пустую выдачу по одному неудачному запросу. Гасим источник
             # только если API реально отвалился.
