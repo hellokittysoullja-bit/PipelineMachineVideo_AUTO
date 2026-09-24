@@ -6658,6 +6658,11 @@ def auto_plan_episode(blocks, video_dir=None):
         reset_world_card_cache()
         label = {"manual": "ручной", "fresh": "свой, сценарий не менялся",
                  "made": "составлен моделью"}.get(what, what)
+        if what.startswith("failed"):
+            # Молча стоящий старый паспорт (или его отсутствие) меняет мир
+            # всего отбора — это не строка статуса, а предупреждение.
+            print(f"  ВНИМАНИЕ: паспорт мира НЕ составлен ({what[:400]}) — "
+                  f"отбор идёт {'по прежнему паспорту' if card else 'без паспорта'}")
         print(f"  Паспорт мира ({label}): " + (world_card.describe(card) if card else "нет"))
         if stock_query_planner.needs_planning(d, blocks):
             n = stock_query_planner.plan_episode(d, blocks, gw, verbose=False)

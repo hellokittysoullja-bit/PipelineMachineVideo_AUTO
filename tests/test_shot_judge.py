@@ -155,3 +155,46 @@ def test_vision_check_passes_a_seeing_model():
         r, g, b = Im.open(io_.BytesIO(raw)).convert("RGB").getpixel((32, 32))
         return "Red." if r > b else "Blue"
     assert sj.vision_check(ColourGateway(see), "m") == (True, "")
+
+
+def test_world_asked_once_per_picture_whatever_the_phrase(tmp_path):
+    """Вариант «мир отдельно»: вопрос о мире не знает фразы, поэтому одна
+    картинка в двух слотах получает ОДИН ответ о мире (кэш), а утверждения
+    спрашиваются по фразе каждого слота без ключей мира."""
+    path = _img(tmp_path, "a", (120, 90, 60))
+    spec = {"focus": "arrow", "claims": [{"id": "c1", "text": "an arrow is visible", "tier": "must"}]}
+
+    class GW:
+        def __init__(self):
+            self.texts = []
+
+        def chat(self, model, content, max_tokens, est, **_kw):
+            t = content[0]["text"]
+            self.texts.append(t)
+            if "main_in_world: could the MAIN subject of the picture" in t:
+                return '{"main_in_world": false, "background_foreign": true, "why": "x"}', {}, 3
+            return '{"claims": {"c1": "yes"}, "medium": "photo", "why": "y"}', {}, 5
+    gw = GW()
+    got = []
+    for phrase in ("Стрела летит.", "Стрела падает."):
+        ans, _i = sj.verify_claims(gw, "m", phrase=phrase, spec=spec, setting="historical",
+                                   path=path, cache_dir=str(tmp_path / "c"), world_separate=True)
+        got.append(ans)
+    worlds = [t for t in gw.texts if "main_in_world: could the MAIN subject of the picture" in t]
+    claims = [t for t in gw.texts if t not in worlds]
+    assert len(worlds) == 1 and len(claims) == 2
+    assert all("main_in_world" not in t for t in claims)
+    assert all(a["main_in_world"] is False and a["background_foreign"] is True
+               and a["claims"] == {"c1": "yes"} for a in got)
+
+
+def test_world_separately_unparsed_means_no_check(tmp_path):
+    path = _img(tmp_path, "a", (120, 90, 60))
+    spec = {"focus": "arrow", "claims": [{"id": "c1", "text": "an arrow", "tier": "must"}]}
+
+    class GW:
+        def chat(self, *a, **k):
+            return "no json", {}, 1
+    ans, info = sj.verify_claims(GW(), "m", phrase="p", spec=spec, setting="historical",
+                                 path=path, world_separate=True)
+    assert ans is None and "refused" in info

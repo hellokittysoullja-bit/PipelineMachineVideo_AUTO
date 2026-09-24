@@ -436,6 +436,75 @@ CLAIMS_WORLD_Q = """
 - background_foreign: is there anything ELSE in the picture (background, edges, people around) that could not exist in that world — modern people, clothing, objects, vehicles, signs, spectators? true/false"""
 
 
+# МИР — ОДИН РАЗ НА КАРТИНКУ, БЕЗ ФРАЗЫ (вариант замера 24.09). Вопрос про
+# мир внутри проверки по утверждениям зависит от фразы слота, и одна и та же
+# картинка в соседних слотах получала разные ответы: из 39 кадров, стоящих
+# в пулах двух и более слотов эпизода 94, у 6 ответ о мире расходился
+# (pixabay:321443 — отказ в слоте 4, «свой» в слоте 6). Здесь вопрос о мире
+# не знает фразы, поэтому кэшируется по картинке и один на все слоты.
+WORLD_ONLY_VERSION = 1
+WORLD_ONLY_PROMPT = """You check one picture for a documentary video.
+The episode's world: {setting}.{caption}{video}
+Look at the picture carefully and answer:
+- main_in_world: could the MAIN subject of the picture exist in that world (era, culture)? true/false
+- background_foreign: is there anything ELSE in the picture (background, edges, people around) that could not exist in that world — modern people, clothing, objects, vehicles, signs, spectators? true/false
+Reply with JSON only: {{"main_in_world": true/false, "background_foreign": true/false, "why": "<short>"}}"""
+
+
+def world_only_question(setting, kind="photo", caption=None, frames=None):
+    caption = " ".join(str(caption or "").split())[:VERIFY_CAPTION_MAX]
+    return WORLD_ONLY_PROMPT.format(
+        setting=setting, caption=VERIFY_CAPTION.format(caption=caption) if caption else "",
+        video=CLAIMS_VIDEO_NOTE.format(n=frames or 3) if shows_motion(kind, frames) else "")
+
+
+def world_of_image(gateway, model, *, setting, path, kind="photo", cache_dir=None,
+                   max_side=VERIFY_MAX_SIDE, reasoning=None, caption=None, frames=None):
+    """({"main_in_world", "background_foreign"} | None, info). Кэш — по
+    картинке, миру и подписи: фраза в вопрос не входит."""
+    if gateway is None or not setting or not path or not os.path.exists(path):
+        return None, {}
+    text = world_only_question(setting, kind, caption, frames)
+    h = hashlib.sha256()
+    for part in ("world_only", str(WORLD_ONLY_VERSION), model, text, str(max_side), repr(reasoning),
+                 _file_digest(path)):
+        h.update(part.encode("utf-8"))
+        h.update(b"\0")
+    cp = os.path.join(cache_dir, "worldonly_" + h.hexdigest() + ".json") if cache_dir else None
+    if cp and os.path.exists(cp):
+        try:
+            return json.load(open(cp, encoding="utf-8"))["answers"], {"cache_hit": True}
+        except Exception:
+            pass
+    try:
+        image = _image_content(path, max_side)
+    except Exception:
+        return None, {}
+    try:
+        answer, _u, price = gateway.chat(model, [{"type": "text", "text": text}, image], 300, 900,
+                                         reasoning=reasoning)
+    except Exception as e:  # noqa: BLE001 — сбой шлюза: проверки не было
+        return None, {"refused": f"{type(e).__name__}: {e}"[:200]}
+    import re
+    m = re.search(r"\{.*\}", answer or "", re.S)
+    try:
+        j = json.loads(m.group(0)) if m else None
+    except ValueError:
+        j = None
+    if not isinstance(j, dict) or not all(isinstance(j.get(k), bool)
+                                          for k in ("main_in_world", "background_foreign")):
+        return None, {"refused": "неразобранный ответ: " + (answer or "")[-200:], "cost": price,
+                      "call": True}
+    answers = {"main_in_world": j["main_in_world"], "background_foreign": j["background_foreign"]}
+    if cp:
+        os.makedirs(cache_dir, exist_ok=True)
+        tmp = f"{cp}.{os.getpid()}.{threading.get_ident()}.part"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"answers": answers, "model": model}, f, ensure_ascii=False)
+        os.replace(tmp, cp)
+    return answers, {"cost": price, "call": True}
+
+
 def spec_from_brief(phrase, brief):
     """Спецификация без плана: одно must-утверждение — бриф (или сама фраза).
     Путь один и тот же со спецификацией и без неё."""
@@ -578,11 +647,28 @@ def _image_content(path, max_side):
 
 
 def verify_claims(gateway, model, *, phrase, spec, setting, path, kind="photo", cache_dir=None,
-                  max_side=VERIFY_MAX_SIDE, reasoning=None, caption=None, frames=None):
+                  max_side=VERIFY_MAX_SIDE, reasoning=None, caption=None, frames=None,
+                  world_separate=False):
     """(ответы | None, {"cost", "call", "cache_hit", "refused"}). None —
-    проверки не было (нет шлюза, сбой, неразобранный ответ)."""
+    проверки не было (нет шлюза, сбой, неразобранный ответ).
+
+    world_separate — мир спрашивается отдельным вопросом без фразы
+    (world_of_image, один на картинку), а не внутри вопроса по утверждениям."""
     if gateway is None or not path or not os.path.exists(path):
         return None, {}
+    if world_separate and setting:
+        world, winfo = world_of_image(gateway, model, setting=setting, path=path, kind=kind,
+                                      cache_dir=cache_dir, max_side=max_side, reasoning=reasoning,
+                                      caption=caption, frames=frames)
+        if world is None:
+            return None, winfo
+        answers, info = verify_claims(gateway, model, phrase=phrase, spec=spec, setting=None,
+                                      path=path, kind=kind, cache_dir=cache_dir,
+                                      max_side=max_side, reasoning=reasoning, caption=caption,
+                                      frames=frames)
+        cost = (info.get("cost") or 0) + (winfo.get("cost") or 0)
+        info = dict(info, cost=cost, call=bool(info.get("call") or winfo.get("call")))
+        return (None if answers is None else dict(answers, **world)), info
     asked = asked_claims(spec, kind, frames)
     if not asked:
         return None, {}

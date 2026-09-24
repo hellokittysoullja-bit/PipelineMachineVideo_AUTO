@@ -371,7 +371,11 @@ def cmd_bench(a):
     emb = Embedder(a.emb_cache or [], os.path.join(os.path.dirname(a.index), "emb"))
     base = base_slot_durs(pools)
     card = json.load(open(a.world_card, encoding="utf-8")) if a.world_card else None
-    setting = world_card.world_to_check(card) if card else None
+    # Как в пайплайне: сетке — judge_setting, проверке по утверждениям —
+    # claims_setting (или прежняя строка мира с --claims-world plain).
+    grid_setting = world_card.judge_setting(card) if card else None
+    setting = (world_card.world_to_check if a.claims_world == "plain"
+               else world_card.claims_setting)(card) if card else None
     gw = llm_gateway.Gateway(spend_cap=a.max_spend)
     import shot_planner_llm
     import stock_query_planner
@@ -398,7 +402,8 @@ def cmd_bench(a):
                     gw, model, phrase=rec.get("block_text"), spec=spec, setting=setting, path=path,
                     kind=rec["kind"], cache_dir=cache, max_side=a.side,
                     reasoning={"on": True, "off": False}.get(a.reasoning),
-                    caption=r.get("text") if a.caption else None, frames=1)
+                    caption=r.get("text") if a.caption else None, frames=1,
+                    world_separate=a.world_separate)
                 wok, winfo = None, {}
                 if a.world:
                     wok, _why, winfo = shot_judge.world_check(
@@ -426,7 +431,7 @@ def cmd_bench(a):
             gr = shot_judge.judge(gw, model, phrase=rec.get("block_text"), brief=spec["focus"],
                                   candidates=[(str(r.get("id")), pth) for r, _l, pth in have],
                                   cache_dir=a.grid_cache or cache, report={},
-                                  kind=rec["kind"], setting=setting) or {}
+                                  kind=rec["kind"], setting=grid_setting) or {}
             for _r, _l, pth in have:
                 os.remove(pth)
             # Как verify_finalists_of: лучшие по сетке ∪ первые по порядку пула.
@@ -441,7 +446,7 @@ def cmd_bench(a):
             rep = {}
             grid = shot_judge.judge(gw, model, phrase=rec.get("block_text"), brief=brief,
                                     candidates=have, cache_dir=a.grid_cache or cache, report=rep,
-                                    kind=rec["kind"], setting=setting) or {}
+                                    kind=rec["kind"], setting=grid_setting) or {}
             stats["cost"] += rep.get("cost", 0)
             for _cid, gp in have:
                 os.remove(gp)
@@ -456,8 +461,12 @@ def cmd_bench(a):
             rank = shot_judge.claims_vector(spec, ans, cg_veto=bool(card) and
                                             card.get("register") in ("historical", "mixed"))
             focus = shot_judge.focus_met(spec, ans)
+            # «Принят» — не отклонён и хоть что-то обязательное выполнено;
+            # считается ДО приписки оценки сетки: (-5,) + сетка уже не равно
+            # (-5,), и прежний счётчик записывал такой кадр в принятые.
             if rank is not None and shot_judge.nothing_met(spec, ans):
                 rank = (-5,)
+            accepted = rank is not None and rank != (-5,)
             if a.grid:
                 gs = grid.get(str(r.get("id")))
                 rank = None if rank is None else rank + ((gs if isinstance(gs, int) else -1),)
@@ -467,7 +476,7 @@ def cmd_bench(a):
                 "grid": grid.get(str(r.get("id"))) if a.grid else None, "pos": len(scored) - 1})
             if lab == 0:
                 stats["bad"] += 1
-                stats["bad_accepted"] += 1 if (rank is not None and rank != (-5,)) else 0
+                stats["bad_accepted"] += 1 if accepted else 0
                 stats["world_bad_passed"] += 1 if wok else 0
             else:
                 stats["good"] += 1
@@ -534,6 +543,10 @@ def main(argv=None):
     b.add_argument("--grid-cache", help="кэш оценок сетки (повтор без кэша проверки)")
     b.add_argument("--cache-dir", help="кэш ответов (по умолчанию рядом с index.json)")
     b.add_argument("--world", action="store_true", help="плюс прежняя проверка мира")
+    b.add_argument("--world-separate", action="store_true",
+                   help="мир — отдельным вопросом без фразы, один на картинку")
+    b.add_argument("--claims-world", choices=("exclude", "plain"), default="exclude",
+                   help="строка мира проверки: с культурами «исключить» (как в пайплайне) или прежняя")
     b.add_argument("--grid", action="store_true", help="плюс сетка судьи: разводит равные уровни")
     b.add_argument("--out")
     b.set_defaults(fn=cmd_bench)

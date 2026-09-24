@@ -298,6 +298,20 @@ def world_to_check(card):
     return judge_setting(card)
 
 
+def claims_setting(card):
+    """Мир для проверки кадра по утверждениям: world_to_check плюс короткий
+    список культур «исключить». У паспорта эпизода 94 культура «включить»
+    пустая, и строка мира была «historical, 1300 AD-1500 AD» — ни слова о
+    том, ЧЬЯ культура; марокканская тбурида проходила вопрос «мог ли
+    главный предмет существовать в этом мире». Сетке список не передаётся
+    (judge_setting): там длинный список запретов по замеру сжимал оценки."""
+    base = world_to_check(card)
+    if base is None:
+        return None
+    exc = culture_exclude(card)
+    return f"{base}; not: {', '.join(exc)}" if exc else base
+
+
 def is_historical(card):
     """Эпизод про прошлое: 3D, мультфильм и инфографика там — брак. У
     научного или абстрактного эпизода рендер бывает единственным
@@ -422,8 +436,20 @@ def parse_answer(text):
 # без рассуждения дал Аполлону 1955..1980 — смартфон в кадре стал бы «чужим
 # миром». Qwen 3.7 Max закрыл Египет 1922 годом (томограф за окном). Gemini 3.1
 # Pro — те же ответы, что 3.7 Flash, втрое дороже.
+#
+# 24.09 вечером шлюз перестал обслуживать 3.7 Flash: на вызов он отвечает
+# ТЕКСТОМ «Gemini 3.5 Flash is no longer available», и рендер печатал бы
+# «паспорт не разобран» на каждом новом эпизоде. Перезамер тех же шести
+# паспортов: Gemini 3.1 Pro разобран 6/6 (94: 1300..1500 ровно как ручной;
+# Аполлон 1960..2024, Египет -3000..2024 — те же «сценарий выходит в
+# современность»), 3.6 Flash — 5/6 (один 503), Kimi K3 и GLM-5.3 срываются
+# в рассуждение на длинных сценариях, DeepSeek снова закрыл Аполлона 1975
+# годом. Паспорт — один кэшируемый вызов на эпизод, поэтому цена Pro здесь
+# не решает. Модели — по порядку: следующая спрашивается, только если
+# предыдущая не дала годного паспорта.
 AUTO_PREFIX = "auto:"
-AUTO_MODEL = "ag/gemini-3.7-flash-high"
+AUTO_MODELS = ("ag/gemini-3.1-pro-low", "ag/gemini-3.6-flash-high")
+AUTO_MODEL = AUTO_MODELS[0]
 
 
 def _script_digest(text):
@@ -479,7 +505,7 @@ def is_manual(video_dir):
     return bool(raw) and not str(raw.get("derived_by") or "").startswith(AUTO_PREFIX)
 
 
-def generate(video_dir, gateway, model=AUTO_MODEL, niche="не указана"):
+def generate(video_dir, gateway, model=None, niche="не указана"):
     """Паспорт эпизода от модели, если его нет или свой устарел. Возвращает
     (паспорт | None, что сделано): "manual" — ручной, не трогали;
     "fresh" — свой и сценарий не менялся; "made" — записан новый;
@@ -503,18 +529,21 @@ def generate(video_dir, gateway, model=AUTO_MODEL, niche="не указана"):
             raw["script_sha"] = digest
             save(video_dir, raw, derived_by=raw.get("derived_by"))
             return raw, "fresh"
-    try:
-        text, _u, _p = gateway.chat(model, [{"type": "text", "text": prompt_for_script(script, niche)}],
-                                    6000, 2500 + len(script) // 2)
-        card = parse_answer(text)
-        card["schema_version"] = SCHEMA_VERSION
-        card["script_sha"] = digest
-        card.pop("derived_by", None)
-        card.pop("derived_at", None)
-        save(video_dir, card, derived_by=AUTO_PREFIX + model)
-        return card, "made"
-    except Exception as e:  # noqa: BLE001 — сбой модели/формата: прежнее состояние
-        return (load(video_dir, strict=False) if raw else None), f"failed: {str(e)[:200]}"
+    errors = []
+    for m in ((model,) if model else AUTO_MODELS):
+        try:
+            text, _u, _p = gateway.chat(m, [{"type": "text", "text": prompt_for_script(script, niche)}],
+                                        6000, 2500 + len(script) // 2)
+            card = parse_answer(text)
+            card["schema_version"] = SCHEMA_VERSION
+            card["script_sha"] = digest
+            card.pop("derived_by", None)
+            card.pop("derived_at", None)
+            save(video_dir, card, derived_by=AUTO_PREFIX + m)
+            return card, "made"
+        except Exception as e:  # noqa: BLE001 — сбой модели/формата: следующая модель
+            errors.append(f"{m}: {str(e)[:160]}")
+    return (load(video_dir, strict=False) if raw else None), "failed: " + " | ".join(errors)
 
 
 def main(argv=None):

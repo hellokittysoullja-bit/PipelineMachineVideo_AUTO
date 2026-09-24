@@ -62,6 +62,34 @@ def test_broken_model_answer_keeps_the_previous_state(tmp_path):
     assert card is None and what.startswith("failed") and not os.path.exists(wc.path(d))
 
 
+def test_dead_model_answering_with_text_falls_through_to_the_next(tmp_path):
+    """Шлюз отвечает на снятую модель ТЕКСТОМ, а не ошибкой: следующая
+    модель списка должна быть спрошена, а сбой обеих — назван по именам."""
+    d = _ep(tmp_path)
+
+    class Chain(GW):
+        def chat(self, model, content, max_tokens, est, **kw):
+            self.calls += 1
+            return ("Gemini 3.5 Flash is no longer available" if model == wc.AUTO_MODELS[0]
+                    else json.dumps(CARD)), {}, 1
+    gw = Chain("")
+    card, what = wc.generate(d, gw)
+    assert what == "made" and gw.calls == 2
+    assert json.load(open(wc.path(d)))["derived_by"] == "auto:" + wc.AUTO_MODELS[1]
+    d2 = _ep(tmp_path / "b")
+    card, what = wc.generate(d2, GW("no longer available"))
+    assert card is None and all(m in what for m in wc.AUTO_MODELS)
+
+
+def test_claims_world_names_the_excluded_cultures_and_grid_world_does_not():
+    """Паспорт 94 без культуры «включить»: без «исключить» строка проверки
+    не говорила, чья культура. Сетке список не идёт (сжимал оценки)."""
+    assert wc.claims_setting(CARD) == wc.world_to_check(CARD) + "; not: japanese"
+    assert "japanese" not in wc.judge_setting(CARD)
+    assert wc.claims_setting({"register": "scientific", "culture": {}}) is None
+    assert wc.claims_setting(dict(CARD, culture={"include": [], "exclude": []})) == wc.world_to_check(CARD)
+
+
 def test_world_questions_only_when_there_is_a_world():
     assert wc.world_to_check(CARD)
     assert wc.world_to_check({"register": "scientific", "era": None, "culture": {}}) is None
