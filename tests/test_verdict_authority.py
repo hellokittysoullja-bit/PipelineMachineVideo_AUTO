@@ -54,3 +54,32 @@ def test_approved_frame_leaves_no_miss_in_the_reports(monkeypatch):
 def test_both_media_kinds_record_the_approval():
     src = open(ps.__file__, encoding="utf-8").read()
     assert src.count("record_verdict(JUDGE_APPROVED_VERDICT") == 2
+
+
+def test_cache_hit_brings_back_the_verdicts_of_the_attempt_that_made_the_frame(tmp_path):
+    """Повторный рендер берёт кадр из кэша без отбора. Раньше вердикты
+    терялись: кадр, признанный браком и поглощённый в первом прогоне, во
+    втором вставал на экран."""
+    cf = str(tmp_path / "0003_x.jpg")
+    open(cf, "wb").write(b"x")
+    first = ps.new_attempt(3, "photo")
+    with ps.selection_attempt.activate(first):
+        ps.selection_attempt.record_verdict("judge", {"index": 3, "score": 0})
+        ps.write_media_sidecar(cf, pexels_id=1, query="q", kind="photo")
+    first.discard()
+    again = ps.new_attempt(3, "photo")
+    with ps.selection_attempt.activate(again):
+        ps._restore_cached_quality(cf)
+    assert ps.known_bad_reason(again.verdicts) == "shot_judge_rejected"
+    again.discard()
+
+
+def test_old_sidecar_without_verdicts_restores_nothing(tmp_path):
+    cf = str(tmp_path / "0004_x.jpg")
+    open(cf, "wb").write(b"x")
+    ps.write_media_sidecar(cf, pexels_id=1, query="q", kind="photo")
+    att = ps.new_attempt(4, "photo")
+    with ps.selection_attempt.activate(att):
+        ps._restore_cached_quality(cf)
+    assert att.verdicts == []
+    att.discard()

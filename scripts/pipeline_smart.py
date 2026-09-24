@@ -5110,8 +5110,8 @@ def _journal_attempt(att, final_media):
 
 def _project_verdicts(verdicts):
     for kind, rec in effective_verdicts(verdicts):
-        if kind == JUDGE_APPROVED_VERDICT:
-            continue
+        if kind not in VERDICT_REPORT_LISTS:
+            continue      # утвердительный вердикт судьи или вид из старого sidecar
         globals()[VERDICT_REPORT_LISTS[kind]].append(rec)
 
 
@@ -8110,9 +8110,15 @@ class PhotoAdapter(selection_engine.MediaAdapter):
             blurred = set()
             while True:
                 if winner is None:
-                    pick = candidates[0]
-                    download(pick, cf)
-                    break
+                    # Ни один кандидат не дошёл до гейтов (превью не
+                    # скачались). Раньше здесь качался первый кандидат
+                    # списка — кадр, на который не посмотрел ни один гейт, и
+                    # он вставал на экран. Видео в том же положении
+                    # возвращает «ничего»; теперь и фото: слот идёт по
+                    # лестнице (второй вид, поглощение), а не наугад.
+                    print(f"  слот {index}: ни один кандидат не дошёл до проверки "
+                          f"(запрос {query!r}) — непроверенный кадр не ставится")
+                    return None
                 pick = winner["p"]
                 fetched = False
                 try:
@@ -8176,7 +8182,9 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                     ranked.append(top["p"])
                     left = [c for c in left if c is not top]
                 ranked += [c["p"] for c in left]
-                for nxt in (ranked + list(candidates)):
+                # Только просмотренные гейтами: кандидат из хвоста пула, на
+                # которого никто не смотрел, — тот же непроверенный кадр.
+                for nxt in ranked:
                     if id(nxt) in tried:
                         continue
                     tried.add(id(nxt))
@@ -12252,6 +12260,7 @@ def shot_judge_signature(index=None):
     logic = hashlib.sha256("".join(inspect.getsource(f) for f in (
         shot_judge.claims_vector, shot_judge.claim_values, shot_judge.focus_met,
         shot_judge.nothing_met, shot_judge.musts_met_clean, shot_judge.asked_claims,
+        shot_judge.subject_claim,
         shot_judge.claims_question, _verify_finalists, verify_finalists_of, verify_key,
         judge_candidates, judge_rejected, judge_approved, screen_allowed, claims_checked,
         filter_pool_by_text,
@@ -12426,7 +12435,7 @@ def media_sidecar_path(media_path):
 
 def write_media_sidecar(media_path, *, pexels_id=None, query=None, kind=None,
                         ahash_hex=None, relevance=None, chosen_by=None,
-                        provenance=None, quality=None):
+                        provenance=None, quality=None, verdicts=None):
     """Записать, ЧТО именно лежит в кэш-файле кандидата.
 
     РЕАЛЬНАЯ, найденная вживую дыра (04.09), которую это закрывает: имя
@@ -12463,6 +12472,14 @@ def write_media_sidecar(media_path, *, pexels_id=None, query=None, kind=None,
         # и мог поставить в слот вид, который в прошлый раз проиграл.
         if quality is not None:
             payload["quality"] = quality
+        # Вердикты попытки, добывшей кадр: на повторном рендере кадр берётся
+        # из кэша без отбора, и без них кадр, который первый прогон признал
+        # браком и поглотил соседом, второй прогон ставил бы на экран.
+        if verdicts is None:
+            att = selection_attempt.current()
+            verdicts = list(att.verdicts) if att is not None else []
+        if verdicts:
+            payload["verdicts"] = [[k, dict(rec)] for k, rec in verdicts]
         tmp = media_sidecar_path(media_path) + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False)
@@ -12550,14 +12567,19 @@ def log_candidate_license(provenance, query):
 
 
 def _restore_cached_quality(cf):
-    """Оценка проверки кадра из кэша -> заметка попытки (см. quality в
-    write_media_sidecar). Нет записи — заметки нет, как раньше."""
-    q = read_media_sidecar(cf).get("quality")
-    if q is not None:
-        try:
-            selection_attempt.record_note("quality", _as_quality(q))
-        except Exception:  # noqa: BLE001 — вне попытки (прямой вызов): нечего помечать
-            pass
+    """Решение о кадре из кэша -> текущая попытка: оценка проверки (заметка)
+    и вердикты попытки, которая этот кадр добыла (см. write_media_sidecar).
+    Одна функция на фото и видео — кэш-хит обязан вести себя как отбор,
+    который его создал. Нет записи — ничего, как раньше."""
+    side = read_media_sidecar(cf)
+    try:
+        if side.get("quality") is not None:
+            selection_attempt.record_note("quality", _as_quality(side["quality"]))
+        for item in side.get("verdicts") or []:
+            if isinstance(item, (list, tuple)) and len(item) == 2 and isinstance(item[1], dict):
+                selection_attempt.record_verdict(str(item[0]), item[1])
+    except Exception:  # noqa: BLE001 — вне попытки (прямой вызов): нечего помечать
+        pass
 
 
 def read_media_sidecar(media_path):
@@ -12653,6 +12675,10 @@ def _selection_stack_signature():
     return "sel:" + repr((
         feature_flags.mode("VLM_ARBITER_MODE"),
         feature_flags.mode("VISUAL_DIRECTOR_MODE"),
+        # Показывать ли кадр, признанный браком: при выключенном флаге такой
+        # кадр получал клип, и кэш-хит клипа после включения флага ставил бы
+        # его на экран снова (разбор лестницы слота 25.09).
+        feature_flags.enabled("NEVER_SHOW_KNOWN_BAD"),
         DIRECTOR_MIN_POOL, PHOTO_DEDUP_MAX_TRIES, BASE_MIN_POOL, FAST_BASE_MIN_POOL,
         # Ранжирование среди прошедших гейты (корзина relevance до эстетики) и
         # чередование источников внутри запроса — оба меняют, КТО побеждает,

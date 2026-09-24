@@ -525,11 +525,27 @@ def shows_motion(kind, frames=None):
     return kind == "video" and (frames is None or frames >= 2)
 
 
+SUBJECT_ID = "subject"
+
+
+def subject_claim(spec):
+    """Вопрос «виден ли сам предмет фразы» — простой, без действия и места,
+    или None (у спецификации нет предмета). Его ответ не входит в вектор
+    сравнения: он решает только «кадр про эту фразу вообще или нет»."""
+    subject = (spec or {}).get("subject")
+    if not subject:
+        return None
+    return {"id": SUBJECT_ID, "text": f"{subject} is visible", "tier": "subject"}
+
+
 def asked_claims(spec, kind, frames=None):
     """Утверждения, которые спрашиваются у кадра: движение — только у ролика,
-    показанного хотя бы двумя кадрами."""
+    показанного хотя бы двумя кадрами; вопрос о предмете фразы — последним,
+    если у спецификации он есть."""
     moving = shows_motion(kind, frames)
-    return [c for c in spec["claims"] if moving or not c.get("motion")]
+    asked = [c for c in spec["claims"] if moving or not c.get("motion")]
+    sc = subject_claim(spec)
+    return asked + ([sc] if sc else [])
 
 
 def claims_question(phrase, spec, setting=None, kind="photo", caption=None, frames=None):
@@ -622,10 +638,23 @@ def focus_met(spec, answers):
 
 def nothing_met(spec, answers):
     """Кадр не показывает из спецификации НИЧЕГО обязательного: каждое
-    must-утверждение — «нет». Это брак; кадр, который не показал главное, но
-    показал обязательную деталь фразы, — замена, а не брак (он проигрывает
-    любому кадру с главным, но лучше соседнего кадра на чужой фразе)."""
+    must-утверждение — «нет», либо на прямой вопрос «виден ли предмет
+    фразы» ответ «нет». Это брак. Предмет виден — замена, даже если ни одно
+    составное утверждение не выполнено; «сомневаюсь» — решают утверждения.
+
+    Предмет — отдельно, потому что утверждения составные («кинжал лежит на
+    ладони»): пустая ладонь выполняла «ладонь видна» и проходила заменой
+    (judge12, слот 1), хотя кинжала в кадре нет вовсе."""
     vals = claim_values(spec, answers)
+    if subject_claim(spec):
+        seen = ((answers or {}).get("claims") or {}).get(SUBJECT_ID)
+        if seen == "no":
+            return True
+        if seen == "yes":
+            # Предмет фразы в кадре — кадр про эту фразу, даже если её
+            # действие и место не показаны: замена, а не брак (кинжал без
+            # ладони на фразу про вес кинжала).
+            return False
     return all(vals[c["id"]] == 0 for c in spec["claims"] if c["tier"] == "must")
 
 

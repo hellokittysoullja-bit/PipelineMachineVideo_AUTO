@@ -147,4 +147,13 @@ def test_download_rescue_goes_by_ranking_not_list_order():
     body = src[src.index("rescued = None\n"):]
     body = body[:body.index("+download_rescue")]
     assert "_score_and_pick(left)" in body
-    assert "for nxt in (ranked + list(candidates))" in body
+    # Только просмотренные гейтами кандидаты (25.09): хвост пула, на который
+    # не смотрел ни один гейт, — непроверенный кадр на экране.
+    assert "for nxt in ranked:" in body and "list(candidates)" not in body
+
+
+def test_photo_never_downloads_a_candidate_no_gate_saw():
+    src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"), encoding="utf-8").read()
+    body = src[src.index("repicks = 0\n            blurred = set()"):]
+    body = body[:body.index("+sharp_repick")]
+    assert "candidates[0]" not in body and "return None" in body

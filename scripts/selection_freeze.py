@@ -145,6 +145,7 @@ BRANCH_ANCHORS = (
         _P, 'record_verdict("smart_veto", {"index": index, "query": query, "kind": "photo"})',
         'SMART_VETO_MISSES.append({"index": index, "query": query, "kind": "photo"})')),
     ("фото: сток исчерпан", _forms(_P, 'record_verdict("stock", {', "STOCK_EXHAUSTED_MISSES.append(")),
+    ("фото: ни один кандидат не проверен", _forms(_P, "ни один кандидат не дошёл до проверки")),
     ("фото: победитель ниже порога", _forms(_P, 'record_verdict("relevance", {',
                                              "RELEVANCE_GATE_MISSES.append(")),
     ("фото: арбитр отказал всем", _forms(_P, 'record_verdict("arbiter", {', "ARBITER_REJECTED_ALL.append(")),
