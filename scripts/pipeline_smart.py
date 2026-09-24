@@ -4614,7 +4614,7 @@ _SOURCE_ERROR_PRINTED = set()
 #: узнать об этом было неоткуда» — здесь наоборот, источник молча давал
 #: чужое имя.
 CANDIDATE_ID_PREFIXES = ("met", "euro", "chicago", "cleveland", "openverse",
-                         "pixabay", "unsplash")
+                         "pixabay", "unsplash", "commons")
 
 
 def candidate_source(p):
@@ -4724,6 +4724,12 @@ def reset_source_stats():
         _mus.reset_fetch_stats()
     except Exception:
         pass
+    try:
+        import commons_source as _cs
+        _cs.reset_stats()
+    except Exception:
+        pass
+    _COMMONS_SEARCH_CACHE.clear()
 
 
 def write_source_contribution(video_dir):
@@ -4740,6 +4746,14 @@ def write_source_contribution(video_dir):
     try:
         import museum_sources as _mus
         report["museum_fetch"] = dict(_mus.FETCH_STATS)
+    except Exception:
+        pass
+    try:
+        import commons_source as _cs
+        # Сколько файлов Commons отсёк фильтр лицензии, размера и формата —
+        # иначе «источник дал ноль» не отличить от «всё, что нашлось,
+        # требует указать автора».
+        report["commons_fetch"] = dict(_cs.STATS)
     except Exception:
         pass
     total_won = sum(v["won"] for v in report["sources"].values()) or 0
@@ -7479,6 +7493,34 @@ def _openverse_fetch_one(api_query, _ov):
     return results
 
 
+_COMMONS_SEARCH_CACHE = {}     # {api_query: [candidate, ...]} — на прогон, как у Openverse
+
+
+def _commons_search_photos(api_query):
+    """Wikimedia Commons: только файлы, свободные без указания автора
+    (PD/CC0 по метаданным самого файла) — см. докстринг commons_source.
+
+    Зачем: на фразах про действие (битва, падение, стрелы) нужного кадра
+    нет ни в стоках, ни в музеях — замер глубины пула эп.94 (места 21-200
+    на шести фразах, docs/quality/RESEARCHER_PROTO_EP94.md). Изображения
+    этих событий, нарисованные современниками (хроники, фехтовальные
+    трактаты), лежат в Commons, и пайплайн их не спрашивал. Кандидаты идут
+    в общий пул под те же проверки. Fail-open на уровне источника: сбой
+    Commons не роняет слот, но и не молчит."""
+    if not feature_flags.enabled("COMMONS_ENABLED"):
+        return []
+    if api_query in _COMMONS_SEARCH_CACHE:
+        return _COMMONS_SEARCH_CACHE[api_query]
+    try:
+        import commons_source
+        results = commons_source.search(api_query)
+    except Exception as e:  # noqa: BLE001 — источник, а не слот
+        _note_source_search_error("commons", e, api_query)
+        results = []
+    _COMMONS_SEARCH_CACHE[api_query] = results
+    return results
+
+
 class PhotoAdapter(selection_engine.MediaAdapter):
     """Адаптер фото для ядра отбора (selection_engine.select).
 
@@ -7712,6 +7754,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
         per_source = []
         for source_name, fetch in (("shelf", _shelf_search_photos),
                                     ("museum", _museum_search_photos),
+                                    ("commons", _commons_search_photos),
                                     ("openverse", _openverse_search_photos),
                                     ("pexels", _pexels_search_photos),
                                     ("pixabay", _pixabay_search_photos),
@@ -12229,6 +12272,11 @@ def candidate_caption(p):
         extra.append(f"dated {meta.get('begin')}-{meta.get('end')}")
     if meta.get("culture"):
         extra.append(str(meta["culture"]))
+    commons = p.get("_commons_meta") or {}
+    if commons.get("date"):
+        # Дата создания со страницы файла Commons («circa 1422») — судье
+        # мира это то же знание, что годы музейного паспорта.
+        extra.append(f"dated {commons['date']}")
     return (text + ("; " + ", ".join(extra) if extra else "")).strip()
 
 
@@ -12507,7 +12555,7 @@ def candidate_provenance(p):
     if not isinstance(p, dict):
         return None
     shelf = p.get("_shelf_meta")
-    meta = p.get("_museum_meta") or p.get("_openverse_meta") or shelf
+    meta = p.get("_museum_meta") or p.get("_openverse_meta") or p.get("_commons_meta") or shelf
     if not meta:
         return None
     out = {"id": p.get("id"), "title": p.get("alt") or None,
@@ -12710,6 +12758,9 @@ def _selection_stack_signature():
         # Прямые API музеев — НОВЫЙ источник кандидатов с известной эпохой,
         # меняет состав пула так же, как включение Openverse.
         feature_flags.enabled("MUSEUM_SOURCES_ENABLED"),
+        # Wikimedia Commons (только PD/CC0 без атрибуции) — новый источник
+        # кандидатов: меняет состав пула так же, как включение Openverse.
+        feature_flags.enabled("COMMONS_ENABLED"),
         MUSEUM_SOURCES_VERSION,
         # ПАСПОРТ МИРА ЭПИЗОДА. Меняет якорь, который подставляется в КАЖДЫЙ
         # запрос из брифа и в каскад архивов, то есть меняет сам текст
@@ -12897,7 +12948,7 @@ SELECTION_CODE_MODULES = (
     "pipeline_smart", "selection_engine", "selection_attempt", "shot_judge", "world_card",
     "museum_sources", "shot_types", "query_fusion", "stock_query_planner", "met_catalog",
     "shelf_index", "visual_director", "shot_director", "europeana_corpus", "source_health",
-    "channel_profile")
+    "channel_profile", "commons_source")
 _CODE_SIGS = {}
 
 

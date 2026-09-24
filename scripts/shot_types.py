@@ -67,6 +67,11 @@ SOURCE_CAPABILITIES = {
     # без замера значило бы повторить ровно ту ошибку, которую замер
     # маршрутизации 14.09 уже исправил.
     "shelf":     {"supports": ("object", "illustration", "map", ANY), "structured": True},
+    # Wikimedia Commons: хроники, трактаты, картины и снимки предметов —
+    # сцены в том числе (миниатюра битвы — это сцена, нарисованная
+    # современником; замер эп.94, docs/quality/RESEARCHER_PROTO_EP94.md).
+    # Фактур там почти нет — не спрашиваем.
+    "commons":   {"supports": ("object", "scene", "illustration", "map", ANY)},
     "openverse": {"supports": ("object", "scene", "illustration", "texture", "map", ANY)},
     "pexels":    {"supports": ("object", "scene", "illustration", "texture", "map", ANY)},
     "pixabay":   {"supports": ("object", "scene", "illustration", "texture", "map", ANY)},
