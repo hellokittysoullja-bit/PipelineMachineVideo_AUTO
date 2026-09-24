@@ -84,7 +84,7 @@ class Embedder:
     def _key(self, url):
         return self.ps._cascade_key(url)
 
-    def image(self, url, headers):
+    def image_vec(self, url, headers):
         import numpy as np
         if not url:
             return None
@@ -111,7 +111,7 @@ class Embedder:
         np.save(os.path.join(self.write_dir, key + ".npy"), vec[0])
         return vec[0]
 
-    def text(self, text):
+    def text_vec(self, text):
         v = self.ps._gate_embed(text=text)
         return None if v is None else v[0]
 
@@ -137,12 +137,12 @@ def fetch(url, headers):
 def rank_by_text(rows, text, emb):
     """Кандидаты по убыванию близости превью к тексту; без превью — в хвост
     в прежнем порядке."""
-    t = emb.text(text) if text else None
+    t = emb.text_vec(text) if text else None
     if t is None:
         return list(rows)
     scored, rest = [], []
     for k, r in enumerate(rows):
-        v = emb.image(r.get("probe_url"), r.get("headers"))
+        v = emb.image_vec(r.get("probe_url"), r.get("headers"))
         if v is None:
             rest.append(r)
         else:
@@ -331,6 +331,163 @@ def cmd_recall(a):
     return 0
 
 
+def _label_rows(pools, index, labels, base, emb, plan, kind):
+    """[(ключ, запись, [(строка, метка)] в порядке каскада)] размеченных слотов."""
+    out = []
+    for key, marks in labels.items():
+        slot, k = key.split(":")
+        if kind and k != kind:
+            continue
+        rec = pools.get((int(slot), k))
+        if not rec:
+            continue
+        by_id = {str(index[key][n]["id"]): v for n, v in marks.items()}
+        orders = orders_for(rec, emb, plan.get(rec.get("block_text") or "", []), base.get(int(slot)))
+        rows, seen = [], set()
+        for r in orders["cascade"] + orders["cascade_noblock"] + orders["now"]:
+            rid = str(r.get("id"))
+            if rid in by_id and rid not in seen:
+                seen.add(rid)
+                rows.append((r, by_id[rid]))
+        out.append((key, rec, rows))
+    return out
+
+
+def rank_key(rank):
+    """verify_rank -> сравнимый ключ: отказ ниже всего."""
+    return (-9,) if rank is None else rank
+
+
+def cmd_bench(a):
+    """Проверка финалистов против разметки. Платно (шлюз): ответы кэшируются
+    по байтам картинки и тексту вопроса — повторный прогон бесплатен."""
+    import llm_gateway
+    import shot_judge
+    import world_card
+    pools = load_pools(a.run_dir)
+    plan = load_phrase_queries(a.phrase_queries)
+    index = json.load(open(a.index, encoding="utf-8"))
+    labels = json.load(open(a.labels, encoding="utf-8"))
+    emb = Embedder(a.emb_cache or [], os.path.join(os.path.dirname(a.index), "emb"))
+    base = base_slot_durs(pools)
+    card = json.load(open(a.world_card, encoding="utf-8")) if a.world_card else None
+    setting = world_card.judge_setting(card) if card else None
+    gw = llm_gateway.Gateway(spend_cap=a.max_spend)
+    model = a.model
+    cache = a.cache_dir or os.path.join(os.path.dirname(a.index), "judge_cache")
+    stats = {"pairs": 0, "pairs_ok": 0.0, "bad_accepted": 0, "bad": 0, "good_vetoed": 0, "good": 0,
+             "world_good_rejected": 0, "world_bad_passed": 0, "slots": [], "cost": 0}
+    for key, rec, rows in _label_rows(pools, index, labels, base, emb, plan, a.kind):
+        brief = rec.get("shot_brief") or rec.get("query")
+        def ask(item):
+            r, lab = item
+            path = fetch(r.get("probe_url"), r.get("headers"))
+            if not path:
+                return None
+            try:
+                ans, info = shot_judge.verify(gw, model, phrase=rec.get("block_text"), brief=brief,
+                                              setting=setting, path=path, kind=rec["kind"],
+                                              cache_dir=cache, max_side=a.side,
+                                              reasoning={"on": True, "off": False}.get(a.reasoning),
+                                              caption=r.get("text") if a.caption else None)
+                wok, winfo = None, {}
+                if a.world:
+                    wok, _why, winfo = shot_judge.world_check(
+                        gw, model, phrase=rec.get("block_text"), brief=brief, setting=setting,
+                        path=path, kind=rec["kind"], cache_dir=cache)
+                grid_path = None
+                if a.grid:
+                    grid_path = path + ".keep.jpg"
+                    os.replace(path, grid_path)
+                    path = grid_path
+            finally:
+                if not a.grid and os.path.exists(path):
+                    os.remove(path)
+            return r, lab, ans, wok, info.get("cost", 0) + winfo.get("cost", 0), grid_path
+
+        import concurrent.futures
+        if a.finalists:
+            # Как в пайплайне: проверяются только лучшие по сетке (оценки
+            # сетки — из кэша прошлого прогона со --grid).
+            have = []
+            for r, lab in rows[:a.handoff]:
+                pth = fetch(r.get("probe_url"), r.get("headers"))
+                if pth:
+                    have.append((r, lab, pth))
+            gr = shot_judge.judge(gw, model, phrase=rec.get("block_text"), brief=brief,
+                                  candidates=[(str(r.get("id")), pth) for r, _l, pth in have],
+                                  cache_dir=a.grid_cache or cache, report={},
+                                  kind=rec["kind"], setting=setting) or {}
+            for _r, _l, pth in have:
+                os.remove(pth)
+            top = sorted(range(len(have)), key=lambda k: (-(gr.get(str(have[k][0].get("id")), -1)), k))
+            keep = {id(have[k][0]) for k in top[:a.finalists]}
+            rows = [(r, lab) for r, lab, _p in have if id(r) in keep]
+        with concurrent.futures.ThreadPoolExecutor(a.workers) as ex:
+            got = list(ex.map(ask, rows))
+        grid = {}
+        if a.grid:
+            have = [(str(g[0].get("id")), g[5]) for g in got if g is not None and g[5]]
+            rep = {}
+            grid = shot_judge.judge(gw, model, phrase=rec.get("block_text"), brief=brief,
+                                    candidates=have, cache_dir=a.grid_cache or cache, report=rep,
+                                    kind=rec["kind"], setting=setting) or {}
+            stats["cost"] += rep.get("cost", 0)
+            for _cid, gp in have:
+                os.remove(gp)
+        scored = []
+        for g in got:
+            if g is None:
+                continue
+            r, lab, ans, wok, cost, _gp = g
+            stats["cost"] += cost
+            if ans is None:
+                continue
+            rank = shot_judge.verify_rank(ans)
+            if a.grid:
+                gs = grid.get(str(r.get("id")))
+                rank = None if rank is None else rank + ((gs if isinstance(gs, int) else -1),)
+            scored.append((r, lab, rank, wok, ans))
+            stats.setdefault("tiles", []).append({
+                "key": key, "id": r.get("id"), "label": lab, "answers": ans, "world_ok": wok,
+                "grid": grid.get(str(r.get("id"))) if a.grid else None, "pos": len(scored) - 1})
+            if lab == 0:
+                stats["bad"] += 1
+                stats["bad_accepted"] += 1 if (rank is not None and rank[0] == 2) else 0
+                stats["world_bad_passed"] += 1 if wok else 0
+            else:
+                stats["good"] += 1
+                stats["good_vetoed"] += 1 if rank is None else 0
+                stats["world_good_rejected"] += 1 if wok is False else 0
+        for i in range(len(scored)):
+            for j in range(i + 1, len(scored)):
+                a1, a2 = scored[i], scored[j]
+                if a1[1] == a2[1]:
+                    continue
+                hi, lo = (a1, a2) if a1[1] > a2[1] else (a2, a1)
+                stats["pairs"] += 1
+                kh, kl = rank_key(hi[2]), rank_key(lo[2])
+                stats["pairs_ok"] += 1.0 if kh > kl else 0.5 if kh == kl else 0.0
+        head = scored[:a.handoff]
+        if head:
+            pick = max(range(len(head)), key=lambda k: (rank_key(head[k][2]), -k))
+            stats["slots"].append({"key": key, "best": max(x[1] for x in head),
+                                   "pick": head[pick][1], "pick_id": head[pick][0].get("id"),
+                                   "pick_answers": head[pick][4]})
+        print(f"  {key}: оценено {len(scored)}", flush=True)
+    s = stats
+    print(f"пары верно: {s['pairs_ok']:.1f}/{s['pairs']}; брак принят за точный: "
+          f"{s['bad_accepted']}/{s['bad']}; годных отклонено: {s['good_vetoed']}/{s['good']}; "
+          f"прежняя проверка мира: годных отклонено {s['world_good_rejected']}/{s['good']}, "
+          f"брака пропущено {s['world_bad_passed']}/{s['bad']}; цена {s['cost']}")
+    for sl in s["slots"]:
+        print(f"  {sl['key']}: лучшее в первых {a.handoff} = {sl['best']}, выбрано = {sl['pick']}")
+    if a.out:
+        with open(a.out, "w", encoding="utf-8") as f:
+            json.dump(s, f, ensure_ascii=False, indent=1)
+    return 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -344,7 +501,28 @@ def main(argv=None):
     r.add_argument("--index", required=True)
     r.add_argument("--handoff", type=int, default=20)
     r.add_argument("--out")
-    for sp in (s, r):
+    b = sub.add_parser("bench")
+    b.add_argument("run_dir")
+    b.add_argument("labels")
+    b.add_argument("--index", required=True)
+    b.add_argument("--world-card")
+    b.add_argument("--model", default="qwen/qwen3.7-plus")
+    b.add_argument("--kind", default="photo")
+    b.add_argument("--handoff", type=int, default=10)
+    b.add_argument("--max-spend", type=int, default=150000)
+    b.add_argument("--workers", type=int, default=8)
+    b.add_argument("--side", type=int, default=512, help="сторона картинки для проверки")
+    b.add_argument("--reasoning", choices=("default", "on", "off"), default="default")
+    b.add_argument("--caption", action="store_true", help="подпись источника в вопрос")
+    b.add_argument("--finalists", type=int, default=0,
+                   help="проверять только N лучших по сетке (как в пайплайне)")
+    b.add_argument("--grid-cache", help="кэш оценок сетки (повтор без кэша проверки)")
+    b.add_argument("--cache-dir", help="кэш ответов (по умолчанию рядом с index.json)")
+    b.add_argument("--world", action="store_true", help="плюс прежняя проверка мира")
+    b.add_argument("--grid", action="store_true", help="плюс сетка судьи: разводит равные уровни")
+    b.add_argument("--out")
+    b.set_defaults(fn=cmd_bench)
+    for sp in (s, r, b):
         sp.add_argument("--phrase-queries", help="media_plan/stock_queries.json эпизода")
         sp.add_argument("--emb-cache", action="append",
                         help="папка кэша эмбеддингов каскада (можно несколько)")

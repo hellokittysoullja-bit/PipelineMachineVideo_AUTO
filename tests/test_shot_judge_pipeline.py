@@ -44,16 +44,37 @@ def test_without_judge_the_order_is_exactly_as_before():
 def test_inactive_judge_leaves_no_trace_in_the_selection_signature(monkeypatch):
     monkeypatch.setenv("SHOT_JUDGE", "1")
     monkeypatch.delenv("LLM_GATEWAY_API_KEY", raising=False)
-    without_key = ps._selection_stack_signature()
+    without_key = ps.candidate_gate_signature(0)
     monkeypatch.setenv("SHOT_JUDGE", "0")
     monkeypatch.setenv("LLM_GATEWAY_API_KEY", "k")
-    flag_off = ps._selection_stack_signature()
-    assert without_key == flag_off and "judge" not in without_key
+    flag_off = ps.candidate_gate_signature(0)
+    assert without_key == flag_off and ps.shot_judge_signature(0) == ""
     monkeypatch.setenv("SHOT_JUDGE", "1")
-    active = ps._selection_stack_signature()
-    assert active != without_key and "judge" in active
+    active = ps.candidate_gate_signature(0)
+    assert active != without_key and "judge" in ps.shot_judge_signature(0)
     monkeypatch.setenv("SHOT_JUDGE_MODEL", "other/model")
-    assert ps._selection_stack_signature() != active, "смена модели меняет победителя"
+    assert ps.candidate_gate_signature(0) != active, "смена модели меняет победителя"
+
+
+def test_paid_judge_only_in_the_hook_slots(monkeypatch):
+    """Решение владельца 24.09: платная проверка — первые SHOT_JUDGE_PAID_SLOTS
+    слотов. Дальше судья не зовётся, и его подпись в ключ кэша слота не
+    входит: смена модели судьи не перекачивает слоты, которых он не видит."""
+    monkeypatch.setenv("SHOT_JUDGE", "1")
+    monkeypatch.setenv("LLM_GATEWAY_API_KEY", "k")
+    last_paid, first_free = ps.SHOT_JUDGE_PAID_SLOTS - 1, ps.SHOT_JUDGE_PAID_SLOTS
+    assert ps.shot_judge_active(last_paid) and not ps.shot_judge_active(first_free)
+    assert ps.shot_judge_signature(first_free) == ""
+    free = ps.candidate_gate_signature(first_free)
+    monkeypatch.setenv("SHOT_JUDGE_MODEL", "other/model")
+    assert ps.candidate_gate_signature(first_free) == free
+    monkeypatch.setenv("SHOT_JUDGE", "0")
+    assert ps.candidate_gate_signature(last_paid) == free, "вне судьи подпись общая"
+    c = {"p": {"id": 1}, "path": "x", "is_dup_free": 1}
+    monkeypatch.setenv("SHOT_JUDGE", "1")
+    monkeypatch.setattr(ps, "_shot_judge_gateway",
+                        lambda: (_ for _ in ()).throw(AssertionError("платный вызов вне хука")))
+    assert ps.judge_candidates(first_free, "photo", "фраза", "brief", [c]) is False
 
 
 def test_judge_candidates_scores_only_non_duplicates(tmp_path, monkeypatch):
@@ -188,38 +209,100 @@ def _tie_setup(tmp_path, monkeypatch, first, second):
     return info, calls
 
 
-def test_top_tie_is_asked_again_in_one_grid_and_decides(tmp_path, monkeypatch):
-    """Живой случай «Вот кинжал»: кинжал и меч оба с 3; ничью решал
-    эмбеддинг — в пользу меча. Переспрос разделивших высшую оценку одной
-    сеткой (в обратном порядке) решает её раньше эмбеддинга."""
-    info, calls = _tie_setup(tmp_path, monkeypatch,
-                             {"sword": 3, "dagger": 3, "other": 1}, {"dagger": 3, "sword": 2})
-    info[0]["relevance"], info[0]["aesthetic_val"] = 0.3, 9.0   # эмбеддинг за меч
-    assert ps.judge_candidates(0, "photo", "Вот кинжал.", "a rondel dagger", info)
-    assert calls[1] == ["dagger", "sword"], "переспрашиваются только разделившие высшую, в обратном порядке"
-    base, _d = ps._score_and_pick(info)
-    assert base["p"]["id"] == "dagger"
+def _fake_verify(answers_by_path):
+    def verify(gw, model, *, path, **_k):
+        return answers_by_path[path], {"call": True}
+    return verify
 
 
-def test_no_tie_or_low_top_asks_once(tmp_path, monkeypatch):
-    info, calls = _tie_setup(tmp_path, monkeypatch, {"sword": 3, "dagger": 2, "other": 1}, None)
-    assert ps.judge_candidates(0, "photo", "x", "y", info) and len(calls) == 1
-    info, calls = _tie_setup(tmp_path, monkeypatch, {"sword": 1, "dagger": 1, "other": 0}, None)
-    assert ps.judge_candidates(0, "photo", "x", "y", info) and len(calls) == 1
+def _verify_setup(tmp_path, monkeypatch, n=3):
+    paths = []
+    for k in range(n):
+        p = str(tmp_path / f"v{k}.jpg")
+        Image.new("RGB", (32, 32), (k * 60, 0, 0)).save(p)
+        paths.append(p)
+    info = [{"path": p, "p": {"id": f"c{k}"}, "is_dup_free": 1, "is_relevant": 1, "size_ok": 1,
+             "sharp_ok": 1, "aesthetic_val": 0.0, "luma_score": 0.0, "min_d": 99}
+            for k, p in enumerate(paths)]
+    monkeypatch.setattr(ps, "_shot_judge_gateway", lambda: object())
+    monkeypatch.setattr(ps, "episode_world_card", lambda: None)
+    import shot_judge
+    monkeypatch.setattr(shot_judge, "judge",
+                        lambda *a, **k: {c["p"]["id"]: 3 for c in info})
+    return info, paths, shot_judge
 
 
-def test_failed_tie_question_keeps_first_scores(tmp_path, monkeypatch):
-    info, calls = _tie_setup(tmp_path, monkeypatch, {"sword": 3, "dagger": 3, "other": 1}, None)
+def test_verification_level_decides_over_the_grid_tie(tmp_path, monkeypatch):
+    """Сетка поставила всем 3 — решает проверка по пунктам: предмет и
+    действие выше, чужой фон — штраф, а не отказ."""
+    info, paths, sj = _verify_setup(tmp_path, monkeypatch)
+    base = {"subject": "yes", "action": "yes", "medium": "photo", "why": ""}
+    monkeypatch.setattr(sj, "verify", _fake_verify({
+        paths[0]: dict(base, subject="close"),
+        paths[1]: dict(base, action="no"),
+        paths[2]: dict(base)}))
     assert ps.judge_candidates(0, "photo", "x", "y", info)
-    assert [c["judge"] for c in info] == [3, 3, 1]
-    assert all(ps.judge_tie_rank(c) == -1 for c in info)
+    assert ps._score_and_pick(info)[0]["p"]["id"] == "c2"
 
+
+def test_spectators_on_background_are_a_penalty_not_a_rejection(tmp_path, monkeypatch):
+    """Упавший рыцарь на турнире со зрителями на фоне (эп.94, слот 4) — точный
+    кадр; бинарная проверка мира заменяла его рыцарем в лесу."""
+    info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=2)
+    fallen = {"subject": "yes", "action": "yes", "medium": "photo", "main_in_world": True,
+              "background_foreign": True, "why": ""}
+    standing = {"subject": "close", "action": "no", "medium": "photo", "main_in_world": True,
+                "background_foreign": False, "why": ""}
+    monkeypatch.setattr(sj, "verify", _fake_verify({paths[0]: standing, paths[1]: fallen}))
+    assert ps.judge_candidates(0, "photo", "x", "y", info)
+    winner = ps._score_and_pick(info)[0]
+    assert winner["p"]["id"] == "c1" and ps.judge_approved(winner)
+
+
+def test_main_subject_out_of_world_is_rejected(tmp_path, monkeypatch):
+    info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=2)
+    knife = {"subject": "yes", "action": "yes", "medium": "photo", "main_in_world": False,
+             "background_foreign": False, "why": "modern tactical knife"}
+    dagger = {"subject": "close", "action": "no", "medium": "object", "main_in_world": True,
+              "background_foreign": False, "why": ""}
+    monkeypatch.setattr(sj, "verify", _fake_verify({paths[0]: knife, paths[1]: dagger}))
+    assert ps.judge_candidates(0, "photo", "x", "y", info)
+    assert info[0]["verify"] == "veto" and not ps.judge_approved(info[0])
+    assert ps._score_and_pick(info)[0]["p"]["id"] == "c1"
+
+
+def test_failed_verification_keeps_grid_order(tmp_path, monkeypatch):
+    info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=2)
+    monkeypatch.setattr(sj, "verify", lambda *a, **k: (None, {"refused": "сбой"}))
+    before = ps._score_and_pick([dict(c) for c in info])[0]["p"]["id"]
+    assert ps.judge_candidates(0, "photo", "x", "y", info)
+    assert all(ps.verify_key(c) == (-1,) for c in info)
+    assert ps._score_and_pick(info)[0]["p"]["id"] == before
+
+
+def test_only_the_grid_finalists_are_verified(tmp_path, monkeypatch):
+    info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=ps.VERIFY_FINALISTS + 2)
+    asked = []
+
+    def verify(gw, model, *, path, **_k):
+        asked.append(path)
+        return None, {}
+    monkeypatch.setattr(sj, "verify", verify)
+    ps.judge_candidates(0, "photo", "x", "y", info)
+    assert len(asked) == ps.VERIFY_FINALISTS
+
+
+def test_binary_world_question_is_gone_from_the_pipeline():
+    """Бинарная проверка мира заменена проверкой по пунктам: по замеру эп.94
+    она отклоняла 6 годных из 33 и пропускала 46 брачных из 71."""
+    src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"), encoding="utf-8").read()
+    assert "judge_world_violation" not in src and "_judge_top_tie" not in src
 
 def test_budget_forecast_warns_once_early(monkeypatch, capsys):
-    """Замер эпизода 94: ~2 300 на слот, 250 слотов при потолке 300 тыс. —
-    судья выключился бы посреди ролика молча. Прогноз называет это один раз."""
+    """~2 300 на слот, 25 платных слотов при потолке 30 тыс. — судья
+    выключился бы посреди хука молча. Прогноз называет это один раз."""
     class GW:
-        spend_cap, spent = 300000, 0
+        spend_cap, spent = 30000, 0
     gw = GW()
     monkeypatch.setattr(ps, "SHOT_JUDGE_EPISODE_SLOTS", 250)
     monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "slots", set())
@@ -230,7 +313,22 @@ def test_budget_forecast_warns_once_early(monkeypatch, capsys):
         ps._judge_budget_forecast(i, gw)
     out = capsys.readouterr().out
     assert out.count("прогноз") == 1 and "SHOT_JUDGE_MAX_SPEND" in out
-    assert ps.SHOT_JUDGE_LOG[0]["cutoff_slot"] == 130
+    assert ps.SHOT_JUDGE_LOG[0]["cutoff_slot"] == 13
+
+
+def test_budget_forecast_counts_only_paid_slots(monkeypatch, capsys):
+    """Эпизод в 250 слотов при прежних ~2 300 на слот: судятся 25, это ~58
+    тыс. при потолке 300 тыс. — предупреждать не о чем."""
+    class GW:
+        spend_cap, spent = 300000, 0
+    gw = GW()
+    monkeypatch.setattr(ps, "SHOT_JUDGE_EPISODE_SLOTS", 250)
+    monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "slots", set())
+    monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "warned", False)
+    for i in range(8):
+        gw.spent += 2300
+        ps._judge_budget_forecast(i, gw)
+    assert "прогноз" not in capsys.readouterr().out
 
 
 def test_budget_forecast_silent_when_it_fits(monkeypatch, capsys):
@@ -244,3 +342,18 @@ def test_budget_forecast_silent_when_it_fits(monkeypatch, capsys):
         gw.spent += 2300
         ps._judge_budget_forecast(i, gw)
     assert "прогноз" not in capsys.readouterr().out
+
+
+def test_candidate_caption_carries_source_text_and_museum_passport():
+    p = {"alt": "Roundel dagger", "url": "https://www.metmuseum.org/art/collection/search/1",
+         "_museum_meta": {"begin": 1400, "end": 1450, "culture": "French"}}
+    cap = ps.candidate_caption(p)
+    assert "roundel dagger" in cap and "dated 1400-1450" in cap and "French" in cap
+    assert ps.candidate_caption({"alt": "", "url": ""}) == ""
+
+
+def test_caption_reaches_the_verification_question():
+    import shot_judge
+    q = shot_judge.verify_question("фраза", "brief", caption="moroccan horsemen perform a tbourida")
+    assert "moroccan horsemen" in q and "may be incomplete or wrong" in q
+    assert "caption" not in shot_judge.verify_question("фраза", "brief").lower()

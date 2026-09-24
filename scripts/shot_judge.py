@@ -372,3 +372,144 @@ def world_check(gateway, model, *, phrase, brief, setting, path, kind="photo", c
             json.dump({"ok": ok, "why": why, "model": model}, f, ensure_ascii=False)
         os.replace(tmp, cp)
     return ok, why, {"cost": price, "call": True}
+
+
+# ПРОВЕРКА ФИНАЛИСТА ПО ПУНКТАМ (план 24.09, этап 5). Бинарная проверка мира
+# выше отклоняла кадр за ЛЮБУЮ мелочь чужого мира — и на эпизоде 94 заменила
+# точный кадр более слабым в трёх слотах из пяти, где точный кадр был
+# (docs/quality/POOL_RECALL_EP94.md: упавший рыцарь на турнире со зрителями
+# на фоне -> рыцарь, стоящий в лесу). Здесь модель не выносит приговор, а
+# отвечает на короткие вопросы по ОДНОМУ кадру; решение принимает код:
+#   * главный предмет не из мира фразы, или кадр — 3D/мультфильм/игрушка —
+#     отказ;
+#   * чужое только на фоне — штраф (ниже чистого кадра того же уровня), не
+#     отказ;
+#   * дальше порядок: предмет (тот / близкая замена / нет), затем действие.
+# Мира нет — вопросы про мир не задаются и не влияют.
+VERIFY_VERSION = 2
+VERIFY_PROMPT = """You check one shot for a documentary video.
+Narration line: «{phrase}»
+Required shot: «{brief}»{world}{caption}
+Look at the picture carefully and answer:
+1. subject: is the main subject the thing the required shot is about? "yes", "close" (same kind of thing, different detail or view) or "no"
+2. action: if the required shot names an action or state, is it shown? "yes", "no" or "none" (no action required)
+3. medium: "photo", "artwork" (painting, drawing, engraving, manuscript), "object" (museum object on a plain background) or "cg" (3D render, cartoon, toy, video game){world_q}
+Reply with JSON only: {{"subject": "...", "action": "...", "medium": "..."{world_keys}, "why": "<short>"}}"""
+VERIFY_WORLD = "\nThe episode's world: {setting}."
+VERIFY_WORLD_Q = """
+4. main_in_world: could the MAIN subject exist in that world (era, culture)? true/false
+5. background_foreign: is there anything ELSE in the picture (background, edges, people around) that could not exist in that world — modern people, clothing, objects, vehicles, signs, spectators? true/false"""
+VERIFY_WORLD_KEYS = ', "main_in_world": true/false, "background_foreign": true/false'
+VERIFY_VIDEO_NOTE = "\nThe picture shows three frames (beginning, middle, end) of ONE video clip; judge the clip."
+# Подпись источника — свидетельство рядом с картинкой. Замер 24.09 (эп.94):
+# все три промаха проверки по одной картинке названы в подписи прямо —
+# «moroccan horsemen perform a tbourida», «fish shaped metal keychain»,
+# «drone shot of a man lying on dry soil». Подпись бывает неполной и
+# неверной, поэтому она — довод, а не приговор.
+VERIFY_CAPTION = ("\nThe source's own caption for this picture (may be incomplete or wrong; "
+                  "use it as evidence, the picture decides): «{caption}»")
+VERIFY_CAPTION_MAX = 240
+_VERIFY_ENUMS = {"subject": ("yes", "close", "no"), "action": ("yes", "no", "none"),
+                 "medium": ("photo", "artwork", "object", "cg")}
+
+
+def verify_question(phrase, brief, setting=None, kind="photo", caption=None):
+    world = VERIFY_WORLD.format(setting=setting) if setting else ""
+    caption = " ".join(str(caption or "").split())[:VERIFY_CAPTION_MAX]
+    text = VERIFY_PROMPT.format(phrase=phrase or "—", brief=brief or phrase or "—", world=world,
+                                caption=VERIFY_CAPTION.format(caption=caption) if caption else "",
+                                world_q=VERIFY_WORLD_Q if setting else "",
+                                world_keys=VERIFY_WORLD_KEYS if setting else "")
+    return text + (VERIFY_VIDEO_NOTE if kind == "video" else "")
+
+
+def parse_verify(text, with_world):
+    """Ответы {subject, action, medium[, main_in_world, background_foreign], why}
+    или None — хоть один пункт не разобран (угадывать ответ за модель нельзя)."""
+    import re
+    m = re.search(r"\{.*\}", text or "", re.S)
+    if not m:
+        return None
+    try:
+        j = json.loads(m.group(0))
+    except ValueError:
+        return None
+    out = {}
+    for key, allowed in _VERIFY_ENUMS.items():
+        v = str(j.get(key, "")).strip().lower()
+        if v not in allowed:
+            return None
+        out[key] = v
+    if with_world:
+        for key in ("main_in_world", "background_foreign"):
+            if not isinstance(j.get(key), bool):
+                return None
+            out[key] = j[key]
+    out["why"] = str(j.get("why") or "")[:300]
+    return out
+
+
+def verify_rank(answers):
+    """Ключ ранжирования по ответам: больше — лучше; None — отказ (кадр не
+    годится ни при каком другом ключе). Ответов нет — (-1, ...): проверки не
+    было, кадр ниже любого проверенного годного, но не отказ."""
+    if answers is None:
+        return (-1, -1, -1)
+    if answers.get("medium") == "cg" or answers.get("main_in_world") is False:
+        return None
+    subject = {"yes": 2, "close": 1, "no": 0}[answers["subject"]]
+    action = 0 if answers["action"] == "no" else 1
+    clean = 0 if answers.get("background_foreign") else 1
+    return (subject, action, clean)
+
+
+# Сторона картинки для проверки. Цена вызова почти целиком — картинка:
+# на 1024 px замер 24.09 дал ~540 токенов баланса за кадр.
+VERIFY_MAX_SIDE = 512
+
+
+def verify(gateway, model, *, phrase, brief, setting, path, kind="photo", cache_dir=None,
+           max_side=VERIFY_MAX_SIDE, reasoning=None, caption=None):
+    """(ответы | None, {"cost", "call", "cache_hit", "refused"}). None —
+    проверки не было (нет шлюза, сбой, неразобранный ответ): вызывающий код
+    остаётся на прежнем ранжировании."""
+    if gateway is None or not path or not os.path.exists(path):
+        return None, {}
+    text = verify_question(phrase, brief, setting, kind, caption)
+    h = hashlib.sha256()
+    for part in ("verify", str(VERIFY_VERSION), model, text, str(max_side), repr(reasoning),
+                 _file_digest(path)):
+        h.update(part.encode("utf-8"))
+        h.update(b"\0")
+    cp = os.path.join(cache_dir, "verify_" + h.hexdigest() + ".json") if cache_dir else None
+    if cp and os.path.exists(cp):
+        try:
+            return json.load(open(cp, encoding="utf-8"))["answers"], {"cache_hit": True}
+        except Exception:
+            pass
+    from PIL import Image
+    try:
+        with Image.open(path) as im:
+            im = flat_rgb(im)
+        im.thumbnail((max_side, max_side))
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=88)
+    except Exception:
+        return None, {}
+    content = [{"type": "text", "text": text}, {"type": "image_url", "image_url": {
+        "url": "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()}}]
+    try:
+        answer, _u, price = gateway.chat(model, content, 400, 1200, reasoning=reasoning)
+    except Exception as e:  # noqa: BLE001 — сбой шлюза: проверки не было
+        return None, {"refused": f"{type(e).__name__}: {e}"[:200]}
+    answers = parse_verify(answer, bool(setting))
+    if answers is None:
+        return None, {"refused": "неразобранный ответ: " + (answer or "")[-200:], "cost": price,
+                      "call": True}
+    if cp:
+        os.makedirs(cache_dir, exist_ok=True)
+        tmp = f"{cp}.{os.getpid()}.{threading.get_ident()}.part"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"answers": answers, "model": model}, f, ensure_ascii=False)
+        os.replace(tmp, cp)
+    return answers, {"cost": price, "call": True}

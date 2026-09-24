@@ -117,3 +117,34 @@ def test_pool_capture_records_what_the_filter_removed_and_why(tmp_path):
     assert [r["id"] for r in rec["pool"]] == [1]
     assert rec["removed"][0]["id"] == 2 and rec["removed"][0]["reason"] == "blocklist:reenactment"
     assert rec["prefilter_order"] == [1, 2] and rec["slot_dur"] == 4.0
+
+
+def test_parse_verify_strict_and_world_optional():
+    import shot_judge as sj
+    ok = '{"subject": "Yes", "action": "none", "medium": "photo", "why": "x"}'
+    assert sj.parse_verify(ok, False)["subject"] == "yes"
+    assert sj.parse_verify(ok, True) is None          # мир спрошен — пункты мира обязательны
+    assert sj.parse_verify('{"subject": "maybe", "action": "none", "medium": "photo"}', False) is None
+    w = ('{"subject": "close", "action": "yes", "medium": "artwork", "main_in_world": true, '
+         '"background_foreign": false}')
+    assert sj.parse_verify(w, True)["main_in_world"] is True
+
+
+def test_verify_rank_background_is_penalty_main_is_veto():
+    import shot_judge as sj
+    base = {"subject": "yes", "action": "yes", "medium": "photo", "main_in_world": True,
+            "background_foreign": False}
+    clean = sj.verify_rank(base)
+    spectators = sj.verify_rank(dict(base, background_foreign=True))
+    substitute = sj.verify_rank(dict(base, subject="close"))
+    assert clean > spectators > substitute             # фон — штраф внутри уровня предмета
+    assert sj.verify_rank(dict(base, main_in_world=False)) is None
+    assert sj.verify_rank(dict(base, medium="cg")) is None
+    assert sj.verify_rank(None) < substitute           # не проверено — ниже проверенного годного
+
+
+def test_verify_question_without_world_asks_no_world_items():
+    import shot_judge as sj
+    q = sj.verify_question("фраза", "brief")
+    assert "main_in_world" not in q and "world" not in q.split("Reply")[0].lower().replace("worldwide", "")
+    assert "main_in_world" in sj.verify_question("фраза", "brief", setting="historical, 1300 AD")

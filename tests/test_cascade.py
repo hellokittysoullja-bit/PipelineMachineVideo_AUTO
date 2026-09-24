@@ -75,7 +75,7 @@ def test_no_model_keeps_order(tmp_path, monkeypatch):
 def test_cascade_runs_only_with_an_active_judge():
     src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"), encoding="utf-8").read()
     i = src.index("candidates = cascade_reorder(")
-    assert "if shot_judge_active():" in src[i - 80:i]
+    assert "if shot_judge_active(index):" in src[i - 80:i]
     assert "cascade_preview_n()" in src[src.index("def shot_judge_signature"):][:1500]
 
 
@@ -106,6 +106,6 @@ def test_second_page_runs_only_for_a_missing_or_known_bad_frame():
     body = src[src.index("\ndef main("):]
     i = body.index("with cascade_page(1):")
     head = body[i - 400:i]
-    assert "known_bad_reason(cur_att.verdicts)" in head and "shot_judge_active()" in head
+    assert "known_bad_reason(cur_att.verdicts)" in head and "shot_judge_active(i)" in head
     tail = body[i:i + 500]
     assert "not known_bad_reason(page2_att.verdicts)" in tail, "брак второй страницы не заменяет кадр"

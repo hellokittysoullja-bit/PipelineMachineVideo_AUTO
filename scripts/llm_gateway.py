@@ -191,7 +191,8 @@ class Gateway:
 
     # ---------------------------------------------------------------- чат
 
-    def chat(self, model, content, max_tokens, estimate_prompt_tokens, temperature=0.0, timeout=180):
+    def chat(self, model, content, max_tokens, estimate_prompt_tokens, temperature=0.0, timeout=180,
+             reasoning=None):
         """Один вызов чата. content — список частей OpenAI (text / image_url).
         Возвращает (текст ответа, usage, цена). Потолок проверяется ДО вызова
         по резерву (оценка входа + max_tokens выхода)."""
@@ -202,11 +203,14 @@ class Gateway:
         with self._lock:
             first = self._first_call.setdefault(model, threading.Lock())
         if model in self._ratio:
-            return self._chat(model, content, max_tokens, estimate_prompt_tokens, temperature, timeout)
+            return self._chat(model, content, max_tokens, estimate_prompt_tokens, temperature, timeout,
+                              reasoning)
         with first:
-            return self._chat(model, content, max_tokens, estimate_prompt_tokens, temperature, timeout)
+            return self._chat(model, content, max_tokens, estimate_prompt_tokens, temperature, timeout,
+                              reasoning)
 
-    def _chat(self, model, content, max_tokens, estimate_prompt_tokens, temperature, timeout):
+    def _chat(self, model, content, max_tokens, estimate_prompt_tokens, temperature, timeout,
+              reasoning=None):
         base = self.cost(model, estimate_prompt_tokens, max_tokens)
         reserve = math.ceil(base * max(1.0, self._ratio.get(model, 1.0)))
         with self._lock:
@@ -219,10 +223,17 @@ class Gateway:
                 self.spent += reserve
                 self.lost_bodies += 1
         try:
-            r = self._request("POST", "/chat/completions", {
-                "model": model, "temperature": temperature, "max_tokens": max_tokens,
-                "messages": [{"role": "user", "content": content}]}, timeout=timeout,
-                on_lost_body=lost_body)
+            body = {"model": model, "temperature": temperature, "max_tokens": max_tokens,
+                    "messages": [{"role": "user", "content": content}]}
+            if reasoning is not None:
+                # Рассуждающие модели шлюза (qwen3.7-plus) тратят выход на
+                # рассуждение: медленнее, дороже и при малом max_tokens —
+                # пустой ответ. Выключатель проверен живьём 24.09: только
+                # {"reasoning": {"enabled": false}} даёт 0 токенов рассуждения;
+                # reasoning_effort и enable_thinking шлюз игнорирует.
+                body["reasoning"] = {"enabled": bool(reasoning)}
+            r = self._request("POST", "/chat/completions", body, timeout=timeout,
+                              on_lost_body=lost_body)
         except PaymentRequired as e:
             self.dead = str(e)
             raise

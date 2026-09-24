@@ -5991,20 +5991,23 @@ def _score_and_pick(candidates_info, director_score_fn=None):
     этапе отбора). Стоит СРАЗУ после is_relevant, ДО aesthetic — та же
     логика приоритета, что и у extra Директора: "не размыто" важнее
     "красиво", но не важнее "по теме"/"не дубль"/"нужный размер"."""
-    base_best, base_score = None, (-1, -1, -2, -2, -1, -1, -1, -1, -100.0, -1.0, -1)
-    dir_best, dir_score = None, (-1, -1, -2, -2, -1, -1, -1, -100.0, -1, -100.0, -1.0, -1)
+    base_best, base_score = None, (-1, -1, (-10,), -2, -1, -1, -1, -1, -100.0, -1.0, -1)
+    dir_best, dir_score = None, (-1, -1, (-10,), -2, -1, -1, -1, -100.0, -1, -100.0, -1.0, -1)
     for c in candidates_info:
         sharp_ok = c.get("sharp_ok", 1)
         # rel_bucket — см. RELEVANCE_RANK_BUCKET: «насколько по теме» решает
         # раньше «насколько красиво», гейты остаются гейтами. is_relevant
         # (бинарный) при этом стоит выше ритма крупностей — см. докстринг.
         rel_bucket = relevance_rank_bucket(c.get("relevance"))
-        # judge_rank — оценка судьи кадров (SHOT_JUDGE, см. judge_candidates):
-        # сразу после анти-дубля, ВЫШЕ гейтов эмбеддинга — судья смотрит на
-        # сам кадр с описанием кадра и рассуждает, а эмбеддинг сравнивает
-        # числа. Судьи не было — у всех кандидатов одно и то же -1, порядок
-        # остальных ключей байт-в-байт прежний.
-        score = (c["is_dup_free"], c.get("is_readable", 1), judge_rank(c), judge_tie_rank(c), c["is_relevant"], c["size_ok"], sharp_ok,
+        # verify_key, затем judge_rank — проверка финалистов по пунктам и
+        # оценка судьи сеткой (SHOT_JUDGE, см. judge_candidates): сразу после
+        # анти-дубля, ВЫШЕ гейтов эмбеддинга — судья смотрит на сам кадр с
+        # описанием кадра и рассуждает, а эмбеддинг сравнивает числа. Уровень
+        # проверки (предмет, действие, фон) выше оценки сетки: сетка сравнивает
+        # кандидатов между собой и разводит равные уровни. Судьи не было — у
+        # всех кандидатов одни и те же значения, порядок остальных ключей
+        # байт-в-байт прежний.
+        score = (c["is_dup_free"], c.get("is_readable", 1), verify_key(c), judge_rank(c), c["is_relevant"], c["size_ok"], sharp_ok,
                  rel_bucket, c["aesthetic_val"], c["luma_score"], c["min_d"])
         if score > base_score:
             base_best, base_score = c, score
@@ -6023,7 +6026,7 @@ def _score_and_pick(candidates_info, director_score_fn=None):
             # У Директора своя, более сильная ось смысла (extra — relevance
             # ПОЛНОЙ фразы ансамблем), поэтому корзина relevance по запросу
             # стоит ПОСЛЕ неё: разбивает ничьи Директора до эстетики.
-            dscore = (c["is_dup_free"], c.get("is_readable", 1), judge_rank(c), judge_tie_rank(c), c["is_relevant"], c["size_ok"], sharp_ok,
+            dscore = (c["is_dup_free"], c.get("is_readable", 1), verify_key(c), judge_rank(c), c["is_relevant"], c["size_ok"], sharp_ok,
                       extra, rel_bucket, c["aesthetic_val"], c["luma_score"], c["min_d"])
             if dscore > dir_score:
                 dir_best, dir_score = c, dscore
@@ -6031,18 +6034,15 @@ def _score_and_pick(candidates_info, director_score_fn=None):
 
 
 def _meaning_key(c):
-    """Ключи СМЫСЛА кандидата: дубль, читаемость, оценка судьи,
-    релевантность. Переспрос ничьей (judge_tie) сюда не входит: он уточняет
-    порядок равных, а не делает кадр с первой оценкой 3 «хуже по смыслу»,
-    чем другой с той же оценкой — иначе техническая замена размытого
-    кандидата отменялась бы из-за второго замера того же судьи.
+    """Ключи СМЫСЛА кандидата: дубль, читаемость, проверка финалиста,
+    оценка судьи, релевантность.
 
     Ритм крупностей (size_ok) сюда НЕ входит, хотя в кортеже _score_and_pick
     стоит выше резкости: это монтажный ритм, а не смысл. С ним в ключе
     размытый победитель со «свежей» крупностью оставался на экране, если
     резкий кандидат того же смысла повторял крупность соседнего кадра, —
     ритм решал за смысл ровно там, где его место ниже."""
-    return (c["is_dup_free"], c.get("is_readable", 1), judge_rank(c), c["is_relevant"])
+    return (c["is_dup_free"], c.get("is_readable", 1), verify_key(c), judge_rank(c), c["is_relevant"])
 
 
 def _repick(candidates_info, failed, score_fn, director_assist, excluded, same_meaning):
@@ -6180,6 +6180,37 @@ def semantic_context_text(blocks, i):
 
 _PEXELS_SEARCH_CACHE = {}   # {api_query: [photo, ...]} — на процесс, см. ниже
 
+# ДИСКОВЫЙ КЭШ ВЫДАЧИ СТОКОВ (план 24.09, этап 1). Кэш на процесс выше живёт
+# один рендер: каждый следующий рендер того же эпизода заново тратил квоту
+# Pexels (200 запросов в час) на те же самые запросы. Выдача стока по
+# запросу меняется медленно — месяц. Хранится разобранный ответ API; ключ —
+# источник и параметры запроса БЕЗ ключа доступа (у Pixabay он в адресе).
+# Сбой запроса не кэшируется: исключение уходит вызывающему, как раньше.
+SEARCH_DISK_CACHE_TTL_SEC = 30 * 24 * 3600
+
+
+def cached_search_json(source, key, fetch):
+    """Ответ fetch() с дисковым кэшем по (source, key); пустой ответ тоже
+    кэшируется — пустая выдача такой же ответ источника, как полная."""
+    d = os.environ.get("SEARCH_CACHE_DIR") or os.path.join(TEMP_FOLDER, "search_cache")
+    fp = os.path.join(d, f"{source}_{hashlib.sha1(key.encode('utf-8')).hexdigest()}.json")
+    try:
+        if time.time() - os.path.getmtime(fp) < SEARCH_DISK_CACHE_TTL_SEC:
+            with open(fp, encoding="utf-8") as f:
+                return json.load(f)
+    except (OSError, ValueError):
+        pass
+    data = fetch()
+    try:
+        os.makedirs(d, exist_ok=True)
+        tmp = f"{fp}.{os.getpid()}.{threading.get_ident()}.part"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        os.replace(tmp, fp)
+    except OSError:
+        pass
+    return data
+
 
 def _pexels_search_photos(api_query):
     """Выдача Pexels по УЖЕ подготовленной строке запроса, с кэшем на процесс.
@@ -6205,12 +6236,15 @@ def _pexels_search_photos(api_query):
         # зависят (см. снятый гейт в pexels_photo/pexels_video).
         return []
     q = urllib.parse.quote(api_query)
-    req = urllib.request.Request(
-        f"https://api.pexels.com/v1/search?query={q}&per_page=80&orientation=landscape",
-        headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=15) as r:
-        _note_pexels_quota(r)
-        data = json.load(r)
+
+    def fetch():
+        req = urllib.request.Request(
+            f"https://api.pexels.com/v1/search?query={q}&per_page=80&orientation=landscape",
+            headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            _note_pexels_quota(r)
+            return json.load(r)
+    data = cached_search_json("pexels_photo", f"{api_query}|80|landscape", fetch)
     photos = data.get("photos") or []
     _PEXELS_SEARCH_CACHE[api_query] = photos
     return photos
@@ -6957,9 +6991,11 @@ def _pixabay_search_photos(api_query):
         url = (f"https://pixabay.com/api/?key={_ms.PIXABAY_API_KEY}"
                f"&q={urllib.parse.quote(api_query)}&image_type=photo"
                f"&orientation=horizontal&per_page=50&safesearch=true")
-        req = urllib.request.Request(url, headers={"User-Agent": UA})
-        with urllib.request.urlopen(req, timeout=20) as r:
-            data = json.load(r)
+        def fetch():
+            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}),
+                                        timeout=20) as r:
+                return json.load(r)
+        data = cached_search_json("pixabay_photo", f"{api_query}|50|horizontal", fetch)
         for h in (data.get("hits") or []):
             img = h.get("largeImageURL") or h.get("webformatURL")
             if not img:
@@ -7008,9 +7044,11 @@ def _pixabay_search_videos(api_query):
             return []
         url = (f"https://pixabay.com/api/videos/?key={_ms.PIXABAY_API_KEY}"
                f"&q={urllib.parse.quote(api_query)}&per_page=50&safesearch=true")
-        req = urllib.request.Request(url, headers={"User-Agent": UA})
-        with urllib.request.urlopen(req, timeout=20) as r:
-            data = json.load(r)
+        def fetch():
+            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}),
+                                        timeout=20) as r:
+                return json.load(r)
+        data = cached_search_json("pixabay_video", f"{api_query}|50", fetch)
         for h in (data.get("hits") or []):
             files = []
             for v in (h.get("videos") or {}).values():
@@ -7419,7 +7457,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                          + ([text_key] if text_key else [])
                          + ([_brief_key] if _brief_key else []))
         qhash = hashlib.md5(qkey.encode()).hexdigest()[:8]
-        gate_sig = candidate_gate_signature().split(":", 1)[-1]
+        gate_sig = candidate_gate_signature(request.index).split(":", 1)[-1]
         cf = os.path.join(cache, f"{index:04d}_{qhash}_{gate_sig}.jpg")
         return cf
 
@@ -7704,7 +7742,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                 # честный cost-tradeoff расширения пула).
                 good_needed = max(good_needed, _director_min_pool_for(index))
             candidates_info = []
-            if shot_judge_active():
+            if shot_judge_active(index):
                 candidates = cascade_reorder(candidates, request.shot_brief or query,
                                              cf, download_probe, index)
                 skip = CASCADE_PAGE.get() * _photo_dedup_max_tries_for(index)
@@ -7861,7 +7899,10 @@ class PhotoAdapter(selection_engine.MediaAdapter):
             # по режиму ЗДЕСЬ же, до сборки шорт-листа/импорта модуля — не
             # тратим время впустую при off (тот же паттерн, что resolve_
             # queries() уже применяет к SHOT_DIRECTOR_MODE).
-            if (arbiter_text is not None and winner is not None
+            # Судья кадров уже смотрел этот слот (judged) — арбитр не
+            # зовётся: вторая модель, перебивающая первую, делала выбор
+            # зависимым от того, кто спросил последним (план 24.09).
+            if (arbiter_text is not None and winner is not None and not judged
                     and feature_flags.mode("VLM_ARBITER_MODE") == "on"):
                 # Открывающий кадр — отдельный, ШИРЕ, шорт-лист (см.
                 # _build_opening_shortlist) и отдельный промпт (критерий
@@ -8070,9 +8111,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
         vetoed = set()
         while True:
             file_ok = _downloaded_ok(cf)
-            world_bad = file_ok and judge_world_violation(index, "photo", request, cf)
-            if file_ok and not world_bad and (
-                    judge_approved(winner) or not smart_relevance_veto(cf, query)):
+            if file_ok and (judge_approved(winner) or not smart_relevance_veto(cf, query)):
                 break
             nxt = None
             if winner is not None and veto_repicks < VETO_REPICK_MAX:
@@ -11642,7 +11681,9 @@ def judge_candidates(index, kind, phrase, brief, candidates_info):
     возвращает True, если судья отработал по всему слоту."""
     for c in candidates_info:
         c["judge"] = None
-        c["judge_tie"] = None
+        c["verify"] = None
+    if index is not None and index >= SHOT_JUDGE_PAID_SLOTS:
+        return False   # платная проверка — только хук (см. SHOT_JUDGE_PAID_SLOTS)
     gw = _shot_judge_gateway()
     # У видео судья смотрит ленту из трёх кадров ролика (judge_path), у
     # фото — сам кадр.
@@ -11668,7 +11709,7 @@ def judge_candidates(index, kind, phrase, brief, candidates_info):
         return False
     for c in judged:
         c["judge"] = scores[str(c["p"].get("id"))]
-    _judge_top_tie(index, kind, phrase, brief, judged, gw, model, setting)
+    _verify_finalists(index, kind, phrase, brief, judged, gw, model, setting)
     _judge_budget_forecast(index, gw)
     return True
 
@@ -11679,7 +11720,8 @@ def _judge_budget_forecast(index, gw):
     при кэш-хитах он завышен — ошибка в сторону раннего предупреждения."""
     st = _SHOT_JUDGE_STATE
     st.setdefault("slots", set()).add(index)
-    n, total = len(st["slots"]), SHOT_JUDGE_EPISODE_SLOTS
+    # Платно судятся только первые SHOT_JUDGE_PAID_SLOTS слотов — прогноз по ним.
+    n, total = len(st["slots"]), min(SHOT_JUDGE_EPISODE_SLOTS, SHOT_JUDGE_PAID_SLOTS)
     cap = getattr(gw, "spend_cap", None)
     if st.get("warned") or not cap or total <= 0 or n < SHOT_JUDGE_FORECAST_AFTER:
         return
@@ -11696,70 +11738,78 @@ def _judge_budget_forecast(index, gw):
                            "per_slot": gw.spent // n, "cutoff_slot": at})
 
 
-def _judge_top_tie(index, kind, phrase, brief, judged, gw, model, setting):
-    """Ничья на высшей оценке — переспрос одной сеткой, в обратном порядке.
+# ПРОВЕРКА ФИНАЛИСТОВ ПО ПУНКТАМ (shot_judge.verify, план 24.09). Сетка
+# сравнивает кандидатов между собой и шумит; бинарная проверка мира,
+# стоявшая здесь раньше, отклоняла кадр за ЛЮБУЮ мелочь чужого мира и на
+# эпизоде 94 заменила точный кадр более слабым в трёх слотах из пяти, где
+# точный был (docs/quality/POOL_RECALL_EP94.md). Теперь лучшие по сетке
+# VERIFY_FINALISTS кадров проходят короткие вопросы по одному кадру;
+# решение — у кода (shot_judge.verify_rank): главный предмет не из мира или
+# 3D/мультфильм — отказ, чужое на фоне — штраф, дальше предмет и действие.
+# Замер на размеченных кадрах эп.94 — docs/quality/POOL_RECALL_EP94.md.
+VERIFY_FINALISTS = 5
+# Рассуждение модели в проверке выключено по замеру (эп.94, 223 кадра):
+# без него порядок почти тот же (пары верно 78% против 80% на части
+# кадров с рассуждением и картинкой 1024 px), а вызов в разы быстрее и
+# дешевле (~200 токенов баланса за кадр против ~540) и не обрывается
+# пустым ответом на лимите выхода.
+VERIFY_REASONING = False
 
-    Оценки кандидатов из РАЗНЫХ сеток даны относительно разных соседей, и
-    одна оценка шумит: на стенде (36 кадров) повтор того же вопроса без
-    кэша давал верных пар 94/101/91, среднее двух прогонов — 106-111.
-    Живой случай (эпизод 94, «Вот кинжал»): рондельный кинжал Мет и меч
-    Pixabay оба получили 3, и ничью решили эмбеддинг и эстетика — в пользу
-    меча. Переспрашиваются только разделившие высшую оценку (одна сетка),
-    их вторая оценка — ключ сразу после первой (judge_tie_rank). Сбой
-    переспроса — ничья остаётся прежней, первые оценки не трогаются."""
+
+def _verify_finalists(index, kind, phrase, brief, judged, gw, model, setting):
+    """c["verify"] лучшим по сетке кандидатам: кортеж уровня или "veto".
+    Сбой проверки кадра — None: кадр стоит ниже проверенных годных, но не
+    бракуется."""
     import shot_judge
-    top = max(c["judge"] for c in judged)
-    tied = [c for c in judged if c["judge"] == top]
-    if top < SHOT_JUDGE_MIN_SCORE or len(tied) < 2:
-        return
-    tied = tied[:shot_judge.LAYOUTS[kind][2]]
-    rep = {}
-    again = shot_judge.judge(gw, model, phrase=phrase, brief=brief,
-                             candidates=[(str(c["p"].get("id")), c.get("judge_path") or c["path"])
-                                         for c in reversed(tied)],
-                             cache_dir=os.path.join(TEMP_FOLDER, "shot_judge_cache"), report=rep,
-                             kind=kind, setting=setting)
-    SHOT_JUDGE_LOG.append({"index": index, "kind": kind, "model": model, "brief": brief,
-                           "setting": setting, "tie_of": top, "scores": again, **rep})
-    if again is None:
-        return
-    for c in tied:
-        c["judge_tie"] = again[str(c["p"].get("id"))]
+    order = sorted(range(len(judged)), key=lambda k: (-judge_rank(judged[k]), k))
+    finalists = [judged[k] for k in order[:VERIFY_FINALISTS]]
+    cache = os.path.join(TEMP_FOLDER, "shot_judge_cache")
+
+    def ask(c):
+        return shot_judge.verify(gw, model, phrase=phrase, brief=brief, setting=setting,
+                                 path=c.get("judge_path") or c["path"], kind=kind, cache_dir=cache,
+                                 reasoning=VERIFY_REASONING, caption=candidate_caption(c.get("p")))
+    with concurrent.futures.ThreadPoolExecutor(max(1, len(finalists))) as ex:
+        answers = list(ex.map(ask, finalists))
+    for c, (ans, info) in zip(finalists, answers):
+        if ans is None:
+            continue
+        rank = shot_judge.verify_rank(ans)
+        c["verify"] = "veto" if rank is None else rank
+        SHOT_JUDGE_LOG.append({"index": index, "kind": kind, "model": model,
+                               "id": str(c["p"].get("id")), "verify": ans, **info})
+        if rank is None:
+            print(f"  слот {index}: проверка отклонила кадр — {ans.get('why')}")
 
 
-def judge_world_violation(index, kind, request, path):
-    """True — судья по ОДНОМУ кадру видит в нём то, чего не может быть в мире
-    эпизода (shot_judge.world_check: замер и почему не шкалой в сетке).
-    Нет судьи, нет паспорта мира, сбой, потолок — False: проверки не было,
-    кадр не бракуется."""
-    if not shot_judge_active():
-        return False
-    gw = _shot_judge_gateway()
-    if gw is None:
-        return False
-    import shot_judge
-    import world_card
-    setting = world_card.judge_setting(episode_world_card())
-    ok, why, info = shot_judge.world_check(
-        gw, shot_judge_model(), phrase=request.block_text,
-        brief=request.shot_brief or request.query, setting=setting, path=path, kind=kind,
-        cache_dir=os.path.join(TEMP_FOLDER, "shot_judge_cache"))
-    if ok is None and not info:
-        return False
-    SHOT_JUDGE_LOG.append({"index": index, "kind": kind, "model": shot_judge_model(),
-                           "world_ok": ok, "why": why, "setting": setting, **info})
-    if ok is False:
-        print(f"  слот {index}: проверка мира отклонила кадр — {why}")
-    return ok is False
+def candidate_caption(p):
+    """Подпись кандидата для проверки финалиста: текст источника (alt, слаг,
+    теги, название) плюс паспорт музейного предмета — годы и культура.
+    Паспорт до этого места не доходил вовсе: он решал только, пустить ли
+    предмет в пул."""
+    if not isinstance(p, dict):
+        return ""
+    text = pexels_candidate_text(p)
+    meta = p.get("_museum_meta") or {}
+    extra = []
+    if meta.get("begin") or meta.get("end"):
+        extra.append(f"dated {meta.get('begin')}-{meta.get('end')}")
+    if meta.get("culture"):
+        extra.append(str(meta["culture"]))
+    return (text + ("; " + ", ".join(extra) if extra else "")).strip()
 
 
-def judge_tie_rank(c):
-    """Оценка переспроса ничьей на высшей оценке; не было — -1."""
-    v = c.get("judge_tie")
-    return v if isinstance(v, int) else -1
+def verify_key(c):
+    """Ключ ранжирования проверки финалиста: отказ ниже всего, не
+    проверенный — ниже проверенного годного. Проверки не было ни у кого —
+    у всех одно значение, порядок прежний."""
+    v = c.get("verify")
+    if v == "veto":
+        return (-9,)
+    return v if isinstance(v, tuple) else (-1,)
 
 
-def shot_judge_signature():
+def shot_judge_signature(index=None):
     """Кто судит кадры в этом прогоне — входит в подпись отбора: включение
     судьи, смена модели или вопроса меняют победителя, и без подписи
     прогретый кэш кандидатов отдавал бы выбор, сделанный без судьи. Наличие
@@ -11768,18 +11818,32 @@ def shot_judge_signature():
 
     Судья не работает (флаг выключен или нет ключа) — пустая строка: отбор
     тогда байт-в-байт прежний, и менять ключи кэша значило бы заставить
-    владельца без ключа перекачать эпизод ради изменения, которого нет."""
-    if not shot_judge_active():
+    владельца без ключа перекачать эпизод ради изменения, которого нет.
+    Слот вне платной зоны (index >= SHOT_JUDGE_PAID_SLOTS) — тоже пустая
+    строка: судья его не видит."""
+    if not shot_judge_active(index):
         return ""
     import shot_judge
     return repr(("judge", shot_judge_model(), shot_judge.PROMPT_VERSION, SHOT_JUDGE_MIN_SCORE,
-                 "tie", "cascade", cascade_preview_n(), "world", shot_judge.WORLD_CHECK_VERSION,
+                 "cascade", cascade_preview_n(), "verify", shot_judge.VERIFY_VERSION,
+                 shot_judge.VERIFY_MAX_SIDE, VERIFY_FINALISTS, VERIFY_REASONING,
                  "readable",
                  UNREADABLE_DARK_LEVEL, UNREADABLE_DARK_SHARE))
 
 
-def shot_judge_active():
-    """Судья в этом прогоне вообще возможен: флаг и ключ. Без сети."""
+# ПЛАТНАЯ ПРОВЕРКА — ТОЛЬКО ХУК (решение владельца 24.09). Судья стоит денег
+# на каждом слоте; первые 25 слотов — хук, самое дорогое место по удержанию.
+# Дальше слоты идут бесплатным путём (пул, гейты, физические проверки) — и
+# подпись судьи в их ключи кэша не входит: смена модели судьи не должна
+# перекачивать слоты, которые судья не видит.
+SHOT_JUDGE_PAID_SLOTS = 25
+
+
+def shot_judge_active(index=None):
+    """Судья для слота index (None — вообще в прогоне) возможен: флаг, ключ
+    и слот в платной зоне. Без сети."""
+    if index is not None and index >= SHOT_JUDGE_PAID_SLOTS:
+        return False
     return (feature_flags.enabled("SHOT_JUDGE")
             and bool((os.environ.get("LLM_GATEWAY_API_KEY") or "").strip()))
 
@@ -11805,7 +11869,16 @@ def pick_kind_by_judge(first_kind, first_score, other_score, prefer_video):
 
 
 def judge_approved(c):
-    return c is not None and isinstance(c.get("judge"), int) and c["judge"] >= SHOT_JUDGE_MIN_SCORE
+    """Кадр одобрен судьёй: проверка финалиста нашла тот предмет или близкую
+    замену без отказа; без проверки — оценка сетки не ниже порога."""
+    if c is None:
+        return False
+    v = c.get("verify")
+    if v == "veto":
+        return False
+    if isinstance(v, tuple):
+        return v[0] >= 1
+    return isinstance(c.get("judge"), int) and c["judge"] >= SHOT_JUDGE_MIN_SCORE
 
 
 def video_smart_relevance_veto(video_path, query):
@@ -12057,7 +12130,7 @@ def _selection_stack_signature():
 
     Читается В МОМЕНТ ВЫЗОВА (не на импорте) — как и весь остальной код,
     работающий с реестром режимов."""
-    return "sel:" + shot_judge_signature() + repr((
+    return "sel:" + repr((
         feature_flags.mode("VLM_ARBITER_MODE"),
         feature_flags.mode("VISUAL_DIRECTOR_MODE"),
         DIRECTOR_MIN_POOL, PHOTO_DEDUP_MAX_TRIES, BASE_MIN_POOL, FAST_BASE_MIN_POOL,
@@ -12177,7 +12250,7 @@ def _aesthetic_selection_suffix():
     return "" if AESTHETIC_ENABLED else "|aesthetic:off"
 
 
-def candidate_gate_signature():
+def candidate_gate_signature(index=None):
     """Отпечаток ПРАВИЛ ОТБОРА кандидата (relevance/анахронизм-гвард/
     дизамбигуация запроса) — входит в имя файла кэша temp_smart/pexels_cache
     и temp_smart/pexels_video_cache.
@@ -12213,7 +12286,7 @@ def candidate_gate_signature():
     собирался из решений разных поколений системы)."""
     global _CANDIDATE_GATE_SIG
     if _CANDIDATE_GATE_SIG is not None:
-        return _CANDIDATE_GATE_SIG
+        return _with_judge_signature(_CANDIDATE_GATE_SIG, index)
     try:
         import inspect
         parts = [inspect.getsource(f) for f in (
@@ -12331,7 +12404,16 @@ def candidate_gate_signature():
         _CANDIDATE_GATE_SIG = "gate:unknown"
         return _CANDIDATE_GATE_SIG
     _CANDIDATE_GATE_SIG = "gate:" + hashlib.md5("".join(parts).encode()).hexdigest()[:10]
-    return _CANDIDATE_GATE_SIG
+    return _with_judge_signature(_CANDIDATE_GATE_SIG, index)
+
+
+def _with_judge_signature(base, index):
+    """Подпись правил отбора слота: общая часть плюс судья, если слот в
+    платной зоне. Судьи у слота нет — подпись байт-в-байт общая."""
+    judge = shot_judge_signature(index)
+    if not judge:
+        return base
+    return "gate:" + hashlib.md5((base + judge).encode()).hexdigest()[:10]
 
 
 # P2 (аудит "зерно vs частицы в мире"): часть стокового контента УЖЕ несёт
@@ -13591,12 +13673,15 @@ def _pexels_search_videos(api_query):
     if not PEXELS_API_KEY:
         return []   # см. _pexels_search_photos: без ключа — пустой вклад, не выход
     q = urllib.parse.quote(api_query)
-    req = urllib.request.Request(
-        f"https://api.pexels.com/videos/search?query={q}&per_page=80&orientation=landscape",
-        headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=15) as r:
-        _note_pexels_quota(r)
-        data = json.load(r)
+
+    def fetch():
+        req = urllib.request.Request(
+            f"https://api.pexels.com/videos/search?query={q}&per_page=80&orientation=landscape",
+            headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            _note_pexels_quota(r)
+            return json.load(r)
+    data = cached_search_json("pexels_video", f"{api_query}|80|landscape", fetch)
     videos = data.get("videos") or []
     _PEXELS_VIDEO_SEARCH_CACHE[api_query] = videos
     return videos
@@ -13682,7 +13767,7 @@ class VideoAdapter(selection_engine.MediaAdapter):
                         + ([request.text_key] if request.text_key else [])
                         + ([_brief_key] if _brief_key else []))
         qhash = hashlib.md5(qkey.encode()).hexdigest()[:8]
-        gate_sig = candidate_gate_signature().split(":", 1)[-1]
+        gate_sig = candidate_gate_signature(request.index).split(":", 1)[-1]
         return os.path.join(cache, f"{request.index:04d}_{qhash}_{gate_sig}.mp4")
 
     def cache_hit(self, request, cf):
@@ -13841,7 +13926,7 @@ class VideoAdapter(selection_engine.MediaAdapter):
         base, director = _score_and_pick(candidates_info, score_fn)
         winner = director if (request.director_assist and director is not None) else base
         chosen_by = "video_director" if winner is director and director is not base else "video_ranked"
-        if (request.arbiter_text is not None and winner is not None
+        if (request.arbiter_text is not None and winner is not None and not judged
                 and feature_flags.mode("VLM_ARBITER_MODE") == "on"):
             shortlist = (_build_opening_shortlist(candidates_info, base, director)
                          if request.is_opening else
@@ -13880,9 +13965,6 @@ class VideoAdapter(selection_engine.MediaAdapter):
             elif video_sharpness_ok(cf) is False:
                 reason = "sharpness"
                 winner["sharp_ok"] = 0
-            elif judge_world_violation(index, "video", request, winner.get("judge_path")):
-                reason = "world"
-                winner["is_relevant"] = 0
             elif not judge_approved(winner) and video_smart_relevance_veto(cf, query):
                 reason = "smart_veto"
                 winner["is_relevant"] = 0
@@ -16053,7 +16135,7 @@ def main():
         cache_key = (
             f"{d:.3f}|{title}|{stat}|{stat_variant}|{b['section']}|{queries[i]}|{stat_delay:.3f}|"
             f"{captions}|{look_cache_sig}|{domain_cache_sig}|{director_cache_sig}|"
-            f"{arc_stage_for(b)}|{recipe_sig}|{lock_key}|{candidate_gate_signature()}")
+            f"{arc_stage_for(b)}|{recipe_sig}|{lock_key}|{candidate_gate_signature(i)}")
         cache_key += arbiter_cache_suffix(b["section"])
         params_hash = hashlib.md5(cache_key.encode()).hexdigest()[:8]
         out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}_{params_hash}.mp4")
@@ -16328,7 +16410,7 @@ def main():
             # Второй вид уже добывался в этом слоте (первый не дал кадра, и
             # слот перешёл к нему) — повтор дал бы тот же отказ.
             other_tried = any(a.kind == other_kind for a in slot_attempts)
-            if (shot_judge_active() and not stat and d >= MIN_CLIP + 1.0 and not other_tried
+            if (shot_judge_active(i) and not stat and d >= MIN_CLIP + 1.0 and not other_tried
                     and isinstance(first_score, int) and first_score < shot_judge.SCORE_MAX):
                 other = fetch_in_attempt(slot_attempts, i, other_kind, select_media, request, other_kind)
                 if other:
@@ -16342,7 +16424,7 @@ def main():
             # Вторая страница каскада (см. CASCADE_PAGE): кадра нет или он
             # известен как брак — фото ищется среди следующих кандидатов.
             cur_att = attempt_of(slot_attempts, photo or video)
-            if (shot_judge_active() and not locked_shot
+            if (shot_judge_active(i) and not locked_shot
                     and (cur_att is None or known_bad_reason(cur_att.verdicts))):
                 with cascade_page(1):
                     page2 = fetch_in_attempt(slot_attempts, i, "photo", select_media, request, "photo")

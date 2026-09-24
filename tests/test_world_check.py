@@ -58,12 +58,3 @@ def test_unparsed_answer_is_not_a_rejection(tmp_path):
     assert ok is None and not os.listdir(tmp_path / "c") if os.path.isdir(tmp_path / "c") else ok is None
 
 
-def test_pipeline_check_is_silent_without_judge(monkeypatch, tmp_path):
-    monkeypatch.setattr(ps, "shot_judge_active", lambda: False)
-    assert ps.judge_world_violation(0, "photo", None, _img(tmp_path)) is False
-
-
-def test_both_paths_ask_the_world_question():
-    src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"), encoding="utf-8").read()
-    assert 'judge_world_violation(index, "photo", request, cf)' in src
-    assert 'judge_world_violation(index, "video", request, winner.get("judge_path"))' in src
