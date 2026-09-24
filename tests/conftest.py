@@ -107,7 +107,13 @@ def _isolate_from_real_dotenv(monkeypatch, tmp_path):
     # выбора победителя, ходил бы в сеть и тратил деньги владельца.
     monkeypatch.delenv("SHOT_JUDGE", raising=False)
     monkeypatch.setenv("SHOT_JUDGE", "0")
-    monkeypatch.delenv("LLM_GATEWAY_API_KEY", raising=False)
+    # Пустая строка, а не удаление — тот же приём, что у GEMINI_API_KEY выше.
+    # Удалённую переменную load_dotenv() в дочернем процессе рендера (тесты
+    # запускают pipeline_smart.py подпроцессом) возвращает из рабочего .env:
+    # 24.09 test_select_only так ходил в шлюз за паспортом мира и
+    # спецификациями кадров — платно, и результат теста зависел от ответа
+    # модели. Существующую пустую переменную load_dotenv() не перезаписывает.
+    monkeypatch.setenv("LLM_GATEWAY_API_KEY", "")
 
 
 @pytest.fixture(scope="session")
