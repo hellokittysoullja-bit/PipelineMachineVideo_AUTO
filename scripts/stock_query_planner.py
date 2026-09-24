@@ -60,6 +60,9 @@ PLAN_NAME = "stock_queries.json"
 CACHE_DIR_NAME = "stock_query_cache"
 PLAN_VERSION = 3
 TIERS = ("must", "should")
+# Тип кадра запроса — тот же словарь, что у маршрутизации источников
+# (shot_types.SHOT_TYPES): «any» модель не пишет, его значит отсутствие поля.
+SHOT_KINDS = ("object", "scene", "illustration", "map", "texture")
 # Главное утверждение фразы — отдельное обязательное поле ответа, а не
 # «первое в списке»: замер 24.09 (эп.94) — при правиле «первое утверждение —
 # главное» Gemini Flash и Qwen Max на фразе «Стрела скользит по нагруднику»
@@ -96,10 +99,10 @@ subject — the thing the line is ABOUT, as a bare noun phrase of 1 to 4 English
 
 claims — 1 to {c1} more statements checkable by looking at the picture, most important first. Each checks ONE thing (an object, an action, a place, a detail) and does not repeat the core. "tier": "must" if without it the picture does not show this line, "should" if it only makes the picture better. If the line is about a movement that only footage can show, one claim has "motion": true and describes this movement; lines about objects, places or states have no motion claim.
 
-queries — 3 to {q} different search queries, each 2 to 4 English words, for free stock sites (photos and videos) and museum or archive search. Write queries for what really exists in such libraries for this setting: things photographed or filmed today (people, staged scenes, re-enactments, museum objects, places, nature, close-ups) and, where the setting is historical, old artworks (paintings, engravings, manuscript miniatures). "for" lists the ids of what the query can find ("core" or claim ids). Most queries look for the core; try different ways to find it (another kind of picture, another wording), not the same words with an extra word.
+queries — 3 to {q} different search queries, each 2 to 4 English words, for free stock sites (photos and videos) and museum or archive search. Write queries for what really exists in such libraries for this setting: things photographed or filmed today (people, staged scenes, re-enactments, museum objects, places, nature, close-ups) and, where the setting is historical, old artworks (paintings, engravings, manuscript miniatures). "for" lists the ids of what the query can find ("core" or claim ids). "type" says what kind of picture the query finds: "object" (one thing on its own, a museum object), "scene" (people, a place, an event), "illustration" (a painting, engraving or manuscript), "map" or "texture". Most queries look for the core; try different ways to find it (another kind of picture, another wording), not the same words with an extra word.
 
 Example from another film, «The ball bounced off the wall and rolled away» — the core is the ball, not the wall:
-{{"n": 3, "focus": "a ball bouncing off a wall", "subject": "a ball", "core": "a ball is visible", "claims": [{{"id": "c1", "text": "the ball bounces off a wall", "tier": "must", "motion": true}}, {{"id": "c2", "text": "a wall", "tier": "should"}}], "queries": [{{"q": "ball bouncing wall", "for": ["core", "c1", "c2"]}}, {{"q": "ball rolling", "for": ["core"]}}, {{"q": "ball close up", "for": ["core"]}}]}}
+{{"n": 3, "focus": "a ball bouncing off a wall", "subject": "a ball", "core": "a ball is visible", "claims": [{{"id": "c1", "text": "the ball bounces off a wall", "tier": "must", "motion": true}}, {{"id": "c2", "text": "a wall", "tier": "should"}}], "queries": [{{"q": "ball bouncing wall", "for": ["core", "c1", "c2"], "type": "scene"}}, {{"q": "ball rolling", "for": ["core"], "type": "scene"}}, {{"q": "ball close up", "for": ["core"], "type": "object"}}]}}
 
 Answer with one JSON object per narration line, one per line, and nothing else — no explanations, no reasoning, no markdown.
 
@@ -192,7 +195,11 @@ def _parse_queries(raw_queries, claim_ids):
         if not q or q in seen or not targets:
             continue
         seen.add(q)
-        out.append({"q": q, "for": list(dict.fromkeys(targets))})
+        item = {"q": q, "for": list(dict.fromkeys(targets))}
+        kind = _clean(str(x.get("type") or "")).lower()
+        if kind in SHOT_KINDS:
+            item["type"] = kind
+        out.append(item)
     return out[:MAX_QUERIES]
 
 

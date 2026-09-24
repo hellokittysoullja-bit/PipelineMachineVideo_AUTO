@@ -65,3 +65,24 @@ def test_planner_reads_the_subject():
     assert sqp.parse_spec(raw, packet)[1]["subject"] == "a dagger"
     raw2 = raw.replace('"subject": "a dagger", ', '"subject": "", ')
     assert "subject" not in sqp.parse_spec(raw2, packet)[1]
+
+
+def test_planner_reads_the_query_type_and_ignores_unknown():
+    packet = {"units": [{"n": 1, "text": "Вот кинжал."}]}
+    raw = json.dumps({"n": 1, "focus": "a dagger", "core": "a dagger is visible",
+                      "queries": [{"q": "rondel dagger", "for": ["core"], "type": "object"},
+                                  {"q": "knight holding dagger", "for": ["core"], "type": "portrait"}]})
+    qs = sqp.parse_spec(raw, packet)[1]["queries"]
+    assert qs[0]["type"] == "object" and "type" not in qs[1]
+
+
+def test_planner_type_routes_only_where_the_channel_lexicon_is_silent(monkeypatch):
+    sys.argv = ["pipeline_smart.py", REPO]
+    import pipeline_smart as ps
+    import shot_types
+    spec = {"queries": [{"q": "tired person desk", "for": ["core"], "type": "scene"},
+                        {"q": "rondel dagger", "for": ["core"], "type": "scene"}]}
+    monkeypatch.setattr(shot_types, "_lexicon", lambda: (("object", ("dagger",)),))
+    assert ps.shot_type_of_query("tired person desk", spec) == "scene", "словарь молчит — решает план"
+    assert ps.shot_type_of_query("rondel dagger", spec) == "object", "словарь канала первым"
+    assert ps.shot_type_of_query("tired person desk") == "any", "без спецификации — как раньше"

@@ -5911,14 +5911,22 @@ SHOT_TYPE_ROUTING_VERSION = 1
 SHOT_TYPE_EXPLICIT = {}
 
 
-def shot_type_of_query(query):
-    """Тип кадра для запроса: явная разметка автора важнее вывода по словам.
-    Модуль опционален — без него всё работает как раньше (`any`)."""
+def shot_type_of_query(query, spec=None):
+    """Тип кадра для запроса: явная разметка автора важнее вывода по словам
+    словаря канала; словарь молчит (`any`) — тип, который планировщик
+    поставил этому запросу в спецификации. Так у канала со словарём
+    маршрут прежний, а у ниши без словаря (клон, ЧАСТЬ 24) маршрутизация
+    появляется, а не отсутствует. Модуль опционален — без него `any`."""
     try:
         import shot_types
-        return shot_types.shot_type_for(query, SHOT_TYPE_EXPLICIT.get((query or "").strip()))
+        t = shot_types.shot_type_for(query, SHOT_TYPE_EXPLICIT.get((query or "").strip()))
     except Exception:
-        return "any"
+        t = "any"
+    if t == "any" and spec:
+        for item in spec.get("queries") or ():
+            if isinstance(item, dict) and item.get("q") == query and item.get("type"):
+                return item["type"]
+    return t
 
 
 def art_museums_fit_episode():
@@ -6843,8 +6851,10 @@ def _shelf_question_active():
         return False
 
 
-def shelf_question(shot_brief, block_text=None):
-    """ЧЕМ спрашивают полку: бриф автора, иначе фраза блока, иначе ничего.
+def shelf_question(shot_brief, block_text=None, spec=None):
+    """ЧЕМ спрашивают полку: бриф автора, иначе фокус спецификации кадра
+    (английское описание того, что показать, — полка сравнивает текст с
+    изображениями), иначе фраза блока, иначе ничего.
 
     Одна функция, а не два совпадающих выражения в ключе кэша и в вызове
     полки. Ровно эта пара уже разъезжалась в этом репозитории с настоящими
@@ -6861,10 +6871,11 @@ def shelf_question(shot_brief, block_text=None):
     # `(a or b).strip()` отдавал бы пустую строку вместо фразы — полка
     # осталась бы без вопроса вообще. Поймано собственным тестом, не
     # рассуждением.
-    return (shot_brief or "").strip() or (block_text or "").strip()
+    focus = ((spec or {}).get("focus") or "").strip()
+    return (shot_brief or "").strip() or focus or (block_text or "").strip()
 
 
-def candidate_brief_key(shot_brief, block_text=None, uses_shelf=True):
+def candidate_brief_key(shot_brief, block_text=None, uses_shelf=True, spec=None):
     """Часть ключа кэша кандидата, отвечающая за ВОПРОСЫ этого слота.
 
     РЕАЛЬНЫЙ БАГ, ради которого функция заведена (найден аудитом 15.09,
@@ -6896,7 +6907,7 @@ def candidate_brief_key(shot_brief, block_text=None, uses_shelf=True):
     # То, чем РЕАЛЬНО спрашивают полку: бриф автора, иначе фраза блока.
     # Ровно та же развилка, что у вызова _shelf_search_photos ниже — второй
     # её копии здесь не заводится, значения берутся одни и те же.
-    shelf_q = shelf_question(shot_brief, block_text)
+    shelf_q = shelf_question(shot_brief, block_text, spec)
     # uses_shelf=False — видео-путь: полка отдаёт СТАТИЧНЫЕ предметы музея и
     # в сборке видео-пула не участвует вообще (проверено: единственный вызов
     # _shelf_search_photos живёт в pexels_photo). Включать её вопрос в ключ
@@ -7581,7 +7592,8 @@ class PhotoAdapter(selection_engine.MediaAdapter):
         # Бриф входит в ключ кэша кандидата: он МЕНЯЕТ состав пула, и без него
         # слот на прогретом temp_smart/ молча отдал бы кандидата, выбранного до
         # появления брифа (тот же урок, что у candidate_gate_signature).
-        _brief_key = candidate_brief_key(request.shot_brief, request.block_text)
+        _brief_key = candidate_brief_key(request.shot_brief, request.block_text,
+                                         spec=request.shot_spec)
         qkey = "|".join([query] + sorted(q for q in (extra_queries or []) if q and q != query)
                          + ([text_key] if text_key else [])
                          + ([_brief_key] if _brief_key else [])
@@ -7695,7 +7707,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
         # по отделу коллекции, а не свободным текстом (замер: тарелки
         # на «plate armour» исчезают целиком). Тип не определён -> `any`
         # -> прежний маршрут во все источники, ноль регрессии.
-        shot_type = shot_type_of_query(pq)
+        shot_type = shot_type_of_query(pq, request.shot_spec)
         department = met_department_for_query(pq, shot_type)
         per_source = []
         for source_name, fetch in (("shelf", _shelf_search_photos),
@@ -7763,7 +7775,8 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                 # Ущерб ограничен по построению: кандидат полки судится
                 # is_relevant_candidate() против АВТОРСКОГО запроса, а не
                 # против текста, которым его нашли.
-                fetched = fetch(pq, brief=shelf_question(shot_brief, block_text) or None)
+                fetched = fetch(pq, brief=shelf_question(shot_brief, block_text,
+                                                         request.shot_spec) or None)
             elif source_name == "pexels" and not pexels_query_allowed(
                     api_q, _PEXELS_SEARCH_CACHE, pq not in slot_own_queries(request)):
                 fetched = []

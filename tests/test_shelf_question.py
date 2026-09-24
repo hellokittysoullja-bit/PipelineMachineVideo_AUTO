@@ -162,7 +162,8 @@ class TestBothCallSitesUseTheResolver:
 
     def test_photo_path_passes_the_phrase(self):
         src = self._src()
-        assert "candidate_brief_key(request.shot_brief, request.block_text)" in src
+        assert "candidate_brief_key(request.shot_brief, request.block_text,\n" in src
+        assert "spec=request.shot_spec)" in src
 
     def test_video_path_declares_it_does_not_use_the_shelf(self):
         src = self._src()
@@ -400,3 +401,10 @@ class TestReviewToolShowsWhatProductionDoes:
                 args.append(getattr(node.args[0], "id", None))
         assert args, "вызовы полки не найдены"
         assert set(args) == {"question"}, args
+
+
+def test_shelf_is_asked_with_the_shot_focus_before_the_russian_phrase():
+    spec = {"focus": "an arrow glancing off a steel breastplate"}
+    assert ps.shelf_question(None, "Стрела скользит.", spec) == spec["focus"]
+    assert ps.shelf_question("a dented breastplate", "Стрела.", spec) == "a dented breastplate"
+    assert ps.shelf_question(None, "Стрела.") == "Стрела."
