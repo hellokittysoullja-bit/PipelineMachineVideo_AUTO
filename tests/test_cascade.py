@@ -156,3 +156,44 @@ def test_pixabay_signed_preview_urls_hit_the_same_cache_entry():
     assert a != ps._cascade_ident({"id": "pixabay:42", "video_files": [{}]}, "https://pixabay.com/get/gAAA_640.jpg")
     other = "https://images.pexels.com/photos/1/x.jpg?w=640"
     assert ps._cascade_ident({"id": "1"}, other) == other, "прочие источники — по адресу, как раньше"
+
+
+def test_claims_order_is_interleaved_so_the_conjunction_frame_reaches_the_judge(tmp_path, monkeypatch):
+    """Живой регресс judge12 (слот «Он весил меньше... грамм триста»): по
+    запросам по отдельности наверх ушли кадры с одним куском фразы (кинжал
+    без руки, рука без кинжала), а кадр «кинжал на ладони» — вниз. Порядок
+    по утверждениям держит «всё вместе»; поочерёдно оба — кадр со всем
+    вместе стоит в самом начале."""
+    monkeypatch.setattr(ps, "TEMP_FOLDER", str(tmp_path / "temp"))
+    monkeypatch.setattr(ps, "_CASCADE_EMB", {})
+    # оси: (кинжал, ладонь)
+    vec = {"dagger_only": (1.0, 0.0), "palm_only": (0.0, 1.0), "sword": (0.95, 0.0),
+           "open_hand": (0.1, 0.95), "dagger_on_palm": (0.6, 0.6)}
+    ids = sorted(vec)
+
+    def probe(p, dest):
+        Image.new("RGB", (8, 8), (ids.index(p["id"]) * 10, 0, 0)).save(dest, "JPEG")
+
+    texts = {"dagger": [1.0, 0.0], "palm": [0.0, 1.0],
+             "dagger close up": [1.0, 0.0], "hand close up": [0.0, 1.0]}
+
+    def embed(images=None, text=None):
+        if text is not None:
+            return np.array([texts[text]], "float32")
+        return np.array([vec[ids[round(im.getpixel((4, 4))[0] / 10)]] for im in images], "float32")
+    monkeypatch.setattr(ps, "_gate_embed", embed)
+    cands = [{"id": k, "src": {"large": f"http://x/{k}.jpg"}} for k in ids]
+    queries = ["dagger close up", "hand close up"]
+    only_q = ps.cascade_reorder(cands, queries, str(tmp_path / "a.jpg"), probe, 0)
+    assert only_q[-1]["id"] == "dagger_on_palm", "по запросам по отдельности — последний"
+    both = ps.cascade_reorder(cands, queries, str(tmp_path / "b.jpg"), probe, 0,
+                              claims=["dagger", "palm"])
+    assert both[0]["id"] == "dagger_on_palm"
+
+
+def test_interleave_keeps_the_top_of_both_orders():
+    a, b = list("abcdef"), list("fedcba")
+    got = ps._interleave(a, b)
+    assert got[:4] == ["a", "f", "b", "e"] and sorted(got) == sorted(a)
+    k = 2
+    assert set(a[:k]) | set(b[:k]) <= set(got[:2 * k])

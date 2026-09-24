@@ -7936,7 +7936,8 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                 candidates = cascade_reorder(candidates,
                                              cascade_texts(request.shot_spec, request.shot_brief or query,
                                                            "photo"),
-                                             cf, download_probe, index)
+                                             cf, download_probe, index,
+                                             claims=cascade_claims(request.shot_spec, "photo"))
                 skip = CASCADE_PAGE.get() * _photo_dedup_max_tries_for(index)
                 if skip:
                     candidates = candidates[skip:]
@@ -11830,7 +11831,35 @@ def cascade_texts(spec, brief, kind="photo"):
     return [brief] if brief else []
 
 
-def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=16, url_of=None):
+def cascade_claims(spec, kind="photo"):
+    """Обязательные утверждения спецификации — второй порядок каскада (см.
+    cascade_reorder). Утверждение движения у фото не спрашивается: фото его
+    выполнить не может."""
+    if not spec:
+        return []
+    import shot_judge
+    return [c["text"] for c in shot_judge.asked_claims(spec, kind) if c["tier"] == "must"]
+
+
+def _interleave(first, second):
+    """Поочерёдно из двух порядков, без повторов: первое место первого,
+    первое место второго, второе место первого... Первые k мест КАЖДОГО
+    порядка попадают в первые 2k итогового."""
+    out, seen = [], set()
+    for pair in zip(first, second):
+        for x in pair:
+            if x not in seen:
+                seen.add(x)
+                out.append(x)
+    for x in list(first) + list(second):
+        if x not in seen:
+            seen.add(x)
+            out.append(x)
+    return out
+
+
+def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=16, url_of=None,
+                    claims=None):
     """Новый порядок кандидатов: первые cascade_preview_n() ранжированы по
     близости превью к текстам; кандидаты без превью — следом в прежнем
     порядке, хвост пула — за ними. Модель недоступна или оценено меньше
@@ -11838,9 +11867,22 @@ def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=16, url_o
 
     Текстов несколько (запросы спецификации кадра) — кандидат стоит по
     ЛУЧШЕМУ сходству с любым из них: запросы — разные формулировки одного
-    кадра, и кадр, точно отвечающий одной из них, годен (см. cascade_texts
-    — замер против прежнего «худшего места»). Один текст — прежний порядок
-    по близости."""
+    кадра, и кадр, точно отвечающий одной из них, годен (см. cascade_texts).
+    Один текст — прежний порядок по близости.
+
+    claims (обязательные утверждения) — второй порядок: по ХУДШЕМУ месту
+    среди утверждений, то есть кадр должен выполнять их ВСЕ вместе. Итог —
+    поочерёдно из двух порядков, утверждения первыми. Причина — живой
+    регресс judge12 (25.09, слот «Он весил меньше... грамм триста»):
+    запросы по отдельности («medieval dagger hand», «dagger weight close
+    up») подняли наверх просто мечи и кинжалы без руки, и годный кадр
+    «руки держат кинжал» ушёл с 9-го места на 73-е, судья его не увидел.
+    Составная фраза требует всего вместе — это держит порядок по
+    утверждениям, точное совпадение с запросом — порядок по запросам.
+    Поочерёдно: первые 10 мест КАЖДОГО порядка — в первых 20, их видит
+    судья. Замер на размеченных кадрах 15 слотов эп.94: годных среди первых
+    20 — 72 (утверждения) / 75 (запросы) / 88 (поочерёдно), лучший кадр
+    среди первых 20 не хуже обоих порядков ни в одном слоте."""
     if isinstance(texts, str):
         texts = [texts]
     texts = [t for t in (texts or []) if t]
@@ -11904,7 +11946,23 @@ def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=16, url_o
     if len(have) < 2:
         return candidates
     best = {k: max(float(emb[id(p)] @ t[0]) for t in t_embs) for k, p in have}
-    ranked = [p for k, p in sorted(have, key=lambda kp: (-best[kp[0]], kp[0]))]
+    by_query = [k for k, _p in sorted(have, key=lambda kp: (-best[kp[0]], kp[0]))]
+    order = by_query
+    c_texts = [c for c in (claims or []) if c]
+    if c_texts == texts:
+        c_texts = []      # без запросов в спецификации тексты и есть утверждения
+    c_embs = [_gate_embed(text=c) for c in c_texts] if c_texts else []
+    if c_embs and all(e is not None for e in c_embs):
+        places = {}
+        for t in c_embs:
+            by_t = sorted(have, key=lambda kp: (-float(emb[id(kp[1])] @ t[0]), kp[0]))
+            for place, (k, _p) in enumerate(by_t):
+                places.setdefault(k, []).append(place)
+        by_claims = [k for k, _p in sorted(have, key=lambda kp: (max(places[kp[0]]),
+                                                                places[kp[0]][0], kp[0]))]
+        order = _interleave(by_claims, by_query)
+    pos = dict(have)
+    ranked = [pos[k] for k in order]
     seen = {id(p) for p in ranked}
     print(f"  слот {index}: каскад — {len(ranked)} из {len(head)} кандидатов ранжированы "
           f"по описанию кадра (новых оценок {fresh})")
@@ -12259,7 +12317,7 @@ def shot_judge_signature(index=None):
         shot_judge.claims_question, _verify_finalists, verify_finalists_of, verify_key,
         judge_rejected, judge_approved, screen_allowed, claims_checked, filter_pool_by_text,
         blocklist_clearable, world_veto_active, _record_world_vote,
-        cascade_texts, cascade_reorder, world_card.claims_setting,
+        cascade_texts, cascade_claims, _interleave, cascade_reorder, world_card.claims_setting,
         shot_judge.world_only_question, shot_judge.world_of_image)).encode("utf-8")
         + shot_judge.CLAIMS_PROMPT.encode("utf-8")
         + shot_judge.WORLD_ONLY_PROMPT.encode("utf-8")).hexdigest()[:12]
@@ -14406,7 +14464,8 @@ class VideoAdapter(selection_engine.MediaAdapter):
             # утверждениям спецификации, как фото — по своему превью.
             pool = cascade_reorder(pool, cascade_texts(request.shot_spec, request.shot_brief or query,
                                                        "video"),
-                                   cf, video_middle_probe, index, url_of=video_middle_url)
+                                   cf, video_middle_probe, index, url_of=video_middle_url,
+                                   claims=cascade_claims(request.shot_spec, "video"))
             # Уже использованные в эпизоде ролики — в хвост и после каскада
             # (filter_pool их понизил, каскад без этого поднимал бы обратно).
             used = request.used_video_ids or ()
