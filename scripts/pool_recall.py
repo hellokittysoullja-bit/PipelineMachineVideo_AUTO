@@ -84,33 +84,52 @@ def section_last(rec, phrase_queries):
 
 class Embedder:
     """Эмбеддинг превью и текста моделью гейта pipeline_smart — ровно тот,
-    что у каскада. Кэш: ключ как у каскада (модель + адрес превью)."""
+    что у каскада. Кэш: ключ как у каскада (модель + адрес превью, у Pixabay
+    — номер кадра)."""
 
     def __init__(self, cache_dirs, write_dir):
         import pipeline_smart as ps
         self.ps = ps
         self.cache_dirs = [d for d in cache_dirs if d and os.path.isdir(d)]
         self.write_dir = write_dir
+        self.dead = set()
         os.makedirs(write_dir, exist_ok=True)
 
-    def _key(self, url):
-        return self.ps._cascade_key(url)
+    def _keys(self, url, cand=None):
+        """Ключи кэша превью: сначала тот же, что у прод-каскада
+        (_cascade_ident — у Pixabay по номеру кадра, подписанный адрес
+        меняется и протухает), затем прежний по адресу — векторы, снятые
+        до правки, остаются в деле."""
+        keys = []
+        if cand is not None:
+            keys.append(self.ps._cascade_key(self.ps._cascade_ident(cand, url)))
+        k = self.ps._cascade_key(url)
+        if k not in keys:
+            keys.append(k)
+        return keys
 
-    def image_vec(self, url, headers):
+    def image_vec(self, url, headers, cand=None):
         import numpy as np
         if not url:
             return None
-        key = self._key(url)
-        for d in self.cache_dirs + [self.write_dir]:
-            fp = os.path.join(d, key + ".npy")
-            if os.path.exists(fp):
-                try:
-                    return np.load(fp)
-                except Exception:
-                    pass
+        keys = self._keys(url, cand)
+        for key in keys:
+            for d in self.cache_dirs + [self.write_dir]:
+                fp = os.path.join(d, key + ".npy")
+                if os.path.exists(fp):
+                    try:
+                        return np.load(fp)
+                    except Exception:
+                        pass
+        if url in self.dead:
+            return None
         path = fetch(url, headers)
         if not path:
+            # Мёртвый адрес (протухшая подпись Pixabay отвечает 400) не
+            # запрашивается повторно на каждом порядке каждого слота.
+            self.dead.add(url)
             return None
+        key = keys[0]
         try:
             with Image.open(path) as im:
                 vec = self.ps._gate_embed(images=[im.convert("RGB")])
@@ -146,7 +165,7 @@ def fetch(url, headers):
     return None
 
 
-def rank_by_text(rows, text, emb):
+def rank_by_text(rows, text, emb, kind="photo"):
     """Кандидаты по убыванию близости превью к тексту; без превью — в хвост
     в прежнем порядке."""
     t = emb.text_vec(text) if text else None
@@ -154,7 +173,7 @@ def rank_by_text(rows, text, emb):
         return list(rows)
     scored, rest = [], []
     for k, r in enumerate(rows):
-        v = emb.image_vec(r.get("probe_url"), r.get("headers"))
+        v = emb.image_vec(r.get("probe_url"), r.get("headers"), _cand(r, kind))
         if v is None:
             rest.append(r)
         else:
@@ -233,8 +252,8 @@ def orders_for(rec, emb, phrase_queries, base_dur=None):
     return {
         "now": now,
         "section_last": section_last(as_rec, phrase_queries),
-        "cascade": rank_by_text(now, brief, emb),
-        "cascade_noblock": rank_by_text(noblock, brief, emb),
+        "cascade": rank_by_text(now, brief, emb, rec.get("kind", "photo")),
+        "cascade_noblock": rank_by_text(noblock, brief, emb, rec.get("kind", "photo")),
     }
 
 

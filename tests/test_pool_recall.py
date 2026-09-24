@@ -144,3 +144,28 @@ def test_verify_question_without_world_asks_no_world_items():
     spec = sj.spec_from_brief("фраза", "brief")
     assert "main_in_world" not in sj.claims_question("фраза", spec)
     assert "main_in_world" in sj.claims_question("фраза", spec, setting="historical, 1300 AD")
+
+
+def test_embedder_finds_pixabay_vector_by_frame_not_by_expiring_url(tmp_path, monkeypatch):
+    """Подписанный адрес превью Pixabay протухает (400) и меняется от выдачи
+    к выдаче; прод-каскад кэширует вектор по номеру кадра. Замер обязан
+    искать так же — иначе живой кадр уходит в хвост порядка только потому,
+    что его адрес устарел, и замер расходится с продом. Мёртвый адрес
+    запрашивается один раз, а не на каждом порядке каждого слота."""
+    import numpy as np
+    import pipeline_smart as ps
+    emb = pool_recall.Embedder.__new__(pool_recall.Embedder)
+    emb.ps, emb.cache_dirs, emb.write_dir, emb.dead = ps, [], str(tmp_path), set()
+    url = "https://pixabay.com/get/g0123abcd_640.jpg"
+    cand = pool_recall._cand({"id": 777, "probe_url": url}, "photo")
+    key = ps._cascade_key(ps._cascade_ident(cand, url))
+    np.save(os.path.join(str(tmp_path), key + ".npy"), np.ones(3, dtype=np.float32))
+    calls = []
+    monkeypatch.setattr(pool_recall, "fetch", lambda u, h: calls.append(u))
+    v = emb.image_vec(url, None, cand)
+    assert v is not None and float(v.sum()) == 3.0
+    assert calls == []
+    dead = "https://pixabay.com/get/gdead_640.jpg"
+    emb.image_vec(dead, None, pool_recall._cand({"id": 1, "probe_url": dead}, "photo"))
+    emb.image_vec(dead, None, pool_recall._cand({"id": 1, "probe_url": dead}, "photo"))
+    assert calls == [dead]
