@@ -610,3 +610,87 @@ def verify_claims(gateway, model, *, phrase, spec, setting, path, kind="photo", 
             json.dump({"answers": answers, "model": model}, f, ensure_ascii=False)
         os.replace(tmp, cp)
     return answers, {"cost": price, "call": True}
+
+
+# ПРОВЕРКА ПО ПОДПИСЯМ (план 24.09, п. 4.1 — включается только после замера).
+# Картинку модель не видит — читает подпись источника каждого кандидата
+# (alt, слаг, теги, паспорт музейного предмета) и отвечает, есть ли в нём
+# главное фразы и из её ли он мира. Один текстовый вызов на слот за весь пул
+# кандидатов, поэтому стоит копейки и годится для слотов после 25-го, где
+# кадр иначе не проверяет никто. Подпись бывает неполной — «unknown» законный
+# ответ и не бракует кандидата.
+CAPTIONS_VERSION = 1
+CAPTION_ANSWERS = ("yes", "no", "unknown")
+WORLD_ANSWERS = ("ok", "foreign", "unknown")
+CAPTIONS_PROMPT = """You screen search results for a documentary video. You cannot see the pictures, only what their source says about each of them.
+Narration line: «{phrase}»
+What the viewer must see: «{core}»{world}
+For every numbered result answer on one line with JSON: {{"n": <number>, "core": "yes" | "no" | "unknown", "world": "ok" | "foreign" | "unknown"}}
+- core: does the description say the picture shows what the viewer must see? "unknown" if the description does not say.
+- world: {world_rule}
+Results:
+{items}"""
+CAPTION_WORLD_RULE = ('"foreign" if the description shows the main subject belongs to a different era or '
+                      'culture than the episode\'s world, "ok" if it fits, "unknown" if it does not say.')
+CAPTION_NO_WORLD_RULE = 'always "unknown".'
+
+
+def caption_question(phrase, spec, setting, captions):
+    items = "\n".join(f"{n}. {' '.join(str(t or '').split())[:VERIFY_CAPTION_MAX] or '(no description)'}"
+                      for n, (_cid, t) in enumerate(captions, 1))
+    return CAPTIONS_PROMPT.format(
+        phrase=phrase or "—", core=spec["claims"][0]["text"],
+        world=VERIFY_WORLD.format(setting=setting) if setting else "",
+        world_rule=CAPTION_WORLD_RULE if setting else CAPTION_NO_WORLD_RULE, items=items)
+
+
+def parse_caption_answer(text, n):
+    """{номер: {"core", "world"}} по разобранным строкам; неразобранная строка
+    — кандидата нет в ответе (как «unknown»)."""
+    import re
+    out = {}
+    for m in re.finditer(r"\{[^{}]*\}", text or ""):
+        try:
+            j = json.loads(m.group(0))
+        except ValueError:
+            continue
+        k = j.get("n")
+        core = str(j.get("core", "")).strip().lower()
+        world = str(j.get("world", "")).strip().lower()
+        if isinstance(k, int) and 1 <= k <= n and core in CAPTION_ANSWERS and world in WORLD_ANSWERS:
+            out.setdefault(k, {"core": core, "world": world})
+    return out
+
+
+def screen_captions(gateway, model, *, phrase, spec, setting, captions, cache_dir=None,
+                    reasoning=False):
+    """({id: {"core", "world"}} | None, info). captions — [(id, текст)]. None —
+    проверки не было; частичный ответ — только разобранные кандидаты."""
+    if gateway is None or not captions:
+        return None, {}
+    text = caption_question(phrase, spec, setting, captions)
+    h = hashlib.sha256()
+    for part in ("captions", str(CAPTIONS_VERSION), model, text, repr(reasoning)):
+        h.update(part.encode("utf-8"))
+        h.update(b"\0")
+    cp = os.path.join(cache_dir, "captions_" + h.hexdigest() + ".json") if cache_dir else None
+    if cp and os.path.exists(cp):
+        try:
+            got = json.load(open(cp, encoding="utf-8"))["answers"]
+            return {captions[int(k) - 1][0]: v for k, v in got.items()}, {"cache_hit": True}
+        except Exception:
+            pass
+    try:
+        answer, _u, price = gateway.chat(model, [{"type": "text", "text": text}],
+                                         1500 + 60 * len(captions), 400 + 60 * len(captions),
+                                         reasoning=reasoning)
+    except Exception as e:  # noqa: BLE001
+        return None, {"refused": f"{type(e).__name__}: {e}"[:200]}
+    got = parse_caption_answer(answer, len(captions))
+    if cp and got:
+        os.makedirs(cache_dir, exist_ok=True)
+        tmp = f"{cp}.{os.getpid()}.{threading.get_ident()}.part"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"answers": {str(k): v for k, v in got.items()}, "model": model}, f)
+        os.replace(tmp, cp)
+    return {captions[k - 1][0]: v for k, v in got.items()}, {"cost": price, "call": True}
