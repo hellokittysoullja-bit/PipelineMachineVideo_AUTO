@@ -55,6 +55,19 @@ def test_rejected_video_is_never_downloaded_again(infra, monkeypatch):
         "вердикт называет настоящую причину, а не «вторая проверка»"
 
 
+def test_unsharp_video_is_not_downloaded_again_on_the_next_slot(infra, monkeypatch):
+    """Резкость — свойство файла: ролик, отклонённый по резкости на одном
+    слоте, на соседнем отклоняется без повторной закачки, с тем же итогом."""
+    infra["videos"] = [video(1), video(2)]
+    infra["relevant"] = {1, 2}
+    infra["sharp_bad"] = {1}
+    _judge(monkeypatch, {1: 3, 2: 3})
+    first, _a = _select_video(0)
+    second, att = _select_video(1)
+    assert first is not None and second is not None
+    assert infra["downloads"] == [1, 2, 2], "ролик 1 скачан один раз за прогон"
+
+
 def test_technical_rejection_takes_the_next_of_the_same_meaning(infra, monkeypatch):
     infra["videos"] = [video(1), video(2), video(3)]
     infra["relevant"] = {1, 2, 3}

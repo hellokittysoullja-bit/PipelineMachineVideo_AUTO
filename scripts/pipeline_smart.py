@@ -11464,6 +11464,12 @@ VIDEO_SHARPNESS_REJECT = 400.0
 VIDEO_SHARPNESS_SAMPLE_FRACS = (0.15, 0.5, 0.85)   # та же сетка, что у domain-гварда
 
 
+# Ролики, не прошедшие резкость в этом прогоне (ключ — id кандидата).
+# Резкость — свойство файла, а не слота: на соседнем слоте тот же ролик
+# скачивался и отклонялся заново (замер эпизода 94: pixabay:125459).
+_VIDEO_UNSHARP_CACHE = {}
+
+
 def video_sharpness_ok(video_path):
     """Median резкости по нескольким сэмплам (не один кадр — транзиентное
     смазывание в один момент не должно топить весь клип, см. докстринг
@@ -11849,6 +11855,11 @@ def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=16, url_o
                 for p, v in zip(part, vecs):
                     emb[id(p)] = v
                     _CASCADE_EMB[keys[id(p)]] = v
+                    # Тот же кадр позже скачивается пробником для гейтов —
+                    # эмбеддинг по содержимому файла уже готов.
+                    d = _file_digest(tmp[id(p)])
+                    if d:
+                        _GATE_IMG_EMB_CACHE.setdefault(d, v)
                     try:
                         np.save(os.path.join(cache_dir, keys[id(p)] + ".npy"), v)
                     except Exception:
@@ -13070,37 +13081,65 @@ def clip_relevance_multi(image_path, texts):
     Возвращает список той же длины, что texts, или None при недоступной
     модели — тот же безопасный откат, что у clip_relevance().
     """
-    global CLIP_BROKEN
     if not CLIP_ENABLED or CLIP_BROKEN or not texts:
         return None
+    img = _gate_image_vec(image_path)
+    if img is None:
+        return None
+    vecs = [_gate_text_vec(t) for t in texts]
+    if any(v is None for v in vecs):
+        return None
+    return [float(img @ v) for v in vecs]
+
+
+# ОДИН ПРОГОН КАРТИНКИ НА ВСЕ ГЕЙТЫ (замер 24.09, py-spy по живому прогону
+# эпизода 94): 72% процессорного времени отбора уходило в контрастивное вето,
+# и 86% из них — в ТЕКСТОВУЮ башню, заново считавшую одни и те же 14 строк
+# (запрос + ловушки канала + ловушки паспорта) на каждую картинку; а одна и
+# та же картинка-пробник проходила через картиночную башню 4-5 раз подряд
+# (релевантность, домен-гвард дважды, вето). Совместный forward модели и
+# раздельные эмбеддинги дают одни и те же числа (замер: наибольшая разница
+# 6.7e-8), поэтому эмбеддинг картинки считается один раз на СОДЕРЖИМОЕ файла
+# (sha1 байтов — пробник, скачанный заново с тем же адресом, попадает в тот
+# же ключ, а перезаписанный файл с другим кадром — нет), текста — один раз
+# на строку, а косинус — скалярное произведение.
+_GATE_IMG_EMB_CACHE = {}
+
+
+def _file_digest(path):
     try:
-        import torch
-        model, processor = get_clip_model()
-        img = PILImage.open(image_path).convert("RGB")
-        # ТОТ ЖЕ вызов, что в clip_relevance() — model(**inputs) с
-        # image_embeds/text_embeds на выходе, только с N текстами вместо
-        # одного. Сознательно не get_image_features()/get_text_features():
-        # в transformers 5 они возвращают объект выхода модели, а не
-        # тензор, и молчаливый except превратил бы вето в no-op (ровно это
-        # и произошло при первой попытке — гейт был «включён» и не работал).
-        # padding="max_length" (не padding=True) — SigLIP2 обучена на
-        # фиксированной длине текстовой башни (см. CLIP_GATE_MODEL_MAX_TEXT_LEN
-        # у get_clip_model()), тот же режим, что уже использует
-        # visual_director._siglip2_text_emb() для so400m — динамический
-        # padding=True даёт другое (не откалиброванное) распределение скоров.
-        inputs = processor(text=list(texts), images=[img], return_tensors="pt",
-                           padding="max_length", max_length=CLIP_GATE_MODEL_MAX_TEXT_LEN,
-                           truncation=True)
-        with torch.no_grad():
-            out = model(**inputs)
-        img_e = out.image_embeds / out.image_embeds.norm(dim=-1, keepdim=True)
-        txt_e = out.text_embeds / out.text_embeds.norm(dim=-1, keepdim=True)
-        return [float(v) for v in (img_e @ txt_e.T)[0]]
-    except ImportError:
-        CLIP_BROKEN = True
+        with open(path, "rb") as f:
+            return hashlib.sha1(f.read()).hexdigest()
+    except OSError:
         return None
-    except Exception:
+
+
+def _gate_image_vec(image_path):
+    d = _file_digest(image_path)
+    if d is None:
         return None
+    v = _GATE_IMG_EMB_CACHE.get(d)
+    if v is None:
+        try:
+            with PILImage.open(image_path) as im:
+                img = im.convert("RGB")
+        except Exception:  # noqa: BLE001 — нечитаемый файл: скора нет, как раньше
+            return None
+        e = _gate_embed(images=[img])
+        if e is None:
+            return None
+        v = _GATE_IMG_EMB_CACHE[d] = e[0]
+    return v
+
+
+def _gate_text_vec(text):
+    v = _CLIP_TEXT_EMB_CACHE.get(text)
+    if v is None:
+        e = _gate_embed(text=text)
+        if e is None:
+            return None
+        v = _CLIP_TEXT_EMB_CACHE[text] = e[0]
+    return v
 
 
 @memoize_by_frame
@@ -13113,26 +13152,8 @@ def clip_relevance(image_path, text):
     новую шкалу: CLIP_RELEVANCE_THRESHOLD и др. ниже. None при отключённой
     фиче/сбое модели — вызывающий код тогда просто не гейтит по релевантности
     (безопасный откат, тот же принцип, что PARALLAX_LIBS/PARALLAX_BROKEN)."""
-    global CLIP_BROKEN
-    if not CLIP_ENABLED or CLIP_BROKEN:
-        return None
-    try:
-        import torch
-        model, processor = get_clip_model()
-        img = PILImage.open(image_path).convert("RGB")
-        inputs = processor(text=[text], images=[img], return_tensors="pt",
-                           padding="max_length", max_length=CLIP_GATE_MODEL_MAX_TEXT_LEN,
-                           truncation=True)
-        with torch.no_grad():
-            out = model(**inputs)
-        img_e = out.image_embeds / out.image_embeds.norm(dim=-1, keepdim=True)
-        txt_e = out.text_embeds / out.text_embeds.norm(dim=-1, keepdim=True)
-        return float((img_e @ txt_e.T)[0][0])
-    except ImportError:
-        CLIP_BROKEN = True
-        return None
-    except Exception:
-        return None
+    got = clip_relevance_multi(image_path, [text])
+    return None if got is None else got[0]
 
 
 # --- Эстетическая оценка кадра (LAION aesthetic predictor v1, линейная
@@ -14461,18 +14482,28 @@ class VideoAdapter(selection_engine.MediaAdapter):
         rejected, rejected_ids = [], set()
         while winner is not None:
             reason = None
-            try:
-                self._download(winner["p"], cf)
-                if not _downloaded_ok(cf):
+            vid_key = _candidate_block_key(winner["p"])
+            if _VIDEO_UNSHARP_CACHE.get(vid_key):
+                # Этот ролик уже скачивался в прогоне и не прошёл резкость —
+                # тот же файл даст тот же вердикт; качать его заново незачем.
+                reason = "sharpness"
+                winner["sharp_ok"] = 0
+            else:
+                try:
+                    self._download(winner["p"], cf)
+                    if not _downloaded_ok(cf):
+                        reason = "download"
+                except Exception:
                     reason = "download"
-            except Exception:
-                reason = "download"
-            if reason == "download":
+            if reason == "sharpness":
+                pass
+            elif reason == "download":
                 _source_bump(candidate_channel(winner["p"]), "download_errors")
                 winner["is_dup_free"] = 0
             elif video_sharpness_ok(cf) is False:
                 reason = "sharpness"
                 winner["sharp_ok"] = 0
+                _VIDEO_UNSHARP_CACHE[vid_key] = True
             elif not claims_checked(winner) and video_smart_relevance_veto(cf, query):
                 reason = "smart_veto"
                 winner["is_relevant"] = 0
@@ -16277,6 +16308,7 @@ def main():
     # Шлюз судьи и его потолок расходов — на прогон, а не на процесс.
     _SHOT_JUDGE_STATE.update(gateway=None, made=False, refused=None, slots=set(), warned=False,
                              world_votes=None)
+    _VIDEO_UNSHARP_CACHE.clear()
     SHOT_JUDGE_LOG.clear()
     # Каталоги попыток прерванного процесса — мусор: живых попыток при
     # старте нет, и в кэш такой файл не попадёт никогда.

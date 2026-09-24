@@ -424,6 +424,34 @@ class TestSearchDepth:
         assert [c["id"] for c in out] == [f"met:{i}" for i in ids]
 
 
+def test_met_card_is_fetched_once_per_object(monkeypatch, tmp_path):
+    """Половина запросов карточек в прогоне эпизода 94 повторяла уже
+    полученную карточку. Карточка предмета от запроса не зависит — второй
+    запрос с тем же предметом её не качает; неполученная не запоминается."""
+    monkeypatch.setattr(ms, "MUSEUM_CACHE_DIR", str(tmp_path / "c"))
+    card_calls = []
+
+    def fake_get(url):
+        if "/search" in url:
+            return {"objectIDs": [7, 8]}
+        oid = int(url.rsplit("/", 1)[1])
+        card_calls.append(oid)
+        if oid == 8:
+            raise OSError("сеть")
+        return {"isPublicDomain": True, "primaryImage": f"http://x/{oid}.jpg",
+                "objectBeginDate": 1400, "objectEndDate": 1450, "culture": "French",
+                "title": f"Item {oid}", "objectURL": f"http://met/{oid}"}
+
+    monkeypatch.setattr(ms, "_get_json", fake_get)
+    monkeypatch.setattr(ms, "MET_RETRY_PAUSE_SEC", 0)
+    first = ms.search_met("sword")
+    ms._MET_CARD_CACHE.clear()          # новый процесс: остаётся диск
+    second = ms.search_met("dagger")
+    assert [c["id"] for c in first] == [c["id"] for c in second] == ["met:7"]
+    assert card_calls.count(7) == 1 and card_calls.count(8) == 4, \
+        "полученная карточка — из кэша, отказ повторяется"
+
+
 class TestMetPoliteness:
     """403 от Мет — не гипотеза, а пойманный вживую отказ (13.09): при замере
     глубины подряд ушло ~600 запросов за пару минут, и Мет ответил 403 уже на

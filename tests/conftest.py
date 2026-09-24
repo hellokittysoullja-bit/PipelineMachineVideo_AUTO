@@ -186,11 +186,12 @@ def _clear_process_level_search_caches():
         # платить за его импорт (там тяжёлый стек и load_dotenv).
         yield
         return
-    for name in dir(ps):
-        if name.startswith("_") and name.endswith("CACHE"):
-            obj = getattr(ps, name, None)
-            if isinstance(obj, dict):
-                obj.clear()
+    for mod in (ps, sys.modules.get("museum_sources")):
+        for name in dir(mod or ()):
+            if name.startswith("_") and name.endswith("CACHE"):
+                obj = getattr(mod, name, None)
+                if isinstance(obj, dict):
+                    obj.clear()
     try:
         ps.reset_source_stats()
     except Exception:

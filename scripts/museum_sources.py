@@ -472,6 +472,50 @@ def _candidate(cid, title, image_url, page_url, meta, headers=None, thumb_url=No
     return out
 
 
+# КАРТОЧКИ ПРЕДМЕТОВ МЕТ КЭШИРУЮТСЯ ПО objectID (замер 24.09, прогон
+# эпизода 94: 863 запроса карточек на 437 разных предметов — половина
+# запросов повторяла уже полученную карточку, и каждый стоял в очереди
+# ограничителя Мет). Карточка предмета от запроса не зависит; решение
+# «подходит ли предмет» по-прежнему принимается заново на каждом запросе
+# (паспорт эпизода мог смениться). Кэшируется только полученная карточка —
+# отказ не замораживается. Срок и папка — те же, что у кэша поиска.
+_MET_CARD_CACHE = {}
+
+
+def _met_card_path(oid):
+    return os.path.join(MUSEUM_CACHE_DIR, "met_objects", f"{int(oid)}.json")
+
+
+def _met_card_cached(oid):
+    o = _MET_CARD_CACHE.get(oid)
+    if o is not None:
+        return o
+    try:
+        p = _met_card_path(oid)
+        if time.time() - os.path.getmtime(p) < MUSEUM_CACHE_TTL_SEC:
+            with open(p, encoding="utf-8") as f:
+                o = json.load(f)
+            _MET_CARD_CACHE[oid] = o
+            FETCH_STATS["met_card_cache_hits"] = FETCH_STATS.get("met_card_cache_hits", 0) + 1
+            return o
+    except (OSError, ValueError, TypeError):
+        pass
+    return None
+
+
+def _met_card_store(oid, o):
+    _MET_CARD_CACHE[oid] = o
+    try:
+        p = _met_card_path(oid)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        tmp = f"{p}.{os.getpid()}.{threading.get_ident()}.part"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(o, f, ensure_ascii=False)
+        os.replace(tmp, p)
+    except (OSError, TypeError, ValueError):
+        pass
+
+
 def search_met(query, limit=MET_MAX_DETAIL_FETCHES, department=None):
     """Метрополитен: отдел Arms and Armor — лучшая в мире коллекция
     европейского доспеха, всё public domain, ключ не нужен.
@@ -534,10 +578,15 @@ def search_met(query, limit=MET_MAX_DETAIL_FETCHES, department=None):
         # Fail-open ПОКАРТОЧНО, как и было в последовательной версии: упавший
         # запрос одной карточки не должен уносить остальные 59. Потеря
         # считается — иначе поредевший пул выглядел бы бедным корпусом.
+        o = _met_card_cached(oid)
+        if o is not None:
+            return o
         o = _met_get(f"{MET_API}/objects/{oid}")
         if o is None:
             with _MET_LOCK:
                 FETCH_STATS["met_cards_lost"] += 1
+        else:
+            _met_card_store(oid, o)
         return o
 
     # ex.map сохраняет ПОРЯДОК входа — кандидаты остаются в порядке
