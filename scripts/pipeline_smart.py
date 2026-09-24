@@ -43,6 +43,7 @@ import stage_timer
 # объявлены ТАМ, а не литералом в каждой точке чтения: расхождение
 # кода с CLAUDE.md уже случалось молча (см. докстринг реестра).
 import feature_flags
+import focus_frame
 import query_fusion
 import selection_attempt
 import selection_engine
@@ -8440,12 +8441,16 @@ class PhotoAdapter(selection_engine.MediaAdapter):
         # смог вернуть кадр в анти-дубль. См. write_media_sidecar().
         _prov = candidate_provenance(pick)
         selection_attempt.record_effect("license", _prov, query)
+        _focus_box = None
+        if judged and winner is not None and not judge_rejected(winner):
+            _focus_box = locate_focus_box(index, cf, winner, request)
         write_media_sidecar(
             cf, pexels_id=pick.get("id"), query=query, kind="photo",
             ahash_hex=_picked_ahash,
             relevance=(winner.get("relevance") if winner else None),
             chosen_by=chosen_by, provenance=_prov,
-            quality=(winner_quality(winner) if judged else None))
+            quality=(winner_quality(winner) if judged else None),
+            focus_box=_focus_box)
         if recent_sizes is not None:
             try:
                 selection_attempt.record_effect("shot_size", recent_sizes, estimate_shot_size(cf))
@@ -10757,6 +10762,9 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
     # остального (см. aspect_fit_backdrop): дальше по цепочке он уже 16:9, и
     # ни anchor-кроп, ни zoompan, ни грейд не знают про этот шаг вообще.
     # Кадр 4:3 и шире возвращается тем же путём — ноль изменений.
+    # До подложки — вырезка вокруг смысловой детали (focus_crop): страница
+    # рукописи становится сценой на ней. Нет рамки — тот же путь.
+    photo = focus_crop(photo)
     photo = aspect_fit_backdrop(photo)
     frames = max(1, round(dur * FPS))
     # KENBURNS_ADAPTIVE_CANVAS=0 (дефолт) -> ровно 8000x4500, как раньше,
@@ -12303,6 +12311,9 @@ def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=
             vec = shot_judge.claims_vector(spec, ans, world_veto=world_veto, cg_veto=cg_veto)
             c["verify"] = "veto" if vec is None else vec
             c["verify_focus"] = focus
+            # Тип изображения по словам судьи: photo/artwork/object/cg —
+            # рисунку и странице рукописи нужна рамка детали (focus_crop).
+            c["verify_medium"] = ans.get("medium")
             c["verify_nothing"] = shot_judge.nothing_met(spec, ans)
             c["verify_perfect"] = vec is not None and shot_judge.musts_met_clean(spec, ans)
             c["world_clear"] = shot_judge.world_clear(ans)
@@ -12378,13 +12389,21 @@ def shot_judge_signature(index=None):
     # Код судьи — собирается сам (judge_code_signature, см. code_signature.py);
     # тексты вопросов — константы, их объявляем явно.
     logic = hashlib.sha256((judge_code_signature() + shot_judge.CLAIMS_PROMPT
-                            + shot_judge.WORLD_ONLY_PROMPT).encode("utf-8")).hexdigest()[:12]
+                            + shot_judge.WORLD_ONLY_PROMPT + shot_judge.FOCUS_BOX_PROMPT
+                            + shot_judge.FOCUS_CONFIRM_PROMPT).encode("utf-8")).hexdigest()[:12]
     return repr(("judge", shot_judge_model(), shot_judge.PROMPT_VERSION, SHOT_JUDGE_MIN_SCORE,
                  "cascade", cascade_preview_n(), "claims", shot_judge.CLAIMS_VERSION, logic,
                  shot_judge.VERIFY_MAX_SIDE, VERIFY_FINALISTS, VERIFY_REASONING,
                  "world_veto", world_veto_active(),
                  "readable",
-                 UNREADABLE_DARK_LEVEL, UNREADABLE_DARK_SHARE))
+                 UNREADABLE_DARK_LEVEL, UNREADABLE_DARK_SHARE,
+                 # Рамка детали: пишется в метаданные кадра при отборе, и
+                 # без подписи прогретый кэш кандидата отдавал бы кадр без
+                 # рамки (или с рамкой при выключенном флаге).
+                 "focus", feature_flags.enabled("FOCUS_CROP"), shot_judge.FOCUS_BOX_VERSION,
+                 shot_judge.FOCUS_BOX_MIN_AREA, shot_judge.FOCUS_BOX_MAX_AREA,
+                 focus_frame.MARGIN, focus_frame.MIN_WIDTH_PX, focus_frame.MIN_SHARE,
+                 focus_frame.PAGE_ASPECT, focus_frame.NEAR_FULL))
 
 
 # ПЛАТНАЯ ПРОВЕРКА — ТОЛЬКО ХУК (решение владельца 24.09). Судья стоит денег
@@ -12545,7 +12564,7 @@ def media_sidecar_path(media_path):
 
 def write_media_sidecar(media_path, *, pexels_id=None, query=None, kind=None,
                         ahash_hex=None, relevance=None, chosen_by=None,
-                        provenance=None, quality=None, verdicts=None):
+                        provenance=None, quality=None, verdicts=None, focus_box=None):
     """Записать, ЧТО именно лежит в кэш-файле кандидата.
 
     РЕАЛЬНАЯ, найденная вживую дыра (04.09), которую это закрывает: имя
@@ -12590,6 +12609,10 @@ def write_media_sidecar(media_path, *, pexels_id=None, query=None, kind=None,
             verdicts = list(att.verdicts) if att is not None else []
         if verdicts:
             payload["verdicts"] = [[k, dict(rec)] for k, rec in verdicts]
+        # Рамка смысловой детали (shot_judge.locate_box): рендер вырезает
+        # область вокруг неё — см. focus_crop().
+        if focus_box:
+            payload["focus_box"] = list(focus_box)
         tmp = media_sidecar_path(media_path) + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False)
@@ -13014,14 +13037,15 @@ SELECTION_CODE_MODULES = (
     "pipeline_smart", "selection_engine", "selection_attempt", "shot_judge", "world_card",
     "museum_sources", "shot_types", "query_fusion", "stock_query_planner", "met_catalog",
     "shelf_index", "visual_director", "shot_director", "europeana_corpus", "source_health",
-    "channel_profile", "commons_source")
+    "channel_profile", "commons_source", "focus_frame")
 _CODE_SIGS = {}
 
 
 def _judge_code_entries():
     """Код, который работает только при судье: его правка не должна
     перекачивать слоты вне платной зоны."""
-    return (judge_candidates, cascade_reorder, _verify_finalists, verify_finalists_of)
+    return (judge_candidates, cascade_reorder, _verify_finalists, verify_finalists_of,
+            locate_focus_box)
 
 
 def selection_code_signature():
@@ -13548,6 +13572,89 @@ def needs_aspect_backdrop(iw, ih):
     return (iw / ih) < ASPECT_FIT_MIN_RATIO
 
 
+def needs_focus_box(winner, path):
+    """Нужна ли рамка детали: рисунок/гравюра/страница рукописи по словам
+    судьи или «высокий» кадр (страница, лист). Обычной фотографии хватает
+    прежнего кропа по лицу/заметности."""
+    if not feature_flags.enabled("FOCUS_CROP"):
+        return False
+    if (winner or {}).get("verify_medium") == "artwork":
+        return True
+    try:
+        with PILImage.open(path) as im:
+            w, h = PILImageOps.exif_transpose(im).size
+        return focus_frame.is_page_like(w, h)
+    except Exception:
+        return False
+
+
+def locate_focus_box(index, path, winner, request):
+    """Рамка смысловой детали одобренного победителя или None.
+
+    Два вопроса модели-судье (тот же шлюз и потолок расходов, кэш по
+    картинке): где на кадре то, о чём фраза (shot_judge.locate_box), и видно
+    ли это на получившейся вырезке (shot_judge.confirm_crop). Вырезка идёт в
+    ролик, только если судья, посмотрев на НЕЁ, ответил «да»: на странице
+    бывает несколько сцен, и рамка может лечь не на ту (замер 24.09 — 3 из 3
+    неверных вырезок отклонены). Нет рамки, сбой, «нет» — кадр идёт прежним
+    путём, целиком, как его одобрил судья."""
+    if not needs_focus_box(winner, path):
+        return None
+    gw = _SHOT_JUDGE_STATE.get("gateway")
+    if gw is None:
+        return None
+    import shot_judge
+    spec = request.shot_spec or {}
+    focus = spec.get("focus") or request.shot_brief or request.block_text
+    model = shot_judge_model()
+    cache = os.path.join(TEMP_FOLDER, "shot_judge_cache")
+    box, info = shot_judge.locate_box(gw, model, path=path, focus=focus, cache_dir=cache)
+    entry = {"index": index, "kind": "photo", "model": model, "focus": focus,
+             "focus_box": box, "focus_what": info.get("what"),
+             "cost": info.get("cost"), "cache_hit": info.get("cache_hit")}
+    if info.get("refused"):
+        entry["refused"] = info["refused"]
+    if box:
+        try:
+            crop = focus_frame.crop_file(path, box, os.path.join(TEMP_FOLDER, "focus_crop"))
+        except Exception:
+            crop = None
+        if crop is None:
+            entry["focus_dropped"] = "region"
+            box = None
+        else:
+            shows, cinfo = shot_judge.confirm_crop(gw, model, path=crop, focus=focus, cache_dir=cache)
+            entry["focus_confirm"] = shows
+            entry["confirm_cost"] = cinfo.get("cost")
+            if shows is not True:
+                entry["focus_dropped"] = "confirm"
+                box = None
+    entry["focus_box_used"] = box
+    SHOT_JUDGE_LOG.append(entry)
+    if box:
+        print(f"  слот {index}: наезд на деталь {box} — {entry.get('focus_what') or focus!r}")
+    elif entry.get("focus_dropped"):
+        print(f"  слот {index}: рамка детали не принята ({entry['focus_dropped']}) — кадр целиком")
+    return box
+
+
+def focus_crop(photo_path):
+    """Путь к вырезке вокруг рамки смысловой детали (рамка — в метаданных
+    кадра, её ставит locate_focus_box) или исходный путь. Геометрия и кэш —
+    focus_frame.crop_file (тот же код у контактного листа); fail-open на
+    любую ошибку — слот не пропадает из-за этого шага."""
+    if not feature_flags.enabled("FOCUS_CROP"):
+        return photo_path
+    try:
+        box = read_media_sidecar(photo_path).get("focus_box")
+        if not box:
+            return photo_path
+        return focus_frame.crop_file(photo_path, box, os.path.join(TEMP_FOLDER, "focus_crop")) \
+            or photo_path
+    except Exception:
+        return photo_path
+
+
 def aspect_fit_backdrop(photo_path, out_dir=None, width=None, height=None):
     """Путь к 16:9-версии кадра: сам кадр целиком + размытая тёмная подложка.
 
@@ -13704,6 +13811,7 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
     возвращает False — вызывающий код откатывается на обычный kenburns()."""
     # Та же подложка, что и в kenburns(): параллакс строит свой холст через
     # fill_crop_canvas(), то есть тем же increase+crop.
+    photo = focus_crop(photo)
     photo = aspect_fit_backdrop(photo)
     global PARALLAX_BROKEN
     if PARALLAX_BROKEN:
@@ -15722,6 +15830,9 @@ def render_recipe_signature():
             # правка порога или вида подложки меняет уже отрендеренный клип,
             # а ни один рантайм-параметр params_hash при этом не двигается.
             aspect_fit_backdrop, needs_aspect_backdrop,
+            # Вырезка вокруг смысловой детали — тоже рецепт кадра (геометрия
+            # в focus_frame; её константы — в кортеже ниже).
+            focus_crop, focus_frame.crop_region, focus_frame.crop_file,
             film_look, _scene_bias, _warm_mult, grain_blend_complex,
             add_overlays, add_kinetic_captions, kenburns, video_render,
             parallax_kenburns, choose_motion_mode, piecewise_ease_expr,
@@ -15819,6 +15930,8 @@ def render_recipe_signature():
             PARALLAX_OCCLUSION_AWARE, PARALLAX_INPAINT_RADIUS,
             HOOK_KINETIC_CAPTIONS_ENABLED,
             CLIP_PIX_ARGS, COLOR_META_ARGS,
+            focus_frame.MARGIN, focus_frame.MIN_WIDTH_PX, focus_frame.MIN_SHARE,
+            focus_frame.ASPECT, focus_frame.NEAR_FULL,
         )))
         # KENBURNS_ADAPTIVE_CANVAS — УСЛОВНО, только когда флаг взведён.
         # Почему не просто ещё одно поле в кортеже выше: при дефолте (=0)
@@ -17468,6 +17581,11 @@ def main():
             shot_entries[i]["focus_met"] = bool(_focus)
             if not _focus:
                 print(f"    [{i+1}] главное фразы на кадре не найдено — стоит ближайшая замена")
+        # Наезд на смысловую деталь (рамка — у одобренного судьёй рисунка):
+        # дальше яркость, уровни, лицо и сам рендер считаются по ВЫРЕЗКЕ —
+        # по тому, что увидит зритель, а не по странице целиком.
+        if photo:
+            photo = focus_crop(photo)
         luma = measure_luma(photo, is_video=False) if photo else measure_luma(video, is_video=True)
         if luma is not None:
             _clamp, _gain = luma_match_params()

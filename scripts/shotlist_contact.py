@@ -21,7 +21,10 @@ import subprocess
 import sys
 import tempfile
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import focus_frame  # noqa: E402  — та же вырезка, что у рендера
 
 THUMB_W, THUMB_H = 480, 270
 CAPTION_H = 74
@@ -93,7 +96,11 @@ def thumbnail_for(path):
                 return None
             src = Image.open(tmp).convert("RGB")
         else:
-            src = Image.open(path).convert("RGB")
+            # Как увидит зритель: поворот по EXIF (его применяет ffmpeg) и
+            # наезд на смысловую деталь, если у кадра есть её рамка.
+            with Image.open(path) as im:
+                src, _cropped = focus_frame.crop_image(
+                    ImageOps.exif_transpose(im).convert("RGB"), focus_frame.box_of(path))
         src.thumbnail((THUMB_W, THUMB_H), Image.LANCZOS)
         canvas = Image.new("RGB", (THUMB_W, THUMB_H), (16, 16, 16))
         canvas.paste(src, ((THUMB_W - src.width) // 2, (THUMB_H - src.height) // 2))

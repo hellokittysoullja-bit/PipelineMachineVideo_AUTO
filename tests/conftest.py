@@ -81,6 +81,12 @@ def _isolate_from_real_dotenv(monkeypatch, tmp_path):
     # прошлый ответ и падает (поймано 13.09 на test_openverse_live_path).
     monkeypatch.setenv("MUSEUM_CACHE_DIR", str(tmp_path / "museum_cache"))
     monkeypatch.setenv("OPENVERSE_CACHE_DIR", str(tmp_path / "openverse_cache"))
+    monkeypatch.setenv("COMMONS_CACHE_DIR", str(tmp_path / "commons_cache"))
+    try:
+        import commons_source as _cs
+        monkeypatch.setattr(_cs, "CACHE_DIR", str(tmp_path / "commons_cache"))
+    except Exception:
+        pass
     try:
         import museum_sources as _ms
         monkeypatch.setattr(_ms, "MUSEUM_CACHE_DIR", str(tmp_path / "museum_cache"))

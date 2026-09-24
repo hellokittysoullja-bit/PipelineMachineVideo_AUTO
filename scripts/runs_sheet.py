@@ -7,6 +7,10 @@
 selection_freeze.py). Каждая колонка — папка эпизода с
 media_plan/shotlist.json; подпись под плиткой — вид медиа и источник.
 
+Плитка показывает то, что увидит зритель: если у кадра есть рамка
+смысловой детали (метаданные кадра, focus_box), — вырезку вокруг неё той же
+геометрией, что у рендера (focus_frame), с пометкой «наезд».
+
   python scripts/runs_sheet.py out.jpg "до" videos/94_x "после" \
       temp_selection_freeze/94_x/runs/judge4/episode
 """
@@ -16,7 +20,10 @@ import subprocess
 import sys
 import tempfile
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import focus_frame  # noqa: E402  — та же вырезка, что у рендера
 
 TW, TH = 420, 236
 FONTS = ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "C:/Windows/Fonts/arial.ttf")
@@ -29,10 +36,11 @@ def _font(size):
     return ImageFont.load_default()
 
 
-def thumb(path, kind):
-    """Плитка кадра; у видео — кадр на первой секунде. Нет файла — None."""
+def thumb(path, kind, box=None):
+    """(плитка, вырезана ли деталь). У видео — кадр на первой секунде; у
+    фото с рамкой детали — вырезка вокруг неё. Нет файла — (None, False)."""
     if not path or not os.path.exists(path):
-        return None
+        return None, False
     tmp = None
     try:
         if kind == "video" or path.endswith(".mp4"):
@@ -41,14 +49,14 @@ def thumb(path, kind):
             subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-ss", "1", "-i", path,
                             "-frames:v", "1", tmp], check=False)
             if not os.path.getsize(tmp):
-                return None
+                return None, False
             path = tmp
         with Image.open(path) as im:
-            im = im.convert("RGB")
+            im, cropped = focus_frame.crop_image(ImageOps.exif_transpose(im).convert("RGB"), box)
             im.thumbnail((TW, TH))
         bg = Image.new("RGB", (TW, TH), (16, 16, 16))
         bg.paste(im, ((TW - im.width) // 2, (TH - im.height) // 2))
-        return bg
+        return bg, cropped
     finally:
         if tmp and os.path.exists(tmp):
             os.remove(tmp)
@@ -98,13 +106,15 @@ def build(out, columns):
         for c, shots in enumerate(cols):
             x = lw + c * (TW + 10)
             path, kind, prov = shots.get(i, (None, None, None))
-            t = thumb(path, kind)
+            box = focus_frame.box_of(path) if path and kind != "video" else None
+            t, cropped = thumb(path, kind, box)
             if t is None:
                 dr.rectangle([x, y, x + TW, y + TH], fill=(70, 20, 20))
                 dr.text((x + 10, y + 10), "нет кадра", font=f, fill=(240, 200, 200))
             else:
                 sheet.paste(t, (x, y))
-            dr.text((x + 4, y + TH + 4), f"{kind or '—'}/{prov or '—'}", font=fs, fill=(170, 170, 170))
+            label = f"{kind or '—'}/{prov or '—'}" + (" · наезд" if cropped else "")
+            dr.text((x + 4, y + TH + 4), label, font=fs, fill=(170, 170, 170))
     sheet.save(out, quality=88)
     return sheet.size
 

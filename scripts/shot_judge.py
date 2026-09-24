@@ -130,7 +130,17 @@ def flat_rgb(im):
     «isolated» со стока) цвет прозрачных пикселей произволен, и простое
     convert("RGB") показывает его полосами — судья видел испорченный кадр
     (живой случай: кинжалы Pixabay в сетке слота «Вот кинжал»). Прозрачное
-    кладётся на светлый фон, как такие снимки и задуманы."""
+    кладётся на светлый фон, как такие снимки и задуманы.
+
+    И в той ориентации, в какой кадр увидит зритель: ffmpeg 6.x поворачивает
+    JPEG по метке EXIF (проверено 24.09: 400x200 с Orientation=6 выходит
+    200x400), а PIL отдаёт сырые пиксели — судья смотрел бы на кадр боком, и
+    рамка детали (locate_box) легла бы не туда при вырезке."""
+    try:
+        from PIL import ImageOps
+        im = ImageOps.exif_transpose(im)
+    except Exception:  # noqa: BLE001 — битые EXIF: кадр как есть
+        pass
     if im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info):
         from PIL import Image
         rgba = im.convert("RGBA")
@@ -511,6 +521,123 @@ def world_of_image(gateway, model, *, setting, path, kind="photo", cache_dir=Non
     if cp:
         _cache_write(cp, {"answers": answers, "model": model}, readable=True)
     return answers, {"cost": price, "call": True}
+
+
+# РАМКА СМЫСЛОВОЙ ДЕТАЛИ — где на кадре то, о чём фраза. Нужна рисункам и
+# страницам рукописей: миниатюра битвы — это страница с текстом и полями, а
+# фраза — про одну сцену на ней. Документалисты показывают деталь медленным
+# наездом, а не страницу целиком; рендер (pipeline_smart.focus_crop) вырезает
+# область вокруг рамки (focus_frame.crop_region). Спрашивается ОДИН раз у
+# одобренного победителя, и вырезку судья потом смотрит сам (confirm_crop):
+# на странице бывает несколько сцен, и рамка может лечь не на ту.
+#
+# Формат — шкала 0-1000, родная для моделей Qwen: замер 24.09 на восьми
+# случаях с известной рамкой (страницы Азенкура, Фиоре, Тальхоффера,
+# миниатюра Азенкура) — при вопросе «доли кадра» модель половину ответов всё
+# равно дала в тысячных. Поле «what» (что в рамке, до самой рамки) — замер
+# того же дня: без него 7 из 8 рамок легли на нужную сцену (на странице
+# Фиоре — нижний рисунок вместо верхнего), с ним — 8 из 8.
+FOCUS_BOX_VERSION = 2
+FOCUS_BOX_PROMPT = """Look at this picture. Find the part of it that shows: «{focus}».
+Reply with JSON only: {{"what": "what is inside the box, in a few words", "box": [x0, y0, x1, y1]}} — coordinates on a 0-1000 scale (0 = left or top edge of the picture, 1000 = right or bottom edge), the tightest box that still contains all of it.
+Reply {{"what": "", "box": null}} if it fills most of the picture or is not in the picture."""
+FOCUS_CONFIRM_PROMPT = """Does this picture clearly show: «{focus}»?
+Reply with JSON only: {{"shows": "yes"}} or {{"shows": "no"}}."""
+FOCUS_BOX_MIN_AREA = 0.002     # меньше — точка, а не деталь: скорее ошибка разметки
+FOCUS_BOX_MAX_AREA = 0.70      # больше — и так почти весь кадр, вырезать незачем
+
+
+def parse_box(answer):
+    """[x0, y0, x1, y1] долями кадра или None: без рамки, неразборчиво,
+    рамка вне кадра, точка или почти весь кадр. Шкала 0-1000 (о ней
+    просит вопрос) и доли (так модель тоже иногда отвечает) — обе."""
+    import re
+    m = re.search(r"\{.*\}", answer or "", re.S)
+    try:
+        j = json.loads(m.group(0)) if m else None
+    except ValueError:
+        return None
+    box = j.get("box") if isinstance(j, dict) else None
+    if not isinstance(box, list) or len(box) != 4:
+        return None
+    try:
+        vals = [float(v) for v in box]
+    except (TypeError, ValueError):
+        return None
+    if max(vals) > 1.0:
+        if max(vals) > 1000.0:
+            return None
+        vals = [v / 1000.0 for v in vals]
+    x0, y0, x1, y1 = vals
+    if not (0.0 <= x0 < x1 <= 1.0 and 0.0 <= y0 < y1 <= 1.0):
+        return None
+    area = (x1 - x0) * (y1 - y0)
+    if not FOCUS_BOX_MIN_AREA <= area <= FOCUS_BOX_MAX_AREA:
+        return None
+    return [round(x0, 4), round(y0, 4), round(x1, 4), round(y1, 4)]
+
+
+def _ask_image(gateway, model, *, kind, text, path, cache_dir, max_side, reasoning, max_tokens):
+    """(ответ | None, info): вопрос по картинке с кэшем по тексту вопроса,
+    картинке и модели. Сбой шлюза — None."""
+    h = hashlib.sha256()
+    for part in (kind, model, text, str(max_side), repr(reasoning), _file_digest(path)):
+        h.update(part.encode("utf-8"))
+        h.update(b"\0")
+    cp = os.path.join(cache_dir, f"{kind}_{h.hexdigest()}.json") if cache_dir else None
+    if cp and os.path.exists(cp):
+        try:
+            return json.load(open(cp, encoding="utf-8"))["answer"], {"cache_hit": True}
+        except Exception:
+            pass
+    try:
+        image = _image_content(path, max_side)
+        answer, _u, price = gateway.chat(model, [{"type": "text", "text": text}, image],
+                                         max_tokens, 900, reasoning=reasoning)
+    except Exception as e:  # noqa: BLE001 — ответа нет: кадр идёт как раньше
+        return None, {"refused": f"{type(e).__name__}: {e}"[:200]}
+    if cp and answer:
+        _cache_write(cp, {"answer": answer, "model": model}, readable=True)
+    return answer, {"cost": price, "call": True}
+
+
+def locate_box(gateway, model, *, path, focus, cache_dir=None, max_side=1024, reasoning=False):
+    """(рамка | None, info). info["what"] — что модель увидела в рамке."""
+    if gateway is None or not path or not os.path.exists(path) or not focus:
+        return None, {}
+    text = FOCUS_BOX_PROMPT.format(focus=" ".join(str(focus).split())[:200])
+    answer, info = _ask_image(gateway, model, kind=f"focusbox{FOCUS_BOX_VERSION}", text=text,
+                              path=path, cache_dir=cache_dir, max_side=max_side,
+                              reasoning=reasoning, max_tokens=160)
+    if answer is None:
+        return None, info
+    try:
+        what = json.loads(answer[answer.index("{"): answer.rindex("}") + 1]).get("what")
+    except (ValueError, AttributeError):
+        what = None
+    return parse_box(answer), dict(info, what=(str(what)[:120] if what else None))
+
+
+def parse_shows(answer):
+    """True / False / None (неразборчиво) из ответа на FOCUS_CONFIRM_PROMPT."""
+    try:
+        j = json.loads(answer[answer.index("{"): answer.rindex("}") + 1])
+    except (ValueError, AttributeError, TypeError):
+        return None
+    v = str((j or {}).get("shows") or "").strip().lower() if isinstance(j, dict) else ""
+    return True if v == "yes" else False if v == "no" else None
+
+
+def confirm_crop(gateway, model, *, path, focus, cache_dir=None, max_side=1024, reasoning=False):
+    """(видно ли на вырезке то, о чём фраза: True/False/None, info). None —
+    вопроса не было или ответ неразборчив: вызывающий вырезку НЕ ставит."""
+    if gateway is None or not path or not os.path.exists(path) or not focus:
+        return None, {}
+    text = FOCUS_CONFIRM_PROMPT.format(focus=" ".join(str(focus).split())[:200])
+    answer, info = _ask_image(gateway, model, kind=f"focusok{FOCUS_BOX_VERSION}", text=text,
+                              path=path, cache_dir=cache_dir, max_side=max_side,
+                              reasoning=reasoning, max_tokens=40)
+    return (None if answer is None else parse_shows(answer)), info
 
 
 def spec_from_brief(phrase, brief):

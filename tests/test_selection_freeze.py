@@ -132,7 +132,7 @@ def test_child_env_is_hermetic(monkeypatch, tmp_path):
     env = sf.child_env(snap, str(tmp_path), "7")
     if snap.get("SMART_RELEVANCE_VETO") is None:
         assert "SMART_RELEVANCE_VETO" not in env, "переменная после записи просочилась"
-    for var in ("MUSEUM_CACHE_DIR", "OPENVERSE_CACHE_DIR", "EMB_CACHE_DIR"):
+    for var in ("MUSEUM_CACHE_DIR", "OPENVERSE_CACHE_DIR", "COMMONS_CACHE_DIR", "EMB_CACHE_DIR"):
         assert env[var].startswith(str(tmp_path)), f"{var} указывает вне песочницы"
     assert env["PYTHONHASHSEED"] == "7"
     assert env["HF_HUB_OFFLINE"] == "1"
