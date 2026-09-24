@@ -99,7 +99,8 @@ def test_cascade_texts_come_from_the_must_claims():
     spec = {"claims": [{"id": "c1", "text": "an arrow", "tier": "must"},
                        {"id": "c2", "text": "a wall", "tier": "should"},
                        {"id": "c3", "text": "it bounces", "tier": "must", "motion": True}]}
-    assert ps.cascade_texts(spec, "brief") == ["an arrow", "it bounces"]
+    assert ps.cascade_texts(spec, "brief", "video") == ["an arrow", "it bounces"]
+    assert ps.cascade_texts(spec, "brief", "photo") == ["an arrow"], "движение фото не ранжирует"
     assert ps.cascade_texts(None, "brief") == ["brief"]
 
 
@@ -107,7 +108,7 @@ def test_cascade_runs_only_with_an_active_judge():
     src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"), encoding="utf-8").read()
     i = src.index("candidates = cascade_reorder(")
     assert "if shot_judge_active(index):" in src[i - 80:i]
-    assert "cascade_preview_n()" in src[src.index("def shot_judge_signature"):][:1500]
+    assert "cascade_preview_n()" in src[src.index("def shot_judge_signature"):][:3000]
 
 
 def test_separate_embeddings_match_the_gate_score(tmp_path):

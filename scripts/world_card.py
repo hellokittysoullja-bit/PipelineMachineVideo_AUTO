@@ -288,6 +288,23 @@ def judge_setting(card):
     return ", ".join(parts) or None
 
 
+def world_to_check(card):
+    """Мир, который имеет смысл проверять НА КАДРЕ: окно эпохи или культуры.
+    У научного, абстрактного, современного эпизода без них вопрос «мог ли
+    предмет существовать в этом мире» бессмыслен и даёт случайные отказы —
+    тогда None, и вопросы про мир не задаются."""
+    if not card or not (era_window(card) or culture_include(card) or culture_exclude(card)):
+        return None
+    return judge_setting(card)
+
+
+def is_historical(card):
+    """Эпизод про прошлое: 3D, мультфильм и инфографика там — брак. У
+    научного или абстрактного эпизода рендер бывает единственным
+    изображением предмета, и бракуют его только по смыслу."""
+    return bool(card) and card.get("register") in ("historical", "mixed")
+
+
 def expected_subjects(card):
     """Предметы и сцены, которых эпизод реально требует, короткими
     английскими фразами — читатель: generic_fallback_queries_effective()

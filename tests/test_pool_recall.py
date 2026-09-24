@@ -127,14 +127,16 @@ def test_claims_vector_background_is_penalty_main_is_veto():
     def ans(core="yes", c1="yes", main=True, bg=False, medium="photo"):
         return {"claims": {"core": core, "c1": c1}, "medium": medium, "main_in_world": main,
                 "background_foreign": bg}
-    clean = sj.claims_vector(spec, [ans()], "photo")
-    spectators = sj.claims_vector(spec, [ans(bg=True)], "photo")
-    no_detail = sj.claims_vector(spec, [ans(c1="no")], "photo")
-    no_core = sj.claims_vector(spec, [ans(core="no")], "photo")
-    assert clean > no_detail > spectators > no_core, "фон — после must, до should; главное — выше всего"
-    assert sj.claims_vector(spec, [ans(main=False)], "photo") is None
-    assert sj.claims_vector(spec, [ans(medium="cg")], "photo") is None
-    assert sj.claims_vector(spec, [], "photo") is None
+    clean = sj.claims_vector(spec, ans())
+    spectators = sj.claims_vector(spec, ans(bg=True))
+    no_detail = sj.claims_vector(spec, ans(c1="no"))
+    no_core = sj.claims_vector(spec, ans(core="no"))
+    assert clean > no_detail > spectators > no_core, "фон — после must, до should; главное — выше"
+    assert sj.claims_vector(spec, ans(main=False)) is None
+    assert sj.claims_vector(spec, ans(medium="cg")) is None
+    assert sj.claims_vector(spec, ans(medium="cg"), cg_veto=False) == clean, \
+        "3D — брак только в историческом эпизоде"
+    assert sj.claims_vector(spec, None) is None
 
 
 def test_verify_question_without_world_asks_no_world_items():

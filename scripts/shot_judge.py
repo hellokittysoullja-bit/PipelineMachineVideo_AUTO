@@ -405,9 +405,13 @@ VERIFY_MAX_SIDE = 512
 # спецификации (claims_vector). Замена получается сама: картина со стрелами
 # выполняет «видна стрела», нагрудник — нет, и проигрывает ей.
 #
-# Утверждение с движением (motion) фото выполнить не может физически — его не
-# спрашивают и ставят «нет»; у видео спрашивают по кадрам ленты.
-CLAIMS_VERSION = 1
+# Утверждение с движением (motion) может выполнить только ролик, показанный
+# хотя бы двумя кадрами; у фото и у ролика с одним превью (Pixabay) его не
+# спрашивают и ставят «нет».
+#
+# Второго голоса нет сознательно: тот же вопрос, та же картинка, температура
+# 0 — платная копия первого ответа. «Сомневаюсь» остаётся половиной балла.
+CLAIMS_VERSION = 2
 CLAIM_ANSWERS = {"yes": 2, "unsure": 1, "no": 0}
 CLAIMS_PROMPT = """You check one shot for a documentary video.
 Narration line: «{phrase}»
@@ -415,10 +419,10 @@ What the viewer must see: «{focus}»{world}{caption}{video}
 Look at the picture carefully. For each statement answer "yes", "no" or "unsure" — about THIS picture only:
 {claims}
 Then:
-- medium: "photo", "artwork" (painting, drawing, engraving, manuscript), "object" (museum object on a plain background) or "cg" (3D render, cartoon, toy, video game){world_q}
+- medium: "photo", "artwork" (painting, drawing, engraving, manuscript), "object" (museum object on a plain background) or "cg" (3D render, cartoon, toy, video game, infographic){world_q}
 Reply with JSON only: {{"claims": {{{keys}}}, "medium": "..."{world_keys}, "why": "<short>"}}"""
-CLAIMS_VIDEO_NOTE = ("\nThe picture shows three frames (beginning, middle, end) of ONE video clip; "
-                     "judge the clip, a movement counts if the frames show it happening.")
+CLAIMS_VIDEO_NOTE = ("\nThe picture shows {n} frames of ONE video clip in time order; judge the clip, "
+                     "a movement counts if the frames show it happening.")
 CLAIMS_WORLD_Q = """
 - main_in_world: could the MAIN subject exist in that world (era, culture)? true/false
 - background_foreign: is there anything ELSE in the picture (background, edges, people around) that could not exist in that world — modern people, clothing, objects, vehicles, signs, spectators? true/false"""
@@ -431,20 +435,26 @@ def spec_from_brief(phrase, brief):
     return {"focus": text, "claims": [{"id": "c1", "text": text, "tier": "must"}]}
 
 
-def asked_claims(spec, kind):
-    """Утверждения, которые спрашиваются у кадра этого вида: движение у фото
-    не спрашивают — фото его показать не может."""
-    return [c for c in spec["claims"] if kind == "video" or not c.get("motion")]
+def shows_motion(kind, frames=None):
+    """Может ли кадр показать движение: ролик минимум из двух кадров."""
+    return kind == "video" and (frames is None or frames >= 2)
 
 
-def claims_question(phrase, spec, setting=None, kind="photo", caption=None):
-    asked = asked_claims(spec, kind)
+def asked_claims(spec, kind, frames=None):
+    """Утверждения, которые спрашиваются у кадра: движение — только у ролика,
+    показанного хотя бы двумя кадрами."""
+    moving = shows_motion(kind, frames)
+    return [c for c in spec["claims"] if moving or not c.get("motion")]
+
+
+def claims_question(phrase, spec, setting=None, kind="photo", caption=None, frames=None):
+    asked = asked_claims(spec, kind, frames)
     caption = " ".join(str(caption or "").split())[:VERIFY_CAPTION_MAX]
     return CLAIMS_PROMPT.format(
         phrase=phrase or "—", focus=spec.get("focus") or "—",
         world=VERIFY_WORLD.format(setting=setting) if setting else "",
         caption=VERIFY_CAPTION.format(caption=caption) if caption else "",
-        video=CLAIMS_VIDEO_NOTE if kind == "video" else "",
+        video=CLAIMS_VIDEO_NOTE.format(n=frames or 3) if shows_motion(kind, frames) else "",
         claims="\n".join(f"{c['id']}: {c['text']}" for c in asked),
         keys=", ".join(f'"{c["id"]}": "..."' for c in asked),
         world_q=CLAIMS_WORLD_Q if setting else "",
@@ -484,71 +494,68 @@ def parse_claims_answer(text, ids, with_world):
     return out
 
 
-def claim_values(spec, votes, kind):
-    """{id: 0..2} — среднее по голосам; утверждение, которое этот вид кадра
-    не может выполнить (движение у фото), — 0."""
-    out = {}
-    for c in spec["claims"]:
-        vals = [CLAIM_ANSWERS[v["claims"][c["id"]]] for v in votes if c["id"] in v["claims"]]
-        out[c["id"]] = sum(vals) / len(vals) if vals else 0.0
-    return out
-
-
-def claims_vector(spec, votes, kind):
-    """Ключ сравнения кадров по спецификации; каждый элемент 0..1, больше —
-    лучше, первый — фокус (первое утверждение спецификации всегда must).
-    None — отказ
-    (главный предмет не из мира или кадр — 3D/мультфильм хоть в одном
-    голосе). Порядок: must-утверждения в порядке спецификации, затем чистота
-    фона (чужое только на фоне — штраф, не отказ), затем should. Порядок
-    утверждений задаёт спецификация, код его не меняет."""
-    if not votes:
-        return None
-    if any(v.get("medium") == "cg" or v.get("main_in_world") is False for v in votes):
-        return None
+def claim_values(spec, answers):
+    """{id: 0..1}: да — 1, сомневаюсь — 0.5, нет или не спрашивали (движение
+    у кадра, который его показать не может) — 0."""
     top = CLAIM_ANSWERS["yes"]
-    vals = claim_values(spec, votes, kind)
-    musts = [vals[c["id"]] / top for c in spec["claims"] if c["tier"] == "must"]
-    shoulds = [vals[c["id"]] / top for c in spec["claims"] if c["tier"] != "must"]
-    clean = sum(0 if v.get("background_foreign") else 1 for v in votes) / len(votes)
-    return tuple(musts) + (clean,) + tuple(shoulds)
+    got = (answers or {}).get("claims") or {}
+    return {c["id"]: CLAIM_ANSWERS[got[c["id"]]] / top if c["id"] in got else 0.0
+            for c in spec["claims"]}
 
 
-def focus_met(spec, votes, kind):
-    """Кадр показывает фокус: первое утверждение выполнено единогласно."""
-    if not votes:
-        return False
-    return claim_values(spec, votes, kind)[spec["claims"][0]["id"]] >= CLAIM_ANSWERS["yes"]
+def claims_vector(spec, answers, *, world_veto=True, cg_veto=True):
+    """Ключ сравнения кадров по спецификации; больше — лучше, каждый элемент
+    0..1. None — отказ.
+
+    Порядок: мир (главный предмет из мира фразы), must-утверждения в порядке
+    спецификации (первое — главное), чистота фона, should-утверждения. Порядок
+    утверждений задаёт спецификация, код его не меняет.
+
+    world_veto — главный предмет чужого мира это отказ; выключается
+    предохранителем прогона (pipeline_smart.world_veto_active), тогда это
+    штраф: первый элемент 0. cg_veto — 3D/мультфильм/инфографика это отказ;
+    только для исторического мира (у научной ниши рендер бывает
+    единственным изображением)."""
+    if answers is None:
+        return None
+    if cg_veto and answers.get("medium") == "cg":
+        return None
+    foreign = answers.get("main_in_world") is False
+    if foreign and world_veto:
+        return None
+    vals = claim_values(spec, answers)
+    musts = [vals[c["id"]] for c in spec["claims"] if c["tier"] == "must"]
+    shoulds = [vals[c["id"]] for c in spec["claims"] if c["tier"] != "must"]
+    clean = 0.0 if answers.get("background_foreign") else 1.0
+    return (0.0 if foreign else 1.0,) + tuple(musts) + (clean,) + tuple(shoulds)
 
 
-def nothing_met(spec, votes, kind):
+def focus_met(spec, answers):
+    """Кадр показывает главное: первое утверждение — «да»."""
+    return claim_values(spec, answers)[spec["claims"][0]["id"]] >= 1.0
+
+
+def nothing_met(spec, answers):
     """Кадр не показывает из спецификации НИЧЕГО обязательного: каждое
-    must-утверждение — единогласное «нет». Это брак; кадр, который не
-    показал главное, но показал обязательную деталь фразы, — замена,
-    а не брак (он проигрывает любому кадру с главным, но лучше соседнего
-    кадра, растянутого на чужую фразу)."""
-    if not votes:
-        return False
-    vals = claim_values(spec, votes, kind)
+    must-утверждение — «нет». Это брак; кадр, который не показал главное, но
+    показал обязательную деталь фразы, — замена, а не брак (он проигрывает
+    любому кадру с главным, но лучше соседнего кадра на чужой фразе)."""
+    vals = claim_values(spec, answers)
     return all(vals[c["id"]] == 0 for c in spec["claims"] if c["tier"] == "must")
 
 
-def all_met(spec, votes, kind):
-    """Кадр выполняет ВСЁ, что спросила спецификация, и фон чистый — лучше
-    искать незачем."""
-    if claims_vector(spec, votes, kind) is None:
-        return False
-    return (all(v >= CLAIM_ANSWERS["yes"] for v in claim_values(spec, votes, kind).values())
-            and not any(v.get("background_foreign") for v in votes))
+def musts_met_clean(spec, answers):
+    """Все must-утверждения — «да», мир свой и фон чистый: лучше этот кадр по
+    смыслу не станет, второй вид медиа искать незачем."""
+    vals = claim_values(spec, answers)
+    return (all(vals[c["id"]] >= 1.0 for c in spec["claims"] if c["tier"] == "must")
+            and answers.get("main_in_world") is not False
+            and not answers.get("background_foreign"))
 
 
-def needs_second_vote(spec, answers, kind):
-    """Второй голос нужен, когда исход решает сомнение: хоть одно
-    must-утверждение этого вида кадра — «unsure»."""
-    if answers is None:
-        return False
-    return any(c["tier"] == "must" and answers["claims"].get(c["id"]) == "unsure"
-               for c in asked_claims(spec, kind))
+def world_clear(answers):
+    """Проверка мира состоялась и ничего чужого на кадре нет."""
+    return (answers or {}).get("main_in_world") is True and answers.get("background_foreign") is False
 
 
 def _image_content(path, max_side):
@@ -563,19 +570,18 @@ def _image_content(path, max_side):
 
 
 def verify_claims(gateway, model, *, phrase, spec, setting, path, kind="photo", cache_dir=None,
-                  max_side=VERIFY_MAX_SIDE, reasoning=None, caption=None, vote=1):
+                  max_side=VERIFY_MAX_SIDE, reasoning=None, caption=None, frames=None):
     """(ответы | None, {"cost", "call", "cache_hit", "refused"}). None —
-    проверки не было (нет шлюза, сбой, неразобранный ответ). vote — номер
-    голоса: у второго голоса свой ключ кэша, иначе он был бы копией первого."""
+    проверки не было (нет шлюза, сбой, неразобранный ответ)."""
     if gateway is None or not path or not os.path.exists(path):
         return None, {}
-    asked = asked_claims(spec, kind)
+    asked = asked_claims(spec, kind, frames)
     if not asked:
         return None, {}
-    text = claims_question(phrase, spec, setting, kind, caption)
+    text = claims_question(phrase, spec, setting, kind, caption, frames)
     h = hashlib.sha256()
     for part in ("claims", str(CLAIMS_VERSION), model, text, str(max_side), repr(reasoning),
-                 str(vote), _file_digest(path)):
+                 _file_digest(path)):
         h.update(part.encode("utf-8"))
         h.update(b"\0")
     cp = os.path.join(cache_dir, "claims_" + h.hexdigest() + ".json") if cache_dir else None

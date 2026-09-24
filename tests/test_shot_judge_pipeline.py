@@ -160,7 +160,9 @@ def test_approved_frame_is_not_vetoed_by_the_weaker_check():
     assert ps.judge_approved(_c("a", judge=2)) and not ps.judge_approved(_c("a", judge=1))
     assert not ps.judge_approved(None) and not ps.judge_approved(_c("a", judge=None))
     src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"), encoding="utf-8").read()
-    assert "judge_approved(winner) or not smart_relevance_veto(cf, query)" in src
+    assert "claims_checked(winner) or not smart_relevance_veto(cf, query)" in src
+    assert ps.claims_checked({"p": {}, "verify": (1.0, 0.0, 1.0), "verify_focus": False}), \
+        "проверенный по утверждениям кадр вторую проверку эмбеддингом не проходит"
 
 
 def test_tests_never_reach_the_paid_gateway():
@@ -210,11 +212,8 @@ def _tie_setup(tmp_path, monkeypatch, first, second):
 
 
 def _fake_verify(answers_by_path):
-    def verify_claims(gw, model, *, path, vote=1, **_k):
-        got = answers_by_path[path]
-        if isinstance(got, list):
-            got = got[vote - 1]
-        return got, {"call": True}
+    def verify_claims(gw, model, *, path, **_k):
+        return answers_by_path[path], {"call": True}
     return verify_claims
 
 
@@ -265,13 +264,22 @@ def test_motion_claim_is_not_asked_of_a_photo_and_counts_as_unmet():
     import shot_judge as sj
     assert [c["id"] for c in sj.asked_claims(ARROW_SPEC, "photo")] == ["c1", "c3"]
     assert [c["id"] for c in sj.asked_claims(ARROW_SPEC, "video")] == ["c1", "c2", "c3"]
-    photo = sj.claims_vector(ARROW_SPEC, [_ans({"c1": "yes", "c3": "yes"})], "photo")
-    video = sj.claims_vector(ARROW_SPEC, [_ans({"c1": "yes", "c2": "yes", "c3": "no"})], "video")
+    assert [c["id"] for c in sj.asked_claims(ARROW_SPEC, "video", frames=1)] == ["c1", "c3"], \
+        "одно превью движения не показывает"
+    photo = sj.claims_vector(ARROW_SPEC, _ans({"c1": "yes", "c3": "yes"}))
+    video = sj.claims_vector(ARROW_SPEC, _ans({"c1": "yes", "c2": "yes", "c3": "no"}))
     assert video > photo, "видео, где стрела видна в движении, выше фото той же стрелы"
-    assert ps.pick_kind_by_judge("photo", (photo, 3), (video, 3), False) == "video"
-    no_arrow_video = sj.claims_vector(ARROW_SPEC, [_ans({"c1": "no", "c2": "no", "c3": "yes"})], "video")
-    assert ps.pick_kind_by_judge("video", (no_arrow_video, 3), (photo, 3), True) == "photo", \
+    assert ps.pick_kind_by_judge("photo", (photo, 3, False), (video, 3, False), False) == "video"
+    no_arrow_video = sj.claims_vector(ARROW_SPEC, _ans({"c1": "no", "c2": "no", "c3": "yes"}))
+    assert ps.pick_kind_by_judge("video", (no_arrow_video, 3, False), (photo, 3, False), True) == "photo", \
         "фото со стрелой выше видео без неё"
+
+
+def test_single_preview_video_is_not_told_it_has_three_frames():
+    import shot_judge as sj
+    q1 = sj.claims_question("x", ARROW_SPEC, kind="video", frames=1)
+    assert "frames" not in q1 and "c2:" not in q1
+    assert "2 frames" in sj.claims_question("x", ARROW_SPEC, kind="video", frames=2)
 
 
 def test_spectators_on_background_are_a_penalty_not_a_rejection(tmp_path, monkeypatch):
@@ -305,19 +313,74 @@ def test_main_subject_out_of_world_is_rejected(tmp_path, monkeypatch):
     assert ps._score_and_pick(info)[0]["p"]["id"] == "c1"
 
 
-def test_unsure_focus_gets_a_second_vote_and_the_mean_decides(tmp_path, monkeypatch):
+def test_unsure_is_half_and_asked_once(tmp_path, monkeypatch):
     info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=2)
     asked = []
 
-    def verify_claims(gw, model, *, path, vote=1, **_k):
-        asked.append((path, vote))
-        return {paths[0]: [_ans({"c1": "unsure"}), _ans({"c1": "yes"})],
-                paths[1]: [_ans({"c1": "yes"})]}[path][vote - 1], {"call": True}
+    def verify_claims(gw, model, *, path, **_k):
+        asked.append(path)
+        return {paths[0]: _ans({"c1": "unsure"}), paths[1]: _ans({"c1": "yes"})}[path], {"call": True}
     monkeypatch.setattr(sj, "verify_claims", verify_claims)
     assert ps.judge_candidates(0, "photo", "x", "y", info)
-    assert sorted(asked) == [(paths[0], 1), (paths[0], 2), (paths[1], 1)], "второй голос — только спорному"
-    assert info[0]["verify"][0] == 0.75 and not info[0]["verify_focus"]
-    assert ps._score_and_pick(info)[0]["p"]["id"] == "c1", "единогласное «да» выше «сомнение + да»"
+    assert sorted(asked) == sorted(paths), "один вопрос на кадр — второго голоса нет"
+    assert info[0]["verify"][1] == 0.5 and not info[0]["verify_focus"]
+    assert ps._score_and_pick(info)[0]["p"]["id"] == "c1"
+
+
+def test_all_finalists_vetoed_checks_the_next_batch_not_an_unchecked_one(tmp_path, monkeypatch):
+    n = ps.VERIFY_FINALISTS + 3
+    info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=n)
+    monkeypatch.setattr(ps, "episode_world_card", lambda: {"register": "historical",
+                                                           "era": {"from": 1300, "to": 1500}})
+    monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "world_seen", 0)
+    monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "world_foreign", 0)
+    monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "world_breaker", False)
+    foreign = _ans({"c1": "yes"}, world=(False, False))
+    good = _ans({"c1": "yes"}, world=(True, False))
+    answers = {p: foreign for p in paths[:ps.VERIFY_FINALISTS]}
+    answers.update({p: good for p in paths[ps.VERIFY_FINALISTS:]})
+    monkeypatch.setattr(sj, "verify_claims", _fake_verify(answers))
+    assert ps.judge_candidates(0, "photo", "x", "y", info)
+    win = ps._score_and_pick(info)[0]
+    assert win["p"]["id"] == f"c{ps.VERIFY_FINALISTS}" and isinstance(win["verify"], tuple), \
+        "победил проверенный из следующей порции"
+
+
+def test_world_breaker_turns_veto_into_penalty(monkeypatch, capsys):
+    monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "world_seen", 0)
+    monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "world_foreign", 0)
+    monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "world_breaker", False)
+    monkeypatch.setattr(ps, "SHOT_JUDGE_LOG", [])
+    for k in range(ps.WORLD_BREAKER_MIN):
+        ps._note_world(True, k % 3 != 0)
+    assert not ps.world_veto_active() and "штрафуется" in capsys.readouterr().out
+    import shot_judge as sj
+    v = sj.claims_vector({"claims": [{"id": "c1", "tier": "must"}]},
+                         _ans({"c1": "yes"}, world=(False, False)), world_veto=False)
+    assert v == (0.0, 1.0, 1.0), "чужой мир — штраф первым элементом, а не отказ"
+
+
+def test_checked_reject_ranks_below_unchecked_candidate():
+    bad = dict(_c("bad"), verify=(1.0, 0.0, 1.0), verify_nothing=True)
+    unchecked = dict(_c("un", judge=3), verify=None)
+    assert ps.verify_key(bad) < ps.verify_key(unchecked)
+    assert ps._score_and_pick([bad, unchecked])[0]["p"]["id"] == "un"
+
+
+def test_blocklisted_candidate_needs_a_clean_world_check(tmp_path, monkeypatch):
+    info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=2)
+    info[1]["p"]["_blocklisted"] = True
+    monkeypatch.setattr(sj, "verify_claims", _fake_verify({paths[0]: _ans({"c1": "unsure"}),
+                                                          paths[1]: _ans({"c1": "yes"})}))
+    assert ps.judge_candidates(0, "photo", "x", "y", info)
+    assert ps._score_and_pick(info)[0]["p"]["id"] == "c0", "без паспорта мир не проверен — не на экран"
+    monkeypatch.setattr(ps, "episode_world_card", lambda: {"register": "historical",
+                                                           "era": {"from": 1300, "to": 1500}})
+    monkeypatch.setattr(sj, "verify_claims", _fake_verify({
+        paths[0]: _ans({"c1": "unsure"}, world=(True, False)),
+        paths[1]: _ans({"c1": "yes"}, world=(True, False))}))
+    assert ps.judge_candidates(0, "photo", "x", "y", info)
+    assert ps._score_and_pick(info)[0]["p"]["id"] == "c1", "мир проверен и чист — реконструкция годна"
 
 
 def test_failed_verification_keeps_grid_order(tmp_path, monkeypatch):
@@ -341,11 +404,13 @@ def test_only_the_grid_finalists_are_verified(tmp_path, monkeypatch):
     assert len(asked) == ps.VERIFY_FINALISTS, "сетка всем поставила поровну — лучшие и первые совпали"
 
 
-def test_finalists_are_grid_best_and_cascade_first():
-    judged = [{"judge": g} for g in (1, 1, 1, 1, 1, 1, 3, 3)]
+def test_finalists_are_grid_best_cascade_first_and_blocklisted():
+    judged = [{"judge": g, "p": {}} for g in (1, 1, 1, 1, 1, 1, 3, 3, 1)]
+    judged[8]["p"]["_blocklisted"] = True
     got = ps.verify_finalists_of(judged)
     assert judged[6] in got and judged[7] in got, "лучшие по сетке"
     assert all(judged[k] in got for k in range(ps.VERIFY_FINALISTS)), "первые по каскаду"
+    assert judged[8] in got, "помеченный словарём проверяется сверх"
     assert len(got) == len({id(c) for c in got})
 
 

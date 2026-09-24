@@ -152,7 +152,10 @@ def _parse_claims(raw_claims):
     первое утверждение обязано быть must (это фокус), id уникальны, движение
     требует не больше одно утверждение."""
     claims, ids = [], set()
-    for c in (raw_claims or [])[:MAX_CLAIMS]:
+    moving = False
+    for c in (raw_claims or []):
+        if len(claims) >= MAX_CLAIMS:
+            break
         if not isinstance(c, dict):
             continue
         cid = _clean(str(c.get("id") or "")).lower()
@@ -162,12 +165,13 @@ def _parse_claims(raw_claims):
             continue
         ids.add(cid)
         claim = {"id": cid, "text": text, "tier": tier}
-        if c.get("motion") is True:
+        # Движение — одно на фразу: лишний флаг снимается, утверждение и
+        # фраза остаются (раньше из-за него выпадала вся фраза).
+        if c.get("motion") is True and not moving and cid != CORE_ID:
             claim["motion"] = True
+            moving = True
         claims.append(claim)
     if len(claims) < 1 or claims[0]["tier"] != "must" or claims[0]["id"] != CORE_ID:
-        return None
-    if sum(1 for c in claims if c.get("motion")) > 1:
         return None
     return claims
 
@@ -180,7 +184,9 @@ def _parse_queries(raw_queries, claim_ids):
         if not isinstance(x, dict):
             continue
         q = clean_query(x.get("q")) if isinstance(x.get("q"), str) else None
-        targets = [t for t in (_clean(str(t)).lower() for t in (x.get("for") or [])) if t in claim_ids]
+        raw_for = x.get("for")
+        raw_for = [raw_for] if isinstance(raw_for, str) else (raw_for or [])
+        targets = [t for t in (_clean(str(t)).lower() for t in raw_for) if t in claim_ids]
         if not q or q in seen or not targets:
             continue
         seen.add(q)
@@ -378,8 +384,10 @@ def load_specs(video_dir):
     return out
 
 
-def has_motion(spec):
-    return any(c.get("motion") for c in (spec or {}).get("claims") or [])
+def has_motion(spec, must=False):
+    """Есть ли у фразы утверждение движения (must=True — обязательное)."""
+    return any(c.get("motion") and (not must or c.get("tier") == "must")
+               for c in (spec or {}).get("claims") or [])
 
 
 def attach(blocks, plan, specs=None):

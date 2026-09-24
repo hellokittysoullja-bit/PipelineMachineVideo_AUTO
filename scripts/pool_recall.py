@@ -371,7 +371,7 @@ def cmd_bench(a):
     emb = Embedder(a.emb_cache or [], os.path.join(os.path.dirname(a.index), "emb"))
     base = base_slot_durs(pools)
     card = json.load(open(a.world_card, encoding="utf-8")) if a.world_card else None
-    setting = world_card.judge_setting(card) if card else None
+    setting = world_card.world_to_check(card) if card else None
     gw = llm_gateway.Gateway(spend_cap=a.max_spend)
     import shot_planner_llm
     import stock_query_planner
@@ -394,18 +394,11 @@ def cmd_bench(a):
             try:
                 # Проверка по утверждениям спецификации — как в пайплайне:
                 # второй голос, если сомнение в must-утверждении.
-                kw = dict(phrase=rec.get("block_text"), spec=spec, setting=setting, path=path,
-                          kind=rec["kind"], cache_dir=cache, max_side=a.side,
-                          reasoning={"on": True, "off": False}.get(a.reasoning),
-                          caption=r.get("text") if a.caption else None)
-                ans, info = shot_judge.verify_claims(gw, model, **kw)
-                if ans is not None:
-                    ans = [ans]
-                    if shot_judge.needs_second_vote(spec, ans[0], rec["kind"]):
-                        extra, einfo = shot_judge.verify_claims(gw, model, vote=2, **kw)
-                        info = dict(info, cost=info.get("cost", 0) + einfo.get("cost", 0))
-                        if extra is not None:
-                            ans.append(extra)
+                ans, info = shot_judge.verify_claims(
+                    gw, model, phrase=rec.get("block_text"), spec=spec, setting=setting, path=path,
+                    kind=rec["kind"], cache_dir=cache, max_side=a.side,
+                    reasoning={"on": True, "off": False}.get(a.reasoning),
+                    caption=r.get("text") if a.caption else None, frames=1)
                 wok, winfo = None, {}
                 if a.world:
                     wok, _why, winfo = shot_judge.world_check(
@@ -430,14 +423,15 @@ def cmd_bench(a):
                 pth = fetch(r.get("probe_url"), r.get("headers"))
                 if pth:
                     have.append((r, lab, pth))
-            gr = shot_judge.judge(gw, model, phrase=rec.get("block_text"), brief=brief,
+            gr = shot_judge.judge(gw, model, phrase=rec.get("block_text"), brief=spec["focus"],
                                   candidates=[(str(r.get("id")), pth) for r, _l, pth in have],
                                   cache_dir=a.grid_cache or cache, report={},
                                   kind=rec["kind"], setting=setting) or {}
             for _r, _l, pth in have:
                 os.remove(pth)
+            # Как verify_finalists_of: лучшие по сетке ∪ первые по порядку пула.
             top = sorted(range(len(have)), key=lambda k: (-(gr.get(str(have[k][0].get("id")), -1)), k))
-            keep = {id(have[k][0]) for k in top[:a.finalists]}
+            keep = {id(have[k][0]) for k in top[:a.finalists] + list(range(min(a.finalists, len(have))))}
             rows = [(r, lab) for r, lab, _p in have if id(r) in keep]
         with concurrent.futures.ThreadPoolExecutor(a.workers) as ex:
             got = list(ex.map(ask, rows))
@@ -459,8 +453,11 @@ def cmd_bench(a):
             stats["cost"] += cost
             if ans is None:
                 continue
-            rank = shot_judge.claims_vector(spec, ans, rec["kind"])
-            focus = shot_judge.focus_met(spec, ans, rec["kind"])
+            rank = shot_judge.claims_vector(spec, ans, cg_veto=bool(card) and
+                                            card.get("register") in ("historical", "mixed"))
+            focus = shot_judge.focus_met(spec, ans)
+            if rank is not None and shot_judge.nothing_met(spec, ans):
+                rank = (-5,)
             if a.grid:
                 gs = grid.get(str(r.get("id")))
                 rank = None if rank is None else rank + ((gs if isinstance(gs, int) else -1),)
@@ -470,7 +467,7 @@ def cmd_bench(a):
                 "grid": grid.get(str(r.get("id"))) if a.grid else None, "pos": len(scored) - 1})
             if lab == 0:
                 stats["bad"] += 1
-                stats["bad_accepted"] += 1 if (rank is not None and focus) else 0
+                stats["bad_accepted"] += 1 if (rank is not None and rank != (-5,)) else 0
                 stats["world_bad_passed"] += 1 if wok else 0
             else:
                 stats["good"] += 1

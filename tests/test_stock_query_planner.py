@@ -182,8 +182,9 @@ def test_spec_line_is_parsed_alone_and_bad_specs_drop():
         + ok_q + '}\n'
         '{"n": 9, "focus": "a knight kneeling", ' + core + ', "claims": [], ' + ok_q + '}\n')
     got = sqp.parse_spec(raw, packet)
-    assert sorted(got) == [1, 9], ("кириллица, нет главного, ни одного запроса главного, два движения "
-                                   "— фраза выпадает")
+    assert sorted(got) == [1, 5, 9], "кириллица, нет главного, ни одного запроса главного — фраза выпадает"
+    assert [c.get("motion", False) for c in got[5]["claims"]] == [False, True, False], \
+        "лишний флаг движения снимается, фраза остаётся"
     assert [c["id"] for c in got[1]["claims"]] == ["core", "c1"], "главное первым; повтор id и чужой tier отброшены"
     assert got[1]["claims"][0] == {"id": "core", "text": "a knight kneeling in armour", "tier": "must"}
     assert got[1]["queries"] == [{"q": "knight kneeling", "for": ["core"]}], "цель без утверждения — не цель"
@@ -194,6 +195,12 @@ def test_model_cannot_smuggle_its_own_core_claim():
            ' "text": "a wall is visible", "tier": "must"}], "queries": [{"q": "ball", "for": ["core"]}]}')
     got = sqp.parse_spec(raw, {"units": [{"n": 1}]})
     assert got[1]["claims"] == [{"id": "core", "text": "a ball is visible", "tier": "must"}]
+
+
+def test_query_target_given_as_a_string_is_accepted():
+    got = sqp.parse_spec('{"n": 1, "focus": "a b c", "core": "a b", "claims": [],'
+                         ' "queries": [{"q": "a b", "for": "core"}]}', {"units": [{"n": 1}]})
+    assert got[1]["queries"] == [{"q": "a b", "for": ["core"]}]
 
 
 def test_unknown_unit_number_is_ignored():

@@ -5450,18 +5450,30 @@ def pexels_candidate_text(item):
 
 
 def filter_pool_by_text(items, index=None):
-    """Жанровый фильтр пула по тексту кандидата — только там, где мир кадра
-    НЕКОМУ проверить. В слотах с проверкой финалистов (shot_judge_active)
-    мир проверяется на самом кадре (main_in_world — отказ, чужое на фоне —
-    штраф), и словарь не нужен: он выбрасывал ровно то, что просит
-    спецификация кадра, — реконструкции и турниры, единственное место в
-    стоках, где рыцарь падает, встаёт и бьётся. Явные id брака
-    (CONTENT_BLOCKED_CANDIDATE_IDS) остаются везде: это проверенные записи,
-    а не словарь. Без проверки (слот вне платной зоны, нет ключа) — фильтр
-    прежний, пока бесплатная проверка мира не замерена (план, этап 7)."""
-    if shot_judge_active(index):
-        return [p for p in items if _candidate_block_key(p) not in CONTENT_BLOCKED_CANDIDATE_IDS]
-    return filter_alt_blocklist(items)
+    """Жанровый фильтр пула по тексту кандидата.
+
+    В слотах, где работает проверка кадра (shot_judge_active), кандидаты из
+    словаря запретов НЕ выбрасываются, а помечаются (_blocklisted): словарь
+    выбрасывал ровно то, что просит спецификация кадра, — реконструкции и
+    турниры, единственное место в стоках, где рыцарь падает, а лучник
+    стреляет. Помеченный проверяется сверх обычных финалистов и может стоять
+    на экране, только если проверка мира на ЭТОМ кадре состоялась и чиста
+    (screen_allowed, judge_rejected). Нет паспорта, судья не ответил,
+    кандидат не проверен — помеченный на экран не попадает, то есть словарь
+    работает как раньше. Явные id брака (CONTENT_BLOCKED_CANDIDATE_IDS)
+    выбрасываются везде. Вне платной зоны — прежний фильтр."""
+    if not shot_judge_active(index):
+        return filter_alt_blocklist(items)
+    terms = content_blocklist_effective()
+    out = []
+    for p in items:
+        if _candidate_block_key(p) in CONTENT_BLOCKED_CANDIDATE_IDS:
+            continue
+        text = pexels_candidate_text(p)
+        if any(term in text for term in terms):
+            p = dict(p, _blocklisted=True)
+        out.append(p)
+    return out
 
 
 def filter_alt_blocklist(items):
@@ -6006,8 +6018,8 @@ def _score_and_pick(candidates_info, director_score_fn=None):
     этапе отбора). Стоит СРАЗУ после is_relevant, ДО aesthetic — та же
     логика приоритета, что и у extra Директора: "не размыто" важнее
     "красиво", но не важнее "по теме"/"не дубль"/"нужный размер"."""
-    base_best, base_score = None, (-1, -1, (-10,), -2, -1, -1, -1, -1, -100.0, -1.0, -1)
-    dir_best, dir_score = None, (-1, -1, (-10,), -2, -1, -1, -1, -100.0, -1, -100.0, -1.0, -1)
+    base_best, base_score = None, (-1, -1, -1, (-10,), -2, -1, -1, -1, -1, -100.0, -1.0, -1)
+    dir_best, dir_score = None, (-1, -1, -1, (-10,), -2, -1, -1, -1, -100.0, -1, -100.0, -1.0, -1)
     for c in candidates_info:
         sharp_ok = c.get("sharp_ok", 1)
         # rel_bucket — см. RELEVANCE_RANK_BUCKET: «насколько по теме» решает
@@ -6022,7 +6034,7 @@ def _score_and_pick(candidates_info, director_score_fn=None):
         # кандидатов между собой и разводит равные уровни. Судьи не было — у
         # всех кандидатов одни и те же значения, порядок остальных ключей
         # байт-в-байт прежний.
-        score = (c["is_dup_free"], c.get("is_readable", 1), verify_key(c), judge_rank(c), c["is_relevant"], c["size_ok"], sharp_ok,
+        score = (c["is_dup_free"], screen_allowed(c), c.get("is_readable", 1), verify_key(c), judge_rank(c), c["is_relevant"], c["size_ok"], sharp_ok,
                  rel_bucket, c["aesthetic_val"], c["luma_score"], c["min_d"])
         if score > base_score:
             base_best, base_score = c, score
@@ -6041,7 +6053,7 @@ def _score_and_pick(candidates_info, director_score_fn=None):
             # У Директора своя, более сильная ось смысла (extra — relevance
             # ПОЛНОЙ фразы ансамблем), поэтому корзина relevance по запросу
             # стоит ПОСЛЕ неё: разбивает ничьи Директора до эстетики.
-            dscore = (c["is_dup_free"], c.get("is_readable", 1), verify_key(c), judge_rank(c), c["is_relevant"], c["size_ok"], sharp_ok,
+            dscore = (c["is_dup_free"], screen_allowed(c), c.get("is_readable", 1), verify_key(c), judge_rank(c), c["is_relevant"], c["size_ok"], sharp_ok,
                       extra, rel_bucket, c["aesthetic_val"], c["luma_score"], c["min_d"])
             if dscore > dir_score:
                 dir_best, dir_score = c, dscore
@@ -6057,7 +6069,8 @@ def _meaning_key(c):
     размытый победитель со «свежей» крупностью оставался на экране, если
     резкий кандидат того же смысла повторял крупность соседнего кадра, —
     ритм решал за смысл ровно там, где его место ниже."""
-    return (c["is_dup_free"], c.get("is_readable", 1), verify_key(c), judge_rank(c), c["is_relevant"])
+    return (c["is_dup_free"], screen_allowed(c), c.get("is_readable", 1), verify_key(c), judge_rank(c),
+            c["is_relevant"])
 
 
 def _repick(candidates_info, failed, score_fn, director_assist, excluded, same_meaning):
@@ -7760,7 +7773,8 @@ class PhotoAdapter(selection_engine.MediaAdapter):
             candidates_info = []
             if shot_judge_active(index):
                 candidates = cascade_reorder(candidates,
-                                             cascade_texts(request.shot_spec, request.shot_brief or query),
+                                             cascade_texts(request.shot_spec, request.shot_brief or query,
+                                                           "photo"),
                                              cf, download_probe, index)
                 skip = CASCADE_PAGE.get() * _photo_dedup_max_tries_for(index)
                 if skip:
@@ -8129,7 +8143,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
         vetoed = set()
         while True:
             file_ok = _downloaded_ok(cf)
-            if file_ok and (judge_approved(winner) or not smart_relevance_veto(cf, query)):
+            if file_ok and (claims_checked(winner) or not smart_relevance_veto(cf, query)):
                 break
             nxt = None
             if winner is not None and veto_repicks < VETO_REPICK_MAX:
@@ -11602,12 +11616,15 @@ def query_tiers_source():
     return selection_engine.query_tiers
 
 
-def cascade_texts(spec, brief):
+def cascade_texts(spec, brief, kind="photo"):
     """Тексты, по которым каскад ранжирует превью: must-утверждения
     спецификации кадра по порядку (каждое — отдельно), без спецификации —
-    бриф одной строкой, как раньше."""
+    бриф одной строкой, как раньше. Утверждение движения у фото не
+    ранжирует: фото его выполнить не может, и ранжирование по нему только
+    перемешало бы порядок шумом."""
     if spec:
-        return [c["text"] for c in spec["claims"] if c["tier"] == "must"]
+        import shot_judge
+        return [c["text"] for c in shot_judge.asked_claims(spec, kind) if c["tier"] == "must"]
     return [brief] if brief else []
 
 
@@ -11746,6 +11763,8 @@ def judge_candidates(index, kind, phrase, brief, candidates_info, spec=None):
     for c in candidates_info:
         c["judge"] = None
         c["verify"] = None
+        for k in ("_asked", "verify_focus", "verify_nothing", "verify_perfect", "world_clear"):
+            c.pop(k, None)
     if index is not None and index >= SHOT_JUDGE_PAID_SLOTS:
         return False   # платная проверка — только хук (см. SHOT_JUDGE_PAID_SLOTS)
     gw = _shot_judge_gateway()
@@ -11760,7 +11779,8 @@ def judge_candidates(index, kind, phrase, brief, candidates_info, spec=None):
     model = shot_judge_model()
     rep = {}
     import world_card
-    setting = world_card.judge_setting(episode_world_card())
+    card = episode_world_card()
+    setting = world_card.judge_setting(card)
     # Сетка спрашивает про ФОКУС спецификации фразы, если она есть: бриф
     # описывает идеальный кадр целиком («стрела отскакивает от помятого
     # нагрудника»), и в нём крупный предмет весит столько же, сколько главное.
@@ -11778,7 +11798,7 @@ def judge_candidates(index, kind, phrase, brief, candidates_info, spec=None):
         return False
     for c in judged:
         c["judge"] = scores[str(c["p"].get("id"))]
-    _verify_finalists(index, kind, phrase, brief, judged, gw, model, setting, spec)
+    _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec)
     _judge_budget_forecast(index, gw)
     return True
 
@@ -11826,54 +11846,105 @@ VERIFY_FINALISTS = 5
 VERIFY_REASONING = False
 
 
-def verify_finalists_of(judged):
+def verify_finalists_of(judged, more=False):
     """Кого проверять: лучшие по сетке ∪ первые в порядке пула (порядок —
-    каскад по утверждениям спецификации). Сетка оценивает кучки по 9 в своей
-    шкале и шумит; кадр с фокусом, которому она поставила ниже, всё равно
-    доходит до проверки, если каскад поставил его вперёд."""
+    каскад по утверждениям спецификации) ∪ все помеченные словарём запретов
+    (их может пропустить на экран только проверка, см. filter_pool_by_text).
+    Сетка оценивает кучки по 9 в своей шкале и шумит; кадр с главным, которому
+    она поставила ниже, всё равно доходит до проверки, если каскад поставил
+    его вперёд. more — следующая порция по каскаду из ещё не проверенных
+    (все первые отклонены)."""
+    if more:
+        return [c for c in judged if not c.get("_asked")][:VERIFY_FINALISTS]
     order = sorted(range(len(judged)), key=lambda k: (-judge_rank(judged[k]), k))
     picked = order[:VERIFY_FINALISTS] + list(range(min(VERIFY_FINALISTS, len(judged))))
+    picked += [k for k, c in enumerate(judged) if c["p"].get("_blocklisted")]
     return [judged[k] for k in dict.fromkeys(picked)]
 
 
-def _verify_finalists(index, kind, phrase, brief, judged, gw, model, setting, spec=None):
-    """c["verify"] лучшим по сетке кандидатам: вектор утверждений или "veto";
-    c["verify_focus"] — показан ли фокус. Где исход решает сомнение
-    (must-утверждение «unsure»), кадр спрашивается вторым голосом, и вектор
-    — среднее по голосам. Сбой проверки кадра — None: кадр стоит ниже
-    проверенных, но не бракуется."""
+# ПРЕДОХРАНИТЕЛЬ МИРА НА ПРОГОН. Отказ «главный предмет не из мира фразы»
+# верен, пока верен паспорт и пока в источниках вообще есть кадры этого мира.
+# Неверный паспорт (или ниша, где в стоках только современность, — биржевой
+# крах 1929 года) превратил бы отказ в опустошение всего ролика. Поэтому
+# считаются кадры, у которых главное НАЙДЕНО: если больше половины из них
+# отклонено по миру — это уже не брак отдельных кадров, а несовпадение мира и
+# источников, и отказ становится штрафом до конца прогона (громко).
+WORLD_BREAKER_MIN = 2 * VERIFY_FINALISTS
+WORLD_BREAKER_SHARE = 0.5
+
+
+def world_veto_active():
+    return not _SHOT_JUDGE_STATE.get("world_breaker")
+
+
+def _note_world(focus, foreign):
+    st = _SHOT_JUDGE_STATE
+    if not focus:
+        return
+    st["world_seen"] = st.get("world_seen", 0) + 1
+    st["world_foreign"] = st.get("world_foreign", 0) + (1 if foreign else 0)
+    if (not st.get("world_breaker") and st["world_seen"] >= WORLD_BREAKER_MIN
+            and st["world_foreign"] / st["world_seen"] > WORLD_BREAKER_SHARE):
+        st["world_breaker"] = True
+        print(f"  ВНИМАНИЕ: проверка кадров отклонила по миру {st['world_foreign']} из "
+              f"{st['world_seen']} кадров, где главное найдено. Паспорт мира не совпадает с "
+              f"тем, что есть в источниках (или сам паспорт неверен) — дальше «чужой мир» "
+              f"штрафуется, а не отклоняется. Проверь media_plan/world_card.json.")
+        SHOT_JUDGE_LOG.append({"world_breaker": True, "seen": st["world_seen"],
+                               "foreign": st["world_foreign"]})
+
+
+def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=None):
+    """c["verify"] финалистам: вектор утверждений или "veto";
+    c["verify_focus"] — найдено ли главное; c["verify_nothing"] — не найдено
+    ничего обязательного; c["world_clear"] — мир проверен и чист. Все
+    финалисты отклонены по миру — проверяется следующая порция по каскаду.
+    Сбой проверки кадра — None: кадр стоит ниже проверенных, но не
+    бракуется."""
     import shot_judge
+    import world_card
     spec = spec or shot_judge.spec_from_brief(phrase, brief)
-    finalists = verify_finalists_of(judged)
+    setting = world_card.world_to_check(card)
+    cg_veto = world_card.is_historical(card)
     cache = os.path.join(TEMP_FOLDER, "shot_judge_cache")
 
-    def ask(c, vote=1):
+    def ask(c):
+        frames = len(c.get("frames") or []) or None
         return shot_judge.verify_claims(gw, model, phrase=phrase, spec=spec, setting=setting,
                                         path=c.get("judge_path") or c["path"], kind=kind,
                                         cache_dir=cache, reasoning=VERIFY_REASONING,
-                                        caption=candidate_caption(c.get("p")), vote=vote)
-    with concurrent.futures.ThreadPoolExecutor(max(1, len(finalists))) as ex:
-        first = list(ex.map(ask, finalists))
-        again = [k for k, (ans, _i) in enumerate(first)
-                 if shot_judge.needs_second_vote(spec, ans, kind)]
-        second = dict(zip(again, ex.map(lambda k: ask(finalists[k], 2), again)))
-    for k, (c, (ans, info)) in enumerate(zip(finalists, first)):
-        if ans is None:
-            continue
-        votes = [ans]
-        extra = second.get(k)
-        if extra and extra[0] is not None:
-            votes.append(extra[0])
-        vec = shot_judge.claims_vector(spec, votes, kind)
-        c["verify"] = "veto" if vec is None else vec
-        c["verify_focus"] = shot_judge.focus_met(spec, votes, kind)
-        c["verify_all"] = shot_judge.all_met(spec, votes, kind)
-        c["verify_nothing"] = shot_judge.nothing_met(spec, votes, kind)
-        SHOT_JUDGE_LOG.append({"index": index, "kind": kind, "model": model,
-                               "id": str(c["p"].get("id")), "claims": [v["claims"] for v in votes],
-                               "verify": ans, "vector": vec, **info})
-        if vec is None:
-            print(f"  слот {index}: проверка отклонила кадр — {ans.get('why')}")
+                                        caption=candidate_caption(c.get("p")), frames=frames)
+
+    for more in (False, True):
+        finalists = verify_finalists_of(judged, more)
+        if not finalists:
+            return
+        with concurrent.futures.ThreadPoolExecutor(max(1, len(finalists))) as ex:
+            got = list(ex.map(ask, finalists))
+        verified = vetoed = 0
+        for c, (ans, info) in zip(finalists, got):
+            c["_asked"] = True
+            if ans is None:
+                continue
+            focus = shot_judge.focus_met(spec, ans)
+            _note_world(focus, ans.get("main_in_world") is False)
+            vec = shot_judge.claims_vector(spec, ans, world_veto=world_veto_active(), cg_veto=cg_veto)
+            c["verify"] = "veto" if vec is None else vec
+            c["verify_focus"] = focus
+            c["verify_nothing"] = shot_judge.nothing_met(spec, ans)
+            c["verify_perfect"] = vec is not None and shot_judge.musts_met_clean(spec, ans)
+            c["world_clear"] = shot_judge.world_clear(ans)
+            verified += 1
+            vetoed += 1 if vec is None else 0
+            SHOT_JUDGE_LOG.append({"index": index, "kind": kind, "model": model,
+                                   "id": str(c["p"].get("id")), "verify": ans, "vector": vec, **info})
+            if vec is None:
+                print(f"  слот {index}: проверка отклонила кадр — {ans.get('why')}")
+        if not verified or vetoed < verified:
+            return
+        # Все проверенные отклонены: одна следующая порция по каскаду, а не
+        # непроверенный кандидат из того же пула. Отклонена и она — слот
+        # честно брак (judge_rejected победителя), его поглощает сосед.
 
 
 def candidate_caption(p):
@@ -11894,14 +11965,18 @@ def candidate_caption(p):
 
 
 def verify_key(c):
-    """Ключ ранжирования проверки финалиста: отказ ниже всего, не
-    проверенный — ниже проверенного годного. Проверки не было ни у кого —
-    у всех одно значение, порядок прежний."""
+    """Ключ ранжирования проверки финалиста. Отказ и «ничего обязательного не
+    найдено» — ниже непроверенного: проверенный брак не должен обгонять
+    кадр, который проверка просто не видела. Проверки не было ни у кого — у
+    всех одно значение, порядок прежний."""
     v = c.get("verify")
     if v == "veto":
         return (-9,)
-    return v if isinstance(v, tuple) else (-1,)
-
+    if not isinstance(v, tuple):
+        return (-1,)
+    if c.get("verify_nothing"):
+        return (-5,)
+    return v
 
 def shot_judge_signature(index=None):
     """Кто судит кадры в этом прогоне — входит в подпись отбора: включение
@@ -11917,9 +11992,20 @@ def shot_judge_signature(index=None):
     строка: судья его не видит."""
     if not shot_judge_active(index):
         return ""
+    import inspect
     import shot_judge
+    # Логика ранжирования и вопроса — исходником, а не номером версии,
+    # который забывают поднять: правка любой из этих функций меняет
+    # победителя, и прогретый кэш не должен отдавать прежний выбор.
+    logic = hashlib.sha256("".join(inspect.getsource(f) for f in (
+        shot_judge.claims_vector, shot_judge.claim_values, shot_judge.focus_met,
+        shot_judge.nothing_met, shot_judge.musts_met_clean, shot_judge.asked_claims,
+        shot_judge.claims_question, _verify_finalists, verify_finalists_of, verify_key,
+        judge_rejected, judge_approved, screen_allowed, claims_checked, filter_pool_by_text,
+        cascade_texts, cascade_reorder)).encode("utf-8")
+        + shot_judge.CLAIMS_PROMPT.encode("utf-8")).hexdigest()[:12]
     return repr(("judge", shot_judge_model(), shot_judge.PROMPT_VERSION, SHOT_JUDGE_MIN_SCORE,
-                 "cascade", cascade_preview_n(), "claims", shot_judge.CLAIMS_VERSION,
+                 "cascade", cascade_preview_n(), "claims", shot_judge.CLAIMS_VERSION, logic,
                  shot_judge.VERIFY_MAX_SIDE, VERIFY_FINALISTS, VERIFY_REASONING,
                  "readable",
                  UNREADABLE_DARK_LEVEL, UNREADABLE_DARK_SHARE))
@@ -11943,46 +12029,40 @@ def shot_judge_active(index=None):
 
 
 def winner_quality(c):
-    """Качество победителя для сравнения видов: (вектор проверки, оценка
-    сетки). Судьи не было — None."""
+    """Качество победителя для сравнения видов: (ключ проверки, оценка сетки,
+    совершенен ли). Судьи не было — None."""
     if c is None:
         return None
     g = c.get("judge")
     if not isinstance(g, int) and not isinstance(c.get("verify"), (tuple, str)):
         return None
-    return (verify_key(c), g if isinstance(g, int) else -1)
+    return (verify_key(c), g if isinstance(g, int) else -1, bool(c.get("verify_perfect")))
 
 
 def _as_quality(score):
     """Оценка сетки (int) или качество (tuple) -> сравнимое качество."""
+    import shot_judge
     if score is None:
         return None
     if isinstance(score, int):
-        return ((-1,), score)
-    return (tuple(score[0]), score[1])
+        return ((-1,), score, score >= shot_judge.SCORE_MAX)
+    score = tuple(score)
+    return (tuple(score[0]), score[1], bool(score[2]) if len(score) > 2 else False)
 
 
 def quality_approved(q):
-    """Одобрено: проверка нашла ФОКУС фразы (первый элемент вектора — первое
-    утверждение спецификации, всегда must); без проверки — оценка сетки."""
-    v, g = q
-    if v != (-1,) and v != (-9,):
-        return v[0] >= 1
-    if v == (-9,):
-        return False
-    return g >= SHOT_JUDGE_MIN_SCORE
+    """Одобрено: проверка нашла главное в своём мире (элементы вектора 0 —
+    мир, 1 — главное); без проверки — оценка сетки."""
+    v, g = q[0], q[1]
+    if v == (-1,):
+        return g >= SHOT_JUDGE_MIN_SCORE
+    return len(v) > 1 and v[0] >= 1 and v[1] >= 1
 
 
 def quality_perfect(q):
-    """Второй вид добывать незачем: выполнено всё, что спросила спецификация,
-    и фон чистый; без проверки — высшая оценка сетки."""
-    import shot_judge
-    if q is None:
-        return False
-    v, g = q
-    if v == (-9,):
-        return False
-    return all(x >= 1 for x in v) if v != (-1,) else g >= shot_judge.SCORE_MAX
+    """Второй вид добывать незачем: все обязательные утверждения выполнены,
+    мир свой, фон чист; без проверки — высшая оценка сетки."""
+    return bool(q and q[2])
 
 
 def pick_kind_by_judge(first_kind, first_score, other_score, prefer_video):
@@ -11990,8 +12070,8 @@ def pick_kind_by_judge(first_kind, first_score, other_score, prefer_video):
 
     Решает проверка: вектор утверждений спецификации одной фразы у обоих
     видов одинаковой длины и в одном порядке, а движение фото выполнить не
-    может физически (shot_judge.asked_claims) — поэтому видео, где фокус
-    виден в движении, обходит фото, а фото с фокусом обходит видео без него,
+    может физически (shot_judge.asked_claims) — поэтому видео, где главное
+    видно в движении, обходит фото, а фото с главным обходит видео без него,
     ровно в том порядке важности, что задала спецификация. Равные — прежнее
     правило вида. У второго вида нет оценки — он берётся, только если первый
     не одобрен: неизвестное лучше известного брака, известное годное — нет.
@@ -12002,18 +12082,20 @@ def pick_kind_by_judge(first_kind, first_score, other_score, prefer_video):
         return first_kind
     if other is None:
         return other_kind if not quality_approved(first) else first_kind
-    if other != first:
-        return other_kind if other > first else first_kind
+    if other[:2] != first[:2]:
+        return other_kind if other[:2] > first[:2] else first_kind
     return "video" if prefer_video else "photo"
 
 
 def judge_rejected(c):
-    """Кадр — брак по проверке: отказ (главный предмет не из мира, 3D) или не
-    выполнено НИ ОДНО обязательное утверждение фразы; без проверки — оценка
-    сетки ниже порога. Кадр без главного, но с обязательной деталью, — не
-    брак: он остаётся ближайшей заменой, если лучше не нашлось
-    (ставится с пометкой focus_unmet)."""
+    """Кадр — брак: отказ проверки (главный предмет не из мира, 3D в
+    историческом эпизоде), не выполнено НИ ОДНО обязательное утверждение,
+    помечен словарём запретов и не очищен проверкой мира; без проверки —
+    оценка сетки ниже порога. Кадр без главного, но с обязательной деталью,
+    — не брак: он остаётся ближайшей заменой (focus_met=False в отчёте)."""
     if c is None:
+        return True
+    if c["p"].get("_blocklisted") and not c.get("world_clear"):
         return True
     v = c.get("verify")
     if v == "veto":
@@ -12024,16 +12106,25 @@ def judge_rejected(c):
 
 
 def judge_approved(c):
-    """Кадр одобрен судьёй: проверка нашла фокус фразы; без проверки —
-    оценка сетки не ниже порога."""
-    if c is None:
+    """Кадр одобрен судьёй: проверка нашла главное; без проверки — оценка
+    сетки не ниже порога."""
+    if c is None or judge_rejected(c):
         return False
-    v = c.get("verify")
-    if v == "veto":
-        return False
-    if isinstance(v, tuple):
+    if isinstance(c.get("verify"), tuple):
         return bool(c.get("verify_focus"))
-    return isinstance(c.get("judge"), int) and c["judge"] >= SHOT_JUDGE_MIN_SCORE
+    return True
+
+
+def claims_checked(c):
+    """Кадр проверен по утверждениям спецификации (или одобрен сеткой): более
+    слабая вторая проверка эмбеддингом его решение не перебивает."""
+    return isinstance((c or {}).get("verify"), tuple) or judge_approved(c)
+
+
+def screen_allowed(c):
+    """Может ли кандидат вообще стоять на экране: помеченный словарём
+    запретов — только если проверка мира на этом кадре состоялась и чиста."""
+    return 0 if (c["p"].get("_blocklisted") and not c.get("world_clear")) else 1
 
 
 def video_smart_relevance_veto(video_path, query):
@@ -14020,8 +14111,13 @@ class VideoAdapter(selection_engine.MediaAdapter):
             # Каскад и у видео (раньше смотрелись 20 первых по кругу — 3-9%
             # пула): средний кадр превью каждого ролика ранжируется по
             # утверждениям спецификации, как фото — по своему превью.
-            pool = cascade_reorder(pool, cascade_texts(request.shot_spec, request.shot_brief or query),
+            pool = cascade_reorder(pool, cascade_texts(request.shot_spec, request.shot_brief or query,
+                                                       "video"),
                                    cf, video_middle_probe, index, url_of=video_middle_url)
+            # Уже использованные в эпизоде ролики — в хвост и после каскада
+            # (filter_pool их понизил, каскад без этого поднимал бы обратно).
+            used = request.used_video_ids or ()
+            pool = [v for v in pool if v.get("id") not in used] + [v for v in pool if v.get("id") in used]
         trial_slice = pool[:VIDEO_PREVIEW_POOL]
         with concurrent.futures.ThreadPoolExecutor(
                 max_workers=max(1, min(PHOTO_PREFETCH_WORKERS, len(trial_slice)))) as ex:
@@ -14142,7 +14238,7 @@ class VideoAdapter(selection_engine.MediaAdapter):
             elif video_sharpness_ok(cf) is False:
                 reason = "sharpness"
                 winner["sharp_ok"] = 0
-            elif not judge_approved(winner) and video_smart_relevance_veto(cf, query):
+            elif not claims_checked(winner) and video_smart_relevance_veto(cf, query):
                 reason = "smart_veto"
                 winner["is_relevant"] = 0
             if reason is None:
@@ -16537,11 +16633,18 @@ def main():
             spec = b.get("shot_spec")
             if spec and not stat:
                 # Спецификация фразы (stock_query_planner v3) знает, требует
-                # ли фокус движения: первым добывается вид, который может его
-                # показать. Ритм смысл не перебивает — сравнение видов ниже
-                # решает по проверке, ритм только разводит равных.
+                # ли главное движения. Обязательное движение — первым
+                # добывается вид, который может его показать. Иначе вид
+                # решает ритм по недавним видам (без словаря и хэша); смысл
+                # всё равно решает сравнение видов ниже, ритм лишь выбирает,
+                # с чего начать.
                 import stock_query_planner
-                want_video = stock_query_planner.has_motion(spec)
+                if stock_query_planner.has_motion(spec, must=True):
+                    want_video = True
+                else:
+                    want_video = (recent_media_types[-1:] != ["video"]
+                                  and len(recent_media_types) >= 3
+                                  and all(t == "photo" for t in recent_media_types[-3:]))
             else:
                 h_text = int(hashlib.md5(b["text"][:40].encode()).hexdigest()[:8], 16)
                 want_video = (has_action_word(b["text"]) or h_text % 2 == 1) and not stat
@@ -16909,6 +17012,13 @@ def main():
                            "source": shotlist_source_for(video or photo, VIDEO_FOLDER, locked=locked_shot),
                            "clip": os.path.basename(out),
                            **shotlist_provenance(video or photo)}
+        # Нашла ли проверка на этом кадре главное фразы. Замена без главного
+        # (лучшее из найденного) видна в шотлисте поимённо, а не молча.
+        _focus = (shown_att.notes.get("focus_met") if shown_att is not None else None)
+        if _focus is not None:
+            shot_entries[i]["focus_met"] = bool(_focus)
+            if not _focus:
+                print(f"    [{i+1}] главное фразы на кадре не найдено — стоит ближайшая замена")
         luma = measure_luma(photo, is_video=False) if photo else measure_luma(video, is_video=True)
         if luma is not None:
             _clamp, _gain = luma_match_params()
