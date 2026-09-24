@@ -386,15 +386,15 @@ def world_check(gateway, model, *, phrase, brief, setting, path, kind="photo", c
 #     отказ;
 #   * дальше порядок: предмет (тот / близкая замена / нет), затем действие.
 # Мира нет — вопросы про мир не задаются и не влияют.
-VERIFY_VERSION = 4
+VERIFY_VERSION = 3
 VERIFY_PROMPT = """You check one shot for a documentary video.
 Narration line: «{phrase}»
 Required shot: «{brief}»{subs}{world}{caption}
 Look at the picture carefully and answer:
-1. subject: first name the main subject of the picture in a few words; then: is it the main subject of the required shot? "yes" — the same thing; "close" — the same kind of thing named in the required shot (e.g. the same object type, or the same kind of person with the same gear and dress — not just any person) shown differently, or one of the acceptable substitutes; "no" — anything else
+1. subject: is the main subject the thing the required shot is about? "yes", "close" (same kind of thing, different detail or view, or one of the acceptable substitutes) or "no"
 2. action: if the required shot names an action or state, is it shown? "yes", "no" or "none" (no action required)
 3. medium: "photo", "artwork" (painting, drawing, engraving, manuscript), "object" (museum object on a plain background) or "cg" (3D render, cartoon, toy, video game){world_q}
-Reply with JSON only: {{"seen": "<main subject in a few words>", "subject": "...", "action": "...", "medium": "..."{world_keys}, "why": "<short>"}}"""
+Reply with JSON only: {{"subject": "...", "action": "...", "medium": "..."{world_keys}, "why": "<short>"}}"""
 VERIFY_WORLD = "\nThe episode's world: {setting}."
 VERIFY_WORLD_Q = """
 4. main_in_world: could the MAIN subject exist in that world (era, culture)? true/false
@@ -452,7 +452,6 @@ def parse_verify(text, with_world):
                 return None
             out[key] = j[key]
     out["why"] = str(j.get("why") or "")[:300]
-    out["seen"] = str(j.get("seen") or "")[:120]
     return out
 
 
