@@ -12121,7 +12121,14 @@ def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=
     import shot_judge
     import world_card
     spec = spec or shot_judge.spec_from_brief(phrase, brief)
-    setting = world_card.world_to_check(card)
+    # Мир — отдельным вопросом без фразы, один на картинку, со списком
+    # чужих культур паспорта (замер 24.09, 223 размеченных кадра эп.94, по
+    # два прогона): верных пар 75-78% -> 81-82%, лучший кадр слота 6-7 -> 8
+    # из 9, годных отклонено 4-7 -> 4; цена замера +27%. Список культур
+    # внутри вопроса по утверждениям — хуже (749 пар, 11 годных отклонено:
+    # пластинчатый доспех читался как азиатский); мир отдельно без списка —
+    # 6 из 9, современный нож остаётся.
+    setting = world_card.claims_setting(card)
     cg_veto = world_card.is_historical(card)
     cache = os.path.join(TEMP_FOLDER, "shot_judge_cache")
     world_veto = world_veto_active()
@@ -12132,7 +12139,8 @@ def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=
         return shot_judge.verify_claims(gw, model, phrase=phrase, spec=spec, setting=setting,
                                         path=c.get("judge_path") or c["path"], kind=kind,
                                         cache_dir=cache, reasoning=VERIFY_REASONING,
-                                        caption=candidate_caption(c.get("p")), frames=frames)
+                                        caption=candidate_caption(c.get("p")), frames=frames,
+                                        world_separate=True)
 
     for more in (False, True):
         finalists = verify_finalists_of(judged, more)
@@ -12220,6 +12228,7 @@ def shot_judge_signature(index=None):
         return ""
     import inspect
     import shot_judge
+    import world_card
     # Логика ранжирования и вопроса — исходником, а не номером версии,
     # который забывают поднять: правка любой из этих функций меняет
     # победителя, и прогретый кэш не должен отдавать прежний выбор.
@@ -12229,8 +12238,10 @@ def shot_judge_signature(index=None):
         shot_judge.claims_question, _verify_finalists, verify_finalists_of, verify_key,
         judge_rejected, judge_approved, screen_allowed, claims_checked, filter_pool_by_text,
         blocklist_clearable, world_veto_active, _record_world_vote,
-        cascade_texts, cascade_reorder)).encode("utf-8")
-        + shot_judge.CLAIMS_PROMPT.encode("utf-8")).hexdigest()[:12]
+        cascade_texts, cascade_reorder, world_card.claims_setting,
+        shot_judge.world_only_question, shot_judge.world_of_image)).encode("utf-8")
+        + shot_judge.CLAIMS_PROMPT.encode("utf-8")
+        + shot_judge.WORLD_ONLY_PROMPT.encode("utf-8")).hexdigest()[:12]
     return repr(("judge", shot_judge_model(), shot_judge.PROMPT_VERSION, SHOT_JUDGE_MIN_SCORE,
                  "cascade", cascade_preview_n(), "claims", shot_judge.CLAIMS_VERSION, logic,
                  shot_judge.VERIFY_MAX_SIDE, VERIFY_FINALISTS, VERIFY_REASONING,

@@ -607,3 +607,22 @@ def test_vision_check_and_grid_never_leave_reasoning_to_the_provider_default():
     shot_judge.vision_check(GW(), "m")
     assert seen and all(r is False for r in seen)
     assert shot_judge.GRID_REASONING is False
+
+
+def test_render_asks_the_world_separately_with_the_excluded_cultures(tmp_path, monkeypatch):
+    """Замер 24.09: мир отдельным вопросом + чужие культуры паспорта — лучший
+    кадр слота 8 из 9 против 6-7; каждая половина по отдельности не даёт."""
+    info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=2)
+    card = {"register": "historical", "era": {"from": 1300, "to": 1500},
+            "culture": {"include": [], "exclude": ["japanese"]}}
+    monkeypatch.setattr(ps, "episode_world_card", lambda: card)
+    seen = []
+
+    def verify_claims(gw, model, *, path, setting=None, world_separate=False, **_k):
+        seen.append((setting, world_separate))
+        return _ans({"c1": "yes"}, world=(True, False)), {"call": True}
+    monkeypatch.setattr(sj, "verify_claims", verify_claims)
+    spec = {"focus": "a dagger", "claims": [{"id": "c1", "text": "a dagger", "tier": "must"}]}
+    assert ps.judge_candidates(0, "photo", "x", "y", info, spec)
+    assert seen and all(ws for _s, ws in seen)
+    assert all(s and "not: japanese" in s for s, _ws in seen)
