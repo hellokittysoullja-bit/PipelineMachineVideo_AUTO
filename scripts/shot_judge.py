@@ -386,15 +386,15 @@ def world_check(gateway, model, *, phrase, brief, setting, path, kind="photo", c
 #     отказ;
 #   * дальше порядок: предмет (тот / близкая замена / нет), затем действие.
 # Мира нет — вопросы про мир не задаются и не влияют.
-VERIFY_VERSION = 2
+VERIFY_VERSION = 4
 VERIFY_PROMPT = """You check one shot for a documentary video.
 Narration line: «{phrase}»
-Required shot: «{brief}»{world}{caption}
+Required shot: «{brief}»{subs}{world}{caption}
 Look at the picture carefully and answer:
-1. subject: is the main subject the thing the required shot is about? "yes", "close" (same kind of thing, different detail or view) or "no"
+1. subject: first name the main subject of the picture in a few words; then: is it the main subject of the required shot? "yes" — the same thing; "close" — the same kind of thing named in the required shot (e.g. the same object type, or the same kind of person with the same gear and dress — not just any person) shown differently, or one of the acceptable substitutes; "no" — anything else
 2. action: if the required shot names an action or state, is it shown? "yes", "no" or "none" (no action required)
 3. medium: "photo", "artwork" (painting, drawing, engraving, manuscript), "object" (museum object on a plain background) or "cg" (3D render, cartoon, toy, video game){world_q}
-Reply with JSON only: {{"subject": "...", "action": "...", "medium": "..."{world_keys}, "why": "<short>"}}"""
+Reply with JSON only: {{"seen": "<main subject in a few words>", "subject": "...", "action": "...", "medium": "..."{world_keys}, "why": "<short>"}}"""
 VERIFY_WORLD = "\nThe episode's world: {setting}."
 VERIFY_WORLD_Q = """
 4. main_in_world: could the MAIN subject exist in that world (era, culture)? true/false
@@ -409,15 +409,21 @@ VERIFY_VIDEO_NOTE = "\nThe picture shows three frames (beginning, middle, end) o
 VERIFY_CAPTION = ("\nThe source's own caption for this picture (may be incomplete or wrong; "
                   "use it as evidence, the picture decides): «{caption}»")
 VERIFY_CAPTION_MAX = 240
+# Допустимые замены точного кадра — ступени 2-3 лестницы плана фразы
+# (stock_query_planner v2). Без них «близкую замену» модель судила по
+# своему представлению; с ними — по тому, что автор плана счёл той же мыслью.
+VERIFY_SUBSTITUTES = "\nAcceptable substitutes when the exact shot does not exist: {subs}."
 _VERIFY_ENUMS = {"subject": ("yes", "close", "no"), "action": ("yes", "no", "none"),
                  "medium": ("photo", "artwork", "object", "cg")}
 
 
-def verify_question(phrase, brief, setting=None, kind="photo", caption=None):
+def verify_question(phrase, brief, setting=None, kind="photo", caption=None, substitutes=()):
     world = VERIFY_WORLD.format(setting=setting) if setting else ""
+    subs = "; ".join(f"«{x}»" for x in (substitutes or ()) if x)
     caption = " ".join(str(caption or "").split())[:VERIFY_CAPTION_MAX]
     text = VERIFY_PROMPT.format(phrase=phrase or "—", brief=brief or phrase or "—", world=world,
                                 caption=VERIFY_CAPTION.format(caption=caption) if caption else "",
+                                subs=VERIFY_SUBSTITUTES.format(subs=subs) if subs else "",
                                 world_q=VERIFY_WORLD_Q if setting else "",
                                 world_keys=VERIFY_WORLD_KEYS if setting else "")
     return text + (VERIFY_VIDEO_NOTE if kind == "video" else "")
@@ -446,6 +452,7 @@ def parse_verify(text, with_world):
                 return None
             out[key] = j[key]
     out["why"] = str(j.get("why") or "")[:300]
+    out["seen"] = str(j.get("seen") or "")[:120]
     return out
 
 
@@ -469,13 +476,13 @@ VERIFY_MAX_SIDE = 512
 
 
 def verify(gateway, model, *, phrase, brief, setting, path, kind="photo", cache_dir=None,
-           max_side=VERIFY_MAX_SIDE, reasoning=None, caption=None):
+           max_side=VERIFY_MAX_SIDE, reasoning=None, caption=None, substitutes=()):
     """(ответы | None, {"cost", "call", "cache_hit", "refused"}). None —
     проверки не было (нет шлюза, сбой, неразобранный ответ): вызывающий код
     остаётся на прежнем ранжировании."""
     if gateway is None or not path or not os.path.exists(path):
         return None, {}
-    text = verify_question(phrase, brief, setting, kind, caption)
+    text = verify_question(phrase, brief, setting, kind, caption, substitutes)
     h = hashlib.sha256()
     for part in ("verify", str(VERIFY_VERSION), model, text, str(max_side), repr(reasoning),
                  _file_digest(path)):

@@ -7455,7 +7455,8 @@ class PhotoAdapter(selection_engine.MediaAdapter):
         _brief_key = candidate_brief_key(request.shot_brief, request.block_text)
         qkey = "|".join([query] + sorted(q for q in (extra_queries or []) if q and q != query)
                          + ([text_key] if text_key else [])
-                         + ([_brief_key] if _brief_key else []))
+                         + ([_brief_key] if _brief_key else [])
+                         + [f"sub:{x}" for x in (request.shot_substitutes or ())])
         qhash = hashlib.md5(qkey.encode()).hexdigest()[:8]
         gate_sig = candidate_gate_signature(request.index).split(":", 1)[-1]
         cf = os.path.join(cache, f"{index:04d}_{qhash}_{gate_sig}.jpg")
@@ -7873,7 +7874,8 @@ class PhotoAdapter(selection_engine.MediaAdapter):
             # победителя: его оценка первый ключ после анти-дубля. Не
             # отработал по всему слоту — оценок нет ни у кого, порядок прежний.
             judged = judge_candidates(index, "photo", request.block_text,
-                                      request.shot_brief or query, candidates_info)
+                                      request.shot_brief or query, candidates_info,
+                                      request.shot_substitutes)
             # _score_and_pick (см. выше) — чистое сравнение по уже скачанному
             # пулу, вынесенное отдельно ради тестируемости. Файлы-неудачники
             # раньше удалялись СРАЗУ по ходу цикла (экономия диска) — теперь
@@ -8144,6 +8146,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
             selection_attempt.record_effect("reserve_id", used_ids, pick.get("id"))
         if judged:
             selection_attempt.record_note("judge_score", winner.get("judge") if winner else None)
+            selection_attempt.record_note("quality", winner_quality(winner))
         if judged and not judge_approved(winner):
             # Лучший кадр слота по оценке судьи — брак. Кадр остаётся у
             # попытки (как у отказа арбитра), решение о показе — у слота:
@@ -11676,7 +11679,7 @@ def judge_rank(c):
     return v if isinstance(v, int) else -1
 
 
-def judge_candidates(index, kind, phrase, brief, candidates_info):
+def judge_candidates(index, kind, phrase, brief, candidates_info, substitutes=()):
     """Проставляет c["judge"] каждому кандидату без дубля (или никому) и
     возвращает True, если судья отработал по всему слоту."""
     for c in candidates_info:
@@ -11709,7 +11712,7 @@ def judge_candidates(index, kind, phrase, brief, candidates_info):
         return False
     for c in judged:
         c["judge"] = scores[str(c["p"].get("id"))]
-    _verify_finalists(index, kind, phrase, brief, judged, gw, model, setting)
+    _verify_finalists(index, kind, phrase, brief, judged, gw, model, setting, substitutes)
     _judge_budget_forecast(index, gw)
     return True
 
@@ -11756,7 +11759,7 @@ VERIFY_FINALISTS = 5
 VERIFY_REASONING = False
 
 
-def _verify_finalists(index, kind, phrase, brief, judged, gw, model, setting):
+def _verify_finalists(index, kind, phrase, brief, judged, gw, model, setting, substitutes=()):
     """c["verify"] лучшим по сетке кандидатам: кортеж уровня или "veto".
     Сбой проверки кадра — None: кадр стоит ниже проверенных годных, но не
     бракуется."""
@@ -11768,7 +11771,8 @@ def _verify_finalists(index, kind, phrase, brief, judged, gw, model, setting):
     def ask(c):
         return shot_judge.verify(gw, model, phrase=phrase, brief=brief, setting=setting,
                                  path=c.get("judge_path") or c["path"], kind=kind, cache_dir=cache,
-                                 reasoning=VERIFY_REASONING, caption=candidate_caption(c.get("p")))
+                                 reasoning=VERIFY_REASONING, caption=candidate_caption(c.get("p")),
+                                 substitutes=substitutes)
     with concurrent.futures.ThreadPoolExecutor(max(1, len(finalists))) as ex:
         answers = list(ex.map(ask, finalists))
     for c, (ans, info) in zip(finalists, answers):
@@ -11848,6 +11852,43 @@ def shot_judge_active(index=None):
             and bool((os.environ.get("LLM_GATEWAY_API_KEY") or "").strip()))
 
 
+def winner_quality(c):
+    """Качество победителя для сравнения видов: (ключ проверки, оценка
+    сетки). Судьи не было — None."""
+    if c is None:
+        return None
+    g = c.get("judge")
+    if not isinstance(g, int) and not isinstance(c.get("verify"), (tuple, str)):
+        return None
+    return (verify_key(c), g if isinstance(g, int) else -1)
+
+
+def _as_quality(score):
+    """Оценка сетки (int) или качество (tuple) -> сравнимое качество."""
+    if score is None:
+        return None
+    if isinstance(score, int):
+        return ((-1,), score)
+    return (tuple(score[0]), score[1])
+
+
+def quality_approved(q):
+    v, g = q
+    if v != (-1,):
+        return v[0] >= 1
+    return g >= SHOT_JUDGE_MIN_SCORE
+
+
+def quality_perfect(q):
+    """Второй вид добывать незачем: точный кадр с действием и чистым фоном,
+    а без проверки — высшая оценка сетки."""
+    import shot_judge
+    if q is None:
+        return False
+    v, g = q
+    return v == (2, 1, 1) if v != (-1,) else g >= shot_judge.SCORE_MAX
+
+
 def pick_kind_by_judge(first_kind, first_score, other_score, prefer_video):
     """Какой вид медиа ставить в слот, когда добыты оба: фото и видео.
 
@@ -11859,12 +11900,13 @@ def pick_kind_by_judge(first_kind, first_score, other_score, prefer_video):
     неизвестное лучше известного брака, известное годное — нет.
     Возвращает "photo" или "video"."""
     other_kind = "video" if first_kind == "photo" else "photo"
-    if not isinstance(first_score, int):
+    first, other = _as_quality(first_score), _as_quality(other_score)
+    if first is None:
         return first_kind
-    if not isinstance(other_score, int):
-        return other_kind if first_score < SHOT_JUDGE_MIN_SCORE else first_kind
-    if other_score != first_score:
-        return other_kind if other_score > first_score else first_kind
+    if other is None:
+        return other_kind if not quality_approved(first) else first_kind
+    if other != first:
+        return other_kind if other > first else first_kind
     return "video" if prefer_video else "photo"
 
 
@@ -13765,7 +13807,8 @@ class VideoAdapter(selection_engine.MediaAdapter):
         qkey = "|".join([request.query] + sorted(q for q in (request.extra_queries or [])
                                                  if q and q != request.query)
                         + ([request.text_key] if request.text_key else [])
-                        + ([_brief_key] if _brief_key else []))
+                        + ([_brief_key] if _brief_key else [])
+                        + [f"sub:{x}" for x in (request.shot_substitutes or ())])
         qhash = hashlib.md5(qkey.encode()).hexdigest()[:8]
         gate_sig = candidate_gate_signature(request.index).split(":", 1)[-1]
         return os.path.join(cache, f"{request.index:04d}_{qhash}_{gate_sig}.mp4")
@@ -13921,7 +13964,8 @@ class VideoAdapter(selection_engine.MediaAdapter):
         if not candidates_info:
             return None
         judged = judge_candidates(index, "video", request.block_text,
-                                  request.shot_brief or query, candidates_info)
+                                  request.shot_brief or query, candidates_info,
+                                  request.shot_substitutes)
         score_fn = request.video_score_fn
         base, director = _score_and_pick(candidates_info, score_fn)
         winner = director if (request.director_assist and director is not None) else base
@@ -14001,6 +14045,7 @@ class VideoAdapter(selection_engine.MediaAdapter):
         if judged:
             chosen_by += "+judge"
             selection_attempt.record_note("judge_score", winner.get("judge"))
+            selection_attempt.record_note("quality", winner_quality(winner))
             if not judge_approved(winner):
                 selection_attempt.record_verdict("judge", {
                     "index": index, "kind": "video", "query": query,
@@ -15499,7 +15544,8 @@ def main():
     # нарезки блоков: под-кадры наследуют поле через dict(b).
     try:
         import stock_query_planner
-        _sq = stock_query_planner.attach(blocks, stock_query_planner.load(VIDEO_FOLDER))
+        _sq = stock_query_planner.attach(blocks, stock_query_planner.load(VIDEO_FOLDER),
+                                         stock_query_planner.load_specs(VIDEO_FOLDER))
         if _sq:
             print(f"  Запросы фраз: на {_sq} из {len(blocks)} блоков (media_plan/"
                   f"{stock_query_planner.PLAN_NAME})")
@@ -16356,6 +16402,11 @@ def main():
             # (видео реже, чем фото, по самой природе приёма).
             h_text = int(hashlib.md5(b["text"][:40].encode()).hexdigest()[:8], 16)
             want_video = (has_action_word(b["text"]) or h_text % 2 == 1) and not stat
+            # План фразы (stock_query_planner v2) знает, что фраза про
+            # движение или про предмет — его предпочтение сильнее догадки
+            # по словарю и хэшу. «either» — прежнее правило.
+            if b.get("kind_pref") in ("photo", "video") and not stat:
+                want_video = b["kind_pref"] == "video"
             if want_video and recent_media_types[-1:] == ["video"]:
                 want_video = False
             if (not want_video and not stat and len(recent_media_types) >= 3
@@ -16379,6 +16430,7 @@ def main():
                 index=i, query=queries[i],
                 extra_queries=slot_extra_queries(b, section_query_pool.get(b["section"])),
                 text_key=sem_text, shot_brief=b.get("shot_brief"), block_text=b["text"],
+                shot_substitutes=tuple(b.get("shot_rungs") or ()),
                 arbiter_text=hook_arbiter_text, is_opening=is_opening_shot,
                 slot_dur=d, action_qualifier=act_qual, target_luma=luma_ema,
                 director_score_fn=director_score_fn, director_assist=director_assist,
@@ -16404,18 +16456,20 @@ def main():
             # читать число), короткому слоту видео не хватает длины.
             import shot_judge
             first_att = attempt_of(slot_attempts, photo or video)
-            first_score = first_att.notes.get("judge_score") if first_att else None
+            first_score = (first_att.notes.get("quality") or first_att.notes.get("judge_score")) \
+                if first_att else None
             first_kind = "video" if video else "photo"
             other_kind = "photo" if video else "video"
             # Второй вид уже добывался в этом слоте (первый не дал кадра, и
             # слот перешёл к нему) — повтор дал бы тот же отказ.
             other_tried = any(a.kind == other_kind for a in slot_attempts)
             if (shot_judge_active(i) and not stat and d >= MIN_CLIP + 1.0 and not other_tried
-                    and isinstance(first_score, int) and first_score < shot_judge.SCORE_MAX):
+                    and first_score is not None and not quality_perfect(_as_quality(first_score))):
                 other = fetch_in_attempt(slot_attempts, i, other_kind, select_media, request, other_kind)
                 if other:
                     other_att = attempt_of(slot_attempts, other)
-                    other_score = other_att.notes.get("judge_score") if other_att else None
+                    other_score = (other_att.notes.get("quality") or other_att.notes.get("judge_score")) \
+                        if other_att else None
                     kind = pick_kind_by_judge(first_kind, first_score, other_score, prefer_video)
                     print(f"    [{i+1}] {first_kind} {first_score} против {other_kind} "
                           f"{other_score if other_score is not None else '—'} -> {kind}")

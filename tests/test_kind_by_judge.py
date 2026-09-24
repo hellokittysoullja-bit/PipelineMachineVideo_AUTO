@@ -63,3 +63,32 @@ def test_main_compares_kinds_and_does_not_refetch_a_losing_photo():
     assert 'a.kind == "photo" and a.media' in body
     assert "other_tried = any(a.kind == other_kind for a in slot_attempts)" in body
     assert "and not other_tried" in body
+
+
+def test_verification_quality_decides_between_kinds():
+    """Проверка по пунктам сильнее оценки сетки: точное видео (предмет и
+    действие) бьёт фото-замену, даже если сетка поставила фото выше."""
+    photo_sub = ((1, 0, 1), 3)
+    video_exact = ((2, 1, 1), 2)
+    assert pick("photo", photo_sub, video_exact, prefer_video=False) == "video"
+    assert pick("video", ((-9,), 3), None, prefer_video=True) == "photo", "отказ — берём неизвестное"
+    assert pick("photo", ((1, 0, 1), 1), None, prefer_video=False) == "photo", "одобренная замена остаётся"
+
+
+def test_perfect_first_kind_needs_no_second_search():
+    assert ps.quality_perfect(ps._as_quality(((2, 1, 1), 1)))
+    assert not ps.quality_perfect(ps._as_quality(((2, 1, 0), 3))), "чужой фон — ищем второй вид"
+    assert ps.quality_perfect(ps._as_quality(3)) and not ps.quality_perfect(ps._as_quality(2))
+
+
+def test_winner_quality_is_none_without_a_judge():
+    assert ps.winner_quality({"judge": None, "verify": None}) is None
+    assert ps.winner_quality({"judge": 2, "verify": (1, 1, 1)}) == ((1, 1, 1), 2)
+
+
+def test_plan_kind_preference_overrides_the_word_rule_in_main():
+    src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"), encoding="utf-8").read()
+    body = src[src.index("\ndef main("):]
+    i = body.index('want_video = (has_action_word(b["text"])')
+    assert 'b.get("kind_pref") in ("photo", "video") and not stat' in body[i:i + 800]
+    assert "shot_substitutes=tuple(b.get(\"shot_rungs\") or ())" in body

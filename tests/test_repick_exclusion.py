@@ -21,7 +21,7 @@ from _video_world import QUERY, infra, video  # noqa: E402,F401
 
 
 def _judge(monkeypatch, scores):
-    def fake(index, kind, phrase, brief, info):
+    def fake(index, kind, phrase, brief, info, substitutes=()):
         for c in info:
             c["judge"] = scores.get(c["p"]["id"])
         return True

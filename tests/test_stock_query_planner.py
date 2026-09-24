@@ -55,40 +55,40 @@ def test_clean_query_keeps_only_short_latin_queries():
     assert sqp.clean_query("") is None
 
 
-def test_answer_is_parsed_per_line_and_a_broken_line_costs_one_phrase():
-    packet = {"units": [{"n": 1, "text": "a"}, {"n": 2, "text": "b"}]}
-    raw = ("1 | rondel dagger closeup ; medieval dagger ; museum dagger ; dagger\n"
-           "2 | ???\n")
-    got = sqp.parse_answer(raw, packet)
-    assert got == {1: ["rondel dagger closeup", "medieval dagger", "museum dagger", "dagger"]}
-
-
 def test_prompt_carries_no_niche_words_and_takes_the_world_from_the_card(tmp_path):
     card = CARD
     d, blocks = _episode(tmp_path, card=card)
-    gw = FakeGateway("1 | rondel dagger closeup ; medieval dagger\n2 | arrow hitting armor ; armour plate\n")
+    gw = FakeGateway("")
     sqp.plan_episode(d, blocks, gw, model="m", verbose=False)
     prompt = gw.prompts[0]
     assert "Setting: historical, 1300 AD-1500 AD" in prompt
-    template = sqp.PROMPT.lower()
+    template = sqp.SPEC_PROMPT.lower()
     for word in ("medieval", "knight", "sword", "armour", "europe"):
         assert word not in template, f"слово ниши «{word}» в шаблоне вопроса"
 
 
 def test_plan_roundtrip_attaches_queries_by_phrase_text(tmp_path):
     d, blocks = _episode(tmp_path)
-    gw = FakeGateway("1 | rondel dagger closeup ; medieval dagger\n2 | arrow hitting armor ; armour plate\n")
+    gw = FakeGateway(
+        '{"n": 1, "prefer": "photo", "rungs": [{"shot": "a medieval rondel dagger on a plain background",'
+        ' "queries": ["rondel dagger closeup"]}, {"shot": "a medieval dagger in a museum case",'
+        ' "queries": ["medieval dagger"]}]}\n'
+        '{"n": 2, "prefer": "video", "rungs": [{"shot": "an arrow hitting plate armour in a re-enactment",'
+        ' "queries": ["arrow hitting armor", "armour plate"]}]}\n')
     assert sqp.plan_episode(d, blocks, gw, model="m", verbose=False) == 2
     plan = sqp.load(d)
     assert sqp.attach(blocks, plan) == 2
     by_text = {b["text"]: b.get("phrase_queries") for b in blocks}
-    assert by_text["Вот кинжал."] == ["rondel dagger closeup", "medieval dagger"]
+    assert by_text["Вот кинжал."] == ["rondel dagger closeup", "medieval dagger"], "ступени по порядку"
     assert by_text["Итог."] is None, "фраза без ответа идёт прежним путём"
+    specs = sqp.load_specs(d)
+    assert [r["shot"] for r in next(iter(v for v in specs.values() if v["prefer"] == "video"))["rungs"]] \
+        == ["an arrow hitting plate armour in a re-enactment"]
 
 
 def test_second_run_is_served_from_cache(tmp_path):
     d, blocks = _episode(tmp_path)
-    gw = FakeGateway("1 | rondel dagger closeup\n2 | arrow hitting armor\n")
+    gw = FakeGateway('{"n": 1, "rungs": [{"shot": "a medieval rondel dagger close up", "queries": ["rondel dagger"]}]}\n')
     sqp.plan_episode(d, blocks, gw, model="m", verbose=False)
     hook = [p for p in gw.prompts if "Вот кинжал" in p]
     sqp.plan_episode(d, blocks, gw, model="m", verbose=False)
@@ -154,3 +154,42 @@ def test_video_path_spends_pexels_quota_on_own_query_only(infra, monkeypatch):
     ps.VIDEO_ADAPTER.sources(req, QUERY)
     ps.VIDEO_ADAPTER.sources(req, "reenactment knight fall")
     assert len(asked) == 1 and "reenactment" not in asked[0]
+
+
+def test_spec_line_is_parsed_alone_and_bad_rungs_drop():
+    packet = {"units": [{"n": 1}, {"n": 2}, {"n": 3}]}
+    raw = (
+        '{"n": 1, "prefer": "fast", "rungs": [{"shot": "x", "queries": ["knight"]},'
+        ' {"shot": "a knight kneeling in armour on grass", "queries": ["knight kneeling", "Knight \\"1\\""]}]}\n'
+        'garbage line\n'
+        '{"n": 2, "rungs": [{"shot": "рыцарь стоит на коленях в поле", "queries": ["knight"]}]}\n'
+        '{"n": 9, "rungs": [{"shot": "a knight kneeling in armour", "queries": ["knight"]}]}\n')
+    got = sqp.parse_spec(raw, packet)
+    assert list(got) == [1], "кириллица в описании и чужой номер — не ступени"
+    assert got[1]["prefer"] == "either", "неизвестное предпочтение — either"
+    assert got[1]["rungs"] == [{"shot": "a knight kneeling in armour on grass", "queries": ["knight kneeling"]}]
+
+
+def test_flat_queries_keep_rung_order_and_cap():
+    rungs = [{"shot": "s", "queries": ["a b", "c d"]}, {"shot": "t", "queries": ["c d", "e f"]}]
+    assert sqp.flat_queries(rungs) == ["a b", "c d", "e f"]
+
+
+def test_attach_carries_substitutes_and_kind_preference(tmp_path):
+    d, blocks = _episode(tmp_path)
+    gw = FakeGateway(
+        '{"n": 1, "prefer": "photo", "rungs": [{"shot": "a medieval rondel dagger on a plain background",'
+        ' "queries": ["rondel dagger"]}, {"shot": "a medieval dagger in a museum case",'
+        ' "queries": ["medieval dagger"]}]}\n')
+    sqp.plan_episode(d, blocks, gw, model="m", verbose=False)
+    sqp.attach(blocks, sqp.load(d), sqp.load_specs(d))
+    b = next(b for b in blocks if b["text"] == "Вот кинжал.")
+    assert b["shot_rungs"] == ["a medieval dagger in a museum case"] and b["kind_pref"] == "photo"
+    assert "shot_rungs" not in next(b for b in blocks if b["text"] == "Итог.")
+
+
+def test_substitutes_reach_the_verification_question():
+    import shot_judge
+    q = shot_judge.verify_question("фраза", "brief", substitutes=("a dagger in a museum case",))
+    assert "a dagger in a museum case" in q and "substitutes" in q
+    assert "substitutes when" not in shot_judge.verify_question("фраза", "brief")

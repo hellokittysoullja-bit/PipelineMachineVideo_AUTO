@@ -17,6 +17,7 @@ def _request(ps, query, index, kind, kw):
         extra_queries=kw.pop("extra_queries", None),
         text_key=kw.pop("text_key", None),
         shot_brief=kw.pop("shot_brief", None),
+        shot_substitutes=tuple(kw.pop("shot_substitutes", ()) or ()),
         block_text=kw.pop("block_text", None),
         arbiter_text=kw.pop("arbiter_text", None),
         is_opening=kw.pop("is_opening_shot", False),

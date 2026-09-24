@@ -110,7 +110,7 @@ def test_judge_approved_winner_is_not_vetoed(infra, monkeypatch):
     infra["relevant"] = {1, 2}
     infra["veto"] = {1}
 
-    def fake_judge(index, kind, phrase, brief, info):
+    def fake_judge(index, kind, phrase, brief, info, substitutes=()):
         assert kind == "video" and all("judge_path" in c for c in info)
         for c in info:
             c["judge"] = 3 if c["p"]["id"] == 1 else 1
@@ -124,7 +124,7 @@ def test_judge_gets_a_strip_of_the_preview_frames(infra, monkeypatch):
     infra["videos"] = [video(1)]
     seen = {}
 
-    def fake_judge(index, kind, phrase, brief, info):
+    def fake_judge(index, kind, phrase, brief, info, substitutes=()):
         from PIL import Image as Im
         seen["size"] = Im.open(info[0]["judge_path"]).size
         return False

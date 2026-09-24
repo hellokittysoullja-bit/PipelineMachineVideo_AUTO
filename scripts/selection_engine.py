@@ -52,6 +52,10 @@ class SlotRequest:
     extra_queries: tuple
     text_key: object
     shot_brief: object
+    # Допустимые замены точного кадра (ступени 2-3 лестницы из плана
+    # stock_query_planner v2): проверка финалиста судит «близкую замену»
+    # по ним, а не по своему представлению. Нет плана — пустой кортеж.
+    shot_substitutes: tuple
     block_text: object
     arbiter_text: object
     is_opening: bool

@@ -373,12 +373,18 @@ def cmd_bench(a):
     card = json.load(open(a.world_card, encoding="utf-8")) if a.world_card else None
     setting = world_card.judge_setting(card) if card else None
     gw = llm_gateway.Gateway(spend_cap=a.max_spend)
+    import shot_planner_llm
+    import stock_query_planner
+    _unit_key = shot_planner_llm.unit_key
+    specs = stock_query_planner.load_specs(a.episode) if a.episode else {}
     model = a.model
     cache = a.cache_dir or os.path.join(os.path.dirname(a.index), "judge_cache")
     stats = {"pairs": 0, "pairs_ok": 0.0, "bad_accepted": 0, "bad": 0, "good_vetoed": 0, "good": 0,
              "world_good_rejected": 0, "world_bad_passed": 0, "slots": [], "cost": 0}
     for key, rec, rows in _label_rows(pools, index, labels, base, emb, plan, a.kind):
         brief = rec.get("shot_brief") or rec.get("query")
+        subs = tuple(r["shot"] for r in specs.get(_unit_key(rec.get("block_text") or ""), {}).get("rungs", [])[1:])
+
         def ask(item):
             r, lab = item
             path = fetch(r.get("probe_url"), r.get("headers"))
@@ -389,7 +395,8 @@ def cmd_bench(a):
                                               setting=setting, path=path, kind=rec["kind"],
                                               cache_dir=cache, max_side=a.side,
                                               reasoning={"on": True, "off": False}.get(a.reasoning),
-                                              caption=r.get("text") if a.caption else None)
+                                              caption=r.get("text") if a.caption else None,
+                                              substitutes=subs)
                 wok, winfo = None, {}
                 if a.world:
                     wok, _why, winfo = shot_judge.world_check(
@@ -514,6 +521,7 @@ def main(argv=None):
     b.add_argument("--side", type=int, default=512, help="сторона картинки для проверки")
     b.add_argument("--reasoning", choices=("default", "on", "off"), default="default")
     b.add_argument("--caption", action="store_true", help="подпись источника в вопрос")
+    b.add_argument("--episode", help="папка эпизода: замены из плана фраз v2 в вопрос")
     b.add_argument("--finalists", type=int, default=0,
                    help="проверять только N лучших по сетке (как в пайплайне)")
     b.add_argument("--grid-cache", help="кэш оценок сетки (повтор без кэша проверки)")
