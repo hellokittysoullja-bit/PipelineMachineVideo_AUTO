@@ -176,7 +176,11 @@ def _grid_bytes(paths, kind="photo"):
 
 
 def parse_scores(text, n):
-    """{номер 1..n: целое 0..3} или None, если хоть один номер без оценки."""
+    """{номер 1..n: целое 0..3} или None, если хоть один номер без оценки.
+
+    Оценка строкой («"2"») — та же оценка: живой случай judge14 (24.09),
+    сетка слота 2 ответила {"1": "2", "2": "2"}, и полный ответ
+    считался неполным — слот терял оценки сетки целиком."""
     try:
         obj = json.loads(text[text.index("{"): text.rindex("}") + 1])
     except ValueError:
@@ -187,6 +191,8 @@ def parse_scores(text, n):
     out = {}
     for k in range(1, n + 1):
         v = scores.get(str(k), scores.get(k))
+        if isinstance(v, str) and v.strip().isdigit():
+            v = int(v.strip())
         if isinstance(v, bool) or not isinstance(v, (int, float)) or v != int(v) \
                 or not 0 <= v <= SCORE_MAX:
             return None

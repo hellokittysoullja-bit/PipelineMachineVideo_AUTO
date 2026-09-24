@@ -51,6 +51,9 @@ class FakeGateway:
     ('{"scores": {"1": 1.5, "2": 0}}', None),       # не целое
     ('{"scores": {"1": true, "2": 0}}', None),      # bool — не число
     ('не json', None),
+    ('{"scores": {"1": "2", "2": "2"}}', {1: 2, 2: 2}),   # строкой — живой ответ judge14
+    ('{"scores": {"1": "две", "2": "2"}}', None),
+    ('{"scores": {"1": "4", "2": "2"}}', None),           # вне шкалы и строкой
 ])
 def test_parse_demands_a_score_for_every_tile(text, expect):
     assert sj.parse_scores(text, 2) == expect
