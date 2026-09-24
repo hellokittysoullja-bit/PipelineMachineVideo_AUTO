@@ -39,7 +39,10 @@ import os
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
+
+import source_health
 
 DEFAULT_BASE_URL = "https://anymodel.org/v1"
 USER_AGENT = "PipelineMachineVideo/1.0"
@@ -53,6 +56,19 @@ class GatewayError(Exception):
 
 class PaymentRequired(GatewayError):
     """402: баланс ключа кончился. Дальнейшие вызовы бессмысленны."""
+
+
+class GatewayUnavailable(GatewayError):
+    """Шлюз на паузе: несколько вызовов подряд исчерпали повторы."""
+
+
+# Шлюз лежит — вызовы не делаются GATEWAY_COOLDOWN_SEC после
+# GATEWAY_FAIL_THRESHOLD вызовов подряд с исчерпанными повторами. Без этого
+# КАЖДЫЙ вызов сам проходил все повторы (разбор 25.09: слот с сеткой и
+# пятью проверками при лежащем шлюзе терял минуты). Пауза — то же правило,
+# что у Мет (source_health), и те же 60 с.
+GATEWAY_FAIL_THRESHOLD = 3
+GATEWAY_COOLDOWN_SEC = 60.0
 
 
 class BudgetExhausted(GatewayError):
@@ -116,9 +132,30 @@ class Gateway:
 
     # ---------------------------------------------------------------- транспорт
 
+    def health(self):
+        """Регулятор здоровья этого шлюза (один на адрес в процессе)."""
+        host = urllib.parse.urlsplit(self.base_url).hostname or self.base_url
+        return source_health.host("gateway:" + host, fail_threshold=GATEWAY_FAIL_THRESHOLD,
+                                  cooldown_sec=GATEWAY_COOLDOWN_SEC)
+
     def _request(self, method, path, body=None, timeout=120, on_lost_body=None):
         """on_lost_body() зовётся на каждый ответ, оборвавшийся после того,
         как сервис начал его отдавать: такой вызов, скорее всего, оплачен."""
+        health = self.health()
+        if health.cooling():
+            raise GatewayUnavailable(f"шлюз на паузе ещё {health.cooldown_left():.0f} с "
+                                     f"(несколько вызовов подряд без ответа)")
+        try:
+            out = self._request_with_retries(method, path, body, timeout, on_lost_body)
+        except GatewayError as e:
+            if "повторы исчерпаны" in str(e) and health.failed():
+                print(f"  шлюз не отвечает {GATEWAY_FAIL_THRESHOLD} вызова подряд — пауза "
+                      f"{GATEWAY_COOLDOWN_SEC:.0f} с, вызовы в это время не делаются")
+            raise
+        health.succeeded()
+        return out
+
+    def _request_with_retries(self, method, path, body, timeout, on_lost_body):
         data = json.dumps(body).encode("utf-8") if body is not None else None
         req = urllib.request.Request(self.base_url + path, data=data, method=method, headers={
             "Authorization": "Bearer " + self.api_key, "Content-Type": "application/json",

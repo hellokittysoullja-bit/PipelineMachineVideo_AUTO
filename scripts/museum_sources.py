@@ -249,10 +249,13 @@ MET_COOLDOWN_STATUSES = (403, 429, 503)
 MET_RETRY_PAUSE_SEC = 2.0
 MET_COOLDOWN_SEC = 60.0
 
-_MET_LOCK = threading.Lock()
-_MET_NEXT_SLOT = [0.0]
-_MET_COOLDOWN_UNTIL = [0.0]
-_MET_RATE = [MET_MAX_REQUESTS_PER_SEC]
+# Интервал, пауза и замедление — общий механизм source_health (один на все
+# хосты); числа — те, что замерены выше.
+import source_health  # noqa: E402
+_STATS_LOCK = threading.Lock()
+MET_HOST = source_health.host("met", interval=1.0 / MET_MAX_REQUESTS_PER_SEC,
+                              max_interval=1.0 / MET_MIN_REQUESTS_PER_SEC,
+                              cooldown_sec=MET_COOLDOWN_SEC)
 # Видимость деградации: сколько карточек потеряно, сколько раз источник
 # уходил в остывание и на какой скорости закончил. Читается вызывающим
 # кодом/тестами и уезжает в media_plan/source_contribution.json.
@@ -268,37 +271,27 @@ def reset_fetch_stats():
               "met_catalog_hits",
               "search_cache_hits", "search_cache_misses"):
         FETCH_STATS[k] = 0
-    _MET_RATE[0] = MET_MAX_REQUESTS_PER_SEC
-    FETCH_STATS["met_rate_final"] = MET_MAX_REQUESTS_PER_SEC
-    _MET_COOLDOWN_UNTIL[0] = 0.0
-    _MET_NEXT_SLOT[0] = 0.0
+    MET_HOST.reset()
+    FETCH_STATS["met_rate_final"] = MET_HOST.rate
 
 
 def _met_throttle():
     """Общий на процесс интервал между запросами к Мет."""
-    with _MET_LOCK:
-        now = time.monotonic()
-        slot = max(now, _MET_NEXT_SLOT[0])
-        _MET_NEXT_SLOT[0] = slot + 1.0 / _MET_RATE[0]
+    MET_HOST.wait()
+    with _STATS_LOCK:
         FETCH_STATS["met_requests"] += 1
-    delay = slot - time.monotonic()
-    if delay > 0:
-        time.sleep(delay)
 
 
 def met_is_cooling_down():
-    return time.monotonic() < _MET_COOLDOWN_UNTIL[0]
+    return MET_HOST.cooling()
 
 
 def _met_enter_cooldown():
-    with _MET_LOCK:
-        if not met_is_cooling_down():
-            _MET_COOLDOWN_UNTIL[0] = time.monotonic() + MET_COOLDOWN_SEC
-            FETCH_STATS["met_cooldowns"] += 1
-            _MET_RATE[0] = max(MET_MIN_REQUESTS_PER_SEC, _MET_RATE[0] / 2.0)
-            FETCH_STATS["met_rate_final"] = _MET_RATE[0]
-            print(f"    Мет: троттлинг, источник на паузе {MET_COOLDOWN_SEC:.0f}с, "
-                  f"дальше {_MET_RATE[0]:.1f} запр/с (остальные музеи работают)")
+    if MET_HOST.throttled():
+        FETCH_STATS["met_cooldowns"] += 1
+        FETCH_STATS["met_rate_final"] = MET_HOST.rate
+        print(f"    Мет: троттлинг, источник на паузе {MET_COOLDOWN_SEC:.0f}с, "
+              f"дальше {MET_HOST.rate:.1f} запр/с (остальные музеи работают)")
 
 
 def _met_get(url):
@@ -562,7 +555,7 @@ def search_met(query, limit=MET_MAX_DETAIL_FETCHES, department=None):
             return o
         o = _met_get(f"{MET_API}/objects/{oid}")
         if o is None:
-            with _MET_LOCK:
+            with _STATS_LOCK:
                 FETCH_STATS["met_cards_lost"] += 1
         else:
             _met_card_store(oid, o)

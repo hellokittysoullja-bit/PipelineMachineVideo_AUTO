@@ -463,14 +463,14 @@ class TestMetPoliteness:
     @pytest.fixture(autouse=True)
     def _reset(self, monkeypatch):
         ms._SEARCH_CACHE.clear()
-        ms._MET_COOLDOWN_UNTIL[0] = 0.0
-        ms._MET_NEXT_SLOT[0] = 0.0
+        ms.MET_HOST.cooldown_until = 0.0
+        ms.MET_HOST.next_slot = 0.0
         for k in ms.FETCH_STATS:
             ms.FETCH_STATS[k] = 0
         monkeypatch.setattr(ms, "MET_RETRY_PAUSE_SEC", 0.0)
-        monkeypatch.setattr(ms, "MET_MAX_REQUESTS_PER_SEC", 10000.0)
+        monkeypatch.setattr(ms.MET_HOST, "interval", 0.0)
         yield
-        ms._MET_COOLDOWN_UNTIL[0] = 0.0
+        ms.MET_HOST.cooldown_until = 0.0
         ms._SEARCH_CACHE.clear()
 
     def _http_error(self, code):
@@ -599,7 +599,7 @@ class TestDiskCache:
 
     def test_result_during_cooldown_is_not_cached(self, monkeypatch):
         monkeypatch.setattr(ms, "_get_json", self._fake_get)
-        ms._MET_COOLDOWN_UNTIL[0] = ms.time.monotonic() + 100
+        ms.MET_HOST.cooldown_until = ms.time.monotonic() + 100
         ms.search_museums("sword")
         assert not os.path.exists(ms._disk_cache_path("sword"))
 
@@ -627,14 +627,14 @@ class TestAdaptiveRate:
         ms.reset_fetch_stats()
 
     def test_each_cooldown_halves_the_rate_down_to_the_floor(self):
-        assert ms._MET_RATE[0] == ms.MET_MAX_REQUESTS_PER_SEC
+        assert ms.MET_HOST.rate == ms.MET_MAX_REQUESTS_PER_SEC
         ms._met_enter_cooldown()
-        assert ms._MET_RATE[0] == ms.MET_MAX_REQUESTS_PER_SEC / 2
-        assert ms.FETCH_STATS["met_rate_final"] == ms._MET_RATE[0]
+        assert ms.MET_HOST.rate == ms.MET_MAX_REQUESTS_PER_SEC / 2
+        assert ms.FETCH_STATS["met_rate_final"] == ms.MET_HOST.rate
         for _ in range(10):
-            ms._MET_COOLDOWN_UNTIL[0] = 0.0
+            ms.MET_HOST.cooldown_until = 0.0
             ms._met_enter_cooldown()
-        assert ms._MET_RATE[0] == ms.MET_MIN_REQUESTS_PER_SEC
+        assert ms.MET_HOST.rate == ms.MET_MIN_REQUESTS_PER_SEC
 
     def test_start_rate_is_below_the_measured_break_point(self):
         assert ms.MET_MAX_REQUESTS_PER_SEC <= 5.0

@@ -4718,6 +4718,7 @@ def reset_source_stats():
     PEXELS_QUOTA_LEFT, PEXELS_LOW_PRIORITY_SKIPPED = None, 0
     for k in ("requests", "cache_hits", "cache_misses"):
         OPENVERSE_STATS[k] = 0
+    source_health.reset_all()
     try:
         import museum_sources as _mus
         _mus.reset_fetch_stats()
@@ -4730,7 +4731,10 @@ def write_source_contribution(video_dir):
     Пишется ВСЕГДА, даже если ни один источник не дал ничего: «нечего
     сообщить» — тоже факт, а не отсутствие файла."""
     report = {"schema_version": 1, "sources": {}, "museum_fetch": None,
-              "openverse_fetch": dict(OPENVERSE_STATS)}
+              "openverse_fetch": dict(OPENVERSE_STATS),
+              # Запросы, паузы и итоговая скорость каждого хоста (Мет,
+              # Openverse, Викимедиа, шлюз моделей) — один регулятор.
+              "host_health": source_health.snapshot()}
     for src in sorted(SOURCE_STATS):
         report["sources"][src] = dict(SOURCE_STATS[src])
     try:
@@ -6396,7 +6400,8 @@ OPENVERSE_CACHE_DIR = os.environ.get("OPENVERSE_CACHE_DIR") or os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "temp_openverse_cache")
 OPENVERSE_CACHE_TTL_SEC = 30 * 86400
 OPENVERSE_CACHE_SCHEMA = 1
-_OPENVERSE_NEXT_SLOT = [0.0]
+import source_health  # noqa: E402  — один регулятор здоровья на все хосты
+_OPENVERSE_HOST = source_health.host("openverse")
 _OPENVERSE_LOCK = threading.Lock()
 _OPENVERSE_TOKEN = {"value": None, "expires_at": 0.0, "failed": False}
 OPENVERSE_STATS = {"requests": 0, "cache_hits": 0, "cache_misses": 0, "auth": False}
@@ -6433,13 +6438,8 @@ def _openverse_bearer():
 def _openverse_throttle(authenticated):
     interval = OPENVERSE_AUTH_MIN_INTERVAL_SEC if authenticated else OPENVERSE_ANON_MIN_INTERVAL_SEC
     with _OPENVERSE_LOCK:
-        now = time.monotonic()
-        slot = max(now, _OPENVERSE_NEXT_SLOT[0])
-        _OPENVERSE_NEXT_SLOT[0] = slot + interval
         OPENVERSE_STATS["requests"] += 1
-    delay = slot - time.monotonic()
-    if delay > 0:
-        time.sleep(delay)
+    _OPENVERSE_HOST.wait(interval)
 
 
 _OPENVERSE_MAPPING_SIG = [None]
@@ -10501,8 +10501,6 @@ DOWNLOAD_HOST_USER_AGENT = {
 }
 DOWNLOAD_RETRY_STATUSES = (429, 503)
 DOWNLOAD_RETRY_PAUSE_SEC = 2.0
-_DOWNLOAD_HOST_LOCK = threading.Lock()
-_DOWNLOAD_HOST_NEXT = {}
 
 
 def host_user_agent(url, default=None):
@@ -10522,13 +10520,7 @@ def _download_host_throttle(url):
     interval = DOWNLOAD_HOST_MIN_INTERVAL.get(host)
     if not interval:
         return
-    with _DOWNLOAD_HOST_LOCK:
-        now = time.monotonic()
-        slot = max(now, _DOWNLOAD_HOST_NEXT.get(host, 0.0))
-        _DOWNLOAD_HOST_NEXT[host] = slot + interval
-    delay = slot - time.monotonic()
-    if delay > 0:
-        time.sleep(delay)
+    source_health.host("download:" + host).wait(interval)
 
 
 def flatten_transparency(path):
@@ -11962,6 +11954,17 @@ def judge_candidates(index, kind, phrase, brief, candidates_info, spec=None):
     if index is not None and index >= SHOT_JUDGE_PAID_SLOTS:
         return False   # платная проверка — только хук (см. SHOT_JUDGE_PAID_SLOTS)
     gw = _shot_judge_gateway()
+    if gw is not None:
+        # Шлюз на паузе после нескольких вызовов подряд без ответа (см.
+        # llm_gateway.GATEWAY_COOLDOWN_SEC). Платный слот не пропускает судью
+        # ради скорости — это был бы кадр без проверки там, где проверка
+        # оплачена: слот один раз ждёт конца паузы и пробует. Лежит и после
+        # неё — слот идёт без судьи, как раньше, но без минут на повторы.
+        health = gw.health() if hasattr(gw, "health") else None
+        if health is not None and health.cooling():
+            left = health.cooldown_left()
+            print(f"  слот {index}: шлюз на паузе, жду {left:.0f} с перед проверкой")
+            time.sleep(left)
     # У видео судья смотрит ленту из трёх кадров ролика (judge_path), у
     # фото — сам кадр.
     judged = [c for c in candidates_info

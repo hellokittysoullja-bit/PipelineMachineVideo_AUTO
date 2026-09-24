@@ -226,7 +226,7 @@ class TestDownloadPoliteness:
 
     def test_only_listed_hosts_are_slowed_down(self, monkeypatch):
         monkeypatch.setattr(ps, "DOWNLOAD_HOST_MIN_INTERVAL", {"commons.wikimedia.org": 0.05})
-        ps._DOWNLOAD_HOST_NEXT.clear()
+        ps.source_health.reset_all()
         import time as _t
         t0 = _t.monotonic()
         for _ in range(3):

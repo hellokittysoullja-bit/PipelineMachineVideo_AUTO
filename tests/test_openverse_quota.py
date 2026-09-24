@@ -46,7 +46,7 @@ def _isolated(monkeypatch, tmp_path):
     monkeypatch.delenv("OPENVERSE_CLIENT_ID", raising=False)
     monkeypatch.delenv("OPENVERSE_CLIENT_SECRET", raising=False)
     ps._OPENVERSE_TOKEN.update({"value": None, "expires_at": 0.0, "failed": False})
-    ps._OPENVERSE_NEXT_SLOT[0] = 0.0
+    ps._OPENVERSE_HOST.next_slot = 0.0
     for k in ("requests", "cache_hits", "cache_misses"):
         ps.OPENVERSE_STATS[k] = 0
     yield
