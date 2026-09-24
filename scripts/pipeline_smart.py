@@ -8285,7 +8285,14 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                 try:
                     download(pick, cf)
                     fetched = _downloaded_ok(cf)
-                    sharp = image_sharpness_score(cf) if fetched else None
+                    # Локальная резкость, как у видео (см. VIDEO_SHARPNESS_REJECT):
+                    # снимок с неглубокой резкостью — резкий предмет на
+                    # размытом фоне — не брак. Средняя по кадру мера и здесь
+                    # отклоняла такие кадры (замер 24.09: у финалистов
+                    # judge12/13 — ладонь крупно на тёмном фоне, 23 при пороге
+                    # 25); локальная всегда не ниже средней, так что правка
+                    # только перестаёт отклонять, ничего нового не отклоняя.
+                    sharp = image_local_sharpness(cf) if fetched else None
                     sharp_ok_full = fetched and (sharp is None or sharp >= PHOTO_SHARPNESS_REJECT)
                 except Exception:
                     sharp_ok_full = False
@@ -11549,19 +11556,26 @@ def visual_domain_guard_violation(image_path, query):
 VIDEO_DOMAIN_GUARD_SAMPLE_FRACS = (0.15, 0.5, 0.85)
 
 
-# Реальный, найденный вживую случай (27 августа, videos/_test20s, слот 7):
-# видео всадника с занесённым клинком — генуинное motion-blur самой
-# стоковой съёмки (быстрая скачка/поворот камеры), не артефакт нашего
-# рендера. Замерено на РЕАЛЬНЫХ кандидатах этого эпизода: заведомо ХОРОШЕЕ
-# видео (батальная реконструкция, уже стоявшее в кадре) — резкость 1009-1952
-# на 5 сэмплах по всей длительности; заведомо ПЛОХОЕ (этот всадник) —
-# 92-270 на тех же 5 сэмплах, той же функцией image_sharpness_score(). Разрыв
-# чистый и большой (минимум хорошего 1009 против максимума плохого 270) —
-# порог 400 берётся с большим запасом в разрыв. Честно: n=2 видео, не
-# статистика — тот же принцип малой калибровки, что уже применяет
-# DIRECTOR_RELEVANCE_FLOOR/RISKY_QUERY_MARGIN в этом файле, не гадание с
-# потолка.
-VIDEO_SHARPNESS_REJECT = 400.0
+# Резкость ролика — ЛОКАЛЬНАЯ: дисперсия Лапласиана в самой резкой клетке
+# сетки 4x4 (image_local_sharpness), медиана по трём кадрам.
+#
+# Прежний гейт (27.08) брал дисперсию по ВСЕМУ кадру с порогом 400,
+# откалиброванным на двух роликах (хорошая реконструкция 1009-1952,
+# смазанный всадник 92-270). Замер 24.09 на всех 38 роликах, скачанных
+# прогонами judge11-14 эп.94: он отклонил 26 из 38 (68%), а размыты из них
+# глазами 1-2. Причина — мера, а не порог: у кадра с неглубокой резкостью
+# (рука крупно на размытом фоне, клинок на наковальне — ровно
+# кинематографичный приём) почти вся площадь гладкая, и средняя дисперсия
+# низкая при резком предмете. Судья одобрял такие ролики, гейт выбрасывал.
+#
+# Локальная мера спрашивает то, что нужно: есть ли в кадре резкая область.
+# На тех же 38 роликах: ролик целиком не в фокусе — 3, все остальные — от
+# 45 и выше (рука на размытом фоне 45-46, клинок на наковальне 102). Порог
+# 15 — посередине разрыва в логарифмической шкале. Смазанное движение в
+# экшене мера пропускает (фон резкий) — это решает судья, который видит
+# кадры ролика.
+SHARPNESS_TILE_GRID = 4
+VIDEO_SHARPNESS_REJECT = 15.0
 VIDEO_SHARPNESS_SAMPLE_FRACS = (0.15, 0.5, 0.85)   # та же сетка, что у domain-гварда
 
 
@@ -11592,7 +11606,7 @@ def video_sharpness_ok(video_path):
         if probe is None:
             continue
         try:
-            s = image_sharpness_score(probe)
+            s = image_local_sharpness(probe)
         finally:
             if cleanup and os.path.exists(probe):
                 os.remove(probe)
@@ -13095,7 +13109,7 @@ def candidate_gate_signature(index=None):
             # обе падали, потому что "то же самое" не значило "тот же repr".
             tuple(sorted(CONTENT_BLOCKED_CANDIDATE_IDS)),
             PHOTO_SHARPNESS_REJECT, VIDEO_SHARPNESS_REJECT, VIDEO_SHARPNESS_SAMPLE_FRACS,
-            SHARPNESS_PROBE_MAX_SIDE, CANDIDATE_GATE_RULES_VERSION,
+            SHARPNESS_PROBE_MAX_SIDE, SHARPNESS_TILE_GRID, CANDIDATE_GATE_RULES_VERSION,
             VIDEO_MAX_TIME_STRETCH,
             # Сама МОДЕЛЬ, дающая число (18.09: CLIP -> SigLIP2-base256, см.
             # get_clip_model()) — clip_relevance() как функция не поменяла
@@ -13439,6 +13453,43 @@ SHARPNESS_PROBE_MAX_SIDE = 720   # тот же нормализующий раз
                                   # разрешением исходника, не только с реальной
                                   # резкостью; сравнивать источник и рендер нужно
                                   # в ОДНОЙ шкале.
+
+
+def _laplacian_of(image_path):
+    """Лапласиан кадра в оттенках серого, уменьшенного до
+    SHARPNESS_PROBE_MAX_SIDE, или None (нет numpy, файл не читается)."""
+    if np is None:
+        return None
+    try:
+        img = PILImage.open(image_path).convert("L")
+        w, h = img.size
+        scale = SHARPNESS_PROBE_MAX_SIDE / max(w, h)
+        if scale < 1.0:
+            img = img.resize((max(1, round(w * scale)), max(1, round(h * scale))), PILImage.LANCZOS)
+        arr = np.asarray(img, dtype=np.uint8)
+        if PARALLAX_LIBS:   # cv2 доступен — см. import cv2 в начале файла
+            return cv2.Laplacian(arr, cv2.CV_64F)
+        kernel = np.array([[0.0, 1.0, 0.0], [1.0, -4.0, 1.0], [0.0, 1.0, 0.0]])
+        return _convolve2d_same(arr.astype(np.float64), kernel)
+    except Exception:
+        return None
+
+
+def image_local_sharpness(image_path, grid=None):
+    """Резкость САМОЙ РЕЗКОЙ области кадра: дисперсия Лапласиана в лучшей
+    клетке сетки grid x grid. У кадра с неглубокой резкостью (предмет
+    резкий, фон размыт) средняя по кадру дисперсия низкая, а здесь — нет;
+    у кадра целиком не в фокусе низкая везде. None — как у
+    image_sharpness_score()."""
+    lap = _laplacian_of(image_path)
+    if lap is None:
+        return None
+    g = grid or SHARPNESS_TILE_GRID
+    H, W = lap.shape
+    if H < g or W < g:
+        return float(lap.var())
+    return max(float(lap[r * H // g:(r + 1) * H // g, c * W // g:(c + 1) * W // g].var())
+               for r in range(g) for c in range(g))
 
 
 def image_sharpness_score(image_path):
