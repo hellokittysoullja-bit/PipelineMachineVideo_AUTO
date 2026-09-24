@@ -106,7 +106,11 @@ def test_shelf_gets_the_brief_stocks_get_the_query():
     # Сборка источников живёт в методе sources фото-адаптера; граница —
     # следующий метод класса (по коду, а не по числу символов).
     block = src[start:src.index("\n    def ", start)]
-    assert 'fetch(pq, brief=shelf_question(shot_brief, block_text) or None)' in block
+    # Пробелы нормализуются: перенос строки внутри вызова — не смена развилки.
+    # Полка спрашивается по спецификации кадра, если она есть (М3, 25.09).
+    flat = " ".join(block.split())
+    assert ('fetch(pq, brief=shelf_question(shot_brief, block_text, '
+            'request.shot_spec) or None)') in flat
     assert 'fetch(api_q)' in block
 
 
