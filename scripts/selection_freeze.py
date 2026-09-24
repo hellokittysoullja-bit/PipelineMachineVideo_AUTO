@@ -358,6 +358,22 @@ def prune_run_media(sandbox):
     return freed
 
 
+def overlay_roots(freeze, overlay_from):
+    """Слои живых запросов прежних прогонов, по порядку. «judge13,judge14» —
+    запись, продолженная слоем judge13, затем слоем judge14: у прогона,
+    который сам шёл поверх judge13, в слое только то, чего не было в записи
+    и в judge13, — продолжение, а не копия. Без всей цепочки повторный
+    прогон заново сходил бы в сеть за тем, что прежний получил из слоя
+    judge13, и сравнение перестало бы быть сравнением на тех же входах."""
+    roots = []
+    for name in [x.strip() for x in (overlay_from or "").split(",") if x.strip()]:
+        d = os.path.join(freeze, "runs", name, "net_overlay")
+        if not os.path.exists(os.path.join(d, "index.jsonl")):
+            raise SystemExit(f"у прогона {name!r} нет слоя живых запросов: {d}")
+        roots.append(d)
+    return roots
+
+
 def run_pipeline(freeze, mode, label, hashseed, keep_media=False, pipeline=None,
                  live_fallback=False, overlay_from=None):
     meta = json.load(open(os.path.join(freeze, "meta.json"), encoding="utf-8"))
@@ -370,9 +386,7 @@ def run_pipeline(freeze, mode, label, hashseed, keep_media=False, pipeline=None,
     env = child_env(meta["env"], run_dir, hashseed)
     pipeline = os.path.abspath(pipeline or PIPELINE)
     overlay = os.path.join(run_dir, "net_overlay") if live_fallback else ""
-    extra = os.path.join(freeze, "runs", overlay_from, "net_overlay") if overlay_from else ""
-    if extra and not os.path.exists(os.path.join(extra, "index.jsonl")):
-        raise SystemExit(f"у прогона {overlay_from!r} нет слоя живых запросов: {extra}")
+    extra = os.pathsep.join(overlay_roots(freeze, overlay_from))
     cmd = [sys.executable, os.path.abspath(__file__), "_child", mode,
            os.path.join(freeze, "net"), sandbox, run_dir, pipeline, overlay, extra]
     with open(os.path.join(run_dir, "stdout.log"), "w", encoding="utf-8") as out, \
@@ -834,7 +848,8 @@ def child(mode, net_dir, sandbox, run_dir, pipeline=PIPELINE, overlay="", extra_
     import dotenv
     dotenv.load_dotenv = lambda *a, **k: False   # окружение целиком передал родитель
     rec = net_recorder.NetRecorder(net_dir, mode, overlay=overlay or None,
-                                   extra_roots=(extra_net,) if extra_net else ()).install()
+                                   extra_roots=tuple(p for p in extra_net.split(os.pathsep) if p)
+                                   ).install()
     import museum_sources
     clock = time_decisions.MetCooldownRecorder(
         os.path.join(net_dir, "time_decisions.jsonl"), mode).install(museum_sources)
@@ -1447,9 +1462,9 @@ def main(argv=None):
     for sp in (r, rp, v):
         sp.add_argument("--pipeline", help="какой pipeline_smart.py гонять (по умолчанию соседний)")
     for sp in (rp, v):
-        sp.add_argument("--net-overlay-from", metavar="ПРОГОН",
-                        help="дополнительно отдавать живые запросы указанного прогона "
-                             "(его net_overlay), продолжая по каждому адресу запись")
+        sp.add_argument("--net-overlay-from", metavar="ПРОГОН[,ПРОГОН...]",
+                        help="дополнительно отдавать живые запросы указанных прогонов "
+                             "(их net_overlay, по порядку), продолжая по каждому адресу запись")
         sp.add_argument("--live-fallback", action="store_true",
                         help="запросы вне записи выполнять живьём в отдельный слой (названные)")
     v.add_argument("--against", default="record",

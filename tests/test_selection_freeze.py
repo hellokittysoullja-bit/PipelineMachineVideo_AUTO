@@ -681,3 +681,17 @@ def test_declared_signature_is_stripped_from_reports_too():
     jb[0]["media"] = "<EP>/temp_smart/pexels_cache/0000_99999999_dfbe74d1d1.jpg"
     assert "run_journal.jsonl" in sf.compare(a, b, {"signature": "x"})["reports_unexpected"], \
         "другой файл остаётся расхождением"
+
+
+def test_overlay_chain_keeps_order_and_names_a_missing_layer(tmp_path):
+    """judge15 поверх judge13 и judge14: слои по порядку, как шли прогоны;
+    отсутствующий слой — отказ с именем прогона, а не молчаливый уход в сеть."""
+    for name in ("judge13", "judge14"):
+        d = tmp_path / "runs" / name / "net_overlay"
+        d.mkdir(parents=True)
+        (d / "index.jsonl").write_text("")
+    roots = sf.overlay_roots(str(tmp_path), "judge13, judge14")
+    assert [os.path.basename(os.path.dirname(r)) for r in roots] == ["judge13", "judge14"]
+    assert sf.overlay_roots(str(tmp_path), None) == []
+    with pytest.raises(SystemExit, match="judge99"):
+        sf.overlay_roots(str(tmp_path), "judge13,judge99")
