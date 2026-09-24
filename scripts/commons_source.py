@@ -182,6 +182,16 @@ def _cache_put(query, limit, pages):
         pass
 
 
+def retry_after_sec(error):
+    """Пауза, которую назвал сам сервис (заголовок Retry-After в секундах),
+    или None: заголовка нет или он датой, а не числом."""
+    try:
+        value = (error.headers or {}).get("Retry-After")
+        return float(value) if value is not None and str(value).strip().isdigit() else None
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
 def _fetch_pages(query, limit):
     """Сырые страницы файлов поиска (с метаданными) — из кэша или из API.
     В кэш кладутся СЫРЫЕ страницы, а не кандидаты: правило лицензии и
@@ -208,7 +218,7 @@ def _fetch_pages(query, limit):
             break
         except urllib.error.HTTPError as e:
             if e.code in (429, 503) and attempt < 2:
-                HOST.throttled()
+                HOST.throttled(retry_after=retry_after_sec(e))
                 continue
             raise
     pages = sorted(((data.get("query") or {}).get("pages") or {}).values(),

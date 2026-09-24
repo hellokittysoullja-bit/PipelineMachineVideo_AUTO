@@ -23,6 +23,10 @@
 import threading
 import time
 
+# Сервис не назвал паузу — ждать не меньше этого (правило Викимедиа для
+# клиента без заголовка Retry-After: «at least five seconds»).
+MIN_RETRY_AFTER_SEC = 5.0
+
 
 class Host:
     def __init__(self, name, interval=0.0, *, max_interval=None, cooldown_sec=0.0,
@@ -65,17 +69,27 @@ class Host:
         if delay > 0:
             time.sleep(delay)
 
-    def _enter_cooldown(self):
-        self.cooldown_until = time.monotonic() + self.cooldown_sec
+    def _enter_cooldown(self, seconds=None):
+        sec = self.cooldown_sec
+        if seconds is not None:
+            sec = min(self.cooldown_sec, max(MIN_RETRY_AFTER_SEC, float(seconds)))
+        self.cooldown_until = time.monotonic() + sec
         self.stats["cooldowns"] += 1
 
-    def throttled(self):
+    def throttled(self, retry_after=None):
         """Сервис попросил притормозить. True — пауза началась сейчас (а не
-        продолжается), то есть об этом стоит сказать один раз."""
+        продолжается), то есть об этом стоит сказать один раз.
+
+        retry_after — сколько секунд попросил подождать сам сервис
+        (заголовок Retry-After): пауза — столько, но не меньше
+        MIN_RETRY_AFTER_SEC и не больше cooldown_sec. Живой случай judge14
+        (24.09): Викимедиа отвечала 429 с «Retry-After: 22», а хост ждал
+        свои 60 с на каждую из трёх попыток — две минуты простоя на каждый
+        отказавший запрос, четверть времени прогона."""
         with self._lock:
             if self.cooling():
                 return False
-            self._enter_cooldown()
+            self._enter_cooldown(retry_after)
             if self.interval > 0:
                 self.interval = min(self.max_interval, self.interval * self.slow_factor)
             return True

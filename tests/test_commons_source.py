@@ -99,7 +99,7 @@ class _Host:
     def wait(self, interval=None):
         pass
 
-    def throttled(self):
+    def throttled(self, retry_after=None):
         self.throttles += 1
         return True
 
@@ -187,3 +187,27 @@ def test_source_failure_is_noted_not_raised(monkeypatch):
     monkeypatch.setattr(cs, "search", boom)
     ps._COMMONS_SEARCH_CACHE.clear()
     assert ps._commons_search_photos("q") == [] and noted == ["commons"]
+
+
+def test_429_pause_is_the_one_the_service_asked_for(monkeypatch, tmp_path):
+    seen = []
+
+    class Host(_Host):
+        def throttled(self, retry_after=None):
+            seen.append(retry_after)
+            return True
+    monkeypatch.setattr(cs, "HOST", Host())
+    monkeypatch.setattr(cs, "CACHE_DIR", str(tmp_path))
+
+    def always_429(req, timeout=None):
+        raise urllib.error.HTTPError("u", 429, "too many", {"Retry-After": "22"}, None)
+    monkeypatch.setattr(cs.urllib.request, "urlopen", always_429)
+    with pytest.raises(urllib.error.HTTPError):
+        cs._fetch_pages("q", 5)
+    assert seen == [22.0, 22.0]
+
+
+@pytest.mark.parametrize("headers,want", [({"Retry-After": "22"}, 22.0), ({}, None),
+                                          ({"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"}, None)])
+def test_retry_after_header_parsing(headers, want):
+    assert cs.retry_after_sec(urllib.error.HTTPError("u", 429, "x", headers, None)) == want

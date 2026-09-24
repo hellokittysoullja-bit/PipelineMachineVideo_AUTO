@@ -70,3 +70,17 @@ def test_a_single_answer_resets_the_failure_count(monkeypatch):
         except llm_gateway.GatewayError:
             pass
     assert not gw.health().cooling()
+
+
+def test_pause_follows_the_services_retry_after_within_bounds():
+    """Викимедиа на 429 называет паузу (Retry-After: 22) — ждём её, а не
+    свои 60 с; слишком короткая — не меньше 5 с, слишком длинная — не
+    больше своей паузы хоста."""
+    h = sh.Host("t_ra", cooldown_sec=60)
+    assert h.throttled(retry_after=22) and 20 < h.cooldown_left() <= 22.01
+    h.cooldown_until = 0.0
+    assert h.throttled(retry_after=1) and 4.5 < h.cooldown_left() <= sh.MIN_RETRY_AFTER_SEC + 0.01
+    h.cooldown_until = 0.0
+    assert h.throttled(retry_after=600) and h.cooldown_left() <= 60.01
+    h.cooldown_until = 0.0
+    assert h.throttled() and h.cooldown_left() > 59, "без заголовка — своя пауза хоста"
