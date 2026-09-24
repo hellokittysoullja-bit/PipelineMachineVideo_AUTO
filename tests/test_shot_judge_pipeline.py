@@ -282,9 +282,7 @@ def test_single_preview_video_is_not_told_it_has_three_frames():
     assert "2 frames" in sj.claims_question("x", ARROW_SPEC, kind="video", frames=2)
 
 
-def test_spectators_on_background_are_a_penalty_not_a_rejection(tmp_path, monkeypatch):
-    """Упавший рыцарь на турнире со зрителями на фоне (эп.94, слот 4) — точный
-    кадр; бинарная проверка мира заменяла его рыцарем в лесу."""
+def _spectators_case(tmp_path, monkeypatch):
     info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=2)
     monkeypatch.setattr(ps, "episode_world_card", lambda: {"register": "historical"})
     import world_card
@@ -295,6 +293,28 @@ def test_spectators_on_background_are_a_penalty_not_a_rejection(tmp_path, monkey
     monkeypatch.setattr(sj, "verify_claims", _fake_verify({
         paths[0]: _ans({"c1": "yes", "c2": "no"}, world=(True, False)),
         paths[1]: _ans({"c1": "yes", "c2": "yes"}, world=(True, True))}))
+    return info, spec
+
+
+def test_spectators_on_background_are_rejected_in_a_historical_world(tmp_path, monkeypatch):
+    """Упавший рыцарь на турнире со зрителями на фоне (эп.94, слот 4): точнее
+    по действию, но современная толпа в историческом кадре — брак по
+    прецеденту канала (кадр #001 золотого набора, modern_intrusion). Штрафом
+    такой кадр побеждал — так в judge12 встала марокканская тбурида
+    (25.09). Решение по вкусу, названо владельцу; отмена — одна строка
+    в shot_judge.claims_vector."""
+    info, spec = _spectators_case(tmp_path, monkeypatch)
+    assert ps.judge_candidates(0, "photo", "x", "y", info, spec)
+    assert info[1]["verify"] == "veto"
+    winner = ps._score_and_pick(info)[0]
+    assert winner["p"]["id"] == "c0" and ps.judge_approved(winner)
+
+
+def test_spectators_are_only_a_penalty_under_the_world_breaker(tmp_path, monkeypatch):
+    """Предохранитель мира (паспорт, похоже, неверен): «чужое на фоне» может
+    означать другую эпоху, а не современность — тогда штраф, как раньше."""
+    info, spec = _spectators_case(tmp_path, monkeypatch)
+    monkeypatch.setattr(ps, "world_veto_active", lambda: False)
     assert ps.judge_candidates(0, "photo", "x", "y", info, spec)
     winner = ps._score_and_pick(info)[0]
     assert winner["p"]["id"] == "c1" and ps.judge_approved(winner)

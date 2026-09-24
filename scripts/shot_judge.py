@@ -616,13 +616,25 @@ def claims_vector(spec, answers, *, world_veto=True, cg_veto=True):
     предохранителем прогона (pipeline_smart.world_veto_active), тогда это
     штраф: первый элемент 0. cg_veto — 3D/мультфильм/инфографика это отказ;
     только для исторического мира (у научной ниши рендер бывает
-    единственным изображением)."""
+    единственным изображением).
+
+    Чужое на фоне (зрители в футболках, бетонная стена, человек в куртке)
+    в историческом мире — тоже отказ, а не штраф (25.09): штрафом такой
+    кадр побеждал там, где у остальных не выполнено утверждение, — так в
+    judge12 встала марокканская тбурида. Прецедент канала тот же: кадр #001
+    золотого набора (реконструкторы на фоне современной толпы) — брак
+    modern_intrusion. На сохранённых ответах эп.94 все кадры с этой
+    пометкой, просмотренные глазами, современное содержат. Под
+    предохранителем мира — снова штраф: при неверном паспорте «чужое»
+    может означать не современность, а другую эпоху."""
     if answers is None:
         return None
     if cg_veto and answers.get("medium") == "cg":
         return None
     foreign = answers.get("main_in_world") is False
     if foreign and world_veto:
+        return None
+    if cg_veto and world_veto and answers.get("background_foreign"):
         return None
     vals = claim_values(spec, answers)
     musts = [vals[c["id"]] for c in spec["claims"] if c["tier"] == "must"]

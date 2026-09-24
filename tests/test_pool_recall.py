@@ -128,10 +128,17 @@ def test_claims_vector_background_is_penalty_main_is_veto():
         return {"claims": {"core": core, "c1": c1}, "medium": medium, "main_in_world": main,
                 "background_foreign": bg}
     clean = sj.claims_vector(spec, ans())
-    spectators = sj.claims_vector(spec, ans(bg=True))
     no_detail = sj.claims_vector(spec, ans(c1="no"))
     no_core = sj.claims_vector(spec, ans(core="no"))
-    assert clean > no_detail > spectators > no_core, "фон — после must, до should; главное — выше"
+    # Исторический мир: чужое на фоне — отказ (зрители, бетон, куртка).
+    assert sj.claims_vector(spec, ans(bg=True)) is None
+    # Под предохранителем мира и вне исторического мира — штраф: после
+    # must, до should.
+    for kw in ({"world_veto": False}, {"cg_veto": False}):
+        spectators = sj.claims_vector(spec, ans(bg=True), **kw)
+        assert sj.claims_vector(spec, ans(), **kw) > sj.claims_vector(spec, ans(c1="no"), **kw) \
+            > spectators > sj.claims_vector(spec, ans(core="no"), **kw), kw
+    assert clean > no_detail > no_core, "главное — выше"
     assert sj.claims_vector(spec, ans(main=False)) is None
     assert sj.claims_vector(spec, ans(medium="cg")) is None
     assert sj.claims_vector(spec, ans(medium="cg"), cg_veto=False) == clean, \
