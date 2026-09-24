@@ -626,3 +626,24 @@ def test_render_asks_the_world_separately_with_the_excluded_cultures(tmp_path, m
     assert ps.judge_candidates(0, "photo", "x", "y", info, spec)
     assert seen and all(ws for _s, ws in seen)
     assert all(s and "not: japanese" in s for s, _ws in seen)
+
+
+def test_grid_failure_still_verifies_the_first_by_cascade(tmp_path, monkeypatch):
+    """Живой случай judge12, слот 0: сетка не ответила (502 четыре раза) — и
+    слот шёл вообще без проверки. Проверка по утверждениям — отдельные вызовы:
+    она спрашивается у первых по каскаду, и брак не встаёт на экран."""
+    info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=3)
+    monkeypatch.setattr(sj, "judge", lambda *a, **k: None)
+    monkeypatch.setattr(sj, "verify_claims", _fake_verify({
+        paths[0]: _ans({"c1": "no"}), paths[1]: _ans({"c1": "yes"}), paths[2]: _ans({"c1": "no"})}))
+    spec = {"focus": "a dagger", "claims": [{"id": "c1", "text": "a dagger", "tier": "must"}]}
+    assert ps.judge_candidates(0, "photo", "x", "y", info, spec)
+    winner = ps._score_and_pick(info)[0]
+    assert winner["p"]["id"] == "c1" and ps.judge_approved(winner)
+
+
+def test_grid_and_verification_both_down_means_no_judge(tmp_path, monkeypatch):
+    info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=2)
+    monkeypatch.setattr(sj, "judge", lambda *a, **k: None)
+    monkeypatch.setattr(sj, "verify_claims", lambda *a, **k: (None, {"refused": "502"}))
+    assert not ps.judge_candidates(0, "photo", "x", "y", info, None)

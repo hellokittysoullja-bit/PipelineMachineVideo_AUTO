@@ -12053,8 +12053,19 @@ def judge_candidates(index, kind, phrase, brief, candidates_info, spec=None):
     SHOT_JUDGE_LOG.append({"index": index, "kind": kind, "model": model, "brief": brief,
                            "setting": setting, "scores": scores, **rep})
     if scores is None:
-        print(f"  слот {index}: судья кадров не ответил ({rep.get('refused')}) — ранжирование без него")
-        return False
+        # Сетка не ответила (живой случай judge12, слот 0: шлюз четыре раза
+        # подряд вернул 502) — слот раньше шёл вообще без проверки. Решает же
+        # не сетка, а проверка по утверждениям: её вызовы отдельные, со своими
+        # повторами. Без сетки финалисты — первые по каскаду; не ответила и
+        # проверка — слот без судьи, как раньше.
+        _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec)
+        if not any(c.get("verify") is not None for c in judged):
+            print(f"  слот {index}: судья кадров не ответил ({rep.get('refused')}) — ранжирование без него")
+            return False
+        print(f"  слот {index}: сетка судьи не ответила ({rep.get('refused')}) — первые по каскаду "
+              f"проверены по утверждениям")
+        _judge_budget_forecast(index, gw)
+        return True
     for c in judged:
         c["judge"] = scores[str(c["p"].get("id"))]
     _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec)
@@ -12315,7 +12326,8 @@ def shot_judge_signature(index=None):
         shot_judge.claims_vector, shot_judge.claim_values, shot_judge.focus_met,
         shot_judge.nothing_met, shot_judge.musts_met_clean, shot_judge.asked_claims,
         shot_judge.claims_question, _verify_finalists, verify_finalists_of, verify_key,
-        judge_rejected, judge_approved, screen_allowed, claims_checked, filter_pool_by_text,
+        judge_candidates, judge_rejected, judge_approved, screen_allowed, claims_checked,
+        filter_pool_by_text,
         blocklist_clearable, world_veto_active, _record_world_vote,
         cascade_texts, cascade_claims, _interleave, cascade_reorder, world_card.claims_setting,
         shot_judge.world_only_question, shot_judge.world_of_image)).encode("utf-8")
