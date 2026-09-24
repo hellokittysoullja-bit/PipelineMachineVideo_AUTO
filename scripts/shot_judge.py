@@ -150,9 +150,10 @@ def flat_rgb(im):
     return im.convert("RGB")
 
 
-def _grid_bytes(paths, kind="photo"):
+def _grid_bytes(paths, kind="photo", cols=None, tile=None):
     from PIL import Image, ImageDraw, ImageFont
-    cols, tile, _max, _q = LAYOUTS[kind]
+    base_cols, base_tile, _max, _q = LAYOUTS[kind]
+    cols, tile = cols or base_cols, tile or base_tile
     rows = (len(paths) + cols - 1) // cols
     g = Image.new("RGB", (cols * tile[0], rows * tile[1]), (0, 0, 0))
     d = ImageDraw.Draw(g)
@@ -644,6 +645,77 @@ def confirm_crop(gateway, model, *, path, focus, cache_dir=None, max_side=1024, 
                               path=path, cache_dir=cache_dir, max_side=max_side,
                               reasoning=reasoning, max_tokens=40)
     return (None if answer is None else parse_shows(answer)), info
+
+
+# ВЫБОР СРЕДИ РАВНЫХ ПО СМЫСЛУ. Проверка по утверждениям и сетка судьи
+# часто оставляют ничью наверху: у judge12/13 эп.94 в 6-8 из 16-17 пар
+# «слот, вид» лучший вектор утверждений был у нескольких кадров сразу, а у
+# 2 из 7 фото-слотов judge13 — и при равной оценке сетки. Ничью дальше
+# решали релевантность эмбеддинга, ритм крупностей и эстетика LAION —
+# и LAION на кинематографичность не отвечает вообще: замер 24.09 на 133
+# финалистах judge12/13, размеченных глазами Claude (сильный / простой /
+# слабый кадр), — 0.510 верных пар, уровень монетки. Тот же судья, которому
+# показали равных СЕТКОЙ и попросили упорядочить как кадры фильма, — 0.846
+# верных пар (188 пар, 10 групп); та же разметка по одному кадру за раз —
+# 0.68-0.74. Сравнение соседей надёжнее абсолютной оценки, поэтому вопрос —
+# порядок, а не баллы. Спрашивается только при ничьей наверху, один раз на
+# слот и вид.
+LOOK_VERSION = 1
+LOOK_MAX = 9
+LOOK_TILE = (480, 320)
+LOOK_PROMPT = """These {k} numbered pictures are candidates for the same shot of a documentary film; all of them show the right subject. Rank them from the best to the worst AS A FILM SHOT — light, composition, a clear subject, nothing distracting in the frame (onlookers, cars, signs, clutter), not an amateur snapshot. Do not judge what they show.
+Reply with JSON only: {{"order": [numbers from best to worst]}}"""
+LOOK_PROMPT_VIDEO = """These {k} numbered rows are candidate video clips for the same shot of a documentary film (each row shows three frames of one clip); all of them show the right subject. Rank the clips from the best to the worst AS A FILM SHOT — light, composition, a clear subject, nothing distracting in the frame (onlookers, cars, signs, clutter), not an amateur video. Do not judge what they show.
+Reply with JSON only: {{"order": [numbers from best to worst]}}"""
+
+
+def parse_order(answer, k):
+    """Порядок 0..k-1 (лучший первым) из ответа судьи или None. Номера вне
+    сетки и повторы отбрасываются; пропущенные встают в конец в исходном
+    порядке — судья мог не назвать самые слабые. Ни одного номера — None."""
+    import re
+    m = re.search(r"\[[^\]]*\]", answer or "")
+    if not m:
+        return None
+    out = []
+    for tok in re.findall(r"\d+", m.group(0)):
+        n = int(tok) - 1
+        if 0 <= n < k and n not in out:
+            out.append(n)
+    if not out:
+        return None
+    return out + [n for n in range(k) if n not in out]
+
+
+def rank_look(gateway, model, *, paths, kind="photo", cache_dir=None):
+    """(порядок 0..k-1, info) — кадры-равные по смыслу, упорядоченные как
+    кадры фильма; None — вопроса не было или ответ неразборчив."""
+    paths = [p for p in paths if p and os.path.exists(p)][:LOOK_MAX]
+    if gateway is None or len(paths) < 2:
+        return None, {}
+    text = (LOOK_PROMPT_VIDEO if kind == "video" else LOOK_PROMPT).format(k=len(paths))
+    # Фото — плитки крупнее, чем у сетки смысла: вид кадра судится по свету
+    # и мелочам в кадре. Замер на той же разметке: сетка смысла 3x3 400x300 —
+    # 0.814 верных пар, плитки 480x320 в две-три колонки — 0.846-0.862.
+    cols, tile = (None, None) if kind == "video" else (2 if len(paths) <= 4 else 3, LOOK_TILE)
+    key = cache_key(model, "look" + str(LOOK_VERSION) + text + repr((cols, tile)), paths)
+    cp = os.path.join(cache_dir, "look_" + key + ".json") if cache_dir else None
+    if cp and os.path.exists(cp):
+        try:
+            return json.load(open(cp, encoding="utf-8"))["order"], {"cache_hit": True}
+        except Exception:
+            pass
+    content = [{"type": "text", "text": text}, {"type": "image_url", "image_url": {
+        "url": "data:image/jpeg;base64," + base64.b64encode(
+            _grid_bytes(paths, kind, cols=cols, tile=tile)).decode()}}]
+    try:
+        answer, _u, price = gateway.chat(model, content, 120, EST_PROMPT_TOKENS, reasoning=GRID_REASONING)
+    except Exception as e:  # noqa: BLE001 — нет ответа: ничью решают прежние ключи
+        return None, {"refused": f"{type(e).__name__}: {e}"[:200]}
+    order = parse_order(answer, len(paths))
+    if order is not None and cp:
+        _cache_write(cp, {"order": order, "model": model}, readable=True)
+    return order, {"cost": price, "call": True}
 
 
 def spec_from_brief(phrase, brief):

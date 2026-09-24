@@ -6084,8 +6084,8 @@ def _score_and_pick(candidates_info, director_score_fn=None):
     этапе отбора). Стоит СРАЗУ после is_relevant, ДО aesthetic — та же
     логика приоритета, что и у extra Директора: "не размыто" важнее
     "красиво", но не важнее "по теме"/"не дубль"/"нужный размер"."""
-    base_best, base_score = None, (-1, -1, -1, (-10,), -2, -1, -1, -1, -1, -100.0, -1.0, -1)
-    dir_best, dir_score = None, (-1, -1, -1, (-10,), -2, -1, -1, -1, -100.0, -1, -100.0, -1.0, -1)
+    base_best, base_score = None, (-1, -1, -1, (-10,), -2, -1, -1, -1, -1, -1, -100.0, -1.0, -1)
+    dir_best, dir_score = None, (-1, -1, -1, (-10,), -2, -1, -1, -1, -1, -100.0, -1, -100.0, -1.0, -1)
     for c in candidates_info:
         sharp_ok = c.get("sharp_ok", 1)
         # rel_bucket — см. RELEVANCE_RANK_BUCKET: «насколько по теме» решает
@@ -6100,7 +6100,7 @@ def _score_and_pick(candidates_info, director_score_fn=None):
         # кандидатов между собой и разводит равные уровни. Судьи не было — у
         # всех кандидатов одни и те же значения, порядок остальных ключей
         # байт-в-байт прежний.
-        score = (c["is_dup_free"], screen_allowed(c), c.get("is_readable", 1), verify_key(c), judge_rank(c), c["is_relevant"], c["size_ok"], sharp_ok,
+        score = (c["is_dup_free"], screen_allowed(c), c.get("is_readable", 1), verify_key(c), judge_rank(c), look_rank(c), c["is_relevant"], c["size_ok"], sharp_ok,
                  rel_bucket, c["aesthetic_val"], c["luma_score"], c["min_d"])
         if score > base_score:
             base_best, base_score = c, score
@@ -6119,7 +6119,7 @@ def _score_and_pick(candidates_info, director_score_fn=None):
             # У Директора своя, более сильная ось смысла (extra — relevance
             # ПОЛНОЙ фразы ансамблем), поэтому корзина relevance по запросу
             # стоит ПОСЛЕ неё: разбивает ничьи Директора до эстетики.
-            dscore = (c["is_dup_free"], screen_allowed(c), c.get("is_readable", 1), verify_key(c), judge_rank(c), c["is_relevant"], c["size_ok"], sharp_ok,
+            dscore = (c["is_dup_free"], screen_allowed(c), c.get("is_readable", 1), verify_key(c), judge_rank(c), look_rank(c), c["is_relevant"], c["size_ok"], sharp_ok,
                       extra, rel_bucket, c["aesthetic_val"], c["luma_score"], c["min_d"])
             if dscore > dir_score:
                 dir_best, dir_score = c, dscore
@@ -12056,6 +12056,45 @@ def judge_rank(c):
     return v if isinstance(v, int) else -1
 
 
+def look_rank(c):
+    """Место кадра в выборе среди равных по смыслу (_rank_look_ties): чем
+    больше, тем лучше кадр как кадр фильма; вопроса не было — 0 у всех."""
+    v = c.get("look_rank")
+    return v if isinstance(v, int) else 0
+
+
+def _rank_look_ties(index, kind, judged, gw, model):
+    """Режиссёрский выбор среди равных: у нескольких кадров наверху один и
+    тот же ключ смысла (проверка по утверждениям и оценка сетки) — судья
+    упорядочивает их как кадры фильма (shot_judge.rank_look), и порядок
+    ставится ключом СРАЗУ ПОСЛЕ смысла: смысл по-прежнему решает первым.
+    Ничьей нет — вопроса нет."""
+    if not feature_flags.enabled("LOOK_TIEBREAK"):
+        return
+    ok = [c for c in judged if screen_allowed(c) and c.get("is_readable", 1)
+          and isinstance(c.get("verify"), tuple) and not c.get("verify_nothing")]
+    if len(ok) < 2:
+        return
+    top = max((verify_key(c), judge_rank(c)) for c in ok)
+    tied = [c for c in ok if (verify_key(c), judge_rank(c)) == top]
+    if len(tied) < 2:
+        return
+    import shot_judge
+    tied = tied[:shot_judge.LOOK_MAX]
+    order, info = shot_judge.rank_look(gw, model, paths=[c.get("judge_path") or c["path"] for c in tied],
+                                       kind=kind, cache_dir=os.path.join(TEMP_FOLDER, "shot_judge_cache"))
+    SHOT_JUDGE_LOG.append({"index": index, "kind": kind, "model": model,
+                           "look_tied": [str(c["p"].get("id")) for c in tied],
+                           "look_order": ([str(tied[k]["p"].get("id")) for k in order]
+                                          if order else None), **info})
+    if not order:
+        return
+    for place, k in enumerate(order):
+        tied[k]["look_rank"] = len(order) - place
+    print(f"  слот {index}: равных по смыслу {len(tied)} — выбран лучший кадр по виду "
+          f"({tied[order[0]]['p'].get('id')})")
+
+
 def spec_key_parts(spec):
     """Спецификация кадра в ключ кэша кандидата: она меняет, кого проверка
     считает лучшим, и без неё прогретый кэш отдавал бы выбор по прежней
@@ -12072,7 +12111,8 @@ def judge_candidates(index, kind, phrase, brief, candidates_info, spec=None):
     for c in candidates_info:
         c["judge"] = None
         c["verify"] = None
-        for k in ("_asked", "verify_focus", "verify_nothing", "verify_perfect", "world_clear"):
+        for k in ("_asked", "verify_focus", "verify_nothing", "verify_perfect", "world_clear",
+                  "look_rank"):
             c.pop(k, None)
     if index is not None and index >= SHOT_JUDGE_PAID_SLOTS:
         return False   # платная проверка — только хук (см. SHOT_JUDGE_PAID_SLOTS)
@@ -12125,11 +12165,13 @@ def judge_candidates(index, kind, phrase, brief, candidates_info, spec=None):
             return False
         print(f"  слот {index}: сетка судьи не ответила ({rep.get('refused')}) — первые по каскаду "
               f"проверены по утверждениям")
+        _rank_look_ties(index, kind, judged, gw, model)
         _judge_budget_forecast(index, gw)
         return True
     for c in judged:
         c["judge"] = scores[str(c["p"].get("id"))]
     _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec)
+    _rank_look_ties(index, kind, judged, gw, model)
     _judge_budget_forecast(index, gw)
     return True
 
@@ -12390,7 +12432,8 @@ def shot_judge_signature(index=None):
     # тексты вопросов — константы, их объявляем явно.
     logic = hashlib.sha256((judge_code_signature() + shot_judge.CLAIMS_PROMPT
                             + shot_judge.WORLD_ONLY_PROMPT + shot_judge.FOCUS_BOX_PROMPT
-                            + shot_judge.FOCUS_CONFIRM_PROMPT).encode("utf-8")).hexdigest()[:12]
+                            + shot_judge.FOCUS_CONFIRM_PROMPT + shot_judge.LOOK_PROMPT
+                            + shot_judge.LOOK_PROMPT_VIDEO).encode("utf-8")).hexdigest()[:12]
     return repr(("judge", shot_judge_model(), shot_judge.PROMPT_VERSION, SHOT_JUDGE_MIN_SCORE,
                  "cascade", cascade_preview_n(), "claims", shot_judge.CLAIMS_VERSION, logic,
                  shot_judge.VERIFY_MAX_SIDE, VERIFY_FINALISTS, VERIFY_REASONING,
@@ -12403,7 +12446,10 @@ def shot_judge_signature(index=None):
                  "focus", feature_flags.enabled("FOCUS_CROP"), shot_judge.FOCUS_BOX_VERSION,
                  shot_judge.FOCUS_BOX_MIN_AREA, shot_judge.FOCUS_BOX_MAX_AREA,
                  focus_frame.MARGIN, focus_frame.MIN_WIDTH_PX, focus_frame.MIN_SHARE,
-                 focus_frame.PAGE_ASPECT, focus_frame.NEAR_FULL))
+                 focus_frame.PAGE_ASPECT, focus_frame.NEAR_FULL,
+                 # Выбор среди равных по смыслу — меняет победителя ничьей.
+                 "look", feature_flags.enabled("LOOK_TIEBREAK"), shot_judge.LOOK_VERSION,
+                 shot_judge.LOOK_MAX, shot_judge.LOOK_TILE))
 
 
 # ПЛАТНАЯ ПРОВЕРКА — ТОЛЬКО ХУК (решение владельца 24.09). Судья стоит денег
@@ -13045,7 +13091,7 @@ def _judge_code_entries():
     """Код, который работает только при судье: его правка не должна
     перекачивать слоты вне платной зоны."""
     return (judge_candidates, cascade_reorder, _verify_finalists, verify_finalists_of,
-            locate_focus_box)
+            locate_focus_box, _rank_look_ties)
 
 
 def selection_code_signature():
