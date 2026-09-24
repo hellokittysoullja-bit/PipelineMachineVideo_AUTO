@@ -105,3 +105,22 @@ def test_spec_motion_decides_the_first_kind_only_when_it_is_must():
     assert "has_action_word" not in spec_branch and "md5" not in spec_branch, \
         "со спецификацией ритм без словаря и хэша"
     assert 'shot_spec=b.get("shot_spec")' in body
+
+
+def test_cached_winner_keeps_its_verified_quality(tmp_path, monkeypatch):
+    """Повторный рендер берёт кадр из кэша без проверки; оценка прошлой
+    проверки восстанавливается из sidecar, иначе выбор вида сравнивал бы
+    свежую оценку одного вида с пустотой у другого."""
+    import selection_attempt
+    cf = str(tmp_path / "0001_x.mp4")
+    open(cf, "wb").write(b"x")
+    q = ((1.0, 1.0, 1.0, 1.0), 3, True)
+    ps.write_media_sidecar(cf, pexels_id="pexels:1", kind="video", quality=q)
+    notes = {}
+    monkeypatch.setattr(selection_attempt, "record_note", lambda k, v: notes.__setitem__(k, v))
+    ps._restore_cached_quality(cf)
+    assert notes["quality"] == q
+    notes.clear()
+    ps.write_media_sidecar(cf, pexels_id="pexels:1", kind="video")
+    ps._restore_cached_quality(cf)
+    assert notes == {}, "без записанной оценки — как раньше"

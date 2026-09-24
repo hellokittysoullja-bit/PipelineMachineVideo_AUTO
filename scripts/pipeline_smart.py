@@ -5473,7 +5473,7 @@ def filter_pool_by_text(items, index=None):
     кандидат не проверен — помеченный на экран не попадает, то есть словарь
     работает как раньше. Явные id брака (CONTENT_BLOCKED_CANDIDATE_IDS)
     выбрасываются везде. Вне платной зоны — прежний фильтр."""
-    if not shot_judge_active(index):
+    if not blocklist_clearable(index):
         return filter_alt_blocklist(items)
     terms = content_blocklist_effective()
     out = []
@@ -5485,6 +5485,23 @@ def filter_pool_by_text(items, index=None):
             p = dict(p, _blocklisted=True)
         out.append(p)
     return out
+
+
+def blocklist_clearable(index=None):
+    """Может ли проверка кадра очистить помеченного словарём кандидата:
+    платный слот, судья видит картинки (прошёл проверку зрения, не выключен
+    посреди прогона) и паспорт называет мир, о котором спрашивать. Иначе
+    помеченный не очистится никогда — и тратил бы места пробной выборки
+    впустую, поэтому словарь работает по-старому (выбрасывает)."""
+    if not shot_judge_active(index):
+        return False
+    if _shot_judge_gateway() is None:
+        return False
+    import world_card
+    try:
+        return world_card.world_to_check(episode_world_card()) is not None
+    except Exception:  # noqa: BLE001 — сломанный паспорт: мира нет
+        return False
 
 
 def filter_alt_blocklist(items):
@@ -5545,11 +5562,17 @@ def content_blocklist_effective():
     есть бесплатно. Нет паспорта — список ровно тот же, что был.
     """
     import world_card
-    extra = world_card.culture_exclude(episode_world_card())
-    if not extra:
+    card = episode_world_card()
+    extra = world_card.culture_exclude(card)
+    own = world_card.culture_include(card)
+    # Своя культура эпизода не может быть запретом: в эпизоде про корейское
+    # оружие слово «korean» из блоклиста канала выбрасывало бы сам предмет
+    # разговора. То же вычитание, что у музейного фильтра
+    # (museum_sources.foreign_culture_terms) — одно правило на оба пути.
+    base = tuple(t for t in CONTENT_ALT_BLOCKLIST if not any(t in i or i in t for i in own))
+    if not extra and base == CONTENT_ALT_BLOCKLIST:
         return CONTENT_ALT_BLOCKLIST
-    return CONTENT_ALT_BLOCKLIST + tuple(
-        t for t in extra if t not in CONTENT_ALT_BLOCKLIST)
+    return base + tuple(t for t in extra if t not in base)
 
 
 # Реальный, подтверждённый случай (внешний аудит + прямая проверка на
@@ -5675,12 +5698,42 @@ def disambiguate_search_query(query):
             continue
         if any(re.search(r"\b" + re.escape(u) + r"\b", ql) for u in rule.get("unless", ())):
             continue
+        if not _qualifier_fits_world(rule["qualifier"], ql):
+            continue
         missing_words = [w for w in rule["qualifier"].split()
                          if not re.search(r"\b" + re.escape(w) + r"\b", ql)]
         if not missing_words:
             continue
         return _enforce_era_anchor(f"{' '.join(missing_words)} {query}")
     return _enforce_era_anchor(query)
+
+
+def _qualifier_fits_world(qualifier, ql):
+    """Подходит ли уточнитель правила («european medieval») миру ЭТОГО
+    эпизода. Правила откалиброваны на выдаче для мира канала; в эпизоде про
+    Египет запрос «egyptian spear warrior» превращался в «european medieval
+    egyptian spear warrior» — приписка тянула ровно ту культуру, которую
+    паспорт эпизода исключает. Не подходит, если слово уточнителя стоит в
+    чужих культурах паспорта, если запрос сам называет культуру эпизода
+    (culture.include) или если окно эпохи эпизода не пересекается с окном
+    канала, под которое правила писались. Паспорта нет — как раньше."""
+    import world_card
+    import museum_sources
+    try:
+        card = episode_world_card()
+    except Exception:  # noqa: BLE001 — сломанный паспорт скажет о себе в месте чтения
+        return True
+    if not card:
+        return True
+    words = qualifier.lower().split()
+    if any(w in world_card.culture_exclude(card) for w in words):
+        return False
+    if any(re.search(r"\b" + re.escape(t) + r"\b", ql) for t in world_card.culture_include(card)):
+        return False
+    ep, ch = world_card.era_window(card), museum_sources._channel_era()
+    if ep and ch and (ep[0] > ch[1] or ep[1] < ch[0]):
+        return False
+    return True
 
 
 def stock_api_query(request, pq, video=False):
@@ -6627,6 +6680,14 @@ def episode_world_card(video_dir=None):
     return _WORLD_CARD_CACHE[key]
 
 
+def _world_digest_for_signature():
+    import world_card
+    try:
+        return world_card.world_digest(episode_world_card())
+    except Exception:  # noqa: BLE001 — сломанный паспорт скажет о себе сам в месте чтения
+        return "broken"
+
+
 def reset_world_card_cache():
     """Сбросить кэш паспорта — нужен тестам и повторному вызову main() в
     одном процессе (тот же приём, что reset_source_stats)."""
@@ -7010,7 +7071,9 @@ def _shelf_search_photos(api_query, brief=None, limit=None):
     text = (brief or api_query or "").strip()
     if not text:
         return []
-    cache_key = (text, int(limit or SHELF_SEARCH_LIMIT))
+    import museum_sources
+    cache_key = (text, int(limit or SHELF_SEARCH_LIMIT), museum_sources.era_window(),
+                 tuple(museum_sources.foreign_culture_terms()))
     if cache_key in _SHELF_SEARCH_CACHE:
         return _SHELF_SEARCH_CACHE[cache_key]
     results = []
@@ -7020,6 +7083,12 @@ def _shelf_search_photos(api_query, brief=None, limit=None):
             for r in shelf_index.search(text, limit=int(limit or SHELF_SEARCH_LIMIT)):
                 img = r.get("image") or r.get("thumb")
                 if not img:
+                    continue
+                # Полка собрана по окну канала; мир эпизода — паспорт (тот же
+                # фильтр, что у музейного API: предмет чужой эпохи или
+                # культуры не должен доходить до пула ни одним путём).
+                if (not museum_sources.era_overlaps(r.get("b"), r.get("e"))
+                        or museum_sources.culture_is_foreign(r.get("culture"))):
                     continue
                 results.append({
                     "id": r.get("id"),
@@ -7608,6 +7677,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                     _pid = read_media_sidecar(cf).get("pexels_id")
                     if _pid is not None:
                         selection_attempt.record_effect("reserve_id", used_ids, _pid)
+                _restore_cached_quality(cf)
                 if recent_sizes is not None:
                     try:
                         selection_attempt.record_effect("shot_size", recent_sizes,
@@ -8265,8 +8335,11 @@ class PhotoAdapter(selection_engine.MediaAdapter):
             selection_attempt.record_note("quality", winner_quality(winner))
         if judged:
             selection_attempt.record_note("focus_met", bool(winner and winner.get("verify_focus")))
-        if judged and judge_rejected(winner):
-            # Лучший кадр слота по оценке судьи — брак. Кадр остаётся у
+        if (judged and judge_rejected(winner)) or (not judged and winner is not None and not screen_allowed(winner)):
+            # Лучший кадр слота по оценке судьи — брак. Без судьи брак —
+            # помеченный словарём запретов, которого проверка не очистила
+            # (судья сломался посреди эпизода, кончились деньги): прежний
+            # фильтр такого кандидата выбросил бы. Кадр остаётся у
             # попытки (как у отказа арбитра), решение о показе — у слота:
             # known_bad_reason -> поглощение соседним проверенным кадром.
             selection_attempt.record_verdict("judge", {
@@ -8289,7 +8362,8 @@ class PhotoAdapter(selection_engine.MediaAdapter):
             cf, pexels_id=pick.get("id"), query=query, kind="photo",
             ahash_hex=_picked_ahash,
             relevance=(winner.get("relevance") if winner else None),
-            chosen_by=chosen_by, provenance=_prov)
+            chosen_by=chosen_by, provenance=_prov,
+            quality=(winner_quality(winner) if judged else None))
         if recent_sizes is not None:
             try:
                 selection_attempt.record_effect("shot_size", recent_sizes, estimate_shot_size(cf))
@@ -11952,36 +12026,73 @@ def verify_finalists_of(judged, more=False):
     return [judged[k] for k in dict.fromkeys(picked)]
 
 
-# ПРЕДОХРАНИТЕЛЬ МИРА НА ПРОГОН. Отказ «главный предмет не из мира фразы»
+# ПРЕДОХРАНИТЕЛЬ МИРА НА ЭПИЗОД. Отказ «главный предмет не из мира фразы»
 # верен, пока верен паспорт и пока в источниках вообще есть кадры этого мира.
 # Неверный паспорт (или ниша, где в стоках только современность, — биржевой
-# крах 1929 года) превратил бы отказ в опустошение всего ролика. Поэтому
-# считаются кадры, у которых главное НАЙДЕНО: если больше половины из них
-# отклонено по миру — это уже не брак отдельных кадров, а несовпадение мира и
-# источников, и отказ становится штрафом до конца прогона (громко).
-WORLD_BREAKER_MIN = 2 * VERIFY_FINALISTS
+# крах 1929 года) превратил бы отказ в опустошение всего ролика.
+#
+# Голосует СЛОТ, а не кадр: слот «чужой», если больше половины его кадров с
+# найденным главным отклонены по миру. Прежний счёт по кадрам срабатывал на
+# ОДНОМ слоте — десять современных ножей на фразе «Вот кинжал» выключали
+# отказ для всего ролика ровно там, ради чего отказ и заведён. Нужны голоса
+# WORLD_BREAKER_MIN_SLOTS разных слотов и чужое большинство среди них.
+# Решение берётся в начале слота и внутри слота не меняется; голоса лежат в
+# media_plan/world_breaker.json под отпечатком паспорта — слоты из кэша не
+# теряют голос, и повторный рендер решает так же, как первый.
+WORLD_BREAKER_MIN_SLOTS = 5
 WORLD_BREAKER_SHARE = 0.5
+WORLD_VOTES_NAME = "world_breaker.json"
+
+
+def _world_votes_path():
+    return os.path.join(VIDEO_FOLDER, "media_plan", WORLD_VOTES_NAME)
+
+
+def _world_votes():
+    st = _SHOT_JUDGE_STATE
+    if st.get("world_votes") is None:
+        votes = {}
+        try:
+            with open(_world_votes_path(), encoding="utf-8") as f:
+                data = json.load(f)
+            if data.get("passport") == _world_digest_for_signature():
+                votes = {int(k): bool(v) for k, v in (data.get("slots") or {}).items()}
+        except Exception:  # noqa: BLE001 — нет или битый файл: голосов нет
+            votes = {}
+        st["world_votes"] = votes
+    return st["world_votes"]
 
 
 def world_veto_active():
-    return not _SHOT_JUDGE_STATE.get("world_breaker")
+    votes = _world_votes()
+    n = len(votes)
+    return not (n >= WORLD_BREAKER_MIN_SLOTS and sum(votes.values()) / n > WORLD_BREAKER_SHARE)
 
 
-def _note_world(focus, foreign):
-    st = _SHOT_JUDGE_STATE
-    if not focus:
+def _record_world_vote(index, focus_frames, foreign_frames):
+    """Голос слота после всей его проверки. Слот без кадров с главным не
+    голосует: там не о чем судить мир."""
+    if index is None or focus_frames < 1:
         return
-    st["world_seen"] = st.get("world_seen", 0) + 1
-    st["world_foreign"] = st.get("world_foreign", 0) + (1 if foreign else 0)
-    if (not st.get("world_breaker") and st["world_seen"] >= WORLD_BREAKER_MIN
-            and st["world_foreign"] / st["world_seen"] > WORLD_BREAKER_SHARE):
-        st["world_breaker"] = True
-        print(f"  ВНИМАНИЕ: проверка кадров отклонила по миру {st['world_foreign']} из "
-              f"{st['world_seen']} кадров, где главное найдено. Паспорт мира не совпадает с "
-              f"тем, что есть в источниках (или сам паспорт неверен) — дальше «чужой мир» "
-              f"штрафуется, а не отклоняется. Проверь media_plan/world_card.json.")
-        SHOT_JUDGE_LOG.append({"world_breaker": True, "seen": st["world_seen"],
-                               "foreign": st["world_foreign"]})
+    was = world_veto_active()
+    votes = _world_votes()
+    votes[int(index)] = foreign_frames * 2 > focus_frames
+    try:
+        os.makedirs(os.path.dirname(_world_votes_path()), exist_ok=True)
+        tmp = _world_votes_path() + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"passport": _world_digest_for_signature(),
+                       "slots": {str(k): v for k, v in sorted(votes.items())}}, f, indent=1)
+        os.replace(tmp, _world_votes_path())
+    except Exception:  # noqa: BLE001 — не записалось: решение прогона всё равно в памяти
+        pass
+    if was and not world_veto_active():
+        foreign = sum(votes.values())
+        print(f"  ВНИМАНИЕ: в {foreign} слотах из {len(votes)} проверка отклонила по миру большинство "
+              f"кадров, где главное найдено. Паспорт мира не совпадает с тем, что есть в "
+              f"источниках (или сам паспорт неверен) — дальше «чужой мир» штрафуется, а не "
+              f"отклоняется. Проверь media_plan/world_card.json.")
+        SHOT_JUDGE_LOG.append({"world_breaker": True, "slots": len(votes), "foreign": foreign})
 
 
 def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=None):
@@ -11997,6 +12108,8 @@ def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=
     setting = world_card.world_to_check(card)
     cg_veto = world_card.is_historical(card)
     cache = os.path.join(TEMP_FOLDER, "shot_judge_cache")
+    world_veto = world_veto_active()
+    focus_frames = foreign_frames = 0
 
     def ask(c):
         frames = len(c.get("frames") or []) or None
@@ -12008,7 +12121,7 @@ def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=
     for more in (False, True):
         finalists = verify_finalists_of(judged, more)
         if not finalists:
-            return
+            break
         with concurrent.futures.ThreadPoolExecutor(max(1, len(finalists))) as ex:
             got = list(ex.map(ask, finalists))
         verified = vetoed = 0
@@ -12017,24 +12130,31 @@ def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=
             if ans is None:
                 continue
             focus = shot_judge.focus_met(spec, ans)
-            _note_world(focus, ans.get("main_in_world") is False)
-            vec = shot_judge.claims_vector(spec, ans, world_veto=world_veto_active(), cg_veto=cg_veto)
+            if focus:
+                focus_frames += 1
+                foreign_frames += 1 if ans.get("main_in_world") is False else 0
+            vec = shot_judge.claims_vector(spec, ans, world_veto=world_veto, cg_veto=cg_veto)
             c["verify"] = "veto" if vec is None else vec
             c["verify_focus"] = focus
             c["verify_nothing"] = shot_judge.nothing_met(spec, ans)
             c["verify_perfect"] = vec is not None and shot_judge.musts_met_clean(spec, ans)
             c["world_clear"] = shot_judge.world_clear(ans)
             verified += 1
-            vetoed += 1 if vec is None else 0
+            # «Ничего обязательного не найдено» — такой же брак для решения о
+            # следующей порции, как отказ: иначе слот уходил на вторую
+            # страницу пула (новая сетка и новая проверка), не проверив
+            # остальных кандидатов первой.
+            vetoed += 1 if vec is None or c["verify_nothing"] else 0
             SHOT_JUDGE_LOG.append({"index": index, "kind": kind, "model": model,
                                    "id": str(c["p"].get("id")), "verify": ans, "vector": vec, **info})
             if vec is None:
                 print(f"  слот {index}: проверка отклонила кадр — {ans.get('why')}")
         if not verified or vetoed < verified:
-            return
+            break
         # Все проверенные отклонены: одна следующая порция по каскаду, а не
         # непроверенный кандидат из того же пула. Отклонена и она — слот
         # честно брак (judge_rejected победителя), его поглощает сосед.
+    _record_world_vote(index, focus_frames, foreign_frames)
 
 
 def candidate_caption(p):
@@ -12092,11 +12212,13 @@ def shot_judge_signature(index=None):
         shot_judge.nothing_met, shot_judge.musts_met_clean, shot_judge.asked_claims,
         shot_judge.claims_question, _verify_finalists, verify_finalists_of, verify_key,
         judge_rejected, judge_approved, screen_allowed, claims_checked, filter_pool_by_text,
+        blocklist_clearable, world_veto_active, _record_world_vote,
         cascade_texts, cascade_reorder)).encode("utf-8")
         + shot_judge.CLAIMS_PROMPT.encode("utf-8")).hexdigest()[:12]
     return repr(("judge", shot_judge_model(), shot_judge.PROMPT_VERSION, SHOT_JUDGE_MIN_SCORE,
                  "cascade", cascade_preview_n(), "claims", shot_judge.CLAIMS_VERSION, logic,
                  shot_judge.VERIFY_MAX_SIDE, VERIFY_FINALISTS, VERIFY_REASONING,
+                 "world_veto", world_veto_active(),
                  "readable",
                  UNREADABLE_DARK_LEVEL, UNREADABLE_DARK_SHARE))
 
@@ -12259,7 +12381,7 @@ def media_sidecar_path(media_path):
 
 def write_media_sidecar(media_path, *, pexels_id=None, query=None, kind=None,
                         ahash_hex=None, relevance=None, chosen_by=None,
-                        provenance=None):
+                        provenance=None, quality=None):
     """Записать, ЧТО именно лежит в кэш-файле кандидата.
 
     РЕАЛЬНАЯ, найденная вживую дыра (04.09), которую это закрывает: имя
@@ -12290,6 +12412,12 @@ def write_media_sidecar(media_path, *, pexels_id=None, query=None, kind=None,
         # другого места, где происхождение кадра ещё известно, нет.
         if provenance:
             payload["provenance"] = provenance
+        # Оценка проверки кадра: на повторном рендере кадр берётся из кэша
+        # без проверки, и без записанной оценки выбор «фото или видео»
+        # сравнивал бы свежую оценку одного вида с пустотой у другого —
+        # и мог поставить в слот вид, который в прошлый раз проиграл.
+        if quality is not None:
+            payload["quality"] = quality
         tmp = media_sidecar_path(media_path) + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False)
@@ -12374,6 +12502,17 @@ def log_candidate_license(provenance, query):
         _LICENSE_MANIFEST_SEEN.add(key)
     except Exception:
         pass
+
+
+def _restore_cached_quality(cf):
+    """Оценка проверки кадра из кэша -> заметка попытки (см. quality в
+    write_media_sidecar). Нет записи — заметки нет, как раньше."""
+    q = read_media_sidecar(cf).get("quality")
+    if q is not None:
+        try:
+            selection_attempt.record_note("quality", _as_quality(q))
+        except Exception:  # noqa: BLE001 — вне попытки (прямой вызов): нечего помечать
+            pass
 
 
 def read_media_sidecar(media_path):
@@ -12631,7 +12770,7 @@ def candidate_gate_signature(index=None):
             # (video_preview_urls) и как (video_frames_violate) — правило
             # отбора, как и гварды выше.
             video_preview_urls, video_frames_violate,
-            disambiguate_search_query,
+            disambiguate_search_query, _qualifier_fits_world,
             # Сопоставление термина правила с запросом — ОТДЕЛЬНАЯ функция, и
             # без неё здесь правка «как ищем термин» (составные слова,
             # британское написание, ловушки) не меняла бы подпись, то есть на
@@ -12711,6 +12850,11 @@ def candidate_gate_signature(index=None):
             # Кортеж (не множество) — порядок из JSON стабилен между
             # процессами, в отличие от repr(frozenset), см. разбор ниже.
             episode_forbidden_anchors(),
+            # Все поля мира паспорта: эпоха, культуры, регистр решают музейный
+            # фильтр и проверку мира на кадре. Правка культуры при той же
+            # строке ловушек иначе оставляла бы на прогретом кэше победителей,
+            # выбранных по прежнему миру.
+            _world_digest_for_signature(),
             # Сколько раз вето вправе взять следующего кандидата вместо того,
             # чтобы убить слот (см. VETO_REPICK_MAX) — меняет победителя.
             VETO_REPICK_MAX,
@@ -14132,6 +14276,7 @@ class VideoAdapter(selection_engine.MediaAdapter):
             return None
         register_cached_media(cf, used_ids=request.used_video_ids,
                               used_hashes=request.used_hashes, kind="video")
+        _restore_cached_quality(cf)
         _reset_pexels_streak()
         return cf
 
@@ -14366,11 +14511,11 @@ class VideoAdapter(selection_engine.MediaAdapter):
             selection_attempt.record_note("judge_score", winner.get("judge"))
             selection_attempt.record_note("quality", winner_quality(winner))
             selection_attempt.record_note("focus_met", bool(winner.get("verify_focus")))
-            if judge_rejected(winner):
-                selection_attempt.record_verdict("judge", {
-                    "index": index, "kind": "video", "query": query,
-                    "brief": request.shot_brief, "score": winner.get("judge"),
-                    "model": shot_judge_model()})
+        if (judged and judge_rejected(winner)) or (not judged and winner is not None and not screen_allowed(winner)):
+            selection_attempt.record_verdict("judge", {
+                "index": index, "kind": "video", "query": query,
+                "brief": request.shot_brief, "score": winner.get("judge"),
+                "model": shot_judge_model()})
         pick = winner["p"]
         if request.used_video_ids is not None:
             selection_attempt.record_effect("reserve_id", request.used_video_ids, pick.get("id"))
@@ -14380,7 +14525,8 @@ class VideoAdapter(selection_engine.MediaAdapter):
         selection_attempt.record_effect("source_won", candidate_channel(pick))
         write_media_sidecar(cf, pexels_id=pick.get("id"), query=query, kind="video",
                             ahash_hex=winner["hash"], relevance=winner.get("relevance"),
-                            chosen_by=chosen_by, provenance=candidate_provenance(pick))
+                            chosen_by=chosen_by, provenance=candidate_provenance(pick),
+                            quality=(winner_quality(winner) if judged else None))
         _reset_pexels_streak()
         return cf
 
@@ -16129,7 +16275,8 @@ def main():
     RUN_JOURNAL.clear()
     selection_attempt.reset_attempt_ids()
     # Шлюз судьи и его потолок расходов — на прогон, а не на процесс.
-    _SHOT_JUDGE_STATE.update(gateway=None, made=False, refused=None, slots=set(), warned=False)
+    _SHOT_JUDGE_STATE.update(gateway=None, made=False, refused=None, slots=set(), warned=False,
+                             world_votes=None)
     SHOT_JUDGE_LOG.clear()
     # Каталоги попыток прерванного процесса — мусор: живых попыток при
     # старте нет, и в кэш такой файл не попадёт никогда.

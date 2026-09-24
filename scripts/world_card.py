@@ -431,6 +431,40 @@ def _script_digest(text):
     return hashlib.sha256((text or "").encode("utf-8")).hexdigest()[:16]
 
 
+def _narration_digest(script_path):
+    """Отпечаток ТОЛЬКО озвучиваемого текста (секции HOOK/BLOCK/FINAL без
+    служебных тегов). Паспорт описывает мир рассказа; правка анализа
+    конкурентов, вариантов названия или проставленные режиссёром [shot:]
+    мир не меняют, а перегенерация паспорта стоила бы вызова модели и —
+    через строку мира в подписи плана — перепокупки всех спецификаций и
+    переотбора платных слотов. None — сценарий не разбирается."""
+    try:
+        import script_parser
+        import contextlib
+        import io
+        with contextlib.redirect_stdout(io.StringIO()):
+            blocks = script_parser.parse_blocks(script_path)
+    except Exception:  # noqa: BLE001 — не разобрался: откат на весь текст
+        return None
+    return _script_digest("\n".join(f"{b.get('section')}|{b.get('text')}" for b in blocks))
+
+
+#: Поля паспорта, которые решают отбор. Их отпечаток входит в подпись
+#: отбора: правка эпохи или культур меняет, кого пропустит фильтр музеев и
+#: проверка мира, даже если строка мира для планировщика не изменилась.
+WORLD_FIELDS = ("register", "era", "culture", "must_not_show",
+                "expected_subjects", "era_anchor_terms")
+
+
+def world_digest(card):
+    """Отпечаток полей мира паспорта ('' — паспорта нет)."""
+    if not card:
+        return ""
+    import hashlib
+    body = json.dumps({k: card.get(k) for k in WORLD_FIELDS}, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
+
+
 def _raw(video_dir):
     try:
         with open(path(video_dir), encoding="utf-8") as f:
@@ -458,9 +492,17 @@ def generate(video_dir, gateway, model=AUTO_MODEL, niche="не указана"):
     raw = _raw(video_dir)
     if raw is not None and is_manual(video_dir):
         return load(video_dir, strict=False), "manual"
-    digest = _script_digest(script)
-    if raw is not None and raw.get("script_sha") == digest and not validate(raw):
-        return raw, "fresh"
+    digest = _narration_digest(sp) or _script_digest(script)
+    if raw is not None and not validate(raw):
+        if raw.get("script_sha") == digest:
+            return raw, "fresh"
+        if raw.get("script_sha") == _script_digest(script):
+            # Паспорт записан прежней схемой (отпечаток всего файла), и файл
+            # с тех пор не менялся: мир тот же — переводим отпечаток на
+            # озвучку без вызова модели.
+            raw["script_sha"] = digest
+            save(video_dir, raw, derived_by=raw.get("derived_by"))
+            return raw, "fresh"
     try:
         text, _u, _p = gateway.chat(model, [{"type": "text", "text": prompt_for_script(script, niche)}],
                                     6000, 2500 + len(script) // 2)

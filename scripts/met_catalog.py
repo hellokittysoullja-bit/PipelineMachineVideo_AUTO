@@ -246,9 +246,17 @@ def search(query, department_name=None, limit=60):
     if not terms:
         return []
     pats = [re.compile(rf"\b{re.escape(t)}", re.I) for t in terms]
+    # Индекс собран по окну эпохи КАНАЛА, а мир ЭТОГО эпизода может быть
+    # другим (паспорт). Без сверки с ним каталог занимал бы все места
+    # выдачи средневековыми предметами, которые API-путь потом всё равно
+    # отбросит по эпохе, — и вытеснял бы правильно датированные id API.
+    # На эпизоде с окном канала сверка ничего не меняет.
+    import museum_sources as ms
     scored = []
     for r in idx["rows"]:
         if department_name and r["dept"] != department_name:
+            continue
+        if not ms.era_overlaps(r.get("b"), r.get("e")) or ms.culture_is_foreign(r.get("culture")):
             continue
         name, cls = r["name"] or "", r["cls"] or ""
         tags, title = r["tags"] or "", r["title"] or ""

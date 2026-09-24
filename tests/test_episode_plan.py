@@ -142,3 +142,91 @@ def test_repeated_query_fallback_comes_from_the_passport(monkeypatch):
     src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"), encoding="utf-8").read()
     body = src[src.index("def _diversify_repeated_query_runs"):][:6000]
     assert "GENERIC_FALLBACKS[" not in body
+
+
+def test_passport_survives_edits_outside_the_narration(tmp_path):
+    """Правка названия, анализа конкурентов или проставленные [shot:] мир не
+    меняют — паспорт не перепокупается и строка мира в подписи плана та же."""
+    d = _ep(tmp_path)
+    gw = GW(json.dumps(CARD))
+    assert wc.generate(d, gw, model="m")[1] == "made"
+    text = SCRIPT.replace("TITLE: T", "TITLE: Другое название").replace(
+        "Вот кинжал.", "[shot:a rondel dagger, close up]Вот кинжал.")
+    open(os.path.join(d, "script.txt"), "w", encoding="utf-8").write(
+        text + "=== TITLE OPTIONS ===\nвариант\n")
+    assert wc.generate(d, gw, model="m")[1] == "fresh" and gw.calls == 1
+
+
+def test_old_whole_file_digest_is_upgraded_without_a_model_call(tmp_path):
+    d = _ep(tmp_path)
+    wc.save(d, dict(CARD, script_sha=wc._script_digest(SCRIPT)), derived_by="auto:m")
+    gw = GW(json.dumps(CARD))
+    assert wc.generate(d, gw, model="m")[1] == "fresh" and gw.calls == 0
+    assert json.load(open(wc.path(d)))["script_sha"] == wc._narration_digest(os.path.join(d, "script.txt"))
+
+
+def test_world_fields_reach_the_selection_signature(monkeypatch):
+    """Правка культур паспорта при тех же ловушках меняет, кого пропустит
+    музейный фильтр, — прогретый кэш не должен отдавать прежний выбор."""
+    monkeypatch.setattr(ps, "episode_world_card", lambda: CARD)
+    monkeypatch.setattr(ps, "_CANDIDATE_GATE_SIG", None)
+    a = ps.candidate_gate_signature()
+    monkeypatch.setattr(ps, "episode_world_card",
+                        lambda: dict(CARD, culture={"include": [], "exclude": ["japanese", "roman"]}))
+    monkeypatch.setattr(ps, "_CANDIDATE_GATE_SIG", None)
+    assert ps.candidate_gate_signature() != a
+
+
+def test_failed_chapter_keeps_its_previous_specs(tmp_path):
+    import llm_gateway
+    import script_parser
+    d = _ep(tmp_path)
+    blocks = script_parser.parse_blocks(os.path.join(d, "script.txt"))
+    ans = ('{"n": 1, "focus": "a dagger", "core": "a dagger is visible", "claims": [],'
+           ' "queries": [{"q": "dagger", "for": ["core"]}]}\n'
+           '{"n": 2, "focus": "an arrow", "core": "an arrow is visible", "claims": [],'
+           ' "queries": [{"q": "arrow", "for": ["core"]}]}\n')
+    assert sqp.plan_episode(d, blocks, GW(ans), model="m", verbose=False) == 2
+
+    class Broken(GW):
+        def chat(self, *a, **k):
+            raise llm_gateway.GatewayError("503")
+    import shutil
+    shutil.rmtree(os.path.join(d, "media_plan", sqp.CACHE_DIR_NAME))
+    assert sqp.plan_episode(d, blocks, Broken(""), model="m", verbose=False) == 2, \
+        "разовый сбой шлюза не стирает спецификации главы"
+
+
+def test_catalog_answers_only_within_the_episode_world(monkeypatch):
+    import met_catalog
+    rows = [{"id": 1, "dept": "Arms and Armor", "name": "Dagger", "cls": "", "tags": "", "title": "",
+             "culture": "French", "b": 1450, "e": 1500},
+            {"id": 2, "dept": "Arms and Armor", "name": "Dagger", "cls": "", "tags": "", "title": "",
+             "culture": "Egyptian", "b": -1300, "e": -1200}]
+    monkeypatch.setattr(met_catalog, "_load", lambda: {"rows": rows})
+    ms.set_episode_world({"register": "historical", "era": {"from": -1500, "to": -1000},
+                          "culture": {"include": ["egyptian"], "exclude": ["medieval"]}})
+    try:
+        assert [r["id"] for r in met_catalog.search("dagger")] == [2]
+    finally:
+        ms.set_episode_world(None)
+    assert [r["id"] for r in met_catalog.search("dagger")] == [1], "канал: как раньше"
+
+
+def test_european_qualifier_is_not_added_against_the_episode_world(monkeypatch):
+    egypt = {"register": "historical", "era": {"from": -2600, "to": -30},
+             "culture": {"include": ["egyptian"], "exclude": ["medieval", "european"]},
+             "era_anchor_terms": ["ancient egyptian"]}
+    monkeypatch.setattr(ps, "episode_world_card", lambda: egypt)
+    assert "european" not in ps.disambiguate_search_query("egyptian spear warrior")
+    monkeypatch.setattr(ps, "episode_world_card", lambda: CARD)
+    assert "european" in ps.disambiguate_search_query("spear warrior"), "мир канала — как раньше"
+
+
+def test_own_culture_of_the_episode_is_never_blocklisted(monkeypatch):
+    monkeypatch.setattr(ps, "CONTENT_ALT_BLOCKLIST", ("korean", "anime"))
+    monkeypatch.setattr(ps, "episode_world_card", lambda: dict(
+        CARD, culture={"include": ["korean", "joseon"], "exclude": []}))
+    assert ps.content_blocklist_effective() == ("anime",)
+    monkeypatch.setattr(ps, "episode_world_card", lambda: None)
+    assert ps.content_blocklist_effective() == ("korean", "anime")

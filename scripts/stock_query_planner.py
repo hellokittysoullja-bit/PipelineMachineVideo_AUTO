@@ -358,6 +358,14 @@ def plan_episode(video_dir, blocks, gateway, model=DEFAULT_MODEL, verbose=True, 
         results = list(ex.map(one, packets))
     for no, (packet, (res, err)) in enumerate(zip(packets, results), 1):
         if res is None:
+            # Разовый сбой шлюза не стирает спецификации главы: прежние
+            # (той же подписи) остаются, иначе ключи кэша кандидатов главы
+            # сменились бы и слоты перевыбирались бы из-за сбоя сети.
+            for u in packet["units"]:
+                key = shot_planner_llm.unit_key(u["text"])
+                if key in old_units:
+                    units[key] = old_units[key]
+                    kept += 1
             print(f"  глава {no}: модель не ответила — {err}")
             continue
         got, hit = res

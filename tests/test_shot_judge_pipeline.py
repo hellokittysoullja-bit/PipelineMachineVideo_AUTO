@@ -332,9 +332,7 @@ def test_all_finalists_vetoed_checks_the_next_batch_not_an_unchecked_one(tmp_pat
     info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=n)
     monkeypatch.setattr(ps, "episode_world_card", lambda: {"register": "historical",
                                                            "era": {"from": 1300, "to": 1500}})
-    monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "world_seen", 0)
-    monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "world_foreign", 0)
-    monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "world_breaker", False)
+    monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "world_votes", None)
     foreign = _ans({"c1": "yes"}, world=(False, False))
     good = _ans({"c1": "yes"}, world=(True, False))
     answers = {p: foreign for p in paths[:ps.VERIFY_FINALISTS]}
@@ -346,18 +344,96 @@ def test_all_finalists_vetoed_checks_the_next_batch_not_an_unchecked_one(tmp_pat
         "победил проверенный из следующей порции"
 
 
-def test_world_breaker_turns_veto_into_penalty(monkeypatch, capsys):
-    monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "world_seen", 0)
-    monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "world_foreign", 0)
-    monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "world_breaker", False)
+def test_world_breaker_needs_several_slots_not_one(monkeypatch, capsys):
+    """Один слот с десятком современных ножей («Вот кинжал») — ровно тот
+    случай, ради которого отказ по миру заведён; он не имеет права
+    выключить отказ для всего ролика."""
+    monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "world_votes", None)
+    monkeypatch.setattr(ps, "episode_world_card", lambda: None)
     monkeypatch.setattr(ps, "SHOT_JUDGE_LOG", [])
-    for k in range(ps.WORLD_BREAKER_MIN):
-        ps._note_world(True, k % 3 != 0)
+    ps._record_world_vote(0, 10, 10)
+    assert ps.world_veto_active()
+    for k in range(1, ps.WORLD_BREAKER_MIN_SLOTS - 1):
+        ps._record_world_vote(k, 3, 2)
+    assert ps.world_veto_active(), "голосов меньше порога — отказ в силе"
+    ps._record_world_vote(ps.WORLD_BREAKER_MIN_SLOTS - 1, 3, 2)
     assert not ps.world_veto_active() and "штрафуется" in capsys.readouterr().out
     import shot_judge as sj
     v = sj.claims_vector({"claims": [{"id": "c1", "tier": "must"}]},
                          _ans({"c1": "yes"}, world=(False, False)), world_veto=False)
     assert v == (0.0, 1.0, 1.0), "чужой мир — штраф первым элементом, а не отказ"
+
+
+def test_world_votes_survive_a_new_render_and_die_with_the_passport(monkeypatch):
+    """Голоса лежат в media_plan под отпечатком паспорта: слоты из кэша не
+    теряют голос, а смена паспорта обнуляет чужую статистику."""
+    card = {"register": "historical", "era": {"from": 1300, "to": 1500}}
+    monkeypatch.setattr(ps, "episode_world_card", lambda: card)
+    monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "world_votes", None)
+    for k in range(ps.WORLD_BREAKER_MIN_SLOTS):
+        ps._record_world_vote(k, 2, 2)
+    assert not ps.world_veto_active()
+    ps._SHOT_JUDGE_STATE["world_votes"] = None          # новый рендер
+    assert not ps.world_veto_active()
+    card2 = dict(card, era={"from": 1400, "to": 1500})
+    monkeypatch.setattr(ps, "episode_world_card", lambda: card2)
+    ps._SHOT_JUDGE_STATE["world_votes"] = None
+    assert ps.world_veto_active()
+
+
+def test_slot_without_found_focus_does_not_vote(monkeypatch):
+    monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "world_votes", None)
+    monkeypatch.setattr(ps, "episode_world_card", lambda: None)
+    for k in range(ps.WORLD_BREAKER_MIN_SLOTS + 2):
+        ps._record_world_vote(k, 0, 0)
+    assert ps._world_votes() == {} and ps.world_veto_active()
+
+
+def test_world_decision_is_fixed_for_the_whole_slot(tmp_path, monkeypatch):
+    """Решение берётся в начале слота: кадры одного слота не делятся на
+    «отказ» и «штраф» из-за того, что порог перешли посреди проверки."""
+    info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=4)
+    monkeypatch.setattr(ps, "episode_world_card", lambda: {"register": "historical",
+                                                           "era": {"from": 1300, "to": 1500}})
+    monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "world_votes",
+                        {k: True for k in range(1, ps.WORLD_BREAKER_MIN_SLOTS)})
+    monkeypatch.setattr(sj, "verify_claims", _fake_verify(
+        {p: _ans({"c1": "yes"}, world=(False, False)) for p in paths}))
+    assert ps.judge_candidates(0, "photo", "x", "y", info)
+    assert {c["verify"] for c in info} == {"veto"}, "все кадры слота судятся одним решением"
+    assert not ps.world_veto_active(), "голос слота учтён уже после проверки"
+
+
+def test_nothing_met_everywhere_checks_the_next_batch(tmp_path, monkeypatch):
+    n = ps.VERIFY_FINALISTS + 2
+    info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=n)
+    monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "world_votes", None)
+    answers = {p: _ans({"c1": "no"}) for p in paths[:ps.VERIFY_FINALISTS]}
+    answers.update({p: _ans({"c1": "yes"}) for p in paths[ps.VERIFY_FINALISTS:]})
+    monkeypatch.setattr(sj, "verify_claims", _fake_verify(answers))
+    assert ps.judge_candidates(0, "photo", "x", "y", info)
+    win = ps._score_and_pick(info)[0]
+    assert win["p"]["id"] == f"c{ps.VERIFY_FINALISTS}" and isinstance(win["verify"], tuple) \
+        and not win.get("verify_nothing"), "следующая порция проверена, а не взят непроверенный"
+
+
+def test_blocklist_marks_only_when_the_check_can_clear(monkeypatch):
+    """Помеченный словарём кандидат может очистить только проверка мира.
+    Нет мира в паспорте или судья выключен — словарь выбрасывает, как раньше."""
+    monkeypatch.setenv("LLM_GATEWAY_API_KEY", "k")
+    monkeypatch.setenv("SHOT_JUDGE", "1")
+    monkeypatch.setattr(ps, "CONTENT_ALT_BLOCKLIST", ("fencing",))
+    items = [{"id": 1, "alt": "sport fencing match"}, {"id": 2, "alt": "medieval knight"}]
+    monkeypatch.setattr(ps, "_shot_judge_gateway", lambda: object())
+    monkeypatch.setattr(ps, "episode_world_card", lambda: {"register": "historical",
+                                                           "era": {"from": 1300, "to": 1500}})
+    assert [p.get("_blocklisted") for p in ps.filter_pool_by_text(items, 0)] == [True, None]
+    monkeypatch.setattr(ps, "episode_world_card", lambda: None)
+    assert [p["id"] for p in ps.filter_pool_by_text(items, 0)] == [2], "мира нет — выбрасывает"
+    monkeypatch.setattr(ps, "episode_world_card", lambda: {"register": "historical",
+                                                           "era": {"from": 1300, "to": 1500}})
+    monkeypatch.setattr(ps, "_shot_judge_gateway", lambda: None)
+    assert [p["id"] for p in ps.filter_pool_by_text(items, 0)] == [2], "судья выключен — выбрасывает"
 
 
 def test_checked_reject_ranks_below_unchecked_candidate():
@@ -509,5 +585,8 @@ def test_text_blocklist_off_where_the_world_is_checked_on_the_frame(monkeypatch)
     monkeypatch.setattr(ps, "CONTENT_BLOCKED_CANDIDATE_IDS", {"pexels:2"})
     monkeypatch.setattr(ps, "content_blocklist_effective", lambda: ("reenactment",))
     monkeypatch.setattr(ps, "shot_judge_active", lambda index=None: index is not None and index < 25)
+    monkeypatch.setattr(ps, "_shot_judge_gateway", lambda: object())
+    monkeypatch.setattr(ps, "episode_world_card", lambda: {"register": "historical",
+                                                           "era": {"from": 1300, "to": 1500}})
     assert [p["id"] for p in ps.filter_pool_by_text(pool, 3)] == [1]
     assert [p["id"] for p in ps.filter_pool_by_text(pool, 30)] == [], "без проверки — словарь и id"
