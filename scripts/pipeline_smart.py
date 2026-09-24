@@ -4961,6 +4961,28 @@ def candidate_probe_url(p):
 DIRECTOR_CARD_DECISIVE_FRACTION = 0.5
 
 
+# Утвердительный вердикт судьи: кадр посмотрели по описанию и признали
+# годным. В отчёты промахов не проецируется — это не промах, а решение.
+JUDGE_APPROVED_VERDICT = "judge_ok"
+
+
+def effective_verdicts(verdicts):
+    """Вердикты попытки после правила старшинства — ОДНОГО на весь отбор.
+
+    Судья смотрит на сам кадр вместе с описанием кадра; пороги эмбеддинга
+    (relevance, stock), Директор и арбитр — слабее. Раньше их вердикты
+    писались победителю независимо от судьи, и known_bad_reason() честно
+    делала из них «брак»: кадр, одобренный судьёй, уходил на вторую
+    страницу, на спасение фотографией и в поглощение (найдено по коду
+    25.09: record_verdict("stock") у фото пишется даже по пулу, когда сам
+    победитель прошёл всё). Одобрение судьи снимает слабые вердикты; отказ
+    судьи и так сильнейший. Без судьи — вердикты как есть."""
+    kinds = {k for k, _rec in verdicts}
+    if JUDGE_APPROVED_VERDICT in kinds and "judge" not in kinds:
+        return [(k, rec) for k, rec in verdicts if k == JUDGE_APPROVED_VERDICT]
+    return [(k, rec) for k, rec in verdicts if k != JUDGE_APPROVED_VERDICT]
+
+
 def known_bad_reason(verdicts):
     """Почему система САМА считает кадр негодным (или None) — по вердиктам
     ТОЙ ПОПЫТКИ, которая этот кадр добыла.
@@ -4975,6 +4997,7 @@ def known_bad_reason(verdicts):
     Новых проверок не запускает и ничего не пересчитывает. Порядок причин —
     по силе сигнала: отказ арбитра сильнее численного промаха порога.
     """
+    verdicts = effective_verdicts(verdicts)
     kinds = {k for k, _rec in verdicts}
     if "judge" in kinds:
         # Судья кадров посмотрел на кандидатов сеткой ВМЕСТЕ с описанием
@@ -5095,7 +5118,9 @@ def _journal_attempt(att, final_media):
 
 
 def _project_verdicts(verdicts):
-    for kind, rec in verdicts:
+    for kind, rec in effective_verdicts(verdicts):
+        if kind == JUDGE_APPROVED_VERDICT:
+            continue
         globals()[VERDICT_REPORT_LISTS[kind]].append(rec)
 
 
@@ -8352,6 +8377,9 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                 "index": index, "kind": "photo", "query": query,
                 "brief": request.shot_brief, "score": winner.get("judge") if winner else None,
                 "model": shot_judge_model()})
+        elif judged:
+            selection_attempt.record_verdict(JUDGE_APPROVED_VERDICT, {
+                "index": index, "kind": "photo", "score": winner.get("judge") if winner else None})
         _picked_ahash = None
         if used_hashes is not None:
             try:
@@ -14655,6 +14683,9 @@ class VideoAdapter(selection_engine.MediaAdapter):
                 "index": index, "kind": "video", "query": query,
                 "brief": request.shot_brief, "score": winner.get("judge"),
                 "model": shot_judge_model()})
+        elif judged:
+            selection_attempt.record_verdict(JUDGE_APPROVED_VERDICT, {
+                "index": index, "kind": "video", "score": winner.get("judge")})
         pick = winner["p"]
         if request.used_video_ids is not None:
             selection_attempt.record_effect("reserve_id", request.used_video_ids, pick.get("id"))
@@ -17144,7 +17175,7 @@ def main():
             # попытки, чей кадр встанет на экран (close_slot).
             rescue = fetch_in_attempt(slot_attempts, i, "photo", select_media, request, "photo")
             if rescue:
-                reason = ", ".join(sorted({k for k, _rec in video_att.verdicts}))
+                reason = ", ".join(sorted({k for k, _rec in effective_verdicts(video_att.verdicts)}))
                 print(f"    [{i+1}] негодное видео заменено фотографией ({reason})")
                 VIDEO_RESCUED_BY_PHOTO.append(
                     {"index": i, "reason": reason, "query": queries[i]})
