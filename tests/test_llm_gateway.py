@@ -256,3 +256,12 @@ def test_known_price_keeps_calls_parallel():
     for _ in range(3):
         gw.chat("m/vision", [{"type": "text", "text": "q"}], 50, 1000)
     assert "m/vision" in gw._ratio and gw.spent == 3 * (100 * 0.5 + 10 * 2)
+
+
+def test_reasoning_switch_follows_the_models_thinking_format():
+    """DeepSeek на длинном вопросе игнорирует reasoning.enabled=false и
+    тратит весь выход на рассуждение (замер 24.09) — у него свой выключатель."""
+    import llm_gateway
+    assert llm_gateway.reasoning_switch("deepseek", False) == {"thinking": {"type": "disabled"}}
+    assert llm_gateway.reasoning_switch("qwen", False) == {"reasoning": {"enabled": False}}
+    assert llm_gateway.reasoning_switch(None, True) == {"reasoning": {"enabled": True}}

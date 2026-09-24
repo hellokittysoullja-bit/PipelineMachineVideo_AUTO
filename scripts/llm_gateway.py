@@ -68,6 +68,22 @@ def _env(name, default=None):
     return v.strip() if v and v.strip() else default
 
 
+def reasoning_switch(thinking_format, on):
+    """Поле запроса, которое включает или выключает рассуждение модели, — по
+    её формату из каталога шлюза (capabilities.thinkingFormat), а не одно на
+    всех. Проверено живьём 24.09:
+      * qwen: {"reasoning": {"enabled": false}} — 0 токенов рассуждения;
+        reasoning_effort и enable_thinking шлюз игнорирует;
+      * deepseek: на длинном вопросе {"reasoning": {"enabled": false}} НЕ
+        выключает рассуждение (весь лимит выхода ушёл в него, ответа нет), а
+        {"thinking": {"type": "disabled"}} выключает — 0 токенов, ответ
+        целиком.
+    Остальные форматы — как у qwen (поведение до этой правки)."""
+    if thinking_format == "deepseek":
+        return {"thinking": {"type": "enabled" if on else "disabled"}}
+    return {"reasoning": {"enabled": bool(on)}}
+
+
 class Gateway:
     def __init__(self, api_key=None, base_url=None, spend_cap=None, opener=None):
         self.api_key = api_key if api_key is not None else _env("LLM_GATEWAY_API_KEY")
@@ -160,6 +176,8 @@ class Gateway:
             if self._prices is None:
                 cat = self._request("GET", "/models", timeout=60)
                 self._prices = {m["id"]: m.get("billing") or {} for m in cat.get("data", [])}
+                self._thinking = {m["id"]: (m.get("capabilities") or {}).get("thinkingFormat")
+                                  for m in cat.get("data", [])}
         b = self._prices.get(model)
         if not b or not b.get("coefficient"):
             raise GatewayError(f"модели {model!r} нет в каталоге шлюза или у неё нет цены")
@@ -226,12 +244,7 @@ class Gateway:
             body = {"model": model, "temperature": temperature, "max_tokens": max_tokens,
                     "messages": [{"role": "user", "content": content}]}
             if reasoning is not None:
-                # Рассуждающие модели шлюза (qwen3.7-plus) тратят выход на
-                # рассуждение: медленнее, дороже и при малом max_tokens —
-                # пустой ответ. Выключатель проверен живьём 24.09: только
-                # {"reasoning": {"enabled": false}} даёт 0 токенов рассуждения;
-                # reasoning_effort и enable_thinking шлюз игнорирует.
-                body["reasoning"] = {"enabled": bool(reasoning)}
+                body.update(reasoning_switch(getattr(self, "_thinking", {}).get(model), reasoning))
             r = self._request("POST", "/chat/completions", body, timeout=timeout,
                               on_lost_body=lost_body)
         except PaymentRequired as e:
