@@ -59,20 +59,16 @@ HTTP_TIMEOUT = 20
 # Окно эпохи канала. Тот же смысл, что era_from/era_to у validate_brief()
 # локального режиссёра (docs/quality/DIRECTOR_LOCAL_LLM.md) — здесь оно
 # применяется к ПАСПОРТУ предмета, а не к тексту брифа.
-DEFAULT_ERA_FROM = 900
-DEFAULT_ERA_TO = 1600
 
 # Культуры/страны вне ниши канала. Проверяется по паспорту предмета, а не по
 # картинке: "Iranian or Turkish, 1401-1600" проходит по дате и обязано
 # отсекаться здесь — иначе восточный доспех XV века попадёт в ролик про
 # Азенкур как «эпоха совпала».
-DEFAULT_FOREIGN_CULTURE_TERMS = (
-    "japan", "japanese", "china", "chinese", "tibet", "tibetan", "korea",
-    "korean", "india", "indian", "indo", "iran", "iranian", "persia",
-    "persian", "turk", "turkish", "ottoman", "egypt", "egyptian", "nubian",
-    "islamic", "arab", "syria", "syrian", "mughal", "nepal", "nepalese",
-    "thai", "burmese", "vietnam", "african", "mesoamerican", "aztec", "maya",
-    "inca", "peru", "peruvian", "assyrian", "babylonian", "sumerian",
+# СПИСОК ПЕРЕЕХАЛ В channel_profile.json (`foreign_culture_terms`, 25.09).
+# Раньше он применялся ко ВСЕМУ, у чего профиль объявил эпоху, — скрытая
+# связь «есть окно эпохи -> весь неевропейский мир чужой»: клон под нишу
+# «Древний Египет» с окном эпохи отсекал бы собственный Египет. История
+# замеров, по которым список дополнялся, сохранена ниже.
     # Дополнено 14.09 ПО ЗАМЕРУ, а не по интуиции: локальный каталог Мет
     # (scripts/met_catalog.py) впервые показал ВЕСЬ корпус, прошедший
     # паспорт, — 31 182 предмета, — и в нём нашлись культуры, которых в
@@ -82,7 +78,6 @@ DEFAULT_FOREIGN_CULTURE_TERMS = (
     # tranchang), Javanese»). Дефект не каталога — он всё это время
     # действовал и на живом API-пути, просто там его нечем было увидеть.
     # Счёт в индексе: javanese 54, mongol 5, afghan 4.
-    "javanese", "java", "afghan", "mongol", "iraq",
     # Дополнено 16.09, тем же методом и по той же причине: пересборка
     # каталога показала, что намерение списка («доколумбова Америка —
     # чужая», отсюда mesoamerican/aztec/maya/inca/peru выше) НЕ ВЫПОЛНЯЛОСЬ,
@@ -129,11 +124,7 @@ DEFAULT_FOREIGN_CULTURE_TERMS = (
     #   aceh, borneo, bornean, malay, sundanese, celebes, sulawesi,
     #     filipino, siamese — в корпусе НОЛЬ совпадений; термин, который
     #     сегодня ничего не отсекает, завтра отсечёт неизвестно что.
-    "balinese", "sumatran", "madurese", "acheen", "philippine",
-    "tairona", "olmec", "pre-columbian", "indigenous american",
-    "costa rica", "chimu", "veracruz", "panama", "ecuador", "colombia",
-    "mixtec", "toltec",
-)
+DEFAULT_FOREIGN_CULTURE_TERMS = ()
 
 # СПОРНЫЕ культуры — решение творческое, а не техническое, и поэтому за
 # владельцем, а не за кодом. Все четыре паспорт сегодня пропускает:
@@ -339,14 +330,9 @@ def _met_get(url):
 
 
 def _profile():
-    """channel_profile.json, если он есть рядом с репозиторием."""
-    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    path = os.path.join(here, "channel_profile.json")
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f) or {}
-    except Exception:
-        return {}
+    """channel_profile.json — через общий читатель (channel_profile.py)."""
+    import channel_profile
+    return channel_profile.load()
 
 
 # МИР ЭПИЗОДА СИЛЬНЕЕ КАНАЛА, КАНАЛ СИЛЬНЕЕ ПУСТОТЫ (план 24.09). Окно
@@ -369,15 +355,12 @@ _EPISODE_WORLD = {}
 
 def set_episode_world(card):
     """Мир эпизода из паспорта (world_card) или None — сбросить."""
+    import world_card
     _EPISODE_WORLD.clear()
     if not card:
         return
-    era = card.get("era")
-    if isinstance(era, dict) and isinstance(era.get("from"), int) and isinstance(era.get("to"), int):
-        _EPISODE_WORLD["era"] = (era["from"], era["to"])
-    cult = card.get("culture") or {}
-    _EPISODE_WORLD["exclude"] = tuple(str(t).lower() for t in cult.get("exclude") or () if str(t).strip())
-    _EPISODE_WORLD["include"] = tuple(str(t).lower() for t in cult.get("include") or () if str(t).strip())
+    _EPISODE_WORLD["era"] = world_card.era_window(card)
+    _EPISODE_WORLD["card"] = card
     _EPISODE_WORLD["set"] = True
 
 
@@ -400,14 +383,10 @@ def foreign_culture_terms():
     channel = ()
     if "foreign_culture_terms" in p:
         channel = tuple(p["foreign_culture_terms"])
-    elif _channel_era() is not None:
-        channel = DEFAULT_FOREIGN_CULTURE_TERMS
     if not _EPISODE_WORLD.get("set"):
         return channel
-    own = _EPISODE_WORLD["include"]
-    terms = [t for t in channel if not any(t in i or i in t for i in own)]
-    terms += [t for t in _EPISODE_WORLD["exclude"] if t not in terms]
-    return tuple(terms)
+    import world_card
+    return world_card.apply_culture(channel, _EPISODE_WORLD["card"])
 
 
 def era_overlaps(begin, end):

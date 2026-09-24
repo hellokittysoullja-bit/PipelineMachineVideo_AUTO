@@ -152,5 +152,586 @@
     "effigy",
     "banner",
     "horse"
+  ],
+  "_world_comment": "Мир и словарь канала. В коде дефолты пустые: клон репозитория под другую нишу не получает средневековых слов, пока сам их не объявит (CLAUDE.md ЧАСТЬ 24). Паспорт эпизода (media_plan/world_card.json) сильнее профиля.",
+  "query_disambiguation_rules": [
+    {
+      "qualifier": "european",
+      "term": "sword",
+      "unless": [
+        "katana",
+        "samurai",
+        "chinese",
+        "japanese",
+        "jian",
+        "wuxia",
+        "asian",
+        "kimono"
+      ]
+    },
+    {
+      "qualifier": "european",
+      "term": "helmet",
+      "unless": [
+        "katana",
+        "samurai",
+        "chinese",
+        "japanese",
+        "asian",
+        "sci-fi",
+        "futuristic",
+        "motorcycle",
+        "bike",
+        "football",
+        "construction"
+      ]
+    },
+    {
+      "qualifier": "european medieval",
+      "term": "armor",
+      "unless": [
+        "katana",
+        "samurai",
+        "chinese",
+        "japanese",
+        "asian",
+        "sci-fi",
+        "futuristic",
+        "cosplay",
+        "stormtrooper",
+        "video game"
+      ]
+    },
+    {
+      "qualifier": "european medieval",
+      "term": "spear",
+      "unless": [
+        "african",
+        "tribal",
+        "zulu",
+        "asian",
+        "japanese",
+        "chinese",
+        "maori"
+      ]
+    },
+    {
+      "qualifier": "european medieval",
+      "term": "battle",
+      "unless": [
+        "modern",
+        "sci-fi",
+        "futuristic",
+        "space",
+        "video game",
+        "wwii",
+        "world war"
+      ]
+    }
+  ],
+  "query_era_anchors": [
+    "medieval",
+    "knight",
+    "armour",
+    "armor",
+    "helmet",
+    "sword",
+    "longsword",
+    "dagger",
+    "rondel",
+    "poleaxe",
+    "halberd",
+    "mace",
+    "war hammer",
+    "shield",
+    "chainmail",
+    "mail",
+    "gauntlet",
+    "sabaton",
+    "visor",
+    "breastplate",
+    "archer",
+    "longbow",
+    "crossbow",
+    "bodkin",
+    "arrowhead",
+    "barding",
+    "castle",
+    "fortress",
+    "moat",
+    "siege",
+    "manuscript",
+    "illumination",
+    "heraldry",
+    "coat of arms",
+    "effigy",
+    "monastery",
+    "cathedral",
+    "skeleton",
+    "burial",
+    "archaeological",
+    "excavation",
+    "museum",
+    "century",
+    "historical",
+    "ancient"
+  ],
+  "content_negative_anchors": [
+    "modern sport fencing competition with electric scoring equipment",
+    "referee, scoreboard and numbered bibs at a sports event",
+    "modern plastic protective mask and synthetic sportswear",
+    "crowd of modern spectators in casual clothes watching an event",
+    "modern city street with cars, asphalt and printed signage",
+    "modern indoor gym or hall with artificial lighting and painted floor",
+    "east asian temple, kimono and curved single-edged sword",
+    "modern domestic interior, kitchen, plastic and household objects"
+  ],
+  "generic_fallbacks": [
+    "medieval sword still life",
+    "knight armor moody light",
+    "medieval castle atmosphere",
+    "old manuscript parchment history",
+    "cinematic dark fantasy weapon"
+  ],
+  "visual_domain_guards": [
+    {
+      "asian_prompt": "curved single-edged katana blade with round tsuba guard, or chinese jian sword with diamond pommel and tassel",
+      "euro_prompt": "straight double-edged european longsword blade with cross-shaped hilt guard",
+      "margin_threshold": -0.034,
+      "name": "east_asian_sword",
+      "trigger_terms": [
+        "sword",
+        "blade",
+        "katana",
+        "longsword",
+        "saber",
+        "sabre"
+      ]
+    }
+  ],
+  "openverse_query_modifiers": [
+    "closeup",
+    "close-up",
+    "macro",
+    "detail",
+    "shot",
+    "view",
+    "angle",
+    "wide",
+    "lying",
+    "fallen",
+    "ground",
+    "mud",
+    "dirt",
+    "marching",
+    "column",
+    "camp",
+    "field",
+    "battlefield",
+    "pommel",
+    "slit",
+    "water",
+    "display",
+    "foot"
+  ],
+  "action_video_qualifiers": [
+    [
+      [
+        "занос",
+        "занёс",
+        "занес",
+        "замахн",
+        "замахив",
+        "размах",
+        "взмах",
+        "махал",
+        "махнул"
+      ],
+      "wielding"
+    ],
+    [
+      [
+        "рубил",
+        "рубит",
+        "рубят",
+        "рубить",
+        "рубк",
+        "сеча",
+        "сечи",
+        "сечь"
+      ],
+      "slashing"
+    ],
+    [
+      [
+        "колол",
+        "колющ",
+        "укол",
+        "вонз"
+      ],
+      "thrusting"
+    ],
+    [
+      [
+        "фехт",
+        "поедин",
+        "дуэл"
+      ],
+      "fencing duel"
+    ],
+    [
+      [
+        "битв",
+        "сражен",
+        "сража",
+        "схватк",
+        "рукопашн",
+        "драл",
+        "драк",
+        "бой",
+        "резн"
+      ],
+      "fighting"
+    ],
+    [
+      [
+        "атак",
+        "штурм",
+        "наступлен",
+        "прорыв",
+        "нападен",
+        "напада",
+        "осада",
+        "осади",
+        "осажд"
+      ],
+      "charging attack"
+    ],
+    [
+      [
+        "скакал",
+        "скачет",
+        "скачка"
+      ],
+      "galloping horse"
+    ],
+    [
+      [
+        "бегут",
+        "бежал",
+        "бежит",
+        "бегом",
+        "мчат",
+        "мчал",
+        "мчит"
+      ],
+      "running"
+    ],
+    [
+      [
+        "маршир",
+        "поход"
+      ],
+      "marching"
+    ],
+    [
+      [
+        "пожар",
+        "горит",
+        "горят",
+        "горел",
+        "взрыв",
+        "обстрел"
+      ],
+      "fire flames"
+    ]
+  ],
+  "foreign_culture_terms": [
+    "japan",
+    "japanese",
+    "china",
+    "chinese",
+    "tibet",
+    "tibetan",
+    "korea",
+    "korean",
+    "india",
+    "indian",
+    "indo",
+    "iran",
+    "iranian",
+    "persia",
+    "persian",
+    "turk",
+    "turkish",
+    "ottoman",
+    "egypt",
+    "egyptian",
+    "nubian",
+    "islamic",
+    "arab",
+    "syria",
+    "syrian",
+    "mughal",
+    "nepal",
+    "nepalese",
+    "thai",
+    "burmese",
+    "vietnam",
+    "african",
+    "mesoamerican",
+    "aztec",
+    "maya",
+    "inca",
+    "peru",
+    "peruvian",
+    "assyrian",
+    "babylonian",
+    "sumerian",
+    "javanese",
+    "java",
+    "afghan",
+    "mongol",
+    "iraq",
+    "balinese",
+    "sumatran",
+    "madurese",
+    "acheen",
+    "philippine",
+    "tairona",
+    "olmec",
+    "pre-columbian",
+    "indigenous american",
+    "costa rica",
+    "chimu",
+    "veracruz",
+    "panama",
+    "ecuador",
+    "colombia",
+    "mixtec",
+    "toltec"
+  ],
+  "shot_type_lexicon": [
+    [
+      "map",
+      [
+        "map",
+        "cartograph",
+        "atlas",
+        "portolan",
+        "mappa mundi"
+      ]
+    ],
+    [
+      "illustration",
+      [
+        "manuscript",
+        "illumination",
+        "illuminated",
+        "miniature",
+        "codex",
+        "psalter",
+        "book of hours",
+        "woodcut",
+        "engraving",
+        "fresco",
+        "tapestry",
+        "painting",
+        "altarpiece",
+        "effigy",
+        "chronicle",
+        "drawing",
+        "etching",
+        "initial"
+      ]
+    ],
+    [
+      "texture",
+      [
+        "texture",
+        "fabric weave",
+        "pattern"
+      ]
+    ],
+    [
+      "scene",
+      [
+        "battlefield",
+        "field",
+        "mud",
+        "dirt",
+        "camp",
+        "tent",
+        "castle",
+        "moat",
+        "forest",
+        "river",
+        "village",
+        "siege",
+        "landscape",
+        "fog",
+        "storm",
+        "road",
+        "hill",
+        "marsh",
+        "swamp",
+        "courtyard",
+        "street",
+        "sky",
+        "crowd",
+        "column",
+        "march",
+        "charge",
+        "night",
+        "dawn",
+        "rain",
+        "ground",
+        "melee",
+        "interior",
+        "monastery",
+        "burial",
+        "excavation",
+        "ruins",
+        "fallen",
+        "lying"
+      ]
+    ],
+    [
+      "object",
+      [
+        "sword",
+        "dagger",
+        "blade",
+        "armour",
+        "armor",
+        "helmet",
+        "helm",
+        "breastplate",
+        "gauntlet",
+        "pommel",
+        "hilt",
+        "poleaxe",
+        "halberd",
+        "mace",
+        "shield",
+        "chainmail",
+        "mail shirt",
+        "crossbow",
+        "longbow",
+        "spear",
+        "lance",
+        "visor",
+        "sallet",
+        "cuirass",
+        "greave",
+        "coin",
+        "reliquary",
+        "chalice",
+        "crown",
+        "seal",
+        "museum display",
+        "museum exhibit",
+        "artefact",
+        "artifact",
+        "arrow",
+        "arrowhead",
+        "bodkin",
+        "barding",
+        "sabaton",
+        "spur",
+        "brooch",
+        "buckle",
+        "hammer",
+        "heraldry",
+        "coat of arms",
+        "coins",
+        "hoard"
+      ]
+    ]
+  ],
+  "museum_departments": [
+    [
+      [
+        "manuscript",
+        "illumination",
+        "illuminated",
+        "codex",
+        "psalter",
+        "book of hours",
+        "reliquary",
+        "ivory",
+        "effigy",
+        "tomb",
+        "chalice",
+        "crown",
+        "seal",
+        "initial",
+        "miniature"
+      ],
+      17,
+      [
+        "illustration"
+      ]
+    ],
+    [
+      [
+        "sword",
+        "dagger",
+        "blade",
+        "armour",
+        "armor",
+        "helmet",
+        "helm",
+        "breastplate",
+        "gauntlet",
+        "pommel",
+        "hilt",
+        "poleaxe",
+        "halberd",
+        "mace",
+        "shield",
+        "chainmail",
+        "crossbow",
+        "longbow",
+        "lance",
+        "visor",
+        "sallet",
+        "cuirass",
+        "greave",
+        "weapon",
+        "arrow",
+        "bow",
+        "sabaton",
+        "spur",
+        "barding"
+      ],
+      4,
+      [
+        "object"
+      ]
+    ],
+    [
+      [
+        "manuscript",
+        "illumination",
+        "illuminated",
+        "codex",
+        "psalter",
+        "book of hours",
+        "reliquary",
+        "ivory",
+        "effigy",
+        "tomb",
+        "chalice",
+        "crown",
+        "seal",
+        "initial"
+      ],
+      17,
+      [
+        "object",
+        "illustration"
+      ]
+    ]
   ]
 }

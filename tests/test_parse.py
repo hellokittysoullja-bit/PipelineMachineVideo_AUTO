@@ -572,7 +572,10 @@ def test_hardcoded_defaults_match_committed_channel_profile():
     # осознанно разошёлся с дефолтом (тогда тест меняется явно, это не
     # тихий дрейф, а осознанное решение автора правки).
     assert pipeline_smart._MOOD_GRADE_DEFAULT == pipeline_smart.CHANNEL_PROFILE["mood_grade"]
-    assert set(pipeline_smart._CONTENT_ALT_BLOCKLIST_DEFAULT) == set(pipeline_smart.CHANNEL_PROFILE["content_alt_blocklist"])
+    # Блоклист жанра — ТОЛЬКО в профиле (25.09): код-копия была вторым
+    # источником правды, и её приходилось держать «1-в-1» руками.
+    assert pipeline_smart._CONTENT_ALT_BLOCKLIST_DEFAULT == ()
+    assert set(pipeline_smart.CONTENT_ALT_BLOCKLIST) == set(pipeline_smart.CHANNEL_PROFILE["content_alt_blocklist"])
 
 
 def test_voice_tuning_matches_channel_profile_file():

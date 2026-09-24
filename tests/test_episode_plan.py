@@ -103,7 +103,12 @@ def test_museum_filter_passport_then_profile_then_nothing(monkeypatch):
         assert ms.era_window() is None and ms.foreign_culture_terms() == ()
         assert ms.era_overlaps(-3000, -2900), "нет ни паспорта, ни эпохи канала — не фильтровать"
         monkeypatch.setattr(ms, "_profile", lambda: {"era_from": 900, "era_to": 1600})
-        assert ms.era_window() == (900, 1600) and "egypt" in ms.foreign_culture_terms()
+        assert ms.era_window() == (900, 1600)
+        assert ms.foreign_culture_terms() == (), \
+            "окно эпохи само по себе не объявляет чужие культуры (прежняя скрытая связь)"
+        monkeypatch.setattr(ms, "_profile", lambda: {"era_from": 900, "era_to": 1600,
+                                                     "foreign_culture_terms": ["egypt", "japan"]})
+        assert "egypt" in ms.foreign_culture_terms()
         ms.set_episode_world({"era": {"from": -3100, "to": 2026},
                               "culture": {"include": ["egyptian"], "exclude": ["roman"]}})
         terms = ms.foreign_culture_terms()

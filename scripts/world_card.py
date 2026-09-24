@@ -255,6 +255,20 @@ def culture_exclude(card, fallback=()):
     return _as_terms(fallback)
 
 
+def apply_culture(channel_terms, card):
+    """Список «чужого» канала под мир ЭТОГО эпизода: своя культура эпизода
+    из него вычитается (в эпизоде про корейское оружие «korean» из
+    блоклиста канала выбрасывал бы сам предмет разговора), чужие культуры
+    эпизода добавляются. ОДНО правило на оба пути, которые его применяют:
+    текстовый фильтр кандидатов (pipeline_smart.content_blocklist_effective)
+    и паспорт музейного предмета (museum_sources.foreign_culture_terms) —
+    раньше это были две копии одного выражения."""
+    channel = _as_terms(channel_terms)
+    own = culture_include(card)
+    base = tuple(t for t in channel if not any(t in i or i in t for i in own))
+    return base + tuple(t for t in culture_exclude(card) if t not in base)
+
+
 def era_window(card):
     """(from, to) знаковыми годами или None. Совместимо с окном паспорта
     музейного предмета — сравнивается той же museum_sources.era_overlaps()."""

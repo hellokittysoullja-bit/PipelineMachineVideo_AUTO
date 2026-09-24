@@ -3482,8 +3482,8 @@ THEMES = load_themes()
 # только затем, чтобы CHANNEL_PROFILE был готов до первого override. Клон
 # репозитория под другую нишу (см. ЧАСТЬ 24) заводит СВОЙ
 # channel_profile.json — код трогать не нужно.
-CHANNEL_PROFILE = load_json_dict(os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "channel_profile.json"))
+import channel_profile  # noqa: E402  — один читатель профиля на все модули
+CHANNEL_PROFILE = channel_profile.load()
 
 # Override зашитых творческих констант этого канала значениями из профиля,
 # если он есть (см. комментарий выше) — MOOD_GRADE (грейд по секциям) и
@@ -3628,21 +3628,12 @@ def has_action_word(text):
 #    чем физичны. Сами основы остаются в ACTION_STEMS (решение "видео вместо
 #    фото" — отдельное и менее рискованное), но уточнять ими ЗАПРОС нечем:
 #    честнее не уточнять, чем уточнять во вред.
-ACTION_VIDEO_QUALIFIERS = (
-    (("занос", "занёс", "занес", "замахн", "замахив", "размах", "взмах",
-      "махал", "махнул"), "wielding"),
-    (("рубил", "рубит", "рубят", "рубить", "рубк", "сеча", "сечи", "сечь"), "slashing"),
-    (("колол", "колющ", "укол", "вонз"), "thrusting"),
-    (("фехт", "поедин", "дуэл"), "fencing duel"),
-    (("битв", "сражен", "сража", "схватк", "рукопашн", "драл", "драк", "бой",
-      "резн"), "fighting"),
-    (("атак", "штурм", "наступлен", "прорыв", "нападен", "напада", "осада",
-      "осади", "осажд"), "charging attack"),
-    (("скакал", "скачет", "скачка"), "galloping horse"),
-    (("бегут", "бежал", "бежит", "бегом", "мчат", "мчал", "мчит"), "running"),
-    (("маршир", "поход"), "marching"),
-    (("пожар", "горит", "горят", "горел", "взрыв", "обстрел"), "fire flames"),
-)
+# Слова движения -> английское уточнение запроса видео. Словарь языка и
+# ниши канала — в channel_profile.json (`action_video_qualifiers`), в коде
+# пусто: у клона под другую нишу «фехт» -> «fencing duel» был бы чужим
+# словом в каждом запросе (ЧАСТЬ 24).
+ACTION_VIDEO_QUALIFIERS = tuple((tuple(stems), q) for stems, q in
+                                CHANNEL_PROFILE.get("action_video_qualifiers", ()))
 
 
 def action_video_qualifier(text):
@@ -5397,58 +5388,10 @@ def merge_slot_report(path, fresh_misses, *, resolved_slots, extra=None):
 # расхождение молчало, потому что имя было одно и то же, и не с чем было
 # сравнить. Починено (термины добавлены ниже), но имя разделено, чтобы
 # тест мог реально проверить инвариант, а не поверить ему на слово.
-_CONTENT_ALT_BLOCKLIST_DEFAULT = (
-    "cosplay", "anime", "manga character", "video game character",
-    "bathroom scale", "body scale", "weight loss", "weight management",
-    "body fat", "diet plan", "measuring tape body", "barefoot", "bare feet",
-    "feet on scale", "feet on a scale", "human foot", "obesity",
-    # Найдено вживую (deep-audit, videos/_test20s, 29 августа): и фото, и
-    # видео-кандидаты по queries вроде "knight armor holding sword two
-    # hands"/"warrior on horseback with sword" на Pexels — это чаще всего
-    # СОВРЕМЕННЫЕ buhurt/HEMA-турниры и историческая реконструкция (видимая
-    # толпа зрителей в обычной одежде, телефоны, деревянные ограждения), а
-    # не постановочный "кинематографичный" кадр — CLIP-релевантность это не
-    # ловит (тема "меч"/"бой" совпадает), только текстовый alt отличает.
-    "reenactment", "reenactor", "medieval festival", "renaissance faire",
-    "buhurt", "hema tournament", "combat sport", "full contact fighting",
-    "spectators watching", "crowd watching", "audience watching",
-    # Культурно-исторические анахронизмы (см. CLAUDE.md ЧАСТЬ 13/14,
-    # QUERY_DISAMBIGUATION_RULES/VISUAL_DOMAIN_GUARDS ниже — три независимых
-    # слоя защиты): 15 терминов ниже были добавлены ТОЛЬКО в
-    # channel_profile.json при работе над анахронизмами (катана в выдаче по
-    # "sword"), в этот хардкод-дефолт — никогда. channel_profile.json
-    # всегда побеждает при .get() ниже, поэтому расхождение не меняло
-    # текущее поведение репозитория — но нарушало документированный
-    # инвариант "1-в-1" (см. _comment в channel_profile.json) и тихо
-    # теряло бы защиту от анахронизмов, если конфиг когда-нибудь окажется
-    # отсутствующим/повреждённым. Найдено 03.09 самоаудитом на тот же
-    # класс бага, что дал непримененную виньетку в этой же сессии.
-    "katana", "samurai", "kimono", "chinese sword", "jian sword",
-    "wuxia", "tai chi", "shogun", "ninja",
-    # Найдено вживую 08.09 на реальном рендере videos/_test20s: победитель
-    # хук-слота "warrior on horseback with sword" (query СОДЕРЖИТ "sword" —
-    # domain guard проверяется, но кадр снят со спины, клинка в кадре не
-    # видно вообще, форму сравнивать физически не с чем) — реальное Pexels-
-    # видео 32736476, url-слаг
-    # ".../traditional-korean-sword-fighting-demonstration-32736476/".
-    # Корейская дворцовая церемония смены караула (баннеры с корейским
-    # текстом, костюм в стиле эпохи Чосон) — не покрыта ни одним
-    # существующим термином выше (katana/samurai/kimono и т.п. — японские/
-    # китайские; korean/hanbok/joseon покрывают отдельную культуру).
-    "korean", "hanbok", "joseon",
-    "stormtrooper", "motorcycle helmet", "sci-fi costume", "tribal costume",
-    "cultural festival", "video game icon",
-    # Добавлено 07.09 по ЖИВОЙ выдаче Pexels (655 кандидатов по 30 запросам
-    # опубликованного эпизода), а не по интуиции. "fencing"/"fencer"/"epee":
-    # 45 кандидатов — современное спортивное фехтование, приходящее по
-    # запросам вроде "medieval knight sword battle"; проверены все 45 слагов,
-    # забора-ограды среди них нет ни одного. "parade": все 13 — либо
-    # костюмированные фестивали, либо современная военная церемония, либо
-    # другая культура. Заметны эти кандидаты стали только после того, как
-    # фильтр научился читать слаг url (см. pexels_candidate_text) — у видео
-    # alt приходит пустым, и раньше их текста никто не видел.
-    "fencing", "fencer", "epee", "parade", "military wedding",
-)
+# Код-копия списка удалена: она держалась «1-в-1» с профилем руками, то
+# есть была вторым источником правды одного списка. Список — только в
+# channel_profile.json.
+_CONTENT_ALT_BLOCKLIST_DEFAULT = ()
 # Override из channel_profile.json (см. CHANNEL_PROFILE выше) — тот же
 # принцип, что MOOD_GRADE/VOICE_*: список выше — хардкод по умолчанию ЭТОГО
 # (военно-исторического) канала, для другой ниши (например, игровой канал,
@@ -5587,17 +5530,7 @@ def content_blocklist_effective():
     есть бесплатно. Нет паспорта — список ровно тот же, что был.
     """
     import world_card
-    card = episode_world_card()
-    extra = world_card.culture_exclude(card)
-    own = world_card.culture_include(card)
-    # Своя культура эпизода не может быть запретом: в эпизоде про корейское
-    # оружие слово «korean» из блоклиста канала выбрасывало бы сам предмет
-    # разговора. То же вычитание, что у музейного фильтра
-    # (museum_sources.foreign_culture_terms) — одно правило на оба пути.
-    base = tuple(t for t in CONTENT_ALT_BLOCKLIST if not any(t in i or i in t for i in own))
-    if not extra and base == CONTENT_ALT_BLOCKLIST:
-        return CONTENT_ALT_BLOCKLIST
-    return base + tuple(t for t in extra if t not in base)
+    return world_card.apply_culture(CONTENT_ALT_BLOCKLIST, episode_world_card())
 
 
 # Реальный, подтверждённый случай (внешний аудит + прямая проверка на
@@ -5637,25 +5570,10 @@ def content_blocklist_effective():
 # же паттерн override из channel_profile.json, что CONTENT_ALT_BLOCKLIST
 # выше (для другой ниши/культурного контекста правила заменяются целиком
 # через профиль, не код).
-QUERY_DISAMBIGUATION_RULES = (
-    {"term": "sword",
-     "unless": ("katana", "samurai", "chinese", "japanese", "jian", "wuxia", "asian", "kimono"),
-     "qualifier": "european"},
-    {"term": "helmet",
-     "unless": ("katana", "samurai", "chinese", "japanese", "asian", "sci-fi", "futuristic",
-                "motorcycle", "bike", "football", "construction"),
-     "qualifier": "european"},
-    {"term": "armor",
-     "unless": ("katana", "samurai", "chinese", "japanese", "asian", "sci-fi", "futuristic",
-                "cosplay", "stormtrooper", "video game"),
-     "qualifier": "european medieval"},
-    {"term": "spear",
-     "unless": ("african", "tribal", "zulu", "asian", "japanese", "chinese", "maori"),
-     "qualifier": "european medieval"},
-    {"term": "battle",
-     "unless": ("modern", "sci-fi", "futuristic", "space", "video game", "wwii", "world war"),
-     "qualifier": "european medieval"},
-)
+# Правила канала — в channel_profile.json (`query_disambiguation_rules`);
+# в коде пусто: «european» перед «sword» — свойство этого канала, а не
+# стока.
+QUERY_DISAMBIGUATION_RULES = ()
 QUERY_DISAMBIGUATION_RULES = tuple(CHANNEL_PROFILE.get("query_disambiguation_rules", QUERY_DISAMBIGUATION_RULES))
 
 
@@ -6595,10 +6513,10 @@ _MUSEUM_SEARCH_CACHE = {}      # то же для прямых API музеев 
 #
 # Слова, которые режут выдачу в ноль, не неся эпохи: композиция кадра и
 # обстоятельства сцены.
+# В коде — только слова КАМЕРЫ (они не зависят от ниши); слова сцены и
+# предмета канала — в channel_profile.json (`openverse_query_modifiers`).
 _OPENVERSE_QUERY_MODIFIERS_DEFAULT = (
     "closeup", "close-up", "macro", "detail", "shot", "view", "angle", "wide",
-    "lying", "fallen", "ground", "mud", "dirt", "marching", "column", "camp",
-    "field", "battlefield", "pommel", "slit", "water", "display", "foot",
 )
 # Якорь эпохи/культуры — единственное, что удерживает выдачу в своём мире.
 # Из запроса НЕ выбрасывается никогда: без него "plate armour" первым
@@ -6806,7 +6724,7 @@ def generic_fallback_queries_effective():
     ноль регрессии."""
     import world_card
     subjects = world_card.expected_subjects(episode_world_card())
-    return subjects if subjects else GENERIC_FALLBACKS
+    return subjects or GENERIC_FALLBACKS or [NEUTRAL_FALLBACK_QUERY]
 
 
 def brief_to_stock_query(brief, fallback=None, max_words=BRIEF_STOCK_QUERY_MAX_WORDS):
@@ -8766,11 +8684,14 @@ def write_shotlist(video_dir, shots, gates, prev=None):
     return path
 
 
-GENERIC_FALLBACKS = [
-    "medieval sword still life", "knight armor moody light",
-    "medieval castle atmosphere", "old manuscript parchment history",
-    "cinematic dark fantasy weapon",
-]
+# Запасные запросы канала — в channel_profile.json (`generic_fallbacks`).
+# В коде пусто: средневековый список уходил музею на слот про смартфон в
+# эпизоде другой ниши (см. generic_fallback_queries_effective).
+GENERIC_FALLBACKS = list(CHANNEL_PROFILE.get("generic_fallbacks", ()))
+# Последний запасной запрос, когда ни паспорт, ни канал ничего не
+# объявили: нейтральный к нише, иначе у пустого списка было бы деление на
+# ноль в resolve_queries.
+NEUTRAL_FALLBACK_QUERY = "cinematic b-roll footage"
 
 
 def query_for(text, keyword_counts=None):
@@ -9023,16 +8944,8 @@ def _cached_semantic_query_assignment(block_texts, queries):
 # за нишу канала. Переопределяется в channel_profile.json ключом
 # "query_era_anchors" тем же паттерном, что content_alt_blocklist: у канала
 # про античность или про Вторую мировую якоря будут совершенно другие.
-_QUERY_ERA_ANCHORS_DEFAULT = (
-    "medieval", "knight", "armour", "armor", "helmet", "sword", "longsword",
-    "dagger", "rondel", "poleaxe", "halberd", "mace", "war hammer", "shield",
-    "chainmail", "mail", "gauntlet", "sabaton", "visor", "breastplate",
-    "archer", "longbow", "crossbow", "bodkin", "arrowhead", "barding",
-    "castle", "fortress", "moat", "siege", "manuscript", "illumination",
-    "heraldry", "coat of arms", "effigy", "monastery", "cathedral",
-    "skeleton", "burial", "archaeological", "excavation", "museum",
-    "century", "historical", "ancient",
-)
+# Список канала — в channel_profile.json (`query_era_anchors`); в коде пусто.
+_QUERY_ERA_ANCHORS_DEFAULT = ()
 
 QUERY_ERA_ANCHORS = tuple(
     t.lower() for t in
@@ -11222,16 +11135,9 @@ def is_risky_query(query):
 # «ловит», раз ложный accept анахронизма дороже ложного reject (см. коммент
 # выше). ЧЕСТНО: это НЕ полная переоценка на живой 45-фото выборке (та не
 # сохранена) — отдельная задача, не в этом заходе.
-VISUAL_DOMAIN_GUARDS = (
-    {
-        "name": "east_asian_sword",
-        "trigger_terms": ("sword", "blade", "katana", "longsword", "saber", "sabre"),
-        "euro_prompt": "straight double-edged european longsword blade with cross-shaped hilt guard",
-        "asian_prompt": ("curved single-edged katana blade with round tsuba guard, "
-                          "or chinese jian sword with diamond pommel and tassel"),
-        "margin_threshold": -0.034,
-    },
-)
+# Правила канала — в channel_profile.json (`visual_domain_guards`): ось
+# «европейский клинок против восточноазиатского» — свойство этого канала.
+VISUAL_DOMAIN_GUARDS = ()
 VISUAL_DOMAIN_GUARDS = tuple(CHANNEL_PROFILE.get("visual_domain_guards", VISUAL_DOMAIN_GUARDS))
 
 
@@ -11268,16 +11174,9 @@ VISUAL_DOMAIN_GUARDS = tuple(CHANNEL_PROFILE.get("visual_domain_guards", VISUAL_
 # ловит 2 годных — граница безопасности заканчивается ровно на -0.015).
 # Подбор остался тем же принципом, что и первый заход: одна согласованная
 # точка сканирования, не подгонка индивидуально под кадр.
-_CONTENT_NEGATIVE_ANCHORS_DEFAULT = (
-    "modern sport fencing competition with electric scoring equipment",
-    "referee, scoreboard and numbered bibs at a sports event",
-    "modern plastic protective mask and synthetic sportswear",
-    "crowd of modern spectators in casual clothes watching an event",
-    "modern city street with cars, asphalt and printed signage",
-    "modern indoor gym or hall with artificial lighting and painted floor",
-    "east asian temple, kimono and curved single-edged sword",
-    "modern domestic interior, kitchen, plastic and household objects",
-)
+# Ловушки канала — в channel_profile.json (`content_negative_anchors`); в
+# коде пусто. Ловушки эпизода — из паспорта (must_not_show).
+_CONTENT_NEGATIVE_ANCHORS_DEFAULT = ()
 # Override под нишу — тот же паттерн, что CONTENT_ALT_BLOCKLIST/
 # VISUAL_DOMAIN_GUARDS: для канала про современный спорт эти же ловушки были
 # бы ровно нужным контентом, и список заменяется в профиле, а не в коде.

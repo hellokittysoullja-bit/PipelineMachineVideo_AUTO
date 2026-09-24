@@ -43,8 +43,6 @@
 Источники объявляют себя ДАННЫМИ (`SOURCE_CAPABILITIES`), а не развилкой в
 коде — новый источник добавляется строкой таблицы.
 """
-import json
-import os
 import re
 
 SHOT_TYPES = ("object", "scene", "illustration", "texture", "map")
@@ -89,41 +87,9 @@ SOURCE_CAPABILITIES = {
 # `illustration`/`map` стоят выше сцены, потому что там решает НОСИТЕЛЬ
 # изображения: «medieval manuscript battle illustration» — это рукопись, а
 # не поле боя, и рукописи как раз лучшее, что отдают музеи и архивы.
-_TYPE_LEXICON = (
-    ("map", (
-        "map", "cartograph", "atlas", "portolan", "mappa mundi",
-    )),
-    ("illustration", (
-        "manuscript", "illumination", "illuminated", "miniature", "codex",
-        "psalter", "book of hours", "woodcut", "engraving", "fresco",
-        "tapestry", "painting", "altarpiece", "effigy", "chronicle",
-        "drawing", "etching", "initial",
-    )),
-    ("texture", (
-        "texture", "fabric weave", "pattern",
-    )),
-    ("scene", (
-        "battlefield", "field", "mud", "dirt", "camp", "tent", "castle",
-        "moat", "forest", "river", "village", "siege", "landscape", "fog",
-        "storm", "road", "hill", "marsh", "swamp", "courtyard", "street",
-        "sky", "crowd", "column", "march", "charge", "night", "dawn",
-        "rain", "ground", "melee", "interior", "monastery", "burial",
-        "excavation", "ruins", "fallen", "lying",
-    )),
-    ("object", (
-        "sword", "dagger", "blade", "armour", "armor", "helmet", "helm",
-        "breastplate", "gauntlet", "pommel", "hilt", "poleaxe", "halberd",
-        "mace", "shield", "chainmail", "mail shirt", "crossbow", "longbow",
-        "spear", "lance", "visor", "sallet", "cuirass", "greave", "coin",
-        "reliquary", "chalice", "crown", "seal", "museum display",
-        "museum exhibit", "artefact", "artifact", "arrow", "arrowhead",
-        "bodkin", "barding", "sabaton", "spur", "brooch", "buckle",
-        "hammer", "heraldry", "coat of arms",
-        # Короткие слова не ловятся по началу слова (см. MIN_PREFIX_LEN),
-        # поэтому ходовые формы перечислены явно.
-        "coins", "hoard",
-    )),
-)
+# Словарь канала — в channel_profile.json (`shot_type_lexicon`); в коде
+# пусто. Нет словаря — тип `any`: все источники, как до маршрутизации.
+_TYPE_LEXICON = ()
 
 # Отдел Мет для СТРУКТУРНОГО запроса предметного слота. Один отдел на
 # запрос: параметр `departmentId` у Мет принимает одно значение, а
@@ -135,19 +101,9 @@ _TYPE_LEXICON = (
 # archer armour manuscript» — иллюстрация, и отдел ей нужен «Средневековое
 # искусство» (17), а не «Оружие и доспехи» (4), хотя слово armour там есть
 # (реальный промах первой версии на 42 запросах эпизода).
-_MET_DEPARTMENTS_DEFAULT = (
-    (("manuscript", "illumination", "illuminated", "codex", "psalter",
-      "book of hours", "reliquary", "ivory", "effigy", "tomb", "chalice",
-      "crown", "seal", "initial", "miniature"), 17, ("illustration",)),
-    (("sword", "dagger", "blade", "armour", "armor", "helmet", "helm",
-      "breastplate", "gauntlet", "pommel", "hilt", "poleaxe", "halberd",
-      "mace", "shield", "chainmail", "crossbow", "longbow", "lance",
-      "visor", "sallet", "cuirass", "greave", "weapon", "arrow", "bow",
-      "sabaton", "spur", "barding"), 4, ("object",)),
-    (("manuscript", "illumination", "illuminated", "codex", "psalter",
-      "book of hours", "reliquary", "ivory", "effigy", "tomb", "chalice",
-      "crown", "seal", "initial"), 17, ("object", "illustration")),
-)
+# Отделы канала — в channel_profile.json (`museum_departments`); в коде
+# пусто. Нет отделов — музей спрашивается свободным текстом.
+_MET_DEPARTMENTS_DEFAULT = ()
 
 _WORD_RE = re.compile(r"[a-z]+")
 
@@ -174,12 +130,8 @@ def _term_matches(term, words, low):
 
 
 def _profile():
-    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    try:
-        with open(os.path.join(here, "channel_profile.json"), encoding="utf-8") as f:
-            return json.load(f) or {}
-    except Exception:
-        return {}
+    import channel_profile
+    return channel_profile.load()
 
 
 def _lexicon():
