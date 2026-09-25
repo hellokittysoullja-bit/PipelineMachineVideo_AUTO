@@ -134,7 +134,7 @@ class TestPhotoPath:
              "src": {"large2x": f"http://x/{i}.jpg"}}
             for i in range(1, n + 1)])
         monkeypatch.setattr(pipeline_smart, "disambiguate_search_query", lambda q: q)
-        monkeypatch.setattr(pipeline_smart, "image_sharpness_score", lambda p: 999.0)
+        monkeypatch.setattr(pipeline_smart, "image_local_sharpness", lambda p: 999.0)
         monkeypatch.setattr(pipeline_smart, "aesthetic_score", lambda p: 5.0)
         monkeypatch.setattr(pipeline_smart, "estimate_shot_size", lambda p: "medium")
         monkeypatch.setattr(pipeline_smart, "measure_luma", lambda p: 0.4)

@@ -96,7 +96,7 @@ class TestWholeSliceIsEvaluated:
                             lambda path, text: rel.get(os.path.basename(path).split("trial_")[-1].replace(".jpg", ""), None)
                             if False else rel.get(_which(path), 0.0))
         monkeypatch.setattr(ps, "is_relevant_candidate", lambda path, q, relevance=None: (relevance or 0) >= 0.19)
-        monkeypatch.setattr(ps, "image_sharpness_score", lambda p: 100.0)
+        monkeypatch.setattr(ps, "image_local_sharpness", lambda p: 100.0)
 
         # Обратное соответствие «имя trial-файла -> кандидат» строится ТОЙ
         # ЖЕ функцией, которой имя строит прод (`candidate_path_token`), а не
@@ -141,7 +141,7 @@ class TestSharpnessOnFullSizeWinner:
                             lambda path, text: _rel[
                                 path.rsplit(".trial_", 1)[-1].replace(".jpg", "")])
         monkeypatch.setattr(ps, "is_relevant_candidate", lambda path, q, relevance=None: True)
-        monkeypatch.setattr(ps, "image_sharpness_score",
+        monkeypatch.setattr(ps, "image_local_sharpness",
                             lambda p: 1.0 if os.path.basename(p).startswith("0000_") and _is_full0(p) else 100.0)
         seen_full = {}
 
@@ -202,7 +202,7 @@ class TestOpenverseProbeDoesNotBurnTheApiQuota:
         monkeypatch.setattr(ps, "_museum_search_photos", lambda q, department=None: [dict(cand)])
         monkeypatch.setattr(ps, "clip_relevance", lambda path, text: 0.30)
         monkeypatch.setattr(ps, "is_relevant_candidate", lambda path, q, relevance=None: True)
-        monkeypatch.setattr(ps, "image_sharpness_score", lambda p: 100.0)
+        monkeypatch.setattr(ps, "image_local_sharpness", lambda p: 100.0)
         out = pick_photo(ps, "medieval armour", 0, used_ids=set(), used_hashes=[], target_luma=0.4,
                               text_key="probe-fallback")
         assert out is not None

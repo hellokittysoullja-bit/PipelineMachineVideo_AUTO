@@ -174,7 +174,7 @@ class TestWiredIntoPoolAssembly:
         monkeypatch.setattr(ps, "_pexels_search_photos", lambda q: [])
         monkeypatch.setattr(ps, "disambiguate_search_query", lambda q: q)
         monkeypatch.setattr(ps, "is_relevant_candidate", lambda *a, **k: True)
-        monkeypatch.setattr(ps, "image_sharpness_score", lambda p: 999.0)
+        monkeypatch.setattr(ps, "image_local_sharpness", lambda p: 999.0)
         monkeypatch.setattr(ps, "aesthetic_score", lambda p: 5.0)
         monkeypatch.setattr(ps, "estimate_shot_size", lambda p: "medium")
         monkeypatch.setattr(ps, "measure_luma", lambda p: 0.4)

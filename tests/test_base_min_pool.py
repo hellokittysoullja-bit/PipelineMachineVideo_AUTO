@@ -55,7 +55,7 @@ def _stub_pool(monkeypatch, tmp_path, n=9):
          "src": {"large2x": f"http://x/{i}.jpg"}} for i in range(1, n + 1)])
     monkeypatch.setattr(ps, "disambiguate_search_query", lambda q: q)
     monkeypatch.setattr(ps, "is_relevant_candidate", lambda *a, **k: True)
-    monkeypatch.setattr(ps, "image_sharpness_score", lambda p: 999.0)
+    monkeypatch.setattr(ps, "image_local_sharpness", lambda p: 999.0)
     monkeypatch.setattr(ps, "measure_luma", lambda p: 0.4)
     monkeypatch.setattr(ps, "estimate_shot_size", lambda p: "medium")
 
