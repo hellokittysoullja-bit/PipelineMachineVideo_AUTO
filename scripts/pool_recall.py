@@ -46,8 +46,11 @@ import argparse
 import hashlib
 import json
 import os
+import re
+import shutil
 import sys
 import tempfile
+import urllib.parse
 import urllib.request
 
 from PIL import Image, ImageDraw
@@ -123,7 +126,7 @@ class Embedder:
                         pass
         if url in self.dead:
             return None
-        path = fetch(url, headers)
+        path = fetch(url, headers, (cand or {}).get("id") if isinstance(cand, dict) else None)
         if not path:
             # Мёртвый адрес (протухшая подпись Pixabay отвечает 400) не
             # запрашивается повторно на каждом порядке каждого слота.
@@ -147,20 +150,66 @@ class Embedder:
         return None if v is None else v[0]
 
 
-def fetch(url, headers):
-    """Превью во временный файл; None при сбое."""
+# Скачанные превью хранятся по номеру кандидата: ссылки Pixabay подписанные
+# и протухают за сутки, и замер, повторённый назавтра, молча терял каждый
+# кадр Pixabay (живой случай 25.09: второй прогон оценил две трети кадров, и
+# числа вариантов стали несравнимы). Пустое — не хранить.
+IMG_STORE = os.environ.get("POOL_RECALL_IMG_STORE", "")
+
+
+def _store_path(cand_id):
+    if not IMG_STORE or cand_id is None:
+        return None
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", str(cand_id))
+    return os.path.join(IMG_STORE, safe + ".jpg")
+
+
+def _pixabay_fresh_url(cand_id):
+    """Свежая ссылка на то же превью (640 px) через API Pixabay по номеру."""
+    key = (os.environ.get("PIXABAY_API_KEY") or "").strip()
+    if not key or not str(cand_id).startswith("pixabay:"):
+        return None
+    try:
+        q = urllib.parse.urlencode({"key": key, "id": str(cand_id).split(":", 1)[1]})
+        with urllib.request.urlopen(urllib.request.Request(
+                "https://pixabay.com/api/?" + q, headers={"User-Agent": UA}), timeout=20) as r:
+            hits = json.loads(r.read().decode("utf-8")).get("hits") or []
+        return hits[0].get("webformatURL") if hits else None
+    except Exception:
+        return None
+
+
+def _download(url, headers, path):
     h = {"User-Agent": UA}
     h.update(headers or {})
-    fd, path = tempfile.mkstemp(suffix=".jpg")
-    os.close(fd)
     try:
         with urllib.request.urlopen(urllib.request.Request(url, headers=h), timeout=20) as r, \
                 open(path, "wb") as f:
             f.write(r.read())
-        if os.path.getsize(path) > 0:
-            return path
+        return os.path.getsize(path) > 0
     except Exception:
-        pass
+        return False
+
+
+def fetch(url, headers, cand_id=None):
+    """Превью во временный файл; None при сбое. С IMG_STORE — сначала из
+    хранилища по номеру кандидата; протухшая ссылка Pixabay — заново через
+    API по номеру."""
+    fd, path = tempfile.mkstemp(suffix=".jpg")
+    os.close(fd)
+    stored = _store_path(cand_id)
+    if stored and os.path.exists(stored):
+        shutil.copyfile(stored, path)
+        return path
+    ok = bool(url) and _download(url, headers, path)
+    if not ok:
+        fresh = _pixabay_fresh_url(cand_id)
+        ok = bool(fresh) and _download(fresh, {}, path)
+    if ok:
+        if stored:
+            os.makedirs(IMG_STORE, exist_ok=True)
+            shutil.copyfile(path, stored)
+        return path
     os.remove(path)
     return None
 
@@ -258,7 +307,7 @@ def orders_for(rec, emb, phrase_queries, base_dur=None):
 
 
 def tile(row, label):
-    path = fetch(row.get("probe_url"), row.get("headers"))
+    path = fetch(row.get("probe_url"), row.get("headers"), row.get("id"))
     bg = Image.new("RGB", (TW, TH + 34), (16, 16, 16))
     if path:
         try:
@@ -423,7 +472,7 @@ def cmd_bench(a):
 
         def ask(item):
             r, lab = item
-            path = fetch(r.get("probe_url"), r.get("headers"))
+            path = fetch(r.get("probe_url"), r.get("headers"), r.get("id"))
             if not path:
                 return None
             try:
@@ -461,7 +510,7 @@ def cmd_bench(a):
             # сетки — из кэша прошлого прогона со --grid).
             have = []
             for r, lab in rows[:a.handoff]:
-                pth = fetch(r.get("probe_url"), r.get("headers"))
+                pth = fetch(r.get("probe_url"), r.get("headers"), r.get("id"))
                 if pth:
                     have.append((r, lab, pth))
             gr = shot_judge.judge(gw, model, phrase=rec.get("block_text"), brief=spec["focus"],
