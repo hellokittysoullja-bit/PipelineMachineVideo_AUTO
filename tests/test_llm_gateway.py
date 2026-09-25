@@ -11,6 +11,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 import llm_gateway as lg  # noqa: E402
+import source_health  # noqa: E402
 
 CATALOG = {"data": [{"id": "m/vision", "billing": {"coefficient": {"input": 0.5, "output": 2}}},
                     {"id": "m/free", "billing": {"coefficient": {"input": 0, "output": 0}}},
@@ -68,6 +69,28 @@ def ok(text="{}", pt=100, ct=10):
 @pytest.fixture(autouse=True)
 def no_sleep(monkeypatch):
     monkeypatch.setattr(lg.time, "sleep", lambda s: None)
+    source_health.reset_all()   # регулятор шлюза общий на процесс
+    yield
+    source_health.reset_all()
+
+
+class Clock:
+    """Часы, которые идут только во сне: пауза шлюза проходит мгновенно,
+    но проходит — иначе «переждать паузу» нечем проверить."""
+
+    def __init__(self, monkeypatch):
+        self.now = 1000.0
+        self.slept = []
+        monkeypatch.setattr(source_health.time, "monotonic", lambda: self.now)
+        monkeypatch.setattr(lg.time, "sleep", self.sleep)
+
+    def sleep(self, s):
+        self.slept.append(s)
+        self.now += s
+
+
+def chat_calls(op):
+    return len([r for r in op.requests if "chat" in r.full_url])
 
 
 def test_price_comes_from_the_catalog_and_actual_usage():
@@ -265,3 +288,80 @@ def test_reasoning_switch_follows_the_models_thinking_format():
     assert llm_gateway.reasoning_switch("deepseek", False) == {"thinking": {"type": "disabled"}}
     assert llm_gateway.reasoning_switch("qwen", False) == {"reasoning": {"enabled": False}}
     assert llm_gateway.reasoning_switch(None, True) == {"reasoning": {"enabled": True}}
+
+
+def test_a_call_during_a_pause_waits_it_out_instead_of_failing(monkeypatch):
+    """judge14, слот 0: шлюз ушёл на паузу посреди проверки финалистов, и
+    каждый вызов в паузе получал отказ — три настоящих кинжала остались без
+    проверки, а меч, проверенный до сбоя, встал на экран. Вызывающие код
+    чинили это сами, двумя разными копиями; теперь пауза пережидается в
+    самом шлюзе, для всех вызовов."""
+    clock = Clock(monkeypatch)
+    op = Opener([ok("after pause")])
+    gw = lg.Gateway(api_key="k", opener=op)
+    gw.health().cooldown_until = clock.now + 42.0
+    assert gw.chat("m/free", [], 10, 10)[0] == "after pause"
+    assert clock.slept == [42.0] and gw.summary()["pause_wait_sec"] == 42.0
+
+
+def test_exhausted_retries_are_asked_once_more():
+    op = Opener([http_error(502)] * lg.MAX_ATTEMPTS + [ok("second try")])
+    gw = lg.Gateway(api_key="k", opener=op)
+    assert gw.chat("m/free", [], 10, 10)[0] == "second try"
+    assert gw.reasked == 1 and chat_calls(op) == lg.MAX_ATTEMPTS + 1
+
+
+def test_a_second_exhaustion_is_a_failure_not_an_endless_loop():
+    op = Opener([http_error(502)] * (2 * lg.MAX_ATTEMPTS) + [ok("never")])
+    with pytest.raises(lg.GatewayError, match="повторы исчерпаны"):
+        lg.Gateway(api_key="k", opener=op).chat("m/free", [], 10, 10)
+    assert chat_calls(op) == 2 * lg.MAX_ATTEMPTS
+
+
+def test_a_lost_paid_body_is_not_asked_again():
+    """Ответ оборвался после начала — сервис его, скорее всего, списал.
+    Переспрос платил бы за тот же вопрос ещё до MAX_ATTEMPTS раз."""
+    op = Opener([Truncated() for _ in range(lg.MAX_ATTEMPTS)] + [ok("never")])
+    gw = lg.Gateway(api_key="k", opener=op)
+    with pytest.raises(lg.GatewayError, match="оборван"):
+        gw.chat("m/free", [], 10, 10)
+    assert gw.reasked == 0 and chat_calls(op) == lg.MAX_ATTEMPTS
+
+
+def test_a_dead_gateway_stops_costing_a_pause_per_call(monkeypatch):
+    """Лежащий сервис: после GATEWAY_MAX_PAUSES пауз подряд без единого
+    ответа шлюз выключается до конца прогона, и следующий вызов отказывает
+    сразу — без минуты ожидания и без запросов."""
+    clock = Clock(monkeypatch)
+    op = Opener([http_error(502)] * 1000)
+    gw = lg.Gateway(api_key="k", opener=op)
+    for _ in range(50):
+        try:
+            gw.chat("m/free", [], 10, 10)
+        except lg.GatewayError:
+            pass
+        if gw.dead:
+            break
+    assert gw.dead and "пауз подряд" in gw.dead
+    assert gw.pauses == lg.GATEWAY_MAX_PAUSES
+    before, waited = chat_calls(op), len(clock.slept)
+    with pytest.raises(lg.GatewayError, match="выключен"):
+        gw.chat("m/free", [], 10, 10)
+    assert chat_calls(op) == before and len(clock.slept) == waited
+
+
+def test_an_answer_resets_the_pause_count(monkeypatch):
+    Clock(monkeypatch)
+    fails = [http_error(502)] * (lg.GATEWAY_FAIL_THRESHOLD * 2 * lg.MAX_ATTEMPTS)
+    op = Opener(fails + [ok("alive")] + fails + [ok("alive")])
+    gw = lg.Gateway(api_key="k", opener=op)
+    for _ in range(2):
+        for _try in range(10):
+            try:
+                gw.chat("m/free", [], 10, 10)
+                break
+            except lg.GatewayError:
+                assert not gw.dead
+        else:
+            raise AssertionError("шлюз так и не ответил")
+    assert gw.pauses == 0 and not gw.dead

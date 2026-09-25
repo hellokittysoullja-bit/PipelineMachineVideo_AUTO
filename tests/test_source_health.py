@@ -46,30 +46,42 @@ def _gw_with(responses, monkeypatch):
 
 
 def test_lying_gateway_is_not_hammered_by_every_call(monkeypatch):
-    gw, calls = _gw_with(lambda n: 502, monkeypatch)
-    for _ in range(llm_gateway.GATEWAY_FAIL_THRESHOLD):
+    """Лежащий шлюз: на паузе вызов не спрашивает сервис, а ждёт её конца
+    (llm_gateway, политика ожидания); после GATEWAY_MAX_PAUSES пауз подряд
+    без ответа — ни одного запроса до конца прогона."""
+    now = [1000.0]
+    in_pause = []
+    gw, calls = _gw_with(lambda n: (in_pause.append(gw.health().cooling()), 502)[1], monkeypatch)
+    monkeypatch.setattr(sh.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(llm_gateway.time, "sleep", lambda s: now.__setitem__(0, now[0] + s))
+    for _ in range(20):
         try:
             gw._request("GET", "/models")
         except llm_gateway.GatewayError:
             pass
+        if gw.dead:
+            break
+    assert gw.dead, "лежащий шлюз выключается, а не ждёт паузу вечно"
+    assert not any(in_pause), "на паузе шлюз не спрашивается"
     spent = len(calls)
     try:
         gw._request("GET", "/models")
-        raise AssertionError("вызов на паузе обязан отказать сразу")
+        raise AssertionError("выключенный шлюз обязан отказать сразу")
     except llm_gateway.GatewayUnavailable:
         pass
-    assert len(calls) == spent, "на паузе шлюз не спрашивается"
+    assert len(calls) == spent
 
 
 def test_a_single_answer_resets_the_failure_count(monkeypatch):
-    seq = iter([502] * llm_gateway.MAX_ATTEMPTS + [200] + [502] * llm_gateway.MAX_ATTEMPTS)
-    gw, _calls = _gw_with(lambda n: next(seq), monkeypatch)
-    for _ in range(3):
+    seq = iter([502] * llm_gateway.MAX_ATTEMPTS + [200] + [502] * (2 * llm_gateway.MAX_ATTEMPTS))
+    gw, _calls = _gw_with(lambda n: next(seq, 502), monkeypatch)
+    monkeypatch.setattr(llm_gateway.time, "sleep", lambda s: None)
+    for _ in range(2):
         try:
             gw._request("GET", "/models")
         except llm_gateway.GatewayError:
             pass
-    assert not gw.health().cooling()
+    assert not gw.health().cooling() and not gw.dead
 
 
 def test_pause_follows_the_services_retry_after_within_bounds():

@@ -59,7 +59,7 @@ class PaymentRequired(GatewayError):
 
 
 class GatewayUnavailable(GatewayError):
-    """Шлюз на паузе: несколько вызовов подряд исчерпали повторы."""
+    """Шлюз не отвечает после нескольких пауз подряд — выключен до конца прогона."""
 
 
 # Шлюз лежит — вызовы не делаются GATEWAY_COOLDOWN_SEC после
@@ -69,6 +69,17 @@ class GatewayUnavailable(GatewayError):
 # что у Мет (source_health), и те же 60 с.
 GATEWAY_FAIL_THRESHOLD = 3
 GATEWAY_COOLDOWN_SEC = 60.0
+# Политика ожидания — ОДНА, здесь, а не у каждого вызывающего. Раньше пауза
+# сразу давала отказ, и вызывающие код обходили это сами: слот судьи ждал
+# паузу в начале, проверка финалистов переспрашивала сорванные после неё
+# (живой случай judge14: три настоящих кинжала остались без проверки, и
+# меч, проверенный до сбоя, встал на экран). Две копии одной механики у
+# двух вызывающих, остальные (планировщик, второй круг, паспорт мира) не
+# имели и её. Теперь вызов сам пережидает паузу, после исчерпанных повторов
+# переспрашивает один раз, а после GATEWAY_MAX_PAUSES пауз подряд без
+# единого ответа шлюз выключается до конца прогона: лежащий сервис не
+# должен стоить минуту ожидания каждому следующему вызову.
+GATEWAY_MAX_PAUSES = 3
 
 
 class BudgetExhausted(GatewayError):
@@ -125,6 +136,13 @@ class Gateway:
         self.lost_bodies = 0    # ответы, оборванные после начала: засчитаны резервом
         self.empty_answers = 0  # оплаченные ответы без текста
         self.dead = None        # причина, по которой шлюз выключен до конца прогона
+        # Свой замок у счётчиков пауз: billing() держит self._lock, пока
+        # читает каталог через _request, и общий замок тут был бы взаимной
+        # блокировкой (поймано первым же тестом).
+        self._pause_lock = threading.Lock()
+        self.pauses = 0         # пауз подряд без единого ответа
+        self.waited = 0.0       # секунд, прожданных на паузах
+        self.reasked = 0        # вызовов, переспрошенных после исчерпанных повторов
 
     @property
     def configured(self):
@@ -140,20 +158,59 @@ class Gateway:
 
     def _request(self, method, path, body=None, timeout=120, on_lost_body=None):
         """on_lost_body() зовётся на каждый ответ, оборвавшийся после того,
-        как сервис начал его отдавать: такой вызов, скорее всего, оплачен."""
+        как сервис начал его отдавать: такой вызов, скорее всего, оплачен.
+
+        Пауза шлюза пережидается здесь же; исчерпанные повторы — один
+        переспрос после паузы (если её никто не начал — сразу), кроме
+        случая, когда ответ обрывался после начала (он оплачен). Ответ
+        важнее скорости: каждый вызов шлюза в пайплайне — оплаченная
+        работа (проверка кадра, спецификация главы), и отказ из-за чужой
+        паузы означал бы кадр без проверки там, где проверка оплачена."""
         health = self.health()
-        if health.cooling():
-            raise GatewayUnavailable(f"шлюз на паузе ещё {health.cooldown_left():.0f} с "
-                                     f"(несколько вызовов подряд без ответа)")
-        try:
-            out = self._request_with_retries(method, path, body, timeout, on_lost_body)
-        except GatewayError as e:
-            if "повторы исчерпаны" in str(e) and health.failed():
-                print(f"  шлюз не отвечает {GATEWAY_FAIL_THRESHOLD} вызова подряд — пауза "
-                      f"{GATEWAY_COOLDOWN_SEC:.0f} с, вызовы в это время не делаются")
-            raise
-        health.succeeded()
-        return out
+        lost = []
+
+        def lost_body():
+            lost.append(1)
+            if on_lost_body is not None:
+                on_lost_body()
+        for attempt in range(2):
+            self._wait_pause(health)
+            try:
+                out = self._request_with_retries(method, path, body, timeout, lost_body)
+            except GatewayError as e:
+                if "повторы исчерпаны" not in str(e):
+                    raise
+                if health.failed():
+                    with self._pause_lock:
+                        self.pauses += 1
+                        if self.pauses >= GATEWAY_MAX_PAUSES and not self.dead:
+                            self.dead = (f"не отвечает после {self.pauses} пауз подряд "
+                                         f"по {GATEWAY_COOLDOWN_SEC:.0f} с")
+                    print(f"  шлюз не отвечает {GATEWAY_FAIL_THRESHOLD} вызова подряд — пауза "
+                          f"{GATEWAY_COOLDOWN_SEC:.0f} с" + (f"; {self.dead} — выключен до конца "
+                                                          f"прогона" if self.dead else ""))
+                # Оборванный после начала ответ, скорее всего, уже оплачен:
+                # переспрос такого вызова платил бы ещё до MAX_ATTEMPTS раз.
+                if attempt == 0 and not self.dead and not lost:
+                    with self._pause_lock:
+                        self.reasked += 1
+                    continue
+                raise
+            health.succeeded()
+            with self._pause_lock:
+                self.pauses = 0
+            return out
+
+    def _wait_pause(self, health):
+        if self.dead:
+            raise GatewayUnavailable(f"шлюз выключен до конца прогона: {self.dead}")
+        left = health.cooldown_left()
+        if left > 0:
+            time.sleep(left)
+            with self._pause_lock:
+                self.waited += left
+        if self.dead:
+            raise GatewayUnavailable(f"шлюз выключен до конца прогона: {self.dead}")
 
     def _request_with_retries(self, method, path, body, timeout, on_lost_body):
         data = json.dumps(body).encode("utf-8") if body is not None else None
@@ -370,4 +427,5 @@ class Gateway:
     def summary(self):
         return {"base_url": self.base_url, "calls": self.calls, "failures": self.failures,
                 "lost_bodies": self.lost_bodies, "empty_answers": self.empty_answers,
-                "spent": self.spent, "spend_cap": self.spend_cap, "dead": self.dead}
+                "spent": self.spent, "spend_cap": self.spend_cap, "dead": self.dead,
+                "pause_wait_sec": round(self.waited, 1), "reasked": self.reasked}

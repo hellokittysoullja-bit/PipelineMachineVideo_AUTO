@@ -160,6 +160,11 @@ class NetRecorder:
         self._seq = {}           # ключ -> сколько раз уже обращались
         self._recorded = {}      # ключ -> [запись, ...] по seq (только replay)
         self.divergences = []    # запросы, которых нет в записи (только replay)
+        # Воспроизведённые СБОИ (5xx/429, обрыв, таймаут). Запись отдаёт их
+        # так же, как ответы, — и прогон повторяет чужой сбой как свойство
+        # кода. judge14/15/16 все воспроизводили один и тот же сбой шлюза на
+        # слоте 0, и сравнение прогонов шло, не видя этого.
+        self.replayed_failures = []
         self.calls = {}          # ключ -> число обращений в ЭТОМ прогоне
         self.secrets = _secrets_from_env()
         self._real = None
@@ -298,6 +303,11 @@ class NetRecorder:
                 f"записано {len(recs)})")
         rec = recs[seq]
         kind = rec["kind"]
+        if kind == "exception" or (kind == "http_error"
+                                   and (rec.get("status") == 429 or rec.get("status", 0) >= 500)):
+            with self._lock:
+                self.replayed_failures.append({"key": key, "seq": seq, "url": shown, "slot": tag,
+                                               "kind": kind, "status": rec.get("status")})
         if kind == "response":
             payload = self._load_body(rec["body"], rec.get("_root"))
             return urllib.response.addinfourl(io.BytesIO(payload), _headers_message(rec["headers"]),
@@ -316,6 +326,7 @@ class NetRecorder:
             "distinct_requests": len(self.calls),
             "total_calls": sum(self.calls.values()),
             "divergences": list(self.divergences),
+            "replayed_failures": list(self.replayed_failures),
             "calls_by_key": dict(sorted(self.calls.items())),
             "slots_by_key": {k: dict(sorted(v.items())) for k, v in sorted(self.slot_calls.items())},
         }

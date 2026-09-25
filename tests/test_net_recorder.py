@@ -265,3 +265,19 @@ def test_extra_root_continues_the_recorded_sequence(tmp_path, restore_urlopen):
     finally:
         rep.uninstall()
     assert got == [b"one", b"two", b"new"] and not rep.divergences
+
+
+def test_replayed_failures_are_named_not_silent(tmp_path, restore_urlopen):
+    """judge14/15/16 все воспроизводили один и тот же записанный сбой шлюза
+    на слоте 0, и прогоны сравнивались, не видя этого: сбой записи выглядел
+    как свойство кода. Воспроизведённые 5xx/429/обрывы называются, 4xx
+    (осмысленный ответ сервиса) и успехи — нет."""
+    fake = FakeNet({"https://a/x": [(502, [], b"bad gw"), (200, [], b"ok")],
+                    "https://a/404": [(404, [], b"none")],
+                    "https://a/t": [TimeoutError("timed out")]})
+    calls = ["https://a/x", "https://a/x", "https://a/404", "https://a/t"]
+    _record(tmp_path, fake, calls)
+    _, rep = _replay(tmp_path, calls)
+    fails = rep.summary()["replayed_failures"]
+    assert [(f["url"], f["kind"], f["status"]) for f in fails] == [
+        ("https://a/x", "http_error", 502), ("https://a/t", "exception", None)]

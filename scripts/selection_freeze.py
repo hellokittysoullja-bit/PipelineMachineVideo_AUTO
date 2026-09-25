@@ -1350,6 +1350,14 @@ def print_report(rep, a, b):
     for d in rep["replay_divergences"][:10]:
         print(f"    вне записи: {d['method']} {d['url']} (обращение #{d['seq'] + 1}, "
               f"слот {d.get('slot')}, {d.get('served', 'refused')})")
+    fails = nb.get("replayed_failures") or []
+    if fails:
+        by_slot = {}
+        for f in fails:
+            by_slot[f.get("slot")] = by_slot.get(f.get("slot"), 0) + 1
+        print(f"    ВОСПРОИЗВЕДЕНО СБОЕВ СЕТИ: {len(fails)} (по слотам: "
+              + ", ".join(f"{k}: {v}" for k, v in sorted(by_slot.items(), key=lambda kv: str(kv[0])))
+              + ") — это сбои записи, а не свойство кода; слоты с ними сравнивать осторожно")
     if rep["net_unexpected"] or rep["divergences_unexpected"]:
         print(f"    сеть расходится ВНЕ слотов с названной причиной: ключей "
               f"{len(rep['net_unexpected'])}, запросов вне записи {len(rep['divergences_unexpected'])}")
