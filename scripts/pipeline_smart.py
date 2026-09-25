@@ -4811,12 +4811,13 @@ def _note_pexels_failure(exc, label):
     code = getattr(exc, "code", None)
     if code in (401, 403):
         PEXELS_BROKEN = True
-        print(f"  {label}: HTTP {code} — ключ/доступ Pexels отвергнут, сток отключён на этот прогон")
+        print(f"  {label}: HTTP {code} — ключ/доступ Pexels отвергнут: Pexels не даёт кандидатов, "
+              f"остальные источники работают")
     elif PEXELS_FAIL_STREAK >= PEXELS_FAIL_STREAK_LIMIT:
         PEXELS_BROKEN = True
         print(f"  {label}: {exc} — {PEXELS_FAIL_STREAK} сбоев подряд, считаю API недоступным")
     else:
-        print(f"  {label}: {exc} (слот без стока, сток НЕ отключаю)")
+        print(f"  {label}: {exc} (в этом слоте без Pexels, остальные источники работают)")
 
 # Реальный, найденный вживую баг (27 августа, videos/_test20s, слоты 0 и 3):
 # is_relevant_candidate() — гейт, не жёсткий фильтр в _score_and_pick() (см.
@@ -7973,6 +7974,14 @@ class PhotoAdapter(selection_engine.MediaAdapter):
 
     def on_failure(self, request, exc):
         _note_pexels_failure(exc, f"Pexels [{request.query}]")
+
+    def on_source_failure(self, request, source_name, exc):
+        """Сбой одного источника стоит только этого источника в слоте
+        (selection_engine.fetch_sources): куча собирается из остальных."""
+        if source_name == "pexels":
+            _note_pexels_failure(exc, f"Pexels [{request.query}]")
+        else:
+            _note_source_search_error(source_name, exc, request.query)
 
     def choose(self, request, pool, cf):
         query, index, photos = request.query, request.index, pool
@@ -14795,6 +14804,13 @@ class VideoAdapter(selection_engine.MediaAdapter):
     def on_failure(self, request, exc):
         _note_pexels_failure(exc, f"Pexels video [{request.query}]")
 
+    def on_source_failure(self, request, source_name, exc):
+        """Как у фото: сбой Pexels не уносит кандидатов Pixabay."""
+        if source_name == "pexels":
+            _note_pexels_failure(exc, f"Pexels video [{request.query}]")
+        else:
+            _note_source_search_error(source_name, exc, request.query)
+
     def _preview(self, v, cf):
         """Кадры превью на диск: список путей по времени или None."""
         paths = []
@@ -17313,9 +17329,12 @@ def main():
         # получили "no_media_at_all" и текстовую карточку, хотя музеи и
         # архивы в этот момент были живы и отвечали (лог: десятки успешных
         # "Архивы: ... (20 канд.)" ДО обрыва, ни одной строки после — поиск
-        # просто перестал вызываться). Сама функция _pexels_search_photos()
-        # безопасно fail-open на каждый вызов (одна неудача = пустой список
-        # для ЭТОГО источника в ЭТОМ запросе), внешний круг не нужен.
+        # просто перестал вызываться). Внешний круг не нужен: сбой Pexels
+        # стоит только Pexels в этом слоте (selection_engine.fetch_sources +
+        # on_source_failure адаптера). Прежняя строка здесь утверждала, что
+        # _pexels_search_photos() fail-open сама, — это было неверно: до
+        # 25.09 одна её ошибка выбрасывала кучу слота целиком, со всеми
+        # музеями и архивами.
         if not photo and not video:
             # Смысловая оценка кадра-пробника ВИДЕО против полной фразы —
             # раньше видео-путь такой оценки не имел вообще (только фото),

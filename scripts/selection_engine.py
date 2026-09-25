@@ -169,9 +169,18 @@ def fetch_sources(request, adapter, queries):
     9 запросов): музеи 41 с, Commons 127 с, Openverse 16 с, стоки 10 с —
     по очереди 194 с.
 
-    Сбой источника — то же, что раньше: исключение первого по порядку
-    (запрос, источник) уходит наверх, в select(). Адаптер без
-    source_jobs — прежний последовательный путь через sources()."""
+    СБОЙ ИСТОЧНИКА. Очередь источника останавливается на его первой
+    ошибке: в этом слоте его больше не спрашивают, как и раньше (прежний
+    последовательный путь на первой ошибке прекращал весь поиск слота).
+    Если у адаптера есть on_source_failure, сбой стоит ТОЛЬКО этого
+    источника: его списки с места сбоя пусты, куча собирается из остальных,
+    адаптеру сообщается один раз на источник. Раньше ошибка Pexels (500,
+    таймаут, 429) выбрасывала кучу слота целиком — вместе с кандидатами
+    музеев, Commons и архивов, которые уже ответили (проверено 25.09
+    прогоном): остальные источники ловят свои ошибки сами, Pexels — нет.
+    Без хука — прежнее: наверх уходит первая по порядку (запрос, источник)
+    ошибка. Адаптер без source_jobs — прежний последовательный путь через
+    sources()."""
     jobs_of = getattr(adapter, "source_jobs", None)
     if jobs_of is None:
         return {pq: adapter.sources(request, pq) for pq in queries}
@@ -188,6 +197,7 @@ def fetch_sources(request, adapter, queries):
                 results[(pq, k)] = (True, job())
             except Exception as exc:  # noqa: BLE001 — решает вызывающий, как и раньше
                 results[(pq, k)] = (False, exc)
+                return
     if len(lanes) <= 1:
         for items in lanes.values():
             run_lane(items)
@@ -197,16 +207,20 @@ def fetch_sources(request, adapter, queries):
                        for items in lanes.values()]
             for f in futures:
                 f.result()
-    out = {}
-    for pq in plan:
-        lists = []
-        for k in range(len(plan[pq])):
-            ok, value = results[(pq, k)]
-            if not ok:
-                raise value
-            lists.append(value)
-        out[pq] = lists
-    return out
+    # Очередь идёт в порядке плана, поэтому первая ошибка очереди — её
+    # самая ранняя, и первая по порядку среди них та же, на которой
+    # остановился бы последовательный путь.
+    position = {pq: i for i, pq in enumerate(plan)}
+    failures = sorted([((position[pq], k), plan[pq][k][0], value)
+                       for (pq, k), (ok, value) in results.items() if not ok],
+                      key=lambda f: f[0])
+    if failures and getattr(adapter, "on_source_failure", None) is None:
+        raise failures[0][2]
+    for _pos, name, exc in failures:
+        adapter.on_source_failure(request, name, exc)
+    return {pq: [results[(pq, k)][1] if results.get((pq, k), (False, None))[0] else []
+                 for k in range(len(plan[pq]))]
+            for pq in plan}
 
 
 def build_pool(request, adapter):
