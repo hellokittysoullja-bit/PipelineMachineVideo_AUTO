@@ -12271,6 +12271,22 @@ VERIFY_FINALISTS = 5
 VERIFY_REASONING = False
 
 
+def transient_refusal(info):
+    """Проверки не было из-за сбоя шлюза (пауза после отказов подряд,
+    исчерпанные повторы), а не из-за ответа о кадре: такой кадр стоит
+    переспросить. Кончились деньги, превышен потолок, пустой оплаченный
+    ответ, неразобранный ответ — не переспрашиваются."""
+    refused = str((info or {}).get("refused") or "")
+    return refused.startswith("GatewayUnavailable") or "повторы исчерпаны" in refused
+
+
+def _gateway_pause_left(gw):
+    """Сколько секунд шлюз ещё на паузе (0 — не на паузе или шлюз без
+    регулятора здоровья, как у подделок в тестах)."""
+    health = gw.health() if hasattr(gw, "health") else None
+    return health.cooldown_left() if health is not None else 0.0
+
+
 def verify_finalists_of(judged, more=False):
     """Кого проверять: лучшие по сетке ∪ первые в порядке пула (порядок —
     каскад по утверждениям спецификации) ∪ все помеченные словарём запретов
@@ -12393,6 +12409,26 @@ def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=
             break
         with concurrent.futures.ThreadPoolExecutor(max(1, len(finalists))) as ex:
             got = list(ex.map(ask, finalists))
+            lost = [k for k, (ans, info) in enumerate(got)
+                    if ans is None and transient_refusal(info)]
+            if lost:
+                # Сбой шлюза — не ответ о кадре. Живой случай judge14 (слот
+                # 0, «Вот кинжал»): шлюз ушёл на паузу посреди проверки, три
+                # настоящих кинжала с оценкой сетки 3 остались без проверки, а
+                # меч с оценкой 2, проверенный до сбоя, получил ложное «да» и
+                # встал на экран — проверенный кадр всегда выше непроверенного.
+                # Один переспрос после конца паузы; не ответил и он — кадр
+                # остаётся без проверки, как раньше.
+                wait = _gateway_pause_left(gw)
+                print(f"  слот {index}: проверка {len(lost)} кадр(ов) сорвалась на сбое шлюза — "
+                      f"переспрашиваю" + (f" через {wait:.0f} с" if wait else ""))
+                if wait:
+                    time.sleep(wait)
+                again = list(ex.map(ask, [finalists[k] for k in lost]))
+                for k, res in zip(lost, again):
+                    got[k] = res
+                SHOT_JUDGE_LOG.append({"index": index, "kind": kind, "verify_retry": len(lost),
+                                       "recovered": sum(1 for a, _i in again if a is not None)})
         verified = vetoed = 0
         for c, (ans, info) in zip(finalists, got):
             c["_asked"] = True

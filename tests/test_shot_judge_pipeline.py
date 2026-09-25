@@ -488,6 +488,69 @@ def test_failed_verification_keeps_grid_order(tmp_path, monkeypatch):
     assert ps._score_and_pick(info)[0]["p"]["id"] == before
 
 
+class _PausingGateway:
+    """Шлюз с регулятором здоровья: pause — сколько секунд он ещё на паузе."""
+
+    def __init__(self):
+        self.pause = 0.0
+
+    def health(self):
+        gw = self
+
+        class _Health:
+            def cooling(self):
+                return gw.pause > 0
+
+            def cooldown_left(self):
+                return gw.pause
+        return _Health()
+
+
+def test_verification_lost_to_a_gateway_pause_is_asked_again(tmp_path, monkeypatch):
+    """judge14, слот 0 «Вот кинжал»: шлюз ушёл на паузу посреди проверки,
+    настоящий кинжал (сетка 3) остался без проверки, а меч (сетка 2),
+    проверенный до сбоя, получил ложное «да» и встал на экран. Сбой шлюза —
+    не ответ о кадре: после паузы кадр переспрашивается."""
+    info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=2)
+    gw = _PausingGateway()
+    monkeypatch.setattr(ps, "_shot_judge_gateway", lambda: gw)
+    monkeypatch.setattr(sj, "judge", lambda *a, **k: {"c0": 3, "c1": 2})
+    slept = []
+    monkeypatch.setattr(ps.time, "sleep", lambda s: (slept.append(s), setattr(gw, "pause", 0.0)))
+    asked = {p: 0 for p in paths}
+
+    def verify_claims(_gw, model, *, path, **_k):
+        asked[path] += 1
+        if path == paths[0] and asked[path] == 1:
+            gw.pause = 7.0
+            return None, {"refused": "GatewayUnavailable: шлюз на паузе ещё 7 с"}
+        return _ans({"c1": "yes"}), {"call": True}
+    monkeypatch.setattr(sj, "verify_claims", verify_claims)
+    assert ps.judge_candidates(0, "photo", "x", "y", info)
+    assert asked[paths[0]] == 2 and asked[paths[1]] == 1, "переспрошен только сорвавшийся кадр"
+    assert slept == [7.0], "переспрос — после конца паузы шлюза"
+    assert isinstance(info[0]["verify"], tuple)
+    assert ps._score_and_pick(info)[0]["p"]["id"] == "c0", \
+        "оба выполнили утверждения — решает сетка, а не порядок, в котором их успели проверить"
+
+
+def test_a_real_refusal_is_not_asked_again(tmp_path, monkeypatch):
+    """Кончились деньги или ответ не разобран — это не сбой связи: второй
+    вопрос стоил бы денег и дал бы то же самое."""
+    info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=2)
+    asked = []
+
+    def verify_claims(_gw, model, *, path, **_k):
+        asked.append(path)
+        return None, {"refused": "PaymentRequired: 402 баланс ключа исчерпан"}
+    monkeypatch.setattr(sj, "verify_claims", verify_claims)
+    ps.judge_candidates(0, "photo", "x", "y", info)
+    assert sorted(asked) == sorted(paths)
+    assert not ps.transient_refusal({"refused": "неразобранный ответ: …"})
+    assert not ps.transient_refusal({"refused": "EmptyAnswer: пустой ответ"})
+    assert ps.transient_refusal({"refused": "GatewayError: повторы исчерпаны: 502 (x)"})
+
+
 def test_only_the_grid_finalists_are_verified(tmp_path, monkeypatch):
     info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=ps.VERIFY_FINALISTS + 2)
     asked = []
