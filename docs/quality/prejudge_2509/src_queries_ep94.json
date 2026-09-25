@@ -1,0 +1,218 @@
+{
+ "0": {
+  "phrase": "Вот кинжал.",
+  "focus": "a medieval rondel dagger is introduced",
+  "ideas": [
+   {
+    "show": "A medieval rondel dagger displayed as a single object, blade and disc-shaped guard visible",
+    "museum": "rondel dagger",
+    "stock": "",
+    "archive": "rondel dagger"
+   },
+   {
+    "show": "A knight or soldier holding a dagger in a medieval manuscript illumination or engraving",
+    "museum": "battle scene engraving",
+    "stock": "",
+    "archive": "medieval dagger miniature"
+   },
+   {
+    "show": "A close view of a medieval dagger hilt with round pommel and guard, museum photograph",
+    "museum": "dagger",
+    "stock": "",
+    "archive": "medieval dagger"
+   }
+  ]
+ },
+ "1": {
+  "phrase": "Он весил меньше, чем ты думаешь — грамм триста.",
+  "focus": "the dagger weighs only about three hundred grams",
+  "ideas": [
+   {
+    "show": "A close-up of a real medieval rondel dagger, its slim blade and hilt, to convey its light weight",
+    "museum": "rondel dagger",
+    "stock": "",
+    "archive": "rondel dagger"
+   },
+   {
+    "show": "A medieval dagger lying on a hand or scales, showing how little it weighs",
+    "museum": "dagger",
+    "stock": "medieval dagger on scales",
+    "archive": "medieval dagger"
+   },
+   {
+    "show": "A knight's belt dagger or baselard from a medieval manuscript illustration, small and easily carried",
+    "museum": "baselard",
+    "stock": "",
+    "archive": "medieval dagger manuscript miniature"
+   }
+  ]
+ },
+ "2": {
+  "phrase": "Но именно он решал исход поединка, когда меч уже бесполезен.",
+  "focus": "the dagger decides a fight when a sword is useless",
+  "ideas": [
+   {
+    "show": "Close-up of a rondel dagger gripped in an armoured hand, blade driven into a gap in plate armour during a close-quarters struggle",
+    "museum": "rondel dagger",
+    "stock": "knight dagger close combat armour",
+    "archive": "rondel dagger medieval miniature"
+   },
+   {
+    "show": "Two armoured men wrestling on the ground at the climax of a tournament melee, swords discarded, one reaching for a dagger at his belt",
+    "museum": "battle scene engraving",
+    "stock": "medieval knights wrestling on ground",
+    "archive": "medieval combat miniature dagger"
+   },
+   {
+    "show": "A knight in full plate armour kneeling over a fallen opponent, sword broken or cast aside, finishing the fight with a dagger thrust into the visor or armpit",
+    "museum": "armour",
+    "stock": "knight kneeling over fallen knight",
+    "archive": "battle of agincourt miniature"
+   }
+  ]
+ },
+ "3": {
+  "phrase": "Клинок влетает в узкую щель между пластинами доспеха.",
+  "focus": "a dagger blade enters a narrow gap in armour",
+  "ideas": [
+   {
+    "show": "A late-medieval rondel dagger blade thrust into the narrow gap between the plates of a steel breastplate or cuirass",
+    "museum": "rondel dagger",
+    "stock": "",
+    "archive": "rondel dagger manuscript"
+   },
+   {
+    "show": "Armoured knight in close combat, a dagger driven into the armpit or joint gap of the harness",
+    "museum": "battle scene engraving",
+    "stock": "",
+    "archive": "medieval battle miniature dagger armour"
+   },
+   {
+    "show": "Detail of articulated plate armour showing the narrow opening at the armpit or elbow where a blade could pass",
+    "museum": "breastplate",
+    "stock": "",
+    "archive": "plate armour harness illustration"
+   }
+  ]
+ },
+ "4": {
+  "phrase": "Рыцарь падает в грязь под тяжестью металла.",
+  "focus": "armour's weight drags a knight down into mud",
+  "ideas": [
+   {
+    "show": "A medieval miniature of a battle where armoured knights fall from their horses into mud",
+    "museum": "",
+    "stock": "",
+    "archive": "battle of agincourt miniature"
+   },
+   {
+    "show": "An old engraving of a knight in full plate armour collapsing or being dragged down in a muddy field",
+    "museum": "battle scene engraving",
+    "stock": "",
+    "archive": "knight fallen in mud engraving"
+   },
+   {
+    "show": "A museum suit of plate armour displayed as a heavy, earthbound object",
+    "museum": "field armour",
+    "stock": "",
+    "archive": "plate armour harness"
+   }
+  ]
+ },
+ "5": {
+  "phrase": "Конница мчится через поле прямо на пехоту.",
+  "focus": "cavalry charges across the field at infantry",
+  "ideas": [
+   {
+    "show": "Medieval cavalry charging infantry across an open field, knights with lances on horseback",
+    "museum": "",
+    "stock": "knights on horseback charging",
+    "archive": "battle of agincourt miniature"
+   },
+   {
+    "show": "Armoured horsemen with couched lances galloping toward a line of foot soldiers",
+    "museum": "",
+    "stock": "medieval reenactment cavalry charge",
+    "archive": "cavalry charge medieval manuscript illumination"
+   },
+   {
+    "show": "Mounted knights in plate armour riding down infantry in a pitched battle",
+    "museum": "",
+    "stock": "armoured knights riding horses",
+    "archive": "battle of crecy miniature"
+   }
+  ]
+ },
+ "6": {
+  "phrase": "Он не поднимается — доспех держит человека, как капкан.",
+  "focus": "armour holds the fallen man down like a trap",
+  "ideas": [
+   {
+    "show": "A fallen knight in full plate armour pinned on his back in mud, the weight of the harness holding him down",
+    "museum": "",
+    "stock": "knight in armour lying in mud",
+    "archive": "battle of agincourt miniature"
+   },
+   {
+    "show": "Armoured men struggling on the ground after a fall, one unable to rise under the weight of his armour",
+    "museum": "",
+    "stock": "armoured knight fallen on ground",
+    "archive": "medieval battle miniature fallen knight"
+   },
+   {
+    "show": "Close view of plate armour encasing a man on the ground, straps and joints locking him in place like a trap",
+    "museum": "field armour",
+    "stock": "medieval armour on ground",
+    "archive": "plate armour harness illustration"
+   }
+  ]
+ },
+ "7": {
+  "phrase": "Стрела скользит по нагруднику и уходит в сторону.",
+  "focus": "an arrow glances off the breastplate sideways",
+  "ideas": [
+   {
+    "show": "Medieval battle miniature: an arrow striking a knight's breastplate and glancing aside",
+    "museum": "",
+    "stock": "",
+    "archive": "battle of agincourt miniature"
+   },
+   {
+    "show": "Armoured knight in melee with arrows deflecting off plate armour",
+    "museum": "",
+    "stock": "knight in armour battle",
+    "archive": "medieval battle miniature arrows"
+   },
+   {
+    "show": "Close view of a breastplate with an arrow glancing off its surface",
+    "museum": "breastplate",
+    "stock": "",
+    "archive": "breastplate armour engraving"
+   }
+  ]
+ },
+ "8": {
+  "phrase": "История решается не мечом, а тем, кто первым встанет с земли.",
+  "focus": "the one who first rises from the ground decides history",
+  "ideas": [
+   {
+    "show": "A fallen knight pushing himself up from the battlefield ground, sword still in hand, while others lie around him",
+    "museum": "battle scene engraving",
+    "stock": "knight rising from ground",
+    "archive": "battle of agincourt miniature"
+   },
+   {
+    "show": "A soldier helping a fallen comrade to stand, the moment of rising deciding the fight",
+    "museum": "battle scene engraving",
+    "stock": "soldier helping fallen comrade",
+    "archive": "medieval battle miniature manuscript"
+   },
+   {
+    "show": "A lone armoured figure standing up amid the dead on a medieval field, banners behind",
+    "museum": "battle scene engraving",
+    "stock": "armoured knight standing battlefield",
+    "archive": "battle of crecy miniature"
+   }
+  ]
+ }
+}
