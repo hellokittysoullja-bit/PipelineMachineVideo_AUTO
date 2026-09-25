@@ -197,3 +197,33 @@ def test_interleave_keeps_the_top_of_both_orders():
     assert got[:4] == ["a", "f", "b", "e"] and sorted(got) == sorted(a)
     k = 2
     assert set(a[:k]) | set(b[:k]) <= set(got[:2 * k])
+
+
+def test_download_and_embedding_overlap_keep_the_order(tmp_path, monkeypatch):
+    """Пачка превью оценивается, пока остальные ещё качаются, — порядок каскада
+    тот же, что при оценке после последнего скачивания."""
+    import threading
+    import time
+    rel = {f"c{k}": v for k, v in enumerate((0.3, 0.1, 0.7, 0.2, 0.6, 0.5))}
+    probe0, calls = _world(tmp_path, monkeypatch, rel)
+    events, lock = [], threading.Lock()
+    inner = ps._gate_embed
+
+    def embed(images=None, text=None):
+        if images is not None:
+            with lock:
+                events.append("embed")
+        return inner(images=images, text=text)
+    monkeypatch.setattr(ps, "_gate_embed", embed)
+
+    def probe(p, dest):
+        if p["id"] == "c5":
+            time.sleep(0.5)
+        probe0(p, dest)
+        with lock:
+            events.append(p["id"])
+    order = ps.cascade_reorder(_cands(6), "x", str(tmp_path / "cf.jpg"), probe, 0, batch=2)
+    assert [p["id"] for p in order] == ["c2", "c4", "c5", "c0", "c3", "c1"]
+    assert events.index("embed") < events.index("c5"), "первая пачка оценена до последнего превью"
+    assert calls["images"] == 6
+    assert not [f for f in os.listdir(tmp_path) if "casc_" in f], "превью не остаются на диске"

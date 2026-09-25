@@ -12056,34 +12056,52 @@ def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=16, url_o
                 return _downloaded_ok(tmp[id(p)])
             except Exception:
                 return False
+
+        def embed_batch(batch_in):
+            part, imgs = [], []
+            for p in batch_in:
+                try:
+                    with PILImage.open(tmp[id(p)]) as im:
+                        imgs.append(im.convert("RGB"))
+                    part.append(p)
+                except Exception:
+                    pass
+            vecs = _gate_embed(images=imgs) if imgs else None
+            if vecs is None:
+                return 0
+            for p, v in zip(part, vecs):
+                emb[id(p)] = v
+                _CASCADE_EMB[keys[id(p)]] = v
+                # Тот же кадр позже скачивается пробником для гейтов —
+                # эмбеддинг по содержимому файла уже готов.
+                d = _file_digest(tmp[id(p)])
+                if d:
+                    _GATE_IMG_EMB_CACHE.setdefault(d, v)
+                try:
+                    np.save(os.path.join(cache_dir, keys[id(p)] + ".npy"), v)
+                except Exception:
+                    pass
+            return len(part)
+
+        # Скачивание превью и оценка моделью идут ВНАХЛЁСТ: пачка
+        # оценивается, как только скачаны её превью, пока остальные ещё
+        # качаются. Раньше оценка ждала последнего превью кучи. Пачки
+        # собираются из скачанных кадров в прежнем порядке и по прежние
+        # 16 штук, поэтому эмбеддинги и порядок каскада те же до бита.
+        # Замер 25.09 (эп.94, холодный слот, 1067 превью): скачивание 63 с,
+        # оценка 173 с — по очереди 236 с.
         with concurrent.futures.ThreadPoolExecutor(CASCADE_WORKERS) as ex:
-            got = [p for p, ok in zip(need, ex.map(get, need)) if ok]
-        with stage_timer.stage("cascade_rank", clip_idx=index):
-            for k in range(0, len(got), batch):
-                part, imgs = [], []
-                for p in got[k:k + batch]:
-                    try:
-                        with PILImage.open(tmp[id(p)]) as im:
-                            imgs.append(im.convert("RGB"))
-                        part.append(p)
-                    except Exception:
-                        pass
-                vecs = _gate_embed(images=imgs) if imgs else None
-                if vecs is None:
-                    continue
-                for p, v in zip(part, vecs):
-                    emb[id(p)] = v
-                    _CASCADE_EMB[keys[id(p)]] = v
-                    # Тот же кадр позже скачивается пробником для гейтов —
-                    # эмбеддинг по содержимому файла уже готов.
-                    d = _file_digest(tmp[id(p)])
-                    if d:
-                        _GATE_IMG_EMB_CACHE.setdefault(d, v)
-                    try:
-                        np.save(os.path.join(cache_dir, keys[id(p)] + ".npy"), v)
-                    except Exception:
-                        pass
-                    fresh += 1
+            pending = []
+            for p, ok in zip(need, ex.map(get, need)):
+                if ok:
+                    pending.append(p)
+                if len(pending) == batch:
+                    with stage_timer.stage("cascade_rank", clip_idx=index):
+                        fresh += embed_batch(pending)
+                    pending = []
+            if pending:
+                with stage_timer.stage("cascade_rank", clip_idx=index):
+                    fresh += embed_batch(pending)
         for f in tmp.values():
             try:
                 os.remove(f)
