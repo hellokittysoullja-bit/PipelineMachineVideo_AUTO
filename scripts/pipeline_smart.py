@@ -7741,7 +7741,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
         # Файл Шага 4 меняет состав кучи — входит в ключ; нет файла — ключ прежний.
         _local = local_stock_candidate(index)
         if _local is not None:
-            qkey += "|" + _local["src"]["medium"]
+            qkey += "|" + _local["id"] + ":" + _local["_local_digest"]
         qhash = hashlib.md5(qkey.encode()).hexdigest()[:8]
         gate_sig = candidate_gate_signature(request.index).split(":", 1)[-1]
         cf = os.path.join(cache, f"{index:04d}_{qhash}_{gate_sig}.jpg")
@@ -8644,26 +8644,27 @@ def local_stock_candidate(index):
     остальных по тем же правилам. Выбросить его без рассмотрения было бы
     потерей (вдруг он лучший), поставить без рассмотрения — брешью.
 
-    Ссылка — file:// с фрагментом «mtime-размер»: urllib фрагмент не
+    Ссылка — file:// с фрагментом «хэш содержимого»: urllib фрагмент не
     отправляет, а ключи кэшей по адресу превью (каскад) меняются вместе
-    с файлом. AI-картинки и файлы, положенные человеком, сюда не попадают
+    с файлом. В ключ кэша слота идёт тот же хэш, а не путь или время
+    изменения: копия эпизода в другой папке обязана отобрать тот же кадр.
+    AI-картинки и файлы, положенные человеком, сюда не попадают
     (local_file_is_machine_stock) — их по-прежнему ставит main()."""
     if not feature_flags.enabled("LOCAL_STOCK_GATE"):
         return None
     path = local_photo(index)
     if not path or not local_file_is_machine_stock(path):
         return None
-    try:
-        st = os.stat(path)
-    except OSError:
+    digest = _file_digest(path)
+    if not digest:
         return None
     import pathlib
-    uri = (pathlib.Path(os.path.abspath(path)).as_uri()
-           + f"#{int(st.st_mtime)}-{st.st_size}")
+    uri = pathlib.Path(os.path.abspath(path)).as_uri() + "#" + digest[:16]
     # Поле url пустое намеренно: по нему идёт жанровый фильтр по тексту
     # (pexels_candidate_text), и слова пути к папке эпизода выбрасывали бы
     # кандидата ни за что.
     return {"id": "local:" + os.path.basename(path), "alt": "", "url": "",
+            "_local_digest": digest,
             "src": {"medium": uri, "large2x": uri, "large": uri}}
 
 

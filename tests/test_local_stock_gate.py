@@ -149,3 +149,18 @@ def test_cache_key_changes_only_when_stock_file_exists(monkeypatch, tmp_path):
 def test_flag_is_registered_with_default_on():
     import feature_flags as ff
     assert ff.FLAGS["LOCAL_STOCK_GATE"].default == "1"
+
+
+def test_cache_key_does_not_depend_on_folder_or_mtime(monkeypatch, tmp_path):
+    """Копия эпизода в другой папке (харнесс, режим «только отбор») обязана
+    отобрать тот же кадр: ключ — по содержимому файла, не по пути."""
+    monkeypatch.setenv("LOCAL_STOCK_GATE", "1")
+    keys = []
+    for sub in ("a", "b"):
+        d = tmp_path / sub
+        d.mkdir()
+        monkeypatch.setattr(ps, "TEMP_FOLDER", str(d / "temp"))
+        _media(monkeypatch, d, ["003_stock.jpg"])
+        os.utime(d / "media" / "003_stock.jpg", (1000 + len(keys), 1000 + len(keys)))
+        keys.append(os.path.basename(ps.PHOTO_ADAPTER.cache_path(_request(2))))
+    assert keys[0] == keys[1]
