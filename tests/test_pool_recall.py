@@ -168,7 +168,7 @@ def test_embedder_finds_pixabay_vector_by_frame_not_by_expiring_url(tmp_path, mo
     key = ps._cascade_key(ps._cascade_ident(cand, url))
     np.save(os.path.join(str(tmp_path), key + ".npy"), np.ones(3, dtype=np.float32))
     calls = []
-    monkeypatch.setattr(pool_recall, "fetch", lambda u, h: calls.append(u))
+    monkeypatch.setattr(pool_recall, "fetch", lambda u, h, cand_id=None: calls.append(u))
     v = emb.image_vec(url, None, cand)
     assert v is not None and float(v.sum()) == 3.0
     assert calls == []
