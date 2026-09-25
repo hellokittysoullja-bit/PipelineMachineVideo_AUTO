@@ -21,7 +21,7 @@ class FakeGW:
     def __init__(self, answer):
         self.answer, self.prompts = answer, []
 
-    def chat(self, model, content, max_tokens, est):
+    def chat(self, model, content, max_tokens, est, reasoning=None):
         self.prompts.append(content[0]["text"])
         return self.answer, {}, 0
 
@@ -220,23 +220,25 @@ def test_main_runs_the_second_round_through_the_trigger():
 
 
 class ReasoningGW:
-    """Двойник рассуждающей модели: до ответа тратит ~1000 токенов на
-    рассуждение; меньший запас выхода — пустой ответ, как у шлюза вживую
-    (judge14, 24.09: finish_reason=length, выход 1024 из 400)."""
+    """Двойник рассуждающей модели: если рассуждение не выключено явно, оно
+    съедает любой запас выхода — пустой ответ, как у шлюза вживую (judge14:
+    выход 1024 из 400; judge15: 4000 из 4000, всё рассуждение)."""
 
     def __init__(self, answer):
-        self.answer, self.budgets = answer, []
+        self.answer, self.budgets, self.reasoning = answer, [], []
 
-    def chat(self, model, content, max_tokens, est, **kw):
+    def chat(self, model, content, max_tokens, est, reasoning=None, **kw):
         import llm_gateway
         self.budgets.append(max_tokens)
-        if max_tokens < 1500:
+        self.reasoning.append(reasoning)
+        if reasoning is not False:
             raise llm_gateway.EmptyAnswer(f"{model}: пустой ответ (finish_reason=length)")
         return self.answer, {}, 0
 
 
-def test_reasoning_model_has_room_to_answer(tmp_path):
+def test_reasoning_is_switched_off_so_the_answer_is_not_eaten(tmp_path):
     gw = ReasoningGW('{"queries": [{"q": "froissart battle miniature", "type": "illustration"}]}')
     items, origin = sr.new_queries(str(tmp_path), gw, "ds/deepseek-v4-flash", phrase=PHRASE, spec=SPEC,
                                    setting=None, tried=[], rejections=[])
     assert origin == "model" and items and items[0]["q"] == "froissart battle miniature"
+    assert gw.reasoning == [False] and gw.budgets[0] >= 1000

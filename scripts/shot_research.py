@@ -47,14 +47,20 @@ MAX_NEW_QUERIES = 4
 MAX_REJECTIONS = 8
 FILE_NAME = "research_queries.json"
 # Мозг второго круга — та же модель, что у планировщика (DeepSeek v4 Flash),
-# и она РАССУЖДАЕТ до ответа. Первая версия давала 400 токенов выхода, и
-# живой прогон judge14 (24.09) получил пустой ответ: finish_reason=length,
-# рассуждение съело весь запас, второй круг не состоялся ни разу — ровно тот
-# класс, что уже стоил 13 оплаченных вызовов на прогоне брифов (см.
-# llm_gateway.EmptyAnswer). Запас — как у планировщика по порядку величины:
-# сам ответ — четыре коротких запроса, остальное — место для рассуждения.
-MAX_TOKENS = 4000
+# С ВЫКЛЮЧЕННЫМ рассуждением. По умолчанию модель рассуждает, и рассуждение
+# не ограничено ничем, кроме запаса выхода: judge14 (24.09) — 400 токенов,
+# пустой ответ; judge15 (25.09) — 4000 токенов, снова пустой ответ, всё ушло
+# в рассуждение. Замер на шести реальных слотах эп.94 (фразы и отказы
+# judge14): без рассуждения — ответ на всех шести, 3-52 с и 47-240 токенов
+# баланса на вызов; с рассуждением и запасом 16 000 — тоже на всех шести, но
+# 25-131 с, до 445 токенов и до 7 957 токенов рассуждения (вплотную к
+# обрыву). Запросы по смыслу равноценны: оба варианта называют трактаты
+# (Codex Wallerstein, Flos Duellatorum / Fiore dei Liberi), хроники
+# (Froissart, St Albans) и реконструкцию (глазами Claude, не разметкой).
+# Ответ — четыре коротких запроса: запаса 2000 с лихвой.
+MAX_TOKENS = 2000
 EST_PROMPT_TOKENS = 900
+REASONING = False
 
 PROMPT = """You find pictures for a documentary video. Setting: {setting}.
 Narration line: «{phrase}»
@@ -188,7 +194,7 @@ def new_queries(video_dir, gateway, model, *, phrase, spec, setting, tried, reje
         return entry["queries"], "disk"
     prompt = render_prompt(phrase, spec, setting, tried, rejections, trigger)
     raw, _usage, _price = gateway.chat(model, [{"type": "text", "text": prompt}], MAX_TOKENS,
-                                       EST_PROMPT_TOKENS)
+                                       EST_PROMPT_TOKENS, reasoning=REASONING)
     items = parse(raw, tried)
     if items:
         data = load(video_dir)
