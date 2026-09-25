@@ -237,7 +237,7 @@ def test_sources_are_actually_called_from_the_pools():
     существовать и не вызываться ни разу."""
     import inspect
     photo = inspect.getsource(ps.PhotoAdapter)
-    video = inspect.getsource(ps.VideoAdapter.sources)
+    video = inspect.getsource(ps.VideoAdapter.source_jobs)
     # Фото-источники собираются в кортеж (имя источника, функция) и
     # обходятся по кругу (чередование, POOL_SOURCE_INTERLEAVE_VERSION);
     # маршрутизация по типу кадра решает, какие из них вызвать

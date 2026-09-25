@@ -7796,7 +7796,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
         # Коллизия с уже показанным кадром: кэш негоден, отбираем заново.
         return None
 
-    def sources(self, request, pq):
+    def source_jobs(self, request, pq):
         # Ключевого гейта здесь БОЛЬШЕ НЕТ — и это исправление, а не упрощение.
         # Раньше `if not PEXELS_API_KEY: return None` стоял ДО сборки пула, то
         # есть без ключа Pexels молча умирали ВСЕ остальные источники — музеи,
@@ -7853,7 +7853,14 @@ class PhotoAdapter(selection_engine.MediaAdapter):
         # -> прежний маршрут во все источники, ноль регрессии.
         shot_type = shot_type_of_query(pq, request.shot_spec)
         department = met_department_for_query(pq, shot_type)
-        per_source = []
+        jobs = []
+        # Файл Шага 4 этого слота — первым источником: кандидат, а не
+        # готовый ответ (см. local_stock_candidate). Повтор в других
+        # запросах пула снимает unique_by_id.
+        local = local_stock_candidate(request.index)
+        if local is not None:
+            item = dict(local, _origin_query=pq, _shot_type=shot_type)
+            jobs.append(("local", lambda item=item: [item]))
         for source_name, fetch in (("shelf", _shelf_search_photos),
                                     ("museum", _museum_search_photos),
                                     ("commons", _commons_search_photos),
@@ -7865,92 +7872,97 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                 continue
             if source_name in ("shelf", "museum") and not art_museums_fit_episode():
                 continue
-            src_list = []
-            # В МУЗЕЙ уходит АВТОРСКИЙ запрос, без уточнителя культуры.
-            # Замер 14.09 на живом API Мет (отдел 4, окно 900-1600):
-            #   «dagger» -> +european теряет 19 предметов, и среди них
-            #   «Dagger pommel | French», «Dagger grip | Italian»,
-            #   «Rapier | Italian» — подлинники, которые нужны;
-            #   заодно уходят «Blade for a dagger (Tantō) | Japanese» и
-            #   «Dagger (Katar) | South Indian» — но их И ТАК убирает
-            #   паспортный фильтр culture_is_foreign() ПОСЛЕ поиска
-            #   (проверено поимённо: Japanese/South Indian/Turkish ->
-            #   True, French/Italian/Flemish/Spanish -> False).
-            # То есть на музейном пути польза уточнителя ДУБЛИРУЕТ
-            # паспорт, а его потери паспорт вернуть не может: он
-            # отсекает ЗНАНИЕМ о культуре предмета, а уточнитель —
-            # совпадением слова в описании. Стоки паспорта не имеют,
-            # там уточнитель остаётся единственной защитой и не тронут.
-            # В ПОЛКУ уходит АВТОРСКИЙ запрос, не уточнённый культурой —
-            # по той же причине, что и в музей: паспорт предмета уже
-            # прочитан при сборке каталога, а уточнитель «european»
-            # выбрасывал бы подлинники, у которых этого слова нет в
-            # описании. И тем более он не нужен там, где сравнение идёт
-            # с изображением, а не с текстом описания.
-            if source_name == "museum":
-                fetched = fetch(pq, department=department)
-            elif source_name == "shelf":
-                # ПОЛКЕ уходит БРИФ — описание кадра, написанное автором
-                # для ЭТОЙ фразы ([shot:...] рядом с ней в script.txt), а
-                # не запрос секции, который делят десять слотов. В этом и
-                # весь смысл: полка сравнивает описание с изображениями, и
-                # чем полнее описание, тем точнее ответ — ровно наоборот
-                # к поиску по словам, где каждое лишнее слово сужает
-                # выдачу до нуля (замер на Europeana: пятисловные запросы
-                # эпизода дают 0 на всех девяти). Брифа нет — берём
-                # авторский запрос, то есть прежнее поведение.
-                # Брифа нет -> спрашиваем полку ФРАЗОЙ БЛОКА, а не
-                # запросом секции. Причина, по которой бриф пишут руками,
-                # у полки отсутствует лишь НАПОЛОВИНУ, и это важно не
-                # переоценить: И-логика текстового API к полке правда не
-                # относится (она сравнивает эмбеддинги, а не слова), но
-                # вторая половина — перевод «что СКАЗАНО» в «что ПОКАЗАТЬ»
-                # — относится полностью. На отрицании и абстракции фраза
-                # упирается в потолок класса моделей (часть B бенчмарка
-                # репозитория: 12-38% top-1 у ВСЕХ трёх), и бриф автора
-                # остаётся сильнее. Поэтому фраза — не замена брифу, а
-                # замена ЗАПРОСУ СЕКЦИИ, который делят 6-10 слотов.
-                #
-                # Берётся b["text"], а не semantic_context_text: замер
-                # реальным токенизатором so400m по 142 блокам эпизода 02
-                # — фраза блока превышает лимит 64 токена у 14 блоков
-                # (10%), sem_text у 20 (14%). Обрезка молчаливая, поэтому
-                # выбран вход с меньшей долей обрезанных.
-                #
-                # Ущерб ограничен по построению: кандидат полки судится
-                # is_relevant_candidate() против АВТОРСКОГО запроса, а не
-                # против текста, которым его нашли.
-                fetched = fetch(pq, brief=shelf_question(shot_brief, block_text,
-                                                         request.shot_spec) or None)
-            elif source_name == "commons":
-                # В АРХИВ — запрос планировщика как есть, без стоковой
-                # приписки эпохи (тот же довод, что у музея выше): поиск
-                # Commons требует ВСЕ слова, и «european medieval» перед
-                # «battle of agincourt chronicle» только сужает выдачу. Эпоху
-                # и культуру кадра проверяет судья мира, а не слово в запросе.
-                fetched = fetch(pq)
-            elif source_name == "pexels" and not pexels_query_allowed(
-                    api_q, _PEXELS_SEARCH_CACHE, pq not in slot_own_queries(request)):
-                fetched = []
-            else:
-                fetched = fetch(api_q)
-            for p in fetched:
-                # Из какого запроса кандидат пришёл — гейт релевантности
-                # ниже должен сверять его с ЕГО запросом, иначе кандидат
-                # из второго запроса секции сравнивался бы с чужим текстом
-                # и честно отбраковывался бы ни за что.
-                p = dict(p)
-                p["_origin_query"] = pq
-                p["_shot_type"] = shot_type
-                src_list.append(p)
-            per_source.append(src_list)
-        # Файл Шага 4 этого слота — первым источником: кандидат, а не
-        # готовый ответ (см. local_stock_candidate). Повтор в других
-        # запросах пула снимает unique_by_id.
-        local = local_stock_candidate(request.index)
-        if local is not None:
-            per_source.insert(0, [dict(local, _origin_query=pq, _shot_type=shot_type)])
-        return per_source
+            jobs.append((source_name, functools.partial(
+                self._fetch_source, request, pq, source_name, fetch, api_q, shot_type, department,
+                shot_brief, block_text)))
+        return jobs
+
+    def sources(self, request, pq):
+        """Кандидаты каждого источника по запросу pq, по очереди (для пула
+        источники идут параллельно — selection_engine.fetch_sources)."""
+        return [job() for _name, job in self.source_jobs(request, pq)]
+
+    def _fetch_source(self, request, pq, source_name, fetch, api_q, shot_type, department,
+                      shot_brief, block_text):
+        src_list = []
+        # В МУЗЕЙ уходит АВТОРСКИЙ запрос, без уточнителя культуры.
+        # Замер 14.09 на живом API Мет (отдел 4, окно 900-1600):
+        #   «dagger» -> +european теряет 19 предметов, и среди них
+        #   «Dagger pommel | French», «Dagger grip | Italian»,
+        #   «Rapier | Italian» — подлинники, которые нужны;
+        #   заодно уходят «Blade for a dagger (Tantō) | Japanese» и
+        #   «Dagger (Katar) | South Indian» — но их И ТАК убирает
+        #   паспортный фильтр culture_is_foreign() ПОСЛЕ поиска
+        #   (проверено поимённо: Japanese/South Indian/Turkish ->
+        #   True, French/Italian/Flemish/Spanish -> False).
+        # То есть на музейном пути польза уточнителя ДУБЛИРУЕТ
+        # паспорт, а его потери паспорт вернуть не может: он
+        # отсекает ЗНАНИЕМ о культуре предмета, а уточнитель —
+        # совпадением слова в описании. Стоки паспорта не имеют,
+        # там уточнитель остаётся единственной защитой и не тронут.
+        # В ПОЛКУ уходит АВТОРСКИЙ запрос, не уточнённый культурой —
+        # по той же причине, что и в музей: паспорт предмета уже
+        # прочитан при сборке каталога, а уточнитель «european»
+        # выбрасывал бы подлинники, у которых этого слова нет в
+        # описании. И тем более он не нужен там, где сравнение идёт
+        # с изображением, а не с текстом описания.
+        if source_name == "museum":
+            fetched = fetch(pq, department=department)
+        elif source_name == "shelf":
+            # ПОЛКЕ уходит БРИФ — описание кадра, написанное автором
+            # для ЭТОЙ фразы ([shot:...] рядом с ней в script.txt), а
+            # не запрос секции, который делят десять слотов. В этом и
+            # весь смысл: полка сравнивает описание с изображениями, и
+            # чем полнее описание, тем точнее ответ — ровно наоборот
+            # к поиску по словам, где каждое лишнее слово сужает
+            # выдачу до нуля (замер на Europeana: пятисловные запросы
+            # эпизода дают 0 на всех девяти). Брифа нет — берём
+            # авторский запрос, то есть прежнее поведение.
+            # Брифа нет -> спрашиваем полку ФРАЗОЙ БЛОКА, а не
+            # запросом секции. Причина, по которой бриф пишут руками,
+            # у полки отсутствует лишь НАПОЛОВИНУ, и это важно не
+            # переоценить: И-логика текстового API к полке правда не
+            # относится (она сравнивает эмбеддинги, а не слова), но
+            # вторая половина — перевод «что СКАЗАНО» в «что ПОКАЗАТЬ»
+            # — относится полностью. На отрицании и абстракции фраза
+            # упирается в потолок класса моделей (часть B бенчмарка
+            # репозитория: 12-38% top-1 у ВСЕХ трёх), и бриф автора
+            # остаётся сильнее. Поэтому фраза — не замена брифу, а
+            # замена ЗАПРОСУ СЕКЦИИ, который делят 6-10 слотов.
+            #
+            # Берётся b["text"], а не semantic_context_text: замер
+            # реальным токенизатором so400m по 142 блокам эпизода 02
+            # — фраза блока превышает лимит 64 токена у 14 блоков
+            # (10%), sem_text у 20 (14%). Обрезка молчаливая, поэтому
+            # выбран вход с меньшей долей обрезанных.
+            #
+            # Ущерб ограничен по построению: кандидат полки судится
+            # is_relevant_candidate() против АВТОРСКОГО запроса, а не
+            # против текста, которым его нашли.
+            fetched = fetch(pq, brief=shelf_question(shot_brief, block_text,
+                                                     request.shot_spec) or None)
+        elif source_name == "commons":
+            # В АРХИВ — запрос планировщика как есть, без стоковой
+            # приписки эпохи (тот же довод, что у музея выше): поиск
+            # Commons требует ВСЕ слова, и «european medieval» перед
+            # «battle of agincourt chronicle» только сужает выдачу. Эпоху
+            # и культуру кадра проверяет судья мира, а не слово в запросе.
+            fetched = fetch(pq)
+        elif source_name == "pexels" and not pexels_query_allowed(
+                api_q, _PEXELS_SEARCH_CACHE, pq not in slot_own_queries(request)):
+            fetched = []
+        else:
+            fetched = fetch(api_q)
+        for p in fetched:
+            # Из какого запроса кандидат пришёл — гейт релевантности
+            # ниже должен сверять его с ЕГО запросом, иначе кандидат
+            # из второго запроса секции сравнивался бы с чужим текстом
+            # и честно отбраковывался бы ни за что.
+            p = dict(p)
+            p["_origin_query"] = pq
+            p["_shot_type"] = shot_type
+            src_list.append(p)
+        return src_list
 
     def filter_pool(self, request, pool):
         return filter_pool_by_text(pool, request.index)
@@ -14745,17 +14757,21 @@ class VideoAdapter(selection_engine.MediaAdapter):
     def brief_query(self, request):
         return brief_stock_query_of(request)
 
-    def sources(self, request, pq):
+    def source_jobs(self, request, pq):
         api_q = stock_api_query(request, pq, video=True)
         low = pq not in slot_own_queries(request)
-        out = []
-        for fetch in (_pexels_search_videos, _pixabay_search_videos):
-            if (fetch is _pexels_search_videos
-                    and not pexels_query_allowed(api_q, _PEXELS_VIDEO_SEARCH_CACHE, low)):
-                out.append([])
-                continue
-            out.append([dict(v, _origin_query=pq) for v in fetch(api_q)])
-        return out
+
+        def pexels():
+            if not pexels_query_allowed(api_q, _PEXELS_VIDEO_SEARCH_CACHE, low):
+                return []
+            return [dict(v, _origin_query=pq) for v in _pexels_search_videos(api_q)]
+
+        def pixabay():
+            return [dict(v, _origin_query=pq) for v in _pixabay_search_videos(api_q)]
+        return [("pexels", pexels), ("pixabay", pixabay)]
+
+    def sources(self, request, pq):
+        return [job() for _name, job in self.source_jobs(request, pq)]
 
     def filter_pool(self, request, pool):
         pool = filter_pool_by_text(pool, request.index)

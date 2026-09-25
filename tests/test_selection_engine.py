@@ -34,7 +34,10 @@ def test_engine_imports_no_pipeline_and_no_adapter():
         elif isinstance(n, ast.ImportFrom):
             imported.add(n.module)
     assert "pipeline_smart" not in imported
-    assert imported <= {"dataclasses", "itertools", "os", "selection_attempt"}, imported
+    # Параллельные очереди источников (fetch_sources) — стандартная
+    # библиотека, не конвейер и не адаптер.
+    assert imported <= {"concurrent.futures", "contextvars", "dataclasses", "itertools", "os",
+                        "selection_attempt"}, imported
 
 
 def test_engine_has_no_branch_on_media_kind():

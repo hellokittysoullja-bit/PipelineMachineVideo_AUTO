@@ -33,6 +33,8 @@ SlotRequest без значений по умолчанию. Раньше доб
   5. порядок, перебор, ранжирование и материализация победителя — через
      адаптер (этап 2 перестройки; этапы 3-4 переносят их в ядро).
 """
+import concurrent.futures
+import contextvars
 import dataclasses
 import itertools
 import os
@@ -154,11 +156,64 @@ def query_tiers(request, queries):
     return [t for t in (first, rest) if t]
 
 
+def fetch_sources(request, adapter, queries):
+    """{запрос: списки кандидатов его источников в порядке источников}.
+
+    Источники опрашиваются ПАРАЛЛЕЛЬНО, у каждого своя очередь: внутри
+    источника запросы идут по одному и в прежнем порядке. Поэтому каждый
+    источник видит ту же последовательность вызовов, что и раньше (его
+    кэши, квота Pexels и паузы от лимитов срабатывают так же), а куча
+    собирается из результатов в прежнем порядке — та же до кандидата.
+    Раньше всё шло одно за другим, и время поиска было суммой по
+    источникам, теперь — максимум. Замер 25.09 (эп.94, холодная фраза,
+    9 запросов): музеи 41 с, Commons 127 с, Openverse 16 с, стоки 10 с —
+    по очереди 194 с.
+
+    Сбой источника — то же, что раньше: исключение первого по порядку
+    (запрос, источник) уходит наверх, в select(). Адаптер без
+    source_jobs — прежний последовательный путь через sources()."""
+    jobs_of = getattr(adapter, "source_jobs", None)
+    if jobs_of is None:
+        return {pq: adapter.sources(request, pq) for pq in queries}
+    plan = {pq: jobs_of(request, pq) for pq in queries}
+    lanes = {}
+    for pq in plan:
+        for k, (name, job) in enumerate(plan[pq]):
+            lanes.setdefault(name, []).append((pq, k, job))
+    results = {}
+
+    def run_lane(items):
+        for pq, k, job in items:
+            try:
+                results[(pq, k)] = (True, job())
+            except Exception as exc:  # noqa: BLE001 — решает вызывающий, как и раньше
+                results[(pq, k)] = (False, exc)
+    if len(lanes) <= 1:
+        for items in lanes.values():
+            run_lane(items)
+    else:
+        with concurrent.futures.ThreadPoolExecutor(len(lanes)) as ex:
+            futures = [ex.submit(contextvars.copy_context().run, run_lane, items)
+                       for items in lanes.values()]
+            for f in futures:
+                f.result()
+    out = {}
+    for pq in plan:
+        lists = []
+        for k in range(len(plan[pq])):
+            ok, value = results[(pq, k)]
+            if not ok:
+                raise value
+            lists.append(value)
+        out[pq] = lists
+    return out
+
+
 def build_pool(request, adapter):
     tiers = query_tiers(request, pool_queries(request, adapter.brief_query(request)))
+    fetched = fetch_sources(request, adapter, [pq for tier in tiers for pq in tier])
     pool = unique_by_id([c for tier in tiers
-                         for c in round_robin([round_robin(adapter.sources(request, pq))
-                                               for pq in tier])])
+                         for c in round_robin([round_robin(fetched[pq]) for pq in tier])])
     if not pool:
         return []
     pool = adapter.filter_pool(request, pool)
