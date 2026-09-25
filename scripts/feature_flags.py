@@ -292,7 +292,7 @@ FLAGS = {f.name: f for f in (
     Flag("ASPECT_FIT_BACKDROP", "1",
          summary="Портретный источник вписывается целиком на размытую тёмную подложку вместо кропа"),
     Flag("LOCAL_STOCK_GATE", "1",
-         summary="Файлы media/*_stock.* из Шага 4 проходят тот же relevance-гейт, что и Pexels"),
+         summary="Файлы media/*_stock.* из Шага 4 — кандидаты общей кучи фото (каскад, гейты, судья), а не готовый кадр"),
     Flag("PIXABAY_ENABLED", "1",
          summary="Pixabay (фото и видео) в общем пуле кандидатов, своя квота"),
     Flag("UNSPLASH_ENABLED", "1",

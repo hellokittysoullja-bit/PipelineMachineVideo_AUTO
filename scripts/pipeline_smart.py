@@ -4615,7 +4615,7 @@ _SOURCE_ERROR_PRINTED = set()
 #: узнать об этом было неоткуда» — здесь наоборот, источник молча давал
 #: чужое имя.
 CANDIDATE_ID_PREFIXES = ("met", "euro", "chicago", "cleveland", "openverse",
-                         "pixabay", "unsplash", "commons")
+                         "pixabay", "unsplash", "commons", "local")
 
 
 def candidate_source(p):
@@ -7738,6 +7738,10 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                          + ([text_key] if text_key else [])
                          + ([_brief_key] if _brief_key else [])
                          + spec_key_parts(request.shot_spec))
+        # Файл Шага 4 меняет состав кучи — входит в ключ; нет файла — ключ прежний.
+        _local = local_stock_candidate(index)
+        if _local is not None:
+            qkey += "|" + _local["src"]["medium"]
         qhash = hashlib.md5(qkey.encode()).hexdigest()[:8]
         gate_sig = candidate_gate_signature(request.index).split(":", 1)[-1]
         cf = os.path.join(cache, f"{index:04d}_{qhash}_{gate_sig}.jpg")
@@ -7940,6 +7944,12 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                 p["_shot_type"] = shot_type
                 src_list.append(p)
             per_source.append(src_list)
+        # Файл Шага 4 этого слота — первым источником: кандидат, а не
+        # готовый ответ (см. local_stock_candidate). Повтор в других
+        # запросах пула снимает unique_by_id.
+        local = local_stock_candidate(request.index)
+        if local is not None:
+            per_source.insert(0, [dict(local, _origin_query=pq, _shot_type=shot_type)])
         return per_source
 
     def filter_pool(self, request, pool):
@@ -8529,7 +8539,7 @@ _LOCAL_PHOTOS_CACHE = None
 # не заменяются (Шаг 5.5). Машинный сток Шага 4 подписан _stock.
 CURATED_MEDIA_SUFFIXES = ("_fastgen", "_grok", "_flow", "_ai")
 LOCAL_STOCK_MARKER = "_stock"
-LOCAL_STOCK_GATE_REJECTED = []   # [{"index", "file", "query"}, ...] — для сводки
+LOCAL_STOCK_POOLED = []   # [{"index", "file"}, ...] — сток Шага 4, ушедший в общую кучу
 
 
 def local_file_is_machine_stock(path):
@@ -8621,6 +8631,40 @@ def local_photo(index, allow_cycle=False):
     if allow_cycle:
         return os.path.join(MEDIA_FOLDER, photos[index % len(photos)])
     return None
+
+
+def local_stock_candidate(index):
+    """Файл Шага 4 (media/NNN_stock.*) этого слота в форме кандидата кучи
+    фото, или None.
+
+    Раньше такой файл, пройдя дешёвый relevance-гейт, вставал в слот
+    напрямую — мимо каскада, судьи и проверки финалистов, хотя выбран он
+    Шагом 4 по ключевому слову из themes.json первым подходящим результатом
+    стока. Теперь он один из кандидатов: выигрывает, только если лучше
+    остальных по тем же правилам. Выбросить его без рассмотрения было бы
+    потерей (вдруг он лучший), поставить без рассмотрения — брешью.
+
+    Ссылка — file:// с фрагментом «mtime-размер»: urllib фрагмент не
+    отправляет, а ключи кэшей по адресу превью (каскад) меняются вместе
+    с файлом. AI-картинки и файлы, положенные человеком, сюда не попадают
+    (local_file_is_machine_stock) — их по-прежнему ставит main()."""
+    if not feature_flags.enabled("LOCAL_STOCK_GATE"):
+        return None
+    path = local_photo(index)
+    if not path or not local_file_is_machine_stock(path):
+        return None
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    import pathlib
+    uri = (pathlib.Path(os.path.abspath(path)).as_uri()
+           + f"#{int(st.st_mtime)}-{st.st_size}")
+    # Поле url пустое намеренно: по нему идёт жанровый фильтр по тексту
+    # (pexels_candidate_text), и слова пути к папке эпизода выбрасывали бы
+    # кандидата ни за что.
+    return {"id": "local:" + os.path.basename(path), "alt": "", "url": "",
+            "src": {"medium": uri, "large2x": uri, "large": uri}}
 
 
 # --- ШОТЛИСТ (media_plan/shotlist.json) — проверяемый и правимый список кадров ---
@@ -17188,25 +17232,16 @@ def main():
             shotlist_locked_used += 1
         else:
             photo = local_photo(i) if use_local else None
-            # Машинный сток Шага 4 проходит ТОТ ЖЕ relevance-гейт, что и
-            # кандидат Pexels (см. local_file_is_machine_stock). Не прошёл —
-            # слот идёт обычным путём отбора ниже, как будто локального файла
-            # не было: пустым он не останется, там полный стек источников и
-            # лестница фолбэков. is_relevant_candidate() fail-open при
-            # недоступном CLIP (возвращает True) — без torch поведение
-            # прежнее байт-в-байт.
+            # Машинный сток Шага 4 не встаёт в слот напрямую: он становится
+            # ОБЫЧНЫМ кандидатом общей кучи фото (local_stock_candidate) и
+            # проходит каскад, все гейты, судью и проверку финалистов наравне
+            # с остальными. Раньше он проходил только дешёвый relevance-гейт
+            # и, пройдя его, занимал слот мимо судьи. AI-картинки и файлы,
+            # положенные человеком, не трогаются (local_file_is_machine_stock).
             if (photo and feature_flags.enabled("LOCAL_STOCK_GATE")
                     and local_file_is_machine_stock(photo)):
-                try:
-                    _stock_ok = is_relevant_candidate(photo, queries[i])
-                except Exception:
-                    _stock_ok = True
-                if not _stock_ok:
-                    print(f"    [{i+1}] media/{os.path.basename(photo)} не прошёл "
-                          f"relevance-гейт по запросу {queries[i]!r} — слот идёт обычным отбором")
-                    LOCAL_STOCK_GATE_REJECTED.append(
-                        {"index": i, "file": os.path.basename(photo), "query": queries[i]})
-                    photo = None
+                LOCAL_STOCK_POOLED.append({"index": i, "file": os.path.basename(photo)})
+                photo = None
             video = None
             if photo:
                 media_origin = "local"
@@ -18214,11 +18249,11 @@ def main():
                                "video_photo_rescue_report.json")
     merge_slot_report(rescue_path, VIDEO_RESCUED_BY_PHOTO,
                       resolved_slots=RESOLVED_SLOTS_THIS_RUN)
-    if LOCAL_STOCK_GATE_REJECTED:
-        idxs = [m["index"] + 1 for m in LOCAL_STOCK_GATE_REJECTED]
-        print(f"  {len(LOCAL_STOCK_GATE_REJECTED)} слот(ов) {idxs}: файл media/*_stock.* "
-              f"из Шага 4 не прошёл relevance-гейт и заменён обычным отбором "
-              f"(AI-картинки не гейтятся никогда, см. LOCAL_STOCK_GATE)")
+    if LOCAL_STOCK_POOLED:
+        idxs = [m["index"] + 1 for m in LOCAL_STOCK_POOLED]
+        print(f"  {len(LOCAL_STOCK_POOLED)} слот(ов) {idxs}: файл media/*_stock.* из Шага 4 "
+              f"отбирался как кандидат общей кучи, наравне с остальными "
+              f"(AI-картинки не трогаются никогда, см. LOCAL_STOCK_GATE)")
     if VIDEO_TOO_SHORT_FILTERED:
         dropped = sum(m["dropped"] for m in VIDEO_TOO_SHORT_FILTERED)
         print(f"  {len(VIDEO_TOO_SHORT_FILTERED)} слот(ов): отсеяно {dropped} видео-кандидат(ов), "
