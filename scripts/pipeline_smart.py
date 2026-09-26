@@ -5950,9 +5950,13 @@ def art_museums_fit_episode():
     для эпизода про прошлое. У современного, научного и абстрактного
     эпизода их выдача — чужие предметы по совпадению слов (замер разбора
     24.09: «coral reef» приносит коралловые чётки и амулеты), и она только
-    тратит квоту и места в пуле. Нет паспорта — как раньше, музеи в пуле."""
+    тратит квоту и места в пуле. Нет паспорта — как раньше, музеи в пуле.
+    «Про прошлое» решает world_card.is_historical — то же правило, что у
+    отказа по CG и якоря эпохи (эп.95: mixed без эпохи, музеи предложили
+    6 074 кандидата и не выиграли ни одного слота из 51)."""
+    import world_card
     card = episode_world_card()
-    return not card or card.get("register") not in ("modern", "abstract", "scientific")
+    return not card or world_card.is_historical(card)
 
 
 def source_allowed_for(source, shot_type):

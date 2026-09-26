@@ -132,10 +132,12 @@ def test_spec_queries_go_to_stock_without_dictionary_appendices(monkeypatch):
 
 
 def test_art_museums_only_for_episodes_about_the_past(monkeypatch):
-    for reg, ok in (("historical", True), ("mixed", True), ("modern", False),
-                    ("scientific", False), ("abstract", False)):
-        monkeypatch.setattr(ps, "episode_world_card", lambda r=reg: {"register": r})
-        assert ps.art_museums_fit_episode() is ok
+    era = {"from": 1300, "to": 1500}
+    for card, ok in (({"register": "historical", "era": era}, True), ({"register": "mixed", "era": era}, True),
+                     ({"register": "mixed", "era": None}, False), ({"register": "modern"}, False),
+                     ({"register": "scientific"}, False), ({"register": "abstract"}, False)):
+        monkeypatch.setattr(ps, "episode_world_card", lambda c=card: c)
+        assert ps.art_museums_fit_episode() is ok, card
     monkeypatch.setattr(ps, "episode_world_card", lambda: None)
     assert ps.art_museums_fit_episode()
 

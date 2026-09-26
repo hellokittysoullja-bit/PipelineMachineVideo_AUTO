@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 import caption_screen as cs  # noqa: E402
 
-CARD = {"register": "medieval European warfare", "era": {"from": 1300, "to": 1500},
+CARD = {"register": "historical", "era": {"from": 1300, "to": 1500},
         "culture": {"include": [], "exclude": ["ottoman", "islamic", "japanese"]},
         "must_not_show": ["firearm"]}
 CARD_SCIENCE = {"register": "deep sea biology", "era": None, "culture": None}

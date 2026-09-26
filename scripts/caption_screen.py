@@ -29,7 +29,7 @@ DeepSeek по подписи ловят именно этот брак до су
 замерен (вместе с правилом J); отметки J игнорируются.
 
 ГРАНИЦЫ. Работает только там, где работает судья (платная зона, ключ
-шлюза), только при чужих культурах в паспорте эпизода и только на первых
+шлюза), только в историческом эпизоде с чужими культурами в паспорте и только на первых
 TOP_N кандидатах каскада. Любой сбой — кандидаты остаются как есть.
 Решения кэшируются на диске по тексту вопроса: повторный рендер не платит и
 получает тот же ответ."""
@@ -41,7 +41,7 @@ import re
 
 import world_card
 
-SCREEN_VERSION = 1
+SCREEN_VERSION = 2
 MODEL = "ds/deepseek-v4-flash"
 TOP_N = 100
 MAX_TOKENS = 2500
@@ -84,9 +84,13 @@ def prompts_digest():
 
 
 def active_for(card):
-    """Отсев имеет смысл, только если паспорт называет чужие культуры: без
-    них вопрос X не задаётся и выбрасывать нечего."""
-    return bool(world_card.culture_exclude(card))
+    """Отсев работает только там, где он замерен: исторический эпизод
+    (world_card.is_historical), у паспорта которого есть чужие культуры.
+    Без чужих культур вопрос X не задаётся и выбрасывать нечего. «Ноль
+    потерь годных» снят только на исторических кучах; в научном эп.95 отсев
+    выбросил песочные часы с тегом «ancient» на фразе про слепоту ко времени
+    (26.09) — вне замеренной области он не включается."""
+    return world_card.is_historical(card) and bool(world_card.culture_exclude(card))
 
 
 def clean(text, channel):
@@ -126,8 +130,7 @@ def _world_x(card):
 def _world_b(card):
     setting = world_card.judge_setting(card) or ""
     forbidden = list(world_card.forbidden_classes(card))
-    cul = (card or {}).get("culture") or {}
-    historical = bool((card or {}).get("era")) or bool(cul.get("include") or cul.get("exclude"))
+    historical = world_card.is_historical(card)
     lines = []
     if setting:
         lines.append(f"The film's world: {setting}.")

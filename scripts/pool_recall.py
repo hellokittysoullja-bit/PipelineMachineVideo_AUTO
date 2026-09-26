@@ -543,8 +543,7 @@ def cmd_bench(a):
             stats["cost"] += cost
             if ans is None:
                 continue
-            rank = shot_judge.claims_vector(spec, ans, cg_veto=bool(card) and
-                                            card.get("register") in ("historical", "mixed"))
+            rank = shot_judge.claims_vector(spec, ans, cg_veto=world_card.is_historical(card))
             focus = shot_judge.focus_met(spec, ans)
             # «Принят» — не отклонён и хоть что-то обязательное выполнено;
             # считается ДО приписки оценки сетки: (-5,) + сетка уже не равно
