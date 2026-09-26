@@ -256,8 +256,6 @@ def search(query, department_name=None, limit=60):
     for r in idx["rows"]:
         if department_name and r["dept"] != department_name:
             continue
-        if not ms.era_overlaps(r.get("b"), r.get("e")) or ms.culture_is_foreign(r.get("culture")):
-            continue
         name, cls = r["name"] or "", r["cls"] or ""
         tags, title = r["tags"] or "", r["title"] or ""
         score = 0
@@ -270,7 +268,13 @@ def search(query, department_name=None, limit=60):
                 score += 2
             elif p.search(title):
                 score += 1
-        if score:
+        # Паспорт — только у записей, совпавших по словам: он дороже
+        # совпадения (окно эпохи и список культур паспорта считаются заново
+        # на каждый вызов) и не зависит от него, поэтому порядок проверок
+        # результат не меняет. Раньше паспорт проверялся у всех ~30 тыс.
+        # записей до подсчёта — около секунды на запрос без отдела.
+        if score and ms.era_overlaps(r.get("b"), r.get("e")) \
+                and not ms.culture_is_foreign(r.get("culture")):
             scored.append((score, r))
     scored.sort(key=lambda sr: (-sr[0], sr[1]["id"]))
     return [r for _, r in scored[:limit]]

@@ -260,7 +260,7 @@ MET_HOST = source_health.host("met", interval=1.0 / MET_MAX_REQUESTS_PER_SEC,
 # уходил в остывание и на какой скорости закончил. Читается вызывающим
 # кодом/тестами и уезжает в media_plan/source_contribution.json.
 FETCH_STATS = {"met_cards_lost": 0, "met_cooldowns": 0, "met_requests": 0,
-               "met_catalog_hits": 0,
+               "met_catalog_hits": 0, "met_search_failures": 0,
                "met_rate_final": MET_MAX_REQUESTS_PER_SEC,
                "search_cache_hits": 0, "search_cache_misses": 0}
 
@@ -268,7 +268,7 @@ FETCH_STATS = {"met_cards_lost": 0, "met_cooldowns": 0, "met_requests": 0,
 def reset_fetch_stats():
     """Один прогон — один счёт. Нужен тестам и повторным вызовам в процессе."""
     for k in ("met_cards_lost", "met_cooldowns", "met_requests",
-              "met_catalog_hits",
+              "met_catalog_hits", "met_search_failures",
               "search_cache_hits", "search_cache_misses"):
         FETCH_STATS[k] = 0
     MET_HOST.reset()
@@ -311,8 +311,9 @@ def _met_get(url):
                 continue
             if e.code in MET_COOLDOWN_STATUSES:
                 _met_enter_cooldown()
-            else:
-                FETCH_STATS["met_lost_cards"] = FETCH_STATS.get("met_lost_cards", 0) + 1
+            # Потерю карточки считает вызывающий (_detail в search_met):
+            # здесь же стоял второй счётчик под чужим именем
+            # (met_lost_cards), который не сбрасывался и не попадал в отчёт.
             return None
         except Exception:
             if attempt == 0:
@@ -539,6 +540,12 @@ def search_met(query, limit=MET_MAX_DETAIL_FETCHES, department=None):
                     + (f"&dateBegin={int(window[0])}&dateEnd={int(window[1])}" if window else "")
                     + (f"&departmentId={int(department)}" if department else "")
                     + "&q=" + urllib.parse.quote(query))
+    if data is None:
+        # Поиск не ответил (сеть, остывание). Кандидаты каталога остаются в
+        # выдаче, как и раньше, но ответ неполон — search_museums не должна
+        # класть его в дисковый кэш на месяц.
+        with _STATS_LOCK:
+            FETCH_STATS["met_search_failures"] += 1
     api_ids = (data or {}).get("objectIDs") or []
     seen = set(cat_ids)
     oids = cat_ids + [i for i in api_ids if i not in seen]
@@ -791,18 +798,28 @@ def search_museums(query, department=None, limit=None):
         _SEARCH_CACHE[mem_key] = cached
         return cached
     FETCH_STATS["search_cache_misses"] += 1
-    per_museum = []
-    errors = 0
     cooldowns_before = FETCH_STATS["met_cooldowns"]
+    search_failures_before = FETCH_STATS["met_search_failures"]
     was_cooling = met_is_cooling_down()
-    for name, fn in _sources(department):
+
+    def _one(fn):
         try:
-            per_museum.append(list(fn(query) if limit is None else fn(query, limit=limit)))
+            return list(fn(query) if limit is None else fn(query, limit=limit))
         except Exception:
             # Fail-open ПОИСТОЧНИКОВО: упавший музей не должен уносить с
             # собой два оставшихся и уж тем более ронять слот.
-            errors += 1
-            continue
+            return None
+
+    # Три музея — три разных сервера, и ждать один другого незачем: раньше
+    # Кливленд начинал только после всех карточек Мет, Чикаго — после
+    # Кливленда. Ограничитель скорости Мет общий на процесс, поэтому темп
+    # запросов к Мет не меняется; результаты собираются в прежнем порядке
+    # музеев, и чередование ниже даёт тот же список до кандидата.
+    sources = _sources(department)
+    with concurrent.futures.ThreadPoolExecutor(len(sources)) as ex:
+        got = list(ex.map(_one, [fn for _name, fn in sources]))
+    per_museum = [g for g in got if g is not None]
+    errors = sum(1 for g in got if g is None)
     # ЧЕРЕДОВАНИЕ музеев, а не «весь Мет, потом Кливленд, потом Чикаго».
     # Измеренная причина (A/B, 13.09): с глубиной Мет 60 кливлендский
     # «Tilting Suit» (relevance 0.325, лучший кандидат слота «medieval plate
@@ -815,8 +832,16 @@ def search_museums(query, department=None, limit=None):
             if c is not None:
                 out.append(c)
     _SEARCH_CACHE[mem_key] = out
+    # Неполный ответ (упавший музей, остывание Мет, неответивший поиск Мет)
+    # в дисковый кэш не идёт: временный отказ замораживался бы на месяц.
+    # Раньше неответивший поиск Мет не считался неполнотой вовсе, и выдача
+    # Кливленда с Чикаго записывалась на 30 дней как полная — без Мет.
     complete = (errors == 0 and not was_cooling
-                and FETCH_STATS["met_cooldowns"] == cooldowns_before)
-    if out and complete:
+                and FETCH_STATS["met_cooldowns"] == cooldowns_before
+                and FETCH_STATS["met_search_failures"] == search_failures_before)
+    # Полный ПУСТОЙ ответ тоже кэшируется: раньше он спрашивался заново на
+    # каждом рендере (поиск Мет через ограничитель, Кливленд, Чикаго и
+    # проход по каталогу), а ответ от этого не меняется — как у Commons.
+    if complete:
         _disk_cache_put(query, out, department, limit)
     return out

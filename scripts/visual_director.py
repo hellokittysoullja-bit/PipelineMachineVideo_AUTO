@@ -497,8 +497,9 @@ def _get_siglip2_model():
         # зависавший на чтении stdin в headless-процессе). SigLIP2 — нативная
         # transformers-модель, remote-код и так не нужен; явный False убирает
         # саму возможность промпта, не только его последствия.
-        _siglip2_model = AutoModel.from_pretrained(SIGLIP2_MODEL_NAME, trust_remote_code=False)
-        _siglip2_model.eval()
+        import ml_device
+        _siglip2_model = ml_device.place(
+            AutoModel.from_pretrained(SIGLIP2_MODEL_NAME, trust_remote_code=False).eval())
         _siglip2_processor = AutoProcessor.from_pretrained(SIGLIP2_MODEL_NAME, trust_remote_code=False)
     return _siglip2_model, _siglip2_processor
 
@@ -657,12 +658,13 @@ def _siglip2_text_emb(text):
     model, processor = _get_siglip2_model()
     tokenizer = processor.tokenizer if hasattr(processor, "tokenizer") else processor
     _report_truncation_if_any("siglip2", text, tokenizer, SIGLIP2_MAX_TEXT_LENGTH)
+    import ml_device
     with torch.no_grad():
         txt_inputs = processor(text=[text], padding="max_length",
                                 max_length=SIGLIP2_MAX_TEXT_LENGTH, return_tensors="pt")
-        txt_out = model.get_text_features(**txt_inputs)
+        txt_out = model.get_text_features(**ml_device.inputs(txt_inputs))
         emb = txt_out.pooler_output if hasattr(txt_out, "pooler_output") else txt_out
-        emb = emb / emb.norm(dim=-1, keepdim=True)
+        emb = ml_device.host(emb / emb.norm(dim=-1, keepdim=True))
     _emb_cache_put(_siglip2_text_emb_cache, text, emb)
     _emb_disk_store("s2t", dk, emb.numpy())
     return emb
@@ -686,11 +688,12 @@ def _siglip2_image_emb(image_path):
         return emb
     model, processor = _get_siglip2_model()
     img = PILImage.open(image_path).convert("RGB")
+    import ml_device
     with torch.no_grad():
         img_inputs = processor(images=[img], return_tensors="pt")
-        img_out = model.get_image_features(**img_inputs)
+        img_out = model.get_image_features(**ml_device.inputs(img_inputs))
         emb = img_out.pooler_output if hasattr(img_out, "pooler_output") else img_out
-        emb = emb / emb.norm(dim=-1, keepdim=True)
+        emb = ml_device.host(emb / emb.norm(dim=-1, keepdim=True))
     _emb_cache_put(_siglip2_img_emb_cache, key, emb)
     _emb_disk_store("s2i", dk, emb.numpy())
     return emb
@@ -1027,6 +1030,10 @@ def _relevance_model_signature():
         f"{ENSEMBLE_WEIGHT_SIGLIP2}", f"{ENSEMBLE_WEIGHT_JINA}",
         f"{SIGLIP2_SCORE_MEAN}", f"{SIGLIP2_SCORE_STD}",
     ])
+    # Устройство модели (ml_device): на процессоре — пустая строка, отпечаток
+    # прежний; на видеокарте векторы не смешиваются с посчитанными на CPU.
+    import ml_device
+    parts += ml_device.tag()
     return hashlib.md5(parts.encode()).hexdigest()[:16]
 
 

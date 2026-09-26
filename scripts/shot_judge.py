@@ -938,15 +938,26 @@ def verify_claims(gateway, model, *, phrase, spec, setting, path, kind="photo", 
     if gateway is None or not path or not os.path.exists(path):
         return None, {}
     if world_separate and setting:
-        world, winfo = world_of_image(gateway, model, setting=setting, path=path, kind=kind,
-                                      cache_dir=cache_dir, max_side=max_side, reasoning=reasoning,
-                                      caption=caption, frames=frames)
+        # Два вопроса не зависят друг от друга (мир — без фразы, пункты — без
+        # мира), поэтому идут ОДНОВРЕМЕННО: раньше пункты ждали ответа о мире,
+        # и каждая порция проверки стоила два хода к модели подряд вместо
+        # одного. Вопросы, картинки и кэши те же, ответы те же. Цена: если
+        # вопрос о мире не удался, ответ по пунктам уже оплачен — он ложится
+        # в кэш и берётся при следующем вопросе о том же кадре.
+        with concurrent.futures.ThreadPoolExecutor(2) as ex:
+            wf = ex.submit(world_of_image, gateway, model, setting=setting, path=path, kind=kind,
+                           cache_dir=cache_dir, max_side=max_side, reasoning=reasoning,
+                           caption=caption, frames=frames)
+            cf = ex.submit(verify_claims, gateway, model, phrase=phrase, spec=spec, setting=None,
+                           path=path, kind=kind, cache_dir=cache_dir,
+                           max_side=max_side, reasoning=reasoning, caption=caption,
+                           frames=frames)
+            world, winfo = wf.result()
+            answers, info = cf.result()
         if world is None:
+            winfo = dict(winfo, cost=(winfo.get("cost") or 0) + (info.get("cost") or 0),
+                         call=bool(winfo.get("call") or info.get("call")))
             return None, winfo
-        answers, info = verify_claims(gateway, model, phrase=phrase, spec=spec, setting=None,
-                                      path=path, kind=kind, cache_dir=cache_dir,
-                                      max_side=max_side, reasoning=reasoning, caption=caption,
-                                      frames=frames)
         cost = (info.get("cost") or 0) + (winfo.get("cost") or 0)
         info = dict(info, cost=cost, call=bool(info.get("call") or winfo.get("call")))
         return (None if answers is None else dict(answers, **world)), info

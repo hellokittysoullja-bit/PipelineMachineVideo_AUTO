@@ -151,6 +151,31 @@ def _render_workers_from_env():
 
 RENDER_POOL_WORKERS = _render_workers_from_env()
 
+
+def _render_worker_background_priority():
+    """Воркер рендера (и его ffmpeg) — с пониженным приоритетом процессора.
+
+    Пока воркеры рендерят слот i, главный процесс отбирает слот i+1, и оба
+    делят одни и те же ядра. Замер 26.09 на 4 ядрах: SigLIP2 при четырёх
+    соседних загрузках — 0.147 -> 0.441 с на картинку (в 3 раза дольше),
+    а каскад — до 1000 картинок на слот. Отбор — длинный путь всего прогона
+    (часы), рендер клипа — секунды и дожидается своего в паузах отбора
+    (ответы судьи, сеть), поэтому приоритет отдаётся отбору. Работы у
+    рендера столько же, числа отбора те же до бита: приоритет меняет только
+    очередь на ядро. ffmpeg наследует приоритет процесса-родителя (POSIX —
+    nice; Windows — класс BELOW_NORMAL наследуется дочерними процессами).
+    Сбой — воркер работает с обычным приоритетом, как раньше."""
+    try:
+        if hasattr(os, "nice"):
+            os.nice(10)
+        elif os.name == "nt":
+            import ctypes
+            below_normal = 0x00004000
+            ctypes.windll.kernel32.SetPriorityClass(
+                ctypes.windll.kernel32.GetCurrentProcess(), below_normal)
+    except Exception:
+        pass
+
 # Позиционный аргумент (путь к эпизоду) отделён от флагов явно, а не просто
 # sys.argv[1] — иначе --plan-only (см. ниже) пришлось бы всегда ставить
 # строго ПОСЛЕДНИМ аргументом, а любая опечатка в порядке аргументов молча
@@ -5515,8 +5540,11 @@ def filter_alt_blocklist(items):
     вернуть кандидата, которого только что отбраковали по имени).
     """
     terms = content_blocklist_effective()
-    filtered = [p for p in items
-                if not any(term in pexels_candidate_text(p) for term in terms)]
+    # Текст кандидата собирается ОДИН раз, а не на каждый термин: раньше
+    # на 51 термин блоклиста это было 51 сборка текста (нижний регистр и
+    # две замены) на кандидата — 0.41 с на кучу из 900 против 0.009 с.
+    filtered = [p for p, text in ((p, pexels_candidate_text(p)) for p in items)
+                if not any(term in text for term in terms)]
     filtered = filtered or items
     if CONTENT_BLOCKED_CANDIDATE_IDS:
         filtered = [p for p in filtered
@@ -6353,6 +6381,7 @@ def _note_pexels_quota(resp):
     """Остаток часовой квоты из заголовка ответа (нет заголовка — остаток
     неизвестен, и бюджет ничего не режет)."""
     global PEXELS_QUOTA_LEFT
+    _PEXELS_LIVE_REQUESTS[0] += 1
     try:
         v = resp.headers.get("X-Ratelimit-Remaining")
         if v is not None:
@@ -7403,12 +7432,21 @@ def _unsplash_search_photos(api_query):
         if _UNSPLASH_CALLS_THIS_RUN[0] >= _ms.UNSPLASH_HOURLY_CAP:
             _UNSPLASH_PHOTO_CACHE[api_query] = []
             return []
-        url = (f"https://api.unsplash.com/search/photos?"
-               f"query={urllib.parse.quote(api_query)}&per_page=30"
-               f"&orientation=landscape&client_id={_ms.UNSPLASH_ACCESS_KEY}")
-        req = urllib.request.Request(url, headers={"User-Agent": UA})
-        with urllib.request.urlopen(req, timeout=20) as r:
-            data = json.load(r)
+        params = (f"query={urllib.parse.quote(api_query)}&per_page=30"
+                  f"&orientation=landscape")
+        url = f"https://api.unsplash.com/search/photos?{params}&client_id={_ms.UNSPLASH_ACCESS_KEY}"
+
+        def fetch():
+            req = urllib.request.Request(url, headers={"User-Agent": UA})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                return json.load(r)
+        # Дисковый кэш, как у Pexels и Pixabay: Unsplash был единственным
+        # стоком без него — каждый рендер заново тратил до 45 живых вызовов
+        # часовой квоты 50 на те же запросы. Ответ из кэша считается в
+        # потолок прогона так же, как живой: иначе запросы после 45-го,
+        # которые сегодня получают пустоту, начали бы получать кандидатов,
+        # и куча отличалась бы от живого прогона. Ключ — без client_id.
+        data = cached_search_json("unsplash", params, fetch)
         _UNSPLASH_CALLS_THIS_RUN[0] += 1
         for h in (data.get("results") or []):
             urls = h.get("urls") or {}
@@ -7636,8 +7674,14 @@ def _openverse_fetch_one(api_query, _ov):
                 "foreign_landing_url": res.get("foreign_landing_url"),
             },
         })
-    # В кэш — только непустой ответ: пустой может быть следствием квоты, а не корпуса.
-    if results:
+    # В кэш — ответ, который API ДАЛ ПО СУЩЕСТВУ: в нём есть число найденного
+    # (result_count). Отказ по квоте приходит ошибкой HTTP (429/401) и сюда
+    # не доходит, а пустая выдача с result_count — это ответ корпуса, и он не
+    # меняется от повторного вопроса. Раньше пустой ответ не кэшировался
+    # вовсе: точный пятисловный запрос почти всегда пуст (CLAUDE.md), и на
+    # каждом рендере он уходил в сеть заново — с паузой 3.1 с анонимного
+    # лимита и расходом дневной квоты 200.
+    if results or isinstance(data.get("result_count"), int):
         _openverse_cache_put(api_query, _ov, results)
     return results
 
@@ -8117,17 +8161,24 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                 # честный cost-tradeoff расширения пула).
                 good_needed = max(good_needed, _director_min_pool_for(index))
             candidates_info = []
+            kept_previews = {}
+            # Превью, которые гейты возьмут следом, каскад оставляет на диске:
+            # страница каскада, запас на отсев по подписи и пробная выборка.
+            import caption_screen as _cs_mod
+            keep_top = (CASCADE_PAGE.get() + 1) * _photo_dedup_max_tries_for(index) + _cs_mod.TOP_N
             if shot_judge_active(index):
                 candidates = cascade_reorder(candidates,
                                              cascade_texts(request.shot_spec, request.shot_brief or query,
                                                            "photo"),
                                              cf, download_probe, index,
-                                             claims=cascade_claims(request.shot_spec, "photo"))
+                                             claims=cascade_claims(request.shot_spec, "photo"),
+                                             keep=kept_previews, keep_top=keep_top)
                 candidates = caption_screen_pool(candidates, request, "photo", index)
                 skip = CASCADE_PAGE.get() * _photo_dedup_max_tries_for(index)
                 if skip:
                     candidates = candidates[skip:]
                     if not candidates:
+                        _drop_previews(kept_previews.values())
                         return None
             trial_slice = candidates[:_photo_dedup_max_tries_for(index)]
             # Скачивание кандидатов — сетевой I/O, не CPU (см. докстринг
@@ -8142,7 +8193,8 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                            for p in trial_slice}
             prefetch_pool = concurrent.futures.ThreadPoolExecutor(
                 max_workers=max(1, min(PHOTO_PREFETCH_WORKERS, len(trial_slice) or 1)))
-            prefetch_futures = {id(p): prefetch_pool.submit(download_probe, p, trial_paths[id(p)])
+            prefetch_futures = {id(p): prefetch_pool.submit(take_kept_preview, kept_previews, p,
+                                                            trial_paths[id(p)], download_probe)
                                  for p in trial_slice}
             for p in trial_slice:
                 trial = trial_paths[id(p)]
@@ -8248,6 +8300,8 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                 if id(p) not in _processed_ids:
                     prefetch_futures[id(p)].cancel()
             prefetch_pool.shutdown(wait=False)
+            # Превью каскада, не попавшие в пробную выборку, — с диска.
+            _drop_previews([kept_previews.pop(k) for k in list(kept_previews)])
             # Судья кадров (SHOT_JUDGE, см. judge_candidates) — до выбора
             # победителя: его оценка первый ключ после анти-дубля. Не
             # отработал по всему слоту — оценок нет ни у кого, порядок прежний.
@@ -8705,6 +8759,9 @@ def local_photo(index, allow_cycle=False):
     return None
 
 
+_LOCAL_DIGEST_CACHE = {}
+
+
 def local_stock_candidate(index):
     """Файл Шага 4 (media/NNN_stock.*) этого слота в форме кандидата кучи
     фото, или None.
@@ -8727,7 +8784,19 @@ def local_stock_candidate(index):
     path = local_photo(index)
     if not path or not local_file_is_machine_stock(path):
         return None
-    digest = _file_digest(path)
+    # Хэш содержимого — один раз на версию файла: функция зовётся на каждый
+    # запрос пула и в ключе кэша слота, а раньше каждый раз читала файл
+    # целиком. Сменился файл (время, размер) — хэш считается заново.
+    try:
+        st = os.stat(path)
+        memo_key = (path, st.st_mtime_ns, st.st_size)
+    except OSError:
+        memo_key = None
+    digest = _LOCAL_DIGEST_CACHE.get(memo_key) if memo_key else None
+    if digest is None:
+        digest = _file_digest(path)
+        if digest and memo_key:
+            _LOCAL_DIGEST_CACHE[memo_key] = digest
     if not digest:
         return None
     import pathlib
@@ -11938,6 +12007,20 @@ CASCADE_WORKERS = 8
 _CASCADE_EMB = {}
 
 
+def cascade_cache_dir():
+    """Дисковый кэш эмбеддингов превью каскада — ОБЩИЙ для всех эпизодов.
+
+    Раньше он жил в temp_smart эпизода и умирал вместе с ним, хотя ключ от
+    эпизода не зависит (модель + адрес превью) и соседние эпизоды одной
+    ниши делят кандидатов: каждый первый рендер эпизода заново считал уже
+    посчитанные превью (0.15-0.19 с на картинку на 4 ядрах, до 1000 на
+    слот). Тот же принцип и та же причина, что у temp_emb_cache
+    (visual_director). CASCADE_CACHE_DIR задаёт папку — тестам и харнессу
+    эквивалентности, которым нужен свой пустой кэш."""
+    return os.environ.get("CASCADE_CACHE_DIR") or os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "temp_cascade_embed_cache")
+
+
 # ВТОРАЯ СТРАНИЦА КАСКАДА. Судья смотрит лучших ~20 по описанию кадра; если
 # проверка мира отклонила всех, кого он одобрил, или одобренных нет, слот
 # опустеет. Живой случай (эпизод 94, «Он весил меньше, чем ты думаешь»):
@@ -11976,17 +12059,21 @@ def _gate_embed(images=None, text=None):
         return None
     try:
         import torch
+        import ml_device
         model, processor = get_clip_model()
-        with torch.no_grad():
+        # inference_mode, а не no_grad: те же числа до бита (замер 26.09),
+        # без учёта версий тензоров; результат сразу уходит в numpy.
+        with torch.inference_mode():
             if text is not None:
                 inp = processor(text=[text], return_tensors="pt", padding="max_length",
                                 max_length=CLIP_GATE_MODEL_MAX_TEXT_LEN, truncation=True)
-                out = model.get_text_features(**inp)
+                out = model.get_text_features(**ml_device.inputs(inp))
             else:
-                out = model.get_image_features(**processor(images=images, return_tensors="pt"))
-        e = out if torch.is_tensor(out) else out.pooler_output
-        e = e / e.norm(dim=-1, keepdim=True)
-        return e.numpy().astype("float32")
+                out = model.get_image_features(
+                    **ml_device.inputs(processor(images=images, return_tensors="pt")))
+            e = out if torch.is_tensor(out) else out.pooler_output
+            e = e / e.norm(dim=-1, keepdim=True)
+            return ml_device.host(e).numpy().astype("float32")
     except ImportError:
         CLIP_BROKEN = True
         return None
@@ -11995,7 +12082,8 @@ def _gate_embed(images=None, text=None):
 
 
 def _cascade_key(url):
-    return hashlib.md5(f"{CLIP_GATE_MODEL_NAME}|{url}".encode("utf-8")).hexdigest()
+    import ml_device
+    return hashlib.md5(f"{CLIP_GATE_MODEL_NAME}{ml_device.tag()}|{url}".encode("utf-8")).hexdigest()
 
 
 def _cascade_ident(p, url):
@@ -12016,13 +12104,17 @@ def _cascade_ident(p, url):
 def _cascade_cached(key, cache_dir):
     v = _CASCADE_EMB.get(key)
     if v is None:
-        fp = os.path.join(cache_dir, key + ".npy")
-        if os.path.exists(fp):
-            try:
-                v = np.load(fp)
-                _CASCADE_EMB[key] = v
-            except Exception:
-                v = None
+        # Прежнее место кэша (temp_smart эпизода) читается следом: ключ тот
+        # же, числа те же, и уже посчитанные эпизоды не платят за переезд.
+        for d in (cache_dir, os.path.join(TEMP_FOLDER, "cascade_embed_cache")):
+            fp = os.path.join(d, key + ".npy")
+            if os.path.exists(fp):
+                try:
+                    v = np.load(fp)
+                    _CASCADE_EMB[key] = v
+                    break
+                except Exception:
+                    v = None
     return v
 
 
@@ -12083,7 +12175,7 @@ def _interleave(first, second):
 
 
 def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=16, url_of=None,
-                    claims=None):
+                    claims=None, keep=None, keep_top=0):
     """Новый порядок кандидатов: первые cascade_preview_n() ранжированы по
     близости превью к текстам; кандидаты без превью — следом в прежнем
     порядке, хвост пула — за ними. Модель недоступна или оценено меньше
@@ -12106,7 +12198,13 @@ def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=16, url_o
     Поочерёдно: первые 10 мест КАЖДОГО порядка — в первых 20, их видит
     судья. Замер на размеченных кадрах 15 слотов эп.94: годных среди первых
     20 — 72 (утверждения) / 75 (запросы) / 88 (поочерёдно), лучший кадр
-    среди первых 20 не хуже обоих порядков ни в одном слоте."""
+    среди первых 20 не хуже обоих порядков ни в одном слоте.
+
+    keep (dict) и keep_top: превью первых keep_top кандидатов нового порядка
+    НЕ удаляются, а отдаются вызывающему как {id(кандидата): путь}. Гейты
+    сразу после каскада качали ровно эти же превью заново (тот же адрес,
+    та же функция скачивания); теперь файл переходит к ним, и выдача та же
+    до байта. Что вызывающий не взял, он удаляет сам (discard_kept)."""
     if isinstance(texts, str):
         texts = [texts]
     texts = [t for t in (texts or []) if t]
@@ -12114,10 +12212,13 @@ def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=16, url_o
     head = candidates[:n]
     if len(head) < 2 or not texts or np is None:
         return candidates
-    t_embs = [_gate_embed(text=t) for t in texts]
+    # Тексты — через общий кэш текстовых эмбеддингов гейта: те же числа, что
+    # у _gate_embed(text=...), без повторного прохода текстовой башни на
+    # каждый слот и каждую страницу каскада.
+    t_embs = [_gate_text_vec(t) for t in texts]
     if any(e is None for e in t_embs):
         return candidates
-    cache_dir = os.path.join(TEMP_FOLDER, "cascade_embed_cache")
+    cache_dir = cascade_cache_dir()
     url_of = url_of or candidate_probe_url
     keys = {id(p): _cascade_key(_cascade_ident(p, url_of(p))) for p in head}
     emb = {id(p): _cascade_cached(keys[id(p)], cache_dir) for p in head}
@@ -12154,10 +12255,19 @@ def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=16, url_o
                 d = _file_digest(tmp[id(p)])
                 if d:
                     _GATE_IMG_EMB_CACHE.setdefault(d, v)
+                # Атомарно: процесс, убитый посреди записи, раньше оставлял
+                # обрезанный .npy, который читался как промах навсегда.
+                final = os.path.join(cache_dir, keys[id(p)] + ".npy")
+                part = f"{final}.{os.getpid()}.{threading.get_ident()}.part"
                 try:
-                    np.save(os.path.join(cache_dir, keys[id(p)] + ".npy"), v)
+                    with open(part, "wb") as f:
+                        np.save(f, v)
+                    os.replace(part, final)
                 except Exception:
-                    pass
+                    try:
+                        os.remove(part)
+                    except OSError:
+                        pass
             return len(part)
 
         # Скачивание превью и оценка моделью идут ВНАХЛЁСТ: пачка
@@ -12179,25 +12289,23 @@ def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=16, url_o
             if pending:
                 with stage_timer.stage("cascade_rank", clip_idx=index):
                     fresh += embed_batch(pending)
-        for f in tmp.values():
-            try:
-                os.remove(f)
-            except OSError:
-                pass
+    else:
+        tmp = {}
     have = [(k, p) for k, p in enumerate(head) if emb[id(p)] is not None]
     if len(have) < 2:
+        _drop_previews(tmp.values())
         return candidates
-    best = {k: max(float(emb[id(p)] @ t[0]) for t in t_embs) for k, p in have}
+    best = {k: max(float(emb[id(p)] @ t) for t in t_embs) for k, p in have}
     by_query = [k for k, _p in sorted(have, key=lambda kp: (-best[kp[0]], kp[0]))]
     order = by_query
     c_texts = [c for c in (claims or []) if c]
     if c_texts == texts:
         c_texts = []      # без запросов в спецификации тексты и есть утверждения
-    c_embs = [_gate_embed(text=c) for c in c_texts] if c_texts else []
+    c_embs = [_gate_text_vec(c) for c in c_texts] if c_texts else []
     if c_embs and all(e is not None for e in c_embs):
         places = {}
         for t in c_embs:
-            by_t = sorted(have, key=lambda kp: (-float(emb[id(kp[1])] @ t[0]), kp[0]))
+            by_t = sorted(have, key=lambda kp: (-float(emb[id(kp[1])] @ t), kp[0]))
             for place, (k, _p) in enumerate(by_t):
                 places.setdefault(k, []).append(place)
         by_claims = [k for k, _p in sorted(have, key=lambda kp: (max(places[kp[0]]),
@@ -12214,14 +12322,42 @@ def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=16, url_o
         # одной из 49 куч и лучше в трёх («кинжал в ладони»: брак -> замена),
         # годных 176 -> 204.
         by_claims_best = [k for k, _p in sorted(
-            have, key=lambda kp: (-max(float(emb[id(kp[1])] @ t[0]) for t in c_embs), kp[0]))]
+            have, key=lambda kp: (-max(float(emb[id(kp[1])] @ t) for t in c_embs), kp[0]))]
         order = _interleave(_interleave(by_claims, by_query), by_claims_best)
     pos = dict(have)
     ranked = [pos[k] for k in order]
     seen = {id(p) for p in ranked}
     print(f"  слот {index}: каскад — {len(ranked)} из {len(head)} кандидатов ранжированы "
           f"по описанию кадра (новых оценок {fresh})")
-    return ranked + [p for p in head if id(p) not in seen] + list(candidates[n:])
+    out = ranked + [p for p in head if id(p) not in seen] + list(candidates[n:])
+    top = {id(p) for p in out[:keep_top]} if keep is not None else set()
+    for pid, f in tmp.items():
+        if pid in top and _downloaded_ok(f):
+            keep[pid] = f
+        else:
+            _drop_previews([f])
+    return out
+
+
+def _drop_previews(paths):
+    for f in paths:
+        try:
+            os.remove(f)
+        except OSError:
+            pass
+
+
+def take_kept_preview(kept, p, dest, fetch):
+    """Превью кандидата в dest: файл, оставленный каскадом (тот же адрес,
+    те же байты), иначе — скачать fetch(p, dest)."""
+    f = kept.pop(id(p), None) if kept else None
+    if f is not None:
+        try:
+            os.replace(f, dest)
+            return
+        except OSError:
+            pass
+    fetch(p, dest)
 
 
 # ЧИТАЕМОСТЬ КАДРА — ФИЗИКА, А НЕ СМЫСЛ. Судья оценивает кадр по описанию
@@ -12657,10 +12793,16 @@ def shot_judge_signature(index=None):
     import caption_screen
     # Код судьи — собирается сам (judge_code_signature, см. code_signature.py);
     # тексты вопросов — константы, их объявляем явно.
+    # Все тексты вопросов, которые реально уходят судье: сетка (PROMPT,
+    # PROMPT_VIDEO) и приписки к проверке (подпись источника, лента кадров
+    # видео) тоже — правка их текста без смены версии раньше не меняла
+    # подпись, и прогретый кэш отбора отдавал победителей старого вопроса.
     logic = hashlib.sha256((judge_code_signature() + shot_judge.CLAIMS_PROMPT
                             + shot_judge.WORLD_ONLY_PROMPT + shot_judge.FOCUS_BOX_PROMPT
                             + shot_judge.FOCUS_CONFIRM_PROMPT + shot_judge.LOOK_PROMPT
-                            + shot_judge.LOOK_PROMPT_VIDEO).encode("utf-8")).hexdigest()[:12]
+                            + shot_judge.LOOK_PROMPT_VIDEO + shot_judge.PROMPT
+                            + shot_judge.PROMPT_VIDEO + shot_judge.VERIFY_CAPTION
+                            + shot_judge.CLAIMS_VIDEO_NOTE).encode("utf-8")).hexdigest()[:12]
     return repr(("judge", shot_judge_model(), shot_judge.PROMPT_VERSION, SHOT_JUDGE_MIN_SCORE,
                  "cascade", cascade_preview_n(), "claims", shot_judge.CLAIMS_VERSION, logic,
                  shot_judge.VERIFY_MAX_SIDE, VERIFY_FINALISTS, VERIFY_REASONING,
@@ -13302,6 +13444,10 @@ def candidate_gate_signature(index=None):
             CLIP_GATE_MODEL_NAME,
         )))
         parts.append(_selection_stack_signature())
+        # Устройство моделей отбора (ml_device): на процессоре пустая строка,
+        # подпись прежняя; на видеокарте — своя (числа отличаются на ~1e-6).
+        import ml_device
+        parts.append(ml_device.tag())
     except Exception:
         _CANDIDATE_GATE_SIG = "gate:unknown"
         return _CANDIDATE_GATE_SIG
@@ -13476,7 +13622,9 @@ def get_clip_model():
     global _clip_model, _clip_processor
     if _clip_model is None:
         from transformers import AutoModel, AutoProcessor
-        _clip_model = AutoModel.from_pretrained(CLIP_GATE_MODEL_NAME, trust_remote_code=False).eval()
+        import ml_device
+        _clip_model = ml_device.place(
+            AutoModel.from_pretrained(CLIP_GATE_MODEL_NAME, trust_remote_code=False).eval())
         _clip_processor = AutoProcessor.from_pretrained(CLIP_GATE_MODEL_NAME, trust_remote_code=False)
     return _clip_model, _clip_processor
 
@@ -13497,7 +13645,8 @@ def get_aesthetic_clip_model():
     if _aesthetic_clip_model is None:
         from transformers import CLIPModel, CLIPProcessor
         name = "openai/clip-vit-base-patch32"
-        _aesthetic_clip_model = CLIPModel.from_pretrained(name).eval()
+        import ml_device
+        _aesthetic_clip_model = ml_device.place(CLIPModel.from_pretrained(name).eval())
         _aesthetic_clip_processor = CLIPProcessor.from_pretrained(name)
     return _aesthetic_clip_model, _aesthetic_clip_processor
 
@@ -13749,6 +13898,45 @@ def render_sharpness_regression(source_photo, rendered_clip):
     return (ratio < RENDER_SHARPNESS_DROP_RATIO, ratio)
 
 
+_AESTHETIC_SCORE_CACHE = {}
+
+
+def _aesthetic_cache_file(digest):
+    import ml_device
+    d = os.environ.get("AESTHETIC_CACHE_DIR") or os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "temp_aesthetic_cache")
+    return os.path.join(d, f"{digest}{ml_device.tag()}.json")
+
+
+def _aesthetic_cached(digest):
+    if not digest:
+        return None
+    v = _AESTHETIC_SCORE_CACHE.get(digest)
+    if v is None:
+        try:
+            with open(_aesthetic_cache_file(digest), encoding="utf-8") as f:
+                v = float(json.load(f)["score"])
+            _AESTHETIC_SCORE_CACHE[digest] = v
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+    return v
+
+
+def _aesthetic_store(digest, score):
+    if not digest:
+        return
+    _AESTHETIC_SCORE_CACHE[digest] = score
+    fp = _aesthetic_cache_file(digest)
+    part = f"{fp}.{os.getpid()}.{threading.get_ident()}.part"
+    try:
+        os.makedirs(os.path.dirname(fp), exist_ok=True)
+        with open(part, "w", encoding="utf-8") as f:
+            json.dump({"score": score, "model": "openai/clip-vit-base-patch32"}, f)
+        os.replace(part, fp)
+    except OSError:
+        pass
+
+
 @memoize_by_frame
 def aesthetic_score(image_path):
     """Эстетическая оценка кадра — линейная регрессия поверх L2-нормали-
@@ -13772,17 +13960,28 @@ def aesthetic_score(image_path):
     global AESTHETIC_CLIP_BROKEN
     if not AESTHETIC_ENABLED or not CLIP_ENABLED or AESTHETIC_CLIP_BROKEN:
         return None
+    # Оценка — свойство СОДЕРЖИМОГО кадра, а не пути: одно и то же превью
+    # приходит в пулы нескольких слотов под разными именами файлов проб и
+    # на каждом рендере заново. Кэш по хэшу байтов — в памяти и на диске;
+    # число то же, что посчитала бы модель (сохраняется как есть).
+    digest = _file_digest(image_path)
+    cached = _aesthetic_cached(digest)
+    if cached is not None:
+        return cached
     try:
         import torch
+        import ml_device
         model, processor = get_aesthetic_clip_model()
         img = PILImage.open(image_path).convert("RGB")
-        inputs = processor(images=[img], return_tensors="pt")
-        with torch.no_grad():
+        inputs = ml_device.inputs(processor(images=[img], return_tensors="pt"))
+        with torch.inference_mode():
             vis_out = model.vision_model(pixel_values=inputs["pixel_values"])
             feat = model.visual_projection(vis_out.pooler_output)
-        e = (feat / feat.norm(dim=-1, keepdim=True))[0].numpy()
+            e = ml_device.host(feat / feat.norm(dim=-1, keepdim=True))[0].numpy()
         w, b = get_aesthetic_head()
-        return float(e @ w + b)
+        score = float(e @ w + b)
+        _aesthetic_store(digest, score)
+        return score
     except ImportError:
         AESTHETIC_CLIP_BROKEN = True
         return None
@@ -14918,13 +15117,20 @@ class VideoAdapter(selection_engine.MediaAdapter):
         else:
             _note_source_search_error(source_name, exc, request.query)
 
-    def _preview(self, v, cf):
-        """Кадры превью на диск: список путей по времени или None."""
+    def _preview(self, v, cf, kept=None):
+        """Кадры превью на диск: список путей по времени или None. Средний
+        кадр, уже скачанный каскадом (kept), не качается второй раз."""
         paths = []
-        for k, url in enumerate(video_preview_urls(v)):
+        urls = video_preview_urls(v)
+        mid = len(urls) // 2
+        for k, url in enumerate(urls):
             dest = cf + f".prev_{candidate_path_token(v)}_{k}.jpg"
-            atomic_url_download(urllib.request.Request(url, headers={"User-Agent": UA}),
-                                dest, timeout=20)
+            if k == mid:
+                take_kept_preview(kept, v, dest, lambda _v, d, url=url: atomic_url_download(
+                    urllib.request.Request(url, headers={"User-Agent": UA}), d, timeout=20))
+            else:
+                atomic_url_download(urllib.request.Request(url, headers={"User-Agent": UA}),
+                                    dest, timeout=20)
             if not _downloaded_ok(dest):
                 return None
             paths.append(dest)
@@ -14943,14 +15149,17 @@ class VideoAdapter(selection_engine.MediaAdapter):
         query, index = request.query, request.index
         used_hashes, recent_sizes = request.used_hashes, request.recent_sizes
         score_fn, arbiter_text = request.video_score_fn, request.arbiter_text
+        kept = {}
         if shot_judge_active(index):
             # Каскад и у видео (раньше смотрелись 20 первых по кругу — 3-9%
             # пула): средний кадр превью каждого ролика ранжируется по
             # утверждениям спецификации, как фото — по своему превью.
+            import caption_screen as _cs_mod
             pool = cascade_reorder(pool, cascade_texts(request.shot_spec, request.shot_brief or query,
                                                        "video"),
                                    cf, video_middle_probe, index, url_of=video_middle_url,
-                                   claims=cascade_claims(request.shot_spec, "video"))
+                                   claims=cascade_claims(request.shot_spec, "video"),
+                                   keep=kept, keep_top=VIDEO_PREVIEW_POOL + _cs_mod.TOP_N)
             pool = caption_screen_pool(pool, request, "video", index)
             # Уже использованные в эпизоде ролики — в хвост и после каскада
             # (filter_pool их понизил, каскад без этого поднимал бы обратно).
@@ -14959,7 +15168,8 @@ class VideoAdapter(selection_engine.MediaAdapter):
         trial_slice = pool[:VIDEO_PREVIEW_POOL]
         with concurrent.futures.ThreadPoolExecutor(
                 max_workers=max(1, min(PHOTO_PREFETCH_WORKERS, len(trial_slice)))) as ex:
-            previews = list(ex.map(lambda v: self._safe_preview(v, cf), trial_slice))
+            previews = list(ex.map(lambda v: self._safe_preview(v, cf, kept), trial_slice))
+        _drop_previews([kept.pop(k) for k in list(kept)])
         candidates_info = []
         for v, frames in zip(trial_slice, previews):
             if not frames:
@@ -15020,9 +15230,9 @@ class VideoAdapter(selection_engine.MediaAdapter):
                     except OSError:
                         pass
 
-    def _safe_preview(self, v, cf):
+    def _safe_preview(self, v, cf, kept=None):
         try:
-            return self._preview(v, cf)
+            return self._preview(v, cf, kept)
         except Exception:
             return None
 
@@ -16304,13 +16514,23 @@ def render_recipe_signature():
 RENDER_RECIPE_SIG = None   # считается один раз в main() (см. render_recipe_signature)
 
 
+_PEXELS_LIVE_REQUESTS = [0]     # живых ответов Pexels за процесс (_note_pexels_quota)
+_PEXELS_PACED_AT = [0]
+
+
 def _stock_api_pacing(i, use_pexels, use_local):
     """Пауза раз в 10 слотов, пока идёт отбор из стока (квота Pexels
     200 запросов/час). Одна функция на оба пути — обычный прогон и
     --select-only: пейсинг влияет на то, словит ли сток 429, то есть на
-    сетевое поведение, и расходиться между режимами он не имеет права."""
+    сетевое поведение, и расходиться между режимами он не имеет права.
+
+    Пауза — только если с прошлой паузы в Pexels реально ходили: десяток
+    слотов из кэша квоту не тратил, и ждать там нечего (раньше спали
+    всегда — около 10 с на эпизод впустую на прогретом кэше)."""
     if use_pexels and not use_local and i % 10 == 9:
-        time.sleep(0.4)
+        if _PEXELS_LIVE_REQUESTS[0] != _PEXELS_PACED_AT[0]:
+            _PEXELS_PACED_AT[0] = _PEXELS_LIVE_REQUESTS[0]
+            time.sleep(0.4)
 
 
 def finish_select_only(shot_entries, n_blocks):
@@ -16871,7 +17091,8 @@ def main():
     # video_render(), никогда их не касается и не тянет ни байта моделей.
     render_pool = (concurrent.futures.ProcessPoolExecutor(
                        max_workers=RENDER_POOL_WORKERS,
-                       mp_context=multiprocessing.get_context("spawn"))
+                       mp_context=multiprocessing.get_context("spawn"),
+                       initializer=_render_worker_background_priority)
                    if RENDER_POOL_ENABLED and not SELECT_ONLY else None)
     pending_jobs = []   # [{i, out, d, section, block, video, photo, future|None, ok}], в порядке блоков
     # Накопленное время слотов, поглощённых соседом (см. ABSORBED_SLOTS).

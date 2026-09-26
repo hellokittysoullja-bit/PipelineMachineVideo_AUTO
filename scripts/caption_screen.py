@@ -195,11 +195,13 @@ def _ask(gw, text, cache_dir):
     ans, _usage, price = gw.chat(MODEL, [{"type": "text", "text": text}], MAX_TOKENS, EST_PROMPT_TOKENS,
                                  reasoning=False, timeout=240)
     if path:
-        os.makedirs(cache_dir, exist_ok=True)
-        tmp = path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump({"answer": ans}, f, ensure_ascii=False)
-        os.replace(tmp, path)
+        # Запись — по возможности, как у судьи (shot_judge._cache_write):
+        # раньше OSError здесь (кончилось место на диске) выбрасывал уже
+        # оплаченный ответ, и отсев слота молча не происходил. Имя
+        # временного файла своё у потока: два вопроса слота пишутся
+        # одновременно.
+        import shot_judge
+        shot_judge._cache_write(path, {"answer": ans}, readable=True)
     return ans, price, False
 
 

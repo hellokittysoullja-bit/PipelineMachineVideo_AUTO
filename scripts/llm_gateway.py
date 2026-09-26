@@ -111,12 +111,95 @@ def reasoning_switch(thinking_format, on):
     return {"reasoning": {"enabled": bool(on)}}
 
 
+_ORIGINAL_URLOPEN = urllib.request.urlopen
+_SESSION = None
+_SESSION_LOCK = threading.Lock()
+
+
+class _PooledResponse:
+    """Ответ пула соединений в форме ответа urlopen: read(), headers,
+    контекстный менеджер. Обрыв тела — http.client.IncompleteRead, как у
+    urllib (ветка «ответ оборван» в _request_with_retries)."""
+
+    def __init__(self, resp):
+        self._resp = resp
+        self.headers = resp.headers
+        self.status = resp.status_code
+
+    def read(self):
+        import requests
+        try:
+            return self._resp.content
+        except (requests.exceptions.ChunkedEncodingError,
+                requests.exceptions.ConnectionError) as e:
+            raise http.client.IncompleteRead(b"", None) from e
+        except requests.exceptions.Timeout as e:
+            raise TimeoutError(str(e)) from e
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self._resp.close()
+        return False
+
+
+def pooled_urlopen(req, timeout=None):
+    """urlopen с повторным использованием соединений (HTTP keep-alive).
+
+    Каждый вызов шлюза раньше открывал новое TCP+TLS-соединение (и CONNECT
+    через прокси, если он есть). Замер 26.09 на живом шлюзе, GET /models:
+    новое соединение — 1.5-1.9 с, повторное — 0.75-0.82 с. У слота 6-10
+    вызовов подряд на критическом пути (сетка, проверки, мир, «лучший как
+    кадр фильма», рамка). Запрос, заголовки и тело — те же байты; ошибки —
+    те же исключения urllib (HTTPError с кодом, заголовками и телом;
+    URLError/TimeoutError на сеть), поэтому повторы, паузы и учёт
+    оборванных ответов работают как раньше.
+
+    Если urllib.request.urlopen подменён (запись и воспроизведение сети
+    харнессом эквивалентности, net_recorder), вызов идёт через подмену: вся
+    сеть процесса обязана оставаться видимой для записи."""
+    if urllib.request.urlopen is not _ORIGINAL_URLOPEN:
+        return urllib.request.urlopen(req, timeout=timeout)
+    try:
+        import requests
+    except ImportError:
+        return urllib.request.urlopen(req, timeout=timeout)
+    global _SESSION
+    with _SESSION_LOCK:
+        if _SESSION is None:
+            _SESSION = requests.Session()
+            adapter = requests.adapters.HTTPAdapter(pool_connections=4, pool_maxsize=32)
+            _SESSION.mount("https://", adapter)
+            _SESSION.mount("http://", adapter)
+        session = _SESSION
+    url = req.full_url
+    try:
+        resp = session.request(req.get_method(), url, data=req.data,
+                               headers=dict(req.header_items()), timeout=timeout, stream=True)
+    except requests.exceptions.Timeout as e:
+        raise TimeoutError(str(e)) from e
+    except requests.exceptions.RequestException as e:
+        raise urllib.error.URLError(e) from e
+    if resp.status_code >= 400:
+        try:
+            body = resp.content
+        except Exception:  # noqa: BLE001 — тело ошибки не обязательно
+            body = b""
+        finally:
+            resp.close()
+        import io
+        raise urllib.error.HTTPError(url, resp.status_code, resp.reason, resp.headers,
+                                     io.BytesIO(body))
+    return _PooledResponse(resp)
+
+
 class Gateway:
     def __init__(self, api_key=None, base_url=None, spend_cap=None, opener=None):
         self.api_key = api_key if api_key is not None else _env("LLM_GATEWAY_API_KEY")
         self.base_url = (base_url or _env("LLM_GATEWAY_BASE_URL", DEFAULT_BASE_URL)).rstrip("/")
         self.spend_cap = spend_cap
-        self._open = opener or urllib.request.urlopen
+        self._open = opener or pooled_urlopen
         self._lock = threading.Lock()
         self._prices = None
         # Фактическая цена вызова против оценки, по модели. Замер 23.09:

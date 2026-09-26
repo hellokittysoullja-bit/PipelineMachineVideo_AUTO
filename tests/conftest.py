@@ -85,6 +85,10 @@ def _isolate_from_real_dotenv(monkeypatch, tmp_path):
     monkeypatch.setenv("MUSEUM_CACHE_DIR", str(tmp_path / "museum_cache"))
     monkeypatch.setenv("OPENVERSE_CACHE_DIR", str(tmp_path / "openverse_cache"))
     monkeypatch.setenv("COMMONS_CACHE_DIR", str(tmp_path / "commons_cache"))
+    # Кэш эмбеддингов каскада общий для эпизодов (temp_cascade_embed_cache/
+    # в корне) — тест обязан писать в свою папку, а не в рабочую копию.
+    monkeypatch.setenv("CASCADE_CACHE_DIR", str(tmp_path / "cascade_cache"))
+    monkeypatch.setenv("AESTHETIC_CACHE_DIR", str(tmp_path / "aesthetic_cache"))
     try:
         import commons_source as _cs
         monkeypatch.setattr(_cs, "CACHE_DIR", str(tmp_path / "commons_cache"))

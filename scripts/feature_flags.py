@@ -95,6 +95,12 @@ FLAGS = {f.name: f for f in (
     # собственный дефолт флага ("normal"), то есть на рабочее поведение.
     Flag("LUMA_MATCH", "normal", ("none", "normal", "strong", "max"),
          summary="Сила согласования яркости соседних планов (скачок экспозиции между склейками)"),
+    # Где считать локальные модели отбора (SigLIP2 каскада и гейтов, CLIP
+    # эстетики, SigLIP2-so400m Директора): auto — CUDA, затем MPS, затем
+    # процессор; cpu — всегда процессор (откат). На процессоре числа и ключи
+    # кэшей байт в байт прежние (см. ml_device.py).
+    Flag("ML_DEVICE", "auto", ("auto", "cpu", "cuda", "mps"),
+         summary="Устройство локальных моделей отбора: auto (видеокарта, если есть) / cpu / cuda / mps"),
     Flag("DELIVERY_PROFILE", "youtube", ("youtube", "archive", "hevc"),
          summary="Финальный проход: youtube (VBV-потолок 12 Мбит/с) / archive (без потолка) / hevc (libx265)"),
     Flag("DOMAIN_GRADE_MODE", "on", ("off", "on"),
