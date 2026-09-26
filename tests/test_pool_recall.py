@@ -176,3 +176,29 @@ def test_embedder_finds_pixabay_vector_by_frame_not_by_expiring_url(tmp_path, mo
     emb.image_vec(dead, None, pool_recall._cand({"id": 1, "probe_url": dead}, "photo"))
     emb.image_vec(dead, None, pool_recall._cand({"id": 1, "probe_url": dead}, "photo"))
     assert calls == [dead]
+
+
+def test_bench_refuses_episode_without_plan_specs(tmp_path, monkeypatch):
+    """26.09: «честная база» бенча шла на плане не той версии, load_specs
+    вернул {}, и каждый слот молча оценивался по брифу одним утверждением —
+    сравнение планов без плана. Теперь отказ до первого платного вызова."""
+    import json
+    import llm_gateway
+    ep = tmp_path / "ep"
+    (ep / "media_plan").mkdir(parents=True)
+    (ep / "media_plan" / "stock_queries.json").write_text(
+        json.dumps({"version": 1, "units": {}}), encoding="utf-8")
+    for n in ("index.json", "labels.json"):
+        (tmp_path / n).write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(pool_recall, "load_pools", lambda d: {})
+    monkeypatch.setattr(pool_recall, "load_phrase_queries", lambda p: {})
+    monkeypatch.setattr(pool_recall, "base_slot_durs", lambda p: {})
+    monkeypatch.setattr(pool_recall, "_label_rows",
+                        lambda *a, **k: pytest.fail("бенч пошёл оценивать без спецификаций"))
+    monkeypatch.setattr(llm_gateway, "Gateway", lambda **k: object())
+    a = types.SimpleNamespace(
+        run_dir=str(tmp_path), phrase_queries=None, index=str(tmp_path / "index.json"),
+        labels=str(tmp_path / "labels.json"), emb_cache=[], world_card=None,
+        claims_world="exclude", max_spend=1, episode=str(ep), model="m", cache_dir=None)
+    with pytest.raises(SystemExit, match="спецификации кадров не загружены"):
+        pool_recall.cmd_bench(a)

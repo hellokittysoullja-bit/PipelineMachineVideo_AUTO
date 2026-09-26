@@ -461,14 +461,23 @@ def cmd_bench(a):
     import stock_query_planner
     _unit_key = shot_planner_llm.unit_key
     specs = stock_query_planner.load_specs(a.episode) if a.episode else {}
+    if a.episode and not specs:
+        # Эпизод передан, а спецификаций нет (план не той версии, битый
+        # файл): бенч молча оценивал бы по брифу одним утверждением и
+        # выдавал это за сравнение планов. Так 26.09 «честная база» оказалась
+        # вовсе без плана — отказ громкий.
+        raise SystemExit(f"--episode {a.episode}: спецификации кадров не загружены — "
+                         f"сравнение планов без них недействительно")
     model = a.model
     cache = a.cache_dir or os.path.join(os.path.dirname(a.index), "judge_cache")
     stats = {"pairs": 0, "pairs_ok": 0.0, "bad_accepted": 0, "bad": 0, "good_vetoed": 0, "good": 0,
              "world_good_rejected": 0, "world_bad_passed": 0, "slots": [], "cost": 0}
     for key, rec, rows in _label_rows(pools, index, labels, base, emb, plan, a.kind):
         brief = rec.get("shot_brief") or rec.get("query")
-        spec = specs.get(_unit_key(rec.get("block_text") or "")) \
-            or shot_judge.spec_from_brief(rec.get("block_text"), brief)
+        spec = specs.get(_unit_key(rec.get("block_text") or ""))
+        stats["spec_from_plan" if spec else "spec_from_brief"] = \
+            stats.get("spec_from_plan" if spec else "spec_from_brief", 0) + 1
+        spec = spec or shot_judge.spec_from_brief(rec.get("block_text"), brief)
 
         def ask(item):
             r, lab = item
@@ -587,6 +596,8 @@ def cmd_bench(a):
           f"{s['bad_accepted']}/{s['bad']}; годных отклонено: {s['good_vetoed']}/{s['good']}; "
           f"прежняя проверка мира: годных отклонено {s['world_good_rejected']}/{s['good']}, "
           f"брака пропущено {s['world_bad_passed']}/{s['bad']}; цена {s['cost']}")
+    print(f"  спецификации: из плана {s.get('spec_from_plan', 0)}, "
+          f"по брифу {s.get('spec_from_brief', 0)}")
     for sl in s["slots"]:
         print(f"  {sl['key']}: лучшее в первых {a.handoff} = {sl['best']}, выбрано = {sl['pick']}")
     if a.out:
