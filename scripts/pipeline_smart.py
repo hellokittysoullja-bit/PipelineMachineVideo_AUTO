@@ -12530,6 +12530,15 @@ def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=
             c["verify_medium"] = ans.get("medium")
             c["verify_nothing"] = shot_judge.nothing_met(spec, ans)
             c["verify_perfect"] = vec is not None and shot_judge.musts_met_clean(spec, ans)
+            if grid_vetoed(c):
+                # Сетка того же судьи сказала «не по теме» (0), а проверка по
+                # пунктам — «да»: ответы противоречат, и верить нельзя
+                # одобрению. Живой случай эп.95 (26.09): часы на 10:07 прошли
+                # как «часы у полуночи», игрушечные шарики — как «модель
+                # дофамина»; сетка поставила им 0, код поставил на экран.
+                c["verify_focus"] = False
+                c["verify_nothing"] = True
+                c["verify_perfect"] = False
             c["world_clear"] = shot_judge.world_clear(ans)
             verified += 1
             # «Ничего обязательного не найдено» — такой же брак для решения о
@@ -12569,6 +12578,14 @@ def candidate_caption(p):
         # мира это то же знание, что годы музейного паспорта.
         extra.append(f"dated {commons['date']}")
     return (text + ("; " + ", ".join(extra) if extra else "")).strip()
+
+
+def grid_vetoed(c):
+    """Сетка судьи оценила кадр в 0 («не по теме»). Такой кадр не может быть
+    одобрен проверкой по пунктам: замер на 27 размеченных победителях эп.94 —
+    ни одного годного с оценкой 0 среди одобренных; оценка 1 так не
+    работает (4 годных из 5 одобренных), поэтому порог именно 0."""
+    return isinstance((c or {}).get("judge"), int) and c["judge"] == 0
 
 
 def verify_key(c):
