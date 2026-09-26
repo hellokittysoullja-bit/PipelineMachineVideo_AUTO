@@ -79,7 +79,12 @@ class Attempt:
         # уходит) и не эффект (состояния эпизода не меняет).
         self.notes = {}
         self._owner = threading.get_ident()
-        self._root = os.path.join(staging_root, self.attempt_id)
+        # Абсолютный путь обязателен: is_staged()/final_path() сравнивают его с
+        # os.path.abspath(файла). При относительной папке эпизода (запуск
+        # «pipeline_smart.py videos/NN») сравнение было ложным всегда, коммит
+        # возвращал путь во временном каталоге, уже пустом после переноса, и
+        # рендер падал на «нет файла» (живой случай 26.09, эп.95).
+        self._root = os.path.abspath(os.path.join(staging_root, self.attempt_id))
         self._dirs = {}       # final_dir -> staged_dir
 
     # -- запись ----------------------------------------------------------------

@@ -435,3 +435,19 @@ def test_standalone_fetch_is_select_and_commit(ps, tmp_path):
     with sa.activate(other):
         with pytest.raises(sa.AttemptStateError):
             ps.select_standalone("photo", 9, fetcher, "q", 9)
+
+
+def test_commit_returns_real_file_with_relative_staging_root(tmp_path, monkeypatch):
+    """Относительная папка эпизода: коммит обязан вернуть путь в кэше, где
+    файл реально лежит, а не путь во временном каталоге (эп.95, 26.09)."""
+    import selection_attempt as sa
+    monkeypatch.chdir(tmp_path)
+    final = os.path.join("ep", "temp_smart", "pexels_cache", "0002_x.jpg")
+    att = sa.Attempt(2, "photo", os.path.join("ep", "temp_smart", "staging"))
+    with sa.activate(att):
+        staged = sa.stage_path(final)
+    with open(staged, "wb") as f:
+        f.write(b"jpg")
+    att.media = staged
+    got = att.commit(lambda *a: None)
+    assert os.path.exists(got) and os.path.samefile(got, final)
