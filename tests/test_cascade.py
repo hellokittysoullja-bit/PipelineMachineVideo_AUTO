@@ -227,3 +227,35 @@ def test_download_and_embedding_overlap_keep_the_order(tmp_path, monkeypatch):
     assert events.index("embed") < events.index("c5"), "первая пачка оценена до последнего превью"
     assert calls["images"] == 6
     assert not [f for f in os.listdir(tmp_path) if "casc_" in f], "превью не остаются на диске"
+
+
+def test_cascade_texts_read_query_records_as_the_render_gets_them():
+    """load_specs отдаёт запросы записями {"q", "for", "type"}; каскад брал
+    только строки и молча сортировал по утверждениям (24-26.09)."""
+    spec = {"queries": [{"q": "rondel dagger blade", "for": ["core"], "type": "object"},
+                        {"q": " ", "for": ["core"]}, "medieval dagger macro"],
+            "claims": [{"id": "c1", "text": "an arrow", "tier": "must"}]}
+    assert ps.cascade_texts(spec, "brief", "photo") == ["rondel dagger blade", "medieval dagger macro"]
+
+
+def test_render_specs_reach_the_cascade_as_queries():
+    """Сквозная проверка: спецификация с диска (load_specs) даёт каскаду
+    запросы, а не утверждения."""
+    import json
+    import tempfile
+    import stock_query_planner as sqp
+    with tempfile.TemporaryDirectory() as d:
+        os.makedirs(os.path.join(d, "media_plan"))
+        with open(os.path.join(d, "media_plan", sqp.PLAN_NAME), "w", encoding="utf-8") as f:
+            json.dump({"version": sqp.PLAN_VERSION, "units": {"k": {
+                "text": "Вот кинжал.", "focus": "a dagger",
+                "claims": [{"id": "core", "text": "a dagger is visible", "tier": "must"}],
+                "queries_for": [{"q": "rondel dagger", "for": ["core"], "type": "object"}]}}}, f)
+        spec = sqp.load_specs(d)["k"]
+    assert ps.cascade_texts(spec, "brief", "photo") == ["rondel dagger"]
+
+
+def test_gate_measures_the_cascade_with_render_shaped_specs():
+    src = open(os.path.join(REPO, "scripts", "pool_recall.py"), encoding="utf-8").read()
+    i = src.index("def fixture_orders")
+    assert 'u.get("queries_for")' in src[i:i + 1500]

@@ -12042,7 +12042,12 @@ def cascade_texts(spec, brief, kind="photo"):
     сохранён или лучше во всех 15 слотах. Картиночные эмбеддинги те же —
     цена не меняется."""
     if spec:
-        qs = [q.strip() for q in (spec.get("queries") or []) if isinstance(q, str) and q.strip()]
+        # Запрос в плане — запись {"q", "for", "type"} (так его отдаёт
+        # load_specs) или строка (старые планы). Раньше брались только
+        # строки, и запросы плана каскад молча не видел.
+        qs = [q.strip() for q in ((x.get("q") if isinstance(x, dict) else x)
+                                  for x in (spec.get("queries") or []))
+              if isinstance(q, str) and q.strip()]
         if qs:
             return qs
         import shot_judge
@@ -12197,7 +12202,20 @@ def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=16, url_o
                 places.setdefault(k, []).append(place)
         by_claims = [k for k, _p in sorted(have, key=lambda kp: (max(places[kp[0]]),
                                                                 places[kp[0]][0], kp[0]))]
-        order = _interleave(by_claims, by_query)
+        # Третий порядок — лучшее сходство с ЛЮБЫМ обязательным
+        # утверждением. Так каскад работал в проде с 24.09 по ошибке:
+        # запросы спецификации приходили записями {"q", "for", "type"}, а
+        # cascade_texts брала только строки, и сортировка шла по
+        # утверждениям. Починка одна возвращает задуманный порядок (годных в
+        # первых 20 на 49 размеченных кучах эп.94: 176 -> 216), но в слоте
+        # «Стрела скользит по нагруднику» (видео) единственный терпимый
+        # ролик уходил с 5-6-го места на 64-79-е. С третьим порядком
+        # поочерёдно лучший кадр кучи в первых 20 не хуже прежнего ни в
+        # одной из 49 куч и лучше в трёх («кинжал в ладони»: брак -> замена),
+        # годных 176 -> 204.
+        by_claims_best = [k for k, _p in sorted(
+            have, key=lambda kp: (-max(float(emb[id(kp[1])] @ t[0]) for t in c_embs), kp[0]))]
+        order = _interleave(_interleave(by_claims, by_query), by_claims_best)
     pos = dict(have)
     ranked = [pos[k] for k in order]
     seen = {id(p) for p in ranked}

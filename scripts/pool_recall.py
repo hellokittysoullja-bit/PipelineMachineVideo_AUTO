@@ -747,7 +747,11 @@ def fixture_orders(fix):
     with gzip.open(os.path.join(fix, "pools.json.gz"), "rt", encoding="utf-8") as f:
         pools = json.load(f)
     plan = json.load(open(os.path.join(fix, "specs.json"), encoding="utf-8"))
-    specs = {u.get("text"): u for u in ((plan or {}).get("units") or {}).values()}
+    # Спецификации — в той форме, в какой их отдаёт рендеру load_specs:
+    # запросы записями {"q", "for", "type"}. Гейт брал строки из поля
+    # queries и мерил не тот каскад, что работал в рендере.
+    specs = {u.get("text"): dict(u, queries=u.get("queries_for") or u.get("queries") or [])
+             for u in ((plan or {}).get("units") or {}).values()}
 
     def no_probe(p, path):
         raise OSError("снимок: превью без эмбеддинга не скачивается")
