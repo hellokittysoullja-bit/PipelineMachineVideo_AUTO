@@ -240,3 +240,12 @@ def test_bench_finds_spec_of_a_cut_phrase_like_the_render(tmp_path):
     assert pool_recall._spec_for_block(specs, texts, whole) is spec
     assert pool_recall._spec_for_block(specs, texts, "совсем другой текст") is None
     assert pool_recall._spec_for_block(specs, texts, "  ") is None
+
+
+def test_bench_refuses_to_report_when_gateway_died():
+    """Шлюз выключился посреди бенча — числа по оценённой части не
+    печатаются как замер (26.09: v6 «оценён» по 1 слоту из 9)."""
+    import inspect
+    src = inspect.getsource(pool_recall.cmd_bench)
+    i, j = src.index('getattr(gw, "dead"'), src.index('print(f"пары верно')
+    assert i < j and "НЕДЕЙСТВИТЕЛЕН" in src[i:j]

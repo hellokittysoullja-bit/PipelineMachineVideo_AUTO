@@ -640,6 +640,11 @@ def cmd_bench(a):
                                    "pick_answers": head[pick][4]})
         print(f"  {key}: оценено {len(scored)}", flush=True)
     s = stats
+    if getattr(gw, "dead", None):
+        # Шлюз выключился посреди прогона: оценена часть слотов, и числа по
+        # ним выглядели бы как замер (26.09: v6 «оценён» по 1 слоту из 9).
+        raise SystemExit(f"прогон НЕДЕЙСТВИТЕЛЕН — шлюз выключен: {gw.dead}; "
+                         f"оценённые ответы в кэше, повторный запуск их не оплатит")
     print(f"пары верно: {s['pairs_ok']:.1f}/{s['pairs']}; брак принят за точный: "
           f"{s['bad_accepted']}/{s['bad']}; годных отклонено: {s['good_vetoed']}/{s['good']}; "
           f"прежняя проверка мира: годных отклонено {s['world_good_rejected']}/{s['good']}, "
