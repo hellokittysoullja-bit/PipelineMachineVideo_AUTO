@@ -63,11 +63,13 @@ def test_prompt_carries_no_niche_words_and_takes_the_world_from_the_card(tmp_pat
     d, blocks = _episode(tmp_path, card=card)
     gw = FakeGateway("")
     sqp.plan_episode(d, blocks, gw, model="m", verbose=False)
-    prompt = gw.prompts[0]
+    # Первый вызов — режиссёрское задание ролика (версия 4), дальше главы.
+    prompt = [p for p in gw.prompts if "narration lines of one chapter" in p][0]
     assert "Setting: historical, 1300 AD-1500 AD" in prompt
-    template = sqp.SPEC_PROMPT.lower()
-    for word in ("medieval", "knight", "sword", "armour", "europe"):
-        assert word not in template, f"слово ниши «{word}» в шаблоне вопроса"
+    assert "World of the film: historical, 1300 AD-1500 AD" in gw.prompts[0]
+    for template in (sqp.SPEC_PROMPT.lower(), sqp.DIRECTION_PROMPT.lower()):
+        for word in ("medieval", "knight", "sword", "armour", "europe"):
+            assert word not in template, f"слово ниши «{word}» в шаблоне вопроса"
 
 
 DAGGER = ('{"n": 1, "focus": "a medieval rondel dagger", "core": "a rondel dagger is visible",'
@@ -98,9 +100,10 @@ def test_second_run_is_served_from_cache(tmp_path):
     d, blocks = _episode(tmp_path)
     gw = FakeGateway(DAGGER)
     sqp.plan_episode(d, blocks, gw, model="m", verbose=False)
-    hook = [p for p in gw.prompts if "Вот кинжал" in p]
+    chapter = lambda: [p for p in gw.prompts if "Вот кинжал" in p and "one chapter" in p]
+    hook = chapter()
     sqp.plan_episode(d, blocks, gw, model="m", verbose=False)
-    assert [p for p in gw.prompts if "Вот кинжал" in p] == hook, "отвеченная глава из кэша"
+    assert chapter() == hook, "отвеченная глава из кэша"
     assert len(gw.prompts) > len(hook) + 1, "пустой ответ не кэшируется — глава спрашивается снова"
 
 

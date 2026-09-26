@@ -6597,7 +6597,7 @@ _WORLD_CARD_CACHE = {}
 PLANNER_DEFAULT_SPEND_CAP = 30000
 
 
-def auto_plan_episode(blocks, video_dir=None):
+def auto_plan_episode(blocks, video_dir=None, specs=True, world=True):
     """Паспорт мира и спецификации кадров эпизода — до отбора, сам рендер.
 
     Раньше оба запускались руками, и эпизод без них молча шёл старым путём:
@@ -6621,23 +6621,29 @@ def auto_plan_episode(blocks, video_dir=None):
         raw = (os.environ.get("PLANNER_MAX_SPEND") or "").strip()
         cap = int(raw) if raw.isdigit() else PLANNER_DEFAULT_SPEND_CAP
         gw = llm_gateway.Gateway(spend_cap=cap)
-        card, what = world_card.generate(d, gw)
-        reset_world_card_cache()
-        label = {"manual": "ручной", "fresh": "свой, сценарий не менялся",
-                 "made": "составлен моделью"}.get(what, what)
-        if what.startswith("failed"):
-            # Молча стоящий старый паспорт (или его отсутствие) меняет мир
-            # всего отбора — это не строка статуса, а предупреждение.
-            print(f"  ВНИМАНИЕ: паспорт мира НЕ составлен ({what[:400]}) — "
-                  f"отбор идёт {'по прежнему паспорту' if card else 'без паспорта'}")
-        print(f"  Паспорт мира ({label}): " + (world_card.describe(card) if card else "нет"))
-        if stock_query_planner.needs_planning(d, blocks):
+        if world:
+            _auto_plan_world(d, gw, world_card)
+        if specs and stock_query_planner.needs_planning(d, blocks):
             n = stock_query_planner.plan_episode(d, blocks, gw, verbose=False)
             print(f"  Спецификации кадров: {n} фраз ({stock_query_planner.DEFAULT_MODEL}), "
                   f"потрачено {gw.spent}")
     except Exception as e:  # noqa: BLE001 — план не имеет права уронить рендер
         print(f"  ВНИМАНИЕ: план кадров не обновлён ({type(e).__name__}: {str(e)[:200]}) — "
               f"отбор идёт по плану с диска, если он есть")
+
+
+def _auto_plan_world(d, gw, world_card):
+    """Паспорт мира эпизода — до нарезки блоков: он о сценарии целиком."""
+    card, what = world_card.generate(d, gw)
+    reset_world_card_cache()
+    label = {"manual": "ручной", "fresh": "свой, сценарий не менялся",
+             "made": "составлен моделью"}.get(what, what)
+    if what.startswith("failed"):
+        # Молча стоящий старый паспорт (или его отсутствие) меняет мир
+        # всего отбора — это не строка статуса, а предупреждение.
+        print(f"  ВНИМАНИЕ: паспорт мира НЕ составлен ({what[:400]}) — "
+              f"отбор идёт {'по прежнему паспорту' if card else 'без паспорта'}")
+    print(f"  Паспорт мира ({label}): " + (world_card.describe(card) if card else "нет"))
 
 
 CAPTION_SCREEN_LOG = []        # по слоту и виду: что отсеяно по подписи до судьи
@@ -16558,7 +16564,12 @@ def main():
     if not blocks:
         print("Сценарий не найден/пуст")
         return 1
-    auto_plan_episode(blocks)
+    # Паспорт мира — по сценарию целиком, до нарезки. Задания на кадры —
+    # ПОСЛЕ нарезки и слияния блоков (ниже): у каждого подкадра свой текст,
+    # значит и своё задание. Раньше подкадры наследовали задание всей фразы,
+    # и два подкадра подряд искали одно и то же (эп.95: две игрушечные
+    # молекулы подряд на двух разных предложениях о дофамине).
+    auto_plan_episode(blocks, specs=False)
     # Мир эпизода — в музейный фильтр: окно эпохи и чужие культуры из
     # паспорта, а не из дефолтов канала (см. museum_sources.set_episode_world).
     import museum_sources
@@ -16592,18 +16603,6 @@ def main():
         # Fail-open той же дисциплины, что у остальных надстроек: сбой
         # планировщика не имеет права уронить рендер.
         print(f"  Локальный режиссёр пропущен ({type(_e).__name__})")
-    # Запросы к стокам на каждую фразу (scripts/stock_query_planner.py) —
-    # готовый план с диска, живых вызовов здесь нет. Проставляется ДО
-    # нарезки блоков: под-кадры наследуют поле через dict(b).
-    try:
-        import stock_query_planner
-        _sq = stock_query_planner.attach(blocks, stock_query_planner.load(VIDEO_FOLDER),
-                                         stock_query_planner.load_specs(VIDEO_FOLDER))
-        if _sq:
-            print(f"  Запросы фраз: на {_sq} из {len(blocks)} блоков (media_plan/"
-                  f"{stock_query_planner.PLAN_NAME})")
-    except Exception as _e:
-        print(f"  Запросы фраз пропущены ({type(_e).__name__})")
     # ИСХОДНЫЙ индекс блока — единственное, что связывает блок монтажа с юнитом
     # speech_plan.json ПОСЛЕ split_long_blocks()/merge_short_phrase_locked_blocks().
     # N4 из docs/AUDIT_2026-09_DEEP.md, измерено на этом эпизоде: главный цикл
@@ -16640,6 +16639,19 @@ def main():
     blocks, real_weights = merge_short_phrase_locked_blocks(blocks, real_weights, total)
     if len(blocks) != n_before_merge:
         print(f"Phrase-lock merge (клипы короче пола): {n_before_merge} -> {len(blocks)} блоков")
+    auto_plan_episode(blocks, world=False)
+    # Запросы к стокам на каждую фразу (scripts/stock_query_planner.py) —
+    # план по ФИНАЛЬНЫМ блокам (после нарезки и слияния): каждый подкадр
+    # спрошен и привязан по своему тексту, живых вызовов здесь нет.
+    try:
+        import stock_query_planner
+        _sq = stock_query_planner.attach(blocks, stock_query_planner.load(VIDEO_FOLDER),
+                                         stock_query_planner.load_specs(VIDEO_FOLDER))
+        if _sq:
+            print(f"  Запросы фраз: на {_sq} из {len(blocks)} блоков (media_plan/"
+                  f"{stock_query_planner.PLAN_NAME})")
+    except Exception as _e:
+        print(f"  Запросы фраз пропущены ({type(_e).__name__})")
     # Кроссфейд между КАЖДОЙ парой кадров суммарно "съедает" какую-то часть
     # длительности — закладываем это в целевую длительность заранее, чтобы
     # после склейки общая длина видео снова совпала с аудио (без этого хвост

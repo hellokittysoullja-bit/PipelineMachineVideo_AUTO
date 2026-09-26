@@ -58,7 +58,7 @@ import sys
 
 PLAN_NAME = "stock_queries.json"
 CACHE_DIR_NAME = "stock_query_cache"
-PLAN_VERSION = 3
+PLAN_VERSION = 4
 TIERS = ("must", "should")
 # Тип кадра запроса — тот же словарь, что у маршрутизации источников
 # (shot_types.SHOT_TYPES): «any» модель не пишет, его значит отсутствие поля.
@@ -83,25 +83,34 @@ QUERY_MAX_WORDS = 7
 # человек» на половине абстрактных фраз. Качество оценено глазами Claude,
 # не разметкой владельца. Сменить — --model.
 DEFAULT_MODEL = "ds/deepseek-v4-flash"
-MAX_TOKENS = 8000
+# Запас выхода с рассуждением: DeepSeek v4 Flash рассуждает до ответа, и
+# версия 4 пишет на фразу больше полей (смысл, тип чтения, ловушки). При
+# 8000 глава из 13 фраз эп.95 обрывалась на шестой (26.09).
+MAX_TOKENS = 16000
 EST_PROMPT_TOKENS = 2500
 
 SPEC_PROMPT = """You direct the visuals of a documentary video.
 Episode: «{title}». Setting: {setting}.
-Below are the narration lines of one chapter, in order{prev}. A line may come with the shot the author wants — keep its meaning.
+{direction}Below are the narration lines of one chapter, in order{prev}. A line may come with a shot the author suggests: use it when it shows what the line means; if it only illustrates one word of a figurative or abstract line, or goes against the film direction, show the meaning instead.
 
 For EVERY numbered line decide what the viewer must SEE while hearing it.
 
+meaning — what the line says in this film, in plain English, with every pronoun and reference resolved from the lines around it ("it" becomes "the dagger"). 4 to 16 words.
+
+reading — "literal" if what the line says can be filmed as it is said; "figurative" if it speaks through a metaphor, idiom or image that must not be shown word for word; "abstract" if it states an idea, feeling, number, process or argument. For "figurative" and "abstract" lines the picture shows the meaning, never the words.
+
 focus — the new thing this line says, understood in the context of the chapter (resolve pronouns and references from the lines around it). 3 to 12 English words.
 
-core — WHO or WHAT must be visible: the single thing (an object, a person, an animal, a place) that, even alone in a picture, still makes the viewer think of this line — with the state that defines it, if any ("an exhausted person", "a burnt letter"). Name the thing, not an event: what it does goes into the claims. Ask yourself: if the picture could show only one thing, which one? When the line is about something happening to, on or around something else, the core is what the line is about — usually the thing that moves, acts or changes — not the surface, place or object it happens on. When the line is abstract (a feeling, an idea, a process, an argument), the core is a concrete situation, a bodily sign or an object left behind that a camera can photograph and a viewer reads as this idea — never a bare "a person is visible" or an invisible thing like "a memory" or "a brain decision": say what makes the picture show THIS line ("a person slumped over an untouched plate", "a crumpled paper covered in red corrections"). Never make words, captions, labels, signs or logos in the picture part of the core or of a claim — the viewer hears the words, the picture shows things — unless the line is about that very document, chart, headline, sign or screen. Write it as a statement: "a ball is visible".
+core — WHO or WHAT must be visible: the single thing (an object, a person, an animal, a place) that, even alone in a picture, still makes the viewer think of this line — with the state that defines it, if any ("an exhausted person", "a burnt letter"). Name the thing, not an event: what it does goes into the claims. Ask yourself: if the picture could show only one thing, which one? When the line is about something happening to, on or around something else, the core is what the line is about — usually the thing that moves, acts or changes — not the surface, place or object it happens on. When the line is abstract (a feeling, an idea, a process, an argument), the core is a concrete situation, a bodily sign or an object left behind that a camera can photograph and a viewer reads as this idea — never a bare "a person is visible" or an invisible thing like "a memory" or "a brain decision": say what makes the picture show THIS line ("a person slumped over an untouched plate", "a crumpled paper covered in red corrections"). Never make words, captions, labels, signs or logos in the picture part of the core or of a claim — the viewer hears the words, the picture shows things — unless the line is about that very document, chart, headline, sign or screen. Write it as a statement: "a ball is visible". Follow the film direction: when the film should look cinematic, prefer real people, places and moments to diagrams, icons and toy models, unless the line is about that model, diagram or image itself. Two neighbouring lines never get the same core unless the second line is still about the very same thing.
 
 claims — 1 to {c1} more statements checkable by looking at the picture, most important first. Each checks ONE thing (an object, an action, a place, a detail) and does not repeat the core. "tier": "must" if without it the picture does not show this line, "should" if it only makes the picture better. If the line is about a movement that only footage can show, one claim has "motion": true and describes this movement; lines about objects, places or states have no motion claim.
+
+traps — 1 to 3 pictures that a search for this line would likely return and that look related but are WRONG for it: a generic look-alike, the literal word of a metaphor, a toy, cartoon or diagram version of a real thing, the wrong moment (a clock showing another time), another era, culture or genre. Each 2 to 10 English words, specific enough to recognise in a picture.
 
 queries — 3 to {q} different search queries for free stock sites (photos and videos) and museum or archive search, each 2 to 4 English words. Write queries for what really exists in such libraries for this setting: things photographed or filmed today (people, staged scenes, re-enactments, museum objects, places, nature, close-ups) and, where the setting is historical, old artworks (paintings, engravings, manuscript miniatures). When the setting is historical and you know an old artwork that shows this very event, moment or thing — a chronicle or manuscript illustration, a drawing from a period treatise, a known painting — add one query that names it the way an archive titles it (the event or the work, the chronicle, manuscript or artist; up to 7 words, a year is allowed) with "type": "illustration". Name only works you know exist; if you know none, add none. Every word of a query must mean only what you want: a word with another common meaning that a search engine would match (fall — autumn, bank — money, crane — bird) needs a word that fixes its meaning. "for" lists the ids of what the query can find ("core" or claim ids). "type" says what kind of picture the query finds: "object" (one thing on its own, a museum object), "scene" (people, a place, an event), "illustration" (a painting, engraving or manuscript), "map" or "texture". Most queries look for the core; try different ways to find it (another kind of picture, another wording), not the same words with an extra word.
 
 Example from another film, «The ball bounced off the wall and rolled away» — the core is the ball, not the wall:
-{{"n": 3, "focus": "a ball bouncing off a wall", "core": "a ball is visible", "claims": [{{"id": "c1", "text": "the ball bounces off a wall", "tier": "must", "motion": true}}, {{"id": "c2", "text": "a wall", "tier": "should"}}], "queries": [{{"q": "ball bouncing wall", "for": ["core", "c1", "c2"], "type": "scene"}}, {{"q": "ball rolling", "for": ["core"], "type": "scene"}}, {{"q": "ball close up", "for": ["core"], "type": "object"}}]}}
+{{"n": 3, "meaning": "the ball bounced off the wall and rolled away", "reading": "literal", "focus": "a ball bouncing off a wall", "core": "a ball is visible", "traps": ["a ball lying still on a shelf", "a cartoon ball"], "claims": [{{"id": "c1", "text": "the ball bounces off a wall", "tier": "must", "motion": true}}, {{"id": "c2", "text": "a wall", "tier": "should"}}], "queries": [{{"q": "ball bouncing wall", "for": ["core", "c1", "c2"], "type": "scene"}}, {{"q": "ball rolling", "for": ["core"], "type": "scene"}}, {{"q": "ball close up", "for": ["core"], "type": "object"}}]}}
 
 Answer with one JSON object per narration line, one per line, and nothing else — no explanations, no reasoning, no markdown.
 
@@ -133,6 +142,185 @@ def clean_query(q):
     return q
 
 
+# РЕЖИССЁРСКОЕ ЗАДАНИЕ РОЛИКА (версия 4, 26.09). Один вопрос на эпизод,
+# по ВСЕМУ сценарию: модель решает, что это за фильм и как он должен
+# выглядеть, до того как писать кадр на каждую фразу. Причина — эп.95:
+# без общего задания каждая глава решала заново, и абстрактная фраза
+# («дофамин — вещество ожидания») получала буквальную картинку (шарики на
+# палочках), а «мозг» — светящийся абстрактный шар. Нужна не заплатка
+# словарём под тему, а понимание фильма целиком: ниша, насколько он
+# кинематографичен, как в НЁМ показывать абстракции и термины и что в
+# нём чужое. Всё это модель выводит из текста сценария сама — в коде нет
+# ни слова о теме канала.
+DIRECTION_VERSION = 1
+DIRECTION_NAME = "direction.json"
+# 4000 не хватило: рассуждение съело весь запас, ответ пустой (эп.95, 26.09).
+DIRECTION_MAX_TOKENS = 16000
+DIRECTION_PROMPT = """You are the director of a documentary-style video. Read the whole narration and write the visual direction that the shot planner will follow for every line.
+Episode: «{title}». World of the film: {setting}.
+
+Narration, sections in order:
+{script}
+
+Reply with ONE JSON object and nothing else:
+{{"topic": "...", "genre": "...", "viewer": "...", "look": "...", "literal": "...", "motifs": ["..."], "terms": [{{"term": "...", "show": "...", "avoid": "..."}}], "never": ["..."]}}
+
+topic — one sentence: what the film is about.
+genre — the kind of film and its niche (history documentary, popular psychology, science explainer, true crime, and so on).
+viewer — who watches and what they should feel.
+look — how the film should look: how cinematic (real people and places, light, mood, faces and hands) versus illustrative (diagrams, museum objects, archival art), and which kinds of pictures carry this film.
+literal — how to picture figurative and abstract lines in THIS film: when to show the literal thing, when a human situation the viewer recognises, when a visual metaphor; which kinds of lines here are metaphors or rhetoric.
+motifs — 0 to 5 recurring visual threads for continuity (a recurring person, place or object), only if the narration has them.
+terms — every technical term, abstract concept or named thing the narration keeps returning to: how to SHOW it on screen in this film, and which lazy pictures to AVOID (a generic stock cliche, a toy or cartoon model, a wrong era).
+never — 3 to 8 kinds of pictures that must never appear in this film because they belong to a far-away world (another era, culture, genre, fiction) or break its tone. Only clearly foreign things: never ban the film's own subjects.
+Short English phrases."""
+
+
+def _direction_script(video_dir):
+    """Весь озвучиваемый текст по секциям — то, что модель читает как сценарий."""
+    import lumean_tts
+    try:
+        secs = lumean_tts.extract_section_texts(os.path.join(video_dir, "script.txt"))
+    except OSError:
+        return ""
+    tag = re.compile(r"\[[^\]]*\]")
+    return "\n".join("[" + name + "] " + tag.sub(" ", text) for name, text in secs)
+
+
+def _str_list(xs, lo=1, hi=12, limit=8):
+    """Список коротких английских фраз (ловушки фразы)."""
+    out = []
+    for x in xs if isinstance(xs, list) else []:
+        t = clean_text(x, lo=lo, hi=hi) if isinstance(x, str) else None
+        if t and t not in out:
+            out.append(t)
+    return out[:limit]
+
+
+def _txt(x, limit):
+    """Строка задания: пробелы свёрнуты, длина ограничена (обрез по концу
+    предложения, если он есть в пределах лимита). Не строка — пусто."""
+    if not isinstance(x, str):
+        return ""
+    t = _clean(x)
+    if len(t) <= limit:
+        return t
+    cut = t[:limit]
+    end = max(cut.rfind(". "), cut.rfind("; "))
+    return (cut[:end + 1] if end > limit // 2 else cut.rsplit(" ", 1)[0]).strip()
+
+
+def parse_direction(raw):
+    """Режиссёрское задание из ответа модели, или None: без темы и облика
+    фильма задание не годится (лучше без него, чем с обрывком). Поля —
+    свободный текст модели с ограничением длины: задание читает модель же,
+    и проверять его словарём значит выбрасывать хорошие ответы (первая
+    версия разбора отвергла развёрнутый ответ из-за длины и русских
+    терминов)."""
+    for obj in _all_json(raw):
+        topic, look = _txt(obj.get("topic"), 300), _txt(obj.get("look"), 900)
+        if not topic or not look:
+            continue
+        terms = []
+        for t in obj.get("terms") or []:
+            if isinstance(t, dict) and _txt(t.get("term"), 60) and _txt(t.get("show"), 300):
+                terms.append({"term": _txt(t.get("term"), 60), "show": _txt(t.get("show"), 300),
+                              "avoid": _txt(t.get("avoid"), 250)})
+        listed = lambda xs, n, lim: [y for y in (_txt(x, lim) for x in (xs if isinstance(xs, list) else [])) if y][:n]
+        return {"topic": topic, "look": look, "genre": _txt(obj.get("genre"), 250),
+                "viewer": _txt(obj.get("viewer"), 400), "literal": _txt(obj.get("literal"), 1200),
+                "motifs": listed(obj.get("motifs"), 5, 250), "terms": terms[:12],
+                "never": listed(obj.get("never"), 8, 150)}
+    return None
+
+
+def _all_json(raw):
+    """Все JSON-объекты ответа по порядку (без требования поля n)."""
+    text = raw or ""
+    dec = json.JSONDecoder()
+    i, out = 0, []
+    while True:
+        i = text.find("{", i)
+        if i < 0:
+            return out
+        try:
+            obj, end = dec.raw_decode(text, i)
+        except ValueError:
+            i += 1
+            continue
+        if isinstance(obj, dict):
+            out.append(obj)
+            i = end
+        else:
+            i += 1
+
+
+def direction_block(direction):
+    """Режиссёрское задание строками для вопроса по главе. Нет задания —
+    пустая строка, вопрос как раньше."""
+    if not direction:
+        return ""
+    lines = ["Film direction (follow it for every line):",
+             f"- about: {direction['topic']}"]
+    if direction.get("genre"):
+        lines.append(f"- genre: {direction['genre']}")
+    if direction.get("viewer"):
+        lines.append(f"- viewer: {direction['viewer']}")
+    lines.append(f"- look: {direction['look']}")
+    if direction.get("literal"):
+        lines.append(f"- figurative and abstract lines: {direction['literal']}")
+    if direction.get("motifs"):
+        lines.append("- recurring motifs: " + "; ".join(direction["motifs"]))
+    for t in direction.get("terms") or []:
+        lines.append(f"- «{t['term']}»: show {t['show']}" + (f"; avoid {t['avoid']}" if t.get("avoid") else ""))
+    if direction.get("never"):
+        lines.append("- never show: " + "; ".join(direction["never"]))
+    return "\n".join(lines) + "\n\n"
+
+
+def direction_digest(direction):
+    return hashlib.sha256(json.dumps(direction or {}, ensure_ascii=False, sort_keys=True)
+                          .encode("utf-8")).hexdigest()[:12]
+
+
+def make_direction(video_dir, gateway, model=DEFAULT_MODEL, setting=None, title=""):
+    """Режиссёрское задание эпизода: из файла, если сценарий (озвучиваемый
+    текст), вопрос и модель те же, иначе — один вопрос модели. Сбой — None
+    и прежний путь (задание по главам без общего задания)."""
+    script = _direction_script(video_dir)
+    if not script.strip():
+        return None
+    prompt = DIRECTION_PROMPT.format(title=title or "—", setting=setting or "not specified", script=script)
+    sig = hashlib.sha256(f"{DIRECTION_VERSION}|{model}|{prompt}".encode("utf-8")).hexdigest()[:16]
+    path = os.path.join(video_dir, "media_plan", DIRECTION_NAME)
+    old = _read_plan(path)
+    if old.get("sig") == sig and old.get("direction"):
+        return old["direction"]
+    import llm_gateway
+    try:
+        raw, _u, _p = gateway.chat(model, [{"type": "text", "text": prompt}], DIRECTION_MAX_TOKENS,
+                                   max(EST_PROMPT_TOKENS, len(prompt) // 3))
+    except llm_gateway.PaymentRequired:
+        raise
+    except llm_gateway.GatewayError as e:
+        print(f"  режиссёрское задание не получено ({str(e)[:160]}) — главы без него")
+        return old.get("direction") if old.get("direction") else None
+    direction = parse_direction(raw)
+    if not direction:
+        print("  режиссёрское задание: ответ не разобран — главы без него")
+        return None
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".part"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump({"version": DIRECTION_VERSION, "model": model, "sig": sig, "direction": direction},
+                  f, ensure_ascii=False, indent=1)
+    os.replace(tmp, path)
+    return direction
+
+
+READINGS = ("literal", "figurative", "abstract")
+
+
 def render_spec_prompt(packet, setting):
     lines = []
     for u in packet["units"]:
@@ -140,6 +328,7 @@ def render_spec_prompt(packet, setting):
         lines.append(f"{u['n']}. «{u['text']}»" + (f" — shot: {brief}" if brief else ""))
     prev = f" (the previous chapter ended with: «{packet['prev_tail']}»)" if packet.get("prev_tail") else ""
     return SPEC_PROMPT.format(title=packet.get("episode_title") or "—", setting=setting or "not specified",
+                              direction=direction_block(packet.get("direction")),
                               prev=prev, c1=MAX_CLAIMS - 1, q=MAX_QUERIES, lines="\n".join(lines))
 
 
@@ -265,6 +454,17 @@ def parse_spec(raw, packet):
         if not focus_query_count(spec):
             continue
         spec["queries"] = order_queries(spec)
+        # Поля версии 4 необязательны: сорванное поле не отнимает у фразы
+        # её кадр, а только подсказку.
+        meaning = clean_text(obj.get("meaning"), lo=2, hi=24)
+        if meaning:
+            spec["meaning"] = meaning
+        reading = _clean(str(obj.get("reading") or "")).lower()
+        if reading in READINGS:
+            spec["reading"] = reading
+        traps = _str_list(obj.get("traps"), lo=2, hi=12, limit=3)
+        if traps:
+            spec["traps"] = traps
         out[n] = spec
     return out
 
@@ -318,11 +518,17 @@ def ask_chapter(gateway, model, packet, setting, cache_dir):
     return got, hit
 
 
-def plan_signature(model, setting):
+def plan_signature(model, setting, direction=None):
     """Что делает спецификации сопоставимыми между прогонами: версия,
-    модель, текст инструкции и мир эпизода. Совпадает — спецификацию фразы с
-    неизменным текстом можно взять из прежнего плана."""
-    return hashlib.sha256(f"{PLAN_VERSION}|{model}|{SPEC_PROMPT}|{setting}".encode("utf-8")).hexdigest()[:16]
+    модель, текст инструкции, мир эпизода и режиссёрское задание. Совпадает
+    — спецификацию фразы с неизменным текстом можно взять из прежнего плана."""
+    return hashlib.sha256(f"{PLAN_VERSION}|{model}|{SPEC_PROMPT}|{setting}|{direction_digest(direction)}"
+                          .encode("utf-8")).hexdigest()[:16]
+
+
+def load_direction(video_dir):
+    """Режиссёрское задание с диска или None (без сети)."""
+    return _read_plan(os.path.join(video_dir, "media_plan", DIRECTION_NAME)).get("direction")
 
 
 def _read_plan(path):
@@ -352,10 +558,14 @@ def plan_episode(video_dir, blocks, gateway, model=DEFAULT_MODEL, verbose=True, 
     setting = world_card.judge_setting(world_card.load(video_dir, strict=False))
     cache_dir = os.path.join(video_dir, "media_plan", CACHE_DIR_NAME)
     path = os.path.join(video_dir, "media_plan", PLAN_NAME)
-    sig = plan_signature(model, setting)
+    packets = list(sbd.packets(video_dir, blocks))
+    direction = make_direction(video_dir, gateway, model=model, setting=setting,
+                               title=(packets[0].get("episode_title") if packets else ""))
+    for packet in packets:
+        packet["direction"] = direction
+    sig = plan_signature(model, setting, direction)
     old = _read_plan(path)
     old_units = (old.get("units") or {}) if old.get("sig") == sig else {}
-    packets = list(sbd.packets(video_dir, blocks))
 
     def one(packet):
         try:
@@ -415,7 +625,7 @@ def needs_planning(video_dir, blocks, model=DEFAULT_MODEL):
     if plan.get("version") != PLAN_VERSION:
         return True
     setting = world_card.judge_setting(world_card.load(video_dir, strict=False))
-    if plan.get("sig") != plan_signature(model, setting):
+    if plan.get("sig") != plan_signature(model, setting, load_direction(video_dir)):
         return True
     have = plan.get("units") or {}
     return any(shot_planner_llm.unit_key(b.get("text") or "") not in have
@@ -461,6 +671,9 @@ def load_specs(video_dir):
         if isinstance(v, dict) and v.get("claims") and v.get("focus"):
             out[k] = {"focus": v["focus"], "claims": v["claims"],
                       "queries": v.get("queries_for") or []}
+            for extra in ("meaning", "reading", "traps"):
+                if v.get(extra):
+                    out[k][extra] = v[extra]
     return out
 
 
@@ -473,8 +686,10 @@ def has_motion(spec, must=False):
 def attach(blocks, plan, specs=None):
     """Проставить блокам b["phrase_queries"] по тексту фразы, а по плану
     версии 3 ещё b["shot_spec"]. Возвращает, скольким блокам нашлись
-    запросы. Под-кадры наследуют поля при нарезке (dict(b) в
-    split_long_blocks), поэтому проставляется ДО неё."""
+    запросы. Вызывается по ФИНАЛЬНЫМ блокам (после нарезки и слияния в
+    pipeline_smart.main): у каждого подкадра свой текст и своё задание.
+    Раньше привязка шла до нарезки, и подкадры наследовали задание всей
+    фразы — два подкадра подряд искали одно и то же."""
     if not plan:
         return 0
     import shot_planner_llm
