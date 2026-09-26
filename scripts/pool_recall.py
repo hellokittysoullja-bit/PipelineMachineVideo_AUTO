@@ -438,6 +438,32 @@ def rank_key(rank):
     return (-9,) if rank is None else rank
 
 
+def _plan_unit_texts(episode):
+    """Тексты фраз плана — чтобы найти задание кусочка, на который монтаж
+    разрезал длинную фразу."""
+    try:
+        with open(os.path.join(episode, "media_plan", "stock_queries.json"), encoding="utf-8") as f:
+            units = json.load(f).get("units") or {}
+    except (OSError, ValueError):
+        return []
+    return [v["text"] for v in units.values() if isinstance(v, dict) and v.get("text")]
+
+
+def _spec_for_block(specs, unit_texts, block_text):
+    """Задание слота так, как его получает рендер. Рендер привязывает задание
+    к фразе ДО нарезки длинных фраз, и кусочки наследуют задание целой
+    фразы; бенч видит только текст кусочка и искал задание по нему — на
+    эп.93 так 9 слотов из 14 молча оценивались по брифу. Кусочек ищется
+    внутри фраз плана; нашёлся не ровно в одной — задания нет."""
+    import shot_planner_llm
+    spec = specs.get(shot_planner_llm.unit_key(block_text))
+    if spec or not block_text.strip():
+        return spec
+    norm = " ".join(block_text.split())
+    hits = [t for t in unit_texts if norm in " ".join(t.split())]
+    return specs.get(shot_planner_llm.unit_key(hits[0])) if len(hits) == 1 else None
+
+
 def _screen_count(stats, head, pick):
     """Что окажется на экране слота: победитель-брак опустошает слот (его
     поглощает сосед), иначе на экране метка победителя. Главное мерило бенча:
@@ -479,6 +505,7 @@ def cmd_bench(a):
     import stock_query_planner
     _unit_key = shot_planner_llm.unit_key
     specs = stock_query_planner.load_specs(a.episode) if a.episode else {}
+    unit_texts = _plan_unit_texts(a.episode) if a.episode else []
     if a.episode and not specs:
         # Эпизод передан, а спецификаций нет (план не той версии, битый
         # файл): бенч молча оценивал бы по брифу одним утверждением и
@@ -492,7 +519,7 @@ def cmd_bench(a):
              "world_good_rejected": 0, "world_bad_passed": 0, "slots": [], "cost": 0}
     for key, rec, rows in _label_rows(pools, index, labels, base, emb, plan, a.kind):
         brief = rec.get("shot_brief") or rec.get("query")
-        spec = specs.get(_unit_key(rec.get("block_text") or ""))
+        spec = _spec_for_block(specs, unit_texts, rec.get("block_text") or "")
         stats["spec_from_plan" if spec else "spec_from_brief"] = \
             stats.get("spec_from_plan" if spec else "spec_from_brief", 0) + 1
         spec = spec or shot_judge.spec_from_brief(rec.get("block_text"), brief)

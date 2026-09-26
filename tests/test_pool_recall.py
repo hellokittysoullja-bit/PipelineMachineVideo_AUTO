@@ -220,3 +220,23 @@ def test_screen_count_brak_winner_empties_slot_and_counts_missed_good():
     st = {}
     pool_recall._screen_count(st, [({"id": 3}, 2, (1.0, 3), None, {})], 0)
     assert st["screen_best"] == 1 and st["screen_label_sum"] == 2
+
+
+def test_bench_finds_spec_of_a_cut_phrase_like_the_render(tmp_path):
+    """Рендер привязывает задание к фразе ДО нарезки длинных фраз, кусочки
+    его наследуют. Бенч видит только кусочек — и на эп.93 искал задание по
+    нему, так что 9 слотов из 14 молча оценивались по брифу."""
+    import json
+    import shot_planner_llm
+    whole = "Когда ей грозит гибель, она делает то, что не умеет никто."
+    other = "Глубже двухсот метров темно."
+    (tmp_path / "media_plan").mkdir()
+    (tmp_path / "media_plan" / "stock_queries.json").write_text(json.dumps(
+        {"units": {"a": {"text": whole}, "b": {"text": other}}}), encoding="utf-8")
+    spec = {"focus": "x", "claims": []}
+    specs = {shot_planner_llm.unit_key(whole): spec}
+    texts = pool_recall._plan_unit_texts(str(tmp_path))
+    assert pool_recall._spec_for_block(specs, texts, "что не умеет никто.") is spec
+    assert pool_recall._spec_for_block(specs, texts, whole) is spec
+    assert pool_recall._spec_for_block(specs, texts, "совсем другой текст") is None
+    assert pool_recall._spec_for_block(specs, texts, "  ") is None
