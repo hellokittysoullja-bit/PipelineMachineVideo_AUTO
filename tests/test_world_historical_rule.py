@@ -69,3 +69,36 @@ def test_caption_screen_off_outside_measured_domain():
     assert drop == set() and gw.calls == []
     hist = dict(EP95, era=ERA, register="historical")
     assert cs.active_for(hist)
+
+
+def test_look_field_decides_renders_and_old_passports_keep_the_old_rule():
+    """Облик фильма в паспорте решает, законны ли 3D и рисунки; паспорт без
+    поля — прежнее правило (история без 3D), байт в байт."""
+    hist = {"register": "historical", "era": ERA}
+    assert not wc.renders_allowed(hist) and wc.renders_allowed(EP95)
+    kids_history = dict(hist, look={"style": "bright simple animated pictures for children", "renders_ok": True})
+    assert wc.renders_allowed(kids_history), "детский исторический научпоп: 3D законно"
+    strict_doc = dict(EP95, look={"style": "authentic footage only", "renders_ok": False})
+    assert not wc.renders_allowed(strict_doc)
+
+
+def test_look_validation_and_digest_stability():
+    base = {"schema_version": 1, "register": "historical", "era": ERA,
+            "culture": {"include": [], "exclude": []}, "must_not_show": [], "expected_subjects": [],
+            "era_anchor_terms": ["medieval"]}
+    assert wc.validate(base) == []
+    assert wc.validate(dict(base, look={"style": "x", "renders_ok": "yes"}))
+    assert wc.validate(dict(base, look={"style": "cinematic", "renders_ok": False})) == []
+    # Старый паспорт без облика — прежний отпечаток (кэш отбора не сгорает).
+    import hashlib
+    old = hashlib.sha256(json.dumps({k: base.get(k) for k in wc.WORLD_FIELDS}, sort_keys=True,
+                                    ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
+    assert wc.world_digest(base) == old
+    assert wc.world_digest(dict(base, look={"style": "x", "renders_ok": True})) != old
+
+
+def test_cg_veto_reads_the_look_in_the_pipeline():
+    import inspect
+    src = open(os.path.join(os.path.dirname(__file__), "..", "scripts", "pipeline_smart.py"),
+               encoding="utf-8").read()
+    assert "cg_veto = not world_card.renders_allowed(card)" in src

@@ -12498,7 +12498,7 @@ def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=
     # пластинчатый доспех читался как азиатский); мир отдельно без списка —
     # 6 из 9, современный нож остаётся.
     setting = world_card.claims_setting(card)
-    cg_veto = world_card.is_historical(card)
+    cg_veto = not world_card.renders_allowed(card)
     cache = os.path.join(TEMP_FOLDER, "shot_judge_cache")
     world_veto = world_veto_active()
     focus_frames = foreign_frames = 0
