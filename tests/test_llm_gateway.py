@@ -365,3 +365,21 @@ def test_an_answer_resets_the_pause_count(monkeypatch):
         else:
             raise AssertionError("шлюз так и не ответил")
     assert gw.pauses == 0 and not gw.dead
+
+
+def test_pause_line_names_the_cause(monkeypatch, capsys):
+    """Строка о паузе называет причину отказа: 26.09 шлюз трижды выключался
+    посреди прогонов, а лог говорил только «не отвечает» — таймаут, 429 и
+    5xx различить было нечем, а от этого зависит, сколько ждать."""
+    Clock(monkeypatch)
+    op = Opener([http_error(502)] * 1000)
+    gw = lg.Gateway(api_key="k", opener=op)
+    for _ in range(10):
+        try:
+            gw.chat("m/free", [], 10, 10)
+        except lg.GatewayError:
+            pass
+        if gw.pauses:
+            break
+    out = capsys.readouterr().out
+    assert "пауза" in out and "502" in out

@@ -186,7 +186,9 @@ class Gateway:
                         if self.pauses >= GATEWAY_MAX_PAUSES and not self.dead:
                             self.dead = (f"не отвечает после {self.pauses} пауз подряд "
                                          f"по {GATEWAY_COOLDOWN_SEC:.0f} с")
-                    print(f"  шлюз не отвечает {GATEWAY_FAIL_THRESHOLD} вызова подряд — пауза "
+                    # Причина — в строке: «не отвечает» без неё не отличает
+                    # таймаут от 429 и 5xx, а от этого зависит, сколько ждать.
+                    print(f"  шлюз не отвечает {GATEWAY_FAIL_THRESHOLD} вызова подряд ({e}) — пауза "
                           f"{GATEWAY_COOLDOWN_SEC:.0f} с" + (f"; {self.dead} — выключен до конца "
                                                           f"прогона" if self.dead else ""))
                 # Оборванный после начала ответ, скорее всего, уже оплачен:
