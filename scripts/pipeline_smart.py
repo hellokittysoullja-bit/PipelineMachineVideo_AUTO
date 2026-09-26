@@ -3126,12 +3126,12 @@ def measure_levels(path, is_video=False, lo_pct=2, hi_pct=98, video_samples=4, v
                             arrs_rgb.append(np.asarray(img.convert("RGB"), dtype=np.float32) / 255.0)
                     os.remove(tmp)
             if not arrs_l:
-                return None
+                return (None, None) if want_wb else None
             arr = np.concatenate([a.ravel() for a in arrs_l])
             rgb_arr = np.concatenate([a.reshape(-1, 3) for a in arrs_rgb], axis=0) if want_wb else None
         else:
             if np is None:
-                return None
+                return (None, None) if want_wb else None
             img = PILImage.open(path)
             arr = np.asarray(img.convert("L"), dtype=np.float32).ravel() / 255.0
             rgb_arr = np.asarray(img.convert("RGB"), dtype=np.float32).reshape(-1, 3) / 255.0 if want_wb else None
