@@ -12298,7 +12298,7 @@ def judge_candidates(index, kind, phrase, brief, candidates_info, spec=None):
     for c in candidates_info:
         c["judge"] = None
         c["verify"] = None
-        for k in ("_asked", "verify_focus", "verify_nothing", "verify_perfect", "world_clear",
+        for k in ("_asked", "verify_skipped", "verify_focus", "verify_nothing", "verify_perfect", "world_clear",
                   "look_rank"):
             c.pop(k, None)
     if index is not None and index >= SHOT_JUDGE_PAID_SLOTS:
@@ -12502,6 +12502,7 @@ def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=
     cache = os.path.join(TEMP_FOLDER, "shot_judge_cache")
     world_veto = world_veto_active()
     focus_frames = foreign_frames = 0
+    any_verified = False
 
     def ask(c):
         frames = len(c.get("frames") or []) or None
@@ -12554,11 +12555,21 @@ def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=
                                    "id": str(c["p"].get("id")), "verify": ans, "vector": vec, **info})
             if vec is None:
                 print(f"  слот {index}: проверка отклонила кадр — {ans.get('why')}")
+        any_verified = any_verified or verified > 0
         if not verified or vetoed < verified:
             break
         # Все проверенные отклонены: одна следующая порция по каскаду, а не
         # непроверенный кандидат из того же пула. Отклонена и она — слот
         # честно брак (judge_rejected победителя), его поглощает сосед.
+    if any_verified:
+        # Проверка в этой попытке состоялась: кадр, которого она не видела,
+        # не может обойти проверенных и выйти на экран как «одобренный».
+        # Живые случаи: эп.95 слот 4 (розовый 3D-шар после 11 отказов),
+        # judge9/13/14 эп.94 — по одному слоту. Сбой вопроса (_asked без
+        # ответа) — не отметка: это отказ шлюза, а не кадра.
+        for c in judged:
+            if not c.get("_asked"):
+                c["verify_skipped"] = True
     _record_world_vote(index, focus_frames, foreign_frames)
 
 
@@ -12600,6 +12611,8 @@ def verify_key(c):
     v = c.get("verify")
     if v == "veto":
         return (-9,)
+    if c.get("verify_skipped") and not isinstance(v, tuple):
+        return (-7,)
     if not isinstance(v, tuple):
         return (-1,)
     if c.get("verify_nothing"):
@@ -12740,6 +12753,8 @@ def judge_rejected(c):
         return True
     if isinstance(v, tuple):
         return bool(c.get("verify_nothing"))
+    if c.get("verify_skipped"):
+        return True
     return not (isinstance(c.get("judge"), int) and c["judge"] >= SHOT_JUDGE_MIN_SCORE)
 
 

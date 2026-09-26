@@ -682,3 +682,40 @@ def test_grid_and_verification_both_down_means_no_judge(tmp_path, monkeypatch):
     monkeypatch.setattr(sj, "judge", lambda *a, **k: None)
     monkeypatch.setattr(sj, "verify_claims", lambda *a, **k: (None, {"refused": "502"}))
     assert not ps.judge_candidates(0, "photo", "x", "y", info, None)
+
+
+def test_unseen_candidate_cannot_win_after_verification_rejected_everyone(tmp_path, monkeypatch):
+    """Живой случай эп.95 слот 4 и judge9/13/14 эп.94: проверка забраковала
+    всех финалистов (обе порции), и на экран вышел кадр, которого проверка не
+    видела, — с пометкой «одобрен» по оценке сетки. Теперь он брак: слот
+    уходит во второй круг или поглощается соседом."""
+    monkeypatch.setattr(ps, "VERIFY_FINALISTS", 1)
+    info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=4)
+    monkeypatch.setattr(sj, "verify_claims", _fake_verify({p: _ans({"c1": "no", "c3": "no"}) for p in paths}))
+    assert ps.judge_candidates(0, "photo", "x", "y", info, ARROW_SPEC)
+    asked = [c["p"]["id"] for c in info if c.get("_asked")]
+    assert asked == ["c0", "c1"], asked
+    winner = ps._score_and_pick(info)[0]
+    assert ps.judge_rejected(winner) and not ps.judge_approved(winner)
+    assert not ps.quality_approved(ps._as_quality(ps.winner_quality(winner)))
+
+
+def test_unseen_candidate_keeps_old_rules_when_verification_never_answered(tmp_path, monkeypatch):
+    """Шлюз не ответил ни разу — проверки не было: прежнее правило по сетке."""
+    monkeypatch.setattr(ps, "VERIFY_FINALISTS", 1)
+    info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=4)
+    monkeypatch.setattr(sj, "verify_claims", lambda *a, **k: (None, {"refused": "сбой"}))
+    assert ps.judge_candidates(0, "photo", "x", "y", info, ARROW_SPEC)
+    assert not any(c.get("verify_skipped") for c in info)
+    assert ps.judge_approved(ps._score_and_pick(info)[0])
+
+
+def test_unseen_candidate_below_an_approved_verified_one(tmp_path, monkeypatch):
+    monkeypatch.setattr(ps, "VERIFY_FINALISTS", 1)
+    info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=3)
+    monkeypatch.setattr(sj, "verify_claims", _fake_verify({paths[0]: _ans({"c1": "yes", "c3": "no"}),
+                                                          paths[1]: _ans({"c1": "no", "c3": "no"}),
+                                                          paths[2]: _ans({"c1": "no", "c3": "no"})}))
+    assert ps.judge_candidates(0, "photo", "x", "y", info, ARROW_SPEC)
+    winner = ps._score_and_pick(info)[0]
+    assert winner["p"]["id"] == "c0" and ps.judge_approved(winner)
