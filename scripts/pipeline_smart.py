@@ -6640,6 +6640,52 @@ def auto_plan_episode(blocks, video_dir=None):
               f"отбор идёт по плану с диска, если он есть")
 
 
+CAPTION_SCREEN_LOG = []        # по слоту и виду: что отсеяно по подписи до судьи
+_CAPTION_SCREEN_GATEWAY = []
+CAPTION_SCREEN_DEFAULT_SPEND_CAP = 30000
+
+
+def _caption_screen_gateway():
+    """Шлюз отсева по подписи — один на прогон, свой потолок
+    (CAPTION_SCREEN_MAX_SPEND): два коротких вопроса на слот и вид."""
+    if not _CAPTION_SCREEN_GATEWAY:
+        import llm_gateway
+        raw = (os.environ.get("CAPTION_SCREEN_MAX_SPEND") or "").strip()
+        cap = int(raw) if raw.isdigit() else CAPTION_SCREEN_DEFAULT_SPEND_CAP
+        _CAPTION_SCREEN_GATEWAY.append(llm_gateway.Gateway(spend_cap=cap))
+    return _CAPTION_SCREEN_GATEWAY[0]
+
+
+def caption_screen_pool(pool, request, kind, index):
+    """Первые TOP_N после каскада — через отсев чужого мира по подписи
+    (caption_screen). Отсеянные кандидаты убираются из списка до судьи;
+    порядок остальных не меняется. Судьи нет, флаг выключен, паспорт без
+    чужих культур или сбой — список как есть."""
+    if not feature_flags.enabled("CAPTION_SCREEN") or not shot_judge_active(index) or not pool:
+        return pool
+    import caption_screen
+    try:
+        card = episode_world_card()
+    except Exception:  # noqa: BLE001 — сломанный паспорт скажет о себе сам в месте чтения
+        return pool
+    if not caption_screen.active_for(card):
+        return pool
+    head = pool[:caption_screen.TOP_N]
+    rows = [(str(c.get("id")), candidate_channel(c), (pexels_candidate_text(c) or "")[:300]) for c in head]
+    focus = ((request.shot_spec or {}).get("focus") if isinstance(request.shot_spec, dict) else None) \
+        or request.shot_brief or request.query
+    drop, info = caption_screen.screen(_caption_screen_gateway(), request.block_text or request.query, focus,
+                                       card, rows, cache_dir=os.path.join(TEMP_FOLDER, "caption_screen_cache"))
+    CAPTION_SCREEN_LOG.append({"index": index, "kind": kind, "phrase": request.block_text, **info})
+    if info.get("error"):
+        print(f"  [{index}] отсев по подписи ({kind}) не состоялся: {info['error']} — кандидаты как есть")
+    if not drop:
+        return pool
+    kept = [c for c in pool if str(c.get("id")) not in drop]
+    print(f"  [{index}] отсев по подписи ({kind}): убрано {len(pool) - len(kept)} кадров чужого мира")
+    return kept
+
+
 RESEARCH_ROUND_LOG = []        # по слоту: новые запросы второго круга и чем кончилось
 _RESEARCH_GATEWAY = []
 
@@ -8073,6 +8119,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                                                            "photo"),
                                              cf, download_probe, index,
                                              claims=cascade_claims(request.shot_spec, "photo"))
+                candidates = caption_screen_pool(candidates, request, "photo", index)
                 skip = CASCADE_PAGE.get() * _photo_dedup_max_tries_for(index)
                 if skip:
                     candidates = candidates[skip:]
@@ -12553,6 +12600,7 @@ def shot_judge_signature(index=None):
     if not shot_judge_active(index):
         return ""
     import shot_judge
+    import caption_screen
     # Код судьи — собирается сам (judge_code_signature, см. code_signature.py);
     # тексты вопросов — константы, их объявляем явно.
     logic = hashlib.sha256((judge_code_signature() + shot_judge.CLAIMS_PROMPT
@@ -12574,7 +12622,10 @@ def shot_judge_signature(index=None):
                  focus_frame.PAGE_ASPECT, focus_frame.NEAR_FULL,
                  # Выбор среди равных по смыслу — меняет победителя ничьей.
                  "look", feature_flags.enabled("LOOK_TIEBREAK"), shot_judge.LOOK_VERSION,
-                 shot_judge.LOOK_MAX, shot_judge.LOOK_TILE))
+                 shot_judge.LOOK_MAX, shot_judge.LOOK_TILE,
+                 # Отсев по подписи меняет, кто дойдёт до судьи.
+                 "screen", feature_flags.enabled("CAPTION_SCREEN"), caption_screen.SCREEN_VERSION,
+                 caption_screen.MODEL, caption_screen.TOP_N, caption_screen.prompts_digest()))
 
 
 # ПЛАТНАЯ ПРОВЕРКА — ТОЛЬКО ХУК (решение владельца 24.09). Судья стоит денег
@@ -14844,6 +14895,7 @@ class VideoAdapter(selection_engine.MediaAdapter):
                                                        "video"),
                                    cf, video_middle_probe, index, url_of=video_middle_url,
                                    claims=cascade_claims(request.shot_spec, "video"))
+            pool = caption_screen_pool(pool, request, "video", index)
             # Уже использованные в эпизоде ролики — в хвост и после каскада
             # (filter_pool их понизил, каскад без этого поднимал бы обратно).
             used = request.used_video_ids or ()
@@ -16795,6 +16847,8 @@ def main():
     # Второй круг поиска — журнал и шлюз (со своим потолком) на прогон.
     RESEARCH_ROUND_LOG.clear()
     _RESEARCH_GATEWAY.clear()
+    CAPTION_SCREEN_LOG.clear()
+    _CAPTION_SCREEN_GATEWAY.clear()
     # Каталоги попыток прерванного процесса — мусор: живых попыток при
     # старте нет, и в кэш такой файл не попадёт никогда.
     selection_attempt.sweep_orphans(os.path.join(TEMP_FOLDER, "staging"))
@@ -18251,6 +18305,17 @@ def main():
             if rows:
                 found = sum(1 for e in rows if e.get("found"))
                 print(f"  Второй круг поиска {name}: слотов {len(rows)}, кадр лучше найден в {found}")
+    if CAPTION_SCREEN_LOG:
+        # Отсев по подписи: что убрано до судьи и во сколько обошлось.
+        cgw = _CAPTION_SCREEN_GATEWAY[0] if _CAPTION_SCREEN_GATEWAY else None
+        with open(os.path.join(VIDEO_FOLDER, "media_plan", "caption_screen_report.json"), "w",
+                  encoding="utf-8") as f:
+            json.dump({"gateway": cgw.summary() if cgw else None, "slots": CAPTION_SCREEN_LOG},
+                      f, ensure_ascii=False, indent=1)
+        n_drop = sum(len(e.get("dropped") or []) for e in CAPTION_SCREEN_LOG)
+        n_err = sum(1 for e in CAPTION_SCREEN_LOG if e.get("error"))
+        print(f"  Отсев по подписи: куч {len(CAPTION_SCREEN_LOG)}, убрано кадров чужого мира {n_drop}"
+              + (f", не состоялся {n_err}" if n_err else ""))
     if SHOT_JUDGE_MISSES:
         print(f"  ВНИМАНИЕ: {len(SHOT_JUDGE_MISSES)} слот(ов) {[m['index'] for m in SHOT_JUDGE_MISSES]} — "
               f"судья кадров оценил лучший найденный кадр как брак — см. "

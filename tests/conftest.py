@@ -54,6 +54,9 @@ def _isolate_from_real_dotenv(monkeypatch, tmp_path):
     # RESEARCH_ROUND — второй круг поиска зовёт модель через шлюз; тест,
     # которому он нужен, включает его сам.
     monkeypatch.setenv("RESEARCH_ROUND", "0")
+    # CAPTION_SCREEN — отсев по подписи зовёт DeepSeek через шлюз; тест,
+    # которому он нужен, включает его сам.
+    monkeypatch.setenv("CAPTION_SCREEN", "0")
     # MUSEUM_SOURCES_ENABLED — ровно тот же класс бага, и здесь он опаснее:
     # дефолт реестра у него "1" (источник включён в проде), то есть без этой
     # строки КАЖДЫЙ тест, дошедший до сборки пула, ходил бы живьём в три
