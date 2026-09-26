@@ -59,7 +59,8 @@ def _run_main_capturing_ffmpeg(monkeypatch, video_dir):
             # исходник — cmd[-1] у ffprobe это путь ко ВХОДУ.
             return _FakeCompleted(0, stdout="44100,2\n")
         out_path = cmd[-1]
-        open(out_path, "wb").write(b"fake flac bytes")
+        if out_path != "-":   # замер ffmpeg с выводом в никуда — не файл
+            open(out_path, "wb").write(b"fake flac bytes")
         return _FakeCompleted(0)
 
     monkeypatch.setattr(fix_pauses.subprocess, "run", fake_run)
@@ -235,7 +236,8 @@ def test_missing_ffprobe_degrades_to_defaults_instead_of_killing_the_step(tmp_pa
         calls.append(cmd)
         if cmd and cmd[0] == "ffprobe":
             raise FileNotFoundError("ffprobe")
-        open(cmd[-1], "wb").write(b"fake flac bytes")
+        if cmd[-1] != "-":
+            open(cmd[-1], "wb").write(b"fake flac bytes")
         return _FakeCompleted(0)
 
     monkeypatch.setattr(fix_pauses.subprocess, "run", fake_run)
