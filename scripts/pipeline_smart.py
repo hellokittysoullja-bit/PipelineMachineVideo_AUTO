@@ -12533,7 +12533,8 @@ def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=
             # Тип изображения по словам судьи: photo/artwork/object/cg —
             # рисунку и странице рукописи нужна рамка детали (focus_crop).
             c["verify_medium"] = ans.get("medium")
-            c["verify_nothing"] = shot_judge.nothing_met(spec, ans)
+            c["verify_nothing"] = shot_judge.shows_nothing(
+                spec, ans, c["judge"] if isinstance(c.get("judge"), int) else None)
             c["verify_perfect"] = vec is not None and shot_judge.musts_met_clean(spec, ans)
             if grid_vetoed(c):
                 # Сетка того же судьи сказала «не по теме» (0), а проверка по
@@ -12542,7 +12543,6 @@ def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=
                 # как «часы у полуночи», игрушечные шарики — как «модель
                 # дофамина»; сетка поставила им 0, код поставил на экран.
                 c["verify_focus"] = False
-                c["verify_nothing"] = True
                 c["verify_perfect"] = False
             c["world_clear"] = shot_judge.world_clear(ans)
             verified += 1

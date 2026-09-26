@@ -202,3 +202,21 @@ def test_bench_refuses_episode_without_plan_specs(tmp_path, monkeypatch):
         claims_world="exclude", max_spend=1, episode=str(ep), model="m", cache_dir=None)
     with pytest.raises(SystemExit, match="спецификации кадров не загружены"):
         pool_recall.cmd_bench(a)
+
+
+def test_screen_count_brak_winner_empties_slot_and_counts_missed_good():
+    """Победитель-брак опустошает слот; если годный был в первых кадрах —
+    это отдельный счёт (так 24.09 по промежуточным счётчикам был снят
+    полезный вопрос: пустые слоты при годной замене они не видели)."""
+    st = {}
+    head = [({"id": 1}, 1, (-5, 2), None, {}), ({"id": 2}, 0, (-5, 1), None, {})]
+    pool_recall._screen_count(st, head, 0)
+    assert st["screen_empty"] == 1 and st["screen_empty_good"] == 1
+    assert st.get("screen_brak", 0) == 0
+    st = {}
+    head = [({"id": 1}, 0, (1.0, 2), None, {}), ({"id": 2}, 2, (0.0, 3), None, {})]
+    pool_recall._screen_count(st, head, 0)
+    assert st["screen_brak"] == 1 and st.get("screen_best", 0) == 0
+    st = {}
+    pool_recall._screen_count(st, [({"id": 3}, 2, (1.0, 3), None, {})], 0)
+    assert st["screen_best"] == 1 and st["screen_label_sum"] == 2

@@ -438,6 +438,24 @@ def rank_key(rank):
     return (-9,) if rank is None else rank
 
 
+def _screen_count(stats, head, pick):
+    """Что окажется на экране слота: победитель-брак опустошает слот (его
+    поглощает сосед), иначе на экране метка победителя. Главное мерило бенча:
+    промежуточные счётчики («брак принят», «лучший выбран») не видят, что
+    брак-победитель опустошает слот, — по ним 24.09 был снят вопрос о
+    предмете, который по экрану оказался выигрышем."""
+    rank, lab = head[pick][2], head[pick][1]
+    best = max(x[1] for x in head)
+    stats["screen_slots"] = stats.get("screen_slots", 0) + 1
+    if rank is None or rank[0] == -5:
+        stats["screen_empty"] = stats.get("screen_empty", 0) + 1
+        stats["screen_empty_good"] = stats.get("screen_empty_good", 0) + (1 if best >= 1 else 0)
+        return
+    stats["screen_brak"] = stats.get("screen_brak", 0) + (1 if lab == 0 else 0)
+    stats["screen_best"] = stats.get("screen_best", 0) + (1 if lab == best else 0)
+    stats["screen_label_sum"] = stats.get("screen_label_sum", 0) + lab
+
+
 def cmd_bench(a):
     """Проверка финалистов против разметки. Платно (шлюз): ответы кэшируются
     по байтам картинки и тексту вопроса — повторный прогон бесплатен."""
@@ -557,12 +575,14 @@ def cmd_bench(a):
             # «Принят» — не отклонён и хоть что-то обязательное выполнено;
             # считается ДО приписки оценки сетки: (-5,) + сетка уже не равно
             # (-5,), и прежний счётчик записывал такой кадр в принятые.
-            if rank is not None and shot_judge.nothing_met(spec, ans):
+            gs = grid.get(str(r.get("id"))) if a.grid else None
+            gs = gs if isinstance(gs, int) else None
+            # То же правило брака, что в рендере (сетка 0 — брак).
+            if rank is not None and shot_judge.shows_nothing(spec, ans, gs):
                 rank = (-5,)
             accepted = rank is not None and rank != (-5,)
             if a.grid:
-                gs = grid.get(str(r.get("id")))
-                rank = None if rank is None else rank + ((gs if isinstance(gs, int) else -1),)
+                rank = None if rank is None else rank + ((gs if gs is not None else -1),)
             scored.append((r, lab, rank, wok, ans))
             stats.setdefault("tiles", []).append({
                 "key": key, "id": r.get("id"), "label": lab, "answers": ans, "world_ok": wok,
@@ -587,6 +607,7 @@ def cmd_bench(a):
         head = scored[:a.handoff]
         if head:
             pick = max(range(len(head)), key=lambda k: (rank_key(head[k][2]), -k))
+            _screen_count(stats, head, pick)
             stats["slots"].append({"key": key, "best": max(x[1] for x in head),
                                    "pick": head[pick][1], "pick_id": head[pick][0].get("id"),
                                    "pick_answers": head[pick][4]})
@@ -596,6 +617,10 @@ def cmd_bench(a):
           f"{s['bad_accepted']}/{s['bad']}; годных отклонено: {s['good_vetoed']}/{s['good']}; "
           f"прежняя проверка мира: годных отклонено {s['world_good_rejected']}/{s['good']}, "
           f"брака пропущено {s['world_bad_passed']}/{s['bad']}; цена {s['cost']}")
+    print(f"  на экране (слотов {s.get('screen_slots', 0)}): брак {s.get('screen_brak', 0)}, "
+          f"лучший кадр {s.get('screen_best', 0)}, сумма меток {s.get('screen_label_sum', 0)}, "
+          f"пустых {s.get('screen_empty', 0)} (из них при годном в первых {a.handoff}: "
+          f"{s.get('screen_empty_good', 0)})")
     print(f"  спецификации: из плана {s.get('spec_from_plan', 0)}, "
           f"по брифу {s.get('spec_from_brief', 0)}")
     for sl in s["slots"]:

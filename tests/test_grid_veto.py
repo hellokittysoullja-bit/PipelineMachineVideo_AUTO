@@ -36,3 +36,17 @@ def test_grid_zero_cannot_be_approved_by_claims(monkeypatch, tmp_path):
 def test_grid_two_with_same_answers_stays_approved(monkeypatch, tmp_path):
     ps, c = _run(monkeypatch, tmp_path, 2)
     assert ps.judge_approved(c) and not ps.judge_rejected(c)
+
+
+def test_render_and_bench_share_one_brak_rule():
+    """Рендер и бенч решают «брак по проверке» одной функцией: у бенча своя
+    копия не знала про сетку 0, и его «брак принят» не совпадал с тем, что
+    рендер ставил на экран."""
+    import inspect
+    import pipeline_smart as ps
+    import pool_recall
+    import shot_judge
+    assert shot_judge.shows_nothing(SPEC, YES, 0) and not shot_judge.shows_nothing(SPEC, YES, 2)
+    assert "shot_judge.shows_nothing(" in inspect.getsource(ps._verify_finalists)
+    assert "shot_judge.shows_nothing(" in inspect.getsource(pool_recall.cmd_bench)
+    assert "nothing_met(" not in inspect.getsource(pool_recall.cmd_bench)
