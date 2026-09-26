@@ -12268,8 +12268,10 @@ def _rank_look_ties(index, kind, judged, gw, model):
         return
     import shot_judge
     tied = tied[:shot_judge.LOOK_MAX]
+    look = (episode_world_card() or {}).get("look")
     order, info = shot_judge.rank_look(gw, model, paths=[c.get("judge_path") or c["path"] for c in tied],
-                                       kind=kind, cache_dir=os.path.join(TEMP_FOLDER, "shot_judge_cache"))
+                                       kind=kind, cache_dir=os.path.join(TEMP_FOLDER, "shot_judge_cache"),
+                                       style=look.get("style") if isinstance(look, dict) else None)
     SHOT_JUDGE_LOG.append({"index": index, "kind": kind, "model": model,
                            "look_tied": [str(c["p"].get("id")) for c in tied],
                            "look_order": ([str(tied[k]["p"].get("id")) for k in order]

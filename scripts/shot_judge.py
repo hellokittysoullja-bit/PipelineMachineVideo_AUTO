@@ -687,13 +687,27 @@ def parse_order(answer, k):
     return out + [n for n in range(k) if n not in out]
 
 
-def rank_look(gateway, model, *, paths, kind="photo", cache_dir=None):
+def look_question(kind, k, style=None):
+    """Вопрос «лучший как кадр фильма». style — облик ЭТОГО фильма из
+    паспорта (look.style): кадр фильма для детей и для взрослой
+    документалки хорош по-разному. Замер 26.09 на 188 размеченных парах
+    эп.94: верных пар 0.862 без облика против 0.899 с ним. Облика нет —
+    вопрос прежний байт в байт. Только фото: у видео замера нет, и вопрос
+    к ленте кадров без замера не меняется."""
+    text = (LOOK_PROMPT_VIDEO if kind == "video" else LOOK_PROMPT).format(k=k)
+    style = " ".join((style or "").split())
+    if style and kind != "video":
+        text = text.replace("of a documentary film", f"of a documentary film shown as: {style}", 1)
+    return text
+
+
+def rank_look(gateway, model, *, paths, kind="photo", cache_dir=None, style=None):
     """(порядок 0..k-1, info) — кадры-равные по смыслу, упорядоченные как
     кадры фильма; None — вопроса не было или ответ неразборчив."""
     paths = [p for p in paths if p and os.path.exists(p)][:LOOK_MAX]
     if gateway is None or len(paths) < 2:
         return None, {}
-    text = (LOOK_PROMPT_VIDEO if kind == "video" else LOOK_PROMPT).format(k=len(paths))
+    text = look_question(kind, len(paths), style)
     # Фото — плитки крупнее, чем у сетки смысла: вид кадра судится по свету
     # и мелочам в кадре. Замер на той же разметке: сетка смысла 3x3 400x300 —
     # 0.814 верных пар, плитки 480x320 в две-три колонки — 0.846-0.862.
@@ -730,11 +744,27 @@ def shows_motion(kind, frames=None):
     return kind == "video" and (frames is None or frames >= 2)
 
 
+SUBJECT_ID = "subject"
+
+
+def subject_claim(spec):
+    """Вопрос «виден ли сам предмет фразы» — простой, без действия и места,
+    или None (у спецификации нет предмета). Его ответ не входит в вектор
+    сравнения: он решает только «кадр про эту фразу вообще или нет»."""
+    subject = (spec or {}).get("subject")
+    if not subject:
+        return None
+    return {"id": SUBJECT_ID, "text": f"{subject} is visible", "tier": "subject"}
+
+
 def asked_claims(spec, kind, frames=None):
     """Утверждения, которые спрашиваются у кадра: движение — только у ролика,
-    показанного хотя бы двумя кадрами."""
+    показанного хотя бы двумя кадрами; вопрос о предмете фразы — последним,
+    если у спецификации он есть."""
     moving = shows_motion(kind, frames)
-    return [c for c in spec["claims"] if moving or not c.get("motion")]
+    asked = [c for c in spec["claims"] if moving or not c.get("motion")]
+    sc = subject_claim(spec)
+    return asked + ([sc] if sc else [])
 
 
 def claims_question(phrase, spec, setting=None, kind="photo", caption=None, frames=None):
@@ -839,16 +869,27 @@ def focus_met(spec, answers):
 
 def nothing_met(spec, answers):
     """Кадр не показывает из спецификации НИЧЕГО обязательного: каждое
-    must-утверждение — «нет». Это брак; кадр, который не показал главное, но
-    показал обязательную деталь фразы, — замена, а не брак (он проигрывает
-    любому кадру с главным, но лучше соседнего кадра на чужой фразе).
+    must-утверждение — «нет». Это брак — кроме случая, когда на прямой
+    вопрос «виден ли предмет фразы» ответ «да»: тогда кадр — замена.
 
-    Отдельный вопрос «виден ли предмет фразы» проверен замером 25.09 (эп.94,
-    два прогона на каждый вариант) и снят: узкий предмет («a rondel
-    dagger») ловил +8 брака, но выбрасывал 3 годных кинжала другого вида;
-    общий («a dagger») годных не терял, но и брак не ловил (37 принято
-    против 35 без вопроса, лучший выбран 7/9 против 8/9)."""
+    Утверждения составные («рыцарь падает в грязь»), и годная замена —
+    рыцарь, который стоит, — не выполняет ни одного; без предмета такой
+    кадр считался браком и слот пустел, хотя замена была среди первых
+    кадров (эп.94: 3-4 слота из 9). Замер по экрану 26.09, эп.94 (4
+    прогона): брак на экране 8 -> 8, лучший кадр 12 -> 22, пустых слотов
+    13 -> 3; эп.93 — ничья, минусов нет.
+
+    Обратная половина («предмет не виден — брак») НЕ действует: замер
+    24-26.09 — она выбрасывает годные кадры другого вида (дага на
+    «рондельный кинжал»). «Сомневаюсь» — решают утверждения."""
     vals = claim_values(spec, answers)
+    if subject_claim(spec):
+        seen = ((answers or {}).get("claims") or {}).get(SUBJECT_ID)
+        if seen == "yes":
+            # Предмет фразы в кадре — кадр про эту фразу, даже если её
+            # действие и место не показаны: замена, а не брак (кинжал без
+            # ладони на фразу про вес кинжала).
+            return False
     return all(vals[c["id"]] == 0 for c in spec["claims"] if c["tier"] == "must")
 
 

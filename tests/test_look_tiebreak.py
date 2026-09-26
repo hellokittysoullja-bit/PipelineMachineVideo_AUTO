@@ -148,3 +148,22 @@ def test_both_judge_paths_rank_the_ties():
     assert src.count("_rank_look_ties(index, kind, judged, gw, model)") == 2
     for block in src.split("_rank_look_ties(index, kind, judged, gw, model)")[:2]:
         assert "_verify_finalists(" in block, "порядок — после проверки по утверждениям"
+
+
+def test_film_look_from_the_passport_reaches_the_question(tmp_path, judge_env, monkeypatch):
+    """Облик фильма из паспорта доходит до вопроса «лучший как кадр
+    фильма» (замер 26.09 на 188 парах эп.94: 0.862 без облика против
+    0.899 и 0.883 с ним); нет облика — вопрос прежний."""
+    a = _cand(tmp_path, "a", (1.0, 1.0), 3, (200, 0, 0))
+    b = _cand(tmp_path, "b", (1.0, 1.0), 3, (0, 200, 0))
+    monkeypatch.setattr(ps, "episode_world_card",
+                        lambda: {"look": {"style": "bright pictures for children", "renders_ok": True}})
+    gw = _GW('{"order": [2, 1]}')
+    ps._rank_look_ties(0, "photo", [a, b], gw, "m")
+    assert "shown as: bright pictures for children" in gw.calls[0]
+    for c in (a, b):
+        c.pop("look_rank", None)
+    monkeypatch.setattr(ps, "episode_world_card", lambda: {})
+    gw2 = _GW('{"order": [2, 1]}')
+    ps._rank_look_ties(0, "photo", [a, b], gw2, "m")
+    assert "shown as" not in gw2.calls[0]
