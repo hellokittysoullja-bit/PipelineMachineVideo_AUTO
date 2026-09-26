@@ -30,6 +30,12 @@ class GW:
         return self.text, {}, 1
 
 
+ANS = ('{"n": 1, "meaning": "here is the dagger", "reading": "literal", "shot": "a dagger lying on grey cloth",'
+       ' "core": "a dagger is visible", "claims": [], "queries": [{"q": "dagger", "for": ["core"]}]}\n'
+       '{"n": 2, "meaning": "an arrow flies", "reading": "literal", "shot": "an arrow flying through the air",'
+       ' "core": "an arrow is visible", "claims": [], "queries": [{"q": "arrow", "for": ["core"]}]}\n')
+
+
 def _ep(tmp_path, script=SCRIPT):
     d = tmp_path / "ep"
     (d / "media_plan").mkdir(parents=True)
@@ -146,10 +152,7 @@ def test_unchanged_phrases_keep_their_spec_when_a_chapter_is_replanned(tmp_path)
     import script_parser
     d = _ep(tmp_path)
     blocks = script_parser.parse_blocks(os.path.join(d, "script.txt"))
-    ans = ('{"n": 1, "focus": "a dagger", "core": "a dagger is visible", "claims": [],'
-           ' "queries": [{"q": "dagger", "for": ["core"]}]}\n'
-           '{"n": 2, "focus": "an arrow", "core": "an arrow is visible", "claims": [],'
-           ' "queries": [{"q": "arrow", "for": ["core"]}]}\n')
+    ans = ANS
     assert sqp.plan_episode(d, blocks, GW(ans), model="m", verbose=False) == 2
     assert not sqp.needs_planning(d, blocks, model="m")
     first = json.load(open(os.path.join(d, "media_plan", sqp.PLAN_NAME)))["units"]
@@ -217,10 +220,7 @@ def test_failed_chapter_keeps_its_previous_specs(tmp_path):
     import script_parser
     d = _ep(tmp_path)
     blocks = script_parser.parse_blocks(os.path.join(d, "script.txt"))
-    ans = ('{"n": 1, "focus": "a dagger", "core": "a dagger is visible", "claims": [],'
-           ' "queries": [{"q": "dagger", "for": ["core"]}]}\n'
-           '{"n": 2, "focus": "an arrow", "core": "an arrow is visible", "claims": [],'
-           ' "queries": [{"q": "arrow", "for": ["core"]}]}\n')
+    ans = ANS
     assert sqp.plan_episode(d, blocks, GW(ans), model="m", verbose=False) == 2
 
     class Broken(GW):
@@ -265,3 +265,14 @@ def test_own_culture_of_the_episode_is_never_blocklisted(monkeypatch):
     assert ps.content_blocklist_effective() == ("anime",)
     monkeypatch.setattr(ps, "episode_world_card", lambda: None)
     assert ps.content_blocklist_effective() == ("korean", "anime")
+
+
+def test_planner_spend_cap_grows_with_the_episode(monkeypatch):
+    """Потолок один на любой эпизод обрывал бы план длинного ролика посреди
+    глав: хвост шёл бы без заданий. Потолок растёт с числом кадров, ручной
+    PLANNER_MAX_SPEND важнее."""
+    monkeypatch.delenv("PLANNER_MAX_SPEND", raising=False)
+    assert ps.planner_spend_cap(0) == ps.PLANNER_DEFAULT_SPEND_CAP
+    assert ps.planner_spend_cap(300) == 300 * ps.PLANNER_SPEND_PER_BLOCK > ps.PLANNER_DEFAULT_SPEND_CAP
+    monkeypatch.setenv("PLANNER_MAX_SPEND", "12345")
+    assert ps.planner_spend_cap(300) == 12345

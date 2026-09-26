@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "register": "mixed",
+  "era": {
+    "from": 1300,
+    "to": 1550
+  },
+  "culture": {
+    "include": [
+      "European",
+      "German",
+      "Holy Roman Empire",
+      "Western European"
+    ],
+    "exclude": [
+      "Asian",
+      "Chinese",
+      "Korean",
+      "Middle Eastern"
+    ]
+  },
+  "must_not_show": [
+    "smartphones",
+    "cars",
+    "digital printers",
+    "typewriters",
+    "museum visitors",
+    "tourists",
+    "costumed festival",
+    "modern city streets"
+  ],
+  "expected_subjects": [
+    "wooden printing press",
+    "metal movable type",
+    "monk copying manuscript",
+    "quill pen",
+    "dark medieval workshop",
+    "ink application",
+    "illuminated Bible",
+    "modern book in hand"
+  ],
+  "era_anchor_terms": [
+    "15th century",
+    "medieval",
+    "Renaissance"
+  ],
+  "modern_props_allowed": true,
+  "look": {
+    "style": "cinematic historical reenactment, authentic medieval manuscripts, and macro photography of physical letterpress mechanics",
+    "renders_ok": false
+  },
+  "notes": "Основной фокус на фактуре материалов 15 века: дерево, металл, масло, бумага, пергамент. Азиатские аналоги печатных станков и шрифтов станут грубой ошибкой. В финале законно появление современной книги в современном интерьере по прямому указанию текста.",
+  "script_sha": "e025bfec792629e1",
+  "derived_by": "auto:ag/gemini-3.1-pro-low",
+  "derived_at": "2026-09-26T17:53:48"
+}

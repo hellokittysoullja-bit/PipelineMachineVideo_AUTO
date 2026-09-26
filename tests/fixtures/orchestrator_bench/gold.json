@@ -1,0 +1,1993 @@
+{
+ "_about": "Ожидания к пониманию фразы, записанные ДО прогона моделей (26.09, Claude, не владелец). subject — группы слов, КАЖДАЯ группа должна встретиться (any-of внутри группы) в главном предмете или описании кадра; not_core — буквальный образ метафоры или ловушка, которой не место в главном предмете и описании кадра; not_query — чего не должно быть в запросах к стокам (по умолчанию = not_core). reading — допустимые типы чтения. Слово без * — целое слово (с окончаниями s/es), со * — начало слова. judge — только ручная проверка.",
+ "episodes": {
+  "ep02": "videos/02_ne-mechom",
+  "ep94_hook": "tests/fixtures/orchestrator_bench/ep94_hook",
+  "psych": "tests/fixtures/other_niche",
+  "neuro": "tests/fixtures/orchestrator_bench/neuro",
+  "deepsea": "tests/fixtures/orchestrator_bench/deepsea",
+  "crash1929": "tests/fixtures/orchestrator_bench/crash1929",
+  "gutenberg": "tests/fixtures/orchestrator_bench/gutenberg",
+  "immunity": "tests/fixtures/orchestrator_bench/immunity"
+ },
+ "split": {
+  "dev": [
+   "ep02",
+   "neuro",
+   "ep94_hook"
+  ],
+  "holdout": [
+   "psych",
+   "deepsea",
+   "crash1929"
+  ],
+  "holdout2": [
+   "gutenberg",
+   "immunity"
+  ]
+ },
+ "items": [
+  {
+   "ep": "ep02",
+   "text": "Тебя ещё не ранили.",
+   "subject": [
+    [
+     "knight*",
+     "armour*",
+     "armor*",
+     "man-at-arms",
+     "soldier*"
+    ]
+   ],
+   "note": "ты = рыцарь в доспехе"
+  },
+  {
+   "ep": "ep02",
+   "text": "Меч ударил по шлему",
+   "subject": [
+    [
+     "helmet*",
+     "breastplate*",
+     "armour*",
+     "armor*",
+     "sword*",
+     "arrow*"
+    ]
+   ],
+   "not_core": [
+    "village*",
+    "peasant*",
+    "coin*",
+    "money"
+   ],
+   "note": "цена доспеха как деревня — фигура речи"
+  },
+  {
+   "ep": "ep02",
+   "text": "И всё равно ты лежишь лицом в грязи",
+   "subject": [
+    [
+     "knight*",
+     "armour*",
+     "armor*"
+    ],
+    [
+     "mud*",
+     "ground",
+     "dirt",
+     "earth",
+     "soil"
+    ]
+   ]
+  },
+  {
+   "ep": "ep02",
+   "text": "Кино врёт тебе сто лет.",
+   "reading": [
+    "figurative"
+   ],
+   "subject": [
+    [
+     "armour*",
+     "armor*",
+     "sword*",
+     "blade*",
+     "knight*",
+     "plate*",
+     "breastplate*"
+    ]
+   ],
+   "not_core": [
+    "butter",
+    "safe",
+    "safes",
+    "vault*",
+    "screwdriver*",
+    "bank",
+    "banks"
+   ],
+   "note": "нож в масло, ходячий сейф, отвёртка против банковской двери"
+  },
+  {
+   "ep": "ep02",
+   "text": "Главного убийцу рыцарей нельзя выковать.",
+   "judge": true,
+   "note": "убийца — земля (раскрывается в BLOCK 4); лучше грязь/земля или пустая витрина, не оружие в музее"
+  },
+  {
+   "ep": "ep02",
+   "text": "При этом он был под ногами у каждого из них.",
+   "subject": [
+    [
+     "mud*",
+     "ground",
+     "earth",
+     "soil",
+     "field*",
+     "dirt",
+     "clay"
+    ]
+   ],
+   "note": "он = земля (из BLOCK 4, уровень всего фильма)"
+  },
+  {
+   "ep": "ep02",
+   "text": "Ты наверняка слышал: рыцарь весил как холодильник",
+   "reading": [
+    "figurative",
+    "abstract",
+    "literal"
+   ],
+   "subject": [
+    [
+     "knight*",
+     "armour*",
+     "armor*"
+    ]
+   ],
+   "not_core": [
+    "refrigerator*",
+    "fridge*",
+    "turtle*",
+    "tortoise*"
+   ],
+   "note": "миф; кран (подъём на коня) допустим, холодильник и черепаха — нет"
+  },
+  {
+   "ep": "ep02",
+   "text": "Мечом почти не рубят.",
+   "subject": [
+    [
+     "sword*"
+    ]
+   ]
+  },
+  {
+   "ep": "ep02",
+   "text": "Его берут левой рукой за клинок",
+   "subject": [
+    [
+     "sword*",
+     "blade*"
+    ]
+   ],
+   "not_core": [
+    "spear*"
+   ],
+   "note": "его = меч; «как коротким копьём» — сравнение"
+  },
+  {
+   "ep": "ep02",
+   "text": "А если и это не выходит, меч переворачивают.",
+   "subject": [
+    [
+     "sword*",
+     "pommel*",
+     "hilt*",
+     "crossguard*",
+     "cross-guard*",
+     "guard"
+    ]
+   ],
+   "not_core": [
+    "hammer*"
+   ],
+   "note": "«как молотком» — сравнение"
+  },
+  {
+   "ep": "ep02",
+   "text": "Первым инструментом был полэкс.",
+   "subject": [
+    [
+     "poleaxe*",
+     "pollaxe*",
+     "pole-axe*",
+     "pole axe*",
+     "polearm*",
+     "halberd*"
+    ]
+   ]
+  },
+  {
+   "ep": "ep02",
+   "text": "Он не пытается разрезать сталь.",
+   "subject": [
+    [
+     "poleaxe*",
+     "pollaxe*",
+     "pole-axe*",
+     "pole axe*",
+     "polearm*",
+     "halberd*",
+     "hammer*"
+    ]
+   ],
+   "note": "он = полэкс"
+  },
+  {
+   "ep": "ep02",
+   "text": "Ключевое слово — падает.",
+   "subject": [
+    [
+     "fall*",
+     "fallen",
+     "knight*"
+    ]
+   ],
+   "not_core": [
+    "key",
+    "keys",
+    "head",
+    "heads",
+    "word",
+    "words"
+   ],
+   "note": "«ключевое слово», «держи в голове» — не ключ и не голова"
+  },
+  {
+   "ep": "ep02",
+   "text": "А главное — стрелы заставляли опустить голову.",
+   "subject": [
+    [
+     "helmet*",
+     "visor*"
+    ]
+   ]
+  },
+  {
+   "ep": "ep02",
+   "text": "И ещё они сжимали строй.",
+   "subject": [
+    [
+     "arrow*",
+     "archer*",
+     "volley*",
+     "soldier*",
+     "men-at-arms",
+     "knight*",
+     "army",
+     "troop*"
+    ]
+   ],
+   "not_core": [
+    "rain",
+    "raindrop*",
+    "umbrella*",
+    "storm*"
+   ],
+   "note": "«железный дождь» = стрелы"
+  },
+  {
+   "ep": "ep02",
+   "text": "Ловушка захлопнулась.",
+   "reading": [
+    "figurative",
+    "abstract"
+   ],
+   "not_core": [
+    "trap",
+    "traps",
+    "snare*",
+    "cage*"
+   ],
+   "note": "ловушка — фигура: не капкан"
+  },
+  {
+   "ep": "ep02",
+   "text": "Рыцарей убивала земля.",
+   "subject": [
+    [
+     "mud*",
+     "ground",
+     "earth",
+     "soil",
+     "field*",
+     "clay",
+     "dirt"
+    ]
+   ]
+  },
+  {
+   "ep": "ep02",
+   "text": "А теперь тебя толкнули.",
+   "subject": [
+    [
+     "knight*",
+     "armour*",
+     "armor*",
+     "soldier*",
+     "men-at-arms",
+     "man-at-arms"
+    ]
+   ]
+  },
+  {
+   "ep": "ep02",
+   "text": "И ты не встаёшь.",
+   "subject": [
+    [
+     "knight*",
+     "armour*",
+     "armor*",
+     "man-at-arms",
+     "soldier*"
+    ]
+   ]
+  },
+  {
+   "ep": "ep02",
+   "text": "А ждут тебя отдохнувшие, налегке, на твёрдой земле.",
+   "subject": [
+    [
+     "archer*",
+     "bowm*",
+     "longbow*",
+     "soldier*",
+     "infantry",
+     "men",
+     "troop*",
+     "english*",
+     "men-at-arms"
+    ]
+   ]
+  },
+  {
+   "ep": "ep02",
+   "text": "Он не хочет твоей смерти",
+   "subject": [
+    [
+     "knight*",
+     "man",
+     "men",
+     "soldier*",
+     "body",
+     "bodies",
+     "armour*",
+     "armor*"
+    ]
+   ],
+   "note": "он = упавший сверху человек"
+  },
+  {
+   "ep": "ep02",
+   "text": "Рондельный кинжал.",
+   "subject": [
+    [
+     "dagger*"
+    ]
+   ]
+  },
+  {
+   "ep": "ep02",
+   "text": "Резать им нельзя вообще.",
+   "subject": [
+    [
+     "dagger*",
+     "blade*"
+    ]
+   ],
+   "note": "им/он = рондельный кинжал"
+  },
+  {
+   "ep": "ep02",
+   "text": "Берёшь его обратным хватом, как ледоруб",
+   "subject": [
+    [
+     "dagger*"
+    ]
+   ],
+   "not_core": [
+    "ice axe*",
+    "ice-axe*",
+    "pickaxe*",
+    "ice pick*",
+    "mountaineer*",
+    "climb*"
+   ],
+   "note": "его = кинжал; ледоруб — сравнение"
+  },
+  {
+   "ep": "ep02",
+   "text": "Поэтому нормальная логика боя была не «убить»",
+   "reading": [
+    "figurative",
+    "abstract",
+    "literal"
+   ],
+   "not_core": [
+    "price tag*",
+    "price-tag*",
+    "label*",
+    "barcode*"
+   ],
+   "note": "доспех как ценник — фигура"
+  },
+  {
+   "ep": "ep02",
+   "text": "Вдумайся, что это означало по деньгам.",
+   "reading": [
+    "figurative",
+    "abstract"
+   ],
+   "not_core": [
+    "fire",
+    "flame*",
+    "burning",
+    "burn",
+    "banknote*",
+    "cash",
+    "bonfire*"
+   ],
+   "note": "сжечь состояние — фигура"
+  },
+  {
+   "ep": "ep02",
+   "text": "Современников возмутила не жестокость",
+   "not_core": [
+    "cattle",
+    "cow*",
+    "livestock",
+    "butcher*",
+    "slaughterhouse*",
+    "abattoir*"
+   ],
+   "note": "как забивают скот — сравнение"
+  },
+  {
+   "ep": "ep02",
+   "text": "Болезнь.",
+   "reading": [
+    "abstract"
+   ],
+   "subject": [
+    [
+     "sick*",
+     "ill",
+     "illness*",
+     "disease*",
+     "fever*",
+     "dying",
+     "camp*",
+     "bed*",
+     "dysentery*",
+     "plague*",
+     "tent*"
+    ]
+   ],
+   "not_core": [
+    "virus*",
+    "bacteri*",
+    "microscope*",
+    "3d"
+   ]
+  },
+  {
+   "ep": "ep02",
+   "text": "Всё это пока — хроники.",
+   "reading": [
+    "figurative",
+    "abstract",
+    "literal"
+   ],
+   "subject": [
+    [
+     "excavat*",
+     "archaeolog*",
+     "dig",
+     "digging",
+     "grave*",
+     "skeleton*",
+     "bone*",
+     "soil",
+     "trench*",
+     "earth",
+     "ground",
+     "chronicle*",
+     "manuscript*"
+    ]
+   ],
+   "not_core": [
+    "library*",
+    "librar*",
+    "bookshel*",
+    "bookcase*"
+   ],
+   "note": "аргумент не из библиотеки, а из земли = раскопки"
+  },
+  {
+   "ep": "ep02",
+   "text": "Что показали кости.",
+   "subject": [
+    [
+     "bone*",
+     "skull*",
+     "skeleton*",
+     "remains"
+    ]
+   ]
+  },
+  {
+   "ep": "ep02",
+   "text": "Меч почти не убивал",
+   "subject": [
+    [
+     "sword*",
+     "blade*"
+    ]
+   ],
+   "not_core": [
+    "crowbar*",
+    "lever",
+    "pry bar*"
+   ],
+   "note": "как ломом — сравнение"
+  },
+  {
+   "ep": "ep02",
+   "text": "Он защитился от того, что видно.",
+   "judge": true,
+   "note": "он = рыцарь; абстракция"
+  },
+  {
+   "ep": "ep02",
+   "text": "Самая страшная секунда наступает",
+   "subject": [
+    [
+     "knight*",
+     "man",
+     "men",
+     "body",
+     "bodies",
+     "armour*",
+     "armor*",
+     "soldier*"
+    ]
+   ],
+   "not_core": [
+    "clock*",
+    "stopwatch*",
+    "second hand",
+    "timer*"
+   ],
+   "note": "секунда — не часы"
+  },
+  {
+   "ep": "ep02",
+   "text": "Проверяй, что тебе показывают.",
+   "judge": true
+  },
+  {
+   "ep": "ep94_hook",
+   "text": "Вот кинжал.",
+   "subject": [
+    [
+     "dagger*"
+    ]
+   ]
+  },
+  {
+   "ep": "ep94_hook",
+   "text": "Он весил меньше, чем ты думаешь",
+   "subject": [
+    [
+     "dagger*"
+    ]
+   ],
+   "note": "он = кинжал"
+  },
+  {
+   "ep": "ep94_hook",
+   "text": "Но именно он решал исход поединка",
+   "subject": [
+    [
+     "dagger*"
+    ]
+   ],
+   "note": "он = кинжал"
+  },
+  {
+   "ep": "ep94_hook",
+   "text": "Клинок влетает в узкую щель",
+   "subject": [
+    [
+     "dagger*",
+     "blade*",
+     "point"
+    ],
+    [
+     "armour*",
+     "armor*",
+     "plate*",
+     "breastplate*"
+    ]
+   ]
+  },
+  {
+   "ep": "ep94_hook",
+   "text": "Рыцарь падает в грязь",
+   "subject": [
+    [
+     "knight*",
+     "armour*",
+     "armor*"
+    ],
+    [
+     "mud*",
+     "fall*",
+     "fallen",
+     "ground"
+    ]
+   ]
+  },
+  {
+   "ep": "ep94_hook",
+   "text": "Конница мчится через поле",
+   "subject": [
+    [
+     "cavalry",
+     "horsem*",
+     "horse*",
+     "knights",
+     "mounted",
+     "rider*"
+    ]
+   ]
+  },
+  {
+   "ep": "ep94_hook",
+   "text": "Он не поднимается",
+   "reading": [
+    "figurative",
+    "literal"
+   ],
+   "subject": [
+    [
+     "knight*",
+     "armour*",
+     "armor*",
+     "man"
+    ]
+   ],
+   "not_core": [
+    "trap",
+    "traps",
+    "snare*",
+    "bear trap*",
+    "leghold*",
+    "jaws"
+   ],
+   "note": "как капкан — сравнение"
+  },
+  {
+   "ep": "ep94_hook",
+   "text": "Стрела скользит по нагруднику",
+   "subject": [
+    [
+     "arrow*"
+    ],
+    [
+     "breastplate*",
+     "armour*",
+     "armor*",
+     "cuirass*",
+     "plate*"
+    ]
+   ]
+  },
+  {
+   "ep": "ep94_hook",
+   "text": "История решается не мечом",
+   "reading": [
+    "figurative",
+    "abstract"
+   ],
+   "subject": [
+    [
+     "knight*",
+     "man",
+     "warrior*",
+     "soldier*",
+     "armour*",
+     "armor*"
+    ]
+   ],
+   "not_query": [],
+   "note": "главное — встать с земли, не меч"
+  },
+  {
+   "ep": "psych",
+   "text": "Ты открыл ноутбук четыре часа назад.",
+   "subject": [
+    [
+     "laptop*",
+     "screen*",
+     "computer*",
+     "document*"
+    ],
+    [
+     "person",
+     "man",
+     "woman",
+     "someone",
+     "hand*",
+     "face*",
+     "student*",
+     "young",
+     "people"
+    ]
+   ],
+   "note": "не просто ноутбук — человек перед пустым файлом"
+  },
+  {
+   "ep": "psych",
+   "text": "И самое неприятное — ты всё это время не отдыхал.",
+   "subject": [
+    [
+     "person",
+     "man",
+     "woman",
+     "someone",
+     "student*",
+     "young",
+     "people"
+    ]
+   ]
+  },
+  {
+   "ep": "psych",
+   "text": "Ленивому человеку легко.",
+   "subject": [
+    [
+     "person",
+     "man",
+     "woman",
+     "someone",
+     "people",
+     "friend*",
+     "young"
+    ]
+   ],
+   "note": "он = ленивый человек"
+  },
+  {
+   "ep": "psych",
+   "text": "А тебе тяжело.",
+   "reading": [
+    "figurative",
+    "abstract"
+   ],
+   "not_core": [
+    "money",
+    "cash",
+    "coin*",
+    "wallet*",
+    "banknote*",
+    "bill",
+    "bills",
+    "credit card*"
+   ],
+   "note": "платишь за час — фигура"
+  },
+  {
+   "ep": "psych",
+   "text": "Твоя голова научилась не подходить",
+   "reading": [
+    "figurative",
+    "abstract"
+   ],
+   "not_core": [
+    "skull*",
+    "brain*",
+    "head",
+    "heads",
+    "x-ray*",
+    "mri"
+   ],
+   "note": "голова = психика"
+  },
+  {
+   "ep": "psych",
+   "text": "И дальше срабатывает то же, что срабатывает у человека, который обжёгся о плиту.",
+   "subject": [
+    [
+     "hand*"
+    ],
+    [
+     "stove*",
+     "hob*",
+     "burner*",
+     "cooktop*",
+     "kitchen*",
+     "pan",
+     "hot"
+    ]
+   ],
+   "note": "сравнение, которое И ЕСТЬ кадр"
+  },
+  {
+   "ep": "psych",
+   "text": "Только плита видна",
+   "subject": [
+    [
+     "phone*",
+     "smartphone*",
+     "scroll*",
+     "feed",
+     "screen*"
+    ]
+   ]
+  },
+  {
+   "ep": "psych",
+   "text": "Круг замкнулся.",
+   "reading": [
+    "figurative",
+    "abstract"
+   ],
+   "not_core": [
+    "circle*",
+    "ring",
+    "rings",
+    "loop*"
+   ]
+  },
+  {
+   "ep": "neuro",
+   "text": "Без пяти полночь.",
+   "subject": [
+    [
+     "phone*",
+     "smartphone*",
+     "screen*"
+    ],
+    [
+     "night*",
+     "dark*",
+     "bed*",
+     "late",
+     "midnight"
+    ]
+   ]
+  },
+  {
+   "ep": "neuro",
+   "text": "Дофамин — это не гормон удовольствия.",
+   "reading": [
+    "abstract",
+    "figurative"
+   ],
+   "not_core": [
+    "toy*",
+    "plastic*",
+    "balls",
+    "ball-and-stick*",
+    "lego*"
+   ],
+   "judge": true,
+   "note": "не игрушечная модель; ожидание — человек/ситуация"
+  },
+  {
+   "ep": "neuro",
+   "text": "Твой мозг платит тебе",
+   "reading": [
+    "figurative",
+    "abstract"
+   ],
+   "not_core": [
+    "money",
+    "cash",
+    "coin*",
+    "wallet*",
+    "banknote*",
+    "payment*",
+    "paycheck*",
+    "salary"
+   ]
+  },
+  {
+   "ep": "neuro",
+   "text": "И лента обещает лучше",
+   "subject": [
+    [
+     "phone*",
+     "smartphone*",
+     "feed",
+     "screen*",
+     "social media"
+    ]
+   ]
+  },
+  {
+   "ep": "neuro",
+   "text": "Каждый раз, когда она нажимала на рычаг",
+   "subject": [
+    [
+     "rat",
+     "rats",
+     "rodent*"
+    ],
+    [
+     "lever*"
+    ]
+   ],
+   "note": "она = крыса"
+  },
+  {
+   "ep": "neuro",
+   "text": "Она нажимала тысячи раз в час",
+   "subject": [
+    [
+     "rat",
+     "rats",
+     "rodent*"
+    ]
+   ],
+   "note": "она = крыса"
+  },
+  {
+   "ep": "neuro",
+   "text": "Ожидание — это двигатель.",
+   "reading": [
+    "figurative",
+    "abstract"
+   ],
+   "not_core": [
+    "engine*",
+    "motor*",
+    "piston*",
+    "car",
+    "cars"
+   ]
+  },
+  {
+   "ep": "neuro",
+   "text": "Список дел при этом растёт",
+   "reading": [
+    "figurative"
+   ],
+   "subject": [
+    [
+     "list*",
+     "to-do",
+     "todo",
+     "notes",
+     "sticky",
+     "tasks",
+     "task",
+     "notebook*",
+     "paper*",
+     "desk*",
+     "planner*"
+    ]
+   ],
+   "not_core": [
+    "snow*"
+   ]
+  },
+  {
+   "ep": "neuro",
+   "text": "Каждое непрочитанное письмо",
+   "reading": [
+    "figurative"
+   ],
+   "subject": [
+    [
+     "email*",
+     "e-mail*",
+     "inbox*",
+     "notification*",
+     "unread",
+     "mail",
+     "messages",
+     "screen*",
+     "laptop*",
+     "phone*"
+    ]
+   ],
+   "not_core": [
+    "stone*",
+    "rock*",
+    "boulder*",
+    "pebble*"
+   ]
+  },
+  {
+   "ep": "neuro",
+   "text": "Сделай задачу настолько маленькой",
+   "subject": [
+    [
+     "laptop*",
+     "keyboard*",
+     "typing",
+     "type",
+     "document*",
+     "screen*",
+     "computer*",
+     "sentence",
+     "writing",
+     "write",
+     "notebook*"
+    ]
+   ]
+  },
+  {
+   "ep": "neuro",
+   "text": "Он не перестанет звать",
+   "subject": [
+    [
+     "phone*",
+     "smartphone*",
+     "notification*",
+     "screen*"
+    ]
+   ],
+   "note": "он = телефон"
+  },
+  {
+   "ep": "neuro",
+   "text": "И вот первый абзац готов.",
+   "not_core": [
+    "drop",
+    "drops",
+    "droplet*",
+    "water*",
+    "liquid*"
+   ],
+   "note": "капля ожидания — фигура"
+  },
+  {
+   "ep": "deepsea",
+   "text": "Четыре километра под поверхностью.",
+   "reading": [
+    "figurative",
+    "abstract",
+    "literal"
+   ],
+   "subject": [
+    [
+     "deep*",
+     "abyss*",
+     "ocean*",
+     "sea",
+     "underwater",
+     "darkness",
+     "dark",
+     "submersible*"
+    ]
+   ],
+   "not_core": [
+    "sunrise*",
+    "dawn*",
+    "morning*",
+    "sun"
+   ]
+  },
+  {
+   "ep": "deepsea",
+   "text": "Давление такое",
+   "reading": [
+    "figurative"
+   ],
+   "not_core": [
+    "elephant*"
+   ],
+   "note": "слон — сравнение"
+  },
+  {
+   "ep": "deepsea",
+   "text": "И всё-таки здесь кипит жизнь",
+   "subject": [
+    [
+     "biolumin*",
+     "glow*",
+     "light*",
+     "jellyfish*",
+     "creature*",
+     "animal*",
+     "fish*",
+     "organism*"
+    ]
+   ],
+   "not_core": [
+    "boil*",
+    "bubbl*",
+    "kettle*",
+    "pot"
+   ]
+  },
+  {
+   "ep": "deepsea",
+   "text": "Удильщик носит перед пастью",
+   "subject": [
+    [
+     "anglerfish*",
+     "angler fish*",
+     "angler"
+    ]
+   ],
+   "not_core": [
+    "lantern*",
+    "flashlight*",
+    "torch*",
+    "lamp*"
+   ],
+   "note": "фонарь = светящаяся приманка"
+  },
+  {
+   "ep": "deepsea",
+   "text": "Он висит на гибком выросте",
+   "subject": [
+    [
+     "lure*",
+     "esca",
+     "anglerfish*",
+     "angler",
+     "glowing",
+     "biolumin*"
+    ]
+   ],
+   "not_core": [
+    "lantern*",
+    "flashlight*",
+    "torch*",
+    "lamp*"
+   ],
+   "note": "он = светящаяся приманка удильщика"
+  },
+  {
+   "ep": "deepsea",
+   "text": "Самка удильщика",
+   "subject": [
+    [
+     "anglerfish*",
+     "angler fish*",
+     "angler"
+    ]
+   ]
+  },
+  {
+   "ep": "deepsea",
+   "text": "Гигантского кальмара веками",
+   "subject": [
+    [
+     "squid*",
+     "kraken*"
+    ]
+   ]
+  },
+  {
+   "ep": "deepsea",
+   "text": "Он охотится в полной темноте",
+   "subject": [
+    [
+     "squid*"
+    ]
+   ],
+   "not_core": [
+    "plate",
+    "plates",
+    "dish*",
+    "dinner*"
+   ],
+   "note": "он = гигантский кальмар; «с тарелку» — сравнение"
+  },
+  {
+   "ep": "deepsea",
+   "text": "Для нас это монстр из сказки.",
+   "reading": [
+    "figurative",
+    "abstract"
+   ],
+   "subject": [
+    [
+     "squid*",
+     "kraken*",
+     "creature*",
+     "monster*",
+     "deep*"
+    ]
+   ],
+   "not_core": [
+    "book*",
+    "fairy*",
+    "storybook*"
+   ]
+  },
+  {
+   "ep": "crash1929",
+   "text": "Двадцать четвёртое октября",
+   "subject": [
+    [
+     "wall street",
+     "stock exchange",
+     "exchange",
+     "trader*",
+     "broker*",
+     "stock market",
+     "ticker*",
+     "new york",
+     "1929",
+     "crowd*"
+    ]
+   ]
+  },
+  {
+   "ep": "crash1929",
+   "text": "К обеду рынок падал так быстро",
+   "subject": [
+    [
+     "ticker*",
+     "tape",
+     "telegraph*",
+     "stock*",
+     "trader*",
+     "broker*"
+    ]
+   ]
+  },
+  {
+   "ep": "crash1929",
+   "text": "Бумага, которая вчера стоила состояние",
+   "reading": [
+    "figurative"
+   ],
+   "subject": [
+    [
+     "certificate*",
+     "stock*",
+     "share*",
+     "paper*",
+     "bond*"
+    ]
+   ],
+   "not_core": [
+    "fire",
+    "flame*",
+    "fireplace*",
+    "kindling",
+    "burning",
+    "bonfire*",
+    "stove*"
+   ]
+  },
+  {
+   "ep": "crash1929",
+   "text": "Чистильщик обуви",
+   "subject": [
+    [
+     "shoeshine*",
+     "shoe shine*",
+     "shoe-shine*",
+     "bootblack*",
+     "shoe*"
+    ]
+   ]
+  },
+  {
+   "ep": "crash1929",
+   "text": "Это был воздушный шар",
+   "reading": [
+    "figurative"
+   ],
+   "not_core": [
+    "balloon*",
+    "hot air*",
+    "hot-air*"
+   ]
+  },
+  {
+   "ep": "crash1929",
+   "text": "Быки ещё вчера правили рынком.",
+   "reading": [
+    "figurative"
+   ],
+   "not_core": [
+    "bull",
+    "bulls",
+    "bear",
+    "bears",
+    "charging bull*",
+    "animal*"
+   ],
+   "note": "быки/медведи — жаргон биржи"
+  },
+  {
+   "ep": "crash1929",
+   "text": "Толпа собралась у здания биржи",
+   "subject": [
+    [
+     "crowd*",
+     "people"
+    ]
+   ]
+  },
+  {
+   "ep": "crash1929",
+   "text": "Люди выстраивались в очереди у банков",
+   "subject": [
+    [
+     "queue*",
+     "line",
+     "lines",
+     "crowd*",
+     "people"
+    ],
+    [
+     "bank*"
+    ]
+   ]
+  },
+  {
+   "ep": "crash1929",
+   "text": "Он закрылся на следующий день",
+   "subject": [
+    [
+     "bank*"
+    ]
+   ],
+   "note": "он = банк"
+  },
+  {
+   "ep": "gutenberg",
+   "text": "Майнц, тысяча четыреста пятидесятый год.",
+   "subject": [
+    [
+     "workshop*",
+     "mainz",
+     "town*",
+     "street*",
+     "room",
+     "printing*",
+     "press*",
+     "house*"
+    ]
+   ],
+   "reading": [
+    "literal"
+   ],
+   "note": "мастерская печатника"
+  },
+  {
+   "ep": "gutenberg",
+   "text": "Хозяин мастерской — Иоганн Гутенберг.",
+   "subject": [
+    [
+     "gutenberg",
+     "printer*",
+     "man",
+     "portrait*",
+     "craftsman*"
+    ]
+   ],
+   "reading": [
+    "literal"
+   ],
+   "note": "портрет Гутенберга"
+  },
+  {
+   "ep": "gutenberg",
+   "text": "Он ещё не знает, что его станок",
+   "subject": [
+    [
+     "press*",
+     "printing*"
+    ]
+   ],
+   "not_core": [
+    "gunpowder*",
+    "barrel*",
+    "keg*",
+    "explosion*",
+    "bomb*"
+   ],
+   "reading": [
+    "figurative"
+   ],
+   "note": "он = Гутенберг; пороховая бочка — образ"
+  },
+  {
+   "ep": "gutenberg",
+   "text": "Книга тогда стоила как дом.",
+   "subject": [
+    [
+     "book*",
+     "manuscript*",
+     "codex*",
+     "bible*"
+    ]
+   ],
+   "not_core": [
+    "house*",
+    "home*",
+    "building*"
+   ],
+   "reading": [
+    "figurative",
+    "abstract"
+   ],
+   "note": "как дом — сравнение"
+  },
+  {
+   "ep": "gutenberg",
+   "text": "Монах переписывал одну Библию",
+   "subject": [
+    [
+     "monk*",
+     "scribe*"
+    ]
+   ],
+   "reading": [
+    "literal"
+   ],
+   "note": "писец за работой"
+  },
+  {
+   "ep": "gutenberg",
+   "text": "Гутенберг отливает буквы из металла",
+   "subject": [
+    [
+     "type",
+     "letter*",
+     "metal*",
+     "cast*",
+     "mould*",
+     "mold*"
+    ]
+   ],
+   "reading": [
+    "literal"
+   ],
+   "note": "подвижные литеры"
+  },
+  {
+   "ep": "gutenberg",
+   "text": "Их можно собирать в строки",
+   "subject": [
+    [
+     "type",
+     "letter*",
+     "composing*",
+     "typeset*",
+     "line*"
+    ]
+   ],
+   "reading": [
+    "literal"
+   ],
+   "note": "их = литеры"
+  },
+  {
+   "ep": "gutenberg",
+   "text": "Станок сжимает бумагу, как тиски.",
+   "subject": [
+    [
+     "press*",
+     "printing*",
+     "paper*",
+     "sheet*"
+    ]
+   ],
+   "not_core": [
+    "vise*",
+    "vice",
+    "clamp*"
+   ],
+   "reading": [
+    "figurative",
+    "literal"
+   ],
+   "note": "тиски — сравнение"
+  },
+  {
+   "ep": "gutenberg",
+   "text": "И за день выходит столько страниц",
+   "subject": [
+    [
+     "page*",
+     "sheet*",
+     "printed*",
+     "print*",
+     "stack*",
+     "paper*"
+    ]
+   ],
+   "note": "страницы из-под пресса"
+  },
+  {
+   "ep": "gutenberg",
+   "text": "Знание вырвалось из монастырских стен.",
+   "subject": [
+    [
+     "book*",
+     "pamphlet*",
+     "page*",
+     "reader*",
+     "reading",
+     "people",
+     "printed*"
+    ]
+   ],
+   "not_core": [
+    "cage*",
+    "prison*",
+    "chain*",
+    "bird*",
+    "jail*"
+   ],
+   "reading": [
+    "figurative",
+    "abstract"
+   ],
+   "note": "книги выходят к людям"
+  },
+  {
+   "ep": "gutenberg",
+   "text": "Через пятьдесят лет в Европе напечатали",
+   "subject": [
+    [
+     "book*",
+     "librar*",
+     "shel*",
+     "volume*",
+     "incunabul*"
+    ]
+   ],
+   "reading": [
+    "abstract",
+    "literal"
+   ],
+   "note": "много книг"
+  },
+  {
+   "ep": "gutenberg",
+   "text": "Мир изменился не от меча, а от буквы.",
+   "subject": [
+    [
+     "type",
+     "letter*",
+     "page*",
+     "book*",
+     "print*"
+    ]
+   ],
+   "not_core": [
+    "sword*",
+    "battle*",
+    "knight*"
+   ],
+   "reading": [
+    "figurative",
+    "abstract"
+   ],
+   "note": "меч — противопоставление, показать литеру/страницу"
+  },
+  {
+   "ep": "gutenberg",
+   "text": "Возьми в руки любую книгу у себя дома",
+   "subject": [
+    [
+     "book*"
+    ],
+    [
+     "hand*",
+     "person",
+     "reader*",
+     "someone"
+    ]
+   ],
+   "reading": [
+    "literal"
+   ],
+   "note": "фраза просит взять книгу — её и показать"
+  },
+  {
+   "ep": "immunity",
+   "text": "Прямо сейчас в тебе идёт война.",
+   "subject": [
+    [
+     "cell*",
+     "blood",
+     "virus*",
+     "bacteri*",
+     "immune",
+     "microscop*",
+     "body"
+    ]
+   ],
+   "not_core": [
+    "soldier*",
+    "war",
+    "battle*",
+    "tank*",
+    "army",
+    "weapon*"
+   ],
+   "reading": [
+    "figurative"
+   ],
+   "note": "война — образ иммунитета"
+  },
+  {
+   "ep": "immunity",
+   "text": "Ты её не чувствуешь",
+   "not_core": [
+    "soldier*",
+    "battle*",
+    "tank*",
+    "army"
+   ],
+   "reading": [
+    "figurative",
+    "abstract",
+    "literal"
+   ],
+   "note": "её = война (иммунный ответ)"
+  },
+  {
+   "ep": "immunity",
+   "text": "Вирус проникает в клетку, как вор в дом.",
+   "subject": [
+    [
+     "virus*",
+     "cell*"
+    ]
+   ],
+   "not_core": [
+    "thief*",
+    "burglar*",
+    "robber*",
+    "house*",
+    "home*"
+   ],
+   "reading": [
+    "figurative",
+    "literal"
+   ],
+   "note": "вор — сравнение"
+  },
+  {
+   "ep": "immunity",
+   "text": "Он заставляет её делать свои копии.",
+   "subject": [
+    [
+     "virus*",
+     "cell*"
+    ]
+   ],
+   "reading": [
+    "literal",
+    "abstract"
+   ],
+   "note": "он = вирус, её = клетка"
+  },
+  {
+   "ep": "immunity",
+   "text": "Первыми прибегают макрофаги",
+   "subject": [
+    [
+     "macrophage*",
+     "cell*",
+     "white blood"
+    ]
+   ],
+   "reading": [
+    "literal"
+   ],
+   "note": "макрофаги"
+  },
+  {
+   "ep": "immunity",
+   "text": "Макрофаг размером с пылинку",
+   "subject": [
+    [
+     "macrophage*",
+     "cell*",
+     "bacteri*"
+    ]
+   ],
+   "not_core": [
+    "dust*",
+    "speck*"
+   ],
+   "reading": [
+    "figurative",
+    "literal"
+   ],
+   "note": "пылинка — сравнение"
+  },
+  {
+   "ep": "immunity",
+   "text": "Потом включаются лимфоциты.",
+   "subject": [
+    [
+     "lymphocyte*",
+     "t cell*",
+     "t-cell*",
+     "b cell*",
+     "cell*"
+    ]
+   ],
+   "reading": [
+    "literal"
+   ],
+   "note": "лимфоциты"
+  },
+  {
+   "ep": "immunity",
+   "text": "Они запоминают врага в лицо.",
+   "subject": [
+    [
+     "lymphocyte*",
+     "cell*",
+     "antibod*"
+    ]
+   ],
+   "not_core": [
+    "face*",
+    "portrait*",
+    "mugshot*"
+   ],
+   "reading": [
+    "figurative"
+   ],
+   "note": "они = лимфоциты; лицо — образ"
+  },
+  {
+   "ep": "immunity",
+   "text": "Вот почему ветрянкой болеют один раз.",
+   "subject": [
+    [
+     "chickenpox*",
+     "chicken pox",
+     "varicella*",
+     "rash*",
+     "spots",
+     "child*",
+     "kid*"
+    ]
+   ],
+   "reading": [
+    "literal",
+    "abstract"
+   ],
+   "note": "ветрянка"
+  },
+  {
+   "ep": "immunity",
+   "text": "Прививка — это учебная тревога",
+   "subject": [
+    [
+     "vaccin*",
+     "syringe*",
+     "injection*",
+     "shot",
+     "needle*"
+    ]
+   ],
+   "not_core": [
+    "siren*",
+    "alarm*",
+    "soldier*",
+    "drill",
+    "army"
+   ],
+   "reading": [
+    "figurative"
+   ],
+   "note": "учебная тревога — образ"
+  },
+  {
+   "ep": "immunity",
+   "text": "Вспомни, как в детстве тебе делали укол",
+   "subject": [
+    [
+     "injection*",
+     "syringe*",
+     "vaccin*",
+     "needle*",
+     "shot"
+    ],
+    [
+     "child*",
+     "kid*",
+     "shoulder*",
+     "arm",
+     "arms"
+    ]
+   ],
+   "reading": [
+    "literal"
+   ],
+   "note": "фраза просит вспомнить укол — его и показать"
+  }
+ ],
+ "never": {
+  "ep02": {
+   "far": [
+    "modern*",
+    "sport*",
+    "fencing*",
+    "cosplay*",
+    "fantasy*",
+    "japan*",
+    "samurai*",
+    "chin*",
+    "asian",
+    "car",
+    "cars",
+    "smartphone*",
+    "phone*",
+    "reenact*",
+    "festival*",
+    "spectator*"
+   ],
+   "own": [
+    "excavat*",
+    "archaeolog*",
+    "skeleton*",
+    "bone*",
+    "skull*",
+    "manuscript*",
+    "museum*",
+    "tomb*",
+    "effig*"
+   ]
+  },
+  "psych": {
+   "far": [
+    "medieval*",
+    "knight*",
+    "armour*",
+    "armor*",
+    "fantasy*",
+    "cartoon*",
+    "anime*",
+    "historical*",
+    "castle*",
+    "costume*"
+   ],
+   "own": [
+    "laptop*",
+    "phone*",
+    "smartphone*",
+    "desk*",
+    "office*",
+    "stove*"
+   ]
+  },
+  "neuro": {
+   "far": [
+    "cartoon*",
+    "toy*",
+    "fantasy*",
+    "medieval*",
+    "anime*",
+    "knight*",
+    "horror*",
+    "science fiction",
+    "sci-fi",
+    "robot*"
+   ],
+   "own": [
+    "phone*",
+    "smartphone*",
+    "rat",
+    "rats",
+    "laboratory",
+    "lab",
+    "brain*",
+    "laptop*"
+   ]
+  },
+  "deepsea": {
+   "far": [
+    "beach*",
+    "tourist*",
+    "aquarium*",
+    "cartoon*",
+    "sushi*",
+    "fishing boat*",
+    "fishmonger*",
+    "food*",
+    "restaurant*",
+    "toy*"
+   ],
+   "own": [
+    "squid*",
+    "anglerfish*",
+    "submersible*",
+    "jellyfish*",
+    "kraken*",
+    "engraving*"
+   ]
+  },
+  "crash1929": {
+   "far": [
+    "modern*",
+    "smartphone*",
+    "computer*",
+    "screen*",
+    "bitcoin*",
+    "crypto*",
+    "charging bull*",
+    "led",
+    "digital*",
+    "laptop*"
+   ],
+   "own": [
+    "crowd*",
+    "bank*",
+    "ticker*",
+    "stock exchange",
+    "trader*",
+    "broker*",
+    "certificate*"
+   ]
+  },
+  "gutenberg": {
+   "far": [
+    "modern*",
+    "computer*",
+    "laser*",
+    "office printer*",
+    "fantasy*",
+    "anime*",
+    "cartoon*",
+    "smartphone*"
+   ],
+   "own": [
+    "book*",
+    "manuscript*",
+    "monk*",
+    "press*",
+    "type",
+    "letter*",
+    "workshop*",
+    "bible*"
+   ]
+  },
+  "immunity": {
+   "far": [
+    "medieval*",
+    "knight*",
+    "fantasy*",
+    "zombie*",
+    "horror*",
+    "cartoon*",
+    "anime*"
+   ],
+   "own": [
+    "cell*",
+    "virus*",
+    "vaccin*",
+    "syringe*",
+    "microscop*",
+    "blood",
+    "child*",
+    "doctor*"
+   ]
+  }
+ },
+ "_split_note": "Разбиение поменяно ОДИН раз, до всех прогонов, кроме пробного на ep94_hook: пробный запуск нового кода был сделан на ep94_hook, а он стоял в проверке. Увиденный эпизод переведён в разработку, в проверку — ни разу не запускавшийся psych. Промпт правится только по dev.",
+ "_split2_note": "Вторая проверка — две новые ниши, сценарии и ожидания записаны 26.09 ДО любого прогона. Заведена потому, что первая проверка перестала быть независимой: по её промахам («будто на ладонь поставили слона», «глаз размером с тарелку», кольцо-наложение) поправлен вопрос оркестратора."
+}

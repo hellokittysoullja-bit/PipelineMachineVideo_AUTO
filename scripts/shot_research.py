@@ -34,7 +34,7 @@ import json
 import os
 import re
 
-PROMPT_VERSION = 2
+PROMPT_VERSION = 3
 # Почему нужен второй круг: всё найденное отклонено, или лучший кадр —
 # ближайшая замена без главного фразы. Модели это разные задачи: во втором
 # случае найденное годится, не хватает именно главного.
@@ -62,10 +62,10 @@ MAX_TOKENS = 2000
 EST_PROMPT_TOKENS = 900
 REASONING = False
 
-PROMPT = """You find pictures for a documentary video. Setting: {setting}.
-Narration line: «{phrase}»
+PROMPT = """You find pictures for a documentary video. Setting: {setting}.{film}
+Narration line: «{phrase}»{meaning}
 What the viewer must see: {focus}
-Required in the picture: {musts}
+Required in the picture: {musts}{avoid}
 
 These searches were tried: {tried}
 {verdict}
@@ -110,18 +110,42 @@ def rejections_from_log(log, index, limit=MAX_REJECTIONS):
     return out
 
 
-def signature(model, setting, phrase, spec, tried, trigger="failed"):
+def signature(model, setting, phrase, spec, tried, trigger="failed", bible=None):
     focus = (spec or {}).get("focus") or ""
     payload = json.dumps([PROMPT_VERSION, PROMPT, VERDICTS.get(trigger, ""), model, setting or "",
-                          phrase or "", focus, list(tried)], ensure_ascii=False)
+                          phrase or "", focus, list(tried), list(understanding(spec, bible))],
+                         ensure_ascii=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
-def render_prompt(phrase, spec, setting, tried, rejections, trigger="failed"):
+def understanding(spec, bible=None):
+    """Понимание оркестратора (stock_query_planner v5) строками для вопроса:
+    фильм и его облик, смысл фразы с разрешёнными ссылками, образ метафоры,
+    которого искать нельзя, ловушки. Раньше второй круг толковал русскую
+    фразу заново — и на фигуральной фразе мог искать её образ («капкан»)."""
+    spec = spec or {}
+    film = ""
+    if bible and bible.get("topic"):
+        film = f"\nFilm: {bible['topic']}" + (f" Look: {bible['look']}" if bible.get("look") else "")
+    meaning = f"\nMeaning in this film: {spec['meaning']}" if spec.get("meaning") else ""
+    avoid = []
+    if spec.get("reading") in ("figurative", "abstract"):
+        avoid.append(f"the line is {spec['reading']}: show its meaning, not the image in its words")
+    if spec.get("vehicle"):
+        avoid.append("never search for: " + ", ".join(spec["vehicle"]))
+    if spec.get("traps"):
+        avoid.append("wrong pictures that look related: " + "; ".join(spec["traps"]))
+    if bible and bible.get("never"):
+        avoid.append("never in this film: " + "; ".join(bible["never"]))
+    return film, meaning, "".join(f"\n{a[0].upper()}{a[1:]}" for a in avoid)
+
+
+def render_prompt(phrase, spec, setting, tried, rejections, trigger="failed", bible=None):
     musts = [c["text"] for c in (spec or {}).get("claims") or [] if c.get("tier") == "must"]
+    film, meaning, avoid = understanding(spec, bible)
     return PROMPT.format(
-        setting=setting or "not specified", phrase=phrase or "—",
-        focus=(spec or {}).get("focus") or "—", musts="; ".join(musts) or "—",
+        setting=setting or "not specified", film=film, phrase=phrase or "—", meaning=meaning,
+        focus=(spec or {}).get("focus") or "—", musts="; ".join(musts) or "—", avoid=avoid,
         tried="; ".join(tried) or "—", verdict=VERDICTS.get(trigger, VERDICTS["failed"]),
         rejections="\n".join(f"- {r}" for r in rejections) or "- (no picture passed the check)",
         n=MAX_NEW_QUERIES)
@@ -130,9 +154,10 @@ def render_prompt(phrase, spec, setting, tried, rejections, trigger="failed"):
 _JSON_RE = re.compile(r"\{.*\}", re.S)
 
 
-def parse(raw, tried=()):
+def parse(raw, tried=(), vehicle=()):
     """Новые запросы из ответа модели: [{"q", "type"}], уже очищенные тем
-    же правилом, что у планировщика, без опробованных и повторов."""
+    же правилом, что у планировщика, без опробованных и повторов и без
+    образа метафоры (то же правило, что у заданий оркестратора)."""
     import stock_query_planner as sqp
     m = _JSON_RE.search(raw or "")
     if not m:
@@ -147,7 +172,7 @@ def parse(raw, tried=()):
         if not isinstance(x, dict) or not isinstance(x.get("q"), str):
             continue
         q = sqp.clean_query(x["q"])
-        if not q or q in seen or q in tried_norm:
+        if not q or q in seen or q in tried_norm or sqp.mentions(q, vehicle):
             continue
         seen.add(q)
         kind = str(x.get("type") or "").strip().lower()
@@ -182,20 +207,20 @@ def save(video_dir, data):
 
 
 def new_queries(video_dir, gateway, model, *, phrase, spec, setting, tried, rejections,
-                trigger="failed"):
+                trigger="failed", bible=None):
     """(запросы, откуда): с диска, если эта фраза с тем же поиском уже
     исследовалась, иначе — вопрос модели и запись на диск. Пустой ответ на
     диск не пишется: следующий прогон спросит снова."""
     key = unit_key(phrase)
-    sig = signature(model, setting, phrase, spec, tried, trigger)
+    sig = signature(model, setting, phrase, spec, tried, trigger, bible)
     data = load(video_dir)
     entry = data.get(key)
     if isinstance(entry, dict) and entry.get("sig") == sig and entry.get("queries"):
         return entry["queries"], "disk"
-    prompt = render_prompt(phrase, spec, setting, tried, rejections, trigger)
+    prompt = render_prompt(phrase, spec, setting, tried, rejections, trigger, bible)
     raw, _usage, _price = gateway.chat(model, [{"type": "text", "text": prompt}], MAX_TOKENS,
                                        EST_PROMPT_TOKENS, reasoning=REASONING)
-    items = parse(raw, tried)
+    items = parse(raw, tried, (spec or {}).get("vehicle") or ())
     if items:
         data = load(video_dir)
         data[key] = {"sig": sig, "model": model, "phrase": phrase, "queries": items,

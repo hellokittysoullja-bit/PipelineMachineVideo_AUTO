@@ -59,7 +59,7 @@ class PaymentRequired(GatewayError):
 
 
 class GatewayUnavailable(GatewayError):
-    """Шлюз не отвечает после нескольких пауз подряд — выключен до конца прогона."""
+    """Шлюз не отвечает после нескольких пауз подряд — спит до пробного вызова."""
 
 
 # Шлюз лежит — вызовы не делаются GATEWAY_COOLDOWN_SEC после
@@ -77,9 +77,17 @@ GATEWAY_COOLDOWN_SEC = 60.0
 # двух вызывающих, остальные (планировщик, второй круг, паспорт мира) не
 # имели и её. Теперь вызов сам пережидает паузу, после исчерпанных повторов
 # переспрашивает один раз, а после GATEWAY_MAX_PAUSES пауз подряд без
-# единого ответа шлюз выключается до конца прогона: лежащий сервис не
-# должен стоить минуту ожидания каждому следующему вызову.
+# единого ответа шлюз засыпает: лежащий сервис не должен стоить минуту
+# ожидания каждому следующему вызову.
 GATEWAY_MAX_PAUSES = 3
+# Уснувший шлюз через GATEWAY_REVIVE_SEC пропускает ОДИН пробный вызов:
+# ответил — работа идёт дальше, нет — спит ещё столько же. Раньше он
+# выключался до конца прогона, и сбой провайдера на три минуты посреди
+# платной зоны лишал судьи все оставшиеся кадры хука (живой случай 26.09:
+# Qwen отвечал 503 три паузы подряд на втором слоте замера, дальше слоты
+# шли без судьи, хотя сервис вернулся). Цена сна — не больше одного
+# неудачного вызова за GATEWAY_REVIVE_SEC; 402 (нет денег) не будится.
+GATEWAY_REVIVE_SEC = 600.0
 
 
 class BudgetExhausted(GatewayError):
@@ -135,7 +143,10 @@ class Gateway:
         self.failures = 0
         self.lost_bodies = 0    # ответы, оборванные после начала: засчитаны резервом
         self.empty_answers = 0  # оплаченные ответы без текста
-        self.dead = None        # причина, по которой шлюз выключен до конца прогона
+        self.dead = None        # причина, по которой шлюз выключен (или спит, см. _revive_at)
+        self._revive_at = None  # когда уснувший шлюз пропустит пробный вызов; None — не будится
+        self._probing = False
+        self.revived = 0
         # Свой замок у счётчиков пауз: billing() держит self._lock, пока
         # читает каталог через _request, и общий замок тут был бы взаимной
         # блокировкой (поймано первым же тестом).
@@ -174,11 +185,17 @@ class Gateway:
             if on_lost_body is not None:
                 on_lost_body()
         for attempt in range(2):
-            self._wait_pause(health)
+            probe = self._wait_pause(health)
             try:
                 out = self._request_with_retries(method, path, body, timeout, lost_body)
-            except GatewayError as e:
-                if "повторы исчерпаны" not in str(e):
+            except BaseException as e:
+                if probe:
+                    # Пробный вызов не удался: спать дальше, без переспроса.
+                    if isinstance(e, GatewayError) and "повторы исчерпаны" in str(e):
+                        health.failed()
+                    self._sleep_again()
+                    raise
+                if not isinstance(e, GatewayError) or "повторы исчерпаны" not in str(e):
                     raise
                 if health.failed():
                     with self._pause_lock:
@@ -186,9 +203,11 @@ class Gateway:
                         if self.pauses >= GATEWAY_MAX_PAUSES and not self.dead:
                             self.dead = (f"не отвечает после {self.pauses} пауз подряд "
                                          f"по {GATEWAY_COOLDOWN_SEC:.0f} с")
+                            self._revive_at = time.monotonic() + GATEWAY_REVIVE_SEC
                     print(f"  шлюз не отвечает {GATEWAY_FAIL_THRESHOLD} вызова подряд — пауза "
-                          f"{GATEWAY_COOLDOWN_SEC:.0f} с" + (f"; {self.dead} — выключен до конца "
-                                                          f"прогона" if self.dead else ""))
+                          f"{GATEWAY_COOLDOWN_SEC:.0f} с" + (f"; {self.dead} — спит "
+                                                          f"{GATEWAY_REVIVE_SEC / 60:.0f} мин, потом "
+                                                          f"один пробный вызов" if self.dead else ""))
                 # Оборванный после начала ответ, скорее всего, уже оплачен:
                 # переспрос такого вызова платил бы ещё до MAX_ATTEMPTS раз.
                 if attempt == 0 and not self.dead and not lost:
@@ -199,18 +218,47 @@ class Gateway:
             health.succeeded()
             with self._pause_lock:
                 self.pauses = 0
+                if probe:
+                    self.dead, self._revive_at, self._probing = None, None, False
+                    self.revived += 1
+            if probe:
+                print("  шлюз снова отвечает — вызовы возобновлены")
             return out
 
+    def _unavailable(self):
+        if self._revive_at is None:
+            return GatewayUnavailable(f"шлюз выключен до конца прогона: {self.dead}")
+        wall = time.time() + (self._revive_at - time.monotonic())
+        return GatewayUnavailable(f"шлюз спит до пробного вызова в "
+                                  f"{time.strftime('%H:%M:%S', time.localtime(wall))}: {self.dead}")
+
+    def _admit(self):
+        """True — этот вызов пробный (шлюз спал, время пробы подошло). Спящий
+        до срока и выключенный безвозвратно шлюз отказывает сразу."""
+        with self._pause_lock:
+            if not self.dead:
+                return False
+            if self._revive_at is not None and not self._probing and time.monotonic() >= self._revive_at:
+                self._probing = True
+                return True
+        raise self._unavailable()
+
+    def _sleep_again(self):
+        with self._pause_lock:
+            self._probing = False
+            if self.dead and self._revive_at is not None:
+                self._revive_at = time.monotonic() + GATEWAY_REVIVE_SEC
+
     def _wait_pause(self, health):
-        if self.dead:
-            raise GatewayUnavailable(f"шлюз выключен до конца прогона: {self.dead}")
+        probe = self._admit()
         left = health.cooldown_left()
         if left > 0:
             time.sleep(left)
             with self._pause_lock:
                 self.waited += left
-        if self.dead:
-            raise GatewayUnavailable(f"шлюз выключен до конца прогона: {self.dead}")
+        if self.dead and not probe:
+            raise self._unavailable()
+        return probe
 
     def _request_with_retries(self, method, path, body, timeout, on_lost_body):
         data = json.dumps(body).encode("utf-8") if body is not None else None
@@ -308,7 +356,7 @@ class Gateway:
         """Один вызов чата. content — список частей OpenAI (text / image_url).
         Возвращает (текст ответа, usage, цена). Потолок проверяется ДО вызова
         по резерву (оценка входа + max_tokens выхода)."""
-        if self.dead:
+        if self.dead and self._revive_at is None:
             raise GatewayError(f"шлюз выключен до конца прогона: {self.dead}")
         if not self.configured:
             raise GatewayError("нет LLM_GATEWAY_API_KEY")
@@ -361,6 +409,11 @@ class Gateway:
                 self._ratio[model] = max(self._ratio.get(model, 0.0), price / base)
         choice = (r.get("choices") or [{}])[0]
         text = (choice.get("message") or {}).get("content") or ""
+        # Причина конца ответа — в usage, которую вызывающий и так получает:
+        # «length» значит, что ответ ОБОРВАН лимитом выхода, и разбор, который
+        # просто не нашёл части строк, иначе не отличил бы обрыв от молчания
+        # модели (живой случай 26.09: глава из 13 фраз оборвалась на шестой).
+        u = dict(u, finish_reason=choice.get("finish_reason"))
         if not text.strip():
             reasoning = (u.get("completion_tokens_details") or {}).get("reasoning_tokens")
             with self._lock:
@@ -381,7 +434,7 @@ class Gateway:
         картинок — EmptyAnswer: «успех без картинки» шлюз не берёт в счёт,
         но для вызывающего это отказ, а не пустой кадр."""
         import base64
-        if self.dead:
+        if self.dead and self._revive_at is None:
             raise GatewayError(f"шлюз выключен до конца прогона: {self.dead}")
         if not self.configured:
             raise GatewayError("нет LLM_GATEWAY_API_KEY")
@@ -428,4 +481,4 @@ class Gateway:
         return {"base_url": self.base_url, "calls": self.calls, "failures": self.failures,
                 "lost_bodies": self.lost_bodies, "empty_answers": self.empty_answers,
                 "spent": self.spent, "spend_cap": self.spend_cap, "dead": self.dead,
-                "pause_wait_sec": round(self.waited, 1), "reasked": self.reasked}
+                "pause_wait_sec": round(self.waited, 1), "reasked": self.reasked, "revived": self.revived}

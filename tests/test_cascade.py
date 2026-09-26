@@ -106,6 +106,28 @@ def test_cascade_texts_are_the_spec_queries():
     assert ps.cascade_texts(None, "brief") == ["brief"]
 
 
+def test_cascade_texts_read_the_queries_in_the_form_the_render_passes():
+    """В рендере задание приходит из load_specs: запросы — объекты с "q".
+    До 26.09 каскад читал только строки (форму снимков пулов), и в рендере
+    запросы молча не находились — каскад шёл по утверждениям, а не той
+    формулой, что замерена и держится гейтом регрессий."""
+    import stock_query_planner as sqp
+    spec = {"queries": [{"q": "rondel dagger blade", "for": ["core"], "type": "object"},
+                        {"q": "medieval dagger macro", "for": ["core"]}],
+            "claims": [{"id": "core", "text": "a dagger is visible", "tier": "must"}]}
+    assert ps.cascade_texts(spec, "brief", "photo") == ["rondel dagger blade", "medieval dagger macro"]
+    plan = {"version": sqp.PLAN_VERSION, "units": {"k": {
+        "text": "Вот кинжал.", "focus": "a dagger on grey cloth", "claims": spec["claims"],
+        "queries": ["rondel dagger blade"], "queries_for": spec["queries"][:1]}}}
+    import json
+    import tempfile
+    d = tempfile.mkdtemp()
+    os.makedirs(os.path.join(d, "media_plan"))
+    with open(os.path.join(d, "media_plan", sqp.PLAN_NAME), "w", encoding="utf-8") as f:
+        json.dump(plan, f)
+    assert ps.cascade_texts(sqp.load_specs(d)["k"], "brief", "photo") == ["rondel dagger blade"]
+
+
 def test_cascade_runs_only_with_an_active_judge():
     src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"), encoding="utf-8").read()
     i = src.index("candidates = cascade_reorder(")

@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "register": "historical",
+  "era": {
+    "from": 1350,
+    "to": 1550
+  },
+  "culture": {
+    "include": [
+      "European",
+      "Western Europe"
+    ],
+    "exclude": [
+      "Asian",
+      "Middle Eastern",
+      "Viking",
+      "Roman",
+      "Japanese",
+      "Fantasy"
+    ]
+  },
+  "must_not_show": [
+    "modern people",
+    "modern clothing",
+    "cars",
+    "smartphones",
+    "brand logos",
+    "gym",
+    "museum vitrine with visitors",
+    "costumed festival",
+    "reenactment with public",
+    "fantasy armor"
+  ],
+  "expected_subjects": [
+    "medieval dagger",
+    "plate armor",
+    "knight falling in mud",
+    "cavalry charge",
+    "medieval infantry",
+    "arrow glancing off breastplate",
+    "armor gaps"
+  ],
+  "era_anchor_terms": [
+    "medieval",
+    "middle ages",
+    "15th century",
+    "knight"
+  ],
+  "modern_props_allowed": false,
+  "look": {
+    "style": "cinematic historical reenactment, gritty realism, authentic macro shots of weapons and armor",
+    "renders_ok": false
+  },
+  "notes": "Focus on late medieval period realism, specifically plate armor, armor-piercing daggers (like rondel or misericorde), and battlefield physics like mud and metal weight.",
+  "script_sha": "2e322c61077372f9",
+  "derived_by": "auto:ag/gemini-3.1-pro-low",
+  "derived_at": "2026-09-26T16:50:58"
+}

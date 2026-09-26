@@ -330,7 +330,7 @@ def test_a_lost_paid_body_is_not_asked_again():
 
 def test_a_dead_gateway_stops_costing_a_pause_per_call(monkeypatch):
     """Лежащий сервис: после GATEWAY_MAX_PAUSES пауз подряд без единого
-    ответа шлюз выключается до конца прогона, и следующий вызов отказывает
+    ответа шлюз засыпает, и следующий вызов до срока пробы отказывает
     сразу — без минуты ожидания и без запросов."""
     clock = Clock(monkeypatch)
     op = Opener([http_error(502)] * 1000)
@@ -345,9 +345,74 @@ def test_a_dead_gateway_stops_costing_a_pause_per_call(monkeypatch):
     assert gw.dead and "пауз подряд" in gw.dead
     assert gw.pauses == lg.GATEWAY_MAX_PAUSES
     before, waited = chat_calls(op), len(clock.slept)
-    with pytest.raises(lg.GatewayError, match="выключен"):
+    with pytest.raises(lg.GatewayUnavailable, match="спит"):
         gw.chat("m/free", [], 10, 10)
     assert chat_calls(op) == before and len(clock.slept) == waited
+
+
+def _asleep(monkeypatch, then):
+    """Шлюз, уснувший после GATEWAY_MAX_PAUSES пауз; дальше отвечает then."""
+    clock = Clock(monkeypatch)
+    fails = [http_error(502)] * (4 * lg.GATEWAY_MAX_PAUSES * lg.GATEWAY_FAIL_THRESHOLD * lg.MAX_ATTEMPTS)
+    op = Opener(fails)
+    gw = lg.Gateway(api_key="k", opener=op)
+    for _ in range(50):
+        try:
+            gw.chat("m/free", [], 10, 10)
+        except lg.GatewayError:
+            pass
+        if gw.dead:
+            break
+    assert gw.dead
+    op.answers[:] = list(then)
+    return gw, op, clock
+
+
+def test_an_asleep_gateway_wakes_after_one_probe(monkeypatch):
+    """Живой случай 26.09: Qwen отвечал 503 три паузы подряд на втором слоте
+    замера — дальше все слоты шли без судьи, хотя сервис вернулся. Теперь
+    через GATEWAY_REVIVE_SEC один пробный вызов; ответил — работа дальше."""
+    gw, op, clock = _asleep(monkeypatch, [ok("back"), ok("and again")])
+    clock.sleep(lg.GATEWAY_REVIVE_SEC - 1)
+    with pytest.raises(lg.GatewayUnavailable):
+        gw.chat("m/free", [], 10, 10)
+    clock.sleep(1)
+    assert gw.chat("m/free", [], 10, 10)[0] == "back"
+    assert not gw.dead and gw.revived == 1 and gw.summary()["revived"] == 1
+    assert gw.chat("m/free", [], 10, 10)[0] == "and again"
+
+
+def test_a_failed_probe_sleeps_again_and_costs_one_call(monkeypatch):
+    gw, op, clock = _asleep(monkeypatch, [http_error(502)] * lg.MAX_ATTEMPTS + [ok("finally")])
+    clock.sleep(lg.GATEWAY_REVIVE_SEC)
+    before = chat_calls(op)
+    with pytest.raises(lg.GatewayError):
+        gw.chat("m/free", [], 10, 10)
+    assert chat_calls(op) - before == lg.MAX_ATTEMPTS, "проба — один вызов со своими повторами, без переспроса"
+    assert gw.dead and gw.revived == 0
+    before = chat_calls(op)
+    with pytest.raises(lg.GatewayUnavailable):
+        gw.chat("m/free", [], 10, 10)
+    assert chat_calls(op) == before, "после неудачной пробы — снова сон, без запросов"
+    clock.sleep(lg.GATEWAY_REVIVE_SEC)
+    assert gw.chat("m/free", [], 10, 10)[0] == "finally" and not gw.dead
+
+
+def test_only_one_probe_at_a_time_and_no_money_never_wakes(monkeypatch):
+    gw, _op, clock = _asleep(monkeypatch, [])
+    clock.sleep(lg.GATEWAY_REVIVE_SEC)
+    assert gw._admit() is True
+    with pytest.raises(lg.GatewayUnavailable):
+        gw._admit()
+    gw._sleep_again()
+    op = Opener([http_error(402)])
+    broke = lg.Gateway(api_key="k", opener=op)
+    with pytest.raises(lg.PaymentRequired):
+        broke.chat("m/free", [], 10, 10)
+    clock.sleep(10 * lg.GATEWAY_REVIVE_SEC)
+    with pytest.raises(lg.GatewayError, match="до конца прогона"):
+        broke.chat("m/free", [], 10, 10)
+    assert chat_calls(op) == 1
 
 
 def test_an_answer_resets_the_pause_count(monkeypatch):

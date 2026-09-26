@@ -406,5 +406,7 @@ class TestReviewToolShowsWhatProductionDoes:
 def test_shelf_is_asked_with_the_shot_focus_before_the_russian_phrase():
     spec = {"focus": "an arrow glancing off a steel breastplate"}
     assert ps.shelf_question(None, "Стрела скользит.", spec) == spec["focus"]
-    assert ps.shelf_question("a dented breastplate", "Стрела.", spec) == "a dented breastplate"
+    assert ps.shelf_question("a dented breastplate", "Стрела.", spec) == spec["focus"], \
+        "задание оркестратора уже учло бриф автора; полка и судья спрашивают одним текстом"
+    assert ps.shelf_question("a dented breastplate", "Стрела.", None) == "a dented breastplate"
     assert ps.shelf_question(None, "Стрела.") == "Стрела."

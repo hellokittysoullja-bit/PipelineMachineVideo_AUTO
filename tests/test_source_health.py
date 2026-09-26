@@ -48,7 +48,7 @@ def _gw_with(responses, monkeypatch):
 def test_lying_gateway_is_not_hammered_by_every_call(monkeypatch):
     """Лежащий шлюз: на паузе вызов не спрашивает сервис, а ждёт её конца
     (llm_gateway, политика ожидания); после GATEWAY_MAX_PAUSES пауз подряд
-    без ответа — ни одного запроса до конца прогона."""
+    без ответа — ни одного запроса до пробного вызова (GATEWAY_REVIVE_SEC)."""
     now = [1000.0]
     in_pause = []
     gw, calls = _gw_with(lambda n: (in_pause.append(gw.health().cooling()), 502)[1], monkeypatch)

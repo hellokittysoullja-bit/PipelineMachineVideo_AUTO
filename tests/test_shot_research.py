@@ -242,3 +242,35 @@ def test_reasoning_is_switched_off_so_the_answer_is_not_eaten(tmp_path):
                                    setting=None, tried=[], rejections=[])
     assert origin == "model" and items and items[0]["q"] == "froissart battle miniature"
     assert gw.reasoning == [False] and gw.budgets[0] >= 1000
+
+
+FIG = {"focus": "an empty night street under street lamps",
+       "meaning": "night came and the city went quiet", "reading": "figurative", "vehicle": ["sleep", "bed"],
+       "traps": ["a person sleeping in bed"],
+       "claims": [{"id": "core", "text": "an empty street at night is visible", "tier": "must"}],
+       "queries": [{"q": "empty street night", "for": ["core"]}]}
+BIBLE = {"topic": "a night in one city", "look": "real night photos", "never": ["cartoon cities", "fantasy castles"]}
+
+
+def test_second_round_sees_the_orchestrators_understanding_not_the_raw_words():
+    """Второй круг получает смысл фразы, запрет на образ метафоры, ловушки,
+    облик фильма и его «никогда» — иначе он заново толкует русскую фразу и
+    на фигуральной строке ищет её образ."""
+    p = sr.render_prompt("Город заснул.", FIG, "modern", ["empty street night"], [], bible=BIBLE)
+    assert "night came and the city went quiet" in p
+    assert "never search for: sleep, bed" in p.lower()
+    assert "a person sleeping in bed" in p
+    assert "a night in one city" in p and "real night photos" in p
+    assert "cartoon cities; fantasy castles" in p
+
+
+def test_second_round_drops_queries_with_the_vehicle():
+    raw = '{"queries": [{"q": "city asleep bed", "type": "scene"}, {"q": "deserted avenue night", "type": "scene"}]}'
+    assert [x["q"] for x in sr.parse(raw, vehicle=["sleep", "bed"])] == ["deserted avenue night"]
+
+
+def test_the_understanding_is_part_of_the_signature():
+    a = sr.signature("m", "modern", "Город заснул.", FIG, [], bible=BIBLE)
+    b = sr.signature("m", "modern", "Город заснул.", FIG, [], bible=dict(BIBLE, never=["cartoon cities"]))
+    c = sr.signature("m", "modern", "Город заснул.", dict(FIG, vehicle=["sleep"]), [], bible=BIBLE)
+    assert len({a, b, c}) == 3

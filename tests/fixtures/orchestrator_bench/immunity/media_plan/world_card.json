@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "register": "scientific",
+  "era": null,
+  "culture": {
+    "include": [],
+    "exclude": []
+  },
+  "must_not_show": [
+    "historical armor",
+    "medieval warfare",
+    "castles",
+    "military soldiers",
+    "tanks",
+    "burglar in mask"
+  ],
+  "expected_subjects": [
+    "virus entering cell",
+    "macrophage engulfing bacteria",
+    "lymphocytes",
+    "vaccine injection shoulder",
+    "microscopic cell structure"
+  ],
+  "era_anchor_terms": [
+    "immunology",
+    "biology",
+    "microscopic",
+    "cellular"
+  ],
+  "modern_props_allowed": true,
+  "look": {
+    "style": "Scientific 3D cellular animation combined with microscopic footage and modern medical shots",
+    "renders_ok": true
+  },
+  "notes": "Научно-популярный эпизод про иммунную систему. Основной визуальный ряд состоит из микроскопии и 3D-моделей клеток, вирусов и бактерий, а также бытовой сцены вакцинации. Военные метафоры текста не должны иллюстрироваться реальным оружием или солдатами.",
+  "script_sha": "def0af5748ce8fc0",
+  "derived_by": "auto:ag/gemini-3.6-flash-high",
+  "derived_at": "2026-09-26T17:53:54"
+}
