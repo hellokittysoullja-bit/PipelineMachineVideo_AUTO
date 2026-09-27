@@ -173,18 +173,46 @@ def test_truncated_bodies_exhaust_retries_with_a_gateway_error():
     assert gw.lost_bodies == lg.MAX_ATTEMPTS
 
 
+EMPTY = {"choices": [{"message": {"content": ""}, "finish_reason": "length"}],
+        "usage": {"prompt_tokens": 100, "completion_tokens": 50,
+                  "completion_tokens_details": {"reasoning_tokens": 50}}}
+
+
+def test_empty_answer_is_reasked_once_and_the_retry_can_succeed():
+    """Живой дефект 27.09: caption_screen.screen() шлёт два вопроса одному
+    DeepSeek-эндпоинту ОДНОВРЕМЕННО, и один из двух систематически
+    возвращает 200 OK с пустым телом (весь max_tokens ушёл на рассуждение,
+    несмотря на reasoning=False) — тот же вызов в одиночку не воспроизводится.
+    Изолированный переспрос не видит гонки и обычно получает нормальный
+    ответ — так и должно быть по замеру."""
+    gw = lg.Gateway(api_key="k", opener=Opener([EMPTY, ok("fine", pt=100, ct=10)]))
+    text, _u, price = gw.chat("m/vision", [], 50, 1000)
+    assert text == "fine" and gw.empty_answer_reasked == 1
+    # Деньги за пустую попытку не теряются молча — они уже потрачены
+    # провайдером, переспрос их не отменяет и не дублирует задним числом.
+    assert gw.spent == (100 * 0.5 + 50 * 2) + price
+
+
+def test_empty_answer_twice_in_a_row_still_raises():
+    """Переспрос — не бесконечный: если и вторая попытка пуста, вызывающий
+    код получает ту же ошибку, что и раньше (второй экран — весь набор
+    и так уже принят как fail-open, а не бесконечная гонка за ответом)."""
+    gw = lg.Gateway(api_key="k", opener=Opener([EMPTY, dict(EMPTY)]))
+    with pytest.raises(lg.EmptyAnswer) as e:
+        gw.chat("m/vision", [], 50, 1000)
+    assert "length" in str(e.value) and "50" in str(e.value)
+    assert gw.empty_answers == 2 and gw.empty_answer_reasked == 1
+
+
 def test_empty_answer_is_an_error_that_names_the_reason():
     """Рассуждающая модель израсходовала max_tokens на рассуждение: 13
     оплаченных вызовов, ноль ответов, и снаружи это выглядело как
     «модель промолчала». Теперь это ошибка с причиной, а деньги учтены."""
-    empty = {"choices": [{"message": {"content": ""}, "finish_reason": "length"}],
-             "usage": {"prompt_tokens": 100, "completion_tokens": 50,
-                       "completion_tokens_details": {"reasoning_tokens": 50}}}
-    gw = lg.Gateway(api_key="k", opener=Opener([empty]))
+    gw = lg.Gateway(api_key="k", opener=Opener([EMPTY, dict(EMPTY)]))
     with pytest.raises(lg.EmptyAnswer) as e:
         gw.chat("m/vision", [], 50, 1000)
     assert "length" in str(e.value) and "50" in str(e.value)
-    assert gw.spent == 100 * 0.5 + 50 * 2 and gw.empty_answers == 1
+    assert gw.spent == 2 * (100 * 0.5 + 50 * 2) and gw.empty_answers == 2
 
 
 def test_brief_brain_turns_a_chapter_failure_into_an_empty_chapter():

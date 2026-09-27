@@ -226,6 +226,7 @@ class Gateway:
         self.pauses = 0         # пауз подряд без единого ответа
         self.waited = 0.0       # секунд, прожданных на паузах
         self.reasked = 0        # вызовов, переспрошенных после исчерпанных повторов
+        self.empty_answer_reasked = 0   # переспрошено после пустого ответа (200 OK, без текста)
 
     @property
     def configured(self):
@@ -390,7 +391,8 @@ class Gateway:
 
     def chat(self, model, content, max_tokens, estimate_prompt_tokens, temperature=0.0, timeout=180,
              reasoning=None):
-        """Один вызов чата. content — список частей OpenAI (text / image_url).
+        """Один вызов чата (с одним переспросом на пустой ответ — см.
+        _chat_reasked). content — список частей OpenAI (text / image_url).
         Возвращает (текст ответа, usage, цена). Потолок проверяется ДО вызова
         по резерву (оценка входа + max_tokens выхода)."""
         if self.dead:
@@ -400,9 +402,38 @@ class Gateway:
         with self._lock:
             first = self._first_call.setdefault(model, threading.Lock())
         if model in self._ratio:
+            return self._chat_reasked(model, content, max_tokens, estimate_prompt_tokens, temperature,
+                                      timeout, reasoning)
+        with first:
+            return self._chat_reasked(model, content, max_tokens, estimate_prompt_tokens, temperature,
+                                      timeout, reasoning)
+
+    def _chat_reasked(self, model, content, max_tokens, estimate_prompt_tokens, temperature, timeout,
+                      reasoning):
+        """Пустой ответ (200 OK, но весь max_tokens ушёл на рассуждение,
+        несмотря на reasoning=False) — воспроизводимый сбой конкретно под
+        ПАРАЛЛЕЛЬНОЙ нагрузкой на одну модель: замер 27.09, два одновременных
+        вызова одному DeepSeek-эндпоинту (caption_screen.screen() шлёт свои
+        два вопроса разом) — один из двух систематически возвращает пустое
+        тело; тот же вызов в одиночку, без второго вызова рядом, не
+        воспроизводится ни разу за несколько попыток. До этой правки
+        EmptyAnswer нигде не переспрашивался (в отличие от сетевых ошибок и
+        5xx у _request(), где переспрос уже есть) — единственный сорванный
+        параллельный вызов молча ронял всю ступень (caption_screen на всём
+        слоте, второй круг поиска, генерацию), хотя причина — не содержание
+        запроса, а гонка на стороне провайдера.
+
+        Один переспрос ничего не может ухудшить: провайдер уже списал деньги
+        за первую попытку (self.spent растёт до проверки на пустоту), то есть
+        при повторном сбое цена та же, что и раньше без переспроса, а при
+        удачном повторе (типичный случай по замеру) ступень получает ответ,
+        которого раньше не получала вовсе."""
+        try:
             return self._chat(model, content, max_tokens, estimate_prompt_tokens, temperature, timeout,
                               reasoning)
-        with first:
+        except EmptyAnswer:
+            with self._lock:
+                self.empty_answer_reasked += 1
             return self._chat(model, content, max_tokens, estimate_prompt_tokens, temperature, timeout,
                               reasoning)
 
@@ -513,4 +544,5 @@ class Gateway:
         return {"base_url": self.base_url, "calls": self.calls, "failures": self.failures,
                 "lost_bodies": self.lost_bodies, "empty_answers": self.empty_answers,
                 "spent": self.spent, "spend_cap": self.spend_cap, "dead": self.dead,
-                "pause_wait_sec": round(self.waited, 1), "reasked": self.reasked}
+                "pause_wait_sec": round(self.waited, 1), "reasked": self.reasked,
+                "empty_answer_reasked": self.empty_answer_reasked}
