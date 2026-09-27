@@ -5448,6 +5448,42 @@ def pexels_candidate_text(item):
     return re.sub(r"\s+", " ", re.sub(r"[-/_]+", " ", text)).strip()
 
 
+# ОТКРОВЕННОЕ — правило площадки, а не жанр канала, поэтому этот список, в
+# отличие от CONTENT_ALT_BLOCKLIST, по умолчанию НЕ пустой. Найдено живым
+# замером 27.09: снимок Commons «Pubic Hair of an adult male» (commons:197696200)
+# встал в бесплатную пятёрку фразы про макрофаг — жанровый словарь канала про
+# средневековье такого слова не знает и знать не должен. Только однозначные
+# термины и только по границе слова: на 40 270 сохранённых кандидатах (снимки
+# пулов эп.93/94 и живой пул шести ниш) — ровно одно срабатывание, этот снимок.
+# Не внесены намеренно: «pubic» без «hair» (тазовая кость в анатомии),
+# «vagina/vaginal» (подписи медицинской микроскопии: «Vaginal wet mount with a
+# clue cell» из того же прогона — на снимке клетки), «nude»/«naked» (живопись,
+# «naked eye», «naked blade»), «sexual» («sexual dimorphism» — законная подпись
+# в фильме про удильщика), «xxx» (римское 30 в подписях рукописей). Канал
+# заменяет список в channel_profile.json (safety_caption_terms), в том числе
+# пустым.
+_SAFETY_CAPTION_TERMS_DEFAULT = ("pubic hair", "genitals", "genitalia", "penis", "vulva", "scrotum",
+                                 "testicles", "porn", "porno", "pornographic", "pornography", "erotic",
+                                 "erotica", "nsfw", "topless", "masturbation")
+SAFETY_CAPTION_TERMS = tuple(CHANNEL_PROFILE.get("safety_caption_terms", _SAFETY_CAPTION_TERMS_DEFAULT))
+
+
+@functools.lru_cache(maxsize=4)
+def _safety_caption_re(terms):
+    if not terms:
+        return None
+    return re.compile(r"\b(?:" + "|".join(re.escape(t.lower()) for t in terms) + r")\b")
+
+
+def unsafe_caption(item):
+    """Подпись кандидата однозначно называет откровенное (SAFETY_CAPTION_TERMS).
+    Такой кандидат выбрасывается везде — в обеих зонах и без отката на
+    исходный список: вернуть его ради непустого слота нельзя, а проверка
+    кадра судьёй его не «очищает» (это не вопрос мира эпизода)."""
+    rx = _safety_caption_re(SAFETY_CAPTION_TERMS)
+    return bool(rx and rx.search(pexels_candidate_text(item)))
+
+
 def filter_pool_by_text(items, index=None):
     """Жанровый фильтр пула по тексту кандидата.
 
@@ -5466,7 +5502,7 @@ def filter_pool_by_text(items, index=None):
     terms = content_blocklist_effective()
     out = []
     for p in items:
-        if _candidate_block_key(p) in CONTENT_BLOCKED_CANDIDATE_IDS:
+        if _candidate_block_key(p) in CONTENT_BLOCKED_CANDIDATE_IDS or unsafe_caption(p):
             continue
         text = pexels_candidate_text(p)
         if any(term in text for term in terms):
@@ -5518,6 +5554,7 @@ def filter_alt_blocklist(items):
     filtered = [p for p in items
                 if not any(term in pexels_candidate_text(p) for term in terms)]
     filtered = filtered or items
+    filtered = [p for p in filtered if not unsafe_caption(p)]
     if CONTENT_BLOCKED_CANDIDATE_IDS:
         filtered = [p for p in filtered
                     if _candidate_block_key(p) not in CONTENT_BLOCKED_CANDIDATE_IDS]
@@ -13276,7 +13313,7 @@ def candidate_gate_signature(index=None):
         parts.append(repr((
             CLIP_RELEVANCE_THRESHOLD, RISKY_QUERY_MARGIN, NEGATIVE_ANCHOR_PROMPT,
             RISKY_GENERIC_TERMS, VISUAL_DOMAIN_GUARDS, VIDEO_DOMAIN_GUARD_SAMPLE_FRACS,
-            CONTENT_ALT_BLOCKLIST, QUERY_DISAMBIGUATION_RULES,
+            CONTENT_ALT_BLOCKLIST, SAFETY_CAPTION_TERMS, QUERY_DISAMBIGUATION_RULES,
             # Данные, по которым термин правила ищется в запросе. Сами правила
             # (QUERY_DISAMBIGUATION_RULES) в подписи были, а написания,
             # ловушки и суффиксы — нет: правка любого из трёх меняет, у КАКИХ

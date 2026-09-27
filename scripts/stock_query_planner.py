@@ -70,6 +70,7 @@ import os
 import re
 import sys
 import threading
+import unicodedata
 
 PLAN_NAME = "stock_queries.json"
 CACHE_DIR_NAME = "stock_query_cache"
@@ -138,6 +139,24 @@ def _clean(s):
 # Цифры разрешены: запрос-знание называет работу архивным названием, и год
 # или век в нём — часть названия («battle of poitiers 1356 miniature»).
 _QUERY_RE = re.compile(r"^[a-z0-9][a-z0-9'\- ]*[a-z0-9]$")
+# Буквы, которые NFKD не раскладывает на букву и знак.
+_LATIN_FOLD = str.maketrans({"ß": "ss", "æ": "ae", "œ": "oe", "ø": "o", "ł": "l", "đ": "d", "ð": "d",
+                             "þ": "th"})
+
+
+def fold_latin(text):
+    """Латиница без диакритики: «ständebuch» -> «standebuch», «brétigny» ->
+    «bretigny». Кириллицу не трогает (она по-прежнему не запрос).
+
+    Зачем (27.09, по сырым ответам планировщика всех замеров — 20 103
+    запроса): 14 запросов с диакритикой фильтр выбрасывал ЦЕЛИКОМ, и все
+    четырнадцать — запросы-знания, ради которых правило архивного названия
+    и заведено: «Jost Amman Schriftgiesser Ständebuch 1568», «Crónicas de
+    Froissart battle miniature», «Treaty of Brétigny 1360», «Château de
+    Vincennes keep». Поиск Commons и музеев сворачивает диакритику сам, так
+    что «standebuch» находит «Ständebuch»; отказ от запроса терял его молча."""
+    text = unicodedata.normalize("NFKD", text.translate(_LATIN_FOLD))
+    return "".join(ch for ch in text if not unicodedata.combining(ch))
 
 
 def clean_query(q):
@@ -146,7 +165,7 @@ def clean_query(q):
     не запрос. Семь, а не пять: запрос, называющий известное изображение
     так, как его называет архив (событие, хроника, трактат, автор), длиннее
     стокового — прототип эп.94 находил нужные кадры именно такими."""
-    q = _clean(q).strip(" \"'«».,;:-*").lower()
+    q = fold_latin(_clean(q).strip(" \"'«».,;:-*").lower())
     q = re.sub(r"^\d+[.)]\s*", "", q)
     if not q or not _QUERY_RE.match(q):
         return None

@@ -66,6 +66,20 @@ def test_clean_query_keeps_only_short_latin_queries():
     assert sqp.clean_query("") is None
 
 
+def test_clean_query_folds_diacritics_instead_of_dropping_the_query():
+    """27.09, сырые ответы планировщика всех замеров (20 103 запроса): 14
+    запросов с диакритикой фильтр выбрасывал ЦЕЛИКОМ, и все четырнадцать —
+    запросы-знания. Поиск Мет сворачивает диакритику сам: «miséricorde» и
+    «misericorde» дают одну и ту же выдачу до объекта (проверено 27.09)."""
+    assert sqp.clean_query("Jost Amman Schriftgiesser Ständebuch 1568") == "jost amman schriftgiesser standebuch 1568"
+    assert sqp.clean_query("Crónicas de Froissart battle miniature") == "cronicas de froissart battle miniature"
+    assert sqp.clean_query("Treaty of Brétigny 1360") == "treaty of bretigny 1360"
+    assert sqp.clean_query("Château de Vincennes keep") == "chateau de vincennes keep"
+    assert sqp.clean_query("Straße 1900 photograph") == "strasse 1900 photograph"
+    assert sqp.clean_query("old violin museum") == "old violin museum", "латиница без диакритики — как была"
+    assert sqp.clean_query("рыцарь в грязи") is None, "кириллица по-прежнему не запрос"
+
+
 def test_prompt_carries_no_niche_words_and_takes_the_world_from_the_card(tmp_path):
     card = CARD
     d, blocks = _episode(tmp_path, card=card)
