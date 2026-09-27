@@ -810,8 +810,14 @@ def parse_shot(obj, unit=None, reasked=False):
     claims = [c for c in claims if c["tier"] == "must" or not mentions(c["text"], vehicle)]
     # В запросах запрещён и главный предмет образа из нескольких слов:
     # образ «iron rain» пропускал запрос «arrow rain» (замер 26.09, эп.02,
-    # «И ещё они сжимали строй»).
-    banned_q = vehicle + [h for h in (head_noun(v) for v in vehicle if " " in v) if h]
+    # «И ещё они сжимали строй»). Но только если этого слова нет в самом
+    # кадре: у образа «boiling water» в фильме про глубоководье главное слово
+    # «water», а вода — то, что показывают. Замер 27.09 на сырых ответах трёх
+    # прогонов (541 запрос): правило выбросило 3 запроса, все три — с водой из
+    # кадра, верных выбросов ноль.
+    picture = f"{shot} {core}"
+    banned_q = vehicle + [h for h in (head_noun(v) for v in vehicle if " " in v)
+                          if h and not mentions(picture, [h])]
     queries = [q for q in _parse_queries(obj.get("queries"), {c["id"] for c in claims})
                if not mentions(q["q"], banned_q)]
     spec = {"focus": shot, "meaning": meaning, "reading": reading, "vehicle": vehicle,

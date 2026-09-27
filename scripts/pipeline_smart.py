@@ -8053,8 +8053,12 @@ class PhotoAdapter(selection_engine.MediaAdapter):
 
     def on_source_failure(self, request, source_name, exc):
         """Сбой одного источника стоит только этого источника в слоте
-        (selection_engine.fetch_sources): куча собирается из остальных."""
+        (selection_engine.fetch_sources): куча собирается из остальных.
+        Ошибка поиска Pexels считается в SOURCE_STATS, как у всех источников:
+        без счёта 429 от Pexels не попадал ни в source_contribution.json, ни в
+        учёт «чистых» фраз замера (27.09, куча без Pexels числилась здоровой)."""
         if source_name == "pexels":
+            _source_bump("pexels", "search_errors")
             _note_pexels_failure(exc, f"Pexels [{request.query}]")
         else:
             _note_source_search_error(source_name, exc, request.query)
@@ -14928,8 +14932,10 @@ class VideoAdapter(selection_engine.MediaAdapter):
         _note_pexels_failure(exc, f"Pexels video [{request.query}]")
 
     def on_source_failure(self, request, source_name, exc):
-        """Как у фото: сбой Pexels не уносит кандидатов Pixabay."""
+        """Как у фото: сбой Pexels не уносит кандидатов Pixabay и считается
+        ошибкой поиска источника."""
         if source_name == "pexels":
+            _source_bump("pexels", "search_errors")
             _note_pexels_failure(exc, f"Pexels video [{request.query}]")
         else:
             _note_source_search_error(source_name, exc, request.query)

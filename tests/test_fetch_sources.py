@@ -216,6 +216,24 @@ def test_pexels_error_does_not_discard_the_other_sources(monkeypatch):
     assert ps.PEXELS_FAIL_STREAK == 1 and ps.PEXELS_BROKEN is False
 
 
+def test_pexels_search_error_is_counted_like_any_source(monkeypatch):
+    """Ошибка поиска Pexels (429, 500) считается в SOURCE_STATS, как у
+    остальных источников: иначе её не видно в source_contribution.json, а
+    замер пулов принимал кучу без Pexels за здоровую (27.09)."""
+    sys.argv = ["pipeline_smart.py", REPO]
+    import pipeline_smart as ps
+    for f in ("_shelf_search_photos", "_museum_search_photos", "_commons_search_photos",
+              "_openverse_search_photos", "_pixabay_search_photos", "_unsplash_search_photos"):
+        monkeypatch.setattr(ps, f, lambda q, *a, **k: [])
+    monkeypatch.setattr(ps, "_pexels_search_photos", _pexels_500([]))
+    monkeypatch.setattr(ps, "local_stock_candidate", lambda index: None)
+    monkeypatch.setattr(ps, "PEXELS_FAIL_STREAK", 0)
+    monkeypatch.setattr(ps, "PEXELS_BROKEN", False)
+    ps.reset_source_stats()
+    selection_engine.build_pool(_slot_request(ps), ps.PHOTO_ADAPTER)
+    assert ps.SOURCE_STATS["pexels"]["search_errors"] == 1
+
+
 def test_pexels_video_error_keeps_pixabay(monkeypatch):
     sys.argv = ["pipeline_smart.py", REPO]
     import pipeline_smart as ps

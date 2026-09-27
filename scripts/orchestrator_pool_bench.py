@@ -114,6 +114,27 @@ def _health_delta(before, after):
             if after.get(k, 0) - before.get(k, 0)}
 
 
+def _pexels_answers(ps, max_wait=1800):
+    """Дождаться, пока Pexels снова отвечает (проба — один запрос мимо кэша).
+    Лимит частоты Pexels заголовками не виден (27.09: 429 при месячном остатке
+    18 910), поэтому ждать по счётчику нельзя — только пробой."""
+    import time
+    import urllib.request
+    waited = 0
+    while waited < max_wait:
+        req = urllib.request.Request(f"https://api.pexels.com/v1/search?query=clouds&per_page=1&page={int(time.time()) % 50 + 1}",
+                                     headers={"Authorization": ps.PEXELS_API_KEY or "", "User-Agent": ps.UA})
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                if r.status == 200:
+                    return waited
+        except Exception:  # noqa: BLE001 — 429 и сеть: ждать дальше
+            pass
+        time.sleep(120)
+        waited += 120
+    return waited
+
+
 def _wait_for_healthy_sources(ps, max_wait=3600):
     """Перед рукой — дождаться, пока Мет выйдет из остывания и у Pexels
     останется квота: куча руки не должна собираться на полуживых источниках."""
@@ -125,10 +146,18 @@ def _wait_for_healthy_sources(ps, max_wait=3600):
         # он снова «неизвестен», и следующий вызов покажет настоящий.
         low = ps.PEXELS_QUOTA_LEFT is not None and ps.PEXELS_QUOTA_LEFT < 15
         cooling = museum_sources.met_is_cooling_down()
-        if not (low or cooling):
+        # Pexels отвечает 429 и при месячном остатке в тысячи (27.09: лимит
+        # частоты, без заголовков): после сбоя — пауза, счётчик подряд
+        # сбрасывается, следующая рука спрашивает Pexels заново.
+        failing = getattr(ps, "PEXELS_FAIL_STREAK", 0) > 0
+        if not (low or cooling or failing):
             return waited
         print(f"    источники: ждём ({'квота Pexels ' + str(ps.PEXELS_QUOTA_LEFT) if low else ''}"
-              f"{' остывание Мет' if cooling else ''})", flush=True)
+              f"{' остывание Мет' if cooling else ''}{' сбой Pexels' if failing else ''})", flush=True)
+        if failing:
+            waited += _pexels_answers(ps)
+            ps.PEXELS_FAIL_STREAK = 0
+            continue
         pause = 600 if low else 30
         time.sleep(pause)
         waited += pause
@@ -169,73 +198,95 @@ def cmd_run(a):
             for name, _ in arms:
                 _replay_used(state[name], done[key]["arms"][name])
             continue
-        row = done.get(key) or {"ep": a.ep, "text": it["text"], "note": it.get("note"), "arms": {}}
-        # Порядок рук чередуется по фразам: вторая рука подряд чаще попадает
-        # на остывание Мет, вызванное первой, и без чередования это был бы
-        # систематический сдвиг против одной и той же руки.
-        for name, specs in (arms if k % 2 == 0 else arms[::-1]):
-            if name in row["arms"] and "error" not in row["arms"][name]:
-                # Рука уже прогнана по этой фразе (дозапуск другой руки):
-                # не повторять, но её анти-дубль обязан знать победителя.
-                _replay_used(state[name], row["arms"][name])
+        # Сбой поиска источника у любой руки (27.09: Pexels отвечает 429 по
+        # частоте, без заголовков квоты) делает фразу несравнимой. Такая фраза
+        # повторяется ОДИН раз всеми руками после паузы, с анти-дублем рук,
+        # каким он был до неё; второй сбой остаётся в записи, и фраза
+        # честно идёт в «нечистые».
+        snapshot = {name: (set(st[0]), list(st[1])) for name, st in state.items()}
+        for attempt in (0, 1):
+            row = (done.get(key) if attempt == 0 else None) or {"ep": a.ep, "text": it["text"],
+                                                                 "note": it.get("note"), "arms": {}}
+            # Порядок рук чередуется по фразам: вторая рука подряд чаще попадает
+            # на остывание Мет, вызванное первой, и без чередования это был бы
+            # систематический сдвиг против одной и той же руки.
+            for name, specs in (arms if k % 2 == 0 else arms[::-1]):
+                if name in row["arms"] and "error" not in row["arms"][name]:
+                    # Рука уже прогнана по этой фразе (дозапуск другой руки):
+                    # не повторять, но её анти-дубль обязан знать победителя.
+                    _replay_used(state[name], row["arms"][name])
+                    continue
+                hit = next(((t, v) for t, v in specs.items() if t.startswith(it["text"])), None)
+                if not hit:
+                    row["arms"][name] = {"error": "нет задания в плане"}
+                    continue
+                text, (spec, qs) = hit
+                ids, hashes = state[name]
+                request = ps.build_slot_request(
+                    index=a.index, query=qs[0], extra_queries=qs[1:], text_key=text, shot_brief=None,
+                    shot_spec=spec, block_text=text, arbiter_text=None, is_opening=False, slot_dur=4.0,
+                    action_qualifier=None, target_luma=None, director_score_fn=None, director_assist=False,
+                    director_report=None, video_score_fn=None, used_photo_ids=ids, used_video_ids=set(),
+                    used_hashes=hashes, recent_sizes=[])
+                entry = {"text": text, "focus": spec["focus"], "queries": qs,
+                         "types": [x.get("type") for x in spec["queries"]]}
+                entry["waited_sec"] = _wait_for_healthy_sources(ps)
+                health0 = _source_health(ps)
+                gw0 = _judge_counts(ps)
+                try:
+                    pool = selection_engine.build_pool(request, ps.PhotoAdapter())
+                    entry["pool_size"] = len(pool)
+                    # Пятёрка — как её видит отбор: без кадров, уже показанных
+                    # этой рукой раньше (анти-дубль по id общий на эпизод).
+                    fresh = [p for p in pool if p.get("id") not in ids] or pool
+                    entry["head"] = [cand_row(ps, p) for p in fresh[:ps.FAST_PHOTO_DEDUP_MAX_TRIES]]
+                    from collections import Counter
+                    entry["pool_channels"] = dict(Counter(ps.candidate_channel(p) for p in pool))
+                    got = ps.select_media(request, "photo")
+                    side = ps.read_media_sidecar(got) if got else {}
+                    entry["winner"] = str(side.get("pexels_id")) if side.get("pexels_id") else None
+                    entry["winner_file"] = got
+                    entry["chosen_by"] = side.get("chosen_by")
+                    entry["relevance"] = side.get("relevance")
+                    entry["quality"] = side.get("quality")
+                    entry["verdicts"] = side.get("verdicts")
+                except Exception as e:  # noqa: BLE001 — замер не падает от одной фразы
+                    entry["error"] = f"{type(e).__name__}: {str(e)[:300]}"
+                entry["source_trouble"] = _health_delta(health0, _source_health(ps))
+                if a.index < ps.SHOT_JUDGE_PAID_SLOTS:
+                    # Платная зона: руки сравнимы, только если судья отработал у
+                    # обеих. Отказы шлюза за фразу пишутся рядом; выключенный
+                    # судья — ошибка фразы (дозапуск спросит её снова), и прогон
+                    # останавливается, а не копит несравнимые строки.
+                    gw1 = _judge_counts(ps)
+                    entry["judge"] = {k: gw1[k] - gw0.get(k, 0) for k in ("calls", "failures", "spent")}
+                    if gw1["dead"] or gw1["refused"]:
+                        entry["error"] = f"судья выключен: {gw1['dead'] or gw1['refused']}"
+                        row["arms"][name] = entry
+                        done[key] = row
+                        with open(out_path, "w", encoding="utf-8") as f:
+                            json.dump(done, f, ensure_ascii=False, indent=1)
+                        print(f"  [{key}] {name}: {entry['error']} — остановка", flush=True)
+                        return 3
+                row["arms"][name] = entry
+                print(f"  [{key}] {name}: куча {entry.get('pool_size')}, пятёрка "
+                      f"{[h['channel'] for h in entry.get('head') or []]}, победитель {entry.get('winner')}"
+                      + (f", сбои источников {entry['source_trouble']}" if entry["source_trouble"] else ""),
+                      flush=True)
+            trouble = [n for n, e in row["arms"].items() if _searched_badly(e.get("source_trouble"))]
+            if attempt == 0 and trouble and a.retry_pause > 0:
+                print(f"  [{key}] сбой поиска у {trouble} — пауза {a.retry_pause} с и повтор фразы всеми руками",
+                      flush=True)
+                import time
+                time.sleep(a.retry_pause)
+                if any("pexels" in str(row["arms"][t].get("source_trouble")) for t in trouble):
+                    _pexels_answers(ps)
+                ps.PEXELS_FAIL_STREAK = 0
+                ps.PEXELS_BROKEN = False
+                for name, (ids0, hashes0) in snapshot.items():
+                    state[name] = (set(ids0), list(hashes0))
                 continue
-            hit = next(((t, v) for t, v in specs.items() if t.startswith(it["text"])), None)
-            if not hit:
-                row["arms"][name] = {"error": "нет задания в плане"}
-                continue
-            text, (spec, qs) = hit
-            ids, hashes = state[name]
-            request = ps.build_slot_request(
-                index=a.index, query=qs[0], extra_queries=qs[1:], text_key=text, shot_brief=None,
-                shot_spec=spec, block_text=text, arbiter_text=None, is_opening=False, slot_dur=4.0,
-                action_qualifier=None, target_luma=None, director_score_fn=None, director_assist=False,
-                director_report=None, video_score_fn=None, used_photo_ids=ids, used_video_ids=set(),
-                used_hashes=hashes, recent_sizes=[])
-            entry = {"text": text, "focus": spec["focus"], "queries": qs,
-                     "types": [x.get("type") for x in spec["queries"]]}
-            entry["waited_sec"] = _wait_for_healthy_sources(ps)
-            health0 = _source_health(ps)
-            gw0 = _judge_counts(ps)
-            try:
-                pool = selection_engine.build_pool(request, ps.PhotoAdapter())
-                entry["pool_size"] = len(pool)
-                # Пятёрка — как её видит отбор: без кадров, уже показанных
-                # этой рукой раньше (анти-дубль по id общий на эпизод).
-                fresh = [p for p in pool if p.get("id") not in ids] or pool
-                entry["head"] = [cand_row(ps, p) for p in fresh[:ps.FAST_PHOTO_DEDUP_MAX_TRIES]]
-                from collections import Counter
-                entry["pool_channels"] = dict(Counter(ps.candidate_channel(p) for p in pool))
-                got = ps.select_media(request, "photo")
-                side = ps.read_media_sidecar(got) if got else {}
-                entry["winner"] = str(side.get("pexels_id")) if side.get("pexels_id") else None
-                entry["winner_file"] = got
-                entry["chosen_by"] = side.get("chosen_by")
-                entry["relevance"] = side.get("relevance")
-                entry["quality"] = side.get("quality")
-                entry["verdicts"] = side.get("verdicts")
-            except Exception as e:  # noqa: BLE001 — замер не падает от одной фразы
-                entry["error"] = f"{type(e).__name__}: {str(e)[:300]}"
-            entry["source_trouble"] = _health_delta(health0, _source_health(ps))
-            if a.index < ps.SHOT_JUDGE_PAID_SLOTS:
-                # Платная зона: руки сравнимы, только если судья отработал у
-                # обеих. Отказы шлюза за фразу пишутся рядом; выключенный
-                # судья — ошибка фразы (дозапуск спросит её снова), и прогон
-                # останавливается, а не копит несравнимые строки.
-                gw1 = _judge_counts(ps)
-                entry["judge"] = {k: gw1[k] - gw0.get(k, 0) for k in ("calls", "failures", "spent")}
-                if gw1["dead"] or gw1["refused"]:
-                    entry["error"] = f"судья выключен: {gw1['dead'] or gw1['refused']}"
-                    row["arms"][name] = entry
-                    done[key] = row
-                    with open(out_path, "w", encoding="utf-8") as f:
-                        json.dump(done, f, ensure_ascii=False, indent=1)
-                    print(f"  [{key}] {name}: {entry['error']} — остановка", flush=True)
-                    return 3
-            row["arms"][name] = entry
-            print(f"  [{key}] {name}: куча {entry.get('pool_size')}, пятёрка "
-                  f"{[h['channel'] for h in entry.get('head') or []]}, победитель {entry.get('winner')}"
-                  + (f", сбои источников {entry['source_trouble']}" if entry["source_trouble"] else ""),
-                  flush=True)
+            break
         done[key] = row
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(done, f, ensure_ascii=False, indent=1)
@@ -390,6 +441,8 @@ def main(argv=None):
     r.add_argument("--arm", action="append", required=True, help="имя=путь к плану")
     r.add_argument("--out", required=True)
     r.add_argument("--limit", type=int, default=0, help="только первые N фраз (проверка харнесса)")
+    r.add_argument("--retry-pause", type=int, default=300,
+                   help="пауза перед повтором фразы со сбоем поиска, с; 0 — не повторять")
     r.add_argument("--index", type=int, default=FREE_INDEX,
                    help="индекс слота: по умолчанию бесплатная зона; меньше SHOT_JUDGE_PAID_SLOTS — платная (судья)")
     s = sub.add_parser("sheet")

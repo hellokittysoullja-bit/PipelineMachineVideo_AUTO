@@ -549,6 +549,17 @@ def test_the_head_of_a_multi_word_vehicle_is_banned_in_queries():
     assert [x["q"] for x in got[1]["queries"]] == ["arrows packed formation"]
 
 
+def test_the_head_of_a_vehicle_stays_allowed_when_the_shot_shows_it():
+    """Образ «boiling water» в фильме про глубоководье: «water» — главное слово
+    образа, но вода и есть кадр. Прежнее правило выбрасывало запрос
+    «bioluminescence dark water» (27.09, 3 ложных выброса из 3 на 541 запросе)."""
+    q = ('[{"q": "bioluminescence dark water", "for": ["core"]}, {"q": "boiling water pot", "for": ["core"]}]')
+    raw = _shot(1, "glowing plankton in black water is visible", q, reading="figurative",
+                vehicle='["boiling water"]', shot="tiny blue-green points of living light scattered through black water")
+    got, _ = sqp.parse_window(raw, _window(1))
+    assert [x["q"] for x in got[1]["queries"]] == ["bioluminescence dark water"]
+
+
 def test_at_most_two_must_claims_besides_the_core():
     """Каждое лишнее «must» (руки, грязь, фон) отдаёт выбор судьи кадру с
     обстановкой, но без предмета фразы (замер 26.09 на снимке эп.94)."""
