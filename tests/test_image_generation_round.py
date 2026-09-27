@@ -186,17 +186,17 @@ def test_generation_round_builds_the_request_and_candidates(monkeypatch, tmp_pat
     assert req.query == desc and req.extra_queries == () and req.shot_spec is SPEC
     base = _request()                     # бриф, фраза и слот — те же, меняется только поиск
     assert (req.shot_brief, req.block_text, req.index) == (base.shot_brief, base.block_text, base.index)
-    assert [c["id"][:4] for c in items] == ["gen:", "gen:"] and len(painter.calls) == sg.VARIANTS
+    assert [c["id"][:4] for c in items] == ["gen:"] * sg.VARIANTS and len(painter.calls) == sg.VARIANTS
     assert all(p.startswith(desc.rstrip(".")) for p in painter.calls)
     log = ps.GENERATION_LOG[-1]
     assert log["description"] == desc and log["description_origin"] == "model"
-    assert len(log["variants"]) == 2 and log["trigger"] == "failed"
+    assert len(log["variants"]) == sg.VARIANTS and log["trigger"] == "failed"
 
 
 def test_a_refused_variant_does_not_lose_the_other(monkeypatch, tmp_path):
     ps = _ps()
     req, items = _live_round(ps, monkeypatch, tmp_path, Painter(fail_first=True))
-    assert len(items) == 1 and "content_filter" in ps.GENERATION_LOG[-1]["errors"][0]
+    assert len(items) == sg.VARIANTS - 1 and "content_filter" in ps.GENERATION_LOG[-1]["errors"][0]
 
 
 def test_generation_round_with_no_picture_is_none(monkeypatch, tmp_path):
@@ -206,7 +206,7 @@ def test_generation_round_with_no_picture_is_none(monkeypatch, tmp_path):
         def image(self, *a):
             raise RuntimeError("524")
     assert _live_round(ps, monkeypatch, tmp_path, Dead()) is None
-    assert ps.GENERATION_LOG[-1]["variants"] == [] and len(ps.GENERATION_LOG[-1]["errors"]) == 2
+    assert ps.GENERATION_LOG[-1]["variants"] == [] and len(ps.GENERATION_LOG[-1]["errors"]) == sg.VARIANTS
 
 
 def test_no_frame_goes_straight_to_generation_weak_frame_searches_first():
