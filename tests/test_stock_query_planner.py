@@ -531,9 +531,12 @@ def test_queries_name_the_thing_and_the_kind_of_picture_not_the_framing():
     """Живой пул бесплатной зоны (26.09, 26 фраз четырёх ниш, руки в одном
     процессе, разметка вслепую): у задания, чьи запросы описывали композицию
     кадра («hand holding dagger two fingers», «dagger blade between armour
-    plates»), сумма меток победителей 17 против 27 у прежнего задания с
-    запросами «предмет + вид снимка» («rondel dagger museum», «lymphocyte cell
-    microscope»). Поиск находит по названию снимка, композицию проверяет судья."""
+    plates»), сумма меток победителей 17 против 27 у плана v3 с запросами
+    «предмет + вид снимка» («rondel dagger museum», «lymphocyte cell
+    microscope»). Размер разницы завышен: этот план v3 оказался удачной
+    выборкой (вторая выборка того же вопроса — 32 против 40 на 40 фразах,
+    27.09). Механизм виден и без суммы: композицию стоки читают как руки и
+    реквизит. Поиск находит по названию снимка, композицию проверяет судья."""
     t = sqp.SPEC_PROMPT
     assert "not how this shot is framed" in t
     assert "checked by the judge on the picture, not searched" in t

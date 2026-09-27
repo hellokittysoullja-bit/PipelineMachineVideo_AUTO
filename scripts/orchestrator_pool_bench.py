@@ -34,7 +34,12 @@ selection_engine.build_pool и select_media — получают задание 
 треть кандидатов). Перед рукой прогон ждёт здоровых источников, сбои за
 руку пишутся в source_trouble, итог считается и по «чистым» фразам.
 Победитель слота здесь — то, что выбрал прод-отбор из пятёрки; ролика не
-собирается.
+собирается. Одна выборка плана — ещё не правило запросов: две выборки
+одного и того же вопроса v3 разошлись на 8–9 меток на 40 фразах, сильнее
+разных вопросов (27.09), поэтому правило сравнивают минимум двумя
+выборками плана. Руки из разных процессов сравнимы только через якорь —
+тот же план, прогнанный рядом; дозапуск новых рук в ту же папку
+повторяет при сбое источника только их, прежние руки остаются как были.
 """
 import argparse
 import json
@@ -204,9 +209,9 @@ def cmd_run(a):
         # каким он был до неё; второй сбой остаётся в записи, и фраза
         # честно идёт в «нечистые».
         snapshot = {name: (set(st[0]), list(st[1])) for name, st in state.items()}
+        row = done.get(key) or {"ep": a.ep, "text": it["text"], "note": it.get("note"), "arms": {}}
         for attempt in (0, 1):
-            row = (done.get(key) if attempt == 0 else None) or {"ep": a.ep, "text": it["text"],
-                                                                 "note": it.get("note"), "arms": {}}
+            ran_now = []
             # Порядок рук чередуется по фразам: вторая рука подряд чаще попадает
             # на остывание Мет, вызванное первой, и без чередования это был бы
             # систематический сдвиг против одной и той же руки.
@@ -269,13 +274,16 @@ def cmd_run(a):
                         print(f"  [{key}] {name}: {entry['error']} — остановка", flush=True)
                         return 3
                 row["arms"][name] = entry
+                ran_now.append(name)
                 print(f"  [{key}] {name}: куча {entry.get('pool_size')}, пятёрка "
                       f"{[h['channel'] for h in entry.get('head') or []]}, победитель {entry.get('winner')}"
                       + (f", сбои источников {entry['source_trouble']}" if entry["source_trouble"] else ""),
                       flush=True)
-            trouble = [n for n, e in row["arms"].items() if _searched_badly(e.get("source_trouble"))]
+            # Повторяются только руки, прогнанные сейчас: руки из прежней записи
+            # (дозапуск новой руки) остаются как были.
+            trouble = [n for n in ran_now if _searched_badly(row["arms"][n].get("source_trouble"))]
             if attempt == 0 and trouble and a.retry_pause > 0:
-                print(f"  [{key}] сбой поиска у {trouble} — пауза {a.retry_pause} с и повтор фразы всеми руками",
+                print(f"  [{key}] сбой поиска у {trouble} — пауза {a.retry_pause} с и повтор фразы руками {ran_now}",
                       flush=True)
                 import time
                 time.sleep(a.retry_pause)
@@ -285,6 +293,7 @@ def cmd_run(a):
                 ps.PEXELS_BROKEN = False
                 for name, (ids0, hashes0) in snapshot.items():
                     state[name] = (set(ids0), list(hashes0))
+                row["arms"] = {n: e for n, e in row["arms"].items() if n not in ran_now}
                 continue
             break
         done[key] = row
