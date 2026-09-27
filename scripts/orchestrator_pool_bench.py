@@ -27,8 +27,14 @@ selection_engine.build_pool и select_media — получают задание 
 
 ЧЕСТНЫЕ ПРЕДЕЛЫ. Только фото. Метки — глаза Claude, а не владельца. Живая
 выдача источников плывёт во времени — руки гоняются в одном процессе
-подряд по каждой фразе, чтобы сравнивать одну и ту же выдачу. Победитель
-слота здесь — то, что выбрал прод-отбор из пятёрки; ролика не собирается.
+подряд по каждой фразе, чтобы сравнивать одну и ту же выдачу, порядок рук
+чередуется по фразам. Руку, прогнанную отдельным процессом позже, с
+остальными сравнивать нельзя: квота Pexels и троттлинг Мет и Commons
+меняются за минуты (первый прогон так и сломался — у поздней руки Мет дал
+треть кандидатов). Перед рукой прогон ждёт здоровых источников, сбои за
+руку пишутся в source_trouble, итог считается и по «чистым» фразам.
+Победитель слота здесь — то, что выбрал прод-отбор из пятёрки; ролика не
+собирается.
 """
 import argparse
 import json
@@ -80,6 +86,57 @@ def _replay_used(st, entry):
             ids.add(int(entry["winner"]))
 
 
+def _source_health(ps):
+    """Снимок счётчиков отказа источников: ошибки поиска по каналам, остывания
+    и потери карточек Мет, пропуски Pexels по квоте. Разница снимков до и
+    после руки говорит, собиралась ли её куча при здоровых источниках.
+
+    Зачем. Первый прогон этого замера гонял третью руку отдельным процессом,
+    позже и параллельно с другими прогонами: у неё Мет отдал 235 кандидатов
+    против 341 у первой руки, Commons — 221 против 380, а у одной фразы Мет и
+    Commons дали по ОДНОМУ кандидату против 121 и 53. Разница пятёрок была бы
+    записана заданию, хотя её сделала квота и троттлинг источников."""
+    import museum_sources
+    st = {}
+    for src, v in ps.SOURCE_STATS.items():
+        st[f"{src}.search_errors"] = v.get("search_errors", 0)
+        st[f"{src}.download_errors"] = v.get("download_errors", 0)
+    st["met.cooldowns"] = museum_sources.FETCH_STATS.get("met_cooldowns", 0)
+    st["met.cards_lost"] = (museum_sources.FETCH_STATS.get("met_cards_lost", 0)
+                            + museum_sources.FETCH_STATS.get("met_lost_cards", 0))
+    st["pexels.quota_skipped"] = ps.PEXELS_LOW_PRIORITY_SKIPPED
+    st["pexels.broken"] = int(bool(ps.PEXELS_BROKEN))
+    return st
+
+
+def _health_delta(before, after):
+    return {k: after.get(k, 0) - before.get(k, 0) for k in set(before) | set(after)
+            if after.get(k, 0) - before.get(k, 0)}
+
+
+def _wait_for_healthy_sources(ps, max_wait=3600):
+    """Перед рукой — дождаться, пока Мет выйдет из остывания и у Pexels
+    останется квота: куча руки не должна собираться на полуживых источниках."""
+    import time
+    import museum_sources
+    waited = 0
+    while waited < max_wait:
+        # Остаток квоты Pexels обновляется только ответом Pexels: после паузы
+        # он снова «неизвестен», и следующий вызов покажет настоящий.
+        low = ps.PEXELS_QUOTA_LEFT is not None and ps.PEXELS_QUOTA_LEFT < 15
+        cooling = museum_sources.met_is_cooling_down()
+        if not (low or cooling):
+            return waited
+        print(f"    источники: ждём ({'квота Pexels ' + str(ps.PEXELS_QUOTA_LEFT) if low else ''}"
+              f"{' остывание Мет' if cooling else ''})", flush=True)
+        pause = 600 if low else 30
+        time.sleep(pause)
+        waited += pause
+        if low:
+            ps.PEXELS_QUOTA_LEFT = None
+    return waited
+
+
 def _judge_counts(ps):
     st = ps._SHOT_JUDGE_STATE
     gw = st.get("gateway")
@@ -113,7 +170,10 @@ def cmd_run(a):
                 _replay_used(state[name], done[key]["arms"][name])
             continue
         row = done.get(key) or {"ep": a.ep, "text": it["text"], "note": it.get("note"), "arms": {}}
-        for name, specs in arms:
+        # Порядок рук чередуется по фразам: вторая рука подряд чаще попадает
+        # на остывание Мет, вызванное первой, и без чередования это был бы
+        # систематический сдвиг против одной и той же руки.
+        for name, specs in (arms if k % 2 == 0 else arms[::-1]):
             if name in row["arms"] and "error" not in row["arms"][name]:
                 # Рука уже прогнана по этой фразе (дозапуск другой руки):
                 # не повторять, но её анти-дубль обязан знать победителя.
@@ -133,6 +193,8 @@ def cmd_run(a):
                 used_hashes=hashes, recent_sizes=[])
             entry = {"text": text, "focus": spec["focus"], "queries": qs,
                      "types": [x.get("type") for x in spec["queries"]]}
+            entry["waited_sec"] = _wait_for_healthy_sources(ps)
+            health0 = _source_health(ps)
             gw0 = _judge_counts(ps)
             try:
                 pool = selection_engine.build_pool(request, ps.PhotoAdapter())
@@ -153,6 +215,7 @@ def cmd_run(a):
                 entry["verdicts"] = side.get("verdicts")
             except Exception as e:  # noqa: BLE001 — замер не падает от одной фразы
                 entry["error"] = f"{type(e).__name__}: {str(e)[:300]}"
+            entry["source_trouble"] = _health_delta(health0, _source_health(ps))
             if a.index < ps.SHOT_JUDGE_PAID_SLOTS:
                 # Платная зона: руки сравнимы, только если судья отработал у
                 # обеих. Отказы шлюза за фразу пишутся рядом; выключенный
@@ -170,7 +233,8 @@ def cmd_run(a):
                     return 3
             row["arms"][name] = entry
             print(f"  [{key}] {name}: куча {entry.get('pool_size')}, пятёрка "
-                  f"{[h['channel'] for h in entry.get('head') or []]}, победитель {entry.get('winner')}",
+                  f"{[h['channel'] for h in entry.get('head') or []]}, победитель {entry.get('winner')}"
+                  + (f", сбои источников {entry['source_trouble']}" if entry["source_trouble"] else ""),
                   flush=True)
         done[key] = row
         with open(out_path, "w", encoding="utf-8") as f:
@@ -258,39 +322,61 @@ def cmd_sheet(a):
     return 0
 
 
+def _arm_stats(rows_arms):
+    s = {"phrases": 0, "winner_sum": 0, "winner_known": 0, "winner_bad": 0,
+         "no_winner": 0, "head_best_sum": 0, "head_good": 0, "head_n": 0}
+    for e, head, win in rows_arms:
+        known = [x for x in head if x is not None]
+        s["phrases"] += 1
+        if e.get("winner") is None:
+            s["no_winner"] += 1
+        elif win is not None:
+            s["winner_known"] += 1
+            s["winner_sum"] += win
+            s["winner_bad"] += 1 if win == 0 else 0
+        s["head_best_sum"] += max(known) if known else 0
+        s["head_good"] += sum(1 for x in known if x >= 1)
+        s["head_n"] += len(known)
+    return s
+
+
+def _searched_badly(trouble):
+    """Куча собиралась при отказе поиска: ошибка поиска источника, остывание
+    Мет, пропуск Pexels по квоте. Сбой скачивания превью — нет: он бывает и в
+    рендере, и бьёт по выбору из готовой кучи, а не по её составу."""
+    return any(k.endswith(".search_errors") or k in ("met.cooldowns", "pexels.quota_skipped",
+                                                     "pexels.broken")
+               for k in (trouble or {}))
+
+
 def cmd_score(a):
+    """Итог по рукам — по всем фразам и отдельно по «чистым»: где ни у одной
+    руки куча не собиралась при сбоях источников (source_trouble пуст)."""
     runs = json.load(open(os.path.join(a.out, "runs.json"), encoding="utf-8"))
     index = json.load(open(os.path.join(a.out, "sheets", "index.json"), encoding="utf-8"))
     labels = json.load(open(a.labels, encoding="utf-8"))
-    per = {}
-    rows = []
+    by_arm, clean_by_arm, rows = {}, {}, []
     for key, row in runs.items():
         lab = {index[key][t]: v for t, v in (labels.get(key) or {}).items() if t in index.get(key, {})}
         unlabeled = [t for t in index.get(key, {}) if t not in (labels.get(key) or {})]
         if unlabeled:
             print(f"  {key}: без метки плитки {unlabeled}")
-        line = {"key": key, "text": row["text"]}
+        clean = not any(_searched_badly(e.get("source_trouble")) for e in row["arms"].values())
+        line = {"key": key, "text": row["text"], "clean": clean}
         for name, e in row["arms"].items():
             head = [lab.get(h["id"]) for h in e.get("head") or []]
-            known = [x for x in head if x is not None]
             win = lab.get(e.get("winner")) if e.get("winner") else None
-            s = per.setdefault(name, {"phrases": 0, "winner_sum": 0, "winner_known": 0, "winner_bad": 0,
-                                      "no_winner": 0, "head_best_sum": 0, "head_good": 0, "head_n": 0})
-            s["phrases"] += 1
-            if e.get("winner") is None:
-                s["no_winner"] += 1
-            elif win is not None:
-                s["winner_known"] += 1
-                s["winner_sum"] += win
-                s["winner_bad"] += 1 if win == 0 else 0
-            s["head_best_sum"] += max(known) if known else 0
-            s["head_good"] += sum(1 for x in known if x >= 1)
-            s["head_n"] += len(known)
-            line[name] = {"winner": win, "head": head}
+            by_arm.setdefault(name, []).append((e, head, win))
+            if clean:
+                clean_by_arm.setdefault(name, []).append((e, head, win))
+            line[name] = {"winner": win, "head": head, "source_trouble": e.get("source_trouble")}
         rows.append(line)
-    print(json.dumps(per, ensure_ascii=False, indent=1))
+    per = {name: _arm_stats(v) for name, v in by_arm.items()}
+    per_clean = {name: _arm_stats(v) for name, v in clean_by_arm.items()}
+    print(json.dumps({"all": per, "clean": per_clean}, ensure_ascii=False, indent=1))
     with open(os.path.join(a.out, "score.json"), "w", encoding="utf-8") as f:
-        json.dump({"per_arm": per, "rows": rows}, f, ensure_ascii=False, indent=1)
+        json.dump({"per_arm": per, "per_arm_clean": per_clean, "rows": rows}, f,
+                  ensure_ascii=False, indent=1)
     return 0
 
 

@@ -170,6 +170,29 @@ def cmd_cascade(a):
     return 0
 
 
+def cached_orders(store, pr, ps):
+    """Порядок пулов снимка по прод-каскаду не зависит от задания руки —
+    считается один раз и кладётся рядом с превью. Ключ — файлы снимка и
+    исходник каскада: правка любого из них пересчитывает порядок."""
+    import hashlib
+    import inspect
+    h = hashlib.sha256()
+    for name in ("pools.json.gz", "specs.json", "emb.npz"):
+        st = os.stat(os.path.join(FIX, name))
+        h.update(f"{name}|{st.st_size}|{st.st_mtime_ns}".encode())
+    for fn in (ps.cascade_reorder, ps.cascade_texts, ps.cascade_claims):
+        h.update(inspect.getsource(fn).encode("utf-8"))
+    path = os.path.join(store, "orders_" + h.hexdigest()[:16] + ".json")
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    orders = pr.fixture_orders(FIX)
+    os.makedirs(store, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(orders, f)
+    return orders
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--spec", required=True, choices=("v3", "v5"))
@@ -203,7 +226,7 @@ def main(argv=None):
     cg_veto = not world_card.renders_allowed(card)
     pools, labels = load_fixture(a.run, a.kind)
     lab = pr.merged_labels(labels)
-    orders = pr.fixture_orders(FIX)
+    orders = cached_orders(a.store, pr, ps)
     specs = v3_specs() if a.spec == "v3" else v5_specs(a.plan)
     model = ps.shot_judge_model()
     gw = llm_gateway.Gateway(spend_cap=a.cap)

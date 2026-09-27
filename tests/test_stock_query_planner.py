@@ -522,6 +522,23 @@ def test_about_is_the_subject_not_the_event_or_the_other_noun():
     # утверждения. Тот же вывод дал замер 25.09 (shot_judge.nothing_met).
     assert "EVERY correct picture of it satisfies" in t
     assert "A subtype, a feature, a material and anything it does are claims" in t
+    # Подвид в главное приносила библия: её сквозной предмет назывался точным
+    # типом («the rondel dagger»), хотя в тексте — просто «кинжал».
+    assert "the narration's own word for it, even when the film bible knows its exact type" in t
+
+
+def test_queries_name_the_thing_and_the_kind_of_picture_not_the_framing():
+    """Живой пул бесплатной зоны (26.09, 26 фраз четырёх ниш, руки в одном
+    процессе, разметка вслепую): у задания, чьи запросы описывали композицию
+    кадра («hand holding dagger two fingers», «dagger blade between armour
+    plates»), сумма меток победителей 17 против 27 у прежнего задания с
+    запросами «предмет + вид снимка» («rondel dagger museum», «lymphocyte cell
+    microscope»). Поиск находит по названию снимка, композицию проверяет судья."""
+    t = sqp.SPEC_PROMPT
+    assert "not how this shot is framed" in t
+    assert "checked by the judge on the picture, not searched" in t
+    assert "so it is the plainest: the core and the kind of picture" in t
+    assert "not the same words with an extra word" in t
 
 
 def test_the_head_of_a_multi_word_vehicle_is_banned_in_queries():
