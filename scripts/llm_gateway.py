@@ -362,12 +362,18 @@ class Gateway:
             raise GatewayError("нет LLM_GATEWAY_API_KEY")
         with self._lock:
             first = self._first_call.setdefault(model, threading.Lock())
-        if model in self._ratio:
-            return self._chat(model, content, max_tokens, estimate_prompt_tokens, temperature, timeout,
-                              reasoning)
-        with first:
-            return self._chat(model, content, max_tokens, estimate_prompt_tokens, temperature, timeout,
-                              reasoning)
+        if model not in self._ratio:
+            with first:
+                # Первый вызов идёт один, пока цена не известна. Потоки, что
+                # ждали его здесь, дальше идут параллельно: раньше каждый из
+                # них держал замок весь свой вызов, и первая волна параллельных
+                # вызовов шла гуськом (замер 27.09: восемь проверок подписей —
+                # по одной за раз, пока исполнитель не выдал потокам новые).
+                if model not in self._ratio:
+                    return self._chat(model, content, max_tokens, estimate_prompt_tokens, temperature,
+                                      timeout, reasoning)
+        return self._chat(model, content, max_tokens, estimate_prompt_tokens, temperature, timeout,
+                          reasoning)
 
     def _chat(self, model, content, max_tokens, estimate_prompt_tokens, temperature, timeout,
               reasoning=None):

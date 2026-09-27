@@ -281,6 +281,44 @@ def test_known_price_keeps_calls_parallel():
     assert "m/vision" in gw._ratio and gw.spent == 3 * (100 * 0.5 + 10 * 2)
 
 
+def test_calls_that_waited_for_the_first_price_then_run_in_parallel():
+    """Первый вызов модели идёт один: его цена становится резервом следующих.
+    Но потоки, что ждали его, дальше должны идти параллельно. Раньше каждый
+    из них держал замок первого вызова весь свой вызов, и первая волна
+    параллельных вызовов шла гуськом (замер 27.09: восемь проверок подписей
+    DeepSeek-ом по одной за раз)."""
+    import concurrent.futures
+    import threading
+    events, guard = [], threading.Lock()
+    start = threading.Barrier(6)
+
+    class SlowOpener(Opener):
+        def __call__(self, req, timeout):
+            if req.full_url.endswith("/models"):
+                return super().__call__(req, timeout)
+            with guard:
+                events.append("start")
+            threading.Event().wait(0.15)   # time.sleep заглушён фикстурой
+            with guard:
+                events.append("end")
+            return super().__call__(req, timeout)
+
+    gw = lg.Gateway(api_key="k", opener=SlowOpener([ok() for _ in range(6)]))
+
+    def call(_):
+        start.wait()
+        return gw.chat("m/vision", [{"type": "text", "text": "q"}], 50, 1000)[0]
+
+    with concurrent.futures.ThreadPoolExecutor(6) as ex:
+        assert list(ex.map(call, range(6))) == ["{}"] * 6
+    assert events[:2] == ["start", "end"], "первый вызов модели обязан идти один"
+    depth = peak = 0
+    for e in events:
+        depth += 1 if e == "start" else -1
+        peak = max(peak, depth)
+    assert peak >= 2, f"после первого вызова ждавшие шли гуськом: {events}"
+
+
 def test_reasoning_switch_follows_the_models_thinking_format():
     """DeepSeek на длинном вопросе игнорирует reasoning.enabled=false и
     тратит весь выход на рассуждение (замер 24.09) — у него свой выключатель."""
