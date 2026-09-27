@@ -209,18 +209,39 @@ def test_generation_round_with_no_picture_is_none(monkeypatch, tmp_path):
     assert ps.GENERATION_LOG[-1]["variants"] == [] and len(ps.GENERATION_LOG[-1]["errors"]) == 2
 
 
-def test_ladder_runs_generation_after_the_second_round_and_by_its_rule():
-    """Ступень стоит в main() ПОСЛЕ второго круга, срабатывает по тому же
-    триггеру и встаёт по тому же правилу (research_takes_over): брак —
-    никогда, замену вытесняет только строго лучший."""
+def test_no_frame_goes_straight_to_generation_weak_frame_searches_first():
+    """Решение владельца 27.09: кадра нет совсем — сразу генерация (секунды),
+    второй круг поиска (минуты) — запасным; есть замена без главного —
+    сначала второй круг: настоящий кадр ценнее рисунка."""
+    ps = _ps()
+    assert ps.ladder_steps("failed") == ("generation", "research")
+    assert ps.ladder_steps("weak") == ("research", "generation")
+    assert ps.ladder_steps(None) == ()
+
+
+def test_both_last_steps_take_over_by_the_same_rule():
+    """Обе ступени встают по research_takes_over: брак — никогда, замену
+    вытесняет только строго лучший; после каждой ступени повод
+    пересчитывается, и нашедшийся кадр останавливает лестницу."""
     ps = _ps()
     src = inspect.getsource(ps.main)
-    i_research = src.index("research_round_request(i, b, request, trigger)")
-    i_gen = src.index("generation_round(i, b, request, trigger)")
-    assert i_research < i_gen
-    tail = src[i_gen:i_gen + 1200]
-    assert "with generated_pool(items_g):" in tail
-    assert "research_takes_over(trigger, cur_att, got_att)" in tail
+    i_loop = src.index("for step in ladder:")
+    body = src[i_loop:i_loop + 4000]
+    assert "trigger = research_trigger(cur_att)" in body and "break" in body
+    assert "research_round_request(i, b, request, trigger)" in body
+    assert "generation_round(i, b, request, trigger)" in body
+    assert "with generated_pool(items_g):" in body
+    assert body.count("research_takes_over(trigger, cur_att, got_att)") == 2
+
+
+def test_slot_steps_are_timed():
+    """Время слота по ступеням (STAGE_TIMER): первый вид, второй вид,
+    вторая страница, второй круг, генерация и слот целиком."""
+    ps = _ps()
+    src = inspect.getsource(ps.main)
+    for name in ("slot_first", "slot_other_kind", "slot_page2", "slot_research",
+                 "slot_generation", "slot_total"):
+        assert f'"{name}"' in src, name
 
 
 def test_report_is_written_when_generation_ran():

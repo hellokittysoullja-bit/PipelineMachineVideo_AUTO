@@ -6832,6 +6832,18 @@ def _generation_gateway():
     return _GENERATION_GATEWAY[0]
 
 
+def ladder_steps(trigger):
+    """Порядок двух последних ступеней слота. Кадра нет совсем — сразу
+    генерация (секунды), второй круг поиска (минуты) — запасным. Есть
+    замена без главного — сначала второй круг: настоящий кадр ценнее
+    рисунка. Нет повода — ступеней нет."""
+    if trigger == "failed":
+        return ("generation", "research")
+    if trigger == "weak":
+        return ("research", "generation")
+    return ()
+
+
 def generation_round(index, block, request, trigger="failed"):
     """(запрос слота для ступени генерации, сгенерированные кандидаты) или
     None.
@@ -17481,7 +17493,14 @@ def main():
     # rescale_hook_words_to_visual_time().
     hook_words = rescale_hook_words_to_visual_time(hook_words, blocks, sub_starts, sub_baseline,
                                                      visual_starts, durs)
+    _slot_clock = None
     for i, (b, d) in enumerate(zip(blocks, durs)):
+        # Время слота целиком (STAGE_TIMER=1): записывается при переходе к
+        # следующему слоту — у тела цикла несколько ранних continue.
+        if _slot_clock is not None:
+            stage_timer.record("slot_total", time.perf_counter() - _slot_clock[1],
+                               clip_idx=_slot_clock[0])
+        _slot_clock = (i, time.perf_counter())
         # ПЕРЕНОС ДЛИТЕЛЬНОСТИ ОТ ПОГЛОЩЁННЫХ СЛОТОВ. Слот, которому нечего
         # честно показать, не получает своего клипа — его время достаётся
         # ЭТОМУ клипу, то есть предыдущий проверенный кадр (а точнее —
@@ -17846,14 +17865,15 @@ def main():
                 director_report=director_entry, video_score_fn=video_sentence_fn,
                 used_photo_ids=used_photo_ids, used_video_ids=used_video_ids,
                 used_hashes=used_photo_hashes, recent_sizes=recent_shot_sizes)
-            if prefer_video:
-                video = fetch_in_attempt(slot_attempts, i, "video", select_media, request, "video")
-                if not video:
-                    photo = fetch_in_attempt(slot_attempts, i, "photo", select_media, request, "photo")
-            else:
-                photo = fetch_in_attempt(slot_attempts, i, "photo", select_media, request, "photo")
-                if not photo and d >= MIN_CLIP + 1.0:
+            with stage_timer.stage("slot_first", clip_idx=i):
+                if prefer_video:
                     video = fetch_in_attempt(slot_attempts, i, "video", select_media, request, "video")
+                    if not video:
+                        photo = fetch_in_attempt(slot_attempts, i, "photo", select_media, request, "photo")
+                else:
+                    photo = fetch_in_attempt(slot_attempts, i, "photo", select_media, request, "photo")
+                    if not photo and d >= MIN_CLIP + 1.0:
+                        video = fetch_in_attempt(slot_attempts, i, "video", select_media, request, "video")
             # ФОТО ИЛИ ВИДЕО — ПО ОЦЕНКЕ СУДЬИ. Первый вид выбран правилом
             # выше (действие во фразе, ритм), но это догадка по тексту: какой
             # кадр лучше показывает фразу, знает только тот, кто на кадры
@@ -17874,7 +17894,8 @@ def main():
             other_tried = any(a.kind == other_kind for a in slot_attempts)
             if (shot_judge_active(i) and not stat and d >= MIN_CLIP + 1.0 and not other_tried
                     and first_score is not None and not quality_perfect(_as_quality(first_score))):
-                other = fetch_in_attempt(slot_attempts, i, other_kind, select_media, request, other_kind)
+                with stage_timer.stage("slot_other_kind", clip_idx=i, kind=other_kind):
+                    other = fetch_in_attempt(slot_attempts, i, other_kind, select_media, request, other_kind)
                 if other:
                     other_att = attempt_of(slot_attempts, other)
                     other_score = (other_att.notes.get("quality") or other_att.notes.get("judge_score")) \
@@ -17889,62 +17910,69 @@ def main():
             cur_att = attempt_of(slot_attempts, photo or video)
             if (shot_judge_active(i) and not locked_shot
                     and (cur_att is None or known_bad_reason(cur_att.verdicts))):
-                with cascade_page(1):
+                with cascade_page(1), stage_timer.stage("slot_page2", clip_idx=i):
                     page2 = fetch_in_attempt(slot_attempts, i, "photo", select_media, request, "photo")
                 page2_att = attempt_of(slot_attempts, page2)
                 if page2 and page2_att is not None and not known_bad_reason(page2_att.verdicts):
                     print(f"    [{i+1}] кадр найден на второй странице каскада")
                     photo, video = page2, None
-            # ВТОРОЙ КРУГ ПОИСКА (shot_research): годного кадра нет и на
-            # второй странице — значит его нет в том, что принесли запросы
-            # первого круга (замер глубины пула эп.94, места 21-200). Мозг
-            # видит причины отказов и пишет новые запросы; новая куча
-            # проходит того же судью. Нашлось — кадр на экран, нет — прежний
-            # путь (поглощение соседним кадром).
+            # ВТОРОЙ КРУГ ПОИСКА (shot_research) И ГЕНЕРАЦИЯ КАДРА
+            # (shot_generator) — две последние ступени, и их порядок зависит
+            # от того, что не так со слотом (решение владельца 27.09):
+            #   * кадра нет совсем ("failed") — СРАЗУ генерация: второй круг
+            #     стоит новую кучу с судьёй (минуты), генерация — секунды и
+            #     те же проверки; второй круг остаётся запасным, если
+            #     генерация годного кадра не дала;
+            #   * есть замена без главного ("weak") — сначала второй круг:
+            #     настоящий кадр ценнее рисунка, генерация — если и он не
+            #     помог.
+            # Правило у обеих ступеней одно (research_takes_over): брак —
+            # никогда, замену вытесняет только строго лучший по проверке.
             cur_att = attempt_of(slot_attempts, photo or video)
             trigger = (research_trigger(cur_att) if shot_judge_active(i) and not locked_shot
                        else None)
-            if trigger:
-                req2 = research_round_request(i, b, request, trigger)
-                if req2 is not None:
-                    import stock_query_planner
-                    kinds = (["video", "photo"] if stock_query_planner.has_motion(req2.shot_spec, must=True)
-                             and d >= MIN_CLIP + 1.0 and not stat else ["photo"])
-                    for k2 in kinds:
-                        got = fetch_in_attempt(slot_attempts, i, k2, select_media, req2, k2)
-                        got_att = attempt_of(slot_attempts, got)
-                        if got and research_takes_over(trigger, cur_att, got_att):
-                            print(f"    [{i+1}] кадр найден вторым кругом поиска ({k2})"
-                                  + (" — лучше ближайшей замены" if trigger == "weak" else ""))
-                            photo, video = (got, None) if k2 == "photo" else (None, got)
-                            RESEARCH_ROUND_LOG[-1]["found"] = k2
-                            break
-                        if got and trigger == "weak":
-                            print(f"    [{i+1}] второй круг: {k2} не лучше ближайшей замены — "
-                                  f"остаётся прежний кадр")
-            # ГЕНЕРАЦИЯ КАДРА (shot_generator): после второго круга в
-            # источниках годного кадра всё ещё нет или стоит замена без
-            # главного — мозг описывает кадр, генератор рисует варианты в
-            # стиле канала, и они проходят того же судью. Правило то же, что
-            # у второго круга: брак никогда, замену вытесняет только строго
-            # лучший по проверке.
-            cur_att = attempt_of(slot_attempts, photo or video)
-            trigger = (research_trigger(cur_att) if shot_judge_active(i) and not locked_shot
-                       else None)
-            if trigger:
-                gen_round = generation_round(i, b, request, trigger)
-                if gen_round is not None:
-                    req_g, items_g = gen_round
-                    with generated_pool(items_g):
-                        got = fetch_in_attempt(slot_attempts, i, "photo", select_media, req_g, "photo")
-                    got_att = attempt_of(slot_attempts, got)
-                    if got and research_takes_over(trigger, cur_att, got_att):
-                        print(f"    [{i+1}] встал сгенерированный кадр"
-                              + (" — лучше ближайшей замены" if trigger == "weak" else ""))
-                        photo, video = got, None
-                        GENERATION_LOG[-1]["found"] = True
-                    elif got:
-                        print(f"    [{i+1}] сгенерированный кадр не лучше — остаётся прежний")
+            ladder = ladder_steps(trigger)
+            for step in ladder:
+                cur_att = attempt_of(slot_attempts, photo or video)
+                trigger = research_trigger(cur_att)
+                if not trigger:
+                    break
+                if step == "research":
+                    with stage_timer.stage("slot_research", clip_idx=i, trigger=trigger):
+                        req2 = research_round_request(i, b, request, trigger)
+                        if req2 is not None:
+                            import stock_query_planner
+                            kinds = (["video", "photo"]
+                                     if stock_query_planner.has_motion(req2.shot_spec, must=True)
+                                     and d >= MIN_CLIP + 1.0 and not stat else ["photo"])
+                            for k2 in kinds:
+                                got = fetch_in_attempt(slot_attempts, i, k2, select_media, req2, k2)
+                                got_att = attempt_of(slot_attempts, got)
+                                if got and research_takes_over(trigger, cur_att, got_att):
+                                    print(f"    [{i+1}] кадр найден вторым кругом поиска ({k2})"
+                                          + (" — лучше ближайшей замены" if trigger == "weak" else ""))
+                                    photo, video = (got, None) if k2 == "photo" else (None, got)
+                                    RESEARCH_ROUND_LOG[-1]["found"] = k2
+                                    break
+                                if got and trigger == "weak":
+                                    print(f"    [{i+1}] второй круг: {k2} не лучше ближайшей замены — "
+                                          f"остаётся прежний кадр")
+                else:
+                    with stage_timer.stage("slot_generation", clip_idx=i, trigger=trigger):
+                        gen_round = generation_round(i, b, request, trigger)
+                        if gen_round is not None:
+                            req_g, items_g = gen_round
+                            with generated_pool(items_g):
+                                got = fetch_in_attempt(slot_attempts, i, "photo", select_media, req_g,
+                                                       "photo")
+                            got_att = attempt_of(slot_attempts, got)
+                            if got and research_takes_over(trigger, cur_att, got_att):
+                                print(f"    [{i+1}] встал сгенерированный кадр"
+                                      + (" — лучше ближайшей замены" if trigger == "weak" else ""))
+                                photo, video = got, None
+                                GENERATION_LOG[-1]["found"] = True
+                            elif got:
+                                print(f"    [{i+1}] сгенерированный кадр не лучше — остаётся прежний")
             # Раньше Pexels отключался навсегда после ЛЮБОГО промаха, включая
             # обычную пустую выдачу по одному неудачному запросу. Гасим источник
             # только если API реально отвалился.
@@ -18886,6 +18914,8 @@ def main():
               f"(кэш из прошлого прогона) — для честного shadow/assist-прогона на этом эпизоде "
               f"очисти temp_smart/ и перезапусти.")
 
+    if _slot_clock is not None:
+        stage_timer.record("slot_total", time.perf_counter() - _slot_clock[1], clip_idx=_slot_clock[0])
     if SELECT_ONLY:
         return finish_select_only(shot_entries, len(blocks))
 
