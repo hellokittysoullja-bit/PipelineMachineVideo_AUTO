@@ -4640,7 +4640,7 @@ _SOURCE_ERROR_PRINTED = set()
 #: узнать об этом было неоткуда» — здесь наоборот, источник молча давал
 #: чужое имя.
 CANDIDATE_ID_PREFIXES = ("met", "euro", "chicago", "cleveland", "openverse",
-                         "pixabay", "unsplash", "commons", "local")
+                         "pixabay", "unsplash", "commons", "local", "gen")
 
 
 def candidate_source(p):
@@ -6816,6 +6816,70 @@ def research_round_request(index, block, request, trigger="failed"):
         shot_spec=dict(spec, queries=shot_research.as_spec_queries(items)))
 
 
+GENERATION_LOG = []            # по слоту: описание кадра, варианты и чем кончилось
+_GENERATION_GATEWAY = []
+
+
+def _generation_gateway():
+    """Шлюз генерации — один на прогон. Потолок IMAGE_GEN_MAX_SPEND, по
+    умолчанию 0: генерирующая модель в каталоге бесплатна, и если она
+    станет платной, шлюз откажет ДО вызова по резерву, а не спишет баланс.
+    Описание кадра пишет мозг через шлюз второго круга (его потолок)."""
+    if not _GENERATION_GATEWAY:
+        import llm_gateway
+        raw = (os.environ.get("IMAGE_GEN_MAX_SPEND") or "").strip()
+        _GENERATION_GATEWAY.append(llm_gateway.Gateway(spend_cap=int(raw) if raw.isdigit() else 0))
+    return _GENERATION_GATEWAY[0]
+
+
+def generation_round(index, block, request, trigger="failed"):
+    """(запрос слота для ступени генерации, сгенерированные кандидаты) или
+    None.
+
+    Последняя ступень поиска кадра, после второго круга: в источниках
+    годного кадра нет (trigger "failed") или есть только замена без главного
+    фразы ("weak"). Мозг пишет описание кадра (shot_generator.describe),
+    генератор рисует VARIANTS вариантов в стиле канала, и они становятся
+    кандидатами слота — их судит тот же судья по той же спецификации.
+    None — ступени не будет: флаг снят, нет ключа или спецификации, ни один
+    вариант не сгенерирован."""
+    if not feature_flags.enabled("IMAGE_GENERATION"):
+        return None
+    spec = block.get("shot_spec")
+    if not spec or not (os.environ.get("LLM_GATEWAY_API_KEY") or "").strip():
+        return None
+    import dataclasses
+    import shot_generator
+    import stock_query_planner
+    card = episode_world_card()
+    cache = os.path.join(TEMP_FOLDER, "generated")
+    entry = {"index": index, "phrase": block.get("text"), "trigger": trigger}
+    desc, dinfo = shot_generator.describe(
+        _research_gateway(), stock_query_planner.DEFAULT_MODEL, phrase=block.get("text"),
+        spec=spec, brief=request.shot_brief, card=card, cache_dir=cache)
+    entry.update({"description": desc, "description_origin": dinfo.get("origin")})
+    if dinfo.get("error"):
+        entry["description_error"] = dinfo["error"]
+    style = shot_generator.style_for()
+    got, errors = [], []
+    for v in range(shot_generator.VARIANTS):
+        r = shot_generator.generate(_generation_gateway(), desc, card, cache, variant=v, style=style)
+        (errors if r.get("error") else got).append(r.get("error") or r)
+    entry.update({"variants": [m["key"] for m in got], "errors": errors,
+                  "prompt": got[0]["prompt"] if got else None})
+    GENERATION_LOG.append(entry)
+    if not got:
+        print(f"    [{index+1}] генерация кадра не состоялась: {'; '.join(errors)[:200]}")
+        return None
+    print(f"    [{index+1}] сгенерировано вариантов: {len(got)} — «{desc[:90]}»")
+    # Запрос ступени — само описание кадра: гейт релевантности сверяет
+    # кандидата с запросом, и служебный ключ вместо текста дал бы ему
+    # бессмысленную оценку. Описание же входит в ключ кэша слота, поэтому
+    # новый рисунок не отдаётся из кэша под старым.
+    req = dataclasses.replace(request, query=desc, extra_queries=())
+    return req, [shot_generator.candidate(m) for m in got]
+
+
 def episode_world_card(video_dir=None):
     """Паспорт мира этого эпизода или None. Сломанный файл — исключение,
     а не None: на паспорте держится приёмка кадра, и «тихо считать, что
@@ -7949,6 +8013,10 @@ class PhotoAdapter(selection_engine.MediaAdapter):
         shot_type = shot_type_of_query(pq, request.shot_spec)
         department = met_department_for_query(pq, shot_type)
         jobs = []
+        gen = GENERATED_POOL.get()
+        if gen is not None:
+            return [("gen", lambda items=gen, st=shot_type, q=pq:
+                     [dict(c, _origin_query=q, _shot_type=st) for c in items])]
         # Файл Шага 4 этого слота — первым источником: кандидат, а не
         # готовый ответ (см. local_stock_candidate). Повтор в других
         # запросах пула снимает unique_by_id.
@@ -12032,6 +12100,10 @@ def cascade_cache_dir():
 # кадр. Вторая страница — отдельная попытка слота (main), и только там,
 # где первая не дала годного кадра: платит один провалившийся слот.
 CASCADE_PAGE = contextvars.ContextVar("CASCADE_PAGE", default=0)
+# Куча ступени генерации (generation_round): пока задана, фото-адаптер
+# собирает кучу ТОЛЬКО из сгенерированных кандидатов — поиск по источникам
+# этот слот уже прошёл дважды (первый и второй круг).
+GENERATED_POOL = contextvars.ContextVar("GENERATED_POOL", default=None)
 
 
 @contextlib.contextmanager
@@ -12041,6 +12113,15 @@ def cascade_page(n):
         yield
     finally:
         CASCADE_PAGE.reset(token)
+
+
+@contextlib.contextmanager
+def generated_pool(items):
+    token = GENERATED_POOL.set(list(items))
+    try:
+        yield
+    finally:
+        GENERATED_POOL.reset(token)
 
 
 def cascade_preview_n():
@@ -13064,7 +13145,8 @@ def candidate_provenance(p):
     if not isinstance(p, dict):
         return None
     shelf = p.get("_shelf_meta")
-    meta = p.get("_museum_meta") or p.get("_openverse_meta") or p.get("_commons_meta") or shelf
+    meta = (p.get("_museum_meta") or p.get("_openverse_meta") or p.get("_commons_meta") or shelf
+            or p.get("_gen_meta"))
     if not meta:
         return None
     out = {"id": p.get("id"), "title": p.get("alt") or None,
@@ -17124,6 +17206,8 @@ def main():
     # Второй круг поиска — журнал и шлюз (со своим потолком) на прогон.
     RESEARCH_ROUND_LOG.clear()
     _RESEARCH_GATEWAY.clear()
+    GENERATION_LOG.clear()
+    _GENERATION_GATEWAY.clear()
     CAPTION_SCREEN_LOG.clear()
     _CAPTION_SCREEN_GATEWAY.clear()
     # Каталоги попыток прерванного процесса — мусор: живых попыток при
@@ -17838,6 +17922,29 @@ def main():
                         if got and trigger == "weak":
                             print(f"    [{i+1}] второй круг: {k2} не лучше ближайшей замены — "
                                   f"остаётся прежний кадр")
+            # ГЕНЕРАЦИЯ КАДРА (shot_generator): после второго круга в
+            # источниках годного кадра всё ещё нет или стоит замена без
+            # главного — мозг описывает кадр, генератор рисует варианты в
+            # стиле канала, и они проходят того же судью. Правило то же, что
+            # у второго круга: брак никогда, замену вытесняет только строго
+            # лучший по проверке.
+            cur_att = attempt_of(slot_attempts, photo or video)
+            trigger = (research_trigger(cur_att) if shot_judge_active(i) and not locked_shot
+                       else None)
+            if trigger:
+                gen_round = generation_round(i, b, request, trigger)
+                if gen_round is not None:
+                    req_g, items_g = gen_round
+                    with generated_pool(items_g):
+                        got = fetch_in_attempt(slot_attempts, i, "photo", select_media, req_g, "photo")
+                    got_att = attempt_of(slot_attempts, got)
+                    if got and research_takes_over(trigger, cur_att, got_att):
+                        print(f"    [{i+1}] встал сгенерированный кадр"
+                              + (" — лучше ближайшей замены" if trigger == "weak" else ""))
+                        photo, video = got, None
+                        GENERATION_LOG[-1]["found"] = True
+                    elif got:
+                        print(f"    [{i+1}] сгенерированный кадр не лучше — остаётся прежний")
             # Раньше Pexels отключался навсегда после ЛЮБОГО промаха, включая
             # обычную пустую выдачу по одному неудачному запросу. Гасим источник
             # только если API реально отвалился.
@@ -18582,6 +18689,17 @@ def main():
             if rows:
                 found = sum(1 for e in rows if e.get("found"))
                 print(f"  Второй круг поиска {name}: слотов {len(rows)}, кадр лучше найден в {found}")
+    if GENERATION_LOG:
+        # Генерация кадра: что описал мозг, сколько вариантов нарисовано и
+        # встал ли какой-то на экран — иначе по готовому ролику не ответить,
+        # какие кадры рисованные.
+        ggw = _GENERATION_GATEWAY[0] if _GENERATION_GATEWAY else None
+        with open(os.path.join(VIDEO_FOLDER, "media_plan", "image_generation_report.json"), "w",
+                  encoding="utf-8") as f:
+            json.dump({"gateway": ggw.summary() if ggw else None, "slots": GENERATION_LOG},
+                      f, ensure_ascii=False, indent=1)
+        found = sum(1 for e in GENERATION_LOG if e.get("found"))
+        print(f"  Генерация кадра: слотов {len(GENERATION_LOG)}, сгенерированный кадр встал в {found}")
     if CAPTION_SCREEN_LOG:
         # Отсев по подписи: что убрано до судьи и во сколько обошлось.
         cgw = _CAPTION_SCREEN_GATEWAY[0] if _CAPTION_SCREEN_GATEWAY else None

@@ -54,6 +54,9 @@ def _isolate_from_real_dotenv(monkeypatch, tmp_path):
     # RESEARCH_ROUND — второй круг поиска зовёт модель через шлюз; тест,
     # которому он нужен, включает его сам.
     monkeypatch.setenv("RESEARCH_ROUND", "0")
+    # IMAGE_GENERATION — генерация кадра зовёт шлюз; тест, которому она
+    # нужна, включает её сам.
+    monkeypatch.setenv("IMAGE_GENERATION", "0")
     # CAPTION_SCREEN — отсев по подписи зовёт DeepSeek через шлюз; тест,
     # которому он нужен, включает его сам.
     monkeypatch.setenv("CAPTION_SCREEN", "0")
