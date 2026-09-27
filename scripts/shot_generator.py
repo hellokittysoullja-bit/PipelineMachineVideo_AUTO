@@ -61,7 +61,7 @@ import pathlib
 
 # Версия способа построения кадра: меняется промпт или разбор — меняется
 # ключ кэша, и кэш не отдаёт картинку, сделанную по старому правилу.
-GEN_VERSION = 2
+GEN_VERSION = 3
 
 DEFAULT_MODEL = "am/flux.2-klein-4b"
 DEFAULT_SIZE = "1792x1024"
@@ -96,25 +96,19 @@ def style_for(profile=None):
     return " ".join(str(s).split()) if isinstance(s, str) and s.strip() else STYLE_DEFAULT
 
 
-def _year(y):
-    return f"{-y} BC" if y < 0 else f"{y} AD"
-
-
 def prompt_for(brief, card=None, style=None):
-    """Промпт кадра: описание предмета первым + рамка мира эпизода + стиль.
+    """Промпт кадра: описание предмета первым + стиль.
 
-    Рамка мира берётся ТОЛЬКО из паспорта эпизода (world_card): окно
-    эпохи. Паспорта нет или окна нет — рамки нет, а не чужая."""
-    import world_card
+    ГОДОВ В ПРОМПТЕ НЕТ — найдено живым прогоном эп.98 (27.09): рамка
+    «set in 700 AD-2024 AD» рисовалась маленькой моделью как НАДПИСЬ на
+    картинке — «700–2024 AD» стояло на трёх рисунках из четырёх, и судья это
+    пропустил. Эпоху генератору передаёт описание кадра словами (describe
+    получает мир эпизода и запрет писать даты). card оставлен в подписи:
+    вызывающие его передают, а смысл — «мир эпизода известен описанию»."""
     brief = (brief or "").strip().rstrip(".")
     if not brief:
         return None
-    parts = [brief]
-    window = world_card.era_window(card) if card else None
-    if window:
-        parts.append(f"set in {_year(window[0])}-{_year(window[1])}")
-    parts.append(style or STYLE_DEFAULT)
-    return ", ".join(parts)
+    return ", ".join([brief, style or STYLE_DEFAULT])
 
 
 DESCRIBE_VERSION = 1
@@ -127,8 +121,9 @@ Rules — the image model is small and literal:
 2. If the subject is an object the model may not know by name, describe how it looks, or use a familiar object with the same meaning (a timer set for a short task -> a glass hourglass).
 3. Show an action through a close-up detail (a hand pressing a laptop lid shut), not a whole person doing it.
 4. People are ordinary and clothed. No famous people.
-5. No writing anywhere: no text, letters, numbers, signs, labels, screens with words, documents, books with writing.
-6. Do not describe the drawing style, only what is in the picture.
+5. No writing anywhere: no text, letters, numbers, dates, years, signs, labels, screens with words, documents, books with writing.
+6. If the world is historical, name the period in words inside the description, never as years or digits.
+7. Do not describe the drawing style, only what is in the picture.
 Reply with the description only."""
 
 

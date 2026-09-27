@@ -13,21 +13,23 @@ EGYPT = {"register": "historical", "era": {"from": -2600, "to": -30}}
 PSYCHOLOGY = {"register": "abstract", "era": None}
 
 
-def test_prompt_is_brief_first_then_the_episode_world():
+def test_prompt_is_description_first_and_forbids_text():
     p = sg.prompt_for("an arrow glancing off a dented steel breastplate.", MEDIEVAL)
     assert p.startswith("an arrow glancing off a dented steel breastplate,")
-    assert "set in 1300 AD-1500 AD" in p and "no text" in p
+    assert "no text" in p
 
 
-def test_no_world_means_no_frame_not_someone_elses():
-    """Эпизод без эпохи не получает чужую эпоху: ни «medieval», ни годов."""
-    p = sg.prompt_for("a phone lying face down on a bedside table", PSYCHOLOGY)
-    assert "set in" not in p and "medieval" not in p.lower()
-    assert "set in" not in sg.prompt_for("a phone on a table", None)
+def test_no_years_reach_the_image_model():
+    """Живой дефект эп.98: «set in 700 AD-2024 AD» в промпте модель рисовала
+    надписью «700–2024 AD» на картинке. Годов в промпте нет ни в каком мире."""
+    import re
+    for card in (MEDIEVAL, EGYPT, PSYCHOLOGY, None):
+        p = sg.prompt_for("a wrapped mummy", card)
+        assert "set in" not in p and not re.search(r"\d", p), p
 
 
-def test_bc_years_are_written_as_bc():
-    assert "set in 2600 BC-30 BC" in sg.prompt_for("a wrapped mummy", EGYPT)
+def test_describe_is_told_to_name_the_period_in_words():
+    assert "never as years or digits" in sg.DESCRIBE_PROMPT and "dates, years" in sg.DESCRIBE_PROMPT
 
 
 def test_module_holds_no_niche_words():
@@ -65,8 +67,9 @@ def test_second_run_is_served_from_cache(tmp_path):
 def test_prompt_change_misses_the_cache(tmp_path):
     gw = Gw()
     sg.generate(gw, "a dagger", MEDIEVAL, str(tmp_path))
-    sg.generate(gw, "a dagger", EGYPT, str(tmp_path))
-    assert len(gw.calls) == 2
+    sg.generate(gw, "a dagger on a table", MEDIEVAL, str(tmp_path))
+    sg.generate(gw, "a dagger on a table", MEDIEVAL, str(tmp_path), style="soft gouache, no text")
+    assert len(gw.calls) == 3
 
 
 def test_gateway_failure_is_a_reason_not_an_exception(tmp_path):
