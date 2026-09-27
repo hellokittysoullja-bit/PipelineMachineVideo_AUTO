@@ -136,6 +136,14 @@ def _isolate_from_real_dotenv(monkeypatch, tmp_path):
     # спецификациями кадров — платно, и результат теста зависел от ответа
     # модели. Существующую пустую переменную load_dotenv() не перезаписывает.
     monkeypatch.setenv("LLM_GATEWAY_API_KEY", "")
+    # SLOT_PREFETCH — фоновые потоки поиска следующих слотов. В тесте,
+    # дошедшем до цикла слотов, они ходили бы в сеть параллельно с ним и
+    # делали бы результат зависимым от порядка потоков. Тест упреждения
+    # включает его сам.
+    monkeypatch.setenv("SLOT_PREFETCH", "0")
+    # CLIP_ENCODER — на машине с NVENC тесты рендера кодировали бы клипы
+    # другим кодером, чем тот, под который написаны их проверки.
+    monkeypatch.setenv("CLIP_ENCODER", "x264")
 
 
 @pytest.fixture(scope="session")

@@ -48,6 +48,7 @@ relevance-гейта) — не бесплатно по времени, толь�
 причина, почему off остаётся дефолтом.
 
 Не самостоятельный CLI-скрипт — вызывается из scripts/pipeline_smart.py."""
+import functools
 import hashlib
 import json
 import os
@@ -779,10 +780,35 @@ def _get_jina_session():
                                         # одна картинка+один текст, не батч 95, см.
                                         # находку про батч-95-OOM в git-логе)
         _jina_session = ort.InferenceSession(onnx_path, sess_options=so,
-                                              providers=["CPUExecutionProvider"])
+                                              providers=jina_providers())
         _jina_tokenizer = AutoTokenizer.from_pretrained(JINA_MODEL_REPO,
                                                          trust_remote_code=False)
     return _jina_session, _jina_tokenizer
+
+
+@functools.lru_cache(maxsize=1)
+def jina_providers():
+    """Где считать Jina (ONNX): CUDA, если модели отбора стоят на видеокарте
+    (ml_device) И установлена сборка onnxruntime с CUDA (пакет
+    onnxruntime-gpu); иначе процессор, как раньше. Узлы, которых у CUDA нет
+    (квантованные операции), onnxruntime сам отдаёт процессору — поэтому
+    процессор всегда стоит в списке вторым."""
+    import ml_device
+    if ml_device.device() != "cuda":
+        return ["CPUExecutionProvider"]
+    try:
+        import onnxruntime as ort
+        if "CUDAExecutionProvider" in ort.get_available_providers():
+            return ["CUDAExecutionProvider", "CPUExecutionProvider"]
+    except Exception:
+        pass
+    return ["CPUExecutionProvider"]
+
+
+def jina_device_tag():
+    """Часть отпечатка модели: пустая, пока Jina на процессоре (отпечаток
+    прежний); на CUDA векторы Jina не смешиваются с процессорными."""
+    return "" if jina_providers()[0] == "CPUExecutionProvider" else "@jina-cuda"
 
 
 def _jina_relevance(image_path, block_text):
@@ -1033,7 +1059,7 @@ def _relevance_model_signature():
     # Устройство модели (ml_device): на процессоре — пустая строка, отпечаток
     # прежний; на видеокарте векторы не смешиваются с посчитанными на CPU.
     import ml_device
-    parts += ml_device.tag()
+    parts += ml_device.tag() + jina_device_tag()
     return hashlib.md5(parts.encode()).hexdigest()[:16]
 
 

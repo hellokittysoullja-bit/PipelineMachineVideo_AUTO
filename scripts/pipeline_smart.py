@@ -293,6 +293,77 @@ CLIP_PIX_ARGS = ["-pix_fmt", "yuv420p10le", "-profile:v", "high10"]
 RENDER_PRESET = "veryfast"
 RENDER_CRF = "17"
 
+# КОДЕР ПРОМЕЖУТОЧНЫХ КЛИПОВ (флаг CLIP_ENCODER: auto / x264 / nvenc).
+# Клипы — промежуточный материал: финальный проход (xfade_chain) их
+# перекодирует, поэтому кодер клипа влияет на время рендера, а не на формат
+# доставки. На видеокарте NVIDIA кодирование уходит в аппаратный NVENC и
+# освобождает процессор под фильтры (наезд, грейд, зерно считаются на
+# процессоре при любом кодере). 10-битный H.264 у NVENC нет ни в одном
+# поколении, поэтому на NVENC клип — HEVC Main10 (те же 10 бит, что у
+# CLIP_PIX_ARGS, против полос на тёмных градиентах). Качество CQ 16 выбрано
+# с запасом к x264 CRF 17 и НЕ замерено на живой видеокарте — в среде, где
+# это писалось, её нет. На процессоре (auto без NVENC, x264) аргументы
+# прежние.
+NVENC_CQ = "16"
+NVENC_CLIP_ARGS = ["-c:v", "hevc_nvenc", "-preset", "p6", "-tune", "hq", "-rc", "vbr",
+                   "-cq", NVENC_CQ, "-b:v", "0", "-profile:v", "main10", "-pix_fmt", "p010le"]
+# Сбой NVENC посреди прогона (занята сессия кодера, драйвер) переводит ЭТОТ
+# процесс на x264 до конца прогона: клип не должен выпасть из ролика из-за
+# кодера, который есть и у процессора.
+_NVENC_BROKEN = [False]
+
+
+def nvenc_works():
+    """Кодирует ли этот ffmpeg 10-битный HEVC на NVENC — проверкой, а не по
+    списку кодеров: кодер бывает собран в ffmpeg без видеокарты рядом."""
+    try:
+        r = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
+             "color=c=gray:s=256x144:d=0.2:r=24", "-frames:v", "3"] + NVENC_CLIP_ARGS
+            + ["-f", "null", "-"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def resolve_clip_encoder():
+    """Решить кодер клипов один раз на прогон и передать решение воркерам
+    рендера через окружение (они стартуют spawn'ом после этого вызова)."""
+    choice = feature_flags.mode("CLIP_ENCODER")
+    enc = "x264"
+    if choice in ("auto", "nvenc"):
+        if nvenc_works():
+            enc = "nvenc"
+        elif choice == "nvenc":
+            print("  ВНИМАНИЕ: CLIP_ENCODER=nvenc, но NVENC в этом ffmpeg не работает — клипы на x264")
+    os.environ["CLIP_ENCODER_RESOLVED"] = enc
+    return enc
+
+
+def clip_encoder():
+    """'nvenc' или 'x264' для очередного клипа. Без решения main() (тесты,
+    отдельный вызов функции рендера) — x264, то есть прежний путь."""
+    if _NVENC_BROKEN[0]:
+        return "x264"
+    return "nvenc" if os.environ.get("CLIP_ENCODER_RESOLVED") == "nvenc" else "x264"
+
+
+def clip_codec_args():
+    """Аргументы кодера клипа (кодек, качество, формат пикселя). На x264 —
+    ровно прежние libx264/RENDER_PRESET/RENDER_CRF/CLIP_PIX_ARGS."""
+    if clip_encoder() == "nvenc":
+        return list(NVENC_CLIP_ARGS)
+    return ["-c:v", "libx264", "-preset", RENDER_PRESET, "-crf", RENDER_CRF] + CLIP_PIX_ARGS
+
+
+def note_encoder_failure(stderr):
+    """Ошибка ffmpeg, вызванная NVENC, — переключить процесс на x264."""
+    if clip_encoder() == "nvenc" and "nvenc" in (stderr or "").lower():
+        if not _NVENC_BROKEN[0]:
+            print("  NVENC отказал — дальше в этом процессе клипы кодируются x264")
+        _NVENC_BROKEN[0] = True
+
 # Отдельная, НАМЕРЕННО более качественная пара для ЕДИНСТВЕННОГО прохода,
 # который видит всю склейку сразу (xfade_chain — уходит на YouTube без
 # второго прохода, финальный мукс делает -c:v copy) и для freeze-подкладки
@@ -4722,9 +4793,35 @@ def _source_bump(source, field, n=1):
     st[field] += n
 
 
+# УПРЕЖДАЮЩИЙ ПОИСК (slot_prefetch.py, флаг SLOT_PREFETCH). Пока слот i
+# ждёт судью, фоновый поток собирает кучи слотов i+1..i+K: поиск по
+# источникам, превью и эмбеддинги каскада. Всё это — ТОЛЬКО прогрев дисковых
+# кэшей, которые слот и так прочтёт. В кэши на процесс упреждающий поиск не
+# пишет: в них хранится и ПУСТОЙ ответ после сбоя источника (разовый 429 у
+# упреждения превратился бы в пустой источник у слота), а по кэшу Pexels
+# решается, пускать ли запрос сверх квоты. Счётчики, от которых зависят
+# решения (Unsplash, пропуски квоты Pexels, серия сбоев Pexels), он тоже не
+# трогает — поэтому куча слота та же, что без упреждения.
+_PREFETCH_ACTIVE = contextvars.ContextVar("SLOT_PREFETCH_ACTIVE", default=False)
+
+
+def prefetching():
+    """True внутри упреждающего поиска (фоновый поток slot_prefetch)."""
+    return _PREFETCH_ACTIVE.get()
+
+
+def _cache_put(cache, key, value):
+    """Запись в кэш поиска на процесс — только из самого слота."""
+    if not prefetching():
+        cache[key] = value
+
+
 def _note_source_search_error(source, exc, label=""):
     """Ошибка поиска у источника — считается и печатается один раз за прогон
-    на источник (не на каждый слот: сотни одинаковых строк скрыли бы лог)."""
+    на источник (не на каждый слот: сотни одинаковых строк скрыли бы лог).
+    Ошибка упреждающего поиска не считается: слот спросит сам."""
+    if prefetching():
+        return
     _source_bump(source, "search_errors")
     if source not in _SOURCE_ERROR_PRINTED:
         _SOURCE_ERROR_PRINTED.add(source)
@@ -6316,11 +6413,27 @@ _PEXELS_SEARCH_CACHE = {}   # {api_query: [photo, ...]} — на процесс,
 SEARCH_DISK_CACHE_TTL_SEC = 30 * 24 * 3600
 
 
+_SEARCH_KEY_LOCKS = {}
+_SEARCH_KEY_LOCKS_GUARD = threading.Lock()
+
+
 def cached_search_json(source, key, fetch):
     """Ответ fetch() с дисковым кэшем по (source, key); пустой ответ тоже
-    кэшируется — пустая выдача такой же ответ источника, как полная."""
+    кэшируется — пустая выдача такой же ответ источника, как полная.
+
+    Один ключ — один запрос в сеть за раз: упреждающий поиск и слот могут
+    спросить одно и то же одновременно, и второй ждёт ответа первого из
+    кэша, а не тратит квоту источника повторно. Сбой первого в кэш не
+    попадает — второй спрашивает сам."""
     d = os.environ.get("SEARCH_CACHE_DIR") or os.path.join(TEMP_FOLDER, "search_cache")
     fp = os.path.join(d, f"{source}_{hashlib.sha1(key.encode('utf-8')).hexdigest()}.json")
+    with _SEARCH_KEY_LOCKS_GUARD:
+        lock = _SEARCH_KEY_LOCKS.setdefault(fp, threading.Lock())
+    with lock:
+        return _cached_search_json_locked(fp, d, fetch)
+
+
+def _cached_search_json_locked(fp, d, fetch):
     try:
         if time.time() - os.path.getmtime(fp) < SEARCH_DISK_CACHE_TTL_SEC:
             with open(fp, encoding="utf-8") as f:
@@ -6373,7 +6486,7 @@ def _pexels_search_photos(api_query):
             return json.load(r)
     data = cached_search_json("pexels_photo", f"{api_query}|80|landscape", fetch)
     photos = data.get("photos") or []
-    _PEXELS_SEARCH_CACHE[api_query] = photos
+    _cache_put(_PEXELS_SEARCH_CACHE, api_query, photos)
     return photos
 
 
@@ -6391,6 +6504,15 @@ def _note_pexels_quota(resp):
 
 
 def pexels_query_allowed(api_query, cache, low_priority):
+    if prefetching():
+        # Упреждение спрашивает Pexels только собственными запросами слота:
+        # их слот пустит всегда; дополнительные решаются по остатку квоты в
+        # момент самого слота.
+        return not low_priority
+    return _pexels_query_allowed(api_query, cache, low_priority)
+
+
+def _pexels_query_allowed(api_query, cache, low_priority):
     """Можно ли спросить Pexels этим запросом сейчас. Уже спрошенное (кэш) —
     всегда: это бесплатно. Собственный запрос слота — всегда. Дополнительный
     — только пока известный остаток квоты больше запаса на собственные
@@ -7229,7 +7351,7 @@ def _museum_search_photos(api_query, department=None):
     except Exception as e:
         _note_source_search_error("museum", e, api_query)
         results = []
-    _MUSEUM_SEARCH_CACHE[cache_key] = results
+    _cache_put(_MUSEUM_SEARCH_CACHE, cache_key, results)
     return results
 
 
@@ -7295,6 +7417,10 @@ def _shelf_search_photos(api_query, brief=None, limit=None):
     ошибка -> пустой список, пул собирается ровно как раньше."""
     if not feature_flags.enabled("SHELF_INDEX"):
         return []
+    if prefetching():
+        # Полка — локальный поиск без сети: упреждать нечего, а модель
+        # текста полки грузилась бы вторым потоком параллельно слоту.
+        return []
     text = (brief or api_query or "").strip()
     if not text:
         return []
@@ -7345,7 +7471,7 @@ def _shelf_search_photos(api_query, brief=None, limit=None):
     except Exception as e:
         _note_source_search_error("shelf", e, text)
         results = []
-    _SHELF_SEARCH_CACHE[cache_key] = results
+    _cache_put(_SHELF_SEARCH_CACHE, cache_key, results)
     return results
 
 
@@ -7394,7 +7520,7 @@ def _pixabay_search_photos(api_query):
     try:
         import stock_fetch_multisource as _ms
         if not _ms.PIXABAY_API_KEY:
-            _PIXABAY_PHOTO_CACHE[api_query] = []
+            _cache_put(_PIXABAY_PHOTO_CACHE, api_query, [])
             return []
         url = (f"https://pixabay.com/api/?key={_ms.PIXABAY_API_KEY}"
                f"&q={urllib.parse.quote(api_query)}&image_type=photo"
@@ -7423,7 +7549,7 @@ def _pixabay_search_photos(api_query):
         # рабочий Pexels-путь. Пустой список = пул собирается как раньше.
         _note_source_search_error("pixabay", e, api_query)
         out = []
-    _PIXABAY_PHOTO_CACHE[api_query] = out
+    _cache_put(_PIXABAY_PHOTO_CACHE, api_query, out)
     return out
 
 
@@ -7448,7 +7574,7 @@ def _pixabay_search_videos(api_query):
     try:
         import stock_fetch_multisource as _ms
         if not _ms.PIXABAY_API_KEY:
-            _PIXABAY_VIDEO_CACHE[api_query] = []
+            _cache_put(_PIXABAY_VIDEO_CACHE, api_query, [])
             return []
         url = (f"https://pixabay.com/api/videos/?key={_ms.PIXABAY_API_KEY}"
                f"&q={urllib.parse.quote(api_query)}&per_page=50&safesearch=true")
@@ -7481,7 +7607,7 @@ def _pixabay_search_videos(api_query):
     except Exception as e:
         _note_source_search_error("pixabay", e, api_query)
         out = []
-    _PIXABAY_VIDEO_CACHE[api_query] = out
+    _cache_put(_PIXABAY_VIDEO_CACHE, api_query, out)
     return out
 
 
@@ -7497,16 +7623,20 @@ def _unsplash_search_photos(api_query):
     """
     if not feature_flags.enabled("UNSPLASH_ENABLED"):
         return []
+    if prefetching():
+        # Потолок прогона считает и ответы из кэша — упреждение сдвинуло бы
+        # его, и слот после 45-го запроса получил бы другой ответ.
+        return []
     if api_query in _UNSPLASH_PHOTO_CACHE:
         return _UNSPLASH_PHOTO_CACHE[api_query]
     out = []
     try:
         import stock_fetch_multisource as _ms
         if not _ms.UNSPLASH_ACCESS_KEY:
-            _UNSPLASH_PHOTO_CACHE[api_query] = []
+            _cache_put(_UNSPLASH_PHOTO_CACHE, api_query, [])
             return []
         if _UNSPLASH_CALLS_THIS_RUN[0] >= _ms.UNSPLASH_HOURLY_CAP:
-            _UNSPLASH_PHOTO_CACHE[api_query] = []
+            _cache_put(_UNSPLASH_PHOTO_CACHE, api_query, [])
             return []
         params = (f"query={urllib.parse.quote(api_query)}&per_page=30"
                   f"&orientation=landscape")
@@ -7540,7 +7670,7 @@ def _unsplash_search_photos(api_query):
     except Exception as e:
         _note_source_search_error("unsplash", e, api_query)
         out = []
-    _UNSPLASH_PHOTO_CACHE[api_query] = out
+    _cache_put(_UNSPLASH_PHOTO_CACHE, api_query, out)
     return out
 
 
@@ -7681,7 +7811,7 @@ def _openverse_search_photos(api_query):
         import stock_fetch_multisource as _ov
         results = _search_with_variants(
             "Архивы", api_query, lambda v, first: _openverse_fetch_one(v, _ov))
-        _OPENVERSE_SEARCH_CACHE[api_query] = results
+        _cache_put(_OPENVERSE_SEARCH_CACHE, api_query, results)
         return results
     except Exception as e:
         # Fail-open на уровне ИСТОЧНИКА — тот же принцип, что PEXELS_BROKEN:
@@ -7691,7 +7821,7 @@ def _openverse_search_photos(api_query):
         # Но НЕ молча: Openverse отвечал 401 (поймано вживую 13.09), и до
         # этой строки узнать, что источник даёт ноль, было неоткуда.
         _note_source_search_error("openverse", e, api_query)
-        _OPENVERSE_SEARCH_CACHE[api_query] = []
+        _cache_put(_OPENVERSE_SEARCH_CACHE, api_query, [])
         return []
 
 
@@ -7786,7 +7916,7 @@ def _commons_search_photos(api_query):
     except Exception as e:  # noqa: BLE001 — источник, а не слот
         _note_source_search_error("commons", e, api_query)
         results = []
-    _COMMONS_SEARCH_CACHE[api_query] = results
+    _cache_put(_COMMONS_SEARCH_CACHE, api_query, results)
     return results
 
 
@@ -8167,13 +8297,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
         arbiter_text, is_opening_shot = request.arbiter_text, request.is_opening
         candidates = [p for p in photos if used_ids is None or p.get("id") not in used_ids] or photos
 
-        def download_probe(p, dest):
-            """Превью кандидата для оценки — см. candidate_probe_url()."""
-            url = candidate_probe_url(p)
-            headers = {"User-Agent": UA}
-            headers.update(p.get("_download_headers") or {})
-            atomic_url_download(urllib.request.Request(url, headers=headers), dest, timeout=20)
-            flatten_transparency(dest)
+        download_probe = download_photo_probe
 
         def download(p, dest):
             url = p["src"].get("large2x") or p["src"].get("large")
@@ -8723,6 +8847,73 @@ class PhotoAdapter(selection_engine.MediaAdapter):
 
 
 PHOTO_ADAPTER = PhotoAdapter()
+
+
+def download_photo_probe(p, dest):
+    """Превью фото-кандидата для оценки (каскад, гейты) — см.
+    candidate_probe_url(). Одна функция для слота и для упреждения: иначе
+    эмбеддинг из упреждающего кэша мог бы описывать не тот файл."""
+    url = candidate_probe_url(p)
+    headers = {"User-Agent": UA}
+    headers.update(p.get("_download_headers") or {})
+    atomic_url_download(urllib.request.Request(url, headers=headers), dest, timeout=20)
+    flatten_transparency(dest)
+
+
+class _PrefetchSources:
+    """Адаптер для упреждения: те же задания источников, но сбой источника
+    никуда не сообщается — ни в серию сбоев Pexels (PEXELS_BROKEN), ни в
+    отчёт. Слот спросит сам и сам решит, что это за сбой."""
+
+    def __init__(self, adapter):
+        self.adapter = adapter
+
+    def source_jobs(self, request, pq):
+        return self.adapter.source_jobs(request, pq)
+
+    def on_source_failure(self, request, name, exc):
+        return None
+
+
+def prefetch_slot_inputs(request, kind, cascade):
+    """Прогреть дисковые кэши слота: выдача источников по его запросам и,
+    если слот в платной зоне (cascade), превью и эмбеддинги каскада. Кэши на
+    процесс не пишутся (prefetching()), ничего не выбирается и не
+    оплачивается. Ошибки — наружу, их глотает slot_prefetch."""
+    token = _PREFETCH_ACTIVE.set(True)
+    try:
+        adapter = PHOTO_ADAPTER if kind == "photo" else VIDEO_ADAPTER
+        tiers = selection_engine.query_tiers(
+            request, selection_engine.pool_queries(request, adapter.brief_query(request)))
+        fetched = selection_engine.fetch_sources(request, _PrefetchSources(adapter),
+                                                 [pq for tier in tiers for pq in tier])
+        if not cascade:
+            return
+        pool = selection_engine.unique_by_id(
+            [c for tier in tiers
+             for c in selection_engine.round_robin(
+                 [selection_engine.round_robin(fetched[pq]) for pq in tier])])
+        # Жанровый фильтр платной зоны выбрасывает только явные id брака
+        # (остальное помечает) — то же здесь, без вопроса о шлюзе судьи.
+        pool = [c for c in pool if _candidate_block_key(c) not in CONTENT_BLOCKED_CANDIDATE_IDS]
+        if kind == "video" and request.slot_dur:
+            long_enough = [v for v in pool if not _video_candidate_too_short(v, request.slot_dur)]
+            pool = long_enough or pool
+        if len(pool) < 2:
+            return
+        d = os.path.join(TEMP_FOLDER, "prefetch")
+        os.makedirs(d, exist_ok=True)
+        cf = os.path.join(d, f"{request.index:04d}_{kind}")
+        spec, brief = request.shot_spec, request.shot_brief or request.query
+        if kind == "photo":
+            cascade_reorder(pool, cascade_texts(spec, brief, "photo"), cf, download_photo_probe,
+                            request.index, claims=cascade_claims(spec, "photo"))
+        else:
+            cascade_reorder(pool, cascade_texts(spec, brief, "video"), cf, video_middle_probe,
+                            request.index, url_of=video_middle_url,
+                            claims=cascade_claims(spec, "video"))
+    finally:
+        _PREFETCH_ACTIVE.reset(token)
 
 
 def select_media(request, kind):
@@ -10902,6 +11093,7 @@ def run_ffmpeg_with_retry(build_cmd, tmp_out, expected_dur, label=""):
         elif r.returncode != 0:
             stderr_tail = (r.stderr or "")[-200:] if hasattr(r, "stderr") else ""
             last_reason = f"ffmpeg вышел с кодом {r.returncode}: {stderr_tail}"
+            note_encoder_failure(getattr(r, "stderr", "") or "")
         else:
             ok, reason, _ = verify_clip(tmp_out, expected_dur)
             if ok:
@@ -11267,8 +11459,7 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
         # складывалось в секунды ухода видео от голоса (см.
         # quantize_durations_to_frames). Так же уже работает
         # parallax_kenburns(), путь просто приведён к одному виду.
-        cmd += ["-frames:v", str(frames), "-c:v", "libx264", "-preset", RENDER_PRESET,
-               "-crf", RENDER_CRF, "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS
+        cmd += ["-frames:v", str(frames)] + clip_codec_args() + ["-r", str(FPS)] + COLOR_META_ARGS
         if ffmpeg_threads:
             cmd += ["-threads", str(ffmpeg_threads)]
         cmd += [tmp_out]
@@ -12084,6 +12275,40 @@ def _shot_judge_gateway():
 # работающем судье: опыт мерил этот случай; без ключа отбор прежний.
 CASCADE_DEFAULT_PREVIEW_N = 1000
 CASCADE_WORKERS = 8
+# Пачка оценки каскада. На процессоре — прежние 16 (порядок и эмбеддинги до
+# бита прежние). На видеокарте пачка крупнее: 16 картинок не загружают T4 и
+# наполовину, а числа видеокарты и так лежат в своём кэше (ml_device.tag()).
+CASCADE_BATCH_CPU = 16
+CASCADE_BATCH_GPU = 64
+
+
+def print_compute_devices():
+    """Где в этом прогоне считаются модели и кодируются клипы — одной строкой
+    до начала работы. Видеокарта, которую torch не увидел (не та сборка
+    torch, нет драйвера), иначе выглядела бы как «на GPU всё так же медленно»."""
+    import ml_device
+    dev = ml_device.device()
+    name = ""
+    if dev == "cuda":
+        try:
+            import torch
+            name = f" ({torch.cuda.get_device_name(0)})"
+        except Exception:
+            pass
+    jina = "не используется"
+    if (feature_flags.mode("VISUAL_DIRECTOR_MODE") in ("shadow", "assist")
+            or feature_flags.enabled("SMART_RELEVANCE_VETO")):
+        try:
+            import visual_director
+            jina = "cuda" if visual_director.jina_device_tag() else "cpu"
+        except Exception:
+            jina = "?"
+    print(f"  Устройство моделей: {dev}{name}; Jina: {jina}; кодер клипов: {clip_encoder()}")
+
+
+def cascade_batch():
+    import ml_device
+    return CASCADE_BATCH_CPU if ml_device.device() == "cpu" else CASCADE_BATCH_GPU
 _CASCADE_EMB = {}
 
 
@@ -12267,7 +12492,7 @@ def _interleave(first, second):
     return out
 
 
-def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=16, url_of=None,
+def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=None, url_of=None,
                     claims=None, keep=None, keep_top=0):
     """Новый порядок кандидатов: первые cascade_preview_n() ранжированы по
     близости превью к текстам; кандидаты без превью — следом в прежнем
@@ -12301,6 +12526,7 @@ def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=16, url_o
     if isinstance(texts, str):
         texts = [texts]
     texts = [t for t in (texts or []) if t]
+    batch = batch or cascade_batch()
     n = cascade_preview_n()
     head = candidates[:n]
     if len(head) < 2 or not texts or np is None:
@@ -13703,6 +13929,7 @@ CLIP_GATE_MODEL_MAX_TEXT_LEN = 64   # max_position_embeddings текстовой
                                       # visual_director.py (не настраиваемый)
 
 _clip_model = None
+_CLIP_MODEL_LOCK = threading.Lock()
 _clip_processor = None
 
 
@@ -13714,12 +13941,19 @@ def get_clip_model():
     CLIPModel (joint forward -> .image_embeds/.text_embeds, get_text_features(),
     get_image_features()), проверено вживую перед переключением."""
     global _clip_model, _clip_processor
-    if _clip_model is None:
-        from transformers import AutoModel, AutoProcessor
-        import ml_device
-        _clip_model = ml_device.place(
-            AutoModel.from_pretrained(CLIP_GATE_MODEL_NAME, trust_remote_code=False).eval())
-        _clip_processor = AutoProcessor.from_pretrained(CLIP_GATE_MODEL_NAME, trust_remote_code=False)
+    if _clip_model is None or _clip_processor is None:
+        # Под замком: упреждающий поиск (slot_prefetch) зовёт модель из
+        # своего потока, и без замка два потока грузили бы её дважды, а
+        # второй мог увидеть модель без процессора.
+        with _CLIP_MODEL_LOCK:
+            if _clip_model is None or _clip_processor is None:
+                from transformers import AutoModel, AutoProcessor
+                import ml_device
+                model = ml_device.place(
+                    AutoModel.from_pretrained(CLIP_GATE_MODEL_NAME, trust_remote_code=False).eval())
+                _clip_processor = AutoProcessor.from_pretrained(CLIP_GATE_MODEL_NAME,
+                                                                trust_remote_code=False)
+                _clip_model = model
     return _clip_model, _clip_processor
 
 
@@ -14581,8 +14815,7 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
         else:
             cmd += ["-vf", vf]
         tmp_out = render_tmp_path(out)
-        cmd += ["-frames:v", str(frames), "-c:v", "libx264", "-preset", RENDER_PRESET, "-crf", RENDER_CRF,
-                "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS + [tmp_out]
+        cmd += ["-frames:v", str(frames)] + clip_codec_args() + ["-r", str(FPS)] + COLOR_META_ARGS + [tmp_out]
         # РЕАЛЬНЫЙ баг, пойманный на реальном продакшн-рендере (не гипотеза):
         # stderr=subprocess.PIPE здесь НИКОГДА не вычитывался, пока родитель
         # покадрово пишет сырое видео в stdin ниже — классический subprocess
@@ -14669,6 +14902,7 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
         if proc.returncode != 0:
             with open(stderr_path, "rb") as f:
                 err_tail = f.read().decode(errors="replace")[-200:]
+            note_encoder_failure(err_tail)
             print(f"  параллакс-рендер не встал ({os.path.basename(out)}): {err_tail}")
             finalize_render(tmp_out, out, False)
             return False
@@ -14918,9 +15152,8 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
         else:
             filter_complex = f"[0:v]{scale_crop}[base];{ramp_filter};[ramped]{full_tail}[vout]"
         cmd += ["-filter_complex", filter_complex,
-               "-map", "[vout]", "-frames:v", str(frames), "-an",
-               "-c:v", "libx264", "-preset", RENDER_PRESET, "-crf", RENDER_CRF,
-               "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS
+               "-map", "[vout]", "-frames:v", str(frames), "-an"] + clip_codec_args() + [
+               "-r", str(FPS)] + COLOR_META_ARGS
         if ffmpeg_threads:
             cmd += ["-threads", str(ffmpeg_threads)]
         cmd += [tmp_out]
@@ -14956,9 +15189,7 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
             cmd += ["-filter_complex", fc, "-map", "[vout]"]
         else:
             cmd += ["-vf", vf]
-        cmd += ["-frames:v", str(frames), "-an",
-                "-c:v", "libx264", "-preset", RENDER_PRESET, "-crf", RENDER_CRF,
-                "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS
+        cmd += ["-frames:v", str(frames), "-an"] + clip_codec_args() + ["-r", str(FPS)] + COLOR_META_ARGS
         if ffmpeg_threads:
             cmd += ["-threads", str(ffmpeg_threads)]
         cmd += [tmp_out]
@@ -15047,7 +15278,7 @@ def _pexels_search_videos(api_query):
             return json.load(r)
     data = cached_search_json("pexels_video", f"{api_query}|80|landscape", fetch)
     videos = data.get("videos") or []
-    _PEXELS_VIDEO_SEARCH_CACHE[api_query] = videos
+    _cache_put(_PEXELS_VIDEO_SEARCH_CACHE, api_query, videos)
     return videos
 
 
@@ -16600,6 +16831,10 @@ def render_recipe_signature():
         _luma_profile = luma_match_params()
         if _luma_profile != LUMA_MATCH_PROFILES["normal"]:
             parts.append(repr(("LUMA_MATCH", _luma_profile)))
+        # Кодер клипа — УСЛОВНО, тем же приёмом: на x264 подпись прежняя, на
+        # NVENC клипы другого кодера не берутся из кэша как свои.
+        if clip_encoder() == "nvenc":
+            parts.append(repr(("CLIP_ENCODER", NVENC_CLIP_ARGS)))
     except Exception:
         return "recipe:unknown"
     return "recipe:" + hashlib.md5("".join(parts).encode()).hexdigest()[:10]
@@ -16880,6 +17115,8 @@ def main():
     feature_flags.print_summary()
     check_ffmpeg_filters()
     check_ml_stack()
+    resolve_clip_encoder()
+    print_compute_devices()
     feature_flags.write_snapshot(VIDEO_FOLDER)
     audio_qc(AUDIO_FILE)
     os.makedirs(TEMP_FOLDER, exist_ok=True)
@@ -17493,8 +17730,55 @@ def main():
     # rescale_hook_words_to_visual_time().
     hook_words = rescale_hook_words_to_visual_time(hook_words, blocks, sub_starts, sub_baseline,
                                                      visual_starts, durs)
+    # УПРЕЖДАЮЩИЙ ПОИСК (SLOT_PREFETCH, scripts/slot_prefetch.py): пока слот
+    # ждёт судью, для следующих слотов заранее собираются выдача источников
+    # и эмбеддинги каскада — в дисковые кэши, которые слот и так прочтёт.
+    # Выбор слота этим не меняется: см. докстринг модуля.
+    prefetcher = None
+    if feature_flags.enabled("SLOT_PREFETCH") and not PLAN_ONLY:
+        import slot_prefetch
+        import stock_query_planner as _sqp_prefetch
+
+        def _prefetch_job(j):
+            bj = blocks[j]
+            # Слот, до которого прогон не дойдёт отбором: залоченный
+            # шотлистом кадр, курируемый человеком файл, уже выбранный кадр
+            # (кэш отбора ниже). Спрашивать для него — впустую.
+            lp, lv = shotlist_locked_media(prev_shotlist, j, bj["text"], VIDEO_FOLDER)
+            if lp or lv:
+                return
+            if use_local:
+                lf = local_photo(j)
+                if lf and not local_file_is_machine_stock(lf):
+                    return
+            req = build_slot_request(
+                index=j, query=queries[j],
+                extra_queries=slot_extra_queries(bj, section_query_pool.get(bj["section"])),
+                text_key=semantic_context_text(blocks, j), shot_brief=bj.get("shot_brief"),
+                block_text=bj["text"], shot_spec=bj.get("shot_spec"),
+                arbiter_text=None, is_opening=(j == 0), slot_dur=durs[j],
+                action_qualifier=action_video_qualifier(bj["text"]), target_luma=None,
+                director_score_fn=None, director_assist=False, director_report=None,
+                video_score_fn=None, used_photo_ids=set(), used_video_ids=set(),
+                used_hashes=[], recent_sizes=[])
+            for adapter in (PHOTO_ADAPTER, VIDEO_ADAPTER):
+                if os.path.exists(adapter.cache_path(req)):
+                    return
+            cascade = shot_judge_active(j)
+            # Видео заранее — только там, где слот точно начнёт с видео
+            # (обязательное движение в спецификации): иначе вид решает ритм
+            # соседних слотов, и упреждение спрашивало бы квоту Pexels
+            # впустую.
+            spec = bj.get("shot_spec")
+            if (spec and not bj.get("stat") and durs[j] >= MIN_CLIP + 1.0
+                    and _sqp_prefetch.has_motion(spec, must=True)):
+                prefetch_slot_inputs(req, "video", cascade)
+            prefetch_slot_inputs(req, "photo", cascade)
+        prefetcher = slot_prefetch.SlotPrefetcher(len(blocks), _prefetch_job)
     _slot_clock = None
     for i, (b, d) in enumerate(zip(blocks, durs)):
+        if prefetcher is not None:
+            prefetcher.advance(i)
         # Время слота целиком (STAGE_TIMER=1): записывается при переходе к
         # следующему слоту — у тела цикла несколько ранних continue.
         if _slot_clock is not None:
@@ -18479,6 +18763,10 @@ def main():
             log_render_diagnostics(f"block_{i+1}/{len(blocks)}")
         _stock_api_pacing(i, use_pexels, use_local)
 
+    if prefetcher is not None:
+        prefetcher.close()
+        print(f"  Упреждающий поиск: слотов прогрето {prefetcher.stats['done']}, "
+              f"сбоев {prefetcher.stats['failed']}")
     if not SELECT_ONLY:
         # Резолвим отложенные (в пуле) рендеры — future.result() блокирует, только
         # если этот конкретный клип ещё не доехал, к этому моменту у воркеров уже

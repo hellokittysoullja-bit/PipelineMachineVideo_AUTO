@@ -101,11 +101,21 @@ FLAGS = {f.name: f for f in (
     # кэшей байт в байт прежние (см. ml_device.py).
     Flag("ML_DEVICE", "auto", ("auto", "cpu", "cuda", "mps"),
          summary="Устройство локальных моделей отбора: auto (видеокарта, если есть) / cpu / cuda / mps"),
+    # Кодер промежуточных клипов: auto — NVENC (HEVC Main10), если этот
+    # ffmpeg реально кодирует им, иначе прежний libx264; x264 — всегда
+    # процессор (откат); nvenc — NVENC, при неработающем — x264 с
+    # предупреждением. Финальный проход (DELIVERY_PROFILE) не меняется.
+    Flag("CLIP_ENCODER", "auto", ("auto", "x264", "nvenc"),
+         summary="Кодер клипов: auto (NVENC, если работает) / x264 / nvenc"),
     Flag("DELIVERY_PROFILE", "youtube", ("youtube", "archive", "hevc"),
          summary="Финальный проход: youtube (VBV-потолок 12 Мбит/с) / archive (без потолка) / hevc (libx265)"),
     Flag("DOMAIN_GRADE_MODE", "on", ("off", "on"),
          summary="Доменная модуляция грейда (DOMAIN_WARM_PUSH_SCALE) — теплота по содержанию кадра"),
     # --- булевы ---
+    # Упреждающий поиск: выдача источников и эмбеддинги каскада следующих
+    # слотов готовятся, пока текущий слот ждёт судью (slot_prefetch.py).
+    Flag("SLOT_PREFETCH", "1", aliases=(),
+         summary="Упреждающий поиск и каскад для следующих слотов (только прогрев кэшей)"),
     Flag("RENDER_STRICT_GATE", "1", aliases=(),
          summary="Не собирать final.mp4, если хоть один клип не принят"),
     Flag("DEFLICKER_ENABLED", "1", aliases=("DEFLICKER",),
