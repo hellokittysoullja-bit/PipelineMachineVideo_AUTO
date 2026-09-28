@@ -6490,7 +6490,7 @@ _SEARCH_KEY_LOCKS = {}
 _SEARCH_KEY_LOCKS_GUARD = threading.Lock()
 
 
-def cached_search_json(source, key, fetch):
+def cached_search_json(source, key, fetch, ttl=None):
     """Ответ fetch() с дисковым кэшем по (source, key); пустой ответ тоже
     кэшируется — пустая выдача такой же ответ источника, как полная.
 
@@ -6503,12 +6503,12 @@ def cached_search_json(source, key, fetch):
     with _SEARCH_KEY_LOCKS_GUARD:
         lock = _SEARCH_KEY_LOCKS.setdefault(fp, threading.Lock())
     with lock:
-        return _cached_search_json_locked(fp, d, fetch)
+        return _cached_search_json_locked(fp, d, fetch, ttl)
 
 
-def _cached_search_json_locked(fp, d, fetch):
+def _cached_search_json_locked(fp, d, fetch, ttl=None):
     try:
-        if time.time() - os.path.getmtime(fp) < SEARCH_DISK_CACHE_TTL_SEC:
+        if time.time() - os.path.getmtime(fp) < (SEARCH_DISK_CACHE_TTL_SEC if ttl is None else ttl):
             with open(fp, encoding="utf-8") as f:
                 return json.load(f)
     except (OSError, ValueError):
@@ -7558,6 +7558,52 @@ def _shelf_search_photos(api_query, brief=None, limit=None):
 
 _PIXABAY_PHOTO_CACHE = {}
 _PIXABAY_VIDEO_CACHE = {}
+# ССЫЛКИ PIXABAY НА ФАЙЛЫ ПОДПИСАНЫ И ЖИВУТ НЕДОЛГО (замер 28.09: все
+# /get/-ссылки из ответов 24.09 и 26.09 отвечают 400, свежая по номеру кадра
+# — 200). Дисковый кэш поиска держал ответ 30 дней, и при повторном рендере
+# позже суток ВСЕ кандидаты Pixabay молча выпадали из кучи: превью не
+# качалось, кадр не доходил до каскада и судьи. Pixabay — около трети кучи
+# эп.94 (283 из 820 в judge12), среди них упавший рыцарь фразы #4. Поэтому:
+# ответ поиска Pixabay живёт в кэше не дольше PIXABAY_SEARCH_CACHE_TTL_SEC, а
+# протухшая ссылка обновляется по номеру кадра (_pixabay_fresh_url) прямо в
+# atomic_url_download.
+PIXABAY_SEARCH_CACHE_TTL_SEC = 12 * 3600
+PIXABAY_REFRESH_STATUSES = (400, 403, 404, 410)
+_PIXABAY_URL_IDS = {}          # подписанная ссылка -> (номер кадра, поле ответа API)
+_PIXABAY_URL_IDS_LOCK = threading.Lock()
+
+
+def _remember_pixabay_urls(hit):
+    with _PIXABAY_URL_IDS_LOCK:
+        for field in ("largeImageURL", "webformatURL"):
+            u = hit.get(field)
+            if u and "pixabay.com/get/" in u and hit.get("id"):
+                _PIXABAY_URL_IDS[u] = (str(hit["id"]), field)
+
+
+def _pixabay_fresh_url(url):
+    """Свежая ссылка на тот же файл того же размера — по номеру кадра через
+    API; None, если ссылка не Pixabay или API не ответил."""
+    with _PIXABAY_URL_IDS_LOCK:
+        known = _PIXABAY_URL_IDS.get(url)
+    if not known:
+        return None
+    pid, field = known
+    try:
+        import stock_fetch_multisource as _ms
+        if not _ms.PIXABAY_API_KEY:
+            return None
+        api = (f"https://pixabay.com/api/?key={_ms.PIXABAY_API_KEY}"
+               f"&id={urllib.parse.quote(pid)}")
+        with urllib.request.urlopen(urllib.request.Request(api, headers={"User-Agent": UA}),
+                                    timeout=20) as r:
+            hits = json.load(r).get("hits") or []
+    except Exception:  # noqa: BLE001 — нет свежей ссылки: прежний отказ
+        return None
+    fresh = hits[0].get(field) if hits else None
+    if fresh:
+        _remember_pixabay_urls(hits[0])
+    return fresh
 _UNSPLASH_PHOTO_CACHE = {}
 _UNSPLASH_CALLS_THIS_RUN = [0]   # список, а не int — мутируется из функции без global
 
@@ -7610,8 +7656,10 @@ def _pixabay_search_photos(api_query):
             with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}),
                                         timeout=20) as r:
                 return json.load(r)
-        data = cached_search_json("pixabay_photo", f"{api_query}|50|horizontal", fetch)
+        data = cached_search_json("pixabay_photo", f"{api_query}|50|horizontal", fetch,
+                                  ttl=PIXABAY_SEARCH_CACHE_TTL_SEC)
         for h in (data.get("hits") or []):
+            _remember_pixabay_urls(h)
             img = h.get("largeImageURL") or h.get("webformatURL")
             if not img:
                 continue
@@ -7663,7 +7711,8 @@ def _pixabay_search_videos(api_query):
             with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}),
                                         timeout=20) as r:
                 return json.load(r)
-        data = cached_search_json("pixabay_video", f"{api_query}|50", fetch)
+        data = cached_search_json("pixabay_video", f"{api_query}|50", fetch,
+                                  ttl=PIXABAY_SEARCH_CACHE_TTL_SEC)
         for h in (data.get("hits") or []):
             files = []
             for v in (h.get("videos") or {}).values():
@@ -11349,6 +11398,13 @@ def atomic_url_download(req, dest, timeout):
                 # с паузой вместо потери кандидата (см. замер выше).
                 if e.code in DOWNLOAD_RETRY_STATUSES and attempt == 0:
                     time.sleep(DOWNLOAD_RETRY_PAUSE_SEC)
+                    continue
+                # Протухшая подписанная ссылка Pixabay — не «нет файла»:
+                # свежая по номеру кадра (см. PIXABAY_SEARCH_CACHE_TTL_SEC).
+                fresh = (_pixabay_fresh_url(req.full_url)
+                         if attempt == 0 and e.code in PIXABAY_REFRESH_STATUSES else None)
+                if fresh:
+                    req = urllib.request.Request(fresh, headers=dict(req.header_items()))
                     continue
                 raise
         if os.path.getsize(tmp) == 0:
