@@ -13,7 +13,7 @@
 меткам. Кадры без вектора в базовой линии не участвуют и здесь — сравнение
 на одном наборе.
 
-    CASCADE_MODEL=qwen3vl python scripts/cascade_model_eval.py
+    python scripts/cascade_model_eval.py                      # Qwen
     python scripts/cascade_model_eval.py --model siglip2     # контроль: 204
 
 Решение о смене CASCADE_MODEL — по двум числам: годных в первых 20 больше
@@ -68,14 +68,21 @@ def _orders_without_siglip(pr, fix):
         np.load = real
 
 
+def _use_cascade_model(name):
+    """Модель каскада для этого процесса: через окружение, которое читает
+    реестр флагов (feature_flags.mode), — своего дефолта здесь нет."""
+    os.environ.update(CASCADE_MODEL=name)
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("--model", choices=("siglip2", "qwen3vl"),
-                   default=os.environ.get("CASCADE_MODEL", "qwen3vl"))
+    # Скрипт меряет Qwen по умолчанию; флаг CASCADE_MODEL прогона он не
+    # читает, а выставляет сам — модель задаётся аргументом.
+    p.add_argument("--model", choices=("siglip2", "qwen3vl"), default="qwen3vl")
     p.add_argument("--freeze", default=FREEZE)
     p.add_argument("--handoff", type=int, default=20)
     a = p.parse_args(argv)
-    os.environ["CASCADE_MODEL"] = a.model
+    _use_cascade_model(a.model)
     os.environ.setdefault("CASCADE_CACHE_DIR", tempfile.mkdtemp(prefix="casc_eval_"))
     sys.argv = ["pipeline_smart.py", REPO]
     import numpy as np
@@ -100,7 +107,7 @@ def main(argv=None):
                                  else [])
         # Какие превью ранжировались в базовой линии (ключ SigLIP2) — их и
         # считаем моделью каскада, под её ключом.
-        os.environ["CASCADE_MODEL"] = "siglip2"
+        _use_cascade_model("siglip2")
         todo, missing, uncovered = {}, 0, set()
         for rec in pools:
             for r in rec["rows"]:
@@ -129,7 +136,7 @@ def main(argv=None):
               f"{sum(m['good'] for m in base_same.values())} (полный набор: "
               f"{sum(b['good'] for b in base['metrics'].values())})")
         base = {"metrics": base_same}
-        os.environ["CASCADE_MODEL"] = a.model
+        _use_cascade_model(a.model)
         idents = sorted(todo)
         print(f"превью для модели: {len(idents)} (нет в записи сети: {missing})")
         bs = 64

@@ -126,6 +126,8 @@ FLAGS = {f.name: f for f in (
     # списываются при использовании). Надмножество SLOT_PREFETCH.
     Flag("SLOT_SPECULATE", "1", aliases=(),
          summary="Упреждающий отбор слотов впереди (тот же выбор, судья заранее)"),
+    Flag("MODEL_WARMUP", "1", aliases=(),
+         summary="Загрузка моделей отбора в фоне, пока идёт план кадров"),
     Flag("RENDER_STRICT_GATE", "1", aliases=(),
          summary="Не собирать final.mp4, если хоть один клип не принят"),
     Flag("DEFLICKER_ENABLED", "1", aliases=("DEFLICKER",),

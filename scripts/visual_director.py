@@ -53,6 +53,7 @@ import hashlib
 import json
 import os
 import sys
+import threading
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS_DIR = os.path.join(REPO_ROOT, "scripts")
@@ -479,6 +480,7 @@ def functional_role(block, is_section_start):
 
 _siglip2_model = None
 _siglip2_processor = None
+_SIGLIP2_LOAD_LOCK = threading.Lock()
 _SIGLIP2_BROKEN = False
 
 
@@ -490,19 +492,30 @@ def _get_siglip2_model():
     ТОЛЬКО официальный quantized ONNX-экспорт) и без новых зависимостей
     поверх уже установленных torch/transformers."""
     global _siglip2_model, _siglip2_processor
-    if _siglip2_model is None:
-        from transformers import AutoModel, AutoProcessor
-        # trust_remote_code=False — та же защита, что уже стоит у Jina
-        # (_get_jina_session() ниже, см. её докстринг про пойманный вживую
-        # интерактивный prompt "Do you wish to run the custom code? [y/N]",
-        # зависавший на чтении stdin в headless-процессе). SigLIP2 — нативная
-        # transformers-модель, remote-код и так не нужен; явный False убирает
-        # саму возможность промпта, не только его последствия.
-        import ml_device
-        _siglip2_model = ml_device.place(
-            AutoModel.from_pretrained(SIGLIP2_MODEL_NAME, trust_remote_code=False).eval())
-        _siglip2_processor = AutoProcessor.from_pretrained(SIGLIP2_MODEL_NAME, trust_remote_code=False)
+    if _siglip2_model is not None and _siglip2_processor is not None:
+        return _siglip2_model, _siglip2_processor
+    # Под замком, процессор публикуется ДО модели — см. get_aesthetic_clip_model()
+    # в pipeline_smart: первый вызов из нескольких потоков упреждения.
+    with _SIGLIP2_LOAD_LOCK:
+        if _siglip2_model is None or _siglip2_processor is None:
+            _load_siglip2_locked()
     return _siglip2_model, _siglip2_processor
+
+
+def _load_siglip2_locked():
+    global _siglip2_model, _siglip2_processor
+    from transformers import AutoModel, AutoProcessor
+    # trust_remote_code=False — та же защита, что уже стоит у Jina
+    # (_get_jina_session() ниже, см. её докстринг про пойманный вживую
+    # интерактивный prompt "Do you wish to run the custom code? [y/N]",
+    # зависавший на чтении stdin в headless-процессе). SigLIP2 — нативная
+    # transformers-модель, remote-код и так не нужен; явный False убирает
+    # саму возможность промпта, не только его последствия.
+    import ml_device
+    model = ml_device.place(
+        AutoModel.from_pretrained(SIGLIP2_MODEL_NAME, trust_remote_code=False).eval())
+    _siglip2_processor = AutoProcessor.from_pretrained(SIGLIP2_MODEL_NAME, trust_remote_code=False)
+    _siglip2_model = model
 
 
 # --- Кэш эмбеддингов: чистая мемоизация, НЕ смена алгоритма ---
@@ -724,6 +737,7 @@ def _siglip2_relevance(image_path, block_text):
 
 _jina_session = None
 _jina_tokenizer = None
+_JINA_LOAD_LOCK = threading.Lock()
 _JINA_BROKEN = False
 
 
@@ -769,21 +783,30 @@ def _get_jina_session():
     успех или чистое исключение (уходит в тот же except в _jina_relevance(),
     fail-open работает как задумано, а не блокируется молча)."""
     global _jina_session, _jina_tokenizer
-    if _jina_session is None:
-        import onnxruntime as ort
-        from huggingface_hub import hf_hub_download
-        from transformers import AutoTokenizer
-        onnx_path = hf_hub_download(repo_id=JINA_MODEL_REPO, filename=JINA_ONNX_FILENAME)
-        so = ort.SessionOptions()
-        so.intra_op_num_threads = 4   # эмпирически: заметно быстрее single-thread,
-                                        # без OOM при batch=1 (прод — один вызов =
-                                        # одна картинка+один текст, не батч 95, см.
-                                        # находку про батч-95-OOM в git-логе)
-        _jina_session = ort.InferenceSession(onnx_path, sess_options=so,
-                                              providers=jina_providers())
-        _jina_tokenizer = AutoTokenizer.from_pretrained(JINA_MODEL_REPO,
-                                                         trust_remote_code=False)
+    if _jina_session is not None and _jina_tokenizer is not None:
+        return _jina_session, _jina_tokenizer
+    with _JINA_LOAD_LOCK:
+        if _jina_session is None or _jina_tokenizer is None:
+            _load_jina_locked()
     return _jina_session, _jina_tokenizer
+
+
+def _load_jina_locked():
+    global _jina_session, _jina_tokenizer
+    import onnxruntime as ort
+    from huggingface_hub import hf_hub_download
+    from transformers import AutoTokenizer
+    onnx_path = hf_hub_download(repo_id=JINA_MODEL_REPO, filename=JINA_ONNX_FILENAME)
+    so = ort.SessionOptions()
+    so.intra_op_num_threads = 4   # эмпирически: заметно быстрее single-thread,
+                                    # без OOM при batch=1 (прод — один вызов =
+                                    # одна картинка+один текст, не батч 95, см.
+                                    # находку про батч-95-OOM в git-логе)
+    session = ort.InferenceSession(onnx_path, sess_options=so,
+                                   providers=jina_providers())
+    _jina_tokenizer = AutoTokenizer.from_pretrained(JINA_MODEL_REPO,
+                                                     trust_remote_code=False)
+    _jina_session = session
 
 
 @functools.lru_cache(maxsize=1)

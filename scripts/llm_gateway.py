@@ -61,6 +61,54 @@ import source_health
 _SPECULATIVE = contextvars.ContextVar("llm_gateway_speculative", default=False)
 
 
+# Сколько вопросов упреждения идёт в шлюз одновременно. Лимит параллельности
+# шлюза не опубликован, поэтому он подбирается на ходу: после серии ответов
+# без отказа лимит растёт на один, на отказ «слишком много запросов» (429,
+# от любого вызова этого адреса) — делится пополам. Вопросы настоящего
+# цикла ограничитель не трогает: ответы и выбор те же, меняется только
+# очерёдность заранее заданных вопросов.
+SPEC_LIMIT_START = 4
+SPEC_LIMIT_MAX = 32
+
+
+class AdaptiveLimit:
+    def __init__(self, start=None, maximum=None):
+        env_max = (os.environ.get("SPEC_GATEWAY_MAX_CONCURRENT") or "").strip()
+        self.maximum = max(1, int(env_max) if env_max.isdigit() else (maximum or SPEC_LIMIT_MAX))
+        self.limit = min(self.maximum, start or SPEC_LIMIT_START)
+        self.active = 0
+        self._streak = 0
+        self._cv = threading.Condition()
+        self.stats = {"peak_limit": self.limit, "throttles": 0}
+
+    def acquire(self):
+        with self._cv:
+            while self.active >= self.limit:
+                self._cv.wait()
+            self.active += 1
+
+    def release(self, ok=True):
+        with self._cv:
+            self.active -= 1
+            if ok:
+                self._streak += 1
+                if self._streak >= self.limit and self.limit < self.maximum:
+                    self.limit += 1
+                    self._streak = 0
+                    self.stats["peak_limit"] = max(self.stats["peak_limit"], self.limit)
+            self._cv.notify_all()
+
+    def throttled(self):
+        with self._cv:
+            self.limit = max(1, self.limit // 2)
+            self._streak = 0
+            self.stats["throttles"] += 1
+
+
+_SPEC_LIMITERS = {}
+_SPEC_LIMITERS_LOCK = threading.Lock()
+
+
 def speculative():
     """True, если текущий поток делает спекулятивный вызов."""
     return _SPECULATIVE.get()
@@ -297,6 +345,15 @@ class Gateway:
 
     # ---------------------------------------------------------------- транспорт
 
+    def spec_limiter(self):
+        """Ограничитель одновременных вопросов упреждения (один на адрес)."""
+        host = urllib.parse.urlsplit(self.base_url).hostname or self.base_url
+        with _SPEC_LIMITERS_LOCK:
+            lim = _SPEC_LIMITERS.get(host)
+            if lim is None:
+                lim = _SPEC_LIMITERS[host] = AdaptiveLimit()
+            return lim
+
     def health(self):
         """Регулятор здоровья этого шлюза (один на адрес в процессе)."""
         host = urllib.parse.urlsplit(self.base_url).hostname or self.base_url
@@ -386,6 +443,8 @@ class Gateway:
                 if e.code in (401, 403):
                     raise GatewayError(f"{e.code} ключ не принят ({info})")
                 if e.code == 429 or e.code >= 500:
+                    if e.code == 429:
+                        self.spec_limiter().throttled()
                     last = f"{e.code} ({info})"
                     time.sleep(self._retry_after(e, attempt))
                     continue
@@ -605,6 +664,7 @@ class Gateway:
         Тот же вопрос уже задан (или задаётся) другим упреждением — его ответ,
         без второй оплаты. Потолок: спекуляция не выходит за него вместе с
         уже потраченным и ещё не использованным."""
+        limiter = self.spec_limiter()
         while True:
             with self._lock:
                 dq = self._spec.get(fp)
@@ -612,15 +672,28 @@ class Gateway:
                     entry = dq[0]
                     break
                 ev = self._spec_pending.get(fp)
-                if ev is None:
-                    ev = self._spec_pending[fp] = threading.Event()
-                    entry = None
-                    break
-            ev.wait()
+            if ev is not None:
+                ev.wait()
+                continue
+            # Место в очереди упреждения берётся ДО того, как вопрос помечен
+            # «в полёте»: настоящий цикл, спросивший то же, ждёт помеченный
+            # вопрос — и не должен ждать его в очереди ограничителя.
+            limiter.acquire()
+            with self._lock:
+                if self._spec.get(fp) or fp in self._spec_pending:
+                    registered = False
+                else:
+                    self._spec_pending[fp] = threading.Event()
+                    registered = True
+            if registered:
+                entry = None
+                break
+            limiter.release(ok=False)
         if entry is not None:
             if entry["empty"]:
                 raise _empty_answer(model, entry["choice"], entry["usage"], max_tokens, entry["price"])
             return entry["text"], entry["usage"], entry["price"]
+        ok = False
         ratio = max(self._ratio.get(model, 1.0), self._spec_ratio.get(model, 1.0))
         reserve = math.ceil(base * max(1.0, ratio))
         try:
@@ -666,9 +739,11 @@ class Gateway:
                 self.spec_calls += 1
                 if base > 0:
                     self._spec_ratio[model] = max(self._spec_ratio.get(model, 0.0), price / base)
+            ok = True
         finally:
             with self._lock:
                 self._spec_pending.pop(fp).set()
+            limiter.release(ok=ok)
         if entry["empty"]:
             raise _empty_answer(model, entry["choice"], u, max_tokens, price)
         return text, u, price
@@ -736,4 +811,8 @@ class Gateway:
                 "speculative_spent": self.spec_spent,
                 "speculative_wasted": self.spec_outstanding,
                 "net_seconds": round(self.net_seconds, 1),
-                "speculative_net_seconds": round(self.spec_net_seconds, 1)}
+                "speculative_net_seconds": round(self.spec_net_seconds, 1),
+                **({"speculative_limit_peak": self.spec_limiter().stats["peak_limit"],
+                    "speculative_limit_now": self.spec_limiter().limit,
+                    "throttles_429": self.spec_limiter().stats["throttles"]}
+                   if self.spec_calls else {})}

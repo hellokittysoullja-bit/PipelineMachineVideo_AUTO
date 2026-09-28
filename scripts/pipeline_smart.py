@@ -2489,6 +2489,24 @@ def write_audio_preview(blocks, durs, sub_starts, sub_baseline, real_weights, to
     return 0
 
 
+def master_audio_premix(blocks, sub_starts, real_weights, total, hook_end, final_start,
+                        typewriter_click_times, plate_sfx_cues, phrase_locked):
+    """Звук эпизода до финального мукса -> (premix, замер громкости).
+
+    Вынесено из main(), чтобы идти рядом с финальной склейкой видео (main
+    ждёт результат там, где раньше считал его сам). Порядок шагов прежний.
+    A6: обработка голоса (highpass/EQ/деэссер/компрессия) ДО подмешивания
+    музыки — тот же порядок, что в реальном пост-продакшене: сначала
+    приводишь дорожку диктора в порядок, потом кладёшь её в микс."""
+    voice_processed = os.path.join(TEMP_FOLDER, "voice_processed.wav")
+    voice_processed = process_voice(AUDIO_FILE, voice_processed)
+    premix = build_episode_audio_layers(
+        voice_processed, VIDEO_FOLDER, TEMP_FOLDER, blocks, sub_starts, real_weights,
+        total, hook_end, final_start, typewriter_click_times, plate_sfx_cues,
+        phrase_locked=phrase_locked)
+    return premix, measure_loudnorm_stats(premix)
+
+
 def build_episode_audio_layers(voice_path, video_dir, temp_dir, blocks, sub_starts,
                                real_weights, total, hook_end, final_start,
                                typewriter_click_times=(), plate_sfx_cues=(),
@@ -12392,6 +12410,60 @@ CASCADE_BATCH_CPU = 16
 CASCADE_BATCH_GPU = 64
 
 
+def model_warmup_jobs():
+    """Какие модели этот прогон всё равно загрузит — в том порядке, в каком
+    их позовёт первый слот. Решают те же флаги, что и сами вызовы; модель,
+    которой прогон не пользуется, не грузится."""
+    jobs = []
+    if CLIP_ENABLED:
+        jobs.append(("SigLIP2 гейта", get_clip_model))
+    if feature_flags.mode("CASCADE_MODEL") == "qwen3vl":
+        import qwen_vl_embed
+        jobs.append(("Qwen3-VL-Embedding", qwen_vl_embed.available))
+    if AESTHETIC_ENABLED:
+        jobs.append(("CLIP эстетики", get_aesthetic_clip_model))
+    if PARALLAX_ENABLED:
+        jobs.append(("Depth-Anything", get_depth_model))
+    if (feature_flags.enabled("SMART_RELEVANCE_VETO")
+            or feature_flags.mode("VISUAL_DIRECTOR_MODE") in ("shadow", "assist")):
+        import visual_director
+        jobs.append(("SigLIP2-so400m", visual_director._get_siglip2_model))
+        jobs.append(("Jina CLIP v2", visual_director._get_jina_session))
+    return jobs
+
+
+def start_model_warmup():
+    """Модели отбора грузятся в фоне, пока main() составляет паспорт мира и
+    спецификации кадров (это ожидание шлюза, секунды и минуты) — а не в
+    первом слоте, где их ждёт весь отбор. На видеокарте Qwen3-VL-Embedding-8B
+    читает с диска ~16 ГБ.
+
+    Выбор это не меняет: грузятся те же модели тем же кодом, под теми же
+    замками, что и при ленивой загрузке, и первый слот просто получает уже
+    готовую. Сбой загрузки здесь проглатывается и ничего не помечает
+    сломанным: первый настоящий вызов попробует снова и упадёт ровно так
+    же, как упал бы без прогрева (со своими отчётами и откатами)."""
+    if not feature_flags.enabled("MODEL_WARMUP"):
+        return None
+    try:
+        jobs = model_warmup_jobs()
+    except Exception:  # noqa: BLE001 — прогрев не имеет права уронить рендер
+        return None
+    if not jobs:
+        return None
+
+    def run():
+        for _name, fn in jobs:
+            try:
+                fn()
+            except Exception:  # noqa: BLE001 — см. докстринг: без пометок сломанным
+                pass
+    t = threading.Thread(target=run, name="model_warmup", daemon=True)
+    t.start()
+    print("  Модели отбора грузятся в фоне: " + ", ".join(n for n, _ in jobs))
+    return t
+
+
 def print_compute_devices():
     """Где в этом прогоне считаются модели и кодируются клипы — одной строкой
     до начала работы. Видеокарта, которую torch не увидел (не та сборка
@@ -14120,6 +14192,7 @@ def get_clip_model():
 
 _aesthetic_clip_model = None
 _aesthetic_clip_processor = None
+_AESTHETIC_MODEL_LOCK = threading.Lock()
 
 
 def get_aesthetic_clip_model():
@@ -14131,12 +14204,18 @@ def get_aesthetic_clip_model():
     negative_anchor_violation()/VISUAL_DOMAIN_GUARDS и им подобные,
     только aesthetic_score()."""
     global _aesthetic_clip_model, _aesthetic_clip_processor
-    if _aesthetic_clip_model is None:
-        from transformers import CLIPModel, CLIPProcessor
-        name = "openai/clip-vit-base-patch32"
-        import ml_device
-        _aesthetic_clip_model = ml_device.place(CLIPModel.from_pretrained(name).eval())
-        _aesthetic_clip_processor = CLIPProcessor.from_pretrained(name)
+    if _aesthetic_clip_model is None or _aesthetic_clip_processor is None:
+        # Под замком и с процессором ДО модели: потоки упреждения и основной
+        # цикл впервые зовут модель одновременно, и без этого второй поток
+        # видел модель без процессора — оценка падала в None и меняла выбор.
+        with _AESTHETIC_MODEL_LOCK:
+            if _aesthetic_clip_model is None or _aesthetic_clip_processor is None:
+                from transformers import CLIPModel, CLIPProcessor
+                name = "openai/clip-vit-base-patch32"
+                import ml_device
+                model = ml_device.place(CLIPModel.from_pretrained(name).eval())
+                _aesthetic_clip_processor = CLIPProcessor.from_pretrained(name)
+                _aesthetic_clip_model = model
     return _aesthetic_clip_model, _aesthetic_clip_processor
 
 
@@ -14479,14 +14558,23 @@ def aesthetic_score(image_path):
 
 
 _depth_model = None
+_DEPTH_MODEL_LOCK = threading.Lock()
 
 
 def get_depth_model():
+    """Depth-Anything-V2-Small. На видеокарте — на ней (ml_device, float32,
+    TF32 выключен), на процессоре — как было, без аргумента устройства.
+    Под замком: первый вызов может прийти из фонового потока прогрева."""
     global _depth_model
     if _depth_model is None:
-        from transformers import pipeline as hf_pipeline
-        _depth_model = hf_pipeline(task="depth-estimation",
-                                    model="depth-anything/Depth-Anything-V2-Small-hf")
+        with _DEPTH_MODEL_LOCK:
+            if _depth_model is None:
+                from transformers import pipeline as hf_pipeline
+                import ml_device
+                kwargs = {} if ml_device.device() == "cpu" else {"device": ml_device.device()}
+                _depth_model = hf_pipeline(task="depth-estimation",
+                                            model="depth-anything/Depth-Anything-V2-Small-hf",
+                                            **kwargs)
     return _depth_model
 
 
@@ -15997,7 +16085,13 @@ def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR, blocks=None, pl
         prev_label = out_label
     cmd = ["ffmpeg", "-y"]
     for c in clips:
-        cmd += ["-i", c]
+        # Потоки декодера на вход: по умолчанию каждый из ~35 входов заводит
+        # столько потоков, сколько ядер, и держит на них кадры — на 4 ядрах
+        # кусок из 35 клипов занимал 4.8 ГБ, на 16 ядрах по той же
+        # пропорции ~9 ГБ. Декодирование H.264 точное: кадры те же при любом
+        # числе потоков (замер 28.09: файл без потолка битрейта совпал до
+        # байта при auto/2/1), а работает на входе всё равно один клип за раз.
+        cmd += ["-threads", str(XFADE_INPUT_DECODE_THREADS), "-i", c]
     # Это единственный проход, который видит ВСЮ склейку сразу — то, что
     # уйдёт на YouTube (финальный мукс делает -c:v copy, второго прохода
     # уже не будет). Каждый отдельный клип и так уже CRF 17 (RENDER_CRF, см.
@@ -16048,6 +16142,38 @@ def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR, blocks=None, pl
 
 
 XFADE_CHUNK_SIZE = 35   # порог чанкования — см. xfade_chain_chunked
+XFADE_INPUT_DECODE_THREADS = 2   # потоки декодера на вход склейки — см. xfade_chain
+
+
+# Одновременных чанков финальной склейки на одно ядро: x264 medium на 1080p
+# сам занимает несколько ядер, и на четырёх ядрах второй параллельный чанк
+# только делит их с первым. Порог — ядра на чанк.
+FINAL_CHUNK_CORES_PER_WORKER = 8
+# Память на чанк: 35 декодеров 10-битных клипов плюс x264. Замер 28.09 на
+# 4 ядрах: пик 3.9 ГБ с XFADE_INPUT_DECODE_THREADS=2; запас на x264 на
+# многоядерной машине (его потоки и lookahead растут с числом ядер).
+FINAL_CHUNK_MEM_MB = 5000
+
+
+def final_chunk_workers(n_chunks):
+    """Сколько чанков кодировать одновременно: FINAL_CHUNK_WORKERS из .env,
+    иначе по ядрам и свободной памяти. 1 — по очереди, как было."""
+    if n_chunks <= 1:
+        return 1
+    raw = (os.environ.get("FINAL_CHUNK_WORKERS") or "").strip()
+    if raw.isdigit() and int(raw) > 0:
+        return min(n_chunks, int(raw))
+    by_cpu = max(1, (os.cpu_count() or 4) // FINAL_CHUNK_CORES_PER_WORKER)
+    by_mem = by_cpu
+    try:
+        with open("/proc/meminfo", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("MemAvailable:"):
+                    by_mem = max(1, int(int(line.split()[1]) / 1024 // FINAL_CHUNK_MEM_MB))
+                    break
+    except OSError:
+        pass
+    return max(1, min(n_chunks, by_cpu, by_mem))
 
 
 def _chunk_bounds(n, sections, chunk_size):
@@ -16119,14 +16245,39 @@ def xfade_chain_chunked(clips, durs, sections, out, temp_dir, xfade_dur=XFADE_DU
     plan = plan_transitions(sections, blocks, xfade_dur=xfade_dur)
     if len(bounds) <= 1:
         return xfade_chain(clips, durs, sections, out, xfade_dur=xfade_dur, blocks=blocks, plan=plan)
-    chunk_files, chunk_total = [], 0.0
-    for ci, (a, b) in enumerate(bounds):
+    def encode_chunk(ci):
+        a, b = bounds[ci]
         cblocks = blocks[a:b] if blocks else None
         cout = os.path.join(temp_dir, f"_xchunk_{ci:03d}.mp4")
         ok, cdur = xfade_chain(clips[a:b], durs[a:b], sections[a:b], cout,
                                 xfade_dur=xfade_dur, blocks=cblocks, plan=plan[a:b - 1])
+        return cout, ok, cdur
+
+    # Чанки не зависят друг от друга (свой вход, свой файл, склейка -c copy
+    # потом), поэтому на многоядерной машине кодируются одновременно. Файлы
+    # те же до байта: x264 детерминирован при том же числе потоков, а оно
+    # у каждого ffmpeg то же, что при кодировании по очереди.
+    workers = final_chunk_workers(len(bounds))
+    if workers > 1:
+        with concurrent.futures.ThreadPoolExecutor(workers) as ex:
+            results = list(ex.map(encode_chunk, range(len(bounds))))
+    else:
+        results = []
+        for ci in range(len(bounds)):
+            results.append(encode_chunk(ci))
+            if not results[-1][1]:
+                break
+    chunk_files, chunk_total = [], 0.0
+    for ci, (cout, ok, cdur) in enumerate(results):
         if not ok:
+            a, b = bounds[ci]
             print(f"  чанк {ci} ({b - a} клипов) xfade не собрался — вся склейка откатывается на concat")
+            for cf_ in (r[0] for r in results):
+                if os.path.exists(cf_):
+                    try:
+                        os.remove(cf_)
+                    except OSError:
+                        pass
             return False, 0.0
         chunk_files.append(cout)
         chunk_total += cdur
@@ -17042,6 +17193,36 @@ def finish_select_only(shot_entries, n_blocks):
     return EXIT_BUILT_WITH_WARNINGS if without else EXIT_OK
 
 
+_CAMERA_STATS_LOCK = threading.Lock()
+
+
+def _count_camera_mode(motion_mode, stage):
+    """Кадр ушёл на обычный наезд: учесть его режим камеры. Под замком —
+    параллакс-кадр откатывается сюда из своего фонового потока."""
+    with _CAMERA_STATS_LOCK:
+        CAMERA_LANGUAGE_STATS["modes"][motion_mode] = \
+            CAMERA_LANGUAGE_STATS["modes"].get(motion_mode, 0) + 1
+        if stage:
+            CAMERA_LANGUAGE_STATS["with_stage"] += 1
+        else:
+            CAMERA_LANGUAGE_STATS["without_stage"] += 1
+
+
+def render_highlight_clip(render_pool, i, photo, out, d, motion_mode, stage, kw):
+    """Параллакс-кадр в фоновом потоке: сначала parallax_kenburns, при
+    отказе — обычный kenburns ровно так же, как раньше делал цикл (через
+    пул процессов, с теми же аргументами и потоками ffmpeg), поэтому файл
+    клипа тот же. Возвращает ok, как future пула."""
+    ok = _timed_render(parallax_kenburns, i, photo, out, d, **kw)
+    if ok:
+        return ok
+    _count_camera_mode(motion_mode, stage)
+    kb = {k: v for k, v in kw.items()}
+    kb["motion_mode"] = motion_mode
+    return render_pool.submit(_timed_render, kenburns, i, photo, out, d,
+                              ffmpeg_threads=RENDER_FFMPEG_THREADS, **kb).result()
+
+
 def check_jobs_in_order(pending_jobs):
     """pending_jobs обязан идти строго по ВОЗРАСТАНИЮ индекса блока — этого
     (и только этого) требует xfade-склейка ниже: кадры должны попасть в
@@ -17532,6 +17713,7 @@ def main():
     check_ml_stack()
     resolve_clip_encoder()
     print_compute_devices()
+    start_model_warmup()
     feature_flags.write_snapshot(VIDEO_FOLDER)
     audio_qc(AUDIO_FILE)
     os.makedirs(TEMP_FOLDER, exist_ok=True)
@@ -17840,6 +18022,12 @@ def main():
                        mp_context=multiprocessing.get_context("spawn"),
                        initializer=_render_worker_background_priority)
                    if RENDER_POOL_ENABLED and not SELECT_ONLY else None)
+    # Параллакс-кадры рисуются покадрово в этом процессе (depth-модель живёт
+    # здесь) — раньше прямо в цикле отбора, и следующий слот ждал рендера.
+    # Теперь в одном фоновом потоке, по порядку, как и прежде; рядом с пулом
+    # процессов, при том же условии.
+    highlight_pool = (concurrent.futures.ThreadPoolExecutor(1, thread_name_prefix="parallax")
+                      if render_pool is not None else None)
     pending_jobs = []   # [{i, out, d, section, block, video, photo, future|None, ok}], в порядке блоков
     # Накопленное время слотов, поглощённых соседом (см. ABSORBED_SLOTS).
     _carry_sec = 0.0
@@ -19018,7 +19206,19 @@ def main():
                 # RENDER_POOL_ENABLED выше) — только тут живёт depth-модель.
                 is_highlight = is_parallax_highlight(b, is_section_start)
                 ok = False
-                if PARALLAX_ENABLED and is_highlight:
+                in_background = False
+                if PARALLAX_ENABLED and is_highlight and highlight_pool is not None:
+                    # Параллакс — в своём фоновом потоке (см. render_highlight_clip):
+                    # цикл отбора не ждёт покадрового рендера.
+                    future = highlight_pool.submit(
+                        render_highlight_clip, render_pool, i, photo, out, d, motion_mode, _stage,
+                        dict(title=title, zoom_in=zoom_in, pan_dir=pan_dir, stat=stat,
+                             section=b["section"], stat_variant=stat_variant,
+                             brightness_bias=brightness_bias, energy_bias=energy_bias,
+                             stat_delay=stat_delay, levels=levels, wb=wb, grain_scale=grain_scale,
+                             captions=captions, look_filter=look_filter, domain=domain))
+                    ok, in_background = None, True
+                elif PARALLAX_ENABLED and is_highlight:
                     # Параллакс (2.5D depth remap) — своя, уже отдельно проверенная
                     # зум/пан-математика, motion_mode на него не распространяем:
                     # это отдельный, более дорогой визуальный приём для самых
@@ -19029,13 +19229,8 @@ def main():
                                             stat_variant=stat_variant, brightness_bias=brightness_bias,
                                             energy_bias=energy_bias, stat_delay=stat_delay, levels=levels, wb=wb, grain_scale=grain_scale,
                                             captions=captions, look_filter=look_filter, domain=domain)
-                if not ok:
-                    CAMERA_LANGUAGE_STATS["modes"][motion_mode] = \
-                        CAMERA_LANGUAGE_STATS["modes"].get(motion_mode, 0) + 1
-                    if _stage:
-                        CAMERA_LANGUAGE_STATS["with_stage"] += 1
-                    else:
-                        CAMERA_LANGUAGE_STATS["without_stage"] += 1
+                if not ok and not in_background:
+                    _count_camera_mode(motion_mode, _stage)
                     if render_pool:
                         future = render_pool.submit(
                             _timed_render, kenburns, i, photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
@@ -19138,6 +19333,8 @@ def main():
                                               "reason": "см. консольный лог выше (run_ffmpeg_with_retry) — "
                                                         f"после {RENDER_RETRY_ATTEMPTS} попыток",
                                               "section": job["section"], "duration": job["d"]}
+        if highlight_pool is not None:
+            highlight_pool.shutdown(wait=True)
         if render_pool:
             render_pool.shutdown(wait=True)
         log_render_diagnostics("render_done")
@@ -19540,6 +19737,21 @@ def main():
     if not clips:
         print("Нет клипов")
         return 1
+    # ЗВУК — ОДНОВРЕМЕННО С ФИНАЛЬНОЙ СКЛЕЙКОЙ ВИДЕО. Звуковой цепочке (голос,
+    # музыка, атмосфера, эффекты, замер громкости) нужны только тайминги фраз,
+    # план эффектов и голос — всё посчитано до цикла рендера и дальше не
+    # меняется; склейка видео ей не нужна. Раньше она начиналась после
+    # склейки, теперь идёт рядом в своём потоке, а результат ждётся ровно там,
+    # где звук считался. Вход тот же — файл звука тот же.
+    hook_end, final_start = section_audio_bounds(blocks, sub_starts, total)
+    audio_pool = concurrent.futures.ThreadPoolExecutor(1, thread_name_prefix="audio_master")
+    audio_future = audio_pool.submit(
+        master_audio_premix, blocks, sub_starts, real_weights, total, hook_end, final_start,
+        typewriter_click_times, plate_sfx_cues, bool(phrase_locked))
+
+    def _stop_audio():
+        audio_pool.shutdown(wait=True)
+
     merged = os.path.join(TEMP_FOLDER, "merged.mp4")
     with stage_timer.stage("assembly_xfade", n_clips=len(clips)):
         ok, xfade_total = xfade_chain_chunked(clips, clip_durs, clip_sections, merged, TEMP_FOLDER,
@@ -19560,9 +19772,11 @@ def main():
                                timeout=max(180, total))
         except subprocess.TimeoutExpired:
             print(f"Склейка (concat) зависла (таймаут {max(180, total):.0f}с).")
+            _stop_audio()
             return 1
         if r.returncode != 0:
             print("Склейка:", r.stderr[-300:])
+            _stop_audio()
             return 1
     merged, pad_gap = pad_to_length(merged, total, TEMP_FOLDER)
     # Симметричный контроль расхождения. Гейт по pad_gap ниже ловит только
@@ -19617,6 +19831,7 @@ def main():
         print(f"\nСТОП: заморозка в хвосте {pad_gap:.1f}с превышает допуск "
               f"{PAD_GAP_HARD_CAP_SEC:.1f}с — final.mp4 НЕ собран (расчёт длительностей "
               f"разошёлся сильнее, чем можно списать на округление xfade).")
+        _stop_audio()
         return 1
 
     # -shortest САМ ПО СЕБЕ недостаточен с -c:v copy: копирование пакетов
@@ -19642,16 +19857,9 @@ def main():
     # же корень, что чинит hook_visual_starts() для подписей. Границы берём
     # с АУДИО-шкалы (sub_starts — та же, что у субтитров/глав): музыка
     # живёт на дорожке голоса, не на визуальном таймлайне.
-    hook_end, final_start = section_audio_bounds(blocks, sub_starts, total)
-    # A6: обработка голоса (highpass/EQ/деэссер/компрессия) ДО подмешивания
-    # музыки — тот же порядок, что в реальном пост-продакшене: сначала
-    # приводишь дорожку диктора в порядок, потом кладёшь её в микс.
-    voice_processed = os.path.join(TEMP_FOLDER, "voice_processed.wav")
-    voice_processed = process_voice(AUDIO_FILE, voice_processed)
-    premix = build_episode_audio_layers(
-        voice_processed, VIDEO_FOLDER, TEMP_FOLDER, blocks, sub_starts, real_weights,
-        total, hook_end, final_start, typewriter_click_times, plate_sfx_cues,
-        phrase_locked=bool(phrase_locked))
+    # Звук собран в потоке рядом со склейкой (см. master_audio_premix).
+    premix, loud_stats = audio_future.result()
+    audio_pool.shutdown(wait=False)
     # loudnorm — целевая громкость YouTube (-14 LUFS integrated, -1.5dB
     # true peak потолок, LRA 11) вместо "как есть от TTS". Было -16: на
     # этой платформе тише целевой означает, что ролик звучит глуше соседних
@@ -19666,7 +19874,6 @@ def main():
     # однопроходного динамического — тот подстраивает усиление на лету и
     # даёт неровную громкость внутри самого ролика. afade — раньше ролик
     # начинался и обрывался всухую (щелчок на монтажный лад, не финал).
-    loud_stats = measure_loudnorm_stats(premix)
     fade_out_st = max(0.0, total - 2.0)
     # Аудит 04.09, измерено на готовом файле: fade-in 0.4с давал -12.8 дБ на
     # 100 мс и -5.6 дБ на 200 мс — хук начинается с нулевой секунды, первое

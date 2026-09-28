@@ -143,6 +143,9 @@ def _isolate_from_real_dotenv(monkeypatch, tmp_path):
     monkeypatch.setenv("SLOT_PREFETCH", "0")
     # SLOT_SPECULATE — фоновые потоки отбора слотов впереди, та же причина.
     monkeypatch.setenv("SLOT_SPECULATE", "0")
+    # MODEL_WARMUP — фоновая загрузка моделей в начале main(): в тесте она
+    # тянула бы с диска и сети веса, которых тест не просил.
+    monkeypatch.setenv("MODEL_WARMUP", "0")
     # CLIP_ENCODER — на машине с NVENC тесты рендера кодировали бы клипы
     # другим кодером, чем тот, под который написаны их проверки.
     monkeypatch.setenv("CLIP_ENCODER", "x264")

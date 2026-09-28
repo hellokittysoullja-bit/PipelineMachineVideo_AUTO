@@ -30,7 +30,7 @@ def test_flag_is_registered():
 
 def test_ambience_is_actually_called_from_the_render():
     assert "run_ambience(" in inspect.getsource(ps.build_episode_audio_layers)
-    assert "build_episode_audio_layers(" in inspect.getsource(ps.main)
+    assert ("master_audio_premix," in inspect.getsource(ps.main) and "build_episode_audio_layers(" in inspect.getsource(ps.master_audio_premix))
 
 
 def test_ambience_is_not_ducked_and_not_dipped():

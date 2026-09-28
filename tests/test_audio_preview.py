@@ -27,7 +27,7 @@ def test_preview_and_render_share_one_audio_chain():
     """Копия цепочки в предпросмотре означала бы, что человек слушает не то,
     что уйдёт в ролик."""
     assert "build_episode_audio_layers(" in inspect.getsource(ps.write_audio_preview)
-    assert "build_episode_audio_layers(" in inspect.getsource(ps.main)
+    assert ("master_audio_premix," in inspect.getsource(ps.main) and "build_episode_audio_layers(" in inspect.getsource(ps.master_audio_premix))
     chain = inspect.getsource(ps.build_episode_audio_layers)
     for step in ("build_music_mix(", "run_ambience(", "add_typewriter_clicks(",
                  "add_reveal_sfx(", "run_sfx_director("):

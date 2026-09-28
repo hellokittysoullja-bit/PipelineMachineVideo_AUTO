@@ -39,7 +39,7 @@ def test_assets_exist_and_are_wired():
     # Цепочка слоёв вынесена в build_episode_audio_layers() — её же зовёт
     # предпросмотр звука, чтобы человек слушал ровно то, что уйдёт в ролик.
     assert "add_reveal_sfx(" in inspect.getsource(ps.build_episode_audio_layers)
-    assert "build_episode_audio_layers(" in inspect.getsource(ps.main)
+    assert ("master_audio_premix," in inspect.getsource(ps.main) and "build_episode_audio_layers(" in inspect.getsource(ps.master_audio_premix))
 
 
 def test_flag_default_on():

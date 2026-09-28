@@ -37,7 +37,7 @@ def test_director_is_actually_called_from_the_render():
     звена: планировщик внутри цепочки, цепочка внутри рендера."""
     assert "run_sfx_director(" in inspect.getsource(ps.build_episode_audio_layers), \
         "планировщик написан, но не вызывается из цепочки"
-    assert "build_episode_audio_layers(" in inspect.getsource(ps.main), \
+    assert ("master_audio_premix," in inspect.getsource(ps.main) and "build_episode_audio_layers(" in inspect.getsource(ps.master_audio_premix)), \
         "цепочка написана, но не вызывается из рендера"
 
 
