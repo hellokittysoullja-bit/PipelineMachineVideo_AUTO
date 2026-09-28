@@ -802,11 +802,22 @@ def _load_jina_locked():
                                     # без OOM при batch=1 (прод — один вызов =
                                     # одна картинка+один текст, не батч 95, см.
                                     # находку про батч-95-OOM в git-логе)
-    session = ort.InferenceSession(onnx_path, sess_options=so,
-                                   providers=jina_providers())
+    wanted = jina_providers()
+    session = ort.InferenceSession(onnx_path, sess_options=so, providers=wanted)
+    if wanted[0] == "CUDAExecutionProvider" and "CUDAExecutionProvider" not in session.get_providers():
+        # onnxruntime-gpu перечисляет CUDA среди доступных, даже когда
+        # библиотеки CUDA/cuDNN не загрузились, и молча считает на
+        # процессоре (аудит 28.09). Сказать вслух и дальше считать
+        # процессором — метка устройства не должна обещать видеокарту.
+        print("  ВНИМАНИЕ: Jina запрошена на CUDA, но onnxruntime её не поднял — Jina на процессоре")
+        _JINA_CUDA_FAILED[0] = True
+        jina_providers.cache_clear()
     _jina_tokenizer = AutoTokenizer.from_pretrained(JINA_MODEL_REPO,
                                                      trust_remote_code=False)
     _jina_session = session
+
+
+_JINA_CUDA_FAILED = [False]
 
 
 @functools.lru_cache(maxsize=1)
@@ -817,7 +828,7 @@ def jina_providers():
     (квантованные операции), onnxruntime сам отдаёт процессору — поэтому
     процессор всегда стоит в списке вторым."""
     import ml_device
-    if ml_device.device() != "cuda":
+    if ml_device.device() != "cuda" or _JINA_CUDA_FAILED[0]:
         return ["CPUExecutionProvider"]
     try:
         import onnxruntime as ort
