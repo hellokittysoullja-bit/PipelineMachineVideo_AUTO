@@ -242,6 +242,15 @@ class NetRecorder:
 
     def _urlopen(self, url_or_req, data=None, timeout=None, *args, **kwargs):
         method, url, body = _request_parts(url_or_req, data)
+        if url.lower().startswith("file:"):
+            # Локальный файл — не сеть: сгенерированные кадры и файлы Шага 4
+            # ходят в отбор ссылкой file://. Воспроизведение отклоняло их
+            # как «запроса нет в записи», и сгенерированный кадр не доходил
+            # до гейтов (specA 28.09, фразы #3 и #4) — чего в рендере нет.
+            call_kwargs = dict(kwargs)
+            if timeout is not None:
+                call_kwargs["timeout"] = timeout
+            return self._real(url_or_req, data, *args, **call_kwargs)
         key = request_key(method, url, body)
         tag = self.tagger() if self.tagger is not None else None
         seq = self._next_seq(key, tag)

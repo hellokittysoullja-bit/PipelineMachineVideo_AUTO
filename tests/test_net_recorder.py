@@ -281,3 +281,24 @@ def test_replayed_failures_are_named_not_silent(tmp_path, restore_urlopen):
     fails = rep.summary()["replayed_failures"]
     assert [(f["url"], f["kind"], f["status"]) for f in fails] == [
         ("https://a/x", "http_error", 502), ("https://a/t", "exception", None)]
+
+
+def test_local_file_is_read_from_disk_not_the_record(tmp_path, restore_urlopen):
+    """Сгенерированный кадр и файл Шага 4 ходят в отбор ссылкой file://.
+    Воспроизведение отклоняло их как «запроса нет в записи», и
+    сгенерированный кадр не доходил до гейтов (specA 28.09) — в рендере так
+    не бывает. Локальный файл читается с диска и не попадает в запись."""
+    f = tmp_path / "gen.png"
+    f.write_bytes(b"PNGDATA")
+    uri = f.as_uri()
+    real = urllib.request.urlopen
+    urllib.request.urlopen = real
+    os.makedirs(tmp_path / "net", exist_ok=True)
+    open(tmp_path / "net" / "index.jsonl", "w").close()
+    rep = nr.NetRecorder(str(tmp_path / "net"), nr.REPLAY).install()
+    try:
+        with urllib.request.urlopen(uri + "#123-7", timeout=5) as r:
+            assert r.read() == b"PNGDATA"
+    finally:
+        rep.uninstall()
+    assert rep.divergences == []
