@@ -208,7 +208,15 @@ def reasoning_switch(thinking_format, on):
     return {"reasoning": {"enabled": bool(on)}}
 
 
-_ORIGINAL_URLOPEN = urllib.request.urlopen
+def _is_stdlib_urlopen(fn):
+    """urlopen — настоящая функция urllib, а не подмена. Проверка по самой
+    функции, а не по снимку при импорте: харнесс эквивалентности
+    (net_recorder) подменяет urlopen ДО импорта этого модуля, и снимок
+    принимал подмену за оригинал — пул соединений шёл в живую сеть мимо
+    записи (вызовы шлюза в прогонах A/B 28.09 были живыми)."""
+    return getattr(fn, "__module__", None) == "urllib.request" and getattr(fn, "__name__", "") == "urlopen"
+
+
 _SESSION = None
 _SESSION_LOCK = threading.Lock()
 
@@ -256,7 +264,7 @@ def pooled_urlopen(req, timeout=None):
     Если urllib.request.urlopen подменён (запись и воспроизведение сети
     харнессом эквивалентности, net_recorder), вызов идёт через подмену: вся
     сеть процесса обязана оставаться видимой для записи."""
-    if urllib.request.urlopen is not _ORIGINAL_URLOPEN:
+    if not _is_stdlib_urlopen(urllib.request.urlopen):
         return urllib.request.urlopen(req, timeout=timeout)
     try:
         import requests
