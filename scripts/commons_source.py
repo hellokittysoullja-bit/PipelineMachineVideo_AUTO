@@ -220,6 +220,16 @@ def _fetch_pages(query, limit):
             if e.code in (429, 503) and attempt < 2:
                 HOST.throttled(retry_after=retry_after_sec(e))
                 continue
+            if e.code in (500, 502, 504) and attempt < 2:
+                time.sleep(2.0)
+                continue
+            raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+            # Обрыв или таймаут — повтор, а не потеря запроса во всём слоте
+            # (замер 27.09: сбой источника раньше стоил слоту всего Commons).
+            if attempt < 2:
+                time.sleep(2.0)
+                continue
             raise
     pages = sorted(((data.get("query") or {}).get("pages") or {}).values(),
                    key=lambda p: p.get("index", 0))

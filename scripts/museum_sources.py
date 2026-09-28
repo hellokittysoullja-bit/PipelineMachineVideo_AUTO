@@ -38,6 +38,7 @@ Fail-open на каждом шаге: недоступный музей возв
 из-за этого модуля.
 """
 import concurrent.futures
+import contextvars
 import hashlib
 import itertools
 import json
@@ -209,6 +210,31 @@ def _get_json(url):
     req = urllib.request.Request(url, headers={"User-Agent": UA})
     with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as r:
         return json.load(r)
+
+
+def _get_json_retry(url, attempts=3):
+    """Поиск Кливленда и Чикаго: временный сбой (429/5xx, обрыв, таймаут) —
+    повтор с паузой (та же политика, что source_health.urlopen_retry:
+    Retry-After не длиннее RETRY_MAX_WAIT_SEC), а не потеря музея для
+    запроса. У Мет своя механика (_met_get: пауза-остывание, замедление).
+    Сам запрос — через _get_json (одна точка сети модуля)."""
+    import http.client
+    for attempt in range(attempts):
+        last = attempt == attempts - 1
+        try:
+            return _get_json(url)
+        except urllib.error.HTTPError as e:
+            if e.code not in source_health.TRANSIENT_HTTP or last:
+                raise
+            wait = source_health.retry_after_of(e)
+            if wait is not None and wait > source_health.RETRY_MAX_WAIT_SEC:
+                raise
+            time.sleep(wait if wait is not None else source_health.RETRY_BACKOFF_SEC[
+                min(attempt, len(source_health.RETRY_BACKOFF_SEC) - 1)])
+        except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException):
+            if last:
+                raise
+            time.sleep(source_health.RETRY_BACKOFF_SEC[min(attempt, len(source_health.RETRY_BACKOFF_SEC) - 1)])
 
 
 # --- ВЕЖЛИВОСТЬ К МЕТ -------------------------------------------------------
@@ -566,8 +592,11 @@ def search_met(query, limit=MET_MAX_DETAIL_FETCHES, department=None):
     # место кандидата в пуле определяет, кого гейты увидят первым (см.
     # чередование по запросам в pipeline_smart.pexels_photo).
     workers = max(1, min(MET_DETAIL_WORKERS, len(oids)))
+    # Потоки карточек видят контекст вызывающего (слот фоновой подготовки,
+    # slot_prefetch.TARGET — им харнесс метит сетевые обращения).
+    ctx = contextvars.copy_context()
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
-        objects = list(ex.map(_detail, oids))
+        objects = list(ex.map(lambda oid: ctx.copy().run(_detail, oid), oids))
 
     for oid, o in zip(oids, objects):
         if not o or not o.get("isPublicDomain"):
@@ -601,7 +630,7 @@ def search_cleveland(query, limit=SEARCH_PAGE_SIZE):
     """Кливлендский музей: полная карточка приходит прямо в поиске — один
     запрос на весь список, без похода за каждым предметом."""
     out = []
-    data = _get_json(f"{CLEVELAND_API}/?q=" + urllib.parse.quote(query) +
+    data = _get_json_retry(f"{CLEVELAND_API}/?q=" + urllib.parse.quote(query) +
                      f"&has_image=1&limit={int(limit)}")
     for a in data.get("data") or []:
         if (a.get("share_license_status") or "").upper() != "CC0":
@@ -637,7 +666,7 @@ def search_chicago(query, limit=SEARCH_PAGE_SIZE):
     out = []
     fields = ("id,title,date_start,date_end,place_of_origin,"
               "is_public_domain,image_id")
-    data = _get_json(f"{CHICAGO_API}?q=" + urllib.parse.quote(query) +
+    data = _get_json_retry(f"{CHICAGO_API}?q=" + urllib.parse.quote(query) +
                      f"&limit={int(limit)}&fields={fields}")
     iiif = (data.get("config") or {}).get("iiif_url")
     if not iiif:
@@ -773,12 +802,18 @@ def _disk_cache_put(query, results, department=None, limit=None):
         pass   # кэш — ускорение, не условие корректности
 
 
-def search_museums(query, department=None, limit=None):
+def search_museums(query, department=None, limit=None, report=None):
     """Кандидаты из всех трёх музеев, уже отфильтрованные по эпохе и культуре.
 
     Порядок источников фиксирован (Met первым — у него профильная коллекция
     оружия и доспеха), но победителя по-прежнему выбирают общие гейты и
     скоринг: этот модуль только приносит кандидатов в пул.
+
+    report (dict) получает complete=False, если ответ неполный (музей упал,
+    Мет на паузе): такой ответ не запоминается ни на диск, ни на прогон —
+    следующий вызов спросит заново. Раньше неполный ответ запоминался на
+    прогон, и разовый сбой обеднял этот запрос во ВСЕХ слотах, которые его
+    делят.
     """
     if feature_flags is not None and not feature_flags.enabled("MUSEUM_SOURCES_ENABLED"):
         return []
@@ -798,10 +833,15 @@ def search_museums(query, department=None, limit=None):
     for name, fn in _sources(department):
         try:
             per_museum.append(list(fn(query) if limit is None else fn(query, limit=limit)))
-        except Exception:
+        except Exception as e:
             # Fail-open ПОИСТОЧНИКОВО: упавший музей не должен уносить с
-            # собой два оставшихся и уж тем более ронять слот.
-            errors += 1
+            # собой два оставшихся и уж тем более ронять слот. Неполным ответ
+            # делает только ВРЕМЕННЫЙ сбой: постоянный (404, битый ответ)
+            # повтором не лечится, и неполным ответ с ним был бы всегда —
+            # музей спрашивался бы заново в каждом слоте, а решения слотов
+            # не становились бы окончательными никогда.
+            if source_health.transient_error(e):
+                errors += 1
             continue
     # ЧЕРЕДОВАНИЕ музеев, а не «весь Мет, потом Кливленд, потом Чикаго».
     # Измеренная причина (A/B, 13.09): с глубиной Мет 60 кливлендский
@@ -814,9 +854,12 @@ def search_museums(query, department=None, limit=None):
         for c in row:
             if c is not None:
                 out.append(c)
-    _SEARCH_CACHE[mem_key] = out
     complete = (errors == 0 and not was_cooling
                 and FETCH_STATS["met_cooldowns"] == cooldowns_before)
-    if out and complete:
-        _disk_cache_put(query, out, department, limit)
+    if report is not None:
+        report["complete"] = report.get("complete", True) and complete
+    if complete:
+        _SEARCH_CACHE[mem_key] = out
+        if out:
+            _disk_cache_put(query, out, department, limit)
     return out

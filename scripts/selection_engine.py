@@ -87,6 +87,12 @@ class MediaAdapter:
         промах и отбираем заново)."""
         raise NotImplementedError
 
+    def stale_cache(self, request, path):
+        """Файл в кэше есть, но решение о нём временное (например, судья не
+        смог посмотреть слот) — причина: кэш не берётся, слот отбирается
+        заново. None — кэш можно брать (дальше решает cache_hit)."""
+        return None
+
     def brief_query(self, request):
         raise NotImplementedError
 
@@ -190,14 +196,24 @@ def fetch_sources(request, adapter, queries):
         for k, (name, job) in enumerate(plan[pq]):
             lanes.setdefault(name, []).append((pq, k, job))
     results = {}
+    # Ответ источника — адаптеру сразу, как пришёл (on_source_result): по нему
+    # можно начать работу, не дожидаясь самого медленного источника. Только
+    # подсказка: сбой хука не трогает ни ответ, ни кучу.
+    has_result_hook = getattr(adapter, "on_source_result", None) is not None
 
     def run_lane(items):
         for pq, k, job in items:
             try:
-                results[(pq, k)] = (True, job())
+                value = job()
             except Exception as exc:  # noqa: BLE001 — решает вызывающий, как и раньше
                 results[(pq, k)] = (False, exc)
                 return
+            results[(pq, k)] = (True, value)
+            if has_result_hook and value:
+                try:
+                    adapter.on_source_result(request, pq, value)
+                except Exception:  # noqa: BLE001 — подсказка, не часть отбора
+                    pass
     if len(lanes) <= 1:
         for items in lanes.values():
             run_lane(items)
@@ -239,7 +255,8 @@ def select(request, adapter):
     """Отобрать медиа слота. Работает внутри попытки selection_attempt:
     состояние эпизода не меняет, только записывает эффекты."""
     final = adapter.cache_path(request)
-    if os.path.exists(final) and os.path.getsize(final) > 0:
+    if (os.path.exists(final) and os.path.getsize(final) > 0
+            and not adapter.stale_cache(request, final)):
         hit = adapter.cache_hit(request, final)
         if hit is not None:
             return hit

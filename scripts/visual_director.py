@@ -48,6 +48,7 @@ relevance-гейта) — не бесплатно по времени, толь�
 причина, почему off остаётся дефолтом.
 
 Не самостоятельный CLI-скрипт — вызывается из scripts/pipeline_smart.py."""
+import functools
 import hashlib
 import json
 import os
@@ -989,6 +990,19 @@ def _rescale_jina_to_siglip2_scale(jina_raw):
     return z * SIGLIP2_SCORE_STD + SIGLIP2_SCORE_MEAN
 
 
+
+def _model_turn(fn):
+    """Вызов моделей Директора — под общим замком моделей процесса
+    (pipeline_smart.FOREGROUND_CPU): два вычисления моделей из разных потоков
+    одновременно идут в 14 раз медленнее (замер 27.09)."""
+    @functools.wraps(fn)
+    def turn(*args, **kwargs):
+        with pipeline_smart.FOREGROUND_CPU.model():
+            return fn(*args, **kwargs)
+    return turn
+
+
+@_model_turn
 def sentence_relevance(image_path, block_text):
     """Косинусная близость картинки и ПОЛНОГО текста блока (русского, как
     он есть в сценарии) — ensemble SigLIP2+Jina CLIP v2 (см. докстринг

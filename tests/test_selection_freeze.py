@@ -695,3 +695,21 @@ def test_overlay_chain_keeps_order_and_names_a_missing_layer(tmp_path):
     assert sf.overlay_roots(str(tmp_path), None) == []
     with pytest.raises(SystemExit, match="judge99"):
         sf.overlay_roots(str(tmp_path), "judge13,judge99")
+
+
+def test_replay_and_verify_take_the_run_environment_override(monkeypatch, tmp_path):
+    """--set-env меняет флаг режима прогона (подготовка слотов, дубль шлюза,
+    воспроизведение с задержкой): replay обязан передать его так же, как
+    verify, — иначе A/B двух воспроизведений одной записи молча шёл бы с
+    одинаковыми флагами."""
+    seen = []
+
+    def fake_run(freeze, mode, label, seed, keep_media, **kw):
+        seen.append((label, kw.get("env_override")))
+        return {"seconds": 0, "returncode": 0, "net": {}, "shots": []}
+    monkeypatch.setattr(sf, "run_pipeline", fake_run)
+    freeze = tmp_path / "fz"
+    freeze.mkdir()
+    sf.main(["replay", str(freeze), "--label", "a", "--set-env", "SLOT_PREFETCH=0",
+             "--set-env", "NET_REPLAY_LATENCY=1"])
+    assert seen == [("a", {"SLOT_PREFETCH": "0", "NET_REPLAY_LATENCY": "1"})]

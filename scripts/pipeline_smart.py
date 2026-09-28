@@ -12,6 +12,7 @@ import csv
 import difflib
 import functools
 import glob
+import http.client
 import hashlib
 import itertools
 import json
@@ -47,6 +48,16 @@ import focus_frame
 import query_fusion
 import selection_attempt
 import selection_engine
+import slot_prefetch
+
+# Один вычислитель моделей в каждый момент (slot_prefetch.ForegroundClock):
+# два одновременных вызова модели из разных потоков идут в 14 раз медленнее
+# (замер 27.09: 61 с против 4.5 с на две пачки). Отбор занимает модель
+# первым; фоновая подготовка слотов начинает пачку, только если отбор молчал
+# FOREGROUND_QUIET_SEC и не ждёт модели. Под замком — все модели отбора:
+# гейт, эстетика, вторая проверка победителя.
+FOREGROUND_QUIET_SEC = 0.75
+FOREGROUND_CPU = slot_prefetch.ForegroundClock(FOREGROUND_QUIET_SEC)
 
 try:
     import numpy as np
@@ -4699,8 +4710,10 @@ def _source_bump(source, field, n=1):
 
 def _note_source_search_error(source, exc, label=""):
     """Ошибка поиска у источника — считается и печатается один раз за прогон
-    на источник (не на каждый слот: сотни одинаковых строк скрыли бы лог)."""
+    на источник (не на каждый слот: сотни одинаковых строк скрыли бы лог).
+    Временный сбой делает решение слота временным (note_pool_gap)."""
     _source_bump(source, "search_errors")
+    note_pool_gap(source, exc)
     if source not in _SOURCE_ERROR_PRINTED:
         _SOURCE_ERROR_PRINTED.add(source)
         code = getattr(exc, "code", None)
@@ -6325,6 +6338,23 @@ _PEXELS_SEARCH_CACHE = {}   # {api_query: [photo, ...]} — на процесс,
 SEARCH_DISK_CACHE_TTL_SEC = 30 * 24 * 3600
 
 
+# ОДИН ЗАПРОС НА КЛЮЧ В ПОЛЁТЕ. Отбор слота и фоновая подготовка следующих
+# слотов (slot_prefetch.py) спрашивают одни и те же источники одними и теми
+# же запросами; одновременный одинаковый вызов ждёт ответа того, что уже в
+# пути, а не делает второй такой же запрос — квоты и паузы источников видят
+# ровно те обращения, что и без подготовки. Ошибка первого второму не
+# передаётся: он спрашивает сам.
+_SEARCH_FLIGHT = slot_prefetch.SingleFlight()
+
+
+def _single_flight(fn):
+    @functools.wraps(fn)
+    def flight(*args, **kwargs):
+        key = (fn.__name__, args, tuple(sorted(kwargs.items())))
+        return _SEARCH_FLIGHT.call(key, lambda: fn(*args, **kwargs))
+    return flight
+
+
 def cached_search_json(source, key, fetch):
     """Ответ fetch() с дисковым кэшем по (source, key); пустой ответ тоже
     кэшируется — пустая выдача такой же ответ источника, как полная."""
@@ -6348,6 +6378,7 @@ def cached_search_json(source, key, fetch):
     return data
 
 
+@_single_flight
 def _pexels_search_photos(api_query):
     """Выдача Pexels по УЖЕ подготовленной строке запроса, с кэшем на процесс.
 
@@ -6377,7 +6408,7 @@ def _pexels_search_photos(api_query):
         req = urllib.request.Request(
             f"https://api.pexels.com/v1/search?query={q}&per_page=80&orientation=landscape",
             headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
-        with urllib.request.urlopen(req, timeout=15) as r:
+        with source_health.urlopen_retry(req, 15, "search:pexels") as r:
             _note_pexels_quota(r)
             return json.load(r)
     data = cached_search_json("pexels_photo", f"{api_query}|80|landscape", fetch)
@@ -6740,6 +6771,7 @@ def caption_screen_pool(pool, request, kind, index):
                                        card, rows, cache_dir=os.path.join(TEMP_FOLDER, "caption_screen_cache"))
     CAPTION_SCREEN_LOG.append({"index": index, "kind": kind, "phrase": request.block_text, **info})
     if info.get("error"):
+        note_judge_gap(index, f"отсев по подписи: {info['error']}")
         print(f"  [{index}] отсев по подписи ({kind}) не состоялся: {info['error']} — кандидаты как есть")
     if not drop:
         return pool
@@ -6832,6 +6864,7 @@ def research_round_request(index, block, request, trigger="failed"):
     except Exception as e:  # noqa: BLE001 — второй круг не имеет права уронить слот
         entry["error"] = f"{type(e).__name__}: {str(e)[:200]}"
         RESEARCH_ROUND_LOG.append(entry)
+        note_judge_gap(index, f"второй круг поиска: {entry['error']}")
         print(f"    [{index+1}] второй круг поиска не состоялся: {entry['error']}")
         return None
     entry.update({"queries": [it["q"] for it in items], "origin": origin})
@@ -7158,6 +7191,7 @@ def brief_stock_query_of(request):
     return brief_to_stock_query(request.shot_brief, fallback=None) or None
 
 
+@_single_flight
 def _museum_search_photos(api_query, department=None):
     """Кандидаты из прямых API музеев (Met/Cleveland/Chicago) — тот же каскад
     запросов, что и у архивов: длинный запрос не находит ничего и в музейном
@@ -7177,17 +7211,23 @@ def _museum_search_photos(api_query, department=None):
     if cache_key in _MUSEUM_SEARCH_CACHE:
         return _MUSEUM_SEARCH_CACHE[cache_key]
     results = []
+    report = {}
     try:
         import museum_sources
         results = _search_with_variants(
             "Музеи", api_query,
             lambda v, first: museum_sources.search_museums(
                 v, department=department,
-                limit=None if first else museum_sources.VARIANT_DETAIL_FETCHES))
+                limit=None if first else museum_sources.VARIANT_DETAIL_FETCHES, report=report))
     except Exception as e:
         _note_source_search_error("museum", e, api_query)
-        results = []
-    _MUSEUM_SEARCH_CACHE[cache_key] = results
+        return []   # сбой не запоминается на прогон — следующий слот спросит заново
+    # Неполный ответ (музей упал, Мет на паузе) тоже не запоминается: иначе
+    # разовый сбой обеднял этот запрос во всех слотах, которые его делят.
+    if report.get("complete", True):
+        _MUSEUM_SEARCH_CACHE[cache_key] = results
+    else:
+        note_pool_gap("museum", why="неполный ответ музеев")
     return results
 
 
@@ -7313,6 +7353,7 @@ _UNSPLASH_PHOTO_CACHE = {}
 _UNSPLASH_CALLS_THIS_RUN = [0]   # список, а не int — мутируется из функции без global
 
 
+@_single_flight
 def _pixabay_search_photos(api_query):
     """Фото Pixabay в ФОРМЕ PEXELS-КАНДИДАТА — чтобы конкурировать в ОДНОМ
     пуле под ОДНИМИ гейтами (relevance/вето/домен-гвард/резкость/дедуп).
@@ -7358,8 +7399,8 @@ def _pixabay_search_photos(api_query):
                f"&q={urllib.parse.quote(api_query)}&image_type=photo"
                f"&orientation=horizontal&per_page=50&safesearch=true")
         def fetch():
-            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}),
-                                        timeout=20) as r:
+            with source_health.urlopen_retry(urllib.request.Request(url, headers={"User-Agent": UA}),
+                                             20, "search:pixabay") as r:
                 return json.load(r)
         data = cached_search_json("pixabay_photo", f"{api_query}|50|horizontal", fetch)
         for h in (data.get("hits") or []):
@@ -7380,11 +7421,15 @@ def _pixabay_search_photos(api_query):
         # музеев: недоступный Pixabay не должен ронять слот, у которого есть
         # рабочий Pexels-путь. Пустой список = пул собирается как раньше.
         _note_source_search_error("pixabay", e, api_query)
-        out = []
+        # Сбой не кэшируется: раньше пустой ответ после разового 503
+        # записывался в кэш на прогон, и запрос оставался пустым во всех
+        # следующих слотах, которые его делят.
+        return []
     _PIXABAY_PHOTO_CACHE[api_query] = out
     return out
 
 
+@_single_flight
 def _pixabay_search_videos(api_query):
     """Видео Pixabay в ФОРМЕ PEXELS-ВИДЕОКАНДИДАТА (video_files + duration).
 
@@ -7411,8 +7456,8 @@ def _pixabay_search_videos(api_query):
         url = (f"https://pixabay.com/api/videos/?key={_ms.PIXABAY_API_KEY}"
                f"&q={urllib.parse.quote(api_query)}&per_page=50&safesearch=true")
         def fetch():
-            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": UA}),
-                                        timeout=20) as r:
+            with source_health.urlopen_retry(urllib.request.Request(url, headers={"User-Agent": UA}),
+                                             20, "search:pixabay") as r:
                 return json.load(r)
         data = cached_search_json("pixabay_video", f"{api_query}|50", fetch)
         for h in (data.get("hits") or []):
@@ -7438,11 +7483,12 @@ def _pixabay_search_videos(api_query):
             })
     except Exception as e:
         _note_source_search_error("pixabay", e, api_query)
-        out = []
+        return []    # сбой не кэшируется (см. _pixabay_search_photos)
     _PIXABAY_VIDEO_CACHE[api_query] = out
     return out
 
 
+@_single_flight
 def _unsplash_search_photos(api_query):
     """Фото Unsplash в ФОРМЕ PEXELS-КАНДИДАТА.
 
@@ -7470,7 +7516,7 @@ def _unsplash_search_photos(api_query):
                f"query={urllib.parse.quote(api_query)}&per_page=30"
                f"&orientation=landscape&client_id={_ms.UNSPLASH_ACCESS_KEY}")
         req = urllib.request.Request(url, headers={"User-Agent": UA})
-        with urllib.request.urlopen(req, timeout=20) as r:
+        with source_health.urlopen_retry(req, 20, "search:unsplash") as r:
             data = json.load(r)
         _UNSPLASH_CALLS_THIS_RUN[0] += 1
         for h in (data.get("results") or []):
@@ -7488,7 +7534,7 @@ def _unsplash_search_photos(api_query):
             })
     except Exception as e:
         _note_source_search_error("unsplash", e, api_query)
-        out = []
+        return []    # сбой не кэшируется (см. _pixabay_search_photos)
     _UNSPLASH_PHOTO_CACHE[api_query] = out
     return out
 
@@ -7588,6 +7634,7 @@ def _search_with_variants(label, api_query, fetch_one):
     return fused
 
 
+@_single_flight
 def _openverse_search_photos(api_query):
     """Выдача институциональных архивов (Met/Wikimedia/Rijksmuseum/...) в
     ФОРМЕ PEXELS-КАНДИДАТА — чтобы конкурировать в ОДНОМ пуле с Pexels под
@@ -7640,8 +7687,7 @@ def _openverse_search_photos(api_query):
         # Но НЕ молча: Openverse отвечал 401 (поймано вживую 13.09), и до
         # этой строки узнать, что источник даёт ноль, было неоткуда.
         _note_source_search_error("openverse", e, api_query)
-        _OPENVERSE_SEARCH_CACHE[api_query] = []
-        return []
+        return []   # сбой не запоминается на прогон (см. _pixabay_search_photos)
 
 
 def _openverse_fetch_one(api_query, _ov):
@@ -7664,7 +7710,7 @@ def _openverse_fetch_one(api_query, _ov):
         headers["Authorization"] = f"Bearer {token}"
     _openverse_throttle(bool(token))
     req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=20) as r:
+    with source_health.urlopen_retry(req, 20, "search:openverse") as r:
         data = json.load(r)
     results = []
     for res in data.get("results") or []:
@@ -7708,6 +7754,7 @@ def _openverse_fetch_one(api_query, _ov):
 _COMMONS_SEARCH_CACHE = {}     # {api_query: [candidate, ...]} — на прогон, как у Openverse
 
 
+@_single_flight
 def _commons_search_photos(api_query):
     """Wikimedia Commons: только файлы, свободные без указания автора
     (PD/CC0 по метаданным самого файла) — см. докстринг commons_source.
@@ -7728,9 +7775,20 @@ def _commons_search_photos(api_query):
         results = commons_source.search(api_query)
     except Exception as e:  # noqa: BLE001 — источник, а не слот
         _note_source_search_error("commons", e, api_query)
-        results = []
+        return []   # сбой не запоминается на прогон (см. _pixabay_search_photos)
     _COMMONS_SEARCH_CACHE[api_query] = results
     return results
+
+
+def photo_probe_download(p, dest):
+    """Превью кандидата-фото для оценки — см. candidate_probe_url(). Одна
+    функция на отбор и подготовку слота (slot_prefetch): один и тот же
+    адрес, заголовки и выравнивание прозрачности — одни и те же байты."""
+    url = candidate_probe_url(p)
+    headers = {"User-Agent": UA}
+    headers.update(p.get("_download_headers") or {})
+    atomic_url_download(urllib.request.Request(url, headers=headers), dest, timeout=20)
+    flatten_transparency(dest)
 
 
 class PhotoAdapter(selection_engine.MediaAdapter):
@@ -7860,6 +7918,9 @@ class PhotoAdapter(selection_engine.MediaAdapter):
         gate_sig = candidate_gate_signature(request.index).split(":", 1)[-1]
         cf = os.path.join(cache, f"{index:04d}_{qhash}_{gate_sig}.jpg")
         return cf
+
+    def stale_cache(self, request, cf):
+        return stale_cache_reason(request.index, cf)
 
     def cache_hit(self, request, cf):
         used_ids, used_hashes = request.used_photo_ids, request.used_hashes
@@ -8088,6 +8149,9 @@ class PhotoAdapter(selection_engine.MediaAdapter):
     def on_failure(self, request, exc):
         _note_pexels_failure(exc, f"Pexels [{request.query}]")
 
+    def on_source_result(self, request, pq, candidates):
+        eager_cascade(request.index, "photo", candidates)
+
     def on_source_failure(self, request, source_name, exc):
         """Сбой одного источника стоит только этого источника в слоте
         (selection_engine.fetch_sources): куча собирается из остальных.
@@ -8096,6 +8160,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
         учёт «чистых» фраз замера (27.09, куча без Pexels числилась здоровой)."""
         if source_name == "pexels":
             _source_bump("pexels", "search_errors")
+            note_pool_gap("pexels", exc, index=request.index)
             _note_pexels_failure(exc, f"Pexels [{request.query}]")
         else:
             _note_source_search_error(source_name, exc, request.query)
@@ -8110,13 +8175,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
         arbiter_text, is_opening_shot = request.arbiter_text, request.is_opening
         candidates = [p for p in photos if used_ids is None or p.get("id") not in used_ids] or photos
 
-        def download_probe(p, dest):
-            """Превью кандидата для оценки — см. candidate_probe_url()."""
-            url = candidate_probe_url(p)
-            headers = {"User-Agent": UA}
-            headers.update(p.get("_download_headers") or {})
-            atomic_url_download(urllib.request.Request(url, headers=headers), dest, timeout=20)
-            flatten_transparency(dest)
+        download_probe = photo_probe_download
 
         def download(p, dest):
             url = p["src"].get("large2x") or p["src"].get("large")
@@ -10855,8 +10914,28 @@ DOWNLOAD_HOST_USER_AGENT = {
     "commons.wikimedia.org": "FacelessPipeline/1.0 (https://github.com/hellokittysoullja-bit/PipelineMachineVideo_AUTO)",
     "upload.wikimedia.org": "FacelessPipeline/1.0 (https://github.com/hellokittysoullja-bit/PipelineMachineVideo_AUTO)",
 }
-DOWNLOAD_RETRY_STATUSES = (429, 503)
+DOWNLOAD_RETRY_STATUSES = (429, 500, 502, 503, 504)
 DOWNLOAD_RETRY_PAUSE_SEC = 2.0
+# Три попытки и пауза, которую назвал сам сервис. Живой прогон эпизода 94
+# (27.09): Commons отвечал 429 на превью (22 превью одного слота — по два
+# отказа подряд, пауза 2 с их не спасала), и каждый такой кандидат молча
+# выпадал из каскада. Retry-After до DOWNLOAD_MAX_RETRY_AFTER_SEC
+# пережидается (при 429/503 — всем хостом: соседние потоки не бьют в тот же
+# лимит); дольше — это не всплеск, ждать нельзя. Обрыв и таймаут — тоже
+# повтор. Превью следующих слотов качает фоновая подготовка
+# (slot_prefetch.py), поэтому терпение к лимиту там не стоит слоту времени.
+DOWNLOAD_ATTEMPTS = 3
+DOWNLOAD_MAX_RETRY_AFTER_SEC = 60.0
+# Скачивание на глазах у слота (не фоновая подготовка) ждёт паузу источника
+# не дольше этого: превью, которое не пришло, стоит в каскаде после
+# оценённых (как и раньше), а фоновая подготовка следующих слотов ждёт
+# сколько попросят и приносит его им.
+DOWNLOAD_FOREGROUND_MAX_WAIT_SEC = 8.0
+
+
+def _download_max_wait():
+    return (DOWNLOAD_MAX_RETRY_AFTER_SEC if slot_prefetch.TARGET.get() is not None
+            else DOWNLOAD_FOREGROUND_MAX_WAIT_SEC)
 
 
 def host_user_agent(url, default=None):
@@ -10868,6 +10947,18 @@ def host_user_agent(url, default=None):
     return DOWNLOAD_HOST_USER_AGENT.get(host, default)
 
 
+def _download_host(url):
+    """Регулятор здоровья хоста скачивания (пауза после 429/503 — общая для
+    всех потоков) или None, если адрес не разобрать."""
+    try:
+        host = urllib.parse.urlsplit(url).hostname or ""
+    except Exception:
+        return None
+    if not host:
+        return None
+    return source_health.host("download:" + host, cooldown_sec=DOWNLOAD_MAX_RETRY_AFTER_SEC)
+
+
 def _download_host_throttle(url):
     try:
         host = urllib.parse.urlsplit(url).hostname or ""
@@ -10876,7 +10967,7 @@ def _download_host_throttle(url):
     interval = DOWNLOAD_HOST_MIN_INTERVAL.get(host)
     if not interval:
         return
-    source_health.host("download:" + host).wait(interval)
+    _download_host(url).wait(interval)
 
 
 def flatten_transparency(path):
@@ -10937,20 +11028,37 @@ def atomic_url_download(req, dest, timeout):
         ua = host_user_agent(url_for_policy)
         if ua:
             req.add_header("User-agent", ua)
-        for attempt in (0, 1):
+        host = _download_host(url_for_policy)
+        max_wait = _download_max_wait()
+        for attempt in range(DOWNLOAD_ATTEMPTS):
+            if host is not None and host.cooling():
+                left = host.cooldown_left()
+                if left > max_wait:
+                    raise IOError(f"источник на паузе ещё {left:.0f} с")
+                time.sleep(left)
             _download_host_throttle(url_for_policy)
+            last = attempt == DOWNLOAD_ATTEMPTS - 1
             try:
                 with urllib.request.urlopen(req, timeout=timeout) as r:
                     with open(tmp, "wb") as f:
                         f.write(r.read())
                 break
             except urllib.error.HTTPError as e:
-                # 429/503 — «слишком часто», а не «нет файла»: один повтор
-                # с паузой вместо потери кандидата (см. замер выше).
-                if e.code in DOWNLOAD_RETRY_STATUSES and attempt == 0:
-                    time.sleep(DOWNLOAD_RETRY_PAUSE_SEC)
-                    continue
-                raise
+                # 429/5xx — «слишком часто» или сбой сервиса, а не «нет
+                # файла»: повтор с паузой вместо потери кандидата.
+                if e.code not in DOWNLOAD_RETRY_STATUSES or last:
+                    raise
+                wait = source_health.retry_after_of(e)
+                if wait is not None and wait > max_wait:
+                    raise
+                if wait is not None and host is not None and e.code in (429, 503):
+                    host.throttled(retry_after=wait)
+                else:
+                    time.sleep(wait if wait is not None else DOWNLOAD_RETRY_PAUSE_SEC)
+            except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException):
+                if last:
+                    raise
+                time.sleep(DOWNLOAD_RETRY_PAUSE_SEC)
         if os.path.getsize(tmp) == 0:
             raise IOError("скачан 0-байтный файл")
         os.replace(tmp, dest)
@@ -11897,7 +12005,8 @@ def smart_relevance_veto(image_path, query):
         return False
     try:
         import visual_director
-        score = visual_director.sentence_relevance(image_path, query)
+        with FOREGROUND_CPU.model():
+            score = visual_director.sentence_relevance(image_path, query)
     except Exception:
         return False
     if score is None:
@@ -11935,6 +12044,24 @@ SHOT_JUDGE_MIN_SCORE = 2       # 2 = «предмет тот, действие/�
 SHOT_JUDGE_MISSES = []         # слоты, где лучший кадр по оценке судьи — брак
 SHOT_JUDGE_LOG = []            # по вызову на попытку: оценки, цена, кэш, отказ
 _SHOT_JUDGE_STATE = {"gateway": None, "made": False, "refused": None}
+# СУДЬЯ НЕ СМОГ — РЕШЕНИЕ ВРЕМЕННОЕ. Слот платной зоны, на котором судья не
+# ответил (сбой провайдера, сон модели, потолок расходов, неразобранный
+# ответ), решается без него — но ключ кэша при этом тот же, что у решения
+# С судьёй (подпись отбора знает только «судья включён»). Раньше такой кадр
+# оставался в кэше навсегда: сбой 27.09 (Qwen отвечал 502 на 78% попыток)
+# превращался бы в постоянный брак хука. Теперь причина пишется рядом с
+# кадром (judge_missing в sidecar и в шотлисте), и следующий рендер решает
+# такой слот заново — уже оплаченные ответы судьи берутся из кэша.
+JUDGE_GAPS = {}                # слот -> почему судья не посмотрел его целиком
+# То же для кучи: источник не ответил отбору слота из-за ВРЕМЕННОГО сбоя (429,
+# 5xx, обрыв, таймаут; неполный ответ музеев) — куча слота неполная, и кадр,
+# выбранный из неё, тоже временный. Постоянный отказ (401/403/404, битый
+# ответ) повтором не лечится и слот временным не делает.
+POOL_GAPS = {}
+# Проверка зрения, не состоявшаяся из-за сбоя шлюза, повторяется не раньше
+# чем через JUDGE_RECHECK_SEC: раньше один сбой на старте выключал судью на
+# весь прогон, и все 25 слотов платной зоны шли без него.
+JUDGE_RECHECK_SEC = 120.0
 # Прогноз цены эпизода. Потолок срабатывает посреди ролика: дальше слоты
 # идут без судьи, и качество эпизода становится неровным — начало с судьёй,
 # хвост без. Замер (эпизод 94, 9 слотов): 20 832 токена баланса, ~2 300 на
@@ -11951,7 +12078,9 @@ def shot_judge_model():
 
 
 def _shot_judge_gateway():
-    """Шлюз судьи на прогон или None (флаг выключен, нет ключа)."""
+    """Шлюз судьи на прогон или None (флаг выключен, нет ключа, модель не
+    видит картинок; проверка зрения, сорванная сбоем шлюза, повторяется
+    через JUDGE_RECHECK_SEC)."""
     if not feature_flags.enabled("SHOT_JUDGE"):
         return None
     st = _SHOT_JUDGE_STATE
@@ -11966,18 +12095,140 @@ def _shot_judge_gateway():
             cap = SHOT_JUDGE_DEFAULT_SPEND_CAP
         gw = llm_gateway.Gateway(spend_cap=cap)
         if gw.configured:
-            import shot_judge
-            sees, why = shot_judge.vision_check(gw, shot_judge_model())
-            if sees:
-                st["gateway"] = gw
-                print(f"  Судья кадров: {shot_judge_model()} через {gw.base_url}, потолок {cap}")
-            else:
-                st["refused"] = why
-                print(f"  ВНИМАНИЕ: судья кадров ВЫКЛЮЧЕН на этот прогон — {why}. "
-                      f"Кадры ранжируются без него; проверь SHOT_JUDGE_MODEL.")
+            st["candidate"] = gw
+            _check_judge_vision(st)
         else:
             print("  Судья кадров: нет LLM_GATEWAY_API_KEY — кадры ранжируются без него")
+    elif (st["gateway"] is None and st.get("recheck_at") is not None
+          and time.monotonic() >= st["recheck_at"]):
+        _check_judge_vision(st)
     return st["gateway"]
+
+
+def _check_judge_vision(st):
+    import shot_judge
+    gw = st["candidate"]
+    sees, why = shot_judge.vision_check(gw, shot_judge_model())
+    if sees:
+        st.update(gateway=gw, refused=None, recheck_at=None)
+        print(f"  Судья кадров: {shot_judge_model()} через {gw.base_url}, потолок {gw.spend_cap}")
+        return
+    st["refused"] = why
+    if shot_judge.vision_check_failed_by_gateway(why):
+        st["recheck_at"] = time.monotonic() + JUDGE_RECHECK_SEC
+        print(f"  ВНИМАНИЕ: судья кадров пока не отвечает — {why}. Слоты до ответа решаются без "
+              f"него (временно: следующий рендер решит их заново); повторная проверка через "
+              f"{JUDGE_RECHECK_SEC:.0f} с.")
+    else:
+        st["recheck_at"] = None
+        print(f"  ВНИМАНИЕ: судья кадров ВЫКЛЮЧЕН на этот прогон — {why}. "
+              f"Кадры ранжируются без него; проверь SHOT_JUDGE_MODEL.")
+
+
+# Отказ, который повтор того же вопроса скорее всего не вылечит: модель
+# ответила, но ответ пуст или не разобран (замер 27.09: пустые ответы
+# DeepSeek отсева — все три с выходом 2500 из 2500, то есть модель ушла в
+# повтор). Такой слот временным не становится — иначе он перерешался бы в
+# каждом рендере и не становился окончательным никогда, как при постоянном
+# отказе источника (source_health.transient_error).
+JUDGE_ANSWER_FAILURES = ("неразобранный ответ", "неполный ответ", "EmptyAnswer")
+
+
+def note_judge_gap(index, reason):
+    """Судья должен был посмотреть слот index, но не смог — см. JUDGE_GAPS.
+    Первая причина слота остаётся, следующие не перезаписывают её. Отказ
+    по содержанию ответа (JUDGE_ANSWER_FAILURES) пробелом не считается."""
+    if index is None or not shot_judge_active(index):
+        return
+    reason = str(reason or "судья не ответил")
+    if any(m in reason for m in JUDGE_ANSWER_FAILURES):
+        return
+    JUDGE_GAPS.setdefault(int(index), reason[:200])
+
+
+def note_pool_gap(source, exc=None, index=None, why=None):
+    """Источник не ответил отбору слота из-за временного сбоя — см. POOL_GAPS.
+    index=None — слот текущей попытки отбора. Подготовка слотов в фоне сюда
+    не пишет: её сбой не решает ничего, отбор спросит источник сам."""
+    if exc is not None and not source_health.transient_error(exc):
+        return
+    if index is None:
+        if slot_prefetch.TARGET.get() is not None:
+            return
+        att = selection_attempt.current()
+        if att is None:
+            return
+        index = att.index
+    if index is None:
+        return
+    what = why or (f"HTTP {exc.code}" if getattr(exc, "code", None) else type(exc).__name__)
+    POOL_GAPS.setdefault(int(index), f"{source}: {what}"[:200])
+
+
+def mark_provisional_media(index, media_path):
+    """Кадр слота, решённого при сбое (судья не посмотрел, источник не
+    ответил), — пометка в его sidecar и причина (или None). Только кэш
+    отбора (temp_smart): файл человека в media/ не перерешается и чужими
+    метаданными не засоряется."""
+    judge, pool = JUDGE_GAPS.get(index), POOL_GAPS.get(index)
+    if not (judge or pool) or not media_path:
+        return None
+    reason = "; ".join(r for r in (judge, pool) if r)
+    try:
+        if not os.path.abspath(media_path).startswith(os.path.abspath(TEMP_FOLDER) + os.sep):
+            return None
+        side = media_sidecar_path(media_path)
+        data = read_media_sidecar(media_path)
+        if judge:
+            data["judge_missing"] = judge
+        if pool:
+            data["pool_missing"] = pool
+        tmp = side + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        os.replace(tmp, side)
+    except Exception:  # noqa: BLE001 — пометка вспомогательная: слот не теряется из-за неё
+        return reason
+    return reason
+
+
+def _provisional_of(index, marks):
+    """Причина временности по пометкам кадра (sidecar или запись шотлиста):
+    судья не смотрел — только если судья в этом прогоне положен слоту;
+    неполная куча — всегда."""
+    judge = marks.get("judge_missing") if shot_judge_active(index) else None
+    return "; ".join(r for r in (judge, marks.get("pool_missing")) if r) or None
+
+
+def provisional_reason(index, media_path):
+    """Кадр в кэше решён при сбое, который этот прогон может исправить, —
+    причина (кадр отбирается заново); иначе None."""
+    if index is None or not media_path:
+        return None
+    return _provisional_of(index, read_media_sidecar(media_path))
+
+
+def stale_cache_reason(index, media_path):
+    """Кадр в кэше отбора решён при сбое (provisional_reason) — причина с
+    печатью строки: кэш не берётся, слот отбирается заново."""
+    why = provisional_reason(index, media_path)
+    if why:
+        print(f"  [{index}] кадр в кэше выбран при сбое ({why}) — отбираю заново")
+    return why
+
+
+def provisional_clip_reason(index, prev_shotlist, block):
+    """Готовый клип слота собран из кадра, решённого при сбое, — причина
+    (слот отбирается заново: кэш-хит клипа иначе не дошёл бы до отбора
+    вовсе); иначе None. Запись шотлиста о другой фразе не в счёт."""
+    prev = shotlist_shot(prev_shotlist, index)
+    if not prev or _shotlist_norm_text(prev.get("text")) != _shotlist_norm_text(block.get("text")):
+        return None
+    why = _provisional_of(index, prev)
+    if not why:
+        f = shotlist_resolve_file(prev.get("file"), VIDEO_FOLDER)
+        why = _provisional_of(index, read_media_sidecar(f)) if f else None
+    return why
 
 
 # КАСКАД: КОГО СУДЬЯ ВООБЩЕ УВИДИТ. Пул слота — 200-950 кандидатов, а
@@ -12044,7 +12295,7 @@ def _gate_embed(images=None, text=None):
     try:
         import torch
         model, processor = get_clip_model()
-        with torch.no_grad():
+        with FOREGROUND_CPU.model(), torch.no_grad():
             if text is not None:
                 inp = processor(text=[text], return_tensors="pt", padding="max_length",
                                 max_length=CLIP_GATE_MODEL_MAX_TEXT_LEN, truncation=True)
@@ -12154,6 +12405,130 @@ def _interleave(first, second):
     return out
 
 
+# Пачка модели гейта — ровно CASCADE_BATCH кадров. Неполная добивается
+# копиями последнего кадра, лишние ответы отбрасываются. Замер 27.09 (40
+# кадров золотого набора, модель гейта на процессоре): при ОДНОМ размере
+# пачки эмбеддинг кадра не зависит от соседей и места в пачке (случайные
+# соседи, сдвиг, обратный порядок, добивка копиями — совпадение до бита), а
+# неполная пачка без добивки даёт другие числа (до 4e-7). Без добивки число
+# кадра зависело от того, в какой пачке он оказался, то есть от истории
+# прогона; с ней эмбеддинг — функция самой картинки, и неважно, кто его
+# посчитал: отбор сам или подготовка слота в фоне (slot_prefetch.py).
+CASCADE_BATCH = 16
+
+
+def gate_embed_batch(imgs, batch=CASCADE_BATCH):
+    """Эмбеддинги кадров imgs (не больше batch) пачкой ровно batch; None —
+    модели нет."""
+    n = len(imgs)
+    if not n:
+        return None
+    padded = list(imgs) + [imgs[-1]] * max(0, batch - n)
+    vecs = _gate_embed(images=padded)
+    return None if vecs is None else vecs[:n]
+
+
+def cascade_embed(head, url_of, probe_fn, tmp_prefix, index=None, batch=CASCADE_BATCH,
+                  background=False, stopped=None):
+    """({id(p): эмбеддинг превью}, число новых оценок) для кандидатов head:
+    из кэша (память, диск по адресу превью) или скачать превью и оценить.
+    Превью на диске не остаются.
+
+    background — вызов подготовки слота (slot_prefetch): каждая пачка
+    ждёт, пока отбор не считал моделью FOREGROUND_QUIET_SEC, и stopped()
+    прерывает работу. Числа те же, что у отбора (см. gate_embed_batch)."""
+    cache_dir = os.path.join(TEMP_FOLDER, "cascade_embed_cache")
+    keys = {id(p): _cascade_key(_cascade_ident(p, url_of(p))) for p in head}
+    emb = {id(p): _cascade_cached(keys[id(p)], cache_dir) for p in head}
+    need = [p for p in head if emb[id(p)] is None]
+    fresh = 0
+    if not need:
+        return emb, fresh
+    os.makedirs(cache_dir, exist_ok=True)
+    tmp = {id(p): tmp_prefix + f"{candidate_path_token(p)}.jpg" for p in need}
+
+    def get(p):
+        if stopped is not None and stopped():
+            return False
+        try:
+            probe_fn(p, tmp[id(p)])
+            return _downloaded_ok(tmp[id(p)])
+        except Exception:
+            return False
+
+    def embed_batch(batch_in):
+        if not background:
+            return embed_now(batch_in)
+        with FOREGROUND_CPU.background_turn(stopped or (lambda: False)) as turn:
+            return embed_now(batch_in) if turn else 0
+
+    def embed_now(batch_in):
+        part, imgs = [], []
+        for p in batch_in:
+            # Уже посчитан (подготовкой или отбором, пока качалось превью) —
+            # второй раз не считаем: числа были бы те же.
+            ready = _CASCADE_EMB.get(keys[id(p)])
+            if ready is not None:
+                emb[id(p)] = ready
+                continue
+            try:
+                with PILImage.open(tmp[id(p)]) as im:
+                    imgs.append(im.convert("RGB"))
+                part.append(p)
+            except Exception:
+                pass
+        vecs = gate_embed_batch(imgs, batch) if imgs else None
+        if vecs is None:
+            return 0
+        for p, v in zip(part, vecs):
+            emb[id(p)] = v
+            _CASCADE_EMB[keys[id(p)]] = v
+            # Тот же кадр позже скачивается пробником для гейтов —
+            # эмбеддинг по содержимому файла уже готов.
+            d = _file_digest(tmp[id(p)])
+            if d:
+                _GATE_IMG_EMB_CACHE.setdefault(d, v)
+            try:
+                np.save(os.path.join(cache_dir, keys[id(p)] + ".npy"), v)
+            except Exception:
+                pass
+        return len(part)
+
+    # Скачивание превью и оценка моделью идут ВНАХЛЁСТ: пачка оценивается,
+    # как только скачаны её превью, пока остальные ещё качаются. Замер 25.09
+    # (эп.94, холодный слот, 1067 превью): скачивание 63 с, оценка 173 с —
+    # по очереди 236 с.
+    # Потоки скачивания видят контекст вызывающего (слот подготовки для
+    # харнесса эквивалентности, см. slot_prefetch.TARGET).
+    # Пачка собирается из тех превью, что УЖЕ скачались, в порядке готовности:
+    # эмбеддинг кадра от соседей по пачке не зависит (gate_embed_batch), и
+    # превью, ждущее паузы источника (429 Commons), не держит оценку
+    # остальных.
+    ctx = contextvars.copy_context()
+    try:
+        with concurrent.futures.ThreadPoolExecutor(CASCADE_WORKERS) as ex:
+            futures = {ex.submit(ctx.copy().run, get, p): p for p in need}
+            pending = []
+            for fut in concurrent.futures.as_completed(futures):
+                if fut.result():
+                    pending.append(futures[fut])
+                if len(pending) == batch:
+                    with stage_timer.stage("cascade_rank", clip_idx=index):
+                        fresh += embed_batch(pending)
+                    pending = []
+            if pending:
+                with stage_timer.stage("cascade_rank", clip_idx=index):
+                    fresh += embed_batch(pending)
+    finally:
+        for f in tmp.values():
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+    return emb, fresh
+
+
+
 def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=16, url_of=None,
                     claims=None):
     """Новый порядок кандидатов: первые cascade_preview_n() ранжированы по
@@ -12189,73 +12564,8 @@ def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=16, url_o
     t_embs = [_gate_embed(text=t) for t in texts]
     if any(e is None for e in t_embs):
         return candidates
-    cache_dir = os.path.join(TEMP_FOLDER, "cascade_embed_cache")
-    url_of = url_of or candidate_probe_url
-    keys = {id(p): _cascade_key(_cascade_ident(p, url_of(p))) for p in head}
-    emb = {id(p): _cascade_cached(keys[id(p)], cache_dir) for p in head}
-    need = [p for p in head if emb[id(p)] is None]
-    fresh = 0
-    if need:
-        os.makedirs(cache_dir, exist_ok=True)
-        tmp = {id(p): cf + f".casc_{candidate_path_token(p)}.jpg" for p in need}
-
-        def get(p):
-            try:
-                probe_fn(p, tmp[id(p)])
-                return _downloaded_ok(tmp[id(p)])
-            except Exception:
-                return False
-
-        def embed_batch(batch_in):
-            part, imgs = [], []
-            for p in batch_in:
-                try:
-                    with PILImage.open(tmp[id(p)]) as im:
-                        imgs.append(im.convert("RGB"))
-                    part.append(p)
-                except Exception:
-                    pass
-            vecs = _gate_embed(images=imgs) if imgs else None
-            if vecs is None:
-                return 0
-            for p, v in zip(part, vecs):
-                emb[id(p)] = v
-                _CASCADE_EMB[keys[id(p)]] = v
-                # Тот же кадр позже скачивается пробником для гейтов —
-                # эмбеддинг по содержимому файла уже готов.
-                d = _file_digest(tmp[id(p)])
-                if d:
-                    _GATE_IMG_EMB_CACHE.setdefault(d, v)
-                try:
-                    np.save(os.path.join(cache_dir, keys[id(p)] + ".npy"), v)
-                except Exception:
-                    pass
-            return len(part)
-
-        # Скачивание превью и оценка моделью идут ВНАХЛЁСТ: пачка
-        # оценивается, как только скачаны её превью, пока остальные ещё
-        # качаются. Раньше оценка ждала последнего превью кучи. Пачки
-        # собираются из скачанных кадров в прежнем порядке и по прежние
-        # 16 штук, поэтому эмбеддинги и порядок каскада те же до бита.
-        # Замер 25.09 (эп.94, холодный слот, 1067 превью): скачивание 63 с,
-        # оценка 173 с — по очереди 236 с.
-        with concurrent.futures.ThreadPoolExecutor(CASCADE_WORKERS) as ex:
-            pending = []
-            for p, ok in zip(need, ex.map(get, need)):
-                if ok:
-                    pending.append(p)
-                if len(pending) == batch:
-                    with stage_timer.stage("cascade_rank", clip_idx=index):
-                        fresh += embed_batch(pending)
-                    pending = []
-            if pending:
-                with stage_timer.stage("cascade_rank", clip_idx=index):
-                    fresh += embed_batch(pending)
-        for f in tmp.values():
-            try:
-                os.remove(f)
-            except OSError:
-                pass
+    emb, fresh = cascade_embed(head, url_of or candidate_probe_url, probe_fn, cf + ".casc_",
+                               index=index, batch=batch)
     have = [(k, p) for k, p in enumerate(head) if emb[id(p)] is not None]
     if len(have) < 2:
         return candidates
@@ -12347,6 +12657,8 @@ def _rank_look_ties(index, kind, judged, gw, model):
     tied = tied[:shot_judge.LOOK_MAX]
     order, info = shot_judge.rank_look(gw, model, paths=[c.get("judge_path") or c["path"] for c in tied],
                                        kind=kind, cache_dir=os.path.join(TEMP_FOLDER, "shot_judge_cache"))
+    if order is None and info.get("refused"):
+        note_judge_gap(index, f"выбор среди равных: {info['refused']}")
     SHOT_JUDGE_LOG.append({"index": index, "kind": kind, "model": model,
                            "look_tied": [str(c["p"].get("id")) for c in tied],
                            "look_order": ([str(tied[k]["p"].get("id")) for k in order]
@@ -12387,6 +12699,10 @@ def judge_candidates(index, kind, phrase, brief, candidates_info, spec=None):
               if c.get("is_dup_free") and c.get("is_readable", 1)
               and os.path.exists(c.get("judge_path") or c["path"])]
     if gw is None or not judged:
+        # Судьи нет из-за сбоя шлюза на проверке зрения (она повторится) —
+        # решение временное; модель не видит картинок — постоянно, не пробел.
+        if gw is None and judged and _SHOT_JUDGE_STATE.get("recheck_at") is not None:
+            note_judge_gap(index, _SHOT_JUDGE_STATE.get("refused") or "судья кадров не отвечает")
         return False
     import shot_judge
     model = shot_judge_model()
@@ -12399,6 +12715,22 @@ def judge_candidates(index, kind, phrase, brief, candidates_info, spec=None):
     # нагрудника»), и в нём крупный предмет весит столько же, сколько главное.
     if spec:
         brief = spec["focus"]
+    # ПРОВЕРКА ТЕХ, КОГО ПРОВЕРЯЮТ ПРИ ЛЮБОЙ СЕТКЕ, — ВМЕСТЕ С СЕТКОЙ. Первые
+    # VERIFY_FINALISTS по каскаду и помеченные словарём запретов входят в
+    # финалисты при любых оценках (verify_finalists_of), а вопрос проверки от
+    # сетки не зависит. Раньше их проверка ждала ответа сетки (медиана 9 с,
+    # хвост до 45 с); теперь идёт одновременно. Вызовы те же, их ответы — те
+    # же, разбираются в прежнем порядке: меняется только ожидание.
+    ask = _verify_asker(phrase, spec or shot_judge.spec_from_brief(phrase, brief), kind, card, gw, model)
+    sure = sure_finalists(judged)
+    with concurrent.futures.ThreadPoolExecutor(max(1, len(sure))) as early_ex:
+        early = {id(c): early_ex.submit(contextvars.copy_context().run, ask, c) for c in sure}
+        return _judge_after_grid(index, kind, phrase, brief, judged, gw, model, card, spec, setting,
+                                 rep, early)
+
+
+def _judge_after_grid(index, kind, phrase, brief, judged, gw, model, card, spec, setting, rep, early):
+    import shot_judge
     scores = shot_judge.judge(gw, model, phrase=phrase, brief=brief,
                               candidates=[(str(c["p"].get("id")), c.get("judge_path") or c["path"])
                                           for c in judged],
@@ -12407,12 +12739,13 @@ def judge_candidates(index, kind, phrase, brief, candidates_info, spec=None):
     SHOT_JUDGE_LOG.append({"index": index, "kind": kind, "model": model, "brief": brief,
                            "setting": setting, "scores": scores, **rep})
     if scores is None:
+        note_judge_gap(index, f"сетка судьи: {rep.get('refused')}")
         # Сетка не ответила (живой случай judge12, слот 0: шлюз четыре раза
         # подряд вернул 502) — слот раньше шёл вообще без проверки. Решает же
         # не сетка, а проверка по утверждениям: её вызовы отдельные, со своими
         # повторами. Без сетки финалисты — первые по каскаду; не ответила и
         # проверка — слот без судьи, как раньше.
-        _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec)
+        _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec, early=early)
         if not any(c.get("verify") is not None for c in judged):
             print(f"  слот {index}: судья кадров не ответил ({rep.get('refused')}) — ранжирование без него")
             return False
@@ -12423,7 +12756,7 @@ def judge_candidates(index, kind, phrase, brief, candidates_info, spec=None):
         return True
     for c in judged:
         c["judge"] = scores[str(c["p"].get("id"))]
-    _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec)
+    _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec, early=early)
     _rank_look_ties(index, kind, judged, gw, model)
     _judge_budget_forecast(index, gw)
     return True
@@ -12557,13 +12890,42 @@ def _record_world_vote(index, focus_frames, foreign_frames):
         SHOT_JUDGE_LOG.append({"world_breaker": True, "slots": len(votes), "foreign": foreign})
 
 
-def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=None):
+def _verify_asker(phrase, spec, kind, card, gw, model):
+    """Вопрос проверки одного финалиста. Одна функция на обычный круг и на
+    ранний (judge_candidates): один и тот же вопрос обязан быть одним и тем
+    же вызовом, иначе ранний ответ разошёлся бы с поздним."""
+    import shot_judge
+    import world_card
+    setting = world_card.claims_setting(card)
+    cache = os.path.join(TEMP_FOLDER, "shot_judge_cache")
+
+    def ask(c):
+        frames = len(c.get("frames") or []) or None
+        return shot_judge.verify_claims(gw, model, phrase=phrase, spec=spec, setting=setting,
+                                        path=c.get("judge_path") or c["path"], kind=kind,
+                                        cache_dir=cache, reasoning=VERIFY_REASONING,
+                                        caption=candidate_caption(c.get("p")), frames=frames,
+                                        world_separate=True)
+    return ask
+
+
+def sure_finalists(judged):
+    """Финалисты, которых проверяют при ЛЮБЫХ оценках сетки: первые
+    VERIFY_FINALISTS по каскаду и помеченные словарём запретов — та же часть
+    выбора, что в verify_finalists_of, без оценок сетки."""
+    picked = list(range(min(VERIFY_FINALISTS, len(judged))))
+    picked += [k for k, c in enumerate(judged) if c["p"].get("_blocklisted")]
+    return [judged[k] for k in dict.fromkeys(picked)]
+
+
+def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=None, early=None):
     """c["verify"] финалистам: вектор утверждений или "veto";
     c["verify_focus"] — найдено ли главное; c["verify_nothing"] — не найдено
     ничего обязательного; c["world_clear"] — мир проверен и чист. Все
     финалисты отклонены по миру — проверяется следующая порция по каскаду.
     Сбой проверки кадра — None: кадр стоит ниже проверенных, но не
-    бракуется."""
+    бракуется. early — уже заданные вопросы (id кандидата -> Future, см.
+    judge_candidates): их ответ берётся, а не спрашивается второй раз."""
     import shot_judge
     import world_card
     spec = spec or shot_judge.spec_from_brief(phrase, brief)
@@ -12574,31 +12936,26 @@ def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=
     # внутри вопроса по утверждениям — хуже (749 пар, 11 годных отклонено:
     # пластинчатый доспех читался как азиатский); мир отдельно без списка —
     # 6 из 9, современный нож остаётся.
-    setting = world_card.claims_setting(card)
     cg_veto = not world_card.renders_allowed(card)
-    cache = os.path.join(TEMP_FOLDER, "shot_judge_cache")
     world_veto = world_veto_active()
     focus_frames = foreign_frames = 0
     any_verified = False
-
-    def ask(c):
-        frames = len(c.get("frames") or []) or None
-        return shot_judge.verify_claims(gw, model, phrase=phrase, spec=spec, setting=setting,
-                                        path=c.get("judge_path") or c["path"], kind=kind,
-                                        cache_dir=cache, reasoning=VERIFY_REASONING,
-                                        caption=candidate_caption(c.get("p")), frames=frames,
-                                        world_separate=True)
+    ask = _verify_asker(phrase, spec, kind, card, gw, model)
+    early = dict(early or {})
 
     for more in (False, True):
         finalists = verify_finalists_of(judged, more)
         if not finalists:
             break
         with concurrent.futures.ThreadPoolExecutor(max(1, len(finalists))) as ex:
-            got = list(ex.map(ask, finalists))
+            futures = [early.pop(id(c)) if id(c) in early else ex.submit(ask, c) for c in finalists]
+            got = [f.result() for f in futures]
         verified = vetoed = 0
         for c, (ans, info) in zip(finalists, got):
             c["_asked"] = True
             if ans is None:
+                if info.get("refused"):
+                    note_judge_gap(index, f"проверка кадра: {info['refused']}")
                 continue
             focus = shot_judge.focus_met(spec, ans)
             if focus:
@@ -13834,7 +14191,7 @@ def aesthetic_score(image_path):
         model, processor = get_aesthetic_clip_model()
         img = PILImage.open(image_path).convert("RGB")
         inputs = processor(images=[img], return_tensors="pt")
-        with torch.no_grad():
+        with FOREGROUND_CPU.model(), torch.no_grad():
             vis_out = model.vision_model(pixel_values=inputs["pixel_values"])
             feat = model.visual_projection(vis_out.pooler_output)
         e = (feat / feat.norm(dim=-1, keepdim=True))[0].numpy()
@@ -13986,6 +14343,7 @@ def locate_focus_box(index, path, winner, request):
              "cost": info.get("cost"), "cache_hit": info.get("cache_hit")}
     if info.get("refused"):
         entry["refused"] = info["refused"]
+        note_judge_gap(index, f"рамка детали: {info['refused']}")
     if box:
         try:
             crop = focus_frame.crop_file(path, box, os.path.join(TEMP_FOLDER, "focus_crop"))
@@ -13998,6 +14356,8 @@ def locate_focus_box(index, path, winner, request):
             shows, cinfo = shot_judge.confirm_crop(gw, model, path=crop, focus=focus, cache_dir=cache)
             entry["focus_confirm"] = shows
             entry["confirm_cost"] = cinfo.get("cost")
+            if cinfo.get("refused"):
+                note_judge_gap(index, f"проверка вырезки: {cinfo['refused']}")
             if shows is not True:
                 entry["focus_dropped"] = "confirm"
                 box = None
@@ -14792,6 +15152,7 @@ VIDEO_PREFER_MIN_LUMA = 0.18   # ниже — кадр читается плох
 _PEXELS_VIDEO_SEARCH_CACHE = {}
 
 
+@_single_flight
 def _pexels_search_videos(api_query):
     """Видео-выдача Pexels с кэшем на процесс — та же причина и та же
     механика, что у _pexels_search_photos (см. её докстринг): без кэша сбор
@@ -14806,7 +15167,7 @@ def _pexels_search_videos(api_query):
         req = urllib.request.Request(
             f"https://api.pexels.com/videos/search?query={q}&per_page=80&orientation=landscape",
             headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
-        with urllib.request.urlopen(req, timeout=15) as r:
+        with source_health.urlopen_retry(req, 15, "search:pexels") as r:
             _note_pexels_quota(r)
             return json.load(r)
     data = cached_search_json("pexels_video", f"{api_query}|80|landscape", fetch)
@@ -14912,6 +15273,9 @@ class VideoAdapter(selection_engine.MediaAdapter):
         gate_sig = candidate_gate_signature(request.index).split(":", 1)[-1]
         return os.path.join(cache, f"{request.index:04d}_{qhash}_{gate_sig}.mp4")
 
+    def stale_cache(self, request, cf):
+        return stale_cache_reason(request.index, cf)
+
     def cache_hit(self, request, cf):
         """Как у фото: кадр из кэша, визуально повторяющий уже показанное,
         не принимается (раньше видео проверялось только по id). Отпечаток
@@ -14968,11 +15332,15 @@ class VideoAdapter(selection_engine.MediaAdapter):
     def on_failure(self, request, exc):
         _note_pexels_failure(exc, f"Pexels video [{request.query}]")
 
+    def on_source_result(self, request, pq, candidates):
+        eager_cascade(request.index, "video", candidates)
+
     def on_source_failure(self, request, source_name, exc):
         """Как у фото: сбой Pexels не уносит кандидатов Pixabay и считается
         ошибкой поиска источника."""
         if source_name == "pexels":
             _source_bump("pexels", "search_errors")
+            note_pool_gap("pexels", exc, index=request.index)
             _note_pexels_failure(exc, f"Pexels video [{request.query}]")
         else:
             _note_source_search_error(source_name, exc, request.query)
@@ -15220,6 +15588,210 @@ def _select_photo(request):
 # Отбор по виду медиа. Фото — ядро с адаптером фото; видео — пока своим
 # путём (этап 3 переносит его в то же ядро).
 MEDIA_SELECTORS = {"photo": _select_photo, "video": _select_video}
+
+
+# ПОДГОТОВКА СЛЕДУЮЩИХ СЛОТОВ В ФОНЕ (SLOT_PREFETCH=0/1, дефолт 1;
+# scripts/slot_prefetch.py — расписание, здесь — сами работы).
+#
+# Замер холодного прогона эпизода 94 (27.09, профиль каждой стадии): слот
+# платной зоны — 220-310 с, из них поиск по источникам 47-60 с и каскад
+# (превью всей кучи + модель гейта) 50-110 с на каждый вид медиа; судья,
+# которого слот на самом деле ждёт, — 30-45 с. Слот бесплатной зоны почти
+# целиком — поиск. Ни поиск, ни эмбеддинг превью не зависят от того, чем
+# кончились предыдущие слоты, поэтому пока текущий слот ждёт судью, следующие
+# ищутся и оцениваются заранее.
+#
+# РЕШЕНИЙ ЗДЕСЬ НЕТ: подготовка только заполняет те же кэши, которые отбор
+# прочитал бы сам, и отбор идёт прежним кодом (свойства — в докстринге
+# slot_prefetch.py). Квотируемые источники, от остатка которых зависит состав
+# кучи (Pexels, Unsplash), подготовка не спрашивает: берёт их выдачу, только
+# если тот же запрос уже задан отбором.
+PREFETCH_SEARCH_AHEAD_PAID = 3
+PREFETCH_SEARCH_AHEAD_FREE = 8
+PREFETCH_CASCADE_AHEAD = 2
+PREFETCH_QUOTA_SOURCES = ("pexels", "unsplash")
+# Исключение одно, и оно не тратит лишней квоты: СОБСТВЕННЫЕ запросы слота
+# к Pexels (его запрос и перевод брифа — slot_own_queries) отбор делает
+# всегда, без проверки остатка, как только ищет этот вид медиа. В платной
+# зоне фото ищется практически в каждом слоте, видео — первым, если фраза
+# требует движения; для них подготовка делает тот же вызов раньше — без
+# этого превью Pexels (треть кучи фото, большая часть кучи видео) оценивались
+# бы каскадом на глазах у слота.
+# Каскад отбора оценивает первые cascade_preview_n() кандидатов кучи БЕЗ уже
+# показанных; подготовка не знает, какие будут показаны, поэтому берёт запас.
+PREFETCH_HEAD_MARGIN = 60
+PREFETCH_POOLS = {}
+PREFETCH_STATS = {"slots_searched": 0, "pools": 0, "candidates": 0, "embedded": 0,
+                  "eager_embedded": 0, "source_errors": 0}
+
+
+def _prefetch_peek(name, request, pq, kind):
+    """Выдача квотируемого источника по запросу пула — только если отбор
+    уже спросил её; иначе None (подготовка не тратит квоту)."""
+    if name == "pexels":
+        api_q = stock_api_query(request, pq, video=(kind == "video"))
+        cache = _PEXELS_VIDEO_SEARCH_CACHE if kind == "video" else _PEXELS_SEARCH_CACHE
+        got = cache.get(api_q)
+        return None if got is None else [dict(c, _origin_query=pq) for c in got]
+    return None
+
+
+class _PrefetchAdapter:
+    """Задания источников адаптера для подготовки: квотируемые — только из
+    уже спрошенного, сбои не записываются (отбор спросит сам)."""
+
+    def __init__(self, base, kind):
+        self.base = base
+        self.kind = kind
+
+    def source_jobs(self, request, pq):
+        jobs = []
+        own = self._own_pexels(request, pq)
+        for name, job in self.base.source_jobs(request, pq):
+            if name == "pexels" and own:
+                jobs.append((name, job))
+                continue
+            if name in PREFETCH_QUOTA_SOURCES:
+                got = _prefetch_peek(name, request, pq, self.kind)
+                if got is not None:
+                    jobs.append((name, lambda got=got: got))
+                continue
+            jobs.append((name, job))
+        return jobs
+
+    def _own_pexels(self, request, pq):
+        """Собственный запрос слота к Pexels, который отбор сделает при
+        любом остатке квоты (см. PREFETCH_QUOTA_SOURCES)."""
+        if not shot_judge_active(request.index) or pq not in slot_own_queries(request):
+            return False
+        if self.kind == "photo":
+            return True
+        import stock_query_planner
+        return bool(request.shot_spec) and stock_query_planner.has_motion(request.shot_spec, must=True)
+
+    def on_source_result(self, request, pq, candidates):
+        eager_cascade(request.index, self.kind, candidates)
+
+    def on_source_failure(self, request, source_name, exc):
+        PREFETCH_STATS["source_errors"] += 1
+
+
+def prefetch_pool(request, kind):
+    """Куча слота для подготовки: те же запросы и тот же порядок, что у
+    selection_engine.build_pool, без записи в счёт источников."""
+    base = PHOTO_ADAPTER if kind == "photo" else VIDEO_ADAPTER
+    tiers = selection_engine.query_tiers(
+        request, selection_engine.pool_queries(request, base.brief_query(request)))
+    fetched = selection_engine.fetch_sources(request, _PrefetchAdapter(base, kind),
+                                             [pq for tier in tiers for pq in tier])
+    pool = selection_engine.unique_by_id(
+        [c for tier in tiers
+         for c in selection_engine.round_robin([selection_engine.round_robin(fetched[pq])
+                                                for pq in tier])])
+    return filter_pool_by_text(pool, request.index)
+
+
+def prefetch_cascade_pool(j, kind, pool, stopped):
+    """Эмбеддинги превью головы кучи слота j (платная зона). Числа те же, что
+    посчитал бы отбор (cascade_embed, пачки ровно по CASCADE_BATCH)."""
+    head = pool[:cascade_preview_n() + PREFETCH_HEAD_MARGIN]
+    if kind == "photo":
+        url_of, probe = candidate_probe_url, photo_probe_download
+    else:
+        url_of, probe = video_middle_url, video_middle_probe
+    tmp_dir = os.path.join(TEMP_FOLDER, "prefetch")
+    os.makedirs(tmp_dir, exist_ok=True)
+    _emb, fresh = cascade_embed(head, url_of, probe, os.path.join(tmp_dir, f"{j:04d}_{kind}_"),
+                                index=j, background=True, stopped=stopped)
+    PREFETCH_STATS["embedded"] += fresh
+    return fresh
+
+
+EAGER_CASCADE = []     # slot_prefetch.Eager на прогон (пока работает подготовка слотов)
+
+
+def eager_cascade(index, kind, candidates):
+    """Кандидаты источника, который уже ответил, — в очередь оценки каскада,
+    не дожидаясь остальных источников (slot_prefetch.Eager). Только платная
+    зона (каскад работает при судье) и только пока идёт подготовка слотов."""
+    if not EAGER_CASCADE or index is None or not candidates or not shot_judge_active(index):
+        return
+    eager = EAGER_CASCADE[0]
+    head = list(candidates)[:cascade_preview_n()]
+    if kind == "photo":
+        url_of, probe = candidate_probe_url, photo_probe_download
+    else:
+        url_of, probe = video_middle_url, video_middle_probe
+    tmp_dir = os.path.join(TEMP_FOLDER, "prefetch")
+    os.makedirs(tmp_dir, exist_ok=True)
+
+    def run():
+        _emb, fresh = cascade_embed(head, url_of, probe,
+                                    os.path.join(tmp_dir, f"{index:04d}_{kind}_eager_"),
+                                    index=index, background=True, stopped=lambda: eager.stopped)
+        PREFETCH_STATS["eager_embedded"] += fresh
+    eager.submit(index, run)
+
+
+def make_slot_prefetcher(blocks, durs, queries, section_query_pool):
+    """Подготовка слотов эпизода или None (флаг выключен)."""
+    if not feature_flags.enabled("SLOT_PREFETCH"):
+        return None
+    for k in PREFETCH_STATS:
+        PREFETCH_STATS[k] = 0
+    PREFETCH_POOLS.clear()
+
+    def request_of(j):
+        b = blocks[j]
+        return build_slot_request(
+            index=j, query=queries[j],
+            extra_queries=slot_extra_queries(b, section_query_pool.get(b["section"])),
+            text_key=None, shot_brief=b.get("shot_brief"), block_text=b["text"],
+            shot_spec=b.get("shot_spec"), arbiter_text=None, is_opening=False,
+            slot_dur=durs[j], action_qualifier=action_video_qualifier(b["text"]),
+            target_luma=None, director_score_fn=None, director_assist=False,
+            director_report=None, video_score_fn=None, used_photo_ids=None,
+            used_video_ids=None, used_hashes=None, recent_sizes=None)
+
+    def kinds_of(j):
+        b = blocks[j]
+        # Видео готовится только там, где его ищет судья: вне платной зоны
+        # видео-куча — Pexels (не готовится) и Pixabay (отвечает за доли
+        # секунды), готовить там нечего.
+        if shot_judge_active(j) and not b.get("stat") and durs[j] >= MIN_CLIP + 1.0:
+            return ("photo", "video")
+        return ("photo",)
+
+    holder = {}
+
+    def search(j):
+        req = request_of(j)
+        for kind in kinds_of(j):
+            if holder["p"].stopped:
+                return
+            pool = prefetch_pool(req, kind)
+            if shot_judge_active(j):
+                PREFETCH_POOLS[(j, kind)] = pool     # голове кучи нужен каскад
+            PREFETCH_STATS["pools"] += 1
+            PREFETCH_STATS["candidates"] += len(pool)
+        PREFETCH_STATS["slots_searched"] += 1
+
+    def cascade(j):
+        if not shot_judge_active(j):
+            return False
+        for kind in kinds_of(j):
+            pool = PREFETCH_POOLS.pop((j, kind), None)
+            if pool:
+                prefetch_cascade_pool(j, kind, pool, lambda: holder["p"].stopped)
+        return True
+
+    def search_ahead(i):
+        return PREFETCH_SEARCH_AHEAD_PAID if shot_judge_active(i) else PREFETCH_SEARCH_AHEAD_FREE
+
+    holder["p"] = slot_prefetch.Prefetcher(len(blocks), search, cascade, search_ahead,
+                                           lambda i: PREFETCH_CASCADE_AHEAD)
+    EAGER_CASCADE[:] = [slot_prefetch.Eager("prefetch-eager", horizon=lambda: holder["p"].current)]
+    return holder["p"]
 
 # Мгновенный рез после stat-плашки. Раньше 0.03с — при FPS=24 это 0.72 кадра,
 # то есть физически НЕ короче обычного hardcut: ffmpeg всё равно округлял его
@@ -16964,7 +17536,9 @@ def main():
     selection_attempt.reset_attempt_ids()
     # Шлюз судьи и его потолок расходов — на прогон, а не на процесс.
     _SHOT_JUDGE_STATE.update(gateway=None, made=False, refused=None, slots=set(), warned=False,
-                             world_votes=None)
+                             world_votes=None, candidate=None, recheck_at=None)
+    JUDGE_GAPS.clear()
+    POOL_GAPS.clear()
     _VIDEO_UNSHARP_CACHE.clear()
     SHOT_JUDGE_LOG.clear()
     # Второй круг поиска — журнал и шлюз (со своим потолком) на прогон.
@@ -17243,7 +17817,12 @@ def main():
     # rescale_hook_words_to_visual_time().
     hook_words = rescale_hook_words_to_visual_time(hook_words, blocks, sub_starts, sub_baseline,
                                                      visual_starts, durs)
+    # Подготовка следующих слотов в фоне (SLOT_PREFETCH): поиск и каскад
+    # впереди отбора, решений не принимает (см. make_slot_prefetcher).
+    slot_prefetcher = make_slot_prefetcher(blocks, durs, queries, section_query_pool)
     for i, (b, d) in enumerate(zip(blocks, durs)):
+        if slot_prefetcher is not None:
+            slot_prefetcher.advance(i)
         # ПЕРЕНОС ДЛИТЕЛЬНОСТИ ОТ ПОГЛОЩЁННЫХ СЛОТОВ. Слот, которому нечего
         # честно показать, не получает своего клипа — его время достаётся
         # ЭТОМУ клипу, то есть предыдущий проверенный кадр (а точнее —
@@ -17364,7 +17943,13 @@ def main():
                 os.remove(out)
             except OSError:
                 pass
-        if os.path.exists(out):
+        clip_provisional = None
+        if os.path.exists(out) and not (lock_photo or lock_video):
+            clip_provisional = provisional_clip_reason(i, prev_shotlist, b)
+            if clip_provisional:
+                print(f"  [{i+1}] клип собран из кадра, выбранного без судьи ({clip_provisional}) — "
+                      f"отбираю заново")
+        if os.path.exists(out) and not clip_provisional:
             # РЕАЛЬНЫЙ баг, пойманный вживую: раньше кэш-хит уходил в clips
             # СРАЗУ здесь, по ходу цикла, а промах кэша (ниже) — только В
             # pending_jobs, с append в clips ОТДЕЛЬНЫМ проходом ПОСЛЕ конца
@@ -17969,6 +18554,13 @@ def main():
                            "source": shotlist_source_for(video or photo, VIDEO_FOLDER, locked=locked_shot),
                            "clip": os.path.basename(out),
                            **shotlist_provenance(video or photo)}
+        _prov = None if locked_shot else mark_provisional_media(i, video or photo)
+        if _prov:
+            for _k, _gaps in (("judge_missing", JUDGE_GAPS), ("pool_missing", POOL_GAPS)):
+                if i in _gaps:
+                    shot_entries[i][_k] = _gaps[i]
+            print(f"    [{i+1}] решено при сбое ({_prov}) — временно: следующий рендер решит "
+                  f"слот заново")
         # Нашла ли проверка на этом кадре главное фразы. Замена без главного
         # (лучшее из найденного) видна в шотлисте поимённо, а не молча.
         _focus = (shown_att.notes.get("focus_met") if shown_att is not None else None)
@@ -18190,6 +18782,17 @@ def main():
             log_render_diagnostics(f"block_{i+1}/{len(blocks)}")
         _stock_api_pacing(i, use_pexels, use_local)
 
+    for _eager in EAGER_CASCADE:
+        _eager.close()
+    EAGER_CASCADE.clear()
+    if slot_prefetcher is not None:
+        slot_prefetcher.close()
+        print(f"  Подготовка слотов в фоне: куч {PREFETCH_STATS['pools']} "
+              f"({PREFETCH_STATS['candidates']} кандидатов), оценок каскада заранее "
+              f"{PREFETCH_STATS['embedded']} по кучам и {PREFETCH_STATS['eager_embedded']} "
+              f"по первым ответам источников, общих запросов с отбором "
+              f"{_SEARCH_FLIGHT.shared}, сбоев источников (отбор спрашивал сам) "
+              f"{PREFETCH_STATS['source_errors']}")
     if not SELECT_ONLY:
         # Резолвим отложенные (в пуле) рендеры — future.result() блокирует, только
         # если этот конкретный клип ещё не доехал, к этому моменту у воркеров уже

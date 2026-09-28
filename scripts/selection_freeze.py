@@ -375,7 +375,7 @@ def overlay_roots(freeze, overlay_from):
 
 
 def run_pipeline(freeze, mode, label, hashseed, keep_media=False, pipeline=None,
-                 live_fallback=False, overlay_from=None):
+                 live_fallback=False, overlay_from=None, env_override=None):
     meta = json.load(open(os.path.join(freeze, "meta.json"), encoding="utf-8"))
     run_dir = os.path.join(freeze, "runs", label)
     if os.path.exists(run_dir):
@@ -384,6 +384,11 @@ def run_pipeline(freeze, mode, label, hashseed, keep_media=False, pipeline=None,
     sandbox = os.path.join(run_dir, "episode")
     shutil.copytree(os.path.join(freeze, "input"), sandbox)
     env = child_env(meta["env"], run_dir, hashseed)
+    # Флаги режимов, заданные явно (--set-env ИМЯ=ЗНАЧЕНИЕ): сравнить с
+    # записью тот же код с другим режимом — например, подготовку слотов
+    # (SLOT_PREFETCH=1) против записи без неё.
+    for name, value in (env_override or {}).items():
+        env[name] = value
     pipeline = os.path.abspath(pipeline or PIPELINE)
     overlay = os.path.join(run_dir, "net_overlay") if live_fallback else ""
     extra = os.pathsep.join(overlay_roots(freeze, overlay_from))
@@ -403,6 +408,7 @@ def run_pipeline(freeze, mode, label, hashseed, keep_media=False, pipeline=None,
     result["pipeline"] = pipeline
     result["live_fallback"] = bool(live_fallback)
     result["net_overlay_from"] = overlay_from
+    result["env_override"] = dict(env_override or {})
     result["seconds"] = round(took, 1)
     with open(os.path.join(run_dir, "result.json"), "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=1, sort_keys=True)
@@ -872,7 +878,15 @@ def child(mode, net_dir, sandbox, run_dir, pipeline=PIPELINE, overlay="", extra_
         slot = hits.pop("__slot__")
         slot_inputs = hits.pop("__inputs__")
         slot_attempts = hits.pop("__attempts__")
-        rec.tagger = lambda: slot["i"]
+        # Обращения фоновой подготовки слотов (slot_prefetch) метятся слотом,
+        # ДЛЯ которого они сделаны, а не тем, который сейчас отбирается.
+        import slot_prefetch
+
+        def _tag():
+            target = slot_prefetch.TARGET.get()
+            return target if target is not None else slot["i"]
+        rec.tagger = _tag
+        rec.prefetch_probe = lambda: slot_prefetch.TARGET.get() is not None
         clock.tagger = rec.tagger
         install_pool_capture(pipeline_smart, os.path.join(run_dir, "pools.jsonl"))
         apply_ablation(pipeline_smart, os.environ.get("SELECTION_ABLATE", ""))
@@ -1145,7 +1159,7 @@ def contribution_vs_screen(run):
     return not diff, diff
 
 
-def compare(a, b, expect=None):
+def compare(a, b, expect=None, prefetch_net=False):
     """Классификация по слоту — ровно один класс на слот:
 
       СОВПАЛ               — все поля слота совпали;
@@ -1263,8 +1277,21 @@ def compare(a, b, expect=None):
     ta = a.get("net", {}).get("slots_by_key", {})
     tb = b.get("net", {}).get("slots_by_key", {})
     net_diff, net_bad = {}, []
+    # Прогон с фоновой подготовкой слотов (slot_prefetch): общий запрос двух
+    # слотов делает тот, кто успел первым, — подготовка для слота j или
+    # отбор слота i, — поэтому разметка слотами у общих адресов законно
+    # другая. Судится ЧИСЛО обращений по адресу; лишние обращения
+    # подготовки вне записи (отказ оставляет кэш пустым, отбор спрашивает
+    # сам) — отдельно, решений они не меняют.
+    prefetch_extra = {}
+    if prefetch_net:
+        for d in b.get("net", {}).get("divergences", []):
+            if d.get("prefetch"):
+                prefetch_extra[d["key"]] = prefetch_extra.get(d["key"], 0) + 1
     for k in sorted(set(ca) | set(cb)):
         if ca.get(k, 0) == cb.get(k, 0) and ta.get(k) == tb.get(k):
+            continue
+        if prefetch_net and ca.get(k, 0) == cb.get(k, 0) - prefetch_extra.get(k, 0):
             continue
         sa, sb = ta.get(k) or {}, tb.get(k) or {}
         # Судится пара «адрес × слот», а не адрес целиком: общий адрес
@@ -1278,7 +1305,8 @@ def compare(a, b, expect=None):
         if not (changed and all(lb != "none" and int(lb) in allowed for lb in changed)):
             net_bad.append(k)
     divergences = b.get("net", {}).get("divergences", [])
-    div_bad = [d for d in divergences if d.get("slot") not in allowed]
+    div_bad = [d for d in divergences if d.get("slot") not in allowed
+               and not (prefetch_net and d.get("prefetch"))]
     clock = (b.get("net", {}).get("time_decisions") or {}).get("divergences") or []
     # Решение по часам вне записи законно только в слоте с причиной; запись
     # без слота (старый формат, решение вне цикла слотов) — провал.
@@ -1405,7 +1433,7 @@ def cmd_replay(args):
     label = args.label or f"replay-seed{args.hashseed}"
     res = run_pipeline(freeze, "replay", label, args.hashseed, args.keep_media,
                        pipeline=args.pipeline, live_fallback=args.live_fallback,
-                       overlay_from=args.net_overlay_from)
+                       overlay_from=args.net_overlay_from, env_override=_env_pairs(args.set_env))
     print(f"воспроизведено за {res['seconds']}с: код {res['returncode']}, "
           f"вне записи {len(res['net'].get('divergences', []))}")
     return 0
@@ -1417,10 +1445,20 @@ def _expect(path):
     return json.load(open(path, encoding="utf-8"))
 
 
+def _env_pairs(items):
+    out = {}
+    for item in items or ():
+        name, _, value = item.partition("=")
+        if not name or not _:
+            raise SystemExit(f"--set-env ждёт ИМЯ=ЗНАЧЕНИЕ, получено {item!r}")
+        out[name] = value
+    return out
+
+
 def cmd_compare(args):
     freeze = os.path.abspath(args.freeze)
     a, b = _load_result(freeze, args.a), _load_result(freeze, args.b)
-    rep = compare(a, b, _expect(args.expect))
+    rep = compare(a, b, _expect(args.expect), prefetch_net=args.prefetch_net)
     print_report(rep, a, b)
     with open(os.path.join(freeze, "runs", args.b, f"compare_vs_{args.a}.json"), "w", encoding="utf-8") as f:
         json.dump(rep, f, ensure_ascii=False, indent=1)
@@ -1434,9 +1472,9 @@ def cmd_verify(args):
     label = args.label or f"verify-seed{seed}"
     run_pipeline(freeze, "replay", label, seed, args.keep_media,
                  pipeline=args.pipeline, live_fallback=args.live_fallback,
-                 overlay_from=args.net_overlay_from)
+                 overlay_from=args.net_overlay_from, env_override=_env_pairs(args.set_env))
     a, b = _load_result(freeze, args.against), _load_result(freeze, label)
-    rep = compare(a, b, _expect(args.expect))
+    rep = compare(a, b, _expect(args.expect), prefetch_net=args.prefetch_net)
     print_report(rep, a, b)
     with open(os.path.join(freeze, "runs", label, f"compare_vs_{args.against}.json"), "w",
               encoding="utf-8") as f:
@@ -1477,6 +1515,9 @@ def main(argv=None):
                         help="запросы вне записи выполнять живьём в отдельный слой (названные)")
     v.add_argument("--against", default="record",
                    help="с каким прогоном сравнивать (по умолчанию запись)")
+    for sp in (rp, v):
+        sp.add_argument("--set-env", action="append", metavar="ИМЯ=ЗНАЧЕНИЕ",
+                        help="переопределить переменную окружения прогона (флаг режима)")
     for sp in (r, rp, v):
         sp.add_argument("--keep-media", action="store_true",
                         help="оставить скачанные прогоном файлы (для глазной проверки); "
@@ -1492,6 +1533,10 @@ def main(argv=None):
     c.add_argument("b")
     c.add_argument("--expect")
     c.set_defaults(fn=cmd_compare)
+    for sp in (v, c):
+        sp.add_argument("--prefetch-net", action="store_true",
+                        help="прогон b с фоновой подготовкой слотов: сеть судится по числу "
+                             "обращений на адрес, лишние обращения подготовки вне записи — отдельно")
     args = p.parse_args(argv)
     return args.fn(args)
 

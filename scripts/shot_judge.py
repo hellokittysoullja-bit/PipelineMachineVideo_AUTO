@@ -54,6 +54,7 @@
 """
 import base64
 import concurrent.futures
+import contextvars
 import hashlib
 import io
 import json
@@ -245,6 +246,15 @@ def cache_key(model, text, paths):
 VISION_CANARY_COLORS = (("red", (220, 20, 20)), ("blue", (20, 40, 220)))
 
 
+VISION_CHECK_GATEWAY_FAILURE = "проверка зрения не состоялась"
+
+
+def vision_check_failed_by_gateway(why):
+    """Причина отказа vision_check — сбой шлюза (проверку стоит повторить), а
+    не ответ модели (модель не видит картинок — повтор не поможет)."""
+    return str(why or "").startswith(VISION_CHECK_GATEWAY_FAILURE)
+
+
 def vision_check(gateway, model):
     """(True, "") если модель видит картинку, иначе (False, причина).
     Два цвета, чтобы угадывание одного слова не сходило за зрение."""
@@ -258,7 +268,7 @@ def vision_check(gateway, model):
         try:
             answer, _u, _p = gateway.chat(model, content, 20, 400, reasoning=False)
         except Exception as e:  # noqa: BLE001
-            return False, f"проверка зрения не состоялась: {type(e).__name__}: {e}"[:300]
+            return False, f"{VISION_CHECK_GATEWAY_FAILURE}: {type(e).__name__}: {e}"[:300]
         if word not in (answer or "").lower():
             return False, f"модель {model} не видит картинок (на {word} ответила {answer[:80]!r})"
     return True, ""
@@ -888,16 +898,24 @@ def verify_claims(gateway, model, *, phrase, spec, setting, path, kind="photo", 
     if gateway is None or not path or not os.path.exists(path):
         return None, {}
     if world_separate and setting:
-        world, winfo = world_of_image(gateway, model, setting=setting, path=path, kind=kind,
-                                      cache_dir=cache_dir, max_side=max_side, reasoning=reasoning,
-                                      caption=caption, frames=frames)
-        if world is None:
-            return None, winfo
-        answers, info = verify_claims(gateway, model, phrase=phrase, spec=spec, setting=None,
-                                      path=path, kind=kind, cache_dir=cache_dir,
-                                      max_side=max_side, reasoning=reasoning, caption=caption,
-                                      frames=frames)
+        # Мир и утверждения — два независимых вопроса по одной картинке:
+        # спрашиваются ОДНОВРЕМЕННО, а не друг за другом (время проверки —
+        # один вызов, а не два). Ответы и их кэш — те же, что по очереди;
+        # мир не ответил — проверки нет, как и раньше (вопрос по
+        # утверждениям тогда оплачен впустую — только при сбое шлюза).
+        with concurrent.futures.ThreadPoolExecutor(2) as ex:
+            wf = ex.submit(contextvars.copy_context().run, world_of_image, gateway, model,
+                           setting=setting, path=path, kind=kind, cache_dir=cache_dir,
+                           max_side=max_side, reasoning=reasoning, caption=caption, frames=frames)
+            cf = ex.submit(contextvars.copy_context().run, verify_claims, gateway, model,
+                           phrase=phrase, spec=spec, setting=None, path=path, kind=kind,
+                           cache_dir=cache_dir, max_side=max_side, reasoning=reasoning,
+                           caption=caption, frames=frames)
+            world, winfo = wf.result()
+            answers, info = cf.result()
         cost = (info.get("cost") or 0) + (winfo.get("cost") or 0)
+        if world is None:
+            return None, dict(winfo, cost=cost)
         info = dict(info, cost=cost, call=bool(info.get("call") or winfo.get("call")))
         return (None if answers is None else dict(answers, **world)), info
     asked = asked_claims(spec, kind, frames)

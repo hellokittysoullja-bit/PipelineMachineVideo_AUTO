@@ -122,6 +122,11 @@ def _isolate_from_real_dotenv(monkeypatch, tmp_path):
     # выбора победителя, ходил бы в сеть и тратил деньги владельца.
     monkeypatch.delenv("SHOT_JUDGE", raising=False)
     monkeypatch.setenv("SHOT_JUDGE", "0")
+    # SLOT_PREFETCH — фоновая подготовка слотов: тест, дошедший до main(),
+    # запускал бы потоки поиска по всем включённым источникам. Свои тесты
+    # включают её явно, с подменёнными источниками.
+    monkeypatch.delenv("SLOT_PREFETCH", raising=False)
+    monkeypatch.setenv("SLOT_PREFETCH", "0")
     # Пустая строка, а не удаление — тот же приём, что у GEMINI_API_KEY выше.
     # Удалённую переменную load_dotenv() в дочернем процессе рендера (тесты
     # запускают pipeline_smart.py подпроцессом) возвращает из рабочего .env:

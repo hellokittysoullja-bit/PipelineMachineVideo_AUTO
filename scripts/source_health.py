@@ -135,3 +135,75 @@ def snapshot():
     with _REG_LOCK:
         return {name: dict(h.stats, rate=(None if h.interval <= 0 else round(h.rate, 3)))
                 for name, h in _REGISTRY.items()}
+
+
+# ВРЕМЕННЫЙ СБОЙ — ПОВТОР, А НЕ ПОТЕРЯ ИСТОЧНИКА. Живой прогон эпизода 94
+# (27.09, профиль каждого HTTP-запроса): поиск и превью источников изредка
+# отвечают 429/5xx или рвут соединение, и каждый такой ответ стоил слоту
+# всего источника (поиск) или кандидата (превью) — молча, отбор просто
+# видел кучу беднее. Повтор с паузой, которую назвал сам сервис
+# (Retry-After), а при 429/503 — ещё и замедление всего хоста (throttled):
+# следующие запросы других потоков не бьют в тот же лимит. Пауза длиннее
+# RETRY_MAX_WAIT_SEC — это не всплеск, а исчерпанная квота (у Pexels —
+# до часа), её ждать нельзя: ошибка уходит вызывающему сразу.
+TRANSIENT_HTTP = (429, 500, 502, 503, 504)
+RETRY_BACKOFF_SEC = (1.5, 4.0)
+RETRY_MAX_WAIT_SEC = 20.0
+
+
+def transient_error(exc):
+    """Сбой, который повтор может вылечить: 429, 5xx, обрыв, таймаут. Одно
+    правило для всех, кто решает «повторить / считать ответ неполным»:
+    постоянный отказ (401/403/404, битый ответ) повтором не лечится."""
+    import http.client
+    import urllib.error
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code == 429 or exc.code >= 500
+    if isinstance(exc, (FileNotFoundError, PermissionError, IsADirectoryError, NotADirectoryError)):
+        return False
+    # Остальное семейство OSError — сеть: обрыв, таймаут, «сеть недоступна»
+    # (urllib заворачивает их в URLError, но не везде).
+    return isinstance(exc, (OSError, http.client.HTTPException))
+
+
+def retry_after_of(error):
+    """Retry-After в секундах из HTTPError или None."""
+    try:
+        value = (error.headers or {}).get("Retry-After")
+        return float(value) if value is not None and str(value).strip().isdigit() else None
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+def urlopen_retry(req, timeout, host_name=None, attempts=3):
+    """urllib.request.urlopen с повтором временных сбоев. Ответ — как у
+    urlopen (контекстный менеджер). Невременная ошибка (404, 401, 403) и
+    последняя попытка — исключение наружу, как раньше."""
+    import http.client
+    import urllib.error
+    import urllib.request
+    h = host(host_name, cooldown_sec=RETRY_MAX_WAIT_SEC) if host_name else None
+    for attempt in range(attempts):
+        if h is not None and h.cooling():
+            time.sleep(h.cooldown_left())
+        try:
+            r = urllib.request.urlopen(req, timeout=timeout)
+            if h is not None:
+                h.succeeded()
+            return r
+        except urllib.error.HTTPError as e:
+            if e.code not in TRANSIENT_HTTP or attempt == attempts - 1:
+                raise
+            if e.code == 429 and str((e.headers or {}).get("X-Ratelimit-Remaining", "")).strip() == "0":
+                raise    # квота исчерпана (Pexels: до часа) — не всплеск, ждать нечего
+            wait = retry_after_of(e)
+            if wait is not None and wait > RETRY_MAX_WAIT_SEC:
+                raise
+            if h is not None and e.code in (429, 503):
+                h.throttled(retry_after=wait if wait is not None else MIN_RETRY_AFTER_SEC)
+                continue
+            time.sleep(wait if wait is not None else RETRY_BACKOFF_SEC[min(attempt, len(RETRY_BACKOFF_SEC) - 1)])
+        except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException):
+            if attempt == attempts - 1:
+                raise
+            time.sleep(RETRY_BACKOFF_SEC[min(attempt, len(RETRY_BACKOFF_SEC) - 1)])

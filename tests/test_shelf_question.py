@@ -170,11 +170,14 @@ class TestBothCallSitesUseTheResolver:
         assert "candidate_brief_key(request.shot_brief, uses_shelf=False)" in src
 
     def test_main_feeds_the_block_phrase_to_photo_only(self):
-        src = self._src()
+        import inspect
         # Запрос слота один на все попытки (selection_engine.SlotRequest):
-        # фраза попадает в него ровно в одном месте, а видео-путь её для
-        # полки не берёт (test_video_path_declares_it_does_not_use_the_shelf).
-        assert src.count('block_text=b["text"]') == 1
+        # в main() фраза попадает в него ровно в одном месте, а видео-путь её
+        # для полки не берёт (test_video_path_declares_it_does_not_use_the_shelf).
+        # Второе место в файле — запрос подготовки слота (make_slot_prefetcher):
+        # он повторяет запрос отбора, чтобы греть те же кэши.
+        assert inspect.getsource(ps.main).count('block_text=b["text"]') == 1
+        assert self._src().count('block_text=b["text"]') == 2
 
 
 class TestShelfIsAskedWithThePhrase:

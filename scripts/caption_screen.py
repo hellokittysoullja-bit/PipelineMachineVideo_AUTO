@@ -44,7 +44,12 @@ import world_card
 SCREEN_VERSION = 2
 MODEL = "ds/deepseek-v4-flash"
 TOP_N = 100
-MAX_TOKENS = 2500
+# Ответ — короткий JSON: 176 сохранённых ответов на 100 строк — до 1102
+# знаков (~600 токенов). Потолок не выше llm_gateway.HEDGE_SHORT_MAX_TOKENS:
+# короткий вызов без ответа 30 с уходит дублем с первого же слота (запись
+# эп.94, 27.09: один вызов DeepSeek из 14 рассуждал 146 с при выключенном
+# рассуждении, пока слот ждал; обычный ответ — 2.5-5.6 с).
+MAX_TOKENS = 2048
 EST_PROMPT_TOKENS = 7000
 
 URL_JUNK = set("""www com org edu net https http photo photos video videos pexels pixabay metmuseum art collection search

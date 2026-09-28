@@ -281,3 +281,52 @@ def test_replayed_failures_are_named_not_silent(tmp_path, restore_urlopen):
     fails = rep.summary()["replayed_failures"]
     assert [(f["url"], f["kind"], f["status"]) for f in fails] == [
         ("https://a/x", "http_error", 502), ("https://a/t", "exception", None)]
+
+
+def test_replay_can_keep_the_recorded_latency(tmp_path, restore_urlopen, monkeypatch):
+    """Два воспроизведения одной записи — одни ответы и решения; с задержкой
+    записи время прогона — как у живой сети (A/B порядка работы без удачи
+    провайдера в разные часы)."""
+    import time as _time
+    clock = {"now": 100.0}
+    monkeypatch.setattr(nr.time, "monotonic", lambda: clock["now"])
+
+    def slow(url_or_req, data=None, *a, **kw):
+        clock["now"] += 7.5
+        return urllib.response.addinfourl(io.BytesIO(b"x"), _msg([]), "https://a/1", 200)
+    _record(tmp_path, slow, ["https://a/1"])
+    rows = [json.loads(line) for line in open(tmp_path / "net" / "index.jsonl", encoding="utf-8")]
+    assert rows[0]["elapsed"] == 7.5
+    slept = []
+    monkeypatch.setattr(nr.time, "sleep", slept.append)
+    _replay(tmp_path, ["https://a/1"])
+    assert slept == [], "без флага — мгновенно, как раньше"
+    monkeypatch.setenv("NET_REPLAY_LATENCY", "1")
+    out, _rep = _replay(tmp_path, ["https://a/1"])
+    assert slept == [7.5] and out[0][0] == "ok"
+    assert _time is not None
+
+
+def test_live_fallback_never_pays_a_denied_host(tmp_path, restore_urlopen, monkeypatch):
+    """Воспроизведение с живым добором не спрашивает шлюз моделей о том, чего
+    в записи не было: такой вопрос — расхождение (и деньги), а не добор."""
+    fake = FakeNet({"https://a/1": [(200, [], b"old")], "https://a/new": [(200, [], b"fresh")],
+                    "https://anymodel.org/v1/chat/completions": [(200, [], b"paid")]})
+    urllib.request.urlopen = fake
+    rec = nr.NetRecorder(str(tmp_path / "net"), nr.RECORD).install()
+    try:
+        _observe("https://a/1")
+    finally:
+        rec.uninstall()
+    monkeypatch.setenv("NET_LIVE_FALLBACK_DENY", "anymodel.org")
+    rep = nr.NetRecorder(str(tmp_path / "net"), nr.REPLAY, overlay=str(tmp_path / "overlay")).install()
+    try:
+        got_new = _observe("https://a/new")
+        got_paid = _observe("https://anymodel.org/v1/chat/completions")
+    finally:
+        rep.uninstall()
+    assert got_new[5] == b"fresh"
+    assert got_paid[0] == "exc" and "freeze" in got_paid[3]
+    assert "https://anymodel.org/v1/chat/completions" not in fake.hits
+    assert [(d["url"], d["served"]) for d in rep.divergences] == [
+        ("https://a/new", "live"), ("https://anymodel.org/v1/chat/completions", "refused")]

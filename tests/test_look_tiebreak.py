@@ -144,7 +144,9 @@ def test_both_judge_paths_rank_the_ties():
     """С сеткой и без неё (сетка не ответила — решают утверждения) ничья
     наверху решается одинаково."""
     import inspect
-    src = inspect.getsource(ps.judge_candidates)
+    # Путь после сетки вынесен из judge_candidates (проверка первых по каскаду
+    # идёт вместе с сеткой), оба ответвления — в _judge_after_grid.
+    src = inspect.getsource(ps._judge_after_grid)
     assert src.count("_rank_look_ties(index, kind, judged, gw, model)") == 2
     for block in src.split("_rank_look_ties(index, kind, judged, gw, model)")[:2]:
         assert "_verify_finalists(" in block, "порядок — после проверки по утверждениям"

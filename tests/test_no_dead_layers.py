@@ -59,6 +59,14 @@ ALLOWED_UNREACHABLE = {
        for name in ("shot_generator.generate", "shot_generator.prompt_for",
                     "shot_generator.cache_key", "llm_gateway.image",
                     "llm_gateway.image_cost")},
+    "selection_engine.stale_cache":
+        "значение ПО УМОЛЧАНИЮ интерфейса адаптера (кэш можно брать): ядро "
+        "зовёт adapter.stale_cache в select(), живые реализации — у "
+        "PhotoAdapter и VideoAdapter. Базовый класс упомянут только как "
+        "база (class PhotoAdapter(selection_engine.MediaAdapter)), а граф "
+        "ссылки из заголовка класса не считает — поэтому его методы здесь "
+        "формально недостижимы; остальные его методы — заглушки "
+        "NotImplementedError и под проверку не попадают",
     "assemble.estimate_xfade_budget":
         "альтернативный сборщик по слотам (assemble.py) — второй, ручной путь "
         "сборки; в основной рендер (pipeline_smart.py) не входит",

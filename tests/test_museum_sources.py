@@ -222,7 +222,7 @@ class TestWiredIntoPipeline:
         прежнее поведение, а не похожее на него."""
         seen = []
 
-        def fake(q, department=None, limit=None):
+        def fake(q, department=None, limit=None, report=None):
             seen.append((q, limit))
             return [{"id": "met:1"}] if q == "medieval helmet" else []
 
@@ -241,7 +241,7 @@ class TestWiredIntoPipeline:
         Мет, см. museum_sources.VARIANT_DETAIL_FETCHES."""
         seen = []
 
-        def fake(q, department=None, limit=None):
+        def fake(q, department=None, limit=None, report=None):
             seen.append((q, limit))
             if q == "medieval helmet lying dirt":
                 return [{"id": "met:wrong"}, {"id": "met:right"}]

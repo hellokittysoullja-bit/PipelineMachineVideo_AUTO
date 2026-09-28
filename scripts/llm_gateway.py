@@ -27,15 +27,23 @@
     израсходовать весь max_tokens на рассуждение и вернуть content="" с
     finish_reason="length": 13 оплаченных вызовов DeepSeek на прогоне
     брифов дали ноль ответов, и снаружи это выглядело как «модель молчит».
-    Ошибка называет finish_reason и число токенов рассуждения.
+    Ошибка называет finish_reason и число токенов рассуждения;
+  * картинка, не дошедшая до модели, — повтор, а не ответ. Провайдер
+    изредка теряет вложение и отвечает 200 текстом модели «The image
+    failed to upload. Please resend it.» (см. ImageNotReceived);
+  * рассуждение, выключенное в запросе, но включившееся у провайдера
+    (пустой ответ, весь выход ушёл в рассуждение), — тоже повтор
+    (см. ThinkingIgnored).
 
 Сервис закрыт Cloudflare-правилом, отвергающим стандартную подпись
 Python-клиента (ошибка 1010) — заголовок User-Agent обязателен.
 """
+import collections
 import http.client
 import json
 import math
 import os
+import re
 import threading
 import time
 import urllib.error
@@ -89,6 +97,67 @@ GATEWAY_MAX_PAUSES = 3
 # неудачного вызова за GATEWAY_REVIVE_SEC; 402 (нет денег) не будится.
 GATEWAY_REVIVE_SEC = 600.0
 
+# ЗАВИСШИЙ ВЫЗОВ — ДУБЛЬ, А НЕ ОЖИДАНИЕ (hedged request; Dean, Barroso,
+# «The Tail at Scale», CACM 2013). Замер холодного прогона эпизода 94
+# (27.09, 334 успешных вызова Qwen): медиана 9 с, 90% — до 23 с, хвост до
+# 46 с; 502 от провайдера приходил через 41 с (его собственный таймаут), и
+# после него — повтор с начала. Вызовы судьи идут кругами (сетка, проверка
+# финалистов по 8-15 кадров разом), и круг ждёт САМЫЙ медленный вызов, то
+# есть хвост. Поэтому вызов без ответа дольше HEDGE_FACTOR медиан своего
+# рода уходит вторым таким же запросом, и ответ берётся у того, кто ответил
+# первым; ошибка одного ждёт второго. Короткий ответ (потолок выхода до
+# HEDGE_SHORT_MAX_TOKENS) без ответа дольше HEDGE_SHORT_MAX_SEC — завис,
+# даже когда провайдер медленный весь: в медленные периоды медиана росла
+# до 20 с, и порог от неё одной переставал ловить 45-секундные вызовы.
+# Опоздавший не отменяется (у urllib нет отмены посреди ответа): он доходит
+# сам, его цена засчитывается в расход, когда он ответит, а до того он
+# держит свой резерв — потолок расходов видит оба запроса. На том же замере
+# дубль ушёл бы у ~6% вызовов Qwen (дольше 30 с) и у одного из 28 вызовов
+# DeepSeek, плюс у всех, что кончились 502.
+#
+# Порог — от медианы вызовов ТОГО ЖЕ рода (модель и потолок выхода с
+# точностью до степени двойки): сетка судьи и планировщик с рассуждением
+# отвечают за 9 и за 200 с, и общий порог дублировал бы каждый вызов
+# планировщика. Пока замеров своего рода меньше HEDGE_MIN_SAMPLES —
+# HEDGE_SHORT_MAX_SEC для коротких ответов и никакого дубля для длинных
+# (их время заранее неизвестно, а дубль длинного вызова — это его полная
+# цена).
+HEDGE_FACTOR = 2.5
+HEDGE_MIN_SEC = 12.0
+HEDGE_SHORT_MAX_TOKENS = 2048
+HEDGE_SHORT_MAX_SEC = 30.0
+HEDGE_MIN_SAMPLES = 5
+HEDGE_WINDOW = 40
+
+# ШТОРМ ОШИБОК — ДУБЛЬ НЕ УХОДИТ. Дубль лечит хвост медленных, но живых
+# ответов; когда провайдер отвечает ошибками, он только удваивает нагрузку
+# на лежащий сервис. Замер 27.09 (прерванный прогон эп.94, 233 вызова):
+# Qwen и DeepSeek отвечали 502/503 на 78% попыток, и доля ошибок НЕ
+# зависела от числа параллельных вызовов (71% у одиночных, 79% при восьми
+# и более), то есть это сбой провайдера, а не наша нагрузка; в обычном
+# прогоне той же ночи ошибок было 8% при любой параллельности. Поэтому
+# дубль не уходит, пока среди последних HEDGE_STORM_WINDOW попыток этой
+# модели ошибок (429, 5xx, обрыв) не меньше HEDGE_STORM_SHARE: при 8%
+# порог не достигается, при 78% — сразу.
+HEDGE_STORM_WINDOW = 20
+HEDGE_STORM_SHARE = 0.5
+HEDGE_STORM_MIN = 6
+
+
+class _Route:
+    """Состояние одной модели шлюза: паузы подряд, сон, пробный вызов и
+    исходы последних попыток. Сбой провайдера одной модели — не сбой шлюза:
+    раньше состояние было одно на шлюз, и 502 от Qwen ставили на паузу
+    вызовы DeepSeek (и наоборот), а запасная модель паспорта мира не
+    могла ответить на шлюзе, уснувшем из-за основной."""
+
+    def __init__(self):
+        self.pauses = 0
+        self.dead = None
+        self.revive_at = None
+        self.probing = False
+        self.outcomes = collections.deque(maxlen=HEDGE_STORM_WINDOW)
+
 
 class BudgetExhausted(GatewayError):
     """Вызов превысил бы потолок расходов прогона — не делается."""
@@ -96,6 +165,64 @@ class BudgetExhausted(GatewayError):
 
 class EmptyAnswer(GatewayError):
     """Сервис ответил и списал деньги, но текста ответа нет."""
+
+
+class ImageNotReceived(GatewayError):
+    """Сервис ответил, но картинка запроса до модели не дошла — модель сама
+    так и пишет. Сбой доставки, а не ответ о кадре (см. IMAGE_DROP_RE)."""
+
+
+class ThinkingIgnored(EmptyAnswer):
+    """Рассуждение выключено в запросе, а модель всё равно рассуждала и
+    израсходовала на это весь выход — ответа нет. Сбой маршрута провайдера,
+    а не свойство вопроса: повторяется (см. SLIP_RETRIES)."""
+
+
+# КАРТИНКА НЕ ДОШЛА — ПОВТОР. Живой случай 27.09 (запись эп.94, 238 вызовов
+# шлюза): Qwen ответил 200 текстом «The image failed to upload. Please
+# resend it.» при prompt_tokens 718 — это цена вопроса без картинки.
+# Раньше такой ответ шёл как «неразобранный»: проверка кадра не
+# состоялась, повтора не было, а решение слота принималось без неё.
+# Признак — ответ на запрос С КАРТИНКОЙ, в котором нет JSON и который
+# говорит, что картинки нет. Ответы судьи — JSON или строки оценок, таких
+# фраз в годном ответе нет; модель без зрения отсекает проверка зрения в
+# начале прогона. Повторов — IMAGE_DROP_RETRIES; исчерпаны — это сбой
+# шлюза (слот решается заново следующим рендером), а не ответ модели.
+IMAGE_DROP_RETRIES = 2
+IMAGE_DROP_BACKOFF_SEC = (2.0, 5.0)
+# РАССУЖДЕНИЕ НЕ ВЫКЛЮЧИЛОСЬ — ОДИН ПОВТОР. Та же запись: 13 вызовов
+# DeepSeek с выключенным рассуждением ответили за 2.5-5.6 с (0 токенов
+# рассуждения), а четырнадцатый рассуждал 146 с, израсходовал все 2500
+# токенов выхода и вернул пустой ответ; у него единственного в ответе нет
+# служебных полей, которые есть у всех остальных, — его обслужил другой
+# узел провайдера. Повтор — один: сорвавшийся вызов длинный, и третий
+# такой же держал бы слот ещё минуты (дольше ждать не даёт дубль).
+THINKING_SLIP_RETRIES = 1
+IMAGE_DROP_MAX_CHARS = 400
+IMAGE_DROP_RE = re.compile(
+    r"failed to (?:upload|load|attach)"
+    r"|re-?send (?:it|the (?:image|picture|photo))"
+    r"|(?:can ?not|can't|unable to) (?:see|view|access|open|load) (?:the|this|any|your) "
+    r"(?:image|picture|photo|attachment)"
+    r"|(?:image|picture|photo|attachment) (?:did not|didn't|could not|couldn't|was not|wasn't) "
+    r"(?:load|upload|come through|attach|provided|received|attached|uploaded|included)"
+    r"|no (?:image|picture|photo|attachment) (?:was |is |has been )?"
+    r"(?:attached|provided|received|uploaded|included|shared)"
+    r"|there (?:is|was) no (?:image|picture|photo|attachment) "
+    r"(?:attached|provided|included|in (?:your|the|this) (?:message|request))", re.I)
+
+
+def has_image(content):
+    """В запросе есть картинка (части OpenAI: image_url)."""
+    return isinstance(content, (list, tuple)) and any(
+        isinstance(part, dict) and part.get("type") == "image_url" for part in content)
+
+
+def image_not_received(content, text):
+    """Ответ на запрос с картинкой говорит, что картинки у модели нет."""
+    text = str(text or "")
+    return (has_image(content) and "{" not in text and len(text) <= IMAGE_DROP_MAX_CHARS
+            and bool(IMAGE_DROP_RE.search(text)))
 
 
 def _env(name, default=None):
@@ -143,41 +270,90 @@ class Gateway:
         self.failures = 0
         self.lost_bodies = 0    # ответы, оборванные после начала: засчитаны резервом
         self.empty_answers = 0  # оплаченные ответы без текста
-        self.dead = None        # причина, по которой шлюз выключен (или спит, см. _revive_at)
-        self._revive_at = None  # когда уснувший шлюз пропустит пробный вызов; None — не будится
-        self._probing = False
+        self.image_drops = 0    # оплаченные ответы «картинка не дошла» (повторены)
+        self.thinking_slips = 0  # оплаченные пустые ответы: рассуждение не выключилось (повторены)
+        self._fatal = None      # 402: ключ без денег — весь шлюз до конца прогона, не будится
+        self._routes = {}       # модель (None — каталог) -> _Route: паузы, сон, исходы попыток
         self.revived = 0
         # Свой замок у счётчиков пауз: billing() держит self._lock, пока
         # читает каталог через _request, и общий замок тут был бы взаимной
         # блокировкой (поймано первым же тестом).
         self._pause_lock = threading.Lock()
-        self.pauses = 0         # пауз подряд без единого ответа
         self.waited = 0.0       # секунд, прожданных на паузах
         self.reasked = 0        # вызовов, переспрошенных после исчерпанных повторов
+        # Время ответа по роду вызова (модель, потолок выхода) — для порога
+        # дубля; счётчики дублей — в сводку прогона.
+        self._latency = {}
+        self.hedged = 0         # вызовов, по которым ушёл дубль
+        self.hedge_wins = 0     # из них дубль ответил первым
+        self.hedge_storm_skips = 0  # дубль не ушёл: модель в шторме ошибок
 
     @property
     def configured(self):
         return bool(self.api_key)
 
+    # ---------------------------------------------------------------- модели
+
+    def _route(self, model):
+        r = self._routes.get(model)
+        if r is None:
+            r = self._routes.setdefault(model, _Route())
+        return r
+
+    @property
+    def dead(self):
+        """Причина, по которой шлюз (402) или одна из его моделей выключены;
+        None — все работают."""
+        if self._fatal:
+            return self._fatal
+        for r in list(self._routes.values()):
+            if r.dead:
+                return r.dead
+        return None
+
+    @property
+    def pauses(self):
+        """Пауз подряд без единого ответа — у самой больной модели."""
+        return max((r.pauses for r in list(self._routes.values())), default=0)
+
+    def storm(self, model):
+        """Модель сейчас в шторме ошибок (см. HEDGE_STORM_SHARE)."""
+        r = self._routes.get(model)
+        if r is None:
+            return False
+        try:
+            xs = list(r.outcomes)
+        except RuntimeError:    # deque дописали другим потоком посреди чтения — спросим в следующий раз
+            return False
+        return len(xs) >= HEDGE_STORM_MIN and sum(xs) >= HEDGE_STORM_SHARE * len(xs)
+
     # ---------------------------------------------------------------- транспорт
 
-    def health(self):
-        """Регулятор здоровья этого шлюза (один на адрес в процессе)."""
+    def health(self, model=None):
+        """Регулятор здоровья модели на этом шлюзе (один на адрес и модель в
+        процессе; model=None — сам шлюз: каталог). Пауза одной модели не
+        останавливает другие — см. _Route."""
         host = urllib.parse.urlsplit(self.base_url).hostname or self.base_url
-        return source_health.host("gateway:" + host, fail_threshold=GATEWAY_FAIL_THRESHOLD,
-                                  cooldown_sec=GATEWAY_COOLDOWN_SEC)
+        return source_health.host("gateway:" + host + ("|" + model if model else ""),
+                                  fail_threshold=GATEWAY_FAIL_THRESHOLD, cooldown_sec=GATEWAY_COOLDOWN_SEC)
 
     def _request(self, method, path, body=None, timeout=120, on_lost_body=None):
         """on_lost_body() зовётся на каждый ответ, оборвавшийся после того,
         как сервис начал его отдавать: такой вызов, скорее всего, оплачен.
 
-        Пауза шлюза пережидается здесь же; исчерпанные повторы — один
+        Пауза модели пережидается здесь же; исчерпанные повторы — один
         переспрос после паузы (если её никто не начал — сразу), кроме
         случая, когда ответ обрывался после начала (он оплачен). Ответ
         важнее скорости: каждый вызов шлюза в пайплайне — оплаченная
         работа (проверка кадра, спецификация главы), и отказ из-за чужой
-        паузы означал бы кадр без проверки там, где проверка оплачена."""
-        health = self.health()
+        паузы означал бы кадр без проверки там, где проверка оплачена.
+
+        Пауза, сон и пробный вызов — свои у каждой модели (_Route): сбой
+        провайдера одной модели не останавливает вызовы остальных."""
+        model = body.get("model") if isinstance(body, dict) else None
+        route = self._route(model)
+        health = self.health(model)
+        who = f"шлюз ({model})" if model else "шлюз"
         lost = []
 
         def lost_body():
@@ -185,99 +361,116 @@ class Gateway:
             if on_lost_body is not None:
                 on_lost_body()
         for attempt in range(2):
-            probe = self._wait_pause(health)
+            probe = self._wait_pause(health, model)
             try:
-                out = self._request_with_retries(method, path, body, timeout, lost_body)
+                out = self._request_with_retries(method, path, body, timeout, lost_body, route)
             except BaseException as e:
                 if probe:
                     # Пробный вызов не удался: спать дальше, без переспроса.
                     if isinstance(e, GatewayError) and "повторы исчерпаны" in str(e):
                         health.failed()
-                    self._sleep_again()
+                    self._sleep_again(model)
                     raise
                 if not isinstance(e, GatewayError) or "повторы исчерпаны" not in str(e):
                     raise
                 if health.failed():
                     with self._pause_lock:
-                        self.pauses += 1
-                        if self.pauses >= GATEWAY_MAX_PAUSES and not self.dead:
-                            self.dead = (f"не отвечает после {self.pauses} пауз подряд "
-                                         f"по {GATEWAY_COOLDOWN_SEC:.0f} с")
-                            self._revive_at = time.monotonic() + GATEWAY_REVIVE_SEC
-                    print(f"  шлюз не отвечает {GATEWAY_FAIL_THRESHOLD} вызова подряд — пауза "
-                          f"{GATEWAY_COOLDOWN_SEC:.0f} с" + (f"; {self.dead} — спит "
+                        route.pauses += 1
+                        if route.pauses >= GATEWAY_MAX_PAUSES and not route.dead:
+                            route.dead = (f"{who} не отвечает после {route.pauses} пауз подряд "
+                                          f"по {GATEWAY_COOLDOWN_SEC:.0f} с")
+                            route.revive_at = time.monotonic() + GATEWAY_REVIVE_SEC
+                    print(f"  {who} не отвечает {GATEWAY_FAIL_THRESHOLD} вызова подряд — пауза "
+                          f"{GATEWAY_COOLDOWN_SEC:.0f} с" + (f"; {route.dead} — спит "
                                                           f"{GATEWAY_REVIVE_SEC / 60:.0f} мин, потом "
-                                                          f"один пробный вызов" if self.dead else ""))
+                                                          f"один пробный вызов" if route.dead else ""))
                 # Оборванный после начала ответ, скорее всего, уже оплачен:
                 # переспрос такого вызова платил бы ещё до MAX_ATTEMPTS раз.
-                if attempt == 0 and not self.dead and not lost:
+                if attempt == 0 and not route.dead and not lost:
                     with self._pause_lock:
                         self.reasked += 1
                     continue
                 raise
             health.succeeded()
             with self._pause_lock:
-                self.pauses = 0
+                route.pauses = 0
                 if probe:
-                    self.dead, self._revive_at, self._probing = None, None, False
+                    route.dead, route.revive_at, route.probing = None, None, False
                     self.revived += 1
             if probe:
-                print("  шлюз снова отвечает — вызовы возобновлены")
+                print(f"  {who} снова отвечает — вызовы возобновлены")
             return out
 
-    def _unavailable(self):
-        if self._revive_at is None:
-            return GatewayUnavailable(f"шлюз выключен до конца прогона: {self.dead}")
-        wall = time.time() + (self._revive_at - time.monotonic())
+    def _unavailable(self, model=None):
+        if self._fatal:
+            return GatewayUnavailable(f"шлюз выключен до конца прогона: {self._fatal}")
+        route = self._route(model)
+        wall = time.time() + ((route.revive_at or time.monotonic()) - time.monotonic())
         return GatewayUnavailable(f"шлюз спит до пробного вызова в "
-                                  f"{time.strftime('%H:%M:%S', time.localtime(wall))}: {self.dead}")
+                                  f"{time.strftime('%H:%M:%S', time.localtime(wall))}: {route.dead}")
 
-    def _admit(self):
-        """True — этот вызов пробный (шлюз спал, время пробы подошло). Спящий
-        до срока и выключенный безвозвратно шлюз отказывает сразу."""
+    def _admit(self, model=None):
+        """True — этот вызов пробный (модель спала, время пробы подошло).
+        Спящая до срока модель и выключенный безвозвратно шлюз (402)
+        отказывают сразу."""
         with self._pause_lock:
-            if not self.dead:
-                return False
-            if self._revive_at is not None and not self._probing and time.monotonic() >= self._revive_at:
-                self._probing = True
-                return True
-        raise self._unavailable()
+            if self._fatal:
+                pass
+            else:
+                route = self._route(model)
+                if not route.dead:
+                    return False
+                if not route.probing and time.monotonic() >= route.revive_at:
+                    route.probing = True
+                    return True
+        raise self._unavailable(model)
 
-    def _sleep_again(self):
+    def _sleep_again(self, model=None):
         with self._pause_lock:
-            self._probing = False
-            if self.dead and self._revive_at is not None:
-                self._revive_at = time.monotonic() + GATEWAY_REVIVE_SEC
+            route = self._route(model)
+            route.probing = False
+            if route.dead:
+                route.revive_at = time.monotonic() + GATEWAY_REVIVE_SEC
 
-    def _wait_pause(self, health):
-        probe = self._admit()
+    def _wait_pause(self, health, model=None):
+        probe = self._admit(model)
         left = health.cooldown_left()
         if left > 0:
             time.sleep(left)
             with self._pause_lock:
                 self.waited += left
-        if self.dead and not probe:
-            raise self._unavailable()
+        if not probe and (self._fatal or self._route(model).dead):
+            raise self._unavailable(model)
         return probe
 
-    def _request_with_retries(self, method, path, body, timeout, on_lost_body):
+    def _request_with_retries(self, method, path, body, timeout, on_lost_body, route=None):
+        """route — куда записать исход каждой попытки (1 — ошибка, которую
+        повторяют; 0 — ответ): по ним виден шторм ошибок модели."""
         data = json.dumps(body).encode("utf-8") if body is not None else None
         req = urllib.request.Request(self.base_url + path, data=data, method=method, headers={
             "Authorization": "Bearer " + self.api_key, "Content-Type": "application/json",
             "User-Agent": USER_AGENT})
+        outcomes = route.outcomes if route is not None else None
+
+        def note(failed):
+            if outcomes is not None:
+                outcomes.append(1 if failed else 0)
         last = None
         for attempt in range(MAX_ATTEMPTS):
             try:
                 with self._open(req, timeout=timeout) as r:
                     try:
-                        return json.loads(r.read().decode("utf-8"))
+                        out = json.loads(r.read().decode("utf-8"))
                     except (http.client.HTTPException, ValueError, ConnectionError, TimeoutError) as e:
                         # Статус 200 уже получен — тело оборвалось или битое.
                         if on_lost_body is not None:
                             on_lost_body()
+                        note(True)
                         last = f"ответ оборван: {type(e).__name__}"
                         time.sleep(BACKOFF_SEC[min(attempt, len(BACKOFF_SEC) - 1)])
                         continue
+                    note(False)
+                    return out
             except urllib.error.HTTPError as e:
                 info = self._error_info(e)
                 if e.code == 402:
@@ -285,12 +478,14 @@ class Gateway:
                 if e.code in (401, 403):
                     raise GatewayError(f"{e.code} ключ не принят ({info})")
                 if e.code == 429 or e.code >= 500:
+                    note(True)
                     last = f"{e.code} ({info})"
                     time.sleep(self._retry_after(e, attempt))
                     continue
                 raise GatewayError(f"{e.code} ({info})")
             except (urllib.error.URLError, TimeoutError, ConnectionError, OSError,
                     http.client.HTTPException) as e:
+                note(True)
                 last = type(e).__name__
                 time.sleep(BACKOFF_SEC[min(attempt, len(BACKOFF_SEC) - 1)])
         raise GatewayError(f"повторы исчерпаны: {last}")
@@ -356,8 +551,8 @@ class Gateway:
         """Один вызов чата. content — список частей OpenAI (text / image_url).
         Возвращает (текст ответа, usage, цена). Потолок проверяется ДО вызова
         по резерву (оценка входа + max_tokens выхода)."""
-        if self.dead and self._revive_at is None:
-            raise GatewayError(f"шлюз выключен до конца прогона: {self.dead}")
+        if self._fatal:
+            raise GatewayError(f"шлюз выключен до конца прогона: {self._fatal}")
         if not self.configured:
             raise GatewayError("нет LLM_GATEWAY_API_KEY")
         with self._lock:
@@ -375,8 +570,122 @@ class Gateway:
         return self._chat(model, content, max_tokens, estimate_prompt_tokens, temperature, timeout,
                           reasoning)
 
+    # ---------------------------------------------------------------- дубль
+
+    @staticmethod
+    def _kind_of(model, max_tokens):
+        """Род вызова для порога дубля: модель и потолок выхода, округлённый
+        вверх до степени двойки."""
+        return model, 1 << max(0, int(max_tokens) - 1).bit_length()
+
+    def hedge_after(self, model, max_tokens):
+        """Через сколько секунд без ответа уходит дубль; None — дубля нет."""
+        try:
+            import feature_flags
+            if not feature_flags.enabled("GATEWAY_HEDGE"):
+                return None
+        except Exception:  # noqa: BLE001 — нет реестра (утилита вне репо): дубль как по умолчанию
+            pass
+        if self.storm(model):
+            with self._lock:
+                self.hedge_storm_skips += 1
+            return None
+        kind = self._kind_of(model, max_tokens)
+        short = kind[1] <= HEDGE_SHORT_MAX_TOKENS
+        with self._lock:
+            xs = sorted(self._latency.get(kind, ()))
+        if len(xs) < HEDGE_MIN_SAMPLES:
+            return HEDGE_SHORT_MAX_SEC if short else None
+        after = max(HEDGE_MIN_SEC, HEDGE_FACTOR * xs[len(xs) // 2])
+        return min(after, HEDGE_SHORT_MAX_SEC) if short else after
+
+    def _note_latency(self, model, max_tokens, seconds):
+        kind = self._kind_of(model, max_tokens)
+        with self._lock:
+            xs = self._latency.setdefault(kind, [])
+            xs.append(float(seconds))
+            del xs[:-HEDGE_WINDOW]
+
+    def _hedged(self, call, delay, model=None):
+        """call() — один вызов целиком (резерв, запрос, расход, разбор).
+        Ответил за delay — его ответ. Нет — второй такой же вызов, и
+        побеждает первый УСПЕШНЫЙ ответ; ошибка одного ждёт второго. Оба
+        ошиблись — ошибка того, кто ошибся первым. 402 (денег нет) — сразу.
+        Модель за это время ушла в шторм ошибок — второй вызов не уходит:
+        первый, скорее всего, не завис, а повторяет попытки после ошибок."""
+        import contextvars
+        import queue
+        results = queue.Queue()
+
+        def run(tag):
+            try:
+                results.put((tag, True, call()))
+            except BaseException as e:  # noqa: BLE001 — решает ожидающий
+                results.put((tag, False, e))
+
+        def start(tag):
+            ctx = contextvars.copy_context()
+            threading.Thread(target=ctx.run, args=(run, tag), daemon=True,
+                             name=f"gateway-{tag}").start()
+        start("primary")
+        try:
+            tag, ok, value = results.get(timeout=delay)
+            if ok:
+                return value
+            raise value
+        except queue.Empty:
+            pass
+        if self.storm(model):
+            with self._lock:
+                self.hedge_storm_skips += 1
+            tag, ok, value = results.get()
+            if ok:
+                return value
+            raise value
+        with self._lock:
+            self.hedged += 1
+        start("backup")
+        first_error = None
+        for _ in range(2):
+            tag, ok, value = results.get()
+            if ok:
+                if tag == "backup":
+                    with self._lock:
+                        self.hedge_wins += 1
+                return value
+            if isinstance(value, PaymentRequired):
+                raise value
+            first_error = first_error or value
+        raise first_error
+
     def _chat(self, model, content, max_tokens, estimate_prompt_tokens, temperature, timeout,
               reasoning=None):
+        def call():
+            # Сбой провайдера ВНУТРИ ответа 200 (картинка потерялась,
+            # рассуждение не выключилось) — повтор здесь же, со своим
+            # счётом на каждый вид сбоя.
+            slips = {ImageNotReceived: 0, ThinkingIgnored: 0}
+            while True:
+                try:
+                    return self._chat_once(model, content, max_tokens, estimate_prompt_tokens,
+                                           temperature, timeout, reasoning)
+                except ImageNotReceived:
+                    n = slips[ImageNotReceived]
+                    if n >= IMAGE_DROP_RETRIES:
+                        raise
+                    slips[ImageNotReceived] = n + 1
+                    time.sleep(IMAGE_DROP_BACKOFF_SEC[min(n, len(IMAGE_DROP_BACKOFF_SEC) - 1)])
+                except ThinkingIgnored:
+                    if slips[ThinkingIgnored] >= THINKING_SLIP_RETRIES:
+                        raise
+                    slips[ThinkingIgnored] += 1
+        delay = self.hedge_after(model, max_tokens)
+        if delay is None:
+            return call()
+        return self._hedged(call, delay, model)
+
+    def _chat_once(self, model, content, max_tokens, estimate_prompt_tokens, temperature, timeout,
+                   reasoning=None):
         base = self.cost(model, estimate_prompt_tokens, max_tokens)
         reserve = math.ceil(base * max(1.0, self._ratio.get(model, 1.0)))
         with self._lock:
@@ -393,10 +702,12 @@ class Gateway:
                     "messages": [{"role": "user", "content": content}]}
             if reasoning is not None:
                 body.update(reasoning_switch(getattr(self, "_thinking", {}).get(model), reasoning))
+            started = time.monotonic()
             r = self._request("POST", "/chat/completions", body, timeout=timeout,
                               on_lost_body=lost_body)
+            self._note_latency(model, max_tokens, time.monotonic() - started)
         except PaymentRequired as e:
-            self.dead = str(e)
+            self._fatal = str(e)
             raise
         except GatewayError:
             with self._lock:
@@ -421,13 +732,27 @@ class Gateway:
         # модели (живой случай 26.09: глава из 13 фраз оборвалась на шестой).
         u = dict(u, finish_reason=choice.get("finish_reason"))
         if not text.strip():
-            reasoning = (u.get("completion_tokens_details") or {}).get("reasoning_tokens")
+            thought_tokens = (u.get("completion_tokens_details") or {}).get("reasoning_tokens")
+            message = choice.get("message") or {}
+            thought = str(message.get("reasoning_content") or message.get("reasoning") or "")
             with self._lock:
                 self.failures += 1
                 self.empty_answers += 1
+            if reasoning is False and (thought.strip() or (thought_tokens or 0) > 0):
+                with self._lock:
+                    self.thinking_slips += 1
+                raise ThinkingIgnored(f"{model}: рассуждение не выключилось — {len(thought)} знаков "
+                                      f"рассуждения, выход {u.get('completion_tokens')} из {max_tokens}, "
+                                      f"ответа нет; оплачено {price}")
             raise EmptyAnswer(f"{model}: пустой ответ (finish_reason={choice.get('finish_reason')}, "
-                              f"токенов рассуждения {reasoning}, выход {u.get('completion_tokens')} "
+                              f"токенов рассуждения {thought_tokens}, выход {u.get('completion_tokens')} "
                               f"из {max_tokens}); оплачено {price}")
+        if image_not_received(content, text):
+            with self._lock:
+                self.failures += 1
+                self.image_drops += 1
+            raise ImageNotReceived(f"{model}: картинка не дошла до модели (вход {u.get('prompt_tokens')} "
+                                   f"токенов, ответ {text[:120]!r}); оплачено {price}")
         return text, u, price
 
     def image(self, model, prompt, size, quality=None, n=1, timeout=300):
@@ -440,8 +765,8 @@ class Gateway:
         картинок — EmptyAnswer: «успех без картинки» шлюз не берёт в счёт,
         но для вызывающего это отказ, а не пустой кадр."""
         import base64
-        if self.dead and self._revive_at is None:
-            raise GatewayError(f"шлюз выключен до конца прогона: {self.dead}")
+        if self._fatal:
+            raise GatewayError(f"шлюз выключен до конца прогона: {self._fatal}")
         if not self.configured:
             raise GatewayError("нет LLM_GATEWAY_API_KEY")
         reserve = self.image_cost(model, size, quality, n)
@@ -462,7 +787,7 @@ class Gateway:
             r = self._request("POST", "/images/generations", body, timeout=timeout,
                               on_lost_body=lost_body)
         except PaymentRequired as e:
-            self.dead = str(e)
+            self._fatal = str(e)
             raise
         except GatewayError:
             with self._lock:
@@ -486,5 +811,8 @@ class Gateway:
     def summary(self):
         return {"base_url": self.base_url, "calls": self.calls, "failures": self.failures,
                 "lost_bodies": self.lost_bodies, "empty_answers": self.empty_answers,
+                "image_drops": self.image_drops, "thinking_slips": self.thinking_slips,
                 "spent": self.spent, "spend_cap": self.spend_cap, "dead": self.dead,
-                "pause_wait_sec": round(self.waited, 1), "reasked": self.reasked, "revived": self.revived}
+                "pause_wait_sec": round(self.waited, 1), "reasked": self.reasked, "revived": self.revived,
+                "hedged": self.hedged, "hedge_wins": self.hedge_wins,
+                "hedge_storm_skips": self.hedge_storm_skips}

@@ -58,7 +58,9 @@ import json
 import os
 import re
 import threading
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import urllib.response
 
@@ -152,6 +154,10 @@ class NetRecorder:
         self.root = root
         self.mode = mode
         self.tagger = tagger
+        # Обращение фоновой подготовки слота (slot_prefetch)? Такие запросы
+        # вне записи решений не меняют: отказ оставляет кэш пустым, и отбор
+        # спрашивает сам. Харнесс судит их отдельно.
+        self.prefetch_probe = None
         self.slot_calls = {}     # ключ -> {метка слота: число обращений}
         self._overlay = NetRecorder(overlay, RECORD) if overlay is not None else None
         self.index_path = os.path.join(root, "index.jsonl")
@@ -166,6 +172,20 @@ class NetRecorder:
         # слоте 0, и сравнение прогонов шло, не видя этого.
         self.replayed_failures = []
         self.calls = {}          # ключ -> число обращений в ЭТОМ прогоне
+        # Воспроизведение с ЗАПИСАННОЙ задержкой (NET_REPLAY_LATENCY=1): ответ
+        # отдаётся через столько же секунд, сколько шёл при записи. Тогда два
+        # воспроизведения одной записи идут по одним и тем же ответам и
+        # решениям, а время прогона — как у живой сети: так меряется
+        # ускорение от порядка работы (подготовка слотов, наложение), а не
+        # от удачи провайдера в разные часы.
+        self.replay_latency = (mode == REPLAY and
+                               os.environ.get("NET_REPLAY_LATENCY", "").strip() == "1")
+        # Адреса, которые слой живых запросов НЕ спрашивает (через запятую,
+        # часть имени хоста): воспроизведение с живым добором не должно
+        # платить шлюзу моделей за вопрос, которого в записи не было, —
+        # такой вопрос означает расхождение, и отказ его называет.
+        self.live_deny = tuple(h.strip().lower() for h in
+                               os.environ.get("NET_LIVE_FALLBACK_DENY", "").split(",") if h.strip())
         self.secrets = _secrets_from_env()
         self._real = None
         os.makedirs(self.bodies, exist_ok=True)
@@ -255,6 +275,7 @@ class NetRecorder:
         call_kwargs = dict(kwargs)
         if timeout is not None:
             call_kwargs["timeout"] = timeout
+        started = time.monotonic()
         try:
             resp = self._real(url_or_req, data, *args, **call_kwargs)
         except urllib.error.HTTPError as e:
@@ -264,14 +285,16 @@ class NetRecorder:
             with self._lock:
                 self._append({**base, "kind": "http_error", "status": e.code,
                               "reason": str(e.reason), "headers": pairs,
-                              "body": self._store_body(payload)})
+                              "body": self._store_body(payload),
+                              "elapsed": round(time.monotonic() - started, 3)})
             raise urllib.error.HTTPError(e.url or getattr(url_or_req, "full_url", str(url_or_req)),
                                          e.code, e.msg, _headers_message(pairs),
                                          io.BytesIO(payload))
         except Exception as e:
             with self._lock:
                 self._append({**base, "kind": "exception", "exc_type": type(e).__name__,
-                              "exc_module": type(e).__module__, "exc_msg": str(e)})
+                              "exc_module": type(e).__module__, "exc_msg": str(e),
+                              "elapsed": round(time.monotonic() - started, 3)})
             raise
         with resp:
             payload = resp.read()
@@ -282,18 +305,23 @@ class NetRecorder:
         with self._lock:
             self._append({**base, "kind": "response", "status": status, "headers": pairs,
                           "final_url": redact(final_url or "", self.secrets),
-                          "body": self._store_body(payload)})
+                          "body": self._store_body(payload),
+                          "elapsed": round(time.monotonic() - started, 3)})
         return urllib.response.addinfourl(io.BytesIO(payload), _headers_message(pairs),
                                           final_url, status)
 
     def _replay(self, key, seq, method, shown, tag=None, live=None):
         recs = self._recorded.get(key, [])
         if seq >= len(recs):
-            served = "live" if self._overlay is not None else "refused"
+            host = (urllib.parse.urlsplit(shown).hostname or "").lower()
+            denied = any(d in host for d in self.live_deny)
+            served = "live" if self._overlay is not None and not denied else "refused"
             with self._lock:
                 self.divergences.append({"key": key, "seq": seq, "method": method, "url": shown,
-                                         "recorded": len(recs), "slot": tag, "served": served})
-            if self._overlay is not None:
+                                         "recorded": len(recs), "slot": tag, "served": served,
+                                         "prefetch": bool(self.prefetch_probe
+                                                          and self.prefetch_probe())})
+            if self._overlay is not None and not denied:
                 url_or_req, data, timeout, args, kwargs = live
                 oseq = self._overlay._next_seq(key, tag)
                 return self._overlay._record(key, oseq, method, shown, url_or_req, data,
@@ -303,6 +331,8 @@ class NetRecorder:
                 f"записано {len(recs)})")
         rec = recs[seq]
         kind = rec["kind"]
+        if self.replay_latency and rec.get("elapsed"):
+            time.sleep(float(rec["elapsed"]))
         if kind == "exception" or (kind == "http_error"
                                    and (rec.get("status") == 429 or rec.get("status", 0) >= 500)):
             with self._lock:

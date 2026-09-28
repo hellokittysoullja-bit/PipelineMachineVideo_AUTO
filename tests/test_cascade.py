@@ -60,10 +60,12 @@ def test_embeddings_are_cached_across_slots(tmp_path, monkeypatch):
     rel = {"c0": 0.1, "c1": 0.2, "c2": 0.3}
     probe, calls = _world(tmp_path, monkeypatch, rel)
     ps.cascade_reorder(_cands(3), "x", str(tmp_path / "a.jpg"), probe, 0)
-    assert calls["images"] == 3
+    # Пачка модели — всегда CASCADE_BATCH кадров (неполная добивается копиями,
+    # см. gate_embed_batch): три кадра — одна пачка.
+    assert calls["images"] == ps.CASCADE_BATCH
     monkeypatch.setattr(ps, "_CASCADE_EMB", {})        # новый процесс — кэш на диске
     ps.cascade_reorder(_cands(3), "y", str(tmp_path / "b.jpg"), probe, 1)
-    assert calls["images"] == 3, "картинка оценивается один раз, в любом слоте и прогоне"
+    assert calls["images"] == ps.CASCADE_BATCH, "картинка оценивается один раз, в любом слоте и прогоне"
 
 
 def test_no_model_keeps_order(tmp_path, monkeypatch):

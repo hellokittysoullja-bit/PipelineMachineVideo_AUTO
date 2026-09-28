@@ -221,3 +221,26 @@ def test_cache_that_cannot_be_written_does_not_lose_the_paid_answer(tmp_path):
                                  path=path, cache_dir=str(blocker / "cache"), world_separate=True)
     assert ans and ans["claims"] == {"c1": "yes"} and ans["main_in_world"] is True
     assert info.get("call")
+
+
+def test_world_and_claims_are_asked_at_the_same_time(tmp_path):
+    """Мир и утверждения — два независимых вопроса по одной картинке. По
+    очереди проверка финалиста стоила два вызова подряд (замер 27.09,
+    слот 0 эп.94: мир 7-10 с, затем утверждения 6-10 с — 17.5 с на
+    проверку). Барьер пропускает, только если оба вопроса в полёте
+    одновременно; по очереди — первый ждёт второго и падает по таймауту."""
+    import threading
+    path = _img(tmp_path, "a", (120, 90, 60))
+    spec = {"focus": "arrow", "claims": [{"id": "c1", "text": "an arrow", "tier": "must"}]}
+    barrier = threading.Barrier(2, timeout=5)
+
+    class GW:
+        def chat(self, model, content, *a, **k):
+            barrier.wait()
+            if "main_in_world: could the MAIN subject of the picture" in content[0]["text"]:
+                return '{"main_in_world": true, "background_foreign": false, "why": ""}', {}, 1
+            return '{"claims": {"c1": "yes"}, "medium": "photo", "why": ""}', {}, 2
+    ans, info = sj.verify_claims(GW(), "m", phrase="p", spec=spec, setting="historical",
+                                 path=path, world_separate=True)
+    assert ans and ans["claims"] == {"c1": "yes"} and ans["main_in_world"] is True
+    assert info["cost"] == 3
