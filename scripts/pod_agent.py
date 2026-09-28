@@ -3,8 +3,7 @@
 
 Ставится командой `runpod_ctl.py up`, руками не запускается. Только stdlib.
 Авторизация — Bearer POD_AGENT_TOKEN. Самоостановка защищает от забытой GPU:
-под гасится, если нет работы POD_IDLE_MIN минут (нет задач, GPU < 5%, CPU-нагрузка
-низкая) или прошло POD_MAX_HOURS часов с запуска.
+под гасится, если нет работы POD_IDLE_MIN минут (нет задач агента и GPU < 5%) или прошло POD_MAX_HOURS часов с запуска.
 """
 import hmac
 import json
@@ -22,7 +21,6 @@ PORT = int(os.environ.get("POD_AGENT_PORT", "8000"))
 IDLE_MIN = float(os.environ.get("POD_IDLE_MIN", "20"))
 MAX_H = float(os.environ.get("POD_MAX_HOURS", "6"))
 GPU_BUSY_PCT = 5.0
-CPU_BUSY_LOAD = 2.0
 START = time.time()
 JOBS = {}
 LAST_BUSY = [time.time()]
@@ -49,8 +47,7 @@ def running_jobs():
 
 
 def is_busy():
-    return (bool(running_jobs()) or gpu_util() > GPU_BUSY_PCT
-            or os.getloadavg()[0] > CPU_BUSY_LOAD)
+    return bool(running_jobs()) or gpu_util() > GPU_BUSY_PCT
 
 
 def stop_pod(reason):
