@@ -34,6 +34,7 @@ TOP_N кандидатах каскада. Любой сбой — кандид�
 Решения кэшируются на диске по тексту вопроса: повторный рендер не платит и
 получает тот же ответ."""
 import concurrent.futures
+import ctx_pool
 import hashlib
 import json
 import os
@@ -212,7 +213,7 @@ def screen(gw, phrase, focus, card, rows, cache_dir=None):
         return set(), info
     px, pb = build_prompts(phrase, focus, card, rows)
     try:
-        with concurrent.futures.ThreadPoolExecutor(2) as ex:
+        with ctx_pool.ContextThreadPoolExecutor(2) as ex:
             fx, fb = ex.submit(_ask, gw, px, cache_dir), ex.submit(_ask, gw, pb, cache_dir)
             (ax, cx, hx), (ab, cb, hb) = fx.result(), fb.result()
         both = parse_x(ax, len(rows)) & parse_b(ab, len(rows))

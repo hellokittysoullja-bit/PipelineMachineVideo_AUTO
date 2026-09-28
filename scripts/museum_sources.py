@@ -38,6 +38,7 @@ Fail-open на каждом шаге: недоступный музей возв
 из-за этого модуля.
 """
 import concurrent.futures
+import ctx_pool
 import hashlib
 import itertools
 import json
@@ -573,7 +574,7 @@ def search_met(query, limit=MET_MAX_DETAIL_FETCHES, department=None):
     # место кандидата в пуле определяет, кого гейты увидят первым (см.
     # чередование по запросам в pipeline_smart.pexels_photo).
     workers = max(1, min(MET_DETAIL_WORKERS, len(oids)))
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+    with ctx_pool.ContextThreadPoolExecutor(max_workers=workers) as ex:
         objects = list(ex.map(_detail, oids))
 
     for oid, o in zip(oids, objects):
@@ -816,7 +817,7 @@ def search_museums(query, department=None, limit=None):
     # запросов к Мет не меняется; результаты собираются в прежнем порядке
     # музеев, и чередование ниже даёт тот же список до кандидата.
     sources = _sources(department)
-    with concurrent.futures.ThreadPoolExecutor(len(sources)) as ex:
+    with ctx_pool.ContextThreadPoolExecutor(len(sources)) as ex:
         got = list(ex.map(_one, [fn for _name, fn in sources]))
     per_museum = [g for g in got if g is not None]
     errors = sum(1 for g in got if g is None)
@@ -910,7 +911,7 @@ def mirror_met_cards(date_begin, date_end, refresh=False, progress=print):
         return True
     done = 0
     workers = max(1, min(MET_DETAIL_WORKERS, len(todo)))
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+    with ctx_pool.ContextThreadPoolExecutor(max_workers=workers) as ex:
         for ok in ex.map(fetch, todo):
             done += 1
             stats["fetched" if ok else "lost"] += 1

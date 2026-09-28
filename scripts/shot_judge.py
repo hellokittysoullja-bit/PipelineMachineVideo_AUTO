@@ -54,6 +54,7 @@
 """
 import base64
 import concurrent.futures
+import ctx_pool
 import hashlib
 import io
 import json
@@ -316,7 +317,7 @@ def judge(gateway, model, *, phrase, brief, candidates, cache_dir=None, report=N
         return {}
     per_grid = LAYOUTS[kind][2]
     chunks = [candidates[i:i + per_grid] for i in range(0, len(candidates), per_grid)]
-    with concurrent.futures.ThreadPoolExecutor(len(chunks)) as ex:
+    with ctx_pool.ContextThreadPoolExecutor(len(chunks)) as ex:
         answers = list(ex.map(lambda ch: _judge_chunk(gateway, model,
                                                       question(phrase, brief, len(ch), kind, setting),
                                                       ch, cache_dir, kind),
@@ -1001,7 +1002,7 @@ def verify_claims(gateway, model, *, phrase, spec, setting, path, kind="photo", 
         # одного. Вопросы, картинки и кэши те же, ответы те же. Цена: если
         # вопрос о мире не удался, ответ по пунктам уже оплачен — он ложится
         # в кэш и берётся при следующем вопросе о том же кадре.
-        with concurrent.futures.ThreadPoolExecutor(2) as ex:
+        with ctx_pool.ContextThreadPoolExecutor(2) as ex:
             wf = ex.submit(world_of_image, gateway, model, setting=setting, path=path, kind=kind,
                            cache_dir=cache_dir, max_side=max_side, reasoning=reasoning,
                            caption=caption, frames=frames)

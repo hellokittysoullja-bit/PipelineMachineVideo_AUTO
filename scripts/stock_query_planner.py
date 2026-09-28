@@ -350,6 +350,7 @@ def plan_episode(video_dir, blocks, gateway, model=DEFAULT_MODEL, verbose=True, 
     та же: иначе правка одного слова перепокупала бы кадры всей главы
     (спецификация входит в ключ кэша кандидата)."""
     import concurrent.futures
+    import ctx_pool
     import llm_gateway
     import shot_brief_director as sbd
     import shot_planner_llm
@@ -371,7 +372,7 @@ def plan_episode(video_dir, blocks, gateway, model=DEFAULT_MODEL, verbose=True, 
             return None, e
 
     units, kept = {}, 0
-    with concurrent.futures.ThreadPoolExecutor(max(1, min(workers or len(packets), 8))) as ex:
+    with ctx_pool.ContextThreadPoolExecutor(max(1, min(workers or len(packets), 8))) as ex:
         results = list(ex.map(one, packets))
     for no, (packet, (res, err)) in enumerate(zip(packets, results), 1):
         if res is None:
