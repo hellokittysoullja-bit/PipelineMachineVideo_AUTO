@@ -1,6 +1,6 @@
 # Запуск на видеокарте (Lightning AI, T4 и новее)
 
-Ветка `claude/gpu-parallel-ee6bh8`. Код тот же, что у основной ветки. Что именно изменено и почему выбор кадров от этого не меняется — в `CLAUDE.md`, раздел «Ветка под видеокарту».
+Ветка `claude/generator_gpu`. Код тот же, что у основной ветки. Что именно изменено и почему выбор кадров от этого не меняется — в `CLAUDE.md`, раздел «Ветка под видеокарту».
 
 ## 1. Studio
 
@@ -9,7 +9,7 @@
 
 ```bash
 git clone <адрес репозитория> && cd PipelineMachineVideo_AUTO
-git checkout claude/gpu-parallel-ee6bh8
+git checkout claude/generator_gpu
 python -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
 ```
