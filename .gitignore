@@ -84,3 +84,5 @@ models/
 *.gguf
 # Кэш сырых ответов поиска Wikimedia Commons (commons_source.py) — продукт, не исходник
 temp_commons_cache/
+
+.runpod_state.json
