@@ -676,7 +676,7 @@ def _siglip2_text_emb(text):
     with torch.no_grad():
         txt_inputs = processor(text=[text], padding="max_length",
                                 max_length=SIGLIP2_MAX_TEXT_LENGTH, return_tensors="pt")
-        txt_out = model.get_text_features(**ml_device.inputs(txt_inputs))
+        txt_out = ml_device.run(lambda: model.get_text_features(**ml_device.inputs(txt_inputs)))
         emb = txt_out.pooler_output if hasattr(txt_out, "pooler_output") else txt_out
         emb = ml_device.host(emb / emb.norm(dim=-1, keepdim=True))
     _emb_cache_put(_siglip2_text_emb_cache, text, emb)
@@ -705,7 +705,7 @@ def _siglip2_image_emb(image_path):
     import ml_device
     with torch.no_grad():
         img_inputs = processor(images=[img], return_tensors="pt")
-        img_out = model.get_image_features(**ml_device.inputs(img_inputs))
+        img_out = ml_device.run(lambda: model.get_image_features(**ml_device.inputs(img_inputs)))
         emb = img_out.pooler_output if hasattr(img_out, "pooler_output") else img_out
         emb = ml_device.host(emb / emb.norm(dim=-1, keepdim=True))
     _emb_cache_put(_siglip2_img_emb_cache, key, emb)

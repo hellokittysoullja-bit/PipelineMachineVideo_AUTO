@@ -181,8 +181,9 @@ def _encode(conversations, images):
     inputs = processor(text=text, images=images or None, truncation=True, max_length=MAX_LENGTH,
                        padding=True, do_resize=False, return_tensors="pt")
     inputs = {k: v.to(_STATE["device"]) for k, v in inputs.items()}
+    import ml_device
     with torch.inference_mode():
-        out = model(**inputs)
+        out = ml_device.run(lambda: model(**inputs))
         emb = pool_last(out.last_hidden_state, inputs["attention_mask"])
         emb = torch.nn.functional.normalize(emb.float(), p=2, dim=-1)
     return emb.cpu().numpy().astype("float32")

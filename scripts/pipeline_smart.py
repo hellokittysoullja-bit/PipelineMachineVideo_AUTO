@@ -307,8 +307,15 @@ RENDER_CRF = "17"
 # это писалось, её нет. На процессоре (auto без NVENC, x264) аргументы
 # прежние.
 NVENC_CQ = "16"
+# Адаптивное квантование и заглядывание вперёд (аудит 28.09): у x264 AQ
+# включено по умолчанию, у NVENC — нет, а тёмный грейд канала с зерном —
+# ровно то место, где без AQ видны полосы и блоки на плавных тёмных
+# градиентах. Пространственное AQ и lookahead есть у всех поколений NVENC с
+# HEVC; nvenc_works() гоняет эти же аргументы, так что карта без поддержки
+# уйдёт на x264, а не сломает рендер.
 NVENC_CLIP_ARGS = ["-c:v", "hevc_nvenc", "-preset", "p6", "-tune", "hq", "-rc", "vbr",
-                   "-cq", NVENC_CQ, "-b:v", "0", "-profile:v", "main10", "-pix_fmt", "p010le"]
+                   "-cq", NVENC_CQ, "-b:v", "0", "-spatial-aq", "1", "-rc-lookahead", "20",
+                   "-profile:v", "main10", "-pix_fmt", "p010le"]
 # Сбой NVENC посреди прогона (занята сессия кодера, драйвер) переводит ЭТОТ
 # процесс на x264 до конца прогона: клип не должен выпасть из ролика из-за
 # кодера, который есть и у процессора.
@@ -12624,10 +12631,10 @@ def _gate_embed(images=None, text=None):
             if text is not None:
                 inp = processor(text=[text], return_tensors="pt", padding="max_length",
                                 max_length=CLIP_GATE_MODEL_MAX_TEXT_LEN, truncation=True)
-                out = model.get_text_features(**ml_device.inputs(inp))
+                out = ml_device.run(lambda: model.get_text_features(**ml_device.inputs(inp)))
             else:
-                out = model.get_image_features(
-                    **ml_device.inputs(processor(images=images, return_tensors="pt")))
+                img_in = processor(images=images, return_tensors="pt")
+                out = ml_device.run(lambda: model.get_image_features(**ml_device.inputs(img_in)))
             e = out if torch.is_tensor(out) else out.pooler_output
             e = e / e.norm(dim=-1, keepdim=True)
             return ml_device.host(e).numpy().astype("float32")
@@ -14600,8 +14607,8 @@ def aesthetic_score(image_path):
         img = PILImage.open(image_path).convert("RGB")
         inputs = ml_device.inputs(processor(images=[img], return_tensors="pt"))
         with torch.inference_mode():
-            vis_out = model.vision_model(pixel_values=inputs["pixel_values"])
-            feat = model.visual_projection(vis_out.pooler_output)
+            feat = ml_device.run(lambda: model.visual_projection(
+                model.vision_model(pixel_values=inputs["pixel_values"]).pooler_output))
             e = ml_device.host(feat / feat.norm(dim=-1, keepdim=True))[0].numpy()
         w, b = get_aesthetic_head()
         score = float(e @ w + b)
@@ -14649,7 +14656,8 @@ def estimate_depth(canvas_bgr):
     model = get_depth_model()
     h, w = canvas_bgr.shape[:2]
     img = PILImage.fromarray(canvas_bgr[:, :, ::-1])  # BGR -> RGB
-    out = model(img)
+    import ml_device
+    out = ml_device.run(lambda: model(img))
     depth = np.array(out["predicted_depth"], dtype=np.float32)
     if depth.shape != (h, w):
         depth = cv2.resize(depth, (w, h), interpolation=cv2.INTER_LINEAR)

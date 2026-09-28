@@ -525,3 +525,37 @@ def test_jina_admits_cpu_when_cuda_provider_did_not_load(monkeypatch):
         assert vd.jina_device_tag() == ""
     finally:
         vd.jina_providers.cache_clear()
+
+
+def test_model_run_on_cpu_is_a_plain_call(monkeypatch):
+    import ml_device
+    monkeypatch.setattr(ml_device, "device", lambda: "cpu")
+    assert ml_device.run(lambda: 7) == 7
+
+
+def test_model_run_on_gpu_retries_once_after_out_of_memory(monkeypatch):
+    """Аудит 28.09: нехватка видеопамяти при параллельных прогонах моделей
+    ловилась общим except, и гейт молча не проверял кадр."""
+    import ml_device
+    torch = pytest.importorskip("torch")
+    monkeypatch.setattr(ml_device, "device", lambda: "cuda")
+    monkeypatch.setattr(torch.cuda, "empty_cache", lambda: None)
+    calls = []
+
+    def fn():
+        calls.append(1)
+        if len(calls) == 1:
+            raise torch.cuda.OutOfMemoryError("CUDA out of memory")
+        return "ok"
+    assert ml_device.run(fn) == "ok" and len(calls) == 2
+
+
+def test_every_model_forward_goes_through_ml_device_run():
+    import inspect
+    import re
+    import visual_director
+    import look_reference
+    for mod in (ps, visual_director, look_reference):
+        src = inspect.getsource(mod)
+        bare = re.findall(r"^\s*\w+ = model\.(?:get_text_features|get_image_features)\(", src, re.M)
+        assert not bare, (mod.__name__, bare)

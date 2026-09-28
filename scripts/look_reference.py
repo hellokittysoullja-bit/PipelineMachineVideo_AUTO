@@ -417,7 +417,7 @@ def _domain_scores(image_path):
         import ml_device
         inputs = processor(text=texts, images=[img], return_tensors="pt", padding=True, truncation=True)
         with torch.no_grad():
-            out = model(**ml_device.inputs(inputs))
+            out = ml_device.run(lambda: model(**ml_device.inputs(inputs)))
         img_e = ml_device.host(out.image_embeds / out.image_embeds.norm(dim=-1, keepdim=True))
         txt_e = ml_device.host(out.text_embeds / out.text_embeds.norm(dim=-1, keepdim=True))
         scores = (img_e @ txt_e.T)[0].tolist()
@@ -499,7 +499,7 @@ def _domain_scores_from_text(text):
         import ml_device
         inputs = processor(text=texts, return_tensors="pt", padding=True, truncation=True)
         with torch.no_grad():
-            raw = model.get_text_features(**ml_device.inputs(inputs))
+            raw = ml_device.run(lambda: model.get_text_features(**ml_device.inputs(inputs)))
         txt_e = raw if torch.is_tensor(raw) else raw.pooler_output
         txt_e = ml_device.host(txt_e / txt_e.norm(dim=-1, keepdim=True))
         scores = (txt_e[0:1] @ txt_e[1:].T)[0].tolist()
