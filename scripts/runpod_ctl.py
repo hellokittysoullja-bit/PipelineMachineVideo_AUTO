@@ -81,7 +81,8 @@ def agent_call(pod_id, method, path, body=None, raw=False, timeout=120):
         sys.exit(f"под {pod_id} создан не через `up` — токена агента нет")
     url = f"https://{pod_id}-{AGENT_PORT}.proxy.runpod.net{path}"
     data = body if isinstance(body, bytes) else (json.dumps(body).encode() if body is not None else None)
-    return http(method, url, {"Authorization": f"Bearer {st['token']}"}, data, raw, timeout)
+    return http(method, url, {"Authorization": f"Bearer {st['token']}",
+                              "User-Agent": "pipeline-runpod-ctl/1.1"}, data, raw, timeout)
 
 
 def need_yes(a, what):
