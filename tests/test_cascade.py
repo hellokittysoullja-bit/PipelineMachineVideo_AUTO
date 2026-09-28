@@ -276,45 +276,79 @@ def test_cascade_emb_disk_write_survives_two_concurrent_writers(tmp_path, monkey
     import threading
     real_save = np.save
 
-    def slow_save(f, arr, barrier):
+    def npy_bytes(arr):
         buf = io.BytesIO()
         real_save(buf, arr)
-        data = buf.getvalue()
+        return buf.getvalue()
+
+    def slow_save(f, arr, barrier):
+        data = npy_bytes(arr)
         half = len(data) // 2
         f.write(data[:half])
         f.flush()
-        barrier.wait(timeout=5)   # гарантированно отдать очередь второму писателю
+        barrier.wait(timeout=30)   # гарантированно отдать очередь второму писателю
         f.write(data[half:])
 
-    def naive_save(cache_dir, key, v, barrier):
-        """Буквальное воспроизведение кода ДО правки: np.save прямо на
-        конечный путь, без временного файла."""
-        fp = os.path.join(cache_dir, key + ".npy")
-        with open(fp, "r+b" if os.path.exists(fp) else "wb") as f:
-            slow_save(f, v, barrier)
-
     # --- сторона 1: наивная запись двух РАЗНЫХ писателей на ОДИН путь —
-    # обязана дать испорченный/нечитаемый файл, иначе проверка не доказывает
-    # ничего (control run самого теста).
-    cache_dir_naive = str(tmp_path / "naive")
-    os.makedirs(cache_dir_naive)
+    # обязана дать испорченный файл, иначе проверка не доказывает ничего
+    # (control run самого теста).
+    #
+    # Порядок событий ЗАДАН, а не ожидается от планировщика: первая версия
+    # этой стороны пускала обоих писателей через общий барьер, и итог —
+    # смесь или целый файл писателя, записавшего последним — зависел от
+    # того, какой поток проснётся раньше (упал в полном прогоне 28.09, в
+    # одиночном был зелёным). Теперь: A пишет первую половину va и ждёт;
+    # B открывает ТОТ ЖЕ путь (усекает файл), пишет vb целиком и заканчивает;
+    # A дописывает вторую половину va со своей позиции. Файл — первая
+    # половина vb и вторая va, всегда, на любом порядке пробуждения потоков.
+    # (На Windows второй open() того же файла запрещён — там контроль не
+    # ставится: запрет ОС сам говорит то же, что эта проверка.)
     va = np.full(2000, 1.0, "float32")
     vb = np.full(2000, 2.0, "float32")
-    barrier = threading.Barrier(2)
-    ta = threading.Thread(target=naive_save, args=(cache_dir_naive, "k", va, barrier))
-    tb = threading.Thread(target=naive_save, args=(cache_dir_naive, "k", vb, barrier))
-    ta.start(); tb.start()
-    ta.join(timeout=5); tb.join(timeout=5)
-    fp = os.path.join(cache_dir_naive, "k.npy")
-    try:
-        loaded = np.load(fp)
-        naive_corrupted = loaded.shape != va.shape or not (
-            np.array_equal(loaded, va) or np.array_equal(loaded, vb))
-    except Exception:
-        naive_corrupted = True
-    assert naive_corrupted, (
-        "control run: форсированное чередование не испортило наивную запись — "
-        "проверка ниже не была бы доказательством")
+    if os.name != "nt":
+        cache_dir_naive = str(tmp_path / "naive")
+        os.makedirs(cache_dir_naive)
+        fp = os.path.join(cache_dir_naive, "k.npy")
+        a_wrote_first_half = threading.Event()
+        b_finished = threading.Event()
+        errors = []
+
+        def naive_writer_a():
+            try:
+                data = npy_bytes(va)
+                with open(fp, "wb") as f:
+                    f.write(data[:len(data) // 2])
+                    f.flush()
+                    a_wrote_first_half.set()
+                    assert b_finished.wait(timeout=30)
+                    f.write(data[len(data) // 2:])
+            except BaseException as e:   # noqa: BLE001 — в поток, не молча
+                errors.append(e)
+
+        def naive_writer_b():
+            try:
+                assert a_wrote_first_half.wait(timeout=30)
+                with open(fp, "wb") as f:
+                    f.write(npy_bytes(vb))
+            except BaseException as e:   # noqa: BLE001
+                errors.append(e)
+            finally:
+                b_finished.set()
+
+        ta = threading.Thread(target=naive_writer_a)
+        tb = threading.Thread(target=naive_writer_b)
+        ta.start(); tb.start()
+        ta.join(timeout=40); tb.join(timeout=40)
+        assert not errors, errors
+        try:
+            loaded = np.load(fp)
+            naive_corrupted = loaded.shape != va.shape or not (
+                np.array_equal(loaded, va) or np.array_equal(loaded, vb))
+        except Exception:
+            naive_corrupted = True
+        assert naive_corrupted, (
+            "control run: форсированное чередование не испортило наивную запись — "
+            "проверка ниже не была бы доказательством")
 
     # --- сторона 2: та же форсированная медленная запись, но через
     # ИСПРАВЛЕННУЮ функцию (temp-файл на писателя + os.replace) — файл ОБЯЗАН
@@ -333,7 +367,7 @@ def test_cascade_emb_disk_write_survives_two_concurrent_writers(tmp_path, monkey
     tc = threading.Thread(target=fixed_writer, args=(va,))
     td = threading.Thread(target=fixed_writer, args=(vb,))
     tc.start(); td.start()
-    tc.join(timeout=5); td.join(timeout=5)
+    tc.join(timeout=40); td.join(timeout=40)
     loaded2 = np.load(os.path.join(cache_dir_fixed, "k.npy"))
     assert np.array_equal(loaded2, va) or np.array_equal(loaded2, vb), (
         "файл после исправленной записи не совпал ни с одним писателем целиком — "
@@ -361,7 +395,7 @@ def test_real_atomic_save_fn_survives_forced_interleaving(tmp_path, monkeypatch)
         half = len(data) // 2
         f.write(data[:half])
         f.flush()
-        barrier.wait(timeout=5)
+        barrier.wait(timeout=30)
         f.write(data[half:])
 
     monkeypatch.setattr(ps.np, "save", slow_np_save)
@@ -372,7 +406,7 @@ def test_real_atomic_save_fn_survives_forced_interleaving(tmp_path, monkeypatch)
     ta = threading.Thread(target=ps._atomic_save_cascade_emb, args=(cache_dir, "k", va))
     tb = threading.Thread(target=ps._atomic_save_cascade_emb, args=(cache_dir, "k", vb))
     ta.start(); tb.start()
-    ta.join(timeout=5); tb.join(timeout=5)
+    ta.join(timeout=40); tb.join(timeout=40)
     loaded = np.load(os.path.join(cache_dir, "k.npy"))
     assert np.array_equal(loaded, va) or np.array_equal(loaded, vb), (
         "продовая _atomic_save_cascade_emb дала смешанный/битый файл под "

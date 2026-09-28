@@ -4931,7 +4931,7 @@ _WIKIMEDIA_RE = re.compile(r"^https?://upload\.wikimedia\.org/wikipedia/commons/
                             r"(?:thumb/)?[0-9a-f]/[0-9a-f]{2}/([^/?#]+)", re.I)
 
 
-def wikimedia_thumb_url(url, width=640):
+def wikimedia_thumb_url(url, width=640, native=None):
     """Ссылка на Wikimedia-файл ЗАДАННОЙ ШИРИНЫ через официальный
     Special:FilePath — не оригинал и не превью через чужой API.
 
@@ -4952,11 +4952,21 @@ def wikimedia_thumb_url(url, width=640):
     без отдельных правил на каждый формат. Проверено вживую: оригинал 429,
     та же картинка через FilePath шириной 640 — 190 КБ, 200 OK.
 
+    native — родная ширина файла, если источник её назвал (у Openverse это
+    поле `width`). Тогда ширина приводится к стандартной и не шире оригинала
+    тем же правилом, что у прямого источника Commons (commons_source.
+    thumb_width): сервер округляет запрос вверх до стандартной ширины и на
+    файле уже, чем она, отвечает 429 с паузой 600 с — живой замер 28.09.
+    Родная ширина неизвестна — просим ровно то, что просили.
+
     None — ссылка не на Wikimedia, там остаётся URL источника."""
     m = _WIKIMEDIA_RE.match(url or "")
     if not m:
         return None
     name = m.group(1)
+    if native:
+        import commons_source
+        width = commons_source.thumb_width(native, width)
     return (f"https://commons.wikimedia.org/wiki/Special:FilePath/{name}"
             f"?width={int(width)}")
 
@@ -7732,8 +7742,8 @@ def _openverse_fetch_one(api_query, _ov):
             # Рабочий файл у Wikimedia тоже берётся ограниченной ширины
             # (2000 px при кадре 1920x1080 — с запасом на Ken Burns): их
             # оригиналы отвечают 429 и прямо просят пользоваться превью.
-            "src": {"large2x": wikimedia_thumb_url(img_url, 2000) or img_url,
-                    "medium": wikimedia_thumb_url(img_url, 640) or img_url},
+            "src": {"large2x": wikimedia_thumb_url(img_url, 2000, native=res.get("width")) or img_url,
+                    "medium": wikimedia_thumb_url(img_url, 640, native=res.get("width")) or img_url},
             # Провенанс — та же информация, что _log_openverse_manifest()
             # уже пишет в pre-fetch пути, здесь нужна на случай, если
             # кандидат победит и понадобится атрибуция/аудит источника.

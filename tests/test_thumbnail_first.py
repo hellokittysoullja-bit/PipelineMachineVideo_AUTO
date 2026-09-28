@@ -175,6 +175,29 @@ class TestOpenverseProbeDoesNotBurnTheApiQuota:
             "Special:FilePath/Map.tif?width=2000")
         assert ps.wikimedia_thumb_url("https://example.org/x.jpg") is None
 
+    def test_width_never_goes_beyond_the_native_width_when_it_is_known(self):
+        """Живой замер 28.09: width=2000 на файле шириной 1666 сервер округляет
+        вверх до 3840 и отвечает 429 с паузой 600 с; стандартная ширина не
+        больше родной (1280) — 200 OK. Правило то же, что у прямого источника
+        Commons (commons_source.thumb_width) — второй копии его здесь нет."""
+        u = "https://upload.wikimedia.org/wikipedia/commons/2/22/Battle.jpg"
+        assert ps.wikimedia_thumb_url(u, 2000, native=1666).endswith("Special:FilePath/Battle.jpg?width=1280")
+        assert ps.wikimedia_thumb_url(u, 640, native=800).endswith("?width=500")
+        assert ps.wikimedia_thumb_url(u, 640, native=4000).endswith("?width=960")
+        # Родная ширина неизвестна — просим ровно то, что просили
+        assert ps.wikimedia_thumb_url(u, 2000, native=None).endswith("?width=2000")
+        assert ps.wikimedia_thumb_url(u, 2000, native=0).endswith("?width=2000")
+        # Не Wikimedia — по-прежнему None, сколько бы ни знали про ширину
+        assert ps.wikimedia_thumb_url("https://example.org/x.jpg", 640, native=1000) is None
+
+    def test_wikimedia_thumb_url_and_commons_source_share_one_width_rule(self):
+        import commons_source as cs
+        u = "https://upload.wikimedia.org/wikipedia/commons/2/22/Battle.jpg"
+        for native in (450, 800, 1066, 1666, 2024, 2947, 3118, 4320):
+            for target in (640, 2000):
+                assert ps.wikimedia_thumb_url(u, target, native=native).endswith(
+                    f"?width={cs.thumb_width(native, target)}")
+
     def test_openverse_candidate_never_points_at_a_wikimedia_original(self, monkeypatch, tmp_path):
         import io as _io, json as _json
         import stock_fetch_multisource as ov
@@ -193,6 +216,28 @@ class TestOpenverseProbeDoesNotBurnTheApiQuota:
         c = ps._openverse_fetch_one("castle", ov)[0]
         assert "upload.wikimedia.org" not in c["src"]["large2x"]
         assert "width=2000" in c["src"]["large2x"] and "width=640" in c["src"]["medium"]
+
+    def test_openverse_candidate_uses_the_native_width_the_api_reports(self, monkeypatch, tmp_path):
+        """У Openverse поле `width` — родная ширина файла. Кандидат с файлом
+        уже 3840 не должен просить width=2000 (сервер округлит до 3840 и
+        ответит 429 на 600 с)."""
+        import io as _io, json as _json
+        import stock_fetch_multisource as ov
+
+        class _Resp(_io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        payload = {"results": [{"id": "w", "title": "Battle", "license": "cc0", "source": "wikimedia",
+                                "width": 1666, "height": 1200,
+                                "url": "https://upload.wikimedia.org/wikipedia/commons/2/22/Battle.jpg",
+                                "foreign_landing_url": "http://page"}]}
+        monkeypatch.setattr(ps, "OPENVERSE_CACHE_DIR", str(tmp_path))
+        monkeypatch.setattr(ps, "OPENVERSE_ANON_MIN_INTERVAL_SEC", 0.0)
+        monkeypatch.setattr(ps.urllib.request, "urlopen",
+                            lambda req, timeout=None: _Resp(_json.dumps(payload).encode()))
+        c = ps._openverse_fetch_one("battle", ov)[0]
+        assert c["src"]["large2x"].endswith("width=1280") and c["src"]["medium"].endswith("width=960")
 
     def test_failed_probe_falls_back_to_full_file_and_is_counted(self, selection_env, monkeypatch):
         d = selection_env
