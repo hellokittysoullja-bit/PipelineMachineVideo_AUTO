@@ -63,6 +63,15 @@ class SlotSpeculator:
         self._lock = threading.Lock()
         self.stats = {"scheduled": 0, "done": 0, "failed": 0, "waited_sec": 0.0}
         self._closed = False
+        # Падение цикла или Ctrl+C до close(): поток упреждения не демон, и
+        # при выходе интерпретатора исполнитель дорабатывает ВСЮ очередь —
+        # до depth платных лестниц слотов после сбоя (аудит 28.09). Отмена
+        # ещё не начатых — раньше ожидания потоков: колбэки threading-выхода
+        # идут в обратном порядке регистрации, этот зарегистрирован позже
+        # колбэка concurrent.futures.
+        register = getattr(threading, "_register_atexit", None)
+        if register is not None:
+            register(self._abandon)
 
     def advance(self, i, snapshot):
         """Слот i начинается: поставить упреждение слотов i+1..i+depth.
@@ -105,6 +114,11 @@ class SlotSpeculator:
         """Дождаться начатого и не брать нового (отмена ещё не начатых)."""
         self._closed = True
         self._ex.shutdown(wait=True, cancel_futures=True)
+
+    def _abandon(self):
+        if not self._closed:
+            self._closed = True
+            self._ex.shutdown(wait=False, cancel_futures=True)
 
 
 class quiet_output:

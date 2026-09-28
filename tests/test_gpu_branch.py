@@ -465,3 +465,27 @@ def test_fallback_concat_keeps_every_frame_of_mixed_codecs(tmp_path):
         return sum(ImageStat.Stat(ImageChops.difference(x, y)).mean)
     mid = frame(out, 1.5)
     assert diff(mid, frame(b, 0.5)) < diff(mid, frame(a, 0.5)) / 3
+
+
+def test_speculation_queue_is_cancelled_on_abnormal_exit():
+    """Аудит 28.09: при падении цикла до close() исполнитель при выходе
+    дорабатывал всю очередь — платные лестницы слотов после сбоя."""
+    import slot_speculation
+    gate = threading.Event()
+    ran = []
+
+    def job(j, snap):
+        ran.append(j)
+        gate.wait(5)
+    sp = slot_speculation.SlotSpeculator(10, job, depth=6, workers=1)
+    sp.advance(0, lambda: {})
+    time.sleep(0.2)
+    sp._abandon()
+    gate.set()
+    time.sleep(0.3)
+    assert ran == [1], ran
+
+
+def test_default_speculation_is_off():
+    import feature_flags
+    assert feature_flags.FLAGS["SLOT_SPECULATE"].default == "0"

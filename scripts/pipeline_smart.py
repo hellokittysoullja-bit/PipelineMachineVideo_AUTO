@@ -18523,6 +18523,9 @@ def main():
                     _SPECULATING.reset(t1)
         _depth = os.environ.get("SLOT_SPECULATE_DEPTH", "").strip()
         _workers = os.environ.get("SLOT_SPECULATE_WORKERS", "").strip()
+        # Скачанное упреждением прошлого прогона (упавшего до своей
+        # очистки) не должно подставиться этому: ключ там — только адрес.
+        discard_speculated_downloads()
         speculator = slot_speculation.SlotSpeculator(
             len(blocks), _speculate_job,
             depth=int(_depth) if _depth.isdigit() else slot_speculation.DEPTH,
