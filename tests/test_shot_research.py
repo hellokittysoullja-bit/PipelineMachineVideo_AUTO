@@ -214,7 +214,7 @@ def test_weak_substitute_is_replaced_only_by_a_strictly_better_frame(tmp_path):
 def test_main_runs_the_second_round_through_the_trigger():
     import inspect
     import pipeline_smart as ps
-    src = inspect.getsource(ps.main)
+    src = inspect.getsource(ps.run_slot_ladder)
     assert "trigger = (research_trigger(cur_att)" in src
     assert "research_takes_over(trigger, cur_att, got_att)" in src
 

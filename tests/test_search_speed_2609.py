@@ -321,10 +321,10 @@ def test_render_workers_run_below_the_selection_priority():
         return
     code = ("import os,sys; sys.path.insert(0, %r); sys.argv=['p', %r]; "
             "import pipeline_smart as ps; before=os.nice(0); "
-            "ps._render_worker_background_priority(); print(os.nice(0) - before)"
+            "ps._render_worker_background_priority(); print(os.nice(0) - min(before + 10, 19))"
             % (os.path.join(REPO, "scripts"), REPO))
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=300)
-    assert out.stdout.strip().splitlines()[-1] == "10", out.stderr[-400:]
+    assert out.stdout.strip().splitlines()[-1] == "0", out.stderr[-400:]
 
 
 # ---------------------------------------------------------------- судья
