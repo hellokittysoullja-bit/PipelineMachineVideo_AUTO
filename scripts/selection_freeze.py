@@ -384,6 +384,17 @@ def run_pipeline(freeze, mode, label, hashseed, keep_media=False, pipeline=None,
     os.makedirs(run_dir)
     sandbox = os.path.join(run_dir, "episode")
     shutil.copytree(os.path.join(freeze, "input"), sandbox)
+    reuse = os.environ.get("FREEZE_REUSE_EMB_FROM", "").strip()
+    if reuse:
+        # Эмбеддинги превью (каскад, гейт, эстетика) — функция картинки и
+        # модели, от прогона не зависят: кэш другого прогона того же кода
+        # решений не меняет, а на процессоре экономит часы (каскад эп.94 —
+        # ~1800 превью на фразу по ~0.5 с). Сеть и ответы моделей не
+        # переносятся.
+        for sub in ("cascade", "emb", "aesthetic"):
+            src = os.path.join(freeze, "runs", reuse, "caches", sub)
+            if os.path.isdir(src):
+                shutil.copytree(src, os.path.join(run_dir, "caches", sub), dirs_exist_ok=True)
     env = child_env(meta["env"], run_dir, hashseed)
     pipeline = os.path.abspath(pipeline or PIPELINE)
     overlay = os.path.join(run_dir, "net_overlay") if live_fallback else ""
