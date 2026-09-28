@@ -766,6 +766,13 @@ def test_the_same_words_without_an_image_are_just_an_answer():
     "red",
     "The image shows a dagger lying on a table; no image of armour is visible.",
     "There is no image of a knight here, only a sword.",
+    # Найдено собственным адверсариальным стресс-тестом (28.09, не живым
+    # случаем) — компаунд-фраза с оговоркой о качестве, которая всё же
+    # отвечает на вопрос: формально задевает "did not load" в старой версии
+    # регэкспа, но модель продолжает описывать содержимое после "but" —
+    # значит картинка дошла, и ложный повтор жёг бы вызов шлюза впустую.
+    "The photo did not load properly for the camera due to motion blur, but the sword is visible.",
+    "The image quality is poor but I can make out a blade shape.",
 ])
 def test_ordinary_answers_about_the_picture_are_not_drops(answer):
     """Ответы судьи — JSON, строки оценок, описание кадра: ни одно не
@@ -780,6 +787,17 @@ def test_ordinary_answers_about_the_picture_are_not_drops(answer):
     "It seems no image was attached. Could you share it again?",
     "The picture didn't come through — please resend the image.",
     "There is no image attached to your message.",
+    # Собственный адверсариальный стресс-тест 28.09 нашёл 7 реальных
+    # промахов прежнего узкого регэкспа (7/15 фраз не ловились вовсе) —
+    # добавлены как постоянные регрессионные случаи, не только разовая
+    # проверка на бумаге.
+    "I don't see any image attached to your request.",
+    "The uploaded photo could not be loaded, could you try again?",
+    "I wasn't able to load the photo you shared.",
+    "Your image was not successfully uploaded on our end.",
+    "Please re-upload the image as it was not received.",
+    "It appears the image link is broken and nothing came through.",
+    "Sorry, no attachment is visible in this conversation.",
 ])
 def test_drop_phrasings_are_recognised(answer):
     assert lg.image_not_received(IMAGE_REQUEST, answer)

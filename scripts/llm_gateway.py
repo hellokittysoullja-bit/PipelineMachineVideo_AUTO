@@ -202,14 +202,37 @@ IMAGE_DROP_MAX_CHARS = 400
 IMAGE_DROP_RE = re.compile(
     r"failed to (?:upload|load|attach)"
     r"|re-?send (?:it|the (?:image|picture|photo))"
-    r"|(?:can ?not|can't|unable to) (?:see|view|access|open|load) (?:the|this|any|your) "
+    r"|(?:can ?not|can't|unable to|not able to|wasn't able to|was not able to) "
+    r"(?:see|view|access|open|load) (?:the|this|any|your) "
     r"(?:image|picture|photo|attachment)"
-    r"|(?:image|picture|photo|attachment) (?:did not|didn't|could not|couldn't|was not|wasn't) "
+    r"|(?:don't|do not|doesn't|does not) see (?:any|the) "
+    r"(?:image|picture|photo|attachment)"
+    r"|(?:image|picture|photo|attachment) (?:did not|didn't|could not|couldn't|was not|wasn't)"
+    r"(?: successfully)? "
     r"(?:load|upload|come through|attach|provided|received|attached|uploaded|included)"
+    r"|(?:could not|couldn't|cannot|can't) be "
+    r"(?:loaded|uploaded|accessed|opened|attached)"
     r"|no (?:image|picture|photo|attachment) (?:was |is |has been )?"
-    r"(?:attached|provided|received|uploaded|included|shared)"
+    r"(?:attached|provided|received|uploaded|included|shared|visible|present)"
     r"|there (?:is|was) no (?:image|picture|photo|attachment) "
-    r"(?:attached|provided|included|in (?:your|the|this) (?:message|request))", re.I)
+    r"(?:attached|provided|included|visible|in (?:your|the|this) (?:message|request|conversation))"
+    r"|(?:image|picture|photo|attachment) link is broken"
+    r"|nothing came through"
+    r"|\bit (?:was not|wasn't|is not|isn't) received\b", re.I)
+# Найдено собственным стресс-тестом (не живым случаем): «фото не загрузилось
+# как надо из-за смаза, НО меч виден» формально совпадает с верхним
+# регэкспом («did not load properly») и при этом отвечает на вопрос —
+# картинка ДОШЛА, модель просто оговаривается насчёт качества и всё равно
+# описывает содержимое. Настоящий обрыв доставки такого хвоста не имеет —
+# ответ обрывается на жалобе, продолжения с описанием нет. Ложный повтор
+# здесь не бесплатен: он жжёт вызов шлюза и опускает уже нормальный вердикт
+# до provisional (Шаг 31), поэтому хвост «но/однако всё же видно X» гасит
+# срабатывание.
+IMAGE_DROP_STILL_ANSWERS_RE = re.compile(
+    r"\b(?:but|however|though|still)\b[^.!?]{0,120}\b"
+    r"(?:visible|shows?|showing|shown|present|"
+    r"can (?:still |also )?(?:see|make out|tell)|"
+    r"appears? to (?:be|show)|is a\b|is an\b)", re.I)
 
 
 def has_image(content):
@@ -222,7 +245,8 @@ def image_not_received(content, text):
     """Ответ на запрос с картинкой говорит, что картинки у модели нет."""
     text = str(text or "")
     return (has_image(content) and "{" not in text and len(text) <= IMAGE_DROP_MAX_CHARS
-            and bool(IMAGE_DROP_RE.search(text)))
+            and bool(IMAGE_DROP_RE.search(text))
+            and not IMAGE_DROP_STILL_ANSWERS_RE.search(text))
 
 
 def _env(name, default=None):
