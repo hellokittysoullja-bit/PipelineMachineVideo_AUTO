@@ -423,7 +423,22 @@ def world_check(gateway, model, *, phrase, brief, setting, path, kind="photo", c
 # 3) удалена: «close» засчитывал замену без главного — нагрудник на фразе
 # «Стрела скользит по нагруднику».
 VERIFY_WORLD = "\nThe episode's world: {setting}."
-VERIFY_WORLD_KEYS = ', "main_in_world": true/false, "background_foreign": true/false'
+VERIFY_WORLD_KEYS = ', "main_in_world": true/false, "background": "none"/"subtle"/"obvious"'
+# ЧУЖОЕ НА ФОНЕ — ТРИ УРОВНЯ, а не да/нет (28.09). Двоичный вопрос считал
+# «чужим» и толпу в футболках за реконструкторами, и размытые ноги за
+# забором — и отказ по нему (25.09) убил лучший кадр эпизода 94: упавшего
+# рыцаря (pixabay:321443, сетка 3, все пункты фразы «да») на фразах #4, #6,
+# #8 в judge13/judge14, а в judge12, где отказа не было, он стоял на экране.
+# Разметка глазами всех 44 кадров, отклонённых только за фон в judge9-14:
+# явное современное у 26, мелочь (размыто, мелко, у края) у 14, фон чистый
+# (ошибка судьи) у 8 — то есть отказ выбрасывал около 22 годных кадров вместе
+# с браком. Брак — только «obvious»; «subtle» — штраф ниже чистого кадра.
+BACKGROUND_LEVELS = ("none", "subtle", "obvious")
+BACKGROUND_CLEAN = {"none": 1.0, "subtle": 0.5, "obvious": 0.0}
+BACKGROUND_Q = """- background: look at everything ELSE in the picture (background, edges, people around). Is there anything that could not exist in that world — modern people, clothing, objects, vehicles, signs, buildings, spectators?
+  "none" — nothing of the kind;
+  "subtle" — only small, blurred, out of focus, mostly hidden or at the very edge: a viewer would not notice it at a glance;
+  "obvious" — a viewer would notice it at a glance."""
 # Подпись источника — свидетельство рядом с картинкой. Замер 24.09 (эп.94):
 # все три промаха проверки по одной картинке названы в подписи прямо —
 # «moroccan horsemen perform a tbourida», «fish shaped metal keychain»,
@@ -469,7 +484,7 @@ CLAIMS_VIDEO_NOTE = ("\nThe picture shows {n} frames of ONE video clip in time o
                      "a movement counts if the frames show it happening.")
 CLAIMS_WORLD_Q = """
 - main_in_world: could the MAIN subject exist in that world (era, culture)? true/false
-- background_foreign: is there anything ELSE in the picture (background, edges, people around) that could not exist in that world — modern people, clothing, objects, vehicles, signs, spectators? true/false"""
+""" + BACKGROUND_Q
 
 
 # МИР — ОДИН РАЗ НА КАРТИНКУ, БЕЗ ФРАЗЫ (вариант замера 24.09). Вопрос про
@@ -478,13 +493,35 @@ CLAIMS_WORLD_Q = """
 # в пулах двух и более слотов эпизода 94, у 6 ответ о мире расходился
 # (pixabay:321443 — отказ в слоте 4, «свой» в слоте 6). Здесь вопрос о мире
 # не знает фразы, поэтому кэшируется по картинке и один на все слоты.
-WORLD_ONLY_VERSION = 1
+WORLD_ONLY_VERSION = 2
 WORLD_ONLY_PROMPT = """You check one picture for a documentary video.
 The episode's world: {setting}.{caption}{video}
 Look at the picture carefully and answer:
 - main_in_world: could the MAIN subject of the picture exist in that world (era, culture)? true/false
-- background_foreign: is there anything ELSE in the picture (background, edges, people around) that could not exist in that world — modern people, clothing, objects, vehicles, signs, spectators? true/false
-Reply with JSON only: {{"main_in_world": true/false, "background_foreign": true/false, "why": "<short>"}}"""
+""" + BACKGROUND_Q.replace("{", "{{").replace("}", "}}") + """
+Reply with JSON only: {{"main_in_world": true/false, "background": "none"/"subtle"/"obvious", "why": "<short>"}}"""
+
+
+def world_answers(j):
+    """Ответ модели о мире -> {"main_in_world", "background",
+    "background_foreign"} или None, если не разобран. background_foreign
+    значит «явно чужое на фоне» (obvious): по нему решает отказ."""
+    if not isinstance(j, dict) or not isinstance(j.get("main_in_world"), bool):
+        return None
+    bg = str(j.get("background", "")).strip().lower()
+    if bg not in BACKGROUND_LEVELS:
+        return None
+    return {"main_in_world": j["main_in_world"], "background": bg,
+            "background_foreign": bg == "obvious"}
+
+
+def background_level(answers):
+    """Уровень фона ответа; ответы старой схемы (да/нет) — «obvious»/«none»."""
+    a = answers or {}
+    bg = a.get("background")
+    if bg in BACKGROUND_LEVELS:
+        return bg
+    return "obvious" if a.get("background_foreign") else "none"
 
 
 def world_only_question(setting, kind="photo", caption=None, frames=None):
@@ -527,11 +564,10 @@ def world_of_image(gateway, model, *, setting, path, kind="photo", cache_dir=Non
         j = json.loads(m.group(0)) if m else None
     except ValueError:
         j = None
-    if not isinstance(j, dict) or not all(isinstance(j.get(k), bool)
-                                          for k in ("main_in_world", "background_foreign")):
+    answers = world_answers(j)
+    if answers is None:
         return None, {"refused": "неразобранный ответ: " + (answer or "")[-200:], "cost": price,
                       "call": True}
-    answers = {"main_in_world": j["main_in_world"], "background_foreign": j["background_foreign"]}
     if cp:
         _cache_write(cp, {"answers": answers, "model": model}, readable=True)
     return answers, {"cost": price, "call": True}
@@ -813,10 +849,10 @@ def parse_claims_answer(text, ids, with_world):
         return None
     out = {"claims": claims, "medium": medium}
     if with_world:
-        for key in ("main_in_world", "background_foreign"):
-            if not isinstance(j.get(key), bool):
-                return None
-            out[key] = j[key]
+        world = world_answers(j)
+        if world is None:
+            return None
+        out.update(world)
     out["why"] = str(j.get("why") or "")[:300]
     return out
 
@@ -844,15 +880,16 @@ def claims_vector(spec, answers, *, world_veto=True, cg_veto=True):
     только для исторического мира (у научной ниши рендер бывает
     единственным изображением).
 
-    Чужое на фоне (зрители в футболках, бетонная стена, человек в куртке)
-    в историческом мире — тоже отказ, а не штраф (25.09): штрафом такой
-    кадр побеждал там, где у остальных не выполнено утверждение, — так в
-    judge12 встала марокканская тбурида. Прецедент канала тот же: кадр #001
-    золотого набора (реконструкторы на фоне современной толпы) — брак
-    modern_intrusion. На сохранённых ответах эп.94 все кадры с этой
-    пометкой, просмотренные глазами, современное содержат. Под
-    предохранителем мира — снова штраф: при неверном паспорте «чужое»
-    может означать не современность, а другую эпоху."""
+    Чужое на фоне — три уровня (BACKGROUND_LEVELS). ЯВНОЕ (толпа в
+    футболках, фургон, мишени) в историческом мире — отказ: прецедент канала
+    — кадр #001 золотого набора (реконструкторы на фоне современной толпы).
+    МЕЛОЧЬ (размытые ноги за забором, верёвка ограждения у края) — штраф
+    ниже чистого кадра, но не отказ: двоичный отказ 25.09 выбрасывал и её, и
+    так пропал лучший кадр эп.94 — упавший рыцарь (см. BACKGROUND_LEVELS).
+    Марокканскую тбуриду, ради которой отказ вводился, теперь отсекают вопрос
+    о мире по главному предмету и отсев по подписи. Под предохранителем мира
+    — явное тоже штраф: при неверном паспорте «чужое» может означать не
+    современность, а другую эпоху."""
     if answers is None:
         return None
     if cg_veto and answers.get("medium") == "cg":
@@ -860,12 +897,12 @@ def claims_vector(spec, answers, *, world_veto=True, cg_veto=True):
     foreign = answers.get("main_in_world") is False
     if foreign and world_veto:
         return None
-    if cg_veto and world_veto and answers.get("background_foreign"):
+    if cg_veto and world_veto and background_level(answers) == "obvious":
         return None
     vals = claim_values(spec, answers)
     musts = [vals[c["id"]] for c in spec["claims"] if c["tier"] == "must"]
     shoulds = [vals[c["id"]] for c in spec["claims"] if c["tier"] != "must"]
-    clean = 0.0 if answers.get("background_foreign") else 1.0
+    clean = BACKGROUND_CLEAN[background_level(answers)]
     return (0.0 if foreign else 1.0,) + tuple(musts) + (clean,) + tuple(shoulds)
 
 
@@ -915,12 +952,12 @@ def musts_met_clean(spec, answers):
     vals = claim_values(spec, answers)
     return (all(vals[c["id"]] >= 1.0 for c in spec["claims"] if c["tier"] == "must")
             and answers.get("main_in_world") is not False
-            and not answers.get("background_foreign"))
+            and background_level(answers) == "none")
 
 
 def world_clear(answers):
     """Проверка мира состоялась и ничего чужого на кадре нет."""
-    return (answers or {}).get("main_in_world") is True and answers.get("background_foreign") is False
+    return (answers or {}).get("main_in_world") is True and background_level(answers) == "none"
 
 
 def _image_content(path, max_side):

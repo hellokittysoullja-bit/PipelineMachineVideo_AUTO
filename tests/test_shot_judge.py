@@ -175,7 +175,7 @@ def test_world_asked_once_per_picture_whatever_the_phrase(tmp_path):
             t = content[0]["text"]
             self.texts.append(t)
             if "main_in_world: could the MAIN subject of the picture" in t:
-                return '{"main_in_world": false, "background_foreign": true, "why": "x"}', {}, 3
+                return '{"main_in_world": false, "background": "obvious", "why": "x"}', {}, 3
             return '{"claims": {"c1": "yes"}, "medium": "photo", "why": "y"}', {}, 5
     gw = GW()
     got = []
@@ -215,9 +215,42 @@ def test_cache_that_cannot_be_written_does_not_lose_the_paid_answer(tmp_path):
     class GW:
         def chat(self, model, content, *a, **k):
             if "main_in_world: could the MAIN subject of the picture" in content[0]["text"]:
-                return '{"main_in_world": true, "background_foreign": false, "why": ""}', {}, 1
+                return '{"main_in_world": true, "background": "none", "why": ""}', {}, 1
             return '{"claims": {"c1": "yes"}, "medium": "photo", "why": ""}', {}, 1
     ans, info = sj.verify_claims(GW(), "m", phrase="p", spec=spec, setting="historical",
                                  path=path, cache_dir=str(blocker / "cache"), world_separate=True)
     assert ans and ans["claims"] == {"c1": "yes"} and ans["main_in_world"] is True
     assert info.get("call")
+
+
+def test_background_three_levels_reject_only_obvious():
+    """28.09: двоичный отказ за «чужое на фоне» выбрасывал и мелочь (размытые
+    ноги за забором) — так пропал упавший рыцарь эп.94 (pixabay:321443,
+    сетка 3, все пункты «да») с фраз #4, #6, #8. Брак — только явное."""
+    spec = {"claims": [{"id": "core", "text": "a knight lies in mud", "tier": "must"},
+                       {"id": "c2", "text": "mud on the armour", "tier": "must"}]}
+    knight = {"claims": {"core": "yes", "c2": "yes"}, "medium": "photo",
+              "main_in_world": True, "background": "subtle", "background_foreign": False}
+    clean_weak = {"claims": {"core": "no", "c2": "yes"}, "medium": "photo",
+                  "main_in_world": True, "background": "none", "background_foreign": False}
+    crowd = dict(knight, background="obvious", background_foreign=True)
+    same_clean = dict(knight, background="none")
+    assert sj.claims_vector(spec, knight) is not None
+    assert sj.claims_vector(spec, knight) > sj.claims_vector(spec, clean_weak)
+    assert sj.claims_vector(spec, same_clean) > sj.claims_vector(spec, knight)
+    assert sj.claims_vector(spec, crowd) is None
+    assert sj.claims_vector(spec, crowd, world_veto=False) is not None
+    assert not sj.musts_met_clean(spec, knight) and sj.musts_met_clean(spec, same_clean)
+    assert not sj.world_clear(knight) and sj.world_clear(same_clean)
+    # ответы старой схемы (да/нет) читаются как раньше: да — явное
+    old = {"claims": {"core": "yes", "c2": "yes"}, "medium": "photo",
+           "main_in_world": True, "background_foreign": True}
+    assert sj.claims_vector(spec, old) is None
+
+
+def test_world_answer_parses_three_levels_and_refuses_unknown():
+    assert sj.world_answers({"main_in_world": True, "background": "Subtle"}) == {
+        "main_in_world": True, "background": "subtle", "background_foreign": False}
+    assert sj.world_answers({"main_in_world": True, "background": "obvious"})["background_foreign"] is True
+    assert sj.world_answers({"main_in_world": True, "background_foreign": True}) is None
+    assert sj.world_answers({"main_in_world": "yes", "background": "none"}) is None
