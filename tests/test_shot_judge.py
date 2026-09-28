@@ -174,7 +174,7 @@ def test_world_asked_once_per_picture_whatever_the_phrase(tmp_path):
         def chat(self, model, content, max_tokens, est, **_kw):
             t = content[0]["text"]
             self.texts.append(t)
-            if "main_in_world: could the MAIN subject of the picture" in t:
+            if "main_in_world: does the MAIN subject belong" in t:
                 return '{"main_in_world": false, "background": "obvious", "why": "x"}', {}, 3
             return '{"claims": {"c1": "yes"}, "medium": "photo", "why": "y"}', {}, 5
     gw = GW()
@@ -183,7 +183,7 @@ def test_world_asked_once_per_picture_whatever_the_phrase(tmp_path):
         ans, _i = sj.verify_claims(gw, "m", phrase=phrase, spec=spec, setting="historical",
                                    path=path, cache_dir=str(tmp_path / "c"), world_separate=True)
         got.append(ans)
-    worlds = [t for t in gw.texts if "main_in_world: could the MAIN subject of the picture" in t]
+    worlds = [t for t in gw.texts if "main_in_world: does the MAIN subject belong" in t]
     claims = [t for t in gw.texts if t not in worlds]
     assert len(worlds) == 1 and len(claims) == 2
     assert all("main_in_world" not in t for t in claims)
@@ -214,7 +214,7 @@ def test_cache_that_cannot_be_written_does_not_lose_the_paid_answer(tmp_path):
 
     class GW:
         def chat(self, model, content, *a, **k):
-            if "main_in_world: could the MAIN subject of the picture" in content[0]["text"]:
+            if "main_in_world: does the MAIN subject belong" in content[0]["text"]:
                 return '{"main_in_world": true, "background": "none", "why": ""}', {}, 1
             return '{"claims": {"c1": "yes"}, "medium": "photo", "why": ""}', {}, 1
     ans, info = sj.verify_claims(GW(), "m", phrase="p", spec=spec, setting="historical",
@@ -254,3 +254,14 @@ def test_world_answer_parses_three_levels_and_refuses_unknown():
     assert sj.world_answers({"main_in_world": True, "background": "obvious"})["background_foreign"] is True
     assert sj.world_answers({"main_in_world": True, "background_foreign": True}) is None
     assert sj.world_answers({"main_in_world": "yes", "background": "none"}) is None
+
+
+def test_main_subject_question_asks_belonging_not_possibility():
+    """28.09: «мог ли существовать» пропускал современный нож («ножи в 1400
+    году были»), и он встал на фразу #2 в judge17. Вопрос — принадлежит ли
+    миру: подлинная вещь или верная реконструкция, а не современная работа."""
+    for text in (sj.world_only_question("historical, 1300 AD-1500 AD"),
+                 sj.claims_question("p", {"claims": [{"id": "c", "text": "x", "tier": "must"}]},
+                                    "historical", "photo", None, None)):
+        assert "could the MAIN subject" not in text
+        assert "faithful reconstruction" in text and "modern-made" in text
