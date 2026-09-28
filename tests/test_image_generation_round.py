@@ -224,7 +224,7 @@ def test_both_last_steps_take_over_by_the_same_rule():
     вытесняет только строго лучший; после каждой ступени повод
     пересчитывается, и нашедшийся кадр останавливает лестницу."""
     ps = _ps()
-    src = inspect.getsource(ps.main)
+    src = inspect.getsource(ps.run_slot_ladder)
     i_loop = src.index("for step in ladder:")
     body = src[i_loop:i_loop + 4000]
     assert "trigger = research_trigger(cur_att)" in body and "break" in body
@@ -238,7 +238,7 @@ def test_slot_steps_are_timed():
     """Время слота по ступеням (STAGE_TIMER): первый вид, второй вид,
     вторая страница, второй круг, генерация и слот целиком."""
     ps = _ps()
-    src = inspect.getsource(ps.main)
+    src = inspect.getsource(ps.main) + inspect.getsource(ps.run_slot_ladder)
     for name in ("slot_first", "slot_other_kind", "slot_page2", "slot_research",
                  "slot_generation", "slot_total"):
         assert f'"{name}"' in src, name

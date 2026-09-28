@@ -38,6 +38,10 @@ STAGE_TIMER_ENABLED = os.environ.get("STAGE_TIMER", "0") != "0"
 
 _output_path = os.environ.get("STAGE_TIMER_PATH", "") or None
 
+# Признак фоновой работы, чьё время в разрез прогона не входит (упреждающий
+# отбор слотов: его стадии — работа наперёд, настоящий слот запишет свои).
+SUPPRESS = None
+
 
 def set_output_path(path):
     """Куда писать JSONL. Вызывается один раз из main() после того, как
@@ -69,7 +73,7 @@ def stage(name, clip_idx=None, **extra):
     Исключение внутри блока НЕ проглатывается: время всё равно
     записывается (с ok=False), исключение летит дальше — замер не должен
     менять поведение пайплайна ни в успехе, ни в сбое."""
-    if not STAGE_TIMER_ENABLED or not _output_path:
+    if not STAGE_TIMER_ENABLED or not _output_path or (SUPPRESS is not None and SUPPRESS()):
         yield
         return
     t0 = time.perf_counter()
@@ -99,7 +103,7 @@ def record(name, t_wall, **extra):
     контекст-менеджером мешает форма кода — например, длинный
     subprocess.run внутри try/except, переиндентация которого была бы
     правкой ради телеметрии). Семантика записи та же, что у stage()."""
-    if not STAGE_TIMER_ENABLED or not _output_path:
+    if not STAGE_TIMER_ENABLED or not _output_path or (SUPPRESS is not None and SUPPRESS()):
         return
     rec = {"stage": name, "t_wall": round(t_wall, 4), "ok": True,
            "pid": os.getpid(), "ts": round(time.time(), 3)}

@@ -66,10 +66,12 @@ class Attempt:
     последующих слотах, стоило одному слоту сделать на попытку больше, — и
     журналы двух прогонов расходились бы там, где ничего не менялось."""
 
-    def __init__(self, index, kind, staging_root):
+    def __init__(self, index, kind, staging_root, attempt_id=None):
         self.index = index
         self.kind = kind
-        self.attempt_id = f"{index}-{kind}-{_next_seq(index)}"
+        # Своё имя — у попыток упреждающего отбора: они не должны сдвигать
+        # нумерацию настоящих попыток слота (журналы прогонов разошлись бы).
+        self.attempt_id = attempt_id or f"{index}-{kind}-{_next_seq(index)}"
         self.state = OPEN
         self.verdicts = []    # [(kind, record)] в порядке записи
         self.effects = []     # [(kind, args)] в порядке записи

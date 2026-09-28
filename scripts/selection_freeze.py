@@ -155,7 +155,7 @@ BRANCH_ANCHORS = (
     ("видео: кэш-хит отвергнут как повтор", _forms(("VideoAdapter.cache_hit",),
                                                    "            return None")),
     ("видео: фильтр длины отсеял", _forms(_V + ("VideoAdapter.filter_pool",),
-                                          "VIDEO_TOO_SHORT_FILTERED.append(")),
+                                          "_log_list(\"VIDEO_TOO_SHORT_FILTERED\").append(")),
     ("видео: оценено по превью", _forms(("VideoAdapter.choose",), "candidates_info.append({")),
     ("видео: превью не скачалось", _forms(("VideoAdapter.choose",),
                                           '_source_bump(candidate_channel(v), "download_errors")')),
@@ -1402,6 +1402,8 @@ def cmd_record(args):
 
 
 def cmd_replay(args):
+    if getattr(args, "stable_get", False):
+        os.environ["FREEZE_STABLE_GET"] = "1"     # дочерний процесс наследует
     freeze = os.path.abspath(args.freeze)
     label = args.label or f"replay-seed{args.hashseed}"
     res = run_pipeline(freeze, "replay", label, args.hashseed, args.keep_media,
@@ -1429,6 +1431,8 @@ def cmd_compare(args):
 
 
 def cmd_verify(args):
+    if getattr(args, "stable_get", False):
+        os.environ["FREEZE_STABLE_GET"] = "1"     # дочерний процесс наследует
     freeze = os.path.abspath(args.freeze)
     meta = json.load(open(os.path.join(freeze, "meta.json"), encoding="utf-8"))
     seed = args.hashseed if args.hashseed is not None else meta["hashseed"]
@@ -1474,6 +1478,9 @@ def main(argv=None):
         sp.add_argument("--net-overlay-from", metavar="ПРОГОН[,ПРОГОН...]",
                         help="дополнительно отдавать живые запросы указанных прогонов "
                              "(их net_overlay, по порядку), продолжая по каждому адресу запись")
+        sp.add_argument("--stable-get", action="store_true",
+                        help="повторный GET того же адреса получает тот же успешный ответ "
+                             "(для кода, который меняет число обращений, но не решения)")
         sp.add_argument("--live-fallback", action="store_true",
                         help="запросы вне записи выполнять живьём в отдельный слой (названные)")
     v.add_argument("--against", default="record",

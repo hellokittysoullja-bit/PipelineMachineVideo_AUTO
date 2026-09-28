@@ -370,7 +370,7 @@ class TestPexelsOutageDoesNotKillOtherSources:
         src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"),
                    encoding="utf-8").read()
         marker = "is_opening_shot = (i == 0)"
-        start = src.index(marker)
+        start = src.index(marker, src.index("\ndef main("))   # цикл слотов main()
         # Первая строка `if` после этой точки — тот самый гейт на вызов
         # pexels_photo()/pexels_video(). Она не должна содержать use_pexels:
         # музеи/архивы внутри этих функций работают независимо от Pexels.

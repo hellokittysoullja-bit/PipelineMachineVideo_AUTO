@@ -174,6 +174,11 @@ def load(video_dir):
 
 
 def save(video_dir, data):
+    import llm_gateway
+    if llm_gateway.speculative():
+        # Упреждающий отбор: запросы второго круга лежат в хранилище шлюза,
+        # файл пишет настоящий цикл (см. shot_judge._cache_write).
+        return
     path = _path(video_dir)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path + ".tmp", "w", encoding="utf-8") as f:

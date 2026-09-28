@@ -57,7 +57,7 @@ def test_main_compares_kinds_and_does_not_refetch_a_losing_photo():
     """Сторож проводки: решение по оценке стоит в main() до лестницы
     фолбэков, а спасение фотографией не добывает фото повторно."""
     src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"), encoding="utf-8").read()
-    body = src[src.index("\ndef main("):]
+    body = src[src.index("\nclass SlotContext:"):]  # решение слота: лестница и main()
     assert "pick_kind_by_judge(first_kind" in body
     assert body.index("pick_kind_by_judge(first_kind") < body.index('"VIDEO_PHOTO_RESCUE"')
     assert 'a.kind == "photo" and a.media' in body
@@ -97,10 +97,10 @@ def test_spec_motion_decides_the_first_kind_only_when_it_is_must():
     should = {"claims": [{"id": "core", "tier": "must"}, {"id": "c1", "tier": "should", "motion": True}]}
     assert sqp.has_motion(must, must=True) and not sqp.has_motion(should, must=True)
     src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"), encoding="utf-8").read()
-    body = src[src.index("\ndef main("):]
+    body = src[src.index("\nclass SlotContext:"):]  # решение слота: лестница и main()
     i = body.index('spec = b.get("shot_spec")')
     block = body[i:i + 1600]
-    spec_branch = block[:block.index("            else:\n                h_text")]
+    spec_branch = block[:block.index("    else:\n        h_text")]
     assert "has_motion(spec, must=True)" in spec_branch
     assert "has_action_word" not in spec_branch and "md5" not in spec_branch, \
         "со спецификацией ритм без словаря и хэша"

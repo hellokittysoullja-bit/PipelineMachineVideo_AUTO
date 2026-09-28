@@ -246,7 +246,10 @@ def test_only_close_slot_commits_or_discards():
     for method in ("commit", "discard"):
         owners = {OWNER[n] for n in _calls(method)
                   if isinstance(n.func, ast.Attribute)}
-        assert owners <= {"close_slot"}, (method, owners)
+        # discard_speculation — упреждающий отбор (slot_speculation): его
+        # попытки только выбрасываются, коммита у них нет вовсе.
+        allowed = {"close_slot"} | ({"discard_speculation"} if method == "discard" else set())
+        assert owners <= allowed, (method, owners)
 
 
 def _frame_writes(fn):

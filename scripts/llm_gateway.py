@@ -32,6 +32,9 @@
 Сервис закрыт Cloudflare-правилом, отвергающим стандартную подпись
 Python-клиента (ошибка 1010) — заголовок User-Agent обязателен.
 """
+import collections
+import contextvars
+import hashlib
 import http.client
 import json
 import math
@@ -43,6 +46,45 @@ import urllib.parse
 import urllib.request
 
 import source_health
+
+# СПЕКУЛЯТИВНЫЕ ВЫЗОВЫ (упреждающий отбор слотов, pipeline_smart). Пока
+# настоящий цикл решает слот i, слоты впереди прогоняются заранее, чтобы их
+# вызовы моделей уже были сделаны к моменту, когда цикл до них дойдёт.
+# Решения при этом обязаны быть теми же, что без упреждения, — а потолок
+# расходов и отказы по нему зависят от того, КОГДА и СКОЛЬКО списано. Поэтому
+# спекулятивный ответ не списывается сразу: он кладётся в хранилище шлюза
+# вместе с ценой и резервом, а списывается в тот момент, когда настоящий
+# цикл задаёт тот же вопрос, — ровно с той проверкой потолка, какую прошёл
+# бы живой вызов. Настоящий цикл видит те же spent/reserved/отказы, что без
+# упреждения. Ответ, который настоящий цикл так и не спросил, — оплаченный
+# впустую; его сумма в summary()["speculative_wasted"].
+_SPECULATIVE = contextvars.ContextVar("llm_gateway_speculative", default=False)
+
+
+def speculative():
+    """True, если текущий поток делает спекулятивный вызов."""
+    return _SPECULATIVE.get()
+
+
+class speculation:
+    """Контекст спекулятивных вызовов (для упреждающего отбора)."""
+
+    def __enter__(self):
+        self._token = _SPECULATIVE.set(True)
+        return self
+
+    def __exit__(self, *exc):
+        _SPECULATIVE.reset(self._token)
+        return False
+
+
+def _fingerprint(model, content, max_tokens, estimate_prompt_tokens, temperature, reasoning):
+    """Всё, от чего зависит ответ и резерв вызова. Картинки входят целиком
+    (base64 в content): другой кадр в сетке — другой вопрос."""
+    h = hashlib.sha256()
+    h.update(json.dumps([model, content, max_tokens, estimate_prompt_tokens, temperature,
+                         reasoning], ensure_ascii=False, sort_keys=True).encode("utf-8"))
+    return h.hexdigest()
 
 DEFAULT_BASE_URL = "https://anymodel.org/v1"
 USER_AGENT = "PipelineMachineVideo/1.0"
@@ -88,6 +130,13 @@ class BudgetExhausted(GatewayError):
 
 class EmptyAnswer(GatewayError):
     """Сервис ответил и списал деньги, но текста ответа нет."""
+
+
+def _empty_answer(model, choice, usage, max_tokens, price):
+    reasoning = (usage.get("completion_tokens_details") or {}).get("reasoning_tokens")
+    return EmptyAnswer(f"{model}: пустой ответ (finish_reason={choice.get('finish_reason')}, "
+                       f"токенов рассуждения {reasoning}, выход {usage.get('completion_tokens')} "
+                       f"из {max_tokens}); оплачено {price}")
 
 
 def _env(name, default=None):
@@ -211,6 +260,7 @@ class Gateway:
         # первый вызов незнакомой модели идёт один, без параллельных: его
         # цена успевает стать известной до следующего.
         self._ratio = {}
+        self._spec_ratio = {}   # то же по спекулятивным вызовам (в настоящий учёт не идёт)
         self._first_call = {}
         self.spent = 0          # фактически списано (по usage ответов)
         self.reserved = 0       # зарезервировано вызовами в полёте
@@ -227,6 +277,19 @@ class Gateway:
         self.waited = 0.0       # секунд, прожданных на паузах
         self.reasked = 0        # вызовов, переспрошенных после исчерпанных повторов
         self.empty_answer_reasked = 0   # переспрошено после пустого ответа (200 OK, без текста)
+        # Спекулятивное хранилище: отпечаток вопроса -> очередь ответов.
+        self._spec = collections.defaultdict(collections.deque)
+        self._spec_pending = {}       # отпечаток -> Event: спекулятивный вызов в полёте
+        self.spec_reserved = 0        # резерв спекулятивных вызовов в полёте
+        self.spec_outstanding = 0     # оплачено спекулятивно и ещё не использовано
+        self.spec_calls = 0           # спекулятивных вызовов в сеть
+        self.spec_used = 0            # из них использовано настоящим циклом
+        self.spec_spent = 0           # оплачено спекулятивно всего
+        # Секунды, проведённые в сетевых вызовах чата (настоящих и
+        # спекулятивных), — для разреза времени прогона: сколько судья
+        # занимает на самом деле, а не по оценке.
+        self.net_seconds = 0.0
+        self.spec_net_seconds = 0.0
 
     @property
     def configured(self):
@@ -401,7 +464,7 @@ class Gateway:
             raise GatewayError("нет LLM_GATEWAY_API_KEY")
         with self._lock:
             first = self._first_call.setdefault(model, threading.Lock())
-        if model in self._ratio:
+        if model in self._ratio or model in self._spec_ratio:
             return self._chat_reasked(model, content, max_tokens, estimate_prompt_tokens, temperature,
                                       timeout, reasoning)
         with first:
@@ -432,8 +495,9 @@ class Gateway:
             return self._chat(model, content, max_tokens, estimate_prompt_tokens, temperature, timeout,
                               reasoning)
         except EmptyAnswer:
-            with self._lock:
-                self.empty_answer_reasked += 1
+            if not speculative():
+                with self._lock:
+                    self.empty_answer_reasked += 1
             return self._chat(model, content, max_tokens, estimate_prompt_tokens, temperature, timeout,
                               reasoning)
 
@@ -441,6 +505,13 @@ class Gateway:
               reasoning=None):
         base = self.cost(model, estimate_prompt_tokens, max_tokens)
         reserve = math.ceil(base * max(1.0, self._ratio.get(model, 1.0)))
+        fp = _fingerprint(model, content, max_tokens, estimate_prompt_tokens, temperature, reasoning)
+        if speculative():
+            return self._chat_speculative(fp, model, content, max_tokens, estimate_prompt_tokens,
+                                          temperature, timeout, reasoning, base)
+        entry = self._spec_take(fp)
+        if entry is not None:
+            return self._spec_consume(fp, entry, model, base, reserve, max_tokens)
         with self._lock:
             if self.spend_cap is not None and self.spent + self.reserved + reserve > self.spend_cap:
                 raise BudgetExhausted(f"потолок {self.spend_cap}: потрачено {self.spent}, "
@@ -455,8 +526,13 @@ class Gateway:
                     "messages": [{"role": "user", "content": content}]}
             if reasoning is not None:
                 body.update(reasoning_switch(getattr(self, "_thinking", {}).get(model), reasoning))
-            r = self._request("POST", "/chat/completions", body, timeout=timeout,
-                              on_lost_body=lost_body)
+            t0 = time.monotonic()
+            try:
+                r = self._request("POST", "/chat/completions", body, timeout=timeout,
+                                  on_lost_body=lost_body)
+            finally:
+                with self._lock:
+                    self.net_seconds += time.monotonic() - t0
         except PaymentRequired as e:
             self.dead = str(e)
             raise
@@ -478,13 +554,123 @@ class Gateway:
         choice = (r.get("choices") or [{}])[0]
         text = (choice.get("message") or {}).get("content") or ""
         if not text.strip():
-            reasoning = (u.get("completion_tokens_details") or {}).get("reasoning_tokens")
             with self._lock:
                 self.failures += 1
                 self.empty_answers += 1
-            raise EmptyAnswer(f"{model}: пустой ответ (finish_reason={choice.get('finish_reason')}, "
-                              f"токенов рассуждения {reasoning}, выход {u.get('completion_tokens')} "
-                              f"из {max_tokens}); оплачено {price}")
+            raise _empty_answer(model, choice, u, max_tokens, price)
+        return text, u, price
+
+    # ---------------------------------------------------------------- упреждение
+
+    def _spec_take(self, fp):
+        """Спекулятивный ответ на этот вопрос (или None). Вызов того же
+        вопроса в полёте — дождаться его: второй вызов заплатил бы дважды."""
+        while True:
+            with self._lock:
+                dq = self._spec.get(fp)
+                if dq:
+                    return dq.popleft()
+                ev = self._spec_pending.get(fp)
+            if ev is None:
+                return None
+            ev.wait()
+
+    def _spec_consume(self, fp, entry, model, base, reserve, max_tokens):
+        """Настоящий цикл получает спекулятивный ответ — ровно с тем учётом,
+        какой был бы у живого вызова в этот момент: та же проверка потолка
+        по резерву, то же списание цены и обновление отношения цены к
+        оценке, тот же отказ на пустом ответе."""
+        with self._lock:
+            if self.spend_cap is not None and self.spent + self.reserved + reserve > self.spend_cap:
+                self._spec[fp].appendleft(entry)
+                raise BudgetExhausted(f"потолок {self.spend_cap}: потрачено {self.spent}, "
+                                      f"в полёте {self.reserved}, нужно ещё до {reserve}")
+            price = entry["price"]
+            self.spent += price
+            self.calls += 1
+            self.spec_outstanding -= price
+            self.spec_used += 1
+            if base > 0:
+                self._ratio[model] = max(self._ratio.get(model, 0.0), price / base)
+            if entry["empty"]:
+                self.failures += 1
+                self.empty_answers += 1
+        if entry["empty"]:
+            raise _empty_answer(model, entry["choice"], entry["usage"], max_tokens, price)
+        return entry["text"], entry["usage"], price
+
+    def _chat_speculative(self, fp, model, content, max_tokens, estimate_prompt_tokens, temperature,
+                          timeout, reasoning, base):
+        """Спекулятивный вызов: ответ в хранилище, деньги — в счёт хранилища.
+        Тот же вопрос уже задан (или задаётся) другим упреждением — его ответ,
+        без второй оплаты. Потолок: спекуляция не выходит за него вместе с
+        уже потраченным и ещё не использованным."""
+        while True:
+            with self._lock:
+                dq = self._spec.get(fp)
+                if dq:
+                    entry = dq[0]
+                    break
+                ev = self._spec_pending.get(fp)
+                if ev is None:
+                    ev = self._spec_pending[fp] = threading.Event()
+                    entry = None
+                    break
+            ev.wait()
+        if entry is not None:
+            if entry["empty"]:
+                raise _empty_answer(model, entry["choice"], entry["usage"], max_tokens, entry["price"])
+            return entry["text"], entry["usage"], entry["price"]
+        ratio = max(self._ratio.get(model, 1.0), self._spec_ratio.get(model, 1.0))
+        reserve = math.ceil(base * max(1.0, ratio))
+        try:
+            with self._lock:
+                if self.spend_cap is not None and (self.spent + self.reserved + self.spec_reserved
+                                                   + self.spec_outstanding + reserve
+                                                   > self.spend_cap):
+                    raise BudgetExhausted(f"упреждение: потолок {self.spend_cap}")
+                self.spec_reserved += reserve
+
+            def lost_body():
+                with self._lock:
+                    self.spec_spent += reserve
+            try:
+                body = {"model": model, "temperature": temperature, "max_tokens": max_tokens,
+                        "messages": [{"role": "user", "content": content}]}
+                if reasoning is not None:
+                    body.update(reasoning_switch(getattr(self, "_thinking", {}).get(model), reasoning))
+                t0 = time.monotonic()
+                try:
+                    r = self._request("POST", "/chat/completions", body, timeout=timeout,
+                                      on_lost_body=lost_body)
+                finally:
+                    with self._lock:
+                        self.spec_net_seconds += time.monotonic() - t0
+            except PaymentRequired as e:
+                self.dead = str(e)
+                raise
+            finally:
+                with self._lock:
+                    self.spec_reserved -= reserve
+            u = r.get("usage") or {}
+            price = self.cost(model, u.get("prompt_tokens") or estimate_prompt_tokens,
+                              u.get("completion_tokens") or max_tokens)
+            choice = (r.get("choices") or [{}])[0]
+            text = (choice.get("message") or {}).get("content") or ""
+            entry = {"text": text, "usage": u, "price": price, "empty": not text.strip(),
+                     "choice": {"finish_reason": choice.get("finish_reason")}}
+            with self._lock:
+                self._spec[fp].append(entry)
+                self.spec_spent += price
+                self.spec_outstanding += price
+                self.spec_calls += 1
+                if base > 0:
+                    self._spec_ratio[model] = max(self._spec_ratio.get(model, 0.0), price / base)
+        finally:
+            with self._lock:
+                self._spec_pending.pop(fp).set()
+        if entry["empty"]:
+            raise _empty_answer(model, entry["choice"], u, max_tokens, price)
         return text, u, price
 
     def image(self, model, prompt, size, quality=None, n=1, timeout=300):
@@ -545,4 +731,9 @@ class Gateway:
                 "lost_bodies": self.lost_bodies, "empty_answers": self.empty_answers,
                 "spent": self.spent, "spend_cap": self.spend_cap, "dead": self.dead,
                 "pause_wait_sec": round(self.waited, 1), "reasked": self.reasked,
-                "empty_answer_reasked": self.empty_answer_reasked}
+                "empty_answer_reasked": self.empty_answer_reasked,
+                "speculative_calls": self.spec_calls, "speculative_used": self.spec_used,
+                "speculative_spent": self.spec_spent,
+                "speculative_wasted": self.spec_outstanding,
+                "net_seconds": round(self.net_seconds, 1),
+                "speculative_net_seconds": round(self.spec_net_seconds, 1)}

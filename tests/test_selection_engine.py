@@ -76,7 +76,11 @@ def test_every_attempt_of_a_slot_gets_the_same_request():
     того же request (research_round_request и generation_round заменяют
     запросы, бриф, фраза и спецификация остаются прежними — это держат
     test_shot_research и test_image_generation_round)."""
-    main = next(f for f in PIPELINE_TREE.body if isinstance(f, ast.FunctionDef) and f.name == "main")
+    # Лестница слота вынесена из main() в run_slot_ladder() (один код на
+    # настоящий цикл и упреждающий отбор) — вызовы отбора живут в обоих.
+    main = ast.Module(body=[f for f in PIPELINE_TREE.body if isinstance(f, ast.FunctionDef)
+                            and f.name in ("main", "run_slot_ladder")], type_ignores=[])
+    assert len(main.body) == 2
     calls = [n for n in ast.walk(main) if isinstance(n, ast.Call)
              and getattr(n.func, "id", None) == "fetch_in_attempt"]
     assert len(calls) >= 5

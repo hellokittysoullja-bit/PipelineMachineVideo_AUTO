@@ -141,6 +141,8 @@ def _isolate_from_real_dotenv(monkeypatch, tmp_path):
     # делали бы результат зависимым от порядка потоков. Тест упреждения
     # включает его сам.
     monkeypatch.setenv("SLOT_PREFETCH", "0")
+    # SLOT_SPECULATE — фоновые потоки отбора слотов впереди, та же причина.
+    monkeypatch.setenv("SLOT_SPECULATE", "0")
     # CLIP_ENCODER — на машине с NVENC тесты рендера кодировали бы клипы
     # другим кодером, чем тот, под который написаны их проверки.
     monkeypatch.setenv("CLIP_ENCODER", "x264")

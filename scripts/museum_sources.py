@@ -845,3 +845,97 @@ def search_museums(query, department=None, limit=None):
     if complete:
         _disk_cache_put(query, out, department, limit)
     return out
+
+
+# ЗЕРКАЛО КАРТОЧЕК МЕТ (скорость, 28.09). Замер эп.98: 3140 запросов к Мет
+# при скорости, упавшей до 1.25/с после 403, — больше 40 минут чистого
+# ожидания ограничителя; 404 карточки пришли из кэша. Карточка предмета от
+# запроса не зависит, а всё, что поиск Мет может вернуть при фильтрах
+# отбора (с картинкой, общественное достояние, окно эпохи), — одно
+# множество: запрос `q=*` с теми же фильтрами (замер 28.09: 32 880 предметов
+# для 900–1600; любой живой поиск в этом окне даёт подмножество). Зеркало —
+# те же файлы кэша карточек (_met_card_path) с тем же сроком: отбор читает
+# их тем же кодом, решение «подходит ли предмет» по-прежнему принимается на
+# каждом запросе заново. Собирается один раз (около двух часов вежливым
+# темпом, продолжает с места обрыва), обновляется по дате изменений API.
+def met_universe(date_begin, date_end):
+    """objectID всего, что поиск Мет вернёт при фильтрах отбора, или None."""
+    data = _met_get(f"{MET_API}/search?hasImages=true&isPublicDomain=true"
+                    f"&dateBegin={int(date_begin)}&dateEnd={int(date_end)}&q=*")
+    return None if data is None else list(data.get("objectIDs") or [])
+
+
+def _met_card_fresh(oid):
+    try:
+        return time.time() - os.path.getmtime(_met_card_path(oid)) < MUSEUM_CACHE_TTL_SEC
+    except OSError:
+        return False
+
+
+def mirror_met_cards(date_begin, date_end, refresh=False, progress=print):
+    """Собрать карточки всех предметов окна эпохи в кэш карточек.
+
+    refresh: карточки, которых Мет не менял с момента их записи (API
+    objects?metadataDate), продлеваются без запроса; изменённые и
+    отсутствующие — запрашиваются. Возвращает счётчики."""
+    ids = met_universe(date_begin, date_end)
+    if ids is None:
+        raise RuntimeError("поиск Мет не ответил — зеркало не собрано")
+    stats = {"total": len(ids), "fresh": 0, "renewed": 0, "fetched": 0, "lost": 0}
+    todo = []
+    changed = None
+    if refresh:
+        mtimes = [os.path.getmtime(_met_card_path(o)) for o in ids
+                  if os.path.exists(_met_card_path(o))]
+        if mtimes:
+            since = time.strftime("%Y-%m-%d", time.gmtime(min(mtimes) - 86400))
+            data = _met_get(f"{MET_API}/objects?metadataDate={since}")
+            changed = None if data is None else set(data.get("objectIDs") or [])
+    now = time.time()
+    for oid in ids:
+        path = _met_card_path(oid)
+        if os.path.exists(path) and changed is not None and oid not in changed:
+            os.utime(path, (now, now))          # не менялся — данные те же, срок продлён
+            stats["renewed"] += 1
+        elif _met_card_fresh(oid) and not (changed is not None and oid in changed):
+            stats["fresh"] += 1
+        else:
+            todo.append(oid)
+
+    def fetch(oid):
+        o = _met_get(f"{MET_API}/objects/{oid}")
+        if o is None:
+            return False
+        _met_card_store(oid, o)
+        return True
+    done = 0
+    workers = max(1, min(MET_DETAIL_WORKERS, len(todo)))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+        for ok in ex.map(fetch, todo):
+            done += 1
+            stats["fetched" if ok else "lost"] += 1
+            if progress and done % 500 == 0:
+                progress(f"  карточек Мет: {done}/{len(todo)} (потеряно {stats['lost']}, "
+                         f"темп {FETCH_STATS.get('met_rate_final')}/с)")
+    return stats
+
+
+if __name__ == "__main__":
+    import argparse
+    ap = argparse.ArgumentParser(description="Зеркало карточек Мет для отбора")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    m = sub.add_parser("mirror-met", help="собрать или обновить карточки окна эпохи")
+    m.add_argument("--from", dest="date_begin", type=int)
+    m.add_argument("--to", dest="date_end", type=int)
+    m.add_argument("--refresh", action="store_true",
+                   help="продлить неизменённые (objects?metadataDate), обновить изменённые")
+    args = ap.parse_args()
+    window = era_window() or (None, None)
+    lo = args.date_begin if args.date_begin is not None else window[0]
+    hi = args.date_end if args.date_end is not None else window[1]
+    if lo is None or hi is None:
+        raise SystemExit("окно эпохи не задано: у канала его нет — укажи --from и --to")
+    print(f"Зеркало карточек Мет: окно {lo}–{hi}, папка {os.path.dirname(_met_card_path(0))}")
+    st = mirror_met_cards(lo, hi, refresh=args.refresh)
+    print(f"готово: предметов {st['total']}, свежих {st['fresh']}, продлено {st['renewed']}, "
+          f"скачано {st['fetched']}, потеряно {st['lost']}")

@@ -167,6 +167,7 @@ class NetRecorder:
         self.replayed_failures = []
         self.calls = {}          # ключ -> число обращений в ЭТОМ прогоне
         self.secrets = _secrets_from_env()
+        self.stable_get = os.environ.get("FREEZE_STABLE_GET") == "1"
         self._real = None
         os.makedirs(self.bodies, exist_ok=True)
         if mode == REPLAY:
@@ -288,6 +289,19 @@ class NetRecorder:
 
     def _replay(self, key, seq, method, shown, tag=None, live=None):
         recs = self._recorded.get(key, [])
+        if self.stable_get and method == "GET" and recs:
+            # Повторный GET того же адреса — тот же успешный ответ (картинка,
+            # выдача поиска), как у живого интернета; номер обращения не
+            # важен. Нужен, когда код меняет ЧИСЛО обращений к адресу, не
+            # меняя решений (упреждающий отбор качает победителя и в
+            # упреждении, и в настоящем цикле). Успешного ответа в записи
+            # нет — прежний порядок по номеру.
+            ok = [r for r in recs if r["kind"] == "response" and 200 <= (r.get("status") or 0) < 300]
+            if ok:
+                rec = ok[0]
+                payload = self._load_body(rec["body"], rec.get("_root"))
+                return urllib.response.addinfourl(io.BytesIO(payload), _headers_message(rec["headers"]),
+                                                  rec.get("final_url") or shown, rec["status"])
         if seq >= len(recs):
             served = "live" if self._overlay is not None else "refused"
             with self._lock:

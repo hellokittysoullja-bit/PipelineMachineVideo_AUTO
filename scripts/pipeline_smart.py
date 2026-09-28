@@ -19,6 +19,7 @@ import math
 import multiprocessing
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -4789,6 +4790,8 @@ def candidate_path_token(p):
 
 
 def _source_bump(source, field, n=1):
+    if _SPECULATING.get():
+        return      # упреждающий отбор: счёт ведёт настоящий цикл, когда решает слот
     st = SOURCE_STATS.setdefault(source, {f: 0 for f in _SOURCE_STAT_FIELDS})
     st[field] += n
 
@@ -4810,9 +4813,42 @@ def prefetching():
     return _PREFETCH_ACTIVE.get()
 
 
+# УПРЕЖДАЮЩИЙ ОТБОР (SLOT_SPECULATE, scripts/slot_speculation.py): слоты
+# впереди прогоняются тем же кодом отбора, что и настоящий цикл, но в
+# «песочнице»: попытка выбрасывается, ответы моделей ложатся в хранилище
+# шлюза (llm_gateway.speculation), а всё, что меняет решения эпизода —
+# голоса мира, прогноз бюджета судьи, счётчики Pexels, отчёты и журналы, —
+# у спекуляции своё (_log_list) или не трогается вовсе (background()).
+# Настоящий цикл потом решает слот тем же кодом и берёт готовое из кэшей.
+_SPECULATING = contextvars.ContextVar("SLOT_SPECULATING", default=False)
+_SPEC_LOGS = contextvars.ContextVar("SLOT_SPEC_LOGS", default=None)
+_SPEC_QUOTA_RESERVE = contextvars.ContextVar("SLOT_SPEC_QUOTA_RESERVE", default=None)
+
+
+def speculating():
+    """True внутри упреждающего отбора слота (фоновый поток)."""
+    return _SPECULATING.get()
+
+
+def background():
+    """Фоновая работа (упреждающий поиск или отбор): состояние эпизода,
+    от которого зависят решения, не меняется."""
+    return _PREFETCH_ACTIVE.get() or _SPECULATING.get()
+
+
+def _log_list(name):
+    """Журнал или отчёт прогона по имени. В упреждающем отборе — свой
+    список на спекуляцию: её записи не попадают в отчёты эпизода, а то, что
+    отбор читает из журнала (отказы судьи для второго круга), — её же."""
+    spec = _SPEC_LOGS.get()
+    if spec is not None:
+        return spec.setdefault(name, [])
+    return globals()[name]
+
+
 def _cache_put(cache, key, value):
     """Запись в кэш поиска на процесс — только из самого слота."""
-    if not prefetching():
+    if not background():
         cache[key] = value
 
 
@@ -4820,7 +4856,7 @@ def _note_source_search_error(source, exc, label=""):
     """Ошибка поиска у источника — считается и печатается один раз за прогон
     на источник (не на каждый слот: сотни одинаковых строк скрыли бы лог).
     Ошибка упреждающего поиска не считается: слот спросит сам."""
-    if prefetching():
+    if background():
         return
     _source_bump(source, "search_errors")
     if source not in _SOURCE_ERROR_PRINTED:
@@ -4916,6 +4952,8 @@ PEXELS_FAIL_STREAK_LIMIT = 6
 
 def _reset_pexels_streak():
     global PEXELS_FAIL_STREAK
+    if background():
+        return      # серию сбоев ведёт только настоящий цикл
     PEXELS_FAIL_STREAK = 0
 
 
@@ -4929,6 +4967,8 @@ def _note_pexels_failure(exc, label):
     PEXELS_FAIL_STREAK_LIMIT сбоев ПОДРЯД (API реально недоступен);
     одиночная ошибка стоит одному слоту, не эпизоду."""
     global PEXELS_BROKEN, PEXELS_FAIL_STREAK
+    if background():
+        return      # слот спросит сам и сам решит, что это за сбой
     PEXELS_FAIL_STREAK += 1
     code = getattr(exc, "code", None)
     if code in (401, 403):
@@ -5197,7 +5237,14 @@ VERDICT_REPORT_LISTS = {
 RUN_JOURNAL = []
 
 
+_SPEC_ATTEMPT_SEQ = itertools.count(1)
+
+
 def new_attempt(index, kind):
+    if speculating():
+        return selection_attempt.Attempt(
+            index, kind, os.path.join(TEMP_FOLDER, "staging_spec"),
+            attempt_id=f"spec{next(_SPEC_ATTEMPT_SEQ)}-{index}-{kind}")
     return selection_attempt.Attempt(index, kind, os.path.join(TEMP_FOLDER, "staging"))
 
 
@@ -5295,6 +5342,14 @@ def close_slot(index, attempts, shown=None, decisive=None, outcome=None):
         "attempts": [a.attempt_id for a in attempts],
     })
     return final
+
+
+def discard_speculation(attempts):
+    """Попытки упреждающего отбора выбрасываются ВСЕ и всегда: упреждение
+    ничего не решает, решает настоящий цикл через close_slot()."""
+    for att in attempts:
+        if att.state == selection_attempt.OPEN:
+            att.discard()
 
 
 def fetch_in_attempt(slot_attempts, index, kind, fn, *args, **kwargs):
@@ -6504,6 +6559,14 @@ def _note_pexels_quota(resp):
 
 
 def pexels_query_allowed(api_query, cache, low_priority):
+    if speculating():
+        # Упреждающий отбор решает так же, как решит слот (остаток квоты,
+        # запас на собственные запросы оставшихся слотов — от ЕГО номера), но
+        # счётчик пропусков не двигает.
+        reserve = _SPEC_QUOTA_RESERVE.get()
+        if not low_priority or api_query in cache or PEXELS_QUOTA_LEFT is None:
+            return True
+        return PEXELS_QUOTA_LEFT > (PEXELS_QUOTA_RESERVE if reserve is None else reserve)
     if prefetching():
         # Упреждение спрашивает Pexels только собственными запросами слота:
         # их слот пустит всегда; дополнительные решаются по остатку квоты в
@@ -6831,7 +6894,7 @@ def caption_screen_pool(pool, request, kind, index):
         or request.shot_brief or request.query
     drop, info = caption_screen.screen(_caption_screen_gateway(), request.block_text or request.query, focus,
                                        card, rows, cache_dir=os.path.join(TEMP_FOLDER, "caption_screen_cache"))
-    CAPTION_SCREEN_LOG.append({"index": index, "kind": kind, "phrase": request.block_text, **info})
+    _log_list("CAPTION_SCREEN_LOG").append({"index": index, "kind": kind, "phrase": request.block_text, **info})
     if info.get("error"):
         print(f"  [{index}] отсев по подписи ({kind}) не состоялся: {info['error']} — кандидаты как есть")
     if not drop:
@@ -6913,7 +6976,7 @@ def research_round_request(index, block, request, trigger="failed"):
     import stock_query_planner
     import world_card
     tried = shot_research.tried_queries(spec, (request.query, *request.extra_queries))
-    rejections = shot_research.rejections_from_log(SHOT_JUDGE_LOG, index)
+    rejections = shot_research.rejections_from_log(_log_list("SHOT_JUDGE_LOG"), index)
     setting = world_card.judge_setting(episode_world_card())
     entry = {"index": index, "phrase": block.get("text"), "trigger": trigger, "tried": tried,
              "rejections": rejections}
@@ -6924,11 +6987,11 @@ def research_round_request(index, block, request, trigger="failed"):
             trigger=trigger)
     except Exception as e:  # noqa: BLE001 — второй круг не имеет права уронить слот
         entry["error"] = f"{type(e).__name__}: {str(e)[:200]}"
-        RESEARCH_ROUND_LOG.append(entry)
+        _log_list("RESEARCH_ROUND_LOG").append(entry)
         print(f"    [{index+1}] второй круг поиска не состоялся: {entry['error']}")
         return None
     entry.update({"queries": [it["q"] for it in items], "origin": origin})
-    RESEARCH_ROUND_LOG.append(entry)
+    _log_list("RESEARCH_ROUND_LOG").append(entry)
     if not items:
         print(f"    [{index+1}] второй круг поиска: модель не предложила новых запросов")
         return None
@@ -7001,7 +7064,7 @@ def generation_round(index, block, request, trigger="failed"):
         (errors if r.get("error") else got).append(r.get("error") or r)
     entry.update({"variants": [m["key"] for m in got], "errors": errors,
                   "prompt": got[0]["prompt"] if got else None})
-    GENERATION_LOG.append(entry)
+    _log_list("GENERATION_LOG").append(entry)
     if not got:
         print(f"    [{index+1}] генерация кадра не состоялась: {'; '.join(errors)[:200]}")
         return None
@@ -7653,7 +7716,10 @@ def _unsplash_search_photos(api_query):
         # которые сегодня получают пустоту, начали бы получать кандидатов,
         # и куча отличалась бы от живого прогона. Ключ — без client_id.
         data = cached_search_json("unsplash", params, fetch)
-        _UNSPLASH_CALLS_THIS_RUN[0] += 1
+        if not speculating():
+            # Упреждающий отбор видит потолок, но не двигает его: вызов
+            # засчитает настоящий цикл, когда решит этот слот.
+            _UNSPLASH_CALLS_THIS_RUN[0] += 1
         for h in (data.get("results") or []):
             urls = h.get("urls") or {}
             img = urls.get("regular") or urls.get("full") or urls.get("small")
@@ -8553,7 +8619,9 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                     shortlist = _build_opening_shortlist(candidates_info, base_winner, director_winner)
                 else:
                     shortlist = _build_arbiter_shortlist(candidates_info, base_winner, director_winner, query)
-                if len(shortlist) >= 2:
+                # Упреждающий отбор арбитра не зовёт: дневная квота Gemini —
+                # ~20 вызовов, её тратит только настоящий цикл.
+                if len(shortlist) >= 2 and not speculating():
                     import shot_director
                     arbiter_pick = shot_director.arbitrate_hook_candidates(
                         arbiter_text, [c["path"] for c in shortlist],
@@ -11192,6 +11260,44 @@ def _downloaded_ok(path):
         return False
 
 
+# СКАЧАННОЕ УПРЕЖДЕНИЕМ — НАСТОЯЩЕМУ ЦИКЛУ. Упреждающий отбор качает те же
+# превью, ленты кадров и файл победителя, что потом качает настоящий цикл
+# (его попытки выбрасываются вместе со своими файлами). Копия скачанного
+# лежит по адресу, и настоящий цикл забирает её переносом вместо сети: те же
+# байты того же адреса. Копия, а не ссылка: после скачки файл правится на
+# месте (flatten_transparency), а цикл обязан получить байты как из сети.
+# Каталог удаляется в конце отбора (discard_speculated_downloads).
+def _speculated_download_path(url):
+    return os.path.join(TEMP_FOLDER, "speculated_downloads",
+                        hashlib.sha1(url.encode("utf-8")).hexdigest())
+
+
+def _keep_speculated_download(url, src):
+    final = _speculated_download_path(url)
+    part = f"{final}.{threading.get_ident()}.part"
+    try:
+        os.makedirs(os.path.dirname(final), exist_ok=True)
+        shutil.copyfile(src, part)
+        os.replace(part, final)
+    except OSError:
+        try:
+            os.remove(part)
+        except OSError:
+            pass
+
+
+def _take_speculated_download(url, dest):
+    try:
+        os.replace(_speculated_download_path(url), dest)
+        return os.path.getsize(dest) > 0
+    except OSError:
+        return False
+
+
+def discard_speculated_downloads():
+    shutil.rmtree(os.path.join(TEMP_FOLDER, "speculated_downloads"), ignore_errors=True)
+
+
 def atomic_url_download(req, dest, timeout):
     """Тот же принцип, что render_tmp_path/finalize_render, но для скачки
     стокового медиа (pexels_photo/pexels_video) — реальный баг, пойманный
@@ -11205,9 +11311,11 @@ def atomic_url_download(req, dest, timeout):
     без единой строчки в логе, потому что скачка даже не запускалась
     заново — кэш-хит просто отдал битый файл). Качаем во временный файл,
     переименовываем атомарно только при успехе — как рендер клипов."""
+    url_for_policy = getattr(req, "full_url", "") or ""
+    if url_for_policy and not background() and _take_speculated_download(url_for_policy, dest):
+        return True
     tmp = dest + ".download.part"
     try:
-        url_for_policy = getattr(req, "full_url", "") or ""
         ua = host_user_agent(url_for_policy)
         if ua:
             req.add_header("User-agent", ua)
@@ -11228,6 +11336,8 @@ def atomic_url_download(req, dest, timeout):
         if os.path.getsize(tmp) == 0:
             raise IOError("скачан 0-байтный файл")
         os.replace(tmp, dest)
+        if url_for_policy and speculating():
+            _keep_speculated_download(url_for_policy, dest)
         return True
     except Exception:
         if os.path.exists(tmp):
@@ -12399,9 +12509,53 @@ def _gate_embed(images=None, text=None):
         return None
 
 
+def cascade_model():
+    """Модель ранжирования каскада (флаг CASCADE_MODEL): "siglip2" — модель
+    гейтов, как было; "qwen3vl" — Qwen3-VL-Embedding (qwen_vl_embed.py).
+    Qwen недоступна (нет весов, torch, видеокарты) — SigLIP2, один раз
+    громко."""
+    if feature_flags.mode("CASCADE_MODEL") != "qwen3vl":
+        return "siglip2"
+    import qwen_vl_embed
+    return "qwen3vl" if qwen_vl_embed.available() else "siglip2"
+
+
+def cascade_model_signature():
+    if cascade_model() == "siglip2":
+        return CLIP_GATE_MODEL_NAME
+    import qwen_vl_embed
+    return qwen_vl_embed.signature()
+
+
+_CASCADE_TEXT_CACHE = {}
+
+
+def _cascade_text_vec(text):
+    """Вектор текста каскада: у SigLIP2 — общий кэш текстов гейта (те же
+    числа), у Qwen — запрос с инструкцией поиска."""
+    if cascade_model() == "siglip2":
+        return _gate_text_vec(text)
+    key = (cascade_model_signature(), text)
+    v = _CASCADE_TEXT_CACHE.get(key)
+    if v is None:
+        import qwen_vl_embed
+        v = qwen_vl_embed.embed_text(text)
+        if v is not None:
+            _CASCADE_TEXT_CACHE[key] = v
+    return v
+
+
+def _cascade_embed_images(images):
+    if cascade_model() == "siglip2":
+        return _gate_embed(images=images)
+    import qwen_vl_embed
+    return qwen_vl_embed.embed_images(images)
+
+
 def _cascade_key(url):
     import ml_device
-    return hashlib.md5(f"{CLIP_GATE_MODEL_NAME}{ml_device.tag()}|{url}".encode("utf-8")).hexdigest()
+    model = CLIP_GATE_MODEL_NAME if cascade_model() == "siglip2" else cascade_model_signature()
+    return hashlib.md5(f"{model}{ml_device.tag()}|{url}".encode("utf-8")).hexdigest()
 
 
 def _cascade_ident(p, url):
@@ -12534,9 +12688,10 @@ def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=None, url
     # Тексты — через общий кэш текстовых эмбеддингов гейта: те же числа, что
     # у _gate_embed(text=...), без повторного прохода текстовой башни на
     # каждый слот и каждую страницу каскада.
-    t_embs = [_gate_text_vec(t) for t in texts]
+    t_embs = [_cascade_text_vec(t) for t in texts]
     if any(e is None for e in t_embs):
         return candidates
+    same_as_gate = cascade_model() == "siglip2"
     cache_dir = cascade_cache_dir()
     url_of = url_of or candidate_probe_url
     keys = {id(p): _cascade_key(_cascade_ident(p, url_of(p))) for p in head}
@@ -12563,7 +12718,7 @@ def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=None, url
                     part.append(p)
                 except Exception:
                     pass
-            vecs = _gate_embed(images=imgs) if imgs else None
+            vecs = _cascade_embed_images(imgs) if imgs else None
             if vecs is None:
                 return 0
             for p, v in zip(part, vecs):
@@ -12571,7 +12726,7 @@ def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=None, url
                 _CASCADE_EMB[keys[id(p)]] = v
                 # Тот же кадр позже скачивается пробником для гейтов —
                 # эмбеддинг по содержимому файла уже готов.
-                d = _file_digest(tmp[id(p)])
+                d = _file_digest(tmp[id(p)]) if same_as_gate else None
                 if d:
                     _GATE_IMG_EMB_CACHE.setdefault(d, v)
                 # Атомарно: процесс, убитый посреди записи, раньше оставлял
@@ -12620,7 +12775,7 @@ def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=None, url
     c_texts = [c for c in (claims or []) if c]
     if c_texts == texts:
         c_texts = []      # без запросов в спецификации тексты и есть утверждения
-    c_embs = [_gate_text_vec(c) for c in c_texts] if c_texts else []
+    c_embs = [_cascade_text_vec(c) for c in c_texts] if c_texts else []
     if c_embs and all(e is not None for e in c_embs):
         places = {}
         for t in c_embs:
@@ -12745,7 +12900,7 @@ def _rank_look_ties(index, kind, judged, gw, model):
     order, info = shot_judge.rank_look(gw, model, paths=[c.get("judge_path") or c["path"] for c in tied],
                                        kind=kind, cache_dir=os.path.join(TEMP_FOLDER, "shot_judge_cache"),
                                        style=look.get("style") if isinstance(look, dict) else None)
-    SHOT_JUDGE_LOG.append({"index": index, "kind": kind, "model": model,
+    _log_list("SHOT_JUDGE_LOG").append({"index": index, "kind": kind, "model": model,
                            "look_tied": [str(c["p"].get("id")) for c in tied],
                            "look_order": ([str(tied[k]["p"].get("id")) for k in order]
                                           if order else None), **info})
@@ -12802,7 +12957,7 @@ def judge_candidates(index, kind, phrase, brief, candidates_info, spec=None):
                                           for c in judged],
                               cache_dir=os.path.join(TEMP_FOLDER, "shot_judge_cache"), report=rep,
                               kind=kind, setting=setting)
-    SHOT_JUDGE_LOG.append({"index": index, "kind": kind, "model": model, "brief": brief,
+    _log_list("SHOT_JUDGE_LOG").append({"index": index, "kind": kind, "model": model, "brief": brief,
                            "setting": setting, "scores": scores, **rep})
     if scores is None:
         # Сетка не ответила (живой случай judge12, слот 0: шлюз четыре раза
@@ -12831,6 +12986,8 @@ def _judge_budget_forecast(index, gw):
     """Прогноз цены эпизода по уже потраченному; перерасход — одна громкая
     строка и запись в журнал судьи. Прогноз по оценённым слотам, поэтому
     при кэш-хитах он завышен — ошибка в сторону раннего предупреждения."""
+    if speculating():
+        return      # прогноз ведёт настоящий цикл по своим слотам и своим деньгам
     st = _SHOT_JUDGE_STATE
     st.setdefault("slots", set()).add(index)
     # Платно судятся только первые SHOT_JUDGE_PAID_SLOTS слотов — прогноз по ним.
@@ -12847,7 +13004,7 @@ def _judge_budget_forecast(index, gw):
           f"({total} слотов, ~{gw.spent // n} на слот) при потолке {cap}: судья "
           f"выключится примерно на слоте {at}, дальше кадры без него. Поднять "
           f"потолок — SHOT_JUDGE_MAX_SPEND в .env.")
-    SHOT_JUDGE_LOG.append({"forecast": projected, "cap": cap, "slots": total,
+    _log_list("SHOT_JUDGE_LOG").append({"forecast": projected, "cap": cap, "slots": total,
                            "per_slot": gw.spent // n, "cutoff_slot": at})
 
 
@@ -12932,7 +13089,7 @@ def world_veto_active():
 def _record_world_vote(index, focus_frames, foreign_frames):
     """Голос слота после всей его проверки. Слот без кадров с главным не
     голосует: там не о чем судить мир."""
-    if index is None or focus_frames < 1:
+    if index is None or focus_frames < 1 or speculating():
         return
     was = world_veto_active()
     votes = _world_votes()
@@ -12952,7 +13109,7 @@ def _record_world_vote(index, focus_frames, foreign_frames):
               f"кадров, где главное найдено. Паспорт мира не совпадает с тем, что есть в "
               f"источниках (или сам паспорт неверен) — дальше «чужой мир» штрафуется, а не "
               f"отклоняется. Проверь media_plan/world_card.json.")
-        SHOT_JUDGE_LOG.append({"world_breaker": True, "slots": len(votes), "foreign": foreign})
+        _log_list("SHOT_JUDGE_LOG").append({"world_breaker": True, "slots": len(votes), "foreign": foreign})
 
 
 def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=None):
@@ -13026,7 +13183,7 @@ def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=
             # страницу пула (новая сетка и новая проверка), не проверив
             # остальных кандидатов первой.
             vetoed += 1 if vec is None or c["verify_nothing"] else 0
-            SHOT_JUDGE_LOG.append({"index": index, "kind": kind, "model": model,
+            _log_list("SHOT_JUDGE_LOG").append({"index": index, "kind": kind, "model": model,
                                    "id": str(c["p"].get("id")), "verify": ans, "vector": vec, **info})
             if vec is None:
                 print(f"  слот {index}: проверка отклонила кадр — {ans.get('why')}")
@@ -13140,7 +13297,11 @@ def shot_judge_signature(index=None):
                  shot_judge.LOOK_MAX, shot_judge.LOOK_TILE,
                  # Отсев по подписи меняет, кто дойдёт до судьи.
                  "screen", feature_flags.enabled("CAPTION_SCREEN"), caption_screen.SCREEN_VERSION,
-                 caption_screen.MODEL, caption_screen.TOP_N, caption_screen.prompts_digest()))
+                 caption_screen.MODEL, caption_screen.TOP_N, caption_screen.prompts_digest())
+                # Модель каскада меняет, кого увидит судья. На SigLIP2 (по
+                # умолчанию) подпись прежняя байт в байт.
+                + ((("cascade_model", cascade_model_signature()),)
+                   if cascade_model() != "siglip2" else ()))
 
 
 # ПЛАТНАЯ ПРОВЕРКА — ТОЛЬКО ХУК (решение владельца 24.09). Судья стоит денег
@@ -14472,7 +14633,7 @@ def locate_focus_box(index, path, winner, request):
                 entry["focus_dropped"] = "confirm"
                 box = None
     entry["focus_box_used"] = box
-    SHOT_JUDGE_LOG.append(entry)
+    _log_list("SHOT_JUDGE_LOG").append(entry)
     if box:
         print(f"  слот {index}: наезд на деталь {box} — {entry.get('focus_what') or focus!r}")
     elif entry.get("focus_dropped"):
@@ -15422,7 +15583,7 @@ class VideoAdapter(selection_engine.MediaAdapter):
         if slot_dur:
             long_enough = [v for v in pool if not _video_candidate_too_short(v, slot_dur)]
             if long_enough and len(long_enough) < len(pool):
-                VIDEO_TOO_SHORT_FILTERED.append(
+                _log_list("VIDEO_TOO_SHORT_FILTERED").append(
                     {"index": request.index, "dropped": len(pool) - len(long_enough),
                      "kept": len(long_enough), "slot_dur": round(float(slot_dur), 2)})
                 pool = long_enough
@@ -15577,7 +15738,7 @@ class VideoAdapter(selection_engine.MediaAdapter):
             shortlist = (_build_opening_shortlist(candidates_info, base, director)
                          if request.is_opening else
                          _build_arbiter_shortlist(candidates_info, base, director, query))
-            if len(shortlist) >= 2:
+            if len(shortlist) >= 2 and not speculating():
                 import shot_director
                 pick = shot_director.arbitrate_hook_candidates(
                     request.arbiter_text, [c["path"] for c in shortlist],
@@ -17102,6 +17263,260 @@ def check_ffmpeg_filters():
     return missing
 
 
+
+class SlotContext:
+    """То, что решение слота читает из эпизода: блоки, запросы, Директор и
+    контейнеры истории (анти-дубль, ритм, недавние виды и роли кадров).
+    Настоящий цикл держит один экземпляр с живыми контейнерами; упреждающий
+    отбор (slot_speculation) получает снимок — копии контейнеров на момент
+    постановки задания, чтобы не читать их, пока настоящий цикл их меняет."""
+
+    HISTORY = ("used_photo_ids", "used_video_ids", "used_photo_hashes", "recent_shot_sizes",
+               "recent_semantic_tags", "recent_media_types")
+
+    def __init__(self, blocks, queries, section_query_pool, section_domain_hint, visual_director,
+                 director_assist, used_photo_ids, used_video_ids, used_photo_hashes,
+                 recent_shot_sizes, recent_semantic_tags, recent_media_types, arc_stage_for):
+        self.blocks = blocks
+        self.arc_stage_for = arc_stage_for
+        self.queries = queries
+        self.section_query_pool = section_query_pool
+        self.section_domain_hint = section_domain_hint
+        self.visual_director = visual_director
+        self.director_assist = director_assist
+        self.used_photo_ids = used_photo_ids
+        self.used_video_ids = used_video_ids
+        self.used_photo_hashes = used_photo_hashes
+        self.recent_shot_sizes = recent_shot_sizes
+        self.recent_semantic_tags = recent_semantic_tags
+        self.recent_media_types = recent_media_types
+
+    def snapshot(self):
+        snap = SlotContext.__new__(SlotContext)
+        snap.__dict__.update(self.__dict__)
+        for name in self.HISTORY:
+            v = getattr(self, name)
+            setattr(snap, name, type(v)(v))
+        return snap
+
+
+def build_slot_selection(ctx, i, d, stat, luma_ema, is_section_start):
+    """Запрос слота и вид, с которого начинается отбор. Один код на
+    настоящий цикл и на упреждающий отбор: разойтись они не могут.
+    Возвращает (request, prefer_video, sem_text, director_role,
+    director_text_domain, director_score_fn, director_entry)."""
+    blocks, queries = ctx.blocks, ctx.queries
+    b = blocks[i]
+    visual_director = ctx.visual_director
+    section_domain_hint = ctx.section_domain_hint
+    section_query_pool = ctx.section_query_pool
+    recent_semantic_tags = ctx.recent_semantic_tags
+    recent_media_types = ctx.recent_media_types
+    director_assist = ctx.director_assist
+    used_photo_ids, used_video_ids = ctx.used_photo_ids, ctx.used_video_ids
+    used_photo_hashes, recent_shot_sizes = ctx.used_photo_hashes, ctx.recent_shot_sizes
+    director_role = director_text_domain = director_score_fn = director_entry = None
+    is_opening_shot = (i == 0)
+    sem_text = semantic_context_text(blocks, i)
+    video_sentence_fn = None
+    if visual_director is not None:
+        director_role = visual_director.functional_role(b, is_section_start)
+        director_text_domain, _ = visual_director.lr.text_domain_hint(sem_text)
+        if director_text_domain is None:
+            director_text_domain = section_domain_hint.get(b["section"])
+        director_score_fn = functools.partial(
+            visual_director.compute_extra_score, role=director_role, block_text=sem_text,
+            text_domain=director_text_domain, recent_semantic_tags=recent_semantic_tags,
+            arc_stage=ctx.arc_stage_for(b), own_query=queries[i], is_opening=is_opening_shot)
+        director_entry = {}
+        video_sentence_fn = director_score_fn
+    # Content-aware чередование вместо механического i%2 (ЧАСТЬ 14
+    # раньше просто нечётные->фото/чётные->видео) — зритель
+    # подсознательно считывает такую периодичность. Видео заказываем,
+    # когда текст блока реально описывает действие/движение
+    # (ACTION_WORDS — "штурм"/"погоня"/"удар" и т.п., там сток-видео
+    # осмысленно показывает движение), плюс детерминированный хэш
+    # текста как база для обычного визуального разнообразия (иначе
+    # почти весь ролик без экшн-лексики ушёл бы в чистое фото).
+    # Никогда видео под цифру-плашку — движущийся фон мешает читать
+    # число (см. static_hold в choose_motion_mode — тот же принцип
+    # для фото, но video_render своей motion_mode-ветки не имеет).
+    # Не встык 2 видео подряд (видео — акцент, не фон) и не больше
+    # 3 фото подряд (иначе монотонно) — то же разнообразие, что уже
+    # держат zoom_hist/pan_hist через pick_no_repeat, но асимметрично
+    # (видео реже, чем фото, по самой природе приёма).
+    spec = b.get("shot_spec")
+    if spec and not stat:
+        # Спецификация фразы (stock_query_planner v3) знает, требует
+        # ли главное движения. Обязательное движение — первым
+        # добывается вид, который может его показать. Иначе вид
+        # решает ритм по недавним видам (без словаря и хэша); смысл
+        # всё равно решает сравнение видов ниже, ритм лишь выбирает,
+        # с чего начать.
+        import stock_query_planner
+        if stock_query_planner.has_motion(spec, must=True):
+            want_video = True
+        else:
+            want_video = (recent_media_types[-1:] != ["video"]
+                          and len(recent_media_types) >= 3
+                          and all(t == "photo" for t in recent_media_types[-3:]))
+    else:
+        h_text = int(hashlib.md5(b["text"][:40].encode()).hexdigest()[:8], 16)
+        want_video = (has_action_word(b["text"]) or h_text % 2 == 1) and not stat
+        if want_video and recent_media_types[-1:] == ["video"]:
+            want_video = False
+        if (not want_video and not stat and len(recent_media_types) >= 3
+                and all(t == "photo" for t in recent_media_types[-3:])):
+            want_video = True
+    prefer_video = want_video and d >= MIN_CLIP + 1.0
+    act_qual = action_video_qualifier(b["text"])
+    # VLM-арбитр — ТОЛЬКО хук (см. shot_director.arbitrate_hook_
+    # candidates, HOOK-only-скоуп объявлен пользователю явно, не
+    # скрытый компромисс: свободный тариф Gemini не выдержал бы
+    # арбитраж на весь эпизод, см. её блок-комментарий). Реальный,
+    # НЕ дополненный соседями текст блока (в отличие от sem_text) —
+    # VLM понимает короткую фразу саму по себе.
+    hook_arbiter_text = b["text"] if b["section"].startswith("HOOK") else None
+    # ОДИН запрос на слот — для всех его попыток, включая спасение
+    # фотографией ниже. Раньше каждая попытка перечисляла аргументы
+    # заново, и спасающий вызов годами шёл без брифа фразы
+    # (shot_brief/block_text): в эпизоде 94 так искались 5 слотов из 8.
+    request = build_slot_request(
+        index=i, query=queries[i],
+        extra_queries=slot_extra_queries(b, section_query_pool.get(b["section"])),
+        text_key=sem_text, shot_brief=b.get("shot_brief"), block_text=b["text"],
+        shot_spec=b.get("shot_spec"),
+        arbiter_text=hook_arbiter_text, is_opening=is_opening_shot,
+        slot_dur=d, action_qualifier=act_qual, target_luma=luma_ema,
+        director_score_fn=director_score_fn, director_assist=director_assist,
+        director_report=director_entry, video_score_fn=video_sentence_fn,
+        used_photo_ids=used_photo_ids, used_video_ids=used_video_ids,
+        used_hashes=used_photo_hashes, recent_sizes=recent_shot_sizes)
+    return (request, prefer_video, sem_text, director_role, director_text_domain,
+            director_score_fn, director_entry)
+
+
+def run_slot_ladder(i, b, d, stat, request, slot_attempts, prefer_video):
+    """Лестница отбора слота: первый вид, второй вид по оценке судьи, вторая
+    страница каскада, второй круг поиска и генерация. Один код на настоящий
+    цикл и на упреждающий отбор. Возвращает (photo, video)."""
+    photo = video = None
+    locked_shot = False
+    with stage_timer.stage("slot_first", clip_idx=i):
+        if prefer_video:
+            video = fetch_in_attempt(slot_attempts, i, "video", select_media, request, "video")
+            if not video:
+                photo = fetch_in_attempt(slot_attempts, i, "photo", select_media, request, "photo")
+        else:
+            photo = fetch_in_attempt(slot_attempts, i, "photo", select_media, request, "photo")
+            if not photo and d >= MIN_CLIP + 1.0:
+                video = fetch_in_attempt(slot_attempts, i, "video", select_media, request, "video")
+    # ФОТО ИЛИ ВИДЕО — ПО ОЦЕНКЕ СУДЬИ. Первый вид выбран правилом
+    # выше (действие во фразе, ритм), но это догадка по тексту: какой
+    # кадр лучше показывает фразу, знает только тот, кто на кадры
+    # посмотрел. Живой случай (эпизод 94, слот 7): фото встало лишь
+    # потому, что все видео провалили проверки. Второй вид добывается,
+    # только если первый не получил высшую оценку — при высшей второй
+    # может лишь сравняться, а ничью решает то же правило вида.
+    # Под плашкой с цифрой видео не бывает (движущийся фон мешает
+    # читать число), короткому слоту видео не хватает длины.
+    import shot_judge
+    first_att = attempt_of(slot_attempts, photo or video)
+    first_score = (first_att.notes.get("quality") or first_att.notes.get("judge_score")) \
+        if first_att else None
+    first_kind = "video" if video else "photo"
+    other_kind = "photo" if video else "video"
+    # Второй вид уже добывался в этом слоте (первый не дал кадра, и
+    # слот перешёл к нему) — повтор дал бы тот же отказ.
+    other_tried = any(a.kind == other_kind for a in slot_attempts)
+    if (shot_judge_active(i) and not stat and d >= MIN_CLIP + 1.0 and not other_tried
+            and first_score is not None and not quality_perfect(_as_quality(first_score))):
+        with stage_timer.stage("slot_other_kind", clip_idx=i, kind=other_kind):
+            other = fetch_in_attempt(slot_attempts, i, other_kind, select_media, request, other_kind)
+        if other:
+            other_att = attempt_of(slot_attempts, other)
+            other_score = (other_att.notes.get("quality") or other_att.notes.get("judge_score")) \
+                if other_att else None
+            kind = pick_kind_by_judge(first_kind, first_score, other_score, prefer_video)
+            print(f"    [{i+1}] {first_kind} {first_score} против {other_kind} "
+                  f"{other_score if other_score is not None else '—'} -> {kind}")
+            if kind == other_kind:
+                photo, video = (other, None) if other_kind == "photo" else (None, other)
+    # Вторая страница каскада (см. CASCADE_PAGE): кадра нет или он
+    # известен как брак — фото ищется среди следующих кандидатов.
+    cur_att = attempt_of(slot_attempts, photo or video)
+    if (shot_judge_active(i) and not locked_shot
+            and (cur_att is None or known_bad_reason(cur_att.verdicts))):
+        with cascade_page(1), stage_timer.stage("slot_page2", clip_idx=i):
+            page2 = fetch_in_attempt(slot_attempts, i, "photo", select_media, request, "photo")
+        page2_att = attempt_of(slot_attempts, page2)
+        if page2 and page2_att is not None and not known_bad_reason(page2_att.verdicts):
+            print(f"    [{i+1}] кадр найден на второй странице каскада")
+            photo, video = page2, None
+    # ВТОРОЙ КРУГ ПОИСКА (shot_research) И ГЕНЕРАЦИЯ КАДРА
+    # (shot_generator) — две последние ступени, и их порядок зависит
+    # от того, что не так со слотом (решение владельца 27.09):
+    #   * кадра нет совсем ("failed") — СРАЗУ генерация: второй круг
+    #     стоит новую кучу с судьёй (минуты), генерация — секунды и
+    #     те же проверки; второй круг остаётся запасным, если
+    #     генерация годного кадра не дала;
+    #   * есть замена без главного ("weak") — сначала второй круг:
+    #     настоящий кадр ценнее рисунка, генерация — если и он не
+    #     помог.
+    # Правило у обеих ступеней одно (research_takes_over): брак —
+    # никогда, замену вытесняет только строго лучший по проверке.
+    cur_att = attempt_of(slot_attempts, photo or video)
+    trigger = (research_trigger(cur_att) if shot_judge_active(i) and not locked_shot
+               else None)
+    ladder = ladder_steps(trigger)
+    for step in ladder:
+        cur_att = attempt_of(slot_attempts, photo or video)
+        trigger = research_trigger(cur_att)
+        if not trigger:
+            break
+        if step == "research":
+            with stage_timer.stage("slot_research", clip_idx=i, trigger=trigger):
+                req2 = research_round_request(i, b, request, trigger)
+                if req2 is not None:
+                    import stock_query_planner
+                    kinds = (["video", "photo"]
+                             if stock_query_planner.has_motion(req2.shot_spec, must=True)
+                             and d >= MIN_CLIP + 1.0 and not stat else ["photo"])
+                    for k2 in kinds:
+                        got = fetch_in_attempt(slot_attempts, i, k2, select_media, req2, k2)
+                        got_att = attempt_of(slot_attempts, got)
+                        if got and research_takes_over(trigger, cur_att, got_att):
+                            print(f"    [{i+1}] кадр найден вторым кругом поиска ({k2})"
+                                  + (" — лучше ближайшей замены" if trigger == "weak" else ""))
+                            photo, video = (got, None) if k2 == "photo" else (None, got)
+                            _log_list("RESEARCH_ROUND_LOG")[-1]["found"] = k2
+                            break
+                        if got and trigger == "weak":
+                            print(f"    [{i+1}] второй круг: {k2} не лучше ближайшей замены — "
+                                  f"остаётся прежний кадр")
+        elif speculating():
+            # Генерация кадра — не вызов чата, а картинки: их хранилище шлюза
+            # не держит. Упреждение на ней останавливается, дальше — живой
+            # настоящий цикл.
+            break
+        else:
+            with stage_timer.stage("slot_generation", clip_idx=i, trigger=trigger):
+                gen_round = generation_round(i, b, request, trigger)
+                if gen_round is not None:
+                    req_g, items_g = gen_round
+                    with generated_pool(items_g):
+                        got = fetch_in_attempt(slot_attempts, i, "photo", select_media, req_g,
+                                               "photo")
+                    got_att = attempt_of(slot_attempts, got)
+                    if got and research_takes_over(trigger, cur_att, got_att):
+                        print(f"    [{i+1}] встал сгенерированный кадр"
+                              + (" — лучше ближайшей замены" if trigger == "weak" else ""))
+                        photo, video = got, None
+                        _log_list("GENERATION_LOG")[-1]["found"] = True
+                    elif got:
+                        print(f"    [{i+1}] сгенерированный кадр не лучше — остаётся прежний")
+    return photo, video
+
 def main():
     global PEXELS_QUOTA_RESERVE, SHOT_JUDGE_EPISODE_SLOTS
     if not os.path.exists(AUDIO_FILE):
@@ -17734,8 +18149,67 @@ def main():
     # ждёт судью, для следующих слотов заранее собираются выдача источников
     # и эмбеддинги каскада — в дисковые кэши, которые слот и так прочтёт.
     # Выбор слота этим не меняется: см. докстринг модуля.
+    # УПРЕЖДАЮЩИЙ ОТБОР (SLOT_SPECULATE, scripts/slot_speculation.py): слоты
+    # впереди решаются заранее тем же кодом в песочнице — поиск, каскад,
+    # судья, проверка финалистов, второй круг; настоящий цикл берёт готовое
+    # из кэшей и хранилища шлюза. Выбор тот же: см. докстринг модуля.
+    # Включён — упреждающий поиск (SLOT_PREFETCH) не нужен: он подмножество.
+    slot_ctx = SlotContext(blocks, queries, section_query_pool, section_domain_hint,
+                           visual_director,
+                           visual_director is not None
+                           and visual_director.VISUAL_DIRECTOR_MODE == "assist",
+                           used_photo_ids, used_video_ids, used_photo_hashes, recent_shot_sizes,
+                           recent_semantic_tags, recent_media_types, arc_stage_for)
+    speculator = None
+    speculate_quiet = None
+    if feature_flags.enabled("SLOT_SPECULATE") and not PLAN_ONLY:
+        import slot_speculation
+        import llm_gateway as _llm_gateway_spec
+        # Шлюз судьи (с проверкой зрения) создаётся здесь, в потоке цикла:
+        # иначе первым его создало бы упреждение.
+        if shot_judge_active(0):
+            _shot_judge_gateway()
+
+        def _speculate_job(j, snap):
+            ctx_j, luma_j = snap
+            bj = blocks[j]
+            lp, lv = shotlist_locked_media(prev_shotlist, j, bj["text"], VIDEO_FOLDER)
+            if lp or lv:
+                return
+            if use_local:
+                lf = local_photo(j)
+                if lf and not local_file_is_machine_stock(lf):
+                    return
+            stat_j = bj.get("stat") if ON_SCREEN_TEXT_ENABLED else None
+            is_ss = j == 0 or blocks[j]["section"] != blocks[j - 1]["section"]
+            with _llm_gateway_spec.speculation():
+                t1 = _SPECULATING.set(True)
+                t2 = _SPEC_LOGS.set({})
+                t3 = _SPEC_QUOTA_RESERVE.set(2 * (len(blocks) - j))
+                try:
+                    req_j, prefer_j = build_slot_selection(ctx_j, j, durs[j], stat_j, luma_j, is_ss)[:2]
+                    for adapter in (PHOTO_ADAPTER, VIDEO_ADAPTER):
+                        if os.path.exists(adapter.cache_path(req_j)):
+                            return
+                    attempts = []
+                    try:
+                        run_slot_ladder(j, bj, durs[j], stat_j, req_j, attempts, prefer_j)
+                    finally:
+                        discard_speculation(attempts)
+                finally:
+                    _SPEC_QUOTA_RESERVE.reset(t3)
+                    _SPEC_LOGS.reset(t2)
+                    _SPECULATING.reset(t1)
+        _depth = os.environ.get("SLOT_SPECULATE_DEPTH", "").strip()
+        _workers = os.environ.get("SLOT_SPECULATE_WORKERS", "").strip()
+        speculator = slot_speculation.SlotSpeculator(
+            len(blocks), _speculate_job,
+            depth=int(_depth) if _depth.isdigit() else slot_speculation.DEPTH,
+            workers=int(_workers) if _workers.isdigit() else slot_speculation.WORKERS)
+        speculate_quiet = slot_speculation.quiet_output(speculating).__enter__()
+        stage_timer.SUPPRESS = speculating
     prefetcher = None
-    if feature_flags.enabled("SLOT_PREFETCH") and not PLAN_ONLY:
+    if speculator is None and feature_flags.enabled("SLOT_PREFETCH") and not PLAN_ONLY:
         import slot_prefetch
         import stock_query_planner as _sqp_prefetch
 
@@ -17779,6 +18253,8 @@ def main():
     for i, (b, d) in enumerate(zip(blocks, durs)):
         if prefetcher is not None:
             prefetcher.advance(i)
+        if speculator is not None:
+            speculator.advance(i, lambda: (slot_ctx.snapshot(), luma_ema))
         # Время слота целиком (STAGE_TIMER=1): записывается при переходе к
         # следующему слоту — у тела цикла несколько ранних continue.
         if _slot_clock is not None:
@@ -18073,190 +18549,13 @@ def main():
             # opening-бонусов, которые видео-путь и так добавляет вручную
             # ниже (см. SAME_QUERY_BONUS/OPENING_AESTHETIC_WEIGHT в
             # pexels_video()) — двойного счёта нет.
-            sem_text = semantic_context_text(blocks, i)
-            video_sentence_fn = None
-            if visual_director is not None:
-                director_role = visual_director.functional_role(b, is_section_start)
-                director_text_domain, _ = visual_director.lr.text_domain_hint(sem_text)
-                if director_text_domain is None:
-                    director_text_domain = section_domain_hint.get(b["section"])
-                director_score_fn = functools.partial(
-                    visual_director.compute_extra_score, role=director_role, block_text=sem_text,
-                    text_domain=director_text_domain, recent_semantic_tags=recent_semantic_tags,
-                    arc_stage=arc_stage_for(b), own_query=queries[i], is_opening=is_opening_shot)
-                director_entry = {}
-                video_sentence_fn = director_score_fn
-            # Content-aware чередование вместо механического i%2 (ЧАСТЬ 14
-            # раньше просто нечётные->фото/чётные->видео) — зритель
-            # подсознательно считывает такую периодичность. Видео заказываем,
-            # когда текст блока реально описывает действие/движение
-            # (ACTION_WORDS — "штурм"/"погоня"/"удар" и т.п., там сток-видео
-            # осмысленно показывает движение), плюс детерминированный хэш
-            # текста как база для обычного визуального разнообразия (иначе
-            # почти весь ролик без экшн-лексики ушёл бы в чистое фото).
-            # Никогда видео под цифру-плашку — движущийся фон мешает читать
-            # число (см. static_hold в choose_motion_mode — тот же принцип
-            # для фото, но video_render своей motion_mode-ветки не имеет).
-            # Не встык 2 видео подряд (видео — акцент, не фон) и не больше
-            # 3 фото подряд (иначе монотонно) — то же разнообразие, что уже
-            # держат zoom_hist/pan_hist через pick_no_repeat, но асимметрично
-            # (видео реже, чем фото, по самой природе приёма).
-            spec = b.get("shot_spec")
-            if spec and not stat:
-                # Спецификация фразы (stock_query_planner v3) знает, требует
-                # ли главное движения. Обязательное движение — первым
-                # добывается вид, который может его показать. Иначе вид
-                # решает ритм по недавним видам (без словаря и хэша); смысл
-                # всё равно решает сравнение видов ниже, ритм лишь выбирает,
-                # с чего начать.
-                import stock_query_planner
-                if stock_query_planner.has_motion(spec, must=True):
-                    want_video = True
-                else:
-                    want_video = (recent_media_types[-1:] != ["video"]
-                                  and len(recent_media_types) >= 3
-                                  and all(t == "photo" for t in recent_media_types[-3:]))
-            else:
-                h_text = int(hashlib.md5(b["text"][:40].encode()).hexdigest()[:8], 16)
-                want_video = (has_action_word(b["text"]) or h_text % 2 == 1) and not stat
-                if want_video and recent_media_types[-1:] == ["video"]:
-                    want_video = False
-                if (not want_video and not stat and len(recent_media_types) >= 3
-                        and all(t == "photo" for t in recent_media_types[-3:])):
-                    want_video = True
-            prefer_video = want_video and d >= MIN_CLIP + 1.0
-            act_qual = action_video_qualifier(b["text"])
-            # VLM-арбитр — ТОЛЬКО хук (см. shot_director.arbitrate_hook_
-            # candidates, HOOK-only-скоуп объявлен пользователю явно, не
-            # скрытый компромисс: свободный тариф Gemini не выдержал бы
-            # арбитраж на весь эпизод, см. её блок-комментарий). Реальный,
-            # НЕ дополненный соседями текст блока (в отличие от sem_text) —
-            # VLM понимает короткую фразу саму по себе.
-            hook_arbiter_text = b["text"] if b["section"].startswith("HOOK") else None
-            # ОДИН запрос на слот — для всех его попыток, включая спасение
-            # фотографией ниже. Раньше каждая попытка перечисляла аргументы
-            # заново, и спасающий вызов годами шёл без брифа фразы
-            # (shot_brief/block_text): в эпизоде 94 так искались 5 слотов из 8.
             PEXELS_QUOTA_RESERVE = 2 * (len(blocks) - i)
-            request = build_slot_request(
-                index=i, query=queries[i],
-                extra_queries=slot_extra_queries(b, section_query_pool.get(b["section"])),
-                text_key=sem_text, shot_brief=b.get("shot_brief"), block_text=b["text"],
-                shot_spec=b.get("shot_spec"),
-                arbiter_text=hook_arbiter_text, is_opening=is_opening_shot,
-                slot_dur=d, action_qualifier=act_qual, target_luma=luma_ema,
-                director_score_fn=director_score_fn, director_assist=director_assist,
-                director_report=director_entry, video_score_fn=video_sentence_fn,
-                used_photo_ids=used_photo_ids, used_video_ids=used_video_ids,
-                used_hashes=used_photo_hashes, recent_sizes=recent_shot_sizes)
-            with stage_timer.stage("slot_first", clip_idx=i):
-                if prefer_video:
-                    video = fetch_in_attempt(slot_attempts, i, "video", select_media, request, "video")
-                    if not video:
-                        photo = fetch_in_attempt(slot_attempts, i, "photo", select_media, request, "photo")
-                else:
-                    photo = fetch_in_attempt(slot_attempts, i, "photo", select_media, request, "photo")
-                    if not photo and d >= MIN_CLIP + 1.0:
-                        video = fetch_in_attempt(slot_attempts, i, "video", select_media, request, "video")
-            # ФОТО ИЛИ ВИДЕО — ПО ОЦЕНКЕ СУДЬИ. Первый вид выбран правилом
-            # выше (действие во фразе, ритм), но это догадка по тексту: какой
-            # кадр лучше показывает фразу, знает только тот, кто на кадры
-            # посмотрел. Живой случай (эпизод 94, слот 7): фото встало лишь
-            # потому, что все видео провалили проверки. Второй вид добывается,
-            # только если первый не получил высшую оценку — при высшей второй
-            # может лишь сравняться, а ничью решает то же правило вида.
-            # Под плашкой с цифрой видео не бывает (движущийся фон мешает
-            # читать число), короткому слоту видео не хватает длины.
-            import shot_judge
-            first_att = attempt_of(slot_attempts, photo or video)
-            first_score = (first_att.notes.get("quality") or first_att.notes.get("judge_score")) \
-                if first_att else None
-            first_kind = "video" if video else "photo"
-            other_kind = "photo" if video else "video"
-            # Второй вид уже добывался в этом слоте (первый не дал кадра, и
-            # слот перешёл к нему) — повтор дал бы тот же отказ.
-            other_tried = any(a.kind == other_kind for a in slot_attempts)
-            if (shot_judge_active(i) and not stat and d >= MIN_CLIP + 1.0 and not other_tried
-                    and first_score is not None and not quality_perfect(_as_quality(first_score))):
-                with stage_timer.stage("slot_other_kind", clip_idx=i, kind=other_kind):
-                    other = fetch_in_attempt(slot_attempts, i, other_kind, select_media, request, other_kind)
-                if other:
-                    other_att = attempt_of(slot_attempts, other)
-                    other_score = (other_att.notes.get("quality") or other_att.notes.get("judge_score")) \
-                        if other_att else None
-                    kind = pick_kind_by_judge(first_kind, first_score, other_score, prefer_video)
-                    print(f"    [{i+1}] {first_kind} {first_score} против {other_kind} "
-                          f"{other_score if other_score is not None else '—'} -> {kind}")
-                    if kind == other_kind:
-                        photo, video = (other, None) if other_kind == "photo" else (None, other)
-            # Вторая страница каскада (см. CASCADE_PAGE): кадра нет или он
-            # известен как брак — фото ищется среди следующих кандидатов.
-            cur_att = attempt_of(slot_attempts, photo or video)
-            if (shot_judge_active(i) and not locked_shot
-                    and (cur_att is None or known_bad_reason(cur_att.verdicts))):
-                with cascade_page(1), stage_timer.stage("slot_page2", clip_idx=i):
-                    page2 = fetch_in_attempt(slot_attempts, i, "photo", select_media, request, "photo")
-                page2_att = attempt_of(slot_attempts, page2)
-                if page2 and page2_att is not None and not known_bad_reason(page2_att.verdicts):
-                    print(f"    [{i+1}] кадр найден на второй странице каскада")
-                    photo, video = page2, None
-            # ВТОРОЙ КРУГ ПОИСКА (shot_research) И ГЕНЕРАЦИЯ КАДРА
-            # (shot_generator) — две последние ступени, и их порядок зависит
-            # от того, что не так со слотом (решение владельца 27.09):
-            #   * кадра нет совсем ("failed") — СРАЗУ генерация: второй круг
-            #     стоит новую кучу с судьёй (минуты), генерация — секунды и
-            #     те же проверки; второй круг остаётся запасным, если
-            #     генерация годного кадра не дала;
-            #   * есть замена без главного ("weak") — сначала второй круг:
-            #     настоящий кадр ценнее рисунка, генерация — если и он не
-            #     помог.
-            # Правило у обеих ступеней одно (research_takes_over): брак —
-            # никогда, замену вытесняет только строго лучший по проверке.
-            cur_att = attempt_of(slot_attempts, photo or video)
-            trigger = (research_trigger(cur_att) if shot_judge_active(i) and not locked_shot
-                       else None)
-            ladder = ladder_steps(trigger)
-            for step in ladder:
-                cur_att = attempt_of(slot_attempts, photo or video)
-                trigger = research_trigger(cur_att)
-                if not trigger:
-                    break
-                if step == "research":
-                    with stage_timer.stage("slot_research", clip_idx=i, trigger=trigger):
-                        req2 = research_round_request(i, b, request, trigger)
-                        if req2 is not None:
-                            import stock_query_planner
-                            kinds = (["video", "photo"]
-                                     if stock_query_planner.has_motion(req2.shot_spec, must=True)
-                                     and d >= MIN_CLIP + 1.0 and not stat else ["photo"])
-                            for k2 in kinds:
-                                got = fetch_in_attempt(slot_attempts, i, k2, select_media, req2, k2)
-                                got_att = attempt_of(slot_attempts, got)
-                                if got and research_takes_over(trigger, cur_att, got_att):
-                                    print(f"    [{i+1}] кадр найден вторым кругом поиска ({k2})"
-                                          + (" — лучше ближайшей замены" if trigger == "weak" else ""))
-                                    photo, video = (got, None) if k2 == "photo" else (None, got)
-                                    RESEARCH_ROUND_LOG[-1]["found"] = k2
-                                    break
-                                if got and trigger == "weak":
-                                    print(f"    [{i+1}] второй круг: {k2} не лучше ближайшей замены — "
-                                          f"остаётся прежний кадр")
-                else:
-                    with stage_timer.stage("slot_generation", clip_idx=i, trigger=trigger):
-                        gen_round = generation_round(i, b, request, trigger)
-                        if gen_round is not None:
-                            req_g, items_g = gen_round
-                            with generated_pool(items_g):
-                                got = fetch_in_attempt(slot_attempts, i, "photo", select_media, req_g,
-                                                       "photo")
-                            got_att = attempt_of(slot_attempts, got)
-                            if got and research_takes_over(trigger, cur_att, got_att):
-                                print(f"    [{i+1}] встал сгенерированный кадр"
-                                      + (" — лучше ближайшей замены" if trigger == "weak" else ""))
-                                photo, video = got, None
-                                GENERATION_LOG[-1]["found"] = True
-                            elif got:
-                                print(f"    [{i+1}] сгенерированный кадр не лучше — остаётся прежний")
+            if speculator is not None:
+                speculator.wait(i)
+            (request, prefer_video, sem_text, director_role, director_text_domain,
+             director_score_fn, director_entry) = build_slot_selection(
+                slot_ctx, i, d, stat, luma_ema, is_section_start)
+            photo, video = run_slot_ladder(i, b, d, stat, request, slot_attempts, prefer_video)
             # Раньше Pexels отключался навсегда после ЛЮБОГО промаха, включая
             # обычную пустую выдачу по одному неудачному запросу. Гасим источник
             # только если API реально отвалился.
@@ -18763,6 +19062,18 @@ def main():
             log_render_diagnostics(f"block_{i+1}/{len(blocks)}")
         _stock_api_pacing(i, use_pexels, use_local)
 
+    if speculator is not None:
+        speculator.close()
+        discard_speculated_downloads()
+        speculate_quiet.__exit__(None, None, None)
+        stage_timer.SUPPRESS = None
+        _sgw = _SHOT_JUDGE_STATE.get("gateway")
+        _sp = _sgw.summary() if _sgw is not None else {}
+        print(f"  Упреждающий отбор: слотов {speculator.stats['done']}, сбоев "
+              f"{speculator.stats['failed']}, ожидание цикла {speculator.stats['waited_sec']:.0f} с"
+              + (f"; судья: заранее {_sp.get('speculative_calls', 0)} вызовов, использовано "
+                 f"{_sp.get('speculative_used', 0)}, впустую {_sp.get('speculative_wasted', 0)} "
+                 f"токенов баланса" if _sp else ""))
     if prefetcher is not None:
         prefetcher.close()
         print(f"  Упреждающий поиск: слотов прогрето {prefetcher.stats['done']}, "
