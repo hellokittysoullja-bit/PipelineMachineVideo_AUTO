@@ -396,3 +396,30 @@ def test_failed_search_is_asked_again_by_the_waiter(monkeypatch, tmp_path):
     with pytest.raises(OSError):
         ps.cached_search_json("src", "k", boom)
     assert ps.cached_search_json("src", "k", lambda: {"ok": 1}) == {"ok": 1}
+
+
+def test_parallax_redraws_on_x264_when_nvenc_fails(monkeypatch):
+    """Аудит 28.09: сбой NVENC в параллаксе (BrokenPipeError на stdin или
+    строка про hevc_nvenc раньше последних 200 символов) не отмечал NVENC
+    сломанным, и кадр молча терял параллакс — обычный наезд вместо 2.5D."""
+    monkeypatch.setenv("CLIP_ENCODER_RESOLVED", "nvenc")
+    monkeypatch.setattr(ps, "_NVENC_BROKEN", [False])
+    calls = []
+
+    def parallax(i, photo, out, d, **kw):
+        calls.append(ps.clip_encoder())
+        if len(calls) == 1:
+            ps.note_encoder_failure("[hevc_nvenc @ 0x1] OpenEncodeSessionEx failed" + " x" * 400)
+            return False
+        return True
+    monkeypatch.setattr(ps, "_timed_render", lambda fn, i, *a, **kw: parallax(i, *a, **kw)
+                        if fn is ps.parallax_kenburns else pytest.fail("ушло в обычный наезд"))
+    assert ps.render_highlight_clip(None, 0, "p.jpg", "o.mp4", 3.0, "classic_kb", None, {}) is True
+    assert calls == ["nvenc", "x264"]
+
+
+def test_parallax_exception_path_reads_encoder_error():
+    import inspect
+    src = inspect.getsource(ps.parallax_kenburns)
+    assert src.count("note_encoder_failure(") >= 2
+    assert "[-200:]\n            note_encoder_failure" not in src

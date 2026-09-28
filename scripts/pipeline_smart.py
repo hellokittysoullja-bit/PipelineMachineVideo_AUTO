@@ -8,6 +8,7 @@ Usage: python scripts/pipeline_smart.py <video_dir>"""
 import concurrent.futures
 import contextlib
 import contextvars
+import ctx_pool
 import csv
 import difflib
 import functools
@@ -8528,7 +8529,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
             # а не ждёт своей синхронной очереди с нуля.
             trial_paths = {id(p): cf + f".trial_{candidate_path_token(p)}.jpg"
                            for p in trial_slice}
-            prefetch_pool = concurrent.futures.ThreadPoolExecutor(
+            prefetch_pool = ctx_pool.ContextThreadPoolExecutor(
                 max_workers=max(1, min(PHOTO_PREFETCH_WORKERS, len(trial_slice) or 1)))
             prefetch_futures = {id(p): prefetch_pool.submit(take_kept_preview, kept_previews, p,
                                                             trial_paths[id(p)], download_probe)
@@ -12879,7 +12880,7 @@ def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=None, url
         # 16 штук, поэтому эмбеддинги и порядок каскада те же до бита.
         # Замер 25.09 (эп.94, холодный слот, 1067 превью): скачивание 63 с,
         # оценка 173 с — по очереди 236 с.
-        with concurrent.futures.ThreadPoolExecutor(CASCADE_WORKERS) as ex:
+        with ctx_pool.ContextThreadPoolExecutor(CASCADE_WORKERS) as ex:
             pending = []
             for p, ok in zip(need, ex.map(get, need)):
                 if ok:
@@ -13276,7 +13277,7 @@ def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=
         finalists = verify_finalists_of(judged, more)
         if not finalists:
             break
-        with concurrent.futures.ThreadPoolExecutor(max(1, len(finalists))) as ex:
+        with ctx_pool.ContextThreadPoolExecutor(max(1, len(finalists))) as ex:
             got = list(ex.map(ask, finalists))
         verified = vetoed = 0
         for c, (ans, info) in zip(finalists, got):
@@ -15206,8 +15207,11 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
         stderr_f = None
         if proc.returncode != 0:
             with open(stderr_path, "rb") as f:
-                err_tail = f.read().decode(errors="replace")[-200:]
-            note_encoder_failure(err_tail)
+                err = f.read().decode(errors="replace")
+            # Весь текст, а не хвост: строка про hevc_nvenc бывает раньше
+            # последних 200 символов, и сбой NVENC не распознавался.
+            note_encoder_failure(err)
+            err_tail = err[-200:]
             print(f"  параллакс-рендер не встал ({os.path.basename(out)}): {err_tail}")
             finalize_render(tmp_out, out, False)
             return False
@@ -15223,6 +15227,16 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
             return False
         return finalize_render(tmp_out, out, True)
     except Exception as e:
+        # Сбой кодера посреди покадрового цикла приходит сюда как
+        # BrokenPipeError на stdin.write: причина — только в stderr ffmpeg.
+        if stderr_path is not None:
+            try:
+                if stderr_f is not None:
+                    stderr_f.flush()
+                with open(stderr_path, "rb") as f:
+                    note_encoder_failure(f.read().decode(errors="replace"))
+            except OSError:
+                pass
         print(f"  параллакс сорвался ({os.path.basename(out)}): {type(e).__name__} {e}")
         finalize_render(render_tmp_path(out), out, False)
         return False
@@ -15796,7 +15810,7 @@ class VideoAdapter(selection_engine.MediaAdapter):
             used = request.used_video_ids or ()
             pool = [v for v in pool if v.get("id") not in used] + [v for v in pool if v.get("id") in used]
         trial_slice = pool[:VIDEO_PREVIEW_POOL]
-        with concurrent.futures.ThreadPoolExecutor(
+        with ctx_pool.ContextThreadPoolExecutor(
                 max_workers=max(1, min(PHOTO_PREFETCH_WORKERS, len(trial_slice)))) as ex:
             previews = list(ex.map(lambda v: self._safe_preview(v, cf, kept), trial_slice))
         _drop_previews([kept.pop(k) for k in list(kept)])
@@ -16315,7 +16329,7 @@ def xfade_chain_chunked(clips, durs, sections, out, temp_dir, xfade_dur=XFADE_DU
     # у каждого ffmpeg то же, что при кодировании по очереди.
     workers = final_chunk_workers(len(bounds))
     if workers > 1:
-        with concurrent.futures.ThreadPoolExecutor(workers) as ex:
+        with ctx_pool.ContextThreadPoolExecutor(workers) as ex:
             results = list(ex.map(encode_chunk, range(len(bounds))))
     else:
         results = []
@@ -17269,7 +17283,12 @@ def render_highlight_clip(render_pool, i, photo, out, d, motion_mode, stage, kw)
     отказе — обычный kenburns ровно так же, как раньше делал цикл (через
     пул процессов, с теми же аргументами и потоками ffmpeg), поэтому файл
     клипа тот же. Возвращает ok, как future пула."""
+    encoder = clip_encoder()
     ok = _timed_render(parallax_kenburns, i, photo, out, d, **kw)
+    if not ok and encoder == "nvenc" and clip_encoder() == "x264":
+        # Отказал кодер, а не параллакс: тот же кадр на x264, как у пула
+        # процессов, — иначе при сбое NVENC параллакс молча терялся.
+        ok = _timed_render(parallax_kenburns, i, photo, out, d, **kw)
     if ok:
         return ok
     _count_camera_mode(motion_mode, stage)
