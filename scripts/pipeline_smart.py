@@ -16418,6 +16418,64 @@ def effective_transition_plan(plan, sections, chunk_size=XFADE_CHUNK_SIZE):
     return [(t, 0.0 if (i + 1) in dropped else d) for i, (t, d) in enumerate(plan)]
 
 
+def _clip_codec(path):
+    try:
+        r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
+                            "-show_entries", "stream=codec_name", "-of", "csv=p=0", path],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+        return (r.stdout or "").strip() or None
+    except Exception:
+        return None
+
+
+def concat_reencode(clips, out, temp_dir, timeout):
+    """Склейка без переходов в формат поставки — запасной путь, когда xfade не
+    собрался. Демуксер concat берёт кодек ПЕРВОГО файла для всех: на
+    видеокарте клипы — HEVC от NVENC, после сбоя NVENC часть — H.264 от
+    x264, и HEVC после H.264 разбирался как мусор (замер 28.09: из 48 кадров
+    смеси — 24 и поток ошибок; -c copy давал то же). Поэтому подряд идущие
+    клипы одного кодека перекодируются одним куском, куски — в формат
+    поставки, и соединяются копией: у них уже один кодек. Возвращает
+    (ok, текст ошибки)."""
+    runs = []
+    for c in clips:
+        codec = _clip_codec(c)
+        if runs and runs[-1][0] == codec:
+            runs[-1][1].append(c)
+        else:
+            runs.append((codec, [c]))
+
+    def encode(files, dest):
+        lst = dest + ".txt"
+        with open(lst, "w", encoding="utf-8") as f:
+            f.write("".join(f"file '{os.path.abspath(c)}'\n" for c in files))
+        return subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", lst, "-an"]
+                              + final_pass_encode_args() + [dest],
+                              capture_output=True, text=True, encoding="utf-8", errors="replace",
+                              timeout=timeout)
+    if len(runs) == 1:
+        r = encode(runs[0][1], out)
+        return r.returncode == 0, r.stderr[-300:]
+    parts = []
+    for k, (_codec, files) in enumerate(runs):
+        dest = os.path.join(temp_dir, f"_concat_run_{k:03d}.mp4")
+        r = encode(files, dest)
+        if r.returncode != 0:
+            return False, r.stderr[-300:]
+        parts.append(dest)
+    lst = os.path.join(temp_dir, "_concat_runs.txt")
+    with open(lst, "w", encoding="utf-8") as f:
+        f.write("".join(f"file '{os.path.abspath(c)}'\n" for c in parts))
+    r = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", lst, "-c", "copy", out],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
+    for c in parts:
+        try:
+            os.remove(c)
+        except OSError:
+            pass
+    return r.returncode == 0, r.stderr[-300:]
+
+
 def pad_to_length(video, target, temp_dir):
     """Достраивает видео до нужной длины заморозкой последнего кадра — нужно
     после xfade_chain(), если реальный итог всё же короче target (несмотря
@@ -19832,25 +19890,20 @@ def main():
         ok, xfade_total = xfade_chain_chunked(clips, clip_durs, clip_sections, merged, TEMP_FOLDER,
                                                blocks=clip_blocks)
     if not ok:
-        concat = os.path.join(TEMP_FOLDER, "concat.txt")
-        # Пути ТОЛЬКО абсолютные: concat-демуксер ffmpeg резолвит относительные
-        # пути от папки самого concat.txt, а не от cwd — иначе сборка падает.
-        open(concat, "w", encoding="utf-8").write(
-            "".join(f"file '{os.path.abspath(c)}'\n" for c in clips))
         # Тот же пробел, что у xfade_chain()/финального мукса выше — fallback-
         # путь на concat не должен быть НЕЗАЩИЩЁННЕЕ пути, с которого он
-        # откатывается. -c copy — тоже быстрый ремукс, щедрый множитель
-        # достаточен как последний рубеж против настоящего зависания.
+        # откатывается: таймаут — последний рубеж против зависания.
+        # Склейка перекодирует (concat_reencode): копия смеси кодеков
+        # клипов портила поток.
         try:
-            r = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                                "-i", concat, "-c", "copy", merged], capture_output=True, text=True, encoding="utf-8", errors="replace",
-                               timeout=max(180, total))
+            ok_concat, concat_err = concat_reencode(clips, merged, TEMP_FOLDER,
+                                                    timeout=max(600, total * 4))
         except subprocess.TimeoutExpired:
-            print(f"Склейка (concat) зависла (таймаут {max(180, total):.0f}с).")
+            print(f"Склейка (concat) зависла (таймаут {max(600, total * 4):.0f}с).")
             _stop_audio()
             return 1
-        if r.returncode != 0:
-            print("Склейка:", r.stderr[-300:])
+        if not ok_concat:
+            print("Склейка:", concat_err)
             _stop_audio()
             return 1
     merged, pad_gap = pad_to_length(merged, total, TEMP_FOLDER)

@@ -423,3 +423,45 @@ def test_parallax_exception_path_reads_encoder_error():
     src = inspect.getsource(ps.parallax_kenburns)
     assert src.count("note_encoder_failure(") >= 2
     assert "[-200:]\n            note_encoder_failure" not in src
+
+
+@pytest.mark.skipif(__import__("shutil").which("ffmpeg") is None, reason="нужен ffmpeg")
+def test_fallback_concat_keeps_every_frame_of_mixed_codecs(tmp_path):
+    """Аудит 28.09: запасная склейка (xfade не собрался) копировала клипы
+    concat -c copy. На видеокарте клипы — HEVC от NVENC, после сбоя NVENC
+    часть — H.264; демуксер берёт кодек первого файла, и из 48 кадров смеси
+    оставалось 24 с потоком ошибок декодера. Перекодирование одним куском
+    давало то же."""
+    import subprocess
+    enc = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"], capture_output=True, text=True).stdout
+    if "libx265" not in enc:
+        pytest.skip("нужен libx265")
+    a, b, out = str(tmp_path / "a.mp4"), str(tmp_path / "b.mp4"), str(tmp_path / "o.mp4")
+    for path, src, codec in ((a, "testsrc", ["-c:v", "libx264", "-profile:v", "high10"]),
+                             (b, "testsrc2", ["-c:v", "libx265"])):
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                        f"{src}=s=320x180:d=1:r={ps.FPS}"] + codec + ["-pix_fmt", "yuv420p10le", path],
+                       check=True)
+    ok, err = ps.concat_reencode([a, b, a], out, str(tmp_path), timeout=120)
+    assert ok, err
+    frames = subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0",
+                             "-show_entries", "stream=nb_read_frames,codec_name", "-of", "csv=p=0", out],
+                            capture_output=True, text=True).stdout.strip()
+    assert frames == f"h264,{3 * ps.FPS}", frames
+    errors = subprocess.run(["ffmpeg", "-v", "error", "-i", out, "-f", "null", "-"],
+                            capture_output=True, text=True).stderr.strip()
+    assert errors == ""
+    # Число кадров сходится и при порче: вместо HEVC-участка ffmpeg кладёт
+    # испорченные/повторённые кадры. Сравнивается сама картинка середины.
+    from PIL import Image, ImageChops, ImageStat
+
+    def frame(path, t):
+        dest = str(tmp_path / f"f_{os.path.basename(path)}_{t}.png")
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-ss", str(t), "-i", path,
+                        "-frames:v", "1", dest], check=True)
+        return Image.open(dest).convert("RGB")
+
+    def diff(x, y):
+        return sum(ImageStat.Stat(ImageChops.difference(x, y)).mean)
+    mid = frame(out, 1.5)
+    assert diff(mid, frame(b, 0.5)) < diff(mid, frame(a, 0.5)) / 3
