@@ -12842,6 +12842,18 @@ def _judge_budget_forecast(index, gw):
 # засчитала нагрудник без стрелы «близкой заменой» на фразе «Стрела
 # скользит по нагруднику» — см. docs/quality/POOL_RECALL_EP94.md.
 VERIFY_FINALISTS = 5
+# Сколько раз после первой порции брать следующую (по 5 из ещё не
+# проверенных в порядке каскада), пока ВСЕ проверенные отклонены. Раньше
+# порция была одна, и слот, где отклонены первые 10-14 кадров сетки, уходил на
+# новую сетку и второй круг поиска (~50 тыс. токенов), оставив в той же
+# сетке 5-6 кадров, которых проверка не видела. Живой случай 28.09 (слот 7,
+# эп.94): миниатюра Фруассара «Креси» — единственный кадр с «да» на главное —
+# в первом прогоне попала в порцию (позиция 13 из 20) и была проверена, во
+# втором (после того как поиск добавил кадры в кучу, позиция 15 из 20) —
+# нет, и слот остался пустым. Тот же кадр, тот же судья: решала позиция.
+# Проверка стоит ~200 токенов баланса за кадр и ограничена размером сетки, а
+# пока хоть один проверенный кадр принят, следующая порция не берётся.
+VERIFY_MORE_PORTIONS = 3
 # Рассуждение модели в проверке выключено по замеру (эп.94, 223 кадра):
 # без него порядок почти тот же, а вызов в разы быстрее и дешевле
 # (~200 токенов баланса за кадр против ~540) и не обрывается пустым
@@ -12987,7 +12999,7 @@ def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=
     ask = _verify_asker(phrase, spec, kind, card, gw, model)
     early = dict(early or {})
 
-    for more in (False, True):
+    for more in (False,) + (True,) * VERIFY_MORE_PORTIONS:
         finalists = verify_finalists_of(judged, more)
         if not finalists:
             break
@@ -13036,9 +13048,10 @@ def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=
         any_verified = any_verified or verified > 0
         if not verified or vetoed < verified:
             break
-        # Все проверенные отклонены: одна следующая порция по каскаду, а не
-        # непроверенный кандидат из того же пула. Отклонена и она — слот
-        # честно брак (judge_rejected победителя), его поглощает сосед.
+        # Все проверенные отклонены: следующая порция по каскаду (до
+        # VERIFY_MORE_PORTIONS раз), а не непроверенный кандидат из того же
+        # пула. Отклонены и они — слот честно брак (judge_rejected
+        # победителя), его поглощает сосед.
     if any_verified:
         # Проверка в этой попытке состоялась: кадр, которого она не видела,
         # не может обойти проверенных и выйти на экран как «одобренный».
@@ -13121,7 +13134,7 @@ def shot_judge_signature(index=None):
                             + shot_judge.LOOK_PROMPT_VIDEO).encode("utf-8")).hexdigest()[:12]
     return repr(("judge", shot_judge_model(), shot_judge.PROMPT_VERSION, SHOT_JUDGE_MIN_SCORE,
                  "cascade", cascade_preview_n(), "claims", shot_judge.CLAIMS_VERSION, logic,
-                 shot_judge.VERIFY_MAX_SIDE, VERIFY_FINALISTS, VERIFY_REASONING,
+                 shot_judge.VERIFY_MAX_SIDE, VERIFY_FINALISTS, VERIFY_MORE_PORTIONS, VERIFY_REASONING,
                  "world_veto", world_veto_active(),
                  "readable",
                  UNREADABLE_DARK_LEVEL, UNREADABLE_DARK_SHARE,

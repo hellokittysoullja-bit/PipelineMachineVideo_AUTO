@@ -98,6 +98,13 @@ RELAX_FRAMING_WORDS = frozenset({
     "closeup", "close-up", "close", "up", "macro", "detail", "shot", "view",
     "angle", "wide", "footage", "video", "animation",
 })
+# Предлог или артикль на конце ослабленного запроса ничего не ищет: живой
+# прогон 28.09 отрезал последнее слово у `medieval dagger on palm` и получил
+# `medieval dagger on` — попытка потрачена на то же, что `medieval dagger`.
+RELAX_TRAILING_STOPWORDS = frozenset({
+    "a", "an", "the", "on", "in", "at", "of", "to", "for", "by", "with",
+    "from", "and", "or", "into", "over", "under", "near",
+})
 # Интервал и пауза — тот же порядок, что у остальных хостов Викимедиа в
 # pipeline_smart (замер 13-14.09: всплески дают 429, редкие запросы — нет).
 HOST = source_health.host("commons", interval=2.0, max_interval=8.0, cooldown_sec=60.0)
@@ -356,6 +363,9 @@ def relaxed_queries(query, max_variants=RELAX_MAX_VARIANTS):
                    for w in ws)
 
     def add(ws):
+        ws = list(ws)
+        while ws and ws[-1].lower() in RELAX_TRAILING_STOPWORDS:
+            ws.pop()
         # Формулировка из одних чисел и слов кадра («close up») ничего не ищет
         if len(ws) < RELAX_KEEP_WORDS or len(out) >= max_variants or not has_content(ws):
             return

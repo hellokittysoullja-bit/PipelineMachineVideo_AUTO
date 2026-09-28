@@ -364,6 +364,56 @@ def test_all_finalists_vetoed_checks_the_next_batch_not_an_unchecked_one(tmp_pat
         "победил проверенный из следующей порции"
 
 
+def _walk_setup(tmp_path, monkeypatch, n, good_ids):
+    """Сетка из n кадров: принят только тот, чей id в good_ids, остальные —
+    «ничего обязательного не найдено». Возвращает info и список вопросов."""
+    info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=n)
+    monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "world_votes", None)
+    asked = []
+    ids = {p: f"c{k}" for k, p in enumerate(paths)}
+
+    def verify_claims(gw, model, *, path, **_k):
+        asked.append(ids[path])
+        return _ans({"c1": "yes" if ids[path] in good_ids else "no"}), {"call": True}
+    monkeypatch.setattr(sj, "verify_claims", verify_claims)
+    return info, asked
+
+
+def test_verification_walks_on_while_everything_checked_is_rejected(tmp_path, monkeypatch):
+    """Живой случай 28.09 (слот 7, эп.94): миниатюра «Креси» — единственный
+    кадр с «да» на главное — стояла 15-й из 20. Две порции проверки (до 10-14
+    кадров) до неё не доходили, слот оставался пустым, а стоило пуле
+    измениться на пару кадров, и она попадала в порцию. Тот же кадр, тот же
+    судья: решала позиция."""
+    n = ps.VERIFY_FINALISTS * (1 + ps.VERIFY_MORE_PORTIONS)
+    info, asked = _walk_setup(tmp_path, monkeypatch, n, {f"c{n - 1}"})
+    assert ps.judge_candidates(0, "photo", "x", "y", info)
+    win = ps._score_and_pick(info)[0]
+    assert win["p"]["id"] == f"c{n - 1}" and isinstance(win["verify"], tuple) \
+        and not win.get("verify_nothing"), "последний кадр сетки проверен и принят"
+    assert sorted(asked) == sorted(f"c{k}" for k in range(n)), "каждый кадр — один вопрос"
+
+
+def test_walk_stops_at_the_first_portion_that_holds_an_accepted_frame(tmp_path, monkeypatch):
+    """Цена ограничена: пока проверенный кадр принят, следующая порция не
+    берётся — лишние вопросы платятся только там, где все отклонены."""
+    n = ps.VERIFY_FINALISTS * (1 + ps.VERIFY_MORE_PORTIONS)
+    info, asked = _walk_setup(tmp_path, monkeypatch, n, {f"c{ps.VERIFY_FINALISTS + 1}"})
+    assert ps.judge_candidates(0, "photo", "x", "y", info)
+    assert len(asked) == 2 * ps.VERIFY_FINALISTS, "первая и вторая порции, третьей нет"
+    win = ps._score_and_pick(info)[0]
+    assert win["p"]["id"] == f"c{ps.VERIFY_FINALISTS + 1}"
+
+
+def test_walk_never_asks_more_than_the_grid_holds(tmp_path, monkeypatch):
+    n = ps.VERIFY_FINALISTS * (1 + ps.VERIFY_MORE_PORTIONS) + 4      # сетки крупнее порций не бывает, но
+    info, asked = _walk_setup(tmp_path, monkeypatch, n, set())        # предел — порции, а не размер списка
+    assert ps.judge_candidates(0, "photo", "x", "y", info)
+    assert len(asked) == len(set(asked)) == ps.VERIFY_FINALISTS * (1 + ps.VERIFY_MORE_PORTIONS)
+    assert all(c.get("verify_skipped") for c in info if c["p"]["id"] not in set(asked)), \
+        "не проверенные не могут обойти проверенных"
+
+
 def test_world_breaker_needs_several_slots_not_one(monkeypatch, capsys):
     """Один слот с десятком современных ножей («Вот кинжал») — ровно тот
     случай, ради которого отказ по миру заведён; он не имеет права
@@ -688,8 +738,11 @@ def test_unseen_candidate_cannot_win_after_verification_rejected_everyone(tmp_pa
     """Живой случай эп.95 слот 4 и judge9/13/14 эп.94: проверка забраковала
     всех финалистов (обе порции), и на экран вышел кадр, которого проверка не
     видела, — с пометкой «одобрен» по оценке сетки. Теперь он брак: слот
-    уходит во второй круг или поглощается соседом."""
+    уходит во второй круг или поглощается соседом. Порций ровно две, чтобы в
+    сетке остались кадры, которых проверка не видела (с настоящим числом
+    порций сетка из четырёх кадров проверяется целиком)."""
     monkeypatch.setattr(ps, "VERIFY_FINALISTS", 1)
+    monkeypatch.setattr(ps, "VERIFY_MORE_PORTIONS", 1)
     info, paths, sj = _verify_setup(tmp_path, monkeypatch, n=4)
     monkeypatch.setattr(sj, "verify_claims", _fake_verify({p: _ans({"c1": "no", "c3": "no"}) for p in paths}))
     assert ps.judge_candidates(0, "photo", "x", "y", info, ARROW_SPEC)

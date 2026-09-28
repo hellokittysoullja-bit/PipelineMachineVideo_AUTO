@@ -293,6 +293,11 @@ def _page(pid, lic="pd", width=1500):
     ("armoured knights dagger fight", ["armoured knights dagger", "armoured knights"]),
     ("knight plate armour", ["knight plate"]),      # одиночное слово не ищем: «knight» даёт медали
     ("dagger mud 1467", ["dagger mud"]),
+    # Предлог на конце ничего не ищет: живой прогон 28.09 получил
+    # `medieval dagger on` и потратил попытку на то же, что `medieval dagger`
+    ("medieval dagger on palm", ["medieval dagger"]),
+    ("medieval dagger in hand", ["medieval dagger"]),
+    ("knight in the mud", []),                      # без «in the» остаётся одно слово
     ("knight armour", []),                          # два слова — ослаблять нечего
     ("close up 1467 macro", []),                    # из чисел и слов кадра — предмета нет
     ("", []),
@@ -304,7 +309,8 @@ def test_relaxed_queries_steps(query, want):
 def test_relaxed_queries_only_shorten_and_never_reorder():
     queries = ["talhoffer fechtbuch dagger armour 1467", "armoured horsemen charging foot soldiers",
                "gauntlet gripping dagger close up", "a b c d e f g", "Knight ARMOUR mud Detail 1415",
-               "medieval print workshop reenactment"]
+               "medieval print workshop reenactment", "medieval dagger on palm",
+               "armoured man lying in the wet ground"]
     for q in queries:
         words = q.split()
         got = cs.relaxed_queries(q)
@@ -313,6 +319,7 @@ def test_relaxed_queries_only_shorten_and_never_reorder():
         for g in got:
             gw = g.split()
             assert g.lower() != q.lower()
+            assert gw[-1].lower() not in cs.RELAX_TRAILING_STOPWORDS, g
             assert len(gw) >= cs.RELAX_KEEP_WORDS
             it = iter(words)                        # gw — подпоследовательность слов запроса
             assert all(any(w == x for x in it) for w in gw), (q, g)
