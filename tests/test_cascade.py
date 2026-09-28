@@ -251,3 +251,145 @@ def test_download_and_embedding_overlap_keep_the_order(tmp_path, monkeypatch):
     assert events.index("embed") < events.index("c5"), "первая пачка оценена до последнего превью"
     assert calls["images"] == 6
     assert not [f for f in os.listdir(tmp_path) if "casc_" in f], "превью не остаются на диске"
+
+
+def test_cascade_emb_disk_write_survives_two_concurrent_writers(tmp_path, monkeypatch):
+    """Найдено аудитом, не симптомом: подготовка слотов и отбор — два
+    независимых потока, пулы соседних слотов делят половину кандидатов
+    (реальный замер эп.94: 3175 уникальных на 6571), то есть один и тот же
+    ключ кэша может писаться обоими потоками почти одновременно, и настоящий
+    np.save() пишет данные не одним system-call — реальное чередование двух
+    писателей на диске это вопрос удачи планировщика ОС, не архитектуры кода.
+
+    Чтобы не полагаться на удачу (100 быстрых итераций малого массива на
+    tmpfs могут ни разу не столкнуться и дать зелёный тест на СЛОМАННОМ
+    коде — так и произошло при первой версии этой проверки), пишущий шаг
+    подменяется на заведомо МЕДЛЕННЫЙ (двумя kernel write() с гарантированной
+    паузой между ними, через barrier) — тем самым чередование ФОРСИРУЕТСЯ
+    детерминированно, а не ожидается. Прогон в обе стороны: на исходном коде
+    (прямой np.save на общий путь) это ДОЛЖНО дать испорченный файл — иначе
+    сама проверка ничего не доказывает; на исправленном (temp + os.replace)
+    файл обязан остаться целым при ТОЙ ЖЕ форсированной медленной записи,
+    потому что медленная часть пишет в СВОЙ приватный временный путь, а общее
+    имя трогает только мгновенный atomic rename."""
+    import io
+    import threading
+    real_save = np.save
+
+    def slow_save(f, arr, barrier):
+        buf = io.BytesIO()
+        real_save(buf, arr)
+        data = buf.getvalue()
+        half = len(data) // 2
+        f.write(data[:half])
+        f.flush()
+        barrier.wait(timeout=5)   # гарантированно отдать очередь второму писателю
+        f.write(data[half:])
+
+    def naive_save(cache_dir, key, v, barrier):
+        """Буквальное воспроизведение кода ДО правки: np.save прямо на
+        конечный путь, без временного файла."""
+        fp = os.path.join(cache_dir, key + ".npy")
+        with open(fp, "r+b" if os.path.exists(fp) else "wb") as f:
+            slow_save(f, v, barrier)
+
+    # --- сторона 1: наивная запись двух РАЗНЫХ писателей на ОДИН путь —
+    # обязана дать испорченный/нечитаемый файл, иначе проверка не доказывает
+    # ничего (control run самого теста).
+    cache_dir_naive = str(tmp_path / "naive")
+    os.makedirs(cache_dir_naive)
+    va = np.full(2000, 1.0, "float32")
+    vb = np.full(2000, 2.0, "float32")
+    barrier = threading.Barrier(2)
+    ta = threading.Thread(target=naive_save, args=(cache_dir_naive, "k", va, barrier))
+    tb = threading.Thread(target=naive_save, args=(cache_dir_naive, "k", vb, barrier))
+    ta.start(); tb.start()
+    ta.join(timeout=5); tb.join(timeout=5)
+    fp = os.path.join(cache_dir_naive, "k.npy")
+    try:
+        loaded = np.load(fp)
+        naive_corrupted = loaded.shape != va.shape or not (
+            np.array_equal(loaded, va) or np.array_equal(loaded, vb))
+    except Exception:
+        naive_corrupted = True
+    assert naive_corrupted, (
+        "control run: форсированное чередование не испортило наивную запись — "
+        "проверка ниже не была бы доказательством")
+
+    # --- сторона 2: та же форсированная медленная запись, но через
+    # ИСПРАВЛЕННУЮ функцию (temp-файл на писателя + os.replace) — файл ОБЯЗАН
+    # остаться целым: либо полностью va, либо полностью vb, никогда смесь.
+    cache_dir_fixed = str(tmp_path / "fixed")
+    os.makedirs(cache_dir_fixed)
+    barrier2 = threading.Barrier(2)
+
+    def fixed_writer(v):
+        fp2 = os.path.join(cache_dir_fixed, "k.npy")
+        tmp = f"{fp2}.tmp.{threading.get_ident()}"
+        with open(tmp, "wb") as f:
+            slow_save(f, v, barrier2)
+        os.replace(tmp, fp2)
+
+    tc = threading.Thread(target=fixed_writer, args=(va,))
+    td = threading.Thread(target=fixed_writer, args=(vb,))
+    tc.start(); td.start()
+    tc.join(timeout=5); td.join(timeout=5)
+    loaded2 = np.load(os.path.join(cache_dir_fixed, "k.npy"))
+    assert np.array_equal(loaded2, va) or np.array_equal(loaded2, vb), (
+        "файл после исправленной записи не совпал ни с одним писателем целиком — "
+        "temp+replace не защитил от форсированного чередования")
+    leftovers = [f for f in os.listdir(cache_dir_fixed) if f != "k.npy"]
+    assert not leftovers, f"остались временные файлы: {leftovers}"
+
+
+def test_real_atomic_save_fn_survives_forced_interleaving(tmp_path, monkeypatch):
+    """Та же форсированная проверка, что и выше, но БЕЗ реимплементации —
+    зовёт саму продовую `ps._atomic_save_cascade_emb()` из двух потоков на
+    один путь, с `np.save` подменённым на заведомо медленный (через тот же
+    barrier-приём). Предыдущий тест доказывает, что паттерн temp+replace
+    вообще безопасен; этот — что ПРОДОВАЯ функция реально его использует, а
+    не разошлась с ним при будущей правке."""
+    import io
+    import threading
+    real_save = np.save
+    barrier = threading.Barrier(2)
+
+    def slow_np_save(f, arr):
+        buf = io.BytesIO()
+        real_save(buf, arr)
+        data = buf.getvalue()
+        half = len(data) // 2
+        f.write(data[:half])
+        f.flush()
+        barrier.wait(timeout=5)
+        f.write(data[half:])
+
+    monkeypatch.setattr(ps.np, "save", slow_np_save)
+    cache_dir = str(tmp_path / "real")
+    os.makedirs(cache_dir)
+    va = np.full(2000, 1.0, "float32")
+    vb = np.full(2000, 2.0, "float32")
+    ta = threading.Thread(target=ps._atomic_save_cascade_emb, args=(cache_dir, "k", va))
+    tb = threading.Thread(target=ps._atomic_save_cascade_emb, args=(cache_dir, "k", vb))
+    ta.start(); tb.start()
+    ta.join(timeout=5); tb.join(timeout=5)
+    loaded = np.load(os.path.join(cache_dir, "k.npy"))
+    assert np.array_equal(loaded, va) or np.array_equal(loaded, vb), (
+        "продовая _atomic_save_cascade_emb дала смешанный/битый файл под "
+        "форсированным чередованием двух писателей")
+    leftovers = [f for f in os.listdir(cache_dir) if f != "k.npy"]
+    assert not leftovers, f"остались временные файлы: {leftovers}"
+
+
+def test_atomic_save_uses_a_real_file_object_not_a_bare_path(tmp_path):
+    """np.save(строка_без_.npy, ...) сам дописывает ".npy" к пути — реальный
+    найденный при написании этой же правки баг: временный путь с суффиксом
+    pid+tid не оканчивается на .npy, и наивный np.save(tmp, v) молча пишет
+    В ДРУГОЙ файл (tmp + ".npy"), а os.replace(tmp, ...) роняет исключение,
+    потому что tmp не существует. Проверяем прямо: после сохранения нет
+    файлов с двойным ".npy.npy" и нет файлов с pid/tid в имени."""
+    cache_dir = str(tmp_path / "cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    ps._atomic_save_cascade_emb(cache_dir, "k", np.array([1.0, 2.0], "float32"))
+    names = os.listdir(cache_dir)
+    assert names == ["k.npy"], names
