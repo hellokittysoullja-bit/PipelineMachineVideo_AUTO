@@ -154,7 +154,12 @@ def _load():
         from transformers import AutoProcessor
         import ml_device
         dev = ml_device.device()
-        dtype = torch.bfloat16 if dev == "cuda" else torch.float32
+        if dev != "cuda":
+            # Без видеокарты 8B-модель грузилась на процессор в fp32 — ~32 ГБ
+            # памяти и часы на эпизод (аудит 28.09); режим обещает откат на
+            # SigLIP2 — он и делается.
+            raise RuntimeError(f"нужна видеокарта CUDA, устройство моделей: {dev}")
+        dtype = torch.bfloat16
         kwargs = {"torch_dtype": dtype}
         if dev == "cuda":
             kwargs["attn_implementation"] = "sdpa"
@@ -189,19 +194,33 @@ def _encode(conversations, images):
     return emb.cpu().numpy().astype("float32")
 
 
+def _fail(e):
+    """Сбой модели посреди прогона (нехватка памяти после повтора, картинка,
+    которую не разобрал smart_resize): раньше исключение уходило из
+    cascade_reorder наружу и могло уронить слот (аудит 28.09). Теперь модель
+    выключается до конца прогона громко, и каскад дальше идёт на SigLIP2."""
+    _STATE["broken"] = f"{type(e).__name__}: {e}"[:300]
+    _STATE["model"] = None
+    print(f"  Qwen3-VL-Embedding сорвалась ({_STATE['broken']}) — дальше каскад на SigLIP2")
+    return None
+
+
 def embed_images(images):
     """Нормированные векторы картинок (np.ndarray [n, d]) или None."""
     import numpy as np
     with _LOCK:
         if not _load():
             return None
-        prepared = [prepare_image(im) for im in images]
-        out = []
-        bs = batch_size()
-        for k in range(0, len(prepared), bs):
-            part = prepared[k:k + bs]
-            out.append(_encode([conversation(image=im) for im in part], part))
-        return np.concatenate(out) if out else None
+        try:
+            prepared = [prepare_image(im) for im in images]
+            out = []
+            bs = batch_size()
+            for k in range(0, len(prepared), bs):
+                part = prepared[k:k + bs]
+                out.append(_encode([conversation(image=im) for im in part], part))
+            return np.concatenate(out) if out else None
+        except Exception as e:  # noqa: BLE001 — см. _fail
+            return _fail(e)
 
 
 def embed_text(text, instruction=QUERY_INSTRUCTION):
@@ -209,4 +228,7 @@ def embed_text(text, instruction=QUERY_INSTRUCTION):
     with _LOCK:
         if not _load():
             return None
-        return _encode([conversation(text=text, instruction=instruction)], None)[0]
+        try:
+            return _encode([conversation(text=text, instruction=instruction)], None)[0]
+        except Exception as e:  # noqa: BLE001 — см. _fail
+            return _fail(e)

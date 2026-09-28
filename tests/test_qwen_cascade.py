@@ -105,3 +105,29 @@ def test_qwen_unavailable_falls_back_to_siglip2(monkeypatch):
     monkeypatch.setenv("CASCADE_MODEL", "qwen3vl")
     monkeypatch.setattr(q, "available", lambda: False)
     assert ps.cascade_model() == "siglip2"
+
+
+def test_qwen_refuses_to_load_without_cuda(monkeypatch):
+    """Аудит 28.09: без видеокарты 8B-модель грузилась на процессор в fp32
+    (~32 ГБ памяти); режим обещает откат на SigLIP2."""
+    import ml_device
+    import qwen_vl_embed as q
+    monkeypatch.setattr(ml_device, "device", lambda: "cpu")
+    monkeypatch.setitem(q._STATE, "model", None)
+    monkeypatch.setitem(q._STATE, "broken", None)
+    assert q.available() is False
+    assert "CUDA" in q._STATE["broken"]
+
+
+def test_qwen_runtime_failure_turns_it_off_instead_of_raising(monkeypatch):
+    import qwen_vl_embed as q
+    monkeypatch.setitem(q._STATE, "model", object())
+    monkeypatch.setitem(q._STATE, "broken", None)
+    monkeypatch.setattr(q, "_load", lambda: True)
+
+    def boom(*a, **k):
+        raise ValueError("height:1 must be larger than factor:32")
+    monkeypatch.setattr(q, "_encode", boom)
+    monkeypatch.setattr(q, "prepare_image", lambda im: im)
+    assert q.embed_images(["x"]) is None
+    assert q._STATE["model"] is None and "factor" in q._STATE["broken"]
