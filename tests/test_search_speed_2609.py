@@ -367,6 +367,23 @@ def test_gateway_reuses_connections_but_honours_the_recorder(monkeypatch):
     assert lg.Gateway(api_key="k")._open is lg.pooled_urlopen
 
 
+def test_gateway_honours_recorder_installed_before_import(tmp_path):
+    """Порядок харнесса (selection_freeze.child): запись сети ставится ДО
+    импорта шлюза. Снимок urlopen при импорте принимал подмену за оригинал,
+    и шлюз шёл в живую сеть мимо записи (прогоны A/B 28.09)."""
+    code = ("import sys; sys.path.insert(0, %r); import net_recorder, os; "
+            "d=%r; os.makedirs(d, exist_ok=True); open(os.path.join(d,'index.jsonl'),'w').close(); "
+            "net_recorder.NetRecorder(d, 'replay').install(); import llm_gateway as lg; "
+            "import urllib.error\n"
+            "try:\n"
+            "    lg.pooled_urlopen(lg.urllib.request.Request('https://example.invalid/x'), timeout=1)\n"
+            "except urllib.error.URLError as e:\n"
+            "    print('ERR', e)\n"
+            % (os.path.join(REPO, "scripts"), str(tmp_path / "net")))
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
+    assert "freeze: запроса нет в записи" in out.stdout, out.stdout + out.stderr[-600:]
+
+
 def test_pooled_urlopen_speaks_urllib_errors():
     import http.server
 
