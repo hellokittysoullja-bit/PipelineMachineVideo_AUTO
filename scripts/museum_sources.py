@@ -440,6 +440,8 @@ def culture_is_foreign(*fields):
 # Институт искусств Чикаго отдаёт снимки только с этим заголовком: без него
 # IIIF отвечает 403 на ЛЮБУЮ ширину (проверено на 843, 1920 и full/full).
 # Требование их документации — назвать проект и контакт.
+CHICAGO_WORK_WIDTH = 1920
+CHICAGO_PREVIEW_WIDTH = 400
 CHICAGO_IMAGE_HEADERS = {
     "AIC-User-Agent": "FacelessPipeline (github.com/faceless-pipeline)",
 }
@@ -665,7 +667,7 @@ def search_chicago(query, limit=SEARCH_PAGE_SIZE):
     собирается по IIIF-шаблону из ответа."""
     out = []
     fields = ("id,title,date_start,date_end,place_of_origin,"
-              "is_public_domain,image_id")
+              "is_public_domain,image_id,thumbnail")
     data = _get_json_retry(f"{CHICAGO_API}?q=" + urllib.parse.quote(query) +
                      f"&limit={int(limit)}&fields={fields}")
     iiif = (data.get("config") or {}).get("iiif_url")
@@ -678,20 +680,40 @@ def search_chicago(query, limit=SEARCH_PAGE_SIZE):
             continue
         if culture_is_foreign(a.get("place_of_origin"), a.get("title")):
             continue
+        # Ширина — не больше исходной. IIIF Института отказывает (403 «scales
+        # in excess of 100% are not allowed») в любой ширине больше исходной, и
+        # full/max у него тоже 403. Запись эпизода 94 (27.09): так не скачались
+        # 14 полноразмерных файлов и 3 превью, и три победителя выбора среди
+        # равных ушли к следующему кандидату; живой замер 28.09 на «Dagger and
+        # Sheath» (1554 px): 1920 — 403, 1554 — 200. Ширину исходника API
+        # отдаёт в thumbnail.width (совпадает с info.json IIIF).
+        native = _native_width(a.get("thumbnail"))
+        work_w = min(CHICAGO_WORK_WIDTH, native) if native else CHICAGO_WORK_WIDTH
+        thumb_w = min(CHICAGO_PREVIEW_WIDTH, native) if native else CHICAGO_PREVIEW_WIDTH
         out.append(_candidate(
             f"chicago:{a.get('id')}", a.get("title"),
-            # IIIF отдаёт любую ширину: просим 1920 под финальный кадр, а не
-            # дефолтные 843 из примеров документации.
-            f"{iiif}/{a['image_id']}/full/1920,/0/default.jpg",
+            # Просим 1920 под финальный кадр, а не дефолтные 843 из примеров
+            # документации.
+            f"{iiif}/{a['image_id']}/full/{work_w},/0/default.jpg",
             f"https://www.artic.edu/artworks/{a.get('id')}",
             {"source": "chicago", "begin": a.get("date_start"),
              "end": a.get("date_end"), "place": a.get("place_of_origin"),
              "license": "public_domain", "license_field": "is_public_domain"},
             headers=CHICAGO_IMAGE_HEADERS,
-            # Превью для оценки — IIIF отдаёт любую ширину; 400 px хватает
-            # CLIP/эстетике, полный 1920 качается только у победителя.
-            thumb_url=f"{iiif}/{a['image_id']}/full/400,/0/default.jpg"))
+            # Превью для оценки: 400 px хватает CLIP/эстетике, полный файл
+            # качается только у победителя.
+            thumb_url=f"{iiif}/{a['image_id']}/full/{thumb_w},/0/default.jpg"))
     return out
+
+
+def _native_width(thumbnail):
+    """Ширина исходного снимка по карточке Института (поле thumbnail.width);
+    нет или не число — None, и ширина запрашивается как раньше."""
+    try:
+        w = int((thumbnail or {}).get("width") or 0)
+    except (TypeError, ValueError, AttributeError):
+        return None
+    return w if w > 0 else None
 
 
 def _sources(department=None):

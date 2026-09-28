@@ -22,6 +22,7 @@ import json
 import os
 import sys
 import tempfile
+import urllib.parse
 
 import pytest
 
@@ -182,6 +183,40 @@ class TestChicago:
         monkeypatch.setattr(ms, "_get_json", _fake_urls({
             "artworks": self._payload(date_start=1850, date_end=1900)}))
         assert ms.search_chicago("armor") == []
+
+    @pytest.mark.parametrize("native, work, preview", [
+        (1554, 1554, 400),   # «Dagger and Sheath»: 1920 — 403, 1554 — 200 (живой замер 28.09)
+        (300, 300, 300),     # превью тоже не больше исходника
+        (4000, 1920, 400),   # широкий исходник — ширина кадра, как раньше
+    ])
+    def test_width_never_exceeds_the_original(self, monkeypatch, native, work, preview):
+        """IIIF Института отвечает 403 («scales in excess of 100% are not
+        allowed») на ширину больше исходной, и на full/max тоже. Запись
+        эпизода 94 потеряла так три победителя выбора среди равных. Ширина
+        исходника — thumbnail.width карточки."""
+        monkeypatch.setattr(ms, "_get_json", _fake_urls({"artworks": self._payload(
+            thumbnail={"width": native, "height": 2250})}))
+        (c,) = ms.search_chicago("dagger")
+        assert f"/full/{work},/0/" in c["src"]["large2x"]
+        assert f"/full/{preview},/0/" in c["src"]["medium"]
+
+    @pytest.mark.parametrize("thumbnail", [None, {}, {"width": None}, {"width": "?"}, {"width": 0}])
+    def test_unknown_original_width_asks_as_before(self, monkeypatch, thumbnail):
+        monkeypatch.setattr(ms, "_get_json", _fake_urls({"artworks": self._payload(
+            thumbnail=thumbnail)}))
+        (c,) = ms.search_chicago("dagger")
+        assert "/full/1920,/0/" in c["src"]["large2x"]
+        assert "/full/400,/0/" in c["src"]["medium"]
+
+    def test_search_asks_for_the_original_size(self, monkeypatch):
+        urls = []
+        def fake(url):
+            urls.append(url)
+            return self._payload()
+        monkeypatch.setattr(ms, "_get_json", fake)
+        ms.search_chicago("dagger")
+        fields = urllib.parse.parse_qs(urllib.parse.urlsplit(urls[0]).query)["fields"][0]
+        assert "thumbnail" in fields.split(",")
 
 
 class TestFailOpen:
