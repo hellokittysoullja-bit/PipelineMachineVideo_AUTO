@@ -11,8 +11,8 @@
 только пока идёт задача» — это не тариф, а дисциплина: создать под под задачу
 и удалить сразу после неё. Этот скрипт так и делает:
 
-  1. создаёт под на первой свободной карте из списка (--gpu, по умолчанию
-     RTX 4090 → L40S → RTX 6000 Ada → RTX A6000), без сетевого диска: сетевой
+  1. создаёт под на самой дешёвой свободной карте community, которая вмещает
+     модели (от 24 ГБ; --gpu задаёт свой список), без сетевого диска: сетевой
      диск оплачивается и тогда, когда пода нет;
   2. ждёт исполнителя (scripts/runpod_runner.py, передаётся в переменной
      окружения пода — образ стандартный);
@@ -53,7 +53,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 API = "https://api.runpod.io/graphql"
 DEFAULT_GPUS = ("NVIDIA GeForce RTX 4090", "NVIDIA L40S", "NVIDIA RTX 6000 Ada Generation",
-                "NVIDIA RTX A6000")
+                "NVIDIA RTX A6000")   # образец порядка для --gpu; по умолчанию — cheapest_gpus
 DEFAULT_IMAGE = "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04"
 PORT = 8000
 # Cloudflare перед api.runpod.io отвечает 403 на стандартную подпись клиента
@@ -96,11 +96,51 @@ def gql(query, key, variables=None):
     return d["data"]
 
 
-def plan(key, gpus):
-    q = ('query($ids:[String!]){ gpuTypes(input:{ids:$ids}){ id displayName memoryInGb '
-         'securePrice communityPrice lowestPrice(input:{gpuCount:1}){ uninterruptablePrice '
-         'stockStatus } } myself { clientBalance spendLimit currentSpendPerHr } }')
-    return gql(q, key, {"ids": list(gpus)})
+# Сколько видеопамяти нужно одной карте: две модели зрения — 19.1 ГиБ весов
+# плюс запас (vision_model.WEIGHTS_GIB / HEADROOM_GIB). 24 ГБ — впритык, но
+# помещаются; меньше — рендер откажет.
+MIN_GPU_GB = 24
+
+
+def plan(key, gpus=None, community=True):
+    """Карты и цены. gpus=None — все типы Runpod (для выбора самой дешёвой).
+    community — цена и наличие ТОЛЬКО по community-облаку (secureCloud:false):
+    без этого Runpod отдаёт самую низкую цену по обоим облакам, и карта,
+    свободная только в secure, выглядела бы свободной и дешёвой (проверено
+    29.09: RTX A6000 «$0.33 в наличии» без фильтра и нет её с фильтром)."""
+    lp = "lowestPrice(input:{gpuCount:1%s})" % (", secureCloud:false" if community else "")
+    if gpus:
+        q = ('query($ids:[String!]){ gpuTypes(input:{ids:$ids}){ id displayName memoryInGb '
+             'securePrice communityPrice ' + lp + '{ uninterruptablePrice '
+             'stockStatus } } myself { clientBalance spendLimit currentSpendPerHr } }')
+        return gql(q, key, {"ids": list(gpus)})
+    q = ('query { gpuTypes { id displayName memoryInGb securePrice communityPrice communityCloud '
+         + lp + '{ uninterruptablePrice stockStatus } } '
+         'myself { clientBalance spendLimit currentSpendPerHr } }')
+    return gql(q, key)
+
+
+# Карты Blackwell (sm_120) требуют CUDA 12.8 и свежий torch — образ по
+# умолчанию (torch 2.4, CUDA 12.4) на них модель не запустит: оплаченный под
+# упал бы на первом же проходе. Исключаются из автоподбора, пока образ старый.
+NEEDS_NEWER_IMAGE = ("5090", "5080", "B200", "B300", "RTX PRO")
+
+
+def cheapest_gpus(gpu_types, min_gb=MIN_GPU_GB):
+    """Карты community, которые сейчас есть в наличии и вмещают модели, —
+    от дешёвой к дорогой (по текущей цене, а не прейскуранту: у карты без
+    свободных машин цены «сейчас» нет)."""
+    rows = []
+    for g in gpu_types:
+        lp = g.get("lowestPrice") or {}
+        price = lp.get("uninterruptablePrice")
+        name = f"{g.get('id', '')} {g.get('displayName', '')}"
+        if any(t in name for t in NEEDS_NEWER_IMAGE):
+            continue
+        if (g.get("communityCloud") and price is not None and lp.get("stockStatus")
+                and (g.get("memoryInGb") or 0) >= min_gb):
+            rows.append((float(price), -(g.get("memoryInGb") or 0), g["id"]))
+    return [gid for _p, _m, gid in sorted(rows)]
 
 
 def runner_env(token, idle_min, max_hours, extra):
@@ -250,7 +290,10 @@ def dotenv_subset(names):
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--plan", action="store_true", help="цены и наличие карт, ничего не создаёт")
-    p.add_argument("--gpu", action="append", help="тип карты (можно несколько, по порядку)")
+    p.add_argument("--gpu", action="append",
+                   help="тип карты (можно несколько, по порядку); без него — самые дешёвые "
+                        "свободные карты community от --min-gb")
+    p.add_argument("--min-gb", type=int, default=MIN_GPU_GB)
     p.add_argument("--cloud", default="COMMUNITY", choices=("COMMUNITY", "SECURE", "ALL"))
     p.add_argument("--image", default=DEFAULT_IMAGE)
     p.add_argument("--disk-gb", type=int, default=80)
@@ -263,14 +306,21 @@ def main(argv=None):
     p.add_argument("--max-hours", type=float, default=4)
     a = p.parse_args(argv)
     key = api_key()
-    gpus = a.gpu or list(DEFAULT_GPUS)
-    info = plan(key, gpus)
+    info = plan(key, a.gpu, community=a.cloud == "COMMUNITY")
     me = info["myself"]
     print(f"Баланс Runpod ${me['clientBalance']:.2f}, лимит трат ${me['spendLimit']}/ч, "
           f"сейчас тратится ${me['currentSpendPerHr']}/ч")
-    for g in info["gpuTypes"]:
+    by_id = {g["id"]: g for g in info["gpuTypes"]}
+    gpus = a.gpu or cheapest_gpus(info["gpuTypes"], a.min_gb)[:6]
+    if not gpus:
+        print(f"  нет свободных карт community от {a.min_gb} ГБ")
+        if a.plan:
+            return 0
+        raise SystemExit(1)
+    for gid in gpus:
+        g = by_id.get(gid, {"displayName": gid, "memoryInGb": "?"})
         lp = g.get("lowestPrice") or {}
-        print(f"  {g['displayName']:<14} {g['memoryInGb']} ГБ  сейчас "
+        print(f"  {g['displayName']:<16} {g['memoryInGb']} ГБ  сейчас "
               f"{lp.get('uninterruptablePrice')} $/ч  наличие {lp.get('stockStatus')}")
     if a.plan:
         return 0

@@ -145,8 +145,11 @@ class FakeApi:
         if "pod(input" in query:
             return {"pod": {"id": variables["id"]} if variables["id"] in self.pods else None}
         if "gpuTypes" in query:
-            return {"gpuTypes": [], "myself": {"clientBalance": 9.9, "spendLimit": 80,
-                                               "currentSpendPerHr": 0}}
+            return {"gpuTypes": [
+                {"id": "NVIDIA RTX A6000", "displayName": "RTX A6000", "memoryInGb": 48,
+                 "communityCloud": True,
+                 "lowestPrice": {"uninterruptablePrice": 0.33, "stockStatus": "Low"}}],
+                "myself": {"clientBalance": 9.9, "spendLimit": 80, "currentSpendPerHr": 0}}
         raise AssertionError(query)
 
 
@@ -187,3 +190,25 @@ def test_only_named_secrets_go_to_the_pod(monkeypatch, tmp_path):
     monkeypatch.setattr(rj, "REPO", str(tmp_path))
     assert rj.dotenv_subset(["A"]) == {"A": "1"}
 
+
+
+def test_cheapest_fitting_community_gpu_first():
+    types = [
+        {"id": "a6000", "memoryInGb": 48, "communityCloud": True,
+         "lowestPrice": {"uninterruptablePrice": 0.33, "stockStatus": "Low"}},
+        {"id": "a5000", "memoryInGb": 24, "communityCloud": True,
+         "lowestPrice": {"uninterruptablePrice": None, "stockStatus": None}},   # нет в наличии
+        {"id": "t4", "memoryInGb": 16, "communityCloud": True,
+         "lowestPrice": {"uninterruptablePrice": 0.1, "stockStatus": "High"}},  # мало памяти
+        {"id": "secure_only", "memoryInGb": 48, "communityCloud": False,
+         "lowestPrice": {"uninterruptablePrice": 0.2, "stockStatus": "High"}},
+        {"id": "pro4500", "memoryInGb": 32, "communityCloud": True,
+         "lowestPrice": {"uninterruptablePrice": 0.34, "stockStatus": "Low"}},
+        {"id": "a40", "memoryInGb": 48, "communityCloud": True,
+         "lowestPrice": {"uninterruptablePrice": 0.34, "stockStatus": "Low"}},
+    ]
+    types.append({"id": "NVIDIA GeForce RTX 5090", "displayName": "RTX 5090", "memoryInGb": 32,
+                  "communityCloud": True,
+                  "lowestPrice": {"uninterruptablePrice": 0.1, "stockStatus": "High"}})
+    # при равной цене — больше памяти вперёд; Blackwell вне автоподбора
+    assert rj.cheapest_gpus(types) == ["a6000", "a40", "pro4500"]
