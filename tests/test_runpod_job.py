@@ -25,6 +25,13 @@ import runpod_job as rj  # noqa: E402
 TOKEN = "t0ken"
 
 
+@pytest.fixture(autouse=True)
+def _own_smoke_mark(tmp_path, monkeypatch):
+    """Отметка «проверка пути пройдена» — своя на тест: настоящая в ~/.cache
+    иначе пропускала бы проверку в тестах, которые её ждут."""
+    monkeypatch.setattr(rj, "SMOKE_MARK", str(tmp_path / "smoke_ok.json"))
+
+
 def _free_port():
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
@@ -518,3 +525,75 @@ def test_host_retries_share_one_money_cap(monkeypatch):
     with pytest.raises(SystemExit) as e:
         rj.main(["--cmd", "job", "--gpu", "x", "--max-usd", "0.3", "--no-smoke"])
     assert "потолок" in str(e.value) and len(caps) == 1   # на вторую попытку денег нет
+
+
+def test_smoke_is_remembered_per_image_and_runner_code(monkeypatch):
+    assert not rj.smoke_passed_recently("img:a")
+    rj.record_smoke("img:a")
+    assert rj.smoke_passed_recently("img:a")
+    assert not rj.smoke_passed_recently("img:b"), "другой образ — проверка заново"
+    assert not rj.smoke_passed_recently("img:a", now=rj.time.time() + rj.SMOKE_VALID_SEC + 1)
+    monkeypatch.setattr(rj, "START_ARGV", ["bash", "-c", "other"])
+    assert not rj.smoke_passed_recently("img:a"), "другая команда старта — проверка заново"
+
+
+def test_recent_smoke_skips_the_cpu_pod_and_failed_smoke_is_not_remembered(monkeypatch):
+    api = FakeApi()
+    monkeypatch.setattr(rj, "gql", api)
+    monkeypatch.setattr(rj, "rest", api.rest)
+    monkeypatch.setattr(rj, "api_key", lambda: "k")
+    monkeypatch.setattr(rj, "smoke", lambda key, a: 1)
+    with pytest.raises(SystemExit):
+        rj.main(["--cmd", "true"])
+    assert not rj.smoke_passed_recently(rj.DEFAULT_IMAGE)
+    calls = []
+    monkeypatch.setattr(rj, "smoke", lambda key, a: calls.append(1) or 0)
+    monkeypatch.setattr(rj, "rent_and_drive", lambda *a, **k: 0)
+    assert rj.main(["--cmd", "true"]) == 0 and calls == [1]
+    assert rj.main(["--cmd", "true"]) == 0 and calls == [1], "вторая проверка не нужна"
+
+
+def test_parallel_upload_delivers_every_file_once(runner, tmp_path, monkeypatch):
+    r, _proc, work = runner
+    src = tmp_path / "data"
+    for k in range(23):
+        (src / f"d{k % 4}").mkdir(parents=True, exist_ok=True)
+        (src / f"d{k % 4}" / f"f{k}.bin").write_bytes(os.urandom(1000 + 97 * k))
+    (src / "__pycache__").mkdir()
+    (src / "__pycache__" / "x.pyc").write_bytes(b"x")
+    monkeypatch.setattr(rj, "REPO", str(tmp_path / "elsewhere"))
+    monkeypatch.setattr(rj, "CHUNK", 3000)
+    r.upload_dir(str(src), streams=5)
+    for k in range(23):
+        got = (work / "data" / f"d{k % 4}" / f"f{k}.bin").read_bytes()
+        assert got == (src / f"d{k % 4}" / f"f{k}.bin").read_bytes()
+    assert not (work / "data" / "__pycache__").exists()
+    assert not list((work / ".uploads").iterdir()), "архивы после распаковки удалены"
+
+
+def test_image_without_torch_stops_at_once_instead_of_renting_more_hosts(monkeypatch):
+    """Живой прогон 29.09: «No module named torch» — ошибка образа, а не хоста;
+    перебор хостов на ней только тратил деньги."""
+    api = _two_gpu_api(monkeypatch)
+    monkeypatch.setattr(rj.Runner, "run", lambda self, cmd, deadline=None:
+                        rj.NO_TORCH_EXIT if cmd == rj.GPU_PREFLIGHT else 0)
+    with pytest.raises(SystemExit) as e:
+        rj.main(["--cmd", "job", "--gpu", "a", "--gpu", "b", "--no-smoke"])
+    assert "образ" in str(e.value)
+    assert sum(c[0] == "REST POST /pods" for c in api.calls) == 1 and not api.pods
+
+
+def test_torch_check_reports_a_missing_torch_with_its_own_code(tmp_path):
+    shim = tmp_path / rj.POD_PY
+    shim.write_text("#!/bin/sh\necho 'No module named torch' >&2\nexit 1\n")
+    shim.chmod(0o755)
+    env = dict(os.environ, PATH=f"{tmp_path}:{os.environ['PATH']}")
+    r = subprocess.run(["bash", "-c", rj.TORCH_CHECK], env=env, capture_output=True, text=True)
+    assert r.returncode == rj.NO_TORCH_EXIT
+    assert "python3" not in rj.GPU_PREFLIGHT, "в образах runpod/pytorch torch стоит для `python`"
+
+
+def test_smoke_of_a_gpu_image_checks_its_torch():
+    assert rj.smoke_check(rj.DEFAULT_IMAGE) == rj.TORCH_CHECK
+    assert rj.smoke_check(rj.SMOKE_IMAGE) == ""
+    assert rj.smoke_fingerprint(rj.DEFAULT_IMAGE) != rj.smoke_fingerprint(rj.SMOKE_IMAGE)

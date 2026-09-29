@@ -177,11 +177,21 @@ CUDA_VERSIONS = ("11.8", "12.0", "12.1", "12.2", "12.3", "12.4", "12.5", "12.6",
 # Проверка видеокарты на поде ДО загрузки данных: драйвер виден, torch видит
 # карту и реально на ней считает. Хост, где карта не работает, стоит денег
 # и не даёт ничего — его надо заменить сразу, а не после загрузки 500 МБ.
+# Интерпретатор на поде — `python`: в образах runpod/pytorch torch стоит
+# именно для него (python3.12), а `python3` — системный Python без torch
+# (живой прогон 29.09: две аренды ушли на «No module named torch»).
+POD_PY = "python"
+# Код выхода проверки «в образе у python нет torch» — ошибка ОБРАЗА, а не
+# хоста: другой хост её не исправит, перебирать хосты за деньги нельзя.
+NO_TORCH_EXIT = 3
+TORCH_CHECK = (f"{POD_PY} -c \"import torch, torchvision; print('torch', torch.__version__, "
+               f"'torchvision', torchvision.__version__)\" || {{ echo 'в образе у {POD_PY} нет "
+               f"torch/torchvision'; exit {NO_TORCH_EXIT}; }}")
 GPU_PREFLIGHT = ("nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader && "
-                 "python3 -c \"import torch;assert torch.cuda.is_available(),'torch не видит CUDA';"
+                 f"{TORCH_CHECK} && "
+                 f"{POD_PY} -c \"import torch;assert torch.cuda.is_available(),'torch не видит CUDA';"
                  "x=torch.ones(1024,1024,device='cuda');torch.cuda.synchronize();"
-                 "print('видеокарта работает:',torch.__version__,torch.cuda.get_device_name(0),"
-                 "float((x@x).sum()))\"")
+                 "print('видеокарта работает:',torch.cuda.get_device_name(0),float((x@x).sum()))\"")
 PREFLIGHT_SEC = 300
 HOST_ATTEMPTS = 3
 
@@ -410,17 +420,9 @@ class Runner:
             time.sleep(2)
         return False
 
-    def upload_dir(self, path):
-        """Папка едет в /work по своему пути относительно репозитория (корень
-        репозитория — в сам /work), чтобы команды на поде видели ту же
-        раскладку, что и здесь."""
-        full = os.path.abspath(path)
-        rel = os.path.relpath(full, REPO)
-        arc = "." if rel == "." else (rel if not rel.startswith("..") else os.path.basename(full))
-        buf = io.BytesIO()
-        with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-            tar.add(full, arcname=arc, filter=_exclude)
-        data = buf.getvalue()
+    UPLOAD_STREAMS = 6
+
+    def _upload_blob(self, data, label, shown):
         fname = f"up_{secrets.token_hex(4)}.tar.gz"
         off = 0
         while off < len(data):
@@ -431,9 +433,50 @@ class Runner:
                 if e.code != 409:
                     raise
                 off = json.loads(e.read())["size"]     # докачка с того места, где под остановился
-            print(f"  загрузка {path}: {off / 2**20:.0f} / {len(data) / 2**20:.0f} МБ", end="\r")
-        print()
+            shown[fname] = off
+            print(f"  загрузка {label}: {sum(shown.values()) / 2**20:.0f} / "
+                  f"{shown['_total'] / 2**20:.0f} МБ", end="\r", flush=True)
         self.call("POST", f"/extract?name={fname}", b"")        # повтор безопасен: по имени
+
+    def upload_dir(self, path, streams=None):
+        """Папка едет в /work по своему пути относительно репозитория (корень
+        репозитория — в сам /work), чтобы команды на поде видели ту же
+        раскладку, что и здесь. Файлы делятся на несколько архивов, которые
+        едут ОДНОВРЕМЕННО: прокси Runpod режет скорость одного соединения, а
+        под оплачивается посекундно."""
+        from concurrent.futures import ThreadPoolExecutor
+        full = os.path.abspath(path)
+        rel = os.path.relpath(full, REPO)
+        arc = "." if rel == "." else (rel if not rel.startswith("..") else os.path.basename(full))
+        files = []
+        for root, dirs, names in os.walk(full):
+            dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
+            for n in names:
+                fp = os.path.join(root, n)
+                name = os.path.normpath(os.path.join(arc, os.path.relpath(fp, full)))
+                if os.path.isfile(fp) and _exclude(tarfile.TarInfo(name)) is not None:
+                    files.append((os.path.getsize(fp), fp, name))
+        n = max(1, min(streams or self.UPLOAD_STREAMS, len(files)))
+        groups, sizes = [[] for _ in range(n)], [0] * n
+        for size, fp, name in sorted(files, reverse=True):     # поровну по объёму
+            k = sizes.index(min(sizes))
+            groups[k].append((fp, name))
+            sizes[k] += size
+        blobs = []
+        for g in groups:
+            buf = io.BytesIO()
+            with tarfile.open(fileobj=buf, mode="w:gz", compresslevel=1) as tar:
+                for fp, name in g:
+                    tar.add(fp, arcname=name, recursive=False)
+            blobs.append(buf.getvalue())
+        shown = {"_total": sum(len(b) for b in blobs)}
+        t0 = time.time()
+        with ThreadPoolExecutor(n) as ex:
+            for f in [ex.submit(self._upload_blob, b, path, shown) for b in blobs]:
+                f.result()
+        dt = time.time() - t0
+        print(f"\n  загружено {shown['_total'] / 2**20:.0f} МБ за {dt:.0f} с "
+              f"({shown['_total'] / 2**20 / max(dt, 0.1):.1f} МБ/с, потоков {n})")
 
     def start(self, cmd):
         # id задачи: повтор запроса после сбоя связи не запускает её дважды.
@@ -561,13 +604,17 @@ def main(argv=None):
         return 0
     if not a.cmd:
         raise SystemExit("нет --cmd")
-    if not a.no_smoke:
+    if not a.no_smoke and smoke_passed_recently(a.image):
+        print(f"Проверка пути: пройдена для этого образа и кода исполнителя "
+              f"за последние {SMOKE_VALID_SEC // 3600} ч — не повторяется")
+    elif not a.no_smoke:
         # Перед арендой видеокарты — тот же образ на поде без неё (доли
         # цента): старт контейнера, исполнитель, прокси, удаление. Путь не
         # работает — карта не арендуется вообще.
         print("Проверка пути до аренды видеокарты:")
         if smoke(key, a) != 0:
             raise SystemExit("проверка пути не пройдена — видеокарта не арендована, деньги не потрачены")
+        record_smoke(a.image)
     token = secrets.token_urlsafe(32)
     extra = dotenv_subset([n.strip() for n in a.env_from_dotenv.split(",") if n.strip()])
 
@@ -634,6 +681,10 @@ def drive(key, pod, token, cap_sec, uploads, cmd, fetches, dest, prepare=None, p
     удалён, вызывающий берёт другой хост). Потраченное — pod["spent_usd"]."""
     pod_id, t0, code = pod["id"], time.time(), 1
 
+    def stage(name):
+        # Время каждого этапа от создания пода: куда уходят оплачиваемые секунды.
+        print(f"[+{time.time() - t0:5.0f} с] {name}", flush=True)
+
     def _sigint(*_):
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, _sigint)
@@ -641,13 +692,18 @@ def drive(key, pod, token, cap_sec, uploads, cmd, fetches, dest, prepare=None, p
         r = Runner(f"https://{pod_id}-{PORT}.proxy.runpod.net", token)
         if not r.wait_ready(min(1800, cap_sec), lambda: pod_status(key, pod_id)):
             raise SystemExit("исполнитель на поде не поднялся")
+        stage("исполнитель готов")
         if preflight:
             try:
                 pc = r.run(preflight, deadline=min(t0 + cap_sec, time.time() + PREFLIGHT_SEC))
             except SystemExit as e:
                 pc = f"не уложилась ({e})"
+            if pc == NO_TORCH_EXIT:
+                raise SystemExit(f"в образе нет torch для `{POD_PY}` — ошибка образа, другой хост "
+                                 f"её не исправит; под удалён")
             if pc != 0:
                 raise BadHost(f"видеокарта пода не работает (проверка: {pc})")
+            stage("видеокарта проверена")
         if prepare:
             first, rest_up = uploads[:1], uploads[1:]
             for path in first:
@@ -656,12 +712,15 @@ def drive(key, pod, token, cap_sec, uploads, cmd, fetches, dest, prepare=None, p
             for path in rest_up:
                 r.upload_dir(path)
             r.call("POST", f"/touch?name={UPLOADS_DONE}", b"")
+            stage("данные загружены")
             code = r.follow(deadline=t0 + cap_sec)
         else:
             for path in uploads:
                 r.upload_dir(path)
+            stage("данные загружены")
             code = r.run(cmd, deadline=t0 + cap_sec)
-        print(f"\nКоманда завершилась с кодом {code}")
+        print()
+        stage(f"команда завершилась с кодом {code}")
         for path in fetches:
             # Несозданный результат — не повод бросить остальные: забираем
             # всё, что есть, а пропуск называем.
@@ -704,6 +763,50 @@ def selftest_autodelete(key, image=SMOKE_IMAGE, idle_sec=60, limit_sec=360):
             terminate(key, pid)
 
 
+# Проверка пути тянет тот же образ (11 ГБ) на CPU-под — минуты ожидания на
+# каждый запуск. Результат зависит только от образа, команды старта и кода
+# исполнителя, поэтому запоминается на сутки по их отпечатку: сменился
+# любой — проверка идёт заново.
+SMOKE_VALID_SEC = 24 * 3600
+SMOKE_MARK = os.path.join(os.path.expanduser("~"), ".cache", "pipeline_runpod", "smoke_ok.json")
+
+
+def smoke_fingerprint(image):
+    import hashlib
+    src = open(os.path.join(HERE, "runpod_runner.py"), "rb").read()
+    return hashlib.sha256(json.dumps([image, START_ARGV, PORT, smoke_check(image)]).encode()
+                          + src).hexdigest()
+
+
+def smoke_check(image):
+    """Проверка содержимого образа на CPU-поде: у образа видеокарты — torch
+    для того интерпретатора, которым пойдут задачи. Ошибка образа ловится
+    здесь за доли цента, а не на аренде видеокарты."""
+    return "" if image == SMOKE_IMAGE else TORCH_CHECK
+
+
+def smoke_passed_recently(image, now=None):
+    try:
+        marks = json.load(open(SMOKE_MARK, encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    t = marks.get(smoke_fingerprint(image))
+    return t is not None and 0 <= (now or time.time()) - t < SMOKE_VALID_SEC
+
+
+def record_smoke(image):
+    try:
+        marks = json.load(open(SMOKE_MARK, encoding="utf-8"))
+    except (OSError, ValueError):
+        marks = {}
+    marks[smoke_fingerprint(image)] = time.time()
+    os.makedirs(os.path.dirname(SMOKE_MARK), exist_ok=True)
+    tmp = SMOKE_MARK + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(marks, f)
+    os.replace(tmp, SMOKE_MARK)
+
+
 def smoke(key, a):
     """Весь путь на поде без видеокарты: REST-создание, команда старта,
     исполнитель, прокси Runpod, загрузка, запуск, лог, возврат, удаление.
@@ -724,6 +827,8 @@ def smoke(key, a):
     cmd = (f"python3 -c \"import os;d=open('{os.path.basename(src)}/probe.txt').read();"
            f"os.makedirs('res',exist_ok=True);open('res/pong.txt','w').write(d+'-pong');"
            f"print('исполнитель жив', d)\"")
+    if smoke_check(image):
+        cmd = f"{smoke_check(image)} && {cmd}"
     code = drive(key, pod, token, 1800, [src], cmd, ["res"], out)
     got = open(os.path.join(out, "res", "pong.txt"), encoding="utf-8").read() \
         if os.path.exists(os.path.join(out, "res", "pong.txt")) else None
