@@ -246,3 +246,27 @@ def test_log_counts_new_embeddings_not_the_temp_path_length(monkeypatch, tmp_pat
     ps.cascade_reorder(_cands(3), ["a query"], str(tmp_path / "cf"), _probe, index=0,
                        url_of=lambda p: p["src"]["large"])
     assert "(новых оценок 3)" in capsys.readouterr().out
+
+
+def test_batches_group_images_of_similar_length_and_keep_input_order(monkeypatch):
+    """Замер 29.09 (RTX PRO 6000): пачки из картинок близкой длины — 38.9 ->
+    48.6 картинки/с при той же точности. Порядок ответа — порядок входа."""
+    import numpy as np
+    import qwen_vl_embed as q
+
+    class Im:
+        def __init__(self, w, h, tag):
+            self.size, self.tag = (w, h), tag
+    monkeypatch.setattr(q, "_load", lambda: True)
+    monkeypatch.setattr(q, "prepare_image", lambda im: im)
+    monkeypatch.setenv("QWEN_EMBED_BATCH", "2")
+    batches = []
+
+    def enc(conv, images):
+        batches.append([im.size[0] * im.size[1] for im in images])
+        return np.array([[im.tag, 0, 0, 0] for im in images], dtype="float32")
+    monkeypatch.setattr(q, "_encode", enc)
+    imgs = [Im(512, 512, 0), Im(64, 64, 1), Im(512, 480, 2), Im(64, 96, 3), Im(256, 256, 4)]
+    out = q.embed_images(imgs)
+    assert [int(v[0]) for v in out] == [0, 1, 2, 3, 4], "порядок входа сохранён"
+    assert batches == [[4096, 6144], [65536, 245760], [262144]], "пачки — по возрастанию длины"

@@ -215,6 +215,12 @@ def _fail(e):
     return None
 
 
+def _area(im):
+    """Площадь после smart_resize — она же число патчей картинки."""
+    w, h = getattr(im, "size", (0, 0))
+    return w * h
+
+
 def embed_images(images):
     """Нормированные векторы картинок (np.ndarray [n, d]) или None."""
     import numpy as np
@@ -223,12 +229,21 @@ def embed_images(images):
             return None
     try:
         prepared = [prepare_image(im) for im in images]
-        out = []
+        if not prepared:
+            return None
+        # Пачки из картинок близкой длины (число патчей): меньше пустого
+        # выравнивания в языковой части. Замер 29.09 на RTX PRO 6000:
+        # 38.9 -> 48.6 картинки/с, отличие от расчёта «по одной» то же
+        # (мин. косинус 0.99603 против 0.99608 у нынешних пачек). Порядок
+        # ответа — порядок входа.
+        order = sorted(range(len(prepared)), key=lambda k: (_area(prepared[k]), k))
         bs = batch_size()
-        for k in range(0, len(prepared), bs):
-            part = prepared[k:k + bs]
-            out.append(_encode([conversation(image=im) for im in part], part))
-        return np.concatenate(out) if out else None
+        parts = [[prepared[k] for k in order[i:i + bs]] for i in range(0, len(order), bs)]
+        out = [_encode([conversation(image=im) for im in part], part) for part in parts]
+        vecs = np.concatenate(out)
+        res = np.empty_like(vecs)
+        res[np.asarray(order)] = vecs
+        return res
     except Exception as e:  # noqa: BLE001 — см. _fail
         with _LOCK:
             return _fail(e)
