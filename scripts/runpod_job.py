@@ -214,6 +214,10 @@ def allowed_cuda(image):
     return [v for v in CUDA_VERSIONS if tuple(int(x) for x in v.split(".")) >= need]
 
 
+class NoStock(SystemExit):
+    """Ни одной карты из списка сейчас нет: пода нет, денег не тратится."""
+
+
 class BadHost(Exception):
     """Видеокарта пода не работает — под удалён, нужен другой хост."""
 SMOKE_IMAGE = "python:3.11-slim"
@@ -305,7 +309,7 @@ def create_pod(key, gpus, image, disk_gb, env, cloud, cpu=False, life_sec=None):
         except RuntimeError as e:
             last = e
             print(f"  {gpu or 'CPU'}: нет — {e}")
-    raise SystemExit(f"ни одной машины из списка нет в наличии ({last})")
+    raise NoStock(f"ни одной машины из списка нет в наличии ({last})")
 
 
 def pod_status(key, pod_id):
@@ -591,6 +595,9 @@ def main(argv=None):
     p.add_argument("--env-from-dotenv", default="", help="KEY1,KEY2 — передать в под из .env")
     p.add_argument("--idle-min", type=float, default=10)
     p.add_argument("--max-hours", type=float, default=4)
+    p.add_argument("--wait-stock-min", type=float, default=15,
+                   help="нет свободных карт — ждать столько минут, перепроверяя (пода нет — "
+                        "денег не тратится); 0 — не ждать")
     p.add_argument("--max-usd", type=float, default=2.0,
                    help="потолок денег на запуск: под удаляется, когда его цена дошла до лимита")
     a = p.parse_args(argv)
@@ -615,7 +622,9 @@ def main(argv=None):
         print(f"  нет свободных карт community от {a.min_gb} ГБ")
         if a.plan:
             return 0
-        raise SystemExit(1)
+        if not a.wait_stock_min:
+            raise NoStock(1)
+        # иначе — ожидание наличия (create_when_in_stock) после проверки пути
     for gid in gpus:
         g = by_id.get(gid, {"displayName": gid, "memoryInGb": "?"})
         lp = g.get("lowestPrice") or {}
@@ -660,6 +669,34 @@ def rent_and_drive(key, a, gpus, by_id, token, extra, attempts=HOST_ATTEMPTS):
         packer.shutdown(wait=False, cancel_futures=True)
 
 
+STOCK_POLL_SEC = 20
+
+
+def create_when_in_stock(key, a, order, create, by_id):
+    """Создать под; нет карт — ждать и перепроверять наличие (пода нет —
+    денег не тратится) до --wait-stock-min минут. Живой прогон 29.09:
+    все карты от 24 ГБ в community разом «нет в наличии», и запуск
+    просто сдавался. Без --gpu список карт перечитывается при каждой
+    проверке: освободиться может и та, которой в нём не было; типы, на
+    которых уже попалась неисправная карта, остаются в конце очереди."""
+    deadline = time.time() + max(0.0, getattr(a, "wait_stock_min", 0) or 0) * 60
+    while True:
+        try:
+            return create(order)
+        except NoStock as e:
+            if time.time() >= deadline:
+                raise
+            print(f"  {e} — жду {STOCK_POLL_SEC} с и проверяю снова "
+                  f"(ещё {max(0, deadline - time.time()) / 60:.0f} мин)", flush=True)
+            time.sleep(STOCK_POLL_SEC)
+            if not a.gpu:
+                info = plan(key, None, community=a.cloud == "COMMUNITY")
+                by_id.update({g["id"]: g for g in info["gpuTypes"]})
+                fresh = cheapest_gpus(info["gpuTypes"], a.min_gb, a.image)[:6]
+                tail = [g for g in order if g not in fresh]
+                order[:] = [g for g in fresh if g not in tail] + tail
+
+
 def _rent_attempts(key, a, order, by_id, token, extra, attempts, uploads, spent):
     for attempt in range(1, attempts + 1):
         left = a.max_usd - spent
@@ -675,8 +712,10 @@ def _rent_attempts(key, a, order, by_id, token, extra, attempts, uploads, spent)
             # остатку денег: если связь пропадёт, под не проживёт дольше.
             return runner_env(token, a.idle_min, budget_seconds(price(gid), left, a.max_hours) / 3600,
                               extra)
-        pod = create_pod(key, order, a.image, a.disk_gb, env_for, a.cloud,
-                         life_sec=lambda gid, left=left: budget_seconds(price(gid), left, a.max_hours))
+        pod = create_when_in_stock(
+            key, a, order, lambda gids, left=left: create_pod(
+                key, gids, a.image, a.disk_gb, env_for, a.cloud,
+                life_sec=lambda gid: budget_seconds(price(gid), left, a.max_hours)), by_id)
         cap_sec = budget_seconds(pod["costPerHr"], left, a.max_hours)
         print(f"Под {pod['id']} (попытка {attempt}/{attempts}): {pod['gpuName']}, ${pod['costPerHr']}/ч; "
               f"потолок ${left:.2f} = {cap_sec / 60:.0f} мин, самоудаление через {a.idle_min:.0f} мин простоя")

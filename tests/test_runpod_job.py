@@ -643,3 +643,34 @@ def test_parallel_extracts_into_shared_folders_do_not_race(runner, tmp_path, mon
     for _ in range(3):
         r.upload_dir(str(src), streams=12)
     assert len(list((work / "deep").rglob("*.bin"))) == 240
+
+
+def test_no_stock_waits_and_rents_when_a_card_frees_up(monkeypatch):
+    """Живой прогон 29.09: все карты «нет в наличии» — запуск сдавался.
+    Теперь ждёт (пода нет — денег нет) и берёт карту, когда она появилась."""
+    api = _two_gpu_api(monkeypatch)
+    free = {"now": False}
+    real_rest = rj.rest
+
+    def rest(method, path, key, body=None):
+        if method == "POST" and not free["now"]:
+            raise RuntimeError("There are no instances currently available")
+        return real_rest(method, path, key, body)
+    monkeypatch.setattr(rj, "rest", rest)
+    naps = []
+    monkeypatch.setattr(rj.time, "sleep", lambda sec: (naps.append(sec), free.update(now=len(naps) >= 3)))
+    monkeypatch.setattr(rj.Runner, "run", lambda self, cmd, deadline=None: 0)
+    assert rj.main(["--cmd", "job", "--no-smoke"]) == 0
+    assert naps[:3] == [rj.STOCK_POLL_SEC] * 3 and len(api.pods) == 0
+
+
+def test_no_stock_gives_up_after_the_wait_without_renting(monkeypatch):
+    api = _two_gpu_api(monkeypatch)
+    monkeypatch.setattr(rj, "rest", lambda method, path, key, body=None: (_ for _ in ()).throw(
+        RuntimeError("There are no instances currently available")) if method == "POST" else None)
+    clock = [0.0]
+    monkeypatch.setattr(rj.time, "time", lambda: clock[0])
+    monkeypatch.setattr(rj.time, "sleep", lambda sec: clock.__setitem__(0, clock[0] + sec))
+    with pytest.raises(rj.NoStock):
+        rj.main(["--cmd", "job", "--no-smoke", "--wait-stock-min", "1"])
+    assert not api.pods
