@@ -388,7 +388,7 @@ def nvenc_session_limit():
         return int(env)
     try:
         r = subprocess.run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
-                           capture_output=True, text=True, timeout=15)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15)
         names = [n.strip() for n in (r.stdout or "").splitlines() if n.strip()]
     except Exception:
         names = []
@@ -16405,7 +16405,7 @@ def _media_video_format(path):
     try:
         r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
                             "-show_entries", "stream=codec_name,pix_fmt", "-of", "csv=p=0", path],
-                           capture_output=True, text=True, timeout=30)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
         parts = (r.stdout or "").strip().splitlines()[0].split(",") if r.returncode == 0 else []
         if len(parts) >= 2 and parts[0] and parts[1]:
             fmt = (parts[0].strip(), parts[1].strip())
@@ -16421,7 +16421,7 @@ def _framemd5(path, pix_fmt, hw):
         cmd += ["-hwaccel", "cuda"]
     cmd += ["-i", path, "-vf", f"format={pix_fmt}", "-f", "framemd5", "-"]
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
     except Exception:
         return None
     if r.returncode != 0:
@@ -16453,7 +16453,7 @@ def hwdec_safe_formats():
                 try:
                     r = subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
                                         "-i", "testsrc2=s=640x360:d=1:r=24", "-frames:v", "24"] + args + [src],
-                                       capture_output=True, text=True, timeout=120)
+                                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
                 except Exception:
                     continue
                 fmt = _media_video_format(src) if r.returncode == 0 else None
