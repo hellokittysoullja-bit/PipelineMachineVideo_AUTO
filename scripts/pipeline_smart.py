@@ -11305,6 +11305,15 @@ def render_timeout_sec(dur):
     return max(30 * contention, dur * 15 * contention)
 
 
+def gpu_render_active():
+    """GPU_RENDER включён и видеокарта есть (gpu_render.py)."""
+    try:
+        import gpu_render
+        return gpu_render.enabled() and gpu_render.device() is not None
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def verify_clip(path, expected_dur, tolerance=CLIP_VERIFY_TOLERANCE_SEC):
     """ffprobe-верификация уже отрендеренного клипа — единственный источник
     правды о том, что реально записано на диск, независимый от кода
@@ -11761,11 +11770,12 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
         iw, ih = kb_cw, kb_ch
     anchor = resolve_crop_anchor(photo)
     nw, nh, cx0, cy0 = compute_crop_offset(iw, ih, kb_cw, kb_ch, anchor)
+    fl_str = film_look(h, section, brightness_bias, energy_bias, levels, wb, domain)
     vf_base = (f"scale={nw}:{nh},"
                f"crop={kb_cw}:{kb_ch}:{cx0}:{cy0},setsar=1,"
                f"zoompan=z={z}:x={x}:y={y}:"
                f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS},"
-               f"{film_look(h, section, brightness_bias, energy_bias, levels, wb, domain)}"
+               f"{fl_str}"
                # Reference-Guided Look Management (см. scripts/look_reference.py) —
                # ДОБАВОЧНЫЙ фрагмент ПОСЛЕ уже готового film_look(), никогда не
                # заменяет его. look_filter=None (фича выключена/lookbook пуст/
@@ -11811,6 +11821,23 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
         return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=render_timeout_sec(dur))
 
     label = os.path.basename(out)
+    # Видеокарта (gpu_render.py): тот же рецепт — те же строки движения и
+    # грейда — считается на GPU. Надписи, Look Management и режимы зерна,
+    # кроме softlight, пока идут прежним путём; любой сбой — тоже.
+    if not vf_overlay and not look_filter and gpu_render_active() and (
+            not GRAIN_ENABLED or GRAIN_BLEND_MODE == "softlight"):
+        import gpu_render
+        grain_op = min(1.0, GRAIN_OPACITY * GRAIN_SOFTLIGHT_GAIN * grain_scale)
+        enc = clip_codec_args() + ["-r", str(FPS)] + COLOR_META_ARGS + [tmp_out]
+        ok, why = gpu_render.render_kenburns(
+            photo, tmp_out, frames, z, x, y, (nw, nh, kb_cw, kb_ch, cx0, cy0), fl_str, enc,
+            fps=FPS, W=WIDTH, H=HEIGHT, grain_path=GRAIN_LOOP_PATH if GRAIN_ENABLED else None,
+            grain_opacity=grain_op)
+        if ok:
+            ok, why, _ = verify_clip(tmp_out, dur)
+        if ok:
+            return finalize_render(tmp_out, out, True)
+        print(f"  [{label}] видеокарта: {why} — рендер на процессоре")
     if vf_overlay:
         ok, reason = run_ffmpeg_with_retry(lambda: render(vf_overlay), tmp_out, dur, label)
         if ok:
@@ -15779,6 +15806,23 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
         return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=render_timeout_sec(dur))
 
     label = os.path.basename(out)
+    # Видеокарта (gpu_render.py): тот же рецепт — те же строки движения и
+    # грейда — считается на GPU. Надписи, Look Management и режимы зерна,
+    # кроме softlight, пока идут прежним путём; любой сбой — тоже.
+    if not vf_overlay and not look_filter and gpu_render_active() and (
+            not GRAIN_ENABLED or GRAIN_BLEND_MODE == "softlight"):
+        import gpu_render
+        grain_op = min(1.0, GRAIN_OPACITY * GRAIN_SOFTLIGHT_GAIN * grain_scale)
+        enc = clip_codec_args() + ["-r", str(FPS)] + COLOR_META_ARGS + [tmp_out]
+        ok, why = gpu_render.render_kenburns(
+            photo, tmp_out, frames, z, x, y, (nw, nh, kb_cw, kb_ch, cx0, cy0), fl_str, enc,
+            fps=FPS, W=WIDTH, H=HEIGHT, grain_path=GRAIN_LOOP_PATH if GRAIN_ENABLED else None,
+            grain_opacity=grain_op)
+        if ok:
+            ok, why, _ = verify_clip(tmp_out, dur)
+        if ok:
+            return finalize_render(tmp_out, out, True)
+        print(f"  [{label}] видеокарта: {why} — рендер на процессоре")
     if vf_overlay:
         ok, reason = run_ffmpeg_with_retry(lambda: render(vf_overlay), tmp_out, dur, label)
         if ok:
@@ -17655,6 +17699,9 @@ def render_recipe_signature():
         # NVENC клипы другого кодера не берутся из кэша как свои.
         if clip_encoder() == "nvenc":
             parts.append(repr(("CLIP_ENCODER", NVENC_CLIP_ARGS)))
+        if gpu_render_active():
+            import gpu_render
+            parts.append(repr(("GPU_RENDER", gpu_render.signature())))
     except Exception:
         return "recipe:unknown"
     return "recipe:" + hashlib.md5("".join(parts).encode()).hexdigest()[:10]
