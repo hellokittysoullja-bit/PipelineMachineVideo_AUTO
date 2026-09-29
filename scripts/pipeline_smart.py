@@ -13176,6 +13176,20 @@ def judge_candidates(index, kind, phrase, brief, candidates_info, spec=None):
     # нагрудника»), и в нём крупный предмет весит столько же, сколько главное.
     if spec:
         brief = spec["focus"]
+    # Проверка первых по каскаду — одновременно с сеткой (prestart_verify):
+    # они войдут в первую порцию при любом ответе сетки.
+    early_ex = ctx_pool.ContextThreadPoolExecutor(max(1, VERIFY_FINALISTS))
+    try:
+        early = prestart_verify(early_ex, judged, _verify_asker(kind, phrase, brief, gw, model, card, spec))
+        return _judge_candidates_graded(index, kind, phrase, brief, judged, gw, model, card, spec,
+                                        rep, setting, early)
+    finally:
+        early_ex.shutdown(wait=True)
+
+
+def _judge_candidates_graded(index, kind, phrase, brief, judged, gw, model, card, spec, rep, setting,
+                             early):
+    import shot_judge
     scores = shot_judge.judge(gw, model, phrase=phrase, brief=brief,
                               candidates=[(str(c["p"].get("id")), c.get("judge_path") or c["path"])
                                           for c in judged],
@@ -13189,7 +13203,7 @@ def judge_candidates(index, kind, phrase, brief, candidates_info, spec=None):
         # не сетка, а проверка по утверждениям: её вызовы отдельные, со своими
         # повторами. Без сетки финалисты — первые по каскаду; не ответила и
         # проверка — слот без судьи, как раньше.
-        _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec)
+        _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec, early)
         if not any(c.get("verify") is not None for c in judged):
             print(f"  слот {index}: судья кадров не ответил ({rep.get('refused')}) — ранжирование без него")
             return False
@@ -13200,7 +13214,7 @@ def judge_candidates(index, kind, phrase, brief, candidates_info, spec=None):
         return True
     for c in judged:
         c["judge"] = scores[str(c["p"].get("id"))]
-    _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec)
+    _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec, early)
     _rank_look_ties(index, kind, judged, gw, model)
     _judge_budget_forecast(index, gw)
     return True
@@ -13336,7 +13350,40 @@ def _record_world_vote(index, focus_frames, foreign_frames):
         _log_list("SHOT_JUDGE_LOG").append({"world_breaker": True, "slots": len(votes), "foreign": foreign})
 
 
-def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=None):
+def _verify_asker(kind, phrase, brief, gw, model, card, spec=None):
+    """Вопрос проверки финалиста по пунктам — одна функция на обычную
+    проверку и на ранний запуск одновременно с сеткой (prestart_verify):
+    вопрос обязан совпадать до байта, иначе ответ раннего запуска не был бы
+    ответом на тот вопрос, который задала бы проверка."""
+    import shot_judge
+    import world_card
+    spec = spec or shot_judge.spec_from_brief(phrase, brief)
+    setting = world_card.claims_setting(card)
+    cache = os.path.join(TEMP_FOLDER, "shot_judge_cache")
+
+    def ask(c):
+        frames = len(c.get("frames") or []) or None
+        return shot_judge.verify_claims(gw, model, phrase=phrase, spec=spec, setting=setting,
+                                        path=c.get("judge_path") or c["path"], kind=kind,
+                                        cache_dir=cache, reasoning=VERIFY_REASONING,
+                                        caption=candidate_caption(c.get("p")), frames=frames,
+                                        world_separate=True)
+    return ask
+
+
+def prestart_verify(ex, judged, ask):
+    """Ранний запуск проверки тех финалистов, кто войдёт в первую порцию при
+    ЛЮБОМ ответе сетки: первые по каскаду и помеченные словарём запретов
+    (verify_finalists_of: order[:K] ∪ range(K) ∪ blocklisted). Их спросят в
+    любом случае — и когда сетка ответила, и когда нет, — поэтому ранний
+    запуск не добавляет ни одного вопроса, а снимает один ход судьи на
+    фразу и вид кадра. -> {id(кандидата): future}."""
+    first = list(range(min(VERIFY_FINALISTS, len(judged))))
+    first += [k for k, c in enumerate(judged) if c["p"].get("_blocklisted")]
+    return {id(judged[k]): ex.submit(ask, judged[k]) for k in dict.fromkeys(first)}
+
+
+def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=None, early=None):
     """c["verify"] финалистам: вектор утверждений или "veto";
     c["verify_focus"] — найдено ли главное; c["verify_nothing"] — не найдено
     ничего обязательного; c["world_clear"] — мир проверен и чист. Все
@@ -13353,20 +13400,18 @@ def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=
     # внутри вопроса по утверждениям — хуже (749 пар, 11 годных отклонено:
     # пластинчатый доспех читался как азиатский); мир отдельно без списка —
     # 6 из 9, современный нож остаётся.
-    setting = world_card.claims_setting(card)
     cg_veto = not world_card.renders_allowed(card)
-    cache = os.path.join(TEMP_FOLDER, "shot_judge_cache")
     world_veto = world_veto_active()
     focus_frames = foreign_frames = 0
     any_verified = False
+    plain_ask = _verify_asker(kind, phrase, brief, gw, model, card, spec)
+    early = early or {}
 
     def ask(c):
-        frames = len(c.get("frames") or []) or None
-        return shot_judge.verify_claims(gw, model, phrase=phrase, spec=spec, setting=setting,
-                                        path=c.get("judge_path") or c["path"], kind=kind,
-                                        cache_dir=cache, reasoning=VERIFY_REASONING,
-                                        caption=candidate_caption(c.get("p")), frames=frames,
-                                        world_separate=True)
+        # Ответ раннего запуска (prestart_verify) — тот же вопрос, заданный
+        # одновременно с сеткой; второй раз не спрашивается.
+        f = early.get(id(c))
+        return f.result() if f is not None else plain_ask(c)
 
     for more in (False, True):
         finalists = verify_finalists_of(judged, more)
