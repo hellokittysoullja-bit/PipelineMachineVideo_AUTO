@@ -299,3 +299,80 @@ def test_failed_smoke_rents_no_gpu(monkeypatch):
     with pytest.raises(SystemExit):
         rj.main(["--cmd", "true"])
     assert not any(c[0] == "REST POST /pods" for c in api.calls), "видеокарта арендована после провала"
+
+
+def test_transient_proxy_errors_are_retried_and_runner_errors_are_not(runner, monkeypatch):
+    """Пустой 404/502 от прокси при живом исполнителе — повтор; ответ самого
+    исполнителя (JSON с причиной) — сразу наружу."""
+    r, _proc, _work = runner
+    real = urllib.request.urlopen
+    fails = {"n": 2}
+
+    def flaky(req, *a, **k):
+        if fails["n"] > 0:
+            fails["n"] -= 1
+            raise urllib.error.HTTPError(req.full_url, 404 if fails["n"] else 502, "proxy",
+                                         {}, io.BytesIO(b""))
+        return real(req, *a, **k)
+    monkeypatch.setattr(urllib.request, "urlopen", flaky)
+    monkeypatch.setattr(rj.time, "sleep", lambda s: None)
+    assert "offset" in r.call("GET", "/log?offset=0")
+    assert fails["n"] == 0
+    with pytest.raises(urllib.error.HTTPError) as e:        # ответ исполнителя
+        r.call("GET", "/nope")
+    assert e.value.code == 404 and json.loads(e.value.read())["error"]
+
+
+def test_repeated_run_and_extract_do_not_happen_twice(runner, tmp_path):
+    r, _proc, work = runner
+    body = json.dumps({"cmd": "echo once >> count.txt", "id": "job1"}).encode()
+    r.call("POST", "/run", body)
+    time.sleep(1)
+    again = r.call("POST", "/run", body)                     # повтор после «сбоя связи»
+    assert again.get("again") is True
+    time.sleep(1)
+    assert (work / "count.txt").read_text().count("once") == 1
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        data = b"x"
+        ti = tarfile.TarInfo("f.txt")
+        ti.size = 1
+        tar.addfile(ti, io.BytesIO(data))
+    r.call("PUT", "/upload?name=u.tar.gz&offset=0", buf.getvalue())
+    assert r.call("POST", "/extract?name=u.tar.gz", b"")["ok"]
+    assert r.call("POST", "/extract?name=u.tar.gz", b"").get("again") is True
+
+
+def test_container_restart_mid_job_is_detected(monkeypatch):
+    r = rj.Runner("http://x", "t")
+    seq = iter([{"ok": True}, {"offset": 0, "text": "", "running": True, "exit": None, "uptime": 100},
+                {"offset": 0, "text": "", "running": False, "exit": None, "uptime": 3}])
+    monkeypatch.setattr(rj.Runner, "call", lambda self, *a, **k: next(seq))
+    monkeypatch.setattr(rj.time, "sleep", lambda s: None)
+    with pytest.raises(SystemExit, match="перезапустился"):
+        r.run("long job")
+
+
+def test_sweep_deletes_only_our_expired_pods(monkeypatch):
+    """Контейнер не стартовал и эта сторона пропала — удалить под некому,
+    кроме следующего запуска: он убирает НАШИ поды с истёкшим сроком и не
+    трогает ни чужие, ни живые."""
+    now = 1_000_000
+    pods = [{"id": "old", "name": rj.pod_name(now - 5), "desiredStatus": "RUNNING"},
+            {"id": "live", "name": rj.pod_name(now + 600), "desiredStatus": "RUNNING"},
+            {"id": "foreign", "name": "my-jupyter", "desiredStatus": "RUNNING"},
+            {"id": "gone", "name": rj.pod_name(now - 5), "desiredStatus": "TERMINATED"}]
+    killed = []
+    monkeypatch.setattr(rj, "rest", lambda m, p, k, b=None: pods if (m, p) == ("GET", "/pods") else None)
+    monkeypatch.setattr(rj, "terminate", lambda key, pid: killed.append(pid) or True)
+    assert rj.sweep_expired("k", now=now) == ["old"] and killed == ["old"]
+
+
+def test_pod_name_carries_a_deadline_beyond_its_own_cap(monkeypatch):
+    api = FakeApi()
+    monkeypatch.setattr(rj, "rest", api.rest)
+    t = rj.time.time()
+    rj.create_pod("k", ["g"], "img", 10, [], "COMMUNITY", life_sec=1800)
+    body = [c for c in api.calls if c[0] == "REST POST /pods"][0][1]
+    deadline = int(body["name"][len(rj.POD_PREFIX):])
+    assert t + 1800 < deadline <= t + 1800 + 600 + 5

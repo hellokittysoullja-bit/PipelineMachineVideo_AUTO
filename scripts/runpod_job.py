@@ -198,14 +198,47 @@ def budget_seconds(price_per_hr, max_usd, max_hours):
     return cap
 
 
-def create_pod(key, gpus, image, disk_gb, env, cloud, cpu=False):
+POD_PREFIX = "pipeline-job-"
+
+
+def pod_name(deadline):
+    """Имя пода несёт его крайний срок (unix-время): sweep_expired удаляет
+    наши поды с истёкшим сроком, даже если исполнитель в них так и не
+    стартовал и удалить себя сам не может."""
+    return f"{POD_PREFIX}{int(deadline)}"
+
+
+def sweep_expired(key, now=None):
+    """Удалить поды этого скрипта, чей срок истёк. Чужие поды (другое имя) и
+    живые запуски (срок впереди) не трогаются. Возвращает удалённые id."""
+    now = time.time() if now is None else now
+    gone = []
+    for pod in rest("GET", "/pods", key) or []:
+        name = pod.get("name") or ""
+        if not name.startswith(POD_PREFIX):
+            continue
+        try:
+            deadline = int(name[len(POD_PREFIX):])
+        except ValueError:
+            continue
+        if deadline < now and pod.get("desiredStatus") != "TERMINATED":
+            print(f"  под {pod['id']} ({name}) пережил свой срок — удаляю")
+            terminate(key, pod["id"])
+            gone.append(pod["id"])
+    return gone
+
+
+def create_pod(key, gpus, image, disk_gb, env, cloud, cpu=False, life_sec=None):
     """env — список переменных или функция gpu -> список (у каждой карты
     своя цена, а значит и свой потолок жизни пода в секундах). cpu — под без
     видеокарты (проверка пути за доли цента, см. --smoke)."""
     last = None
     for gpu in ([None] if cpu else gpus):
         e = env(gpu) if callable(env) else env
-        body = {"name": "pipeline-job", "imageName": image, "containerDiskInGb": disk_gb,
+        life = life_sec(gpu) if callable(life_sec) else (life_sec or 4 * 3600)
+        # Запас 10 мин на удаление: срок в имени — не раньше, чем исполнитель
+        # сам удалит под по своему потолку.
+        body = {"name": pod_name(time.time() + life + 600), "imageName": image, "containerDiskInGb": disk_gb,
                 "volumeInGb": 0, "ports": [f"{PORT}/http"], "dockerStartCmd": START_ARGV,
                 "env": {x["key"]: x["value"] for x in e}, "cloudType": cloud}
         if cpu:
@@ -264,12 +297,43 @@ class Runner:
     def __init__(self, base, token):
         self.base, self.token = base.rstrip("/"), token
 
-    def call(self, method, path, body=None, timeout=90, raw=False):
-        req = urllib.request.Request(self.base + path, data=body, method=method,
-                                     headers={"X-Runner-Token": self.token, "User-Agent": UA})
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            data = r.read()
-        return data if raw else json.loads(data)
+    # Прокси Runpod между нами и подом иногда отвечает случайной ошибкой при
+    # живом исполнителе (живой прогон 29.09: пустой 404 посреди лога задачи
+    # уронил запуск). Такие ответы пережидаются повтором; все запросы
+    # исполнителя повторяемы безопасно (см. runpod_runner: загрузка по
+    # смещению, распаковка и запуск — по идентификатору, дважды не делаются).
+    RETRY_SEC = 240
+    TRANSIENT_HTTP = {404, 408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 525, 530}
+
+    def call(self, method, path, body=None, timeout=90, raw=False, retry=True):
+        t0, attempt = time.time(), 0
+        while True:
+            req = urllib.request.Request(self.base + path, data=body, method=method,
+                                         headers={"X-Runner-Token": self.token, "User-Agent": UA})
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as r:
+                    data = r.read()
+                return data if raw else json.loads(data)
+            except urllib.error.HTTPError as e:
+                payload = e.read()
+                # Ответ самого исполнителя — JSON с причиной: это не сбой
+                # связи, повторять нечего. Пустое тело — прокси.
+                own = payload.strip().startswith(b"{")
+                if own or e.code not in self.TRANSIENT_HTTP or not retry:
+                    e.fp = io.BytesIO(payload)
+                    e.read = e.fp.read
+                    raise
+                err = f"HTTP {e.code} от прокси"
+            except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
+                if not retry:
+                    raise
+                err = f"{type(e).__name__}: {e}"
+            attempt += 1
+            if time.time() - t0 > self.RETRY_SEC:
+                raise RuntimeError(f"исполнитель недоступен {self.RETRY_SEC} с ({err})")
+            if attempt == 1 or attempt % 5 == 0:
+                print(f"\n  связь с подом: {err} — повтор", flush=True)
+            time.sleep(min(15, 2 * attempt))
 
     def wait_ready(self, limit_sec, status_fn=None, run_grace_sec=300):
         """Ждать исполнителя. status_fn() -> (секунд работы контейнера или
@@ -279,7 +343,7 @@ class Runner:
         t0, last_err, shown, next_status = time.time(), None, None, 0.0
         while time.time() - t0 < limit_sec:
             try:
-                if self.call("GET", "/health", timeout=15).get("ok"):
+                if self.call("GET", "/health", timeout=15, retry=False).get("ok"):
                     self.call("GET", "/log?offset=0")   # клиент на месте — таймер простоя с нуля
                     print(f"  исполнитель готов через {time.time() - t0:.0f} с")
                     return True
@@ -328,17 +392,25 @@ class Runner:
                 off = json.loads(e.read())["size"]     # докачка с того места, где под остановился
             print(f"  загрузка {path}: {off / 2**20:.0f} / {len(data) / 2**20:.0f} МБ", end="\r")
         print()
-        self.call("POST", f"/extract?name={fname}", b"")
+        self.call("POST", f"/extract?name={fname}", b"")        # повтор безопасен: по имени
 
     def run(self, cmd, deadline=None):
         """deadline — момент (time.time()), когда потолок денег исчерпан:
         задача прерывается, под удаляется вызывающим (finally)."""
-        self.call("POST", "/run", json.dumps({"cmd": cmd}).encode())
-        off = 0
+        # id задачи: повтор запроса после сбоя связи не запускает её дважды.
+        self.call("POST", "/run", json.dumps({"cmd": cmd, "id": secrets.token_hex(8)}).encode())
+        off, last_up = 0, None
         while True:
             if deadline is not None and time.time() > deadline:
                 raise SystemExit("потолок денег на запуск исчерпан — задача прервана, под удаляется")
             st = self.call("GET", f"/log?offset={off}")
+            # Время жизни исполнителя упало — контейнер пода перезапустился
+            # (например, нехватка памяти): новый исполнитель про задачу не
+            # знает, и ждать её конца бессмысленно до самого потолка денег.
+            up = st.get("uptime")
+            if last_up is not None and up is not None and up < last_up:
+                raise SystemExit("контейнер пода перезапустился посреди задачи — задача потеряна")
+            last_up = up if up is not None else last_up
             if st["text"]:
                 sys.stdout.write(st["text"])
                 sys.stdout.flush()
@@ -378,6 +450,10 @@ def dotenv_subset(names):
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--plan", action="store_true", help="цены и наличие карт, ничего не создаёт")
+    p.add_argument("--cleanup", action="store_true",
+                   help="только удалить поды этого скрипта с истёкшим сроком")
+    p.add_argument("--selftest-autodelete", action="store_true",
+                   help="живая проверка: под без видеокарты удаляет себя сам по простою")
     p.add_argument("--no-smoke", action="store_true",
                    help="не проверять путь на CPU-поде перед арендой видеокарты")
     p.add_argument("--smoke", action="store_true",
@@ -402,8 +478,15 @@ def main(argv=None):
                    help="потолок денег на запуск: под удаляется, когда его цена дошла до лимита")
     a = p.parse_args(argv)
     key = api_key()
+    # Каждый запуск сначала убирает наши поды с истёкшим сроком — страховка
+    # на случай, когда и эта сторона пропала, и исполнитель не стартовал.
+    sweep_expired(key)
+    if a.cleanup:
+        return 0
     if a.smoke:
         return smoke(key, a)
+    if a.selftest_autodelete:
+        return selftest_autodelete(key, a.image or SMOKE_IMAGE)
     a.image = a.image or DEFAULT_IMAGE
     info = plan(key, a.gpu, community=a.cloud == "COMMUNITY")
     me = info["myself"]
@@ -444,7 +527,8 @@ def main(argv=None):
         # связь пропадёт, под всё равно не проживёт дольше, чем на --max-usd.
         return runner_env(token, a.idle_min, budget_seconds(price(gid), a.max_usd, a.max_hours) / 3600,
                           extra)
-    pod = create_pod(key, gpus, a.image, a.disk_gb, env_for, a.cloud)
+    pod = create_pod(key, gpus, a.image, a.disk_gb, env_for, a.cloud,
+                     life_sec=lambda gid: budget_seconds(price(gid), a.max_usd, a.max_hours))
     cap_sec = budget_seconds(pod["costPerHr"], a.max_usd, a.max_hours)
     print(f"Под {pod['id']}: {pod['gpuName']}, ${pod['costPerHr']}/ч; потолок "
           f"${a.max_usd:.2f} = {cap_sec / 60:.0f} мин, самоудаление через {a.idle_min:.0f} мин простоя")
@@ -477,6 +561,30 @@ def drive(key, pod, token, cap_sec, uploads, cmd, fetches, dest):
     return code
 
 
+def selftest_autodelete(key, image=SMOKE_IMAGE, idle_sec=60, limit_sec=360):
+    """Живая проверка страховки: под без видеокарты, к которому никто не
+    обращается, обязан удалить себя сам по простою. Не удалился за
+    limit_sec — удаляется отсюда, проверка не пройдена."""
+    token = secrets.token_urlsafe(32)
+    env = runner_env(token, idle_sec / 60, 0.25, {})
+    pod = create_pod(key, [], image, 20, env, "SECURE", cpu=True, life_sec=limit_sec)
+    pid, t0 = pod["id"], time.time()
+    print(f"Под {pid}: CPU, ${pod['costPerHr']}/ч — жду самоудаления после {idle_sec} с простоя")
+    try:
+        while time.time() - t0 < limit_sec:
+            left = rest("GET", f"/pods/{pid}", key)
+            if not left or left.get("desiredStatus") == "TERMINATED":
+                print(f"  под удалил себя сам через {time.time() - t0:.0f} с после создания")
+                return 0
+            time.sleep(10)
+        print(f"  под НЕ удалил себя за {limit_sec} с")
+        return 1
+    finally:
+        left = rest("GET", f"/pods/{pid}", key)
+        if left and left.get("desiredStatus") != "TERMINATED":
+            terminate(key, pid)
+
+
 def smoke(key, a):
     """Весь путь на поде без видеокарты: REST-создание, команда старта,
     исполнитель, прокси Runpod, загрузка, запуск, лог, возврат, удаление.
@@ -488,7 +596,7 @@ def smoke(key, a):
     token = secrets.token_urlsafe(32)
     env = runner_env(token, a.idle_min, min(a.max_hours, 0.5), {})
     print(f"Проверка пути: под без видеокарты, образ {image}")
-    pod = create_pod(key, [], image, 20, env, "SECURE", cpu=True)
+    pod = create_pod(key, [], image, 20, env, "SECURE", cpu=True, life_sec=1800)
     print(f"Под {pod['id']}: CPU, ${pod['costPerHr']}/ч")
     src = tempfile.mkdtemp(prefix="smoke_up_")
     with open(os.path.join(src, "probe.txt"), "w", encoding="utf-8") as f:

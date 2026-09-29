@@ -46,13 +46,37 @@ MAX_SEC = float(os.environ.get("RUNNER_MAX_SEC", str(4 * 3600)))
 POLL_SEC = float(os.environ.get("RUNNER_POLL_SEC", "15"))
 
 STATE = {"started": time.time(), "last_seen": time.time(), "proc": None,
-         "exit": None, "cmd": None, "terminating": False}
+         "exit": None, "cmd": None, "terminating": False, "job_id": None, "extracted": set()}
 LOCK = threading.Lock()
 
 
+UA = "pipeline-runpod-runner/1.0"   # Cloudflare перед API Runpod режет подпись Python по умолчанию (403)
+
+
+def _api_delete(pod, key):
+    """Удалить под через API ключом пода: REST, затем GraphQL. True — API
+    ответил без ошибки."""
+    import urllib.request
+    for req in (
+        urllib.request.Request(f"https://rest.runpod.io/v1/pods/{pod}", method="DELETE",
+                               headers={"Authorization": f"Bearer {key}", "User-Agent": UA}),
+        urllib.request.Request(
+            "https://api.runpod.io/graphql", method="POST",
+            data=json.dumps({"query": f'mutation {{ podTerminate(input: {{podId: "{pod}"}}) }}'}).encode(),
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}",
+                     "User-Agent": UA})):
+        try:
+            urllib.request.urlopen(req, timeout=60).read()
+            return True
+        except Exception as e:  # noqa: BLE001 — следующий путь
+            print(f"runner: {req.get_method()} {req.full_url}: {e}", flush=True)
+    return False
+
+
 def self_terminate(reason):
-    """Удалить этот под. Сначала runpodctl (ключ пода), затем — если его нет
-    в образе — тот же вызов через API. Повторно не зовётся."""
+    """Удалить этот под. runpodctl (ключ пода), затем REST, затем GraphQL —
+    и так по кругу, пока одно не сработает: под, который не смог удалить
+    себя, стоит за деньги. Повторно не зовётся."""
     with LOCK:
         if STATE["terminating"]:
             return
@@ -62,21 +86,16 @@ def self_terminate(reason):
     if os.environ.get("RUNNER_DRY_TERMINATE"):
         print(f"runner: (сухой режим) remove pod {pod}", flush=True)
         return
-    try:
-        subprocess.run(["runpodctl", "remove", "pod", pod], timeout=60, check=True)
-        return
-    except Exception as e:  # noqa: BLE001 — пробуем API
-        print(f"runner: runpodctl не сработал ({e}), пробую API", flush=True)
-    try:
-        import urllib.request
-        body = json.dumps({"query": f'mutation {{ podTerminate(input: {{podId: "{pod}"}}) }}'})
-        req = urllib.request.Request(
-            "https://api.runpod.io/graphql", data=body.encode(), method="POST",
-            headers={"Content-Type": "application/json",
-                     "Authorization": f"Bearer {os.environ.get('RUNPOD_API_KEY', '')}"})
-        urllib.request.urlopen(req, timeout=60).read()
-    except Exception as e:  # noqa: BLE001
-        print(f"runner: не смог удалить под ({e}) — сработает потолок аккаунта", flush=True)
+    key = os.environ.get("RUNPOD_API_KEY", "")
+    for attempt in range(1000):
+        try:
+            subprocess.run(["runpodctl", "remove", "pod", pod], timeout=60, check=True)
+            return
+        except Exception as e:  # noqa: BLE001 — пробуем API
+            print(f"runner: runpodctl не сработал ({e})", flush=True)
+        if _api_delete(pod, key):
+            return
+        time.sleep(min(60, 5 * (attempt + 1)))
 
 
 def job_running():
@@ -191,22 +210,30 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             if u.path == "/extract":
-                src = os.path.join(UPLOADS, os.path.basename(q["name"]))
+                name = os.path.basename(q["name"])
+                if name in STATE["extracted"]:     # повтор после сбоя связи
+                    return self._send(200, {"ok": True, "again": True})
+                src = os.path.join(UPLOADS, name)
                 with tarfile.open(src, "r:gz") as tar:
                     for m in tar.getmembers():
                         _safe(m.name)          # архив не пишет вне /work
                     tar.extractall(WORK)
                 os.remove(src)
+                STATE["extracted"].add(name)
                 return self._send(200, {"ok": True})
             if u.path == "/run":
+                req = json.loads(self._body() or b"{}")
+                if req.get("id") and req["id"] == STATE["job_id"]:
+                    # Повтор того же запуска после сбоя связи: задача уже
+                    # запущена (или даже закончилась) — второй раз не запускать.
+                    return self._send(200, {"ok": True, "again": True})
                 if job_running():
                     return self._send(409, {"error": "задача уже идёт"})
-                req = json.loads(self._body() or b"{}")
                 cwd = _safe(req.get("cwd", "."))
                 with open(LOG, "ab") as log:
                     proc = subprocess.Popen(["bash", "-lc", req["cmd"]], cwd=cwd, stdout=log,
                                             stderr=subprocess.STDOUT)
-                STATE.update(proc=proc, exit=None, cmd=req["cmd"])
+                STATE.update(proc=proc, exit=None, cmd=req["cmd"], job_id=req.get("id"))
                 threading.Thread(target=_reap, args=(proc,), daemon=True).start()
                 return self._send(200, {"ok": True, "pid": proc.pid})
             if u.path == "/terminate":
