@@ -265,3 +265,12 @@ def test_main_subject_question_asks_belonging_not_possibility():
                                     "historical", "photo", None, None)):
         assert "could the MAIN subject" not in text
         assert "faithful reconstruction" in text and "modern-made" in text
+
+
+def test_drawing_is_judged_by_what_it_shows():
+    """29.09: «сделано в наше время» относилось к самому рисунку, и
+    сгенерированные кадры (рисунки тушью) проходили вопрос о мире в 6 из 17
+    случаев. Фраза про рисунок — замеренный вариант (16 из 17)."""
+    import shot_judge as sj
+    assert "judged by what it shows, not by when it was drawn" in sj.MAIN_WORLD_Q
+    assert sj.MAIN_WORLD_Q.replace("{", "{{").replace("}", "}}") in sj.WORLD_ONLY_PROMPT
