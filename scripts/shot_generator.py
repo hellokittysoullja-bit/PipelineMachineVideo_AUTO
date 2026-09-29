@@ -71,6 +71,13 @@ DEFAULT_SIZE = "1792x1024"
 # время: ~35-40 с на вариант (эп.98), только на слотах, где сработала
 # генерация. 4 — решение владельца 27.09.
 VARIANTS = 4
+# Отказ фильтра содержимого шлюза — не свойство описания, а случайность на
+# результате: замер 29.09, одно описание («кинжал плашмя на ладони»), 4
+# варианта — отказано 2 из 4 и 2 из 4 по очереди, 0 и 1 из 4 одновременно.
+# Поэтому отказанный фильтром вариант повторяется (модель бесплатна, повтор
+# идёт параллельно с остальными). Другие ошибки не повторяются: у сбоя сети
+# свои повторы в шлюзе, а неверный ключ повтором не лечится.
+FILTER_RETRIES = 2
 
 # Проверено по первоисточнику 23.09.2026:
 #  - FLUX.2 [klein] 4B — Apache 2.0 (huggingface.co/black-forest-labs/FLUX.2-klein-4B);
@@ -193,10 +200,15 @@ def generate(gateway, brief, card, cache_dir, model=DEFAULT_MODEL, size=DEFAULT_
     if os.path.exists(path) and os.path.getsize(path) > 0 and os.path.exists(meta_path):
         meta = json.load(open(meta_path, encoding="utf-8"))
         return dict(meta, path=path, key=key, cached=True)
-    try:
-        images, cost = gateway.image(model, prompt, size)
-    except Exception as e:  # noqa: BLE001 — любой сбой генерации: кандидата нет
-        return {"error": f"{type(e).__name__}: {e}"}
+    images = None
+    for attempt in range(1 + FILTER_RETRIES):
+        try:
+            images, cost = gateway.image(model, prompt, size)
+            break
+        except Exception as e:  # noqa: BLE001 — любой сбой генерации: кандидата нет
+            err = f"{type(e).__name__}: {e}"
+            if "content_filter" not in err or attempt == FILTER_RETRIES:
+                return {"error": err}
     tmp = path + ".tmp"
     with open(tmp, "wb") as f:
         f.write(images[0])

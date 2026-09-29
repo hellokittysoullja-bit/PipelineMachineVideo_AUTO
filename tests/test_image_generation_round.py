@@ -34,9 +34,9 @@ class Brain:
 class Painter:
     """Варианты рисуются одновременно (generation_round) — счётчик под замком."""
 
-    def __init__(self, fail_first=False, delay=0.0):
+    def __init__(self, fail_first=False, delay=0.0, err="400 content_filter"):
         import threading
-        self.calls, self.fail_first, self.delay = [], fail_first, delay
+        self.calls, self.fail_first, self.delay, self.err = [], fail_first, delay, err
         self._lock = threading.Lock()
         self.active = self.peak = 0
 
@@ -50,7 +50,7 @@ class Painter:
         try:
             time.sleep(self.delay)
             if self.fail_first and first:
-                raise RuntimeError("400 content_filter")
+                raise RuntimeError(self.err)
             return [b"\x89PNG fake"], 0
         finally:
             with self._lock:
@@ -208,10 +208,16 @@ def test_generation_round_builds_the_request_and_candidates(monkeypatch, tmp_pat
     assert len(log["variants"]) == sg.VARIANTS and log["trigger"] == "failed"
 
 
-def test_a_refused_variant_does_not_lose_the_other(monkeypatch, tmp_path):
+def test_a_failed_variant_does_not_lose_the_other(monkeypatch, tmp_path):
+    ps = _ps()
+    req, items = _live_round(ps, monkeypatch, tmp_path, Painter(fail_first=True, err="500 boom"))
+    assert len(items) == sg.VARIANTS - 1 and "boom" in ps.GENERATION_LOG[-1]["errors"][0]
+
+
+def test_a_filter_refused_variant_is_recovered_by_retry(monkeypatch, tmp_path):
     ps = _ps()
     req, items = _live_round(ps, monkeypatch, tmp_path, Painter(fail_first=True))
-    assert len(items) == sg.VARIANTS - 1 and "content_filter" in ps.GENERATION_LOG[-1]["errors"][0]
+    assert len(items) == sg.VARIANTS and ps.GENERATION_LOG[-1]["errors"] == []
 
 
 def test_generation_round_with_no_picture_is_none(monkeypatch, tmp_path):
@@ -275,3 +281,33 @@ def test_variants_are_painted_at_once_and_kept_in_variant_order(monkeypatch, tmp
     prompt = painter.calls[0]
     assert ps.GENERATION_LOG[-1]["variants"] == [sg.cache_key(sg.DEFAULT_MODEL, sg.DEFAULT_SIZE, prompt, v)
                                                  for v in range(sg.VARIANTS)]
+
+
+class FilterOnce:
+    """Шлюз, который отказывает фильтром содержимого первые n раз."""
+
+    def __init__(self, n, err="400 (content_filter)"):
+        self.n, self.err, self.calls = n, err, 0
+
+    def image(self, model, prompt, size):
+        self.calls += 1
+        if self.calls <= self.n:
+            raise RuntimeError(self.err)
+        return [b"\x89PNG fake"], 0
+
+
+def test_content_filter_refusal_is_retried(tmp_path):
+    """Замер 29.09: отказ фильтра — случайность на результате (одно описание:
+    2 из 4 вариантов отказано), повтор его получает."""
+    gw = FilterOnce(2)
+    r = sg.generate(gw, "A dagger on an open palm.", None, str(tmp_path), variant=0)
+    assert not r.get("error") and gw.calls == 3
+
+
+def test_filter_retries_are_bounded_and_other_errors_are_not_retried(tmp_path):
+    gw = FilterOnce(99)
+    r = sg.generate(gw, "A dagger on an open palm.", None, str(tmp_path / "a"), variant=0)
+    assert "content_filter" in r["error"] and gw.calls == 1 + sg.FILTER_RETRIES
+    gw = FilterOnce(99, err="401 key rejected")
+    r = sg.generate(gw, "A dagger on an open palm.", None, str(tmp_path / "b"), variant=0)
+    assert gw.calls == 1 and "401" in r["error"]
