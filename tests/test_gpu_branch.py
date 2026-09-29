@@ -763,3 +763,18 @@ def test_failed_hw_splice_is_repeated_on_cpu_not_dropped_to_concat(monkeypatch, 
     assert first[first.index(clips[0]) - 5:first.index(clips[0])][:2] == ["-hwaccel", "cuda"]
     assert first[first.index(clips[1]) - 3] != "cuda"
     assert "-hwaccel" not in second
+
+
+def test_far_prefetch_never_asks_hourly_quota_sources():
+    """Дальний проход упреждения (весь эпизод с первой секунды) не спрашивает
+    Pexels и Unsplash: их часовая квота кончилась бы в первые минуты, и
+    слоту в моменте достался бы отказ — выбор изменился бы."""
+    class A:
+        def source_jobs(self, request, pq):
+            return [(n, lambda: []) for n in ("museum", "commons", "openverse", "pexels", "pixabay", "unsplash")]
+    got = ps._PrefetchSources(A(), ps.HOURLY_QUOTA_SOURCES).source_jobs(None, "q")
+    assert [n for n, _j in got] == ["museum", "commons", "openverse", "pixabay"]
+    assert [n for n, _j in ps._PrefetchSources(A()).source_jobs(None, "q")][3] == "pexels"
+    src = open(os.path.join(REPO_ROOT, "scripts", "pipeline_smart.py"), encoding="utf-8").read()
+    made = src[src.index("prefetcher = slot_prefetch.SlotPrefetcher("):]
+    assert "far_job=lambda j: _prefetch_job(j, HOURLY_QUOTA_SOURCES)" in made[:400]
