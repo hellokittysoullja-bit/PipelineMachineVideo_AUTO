@@ -33,28 +33,56 @@ import threading
 # равно пропускают запросы по очереди через свой регулятор.
 DEPTH = 3
 WORKERS = 2
+# Дальний проход (весь эпизод с первой секунды): сколько слотов одновременно.
+# Внутри слота источники и так опрашиваются параллельно, у каждого свой
+# регулятор темпа (Мет, Commons, Pixabay) — лишняя ширина здесь упёрлась бы
+# в них же.
+FAR_WORKERS = 4
+
+
+def _pool(n, prefix):
+    return concurrent.futures.ThreadPoolExecutor(max_workers=n, thread_name_prefix=prefix)
 
 
 class SlotPrefetcher:
-    """Держит впереди слота до DEPTH заданий «прогреть слот j».
+    """Два прохода упреждения.
 
-    job(j) — функция прогрева (pipeline_smart.prefetch_slot); её ошибки
-    глотаются: упреждение только ускоряет, слот всё сделает сам."""
+    Ближний — job(j) для слотов i+1..i+depth, пока идёт слот i (как было).
+    Дальний — far_job(j) для ВСЕХ слотов эпизода, поставленный при первом
+    advance(): ближайшие первыми (очередь по порядку), своим пулом, чтобы
+    ближний не ждал за семьюдесятью дальними. job=None — только дальний
+    (ближний делает упреждающий отбор, slot_speculation).
 
-    def __init__(self, n_slots, job, depth=DEPTH, workers=WORKERS):
+    Ошибки заданий глотаются: упреждение только ускоряет, слот всё сделает
+    сам."""
+
+    def __init__(self, n_slots, job, depth=DEPTH, workers=WORKERS, far_job=None,
+                 far_workers=FAR_WORKERS):
         self.n_slots = n_slots
         self.job = job
+        self.far_job = far_job
         self.depth = depth
-        self._ex = concurrent.futures.ThreadPoolExecutor(max_workers=workers,
-                                                          thread_name_prefix="prefetch")
+        self._ex = _pool(workers, "prefetch") if job is not None else None
+        self._far_ex = _pool(far_workers, "prefetch_far") if far_job is not None else None
+        self._far_started = False
         self._scheduled = set()
         self._lock = threading.Lock()
-        self.stats = {"scheduled": 0, "done": 0, "failed": 0}
+        self.stats = {"scheduled": 0, "done": 0, "failed": 0,
+                      "far_scheduled": 0, "far_done": 0, "far_failed": 0}
         self._closed = False
 
     def advance(self, i):
-        """Слот i начинается: поставить прогрев слотов i+1..i+depth."""
+        """Слот i начинается: поставить прогрев слотов i+1..i+depth, а при
+        первом вызове — дальний проход по всем слотам после i."""
         if self._closed:
+            return
+        if self._far_ex is not None and not self._far_started:
+            self._far_started = True
+            for j in range(i + 1, self.n_slots):
+                with self._lock:
+                    self.stats["far_scheduled"] += 1
+                self._far_ex.submit(self._run, j, self.far_job, "far_")
+        if self._ex is None:
             return
         for j in range(i + 1, min(self.n_slots, i + 1 + self.depth)):
             with self._lock:
@@ -62,18 +90,22 @@ class SlotPrefetcher:
                     continue
                 self._scheduled.add(j)
                 self.stats["scheduled"] += 1
-            self._ex.submit(self._run, j)
+            self._ex.submit(self._run, j, self.job, "")
 
-    def _run(self, j):
+    def _run(self, j, job, prefix):
+        if self._closed:
+            return
         try:
-            self.job(j)
+            job(j)
             with self._lock:
-                self.stats["done"] += 1
+                self.stats[prefix + "done"] += 1
         except Exception:  # noqa: BLE001 — ускорение, а не решение
             with self._lock:
-                self.stats["failed"] += 1
+                self.stats[prefix + "failed"] += 1
 
     def close(self):
         """Дождаться начатого и не брать нового (отмена ещё не начатых)."""
         self._closed = True
-        self._ex.shutdown(wait=True, cancel_futures=True)
+        for ex in (self._ex, self._far_ex):
+            if ex is not None:
+                ex.shutdown(wait=True, cancel_futures=True)

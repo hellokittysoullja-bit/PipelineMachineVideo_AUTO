@@ -9164,17 +9164,29 @@ class _PrefetchSources:
     никуда не сообщается — ни в серию сбоев Pexels (PEXELS_BROKEN), ни в
     отчёт. Слот спросит сам и сам решит, что это за сбой."""
 
-    def __init__(self, adapter):
+    def __init__(self, adapter, skip=frozenset()):
         self.adapter = adapter
+        self.skip = skip
 
     def source_jobs(self, request, pq):
-        return self.adapter.source_jobs(request, pq)
+        return [(name, job) for name, job in self.adapter.source_jobs(request, pq)
+                if name not in self.skip]
 
     def on_source_failure(self, request, name, exc):
         return None
 
 
-def prefetch_slot_inputs(request, kind, cascade):
+# Источники с ЧАСОВОЙ квотой (Pexels 200/ч, Unsplash 50/ч). Дальний проход
+# упреждения (весь эпизод с первой секунды) их не спрашивает: те же запросы,
+# сделанные разом, съели бы часовую квоту в первые минуты, и слоту в моменте
+# достался бы отказ — выбор изменился бы. Их греет ближний проход, как
+# раньше. Остальные источники (музеи, Commons, Openverse, Pixabay, полка)
+# регулируют темп сами и спрашиваются теми же запросами, что спросит слот, —
+# раньше, но не больше.
+HOURLY_QUOTA_SOURCES = frozenset({"pexels", "unsplash"})
+
+
+def prefetch_slot_inputs(request, kind, cascade, skip_sources=frozenset()):
     """Прогреть дисковые кэши слота: выдача источников по его запросам и,
     если слот в платной зоне (cascade), превью и эмбеддинги каскада. Кэши на
     процесс не пишутся (prefetching()), ничего не выбирается и не
@@ -9184,7 +9196,7 @@ def prefetch_slot_inputs(request, kind, cascade):
         adapter = PHOTO_ADAPTER if kind == "photo" else VIDEO_ADAPTER
         tiers = selection_engine.query_tiers(
             request, selection_engine.pool_queries(request, adapter.brief_query(request)))
-        fetched = selection_engine.fetch_sources(request, _PrefetchSources(adapter),
+        fetched = selection_engine.fetch_sources(request, _PrefetchSources(adapter, skip_sources),
                                                  [pq for tier in tiers for pq in tier])
         if not cascade:
             return
@@ -17805,7 +17817,13 @@ def gpu_render_workers():
         total = torch.cuda.get_device_properties(0).total_memory / 2 ** 30
     except Exception:  # noqa: BLE001
         return 1
-    reserve = 20 if feature_flags.mode("CASCADE_MODEL") == "qwen3vl" else 6
+    # Модели отбора (Qwen3-VL-Embedding-8B + Reranker-2B) — веса из
+    # vision_model плюс запас на активации пачек.
+    try:
+        import vision_model
+        reserve = sum(vision_model.WEIGHTS_GIB.values()) + 5
+    except Exception:  # noqa: BLE001
+        reserve = 24
     return int(max(1, min(4, (total - reserve) // 3)))
 
 
@@ -19026,11 +19044,11 @@ def main():
         speculate_quiet = slot_speculation.quiet_output(speculating).__enter__()
         stage_timer.SUPPRESS = speculating
     prefetcher = None
-    if speculator is None and feature_flags.enabled("SLOT_PREFETCH") and not PLAN_ONLY:
+    if feature_flags.enabled("SLOT_PREFETCH") and not PLAN_ONLY:
         import slot_prefetch
         import stock_query_planner as _sqp_prefetch
 
-        def _prefetch_job(j):
+        def _prefetch_job(j, skip=frozenset()):
             bj = blocks[j]
             # Слот, до которого прогон не дойдёт отбором: залоченный
             # шотлистом кадр, курируемый человеком файл, уже выбранный кадр
@@ -19063,9 +19081,17 @@ def main():
             spec = bj.get("shot_spec")
             if (spec and not bj.get("stat") and durs[j] >= MIN_CLIP + 1.0
                     and _sqp_prefetch.has_motion(spec, must=True)):
-                prefetch_slot_inputs(req, "video", cascade)
-            prefetch_slot_inputs(req, "photo", cascade)
-        prefetcher = slot_prefetch.SlotPrefetcher(len(blocks), _prefetch_job)
+                prefetch_slot_inputs(req, "video", cascade, skip)
+            prefetch_slot_inputs(req, "photo", cascade, skip)
+        # Два прохода (slot_prefetch): дальний — весь эпизод с первой
+        # секунды, без источников с часовой квотой; ближний — слоты сразу
+        # впереди, со всеми источниками. При упреждающем отборе ближний
+        # делает он (надмножество), остаётся дальний.
+        _far_w = os.environ.get("SLOT_PREFETCH_FAR_WORKERS", "").strip()
+        prefetcher = slot_prefetch.SlotPrefetcher(
+            len(blocks), None if speculator is not None else _prefetch_job,
+            far_job=lambda j: _prefetch_job(j, HOURLY_QUOTA_SOURCES),
+            far_workers=int(_far_w) if _far_w.isdigit() and int(_far_w) > 0 else slot_prefetch.FAR_WORKERS)
     _slot_clock = None
     vision_lost = None
     for i, (b, d) in enumerate(zip(blocks, durs)):
@@ -19908,8 +19934,10 @@ def main():
                  f"токенов баланса" if _sp else ""))
     if prefetcher is not None:
         prefetcher.close()
-        print(f"  Упреждающий поиск: слотов прогрето {prefetcher.stats['done']}, "
-              f"сбоев {prefetcher.stats['failed']}")
+        print(f"  Упреждающий поиск: ближний — слотов {prefetcher.stats['done']}, сбоев "
+              f"{prefetcher.stats['failed']}; весь эпизод (без Pexels/Unsplash) — слотов "
+              f"{prefetcher.stats['far_done']} из {prefetcher.stats['far_scheduled']}, сбоев "
+              f"{prefetcher.stats['far_failed']}")
     if vision_lost:
         if not SELECT_ONLY:
             check_jobs_in_order(pending_jobs)

@@ -58,6 +58,66 @@ def _slot_texts(run_dir, episode):
     return out
 
 
+def judge_rank_fn(episode, run_dir, world_card_path):
+    """Ключ ранжирования судьи по записанным ответам — тот же, что в
+    pool_recall bench (вектор утверждений, «ничего не показано», оценка
+    сетки). None — спецификаций нет."""
+    import pool_recall
+    import shot_judge
+    import stock_query_planner
+    import world_card
+    card = None
+    if world_card_path and os.path.exists(world_card_path):
+        card = json.load(open(world_card_path, encoding="utf-8"))
+    specs = stock_query_planner.load_specs(episode)
+    if not specs:
+        return None
+    units = pool_recall._plan_unit_texts(episode)
+    pools = pool_recall.load_pools(run_dir)
+    spec_of = {}
+    for (slot, kind), rec in pools.items():
+        spec_of[f"{slot}:{kind}"] = pool_recall._spec_for_block(specs, units, rec.get("block_text") or "") \
+            or shot_judge.spec_from_brief(rec.get("block_text"), rec.get("shot_brief") or rec.get("query"))
+
+    def rank(key, tile):
+        spec, ans = spec_of.get(key), tile.get("answers")
+        if not spec or ans is None:
+            return None
+        r_ = shot_judge.claims_vector(spec, ans, cg_veto=not world_card.renders_allowed(card))
+        gs = tile.get("grid") if isinstance(tile.get("grid"), int) else None
+        if r_ is not None and shot_judge.shows_nothing(spec, ans, gs):
+            r_ = (-5,)
+        r_ = None if r_ is None else r_ + ((gs if gs is not None else -1),)
+        return pool_recall.rank_key(r_)
+    return rank
+
+
+def hybrid(tiles_by_key, judge_slots, scores, handoff, rank, ks):
+    """Судья смотрит только первые K по реранкеру из первых handoff каскада.
+    Сверка: при K=handoff выбор обязан совпасть с записанным выбором судьи
+    (иначе восстановление ключа неверно и числа недействительны)."""
+    out = {"check_equal": 0, "check_total": 0, "by_k": {}}
+    for K in ks:
+        best_n = brak = lab_sum = 0
+        for key, tiles in tiles_by_key.items():
+            head = sorted([t for t in tiles if t["pos"] < handoff and (key, str(t["id"])) in scores],
+                          key=lambda t: t["pos"])
+            if not head:
+                continue
+            best = max(t["label"] for t in head)
+            top = sorted(head, key=lambda t: (-scores[(key, str(t["id"]))], t["pos"]))[:K]
+            pick = max(top, key=lambda t: (rank(key, t), -t["pos"]))
+            best_n += pick["label"] == best
+            brak += pick["label"] == 0
+            lab_sum += pick["label"]
+            if K == handoff and key in judge_slots:
+                full = max(head, key=lambda t: (rank(key, t), -t["pos"]))
+                out["check_total"] += 1
+                out["check_equal"] += str(full["id"]) == str(judge_slots[key].get("pick_id"))
+        out["by_k"][K] = {"best": best_n, "brak": brak, "label_sum": lab_sum}
+    return out
+
+
 def evaluate(tiles_by_key, judge_slots, scores, handoff):
     """Метрики одного варианта текста. scores: {(ключ, id): оценка}."""
     res = {"pairs": 0, "pairs_ok": 0.0, "slots": 0, "rr_best": 0, "rr_brak": 0, "rr_label_sum": 0,
@@ -122,6 +182,8 @@ def main(argv=None):
     ap.add_argument("--episode", required=True)
     ap.add_argument("--handoff", type=int, default=10)
     ap.add_argument("--texts", default="focus,phrase,brief")
+    ap.add_argument("--world-card")
+    ap.add_argument("--hybrid-k", default="1,2,3,4,5")
     ap.add_argument("--out")
     a = ap.parse_args(argv)
 
@@ -156,6 +218,7 @@ def main(argv=None):
         dt = time.time() - t
         report["variants"][variant] = {"scored": n, "sec": round(dt, 1),
                                        "pairs_per_sec": round(n / dt, 1) if dt else None,
+                                       "scores": {f"{k}|{i}": v for (k, i), v in scores.items()},
                                        "by_judge_run": {}}
         for name, b in benches.items():
             js = {s["key"]: s for s in b["slots"]}
@@ -177,6 +240,22 @@ def main(argv=None):
             print("  лучший кадр в первых K: по реранкеру "
                   + ", ".join(f"K={k}: {ev['best_in_rr_top'].get(k, 0)}" for k in ks)
                   + "; по каскаду " + ", ".join(f"K={k}: {ev['best_in_cascade_top'].get(k, 0)}" for k in ks))
+            rank = judge_rank_fn(a.episode, a.run_dir, a.world_card)
+            if rank is not None:
+                tb = {}
+                for t in b["tiles"]:
+                    tb.setdefault(t["key"], []).append(t)
+                hk = sorted({int(x) for x in a.hybrid_k.split(",")} | {a.handoff})
+                hy = hybrid(tb, js, scores, a.handoff, rank, hk)
+                ev["hybrid"] = hy
+                if hy["check_equal"] != hy["check_total"]:
+                    print(f"  гибрид: восстановление выбора судьи НЕ сходится ({hy['check_equal']}/"
+                          f"{hy['check_total']}) — числа гибрида недействительны")
+                else:
+                    print(f"  гибрид «реранкер → первые K → судья» (сверка {hy['check_equal']}/"
+                          f"{hy['check_total']}): " + "; ".join(
+                              f"K={k}: лучший {v['best']}, брак {v['brak']}, сумма {v['label_sum']}"
+                              for k, v in hy["by_k"].items()))
     if a.out:
         with open(a.out, "w", encoding="utf-8") as f:
             json.dump(report, f, ensure_ascii=False, indent=1, default=str)

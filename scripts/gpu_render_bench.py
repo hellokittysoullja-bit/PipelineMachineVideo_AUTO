@@ -24,7 +24,7 @@ sys.path.insert(0, HERE)
 
 def _render(args):
     photo, out, dur, gpu = args
-    os.environ["GPU_RENDER"] = "1" if gpu else "0"
+    os.environ.update(GPU_RENDER="1" if gpu else "0")   # запись, не чтение мимо реестра
     import pipeline_smart as ps
     import gpu_render
     t = time.time()
@@ -77,7 +77,7 @@ def main(argv=None):
     os.makedirs(os.path.join(a.out, "cpu"), exist_ok=True)
     os.makedirs(os.path.join(a.out, "gpu"), exist_ok=True)
     sys.argv = ["pipeline_smart.py", a.out]
-    os.environ["GPU_RENDER"] = "1"
+    os.environ.update(GPU_RENDER="1")
     if a.profile:
         os.environ["GPU_RENDER_PROFILE"] = "1"
     import pipeline_smart as ps

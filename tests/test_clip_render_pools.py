@@ -104,3 +104,27 @@ def test_gpu_worker_hands_ineligible_clips_back(monkeypatch, tmp_path):
     monkeypatch.setattr(ps, "run_ffmpeg_with_retry", lambda *a, **k: (called.append(1), (True, ""))[1])
     r = ps.kenburns("p.jpg", str(tmp_path / "c.mp4"), 1.0, section="BLOCK_1", title="Надпись")
     assert r == ps.GPU_DECLINED and not called
+
+
+def test_gpu_render_workers_reads_only_existing_flags(monkeypatch):
+    """29.09: gpu_render_workers() спрашивала флаг CASCADE_MODEL, которого в
+    реестре GPU-ветки нет, — рендер упал бы при создании пула карты. Тест
+    зовёт функцию с подменённой картой: без карты в контейнере эта строка не
+    выполнялась ни одним тестом."""
+    import types
+    monkeypatch.delenv("GPU_RENDER_WORKERS", raising=False)
+    fake = types.SimpleNamespace(cuda=types.SimpleNamespace(
+        get_device_properties=lambda i: types.SimpleNamespace(total_memory=96 * 2 ** 30)))
+    monkeypatch.setitem(sys.modules, "torch", fake)
+    assert ps.gpu_render_workers() == 4
+    fake.cuda.get_device_properties = lambda i: types.SimpleNamespace(total_memory=24 * 2 ** 30)
+    assert ps.gpu_render_workers() == 1
+    monkeypatch.setenv("GPU_RENDER_WORKERS", "2")
+    assert ps.gpu_render_workers() == 2
+
+
+def test_gpu_render_failure_never_escapes(monkeypatch):
+    import gpu_render
+    monkeypatch.setattr(gpu_render, "_render_kenburns", lambda *a, **k: (_ for _ in ()).throw(MemoryError("карта")))
+    ok, why = gpu_render.render_kenburns("p.jpg", "o.mp4", 3, "", "", "", (1, 1, 1, 1, 0, 0), "", [])
+    assert ok is False and "MemoryError" in why

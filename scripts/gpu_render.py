@@ -172,7 +172,15 @@ def capture_lut(chain, level=HALD_LEVEL):
     return lut
 
 
-def capture_yuv_lut(chain, n=64, block=2, fmt="yuv420p"):
+# Узлы таблицы грейда — ровно через 3 восьмибитных уровня (255 = 85 * 3).
+# Замер 29.09 на реальном кадре против цепочки ffmpeg: n=64 (узлы
+# linspace попадают между уровнями неравномерно) — сдвиг -0.12..-0.22 в
+# зависимости от n, n=86 — 49.6 дБ и сдвиг -0.02 при снятии за 0.15 с;
+# точная n=256 совпадает побитово, но снимается 4.6 с на клип.
+YUV_LUT_N = 86
+
+
+def capture_yuv_lut(chain, n=YUV_LUT_N, block=2, fmt="yuv420p"):
     """Таблица [n,n,n,3] (индекс y,u,v) -> RGB, снятая с ffmpeg на ТОМ ЖЕ
     формате входа, что в нынешнем пути (YUV 4:2:0 после zoompan): каждая
     точка сетки — блок block x block одного цвета, читается центр блока.
@@ -246,26 +254,63 @@ def capture_blend_table(mode, opacity):
     return t
 
 
+def capture_10bit_table():
+    """uint16[256]: как ffmpeg ЭТОЙ машины переводит 8-битный yuv420p в
+    yuv420p10le (процессорный путь делает это сам перед кодером). Замер
+    29.09: и 6.1, и 4.4 — простой сдвиг v<<2, а GPU-путь писал
+    (v<<2)|(v>>6) — кадр ярче на ~0.24 уровня после кодирования."""
+    key = ("10bit",)
+    with _LUT_LOCK:
+        if key in _LUT_CACHE:
+            return _LUT_CACHE[key]
+    y = np.tile(np.arange(256, dtype=np.uint8), (2, 1))
+    c = np.full((1, 128), 128, np.uint8)
+    out = subprocess.run(["ffmpeg", "-v", "error", "-f", "rawvideo", "-pix_fmt", "yuv420p", "-s", "256x2",
+                          "-i", "-", "-f", "rawvideo", "-pix_fmt", "yuv420p10le", "-"],
+                         input=y.tobytes() + c.tobytes() + c.tobytes(), capture_output=True, check=True,
+                         timeout=60).stdout
+    t = np.frombuffer(out, np.uint16)[:256].copy()
+    with _LUT_LOCK:
+        _LUT_CACHE[key] = t
+    return t
+
+
 def deband_offsets(w, h, rng=DEBAND_RANGE):
     """x_pos, y_pos из vf_deband.config_input — frand() через sinf/cosf из
     libm (той же функции, что у ffmpeg), float32 как в C."""
     key = (w, h, rng)
     if key in _DEBAND_CACHE:
         return _DEBAND_CACHE[key]
-    libm = ctypes.CDLL(ctypes.util.find_library("m") or "libm.so.6")
-    for fn in ("sinf", "cosf"):
-        getattr(libm, fn).restype = ctypes.c_float
-        getattr(libm, fn).argtypes = [ctypes.c_float]
+    try:
+        libm = ctypes.CDLL(ctypes.util.find_library("m") or "libm.so.6")
+        for fn in ("sinf", "cosf"):
+            getattr(libm, fn).restype = ctypes.c_float
+            getattr(libm, fn).argtypes = [ctypes.c_float]
+
+        def sinf(a):
+            return np.fromiter((libm.sinf(float(v)) for v in a), dtype=np.float32, count=a.size)
+
+        def cosf(a):
+            return np.fromiter((libm.cosf(float(v)) for v in a), dtype=np.float32, count=a.size)
+    except OSError:
+        # Нет libm для ctypes (Windows): синус numpy в float32. Отличие от
+        # sinf сборки ffmpeg — последний бит у единичных пикселей; заметно
+        # ли оно, решает самопроверка рендера (parity_gate).
+        def sinf(a):
+            return np.sin(a.astype(np.float32))
+
+        def cosf(a):
+            return np.cos(a.astype(np.float32))
     xs = np.arange(w, dtype=np.float32)
     ys = np.arange(h, dtype=np.float32)
     arg = (xs[None, :] * np.float32(12.9898) + ys[:, None] * np.float32(78.233)).astype(np.float32).ravel()
-    sv = np.fromiter((libm.sinf(float(v)) for v in arg), dtype=np.float32, count=arg.size)
+    sv = sinf(arg)
     r = (sv * np.float32(43758.545)).astype(np.float32)
     r = (r - np.floor(r)).astype(np.float32)
     dirv = (r * np.float32(2 * math.pi)).astype(np.float32)
     dist = (r * np.float32(rng)).astype(np.int32)
-    cs = np.fromiter((libm.cosf(float(v)) for v in dirv), dtype=np.float32, count=dirv.size)
-    sn = np.fromiter((libm.sinf(float(v)) for v in dirv), dtype=np.float32, count=dirv.size)
+    cs = cosf(dirv)
+    sn = sinf(dirv)
     res = ((cs * dist).astype(np.int32).reshape(h, w), (sn * dist).astype(np.int32).reshape(h, w))
     _DEBAND_CACHE[key] = res
     return res
@@ -470,6 +515,23 @@ def _decode_yuv420(path, w=None, h=None, vf=None, fmt="yuv420p"):
     return frames
 
 
+def _canvas_planes(photo, nw, nh, cw, ch, cx0, cy0, fmt):
+    """Холст наезда (Y, U, V) — той же строкой фильтров, что начинает
+    процессорный путь kenburns(): scale, crop, setsar, в раскладке fmt."""
+    vf = f"scale={nw}:{nh},crop={cw}:{ch}:{cx0}:{cy0},setsar=1,format={fmt}"
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-framerate", "1", "-loop", "1", "-i", photo,
+                          "-vf", vf, "-frames:v", "1", "-f", "rawvideo", "-"],
+                         capture_output=True, check=True, timeout=300).stdout
+    sx, sy = CHROMA_SHIFT[fmt]
+    cwc, chc = -(-cw // (1 << sx)), -(-ch // (1 << sy))
+    ny = cw * ch
+    if len(raw) < ny + 2 * cwc * chc:
+        raise RuntimeError(f"холст: ffmpeg отдал {len(raw)} байт")
+    b = np.frombuffer(raw, np.uint8)
+    return (b[:ny].reshape(ch, cw), b[ny:ny + cwc * chc].reshape(chc, cwc),
+            b[ny + cwc * chc:ny + 2 * cwc * chc].reshape(chc, cwc))
+
+
 _GRAIN_CACHE = {}
 
 
@@ -494,12 +556,13 @@ def grain_frames(path, dev, W, H):
 # цвета в процессе считается дважды — на карте и командой процессорного
 # пути (первая пачка кадров, до кодирования) — и сравнивается. Не совпало —
 # GPU-путь выключается до конца процесса, громко, и весь ролик идёт
-# процессорным путём. Пороги — с запасом к измеренному (docs, ЧАСТЬ 13):
-# здоровые клипы на 6.1 и 4.4 — яркость от 35.4 дБ и сдвиг до 0.2;
-# расхождение формулы давало 19.7-31.6 дБ и сдвиг до 9.8.
+# процессорным путём. Пороги — с запасом к измеренному: здоровые клипы
+# (17 фото, ffmpeg 6.1 и 4.4, до правок холста и таблицы) — яркость от
+# 36.8 дБ и сдвиг до 0.36; расхождение формулы давало 19.7-31.6 дБ и сдвиг
+# до 9.8.
 PARITY_MIN_PSNR_Y = 33.0
 PARITY_MIN_PSNR_UV = 38.0
-PARITY_MAX_BIAS = 0.6
+PARITY_MAX_BIAS = 0.5
 _PARITY = {"ok": set(), "disabled": None}
 _PARITY_LOCK = threading.Lock()
 
@@ -593,9 +656,19 @@ class _Prof:
         self.t = now
 
 
-def render_kenburns(photo, out, frames, z_expr, x_expr, y_expr, canvas, film_look_str,
-                    encode_args, fps=24, W=1920, H=1080, grain_path=None, grain_opacity=None,
-                    batch=8, trace=None, reference_cmd=None):
+def render_kenburns(*args, **kwargs):
+    """Любой сбой GPU-пути (нехватка памяти карты при создании буферов,
+    драйвер) — (False, причина), и клип идёт процессором: исключение наружу
+    уронило бы процесс пула карты целиком."""
+    try:
+        return _render_kenburns(*args, **kwargs)
+    except Exception as e:  # noqa: BLE001
+        return False, f"{type(e).__name__}: {e}"[:300]
+
+
+def _render_kenburns(photo, out, frames, z_expr, x_expr, y_expr, canvas, film_look_str,
+                     encode_args, fps=24, W=1920, H=1080, grain_path=None, grain_opacity=None,
+                     batch=8, trace=None, reference_cmd=None):
     """Отрисовать клип наезда на видеокарте и закодировать. canvas =
     (nw, nh, cw, ch, cx0, cy0) — та же геометрия, что scale/crop в
     kenburns(). encode_args — кодек, частота, цветовые метки, путь
@@ -623,29 +696,22 @@ def render_kenburns(photo, out, frames, z_expr, x_expr, y_expr, canvas, film_loo
     sx, sy = CHROMA_SHIFT[ffmt]
     lut_point = ops.lut_tensor(capture_yuv_lut(point, fmt=ffmt))
     lut_hal = ops.lut_tensor(capture_lut(HALATION_POINT))
+    tab_10bit = torch.from_numpy(capture_10bit_table().astype(np.int16)).to(dev)
     tab_screen = ops.table(capture_blend_table("screen", HALATION_OPACITY))
     tab_grain = (ops.table(capture_blend_table("softlight", min(1.0, float(grain_opacity))))
                  if grain_path else None)
     zf, xf, yf = ff_expr(z_expr), ff_expr(x_expr), ff_expr(y_expr)
 
-    # Холст как у процессорного пути: фото -> YUV 4:2:0 ограниченного
-    # диапазона (перевод диапазона JPEG делает сам ffmpeg при раскодировании
-    # в yuv420p — второй раз его делать нельзя: живая сверка 29.09 поймала
-    # двойной перевод, яркость уезжала на 2.75 уровня) -> scale -> crop.
-    Yj, Uj, Vj = _decode_yuv420(photo, fmt=ffmt)[0]
+    # Холст строит ТА ЖЕ команда ffmpeg, что у процессорного пути (scale,
+    # crop, setsar в раскладке ffmt): он совпадает побитово по построению.
+    # Замер 29.09: собственный перевод диапазона JPEG плюс общая матрица
+    # «фото -> холст -> окно» расходились со swscale на цветности до -0.6
+    # уровня (swscale переводит диапазон и масштабирует одним проходом, при
+    # нецелом коэффициенте с собственным округлением). Стоимость — 0.25 с
+    # процессора на клип; на карте остаётся масштабирование окна наезда.
+    cvs = _canvas_planes(photo, nw, nh, cw, ch, cx0, cy0, ffmt)
     to = lambda a: torch.from_numpy(np.array(a)).to(dev).float()  # noqa: E731
-    src = [to(Yj), to(Uj), to(Vj)]
-    # Холст 8000x4500 НЕ строится: «фото -> холст -> окно -> кадр» — два
-    # линейных масштабирования, их матрицы перемножаются заранее, и каждый
-    # кадр — два умножения матриц прямо из исходного фото (без промежуточного
-    # округления холста до 8 бит). Цветность — те же матрицы на половинном
-    # размере (YUV 4:2:0, как zoompan).
-    geo = []
-    for p, (sh, sw) in enumerate([(src[0].shape[0], src[0].shape[1]), (src[1].shape[0], src[1].shape[1])]):
-        dy_, dx_ = (1, 1) if p == 0 else (1 << sy, 1 << sx)
-        Ay = resample_matrix(sh, -(-nh // dy_), dev)[cy0 // dy_:cy0 // dy_ + -(-ch // dy_)]
-        Ax = resample_matrix(sw, -(-nw // dx_), dev)[cx0 // dx_:cx0 // dx_ + -(-cw // dx_)]
-        geo.append((Ay, Ax))
+    src = [to(cvs[0]), to(cvs[1]), to(cvs[2])]
     _mats = {}
 
     def mats(n_in, n_out):
@@ -697,15 +763,13 @@ def render_kenburns(photo, out, frames, z_expr, x_expr, y_expr, canvas, film_loo
                 dy = yf(on=on, iw=cw, ih=ch, zoom=zoom)
                 y = int(min(max(dy, 0.0), max(ch - h, 0))) & ~((1 << sy) - 1)
                 prev["zoom"] = zoom
-                (Ay, Ax), (Cy, Cx) = geo
-                My = mats(h, H) @ Ay[y:y + h]
-                Mx = mats(w, W) @ Ax[x:x + w]
                 hc, wc = -(-h >> sy), -(-w >> sx)
-                Ny = mats(hc, -(-H >> sy)) @ Cy[y >> sy:(y >> sy) + hc]
-                Nx = mats(wc, -(-W >> sx)) @ Cx[x >> sx:(x >> sx) + wc]
-                Ys.append((My @ src[0] @ Mx.T)[None, None])
-                Us.append((Ny @ src[1] @ Nx.T)[None, None])
-                Vs.append((Ny @ src[2] @ Nx.T)[None, None])
+                My, Mx = mats(h, H), mats(w, W)
+                Ny, Nx = mats(hc, -(-H >> sy)), mats(wc, -(-W >> sx))
+                Ys.append((My @ src[0][y:y + h, x:x + w] @ Mx.T)[None, None])
+                cy_, cx_ = y >> sy, x >> sx
+                Us.append((Ny @ src[1][cy_:cy_ + hc, cx_:cx_ + wc] @ Nx.T)[None, None])
+                Vs.append((Ny @ src[2][cy_:cy_ + hc, cx_:cx_ + wc] @ Nx.T)[None, None])
             Y = torch.cat(Ys)[:, 0].round().clamp(0, 255)
             U = torch.cat(Us)[:, 0].round().clamp(0, 255)
             V = torch.cat(Vs)[:, 0].round().clamp(0, 255)
@@ -755,11 +819,11 @@ def render_kenburns(photo, out, frames, z_expr, x_expr, y_expr, canvas, film_loo
                     enc.kill()
                     q.put(None)
                     return False, why_p
-            # 10 бит: (v<<2)|(v>>6), как swscale расширяет 8 бит; кадры пачки
-            # подряд (Y, U, V каждого кадра) — одна пересылка с карты на пачку.
+            # 10 бит — таблицей ffmpeg этой машины (capture_10bit_table); кадры
+            # пачки подряд (Y, U, V каждого кадра) — одна пересылка на пачку.
             nb = len(idx)
-            packed = torch.cat([pl.to(torch.int32).reshape(nb, -1) for pl in planes], 1)
-            packed = ((packed << 2) | (packed >> 6)).to(torch.int16)
+            packed = torch.cat([pl.long().reshape(nb, -1) for pl in planes], 1)
+            packed = tab_10bit[packed.clamp(0, 255)]
             if cuda:
                 # Кольцо из 4 закреплённых буферов (очередь 2 + пишется 1 +
                 # заполняется 1): выделение закреплённой памяти на каждую

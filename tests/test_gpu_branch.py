@@ -174,7 +174,9 @@ def test_prefetcher_keeps_depth_ahead_and_swallows_errors():
     p.close()
     # advance(0) ставит 1 и 2, advance(1) — только новый 3, повтор — ничего
     assert sorted(done) == [1, 3]
-    assert p.stats == {"scheduled": 3, "done": 2, "failed": 1}
+    assert {k: p.stats[k] for k in ("scheduled", "done", "failed")} == \
+        {"scheduled": 3, "done": 2, "failed": 1}
+    assert p.stats["far_scheduled"] == 0
 
 
 def test_prefetcher_never_goes_past_the_last_slot():
@@ -193,6 +195,42 @@ def test_prefetcher_after_close_schedules_nothing():
     p.advance(0)
     time.sleep(0.05)
     assert got == []
+
+
+def test_far_pass_covers_the_whole_episode_nearest_first():
+    """Дальний проход: все слоты после текущего с первого advance(),
+    ближайшие первыми, один раз; ближний — как прежде."""
+    far, near, lock = [], [], threading.Lock()
+
+    def f(j):
+        with lock:
+            far.append(j)
+
+    def n(j):
+        with lock:
+            near.append(j)
+    p = slot_prefetch.SlotPrefetcher(7, n, depth=2, workers=1, far_job=f, far_workers=1)
+    p.advance(0)
+    p.advance(1)
+    for _ in range(200):
+        if p.stats["far_done"] >= 6 and p.stats["done"] >= 3:
+            break
+        time.sleep(0.01)
+    p.close()
+    assert far == [1, 2, 3, 4, 5, 6], "весь эпизод, ближайшие первыми, без повторов"
+    assert sorted(near) == [1, 2, 3]
+
+
+def test_far_only_prefetcher_runs_without_a_near_job():
+    far = []
+    p = slot_prefetch.SlotPrefetcher(4, None, far_job=far.append, far_workers=1)
+    p.advance(0)
+    for _ in range(200):
+        if p.stats["far_done"] >= 3:
+            break
+        time.sleep(0.01)
+    p.close()
+    assert far == [1, 2, 3]
 
 
 def test_slot_loop_advances_the_prefetcher():
