@@ -91,7 +91,7 @@ def test_complete_empty_museum_answer_is_cached(monkeypatch):
 
 def test_failed_met_search_is_not_cached_as_complete(monkeypatch):
     monkeypatch.setenv("MUSEUM_SOURCES_ENABLED", "1")
-    monkeypatch.setattr(ms, "_met_get", lambda url: None)
+    monkeypatch.setattr(ms, "_met_get", lambda url, max_wait=None: None)
     monkeypatch.setattr(ms, "search_cleveland", lambda q, **kw: [{"id": "cleveland:1"}])
     monkeypatch.setattr(ms, "search_chicago", lambda q, **kw: [])
     monkeypatch.setenv("MET_CATALOG", "0")

@@ -59,7 +59,7 @@ class TestBudgetInvariant:
     def test_catalogue_ids_go_first_and_total_stays_capped(self, monkeypatch):
         calls = {}
 
-        monkeypatch.setattr(ms, "_met_get", lambda url: (
+        monkeypatch.setattr(ms, "_met_get", lambda url, max_wait=None: (
             {"objectIDs": list(range(1000, 1100))} if "/search?" in url else None))
 
         class FakeCat:
@@ -79,7 +79,7 @@ class TestBudgetInvariant:
         monkeypatch.setattr(ms, "MET_DETAIL_WORKERS", 1)
 
         seen = []
-        monkeypatch.setattr(ms, "_met_get", lambda url: (
+        monkeypatch.setattr(ms, "_met_get", lambda url, max_wait=None: (
             {"objectIDs": list(range(1000, 1100))} if "/search?" in url
             else seen.append(url) or None))
 
@@ -107,7 +107,7 @@ class TestBudgetInvariant:
         monkeypatch.setattr(ms.feature_flags, "enabled", lambda *a, **k: True)
         monkeypatch.setattr(ms, "MET_DETAIL_WORKERS", 1)
         seen = []
-        monkeypatch.setattr(ms, "_met_get", lambda url: (
+        monkeypatch.setattr(ms, "_met_get", lambda url, max_wait=None: (
             {"objectIDs": [7, 8, 9]} if "/search?" in url
             else seen.append(url) or None))
         ms.search_met("european longsword blade macro", limit=60, department=4)
