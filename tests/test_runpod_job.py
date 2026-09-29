@@ -152,37 +152,59 @@ class FakeApi:
                 "myself": {"clientBalance": 9.9, "spendLimit": 80, "currentSpendPerHr": 0}}
         raise AssertionError(query)
 
+    def rest(self, method, path, key, body=None):
+        self.calls.append((f"REST {method} {path}", body))
+        if method == "POST" and path == "/pods":
+            gpu = (body.get("gpuTypeIds") or ["CPU"])[0]
+            if gpu in self.fail_first:
+                raise RuntimeError("There are no longer any instances available")
+            assert body["volumeInGb"] == 0, "постоянный диск стоит денег без пода"
+            assert "RUNPOD_API_KEY" not in body["env"], "ключ аккаунта не едет в под"
+            assert isinstance(body["dockerStartCmd"], list), "команда старта — списком"
+            self.pods.add("p1")
+            return {"id": "p1", "costPerHr": 0.34}
+        if method == "DELETE":
+            self.pods.discard(path.rsplit("/", 1)[1])
+            return {}
+        if method == "GET":
+            pid = path.rsplit("/", 1)[1]
+            return {"id": pid, "desiredStatus": "RUNNING"} if pid in self.pods else None
+        raise AssertionError(path)
+
 
 def test_next_gpu_is_tried_when_the_first_is_out_of_stock(monkeypatch):
     api = FakeApi(fail_first=("NVIDIA GeForce RTX 4090",))
     monkeypatch.setattr(rj, "gql", api)
+    monkeypatch.setattr(rj, "rest", api.rest)
     pod = rj.create_pod("k", rj.DEFAULT_GPUS, rj.DEFAULT_IMAGE, 80,
                         rj.runner_env("t", 10, 4, {}), "COMMUNITY")
-    assert pod["machine"]["gpuDisplayName"] == "NVIDIA L40S"
+    assert pod["gpuName"] == "NVIDIA L40S"
 
 
 def test_pod_is_removed_even_when_the_job_fails(monkeypatch):
     """Любой исход — удаление пода и проверка, что его больше нет."""
     api = FakeApi()
     monkeypatch.setattr(rj, "gql", api)
+    monkeypatch.setattr(rj, "rest", api.rest)
     monkeypatch.setattr(rj, "api_key", lambda: "k")
     monkeypatch.setattr(rj.Runner, "wait_ready", lambda self, *a, **k: True)
 
-    def boom(self, cmd):
+    def boom(self, cmd, deadline=None):
         raise RuntimeError("обрыв посреди задачи")
     monkeypatch.setattr(rj.Runner, "run", boom)
     with pytest.raises(RuntimeError):
         rj.main(["--cmd", "true"])
     assert not api.pods, "под остался жить после сбоя"
-    assert any("podTerminate" in c[0] or "mutation" in c[0] for c in api.calls)
+    assert any(c[0].startswith("REST DELETE") for c in api.calls)
 
 
 def test_plan_creates_nothing(monkeypatch):
     api = FakeApi()
     monkeypatch.setattr(rj, "gql", api)
+    monkeypatch.setattr(rj, "rest", api.rest)
     monkeypatch.setattr(rj, "api_key", lambda: "k")
     assert rj.main(["--plan"]) == 0
-    assert not any("podFindAndDeployOnDemand" in str(c) for c in api.calls)
+    assert not any("podFindAndDeployOnDemand" in str(c) or c[0] == "REST POST /pods" for c in api.calls)
 
 
 def test_only_named_secrets_go_to_the_pod(monkeypatch, tmp_path):
@@ -233,3 +255,36 @@ def test_wait_stops_early_when_the_container_runs_but_the_runner_is_silent(monke
     assert r.wait_ready(10_000, status, run_grace_sec=300) is False
     out = capsys.readouterr().out
     assert "тянется образ" in out and "не отвечает" in out
+
+
+def test_money_cap_limits_pod_life_on_both_sides(monkeypatch):
+    """--max-usd: под на своей стороне получает потолок жизни по цене своей
+    карты, а локальная сторона прерывает задачу по тому же потолку."""
+    assert rj.budget_seconds(1.0, 0.5, 4) == 1800        # $0.5 при $1/ч — 30 мин
+    assert rj.budget_seconds(0.25, 5, 2) == 7200         # потолок времени меньше
+    api = FakeApi()
+    monkeypatch.setattr(rj, "gql", api)
+    monkeypatch.setattr(rj, "rest", api.rest)
+    monkeypatch.setattr(rj, "api_key", lambda: "k")
+    monkeypatch.setattr(rj.Runner, "wait_ready", lambda self, *a, **k: True)
+    seen = {}
+
+    def run(self, cmd, deadline=None):
+        seen["deadline"] = deadline
+        return 0
+    monkeypatch.setattr(rj.Runner, "run", run)
+    t0 = rj.time.time()
+    assert rj.main(["--cmd", "true", "--max-usd", "0.34"]) == 0
+    assert 3600 - 5 <= seen["deadline"] - t0 <= 3600 + 5   # $0.34 при $0.34/ч — час
+    created = [c for c in api.calls if c[0] == "REST POST /pods"]
+    env = created[0][1]["env"]
+    assert abs(int(env["RUNNER_MAX_SEC"]) - 3600 / 0.33 * 0.34) < 5
+
+
+def test_run_stops_at_the_money_deadline(monkeypatch):
+    r = rj.Runner("http://x", "t")
+    monkeypatch.setattr(rj.Runner, "call", lambda self, *a, **k: {"offset": 0, "text": "",
+                                                                  "running": True, "exit": None})
+    monkeypatch.setattr(rj.time, "sleep", lambda s: None)
+    with pytest.raises(SystemExit):
+        r.run("sleep 999", deadline=rj.time.time() - 1)
