@@ -91,6 +91,7 @@ def _isolate_from_real_dotenv(monkeypatch, tmp_path):
     # Кэш эмбеддингов каскада общий для эпизодов (temp_cascade_embed_cache/
     # в корне) — тест обязан писать в свою папку, а не в рабочую копию.
     monkeypatch.setenv("CASCADE_CACHE_DIR", str(tmp_path / "cascade_cache"))
+    monkeypatch.setenv("RERANK_CACHE_DIR", str(tmp_path / "rerank_cache"))
     monkeypatch.setenv("AESTHETIC_CACHE_DIR", str(tmp_path / "aesthetic_cache"))
     try:
         import commons_source as _cs
@@ -124,6 +125,13 @@ def _isolate_from_real_dotenv(monkeypatch, tmp_path):
     # 11 тестов упали в первом же прогоне после установки torch в контейнер.
     monkeypatch.delenv("SMART_RELEVANCE_VETO", raising=False)
     monkeypatch.setenv("SMART_RELEVANCE_VETO", "0")
+    # CLIP_RELEVANCE — гейты на Qwen3-VL (GPU-ветка с 29.09). Модуль
+    # pipeline_smart в процессе теста уже импортирован (CLIP_ENABLED считан
+    # при импорте), поэтому строка действует на ДОЧЕРНИЕ рендеры: без неё
+    # сквозной тест на машине без видеокарты упирался бы в честный отказ
+    # рендера (vision_model.require_ready) — проверяют эти тесты сборку, а не
+    # модели зрения. Тесты моделей зрения проверяют их сами (readiness()).
+    monkeypatch.setenv("CLIP_RELEVANCE", "0")
     # SHOT_JUDGE — платный судья кадров через шлюз. Дефолт реестра 1, и на
     # машине с LLM_GATEWAY_API_KEY в окружении любой тест, дошедший до
     # выбора победителя, ходил бы в сеть и тратил деньги владельца.

@@ -33,13 +33,10 @@ opencv-python-headless==4.10.0.84
 # на замороженных отрезках и называет обе версии в тексте провала, чтобы
 # «поменялась модель» не выглядело как «сломался код».
 
-# Опционально — ensemble SigLIP2+Jina CLIP v2 в scripts/visual_director.py
-# sentence_relevance() (VISUAL_DIRECTOR_MODE=shadow/assist, само по себе off
-# по умолчанию). Без onnxruntime — sentence_relevance() падает на SigLIP2
-# solo (fail-open, см. докстринг), без torch/transformers выше — вообще
-# выключена, как и раньше. huggingface_hub не пиновать отдельно — уже тянется
-# transformers.
-# onnxruntime>=1.20
+# GPU-ветка (29.09): модели зрения — Qwen3-VL-Embedding-8B и
+# Qwen3-VL-Reranker-2B (torch с CUDA + transformers + torchvision выше; веса
+# скачиваются с Hugging Face при первом запуске). SigLIP2 и Jina CLIP v2
+# удалены, onnxruntime больше не нужен.
 
 # Опционально — коррекция ударений известных омографов (scripts/
 # stress_placement.py, используется только из speech_planner.py при

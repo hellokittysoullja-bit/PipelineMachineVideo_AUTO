@@ -290,7 +290,7 @@ def child_env(snapshot, run_dir, hashseed):
             f"совпадёт с записью ни по одному адресу. Перезапиши заморозку командой record.")
     caches = os.path.join(run_dir, "caches")
     for var, sub in (("MUSEUM_CACHE_DIR", "museum"), ("OPENVERSE_CACHE_DIR", "openverse"),
-                     ("COMMONS_CACHE_DIR", "commons"), ("EMB_CACHE_DIR", "emb"),
+                     ("COMMONS_CACHE_DIR", "commons"), ("RERANK_CACHE_DIR", "rerank"),
                      ("CASCADE_CACHE_DIR", "cascade"), ("AESTHETIC_CACHE_DIR", "aesthetic")):
         env[var] = os.path.join(caches, sub)
         os.makedirs(env[var], exist_ok=True)

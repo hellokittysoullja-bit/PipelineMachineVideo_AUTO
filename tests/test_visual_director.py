@@ -34,262 +34,67 @@ def test_sentence_relevance_none_on_empty_text():
     assert vd.sentence_relevance("x.jpg", None) is None
 
 
-def test_sentence_relevance_uses_siglip2_not_english_only_clip_relevance(monkeypatch, tmp_path):
-    # Реальный, эмпирически подтверждённый баг первой версии: sentence_relevance()
-    # передавала русский текст в pipeline_smart.clip_relevance() (одноязычная
-    # английская модель) — на реальных фото/фразах канала это давало почти
-    # нулевой сигнал (см. комментарий у SENTENCE_RELEVANCE_MODEL_VERSION).
-    # Фикс — отдельная модель (SigLIP2), НЕ pipeline_smart.clip_relevance().
-    called = {"clip_relevance": False}
-
-    def fail_if_called(path, text):
-        called["clip_relevance"] = True
-        return 0.99   # заведомо отличается от того, что должен вернуть тест
-    monkeypatch.setattr(vd.pipeline_smart, "clip_relevance", fail_if_called)
-
-    import torch
-
-    class _FakeProcessor:
-        def __call__(self, images=None, text=None, return_tensors=None, padding=None, max_length=None):
-            if images is not None:
-                return {"pixel_values": torch.zeros(1, 3, 2, 2)}
-            return {"input_ids": torch.zeros(1, 3, dtype=torch.long)}
-
-    class _FakeModel:
-        def get_image_features(self, **kwargs):
-            return torch.tensor([[1.0, 0.0, 0.0]])
-
-        def get_text_features(self, **kwargs):
-            return torch.tensor([[1.0, 0.0, 0.0]])   # параллельно картинке -> cos=1.0
-
-    monkeypatch.setattr(vd, "_get_siglip2_model", lambda: (_FakeModel(), _FakeProcessor()))
-    # Jina недоступна в этом тесте (не мокается загрузка ONNX) -> ensemble
-    # честно падает на SigLIP2-only (см. test_sentence_relevance_falls_back_*
-    # ниже для отдельной проверки самого fail-open пути).
-    monkeypatch.setattr(vd, "_jina_relevance", lambda path, text: None)
-    img_path = str(tmp_path / "x.jpg")
-    from PIL import Image
-    Image.new("RGB", (4, 4)).save(img_path)
-
-    result = vd.sentence_relevance(img_path, "полный текст фразы блока")
-    assert result == pytest.approx(1.0)
-    assert called["clip_relevance"] is False, (
-        "sentence_relevance не должна использовать одноязычный "
-        "pipeline_smart.clip_relevance() — см. докстринг про баг")
-
-
-def test_sentence_relevance_none_when_siglip2_model_import_fails(monkeypatch, tmp_path):
-    def raise_import_error():
-        raise ImportError("transformers недоступен")
-    monkeypatch.setattr(vd, "_get_siglip2_model", raise_import_error)
-    monkeypatch.setattr(vd, "_SIGLIP2_BROKEN", False)
-    img_path = str(tmp_path / "x.jpg")
-    from PIL import Image
-    Image.new("RGB", (4, 4)).save(img_path)
-    assert vd.sentence_relevance(img_path, "текст") is None
-    assert vd._SIGLIP2_BROKEN is True
-
-
-# ---------- ensemble SigLIP2 + Jina CLIP v2 (sentence_relevance) ----------
-# По прямому запросу пользователя "объединить сильнейшие стороны обеих
-# моделей" — 113-позиционный бенчмарк дал измеримый прирост (top-1 81%->85%,
-# top-3 93%->95% на SigLIP2=0.7/Jina=0.3, см. докстринг
-# ENSEMBLE_WEIGHT_SIGLIP2 в scripts/visual_director.py). Критично: Jina
-# ДОЛЖНА быть fail-open — при недоступности (нет onnxruntime, сеть, любая
-# ошибка) sentence_relevance() обязана падать на SigLIP2-only, никогда не
-# возвращать None только из-за отсутствующей Jina, пока SigLIP2 сам жив.
-
-def test_sentence_relevance_blends_siglip2_and_jina_with_fixed_weights(monkeypatch, tmp_path):
-    monkeypatch.setattr(vd, "_siglip2_relevance", lambda path, text: 0.30)
-    monkeypatch.setattr(vd, "_jina_relevance", lambda path, text: vd.JINA_SCORE_MEAN + vd.JINA_SCORE_STD)
-    img_path = str(tmp_path / "x.jpg")
-    result = vd.sentence_relevance(img_path, "текст")
-    # jina_raw на 1 стд выше среднего -> rescale даёт SIGLIP2_SCORE_MEAN + SIGLIP2_SCORE_STD
-    expected_jina_rescaled = vd.SIGLIP2_SCORE_MEAN + vd.SIGLIP2_SCORE_STD
-    expected = vd.ENSEMBLE_WEIGHT_SIGLIP2 * 0.30 + vd.ENSEMBLE_WEIGHT_JINA * expected_jina_rescaled
-    assert result == pytest.approx(expected)
-
-
-def test_sentence_relevance_falls_back_to_siglip2_only_when_jina_unavailable(monkeypatch, tmp_path):
-    monkeypatch.setattr(vd, "_siglip2_relevance", lambda path, text: 0.42)
-    monkeypatch.setattr(vd, "_jina_relevance", lambda path, text: None)
-    img_path = str(tmp_path / "x.jpg")
-    result = vd.sentence_relevance(img_path, "текст")
-    assert result == pytest.approx(0.42)   # чистый SigLIP2, без домножения на вес
-
-
-def test_sentence_relevance_none_when_siglip2_unavailable_even_if_jina_ok(monkeypatch, tmp_path):
-    # SigLIP2 — основа, Jina только добавляет; без SigLIP2 весь сигнал None,
-    # ensemble НЕ должен подменять базовую модель второстепенной.
-    monkeypatch.setattr(vd, "_siglip2_relevance", lambda path, text: None)
-    monkeypatch.setattr(vd, "_jina_relevance", lambda path, text: 0.99)
-    img_path = str(tmp_path / "x.jpg")
-    assert vd.sentence_relevance(img_path, "текст") is None
-
-
-def test_rescale_jina_to_siglip2_scale_identity_at_mean():
-    # На среднем Jina -> среднее SigLIP2 (по построению z-score переноса).
-    assert vd._rescale_jina_to_siglip2_scale(vd.JINA_SCORE_MEAN) == pytest.approx(vd.SIGLIP2_SCORE_MEAN)
-
-
-def test_rescale_jina_to_siglip2_scale_preserves_direction():
-    lo = vd._rescale_jina_to_siglip2_scale(vd.JINA_SCORE_MEAN - vd.JINA_SCORE_STD)
-    hi = vd._rescale_jina_to_siglip2_scale(vd.JINA_SCORE_MEAN + vd.JINA_SCORE_STD)
-    assert hi > lo
-
-
-def test_jina_relevance_none_on_import_error(monkeypatch):
-    def raise_import_error():
-        raise ImportError("onnxruntime недоступен")
-    monkeypatch.setattr(vd, "_get_jina_session", raise_import_error)
-    monkeypatch.setattr(vd, "_JINA_BROKEN", False)
-    assert vd._jina_relevance("x.jpg", "текст") is None
-    assert vd._JINA_BROKEN is True
-
-
-def test_jina_relevance_none_on_generic_exception(monkeypatch, tmp_path):
-    def raise_runtime_error():
-        raise RuntimeError("модель сломалась")
-    monkeypatch.setattr(vd, "_get_jina_session", raise_runtime_error)
-    monkeypatch.setattr(vd, "_JINA_BROKEN", False)
-    assert vd._jina_relevance("x.jpg", "текст") is None
-    # generic Exception (не ImportError) НЕ должен взводить permanent-флаг —
-    # тот же принцип, что и у _siglip2_relevance (см. except-ветки).
-    assert vd._JINA_BROKEN is False
-
-
-def test_jina_relevance_returns_cosine_from_mocked_onnx_session(monkeypatch, tmp_path):
+def _fake_vectors(monkeypatch, img, txt):
     import numpy as np
-
-    class _FakeSession:
-        def run(self, output_names, feed):
-            if output_names == ["l2norm_image_embeddings"]:
-                return [np.array([[1.0, 0.0]], dtype=np.float32)]
-            return [np.array([[1.0, 0.0]], dtype=np.float32)]
-
-    class _FakeTokenizer:
-        def __call__(self, texts, padding=None, truncation=None, max_length=None, return_tensors=None):
-            return {"input_ids": np.zeros((1, 3), dtype=np.int64)}
-
-    monkeypatch.setattr(vd, "_get_jina_session", lambda: (_FakeSession(), _FakeTokenizer()))
-    monkeypatch.setattr(vd, "_JINA_BROKEN", False)
-    img_path = str(tmp_path / "x.jpg")
-    from PIL import Image
-    Image.new("RGB", (8, 8)).save(img_path)
-    result = vd._jina_relevance(img_path, "текст")
-    assert result == pytest.approx(1.0)   # параллельные векторы -> cos=1.0
+    monkeypatch.setattr(vd.pipeline_smart, "_gate_image_vec",
+                        lambda path: None if img is None else np.asarray(img, dtype="float32"))
+    monkeypatch.setattr(vd.pipeline_smart, "_gate_text_vec",
+                        lambda text: None if txt is None else np.asarray(txt, dtype="float32"))
 
 
-def test_get_jina_session_passes_trust_remote_code_false(monkeypatch):
-    # РЕАЛЬНЫЙ баг, пойманный живым прогоном (не гипотеза): без явного
-    # trust_remote_code=False AutoTokenizer.from_pretrained() у jina-clip-v2
-    # (кастомная архитектура, auto_map в конфиге) ведёт себя недетерминиро-
-    # ванно — в нескольких прогонах подряд то проходил тихо, то уходил в
-    # интерактивный "Do you wish to run the custom code? [y/N]" и висел на
-    # чтении stdin (никогда не поднимая исключение, то есть ЛЮБОЙ fail-open
-    # в _jina_relevance() до него просто не доходил — тихое зависание, не
-    # честный None). Токенизатор — штатный XLMRobertaTokenizer, remote-код
-    # реально не нужен: явный False убирает промпт детерминированно.
-    onnxruntime = pytest.importorskip("onnxruntime")
-    huggingface_hub = pytest.importorskip("huggingface_hub")
-    transformers = pytest.importorskip("transformers")
+def test_sentence_relevance_uses_the_gate_vectors_and_the_legacy_scale(monkeypatch):
+    """GPU-ветка (29.09): оценка фразы — та же модель, что у гейтов (общие
+    векторы и кэши), сходство переведено на шкалу прежнего ансамбля, на
+    которой заданы веса и бонусы режиссёра."""
+    _fake_vectors(monkeypatch, [0.6, 0.8], [1.0, 0.0])
+    seen = []
 
-    monkeypatch.setattr(vd, "_jina_session", None)
-    monkeypatch.setattr(vd, "_jina_tokenizer", None)
-    monkeypatch.setattr(huggingface_hub, "hf_hub_download", lambda **kw: "/fake/model.onnx")
-    monkeypatch.setattr(onnxruntime, "InferenceSession", lambda *a, **kw: object())
-
-    captured = {}
-
-    def fake_from_pretrained(repo_id, **kwargs):
-        captured.update(kwargs)
-        return object()
-
-    monkeypatch.setattr(transformers.AutoTokenizer, "from_pretrained", fake_from_pretrained)
-
-    vd._get_jina_session()
-    assert captured.get("trust_remote_code") is False
+    def to_legacy(value, kind):
+        seen.append((value, kind))
+        return value * 10
+    monkeypatch.setattr(vd.vision_model, "to_legacy_level", to_legacy)
+    assert vd.sentence_relevance("x.jpg", "фраза блока") == pytest.approx(6.0)
+    assert seen == [(pytest.approx(0.6), "sentence")]
 
 
-def test_text_text_similarity_never_exceeds_batch_size_cap(monkeypatch):
-    # Реальный найденный вживую OOM (videos/01_ves-mecha, 91 блок -> 165
-    # после sub-cuts, 31.08): _emb() раньше строила dummy "pixel_values"
-    # РАЗМЕРОМ СО ВЕСЬ список текстов сразу (n=len(texts)) — сессия
-    # прогоняла vision-башню Jina на 165 фиктивных 512x512 "изображениях"
-    # ОДНИМ батчем, роняя процесс по памяти (~13.9GB, контейнер 15GB) ещё
-    # до первого реального кандидата медиа. Регрессионный гейт: ни один
-    # sess.run() не должен получать батч pixel_values больше
-    # JINA_TEXT_BATCH_SIZE, независимо от того, сколько текстов передано
-    # в text_text_similarity() целиком.
+def test_sentence_relevance_none_without_calibration(monkeypatch):
+    _fake_vectors(monkeypatch, [1.0, 0.0], [1.0, 0.0])
+
+    def no_cal(value, kind):
+        raise vd.vision_model.NotCalibrated("нет калибровки")
+    monkeypatch.setattr(vd.vision_model, "to_legacy_level", no_cal)
+    assert vd.sentence_relevance("x.jpg", "фраза") is None
+
+
+def test_sentence_relevance_none_when_model_does_not_answer(monkeypatch):
+    _fake_vectors(monkeypatch, None, [1.0, 0.0])
+    assert vd.sentence_relevance("x.jpg", "фраза") is None
+
+
+def test_text_text_similarity_is_a_matrix_of_gate_text_vectors(monkeypatch):
     import numpy as np
-
-    seen_batch_sizes = []
-
-    class _FakeSession:
-        def run(self, output_names, feed):
-            seen_batch_sizes.append(feed["pixel_values"].shape[0])
-            n = feed["input_ids"].shape[0]
-            return [np.ones((n, 4), dtype=np.float32)]
-
-    class _FakeTokenizer:
-        def __call__(self, texts, padding=None, truncation=None, max_length=None, return_tensors=None):
-            n = len(texts)
-            return {"input_ids": np.zeros((n, 3), dtype=np.int64)}
-
-    monkeypatch.setattr(vd, "_get_jina_session", lambda: (_FakeSession(), _FakeTokenizer()))
-    monkeypatch.setattr(vd, "_JINA_BROKEN", False)
-    monkeypatch.setattr(vd, "JINA_TEXT_BATCH_SIZE", 4)
-
-    texts_a = [f"фраза {i}" for i in range(37)]   # намеренно НЕ кратно batch_size
-    texts_b = [f"query {i}" for i in range(9)]
-
-    result = vd.text_text_similarity(texts_a, texts_b)
-
-    assert max(seen_batch_sizes) <= 4
-    assert len(result) == len(texts_a)
-    assert len(result[0]) == len(texts_b)
+    vecs = {"а": [1.0, 0.0], "б": [0.0, 1.0], "q": [0.6, 0.8]}
+    monkeypatch.setattr(vd.pipeline_smart, "_gate_text_vec",
+                        lambda t: np.asarray(vecs[t], dtype="float32"))
+    got = vd.text_text_similarity(["а", "б"], ["q"])
+    assert got == [[pytest.approx(0.6)], [pytest.approx(0.8)]]
+    monkeypatch.setattr(vd.pipeline_smart, "_gate_text_vec", lambda t: None)
+    assert vd.text_text_similarity(["а"], ["q"]) is None
 
 
-def test_text_text_similarity_chunking_matches_single_batch_shape(monkeypatch):
-    # Чанкинг — чисто группировка вызовов, не должен ронять форму/порядок
-    # результата (каждый текст сравнивается независимо от остальных
-    # элементов своего чанка).
-    import numpy as np
-
-    class _FakeSession:
-        def run(self, output_names, feed):
-            n = feed["input_ids"].shape[0]
-            # Детерминированный "эмбеддинг" — просто id-based вектор, чтобы
-            # проверить, что порядок/состав результата не путается чанкингом.
-            ids_sum = feed["input_ids"].sum(axis=1, keepdims=True).astype(np.float32)
-            return [np.concatenate([ids_sum, np.ones((n, 1), dtype=np.float32)], axis=1)]
-
-    class _FakeTokenizer:
-        def __call__(self, texts, padding=None, truncation=None, max_length=None, return_tensors=None):
-            ids = np.array([[hash(t) % 100, 1, 2] for t in texts], dtype=np.int64)
-            return {"input_ids": ids}
-
-    monkeypatch.setattr(vd, "_get_jina_session", lambda: (_FakeSession(), _FakeTokenizer()))
-    monkeypatch.setattr(vd, "_JINA_BROKEN", False)
-
-    texts_a = [f"фраза {i}" for i in range(10)]
-    texts_b = [f"query {i}" for i in range(3)]
-
-    monkeypatch.setattr(vd, "JINA_TEXT_BATCH_SIZE", 3)
-    result_chunked = vd.text_text_similarity(texts_a, texts_b)
-    monkeypatch.setattr(vd, "JINA_TEXT_BATCH_SIZE", 1000)
-    result_single = vd.text_text_similarity(texts_a, texts_b)
-
-    assert result_chunked == result_single
+def test_model_version_names_qwen_not_siglip_or_jina():
+    v = vd.SENTENCE_RELEVANCE_MODEL_VERSION.lower()
+    assert "qwen" in v and "siglip" not in v and "jina" not in v
 
 
-def test_ensemble_model_version_reflects_weights():
-    assert str(vd.ENSEMBLE_WEIGHT_SIGLIP2) in vd.SENTENCE_RELEVANCE_MODEL_VERSION
-    assert str(vd.ENSEMBLE_WEIGHT_JINA) in vd.SENTENCE_RELEVANCE_MODEL_VERSION
-    assert "jina" in vd.SENTENCE_RELEVANCE_MODEL_VERSION.lower()
+def test_no_siglip2_or_jina_left_in_the_director():
+    """Решение владельца 29.09: SigLIP2 убрана из GPU-ветки целиком, Jina —
+    некоммерческая лицензия. Ни загрузчиков, ни констант их шкал."""
+    for name in ("_get_siglip2_model", "_siglip2_relevance", "_get_jina_session",
+                 "_jina_relevance", "SIGLIP2_MODEL_NAME", "JINA_MODEL_REPO",
+                 "ENSEMBLE_WEIGHT_JINA"):
+        assert not hasattr(vd, name), name
 
-
-# ---------- role_shot_size_bonus ----------
 
 def test_role_shot_size_bonus_known_pair():
     assert vd.role_shot_size_bonus("detail", "detail") == pytest.approx(0.20)
@@ -699,64 +504,30 @@ def test_director_min_pool_stays_in_sync_across_modules():
     assert pipeline_smart.DIRECTOR_MIN_POOL == vd.DIRECTOR_MIN_POOL
 
 
-# ---------- sentence_relevance: РЕАЛЬНАЯ модель (SigLIP2) на реальных
-# фото + реальной русской фразе сценария (не мок — та же логика, что golden
-# CLIP-тесты в test_media_selection_golden.py: сама суть регрессии, которую
-# нужно ловить, это ошибка семантики реальной модели, не что-то кодируемое
-# в мок-объекте). Фраза — дословно из videos/01_ves-mecha/script.txt. ----------
-
-torch = pytest.importorskip("torch")
-transformers = pytest.importorskip("transformers")
+# ---------- sentence_relevance: РЕАЛЬНАЯ модель (Qwen3-VL) на реальных фото +
+# реальной русской фразе сценария — только там, где модели готовы
+# (видеокарта, веса, калибровка). Фраза — дословно из videos/01_ves-mecha. ----------
 
 _GOLDEN_FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "golden_media")
 _GOLDEN_SWORD = os.path.join(_GOLDEN_FIXTURES, "sword.jpg")
 _GOLDEN_PIZZA = os.path.join(_GOLDEN_FIXTURES, "pizza.jpg")
 
 
-class TestSentenceRelevanceSiglip2RealModel:
+class TestSentenceRelevanceRealModel:
     def test_real_sentence_prefers_matching_photo_over_unrelated(self):
+        problems = vd.vision_model.readiness()
+        if problems:
+            pytest.skip("модели зрения не готовы: " + "; ".join(problems))
         text = "Обычный одноручный рыцарский меч весит от килограмма до полутора."
         r_sword = vd.sentence_relevance(_GOLDEN_SWORD, text)
         r_pizza = vd.sentence_relevance(_GOLDEN_PIZZA, text)
         assert r_sword is not None and r_pizza is not None
-        assert r_sword > r_pizza, (
-            f"реальная русская фраза сценария про меч должна давать более высокую "
-            f"близость к фото меча, чем к фото пиццы: sword={r_sword}, pizza={r_pizza}")
-
-    def test_russian_text_is_no_longer_near_noise_since_the_gate_model_became_multilingual(self):
-        # ПЕРЕВЁРНУТО 18.09: этот тест ГОДАМИ документировал, что
-        # ОДНОЯЗЫЧНЫЙ (английский) CLIP ViT-B/32 внутри pipeline_smart.
-        # clip_relevance() не различает меч/пиццу на русском тексте (разница
-        # в пределах шума, <0.05) — и его собственный комментарий прямо
-        # предсказывал: "если это упало — одноязычный CLIP неожиданно
-        # научился различать русский текст, sentence_relevance можно
-        # упростить обратно". Именно это и произошло: get_clip_model()
-        # теперь грузит SigLIP2-base-patch16-256 (многоязычная, 109 языков,
-        # см. CLIP_GATE_MODEL_NAME в pipeline_smart.py), и на этой же фразе
-        # разница sword/pizza выросла с "в пределах шума" до ~0.159.
-        #
-        # ЧЕСТНО: это НЕ повод упрощать sentence_relevance()/ensemble
-        # обратно в этом же заходе — вопрос, нужен ли ещё отдельный
-        # so400m+Jina ensemble поверх теперь-тоже-многоязычного базового
-        # гейта, отдельная архитектурная задача, не затронутая здесь.
-        # Тест теперь документирует ОБРАТНОЕ: что gate-модель РЕАЛЬНО стала
-        # многоязычной, а не молча остался бы неверный докстринг.
-        text = "Обычный одноручный рыцарский меч весит от килограмма до полутора."
-        r_sword = vd.pipeline_smart.clip_relevance(_GOLDEN_SWORD, text)
-        r_pizza = vd.pipeline_smart.clip_relevance(_GOLDEN_PIZZA, text)
-        assert r_sword is not None and r_pizza is not None
-        assert abs(r_sword - r_pizza) > 0.05, (
-            "gate-модель снова перестала различать русский текст — если это "
-            "упало, проверь, не откатился ли get_clip_model() на "
-            "одноязычную модель")
+        assert r_sword > r_pizza, f"sword={r_sword}, pizza={r_pizza}"
 
 
-# ---------- self-calibrating DIRECTOR_RELEVANCE_FLOOR ----------
-# см. docstring calibrate_relevance_floor()/_resolve_director_relevance_floor()
-# в scripts/visual_director.py — sentence_relevance() мокается (логика
-# калибровки не должна платить за реальную модель на каждый прогон тестов,
-# живая проверка на реальной модели уже сделана вручную при внедрении и
-# зафиксирована в scripts/calibration_cache/director_relevance_floor.json).
+# ---------- порог режиссёра (DIRECTOR_RELEVANCE_FLOOR) ----------
+# Методика — calibrate_relevance_floor(); зовёт её scripts/calibrate_vision.py,
+# результат читается из калибровки моделей зрения. Модель мокается.
 
 def _write_pairs(path, pairs):
     import json
@@ -823,68 +594,38 @@ def test_calibrate_relevance_floor_none_on_missing_pairs(monkeypatch, tmp_path):
     assert vd.calibrate_relevance_floor() is None
 
 
-def test_resolve_floor_uses_cache_when_signature_matches(monkeypatch, tmp_path):
-    cache_path = str(tmp_path / "cache.json")
-    import json
-    with open(cache_path, "w", encoding="utf-8") as f:
-        json.dump({"floor": 0.42, "model_signature": "sig-a"}, f)
-    monkeypatch.setattr(vd, "CALIBRATION_CACHE_PATH", cache_path)
-    monkeypatch.setattr(vd, "_relevance_model_signature", lambda: "sig-a")
+def test_calibrate_relevance_floor_takes_an_explicit_score_fn(monkeypatch, tmp_path):
+    """Калибровка зовёт методику со своей оценкой (шкалы ещё нет в файле)."""
+    pairs_path = str(tmp_path / "pairs.json")
+    for name in ("g", "b"):
+        open(str(tmp_path / f"{name}.jpg"), "wb").close()
+    _write_pairs(pairs_path, [
+        {"image": os.path.relpath(str(tmp_path / "g.jpg"), vd.REPO_ROOT), "caption": "good", "label": "good"},
+        {"image": os.path.relpath(str(tmp_path / "b.jpg"), vd.REPO_ROOT), "caption": "bad", "label": "bad"},
+    ])
+    monkeypatch.setattr(vd, "CALIBRATION_PAIRS_PATH", pairs_path)
+    monkeypatch.setattr(vd, "sentence_relevance",
+                        lambda *a: (_ for _ in ()).throw(AssertionError("не та оценка")))
+    got = vd.calibrate_relevance_floor(score_fn=lambda p, c: {"good": 0.3, "bad": 0.1}[c])
+    assert got["floor"] == pytest.approx(0.2)
 
-    def fail_if_called():
-        raise AssertionError("не должно калиброваться заново на кэш-хите")
-    monkeypatch.setattr(vd, "calibrate_relevance_floor", fail_if_called)
+
+def test_resolve_floor_reads_the_vision_calibration(monkeypatch):
+    monkeypatch.setattr(vd.vision_model, "threshold",
+                        lambda name, default=None: 0.42 if name == "director_floor" else None)
     assert vd._resolve_director_relevance_floor() == 0.42
 
 
-def test_resolve_floor_recalibrates_when_signature_differs(monkeypatch, tmp_path):
-    cache_path = str(tmp_path / "cache.json")
-    import json
-    with open(cache_path, "w", encoding="utf-8") as f:
-        json.dump({"floor": 0.42, "model_signature": "sig-old"}, f)
-    monkeypatch.setattr(vd, "CALIBRATION_CACHE_PATH", cache_path)
-    monkeypatch.setattr(vd, "_relevance_model_signature", lambda: "sig-new")
-    monkeypatch.setattr(vd, "calibrate_relevance_floor",
-                         lambda: {"floor": 0.55, "margin": 0.1, "model_signature": "sig-new"})
-    floor = vd._resolve_director_relevance_floor()
-    assert floor == 0.55
-    with open(cache_path, encoding="utf-8") as f:
-        written = json.load(f)
-    assert written["model_signature"] == "sig-new" and written["floor"] == 0.55
-
-
-def test_resolve_floor_rejects_thin_margin_keeps_old_cache(monkeypatch, tmp_path):
-    """Сани-гейт: плохое разделение good/bad НЕ должно тихо стать новым
-    порогом — реальный риск, найденный при финальной проверке ПЕРЕД
-    внедрением (см. коммит): автоматизация решает проблему "забыли
-    пересчитать", но не гарантирует, что пересчёт всегда качественный."""
-    cache_path = str(tmp_path / "cache.json")
-    import json
-    with open(cache_path, "w", encoding="utf-8") as f:
-        json.dump({"floor": 0.42, "model_signature": "sig-old"}, f)
-    monkeypatch.setattr(vd, "CALIBRATION_CACHE_PATH", cache_path)
-    monkeypatch.setattr(vd, "_relevance_model_signature", lambda: "sig-new")
-    monkeypatch.setattr(vd, "DIRECTOR_RELEVANCE_MIN_MARGIN", 0.02)
-    monkeypatch.setattr(vd, "calibrate_relevance_floor",
-                         lambda: {"floor": 0.30, "margin": 0.005, "model_signature": "sig-new"})
-    floor = vd._resolve_director_relevance_floor()
-    assert floor == 0.42   # старый кэш, не новый непрошедший гейт порог
-    with open(cache_path, encoding="utf-8") as f:
-        untouched = json.load(f)
-    assert untouched["model_signature"] == "sig-old"   # файл не переписан
-
-
-def test_resolve_floor_falls_back_to_hardcoded_default_with_nothing_available(monkeypatch, tmp_path):
-    monkeypatch.setattr(vd, "CALIBRATION_CACHE_PATH", str(tmp_path / "no_cache.json"))
-    monkeypatch.setattr(vd, "calibrate_relevance_floor", lambda: None)
+def test_resolve_floor_falls_back_when_calibration_has_no_floor(monkeypatch):
+    monkeypatch.setattr(vd.vision_model, "threshold", lambda name, default=None: None)
     assert vd._resolve_director_relevance_floor() == vd.DIRECTOR_RELEVANCE_FALLBACK
 
 
-def test_model_signature_changes_when_ensemble_weights_change(monkeypatch):
-    sig1 = vd._relevance_model_signature()
-    monkeypatch.setattr(vd, "ENSEMBLE_WEIGHT_SIGLIP2", vd.ENSEMBLE_WEIGHT_SIGLIP2 + 0.1)
-    sig2 = vd._relevance_model_signature()
-    assert sig1 != sig2
+def test_resolve_floor_falls_back_without_calibration(monkeypatch):
+    def no_cal(name, default=None):
+        raise vd.vision_model.NotCalibrated("нет файла")
+    monkeypatch.setattr(vd.vision_model, "threshold", no_cal)
+    assert vd._resolve_director_relevance_floor() == vd.DIRECTOR_RELEVANCE_FALLBACK
 
 
 def test_real_calibration_pairs_file_is_valid_and_channel_agnostic():

@@ -91,6 +91,22 @@ def test_noise_score_high_on_noisy_smooth_region(tmp_path):
 
 # ---------- qc_verdict (через monkeypatch — без реального CLIP) ----------
 
+import pytest   # noqa: E402
+
+# Пороги модели зрения на GPU-ветке — только из калибровки Qwen (см.
+# vision_model.py); в контейнере без видеокарты её нет. Тесты вердикта
+# проверяют ЛОГИКУ сравнения, а не числа модели, поэтому пороги задаются
+# здесь явно (прежние значения SigLIP2 — любые разумные числа годятся).
+TEST_RELEVANCE = -0.035
+TEST_RISKY = 0.045
+
+
+@pytest.fixture(autouse=True)
+def _explicit_thresholds(monkeypatch):
+    monkeypatch.setattr(pipeline_smart, "CLIP_RELEVANCE_THRESHOLD", TEST_RELEVANCE)
+    monkeypatch.setattr(pipeline_smart, "RISKY_QUERY_MARGIN", TEST_RISKY)
+    monkeypatch.setattr(pipeline_smart, "PARTICLE_SCORE_THRESHOLD", 0.056)
+
 def _patch_all_scorers(monkeypatch, luma=0.5, levels=(0.1, 0.9), relevance=0.25,
                         aesthetic=5.0, particle=0.05, ahash_val="0" * 64, motion=0.05):
     monkeypatch.setattr(pipeline_smart, "measure_luma", lambda *a, **kw: luma)
@@ -134,12 +150,7 @@ def test_qc_verdict_rejects_flat_histogram(tmp_path, monkeypatch):
 
 
 def test_qc_verdict_rejects_low_relevance(tmp_path, monkeypatch):
-    # relevance=-0.1 (не 0.05, как раньше) — 18.09 pipeline_smart.
-    # CLIP_RELEVANCE_THRESHOLD сменился с ~0.19 (шкала CLIP) на -0.035
-    # (шкала SigLIP2-base256, см. CLIP_GATE_MODEL_NAME в pipeline_smart.py);
-    # 0.05 был ниже старого порога и выше нового — тест проверял не то,
-    # что должен, на новой шкале. Значение ниже НОВОГО порога, тест
-    # по-прежнему про «низкая релевантность отклоняется».
+    # Значение ниже TEST_RELEVANCE (порог задан фикстурой выше).
     _patch_all_scorers(monkeypatch, relevance=-0.1)
     p = _make_photo(tmp_path)
     info = vqc.qc_verdict(p, is_video=False, query="unrelated topic", accepted_hashes={}, slot_label="001")
@@ -383,3 +394,23 @@ def test_main_returns_0_when_all_slots_pass(tmp_path, monkeypatch):
         "auto_replaced": False, "reasons": [], "path": str(media / "001_stock.jpg")})
 
     assert _set_argv_and_call_main(str(tmp_path)) == 0
+
+
+def test_qc_verdict_refuses_without_calibration(tmp_path, monkeypatch):
+    """Модель ответила, а порога нет (калибровки Qwen нет): громкий отказ,
+    а не молчаливый пропуск кадра мимо гейта."""
+    import vision_model
+    _patch_all_scorers(monkeypatch, relevance=0.1)
+    monkeypatch.setattr(pipeline_smart, "CLIP_RELEVANCE_THRESHOLD", None)
+    p = _make_photo(tmp_path)
+    with pytest.raises(vision_model.NotCalibrated):
+        vqc.qc_verdict(p, is_video=False, query="q", accepted_hashes={}, slot_label="001")
+
+
+def test_qc_verdict_particle_layer_silent_without_threshold(tmp_path, monkeypatch):
+    _patch_all_scorers(monkeypatch, particle=0.9)
+    monkeypatch.setattr(pipeline_smart, "PARTICLE_SCORE_THRESHOLD", None)
+    p = _make_photo(tmp_path)
+    info = vqc.qc_verdict(p, is_video=False, query="q", accepted_hashes={}, slot_label="001")
+    assert info["verdict"] == "pass"
+    assert not any("частицы" in r for r in info["reasons"])

@@ -1,23 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Вторая, более точная проверка ПОБЕДИТЕЛЯ слота (SigLIP2+Jina поверх
-CLIP) — по прямому требованию владельца «CLIP старая модель, замени».
+"""Вторая, более точная проверка ПОБЕДИТЕЛЯ слота.
 
-ИЗМЕРЕНО НА ЗОЛОТОМ НАБОРЕ (17.09), не предположено:
-  AUC (ранжирует годное выше брака)   CLIP 0.566   SigLIP2+Jina 0.610
-  при нуле ложных отказов годным      CLIP 3/7 терпимых потеряно,
-                                       SigLIP2+Jina 2/7
-Модель РЕАЛЬНО точнее — первая попытка сравнения (по средним числам, не по
-рангу) показала обратное и была ошибкой метода, не находкой.
-
-НО замена ПОЛНОЙ, на каждого кандидата пула — нет, и причина тоже измерена:
-живой замер на этой машине, 15 РАЗНЫХ картинок (кэш не участвует):
-  CLIP            72 мс/вызов
-  SigLIP2+Jina  2358 мс/вызов  (32.8x медленнее)
-is_relevant_candidate() вызывается на каждого кандидата (тысячи за эпизод) —
-на этой частоте 33x медленнее means часы, а не минуты лишнего времени.
-Поэтому CLIP остаётся быстрым фильтром ВСЕГО пула, а новая модель проверяет
-только уже выбранного ПОБЕДИТЕЛЯ, один раз на слот.
+GPU-ветка (29.09, решение владельца): судит Qwen3-VL-Reranker-2B — оценка
+0..1 пары «запрос — картинка» целиком; порог smart_rerank — из калибровки
+(vision_model). Раньше здесь была SigLIP2-so400m + Jina (эмбеддинги; у Jina
+некоммерческая лицензия). Вызывается один раз на слот, не на кандидата.
 """
 import os
 import sys
@@ -40,50 +28,64 @@ def _reset_miss_list():
     ps.SMART_VETO_MISSES.clear()
 
 
+def _fake_rerank(monkeypatch, fn):
+    import qwen_vl_rerank
+    monkeypatch.setattr(qwen_vl_rerank, "score", fn)
+
+
 def test_veto_is_noop_when_flag_disabled(monkeypatch):
-    """Флаг выключен — CLIP остаётся единственным судьёй, ни одного
-    дополнительного вызова модели."""
+    """Флаг выключен — ни одного вызова реранкера."""
     monkeypatch.setenv("SMART_RELEVANCE_VETO", "0")
     called = []
 
-    def fake_sentence_relevance(*a, **kw):
+    def fake(query, images, instruction=None):
         called.append(1)
-        return -0.5  # заведомо ниже порога, если бы вызвалась
-    import visual_director
-    monkeypatch.setattr(visual_director, "sentence_relevance", fake_sentence_relevance)
+        return [0.0]
+    _fake_rerank(monkeypatch, fake)
+    monkeypatch.setattr(ps, "SMART_RELEVANCE_THRESHOLD", 0.5)
     assert ps.smart_relevance_veto("any/path.jpg", "any query") is False
     assert called == [], "модель вызвана при выключенном флаге"
 
 
 def test_veto_fails_open_when_model_unavailable(monkeypatch):
-    """Нет torch/transformers/onnxruntime, любая ошибка — False (не
-    отклоняем), тот же принцип, что у CLIP-гейтов на этой же странице."""
+    """Реранкера нет (None) или он бросил — не отклоняем: рендер без него
+    сюда не доходит (require_ready), сбой посреди прогона печатается."""
     monkeypatch.setenv("SMART_RELEVANCE_VETO", "1")
-    import visual_director
+    monkeypatch.setattr(ps, "SMART_RELEVANCE_THRESHOLD", 0.5)
+    _fake_rerank(monkeypatch, lambda q, imgs, instruction=None: None)
+    assert ps.smart_relevance_veto("any/path.jpg", "any query") is False
 
     def boom(*a, **kw):
         raise ModuleNotFoundError("no torch")
-    monkeypatch.setattr(visual_director, "sentence_relevance", boom)
+    _fake_rerank(monkeypatch, boom)
     assert ps.smart_relevance_veto("any/path.jpg", "any query") is False
 
 
 def test_veto_rejects_below_threshold_accepts_above(monkeypatch):
-    """Порог -0.01 — ровно граница золотого набора (худший годный кадр
-    -0.003, буфер вниз, как и у CLIP 0.19 против его худшего годного 0.201)."""
+    """Порог — калиброванный smart_rerank; оценка ниже — отказ, выше — нет."""
     monkeypatch.setenv("SMART_RELEVANCE_VETO", "1")
-    import visual_director
-    monkeypatch.setattr(visual_director, "sentence_relevance", lambda *a, **kw: -0.05)
+    monkeypatch.setattr(ps, "SMART_RELEVANCE_THRESHOLD", 0.3)
+    _fake_rerank(monkeypatch, lambda q, imgs, instruction=None: [0.1])
     assert ps.smart_relevance_veto("x.jpg", "q") is True
-    monkeypatch.setattr(visual_director, "sentence_relevance", lambda *a, **kw: 0.10)
+    _fake_rerank(monkeypatch, lambda q, imgs, instruction=None: [0.8])
     assert ps.smart_relevance_veto("x.jpg", "q") is False
 
 
-def test_veto_score_none_is_not_rejected(monkeypatch):
-    """None (модель не смогла оценить конкретную пару) — не отклоняем,
-    тот же fail-open, что у clip_relevance()."""
+def test_veto_refuses_without_calibration(monkeypatch):
+    """Реранкер ответил, а порога нет — громкий отказ, не пропуск."""
+    import vision_model
     monkeypatch.setenv("SMART_RELEVANCE_VETO", "1")
-    import visual_director
-    monkeypatch.setattr(visual_director, "sentence_relevance", lambda *a, **kw: None)
+    monkeypatch.setattr(ps, "SMART_RELEVANCE_THRESHOLD", None)
+    _fake_rerank(monkeypatch, lambda q, imgs, instruction=None: [0.5])
+    with pytest.raises(vision_model.NotCalibrated):
+        ps.smart_relevance_veto("x.jpg", "q")
+
+
+def test_veto_score_none_is_not_rejected(monkeypatch):
+    """None на месте картинки (файл не читается) — не отклоняем."""
+    monkeypatch.setenv("SMART_RELEVANCE_VETO", "1")
+    monkeypatch.setattr(ps, "SMART_RELEVANCE_THRESHOLD", 0.3)
+    _fake_rerank(monkeypatch, lambda q, imgs, instruction=None: [None])
     assert ps.smart_relevance_veto("x.jpg", "q") is False
 
 

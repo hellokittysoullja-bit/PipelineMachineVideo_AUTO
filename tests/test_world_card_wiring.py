@@ -263,7 +263,15 @@ def test_forbidden_classes_reach_the_veto(episode, monkeypatch):
     assert "plate armour" in anchors and "castle" in anchors, anchors
 
 
-def test_veto_judges_against_channel_plus_episode(episode, monkeypatch):
+@pytest.fixture
+def veto_margin(monkeypatch):
+    """Порог вето на GPU-ветке — только из калибровки Qwen (vision_model);
+    здесь проверяется провод (какие тексты ушли в модель), а не число —
+    порог задаётся явно."""
+    monkeypatch.setattr(ps, "NEGATIVE_VETO_MARGIN", -0.06)
+
+
+def test_veto_judges_against_channel_plus_episode(episode, monkeypatch, veto_margin):
     """negative_anchor_violation() судит по СУММЕ: канал + паспорт эпизода.
 
     Ловим сам факт подмешивания (какие тексты ушли в модель), а не вердикт:
@@ -289,7 +297,7 @@ def test_veto_judges_against_channel_plus_episode(episode, monkeypatch):
     assert "plate armour" in seen["texts"], "ловушки паспорта не дошли до вето"
 
 
-def test_no_card_keeps_veto_list_byte_identical(episode, monkeypatch):
+def test_no_card_keeps_veto_list_byte_identical(episode, monkeypatch, veto_margin):
     """Нет паспорта — список ловушек ровно прежний, ни одной лишней строки."""
     monkeypatch.setattr(ps, "VIDEO_FOLDER", str(episode))
     ps.reset_world_card_cache()

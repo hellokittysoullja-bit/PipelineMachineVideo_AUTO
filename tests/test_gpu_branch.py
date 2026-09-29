@@ -257,18 +257,6 @@ def test_cascade_batch_on_cpu_is_the_old_16(monkeypatch):
     assert ps.cascade_batch() == ps.CASCADE_BATCH_GPU
 
 
-def test_jina_stays_on_cpu_without_cuda(monkeypatch):
-    import ml_device
-    import visual_director as vd
-    vd.jina_providers.cache_clear()
-    monkeypatch.setattr(ml_device, "device", lambda: "cpu")
-    try:
-        assert vd.jina_providers() == ["CPUExecutionProvider"]
-        assert vd.jina_device_tag() == ""
-    finally:
-        vd.jina_providers.cache_clear()
-
-
 # ---------- сквозной: куча слота та же, что без упреждения ----------
 
 PEXELS = {"photos": [{"id": 501, "alt": "knight armour", "url": "https://www.pexels.com/photo/knight-501/",
@@ -489,42 +477,6 @@ def test_speculation_queue_is_cancelled_on_abnormal_exit():
 def test_default_speculation_is_off():
     import feature_flags
     assert feature_flags.FLAGS["SLOT_SPECULATE"].default == "0"
-
-
-def test_jina_admits_cpu_when_cuda_provider_did_not_load(monkeypatch):
-    """Аудит 28.09: onnxruntime-gpu перечисляет CUDA среди доступных и при
-    незагрузившихся библиотеках CUDA, а сессия молча считает на процессоре;
-    метка и лог обещали видеокарту."""
-    import types
-    import ml_device
-    import visual_director as vd
-    vd.jina_providers.cache_clear()
-    monkeypatch.setattr(vd, "_JINA_CUDA_FAILED", [False])
-    monkeypatch.setattr(ml_device, "device", lambda: "cuda")
-
-    class Sess:
-        def __init__(self, path, sess_options=None, providers=None):
-            self.asked = providers
-
-        def get_providers(self):
-            return ["CPUExecutionProvider"]
-    ort = pytest.importorskip("onnxruntime")
-    monkeypatch.setattr(ort, "InferenceSession", Sess)
-    monkeypatch.setattr(ort, "get_available_providers",
-                        lambda: ["CUDAExecutionProvider", "CPUExecutionProvider"])
-    import huggingface_hub
-    import transformers
-    monkeypatch.setattr(huggingface_hub, "hf_hub_download", lambda **k: "m.onnx")
-    monkeypatch.setattr(transformers.AutoTokenizer, "from_pretrained", lambda *a, **k: object())
-    monkeypatch.setattr(vd, "_jina_session", None)
-    monkeypatch.setattr(vd, "_jina_tokenizer", None)
-    try:
-        assert vd.jina_providers()[0] == "CUDAExecutionProvider"
-        vd._load_jina_locked()
-        assert vd.jina_providers() == ["CPUExecutionProvider"]
-        assert vd.jina_device_tag() == ""
-    finally:
-        vd.jina_providers.cache_clear()
 
 
 def test_model_run_on_cpu_is_a_plain_call(monkeypatch):

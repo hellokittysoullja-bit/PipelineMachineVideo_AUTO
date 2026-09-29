@@ -120,7 +120,6 @@ sys.argv = ["pipeline_smart.py", VIDEO_DIR]
 import pipeline_smart  # noqa: E402
 sys.argv = _saved_argv
 
-from PIL import Image  # noqa: E402
 
 LOOKBOOK_PATH = os.path.join(REPO_ROOT, "assets", "lookbook", "lookbook.json")
 
@@ -174,10 +173,10 @@ DOMAIN_PROMPTS = {
     "battle": "battle scene with weapons and armor",
 }
 DOMAIN_MARGIN = 0.02
-# 18.09: pipeline_smart.get_clip_model() теперь грузит SigLIP2-base256, не
-# CLIP (см. её докстринг) — эта константа уже была помечена как НЕ
-# откалиброванная на реальных кадрах (см. абзац выше), и модель под ней
-# сменилась без дополнительной потери калибровки, которой не было.
+# Задана на шкале SigLIP2-base256 (GPU-ветка с 29.09 — Qwen3-VL): на
+# Qwen переносится отношением разбросов обеих моделей на одной матрице
+# золотого набора (domain_margin(), vision_model.legacy_margin). Разметкой
+# не калибрована ни на одной модели (см. абзац выше).
 # Тай-брейк близкой ничьей между "средой" (определяет освещение/температуру
 # цвета кадра) и "предметом" (у оружия/человека нет своей независимой
 # температуры цвета — она приходит от среды) — см. classify_domain().
@@ -397,36 +396,36 @@ def _lab_to_srgb(lab):
 # ---------- Домен ----------
 
 def _domain_scores(image_path):
-    """{domain: CLIP-скор}, или None при отключённой/сломанной фиче/сбое —
-    единственное место, которое реально вызывает CLIP (вынесено отдельно от
+    """{domain: сходство}, или None при недоступной модели — единственное
+    место, которое реально спрашивает модель (вынесено отдельно от
     classify_domain(), чтобы ранжирование/margin-gate тестировались без
-    реального torch — тот же принцип разделения, что уже применяет
-    test_visual_qc.py к своим scorer-функциям). Кодирует картинку и все
-    промпты ОДНИМ вызовом модели (не через pipeline_smart.clip_relevance() в
-    цикле — та кодирует картинку заново на каждый текст, здесь текстов
-    много (DOMAIN_PROMPTS), лишний повторный проход энкодера того же кадра
-    не нужен)."""
+    видеокарты). Модель — та же, что у гейтов (Qwen3-VL-Embedding, с 29.09):
+    вектор картинки общий с гейтами и каскадом, промпты доменов считаются
+    один раз на процесс (кэш текстов гейта)."""
     if not pipeline_smart.CLIP_ENABLED or pipeline_smart.CLIP_BROKEN:
         return None
+    img = pipeline_smart._gate_image_vec(image_path)
+    if img is None:
+        return None
+    scores = {}
+    for domain, prompt in DOMAIN_PROMPTS.items():
+        t = pipeline_smart._gate_text_vec(prompt)
+        if t is None:
+            return None
+        scores[domain] = float(img @ t)
+    return scores
+
+
+def domain_margin():
+    """DOMAIN_MARGIN задан на шкале SigLIP2 и не калиброван разметкой (см.
+    выше) — переносится на шкалу Qwen отношением разбросов обеих моделей на
+    золотом наборе (vision_model.legacy_margin). Нет калибровки — None:
+    домен не определяется (лук работает как без эталона)."""
+    import vision_model
     try:
-        import torch
-        model, processor = pipeline_smart.get_clip_model()
-        img = Image.open(image_path).convert("RGB")
-        domains = list(DOMAIN_PROMPTS.keys())
-        texts = list(DOMAIN_PROMPTS.values())
-        import ml_device
-        inputs = processor(text=texts, images=[img], return_tensors="pt", padding=True, truncation=True)
-        with torch.no_grad():
-            out = ml_device.run(lambda: model(**ml_device.inputs(inputs)))
-        img_e = ml_device.host(out.image_embeds / out.image_embeds.norm(dim=-1, keepdim=True))
-        txt_e = ml_device.host(out.text_embeds / out.text_embeds.norm(dim=-1, keepdim=True))
-        scores = (img_e @ txt_e.T)[0].tolist()
-    except ImportError:
-        pipeline_smart.CLIP_BROKEN = True
+        return vision_model.legacy_margin(DOMAIN_MARGIN, "gate")
+    except vision_model.NotCalibrated:
         return None
-    except Exception:
-        return None
-    return dict(zip(domains, scores))
 
 
 def classify_domain(image_path):
@@ -441,14 +440,15 @@ def classify_domain(image_path):
     в кадре) — margin возвращается ЧЕСТНЫЙ (маленький, не подделанный),
     вызывающий код видит реальную неуверенность в отчёте."""
     scores = _domain_scores(image_path)
-    if not scores:
+    need = domain_margin()
+    if not scores or need is None:
         return None, 0.0
     ranked = sorted(scores.items(), key=lambda x: -x[1])
     top_domain, top_score = ranked[0]
     second_domain = ranked[1][0] if len(ranked) > 1 else None
     second_score = ranked[1][1] if len(ranked) > 1 else -1.0
     margin = top_score - second_score
-    if margin >= DOMAIN_MARGIN:
+    if margin >= need:
         return top_domain, margin
     pair = {top_domain, second_domain}
     if len(pair & ENVIRONMENT_DOMAINS) == 1 and len(pair & SUBJECT_DOMAINS) == 1:
@@ -457,58 +457,22 @@ def classify_domain(image_path):
 
 
 def _domain_scores_from_text(text):
-    """То же самое, что _domain_scores(), но ТЕКСТ-vs-ТЕКСТ (сам текст
-    блока сценария против DOMAIN_PROMPTS), не изображение-vs-текст. Ни в
-    этом модуле, ни в pipeline_smart.py такой ветки раньше не было — везде
-    до сих пор CLIP вызывался только совместным image+text forward'ом
-    (см. clip_relevance()/_domain_scores() выше). model.get_text_features()
-    — реальный, документированный метод transformers.CLIPModel для
-    текстового-только эмбеддинга, тот же закэшированный get_clip_model(),
-    ноль новых зависимостей/загрузок модели — просто раньше не
-    использовался. Нужно для Semantic Visual Director (scripts/
-    visual_director.py) — домен ОЖИДАНИЯ по тексту фразы, для сравнения с
-    доменом КАНДИДАТА (classify_domain() на картинке).
-
-    РЕАЛЬНЫЙ, найденный вживую баг (deep-audit, 28 августа) — эта функция
-    была ПОЛНОСТЬЮ сломана с момента написания и НИ РАЗУ не сработала ни на
-    одном рендере: в установленной версии transformers (5.15) get_text_
-    features() возвращает не голый тензор, как в старой документации/
-    докстринге выше, а BaseModelOutputWithPooling — `txt_e.norm(...)` кидал
-    AttributeError на КАЖДОМ вызове, широкий `except Exception: return None`
-    (строка ниже) молча глотал это как "CLIP недоступен", и text_domain_hint()
-    всегда отдавала (None, 0.0) — domain_match_bonus() в compute_extra_score()
-    был мёртвым кодом с самого внедрения, ни разу не дал ненулевой бонус.
-    Живая проверка на реальном тексте эпизода ("medieval knight battle
-    reenactment fight" — максимально очевидный "battle"-домен) подтвердила:
-    ДО фикса — None/0.0 всегда; ПОСЛЕ — уверенный сигнал. Исходники
-    transformers (CLIPModel.get_text_features) показывают: пулинг ВНУТРИ
-    этой версии УЖЕ применяет text_projection и кладёт результат обратно в
-    `.pooler_output` того же объекта (перезаписывая сырой pooled_output) —
-    численно сверено против ЗАВЕДОМО рабочего пути (joint image+text forward
-    в _domain_scores()/clip_relevance(), max abs diff = 0.0 на одном и том
-    же тексте). Обрабатываем ОБА варианта (голый тензор старых версий
-    transformers И BaseModelOutputWithPooling новых) — не привязываемся к
-    одной версии библиотеки повторно."""
+    """То же, что _domain_scores(), но ТЕКСТ-vs-ТЕКСТ: сам текст блока
+    сценария против DOMAIN_PROMPTS — домен ОЖИДАНИЯ по тексту фразы для
+    Semantic Visual Director (сравнивается с доменом кандидата). Та же
+    модель, та же инструкция поиска с обеих сторон (кэш текстов гейта)."""
     if not pipeline_smart.CLIP_ENABLED or pipeline_smart.CLIP_BROKEN:
         return None
-    try:
-        import torch
-        model, processor = pipeline_smart.get_clip_model()
-        domains = list(DOMAIN_PROMPTS.keys())
-        texts = [text] + list(DOMAIN_PROMPTS.values())
-        import ml_device
-        inputs = processor(text=texts, return_tensors="pt", padding=True, truncation=True)
-        with torch.no_grad():
-            raw = ml_device.run(lambda: model.get_text_features(**ml_device.inputs(inputs)))
-        txt_e = raw if torch.is_tensor(raw) else raw.pooler_output
-        txt_e = ml_device.host(txt_e / txt_e.norm(dim=-1, keepdim=True))
-        scores = (txt_e[0:1] @ txt_e[1:].T)[0].tolist()
-    except ImportError:
-        pipeline_smart.CLIP_BROKEN = True
+    q = pipeline_smart._gate_text_vec(text)
+    if q is None:
         return None
-    except Exception:
-        return None
-    return dict(zip(domains, scores))
+    scores = {}
+    for domain, prompt in DOMAIN_PROMPTS.items():
+        t = pipeline_smart._gate_text_vec(prompt)
+        if t is None:
+            return None
+        scores[domain] = float(q @ t)
+    return scores
 
 
 def text_domain_hint(text):
@@ -516,13 +480,17 @@ def text_domain_hint(text):
     только по тексту фразы, не по картинке (см. _domain_scores_from_text()).
     (None, 0.0) при недоступном CLIP или недостаточной уверенности."""
     scores = _domain_scores_from_text(text)
-    if not scores:
+    # Тот же перенос порога, что у картинки. Честно: сходство текст-текст
+    # живёт на своей шкале, а перенос считан по матрице картинка-текст —
+    # порог и на SigLIP2 не был откалиброван разметкой (см. DOMAIN_MARGIN).
+    need = domain_margin()
+    if not scores or need is None:
         return None, 0.0
     ranked = sorted(scores.items(), key=lambda x: -x[1])
     top_domain, top_score = ranked[0]
     second_score = ranked[1][1] if len(ranked) > 1 else -1.0
     margin = top_score - second_score
-    if margin < DOMAIN_MARGIN:
+    if margin < need:
         return None, 0.0
     return top_domain, margin
 

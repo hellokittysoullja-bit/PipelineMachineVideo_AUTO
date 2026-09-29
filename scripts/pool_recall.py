@@ -735,14 +735,30 @@ def merged_labels(labels):
     return out
 
 
+# Модель, которой сняты векторы снимка tests/fixtures/pool_regression/:
+# emb.npz — векторы превью (ключ каскада той модели), text_emb.npz — векторы
+# всех текстов, которые каскад спрашивает на этих кучах (заморожены 29.09,
+# до удаления SigLIP2 из GPU-ветки). Гейт проверяет ФОРМУЛУ каскада
+# (порядки, чередование, голову) на одних и тех же замороженных числах —
+# от модели рендера он не зависит. Качество самой модели Qwen меряет
+# cascade_model_eval.py на записи эпизода 94.
+SNAPSHOT_MODEL = "google/siglip2-base-patch16-256"
+
+
+def _snapshot_key(ident):
+    import hashlib
+    return hashlib.md5(f"{SNAPSHOT_MODEL}|{ident}".encode("utf-8")).hexdigest()
+
+
 def fixture_orders(fix):
-    """Порядок каждого снятого пула по ПРОД-коду каскада. Эмбеддинги превью
-    — из снимка (в кэш каскада процесса), скачиваний нет."""
+    """Порядок каждого снятого пула по ПРОД-коду каскада на замороженных
+    векторах снимка (превью и тексты); скачиваний и модели нет."""
     import numpy as np
     import pipeline_smart as ps
     z = np.load(os.path.join(fix, "emb.npz"))
-    for k, v in zip(z["keys"], z["vecs"]):
-        ps._CASCADE_EMB[str(k)] = v.astype(np.float32)
+    snap = {str(k): v.astype(np.float32) for k, v in zip(z["keys"], z["vecs"])}
+    zt = np.load(os.path.join(fix, "text_emb.npz"))
+    text_vecs = {str(t): v.astype(np.float32) for t, v in zip(zt["texts"], zt["vecs"])}
     import gzip
     with gzip.open(os.path.join(fix, "pools.json.gz"), "rt", encoding="utf-8") as f:
         pools = json.load(f)
@@ -759,10 +775,20 @@ def fixture_orders(fix):
     import shutil
     out = {}
     tmp = tempfile.mkdtemp(prefix="rankcheck_")
+    put = []
+    real_text_vec = ps._cascade_text_vec
+    ps._cascade_text_vec = text_vecs.get
     try:
         for rec in pools:
             kind = rec["kind"]
             cands = [_cand(r, kind) for r in rec["rows"]]
+            for c in cands:
+                ident = ps._cascade_ident(c, c["_probe"])
+                v = snap.get(_snapshot_key(ident))
+                if v is not None:
+                    key = ps._cascade_key(ident)
+                    ps._CASCADE_EMB[key] = v
+                    put.append(key)
             spec = specs.get(rec.get("block_text"))
             brief = rec.get("shot_brief") or rec.get("query")
             ranked = ps.cascade_reorder(
@@ -771,6 +797,9 @@ def fixture_orders(fix):
                 claims=ps.cascade_claims(spec, kind))
             out[f"{rec['run']}|{rec['index']}|{kind}"] = [str(p["id"]) for p in ranked]
     finally:
+        ps._cascade_text_vec = real_text_vec
+        for key in put:
+            ps._CASCADE_EMB.pop(key, None)
         shutil.rmtree(tmp, ignore_errors=True)
     return out
 

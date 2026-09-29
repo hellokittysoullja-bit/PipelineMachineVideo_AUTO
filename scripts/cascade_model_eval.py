@@ -1,28 +1,33 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Замер модели каскада на размеченных кучах: та же формула каскада,
-другие векторы.
+"""Замер каскада Qwen3-VL (эмбеддинг + реранкер верха) на размеченных кучах
+эпизода 94 против базовой линии SigLIP2.
 
-Гейт регрессий (pool_recall.py rankcheck) хранит векторы SigLIP2 и сверяет
-порядок с базовой линией: 49 куч эп.94 (judge9/11/12), 856 меток, годных в
-первых 20 — 204. Картинок в нём нет. Этот скрипт берёт сами превью из
-записей сети харнесса (temp_selection_freeze/94_dagger_test: основная
-запись и net_overlay прогонов judge9/11/12 — ровно те прогоны, из которых
-сняты кучи), считает векторы выбранной моделью каскада и ранжирует теми же
-функциями прода (cascade_reorder, cascade_texts, cascade_claims) по тем же
-меткам. Кадры без вектора в базовой линии не участвуют и здесь — сравнение
-на одном наборе.
+Гейт регрессий (pool_recall.py rankcheck) хранит векторы SigLIP2 и базовую
+линию: 49 куч эп.94 (judge9/11/12), 856 меток, годных в первых 20 — 204.
+Картинок в нём нет. Этот скрипт берёт сами превью из записей сети
+харнесса (temp_selection_freeze/94_dagger_test: основная запись и
+net_overlay прогонов), считает векторы Qwen3-VL-Embedding и ранжирует
+ПРОД-функцией cascade_reorder — вместе с реранкером верха (превью для него
+берутся из той же записи), по тем же меткам.
 
-    python scripts/cascade_model_eval.py                      # Qwen
-    python scripts/cascade_model_eval.py --model siglip2     # контроль: 204
+НУЖНО: видеокарта и папка записи эпизода 94 (--freeze). Запись живёт там,
+где снимались прогоны judge9-17; в git её нет (гигабайты). Без неё скрипт
+честно отказывает — калибровка порогов (calibrate_vision.py) от неё не
+зависит и идёт на золотом наборе из git.
 
-Решение о смене CASCADE_MODEL — по двум числам: годных в первых 20 больше
-204 и ни одной кучи, где лучший размеченный кадр ушёл из первых 20
-(rankcheck_failures). Метки — Claude (см. labels.json, имя оценщика)."""
+    python scripts/cascade_model_eval.py --freeze temp_selection_freeze/94_dagger_test
+
+Вывод «лучше SigLIP2 без потерь» — по двум числам: годных в первых 20 больше
+базовой линии и ни одной кучи, где лучший размеченный кадр ушёл из первых
+20 (rankcheck_failures). Кучи, где размеченное превью не нашлось в записи,
+не сравниваются (их число печатается). Метки — Claude (см. labels.json,
+имя оценщика)."""
 import argparse
 import gzip
 import json
 import os
+import shutil
 import sys
 import tempfile
 
@@ -51,122 +56,110 @@ def recorded_bodies(freeze, runs):
     return out
 
 
-def _orders_without_siglip(pr, fix):
-    """fixture_orders, но без векторов SigLIP2 снимка: у Qwen свои ключи, а
-    чужие векторы в кэше каскада процесса лишь занимают память."""
-    import numpy as np
-    real = np.load
-
-    def empty_load(path, *a, **k):
-        if str(path).endswith("emb.npz"):
-            return {"keys": [], "vecs": []}
-        return real(path, *a, **k)
-    np.load = empty_load
-    try:
-        return pr.fixture_orders(fix)
-    finally:
-        np.load = real
-
-
-def _use_cascade_model(name):
-    """Модель каскада для этого процесса: через окружение, которое читает
-    реестр флагов (feature_flags.mode), — своего дефолта здесь нет."""
-    os.environ.update(CASCADE_MODEL=name)
-
-
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    # Скрипт меряет Qwen по умолчанию; флаг CASCADE_MODEL прогона он не
-    # читает, а выставляет сам — модель задаётся аргументом.
-    p.add_argument("--model", choices=("siglip2", "qwen3vl"), default="qwen3vl")
     p.add_argument("--freeze", default=FREEZE)
     p.add_argument("--handoff", type=int, default=20)
     a = p.parse_args(argv)
-    _use_cascade_model(a.model)
+    if not os.path.isdir(os.path.join(a.freeze, "net")):
+        raise SystemExit(f"нет записи эпизода 94 ({a.freeze}) — см. докстринг: замер каскада "
+                         f"идёт только там, где снимались прогоны judge9-17")
     os.environ.setdefault("CASCADE_CACHE_DIR", tempfile.mkdtemp(prefix="casc_eval_"))
+    os.environ.setdefault("RERANK_CACHE_DIR", tempfile.mkdtemp(prefix="rerank_eval_"))
     sys.argv = ["pipeline_smart.py", REPO]
-    import numpy as np
     from PIL import Image
     import net_recorder
     import pipeline_smart as ps
     import pool_recall as pr
+    import qwen_vl_embed
+    import qwen_vl_rerank
+    if not qwen_vl_embed.available() or not qwen_vl_rerank.available():
+        raise SystemExit("Qwen3-VL недоступна — см. строки выше")
 
     labels = json.load(open(os.path.join(FIX, "labels.json"), encoding="utf-8"))
-    base = json.load(open(os.path.join(FIX, "baseline.json"), encoding="utf-8"))
-    if a.model == "siglip2":
-        now = pr.rank_metrics(pr.fixture_orders(FIX), labels, a.handoff)
-    else:
-        if ps.cascade_model() != "qwen3vl":
-            raise SystemExit("Qwen3-VL-Embedding недоступна — см. строку выше")
-        import qwen_vl_embed
-        z = np.load(os.path.join(FIX, "emb.npz"))
-        have_base = set(str(k) for k in z["keys"])
-        pools = json.load(gzip.open(os.path.join(FIX, "pools.json.gz"), "rt", encoding="utf-8"))
-        runs_dir = os.path.join(a.freeze, "runs")
-        bodies = recorded_bodies(a.freeze, sorted(os.listdir(runs_dir)) if os.path.isdir(runs_dir)
-                                 else [])
-        # Какие превью ранжировались в базовой линии (ключ SigLIP2) — их и
-        # считаем моделью каскада, под её ключом.
-        _use_cascade_model("siglip2")
-        todo, missing, uncovered = {}, 0, set()
+    base = json.load(open(os.path.join(FIX, "baseline.json"), encoding="utf-8"))["metrics"]
+    lab = pr.merged_labels(labels)
+    pools = json.load(gzip.open(os.path.join(FIX, "pools.json.gz"), "rt", encoding="utf-8"))
+    plan = json.load(open(os.path.join(FIX, "specs.json"), encoding="utf-8"))
+    specs = {u.get("text"): dict(u, queries=u.get("queries_for") or u.get("queries") or [])
+             for u in ((plan or {}).get("units") or {}).values()}
+    runs_dir = os.path.join(a.freeze, "runs")
+    bodies = recorded_bodies(a.freeze, sorted(os.listdir(runs_dir)) if os.path.isdir(runs_dir) else [])
+
+    def body_of(url):
+        return bodies.get(net_recorder.request_key("GET", url, None))
+
+    # Векторы превью — пачками, заранее: cascade_reorder берёт их из кэша
+    # процесса; превью без записи остаются без вектора (как в рендере
+    # превью, которое не скачалось, — в хвост).
+    todo, lost_labeled = {}, set()
+    for rec in pools:
+        for r in rec["rows"]:
+            cand = pr._cand(r, rec["kind"])
+            ident = ps._cascade_ident(cand, r["probe_url"])
+            path = body_of(r["probe_url"])
+            if path is None:
+                if lab.get(f"{rec['index']}|{rec['kind']}|{r['id']}") is not None:
+                    lost_labeled.add(f"{rec['run']}|{rec['index']}|{rec['kind']}")
+                continue
+            todo[ident] = path
+    idents = sorted(todo)
+    print(f"превью в записи: {len(idents)}; куч с потерянными размеченными превью: "
+          f"{len(lost_labeled)}")
+    bs = 64
+    for k in range(0, len(idents), bs):
+        part = idents[k:k + bs]
+        imgs = []
+        for ident in part:
+            with Image.open(todo[ident]) as im:
+                imgs.append(im.convert("RGB"))
+        vecs = qwen_vl_embed.embed_images(imgs)
+        if vecs is None:
+            raise SystemExit("Qwen3-VL-Embedding сорвалась — см. строку выше")
+        for ident, v in zip(part, vecs):
+            ps._CASCADE_EMB[ps._cascade_key(ident)] = v
+        print(f"  {min(k + bs, len(idents))}/{len(idents)}", end="\r", flush=True)
+    print()
+
+    def probe_from_record(c, dest):
+        path = body_of(c["_probe"])
+        if path is None:
+            raise OSError("превью нет в записи")
+        shutil.copyfile(path, dest)
+
+    orders = {}
+    tmp = tempfile.mkdtemp(prefix="casc_eval_run_")
+    try:
         for rec in pools:
-            for r in rec["rows"]:
-                cand = pr._cand(r, rec["kind"])
-                ident = ps._cascade_ident(cand, r["probe_url"])
-                if ps._cascade_key(ident) not in have_base:
-                    continue
-                path = bodies.get(net_recorder.request_key("GET", r["probe_url"], None))
-                if path is None:
-                    missing += 1
-                    uncovered.add(ps._cascade_key(ident))
-                    continue
-                todo[ident] = path
-        # Честное сравнение — на одном наборе: у SigLIP2 тоже убираются
-        # превью, картинки которых нет в записях (у Qwen их не посчитать).
-        keep = [k for k in z["keys"] if str(k) not in uncovered]
-        sub_fix = tempfile.mkdtemp(prefix="casc_fix_")
-        for name in ("labels.json", "pools.json.gz", "specs.json", "baseline.json"):
-            os.symlink(os.path.join(FIX, name), os.path.join(sub_fix, name))
-        vec = dict(zip((str(k) for k in z["keys"]), z["vecs"]))
-        np.savez_compressed(os.path.join(sub_fix, "emb.npz"), keys=np.array(keep),
-                            vecs=np.stack([vec[str(k)] for k in keep]))
-        base_same = pr.rank_metrics(pr.fixture_orders(sub_fix), labels, a.handoff)
-        ps._CASCADE_EMB.clear()
-        print(f"SigLIP2 на том же наборе: годных в первых {a.handoff} "
-              f"{sum(m['good'] for m in base_same.values())} (полный набор: "
-              f"{sum(b['good'] for b in base['metrics'].values())})")
-        base = {"metrics": base_same}
-        _use_cascade_model(a.model)
-        idents = sorted(todo)
-        print(f"превью для модели: {len(idents)} (нет в записи сети: {missing})")
-        bs = 64
-        for k in range(0, len(idents), bs):
-            part = idents[k:k + bs]
-            imgs = []
-            for ident in part:
-                with Image.open(todo[ident]) as im:
-                    imgs.append(im.convert("RGB"))
-            vecs = qwen_vl_embed.embed_images(imgs)
-            for ident, v in zip(part, vecs):
-                ps._CASCADE_EMB[ps._cascade_key(ident)] = v
-            print(f"  {min(k + bs, len(idents))}/{len(idents)}", end="\r", flush=True)
-        print()
-        now = pr.rank_metrics(_orders_without_siglip(pr, sub_fix), labels, a.handoff)
+            kind = rec["kind"]
+            cands = [pr._cand(r, kind) for r in rec["rows"]]
+            spec = specs.get(rec.get("block_text"))
+            brief = rec.get("shot_brief") or rec.get("query")
+            ranked = ps.cascade_reorder(
+                cands, ps.cascade_texts(spec, brief, kind), os.path.join(tmp, "x"),
+                probe_from_record, index=rec["index"], url_of=lambda c: c["_probe"],
+                claims=ps.cascade_claims(spec, kind),
+                rerank_text=ps.cascade_rerank_text(spec, brief))
+            orders[f"{rec['run']}|{rec['index']}|{kind}"] = [str(c["id"]) for c in ranked]
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    now = {k: m for k, m in pr.rank_metrics(orders, labels, a.handoff).items()
+           if k not in lost_labeled}
+    base_same = {k: m for k, m in base.items() if k in now}
     g_now = sum(m["good"] for m in now.values())
-    g_base = sum(b["good"] for b in base["metrics"].values())
-    bad = pr.rankcheck_failures(now, base["metrics"])
-    better = [k for k, m in now.items() if k in base["metrics"]
+    g_base = sum(b["good"] for b in base_same.values())
+    bad = pr.rankcheck_failures(now, base_same)
+    better = [k for k, m in now.items() if k in base_same
               and (m["best"] if m["best"] is not None else -1)
-              > (base["metrics"][k]["best"] if base["metrics"][k]["best"] is not None else -1)]
-    print(f"модель каскада: {a.model} — годных в первых {a.handoff}: {g_now} "
-          f"(SigLIP2 на том же наборе: {g_base})")
+              > (base_same[k]["best"] if base_same[k]["best"] is not None else -1)]
+    print(f"Qwen3-VL (эмбеддинг + реранкер верха) — годных в первых {a.handoff}: {g_now} "
+          f"(SigLIP2 на тех же {len(base_same)} кучах: {g_base})")
     print(f"куч, где лучший кадр в первых {a.handoff} стал лучше: {len(better)}; хуже: "
           f"{sum(1 for x in bad if 'лучший' in x)}")
     for line in bad:
         print("  ХУЖЕ:", line)
     verdict = not bad and g_now > g_base
-    print("ВЫВОД:", "лучше SigLIP2 без потерь — можно ставить CASCADE_MODEL=" + a.model
-          if verdict else "не лучше SigLIP2 без потерь — оставить siglip2")
+    print("ВЫВОД:", "лучше SigLIP2 без потерь" if verdict else "НЕ лучше SigLIP2 без потерь")
     return 0 if verdict else 1
 
 

@@ -158,40 +158,6 @@ def test_aesthetic_model_loads_once_and_never_without_processor(monkeypatch):
     assert loads.count("CLIPModel") == 1
 
 
-def test_so400m_loads_once_and_never_without_processor(monkeypatch):
-    import visual_director as vd
-    loads = []
-    _fake_transformers(monkeypatch,
-                       AutoModel=type("AutoModel", (_slow_pretrained(loads),), {}),
-                       AutoProcessor=type("AutoProcessor", (_slow_pretrained(loads, 0.5),), {}))
-    import ml_device
-    monkeypatch.setattr(ml_device, "place", lambda m: m)
-    monkeypatch.setattr(vd, "_siglip2_model", None)
-    monkeypatch.setattr(vd, "_siglip2_processor", None)
-    got = _race(vd._get_siglip2_model)
-    assert all(m is not None and p is not None for m, p in got)
-    assert loads.count("AutoModel") == 1
-
-
-def test_jina_session_loads_once_and_never_without_tokenizer(monkeypatch):
-    import visual_director as vd
-    loads = []
-    fake_ort = types.SimpleNamespace(
-        SessionOptions=lambda: types.SimpleNamespace(),
-        InferenceSession=lambda *a, **k: (loads.append("session"), time.sleep(0.2), object())[2])
-    monkeypatch.setitem(sys.modules, "onnxruntime", fake_ort)
-    monkeypatch.setitem(sys.modules, "huggingface_hub",
-                        types.SimpleNamespace(hf_hub_download=lambda **k: "model.onnx"))
-    _fake_transformers(monkeypatch,
-                       AutoTokenizer=type("AutoTokenizer", (_slow_pretrained(loads, 0.4),), {}))
-    monkeypatch.setattr(vd, "jina_providers", lambda: ["CPUExecutionProvider"])
-    monkeypatch.setattr(vd, "_jina_session", None)
-    monkeypatch.setattr(vd, "_jina_tokenizer", None)
-    got = _race(vd._get_jina_session)
-    assert all(s is not None and t is not None for s, t in got)
-    assert loads.count("session") == 1
-
-
 def test_warmup_loads_in_background_and_swallows_failures(monkeypatch):
     ps = _ps()
     calls = []
@@ -217,14 +183,15 @@ def test_warmup_loads_only_models_the_run_uses(monkeypatch):
     ps = _ps()
     monkeypatch.setattr(ps, "CLIP_ENABLED", True)
     monkeypatch.setattr(ps, "AESTHETIC_ENABLED", False)
-    monkeypatch.setenv("CASCADE_MODEL", "siglip2")
     monkeypatch.setenv("SMART_RELEVANCE_VETO", "0")
-    monkeypatch.setenv("VISUAL_DIRECTOR_MODE", "off")
     monkeypatch.setattr(ps, "PARALLAX_ENABLED", False)
     names = [n for n, _ in ps.model_warmup_jobs()]
-    assert names == ["SigLIP2 гейта"]
+    assert names == ["Qwen3-VL-Embedding", "Qwen3-VL-Reranker"]
     monkeypatch.setattr(ps, "PARALLAX_ENABLED", True)
-    assert [n for n, _ in ps.model_warmup_jobs()] == ["SigLIP2 гейта", "Depth-Anything"]
+    assert [n for n, _ in ps.model_warmup_jobs()][-1] == "Depth-Anything"
+    monkeypatch.setattr(ps, "CLIP_ENABLED", False)
+    monkeypatch.setattr(ps, "PARALLAX_ENABLED", False)
+    assert ps.model_warmup_jobs() == []
 
 
 def test_main_starts_warmup_before_planning():

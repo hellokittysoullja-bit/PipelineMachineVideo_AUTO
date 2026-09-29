@@ -48,12 +48,10 @@ relevance-гейта) — не бесплатно по времени, толь�
 причина, почему off остаётся дефолтом.
 
 Не самостоятельный CLI-скрипт — вызывается из scripts/pipeline_smart.py."""
-import functools
 import hashlib
 import json
 import os
 import sys
-import threading
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS_DIR = os.path.join(REPO_ROOT, "scripts")
@@ -117,26 +115,13 @@ SENTENCE_RELEVANCE_WEIGHT = 1.0   # доминирующий член — тот
 # Кандидат мог оказаться семантически слабым по смыслу РЕАЛЬНОЙ фразы и всё
 # равно победить — просто как лучший из имеющихся, не потому что подходил.
 #
-# ВТОРОЙ, ТОЖЕ РЕАЛЬНЫЙ, найденный вживую пробел (deep-audit, 28 августа,
-# тот же videos/_test20s): первая калибровка порога (n=8) была на пары ИЗ
-# ЭТОГО ЖЕ эпизода (мечи/рыцари) и на ensemble ДО апгрейда so400m — то есть
-# сама числовая шкала score с тех пор сдвинулась (см. SIGLIP2_SCORE_MEAN/
-# STD выше — они пересчитаны под so400m, а порог, стоявший поверх них,
-# пересчитан не был). Живая проверка на этом же коде: EXCALIBUR-фото ПРОТИВ
-# СВОЕГО ЖЕ авторского запроса ("medieval european sword blade close up" —
-# почти идеальное совпадение) даёт 0.113 — уже НИЖЕ порога 0.13. Хардкод
-# числа тут не чинит проблему, а откладывает её же до следующего апгрейда
-# модели (это уже второй раз, когда порог тихо устарел). Порог теперь
-# ВЫЧИСЛЯЕТСЯ живой калибровкой (calibrate_relevance_floor() ниже) на
-# channel-agnostic паре good/bad (tests/fixtures/director_calibration/
-# calibration_pairs.json — переиспользует уже лицензированные фикстуры
-# tests/fixtures/golden_media/, не мечи из конкретного эпизода), кэшируется
-# по подписи модели (см. _model_signature()) и КОММИТИТСЯ в
-# scripts/calibration_cache/ — смена модели меняет подпись, следующий
-# запуск честно пересчитывает заново, а сам пересчёт виден в git diff (не
-# тихий рантайм-эффект). DIRECTOR_RELEVANCE_FALLBACK ниже — последняя
-# линия защиты, если фикстур/кэша физически нет (fail-open, не крашим
-# рендер из-за advisory-only порога).
+# Порог выставляется калибровкой (scripts/calibrate_vision.py) по парам
+# good/bad из tests/fixtures/director_calibration/calibration_pairs.json —
+# та же методика, что раньше работала при импорте модуля (середина зазора
+# между худшей верной и лучшей неверной парой, сани-гейт по запасу), только
+# теперь в одном месте со всеми порогами моделей зрения: смена модели делает
+# калибровку недействительной целиком (vision_model), а не по частям.
+# DIRECTOR_RELEVANCE_FALLBACK — если калибровка не дала надёжного разделения.
 DIRECTOR_RELEVANCE_FALLBACK = 0.13
 DIRECTOR_RELEVANCE_MIN_MARGIN = 0.02   # ниже этого разделение good/bad на
                                          # калибровочных парах считается
@@ -146,184 +131,43 @@ DIRECTOR_RELEVANCE_MIN_MARGIN = 0.02   # ниже этого разделени�
                                          # предупреждением в консоль.
 CALIBRATION_PAIRS_PATH = os.path.join(
     REPO_ROOT, "tests", "fixtures", "director_calibration", "calibration_pairs.json")
-CALIBRATION_CACHE_PATH = os.path.join(
-    SCRIPTS_DIR, "calibration_cache", "director_relevance_floor.json")
 
-# РЕАЛЬНЫЙ, эмпирически подтверждённый баг (не гипотеза, история в git-логе):
-# sentence_relevance() передавала СЫРОЙ русский block_text прямо в
-# pipeline_smart.clip_relevance(), который использует ОДНОЯЗЫЧНУЮ (английскую)
-# openai/clip-vit-base-patch32 — та же модель на русском тексте даёт кластер
-# 0.17-0.21 независимо от содержимого картинки (доминирующий сигнал Директора
-# был фактически пустым для всего этого русскоязычного канала).
+# МОДЕЛЬ ОЦЕНКИ ФРАЗЫ — Qwen3-VL-Embedding-8B (GPU-ветка, 29.09).
 #
-# Фикс — google/siglip2-base-patch16-256 (SigLIP2 — sigmoid-loss контрастная
-# модель от Google, вся, включая картиночную башню, обучена на многоязычных
-# данных, 109 языков, WebLI, разрешение 256×256 против 224×224 у обычного
-# CLIP): калибровка на 16 реальных парах текст/фото (10 намеренно НЕ
-# военно-исторических тем — собака, гора, кофе, велосипед, дождь, гитара,
-# книга, мост, кот, ракета — проверка обобщения на ЛЮБОЙ текст, плюс кластер
-# визуально похожих мелких предметов — меч/молоток/молоко/скальпель/ноутбук/
-# весы, "рука держит металлический предмет крупным планом") дала **top-1
-# 16/16 (100%), top-3 16/16 (100%)** — включая весь кластер мелких предметов.
-# Нативная поддержка в transformers (без remote-кода — в отличие от
-# проверенного, но несовместимого с текущей версией transformers Jina CLIP
-# v2), без новых зависимостей сверх уже установленных torch/transformers/PIL.
+# Раньше здесь жил ансамбль SigLIP2-so400m + Jina CLIP v2 (история калибровок
+# — в git: CLIP -> SigLIP2-base -> so400m -> ансамбль с Jina, 113-позиционный
+# бенчмарк). Решение владельца 29.09: SigLIP2 убрана из GPU-ветки целиком, а у
+# Jina лицензия CC-BY-NC-4.0, для монетизируемого канала неприемлемая. Теперь
+# фраза сценария (русский текст как есть) и кадр сравниваются той же моделью,
+# что у гейтов и каскада (pipeline_smart._gate_image_vec/_gate_text_vec — один
+# вектор картинки на все роли, одни кэши): Qwen3-VL-Embedding многоязычная и
+# понимает составную фразу, а не мешок признаков, текст не обрезается
+# (контекст 32k токенов против 64 у SigLIP2, где обрезалась каждая четвёртая
+# фраза, см. TEXT_TRUNCATION_REPORT).
 #
-# ДАЛЬНЕЙШИЙ апгрейд (по прямому запросу пользователя "сравни оба варианта,
-# бери тот, что даёт лучший эффект на итоговый ролик, невзирая на сложность
-# — только если эффект plus-minus одинаковый, тогда бери быстрее"):
-# base-256 -> so400m-patch14-384 (крупнее модель — ~400M параметров против
-# ~200M, выше разрешение 384×384 против 256×256). На ТОМ ЖЕ 113-позиционном
-# бенчмарке: so400m solo top-1=100/113(88%) top-3=109/113(96%) — заметно
-# выше base-256 solo (81%/93%) И выше прежнего прод-ensemble base-256+Jina
-# (85%/95%). Разница НЕ "плюс-минус" (2 п.п. top-1 = 2 реальные позиции на
-# 113, не шум) -> по правилу пользователя эффект решает, не сложность.
-#
-# ЧЕСТНАЯ цена: so400m на CPU НАМНОГО медленнее base-256 — прямой замер
-# одного вызова (1 картинка + 1 текст) ~2.5-3с против долей секунды у
-# base-256. Пользователь явно одобрил эту цену ради эффекта (не молчаливое
-# решение) — см. коммит.
-#
-# КРИТИЧНО: это ОТДЕЛЬНАЯ модель/эмбеддинг-пространство от
-# pipeline_smart.get_clip_model() — та остаётся ТРОНУТОЙ НЕ БЫЛА и обслуживает
-# все уже откалиброванные пороги (CLIP_RELEVANCE_THRESHOLD, RISKY_QUERY_MARGIN,
-# PARTICLE_SCORE_THRESHOLD, VISUAL_DOMAIN_GUARDS) — смена модели там задним
-# числом обесценила бы ВСЕ эти калибровки (разные модели дают разные шкалы
-# скоров). Используется ТОЛЬКО здесь, для sentence_relevance() — единственного
-# места, что и раньше получало сырой текст без английского посредника-query.
-SIGLIP2_MODEL_NAME = "google/siglip2-so400m-patch14-384"
-SIGLIP2_MAX_TEXT_LENGTH = 64   # ровно max_position_embeddings текстовой башни
-                                 # этой модели (см. config) — та же величина,
-                                 # что и у base-256, не изменилась при апгрейде
+# ШКАЛА. Веса и бонусы режиссёра ниже (ROLE_SHOT_SIZE_BONUS, DOMAIN_MATCH_BONUS,
+# ...) складываются с оценкой фразы и заданы на шкале прежнего ансамбля. Чтобы
+# они сохранили смысл, сходство Qwen переводится на ту шкалу z-переносом
+# (vision_model.to_legacy_level, «sentence»): среднее и разброс обеих моделей
+# на одной матрице «кадры золотого набора × их русские фразы». Шкалу Qwen
+# пишет калибровка (scripts/calibrate_vision.py), без неё оценки фразы нет
+# (None, бонус не добавляется) — рендер без калибровки и так не начинается.
 
-# --- Ensemble SigLIP2 + Jina CLIP v2 (по прямому запросу пользователя —
-# "объединение сильнейших сторон обоих") ---
-#
-# 113-позиционный независимый бенчмарк (3 части: A — 95 разнотемных длинных
-# фраз, B — 8 идиом/метафор, C — 10 контрастных по настроению фото).
-# Первая калибровка (SigLIP2-base-256 + Jina): solo top-1=81%/80%, ensemble
-# на сетке весов 0.2..0.8 дал максимум на 0.7/0.3 (85%/95%) — задокументирована
-# в git-логе, замена ниже её полностью перекрывает.
-#
-# ВТОРАЯ калибровка (SigLIP2-so400m-384 + Jina, ДЕЙСТВУЮЩАЯ): so400m solo
-# 88%/96% сам по себе уже лучше прежнего прод-ensemble. Сетка весов
-# 0.3..0.9 поверх so400m дала максимум на so400m=0.5/Jina=0.5:
-# **top-1=102/113(90%) top-3=110/113(97%)** — Part C (тон/настроение)
-# доходит до 100/100%. Проверено на ФИКСИРОВАННОМ z-score rescale (та же
-# схема, что пойдёт в прод, не per-row minmax бенчмарка) — совпадает с
-# результатом на минмаксе, не артефакт нормализации.
-#
-# ЧЕСТНО, прямо по более раннему требованию пользователя "только плюс, без
-# минусов" (применимо и здесь): буквально нулевой регрессии на уровне
-# ОТДЕЛЬНЫХ решений НЕ существует ни для какого статистического смешивания
-# — это математический факт, не недоработка (см. построчную сверку
-# base-256+Jina в предыдущей калибровке для примера метода; для so400m+Jina
-# отдельная построчная сверка не переделывалась — агрегат уже настолько
-# выше прежнего прод-варианта, что дальнейшая экономия на 1-2 находках
-# несущественна). Все существующие гейты (анахронизм/relevance/риск)
-# остаются нетронутыми — ensemble только переранжирует УЖЕ прошедших их
-# кандидатов.
-#
-# Нормализация: raw-скоры SigLIP2 (sigmoid-loss) и Jina (softmax-CLIP) НЕ
-# сопоставимы по шкале напрямую (в проде sentence_relevance() сравнивает
-# ОДНУ картинку с ОДНИМ текстом за вызов — см. _score_and_pick() в
-# pipeline_smart.py, там НЕТ пула кандидатов, чтобы нормализовать по строке,
-# как в бенчмарке) — вместо per-slot min-max используется ФИКСИРОВАННЫЙ
-# z-score перенос шкалы Jina на шкалу SigLIP2, константы посчитаны ОДИН раз
-# по статистике всех пар текст/картинка того же 113-позиционного бенчмарка
-# (не с потолка, и ПЕРЕСЧИТАНЫ под so400m — шкала сырых скоров у so400m
-# отличается от base-256, старые константы были бы неверны).
-JINA_MODEL_REPO = "jinaai/jina-clip-v2"
-JINA_ONNX_FILENAME = "onnx/model_quantized.onnx"   # публикуемый quantized ONNX,
-                                                      # полноточная PyTorch-версия
-                                                      # даёт NaN на CPU (см. выше)
-JINA_IMG_SIZE = 512
-JINA_IMG_MEAN = (0.48145466, 0.4578275, 0.40821073)   # дословно из
-JINA_IMG_STD = (0.26862954, 0.26130258, 0.27577711)   # preprocessor_config.json
-                                                         # репозитория — ручная
-                                                         # реализация, БЕЗ
-                                                         # trust_remote_code=True
-                                                         # (тот же принцип, что уже
-                                                         # применён к AutoModel выше)
-JINA_TEXT_MAX_LENGTH = 77
-
-# Честная видимость молчаливой обрезки текста по лимиту токенов модели.
-# Реальный, измеренный вживую случай (08.09): SIGLIP2_MAX_TEXT_LENGTH=64
-# токена — жёсткий предел ТЕКСТОВОЙ БАШНИ модели (max_position_embeddings),
-# не настраиваемый параметр. semantic_context_text()/sentence_relevance()
-# (pipeline_smart.py) передают сюда полную фразу блока (иногда с соседней —
-# см. её докстринг), а processor(padding="max_length", max_length=64) молча
-# ОБРЕЗАЕТ всё, что не влезло, без единой строчки в логе. Прямой замер на
-# 96 реальных смысловых юнитах двух опубликованных сценариев этого канала
-# (01_ves-mecha, _test20s): 24 из 96 (25%) обрезаются — модель оценивала
-# соответствие картинки фразе, не дочитав её до конца. Ничего не меняет в
-# самом подборе (это НЕ починка обрезки, а её видимость) — записывает факт
-# в TEXT_TRUNCATION_REPORT, чтобы это можно было увидеть в отчёте эпизода
-# (media_plan/text_truncation_report.json), а не узнавать случайно.
+# Обрезка текста по лимиту токенов модели — видимость сохранена (отчёт эпизода
+# media_plan/text_truncation_report.json пишется всегда): у Qwen контекст 32k
+# токенов, фраза блока в него помещается целиком, и отчёт честно пуст.
 TEXT_TRUNCATION_REPORT = []   # [{"model", "text", "tokens", "limit"}, ...]
-_TRUNCATION_SEEN = set()   # (model, text) — не спамить одним и тем же текстом дважды за прогон
 
 
 def reset_text_truncation_report():
-    """Для тестов и для чистого старта каждого прогона main() — иначе список
-    накапливался бы между эпизодами при импорте модуля один раз на процесс."""
+    """Для тестов и для чистого старта каждого прогона main()."""
     TEXT_TRUNCATION_REPORT.clear()
-    _TRUNCATION_SEEN.clear()
 
 
-def _report_truncation_if_any(model_name, text, tokenizer, max_length):
-    """Меряет РЕАЛЬНУЮ длину токенизации text (без принудительного max_length)
-    и, если она больше лимита модели, добавляет запись в
-    TEXT_TRUNCATION_REPORT. Считается один раз на уникальный (model, text) —
-    дальше эмбеддинг всё равно берётся из кэша, повторный замер ничего
-    нового не даст. Fail-open: сбой токенизации не должен ронять подбор
-    картинки ради диагностики."""
-    key = (model_name, text)
-    if key in _TRUNCATION_SEEN:
-        return
-    _TRUNCATION_SEEN.add(key)
-    try:
-        # text= КЛЮЧЕВЫМ словом, не позиционно: у SigLIP2 первый позиционный
-        # параметр процессора — images (см. её __call__), Jina-токенизатор
-        # тоже принимает text= по стандартному контракту HF-токенизаторов.
-        # Список из одного текста — общий вызов, валидный для ОБОИХ.
-        n_tokens = len(tokenizer(text=[text])["input_ids"][0])
-    except Exception:
-        return
-    if n_tokens > max_length:
-        TEXT_TRUNCATION_REPORT.append({
-            "model": model_name, "text": text, "tokens": n_tokens, "limit": max_length,
-        })
-# Реальный найденный вживую OOM (см. text_text_similarity()/_emb() ниже,
-# videos/01_ves-mecha, 31.08): dummy "pixel_values" под ONNX-граф Jina
-# строился размером СО ВЕСЬ батч текстов разом (n=len(texts), вплоть до
-# 165 на реальном 18-минутном эпизоде) — 165 x 3 x 512 x 512 fp32
-# "изображений" через vision-башню одним вызовом роняли процесс по
-# памяти (~13.9GB) ещё до первого реального кандидата медиа. Небольшой
-# потолок ограничивает пиковую память константой, не зависящей от
-# длины эпизода — математика идентична (эмбеддинг каждого текста не
-# зависит от остальных элементов батча), это чисто группировка вызовов.
-JINA_TEXT_BATCH_SIZE = 16
+import qwen_vl_embed  # noqa: E402
+import vision_model  # noqa: E402
 
-ENSEMBLE_WEIGHT_SIGLIP2 = 0.5   # эмпирический максимум top-1 на 113-позиционном
-ENSEMBLE_WEIGHT_JINA = 0.5       # бенчмарке (сетка 0.3..0.9 поверх so400m)
-
-# Константы z-score rescale — посчитаны ОДИН раз на всех парах текст/картинка
-# 113-позиционного бенчмарка (95+16+10 картинок x соответствующие тексты,
-# полная матрица, не только диагональ), ПЕРЕСЧИТАНЫ под so400m (шкала сырых
-# скоров у so400m отличается от base-256). Пересчитывать только вместе с
-# новой калибровкой (см. докстринг выше) — НЕ трогать по наитию, это не
-# magic number, а измеренное среднее/стд обеих шкал скоров.
-SIGLIP2_SCORE_MEAN = -0.0261
-SIGLIP2_SCORE_STD = 0.0434
-JINA_SCORE_MEAN = 0.1597
-JINA_SCORE_STD = 0.0512
-
-SENTENCE_RELEVANCE_MODEL_VERSION = (
-    f"siglip2-so400m-patch14-384+jina-clip-v2-onnx-quant"
-    f"_w{ENSEMBLE_WEIGHT_SIGLIP2}-{ENSEMBLE_WEIGHT_JINA}"
-)   # см. cache_signature() — смена модели/весов меняет шкалу скоров,
-    # должна инвалидировать кэш
+SENTENCE_RELEVANCE_MODEL_VERSION = f"qwen3vl-embed:{qwen_vl_embed.signature()}|legacy-scale-v1"
 
 # Некалиброванные, разумные стартовые бонусы (та же честная маркировка, что
 # DOMAIN_MARGIN/MAX_MATCH_DISTANCE в look_reference.py) — нет ни одного
@@ -478,629 +322,57 @@ def functional_role(block, is_section_start):
     return pipeline_smart.classify_shot_function(block, is_section_start)
 
 
-_siglip2_model = None
-_siglip2_processor = None
-_SIGLIP2_LOAD_LOCK = threading.Lock()
-_SIGLIP2_BROKEN = False
-
-
-def _get_siglip2_model():
-    """Ленивая загрузка (см. SENTENCE_RELEVANCE_MODEL_VERSION/SIGLIP2_MODEL_NAME
-    выше) — модель+процессор нативно поддержаны transformers (AutoModel/
-    AutoProcessor), без remote-кода стороннего репозитория (в отличие от
-    Jina CLIP v2 ниже — её PyTorch-путь так же отклонён, используется
-    ТОЛЬКО официальный quantized ONNX-экспорт) и без новых зависимостей
-    поверх уже установленных torch/transformers."""
-    global _siglip2_model, _siglip2_processor
-    if _siglip2_model is not None and _siglip2_processor is not None:
-        return _siglip2_model, _siglip2_processor
-    # Под замком, процессор публикуется ДО модели — см. get_aesthetic_clip_model()
-    # в pipeline_smart: первый вызов из нескольких потоков упреждения.
-    with _SIGLIP2_LOAD_LOCK:
-        if _siglip2_model is None or _siglip2_processor is None:
-            _load_siglip2_locked()
-    return _siglip2_model, _siglip2_processor
-
-
-def _load_siglip2_locked():
-    global _siglip2_model, _siglip2_processor
-    from transformers import AutoModel, AutoProcessor
-    # trust_remote_code=False — та же защита, что уже стоит у Jina
-    # (_get_jina_session() ниже, см. её докстринг про пойманный вживую
-    # интерактивный prompt "Do you wish to run the custom code? [y/N]",
-    # зависавший на чтении stdin в headless-процессе). SigLIP2 — нативная
-    # transformers-модель, remote-код и так не нужен; явный False убирает
-    # саму возможность промпта, не только его последствия.
-    import ml_device
-    model = ml_device.place(
-        AutoModel.from_pretrained(SIGLIP2_MODEL_NAME, trust_remote_code=False).eval())
-    _siglip2_processor = AutoProcessor.from_pretrained(SIGLIP2_MODEL_NAME, trust_remote_code=False)
-    _siglip2_model = model
-
-
-# --- Кэш эмбеддингов: чистая мемоизация, НЕ смена алгоритма ---
-#
-# Замер 02.09 (media_plan/stage_timings.jsonl, реальный прогон _test20s, не
-# реконструкция): один вызов sentence_relevance() стоит 7.34с, из них
-# 2.80с (38%) — ПОВТОРНЫЙ расчёт ТЕКСТОВЫХ башен. _score_and_pick()
-# (pipeline_smart.py) скорит все кандидаты слота — на полном пуле их 17-26
-# — против ОДНОГО И ТОГО ЖЕ текста блока, а обе текстовые башни считались
-# заново на каждого кандидата с идентичным входом и идентичным выходом.
-# Разрез по башням (отдельный бенчмарк, сошёлся с замером: 7.34 против
-# измеренной медианы 7.40с): SigLIP2 картинка 1.89с / текст 0.22с, Jina
-# картинка 2.65с / текст 2.57с. Текстовая башня Jina стоит как башня
-# картинки, потому что ONNX-граф требует dummy pixel_values и гоняет
-# vision-башню по нулям (уменьшить нельзя — 512x512 фиксировано в графе,
-# проверено: 64x64 отклоняется с INVALID_ARGUMENT).
-#
-# Эмбеддинг — чистая функция от (модель, вход): результат побитово тот же,
-# качество отбора не меняется ни на один кандидат. Кэш живёт в рамках
-# ОДНОГО процесса (module-level dict, на диск не пишется) — тот же принцип,
-# что у pipeline_smart.memoize_by_frame, инвалидировать вручную нечего.
-EMB_CACHE_MAX = 512
-
-_siglip2_text_emb_cache = {}
-_siglip2_img_emb_cache = {}
-_jina_text_emb_cache = {}
-_jina_img_emb_cache = {}
-
-
-# Дисковый слой того же кэша: переживает ПЕРЕПРОГОН эпизода.
-# Кандидаты лежат в temp_smart/pexels_cache и между прогонами не меняются,
-# а их векторы раньше считались заново каждый раз с нуля. Эмбеддинг —
-# чистая функция от (модель, файл), поэтому сохранить его на диск можно
-# без единого изменения результата; это тот же приём, что уже применён к
-# temp_smart/clip_*.mp4 и pexels_cache, только для более дорогого этапа.
-EMB_DISK_CACHE_ENABLED = os.environ.get("EMB_DISK_CACHE", "1") != "0"
-
-
-def _emb_disk_dir():
-    """Кэш эмбеддингов — ОБЩИЙ на репозиторий, а не на эпизод.
-
-    Раньше он лежал в `temp_smart/emb_cache` внутри папки ролика и умирал
-    вместе с ней. Ключи это давно позволяли разделять: у картинки ключ —
-    md5 СОДЕРЖИМОГО файла, у текста — sha1 текста, и оба уже включают
-    подпись модели (`_relevance_model_signature`). То есть коллизий между
-    эпизодами не бывает по построению, а выдача стока на соседних роликах
-    одной ниши пересекается сильно — и весь дорогой проход so400m
-    (2.5-3с на пару) считался заново с нуля на каждом новом эпизоде.
-
-    `EMB_CACHE_DIR` в окружении перекрывает путь (общий кэш на несколько
-    каналов или вынос на быстрый диск). None при любой ошибке — кэш
-    опционален и никогда не должен ронять отбор.
-    """
-    if not EMB_DISK_CACHE_ENABLED:
+def sentence_relevance(image_path, block_text):
+    """Близость картинки и ПОЛНОГО текста блока (русского, как он есть в
+    сценарии) на шкале прежнего ансамбля (см. блок выше). None — нет текста,
+    модели или калибровки шкалы: вызывающий код (compute_extra_score) тогда
+    не добавляет этот бонус."""
+    if not block_text:
+        return None
+    with pipeline_smart.stage_timer.stage("qwen_sentence"):
+        img = pipeline_smart._gate_image_vec(image_path)
+        txt = pipeline_smart._gate_text_vec(block_text) if img is not None else None
+    if img is None or txt is None:
         return None
     try:
-        d = os.environ.get("EMB_CACHE_DIR") or os.path.join(REPO_ROOT, "temp_emb_cache")
-        os.makedirs(d, exist_ok=True)
-        return d
-    except Exception:
+        return vision_model.to_legacy_level(float(img @ txt), "sentence")
+    except vision_model.NotCalibrated:
         return None
-
-
-def _emb_disk_load(kind, key):
-    """Ключ включает подпись модели (_relevance_model_signature) — смена
-    модели/весов/шкалы делает старые файлы недостижимыми сама, вручную
-    инвалидировать нечего. Битый/обрезанный файл (прогон убит посреди
-    записи) — просто промах кэша, не исключение."""
-    d = _emb_disk_dir()
-    if not d or key is None:
-        return None
-    try:
-        import numpy as np
-        p = os.path.join(d, f"{kind}_{_relevance_model_signature()}_{key}.npy")
-        if os.path.exists(p):
-            return np.load(p)
-    except Exception:
-        return None
-    return None
-
-
-def _emb_disk_store(kind, key, arr):
-    """Запись атомарная (tmp + os.replace): параллельный процесс никогда не
-    прочитает наполовину записанный вектор — тот же принцип, что у
-    atomic-кэша клипов в pipeline_smart."""
-    d = _emb_disk_dir()
-    if not d or key is None:
-        return
-    # Имя tmp кончается на .npy — иначе np.save допишет расширение сам, и
-    # os.replace переименовал бы несуществующий путь.
-    tmp = os.path.join(d, f".{kind}_{key}.{os.getpid()}.tmp.npy")
-    try:
-        import numpy as np
-        p = os.path.join(d, f"{kind}_{_relevance_model_signature()}_{key}.npy")
-        np.save(tmp, arr)
-        os.replace(tmp, p)
-    except Exception:
-        try:
-            if os.path.exists(tmp):
-                os.remove(tmp)
-        except Exception:
-            pass
-
-
-def _image_disk_key(image_path):
-    """md5 СОДЕРЖИМОГО, а не (путь, mtime): один и тот же файл, попавший в
-    пулы разных слотов под разными именами, даёт одно попадание. Чтение
-    ~1МБ занимает миллисекунды против 1.89-2.65с на прогон башни."""
-    try:
-        return pipeline_smart._md5_file(image_path)
-    except Exception:
-        return None
-
-
-def _text_disk_key(text):
-    return hashlib.sha1(text.encode("utf-8")).hexdigest()
-
-
-def _emb_cache_put(cache, key, value):
-    """Грубая граница памяти: при переполнении кэш чистится целиком, а не
-    вытесняет по LRU. Осознанно — эмбеддинги мелкие (~4-5КБ), 512 записей
-    это единицы мегабайт, а порядок обращений в пайплайне таков (все
-    кандидаты слота подряд против одного текста), что дорогие попадания
-    случаются ВНУТРИ слота и переживают любую разумную границу; городить
-    LRU ради этого значило бы усложнять код без измеримой выгоды."""
-    if len(cache) >= EMB_CACHE_MAX:
-        cache.clear()
-    cache[key] = value
-
-
-def _image_cache_key(image_path):
-    """(путь, размер, mtime) — тот же ключ, что у pipeline_smart.
-    memoize_by_frame: перезаписанный на месте файл даёт другой ключ и не
-    отдаётся из кэша по ошибке. Не удалось прочитать stat — ключ по пути
-    (кэш всё равно живёт один прогон)."""
-    k = pipeline_smart._frame_cache_key(image_path)
-    return k if k is not None else ("path", image_path)
-
-
-def _siglip2_text_emb(text):
-    """Нормированный текстовый эмбеддинг SigLIP2 (кэш в памяти + на диске)."""
-    hit = _siglip2_text_emb_cache.get(text)
-    if hit is not None:
-        return hit
-    import torch
-    dk = _text_disk_key(text)
-    on_disk = _emb_disk_load("s2t", dk)
-    if on_disk is not None:
-        # float32 -> npy -> float32 обратно: побитово то же значение, а не
-        # «почти то же» (npy хранит сырые байты массива, без округления).
-        emb = torch.from_numpy(on_disk)
-        _emb_cache_put(_siglip2_text_emb_cache, text, emb)
-        return emb
-    model, processor = _get_siglip2_model()
-    tokenizer = processor.tokenizer if hasattr(processor, "tokenizer") else processor
-    _report_truncation_if_any("siglip2", text, tokenizer, SIGLIP2_MAX_TEXT_LENGTH)
-    import ml_device
-    with torch.no_grad():
-        txt_inputs = processor(text=[text], padding="max_length",
-                                max_length=SIGLIP2_MAX_TEXT_LENGTH, return_tensors="pt")
-        txt_out = ml_device.run(lambda: model.get_text_features(**ml_device.inputs(txt_inputs)))
-        emb = txt_out.pooler_output if hasattr(txt_out, "pooler_output") else txt_out
-        emb = ml_device.host(emb / emb.norm(dim=-1, keepdim=True))
-    _emb_cache_put(_siglip2_text_emb_cache, text, emb)
-    _emb_disk_store("s2t", dk, emb.numpy())
-    return emb
-
-
-def _siglip2_image_emb(image_path):
-    """Нормированный эмбеддинг картинки SigLIP2 (кэш по кадру). Попадания
-    реальны: extra_queries/section_query_pool кладут один и тот же файл в
-    пулы кандидатов нескольких слотов."""
-    key = _image_cache_key(image_path)
-    hit = _siglip2_img_emb_cache.get(key)
-    if hit is not None:
-        return hit
-    import torch
-    from PIL import Image as PILImage
-    dk = _image_disk_key(image_path)
-    on_disk = _emb_disk_load("s2i", dk)
-    if on_disk is not None:
-        emb = torch.from_numpy(on_disk)
-        _emb_cache_put(_siglip2_img_emb_cache, key, emb)
-        return emb
-    model, processor = _get_siglip2_model()
-    img = PILImage.open(image_path).convert("RGB")
-    import ml_device
-    with torch.no_grad():
-        img_inputs = processor(images=[img], return_tensors="pt")
-        img_out = ml_device.run(lambda: model.get_image_features(**ml_device.inputs(img_inputs)))
-        emb = img_out.pooler_output if hasattr(img_out, "pooler_output") else img_out
-        emb = ml_device.host(emb / emb.norm(dim=-1, keepdim=True))
-    _emb_cache_put(_siglip2_img_emb_cache, key, emb)
-    _emb_disk_store("s2i", dk, emb.numpy())
-    return emb
-
-
-def _siglip2_relevance(image_path, block_text):
-    """Сырой (не rescale-нутый) косинус SigLIP2 — вынесено из бывшей
-    sentence_relevance() без изменения логики, чтобы ensemble ниже мог
-    использовать её как один из двух компонентов.
-
-    Башни вынесены в _siglip2_image_emb/_siglip2_text_emb ради кэша (см.
-    EMB_CACHE_MAX выше) — порядок вычисления (сначала картинка, потом
-    текст) и сама формула косинуса сохранены как были."""
-    global _SIGLIP2_BROKEN
-    if _SIGLIP2_BROKEN:
-        return None
-    try:
-        img_emb = _siglip2_image_emb(image_path)
-        txt_emb = _siglip2_text_emb(block_text)
-        return float((txt_emb @ img_emb.T)[0][0])
-    except ImportError:
-        _SIGLIP2_BROKEN = True
-        return None
-    except Exception:
-        return None
-
-
-_jina_session = None
-_jina_tokenizer = None
-_JINA_LOAD_LOCK = threading.Lock()
-_JINA_BROKEN = False
-
-
-def _jina_preprocess_image(pil_img):
-    """Ручная реализация preprocessor_config.json репозитория (resize_mode=
-    shortest, size=512, bicubic, center-crop 512x512, mean/std выше) — БЕЗ
-    trust_remote_code=True. Тот же обоснованный отказ от custom-кода
-    репозитория, что уже применён к AutoModel/AutoImageProcessor Jina CLIP
-    v2 (см. git-лог) — стандартная OpenCLIP-схема (shortest-side resize +
-    center crop), параметры дословно из конфига, не угаданы."""
-    import numpy as np
-    from PIL import Image as PILImage
-    img = pil_img.convert("RGB")
-    w, h = img.size
-    scale = JINA_IMG_SIZE / min(w, h)
-    new_w, new_h = round(w * scale), round(h * scale)
-    img = img.resize((new_w, new_h), PILImage.BICUBIC)
-    left = (new_w - JINA_IMG_SIZE) // 2
-    top = (new_h - JINA_IMG_SIZE) // 2
-    img = img.crop((left, top, left + JINA_IMG_SIZE, top + JINA_IMG_SIZE))
-    arr = np.asarray(img, dtype=np.float32) / 255.0
-    arr = (arr - np.array(JINA_IMG_MEAN, dtype=np.float32)) / np.array(JINA_IMG_STD, dtype=np.float32)
-    return arr.transpose(2, 0, 1)   # CHW
-
-
-def _get_jina_session():
-    """Ленивая загрузка ТОЛЬКО quantized ONNX (см. докстринг константы
-    JINA_ONNX_FILENAME выше — полноточная PyTorch-версия даёт NaN на CPU
-    независимо от dtype, воспроизведено и задокументировано в git-логе).
-    hf_hub_download (не хардкод локального snapshot-пути с хэшем) — путь к
-    файлу переживает обновление кэша/переезд на другую машину.
-
-    РЕАЛЬНЫЙ БАГ, пойманный живым прогоном (не гипотеза): без явного
-    `trust_remote_code=False` AutoTokenizer.from_pretrained() у новых версий
-    transformers может уйти в интерактивный prompt ("Do wish to run the
-    custom code? [y/N]") при разрешении конфига репозитория — в трёх
-    прогонах подряд повёл себя по-разному (тихо прошёл дважды, завис на
-    чтении stdin на третий). Токенизатор Jina — штатный XLMRobertaTokenizer,
-    НИКАКОГО remote-кода реально не требует (проверено — trust_remote_code=
-    False загружает его штатно), поэтому явный False убирает и промпт, и
-    зависимость поведения от того, что конкретно у процесса на stdin —
-    вместо неопределённого "иногда виснет" получаем детерминированный
-    успех или чистое исключение (уходит в тот же except в _jina_relevance(),
-    fail-open работает как задумано, а не блокируется молча)."""
-    global _jina_session, _jina_tokenizer
-    if _jina_session is not None and _jina_tokenizer is not None:
-        return _jina_session, _jina_tokenizer
-    with _JINA_LOAD_LOCK:
-        if _jina_session is None or _jina_tokenizer is None:
-            _load_jina_locked()
-    return _jina_session, _jina_tokenizer
-
-
-def _load_jina_locked():
-    global _jina_session, _jina_tokenizer
-    import onnxruntime as ort
-    from huggingface_hub import hf_hub_download
-    from transformers import AutoTokenizer
-    onnx_path = hf_hub_download(repo_id=JINA_MODEL_REPO, filename=JINA_ONNX_FILENAME)
-    so = ort.SessionOptions()
-    so.intra_op_num_threads = 4   # эмпирически: заметно быстрее single-thread,
-                                    # без OOM при batch=1 (прод — один вызов =
-                                    # одна картинка+один текст, не батч 95, см.
-                                    # находку про батч-95-OOM в git-логе)
-    wanted = jina_providers()
-    session = ort.InferenceSession(onnx_path, sess_options=so, providers=wanted)
-    if wanted[0] == "CUDAExecutionProvider" and "CUDAExecutionProvider" not in session.get_providers():
-        # onnxruntime-gpu перечисляет CUDA среди доступных, даже когда
-        # библиотеки CUDA/cuDNN не загрузились, и молча считает на
-        # процессоре (аудит 28.09). Сказать вслух и дальше считать
-        # процессором — метка устройства не должна обещать видеокарту.
-        print("  ВНИМАНИЕ: Jina запрошена на CUDA, но onnxruntime её не поднял — Jina на процессоре")
-        _JINA_CUDA_FAILED[0] = True
-        jina_providers.cache_clear()
-    _jina_tokenizer = AutoTokenizer.from_pretrained(JINA_MODEL_REPO,
-                                                     trust_remote_code=False)
-    _jina_session = session
-
-
-_JINA_CUDA_FAILED = [False]
-
-
-@functools.lru_cache(maxsize=1)
-def jina_providers():
-    """Где считать Jina (ONNX): CUDA, если модели отбора стоят на видеокарте
-    (ml_device) И установлена сборка onnxruntime с CUDA (пакет
-    onnxruntime-gpu); иначе процессор, как раньше. Узлы, которых у CUDA нет
-    (квантованные операции), onnxruntime сам отдаёт процессору — поэтому
-    процессор всегда стоит в списке вторым."""
-    import ml_device
-    if ml_device.device() != "cuda" or _JINA_CUDA_FAILED[0]:
-        return ["CPUExecutionProvider"]
-    try:
-        import onnxruntime as ort
-        if "CUDAExecutionProvider" in ort.get_available_providers():
-            return ["CUDAExecutionProvider", "CPUExecutionProvider"]
-    except Exception:
-        pass
-    return ["CPUExecutionProvider"]
-
-
-def jina_device_tag():
-    """Часть отпечатка модели: пустая, пока Jina на процессоре (отпечаток
-    прежний); на CUDA векторы Jina не смешиваются с процессорными."""
-    return "" if jina_providers()[0] == "CPUExecutionProvider" else "@jina-cuda"
-
-
-def _jina_relevance(image_path, block_text):
-    """Сырой (не rescale-нутый) косинус Jina CLIP v2 — batch=1 (прод вызывает
-    по одной картинке за раз, см. _score_and_pick() в pipeline_smart.py),
-    поэтому найденный на бенчмарке OOM (батч 95, см. git-лог) здесь
-    структурно недостижим. fail-open — та же дисциплина, что и SigLIP2
-    выше."""
-    global _JINA_BROKEN
-    if _JINA_BROKEN:
-        return None
-    try:
-        img_out = _jina_image_emb(image_path)
-        txt_out = _jina_text_emb(block_text)
-        return float((txt_out @ img_out.T)[0][0])
-    except ImportError:
-        _JINA_BROKEN = True
-        return None
-    except Exception:
-        return None
-
-
-def _jina_text_emb(text):
-    """Текстовый эмбеддинг Jina (кэш по строке). Батч здесь и так 1, то
-    есть dummy pixel_values минимален по построению — экономия берётся
-    только кэшем, а не размером заглушки (в отличие от
-    text_text_similarity() ниже, где батч равен числу текстов)."""
-    hit = _jina_text_emb_cache.get(text)
-    if hit is not None:
-        return hit
-    import numpy as np
-    dk = _text_disk_key(text)
-    on_disk = _emb_disk_load("jt", dk)
-    if on_disk is not None:
-        _emb_cache_put(_jina_text_emb_cache, text, on_disk)
-        return on_disk
-    sess, tokenizer = _get_jina_session()
-    _report_truncation_if_any("jina", text, tokenizer, JINA_TEXT_MAX_LENGTH)
-    enc = tokenizer([text], padding=True, truncation=True,
-                     max_length=JINA_TEXT_MAX_LENGTH, return_tensors="np")
-    emb = sess.run(["l2norm_text_embeddings"],
-                    {"input_ids": enc["input_ids"].astype(np.int64),
-                     "pixel_values": np.zeros((1, 3, JINA_IMG_SIZE, JINA_IMG_SIZE),
-                                               dtype=np.float32)})[0]
-    _emb_cache_put(_jina_text_emb_cache, text, emb)
-    _emb_disk_store("jt", dk, emb)
-    return emb
-
-
-def _jina_image_emb(image_path):
-    """Эмбеддинг картинки Jina (кэш по кадру)."""
-    key = _image_cache_key(image_path)
-    hit = _jina_img_emb_cache.get(key)
-    if hit is not None:
-        return hit
-    import numpy as np
-    from PIL import Image as PILImage
-    dk = _image_disk_key(image_path)
-    on_disk = _emb_disk_load("ji", dk)
-    if on_disk is not None:
-        _emb_cache_put(_jina_img_emb_cache, key, on_disk)
-        return on_disk
-    sess, _ = _get_jina_session()
-    img = PILImage.open(image_path).convert("RGB")
-    pixel_values = _jina_preprocess_image(img)[None, ...].astype(np.float32)
-    emb = sess.run(["l2norm_image_embeddings"],
-                    {"input_ids": np.zeros((1, 1), dtype=np.int64),
-                     "pixel_values": pixel_values})[0]
-    _emb_cache_put(_jina_img_emb_cache, key, emb)
-    _emb_disk_store("ji", dk, emb)
-    return emb
-
-
-_JINA_DUMMY_BATCH1_OK = None   # None — ещё не проверено в этом процессе
-
-
-def _jina_text_emb_batch(sess, ids):
-    """Текстовые эмбеддинги ЧАНКА текстов, с dummy pixel_values размером 1
-    вместо len(chunk).
-
-    ЗАЧЕМ: ONNX-граф Jina требует pixel_values даже для чисто текстового
-    выхода, и раньше сюда подавался нулевой тензор РАЗМЕРОМ СО ВЕСЬ ЧАНК —
-    то есть vision-башня прогонялась по n пустым картинкам 512x512, чья
-    стоимость линейна по n и полностью выброшена. Замер 02.09: чанк из 5
-    текстов — 15.37с, тот же чанк с заглушкой размера 1 — 2.64с (x5.8),
-    результат np.allclose(atol=1e-6) идентичен. Уменьшить САМУ картинку
-    нельзя (512x512 фиксировано в графе — 64x64 отклоняется с
-    INVALID_ARGUMENT), а вот батч у неё динамический.
-
-    ПОЧЕМУ С САМОПРОВЕРКОЙ, а не просто так: несовпадение батчей
-    input_ids и pixel_values — поведение, которое граф допускает, но
-    нигде не гарантирует; другая версия onnxruntime может не отклонить
-    его явной ошибкой, а тихо вернуть иной результат, и это молча
-    испортило бы semantic_query_assignment() (раздачу авторских запросов
-    по смыслу) без единого признака в логе. Поэтому ОДИН раз за процесс
-    быстрый путь сверяется с медленным на реальном чанке; расходятся —
-    навсегда остаёмся на прежнем полном батче. Цена проверки — один
-    лишний полный прогон за процесс, и она превращает недокументированную
-    оптимизацию в проверяемую."""
-    import numpy as np
-    global _JINA_DUMMY_BATCH1_OK
-    n = ids.shape[0]
-
-    def _full():
-        return sess.run(["l2norm_text_embeddings"],
-                        {"input_ids": ids,
-                         "pixel_values": np.zeros((n, 3, JINA_IMG_SIZE, JINA_IMG_SIZE),
-                                                   dtype=np.float32)})[0]
-
-    def _fast():
-        return sess.run(["l2norm_text_embeddings"],
-                        {"input_ids": ids,
-                         "pixel_values": np.zeros((1, 3, JINA_IMG_SIZE, JINA_IMG_SIZE),
-                                                   dtype=np.float32)})[0]
-
-    if n == 1 or _JINA_DUMMY_BATCH1_OK is False:
-        return _full()
-    if _JINA_DUMMY_BATCH1_OK is None:
-        try:
-            fast, full = _fast(), _full()
-            _JINA_DUMMY_BATCH1_OK = bool(np.allclose(fast, full, atol=1e-6))
-        except Exception:
-            _JINA_DUMMY_BATCH1_OK = False
-        if not _JINA_DUMMY_BATCH1_OK:
-            print("  Jina: заглушка pixel_values размера 1 не подтверждена — "
-                  "остаюсь на полном батче (медленнее, но проверено)")
-            return _full()
-        return fast
-    return _fast()
 
 
 def text_text_similarity(texts_a, texts_b):
-    """Матрица косинусных близостей ТЕКСТ-ТЕКСТ (len(a) x len(b)) через
-    мультиязычный текстовый энкодер Jina CLIP v2. None на любой ошибке
-    (fail-open, как и весь остальной опциональный слой этого модуля).
-
-    ЗАЧЕМ ОТДЕЛЬНО ОТ sentence_relevance(): та сравнивает КАРТИНКУ с
-    текстом (image-text) — принципиально более слабый и шумный сигнал на
-    абстрактных фразах (прямое измерение на реальном эпизоде: скоры всех
-    кандидатов легли в 0.03-0.11, то есть ранжирование по ним было
-    фактически случайным). Здесь обе стороны — ТЕКСТ: русская фраза
-    сценария против английского авторского запроса, который буквально
-    ОПИСЫВАЕТ желаемый кадр. Прямое измерение на том же реальном эпизоде
-    (videos/_test20s, 8 авторских запросов x 6 блоков хука, не гипотеза):
-    «Пятнадцать килограммов.» -> weighing scale metal object (0.707),
-    «Так говорят кино, видеоигры и школьные учебники» -> dark cinema movie
-    theatre screen (0.639), «...сколько весил настоящий боевой меч» ->
-    knight armor holding sword two hands (0.674), «Герой на экране заносит
-    клинок... вместе с конём» -> warrior on horseback with sword (0.766).
-    Каждый визуальный блок получил СВОЙ смысловой запрос с большим отрывом,
-    непредметные связки («Готов спорить, что да») закономерно дали низкий
-    максимум — то есть сигнал не только точный, но и честно сообщает о
-    собственной неуверенности."""
+    """Матрица близостей ТЕКСТ-ТЕКСТ (len(a) x len(b)) — русская фраза
+    сценария против английского авторского запроса (распределение запросов
+    по фразам, pipeline_smart.semantic_query_assignment). Та же модель, что
+    у гейтов, с той же инструкцией поиска на обеих сторонах. Распределение
+    берёт только ПОРЯДОК близостей, поэтому перенос шкалы здесь не нужен.
+    None — модели нет."""
     if not texts_a or not texts_b:
         return None
-    global _JINA_BROKEN
-    if _JINA_BROKEN:
+    va = [pipeline_smart._gate_text_vec(t) for t in texts_a]
+    vb = [pipeline_smart._gate_text_vec(t) for t in texts_b]
+    if any(v is None for v in va) or any(v is None for v in vb):
         return None
-    try:
-        import numpy as np
-        sess, tokenizer = _get_jina_session()
-
-        def _emb(texts):
-            # Реальный найденный вживую OOM (01_ves-mecha, 91 блок -> 165
-            # после sub-cuts, 31.08): ONNX-граф Jina требует dummy
-            # "pixel_values" даже для чисто текстового эмбеддинга (см.
-            # _jina_relevance выше — там n=1, безобидно), но
-            # text_text_similarity() раньше строила dummy-батч РАЗМЕРОМ
-            # СО ВЕСЬ СПИСОК текстов сразу (n=len(texts_a) или
-            # len(texts_b), здесь — вплоть до 165) — сессия прогоняла
-            # vision-башню на 165 фиктивных 512x512 "изображениях" ОДНИМ
-            # батчем, что и роняло процесс по памяти (anon-rss ~13.9GB,
-            # контейнер 15GB) ещё ДО первого реального кандидата медиа.
-            # Матрично результат ИДЕНТИЧЕН — эмбеддинг каждого текста не
-            # зависит от остальных элементов батча, чанкинг только
-            # ограничивает пиковую память, не меняет числа.
-            out_chunks = []
-            for start in range(0, len(texts), JINA_TEXT_BATCH_SIZE):
-                chunk = list(texts)[start:start + JINA_TEXT_BATCH_SIZE]
-                for t in chunk:
-                    _report_truncation_if_any("jina", t, tokenizer, JINA_TEXT_MAX_LENGTH)
-                enc = tokenizer(chunk, padding=True, truncation=True,
-                                 max_length=JINA_TEXT_MAX_LENGTH, return_tensors="np")
-                ids = enc["input_ids"].astype(np.int64)
-                out_chunks.append(_jina_text_emb_batch(sess, ids))
-            return np.concatenate(out_chunks, axis=0)
-
-        # Замер именно здесь: это тот самый шаг, где ONNX-граф Jina
-        # заставляет прогонять vision-башню по НУЛЯМ (см. _emb выше) —
-        # разбор 01.09 оценил его в 10-15 мин на прогон, но это была
-        # реконструкция без замера. Цифра нужна до, а не после правки.
-        with pipeline_smart.stage_timer.stage("text_text_jina",
-                                              n_a=len(texts_a), n_b=len(texts_b)):
-            return (_emb(texts_a) @ _emb(texts_b).T).tolist()
-    except ImportError:
-        _JINA_BROKEN = True
-        return None
-    except Exception:
-        return None
-
-
-def _rescale_jina_to_siglip2_scale(jina_raw):
-    """Фиксированный z-score перенос шкалы (константы — см. докстринг
-    SIGLIP2_SCORE_MEAN выше, измерены на 113-позиционном бенчмарке, не с
-    потолка)."""
-    z = (jina_raw - JINA_SCORE_MEAN) / JINA_SCORE_STD
-    return z * SIGLIP2_SCORE_STD + SIGLIP2_SCORE_MEAN
-
-
-def sentence_relevance(image_path, block_text):
-    """Косинусная близость картинки и ПОЛНОГО текста блока (русского, как
-    он есть в сценарии) — ensemble SigLIP2+Jina CLIP v2 (см. докстринг
-    ENSEMBLE_WEIGHT_SIGLIP2/ENSEMBLE_WEIGHT_JINA выше для полной калибровки
-    и честного разбора trade-off). None при отсутствии текста (тот же
-    fail-open, что и везде в пайплайне) — вызывающий код (compute_extra_score)
-    тогда просто не добавляет этот бонус, поведение как до фичи.
-
-    Jina недоступна (нет onnxruntime/huggingface_hub, сеть недоступна,
-    ошибка любого рода) -> ПАДАЕТ на SigLIP2 solo (тот же результат, что
-    был ДО этой фичи) — ensemble только ДОБАВЛЯЕТ сигнал, никогда не
-    убирает базовый. SigLIP2 недоступна -> None целиком (как и раньше)."""
-    if not block_text:
-        return None
-    with pipeline_smart.stage_timer.stage("siglip2"):
-        siglip2_raw = _siglip2_relevance(image_path, block_text)
-    if siglip2_raw is None:
-        return None
-    with pipeline_smart.stage_timer.stage("jina_img"):
-        jina_raw = _jina_relevance(image_path, block_text)
-    if jina_raw is None:
-        return siglip2_raw   # fail-open: SigLIP2-only, byte-for-byte старое поведение
-    jina_rescaled = _rescale_jina_to_siglip2_scale(jina_raw)
-    return ENSEMBLE_WEIGHT_SIGLIP2 * siglip2_raw + ENSEMBLE_WEIGHT_JINA * jina_rescaled
+    with pipeline_smart.stage_timer.stage("text_text_qwen", n_a=len(texts_a), n_b=len(texts_b)):
+        return [[float(x @ y) for y in vb] for x in va]
 
 
 def _relevance_model_signature():
-    """Отпечаток всего, что влияет на СЫРУЮ шкалу sentence_relevance() —
-    имя модели, ensemble-веса, z-rescale константы. Меняется -> старый
-    закэшированный DIRECTOR_RELEVANCE_FLOOR больше не доверенный (шкала
-    сдвинулась), см. докстринг DIRECTOR_RELEVANCE_FALLBACK выше. Тот же
-    принцип, что уже CANDIDATE_GATE_RULES_VERSION в pipeline_smart.py
-    использует для инвалидации кэша кандидатов при смене правил гейта."""
-    parts = "|".join([
-        SIGLIP2_MODEL_NAME, JINA_MODEL_REPO, JINA_ONNX_FILENAME,
-        f"{ENSEMBLE_WEIGHT_SIGLIP2}", f"{ENSEMBLE_WEIGHT_JINA}",
-        f"{SIGLIP2_SCORE_MEAN}", f"{SIGLIP2_SCORE_STD}",
-    ])
-    # Устройство модели (ml_device): на процессоре — пустая строка, отпечаток
-    # прежний; на видеокарте векторы не смешиваются с посчитанными на CPU.
+    """Отпечаток всего, что влияет на шкалу sentence_relevance(): модель,
+    протокол вопросов, шкалы переноса из калибровки. Меняется — порог
+    режиссёра из калибровки для другой шкалы не годится."""
+    cal = vision_model.calibration() or {}
+    parts = "|".join([SENTENCE_RELEVANCE_MODEL_VERSION, str(vision_model.GATE_PROTOCOL_VERSION),
+                      json.dumps((cal.get("scale") or {}).get("sentence"), sort_keys=True),
+                      json.dumps(vision_model.LEGACY_SENTENCE_SCALE, sort_keys=True)])
     import ml_device
-    parts += ml_device.tag() + jina_device_tag()
+    parts += ml_device.tag()
     return hashlib.md5(parts.encode()).hexdigest()[:16]
 
 
 def _load_calibration_pairs():
     """Пары image+caption+label из CALIBRATION_PAIRS_PATH. None, если файла
-    нет/битый JSON — fail-open, вызывающий код откатывается на кэш/fallback,
-    не крашится (тот же принцип, что и у всего остального в этом файле)."""
+    нет/битый JSON."""
     try:
         with open(CALIBRATION_PAIRS_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -1115,99 +387,43 @@ def _load_calibration_pairs():
         return None
 
 
-def calibrate_relevance_floor():
-    """Живая калибровка DIRECTOR_RELEVANCE_FLOOR на CALIBRATION_PAIRS_PATH —
-    та же ручная методика (min(good) с запасом выше max(bad)), что раньше
-    делалась один раз глазами и записывалась числом в комментарий; здесь
-    выполняется кодом, поэтому происходит заново при каждой смене модели
-    (см. _relevance_model_signature()), а не только когда кто-то вспомнит
-    руками пересчитать.
-
-    Возвращает dict {"floor", "margin", "good_scores", "bad_scores",
-    "model_signature", ...} или None при любом сбое (нет фикстур, модель
-    недоступна, sentence_relevance() падает на всех парах) — ПОЛНОСТЬЮ
-    fail-open, вызывающий код откатывается на кэш/DIRECTOR_RELEVANCE_FALLBACK.
-
-    САНИТИ-ГЕЙТ: если разделение good/bad меньше DIRECTOR_RELEVANCE_MIN_
-    MARGIN, результат всё равно возвращается (для видимости в логе), но
-    caller обязан не принимать его как новый порог — см. _resolve_director_
-    relevance_floor(). Это и есть защита от "автоматизация просто быстрее
-    ошибается": плохое разделение на новой модели не должно тихо стать
-    новым порогом без явного сигнала, что что-то не так."""
+def calibrate_relevance_floor(score_fn=None):
+    """Порог режиссёра на CALIBRATION_PAIRS_PATH — та же методика (середина
+    зазора между худшей верной и лучшей неверной парой), что и раньше.
+    Зовёт её scripts/calibrate_vision.py (score_fn — оценка фразы на шкале
+    прежнего ансамбля, без калибровки её ещё не на что перевести), результат
+    уходит в файл калибровки. None — нет пар или модель не ответила.
+    Разделение меньше DIRECTOR_RELEVANCE_MIN_MARGIN возвращается для
+    видимости, но порогом не становится (см. _resolve_director_relevance_floor)."""
     pairs = _load_calibration_pairs()
     if not pairs:
         return None
+    score_fn = score_fn or sentence_relevance
     good_scores, bad_scores = [], []
-    try:
-        for image_path, caption, label in pairs:
-            score = sentence_relevance(image_path, caption)
-            if score is None:
-                return None   # модель недоступна на этом прогоне — не считаем частичный результат
-            (good_scores if label == "good" else bad_scores).append(score)
-    except Exception:
-        return None
+    for image_path, caption, label in pairs:
+        score = score_fn(image_path, caption)
+        if score is None:
+            return None
+        (good_scores if label == "good" else bad_scores).append(score)
     if not good_scores or not bad_scores:
         return None
     min_good, max_bad = min(good_scores), max(bad_scores)
     margin = min_good - max_bad
-    # Порог — с запасом ниже кластера верных пар, выше кластера промахов же
-    # (тот же асимметричный принцип риска, что у RISKY_QUERY_MARGIN в
-    # pipeline_smart.py: ложный "miss" в отчёте дешевле, чем ложное
-    # молчание о реальной проблеме) — середина зазора, а не его край.
-    floor = max_bad + margin / 2.0
-    return {
-        "floor": floor, "margin": margin,
-        "min_good": min_good, "max_bad": max_bad,
-        "good_scores": good_scores, "bad_scores": bad_scores,
-        "n_pairs": len(pairs),
-        "model_signature": _relevance_model_signature(),
-    }
+    return {"floor": max_bad + margin / 2.0, "margin": margin,
+            "min_good": min_good, "max_bad": max_bad,
+            "good_scores": good_scores, "bad_scores": bad_scores, "n_pairs": len(pairs)}
 
 
 def _resolve_director_relevance_floor():
-    """Порядок разрешения DIRECTOR_RELEVANCE_FLOOR при импорте модуля:
-    1) закэшированное значение для ТЕКУЩЕЙ подписи модели (CALIBRATION_
-       CACHE_PATH) — быстро, не гоняет модель на каждый запуск;
-    2) живая калибровка, если кэш промахнулся (новая модель/первый запуск)
-       — принимается ТОЛЬКО если margin >= DIRECTOR_RELEVANCE_MIN_MARGIN
-       (сани-гейт), и тогда атомарно пишется в кэш (см. docstring выше про
-       "смена модели видна в git diff, не тихий рантайм-эффект");
-    3) DIRECTOR_RELEVANCE_FALLBACK — если live-калибровка недоступна ИЛИ
-       не прошла сани-гейт: используем последний известный кэш для ЛЮБОЙ
-       подписи (пусть и устаревшей — стоять на месте безопаснее, чем
-       принять непроверенный сдвиг), а если кэша вообще ни для чего нет —
-       жёсткий хардкод-fallback.
-
-    Полностью fail-open на каждом шаге — advisory-only порог (см.
-    DIRECTOR_RELEVANCE_MISSES в pipeline_smart.py, победителя не меняет),
-    поэтому худший случай любого сбоя здесь — чуть менее точный отчёт, не
-    сорванный рендер."""
-    sig = _relevance_model_signature()
-    cached = None
+    """Порог режиссёра — из калибровки моделей зрения (поле director_floor,
+    на шкале прежнего ансамбля). Нет калибровки или разделение было
+    ненадёжным (калибровка пишет null) — DIRECTOR_RELEVANCE_FALLBACK: порог
+    только для отчёта (DIRECTOR_RELEVANCE_MISSES), победителя не меняет."""
     try:
-        with open(CALIBRATION_CACHE_PATH, "r", encoding="utf-8") as f:
-            cached = json.load(f)
-    except Exception:
-        cached = None
-    if cached and cached.get("model_signature") == sig:
-        return cached["floor"]
-    result = calibrate_relevance_floor()
-    if result is not None and result["margin"] >= DIRECTOR_RELEVANCE_MIN_MARGIN:
-        try:
-            os.makedirs(os.path.dirname(CALIBRATION_CACHE_PATH), exist_ok=True)
-            tmp = CALIBRATION_CACHE_PATH + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(result, f, ensure_ascii=False, indent=2)
-            os.replace(tmp, CALIBRATION_CACHE_PATH)
-        except Exception:
-            pass   # кэш не записался -> просто пересчитаем в следующий раз, не критично
-        return result["floor"]
-    if result is not None:
-        print(f"  ВНИМАНИЕ: авто-калибровка DIRECTOR_RELEVANCE_FLOOR дала разделение "
-              f"good/bad margin={result['margin']:.3f} (< {DIRECTOR_RELEVANCE_MIN_MARGIN}) — "
-              f"новый порог НЕ принят, используется прежний кэш/fallback. Модель, похоже, "
-              f"плохо разделяет калибровочные пары — проверь calibration_pairs.json глазами.")
-    return cached["floor"] if cached else DIRECTOR_RELEVANCE_FALLBACK
+        v = vision_model.threshold("director_floor")
+    except vision_model.NotCalibrated:
+        v = None
+    return v if isinstance(v, (int, float)) else DIRECTOR_RELEVANCE_FALLBACK
 
 
 def role_shot_size_bonus(role, shot_size):

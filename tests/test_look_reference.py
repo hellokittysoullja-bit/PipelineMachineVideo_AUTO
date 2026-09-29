@@ -25,29 +25,24 @@ _no_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg �
 
 
 def _require_live_clip():
-    """Пропустить тест ТОЛЬКО если CLIP физически недоступен в этом окружении.
-
-    Граница проведена намеренно узко: "нет torch/transformers/весов/фича
-    выключена" — окружение, проверять нечего, skip. "Модель есть, а функция
-    вернула None" — ПАДЕНИЕ, потому что ровно эта регрессия и есть предмет
-    тестов ниже (см. докстринг _domain_scores_from_text(): её широкий
-    `except Exception: return None` месяцами выдавал собственную поломку за
-    "CLIP недоступен", и domain_match_bonus() всё это время был мёртвым
-    кодом). Guard, который скипал бы по самому факту None, воспроизвёл бы ту
-    же слепоту на уровне тестов.
-
-    До этого guard'а не было вовсе: на чистой установке без torch (CI, новая
-    машина) четыре теста ниже падали красным вместо skip — тот же класс, что
-    уже чинили для опционального ruaccent (см. docs/AUDIT_2026-08, ЧАСТЬ 1
-    п.10), из-за чего "суита зелёная" переставала быть сигналом."""
+    """Пропустить тест, если модели зрения (Qwen3-VL, GPU-ветка) не готовы:
+    видеокарта, веса и калибровка — без калибровки нет порога уверенности
+    домена (domain_margin), решать нечем."""
     pytest.importorskip("torch")
     pytest.importorskip("transformers")
-    if not lr.pipeline_smart.CLIP_ENABLED or lr.pipeline_smart.CLIP_BROKEN:
-        pytest.skip("CLIP выключен в окружении (CLIP_RELEVANCE=0) или уже помечен сломанным")
-    try:
-        lr.pipeline_smart.get_clip_model()
-    except Exception as e:   # веса не скачаны / нет сети / несовместимая версия
-        pytest.skip(f"веса CLIP недоступны в этом окружении ({type(e).__name__}: {e})")
+    import vision_model
+    problems = vision_model.readiness()
+    if problems:
+        pytest.skip("модели зрения не готовы: " + "; ".join(problems))
+
+
+@pytest.fixture(autouse=True)
+def _margin_on_legacy_scale(request, monkeypatch):
+    """Юнит-тесты логики выбора домена подставляют свои скоры на шкале, где
+    задан DOMAIN_MARGIN, — перенос шкалы (калибровка Qwen) им не нужен.
+    Тесты с живой моделью берут настоящий перенос."""
+    if "real" not in request.node.name:
+        monkeypatch.setattr(lr, "domain_margin", lambda: lr.DOMAIN_MARGIN)
 
 
 # ---------- sRGB <-> Lab round-trip ----------
@@ -210,20 +205,8 @@ def test_domain_scores_from_text_real_clip_call_battle_text():
     scores = lr._domain_scores_from_text("medieval knight battle reenactment fight with swords and armor")
     assert scores is not None, (
         "если это None — _domain_scores_from_text() снова тихо падает "
-        "(см. широкий except в её теле) и domain_match_bonus() снова мёртвый код")
-    # ЧЕСТНЫЙ РЕГРЕСС 18.09 (смена get_clip_model() на SigLIP2-base256, см.
-    # CLIP_GATE_MODEL_NAME в pipeline_smart.py): "battle" больше не топ-домен
-    # для этого текста ('snow' 0.802 против 'battle' 0.776 — разброс между
-    # всеми 8 доменами узкий, 0.71-0.80). Это ТА ЖЕ структурная проблема, что
-    # уже задокументирована в CLAUDE.md для CLAP и для текстовой башни
-    # SigLIP2 у визуальной полки: "текстовая башня обучена на пару
-    # текст-КАРТИНКА, и её текст-текст сходство вырождается" — не баг этой
-    # правки, а известное свойство класса моделей на тексте-против-текста.
-    # Оставлено как измеренный факт, не подогнано: сама функция по-прежнему
-    # реально отвечает (не падает в None, см. assert выше — ради этого тест
-    # и существует), а top-1 здесь — второстепенный ranking-бонус
-    # (domain_match_bonus() в VISUAL_DIRECTOR_MODE), не гейт.
-    assert scores["battle"] > 0.0, f"получили {scores}"
+        "и domain_match_bonus() снова мёртвый код")
+    assert scores["battle"] == max(scores.values()), f"получили {scores}"
 
 
 def test_domain_scores_from_text_real_clip_call_snow_text():
@@ -233,21 +216,15 @@ def test_domain_scores_from_text_real_clip_call_snow_text():
     assert scores["snow"] == max(scores.values()), f"получили {scores}"
 
 
-def test_text_domain_hint_real_clip_call_matches_domain_scores():
+def test_text_domain_hint_real_clip_call_returns_a_decision():
     _require_live_clip()
     # Сквозная проверка: text_domain_hint() (margin-gate поверх _domain_
-    # scores_from_text()) реально доходит до вызова, а не падает молча.
-    #
-    # ЧЕСТНЫЙ РЕГРЕСС 18.09 (см. тот же коммент у test_domain_scores_from_
-    # text_real_clip_call_battle_text выше) — узкий разброс между доменами
-    # на новой модели держит margin ниже DOMAIN_MARGIN=0.02 на этом тексте,
-    # поэтому честный ответ теперь (None, 0.0) — margin-gate работает
-    # ПРАВИЛЬНО (отказывается от неуверенного решения), просто входной
-    # сигнал стал более шумным. (None, 0.0) — задокументированный безопасный
-    # исход самой функции при недостаточной уверенности, не тихий сбой.
+    # scores_from_text() и переноса порога) доходит до решения, а не падает
+    # молча. Какое решение — зависит от откалиброванного переноса: либо
+    # «battle», либо честный отказ (None, 0.0) при узком разрыве.
     domain, margin = lr.text_domain_hint("medieval knight battle reenactment fight with swords and armor")
-    assert domain is None
-    assert margin == 0.0
+    assert domain in ("battle", None)
+    assert (domain is None) == (margin == 0.0)
 
 
 # ---------- find_reference ----------

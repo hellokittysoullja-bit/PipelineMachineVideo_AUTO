@@ -270,11 +270,13 @@ def qc_verdict(path, is_video, query, accepted_hashes, slot_label):
         reasons.append(f"избыточный шум/артефакты (noise={noise:.1f})")
         hard_reject = True
     if relevance is not None:
-        if relevance < pipeline_smart.CLIP_RELEVANCE_THRESHOLD:
+        if relevance < pipeline_smart._require_threshold(
+                pipeline_smart.CLIP_RELEVANCE_THRESHOLD, "relevance"):
             reasons.append(f"не по теме запроса (relevance={relevance:.3f})")
             hard_reject = True
         elif pipeline_smart.is_risky_query(query):
-            if anchor_relevance is not None and (relevance - anchor_relevance) < pipeline_smart.RISKY_QUERY_MARGIN:
+            if anchor_relevance is not None and (relevance - anchor_relevance) < pipeline_smart._require_threshold(
+                    pipeline_smart.RISKY_QUERY_MARGIN, "risky_margin"):
                 reasons.append("собирательный запрос без доминирующего предмета в кадре")
                 hard_reject = True
     if h is not None and not hard_reject:
@@ -289,7 +291,9 @@ def qc_verdict(path, is_video, query, accepted_hashes, slot_label):
         if aesthetic is not None and aesthetic < AESTHETIC_BORDERLINE:
             reasons.append(f"низкая эстетическая оценка ({aesthetic:.2f})")
             borderline = True
-        if particle is not None and particle >= pipeline_smart.PARTICLE_SCORE_THRESHOLD:
+        # Порог частиц без разметки: не откалиброван (None) — слой молчит.
+        if (particle is not None and pipeline_smart.PARTICLE_SCORE_THRESHOLD is not None
+                and particle >= pipeline_smart.PARTICLE_SCORE_THRESHOLD):
             reasons.append("в кадре собственные частицы (снег/пыль/боке) — учтено в силе зерна при рендере")
 
     verdict = "reject" if hard_reject else ("borderline" if borderline else "pass")

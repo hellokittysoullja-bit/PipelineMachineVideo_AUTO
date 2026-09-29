@@ -34,9 +34,10 @@
 полки (предметы Мет, уже прошедшие паспорт эпохи и культуры в
 `met_catalog.build`) и кладёт рядом с их метаданными. Дальше слот
 спрашивает полку ОПИСАНИЕМ КАДРА обычным языком, и полка отвечает
-сравнением этого описания с самими изображениями — той же моделью
-SigLIP2, на которой уже построен `sentence_relevance()` и которая на
-собственном 113-позиционном бенчмарке этого репозитория даёт top-1 = 90%.
+сравнением этого описания с самими изображениями — той же моделью, на
+которой построены гейты и `sentence_relevance()`. GPU-ветка (29.09):
+Qwen3-VL-Embedding-8B вместо SigLIP2; индекс, собранный SigLIP2, чужой
+моделью читаться не будет (load() сверяет модель) — полку пересобрать.
 
 ПОЧЕМУ ИМЕННО КАРТИНКИ, А НЕ КАРТОЧКИ (проверено, гипотеза отклонена).
 Дешёвый вариант — индексировать ТЕКСТ карточки музея («Halberd, Shafted
@@ -59,7 +60,8 @@ Weapons, German, Steel, 1598») — стоит 80 минут вместо 20 ч�
 в истории как ОТРИЦАТЕЛЬНЫЙ результат, а не как запасной путь.
 
 ЧЕСТНАЯ ЦЕНА. Сборка индекса — разовый оффлайн-прогон: замер на этой
-машине 2.28 с на картинку (SigLIP2-so400m, 4 ядра CPU), то есть ~5 часов
+машине 2.28 с на картинку (SigLIP2-so400m, 4 ядра CPU; на Qwen3-VL — только
+видеокарта, не замерено), то есть ~5 часов
 на 7787 предметов Arms and Armor + Medieval Art + The Cloisters и ~20
 часов на все 30 957 предметов каталога. Прогон РЕЗЮМИРУЕМЫЙ (падение,
 Ctrl-C, обрыв сети продолжаются с того же места) и повторяется только при
@@ -109,7 +111,14 @@ SHELF_INDEX_VERSION = 1
 # сравниваются векторы из разных пространств, и результат будет выглядеть
 # работающим (числа посчитаются), оставаясь шумом. Имя пишется в манифест и
 # сверяется при загрузке.
-SHELF_MODEL = "siglip2-so400m-patch14-384"
+# GPU-ветка, 29.09: модель зрения — Qwen3-VL-Embedding (vision_model.py); полка,
+# собранная so400m, этой проверкой отклоняется целиком и пересобирается.
+def _shelf_model():
+    import qwen_vl_embed
+    return "qwen3vl:" + qwen_vl_embed.signature()
+
+
+SHELF_MODEL = _shelf_model()
 
 
 def stack_signature():
@@ -278,15 +287,16 @@ def stats():
 def _brief_vector(brief):
     """Эмбеддинг ОПИСАНИЯ КАДРА той же моделью, что и полка.
 
-    Считается через visual_director._siglip2_text_emb — не второй копией
-    вызова: там уже есть дисковый кэш и честный отчёт об обрезке текста по
-    лимиту токенов (SIGLIP2_MAX_TEXT_LENGTH = 64, жёсткий предел текстовой
-    башни). Вторая копия рано или поздно разошлась бы с первой по
-    нормировке или по длине — и расхождение было бы невидимым."""
+    Считается через pipeline_smart._gate_text_vec — не второй копией вызова:
+    модель, инструкция и кэш текстов общие с гейтами. Вторая копия рано или
+    поздно разошлась бы с первой по нормировке — и расхождение было бы
+    невидимым. None — модели нет."""
     import numpy as np
-    import visual_director as vd
-    emb = vd._siglip2_text_emb(brief)
-    arr = emb.numpy() if hasattr(emb, "numpy") else np.asarray(emb)
+    import pipeline_smart
+    emb = pipeline_smart._gate_text_vec(brief)
+    if emb is None:
+        return None
+    arr = np.asarray(emb)
     arr = arr.reshape(-1).astype("float32")
     norm = float((arr * arr).sum()) ** 0.5
     return arr / norm if norm else arr
@@ -403,7 +413,7 @@ def search(brief, limit=40, min_score=None):
     try:
         import numpy as np
         q = _brief_vector(brief)
-        if q.shape[0] != vecs.shape[1]:
+        if q is None or q.shape[0] != vecs.shape[1]:
             return []
         scores = vecs @ q
         order = np.argsort(-scores)[: max(1, int(limit))]
@@ -576,7 +586,7 @@ def build(departments=DEFAULT_DEPARTMENTS, limit=None, keep_images=False,
     """Разовая сборка индекса. Резюмируемая: пропускает уже посчитанные id."""
     import numpy as np
     import urllib.request
-    import visual_director as vd
+    import pipeline_smart as ps
 
     os.makedirs(INDEX_DIR, exist_ok=True)
     os.makedirs(IMAGES_DIR, exist_ok=True)
@@ -648,8 +658,10 @@ def build(departments=DEFAULT_DEPARTMENTS, limit=None, keep_images=False,
                         continue
                     with open(path, "wb") as fh:
                         fh.write(data)
-                emb = vd._siglip2_image_emb(path)
-                arr = emb.numpy() if hasattr(emb, "numpy") else np.asarray(emb)
+                emb = ps._gate_image_vec(path)
+                if emb is None:
+                    raise RuntimeError("модель зрения (Qwen3-VL-Embedding) недоступна — полку не собрать")
+                arr = np.asarray(emb)
                 arr = arr.reshape(-1).astype("float32")
                 norm = float((arr * arr).sum()) ** 0.5
                 if not norm:

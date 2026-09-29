@@ -34,8 +34,7 @@ def _load(name):
 
 
 def test_cascade_order_is_not_worse_on_any_stored_pool():
-    if ps._gate_embed(text="a dagger") is None:
-        pytest.skip("модель гейта недоступна")
+    """На замороженных векторах снимка (превью и тексты) — модель не нужна."""
     base = _load("baseline.json")
     now = pr.rank_metrics(pr.fixture_orders(FIX), _load("labels.json"), base["handoff"])
     assert pr.rankcheck_failures(now, base["metrics"]) == []

@@ -6198,14 +6198,14 @@ RELEVANCE_RANK_BUCKET = 0.02
 # Сколько раз победителя можно заменить следующим, если его полноразмерный
 # файл оказался размытым (гейт резкости — на полном файле, см. pexels_photo).
 SHARP_REPICK_MAX = 3
-# То же самое, но для ВТОРОЙ проверки (smart_relevance_veto, SigLIP2+Jina).
+# То же самое, но для ВТОРОЙ проверки (smart_relevance_veto, реранкер Qwen3-VL).
 # Заведено 21.09 по прямому замеру: у слота, оставшегося БЕЗ КАДРА, в пуле
 # было 232 кандидата и 19 из 20 просмотренных прошли ВСЕ гейты — вето
 # отклоняло одного победителя и слот умирал целиком (`return None`), хотя
 # следующий по ранжированию лежал рядом. Значение равно SHARP_REPICK_MAX
 # СОЗНАТЕЛЬНО — это симметрия с уже принятым решением соседнего цикла, а не
 # измеренный оптимум; каждый ре-пик стоит одну полноразмерную скачку плюс
-# один вызов ensemble (~2.5-3с на CPU), поэтому предел нужен.
+# один вызов реранкера, поэтому предел нужен.
 VETO_REPICK_MAX = 3
 # Версия чередования источников внутри запроса (см. сборку пула в
 # pexels_photo) — для _selection_stack_signature().
@@ -8659,7 +8659,9 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                                                            "photo"),
                                              cf, download_probe, index,
                                              claims=cascade_claims(request.shot_spec, "photo"),
-                                             keep=kept_previews, keep_top=keep_top)
+                                             keep=kept_previews, keep_top=keep_top,
+                                             rerank_text=cascade_rerank_text(
+                                                 request.shot_spec, request.shot_brief or query))
                 candidates = caption_screen_pool(candidates, request, "photo", index)
                 skip = CASCADE_PAGE.get() * _photo_dedup_max_tries_for(index)
                 if skip:
@@ -9063,7 +9065,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                     os.remove(cf)
                 except OSError:
                     pass
-                print(f"  слот {index}: вторая проверка (SigLIP2+Jina, запрос {query!r}) "
+                print(f"  слот {index}: вторая проверка (реранкер Qwen, запрос {query!r}) "
                       f"отклонила всех проверенных кандидатов ({veto_repicks + 1}) — "
                       f"слот остаётся без медиа")
                 return None
@@ -9190,13 +9192,16 @@ def prefetch_slot_inputs(request, kind, cascade):
         os.makedirs(d, exist_ok=True)
         cf = os.path.join(d, f"{request.index:04d}_{kind}")
         spec, brief = request.shot_spec, request.shot_brief or request.query
+        # Реранкер тоже греет свой дисковый кэш (оценка — по тексту и
+        # байтам превью), слот возьмёт готовые оценки для совпавших кадров.
+        rr = cascade_rerank_text(spec, brief)
         if kind == "photo":
             cascade_reorder(pool, cascade_texts(spec, brief, "photo"), cf, download_photo_probe,
-                            request.index, claims=cascade_claims(spec, "photo"))
+                            request.index, claims=cascade_claims(spec, "photo"), rerank_text=rr)
         else:
             cascade_reorder(pool, cascade_texts(spec, brief, "video"), cf, video_middle_probe,
                             request.index, url_of=video_middle_url,
-                            claims=cascade_claims(spec, "video"))
+                            claims=cascade_claims(spec, "video"), rerank_text=rr)
     finally:
         _PREFETCH_ACTIVE.reset(token)
 
@@ -9756,7 +9761,7 @@ def semantic_query_assignment(block_texts, queries):
     тот. Поэтому чинить надо здесь, в точке назначения, а не ниже по конвейеру.
 
     МЕТОД. visual_director.text_text_similarity() — мультиязычный текстовый
-    энкодер (Jina CLIP v2): русская фраза сценария против английского
+    энкодер (Qwen3-VL-Embedding с 29.09, до того Jina CLIP v2): русская фраза сценария против английского
     авторского запроса, обе стороны ТЕКСТ (см. её докстринг с реальными
     замерами: правильный запрос выигрывает с заметным отрывом на каждом
     визуальном блоке). Это принципиально сильнее, чем image-text скоринг
@@ -9807,8 +9812,11 @@ def _query_assignment_cache_dir():
 
 
 def _query_assignment_cache_path(block_texts, queries):
+    # Модель — часть ключа: распределение, посчитанное другим энкодером
+    # (Jina до 29.09), не отдаётся под Qwen.
     key = hashlib.sha256(
-        json.dumps({"block_texts": block_texts, "queries": queries},
+        json.dumps({"block_texts": block_texts, "queries": queries,
+                    "model": GATE_MODEL_SIGNATURE},
                     ensure_ascii=False, sort_keys=False).encode("utf-8")
     ).hexdigest()
     return os.path.join(_query_assignment_cache_dir(), f"{key}.json")
@@ -11944,6 +11952,32 @@ def _dof_focus_depth(depth, h, w):
 # доверять слепо тому, что поиск вернул top-N по ключевым словам.
 CLIP_ENABLED = feature_flags.enabled("CLIP_RELEVANCE")
 CLIP_BROKEN = False   # взводится только на системном сбое (модель/сеть), не на одной картинке
+
+# ПОРОГИ ГЕЙТОВ — ИЗ КАЛИБРОВКИ QWEN (GPU-ветка, 29.09, vision_model.py).
+# Имена CLIP_* ниже исторические: модель гейтов — Qwen3-VL-Embedding-8B, а
+# все прежние числа (история калибровки на CLIP и SigLIP2 сохранена в
+# комментариях ниже как описание МЕТОДА) были на шкале другой модели. Число
+# берётся из файла калибровки, который пишет scripts/calibrate_vision.py по
+# тем же правилам; нет файла — None, и рендер до гейтов не доходит
+# (vision_model.require_ready в main). Вне рендера (тесты без видеокарты)
+# модель не отвечает, скор None, гейт пропускает — как и раньше.
+import vision_model  # noqa: E402
+
+
+def _calibrated_threshold(name):
+    try:
+        return vision_model.threshold(name)
+    except vision_model.NotCalibrated:
+        return None
+
+
+def _require_threshold(value, name):
+    """Порог нужен, а калибровки нет: модель ответила (есть скор), но
+    сравнивать не с чем — громкий отказ, а не молчаливый пропуск кадра."""
+    if value is None:
+        raise vision_model.NotCalibrated(
+            f"порог «{name}» не откалиброван для Qwen — запусти {vision_model.CALIBRATE_COMMAND}")
+    return value
 # Отдельный флаг для aesthetic_score()'s get_aesthetic_clip_model() — ТА
 # модель (настоящий CLIP ViT-B/32) и ЭТА (SigLIP2, свежий CLIP_BROKEN выше)
 # теперь РАЗНЫЕ загрузки с 18.09 (см. get_clip_model()) — сбой одной не
@@ -11977,7 +12011,7 @@ AESTHETIC_CLIP_BROKEN = False
 # beach vacation" (relevance=-0.0403, честно и далеко ниже любого
 # разумного порога) — реальная production-граница (золотой набор) весит
 # больше одной синтетической пары текст/картинка.
-CLIP_RELEVANCE_THRESHOLD = -0.035
+CLIP_RELEVANCE_THRESHOLD = _calibrated_threshold("relevance")   # SigLIP2 было -0.035
 
 # Реальный, найденный вживую пробел (27 августа, videos/_test20s, слот 7 —
 # видео всадника с занесённым клинком): ни pexels_photo(), ни pexels_video()
@@ -12027,7 +12061,7 @@ NEGATIVE_ANCHOR_PROMPT = "empty room interior architecture window"
 # under_risky_query). Порог 0.045 — между ep01_015 (0.0455, сохранён) и
 # stainedglass.jpg (0.0427, поймана) — ловит 2 из 5 известных плохих на
 # этой узкой оси при n=9, выборка МЕНЬШЕ исходной калибровки CLIP (35 пар).
-RISKY_QUERY_MARGIN = 0.045
+RISKY_QUERY_MARGIN = _calibrated_threshold("risky_margin")   # SigLIP2 было 0.045
 
 
 def is_risky_query(query):
@@ -12108,6 +12142,25 @@ def is_risky_query(query):
 # «европейский клинок против восточноазиатского» — свойство этого канала.
 VISUAL_DOMAIN_GUARDS = ()
 VISUAL_DOMAIN_GUARDS = tuple(CHANNEL_PROFILE.get("visual_domain_guards", VISUAL_DOMAIN_GUARDS))
+
+
+def _calibrated_domain_guards(guards):
+    """Порог каждого гварда — из калибровки Qwen по его имени. margin_threshold
+    в профиле канала стоит на шкале SigLIP2 и для Qwen не значит ничего;
+    гвард, которому калибровке нечем было выставить порог (нет размеченных
+    кадров под его запросы), получает None и не срабатывает."""
+    out = []
+    for g in guards:
+        try:
+            thr = vision_model.domain_guard_threshold(g.get("name"))
+        except vision_model.NotCalibrated:
+            thr = None
+        out.append(dict(g, margin_threshold=thr))
+    return tuple(out)
+
+
+_PROFILE_DOMAIN_GUARDS = VISUAL_DOMAIN_GUARDS
+VISUAL_DOMAIN_GUARDS = _calibrated_domain_guards(_PROFILE_DOMAIN_GUARDS)
 
 
 # --- Контрастивное вето по ловушкам-негативам ---
@@ -12251,10 +12304,10 @@ CONTENT_BLOCKED_CANDIDATE_IDS = frozenset(str(x) for x in CHANNEL_PROFILE.get(
 # И tolerable. ЧЕСТНО чуть хуже CLIP на этой конкретной оси (тот при -0.015
 # ловил 6/17) — на новой модели margin у двух good-кадров (ep01_015/032)
 # отрицательнее, чем был у CLIP, и порог обязан отступить дальше, чтобы их
-# не потерять. SMART_RELEVANCE_VETO (проверка ПОБЕДИТЕЛЯ более тяжёлым
-# so400m+Jina ensemble, см. smart_relevance_veto() ниже) остаётся вторым,
+# не потерять. SMART_RELEVANCE_VETO (проверка ПОБЕДИТЕЛЯ реранкером
+# Qwen3-VL, см. smart_relevance_veto() ниже) остаётся вторым,
 # независимым слоем защиты именно от такого класса пропуска.
-NEGATIVE_VETO_MARGIN = -0.06
+NEGATIVE_VETO_MARGIN = _calibrated_threshold("negative_veto_margin")   # SigLIP2 было -0.06
 NEGATIVE_VETO_ENABLED = feature_flags.enabled("NEGATIVE_VETO")
 
 
@@ -12320,7 +12373,7 @@ def negative_anchor_violation(image_path, query):
         return False, None
     target, negatives = scores[0], scores[1:]
     worst = max(range(len(negatives)), key=lambda k: negatives[k])
-    if (target - negatives[worst]) < NEGATIVE_VETO_MARGIN:
+    if (target - negatives[worst]) < _require_threshold(NEGATIVE_VETO_MARGIN, "negative_veto_margin"):
         return True, anchors[worst]
     return False, None
 
@@ -12334,6 +12387,8 @@ def visual_domain_guard_violation(image_path, query):
     for guard in VISUAL_DOMAIN_GUARDS:
         if not any(t in ql for t in guard["trigger_terms"]):
             continue
+        if guard.get("margin_threshold") is None:
+            continue      # калибровке нечем было выставить порог этому гварду
         euro = clip_relevance(image_path, guard["euro_prompt"])
         asian = clip_relevance(image_path, guard["asian_prompt"])
         if euro is None or asian is None:
@@ -12425,10 +12480,12 @@ def is_relevant_candidate(image_path, query, relevance=None):
     иначе считается здесь же."""
     if relevance is None:
         relevance = clip_relevance(image_path, query)
-    is_relevant = relevance is None or relevance >= CLIP_RELEVANCE_THRESHOLD
+    is_relevant = relevance is None or relevance >= _require_threshold(CLIP_RELEVANCE_THRESHOLD,
+                                                                         "relevance")
     if is_relevant and relevance is not None and is_risky_query(query):
         anchor_relevance = clip_relevance(image_path, NEGATIVE_ANCHOR_PROMPT)
-        if anchor_relevance is not None and (relevance - anchor_relevance) < RISKY_QUERY_MARGIN:
+        if anchor_relevance is not None and (relevance - anchor_relevance) < _require_threshold(
+                RISKY_QUERY_MARGIN, "risky_margin"):
             is_relevant = False
     if is_relevant:
         violated, _ = visual_domain_guard_violation(image_path, query)
@@ -12446,44 +12503,21 @@ def is_relevant_candidate(image_path, query, relevance=None):
     return is_relevant
 
 
-# ВТОРОЙ, БОЛЕЕ ТОЧНЫЙ ВЗГЛЯД НА ПОБЕДИТЕЛЯ — SigLIP2+Jina поверх CLIP,
-# НЕ ВМЕСТО НЕГО (SMART_RELEVANCE_VETO=0/1, дефолт 1, 17.09).
+# ВТОРОЙ, БОЛЕЕ ТОЧНЫЙ ВЗГЛЯД НА ПОБЕДИТЕЛЯ (SMART_RELEVANCE_VETO=0/1,
+# дефолт 1, 17.09; GPU-ветка с 29.09 — Qwen3-VL-Reranker-2B).
 #
-# ЗАЧЕМ ДВА СЛОЯ, А НЕ ЗАМЕНА ОДНОГО ДРУГИМ — по прямому требованию
-# владельца "модель CLIP старая и глупая, замени её везде на новую".
-# Проверено ИЗМЕРЕНИЕМ, а не мнением, на золотом наборе (40 кадров):
+# Гейты всего пула сравнивают два отдельно посчитанных вектора (картинки и
+# текста) — быстро, но это сравнение «мешка признаков». Реранкер смотрит на
+# пару «запрос — картинка» ЦЕЛИКОМ, одним проходом модели, и поэтому он
+# дорогой: один вызов на слот, на уже выбранного ПОБЕДИТЕЛЯ, а не на каждого
+# кандидата пула. Тот же приём, что у VLM-арбитра (дорогой ресурс — только
+# на шорт-лист) и render_sharpness_regression() (проверка готового кадра).
 #
-#   ось                                   CLIP    SigLIP2+Jina
-#   AUC (ранжирует годное выше брака)     0.566   0.610
-#   при нуле ложных отказов годным:
-#     брака поймано                       1/17    1/17
-#     терпимых потеряно                   3/7     2/7
-#
-# Новая модель ДЕЙСТВИТЕЛЬНО отличает лучше (AUC выше, теряет меньше
-# терпимых кадров при той же строгости) — первая попытка сравнения (по
-# средним числам, не по рангу) этого не показывала и была ошибкой метода,
-# не находкой; поймано и исправлено в этом же заходе.
-#
-# НО замена ПОЛНОСТЬЮ, на КАЖДОГО кандидата пула, не сделана — и это не
-# осторожность ради осторожности, а измеренная цена: живой замер на этой
-# машине (15 картинок, текст РАЗНЫЙ на каждый вызов — кэш не участвует):
-#
-#   CLIP           :   72 мс/вызов
-#   SigLIP2+Jina   : 2358 мс/вызов  (32.8x медленнее)
-#
-# is_relevant_candidate() вызывается на КАЖДОГО кандидата пула (десятки за
-# слот, тысячи за эпизод) — на этой частоте 33x медленнее означает часы
-# лишнего времени рендера, а не минуты. Ровно эта цена уже задокументирована
-# в CLAUDE.md для VISUAL_DIRECTOR_MODE (там же дефолт `off` по той же
-# причине) — теперь то же самое измерено для ЭТОЙ модели на ЭТОЙ задаче.
-#
-# Поэтому CLIP остаётся быстрым фильтром ВСЕГО пула (как был, ни одна
-# калиброванная константа не тронута), а новая модель — ОДИН дополнительный
-# взгляд на уже выбранного ПОБЕДИТЕЛЯ слота, перед тем как его принять:
-# ~250 вызовов на эпизод вместо тысяч, те же ~10 минут, а не часы. Тот же
-# архитектурный приём, что уже работает для VLM-арбитра (дорогой ресурс —
-# только на шорт-лист, не на весь пул) и render_sharpness_regression()
-# (проверка готового кадра, не каждого кандидата).
+# До 29.09 здесь был ансамбль SigLIP2-so400m + Jina CLIP v2 (AUC на золотом
+# наборе 0.610 против 0.566 у CLIP, 2358 мс/вызов на процессоре); Jina к
+# тому же под некоммерческой лицензией CC-BY-NC-4.0. Порог реранкера —
+# калиброванный smart_rerank (scripts/calibrate_vision.py, ноль потерь
+# годных и терпимых кадров золотого набора).
 #
 # Отклонённый победитель НЕ подменяется карточкой и НЕ повторяет соседа
 # сам — он просто возвращает slot туда же, куда уже возвращают отказ
@@ -12491,7 +12525,7 @@ def is_relevant_candidate(image_path, query, relevance=None):
 # known_bad_reason() и (с 17.09) поглощение соседним проверенным
 # кадром (NEVER_SHOW_KNOWN_BAD, см. ЧАСТЬ 13 Шаг 7.3) забирают решение —
 # вторая копия логики "что делать с негодным кадром" не заводится.
-SMART_RELEVANCE_THRESHOLD = -0.01   # см. таблицу выше: нулевая точка золотого набора
+SMART_RELEVANCE_THRESHOLD = _calibrated_threshold("smart_rerank")   # оценка реранкера 0..1; SigLIP2+Jina было -0.01
 SMART_VETO_MISSES = []   # [{"index", "query", "score"}, ...] — тот же формат, что у соседей
 
 
@@ -12500,19 +12534,23 @@ def smart_relevance_veto(image_path, query):
     выше). Вызывается ОДИН раз на слот, не на кандидата — иначе цена, из-за
     которой этот же комментарий объясняет, почему это не замена CLIP.
 
-    Fail-open, тот же принцип, что и у CLIP-гейтов: недоступна модель (нет
-    torch/transformers/onnxruntime, сбой любого рода) -> False, кадр не
-    теряет уже принятое решение из-за окружения без тяжёлых зависимостей."""
+    GPU-ветка (29.09): судит Qwen3-VL-Reranker-2B — оценка 0..1 пары
+    «запрос — картинка» целиком (было: SigLIP2-so400m + Jina, эмбеддинги;
+    у Jina к тому же некоммерческая лицензия). Порог — из калибровки
+    (smart_rerank). Реранкера нет (тесты без видеокарты) -> False: рендер
+    без него до этого места не доходит (vision_model.require_ready), а
+    сбой посреди прогона qwen_vl_rerank печатает сам."""
     if not feature_flags.enabled("SMART_RELEVANCE_VETO"):
         return False
     try:
-        import visual_director
-        score = visual_director.sentence_relevance(image_path, query)
+        import qwen_vl_rerank
+        got = qwen_vl_rerank.score(query, [image_path])
     except Exception:
         return False
+    score = got[0] if got else None
     if score is None:
         return False
-    return score < SMART_RELEVANCE_THRESHOLD
+    return score < _require_threshold(SMART_RELEVANCE_THRESHOLD, "smart_rerank")
 
 
 # СУДЬЯ КАДРОВ (SHOT_JUDGE=0/1, дефолт 1; платит только при ключе шлюза).
@@ -12619,25 +12657,35 @@ CASCADE_BATCH_CPU = 16
 CASCADE_BATCH_GPU = 64
 
 
+def vision_models_needed():
+    """(эмбеддинг, реранкер) — какие модели зрения этот прогон реально
+    позовёт. Эмбеддинг — только через _gate_embed, который при выключенных
+    гейтах (CLIP_RELEVANCE=0) не зовёт модель вовсе; реранкер — вторая
+    проверка победителя (SMART_RELEVANCE_VETO) и верх каскада (каскад
+    работает только на эмбеддингах, то есть при включённых гейтах).
+    Одно правило на три места: отказ рендера, прогрев, строка в логе."""
+    embed = bool(CLIP_ENABLED)
+    rerank = (feature_flags.enabled("SMART_RELEVANCE_VETO")
+              or (embed and cascade_rerank_top() >= 2))
+    return embed, rerank
+
+
 def model_warmup_jobs():
     """Какие модели этот прогон всё равно загрузит — в том порядке, в каком
     их позовёт первый слот. Решают те же флаги, что и сами вызовы; модель,
     которой прогон не пользуется, не грузится."""
     jobs = []
-    if CLIP_ENABLED:
-        jobs.append(("SigLIP2 гейта", get_clip_model))
-    if feature_flags.mode("CASCADE_MODEL") == "qwen3vl":
+    need_embed, need_rerank = vision_models_needed()
+    if need_embed:
         import qwen_vl_embed
         jobs.append(("Qwen3-VL-Embedding", qwen_vl_embed.available))
+    if need_rerank:
+        import qwen_vl_rerank
+        jobs.append(("Qwen3-VL-Reranker", qwen_vl_rerank.available))
     if AESTHETIC_ENABLED:
         jobs.append(("CLIP эстетики", get_aesthetic_clip_model))
     if PARALLAX_ENABLED:
         jobs.append(("Depth-Anything", get_depth_model))
-    if (feature_flags.enabled("SMART_RELEVANCE_VETO")
-            or feature_flags.mode("VISUAL_DIRECTOR_MODE") in ("shadow", "assist")):
-        import visual_director
-        jobs.append(("SigLIP2-so400m", visual_director._get_siglip2_model))
-        jobs.append(("Jina CLIP v2", visual_director._get_jina_session))
     return jobs
 
 
@@ -12686,15 +12734,10 @@ def print_compute_devices():
             name = f" ({torch.cuda.get_device_name(0)})"
         except Exception:
             pass
-    jina = "не используется"
-    if (feature_flags.mode("VISUAL_DIRECTOR_MODE") in ("shadow", "assist")
-            or feature_flags.enabled("SMART_RELEVANCE_VETO")):
-        try:
-            import visual_director
-            jina = "cuda" if visual_director.jina_device_tag() else "cpu"
-        except Exception:
-            jina = "?"
-    print(f"  Устройство моделей: {dev}{name}; Jina: {jina}; кодер клипов: {clip_encoder()}")
+    import qwen_vl_embed
+    import qwen_vl_rerank
+    print(f"  Устройство моделей: {dev}{name}; зрение: {qwen_vl_embed.MODEL_NAME} + "
+          f"{qwen_vl_rerank.MODEL_NAME}; кодер клипов: {clip_encoder()}")
 
 
 def cascade_batch():
@@ -12761,82 +12804,45 @@ def cascade_preview_n():
 
 
 def _gate_embed(images=None, text=None):
-    """Нормированные эмбеддинги модели гейта — те же числа, что у
-    clip_relevance() (проверено: разница 0.0). None — модели нет."""
-    global CLIP_BROKEN
+    """Нормированные эмбеддинги модели гейта — Qwen3-VL-Embedding-8B
+    (vision_model, GPU-ветка с 29.09): картинка — инструкцией модели по
+    умолчанию, текст — инструкцией поиска, как в официальном коде. Та же
+    модель, те же числа у гейтов, каскада, полки и режиссёра — один вектор
+    картинки на всё. Возвращает массив [n, d] или None — модели нет или она
+    сорвалась (qwen_vl_embed выключает её до конца прогона громко)."""
     if not CLIP_ENABLED or CLIP_BROKEN:
         return None
-    try:
-        import torch
-        import ml_device
-        model, processor = get_clip_model()
-        # inference_mode, а не no_grad: те же числа до бита (замер 26.09),
-        # без учёта версий тензоров; результат сразу уходит в numpy.
-        with torch.inference_mode():
-            if text is not None:
-                inp = processor(text=[text], return_tensors="pt", padding="max_length",
-                                max_length=CLIP_GATE_MODEL_MAX_TEXT_LEN, truncation=True)
-                out = ml_device.run(lambda: model.get_text_features(**ml_device.inputs(inp)))
-            else:
-                img_in = processor(images=images, return_tensors="pt")
-                out = ml_device.run(lambda: model.get_image_features(**ml_device.inputs(img_in)))
-            e = out if torch.is_tensor(out) else out.pooler_output
-            e = e / e.norm(dim=-1, keepdim=True)
-            return ml_device.host(e).numpy().astype("float32")
-    except ImportError:
-        CLIP_BROKEN = True
-        return None
-    except Exception:
-        return None
-
-
-def cascade_model():
-    """Модель ранжирования каскада (флаг CASCADE_MODEL): "siglip2" — модель
-    гейтов, как было; "qwen3vl" — Qwen3-VL-Embedding (qwen_vl_embed.py).
-    Qwen недоступна (нет весов, torch, видеокарты) — SigLIP2, один раз
-    громко."""
-    if feature_flags.mode("CASCADE_MODEL") != "qwen3vl":
-        return "siglip2"
     import qwen_vl_embed
-    return "qwen3vl" if qwen_vl_embed.available() else "siglip2"
+    if text is not None:
+        v = qwen_vl_embed.embed_text(text)
+        return None if v is None else v[None, :]
+    return qwen_vl_embed.embed_images(images)
 
 
 def cascade_model_signature():
-    if cascade_model() == "siglip2":
-        return CLIP_GATE_MODEL_NAME
+    """Модель ранжирования каскада — та же, что у гейтов (Qwen3-VL-Embedding);
+    верх каскада доранжирует Qwen3-VL-Reranker (_rerank_top)."""
     import qwen_vl_embed
     return qwen_vl_embed.signature()
 
 
-_CASCADE_TEXT_CACHE = {}
+def cascade_rerank_signature():
+    import qwen_vl_rerank
+    return qwen_vl_rerank.signature()
 
 
 def _cascade_text_vec(text):
-    """Вектор текста каскада: у SigLIP2 — общий кэш текстов гейта (те же
-    числа), у Qwen — запрос с инструкцией поиска."""
-    if cascade_model() == "siglip2":
-        return _gate_text_vec(text)
-    key = (cascade_model_signature(), text)
-    v = _CASCADE_TEXT_CACHE.get(key)
-    if v is None:
-        import qwen_vl_embed
-        v = qwen_vl_embed.embed_text(text)
-        if v is not None:
-            _CASCADE_TEXT_CACHE[key] = v
-    return v
+    """Вектор текста каскада — общий кэш текстов гейта: модель та же."""
+    return _gate_text_vec(text)
 
 
 def _cascade_embed_images(images):
-    if cascade_model() == "siglip2":
-        return _gate_embed(images=images)
-    import qwen_vl_embed
-    return qwen_vl_embed.embed_images(images)
+    return _gate_embed(images=images)
 
 
 def _cascade_key(url):
     import ml_device
-    model = CLIP_GATE_MODEL_NAME if cascade_model() == "siglip2" else cascade_model_signature()
-    return hashlib.md5(f"{model}{ml_device.tag()}|{url}".encode("utf-8")).hexdigest()
+    return hashlib.md5(f"{cascade_model_signature()}{ml_device.tag()}|{url}".encode("utf-8")).hexdigest()
 
 
 def _cascade_ident(p, url):
@@ -12927,8 +12933,71 @@ def _interleave(first, second):
     return out
 
 
+def cascade_rerank_top():
+    """Сколько первых мест каскада доранжирует реранкер. Их и видят гейты с
+    судьёй (сетка — до 18, плюс запас на отсев по подписи). CASCADE_RERANK_TOP
+    в .env меняет; 0 — без реранкера."""
+    raw = (os.environ.get("CASCADE_RERANK_TOP") or "").strip()
+    try:
+        return max(0, int(raw)) if raw else CASCADE_RERANK_TOP_DEFAULT
+    except ValueError:
+        return CASCADE_RERANK_TOP_DEFAULT
+
+
+# Реранкер (Qwen3-VL-Reranker-2B) смотрит на пару «описание кадра — картинка»
+# целиком, а не сравнивает два отдельно посчитанных вектора: на составной
+# фразе («рука держит кинжал») это и есть разница между «есть рука и есть
+# кинжал где-то» и «рука держит кинжал». Проход модели на пару дороже
+# эмбеддинга, поэтому только верх кучи. Порядок ниже верха не трогается.
+CASCADE_RERANK_TOP_DEFAULT = 24
+
+
+def cascade_rerank_text(spec, brief):
+    """Что спрашивать у реранкера: фокус спецификации кадра (одна фраза о
+    том, что должно быть в кадре), без спецификации — бриф."""
+    focus = (spec or {}).get("focus") if isinstance(spec, dict) else None
+    return (focus or brief or "").strip() or None
+
+
+def _rerank_top(ranked, text, tmp, cf, probe_fn, index):
+    """Первые cascade_rerank_top() мест в порядке оценки реранкера; превью,
+    которых нет среди уже скачанных каскадом (эмбеддинг был в кэше),
+    скачиваются и попадают в tmp — их уборкой ведает cascade_reorder.
+    Реранкер недоступен или сорвался — порядок прежний."""
+    k = cascade_rerank_top()
+    top = ranked[:k]
+    if k < 2 or len(top) < 2 or not text:
+        return ranked
+    import qwen_vl_rerank
+    paths = []
+    for p in top:
+        f = tmp.get(id(p))
+        if f is None or not _downloaded_ok(f):
+            f = cf + f".rr_{candidate_path_token(p)}.jpg"
+            try:
+                probe_fn(p, f)
+            except Exception:  # noqa: BLE001 — превью не скачалось: без оценки
+                pass
+            tmp[id(p)] = f
+        paths.append(f if _downloaded_ok(f) else None)
+    with stage_timer.stage("cascade_rerank", clip_idx=index):
+        got = qwen_vl_rerank.score(text, [f for f in paths if f])
+    if got is None:
+        return ranked
+    it = iter(got)
+    scores = [next(it) if f else None for f in paths]
+    scored = [(s, pos) for pos, s in enumerate(scores) if s is not None]
+    if len(scored) < 2:
+        return ranked
+    order = [pos for _s, pos in sorted(scored, key=lambda sp: (-sp[0], sp[1]))]
+    order += [pos for pos, s in enumerate(scores) if s is None]
+    print(f"  слот {index}: реранкер — верх каскада ({len(scored)}) пересортирован "
+          f"по паре «описание — картинка»")
+    return [top[pos] for pos in order] + ranked[k:]
+
+
 def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=None, url_of=None,
-                    claims=None, keep=None, keep_top=0):
+                    claims=None, keep=None, keep_top=0, rerank_text=None):
     """Новый порядок кандидатов: первые cascade_preview_n() ранжированы по
     близости превью к текстам; кандидаты без превью — следом в прежнем
     порядке, хвост пула — за ними. Модель недоступна или оценено меньше
@@ -12972,7 +13041,7 @@ def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=None, url
     t_embs = [_cascade_text_vec(t) for t in texts]
     if any(e is None for e in t_embs):
         return candidates
-    same_as_gate = cascade_model() == "siglip2"
+    same_as_gate = True       # у каскада и гейтов одна модель — вектор картинки общий
     cache_dir = cascade_cache_dir()
     url_of = url_of or candidate_probe_url
     keys = {id(p): _cascade_key(_cascade_ident(p, url_of(p))) for p in head}
@@ -13081,6 +13150,8 @@ def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=None, url
         order = _interleave(_interleave(by_claims, by_query), by_claims_best)
     pos = dict(have)
     ranked = [pos[k] for k in order]
+    if rerank_text:
+        ranked = _rerank_top(ranked, rerank_text, tmp, cf, probe_fn, index)
     seen = {id(p) for p in ranked}
     print(f"  слот {index}: каскад — {len(ranked)} из {len(head)} кандидатов ранжированы "
           f"по описанию кадра (новых оценок {fresh})")
@@ -13623,11 +13694,10 @@ def shot_judge_signature(index=None):
                  shot_judge.LOOK_MAX, shot_judge.LOOK_TILE,
                  # Отсев по подписи меняет, кто дойдёт до судьи.
                  "screen", feature_flags.enabled("CAPTION_SCREEN"), caption_screen.SCREEN_VERSION,
-                 caption_screen.MODEL, caption_screen.TOP_N, caption_screen.prompts_digest())
-                # Модель каскада меняет, кого увидит судья. На SigLIP2 (по
-                # умолчанию) подпись прежняя байт в байт.
-                + ((("cascade_model", cascade_model_signature()),)
-                   if cascade_model() != "siglip2" else ()))
+                 caption_screen.MODEL, caption_screen.TOP_N, caption_screen.prompts_digest(),
+                 # Модели каскада и реранкер его верха меняют, кого увидит судья.
+                 "cascade_model", cascade_model_signature(),
+                 "rerank", cascade_rerank_signature(), cascade_rerank_top()))
 
 
 # ПЛАТНАЯ ПРОВЕРКА — ТОЛЬКО ХУК (решение владельца 24.09). Судья стоит денег
@@ -14240,15 +14310,12 @@ def candidate_gate_signature(index=None):
             PHOTO_SHARPNESS_REJECT, VIDEO_SHARPNESS_REJECT, VIDEO_SHARPNESS_SAMPLE_FRACS,
             SHARPNESS_PROBE_MAX_SIDE, SHARPNESS_TILE_GRID, CANDIDATE_GATE_RULES_VERSION,
             VIDEO_MAX_TIME_STRETCH,
-            # Сама МОДЕЛЬ, дающая число (18.09: CLIP -> SigLIP2-base256, см.
-            # get_clip_model()) — clip_relevance() как функция не поменяла
-            # исходный текст (только то, что грузит get_clip_model()), значит
-            # inspect.getsource(clip_relevance) в списке parts выше остался
-            # БЫ прежним и не инвалидировал бы кэш сам по себе. Без этой
+            # Сама МОДЕЛЬ, дающая числа (29.09: SigLIP2 -> Qwen3-VL, см.
+            # vision_model.py), и порог второй проверки — модель меняет
+            # победителя, не меняя ни строки исходника гейтов; без этой
             # строки смена модели молча не дошла бы до уже закэшированных
-            # temp_smart/pexels_cache — ровно тот класс бага, ради которого
-            # эта функция вообще написана (см. докстринг выше).
-            CLIP_GATE_MODEL_NAME,
+            # temp_smart/pexels_cache.
+            GATE_MODEL_SIGNATURE, SMART_RELEVANCE_THRESHOLD,
         )))
         parts.append(_selection_stack_signature())
         # Устройство моделей отбора (ml_device): на процессоре пустая строка,
@@ -14268,7 +14335,8 @@ SELECTION_CODE_MODULES = (
     "pipeline_smart", "selection_engine", "selection_attempt", "shot_judge", "world_card",
     "museum_sources", "shot_types", "query_fusion", "stock_query_planner", "met_catalog",
     "shelf_index", "visual_director", "shot_director", "europeana_corpus", "source_health",
-    "channel_profile", "commons_source", "focus_frame")
+    "channel_profile", "commons_source", "focus_frame", "qwen_vl_embed", "qwen_vl_rerank",
+    "vision_model")
 _CODE_SIGS = {}
 
 
@@ -14345,8 +14413,29 @@ PARTICLE_PROMPT = "falling snow dust particles bokeh in frame"
 # перед тем как доверять этому числу как калиброванному — нужна живая
 # проверка на реальных частицастых/чистых кадрах (как в исходной
 # калибровке), не сделана в этом заходе.
-PARTICLE_SCORE_THRESHOLD = 0.056
+# Разметки «частицы в кадре» нет ни в золотом наборе, ни в фикстурах — Qwen
+# откалибровать нечем. Калибровка пишет null, и слой выключен (opacity зерна
+# не меняется), пока не появится размеченная выборка. Честнее, чем переносить
+# экстраполяцию, которая и на SigLIP2 была оценкой, а не замером.
+PARTICLE_SCORE_THRESHOLD = _calibrated_threshold("particle")   # SigLIP2 было 0.056 (экстраполяция)
 PARTICLE_GRAIN_SCALE = 0.5   # во сколько раз снижаем GRAIN_OPACITY на "частицастом" клипе
+
+
+def reload_vision_thresholds():
+    """Перечитать пороги из калибровки (vision_model) в этот модуль. Нужна
+    калибровке: при импорте файла калибровки ещё нет, после записи пороги
+    должны дойти до тех же гейтов, которыми её проверяют (golden_set_eval).
+    Подпись кэша кандидатов сбрасывается — в ней значения порогов."""
+    global CLIP_RELEVANCE_THRESHOLD, RISKY_QUERY_MARGIN, NEGATIVE_VETO_MARGIN
+    global SMART_RELEVANCE_THRESHOLD, PARTICLE_SCORE_THRESHOLD, VISUAL_DOMAIN_GUARDS
+    global _CANDIDATE_GATE_SIG
+    CLIP_RELEVANCE_THRESHOLD = _calibrated_threshold("relevance")
+    RISKY_QUERY_MARGIN = _calibrated_threshold("risky_margin")
+    NEGATIVE_VETO_MARGIN = _calibrated_threshold("negative_veto_margin")
+    SMART_RELEVANCE_THRESHOLD = _calibrated_threshold("smart_rerank")
+    PARTICLE_SCORE_THRESHOLD = _calibrated_threshold("particle")
+    VISUAL_DOMAIN_GUARDS = _calibrated_domain_guards(_PROFILE_DOMAIN_GUARDS)
+    _CANDIDATE_GATE_SIG = None
 
 
 def measure_particle_score(path, is_video=False):
@@ -14355,7 +14444,11 @@ def measure_particle_score(path, is_video=False):
     уже использует для видео: -ss 0.5, не кадр 0, реальный сток иногда
     начинается с чёрного лидер-кадра). None при недоступной CLIP-модели —
     вызывающий код тогда просто не масштабирует opacity (безопасный откат,
-    тот же принцип, что и у остальных CLIP-гейтов в файле)."""
+    тот же принцип, что и у остальных CLIP-гейтов в файле). None и тогда,
+    когда порог не откалиброван (PARTICLE_SCORE_THRESHOLD is None, см. выше):
+    слой выключен, кадр модели на это не тратится."""
+    if PARTICLE_SCORE_THRESHOLD is None:
+        return None
     if is_video:
         tmp = path + "._particle_probe.jpg"
         try:
@@ -14373,75 +14466,27 @@ def measure_particle_score(path, is_video=False):
     return clip_relevance(path, PARTICLE_PROMPT)
 
 
-# CLIP (openai/clip-vit-base-patch32) снесён отсюда 18.09 по прямому и
-# дважды подтверждённому требованию владельца («клип более старая и глупая
-# модель, замени её везде») — не по умолчанию, а перманентно: имена
-# `get_clip_model()`/`clip_relevance()`/`CLIP_ENABLED`/`CLIP_BROKEN` остались
-# ИСТОРИЧЕСКИМИ (70+ мест вызова в pipeline_smart.py и 5 других файлов —
-# переименование всех означало бы риск без пользы), но модель ВНУТРИ них
-# теперь SigLIP2-base-patch16-256 (та же архитектура, что уже год как
-# работает в visual_director.py для sentence_relevance(), только младший
-# вариант — со400m там осознанно ОТДЕЛЬНАЯ, более тяжёлая модель под другую
-# задачу, эту не трогает).
-#
-# ИЗМЕРЕНО на золотом наборе (40 кадров эп.01, 17.09), не предположено:
-#   AUC (ранжирует годное выше брака)        CLIP 0.566   SigLIP2-base256 0.658
-#   реальная скорость (15 картинок, CPU)     CLIP 72мс    SigLIP2-base256  50мс
-# Быстрее И точнее одновременно — тот редкий случай, где смены модели не
-# стоит ничего по скорости (сравни с тяжёлым ensemble so400m+Jina в
-# visual_director.py — 2358мс/вызов, 32.8x медленнее CLIP, поэтому ТОТ
-# остаётся точечной проверкой ПОБЕДИТЕЛЯ слота, SMART_RELEVANCE_VETO, а не
-# гейтом всего пула).
-#
-# ЧЕСТНО про предел находки: на самой строгой рабочей точке (ноль потерь и
-# по «годным», и по «терпимым») разница CLIP/SigLIP2-base256 почти стирается
-# (1 кадр брака из 17) — реальный отрыв виден только при готовности терять
-# больше «терпимых» кадров. На 40 картинках это может быть частично шум
-# выборки (n=16/7/17 по группам) — решение принято по прямому требованию
-# владельца, а не потому что находка была однозначной победой без сомнений.
-#
-# ЛИНЕЙНАЯ ГОЛОВА LAION-ЭСТЕТИКИ (get_aesthetic_head() ниже) сюда НЕ входит
-# и намеренно НЕ переведена на новую модель — это претренированная линейная
-# регрессия, математически привязанная к 512-мерному пространству эмбеддинга
-# ИМЕННО CLIP ViT-B/32 (веса обучены на нём людьми, не переносятся на другую
-# архитектуру/размерность без переобучения на новом датасете разметки,
-# которого в этой сессии нет). aesthetic_score() поэтому держит СВОЙ,
-# отдельный, узко для этой цели загружаемый CLIP ViT-B/32
-# (get_aesthetic_clip_model() ниже) — единственное место в файле, где
-# CLIP реально остался, и это не гейт/не решение «показывать или нет»,
-# а второстепенный тай-брейк ранжирования уже прошедших гейты кандидатов.
-CLIP_GATE_MODEL_NAME = "google/siglip2-base-patch16-256"
-CLIP_GATE_MODEL_MAX_TEXT_LEN = 64   # max_position_embeddings текстовой башни,
-                                      # тот же параметр, что и у so400m в
-                                      # visual_director.py (не настраиваемый)
-
-_clip_model = None
-_CLIP_MODEL_LOCK = threading.Lock()
-_clip_processor = None
+# МОДЕЛЬ ГЕЙТОВ (история: CLIP ViT-B/32 до 18.09, SigLIP2-base-256 до 29.09,
+# замеры — в git) — Qwen3-VL-Embedding-8B, см. vision_model.py и _gate_embed().
+# Имена clip_relevance()/CLIP_ENABLED/CLIP_BROKEN остались историческими
+# (70+ мест вызова в 6 файлах). Линейная голова LAION-эстетики привязана к
+# 512-мерному пространству именно CLIP ViT-B/32 (обучена на нём, на другую
+# модель не переносится без новой разметки) — поэтому aesthetic_score()
+# держит свой CLIP ViT-B/32 (get_aesthetic_clip_model ниже): это тай-брейк
+# ранжирования уже прошедших гейты кадров, а не решение «показывать или нет».
+def _gate_model_signature():
+    import qwen_vl_embed
+    import qwen_vl_rerank
+    return f"{qwen_vl_embed.signature()}+{qwen_vl_rerank.signature()}"
 
 
-def get_clip_model():
-    """Несмотря на имя (историческое, см. блок-комментарий выше) — грузит
-    SigLIP2-base-patch16-256, не CLIP. AutoModel/AutoProcessor (та же пара
-    классов, что уже используется в visual_director._get_siglip2_model()) —
-    SiglipModel поддерживает тот же контракт вызова, что раньше использовал
-    CLIPModel (joint forward -> .image_embeds/.text_embeds, get_text_features(),
-    get_image_features()), проверено вживую перед переключением."""
-    global _clip_model, _clip_processor
-    if _clip_model is None or _clip_processor is None:
-        # Под замком: упреждающий поиск (slot_prefetch) зовёт модель из
-        # своего потока, и без замка два потока грузили бы её дважды, а
-        # второй мог увидеть модель без процессора.
-        with _CLIP_MODEL_LOCK:
-            if _clip_model is None or _clip_processor is None:
-                from transformers import AutoModel, AutoProcessor
-                import ml_device
-                model = ml_device.place(
-                    AutoModel.from_pretrained(CLIP_GATE_MODEL_NAME, trust_remote_code=False).eval())
-                _clip_processor = AutoProcessor.from_pretrained(CLIP_GATE_MODEL_NAME,
-                                                                trust_remote_code=False)
-                _clip_model = model
-    return _clip_model, _clip_processor
+GATE_MODEL_SIGNATURE = _gate_model_signature()
+
+
+def gate_model_loaded():
+    """Загружена ли модель гейтов (для отчётов: «гейт реально работал»)."""
+    import qwen_vl_embed
+    return qwen_vl_embed._STATE["model"] is not None
 
 
 _aesthetic_clip_model = None
@@ -16010,7 +16055,9 @@ class VideoAdapter(selection_engine.MediaAdapter):
                                                        "video"),
                                    cf, video_middle_probe, index, url_of=video_middle_url,
                                    claims=cascade_claims(request.shot_spec, "video"),
-                                   keep=kept, keep_top=VIDEO_PREVIEW_POOL + _cs_mod.TOP_N)
+                                   keep=kept, keep_top=VIDEO_PREVIEW_POOL + _cs_mod.TOP_N,
+                                   rerank_text=cascade_rerank_text(
+                                       request.shot_spec, request.shot_brief or query))
             pool = caption_screen_pool(pool, request, "video", index)
             # Уже использованные в эпизоде ролики — в хвост и после каскада
             # (filter_pool их понизил, каскад без этого поднимал бы обратно).
@@ -17802,67 +17849,6 @@ def available_ffmpeg_filters():
     return _FFMPEG_FILTERS_CACHE
 
 
-def check_ml_stack():
-    """Назвать отсутствующий torch/transformers ДО рендера, тем же приёмом,
-    что check_ffmpeg_filters() уже делает для фильтров ffmpeg (см. её
-    докстринг) — тихий fail-open внутри smart_relevance_veto() правильно
-    не роняет рендер, но БЕЗ этой функции узнать, что вторая проверка
-    победителя молча не работала весь прогон, было бы неоткуда.
-
-    ЧЕСТНО ПРО АВТОУСТАНОВКУ (по прямому требованию владельца "включи
-    авто скачивание при рендере, чтобы применялись, а не просто лежали").
-    Не тихая: пакеты весят ~2 ГБ и качаются минуты, а этот же файл в
-    ДРУГОМ месте документирует, почему тяжёлые ML-зависимости в этом
-    проекте НИКОГДА не ставятся неявно (requirements.txt: "безопасный
-    откат, без регрессии" — тот же принцип, что у платных API-вызовов,
-    которые не подтверждаются автоматически, см. --confirm-payg у
-    lumean_tts.py). Автоустановка здесь — тоже ОПТ-ИН, включённый явно
-    переменной AUTO_INSTALL_ML=1 в .env ЭТОГО канала, а не поведение
-    по умолчанию для любого, кто клонирует репозиторий: у владельца
-    другой машины/квоты трафика/дисциплины расходов быть не должно
-    сюрприза "рендер сам скачал два гигабайта".
-
-    С AUTO_INSTALL_ML=1 — реально ставит (pip install, ЭТОТ же интерпретатор
-    sys.executable, не голый "pip" из PATH) ОДИН раз за прогон, если модели
-    ещё нет; печатает, что делает, и почему. Без флага — печатает точную
-    команду и продолжает: SMART_RELEVANCE_VETO молча остаётся no-op (тот же
-    fail-open, что и всегда), CLIP как быстрый гейт всего пула не тронут."""
-    if not feature_flags.enabled("SMART_RELEVANCE_VETO"):
-        return
-    try:
-        import torch  # noqa: F401
-        import transformers  # noqa: F401
-        return
-    except ImportError:
-        pass
-    if os.environ.get("AUTO_INSTALL_ML", "0") == "1":
-        print("  AUTO_INSTALL_ML=1: ставлю torch/transformers/onnxruntime "
-              "(вторая проверка кадра, ~2 ГБ, займёт несколько минут)...")
-        cmd = [sys.executable, "-m", "pip", "install", "-q", "torch",
-               "--index-url", "https://download.pytorch.org/whl/cpu",
-               "transformers", "onnxruntime", "huggingface_hub"]
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True,
-                              encoding="utf-8", errors="replace", timeout=1800)
-            if r.returncode != 0:
-                print(f"  ВНИМАНИЕ: автоустановка не удалась ({r.stderr[-400:]}) — "
-                      f"вторая проверка кадра (SMART_RELEVANCE_VETO) на этом прогоне "
-                      f"работать не будет, CLIP остаётся единственным гейтом.")
-            else:
-                print("  torch/transformers/onnxruntime поставлены.")
-        except Exception as e:
-            print(f"  ВНИМАНИЕ: автоустановка упала ({type(e).__name__}) — "
-                  f"вторая проверка кадра на этом прогоне работать не будет.")
-    else:
-        print("  ВНИМАНИЕ: SMART_RELEVANCE_VETO включён, но torch/transformers не "
-              "установлены — вторая проверка победителя слота (SigLIP2+Jina) на "
-              "этом прогоне НЕ работает, CLIP остаётся единственным гейтом. "
-              "Поставить вручную: pip install torch --index-url "
-              "https://download.pytorch.org/whl/cpu transformers onnxruntime "
-              "huggingface_hub — или один раз положить AUTO_INSTALL_ML=1 в .env, "
-              "чтобы это делалось автоматически (~2 ГБ, минуты, один раз).")
-
-
 def check_ffmpeg_filters():
     """Назвать отсутствующий фильтр ДО рендера, а не после трёх попыток.
 
@@ -18164,7 +18150,16 @@ def main():
     # отсутствию строк в логе где-то в середине рендера (или не видно вовсе).
     feature_flags.print_summary()
     check_ffmpeg_filters()
-    check_ml_stack()
+    # Модели зрения (Qwen3-VL) и калибровка их порогов — ДО первых платных
+    # вызовов (паспорт мира, спецификации): без них отбор кадров невозможен,
+    # и рендер отказывает сразу, а не после получаса работы.
+    if not PLAN_ONLY:
+        need_embed, need_rerank = vision_models_needed()
+        if need_embed or need_rerank:
+            vision_model.require_ready(need_embed, need_rerank)
+        else:
+            print("  Модели зрения не используются (CLIP_RELEVANCE=0, SMART_RELEVANCE_VETO=0): "
+                  "кадры идут БЕЗ гейтов релевантности, вето и второй проверки")
     resolve_clip_encoder()
     print_compute_devices()
     start_model_warmup()
@@ -19838,7 +19833,7 @@ def main():
         "local_media_folder": bool(use_local),
         "clip_relevance_enabled": bool(CLIP_ENABLED),
         "clip_broken_this_run": bool(CLIP_BROKEN),
-        "clip_model_loaded": _clip_model is not None,
+        "clip_model_loaded": gate_model_loaded(),
         "aesthetic_score_enabled": bool(AESTHETIC_ENABLED),
         "parallax": bool(PARALLAX_ENABLED and not PARALLAX_BROKEN),
         "visual_director_mode": (visual_director.VISUAL_DIRECTOR_MODE if visual_director is not None else "off"),
@@ -19875,7 +19870,7 @@ def main():
     # отчёт писал «CLIP-гейт не выполнялся (нет ключа Pexels)», при том что
     # музейные кандидаты через него проходили. Загруженная модель — и есть
     # факт, что гейт кого-то проверял.
-    relevance_checked = bool(CLIP_ENABLED and not CLIP_BROKEN and _clip_model is not None)
+    relevance_checked = bool(CLIP_ENABLED and not CLIP_BROKEN and gate_model_loaded())
     # merge_slot_report, а не запись целиком: слоты, отданные кэш-хитом клипа,
     # в этом прогоне не проверялись — стирать про них прошлый вердикт значит
     # выдавать неведение за чистый результат (см. докстринг merge_slot_report).

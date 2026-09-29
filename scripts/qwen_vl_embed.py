@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Qwen3-VL-Embedding как модель каскада (CASCADE_MODEL=qwen3vl).
+"""Qwen3-VL-Embedding-8B — модель зрения отбора (GPU-ветка с 29.09).
 
-ЧТО ЭТО. Каскад ранжирует всю кучу слота (сотни превью) по близости к
-описанию кадра и отдаёт судье лучших. По умолчанию это SigLIP2-base (та же
-модель, что у гейтов). Qwen3-VL-Embedding — мультимодальная модель поиска
-(Apache-2.0, MMEB-V2 80.1), её вектор текста и картинки понимает составную
-фразу («рука держит кинжал») лучше контрастивной башни. Модель ставится
-ТОЛЬКО в ранжирование каскада: у каскада нет порогов, а откалиброванные
-пороги гейтов (CLIP_RELEVANCE_THRESHOLD и соседи) остаются на SigLIP2.
+ЧТО ЭТО. Мультимодальная модель поиска (Apache-2.0, MMEB-V2 77.9, поиск
+картинок 80.0): вектор текста и картинки в одном пространстве, понимает
+составную фразу («рука держит кинжал»), а не мешок признаков. С 29.09 — во
+всех ролях, где была SigLIP2 (решение владельца): гейты релевантности и вето,
+каскад, оценка фразы режиссёром, домен кадра, полка. Пороги — из калибровки
+(vision_model.py, scripts/calibrate_vision.py); верх каскада доранжирует
+Qwen3-VL-Reranker (qwen_vl_rerank.py).
 
 КАК СЧИТАЕТСЯ — ровно как в официальном коде (QwenLM/Qwen3-VL-Embedding,
 src/models/qwen3_vl_embedding.py): диалог «system: инструкция, user:
@@ -28,8 +28,9 @@ float32 удвоил бы память без выигрыша в качеств
 под ним же шли подготовка картинок и токенизация на процессоре, и потоки
 ждали друг друга при свободной видеокарте). Пачки те же — числа те же.
 
-Нет torch/transformers/весов — ImportError/None наружу, каскад остаётся на
-SigLIP2 (pipeline_smart решает сам)."""
+Нет torch/transformers/весов/видеокарты — available() ложно; другой модели
+на замену нет (решение владельца 29.09): рендер отказывает до начала работы
+(vision_model.require_ready)."""
 import math
 import os
 import threading
@@ -159,8 +160,7 @@ def _load():
         dev = ml_device.device()
         if dev != "cuda":
             # Без видеокарты 8B-модель грузилась на процессор в fp32 — ~32 ГБ
-            # памяти и часы на эпизод (аудит 28.09); режим обещает откат на
-            # SigLIP2 — он и делается.
+            # памяти и часы на эпизод (аудит 28.09) — лучше отказ до начала.
             raise RuntimeError(f"нужна видеокарта CUDA, устройство моделей: {dev}")
         dtype = torch.bfloat16
         kwargs = {"torch_dtype": dtype}
@@ -171,9 +171,9 @@ def _load():
         processor = AutoProcessor.from_pretrained(MODEL_NAME, padding_side="right")
         _STATE.update(model=model, processor=processor, device=dev)
         return True
-    except Exception as e:  # noqa: BLE001 — нет модели: каскад остаётся на SigLIP2
+    except Exception as e:  # noqa: BLE001 — нет модели: решает vision_model.require_ready
         _STATE["broken"] = f"{type(e).__name__}: {e}"[:300]
-        print(f"  Qwen3-VL-Embedding недоступна ({_STATE['broken']}) — каскад на SigLIP2")
+        print(f"  Qwen3-VL-Embedding недоступна ({_STATE['broken']})")
         return False
 
 
@@ -203,14 +203,15 @@ def _fail(e):
     """Сбой модели посреди прогона (нехватка памяти после повтора, картинка,
     которую не разобрал smart_resize): раньше исключение уходило из
     cascade_reorder наружу и могло уронить слот (аудит 28.09). Теперь модель
-    выключается до конца прогона громко, и каскад дальше идёт на SigLIP2.
+    выключается до конца прогона громко: гейты дальше не судят кадры (их
+скоры None), каскад оставляет порядок пула.
     Вызывается под _LOCK; второй поток, сорвавшийся на уже отключённой
     модели, ничего не перезаписывает — причина остаётся первой."""
     if _STATE["broken"] and _STATE["model"] is None:
         return None
     _STATE["broken"] = f"{type(e).__name__}: {e}"[:300]
     _STATE["model"] = None
-    print(f"  Qwen3-VL-Embedding сорвалась ({_STATE['broken']}) — дальше каскад на SigLIP2")
+    print(f"  Qwen3-VL-Embedding сорвалась ({_STATE['broken']}) — дальше гейты и каскад без неё")
     return None
 
 

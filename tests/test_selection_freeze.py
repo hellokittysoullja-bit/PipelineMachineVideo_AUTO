@@ -98,7 +98,7 @@ def test_any_non_slot_difference_breaks_equivalence(mutate):
 def test_env_names_are_derived_from_code():
     names = set(sf.pipeline_env_names())
     # читаются кодом напрямую
-    for must in ("MUSEUM_CACHE_DIR", "OPENVERSE_CACHE_DIR", "EMB_CACHE_DIR", "PEXELS_API_KEY"):
+    for must in ("MUSEUM_CACHE_DIR", "OPENVERSE_CACHE_DIR", "RERANK_CACHE_DIR", "PEXELS_API_KEY"):
         assert must in names, f"{must} не выведен из кода"
     # читаются через реестр флагов
     for must in ("SMART_RELEVANCE_VETO", "NEVER_SHOW_KNOWN_BAD", "VIDEO_PHOTO_RESCUE"):
@@ -132,7 +132,7 @@ def test_child_env_is_hermetic(monkeypatch, tmp_path):
     env = sf.child_env(snap, str(tmp_path), "7")
     if snap.get("SMART_RELEVANCE_VETO") is None:
         assert "SMART_RELEVANCE_VETO" not in env, "переменная после записи просочилась"
-    for var in ("MUSEUM_CACHE_DIR", "OPENVERSE_CACHE_DIR", "COMMONS_CACHE_DIR", "EMB_CACHE_DIR"):
+    for var in ("MUSEUM_CACHE_DIR", "OPENVERSE_CACHE_DIR", "COMMONS_CACHE_DIR", "RERANK_CACHE_DIR"):
         assert env[var].startswith(str(tmp_path)), f"{var} указывает вне песочницы"
     assert env["PYTHONHASHSEED"] == "7"
     assert env["HF_HUB_OFFLINE"] == "1"

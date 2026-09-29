@@ -308,18 +308,16 @@ def test_decoded_audio_duration_ignores_mp3_container_padding(tmp_path):
 
 
 def test_embedding_cache_is_shared_across_episodes():
-    """Кэш эмбеддингов лежал в temp_smart эпизода и умирал вместе с ним, а
-    выдача стока на соседних роликах одной ниши пересекается сильно — весь
-    дорогой проход so400m (2.5-3с на пару) считался заново на каждом новом
-    эпизоде. Ключи это давно позволяли разделять: md5 СОДЕРЖИМОГО файла у
-    картинки, sha1 текста у текста, плюс подпись модели в обоих.
-    """
+    """Кэш дорогих оценок моделей лежал в temp_smart эпизода и умирал вместе
+    с ним, а выдача стока на соседних роликах одной ниши пересекается
+    сильно. GPU-ветка (29.09): самая дорогая оценка — реранкер Qwen3-VL
+    (проход 2B-модели на пару); его кэш общий на репозиторий, ключ —
+    подпись модели, инструкция, текст и содержимое картинки."""
     import inspect
 
-    import visual_director as vd
+    import qwen_vl_rerank as rr
 
-    src = inspect.getsource(vd._emb_disk_dir)
-    body = src.split('"""')[-1]
-    assert "REPO_ROOT" in body, "кэш обязан быть общим на репозиторий"
+    body = inspect.getsource(rr.cache_dir).split('"""')[-1]
     assert "TEMP_FOLDER" not in body, "привязка к папке эпизода убрана"
-    assert "EMB_CACHE_DIR" in body, "путь перекрывается окружением"
+    assert "RERANK_CACHE_DIR" in body, "путь перекрывается окружением"
+    assert "signature()" in inspect.getsource(rr._key), "в ключе обязана быть подпись модели"
