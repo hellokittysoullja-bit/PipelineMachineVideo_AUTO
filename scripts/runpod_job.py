@@ -593,7 +593,7 @@ def main(argv=None):
     p.add_argument("--fetch", action="append", default=[], help="путь в /work, вернуть сюда")
     p.add_argument("--dest", default=".")
     p.add_argument("--env-from-dotenv", default="", help="KEY1,KEY2 — передать в под из .env")
-    p.add_argument("--idle-min", type=float, default=10)
+    p.add_argument("--idle-min", type=float, default=4)
     p.add_argument("--max-hours", type=float, default=4)
     p.add_argument("--wait-stock-min", type=float, default=15,
                    help="нет свободных карт — ждать столько минут, перепроверяя (пода нет — "
