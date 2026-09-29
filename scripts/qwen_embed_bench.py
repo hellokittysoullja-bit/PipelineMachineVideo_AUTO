@@ -56,6 +56,9 @@ def main(argv=None):
     ap.add_argument("--n", type=int, default=1024)
     ap.add_argument("--batches", default="16,32,64,128")
     ap.add_argument("--json", default=None)
+    ap.add_argument("--attn", default="",
+                    help="через запятую: доп. реализации внимания для сравнения со sdpa "
+                         "(например kernels-community/flash-attn2)")
     a = ap.parse_args(argv)
 
     import numpy as np
@@ -148,6 +151,52 @@ def main(argv=None):
         print(f"  пачка {bs:4d}: {row['seq_img_s']:6.1f} к/с подряд, {row['overlap_img_s']:6.1f} к/с "
               f"с подготовкой внахлёст; память {row['peak_gib']} ГиБ; отличие от «по одной»: "
               f"мин. косинус {row['min_cos_vs_single']:.6f}, макс. {row['max_abs_vs_single']:.2e}")
+    # 4. Сортировка по числу токенов (меньше выравнивания в пачке) и другие
+    # реализации внимания — та же модель, другой расчёт; отличие меряется
+    # от эталона sdpa «по одной».
+    def token_len(im):
+        w, h = qe.prepare_image(im).size
+        return (h // qe.FACTOR) * (w // qe.FACTOR)
+    order = sorted(range(len(imgs)), key=lambda k: token_len(imgs[k]))
+    inv = {k: pos for pos, k in enumerate(order)}
+    sorted_imgs = [imgs[k] for k in order]
+
+    def run_variant(name, fwd, bs):
+        parts = [sorted_imgs[k:k + bs] for k in range(0, len(sorted_imgs), bs)]
+        torch.cuda.synchronize()
+        t = time.time()
+        vecs = []
+        with ThreadPoolExecutor(2) as ex:
+            fut = ex.submit(prep, parts[0])
+            for k in range(len(parts)):
+                ready = fut.result()
+                if k + 1 < len(parts):
+                    fut = ex.submit(prep, parts[k + 1])
+                vecs.append(fwd(ready))
+        torch.cuda.synchronize()
+        speed = len(imgs) / (time.time() - t)
+        v = np.concatenate(vecs)
+        v = np.stack([v[inv[k]] for k in range(ref_n)])
+        cos = (v * ref).sum(1)
+        row = {"img_s": round(speed, 1), "min_cos_vs_single_sdpa": float(cos.min())}
+        report.setdefault("variants", {})[f"{name}|bs{bs}"] = row
+        print(f"  {name:38s} пачка {bs:3d}, по длине: {row['img_s']:6.1f} к/с; мин. косинус с эталоном "
+              f"{row['min_cos_vs_single_sdpa']:.6f}")
+
+    for bs in (8, 16, 32, 64):
+        run_variant("sdpa", forward, bs)
+    for impl in [x for x in a.attn.split(",") if x]:
+        try:
+            model.set_attn_implementation(impl)
+        except Exception as e:  # noqa: BLE001 — вариант недоступен на этой карте
+            print(f"  {impl}: не включилась ({type(e).__name__}: {str(e)[:200]})")
+            continue
+        try:
+            for bs in (8, 16, 32, 64):
+                run_variant(impl, forward, bs)
+        except Exception as e:  # noqa: BLE001
+            print(f"  {impl}: сорвалась ({type(e).__name__}: {str(e)[:200]})")
+        model.set_attn_implementation("sdpa")
     if a.json:
         with open(a.json, "w", encoding="utf-8") as f:
             json.dump(report, f, ensure_ascii=False, indent=1)
