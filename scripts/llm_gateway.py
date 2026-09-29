@@ -380,6 +380,13 @@ class Gateway:
         паузы означал бы кадр без проверки там, где проверка оплачена."""
         health = self.health()
         lost = []
+        # Вызов упреждающего отбора не трогает «здоровье» шлюза и счётчик
+        # пауз (аудит 29.09): его сбои раньше входили в общий счёт, и три
+        # паузы из-за упреждения выключали судью настоящему циклу до конца
+        # прогона — решение, которого без упреждения не было бы. Паузу,
+        # начатую настоящим циклом, упреждение пережидает; при сбое
+        # отказывает сразу, без переспроса: слот спросит сам.
+        spec = speculative()
 
         def lost_body():
             lost.append(1)
@@ -390,7 +397,7 @@ class Gateway:
             try:
                 out = self._request_with_retries(method, path, body, timeout, lost_body)
             except GatewayError as e:
-                if "повторы исчерпаны" not in str(e):
+                if "повторы исчерпаны" not in str(e) or spec:
                     raise
                 if health.failed():
                     with self._pause_lock:
@@ -410,9 +417,10 @@ class Gateway:
                         self.reasked += 1
                     continue
                 raise
-            health.succeeded()
-            with self._pause_lock:
-                self.pauses = 0
+            if not spec:
+                health.succeeded()
+                with self._pause_lock:
+                    self.pauses = 0
             return out
 
     def _wait_pause(self, health):

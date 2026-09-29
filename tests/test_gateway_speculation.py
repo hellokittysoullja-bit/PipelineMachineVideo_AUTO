@@ -113,3 +113,18 @@ def test_without_speculation_nothing_changes():
     gw.chat("m/vision", Q, 50, 1000)
     gw.chat("m/vision", Q, 50, 1000)
     assert chat_calls(op) == 2 and gw.spec_calls == 0
+
+
+def test_speculative_failures_never_pause_or_kill_the_gateway(monkeypatch):
+    """Аудит 29.09: сбои упреждения входили в общий счёт пауз, и три паузы
+    из-за упреждения выключали судью настоящему циклу — решение, которого
+    без упреждения не было бы."""
+    from test_llm_gateway import Clock, http_error
+    Clock(monkeypatch)
+    op = Opener([http_error(502)] * 1000)
+    gw = lg.Gateway(api_key="k", opener=op)
+    for _ in range(20):
+        with pytest.raises(lg.GatewayError):
+            spec_chat(gw, model="m/free")
+    assert not gw.dead and gw.pauses == 0
+    assert gw.health().cooldown_left() == 0, "упреждение не начинает паузу настоящему циклу"
