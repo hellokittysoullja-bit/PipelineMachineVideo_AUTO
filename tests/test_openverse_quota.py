@@ -124,7 +124,7 @@ class TestAnonymousMode:
 
 
 class TestAuthenticatedMode:
-    def test_key_yields_bearer_and_page_100(self, monkeypatch):
+    def test_key_yields_bearer_and_page_50(self, monkeypatch):
         monkeypatch.setenv("OPENVERSE_CLIENT_ID", "id")
         monkeypatch.setenv("OPENVERSE_CLIENT_SECRET", "secret")
         seen = []
@@ -140,8 +140,40 @@ class TestAuthenticatedMode:
         urls = [u for u, _ in seen]
         assert any("auth_tokens/token" in u for u in urls)
         search = [(u, a) for u, a in seen if "/images/" in u][0]
-        assert search[1] == "Bearer TOK" and "page_size=100" in search[0]
+        assert search[1] == "Bearer TOK" and "page_size=50" in search[0]
         assert ps.OPENVERSE_STATS["auth"] is True
+
+    def test_authenticated_page_never_exceeds_the_api_cap(self):
+        """С ключом API принимает не больше 50 («page_size may not exceed 50
+        for authenticated requests», живой ключ 29.09); 100 давало 401 на
+        каждом запросе."""
+        assert ps.OPENVERSE_AUTH_PAGE_SIZE <= 50
+        assert ps.OPENVERSE_ANON_PAGE_SIZE <= 20
+
+    def test_cache_key_separates_page_sizes_and_keeps_anonymous_keys(self):
+        """Ответ на 20 не отдаётся прогону с ключом, а ключи анонимных кэшей
+        не меняются (собранное без ключа остаётся действительным)."""
+        anon = ps._openverse_cache_path("medieval sword", ov)
+        assert ps._openverse_cache_path("medieval sword", ov, ps.OPENVERSE_ANON_PAGE_SIZE) == anon
+        assert ps._openverse_cache_path("medieval sword", ov, ps.OPENVERSE_AUTH_PAGE_SIZE) != anon
+
+    def test_anonymous_cache_is_not_served_to_a_keyed_run(self, monkeypatch):
+        monkeypatch.setattr(ps.urllib.request, "urlopen",
+                            lambda *a, **k: _Resp(json.dumps(_RESULT).encode("utf-8")))
+        ps._openverse_fetch_one("medieval castle", ov)          # анонимно, в кэш
+        monkeypatch.setenv("OPENVERSE_CLIENT_ID", "id")
+        monkeypatch.setenv("OPENVERSE_CLIENT_SECRET", "secret")
+        seen = []
+
+        def spy(req, timeout=None):
+            seen.append(req.full_url)
+            if "auth_tokens/token" in req.full_url:
+                return _Resp(json.dumps({"access_token": "TOK", "expires_in": 3600}).encode("utf-8"))
+            return _Resp(json.dumps(_RESULT).encode("utf-8"))
+
+        monkeypatch.setattr(ps.urllib.request, "urlopen", spy)
+        ps._openverse_fetch_one("medieval castle", ov)
+        assert any("/images/" in u and "page_size=50" in u for u in seen)
 
     def test_rejected_key_falls_back_to_anonymous_once(self, monkeypatch, capsys):
         monkeypatch.setenv("OPENVERSE_CLIENT_ID", "id")
