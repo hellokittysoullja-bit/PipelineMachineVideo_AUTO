@@ -7163,8 +7163,15 @@ def generation_round(index, block, request, trigger="failed"):
         entry["description_error"] = dinfo["error"]
     style = shot_generator.style_for()
     got, errors = [], []
-    for v in range(shot_generator.VARIANTS):
-        r = shot_generator.generate(_generation_gateway(), desc, card, cache, variant=v, style=style)
+    # Варианты независимы (свой ключ кэша и свой файл у каждого) — запросы
+    # идут одновременно, порядок результатов — по номеру варианта, как
+    # раньше. Раньше по очереди: 4 x 35-40 с на слот с генерацией.
+    gen_gw = _generation_gateway()
+    with ctx_pool.ContextThreadPoolExecutor(max(1, shot_generator.VARIANTS)) as ex:
+        results = list(ex.map(lambda v: shot_generator.generate(gen_gw, desc, card, cache,
+                                                                variant=v, style=style),
+                              range(shot_generator.VARIANTS)))
+    for r in results:
         (errors if r.get("error") else got).append(r.get("error") or r)
     entry.update({"variants": [m["key"] for m in got], "errors": errors,
                   "prompt": got[0]["prompt"] if got else None})

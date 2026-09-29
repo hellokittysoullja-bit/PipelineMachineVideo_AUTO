@@ -32,14 +32,29 @@ class Brain:
 
 
 class Painter:
-    def __init__(self, fail_first=False):
-        self.calls, self.fail_first = [], fail_first
+    """Варианты рисуются одновременно (generation_round) — счётчик под замком."""
+
+    def __init__(self, fail_first=False, delay=0.0):
+        import threading
+        self.calls, self.fail_first, self.delay = [], fail_first, delay
+        self._lock = threading.Lock()
+        self.active = self.peak = 0
 
     def image(self, model, prompt, size):
-        self.calls.append(prompt)
-        if self.fail_first and len(self.calls) == 1:
-            raise RuntimeError("400 content_filter")
-        return [b"\x89PNG fake"], 0
+        import time
+        with self._lock:
+            self.calls.append(prompt)
+            first = len(self.calls) == 1
+            self.active += 1
+            self.peak = max(self.peak, self.active)
+        try:
+            time.sleep(self.delay)
+            if self.fail_first and first:
+                raise RuntimeError("400 content_filter")
+            return [b"\x89PNG fake"], 0
+        finally:
+            with self._lock:
+                self.active -= 1
 
 
 # ---------------------------------------------------------------- модуль
@@ -248,3 +263,15 @@ def test_report_is_written_when_generation_ran():
     ps = _ps()
     src = inspect.getsource(ps.main)
     assert "image_generation_report.json" in src and "GENERATION_LOG.clear()" in src
+
+
+def test_variants_are_painted_at_once_and_kept_in_variant_order(monkeypatch, tmp_path):
+    """Варианты независимы — рисуются одновременно (раньше 4 x 35-40 с по
+    очереди); порядок кандидатов — по номеру варианта, как раньше."""
+    ps = _ps()
+    painter = Painter(delay=0.3)
+    req, items = _live_round(ps, monkeypatch, tmp_path, painter)
+    assert painter.peak == sg.VARIANTS
+    prompt = painter.calls[0]
+    assert ps.GENERATION_LOG[-1]["variants"] == [sg.cache_key(sg.DEFAULT_MODEL, sg.DEFAULT_SIZE, prompt, v)
+                                                 for v in range(sg.VARIANTS)]
