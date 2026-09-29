@@ -376,3 +376,145 @@ def test_pod_name_carries_a_deadline_beyond_its_own_cap(monkeypatch):
     body = [c for c in api.calls if c[0] == "REST POST /pods"][0][1]
     deadline = int(body["name"][len(rj.POD_PREFIX):])
     assert t + 1800 < deadline <= t + 1800 + 600 + 5
+
+
+def test_prepare_runs_while_data_is_still_uploading(runner, tmp_path, monkeypatch):
+    """Подготовка стартует сразу после кода, данные грузятся параллельно,
+    команда ждёт и подготовку, и отметку «всё загружено»."""
+    r, _proc, work = runner
+    code_dir, data_dir = tmp_path / "code", tmp_path / "data"
+    code_dir.mkdir()
+    data_dir.mkdir()
+    (code_dir / "a.txt").write_text("code")
+    (data_dir / "d.txt").write_text("data")
+    monkeypatch.setattr(rj, "REPO", str(code_dir))
+    uploads = []
+    real_upload = rj.Runner.upload_dir
+
+    def upload(self, path):
+        if path == str(data_dir):
+            time.sleep(1)
+            prep_started = (work / "prep.txt").exists()
+            uploads.append(("data", prep_started))
+        real_upload(self, path)
+    monkeypatch.setattr(rj.Runner, "upload_dir", upload)
+    cmd = rj.overlapped_cmd("echo prep > prep.txt", "cat data/d.txt prep.txt > out.txt")
+    r.upload_dir(str(code_dir))
+    r.start(cmd)
+    r.upload_dir(str(data_dir))
+    r.call("POST", f"/touch?name={rj.UPLOADS_DONE}", b"")
+    assert r.follow() == 0
+    assert uploads == [("data", True)], "подготовка не шла параллельно с загрузкой"
+    assert (work / "out.txt").read_text() == "dataprep\n"   # d.txt без перевода строки
+
+
+def test_failed_prepare_stops_the_command(runner):
+    r, _proc, work = runner
+    r.start(rj.overlapped_cmd("exit 3", "touch ran.txt"))
+    r.call("POST", f"/touch?name={rj.UPLOADS_DONE}", b"")
+    assert r.follow() == 97 and not (work / "ran.txt").exists()
+
+
+def test_hosts_with_old_drivers_are_never_rented(monkeypatch):
+    """Фильтр хостов по CUDA: драйвер обязан тянуть CUDA образа."""
+    assert rj.allowed_cuda(rj.DEFAULT_IMAGE) == ["12.8", "12.9", "13.0"]
+    assert rj.allowed_cuda("runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04")[0] == "12.4"
+    assert rj.allowed_cuda("python:3.11-slim") is None
+    api = FakeApi()
+    monkeypatch.setattr(rj, "rest", api.rest)
+    rj.create_pod("k", ["NVIDIA RTX A6000"], rj.DEFAULT_IMAGE, 80, rj.runner_env("t", 10, 4, {}),
+                  "COMMUNITY")
+    rj.create_pod("k", [], rj.SMOKE_IMAGE, 20, rj.runner_env("t", 10, 4, {}), "SECURE", cpu=True)
+    bodies = [c[1] for c in api.calls if c[0] == "REST POST /pods"]
+    assert bodies[0]["allowedCudaVersions"] == ["12.8", "12.9", "13.0"]
+    assert "allowedCudaVersions" not in bodies[1]
+
+
+def test_semicolon_chain_no_longer_hides_a_failed_step(runner):
+    """Живой прогон 29.09: «калибровка; замер» — калибровка упала, а код 0."""
+    r, _proc, _work = runner
+    assert r.run("false; echo дошло") != 0
+
+
+def test_missing_result_is_reported_and_the_rest_is_still_fetched(runner, tmp_path, monkeypatch):
+    r, _proc, work = runner
+    monkeypatch.setattr(rj, "terminate", lambda key, pid: True)
+    monkeypatch.setattr(rj.Runner, "wait_ready", lambda self, *a, **k: True)
+    base = r.base
+    monkeypatch.setattr(rj, "Runner", lambda url, token: rj.__dict__["_RealRunner"](base, token))
+    monkeypatch.setattr(rj, "_RealRunner", type(r), raising=False)
+    dest = tmp_path / "back"
+    code = rj.drive("k", {"id": "p", "costPerHr": 0.3}, TOKEN, 600, [],
+                    "mkdir -p res && echo 1 > res/a.txt", ["nope", "res"], str(dest))
+    assert code == 98, "пропуск результата не должен выглядеть как успех"
+    assert (dest / "res" / "a.txt").exists(), "остальные результаты забраны"
+
+
+def test_preflight_output_is_not_reprinted_by_the_next_job(runner, capsys):
+    r, _proc, _work = runner
+    assert r.run("echo ПРОВЕРКА") == 0
+    capsys.readouterr()
+    assert r.run("echo ЗАДАЧА") == 0
+    out = capsys.readouterr().out
+    assert "ЗАДАЧА" in out and "ПРОВЕРКА" not in out
+
+
+def _two_gpu_api(monkeypatch):
+    api = FakeApi()
+    real = api.rest
+
+    def rest(method, path, key, body=None):
+        got = real(method, path, key, body)
+        if method == "POST":
+            got = dict(got, costPerHr=0.5)
+        return got
+    monkeypatch.setattr(rj, "gql", api)
+    monkeypatch.setattr(rj, "rest", rest)
+    monkeypatch.setattr(rj, "api_key", lambda: "k")
+    monkeypatch.setattr(rj, "sweep_expired", lambda key, now=None: [])
+    monkeypatch.setattr(rj.Runner, "wait_ready", lambda self, *a, **k: True)
+    return api
+
+
+def test_broken_gpu_host_is_replaced_before_any_upload(monkeypatch):
+    """Хост, где видеокарта не работает: под удаляется ДО загрузки данных,
+    берётся другой; неисправная карта уходит в конец очереди."""
+    api = _two_gpu_api(monkeypatch)
+    seen = {"uploads": [], "cmds": []}
+
+    def run(self, cmd, deadline=None):
+        seen["cmds"].append(cmd)
+        if cmd == rj.GPU_PREFLIGHT:
+            gpus = [c[1]["gpuTypeIds"][0] for c in api.calls if c[0] == "REST POST /pods"]
+            return 1 if gpus[-1] == "bad" else 0
+        return 0
+    monkeypatch.setattr(rj.Runner, "run", run)
+    monkeypatch.setattr(rj.Runner, "upload_dir", lambda self, p: seen["uploads"].append(
+        [c[1]["gpuTypeIds"][0] for c in api.calls if c[0] == "REST POST /pods"][-1]))
+    assert rj.main(["--cmd", "job", "--upload", ".", "--gpu", "bad", "--gpu", "good",
+                    "--no-smoke"]) == 0
+    created = [c[1]["gpuTypeIds"][0] for c in api.calls if c[0] == "REST POST /pods"]
+    assert created == ["bad", "good"]
+    assert seen["uploads"] == ["good"], "данные не грузились на неисправный хост"
+    assert not api.pods and sum(c[0].startswith("REST DELETE") for c in api.calls) == 2
+
+
+def test_host_retries_share_one_money_cap(monkeypatch):
+    """--max-usd — на все попытки вместе: каждая следующая живёт на остаток."""
+    _two_gpu_api(monkeypatch)
+    caps = []
+
+    def drive(key, pod, token, cap_sec, *a, **k):
+        caps.append(cap_sec)
+        pod["spent_usd"] = 0.25
+        raise rj.BadHost("карта не работает")
+    monkeypatch.setattr(rj, "drive", drive)
+    with pytest.raises(SystemExit) as e:
+        rj.main(["--cmd", "job", "--gpu", "x", "--max-usd", "0.6", "--no-smoke"])
+    assert "не заработала" in str(e.value)
+    # $0.6 → $0.35 → $0.10 при $0.5/ч
+    assert [round(c) for c in caps] == [4320, 2520, 720]
+    caps.clear()
+    with pytest.raises(SystemExit) as e:
+        rj.main(["--cmd", "job", "--gpu", "x", "--max-usd", "0.3", "--no-smoke"])
+    assert "потолок" in str(e.value) and len(caps) == 1   # на вторую попытку денег нет

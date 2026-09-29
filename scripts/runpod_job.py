@@ -55,7 +55,11 @@ API = "https://api.runpod.io/graphql"
 DEFAULT_GPUS = ("NVIDIA GeForce RTX 4090", "NVIDIA L40S", "NVIDIA RTX 6000 Ada Generation",
                 "NVIDIA RTX A6000")   # образец порядка для --gpu; по умолчанию — cheapest_gpus
 # torch 2.8 + CUDA 12.8: запускается и на картах Blackwell (RTX 5090 и др.).
-DEFAULT_IMAGE = "runpod/pytorch:2.8.0-py3.11-cuda12.8.1-cudnn-devel-ubuntu22.04"
+# Релизная сборка образа с ОБЫЧНЫМ torch 2.8.0. Прежний образ
+# (2.8.0-py3.11-cuda12.8.1-cudnn-devel, март 2025) нёс ночную сборку
+# torch 2.8.0.dev — на ней живой прогон 29.09 на L40S получил «CUDA unknown
+# error», и калибровка отказала без видеокарты.
+DEFAULT_IMAGE = "runpod/pytorch:1.3.3-cu1281-torch280-ubuntu2204"
 PORT = 8000
 # Cloudflare перед api.runpod.io отвечает 403 на стандартную подпись клиента
 # Python (проверено 29.09: curl проходит, urllib — нет); та же защита, что у
@@ -127,12 +131,8 @@ BLACKWELL = ("5090", "5080", "B200", "B300", "RTX PRO")
 
 
 def image_supports_blackwell(image):
-    import re
-    m = re.search(r"cuda(\d+)\.(\d+)|cu(\d{2})(\d)", image or "")
-    if not m:
-        return False
-    major, minor = (int(m.group(1)), int(m.group(2))) if m.group(1) else (int(m.group(3)), int(m.group(4)))
-    return (major, minor) >= (12, 8)
+    need = image_cuda(image)
+    return need is not None and need >= (12, 8)
 
 
 def cheapest_gpus(gpu_types, min_gb=MIN_GPU_GB, image=DEFAULT_IMAGE):
@@ -171,6 +171,41 @@ def runner_env(token, idle_min, max_hours, extra):
 START_ARGV = ["bash", "-c",
               'echo "$RUNNER_B64" | base64 -d | gunzip > /runner.py && exec python3 /runner.py']
 REST = "https://rest.runpod.io/v1"
+# Версии CUDA, которые принимает фильтр хостов REST API (allowedCudaVersions).
+CUDA_VERSIONS = ("11.8", "12.0", "12.1", "12.2", "12.3", "12.4", "12.5", "12.6", "12.7", "12.8",
+                 "12.9", "13.0")
+# Проверка видеокарты на поде ДО загрузки данных: драйвер виден, torch видит
+# карту и реально на ней считает. Хост, где карта не работает, стоит денег
+# и не даёт ничего — его надо заменить сразу, а не после загрузки 500 МБ.
+GPU_PREFLIGHT = ("nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader && "
+                 "python3 -c \"import torch;assert torch.cuda.is_available(),'torch не видит CUDA';"
+                 "x=torch.ones(1024,1024,device='cuda');torch.cuda.synchronize();"
+                 "print('видеокарта работает:',torch.__version__,torch.cuda.get_device_name(0),"
+                 "float((x@x).sum()))\"")
+PREFLIGHT_SEC = 300
+HOST_ATTEMPTS = 3
+
+
+def image_cuda(image):
+    """(major, minor) CUDA образа или None."""
+    import re
+    m = re.search(r"cuda(\d+)\.(\d+)|cu(\d{2})(\d)", image or "")
+    if not m:
+        return None
+    return (int(m.group(1)), int(m.group(2))) if m.group(1) else (int(m.group(3)), int(m.group(4)))
+
+
+def allowed_cuda(image):
+    """Версии CUDA хоста, на которых образ запустится: драйвер хоста обязан
+    поддерживать CUDA не ниже образа. Не распознали — фильтра нет."""
+    need = image_cuda(image)
+    if need is None:
+        return None
+    return [v for v in CUDA_VERSIONS if tuple(int(x) for x in v.split(".")) >= need]
+
+
+class BadHost(Exception):
+    """Видеокарта пода не работает — под удалён, нужен другой хост."""
 SMOKE_IMAGE = "python:3.11-slim"
 
 
@@ -245,12 +280,17 @@ def create_pod(key, gpus, image, disk_gb, env, cloud, cpu=False, life_sec=None):
             body.update(computeType="CPU", cpuFlavorIds=["cpu3c", "cpu5c", "cpu3g"], vcpuCount=2)
         else:
             body.update(computeType="GPU", gpuTypeIds=[gpu], gpuCount=1)
+            cuda = allowed_cuda(image)
+            if cuda:
+                # Хост со старым драйвером не арендуется вовсе.
+                body["allowedCudaVersions"] = cuda
             if cloud == "COMMUNITY":
                 body["supportPublicIp"] = False
         try:
             pod = rest("POST", "/pods", key, body)
             if pod and pod.get("id"):
                 pod.setdefault("gpuName", "CPU" if cpu else gpu)
+                pod["gpuTypeId"] = gpu
                 return pod
         except RuntimeError as e:
             last = e
@@ -296,6 +336,7 @@ def terminate(key, pod_id):
 class Runner:
     def __init__(self, base, token):
         self.base, self.token = base.rstrip("/"), token
+        self.log_off = 0      # лог задач на поде общий: следующая задача читается с конца прошлой
 
     # Прокси Runpod между нами и подом иногда отвечает случайной ошибкой при
     # живом исполнителе (живой прогон 29.09: пустой 404 посреди лога задачи
@@ -394,12 +435,22 @@ class Runner:
         print()
         self.call("POST", f"/extract?name={fname}", b"")        # повтор безопасен: по имени
 
+    def start(self, cmd):
+        # id задачи: повтор запроса после сбоя связи не запускает её дважды.
+        # set -e: упавший шаг останавливает цепочку и даёт ненулевой код, даже
+        # если шаги склеены «;» (живой прогон 29.09: калибровка отказала, а
+        # «;» довёл команду до кода 0).
+        self.call("POST", "/run", json.dumps({"cmd": f"set -eo pipefail; {cmd}",
+                                              "id": secrets.token_hex(8)}).encode())
+
     def run(self, cmd, deadline=None):
         """deadline — момент (time.time()), когда потолок денег исчерпан:
         задача прерывается, под удаляется вызывающим (finally)."""
-        # id задачи: повтор запроса после сбоя связи не запускает её дважды.
-        self.call("POST", "/run", json.dumps({"cmd": cmd, "id": secrets.token_hex(8)}).encode())
-        off, last_up = 0, None
+        self.start(cmd)
+        return self.follow(deadline)
+
+    def follow(self, deadline=None):
+        off, last_up = self.log_off, None
         while True:
             if deadline is not None and time.time() > deadline:
                 raise SystemExit("потолок денег на запуск исчерпан — задача прервана, под удаляется")
@@ -414,7 +465,7 @@ class Runner:
             if st["text"]:
                 sys.stdout.write(st["text"])
                 sys.stdout.flush()
-            off = st["offset"]
+            off = self.log_off = st["offset"]
             if not st["running"] and st["exit"] is not None and not st["text"]:
                 return st["exit"]
             time.sleep(3 if st["text"] else 10)
@@ -469,6 +520,8 @@ def main(argv=None):
     p.add_argument("--disk-gb", type=int, default=80)
     p.add_argument("--upload", action="append", default=[], help="папка, едет в /work")
     p.add_argument("--cmd", help="команда в /work на поде")
+    p.add_argument("--prepare", help="подготовка на поде (библиотеки, веса) — идёт сразу, "
+                                     "параллельно с загрузкой данных; --cmd ждёт её и данные")
     p.add_argument("--fetch", action="append", default=[], help="путь в /work, вернуть сюда")
     p.add_argument("--dest", default=".")
     p.add_argument("--env-from-dotenv", default="", help="KEY1,KEY2 — передать в под из .env")
@@ -518,26 +571,67 @@ def main(argv=None):
     token = secrets.token_urlsafe(32)
     extra = dotenv_subset([n.strip() for n in a.env_from_dotenv.split(",") if n.strip()])
 
-    def price(gid):
-        lp = (by_id.get(gid) or {}).get("lowestPrice") or {}
-        return lp.get("uninterruptablePrice")
-
-    def env_for(gid):
-        # Потолок жизни пода на его стороне — по цене ЭТОЙ карты: если
-        # связь пропадёт, под всё равно не проживёт дольше, чем на --max-usd.
-        return runner_env(token, a.idle_min, budget_seconds(price(gid), a.max_usd, a.max_hours) / 3600,
-                          extra)
-    pod = create_pod(key, gpus, a.image, a.disk_gb, env_for, a.cloud,
-                     life_sec=lambda gid: budget_seconds(price(gid), a.max_usd, a.max_hours))
-    cap_sec = budget_seconds(pod["costPerHr"], a.max_usd, a.max_hours)
-    print(f"Под {pod['id']}: {pod['gpuName']}, ${pod['costPerHr']}/ч; потолок "
-          f"${a.max_usd:.2f} = {cap_sec / 60:.0f} мин, самоудаление через {a.idle_min:.0f} мин простоя")
-    return drive(key, pod, token, cap_sec, a.upload, a.cmd, a.fetch, a.dest)
+    return rent_and_drive(key, a, gpus, by_id, token, extra)
 
 
-def drive(key, pod, token, cap_sec, uploads, cmd, fetches, dest):
+def rent_and_drive(key, a, gpus, by_id, token, extra, attempts=HOST_ATTEMPTS):
+    """Аренда с проверкой видеокарты: хост, где карта не работает, удаляется
+    и заменяется (до attempts раз). Потолок --max-usd — на ВСЕ попытки
+    вместе, а не на каждую."""
+    order, spent = list(gpus), 0.0
+    for attempt in range(1, attempts + 1):
+        left = a.max_usd - spent
+        if left <= 0.05:
+            raise SystemExit(f"потолок ${a.max_usd:.2f} исчерпан попытками (${spent:.2f})")
+
+        def price(gid):
+            lp = (by_id.get(gid) or {}).get("lowestPrice") or {}
+            return lp.get("uninterruptablePrice")
+
+        def env_for(gid, left=left):
+            # Потолок жизни пода на его стороне — по цене ЭТОЙ карты и
+            # остатку денег: если связь пропадёт, под не проживёт дольше.
+            return runner_env(token, a.idle_min, budget_seconds(price(gid), left, a.max_hours) / 3600,
+                              extra)
+        pod = create_pod(key, order, a.image, a.disk_gb, env_for, a.cloud,
+                         life_sec=lambda gid, left=left: budget_seconds(price(gid), left, a.max_hours))
+        cap_sec = budget_seconds(pod["costPerHr"], left, a.max_hours)
+        print(f"Под {pod['id']} (попытка {attempt}/{attempts}): {pod['gpuName']}, ${pod['costPerHr']}/ч; "
+              f"потолок ${left:.2f} = {cap_sec / 60:.0f} мин, самоудаление через {a.idle_min:.0f} мин простоя")
+        try:
+            return drive(key, pod, token, cap_sec, a.upload, a.cmd, a.fetch, a.dest,
+                         prepare=a.prepare, preflight=GPU_PREFLIGHT)
+        except BadHost as e:
+            spent += pod.get("spent_usd", 0.0)
+            print(f"  {e} — хост заменяется (потрачено ${spent:.2f})")
+            # Та же карта, скорее всего, достанется с того же хоста: сначала
+            # остальные типы, эта — в конец очереди.
+            gpu = pod.get("gpuTypeId")
+            if gpu in order and len(order) > 1:
+                order.remove(gpu)
+                order.append(gpu)
+    raise SystemExit(f"видеокарта не заработала за {attempts} попытки — задача не запускалась "
+                     f"(потрачено ${spent:.2f})")
+
+
+UPLOADS_DONE = ".uploads_done"
+
+
+def overlapped_cmd(prepare, cmd):
+    """Подготовка (установка библиотек, скачивание весов) идёт на поде
+    СРАЗУ, параллельно с загрузкой данных отсюда; команда ждёт отметку «всё
+    загружено». Посекундная оплата: минуты скачивания весов больше не
+    складываются с минутами загрузки."""
+    return (f"( {prepare} ) & PREP=$!; while [ ! -f {UPLOADS_DONE} ]; do sleep 2; done; "
+            f"wait $PREP || {{ echo 'подготовка упала'; exit 97; }}; {cmd}")
+
+
+def drive(key, pod, token, cap_sec, uploads, cmd, fetches, dest, prepare=None, preflight=None):
     """Под создан: дождаться исполнителя, загрузить, запустить, забрать,
-    и удалить под в ЛЮБОМ исходе."""
+    и удалить под в ЛЮБОМ исходе. prepare — идёт на поде параллельно с
+    загрузкой (см. overlapped_cmd); первая папка (код) едет до старта.
+    preflight — проверка видеокарты до загрузки: не прошла — BadHost (под
+    удалён, вызывающий берёт другой хост). Потраченное — pod["spent_usd"]."""
     pod_id, t0, code = pod["id"], time.time(), 1
 
     def _sigint(*_):
@@ -547,17 +641,42 @@ def drive(key, pod, token, cap_sec, uploads, cmd, fetches, dest):
         r = Runner(f"https://{pod_id}-{PORT}.proxy.runpod.net", token)
         if not r.wait_ready(min(1800, cap_sec), lambda: pod_status(key, pod_id)):
             raise SystemExit("исполнитель на поде не поднялся")
-        for path in uploads:
-            r.upload_dir(path)
-        code = r.run(cmd, deadline=t0 + cap_sec)
+        if preflight:
+            try:
+                pc = r.run(preflight, deadline=min(t0 + cap_sec, time.time() + PREFLIGHT_SEC))
+            except SystemExit as e:
+                pc = f"не уложилась ({e})"
+            if pc != 0:
+                raise BadHost(f"видеокарта пода не работает (проверка: {pc})")
+        if prepare:
+            first, rest_up = uploads[:1], uploads[1:]
+            for path in first:
+                r.upload_dir(path)
+            r.start(overlapped_cmd(prepare, cmd))
+            for path in rest_up:
+                r.upload_dir(path)
+            r.call("POST", f"/touch?name={UPLOADS_DONE}", b"")
+            code = r.follow(deadline=t0 + cap_sec)
+        else:
+            for path in uploads:
+                r.upload_dir(path)
+            code = r.run(cmd, deadline=t0 + cap_sec)
         print(f"\nКоманда завершилась с кодом {code}")
         for path in fetches:
-            r.fetch(path, dest)
-            print(f"  забрано: {path}")
+            # Несозданный результат — не повод бросить остальные: забираем
+            # всё, что есть, а пропуск называем.
+            try:
+                r.fetch(path, dest)
+                print(f"  забрано: {path}")
+            except Exception as e:  # noqa: BLE001
+                print(f"  НЕ забрано: {path} ({getattr(e, 'code', '') or e})")
+                if code == 0:
+                    code = 98
     finally:
         terminate(key, pod_id)
         sec = time.time() - t0
-        print(f"Под жил {sec / 60:.1f} мин ≈ ${sec / 3600 * float(pod['costPerHr']):.2f}")
+        pod["spent_usd"] = sec / 3600 * float(pod['costPerHr'])
+        print(f"Под жил {sec / 60:.1f} мин ≈ ${pod['spent_usd']:.2f}")
     return code
 
 

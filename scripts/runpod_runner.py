@@ -236,6 +236,11 @@ class Handler(BaseHTTPRequestHandler):
                 STATE.update(proc=proc, exit=None, cmd=req["cmd"], job_id=req.get("id"))
                 threading.Thread(target=_reap, args=(proc,), daemon=True).start()
                 return self._send(200, {"ok": True, "pid": proc.pid})
+            if u.path == "/touch":
+                # Отметка для задачи на поде (например, «все данные загружены»):
+                # задача ждёт этот файл, а не начало загрузки.
+                open(_safe(os.path.basename(q["name"])), "a").close()
+                return self._send(200, {"ok": True})
             if u.path == "/terminate":
                 self._send(200, {"ok": True})
                 threading.Thread(target=self_terminate, args=("по запросу",), daemon=True).start()
