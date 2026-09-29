@@ -184,6 +184,14 @@ def create_pod(key, gpus, image, disk_gb, env, cloud):
     raise SystemExit(f"ни одной карты из списка нет в наличии ({last})")
 
 
+def pod_status(key, pod_id):
+    """(секунд работы контейнера или None, статус пода)."""
+    pod = gql('query($id:String!){ pod(input:{podId:$id}){ desiredStatus lastStatusChange '
+              'runtime { uptimeInSeconds } } }', key, {"id": pod_id}).get("pod") or {}
+    rt = pod.get("runtime") or {}
+    return rt.get("uptimeInSeconds"), f"{pod.get('desiredStatus')} ({pod.get('lastStatusChange')})"
+
+
 def terminate(key, pod_id):
     """Удалить под и убедиться, что его больше нет. Повторяет — удаление
     обязано случиться, иначе карта стоит за деньги."""
@@ -216,15 +224,35 @@ class Runner:
             data = r.read()
         return data if raw else json.loads(data)
 
-    def wait_ready(self, limit_sec):
-        t0 = time.time()
+    def wait_ready(self, limit_sec, status_fn=None, run_grace_sec=300):
+        """Ждать исполнителя. status_fn() -> (секунд работы контейнера или
+        None, статус) — чтобы отличать «образ ещё тянется» (ждать) от
+        «контейнер работает, а исполнитель не отвечает» (сразу стоп: деньги
+        идут, а ждать нечего). Каждая смена состояния печатается."""
+        t0, last_err, shown, next_status = time.time(), None, None, 0.0
         while time.time() - t0 < limit_sec:
             try:
                 if self.call("GET", "/health", timeout=15).get("ok"):
                     self.call("GET", "/log?offset=0")   # клиент на месте — таймер простоя с нуля
+                    print(f"  исполнитель готов через {time.time() - t0:.0f} с")
                     return True
-            except Exception:  # noqa: BLE001 — под ещё поднимается
-                pass
+            except Exception as e:  # noqa: BLE001 — под ещё поднимается
+                last_err = f"{type(e).__name__}: {getattr(e, 'code', '') or e}"[:120]
+            if status_fn is not None and time.time() >= next_status:
+                next_status = time.time() + 20
+                try:
+                    uptime, status = status_fn()
+                except Exception as e:  # noqa: BLE001
+                    uptime, status = None, f"статус не спросился ({e})"
+                state = (status, uptime is not None)
+                if state != shown:
+                    shown = state
+                    print(f"  {time.time() - t0:4.0f} с: под {status}, контейнер "
+                          f"{'работает' if uptime is not None else 'ещё не запущен (тянется образ)'}; "
+                          f"исполнитель: {last_err}")
+                if uptime is not None and uptime > run_grace_sec:
+                    print(f"  контейнер работает {uptime} с, а исполнитель не отвечает ({last_err})")
+                    return False
             # Под оплачивается посекундно с момента создания: чем раньше
             # замечена готовность, тем меньше секунд простоя до задачи.
             time.sleep(2)
@@ -349,8 +377,8 @@ def main(argv=None):
     signal.signal(signal.SIGTERM, _sigint)
     try:
         r = Runner(f"https://{pod_id}-{PORT}.proxy.runpod.net", token)
-        if not r.wait_ready(900):
-            raise SystemExit("исполнитель на поде не поднялся за 15 минут")
+        if not r.wait_ready(1800, lambda: pod_status(key, pod_id)):
+            raise SystemExit("исполнитель на поде не поднялся")
         for path in a.upload:
             r.upload_dir(path)
         code = r.run(a.cmd)

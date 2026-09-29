@@ -166,7 +166,7 @@ def test_pod_is_removed_even_when_the_job_fails(monkeypatch):
     api = FakeApi()
     monkeypatch.setattr(rj, "gql", api)
     monkeypatch.setattr(rj, "api_key", lambda: "k")
-    monkeypatch.setattr(rj.Runner, "wait_ready", lambda self, s: True)
+    monkeypatch.setattr(rj.Runner, "wait_ready", lambda self, *a, **k: True)
 
     def boom(self, cmd):
         raise RuntimeError("обрыв посреди задачи")
@@ -216,3 +216,20 @@ def test_cheapest_fitting_community_gpu_first():
     assert rj.cheapest_gpus(types)[0] == "NVIDIA GeForce RTX 5090"
     assert rj.image_supports_blackwell("runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2204")
     assert not rj.image_supports_blackwell(old)
+
+
+def test_wait_stops_early_when_the_container_runs_but_the_runner_is_silent(monkeypatch, capsys):
+    """Деньги идут, а ждать нечего: контейнер работает дольше грации, а
+    исполнитель не отвечает — стоп сразу, а не через полчаса."""
+    r = rj.Runner("http://127.0.0.1:9", "t")
+    monkeypatch.setattr(rj.time, "sleep", lambda s: None)
+    calls = []
+
+    def status():
+        calls.append(1)
+        return (None, "RUNNING (pulling)") if len(calls) < 2 else (400, "RUNNING (up)")
+    t = [0.0]
+    monkeypatch.setattr(rj.time, "time", lambda: (t.__setitem__(0, t[0] + 25), t[0])[1])
+    assert r.wait_ready(10_000, status, run_grace_sec=300) is False
+    out = capsys.readouterr().out
+    assert "тянется образ" in out and "не отвечает" in out
