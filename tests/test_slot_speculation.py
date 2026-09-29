@@ -172,3 +172,25 @@ def test_ladder_and_request_are_one_code_for_both_paths():
     import inspect
     main_src = inspect.getsource(ps.main)
     assert main_src.count("build_slot_selection(") == 2 and main_src.count("run_slot_ladder(") == 2
+
+
+def test_queued_job_takes_the_freshest_snapshot():
+    """Аудит 29.09: задание, поставленное на слоте i и начавшееся позже,
+    спрашивало судью по истории слота i, хотя цикл уже решил следующие."""
+    started = threading.Event()
+    hold = threading.Event()
+    got = {}
+
+    def job(j, snap):
+        got[j] = snap
+        if j == 1:
+            started.set()
+            hold.wait(5)
+    s = slot_speculation.SlotSpeculator(6, job, depth=3, workers=1)
+    s.advance(0, lambda: "snap0")       # 1 бежит, 2 и 3 ждут единственный поток
+    assert started.wait(5)
+    s.advance(1, lambda: "snap1")       # цикл решил слот 0 — свежий снимок
+    hold.set()
+    s.wait(3)
+    s.close()
+    assert got[1] == "snap0" and got[2] == "snap1" and got[3] == "snap1"

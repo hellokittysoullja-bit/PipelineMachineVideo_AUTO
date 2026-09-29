@@ -61,6 +61,7 @@ class SlotSpeculator:
                                                           thread_name_prefix="speculate")
         self._futures = {}
         self._lock = threading.Lock()
+        self._latest = None
         self.stats = {"scheduled": 0, "done": 0, "failed": 0, "waited_sec": 0.0}
         self._closed = False
         # Падение цикла или Ctrl+C до close(): поток упреждения не демон, и
@@ -76,20 +77,27 @@ class SlotSpeculator:
     def advance(self, i, snapshot):
         """Слот i начинается: поставить упреждение слотов i+1..i+depth.
         snapshot() зовётся в потоке настоящего цикла — снимок истории на
-        этот момент."""
+        этот момент. Он публикуется для ВСЕХ ещё не начатых заданий:
+        задание берёт самый свежий снимок в момент своего старта, а не тот,
+        что был при постановке в очередь (аудит 29.09: задание слота i+8,
+        поставленное на слоте i, стартовало, когда настоящий цикл уже решил
+        несколько слотов, и спрашивало судью по устаревшей истории — ответ
+        оплачивался, а настоящий цикл задавал другой вопрос)."""
         if self._closed:
             return
+        snap = snapshot()
+        with self._lock:
+            self._latest = snap
         todo = [j for j in range(i + 1, min(self.n_slots, i + 1 + self.depth))
                 if j not in self._futures]
-        if not todo:
-            return
-        snap = snapshot()
         for j in todo:
             with self._lock:
                 self.stats["scheduled"] += 1
-            self._futures[j] = self._ex.submit(self._run, j, snap)
+            self._futures[j] = self._ex.submit(self._run, j)
 
-    def _run(self, j, snap):
+    def _run(self, j):
+        with self._lock:
+            snap = self._latest
         try:
             self.job(j, snap)
             with self._lock:
