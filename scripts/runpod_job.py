@@ -343,6 +343,42 @@ def terminate(key, pod_id):
     return False
 
 
+def pack_dir(path, streams=6):
+    """Папка -> (подпись, [архивы tar]). Файлы делятся на streams архивов
+    поровну по объёму. БЕЗ сжатия: основной груз — JPEG и веса, они не
+    сжимаются (замер 29.09: gzip на 540 МБ превью — 17.5 с ради 3%), а
+    сборка идёт, пока под стартует (см. rent_and_drive), то есть вне
+    оплачиваемого ожидания. Папка едет в /work по своему пути относительно
+    репозитория (корень репозитория — в сам /work)."""
+    full = os.path.abspath(path)
+    rel = os.path.relpath(full, REPO)
+    arc = "." if rel == "." else (rel if not rel.startswith("..") else os.path.basename(full))
+    files = []
+    for root, dirs, names in os.walk(full):
+        dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
+        for n in names:
+            fp = os.path.join(root, n)
+            name = os.path.normpath(os.path.join(arc, os.path.relpath(fp, full)))
+            if os.path.isfile(fp) and _exclude(tarfile.TarInfo(name)) is not None:
+                files.append((os.path.getsize(fp), fp, name))
+    n = max(1, min(streams, len(files)))
+    groups, sizes = [[] for _ in range(n)], [0] * n
+    for size, fp, name in sorted(files, reverse=True):     # поровну по объёму
+        k = sizes.index(min(sizes))
+        groups[k].append((fp, name))
+        sizes[k] += size
+    blobs = []
+    for g in groups:
+        if not g:
+            continue
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w") as tar:
+            for fp, name in g:
+                tar.add(fp, arcname=name, recursive=False)
+        blobs.append(buf.getvalue())
+    return path, blobs
+
+
 def upload_progress(shown):
     """(загружено, всего) байт: shown — {архив: байт на поде, "_total": всего}."""
     return sum(v for k, v in shown.items() if k != "_total"), shown["_total"]
@@ -428,7 +464,7 @@ class Runner:
     UPLOAD_STREAMS = 6
 
     def _upload_blob(self, data, label, shown):
-        fname = f"up_{secrets.token_hex(4)}.tar.gz"
+        fname = f"up_{secrets.token_hex(4)}.tar"
         off = 0
         while off < len(data):
             piece = data[off:off + CHUNK]
@@ -444,44 +480,24 @@ class Runner:
         self.call("POST", f"/extract?name={fname}", b"")        # повтор безопасен: по имени
 
     def upload_dir(self, path, streams=None):
-        """Папка едет в /work по своему пути относительно репозитория (корень
-        репозитория — в сам /work), чтобы команды на поде видели ту же
-        раскладку, что и здесь. Файлы делятся на несколько архивов, которые
-        едут ОДНОВРЕМЕННО: прокси Runpod режет скорость одного соединения, а
-        под оплачивается посекундно."""
+        self.upload_packed(pack_dir(path, streams or self.UPLOAD_STREAMS))
+
+    def upload_packed(self, packed):
+        """Уже собранные архивы папки (pack_dir) едут ОДНОВРЕМЕННО: прокси
+        Runpod режет скорость одного соединения, а под оплачивается
+        посекундно."""
         from concurrent.futures import ThreadPoolExecutor
-        full = os.path.abspath(path)
-        rel = os.path.relpath(full, REPO)
-        arc = "." if rel == "." else (rel if not rel.startswith("..") else os.path.basename(full))
-        files = []
-        for root, dirs, names in os.walk(full):
-            dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
-            for n in names:
-                fp = os.path.join(root, n)
-                name = os.path.normpath(os.path.join(arc, os.path.relpath(fp, full)))
-                if os.path.isfile(fp) and _exclude(tarfile.TarInfo(name)) is not None:
-                    files.append((os.path.getsize(fp), fp, name))
-        n = max(1, min(streams or self.UPLOAD_STREAMS, len(files)))
-        groups, sizes = [[] for _ in range(n)], [0] * n
-        for size, fp, name in sorted(files, reverse=True):     # поровну по объёму
-            k = sizes.index(min(sizes))
-            groups[k].append((fp, name))
-            sizes[k] += size
-        blobs = []
-        for g in groups:
-            buf = io.BytesIO()
-            with tarfile.open(fileobj=buf, mode="w:gz", compresslevel=1) as tar:
-                for fp, name in g:
-                    tar.add(fp, arcname=name, recursive=False)
-            blobs.append(buf.getvalue())
+        label, blobs = packed
+        if not blobs:
+            return
         shown = {"_total": sum(len(b) for b in blobs)}
         t0 = time.time()
-        with ThreadPoolExecutor(n) as ex:
-            for f in [ex.submit(self._upload_blob, b, path, shown) for b in blobs]:
+        with ThreadPoolExecutor(len(blobs)) as ex:
+            for f in [ex.submit(self._upload_blob, b, label, shown) for b in blobs]:
                 f.result()
         dt = time.time() - t0
         print(f"\n  загружено {shown['_total'] / 2**20:.0f} МБ за {dt:.0f} с "
-              f"({shown['_total'] / 2**20 / max(dt, 0.1):.1f} МБ/с, потоков {n})")
+              f"({shown['_total'] / 2**20 / max(dt, 0.1):.1f} МБ/с, потоков {len(blobs)})")
 
     def start(self, cmd):
         # id задачи: повтор запроса после сбоя связи не запускает её дважды.
@@ -630,7 +646,21 @@ def rent_and_drive(key, a, gpus, by_id, token, extra, attempts=HOST_ATTEMPTS):
     """Аренда с проверкой видеокарты: хост, где карта не работает, удаляется
     и заменяется (до attempts раз). Потолок --max-usd — на ВСЕ попытки
     вместе, а не на каждую."""
+    from concurrent.futures import ThreadPoolExecutor
     order, spent = list(gpus), 0.0
+    # Архивы собираются ЗДЕСЬ, до создания пода: пока под стартует (18-90 с)
+    # и проверяет карту, сборка уже идёт. Раньше она шла после старта и
+    # стоила оплачиваемых ~110 с (живой прогон 29.09). Собранное переживает
+    # смену хоста — повтор не собирает заново.
+    packer = ThreadPoolExecutor(max(1, len(a.upload)))
+    uploads = [packer.submit(pack_dir, path, Runner.UPLOAD_STREAMS) for path in a.upload]
+    try:
+        return _rent_attempts(key, a, order, by_id, token, extra, attempts, uploads, spent)
+    finally:
+        packer.shutdown(wait=False, cancel_futures=True)
+
+
+def _rent_attempts(key, a, order, by_id, token, extra, attempts, uploads, spent):
     for attempt in range(1, attempts + 1):
         left = a.max_usd - spent
         if left <= 0.05:
@@ -651,7 +681,7 @@ def rent_and_drive(key, a, gpus, by_id, token, extra, attempts=HOST_ATTEMPTS):
         print(f"Под {pod['id']} (попытка {attempt}/{attempts}): {pod['gpuName']}, ${pod['costPerHr']}/ч; "
               f"потолок ${left:.2f} = {cap_sec / 60:.0f} мин, самоудаление через {a.idle_min:.0f} мин простоя")
         try:
-            return drive(key, pod, token, cap_sec, a.upload, a.cmd, a.fetch, a.dest,
+            return drive(key, pod, token, cap_sec, uploads, a.cmd, a.fetch, a.dest,
                          prepare=a.prepare, preflight=GPU_PREFLIGHT)
         except BadHost as e:
             spent += pod.get("spent_usd", 0.0)
@@ -676,6 +706,15 @@ def overlapped_cmd(prepare, cmd):
     складываются с минутами загрузки."""
     return (f"( {prepare} ) & PREP=$!; while [ ! -f {UPLOADS_DONE} ]; do sleep 2; done; "
             f"wait $PREP || {{ echo 'подготовка упала'; exit 97; }}; {cmd}")
+
+
+def _send(r, item):
+    """Элемент загрузки: путь к папке или уже запущенная сборка её архивов
+    (Future от pack_dir — собиралась, пока под стартовал)."""
+    if hasattr(item, "result"):
+        r.upload_packed(item.result())
+    else:
+        r.upload_dir(item)
 
 
 def drive(key, pod, token, cap_sec, uploads, cmd, fetches, dest, prepare=None, preflight=None):
@@ -711,17 +750,17 @@ def drive(key, pod, token, cap_sec, uploads, cmd, fetches, dest, prepare=None, p
             stage("видеокарта проверена")
         if prepare:
             first, rest_up = uploads[:1], uploads[1:]
-            for path in first:
-                r.upload_dir(path)
+            for item in first:
+                _send(r, item)
             r.start(overlapped_cmd(prepare, cmd))
-            for path in rest_up:
-                r.upload_dir(path)
+            for item in rest_up:
+                _send(r, item)
             r.call("POST", f"/touch?name={UPLOADS_DONE}", b"")
             stage("данные загружены")
             code = r.follow(deadline=t0 + cap_sec)
         else:
-            for path in uploads:
-                r.upload_dir(path)
+            for item in uploads:
+                _send(r, item)
             stage("данные загружены")
             code = r.run(cmd, deadline=t0 + cap_sec)
         print()

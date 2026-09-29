@@ -11,7 +11,7 @@
 любой, кто знает адрес пода, мог бы запускать команды на чужой карте.
 
   GET  /health                        — жив ли (без токена: только «ok»)
-  PUT  /upload?name=X&offset=N        — кусок архива tar.gz (докачка по смещению)
+  PUT  /upload?name=X&offset=N        — кусок архива tar / tar.gz (докачка по смещению)
   POST /extract?name=X                — распаковать загруженный архив в /work
   POST /run                           — {"cmd": "...", "cwd": "..."} запустить
   GET  /log?offset=N                  — лог задачи с байта N, статус и код выхода
@@ -48,6 +48,7 @@ POLL_SEC = float(os.environ.get("RUNNER_POLL_SEC", "15"))
 STATE = {"started": time.time(), "last_seen": time.time(), "proc": None,
          "exit": None, "cmd": None, "terminating": False, "job_id": None, "extracted": set()}
 LOCK = threading.Lock()
+EXTRACT_LOCK = threading.Lock()
 
 
 UA = "pipeline-runpod-runner/1.0"   # Cloudflare перед API Runpod режет подпись Python по умолчанию (403)
@@ -214,10 +215,19 @@ class Handler(BaseHTTPRequestHandler):
                 if name in STATE["extracted"]:     # повтор после сбоя связи
                     return self._send(200, {"ok": True, "again": True})
                 src = os.path.join(UPLOADS, name)
-                with tarfile.open(src, "r:gz") as tar:
-                    for m in tar.getmembers():
+                with tarfile.open(src, "r:*") as tar:        # tar или tar.gz
+                    members = tar.getmembers()
+                    for m in members:
                         _safe(m.name)          # архив не пишет вне /work
-                    tar.extractall(WORK)
+                    # Архивы одной папки распаковываются одновременно (загрузка
+                    # в несколько потоков): tarfile создаёт общие папки без
+                    # «уже есть» и падает на гонке — папки создаются заранее,
+                    # сама запись идёт под замком.
+                    with EXTRACT_LOCK:
+                        for m in members:
+                            d = os.path.dirname(os.path.join(WORK, m.name))
+                            os.makedirs(d, exist_ok=True)
+                        tar.extractall(WORK)
                 os.remove(src)
                 STATE["extracted"].add(name)
                 return self._send(200, {"ok": True})

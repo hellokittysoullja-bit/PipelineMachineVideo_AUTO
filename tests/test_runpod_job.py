@@ -496,8 +496,9 @@ def test_broken_gpu_host_is_replaced_before_any_upload(monkeypatch):
             return 1 if gpus[-1] == "bad" else 0
         return 0
     monkeypatch.setattr(rj.Runner, "run", run)
-    monkeypatch.setattr(rj.Runner, "upload_dir", lambda self, p: seen["uploads"].append(
+    monkeypatch.setattr(rj.Runner, "upload_packed", lambda self, packed: seen["uploads"].append(
         [c[1]["gpuTypeIds"][0] for c in api.calls if c[0] == "REST POST /pods"][-1]))
+    monkeypatch.setattr(rj, "pack_dir", lambda path, streams=6: (path, [b"x"]))
     assert rj.main(["--cmd", "job", "--upload", ".", "--gpu", "bad", "--gpu", "good",
                     "--no-smoke"]) == 0
     created = [c[1]["gpuTypeIds"][0] for c in api.calls if c[0] == "REST POST /pods"]
@@ -599,3 +600,46 @@ def test_smoke_of_a_gpu_image_checks_its_torch():
     assert rj.smoke_check(rj.DEFAULT_IMAGE) == rj.TORCH_CHECK
     assert rj.smoke_check(rj.SMOKE_IMAGE) == ""
     assert rj.smoke_fingerprint(rj.DEFAULT_IMAGE) != rj.smoke_fingerprint(rj.SMOKE_IMAGE)
+
+
+def test_archives_are_packed_before_the_pod_exists(monkeypatch):
+    """Сборка архивов идёт, пока под стартует, а не после: живой прогон
+    29.09 терял на ней ~110 оплачиваемых секунд."""
+    _two_gpu_api(monkeypatch)
+    order = []
+    monkeypatch.setattr(rj, "pack_dir", lambda path, streams=6: (order.append("pack"), (path, [b"x"]))[1])
+    real = rj.create_pod
+    monkeypatch.setattr(rj, "create_pod", lambda *a, **k: (order.append("pod"), real(*a, **k))[1])
+    monkeypatch.setattr(rj.Runner, "run", lambda self, cmd, deadline=None: 0)
+    monkeypatch.setattr(rj.Runner, "upload_packed", lambda self, packed: order.append("upload"))
+    assert rj.main(["--cmd", "job", "--upload", ".", "--gpu", "g", "--no-smoke"]) == 0
+    assert order.index("pack") < order.index("upload")
+    assert order.count("pack") == 1
+
+
+def test_uncompressed_archives_extract(runner, tmp_path, monkeypatch):
+    r, _proc, work = runner
+    src = tmp_path / "pics"
+    src.mkdir()
+    (src / "a.jpg").write_bytes(os.urandom(5000))
+    monkeypatch.setattr(rj, "REPO", str(tmp_path / "elsewhere"))
+    label, blobs = rj.pack_dir(str(src), 1)
+    assert blobs[0][:2] != b"\x1f\x8b", "JPEG не сжимаются — архив без gzip"
+    r.upload_packed((label, blobs))
+    assert (work / "pics" / "a.jpg").read_bytes() == (src / "a.jpg").read_bytes()
+
+
+def test_parallel_extracts_into_shared_folders_do_not_race(runner, tmp_path, monkeypatch):
+    """Архивы одной папки распаковываются одновременно; общие папки создавал
+    tarfile без «уже есть» — гонка давала 400 примерно в 1 загрузке из 8."""
+    r, _proc, work = runner
+    src = tmp_path / "deep"
+    for d in range(60):
+        for k in range(4):
+            p = src / f"a{d % 3}" / f"b{d}" / f"f{k}.bin"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(os.urandom(200))
+    monkeypatch.setattr(rj, "REPO", str(tmp_path / "elsewhere"))
+    for _ in range(3):
+        r.upload_dir(str(src), streams=12)
+    assert len(list((work / "deep").rglob("*.bin"))) == 240
