@@ -89,6 +89,7 @@ def test_html_is_stripped_from_metadata():
 class _Host:
     def __init__(self):
         self.throttles = 0
+        self.stats = {"skipped": 0}
 
     def cooling(self):
         return False
@@ -96,7 +97,7 @@ class _Host:
     def cooldown_left(self):
         return 0.0
 
-    def wait(self, interval=None):
+    def wait(self, interval=None, max_wait=None):
         pass
 
     def throttled(self, retry_after=None):

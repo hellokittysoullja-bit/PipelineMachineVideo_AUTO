@@ -28,15 +28,38 @@ import time
 MIN_RETRY_AFTER_SEC = 5.0
 
 
+class Skipped(Exception):
+    """Запрос не сделан: своей очереди у хоста (интервал или пауза) пришлось
+    бы ждать дольше предела (max_wait_sec). Вызывающий пропускает источник
+    для этого запроса, как при сбое, — отбор идёт дальше без ожидания."""
+
+
+def max_wait_sec():
+    """Предел ожидания очереди хоста (SOURCE_MAX_WAIT_SEC, по умолчанию 5 с;
+    решение владельца 29.09: скорость важнее полноты последних фраз).
+    Большое число — прежнее поведение «ждать сколько нужно» (замеры на
+    записи сети, где пропуск по времени сделал бы прогоны несравнимыми)."""
+    import os
+    raw = (os.environ.get("SOURCE_MAX_WAIT_SEC") or "").strip()
+    try:
+        return max(0.0, float(raw)) if raw else 5.0
+    except ValueError:
+        return 5.0
+
+
 class Host:
     def __init__(self, name, interval=0.0, *, max_interval=None, cooldown_sec=0.0,
-                 slow_factor=2.0, fail_threshold=0):
+                 slow_factor=2.0, fail_threshold=0, recover_after=0):
         self.name = name
         self.base_interval = float(interval)
         self.max_interval = float(interval if max_interval is None else max_interval)
         self.cooldown_sec = float(cooldown_sec)
         self.slow_factor = float(slow_factor)
         self.fail_threshold = int(fail_threshold)
+        # Возврат темпа: после recover_after успехов подряд интервал снова
+        # делится на slow_factor, не ниже исходного (0 — не возвращать:
+        # прежнее поведение, замедление до конца прогона).
+        self.recover_after = int(recover_after)
         self._lock = threading.Lock()
         self.reset()
 
@@ -45,7 +68,8 @@ class Host:
         self.next_slot = 0.0
         self.cooldown_until = 0.0
         self.fails = 0
-        self.stats = {"requests": 0, "cooldowns": 0, "failures": 0}
+        self.streak = 0
+        self.stats = {"requests": 0, "cooldowns": 0, "failures": 0, "skipped": 0}
 
     @property
     def rate(self):
@@ -58,11 +82,17 @@ class Host:
     def cooldown_left(self):
         return max(0.0, self.cooldown_until - time.monotonic())
 
-    def wait(self, interval=None):
+    def wait(self, interval=None, max_wait=None):
+        """Дождаться своей очереди. max_wait — предел: ждать пришлось бы
+        дольше (очередь или пауза хоста) — Skipped, место в очереди не
+        занимается."""
         iv = self.interval if interval is None else float(interval)
         with self._lock:
             now = time.monotonic()
-            slot = max(now, self.next_slot)
+            slot = max(now, self.next_slot, self.cooldown_until if max_wait is not None else 0.0)
+            if max_wait is not None and slot - now > max_wait:
+                self.stats["skipped"] += 1
+                raise Skipped(f"{self.name}: очередь {slot - now:.0f} с дольше предела {max_wait:.0f} с")
             self.next_slot = slot + iv
             self.stats["requests"] += 1
         delay = slot - time.monotonic()
@@ -90,6 +120,7 @@ class Host:
             if self.cooling():
                 return False
             self._enter_cooldown(retry_after)
+            self.streak = 0
             if self.interval > 0:
                 self.interval = min(self.max_interval, self.interval * self.slow_factor)
             return True
@@ -108,6 +139,11 @@ class Host:
     def succeeded(self):
         with self._lock:
             self.fails = 0
+            if self.recover_after and self.interval > self.base_interval:
+                self.streak += 1
+                if self.streak >= self.recover_after:
+                    self.interval = max(self.base_interval, self.interval / self.slow_factor)
+                    self.streak = 0
 
 
 _REGISTRY = {}

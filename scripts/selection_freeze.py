@@ -294,6 +294,11 @@ def child_env(snapshot, run_dir, hashseed):
                      ("CASCADE_CACHE_DIR", "cascade"), ("AESTHETIC_CACHE_DIR", "aesthetic")):
         env[var] = os.path.join(caches, sub)
         os.makedirs(env[var], exist_ok=True)
+    # Пропуск запроса по длине очереди источника (source_health.max_wait_sec)
+    # зависит от времени, а не от входа: запись и воспроизведение разошлись
+    # бы на ровном месте. В харнессе очередь ждётся всегда, если снимок не
+    # задал предел явно.
+    env.setdefault("SOURCE_MAX_WAIT_SEC", "1e9")
     env["PYTHONHASHSEED"] = str(hashseed)
     env["HF_HUB_OFFLINE"] = "1"
     env["TRANSFORMERS_OFFLINE"] = "1"

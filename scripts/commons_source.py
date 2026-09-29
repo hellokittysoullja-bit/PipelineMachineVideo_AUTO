@@ -42,6 +42,7 @@ import html
 import json
 import os
 import re
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -67,9 +68,19 @@ MIN_SHORT_SIDE = 400       # меньше — мыло даже после вп�
 CACHE_TTL_SEC = 30 * 24 * 3600
 FREE_LICENSES = frozenset({"pd", "cc0"})
 MIMES = frozenset({"image/jpeg", "image/png", "image/tiff", "image/webp"})
-# Интервал и пауза — тот же порядок, что у остальных хостов Викимедиа в
-# pipeline_smart (замер 13-14.09: всплески дают 429, редкие запросы — нет).
-HOST = source_health.host("commons", interval=2.0, max_interval=8.0, cooldown_sec=60.0)
+# Темп — адаптивный (решение владельца 29.09: скорость важнее полноты
+# последних фраз). Старт 0.3 с — это лимит подписанного клиента WMF (200 в
+# минуту). 429 вдвое замедляет (до 8 с) и ставит паузу, которую назвал сам
+# сервис; RECOVER_AFTER успехов подряд снова ускоряют вдвое, не быстрее
+# 0.3 с. Раньше стояли постоянные 2 с — 30 в минуту при любых условиях, а
+# после 429 замедление держалось до конца прогона.
+MIN_INTERVAL_SEC = 0.3
+RECOVER_AFTER = 10
+# WMF просит не больше трёх одновременных запросов от клиента.
+MAX_INFLIGHT = 3
+HOST = source_health.host("commons", interval=MIN_INTERVAL_SEC, max_interval=8.0,
+                          cooldown_sec=60.0, recover_after=RECOVER_AFTER)
+_INFLIGHT = threading.BoundedSemaphore(MAX_INFLIGHT)
 
 CACHE_DIR = os.environ.get("COMMONS_CACHE_DIR") or os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "temp_commons_cache")
@@ -205,12 +216,18 @@ def _fetch_pages(query, limit):
               "gsrlimit": int(limit), "prop": "imageinfo",
               "iiprop": "url|size|mime|extmetadata", "iiextmetadatalanguage": "en"}
     url = API + "?" + urllib.parse.urlencode(params)
+    # Очередь хоста или его пауза длиннее предела — запрос не делается
+    # (source_health.Skipped наружу): отбор идёт дальше без этого источника
+    # в этом запросе, вместо того чтобы стоять минуту на паузе после 429.
+    max_wait = source_health.max_wait_sec()
     for attempt in range(3):
-        if HOST.cooling():
-            time.sleep(HOST.cooldown_left())
-        HOST.wait()
-        STATS["requests"] += 1
+        if not _INFLIGHT.acquire(timeout=max_wait):
+            HOST.stats["skipped"] += 1
+            raise source_health.Skipped(f"commons: {MAX_INFLIGHT} запроса уже в пути дольше "
+                                        f"{max_wait:.0f} с")
         try:
+            HOST.wait(max_wait=max_wait)
+            STATS["requests"] += 1
             req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
             with urllib.request.urlopen(req, timeout=30) as r:
                 data = json.load(r)
@@ -221,6 +238,8 @@ def _fetch_pages(query, limit):
                 HOST.throttled(retry_after=retry_after_sec(e))
                 continue
             raise
+        finally:
+            _INFLIGHT.release()
     pages = sorted(((data.get("query") or {}).get("pages") or {}).values(),
                    key=lambda p: p.get("index", 0))
     _cache_put(query, limit, pages)

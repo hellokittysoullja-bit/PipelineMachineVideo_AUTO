@@ -4800,7 +4800,7 @@ PEXELS_LOW_PRIORITY_SKIPPED = 0
 # Openverse дал ноль из-за 12 ошибок» становится проверяемым фактом.
 SOURCE_STATS = {}
 _SOURCE_STAT_FIELDS = ("offered", "considered", "gate_passed", "won", "search_errors",
-                       "download_errors")
+                       "download_errors", "skipped")
 _SOURCE_ERROR_PRINTED = set()
 
 
@@ -4969,6 +4969,16 @@ def _note_source_search_error(source, exc, label=""):
         print(f"  {source}: поиск не отвечает ({'HTTP %s' % code if code else type(exc).__name__}"
               f"{(': ' + label) if label else ''}) — источник даёт ноль, пул собирается из остальных; "
               f"итог по источникам — в конце прогона и в media_plan/source_contribution.json")
+
+
+def _note_source_skipped(source, n=1):
+    """Запрос к источнику не сделан: его очередь (интервал или пауза после
+    429) длиннее SOURCE_MAX_WAIT_SEC. Это не ошибка — счёт отдельный, и в
+    кэш на прогон пустота не пишется: следующий слот с тем же запросом
+    спросит снова, когда очередь схлынет."""
+    if background():
+        return
+    _source_bump(source, "skipped", n)
 
 
 def reset_source_stats():
@@ -6747,7 +6757,9 @@ OPENVERSE_CACHE_DIR = os.environ.get("OPENVERSE_CACHE_DIR") or os.path.join(
 OPENVERSE_CACHE_TTL_SEC = 30 * 86400
 OPENVERSE_CACHE_SCHEMA = 1
 import source_health  # noqa: E402  — один регулятор здоровья на все хосты
-_OPENVERSE_HOST = source_health.host("openverse")
+# Пауза после 429 — та, что назвал сервис, не дольше минуты; пока она идёт,
+# запросы пропускаются сразу (см. _openverse_throttle).
+_OPENVERSE_HOST = source_health.host("openverse", cooldown_sec=60.0)
 _OPENVERSE_LOCK = threading.Lock()
 _OPENVERSE_TOKEN = {"value": None, "expires_at": 0.0, "failed": False}
 OPENVERSE_STATS = {"requests": 0, "cache_hits": 0, "cache_misses": 0, "auth": False}
@@ -6782,10 +6794,14 @@ def _openverse_bearer():
 
 
 def _openverse_throttle(authenticated):
+    """Интервал ключа (анонимно 3.1 с, с ключом 0.3 с). Очередь или пауза
+    после 429 длиннее SOURCE_MAX_WAIT_SEC — source_health.Skipped: запрос
+    пропускается, а не ждёт (без ключа очередь из десятка запросов — это
+    уже полминуты простоя слота)."""
     interval = OPENVERSE_AUTH_MIN_INTERVAL_SEC if authenticated else OPENVERSE_ANON_MIN_INTERVAL_SEC
+    _OPENVERSE_HOST.wait(interval, max_wait=source_health.max_wait_sec())
     with _OPENVERSE_LOCK:
         OPENVERSE_STATS["requests"] += 1
-    _OPENVERSE_HOST.wait(interval)
 
 
 _OPENVERSE_MAPPING_SIG = [None]
@@ -8033,10 +8049,22 @@ def _openverse_search_photos(api_query):
         return []
     if api_query in _OPENVERSE_SEARCH_CACHE:
         return _OPENVERSE_SEARCH_CACHE[api_query]
+    skipped = []
+
+    def fetch(variant, _first):
+        try:
+            return _openverse_fetch_one(variant, _ov)
+        except source_health.Skipped:
+            skipped.append(variant)
+            return []
     try:
         import stock_fetch_multisource as _ov
-        results = _search_with_variants(
-            "Архивы", api_query, lambda v, first: _openverse_fetch_one(v, _ov))
+        results = _search_with_variants("Архивы", api_query, fetch)
+        if skipped:
+            # Неполная выдача: в кэш на прогон не пишется — следующий слот
+            # с тем же запросом спросит пропущенные формулировки снова.
+            _note_source_skipped("openverse", len(skipped))
+            return results
         _cache_put(_OPENVERSE_SEARCH_CACHE, api_query, results)
         return results
     except Exception as e:
@@ -8071,8 +8099,22 @@ def _openverse_fetch_one(api_query, _ov):
         headers["Authorization"] = f"Bearer {token}"
     _openverse_throttle(bool(token))
     req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=20) as r:
-        data = json.load(r)
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            data = json.load(r)
+    except urllib.error.HTTPError as e:
+        # 429 — квота (анонимно 20/мин и 200/день): пауза хоста, чтобы
+        # следующие запросы пропускались сразу, а не шли за тем же отказом.
+        if e.code == 429:
+            retry = None
+            try:
+                v = (e.headers or {}).get("Retry-After")
+                retry = float(v) if v is not None and str(v).strip().isdigit() else None
+            except (AttributeError, TypeError, ValueError):
+                retry = None
+            _OPENVERSE_HOST.throttled(retry_after=retry)
+        raise
+    _OPENVERSE_HOST.succeeded()
     results = []
     for res in data.get("results") or []:
         # Fail-closed, ПОВТОРНАЯ проверка — см. докстринг выше и
@@ -8139,6 +8181,9 @@ def _commons_search_photos(api_query):
     try:
         import commons_source
         results = commons_source.search(api_query)
+    except source_health.Skipped:
+        _note_source_skipped("commons")
+        return []
     except Exception as e:  # noqa: BLE001 — источник, а не слот
         _note_source_search_error("commons", e, api_query)
         results = []
