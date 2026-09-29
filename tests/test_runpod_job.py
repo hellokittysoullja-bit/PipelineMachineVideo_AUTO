@@ -553,7 +553,7 @@ def test_recent_smoke_skips_the_cpu_pod_and_failed_smoke_is_not_remembered(monke
     assert rj.main(["--cmd", "true"]) == 0 and calls == [1], "вторая проверка не нужна"
 
 
-def test_parallel_upload_delivers_every_file_once(runner, tmp_path, monkeypatch):
+def test_parallel_upload_delivers_every_file_once(runner, tmp_path, monkeypatch, capsys):
     r, _proc, work = runner
     src = tmp_path / "data"
     for k in range(23):
@@ -564,6 +564,8 @@ def test_parallel_upload_delivers_every_file_once(runner, tmp_path, monkeypatch)
     monkeypatch.setattr(rj, "REPO", str(tmp_path / "elsewhere"))
     monkeypatch.setattr(rj, "CHUNK", 3000)
     r.upload_dir(str(src), streams=5)
+    # Живой прогон 29.09 печатал «1045 / 523 МБ»: в сумму попадал сам итог.
+    assert rj.upload_progress({"_total": 100, "a": 60, "b": 40}) == (100, 100)
     for k in range(23):
         got = (work / "data" / f"d{k % 4}" / f"f{k}.bin").read_bytes()
         assert got == (src / f"d{k % 4}" / f"f{k}.bin").read_bytes()

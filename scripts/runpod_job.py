@@ -343,6 +343,11 @@ def terminate(key, pod_id):
     return False
 
 
+def upload_progress(shown):
+    """(загружено, всего) байт: shown — {архив: байт на поде, "_total": всего}."""
+    return sum(v for k, v in shown.items() if k != "_total"), shown["_total"]
+
+
 class Runner:
     def __init__(self, base, token):
         self.base, self.token = base.rstrip("/"), token
@@ -434,8 +439,8 @@ class Runner:
                     raise
                 off = json.loads(e.read())["size"]     # докачка с того места, где под остановился
             shown[fname] = off
-            print(f"  загрузка {label}: {sum(shown.values()) / 2**20:.0f} / "
-                  f"{shown['_total'] / 2**20:.0f} МБ", end="\r", flush=True)
+            done, total = upload_progress(shown)
+            print(f"  загрузка {label}: {done / 2**20:.0f} / {total / 2**20:.0f} МБ", end="\r", flush=True)
         self.call("POST", f"/extract?name={fname}", b"")        # повтор безопасен: по имени
 
     def upload_dir(self, path, streams=None):
