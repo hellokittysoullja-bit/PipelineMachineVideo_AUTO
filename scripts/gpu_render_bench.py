@@ -88,7 +88,7 @@ def main(argv=None):
     print(f"фото: {len(photos)}, клип {a.dur} с; процессор: {os.cpu_count()} ядер; "
           f"карта: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'нет'}; "
           f"кодер клипов: {ps.clip_codec_args()[1]}; GPU-путь активен: {ps.gpu_render_active()}; "
-          f"ffmpeg: {subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True).stdout.split(chr(10))[0]}")
+          f"ffmpeg: {subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True, encoding='utf-8', errors='replace').stdout.split(chr(10))[0]}")
     report = {"photos": len(photos), "dur": a.dur, "cpu_cores": os.cpu_count()}
     video_sec = len(photos) * a.dur
 

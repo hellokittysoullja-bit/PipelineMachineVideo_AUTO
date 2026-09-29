@@ -29,27 +29,51 @@ def _blocks(n, per_section):
     return blocks
 
 
-def test_effective_plan_zeroes_transition_at_chunk_entry():
+def test_effective_plan_is_the_full_plan():
+    """GPU-ветка 29.09: склейка кусками собирает переход на каждом стыке
+    отдельным куском (кадр в кадр как один проход — tests/test_seamless_chunks),
+    поэтому план исполняется целиком и все потребители читают его без
+    обнулений."""
     blocks = _blocks(120, 22)
     sections = [b["section"] for b in blocks]
     plan = ps.plan_transitions(sections, blocks)
-    eff = ps.effective_transition_plan(plan, sections)
-    bounds = ps._chunk_bounds(len(blocks), sections, ps.XFADE_CHUNK_SIZE)
-    assert len(bounds) >= 3, "тест должен реально задействовать чанкование"
-    dropped = {a for a, _b in bounds if a > 0}
-    for j, (t, d) in enumerate(eff):
-        if (j + 1) in dropped:
-            assert d == 0.0
-        else:
-            assert d == plan[j][1]
-    assert sum(d for _t, d in eff) == pytest.approx(ps.estimate_xfade_budget(blocks))
+    assert ps.effective_transition_plan(plan, sections) == plan
+    assert sum(d for _t, d in plan) == pytest.approx(ps.estimate_xfade_budget(blocks))
 
 
 def _simulate_chunked_timeline(durs, plan, sections):
-    """Старты клипов так, как их реально склеит xfade_chain_chunked: внутри
-    чанка каждый переход сжимает таймлайн на this_dur, между чанками —
-    concat без нахлёста."""
-    bounds = ps._chunk_bounds(len(durs), sections, ps.XFADE_CHUNK_SIZE)
+    """Старты клипов так, как их склеит xfade_chain_chunked — то же, что один
+    проход xfade: каждый переход сжимает таймлайн на свою длительность."""
+    starts, cum = [0.0], durs[0]
+    for i in range(1, len(durs)):
+        this_dur = plan[i - 1][1]
+        starts.append(cum - this_dur)
+        cum = cum + durs[i] - this_dur
+    return starts, cum
+
+
+def _old_chunk_bounds(n, sections, chunk_size):
+    """Копия прежней нарезки (до 29.09 куски резались по границам секций)."""
+    if n <= chunk_size:
+        return [(0, n)]
+    bounds, pos = [0], 0
+    while pos < n:
+        target = min(pos + chunk_size, n)
+        if target >= n:
+            bounds.append(n)
+            break
+        j = target
+        hard_cap = min(pos + chunk_size * 2, n)
+        while j < hard_cap and sections[j] == sections[j - 1]:
+            j += 1
+        bounds.append(j)
+        pos = j
+    return list(zip(sorted(set(bounds))[:-1], sorted(set(bounds))[1:]))
+
+
+def _old_chunked_timeline(durs, plan, sections):
+    """Прежняя склейка: переход на входе куска не делался (стык -c copy)."""
+    bounds = _old_chunk_bounds(len(durs), sections, ps.XFADE_CHUNK_SIZE)
     starts, cum = [], 0.0
     for a, b in bounds:
         starts.append(cum)
@@ -90,7 +114,7 @@ def test_old_naive_plan_would_have_drifted():
     onsets = [i * 3.0 for i in range(120)]
     plan = ps.plan_transitions(sections, blocks)
     durs = ps.phrase_locked_durations(onsets, 360.0, plan)
-    starts, _ = _simulate_chunked_timeline(durs, ps.effective_transition_plan(plan, sections), sections)
+    starts, _ = _old_chunked_timeline(durs, plan, sections)
     assert max(abs(starts[i] - onsets[i]) for i in range(120)) > 0.3
 
 

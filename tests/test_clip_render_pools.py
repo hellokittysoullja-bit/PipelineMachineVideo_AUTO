@@ -116,7 +116,7 @@ def test_gpu_render_workers_reads_only_existing_flags(monkeypatch):
     fake = types.SimpleNamespace(cuda=types.SimpleNamespace(
         get_device_properties=lambda i: types.SimpleNamespace(total_memory=96 * 2 ** 30)))
     monkeypatch.setitem(sys.modules, "torch", fake)
-    assert ps.gpu_render_workers() == 4
+    assert ps.gpu_render_workers() == 8
     fake.cuda.get_device_properties = lambda i: types.SimpleNamespace(total_memory=24 * 2 ** 30)
     assert ps.gpu_render_workers() == 1
     monkeypatch.setenv("GPU_RENDER_WORKERS", "2")

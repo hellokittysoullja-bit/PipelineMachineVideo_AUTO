@@ -130,7 +130,7 @@ def front_format(path):
     try:
         pf = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
                              "stream=pix_fmt", "-of", "csv=p=0", path],
-                            capture_output=True, text=True, timeout=30).stdout.strip()
+                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30).stdout.strip()
     except Exception:  # noqa: BLE001
         return None
     if not pf or pf.startswith(("gray", "ya", "yuva", "rgba", "bgra", "argb", "abgr", "gbrap")) \
@@ -320,11 +320,16 @@ def deband_offsets(w, h, rng=DEBAND_RANGE):
 SWS_BICUBIC_A = -0.6   # swscale SWS_BICUBIC: B=0, C=0.6 (Keys a=-0.6)
 
 
-def resample_matrix(n_in, n_out, dev, a=SWS_BICUBIC_A):
-    """Матрица [n_out, n_in] бикубического масштабирования с ядром swscale
-    (при уменьшении ядро растягивается по коэффициенту — сглаживание, как у
-    swscale). Края — повтор крайнего пикселя. Замер 29.09: против zoompan
-    51.0 дБ по яркости (torch bicubic a=-0.75 — 49.5)."""
+def resample_taps(n_in, n_out, dev, a=SWS_BICUBIC_A):
+    """Бикубика с ядром swscale (при уменьшении ядро растягивается по
+    коэффициенту — сглаживание, как у swscale; края — повтор крайнего
+    отсчёта) в разреженном виде: (индексы [n_out, T], веса [n_out, T]).
+    Замер 29.09: против zoompan 57.2 дБ по яркости, сдвиг -0.06.
+
+    Разреженно, а не матрицей: у бикубики на выходной отсчёт ~4*s+2
+    ненулевых весов (s — коэффициент уменьшения), а плотная матрица окна
+    наезда 1080x4300 на 4300x7700 считала все нули — профиль на поде:
+    треть времени клипа."""
     import torch
     s = n_in / n_out
     fs = max(s, 1.0)
@@ -338,9 +343,41 @@ def resample_matrix(n_in, n_out, dev, a=SWS_BICUBIC_A):
     w = torch.where(t < 1, (a + 2) * t ** 3 - (a + 3) * t ** 2 + 1,
                     torch.where(t < 2, a * t ** 3 - 5 * a * t ** 2 + 8 * a * t - 4 * a, torch.zeros_like(t)))
     w = w / w.sum(1, keepdim=True)
-    A = torch.zeros(n_out, n_in, device=dev, dtype=torch.float64)
-    A.scatter_add_(1, j.clamp(0, n_in - 1).long(), w)
-    return A.float()
+    return j.clamp(0, n_in - 1).long(), w.float()
+
+
+def resample_csr(taps, n_in):
+    """Разреженная матрица [n_out, n_in] (CSR) из resample_taps — одно
+    умножение cuSPARSE на плоскость вместо сотни маленьких ядер."""
+    import torch
+    idx, w = taps
+    n_out, t = idx.shape
+    dense = torch.zeros(n_out, n_in, device=idx.device, dtype=torch.float32)
+    dense.scatter_add_(1, idx, w)
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)      # «CSR в бета-версии» — ради одного вызова
+        return dense.to_sparse_csr()
+
+
+def resample_2d(plane, ty, tx, csr=None):
+    """plane [h, w] -> [n_out_y, n_out_x] разделимой бикубикой по разреженным
+    весам: сначала по вертикали (строки окна), потом по горизонтали.
+    csr=(My, Mx) — те же веса матрицами CSR (быстрый путь)."""
+    if csr is not None:
+        v = csr[0] @ plane.contiguous()
+        return (csr[1] @ v.t().contiguous()).t()
+    iy, wy = ty
+    ix, wx = tx
+    v = None
+    for k in range(iy.shape[1]):
+        term = plane.index_select(0, iy[:, k]) * wy[:, k:k + 1]
+        v = term if v is None else v + term
+    out = None
+    for k in range(ix.shape[1]):
+        term = v.index_select(1, ix[:, k]) * wx[:, k][None, :]
+        out = term if out is None else out + term
+    return out
 
 
 class _Ops:
@@ -497,7 +534,7 @@ def _decode_yuv420(path, w=None, h=None, vf=None, fmt="yuv420p"):
     vf — доп. фильтры до формата."""
     probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
                             "stream=width,height", "-of", "csv=p=0", path],
-                           capture_output=True, text=True, check=True).stdout.strip().split(",")
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", check=True).stdout.strip().split(",")
     W0, H0 = int(probe[0]), int(probe[1])
     chain = (vf + "," if vf else "") + f"format={fmt}"
     if w and h:
@@ -696,7 +733,7 @@ def _render_kenburns(photo, out, frames, z_expr, x_expr, y_expr, canvas, film_lo
     sx, sy = CHROMA_SHIFT[ffmt]
     lut_point = ops.lut_tensor(capture_yuv_lut(point, fmt=ffmt))
     lut_hal = ops.lut_tensor(capture_lut(HALATION_POINT))
-    tab_10bit = torch.from_numpy(capture_10bit_table().astype(np.int16)).to(dev)
+    tab_10bit = torch.from_numpy(capture_10bit_table().astype(np.int32)).to(dev)
     tab_screen = ops.table(capture_blend_table("screen", HALATION_OPACITY))
     tab_grain = (ops.table(capture_blend_table("softlight", min(1.0, float(grain_opacity))))
                  if grain_path else None)
@@ -716,11 +753,24 @@ def _render_kenburns(photo, out, frames, z_expr, x_expr, y_expr, canvas, film_lo
 
     def mats(n_in, n_out):
         if (n_in, n_out) not in _mats:
-            _mats[(n_in, n_out)] = resample_matrix(n_in, n_out, dev)
+            taps = resample_taps(n_in, n_out, dev)
+            try:
+                _mats[(n_in, n_out)] = (taps, resample_csr(taps, n_in))
+            except Exception:  # noqa: BLE001 — нет разреженных матриц: индексный путь
+                _mats[(n_in, n_out)] = (taps, None)
         return _mats[(n_in, n_out)]
+
+    def rs(plane, my, mx):
+        csr = (my[1], mx[1]) if my[1] is not None and mx[1] is not None else None
+        return resample_2d(plane, my[0], mx[0], csr)
     grains = grain_frames(grain_path, dev, W, H) if grain_path else None
-    cmd = ["ffmpeg", "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "yuv420p10le", "-s", f"{W}x{H}",
-           "-r", str(fps), "-i", "-"] + list(encode_args)
+    # NVENC кодирует p010le: отдаём кадры сразу в нём (10 бит в старших
+    # битах, цветность U,V попарно), иначе ffmpeg переупаковывал каждый кадр
+    # на процессоре — профиль на поде: хвост кодера и ожидание записи — 35%
+    # времени клипа. Для x264 (yuv420p10le) — прежний вход.
+    p010 = "p010le" in list(encode_args)
+    cmd = ["ffmpeg", "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "p010le" if p010 else "yuv420p10le",
+           "-s", f"{W}x{H}", "-r", str(fps), "-i", "-"] + list(encode_args)
     enc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
     # Запись в кодер — отдельным потоком: карта считает пачку n+1, пока
     # пачка n уходит в трубу кодера. Очередь на две пачки держит память.
@@ -766,10 +816,10 @@ def _render_kenburns(photo, out, frames, z_expr, x_expr, y_expr, canvas, film_lo
                 hc, wc = -(-h >> sy), -(-w >> sx)
                 My, Mx = mats(h, H), mats(w, W)
                 Ny, Nx = mats(hc, -(-H >> sy)), mats(wc, -(-W >> sx))
-                Ys.append((My @ src[0][y:y + h, x:x + w] @ Mx.T)[None, None])
+                Ys.append(rs(src[0][y:y + h, x:x + w], My, Mx)[None, None])
                 cy_, cx_ = y >> sy, x >> sx
-                Us.append((Ny @ src[1][cy_:cy_ + hc, cx_:cx_ + wc] @ Nx.T)[None, None])
-                Vs.append((Ny @ src[2][cy_:cy_ + hc, cx_:cx_ + wc] @ Nx.T)[None, None])
+                Us.append(rs(src[1][cy_:cy_ + hc, cx_:cx_ + wc], Ny, Nx)[None, None])
+                Vs.append(rs(src[2][cy_:cy_ + hc, cx_:cx_ + wc], Ny, Nx)[None, None])
             Y = torch.cat(Ys)[:, 0].round().clamp(0, 255)
             U = torch.cat(Us)[:, 0].round().clamp(0, 255)
             V = torch.cat(Vs)[:, 0].round().clamp(0, 255)
@@ -822,8 +872,13 @@ def _render_kenburns(photo, out, frames, z_expr, x_expr, y_expr, canvas, film_lo
             # 10 бит — таблицей ffmpeg этой машины (capture_10bit_table); кадры
             # пачки подряд (Y, U, V каждого кадра) — одна пересылка на пачку.
             nb = len(idx)
-            packed = torch.cat([pl.long().reshape(nb, -1) for pl in planes], 1)
-            packed = tab_10bit[packed.clamp(0, 255)]
+            if p010:
+                uv = torch.stack([planes[1], planes[2]], -1)          # [B, h/2, w/2, 2]
+                packed = torch.cat([planes[0].long().reshape(nb, -1), uv.long().reshape(nb, -1)], 1)
+                packed = tab_10bit[packed.clamp(0, 255)] << 6
+            else:
+                packed = torch.cat([pl.long().reshape(nb, -1) for pl in planes], 1)
+                packed = tab_10bit[packed.clamp(0, 255)]
             if cuda:
                 # Кольцо из 4 закреплённых буферов (очередь 2 + пишется 1 +
                 # заполняется 1): выделение закреплённой памяти на каждую
@@ -832,11 +887,11 @@ def _render_kenburns(photo, out, frames, z_expr, x_expr, y_expr, canvas, film_lo
                 if slot[0] is None or slot[0].shape[1] != packed.shape[1] or slot[0].shape[0] < nb:
                     slot[0] = torch.empty((batch, packed.shape[1]), dtype=torch.int16, pin_memory=True)
                 host = slot[0][:nb]
-                host.copy_(packed, non_blocking=True)
+                host.copy_(packed.to(torch.int16), non_blocking=True)
                 ev = torch.cuda.Event()
                 ev.record()
             else:
-                host, ev = packed.contiguous(), None
+                host, ev = packed.to(torch.int16).contiguous(), None
             prof.mark("упаковка и пересылка")
             q.put((ev, host))
         q.put(None)

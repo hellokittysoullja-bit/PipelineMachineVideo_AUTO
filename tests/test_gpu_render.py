@@ -383,3 +383,23 @@ def test_10bit_expansion_is_what_this_ffmpeg_does():
                             y.tobytes() + u.tobytes() + v.tobytes()), np.uint16)
     mine = t[np.concatenate([y.ravel(), u.ravel(), v.ravel()]).astype(int)]
     assert (mine == ref).all(), "перевод 8 -> 10 бит не совпал с ffmpeg"
+
+
+@needs_ffmpeg
+def test_p010_output_matches_the_planar_10bit_output(tmp_path, monkeypatch):
+    """Для NVENC кадры идут сразу в p010le (без переупаковки ffmpeg на
+    процессоре) — декодированный результат обязан совпасть с прежним
+    входом yuv420p10le кадр в кадр."""
+    monkeypatch.setenv("GPU_RENDER_DEVICE", "cpu")
+    c = _clip_setup(tmp_path, None)
+
+    def run(args, out):
+        ok, why = gr.render_kenburns(c["photo"], out, c["frames"], c["z"], c["x"], c["y"], c["canvas"],
+                                     c["fl"], args + [out], W=c["W"], H=c["H"])
+        assert ok, why
+        return np.frombuffer(_ff(["-i", out, "-f", "rawvideo", "-pix_fmt", "yuv420p10le", "-"]), np.uint16)
+    a = run(["-c:v", "ffv1", "-pix_fmt", "yuv420p10le"], str(tmp_path / "a.mkv"))
+    # ffv1 p010le не хранит — ffmpeg переведёт в yuv420p10le сам; вход при
+    # этом p010le (по "-pix_fmt p010le" в аргументах), что и проверяется.
+    b = run(["-c:v", "ffv1", "-pix_fmt", "p010le"], str(tmp_path / "b.mkv"))
+    assert a.shape == b.shape and (a == b).all()
