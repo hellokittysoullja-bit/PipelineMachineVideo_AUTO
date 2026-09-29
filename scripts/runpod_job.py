@@ -378,6 +378,8 @@ def dotenv_subset(names):
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--plan", action="store_true", help="цены и наличие карт, ничего не создаёт")
+    p.add_argument("--no-smoke", action="store_true",
+                   help="не проверять путь на CPU-поде перед арендой видеокарты")
     p.add_argument("--smoke", action="store_true",
                    help="проверить весь путь (под, прокси, исполнитель, загрузка, лог, возврат, "
                         "удаление) на поде БЕЗ видеокарты с маленьким образом — доли цента")
@@ -423,6 +425,13 @@ def main(argv=None):
         return 0
     if not a.cmd:
         raise SystemExit("нет --cmd")
+    if not a.no_smoke:
+        # Перед арендой видеокарты — тот же образ на поде без неё (доли
+        # цента): старт контейнера, исполнитель, прокси, удаление. Путь не
+        # работает — карта не арендуется вообще.
+        print("Проверка пути до аренды видеокарты:")
+        if smoke(key, a) != 0:
+            raise SystemExit("проверка пути не пройдена — видеокарта не арендована, деньги не потрачены")
     token = secrets.token_urlsafe(32)
     extra = dotenv_subset([n.strip() for n in a.env_from_dotenv.split(",") if n.strip()])
 

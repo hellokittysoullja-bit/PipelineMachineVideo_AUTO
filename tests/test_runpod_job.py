@@ -193,7 +193,7 @@ def test_pod_is_removed_even_when_the_job_fails(monkeypatch):
         raise RuntimeError("обрыв посреди задачи")
     monkeypatch.setattr(rj.Runner, "run", boom)
     with pytest.raises(RuntimeError):
-        rj.main(["--cmd", "true"])
+        rj.main(["--cmd", "true", "--no-smoke"])
     assert not api.pods, "под остался жить после сбоя"
     assert any(c[0].startswith("REST DELETE") for c in api.calls)
 
@@ -274,7 +274,7 @@ def test_money_cap_limits_pod_life_on_both_sides(monkeypatch):
         return 0
     monkeypatch.setattr(rj.Runner, "run", run)
     t0 = rj.time.time()
-    assert rj.main(["--cmd", "true", "--max-usd", "0.34"]) == 0
+    assert rj.main(["--cmd", "true", "--max-usd", "0.34", "--no-smoke"]) == 0
     assert 3600 - 5 <= seen["deadline"] - t0 <= 3600 + 5   # $0.34 при $0.34/ч — час
     created = [c for c in api.calls if c[0] == "REST POST /pods"]
     env = created[0][1]["env"]
@@ -288,3 +288,14 @@ def test_run_stops_at_the_money_deadline(monkeypatch):
     monkeypatch.setattr(rj.time, "sleep", lambda s: None)
     with pytest.raises(SystemExit):
         r.run("sleep 999", deadline=rj.time.time() - 1)
+
+
+def test_failed_smoke_rents_no_gpu(monkeypatch):
+    api = FakeApi()
+    monkeypatch.setattr(rj, "gql", api)
+    monkeypatch.setattr(rj, "rest", api.rest)
+    monkeypatch.setattr(rj, "api_key", lambda: "k")
+    monkeypatch.setattr(rj, "smoke", lambda key, a: 1)
+    with pytest.raises(SystemExit):
+        rj.main(["--cmd", "true"])
+    assert not any(c[0] == "REST POST /pods" for c in api.calls), "видеокарта арендована после провала"
