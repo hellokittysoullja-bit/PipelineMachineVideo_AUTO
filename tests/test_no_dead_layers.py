@@ -40,6 +40,11 @@ import feature_flags  # noqa: E402
 # Публичные функции, сознательно НЕ достижимые из рабочих путей. Ключ —
 # "модуль.функция", значение — причина, которую обязан назвать автор.
 ALLOWED_UNREACHABLE = {
+    **{f"runpod_runner.{f}":
+       "методы обработчика HTTP-исполнителя на поде Runpod — их зовёт "
+       "http.server (BaseHTTPRequestHandler) по имени метода запроса; в "
+       "графе вызовов по именам этого вызова не видно"
+       for f in ("do_GET", "do_POST", "do_PUT", "log_message")},
     "qwen_vl_embed.forward":
         "forward вложенного класса модели Qwen3VLForEmbedding — его зовёт torch "
         "через model(**inputs) (nn.Module.__call__); в графе вызовов по именам "
