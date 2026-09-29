@@ -131,3 +131,30 @@ def test_qwen_runtime_failure_turns_it_off_instead_of_raising(monkeypatch):
     monkeypatch.setattr(q, "prepare_image", lambda im: im)
     assert q.embed_images(["x"]) is None
     assert q._STATE["model"] is None and "factor" in q._STATE["broken"]
+
+
+def test_encode_runs_outside_the_module_lock(monkeypatch):
+    """Аудит 29.09: под замком модуля шли подготовка картинок и токенизация,
+    и потоки ждали друг друга при свободной видеокарте. Замок — только на
+    загрузку и отключение; прогон — через общий замок видеокарты."""
+    import qwen_vl_embed as q
+    monkeypatch.setattr(q, "_load", lambda: True)
+    monkeypatch.setattr(q, "prepare_image", lambda im: im)
+    held = []
+
+    def enc(conv, images):
+        held.append(q._LOCK.locked())
+        import numpy as np
+        return np.zeros((len(conv), 4), dtype="float32")
+    monkeypatch.setattr(q, "_encode", enc)
+    q.embed_images(["a", "b"])
+    q.embed_text("x")
+    assert held and not any(held)
+
+
+def test_second_failure_keeps_the_first_reason(monkeypatch):
+    import qwen_vl_embed as q
+    monkeypatch.setattr(q, "_STATE", {"model": object(), "processor": None, "device": "cuda", "broken": None})
+    q._fail(RuntimeError("первая"))
+    q._fail(RuntimeError("вторая"))
+    assert "первая" in q._STATE["broken"] and q._STATE["model"] is None

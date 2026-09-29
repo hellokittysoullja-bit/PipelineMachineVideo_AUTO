@@ -22,8 +22,11 @@ float32 удвоил бы память без выигрыша в качеств
 картинки ограничен QWEN_EMBED_MAX_PIXELS (по умолчанию 256 визуальных
 токенов после слияния — превью каскада меньше этого, картинка не
 теряет деталей), пачка — QWEN_EMBED_BATCH. Потоки упреждающего отбора зовут
-модель из разных нитей: вызовы идут под одним замком, иначе параллельные
-пачки делили бы видеопамять и падали бы с OOM.
+модель из разных нитей. Прогон на видеокарте — по одному через общий замок
+видеокарты (ml_device.run), иначе параллельные пачки делили бы видеопамять;
+свой замок модуля держит только загрузку и отключение модели (аудит 29.09:
+под ним же шли подготовка картинок и токенизация на процессоре, и потоки
+ждали друг друга при свободной видеокарте). Пачки те же — числа те же.
 
 Нет torch/transformers/весов — ImportError/None наружу, каскад остаётся на
 SigLIP2 (pipeline_smart решает сам)."""
@@ -181,11 +184,13 @@ def available():
 
 def _encode(conversations, images):
     import torch
-    model, processor = _STATE["model"], _STATE["processor"]
+    model, processor, dev = _STATE["model"], _STATE["processor"], _STATE["device"]
+    if model is None:
+        raise RuntimeError("модель отключена другим потоком")
     text = processor.apply_chat_template(conversations, add_generation_prompt=True, tokenize=False)
     inputs = processor(text=text, images=images or None, truncation=True, max_length=MAX_LENGTH,
                        padding=True, do_resize=False, return_tensors="pt")
-    inputs = {k: v.to(_STATE["device"]) for k, v in inputs.items()}
+    inputs = {k: v.to(dev) for k, v in inputs.items()}
     import ml_device
     with torch.inference_mode():
         out = ml_device.run(lambda: model(**inputs))
@@ -198,7 +203,11 @@ def _fail(e):
     """Сбой модели посреди прогона (нехватка памяти после повтора, картинка,
     которую не разобрал smart_resize): раньше исключение уходило из
     cascade_reorder наружу и могло уронить слот (аудит 28.09). Теперь модель
-    выключается до конца прогона громко, и каскад дальше идёт на SigLIP2."""
+    выключается до конца прогона громко, и каскад дальше идёт на SigLIP2.
+    Вызывается под _LOCK; второй поток, сорвавшийся на уже отключённой
+    модели, ничего не перезаписывает — причина остаётся первой."""
+    if _STATE["broken"] and _STATE["model"] is None:
+        return None
     _STATE["broken"] = f"{type(e).__name__}: {e}"[:300]
     _STATE["model"] = None
     print(f"  Qwen3-VL-Embedding сорвалась ({_STATE['broken']}) — дальше каскад на SigLIP2")
@@ -211,15 +220,16 @@ def embed_images(images):
     with _LOCK:
         if not _load():
             return None
-        try:
-            prepared = [prepare_image(im) for im in images]
-            out = []
-            bs = batch_size()
-            for k in range(0, len(prepared), bs):
-                part = prepared[k:k + bs]
-                out.append(_encode([conversation(image=im) for im in part], part))
-            return np.concatenate(out) if out else None
-        except Exception as e:  # noqa: BLE001 — см. _fail
+    try:
+        prepared = [prepare_image(im) for im in images]
+        out = []
+        bs = batch_size()
+        for k in range(0, len(prepared), bs):
+            part = prepared[k:k + bs]
+            out.append(_encode([conversation(image=im) for im in part], part))
+        return np.concatenate(out) if out else None
+    except Exception as e:  # noqa: BLE001 — см. _fail
+        with _LOCK:
             return _fail(e)
 
 
@@ -228,7 +238,8 @@ def embed_text(text, instruction=QUERY_INSTRUCTION):
     with _LOCK:
         if not _load():
             return None
-        try:
-            return _encode([conversation(text=text, instruction=instruction)], None)[0]
-        except Exception as e:  # noqa: BLE001 — см. _fail
+    try:
+        return _encode([conversation(text=text, instruction=instruction)], None)[0]
+    except Exception as e:  # noqa: BLE001 — см. _fail
+        with _LOCK:
             return _fail(e)
