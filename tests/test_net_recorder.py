@@ -302,3 +302,18 @@ def test_local_file_is_read_from_disk_not_the_record(tmp_path, restore_urlopen):
     finally:
         rep.uninstall()
     assert rep.divergences == []
+
+
+def test_replay_latency_only_for_the_named_host(tmp_path, restore_urlopen, monkeypatch):
+    """FREEZE_REPLAY_LATENCY: ответ из записи для названного хоста — с
+    задержкой живого сервиса (иначе замер упреждения судьи бессмыслен),
+    остальные — мгновенно."""
+    fake = FakeNet({"https://judge.example/v1/chat": [(200, [], b"A")],
+                    "https://img.example/1.jpg": [(200, [], b"B")]})
+    _record(tmp_path, fake, ["https://judge.example/v1/chat", "https://img.example/1.jpg"])
+    slept = []
+    monkeypatch.setattr(nr.time, "sleep", slept.append)
+    monkeypatch.setenv("FREEZE_REPLAY_LATENCY", "judge.example=11")
+    rep, _r = _replay(tmp_path, ["https://judge.example/v1/chat", "https://img.example/1.jpg"])
+    assert rep[0][5] == b"A" and rep[1][5] == b"B"
+    assert slept == [11.0]

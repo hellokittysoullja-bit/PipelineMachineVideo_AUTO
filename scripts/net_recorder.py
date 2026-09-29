@@ -58,7 +58,9 @@ import json
 import os
 import re
 import threading
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import urllib.response
 
@@ -168,6 +170,17 @@ class NetRecorder:
         self.calls = {}          # ключ -> число обращений в ЭТОМ прогоне
         self.secrets = _secrets_from_env()
         self.stable_get = os.environ.get("FREEZE_STABLE_GET") == "1"
+        # Задержка ответа из записи: «хост=секунды,...» (FREEZE_REPLAY_LATENCY).
+        # Запись отдаёт ответ мгновенно, и замер скорости упреждения судьи на
+        # ней ничего не показал бы — судья в жизни отвечает 9-14 с.
+        self.latency = {}
+        for part in (os.environ.get("FREEZE_REPLAY_LATENCY") or "").split(","):
+            host, _, sec = part.partition("=")
+            try:
+                if host.strip():
+                    self.latency[host.strip().lower()] = float(sec)
+            except ValueError:
+                pass
         self._real = None
         os.makedirs(self.bodies, exist_ok=True)
         if mode == REPLAY:
@@ -326,6 +339,7 @@ class NetRecorder:
                 f"записано {len(recs)})")
         rec = recs[seq]
         kind = rec["kind"]
+        self._simulate_latency(shown)
         if kind == "exception" or (kind == "http_error"
                                    and (rec.get("status") == 429 or rec.get("status", 0) >= 500)):
             with self._lock:
@@ -340,6 +354,14 @@ class NetRecorder:
             raise urllib.error.HTTPError(shown, rec["status"], rec.get("reason", ""),
                                          _headers_message(rec["headers"]), io.BytesIO(payload))
         raise _rebuild_exception(rec)
+
+    def _simulate_latency(self, url):
+        if not self.latency:
+            return
+        host = (urllib.parse.urlsplit(url).hostname or "").lower()
+        delay = self.latency.get(host)
+        if delay:
+            time.sleep(delay)
 
     # -- итог ------------------------------------------------------------------
 
