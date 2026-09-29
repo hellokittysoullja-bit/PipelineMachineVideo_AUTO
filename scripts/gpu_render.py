@@ -404,7 +404,7 @@ def grain_frames(path, dev, W, H):
     if key not in _GRAIN_CACHE:
         import torch
         fr = _decode_yuv420(path, W, H, vf=f"scale={W}:{H}:flags=bicubic")
-        _GRAIN_CACHE[key] = [tuple(torch.from_numpy(np.ascontiguousarray(p)).to(dev).float() for p in f)
+        _GRAIN_CACHE[key] = [tuple(torch.from_numpy(np.array(p)).to(dev).float() for p in f)
                              for f in fr]
     return _GRAIN_CACHE[key]
 
