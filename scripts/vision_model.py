@@ -63,7 +63,13 @@ REQUIRED_THRESHOLDS = ("relevance", "risky_margin", "negative_veto_margin", "sma
 # в 16 ГБ отказ приходил невнятной ошибкой CUDA из глубины загрузки. Модель
 # с другим именем (QWEN_EMBED_MODEL/QWEN_RERANK_MODEL) в таблице не значится
 # — её размер не угадывается, проверка по ней пропускается.
-WEIGHTS_GIB = {"Qwen/Qwen3-VL-Embedding-8B": 15.17, "Qwen/Qwen3-VL-Reranker-2B": 3.96}
+WEIGHTS_GIB = {"Qwen/Qwen3-VL-Embedding-8B": 15.17, "Qwen/Qwen3-VL-Reranker-2B": 3.96,
+               # model.safetensors ревизии 00c52839 (bf16); на КАЖДОЙ карте
+               # своя копия (wemm_embed.devices).
+               "tencent/WeMM-Embedding-9B": 17.6}
+# Запас WeMM-9B сверх весов на карту: пачка 32 превью (замер 29.09, RTX PRO
+# 6000: пик 26.4 ГиБ при пачке 64 и 19.8 при 16 вместе с весами).
+WEMM_HEADROOM_GIB = 5.0
 # Сверх весов: пачка каскада (64 превью через 8B), CLIP эстетики, модель
 # глубины, контекст CUDA. Оценка, а не замер (видеокарты в среде, где это
 # писалось, нет) — с запасом, чтобы отказ был здесь, а не посреди слота.
@@ -201,12 +207,16 @@ def readiness(embed=True, rerank=True):
         problems.append(f"Qwen3-VL-Embedding не загрузилась: {qwen_vl_embed._STATE['broken']}")
     if rerank and not qwen_vl_rerank.available():
         problems.append(f"Qwen3-VL-Reranker не загрузился: {qwen_vl_rerank.broken_reason()}")
+    if embed:
+        import wemm_embed
+        if wemm_embed.selected() and not wemm_embed.available():
+            problems.append(f"WeMM-Embedding-9B (CASCADE_MODEL) не загрузилась: {wemm_embed.broken_reason()}")
     if calibration() is None:
         problems.append(calibration_problem())
     return problems
 
 
-def vram_need_gib(embed=True, rerank=True):
+def vram_need_gib(embed=True, rerank=True, wemm=None):
     """{устройство: ГиБ} свободной видеопамяти, нужной моделям, которые
     прогон позовёт (веса + запас); None — размер какой-то из них неизвестен.
     Эмбеддинг — на cuda:0 вместе с запасом на пачки каскада и прочие модели;
@@ -227,6 +237,10 @@ def vram_need_gib(embed=True, rerank=True):
         if not base:
             base = HEADROOM_GIB if dev == "cuda:0" else SECOND_GPU_HEADROOM_GIB
         need[dev] = base + WEIGHTS_GIB[qwen_vl_rerank.MODEL_NAME]
+    import wemm_embed
+    if (embed if wemm is None else wemm) and wemm_embed.selected():
+        for dev in wemm_embed.devices():
+            need[dev] = need.get(dev, 0.0) + WEIGHTS_GIB[wemm_embed.MODEL_NAME] + WEMM_HEADROOM_GIB
     return need or None
 
 
@@ -236,8 +250,10 @@ def vram_shortage(embed=True, rerank=True):
     не требуется снова."""
     import qwen_vl_embed
     import qwen_vl_rerank
+    import wemm_embed
     need = vram_need_gib(embed and qwen_vl_embed._STATE.get("model") is None,
-                         rerank and qwen_vl_rerank._STATE.get("model") is None)
+                         rerank and qwen_vl_rerank._STATE.get("model") is None,
+                         wemm=embed and not wemm_embed._STATE["models"])
     if not need:
         return None
     try:
@@ -279,6 +295,10 @@ def lost():
     if _REQUIRED["rerank"] and qwen_vl_rerank._STATE.get("model") is None \
             and qwen_vl_rerank._STATE.get("broken"):
         return f"Qwen3-VL-Reranker: {qwen_vl_rerank._STATE['broken']}"
+    if _REQUIRED["embed"]:
+        import wemm_embed
+        if wemm_embed.selected() and not wemm_embed._STATE["models"] and wemm_embed.broken_reason():
+            return f"WeMM-Embedding-9B: {wemm_embed.broken_reason()}"
     return None
 
 

@@ -2632,6 +2632,44 @@ def write_audio_preview(blocks, durs, sub_starts, sub_baseline, real_weights, to
     return 0
 
 
+class EarlyAudio:
+    """Звук эпизода, начатый ДО цикла рендера, — тот же master_audio_premix с
+    теми же входами. Ему нужны только тайминги фраз, план эффектов и голос,
+    посчитанные до цикла; раньше он стартовал после цикла и склейка ждала его
+    хвост. Совпадение входов проверяется отпечатком: если после цикла входы
+    чем-то отличаются (блоки, границы секций, моменты эффектов), готовый
+    результат не берётся, звук считается заново, как было, — вход тот же ->
+    файл тот же по построению, вход другой -> прежний путь."""
+
+    def __init__(self, args):
+        self.args = args
+        self.fp = self.fingerprint(args)
+        self.pool = concurrent.futures.ThreadPoolExecutor(1, thread_name_prefix="audio_early")
+        self.future = self.pool.submit(master_audio_premix, *args)
+        self.started = time.perf_counter()
+
+    @staticmethod
+    def fingerprint(args):
+        return hashlib.sha1(json.dumps(args, default=repr, sort_keys=True,
+                                       ensure_ascii=False).encode("utf-8")).hexdigest()
+
+    def take(self, args):
+        """(pool, future), если входы те же; иначе None (звук ждётся и
+        отбрасывается, чтобы файлы премикса не писались двумя потоками)."""
+        same = self.fingerprint(args) == self.fp
+        if not same:
+            self.stop()
+            return None
+        return self.pool, self.future
+
+    def stop(self):
+        try:
+            self.future.result()
+        except Exception:  # noqa: BLE001 — результат не нужен
+            pass
+        self.pool.shutdown(wait=True)
+
+
 def master_audio_premix(blocks, sub_starts, real_weights, total, hook_end, final_start,
                         typewriter_click_times, plate_sfx_cues, phrase_locked):
     """Звук эпизода до финального мукса -> (premix, замер громкости).
@@ -4841,6 +4879,39 @@ PEXELS_BROKEN = False       # взводится только на реальн�
 PEXELS_QUOTA_LEFT = None
 PEXELS_QUOTA_RESERVE = 0
 PEXELS_LOW_PRIORITY_SKIPPED = 0
+# Живые запросы Pexels, сделанные ЗАРАНЕЕ фоновой работой (упреждающий поиск
+# и отбор) и ещё не востребованные настоящим циклом: {(вид, запрос)}. Без
+# фона эти запросы случились бы позже, в своём слоте, — значит остаток квоты
+# сейчас меньше «последовательного» ровно на их число, и запас сравнения
+# уменьшается на столько же. Решение слота о дополнительных запросах —
+# то же, что без упреждения, сколько бы собственных запросов дальних слотов
+# фон ни сделал. Запрос, который цикл так и не задаст (фон ошибся с
+# историей), остаётся здесь навсегда — в последовательном прогоне его не
+# было вовсе. Поэтому Pexels можно спрашивать и дальнему проходу: квота
+# раздаётся в порядке слотов (решение владельца 29.09: последние слоты
+# получают остаток), а не в порядке того, кто раньше успел.
+_PEXELS_BG_UNCLAIMED = set()
+_PEXELS_BG_LOCK = threading.Lock()
+
+
+def _pexels_bg_fetched(kind, api_query):
+    """Живой запрос Pexels ушёл из фоновой работы."""
+    if background():
+        with _PEXELS_BG_LOCK:
+            _PEXELS_BG_UNCLAIMED.add((kind, api_query))
+
+
+def _pexels_claim(kind, api_query):
+    """Настоящий цикл сам задаёт запрос: в последовательном прогоне он ушёл
+    бы в сеть именно сейчас."""
+    if not background():
+        with _PEXELS_BG_LOCK:
+            _PEXELS_BG_UNCLAIMED.difference_update({(kind, api_query)})
+
+
+def _pexels_reserve_now(reserve):
+    with _PEXELS_BG_LOCK:
+        return reserve - len(_PEXELS_BG_UNCLAIMED)
 
 # --- УЧЁТ ВКЛАДА КАЖДОГО ИСТОЧНИКА ЗА ПРОГОН ----------------------------------
 # Зачем. Источник кандидатов может молча давать НОЛЬ, и узнать об этом было
@@ -5046,6 +5117,8 @@ def reset_source_stats():
     SOURCE_STATS.clear()
     _SOURCE_ERROR_PRINTED.clear()
     PEXELS_QUOTA_LEFT, PEXELS_LOW_PRIORITY_SKIPPED = None, 0
+    with _PEXELS_BG_LOCK:
+        _PEXELS_BG_UNCLAIMED.clear()
     for k in ("requests", "cache_hits", "cache_misses"):
         OPENVERSE_STATS[k] = 0
     source_health.reset_all()
@@ -6709,7 +6782,9 @@ def _pexels_search_photos(api_query):
             headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
         with urllib.request.urlopen(req, timeout=15) as r:
             _note_pexels_quota(r)
+            _pexels_bg_fetched("photo", api_query)
             return json.load(r)
+    _pexels_claim("photo", api_query)
     data = cached_search_json("pexels_photo", f"{api_query}|80|landscape", fetch)
     photos = data.get("photos") or []
     _cache_put(_PEXELS_SEARCH_CACHE, api_query, photos)
@@ -6737,12 +6812,15 @@ def pexels_query_allowed(api_query, cache, low_priority):
         reserve = _SPEC_QUOTA_RESERVE.get()
         if not low_priority or api_query in cache or PEXELS_QUOTA_LEFT is None:
             return True
-        return PEXELS_QUOTA_LEFT > (PEXELS_QUOTA_RESERVE if reserve is None else reserve)
+        return PEXELS_QUOTA_LEFT > _pexels_reserve_now(
+            PEXELS_QUOTA_RESERVE if reserve is None else reserve)
     if prefetching():
         # Упреждение спрашивает Pexels только собственными запросами слота:
         # их слот пустит всегда; дополнительные решаются по остатку квоты в
-        # момент самого слота.
-        return not low_priority
+        # момент самого слота. Квота уже кончилась — не спрашивать вовсе:
+        # слот спросит сам (после часового обновления — успешно).
+        return not low_priority and (PEXELS_QUOTA_LEFT is None or PEXELS_QUOTA_LEFT > 0
+                                     or api_query in cache)
     return _pexels_query_allowed(api_query, cache, low_priority)
 
 
@@ -6754,7 +6832,7 @@ def _pexels_query_allowed(api_query, cache, low_priority):
     global PEXELS_LOW_PRIORITY_SKIPPED
     if not low_priority or api_query in cache or PEXELS_QUOTA_LEFT is None:
         return True
-    if PEXELS_QUOTA_LEFT > PEXELS_QUOTA_RESERVE:
+    if PEXELS_QUOTA_LEFT > _pexels_reserve_now(PEXELS_QUOTA_RESERVE):
         return True
     PEXELS_LOW_PRIORITY_SKIPPED += 1
     return False
@@ -9229,6 +9307,11 @@ class _PrefetchSources:
 # регулируют темп сами и спрашиваются теми же запросами, что спросит слот, —
 # раньше, но не больше.
 HOURLY_QUOTA_SOURCES = frozenset({"pexels", "unsplash"})
+# Дальний проход не спрашивает Unsplash (потолок прогона — счётчик, от
+# которого зависят решения). Pexels спрашивает — только собственными
+# запросами слотов (pexels_query_allowed), а остаток квоты для решений слота
+# пересчитывается (_PEXELS_BG_UNCLAIMED): квота уходит в порядке слотов.
+FAR_SKIP_SOURCES = frozenset({"unsplash"})
 
 
 def prefetch_slot_inputs(request, kind, cascade, skip_sources=frozenset()):
@@ -12796,6 +12879,9 @@ def model_warmup_jobs():
     if need_rerank:
         import qwen_vl_rerank
         jobs.append(("Qwen3-VL-Reranker", qwen_vl_rerank.available))
+    if need_embed and cascade_model() == "wemm9b":
+        import wemm_embed
+        jobs.append(("WeMM-Embedding-9B", wemm_embed.available))
     if AESTHETIC_ENABLED:
         jobs.append(("CLIP эстетики", get_aesthetic_clip_model))
     if PARALLAX_ENABLED:
@@ -12936,9 +13022,22 @@ def _gate_embed(images=None, text=None):
     return qwen_vl_embed.embed_images(images)
 
 
+def cascade_model():
+    """Модель ранжирования каскада: "wemm9b" (WeMM-Embedding-9B, замер 29.09
+    на 72 размеченных кучах двух ниш — см. wemm_embed.py) или "qwen"
+    (Qwen3-VL-Embedding-8B — та же, что у гейтов). CASCADE_MODEL в .env.
+    Пороги у каскада нет — модель меняет только порядок кучи; гейты,
+    Директор и полка остаются на Qwen3-VL-Embedding с её калибровкой."""
+    import wemm_embed
+    return "wemm9b" if wemm_embed.selected() else "qwen"
+
+
 def cascade_model_signature():
-    """Модель ранжирования каскада — та же, что у гейтов (Qwen3-VL-Embedding);
-    верх каскада доранжирует Qwen3-VL-Reranker (_rerank_top)."""
+    """Модель ранжирования каскада (cascade_model()); верх каскада
+    доранжирует Qwen3-VL-Reranker (_rerank_top)."""
+    if cascade_model() == "wemm9b":
+        import wemm_embed
+        return wemm_embed.signature()
     import qwen_vl_embed
     return qwen_vl_embed.signature()
 
@@ -12949,11 +13048,18 @@ def cascade_rerank_signature():
 
 
 def _cascade_text_vec(text):
-    """Вектор текста каскада — общий кэш текстов гейта: модель та же."""
+    """Вектор текста каскада: у Qwen — общий кэш текстов гейта (модель та
+    же), у WeMM — свой кэш модуля."""
+    if cascade_model() == "wemm9b":
+        import wemm_embed
+        return wemm_embed.embed_text(text)
     return _gate_text_vec(text)
 
 
 def _cascade_embed_images(images):
+    if cascade_model() == "wemm9b":
+        import wemm_embed
+        return wemm_embed.embed_images(images)
     return _gate_embed(images=images)
 
 
@@ -13054,11 +13160,12 @@ def cascade_rerank_top():
     """Сколько первых мест каскада доранжирует реранкер. Их и видят гейты с
     судьёй (сетка — до 18, плюс запас на отсев по подписи). CASCADE_RERANK_TOP
     в .env меняет; 0 — без реранкера."""
+    default = CASCADE_RERANK_TOP_WEMM if cascade_model() == "wemm9b" else CASCADE_RERANK_TOP_DEFAULT
     raw = (os.environ.get("CASCADE_RERANK_TOP") or "").strip()
     try:
-        return max(0, int(raw)) if raw else CASCADE_RERANK_TOP_DEFAULT
+        return max(0, int(raw)) if raw else default
     except ValueError:
-        return CASCADE_RERANK_TOP_DEFAULT
+        return default
 
 
 # Реранкер (Qwen3-VL-Reranker-2B) смотрит на пару «описание кадра — картинка»
@@ -13067,6 +13174,11 @@ def cascade_rerank_top():
 # кинжал где-то» и «рука держит кинжал». Проход модели на пару дороже
 # эмбеддинга, поэтому только верх кучи. Порядок ниже верха не трогается.
 CASCADE_RERANK_TOP_DEFAULT = 24
+# С WeMM-9B — 30 мест и смешанный ключ (оценка реранкера + сходство WeMM,
+# каждое приведено к z-оценке по верху): замер 29.09 на 72 размеченных
+# кучах — ни одна куча не теряет лучший кадр ни против прежней связки, ни
+# против WeMM без реранкера; 40 мест на эп.93 теряли одну кучу.
+CASCADE_RERANK_TOP_WEMM = 30
 
 
 def cascade_rerank_text(spec, brief):
@@ -13076,7 +13188,7 @@ def cascade_rerank_text(spec, brief):
     return (focus or brief or "").strip() or None
 
 
-def _rerank_top(ranked, text, tmp, cf, probe_fn, index):
+def _rerank_top(ranked, text, tmp, cf, probe_fn, index, emb_best=None):
     """Первые cascade_rerank_top() мест в порядке оценки реранкера; превью,
     которых нет среди уже скачанных каскадом (эмбеддинг был в кэше),
     скачиваются и попадают в tmp — их уборкой ведает cascade_reorder.
@@ -13106,8 +13218,22 @@ def _rerank_top(ranked, text, tmp, cf, probe_fn, index):
     scored = [(s, pos) for pos, s in enumerate(scores) if s is not None]
     if len(scored) < 2:
         return ranked
-    order = [pos for _s, pos in sorted(scored, key=lambda sp: (-sp[0], sp[1]))]
-    order += [pos for pos, s in enumerate(scores) if s is None]
+    if emb_best is not None:
+        # Смешанный ключ (замер 29.09, WeMM-9B): z-оценка реранкера по
+        # оценённым местам верха (без оценки — 0) плюс z-оценка сходства
+        # модели каскада по всему верху; равенство — прежний порядок.
+        vals = [s for s, _pos in scored]
+        mu = sum(vals) / len(vals)
+        sd = (sum((v - mu) ** 2 for v in vals) / len(vals)) ** 0.5 or 1.0
+        zr = [((s - mu) / sd) if s is not None else 0.0 for s in scores]
+        e = [float(emb_best.get(id(p), 0.0)) for p in top]
+        me = sum(e) / len(e)
+        se = (sum((v - me) ** 2 for v in e) / len(e)) ** 0.5 or 1.0
+        key = [zr[pos] + (e[pos] - me) / se for pos in range(len(top))]
+        order = sorted(range(len(top)), key=lambda pos: (-key[pos], pos))
+    else:
+        order = [pos for _s, pos in sorted(scored, key=lambda sp: (-sp[0], sp[1]))]
+        order += [pos for pos, s in enumerate(scores) if s is None]
     print(f"  слот {index}: реранкер — верх каскада ({len(scored)}) пересортирован "
           f"по паре «описание — картинка»")
     return [top[pos] for pos in order] + ranked[k:]
@@ -13273,7 +13399,8 @@ def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=None, url
     pos = dict(have)
     ranked = [pos[k] for k in order]
     if rerank_text:
-        ranked = _rerank_top(ranked, rerank_text, tmp, cf, probe_fn, index)
+        emb_best = ({id(pos[k]): best[k] for k in best} if cascade_model() == "wemm9b" else None)
+        ranked = _rerank_top(ranked, rerank_text, tmp, cf, probe_fn, index, emb_best=emb_best)
     seen = {id(p) for p in ranked}
     print(f"  слот {index}: каскад — {len(ranked)} из {len(head)} кандидатов ранжированы "
           f"по описанию кадра (новых оценок {fresh})")
@@ -15968,7 +16095,9 @@ def _pexels_search_videos(api_query):
             headers={"Authorization": PEXELS_API_KEY, "User-Agent": UA})
         with urllib.request.urlopen(req, timeout=15) as r:
             _note_pexels_quota(r)
+            _pexels_bg_fetched("video", api_query)
             return json.load(r)
+    _pexels_claim("video", api_query)
     data = cached_search_json("pexels_video", f"{api_query}|80|landscape", fetch)
     videos = data.get("videos") or []
     _cache_put(_PEXELS_VIDEO_SEARCH_CACHE, api_query, videos)
@@ -17832,6 +17961,21 @@ def _count_camera_mode(motion_mode, stage):
             CAMERA_LANGUAGE_STATS["without_stage"] += 1
 
 
+def parallax_workers():
+    """Сколько параллакс-клипов рендерятся одновременно. Каждый клип
+    независим (свой холст, своя карта глубины, свой ffmpeg-процесс), результат
+    от соседей не зависит — параллельный рендер даёт тот же файл. Общее
+    место одно: карта глубины считается под замком карты (ml_device.run) и
+    в очередь. Тяжёлое — покадровый cv2.remap на процессоре, поэтому число
+    считается от ядер: на машине до 8 ядер — один поток, как было.
+    PARALLAX_WORKERS в окружении — явное число."""
+    raw = (os.environ.get("PARALLAX_WORKERS") or "").strip()
+    if raw.isdigit() and int(raw) > 0:
+        return min(16, int(raw))
+    cores = os.cpu_count() or 1
+    return 1 if cores < 8 else min(4, cores // 4)
+
+
 def render_highlight_clip(render_pool, i, photo, out, d, motion_mode, stage, kw):
     """Параллакс-кадр в фоновом потоке: сначала parallax_kenburns, при
     отказе — обычный kenburns ровно так же, как раньше делал цикл (через
@@ -17869,7 +18013,12 @@ def gpu_render_workers():
     # vision_model плюс запас на активации пачек.
     try:
         import vision_model
-        reserve = sum(vision_model.WEIGHTS_GIB.values()) + 5
+        import wemm_embed
+        # Только модели, которые прогон действительно держит на карте: вес
+        # WeMM в таблице лежит всегда, но занимает память лишь при
+        # CASCADE_MODEL=wemm9b.
+        reserve = sum(v for k, v in vision_model.WEIGHTS_GIB.items()
+                      if k != wemm_embed.MODEL_NAME or wemm_embed.selected()) + 5
     except Exception:  # noqa: BLE001
         reserve = 24
     return int(max(1, min(8, (total - reserve) // 3)))
@@ -18718,7 +18867,7 @@ def main():
     # здесь) — раньше прямо в цикле отбора, и следующий слот ждал рендера.
     # Теперь в одном фоновом потоке, по порядку, как и прежде; рядом с пулом
     # процессов, при том же условии.
-    highlight_pool = (concurrent.futures.ThreadPoolExecutor(1, thread_name_prefix="parallax")
+    highlight_pool = (concurrent.futures.ThreadPoolExecutor(parallax_workers(), thread_name_prefix="parallax")
                       if render_pool is not None else None)
     pending_jobs = []   # [{i, out, d, section, block, video, photo, future|None, ok}], в порядке блоков
     # Накопленное время слотов, поглощённых соседом (см. ABSORBED_SLOTS).
@@ -19138,10 +19287,20 @@ def main():
         _far_w = os.environ.get("SLOT_PREFETCH_FAR_WORKERS", "").strip()
         prefetcher = slot_prefetch.SlotPrefetcher(
             len(blocks), None if speculator is not None else _prefetch_job,
-            far_job=lambda j: _prefetch_job(j, HOURLY_QUOTA_SOURCES),
+            far_job=lambda j: _prefetch_job(j, FAR_SKIP_SOURCES),
             far_workers=int(_far_w) if _far_w.isdigit() and int(_far_w) > 0 else slot_prefetch.FAR_WORKERS)
     _slot_clock = None
     vision_lost = None
+    early_audio = None
+    if feature_flags.enabled("AUDIO_EARLY") and os.path.exists(AUDIO_FILE):
+        try:
+            _ea_hook_end, _ea_final_start = section_audio_bounds(blocks, sub_starts, total)
+            early_audio = EarlyAudio((blocks, sub_starts, real_weights, total, _ea_hook_end,
+                                      _ea_final_start, typewriter_click_times, plate_sfx_cues,
+                                      bool(phrase_locked)))
+        except Exception as e:  # noqa: BLE001 — ускорение, а не решение
+            print(f"  Звук заранее не начат ({type(e).__name__}: {e}); соберётся после цикла")
+            early_audio = None
     for i, (b, d) in enumerate(zip(blocks, durs)):
         # Модель зрения сорвалась посреди прогона — дальше кадры шли бы без
         # проверки, а судья платно смотрел бы непроверенные кучи. Стоп до
@@ -19987,6 +20146,8 @@ def main():
               f"{prefetcher.stats['far_done']} из {prefetcher.stats['far_scheduled']}, сбоев "
               f"{prefetcher.stats['far_failed']}")
     if vision_lost:
+        if early_audio is not None:
+            early_audio.stop()
         if not SELECT_ONLY:
             check_jobs_in_order(pending_jobs)
             for job in pending_jobs:
@@ -20075,6 +20236,8 @@ def main():
             # Собирать ролик из брака нельзя (для этого правило и заведено), а
             # карточки владелец не разрешил — значит честный стоп с причиной, а
             # не пустой файл и не молчаливая деградация.
+            if early_audio is not None:
+                early_audio.stop()
             print("\nСТОП: ни один слот не получил ПРОВЕРЕННОГО кадра — "
                   f"поглощено {len(ABSORBED_SLOTS)} слот(ов), показывать нечего. "
                   "Смотреть media_plan/absorbed_slots_report.json: чаще всего это "
@@ -20456,6 +20619,8 @@ def main():
     # лога. RENDER_STRICT_GATE=0 возвращает старое поведение для тех, кому
     # осознанно нужна частичная сборка (ручная досборка позже).
     if missing and RENDER_STRICT_GATE:
+        if early_audio is not None:
+            early_audio.stop()
         print(f"\nСТОП: {len(missing)} клип(ов) не приняты — final.mp4 НЕ собран "
               f"(RENDER_STRICT_GATE=1). Причины — {manifest_path}:")
         for i in missing:
@@ -20467,6 +20632,8 @@ def main():
 
     if not clips:
         print("Нет клипов")
+        if early_audio is not None:
+            early_audio.stop()
         return 1
     # ЗВУК — ОДНОВРЕМЕННО С ФИНАЛЬНОЙ СКЛЕЙКОЙ ВИДЕО. Звуковой цепочке (голос,
     # музыка, атмосфера, эффекты, замер громкости) нужны только тайминги фраз,
@@ -20475,10 +20642,19 @@ def main():
     # склейки, теперь идёт рядом в своём потоке, а результат ждётся ровно там,
     # где звук считался. Вход тот же — файл звука тот же.
     hook_end, final_start = section_audio_bounds(blocks, sub_starts, total)
-    audio_pool = concurrent.futures.ThreadPoolExecutor(1, thread_name_prefix="audio_master")
-    audio_future = audio_pool.submit(
-        master_audio_premix, blocks, sub_starts, real_weights, total, hook_end, final_start,
-        typewriter_click_times, plate_sfx_cues, bool(phrase_locked))
+    _audio_args = (blocks, sub_starts, real_weights, total, hook_end, final_start,
+                   typewriter_click_times, plate_sfx_cues, bool(phrase_locked))
+    _taken = None
+    if early_audio is not None:
+        _taken = early_audio.take(_audio_args)
+        print("  Звук, начатый до цикла: входы совпали, берётся готовый" if _taken
+              else "  Звук, начатый до цикла: входы изменились, считается заново")
+        early_audio = None
+    if _taken is not None:
+        audio_pool, audio_future = _taken
+    else:
+        audio_pool = concurrent.futures.ThreadPoolExecutor(1, thread_name_prefix="audio_master")
+        audio_future = audio_pool.submit(master_audio_premix, *_audio_args)
 
     def _stop_audio():
         audio_pool.shutdown(wait=True)

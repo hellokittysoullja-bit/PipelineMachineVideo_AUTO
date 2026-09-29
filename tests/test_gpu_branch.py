@@ -115,7 +115,7 @@ def test_prefetch_skips_unsplash_and_leaves_run_cap_alone(monkeypatch):
 def test_prefetch_asks_pexels_only_own_queries(monkeypatch):
     """Дополнительные запросы Pexels решаются остатком квоты в момент слота:
     упреждение их не спрашивает и счётчик пропусков не трогает."""
-    monkeypatch.setattr(ps, "PEXELS_QUOTA_LEFT", 0)
+    monkeypatch.setattr(ps, "PEXELS_QUOTA_LEFT", 2)
     monkeypatch.setattr(ps, "PEXELS_QUOTA_RESERVE", 5)
     before = ps.PEXELS_LOW_PRIORITY_SKIPPED
     assert _in_prefetch(ps.pexels_query_allowed, "q", {}, True) is False
@@ -765,16 +765,45 @@ def test_failed_hw_splice_is_repeated_on_cpu_not_dropped_to_concat(monkeypatch, 
     assert "-hwaccel" not in second
 
 
-def test_far_prefetch_never_asks_hourly_quota_sources():
-    """Дальний проход упреждения (весь эпизод с первой секунды) не спрашивает
-    Pexels и Unsplash: их часовая квота кончилась бы в первые минуты, и
-    слоту в моменте достался бы отказ — выбор изменился бы."""
+def test_far_prefetch_skips_unsplash_but_asks_pexels_in_slot_order():
+    """Дальний проход не спрашивает Unsplash (потолок прогона решает выбор),
+    а Pexels спрашивает — собственными запросами слотов; остаток квоты для
+    решений слота пересчитывается (_PEXELS_BG_UNCLAIMED)."""
     class A:
         def source_jobs(self, request, pq):
             return [(n, lambda: []) for n in ("museum", "commons", "openverse", "pexels", "pixabay", "unsplash")]
-    got = ps._PrefetchSources(A(), ps.HOURLY_QUOTA_SOURCES).source_jobs(None, "q")
-    assert [n for n, _j in got] == ["museum", "commons", "openverse", "pixabay"]
-    assert [n for n, _j in ps._PrefetchSources(A()).source_jobs(None, "q")][3] == "pexels"
+    got = ps._PrefetchSources(A(), ps.FAR_SKIP_SOURCES).source_jobs(None, "q")
+    assert [n for n, _j in got] == ["museum", "commons", "openverse", "pexels", "pixabay"]
     src = open(os.path.join(REPO_ROOT, "scripts", "pipeline_smart.py"), encoding="utf-8").read()
     made = src[src.index("prefetcher = slot_prefetch.SlotPrefetcher("):]
-    assert "far_job=lambda j: _prefetch_job(j, HOURLY_QUOTA_SOURCES)" in made[:400]
+    assert "far_job=lambda j: _prefetch_job(j, FAR_SKIP_SOURCES)" in made[:400]
+
+
+def test_background_pexels_requests_do_not_change_the_slot_decision(monkeypatch):
+    """Фон заранее потратил квоту на собственные запросы дальних слотов:
+    решение слота о дополнительном запросе то же, что без фона. Цикл сам
+    задал запрос — запрос «случился бы сейчас», и поправка снимается."""
+    monkeypatch.setattr(ps, "_PEXELS_BG_UNCLAIMED", set())
+    monkeypatch.setattr(ps, "PEXELS_QUOTA_RESERVE", 10)
+    # последовательно: остаток 12 > запас 10 — дополнительный запрос можно
+    monkeypatch.setattr(ps, "PEXELS_QUOTA_LEFT", 12)
+    assert ps.pexels_query_allowed("extra", {}, True) is True
+    # фон сделал 3 живых запроса дальних слотов: остаток 9, решение то же
+    for q in ("a", "b", "c"):
+        _in_prefetch(ps._pexels_bg_fetched, "photo", q)
+    monkeypatch.setattr(ps, "PEXELS_QUOTA_LEFT", 9)
+    assert ps.pexels_query_allowed("extra", {}, True) is True
+    # последовательно: остаток 10 = запас — нельзя; с фоном 7 — тоже нельзя
+    monkeypatch.setattr(ps, "PEXELS_QUOTA_LEFT", 7)
+    assert ps.pexels_query_allowed("extra", {}, True) is False
+    # слот сам задал «a» (в последовательном прогоне запрос ушёл бы сейчас)
+    ps._pexels_claim("photo", "a")
+    assert ps._PEXELS_BG_UNCLAIMED == {("photo", "b"), ("photo", "c")}
+
+
+def test_prefetch_stops_asking_pexels_when_the_quota_is_gone(monkeypatch):
+    monkeypatch.setattr(ps, "PEXELS_QUOTA_LEFT", 0)
+    assert _in_prefetch(ps.pexels_query_allowed, "q", {}, False) is False
+    assert _in_prefetch(ps.pexels_query_allowed, "q", {"q": []}, False) is True
+    monkeypatch.setattr(ps, "PEXELS_QUOTA_LEFT", 3)
+    assert _in_prefetch(ps.pexels_query_allowed, "q", {}, False) is True
