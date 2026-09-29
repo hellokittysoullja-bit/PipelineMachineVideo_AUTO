@@ -48,8 +48,7 @@ with a YAML frontmatter header per observation, with resolved entries under
 elsewhere. "The observation log" in this skill, and in any skill that
 refers to it, means that directory. Every runnable snippet in this skill
 and its references takes that pinned absolute path, written
-`$(git rev-parse --show-toplevel)` — substitute it when installing, exactly as in the
-activation block. A snippet run with a relative path from any other
+`$(git rev-parse --show-toplevel)` (already substituted here: repo root, run from inside the repo — NOT from a git worktree). A snippet run with a relative path from any other
 directory does not fail: it reports an empty, clean backlog, which is the
 one answer that never gets questioned. **The substituted path routinely
 contains a space** — the default shared-folder name on at least one
