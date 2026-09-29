@@ -30,6 +30,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -107,6 +108,7 @@ def main(argv=None):
     print(f"превью в записи: {len(idents)}; куч с потерянными размеченными превью: "
           f"{len(lost_labeled)}")
     bs = 64
+    t_emb = time.time()
     for k in range(0, len(idents), bs):
         part = idents[k:k + bs]
         imgs = []
@@ -119,7 +121,10 @@ def main(argv=None):
         for ident, v in zip(part, vecs):
             ps._CASCADE_EMB[ps._cascade_key(ident)] = v
         print(f"  {min(k + bs, len(idents))}/{len(idents)}", end="\r", flush=True)
-    print()
+    dt = time.time() - t_emb
+    print(f"\nвекторы превью: {len(idents)} за {dt:.0f} с ({len(idents) / max(dt, 1e-9):.1f} картинок/с, "
+          f"пачка модели {qwen_vl_embed.batch_size()})")
+    t_rank = time.time()
 
     def probe_from_record(c, dest):
         path = body_of(c["_probe"])
@@ -143,6 +148,8 @@ def main(argv=None):
             orders[f"{rec['run']}|{rec['index']}|{kind}"] = [str(c["id"]) for c in ranked]
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+    print(f"порядок {len(orders)} куч (тексты, реранкер верха {ps.cascade_rerank_top()}): "
+          f"{time.time() - t_rank:.0f} с")
     now = {k: m for k, m in pr.rank_metrics(orders, labels, a.handoff).items()
            if k not in lost_labeled}
     base_same = {k: m for k, m in base.items() if k in now}
