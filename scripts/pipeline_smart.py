@@ -2644,7 +2644,7 @@ class EarlyAudio:
     def __init__(self, args):
         self.args = args
         self.fp = self.fingerprint(args)
-        self.pool = concurrent.futures.ThreadPoolExecutor(1, thread_name_prefix="audio_early")
+        self.pool = ctx_pool.ContextThreadPoolExecutor(1, thread_name_prefix="audio_early")
         self.future = self.pool.submit(master_audio_premix, *args)
         self.started = time.perf_counter()
 
@@ -20153,8 +20153,6 @@ def main():
               f"{prefetcher.stats['far_done']} из {prefetcher.stats['far_scheduled']}, сбоев "
               f"{prefetcher.stats['far_failed']}")
     if vision_lost:
-        if early_audio is not None:
-            early_audio.stop()
         if not SELECT_ONLY:
             check_jobs_in_order(pending_jobs)
             for job in pending_jobs:
@@ -20167,6 +20165,8 @@ def main():
                 highlight_pool.shutdown(wait=True)
             if render_pool:
                 render_pool.shutdown(wait=True)
+        if early_audio is not None:
+            early_audio.stop()
         print(f"\nСТОП: модель зрения выключилась на слоте {vision_lost[0] + 1} "
               f"({vision_lost[1]}). Кадры дальше шли бы без проверки гейтов — "
               f"ролик не собирается. Перезапуск продолжит с кэша (готовые слоты "

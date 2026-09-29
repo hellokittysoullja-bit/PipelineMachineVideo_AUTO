@@ -37,7 +37,9 @@ except Exception:
 PY
 )
     # 2) запасной: статическая сборка johnvansickle (ffmpeg 7).
-    for u in "$URL" "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"; do
+    for u in "$URL" \
+             "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-linux64-gpl-7.1.tar.xz" \
+             "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"; do
       [ -n "$u" ] || continue
       if curl -sfL --max-time 300 "$u" -o $D/f.tar.xz && tar -xf $D/f.tar.xz -C $D; then
         B=$(find $D -type f -name ffmpeg -perm -u+x | head -1); P=$(find $D -type f -name ffprobe | head -1)
@@ -77,5 +79,15 @@ P_W=$!
 
 FAIL=0
 for p in $P_FF $P_PIP $P_W; do wait $p || FAIL=1; done
+# Версии стека — в лог (аудит: какой именно набор собрал этот под).
+python - <<'PY'
+import importlib
+for m in ("torch", "torchvision", "transformers", "sentence_transformers", "huggingface_hub", "numpy", "cv2", "PIL"):
+    try:
+        print("  пакет", m, importlib.import_module(m).__version__)
+    except Exception as e:  # noqa: BLE001
+        print("  пакет", m, "НЕ ИМПОРТИРУЕТСЯ:", type(e).__name__)
+PY
+ffmpeg -version | head -1
 say "подготовка окончена (ошибка: $FAIL)"
 exit $FAIL
