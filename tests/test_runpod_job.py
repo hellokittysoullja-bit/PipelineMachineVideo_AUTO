@@ -210,5 +210,9 @@ def test_cheapest_fitting_community_gpu_first():
     types.append({"id": "NVIDIA GeForce RTX 5090", "displayName": "RTX 5090", "memoryInGb": 32,
                   "communityCloud": True,
                   "lowestPrice": {"uninterruptablePrice": 0.1, "stockStatus": "High"}})
-    # при равной цене — больше памяти вперёд; Blackwell вне автоподбора
-    assert rj.cheapest_gpus(types) == ["a6000", "a40", "pro4500"]
+    # при равной цене — больше памяти вперёд; Blackwell — только на образе с CUDA 12.8+
+    old = "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04"
+    assert rj.cheapest_gpus(types, image=old) == ["a6000", "a40", "pro4500"]
+    assert rj.cheapest_gpus(types)[0] == "NVIDIA GeForce RTX 5090"
+    assert rj.image_supports_blackwell("runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2204")
+    assert not rj.image_supports_blackwell(old)

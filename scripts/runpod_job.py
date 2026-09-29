@@ -54,7 +54,8 @@ REPO = os.path.dirname(HERE)
 API = "https://api.runpod.io/graphql"
 DEFAULT_GPUS = ("NVIDIA GeForce RTX 4090", "NVIDIA L40S", "NVIDIA RTX 6000 Ada Generation",
                 "NVIDIA RTX A6000")   # образец порядка для --gpu; по умолчанию — cheapest_gpus
-DEFAULT_IMAGE = "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04"
+# torch 2.8 + CUDA 12.8: запускается и на картах Blackwell (RTX 5090 и др.).
+DEFAULT_IMAGE = "runpod/pytorch:2.8.0-py3.11-cuda12.8.1-cudnn-devel-ubuntu22.04"
 PORT = 8000
 # Cloudflare перед api.runpod.io отвечает 403 на стандартную подпись клиента
 # Python (проверено 29.09: curl проходит, urllib — нет); та же защита, что у
@@ -120,13 +121,21 @@ def plan(key, gpus=None, community=True):
     return gql(q, key)
 
 
-# Карты Blackwell (sm_120) требуют CUDA 12.8 и свежий torch — образ по
-# умолчанию (torch 2.4, CUDA 12.4) на них модель не запустит: оплаченный под
-# упал бы на первом же проходе. Исключаются из автоподбора, пока образ старый.
-NEEDS_NEWER_IMAGE = ("5090", "5080", "B200", "B300", "RTX PRO")
+# Карты Blackwell (sm_120) требуют CUDA 12.8 и torch от 2.7: на образе
+# старше модель не запустится, и оплаченный под упал бы на первом проходе.
+BLACKWELL = ("5090", "5080", "B200", "B300", "RTX PRO")
 
 
-def cheapest_gpus(gpu_types, min_gb=MIN_GPU_GB):
+def image_supports_blackwell(image):
+    import re
+    m = re.search(r"cuda(\d+)\.(\d+)|cu(\d{2})(\d)", image or "")
+    if not m:
+        return False
+    major, minor = (int(m.group(1)), int(m.group(2))) if m.group(1) else (int(m.group(3)), int(m.group(4)))
+    return (major, minor) >= (12, 8)
+
+
+def cheapest_gpus(gpu_types, min_gb=MIN_GPU_GB, image=DEFAULT_IMAGE):
     """Карты community, которые сейчас есть в наличии и вмещают модели, —
     от дешёвой к дорогой (по текущей цене, а не прейскуранту: у карты без
     свободных машин цены «сейчас» нет)."""
@@ -135,7 +144,7 @@ def cheapest_gpus(gpu_types, min_gb=MIN_GPU_GB):
         lp = g.get("lowestPrice") or {}
         price = lp.get("uninterruptablePrice")
         name = f"{g.get('id', '')} {g.get('displayName', '')}"
-        if any(t in name for t in NEEDS_NEWER_IMAGE):
+        if any(t in name for t in BLACKWELL) and not image_supports_blackwell(image):
             continue
         if (g.get("communityCloud") and price is not None and lp.get("stockStatus")
                 and (g.get("memoryInGb") or 0) >= min_gb):
@@ -311,7 +320,7 @@ def main(argv=None):
     print(f"Баланс Runpod ${me['clientBalance']:.2f}, лимит трат ${me['spendLimit']}/ч, "
           f"сейчас тратится ${me['currentSpendPerHr']}/ч")
     by_id = {g["id"]: g for g in info["gpuTypes"]}
-    gpus = a.gpu or cheapest_gpus(info["gpuTypes"], a.min_gb)[:6]
+    gpus = a.gpu or cheapest_gpus(info["gpuTypes"], a.min_gb, a.image)[:6]
     if not gpus:
         print(f"  нет свободных карт community от {a.min_gb} ГБ")
         if a.plan:
