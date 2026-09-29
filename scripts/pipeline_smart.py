@@ -178,6 +178,13 @@ def _render_worker_background_priority():
     except Exception:
         pass
 
+
+def _render_worker_init(nvenc_gate=None):
+    """Инициализация воркера рендера: пониженный приоритет и общий счётчик
+    сессий NVENC (make_nvenc_gate)."""
+    _render_worker_background_priority()
+    set_nvenc_gate(nvenc_gate)
+
 # Позиционный аргумент (путь к эпизоду) отделён от флагов явно, а не просто
 # sys.argv[1] — иначе --plan-only (см. ниже) пришлось бы всегда ставить
 # строго ПОСЛЕДНИМ аргументом, а любая опечатка в порядке аргументов молча
@@ -358,10 +365,81 @@ def clip_encoder():
     return "nvenc" if os.environ.get("CLIP_ENCODER_RESOLVED") == "nvenc" else "x264"
 
 
+# ЛИМИТ СЕССИЙ NVENC (аудит 29.09). Драйвер GeForce (RTX 4090 и остальные)
+# держит не больше 8 одновременных сессий кодера на систему (с драйвера
+# 551.23; на старых — 3-5), а воркеров рендера — ядра минус одно: на
+# рабочей станции с 16-24 ядрами каждый сверх восьмого получал отказ
+# драйвера, тратил попытку и переводил свой процесс на x264 до конца
+# прогона. У профессиональных карт (RTX 6000 Ada, A6000) лимита нет.
+# Сессия занимается на время одного ffmpeg; свободной нет — этот клип
+# кодируется x264 сразу, без ожидания: фильтры клипа и так считает
+# процессор, ждать кодер значило бы простаивать ядрами.
+GEFORCE_NVENC_SESSIONS = 8
+_NVENC_GATE = [None]
+_CLIP_ENC_LOCAL = threading.local()
+
+
+def nvenc_session_limit():
+    """Сколько сессий NVENC занимать одновременно, или None — без лимита.
+    NVENC_MAX_SESSIONS в окружении — явное число (другие программы на
+    машине, например OBS, тоже держат сессии)."""
+    env = (os.environ.get("NVENC_MAX_SESSIONS") or "").strip()
+    if env.isdigit() and int(env) > 0:
+        return int(env)
+    try:
+        r = subprocess.run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                           capture_output=True, text=True, timeout=15)
+        names = [n.strip() for n in (r.stdout or "").splitlines() if n.strip()]
+    except Exception:
+        names = []
+    if not names or any(k in n.upper() for n in names for k in ("GEFORCE", "TITAN")):
+        # Имя не прочиталось — считаем картой с лимитом: лишний клип на
+        # x264 безвреден, отказ драйвера — нет.
+        return GEFORCE_NVENC_SESSIONS
+    return None
+
+
+def make_nvenc_gate(ctx):
+    """Общий для процессов рендера счётчик сессий (или None: NVENC не
+    выбран или лимита нет)."""
+    if os.environ.get("CLIP_ENCODER_RESOLVED") != "nvenc":
+        return None
+    limit = nvenc_session_limit()
+    return None if limit is None else ctx.BoundedSemaphore(limit)
+
+
+def set_nvenc_gate(gate):
+    _NVENC_GATE[0] = gate
+
+
+@contextlib.contextmanager
+def clip_encoder_session():
+    """Кодер одного ffmpeg: занимает сессию NVENC на время блока, а если
+    свободной нет — отдаёт x264. clip_codec_args() внутри блока строит
+    аргументы под этот выбор."""
+    enc = clip_encoder()
+    gate = _NVENC_GATE[0]
+    held = False
+    if enc == "nvenc" and gate is not None:
+        held = gate.acquire(False)
+        if not held:
+            enc = "x264"
+    prev = getattr(_CLIP_ENC_LOCAL, "enc", None)
+    _CLIP_ENC_LOCAL.enc = enc
+    try:
+        yield enc
+    finally:
+        _CLIP_ENC_LOCAL.enc = prev
+        if held:
+            gate.release()
+
+
 def clip_codec_args():
     """Аргументы кодера клипа (кодек, качество, формат пикселя). На x264 —
-    ровно прежние libx264/RENDER_PRESET/RENDER_CRF/CLIP_PIX_ARGS."""
-    if clip_encoder() == "nvenc":
+    ровно прежние libx264/RENDER_PRESET/RENDER_CRF/CLIP_PIX_ARGS. Внутри
+    clip_encoder_session() — кодер, выбранный сессией."""
+    enc = getattr(_CLIP_ENC_LOCAL, "enc", None) or clip_encoder()
+    if enc == "nvenc" and not _NVENC_BROKEN[0]:
         return list(NVENC_CLIP_ARGS)
     return ["-c:v", "libx264", "-preset", RENDER_PRESET, "-crf", RENDER_CRF] + CLIP_PIX_ARGS
 
@@ -11219,7 +11297,10 @@ def run_ffmpeg_with_retry(build_cmd, tmp_out, expected_dur, label=""):
             except OSError:
                 pass
         try:
-            r = build_cmd()
+            # Сессия кодера — на одну попытку: после отказа NVENC следующая
+            # строит аргументы заново, уже под x264 (note_encoder_failure).
+            with clip_encoder_session():
+                r = build_cmd()
         except subprocess.TimeoutExpired:
             # РЕАЛЬНЫЙ случай, пойманный при разработке (см. render_timeout_sec):
             # ffmpeg на битом/усечённом входе не падает с ошибкой декода —
@@ -14975,6 +15056,7 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
     proc = None
     stderr_f = None
     stderr_path = None
+    enc_stack = contextlib.ExitStack()   # сессия NVENC — до конца записи кадров
     try:
         frames = max(1, round(dur * FPS))
         cw, ch = round(WIDTH * PARALLAX_MARGIN), round(HEIGHT * PARALLAX_MARGIN)
@@ -15129,6 +15211,7 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
         else:
             cmd += ["-vf", vf]
         tmp_out = render_tmp_path(out)
+        enc_stack.enter_context(clip_encoder_session())
         cmd += ["-frames:v", str(frames)] + clip_codec_args() + ["-r", str(FPS)] + COLOR_META_ARGS + [tmp_out]
         # РЕАЛЬНЫЙ баг, пойманный на реальном продакшн-рендере (не гипотеза):
         # stderr=subprocess.PIPE здесь НИКОГДА не вычитывался, пока родитель
@@ -15269,6 +15352,7 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
                 os.remove(stderr_path)
             except OSError:
                 pass
+        enc_stack.close()
 
 
 # Не динамический ramp внутри клипа (это отдельная и намного более сложная
@@ -15471,22 +15555,28 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
         if title or stat or captions:
             full_tail = add_overlays(tail, dur, title, stat, stat_variant, stat_delay)
             full_tail = add_kinetic_captions(full_tail, captions)
-        cmd = ["ffmpeg", "-y", "-i", vid]
         if GRAIN_ENABLED:
-            cmd += ["-stream_loop", "-1", "-i", GRAIN_LOOP_PATH]
             filter_complex = (f"[0:v]{scale_crop}[base];{ramp_filter};"
                                f"[ramped]{full_tail}[gr_in];{grain_blend_complex('gr_in', 1, 'vout', grain_scale)}")
         else:
             filter_complex = f"[0:v]{scale_crop}[base];{ramp_filter};[ramped]{full_tail}[vout]"
-        cmd += ["-filter_complex", filter_complex,
-               "-map", "[vout]", "-frames:v", str(frames), "-an"] + clip_codec_args() + [
-               "-r", str(FPS)] + COLOR_META_ARGS
-        if ffmpeg_threads:
-            cmd += ["-threads", str(ffmpeg_threads)]
-        cmd += [tmp_out]
-        ok, reason = run_ffmpeg_with_retry(
-            lambda: subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=render_timeout_sec(dur)),
-            tmp_out, dur, os.path.basename(out))
+
+        def render_ramp():
+            # Команда — на каждую попытку: аргументы кодера зависят от
+            # сессии (clip_encoder_session). Собранная один раз до повторов,
+            # она повторяла отказавший NVENC трижды, и клип терял замедление.
+            cmd = ["ffmpeg", "-y", "-i", vid]
+            if GRAIN_ENABLED:
+                cmd += ["-stream_loop", "-1", "-i", GRAIN_LOOP_PATH]
+            cmd += ["-filter_complex", filter_complex,
+                    "-map", "[vout]", "-frames:v", str(frames), "-an"] + clip_codec_args() + [
+                    "-r", str(FPS)] + COLOR_META_ARGS
+            if ffmpeg_threads:
+                cmd += ["-threads", str(ffmpeg_threads)]
+            cmd += [tmp_out]
+            return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                                  errors="replace", timeout=render_timeout_sec(dur))
+        ok, reason = run_ffmpeg_with_retry(render_ramp, tmp_out, dur, os.path.basename(out))
         if ok:
             return finalize_render(tmp_out, out, True)
         print(f"  speed ramp не встал на видео ({os.path.basename(out)}): {reason} — рисую без ramp")
@@ -18158,10 +18248,14 @@ def main():
     # get_depth_model()/sentence_relevance(), не на уровне модуля — см.
     # `import` в этих функциях) — воркер, вызывающий только kenburns()/
     # video_render(), никогда их не касается и не тянет ни байта моделей.
+    _spawn_ctx = multiprocessing.get_context("spawn")
+    nvenc_gate = (make_nvenc_gate(_spawn_ctx)
+                  if RENDER_POOL_ENABLED and not SELECT_ONLY else None)
+    set_nvenc_gate(nvenc_gate)
     render_pool = (concurrent.futures.ProcessPoolExecutor(
                        max_workers=RENDER_POOL_WORKERS,
-                       mp_context=multiprocessing.get_context("spawn"),
-                       initializer=_render_worker_background_priority)
+                       mp_context=_spawn_ctx,
+                       initializer=_render_worker_init, initargs=(nvenc_gate,))
                    if RENDER_POOL_ENABLED and not SELECT_ONLY else None)
     # Параллакс-кадры рисуются покадрово в этом процессе (depth-модель живёт
     # здесь) — раньше прямо в цикле отбора, и следующий слот ждал рендера.

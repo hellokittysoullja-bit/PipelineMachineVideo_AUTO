@@ -559,3 +559,117 @@ def test_every_model_forward_goes_through_ml_device_run():
         src = inspect.getsource(mod)
         bare = re.findall(r"^\s*\w+ = model\.(?:get_text_features|get_image_features)\(", src, re.M)
         assert not bare, (mod.__name__, bare)
+
+
+# ---------- лимит сессий NVENC (аудит 29.09) ----------
+
+def _nvenc_on(monkeypatch):
+    monkeypatch.setenv("CLIP_ENCODER_RESOLVED", "nvenc")
+    monkeypatch.setattr(ps, "_NVENC_BROKEN", [False])
+
+
+def test_session_limit_by_card_name(monkeypatch):
+    import subprocess as sp
+
+    def smi(name):
+        return lambda *a, **k: sp.CompletedProcess(a, 0, stdout=name + "\n", stderr="")
+    monkeypatch.delenv("NVENC_MAX_SESSIONS", raising=False)
+    monkeypatch.setattr(ps.subprocess, "run", smi("NVIDIA GeForce RTX 4090"))
+    assert ps.nvenc_session_limit() == ps.GEFORCE_NVENC_SESSIONS == 8
+    monkeypatch.setattr(ps.subprocess, "run", smi("NVIDIA RTX 6000 Ada Generation"))
+    assert ps.nvenc_session_limit() is None
+
+    def missing(*a, **k):
+        raise FileNotFoundError("nvidia-smi")
+    monkeypatch.setattr(ps.subprocess, "run", missing)
+    assert ps.nvenc_session_limit() == 8          # не знаем карту — считаем с лимитом
+    monkeypatch.setenv("NVENC_MAX_SESSIONS", "3")
+    assert ps.nvenc_session_limit() == 3
+
+
+def test_no_gate_without_nvenc(monkeypatch):
+    import multiprocessing
+    monkeypatch.setenv("CLIP_ENCODER_RESOLVED", "x264")
+    assert ps.make_nvenc_gate(multiprocessing.get_context("spawn")) is None
+
+
+def test_full_gate_gives_x264_and_frees_the_slot(monkeypatch):
+    import threading
+    _nvenc_on(monkeypatch)
+    monkeypatch.setattr(ps, "_NVENC_GATE", [threading.BoundedSemaphore(1)])
+    with ps.clip_encoder_session() as first:
+        assert first == "nvenc" and ps.clip_codec_args()[1] == "hevc_nvenc"
+        seen = []
+
+        def other():
+            with ps.clip_encoder_session() as enc:
+                seen.append((enc, ps.clip_codec_args()[1]))
+        t = threading.Thread(target=other)
+        t.start(); t.join()
+        assert seen == [("x264", "libx264")]      # мест нет — сразу x264, без ожидания
+    try:
+        with ps.clip_encoder_session():
+            raise RuntimeError("сбой внутри")
+    except RuntimeError:
+        pass
+    with ps.clip_encoder_session() as again:      # сессия возвращена и после сбоя
+        assert again == "nvenc"
+
+
+def _worker_codec(_):
+    import pipeline_smart as p
+    with p.clip_encoder_session():
+        return p.clip_codec_args()[1]
+
+
+def test_gate_is_shared_across_render_processes(monkeypatch):
+    import concurrent.futures
+    import multiprocessing
+    _nvenc_on(monkeypatch)
+    monkeypatch.setenv("NVENC_MAX_SESSIONS", "1")
+    ctx = multiprocessing.get_context("spawn")
+    gate = ps.make_nvenc_gate(ctx)
+    assert gate is not None
+    gate.acquire()                                 # единственную сессию держит главный процесс
+    try:
+        with concurrent.futures.ProcessPoolExecutor(1, mp_context=ctx, initializer=ps._render_worker_init,
+                                                    initargs=(gate,)) as ex:
+            assert ex.submit(_worker_codec, 0).result(timeout=300) == "libx264"
+    finally:
+        gate.release()
+    with concurrent.futures.ProcessPoolExecutor(1, mp_context=ctx, initializer=ps._render_worker_init,
+                                                initargs=(gate,)) as ex:
+        assert ex.submit(_worker_codec, 0).result(timeout=300) == "hevc_nvenc"
+
+
+def test_retry_after_nvenc_failure_rebuilds_codec_args(monkeypatch, tmp_path):
+    import subprocess as sp
+    _nvenc_on(monkeypatch)
+    monkeypatch.setattr(ps, "_NVENC_GATE", [None])
+    monkeypatch.setattr(ps, "RENDER_RETRY_BACKOFF_SEC", 0)
+    monkeypatch.setattr(ps, "verify_clip", lambda *a, **k: (True, "ok", None))
+    seen = []
+
+    def build():
+        codec = ps.clip_codec_args()[1]
+        seen.append(codec)
+        if codec == "hevc_nvenc":
+            return sp.CompletedProcess([], 1, stdout="", stderr="[hevc_nvenc] OpenEncodeSessionEx failed")
+        return sp.CompletedProcess([], 0, stdout="", stderr="")
+    ok, _ = ps.run_ffmpeg_with_retry(build, str(tmp_path / "c.mp4"), 1.0, "c")
+    assert ok and seen == ["hevc_nvenc", "libx264"]
+
+
+def test_speed_ramp_command_is_built_per_attempt():
+    """Команда видео с замедлением строится внутри попытки: собранная до
+    повторов, она трижды повторяла отказавший NVENC, и клип терял замедление."""
+    src = open(os.path.join(REPO_ROOT, "scripts", "pipeline_smart.py"), encoding="utf-8").read()
+    body = src[src.index("def render_ramp():"):src.index("run_ffmpeg_with_retry(render_ramp")]
+    assert "clip_codec_args()" in body
+
+
+def test_parallax_holds_a_session_for_the_whole_encode():
+    src = open(os.path.join(REPO_ROOT, "scripts", "pipeline_smart.py"), encoding="utf-8").read()
+    fn = src[src.index("def parallax_kenburns("):src.index("SPEED_BIAS = {")]
+    assert "enc_stack.enter_context(clip_encoder_session())" in fn
+    assert "enc_stack.close()" in fn[fn.rindex("    finally:"):]
