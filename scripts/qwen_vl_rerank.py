@@ -86,9 +86,9 @@ def _load():
         import torch
         from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
         import ml_device
-        dev = ml_device.device()
-        if dev != "cuda":
-            raise RuntimeError(f"нужна видеокарта CUDA, устройство моделей: {dev}")
+        if ml_device.device() != "cuda":
+            raise RuntimeError(f"нужна видеокарта CUDA, устройство моделей: {ml_device.device()}")
+        dev = ml_device.device_for("rerank")
         lm = Qwen3VLForConditionalGeneration.from_pretrained(
             MODEL_NAME, torch_dtype=torch.bfloat16, attn_implementation="sdpa")
         processor = AutoProcessor.from_pretrained(MODEL_NAME, padding_side="left")
@@ -126,22 +126,42 @@ def _fail(e):
     return None
 
 
-def _score_one(query, image, instruction):
-    import torch
-    import ml_device
-    model, processor, linear, dev = (_STATE["model"], _STATE["processor"], _STATE["linear"],
-                                     _STATE["device"])
-    if model is None:
+def _inputs(query, image, instruction):
+    """Входы одной пары — на процессоре (шаблон диалога, токенизация,
+    нарезка картинки на патчи). Не трогает видеокарту и не зависит от
+    других пар, поэтому готовится параллельно с проходами соседних пар."""
+    processor = _STATE["processor"]
+    if processor is None:
         raise RuntimeError("реранкер отключён другим потоком")
     conv = conversation(query, image, instruction)
     text = processor.apply_chat_template([conv], tokenize=False, add_generation_prompt=True)
-    inputs = processor(text=text, images=[image], truncation=False, padding=True,
-                       do_resize=False, return_tensors="pt")
+    return processor(text=text, images=[image], truncation=False, padding=True,
+                     do_resize=False, return_tensors="pt")
+
+
+def _forward(inputs):
+    """Проход модели по ОДНОЙ паре — как в официальном коде: пачка с
+    дополнением меняла бы числа от соседей по пачке (bf16), а порог
+    smart_rerank калибруется на оценках по одной паре."""
+    import torch
+    import ml_device
+    model, linear, dev = _STATE["model"], _STATE["linear"], _STATE["device"]
+    if model is None:
+        raise RuntimeError("реранкер отключён другим потоком")
     inputs = {k: v.to(dev) for k, v in inputs.items()}
     with torch.inference_mode():
-        h = ml_device.run(lambda: model(**inputs).last_hidden_state[:, -1])
+        h = ml_device.run(lambda: model(**inputs).last_hidden_state[:, -1], dev)
         s = torch.sigmoid(linear(h)).squeeze(-1).float()
     return float(s.cpu()[0])
+
+
+def _score_one(query, image, instruction):
+    return _forward(_inputs(query, image, instruction))
+
+
+# Сколько пар готовится на процессоре одновременно (см. _inputs). Проходы
+# по видеокарте от этого не меняются: они всё равно по одному.
+PREP_WORKERS = 4
 
 
 def _digest(im):
@@ -190,8 +210,8 @@ def score(query, images, instruction=None):
     with _LOCK:
         if not _load():
             return None
-    out = []
     try:
+        prepared = []
         for img in images:
             try:
                 if isinstance(img, str):
@@ -200,15 +220,22 @@ def score(query, images, instruction=None):
                 else:
                     pil = prepare_image(img)
             except Exception:  # noqa: BLE001 — нечитаемый файл: оценки нет
-                out.append(None)
+                prepared.append(None)
                 continue
             key = _key(query, _digest(pil), instruction)
-            v = _cached(key)
-            if v is None:
-                v = _score_one(query, pil, instruction)
-                _store(key, v)
-            out.append(v)
-        return out
+            prepared.append((key, pil, _cached(key)))
+        todo = [p for p in prepared if p is not None and p[2] is None]
+        fresh = {}
+        if todo:
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(min(PREP_WORKERS, len(todo))) as ex:
+                futs = [ex.submit(_inputs, query, pil, instruction) for _k, pil, _v in todo]
+                for (key, _pil, _v), fut in zip(todo, futs):
+                    if key not in fresh:
+                        fresh[key] = _forward(fut.result())
+                        _store(key, fresh[key])
+        return [None if p is None else (p[2] if p[2] is not None else fresh[p[0]])
+                for p in prepared]
     except Exception as e:  # noqa: BLE001 — см. _fail
         with _LOCK:
             return _fail(e)

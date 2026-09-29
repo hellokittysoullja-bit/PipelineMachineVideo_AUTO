@@ -68,6 +68,9 @@ WEIGHTS_GIB = {"Qwen/Qwen3-VL-Embedding-8B": 15.17, "Qwen/Qwen3-VL-Reranker-2B":
 # глубины, контекст CUDA. Оценка, а не замер (видеокарты в среде, где это
 # писалось, нет) — с запасом, чтобы отказ был здесь, а не посреди слота.
 HEADROOM_GIB = 2.5
+# Реранкер на второй карте (ml_device.device_for): только его активации на
+# одну пару и контекст CUDA.
+SECOND_GPU_HEADROOM_GIB = 1.0
 
 
 class NotCalibrated(RuntimeError):
@@ -204,38 +207,54 @@ def readiness(embed=True, rerank=True):
 
 
 def vram_need_gib(embed=True, rerank=True):
-    """Сколько свободной видеопамяти нужно моделям, которые прогон позовёт
-    (веса + запас); None — размер какой-то из них неизвестен."""
+    """{устройство: ГиБ} свободной видеопамяти, нужной моделям, которые
+    прогон позовёт (веса + запас); None — размер какой-то из них неизвестен.
+    Эмбеддинг — на cuda:0 вместе с запасом на пачки каскада и прочие модели;
+    реранкер — там, где его разместит ml_device.device_for (вторая карта,
+    если их две, со своим меньшим запасом на свои активации)."""
+    import ml_device
     import qwen_vl_embed
     import qwen_vl_rerank
-    names = ([qwen_vl_embed.MODEL_NAME] if embed else []) + \
-        ([qwen_vl_rerank.MODEL_NAME] if rerank else [])
-    if not names or any(n not in WEIGHTS_GIB for n in names):
+    if (embed and qwen_vl_embed.MODEL_NAME not in WEIGHTS_GIB) or \
+            (rerank and qwen_vl_rerank.MODEL_NAME not in WEIGHTS_GIB):
         return None
-    return sum(WEIGHTS_GIB[n] for n in names) + HEADROOM_GIB
+    need = {}
+    if embed:
+        need["cuda:0"] = WEIGHTS_GIB[qwen_vl_embed.MODEL_NAME] + HEADROOM_GIB
+    if rerank:
+        dev = ml_device.device_for("rerank")
+        base = need.get(dev, 0.0)
+        if not base:
+            base = HEADROOM_GIB if dev == "cuda:0" else SECOND_GPU_HEADROOM_GIB
+        need[dev] = base + WEIGHTS_GIB[qwen_vl_rerank.MODEL_NAME]
+    return need or None
 
 
 def vram_shortage(embed=True, rerank=True):
-    """Текст отказа, если свободной видеопамяти меньше нужного, иначе None.
-    Уже загруженные модели свою память заняли — их доля не требуется снова."""
+    """Текст отказа, если на какой-то карте свободной видеопамяти меньше
+    нужного, иначе None. Уже загруженные модели свою память заняли — их доля
+    не требуется снова."""
     import qwen_vl_embed
     import qwen_vl_rerank
     need = vram_need_gib(embed and qwen_vl_embed._STATE.get("model") is None,
                          rerank and qwen_vl_rerank._STATE.get("model") is None)
-    if need is None:
+    if not need:
         return None
     try:
         import torch
-        free, total = torch.cuda.mem_get_info()
-        name = torch.cuda.get_device_name(0)
+        short = []
+        for dev, gib in sorted(need.items()):
+            idx = int(dev.split(":")[1])
+            free, total = torch.cuda.mem_get_info(idx)
+            if free / 2 ** 30 < gib:
+                short.append(f"{torch.cuda.get_device_name(idx)} ({dev}) — свободно "
+                             f"{free / 2 ** 30:.1f} из {total / 2 ** 30:.1f} ГиБ, нужно ~{gib:.1f}")
     except Exception:  # noqa: BLE001 — не спросилось: решит сама загрузка
         return None
-    free_gib, total_gib = free / 2 ** 30, total / 2 ** 30
-    if free_gib >= need:
+    if not short:
         return None
-    return (f"мало видеопамяти: {name} — свободно {free_gib:.1f} из {total_gib:.1f} ГиБ, "
-            f"моделям зрения нужно ~{need:.1f} ГиБ (веса + запас на пачки). Закрыть другие "
-            f"процессы на карте или взять карту от 24 ГБ")
+    return ("мало видеопамяти для моделей зрения (веса + запас на пачки): "
+            + "; ".join(short) + ". Закрыть другие процессы на карте или взять карту от 24 ГБ")
 
 
 _REQUIRED = {"embed": False, "rerank": False}

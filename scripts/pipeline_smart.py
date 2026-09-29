@@ -12740,8 +12740,11 @@ def print_compute_devices():
             pass
     import qwen_vl_embed
     import qwen_vl_rerank
+    rr_dev = ml_device.device_for("rerank")
     print(f"  Устройство моделей: {dev}{name}; зрение: {qwen_vl_embed.MODEL_NAME} + "
-          f"{qwen_vl_rerank.MODEL_NAME}; кодер клипов: {clip_encoder()}")
+          f"{qwen_vl_rerank.MODEL_NAME}"
+          + (f" (реранкер на {rr_dev}, вторая карта)" if rr_dev not in ("cuda:0", dev) else "")
+          + f"; кодер клипов: {clip_encoder()}")
 
 
 def cascade_batch():

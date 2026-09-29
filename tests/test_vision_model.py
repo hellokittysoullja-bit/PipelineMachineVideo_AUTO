@@ -129,20 +129,23 @@ def test_uncalibrated_gate_refuses_instead_of_passing(monkeypatch):
         ps.is_relevant_candidate("x.jpg", "some query")
 
 
-def _fake_vram(monkeypatch, free_gib, total_gib=24.0, name="NVIDIA GeForce RTX 4090"):
+def _fake_vram(monkeypatch, free_gib, total_gib=24.0, name="NVIDIA GeForce RTX 4090", cards=1):
+    """free_gib — число (одна карта) или список по картам."""
     torch = pytest.importorskip("torch")
+    import ml_device
+    frees = free_gib if isinstance(free_gib, (list, tuple)) else [free_gib] * cards
+    monkeypatch.setattr(ml_device, "device", lambda: "cuda")
+    monkeypatch.setattr(ml_device, "cuda_count", lambda: len(frees))
     monkeypatch.setattr(torch.cuda, "mem_get_info",
-                        lambda *a: (int(free_gib * 2 ** 30), int(total_gib * 2 ** 30)))
-    monkeypatch.setattr(torch.cuda, "get_device_name", lambda *a: name)
+                        lambda idx=0: (int(frees[idx] * 2 ** 30), int(total_gib * 2 ** 30)))
+    monkeypatch.setattr(torch.cuda, "get_device_name", lambda idx=0: name)
 
 
 def test_small_card_is_refused_before_loading(monkeypatch):
     """16 ГБ (T4): отказ с понятной причиной до загрузки весов, а не ошибка
     CUDA из глубины from_pretrained."""
-    import ml_device
     import qwen_vl_embed
     import qwen_vl_rerank
-    monkeypatch.setattr(ml_device, "device", lambda: "cuda")
     monkeypatch.setitem(qwen_vl_embed._STATE, "model", None)
     monkeypatch.setitem(qwen_vl_rerank._STATE, "model", None)
     monkeypatch.setattr(qwen_vl_embed, "available", lambda: pytest.fail("грузить нельзя"))
@@ -157,9 +160,9 @@ def test_24gb_card_fits_both_models_and_loaded_models_are_not_counted_twice(monk
     import qwen_vl_rerank
     monkeypatch.setitem(qwen_vl_embed._STATE, "model", None)
     monkeypatch.setitem(qwen_vl_rerank._STATE, "model", None)
-    need = vision_model.vram_need_gib()
-    assert need == pytest.approx(15.17 + 3.96 + vision_model.HEADROOM_GIB)
     _fake_vram(monkeypatch, 23.5)
+    assert vision_model.vram_need_gib() == {
+        "cuda:0": pytest.approx(15.17 + 3.96 + vision_model.HEADROOM_GIB)}
     assert vision_model.vram_shortage() is None
     # Эмбеддинг уже загружен (прогрев) — свободно мало, но нужен только реранкер.
     monkeypatch.setitem(qwen_vl_embed._STATE, "model", object())
@@ -167,6 +170,50 @@ def test_24gb_card_fits_both_models_and_loaded_models_are_not_counted_twice(monk
     assert vision_model.vram_shortage() is None
     _fake_vram(monkeypatch, 5.0)
     assert vision_model.vram_shortage() is not None
+
+
+def test_two_cards_put_the_reranker_on_the_second(monkeypatch):
+    """Две карты: реранкер на cuda:1 со своим замком — считает параллельно с
+    эмбеддингом первой; видеопамять проверяется по каждой карте."""
+    import ml_device
+    import qwen_vl_embed
+    import qwen_vl_rerank
+    monkeypatch.setitem(qwen_vl_embed._STATE, "model", None)
+    monkeypatch.setitem(qwen_vl_rerank._STATE, "model", None)
+    _fake_vram(monkeypatch, [18.0, 5.5])
+    assert ml_device.device_for("rerank") == "cuda:1" and ml_device.device_for("embed") == "cuda:0"
+    assert ml_device._lock("cuda:1") is not ml_device._lock("cuda:0")
+    assert ml_device._lock("cuda") is ml_device._lock(None) is ml_device._lock("cuda:0")
+    need = vision_model.vram_need_gib()
+    assert set(need) == {"cuda:0", "cuda:1"}
+    assert vision_model.vram_shortage() is None       # 18 > 17.7 и 5.5 > 4.96
+    _fake_vram(monkeypatch, [18.0, 3.0])
+    assert "cuda:1" in vision_model.vram_shortage()
+    monkeypatch.setenv("ML_RERANK_GPU", "0")
+    assert ml_device.device_for("rerank") == "cuda:0"
+
+
+def test_gpu_runs_on_different_cards_do_not_wait_for_each_other(monkeypatch):
+    import threading
+    import ml_device
+    pytest.importorskip("torch")
+    monkeypatch.setattr(ml_device, "device", lambda: "cuda")
+    inside = threading.Event()
+    release = threading.Event()
+
+    def slow():
+        inside.set()
+        release.wait(5)
+        return 1
+    t = threading.Thread(target=lambda: ml_device.run(slow, "cuda:0"))
+    t.start()
+    inside.wait(5)
+    try:
+        assert ml_device.run(lambda: 2, "cuda:1") == 2, "вторая карта ждала первую"
+        assert ml_device._lock("cuda:0").locked()
+    finally:
+        release.set()
+        t.join(5)
 
 
 def test_unknown_model_size_is_not_guessed(monkeypatch):

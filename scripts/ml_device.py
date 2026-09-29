@@ -75,13 +75,47 @@ def host(tensor):
     return tensor if device() == "cpu" else tensor.cpu()
 
 
-_GPU_LOCK = threading.Lock()
+_GPU_LOCK = threading.Lock()      # замок первой карты (cuda:0)
+_LOCKS = {"cuda:0": _GPU_LOCK}
+_LOCKS_GUARD = threading.Lock()
+
+
+@functools.lru_cache(maxsize=1)
+def cuda_count():
+    """Сколько видеокарт CUDA видит torch (0 — не CUDA)."""
+    if device() != "cuda":
+        return 0
+    try:
+        import torch
+        return int(torch.cuda.device_count())
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def device_for(role):
+    """Устройство конкретной модели. Реранкер Qwen3-VL — на ВТОРОЙ карте,
+    если их две и ML_RERANK_GPU не 0 (аудит 29.09): там он считает
+    параллельно с эмбеддингом первой карты, у каждой свой замок и своя
+    видеопамять. На одной карте всё на cuda:0 — поведение прежнее."""
+    d = device()
+    if d != "cuda":
+        return d
+    import os
+    if role == "rerank" and cuda_count() >= 2 and os.environ.get("ML_RERANK_GPU", "1") != "0":
+        return "cuda:1"
+    return "cuda:0"
+
+
+def _lock(dev):
+    key = "cuda:0" if dev in (None, "cuda") else str(dev)
+    with _LOCKS_GUARD:
+        return _LOCKS.setdefault(key, threading.Lock())
 # Паузы перед повторами прогона после нехватки видеопамяти (см. run): сразу,
 # через 2, 5 и 10 с — до ~17 с на сессии NVENC, которые держат память клипа.
 OOM_RETRY_PAUSES_SEC = (0, 2, 5, 10)
 
 
-def run(fn):
+def run(fn, dev=None):
     """Прогон модели. На процессоре — просто fn(): путь байт в байт прежний.
 
     На видеокарте (аудит 28.09) — по одному прогону за раз и с одним
@@ -95,7 +129,7 @@ def run(fn):
     import time
     import torch
     oom = getattr(torch.cuda, "OutOfMemoryError", RuntimeError)
-    with _GPU_LOCK:
+    with _lock(dev):
         for pause in OOM_RETRY_PAUSES_SEC:
             try:
                 return fn()
