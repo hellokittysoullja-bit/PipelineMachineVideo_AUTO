@@ -757,7 +757,7 @@ def _noise_at(tmp, name, lufs_target, dur=6.0):
     # использует build_fixture() в level_regression.py для голоса сцены.
     subprocess.run(
         ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
-         f"anoisesrc=d={dur}:c=pink:r=48000", "-af",
+         f"anoisesrc=d={dur}:c=pink:r=48000:seed=1", "-af",
          f"loudnorm=I={lufs_target}:TP=-3.0", "-ar", "48000", "-ac", "2", p],
         capture_output=True)
     return p
@@ -773,7 +773,12 @@ def test_ambience_segment_gain_targets_the_common_loudness(tmp_path):
     """
     import pipeline_smart as ps
 
-    quiet = _noise_at(str(tmp_path), "quiet", -50.0)
+    # -49, а не -50: цель -40 и потолок усиления +10 дБ, и при -50 фикстура
+    # стояла ровно на границе — случайный шум без seed мерился как -50.1 в
+    # ~1 запуске из 10, и усиление честно помечалось measured_clamped
+    # (замер 29.09: 2 из 20). Тест проверяет выход в целевую точку, а не
+    # поведение на границе потолка.
+    quiet = _noise_at(str(tmp_path), "quiet", -49.0)
     loud = _noise_at(str(tmp_path), "loud", -30.0)
 
     before_gap = abs(ps.measure_integrated_lufs(loud) - ps.measure_integrated_lufs(quiet))
