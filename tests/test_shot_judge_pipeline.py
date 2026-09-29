@@ -414,6 +414,36 @@ def test_walk_never_asks_more_than_the_grid_holds(tmp_path, monkeypatch):
         "не проверенные не могут обойти проверенных"
 
 
+def test_extra_portions_skip_frames_the_grid_scored_zero(tmp_path, monkeypatch):
+    """Кадр с оценкой сетки 0 одобрен быть не может: ответ проверки по нему
+    обнуляется (grid_vetoed). Живой перепрогон 28.09: из 48 новых вопросов
+    третьей порции 32 ушли на такие кадры — 26 307 из 37 169 токенов, при
+    среднем ~736 токенов за вопрос. Порции после первой их не спрашивают."""
+    n = ps.VERIFY_FINALISTS * 4
+    info, asked = _walk_setup(tmp_path, monkeypatch, n, {"c12"})
+    import shot_judge as sj
+    zero = {f"c{k}" for k in list(range(5, 10)) + list(range(15, 20))}
+    monkeypatch.setattr(sj, "judge", lambda *a, **k: {c["p"]["id"]: (0 if c["p"]["id"] in zero else 1)
+                                                      for c in info})
+    assert ps.judge_candidates(0, "photo", "x", "y", info)
+    assert not (set(asked) & zero), "нулевые кадры сетки не спрашивались"
+    assert sorted(asked) == sorted(f"c{k}" for k in list(range(0, 5)) + list(range(10, 15)))
+    win = ps._score_and_pick(info)[0]
+    assert win["p"]["id"] == "c12" and isinstance(win["verify"], tuple)
+
+
+def test_grid_failure_does_not_hide_candidates_from_extra_portions(tmp_path, monkeypatch):
+    """Сетка не ответила — оценок нет ни у кого, «нулевых» тоже; проверка
+    остаётся единственным судьёй и доходит до конца."""
+    n = ps.VERIFY_FINALISTS * 4
+    info, asked = _walk_setup(tmp_path, monkeypatch, n, {f"c{n - 1}"})
+    import shot_judge as sj
+    monkeypatch.setattr(sj, "judge", lambda *a, **k: None)
+    assert ps.judge_candidates(0, "photo", "x", "y", info)
+    assert len(asked) == n
+    assert ps._score_and_pick(info)[0]["p"]["id"] == f"c{n - 1}"
+
+
 def test_world_breaker_needs_several_slots_not_one(monkeypatch, capsys):
     """Один слот с десятком современных ножей («Вот кинжал») — ровно тот
     случай, ради которого отказ по миру заведён; он не имеет права
