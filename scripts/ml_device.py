@@ -76,6 +76,9 @@ def host(tensor):
 
 
 _GPU_LOCK = threading.Lock()
+# Паузы перед повторами прогона после нехватки видеопамяти (см. run): сразу,
+# через 2, 5 и 10 с — до ~17 с на сессии NVENC, которые держат память клипа.
+OOM_RETRY_PAUSES_SEC = (0, 2, 5, 10)
 
 
 def run(fn):
@@ -89,11 +92,21 @@ def run(fn):
     результат не влияет: каждый вызов считает свой вход."""
     if device() == "cpu":
         return fn()
+    import time
     import torch
     oom = getattr(torch.cuda, "OutOfMemoryError", RuntimeError)
     with _GPU_LOCK:
-        try:
-            return fn()
-        except oom:
-            torch.cuda.empty_cache()
-            return fn()
+        for pause in OOM_RETRY_PAUSES_SEC:
+            try:
+                return fn()
+            except oom:
+                # Нехватка видеопамяти обычно временная: выбор кадров идёт
+                # одновременно с кодированием клипов на NVENC (сессия
+                # кодера занимает видеопамять секунды, пока идёт клип). На
+                # 4090 веса моделей зрения — 19 ГиБ из 24, и один повтор
+                # подряд приходился на ту же занятую память. Пауза даёт
+                # сессиям закончиться; решение модели от паузы не меняется.
+                torch.cuda.empty_cache()
+                if pause:
+                    time.sleep(pause)
+        return fn()

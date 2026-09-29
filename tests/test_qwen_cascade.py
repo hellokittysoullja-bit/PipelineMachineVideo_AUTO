@@ -77,6 +77,7 @@ def _fake_qwen(monkeypatch, ps, calls):
     monkeypatch.setattr(q, "embed_text", fake_text)
     monkeypatch.setattr(ps, "CLIP_BROKEN", False)
     monkeypatch.setattr(ps, "CLIP_ENABLED", True)
+    monkeypatch.setattr(ps, "_CASCADE_EMB", {})
     ps._CLIP_TEXT_EMB_CACHE.clear()
 
 
@@ -89,9 +90,10 @@ def _probe(p, dest):
     Image.new("RGB", (64, 48), (p["n"] * 40, 10, 10)).save(dest)
 
 
-def test_cascade_ranks_with_qwen_and_shares_vectors_with_the_gate(monkeypatch, tmp_path):
-    """Каскад и гейты — одна модель: вектор картинки, посчитанный каскадом,
-    гейт берёт готовым (по содержимому файла), а не считает заново."""
+def test_cascade_ranks_with_qwen_and_keeps_its_vectors_from_the_gate(monkeypatch, tmp_path):
+    """Каскад и гейты — одна модель, но вектор каскада посчитан в ПАЧКЕ, а
+    порог гейта откалиброван на векторах по одному кадру; в bf16 пачка
+    меняет числа — гейт считает свой вектор сам."""
     ps = _ps()
     monkeypatch.setenv("CASCADE_CACHE_DIR", str(tmp_path / "cc"))
     monkeypatch.setenv("CASCADE_RERANK_TOP", "0")
@@ -102,7 +104,7 @@ def test_cascade_ranks_with_qwen_and_shares_vectors_with_the_gate(monkeypatch, t
                              url_of=lambda p: p["src"]["large"])
     assert calls["img"] == 4 and calls["txt"] == 1
     assert out[0]["id"] == "c1", "ближе всего к запросу — кадр с вектором запроса"
-    assert len(ps._GATE_IMG_EMB_CACHE) == 4
+    assert ps._GATE_IMG_EMB_CACHE == {}, "вектор из пачки каскада попал в кэш гейта"
 
 
 def test_cascade_without_the_model_keeps_the_order(monkeypatch, tmp_path):
@@ -231,3 +233,16 @@ def test_second_failure_keeps_the_first_reason(monkeypatch):
     q._fail(RuntimeError("первая"))
     q._fail(RuntimeError("вторая"))
     assert "первая" in q._STATE["broken"] and q._STATE["model"] is None
+
+
+def test_log_counts_new_embeddings_not_the_temp_path_length(monkeypatch, tmp_path, capsys):
+    """Счётчик «новых оценок» в логе возвращал длину строки пути временного
+    файла: имя part было занято и списком кадров пачки, и путём."""
+    ps = _ps()
+    monkeypatch.setenv("CASCADE_CACHE_DIR", str(tmp_path / "cc"))
+    monkeypatch.setenv("CASCADE_RERANK_TOP", "0")
+    _fake_qwen(monkeypatch, ps, {"img": 0, "txt": 0})
+    monkeypatch.setattr(ps, "_CASCADE_EMB", {})   # адреса те же, что у соседних тестов
+    ps.cascade_reorder(_cands(3), ["a query"], str(tmp_path / "cf"), _probe, index=0,
+                       url_of=lambda p: p["src"]["large"])
+    assert "(новых оценок 3)" in capsys.readouterr().out

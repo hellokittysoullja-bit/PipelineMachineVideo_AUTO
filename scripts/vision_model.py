@@ -57,6 +57,18 @@ LEGACY_SENTENCE_SCALE = {"mean": 0.04766, "std": 0.02995}
 
 REQUIRED_THRESHOLDS = ("relevance", "risky_margin", "negative_veto_margin", "smart_rerank")
 
+# Видеопамять, которую займут веса (bf16, сумма .safetensors на Hugging Face,
+# замер 29.09) — проверяется ДО загрузки по СВОБОДНОЙ памяти карты (другие
+# процессы, рабочий стол, соседний рендер тоже в счёт). Без проверки на карте
+# в 16 ГБ отказ приходил невнятной ошибкой CUDA из глубины загрузки. Модель
+# с другим именем (QWEN_EMBED_MODEL/QWEN_RERANK_MODEL) в таблице не значится
+# — её размер не угадывается, проверка по ней пропускается.
+WEIGHTS_GIB = {"Qwen/Qwen3-VL-Embedding-8B": 15.17, "Qwen/Qwen3-VL-Reranker-2B": 3.96}
+# Сверх весов: пачка каскада (64 превью через 8B), CLIP эстетики, модель
+# глубины, контекст CUDA. Оценка, а не замер (видеокарты в среде, где это
+# писалось, нет) — с запасом, чтобы отказ был здесь, а не посреди слота.
+HEADROOM_GIB = 2.5
+
 
 class NotCalibrated(RuntimeError):
     """Порог спрошен, а калибровки для текущей модели нет."""
@@ -178,6 +190,10 @@ def readiness(embed=True, rerank=True):
         return problems
     import qwen_vl_embed
     import qwen_vl_rerank
+    lack = vram_shortage(embed, rerank)
+    if lack:
+        problems.append(lack)
+        return problems
     if embed and not qwen_vl_embed.available():
         problems.append(f"Qwen3-VL-Embedding не загрузилась: {qwen_vl_embed._STATE['broken']}")
     if rerank and not qwen_vl_rerank.available():
@@ -185,6 +201,66 @@ def readiness(embed=True, rerank=True):
     if calibration() is None:
         problems.append(calibration_problem())
     return problems
+
+
+def vram_need_gib(embed=True, rerank=True):
+    """Сколько свободной видеопамяти нужно моделям, которые прогон позовёт
+    (веса + запас); None — размер какой-то из них неизвестен."""
+    import qwen_vl_embed
+    import qwen_vl_rerank
+    names = ([qwen_vl_embed.MODEL_NAME] if embed else []) + \
+        ([qwen_vl_rerank.MODEL_NAME] if rerank else [])
+    if not names or any(n not in WEIGHTS_GIB for n in names):
+        return None
+    return sum(WEIGHTS_GIB[n] for n in names) + HEADROOM_GIB
+
+
+def vram_shortage(embed=True, rerank=True):
+    """Текст отказа, если свободной видеопамяти меньше нужного, иначе None.
+    Уже загруженные модели свою память заняли — их доля не требуется снова."""
+    import qwen_vl_embed
+    import qwen_vl_rerank
+    need = vram_need_gib(embed and qwen_vl_embed._STATE.get("model") is None,
+                         rerank and qwen_vl_rerank._STATE.get("model") is None)
+    if need is None:
+        return None
+    try:
+        import torch
+        free, total = torch.cuda.mem_get_info()
+        name = torch.cuda.get_device_name(0)
+    except Exception:  # noqa: BLE001 — не спросилось: решит сама загрузка
+        return None
+    free_gib, total_gib = free / 2 ** 30, total / 2 ** 30
+    if free_gib >= need:
+        return None
+    return (f"мало видеопамяти: {name} — свободно {free_gib:.1f} из {total_gib:.1f} ГиБ, "
+            f"моделям зрения нужно ~{need:.1f} ГиБ (веса + запас на пачки). Закрыть другие "
+            f"процессы на карте или взять карту от 24 ГБ")
+
+
+_REQUIRED = {"embed": False, "rerank": False}
+
+
+def mark_required(embed, rerank):
+    """Рендер прошёл require_ready с этими моделями — с этого момента их
+    потеря посреди прогона не «пропуск проверки», а стоп (lost())."""
+    _REQUIRED.update(embed=bool(embed), rerank=bool(rerank))
+
+
+def lost():
+    """Причина, если модель, которую рендер потребовал на старте, выключилась
+    посреди прогона (нехватка видеопамяти после повторов, сбой); иначе None.
+    Без этого гейт получал бы None вместо скора и пропускал кадр
+    НЕПРОВЕРЕННЫМ — ровно то, что решение владельца 29.09 запрещает."""
+    import qwen_vl_embed
+    import qwen_vl_rerank
+    if _REQUIRED["embed"] and qwen_vl_embed._STATE.get("model") is None \
+            and qwen_vl_embed._STATE.get("broken"):
+        return f"Qwen3-VL-Embedding: {qwen_vl_embed._STATE['broken']}"
+    if _REQUIRED["rerank"] and qwen_vl_rerank._STATE.get("model") is None \
+            and qwen_vl_rerank._STATE.get("broken"):
+        return f"Qwen3-VL-Reranker: {qwen_vl_rerank._STATE['broken']}"
+    return None
 
 
 def require_ready(embed=True, rerank=True):

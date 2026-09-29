@@ -127,3 +127,114 @@ def test_uncalibrated_gate_refuses_instead_of_passing(monkeypatch):
     monkeypatch.setattr(ps, "clip_relevance", lambda *a, **k: 0.5)
     with pytest.raises(vision_model.NotCalibrated):
         ps.is_relevant_candidate("x.jpg", "some query")
+
+
+def _fake_vram(monkeypatch, free_gib, total_gib=24.0, name="NVIDIA GeForce RTX 4090"):
+    torch = pytest.importorskip("torch")
+    monkeypatch.setattr(torch.cuda, "mem_get_info",
+                        lambda *a: (int(free_gib * 2 ** 30), int(total_gib * 2 ** 30)))
+    monkeypatch.setattr(torch.cuda, "get_device_name", lambda *a: name)
+
+
+def test_small_card_is_refused_before_loading(monkeypatch):
+    """16 ГБ (T4): отказ с понятной причиной до загрузки весов, а не ошибка
+    CUDA из глубины from_pretrained."""
+    import ml_device
+    import qwen_vl_embed
+    import qwen_vl_rerank
+    monkeypatch.setattr(ml_device, "device", lambda: "cuda")
+    monkeypatch.setitem(qwen_vl_embed._STATE, "model", None)
+    monkeypatch.setitem(qwen_vl_rerank._STATE, "model", None)
+    monkeypatch.setattr(qwen_vl_embed, "available", lambda: pytest.fail("грузить нельзя"))
+    monkeypatch.setattr(qwen_vl_rerank, "available", lambda: pytest.fail("грузить нельзя"))
+    _fake_vram(monkeypatch, 15.5, 16.0, "Tesla T4")
+    problems = vision_model.readiness()
+    assert len(problems) == 1 and "Tesla T4" in problems[0] and "видеопамяти" in problems[0]
+
+
+def test_24gb_card_fits_both_models_and_loaded_models_are_not_counted_twice(monkeypatch):
+    import qwen_vl_embed
+    import qwen_vl_rerank
+    monkeypatch.setitem(qwen_vl_embed._STATE, "model", None)
+    monkeypatch.setitem(qwen_vl_rerank._STATE, "model", None)
+    need = vision_model.vram_need_gib()
+    assert need == pytest.approx(15.17 + 3.96 + vision_model.HEADROOM_GIB)
+    _fake_vram(monkeypatch, 23.5)
+    assert vision_model.vram_shortage() is None
+    # Эмбеддинг уже загружен (прогрев) — свободно мало, но нужен только реранкер.
+    monkeypatch.setitem(qwen_vl_embed._STATE, "model", object())
+    _fake_vram(monkeypatch, 7.0)
+    assert vision_model.vram_shortage() is None
+    _fake_vram(monkeypatch, 5.0)
+    assert vision_model.vram_shortage() is not None
+
+
+def test_unknown_model_size_is_not_guessed(monkeypatch):
+    import qwen_vl_embed
+    monkeypatch.setattr(qwen_vl_embed, "MODEL_NAME", "someone/other-embedder")
+    assert vision_model.vram_need_gib(True, False) is None
+
+
+def _intact(monkeypatch):
+    """Обе модели загружены и целы — исходное состояние теста, а не то, что
+    оставили соседние тесты в общем _STATE модулей."""
+    import qwen_vl_embed
+    import qwen_vl_rerank
+    for mod in (qwen_vl_embed, qwen_vl_rerank):
+        monkeypatch.setitem(mod._STATE, "model", object())
+        monkeypatch.setitem(mod._STATE, "broken", None)
+
+
+def _lose(monkeypatch, which):
+    import qwen_vl_embed
+    import qwen_vl_rerank
+    mod = qwen_vl_embed if which == "embed" else qwen_vl_rerank
+    monkeypatch.setitem(mod._STATE, "model", None)
+    monkeypatch.setitem(mod._STATE, "broken", "OutOfMemoryError: CUDA out of memory")
+
+
+def test_lost_only_counts_models_the_render_required(monkeypatch):
+    monkeypatch.setattr(vision_model, "_REQUIRED", {"embed": False, "rerank": False})
+    _intact(monkeypatch)
+    _lose(monkeypatch, "embed")
+    assert vision_model.lost() is None, "вне рендера (тесты) потерь нет"
+    vision_model.mark_required(True, False)
+    assert "Embedding" in vision_model.lost()
+
+
+def test_gate_rejects_instead_of_passing_when_the_model_is_lost(monkeypatch):
+    """Модель сорвалась посреди прогона: скор None. Раньше это был пропуск
+    кадра НЕПРОВЕРЕННЫМ, теперь — отказ (и стоп рендера перед след. слотом)."""
+    monkeypatch.setattr(vision_model, "_REQUIRED", {"embed": True, "rerank": True})
+    _intact(monkeypatch)
+    monkeypatch.setattr(ps, "clip_relevance", lambda *a, **k: None)
+    monkeypatch.setattr(ps, "CLIP_RELEVANCE_THRESHOLD", 0.1)
+    assert ps.is_relevant_candidate("x.jpg", "q") is True, "модель цела: прежний пропуск"
+    _lose(monkeypatch, "embed")
+    assert ps.is_relevant_candidate("x.jpg", "q") is False
+
+
+def test_smart_veto_rejects_when_the_reranker_is_lost(monkeypatch):
+    import qwen_vl_rerank
+    monkeypatch.setenv("SMART_RELEVANCE_VETO", "1")
+    monkeypatch.setattr(vision_model, "_REQUIRED", {"embed": True, "rerank": True})
+    _intact(monkeypatch)
+    monkeypatch.setattr(qwen_vl_rerank, "score", lambda *a, **k: None)
+    monkeypatch.setattr(ps, "SMART_RELEVANCE_THRESHOLD", 0.3)
+    assert ps.smart_relevance_veto("x.jpg", "q") is False
+    _lose(monkeypatch, "rerank")
+    assert ps.smart_relevance_veto("x.jpg", "q") is True
+
+
+def test_main_stops_before_the_next_slot_when_vision_is_lost():
+    """Стоп — в начале слота, до платных вызовов; уборка потоков и пула
+    рендера — до выхода; ролик не собирается (EXIT_NOT_BUILT)."""
+    import inspect
+    src = inspect.getsource(ps.main)
+    loop = src.index("for i, (b, d) in enumerate(zip(blocks, durs)):")
+    first = src[loop:loop + 600]
+    assert first.index("vision_model.lost()") < first.index("prefetcher.advance(i)")
+    stop = src.index("    if vision_lost:\n        if not SELECT_ONLY:")
+    assert src.index("speculator.close()") < stop < src.index("check_jobs_in_order(pending_jobs)\n        for job")
+    assert "return EXIT_NOT_BUILT" in src[stop:stop + 1500]
+    assert src.index("vision_model.mark_required(") < loop

@@ -12480,6 +12480,8 @@ def is_relevant_candidate(image_path, query, relevance=None):
     иначе считается здесь же."""
     if relevance is None:
         relevance = clip_relevance(image_path, query)
+    if relevance is None and vision_model.lost():
+        return False   # модель потеряна посреди прогона: не проверено — не показываем
     is_relevant = relevance is None or relevance >= _require_threshold(CLIP_RELEVANCE_THRESHOLD,
                                                                          "relevance")
     if is_relevant and relevance is not None and is_risky_query(query):
@@ -12549,7 +12551,9 @@ def smart_relevance_veto(image_path, query):
         return False
     score = got[0] if got else None
     if score is None:
-        return False
+        # Реранкер потерян посреди прогона (а рендер его потребовал): кадр
+        # не проверен — отклонить. Иначе — нечитаемый файл, прежний пропуск.
+        return bool(vision_model.lost())
     return score < _require_threshold(SMART_RELEVANCE_THRESHOLD, "smart_rerank")
 
 
@@ -13041,7 +13045,6 @@ def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=None, url
     t_embs = [_cascade_text_vec(t) for t in texts]
     if any(e is None for e in t_embs):
         return candidates
-    same_as_gate = True       # у каскада и гейтов одна модель — вектор картинки общий
     cache_dir = cascade_cache_dir()
     url_of = url_of or candidate_probe_url
     keys = {id(p): _cascade_key(_cascade_ident(p, url_of(p))) for p in head}
@@ -13074,22 +13077,28 @@ def cascade_reorder(candidates, texts, cf, probe_fn, index=None, batch=None, url
             for p, v in zip(part, vecs):
                 emb[id(p)] = v
                 _CASCADE_EMB[keys[id(p)]] = v
-                # Тот же кадр позже скачивается пробником для гейтов —
-                # эмбеддинг по содержимому файла уже готов.
-                d = _file_digest(tmp[id(p)]) if same_as_gate else None
-                if d:
-                    _GATE_IMG_EMB_CACHE.setdefault(d, v)
+                # Вектор каскада гейтам НЕ отдаётся, хотя модель одна (аудит 29.09).
+                # Каскад считает превью пачками с дополнением до общей длины (у картинок
+                # разных пропорций разное число визуальных токенов), а в bf16 на
+                # видеокарте результат умножения зависит от размера и состава пачки.
+                # Гейт сравнивает вектор с ПОРОГОМ, откалиброванным на векторах,
+                # посчитанных поодиночке (calibrate_vision.py): кадр у самой границы
+                # проходил бы или нет в зависимости от соседей по пачке каскада.
+                # Гейт считает свой вектор сам, по одному кадру — ~20 проходов на слот.
                 # Атомарно: процесс, убитый посреди записи, раньше оставлял
                 # обрезанный .npy, который читался как промах навсегда.
                 final = os.path.join(cache_dir, keys[id(p)] + ".npy")
-                part = f"{final}.{os.getpid()}.{threading.get_ident()}.part"
+                # Своё имя, а не part: part — список кадров этой пачки, и
+                # return ниже (число новых оценок в логе) раньше возвращал
+                # длину строки пути временного файла.
+                tmp_path = f"{final}.{os.getpid()}.{threading.get_ident()}.part"
                 try:
-                    with open(part, "wb") as f:
+                    with open(tmp_path, "wb") as f:
                         np.save(f, v)
-                    os.replace(part, final)
+                    os.replace(tmp_path, final)
                 except Exception:
                     try:
-                        os.remove(part)
+                        os.remove(tmp_path)
                     except OSError:
                         pass
             return len(part)
@@ -18157,6 +18166,7 @@ def main():
         need_embed, need_rerank = vision_models_needed()
         if need_embed or need_rerank:
             vision_model.require_ready(need_embed, need_rerank)
+            vision_model.mark_required(need_embed, need_rerank)
         else:
             print("  Модели зрения не используются (CLIP_RELEVANCE=0, SMART_RELEVANCE_VETO=0): "
                   "кадры идут БЕЗ гейтов релевантности, вето и второй проверки")
@@ -18894,7 +18904,15 @@ def main():
             prefetch_slot_inputs(req, "photo", cascade)
         prefetcher = slot_prefetch.SlotPrefetcher(len(blocks), _prefetch_job)
     _slot_clock = None
+    vision_lost = None
     for i, (b, d) in enumerate(zip(blocks, durs)):
+        # Модель зрения сорвалась посреди прогона — дальше кадры шли бы без
+        # проверки, а судья платно смотрел бы непроверенные кучи. Стоп до
+        # следующего слота; уборка потоков и пула рендера — штатная, ниже.
+        vision_lost = vision_model.lost()
+        if vision_lost:
+            vision_lost = (i, vision_lost)
+            break
         if prefetcher is not None:
             prefetcher.advance(i)
         if speculator is not None:
@@ -19729,6 +19747,24 @@ def main():
         prefetcher.close()
         print(f"  Упреждающий поиск: слотов прогрето {prefetcher.stats['done']}, "
               f"сбоев {prefetcher.stats['failed']}")
+    if vision_lost:
+        if not SELECT_ONLY:
+            check_jobs_in_order(pending_jobs)
+            for job in pending_jobs:
+                if job["future"] is not None:
+                    try:
+                        job["future"].result()
+                    except Exception:  # noqa: BLE001 — стоп всё равно
+                        pass
+            if highlight_pool is not None:
+                highlight_pool.shutdown(wait=True)
+            if render_pool:
+                render_pool.shutdown(wait=True)
+        print(f"\nСТОП: модель зрения выключилась на слоте {vision_lost[0] + 1} "
+              f"({vision_lost[1]}). Кадры дальше шли бы без проверки гейтов — "
+              f"ролик не собирается. Перезапуск продолжит с кэша (готовые слоты "
+              f"и клипы не пересчитываются).")
+        return EXIT_NOT_BUILT
     if not SELECT_ONLY:
         # Резолвим отложенные (в пуле) рендеры — future.result() блокирует, только
         # если этот конкретный клип ещё не доехал, к этому моменту у воркеров уже

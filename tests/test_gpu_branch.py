@@ -198,8 +198,11 @@ def test_prefetcher_after_close_schedules_nothing():
 def test_slot_loop_advances_the_prefetcher():
     """Слой без вызывающего — ровно тот класс «код есть, его никто не зовёт»."""
     src = open(os.path.join(REPO_ROOT, "scripts", "pipeline_smart.py"), encoding="utf-8").read()
-    loop = src.index("prefetcher = slot_prefetch.SlotPrefetcher(")
-    assert "prefetcher.advance(i)" in src[loop:loop + 400]
+    made = src.index("prefetcher = slot_prefetch.SlotPrefetcher(")
+    loop = src.index("for i, (b, d) in enumerate(zip(blocks, durs)):", made)
+    body = src[loop:src.index("_slot_clock = (i, time.perf_counter())", loop)]
+    assert "prefetcher.advance(i)" in body, "упреждение не продвигается в начале слота"
+    loop = made
     assert "prefetcher.close()" in src[loop:]
 
 
@@ -500,6 +503,34 @@ def test_model_run_on_gpu_retries_once_after_out_of_memory(monkeypatch):
             raise torch.cuda.OutOfMemoryError("CUDA out of memory")
         return "ok"
     assert ml_device.run(fn) == "ok" and len(calls) == 2
+
+
+def test_model_run_waits_out_transient_oom_then_gives_up(monkeypatch):
+    """Аудит 29.09: на 4090 веса моделей зрения — 19 ГиБ из 24, а сессии
+    NVENC занимают видеопамять на время клипа. Повтор с паузами переживает
+    их; стойкая нехватка — исключение наружу (модель выключится громко)."""
+    import ml_device
+    torch = pytest.importorskip("torch")
+    monkeypatch.setattr(ml_device, "device", lambda: "cuda")
+    monkeypatch.setattr(torch.cuda, "empty_cache", lambda: None)
+    slept = []
+    import time
+    monkeypatch.setattr(time, "sleep", slept.append)
+    calls = []
+
+    def fn():
+        calls.append(1)
+        if len(calls) <= 3:
+            raise torch.cuda.OutOfMemoryError("CUDA out of memory")
+        return "ok"
+    assert ml_device.run(fn) == "ok" and len(calls) == 4 and slept == [2, 5]
+
+    def always():
+        raise torch.cuda.OutOfMemoryError("CUDA out of memory")
+    slept.clear()
+    with pytest.raises(torch.cuda.OutOfMemoryError):
+        ml_device.run(always)
+    assert slept == [2, 5, 10]
 
 
 def test_every_model_forward_goes_through_ml_device_run():
