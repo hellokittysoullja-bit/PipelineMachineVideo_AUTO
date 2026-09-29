@@ -16251,66 +16251,180 @@ def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR, blocks=None, pl
                      f"duration={this_dur:.6f}:offset={offset:.6f}[{out_label}]")
         cum = cum + durs[i] - this_dur
         prev_label = out_label
-    cmd = ["ffmpeg", "-y"]
-    for c in clips:
-        # Потоки декодера на вход: по умолчанию каждый из ~35 входов заводит
-        # столько потоков, сколько ядер, и держит на них кадры — на 4 ядрах
-        # кусок из 35 клипов занимал 4.8 ГБ, на 16 ядрах по той же
-        # пропорции ~9 ГБ. Декодирование H.264 точное: кадры те же при любом
-        # числе потоков (замер 28.09: файл без потолка битрейта совпал до
-        # байта при auto/2/1), а работает на входе всё равно один клип за раз.
-        cmd += ["-threads", str(XFADE_INPUT_DECODE_THREADS), "-i", c]
-    # Это единственный проход, который видит ВСЮ склейку сразу — то, что
-    # уйдёт на YouTube (финальный мукс делает -c:v copy, второго прохода
-    # уже не будет). Каждый отдельный клип и так уже CRF 17 (RENDER_CRF, см.
-    # kenburns/video_render/parallax_kenburns) — если тут снова ужать до 23,
-    # это второе поколение потерь поверх первого, заметное именно на тёмном
-    # грейде (градиенты/дым/зерно). FINAL_PASS_PRESET/CRF — разовая цена, не
-    # на каждый маленький клип.
-    cmd += ["-filter_complex", ";".join(parts), "-map", "[vout]"] + final_pass_encode_args() + [out]
-    # РЕАЛЬНЫЙ пробел, пойманный аудитом того же класса багов, что и
-    # SPEED_RAMP_MAX_SOURCE_FPS/parallax stderr-deadlock (см. их докстринги
-    # выше): у этого вызова не было НИКАКОГО timeout — при зависании ffmpeg
-    # (тот же класс проблем, что и задокументированный ниже "молча роняет
-    # кадры и застревает") весь уже отрендеренный за часы прогон терялся бы
-    # молча, без единого сигнала. cum — суммарная длительность чанка (до 35
-    # клипов на FINAL_PASS_PRESET+FINAL_PASS_CRF (medium+16), тяжелее, чем
-    # per-clip RENDER_PRESET+RENDER_CRF (veryfast+17) — щедрый множитель
-    # (30x), это последний рубеж защиты от НАСТОЯЩЕГО зависания, не бюджет
-    # под скорость.
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                            timeout=max(180, cum * 30))
-    except subprocess.TimeoutExpired:
-        print(f"  xfade-склейка зависла (таймаут {max(180, cum * 30):.0f}с), откат на concat.")
-        return False, 0.0
-    if r.returncode != 0:
-        print("  xfade-склейка не удалась, откат на concat:", r.stderr[-300:])
-        return False, 0.0
-    # Пойман вживую на 150 клипах (после sub-cuts): ffmpeg возвращает 0
-    # (успех), но при очень длинной цепочке последовательных xfade в ОДНОМ
-    # filter_complex молча "роняет" кадры (dup=0 drop=20000+ в stderr) и
-    # застревает на застывшем кадре с середины ролика — итоговый файл
-    # правильной длины (после -shortest/-t на муксе), но 800+ секунд из
-    # них заморожены. Return-код тут не индикатор, реальная длительность —
-    # индикатор. На ~90 клипах (до sub-cuts) с той же схемой такого не
-    # было — это масштабная проблема ffmpeg с очень длинной цепочкой в
-    # одном графе, не баг в математике offset/cum (та проверена отдельно).
-    try:
-        real_dur = get_media_duration(out)
-    except Exception:
-        real_dur = 0.0
-    expected = max(cum, 0.1)
-    if real_dur < expected * 0.9 - 2.0:
-        print(f"  xfade-склейка вернула 0, но реальная длительность {real_dur:.1f}с "
-              f"против ожидаемых {expected:.1f}с (похоже на застревание ffmpeg на "
-              f"длинной цепочке xfade) — откат на concat.")
-        return False, 0.0
-    return True, expected
+    def build(allow_hw):
+        cmd = ["ffmpeg", "-y"]
+        for c in clips:
+            # Потоки декодера на вход: по умолчанию каждый из ~35 входов заводит
+            # столько потоков, сколько ядер, и держит на них кадры — на 4 ядрах
+            # кусок из 35 клипов занимал 4.8 ГБ, на 16 ядрах по той же
+            # пропорции ~9 ГБ. Декодирование H.264 точное: кадры те же при любом
+            # числе потоков (замер 28.09: файл без потолка битрейта совпал до
+            # байта при auto/2/1), а работает на входе всё равно один клип за раз.
+            cmd += hwdec_input_args(c, allow_hw) + ["-threads", str(XFADE_INPUT_DECODE_THREADS), "-i", c]
+        # Это единственный проход, который видит ВСЮ склейку сразу — то, что
+        # уйдёт на YouTube (финальный мукс делает -c:v copy, второго прохода
+        # уже не будет). Каждый отдельный клип и так уже CRF 17 (RENDER_CRF, см.
+        # kenburns/video_render/parallax_kenburns) — если тут снова ужать до 23,
+        # это второе поколение потерь поверх первого, заметное именно на тёмном
+        # грейде (градиенты/дым/зерно). FINAL_PASS_PRESET/CRF — разовая цена, не
+        # на каждый маленький клип.
+        cmd += ["-filter_complex", ";".join(parts), "-map", "[vout]"] + final_pass_encode_args() + [out]
+        # РЕАЛЬНЫЙ пробел, пойманный аудитом того же класса багов, что и
+        # SPEED_RAMP_MAX_SOURCE_FPS/parallax stderr-deadlock (см. их докстринги
+        # выше): у этого вызова не было НИКАКОГО timeout — при зависании ffmpeg
+        # (тот же класс проблем, что и задокументированный ниже "молча роняет
+        # кадры и застревает") весь уже отрендеренный за часы прогон терялся бы
+        # молча, без единого сигнала. cum — суммарная длительность чанка (до 35
+        # клипов на FINAL_PASS_PRESET+FINAL_PASS_CRF (medium+16), тяжелее, чем
+        # per-clip RENDER_PRESET+RENDER_CRF (veryfast+17) — щедрый множитель
+        # (30x), это последний рубеж защиты от НАСТОЯЩЕГО зависания, не бюджет
+        # под скорость.
+        return cmd
+
+    def attempt(cmd):
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                                timeout=max(180, cum * 30))
+        except subprocess.TimeoutExpired:
+            print(f"  xfade-склейка зависла (таймаут {max(180, cum * 30):.0f}с).")
+            return False
+        if r.returncode != 0:
+            print("  xfade-склейка не удалась:", r.stderr[-300:])
+            return False
+        # Пойман вживую на 150 клипах (после sub-cuts): ffmpeg возвращает 0
+        # (успех), но при очень длинной цепочке последовательных xfade в ОДНОМ
+        # filter_complex молча "роняет" кадры (dup=0 drop=20000+ в stderr) и
+        # застревает на застывшем кадре с середины ролика — итоговый файл
+        # правильной длины (после -shortest/-t на муксе), но 800+ секунд из
+        # них заморожены. Return-код тут не индикатор, реальная длительность —
+        # индикатор. На ~90 клипах (до sub-cuts) с той же схемой такого не
+        # было — это масштабная проблема ffmpeg с очень длинной цепочкой в
+        # одном графе, не баг в математике offset/cum (та проверена отдельно).
+        try:
+            real_dur = get_media_duration(out)
+        except Exception:
+            real_dur = 0.0
+        if real_dur < max(cum, 0.1) * 0.9 - 2.0:
+            print(f"  xfade-склейка вернула 0, но реальная длительность {real_dur:.1f}с "
+                  f"против ожидаемых {max(cum, 0.1):.1f}с (похоже на застревание ffmpeg на "
+                  f"длинной цепочке xfade).")
+            return False
+        return True
+
+    # Декодер видеокарты (HW_DECODE) — только на первой попытке: её сбой
+    # повторяет ту же склейку на процессоре, а не уходит в откат на concat
+    # (склейку без переходов).
+    used_hw = any(hwdec_input_args(c) for c in clips)
+    if used_hw:
+        if attempt(build(True)):
+            return True, max(cum, 0.1)
+        print("  склейка с декодером видеокарты не удалась — повтор на процессоре")
+    if attempt(build(False)):
+        return True, max(cum, 0.1)
+    print("  откат на concat.")
+    return False, 0.0
 
 
 XFADE_CHUNK_SIZE = 35   # порог чанкования — см. xfade_chain_chunked
 XFADE_INPUT_DECODE_THREADS = 2   # потоки декодера на вход склейки — см. xfade_chain
+
+
+# ДЕКОДЕР ВИДЕОКАРТЫ В ФИНАЛЬНОЙ СКЛЕЙКЕ (HW_DECODE, аудит 29.09). На
+# видеокарте клипы — HEVC Main10 от NVENC, а их декодирование на процессоре
+# в разы тяжелее прежнего H.264, и финальный проход (единственный
+# последовательный конец рендера) декодирует весь ролик. NVDEC снимает это
+# с процессора. Кадры декодера по стандарту бит в бит те же, но это не
+# принимается на веру: на старте один раз кодируются короткие образцы в
+# тех форматах, что встречаются у клипов, и формат допускается, только если
+# кадры видеокарты совпали с процессорными побайтно (framemd5). Решение —
+# на каждый вход по его формату: клипы бывают смешанными (x264 при занятых
+# сессиях NVENC, а 10-битный H.264 у NVDEC не поддерживается). Сбой склейки
+# с декодером видеокарты повторяет ту же склейку на процессоре — отката на
+# склейку без переходов из-за декодера не бывает.
+_HWDEC_SAFE = [None]           # множество (кодек, формат пикселя) или None — не проверено
+_HWDEC_FORMAT_CACHE = {}
+
+
+def _media_video_format(path):
+    """(codec_name, pix_fmt) первой видеодорожки или None."""
+    if path in _HWDEC_FORMAT_CACHE:
+        return _HWDEC_FORMAT_CACHE[path]
+    fmt = None
+    try:
+        r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
+                            "-show_entries", "stream=codec_name,pix_fmt", "-of", "csv=p=0", path],
+                           capture_output=True, text=True, timeout=30)
+        parts = (r.stdout or "").strip().splitlines()[0].split(",") if r.returncode == 0 else []
+        if len(parts) >= 2 and parts[0] and parts[1]:
+            fmt = (parts[0].strip(), parts[1].strip())
+    except Exception:
+        fmt = None
+    _HWDEC_FORMAT_CACHE[path] = fmt
+    return fmt
+
+
+def _framemd5(path, pix_fmt, hw):
+    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
+    if hw:
+        cmd += ["-hwaccel", "cuda"]
+    cmd += ["-i", path, "-vf", f"format={pix_fmt}", "-f", "framemd5", "-"]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    except Exception:
+        return None
+    if r.returncode != 0:
+        return None
+    rows = [ln for ln in (r.stdout or "").splitlines() if ln and not ln.startswith("#")]
+    return rows or None
+
+
+def hwdec_probe_samples():
+    """Кодеры образцов: те, что производят клипы этого прогона."""
+    samples = [["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p"],
+               ["-c:v", "libx264", "-preset", "ultrafast"] + CLIP_PIX_ARGS]
+    if clip_encoder() == "nvenc":
+        samples.append(list(NVENC_CLIP_ARGS))
+    return samples
+
+
+def hwdec_safe_formats():
+    """Форматы, которые декодер видеокарты отдаёт бит в бит как процессор.
+    Пустое множество — декодер видеокарты не используется."""
+    if _HWDEC_SAFE[0] is not None:
+        return _HWDEC_SAFE[0]
+    safe = set()
+    import ml_device
+    if feature_flags.mode("HW_DECODE") != "off" and ml_device.device() == "cuda":
+        with tempfile.TemporaryDirectory(prefix="hwdec_probe_") as d:
+            for k, args in enumerate(hwdec_probe_samples()):
+                src = os.path.join(d, f"s{k}.mkv")
+                try:
+                    r = subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+                                        "-i", "testsrc2=s=640x360:d=1:r=24", "-frames:v", "24"] + args + [src],
+                                       capture_output=True, text=True, timeout=120)
+                except Exception:
+                    continue
+                fmt = _media_video_format(src) if r.returncode == 0 else None
+                if fmt is None:
+                    continue
+                sw = _framemd5(src, fmt[1], hw=False)
+                if sw and sw == _framemd5(src, fmt[1], hw=True):
+                    safe.add(fmt)
+        if safe:
+            print("  Финальная склейка: декодер видеокарты для " + ", ".join(f"{c}/{p}" for c, p in sorted(safe)))
+    _HWDEC_SAFE[0] = safe
+    return safe
+
+
+def hwdec_input_args(path, allow=True):
+    """Аргументы перед -i входа склейки: ["-hwaccel", "cuda"], если формат
+    клипа проверен, иначе пусто (прежний путь)."""
+    if not allow:
+        return []
+    safe = hwdec_safe_formats()
+    if not safe:
+        return []
+    return ["-hwaccel", "cuda"] if _media_video_format(path) in safe else []
 
 
 # Одновременных чанков финальной склейки на одно ядро: x264 medium на 1080p

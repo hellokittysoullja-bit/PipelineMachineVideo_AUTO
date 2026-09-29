@@ -673,3 +673,72 @@ def test_parallax_holds_a_session_for_the_whole_encode():
     fn = src[src.index("def parallax_kenburns("):src.index("SPEED_BIAS = {")]
     assert "enc_stack.enter_context(clip_encoder_session())" in fn
     assert "enc_stack.close()" in fn[fn.rindex("    finally:"):]
+
+
+# ---------- декодер видеокарты в финальной склейке (HW_DECODE) ----------
+
+def test_hwdec_is_off_on_cpu_without_any_probe(monkeypatch):
+    import ml_device
+    monkeypatch.setattr(ml_device, "device", lambda: "cpu")
+    monkeypatch.setattr(ps, "_HWDEC_SAFE", [None])
+    calls = []
+    monkeypatch.setattr(ps.subprocess, "run", lambda *a, **k: calls.append(a) or (_ for _ in ()).throw(AssertionError))
+    assert ps.hwdec_safe_formats() == set()
+    assert ps.hwdec_input_args("clip.mp4") == []
+    assert calls == []
+
+
+def test_hwdec_probe_admits_only_bit_exact_formats(monkeypatch):
+    import subprocess as sp
+    import ml_device
+    monkeypatch.setattr(ml_device, "device", lambda: "cuda")
+    monkeypatch.setattr(ps, "_HWDEC_SAFE", [None])
+    monkeypatch.setattr(ps, "_HWDEC_FORMAT_CACHE", {})
+    monkeypatch.setenv("HW_DECODE", "auto")
+    monkeypatch.setenv("CLIP_ENCODER_RESOLVED", "nvenc")
+    monkeypatch.setattr(ps, "_NVENC_BROKEN", [False])
+    formats = {"s0.mkv": "h264,yuv420p", "s1.mkv": "h264,yuv420p10le", "s2.mkv": "hevc,yuv420p10le"}
+
+    def run(cmd, **k):
+        name = os.path.basename(cmd[-1]) if cmd[0] == "ffprobe" else None
+        if cmd[0] == "ffprobe":
+            return sp.CompletedProcess(cmd, 0, stdout=formats[name] + "\n", stderr="")
+        if "framemd5" in cmd:
+            src = os.path.basename(cmd[cmd.index("-i") + 1])
+            hw = "-hwaccel" in cmd
+            # 10-битный H.264 видеокарта отдаёт иначе — формат не допускается
+            frames = "0, 0, 0, 1, 100, aaa" if not (hw and src == "s1.mkv") else "0, 0, 0, 1, 100, bbb"
+            return sp.CompletedProcess(cmd, 0, stdout="#tb 0: 1/24\n" + frames + "\n", stderr="")
+        return sp.CompletedProcess(cmd, 0, stdout="", stderr="")
+    monkeypatch.setattr(ps.subprocess, "run", run)
+    assert ps.hwdec_safe_formats() == {("h264", "yuv420p"), ("hevc", "yuv420p10le")}
+
+
+def test_hwdec_off_flag_disables_it(monkeypatch):
+    import ml_device
+    monkeypatch.setattr(ml_device, "device", lambda: "cuda")
+    monkeypatch.setattr(ps, "_HWDEC_SAFE", [None])
+    monkeypatch.setenv("HW_DECODE", "off")
+    assert ps.hwdec_safe_formats() == set()
+
+
+def test_failed_hw_splice_is_repeated_on_cpu_not_dropped_to_concat(monkeypatch, tmp_path):
+    import subprocess as sp
+    monkeypatch.setattr(ps, "_HWDEC_SAFE", [{("hevc", "yuv420p10le")}])
+    fmts = {"a.mp4": ("hevc", "yuv420p10le"), "b.mp4": ("h264", "yuv420p10le")}
+    monkeypatch.setattr(ps, "_media_video_format", lambda p: fmts[os.path.basename(p)])
+    monkeypatch.setattr(ps, "get_media_duration", lambda p: 10.0)
+    cmds = []
+
+    def run(cmd, **k):
+        cmds.append(cmd)
+        return sp.CompletedProcess(cmd, 1 if "-hwaccel" in cmd else 0, stdout="", stderr="cuda fail")
+    monkeypatch.setattr(ps.subprocess, "run", run)
+    clips = [str(tmp_path / "a.mp4"), str(tmp_path / "b.mp4")]
+    ok, _dur = ps.xfade_chain(clips, [5.0, 5.0], ["S", "S"], str(tmp_path / "o.mp4"))
+    assert ok and len(cmds) == 2
+    first, second = cmds
+    # видеокарта — только у входа, чей формат проверен (HEVC), не у 10-битного H.264
+    assert first[first.index(clips[0]) - 5:first.index(clips[0])][:2] == ["-hwaccel", "cuda"]
+    assert first[first.index(clips[1]) - 3] != "cuda"
+    assert "-hwaccel" not in second

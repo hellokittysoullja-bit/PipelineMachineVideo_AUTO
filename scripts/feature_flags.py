@@ -112,6 +112,8 @@ FLAGS = {f.name: f for f in (
     # предупреждением. Финальный проход (DELIVERY_PROFILE) не меняется.
     Flag("CLIP_ENCODER", "auto", ("auto", "x264", "nvenc"),
          summary="Кодер клипов: auto (NVENC, если работает) / x264 / nvenc"),
+    Flag("HW_DECODE", "auto", ("auto", "off"),
+         summary="Финальная склейка: декодер видеокарты для клипов, чьи кадры он отдаёт бит в бит как процессор"),
     Flag("DELIVERY_PROFILE", "youtube", ("youtube", "archive", "hevc"),
          summary="Финальный проход: youtube (VBV-потолок 12 Мбит/с) / archive (без потолка) / hevc (libx265)"),
     Flag("DOMAIN_GRADE_MODE", "on", ("off", "on"),
