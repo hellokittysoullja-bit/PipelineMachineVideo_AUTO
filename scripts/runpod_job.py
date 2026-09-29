@@ -153,15 +153,17 @@ def cheapest_gpus(gpu_types, min_gb=MIN_GPU_GB, image=DEFAULT_IMAGE):
 
 
 def runner_env(token, idle_min, max_hours, extra):
+    import gzip
     src = open(os.path.join(HERE, "runpod_runner.py"), "rb").read()
-    env = {"RUNNER_TOKEN": token, "RUNNER_B64": base64.b64encode(src).decode(),
+    # Сжатие: значение переменной окружения пода втрое короче (~4 КБ вместо 13).
+    env = {"RUNNER_TOKEN": token, "RUNNER_B64": base64.b64encode(gzip.compress(src)).decode(),
            "RUNNER_IDLE_SEC": str(int(idle_min * 60)), "RUNNER_MAX_SEC": str(int(max_hours * 3600)),
            "RUNNER_PORT": str(PORT)}
     env.update(extra)
     return [{"key": k, "value": v} for k, v in env.items()]
 
 
-START_CMD = ("bash -c 'echo \"$RUNNER_B64\" | base64 -d > /runner.py && "
+START_CMD = ("bash -c 'echo \"$RUNNER_B64\" | base64 -d | gunzip > /runner.py && "
              "exec python3 /runner.py'")
 
 
