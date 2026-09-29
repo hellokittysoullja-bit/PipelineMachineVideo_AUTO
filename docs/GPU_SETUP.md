@@ -115,3 +115,19 @@ python scripts/runpod_job.py --upload . \
 ## Быстрая закачка весов
 
 `python scripts/fetch_weights.py` качает Qwen-эмбеддинг, реранкер и WeMM одновременно (по 8 потоков на модель, hf_transfer): время равно самой долгой модели, а не сумме. Замер пода 29.09: подряд — эмбеддинг 2 мин 21 с, остальные по ~38 с. Для `--prepare` (идёт до загрузки кода) то же самое встроенной командой с `ThreadPoolExecutor` над `snapshot_download`. `HF_TOKEN` в окружении пода снимает ограничение скорости для неавторизованных запросов.
+
+## Запуск на поде: как не быть слепым и не терять минуты (29.09)
+
+- **Вывод виден всегда.** `runpod_job.py` отклоняет `--cmd`/`--prepare` с `| tail`/`| head` (живой прогон шёл 13 минут вслепую). Строки лога получают метку времени этой стороны. В окружение пода всегда кладётся `PYTHONUNBUFFERED=1`.
+- **Ход по этапам — `--watch`.** `--watch videos/NN/media_plan/stage_timings.jsonl` печатает новые строки файла с пода каждые 15 секунд.
+- **Рабочая папка — `--workdir`.** Папка вне репозитория ложится в `/work/<имя>/`; без `cd` голые пути (`requirements.txt`) не находились, так упали два запуска. Теперь `--workdir <имя>` ставит `cd` перед `--prepare` и `--cmd`, а запуск печатает, куда легла загрузка.
+- **Подготовка — `bash scripts/pod_prepare.sh`.** Пакеты (uv вместо pip, `requirements-gpu.txt`), ffmpeg и веса моделей идут одновременно, каждая часть печатает своё время. Код едет на под до старта подготовки, поэтому скрипт доступен сразу.
+
+```bash
+python scripts/runpod_job.py --gpu "NVIDIA RTX A6000" --cloud COMMUNITY --min-gb 46 \
+  --upload /path/to/stage --workdir stage \
+  --prepare "bash scripts/pod_prepare.sh" \
+  --cmd "python scripts/pipeline_smart.py videos/NN_название" \
+  --watch stage/videos/NN_название/media_plan/stage_timings.jsonl \
+  --fetch stage/videos/NN_название/media_plan --dest ./pod_out --max-usd 0.74 --max-hours 1
+```

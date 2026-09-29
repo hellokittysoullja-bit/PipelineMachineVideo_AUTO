@@ -448,7 +448,7 @@ def test_missing_result_is_reported_and_the_rest_is_still_fetched(runner, tmp_pa
     monkeypatch.setattr(rj, "terminate", lambda key, pid: True)
     monkeypatch.setattr(rj.Runner, "wait_ready", lambda self, *a, **k: True)
     base = r.base
-    monkeypatch.setattr(rj, "Runner", lambda url, token: rj.__dict__["_RealRunner"](base, token))
+    monkeypatch.setattr(rj, "Runner", lambda url, token, watch=(): rj.__dict__["_RealRunner"](base, token))
     monkeypatch.setattr(rj, "_RealRunner", type(r), raising=False)
     dest = tmp_path / "back"
     code = rj.drive("k", {"id": "p", "costPerHr": 0.3}, TOKEN, 600, [],

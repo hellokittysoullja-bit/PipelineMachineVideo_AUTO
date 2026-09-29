@@ -1,0 +1,8 @@
+# Дополнительные пакеты для видеокарты (подготовка пода, scripts/pod_prepare.sh).
+# Ядра flash-linear-attention ускоряют WeMM-9B; causal-conv1d не ставится
+# (сборка из исходников, выигрыш 1.1x).
+hf_transfer
+torchvision
+sentence-transformers>=5.7
+qwen-vl-utils
+flash-linear-attention

@@ -115,6 +115,24 @@ def _lock(dev):
 OOM_RETRY_PAUSES_SEC = (0, 2, 5, 10)
 
 
+RELIEVE_FREE_GIB = 6.0
+
+
+def _relieve(torch, dev=None):
+    """Мало свободной видеопамяти — вернуть карте кэш аллокатора. Модели
+    отбора держат десятки ГиБ кэша; рендер клипа на той же карте (отдельный
+    процесс) без этого получал OOM и откатывался на процессор (прогон 29.09:
+    38.5 ГиБ у процесса отбора, свободно 140 МиБ). Проверка дешёвая, очистка
+    — только при нехватке."""
+    try:
+        idx = int(str(dev or "cuda:0").split(":")[-1]) if dev else 0
+        free, _total = torch.cuda.mem_get_info(idx)
+        if free / 2 ** 30 < RELIEVE_FREE_GIB:
+            torch.cuda.empty_cache()
+    except Exception:  # noqa: BLE001 — освобождение необязательно
+        pass
+
+
 def run(fn, dev=None):
     """Прогон модели. На процессоре — просто fn(): путь байт в байт прежний.
 
@@ -132,7 +150,9 @@ def run(fn, dev=None):
     with _lock(dev):
         for pause in OOM_RETRY_PAUSES_SEC:
             try:
-                return fn()
+                out = fn()
+                _relieve(torch, dev)
+                return out
             except oom:
                 # Нехватка видеопамяти обычно временная: выбор кадров идёт
                 # одновременно с кодированием клипов на NVENC (сессия

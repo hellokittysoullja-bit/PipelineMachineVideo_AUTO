@@ -201,3 +201,17 @@ def test_render_workers_reserve_ignores_wemm_when_not_selected(monkeypatch):
     monkeypatch.setenv("CASCADE_MODEL", "wemm9b")
     with_wemm = ps.gpu_render_workers()
     assert without > with_wemm >= 1
+
+
+def test_ml_device_run_releases_allocator_cache_only_when_memory_is_low(monkeypatch):
+    import ml_device
+    import torch
+    calls = {"empty": 0}
+    monkeypatch.setattr(ml_device, "device", lambda: "cuda")
+    monkeypatch.setattr(torch.cuda, "empty_cache", lambda: calls.__setitem__("empty", calls["empty"] + 1))
+    monkeypatch.setattr(torch.cuda, "mem_get_info", lambda i: (2 * 2 ** 30, 48 * 2 ** 30))
+    assert ml_device.run(lambda: 7, "cuda:0") == 7
+    assert calls["empty"] == 1, "мало свободной памяти — кэш не возвращён карте"
+    monkeypatch.setattr(torch.cuda, "mem_get_info", lambda i: (30 * 2 ** 30, 48 * 2 ** 30))
+    assert ml_device.run(lambda: 8, "cuda:0") == 8
+    assert calls["empty"] == 1, "памяти хватает — кэш не трогается"

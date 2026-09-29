@@ -150,6 +150,18 @@ def _encode_on_free_device(fn):
         free.put(dev)
 
 
+def _release_cache():
+    """Вернуть карте кэш аллокатора после пачки: процесс отбора держал 38.5
+    ГиБ из 47 (прогон 29.09), а рендер клипа на карте получал OOM на 190 МиБ
+    и откатывался на процессор. Кэш — не нужные модели данные, только
+    зарезервированная память."""
+    try:
+        import torch
+        torch.cuda.empty_cache()
+    except Exception:  # noqa: BLE001 — освобождение кэша необязательно
+        pass
+
+
 def embed_images(images):
     """Нормированные векторы картинок (np.ndarray [n, d], float32) или None.
     Пачка делится на куски по batch_size() и идёт на все свободные карты
@@ -183,6 +195,7 @@ def embed_images(images):
             import concurrent.futures
             with concurrent.futures.ThreadPoolExecutor(min(n_dev, len(chunks))) as ex:
                 parts = list(ex.map(one, chunks))
+        _release_cache()
         stacked = np.concatenate([np.asarray(p, np.float32) for p in parts])
         out = np.empty_like(stacked)
         out[np.asarray(order)] = stacked

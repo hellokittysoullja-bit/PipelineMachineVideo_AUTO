@@ -41,6 +41,7 @@ import base64
 import io
 import json
 import os
+import re
 import secrets
 import signal
 import sys
@@ -389,9 +390,39 @@ def upload_progress(shown):
 
 
 class Runner:
-    def __init__(self, base, token):
+    def __init__(self, base, token, watch=()):
         self.base, self.token = base.rstrip("/"), token
         self.log_off = 0      # лог задач на поде общий: следующая задача читается с конца прошлой
+        self.watch_paths = list(watch)
+        self._watch_seen = {}
+        self._watch_at = 0.0
+        self._bol = True      # вывод начинается с начала строки (метка времени)
+
+    def _stamp(self, text):
+        """Метка времени (эта сторона) в начале каждой строки лога пода."""
+        out = []
+        for line in text.splitlines(True):
+            out.append((time.strftime("%H:%M:%S ") if self._bol else "") + line)
+            self._bol = line.endswith("\n")
+        return "".join(out)
+
+    def _watch_once(self):
+        """Новые строки наблюдаемых файлов пода (не чаще раза в 15 с)."""
+        if not self.watch_paths or time.time() - self._watch_at < 15:
+            return
+        self._watch_at = time.time()
+        for path in self.watch_paths:
+            try:
+                data = self.call("GET", f"/download?path={path}", timeout=60, raw=True, retry=False)
+                with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
+                    member = next(m for m in tar.getmembers() if m.isfile())
+                    lines = tar.extractfile(member).read().decode("utf-8", "replace").splitlines()
+            except Exception:  # noqa: BLE001 — файла ещё нет или связь моргнула
+                continue
+            seen = self._watch_seen.get(path, 0)
+            for line in lines[seen:]:
+                print(f"{time.strftime('%H:%M:%S')} [{os.path.basename(path)}] {line[:220]}", flush=True)
+            self._watch_seen[path] = len(lines)
 
     # Прокси Runpod между нами и подом иногда отвечает случайной ошибкой при
     # живом исполнителе (живой прогон 29.09: пустой 404 посреди лога задачи
@@ -531,8 +562,9 @@ class Runner:
                 raise SystemExit("контейнер пода перезапустился посреди задачи — задача потеряна")
             last_up = up if up is not None else last_up
             if st["text"]:
-                sys.stdout.write(st["text"])
+                sys.stdout.write(self._stamp(st["text"]))
                 sys.stdout.flush()
+            self._watch_once()
             off = self.log_off = st["offset"]
             if not st["running"] and st["exit"] is not None and not st["text"]:
                 return st["exit"]
@@ -590,6 +622,13 @@ def main(argv=None):
     p.add_argument("--cmd", help="команда в /work на поде")
     p.add_argument("--prepare", help="подготовка на поде (библиотеки, веса) — идёт сразу, "
                                      "параллельно с загрузкой данных; --cmd ждёт её и данные")
+    p.add_argument("--workdir", default="", help="папка в /work, из которой идут --prepare и --cmd "
+                   "(загрузка папки вне репозитория ложится в /work/<имя папки>/)")
+    p.add_argument("--watch", action="append", default=[],
+                   help="файл в /work: во время задачи каждые 15 с печатаются его новые строки "
+                        "(например, media_plan/stage_timings.jsonl)")
+    p.add_argument("--allow-truncate", action="store_true",
+                   help="разрешить `| tail`/`| head` в --cmd (вывод до конца задачи не виден)")
     p.add_argument("--fetch", action="append", default=[], help="путь в /work, вернуть сюда")
     p.add_argument("--dest", default=".")
     p.add_argument("--env-from-dotenv", default="", help="KEY1,KEY2 — передать в под из .env")
@@ -634,6 +673,16 @@ def main(argv=None):
         return 0
     if not a.cmd:
         raise SystemExit("нет --cmd")
+    check_cmd_visible(a)
+    apply_workdir(a)
+    extra_env_defaults = {"PYTHONUNBUFFERED": "1", "HF_XET_HIGH_PERFORMANCE": "1",
+                          # Без capability video контейнер не видит NVENC/NVDEC карты
+                          # (прогон 29.09: No capable devices found -> клипы и склейка
+                          # на процессоре).
+                          "NVIDIA_DRIVER_CAPABILITIES": "compute,utility,video",
+                          # Аллокатор без фрагментации: память между процессами карты
+                          # (модели отбора и рендер клипов) делится без OOM.
+                          "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}
     if not a.no_smoke and smoke_passed_recently(a.image):
         print(f"Проверка пути: пройдена для этого образа и кода исполнителя "
               f"за последние {SMOKE_VALID_SEC // 3600} ч — не повторяется")
@@ -646,7 +695,8 @@ def main(argv=None):
             raise SystemExit("проверка пути не пройдена — видеокарта не арендована, деньги не потрачены")
         record_smoke(a.image)
     token = secrets.token_urlsafe(32)
-    extra = dotenv_subset([n.strip() for n in a.env_from_dotenv.split(",") if n.strip()])
+    extra = dict(extra_env_defaults)
+    extra.update(dotenv_subset([n.strip() for n in a.env_from_dotenv.split(",") if n.strip()]))
 
     return rent_and_drive(key, a, gpus, by_id, token, extra)
 
@@ -721,7 +771,7 @@ def _rent_attempts(key, a, order, by_id, token, extra, attempts, uploads, spent)
               f"потолок ${left:.2f} = {cap_sec / 60:.0f} мин, самоудаление через {a.idle_min:.0f} мин простоя")
         try:
             return drive(key, pod, token, cap_sec, uploads, a.cmd, a.fetch, a.dest,
-                         prepare=a.prepare, preflight=GPU_PREFLIGHT)
+                         prepare=a.prepare, preflight=GPU_PREFLIGHT, watch=a.watch)
         except BadHost as e:
             spent += pod.get("spent_usd", 0.0)
             print(f"  {e} — хост заменяется (потрачено ${spent:.2f})")
@@ -733,6 +783,37 @@ def _rent_attempts(key, a, order, by_id, token, extra, attempts, uploads, spent)
                 order.append(gpu)
     raise SystemExit(f"видеокарта не заработала за {attempts} попытки — задача не запускалась "
                      f"(потрачено ${spent:.2f})")
+
+
+TRUNCATING = re.compile(r"\|\s*(tail|head)\b")
+
+
+def check_cmd_visible(a):
+    """`| tail`/`| head` в команде прячут весь вывод до конца задачи: живой
+    прогон 29.09 шёл 13 минут вслепую (`| tail -n 150`), и оплачивать
+    приходилось за то, чего не видно. Такая команда не запускается."""
+    if a.allow_truncate:
+        return
+    for name, text in (("--cmd", a.cmd), ("--prepare", a.prepare or "")):
+        if TRUNCATING.search(text):
+            raise SystemExit(f"{name}: `| tail`/`| head` прячет вывод до конца задачи — "
+                             f"убери (или явно --allow-truncate); следи за ходом через --watch")
+
+
+def apply_workdir(a):
+    """--workdir: `cd` в начале --prepare и --cmd. Папка вне репозитория
+    ложится в /work/<имя>/, и голые пути (requirements.txt) без cd не найдутся
+    — так упали два запуска 29.09. Куда легла каждая папка — печатается."""
+    for path in a.upload:
+        full = os.path.abspath(path)
+        rel = os.path.relpath(full, REPO)
+        where = "/work" if rel == "." else "/work/" + (rel if not rel.startswith("..") else os.path.basename(full))
+        print(f"  загрузка {path} -> {where}/")
+    if a.workdir:
+        wd = a.workdir.strip("/")
+        a.cmd = f"cd {wd} && {a.cmd}"
+        if a.prepare:
+            a.prepare = f"cd {wd} && {a.prepare}"
 
 
 UPLOADS_DONE = ".uploads_done"
@@ -756,7 +837,7 @@ def _send(r, item):
         r.upload_dir(item)
 
 
-def drive(key, pod, token, cap_sec, uploads, cmd, fetches, dest, prepare=None, preflight=None):
+def drive(key, pod, token, cap_sec, uploads, cmd, fetches, dest, prepare=None, preflight=None, watch=()):
     """Под создан: дождаться исполнителя, загрузить, запустить, забрать,
     и удалить под в ЛЮБОМ исходе. prepare — идёт на поде параллельно с
     загрузкой (см. overlapped_cmd); первая папка (код) едет до старта.
@@ -772,7 +853,7 @@ def drive(key, pod, token, cap_sec, uploads, cmd, fetches, dest, prepare=None, p
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, _sigint)
     try:
-        r = Runner(f"https://{pod_id}-{PORT}.proxy.runpod.net", token)
+        r = Runner(f"https://{pod_id}-{PORT}.proxy.runpod.net", token, watch=watch)
         if not r.wait_ready(min(1800, cap_sec), lambda: pod_status(key, pod_id)):
             raise SystemExit("исполнитель на поде не поднялся")
         stage("исполнитель готов")

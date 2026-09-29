@@ -3651,7 +3651,7 @@ def measure_luma(path, is_video=False):
                 os.remove(tmp)
         else:
             img = PILImage.open(path).convert("L").resize((64, 36))
-        arr = list(img.getdata())
+        arr = np.asarray(img).ravel().tolist()   # getdata() устарел (Pillow 14); значения те же
         return sum(arr) / len(arr) / 255.0
     except Exception:
         return None
@@ -17280,7 +17280,7 @@ def ahash(photo_path, size=8):
     пакет не нужен). Похожие по контенту кадры дают близкий хэш даже если
     это разные файлы с разных источников."""
     img = PILImage.open(photo_path).convert("L").resize((size, size), PILImage.LANCZOS)
-    pixels = list(img.getdata())
+    pixels = np.asarray(img).ravel().tolist()   # getdata() устарел (Pillow 14); значения те же
     avg = sum(pixels) / len(pixels)
     return "".join("1" if p > avg else "0" for p in pixels)
 
@@ -18523,6 +18523,13 @@ def main():
         return 1
     total = get_audio_duration()
     print(f"Аудио: {total:.1f}с ({total/60:.1f} мин)")
+    if (os.environ.get("PROFILE_SAMPLER") or "").strip() == "1":
+        # Куда уходит время (scripts/stack_sampler.py): файл media_plan/
+        # profile_stacks.txt обновляется по ходу прогона.
+        import atexit
+        import stack_sampler
+        os.makedirs(os.path.join(VIDEO_FOLDER, "media_plan"), exist_ok=True)
+        atexit.register(stack_sampler.start(os.path.join(VIDEO_FOLDER, "media_plan", "profile_stacks.txt")))
     # Какой пайплайн РЕАЛЬНО исполняется — до того, как потрачены часы CPU.
     # Дорогой слой, выключенный в .env, раньше было видно только по
     # отсутствию строк в логе где-то в середине рендера (или не видно вовсе).
