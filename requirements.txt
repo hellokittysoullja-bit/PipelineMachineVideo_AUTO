@@ -5,6 +5,7 @@ numpy>=1.24
 
 # Только для tests/ (pytest tests/) — в проде пайплайну не нужен.
 pytest>=8.0
+pyflakes>=3.0
 
 # opencv-python-headless — используется в pipeline_smart.py для 2.5D-параллакса
 # (опционально, PARALLAX=0 отключает) И для anchor-aware кропа по лицу

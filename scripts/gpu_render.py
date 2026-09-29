@@ -212,6 +212,40 @@ def capture_yuv_lut(chain, n=64, block=2, fmt="yuv420p"):
     return lut
 
 
+def capture_blend_table(mode, opacity):
+    """Таблица [256 (A, верхний слой), 256 (B, нижний)] -> uint8, снятая с
+    ffmpeg ЭТОЙ машины: blend=all_mode=<mode>:all_opacity=<opacity> на паре
+    градиентов. Замер 29.09: формула softlight в ffmpeg 4.4 (образ Runpod)
+    другая, чем в 6.x — яркость зерна расходилась до 9.8 уровня, хотя все
+    остальные этапы цепочки у 4.4 и 6.1 совпадают. Таблица точна для любой
+    версии по построению (0.05 с)."""
+    key = ("blend", mode, round(float(opacity), 6))
+    with _LUT_LOCK:
+        if key in _LUT_CACHE:
+            return _LUT_CACHE[key]
+    a = np.tile(np.arange(256, dtype=np.uint8), (256, 1))          # A по x
+    b = a.T.copy()                                                  # B по y
+    # Оба входа — yuv444p с одинаковой плоскостью во всех каналах: blend
+    # 8 бит считает каждую плоскость одной и той же функцией.
+    def raw(p):
+        return p.tobytes() * 3
+    fc = (f"[0:v][1:v]blend=all_mode={mode}:all_opacity={float(opacity):.6f},format=yuv444p")
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        fa, fb = os.path.join(d, "a.yuv"), os.path.join(d, "b.yuv")
+        open(fa, "wb").write(raw(a))
+        open(fb, "wb").write(raw(b))
+        out = subprocess.run(["ffmpeg", "-v", "error", "-f", "rawvideo", "-pix_fmt", "yuv444p", "-s", "256x256",
+                              "-i", fa, "-f", "rawvideo", "-pix_fmt", "yuv444p", "-s", "256x256", "-i", fb,
+                              "-filter_complex", fc, "-frames:v", "1", "-f", "rawvideo", "-"],
+                             capture_output=True, check=True, timeout=60).stdout
+    t = np.frombuffer(out, np.uint8)[:65536].reshape(256, 256)      # [B][A]
+    t = np.ascontiguousarray(t.T)                                   # [A][B]
+    with _LUT_LOCK:
+        _LUT_CACHE[key] = t
+    return t
+
+
 def deband_offsets(w, h, rng=DEBAND_RANGE):
     """x_pos, y_pos из vf_deband.config_input — frand() через sinf/cosf из
     libm (той же функции, что у ffmpeg), float32 как в C."""
@@ -270,6 +304,9 @@ class _Ops:
     def __init__(self, dev, W, H):
         import torch
         self.t, self.dev, self.W, self.H = torch, dev, W, H
+        self._dith = None
+        self._dith_starts = [0]         # состояние ЛКГ в начале кадра k
+        self._dith_lock = threading.Lock()
         F = torch.nn.functional
         self.F = F
         x = torch.arange(W, device=dev) - W // 2
@@ -289,12 +326,14 @@ class _Ops:
             self.db[p] = idx
 
     # --- таблица цвета: x float [B,3,H,W] 0..1 (RGB) -> то же
-    def lut(self, lut_np, x, order="rgb"):
-        """order: 'rgb' — таблица с индексом [b][g][r] (Hald), 'yuv' — [y][u][v].
-        grid_sample берёт координаты (x, y, z) = (последний, средний, первый)
-        индекс таблицы."""
-        t = self.t
-        L = t.from_numpy(lut_np.astype(np.float32) / 255.0).to(self.dev).permute(3, 0, 1, 2)[None]
+    def lut_tensor(self, lut_np):
+        """Таблица цвета -> тензор на карте [1,3,n,n,n] (один раз на клип)."""
+        return self.t.from_numpy(lut_np.astype(np.float32) / 255.0).to(self.dev).permute(3, 0, 1, 2)[None].contiguous()
+
+    def lut(self, L, x, order="rgb"):
+        """L — lut_tensor(). order: 'rgb' — таблица с индексом [b][g][r]
+        (Hald), 'yuv' — [y][u][v]. grid_sample берёт координаты (x, y, z) =
+        (последний, средний, первый) индекс таблицы."""
         B = x.shape[0]
         if order == "yuv":
             x = x[:, [2, 1, 0]]
@@ -302,10 +341,52 @@ class _Ops:
         out = self.F.grid_sample(L, g, mode="bilinear", align_corners=True)[0, :, 0]
         return out.reshape(3, B, self.H, self.W).permute(1, 0, 2, 3)
 
-    def vignette(self, x, div):
-        c = self.t.cos((math.pi / div) * self.vig_d)
+    def vignette(self, x, div, frame0=None):
+        """vf_vignette на RGB24. frame0=None — только умножение (float, как
+        fmap * src в C). frame0=k — целиком, как ffmpeg с дизерингом по
+        умолчанию: dst = (int)(float(src*f) + dv), dv — значения ЛКГ
+        dither = dither*1664525 + 1013904223 (uint32, с нуля при старте
+        фильтра, сквозное по кадрам и каналам R,G,B), делённые на 2^32.
+        Замер 29.09: floor без дизеринга давал сдвиг яркости -0.5 на
+        виньетке и -0.2 на готовом кадре на всех 17 фото."""
+        t = self.t
+        c = t.cos((math.pi / div) * self.vig_d)
         f = ((c * c) * (c * c)).float()
-        return x * f[None, None]
+        p = x * f[None, None]
+        if frame0 is None:
+            return p
+        # По кадру: значения генератора пачки целиком — ~1 ГиБ int64/float64.
+        out = t.empty_like(p)
+        for k in range(p.shape[0]):
+            dv = self.vignette_dither(frame0 + k, 1)[0]
+            out[k] = (p[k].double() + dv).floor().clamp(0, 255).float()
+        return out
+
+    def vignette_dither(self, frame0, n):
+        """dv [n,3,H,W] (float64) для кадров frame0..frame0+n-1."""
+        t = self.t
+        if self._dith is None:
+            N = self.W * self.H * 3
+            a, c = 1664525, 1013904223
+            A = np.full(N, a, dtype=np.uint32)
+            A[0] = 1
+            A = np.cumprod(A, dtype=np.uint32)            # a^i mod 2^32
+            C = np.zeros(N, dtype=np.uint32)
+            C[1:] = np.cumsum(A[:-1], dtype=np.uint32) * np.uint32(c)   # x_i при x_0 = 0
+            aN = int(A[-1]) * a % (1 << 32)
+            cN = (int(C[-1]) * a + c) % (1 << 32)
+            self._dith = (t.from_numpy(A.astype(np.int64)).to(self.dev),
+                          t.from_numpy(C.astype(np.int64)).to(self.dev), aN, cN)
+        A, C, aN, cN = self._dith
+        with self._dith_lock:
+            starts = self._dith_starts
+            while len(starts) < frame0 + n:
+                starts.append((aN * starts[-1] + cN) % (1 << 32))
+            first = starts[frame0:frame0 + n]
+        xs = t.tensor(first, device=self.dev, dtype=t.int64)
+        v = (A[None, :] * xs[:, None] + C[None, :]) & 0xFFFFFFFF
+        v = v.double() / float(1 << 32)
+        return v.reshape(n, self.H, self.W, 3).permute(0, 3, 1, 2)
 
     @staticmethod
     def q8(x):
@@ -355,19 +436,14 @@ class _Ops:
         res = Y.float() + t.floor((Y.float() - blur) * amount / 65536)
         return res.clamp(0, 255)
 
+    def table(self, table_np):
+        """Таблица наложения -> тензор на карте (один раз на клип)."""
+        return self.t.from_numpy(np.ascontiguousarray(table_np, dtype=np.float32).ravel()).to(self.dev)
+
     @staticmethod
-    def blend_trunc(top, expr, opacity):
-        """dst = top + (expr - top) * opacity, запись в uint8 — усечение к нулю (C)."""
-        v = top + (expr - top) * opacity
-        return v.trunc().clamp(0, 255)
-
-    def screen(self, A, Bv, opacity):
-        return self.blend_trunc(A, 255 - ((255 - A) * (255 - Bv)).div(255, rounding_mode="floor"), opacity)
-
-    def softlight(self, A, Bv, opacity):
-        t = self.t
-        e = (A * A).div(255, rounding_mode="floor") + 2 * (Bv * (A * (255 - A)).div(255, rounding_mode="floor")).div(255, rounding_mode="floor")
-        return self.blend_trunc(A, e.clamp(0, 255), opacity)
+    def blend(A, Bv, tab):
+        """Наложение слоёв таблицей capture_blend_table (A — верхний, B — нижний)."""
+        return tab[(A.long() * 256 + Bv.long()).clamp(0, 65535)]
 
 
 def _decode_yuv420(path, w=None, h=None, vf=None, fmt="yuv420p"):
@@ -404,21 +480,134 @@ def grain_frames(path, dev, W, H):
     if key not in _GRAIN_CACHE:
         import torch
         fr = _decode_yuv420(path, W, H, vf=f"scale={W}:{H}:flags=bicubic")
-        _GRAIN_CACHE[key] = [tuple(torch.from_numpy(np.array(p)).to(dev).float() for p in f)
-                             for f in fr]
+        # uint8: наложение берёт значения индексом таблицы; float32 держал
+        # бы ~1 ГиБ на процесс.
+        _GRAIN_CACHE[key] = [tuple(torch.from_numpy(np.array(p)).to(dev) for p in f) for f in fr]
     return _GRAIN_CACHE[key]
+
+
+# ------------------------------------------------------- самопроверка
+# GPU-путь ОБЯЗАН совпадать с процессорным путём ЭТОЙ машины, а формулы
+# фильтров меняются между версиями ffmpeg (29.09: softlight в 4.4 другой,
+# чем в 6.x — яркость зерна уезжала до 9.8 уровня, и ни один тест в
+# контейнере с 6.1 этого не видел). Поэтому первый клип каждой раскладки
+# цвета в процессе считается дважды — на карте и командой процессорного
+# пути (первая пачка кадров, до кодирования) — и сравнивается. Не совпало —
+# GPU-путь выключается до конца процесса, громко, и весь ролик идёт
+# процессорным путём. Пороги — с запасом к измеренному (docs, ЧАСТЬ 13):
+# здоровые клипы на 6.1 и 4.4 — яркость от 35.4 дБ и сдвиг до 0.2;
+# расхождение формулы давало 19.7-31.6 дБ и сдвиг до 9.8.
+PARITY_MIN_PSNR_Y = 33.0
+PARITY_MIN_PSNR_UV = 38.0
+PARITY_MAX_BIAS = 0.6
+_PARITY = {"ok": set(), "disabled": None}
+_PARITY_LOCK = threading.Lock()
+
+
+def _parity_needed(ffmt):
+    with _PARITY_LOCK:
+        return ffmt not in _PARITY["ok"]
+
+
+def _psnr(d):
+    return float(10 * np.log10(255.0 ** 2 / max(float((d * d).mean()), 1e-9)))
+
+
+def parity_gate(ffmt, got, reference_cmd, W, H, trace=None):
+    """got — список кадров [(Y, U, V) uint8] первой пачки GPU-пути.
+    reference_cmd — входы и граф процессорного пути. (ok, причина)."""
+    n = len(got)
+    cmd = list(reference_cmd) + ["-frames:v", str(n), "-f", "rawvideo", "-pix_fmt", "yuv420p", "-"]
+    try:
+        raw = subprocess.run(cmd, capture_output=True, check=True, timeout=600).stdout
+    except Exception as e:  # noqa: BLE001 — сверить нечем: доверять карте нельзя
+        why = f"самопроверка не состоялась ({type(e).__name__}) — GPU-путь выключен"
+        _PARITY["disabled"] = why
+        print(f"  ВИДЕОКАРТА: {why}")
+        return False, why
+    ny, nc = W * H, ((W + 1) // 2) * ((H + 1) // 2)
+    fs = ny + 2 * nc
+    if len(raw) < n * fs:
+        why = f"самопроверка: процессорный путь отдал {len(raw) // fs} кадр(ов) из {n} — GPU-путь выключен"
+        _PARITY["disabled"] = why
+        print(f"  ВИДЕОКАРТА: {why}")
+        return False, why
+    ref = np.frombuffer(raw, np.uint8, n * fs).reshape(n, fs).astype(np.float32)
+    mine = np.stack([np.concatenate([p.ravel() for p in f]) for f in got]).astype(np.float32)
+    dy = mine[:, :ny] - ref[:, :ny]
+    duv = mine[:, ny:] - ref[:, ny:]
+    py, puv, bias = _psnr(dy), _psnr(duv), float(dy.mean())
+    if trace is not None:
+        trace["parity"] = (py, puv, bias)
+    if py < PARITY_MIN_PSNR_Y or puv < PARITY_MIN_PSNR_UV or abs(bias) > PARITY_MAX_BIAS:
+        why = (f"самопроверка не прошла на раскладке {ffmt}: яркость {py:.1f} дБ, цвет {puv:.1f} дБ, "
+               f"сдвиг {bias:+.2f} — GPU-путь выключен до конца процесса, рендер на процессоре")
+        with _PARITY_LOCK:
+            _PARITY["disabled"] = why
+        print(f"  ВИДЕОКАРТА: {why}")
+        return False, why
+    with _PARITY_LOCK:
+        _PARITY["ok"].add(ffmt)
+    print(f"  видеокарта: самопроверка {ffmt} пройдена (яркость {py:.1f} дБ, цвет {puv:.1f}, сдвиг {bias:+.2f})")
+    return True, ""
+
+
+_OPS_CACHE = {}
+_OPS_LOCK = threading.Lock()
+
+
+def _ops_for(dev, W, H):
+    """Индексы дебандинга, карта виньетки и т.п. — одни на процесс и размер
+    кадра (строились заново на каждый клип)."""
+    key = (str(dev), W, H)
+    with _OPS_LOCK:
+        if key not in _OPS_CACHE:
+            _OPS_CACHE[key] = _Ops(dev, W, H)
+        return _OPS_CACHE[key]
+
+
+# Профиль по этапам (GPU_RENDER_PROFILE=1): с синхронизацией карты после
+# каждого этапа — только для замера, в рендере синхронизация убивала бы
+# работу внахлёст.
+PROFILE = {}
+_PROFILE_LOCK = threading.Lock()
+
+
+class _Prof:
+    def __init__(self, dev):
+        self.on = os.environ.get("GPU_RENDER_PROFILE") == "1"
+        self.dev = dev
+        self.t = None
+
+    def mark(self, name):
+        if not self.on:
+            return
+        import time
+        if str(self.dev).startswith("cuda"):
+            import torch
+            torch.cuda.synchronize()
+        now = time.perf_counter()
+        if self.t is not None and name:
+            with _PROFILE_LOCK:
+                PROFILE[name] = PROFILE.get(name, 0.0) + (now - self.t)
+        self.t = now
 
 
 def render_kenburns(photo, out, frames, z_expr, x_expr, y_expr, canvas, film_look_str,
                     encode_args, fps=24, W=1920, H=1080, grain_path=None, grain_opacity=None,
-                    batch=8, trace=None):
+                    batch=8, trace=None, reference_cmd=None):
     """Отрисовать клип наезда на видеокарте и закодировать. canvas =
     (nw, nh, cw, ch, cx0, cy0) — та же геометрия, что scale/crop в
     kenburns(). encode_args — кодек, частота, цветовые метки, путь
-    (как в команде процессорного пути после входа). Возвращает (ok, причина)."""
+    (как в команде процессорного пути после входа). reference_cmd — входы и
+    граф фильтров процессорного пути ЭТОГО клипа (без выхода): по нему
+    первый клип каждой раскладки цвета сверяется с ffmpeg этой машины
+    (parity_gate). Возвращает (ok, причина)."""
     dev = device()
     if dev is None:
         return False, "нет CUDA"
+    if _PARITY["disabled"]:
+        return False, _PARITY["disabled"]
     parts = split_film_look(film_look_str)
     if parts is None:
         return False, "строка грейда отличается от известной структуры"
@@ -426,13 +615,17 @@ def render_kenburns(photo, out, frames, z_expr, x_expr, y_expr, canvas, film_loo
     import torch
     F = torch.nn.functional
     nw, nh, cw, ch, cx0, cy0 = canvas
-    ops = _Ops(dev, W, H)
+    ops = _ops_for(dev, W, H)
+    prof = _Prof(dev)
     ffmt = front_format(photo)
     if ffmt is None:
         return False, "исходник серый или с прозрачностью — процессорный путь"
     sx, sy = CHROMA_SHIFT[ffmt]
-    lut_point = capture_yuv_lut(point, fmt=ffmt)
-    lut_hal = capture_lut(HALATION_POINT)
+    lut_point = ops.lut_tensor(capture_yuv_lut(point, fmt=ffmt))
+    lut_hal = ops.lut_tensor(capture_lut(HALATION_POINT))
+    tab_screen = ops.table(capture_blend_table("screen", HALATION_OPACITY))
+    tab_grain = (ops.table(capture_blend_table("softlight", min(1.0, float(grain_opacity))))
+                 if grain_path else None)
     zf, xf, yf = ff_expr(z_expr), ff_expr(x_expr), ff_expr(y_expr)
 
     # Холст как у процессорного пути: фото -> YUV 4:2:0 ограниченного
@@ -463,9 +656,36 @@ def render_kenburns(photo, out, frames, z_expr, x_expr, y_expr, canvas, film_loo
     cmd = ["ffmpeg", "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "yuv420p10le", "-s", f"{W}x{H}",
            "-r", str(fps), "-i", "-"] + list(encode_args)
     enc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+    # Запись в кодер — отдельным потоком: карта считает пачку n+1, пока
+    # пачка n уходит в трубу кодера. Очередь на две пачки держит память.
+    import queue
+    q = queue.Queue(maxsize=2)
+    werr = []
+
+    def writer():
+        while True:
+            item = q.get()
+            if item is None:
+                return
+            if werr:
+                continue
+            ev, host = item
+            try:
+                if ev is not None:
+                    ev.synchronize()
+                enc.stdin.write(memoryview(host.numpy()).cast("B"))
+            except Exception as e:  # noqa: BLE001 — кодер упал: причина — в его stderr
+                werr.append(e)
+    wt = threading.Thread(target=writer, daemon=True)
+    wt.start()
+    cuda = str(dev).startswith("cuda")
+    ring = [[None] for _ in range(4)]
     prev = {"zoom": 1.0}
+    prof.mark(None)
     try:
         for b0 in range(0, frames, batch):
+            if werr:
+                raise werr[0]
             idx = list(range(b0, min(frames, b0 + batch)))
             Ys, Us, Vs = [], [], []
             for on in idx:
@@ -489,6 +709,7 @@ def render_kenburns(photo, out, frames, z_expr, x_expr, y_expr, canvas, film_loo
             Y = torch.cat(Ys)[:, 0].round().clamp(0, 255)
             U = torch.cat(Us)[:, 0].round().clamp(0, 255)
             V = torch.cat(Vs)[:, 0].round().clamp(0, 255)
+            prof.mark("наезд")
             if trace is not None and b0 == 0:
                 trace["zoompan"] = (Y[0], U[0], V[0])
             # Цвет -> полный размер повтором отсчёта (так swscale поднимает
@@ -500,9 +721,9 @@ def render_kenburns(photo, out, frames, z_expr, x_expr, y_expr, canvas, film_loo
             g = ops.lut(lut_point, yuv, order="yuv")
             if trace is not None and b0 == 0:
                 trace["point_rgb"] = ops.q8(g)[0]
-            # vf_vignette пишет floor(v * f) в 8 бит (без дизеринга совпадение
-            # 102.7 дБ; округление вместо floor давало сдвиг -0.5 на весь кадр).
-            base = ops.vignette(ops.q8(g), vig_div).floor().clamp(0, 255)
+            # vf_vignette с дизерингом по умолчанию — тот же ЛКГ, что у ffmpeg.
+            base = ops.vignette(ops.q8(g), vig_div, frame0=b0)
+            prof.mark("грейд таблицей и виньетка")
             if trace is not None and b0 == 0:
                 trace["vignette_rgb"] = base[0]
             # свечение: таблица, /4 бикубика, размытие, обратно, «экран» в YUV 4:2:0
@@ -511,8 +732,9 @@ def render_kenburns(photo, out, frames, z_expr, x_expr, y_expr, canvas, film_loo
             gl = F.interpolate(ops.gauss(sm, HALATION_SIGMA), size=(H, W), mode="bicubic", align_corners=False)
             gY, gU, gV = ops.rgb_to_yuv420(ops.q8(gl.clamp(0, 1)))
             bY, bU, bV = ops.rgb_to_yuv420(base)
-            planes = [ops.screen(bY, gY, HALATION_OPACITY), ops.screen(bU, gU, HALATION_OPACITY),
-                      ops.screen(bV, gV, HALATION_OPACITY)]
+            planes = [ops.blend(bY, gY, tab_screen), ops.blend(bU, gU, tab_screen),
+                      ops.blend(bV, gV, tab_screen)]
+            prof.mark("свечение")
             if trace is not None and b0 == 0:
                 trace["halation"] = tuple(p_[0] for p_ in planes)
             planes = [ops.deband(planes[0], 0), ops.deband(planes[1], 1), ops.deband(planes[2], 1)]
@@ -522,26 +744,61 @@ def render_kenburns(photo, out, frames, z_expr, x_expr, y_expr, canvas, film_loo
             if trace is not None and b0 == 0:
                 trace["unsharp"] = tuple(p_[0] for p_ in planes)
             if grains:
-                op = min(1.0, float(grain_opacity))
                 gsel = [grains[on % len(grains)] for on in idx]
-                planes = [ops.softlight(planes[k], torch.stack([gs[k] for gs in gsel]), op) for k in range(3)]
-            # 10 бит: (v<<2)|(v>>6), как swscale расширяет 8 бит
-            for k in range(len(idx)):
-                buf = []
-                for pl in planes:
-                    v = pl[k].to(torch.int32)
-                    buf.append(((v << 2) | (v >> 6)).to(torch.int16).cpu().numpy().tobytes())
-                enc.stdin.write(b"".join(buf))
+                planes = [ops.blend(planes[k], torch.stack([gs[k] for gs in gsel]), tab_grain) for k in range(3)]
+            prof.mark("дебандинг, резкость, зерно")
+            if b0 == 0 and reference_cmd is not None and _parity_needed(ffmt):
+                got = [[pl[k].to(torch.uint8).cpu().numpy() for pl in planes] for k in range(len(idx))]
+                ok_p, why_p = parity_gate(ffmt, got, reference_cmd, W, H, trace)
+                prof.mark(None)
+                if not ok_p:
+                    enc.kill()
+                    q.put(None)
+                    return False, why_p
+            # 10 бит: (v<<2)|(v>>6), как swscale расширяет 8 бит; кадры пачки
+            # подряд (Y, U, V каждого кадра) — одна пересылка с карты на пачку.
+            nb = len(idx)
+            packed = torch.cat([pl.to(torch.int32).reshape(nb, -1) for pl in planes], 1)
+            packed = ((packed << 2) | (packed >> 6)).to(torch.int16)
+            if cuda:
+                # Кольцо из 4 закреплённых буферов (очередь 2 + пишется 1 +
+                # заполняется 1): выделение закреплённой памяти на каждую
+                # пачку стоило бы миллисекунды вызова драйвера.
+                slot = ring[(b0 // batch) % len(ring)]
+                if slot[0] is None or slot[0].shape[1] != packed.shape[1] or slot[0].shape[0] < nb:
+                    slot[0] = torch.empty((batch, packed.shape[1]), dtype=torch.int16, pin_memory=True)
+                host = slot[0][:nb]
+                host.copy_(packed, non_blocking=True)
+                ev = torch.cuda.Event()
+                ev.record()
+            else:
+                host, ev = packed.contiguous(), None
+            prof.mark("упаковка и пересылка")
+            q.put((ev, host))
+        q.put(None)
+        wt.join()
+        prof.mark("ожидание записи в кодер")
+        if werr:
+            raise werr[0]
         enc.stdin.close()
         err = enc.stderr.read().decode("utf-8", "replace")
         code = enc.wait()
+        prof.mark("кодер: хвост")
         return (code == 0), (err.strip()[-300:] or f"кодер вернул {code}")
     except Exception as e:  # noqa: BLE001 — любой сбой: процессорный путь
         try:
             enc.kill()
         except Exception:  # noqa: BLE001
             pass
-        return False, f"{type(e).__name__}: {e}"[:300]
+        try:
+            q.put(None, timeout=30)       # после kill запись падает сразу — поток выйдет
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            err = enc.stderr.read().decode("utf-8", "replace").strip()[-200:]
+        except Exception:  # noqa: BLE001
+            err = ""
+        return False, (f"{type(e).__name__}: {e}"[:200] + (f" | кодер: {err}" if err else ""))
 
 
 def signature():

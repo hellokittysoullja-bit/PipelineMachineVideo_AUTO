@@ -179,11 +179,23 @@ def _render_worker_background_priority():
         pass
 
 
-def _render_worker_init(nvenc_gate=None):
-    """Инициализация воркера рендера: пониженный приоритет и общий счётчик
-    сессий NVENC (make_nvenc_gate)."""
+# Роль процесса рендера: None — главный процесс (или рендер без пула),
+# "cpu" — воркер процессорного пула (видеокарту не трогает никогда: сотня
+# воркеров с контекстом CUDA и кэшами каждый — это десятки гигабайт на
+# карте), "gpu" — воркер пула видеокарты (ClipRenderPools).
+_WORKER_ROLE = [None]
+# kenburns() в воркере карты, если GPU-путь к клипу не применим или
+# отказал, возвращает это вместо рендера на процессоре: клип уходит в
+# процессорный пул, где ядер в десятки раз больше.
+GPU_DECLINED = "__gpu_declined__"
+
+
+def _render_worker_init(nvenc_gate=None, role="cpu"):
+    """Инициализация воркера рендера: пониженный приоритет, общий счётчик
+    сессий NVENC (make_nvenc_gate) и роль процесса."""
     _render_worker_background_priority()
     set_nvenc_gate(nvenc_gate)
+    _WORKER_ROLE[0] = role
 
 # Позиционный аргумент (путь к эпизоду) отделён от флагов явно, а не просто
 # sys.argv[1] — иначе --plan-only (см. ниже) пришлось бы всегда ставить
@@ -11306,7 +11318,10 @@ def render_timeout_sec(dur):
 
 
 def gpu_render_active():
-    """GPU_RENDER включён и видеокарта есть (gpu_render.py)."""
+    """GPU_RENDER включён и видеокарта есть (gpu_render.py). В воркере
+    процессорного пула — никогда."""
+    if _WORKER_ROLE[0] == "cpu":
+        return False
     try:
         import gpu_render
         return gpu_render.enabled() and gpu_render.device() is not None
@@ -11788,6 +11803,21 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
 
     tmp_out = render_tmp_path(out)
 
+    def graph_args(vf):
+        """Входы и граф фильтров процессорного пути — общие для рендера и
+        для самопроверки GPU-пути (сверка идёт с ЭТОЙ ЖЕ командой)."""
+        a = ["-framerate", "1", "-loop", "1", "-i", photo]
+        if GRAIN_ENABLED:
+            # Зерно — отдельный вход (зацикленный grain_loop.mp4), не строка
+            # фильтров — filter_complex вместо -vf, тот же приём, что уже
+            # используется для speed ramp/halation embedding.
+            a += ["-stream_loop", "-1", "-i", GRAIN_LOOP_PATH]
+            fc = f"[0:v]{vf}[gr_in];{grain_blend_complex('gr_in', 1, 'vout', grain_scale)}"
+            a += ["-filter_complex", fc, "-map", "[vout]"]
+        else:
+            a += ["-vf", vf]
+        return a
+
     def render(vf):
         # -framerate 1 на зациклённом фото: без него image2-демуксер отдаёт
         # 25 кадров/с, и КАЖДЫЙ из них проходит scale=8000x4500 (36 Мпикс
@@ -11796,16 +11826,7 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
         # 6.0с -> 4.6с на стадии zoompan+кодирование, выход побайтово
         # идентичен (80 кадров, нулевая разница по пикселям на первом/
         # среднем/последнем кадре).
-        cmd = ["ffmpeg", "-y", "-framerate", "1", "-loop", "1", "-i", photo]
-        if GRAIN_ENABLED:
-            # Зерно — отдельный вход (зацикленный grain_loop.mp4), не строка
-            # фильтров — filter_complex вместо -vf, тот же приём, что уже
-            # используется для speed ramp/halation embedding.
-            cmd += ["-stream_loop", "-1", "-i", GRAIN_LOOP_PATH]
-            fc = f"[0:v]{vf}[gr_in];{grain_blend_complex('gr_in', 1, 'vout', grain_scale)}"
-            cmd += ["-filter_complex", fc, "-map", "[vout]"]
-        else:
-            cmd += ["-vf", vf]
+        cmd = ["ffmpeg", "-y"] + graph_args(vf)
         # -frames:v, а НЕ -t: заказ в кадрах — единственная точная единица
         # (столько же кадров, сколько заложено в zoompan d=frames и в
         # тайминг склейки). С -t граница "последний кадр влез/не влез"
@@ -11827,17 +11848,22 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
     if not vf_overlay and not look_filter and gpu_render_active() and (
             not GRAIN_ENABLED or GRAIN_BLEND_MODE == "softlight"):
         import gpu_render
-        grain_op = min(1.0, GRAIN_OPACITY * GRAIN_SOFTLIGHT_GAIN * grain_scale)
+        # Ровно то число, что уходит в строку фильтра процессорного пути
+        # (grain_blend_complex пишет его с 4 знаками).
+        grain_op = float(f"{min(1.0, GRAIN_OPACITY * GRAIN_SOFTLIGHT_GAIN * grain_scale):.4f}")
         enc = clip_codec_args() + ["-r", str(FPS)] + COLOR_META_ARGS + [tmp_out]
         ok, why = gpu_render.render_kenburns(
             photo, tmp_out, frames, z, x, y, (nw, nh, kb_cw, kb_ch, cx0, cy0), fl_str, enc,
             fps=FPS, W=WIDTH, H=HEIGHT, grain_path=GRAIN_LOOP_PATH if GRAIN_ENABLED else None,
-            grain_opacity=grain_op)
+            grain_opacity=grain_op,
+            reference_cmd=["ffmpeg", "-v", "error"] + graph_args(vf_base))
         if ok:
             ok, why, _ = verify_clip(tmp_out, dur)
         if ok:
             return finalize_render(tmp_out, out, True)
         print(f"  [{label}] видеокарта: {why} — рендер на процессоре")
+    if _WORKER_ROLE[0] == "gpu":
+        return GPU_DECLINED
     if vf_overlay:
         ok, reason = run_ffmpeg_with_retry(lambda: render(vf_overlay), tmp_out, dur, label)
         if ok:
@@ -15806,23 +15832,6 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
         return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=render_timeout_sec(dur))
 
     label = os.path.basename(out)
-    # Видеокарта (gpu_render.py): тот же рецепт — те же строки движения и
-    # грейда — считается на GPU. Надписи, Look Management и режимы зерна,
-    # кроме softlight, пока идут прежним путём; любой сбой — тоже.
-    if not vf_overlay and not look_filter and gpu_render_active() and (
-            not GRAIN_ENABLED or GRAIN_BLEND_MODE == "softlight"):
-        import gpu_render
-        grain_op = min(1.0, GRAIN_OPACITY * GRAIN_SOFTLIGHT_GAIN * grain_scale)
-        enc = clip_codec_args() + ["-r", str(FPS)] + COLOR_META_ARGS + [tmp_out]
-        ok, why = gpu_render.render_kenburns(
-            photo, tmp_out, frames, z, x, y, (nw, nh, kb_cw, kb_ch, cx0, cy0), fl_str, enc,
-            fps=FPS, W=WIDTH, H=HEIGHT, grain_path=GRAIN_LOOP_PATH if GRAIN_ENABLED else None,
-            grain_opacity=grain_op)
-        if ok:
-            ok, why, _ = verify_clip(tmp_out, dur)
-        if ok:
-            return finalize_render(tmp_out, out, True)
-        print(f"  [{label}] видеокарта: {why} — рендер на процессоре")
     if vf_overlay:
         ok, reason = run_ffmpeg_with_retry(lambda: render(vf_overlay), tmp_out, dur, label)
         if ok:
@@ -17783,6 +17792,101 @@ def render_highlight_clip(render_pool, i, photo, out, d, motion_mode, stage, kw)
                               ffmpeg_threads=RENDER_FFMPEG_THREADS, **kb).result()
 
 
+def gpu_render_workers():
+    """Сколько процессов рендерят на видеокарте. Каждый держит свой контекст
+    CUDA, кэш зерна и пачку кадров в работе — около 3 ГиБ; остальная память
+    карты нужна моделям отбора в главном процессе (Qwen3-VL-8B — ~17 ГиБ,
+    SigLIP2 — ~2). GPU_RENDER_WORKERS в окружении — явное число."""
+    env = (os.environ.get("GPU_RENDER_WORKERS") or "").strip()
+    if env.isdigit() and int(env) > 0:
+        return int(env)
+    try:
+        import torch
+        total = torch.cuda.get_device_properties(0).total_memory / 2 ** 30
+    except Exception:  # noqa: BLE001
+        return 1
+    reserve = 20 if feature_flags.mode("CASCADE_MODEL") == "qwen3vl" else 6
+    return int(max(1, min(4, (total - reserve) // 3)))
+
+
+class ClipRenderPools:
+    """Раздатчик клипов с интерфейсом пула (submit/shutdown). Клип наезда
+    на фото сначала идёт в маленький пул видеокарты; если GPU-путь к нему
+    не применим (надписи, серое фото, самопроверка выключила карту) или
+    отказал — тот же вызов уходит в процессорный пул. Всё остальное (видео,
+    параллакс) — сразу в процессорный. Упавший пул карты (драйвер, память)
+    отключается, и дальше всё идёт процессором: клип не теряется."""
+
+    def __init__(self, cpu, gpu):
+        self.cpu, self.gpu = cpu, gpu
+        self.stats = {"gpu": 0, "declined": 0, "gpu_failed": 0}
+        self._lock = threading.Lock()
+
+    def _to_gpu(self, fn, args):
+        return self.gpu is not None and fn is _timed_render and len(args) >= 1 and args[0] is kenburns
+
+    def submit(self, fn, *args, **kw):
+        if not self._to_gpu(fn, args):
+            return self.cpu.submit(fn, *args, **kw)
+        outer = concurrent.futures.Future()
+        try:
+            g = self.gpu.submit(fn, *args, **kw)
+        except Exception:  # noqa: BLE001 — пул карты сломан: процессор
+            self._gpu_broken()
+            return self.cpu.submit(fn, *args, **kw)
+
+        def chain(src):
+            try:
+                outer.set_result(src.result())
+            except Exception as e:  # noqa: BLE001
+                outer.set_exception(e)
+
+        def done(f):
+            try:
+                r = f.result()
+                failed = False
+            except Exception:  # noqa: BLE001 — процесс карты упал
+                r, failed = None, True
+            with self._lock:
+                if failed:
+                    self.stats["gpu_failed"] += 1
+                elif r == GPU_DECLINED:
+                    self.stats["declined"] += 1
+                else:
+                    self.stats["gpu"] += 1
+            if failed:
+                self._gpu_broken()
+            if failed or r == GPU_DECLINED:
+                try:
+                    self.cpu.submit(fn, *args, **kw).add_done_callback(chain)
+                except Exception as e:  # noqa: BLE001
+                    outer.set_exception(e)
+            else:
+                outer.set_result(r)
+        g.add_done_callback(done)
+        return outer
+
+    def _gpu_broken(self):
+        with self._lock:
+            gpu, self.gpu = self.gpu, None
+        if gpu is not None:
+            print("  ВИДЕОКАРТА: пул рендера на карте упал — дальше клипы рендерит процессор")
+            try:
+                gpu.shutdown(wait=False, cancel_futures=False)
+            except Exception:  # noqa: BLE001
+                pass
+
+    def shutdown(self, wait=True):
+        # Сначала карта: её отказы дописывают задания в процессорный пул.
+        gpu = self.gpu
+        if gpu is not None:
+            gpu.shutdown(wait=wait)
+        self.cpu.shutdown(wait=wait)
+        if self.stats["gpu"] or self.stats["declined"] or self.stats["gpu_failed"]:
+            print(f"  Рендер клипов: на видеокарте {self.stats['gpu']}, отдано процессору "
+                  f"{self.stats['declined']}, сбоев пула карты {self.stats['gpu_failed']}")
+
+
 def check_jobs_in_order(pending_jobs):
     """pending_jobs обязан идти строго по ВОЗРАСТАНИЮ индекса блока — этого
     (и только этого) требует xfade-склейка ниже: кадры должны попасть в
@@ -18533,8 +18637,17 @@ def main():
     render_pool = (concurrent.futures.ProcessPoolExecutor(
                        max_workers=RENDER_POOL_WORKERS,
                        mp_context=_spawn_ctx,
-                       initializer=_render_worker_init, initargs=(nvenc_gate,))
+                       initializer=_render_worker_init, initargs=(nvenc_gate, "cpu"))
                    if RENDER_POOL_ENABLED and not SELECT_ONLY else None)
+    if render_pool is not None and gpu_render_active():
+        # Карта — отдельным маленьким пулом (см. ClipRenderPools): в
+        # процессорных воркерах её нет вовсе.
+        _gw = gpu_render_workers()
+        render_pool = ClipRenderPools(render_pool, concurrent.futures.ProcessPoolExecutor(
+            max_workers=_gw, mp_context=_spawn_ctx,
+            initializer=_render_worker_init, initargs=(nvenc_gate, "gpu")))
+        print(f"  Рендер клипов наезда: видеокарта ({_gw} процесс(а)), остальное — процессор "
+              f"({RENDER_POOL_WORKERS})")
     # Параллакс-кадры рисуются покадрово в этом процессе (depth-модель живёт
     # здесь) — раньше прямо в цикле отбора, и следующий слот ждал рендера.
     # Теперь в одном фоновом потоке, по порядку, как и прежде; рядом с пулом

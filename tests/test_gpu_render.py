@@ -103,7 +103,7 @@ def test_color_table_matches_the_ffmpeg_chain_on_420_input():
     V = F.interpolate(torch.from_numpy(a[n + c:].reshape(1, 1, H // 2, W // 2).astype(np.float32)), size=(H, W),
                       mode="bilinear", align_corners=False)[0, 0]
     ops = gr._Ops("cpu", W, H)
-    g = ops.lut(gr.capture_yuv_lut(point), torch.stack([Y, U, V])[None] / 255.0, order="yuv")[0]
+    g = ops.lut(ops.lut_tensor(gr.capture_yuv_lut(point)), torch.stack([Y, U, V])[None] / 255.0, order="yuv")[0]
     got = (g.permute(1, 2, 0).numpy() * 255).round().clip(0, 255).ravel()
     # Синтетика с шумом: 43.2 дБ (замер 29.09); реальное фото — 47.4 дБ.
     # Порог — страж от регресса, не заявка на качество.
@@ -195,3 +195,157 @@ def test_gray_and_alpha_sources_stay_on_the_cpu(tmp_path):
         p = tmp_path / f"{pix}.png"
         _ff(["-f", "lavfi", "-i", "testsrc2=s=64x48", "-frames:v", "1", "-pix_fmt", pix, str(p)])
         assert gr.front_format(str(p)) is None
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("mode,op", [("screen", 0.09), ("softlight", 0.1234), ("softlight", 1.0)])
+def test_blend_table_is_what_this_ffmpeg_computes(mode, op):
+    """Наложение таблицей = blend этого ffmpeg побитово, и роли слоёв (A —
+    верхний, первый вход) не перепутаны. 29.09: формула softlight у ffmpeg
+    4.4 (образ Runpod) другая, чем у 6.x, — зашитая формула уводила яркость
+    зерна до 9.8 уровня."""
+    rng = np.random.default_rng(3)
+    a = rng.integers(0, 256, (48, 64), dtype=np.uint8)
+    b = rng.integers(0, 256, (48, 64), dtype=np.uint8)
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        fa, fb = os.path.join(d, "a.gray"), os.path.join(d, "b.gray")
+        open(fa, "wb").write(a.tobytes())
+        open(fb, "wb").write(b.tobytes())
+        ref = np.frombuffer(_ff(["-f", "rawvideo", "-pix_fmt", "gray", "-s", "64x48", "-i", fa,
+                                 "-f", "rawvideo", "-pix_fmt", "gray", "-s", "64x48", "-i", fb,
+                                 "-filter_complex", f"blend=all_mode={mode}:all_opacity={op}",
+                                 "-f", "rawvideo", "-pix_fmt", "gray", "-"]), np.uint8).reshape(48, 64)
+    t = gr.capture_blend_table(mode, op)
+    assert (t[a.astype(int), b.astype(int)] == ref).all()
+
+
+def _clip_setup(tmp_path, grain):
+    import pipeline_smart as ps
+    W, H, cw, ch, nw, nh, cx0, cy0, frames = 320, 180, 640, 360, 640, 400, 0, 20, 3
+    photo = tmp_path / "p.jpg"
+    img = _smooth_image(400, 250, 7)
+    _ff(["-f", "rawvideo", "-pix_fmt", "rgb24", "-s", "400x250", "-i", "-", "-q:v", "2", str(photo)],
+        img.tobytes())
+    z = "'1.04+0.06*(on/3)'"
+    x = "'iw/2-(iw/zoom/2)'"
+    y = "'ih/2-(ih/zoom/2)'"
+    fl = ps.film_look(5, "BLOCK_1", 0.0, 0.0, levels=(0.05, 0.93), wb=(0.45, 0.42, 0.40))
+    vf = (f"scale={nw}:{nh},crop={cw}:{ch}:{cx0}:{cy0},setsar=1,zoompan=z={z}:x={x}:y={y}:d={frames}:"
+          f"s={W}x{H}:fps=24,{fl}")
+    ref = ["ffmpeg", "-v", "error", "-framerate", "1", "-loop", "1", "-i", str(photo)]
+    if grain:
+        ref += ["-stream_loop", "-1", "-i", grain,
+                "-filter_complex", f"[0:v]{vf}[gr_in];[1:v]scale={W}:{H}:flags=bicubic,setsar=1[gr_scaled];"
+                                   f"[gr_in][gr_scaled]blend=all_mode=softlight:all_opacity=0.2000[vout]",
+                "-map", "[vout]"]
+    else:
+        ref += ["-vf", vf]
+    return dict(photo=str(photo), frames=frames, z=z, x=x, y=y, canvas=(nw, nh, cw, ch, cx0, cy0), fl=fl,
+                W=W, H=H, ref=ref)
+
+
+@pytest.fixture
+def fresh_parity(monkeypatch):
+    monkeypatch.setattr(gr, "_PARITY", {"ok": set(), "disabled": None})
+    monkeypatch.setenv("GPU_RENDER_DEVICE", "cpu")
+
+
+GRAIN = os.path.join(REPO, "assets", "grain", "grain_loop.mp4")
+
+
+@needs_ffmpeg
+@pytest.mark.skipif(not os.path.exists(GRAIN), reason="нет grain_loop.mp4")
+def test_whole_clip_with_grain_matches_and_passes_the_self_check(tmp_path, fresh_parity):
+    """Клип с зерном целиком проходит самопроверку против настоящей команды
+    процессорного пути — на ЭТОМ ffmpeg."""
+    c = _clip_setup(tmp_path, GRAIN)
+    trace = {}
+    ok, why = gr.render_kenburns(c["photo"], str(tmp_path / "g.mkv"), c["frames"], c["z"], c["x"], c["y"],
+                                 c["canvas"], c["fl"], ["-c:v", "ffv1", str(tmp_path / "g.mkv")],
+                                 W=c["W"], H=c["H"], grain_path=GRAIN, grain_opacity=0.2,
+                                 trace=trace, reference_cmd=c["ref"])
+    assert ok, why
+    py, puv, bias = trace["parity"]
+    print("самопроверка с зерном:", round(py, 1), round(puv, 1), round(bias, 2))
+    assert py > 36 and puv > 40 and abs(bias) < 0.5
+    assert gr._PARITY["ok"] and not gr._PARITY["disabled"]
+
+
+@needs_ffmpeg
+@pytest.mark.skipif(not os.path.exists(GRAIN), reason="нет grain_loop.mp4")
+def test_self_check_turns_the_gpu_path_off_when_it_disagrees(tmp_path, fresh_parity, monkeypatch):
+    """Карта считает не то, что ffmpeg этой машины (здесь — чужая формула
+    мягкого света, как у 4.4 против 6.x) -> клип НЕ кодируется, GPU-путь
+    выключен до конца процесса, следующий клип сразу уходит процессору."""
+    real = gr.capture_blend_table
+
+    def other_formula(mode, op):
+        t = real(mode, op).astype(int)
+        return np.clip(t + 8, 0, 255).astype(np.uint8) if mode == "softlight" else t.astype(np.uint8)
+    monkeypatch.setattr(gr, "capture_blend_table", other_formula)
+    c = _clip_setup(tmp_path, GRAIN)
+    out = tmp_path / "g.mkv"
+    ok, why = gr.render_kenburns(c["photo"], str(out), c["frames"], c["z"], c["x"], c["y"], c["canvas"],
+                                 c["fl"], ["-c:v", "ffv1", str(out)], W=c["W"], H=c["H"],
+                                 grain_path=GRAIN, grain_opacity=0.2, reference_cmd=c["ref"])
+    assert not ok and "самопроверка" in why
+    assert gr._PARITY["disabled"]
+    ok2, why2 = gr.render_kenburns(c["photo"], str(out), c["frames"], c["z"], c["x"], c["y"], c["canvas"],
+                                   c["fl"], ["-c:v", "ffv1", str(out)], W=c["W"], H=c["H"],
+                                   grain_path=GRAIN, grain_opacity=0.2, reference_cmd=c["ref"])
+    assert not ok2 and why2 == gr._PARITY["disabled"]
+
+
+def test_kenburns_passes_its_own_cpu_command_for_the_self_check(monkeypatch, tmp_path):
+    """Сверка идёт с ТОЙ ЖЕ командой, которой рендерит процессорный путь."""
+    import pipeline_smart as ps
+    import gpu_render
+    seen = {}
+    monkeypatch.setattr(ps, "gpu_render_active", lambda: True)
+    monkeypatch.setattr(ps, "focus_crop", lambda p: p)
+    monkeypatch.setattr(ps, "aspect_fit_backdrop", lambda p: p)
+    monkeypatch.setattr(ps, "estimate_busyness", lambda p: 0.0)
+    monkeypatch.setattr(ps, "resolve_crop_anchor", lambda p: None)
+    monkeypatch.setattr(ps, "image_size_as_rendered", lambda p: (1600, 900))
+    monkeypatch.setattr(ps, "verify_clip", lambda path, dur: (True, "", dur))
+
+    def fake(photo, tmp, *a, **k):
+        seen["ref"] = k["reference_cmd"]
+        return False, "стоп"
+    monkeypatch.setattr(gpu_render, "render_kenburns", fake)
+    cpu_cmds = []
+
+    def fake_run(fn, *a, **k):
+        real_run = subprocess.run
+        monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: (cpu_cmds.append(cmd), real_run(["true"]))[1])
+        try:
+            fn()
+        finally:
+            monkeypatch.setattr(subprocess, "run", real_run)
+        return False, "x"
+    monkeypatch.setattr(ps, "run_ffmpeg_with_retry", fake_run)
+    ps.kenburns("p.jpg", str(tmp_path / "c.mp4"), 1.0, section="BLOCK_1")
+    cpu = cpu_cmds[0]
+    graph = cpu[2:cpu.index("-frames:v")]
+    assert seen["ref"][3:] == graph
+
+
+@needs_ffmpeg
+def test_vignette_with_default_dither_is_bit_exact_across_frames():
+    """Виньетка в film_look() идёт с дизерингом по умолчанию: ffmpeg
+    добавляет значения своего ЛКГ, сквозного по кадрам. Без него GPU-путь
+    был темнее на 0.5 уровня на виньетке и на 0.2 на готовом кадре
+    (все 17 фото замера 29.09). Проверка — побитово, и с середины клипа
+    (пачка начинается не с нулевого кадра)."""
+    W, H = 64, 40
+    rng = np.random.default_rng(1)
+    img = rng.integers(0, 256, (4, H, W, 3), dtype=np.uint8)
+    ref = np.frombuffer(_ff(["-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", "24", "-i", "-",
+                             "-vf", "vignette=PI/5.000", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                            img.tobytes()), np.uint8).reshape(4, H, W, 3)
+    ops = gr._Ops("cpu", W, H)
+    x = torch.from_numpy(img.astype(np.float32)).permute(0, 3, 1, 2)
+    head = ops.vignette(x[:2], 5.0, frame0=0).permute(0, 2, 3, 1).numpy().astype(np.uint8)
+    tail = ops.vignette(x[2:], 5.0, frame0=2).permute(0, 2, 3, 1).numpy().astype(np.uint8)
+    assert (np.concatenate([head, tail]) == ref).all()
