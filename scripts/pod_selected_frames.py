@@ -31,7 +31,8 @@ POLL_SEC = 10
 def _video_duration(path):
     try:
         out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                              "-of", "csv=p=0", path], capture_output=True, text=True, timeout=30)
+                              "-of", "csv=p=0", path], capture_output=True, text=True,
+                             encoding="utf-8", errors="replace", timeout=30)
         return float(out.stdout.strip())
     except (OSError, ValueError, subprocess.SubprocessError):
         return None

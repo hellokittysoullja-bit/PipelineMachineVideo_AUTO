@@ -129,7 +129,22 @@ def gql(query, key, variables=None):
 MIN_GPU_GB = 24
 
 
-def plan(key, gpus=None, community=True):
+def price_filter(community, image=None, disk_gb=None):
+    """Условия цены и наличия — те же, что у аренды (create_pod): облако,
+    драйвер хоста не ниже CUDA образа, диск. Без них Runpod показывает
+    наличие по ВСЕМ хостам (30.09: RTX 6000 Ada «в наличии» в обоих
+    облаках, а с фильтром CUDA 12.8 — ни одного хоста; 90 попыток аренды
+    впустую и карта, которую нельзя было взять, в списке для выбора)."""
+    parts = ["gpuCount:1", "secureCloud:%s" % ("false" if community else "true")]
+    cuda = allowed_cuda(image or DEFAULT_IMAGE)
+    if cuda:
+        parts.append("allowedCudaVersions:" + json.dumps(cuda))
+    if disk_gb:
+        parts.append("minDisk:%d" % int(disk_gb))
+    return "lowestPrice(input:{%s})" % ", ".join(parts)
+
+
+def plan(key, gpus=None, community=True, image=None, disk_gb=None):
     """Карты и цены. gpus=None — все типы Runpod (для выбора самой дешёвой).
     community — цена и наличие ТОЛЬКО по community-облаку (secureCloud:false):
     без этого Runpod отдаёт самую низкую цену по обоим облакам, и карта,
@@ -138,7 +153,7 @@ def plan(key, gpus=None, community=True):
     # Фильтр облака нужен ОБОИМ облакам: без secureCloud:true цена secure-запроса
     # — минимум по обоим облакам (30.09: RTX A6000 «$0.33», а под в Secure создан
     # по $0.53).
-    lp = "lowestPrice(input:{gpuCount:1, secureCloud:%s})" % ("false" if community else "true")
+    lp = price_filter(community, image, disk_gb)
     if gpus:
         q = ('query($ids:[String!]){ gpuTypes(input:{ids:$ids}){ id displayName memoryInGb '
              'securePrice communityPrice ' + lp + '{ uninterruptablePrice '
@@ -890,7 +905,7 @@ def main(argv=None):
     # Карта, у которой заведомо меньше нужного номинала, не арендуется вовсе
     # (иначе оплачивалась бы подготовка и отбраковывалась).
     a.min_gb = min_gb_for_vram(a.min_gb, a.min_vram_mib)
-    info = plan(key, a.gpu, community=a.cloud == "COMMUNITY")
+    info = plan(key, a.gpu, community=a.cloud == "COMMUNITY", image=a.image, disk_gb=a.disk_gb)
     me = info["myself"]
     print(f"Баланс Runpod ${me['clientBalance']:.2f}, лимит трат ${me['spendLimit']}/ч, "
           f"сейчас тратится ${me['currentSpendPerHr']}/ч")
@@ -980,7 +995,7 @@ def create_when_in_stock(key, a, order, create, by_id):
                   f"(ещё {max(0, deadline - time.time()) / 60:.0f} мин)", flush=True)
             time.sleep(STOCK_POLL_SEC)
             if not a.gpu:
-                info = plan(key, None, community=a.cloud == "COMMUNITY")
+                info = plan(key, None, community=a.cloud == "COMMUNITY", image=a.image, disk_gb=a.disk_gb)
                 by_id.update({g["id"]: g for g in info["gpuTypes"]})
                 fresh = cheapest_gpus(info["gpuTypes"], a.min_gb, a.image, a.cloud == "COMMUNITY")[:6]
                 tail = [g for g in order if g not in fresh]

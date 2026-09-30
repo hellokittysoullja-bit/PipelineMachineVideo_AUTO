@@ -295,3 +295,22 @@ def test_pod_prepare_never_falls_back_to_apt_ffmpeg():
     src = open(os.path.join(REPO, "scripts", "pod_prepare.sh"), encoding="utf-8").read()
     assert "apt-get install -y -qq ffmpeg" not in src
     assert "подходящего ffmpeg (5+, drawtext, переходы) не получено" in src
+
+
+def test_plan_applies_the_same_host_constraints_as_rental(monkeypatch):
+    """30.09: Ada «в наличии» без фильтра CUDA, а арендовать нечего — список
+    обязан учитывать драйвер хоста и диск, как create_pod."""
+    seen = []
+    monkeypatch.setattr(rj, "gql", lambda q, key, v=None: seen.append(q) or {})
+    rj.plan("k", ["X"], community=False, image=rj.DEFAULT_IMAGE, disk_gb=80)
+    rj.plan("k", None, community=True, image=rj.DEFAULT_IMAGE, disk_gb=80)
+    for q in seen:
+        lp = q.split("lowestPrice")[1]
+        assert "allowedCudaVersions" in lp and '"12.8"' in lp and '"12.7"' not in lp
+        assert "minDisk:80" in lp
+
+
+def test_main_lists_cards_with_rental_constraints(monkeypatch):
+    import inspect
+    src = inspect.getsource(rj.main) + inspect.getsource(rj.create_when_in_stock)
+    assert src.count("plan(") == src.count("image=a.image, disk_gb=a.disk_gb)")

@@ -45,6 +45,10 @@ ALLOWED_UNREACHABLE = {
        "http.server (BaseHTTPRequestHandler) по имени метода запроса; в "
        "графе вызовов по именам этого вызова не видно"
        for f in ("do_GET", "do_POST", "do_PUT", "log_message")},
+    "ml_device.locked":
+        "метод PriorityLock, совместимый с threading.Lock: замок карты раньше "
+        "был Lock, и тесты проверяют через .locked(), что прогон модели держит "
+        "и отпускает карту; рабочий путь состояние замка не спрашивает",
     "qwen_vl_embed.forward":
         "forward вложенного класса модели Qwen3VLForEmbedding — его зовёт torch "
         "через model(**inputs) (nn.Module.__call__); в графе вызовов по именам "
