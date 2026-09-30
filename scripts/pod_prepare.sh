@@ -23,32 +23,24 @@ say() { echo "[prepare +$(( $(date +%s) - T0 )) с] $*"; }
     say "ffmpeg уже подходит ($(ffmpeg -version | head -1 | cut -c1-40))"
   else
     D=/tmp/ffm; mkdir -p $D; OK=0
-    # 1) BtbN (GPL, nvenc, drawtext): имя файла ищем через API — оно меняется.
-    URL=$(python3 - <<'PY'
-import json, urllib.request
-try:
-    d = json.load(urllib.request.urlopen("https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/tags/latest", timeout=30))
-    for a in d["assets"]:
-        n = a["name"]
-        if "linux64-gpl" in n and "shared" not in n and n.endswith(".tar.xz") and "n7" in n:
-            print(a["browser_download_url"]); break
-except Exception:
-    pass
-PY
-)
-    # 2) запасной: статическая сборка johnvansickle (ffmpeg 7).
-    for u in "$URL" \
-             "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-linux64-gpl-7.1.tar.xz" \
-             "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"; do
-      [ -n "$u" ] || continue
-      if curl -sfL --max-time 300 "$u" -o $D/f.tar.xz && tar -xf $D/f.tar.xz -C $D; then
-        B=$(find $D -type f -name ffmpeg -perm -u+x | head -1); P=$(find $D -type f -name ffprobe | head -1)
-        if [ -n "$B" ] && good "$B"; then
-          cp "$B" /usr/local/bin/ffmpeg; [ -n "$P" ] && cp "$P" /usr/local/bin/ffprobe; OK=1
-          say "ffmpeg: $u"; break
-        else
-          say "ffmpeg из $u не подошёл (нет NVENC, drawtext или переходов)"
-        fi
+    # BtbN (GPL: NVENC, drawtext, переходы hlwind/hrwind/zoomin). Имя файла на
+    # релизе `latest` постоянное; проверено 30.09: 200, 148 МБ, ffmpeg N-1269xx —
+    # drawtext есть, три перехода есть, hevc_nvenc есть. Статическая сборка другого автора
+    # без NVENC и здесь не подходит; API GitHub с общего адреса пода режется
+    # лимитом, поэтому имя не выясняется запросом.
+    for u in "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"; do
+      if ! curl -fL --retry 2 --max-time 300 -sS "$u" -o $D/f.tar.xz 2>$D/err.txt; then
+        say "ffmpeg: скачивание не удалось ($(tr '\n' ' ' < $D/err.txt | cut -c1-160))"; continue
+      fi
+      if ! tar -xf $D/f.tar.xz -C $D 2>$D/err.txt; then
+        say "ffmpeg: распаковка не удалась ($(tr '\n' ' ' < $D/err.txt | cut -c1-160))"; continue
+      fi
+      B=$(find $D -type f -name ffmpeg -perm -u+x | head -1); P=$(find $D -type f -name ffprobe | head -1)
+      if [ -n "$B" ] && good "$B"; then
+        cp "$B" /usr/local/bin/ffmpeg; [ -n "$P" ] && cp "$P" /usr/local/bin/ffprobe; OK=1
+        say "ffmpeg: $("$B" -version | head -1 | cut -c1-40)"; break
+      else
+        say "ffmpeg из $u не подошёл (нет NVENC, drawtext или переходов)"
       fi
     done
     if [ $OK = 0 ]; then

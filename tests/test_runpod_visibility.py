@@ -89,3 +89,44 @@ def test_pod_prepare_runs_three_parts_in_parallel():
                             "scripts", "pod_prepare.sh"), encoding="utf-8").read()
     assert src.count(") &\n") == 3 and "wait $p" in src
     assert "fetch_weights.py" in src and "requirements-gpu.txt" in src
+
+
+def test_preflight_without_memory_limit_is_unchanged():
+    assert rj.gpu_preflight(0) == rj.GPU_PREFLIGHT
+    assert rj.gpu_preflight() == rj.GPU_PREFLIGHT
+
+
+def test_preflight_with_memory_limit_checks_before_the_gpu_probe():
+    cmd = rj.gpu_preflight(47000)
+    assert cmd.index("memory.total") < cmd.index("видеокарта работает")
+    assert "47000" in cmd and f"exit {rj.LOW_VRAM_EXIT}" in cmd
+
+
+def test_preflight_memory_check_really_rejects_a_small_card(tmp_path):
+    """Прогоняем сам shell-фрагмент с подменённым nvidia-smi: L40 (46068) при
+    пороге 47000 — отказ с кодом LOW_VRAM_EXIT, A6000 (49140) — проходит проверку памяти."""
+    import subprocess
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+
+    def smi(value):
+        f = bindir / "nvidia-smi"
+        f.write_text(f"#!/bin/sh\necho {value}\n")
+        f.chmod(0o755)
+    check = rj.gpu_preflight(47000).split("; " + rj.GPU_PREFLIGHT)[0]
+    env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}")
+    smi(46068)
+    r = subprocess.run(["bash", "-c", check], env=env, capture_output=True, text=True)
+    assert r.returncode == rj.LOW_VRAM_EXIT and "46068" in r.stdout
+    smi(49140)
+    r = subprocess.run(["bash", "-c", check], env=env, capture_output=True, text=True)
+    assert r.returncode == 0
+
+
+def test_pod_prepare_uses_the_verified_ffmpeg_build_and_reports_failures():
+    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "scripts", "pod_prepare.sh"), encoding="utf-8").read()
+    assert "ffmpeg-master-latest-linux64-gpl.tar.xz" in src
+    assert "johnvansickle" not in src, "сборка без NVENC не подходит и не должна быть кандидатом"
+    assert "api.github.com" not in src, "API GitHub с общего адреса пода режется лимитом"
+    assert "скачивание не удалось" in src, "неудача скачивания должна называть причину"

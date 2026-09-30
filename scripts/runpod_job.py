@@ -193,6 +193,23 @@ GPU_PREFLIGHT = ("nvidia-smi --query-gpu=name,driver_version,memory.total --form
                  f"{POD_PY} -c \"import torch;assert torch.cuda.is_available(),'torch не видит CUDA';"
                  "x=torch.ones(1024,1024,device='cuda');torch.cuda.synchronize();"
                  "print('видеокарта работает:',torch.cuda.get_device_name(0),float((x@x).sum()))\"")
+LOW_VRAM_EXIT = 96
+
+
+def gpu_preflight(min_vram_mib=0):
+    """Проверка карты после старта пода. min_vram_mib > 0 — сначала память:
+    у L40 на 48 ГБ номинала nvidia-smi показывает 46068 МиБ (ECC), а связке
+    WeMM + Qwen + реранкер нужно ~44.2 ГиБ свободными; прогон 30.09 остановился
+    проверкой готовности через 2 секунды после старта, но подготовка успела
+    стоить 5 минут. Теперь такая карта отбраковывается до загрузки данных."""
+    if not min_vram_mib:
+        return GPU_PREFLIGHT
+    check = ("MIB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -1 | tr -d ' '); "
+             f"[ \"$MIB\" -ge {int(min_vram_mib)} ] || {{ echo \"видеопамяти на карте $MIB МиБ, нужно "
+             f"{int(min_vram_mib)}\"; exit {LOW_VRAM_EXIT}; }}")
+    return f"{check}; {GPU_PREFLIGHT}"
+
+
 PREFLIGHT_SEC = 300
 HOST_ATTEMPTS = 3
 
@@ -614,6 +631,10 @@ def main(argv=None):
                    help="тип карты (можно несколько, по порядку); без него — самые дешёвые "
                         "свободные карты community от --min-gb")
     p.add_argument("--min-gb", type=int, default=MIN_GPU_GB)
+    p.add_argument("--min-vram-mib", type=int, default=0,
+                   help="отбраковать карту, у которой nvidia-smi показывает меньше МиБ (после старта пода, до "
+                        "загрузки данных); для связки WeMM + Qwen + реранкер — 47000 (L40: 46068 не проходит, "
+                        "A6000 и 6000 Ada: 49140 проходят)")
     p.add_argument("--cloud", default="COMMUNITY", choices=("COMMUNITY", "SECURE", "ALL"))
     p.add_argument("--image", default=None, help=f"образ (по умолчанию {DEFAULT_IMAGE}; "
                                                 f"для --smoke — {SMOKE_IMAGE})")
@@ -771,7 +792,7 @@ def _rent_attempts(key, a, order, by_id, token, extra, attempts, uploads, spent)
               f"потолок ${left:.2f} = {cap_sec / 60:.0f} мин, самоудаление через {a.idle_min:.0f} мин простоя")
         try:
             return drive(key, pod, token, cap_sec, uploads, a.cmd, a.fetch, a.dest,
-                         prepare=a.prepare, preflight=GPU_PREFLIGHT, watch=a.watch)
+                         prepare=a.prepare, preflight=gpu_preflight(a.min_vram_mib), watch=a.watch)
         except BadHost as e:
             spent += pod.get("spent_usd", 0.0)
             print(f"  {e} — хост заменяется (потрачено ${spent:.2f})")
@@ -865,6 +886,8 @@ def drive(key, pod, token, cap_sec, uploads, cmd, fetches, dest, prepare=None, p
             if pc == NO_TORCH_EXIT:
                 raise SystemExit(f"в образе нет torch для `{POD_PY}` — ошибка образа, другой хост "
                                  f"её не исправит; под удалён")
+            if pc == LOW_VRAM_EXIT:
+                raise BadHost("на карте мало видеопамяти для этой задачи (см. строку выше)")
             if pc != 0:
                 raise BadHost(f"видеокарта пода не работает (проверка: {pc})")
             stage("видеокарта проверена")
