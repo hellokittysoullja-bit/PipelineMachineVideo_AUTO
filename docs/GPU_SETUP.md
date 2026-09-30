@@ -131,3 +131,28 @@ python scripts/runpod_job.py --gpu "NVIDIA RTX A6000" --cloud COMMUNITY --min-gb
   --watch stage/videos/NN_название/media_plan/stage_timings.jsonl \
   --fetch stage/videos/NN_название/media_plan --dest ./pod_out --max-usd 0.74 --max-hours 1
 ```
+
+## Пробный прогон с профилем (30.09) — что передавать и что забирать
+
+Команда запуска, которая отвечает на вопрос «куда уходит время», а не только «сколько»:
+
+```
+RUNPOD_API_KEY="$(cat ~/.runpod_key)" python scripts/runpod_job.py \
+  --gpu "NVIDIA A40" --cloud SECURE --min-gb 46 \
+  --upload <папка эпизода> --workdir stage98 --prepare "bash scripts/pod_prepare.sh" \
+  --env CASCADE_MODEL=wemm9b --env SHOT_JUDGE=0 --env STAGE_TIMER=1 --env PROFILE_SAMPLER=1 \
+  --env-from-dotenv PEXELS_API_KEY,PIXABAY_API_KEY,OPENVERSE_CLIENT_ID,OPENVERSE_CLIENT_SECRET \
+  --cmd "mkdir -p videos/E/media_plan; (nvidia-smi --query-gpu=timestamp,memory.used,memory.total,utilization.gpu,utilization.memory,encoder.stats.sessionCount --format=csv -l 1 > videos/E/media_plan/gpu_usage.csv 2>&1 &); python -u scripts/pipeline_smart.py videos/E; python scripts/shotlist_contact.py videos/E; python scripts/encoder_ab.py --out videos/E/media_plan/encoder_ab.json" \
+  --watch stage98/videos/E/media_plan/stage_timings.jsonl \
+  --fetch stage98/videos/E/media_plan --dest ./pod_out --max-usd <цена часа карты> --max-hours 1
+```
+
+- `--env` (несекретные переменные) видны и подготовке, и задаче: `fetch_weights.py` скачивает WeMM только когда её позовут (`CASCADE_MODEL=wemm9b` и работающий судья).
+- **Забирается только `media_plan`**: контактные листы (`shotlist_contact_*.jpg`), профиль стеков и `gpu_usage.csv` должны быть внутри него, иначе после удаления пода их не будет. Кадры и `final.mp4` (сотни МБ) не забираются.
+- `encoder_ab.py` меряет NVENC против x264 на этой же карте (размер, SSIM, PSNR, время) — вердикт «не хуже» решает владелец по числам.
+- Каждый запуск — в свой файл лога (`> pod_probeN.log`): повторный запуск в тот же файл перезаписывает историю подов и трат.
+- Ключ Runpod — в файле вне репозитория с правами 600, не в командной строке и не `grep` из переписки.
+- Ответ Runpod «Something went wrong» не означает «нет карты»: под мог создаться; скрипт теперь ищет его по имени и берёт (раньше мог создать второй).
+- Потолок `--max-usd` — общая сумма на запуск; исчерпан — результат забирается (код 124), затем под удаляется. Ставьте не меньше цены часа карты.
+- Фоновые запросы упреждающего поиска и отбора не запускают паузы источников и не занимают очередь глубже одного интервала: настоящий цикл ведёт себя так же, как без упреждения (кроме общих ограничений самих сервисов: квота Pexels 200/час и лимиты IP).
+

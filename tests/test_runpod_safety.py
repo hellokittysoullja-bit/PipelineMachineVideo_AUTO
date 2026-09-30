@@ -149,3 +149,110 @@ def test_pod_prepare_exits_nonzero_when_install_or_weights_fail():
     assert subprocess.run(["bash", "-n", path]).returncode == 0
     assert "|| { say \"ОШИБКА: установка пакетов не удалась\"; exit 1; }" in src.replace("\\\n", "").replace("    ||", "||")
     assert 'fetch_weights.py || { say "ОШИБКА: веса моделей не скачались"; exit 1; }' in src
+
+
+# --- неопределённый ответ создания пода -------------------------------------
+
+class _CreateApi:
+    """POST /pods отвечает ошибкой; под при этом создан или нет."""
+
+    def __init__(self, error, created):
+        self.error, self.created, self.pods, self.posts = error, created, [], 0
+
+    def rest(self, method, path, key, body=None):
+        if method == "POST":
+            self.posts += 1
+            if self.created:
+                self.pods.append({"id": "p9", "name": body["name"], "desiredStatus": "RUNNING",
+                                  "costPerHr": 0.49})
+            raise self.error
+        if method == "GET" and path == "/pods":
+            return self.pods
+        raise AssertionError((method, path))
+
+
+def _create(monkeypatch, api, gpus=("A",)):
+    monkeypatch.setattr(rj, "rest", api.rest)
+    return rj.create_pod("k", list(gpus), "img", 10, [], "SECURE", life_sec=600)
+
+
+def test_ambiguous_error_with_a_created_pod_adopts_it(monkeypatch, capsys):
+    api = _CreateApi(RuntimeError("HTTP 500: Something went wrong. Please try again later"), created=True)
+    pod = _create(monkeypatch, api)
+    assert pod["id"] == "p9" and pod["gpuTypeId"] == "A"
+    assert api.posts == 1, "второй под не создаётся"
+
+
+def test_timeout_with_a_created_pod_adopts_it(monkeypatch, capsys):
+    api = _CreateApi(TimeoutError("timed out"), created=True)
+    assert _create(monkeypatch, api)["id"] == "p9"
+
+
+def test_ambiguous_error_without_a_pod_is_no_stock(monkeypatch, capsys):
+    api = _CreateApi(RuntimeError("HTTP 500: Something went wrong"), created=False)
+    with pytest.raises(rj.NoStock):
+        _create(monkeypatch, api)
+
+
+def test_plain_no_stock_does_not_look_for_a_pod(monkeypatch, capsys):
+    api = _CreateApi(RuntimeError("HTTP 500: There are no instances currently available"), created=True)
+    with pytest.raises(rj.NoStock):
+        _create(monkeypatch, api)
+    assert api.posts == 1
+
+
+@pytest.mark.parametrize("code", [401, 402, 403])
+def test_hard_refusal_stops_at_once_instead_of_polling(monkeypatch, code):
+    api = _CreateApi(RuntimeError(f"HTTP {code}: nope"), created=False)
+    with pytest.raises(SystemExit) as e:
+        _create(monkeypatch, api)
+    assert not isinstance(e.value, rj.NoStock) and "отказал" in str(e.value)
+
+
+def test_env_args_parse_and_refuse_secrets():
+    assert rj.parse_env_args(["CASCADE_MODEL=wemm9b", "A=b=c"]) == {"CASCADE_MODEL": "wemm9b", "A": "b=c"}
+    assert rj.parse_env_args([]) == {}
+    for bad in ("NOEQUALS", "1BAD=x", "PEXELS_API_KEY=abc", "MY_TOKEN=1"):
+        with pytest.raises(SystemExit):
+            rj.parse_env_args([bad])
+
+
+def test_fetch_weights_skips_wemm_unless_the_run_will_call_it(monkeypatch):
+    import fetch_weights as fw
+    monkeypatch.setenv("CASCADE_MODEL", "wemm9b")
+    monkeypatch.setenv("SHOT_JUDGE", "0")
+    monkeypatch.setenv("LLM_GATEWAY_API_KEY", "k")
+    assert not fw.wemm_needed() and len(fw.models(wemm=fw.wemm_needed())) == 2
+    monkeypatch.setenv("SHOT_JUDGE", "1")
+    assert fw.wemm_needed() and len(fw.models(wemm=fw.wemm_needed())) == 3
+    monkeypatch.setenv("LLM_GATEWAY_API_KEY", "")
+    assert not fw.wemm_needed()
+    monkeypatch.setenv("LLM_GATEWAY_API_KEY", "k")
+    monkeypatch.setenv("CASCADE_MODEL", "")
+    assert not fw.wemm_needed()
+
+
+def test_pod_prepare_checks_the_ffmpeg_checksum(tmp_path):
+    """Логика сверки, вырезанная из pod_prepare.sh, на подменённых файлах."""
+    src = open(os.path.join(REPO, "scripts", "pod_prepare.sh"), encoding="utf-8").read()
+    assert 'checksums.sha256' in src and 'sha256sum' in src and "контрольная сумма не совпала" in src
+    # Поведение: тот же фрагмент в bash на заведомо верной и неверной сумме.
+    start = src.index("if curl -fsL --retry 2 --max-time 60")
+    end = src.index("if ! tar -xf")
+    frag = src[start:end]
+    frag = frag.replace('curl -fsL --retry 2 --max-time 60 "${u%/*}/checksums.sha256" -o $D/sums.txt 2>/dev/null',
+                        'cp "$SUMS" $D/sums.txt')
+    (tmp_path / "f.tar.xz").write_bytes(b"payload")
+    import hashlib
+    good = hashlib.sha256(b"payload").hexdigest()
+
+    def run(sums_text):
+        sums = tmp_path / "s.txt"
+        sums.write_text(sums_text)
+        script = f'say() {{ echo "$@"; }}\nD="{tmp_path}"\nu="https://h/x/latest/f.tar.xz"\nSUMS="{sums}"\n' \
+                 f'for _ in 1; do\n{frag}\necho PASSED\ndone\n'
+        return subprocess.run(["bash", "-c", script], capture_output=True, text=True).stdout
+    assert "совпала" in run(f"{good}  f.tar.xz\n") and "PASSED" in run(f"{good}  f.tar.xz\n")
+    bad = run("0" * 64 + "  f.tar.xz\n")
+    assert "не совпала" in bad and "PASSED" not in bad
+    assert "принят без проверки" in run(f"{good}  other.tar.xz\n")

@@ -32,6 +32,23 @@ say() { echo "[prepare +$(( $(date +%s) - T0 )) с] $*"; }
       if ! curl -fL --retry 2 --max-time 300 -sS "$u" -o $D/f.tar.xz 2>$D/err.txt; then
         say "ffmpeg: скачивание не удалось ($(tr '\n' ' ' < $D/err.txt | cut -c1-160))"; continue
       fi
+      # Контрольная сумма из того же релиза (checksums.sha256). Не совпала — файл
+      # не берём (сборка `latest` меняется, файл мог прийти повреждённым или
+      # чужим); сумм не получили вовсе — принимаем с предупреждением: проверить
+      # нечем, а отказ оставил бы ffmpeg 4.4 без переходов и NVENC.
+      if curl -fsL --retry 2 --max-time 60 "${u%/*}/checksums.sha256" -o $D/sums.txt 2>/dev/null; then
+        want=$(grep -F " ${u##*/}" $D/sums.txt | head -1 | cut -d' ' -f1)
+        got=$(sha256sum $D/f.tar.xz | cut -d' ' -f1)
+        if [ -z "$want" ]; then
+          say "ffmpeg: в checksums.sha256 нет строки для ${u##*/} — файл принят без проверки"
+        elif [ "$want" != "$got" ]; then
+          say "ffmpeg: контрольная сумма не совпала (ждали ${want:0:12}, получили ${got:0:12}) — файл отброшен"; continue
+        else
+          say "ffmpeg: контрольная сумма совпала"
+        fi
+      else
+        say "ffmpeg: checksums.sha256 недоступен — файл принят без проверки"
+      fi
       if ! tar -xf $D/f.tar.xz -C $D 2>$D/err.txt; then
         say "ffmpeg: распаковка не удалась ($(tr '\n' ' ' < $D/err.txt | cut -c1-160))"; continue
       fi

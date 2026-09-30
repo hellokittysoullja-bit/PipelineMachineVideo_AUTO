@@ -342,10 +342,49 @@ def create_pod(key, gpus, image, disk_gb, env, cloud, cpu=False, life_sec=None):
                 pod.setdefault("gpuName", "CPU" if cpu else gpu)
                 pod["gpuTypeId"] = gpu
                 return pod
-        except RuntimeError as e:
+        except (RuntimeError, OSError) as e:
             last = e
+            if _is_hard_refusal(e):
+                # Ключ не принят, нет денег, доступ закрыт: ждать наличия карт
+                # бессмысленно (раньше — 15 минут безнадёжных повторов).
+                raise SystemExit(f"Runpod отказал в аренде: {e}") from None
+            if not _is_plain_no_stock(e):
+                # Ответ неопределённый («Something went wrong», обрыв, таймаут):
+                # под мог всё же создаться (30.09 так и случилось). Ищем его по
+                # имени; нашли — берём, иначе он остался бы жить за деньги, а
+                # цикл ушёл бы создавать второй.
+                adopted = find_pod_by_name(key, body["name"])
+                if adopted:
+                    print(f"  {gpu or 'CPU'}: ответ «{e}», но под {adopted['id']} создан — беру его")
+                    adopted.setdefault("gpuName", "CPU" if cpu else gpu)
+                    adopted["gpuTypeId"] = gpu
+                    return adopted
             print(f"  {gpu or 'CPU'}: нет — {e}")
     raise NoStock(f"ни одной машины из списка нет в наличии ({last})")
+
+
+def _is_plain_no_stock(e):
+    """Ответ Runpod «карты нет» — под точно не создан."""
+    t = str(e).lower()
+    return "no instances" in t or "no longer any instances" in t
+
+
+def _is_hard_refusal(e):
+    t = str(e)
+    return any(f"HTTP {c}" in t for c in (401, 402, 403))
+
+
+def find_pod_by_name(key, name):
+    """Живой под с этим именем (имя несёт срок и уникально на попытку) или None.
+    Сбой самого запроса — None: не нашли, значит не берём."""
+    try:
+        for pod in rest("GET", "/pods", key) or []:
+            if isinstance(pod, dict) and pod.get("name") == name \
+                    and pod.get("desiredStatus") != "TERMINATED":
+                return pod
+    except Exception:  # noqa: BLE001
+        pass
+    return None
 
 
 def pod_status(key, pod_id):
@@ -619,6 +658,22 @@ def _exclude(info):
     return info
 
 
+def parse_env_args(items):
+    """--env NAME=VALUE -> {NAME: VALUE}. Секреты сюда не кладут (значение видно
+    в командной строке): имена, похожие на ключ, отклоняются."""
+    out = {}
+    for it in items or []:
+        name, sep, value = it.partition("=")
+        name = name.strip()
+        if not sep or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+            raise SystemExit(f"--env {it!r}: нужен вид NAME=VALUE")
+        if re.search(r"KEY|TOKEN|SECRET|PASSWORD", name, re.I):
+            raise SystemExit(f"--env {name}: секреты передаются через --env-from-dotenv, "
+                             f"а не в командной строке")
+        out[name] = value
+    return out
+
+
 def dotenv_subset(names):
     if not names:
         return {}
@@ -651,8 +706,10 @@ def main(argv=None):
     p.add_argument("--min-gb", type=int, default=MIN_GPU_GB)
     p.add_argument("--min-vram-mib", type=int, default=0,
                    help="отбраковать карту, у которой nvidia-smi показывает меньше МиБ (после старта пода, до "
-                        "загрузки данных); для связки WeMM + Qwen + реранкер — 47000 (L40: 46068 не проходит, "
-                        "A6000 и 6000 Ada: 49140 проходят)")
+                        "загрузки данных). nvidia-smi показывает НЕ номинал: у 48-гигабайтных карт с ECC "
+                        "(L40, A40, A6000) — 46068, у RTX 6000 Ada — 49140; модели без WeMM (судья "
+                        "выключен) занимают около 20 ГиБ и на 46068 помещаются, порог 47000 нужен "
+                        "только связке с WeMM (~44 ГиБ)")
     p.add_argument("--cloud", default="COMMUNITY", choices=("COMMUNITY", "SECURE", "ALL"))
     p.add_argument("--image", default=None, help=f"образ (по умолчанию {DEFAULT_IMAGE}; "
                                                 f"для --smoke — {SMOKE_IMAGE})")
@@ -671,6 +728,9 @@ def main(argv=None):
     p.add_argument("--fetch", action="append", default=[], help="путь в /work, вернуть сюда")
     p.add_argument("--dest", default=".")
     p.add_argument("--env-from-dotenv", default="", help="KEY1,KEY2 — передать в под из .env")
+    p.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
+                   help="несекретная переменная в окружение пода (видна и подготовке, и задаче); "
+                        "можно несколько раз, например --env CASCADE_MODEL=wemm9b --env SHOT_JUDGE=0")
     p.add_argument("--idle-min", type=float, default=4)
     p.add_argument("--max-hours", type=float, default=4)
     p.add_argument("--wait-stock-min", type=float, default=15,
@@ -739,6 +799,7 @@ def main(argv=None):
     token = secrets.token_urlsafe(32)
     extra = dict(extra_env_defaults)
     extra.update(dotenv_subset([n.strip() for n in a.env_from_dotenv.split(",") if n.strip()]))
+    extra.update(parse_env_args(a.env))
 
     return rent_and_drive(key, a, gpus, by_id, token, extra)
 
