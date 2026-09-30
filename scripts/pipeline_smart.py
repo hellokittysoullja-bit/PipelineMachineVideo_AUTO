@@ -16621,7 +16621,7 @@ def plan_transitions(sections, blocks=None, xfade_dur=XFADE_DUR):
     return plan
 
 
-def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR, blocks=None, plan=None, trims=None):
+def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR, blocks=None, plan=None):
     """Один проход filter_complex с цепочкой xfade между ВСЕМИ соседними
     кадрами — вместо жёсткой склейки. Переход = сигнал драматургии, не
     случайность: раньше тип перехода выбирался чисто хэшем путей файлов,
@@ -16640,31 +16640,14 @@ def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR, blocks=None, pl
     Возвращает (True, итоговая_длительность) или (False, 0.0), если
     что-то пошло не так (тогда main() откатывается на обычный concat -c copy)."""
     n = len(clips)
-    if n < 1 or (n < 2 and not trims):
+    if n < 2:
         return False, 0.0
     # План склейки (тип/длительность каждого перехода) считает plan_transitions()
     # — ОДИН источник истины и для бюджета длительностей, и для этой склейки,
     # и для visual_starts подписей (см. её докстринг про круговую зависимость).
     if plan is None:
         plan = plan_transitions(sections, blocks, xfade_dur=xfade_dur)
-    # trims[i] = (первый кадр, кадр после последнего) — кусок склейки берёт
-    # из клипа только эти кадры (стыки кусков, xfade_chain_chunked). Номера
-    # кадров, а не секунды: перемотка по секундам на границе кадра могла бы
-    # взять соседний кадр.
-    # Метки времени каждого входа — по номеру кадра в шкале 1/FPS: xfade
-    # сравнивает метку кадра с offset, а контейнер с грубой шкалой (мс у
-    # mkv) после обрезки округлял метку на миллисекунду раньше, и переход
-    # начинался на кадр позже (найдено тестом кадр-в-кадр 29.09). У mp4
-    # клипов шкала кратна кадру — там это ничего не меняет.
-    parts, src = [], []
-    for i in range(n):
-        tr = trims[i] if trims else None
-        cut = f"trim=start_frame={int(tr[0])}:end_frame={int(tr[1])}," if tr is not None else ""
-        parts.append(f"[{i}:v]{cut}settb=1/{FPS},setpts=N[in{i}]")
-        src.append(f"in{i}")
-    if n == 1:
-        parts[-1] = parts[-1].rsplit("[", 1)[0] + "[vout]"
-    prev_label, cum = src[0], durs[0]
+    parts, prev_label, cum = [], "0:v", durs[0]
     for i in range(1, n):
         transition, this_dur = plan[i - 1]
         offset = max(0.0, cum - this_dur)
@@ -16674,7 +16657,7 @@ def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR, blocks=None, pl
         # плана (ffmpeg переводит offset в кадры). Полукадр при 24fps — 21мс,
         # запас на порядок больше миллисекунды, но печатать точно ничего не
         # стоит, а гарантия появляется.
-        parts.append(f"[{prev_label}][{src[i]}]xfade=transition={transition}:"
+        parts.append(f"[{prev_label}][{i}:v]xfade=transition={transition}:"
                      f"duration={this_dur:.6f}:offset={offset:.6f}[{out_label}]")
         cum = cum + durs[i] - this_dur
         prev_label = out_label
@@ -16744,10 +16727,10 @@ def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR, blocks=None, pl
     used_hw = any(hwdec_input_args(c) for c in clips)
     if used_hw:
         if attempt(build(True)):
-            return True, cum
+            return True, max(cum, 0.1)
         print("  склейка с декодером видеокарты не удалась — повтор на процессоре")
     if attempt(build(False)):
-        return True, cum
+        return True, max(cum, 0.1)
     print("  откат на concat.")
     return False, 0.0
 
@@ -16880,104 +16863,102 @@ def final_chunk_workers(n_chunks):
     return max(1, min(n_chunks, by_cpu, by_mem))
 
 
-def _frames(sec):
-    return int(round(sec * FPS))
-
-
-def _even_bounds(durs, k, max_len=XFADE_CHUNK_SIZE):
-    """k подряд идущих кусков, близких по длительности, каждый от 2 клипов и
-    не длиннее max_len клипов (длинная цепочка xfade в одном графе роняет
-    кадры — см. xfade_chain)."""
-    n = len(durs)
-    k = max(1, min(k, n // 2))
-    k = max(k, -(-n // max_len)) if n >= 2 else 1
-    total = sum(durs)
-    bounds, start, acc = [], 0, 0.0
-    for ci in range(k - 1):
-        target = total * (ci + 1) / k
-        end = start + 2
-        acc_end = acc + sum(durs[start:end])
-        # набирать до цели, оставляя хвосту минимум 2 клипа на каждый кусок
-        while end < n - 2 * (k - 1 - ci) and acc_end < target and end - start < max_len:
-            acc_end += durs[end]
-            end += 1
-        bounds.append((start, end))
-        acc, start = acc_end, end
-    bounds.append((start, n))
-    return bounds
+def _chunk_bounds(n, sections, chunk_size):
+    """(start,end) полуинтервалы индексов клипов на чанки ~chunk_size —
+    резать ТОЛЬКО на границах section (там и так планировался заметный
+    dissolve/fadeblack/fadewhite, см. xfade_chain — на стыке чанков он
+    станет обычным concat-cut, это читается как ещё один hardcut, не как
+    потеря приёма, в отличие от разрыва ПОСЕРЕДИНЕ фразы). Защита от
+    вырожденного случая (вся секция длиннее 2×chunk_size — например,
+    гигантский BODY без внутренних BLOCK) — режем принудительно, не гоняясь
+    за границей до бесконечности: маленькая потеря одного перехода лучше
+    риска снова упереться в ту же ffmpeg-багу на длинной цепочке."""
+    if n <= chunk_size:
+        return [(0, n)]
+    bounds, pos = [0], 0
+    while pos < n:
+        target = min(pos + chunk_size, n)
+        if target >= n:
+            bounds.append(n)
+            break
+        j = target
+        hard_cap = min(pos + chunk_size * 2, n)
+        while j < hard_cap and sections[j] == sections[j - 1]:
+            j += 1
+        bounds.append(j)
+        pos = j
+    bounds = sorted(set(bounds))
+    chunks = list(zip(bounds[:-1], bounds[1:]))
+    # xfade_chain() требует минимум 2 клипа (n<2 -> (False, 0.0) сразу) —
+    # де-фрагментируем случайный "хвостик" в 1 клип (получается, если
+    # граница секции легла ровно на предпоследний индекс) слиянием с
+    # соседним чанком, а не оставляем orphan-чанк, гарантированно
+    # роняющий всю сборку в откат на concat.
+    fixed = []
+    for a, b in chunks:
+        if b - a < 2 and fixed:
+            pa, _ = fixed[-1]
+            fixed[-1] = (pa, b)
+        else:
+            fixed.append((a, b))
+    if len(fixed) > 1 and fixed[0][1] - fixed[0][0] < 2:
+        (a0, _), (_, b1) = fixed[0], fixed[1]
+        fixed[0] = (a0, b1)
+        del fixed[1]
+    return fixed
 
 
 def xfade_chain_chunked(clips, durs, sections, out, temp_dir, xfade_dur=XFADE_DUR, blocks=None,
                          chunk_size=XFADE_CHUNK_SIZE):
-    """Финальная склейка кусками одновременно — БЕЗ потери переходов на стыках.
-
-    Длинная цепочка xfade в одном filter_complex (150+ клипов) ловит баг
-    ffmpeg: молча роняет кадры и застревает на застывшем кадре. Поэтому
-    склейка идёт кусками, а куски кодируются одновременно на всех ядрах.
-
-    СТЫКИ (GPU-ветка, 29.09). Раньше куски резались только на границах
-    секций и склеивались -c copy, а переход на стыке терялся: вместо
-    задуманного растворения — жёсткий рез, 13-14 раз на длинном эпизоде.
-    Теперь каждый стык — отдельный маленький кусок: кусок k кончается за
-    длительность перехода до стыка, кусок-переход собирается из хвоста
-    последнего клипа и начала следующего тем же xfade, кусок k+1 начинается
-    после перехода. Кадры до кодирования — те же, что у склейки одним
-    проходом (обрезка по номерам кадров, прогресс перехода тот же), поэтому
-    резать можно где угодно, и число кусков выбирается по ядрам, а не по
-    числу секций. План переходов исполняется целиком: effective_transition_plan
-    больше ничего не обнуляет.
-
-    Если хоть один кусок не собрался — честный откат на concat всего ролика,
-    как раньше."""
+    """Обёртка над xfade_chain(): на длинной цепочке (150+ клипов после
+    sub-cuts) один filter_complex со всеми xfade сразу ловит документированный
+    в xfade_chain() баг ffmpeg — молча роняет кадры и застревает на
+    застывшем кадре с середины ролика, при том что return-код 0. Раньше
+    единственным ответом был полный откат на голый concat — ролик собирался,
+    но терял ВСЕ переходы разом. Вместо этого режем на чанки по chunk_size
+    (см. _chunk_bounds — только по границам section), каждый чанк — свой
+    независимый xfade_chain() (короткая цепочка, баг не всплывает), чанки
+    склеиваются -c copy (без потерь, все чанки — один и тот же кодек/
+    параметры). Если ХОТЯ БЫ один чанк не собрался — честный откат на
+    concat всего ролика, как раньше (лучше без переходов, чем сорванная
+    сборка)."""
     n = len(clips)
+    bounds = _chunk_bounds(n, sections, chunk_size)
+    # Один общий план на весь ролик, чанкам отдаются его СРЕЗЫ: элемент
+    # plan[j] описывает переход между глобальными клипами j и j+1, значит
+    # внутри чанка [a, b) работают переходы plan[a:b-1] (переход на самом
+    # входе чанка не делается вообще — чанки склеиваются concat -c copy,
+    # именно это учитывает estimate_xfade_budget()).
     plan = plan_transitions(sections, blocks, xfade_dur=xfade_dur)
-    if n <= 2:
-        return xfade_chain(clips, durs, sections, out, xfade_dur=xfade_dur, blocks=blocks, plan=plan)
-    k = final_chunk_workers(max(2, n // 2))
-    bounds = _even_bounds(durs, k, max_len=chunk_size)
     if len(bounds) <= 1:
         return xfade_chain(clips, durs, sections, out, xfade_dur=xfade_dur, blocks=blocks, plan=plan)
-    nf = [_frames(d) for d in durs]
-    ext = os.path.splitext(out)[1] or ".mp4"
-    jobs = []      # (выходной файл, клипы, длительности, секции, блоки, план, обрезки)
-    for ci, (a, b) in enumerate(bounds):
-        trims, cd = [], []
-        for j in range(a, b):
-            s0 = _frames(plan[a - 1][1]) if (j == a and a > 0) else 0
-            e0 = nf[j] - _frames(plan[b - 1][1]) if (j == b - 1 and b < n) else nf[j]
-            trims.append((s0, e0) if (s0, e0) != (0, nf[j]) else None)
-            cd.append((e0 - s0) / FPS)
-        jobs.append((os.path.join(temp_dir, f"_xchunk_{2 * ci:03d}{ext}"), clips[a:b], cd, sections[a:b],
-                     blocks[a:b] if blocks else None, plan[a:b - 1], trims))
-        if b < n:
-            t = _frames(plan[b - 1][1])
-            jobs.append((os.path.join(temp_dir, f"_xchunk_{2 * ci + 1:03d}{ext}"), clips[b - 1:b + 1],
-                         [t / FPS, t / FPS], sections[b - 1:b + 1],
-                         blocks[b - 1:b + 1] if blocks else None, [plan[b - 1]],
-                         [(nf[b - 1] - t, nf[b - 1]), (0, t)]))
-
-    def encode(job):
-        cout, c_clips, c_durs, c_secs, c_blocks, c_plan, c_trims = job
-        ok, cdur = xfade_chain(c_clips, c_durs, c_secs, cout, xfade_dur=xfade_dur, blocks=c_blocks,
-                               plan=c_plan, trims=c_trims)
+    def encode_chunk(ci):
+        a, b = bounds[ci]
+        cblocks = blocks[a:b] if blocks else None
+        cout = os.path.join(temp_dir, f"_xchunk_{ci:03d}.mp4")
+        ok, cdur = xfade_chain(clips[a:b], durs[a:b], sections[a:b], cout,
+                                xfade_dur=xfade_dur, blocks=cblocks, plan=plan[a:b - 1])
         return cout, ok, cdur
 
-    # Куски не зависят друг от друга (свой вход, свой файл, склейка -c copy
-    # потом). Куски-переходы — доли секунды, их ставят в ту же очередь.
-    workers = final_chunk_workers(len(jobs))
+    # Чанки не зависят друг от друга (свой вход, свой файл, склейка -c copy
+    # потом), поэтому на многоядерной машине кодируются одновременно. Файлы
+    # те же до байта: x264 детерминирован при том же числе потоков, а оно
+    # у каждого ffmpeg то же, что при кодировании по очереди.
+    workers = final_chunk_workers(len(bounds))
     if workers > 1:
         with ctx_pool.ContextThreadPoolExecutor(workers) as ex:
-            results = list(ex.map(encode, jobs))
+            results = list(ex.map(encode_chunk, range(len(bounds))))
     else:
         results = []
-        for job in jobs:
-            results.append(encode(job))
+        for ci in range(len(bounds)):
+            results.append(encode_chunk(ci))
             if not results[-1][1]:
                 break
     chunk_files, chunk_total = [], 0.0
     for ci, (cout, ok, cdur) in enumerate(results):
         if not ok:
-            print(f"  кусок склейки {ci} не собрался — вся склейка откатывается на concat")
+            a, b = bounds[ci]
+            print(f"  чанк {ci} ({b - a} клипов) xfade не собрался — вся склейка откатывается на concat")
             for cf_ in (r[0] for r in results):
                 if os.path.exists(cf_):
                     try:
@@ -16993,17 +16974,25 @@ def xfade_chain_chunked(clips, durs, sections, out, temp_dir, xfade_dur=XFADE_DU
     r = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
                         "-i", concat_list, "-c", "copy", out], capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
-        print("  склейка кусков не удалась, откат на concat:", r.stderr[-300:])
+        print("  склейка чанков xfade не удалась, откат на concat:", r.stderr[-300:])
         return False, 0.0
-    # Куски скопированы в out побайтово (-c copy) — дальше они не нужны
-    # (раньше лежали до конца прогона: ~2.9 ГБ пиковой нехватки диска на
-    # 165-клипном эпизоде, ровно там, где финальный мукс падал на "No space
-    # left on device").
+    # Чанки скопированы в out побайтово (-c copy) — дальше они не нужны
+    # никому: xfade_chain() выше не кэширует их между прогонами (cout
+    # каждый раз перезаписывается заново), а весь код ниже по пайплайну
+    # (pad_to_length/финальный мукс) работает только с out. Раньше чанки
+    # (~столько же места, сколько сам out) оставались лежать мёртвым
+    # грузом до konца прогона — на реальном 165-клипном эпизоде это было
+    # ~2.9 ГБ пиковой нехватки диска, буквально то место, где сборка
+    # несколько раз падала на "No space left on device" при последующем
+    # финальном муксе. Удаление — не оптимизация с компромиссом: это
+    # чистая уборка уже скопированных временных файлов, out от неё не
+    # зависит и не меняется. Сбой удаления (permissions и т.п.) не должен
+    # рушить уже УСПЕШНУЮ склейку — не критично, просто предупреждение.
     for cf in chunk_files:
         try:
             os.remove(cf)
         except OSError as e:
-            print(f"  предупреждение: не удалось удалить временный кусок {cf}: {e}")
+            print(f"  предупреждение: не удалось удалить временный чанк {cf}: {e}")
     return True, chunk_total
 
 
@@ -17025,17 +17014,25 @@ def estimate_xfade_budget(blocks, chunk_size=XFADE_CHUNK_SIZE):
     return sum(d for _t, d in effective_transition_plan(plan, sections, chunk_size))
 
 
-def effective_transition_plan(plan, sections=None, chunk_size=XFADE_CHUNK_SIZE):
-    """План переходов, каким его РЕАЛЬНО исполняет склейка. Все четыре
-    потребителя (бюджет, PHRASE LOCK, visual_starts, сама склейка) читают
-    его отсюда — иначе они расходятся (аудит 04.09: переходы на стыках
-    кусков потребляли нахлёст в расчётах и не делались в склейке, и кадр
-    уезжал от фразы на 0.42 с за каждый стык).
-
-    GPU-ветка, 29.09: xfade_chain_chunked собирает переход на каждом стыке
-    отдельным куском, поэтому план исполняется целиком и здесь ничего не
-    обнуляется."""
-    return list(plan) if plan else list(plan or [])
+def effective_transition_plan(plan, sections, chunk_size=XFADE_CHUNK_SIZE):
+    """План переходов, каким его РЕАЛЬНО исполняет xfade_chain_chunked():
+    переход на входе каждого чанка (concat -c copy между чанками) не делается
+    и нахлёста не потребляет — его длительность здесь обнуляется. Аудит
+    04.09 (реальная находка, воспроизведена снippet'ом на 400 блоках): эту
+    поправку знал только estimate_xfade_budget(), а два других потребителя
+    того же плана — phrase_locked_durations() и hook_visual_starts() —
+    прибавляли/вычитали нахлёст и на стыках чанков тоже. На любом эпизоде
+    длиннее XFADE_CHUNK_SIZE клипов после первой границы чанка каждый кадр
+    показывался на XFADE_DUR (0.417с) позже своей фразы, накопительно
+    (7 чанков — +2.5с к финалу, 40-минутный эпизод — ~5.5с), видео
+    становилось длиннее аудио, хвост резался финальным муксом, а
+    phrase_timeline.json показывал дрейф 0, потому что считался той же
+    неверной формулой. Теперь все четыре потребителя (бюджет, PHRASE LOCK,
+    visual_starts, сама склейка) читают один и тот же эффективный план."""
+    if not plan:
+        return list(plan)
+    dropped = {a for a, _b in _chunk_bounds(len(sections), sections, chunk_size) if a > 0}
+    return [(t, 0.0 if (i + 1) in dropped else d) for i, (t, d) in enumerate(plan)]
 
 
 def _clip_codec(path):

@@ -1911,13 +1911,14 @@ def test_plan_transitions_deterministic_and_path_independent():
 
 def test_estimate_xfade_budget_equals_what_chain_really_consumes():
     # Бюджет обязан быть РАВЕН сумме нахлёстов, которые реально применит
-    # xfade_chain_chunked. GPU-ветка 29.09: переход на стыке кусков собирается
-    # отдельным куском (кадр в кадр как один проход, tests/test_seamless_chunks),
-    # поэтому потребляются ВСЕ переходы плана.
+    # xfade_chain_chunked (с учётом того, что переход на входе каждого чанка
+    # не делается — чанки склеиваются concat -c copy).
     blocks = _synthetic_blocks()
     sections = [b["section"] for b in blocks]
     plan = pipeline_smart.plan_transitions(sections, blocks)
-    consumed = sum(d for _t, d in plan)
+    bounds = pipeline_smart._chunk_bounds(len(blocks), sections, pipeline_smart.XFADE_CHUNK_SIZE)
+    dropped = {a for a, _b in bounds if a > 0}
+    consumed = sum(d for i, (_t, d) in enumerate(plan, start=1) if i not in dropped)
     assert pipeline_smart.estimate_xfade_budget(blocks) == pytest.approx(consumed, abs=1e-9)
 
 
