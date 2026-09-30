@@ -114,13 +114,16 @@ def plan(key, gpus=None, community=True):
     без этого Runpod отдаёт самую низкую цену по обоим облакам, и карта,
     свободная только в secure, выглядела бы свободной и дешёвой (проверено
     29.09: RTX A6000 «$0.33 в наличии» без фильтра и нет её с фильтром)."""
-    lp = "lowestPrice(input:{gpuCount:1%s})" % (", secureCloud:false" if community else "")
+    # Фильтр облака нужен ОБОИМ облакам: без secureCloud:true цена secure-запроса
+    # — минимум по обоим облакам (30.09: RTX A6000 «$0.33», а под в Secure создан
+    # по $0.53).
+    lp = "lowestPrice(input:{gpuCount:1, secureCloud:%s})" % ("false" if community else "true")
     if gpus:
         q = ('query($ids:[String!]){ gpuTypes(input:{ids:$ids}){ id displayName memoryInGb '
              'securePrice communityPrice ' + lp + '{ uninterruptablePrice '
              'stockStatus } } myself { clientBalance spendLimit currentSpendPerHr } }')
         return gql(q, key, {"ids": list(gpus)})
-    q = ('query { gpuTypes { id displayName memoryInGb securePrice communityPrice communityCloud '
+    q = ('query { gpuTypes { id displayName memoryInGb securePrice communityPrice communityCloud secureCloud '
          + lp + '{ uninterruptablePrice stockStatus } } '
          'myself { clientBalance spendLimit currentSpendPerHr } }')
     return gql(q, key)
@@ -136,7 +139,12 @@ def image_supports_blackwell(image):
     return need is not None and need >= (12, 8)
 
 
-def cheapest_gpus(gpu_types, min_gb=MIN_GPU_GB, image=DEFAULT_IMAGE):
+def min_gb_for_vram(min_gb, min_vram_mib):
+    """Номинал в ГБ не меньше того, что нужно карте по nvidia-smi (МиБ)."""
+    return max(min_gb, -(-int(min_vram_mib) // 1024)) if min_vram_mib else min_gb
+
+
+def cheapest_gpus(gpu_types, min_gb=MIN_GPU_GB, image=DEFAULT_IMAGE, community=True):
     """Карты community, которые сейчас есть в наличии и вмещают модели, —
     от дешёвой к дорогой (по текущей цене, а не прейскуранту: у карты без
     свободных машин цены «сейчас» нет)."""
@@ -147,7 +155,8 @@ def cheapest_gpus(gpu_types, min_gb=MIN_GPU_GB, image=DEFAULT_IMAGE):
         name = f"{g.get('id', '')} {g.get('displayName', '')}"
         if any(t in name for t in BLACKWELL) and not image_supports_blackwell(image):
             continue
-        if (g.get("communityCloud") and price is not None and lp.get("stockStatus")
+        if (g.get("communityCloud" if community else "secureCloud") and price is not None
+                and lp.get("stockStatus")
                 and (g.get("memoryInGb") or 0) >= min_gb):
             rows.append((float(price), -(g.get("memoryInGb") or 0), g["id"]))
     return [gid for _p, _m, gid in sorted(rows)]
@@ -238,6 +247,15 @@ class NoStock(SystemExit):
 
 class BadHost(Exception):
     """Видеокарта пода не работает — под удалён, нужен другой хост."""
+
+
+class LowVram(BadHost):
+    """Видеопамяти мало у ТИПА карты (объём — свойство модели, а не хоста):
+    другой хост той же карты не поможет, тип убирается из очереди."""
+
+
+class BudgetExpired(SystemExit):
+    """Потолок денег на запуск исчерпан посреди задачи."""
 SMOKE_IMAGE = "python:3.11-slim"
 
 
@@ -569,7 +587,7 @@ class Runner:
         off, last_up = self.log_off, None
         while True:
             if deadline is not None and time.time() > deadline:
-                raise SystemExit("потолок денег на запуск исчерпан — задача прервана, под удаляется")
+                raise BudgetExpired("потолок денег на запуск исчерпан — задача прервана, под удаляется")
             st = self.call("GET", f"/log?offset={off}")
             # Время жизни исполнителя упало — контейнер пода перезапустился
             # (например, нехватка памяти): новый исполнитель про задачу не
@@ -672,12 +690,15 @@ def main(argv=None):
     if a.selftest_autodelete:
         return selftest_autodelete(key, a.image or SMOKE_IMAGE)
     a.image = a.image or DEFAULT_IMAGE
+    # Карта, у которой заведомо меньше нужного номинала, не арендуется вовсе
+    # (иначе оплачивалась бы подготовка и отбраковывалась).
+    a.min_gb = min_gb_for_vram(a.min_gb, a.min_vram_mib)
     info = plan(key, a.gpu, community=a.cloud == "COMMUNITY")
     me = info["myself"]
     print(f"Баланс Runpod ${me['clientBalance']:.2f}, лимит трат ${me['spendLimit']}/ч, "
           f"сейчас тратится ${me['currentSpendPerHr']}/ч")
     by_id = {g["id"]: g for g in info["gpuTypes"]}
-    gpus = a.gpu or cheapest_gpus(info["gpuTypes"], a.min_gb, a.image)[:6]
+    gpus = a.gpu or cheapest_gpus(info["gpuTypes"], a.min_gb, a.image, a.cloud == "COMMUNITY")[:6]
     if not gpus:
         print(f"  нет свободных карт community от {a.min_gb} ГБ")
         if a.plan:
@@ -763,7 +784,7 @@ def create_when_in_stock(key, a, order, create, by_id):
             if not a.gpu:
                 info = plan(key, None, community=a.cloud == "COMMUNITY")
                 by_id.update({g["id"]: g for g in info["gpuTypes"]})
-                fresh = cheapest_gpus(info["gpuTypes"], a.min_gb, a.image)[:6]
+                fresh = cheapest_gpus(info["gpuTypes"], a.min_gb, a.image, a.cloud == "COMMUNITY")[:6]
                 tail = [g for g in order if g not in fresh]
                 order[:] = [g for g in fresh if g not in tail] + tail
 
@@ -799,7 +820,13 @@ def _rent_attempts(key, a, order, by_id, token, extra, attempts, uploads, spent)
             # Та же карта, скорее всего, достанется с того же хоста: сначала
             # остальные типы, эта — в конец очереди.
             gpu = pod.get("gpuTypeId")
-            if gpu in order and len(order) > 1:
+            if isinstance(e, LowVram) and gpu in order:
+                # Объём памяти у всех хостов этого типа один и тот же.
+                order.remove(gpu)
+                if not order:
+                    raise SystemExit(f"ни одна карта из списка не вмещает задачу по видеопамяти "
+                                     f"(потрачено ${spent:.2f})")
+            elif gpu in order and len(order) > 1:
                 order.remove(gpu)
                 order.append(gpu)
     raise SystemExit(f"видеокарта не заработала за {attempts} попытки — задача не запускалась "
@@ -872,7 +899,11 @@ def drive(key, pod, token, cap_sec, uploads, cmd, fetches, dest, prepare=None, p
 
     def _sigint(*_):
         raise KeyboardInterrupt
+    # Оба сигнала: под `setsid nohup ... &` SIGINT по умолчанию игнорируется, и
+    # Ctrl-C/kill -INT не останавливал скрипт, а под продолжал тарифицироваться
+    # (29.09 пришлось удалять вручную). Явный обработчик перекрывает SIG_IGN.
     signal.signal(signal.SIGTERM, _sigint)
+    signal.signal(signal.SIGINT, _sigint)
     try:
         r = Runner(f"https://{pod_id}-{PORT}.proxy.runpod.net", token, watch=watch)
         if not r.wait_ready(min(1800, cap_sec), lambda: pod_status(key, pod_id)):
@@ -887,30 +918,20 @@ def drive(key, pod, token, cap_sec, uploads, cmd, fetches, dest, prepare=None, p
                 raise SystemExit(f"в образе нет torch для `{POD_PY}` — ошибка образа, другой хост "
                                  f"её не исправит; под удалён")
             if pc == LOW_VRAM_EXIT:
-                raise BadHost("на карте мало видеопамяти для этой задачи (см. строку выше)")
+                raise LowVram("на карте мало видеопамяти для этой задачи (см. строку выше)")
             if pc != 0:
                 raise BadHost(f"видеокарта пода не работает (проверка: {pc})")
             stage("видеокарта проверена")
-        if prepare:
-            first, rest_up = uploads[:1], uploads[1:]
-            for item in first:
-                _send(r, item)
-            r.start(overlapped_cmd(prepare, cmd))
-            for item in rest_up:
-                _send(r, item)
-            r.call("POST", f"/touch?name={UPLOADS_DONE}", b"")
-            stage("данные загружены")
-            code = r.follow(deadline=t0 + cap_sec)
-        else:
-            for item in uploads:
-                _send(r, item)
-            stage("данные загружены")
-            code = r.run(cmd, deadline=t0 + cap_sec)
+        try:
+            code = _run_job(r, uploads, cmd, prepare, t0, cap_sec, stage)
+        except BudgetExpired as e:
+            # Оплаченный прогон нельзя терять целиком: забираем то, что успело
+            # записаться (за счёт короткого запаса времени на выгрузку).
+            print(f"\n{e}")
+            code = 124
         print()
         stage(f"команда завершилась с кодом {code}")
         for path in fetches:
-            # Несозданный результат — не повод бросить остальные: забираем
-            # всё, что есть, а пропуск называем.
             try:
                 r.fetch(path, dest)
                 print(f"  забрано: {path}")
@@ -919,11 +940,33 @@ def drive(key, pod, token, cap_sec, uploads, cmd, fetches, dest, prepare=None, p
                 if code == 0:
                     code = 98
     finally:
+        # Повторный сигнал не должен прервать само удаление пода.
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
         terminate(key, pod_id)
         sec = time.time() - t0
         pod["spent_usd"] = sec / 3600 * float(pod['costPerHr'])
         print(f"Под жил {sec / 60:.1f} мин ≈ ${pod['spent_usd']:.2f}")
     return code
+
+
+def _run_job(r, uploads, cmd, prepare, t0, cap_sec, stage):
+    """Загрузка, запуск и ожидание задачи; возвращает её код. Потолок денег —
+    BudgetExpired (вызывающий всё равно забирает результат)."""
+    if prepare:
+        first, rest_up = uploads[:1], uploads[1:]
+        for item in first:
+            _send(r, item)
+        r.start(overlapped_cmd(prepare, cmd))
+        for item in rest_up:
+            _send(r, item)
+        r.call("POST", f"/touch?name={UPLOADS_DONE}", b"")
+        stage("данные загружены")
+        return r.follow(deadline=t0 + cap_sec)
+    for item in uploads:
+        _send(r, item)
+    stage("данные загружены")
+    return r.run(cmd, deadline=t0 + cap_sec)
 
 
 def selftest_autodelete(key, image=SMOKE_IMAGE, idle_sec=60, limit_sec=360):

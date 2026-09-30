@@ -56,7 +56,11 @@ P_FF=$!
 (
   # uv собирает окружение в разы быстрее pip; нет uv — обычный pip.
   pip install -q uv >/dev/null 2>&1 && INSTALL="uv pip install --system -q" || INSTALL="pip install -q"
-  $INSTALL -r requirements.txt -r requirements-gpu.txt
+  # `say` в конце подоболочки всегда даёт код 0: без явного выхода сбой
+  # установки не доходил до `wait` (аудит 30.09), и задача стартовала на
+  # оплаченном поде без пакетов.
+  $INSTALL -r requirements.txt -r requirements-gpu.txt \
+    || { say "ОШИБКА: установка пакетов не удалась"; exit 1; }
   say "пакеты готовы"
 ) &
 P_PIP=$!
@@ -64,7 +68,7 @@ P_PIP=$!
 (
   # hf_transfer нужен до закачки; ставим его отдельно и сразу.
   pip install -q huggingface_hub hf_transfer >/dev/null 2>&1
-  python scripts/fetch_weights.py
+  python scripts/fetch_weights.py || { say "ОШИБКА: веса моделей не скачались"; exit 1; }
   say "веса готовы"
 ) &
 P_W=$!
