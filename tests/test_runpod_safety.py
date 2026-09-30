@@ -288,3 +288,10 @@ def test_pod_prepare_probes_nvenc_for_real(tmp_path):
     assert run(bad_ff, with_smi=False) == 0, "нет видеокарты — проверять нечем"
     assert run(ok_ff, with_smi=True) == 0
     assert run(bad_ff, with_smi=True) != 0
+
+
+def test_pod_prepare_never_falls_back_to_apt_ffmpeg():
+    """apt даёт 4.4 без переходов: ролик собрался бы не тем, что у CPU-ветки."""
+    src = open(os.path.join(REPO, "scripts", "pod_prepare.sh"), encoding="utf-8").read()
+    assert "apt-get install -y -qq ffmpeg" not in src
+    assert "подходящего ffmpeg (5+, drawtext, переходы) не получено" in src

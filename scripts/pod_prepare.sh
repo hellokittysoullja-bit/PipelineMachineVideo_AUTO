@@ -89,8 +89,10 @@ say() { echo "[prepare +$(( $(date +%s) - T0 )) с] $*"; }
       say "ВНИМАНИЕ: NVENC не заработал ни в одной сборке — клипы будут кодироваться процессором (x264)"
     fi
     if [ $OK = 0 ]; then
-      apt-get update -qq && apt-get install -y -qq ffmpeg >/dev/null 2>&1
-      say "ВНИМАНИЕ: подходящего ffmpeg нет, остался apt ($(ffmpeg -version | head -1 | cut -c1-30)) — переходы будут заменены"
+      # apt даёт ffmpeg 4.4 без переходов hlwind/hrwind/zoomin: ролик собрался бы
+      # не тем, что у CPU-ветки. Подготовка останавливается, а не деградирует.
+      say "ОШИБКА: подходящего ffmpeg (5+, drawtext, переходы) не получено — задача не запускается"
+      exit 1
     fi
     hash -r
   fi
