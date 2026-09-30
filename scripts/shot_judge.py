@@ -71,6 +71,11 @@ SCORE_MAX = 3
 # расходов шлюза, а не цена: списывается фактический usage.
 EST_PROMPT_TOKENS = 2500
 MAX_TOKENS = 1200
+# Повторный запрос при зависании шлюза (llm_gateway.Gateway._post_hedged):
+# вопросы судьи короткие — обычно 6-22 с (замер 30.09 на L40), а зависший
+# держал слот 5-9 минут. Через столько секунд без ответа тот же вопрос той
+# же модели уходит второй раз, берётся первый ответ.
+HEDGE_AFTER_SEC = 60.0
 # Рассуждение модели в сетке и в проверке зрения ВЫКЛЮЧЕНО явно. Оценки
 # сетки (57/61 пар) сняты, когда Qwen 3.7 Plus на шлюзе по умолчанию не
 # рассуждал; 24.09 провайдер включил рассуждение по умолчанию, и проверка
@@ -264,7 +269,8 @@ def vision_check(gateway, model):
                    {"type": "image_url", "image_url": {
                        "url": "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()}}]
         try:
-            answer, _u, _p = gateway.chat(model, content, 20, 400, reasoning=False)
+            answer, _u, _p = gateway.chat(model, content, 20, 400, reasoning=False,
+                                          hedge_after=HEDGE_AFTER_SEC)
         except Exception as e:  # noqa: BLE001
             return False, f"проверка зрения не состоялась: {type(e).__name__}: {e}"[:300]
         if word not in (answer or "").lower():
@@ -289,7 +295,7 @@ def _judge_chunk(gateway, model, text, chunk, cache_dir, kind="photo"):
         "url": "data:image/jpeg;base64," + base64.b64encode(_grid_bytes(paths, kind)).decode()}}]
     try:
         answer, _usage, price = gateway.chat(model, content, MAX_TOKENS, EST_PROMPT_TOKENS,
-                                             reasoning=GRID_REASONING)
+                                             reasoning=GRID_REASONING, hedge_after=HEDGE_AFTER_SEC)
     except Exception as e:  # noqa: BLE001 — любой сбой шлюза: судьи нет
         return None, {"refused": f"{type(e).__name__}: {e}"[:300]}
     scores = parse_scores(answer, len(chunk))
@@ -410,7 +416,7 @@ def world_check(gateway, model, *, phrase, brief, setting, path, kind="photo", c
     content = [{"type": "text", "text": text}, {"type": "image_url", "image_url": {
         "url": "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()}}]
     try:
-        answer, _u, price = gateway.chat(model, content, 400, 1200)
+        answer, _u, price = gateway.chat(model, content, 400, 1200, hedge_after=HEDGE_AFTER_SEC)
     except Exception as e:  # noqa: BLE001 — сбой шлюза: проверки не было
         return None, None, {"refused": f"{type(e).__name__}: {e}"[:200]}
     ok, why = parse_world(answer)
@@ -519,7 +525,7 @@ def world_of_image(gateway, model, *, setting, path, kind="photo", cache_dir=Non
         return None, {}
     try:
         answer, _u, price = gateway.chat(model, [{"type": "text", "text": text}, image], 300, 900,
-                                         reasoning=reasoning)
+                                         reasoning=reasoning, hedge_after=HEDGE_AFTER_SEC)
     except Exception as e:  # noqa: BLE001 — сбой шлюза: проверки не было
         return None, {"refused": f"{type(e).__name__}: {e}"[:200]}
     import re
@@ -608,7 +614,8 @@ def _ask_image(gateway, model, *, kind, text, path, cache_dir, max_side, reasoni
     try:
         image = _image_content(path, max_side)
         answer, _u, price = gateway.chat(model, [{"type": "text", "text": text}, image],
-                                         max_tokens, 900, reasoning=reasoning)
+                                         max_tokens, 900, reasoning=reasoning,
+                                         hedge_after=HEDGE_AFTER_SEC)
     except Exception as e:  # noqa: BLE001 — ответа нет: кадр идёт как раньше
         return None, {"refused": f"{type(e).__name__}: {e}"[:200]}
     if cp and answer:
@@ -731,7 +738,8 @@ def rank_look(gateway, model, *, paths, kind="photo", cache_dir=None, style=None
         "url": "data:image/jpeg;base64," + base64.b64encode(
             _grid_bytes(paths, kind, cols=cols, tile=tile)).decode()}}]
     try:
-        answer, _u, price = gateway.chat(model, content, 120, EST_PROMPT_TOKENS, reasoning=GRID_REASONING)
+        answer, _u, price = gateway.chat(model, content, 120, EST_PROMPT_TOKENS, reasoning=GRID_REASONING,
+                                         hedge_after=HEDGE_AFTER_SEC)
     except Exception as e:  # noqa: BLE001 — нет ответа: ничью решают прежние ключи
         return None, {"refused": f"{type(e).__name__}: {e}"[:200]}
     order = parse_order(answer, len(paths))
@@ -990,7 +998,7 @@ def verify_claims(gateway, model, *, phrase, spec, setting, path, kind="photo", 
         return None, {}
     try:
         answer, _u, price = gateway.chat(model, [{"type": "text", "text": text}, image], 500, 1200,
-                                         reasoning=reasoning)
+                                         reasoning=reasoning, hedge_after=HEDGE_AFTER_SEC)
     except Exception as e:  # noqa: BLE001 — сбой шлюза: проверки не было
         return None, {"refused": f"{type(e).__name__}: {e}"[:200]}
     answers = parse_claims_answer(answer, [c["id"] for c in asked], bool(setting))

@@ -41,10 +41,14 @@ say() { echo "[prepare +$(( $(date +%s) - T0 )) с] $*"; }
     # drawtext есть, три перехода есть, hevc_nvenc есть. Статическая сборка другого автора
     # без NVENC и здесь не подходит; API GitHub с общего адреса пода режется
     # лимитом, поэтому имя не выясняется запросом.
-    # Порядок — от проверенной сборки к запасным: у других веток заголовки
-    # NVENC другие, и они могут идти на драйвере, где master отказывает.
-    for u in "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz" \
-             "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz" \
+    # Порядок — n8.1 первой: её заголовки NVENC требуют API 13.0, и она
+    # работает там, где master отказывает (master требует 13.1: драйвер 570 на
+    # A40 и на L40 30.09 — «Required: 13.1 Found: 13.0», под терял ~75 с на
+    # скачивание и проверку master до перехода на n8.1). Более новые драйверы
+    # поддерживают и старый API, поэтому на них n8.1 тоже проходит; master и
+    # n9.0 — запасные на случай карты, которой нужны новые заголовки.
+    for u in "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz" \
+             "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz" \
              "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-linux64-gpl-9.0.tar.xz"; do
       if ! curl -fL --retry 2 --max-time 300 -sS "$u" -o $D/f.tar.xz 2>$D/err.txt; then
         say "ffmpeg: скачивание не удалось ($(tr '\n' ' ' < $D/err.txt | cut -c1-160))"; continue

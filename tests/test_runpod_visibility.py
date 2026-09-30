@@ -127,6 +127,10 @@ def test_pod_prepare_uses_the_verified_ffmpeg_build_and_reports_failures():
     src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                             "scripts", "pod_prepare.sh"), encoding="utf-8").read()
     assert "ffmpeg-master-latest-linux64-gpl.tar.xz" in src
+    # n8.1 первой: master требует API NVENC 13.1 и на драйвере 570 (A40, L40)
+    # отказывает — под терял ~75 с до перехода на n8.1 (прогоны 30.09).
+    assert src.index("ffmpeg-n8.1-latest") < src.index("ffmpeg-master-latest"), \
+        "проверенная на драйвере 570 сборка n8.1 должна идти первой"
     assert "johnvansickle" not in src, "сборка без NVENC не подходит и не должна быть кандидатом"
     assert "api.github.com" not in src, "API GitHub с общего адреса пода режется лимитом"
     assert "скачивание не удалось" in src, "неудача скачивания должна называть причину"

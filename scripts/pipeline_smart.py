@@ -5501,6 +5501,29 @@ def journal_record(rec):
             f.flush()
     except (OSError, TypeError, ValueError):
         pass      # наблюдение, а не решение: сбой записи отбор не трогает
+    if rec.get("record") == "slot":
+        write_live_judge_log(os.path.dirname(path))
+
+
+def write_live_judge_log(media_plan_dir):
+    """Журнал судьи — после каждого закрытого слота, а не только в конце
+    отбора (прогон 30.09 на L40: под остановлен посреди отбора, и по ответам
+    судьи нельзя было понять, почему прошёл кадр фестиваля). Тот же файл
+    shot_judge_log.json и тот же список, что пишет конец отбора: журнал один,
+    по ходу в нём снимок, в конце — итог. Отбор не трогает."""
+    try:
+        gw = _SHOT_JUDGE_STATE.get("gateway")
+        if gw is None and not SHOT_JUDGE_LOG:
+            return
+        data = {"model": shot_judge_model(), "gateway": gw.summary() if gw else None,
+                "calls": list(SHOT_JUDGE_LOG)}
+        target = os.path.join(media_plan_dir, "shot_judge_log.json")
+        tmp = target + ".part"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=1, default=str)
+        os.replace(tmp, target)
+    except Exception:  # noqa: BLE001 — наблюдение: сбой записи отбор не трогает
+        pass
 
 
 def start_live_journal(video_folder):

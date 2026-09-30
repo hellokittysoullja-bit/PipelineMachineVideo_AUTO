@@ -47,6 +47,11 @@ MODEL = "ds/deepseek-v4-flash"
 TOP_N = 100
 MAX_TOKENS = 2500
 EST_PROMPT_TOKENS = 7000
+# Повторный запрос при зависании (llm_gateway.Gateway._post_hedged). Живой
+# прогон 30.09: из двух вопросов, заданных разом, один отвечал за 8-22 с,
+# второй висел 342-619 с. Через столько секунд без ответа — тот же вопрос
+# той же модели ещё раз, берётся первый ответ.
+HEDGE_AFTER_SEC = 60.0
 
 URL_JUNK = set("""www com org edu net https http photo photos video videos pexels pixabay metmuseum art collection search
 artic artworks commons wikimedia wiki file index php curid clevelandart openverse images image jpg jpeg png tif
@@ -194,7 +199,7 @@ def _ask(gw, text, cache_dir):
         except (OSError, ValueError, KeyError):
             pass
     ans, _usage, price = gw.chat(MODEL, [{"type": "text", "text": text}], MAX_TOKENS, EST_PROMPT_TOKENS,
-                                 reasoning=False, timeout=240)
+                                 reasoning=False, timeout=240, hedge_after=HEDGE_AFTER_SEC)
     if path:
         # Запись — по возможности, как у судьи (shot_judge._cache_write):
         # раньше OSError здесь (кончилось место на диске) выбрасывал уже

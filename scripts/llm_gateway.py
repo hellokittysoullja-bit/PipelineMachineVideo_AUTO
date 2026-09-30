@@ -38,6 +38,7 @@ import hashlib
 import http.client
 import json
 import math
+import queue
 import os
 import threading
 import time
@@ -82,6 +83,21 @@ def _caller():
 
 
 _FROM_SPEC = contextvars.ContextVar("llm_gateway_from_spec", default=False)
+
+# Копия вопроса, проигравшая повторному запросу (см. Gateway._post_hedged):
+# её повторы останавливаются, и её сбои не считаются сбоями шлюза — иначе
+# висящая копия, которой ответ уже не нужен, могла бы поставить шлюз на
+# паузу для всех остальных вызовов.
+_HEDGE_CANCEL = contextvars.ContextVar("llm_gateway_hedge_cancel", default=None)
+
+
+class HedgeCancelled(Exception):
+    """Копия вопроса больше не нужна: ответ уже пришёл от другой копии."""
+
+
+def _hedge_cancelled():
+    ev = _HEDGE_CANCEL.get()
+    return ev is not None and ev.is_set()
 
 
 def _record_call(kind, model, t0, ok, usage=None, price=None, err=None, **extra):
@@ -385,6 +401,9 @@ class Gateway:
         # спекулятивных), — для разреза времени прогона: сколько судья
         # занимает на самом деле, а не по оценке.
         self.net_seconds = 0.0
+        self.hedged = 0         # вопросов, заданных второй раз из-за зависания первого
+        self.hedge_won = 0      # из них второй ответил раньше
+        self.hedge_spent = 0    # оплачено за проигравшие копии
         self.spec_net_seconds = 0.0
 
     @property
@@ -437,7 +456,7 @@ class Gateway:
             try:
                 out = self._request_with_retries(method, path, body, timeout, lost_body)
             except GatewayError as e:
-                if "повторы исчерпаны" not in str(e) or spec:
+                if "повторы исчерпаны" not in str(e) or spec or _hedge_cancelled():
                     raise
                 if health.failed():
                     with self._pause_lock:
@@ -481,6 +500,8 @@ class Gateway:
             "User-Agent": USER_AGENT})
         last = None
         for attempt in range(MAX_ATTEMPTS):
+            if _hedge_cancelled():
+                raise HedgeCancelled("копия вопроса отменена: ответ уже получен")
             try:
                 with self._open(req, timeout=timeout) as r:
                     try:
@@ -568,7 +589,7 @@ class Gateway:
     # ---------------------------------------------------------------- чат
 
     def chat(self, model, content, max_tokens, estimate_prompt_tokens, temperature=0.0, timeout=180,
-             reasoning=None):
+             reasoning=None, hedge_after=None):
         """Один вызов чата (с одним переспросом на пустой ответ — см.
         _chat_reasked). content — список частей OpenAI (text / image_url).
         Возвращает (текст ответа, usage, цена). Потолок проверяется ДО вызова
@@ -584,11 +605,11 @@ class Gateway:
                 first = self._first_call.setdefault(model, threading.Lock())
             if model in self._ratio or model in self._spec_ratio:
                 out = self._chat_reasked(model, content, max_tokens, estimate_prompt_tokens,
-                                         temperature, timeout, reasoning)
+                                         temperature, timeout, reasoning, hedge_after)
             else:
                 with first:
                     out = self._chat_reasked(model, content, max_tokens, estimate_prompt_tokens,
-                                             temperature, timeout, reasoning)
+                                             temperature, timeout, reasoning, hedge_after)
         except Exception as e:
             _record_call("chat", model, t0, False, err=e, from_spec=_FROM_SPEC.get())
             raise
@@ -599,7 +620,7 @@ class Gateway:
         return out
 
     def _chat_reasked(self, model, content, max_tokens, estimate_prompt_tokens, temperature, timeout,
-                      reasoning):
+                      reasoning, hedge_after=None):
         """Пустой ответ (200 OK, но весь max_tokens ушёл на рассуждение,
         несмотря на reasoning=False) — воспроизводимый сбой конкретно под
         ПАРАЛЛЕЛЬНОЙ нагрузкой на одну модель: замер 27.09, два одновременных
@@ -620,16 +641,16 @@ class Gateway:
         которого раньше не получала вовсе."""
         try:
             return self._chat(model, content, max_tokens, estimate_prompt_tokens, temperature, timeout,
-                              reasoning)
+                              reasoning, hedge_after)
         except EmptyAnswer:
             if not speculative():
                 with self._lock:
                     self.empty_answer_reasked += 1
             return self._chat(model, content, max_tokens, estimate_prompt_tokens, temperature, timeout,
-                              reasoning)
+                              reasoning, hedge_after)
 
     def _chat(self, model, content, max_tokens, estimate_prompt_tokens, temperature, timeout,
-              reasoning=None):
+              reasoning=None, hedge_after=None):
         base = self.cost(model, estimate_prompt_tokens, max_tokens)
         reserve = math.ceil(base * max(1.0, self._ratio.get(model, 1.0)))
         fp = _fingerprint(model, content, max_tokens, estimate_prompt_tokens, temperature, reasoning)
@@ -655,8 +676,9 @@ class Gateway:
                 body.update(reasoning_switch(getattr(self, "_thinking", {}).get(model), reasoning))
             t0 = time.monotonic()
             try:
-                r = self._request("POST", "/chat/completions", body, timeout=timeout,
-                                  on_lost_body=lost_body)
+                r = self._post_hedged(body, timeout, lost_body, hedge_after, reserve,
+                                      lambda u: self.cost(model, u.get("prompt_tokens") or estimate_prompt_tokens,
+                                                          u.get("completion_tokens") or max_tokens))
             finally:
                 with self._lock:
                     self.net_seconds += time.monotonic() - t0
@@ -686,6 +708,90 @@ class Gateway:
                 self.empty_answers += 1
             raise _empty_answer(model, choice, u, max_tokens, price)
         return text, u, price
+
+    def _post_hedged(self, body, timeout, lost_body, hedge_after, reserve, price_of):
+        """POST вопроса с повторным запросом при зависании (прогон 30.09 на L40:
+        короткие вопросы судьи и отсева, обычно 6-22 с, висели по 300-620 с —
+        таймаут попытки, повторы, пауза; слот 0 из 33 минут ждал шлюз ~30).
+
+        Нет ответа за hedge_after секунд — тот же вопрос той же модели уходит
+        второй раз, берётся первый пришедший ответ. Модель, вопрос и
+        температура те же — выбор кадра от этого не меняется. Цена: копия
+        оплачивается, только если вопрос завис; её резерв проверяется по
+        потолку ДО отправки (не помещается — копии нет, ждём как раньше), а
+        проигравшая копия, если всё же ответит, списывается в spent и
+        hedge_spent. Проигравшая копия отменяется: новых попыток не делает и
+        паузу шлюза не вызывает. hedge_after=None — прежний путь байт в байт."""
+        def send():
+            return self._request("POST", "/chat/completions", body, timeout=timeout,
+                                 on_lost_body=lost_body)
+        if not hedge_after or hedge_after <= 0:
+            return send()
+        results = queue.Queue()
+        cancels = {}
+
+        def start(tag):
+            ev = threading.Event()
+            cancels[tag] = ev
+            ctx = contextvars.copy_context()
+
+            def run():
+                _HEDGE_CANCEL.set(ev)
+                try:
+                    results.put((tag, True, send()))
+                except BaseException as e:  # noqa: BLE001 — исход копии передаётся ждущему
+                    results.put((tag, False, e))
+            threading.Thread(target=ctx.run, args=(run,), daemon=True,
+                             name=f"gateway_hedge_{tag}").start()
+
+        start("a")
+        try:
+            first = results.get(timeout=hedge_after)
+        except queue.Empty:
+            with self._lock:
+                fits = (self.spend_cap is None
+                        or self.spent + self.reserved + reserve <= self.spend_cap)
+                if fits:
+                    self.reserved += reserve
+                    self.hedged += 1
+            if fits:
+                start("b")
+            first = results.get()
+        pending = [t for t in cancels if t != first[0]]
+        winner = first
+        if not first[1] and pending:
+            second = results.get()
+            pending = []
+            winner = second if second[1] else first
+            if second[1]:
+                with self._lock:
+                    self.hedge_won += 1 if second[0] == "b" else 0
+            self._release_hedge(reserve, None)
+        elif pending:
+            if first[0] == "b":
+                with self._lock:
+                    self.hedge_won += 1
+            for t in pending:
+                cancels[t].set()
+            ctx = contextvars.copy_context()
+            threading.Thread(target=ctx.run, args=(self._settle_loser, results, reserve, price_of),
+                             daemon=True, name="gateway_hedge_settle").start()
+        tag, ok, val = winner
+        if not ok:
+            raise val
+        return val
+
+    def _settle_loser(self, results, reserve, price_of):
+        """Проигравшая копия: дождаться исхода и честно списать её цену."""
+        _tag, ok, val = results.get()
+        self._release_hedge(reserve, price_of((val.get("usage") or {})) if ok else None)
+
+    def _release_hedge(self, reserve, price):
+        with self._lock:
+            self.reserved -= reserve
+            if price:
+                self.spent += price
+                self.hedge_spent += price
 
     # ---------------------------------------------------------------- упреждение
 
@@ -890,6 +996,7 @@ class Gateway:
                 "speculative_spent": self.spec_spent,
                 "speculative_wasted": self.spec_outstanding,
                 "net_seconds": round(self.net_seconds, 1),
+                "hedged": self.hedged, "hedge_won": self.hedge_won, "hedge_spent": self.hedge_spent,
                 "speculative_net_seconds": round(self.spec_net_seconds, 1),
                 **({"speculative_limit_peak": self.spec_limiter().stats["peak_limit"],
                     "speculative_limit_now": self.spec_limiter().limit,

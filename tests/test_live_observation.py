@@ -72,3 +72,27 @@ def test_broken_media_is_recorded_not_fatal(tmp_path):
     assert psf.one_pass(str(ep), set()) == 1
     index = json.loads((ep / "media_plan" / "selected" / "index.json").read_text(encoding="utf-8"))
     assert index[0]["thumb"] is None and index[0]["error"]
+
+
+def test_judge_log_snapshot_is_written_when_a_slot_closes(tmp_path, monkeypatch):
+    """Прогон 30.09 на L40: под остановлен посреди отбора, и почему прошёл кадр
+    фестиваля, по журналу судьи понять было нельзя — он пишется только в конце."""
+    mp = tmp_path / "media_plan"
+    mp.mkdir()
+    monkeypatch.setattr(ps, "RUN_JOURNAL", [])
+    monkeypatch.setattr(ps, "RUN_JOURNAL_LIVE", [str(mp / "run_journal.live.jsonl")])
+    monkeypatch.setattr(ps, "SHOT_JUDGE_LOG", [{"index": 0, "kind": "video", "scores": [2]}])
+    monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "gateway", None)
+    ps.journal_record({"record": "attempt", "index": 0, "attempt_id": "0-video-1"})
+    assert not (mp / "shot_judge_log.json").exists(), "снимок — по закрытию слота"
+    ps.journal_record({"record": "slot", "index": 0, "outcome": "shown"})
+    data = json.loads((mp / "shot_judge_log.json").read_text(encoding="utf-8"))
+    assert data["calls"] == [{"index": 0, "kind": "video", "scores": [2]}]
+
+
+def test_judge_log_snapshot_failure_never_touches_selection(tmp_path, monkeypatch):
+    monkeypatch.setattr(ps, "RUN_JOURNAL", [])
+    monkeypatch.setattr(ps, "RUN_JOURNAL_LIVE", [str(tmp_path / "нет" / "j.jsonl")])
+    monkeypatch.setattr(ps, "SHOT_JUDGE_LOG", [{"index": 0}])
+    ps.journal_record({"record": "slot", "index": 0})
+    assert ps.RUN_JOURNAL == [{"record": "slot", "index": 0}]

@@ -19,7 +19,7 @@ class GW:
     def __init__(self, answer):
         self.answer, self.calls, self.texts = answer, 0, []
 
-    def chat(self, model, content, max_tokens, est):
+    def chat(self, model, content, max_tokens, est, **_kw):
         self.calls += 1
         self.texts.append(content[0]["text"])
         return self.answer, {}, 200
