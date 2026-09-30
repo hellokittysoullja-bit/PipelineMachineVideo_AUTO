@@ -118,7 +118,9 @@ def test_gpu_render_workers_reads_only_existing_flags(monkeypatch):
     monkeypatch.setitem(sys.modules, "torch", fake)
     assert ps.gpu_render_workers() == 8
     fake.cuda.get_device_properties = lambda i: types.SimpleNamespace(total_memory=24 * 2 ** 30)
-    assert ps.gpu_render_workers() == 1
+    # Аудит 30.09: на 24 ГБ после моделей места под процесс рендера нет —
+    # ноль (раньше max(1, ...) ставил один и отбирал память у моделей).
+    assert ps.gpu_render_workers() == 0
     monkeypatch.setenv("GPU_RENDER_WORKERS", "2")
     assert ps.gpu_render_workers() == 2
 
@@ -128,3 +130,47 @@ def test_gpu_render_failure_never_escapes(monkeypatch):
     monkeypatch.setattr(gpu_render, "_render_kenburns", lambda *a, **k: (_ for _ in ()).throw(MemoryError("карта")))
     ok, why = gpu_render.render_kenburns("p.jpg", "o.mp4", 3, "", "", "", (1, 1, 1, 1, 0, 0), "", [])
     assert ok is False and "MemoryError" in why
+
+
+def _gpu_path_encode_args(monkeypatch, tmp_path, *, nvenc_free, restricted):
+    import threading
+    import cpu_budget
+    import gpu_render
+    monkeypatch.setattr(ps, "_WORKER_ROLE", ["gpu"])
+    for name, val in (("gpu_render_active", lambda: True), ("focus_crop", lambda p: p),
+                      ("aspect_fit_backdrop", lambda p: p), ("estimate_busyness", lambda p: 0.0),
+                      ("resolve_crop_anchor", lambda p: None), ("image_size_as_rendered", lambda p: (1600, 900)),
+                      ("clip_encoder", lambda: "nvenc")):
+        monkeypatch.setattr(ps, name, val)
+    monkeypatch.setattr(ps, "_NVENC_BROKEN", [False])
+    gate = threading.BoundedSemaphore(1)
+    if not nvenc_free:
+        gate.acquire()
+    monkeypatch.setattr(ps, "_NVENC_GATE", [gate])
+    monkeypatch.setattr(cpu_budget, "restricted", lambda *a, **k: restricted)
+    seen = []
+    monkeypatch.setattr(gpu_render, "render_kenburns",
+                        lambda *a, **k: (seen.append(list(a[8])), (False, "подмена"))[1])
+    r = ps.kenburns("p.jpg", str(tmp_path / "c.mp4"), 1.0, section="BLOCK_1", ffmpeg_threads=1)
+    assert r == ps.GPU_DECLINED and seen
+    return seen[0], gate
+
+
+def test_gpu_path_takes_an_nvenc_session_and_releases_it(monkeypatch, tmp_path):
+    """Аудит 30.09: путь карты шёл мимо лимита 8 сессий GeForce — драйвер
+    отказывал. Свободной сессии нет — кодер x264 сразу."""
+    enc, gate = _gpu_path_encode_args(monkeypatch, tmp_path, nvenc_free=False, restricted=False)
+    assert "libx264" in enc and "hevc_nvenc" not in enc
+    enc, gate = _gpu_path_encode_args(monkeypatch, tmp_path, nvenc_free=True, restricted=False)
+    assert "hevc_nvenc" in enc
+    assert gate.acquire(False), "сессия возвращена после кодирования"
+
+
+def test_gpu_path_encoder_threads_follow_the_granted_cores(monkeypatch, tmp_path):
+    """x264 пути карты в урезанном контейнере (A100/H100 без NVENC) видел все
+    ядра хозяина. Ограничение — как у процессорного пути; на обычной машине
+    команда прежняя."""
+    enc, _ = _gpu_path_encode_args(monkeypatch, tmp_path, nvenc_free=False, restricted=True)
+    assert "-filter_threads" in enc and enc[-1].endswith(".mp4")
+    enc, _ = _gpu_path_encode_args(monkeypatch, tmp_path, nvenc_free=False, restricted=False)
+    assert "-threads" not in enc

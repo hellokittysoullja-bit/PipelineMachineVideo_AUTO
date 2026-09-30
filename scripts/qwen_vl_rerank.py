@@ -33,6 +33,12 @@ import threading
 import qwen_vl_embed
 
 MODEL_NAME = os.environ.get("QWEN_RERANK_MODEL", "Qwen/Qwen3-VL-Reranker-2B").strip()
+# Закреплённые ревизии (аудит 30.09): калибровка порогов (assets/calibration,
+# 29.09) снята на этих коммитах — у обеих моделей последний был 16.04.2026.
+# Без закрепления новая ревизия на Hugging Face молча сменила бы числа под
+# старыми порогами. Другая модель через переменную окружения — без закрепления.
+PINNED_REVISIONS = {"Qwen/Qwen3-VL-Reranker-2B": "4bd860ac4f15ad1897a214615cccc700f8f71818"}
+REVISION = PINNED_REVISIONS.get(MODEL_NAME)
 SYSTEM_PROMPT = ('Judge whether the Document meets the requirements based on the Query and the '
                  'Instruct provided. Note that the answer can only be "yes" or "no".')
 DEFAULT_INSTRUCTION = "Given a search query, retrieve relevant candidates that answer the query."
@@ -59,7 +65,7 @@ def cache_dir():
 def prepare_image(im):
     """RGB и размер по сетке модели в пределах MIN..MAX_PIXELS — как
     fetch_image в qwen-vl-utils для официального реранкера."""
-    im = qwen_vl_embed._to_rgb(im)
+    im = qwen_vl_embed.within_ratio(qwen_vl_embed._to_rgb(im))
     w, h = im.size
     rh, rw = qwen_vl_embed.smart_resize(h, w, min_pixels=MIN_PIXELS, max_pixels_=MAX_PIXELS)
     return im.resize((rw, rh))
@@ -89,9 +95,10 @@ def _load():
         if ml_device.device() != "cuda":
             raise RuntimeError(f"нужна видеокарта CUDA, устройство моделей: {ml_device.device()}")
         dev = ml_device.device_for("rerank")
+        ml_device.require_bf16(torch, dev)
         lm = Qwen3VLForConditionalGeneration.from_pretrained(
-            MODEL_NAME, torch_dtype=torch.bfloat16, attn_implementation="sdpa")
-        processor = AutoProcessor.from_pretrained(MODEL_NAME, padding_side="left")
+            MODEL_NAME, revision=REVISION, torch_dtype=torch.bfloat16, attn_implementation="sdpa")
+        processor = AutoProcessor.from_pretrained(MODEL_NAME, revision=REVISION, padding_side="left")
         vocab = processor.tokenizer.get_vocab()
         w = lm.lm_head.weight.data
         linear = torch.nn.Linear(w.shape[1], 1, bias=False)

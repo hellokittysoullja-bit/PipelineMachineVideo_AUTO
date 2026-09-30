@@ -788,7 +788,10 @@ def main(argv=None):
                         "(L40, A40, A6000) — 46068, у RTX 6000 Ada — 49140; модели без WeMM (судья "
                         "выключен) занимают около 20 ГиБ и на 46068 помещаются, порог 47000 нужен "
                         "только связке с WeMM (~44 ГиБ)")
-    p.add_argument("--cloud", default="COMMUNITY", choices=("COMMUNITY", "SECURE", "ALL"))
+    # Только эти два: REST Runpod при создании пода принимает cloudType
+    # SECURE или COMMUNITY (живой запуск 30.09: «ALL» — HTTP 400 на каждую карту,
+    # 15 минут повторов вместо аренды).
+    p.add_argument("--cloud", default="COMMUNITY", choices=("COMMUNITY", "SECURE"))
     p.add_argument("--image", default=None, help=f"образ (по умолчанию {DEFAULT_IMAGE}; "
                                                 f"для --smoke — {SMOKE_IMAGE})")
     p.add_argument("--disk-gb", type=int, default=80)
@@ -1064,6 +1067,7 @@ def drive(key, pod, token, cap_sec, uploads, cmd, fetches, dest, prepare=None, p
     # Оба сигнала: под `setsid nohup ... &` SIGINT по умолчанию игнорируется, и
     # Ctrl-C/kill -INT не останавливал скрипт, а под продолжал тарифицироваться
     # (29.09 пришлось удалять вручную). Явный обработчик перекрывает SIG_IGN.
+    prev_handlers = (signal.getsignal(signal.SIGINT), signal.getsignal(signal.SIGTERM))
     signal.signal(signal.SIGTERM, _sigint)
     signal.signal(signal.SIGINT, _sigint)
     try:
@@ -1114,6 +1118,12 @@ def drive(key, pod, token, cap_sec, uploads, cmd, fetches, dest, prepare=None, p
         sec = time.time() - t0
         pod["spent_usd"] = sec / 3600 * float(pod['costPerHr'])
         print(f"Под жил {sec / 60:.1f} мин ≈ ${pod['spent_usd']:.2f}")
+        # Под удалён — прежние обработчики обратно. Иначе после проверки пути
+        # (она тоже идёт через drive) скрипт игнорировал Ctrl-C и kill до
+        # конца: живой запуск 30.09 висел в ожидании карт, остановить его
+        # можно было только SIGKILL.
+        signal.signal(signal.SIGINT, prev_handlers[0])
+        signal.signal(signal.SIGTERM, prev_handlers[1])
     return code
 
 

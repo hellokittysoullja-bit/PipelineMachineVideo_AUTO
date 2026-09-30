@@ -43,7 +43,7 @@ def models(wemm=True):
     import qwen_vl_embed
     import qwen_vl_rerank
     import wemm_embed
-    out = [(qwen_vl_embed.MODEL_NAME, None), (qwen_vl_rerank.MODEL_NAME, None)]
+    out = [(qwen_vl_embed.MODEL_NAME, qwen_vl_embed.REVISION), (qwen_vl_rerank.MODEL_NAME, qwen_vl_rerank.REVISION)]
     if wemm:
         out.append((wemm_embed.MODEL_NAME, wemm_embed.REVISION))
     return out

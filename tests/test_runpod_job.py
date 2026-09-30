@@ -826,3 +826,24 @@ def test_cache_that_does_not_fit_on_disk_is_not_extracted(tmp_path, monkeypatch,
     assert got == 1 and not (tmp_path / "big").exists() and (tmp_path / "small" / "x").exists()
     assert "не распакован" in capsys.readouterr().out
     assert free > 0
+
+
+def test_drive_gives_the_signal_handlers_back(monkeypatch):
+    """Живой запуск 30.09: после проверки пути (тот же drive) скрипт игнорировал
+    Ctrl-C и kill, пока ждал карту, — остановить можно было только SIGKILL."""
+    import signal as sg
+    monkeypatch.setattr(rj, "terminate", lambda key, pid: True)
+
+    def not_ready(self, *a, **k):
+        return False
+    monkeypatch.setattr(rj.Runner, "wait_ready", not_ready)
+    before = (sg.getsignal(sg.SIGINT), sg.getsignal(sg.SIGTERM))
+    with pytest.raises(SystemExit):
+        rj.drive("k", {"id": "p", "costPerHr": 0.3}, TOKEN, 600, [], "true", [], ".")
+    assert (sg.getsignal(sg.SIGINT), sg.getsignal(sg.SIGTERM)) == before
+
+
+def test_cloud_all_is_not_offered():
+    """REST Runpod при создании пода принимает только SECURE и COMMUNITY."""
+    with pytest.raises(SystemExit):
+        rj.main(["--cloud", "ALL", "--cmd", "x"])

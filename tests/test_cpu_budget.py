@@ -138,9 +138,11 @@ def test_parallax_ffmpeg_threads_only_when_restricted(monkeypatch):
 
 
 def test_worker_ffmpeg_commands_limit_filter_threads():
-    """Три места команд воркера ставят потоки кодека И фильтров, а не один -threads."""
+    """Четыре места команд воркера ставят потоки кодека И фильтров, а не один
+    -threads: три процессорных и кодер пути видеокарты (аудит 30.09 — x264 на
+    карте без NVENC видел все ядра хозяина)."""
     src = open(os.path.join(REPO, "scripts", "pipeline_smart.py"), encoding="utf-8").read()
-    assert src.count("cpu_budget.ffmpeg_thread_args(ffmpeg_threads)") == 3
+    assert src.count("cpu_budget.ffmpeg_thread_args(ffmpeg_threads)") == 4
     assert '["-threads", str(ffmpeg_threads)]' not in src
 
 

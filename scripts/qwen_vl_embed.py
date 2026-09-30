@@ -37,6 +37,12 @@ import threading
 import unicodedata
 
 MODEL_NAME = os.environ.get("QWEN_EMBED_MODEL", "Qwen/Qwen3-VL-Embedding-8B").strip()
+# Закреплённые ревизии (аудит 30.09): калибровка порогов (assets/calibration,
+# 29.09) снята на этих коммитах — у обеих моделей последний был 16.04.2026.
+# Без закрепления новая ревизия на Hugging Face молча сменила бы числа под
+# старыми порогами. Другая модель через переменную окружения — без закрепления.
+PINNED_REVISIONS = {"Qwen/Qwen3-VL-Embedding-8B": "2c4565515e0f265c6511776e7193b22c0968ddc7"}
+REVISION = PINNED_REVISIONS.get(MODEL_NAME)
 FACTOR = 32                         # patch 16 x merge 2
 MIN_PIXELS = 4 * FACTOR * FACTOR
 DEFAULT_MAX_PIXELS = 256 * FACTOR * FACTOR
@@ -91,9 +97,27 @@ def _to_rgb(im):
     return im.convert("RGB")
 
 
+def within_ratio(im):
+    """Картинка, у которой длинная сторона больше короткой в MAX_RATIO раз
+    (полоса-превью, свиток из Commons), — обрезка по центру до MAX_RATIO.
+    smart_resize на ней бросал ValueError, и пачка целиком выключала модель
+    до конца прогона: рендер вставал на первом же таком кадре и повторял
+    остановку при перезапуске. Остальные картинки не меняются."""
+    w, h = im.size
+    if min(w, h) <= 0 or max(w, h) / min(w, h) <= MAX_RATIO:
+        return im
+    if w > h:
+        nw = h * MAX_RATIO
+        left = (w - nw) // 2
+        return im.crop((left, 0, left + nw, h))
+    nh = w * MAX_RATIO
+    top = (h - nh) // 2
+    return im.crop((0, top, w, top + nh))
+
+
 def prepare_image(im):
     """RGB и размер по сетке модели — как fetch_image в qwen-vl-utils."""
-    im = _to_rgb(im)
+    im = within_ratio(_to_rgb(im))
     w, h = im.size
     rh, rw = smart_resize(h, w)
     return im.resize((rw, rh))
@@ -162,13 +186,15 @@ def _load():
             # Без видеокарты 8B-модель грузилась на процессор в fp32 — ~32 ГБ
             # памяти и часы на эпизод (аудит 28.09) — лучше отказ до начала.
             raise RuntimeError(f"нужна видеокарта CUDA, устройство моделей: {dev}")
+        import ml_device as _mld
+        _mld.require_bf16(torch)
         dtype = torch.bfloat16
-        kwargs = {"torch_dtype": dtype}
+        kwargs = {"torch_dtype": dtype, "revision": REVISION}
         if dev == "cuda":
             kwargs["attn_implementation"] = "sdpa"
         model = embedding_model_class().from_pretrained(MODEL_NAME, **kwargs)
         model = model.to(dev).eval()
-        processor = AutoProcessor.from_pretrained(MODEL_NAME, padding_side="right")
+        processor = AutoProcessor.from_pretrained(MODEL_NAME, revision=REVISION, padding_side="right")
         _STATE.update(model=model, processor=processor, device=dev)
         return True
     except Exception as e:  # noqa: BLE001 — нет модели: решает vision_model.require_ready

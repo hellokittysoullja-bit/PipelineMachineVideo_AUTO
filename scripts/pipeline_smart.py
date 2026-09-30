@@ -11960,12 +11960,23 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
         # Ровно то число, что уходит в строку фильтра процессорного пути
         # (grain_blend_complex пишет его с 4 знаками).
         grain_op = float(f"{min(1.0, GRAIN_OPACITY * GRAIN_SOFTLIGHT_GAIN * grain_scale):.4f}")
-        enc = clip_codec_args() + ["-r", str(FPS)] + [tmp_out]
-        ok, why = gpu_render.render_kenburns(
-            photo, tmp_out, frames, z, x, y, (nw, nh, kb_cw, kb_ch, cx0, cy0), fl_str, enc,
-            fps=FPS, W=WIDTH, H=HEIGHT, grain_path=GRAIN_LOOP_PATH if GRAIN_ENABLED else None,
-            grain_opacity=grain_op,
-            reference_cmd=["ffmpeg", "-v", "error"] + graph_args(vf_base))
+        # Сессия NVENC на время кодирования — как у процессорного пути
+        # (clip_encoder_session): без неё процессы карты шли мимо лимита 8
+        # сессий GeForce, драйвер отказывал, и клип уходил в повтор.
+        with clip_encoder_session():
+            enc = clip_codec_args() + ["-r", str(FPS)]
+            # Кодер пути видеокарты — то же ограничение потоков, что у
+            # процессорного пути, в урезанном контейнере (A100/H100 без NVENC:
+            # x264 видел 96 ядер хозяина вместо выданных; та же авария, что на
+            # A40 30.09). На обычной машине команда прежняя.
+            if ffmpeg_threads and cpu_budget.restricted():
+                enc += cpu_budget.ffmpeg_thread_args(ffmpeg_threads)
+            enc += [tmp_out]
+            ok, why = gpu_render.render_kenburns(
+                photo, tmp_out, frames, z, x, y, (nw, nh, kb_cw, kb_ch, cx0, cy0), fl_str, enc,
+                fps=FPS, W=WIDTH, H=HEIGHT, grain_path=GRAIN_LOOP_PATH if GRAIN_ENABLED else None,
+                grain_opacity=grain_op,
+                reference_cmd=["ffmpeg", "-v", "error"] + graph_args(vf_base))
         if ok:
             ok, why, _ = verify_clip(tmp_out, dur)
         if ok:
@@ -18031,7 +18042,10 @@ def gpu_render_workers():
                       if k != wemm_embed.MODEL_NAME or cascade_model_needed()) + 5
     except Exception:  # noqa: BLE001
         reserve = 24
-    return int(max(1, min(8, (total - reserve) // 3)))
+    # Ноль — места под процесс рендера нет (24 ГБ: модели ~21.6 ГиБ с
+    # запасом): раньше max(1, ...) всё равно ставил один, и нехватка памяти
+    # карты отбирала её у моделей — повторы под замком или остановка прогона.
+    return int(max(0, min(8, (total - reserve) // 3)))
 
 
 class ClipRenderPools:
@@ -18890,11 +18904,15 @@ def main():
         # Карта — отдельным маленьким пулом (см. ClipRenderPools): в
         # процессорных воркерах её нет вовсе.
         _gw = gpu_render_workers()
-        render_pool = ClipRenderPools(render_pool, concurrent.futures.ProcessPoolExecutor(
-            max_workers=_gw, mp_context=_spawn_ctx,
-            initializer=_render_worker_init, initargs=(nvenc_gate, "gpu")))
-        print(f"  Рендер клипов наезда: видеокарта ({_gw} процесс(а)), остальное — процессор "
-              f"({RENDER_POOL_WORKERS})")
+        if _gw < 1:
+            print("  Рендер клипов наезда: процессор — на карте после моделей отбора нет места "
+                  "под процесс рендера (GPU_RENDER_WORKERS задаёт число явно)")
+        else:
+            render_pool = ClipRenderPools(render_pool, concurrent.futures.ProcessPoolExecutor(
+                max_workers=_gw, mp_context=_spawn_ctx,
+                initializer=_render_worker_init, initargs=(nvenc_gate, "gpu")))
+            print(f"  Рендер клипов наезда: видеокарта ({_gw} процесс(а)), остальное — процессор "
+                  f"({RENDER_POOL_WORKERS})")
     # Параллакс-кадры рисуются покадрово в этом процессе (depth-модель живёт
     # здесь) — раньше прямо в цикле отбора, и следующий слот ждал рендера.
     # Теперь в одном фоновом потоке, по порядку, как и прежде; рядом с пулом

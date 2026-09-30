@@ -118,6 +118,27 @@ OOM_RETRY_PAUSES_SEC = (0, 2, 5, 10)
 RELIEVE_FREE_GIB = 6.0
 
 
+def cuda_index(torch, dev=None):
+    """Номер карты из строки устройства. «cuda» без номера — текущая карта:
+    раньше int("cuda") падал внутри try, и после главной модели (её
+    устройство записано как «cuda») видеопамять не возвращалась никогда."""
+    tail = str(dev or "").rpartition(":")[2]
+    if tail.isdigit():
+        return int(tail)
+    return torch.cuda.current_device()
+
+
+def require_bf16(torch, dev=None):
+    """Модели зрения считаются в bf16, и пороги откалиброваны в bf16. Карта
+    без аппаратного bf16 (Turing, V100, P40: вычислительная способность ниже
+    8.0) прошла бы проверку памяти и считала бы медленно или с другими
+    числами, чем при калибровке, — отказ до начала работы."""
+    cap = torch.cuda.get_device_capability(cuda_index(torch, dev))
+    if tuple(cap) < (8, 0):
+        raise RuntimeError(f"карта без аппаратного bf16 (вычислительная способность "
+                           f"{cap[0]}.{cap[1]}, нужна 8.0+: Ampere и новее)")
+
+
 def _relieve(torch, dev=None):
     """Мало свободной видеопамяти — вернуть карте кэш аллокатора. Модели
     отбора держат десятки ГиБ кэша; рендер клипа на той же карте (отдельный
@@ -125,7 +146,7 @@ def _relieve(torch, dev=None):
     38.5 ГиБ у процесса отбора, свободно 140 МиБ). Проверка дешёвая, очистка
     — только при нехватке."""
     try:
-        idx = int(str(dev or "cuda:0").split(":")[-1]) if dev else 0
+        idx = cuda_index(torch, dev)
         free, _total = torch.cuda.mem_get_info(idx)
         if free / 2 ** 30 < RELIEVE_FREE_GIB:
             torch.cuda.empty_cache()
