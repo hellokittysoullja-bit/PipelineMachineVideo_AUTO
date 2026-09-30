@@ -210,29 +210,14 @@ def test_generation_round_with_no_picture_is_none(monkeypatch, tmp_path):
     assert ps.GENERATION_LOG[-1]["variants"] == [] and len(ps.GENERATION_LOG[-1]["errors"]) == sg.VARIANTS
 
 
-def test_generation_comes_first_photos_are_only_a_fallback():
-    """Решение владельца 30.09: после первого прохода — сразу генерация.
-    Замена без главного получает ТОЛЬКО генерацию (фото больше не
-    перебираются); при полном провале вторая страница каскада и второй круг
-    поиска — запасные, после генерации."""
+def test_no_frame_goes_straight_to_generation_weak_frame_searches_first():
+    """Решение владельца 27.09: кадра нет совсем — сразу генерация (секунды),
+    второй круг поиска (минуты) — запасным; есть замена без главного —
+    сначала второй круг: настоящий кадр ценнее рисунка."""
     ps = _ps()
-    assert ps.ladder_steps("failed") == ("generation", "page2", "research")
-    assert ps.ladder_steps("weak") == ("generation",)
+    assert ps.ladder_steps("failed") == ("generation", "research")
+    assert ps.ladder_steps("weak") == ("research", "generation")
     assert ps.ladder_steps(None) == ()
-
-
-def test_photo_fallback_steps_stop_once_generation_gave_a_frame():
-    """Вторая страница и второй круг идут, только если после генерации кадра
-    нет совсем: повод пересчитывается перед каждой ступенью."""
-    ps = _ps()
-    src = inspect.getsource(ps.main)
-    body = src[src.index("for step in ladder:"):]
-    body = body[:body.index("# Раньше Pexels отключался")]
-    assert 'if step in ("page2", "research") and trigger != "failed":' in body
-    assert body.index('if step in ("page2", "research")') < body.index('if step == "page2":')
-    # Вторая страница больше не идёт ДО генерации.
-    head = src[:src.index("for step in ladder:")]
-    assert "with cascade_page(1)" not in head[head.index("slot_other_kind"):]
 
 
 def test_both_last_steps_take_over_by_the_same_rule():
