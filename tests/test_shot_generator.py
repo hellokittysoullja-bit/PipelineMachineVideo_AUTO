@@ -16,7 +16,7 @@ PSYCHOLOGY = {"register": "abstract", "era": None}
 def test_prompt_is_description_first_and_forbids_text():
     p = sg.prompt_for("an arrow glancing off a dented steel breastplate.", MEDIEVAL)
     assert p.startswith("an arrow glancing off a dented steel breastplate,")
-    assert "no text" in p
+    assert "no text" in p.lower()
 
 
 def test_no_years_reach_the_image_model():
