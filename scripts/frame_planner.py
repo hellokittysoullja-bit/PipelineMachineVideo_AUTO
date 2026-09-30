@@ -35,7 +35,7 @@ import script_parser  # noqa: E402
 
 PLAN_NAME = "frame_plan.json"
 CACHE_DIR_NAME = "frame_plan_cache"
-PLAN_VERSION = 3
+PLAN_VERSION = 4
 # Модель выбрана замером старого генератора 24.09 (58 фраз трёх ниш):
 # DeepSeek v4 Flash — 58/58, ~2 тыс. токенов баланса; Gemini 3.7 Flash по
 # смыслу наравне, но ~35 тыс.; Qwen 3.8 Max — 46/58.
@@ -136,7 +136,7 @@ FRAME_RULES = """frame — how to DRAW this shot for a hand-drawn explainer vide
           "diagram" — a hand-drawn diagram (pyramid, arrows, before/after, a list on a board, a comparison, a timeline, footprints) with 2-6 short Russian labels; use it when the line explains a structure, a comparison, a list or a cause.
   Mix kinds across the chapter: roughly 45% scene, 25% caption, 30% diagram; never three identical kinds in a row.
   "labels": Russian, UPPERCASE, max {max_words} words each, taken from or clearly implied by the line, correct spelling, no English; empty for "scene".
-  "picture": English, 15-45 words; start with the core, then the action, then the place; for diagrams say where each label goes by its number (label 1, label 2). Do not describe the drawing style.
+  "picture": English, 15-45 words; start with the core, then the action, then the place. The image model draws NO text at all — the labels are added later by code — so never ask for words, letters or numbers in the picture; for a diagram say where the empty space for each label is and where its arrow points (empty space for label 1 to the right of the top tier, an arrow from it to the top tier). Do not describe the drawing style.
   "mascot": true only when the line is about "you", a child, a typical person or an emotional reaction and the channel's recurring character fits: {mascot}.
   "backdrop": "white" for diagrams, "paper" for calm explanations, "painted" for scenes set in a place (cave, field, sea shore, village)."""
 

@@ -20,7 +20,7 @@ class FakeBackend:
         from PIL import Image
         self.calls += 1
         b = io.BytesIO()
-        Image.new("RGB", (64, 40), ((self.calls * 37) % 255, 0, 0)).save(b, "PNG")
+        Image.new("RGB", (640, 360), (250, 250, 245 - self.calls)).save(b, "PNG")
         return b.getvalue(), 0
 
 
@@ -58,33 +58,37 @@ def test_exact_letters_required():
     assert g.text_score([], "NONE")[0] == 1.0 and g.text_score([], "СЛОВО")[0] == 0.0
 
 
-def test_prompt_puts_subject_first_and_style_last():
+def test_prompt_never_asks_the_model_for_letters():
     prof = channel.load_profile()
     p = g.build_prompt(dict(FRAME, mascot=True), prof)
     assert p.startswith(FRAME["picture"]) and p.rstrip(".").endswith(prof["style"]["base"].rstrip("."))
-    assert '"ЖИВ. ПОЛНОСТЬЮ."' in p and prof["mascot"]["description"] in p
-    assert "No text" in g.build_prompt(dict(FRAME, kind="scene", labels=[]), prof)
+    assert "ЖИВ" not in p and "No text" in p and "bottom fifth" in p
+    assert prof["mascot"]["description"] in p
+    d = g.build_prompt(dict(FRAME, kind="diagram", labels=["А", "Б"]), prof)
+    assert "2 clear empty spaces" in d and "arrows" in d and "А" not in d.split("Picture")[0]
 
 
-def test_variant_with_right_letters_wins(tmp_path):
-    rec = gen(tmp_path, FakeJudge(["ЖИВ ПОЛНОСТЮ", "ЖИВ. ПОЛНОСТЬЮ."])).frame(FRAME)
+def test_variant_with_model_letters_loses_and_caption_is_drawn_by_code(tmp_path):
+    # первый вариант с псевдонадписью модели — брак; второй чистый, подпись кладёт код
+    rec = gen(tmp_path, FakeJudge(["ЖИВ ПОЛНОСТЮ", "NONE"])).frame(FRAME)
     assert rec["status"] == "ok"
-    good = [k for k, v in rec["candidates"].items() if v["text_ok"]]
-    assert rec["chosen"] in good and (tmp_path / "frames" / "001.png").exists()
+    clean = [k for k, v in rec["candidates"].items() if v["text_ok"]]
+    assert rec["chosen"] in clean and (tmp_path / "frames" / "001.png").exists()
+    assert rec["labels_placed"][0]["text"] == "ЖИВ. ПОЛНОСТЬЮ." and rec["labels_placed"][0]["font"].startswith("Shantell")
 
 
-def test_all_rounds_wrong_letters_is_rejected_not_shown(tmp_path):
+def test_all_rounds_with_model_letters_is_rejected_not_shown(tmp_path):
     rec = gen(tmp_path, FakeJudge(["ЖИФ"] * 4)).frame(FRAME)
     assert rec["status"] == "rejected" and len(rec["candidates"]) == 4
 
 
 def test_grid_zero_is_rejected(tmp_path):
-    rec = gen(tmp_path, FakeJudge(["ЖИВ. ПОЛНОСТЬЮ."] * 4, grid=0)).frame(FRAME)
+    rec = gen(tmp_path, FakeJudge(["NONE"] * 4, grid=0)).frame(FRAME)
     assert rec["status"] == "rejected"
 
 
 def test_second_round_only_when_first_failed(tmp_path):
-    g1 = gen(tmp_path, FakeJudge(["ЖИВ. ПОЛНОСТЬЮ."] * 2))
+    g1 = gen(tmp_path, FakeJudge(["NONE"] * 2))
     g1.frame(FRAME)
     assert g1.backend.calls == 2
 
@@ -95,7 +99,7 @@ def test_no_judge_takes_variant_unchecked(tmp_path):
 
 
 def test_rerun_reuses_cache_without_drawing(tmp_path):
-    gen(tmp_path, FakeJudge(["ЖИВ. ПОЛНОСТЬЮ."] * 2)).frame(FRAME)
+    gen(tmp_path, FakeJudge(["NONE"] * 2)).frame(FRAME)
     g2 = gen(tmp_path, FakeJudge([]))      # чтение и судья из кэша
     rec = g2.frame(FRAME)
     assert rec["status"] == "ok" and g2.backend.calls == 0

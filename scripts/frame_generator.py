@@ -4,10 +4,11 @@
 КАК ВЫБИРАЕТСЯ КАДР — связка старого генератора, не новая:
   1. На кадр рисуется IMAGE_VARIANTS вариантов (локальная модель бесплатна,
      поэтому по умолчанию 3; судья сравнивает их на одной сетке).
-  2. Подписи: модель со зрением читает текст на каждом варианте, код сверяет
-     буквы ТОЧНО (без пунктуации и пробелов, Ё=Е). Похожесть не
-     засчитывается: «ПОЛНОСТЮ» вместо «ПОЛНОСТЬЮ» — брак. Сцена проверяется
-     на обратное: букв быть не должно.
+  2. Текст: нейросеть букв НЕ пишет никогда. Модель со зрением читает каждый
+     вариант — на сыром кадре не должно быть ни одной буквы (псевдонадписи
+     модели — брак). Русские подписи кладёт код (labels.py): Shantell Sans
+     ExtraBold, запасной Balsamiq Sans, без обводки; место — пустая нижняя
+     полоса или рамка от модели со зрением, пустота проверяется по пикселям.
   3. Сетка судьи (shot_judge.judge): все варианты одной картинкой, оценка
      0-3 по фразе и описанию кадра, мир эпизода одной строкой.
   4. Проверка по утверждениям (shot_judge.verify_claims) лучших по сетке:
@@ -51,6 +52,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import channel  # noqa: E402
+import labels  # noqa: E402
 
 GEN_VERSION = 2
 TEXT_MATCH_MIN = 1.0        # только точное совпадение букв (см. докстринг, п.2)
@@ -70,16 +72,18 @@ def build_prompt(frame, profile):
     parts = [frame["picture"]]
     if frame.get("mascot"):
         parts.append("The main character: " + profile["mascot"]["description"])
-    labels = frame.get("labels") or []
-    if labels:
-        quoted = "; ".join(f'label {i}: "{lab}"' for i, lab in enumerate(labels, 1))
-        parts.append(f"Russian text in the image, {st['lettering']}, spelled exactly as given, "
-                     f"Cyrillic letters: {quoted}. No other text, letters or numbers anywhere")
-    else:
-        parts.append("No text, no letters, no numbers, no signs anywhere in the image")
+    # Буквы нейросеть не пишет никогда: русские подписи кладёт код (labels.py).
+    labs = frame.get("labels") or []
+    if frame.get("kind") == "caption" and labs:
+        parts.append("Leave the bottom fifth of the image completely empty, plain background only, "
+                     "for a caption that will be added later")
+    elif labs:
+        parts.append(f"Leave {len(labs)} clear empty spaces of plain background for short text labels, "
+                     f"with hand-drawn red arrows pointing from each empty space to the part it describes")
+    parts.append("No text, no letters, no numbers, no signs, no captions anywhere in the image")
     # Камера наезжает на кадр до ~10% и вписывает его в 16:9 — подпись у самого
     # края срезалась бы; просьба держать главное в центре дешевле, чем кроп.
-    parts.append("Keep all text and the main subject well inside the frame, away from the edges")
+    parts.append("Keep the main subject well inside the frame, away from the edges")
     parts.append(st["backdrops"].get(frame["backdrop"], st["backdrops"]["paper"]))
     parts.append(st["base"])
     return ". ".join(p.rstrip(". ") for p in parts) + "."
@@ -278,7 +282,7 @@ class Generator:
             return info
         for p in cands:
             try:
-                ok, det = text_score(frame.get("labels") or [], self._read(p))
+                ok, det = text_score([], self._read(p))     # на сыром кадре букв быть не должно
                 info[p].update(text_ok=ok >= TEXT_MATCH_MIN, text=det)
             except Exception as e:  # noqa: BLE001 — не прочли: текст не проверен
                 info[p]["text_error"] = f"{type(e).__name__}: {e}"[:200]
@@ -331,32 +335,34 @@ class Generator:
             rec["status"] = "failed"
             return rec
         if not self.jgw:
-            best = sorted(pool)[0]
-            status = "unchecked"
+            ranked, status = sorted(pool), "unchecked"
         else:
             good = [p for p, i in pool.items() if self._acceptable(i)]
-            if good:
-                top = max(pool[p]["vector"] for p in good)
-                tied = [p for p in good if pool[p]["vector"] == top]
-                tied.sort(key=lambda p: pool[p]["grid"] or 0, reverse=True)
-                tied = [p for p in tied if (pool[p]["grid"] or 0) == (pool[tied[0]]["grid"] or 0)]
-                best = tied[0]
-                if len(tied) > 1:
-                    order, _ = shot_judge.rank_look(self.jgw, self.jmodel, paths=tied,
+            ranked = sorted(good, key=lambda p: (pool[p]["vector"], pool[p]["grid"] or 0), reverse=True)
+            if len(ranked) > 1:
+                top = [p for p in ranked if (pool[p]["vector"], pool[p]["grid"]) == (pool[ranked[0]]["vector"], pool[ranked[0]]["grid"])]
+                if len(top) > 1:
+                    order, _ = shot_judge.rank_look(self.jgw, self.jmodel, paths=top,
                                                     cache_dir=self.judge_cache, style=self.look_style)
                     if order:
-                        best = tied[order[0]]
-                status = "ok"
-            else:
-                best = max(pool, key=lambda p: (pool[p]["text_ok"] is not False, pool[p]["grid"] or 0))
-                status = "rejected" if any(pool[p]["text_ok"] is not None or pool[p]["grid"] is not None
-                                           for p in pool) else "unchecked"
+                        ranked = [top[k] for k in order] + [p for p in ranked if p not in top]
+            status = "ok"
         out = os.path.join(self.out_dir, f"{frame['index'] + 1:03d}.png")
-        with open(best, "rb") as src, open(out + ".tmp", "wb") as dst:
-            dst.write(src.read())
-        os.replace(out + ".tmp", out)
-        rec.update(status=status, path=os.path.relpath(out, self.video_dir), chosen=os.path.basename(best),
-                   candidates={os.path.basename(p): i for p, i in pool.items()})
+        rec["candidates"] = {os.path.basename(p): i for p, i in pool.items()}
+        if not ranked:
+            rec["status"] = "rejected"
+            rec["reason"] = "ни один вариант не прошёл проверку"
+            return rec
+        # Подписи — кодом, на лучший вариант; не легли — на следующий годный.
+        tries = []
+        for p in ranked:
+            ok, info = labels.compose(p, out, frame, self.jgw, self.jmodel, self.judge_cache)
+            tries.append({"variant": os.path.basename(p), "ok": ok, "info": info})
+            if ok:
+                rec.update(status=status, path=os.path.relpath(out, self.video_dir), chosen=os.path.basename(p),
+                           labels_placed=info, label_tries=tries)
+                return rec
+        rec.update(status="rejected", reason="подписи не легли ни на один годный вариант", label_tries=tries)
         return rec
 
 

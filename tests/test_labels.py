@@ -1,0 +1,74 @@
+import json
+
+import pytest
+from PIL import Image, ImageDraw
+
+import labels
+
+
+def blank(tmp_path, name="raw.png", size=(1920, 1080), color=(250, 250, 246)):
+    p = tmp_path / name
+    Image.new("RGB", size, color).save(p)
+    return str(p)
+
+
+def test_fonts_cover_russian_and_fallback_for_missing_glyphs():
+    assert labels.font_for("ЁЛКИ-ПАЛКИ, 12:00!").endswith("ShantellSans-ExtraBold.ttf")
+    with pytest.raises(ValueError):
+        labels.font_for("☃")
+
+
+def test_fit_wraps_long_label_inside_box():
+    size, lines = labels.fit("ЕДА, БЕЗОПАСНОСТЬ, ПРИНАДЛЕЖНОСТЬ (ОЧЕНЬ МНОГО ЛЮДЕЙ!)", 520, 260, labels.FONT_PRIMARY)
+    assert len(lines) >= 2 and size >= 30
+
+
+def test_caption_goes_to_empty_bottom_band_without_outline(tmp_path):
+    ok, info = labels.compose(blank(tmp_path), str(tmp_path / "out.png"),
+                              {"kind": "caption", "labels": ["ЖИВ. ПОЛНОСТЬЮ."]})
+    assert ok and info[0]["color"] == "dark" and info[0]["size"] > 80
+    out = Image.open(tmp_path / "out.png").convert("RGB")
+    # нет обводки: в кадре только фон и цвет текста (плюс сглаживание между ними)
+    band = out.crop(info[0]["box"])
+    assert not any(px == (255, 255, 255) for px in band.getdata())
+
+
+def test_light_text_on_dark_background(tmp_path):
+    ok, info = labels.compose(blank(tmp_path, color=(40, 30, 20)), str(tmp_path / "o.png"),
+                              {"kind": "caption", "labels": ["ТЬМА"]})
+    assert ok and info[0]["color"] == "light"
+
+
+def test_busy_bottom_asks_the_vision_model_and_refuses_drawing_under_text(tmp_path):
+    raw = tmp_path / "busy.png"
+    im = Image.new("RGB", (1920, 1080), (250, 250, 246))
+    d = ImageDraw.Draw(im)
+    for x in range(0, 1920, 40):
+        d.line([(x, 850), (x + 30, 1070)], fill=(0, 0, 0), width=6)     # рисунок внизу
+    im.save(raw)
+
+    class VLM:
+        def __init__(self, box):
+            self.box = box
+
+        def chat(self, *a, **k):
+            return json.dumps({"boxes": {"1": self.box}}), {}, 0
+
+    ok, info = labels.compose(str(raw), str(tmp_path / "a.png"), {"kind": "caption", "labels": ["ЖИВ"]},
+                              VLM([100, 100, 600, 400]), "m")
+    assert ok and info[0]["box"][1] < 500                      # легла в пустое место сверху
+    ok, why = labels.compose(str(raw), str(tmp_path / "b.png"), {"kind": "caption", "labels": ["ЖИВ"]},
+                             VLM([0, 800, 1000, 1000]), "m")
+    assert not ok and "не пустое" in why                        # на рисунок — не ставим
+
+
+def test_no_vision_model_and_no_empty_place_is_an_honest_refusal(tmp_path):
+    ok, why = labels.compose(blank(tmp_path), str(tmp_path / "o.png"),
+                             {"kind": "diagram", "labels": ["А", "Б"]})
+    assert not ok and "нет модели" in why
+
+
+def test_parse_boxes_rejects_garbage():
+    assert labels.parse_boxes('{"boxes": {"1": [1, 2, 3]}}', 1) is None
+    assert labels.parse_boxes("нет json", 1) is None
+    assert labels.parse_boxes('{"boxes": {"1": [100, 100, 400, 300]}}', 1)[1] == (100, 100, 400, 300)
