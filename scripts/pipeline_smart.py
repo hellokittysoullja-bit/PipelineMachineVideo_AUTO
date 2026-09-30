@@ -6848,14 +6848,23 @@ def _generation_gateway():
 
 
 def ladder_steps(trigger):
-    """Порядок двух последних ступеней слота. Кадра нет совсем — сразу
-    генерация (секунды), второй круг поиска (минуты) — запасным. Есть
-    замена без главного — сначала второй круг: настоящий кадр ценнее
-    рисунка. Нет повода — ступеней нет."""
+    """Порядок последних ступеней слота (решение владельца 30.09: «не гонять
+    слот по фото, а сразу генерировать»). Первый проход уже просмотрел кучу
+    фото и видео судьёй; повторный просмотр фото (вторая страница каскада,
+    второй круг поиска) стоит минуты и на трудных фразах почти ничего не
+    даёт — живой прогон эп.99, слот 0: ~45 мин на слот, из них вторая
+    страница и второй круг ничего не нашли, кадр дала генерация.
+      * кадра нет совсем ("failed") — СРАЗУ генерация; вторая страница и
+        второй круг поиска остаются запасными, только если генерация годного
+        кадра не дала (trigger пересчитывается перед каждой ступенью);
+      * есть замена без главного ("weak") — только генерация: лучше замены
+        она встанет по research_takes_over, иначе остаётся замена, и слот
+        больше фото не перебирает.
+    Нет повода — ступеней нет."""
     if trigger == "failed":
-        return ("generation", "research")
+        return ("generation", "page2", "research")
     if trigger == "weak":
-        return ("research", "generation")
+        return ("generation",)
     return ()
 
 
@@ -17931,29 +17940,13 @@ def main():
                           f"{other_score if other_score is not None else '—'} -> {kind}")
                     if kind == other_kind:
                         photo, video = (other, None) if other_kind == "photo" else (None, other)
-            # Вторая страница каскада (см. CASCADE_PAGE): кадра нет или он
-            # известен как брак — фото ищется среди следующих кандидатов.
-            cur_att = attempt_of(slot_attempts, photo or video)
-            if (shot_judge_active(i) and not locked_shot
-                    and (cur_att is None or known_bad_reason(cur_att.verdicts))):
-                with cascade_page(1), stage_timer.stage("slot_page2", clip_idx=i):
-                    page2 = fetch_in_attempt(slot_attempts, i, "photo", select_media, request, "photo")
-                page2_att = attempt_of(slot_attempts, page2)
-                if page2 and page2_att is not None and not known_bad_reason(page2_att.verdicts):
-                    print(f"    [{i+1}] кадр найден на второй странице каскада")
-                    photo, video = page2, None
-            # ВТОРОЙ КРУГ ПОИСКА (shot_research) И ГЕНЕРАЦИЯ КАДРА
-            # (shot_generator) — две последние ступени, и их порядок зависит
-            # от того, что не так со слотом (решение владельца 27.09):
-            #   * кадра нет совсем ("failed") — СРАЗУ генерация: второй круг
-            #     стоит новую кучу с судьёй (минуты), генерация — секунды и
-            #     те же проверки; второй круг остаётся запасным, если
-            #     генерация годного кадра не дала;
-            #   * есть замена без главного ("weak") — сначала второй круг:
-            #     настоящий кадр ценнее рисунка, генерация — если и он не
-            #     помог.
-            # Правило у обеих ступеней одно (research_takes_over): брак —
-            # никогда, замену вытесняет только строго лучший по проверке.
+            # ПОСЛЕДНИЕ СТУПЕНИ СЛОТА — порядок в ladder_steps (решение
+            # владельца 30.09): провал или замена -> сразу генерация
+            # (shot_generator); вторая страница каскада и второй круг поиска
+            # (shot_research) — только запасные при провале, если генерация
+            # годного кадра не дала. Правило у всех ступеней одно
+            # (research_takes_over): брак — никогда, замену вытесняет только
+            # строго лучший по проверке.
             cur_att = attempt_of(slot_attempts, photo or video)
             trigger = (research_trigger(cur_att) if shot_judge_active(i) and not locked_shot
                        else None)
@@ -17963,6 +17956,22 @@ def main():
                 trigger = research_trigger(cur_att)
                 if not trigger:
                     break
+                if step in ("page2", "research") and trigger != "failed":
+                    # Генерация дала хотя бы замену — фото больше не
+                    # перебираются (решение владельца 30.09).
+                    break
+                if step == "page2":
+                    # Вторая страница каскада (см. CASCADE_PAGE): генерация
+                    # годного не дала — фото ищется среди следующих кандидатов
+                    # той же кучи (кэш эмбеддингов уже прогрет, сеть почти не
+                    # нужна).
+                    with cascade_page(1), stage_timer.stage("slot_page2", clip_idx=i):
+                        page2 = fetch_in_attempt(slot_attempts, i, "photo", select_media, request, "photo")
+                    page2_att = attempt_of(slot_attempts, page2)
+                    if page2 and page2_att is not None and not known_bad_reason(page2_att.verdicts):
+                        print(f"    [{i+1}] кадр найден на второй странице каскада")
+                        photo, video = page2, None
+                    continue
                 if step == "research":
                     with stage_timer.stage("slot_research", clip_idx=i, trigger=trigger):
                         req2 = research_round_request(i, b, request, trigger)
