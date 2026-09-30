@@ -12867,6 +12867,19 @@ def vision_models_needed():
     return embed, rerank
 
 
+def cascade_model_needed():
+    """WeMM-9B (CASCADE_MODEL=wemm9b) нужна прогону только если каскад будет
+    вызван, а cascade_reorder зовётся исключительно под shot_judge_active():
+    в слотах платной зоны при работающем судье (в самом слоте, в упреждающем
+    поиске и в видео-ветке). Без судьи (SHOT_JUDGE=0 или нет ключа шлюза) её
+    17.6 ГиБ на карте не считают ничего, а прогон 29.09 (RTX 6000 Ada, судья
+    выключен) держал их: 38.5 ГиБ у процесса отбора, отказ NVENC, OOM у
+    рендера клипа и падение декодера склейки. Выбор кадров не меняется: модель,
+    которую не зовут, ничего не выбирает. Позовут — загрузится лениво тем же
+    wemm_embed.available()."""
+    return cascade_model() == "wemm9b" and shot_judge_active()
+
+
 def model_warmup_jobs():
     """Какие модели этот прогон всё равно загрузит — в том порядке, в каком
     их позовёт первый слот. Решают те же флаги, что и сами вызовы; модель,
@@ -12879,7 +12892,7 @@ def model_warmup_jobs():
     if need_rerank:
         import qwen_vl_rerank
         jobs.append(("Qwen3-VL-Reranker", qwen_vl_rerank.available))
-    if need_embed and cascade_model() == "wemm9b":
+    if need_embed and cascade_model_needed():
         import wemm_embed
         jobs.append(("WeMM-Embedding-9B", wemm_embed.available))
     if AESTHETIC_ENABLED:
@@ -18018,7 +18031,7 @@ def gpu_render_workers():
         # WeMM в таблице лежит всегда, но занимает память лишь при
         # CASCADE_MODEL=wemm9b.
         reserve = sum(v for k, v in vision_model.WEIGHTS_GIB.items()
-                      if k != wemm_embed.MODEL_NAME or wemm_embed.selected()) + 5
+                      if k != wemm_embed.MODEL_NAME or cascade_model_needed()) + 5
     except Exception:  # noqa: BLE001
         reserve = 24
     return int(max(1, min(8, (total - reserve) // 3)))
@@ -18541,7 +18554,7 @@ def main():
     if not PLAN_ONLY:
         need_embed, need_rerank = vision_models_needed()
         if need_embed or need_rerank:
-            vision_model.require_ready(need_embed, need_rerank)
+            vision_model.require_ready(need_embed, need_rerank, wemm=cascade_model_needed())
             vision_model.mark_required(need_embed, need_rerank)
         else:
             print("  Модели зрения не используются (CLIP_RELEVANCE=0, SMART_RELEVANCE_VETO=0): "
@@ -20666,6 +20679,20 @@ def main():
     def _stop_audio():
         audio_pool.shutdown(wait=True)
 
+    # Отбор и рендер клипов закончены, отчёты, читающие состояние моделей,
+    # записаны: веса моделей отбора склейке не нужны, а её декодерам карты
+    # нужна память (прогон 29.09: декодер не завёлся при 38.5 ГиБ у отбора).
+    try:
+        # Имя не vision_model: import внутри main() делает его локальным для
+        # ВСЕЙ функции, и раньшая строка vision_model.lost() падала бы
+        # UnboundLocalError (поймано полным набором тестов, не узкими).
+        import vision_model as _vision_release
+        _rel = _vision_release.release_selection_models()
+        if _rel["освобождено"]:
+            print(f"  Модели отбора выгружены перед склейкой ({', '.join(_rel['освобождено'])}); "
+                  f"свободно на карте {_rel['свободно_до']} -> {_rel['свободно_после']} ГиБ")
+    except Exception as _e:  # noqa: BLE001 — освобождение необязательно
+        print(f"  Выгрузка моделей перед склейкой пропущена: {type(_e).__name__}: {_e}")
     merged = os.path.join(TEMP_FOLDER, "merged.mp4")
     with stage_timer.stage("assembly_xfade", n_clips=len(clips)):
         ok, xfade_total = xfade_chain_chunked(clips, clip_durs, clip_sections, merged, TEMP_FOLDER,

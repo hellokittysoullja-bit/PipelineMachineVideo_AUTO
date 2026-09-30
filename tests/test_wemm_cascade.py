@@ -197,10 +197,16 @@ def test_render_workers_reserve_ignores_wemm_when_not_selected(monkeypatch):
     monkeypatch.setattr(torch.cuda, "get_device_properties", lambda i: P)
     monkeypatch.delenv("GPU_RENDER_WORKERS", raising=False)
     monkeypatch.setenv("CASCADE_MODEL", "")
+    monkeypatch.setenv("SHOT_JUDGE", "1")
+    monkeypatch.setenv("LLM_GATEWAY_API_KEY", "k")
     without = ps.gpu_render_workers()
     monkeypatch.setenv("CASCADE_MODEL", "wemm9b")
     with_wemm = ps.gpu_render_workers()
     assert without > with_wemm >= 1
+    # Судьи нет — каскад не вызывается, WeMM не грузится и память не занимает
+    # (прогон 29.09): резерв тот же, что без неё.
+    monkeypatch.setenv("SHOT_JUDGE", "0")
+    assert ps.gpu_render_workers() == without
 
 
 def test_ml_device_run_releases_allocator_cache_only_when_memory_is_low(monkeypatch):

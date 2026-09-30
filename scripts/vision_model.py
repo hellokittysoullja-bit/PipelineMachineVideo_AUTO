@@ -73,7 +73,24 @@ WEMM_HEADROOM_GIB = 5.0
 # Сверх весов: пачка каскада (64 превью через 8B), CLIP эстетики, модель
 # глубины, контекст CUDA. Оценка, а не замер (видеокарты в среде, где это
 # писалось, нет) — с запасом, чтобы отказ был здесь, а не посреди слота.
-HEADROOM_GIB = float(os.environ.get("VISION_HEADROOM_GIB") or 2.5)
+def _headroom_from_env(default=2.5):
+    """VISION_HEADROOM_GIB: конечное число ≥ 0; иначе — по умолчанию с
+    предупреждением (float('2,0') с русской запятой раньше ронял импорт
+    pipeline_smart, а nan молча отключал проверку памяти)."""
+    raw = (os.environ.get("VISION_HEADROOM_GIB") or "").strip()
+    if not raw:
+        return default
+    try:
+        v = float(raw.replace(",", "."))
+    except ValueError:
+        v = float("nan")
+    if not (v == v and 0 <= v < float("inf")):
+        print(f"  VISION_HEADROOM_GIB={raw!r} не число ≥ 0 — беру {default}")
+        return default
+    return v
+
+
+HEADROOM_GIB = _headroom_from_env()
 # Реранкер на второй карте (ml_device.device_for): только его активации на
 # одну пару и контекст CUDA.
 SECOND_GPU_HEADROOM_GIB = 1.0
@@ -183,7 +200,7 @@ def to_legacy_level(value, kind="sentence"):
     return (value - s["mean"]) / s["std"] * legacy["std"] + legacy["mean"]
 
 
-def readiness(embed=True, rerank=True):
+def readiness(embed=True, rerank=True, wemm=None):
     """Список причин, по которым отбор на Qwen сейчас невозможен (пустой —
     готово). embed/rerank — какие модели прогон реально позовёт (см.
     pipeline_smart.vision_models_needed): модель, которой прогон не
@@ -199,7 +216,7 @@ def readiness(embed=True, rerank=True):
         return problems
     import qwen_vl_embed
     import qwen_vl_rerank
-    lack = vram_shortage(embed, rerank)
+    lack = vram_shortage(embed, rerank, wemm=wemm)
     if lack:
         problems.append(lack)
         return problems
@@ -207,7 +224,7 @@ def readiness(embed=True, rerank=True):
         problems.append(f"Qwen3-VL-Embedding не загрузилась: {qwen_vl_embed._STATE['broken']}")
     if rerank and not qwen_vl_rerank.available():
         problems.append(f"Qwen3-VL-Reranker не загрузился: {qwen_vl_rerank.broken_reason()}")
-    if embed:
+    if embed and (wemm is None or wemm):
         import wemm_embed
         if wemm_embed.selected() and not wemm_embed.available():
             problems.append(f"WeMM-Embedding-9B (CASCADE_MODEL) не загрузилась: {wemm_embed.broken_reason()}")
@@ -244,7 +261,7 @@ def vram_need_gib(embed=True, rerank=True, wemm=None):
     return need or None
 
 
-def vram_shortage(embed=True, rerank=True):
+def vram_shortage(embed=True, rerank=True, wemm=None):
     """Текст отказа, если на какой-то карте свободной видеопамяти меньше
     нужного, иначе None. Уже загруженные модели свою память заняли — их доля
     не требуется снова."""
@@ -253,7 +270,7 @@ def vram_shortage(embed=True, rerank=True):
     import wemm_embed
     need = vram_need_gib(embed and qwen_vl_embed._STATE.get("model") is None,
                          rerank and qwen_vl_rerank._STATE.get("model") is None,
-                         wemm=embed and not wemm_embed._STATE["models"])
+                         wemm=embed and (wemm is None or bool(wemm)) and not wemm_embed._STATE["models"])
     if not need:
         return None
     try:
@@ -302,12 +319,85 @@ def lost():
     return None
 
 
-def require_ready(embed=True, rerank=True):
+def require_ready(embed=True, rerank=True, wemm=None):
     """Отказ рендера ДО начала работы (до платных вызовов), если отбор на
     Qwen невозможен. Решение владельца 29.09: никаких кадров по
     непроверенным порогам и никакого молчаливого отката на другую модель."""
-    problems = readiness(embed, rerank)
+    problems = readiness(embed, rerank, wemm=wemm)
     if problems:
         raise SystemExit(
             "ОТКАЗ: отбор кадров на Qwen3-VL не готов:\n  - " + "\n  - ".join(problems)
             + f"\nКалибровка порогов (на видеокарте, веса скачаются сами): {CALIBRATE_COMMAND}")
+
+
+def release_selection_models():
+    """Выгрузить веса моделей отбора с видеокарты (после цикла слотов).
+
+    Прогон эп.98 на RTX 6000 Ada (29.09): у процесса отбора 38.5 из 47.4 ГиБ,
+    и финальная склейка, заводящая до ~35 декодеров видеокарты сразу, упала на
+    «Device setup failed for decoder» и пересчиталась на процессоре (4.2 мин).
+    После цикла слотов и рендера клипов отбор закончен, склейке, звуку и
+    контролю модели зрения не нужны (граф вызовов после цикла в main() до них
+    не доходит; тест держит порядок), а память им нужна.
+
+    Ничего не считает и на выбор кадров повлиять не может: вызывается позже
+    последнего решения о кадре и после всех отчётов, читающих состояние
+    моделей. Замок модуля (_LOCK) держится только пока модель ГРУЗЯТ или
+    помечают сломанной; сам расчёт идёт без него, поэтому защиты от
+    одновременного расчёта он НЕ даёт: выгрузка допустима только тогда, когда
+    расчётов нет (в main() это так: потоки упреждения и пулы закрыты с
+    ожиданием). Замок без ожидания лишь не даёт выгрузить модель посреди её
+    загрузки. Возвращает {"освобождено": [...], "свободно_до": ГиБ|None,
+    "свободно_после": ГиБ|None}; любой сбой — молча ничего не делает."""
+    import gc
+    out = {"освобождено": [], "свободно_до": None, "свободно_после": None}
+    try:
+        import torch
+        cuda = torch.cuda.is_available()
+    except Exception:  # noqa: BLE001 — нет torch: выгружать нечего
+        return out
+
+    def _free():
+        # mem_get_info заводит контекст CUDA (~0.3-0.5 ГиБ), если его не было:
+        # не мерить, когда карта в этом процессе ещё не использовалась.
+        try:
+            if not (cuda and torch.cuda.is_initialized()):
+                return None
+            return round(torch.cuda.mem_get_info(0)[0] / 2 ** 30, 1)
+        except Exception:  # noqa: BLE001
+            return None
+    out["свободно_до"] = _free()
+    try:
+        import qwen_vl_embed
+        import qwen_vl_rerank
+        import wemm_embed
+    except Exception:  # noqa: BLE001
+        return out
+    for name, mod, keys in (("Qwen3-VL-Embedding", qwen_vl_embed, ("model", "processor")),
+                            ("Qwen3-VL-Reranker", qwen_vl_rerank, ("model", "processor", "linear"))):
+        if not mod._LOCK.acquire(blocking=False):
+            continue
+        try:
+            if mod._STATE.get("model") is not None:
+                for k in keys:
+                    mod._STATE[k] = None
+                out["освобождено"].append(name)
+        finally:
+            mod._LOCK.release()
+    if wemm_embed._LOCK.acquire(blocking=False):
+        try:
+            if wemm_embed._STATE["models"]:
+                wemm_embed._STATE["models"].clear()
+                wemm_embed._STATE["free"] = None
+                out["освобождено"].append("WeMM-Embedding-9B")
+        finally:
+            wemm_embed._LOCK.release()
+    if out["освобождено"]:
+        gc.collect()
+        if cuda:
+            try:
+                torch.cuda.empty_cache()
+            except Exception:  # noqa: BLE001
+                pass
+    out["свободно_после"] = _free()
+    return out
