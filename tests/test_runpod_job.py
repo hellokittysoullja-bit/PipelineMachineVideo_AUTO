@@ -448,7 +448,7 @@ def test_missing_result_is_reported_and_the_rest_is_still_fetched(runner, tmp_pa
     monkeypatch.setattr(rj, "terminate", lambda key, pid: True)
     monkeypatch.setattr(rj.Runner, "wait_ready", lambda self, *a, **k: True)
     base = r.base
-    monkeypatch.setattr(rj, "Runner", lambda url, token, watch=(): rj.__dict__["_RealRunner"](base, token))
+    monkeypatch.setattr(rj, "Runner", lambda url, token, watch=(), **kw: rj.__dict__["_RealRunner"](base, token))
     monkeypatch.setattr(rj, "_RealRunner", type(r), raising=False)
     dest = tmp_path / "back"
     code = rj.drive("k", {"id": "p", "costPerHr": 0.3}, TOKEN, 600, [],
@@ -752,7 +752,7 @@ def test_missing_caches_do_not_change_the_exit_code_and_present_ones_come_back(r
     monkeypatch.setattr(rj, "terminate", lambda key, pid: True)
     monkeypatch.setattr(rj.Runner, "wait_ready", lambda self, *a, **k: True)
     base = r.base
-    monkeypatch.setattr(rj, "Runner", lambda url, token, watch=(): rj.__dict__["_RealRunner"](base, token))
+    monkeypatch.setattr(rj, "Runner", lambda url, token, watch=(), **kw: rj.__dict__["_RealRunner"](base, token))
     monkeypatch.setattr(rj, "_RealRunner", type(r), raising=False)
     dest = tmp_path / "back"
     persist = [("stage/temp_cascade_embed_cache", str(dest)), ("stage/nope_cache", str(dest))]
@@ -847,3 +847,64 @@ def test_cloud_all_is_not_offered():
     """REST Runpod при создании пода принимает только SECURE и COMMUNITY."""
     with pytest.raises(SystemExit):
         rj.main(["--cloud", "ALL", "--cmd", "x"])
+
+
+def _stub_pod(monkeypatch, job):
+    """drive() с подменёнными подом и исполнителем: job — что делает задача."""
+    events = []
+    monkeypatch.setattr(rj, "terminate", lambda key, pid: events.append("удалён") or True)
+    monkeypatch.setattr(rj.Runner, "wait_ready", lambda self, *a, **k: True)
+    monkeypatch.setattr(rj, "_run_job", lambda r, *a, **k: job(r))
+
+    def fetch(self, path, dest):
+        events.append(f"забрано {path}")
+    monkeypatch.setattr(rj.Runner, "fetch", fetch)
+    return events
+
+
+def test_first_ctrl_c_fetches_results_before_the_pod_is_removed(monkeypatch):
+    """Живой прогон 30.09: Ctrl-C удалял под сразу — пропали выбранные кадры,
+    лог судьи и журнал видеокарты. Теперь сначала забор, потом удаление."""
+    def job(r):
+        raise KeyboardInterrupt
+    events = _stub_pod(monkeypatch, job)
+    code = rj.drive("k", {"id": "p", "costPerHr": 0.3}, TOKEN, 600, [], "cmd", ["res"], "dest")
+    assert code == 130
+    assert events == ["забрано res", "удалён"]
+
+
+def test_second_ctrl_c_during_fetch_still_removes_the_pod(monkeypatch):
+    def job(r):
+        raise KeyboardInterrupt
+    events = _stub_pod(monkeypatch, job)
+
+    def fetch(self, path, dest):
+        raise KeyboardInterrupt
+    monkeypatch.setattr(rj.Runner, "fetch", fetch)
+    code = rj.drive("k", {"id": "p", "costPerHr": 0.3}, TOKEN, 600, [], "cmd", ["a", "b"], "dest")
+    assert code == 130 and events == ["удалён"]
+
+
+def test_sync_paths_come_back_during_the_job(monkeypatch):
+    got = []
+    r = rj.Runner("https://x", TOKEN, sync=["stage/media_plan"], sync_dest="d", sync_every=0)
+    monkeypatch.setattr(rj.Runner, "fetch", lambda self, p, d: got.append((p, d)))
+    r._sync_once()
+    r._sync_once()
+    assert got == [("stage/media_plan", "d")] * 2 and r.sync_count == 2
+    r2 = rj.Runner("https://x", TOKEN, sync=["p"], sync_dest="d", sync_every=3600)
+    monkeypatch.setattr(rj.Runner, "fetch", lambda self, p, d: got.append(p))
+    r2._sync_once()
+    r2._sync_once()
+    assert got.count("p") == 1, "не чаще интервала"
+
+
+def test_silent_camera_is_named_once(monkeypatch, capsys):
+    r = rj.Runner("https://x", TOKEN, watch=["stage/media_plan/run_journal.live.jsonl"])
+    monkeypatch.setattr(rj.Runner, "call", lambda self, *a, **k: (_ for _ in ()).throw(OSError("нет файла")))
+    r._job_t0 = rj.time.time() - rj.SILENT_WATCH_SEC - 1
+    r._watch_once()
+    r._watch_at = 0
+    r._watch_once()
+    out = capsys.readouterr().out
+    assert out.count("КАМЕРА МОЛЧИТ") == 1 and "run_journal.live.jsonl" in out

@@ -521,13 +521,29 @@ def upload_progress(shown):
     return sum(v for k, v in shown.items() if k != "_total"), shown["_total"]
 
 
+# Камера (--watch), не давшая ни строки за это время задачи, называется в
+# логе: живой прогон 30.09 объявил журнал решений «камерой», а пайплайн
+# писал его одним файлом в самом конце — по ходу прогона не пришло ничего,
+# и это заметили только после потери пода.
+SILENT_WATCH_SEC = 300
+SYNC_EVERY_SEC = 120
+
+
 class Runner:
-    def __init__(self, base, token, watch=()):
+    def __init__(self, base, token, watch=(), sync=(), sync_dest=None, sync_every=SYNC_EVERY_SEC):
         self.base, self.token = base.rstrip("/"), token
         self.log_off = 0      # лог задач на поде общий: следующая задача читается с конца прошлой
         self.watch_paths = list(watch)
         self._watch_seen = {}
         self._watch_at = 0.0
+        self._silent_warned = set()
+        self._job_t0 = None
+        # --sync: пути забираются к нам ПО ХОДУ задачи (обрыв связи, Ctrl-C,
+        # удаление пода по деньгам теряют не больше одного интервала).
+        self.sync_paths, self.sync_dest, self.sync_every = list(sync), sync_dest, sync_every
+        self._sync_at = 0.0
+        self._sync_failed = set()
+        self.sync_count = 0
         self._bol = True      # вывод начинается с начала строки (метка времени)
 
     def _stamp(self, text):
@@ -550,11 +566,41 @@ class Runner:
                     member = next(m for m in tar.getmembers() if m.isfile())
                     lines = tar.extractfile(member).read().decode("utf-8", "replace").splitlines()
             except Exception:  # noqa: BLE001 — файла ещё нет или связь моргнула
+                self._warn_silent(path)
                 continue
             seen = self._watch_seen.get(path, 0)
+            # Строка целиком: лог прогона — единственная запись, если под
+            # потерян; обрезанная причина отказа судьи бесполезна.
             for line in lines[seen:]:
-                print(f"{time.strftime('%H:%M:%S')} [{os.path.basename(path)}] {line[:220]}", flush=True)
+                print(f"{time.strftime('%H:%M:%S')} [{os.path.basename(path)}] {line[:4000]}", flush=True)
             self._watch_seen[path] = len(lines)
+            if not lines:
+                self._warn_silent(path)
+
+    def _warn_silent(self, path):
+        if self._job_t0 is None or path in self._silent_warned or self._watch_seen.get(path):
+            return
+        if time.time() - self._job_t0 >= SILENT_WATCH_SEC:
+            self._silent_warned.add(path)
+            print(f"  КАМЕРА МОЛЧИТ: {path} — за {SILENT_WATCH_SEC // 60} мин задачи ни одной строки",
+                  flush=True)
+
+    def _sync_once(self, force=False):
+        """Забрать --sync пути сейчас (не чаще sync_every, если не force)."""
+        if not self.sync_paths or self.sync_dest is None:
+            return
+        if not force and time.time() - self._sync_at < self.sync_every:
+            return
+        self._sync_at = time.time()
+        for path in self.sync_paths:
+            try:
+                self.fetch(path, self.sync_dest)
+                self.sync_count += 1
+            except Exception as e:  # noqa: BLE001 — следующий интервал попробует снова
+                if path not in self._sync_failed:
+                    self._sync_failed.add(path)
+                    print(f"  синхронизация {path} не удалась ({getattr(e, 'code', '') or e}) — "
+                          f"повторю через {self.sync_every} с", flush=True)
 
     # Прокси Runpod между нами и подом иногда отвечает случайной ошибкой при
     # живом исполнителе (живой прогон 29.09: пустой 404 посреди лога задачи
@@ -682,6 +728,8 @@ class Runner:
 
     def follow(self, deadline=None):
         off, last_up = self.log_off, None
+        if self._job_t0 is None:
+            self._job_t0 = time.time()
         while True:
             if deadline is not None and time.time() > deadline:
                 raise BudgetExpired("потолок денег на запуск исчерпан — задача прервана, под удаляется")
@@ -697,6 +745,7 @@ class Runner:
                 sys.stdout.write(self._stamp(st["text"]))
                 sys.stdout.flush()
             self._watch_once()
+            self._sync_once()
             off = self.log_off = st["offset"]
             if not st["running"] and st["exit"] is not None and not st["text"]:
                 return st["exit"]
@@ -808,6 +857,10 @@ def main(argv=None):
                    help="разрешить `| tail`/`| head` в --cmd (вывод до конца задачи не виден)")
     p.add_argument("--fetch", action="append", default=[], help="путь в /work, вернуть сюда")
     p.add_argument("--dest", default=".")
+    p.add_argument("--sync", action="append", default=[],
+                   help="путь в /work, забирается в --dest ПО ХОДУ задачи каждые --sync-every с "
+                        "(обрыв или Ctrl-C теряют не больше одного интервала)")
+    p.add_argument("--sync-every", type=int, default=SYNC_EVERY_SEC)
     p.add_argument("--no-persist-caches", dest="persist_caches", action="store_false",
                    help="не забирать с пода кэши ответов и эмбеддингов (по умолчанию они "
                         "возвращаются в папку загрузки, и следующий под начинает с них)")
@@ -959,7 +1012,9 @@ def _rent_attempts(key, a, order, by_id, token, extra, attempts, uploads, spent)
         try:
             return drive(key, pod, token, cap_sec, uploads, a.cmd, a.fetch, a.dest,
                          prepare=a.prepare, preflight=gpu_preflight(a.min_vram_mib), watch=a.watch,
-                         persist=persist_fetches(a.upload) if getattr(a, "persist_caches", False) else ())
+                         persist=persist_fetches(a.upload) if getattr(a, "persist_caches", False) else (),
+                         sync=getattr(a, "sync", ()) or (),
+                         sync_every=getattr(a, "sync_every", SYNC_EVERY_SEC))
         except BadHost as e:
             spent += pod.get("spent_usd", 0.0)
             print(f"  {e} — хост заменяется (потрачено ${spent:.2f})")
@@ -1049,7 +1104,7 @@ def with_cpu_budget(cmd, pod):
 
 
 def drive(key, pod, token, cap_sec, uploads, cmd, fetches, dest, prepare=None, preflight=None, watch=(),
-          persist=()):
+          persist=(), sync=(), sync_every=SYNC_EVERY_SEC):
     """Под создан: дождаться исполнителя, загрузить, запустить, забрать,
     и удалить под в ЛЮБОМ исходе. prepare — идёт на поде параллельно с
     загрузкой (см. overlapped_cmd); первая папка (код) едет до старта.
@@ -1071,7 +1126,8 @@ def drive(key, pod, token, cap_sec, uploads, cmd, fetches, dest, prepare=None, p
     signal.signal(signal.SIGTERM, _sigint)
     signal.signal(signal.SIGINT, _sigint)
     try:
-        r = Runner(f"https://{pod_id}-{PORT}.proxy.runpod.net", token, watch=watch)
+        r = Runner(f"https://{pod_id}-{PORT}.proxy.runpod.net", token, watch=watch,
+                   sync=sync, sync_dest=dest, sync_every=sync_every)
         if not r.wait_ready(min(1800, cap_sec), lambda: pod_status(key, pod_id)):
             raise SystemExit("исполнитель на поде не поднялся")
         stage("исполнитель готов")
@@ -1095,21 +1151,33 @@ def drive(key, pod, token, cap_sec, uploads, cmd, fetches, dest, prepare=None, p
             # записаться (за счёт короткого запаса времени на выгрузку).
             print(f"\n{e}")
             code = 124
+        except KeyboardInterrupt:
+            # Первый Ctrl-C — остановить слежение и ЗАБРАТЬ результаты, потом
+            # удалить под. Живой прогон 30.09: Ctrl-C удалял под сразу, и с
+            # ним пропали выбранные кадры, лог судьи и журнал видеокарты.
+            print("\nCtrl-C: слежение остановлено, забираю результаты с пода "
+                  "(повторный Ctrl-C — удалить под без забора)", flush=True)
+            code = 130
         print()
         stage(f"команда завершилась с кодом {code}")
-        for path in fetches:
-            try:
-                r.fetch(path, dest)
-                print(f"  забрано: {path}")
-            except Exception as e:  # noqa: BLE001
-                print(f"  НЕ забрано: {path} ({getattr(e, 'code', '') or e})")
-                if code == 0:
-                    code = 98
-        # Кэши для следующего пода (см. PERSIST_*): их может не быть (флаг
-        # выключен, эпизод без судьи), и это не ошибка — на код не влияет.
-        if persist:
-            got = _fetch_persist(r, persist)
-            print(f"  кэши для следующего прогона: забрано {got} из {len(persist)}")
+        try:
+            for path in fetches:
+                try:
+                    r.fetch(path, dest)
+                    print(f"  забрано: {path}")
+                except Exception as e:  # noqa: BLE001
+                    print(f"  НЕ забрано: {path} ({getattr(e, 'code', '') or e})")
+                    if code == 0:
+                        code = 98
+            # Кэши для следующего пода (см. PERSIST_*): их может не быть (флаг
+            # выключен, эпизод без судьи), и это не ошибка — на код не влияет.
+            if persist:
+                got = _fetch_persist(r, persist)
+                print(f"  кэши для следующего прогона: забрано {got} из {len(persist)}")
+        except KeyboardInterrupt:
+            print("\nповторный Ctrl-C — под удаляется без забора остального", flush=True)
+            if code == 0:
+                code = 130
     finally:
         # Повторный сигнал не должен прервать само удаление пода.
         signal.signal(signal.SIGINT, signal.SIG_IGN)

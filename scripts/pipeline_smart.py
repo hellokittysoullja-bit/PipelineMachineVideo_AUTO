@@ -5481,6 +5481,36 @@ VERDICT_REPORT_LISTS = {
 # поэтому «отчёт говорит брак, а на экране кадр» невыразимо: и экран, и
 # отчёт берут одну попытку.
 RUN_JOURNAL = []
+# Тот же журнал ПО ХОДУ прогона (media_plan/run_journal.live.jsonl): запись
+# дописывается на диск в момент решения. run_journal.jsonl пишется одним
+# файлом в конце отбора — живой прогон 30.09 потерял под посреди отбора, и
+# решений по уже принятым слотам не осталось нигде. Итоговый файл прежний.
+RUN_JOURNAL_LIVE = [None]
+_RUN_JOURNAL_LOCK = threading.Lock()
+
+
+def journal_record(rec):
+    RUN_JOURNAL.append(rec)
+    path = RUN_JOURNAL_LIVE[0]
+    if not path:
+        return
+    try:
+        line = json.dumps(rec, ensure_ascii=False, sort_keys=True, default=str) + "\n"
+        with _RUN_JOURNAL_LOCK, open(path, "a", encoding="utf-8") as f:
+            f.write(line)
+            f.flush()
+    except (OSError, TypeError, ValueError):
+        pass      # наблюдение, а не решение: сбой записи отбор не трогает
+
+
+def start_live_journal(video_folder):
+    path = os.path.join(video_folder, "media_plan", "run_journal.live.jsonl")
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        open(path, "w", encoding="utf-8").close()
+        RUN_JOURNAL_LIVE[0] = path
+    except OSError:
+        RUN_JOURNAL_LIVE[0] = None
 
 
 _SPEC_ATTEMPT_SEQ = itertools.count(1)
@@ -5533,7 +5563,7 @@ def _journal_value(v):
 
 
 def _journal_attempt(att, final_media):
-    RUN_JOURNAL.append({
+    journal_record({
         "record": "attempt", "attempt_id": att.attempt_id, "index": att.index,
         "kind": att.kind, "state": att.state, "media": final_media,
         "verdicts": [{"kind": k, **rec} for k, rec in att.verdicts],
@@ -5580,7 +5610,7 @@ def close_slot(index, attempts, shown=None, decisive=None, outcome=None):
     else:
         for att in attempts:
             _project_verdicts(att.verdicts)
-    RUN_JOURNAL.append({
+    journal_record({
         "record": "slot", "index": index,
         "outcome": outcome or ("shown" if shown is not None else "empty"),
         "shown": shown.attempt_id if shown is not None else None,
@@ -18940,6 +18970,7 @@ def main():
     reset_source_stats()
     reset_camera_language_stats()
     RUN_JOURNAL.clear()
+    start_live_journal(VIDEO_FOLDER)
     selection_attempt.reset_attempt_ids()
     # Шлюз судьи и его потолок расходов — на прогон, а не на процесс.
     _SHOT_JUDGE_STATE.update(gateway=None, made=False, refused=None, slots=set(), warned=False,
