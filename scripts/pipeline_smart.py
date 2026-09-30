@@ -18587,6 +18587,7 @@ def main():
         import stack_sampler
         os.makedirs(os.path.join(VIDEO_FOLDER, "media_plan"), exist_ok=True)
         atexit.register(stack_sampler.start(os.path.join(VIDEO_FOLDER, "media_plan", "profile_stacks.txt")))
+        atexit.register(stack_sampler.start_cpu_log(os.path.join(VIDEO_FOLDER, "media_plan", "cpu_usage.csv")))
     # Какой пайплайн РЕАЛЬНО исполняется — до того, как потрачены часы CPU.
     # Дорогой слой, выключенный в .env, раньше было видно только по
     # отсутствию строк в логе где-то в середине рендера (или не видно вовсе).
@@ -18919,6 +18920,10 @@ def main():
                        initializer=_render_worker_init, initargs=(nvenc_gate, "cpu"))
                    if RENDER_POOL_ENABLED and not SELECT_ONLY else None)
     if render_pool is not None and gpu_render_active():
+        # Отказ самопроверки карты делится между воркерами одного прогона
+        # (gpu_render._parity_flag_path); идентификатор — до запуска пула.
+        import uuid as _uuid
+        os.environ["GPU_PARITY_RUN"] = _uuid.uuid4().hex[:12]
         # Карта — отдельным маленьким пулом (см. ClipRenderPools): в
         # процессорных воркерах её нет вовсе.
         _gw = gpu_render_workers()

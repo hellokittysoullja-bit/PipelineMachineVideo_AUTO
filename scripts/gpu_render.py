@@ -609,6 +609,44 @@ def _parity_needed(ffmt):
         return ffmt not in _PARITY["ok"]
 
 
+# Отказ самопроверки общий для всех процессов ОДНОГО прогона: раньше каждый из
+# воркеров карты (на A40 их семь) в одиночку повторял свою самопроверку —
+# процессорный рендер первой пачки и пересылку кадров — прежде чем узнать то,
+# что первый из них уже выяснил. Файл привязан к идентификатору прогона
+# (GPU_PARITY_RUN, ставит главный процесс до запуска пулов): файл прошлого
+# прогона на другой машине никогда не выключит карту в этом. Нет переменной —
+# общего состояния нет, поведение прежнее.
+def _parity_flag_path(out):
+    run = os.environ.get("GPU_PARITY_RUN", "").strip()
+    if not run or not out:
+        return None
+    return os.path.join(os.path.dirname(os.path.abspath(out)), f".gpu_parity_disabled_{run}")
+
+
+def _parity_shared_disabled(out):
+    path = _parity_flag_path(out)
+    try:
+        if path and os.path.exists(path):
+            with open(path, encoding="utf-8") as f:
+                return f.read().strip() or "самопроверка не прошла в другом процессе"
+    except OSError:
+        pass
+    return None
+
+
+def _parity_share_disabled(out, why):
+    path = _parity_flag_path(out)
+    if not path:
+        return
+    try:
+        tmp = f"{path}.{os.getpid()}.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(why)
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
 def _psnr(d):
     return float(10 * np.log10(255.0 ** 2 / max(float((d * d).mean()), 1e-9)))
 
@@ -718,6 +756,11 @@ def _render_kenburns(photo, out, frames, z_expr, x_expr, y_expr, canvas, film_lo
         return False, "нет CUDA"
     if _PARITY["disabled"]:
         return False, _PARITY["disabled"]
+    shared = _parity_shared_disabled(out)
+    if shared:
+        with _PARITY_LOCK:
+            _PARITY["disabled"] = shared
+        return False, shared
     parts = split_film_look(film_look_str)
     if parts is None:
         return False, "строка грейда отличается от известной структуры"
@@ -866,6 +909,7 @@ def _render_kenburns(photo, out, frames, z_expr, x_expr, y_expr, canvas, film_lo
                 ok_p, why_p = parity_gate(ffmt, got, reference_cmd, W, H, trace)
                 prof.mark(None)
                 if not ok_p:
+                    _parity_share_disabled(out, why_p)
                     enc.kill()
                     q.put(None)
                     return False, why_p

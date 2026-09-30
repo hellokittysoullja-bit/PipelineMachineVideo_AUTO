@@ -19,16 +19,33 @@ say() { echo "[prepare +$(( $(date +%s) - T0 )) с] $*"; }
     "$1" -hide_banner -h filter=xfade 2>/dev/null | grep -q "hlwind" || return 1
     "$1" -hide_banner -encoders 2>/dev/null | grep -q "hevc_nvenc" || return 1
   }
-  if command -v ffmpeg >/dev/null 2>&1 && good ffmpeg; then
+  # NVENC в списке кодеков ещё не значит, что он работает: сборка с новыми
+  # заголовками nv-codec-headers отказывает на драйвере старше нужного
+  # («Driver does not support the required nvenc API version»), а на A40 30.09
+  # клипы из-за этого шли процессором. Настоящее пробное кодирование одного
+  # кадра; нет видеокарты (nvidia-smi) — проверять нечем, считается годной.
+  nvenc_ok() {
+    command -v nvidia-smi >/dev/null 2>&1 || return 0
+    "$1" -hide_banner -v error -f lavfi -i testsrc2=s=1280x720:d=0.2 -pix_fmt p010le \
+      -c:v hevc_nvenc -f null - 2>/tmp/nvenc_probe.txt
+  }
+  nvenc_report() {
+    say "ffmpeg: NVENC не заработал (драйвер $(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)): $(tr '\n' ' ' < /tmp/nvenc_probe.txt | cut -c1-200)"
+  }
+  if command -v ffmpeg >/dev/null 2>&1 && good ffmpeg && nvenc_ok ffmpeg; then
     say "ffmpeg уже подходит ($(ffmpeg -version | head -1 | cut -c1-40))"
   else
-    D=/tmp/ffm; mkdir -p $D; OK=0
+    D=/tmp/ffm; mkdir -p $D; OK=0; KEEP=""
     # BtbN (GPL: NVENC, drawtext, переходы hlwind/hrwind/zoomin). Имя файла на
     # релизе `latest` постоянное; проверено 30.09: 200, 148 МБ, ffmpeg N-1269xx —
     # drawtext есть, три перехода есть, hevc_nvenc есть. Статическая сборка другого автора
     # без NVENC и здесь не подходит; API GitHub с общего адреса пода режется
     # лимитом, поэтому имя не выясняется запросом.
-    for u in "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"; do
+    # Порядок — от проверенной сборки к запасным: у других веток заголовки
+    # NVENC другие, и они могут идти на драйвере, где master отказывает.
+    for u in "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz" \
+             "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz" \
+             "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-linux64-gpl-9.0.tar.xz"; do
       if ! curl -fL --retry 2 --max-time 300 -sS "$u" -o $D/f.tar.xz 2>$D/err.txt; then
         say "ffmpeg: скачивание не удалось ($(tr '\n' ' ' < $D/err.txt | cut -c1-160))"; continue
       fi
@@ -49,17 +66,28 @@ say() { echo "[prepare +$(( $(date +%s) - T0 )) с] $*"; }
       else
         say "ffmpeg: checksums.sha256 недоступен — файл принят без проверки"
       fi
-      if ! tar -xf $D/f.tar.xz -C $D 2>$D/err.txt; then
+      rm -rf $D/w; mkdir -p $D/w
+      if ! tar -xf $D/f.tar.xz -C $D/w 2>$D/err.txt; then
         say "ffmpeg: распаковка не удалась ($(tr '\n' ' ' < $D/err.txt | cut -c1-160))"; continue
       fi
-      B=$(find $D -type f -name ffmpeg -perm -u+x | head -1); P=$(find $D -type f -name ffprobe | head -1)
+      B=$(find $D/w -type f -name ffmpeg -perm -u+x | head -1); P=$(find $D/w -type f -name ffprobe | head -1)
       if [ -n "$B" ] && good "$B"; then
-        cp "$B" /usr/local/bin/ffmpeg; [ -n "$P" ] && cp "$P" /usr/local/bin/ffprobe; OK=1
-        say "ffmpeg: $("$B" -version | head -1 | cut -c1-40)"; break
+        if nvenc_ok "$B"; then
+          cp "$B" /usr/local/bin/ffmpeg; [ -n "$P" ] && cp "$P" /usr/local/bin/ffprobe; OK=1
+          say "ffmpeg: $("$B" -version | head -1 | cut -c1-40), NVENC работает"; break
+        fi
+        nvenc_report
+        if [ -z "$KEEP" ]; then   # первая годная по остальному — на случай, если NVENC не пойдёт нигде
+          mkdir -p /tmp/ffm_keep; cp "$B" /tmp/ffm_keep/ffmpeg; [ -n "$P" ] && cp "$P" /tmp/ffm_keep/ffprobe; KEEP=1
+        fi
       else
         say "ffmpeg из $u не подошёл (нет NVENC, drawtext или переходов)"
       fi
     done
+    if [ $OK = 0 ] && [ -n "$KEEP" ]; then
+      cp /tmp/ffm_keep/ffmpeg /usr/local/bin/ffmpeg; [ -f /tmp/ffm_keep/ffprobe ] && cp /tmp/ffm_keep/ffprobe /usr/local/bin/ffprobe; OK=1
+      say "ВНИМАНИЕ: NVENC не заработал ни в одной сборке — клипы будут кодироваться процессором (x264)"
+    fi
     if [ $OK = 0 ]; then
       apt-get update -qq && apt-get install -y -qq ffmpeg >/dev/null 2>&1
       say "ВНИМАНИЕ: подходящего ffmpeg нет, остался apt ($(ffmpeg -version | head -1 | cut -c1-30)) — переходы будут заменены"

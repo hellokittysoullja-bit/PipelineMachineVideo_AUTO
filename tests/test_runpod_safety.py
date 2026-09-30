@@ -256,3 +256,35 @@ def test_pod_prepare_checks_the_ffmpeg_checksum(tmp_path):
     bad = run("0" * 64 + "  f.tar.xz\n")
     assert "не совпала" in bad and "PASSED" not in bad
     assert "принят без проверки" in run(f"{good}  other.tar.xz\n")
+
+
+def test_pod_prepare_probes_nvenc_for_real(tmp_path):
+    """nvenc_ok: без nvidia-smi — годна (проверять нечем); с ним — только если
+    пробное кодирование прошло. Наличие hevc_nvenc в списке кодеков не считается."""
+    src = open(os.path.join(REPO, "scripts", "pod_prepare.sh"), encoding="utf-8").read()
+    start = src.index("  nvenc_ok() {")
+    end = src.index("  nvenc_report() {")
+    fn = src[start:end]
+    assert "-c:v hevc_nvenc" in fn and "-f null" in fn
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    ok_ff = tmp_path / "ff_ok"
+    bad_ff = tmp_path / "ff_bad"
+    ok_ff.write_text("#!/bin/sh\nexit 0\n")
+    bad_ff.write_text("#!/bin/sh\necho 'Driver does not support the required nvenc API version' >&2\nexit 1\n")
+    for f in (ok_ff, bad_ff):
+        f.chmod(0o755)
+
+    def run(ff, with_smi):
+        if with_smi:
+            smi = bin_dir / "nvidia-smi"
+            smi.write_text("#!/bin/sh\nexit 0\n")
+            smi.chmod(0o755)
+        else:
+            (bin_dir / "nvidia-smi").unlink(missing_ok=True)
+        env = {"PATH": f"{bin_dir}:/usr/bin:/bin"}
+        return subprocess.run(["bash", "-c", fn + f'\nnvenc_ok "{ff}"'], env=env,
+                              capture_output=True, text=True).returncode
+    assert run(bad_ff, with_smi=False) == 0, "нет видеокарты — проверять нечем"
+    assert run(ok_ff, with_smi=True) == 0
+    assert run(bad_ff, with_smi=True) != 0
