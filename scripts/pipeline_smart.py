@@ -6447,12 +6447,16 @@ _OPENVERSE_SEARCH_CACHE = {}   # {api_query: [candidate, ...]} — тот же �
 # эпизод не тратят квоту вовсе; (3) регистрационный ключ
 # (OPENVERSE_CLIENT_ID/OPENVERSE_CLIENT_SECRET, бесплатно: POST
 # /v1/auth_tokens/register/) — bearer-токен по client_credentials, лимит
-# выше на порядки, страница 100 вместо 20. Без ключа — анонимный режим, как
+# выше на порядки, страница 50 вместо 20. Без ключа — анонимный режим, как
 # раньше, но с интервалом и кэшем.
 OPENVERSE_ANON_MIN_INTERVAL_SEC = 3.1      # 20/мин с запасом
 OPENVERSE_AUTH_MIN_INTERVAL_SEC = 0.3
 OPENVERSE_ANON_PAGE_SIZE = 20              # больше анонимно API не отдаёт (401)
-OPENVERSE_AUTH_PAGE_SIZE = 100
+# С ключом — не больше 50: на 100 API отвечает 401 «page_size may not exceed
+# 50 for authenticated requests» (проверено живым ключом 29.09). Стояло 100 —
+# то есть с ключом Openverse давал ноль на КАЖДОМ запросе, и ни один тест
+# этого не видел: сеть в тестах подменена.
+OPENVERSE_AUTH_PAGE_SIZE = 50
 OPENVERSE_CACHE_DIR = os.environ.get("OPENVERSE_CACHE_DIR") or os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "temp_openverse_cache")
 OPENVERSE_CACHE_TTL_SEC = 30 * 86400
@@ -6524,16 +6528,21 @@ def _openverse_mapping_signature():
     return _OPENVERSE_MAPPING_SIG[0]
 
 
-def _openverse_cache_path(api_query, _ov):
+def _openverse_cache_path(api_query, _ov, page_size=None):
+    # Размер страницы — часть ответа: с ключом страница 50, анонимно 20, и без
+    # него в ключе ответ на 20 отдавался бы и прогону с ключом, на месяц.
+    # Анонимная страница в ключ не пишется — кэши, собранные без ключа,
+    # остаются действительными байт-в-байт.
+    extra = [page_size] if page_size not in (None, OPENVERSE_ANON_PAGE_SIZE) else []
     payload = json.dumps([OPENVERSE_CACHE_SCHEMA, api_query, sorted(_ov.OPENVERSE_SAFE_LICENSES),
-                          sorted(_ov.OPENVERSE_TRUSTED_SOURCES), _openverse_mapping_signature()],
-                         ensure_ascii=False, sort_keys=True)
+                          sorted(_ov.OPENVERSE_TRUSTED_SOURCES), _openverse_mapping_signature()]
+                         + extra, ensure_ascii=False, sort_keys=True)
     return os.path.join(OPENVERSE_CACHE_DIR, hashlib.sha1(payload.encode("utf-8")).hexdigest() + ".json")
 
 
-def _openverse_cache_get(api_query, _ov):
+def _openverse_cache_get(api_query, _ov, page_size=None):
     try:
-        path = _openverse_cache_path(api_query, _ov)
+        path = _openverse_cache_path(api_query, _ov, page_size)
         if not os.path.exists(path) or time.time() - os.path.getmtime(path) > OPENVERSE_CACHE_TTL_SEC:
             return None
         with open(path, encoding="utf-8") as f:
@@ -6545,10 +6554,10 @@ def _openverse_cache_get(api_query, _ov):
         return None
 
 
-def _openverse_cache_put(api_query, _ov, results):
+def _openverse_cache_put(api_query, _ov, results, page_size=None):
     try:
         os.makedirs(OPENVERSE_CACHE_DIR, exist_ok=True)
-        path = _openverse_cache_path(api_query, _ov)
+        path = _openverse_cache_path(api_query, _ov, page_size)
         with open(path + ".tmp", "w", encoding="utf-8") as f:
             json.dump({"query": api_query, "cached_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
                        "results": results}, f, ensure_ascii=False)
@@ -6750,6 +6759,12 @@ def research_trigger(att):
     if att is None or known_bad_reason(att.verdicts):
         return "failed"
     if att.notes.get("focus_met") is False:
+        return "weak"
+    if att.notes.get("world_doubt"):
+        # Кадр выполнил все пункты, но мир или фон под сомнением — отказ
+        # стал штрафом (shot_judge.claims_vector). Он остаётся запасным, а
+        # кадр своего мира из второго круга встанет вместо него: вектор у
+        # того строго выше первым элементом (research_takes_over).
         return "weak"
     return None
 
@@ -7699,17 +7714,20 @@ def _openverse_fetch_one(api_query, _ov):
     """Один запрос к Openverse -> кандидаты в форме Pexels. Без перехвата
     исключений (это забота вызывающего каскада). Дисковый кэш и интервал
     между запросами — здесь, потому что именно здесь уходит запрос."""
-    cached = _openverse_cache_get(api_query, _ov)
+    # Токен раньше кэша: от него зависит размер страницы, а значит и ключ
+    # кэша. Без ключа это None сразу, с ключом — один запрос на 12 часов.
+    token = _openverse_bearer()
+    page_size = OPENVERSE_AUTH_PAGE_SIZE if token else OPENVERSE_ANON_PAGE_SIZE
+    cached = _openverse_cache_get(api_query, _ov, page_size)
     if cached is not None:
         OPENVERSE_STATS["cache_hits"] += 1
         return cached
     OPENVERSE_STATS["cache_misses"] += 1
-    token = _openverse_bearer()
     q = urllib.parse.quote(api_query)
     url = ("https://api.openverse.org/v1/images/?q=" + q +
            "&license=" + ",".join(sorted(_ov.OPENVERSE_SAFE_LICENSES)) +
            "&source=" + ",".join(sorted(_ov.OPENVERSE_TRUSTED_SOURCES)) +
-           f"&page_size={OPENVERSE_AUTH_PAGE_SIZE if token else OPENVERSE_ANON_PAGE_SIZE}&mature=false")
+           f"&page_size={page_size}&mature=false")
     headers = {"User-Agent": UA}
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -7758,7 +7776,7 @@ def _openverse_fetch_one(api_query, _ov):
     # каждом рендере он уходил в сеть заново — с паузой 3.1 с анонимного
     # лимита и расходом дневной квоты 200.
     if results or isinstance(data.get("result_count"), int):
-        _openverse_cache_put(api_query, _ov, results)
+        _openverse_cache_put(api_query, _ov, results, page_size)
     return results
 
 
@@ -8676,6 +8694,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
             selection_attempt.record_note("quality", winner_quality(winner))
         if judged:
             selection_attempt.record_note("focus_met", bool(winner and winner.get("verify_focus")))
+            selection_attempt.record_note("world_doubt", bool(winner and winner.get("verify_world_doubt")))
         if (judged and judge_rejected(winner)) or (not judged and winner is not None and not screen_allowed(winner)):
             # Лучший кадр слота по оценке судьи — брак. Без судьи брак —
             # помеченный словарём запретов, которого проверка не очистила
@@ -12547,7 +12566,7 @@ def judge_candidates(index, kind, phrase, brief, candidates_info, spec=None):
     for c in candidates_info:
         c["judge"] = None
         c["verify"] = None
-        for k in ("_asked", "verify_skipped", "verify_focus", "verify_nothing", "verify_perfect", "world_clear",
+        for k in ("_asked", "verify_skipped", "verify_focus", "verify_nothing", "verify_perfect", "world_clear", "verify_world_doubt",
                   "look_rank"):
             c.pop(k, None)
     if index is not None and index >= SHOT_JUDGE_PAID_SLOTS:
@@ -12799,7 +12818,13 @@ def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=
             # следующей порции, как отказ: иначе слот уходил на вторую
             # страницу пула (новая сетка и новая проверка), не проверив
             # остальных кандидатов первой.
-            vetoed += 1 if vec is None or c["verify_nothing"] else 0
+            # Кадр выполнил все пункты, но мир или фон под сомнением: отказ
+            # стал штрафом (shot_judge.claims_vector) — кадр остаётся
+            # запасным, а следующая порция проверяется так же, как после
+            # отказа: кадр своего мира обгонит его первым элементом вектора.
+            c["verify_world_doubt"] = shot_judge.world_doubted(
+                spec, ans, world_veto=world_veto, cg_veto=cg_veto)
+            vetoed += 1 if vec is None or c["verify_nothing"] or c["verify_world_doubt"] else 0
             SHOT_JUDGE_LOG.append({"index": index, "kind": kind, "model": model,
                                    "id": str(c["p"].get("id")), "verify": ans, "vector": vec, **info})
             if vec is None:
@@ -15428,6 +15453,7 @@ class VideoAdapter(selection_engine.MediaAdapter):
             selection_attempt.record_note("judge_score", winner.get("judge"))
             selection_attempt.record_note("quality", winner_quality(winner))
             selection_attempt.record_note("focus_met", bool(winner.get("verify_focus")))
+            selection_attempt.record_note("world_doubt", bool(winner.get("verify_world_doubt")))
         if (judged and judge_rejected(winner)) or (not judged and winner is not None and not screen_allowed(winner)):
             selection_attempt.record_verdict("judge", {
                 "index": index, "kind": "video", "query": query,

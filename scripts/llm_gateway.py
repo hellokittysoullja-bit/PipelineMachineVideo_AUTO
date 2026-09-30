@@ -82,6 +82,91 @@ GATEWAY_COOLDOWN_SEC = 60.0
 GATEWAY_MAX_PAUSES = 3
 
 
+# ЦЕПОЧКА ЗАПАСНЫХ МОДЕЛЕЙ ДЛЯ ТЕКСТОВЫХ ШАГОВ (30.09). Живой прогон
+# videos/99_mify: DeepSeek на шлюзе отвечал 502, и один вызов планировщика
+# или отсева по подписи висел 11-28 минут — MAX_ATTEMPTS повторов с
+# таймаутом до 240 с, переспрос, паузы шлюза по 60 с, — а замены модели не
+# было. Текстовые шаги (спецификации кадров, отсев по подписи, второй круг
+# поиска, описание кадра для генерации) теперь идут по цепочке: в каталоге
+# шлюза 30.09 из DeepSeek есть ровно две модели (v4-flash и v4-pro, обе с
+# thinkingFormat "deepseek" — рассуждение выключается тем же полем), затем
+# одна не-DeepSeek текстовая модель — другой провайдер не лежит вместе с
+# DeepSeek. Живая проверка 30.09: v4-pro и qwen3.8-max с выключенным
+# рассуждением ответили за 4-6 с. Шаг цепочки — короткий таймаут и без
+# пауз: 5xx, 429, таймаут или пустой ответ — сразу следующая модель.
+# LLM_TEXT_FALLBACK — свой список через запятую; "off" — без замены.
+TEXT_FALLBACK_CHAIN = ("ds/deepseek-v4-flash", "ds/deepseek-v4-pro", "qwen/qwen3.8-max")
+CHAIN_TIMEOUT_SEC = 60
+# Повтор внутри шага — только на обрыв соединения до ответа (сброс, отказ
+# соединения): 5xx, 429 и таймаут значат «модель сейчас не ответит», и
+# ждать её — ровно то, от чего цепочка заведена.
+CHAIN_CONNECT_ATTEMPTS = 2
+CHAIN_BACKOFF_SEC = 1.0
+
+
+def text_chain(primary):
+    """Модели для текстового шага: первичная, затем запасные без повтора."""
+    env = _env("LLM_TEXT_FALLBACK")
+    if env and env.lower() in ("off", "0", "none"):
+        return (primary,)
+    rest = tuple(m.strip() for m in env.split(",") if m.strip()) if env else TEXT_FALLBACK_CHAIN
+    return (primary,) + tuple(dict.fromkeys(m for m in rest if m != primary))
+
+
+class ChainAnswer(tuple):
+    """(ответ, usage, цена) + модель, которая ответила (.model), и из кэша ли
+    (.from_cache)."""
+    model = None
+    from_cache = False
+
+
+def chat_fallback(gw, models, content, max_tokens, estimate_prompt_tokens, *, cached=None,
+                  timeout=CHAIN_TIMEOUT_SEC, **chat_kw):
+    """Спросить модели по очереди; ответ первой ответившей.
+
+    cached(model) — ответ из кэша этой модели или None: смотрится ПЕРЕД её
+    живым вызовом, поэтому кэш первичной модели остаётся первым, а ответ
+    запасной ищется под её собственным именем.
+
+    Нехватка денег, потолок прогона и выключенный шлюз (PaymentRequired,
+    BudgetExhausted, GatewayUnavailable) — не свойство модели: поднимаются
+    сразу. Остальной отказ модели — следующая; отказала последняя — её
+    ошибка поднимается, как раньше у одиночного вызова.
+
+    gw не из этого модуля (двойник в тестах) — вызывается его chat() с теми
+    же аргументами, что вызывающий передавал раньше."""
+    last = None
+    for k, m in enumerate(models):
+        if cached is not None:
+            hit = cached(m)
+            if hit is not None:
+                out = ChainAnswer((hit, {}, 0))
+                out.model, out.from_cache = m, True
+                return out
+        try:
+            if isinstance(gw, Gateway):
+                text, u, p = gw.chat_step(m, content, max_tokens, estimate_prompt_tokens,
+                                          timeout=timeout, **chat_kw)
+            else:
+                text, u, p = gw.chat(m, content, max_tokens, estimate_prompt_tokens, **chat_kw)
+        except (PaymentRequired, BudgetExhausted, GatewayUnavailable):
+            raise
+        except GatewayError as e:
+            last = e
+            if k + 1 < len(models):
+                if isinstance(gw, Gateway):
+                    gw.note_switch()
+                print(f"  модель {m} не ответила ({str(e)[:120]}) — спрашиваю {models[k + 1]}")
+                continue
+            raise
+        out = ChainAnswer((text, u, p))
+        out.model, out.from_cache = m, False
+        if k and isinstance(gw, Gateway):
+            gw.note_fallback_answer(m)
+        return out
+    raise last or GatewayError("пустая цепочка моделей")
+
+
 class BudgetExhausted(GatewayError):
     """Вызов превысил бы потолок расходов прогона — не делается."""
 
@@ -227,6 +312,8 @@ class Gateway:
         self.waited = 0.0       # секунд, прожданных на паузах
         self.reasked = 0        # вызовов, переспрошенных после исчерпанных повторов
         self.empty_answer_reasked = 0   # переспрошено после пустого ответа (200 OK, без текста)
+        self.fallback_switches = 0      # переходов на следующую модель цепочки (chat_fallback)
+        self.fallback_answers = {}      # {модель: ответов} — ответила запасная, а не первичная
 
     @property
     def configured(self):
@@ -286,6 +373,53 @@ class Gateway:
             with self._pause_lock:
                 self.pauses = 0
             return out
+
+    def _request_fast(self, method, path, body=None, timeout=CHAIN_TIMEOUT_SEC, on_lost_body=None):
+        """Запрос шага цепочки моделей: без пауз шлюза и без долгих повторов.
+        Отказ одной модели не ставит на паузу весь шлюз — судья на другой
+        модели продолжает работать. 5xx, 429 и таймаут — GatewayError
+        сразу; обрыв соединения до ответа — ещё одна попытка."""
+        if self.dead:
+            raise GatewayUnavailable(f"шлюз выключен до конца прогона: {self.dead}")
+        data = json.dumps(body).encode("utf-8") if body is not None else None
+        req = urllib.request.Request(self.base_url + path, data=data, method=method, headers={
+            "Authorization": "Bearer " + self.api_key, "Content-Type": "application/json",
+            "User-Agent": USER_AGENT})
+        last = None
+        for attempt in range(CHAIN_CONNECT_ATTEMPTS):
+            try:
+                with self._open(req, timeout=timeout) as r:
+                    try:
+                        return json.loads(r.read().decode("utf-8"))
+                    except (http.client.HTTPException, ValueError, ConnectionError, TimeoutError) as e:
+                        # Ответ начался — скорее всего, оплачен; повтор платил бы ещё раз.
+                        if on_lost_body is not None:
+                            on_lost_body()
+                        raise GatewayError(f"ответ оборван: {type(e).__name__}")
+            except urllib.error.HTTPError as e:
+                info = self._error_info(e)
+                if e.code == 402:
+                    raise PaymentRequired(f"402 баланс ключа исчерпан ({info})")
+                raise GatewayError(f"{e.code} ({info})")
+            except TimeoutError as e:
+                raise GatewayError(f"таймаут {timeout} с ({type(e).__name__})")
+            except urllib.error.URLError as e:
+                if isinstance(getattr(e, "reason", None), TimeoutError):
+                    raise GatewayError(f"таймаут {timeout} с")
+                last = type(e).__name__
+            except (ConnectionError, OSError, http.client.HTTPException) as e:
+                last = type(e).__name__
+            if attempt + 1 < CHAIN_CONNECT_ATTEMPTS:
+                time.sleep(CHAIN_BACKOFF_SEC)
+        raise GatewayError(f"соединение не установлено: {last}")
+
+    def note_switch(self):
+        with self._lock:
+            self.fallback_switches += 1
+
+    def note_fallback_answer(self, model):
+        with self._lock:
+            self.fallback_answers[model] = self.fallback_answers.get(model, 0) + 1
 
     def _wait_pause(self, health):
         if self.dead:
@@ -408,6 +542,24 @@ class Gateway:
             return self._chat_reasked(model, content, max_tokens, estimate_prompt_tokens, temperature,
                                       timeout, reasoning)
 
+    def chat_step(self, model, content, max_tokens, estimate_prompt_tokens, temperature=0.0,
+                  timeout=CHAIN_TIMEOUT_SEC, reasoning=None):
+        """Один шаг цепочки моделей (chat_fallback): тот же вызов, что chat(),
+        но короткий — без пауз шлюза, без повторов на 5xx и таймаут, без
+        переспроса пустого ответа (пустой ответ — сразу следующая модель)."""
+        if self.dead:
+            raise GatewayUnavailable(f"шлюз выключен до конца прогона: {self.dead}")
+        if not self.configured:
+            raise GatewayError("нет LLM_GATEWAY_API_KEY")
+        with self._lock:
+            first = self._first_call.setdefault(model, threading.Lock())
+        if model in self._ratio:
+            return self._chat(model, content, max_tokens, estimate_prompt_tokens, temperature, timeout,
+                              reasoning, fast=True)
+        with first:
+            return self._chat(model, content, max_tokens, estimate_prompt_tokens, temperature, timeout,
+                              reasoning, fast=True)
+
     def _chat_reasked(self, model, content, max_tokens, estimate_prompt_tokens, temperature, timeout,
                       reasoning):
         """Пустой ответ (200 OK, но весь max_tokens ушёл на рассуждение,
@@ -438,7 +590,7 @@ class Gateway:
                               reasoning)
 
     def _chat(self, model, content, max_tokens, estimate_prompt_tokens, temperature, timeout,
-              reasoning=None):
+              reasoning=None, fast=False):
         base = self.cost(model, estimate_prompt_tokens, max_tokens)
         reserve = math.ceil(base * max(1.0, self._ratio.get(model, 1.0)))
         with self._lock:
@@ -455,8 +607,8 @@ class Gateway:
                     "messages": [{"role": "user", "content": content}]}
             if reasoning is not None:
                 body.update(reasoning_switch(getattr(self, "_thinking", {}).get(model), reasoning))
-            r = self._request("POST", "/chat/completions", body, timeout=timeout,
-                              on_lost_body=lost_body)
+            r = (self._request_fast if fast else self._request)(
+                "POST", "/chat/completions", body, timeout=timeout, on_lost_body=lost_body)
         except PaymentRequired as e:
             self.dead = str(e)
             raise
@@ -545,4 +697,6 @@ class Gateway:
                 "lost_bodies": self.lost_bodies, "empty_answers": self.empty_answers,
                 "spent": self.spent, "spend_cap": self.spend_cap, "dead": self.dead,
                 "pause_wait_sec": round(self.waited, 1), "reasked": self.reasked,
-                "empty_answer_reasked": self.empty_answer_reasked}
+                "empty_answer_reasked": self.empty_answer_reasked,
+                "fallback_switches": self.fallback_switches,
+                "fallback_answers": dict(self.fallback_answers)}

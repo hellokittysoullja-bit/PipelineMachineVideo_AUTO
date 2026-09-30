@@ -178,22 +178,35 @@ def parse_b(ans, n):
     return {int(k) for k in drop if str(k).strip().isdigit() and 1 <= int(k) <= n}
 
 
-def _cache_path(cache_dir, text):
-    key = hashlib.sha256((MODEL + "\n" + text).encode("utf-8")).hexdigest()[:24]
+def _cache_path(cache_dir, text, model=MODEL):
+    """Ключ — модель и полный текст вопроса. У первичной модели ключ тот же,
+    что до цепочки запасных (30.09): её кэш остаётся в силе; ответ запасной
+    лежит под её собственным именем."""
+    key = hashlib.sha256((model + "\n" + text).encode("utf-8")).hexdigest()[:24]
     return os.path.join(cache_dir, key + ".json")
 
 
 def _ask(gw, text, cache_dir):
-    """(ответ, цена, из кэша ли). Кэш — по полному тексту вопроса и модели."""
-    path = _cache_path(cache_dir, text) if cache_dir else None
-    if path and os.path.exists(path):
-        try:
-            with open(path, encoding="utf-8") as f:
-                return json.load(f)["answer"], 0, True
-        except (OSError, ValueError, KeyError):
-            pass
-    ans, _usage, price = gw.chat(MODEL, [{"type": "text", "text": text}], MAX_TOKENS, EST_PROMPT_TOKENS,
-                                 reasoning=False, timeout=240)
+    """(ответ, цена, из кэша ли). Кэш — по полному тексту вопроса и модели.
+    Модели — цепочка llm_gateway.text_chain(MODEL): DeepSeek на шлюзе
+    лежит — отвечает запасная, без минутных ожиданий."""
+    import llm_gateway
+
+    def cached(model):
+        cp = _cache_path(cache_dir, text, model) if cache_dir else None
+        if cp and os.path.exists(cp):
+            try:
+                with open(cp, encoding="utf-8") as f:
+                    return json.load(f)["answer"]
+            except (OSError, ValueError, KeyError):
+                return None
+        return None
+    got = llm_gateway.chat_fallback(gw, llm_gateway.text_chain(MODEL), [{"type": "text", "text": text}],
+                                    MAX_TOKENS, EST_PROMPT_TOKENS, cached=cached, reasoning=False)
+    ans, _usage, price = got
+    if got.from_cache:
+        return ans, 0, True
+    path = _cache_path(cache_dir, text, got.model) if cache_dir else None
     if path:
         # Запись — по возможности, как у судьи (shot_judge._cache_write):
         # раньше OSError здесь (кончилось место на диске) выбрасывал уже
@@ -201,7 +214,7 @@ def _ask(gw, text, cache_dir):
         # временного файла своё у потока: два вопроса слота пишутся
         # одновременно.
         import shot_judge
-        shot_judge._cache_write(path, {"answer": ans}, readable=True)
+        shot_judge._cache_write(path, {"answer": ans, "model": got.model}, readable=True)
     return ans, price, False
 
 

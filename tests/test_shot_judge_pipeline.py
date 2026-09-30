@@ -305,9 +305,18 @@ def test_spectators_on_background_are_rejected_in_a_historical_world(tmp_path, m
     в shot_judge.claims_vector."""
     info, spec = _spectators_case(tmp_path, monkeypatch)
     assert ps.judge_candidates(0, "photo", "x", "y", info, spec)
-    assert info[1]["verify"] == "veto"
+    # 30.09: все обязательные пункты «да» — отказ за фон стал штрафом первым
+    # элементом; кадр своего мира с чистым фоном всё равно выше.
+    assert info[1]["verify"][0] == 0.0 and info[1]["verify_world_doubt"]
     winner = ps._score_and_pick(info)[0]
     assert winner["p"]["id"] == "c0" and ps.judge_approved(winner)
+    info2, spec2 = _spectators_case(tmp_path, monkeypatch)
+    import shot_judge
+    monkeypatch.setattr(shot_judge, "verify_claims", _fake_verify({
+        info2[0]["path"]: _ans({"c1": "yes", "c2": "no"}, world=(True, False)),
+        info2[1]["path"]: _ans({"c1": "yes", "c2": "unsure"}, world=(True, True))}))
+    assert ps.judge_candidates(0, "photo", "x", "y", info2, spec2)
+    assert info2[1]["verify"] == "veto", "не все пункты «да» — прежний отказ"
 
 
 def test_spectators_are_only_a_penalty_under_the_world_breaker(tmp_path, monkeypatch):
@@ -329,8 +338,17 @@ def test_main_subject_out_of_world_is_rejected(tmp_path, monkeypatch):
         paths[0]: _ans({"c1": "yes"}, world=(False, False), why="modern tactical knife"),
         paths[1]: _ans({"c1": "unsure"}, medium="object", world=(True, False))}))
     assert ps.judge_candidates(0, "photo", "x", "y", info)
-    assert info[0]["verify"] == "veto" and not ps.judge_approved(info[0])
+    # 30.09: единственный пункт «да» — «не из мира» стал штрафом, а не
+    # отказом; кадр своего мира (даже «сомневаюсь») всё равно выше.
+    assert info[0]["verify"][0] == 0.0 and info[0]["verify_world_doubt"]
     assert ps._score_and_pick(info)[0]["p"]["id"] == "c1"
+    two = {"focus": "a dagger", "claims": [{"id": "c1", "text": "a dagger", "tier": "must"},
+                                          {"id": "c2", "text": "held in a palm", "tier": "must"}]}
+    monkeypatch.setattr(sj, "verify_claims", _fake_verify({
+        paths[0]: _ans({"c1": "yes", "c2": "no"}, world=(False, False), why="modern tactical knife"),
+        paths[1]: _ans({"c1": "unsure", "c2": "no"}, medium="object", world=(True, False))}))
+    assert ps.judge_candidates(0, "photo", "x", "y", info, two)
+    assert info[0]["verify"] == "veto" and not ps.judge_approved(info[0])
 
 
 def test_unsure_is_half_and_asked_once(tmp_path, monkeypatch):
@@ -418,8 +436,10 @@ def test_world_decision_is_fixed_for_the_whole_slot(tmp_path, monkeypatch):
     monkeypatch.setitem(ps._SHOT_JUDGE_STATE, "world_votes",
                         {k: True for k in range(1, ps.WORLD_BREAKER_MIN_SLOTS)})
     monkeypatch.setattr(sj, "verify_claims", _fake_verify(
-        {p: _ans({"c1": "yes"}, world=(False, False)) for p in paths}))
-    assert ps.judge_candidates(0, "photo", "x", "y", info)
+        {p: _ans({"c1": "yes", "c2": "unsure"}, world=(False, False)) for p in paths}))
+    spec = {"focus": "x", "claims": [{"id": "c1", "text": "a", "tier": "must"},
+                                     {"id": "c2", "text": "b", "tier": "must"}]}
+    assert ps.judge_candidates(0, "photo", "x", "y", info, spec)
     assert {c["verify"] for c in info} == {"veto"}, "все кадры слота судятся одним решением"
     assert not ps.world_veto_active(), "голос слота учтён уже после проверки"
 

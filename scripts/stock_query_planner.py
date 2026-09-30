@@ -284,21 +284,42 @@ def _cache_path(cache_dir, model, prompt):
     return os.path.join(cache_dir, key + ".txt")
 
 
+# Таймаут шага цепочки моделей для главы: ответ длинный (до MAX_TOKENS
+# выхода, DeepSeek по умолчанию рассуждает), и общие 60 с цепочки
+# (llm_gateway.CHAIN_TIMEOUT_SEC) могли бы обрезать законный ответ — время
+# ответа на главу не замерено. Зависание 11-28 минут в videos/99_mify
+# складывалось из повторов и пауз, а не из одного ожидания: 180 с без
+# повторов его закрывают.
+CHAIN_TIMEOUT_SEC = 180
+
+
 def ask(gateway, model, prompt, cache_dir):
-    """Ответ модели на главу; кэш по содержимому вопроса — повторный прогон
-    не платит. Пустой ответ в кэш не пишется."""
-    cp = _cache_path(cache_dir, model, prompt)
-    if os.path.exists(cp):
-        with open(cp, encoding="utf-8") as f:
-            return f.read(), True
-    text, _u, _p = gateway.chat(model, [{"type": "text", "text": prompt}], MAX_TOKENS, EST_PROMPT_TOKENS)
+    """(ответ, из кэша ли, модель) на главу; кэш по содержимому вопроса и
+    модели — повторный прогон не платит. Пустой ответ в кэш не пишется.
+    Модели — цепочка llm_gateway.text_chain(model): кэш первичной смотрится
+    первым, ответ запасной кэшируется под её именем."""
+    import llm_gateway
+
+    def cached(m):
+        cp = _cache_path(cache_dir, m, prompt)
+        if os.path.exists(cp):
+            with open(cp, encoding="utf-8") as f:
+                return f.read()
+        return None
+    got = llm_gateway.chat_fallback(gateway, llm_gateway.text_chain(model),
+                                    [{"type": "text", "text": prompt}], MAX_TOKENS, EST_PROMPT_TOKENS,
+                                    cached=cached, timeout=CHAIN_TIMEOUT_SEC)
+    text = got[0]
+    if got.from_cache:
+        return text, True, got.model
     if text.strip():
+        cp = _cache_path(cache_dir, got.model, prompt)
         os.makedirs(cache_dir, exist_ok=True)
         tmp = cp + ".part"
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(text)
         os.replace(tmp, cp)
-    return text, False
+    return text, False, got.model
 
 
 def ask_chapter(gateway, model, packet, setting, cache_dir):
@@ -309,13 +330,15 @@ def ask_chapter(gateway, model, packet, setting, cache_dir):
     отменяет первый ответ."""
     import llm_gateway
     prompt = render_spec_prompt(packet, setting)
-    raw, hit = ask(gateway, model, prompt, cache_dir)
+    raw, hit, used = ask(gateway, model, prompt, cache_dir)
     got = parse_spec(raw, packet)
+    for spec in got.values():
+        spec["model"] = used
     if len(got) < len(packet["units"]):
         try:
-            raw2, _hit2 = ask(gateway, model, prompt + RETRY_NOTE, cache_dir)
+            raw2, _hit2, used2 = ask(gateway, model, prompt + RETRY_NOTE, cache_dir)
             for n, spec in parse_spec(raw2, packet).items():
-                got.setdefault(n, spec)
+                got.setdefault(n, dict(spec, model=used2))
         except llm_gateway.PaymentRequired:
             raise
         except llm_gateway.GatewayError:
@@ -388,7 +411,9 @@ def plan_episode(video_dir, blocks, gateway, model=DEFAULT_MODEL, verbose=True, 
         got, hit = res
         for u in packet["units"]:
             key = shot_planner_llm.unit_key(u["text"])
-            if not hit and key in old_units:
+            if not hit and key in old_units and old_units[key].get("model", model) == model:
+                # Спецификация запасной модели (цепочка llm_gateway) прежним
+                # планом не сохраняется: первичная ответила — берётся её ответ.
                 units[key] = old_units[key]
                 kept += 1
                 continue
@@ -423,6 +448,11 @@ def needs_planning(video_dir, blocks, model=DEFAULT_MODEL):
     if plan.get("sig") != plan_signature(model, setting):
         return True
     have = plan.get("units") or {}
+    if any(isinstance(v, dict) and v.get("model", model) != model for v in have.values()):
+        # Часть фраз разобрала запасная модель (первичная лежала): следующий
+        # прогон даёт первичной шанс. Её кэш по-прежнему смотрится первым,
+        # лежит она и сейчас — ответ запасной берётся из её кэша бесплатно.
+        return True
     return any(shot_planner_llm.unit_key(b.get("text") or "") not in have
                for b in blocks if (b.get("text") or "").strip())
 

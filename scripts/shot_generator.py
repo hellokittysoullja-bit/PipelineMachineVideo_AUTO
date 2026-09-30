@@ -153,27 +153,41 @@ def describe(gateway, model, *, phrase, spec, brief, card, cache_dir=None):
     world = f"\nThe film's world: {world_card.judge_setting(card)}." if window else ""
     text = DESCRIBE_PROMPT.format(phrase=phrase or "", focus=spec.get("focus") or brief or "",
                                   musts=_musts(spec), world=world)
-    key = hashlib.sha256(f"{DESCRIBE_VERSION}|{model}|{text}".encode("utf-8")).hexdigest()[:20]
-    cp = os.path.join(cache_dir, "describe_" + key + ".json") if cache_dir else None
-    if cp and os.path.exists(cp):
-        try:
-            return json.load(open(cp, encoding="utf-8"))["text"], {"origin": "model", "cache_hit": True}
-        except Exception:  # noqa: BLE001 — битый кэш: спросить заново
-            pass
+    import llm_gateway
+
+    def cache_path(m):
+        # Ключ с моделью, которая ответила: у первичной он прежний, ответ
+        # запасной (цепочка llm_gateway.text_chain) лежит под её именем.
+        key = hashlib.sha256(f"{DESCRIBE_VERSION}|{m}|{text}".encode("utf-8")).hexdigest()[:20]
+        return os.path.join(cache_dir, "describe_" + key + ".json") if cache_dir else None
+
+    def cached(m):
+        cp = cache_path(m)
+        if cp and os.path.exists(cp):
+            try:
+                return json.load(open(cp, encoding="utf-8"))["text"]
+            except Exception:  # noqa: BLE001 — битый кэш: спросить заново
+                return None
+        return None
     try:
-        ans, _u, price = gateway.chat(model, [{"type": "text", "text": text}], 4000, 600)
+        got = llm_gateway.chat_fallback(gateway, llm_gateway.text_chain(model),
+                                        [{"type": "text", "text": text}], 4000, 600, cached=cached)
     except Exception as e:  # noqa: BLE001 — сбой мозга: бриф вместо описания
         return fallback, {"origin": "brief", "error": f"{type(e).__name__}: {str(e)[:200]}"}
+    if got.from_cache:
+        return got[0], {"origin": "model", "cache_hit": True, "model": got.model}
+    ans, _u, price = got
     desc = " ".join((ans or "").replace('"', " ").split())
     if not desc:
         return fallback, {"origin": "brief", "error": "пустой ответ"}
+    cp = cache_path(got.model)
     if cp:
         os.makedirs(cache_dir, exist_ok=True)
         tmp = cp + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump({"text": desc, "model": model}, f, ensure_ascii=False)
+            json.dump({"text": desc, "model": got.model}, f, ensure_ascii=False)
         os.replace(tmp, cp)
-    return desc, {"origin": "model", "cost": price}
+    return desc, {"origin": "model", "cost": price, "model": got.model}
 
 
 def cache_key(model, size, prompt, variant=0):
