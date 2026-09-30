@@ -1,207 +1,235 @@
 #!/usr/bin/env python3
-"""Сборка final.mp4 из frames/NNN.png и озвучки.
+"""Сборка final.mp4 — на рендере старого генератора (render_core), а не на
+своём упрощённом.
 
-1. Тайминг: frame_timing.frame_durations (alignment, иначе оценка).
-2. Кадр вписывается в 1920x1080 ЦЕЛИКОМ (подписи у края не обрезаются):
-   пустые поля — размытая копия самого кадра.
-3. Каждый кадр — медленный наезд или отъезд (5%, по центру) на ВСЮ длину
-   клипа: зум зависит от on/frames, а не от инкремента (ЧАСТЬ 6 исходного
-   пайплайна — инкремент упирается в максимум и камера встаёт).
-4. Клипы склеиваются жёсткими резами точно по кадровой сетке (ошибка
-   округления переносится на следующий клип и не копится).
-5. Звук: голос (audio_fixed.flac, если fix_pauses.py отработал) + музыка из
-   assets/music (если есть) с уровнем от ЗАМЕРА громкости обеих дорожек и
-   приглушением под голос; итог — loudnorm -14 LUFS.
-6. Рядом пишется final.srt (субтитры по тем же стартам) для загрузки на YouTube.
+Что делает старая цепочка (код render_core, дословно из pipeline_smart.py):
+  * тайминг — PHRASE LOCK: рез ровно на начале следующей фразы по
+    посимвольному alignment (load_alignment_onsets, с картой вырезанных пауз
+    fix_pauses.py и смещениями секций); не сошлось — оценка по реальной
+    длине речи блоков (block_durations) и громко в логе;
+  * камера — choose_motion_mode (статика, дрифт, отъезд, наезд, панорама) по
+    стадии рассказа (camera_language) и защита от повтора пары
+    (режим, направление) — pick_direction;
+  * клип — kenburns() (вписывание 16:9, zoompan на всю длину, проверка клипа
+    ffprobe и повторы рендера), переходы — xfade_chain_chunked, хвост —
+    pad_to_length;
+  * звук — process_voice (срез низов, EQ, де-эссер, компрессор), музыка с
+    уровнем по замеру и приглушением под голос, атмосфера, SFX-режиссёр,
+    двухпроходный loudnorm + лимитер, audio_qc готового файла;
+  * субтитры (2 строки, ~42 символа) и главы YouTube.
 
-Недостающий кадр (генерация не удалась) заменяется соседним и попадает в
-отчёт — ролик не собирается с чёрной дырой.
+Что своё (природа рисованного кадра):
+  * грейд film_look выключен (FILM_LOOK=0, см. render_core) — он тёмный
+    киношный и портит белый лист;
+  * схема и кадр с подписью всегда идут спокойным движением (micro_drift):
+    подписи должны читаться, а наезд уводит их за край;
+  * кадр, который генератор пометил rejected/failed, на экран не идёт — его
+    время получает предыдущий проверенный кадр (NEVER_SHOW_KNOWN_BAD
+    старого генератора: «ни карточек, ни повторов»).
+
+Коды возврата как у старого рендера: 0 — чисто, 2 — собран с замечаниями,
+1 — не собран.
 
 Usage: python scripts/assemble_frames.py <video_dir>"""
-import glob
-import hashlib
 import json
 import os
-import re
 import subprocess
 import sys
-import threading
 from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import channel  # noqa: E402
-import frame_timing  # noqa: E402
-import script_parser  # noqa: E402
 
-FPS, W, H = 24, 1920, 1080
-ZOOM = 0.05
-FIT_SAFE = 0.96            # кадр чуть меньше холста: наезд 5% не срезает подписи у края
-MUSIC_GAP_LU = 18.0        # музыка тише голоса на 18 LU (фон, не спорит со словами)
-LOUDNORM = "loudnorm=I=-14:TP=-1.5:LRA=11"
-CRF = "20"
+EXIT_OK, EXIT_FAILED, EXIT_WARN = 0, 1, 2
+CALM_KINDS = ("diagram", "caption")
+CALM_MODE = "micro_drift"
 
 
-def run(cmd):
-    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
-    if r.returncode != 0:
-        raise RuntimeError(f"ffmpeg: {' '.join(cmd[:6])}...\n{r.stderr[-1500:]}")
-    return r
+def load_plan(video_dir):
+    try:
+        return {f["index"]: f for f in json.load(open(os.path.join(video_dir, "media_plan", "frame_plan.json"),
+                                                        encoding="utf-8"))["frames"]}
+    except (OSError, ValueError, KeyError):
+        return {}
 
 
-def media_duration(path):
-    r = run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path])
-    return float(r.stdout.strip())
+def load_statuses(video_dir):
+    try:
+        return {r["index"]: r.get("status") for r in json.load(
+            open(os.path.join(video_dir, "media_plan", "frames_report.json"), encoding="utf-8"))["frames"]}
+    except (OSError, ValueError, KeyError):
+        return {}
 
 
-def find_audio(video_dir):
-    fixed = os.path.join(video_dir, "audio_fixed.flac")
-    if os.path.exists(fixed):
-        return fixed, True
-    for name in ("audio.mp3", "audio.wav", "audio.flac", "audio.m4a"):
-        p = os.path.join(video_dir, name)
-        if os.path.exists(p):
-            return p, False
-    return None, False
+def kept_frames(video_dir, n):
+    """Индексы блоков, чей кадр идёт на экран, и отчёт о поглощённых."""
+    statuses = load_statuses(video_dir)
+    kept, absorbed = [], []
+    for i in range(n):
+        path = os.path.join(video_dir, "frames", f"{i + 1:03d}.png")
+        st = statuses.get(i)
+        if not (os.path.exists(path) and os.path.getsize(path) > 0):
+            absorbed.append({"index": i, "reason": "no_frame"})
+        elif st in ("rejected", "failed"):
+            absorbed.append({"index": i, "reason": st})
+        else:
+            kept.append(i)
+    return kept, absorbed
 
 
-def fit_canvas(src, dst):
-    """Вписать кадр в 16:9 целиком; поля — размытая растянутая копия."""
-    from PIL import Image, ImageFilter, ImageOps
-    im = ImageOps.exif_transpose(Image.open(src)).convert("RGB")
-    bg = im.resize((W, H)).filter(ImageFilter.GaussianBlur(40))
-    s = min(W / im.width, H / im.height) * FIT_SAFE
-    fg = im.resize((max(1, round(im.width * s)), max(1, round(im.height * s))), Image.LANCZOS)
-    bg.paste(fg, ((W - fg.width) // 2, (H - fg.height) // 2))
-    bg.save(dst, "PNG")
+def main(video_dir):
+    channel.load_env()
+    import camera_language
+    import feature_flags
+    import render_core as rc
+    import script_parser
+    import shot_brief_director as sbd
 
-
-def quantize(durs):
-    out, carry = [], 0.0
-    for d in durs:
-        target = d + carry
-        q = max(1, round(target * FPS)) / FPS
-        carry = target - q
-        out.append(q)
-    return out
-
-
-def clip(canvas, out, dur, zoom_in):
-    frames = max(1, round(dur * FPS))
-    z = f"1.0+{ZOOM}*on/{frames}" if zoom_in else f"{1 + ZOOM}-{ZOOM}*on/{frames}"
-    vf = (f"scale={W * 2}:{H * 2},zoompan=z='{z}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
-          f":d={frames}:s={W}x{H}:fps={FPS},format=yuv420p")
-    tmp = out + ".tmp.mp4"
-    run(["ffmpeg", "-y", "-v", "error", "-framerate", str(FPS), "-loop", "1", "-i", canvas,
-         "-vf", vf, "-frames:v", str(frames), "-c:v", "libx264", "-preset", "medium", "-crf", CRF,
-         "-r", str(FPS), tmp])
-    os.replace(tmp, out)
-
-
-def resolve_frames(video_dir, n):
-    paths = [os.path.join(video_dir, "frames", f"{i + 1:03d}.png") for i in range(n)]
-    have = [p if os.path.exists(p) and os.path.getsize(p) > 0 else None for p in paths]
-    if not any(have):
-        sys.exit("Нет ни одного кадра в frames/ — сначала frame_generator.py")
-    missing = [i for i, p in enumerate(have) if p is None]
-    for i in missing:                       # сосед: предыдущий, иначе следующий
-        prev = next((have[j] for j in range(i - 1, -1, -1) if have[j]), None)
-        have[i] = prev or next(have[j] for j in range(i + 1, n) if have[j])
-    return have, missing
-
-
-def loudness(path):
-    r = subprocess.run(["ffmpeg", "-v", "info", "-i", path, "-af", "ebur128", "-f", "null", "-"],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace")
-    m = re.findall(r"I:\s*(-?[\d.]+) LUFS", r.stderr)
-    return float(m[-1]) if m else None
-
-
-def music_file():
-    files = sorted(glob.glob(os.path.join(channel.ROOT, "assets", "music", "*")))
-    files = [f for f in files if f.lower().endswith((".mp3", ".flac", ".wav", ".ogg", ".m4a"))]
-    return files[0] if files else None
-
-
-def srt_time(t):
-    ms = int(round(t * 1000))
-    return f"{ms // 3600000:02d}:{ms // 60000 % 60:02d}:{ms // 1000 % 60:02d},{ms % 1000:03d}"
-
-
-def write_srt(path, blocks, starts, durs):
-    with open(path, "w", encoding="utf-8") as f:
-        for i, (b, s, d) in enumerate(zip(blocks, starts, durs), 1):
-            f.write(f"{i}\n{srt_time(s)} --> {srt_time(s + d)}\n{b['text']}\n\n")
-
-
-def main():
-    video_dir = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else ".")
+    video_dir = os.path.abspath(video_dir)
+    rc.configure(video_dir)
     blocks = script_parser.parse_blocks(os.path.join(video_dir, "script.txt"))
-    audio, fixed = find_audio(video_dir)
-    if not audio:
-        sys.exit("Нет озвучки (audio.mp3) в папке ролика")
-    total = media_duration(audio)
-    starts, durs, treport = frame_timing.frame_durations(video_dir, blocks, total, fixed_audio=fixed)
-    durs = quantize(durs)
-    frames, missing = resolve_frames(video_dir, len(blocks))
-    print(f"Кадров: {len(blocks)}, аудио {total:.1f} с, тайминг: {treport['source']} "
-          f"(найдено в alignment {treport['found_in_alignment']}/{treport['blocks']})"
-          + (f", заменены соседом: {[i + 1 for i in missing]}" if missing else ""))
+    if not rc.AUDIO_FILE or not os.path.exists(rc.AUDIO_FILE):
+        print("Нет озвучки (audio.mp3) в папке ролика")
+        return EXIT_FAILED
+    rc.check_ffmpeg_filters()
+    rc.audio_qc(rc.AUDIO_FILE)
+    total = rc.get_media_duration(rc.AUDIO_FILE)
 
-    work = os.path.join(video_dir, "temp_render")
-    os.makedirs(work, exist_ok=True)
+    kept, absorbed = kept_frames(video_dir, len(blocks))
+    if not kept:
+        print("Ни одного проверенного кадра — сборка остановлена (ролик из брака не собирается).")
+        return EXIT_FAILED
+    for a in absorbed:
+        print(f"  [{a['index'] + 1}] кадра нет ({a['reason']}) — время отдано соседнему кадру")
 
-    def render(i):
-        src = frames[i]
-        h = hashlib.md5(open(src, "rb").read()).hexdigest()[:12]
-        key = hashlib.md5(f"{h}|{durs[i]:.5f}|{i % 2}|{ZOOM}|{FIT_SAFE}|{FPS}|{CRF}".encode()).hexdigest()[:16]
-        out = os.path.join(work, f"clip_{i:04d}_{key}.mp4")
-        if not os.path.exists(out):
-            canvas = os.path.join(work, f"canvas_{h}.png")
-            if not os.path.exists(canvas):
-                # у заменённого кадра картинка общая с соседом: два потока пишут
-                # один холст — пишем во временный файл потока и атомарно подменяем
-                tmp = f"{canvas}.{threading.get_ident()}.png"
-                fit_canvas(src, tmp)
-                os.replace(tmp, canvas)
-            clip(canvas, out, durs[i], zoom_in=(i % 2 == 0))
-        return out
+    # --- тайминг: онсеты фраз по alignment (PHRASE LOCK), иначе оценка
+    real_weights = rc.load_alignment_weights(blocks)
+    onsets = rc.load_alignment_onsets(blocks)
+    if onsets:
+        sub_starts = [0.0] + list(onsets[1:])
+        timing = "phrase_lock"
+    else:
+        f = rc.ALIGNMENT_ONSET_FAILURE or {"reason": "alignment не найден"}
+        print(f"  ВНИМАНИЕ: PHRASE LOCK ВЫКЛЮЧЕН — {f['reason']}. Кадры по ОЦЕНКЕ длины речи.")
+        base = rc.block_durations(blocks, total, real_weights=real_weights)
+        sub_starts, acc = [], 0.0
+        for d in base:
+            sub_starts.append(acc)
+            acc += d
+        timing = "estimate"
+    sub_baseline = [(sub_starts[i + 1] if i + 1 < len(sub_starts) else total) - sub_starts[i]
+                    for i in range(len(sub_starts))]
+
+    kb = [blocks[i] for i in kept]
+    sections = [b["section"] for b in kb]
+    kept_onsets = [0.0] + [sub_starts[i] for i in kept[1:]]
+    plan_tr = rc.effective_transition_plan(rc.plan_transitions(sections, kb), sections)
+    durs = rc.phrase_locked_durations(kept_onsets, total, plan_tr)
+    if not durs:
+        # старты кадров не дали монотонной шкалы — длительности по стартам, по кадровой сетке
+        ends = kept_onsets[1:] + [total]
+        durs = rc.quantize_durations_to_frames([max(1.0 / rc.FPS, e - s) for s, e in zip(kept_onsets, ends)])
+    print(f"Тайминг: {timing}; кадров на экране {len(kept)} из {len(blocks)}, "
+          f"средний {sum(durs) / len(durs):.1f} с")
+
+    # Карта фраз — тот же формат, что пишет старый рендер: по ней
+    # verify_timing.py меряет резы в пикселях готового файла против онсетов
+    # речи. Только кадры на экране: у поглощённого кадра реза нет.
+    timeline = {"locked": timing == "phrase_lock", "fps": rc.FPS, "audio_total_sec": total,
+                "blocks": [{"index": i, "section": blocks[i]["section"], "text": blocks[i]["text"][:120],
+                            "speech_onset_sec": (kept_onsets[k] if timing == "phrase_lock" else None),
+                            "duration_sec": durs[k]} for k, i in enumerate(kept)]}
+    os.makedirs(os.path.join(video_dir, "media_plan"), exist_ok=True)
+    with open(os.path.join(video_dir, "media_plan", "phrase_timeline.json"), "w", encoding="utf-8") as f:
+        json.dump(timeline, f, ensure_ascii=False, indent=2)
+
+    rc.write_subtitles(video_dir, blocks, sub_starts, sub_baseline, real_weights=real_weights)
+    rc.write_chapters(video_dir, blocks, sub_starts)
+
+    # --- камера и клипы
+    plan = load_plan(video_dir)
+    stages = sbd.arc_stages(video_dir)
+    zoom_hist, zoom_pair_hist, pan_hist, jobs = [], [], [], []
+    for k, i in enumerate(kept):
+        b, photo = blocks[i], os.path.join(video_dir, "frames", f"{i + 1:03d}.png")
+        is_section_start = k == 0 or kb[k - 1]["section"] != b["section"]
+        photo_hash, zi_cand, pd_cand = rc.kb_hash_choices(photo)
+        stage = stages.get(" ".join(b["text"].split()))
+        kind = (plan.get(i) or {}).get("kind")
+        mode = CALM_MODE if kind in CALM_KINDS else rc.choose_motion_mode(
+            b, is_section_start, photo_hash, arc_stage=stage)
+        stage_zi = camera_language.stage_zoom_in(stage) if stage and feature_flags.enabled("CAMERA_LANGUAGE") else None
+        want = zi_cand if stage_zi is None else stage_zi
+        if feature_flags.enabled("CAMERA_LANGUAGE"):
+            zoom_in = camera_language.pick_direction(zoom_pair_hist, mode, want, max_repeat=2)
+        else:
+            zoom_in = rc.pick_no_repeat(zoom_hist, want, [True, False], max_repeat=2)
+        pan_dir = rc.pick_no_repeat(pan_hist, pd_cand, rc.PAN_DIRECTIONS, max_repeat=2)
+        out = os.path.join(rc.TEMP_FOLDER, f"clip_{k:04d}.mp4")
+        jobs.append((k, i, photo, out, durs[k], b["section"], mode, zoom_in, pan_dir))
+
+    def render(job):
+        k, i, photo, out, d, section, mode, zoom_in, pan_dir = job
+        try:
+            return rc.kenburns(photo, out, d, zoom_in=zoom_in, pan_dir=pan_dir, section=section, motion_mode=mode)
+        except Exception as e:  # noqa: BLE001 — сбой одного клипа фиксируется, сборка решает ниже
+            print(f"  [{i + 1}] сбой рендера: {type(e).__name__}: {e}")
+            return False
 
     workers = int(os.environ.get("RENDER_WORKERS", str(max(1, (os.cpu_count() or 2) - 1))))
     with ThreadPoolExecutor(workers) as ex:
-        clips = list(ex.map(render, range(len(blocks))))
-
-    lst = os.path.join(work, "concat.txt")
-    with open(lst, "w", encoding="utf-8") as f:
-        f.writelines(f"file '{c}'\n" for c in clips)
-    video = os.path.join(work, "video.mp4")
-    run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", lst, "-c", "copy", video])
-
-    music = music_file()
-    final = os.path.join(video_dir, "final.mp4")
-    if music:
-        lv, lm = loudness(audio), loudness(music)
-        gain = max(-40.0, min(6.0, (lv - MUSIC_GAP_LU - lm))) if lv is not None and lm is not None else -20.0
-        af = (f"[2:a]aloop=loop=-1:size=2e9,atrim=0:{total:.3f},volume={gain:.2f}dB[m];"
-              f"[1:a]asplit=2[v][sc];[m][sc]sidechaincompress=threshold=0.05:ratio=4:attack=20:release=400[md];"
-              f"[v][md]amix=inputs=2:duration=first:normalize=0,{LOUDNORM}[a]")
-        cmd = ["ffmpeg", "-y", "-v", "error", "-i", video, "-i", audio, "-i", music,
-               "-filter_complex", af, "-map", "0:v", "-map", "[a]"]
-        print(f"Музыка: {os.path.basename(music)}, уровень {gain:+.1f} дБ (замер: голос {lv}, музыка {lm} LUFS)")
-    else:
-        cmd = ["ffmpeg", "-y", "-v", "error", "-i", video, "-i", audio, "-af", LOUDNORM,
-               "-map", "0:v", "-map", "1:a"]
-    run(cmd + ["-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-t", f"{total:.3f}",
-               "-movflags", "+faststart", final])
-    cum = [sum(durs[:i]) for i in range(len(durs))]     # старты по той же кадровой сетке, что и видео
-    write_srt(os.path.join(video_dir, "final.srt"), blocks, cum, durs)
-    real = media_duration(final)
-    report = {"frames": len(blocks), "missing_replaced": [i + 1 for i in missing], "timing": treport,
-              "audio_sec": round(total, 3), "video_sec": round(real, 3), "music": music}
+        results = list(ex.map(render, jobs))
+    failed = [jobs[n][1] + 1 for n, ok in enumerate(results) if not ok]
+    # Формат старого рендера (index/status по каждому блоку): его читают
+    # segment_report.py и прочие отчёты. Первая версия писала свой формат, и
+    # отчёт по готовому файлу засчитал все клипы упавшими.
+    clips_m = {j[1]: {"index": j[1], "status": "ok" if r else "failed", "path": j[3],
+                      "dur": round(j[4], 4), "motion_mode": j[6]} for j, r in zip(jobs, results)}
+    for a in absorbed:
+        clips_m[a["index"]] = {"index": a["index"], "status": "absorbed", "reason": a["reason"]}
+    manifest = {"total_blocks": len(blocks), "ok": sum(1 for r in results if r), "timing": timing,
+                "missing": [a["index"] for a in absorbed if a["reason"] == "no_frame"],
+                "clips": [clips_m[i] for i in sorted(clips_m)]}
     os.makedirs(os.path.join(video_dir, "media_plan"), exist_ok=True)
-    with open(os.path.join(video_dir, "media_plan", "assemble_report.json"), "w", encoding="utf-8") as f:
-        json.dump(report, f, ensure_ascii=False, indent=1)
-    print(f"Готово. Файл: {final} ({real:.1f} с)")
+    with open(os.path.join(video_dir, "media_plan", "render_manifest.json"), "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=1)
+    if failed:
+        print(f"СТОП: клипы не собраны {failed} — final.mp4 НЕ собирается "
+              f"(перезапуск достроит только их, остальное из кэша).")
+        return EXIT_FAILED
+
+    clips = [j[3] for j in jobs]
+    merged = os.path.join(rc.TEMP_FOLDER, "merged.mp4")
+    ok, _xt = rc.xfade_chain_chunked(clips, durs, sections, merged, rc.TEMP_FOLDER, blocks=kb)
+    if not ok:
+        print("Склейка переходами не удалась — финал не собран.")
+        return EXIT_FAILED
+    merged, _pad_gap = rc.pad_to_length(merged, total, rc.TEMP_FOLDER)
+
+    # --- звук: та же цепочка, что в старом рендере
+    hook_end, final_start = rc.section_audio_bounds(blocks, sub_starts, total)
+    voice = rc.process_voice(rc.AUDIO_FILE, os.path.join(rc.TEMP_FOLDER, "voice_processed.wav"))
+    premix = rc.build_episode_audio_layers(voice, video_dir, rc.TEMP_FOLDER, blocks, sub_starts, real_weights,
+                                           total, hook_end, final_start, phrase_locked=bool(onsets))
+    stats = rc.measure_loudnorm_stats(premix)
+    af = rc.build_master_af(stats, max(0.0, total - 2.0), 0.05)
+    tmp = rc.render_tmp_path(rc.OUTPUT_FILE)
+    frames_target = min(round(total * rc.FPS), round(rc.get_media_duration(merged) * rc.FPS))
+    r = subprocess.run(["ffmpeg", "-y", "-i", merged, "-i", premix, "-t", f"{total:.3f}", "-af", af,
+                        "-c:v", "copy", "-vframes", str(frames_target), "-c:a", "aac", "-b:a", "192k",
+                        "-ar", "48000", "-movflags", "+faststart", tmp],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       timeout=max(180, total))
+    if r.returncode != 0:
+        print("Финальный мукс:", r.stderr[-400:])
+        rc.finalize_render(tmp, rc.OUTPUT_FILE, False)
+        return EXIT_FAILED
+    rc.finalize_render(tmp, rc.OUTPUT_FILE, True)
+    rc.audio_qc(rc.OUTPUT_FILE, label="Audio QC финала")
+    rc.write_audio_master_report(video_dir)
+    print(f"Готово. Файл: {rc.OUTPUT_FILE}")
+    return EXIT_WARN if absorbed or timing != "phrase_lock" else EXIT_OK
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else "."))

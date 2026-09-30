@@ -30,7 +30,7 @@ DEFAULTS = {
         },
         "lettering": "hand-lettered black uppercase marker letters",
     },
-    "image": {"size": "1536x1024", "quality": None},
+    "image": {"size": "1664x928", "quality": None},
 }
 
 

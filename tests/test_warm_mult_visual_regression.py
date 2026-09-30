@@ -293,3 +293,14 @@ def test_warm_mult_algebra_symmetric():
 def test_domain_warm_push_scale_unknown_domain_is_neutral():
     assert pipeline_smart.DOMAIN_WARM_PUSH_SCALE.get("some_unclassified_domain", 1.0) == 1.0
     assert pipeline_smart.DOMAIN_WARM_PUSH_SCALE["snow"] == pytest.approx(0.5)
+
+
+import pytest as _pytest  # noqa: E402
+
+
+@_pytest.fixture(autouse=True)
+def _documentary_grade_on(monkeypatch):
+    # Здесь проверяется исходный грейд старого генератора; в этом канале он
+    # выключен по умолчанию (FILM_LOOK=0), но включается флагом — и должен
+    # оставаться байт-в-байт прежним.
+    monkeypatch.setenv("FILM_LOOK", "1")

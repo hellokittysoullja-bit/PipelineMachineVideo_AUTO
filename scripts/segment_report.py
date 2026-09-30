@@ -253,9 +253,14 @@ def collect_artifacts(video_dir):
             key = f"{name[:-5]}:{m.get('kind', '?')}"
             rejections[key] = rejections.get(key, 0) + 1
     rm = _load(os.path.join(mp, "render_manifest.json")) or {}
-    failed = [c for c in rm.get("clips") or [] if c.get("status") != "ok"]
+    # Поглощённый слот (кадр признан браком, его время у соседа) — не упавший
+    # рендер; в исходнике оба шли одной строкой «failed».
+    failed = [c for c in rm.get("clips") or [] if c.get("status") == "failed"]
     if failed:
         rejections["render_manifest:failed"] = len(failed)
+    absorbed = [c for c in rm.get("clips") or [] if c.get("status") == "absorbed"]
+    if absorbed:
+        rejections["render_manifest:absorbed"] = len(absorbed)
     qc = _load(os.path.join(mp, "render_qc_report.json")) or {}
     for k in ("duplicates", "dupes", "issues"):
         if isinstance(qc.get(k), list) and qc[k]:

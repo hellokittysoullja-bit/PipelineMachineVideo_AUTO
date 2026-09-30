@@ -65,6 +65,9 @@ except ImportError:
 RENDER_POOL_ENABLED = os.environ.get("RENDER_PARALLEL", "1") != "0"
 
 
+PAD_GAP_HARD_CAP_SEC = 1.0   # freeze-padding сверх этого — не округление xfade, а реальная потеря
+
+
 def _default_render_workers():
     """CPU-aware пол уже был (nproc-1, минимум 1 ядро оставлен главному
     процессу под параллакс/оркестрацию) — этого недостаточно на машине с
@@ -374,6 +377,40 @@ ZOOM_RATE_BASE = 0.010
 # инвалидирует релевантный кэш кандидатов, ничего досчитывать вручную не
 # нужно.
 ZOOM_DELTA_MIN, ZOOM_DELTA_MAX = 0.08, 0.22
+
+
+# MAX_CLIP было 20.0 — одна статичная фотография (Ken Burns/параллакс, но
+# без реза) могла держаться на экране треть минуты. Продакшн-разбор:
+# оба эталона ("golden standard" + продакшн-библия) прямо требуют "никогда
+# неподвижный кадр дольше 6 секунд". 9.0, а не буквально 6 — у нас
+# постоянное движение внутри кадра (Ken Burns/параллакс), это мягче
+# истинной "статики" из эталона, полный рез к 6с был бы överkill.
+# ZOOM_RATE_BASE считается в долях/сек (см. комментарий выше), не фиксированным
+# приростом на клип — под более узкий диапазон длительностей отдельно
+# подстраивать не нужно, формула уже duration-adaptive по построению.
+MIN_CLIP, MAX_CLIP = 3.0, 9.0
+
+
+# Раньше MIN_CLIP=4.0 был ЕДИНЫМ полом на весь ролик, включая хук — на
+# реальном эпизоде это дало 0% клипов короче 3с и хук со средней длиной
+# кадра 4.65с, почти не отличающейся от тела (6.8с). У каналов с высоким
+# удержанием первые 15-30с режутся заметно чаще именно потому, что это
+# самый крутой обрыв на кривой удержания YouTube — отдельный, более
+# низкий пол специально для хука.
+# РЕВИЗИЯ (29 августа, прямое требование пользователя "хотя бы минимум
+# будут они длиться 2-3 секунды в хуке а не 1"). Раньше здесь стояло
+# HOOK_MIN_CLIP=1.8 плюс отдельный, ещё более низкий пол для первых
+# HOOK_OPENING_CUTS резов хука (HOOK_OPENING_MIN_CLIP=1.0) — идея была
+# "топовые ролики держат самый первый удар по вниманию короче остального
+# хука", но это была НЕ проверенная на конкурентах этой ниши цифра (в
+# нарушение ЧАСТИ 7 CLAUDE.md — решение без анализа реально выстреливших
+# видео), а общая монтажная эвристика. Пользователь посмотрел готовый
+# рендер и увидел реальные 1-секундные кадры в хуке — по дисциплине
+# deep-audit прямое наблюдение пользователя не слабее кода, при конфликте
+# неправ метод. Отдельный, ещё более быстрый пол для "открывающих" резов
+# убран целиком (не просто поднят числом) — единый HOOK_MIN_CLIP на весь
+# хук, никаких клипов короче него ни в одной позиции хука.
+HOOK_MIN_CLIP = 2.2
 
 
 # Панорамирование считается от РЕАЛЬНОГО zoom в каждый момент кадра — (1-1/zoom)/2
@@ -1043,6 +1080,9 @@ XFADE_TRANSITIONS = ["fade", "dissolve", "smoothleft", "smoothright",
 BOUNDARY_TRANSITIONS = ["dissolve", "fadeblack", "fadewhite", "fadegrays"]
 
 
+HOOK_MAX_CLIP = 3.6     # в хуке кадры короче и чаще — критично для удержания первых секунд.
+
+
 # Russo One — фирменный "рубленый" дисплейный шрифт (CHANNEL.md house
 # style), не системный DejaVu. OFL, бесплатно (Google Fonts / google/fonts
 # на GitHub). Anton (первый выбор) не подошёл — в нём НЕТ кириллицы вообще
@@ -1088,6 +1128,12 @@ FONT_SECONDARY_CANDIDATES = [
 FONT_SECONDARY_PATH = next((p for p in FONT_SECONDARY_CANDIDATES if os.path.exists(p)), FONT_PATH)
 
 
+def section_title(name):
+    """BLOCK N: Название -> 'Название'. HOOK/FINAL/безымянные BLOCK — без титра."""
+    m = re.match(r'BLOCK\s+\d+\s*:\s*(.+)', name, re.I)
+    return m.group(1).strip() if m else None
+
+
 def escape_drawtext(s):
     # % не экранировался — ffmpeg drawtext трактует его как начало strftime/
     # expansion-токена и роняет "Stray %" предупреждение (проверено вживую).
@@ -1106,6 +1152,55 @@ def pick_no_repeat(history, candidate, options, max_repeat):
     history.append(candidate)
     del history[:-(max_repeat + 2)]
     return candidate
+
+
+def audio_energy_curve(audio_path, window_sec=1.0):
+    """RMS-громкость аудио по окнам — без Whisper/librosa, чистый PCM+numpy.
+    Возвращает (rms_array, window_sec) или None, если numpy недоступен/что-то
+    пошло не так (фича опциональная, пайплайн не должен падать без неё)."""
+    if np is None:
+        return None
+    sr = 8000   # нужна только огибающая громкости, не звук — низкий sr достаточно и быстро
+    try:
+        r = subprocess.run(["ffmpeg", "-v", "quiet", "-i", audio_path, "-f", "s16le",
+                            "-ac", "1", "-ar", str(sr), "-"], capture_output=True, timeout=120)
+        if r.returncode != 0 or not r.stdout:
+            return None
+        raw = r.stdout[:len(r.stdout) - len(r.stdout) % 2]
+        samples = np.frombuffer(raw, dtype=np.int16).astype(np.float64)
+        if len(samples) < sr:
+            return None
+        win = max(1, int(sr * window_sec))
+        n_win = max(1, len(samples) // win)
+        trimmed = samples[:n_win * win].reshape(n_win, win)
+        rms = np.sqrt(np.mean(trimmed ** 2, axis=1))
+        return rms, window_sec
+    except Exception as e:
+        print(f"  Анализ громкости не удался (пропускаю): {e}")
+        return None
+
+
+def energy_levels(curve, starts, durs):
+    """То же окно сэмплинга, что energy_pace_multipliers(), но возвращает
+    СЫРОЕ отношение к медиане (0.5..2.0, 1.0 = обычная громкость), не
+    инвертированный множитель темпа. Используется для лёгкой визуальной
+    пульсации грейда в такт эмоциональным пикам речи (см. main()) —
+    отдельная кривая от таймингов, чтобы не путать две разные вещи под
+    одной переменной."""
+    if curve is None:
+        return [1.0] * len(durs)
+    rms, window_sec = curve
+    med = float(np.median(rms))
+    if med <= 0:
+        return [1.0] * len(durs)
+    levels = []
+    for t0, d in zip(starts, durs):
+        i0 = max(0, int(t0 / window_sec))
+        i1 = min(len(rms), max(i0 + 1, int((t0 + d) / window_sec)))
+        seg = rms[i0:i1] if i0 < len(rms) else rms[-1:]
+        e = float(seg.mean()) if len(seg) else med
+        levels.append(max(0.5, min(2.0, e / med)))
+    return levels
 
 
 # Единый источник целевой громкости — ЕДИНСТВЕННОЕ место, которое трогать
@@ -3595,6 +3690,50 @@ SPEECH_ENDS = []
 ALIGNMENT_ONSET_FAILURE = None
 
 
+def phrase_locked_durations(onsets, total, trans_plan, fps=None):
+    """Длительности клипов, при которых ВИДИМЫЙ рез приходится ТОЧНО на
+    начало следующей фразы. None, если данных не хватает (fail-open).
+
+    ДВЕ вещи, которые обязательно учесть, иначе точность теряется:
+
+    1) КОМПЕНСАЦИЯ КРОССФЕЙДА. xfade_chain() физически СЖИМАЕТ смонтированный
+       таймлайн на длительность каждого перехода (см. её же комментарий и
+       hook_visual_starts): видимый старт клипа n равен cumsum(durs[:n])
+       МИНУС сумма уже прошедших нахлёстов. Без поправки каждый следующий рез
+       уезжает раньше своей фразы накопительно. Отсюда
+       dur[i] = (онсет[i+1] - онсет[i]) + длительность_перехода[i] — при этом
+       итоговая длина видео остаётся равна длине аудио (сумма поправок ровно
+       компенсируется сжатием).
+
+    2) КВАНТОВАНИЕ ПО ГРАНИЦАМ, А НЕ ПО ДЛИТЕЛЬНОСТЯМ. Клип не может быть
+       дробным по кадрам. Если округлять каждую ДЛИТЕЛЬНОСТЬ отдельно (как
+       делает quantize_durations_to_frames), ошибка округления складывается
+       по всей цепочке. Здесь на кадровую сетку кладутся сами ГРАНИЦЫ, а
+       длительности из них вычитаются — тогда каждый рез отстоит от своей
+       фразы не более чем на полкадра (~21мс при 24 fps), и это НЕ копится."""
+    if not onsets or total <= 0:
+        return None
+    fps = fps or FPS
+    n = len(onsets)
+    # Границы клипов на шкале РЕАЛЬНОГО аудио: клип i держится от начала своей
+    # фразы до начала следующей (первый — от нуля, чтобы не было чёрного
+    # экрана на ведущей тишине; последний — до конца аудио).
+    bounds = [0.0] + [onsets[i] for i in range(1, n)] + [float(total)]
+    if any(bounds[i + 1] <= bounds[i] for i in range(n)):
+        return None   # непоследовательные онсеты — доверять нельзя
+    cum = 0.0
+    shifted = []
+    for i, b in enumerate(bounds):
+        shifted.append(b + cum)
+        if i < len(trans_plan):
+            cum += trans_plan[i][1]
+    grid = [round(x * fps) / fps for x in shifted]
+    durs = [grid[i + 1] - grid[i] for i in range(n)]
+    if any(d < 1.0 / fps for d in durs):
+        return None   # кадр короче одного кадра сетки физически не рендерится
+    return durs
+
+
 def load_alignment_weights(blocks):
     """Реальные веса длительности блоков из посимвольного alignment.csv
     (ElevenLabs/Lumean отдают его бесплатно вместе с каждым TTS-заказом —
@@ -3655,6 +3794,60 @@ def load_alignment_weights(blocks):
         print(f"  Alignment: {stale} блок(ов) текстом разошлись с сохранённым таймингом "
               f"(script.txt правили после записи?) — откат на word-count для них")
     return weights
+
+
+def hook_floor_for(blocks, i):
+    """Пол длительности для блока i — единый HOOK_MIN_CLIP на весь хук (см.
+    ревизию 29 августа у самой константы: раньше первые резы хука получали
+    отдельный, более низкий пол — убран по требованию пользователя, ни один
+    клип хука не должен быть короче HOOK_MIN_CLIP независимо от позиции).
+    Единая функция для всех мест, что клэмпят длительность по этому полу
+    (block_durations/apply_section_boundary_shift/apply_human_jitter)."""
+    if not blocks[i]["section"].startswith("HOOK"):
+        return MIN_CLIP
+    return HOOK_MIN_CLIP
+
+
+def block_durations(blocks, total, energy_mults=None, real_weights=None):
+    tw = sum(b["words"] for b in blocks)
+    tp = sum(b["pause_after"] for b in blocks)
+    wps = tw / max(total - tp, 1)
+    raw = []
+    for i, b in enumerate(blocks):
+        rw = real_weights[i] if real_weights else None
+        base = rw if rw is not None else b["words"] / wps
+        raw.append(base + b["pause_after"])
+    if energy_mults:
+        raw = [r * m for r, m in zip(raw, energy_mults)]
+    d = []
+    for i, (b, r) in enumerate(zip(blocks, raw)):
+        # В хуке кадры короче и чаще — первые секунды решают, останется ли зритель.
+        # Раньше пол был ОДИН на весь ролик (MIN_CLIP) — реальная короткая
+        # фраза в хуке всё равно раздувалась до общего пола, и хук не
+        # отличался по темпу от тела ролика. Свой, более низкий пол (ещё
+        # ниже — для самых первых резов, см. hook_floor_for) — хук реально
+        # может резать чаще, а не только "теоретически может".
+        is_hook = b["section"].startswith("HOOK")
+        cap = HOOK_MAX_CLIP if is_hook else MAX_CLIP
+        floor = hook_floor_for(blocks, i)
+        d.append(max(floor, min(cap, r)))
+    scale = total / sum(d)
+    return [x * scale for x in d]
+
+
+FALLBACK_CARD_DIR_NAME = "fallback_cards"
+
+
+def is_fallback_card_media(media_path):
+    """Это процедурная карточка, а не найденный кадр.
+
+    Определяется по КАТАЛОГУ, в который её кладёт build_slot_fallback_card,
+    а не по списку имён: список отстаёт по построению (тот же довод, что у
+    ALIGNMENT_TAG_SPAN_RE — форма надёжнее перечисления).
+    """
+    if not media_path:
+        return False
+    return (os.sep + FALLBACK_CARD_DIR_NAME + os.sep) in os.path.normpath(media_path)
 
 
 # Отбор (2.5): фильтр по alt-тексту кандидата — тот же JSON от Pexels-поиска,
@@ -4539,6 +4732,37 @@ def write_subtitles(video_dir, blocks, starts, durs, real_weights=None):
     return path
 
 
+def write_chapters(video_dir, blocks, starts):
+    """Список глав для описания YouTube — из уже известных границ секций
+    (section_title()) и их реального старта в аудио (starts, см.
+    write_subtitles). YouTube требует первую главу строго с 00:00 и минимум
+    3 главы от 10с каждая, иначе не активирует таймлайн — это проверяется
+    руками при вставке в описание, здесь только честный расчёт таймингов."""
+    path = os.path.join(video_dir, "chapters.txt")
+    seen, lines = set(), []
+    for b, s in zip(blocks, starts):
+        if b["section"] in seen:
+            continue
+        seen.add(b["section"])
+        label = section_title(b["section"])
+        if label is None:
+            label = "Хук" if b["section"].startswith("HOOK") else (
+                "Итоги" if b["section"].startswith("FINAL") else b["section"])
+        # Заголовки блоков в script.txt пишутся КАПСОМ для видимости внутри
+        # сценария (не для показа зрителю) — в реальном описании YouTube это
+        # читается как крик. Трогаем только то, что ЦЕЛИКОМ капс — намеренно
+        # смешанный регистр не портим.
+        if label.isupper():
+            label = label[0] + label[1:].lower()
+        t = max(0.0, s)
+        h, rem = divmod(int(t), 3600)
+        m, sec = divmod(rem, 60)
+        ts = f"{h}:{m:02d}:{sec:02d}" if h else f"{m}:{sec:02d}"
+        lines.append(f"{ts} {label}")
+    open(path, "w", encoding="utf-8").write("\n".join(lines) + "\n")
+    return path
+
+
 WOBBLE_AMP_CANVAS_PX = 6.0   # ~1.4px в итоговом 1920-кадре (канва 8000px) — см. kenburns()
 
 
@@ -5201,6 +5425,33 @@ def quantize_dur_to_frame(d):
     return max(1, int(round(d * FPS))) / FPS
 
 
+def quantize_durations_to_frames(durs):
+    """Кадровая сетка для ВСЕХ длительностей клипов, с диффузией ошибки
+    округления в следующий клип.
+
+    Зачем (реальный, посчитанный рассинхрон, не гипотеза): длительность
+    клипа физически не может быть дробной по кадрам — ffmpeg всё равно
+    отдаёт целое число кадров. Раньше клипу заказывалось, например, 3.5671с,
+    а на выходе получалось 86 кадров = 3.5833с, то есть в среднем +20мс на
+    каждый клип В ОДНУ СТОРОНУ. На эпизоде из 400-500 кадров (после
+    sub-cuts) это 8-10 секунд систематического ухода видео вперёд от
+    голоса, которые потом просто отрезались финальным муксом (-t по длине
+    аудио) — то есть последние кадры ролика вообще не доезжали, а картинка
+    к концу отставала от текста.
+
+    Диффузия (carry) важнее самого округления: без неё ошибки округления
+    (до полукадра каждая) складывались бы случайным блужданием на сотнях
+    клипов; с carry суммарная ошибка ВСЕГО таймлайна ограничена полукадром
+    (~21мс при 24fps) независимо от числа клипов."""
+    out, carry = [], 0.0
+    for d in durs:
+        target = d + carry
+        q = quantize_dur_to_frame(target)
+        carry = target - q
+        out.append(q)
+    return out
+
+
 def plan_transitions(sections, blocks=None, xfade_dur=XFADE_DUR):
     """План склейки: [(тип_перехода, длительность), ...] длиной len(sections)-1,
     где элемент j описывает переход между клипами j и j+1.
@@ -5350,6 +5601,166 @@ def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR, blocks=None, pl
     return True, expected
 
 
+XFADE_CHUNK_SIZE = 35   # порог чанкования — см. xfade_chain_chunked
+
+
+def _chunk_bounds(n, sections, chunk_size):
+    """(start,end) полуинтервалы индексов клипов на чанки ~chunk_size —
+    резать ТОЛЬКО на границах section (там и так планировался заметный
+    dissolve/fadeblack/fadewhite, см. xfade_chain — на стыке чанков он
+    станет обычным concat-cut, это читается как ещё один hardcut, не как
+    потеря приёма, в отличие от разрыва ПОСЕРЕДИНЕ фразы). Защита от
+    вырожденного случая (вся секция длиннее 2×chunk_size — например,
+    гигантский BODY без внутренних BLOCK) — режем принудительно, не гоняясь
+    за границей до бесконечности: маленькая потеря одного перехода лучше
+    риска снова упереться в ту же ffmpeg-багу на длинной цепочке."""
+    if n <= chunk_size:
+        return [(0, n)]
+    bounds, pos = [0], 0
+    while pos < n:
+        target = min(pos + chunk_size, n)
+        if target >= n:
+            bounds.append(n)
+            break
+        j = target
+        hard_cap = min(pos + chunk_size * 2, n)
+        while j < hard_cap and sections[j] == sections[j - 1]:
+            j += 1
+        bounds.append(j)
+        pos = j
+    bounds = sorted(set(bounds))
+    chunks = list(zip(bounds[:-1], bounds[1:]))
+    # xfade_chain() требует минимум 2 клипа (n<2 -> (False, 0.0) сразу) —
+    # де-фрагментируем случайный "хвостик" в 1 клип (получается, если
+    # граница секции легла ровно на предпоследний индекс) слиянием с
+    # соседним чанком, а не оставляем orphan-чанк, гарантированно
+    # роняющий всю сборку в откат на concat.
+    fixed = []
+    for a, b in chunks:
+        if b - a < 2 and fixed:
+            pa, _ = fixed[-1]
+            fixed[-1] = (pa, b)
+        else:
+            fixed.append((a, b))
+    if len(fixed) > 1 and fixed[0][1] - fixed[0][0] < 2:
+        (a0, _), (_, b1) = fixed[0], fixed[1]
+        fixed[0] = (a0, b1)
+        del fixed[1]
+    return fixed
+
+
+def xfade_chain_chunked(clips, durs, sections, out, temp_dir, xfade_dur=XFADE_DUR, blocks=None,
+                         chunk_size=XFADE_CHUNK_SIZE):
+    """Обёртка над xfade_chain(): на длинной цепочке (150+ клипов после
+    sub-cuts) один filter_complex со всеми xfade сразу ловит документированный
+    в xfade_chain() баг ffmpeg — молча роняет кадры и застревает на
+    застывшем кадре с середины ролика, при том что return-код 0. Раньше
+    единственным ответом был полный откат на голый concat — ролик собирался,
+    но терял ВСЕ переходы разом. Вместо этого режем на чанки по chunk_size
+    (см. _chunk_bounds — только по границам section), каждый чанк — свой
+    независимый xfade_chain() (короткая цепочка, баг не всплывает), чанки
+    склеиваются -c copy (без потерь, все чанки — один и тот же кодек/
+    параметры). Если ХОТЯ БЫ один чанк не собрался — честный откат на
+    concat всего ролика, как раньше (лучше без переходов, чем сорванная
+    сборка)."""
+    n = len(clips)
+    bounds = _chunk_bounds(n, sections, chunk_size)
+    # Один общий план на весь ролик, чанкам отдаются его СРЕЗЫ: элемент
+    # plan[j] описывает переход между глобальными клипами j и j+1, значит
+    # внутри чанка [a, b) работают переходы plan[a:b-1] (переход на самом
+    # входе чанка не делается вообще — чанки склеиваются concat -c copy,
+    # именно это учитывает estimate_xfade_budget()).
+    plan = plan_transitions(sections, blocks, xfade_dur=xfade_dur)
+    if len(bounds) <= 1:
+        return xfade_chain(clips, durs, sections, out, xfade_dur=xfade_dur, blocks=blocks, plan=plan)
+    chunk_files, chunk_total = [], 0.0
+    for ci, (a, b) in enumerate(bounds):
+        cblocks = blocks[a:b] if blocks else None
+        cout = os.path.join(temp_dir, f"_xchunk_{ci:03d}.mp4")
+        ok, cdur = xfade_chain(clips[a:b], durs[a:b], sections[a:b], cout,
+                                xfade_dur=xfade_dur, blocks=cblocks, plan=plan[a:b - 1])
+        if not ok:
+            print(f"  чанк {ci} ({b - a} клипов) xfade не собрался — вся склейка откатывается на concat")
+            return False, 0.0
+        chunk_files.append(cout)
+        chunk_total += cdur
+    concat_list = os.path.join(temp_dir, "_xchunk_concat.txt")
+    open(concat_list, "w", encoding="utf-8").write(
+        "".join(f"file '{os.path.abspath(c)}'\n" for c in chunk_files))
+    r = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                        "-i", concat_list, "-c", "copy", out], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if r.returncode != 0:
+        print("  склейка чанков xfade не удалась, откат на concat:", r.stderr[-300:])
+        return False, 0.0
+    # Чанки скопированы в out побайтово (-c copy) — дальше они не нужны
+    # никому: xfade_chain() выше не кэширует их между прогонами (cout
+    # каждый раз перезаписывается заново), а весь код ниже по пайплайну
+    # (pad_to_length/финальный мукс) работает только с out. Раньше чанки
+    # (~столько же места, сколько сам out) оставались лежать мёртвым
+    # грузом до konца прогона — на реальном 165-клипном эпизоде это было
+    # ~2.9 ГБ пиковой нехватки диска, буквально то место, где сборка
+    # несколько раз падала на "No space left on device" при последующем
+    # финальном муксе. Удаление — не оптимизация с компромиссом: это
+    # чистая уборка уже скопированных временных файлов, out от неё не
+    # зависит и не меняется. Сбой удаления (permissions и т.п.) не должен
+    # рушить уже УСПЕШНУЮ склейку — не критично, просто предупреждение.
+    for cf in chunk_files:
+        try:
+            os.remove(cf)
+        except OSError as e:
+            print(f"  предупреждение: не удалось удалить временный чанк {cf}: {e}")
+    return True, chunk_total
+
+
+def effective_transition_plan(plan, sections, chunk_size=XFADE_CHUNK_SIZE):
+    """План переходов, каким его РЕАЛЬНО исполняет xfade_chain_chunked():
+    переход на входе каждого чанка (concat -c copy между чанками) не делается
+    и нахлёста не потребляет — его длительность здесь обнуляется. Аудит
+    04.09 (реальная находка, воспроизведена снippet'ом на 400 блоках): эту
+    поправку знал только estimate_xfade_budget(), а два других потребителя
+    того же плана — phrase_locked_durations() и hook_visual_starts() —
+    прибавляли/вычитали нахлёст и на стыках чанков тоже. На любом эпизоде
+    длиннее XFADE_CHUNK_SIZE клипов после первой границы чанка каждый кадр
+    показывался на XFADE_DUR (0.417с) позже своей фразы, накопительно
+    (7 чанков — +2.5с к финалу, 40-минутный эпизод — ~5.5с), видео
+    становилось длиннее аудио, хвост резался финальным муксом, а
+    phrase_timeline.json показывал дрейф 0, потому что считался той же
+    неверной формулой. Теперь все четыре потребителя (бюджет, PHRASE LOCK,
+    visual_starts, сама склейка) читают один и тот же эффективный план."""
+    if not plan:
+        return list(plan)
+    dropped = {a for a, _b in _chunk_bounds(len(sections), sections, chunk_size) if a > 0}
+    return [(t, 0.0 if (i + 1) in dropped else d) for i, (t, d) in enumerate(plan)]
+
+
+def pad_to_length(video, target, temp_dir):
+    """Достраивает видео до нужной длины заморозкой последнего кадра — нужно
+    после xfade_chain(), если реальный итог всё же короче target (несмотря
+    на estimate_xfade_budget с запасом сверху — редкий остаточный случай,
+    не обычный путь). Возвращает (путь, gap) — gap > 0 означает, что
+    заморозка реально сработала, main() отражает это в QC."""
+    cur = get_media_duration(video)
+    gap = target - cur
+    if gap <= 0.05:
+        return video, 0.0
+    lastframe = os.path.join(temp_dir, "_lastframe.jpg")
+    padclip = os.path.join(temp_dir, "_pad.mp4")
+    padded = os.path.join(temp_dir, "_padded.mp4")
+    subprocess.run(["ffmpeg", "-y", "-sseof", "-0.3", "-i", video,
+                    "-vframes", "1", lastframe], capture_output=True)
+    r = subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", lastframe, "-t", f"{gap:.3f}"]
+                       + final_pass_encode_args() + [padclip],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if r.returncode != 0:
+        return video, gap
+    lst = os.path.join(temp_dir, "_pad_concat.txt")
+    open(lst, "w", encoding="utf-8").write(
+        f"file '{os.path.abspath(video)}'\nfile '{os.path.abspath(padclip)}'\n")
+    r = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                        "-i", lst, "-c", "copy", padded], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    return (padded, gap) if r.returncode == 0 else (video, gap)
+
+
 def get_media_duration(path):
     r = subprocess.run(["ffprobe", "-v", "quiet", "-print_format", "json",
                         "-show_format", path], capture_output=True, text=True, encoding="utf-8", errors="replace", check=True)
@@ -5481,6 +5892,18 @@ def write_audio_master_report(video_dir, final_lufs=None):
         return None
 
 
+#: Счётчики языка камеры за прогон. Существуют по той же причине, что и
+#: SOURCE_STATS: слой, который принимает решения и не оставляет следа,
+#: невозможно ни проверить, ни опровергнуть по готовому ролику.
+CAMERA_LANGUAGE_STATS = {
+    "with_stage": 0,            # кадров, у которых стадия рассказа известна
+    "without_stage": 0,         # кадров без стадии -> прежнее поведение
+    "stage_had_direction": 0,   # стадия имела мнение о наезде/отъезде
+    "direction_overridden_by_antirepeat": 0,   # и сколько раз его перебило вето
+    "modes": {},                # какие режимы движения реально выпали
+}
+
+
 # Фильтры ffmpeg, без которых включённый слой не соберёт НИ ОДНОГО клипа.
 # Ключ — имя флага реестра, значение — фильтры, которые этот слой реально
 # вызывает. Проверяются только ВКЛЮЧЁННЫЕ слои: выключенный deflicker на
@@ -5566,4 +5989,29 @@ def configure(video_dir):
     SPEECH_ENDS = []
     ALIGNMENT_ONSET_FAILURE = None
     MUSIC_BED_DECISION = None
+    global AUDIO_FILE
+    AUDIO_FILE = find_audio()
     os.makedirs(TEMP_FOLDER, exist_ok=True)
+
+
+# ГРЕЙД — единственная часть старой цепочки, которая этому каналу не
+# подходит по природе кадра: film_look() — тёмный киношный грейд (виньетка,
+# свечение светов, приподнятые тени, тёплый сдвиг), рассчитанный на
+# стоковую съёмку. Белый лист дудла он делает серым с тёмными углами.
+# FILM_LOOK=1 возвращает исходное поведение байт-в-байт; по умолчанию 0 —
+# кадр идёт без грейда (фильтр null), движение и остальная цепочка те же.
+_film_look_documentary = film_look
+
+
+def film_look(*args, **kwargs):  # noqa: F811 — намеренная обёртка над исходной функцией
+    if os.environ.get("FILM_LOOK", "0") == "1":
+        return _film_look_documentary(*args, **kwargs)
+    return "null"
+
+
+# Кадр УЖЕ 16:9 — единственный, что идёт прежним кропом «залить и обрезать».
+# Всё, что уже 16:9 (генератор отдаёт 3:2 или квадрат), вписывается целиком
+# на размытую подложку: у схемы подписи стоят у края, и кроп 3:2 -> 16:9
+# срезал бы 16% высоты вместе с ними. Исходный порог 4/3 рассчитан на сток,
+# где края — фон.
+ASPECT_FIT_MIN_RATIO = float(os.environ.get("ASPECT_FIT_MIN_RATIO", str(16 / 9 - 0.01)))

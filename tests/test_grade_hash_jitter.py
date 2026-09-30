@@ -97,3 +97,14 @@ def test_luma_match_is_declared_as_a_string_mode():
     spec = feature_flags.FLAGS["LUMA_MATCH"]
     assert not spec.is_boolean
     assert set(spec.allowed) == {"none", "normal", "strong", "max"}
+
+
+import pytest as _pytest  # noqa: E402
+
+
+@_pytest.fixture(autouse=True)
+def _documentary_grade_on(monkeypatch):
+    # Здесь проверяется исходный грейд старого генератора; в этом канале он
+    # выключен по умолчанию (FILM_LOOK=0), но включается флагом — и должен
+    # оставаться байт-в-байт прежним.
+    monkeypatch.setenv("FILM_LOOK", "1")

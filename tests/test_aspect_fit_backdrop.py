@@ -130,3 +130,15 @@ def test_backdrop_is_darker_than_the_foreground(tmp_path):
 
 
 
+
+
+import pytest as _pytest  # noqa: E402
+
+
+@_pytest.fixture(autouse=True)
+def _stock_threshold(monkeypatch):
+    # Проверяется исходный порог старого генератора (4:3, рассчитан на сток);
+    # этот канал ставит 16:9 (render_core.ASPECT_FIT_MIN_RATIO), см.
+    # tests/test_assemble.py::test_frame_narrower_than_16x9_is_fitted_whole.
+    import render_core as _rc
+    monkeypatch.setattr(_rc, "ASPECT_FIT_MIN_RATIO", 4 / 3)
