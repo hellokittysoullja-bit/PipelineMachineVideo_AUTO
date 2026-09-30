@@ -91,6 +91,7 @@ for _n in _names:
     except Exception: print("secret не задан:", _n)
 open(repo + "/.env", "w").write("\n".join(_lines) + "\n")
 os.chdir(repo)
+print("EP_FILES", os.listdir("videos/%(ep)s") if os.path.isdir("videos/%(ep)s") else "NO EP DIR", "CODE_MOUNT", code, flush=True)
 sh("nvidia-smi -L")
 req = [l for l in open("requirements.txt") if l.strip() and not l.startswith("#")
        and not l.lower().startswith(("torch", "pytest"))]
