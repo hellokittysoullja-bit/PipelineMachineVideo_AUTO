@@ -434,21 +434,6 @@ VERIFY_WORLD_KEYS = ', "main_in_world": true/false, "background": "none"/"subtle
 # явное современное у 26, мелочь (размыто, мелко, у края) у 14, фон чистый
 # (ошибка судьи) у 8 — то есть отказ выбрасывал около 22 годных кадров вместе
 # с браком. Брак — только «obvious»; «subtle» — штраф ниже чистого кадра.
-# ГЛАВНЫЙ ПРЕДМЕТ — «принадлежит ли миру», а не «мог ли существовать» (28.09).
-# Прежняя формулировка пропускала современные вещи, у которых есть давний
-# родственник: охотничий нож с гравировкой «MADE IN FINLAND» — «ножи в
-# 1400 году были», — и в judge17 на фразу #2 встал современный нож, потом
-# выигравший выбор по виду. Замер на тех же 104 кадрах эп.94: чужой главный
-# предмет принят 6 -> 2 из 12 (современные ножи, мастерская, наполеоновские
-# всадники в футболках, фэнтези-реквизит); реконструкторы в доспехах,
-# музейные вещи и упавший рыцарь проходят; из годных по разметке отклонены
-# только три кадра, и все три при просмотре брак по правилам канала —
-# степные всадники в ламеллярных доспехах, цифровой фэнтези-рисунок,
-# лучник в современной куртке.
-MAIN_WORLD_Q = ("- main_in_world: does the MAIN subject belong to that world (era, culture) — a real thing "
-                "of it, or a faithful reconstruction of it (reenactors, replica armour and weapons)? false "
-                "if it is clearly a modern-made thing (modern design, materials or finish) or from another "
-                "era or culture. true/false")
 BACKGROUND_LEVELS = ("none", "subtle", "obvious")
 BACKGROUND_CLEAN = {"none": 1.0, "subtle": 0.5, "obvious": 0.0}
 BACKGROUND_Q = """- background: look at everything ELSE in the picture (background, edges, people around). Is there anything that could not exist in that world — modern people, clothing, objects, vehicles, signs, buildings, spectators?
@@ -499,7 +484,8 @@ Reply with JSON only: {{"claims": {{{keys}}}, "medium": "..."{world_keys}, "why"
 CLAIMS_VIDEO_NOTE = ("\nThe picture shows {n} frames of ONE video clip in time order; judge the clip, "
                      "a movement counts if the frames show it happening.")
 CLAIMS_WORLD_Q = """
-""" + MAIN_WORLD_Q + "\n" + BACKGROUND_Q
+- main_in_world: could the MAIN subject exist in that world (era, culture)? true/false
+""" + BACKGROUND_Q
 
 
 # МИР — ОДИН РАЗ НА КАРТИНКУ, БЕЗ ФРАЗЫ (вариант замера 24.09). Вопрос про
@@ -512,7 +498,8 @@ WORLD_ONLY_VERSION = 2
 WORLD_ONLY_PROMPT = """You check one picture for a documentary video.
 The episode's world: {setting}.{caption}{video}
 Look at the picture carefully and answer:
-""" + MAIN_WORLD_Q.replace("{", "{{").replace("}", "}}") + "\n" + BACKGROUND_Q.replace("{", "{{").replace("}", "}}") + """
+- main_in_world: could the MAIN subject of the picture exist in that world (era, culture)? true/false
+""" + BACKGROUND_Q.replace("{", "{{").replace("}", "}}") + """
 Reply with JSON only: {{"main_in_world": true/false, "background": "none"/"subtle"/"obvious", "why": "<short>"}}"""
 
 
