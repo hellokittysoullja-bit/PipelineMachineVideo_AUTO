@@ -31,5 +31,5 @@ def test_models_download_at_the_same_time(monkeypatch):
             inside["n"] -= 1
         return name, 0.2
     monkeypatch.setattr(fw, "fetch", slow)
-    assert fw.main([]) == 0
+    assert fw.main(["--wemm"]) == 0
     assert inside["peak"] == 3, "модели качаются по очереди, а не вместе"
