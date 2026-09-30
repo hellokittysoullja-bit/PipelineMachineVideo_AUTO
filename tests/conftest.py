@@ -259,18 +259,3 @@ def pytest_configure(config):
     """
     config.addinivalue_line(
         "markers", "slow: живые ML-прогоны, десятки секунд и дольше")
-
-
-@pytest.fixture(autouse=True)
-def _xfade_transitions_unknown(monkeypatch):
-    """Список переходов xfade узнаётся вызовом ffmpeg и кэшируется на процесс.
-
-    Без этой фикстуры тесты, считающие вызовы ffmpeg в xfade_chain, зависели
-    от ПОРЯДКА: первый тест процесса делал лишний вызов `-h filter=xfade`
-    (и падал по счёту), остальные брали кэш. «Неизвестно» — значит без
-    замен и без лишнего вызова; тест замены ставит свой список сам."""
-    import sys
-    ps = sys.modules.get("pipeline_smart")
-    if ps is not None and hasattr(ps, "_XFADE_SUPPORTED"):
-        monkeypatch.setattr(ps, "_XFADE_SUPPORTED", [False])
-    yield

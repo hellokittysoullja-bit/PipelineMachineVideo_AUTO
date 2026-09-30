@@ -1400,51 +1400,6 @@ STAT_PLATE_TAIL_SEC = STAT_PLATE_READABLE_SEC + XFADE_DUR  # резерв в ш�
 XFADE_TRANSITIONS = ["fade", "dissolve", "smoothleft", "smoothright",
                       "smoothup", "smoothdown", "hblur", "hlwind", "hrwind", "zoomin"]
 BOUNDARY_TRANSITIONS = ["dissolve", "fadeblack", "fadewhite", "fadegrays"]
-# Переходы, которых нет у старого ffmpeg (hlwind/hrwind/zoomin появились в
-# 5.x; у 4.4 из apt Ubuntu 22.04 — образа Runpod — их нет), и ближайшая
-# замена того же характера. Найдено замером 29.09 на поде: xfade с
-# неизвестным переходом ронял кусок склейки, и ВЕСЬ ролик откатывался на
-# склейку без единого перехода. Замена — громко и только там, где ffmpeg
-# перехода не знает; у ffmpeg 5+ план исполняется как есть.
-XFADE_FALLBACK = {"hlwind": "hblur", "hrwind": "hblur", "zoomin": "fade"}
-_XFADE_SUPPORTED = [None]
-_XFADE_WARNED = set()
-
-
-def xfade_supported_transitions():
-    """Имена переходов xfade у ffmpeg этой машины (None — не удалось узнать)."""
-    if _XFADE_SUPPORTED[0] is None:
-        names = set()
-        try:
-            r = subprocess.run(["ffmpeg", "-hide_banner", "-h", "filter=xfade"], capture_output=True,
-                               text=True, encoding="utf-8", errors="replace", timeout=30)
-            names = parse_xfade_transitions(r.stdout or "")
-        except Exception:  # noqa: BLE001
-            names = set()
-        _XFADE_SUPPORTED[0] = names or False
-    return _XFADE_SUPPORTED[0] or None
-
-
-def parse_xfade_transitions(help_text):
-    """Имена переходов из `ffmpeg -h filter=xfade` (пустое множество — не разобралось)."""
-    block = help_text.split("transition", 1)[1] if "transition" in help_text else ""
-    block = block.split(" duration ", 1)[0]
-    return set(re.findall(r"^\s+([a-z0-9]+)\s+-?\d+", block, re.M)) - {"custom"}
-
-
-def xfade_transition_name(name):
-    """Переход, который этот ffmpeg умеет: тот же или замена из XFADE_FALLBACK."""
-    known = xfade_supported_transitions()
-    if not known or name in known:
-        return name
-    sub = XFADE_FALLBACK.get(name, "fade")
-    if name not in _XFADE_WARNED:
-        _XFADE_WARNED.add(name)
-        print(f"  ВНИМАНИЕ: ffmpeg этой машины не знает переход «{name}» — ставлю «{sub}». "
-              f"Для точного вида нужен ffmpeg 5 или новее (docs/GPU_SETUP.md).")
-    return sub
-
-
 HOOK_MAX_CLIP = 3.6     # в хуке кадры короче и чаще — критично для удержания первых секунд.
                         # Было 5.0 — на практике держало хук почти вровень с телом ролика
                         # (4.65с против 6.8с), а не заметно быстрее, как задумано.
@@ -16719,7 +16674,7 @@ def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR, blocks=None, pl
         # плана (ffmpeg переводит offset в кадры). Полукадр при 24fps — 21мс,
         # запас на порядок больше миллисекунды, но печатать точно ничего не
         # стоит, а гарантия появляется.
-        parts.append(f"[{prev_label}][{src[i]}]xfade=transition={xfade_transition_name(transition)}:"
+        parts.append(f"[{prev_label}][{src[i]}]xfade=transition={transition}:"
                      f"duration={this_dur:.6f}:offset={offset:.6f}[{out_label}]")
         cum = cum + durs[i] - this_dur
         prev_label = out_label
