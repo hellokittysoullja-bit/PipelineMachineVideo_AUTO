@@ -216,7 +216,10 @@ def test_no_frame_goes_straight_to_generation_weak_frame_searches_first():
     сначала второй круг: настоящий кадр ценнее рисунка."""
     ps = _ps()
     assert ps.ladder_steps("failed") == ("generation", "research")
-    assert ps.ladder_steps("weak") == ("research", "generation")
+    # Временно (30.09, решение владельца): близкая замена принимается без
+    # ступеней; прежнее значение — ("research", "generation"), см.
+    # WEAK_REPLACEMENT_LADDER.
+    assert ps.ladder_steps("weak") == ps.WEAK_REPLACEMENT_LADDER == ()
     assert ps.ladder_steps(None) == ()
 
 
