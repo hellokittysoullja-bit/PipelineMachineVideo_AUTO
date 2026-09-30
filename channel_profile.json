@@ -1,0 +1,18 @@
+{
+  "niche": "psychology and everyday history explained simply: how people lived in ancient times, what children did all day, why the brain works the way it does, needs, habits and society",
+  "mascot": {
+    "name": "Герой",
+    "description": "a cheerful stick figure with a big round white head, simple dot eyes, a wide smile and a small tuft of three hairs on top, thin black stick arms and legs, wearing a long mustard-yellow scarf",
+    "reference_image": "assets/mascot/mascot.png"
+  },
+  "style": {
+    "base": "simple hand-drawn doodle illustration, stick figures with round heads and thin black marker lines, flat colors, a few red accent arrows, clean composition, 16:9 frame",
+    "backdrops": {
+      "white": "plain white background",
+      "paper": "warm beige parchment paper background",
+      "painted": "loosely painted earthy background in ochre, olive and brown tones"
+    },
+    "lettering": "hand-lettered black uppercase marker letters"
+  },
+  "image": {"size": "1536x1024", "quality": null}
+}

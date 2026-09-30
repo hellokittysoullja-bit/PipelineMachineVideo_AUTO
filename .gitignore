@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+secrets/
+__pycache__/
+*.pyc
+.venv/
+videos/*/temp_render/
+videos/*/media_plan/image_cache/
+videos/*/final.mp4
+videos/*/audio*.mp3
+videos/*/audio*.flac
+*.gguf
+videos/*/frames/
