@@ -84,12 +84,15 @@ repo = W + "/repo"
 shutil.copytree(code, repo)
 from kaggle_secrets import UserSecretsClient
 _sc = UserSecretsClient()
-_names = "PEXELS_API_KEY PIXABAY_API_KEY OPENVERSE_CLIENT_ID OPENVERSE_CLIENT_SECRET LUMEAN_API_KEY LLM_GATEWAY_API_KEY UNSPLASH_API_KEY GEMINI_API_KEY".split()
+_names = "KAGGLE_API_TOKEN PEXELS_API_KEY PIXABAY_API_KEY OPENVERSE_CLIENT_ID OPENVERSE_CLIENT_SECRET LUMEAN_API_KEY LLM_GATEWAY_API_KEY UNSPLASH_API_KEY GEMINI_API_KEY".split()
 _lines = ["LLM_GATEWAY_BASE_URL=https://anymodel.org/v1"]
 for _n in _names:
     try: _lines.append(_n + "=" + _sc.get_secret(_n))
     except Exception: print("secret не задан:", _n)
 open(repo + "/.env", "w").write("\n".join(_lines) + "\n")
+for _l in _lines:
+    if _l.startswith("KAGGLE_API_TOKEN="): os.environ["KAGGLE_API_TOKEN"] = _l.split("=", 1)[1]
+os.environ["KAGGLE_USERNAME"] = "%(user)s"
 os.chdir(repo)
 print("EP_FILES", os.listdir("videos/%(ep)s") if os.path.isdir("videos/%(ep)s") else "NO EP DIR", "CODE_MOUNT", code, flush=True)
 sh("nvidia-smi -L")
@@ -97,9 +100,36 @@ req = [l for l in open("requirements.txt") if l.strip() and not l.startswith("#"
        and not l.lower().startswith(("torch", "pytest"))]
 open("req_k.txt", "w").writelines(req)
 sh("pip install -q -r req_k.txt transformers accelerate sentencepiece protobuf onnxruntime-gpu huggingface_hub 2>&1 | tail -3")
+
+import threading, json
+def _pulse_loop():
+    pdir = W + "/pulse"; os.makedirs(pdir, exist_ok=True)
+    tok = os.environ.get("KAGGLE_API_TOKEN"); made = False
+    while True:
+        try:
+            gpu = subprocess.run("nvidia-smi --query-gpu=index,utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader",
+                                 shell=True, capture_output=True, text=True).stdout.strip()
+            try: tail = open(W + "/run.log", errors="ignore").read()[-6000:]
+            except Exception: tail = ""
+            info = {"t": time.strftime("%%H:%%M:%%S"), "elapsed_sec": round(time.time() - T0), "gpu": gpu,
+                    "load": os.getloadavg(), "log_tail": tail}
+            json.dump(info, open(pdir + "/pulse.json", "w"), ensure_ascii=False)
+            if tok:
+                open(pdir + "/dataset-metadata.json", "w").write(json.dumps(
+                    {"title": "pmv-pulse", "id": "%(user)s/pmv-pulse", "licenses": [{"name": "CC0-1.0"}]}))
+                c = "kaggle datasets version -p %%s -m pulse -r zip" %% pdir if made else "kaggle datasets create -p %%s -r zip" %% pdir
+                r = subprocess.run(c, shell=True, capture_output=True, text=True)
+                if r.returncode and not made:
+                    r = subprocess.run("kaggle datasets version -p %%s -m pulse -r zip" %% pdir, shell=True, capture_output=True, text=True)
+                made = made or not r.returncode
+        except Exception as e:
+            print("pulse error:", e, flush=True)
+        time.sleep(120)
+T0 = time.time()
+threading.Thread(target=_pulse_loop, daemon=True).start()
 env = dict(os.environ, ML_DEVICE="cuda", CLIP_ENCODER="auto", SLOT_SPECULATE="1")
 t = time.time()
-r = sh("python scripts/%(entry)s videos/%(ep)s %(flags)s 2>&1 | tee %(W)s/run.log | tail -60", env=env)
+r = sh("python -u scripts/%(entry)s videos/%(ep)s %(flags)s 2>&1 | tee %(W)s/run.log", env=env)
 print("ELAPSED_SEC", round(time.time() - t), flush=True)
 out = W + "/out"
 os.makedirs(out, exist_ok=True)
