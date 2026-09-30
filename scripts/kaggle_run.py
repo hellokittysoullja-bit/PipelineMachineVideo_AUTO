@@ -6,8 +6,7 @@
 Что делает:
   1. Собирает приватный датасет <user>/pmv-code: репозиторий без .env, secrets/,
      videos/, .git, тяжёлых кэшей + папка эпизода.
-  2. Собирает приватный датасет <user>/pmv-keys: только .env (ключи остаются
-     в вашем приватном хранилище; отзовите ключи, когда закончите).
+  2. Ключи НЕ загружаются: ноутбук читает их из Kaggle Secrets (Add-ons -> Secrets).
   3. Пушит ноутбук с GPU: ставит зависимости, копирует код, запускает
      pipeline_smart.py --select-only (или полный рендер с --render).
   4. Ждёт завершения и кладёт результат в <video_dir>/kaggle_out/.
@@ -81,10 +80,16 @@ def sh(c, **k):
     print("$", c, flush=True)
     return subprocess.run(c, shell=True, **k)
 code = next(p for p in ("/kaggle/input/pmv-code", "/kaggle/input/datasets/%(user)s/pmv-code") if os.path.isdir(p))
-keys = next(p for p in ("/kaggle/input/pmv-keys", "/kaggle/input/datasets/%(user)s/pmv-keys") if os.path.isdir(p))
 repo = W + "/repo"
 shutil.copytree(code, repo)
-shutil.copy(keys + "/.env", repo + "/.env")
+from kaggle_secrets import UserSecretsClient
+_sc = UserSecretsClient()
+_names = "PEXELS_API_KEY PIXABAY_API_KEY OPENVERSE_CLIENT_ID OPENVERSE_CLIENT_SECRET LUMEAN_API_KEY LLM_GATEWAY_API_KEY UNSPLASH_API_KEY GEMINI_API_KEY".split()
+_lines = ["LLM_GATEWAY_BASE_URL=https://anymodel.org/v1"]
+for _n in _names:
+    try: _lines.append(_n + "=" + _sc.get_secret(_n))
+    except Exception: print("secret не задан:", _n)
+open(repo + "/.env", "w").write("\n".join(_lines) + "\n")
 os.chdir(repo)
 sh("nvidia-smi -L")
 req = [l for l in open("requirements.txt") if l.strip() and not l.startswith("#")
@@ -122,12 +127,9 @@ def main():
     if not a.pull_only:
         shutil.rmtree(work, ignore_errors=True)
         (work / "code").mkdir(parents=True)
-        (work / "keys").mkdir()
         (work / "kernel").mkdir()
         build_code(work / "code", vd)
-        shutil.copy2(ROOT / ".env", work / "keys" / ".env")
         push_dataset(work / "code", "pmv-code", "pmv-code", user)
-        push_dataset(work / "keys", "pmv-keys", "pmv-keys", user)
         flags = "" if a.render else "--select-only"
         entry = "render_episode.py" if a.render else "pipeline_smart.py"
         (work / "kernel" / "run.py").write_text(KERNEL % dict(
@@ -136,7 +138,7 @@ def main():
             "id": slug, "title": "pmv-run", "code_file": "run.py", "language": "python",
             "kernel_type": "script", "is_private": "true", "enable_gpu": "true",
             "enable_internet": "true", "machine_shape": "NvidiaTeslaT4",
-            "dataset_sources": [f"{user}/pmv-code", f"{user}/pmv-keys"]}))
+            "dataset_sources": [f"{user}/pmv-code"]}))
         print(kg("kernels", "push", "-p", str(work / "kernel")).stdout.strip())
         while True:
             s = kg("kernels", "status", slug, check=False).stdout
