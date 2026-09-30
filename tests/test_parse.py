@@ -849,18 +849,18 @@ def test_is_parallax_highlight_missing_is_climax_key_defaults_false():
     assert pipeline_smart.is_parallax_highlight({"section": "BLOCK_3"}, False) is False
 
 
-def test_color_meta_args_includes_explicit_color_range_tv():
-    # По прямому запросу пользователя ("копни глубже на Rec.709") —
-    # closed-loop проверка вживую (pc-источник через реальный CLIP_PIX_ARGS)
-    # показала, что явный -pix_fmt yuv420p10le УЖЕ заставляет ffmpeg
-    # корректно пересчитывать в tv-диапазон независимо от входного pc/tv —
-    # добавка -color_range tv здесь чистое ужесточение (explicit лучше
-    # implicit), подтверждено НЕ менять итоговый вывод. Тест защищает сам
-    # факт, что тег явно объявлен, а не только протестированное сегодня
-    # поведение по умолчанию.
-    assert "-color_range" in pipeline_smart.COLOR_META_ARGS
-    idx = pipeline_smart.COLOR_META_ARGS.index("-color_range")
-    assert pipeline_smart.COLOR_META_ARGS[idx + 1] == "tv"
+def test_color_meta_args_declares_rec709_limited_in_the_stream():
+    # Метки Rec.709/limited объявлены явно, но записываются битстрим-фильтром,
+    # а не выходными опциями -colorspace/-color_range: в ffmpeg 8 (BtbN master
+    # N-126965, замер 30.09) опции стали переопределением свойств кадра и
+    # сдвигали яркость и цвет; фильтр правит только заголовок потока.
+    args = pipeline_smart.COLOR_META_ARGS
+    assert args[0] == "-bsf:v" and args[1].startswith("h264_metadata=")
+    for field in ("colour_primaries=1", "transfer_characteristics=1", "matrix_coefficients=1",
+                  "video_full_range_flag=0"):
+        assert field in args[1]
+    for legacy in ("-color_range", "-colorspace", "-color_primaries", "-color_trc"):
+        assert legacy not in args
 
 
 def test_film_look_saturated_source_gets_stronger_selectivecolor():

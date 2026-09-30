@@ -555,7 +555,9 @@ def _decode_yuv420(path, w=None, h=None, vf=None, fmt="yuv420p"):
 def _canvas_planes(photo, nw, nh, cw, ch, cx0, cy0, fmt):
     """Холст наезда (Y, U, V) — той же строкой фильтров, что начинает
     процессорный путь kenburns(): scale, crop, setsar, в раскладке fmt."""
-    vf = f"scale={nw}:{nh},crop={cw}:{ch}:{cx0}:{cy0},setsar=1,format={fmt}"
+    # :out_range=tv — как в начале процессорной цепочки kenburns(): холст
+    # обязан начинаться с одних и тех же значений на любой версии ffmpeg.
+    vf = f"scale={nw}:{nh}:out_range=tv,crop={cw}:{ch}:{cx0}:{cy0},setsar=1,format={fmt}"
     raw = subprocess.run(["ffmpeg", "-v", "error", "-framerate", "1", "-loop", "1", "-i", photo,
                           "-vf", vf, "-frames:v", "1", "-f", "rawvideo", "-"],
                          capture_output=True, check=True, timeout=300).stdout

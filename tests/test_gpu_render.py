@@ -147,7 +147,7 @@ def test_whole_clip_matches_the_cpu_render(tmp_path, monkeypatch, ext, pix):
     x = "'iw/2-(iw/zoom/2)+3.0*sin(2*PI*(on/3)*0.8)'"
     y = "'ih/2-(ih/zoom/2)'"
     fl = ps.film_look(11, "BLOCK_1", 0.0, 0.0, levels=(0.05, 0.93), wb=(0.45, 0.42, 0.40))
-    vf = (f"scale={nw}:{nh},crop={cw}:{ch}:{cx0}:{cy0},setsar=1,zoompan=z={z}:x={x}:y={y}:d={frames}:"
+    vf = (f"scale={nw}:{nh}:out_range=tv,crop={cw}:{ch}:{cx0}:{cy0},setsar=1,zoompan=z={z}:x={x}:y={y}:d={frames}:"
           f"s={W}x{H}:fps=24,{fl}")
     cpu = tmp_path / "cpu.mkv"
     _ff(["-framerate", "1", "-loop", "1", "-i", str(photo), "-vf", vf, "-frames:v", str(frames),
@@ -249,7 +249,7 @@ def _clip_setup(tmp_path, grain):
     x = "'iw/2-(iw/zoom/2)'"
     y = "'ih/2-(ih/zoom/2)'"
     fl = ps.film_look(5, "BLOCK_1", 0.0, 0.0, levels=(0.05, 0.93), wb=(0.45, 0.42, 0.40))
-    vf = (f"scale={nw}:{nh},crop={cw}:{ch}:{cx0}:{cy0},setsar=1,zoompan=z={z}:x={x}:y={y}:d={frames}:"
+    vf = (f"scale={nw}:{nh}:out_range=tv,crop={cw}:{ch}:{cx0}:{cy0},setsar=1,zoompan=z={z}:x={x}:y={y}:d={frames}:"
           f"s={W}x{H}:fps=24,{fl}")
     ref = ["ffmpeg", "-v", "error", "-framerate", "1", "-loop", "1", "-i", str(photo)]
     if grain:

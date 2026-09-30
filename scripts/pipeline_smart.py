@@ -274,8 +274,38 @@ FPS, WIDTH, HEIGHT = 24, 1920, 1080   # 24 — киностандарт из о�
 # (промежуточные клипы и оба финальных прохода) — дешёвая гигиена, не
 # косметика: без неё цвет непредсказуем именно там, где мы больше всего
 # вложились в грейд/зерно/halation.
-COLOR_META_ARGS = ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709",
-                    "-color_range", "tv"]
+# Метки пишутся БИТСТРИМ-ФИЛЬТРОМ (h264_metadata/hevc_metadata), а не выходными
+# опциями -color_primaries/-color_trc/-colorspace/-color_range. Замер 30.09 на
+# ffmpeg N-126965 (BtbN master, тот, что ставится на под) против 6.1:
+#   * -colorspace bt709 в новом ffmpeg — не метка, а ПЕРЕОПРЕДЕЛЕНИЕ свойства
+#     кадра: перевод yuv420p -> yuv420p10le перед кодером идёт с матрицей
+#     BT.709 (JPEG-кадры — по BT.601), яркость -1.5 уровня, цвет сдвинут;
+#     в 6.1 та же опция только клеила ярлык;
+#   * -color_primaries/-color_trc в новом ffmpeg вообще не доходили до потока
+#     (ffprobe: unknown);
+#   * yuvj420p (JPEG) -> yuv420p при выходе на новом ffmpeg не пересчитывался
+#     из полного диапазона в ограниченный: значения 0-255 оставались как есть
+#     при метке tv — контраст +16%, тени и света обрезаны. Прежний абзац ниже
+#     («-pix_fmt сам пересчитывает диапазон») верен только для старых сборок.
+# Битстрим-фильтр правит только заголовок потока (VUI), кадры не трогает, и на
+# 6.1, и на новой сборке даёт побайтно тот же результат, что старая опция на 6.1
+# (проверено: JPEG, PNG, параллакс с зерном). Диапазон при этом переводится
+# ЯВНО в начале цепочки (`scale=...:out_range=tv`), см. SOURCE_RANGE_OPT.
+COLOR_META_FIELDS = ("colour_primaries=1:transfer_characteristics=1:"
+                     "matrix_coefficients=1:video_full_range_flag=0")
+
+
+def color_meta_args(codec="libx264"):
+    """Метки Rec.709 / limited в потоке под кодек: H.264 или HEVC."""
+    name = "hevc_metadata" if ("265" in codec or "hevc" in codec) else "h264_metadata"
+    return ["-bsf:v", f"{name}={COLOR_META_FIELDS}"]
+
+
+COLOR_META_ARGS = color_meta_args("libx264")
+# Явный перевод диапазона источника в ограниченный в первом scale цепочки:
+# JPEG (yuvj, 0-255) -> 16-235 одинаково на любой версии ffmpeg. Для RGB, серых
+# и уже ограниченных источников — без изменений (проверено побайтно).
+SOURCE_RANGE_OPT = ":out_range=tv"
 # ^ -color_range tv добавлен по прямому запросу пользователя ("копни глубже
 # на Rec.709") — исследовано, ПРОВЕРЕНО ВЖИВУЮ, не гипотеза. Реальные
 # скачанные Pexels-исходники (см. media/pexels_video_cache) РЕАЛЬНО несут
@@ -478,8 +508,9 @@ def clip_codec_args():
     clip_encoder_session() — кодер, выбранный сессией."""
     enc = getattr(_CLIP_ENC_LOCAL, "enc", None) or clip_encoder()
     if enc == "nvenc" and not _NVENC_BROKEN[0]:
-        return list(NVENC_CLIP_ARGS)
-    return ["-c:v", "libx264", "-preset", RENDER_PRESET, "-crf", RENDER_CRF] + CLIP_PIX_ARGS
+        return list(NVENC_CLIP_ARGS) + color_meta_args("hevc_nvenc")
+    return (["-c:v", "libx264", "-preset", RENDER_PRESET, "-crf", RENDER_CRF] + CLIP_PIX_ARGS
+            + color_meta_args("libx264"))
 
 
 def note_encoder_failure(stderr):
@@ -622,7 +653,7 @@ def final_pass_encode_args():
         maxrate, bufsize = f"{override}k", f"{override * 2}k"
     if maxrate:
         args += ["-maxrate", maxrate, "-bufsize", bufsize]
-    args += ["-pix_fmt", prof["pix_fmt"], "-r", str(FPS)] + COLOR_META_ARGS + list(prof["extra"])
+    args += ["-pix_fmt", prof["pix_fmt"], "-r", str(FPS)] + color_meta_args(prof["codec"]) + list(prof["extra"])
     return args
 
 # ZOOM_FLOOR — минимальный зум держится ВЕСЬ клип (не 1.0). Раньше offset пана
@@ -11954,7 +11985,7 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
     anchor = resolve_crop_anchor(photo)
     nw, nh, cx0, cy0 = compute_crop_offset(iw, ih, kb_cw, kb_ch, anchor)
     fl_str = film_look(h, section, brightness_bias, energy_bias, levels, wb, domain)
-    vf_base = (f"scale={nw}:{nh},"
+    vf_base = (f"scale={nw}:{nh}{SOURCE_RANGE_OPT},"
                f"crop={kb_cw}:{kb_ch}:{cx0}:{cy0},setsar=1,"
                f"zoompan=z={z}:x={x}:y={y}:"
                f"d={frames}:s={WIDTH}x{HEIGHT}:fps={FPS},"
@@ -12003,7 +12034,7 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
         # складывалось в секунды ухода видео от голоса (см.
         # quantize_durations_to_frames). Так же уже работает
         # parallax_kenburns(), путь просто приведён к одному виду.
-        cmd += ["-frames:v", str(frames)] + clip_codec_args() + ["-r", str(FPS)] + COLOR_META_ARGS
+        cmd += ["-frames:v", str(frames)] + clip_codec_args() + ["-r", str(FPS)]
         if ffmpeg_threads:
             cmd += cpu_budget.ffmpeg_thread_args(ffmpeg_threads)
         cmd += [tmp_out]
@@ -12019,7 +12050,7 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
         # Ровно то число, что уходит в строку фильтра процессорного пути
         # (grain_blend_complex пишет его с 4 знаками).
         grain_op = float(f"{min(1.0, GRAIN_OPACITY * GRAIN_SOFTLIGHT_GAIN * grain_scale):.4f}")
-        enc = clip_codec_args() + ["-r", str(FPS)] + COLOR_META_ARGS + [tmp_out]
+        enc = clip_codec_args() + ["-r", str(FPS)] + [tmp_out]
         ok, why = gpu_render.render_kenburns(
             photo, tmp_out, frames, z, x, y, (nw, nh, kb_cw, kb_ch, cx0, cy0), fl_str, enc,
             fps=FPS, W=WIDTH, H=HEIGHT, grain_path=GRAIN_LOOP_PATH if GRAIN_ENABLED else None,
@@ -15675,7 +15706,7 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
             cmd += ["-vf", vf]
         tmp_out = render_tmp_path(out)
         enc_stack.enter_context(clip_encoder_session())
-        cmd += ["-frames:v", str(frames)] + clip_codec_args() + ["-r", str(FPS)] + COLOR_META_ARGS
+        cmd += ["-frames:v", str(frames)] + clip_codec_args() + ["-r", str(FPS)]
         cmd += parallax_thread_args() + [tmp_out]
         # РЕАЛЬНЫЙ баг, пойманный на реальном продакшн-рендере (не гипотеза):
         # stderr=subprocess.PIPE здесь НИКОГДА не вычитывался, пока родитель
@@ -15973,11 +16004,12 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
         ph1, ph2 = ((h >> 3) % 628) / 100.0, ((h >> 11) % 628) / 100.0
         shake_x = f"{amp:.1f}*sin(2*PI*t*0.9+{ph1:.2f})+{amp*0.6:.1f}*sin(2*PI*t*2.3+{ph2:.2f})"
         shake_y = f"{amp:.1f}*sin(2*PI*t*1.1+{ph2:.2f})+{amp*0.6:.1f}*sin(2*PI*t*2.7+{ph1:.2f})"
-        scale_crop = (f"scale={ov_w}:{ov_h}:force_original_aspect_ratio=increase,"
+        scale_crop = (f"scale={ov_w}:{ov_h}:force_original_aspect_ratio=increase{SOURCE_RANGE_OPT},"
                       f"crop={WIDTH}:{HEIGHT}:x='({ov_w}-{WIDTH})/2+{shake_x}':"
                       f"y='({ov_h}-{HEIGHT})/2+{shake_y}',setsar=1")
     else:
-        scale_crop = f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,crop={WIDTH}:{HEIGHT},setsar=1"
+        scale_crop = (f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase{SOURCE_RANGE_OPT},"
+                      f"crop={WIDTH}:{HEIGHT},setsar=1")
     if DEFLICKER_ENABLED:
         # ПОСЛЕ scale/crop (работает на целевом разрешении, не на исходнике —
         # дешевле, порядок с setpts ниже не важен: deflicker смотрит на
@@ -16034,7 +16066,7 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
                 cmd += ["-stream_loop", "-1", "-i", GRAIN_LOOP_PATH]
             cmd += ["-filter_complex", filter_complex,
                     "-map", "[vout]", "-frames:v", str(frames), "-an"] + clip_codec_args() + [
-                    "-r", str(FPS)] + COLOR_META_ARGS
+                    "-r", str(FPS)]
             if ffmpeg_threads:
                 cmd += cpu_budget.ffmpeg_thread_args(ffmpeg_threads)
             cmd += [tmp_out]
@@ -16070,7 +16102,7 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
             cmd += ["-filter_complex", fc, "-map", "[vout]"]
         else:
             cmd += ["-vf", vf]
-        cmd += ["-frames:v", str(frames), "-an"] + clip_codec_args() + ["-r", str(FPS)] + COLOR_META_ARGS
+        cmd += ["-frames:v", str(frames), "-an"] + clip_codec_args() + ["-r", str(FPS)]
         if ffmpeg_threads:
             cmd += cpu_budget.ffmpeg_thread_args(ffmpeg_threads)
         cmd += [tmp_out]

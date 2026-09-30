@@ -250,7 +250,7 @@ def test_clip_codec_args_on_cpu_are_the_old_libx264(monkeypatch):
     monkeypatch.delenv("CLIP_ENCODER_RESOLVED", raising=False)
     monkeypatch.setattr(ps, "_NVENC_BROKEN", [False])
     assert ps.clip_codec_args() == ["-c:v", "libx264", "-preset", ps.RENDER_PRESET,
-                                     "-crf", ps.RENDER_CRF] + ps.CLIP_PIX_ARGS
+                                     "-crf", ps.RENDER_CRF] + ps.CLIP_PIX_ARGS + ps.COLOR_META_ARGS
 
 
 def test_nvenc_when_resolved_and_back_to_x264_after_nvenc_failure(monkeypatch):
