@@ -57,11 +57,12 @@ def test_main_starts_audio_before_the_slot_loop_and_stops_it_on_every_early_retu
 
 def test_parallax_workers_follow_cores_and_env(monkeypatch):
     monkeypatch.delenv("PARALLAX_WORKERS", raising=False)
-    monkeypatch.setattr(ps.os, "cpu_count", lambda: 4)
+    # Ядра — выданные прогону (cpu_budget), а не хозяина контейнера.
+    monkeypatch.setattr(ps.cpu_budget, "cores", lambda *a, **k: 4)
     assert ps.parallax_workers() == 1, "до 8 ядер — как было"
-    monkeypatch.setattr(ps.os, "cpu_count", lambda: 16)
+    monkeypatch.setattr(ps.cpu_budget, "cores", lambda *a, **k: 16)
     assert ps.parallax_workers() == 4
-    monkeypatch.setattr(ps.os, "cpu_count", lambda: 64)
+    monkeypatch.setattr(ps.cpu_budget, "cores", lambda *a, **k: 64)
     assert ps.parallax_workers() == 4
     monkeypatch.setenv("PARALLAX_WORKERS", "2")
     assert ps.parallax_workers() == 2
