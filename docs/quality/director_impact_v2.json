@@ -1,0 +1,1051 @@
+{
+ "model": "qwen2.5-3b-instruct-q4_k_m.gguf",
+ "prompt_version": 2,
+ "n_cases": 20,
+ "seconds": 1823.5,
+ "summary": {
+  "baseline": {
+   "winner_mean_sentence_rel": 0.0648,
+   "winner_passes_gates": 20,
+   "winner_passes_rate": 1.0,
+   "pool_gate_pass_rate": 0.875,
+   "total_candidates": 80
+  },
+  "director": {
+   "winner_mean_sentence_rel": 0.0732,
+   "winner_passes_gates": 18,
+   "winner_passes_rate": 0.9,
+   "pool_gate_pass_rate": 0.5083,
+   "total_candidates": 240
+  },
+  "union": {
+   "winner_mean_sentence_rel": 0.0734,
+   "winner_passes_gates": 20,
+   "winner_passes_rate": 1.0,
+   "pool_gate_pass_rate": 0.6,
+   "total_candidates": 320
+  }
+ },
+ "cases": [
+  {
+   "id": "ep01_000",
+   "difficulty_class": "figurative",
+   "baseline_verdict": "reject",
+   "text": "Пятнадцать килограммов.",
+   "baseline_query": "milk bottle hand",
+   "director_queries": [
+    "medieval sword blade macro detail",
+    "knight longsword in museum display case",
+    "armourer holding longsword in forge"
+   ],
+   "baseline": {
+    "n_candidates": 4,
+    "n_gate_passed": 3,
+    "winner_id": 6150644,
+    "winner_path": "/tmp/director_impact/ep01_000/6150644.jpg",
+    "winner_query": "milk bottle hand",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2249,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0364,
+    "pool_best_sentence_rel": 0.0411
+   },
+   "director": {
+    "n_candidates": 12,
+    "n_gate_passed": 1,
+    "winner_id": 349455,
+    "winner_path": "/tmp/director_impact/ep01_000/349455.jpg",
+    "winner_query": "knight longsword in museum display case",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2197,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0445,
+    "pool_best_sentence_rel": 0.0587
+   },
+   "union": {
+    "n_candidates": 16,
+    "n_gate_passed": 4,
+    "winner_id": 6150644,
+    "winner_path": "/tmp/director_impact/ep01_000/6150644.jpg",
+    "winner_query": "milk bottle hand",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2249,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0364,
+    "pool_best_sentence_rel": 0.0587
+   }
+  },
+  {
+   "id": "ep01_002",
+   "difficulty_class": "anachronism_risk",
+   "baseline_verdict": "reject",
+   "text": "Именно так отвечает почти каждый, когда его спрашивают, сколько весил настоящий боевой меч.",
+   "baseline_query": "greatsword warrior fight",
+   "director_queries": [
+    "medieval sword blade macro detail",
+    "knight holding sword in museum display",
+    "armourer holding sword in forge"
+   ],
+   "baseline": {
+    "n_candidates": 4,
+    "n_gate_passed": 4,
+    "winner_id": 5030527,
+    "winner_path": "/tmp/director_impact/ep01_002/5030527.jpg",
+    "winner_query": "greatsword warrior fight",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2181,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0801,
+    "pool_best_sentence_rel": 0.1104
+   },
+   "director": {
+    "n_candidates": 12,
+    "n_gate_passed": 7,
+    "winner_id": 31474665,
+    "winner_path": "/tmp/director_impact/ep01_002/31474665.jpg",
+    "winner_query": "knight holding sword in museum display",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2503,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.1049,
+    "pool_best_sentence_rel": 0.1216
+   },
+   "union": {
+    "n_candidates": 16,
+    "n_gate_passed": 11,
+    "winner_id": 31474665,
+    "winner_path": "/tmp/director_impact/ep01_002/31474665.jpg",
+    "winner_query": "knight holding sword in museum display",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2503,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.1049,
+    "pool_best_sentence_rel": 0.1216
+   }
+  },
+  {
+   "id": "ep01_005",
+   "difficulty_class": "figurative",
+   "baseline_verdict": "reject",
+   "text": "Не вставай никуда. Просто вспомни, сколько весит пакет молока у тебя в руке. Литр. Ерунда.",
+   "baseline_query": "milk bottle hand",
+   "director_queries": [
+    "close detail of milk carton macro",
+    "milk carton in kitchen",
+    "man lifting milk carton"
+   ],
+   "baseline": {
+    "n_candidates": 4,
+    "n_gate_passed": 3,
+    "winner_id": 6150644,
+    "winner_path": "/tmp/director_impact/ep01_005/6150644.jpg",
+    "winner_query": "milk bottle hand",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2249,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0788,
+    "pool_best_sentence_rel": 0.1008
+   },
+   "director": {
+    "n_candidates": 12,
+    "n_gate_passed": 7,
+    "winner_id": 6804190,
+    "winner_path": "/tmp/director_impact/ep01_005/6804190.jpg",
+    "winner_query": "man lifting milk carton",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2403,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0981,
+    "pool_best_sentence_rel": 0.1179
+   },
+   "union": {
+    "n_candidates": 16,
+    "n_gate_passed": 10,
+    "winner_id": 6804190,
+    "winner_path": "/tmp/director_impact/ep01_005/6804190.jpg",
+    "winner_query": "man lifting milk carton",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2403,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0981,
+    "pool_best_sentence_rel": 0.1179
+   }
+  },
+  {
+   "id": "ep01_006",
+   "difficulty_class": "anachronism_risk",
+   "baseline_verdict": "reject",
+   "text": "Вот это. Это вес настоящего боевого меча — того самого, которым люди убивали друг друга тысячу лет подряд.",
+   "baseline_query": "greatsword warrior fight",
+   "director_queries": [
+    "medieval sword blade macro detail",
+    "knight holding sword in museum display",
+    "swordsmith forging sword"
+   ],
+   "baseline": {
+    "n_candidates": 4,
+    "n_gate_passed": 4,
+    "winner_id": 5030527,
+    "winner_path": "/tmp/director_impact/ep01_006/5030527.jpg",
+    "winner_query": "greatsword warrior fight",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2181,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0884,
+    "pool_best_sentence_rel": 0.1284
+   },
+   "director": {
+    "n_candidates": 12,
+    "n_gate_passed": 7,
+    "winner_id": 31474665,
+    "winner_path": "/tmp/director_impact/ep01_006/31474665.jpg",
+    "winner_query": "knight holding sword in museum display",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2503,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.1003,
+    "pool_best_sentence_rel": 0.1271
+   },
+   "union": {
+    "n_candidates": 16,
+    "n_gate_passed": 11,
+    "winner_id": 31474665,
+    "winner_path": "/tmp/director_impact/ep01_006/31474665.jpg",
+    "winner_query": "knight holding sword in museum display",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2503,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.1003,
+    "pool_best_sentence_rel": 0.1284
+   }
+  },
+  {
+   "id": "ep01_008",
+   "difficulty_class": "compositional",
+   "baseline_verdict": "reject",
+   "text": "А ближе к концу — меч на четыре килограмма. Настоящий, из музея, с табличкой «боевой».",
+   "baseline_query": "greatsword warrior fight",
+   "director_queries": [
+    "medieval sword blade macro detail",
+    "medieval sword in museum display",
+    "swordsmith holding sword"
+   ],
+   "baseline": {
+    "n_candidates": 4,
+    "n_gate_passed": 4,
+    "winner_id": 5030527,
+    "winner_path": "/tmp/director_impact/ep01_008/5030527.jpg",
+    "winner_query": "greatsword warrior fight",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2181,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.048,
+    "pool_best_sentence_rel": 0.0973
+   },
+   "director": {
+    "n_candidates": 12,
+    "n_gate_passed": 6,
+    "winner_id": 31474665,
+    "winner_path": "/tmp/director_impact/ep01_008/31474665.jpg",
+    "winner_query": "medieval sword in museum display",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2503,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.1221,
+    "pool_best_sentence_rel": 0.1326
+   },
+   "union": {
+    "n_candidates": 16,
+    "n_gate_passed": 10,
+    "winner_id": 31474665,
+    "winner_path": "/tmp/director_impact/ep01_008/31474665.jpg",
+    "winner_query": "medieval sword in museum display",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2503,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.1221,
+    "pool_best_sentence_rel": 0.1326
+   }
+  },
+  {
+   "id": "ep01_009",
+   "difficulty_class": "fragment",
+   "baseline_verdict": "reject",
+   "text": "Историки до сих пор спорят, врёт эта табличка или нет.",
+   "baseline_query": "medieval knight sword battle",
+   "director_queries": [
+    "medieval sword blade macro detail",
+    "medieval sword in museum display",
+    "armourer holding sword"
+   ],
+   "baseline": {
+    "n_candidates": 4,
+    "n_gate_passed": 4,
+    "winner_id": 31474665,
+    "winner_path": "/tmp/director_impact/ep01_009/31474665.jpg",
+    "winner_query": "medieval knight sword battle",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2969,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0331,
+    "pool_best_sentence_rel": 0.0608
+   },
+   "director": {
+    "n_candidates": 12,
+    "n_gate_passed": 10,
+    "winner_id": 11046287,
+    "winner_path": "/tmp/director_impact/ep01_009/11046287.jpg",
+    "winner_query": "armourer holding sword",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2833,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0439,
+    "pool_best_sentence_rel": 0.0583
+   },
+   "union": {
+    "n_candidates": 16,
+    "n_gate_passed": 14,
+    "winner_id": 31474665,
+    "winner_path": "/tmp/director_impact/ep01_009/31474665.jpg",
+    "winner_query": "medieval knight sword battle",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2969,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0331,
+    "pool_best_sentence_rel": 0.0608
+   }
+  },
+  {
+   "id": "ep01_011",
+   "difficulty_class": "literal",
+   "baseline_verdict": "good",
+   "text": "«Рыцари же были здоровые мужики, они с детства тренировались, чтобы просто держать эту штуку».",
+   "baseline_query": "knight armor exhibit",
+   "director_queries": [
+    "medieval knight training close detail",
+    "medieval knight training wide shot",
+    "medieval knight training action"
+   ],
+   "baseline": {
+    "n_candidates": 4,
+    "n_gate_passed": 4,
+    "winner_id": 31474665,
+    "winner_path": "/tmp/director_impact/ep01_011/31474665.jpg",
+    "winner_query": "knight armor exhibit",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.3378,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0588,
+    "pool_best_sentence_rel": 0.0789
+   },
+   "director": {
+    "n_candidates": 12,
+    "n_gate_passed": 12,
+    "winner_id": 39125516,
+    "winner_path": "/tmp/director_impact/ep01_011/39125516.jpg",
+    "winner_query": "medieval knight training action",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2406,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0524,
+    "pool_best_sentence_rel": 0.1147
+   },
+   "union": {
+    "n_candidates": 16,
+    "n_gate_passed": 16,
+    "winner_id": 39125516,
+    "winner_path": "/tmp/director_impact/ep01_011/39125516.jpg",
+    "winner_query": "medieval knight training action",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2406,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0524,
+    "pool_best_sentence_rel": 0.1147
+   }
+  },
+  {
+   "id": "ep01_026",
+   "difficulty_class": "literal",
+   "baseline_verdict": "good",
+   "text": "Инструмент, которым долбят бетон, тяжелее «страшного рыцарского меча» в два-три раза.",
+   "baseline_query": "sledgehammer tool",
+   "director_queries": [
+    "medieval sword blade macro detail",
+    "medieval sword in workshop",
+    "smith hammering sword"
+   ],
+   "baseline": {
+    "n_candidates": 4,
+    "n_gate_passed": 4,
+    "winner_id": 5427749,
+    "winner_path": "/tmp/director_impact/ep01_026/5427749.jpg",
+    "winner_query": "sledgehammer tool",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2303,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0589,
+    "pool_best_sentence_rel": 0.083
+   },
+   "director": {
+    "n_candidates": 12,
+    "n_gate_passed": 8,
+    "winner_id": 13172738,
+    "winner_path": "/tmp/director_impact/ep01_026/13172738.jpg",
+    "winner_query": "smith hammering sword",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2354,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.1114,
+    "pool_best_sentence_rel": 0.117
+   },
+   "union": {
+    "n_candidates": 16,
+    "n_gate_passed": 12,
+    "winner_id": 13172738,
+    "winner_path": "/tmp/director_impact/ep01_026/13172738.jpg",
+    "winner_query": "smith hammering sword",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2354,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.1114,
+    "pool_best_sentence_rel": 0.117
+   }
+  },
+  {
+   "id": "ep01_048",
+   "difficulty_class": "literal",
+   "baseline_verdict": "good",
+   "text": "И тут надо понять главное: цвайхендер — это потолок. Экстремум.",
+   "baseline_query": "medieval pikemen battle",
+   "director_queries": [
+    "dark room ceiling macro detail",
+    "mysterious room with spotlight on ceiling",
+    "man standing in front of dark ceiling"
+   ],
+   "baseline": {
+    "n_candidates": 4,
+    "n_gate_passed": 4,
+    "winner_id": 8116144,
+    "winner_path": "/tmp/director_impact/ep01_048/8116144.jpg",
+    "winner_query": "medieval pikemen battle",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2551,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0574,
+    "pool_best_sentence_rel": 0.0627
+   },
+   "director": {
+    "n_candidates": 12,
+    "n_gate_passed": 0,
+    "winner_id": 18644891,
+    "winner_path": "/tmp/director_impact/ep01_048/18644891.jpg",
+    "winner_query": "mysterious room with spotlight on ceiling",
+    "winner_gate_passed": false,
+    "winner_relevance": 0.1558,
+    "winner_veto": "modern indoor gym or hall with artificial lighting and painted floor",
+    "winner_guard": null,
+    "winner_sentence_rel": 0.1007,
+    "pool_best_sentence_rel": 0.1129
+   },
+   "union": {
+    "n_candidates": 16,
+    "n_gate_passed": 4,
+    "winner_id": 8116144,
+    "winner_path": "/tmp/director_impact/ep01_048/8116144.jpg",
+    "winner_query": "medieval pikemen battle",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2551,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0574,
+    "pool_best_sentence_rel": 0.1129
+   }
+  },
+  {
+   "id": "ep01_055",
+   "difficulty_class": "fragment",
+   "baseline_verdict": "tolerable",
+   "text": "Двойные деньги шли не за вес меча.",
+   "baseline_query": "zweihander two handed sword",
+   "director_queries": [
+    "medieval sword blade macro detail",
+    "knight in armor in castle courtyard",
+    "armorer working on sword"
+   ],
+   "baseline": {
+    "n_candidates": 4,
+    "n_gate_passed": 4,
+    "winner_id": 9493319,
+    "winner_path": "/tmp/director_impact/ep01_055/9493319.jpg",
+    "winner_query": "zweihander two handed sword",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2658,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0762,
+    "pool_best_sentence_rel": 0.0872
+   },
+   "director": {
+    "n_candidates": 12,
+    "n_gate_passed": 12,
+    "winner_id": 39125516,
+    "winner_path": "/tmp/director_impact/ep01_055/39125516.jpg",
+    "winner_query": "armorer working on sword",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2399,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0513,
+    "pool_best_sentence_rel": 0.1017
+   },
+   "union": {
+    "n_candidates": 16,
+    "n_gate_passed": 16,
+    "winner_id": 39125516,
+    "winner_path": "/tmp/director_impact/ep01_055/39125516.jpg",
+    "winner_query": "armorer working on sword",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2399,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0513,
+    "pool_best_sentence_rel": 0.1017
+   }
+  },
+  {
+   "id": "ep01_068",
+   "difficulty_class": "compositional",
+   "baseline_verdict": "reject",
+   "text": "Возьми настоящий боевой меч и положи его на палец: он уравновесится в десяти-пятнадцати сантиметрах от гарды. Почти у са",
+   "baseline_query": "sword balance point finger",
+   "director_queries": [
+    "medieval sword blade macro detail",
+    "medieval sword blade in training hall",
+    "sword wielder demonstrating technique"
+   ],
+   "baseline": {
+    "n_candidates": 4,
+    "n_gate_passed": 3,
+    "winner_id": 8461245,
+    "winner_path": "/tmp/director_impact/ep01_068/8461245.jpg",
+    "winner_query": "sword balance point finger",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2642,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.1015,
+    "pool_best_sentence_rel": 0.1238
+   },
+   "director": {
+    "n_candidates": 12,
+    "n_gate_passed": 6,
+    "winner_id": 19424928,
+    "winner_path": "/tmp/director_impact/ep01_068/19424928.jpg",
+    "winner_query": "medieval sword blade in training hall",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2545,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.1011,
+    "pool_best_sentence_rel": 0.1227
+   },
+   "union": {
+    "n_candidates": 16,
+    "n_gate_passed": 9,
+    "winner_id": 19424928,
+    "winner_path": "/tmp/director_impact/ep01_068/19424928.jpg",
+    "winner_query": "medieval sword blade in training hall",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2545,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.1011,
+    "pool_best_sentence_rel": 0.1238
+   }
+  },
+  {
+   "id": "ep01_076",
+   "difficulty_class": "literal",
+   "baseline_verdict": "good",
+   "text": "Ожидаешь монументального, а в руке — будто удочка.",
+   "baseline_query": "sword hilt hand grip",
+   "director_queries": [
+    "ceremonial scepter close detail",
+    "ancient throne room wide shot",
+    "ceremonial scepter bearer in throne room"
+   ],
+   "baseline": {
+    "n_candidates": 4,
+    "n_gate_passed": 3,
+    "winner_id": 31350049,
+    "winner_path": "/tmp/director_impact/ep01_076/31350049.jpg",
+    "winner_query": "sword hilt hand grip",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.255,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0791,
+    "pool_best_sentence_rel": 0.1041
+   },
+   "director": {
+    "n_candidates": 12,
+    "n_gate_passed": 0,
+    "winner_id": 7224522,
+    "winner_path": "/tmp/director_impact/ep01_076/7224522.jpg",
+    "winner_query": "ancient throne room wide shot",
+    "winner_gate_passed": false,
+    "winner_relevance": 0.1529,
+    "winner_veto": "modern indoor gym or hall with artificial lighting and painted floor",
+    "winner_guard": null,
+    "winner_sentence_rel": 0.037,
+    "pool_best_sentence_rel": 0.0838
+   },
+   "union": {
+    "n_candidates": 16,
+    "n_gate_passed": 3,
+    "winner_id": 31350049,
+    "winner_path": "/tmp/director_impact/ep01_076/31350049.jpg",
+    "winner_query": "sword hilt hand grip",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.255,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0791,
+    "pool_best_sentence_rel": 0.1041
+   }
+  },
+  {
+   "id": "ep01_084",
+   "difficulty_class": "compositional",
+   "baseline_verdict": "reject",
+   "text": "Их несли перед знатным человеком на церемониях, как несут знамя или скипетр.",
+   "baseline_query": "ornate sword display",
+   "director_queries": [
+    "banner of a nobleman close-up",
+    "royal court ceremony wide shot",
+    "nobles presenting banner to king"
+   ],
+   "baseline": {
+    "n_candidates": 4,
+    "n_gate_passed": 4,
+    "winner_id": 31474665,
+    "winner_path": "/tmp/director_impact/ep01_084/31474665.jpg",
+    "winner_query": "ornate sword display",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2858,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0812,
+    "pool_best_sentence_rel": 0.0812
+   },
+   "director": {
+    "n_candidates": 12,
+    "n_gate_passed": 4,
+    "winner_id": 7015157,
+    "winner_path": "/tmp/director_impact/ep01_084/7015157.jpg",
+    "winner_query": "nobles presenting banner to king",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2159,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0634,
+    "pool_best_sentence_rel": 0.09
+   },
+   "union": {
+    "n_candidates": 16,
+    "n_gate_passed": 8,
+    "winner_id": 7015157,
+    "winner_path": "/tmp/director_impact/ep01_084/7015157.jpg",
+    "winner_query": "nobles presenting banner to king",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2159,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0634,
+    "pool_best_sentence_rel": 0.09
+   }
+  },
+  {
+   "id": "ep01_090",
+   "difficulty_class": "fragment",
+   "baseline_verdict": "good",
+   "text": "Не дрались. Несли.",
+   "baseline_query": "medieval castle hall",
+   "director_queries": [
+    "ceremonial carrying of banner macro detail",
+    "ancient throne room carrying scene",
+    "ceremonial carrying of banner in throne room"
+   ],
+   "baseline": {
+    "n_candidates": 4,
+    "n_gate_passed": 4,
+    "winner_id": 27040517,
+    "winner_path": "/tmp/director_impact/ep01_090/27040517.jpg",
+    "winner_query": "medieval castle hall",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2646,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0201,
+    "pool_best_sentence_rel": 0.0302
+   },
+   "director": {
+    "n_candidates": 12,
+    "n_gate_passed": 1,
+    "winner_id": 33550311,
+    "winner_path": "/tmp/director_impact/ep01_090/33550311.jpg",
+    "winner_query": "ancient throne room carrying scene",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2461,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0219,
+    "pool_best_sentence_rel": 0.0609
+   },
+   "union": {
+    "n_candidates": 16,
+    "n_gate_passed": 5,
+    "winner_id": 27040517,
+    "winner_path": "/tmp/director_impact/ep01_090/27040517.jpg",
+    "winner_query": "medieval castle hall",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2646,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0201,
+    "pool_best_sentence_rel": 0.0609
+   }
+  },
+  {
+   "id": "ep01_122",
+   "difficulty_class": "anachronism_risk",
+   "baseline_verdict": "reject",
+   "text": "Не потому, что не могли позволить себе больше железа. А потому, что считали.",
+   "baseline_query": "blacksmith forging sword",
+   "director_queries": [
+    "medieval sword blade macro detail",
+    "medieval sword in museum display",
+    "swordsmith working on a sword"
+   ],
+   "baseline": {
+    "n_candidates": 4,
+    "n_gate_passed": 4,
+    "winner_id": 33739126,
+    "winner_path": "/tmp/director_impact/ep01_122/33739126.jpg",
+    "winner_query": "blacksmith forging sword",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2449,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0378,
+    "pool_best_sentence_rel": 0.0674
+   },
+   "director": {
+    "n_candidates": 12,
+    "n_gate_passed": 7,
+    "winner_id": 11046287,
+    "winner_path": "/tmp/director_impact/ep01_122/11046287.jpg",
+    "winner_query": "swordsmith working on a sword",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2571,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0489,
+    "pool_best_sentence_rel": 0.0584
+   },
+   "union": {
+    "n_candidates": 16,
+    "n_gate_passed": 11,
+    "winner_id": 33739126,
+    "winner_path": "/tmp/director_impact/ep01_122/33739126.jpg",
+    "winner_query": "blacksmith forging sword",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2449,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0378,
+    "pool_best_sentence_rel": 0.0674
+   }
+  },
+  {
+   "id": "ep01_128",
+   "difficulty_class": "literal",
+   "baseline_verdict": "good",
+   "text": "Отвечаю. Уставали. Страшно. Только не от меча.",
+   "baseline_query": "exhausted soldier armor",
+   "director_queries": [
+    "soldier in armor close detail",
+    "soldiers in armor wide shot",
+    "soldier in armor holding sword"
+   ],
+   "baseline": {
+    "n_candidates": 4,
+    "n_gate_passed": 1,
+    "winner_id": 208674,
+    "winner_path": "/tmp/director_impact/ep01_128/208674.jpg",
+    "winner_query": "exhausted soldier armor",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2558,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0712,
+    "pool_best_sentence_rel": 0.0712
+   },
+   "director": {
+    "n_candidates": 12,
+    "n_gate_passed": 9,
+    "winner_id": 11046287,
+    "winner_path": "/tmp/director_impact/ep01_128/11046287.jpg",
+    "winner_query": "soldiers in armor wide shot",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2353,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0995,
+    "pool_best_sentence_rel": 0.103
+   },
+   "union": {
+    "n_candidates": 16,
+    "n_gate_passed": 10,
+    "winner_id": 11046287,
+    "winner_path": "/tmp/director_impact/ep01_128/11046287.jpg",
+    "winner_query": "soldiers in armor wide shot",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2353,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0995,
+    "pool_best_sentence_rel": 0.103
+   }
+  },
+  {
+   "id": "ep01_133",
+   "difficulty_class": "metaphor",
+   "baseline_verdict": "good",
+   "text": "Человек в доспехе — это человек в термосе. Перегрев в бою убивал не хуже клинка: в источниках хватает случаев, когда вои",
+   "baseline_query": "exhausted soldier armor",
+   "director_queries": [
+    "medieval knight armor close detail",
+    "knight in armor in dark castle courtyard",
+    "knight in armor holding shield"
+   ],
+   "baseline": {
+    "n_candidates": 4,
+    "n_gate_passed": 1,
+    "winner_id": 208674,
+    "winner_path": "/tmp/director_impact/ep01_133/208674.jpg",
+    "winner_query": "exhausted soldier armor",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2558,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0804,
+    "pool_best_sentence_rel": 0.1037
+   },
+   "director": {
+    "n_candidates": 12,
+    "n_gate_passed": 10,
+    "winner_id": 39125516,
+    "winner_path": "/tmp/director_impact/ep01_133/39125516.jpg",
+    "winner_query": "knight in armor in dark castle courtyard",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2164,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0959,
+    "pool_best_sentence_rel": 0.1222
+   },
+   "union": {
+    "n_candidates": 16,
+    "n_gate_passed": 11,
+    "winner_id": 39125516,
+    "winner_path": "/tmp/director_impact/ep01_133/39125516.jpg",
+    "winner_query": "knight in armor in dark castle courtyard",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2164,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0959,
+    "pool_best_sentence_rel": 0.1222
+   }
+  },
+  {
+   "id": "ep01_140",
+   "difficulty_class": "anachronism_risk",
+   "baseline_verdict": "reject",
+   "text": "Из девятнадцатого века. Из романтизма. Литература и живопись придумали Средневековье заново: мрачное, тяжёлое, железное.",
+   "baseline_query": "19th century romantic painting knight",
+   "director_queries": [
+    "medieval armor close detail",
+    "medieval knight in armor wide shot",
+    "medieval knight experiencing armor"
+   ],
+   "baseline": {
+    "n_candidates": 4,
+    "n_gate_passed": 4,
+    "winner_id": 6719051,
+    "winner_path": "/tmp/director_impact/ep01_140/6719051.jpg",
+    "winner_query": "19th century romantic painting knight",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2045,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0724,
+    "pool_best_sentence_rel": 0.1064
+   },
+   "director": {
+    "n_candidates": 12,
+    "n_gate_passed": 11,
+    "winner_id": 30736362,
+    "winner_path": "/tmp/director_impact/ep01_140/30736362.jpg",
+    "winner_query": "medieval knight in armor wide shot",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2559,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.067,
+    "pool_best_sentence_rel": 0.0898
+   },
+   "union": {
+    "n_candidates": 16,
+    "n_gate_passed": 15,
+    "winner_id": 30736362,
+    "winner_path": "/tmp/director_impact/ep01_140/30736362.jpg",
+    "winner_query": "medieval knight in armor wide shot",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2559,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.067,
+    "pool_best_sentence_rel": 0.1064
+   }
+  },
+  {
+   "id": "ep01_146",
+   "difficulty_class": "metaphor",
+   "baseline_verdict": "tolerable",
+   "text": "И это ощущение честнее кино — ты его не посмотрел, ты его прожил.",
+   "baseline_query": "old film reel vintage cinema",
+   "director_queries": [
+    "people in past macro detail",
+    "past people in historical photo",
+    "historian studying past people"
+   ],
+   "baseline": {
+    "n_candidates": 4,
+    "n_gate_passed": 4,
+    "winner_id": 30335438,
+    "winner_path": "/tmp/director_impact/ep01_146/30335438.jpg",
+    "winner_query": "old film reel vintage cinema",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2501,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0861,
+    "pool_best_sentence_rel": 0.0861
+   },
+   "director": {
+    "n_candidates": 12,
+    "n_gate_passed": 2,
+    "winner_id": 5829,
+    "winner_path": "/tmp/director_impact/ep01_146/5829.jpg",
+    "winner_query": "past people in historical photo",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2004,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.059,
+    "pool_best_sentence_rel": 0.0659
+   },
+   "union": {
+    "n_candidates": 16,
+    "n_gate_passed": 6,
+    "winner_id": 30335438,
+    "winner_path": "/tmp/director_impact/ep01_146/30335438.jpg",
+    "winner_query": "old film reel vintage cinema",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2501,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0861,
+    "pool_best_sentence_rel": 0.0861
+   }
+  },
+  {
+   "id": "ep01_160",
+   "difficulty_class": "metaphor",
+   "baseline_verdict": "good",
+   "text": "И это, пожалуй, лучшая метафора всего, что мы тут делаем.",
+   "baseline_query": "chainmail armor close up",
+   "director_queries": [
+    "medieval sword training close detail",
+    "medieval swordsmanship in training hall wide shot",
+    "swordsmanship instructor demonstrating technique"
+   ],
+   "baseline": {
+    "n_candidates": 4,
+    "n_gate_passed": 4,
+    "winner_id": 2046779,
+    "winner_path": "/tmp/director_impact/ep01_160/2046779.jpg",
+    "winner_query": "chainmail armor close up",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2563,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0508,
+    "pool_best_sentence_rel": 0.0508
+   },
+   "director": {
+    "n_candidates": 12,
+    "n_gate_passed": 2,
+    "winner_id": 9493319,
+    "winner_path": "/tmp/director_impact/ep01_160/9493319.jpg",
+    "winner_query": "medieval sword training close detail",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2359,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0417,
+    "pool_best_sentence_rel": 0.0695
+   },
+   "union": {
+    "n_candidates": 16,
+    "n_gate_passed": 6,
+    "winner_id": 2046779,
+    "winner_path": "/tmp/director_impact/ep01_160/2046779.jpg",
+    "winner_query": "chainmail armor close up",
+    "winner_gate_passed": true,
+    "winner_relevance": 0.2563,
+    "winner_veto": null,
+    "winner_guard": null,
+    "winner_sentence_rel": 0.0508,
+    "pool_best_sentence_rel": 0.0695
+   }
+  }
+ ]
+}

@@ -1,0 +1,632 @@
+"""LLM-режиссёр (scripts/shot_director.py) — тесты.
+
+Живой Gemini НЕ вызывается нигде в этом файле (нет ключа в CI, и бюджет
+free-tier — по факту ~20 вызовов/день, см. докстринг shot_director.py —
+слишком дорог, чтобы тратить его на тесты). urllib.request.urlopen
+подменяется тем же паттерном, что test_speech_generate.py использует для
+ElevenLabs: без сети, чистый контракт запроса/ответа/кэша/лимита."""
+import json
+import os
+import sys
+import tempfile
+
+import pytest
+from PIL import Image
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SCRIPTS_DIR = os.path.join(REPO_ROOT, "scripts")
+sys.path.insert(0, SCRIPTS_DIR)
+
+import shot_director as sd  # noqa: E402
+
+
+class _FakeHTTPResponse:
+    def __init__(self, payload_bytes):
+        self._payload = payload_bytes
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self):
+        return self._payload
+
+
+def _fake_gemini_payload(queries, literal=False):
+    inner = json.dumps({"literal": literal, "queries": queries})
+    return json.dumps({
+        "candidates": [{"content": {"parts": [{"text": inner}]}}]
+    }).encode("utf-8")
+
+
+@pytest.fixture(autouse=True)
+def _reset(monkeypatch):
+    sd.reset_call_counter()
+    monkeypatch.setenv("SHOT_DIRECTOR_MODE", "on")
+    monkeypatch.setenv("GEMINI_API_KEY", "fake_key_for_test")
+    yield
+    sd.reset_call_counter()
+
+
+def test_off_mode_never_touches_network(monkeypatch, tmp_path):
+    monkeypatch.setenv("SHOT_DIRECTOR_MODE", "off")
+
+    def _boom(*a, **kw):
+        raise AssertionError("network должен быть недостижим в off-режиме")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    assert sd.direct_query("Взять быка за рога.", str(tmp_path)) is None
+
+
+def test_no_api_key_returns_none_without_network(monkeypatch, tmp_path):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
+    def _boom(*a, **kw):
+        raise AssertionError("не должно быть сетевого вызова без ключа")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    assert sd.direct_query("Взять быка за рога.", str(tmp_path)) is None
+
+
+def test_successful_call_returns_first_query_and_writes_cache(monkeypatch, tmp_path):
+    payload = _fake_gemini_payload(["person taking decisive action", "confident leader close up"])
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(payload))
+    result = sd.direct_query("Взять быка за рога.", str(tmp_path))
+    assert result == "person taking decisive action"
+    cache_file = sd._cache_path(str(tmp_path), "Взять быка за рога.")
+    assert os.path.exists(cache_file)
+    cached = json.load(open(cache_file, encoding="utf-8"))
+    assert cached["queries"][0] == "person taking decisive action"
+
+
+def test_cache_hit_skips_network_entirely(monkeypatch, tmp_path):
+    payload = _fake_gemini_payload(["decisive person action"])
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(payload))
+    first = sd.direct_query("Взять быка за рога.", str(tmp_path))
+
+    def _boom(*a, **kw):
+        raise AssertionError("кэш-хит не должен трогать сеть")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    second = sd.direct_query("Взять быка за рога.", str(tmp_path))
+    assert first == second == "decisive person action"
+
+
+def test_cyrillic_query_is_filtered_out(monkeypatch, tmp_path):
+    # Модель иногда всё равно возвращает кириллицу вопреки запрету в промпте —
+    # такой запрос бесполезен для Pexels/Pixabay (англоязычный поиск), должен
+    # быть отфильтрован, а не уйти в реальный fetch.
+    payload = _fake_gemini_payload(["меч в руке", "person taking decisive action"])
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(payload))
+    result = sd.direct_query("Взять быка за рога.", str(tmp_path))
+    assert result == "person taking decisive action"
+
+
+def test_all_queries_cyrillic_returns_none(monkeypatch, tmp_path):
+    payload = _fake_gemini_payload(["меч в руке"])
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(payload))
+    assert sd.direct_query("Взять быка за рога.", str(tmp_path)) is None
+
+
+def test_malformed_json_response_fails_open(monkeypatch, tmp_path):
+    bad_payload = json.dumps({
+        "candidates": [{"content": {"parts": [{"text": "не json вообще"}]}}]
+    }).encode("utf-8")
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(bad_payload))
+    assert sd.direct_query("Абстрактная фраза.", str(tmp_path)) is None
+
+
+def test_network_error_fails_open(monkeypatch, tmp_path):
+    def _raise(req, timeout=None):
+        raise OSError("timeout")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _raise)
+    assert sd.direct_query("Абстрактная фраза.", str(tmp_path)) is None
+
+
+def test_json_wrapped_in_markdown_fence_is_still_parsed(monkeypatch, tmp_path):
+    # Промпт явно запрещает markdown-обёртку, но responseMimeType=json не
+    # железная гарантия для всех моделей/версий — парсер должен выживать,
+    # если модель всё равно обернула ответ в ```json ... ```.
+    inner = json.dumps({"literal": False, "queries": ["decisive person action"]})
+    wrapped = f"```json\n{inner}\n```"
+    payload = json.dumps({
+        "candidates": [{"content": {"parts": [{"text": wrapped}]}}]
+    }).encode("utf-8")
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(payload))
+    assert sd.direct_query("Взять быка за рога.", str(tmp_path)) == "decisive person action"
+
+
+def test_call_budget_hard_cap_per_run(monkeypatch, tmp_path):
+    monkeypatch.setenv("SHOT_DIRECTOR_MAX_CALLS_PER_RUN", "2")
+    monkeypatch.setattr(sd, "SHOT_DIRECTOR_MAX_CALLS_PER_RUN", 2)
+    calls = {"n": 0}
+
+    def _fake_urlopen(req, timeout=None):
+        calls["n"] += 1
+        return _FakeHTTPResponse(_fake_gemini_payload([f"query {calls['n']}"]))
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _fake_urlopen)
+
+    texts = ["Фраза раз.", "Фраза два.", "Фраза три.", "Фраза четыре."]
+    results = [sd.direct_query(t, str(tmp_path)) for t in texts]
+    assert calls["n"] == 2
+    assert results[:2] == ["query 1", "query 2"]
+    assert results[2:] == [None, None]
+
+
+def test_env_cannot_raise_cap_above_hard_ceiling(monkeypatch):
+    # SHOT_DIRECTOR_MAX_CALLS_PER_RUN может только СУЗИТЬ лимит (тот же
+    # принцип, что SPEECH_GEN_MAX_ATTEMPTS) — попытка задать 999 не должна
+    # поднять реальный потолок выше жёстко зашитых 15.
+    monkeypatch.setenv("SHOT_DIRECTOR_MAX_CALLS_PER_RUN", "999")
+    import importlib
+    reloaded = importlib.reload(sd)
+    try:
+        assert reloaded.SHOT_DIRECTOR_MAX_CALLS_PER_RUN <= 15
+    finally:
+        monkeypatch.delenv("SHOT_DIRECTOR_MAX_CALLS_PER_RUN", raising=False)
+        importlib.reload(sd)
+
+
+# ---------- _thinking_config_for_model(): реальное поведение разных моделей ----------
+# thinkingBudget=0 обязателен для gemini-2.5-flash (обрыв MAX_TOKENS без
+# него), но на gemini-3.6-flash тот же флаг даёт HTTP 400 invalid argument
+# (проверено вживую 27.08 на реальном ключе, не гипотеза). Дефолт модуля
+# теперь gemini-3.6-flash, потому что gemini-2.5-flash недоступна ключу,
+# который в итоге получил этот канал ("no longer available to new users").
+
+def test_thinking_config_zero_budget_for_25_family():
+    assert sd._thinking_config_for_model("gemini-2.5-flash") == {"thinkingBudget": 0}
+    assert sd._thinking_config_for_model("gemini-2.5-pro") == {"thinkingBudget": 0}
+
+
+def test_thinking_config_omitted_for_36_flash():
+    assert sd._thinking_config_for_model("gemini-3.6-flash") is None
+
+
+def test_thinking_config_omitted_for_unknown_future_model():
+    # Честная деградация на неизвестную модель — не гадаем thinkingBudget,
+    # просто не отправляем thinkingConfig вовсе.
+    assert sd._thinking_config_for_model("gemini-9.0-nano") is None
+
+
+def test_call_body_omits_thinking_config_for_default_model(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(req, timeout=None):
+        captured["body"] = json.loads(req.data.decode("utf-8"))
+        return _FakeHTTPResponse(_fake_gemini_payload(["a query", "b query"]))
+    monkeypatch.setattr(sd.urllib.request, "urlopen", fake_urlopen)
+    with tempfile.TemporaryDirectory() as d:
+        sd.direct_query("человек принимает решение", d)
+    assert "thinkingConfig" not in captured["body"]["generationConfig"], (
+        "дефолтная модель этого модуля (gemini-3.6-flash) не принимает "
+        "thinkingConfig вообще — отправка ломает запрос")
+
+
+def test_call_body_includes_zero_budget_for_25_flash(monkeypatch):
+    monkeypatch.setattr(sd, "SHOT_DIRECTOR_MODEL", "gemini-2.5-flash")
+    captured = {}
+
+    def fake_urlopen(req, timeout=None):
+        captured["body"] = json.loads(req.data.decode("utf-8"))
+        return _FakeHTTPResponse(_fake_gemini_payload(["a query", "b query"]))
+    monkeypatch.setattr(sd.urllib.request, "urlopen", fake_urlopen)
+    with tempfile.TemporaryDirectory() as d:
+        sd.direct_query("человек принимает решение", d)
+    assert captured["body"]["generationConfig"]["thinkingConfig"] == {"thinkingBudget": 0}
+
+
+# ---------- enrich_atmospheric_queries (атмосферное обогащение хука) ----------
+# см. её докстринг в shot_director.py — реальная жалоба пользователя: у блока
+# УЖЕ есть технически релевантный запрос, но он взят слишком буквально, в
+# отрыве от темы остального ролика.
+
+def test_atmo_off_mode_never_touches_network(monkeypatch, tmp_path):
+    monkeypatch.setenv("SHOT_DIRECTOR_MODE", "off")
+
+    def _boom(*a, **kw):
+        raise AssertionError("network должен быть недостижим в off-режиме")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    assert sd.enrich_atmospheric_queries(
+        "Пятнадцать килограммов.", "weighing scale metal object",
+        ["medieval european sword blade close up"], str(tmp_path)) is None
+
+
+def test_atmo_no_api_key_returns_none_without_network(monkeypatch, tmp_path):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
+    def _boom(*a, **kw):
+        raise AssertionError("не должно быть сетевого вызова без ключа")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    assert sd.enrich_atmospheric_queries(
+        "Пятнадцать килограммов.", "weighing scale metal object", [], str(tmp_path)) is None
+
+
+def test_atmo_successful_call_returns_full_list_and_writes_cache(monkeypatch, tmp_path):
+    payload = _fake_gemini_payload(["heavy iron weight medieval sword", "knight holding heavy sword"])
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(payload))
+    result = sd.enrich_atmospheric_queries(
+        "Пятнадцать килограммов.", "weighing scale metal object",
+        ["medieval european sword blade close up"], str(tmp_path))
+    assert result == ["heavy iron weight medieval sword", "knight holding heavy sword"]
+    cache_file = sd._atmo_cache_path(
+        str(tmp_path), "Пятнадцать килограммов.", "weighing scale metal object",
+        ["medieval european sword blade close up"])
+    assert os.path.exists(cache_file)
+
+
+def test_atmo_cache_hit_skips_network_entirely(monkeypatch, tmp_path):
+    payload = _fake_gemini_payload(["heavy iron weight medieval sword"])
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(payload))
+    args = ("Пятнадцать килограммов.", "weighing scale metal object",
+            ["medieval european sword blade close up"], str(tmp_path))
+    first = sd.enrich_atmospheric_queries(*args)
+
+    def _boom(*a, **kw):
+        raise AssertionError("кэш-хит не должен трогать сеть")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    second = sd.enrich_atmospheric_queries(*args)
+    assert first == second == ["heavy iron weight medieval sword"]
+
+
+def test_atmo_cache_key_changes_with_context_queries(monkeypatch, tmp_path):
+    # Реальный сценарий: человек отредактировал script.txt, состав запросов
+    # секции изменился — кэш должен честно промахнуться, не отдать
+    # атмосферное обогащение под СТАРУЮ тему раздела.
+    payload1 = _fake_gemini_payload(["query for context A"])
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(payload1))
+    r1 = sd.enrich_atmospheric_queries("Текст.", "own query", ["context A"], str(tmp_path))
+    assert r1 == ["query for context A"]
+
+    payload2 = _fake_gemini_payload(["query for context B"])
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(payload2))
+    r2 = sd.enrich_atmospheric_queries("Текст.", "own query", ["context B"], str(tmp_path))
+    assert r2 == ["query for context B"]
+
+
+def test_atmo_shares_call_budget_with_direct_query(monkeypatch, tmp_path):
+    monkeypatch.setattr(sd, "SHOT_DIRECTOR_MAX_CALLS_PER_RUN", 1)
+    payload = _fake_gemini_payload(["some query"])
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(payload))
+    first = sd.enrich_atmospheric_queries("Текст 1.", "q1", ["ctx"], str(tmp_path))
+    assert first == ["some query"]
+    # Бюджет исчерпан этим ЖЕ вызовом — direct_query() на РАЗНОМ тексте
+    # (свежий кэш-промах) обязан молча вернуть None, не звонить в сеть.
+    def _boom(*a, **kw):
+        raise AssertionError("бюджет должен быть общим со enrich_atmospheric_queries")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    assert sd.direct_query("Совсем другой текст.", str(tmp_path)) is None
+
+
+def test_atmo_network_error_fails_open(monkeypatch, tmp_path):
+    def _raise(*a, **kw):
+        raise OSError("network down")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _raise)
+    assert sd.enrich_atmospheric_queries("Текст.", "q", ["ctx"], str(tmp_path)) is None
+
+
+def test_atmo_own_query_excluded_from_context(monkeypatch, tmp_path):
+    # own_query не должен дублироваться в context — enrich_atmospheric_queries
+    # сама фильтрует, вызывающий код (pipeline_smart.py) передаёт "как есть".
+    captured = {}
+
+    def fake_urlopen(req, timeout=None):
+        captured["body"] = req.data.decode("utf-8")
+        return _FakeHTTPResponse(_fake_gemini_payload(["q"]))
+    monkeypatch.setattr(sd.urllib.request, "urlopen", fake_urlopen)
+    sd.enrich_atmospheric_queries("Текст.", "own query", ["own query", "other query"], str(tmp_path))
+    assert captured["body"].count("own query") == 1   # только в описании own_query, не в context-списке
+
+
+# ============================================================================
+# VLM-АРБИТР (arbitrate_hook_candidates) — HOOK-only, VLM_ARBITER_MODE=off/on,
+# отдельный флаг от SHOT_DIRECTOR_MODE, но ОБЩИЙ счётчик _calls_made.
+
+def _fake_arbiter_payload(choice, reason="ок"):
+    inner = json.dumps({"choice": choice, "reason": reason})
+    return json.dumps({
+        "candidates": [{"content": {"parts": [{"text": inner}]}}]
+    }).encode("utf-8")
+
+
+def _make_images(tmp_path, n):
+    paths = []
+    for i in range(n):
+        p = tmp_path / f"cand_{i}.jpg"
+        Image.new("RGB", (32, 32), (i * 40 % 255, 10, 10)).save(p, "JPEG")
+        paths.append(str(p))
+    return paths
+
+
+@pytest.fixture(autouse=True)
+def _arbiter_mode_default_off(monkeypatch):
+    # VLM_ARBITER_MODE не входит в _reset() (отдельная фича/флаг) — по
+    # умолчанию off в каждом тесте этого блока, тесты явно включают "on".
+    monkeypatch.setenv("VLM_ARBITER_MODE", "off")
+    yield
+
+
+def test_arbiter_off_mode_never_touches_network(monkeypatch, tmp_path):
+    paths = _make_images(tmp_path, 2)
+
+    def _boom(*a, **kw):
+        raise AssertionError("network должен быть недостижим в off-режиме")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    assert sd.arbitrate_hook_candidates("Пятнадцать килограммов.", paths, [1, 2], str(tmp_path)) is None
+
+
+def test_arbiter_no_api_key_returns_none_without_network(monkeypatch, tmp_path):
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    paths = _make_images(tmp_path, 2)
+
+    def _boom(*a, **kw):
+        raise AssertionError("не должно быть сетевого вызова без ключа")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    assert sd.arbitrate_hook_candidates("Текст.", paths, [1, 2], str(tmp_path)) is None
+
+
+def test_arbiter_fewer_than_two_candidates_returns_none_without_network(monkeypatch, tmp_path):
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    paths = _make_images(tmp_path, 1)
+
+    def _boom(*a, **kw):
+        raise AssertionError("нечего арбитрировать — сеть недостижима")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    assert sd.arbitrate_hook_candidates("Текст.", paths, [1], str(tmp_path)) is None
+    assert sd.arbitrate_hook_candidates("Текст.", [], [], str(tmp_path)) is None
+
+
+def test_arbiter_mismatched_ids_length_returns_none_without_network(monkeypatch, tmp_path):
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    paths = _make_images(tmp_path, 2)
+
+    def _boom(*a, **kw):
+        raise AssertionError("несогласованный вход — сеть недостижима")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    assert sd.arbitrate_hook_candidates("Текст.", paths, [1], str(tmp_path)) is None
+
+
+def test_arbiter_successful_call_returns_chosen_path_and_writes_cache(monkeypatch, tmp_path):
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    paths = _make_images(tmp_path, 3)
+    payload = _fake_arbiter_payload(2)
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(payload))
+    result = sd.arbitrate_hook_candidates("Пятнадцать килограммов.", paths, [10, 20, 30], str(tmp_path))
+    assert result == paths[1]   # choice=2 -> 1-based индекс 2 -> paths[1]
+    cache_file = sd._arbiter_cache_path(str(tmp_path), "Пятнадцать килограммов.", [10, 20, 30])
+    assert os.path.exists(cache_file)
+
+
+def test_arbiter_zero_choice_is_an_explicit_refusal_not_silence(monkeypatch, tmp_path):
+    """choice=0 — «ни один не подходит» — обязан отличаться от «арбитра не было».
+
+    Раньше этот тест требовал ровно None, то есть закреплял тот самый баг.
+    РЕАЛЬНЫЕ последствия (найдены 07.09 в media_plan/shot_director_cache/
+    опубликованного эпизода): для фразы «Не вставай никуда. Просто вспомни,
+    сколько весит пакет молока...» модель вернула choice=0 по трём
+    кандидатам. Ответ превращался в None, вызывающий код читал None как
+    «остаться на выборе эмбеддинга» — и в хук ушёл кадр с младенцем и
+    детской бутылочкой. Вердикт эксперта «нет» и отсутствие эксперта не
+    имеют права быть одним значением.
+    """
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    paths = _make_images(tmp_path, 2)
+    payload = _fake_arbiter_payload(0)
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(payload))
+    result = sd.arbitrate_hook_candidates("Текст.", paths, [1, 2], str(tmp_path))
+    assert result is sd.NO_CANDIDATE_FITS
+    assert result is not None, "отказ модели снова неотличим от её отсутствия"
+    assert result not in paths, "отказ не имеет права выглядеть как путь к кадру"
+
+
+def test_refusal_is_falsy_so_naive_checks_do_not_ship_it_as_a_frame(monkeypatch, tmp_path):
+    """Страховка от кода, который забудет отдельную ветку.
+
+    `if pick:` должно читаться как «кандидата нет», а не как «есть объект».
+    """
+    assert not sd.NO_CANDIDATE_FITS
+    assert repr(sd.NO_CANDIDATE_FITS) == "NO_CANDIDATE_FITS"
+
+
+def test_cached_refusal_also_survives_as_a_refusal(monkeypatch, tmp_path):
+    """Отказ, взятый из кэша, обязан остаться отказом, а не стать None.
+
+    Кэш переживает прогоны, и именно из кэша читается вердикт при повторной
+    сборке эпизода — потерять смысл на этом пути значило бы починить только
+    первый прогон.
+    """
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    monkeypatch.setenv("GEMINI_API_KEY", "dummy")
+    paths = _make_images(tmp_path, 2)
+    payload = _fake_arbiter_payload(0)
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(payload))
+    args = ("Текст.", paths, [1, 2], str(tmp_path))
+    assert sd.arbitrate_hook_candidates(*args) is sd.NO_CANDIDATE_FITS
+
+    def _boom(*a, **kw):
+        raise AssertionError("сеть не должна дёргаться на кэш-хите")
+
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    assert sd.arbitrate_hook_candidates(*args) is sd.NO_CANDIDATE_FITS
+
+
+def test_resolve_choice_has_three_outcomes_not_two():
+    paths = ["a.jpg", "b.jpg", "c.jpg"]
+    assert sd._resolve_choice(2, paths) == "b.jpg"
+    assert sd._resolve_choice(0, paths) is sd.NO_CANDIDATE_FITS
+    for garbage in (None, "2", 4, -1, 2.0):
+        assert sd._resolve_choice(garbage, paths) is None, garbage
+    # bool — тоже int в Python: False == 0 не имеет права стать «отказом».
+    assert sd._resolve_choice(False, paths) is None
+    assert sd._resolve_choice(True, paths) is None
+
+
+def test_prompt_text_is_part_of_the_verdict_cache_key(monkeypatch, tmp_path):
+    """Переписал промпт — старые вердикты не наследуются молча.
+
+    Кэш вердиктов живёт в папке эпизода и переживает прогоны. Без подписи
+    промпта в ключе правка КРИТЕРИЯ отбора не доходила бы до экрана вообще:
+    вопрос новый, ответ подставляется старый.
+    """
+    before = sd._arbiter_cache_path(str(tmp_path), "Текст.", [1, 2])
+    monkeypatch.setattr(sd, "_ARBITER_PROMPT_SIG", None)
+    monkeypatch.setattr(sd, "_ARBITER_PROMPT_TEMPLATE",
+                        sd._ARBITER_PROMPT_TEMPLATE + " (уточнение критерия)")
+    after = sd._arbiter_cache_path(str(tmp_path), "Текст.", [1, 2])
+    assert before != after
+
+
+def test_arbiter_cache_hit_skips_network_entirely(monkeypatch, tmp_path):
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    paths = _make_images(tmp_path, 2)
+    payload = _fake_arbiter_payload(1)
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(payload))
+    args = ("Текст.", paths, [1, 2], str(tmp_path))
+    first = sd.arbitrate_hook_candidates(*args)
+
+    def _boom(*a, **kw):
+        raise AssertionError("кэш-хит не должен трогать сеть")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    second = sd.arbitrate_hook_candidates(*args)
+    assert first == second == paths[0]
+
+
+def test_arbiter_shares_call_budget_with_direct_query(monkeypatch, tmp_path):
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    monkeypatch.setattr(sd, "SHOT_DIRECTOR_MAX_CALLS_PER_RUN", 1)
+    paths = _make_images(tmp_path, 2)
+    payload = _fake_arbiter_payload(1)
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(payload))
+    first = sd.arbitrate_hook_candidates("Текст 1.", paths, [1, 2], str(tmp_path))
+    assert first == paths[0]
+
+    def _boom(*a, **kw):
+        raise AssertionError("бюджет должен быть общим с direct_query/enrich_atmospheric_queries")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    assert sd.direct_query("Совсем другой текст.", str(tmp_path)) is None
+
+
+def test_arbiter_network_error_fails_open(monkeypatch, tmp_path):
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    paths = _make_images(tmp_path, 2)
+
+    def _raise(*a, **kw):
+        raise OSError("network down")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _raise)
+    assert sd.arbitrate_hook_candidates("Текст.", paths, [1, 2], str(tmp_path)) is None
+
+
+def test_arbiter_out_of_range_choice_fails_open(monkeypatch, tmp_path):
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    paths = _make_images(tmp_path, 2)
+    payload = _fake_arbiter_payload(5)   # только 2 кандидата — вне диапазона
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(payload))
+    assert sd.arbitrate_hook_candidates("Текст.", paths, [1, 2], str(tmp_path)) is None
+
+
+def test_arbiter_malformed_json_fails_open(monkeypatch, tmp_path):
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    paths = _make_images(tmp_path, 2)
+    bad_payload = json.dumps({
+        "candidates": [{"content": {"parts": [{"text": "not json at all"}]}}]
+    }).encode("utf-8")
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(bad_payload))
+    assert sd.arbitrate_hook_candidates("Текст.", paths, [1, 2], str(tmp_path)) is None
+
+
+def test_arbiter_sends_all_candidate_images_as_inline_data(monkeypatch, tmp_path):
+    paths = _make_images(tmp_path, 3)
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    captured = {}
+
+    def fake_urlopen(req, timeout=None):
+        captured["body"] = json.loads(req.data.decode("utf-8"))
+        return _FakeHTTPResponse(_fake_arbiter_payload(1))
+    monkeypatch.setattr(sd.urllib.request, "urlopen", fake_urlopen)
+    sd.arbitrate_hook_candidates("Текст.", paths, [1, 2, 3], str(tmp_path))
+    parts = captured["body"]["contents"][0]["parts"]
+    inline_parts = [p for p in parts if "inline_data" in p]
+    assert len(inline_parts) == 3
+    text_parts = [p for p in parts if "text" in p]
+    assert len(text_parts) == 1
+    assert "Текст." in text_parts[0]["text"]
+
+
+# ---------- is_opening (открывающий кадр — критерий "эффектность", не
+# только "точность"; см. блок-комментарий у _OPENING_ARBITER_PROMPT_TEMPLATE) ----------
+
+def test_opening_uses_different_prompt_template(monkeypatch, tmp_path):
+    paths = _make_images(tmp_path, 2)
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    captured = {}
+
+    def fake_urlopen(req, timeout=None):
+        captured["body"] = json.loads(req.data.decode("utf-8"))
+        return _FakeHTTPResponse(_fake_arbiter_payload(1))
+    monkeypatch.setattr(sd.urllib.request, "urlopen", fake_urlopen)
+    sd.arbitrate_hook_candidates("Пятнадцать килограммов.", paths, [1, 2], str(tmp_path), is_opening=True)
+    text_part = next(p for p in captured["body"]["contents"][0]["parts"] if "text" in p)
+    assert "эффектн" in text_part["text"].lower()
+    assert "самый первый кадр" in text_part["text"].lower()
+
+
+def test_opening_and_regular_have_separate_cache_entries(monkeypatch, tmp_path):
+    # Тот же (text, candidate_ids) — но опрашивались РАЗНЫЕ промпты, кэш не
+    # должен путать opening-выбор с обычным.
+    paths = _make_images(tmp_path, 2)
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(_fake_arbiter_payload(1)))
+    sd.arbitrate_hook_candidates("Текст.", paths, [1, 2], str(tmp_path), is_opening=True)
+    opening_cache = sd._arbiter_cache_path(str(tmp_path), "Текст.", [1, 2], is_opening=True)
+    regular_cache = sd._arbiter_cache_path(str(tmp_path), "Текст.", [1, 2], is_opening=False)
+    assert opening_cache != regular_cache
+    assert os.path.exists(opening_cache)
+    assert not os.path.exists(regular_cache)
+
+
+def test_opening_cache_hit_skips_network(monkeypatch, tmp_path):
+    paths = _make_images(tmp_path, 2)
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(_fake_arbiter_payload(2)))
+    first = sd.arbitrate_hook_candidates("Текст.", paths, [1, 2], str(tmp_path), is_opening=True)
+
+    def _boom(*a, **kw):
+        raise AssertionError("кэш-хит не должен трогать сеть")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    second = sd.arbitrate_hook_candidates("Текст.", paths, [1, 2], str(tmp_path), is_opening=True)
+    assert first == second == paths[1]
+
+
+def test_opening_shares_call_budget(monkeypatch, tmp_path):
+    monkeypatch.setenv("VLM_ARBITER_MODE", "on")
+    monkeypatch.setattr(sd, "SHOT_DIRECTOR_MAX_CALLS_PER_RUN", 1)
+    paths = _make_images(tmp_path, 2)
+    monkeypatch.setattr(sd.urllib.request, "urlopen",
+                         lambda req, timeout=None: _FakeHTTPResponse(_fake_arbiter_payload(1)))
+    first = sd.arbitrate_hook_candidates("Открытие.", paths, [1, 2], str(tmp_path), is_opening=True)
+    assert first == paths[0]
+
+    def _boom(*a, **kw):
+        raise AssertionError("бюджет открывающего кадра должен быть общим с остальными")
+    monkeypatch.setattr(sd.urllib.request, "urlopen", _boom)
+    assert sd.direct_query("Другой текст.", str(tmp_path)) is None

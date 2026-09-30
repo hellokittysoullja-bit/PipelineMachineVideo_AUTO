@@ -1,0 +1,10 @@
+MOOD | -1 | 2 | нарастающее напряжение
+1 | object | a cursor blinking in an empty document, close up
+2 | object | a face lit only by a screen, eyes narrowed
+3 | object | a hand hovering over a keyboard without touching it
+4 | scene | a hand jerking back from a hot stove burner
+5 | object | a thumb scrolling a phone feed, close up
+6 | object | a phone screen showing hours of usage today
+7 | scene | a person with head in hands at a cluttered desk
+8 | object | a paper to-do list with one line crossed out and many untouched
+9 | - | -

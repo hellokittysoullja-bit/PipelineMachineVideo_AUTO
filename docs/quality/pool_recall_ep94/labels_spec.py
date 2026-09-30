@@ -1,0 +1,20 @@
+# Разметка Claude (глазами по листам), НЕ владельца: 2 — точный кадр, 1 — годная замена, остальные плитки — 0.
+SPEC = {
+    "0:photo": dict(twos=(2, 3, 15, 16, 18, 19, 20, 22), ones=(21, 23)),
+    "1:photo": dict(ones=(4, 14, 25)),
+    "1:video": dict(ones=(2,)),
+    "2:photo": dict(twos=(4, 17, 18, 20), ones=(13, 23)),
+    "2:video": dict(ones=(1, 6)),
+    "3:photo": dict(ones=(2, 3, 4, 5, 8, 14, 15, 16, 20, 22, 26)),
+    "3:video": dict(ones=(16,)),
+    "4:photo": dict(twos=(17,), ones=(6, 21, 22, 23, 24, 25, 27)),
+    "4:video": dict(ones=(1, 8, 11, 14)),
+    "5:photo": dict(twos=(2,), ones=(6, 7, 13, 18)),
+    "5:video": dict(),
+    "6:photo": dict(twos=(11,), ones=(9, 15, 16, 18, 20)),
+    "6:video": dict(ones=(8, 18, 21)),
+    "7:photo": dict(ones=(2, 3, 5, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)),
+    "7:video": dict(ones=(1,)),
+    "8:photo": dict(ones=(6, 7, 9, 16, 18, 19, 22)),
+    "8:video": dict(ones=(9, 20)),
+}

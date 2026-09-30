@@ -1,0 +1,110 @@
+{
+  "model": "qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf",
+  "seed": 1,
+  "prompt_version": 3,
+  "deterministic": true,
+  "rows": [
+    {
+      "index": 1,
+      "class": "метафора",
+      "text": "Меч ударил по шлему — сталь выдержала. Стрела скользнула по нагруднику и ушла в сторону. Доспех отработал каждую монету, которую ты за него отдал, а отдал ты за него как за деревню вместе с крестьянами.",
+      "result": {
+        "shot_en": "Sword struck helmet - steel held. Arrow slid over cuirass and missed.",
+        "function": "object",
+        "forbidden": null,
+        "subject": "доспех"
+      },
+      "passed": true,
+      "reject_reason": null,
+      "sec": 26.8
+    },
+    {
+      "index": 0,
+      "class": "отрицание",
+      "text": "Тебя ещё не ранили. Вот что самое страшное.",
+      "result": null,
+      "passed": false,
+      "reject_reason": "модель ответила null",
+      "sec": 19.5
+    },
+    {
+      "index": 5,
+      "class": "число",
+      "text": "А пока — простой опыт. Возьми настоящий боевой меч: полтора килограмма стали, кромка снимает волос с руки. И ударь им человека в полном латном доспехе.",
+      "result": {
+        "shot_en": "A warrior in full chainmail armor being struck by a real battle sword",
+        "function": "object",
+        "forbidden": null,
+        "subject": "боевой меч"
+      },
+      "passed": true,
+      "reject_reason": null,
+      "sec": 24.2
+    },
+    {
+      "index": 13,
+      "class": "сцена",
+      "text": "При этом он был под ногами у каждого из них. С первого шага на поле.",
+      "result": {
+        "shot_en": "A man stepping onto a battlefield",
+        "function": "scene",
+        "forbidden": null,
+        "subject": "он"
+      },
+      "passed": false,
+      "reject_reason": "человек без привязки к эпохе",
+      "sec": 20.9
+    },
+    {
+      "index": 22,
+      "class": "вопрос",
+      "text": "Представь драку, где у всех ножи, а тебе одному разрешили надеть защиту с головы до ног. Ты ведь не станешь ныть, что она тяжёлая? Ты спросишь, надёжно ли закрыта шея.",
+      "result": {
+        "shot_en": "A warrior in full protective gear",
+        "function": "object",
+        "forbidden": null,
+        "subject": "воин"
+      },
+      "passed": false,
+      "reject_reason": "современное снаряжение (protective gear)",
+      "sec": 23.1
+    },
+    {
+      "index": 3,
+      "class": "простая",
+      "text": "Тебе нужно всего лишь встать.",
+      "result": {
+        "shot_en": "A warrior standing up",
+        "function": "object",
+        "forbidden": null,
+        "subject": "воин"
+      },
+      "passed": true,
+      "reject_reason": null,
+      "sec": 20.1
+    },
+    {
+      "index": 2,
+      "class": "отрицание",
+      "text": "И всё равно ты лежишь лицом в грязи и, кажется, сейчас умрёшь. Хотя броню твою так никто и не пробил.",
+      "result": {
+        "shot_en": "A warrior lying face down in mud, seemingly about to die.",
+        "function": "object",
+        "forbidden": "не пробил",
+        "subject": "воин"
+      },
+      "passed": true,
+      "reject_reason": null,
+      "sec": 22.6
+    },
+    {
+      "index": 4,
+      "class": "простая",
+      "text": "Запомни это. Мы сюда вернёмся.",
+      "result": null,
+      "passed": false,
+      "reject_reason": "модель ответила null",
+      "sec": 18.6
+    }
+  ]
+}

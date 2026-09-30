@@ -1,0 +1,1415 @@
+{
+"route": {
+"94|Вот кинжал.|photo": {
+"antique dagger blade": [
+"museum",
+"stock"
+],
+"dagger studio shot": [
+"museum",
+"stock"
+],
+"medieval armour joint gap": [],
+"medieval dagger": [
+"museum",
+"stock",
+"archive"
+],
+"medieval dagger manuscript": [
+"archive"
+],
+"medieval dagger museum": [
+"museum"
+],
+"medieval rondel dagger": [
+"museum",
+"stock",
+"archive"
+],
+"medieval rondel dagger narrow blade": [
+"museum",
+"stock"
+],
+"medieval steel dagger blade": [
+"museum",
+"stock"
+],
+"rondel dagger": [
+"museum",
+"stock",
+"archive"
+],
+"rondel dagger artifact": [
+"museum"
+],
+"rondel dagger replica": [
+"stock"
+],
+"small dagger in palm hand size": []
+},
+"94|Рыцарь падает в грязь под тяжестью металла.|video": {
+"armour close up detail": [
+"museum",
+"stock",
+"archive"
+],
+"arrow steel breastplate": [
+"museum",
+"archive"
+],
+"fallen knight armor": [
+"stock",
+"archive"
+],
+"fallen knight armour mud": [
+"stock",
+"archive"
+],
+"knight armor mud": [
+"stock",
+"archive"
+],
+"knight armour fallen mud": [
+"stock",
+"archive"
+],
+"knight defeated painting": [
+"archive"
+],
+"knight full plate armour lying": [
+"stock",
+"archive"
+],
+"medieval battle reenactment": [
+"stock"
+],
+"medieval battle reenactment mud": [
+"stock"
+],
+"medieval cavalry charge field": [
+"stock",
+"archive"
+],
+"plate armor ground": [
+"museum",
+"stock",
+"archive"
+],
+"plate armour reenactment": [
+"stock"
+]
+},
+"94|Но именно он решал исход поединка, когда меч уже бесполезен.|video": {
+"antique blade close up": [
+"museum",
+"stock",
+"archive"
+],
+"broken sword ground": [],
+"dagger glinting light": [
+"museum",
+"stock"
+],
+"dagger point close up": [
+"museum",
+"stock"
+],
+"medieval armour joint gap": [],
+"medieval blade close up": [
+"museum",
+"stock",
+"archive"
+],
+"medieval dagger macro": [
+"museum",
+"stock"
+],
+"medieval narrow rondel dagger blade": [
+"museum",
+"archive"
+],
+"medieval rondel dagger": [
+"museum",
+"archive"
+],
+"medieval steel dagger blade": [
+"museum",
+"stock",
+"archive"
+],
+"rondel dagger blade": [
+"museum",
+"archive"
+],
+"rondel dagger point": [
+"museum",
+"archive"
+],
+"sharp dagger tip": [
+"museum",
+"stock"
+],
+"small dagger in palm hand size": [
+"stock"
+]
+},
+"94|Он весил меньше, чем ты думаешь — грамм триста.|photo": {
+"dagger in hand": [
+"stock"
+],
+"dagger in palm": [
+"stock"
+],
+"dagger open palm": [
+"stock"
+],
+"dagger weight close up": [],
+"hand holding dagger": [
+"stock"
+],
+"medieval armour joint gap": [],
+"medieval dagger close up": [
+"museum",
+"stock"
+],
+"medieval dagger hand": [
+"stock"
+],
+"medieval rondel dagger": [
+"museum",
+"archive"
+],
+"medieval small dagger held flat": [
+"museum",
+"stock"
+],
+"medieval steel dagger blade": [
+"museum"
+],
+"rondel dagger hand": [
+"stock"
+],
+"small dagger in palm hand size": [
+"stock"
+],
+"small dagger palm": [
+"stock"
+]
+},
+"94|Конница мчится через поле прямо на пехоту.|photo": {
+"arrow steel breastplate": [],
+"cavalry charge infantry": [
+"stock",
+"archive"
+],
+"cavalry reenactment battle": [
+"stock"
+],
+"cavalry versus infantry painting": [
+"archive"
+],
+"horsemen galloping field": [
+"stock",
+"archive"
+],
+"horses charging field": [
+"stock"
+],
+"knight armour fallen mud": [],
+"knights riding horses reenactment": [
+"stock"
+],
+"medieval cavalry charge": [
+"stock",
+"archive"
+],
+"medieval cavalry charge field": [
+"stock",
+"archive"
+],
+"medieval cavalry charging across open": [
+"stock",
+"archive"
+],
+"medieval foot soldiers reenactment": []
+},
+"94|Конница мчится через поле прямо на пехоту.|video": {
+"arrow steel breastplate": [],
+"cavalry charge infantry": [
+"stock",
+"archive"
+],
+"cavalry reenactment battle": [
+"stock"
+],
+"cavalry versus infantry painting": [
+"archive"
+],
+"horsemen galloping field": [
+"stock",
+"archive"
+],
+"horses charging field": [
+"stock"
+],
+"knight armour fallen mud": [],
+"knights riding horses reenactment": [
+"stock"
+],
+"medieval cavalry charge": [
+"stock",
+"archive"
+],
+"medieval cavalry charge field": [
+"stock",
+"archive"
+],
+"medieval cavalry charging across open": [
+"stock",
+"archive"
+],
+"medieval foot soldiers reenactment": []
+},
+"94|Он весил меньше, чем ты думаешь — грамм триста.|video": {
+"dagger in hand": [
+"stock"
+],
+"dagger in palm": [
+"stock"
+],
+"dagger open palm": [
+"stock"
+],
+"dagger weight close up": [
+"stock"
+],
+"hand holding dagger": [
+"stock"
+],
+"medieval armour joint gap": [],
+"medieval dagger close up": [
+"museum",
+"stock",
+"archive"
+],
+"medieval dagger hand": [
+"museum",
+"stock",
+"archive"
+],
+"medieval rondel dagger": [
+"museum",
+"archive"
+],
+"medieval small dagger held flat": [
+"museum",
+"stock",
+"archive"
+],
+"medieval steel dagger blade": [
+"museum",
+"archive"
+],
+"rondel dagger hand": [
+"museum",
+"stock",
+"archive"
+],
+"small dagger in palm hand size": [
+"stock"
+],
+"small dagger palm": [
+"stock"
+]
+},
+"94|Он не поднимается — доспех держит человека, как капкан.|photo": {
+"armour immobilised fallen": [
+"stock",
+"archive"
+],
+"armour joints close up": [
+"museum",
+"stock"
+],
+"arrow steel breastplate": [],
+"fallen knight armor": [
+"stock",
+"archive"
+],
+"fallen knight armour struggling ground": [
+"stock",
+"archive"
+],
+"knight armour fallen mud": [
+"stock"
+],
+"knight crawling mud armour": [
+"stock"
+],
+"knight struggling ground": [
+"stock",
+"archive"
+],
+"knight struggling on ground": [
+"stock",
+"archive"
+],
+"medieval cavalry charge field": [],
+"medieval reenactment armor": [
+"stock"
+],
+"plate armor movement": [
+"museum",
+"stock"
+],
+"plate armour full body": [
+"museum",
+"stock"
+]
+},
+"94|Он не поднимается — доспех держит человека, как капкан.|video": {
+"armour immobilised fallen": [
+"stock",
+"archive"
+],
+"armour joints close up": [
+"museum",
+"stock"
+],
+"arrow steel breastplate": [],
+"fallen knight armor": [
+"stock",
+"archive"
+],
+"fallen knight armour struggling ground": [
+"stock",
+"archive"
+],
+"knight armour fallen mud": [
+"stock"
+],
+"knight crawling mud armour": [
+"stock"
+],
+"knight struggling ground": [
+"stock",
+"archive"
+],
+"knight struggling on ground": [
+"stock",
+"archive"
+],
+"medieval cavalry charge field": [],
+"medieval reenactment armor": [
+"stock"
+],
+"plate armor movement": [
+"stock"
+],
+"plate armour full body": [
+"museum",
+"stock"
+]
+},
+"94|Стрела скользит по нагруднику и уходит в сторону.|photo": {
+"archer shooting arrow reenactment": [
+"stock"
+],
+"armour museum breastplate": [
+"museum"
+],
+"arrow armor impact": [
+"stock"
+],
+"arrow hitting armour": [
+"stock"
+],
+"arrow hitting breastplate": [
+"stock"
+],
+"arrow steel breastplate": [
+"museum",
+"stock"
+],
+"breastplate armour close up": [
+"museum",
+"stock"
+],
+"dented steel breastplate": [
+"museum",
+"stock"
+],
+"knight armour fallen mud": [],
+"medieval armor closeup": [
+"museum",
+"stock"
+],
+"medieval arrow glancing off dented": [
+"stock"
+],
+"medieval arrows deflecting plate": [
+"stock",
+"archive"
+],
+"medieval cavalry charge field": []
+},
+"94|Клинок влетает в узкую щель между пластинами доспеха.|video": {
+"armor plates close up": [
+"museum",
+"stock",
+"archive"
+],
+"dagger armor gap": [
+"museum",
+"stock",
+"archive"
+],
+"dagger into armor": [
+"stock",
+"archive"
+],
+"dagger piercing armor": [
+"stock",
+"archive"
+],
+"medieval armor detail": [
+"museum",
+"stock",
+"archive"
+],
+"medieval armor joint": [
+"museum",
+"stock",
+"archive"
+],
+"medieval armour joint gap": [
+"museum",
+"stock",
+"archive"
+],
+"medieval dagger point inserted narrow": [
+"stock"
+],
+"medieval rondel dagger": [
+"museum",
+"stock",
+"archive"
+],
+"medieval steel dagger blade": [
+"museum",
+"stock",
+"archive"
+],
+"plate armor close up": [
+"museum",
+"stock",
+"archive"
+],
+"rondel dagger armor": [
+"museum",
+"stock",
+"archive"
+],
+"small dagger in palm hand size": [],
+"steel armor plates": [
+"museum",
+"stock",
+"archive"
+]
+},
+"94|История решается не мечом, а тем, кто первым встанет с земли.|photo": {
+"abandoned sword mud": [],
+"armored knight standing up": [
+"stock"
+],
+"armored man standing": [],
+"knight rising ground": [
+"stock"
+],
+"knight rising muddy battlefield": [
+"stock"
+],
+"knight standing muddy battlefield alone": [
+"stock"
+],
+"lone knight battlefield": [
+"stock",
+"archive"
+],
+"lone knight slowly rising feet": [
+"stock"
+],
+"medieval battle miniature": [
+"archive"
+],
+"medieval knight mud": [
+"stock",
+"archive"
+],
+"medieval knight rising": [
+"stock",
+"archive"
+],
+"reenactor getting up": [
+"stock"
+]
+},
+"94|Стрела скользит по нагруднику и уходит в сторону.|video": {
+"archer shooting arrow reenactment": [
+"stock"
+],
+"armour museum breastplate": [
+"museum"
+],
+"arrow armor impact": [
+"stock",
+"archive"
+],
+"arrow hitting armour": [
+"stock",
+"archive"
+],
+"arrow hitting breastplate": [
+"stock",
+"archive"
+],
+"arrow steel breastplate": [
+"museum",
+"stock"
+],
+"breastplate armour close up": [
+"museum",
+"stock"
+],
+"dented steel breastplate": [
+"museum",
+"stock"
+],
+"knight armour fallen mud": [],
+"medieval armor closeup": [
+"museum",
+"stock"
+],
+"medieval arrow glancing off dented": [
+"stock",
+"archive"
+],
+"medieval arrows deflecting plate": [
+"stock",
+"archive"
+],
+"medieval cavalry charge field": []
+},
+"94|История решается не мечом, а тем, кто первым встанет с земли.|video": {
+"abandoned sword mud": [
+"stock",
+"archive"
+],
+"armored knight standing up": [
+"stock"
+],
+"armored man standing": [],
+"knight rising ground": [
+"stock"
+],
+"knight rising muddy battlefield": [
+"stock"
+],
+"knight standing muddy battlefield alone": [
+"stock"
+],
+"lone knight battlefield": [
+"stock",
+"archive"
+],
+"lone knight slowly rising feet": [
+"stock"
+],
+"medieval battle miniature": [
+"archive"
+],
+"medieval knight mud": [
+"stock",
+"archive"
+],
+"medieval knight rising": [
+"stock",
+"archive"
+],
+"reenactor getting up": [
+"stock"
+]
+},
+"93|На глубине тысячи метров живёт медуза, которая умеет отменять собственную смерть.|photo": {
+"bioluminescent deep sea jellyfish glowing": [
+"stock",
+"archive"
+],
+"bioluminescent jellyfish dark water": [
+"stock",
+"archive"
+],
+"bioluminescent jellyfish deep ocean": [
+"stock",
+"archive"
+],
+"deep sea abyss dark water": [
+"stock",
+"archive"
+],
+"deep sea jellyfish glowing": [
+"stock",
+"archive"
+],
+"jellyfish black background": [
+"stock"
+],
+"jellyfish tentacles macro": [],
+"turritopsis dohrnii jellyfish": [
+"stock",
+"archive"
+]
+},
+"94|Клинок влетает в узкую щель между пластинами доспеха.|photo": {
+"armor plates close up": [
+"museum",
+"stock",
+"archive"
+],
+"dagger armor gap": [
+"museum",
+"stock",
+"archive"
+],
+"dagger into armor": [
+"museum",
+"stock",
+"archive"
+],
+"dagger piercing armor": [
+"museum",
+"stock",
+"archive"
+],
+"medieval armor detail": [
+"museum",
+"stock",
+"archive"
+],
+"medieval armor joint": [
+"museum",
+"stock",
+"archive"
+],
+"medieval armour joint gap": [
+"museum",
+"stock",
+"archive"
+],
+"medieval dagger point inserted narrow": [
+"museum",
+"stock",
+"archive"
+],
+"medieval rondel dagger": [
+"museum",
+"stock",
+"archive"
+],
+"medieval steel dagger blade": [
+"museum",
+"stock",
+"archive"
+],
+"plate armor close up": [
+"museum",
+"stock",
+"archive"
+],
+"rondel dagger armor": [
+"museum",
+"stock",
+"archive"
+],
+"small dagger in palm hand size": [],
+"steel armor plates": [
+"museum",
+"stock",
+"archive"
+]
+},
+"93|Когда ей грозит гибель от старости или голода, она делает то,|photo": {
+"bioluminescent jellyfish deep ocean": [
+"stock",
+"archive"
+],
+"deep ocean abyss dark blue": [
+"stock",
+"archive"
+],
+"deep ocean abyss dark water": [
+"stock",
+"archive"
+],
+"deep sea abyss dark water": [
+"stock",
+"archive"
+],
+"deep sea creature close up": [
+"stock",
+"archive"
+],
+"empty deep sea water": [
+"stock",
+"archive"
+],
+"jellyfish drifting darkness": [
+"stock",
+"archive"
+],
+"underwater sun rays deep": [
+"stock",
+"archive"
+]
+},
+"93|что не умеет больше ни одно животное на Земле.|photo": {
+"bioluminescent jellyfish deep ocean": [
+"stock",
+"archive"
+],
+"deep ocean abyss dark blue": [
+"stock",
+"archive"
+],
+"deep ocean abyss dark water": [
+"stock",
+"archive"
+],
+"deep sea abyss dark water": [
+"stock",
+"archive"
+],
+"deep sea creature close up": [],
+"empty deep sea water": [
+"stock",
+"archive"
+],
+"jellyfish drifting darkness": [
+"stock",
+"archive"
+],
+"underwater sun rays deep": [
+"stock",
+"archive"
+]
+},
+"93|Она превращается обратно в свою раннюю личиночную стадию — и начинает жизнь заново.|video": {
+"bioluminescent jellyfish deep ocean": [
+"stock"
+],
+"deep sea abyss dark water": [
+"stock"
+],
+"jellyfish larva microscopic": [
+"stock",
+"archive"
+],
+"jellyfish metamorphosis transformation": [
+"stock",
+"archive"
+],
+"jellyfish polyp close up": [
+"stock",
+"archive"
+],
+"ocean small translucent jellyfish specimen": [
+"stock",
+"museum"
+],
+"tiny sea creature specimen": [
+"museum",
+"stock"
+],
+"translucent jellyfish macro": [
+"stock"
+]
+},
+"93|Учёные называют её бессмертной медузой. И это не преувеличение, а буквальное описание.|video": {
+"bioluminescent jellyfish deep ocean": [
+"stock"
+],
+"deep ocean floor sediment": [
+"stock"
+],
+"deep sea abyss dark water": [
+"stock"
+],
+"deep sea submarine lights": [
+"stock"
+],
+"ocean research submarine exploring deep": [
+"stock"
+],
+"research submarine deep sea": [
+"stock"
+],
+"submersible ocean floor": [
+"stock"
+],
+"underwater vehicle exploration": [
+"stock"
+]
+},
+"93|Глубже двухсот метров солнечный свет почти не проникает.|photo": {
+"anglerfish close up": [
+"stock",
+"archive"
+],
+"anglerfish deep sea": [
+"stock",
+"archive"
+],
+"anglerfish glowing lure": [
+"stock",
+"archive"
+],
+"deep ocean black water": [
+"stock"
+],
+"deep sea darkness": [
+"stock"
+],
+"hydrothermal vent ocean floor": [],
+"ocean anglerfish glowing lure complete": [
+"stock",
+"archive"
+]
+},
+"93|Возле горячих источников на дне температура воды может достигать четырёхсот градусов.|video": {
+"anglerfish deep sea": [],
+"black smoker vent": [
+"stock",
+"archive"
+],
+"deep sea vent creatures": [],
+"hydrothermal vent chimney": [
+"stock",
+"archive"
+],
+"hydrothermal vent ocean floor": [
+"stock",
+"archive"
+],
+"strange deep sea creatures near": [],
+"underwater hot spring": [
+"stock"
+]
+},
+"93|Там царит вечная темнота и ледяной холод.|photo": {
+"anglerfish close up": [
+"stock",
+"archive"
+],
+"anglerfish deep sea": [
+"stock",
+"archive"
+],
+"anglerfish glowing lure": [
+"stock",
+"archive"
+],
+"deep ocean black water": [
+"stock"
+],
+"deep sea darkness": [
+"stock"
+],
+"hydrothermal vent ocean floor": [],
+"ocean anglerfish glowing lure complete": [
+"stock",
+"archive"
+]
+},
+"94|Но именно он решал исход поединка, когда меч уже бесполезен.|photo": {
+"antique blade close up": [
+"museum",
+"stock",
+"archive"
+],
+"broken sword ground": [],
+"dagger glinting light": [
+"museum",
+"stock"
+],
+"dagger point close up": [
+"museum",
+"stock"
+],
+"medieval armour joint gap": [],
+"medieval blade close up": [
+"museum",
+"stock",
+"archive"
+],
+"medieval dagger macro": [
+"museum",
+"stock"
+],
+"medieval narrow rondel dagger blade": [
+"museum",
+"archive"
+],
+"medieval rondel dagger": [
+"museum",
+"archive"
+],
+"medieval steel dagger blade": [
+"museum",
+"stock",
+"archive"
+],
+"rondel dagger blade": [
+"museum",
+"archive"
+],
+"rondel dagger point": [
+"museum",
+"archive"
+],
+"sharp dagger tip": [
+"museum",
+"stock"
+],
+"small dagger in palm hand size": [
+"stock"
+]
+},
+"93|И всё же там кипит жизнь — просто устроенная совсем по другим правилам, чем на поверхности.|photo": {
+"anglerfish deep sea": [
+"stock",
+"archive"
+],
+"deep ocean dark water": [
+"stock"
+],
+"deep sea creature swimming": [
+"stock"
+],
+"giant squid deep": [
+"stock",
+"archive"
+],
+"hydrothermal vent ocean floor": [],
+"ocean giant squid silhouette deep": [
+"stock",
+"archive"
+],
+"squid silhouette underwater": [
+"stock"
+]
+},
+"93|Они получают энергию прямо из недр Земли.|photo": {
+"anglerfish deep sea": [],
+"deep sea vent animals": [
+"stock",
+"archive"
+],
+"hydrothermal vent community": [
+"stock",
+"archive"
+],
+"hydrothermal vent ocean floor": [
+"stock",
+"archive"
+],
+"ocean tube worms clustered around": [
+"stock",
+"archive"
+],
+"riftia tube worms": [
+"stock",
+"archive"
+],
+"tube worms vent": [
+"stock",
+"archive"
+]
+},
+"93|Там живут существа, которые вообще не нуждаются в солнечном свете.|photo": {
+"anglerfish deep sea": [],
+"deep sea vent animals": [
+"stock",
+"archive"
+],
+"hydrothermal vent community": [
+"stock",
+"archive"
+],
+"hydrothermal vent ocean floor": [
+"stock",
+"archive"
+],
+"ocean tube worms clustered around": [
+"stock",
+"archive"
+],
+"riftia tube worms": [
+"stock",
+"archive"
+],
+"tube worms vent": [
+"stock",
+"archive"
+]
+},
+"93|Многие виды светятся в темноте сами — используют это, чтобы охотиться, прятаться или искать пару.|photo": {
+"anglerfish deep sea": [
+"stock",
+"archive"
+],
+"bioluminescent deep sea": [
+"stock",
+"archive"
+],
+"deep sea glowing fish": [
+"stock",
+"archive"
+],
+"deep sea vampire squid glowing": [
+"stock",
+"archive"
+],
+"glowing deep sea squid": [
+"stock",
+"archive"
+],
+"hydrothermal vent ocean floor": [],
+"vampire squid": [
+"stock",
+"archive"
+],
+"vampire squid close up": [
+"stock",
+"archive"
+]
+},
+"94|Рыцарь падает в грязь под тяжестью металла.|photo": {
+"armour close up detail": [],
+"arrow steel breastplate": [],
+"fallen knight armor": [
+"stock",
+"archive"
+],
+"fallen knight armour mud": [
+"stock",
+"archive"
+],
+"knight armor mud": [
+"stock",
+"archive"
+],
+"knight armour fallen mud": [
+"stock",
+"archive"
+],
+"knight defeated painting": [
+"archive"
+],
+"knight full plate armour lying": [
+"museum",
+"stock",
+"archive"
+],
+"medieval battle reenactment": [
+"stock"
+],
+"medieval battle reenactment mud": [
+"stock"
+],
+"medieval cavalry charge field": [],
+"plate armor ground": [
+"museum",
+"stock",
+"archive"
+],
+"plate armour reenactment": [
+"stock"
+]
+},
+"93|Учёные говорят: поверхность Луны изучена подробнее, чем дно наших собственных океанов.|photo": {
+"bathymetric seafloor map": [
+"archive"
+],
+"moon surface map": [],
+"ocean floor map": [
+"archive"
+],
+"ocean map showing unexplored regions": [
+"archive"
+],
+"oceanographer research vessel": [],
+"scientist pointing at map": [],
+"seafloor topography chart": [
+"archive"
+],
+"underwater research vehicle": []
+},
+"93|Давление на такой глубине в сотни раз больше, чем на поверхности. Обычная техника там просто раздавливается.|video": {
+"crushed metal cylinder": [
+"stock",
+"archive"
+],
+"deep sea pressure gauge": [
+"museum",
+"stock",
+"archive"
+],
+"ocean oceanographers research vessel deploying": [
+"stock"
+],
+"oceanographer research vessel": [
+"stock"
+],
+"oceanographic research ship": [
+"stock",
+"archive"
+],
+"research vessel deck equipment": [
+"stock",
+"archive"
+],
+"submarine hull pressure test": [
+"stock",
+"archive"
+],
+"underwater research vehicle": [
+"stock",
+"archive"
+]
+},
+"93|Почти каждая глубоководная экспедиция находит вид, которого раньше не было в каталогах науки.|video": {
+"anglerfish deep ocean": [
+"stock",
+"archive"
+],
+"deep ocean floor discovery": [
+"stock",
+"archive"
+],
+"deep sea coral bioluminescent": [
+"stock",
+"archive"
+],
+"deep sea creature": [
+"stock",
+"archive"
+],
+"deep sea jellyfish dark": [
+"stock",
+"archive"
+],
+"newly discovered deep sea creature": [
+"stock",
+"archive"
+],
+"ocean surface sunlight": [],
+"submersible lights deep sea": [
+"stock",
+"archive"
+]
+},
+"93|Поэтому туда отправляют специальные аппараты — роботов на кабеле, способных выдержать это давление.|video": {
+"deep sea sediment rocks": [],
+"oceanographer research vessel": [],
+"remotely operated underwater vehicle bright": [
+"stock"
+],
+"remotely operated vehicle underwater": [
+"stock"
+],
+"rov deep sea lights": [
+"stock"
+],
+"seafloor exploration robot": [
+"stock"
+],
+"underwater research vehicle": [
+"stock"
+],
+"underwater robot cable tether": [
+"stock"
+]
+},
+"93|А некоторые кораллы на такой глубине живут дольше,|photo": {
+"ancient coral colony close up": [],
+"bioluminescent reef glow": [
+"stock"
+],
+"cold water coral reef": [
+"stock"
+],
+"coral darkness underwater": [
+"stock"
+],
+"deep sea coral": [
+"stock"
+],
+"deep sea coral bioluminescent": [
+"stock"
+],
+"deep sea coral reef complete": [
+"stock"
+],
+"ocean surface sunlight": []
+},
+"93|Каждая такая экспедиция стоит огромных денег, а увидеть удаётся лишь небольшой участок дна за раз.|video": {
+"deep sea sediment sample jar": [
+"stock",
+"archive"
+],
+"laboratory bench glassware": [
+"stock"
+],
+"marine biologist laboratory work": [
+"stock"
+],
+"oceanographer research vessel": [],
+"rock sample close up": [
+"stock",
+"archive"
+],
+"scientist analyzing deep sea samples": [
+"stock"
+],
+"scientist laboratory microscope sample": [
+"stock"
+],
+"underwater research vehicle": []
+},
+"93|Некоторые из этих существ живут при давлении, которое раздавило бы человека в мгновение.|video": {
+"bioluminescent fish school": [
+"stock",
+"archive"
+],
+"deep sea coral bioluminescent": [],
+"deep sea fish swimming": [
+"stock",
+"archive"
+],
+"deep water black background": [
+"stock"
+],
+"glowing fish darkness": [
+"stock",
+"archive"
+],
+"lanternfish deep ocean": [
+"stock",
+"archive"
+],
+"ocean surface sunlight": [],
+"school glowing deep sea fish": [
+"stock",
+"archive"
+]
+},
+"93|Некоторые глубоководные существа вырастают в разы больше своих|video": {
+"abyssal seafloor crustacean crawling": [
+"stock",
+"archive"
+],
+"deep sea isopod close up": [
+"stock",
+"archive"
+],
+"deep sea research submersible specimen": [
+"stock",
+"archive"
+],
+"giant isopod deep sea": [
+"stock",
+"archive"
+],
+"ocean giant isopod large deep": [
+"stock",
+"archive"
+],
+"sperm whale diving deep ocean": []
+},
+"93|чем самые старые деревья на суше — тысячи лет.|photo": {
+"ancient coral colony close up": [
+"stock",
+"archive"
+],
+"bioluminescent reef glow": [
+"stock"
+],
+"cold water coral reef": [
+"stock",
+"archive"
+],
+"coral darkness underwater": [
+"stock"
+],
+"deep sea coral": [
+"stock",
+"archive"
+],
+"deep sea coral bioluminescent": [
+"stock"
+],
+"deep sea coral reef complete": [
+"stock"
+],
+"ocean surface sunlight": []
+},
+"93|И это всё в одном океане с пляжами, на которых мы загораем каждое лето.|photo": {
+"aerial beach ocean tourists": [
+"stock"
+],
+"beach sand waves close up": [
+"stock"
+],
+"deep sea coral bioluminescent": [],
+"ocean sunlight rays penetrating shallow": [
+"stock"
+],
+"ocean surface sunlight": [
+"stock"
+],
+"sun rays underwater shallow": [
+"stock"
+],
+"sunbathing sandy beach summer": [
+"stock"
+],
+"swimmers clear turquoise sea": [
+"stock"
+]
+},
+"93|родственников на мелководье — гигантизм из-за холода и давления.|photo": {
+"abyssal seafloor crustacean crawling": [
+"stock",
+"archive"
+],
+"deep sea isopod close up": [
+"stock",
+"archive"
+],
+"deep sea research submersible specimen": [
+"stock",
+"archive"
+],
+"giant isopod deep sea": [
+"stock",
+"archive"
+],
+"ocean giant isopod large deep": [
+"stock",
+"archive"
+],
+"sperm whale diving deep ocean": []
+}
+},
+"price": 1126
+}

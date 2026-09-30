@@ -1,0 +1,701 @@
+{
+ "units": {
+  "d6d93138d552df0a": {
+   "focus": "a medieval rondel dagger is introduced",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a medieval rondel dagger is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the dagger has a narrow straight blade",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the dagger has a rondel hilt",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "the dagger is shown on a plain background",
+     "tier": "should"
+    },
+    {
+     "id": "c4",
+     "text": "the dagger is in sharp studio focus",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "rondel dagger",
+    "medieval dagger",
+    "rondel dagger replica",
+    "medieval dagger museum",
+    "dagger studio shot",
+    "medieval dagger manuscript"
+   ],
+   "text": "Вот кинжал.",
+   "queries_for": [
+    {
+     "q": "rondel dagger",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ]
+    },
+    {
+     "q": "medieval dagger",
+     "for": [
+      "core"
+     ]
+    },
+    {
+     "q": "rondel dagger replica",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ]
+    },
+    {
+     "q": "medieval dagger museum",
+     "for": [
+      "core",
+      "c2"
+     ]
+    },
+    {
+     "q": "dagger studio shot",
+     "for": [
+      "core",
+      "c3"
+     ]
+    },
+    {
+     "q": "medieval dagger manuscript",
+     "for": [
+      "core"
+     ]
+    }
+   ]
+  },
+  "3add4e44d5a3c3d1": {
+   "focus": "the dagger weighs only about three hundred grams",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a small dagger lies flat in an open palm",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "an open human palm is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the dagger fits within the palm",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "the shot is a close-up of the hand",
+     "tier": "should"
+    },
+    {
+     "id": "c4",
+     "text": "the dagger's narrow blade and handle are visible",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "dagger in palm",
+    "medieval dagger hand",
+    "small dagger palm",
+    "dagger weight close up",
+    "hand holding dagger",
+    "rondel dagger hand"
+   ],
+   "text": "Он весил меньше, чем ты думаешь — грамм триста.",
+   "queries_for": [
+    {
+     "q": "dagger in palm",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ]
+    },
+    {
+     "q": "medieval dagger hand",
+     "for": [
+      "core",
+      "c2"
+     ]
+    },
+    {
+     "q": "small dagger palm",
+     "for": [
+      "core"
+     ]
+    },
+    {
+     "q": "dagger weight close up",
+     "for": [
+      "core",
+      "c3"
+     ]
+    },
+    {
+     "q": "hand holding dagger",
+     "for": [
+      "core",
+      "c1"
+     ]
+    },
+    {
+     "q": "rondel dagger hand",
+     "for": [
+      "core",
+      "c4"
+     ]
+    }
+   ]
+  },
+  "effd0f1352ec4a25": {
+   "focus": "the dagger decides a fight when a sword is useless",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a narrow dagger blade is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the dagger's sharp point catches the light",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the blade is straight",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "the shot is a close-up of the blade",
+     "tier": "should"
+    },
+    {
+     "id": "c4",
+     "text": "a discarded sword lies out of focus behind",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "rondel dagger blade",
+    "dagger point close up",
+    "sharp dagger tip",
+    "medieval dagger macro",
+    "dagger glinting light",
+    "broken sword ground"
+   ],
+   "text": "Но именно он решал исход поединка, когда меч уже бесполезен.",
+   "queries_for": [
+    {
+     "q": "rondel dagger blade",
+     "for": [
+      "core",
+      "c1"
+     ]
+    },
+    {
+     "q": "dagger point close up",
+     "for": [
+      "core",
+      "c1",
+      "c3"
+     ]
+    },
+    {
+     "q": "sharp dagger tip",
+     "for": [
+      "core",
+      "c1"
+     ]
+    },
+    {
+     "q": "medieval dagger macro",
+     "for": [
+      "core",
+      "c3"
+     ]
+    },
+    {
+     "q": "dagger glinting light",
+     "for": [
+      "core",
+      "c1"
+     ]
+    },
+    {
+     "q": "broken sword ground",
+     "for": [
+      "c4"
+     ]
+    }
+   ]
+  },
+  "988a0d19756213c4": {
+   "focus": "a dagger blade enters a narrow gap in armour",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a dagger point is visible in a gap between steel armour plates",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the dagger point slides into the gap",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c2",
+     "text": "steel armour plates surround the gap",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "the gap between the plates is narrow",
+     "tier": "must"
+    },
+    {
+     "id": "c4",
+     "text": "the shot is a macro close-up",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "dagger armor gap",
+    "medieval armor detail",
+    "armor plates close up",
+    "dagger piercing armor",
+    "rondel dagger armor",
+    "medieval armor joint"
+   ],
+   "text": "Клинок влетает в узкую щель между пластинами доспеха.",
+   "queries_for": [
+    {
+     "q": "dagger armor gap",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ]
+    },
+    {
+     "q": "medieval armor detail",
+     "for": [
+      "core",
+      "c2",
+      "c3"
+     ]
+    },
+    {
+     "q": "armor plates close up",
+     "for": [
+      "core",
+      "c2",
+      "c3"
+     ]
+    },
+    {
+     "q": "dagger piercing armor",
+     "for": [
+      "core",
+      "c1"
+     ]
+    },
+    {
+     "q": "rondel dagger armor",
+     "for": [
+      "core",
+      "c1"
+     ]
+    },
+    {
+     "q": "medieval armor joint",
+     "for": [
+      "core",
+      "c2",
+      "c3"
+     ]
+    }
+   ]
+  },
+  "c39b37e7834c2281": {
+   "focus": "armour's weight drags a knight down into mud",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a knight in full plate armour lies face down in mud",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the knight falls face down into the mud",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c2",
+     "text": "his plate armour is smeared with mud",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "a churned battlefield of bare mud",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "fallen knight armour mud",
+    "plate armour reenactment",
+    "medieval battle reenactment mud",
+    "knight defeated painting",
+    "armour close up detail"
+   ],
+   "text": "Рыцарь падает в грязь под тяжестью металла.",
+   "queries_for": [
+    {
+     "q": "fallen knight armour mud",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ]
+    },
+    {
+     "q": "plate armour reenactment",
+     "for": [
+      "core",
+      "c2"
+     ]
+    },
+    {
+     "q": "medieval battle reenactment mud",
+     "for": [
+      "core",
+      "c1",
+      "c3"
+     ]
+    },
+    {
+     "q": "knight defeated painting",
+     "for": [
+      "core"
+     ]
+    },
+    {
+     "q": "armour close up detail",
+     "for": [
+      "c2"
+     ]
+    }
+   ]
+  },
+  "75cbaea91960a9e3": {
+   "focus": "cavalry charges across the field at infantry",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a line of charging mounted knights is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the horsemen gallop forward across the field",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c2",
+     "text": "foot soldiers stand ahead in their path",
+     "tier": "should"
+    },
+    {
+     "id": "c3",
+     "text": "an open muddy field stretches around them",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "medieval cavalry charge",
+    "knights riding horses reenactment",
+    "horsemen galloping field",
+    "cavalry versus infantry painting",
+    "medieval foot soldiers reenactment"
+   ],
+   "text": "Конница мчится через поле прямо на пехоту.",
+   "queries_for": [
+    {
+     "q": "medieval cavalry charge",
+     "for": [
+      "core",
+      "c1"
+     ]
+    },
+    {
+     "q": "knights riding horses reenactment",
+     "for": [
+      "core",
+      "c1"
+     ]
+    },
+    {
+     "q": "horsemen galloping field",
+     "for": [
+      "core",
+      "c3"
+     ]
+    },
+    {
+     "q": "cavalry versus infantry painting",
+     "for": [
+      "core",
+      "c2"
+     ]
+    },
+    {
+     "q": "medieval foot soldiers reenactment",
+     "for": [
+      "c2"
+     ]
+    }
+   ]
+  },
+  "4a002509f5fb6954": {
+   "focus": "armour holds the fallen man down like a trap",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a fallen knight in plate armour struggles on the ground",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the knight pushes at the ground but cannot rise",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c2",
+     "text": "rigid steel plates encase his whole body",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "wet mud is pressed against his armour",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "knight struggling on ground",
+    "armour immobilised fallen",
+    "knight crawling mud armour",
+    "plate armour full body",
+    "armour joints close up"
+   ],
+   "text": "Он не поднимается — доспех держит человека, как капкан.",
+   "queries_for": [
+    {
+     "q": "knight struggling on ground",
+     "for": [
+      "core",
+      "c1"
+     ]
+    },
+    {
+     "q": "armour immobilised fallen",
+     "for": [
+      "core",
+      "c1"
+     ]
+    },
+    {
+     "q": "knight crawling mud armour",
+     "for": [
+      "core",
+      "c3"
+     ]
+    },
+    {
+     "q": "plate armour full body",
+     "for": [
+      "c2"
+     ]
+    },
+    {
+     "q": "armour joints close up",
+     "for": [
+      "c2"
+     ]
+    }
+   ]
+  },
+  "79dcbeae7b22bee5": {
+   "focus": "an arrow glances off the breastplate sideways",
+   "claims": [
+    {
+     "id": "core",
+     "text": "an arrow is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the arrow strikes and slides off a steel breastplate",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c2",
+     "text": "a dented steel breastplate with a curved surface",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "the arrow flies away to one side",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "arrow hitting armour",
+    "archer shooting arrow reenactment",
+    "medieval arrows deflecting plate",
+    "breastplate armour close up",
+    "armour museum breastplate"
+   ],
+   "text": "Стрела скользит по нагруднику и уходит в сторону.",
+   "queries_for": [
+    {
+     "q": "arrow hitting armour",
+     "for": [
+      "core",
+      "c1"
+     ]
+    },
+    {
+     "q": "archer shooting arrow reenactment",
+     "for": [
+      "core"
+     ]
+    },
+    {
+     "q": "medieval arrows deflecting plate",
+     "for": [
+      "c1",
+      "c3"
+     ]
+    },
+    {
+     "q": "breastplate armour close up",
+     "for": [
+      "c2"
+     ]
+    },
+    {
+     "q": "armour museum breastplate",
+     "for": [
+      "c2"
+     ]
+    }
+   ]
+  },
+  "8cf669527bb4640b": {
+   "focus": "the one who first rises from the ground decides history",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a lone knight rising from the mud",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "a knight slowly gets up from the ground",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c2",
+     "text": "he is alone on an empty battlefield",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "the ground is muddy",
+     "tier": "should"
+    },
+    {
+     "id": "c4",
+     "text": "a sword or weapon lies abandoned in the mud",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "knight rising ground",
+    "armored knight standing up",
+    "lone knight battlefield",
+    "medieval knight mud",
+    "medieval battle miniature",
+    "abandoned sword mud"
+   ],
+   "text": "История решается не мечом, а тем, кто первым встанет с земли.",
+   "queries_for": [
+    {
+     "q": "knight rising ground",
+     "for": [
+      "core",
+      "c1"
+     ]
+    },
+    {
+     "q": "armored knight standing up",
+     "for": [
+      "core",
+      "c1"
+     ]
+    },
+    {
+     "q": "lone knight battlefield",
+     "for": [
+      "core",
+      "c2"
+     ]
+    },
+    {
+     "q": "medieval knight mud",
+     "for": [
+      "core",
+      "c3"
+     ]
+    },
+    {
+     "q": "medieval battle miniature",
+     "for": [
+      "c2"
+     ]
+    },
+    {
+     "q": "abandoned sword mud",
+     "for": [
+      "c4"
+     ]
+    }
+   ]
+  }
+ }
+}

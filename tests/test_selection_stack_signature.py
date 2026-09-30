@@ -1,0 +1,246 @@
+"""Кэш кандидата обязан знать о КОНФИГУРАЦИИ отбора, а не только о функциях гейтов.
+
+Фон (реальный, измеренный симптом, 04.09 — разбор опубликованного эпизода
+01_ves-mecha): candidate_gate_signature() хэшировала исходники функций-гейтов и
+пороги, но НЕ режимы слоёв, реально выбирающих победителя. Из-за этого включение
+VLM-арбитра и Semantic Visual Director (.env: VLM_ARBITER_MODE=on,
+VISUAL_DIRECTOR_MODE=assist) не меняло ключ кэша НИ ОДНОГО слота — уже скачанный
+кандидат, отобранный до появления этих слоёв голым косинусом эмбеддингов, молча
+отдавался как есть при каждом следующем прогоне.
+
+Наблюдаемое следствие на готовом ролике: соседние кадры объективно выбраны
+разными алгоритмами, и никакое улучшение отбора не доходило до уже собранных
+эпизодов. Это и есть механика жалобы "то работает, то не работает".
+
+Эти тесты падают на коде ДО правки (проверено запуском на предыдущей ревизии) и
+защищают от тихого возврата того же класса бага.
+"""
+import os
+import subprocess
+import sys
+import tempfile
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SCRIPTS_DIR = os.path.join(REPO_ROOT, "scripts")
+
+
+def _gate_sig(env_overrides):
+    """Подпись гейта в СВЕЖЕМ процессе.
+
+    Отдельный процесс, а не importlib.reload(): candidate_gate_signature()
+    мемоизирует результат в модульную глобаль _CANDIDATE_GATE_SIG, и в одном
+    процессе вторая конфигурация вернула бы закэшированное значение первой —
+    тест бы "проходил" по совершенно неверной причине.
+    """
+    env = dict(os.environ)
+    env.update(env_overrides)
+    env["PYTHONPATH"] = SCRIPTS_DIR + os.pathsep + env.get("PYTHONPATH", "")
+    code = (
+        "import sys, tempfile; "
+        "sys.argv = ['pipeline_smart.py', tempfile.gettempdir()]; "
+        "import pipeline_smart as ps; "
+        "print(ps.candidate_gate_signature())"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code], env=env, capture_output=True, text=True,
+        cwd=REPO_ROOT, timeout=300,
+    )
+    assert out.returncode == 0, f"дочерний процесс упал:\n{out.stderr[-2000:]}"
+    return out.stdout.strip().splitlines()[-1]
+
+
+def test_arbiter_mode_changes_candidate_cache_key():
+    """VLM_ARBITER_MODE выбирает победителя напрямую -> обязан менять ключ кэша."""
+    on = _gate_sig({"VLM_ARBITER_MODE": "on", "VISUAL_DIRECTOR_MODE": "off"})
+    off = _gate_sig({"VLM_ARBITER_MODE": "off", "VISUAL_DIRECTOR_MODE": "off"})
+    assert on != off, (
+        "включение/выключение VLM-арбитра не меняет ключ кэша кандидата — "
+        "значит уже скачанный кадр, выбранный без арбитра, продолжит "
+        "отдаваться на кэш-хите, и арбитр физически не повлияет на эпизод"
+    )
+
+
+def test_visual_director_mode_changes_candidate_cache_key():
+    """VISUAL_DIRECTOR_MODE=assist подменяет base_winner на director_winner."""
+    assist = _gate_sig({"VLM_ARBITER_MODE": "off", "VISUAL_DIRECTOR_MODE": "assist"})
+    off = _gate_sig({"VLM_ARBITER_MODE": "off", "VISUAL_DIRECTOR_MODE": "off"})
+    assert assist != off, (
+        "включение Semantic Visual Director не инвалидирует кэш кандидата"
+    )
+
+
+def test_all_four_mode_combinations_are_distinct():
+    """Комбинации режимов не должны коллидировать между собой.
+
+    Проверка именно КОМБИНАЦИЙ, а не только каждого флага по отдельности:
+    наивная реализация (например, склейка через сумму или xor булевых) дала бы
+    одинаковую подпись для (on, off) и (off, on).
+    """
+    sigs = {
+        (arb, dr): _gate_sig({"VLM_ARBITER_MODE": arb, "VISUAL_DIRECTOR_MODE": dr})
+        for arb in ("on", "off")
+        for dr in ("assist", "off")
+    }
+    assert len(set(sigs.values())) == 4, f"подписи коллидируют: {sigs}"
+
+
+def test_shot_director_mode_deliberately_not_in_signature():
+    """SHOT_DIRECTOR_MODE сознательно НЕ входит в подпись — фиксируем решение.
+
+    Он влияет только на ТЕКСТ запроса, а запрос и весь пул запросов секции уже
+    входят в qkey/qhash имени кэш-файла (см. pexels_photo() у qkey) — то есть
+    инвалидация происходит и без него. Если добавить его в подпись, каждое
+    переключение флага гарантированно перекачивало бы весь эпизод, ничего при
+    этом не исправляя.
+
+    Тест — защита от "улучшения на автопилоте": тот, кто решит добавить флаг
+    сюда, обязан сначала осознанно удалить этот тест и объяснить почему.
+    """
+    on = _gate_sig({"SHOT_DIRECTOR_MODE": "on", "VLM_ARBITER_MODE": "off",
+                    "VISUAL_DIRECTOR_MODE": "off"})
+    off = _gate_sig({"SHOT_DIRECTOR_MODE": "off", "VLM_ARBITER_MODE": "off",
+                     "VISUAL_DIRECTOR_MODE": "off"})
+    assert on == off, (
+        "SHOT_DIRECTOR_MODE попал в candidate_gate_signature(); его эффект уже "
+        "покрыт qhash запроса, и это лишняя полная перезакачка эпизода"
+    )
+
+
+def test_pool_size_constants_are_in_signature():
+    """Размер пула — часть решения, а не деталь производительности.
+
+    Кадр, выбранный из двух кандидатов, и кадр, выбранный из восьми — решения
+    разной силы. Переиспользовать первое после расширения пула значит молча
+    остаться на более бедном выборе. Проверяем через реальный текст подписи, а
+    не через монкейпатч константы: подпись считается в дочернем процессе на
+    настоящем модуле.
+    """
+    sys.argv = ["pipeline_smart.py", tempfile.gettempdir()]
+    sys.path.insert(0, SCRIPTS_DIR)
+    import pipeline_smart as ps
+
+    raw = ps._selection_stack_signature()
+    for const in (ps.DIRECTOR_MIN_POOL, ps.PHOTO_DEDUP_MAX_TRIES,
+                  ps.FAST_MODE_START_INDEX, ps.FAST_DIRECTOR_MIN_POOL,
+                  ps.FAST_PHOTO_DEDUP_MAX_TRIES):
+        assert str(const) in raw, (
+            f"константа пула {const} не попала в _selection_stack_signature(): {raw}"
+        )
+
+
+def _recipe_sig(env_overrides):
+    """render_recipe_signature() в СВЕЖЕМ процессе (та же причина, что у _gate_sig)."""
+    env = dict(os.environ)
+    env.update(env_overrides)
+    env["PYTHONPATH"] = SCRIPTS_DIR + os.pathsep + env.get("PYTHONPATH", "")
+    code = (
+        "import sys, tempfile; "
+        "sys.argv = ['pipeline_smart.py', tempfile.gettempdir()]; "
+        "import pipeline_smart as ps; "
+        "print(ps.render_recipe_signature())"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code], env=env, capture_output=True, text=True,
+        cwd=REPO_ROOT, timeout=300,
+    )
+    assert out.returncode == 0, f"дочерний процесс упал:\n{out.stderr[-2000:]}"
+    return out.stdout.strip().splitlines()[-1]
+
+
+def test_luma_match_profile_changes_render_recipe():
+    """LUMA_MATCH меняет brightness_bias КАЖДОГО клипа -> обязан менять рецепт.
+
+    Реальный дефект, найденный внешним разбором 18.09 и подтверждённый по коду:
+    профиль читается из реестра в момент рендера (luma_match_params() в main()),
+    но исходник самой функции при смене значения не меняется ни на байт — то
+    есть хэш исходников в render_recipe_signature() его не видел. На прогретом
+    temp_smart/ переключение LUMA_MATCH=strong/max/none было молчаливым no-op:
+    клип брался готовым по os.path.exists(out) -> continue ДО чтения профиля.
+    Рычаг, заведённый ради сравнения скачка яркости 36/255 против 28/255, не
+    работал ровно у того, кто уже отрендерил эпизод и хотел сравнить.
+    """
+    base = _recipe_sig({})
+    for profile in ("strong", "max", "none"):
+        assert _recipe_sig({"LUMA_MATCH": profile}) != base, (
+            f"LUMA_MATCH={profile} не меняет render_recipe_signature() — на "
+            "прогретом кэше профиль согласования яркости не дойдёт до экрана"
+        )
+
+
+def test_luma_match_default_keeps_recipe_byte_identical():
+    """Дефолт и опечатка обязаны дать ПРЕЖНЮЮ подпись, а не новую.
+
+    Две разные причины для одного требования:
+    1. "normal" — дефолт. Если бы он попал в подпись, сама правка (добавление
+       LUMA_MATCH в рецепт) перерендерила бы весь прогретый кэш у каждого, кто
+       флаг никогда не трогал: "апгрейд плюс полный перерендер", а не апгрейд.
+    2. Опечатка в .env даёт fail-open на "normal" (см. luma_match_params()),
+       то есть РЕАЛЬНО рендерится тот же рецепт — подпись обязана совпасть, а
+       не разойтись из-за текста, который ни на что не влияет. Поэтому в
+       подпись идут (clamp, gain), а не имя профиля.
+    """
+    base = _recipe_sig({})
+    assert _recipe_sig({"LUMA_MATCH": "normal"}) == base, (
+        "дефолтный профиль попал в подпись — это лишний полный перерендер"
+    )
+    assert _recipe_sig({"LUMA_MATCH": "ОПЕЧАТКА-КОТОРОЙ-НЕТ"}) == base, (
+        "опечатка в .env меняет подпись, хотя fail-open рендерит тот же "
+        "рецепт 'normal' — подпись хэширует имя вместо реальных параметров"
+    )
+
+
+def test_aesthetic_score_flag_changes_candidate_cache_key():
+    """AESTHETIC_SCORE решает ранжирование -> обязан менять ключ кэша кандидата.
+
+    Тот же класс, что VLM_ARBITER_MODE/VISUAL_DIRECTOR_MODE выше, и найден тем
+    же внешним разбором 18.09: aesthetic_score() участвует в выборе победителя
+    среди прошедших гейты кандидатов (_score_and_pick()), но не входил НИ В
+    ОДНУ подпись. На прогретом temp_smart/ выключение эстетики не доходило до
+    экрана — кандидат уже выбран и закэширован. То есть флаг, существующий
+    ровно ради ответа на вопрос «не эстетика ли побеждает смысл», у владельца
+    отрендеренного эпизода был неработающим.
+    """
+    off = _gate_sig({"AESTHETIC_SCORE": "0"})
+    on = _gate_sig({"AESTHETIC_SCORE": "1"})
+    assert off != on, (
+        "выключение AESTHETIC_SCORE не инвалидирует кэш кандидата — "
+        "ранжирование по эстетике нельзя ни выключить, ни сравнить"
+    )
+
+
+def test_aesthetic_enabled_default_keeps_signature_byte_identical():
+    """Дефолт (эстетика включена) обязан дать прежнюю подпись.
+
+    Та же причина, что у LUMA_MATCH выше: суффикс добавляется ТОЛЬКО для
+    выключенной эстетики, иначе правка перерендерила бы кэш всем, кто флаг не
+    трогал. Проверяется и то, что отсутствие переменной эквивалентно "1".
+    """
+    assert _gate_sig({"AESTHETIC_SCORE": "1"}) == _gate_sig({}), (
+        "явная единица и отсутствие переменной дают разные подписи"
+    )
+
+
+def test_clip_cache_key_contains_the_candidate_gate_signature():
+    """Подпись отбора обязана входить в ключ КЛИПА, а не только в имя файла
+    кандидата.
+
+    Реальный, найденный 04.09 остаток Фазы 0. Ключ клипа
+    (temp_smart/clip_NNNN_<params_hash>.mp4) содержал рецепт рендера, режимы
+    Look/Director и HOOK-only хвост арбитра, но НЕ подпись гейтов отбора. А
+    кэш-хит клипа делает `continue` ДО того, как кандидат переподбирается.
+    Следствие на прогретом temp_smart/: ужесточение гвардов, расширение
+    блоклиста или смена размера пула не доходили до экрана вообще — менялось
+    только имя файла в pexels_cache, а клип брался готовым, собранный по
+    старым правилам. Правка правил отбора оставалась записью в исходнике.
+
+    Проверяется по исходнику, а не по поведению: собрать ключ иначе как
+    прогнав main() нельзя, а полный рендер в тестах не запускают. Тот же
+    приём, что у test_exit_codes_stay_in_sync_across_consumers и
+    test_director_min_pool_stays_in_sync_across_modules.
+    """
+    src = open(os.path.join(SCRIPTS_DIR, "pipeline_smart.py"), encoding="utf-8").read()
+    start = src.index("cache_key = (")
+    block = src[start:src.index("params_hash = hashlib.md5(cache_key.encode())", start)]
+    assert "candidate_gate_signature()" in block, (
+        "ключ кэша клипа снова не содержит candidate_gate_signature() — "
+        "на прогретом кэше правки правил отбора не дойдут до экрана")

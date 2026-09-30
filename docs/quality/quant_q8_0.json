@@ -1,0 +1,1497 @@
+{
+  "model": "Qwen3-4B-Instruct-2507-Q8_0.gguf",
+  "episode": "02_ne-mechom",
+  "packet_version": 6,
+  "arms": {
+    "C": {
+      "summary": {
+        "arm": "C: глава с контекстом",
+        "units_total": 142,
+        "answered": 122,
+        "answered_share": 0.859,
+        "subject_hit": 58,
+        "subject_hit_of_answered": 0.475,
+        "subject_hit_of_all": 0.408,
+        "era_ok_of_answered": 0.582,
+        "validator_rejects": 0,
+        "translation_shape": 0,
+        "distinct_briefs": 122,
+        "mean_jaccard_of_answered": 0.069
+      },
+      "rows": {
+        "0": {
+          "shot_en": "a knight lying face-down in muddy field, armor partially buried",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "1": {
+          "shot_en": "a medieval longsword blade with rust, resting on stone, close-up",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "2": {
+          "shot_en": "a fallen knight in full plate armor, mud on chest and legs",
+          "subject_hit": true,
+          "jaccard": 0.1,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "3": {
+          "shot_en": "a single standing knight in full armor, back to camera",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "4": {
+          "shot_en": "a medieval manuscript showing knight standing in battle field",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "5": {
+          "shot_en": "a real battlefield longsword in hand, steel visible, close-up",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "6": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "7": {
+          "shot_en": "a man in full plate armor standing still, sword hitting his shoulder",
+          "subject_hit": true,
+          "jaccard": 0.091,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "8": {
+          "shot_en": "a knight's armor shown as a locked chest, sword beside it",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "9": {
+          "shot_en": "battlefield at Azencourt, 1415, with soldiers in full armor",
+          "subject_hit": true,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "10": {
+          "shot_en": "a broken sword fragment lying in the mud, no handle",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "11": {
+          "shot_en": "a battlefield with smoke and broken shields, distant figures",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "12": {
+          "shot_en": "a rusted iron spike in soil, no markings, no handle",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "13": {
+          "shot_en": "a knight stepping onto battlefield, boots on dirt, no weapon",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "14": {
+          "shot_en": "a hand holding a small iron tool, no visible name",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "15": {
+          "shot_en": "three broken armor plates stacked, one cracked, one bent, one missing",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "16": {
+          "shot_en": "medieval battlefield with knight in full plate armour falling on his back",
+          "subject_hit": true,
+          "jaccard": 0.143,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "17": {
+          "shot_en": "metal plate armour on wooden stand with number 20–30 kg displayed",
+          "subject_hit": true,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "18": {
+          "shot_en": "close-up of knight’s torso showing armor distributed across chest, shoulders, hips",
+          "subject_hit": true,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "19": {
+          "shot_en": "knight climbing a ladder on hands only, fully armored, in a dimly lit hall",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "20": {
+          "shot_en": "modern reconstructor in full armor running and falling, quick cuts",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "21": {
+          "shot_en": "split screen: armor on one side, knight in motion on the other",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "22": {
+          "shot_en": "knight in full armor checking the neck guard with focused expression",
+          "subject_hit": true,
+          "jaccard": 0.111,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "23": {
+          "shot_en": "close-up of a sword blade sliding over a breastplate, then stopping",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "24": {
+          "shot_en": "knight in armor standing confidently after a fall, looking at the viewer",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "25": {
+          "shot_en": "knight in armor lying on ground, armor cracked, with a small wound on the side",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "26": {
+          "shot_en": "detailed manuscript page showing combat techniques with armored knights",
+          "subject_hit": true,
+          "jaccard": 0.222,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "27": {
+          "shot_en": "close-up of a leather-bound combat manual open to a section labeled \"battle in armor\"",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "28": {
+          "shot_en": "a medieval sword lying on a stone table with a dull edge, not showing sharpness",
+          "subject_hit": true,
+          "jaccard": 0.111,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "29": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "30": {
+          "shot_en": "diagram of a knight’s stance showing a sword angled to strike between armor plates",
+          "subject_hit": true,
+          "jaccard": 0.1,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "31": {
+          "shot_en": "a sword being swung with the pommel striking a wooden post, showing blunt force",
+          "subject_hit": true,
+          "jaccard": 0.182,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "32": {
+          "shot_en": "two swords side-by-side, one held with pommel down, one with blade down, in a combat illustration",
+          "subject_hit": true,
+          "jaccard": 0.083,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "33": {
+          "shot_en": "a knight’s sword resting on a belt, engraved with a crest, still in its scabbard",
+          "subject_hit": true,
+          "jaccard": 0.375,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "34": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "35": {
+          "shot_en": "a heavy wooden mallet striking a steel plate, showing the impact through the metal",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "36": {
+          "shot_en": "a knight’s shoulder and neck showing deformation under force, armor cracked but no cut",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "37": {
+          "shot_en": "a knight falling to the ground after being struck by a poleaxe on the helmet",
+          "subject_hit": true,
+          "jaccard": 0.125,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "38": {
+          "shot_en": "a fallen knight lying motionless, helmet cracked, no visible wound on armor",
+          "subject_hit": true,
+          "jaccard": 0.167,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "39": {
+          "shot_en": "sky filled with longbow arrows falling over a battlefield at dusk",
+          "subject_hit": true,
+          "jaccard": 0.083,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "40": {
+          "shot_en": "medieval manuscript showing archers and knights in combat, with incorrect depiction of arrows raining down",
+          "subject_hit": true,
+          "jaccard": 0.091,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "41": {
+          "shot_en": "wooden longbow with tension gauge marked at 70 kg, resting on stone",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "42": {
+          "shot_en": "French knights marching slowly across a muddy field, no horses visible",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "43": {
+          "shot_en": "longbow arrow resting on a wooden table, labeled \"not as shown in myths\"",
+          "subject_hit": true,
+          "jaccard": 0.111,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "44": {
+          "shot_en": "horse standing on edge of field, one arrow embedded in its side, rider visible in distance",
+          "subject_hit": true,
+          "jaccard": 0.1,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "45": {
+          "shot_en": "knight’s helmet with narrow viewing slit, arrow visible entering from above",
+          "subject_hit": true,
+          "jaccard": 0.333,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "46": {
+          "shot_en": "line of armored men pressing together in a narrow field, shoulders touching",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "47": {
+          "shot_en": "dense group of knights in armor moving toward center, forming a tight column",
+          "subject_hit": true,
+          "jaccard": 0.077,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "48": {
+          "shot_en": "archers firing in a line, smoke rising, knights crouched with heads down",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "49": {
+          "shot_en": "iron spike embedded in soil, near a knight’s boot, no visible source of fire",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "50": {
+          "shot_en": "muddy battlefield with fallen knight buried in earth and soil",
+          "subject_hit": true,
+          "jaccard": 0.111,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "51": {
+          "shot_en": "wet clay layer beneath a knight’s boot sole, showing suction effect",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "52": {
+          "shot_en": "close-up of a soldier’s foot sinking into mud, showing surface deformation",
+          "subject_hit": true,
+          "jaccard": 0.143,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "53": {
+          "shot_en": "soldier’s helmet with cracked leather, sweat stains, and dirt caked on face",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "54": {
+          "shot_en": "exhausted English soldier lying on ground, armor bent, no wounds visible",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "55": {
+          "shot_en": "soldier pushed forward by a group of marching troops behind him",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "56": {
+          "shot_en": "line of soldiers advancing, one collapsing into mud, others stepping over him",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "57": {
+          "shot_en": "broken iron stirrup of a knight’s armor lying in wet soil, half-buried",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "58": {
+          "shot_en": "slow-motion shot of a foot sinking into mud, then stopping, no movement after",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "59": {
+          "shot_en": "marching infantry column in muddy field, feet sinking into soil",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "60": {
+          "shot_en": "disturbed soil with footprints overlapping, first row visible in front",
+          "subject_hit": true,
+          "jaccard": 0.182,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "61": {
+          "shot_en": "soldiers in line, rear approaching, front facing forward, wind blowing",
+          "subject_hit": true,
+          "jaccard": 0.083,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "62": {
+          "shot_en": "soldier breathing heavily, face wet with sweat, eyes narrowed",
+          "subject_hit": true,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "63": {
+          "shot_en": "resting soldiers on hard ground, bare legs, no armor, relaxed posture",
+          "subject_hit": true,
+          "jaccard": 0.091,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "64": {
+          "shot_en": "front ranks colliding, soldiers standing still, rear still advancing",
+          "subject_hit": true,
+          "jaccard": 0.1,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "65": {
+          "shot_en": "soldier in front unable to move, soldier in back looking ahead without knowing",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "66": {
+          "shot_en": "long spear lying on ground, no space to lift, nearby shoulder blocking",
+          "subject_hit": true,
+          "jaccard": 0.067,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "67": {
+          "shot_en": "soldier’s hand gripping weapon, movement restricted by tight space",
+          "subject_hit": true,
+          "jaccard": 0.1,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "68": {
+          "shot_en": "fallen soldier lying on ground, another soldier stepping over him",
+          "subject_hit": true,
+          "jaccard": 0.111,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "69": {
+          "shot_en": "a lone knight standing on a muddy battlefield, feet slightly apart",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "70": {
+          "shot_en": "dense crowd of warriors pressing together on a stone plaza, shoulders touching",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "71": {
+          "shot_en": "open grass field with no armor, a knight’s bare foot stepping forward",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "72": {
+          "shot_en": "a warrior’s outstretched arm and bent knee, touching a fallen comrade’s shoulder",
+          "subject_hit": true,
+          "jaccard": 0.091,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "73": {
+          "shot_en": "a knight’s forearm pressed against a fallen man’s chest, both bodies half-buried in dirt",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "74": {
+          "shot_en": "a helmet lying on its side, cracked, beside a man’s bent back in the mud",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "75": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "76": {
+          "shot_en": "a group of nobles standing in a line, all unharmed, behind a fallen wall",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "77": {
+          "shot_en": "a knight’s face buried in mud, chest rising and falling slowly, no armor visible",
+          "subject_hit": true,
+          "jaccard": 0.091,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "78": {
+          "shot_en": "tightly packed warriors in a circle, all facing inward, hands on each other’s shoulders",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "79": {
+          "shot_en": "a complete knight’s armor lying on the ground, untouched, with a broken sword beside it",
+          "subject_hit": true,
+          "jaccard": 0.286,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "80": {
+          "shot_en": "a knight lying on ground with armor partially collapsed, face turned to side",
+          "subject_hit": true,
+          "jaccard": 0.143,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "81": {
+          "shot_en": "a small metal dagger with rounded ends, resting on stone surface",
+          "subject_hit": true,
+          "jaccard": 0.125,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "82": {
+          "shot_en": "close-up of narrow blade with two circular plates, marked \"30 cm\"",
+          "subject_hit": true,
+          "jaccard": 0.2,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "83": {
+          "shot_en": "a thin needle piercing through fabric, showing no cut effect",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "84": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "85": {
+          "shot_en": "dagger inserted through gap in chainmail, near armpit and neck",
+          "subject_hit": true,
+          "jaccard": 0.111,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "86": {
+          "shot_en": "armor with visible flexible joint, showing movement limitation",
+          "subject_hit": true,
+          "jaccard": 0.125,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "87": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "88": {
+          "shot_en": "English archer walking through mud, wearing simple tunic and no armor",
+          "subject_hit": true,
+          "jaccard": 0.077,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "89": {
+          "shot_en": "standing warrior with rigid posture vs. same man lying with limbs bound",
+          "subject_hit": true,
+          "jaccard": 0.286,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "90": {
+          "shot_en": "same knight in armor, now lying with arms folded, motionless",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "91": {
+          "shot_en": "young noble boy in armor, dead, beside a shepherd boy in simple clothes",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "92": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "93": {
+          "shot_en": "a living knight in full armor standing beside a pile of gold coins",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "94": {
+          "shot_en": "manuscript page showing treaty text with \"3 million ecus\" in bold red ink",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "95": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "96": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "97": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "98": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "99": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "100": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "101": {
+          "shot_en": "a burning house with a pile of gold coins in the center, flames licking the roof",
+          "subject_hit": true,
+          "jaccard": 0.2,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "102": {
+          "shot_en": "a close-up of a dagger slipping through a crack in a chainmail shirt",
+          "subject_hit": true,
+          "jaccard": 0.125,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "103": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "104": {
+          "shot_en": "muddy ditch near ancient castle wall, dry and cracked",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "105": {
+          "shot_en": "soldier’s leather boot with worn-out sole, placed on wet stone",
+          "subject_hit": true,
+          "jaccard": 0.071,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "106": {
+          "shot_en": "battlefield with muddy trenches and scattered golden spurs",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "107": {
+          "shot_en": "horse with reins and shield, standing in open field",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "108": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "109": {
+          "shot_en": "narrow path through wet grass, footprints leading to a wall",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "110": {
+          "shot_en": "fallen knight lying on firm ground, surrounded by empty tents",
+          "subject_hit": true,
+          "jaccard": 0.286,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "111": {
+          "shot_en": "dry moat with no water, surrounded by broken stone walls",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "112": {
+          "shot_en": "a fallen knight lying on muddy battlefield, armor cracked, no movement",
+          "subject_hit": true,
+          "jaccard": 0.167,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "113": {
+          "shot_en": "a crowded medieval camp with men sitting in silence, fire dim, shadows long",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "114": {
+          "shot_en": "a knight’s effigy in stone, face hollow, eyes closed, hands folded",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "115": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "116": {
+          "shot_en": "a cracked clay pot with dried feces inside, near a soldier’s boot",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "117": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "118": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "119": {
+          "shot_en": "two identical armor fragments, one with a wound, one clean, side by side on stone",
+          "subject_hit": true,
+          "jaccard": 0.125,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "120": {
+          "shot_en": "a soldier’s leg wound, dirt inside the wound, a cloth soaked in dark fluid, close up",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "121": {
+          "shot_en": "archaeological dig site in northern England, soil exposed, tools visible",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "122": {
+          "shot_en": "battlefield ruins in Yorkshire, stone markers and grassy field with sign: TAUTON, 1461",
+          "subject_hit": true,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "123": {
+          "shot_en": "human skull in wooden box, labeled with university and medical team names",
+          "subject_hit": true,
+          "jaccard": 0.182,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "124": {
+          "shot_en": "close-up of fragmented bones laid out on a stone table, dust on surface",
+          "subject_hit": true,
+          "jaccard": 0.3,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "125": {
+          "shot_en": "cracked human skull with multiple impact marks, some visible on side and back",
+          "subject_hit": true,
+          "jaccard": 0.2,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "126": {
+          "shot_en": "warrior’s helmet lying on ground, partially broken, next to a human skull",
+          "subject_hit": true,
+          "jaccard": 0.125,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "127": {
+          "shot_en": "medieval war hammer and mace displayed side by side on stone surface",
+          "subject_hit": true,
+          "jaccard": 0.5,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "128": {
+          "shot_en": "sequence of human remains in burial trench: fallen body, helmet gone, weapon above",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "129": {
+          "shot_en": "skeletal remains in a trench, showing broken skull and a mace resting on the chest",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "130": {
+          "shot_en": "assembled medieval armor fragments on a stone workbench",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "131": {
+          "shot_en": "iron sword blade bent sideways in a blacksmith’s hands",
+          "subject_hit": true,
+          "jaccard": 0.222,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "132": {
+          "shot_en": "arrow striking a horse’s eye, horse rearing, rider falling",
+          "subject_hit": true,
+          "jaccard": 0.111,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "133": {
+          "shot_en": "heavy wooden mallet striking a stone block, dust flying",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "134": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "135": {
+          "shot_en": "knight in full plate armor standing over a battlefield, back to camera",
+          "subject_hit": true,
+          "jaccard": 0.2,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "136": {
+          "shot_en": "a broken shield resting on stone, no blood, no damage",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "137": {
+          "shot_en": "knight’s helmet reflecting a dark room, no face visible",
+          "subject_hit": true,
+          "jaccard": 0.125,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "138": {
+          "shot_en": "fallen knight on ground, soldiers standing around, one reaching for him",
+          "subject_hit": true,
+          "jaccard": 0.333,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "139": {
+          "shot_en": null,
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": false,
+          "validator_reason": "пусто",
+          "translation_shape": false,
+          "parsed": false
+        },
+        "140": {
+          "shot_en": "massive army standing in a field, walls visible in distance, no movement",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": false,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        },
+        "141": {
+          "shot_en": "a film reel with a knight falling, cut to a muddy field",
+          "subject_hit": false,
+          "jaccard": 0.0,
+          "era_ok": true,
+          "validator_ok": true,
+          "validator_reason": null,
+          "translation_shape": false,
+          "parsed": true
+        }
+      },
+      "director_stats": {
+        "chapters": 13,
+        "asked": 13,
+        "cache_hits": 0,
+        "rows": 122,
+        "rejected": 7,
+        "empty_chapters": 0
+      },
+      "rejected": [
+        {
+          "section": "BLOCK 6: ТЫ НЕ ВСТАЁШЬ",
+          "text": "Хронисты — Ваврен, Монстреле, авторы «Деяний Генриха Пятого» — описывают груды т",
+          "shot_en": "stacked bodies of soldiers, some still moving, forming a human mound in the field",
+          "reason": "человек без привязки к миру канала"
+        },
+        {
+          "section": "BLOCK 7: ТОТ, КТО ПОДХОДИТ ПОСЛЕДНИМ",
+          "text": "Берёшь его обратным хватом, как ледоруб, ставишь остриё в смотровую щель упавшег",
+          "shot_en": "hand gripping dagger backward, pressing down on fallen man’s jawline",
+          "reason": "человек без привязки к миру канала"
+        },
+        {
+          "section": "BLOCK 7: ТОТ, КТО ПОДХОДИТ ПОСЛЕДНИМ",
+          "text": "А теперь про то, кто именно подходил.",
+          "shot_en": "two figures approaching from opposite sides, one in armor, one barefoot",
+          "reason": "блоклист канала (barefoot)"
+        },
+        {
+          "section": "BLOCK 8: ТЫ СТОИШЬ ДЕНЕГ",
+          "text": "Только между «за меня заплатят» и «меня спасут» стоит несколько неприятных услов",
+          "shot_en": "a torn parchment with two lines: \"for me they will pay\" and \"they will save me\"",
+          "reason": "пересказ фразы, а не описание кадра"
+        },
+        {
+          "section": "BLOCK 9: ДЕЛО НЕ В ГРЯЗИ",
+          "text": "При Баннокберне в тысяча триста четырнадцатом англичан прижали к болотистой пойм",
+          "shot_en": "muddy riverbank with people falling into water, shallow current",
+          "reason": "человек без привязки к миру канала"
+        },
+        {
+          "section": "FINAL",
+          "text": "А убивала земля. Глина, которая не отпускает ногу. Вес своих же товарищей сверху",
+          "shot_en": "muddy field with a man lying on his back, feet in clay, water pooling",
+          "reason": "человек без привязки к миру канала"
+        },
+        {
+          "section": "FINAL",
+          "text": "Самая страшная секунда наступает не тогда, когда ломается броня. Она наступает, ",
+          "shot_en": "man lying on ground, another man’s chest pressed against his back, breath visible",
+          "reason": "человек без привязки к миру канала"
+        }
+      ]
+    }
+  }
+}

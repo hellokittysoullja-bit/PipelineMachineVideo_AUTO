@@ -1,0 +1,123 @@
+{
+ "stack": {
+  "torch": "2.14.0+cpu",
+  "transformers": "5.17.0"
+ },
+ "window_sec": 8.0,
+ "items": [
+  {
+   "file": "wind_open.flac",
+   "kind": "ambience",
+   "name": "wind_open",
+   "prompt": "steady wind blowing over an open field, outdoors, no people",
+   "negatives": [
+    "people talking, human speech, voices",
+    "music, melody, musical instruments, singing",
+    "traffic, car engine, motor vehicle, airplane",
+    "electrical hum, buzzing, mains noise, fan noise",
+    "digital distortion, clipping, glitch, static"
+   ],
+   "clap_pos": 0.3427,
+   "clap_worst_neg": 0.1185,
+   "clap_margin": 0.2241,
+   "title": "Wind blowing across open marshland",
+   "creator": "James2nd",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "landing": "https://freesound.org/people/James2nd/sounds/328709",
+   "ast": {
+    "Music": 0.0064,
+    "Singing": 0.0001,
+    "Speech": 0.028,
+    "Vehicle": 0.0199
+   }
+  },
+  {
+   "file": "forge_fire.flac",
+   "kind": "ambience",
+   "name": "forge_fire",
+   "prompt": "a wood fire burning and crackling, calm and steady",
+   "negatives": [
+    "people talking, human speech, voices",
+    "music, melody, musical instruments, singing",
+    "traffic, car engine, motor vehicle, airplane",
+    "electrical hum, buzzing, mains noise, fan noise",
+    "digital distortion, clipping, glitch, static"
+   ],
+   "clap_pos": 0.3842,
+   "clap_worst_neg": 0.0487,
+   "clap_margin": 0.3355,
+   "title": "The Fireplace 3.wav",
+   "creator": "NoOneIsReal",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "landing": "https://freesound.org/people/NoOneIsReal/sounds/387128",
+   "ast": {
+    "Music": 0.0043,
+    "Singing": 0.0001,
+    "Speech": 0.002,
+    "Vehicle": 0.0022
+   }
+  },
+  {
+   "file": "night.flac",
+   "kind": "ambience",
+   "name": "night",
+   "prompt": "calm night ambience outdoors with crickets and distant owls",
+   "negatives": [
+    "people talking, human speech, voices",
+    "music, melody, musical instruments, singing",
+    "traffic, car engine, motor vehicle, airplane",
+    "electrical hum, buzzing, mains noise, fan noise",
+    "digital distortion, clipping, glitch, static"
+   ],
+   "clap_pos": 0.3265,
+   "clap_worst_neg": 0.1109,
+   "clap_margin": 0.2155,
+   "title": "Night Ambience w/ Crickets",
+   "creator": "cliftonmcarlson",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "landing": "https://freesound.org/people/cliftonmcarlson/sounds/253664",
+   "ast": {
+    "Music": 0.0013,
+    "Singing": 0.0001,
+    "Speech": 0.0012,
+    "Vehicle": 0.0012
+   }
+  },
+  {
+   "file": "rain_mud.flac",
+   "kind": "ambience",
+   "name": "rain_mud",
+   "prompt": "light steady rain falling outdoors, natural, no people",
+   "negatives": [
+    "people talking, human speech, voices",
+    "music, melody, musical instruments, singing",
+    "traffic, car engine, motor vehicle, airplane",
+    "electrical hum, buzzing, mains noise, fan noise",
+    "digital distortion, clipping, glitch, static"
+   ],
+   "clap_pos": 0.3841,
+   "clap_worst_neg": 0.0712,
+   "clap_margin": 0.3129,
+   "title": "Rain on grass and leaves",
+   "creator": "SamsterBirdies",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "landing": "https://freesound.org/people/SamsterBirdies/sounds/584268",
+   "ast": {
+    "Music": 0.0034,
+    "Singing": 0.0001,
+    "Speech": 0.0021,
+    "Vehicle": 0.0008
+   }
+  }
+ ],
+ "ast_labels": [
+  "Music",
+  "Singing",
+  "Speech",
+  "Vehicle"
+ ]
+}

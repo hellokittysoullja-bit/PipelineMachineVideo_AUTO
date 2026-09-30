@@ -1,0 +1,6 @@
+{
+ "reports": {
+  "run_journal.jsonl": "журнал прогона появляется на этапе 1",
+  "visual_director_report.json": "записи clips получили поле index (без него запись нельзя приписать слоту)"
+ }
+}
