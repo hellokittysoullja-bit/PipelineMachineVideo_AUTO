@@ -159,28 +159,6 @@ class TestMasterChain:
         assert r.returncode == 0, r.stderr[-400:]
 
 
-class TestAudioMasterReport:
-    """По готовому ролику должно быть можно ответить, чем собран его звук."""
-
-    def test_report_records_the_bed_decision(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(ps, "MUSIC_BED_DECISION",
-                            {"voice_lufs": -16.0, "music_lufs": -30.0,
-                             "gain_db": -2.0, "source": "measured"})
-        path = ps.write_audio_master_report(str(tmp_path), final_lufs=-14.2)
-        data = json.load(open(path, encoding="utf-8"))
-        assert data["bed"]["gain_db"] == -2.0
-        assert data["target_gap_lu"] == ps.MUSIC_BED_GAP_LU
-        assert data["final_lufs"] == -14.2
-
-    def test_report_shows_when_the_limiter_was_off(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(ps, "MASTER_LIMITER_ENABLED", False)
-        path = ps.write_audio_master_report(str(tmp_path))
-        assert json.load(open(path, encoding="utf-8"))["limiter"] is None
-
-    def test_report_failure_never_breaks_the_render(self, monkeypatch, capsys):
-        """Отчёт вспомогательный: потерять готовый ролик из-за него хуже."""
-        assert ps.write_audio_master_report("/proc/nonexistent/nope") is None
-        assert "ВНИМАНИЕ" in capsys.readouterr().out
 
 
 class TestAudioQc:

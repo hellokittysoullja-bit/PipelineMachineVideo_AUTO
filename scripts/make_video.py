@@ -5,14 +5,12 @@
 
 Шаги (каждый — отдельный скрипт, можно запускать и по одному):
   1. wordcount.py        — длина сценария против цели (стоп вне коридора).
-  2. frame_planner.py    — паспорт мира эпизода + спецификация и рисунок на каждую фразу.
+  2. frame_planner.py    — спецификация и рисунок на каждую фразу.
   3. frame_generator.py  — варианты кадров локальной моделью, проверка букв, судья.
   4. lumean_tts.py       — озвучка, только с --tts (платно; иначе положите audio.mp3 сами).
-  5. section_sync.py     — карта секций для ручной озвучки (если её не написал Lumean).
-  6. fix_pauses.py       — подрезка длинных пауз TTS.
-  7. assemble_frames.py  — сборка final.mp4 + субтитры + главы.
-  8. verify_timing.py    — резы, измеренные в пикселях готового файла, против начала фраз.
-  9. segment_report.py   — отчёт по готовому файлу (планы, тон, отказы).
+  5. fix_pauses.py       — подрезка длинных пауз TTS.
+  6. assemble_frames.py  — сборка final.mp4 + субтитры + главы.
+  7. verify_timing.py    — резы, измеренные в пикселях готового файла, против начала фраз.
 Останавливается на шаге, который не может продолжить, и говорит, что сделать.
 Готовое берётся из кэша: перезапуск не платит и не рисует заново."""
 import argparse
@@ -31,11 +29,6 @@ def step(name, args, ok_codes=(0,)):
         sys.exit(f"Шаг «{name}» остановился (код {r.returncode}). Исправьте и перезапустите.")
     return r.returncode
 
-
-def sections_count(script):
-    sys.path.insert(0, HERE)
-    import lumean_tts
-    return len(lumean_tts.extract_section_texts(script))
 
 
 def main():
@@ -60,13 +53,9 @@ def main():
         if not a.tts:
             sys.exit("Нет audio.mp3. Положите озвучку в папку ролика или запустите с --tts (Lumean, платно).")
         step("Озвучка", ["lumean_tts.py", vd] + ([str(a.minutes)] if a.minutes else []))
-    offsets = os.path.join(vd, "media_plan", "section_offsets.json")
-    if sections_count(script) >= 2 and not os.path.exists(offsets):
-        step("Карта секций", ["section_sync.py", vd], ok_codes=(0, 1, 2))
     step("Паузы", ["fix_pauses.py", vd])
     step("Сборка", ["assemble_frames.py", vd], ok_codes=(0, 2))
     step("Замер тайминга", ["verify_timing.py", vd], ok_codes=(0, 1, 2))
-    step("Отчёт по файлу", ["segment_report.py", vd], ok_codes=(0, 1, 2))
     try:
         v = json.load(open(os.path.join(vd, "media_plan", "timing_verification.json"), encoding="utf-8"))
         print(f"\nТайминг по готовому файлу: {v.get('verdict')}, дрейф {v.get('drift')}")

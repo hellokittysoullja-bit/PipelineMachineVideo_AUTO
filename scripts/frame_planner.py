@@ -1,33 +1,25 @@
 #!/usr/bin/env python3
-"""План рисованного кадра на каждую фразу — на базе планировщика старого
-генератора (stock_query_planner v3), а не с нуля.
+"""План рисованного кадра на каждую фразу.
 
-Что взято из старого и НЕ переписано:
-  * главы как вопросы (shot_brief_director.packets): фразы по порядку, хвост
-    прошлой главы, стадия рассказа из speech_plan.json, бриф автора [shot:];
-  * мир эпизода — паспорт world_card (модель пишет его по сценарию: эпоха,
-    культуры, что нельзя показывать — телефона в сцене из древности);
-  * правила спецификации кадра — ДОСЛОВНО абзацы focus/core/subject/claims из
-    stock_query_planner.SPEC_PROMPT (вырезаются из него в момент вызова,
-    второй копии текста нет): «главное — то, что само по себе напомнит
-    фразу», абстракция через ситуацию/телесный признак/предмет-след,
-    утверждения must/should, проверяемые взглядом. Их потом проверяет
-    судья (shot_judge.verify_claims) — тот же контракт, что в старом;
-  * разбор ответа — те же функции (json_objects, clean_text, _parse_claims),
-    кэш по содержимому вопроса, второй вопрос при сбитом формате.
+Основа — планировщик старого генератора (stock_query_planner v3): правила
+спецификации кадра (focus / core / subject / claims must-should) и функции
+разбора ответа перенесены сюда ДОСЛОВНО (блок «из stock_query_planner v3»
+ниже), остальной стоковый планировщик не нужен. Спецификацию потом проверяет
+судья shot_judge.verify_claims — тот же контракт, что в старом.
 
-Что новое (другая природа кадра): вместо запросов к стокам модель пишет,
-КАК кадр нарисовать:
+Поверх — описание рисунка (своё, у старого кадр искался, а не рисовался):
   kind     — scene | caption | diagram;
   labels   — русские подписи дословно (генератор нарисует ровно их, проверка
              букв сверит их точно);
   picture  — английское описание рисунка, главное первым;
-  mascot   — есть ли сквозной герой канала; backdrop — white | paper | painted.
+  mascot   — сквозной герой канала; backdrop — white | paper | painted.
 
-Выход: media_plan/frame_plan.json (кадры по порядку блоков, у каждого spec
-для судьи и frame для генератора). Фраза без годной спецификации получает
-запасной кадр-сцену и помечается fallback — слот не пустеет.
+Глава — один вопрос (фразы по порядку, хвост прошлой главы, бриф автора
+[shot:]); сорванная строка теряет себя, а не главу; при сбитом формате глава
+спрашивается второй раз. Кэш по содержимому вопроса — перезапуск не платит.
+Фраза без годного ответа получает запасной кадр-сцену (слот не пустеет).
 
+Выход: media_plan/frame_plan.json.
 Usage: python scripts/frame_planner.py <video_dir> [--model M] [--force]"""
 import argparse
 import concurrent.futures
@@ -40,28 +32,103 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import channel  # noqa: E402
 import script_parser  # noqa: E402
-import shot_brief_director as sbd  # noqa: E402
-import shot_planner_llm  # noqa: E402
-import stock_query_planner as sqp  # noqa: E402
-import world_card  # noqa: E402
 
 PLAN_NAME = "frame_plan.json"
 CACHE_DIR_NAME = "frame_plan_cache"
-PLAN_VERSION = 2
-DEFAULT_MODEL = os.environ.get("PLANNER_MODEL") or sqp.DEFAULT_MODEL
+PLAN_VERSION = 3
+# Модель выбрана замером старого генератора 24.09 (58 фраз трёх ниш):
+# DeepSeek v4 Flash — 58/58, ~2 тыс. токенов баланса; Gemini 3.7 Flash по
+# смыслу наравне, но ~35 тыс.; Qwen 3.8 Max — 46/58.
+DEFAULT_MODEL = os.environ.get("PLANNER_MODEL") or "ds/deepseek-v4-flash"
+MAX_TOKENS = 8000
+EST_PROMPT_TOKENS = 2500
 KINDS = ("scene", "caption", "diagram")
 BACKDROPS = ("white", "paper", "painted")
 MAX_LABELS = {"scene": 0, "caption": 1, "diagram": 6}
 MAX_LABEL_WORDS = 5
 
+# ---------------------------------------------------------------- из stock_query_planner v3 (дословно)
+TIERS = ("must", "should")
+CORE_ID = "core"
+MAX_CLAIMS = 5
+RETRY_NOTE = "\n\n(Answer again: one JSON object per numbered line, every line, nothing else.)"
+SPEC_RULES = """focus — the new thing this line says, understood in the context of the chapter (resolve pronouns and references from the lines around it). 3 to 12 English words.
 
-def spec_rules():
-    """Абзацы focus/core/subject/claims старого SPEC_PROMPT, дословно.
-    Граница — начало абзаца queries: он про стоки и здесь не нужен."""
-    t = sqp.SPEC_PROMPT
-    a, b = t.index("focus —"), t.index("queries —")
-    return t[a:b].rstrip()
+core — WHO or WHAT must be visible: the single thing (an object, a person, an animal, a place) that, even alone in a picture, still makes the viewer think of this line — with the state that defines it, if any ("an exhausted person", "a burnt letter"). Name the thing, not an event: what it does goes into the claims. Ask yourself: if the picture could show only one thing, which one? When the line is about something happening to, on or around something else, the core is what the line is about — usually the thing that moves, acts or changes — not the surface, place or object it happens on. When the line is abstract (a feeling, an idea, a process, an argument), the core is a concrete situation, a bodily sign or an object left behind that a camera can photograph and a viewer reads as this idea — never a bare "a person is visible" or an invisible thing like "a memory" or "a brain decision": say what makes the picture show THIS line ("a person slumped over an untouched plate", "a crumpled paper covered in red corrections"). Never make words, captions, labels, signs or logos in the picture part of the core or of a claim — the viewer hears the words, the picture shows things — unless the line is about that very document, chart, headline, sign or screen. Write it as a statement: "a ball is visible".
 
+subject — the thing the line is ABOUT, as a bare noun phrase of 1 to 4 English words ("a dagger", "an arrow", "a tired person"): the thing that must be in the picture for the picture to be about this line at all. Name its GENERAL kind, the word anyone would use — not its type, model, material or part: "a guitar", not "a flamenco guitar", "a guitar neck" or "a wooden guitar"; "a dog", not "a sleeping dog". A picture of another type of the same thing still shows the subject; the exact type belongs in the claims. Only the thing — no action, no place, no other object. For an abstract line, the subject is the thing in the core ("a crumpled paper"). If nothing concrete can be named, give an empty string.
+
+claims — 1 to {c1} more statements checkable by looking at the picture, most important first. Each checks ONE thing (an object, an action, a place, a detail) and does not repeat the core. "tier": "must" if without it the picture does not show this line, "should" if it only makes the picture better. If the line is about a movement that only footage can show, one claim has "motion": true and describes this movement; lines about objects, places or states have no motion claim."""
+
+
+def _clean(s):
+    return re.sub(r"\s+", " ", (s or "")).strip()
+
+
+def clean_text(text, lo=2, hi=16):
+    """Английское описание (фокус, утверждение) или None: lo..hi слов
+    латиницей, без кириллицы и кавычек."""
+    text = _clean(text).strip(" \"'«».;:")
+    words = text.split()
+    if not lo <= len(words) <= hi or not re.search(r"[a-zA-Z]", text):
+        return None
+    if re.search(r"[а-яА-ЯёЁ]", text):
+        return None
+    return text
+
+
+def _parse_claims(raw_claims):
+    """Утверждения по порядку важности, или None, если спецификация негодна:
+    первое утверждение обязано быть must (это фокус), id уникальны, движение
+    требует не больше одно утверждение."""
+    claims, ids = [], set()
+    moving = False
+    for c in (raw_claims or []):
+        if len(claims) >= MAX_CLAIMS:
+            break
+        if not isinstance(c, dict):
+            continue
+        cid = _clean(str(c.get("id") or "")).lower()
+        text = clean_text(c.get("text"))
+        tier = c.get("tier") if c.get("tier") in TIERS else None
+        if not cid or cid in ids or not text or not tier:
+            continue
+        ids.add(cid)
+        claim = {"id": cid, "text": text, "tier": tier}
+        # Движение — одно на фразу: лишний флаг снимается, утверждение и
+        # фраза остаются (раньше из-за него выпадала вся фраза).
+        if c.get("motion") is True and not moving and cid != CORE_ID:
+            claim["motion"] = True
+            moving = True
+        claims.append(claim)
+    if len(claims) < 1 or claims[0]["tier"] != "must" or claims[0]["id"] != CORE_ID:
+        return None
+    return claims
+
+
+def json_objects(raw):
+    """Все JSON-объекты ответа по порядку: по строке на объект, массивом, в
+    блоке ```json или объектом на несколько строк. Сорванный объект теряет
+    только себя — разбор продолжается со следующей скобки."""
+    text = raw or ""
+    dec = json.JSONDecoder()
+    i, out = 0, []
+    while True:
+        i = text.find("{", i)
+        if i < 0:
+            return out
+        try:
+            obj, end = dec.raw_decode(text, i)
+        except ValueError:
+            i += 1
+            continue
+        if isinstance(obj, dict) and "n" in obj:
+            out.append(obj)
+            i = end
+        else:
+            i += 1
+
+# ---------------------------------------------------------------- конец блока из v3
 
 FRAME_RULES = """frame — how to DRAW this shot for a hand-drawn explainer video (doodle style: stick figures, simple drawn objects and places, diagrams, arrows, short hand-lettered Russian labels). The drawing must show the core and the must claims.
   "kind": "scene" — a drawn situation with no text at all (actions, places, everyday life);
@@ -74,7 +141,7 @@ FRAME_RULES = """frame — how to DRAW this shot for a hand-drawn explainer vide
   "backdrop": "white" for diagrams, "paper" for calm explanations, "painted" for scenes set in a place (cave, field, sea shore, village)."""
 
 PROMPT = """You direct the visuals of a hand-drawn explainer video.
-Episode: «{title}». Channel: {niche}. Setting: {setting}.
+Episode: «{title}». Channel: {niche}.
 Below are the narration lines of one chapter, in order{prev}. A line may come with the shot the author wants — keep its meaning.
 
 For EVERY numbered line decide what the viewer must SEE while hearing it.
@@ -91,15 +158,47 @@ Answer with one JSON object per narration line, one per line, and nothing else �
 {lines}"""
 
 
-def render_prompt(packet, setting, profile):
+def unit_key(text):
+    """Ключ фразы — её текст (номера сдвигаются от правок сценария)."""
+    return hashlib.sha1(" ".join((text or "").split()).encode("utf-8")).hexdigest()[:16]
+
+
+def episode_title(script_path):
+    try:
+        m = re.search(r"TITLE\s*:\s*(.+)", open(script_path, encoding="utf-8").read())
+        return m.group(1).strip() if m else ""
+    except OSError:
+        return ""
+
+
+def packets(blocks, title):
+    """Главы как вопросы: фразы по порядку, бриф автора, хвост прошлой главы."""
+    out, order = {}, []
+    for i, b in enumerate(blocks):
+        sec = b.get("section") or "—"
+        if sec not in out:
+            out[sec] = []
+            order.append(sec)
+        out[sec].append((i, b))
+    res, prev_tail = [], ""
+    for sec in order:
+        units = [{"n": n, "block_index": i, "text": _clean(b["text"]),
+                  "author_brief": _clean(b.get("shot_brief")) or None}
+                 for n, (i, b) in enumerate(out[sec], 1)]
+        res.append({"section": sec, "episode_title": title, "prev_tail": prev_tail, "units": units})
+        prev_tail = _clean(out[sec][-1][1]["text"])[:180]
+    return res
+
+
+def render_prompt(packet, profile):
     lines = []
     for u in packet["units"]:
         brief = u.get("author_brief")
         lines.append(f"{u['n']}. «{u['text']}»" + (f" — shot: {brief}" if brief else ""))
     prev = f" (the previous chapter ended with: «{packet['prev_tail']}»)" if packet.get("prev_tail") else ""
     return PROMPT.format(
-        title=packet.get("episode_title") or "—", niche=profile["niche"], setting=setting or "not specified",
-        prev=prev, spec_rules=spec_rules().format(c1=sqp.MAX_CLAIMS - 1),
+        title=packet.get("episode_title") or "—", niche=profile["niche"], prev=prev,
+        spec_rules=SPEC_RULES.format(c1=MAX_CLAIMS - 1),
         frame_rules=FRAME_RULES.format(max_words=MAX_LABEL_WORDS, mascot=profile["mascot"]["description"]),
         lines="\n".join(lines))
 
@@ -136,29 +235,27 @@ def validate_frame(obj):
 
 
 def parse_answer(raw, packet):
-    """{номер юнита: {"spec", "frame"}} + ошибки. Спецификация разбирается
-    теми же функциями, что в старом планировщике (без требования запросов:
-    здесь их нет)."""
+    """{номер юнита: {"spec", "frame"}} + ошибки. Спецификация — тем же
+    разбором, что в v3 (без поисковых запросов: здесь их нет). Движение из
+    утверждений снимается: рисунок статичен."""
     known = {u["n"] for u in packet["units"]}
     out, errors = {}, []
-    for obj in sqp.json_objects(raw):
+    for obj in json_objects(raw):
         n = obj.get("n")
         if not isinstance(n, int) or n not in known or n in out:
             continue
-        focus = sqp.clean_text(obj.get("focus"), lo=2)
-        core = sqp.clean_text(obj.get("core"), lo=2)
+        focus = clean_text(obj.get("focus"), lo=2)
+        core = clean_text(obj.get("core"), lo=2)
         rest = [c for c in (obj.get("claims") or []) if isinstance(c, dict)
-                and sqp._clean(str(c.get("id") or "")).lower() != sqp.CORE_ID]
-        claims = sqp._parse_claims([{"id": sqp.CORE_ID, "text": core, "tier": "must"}] + rest) if core else None
+                and _clean(str(c.get("id") or "")).lower() != CORE_ID]
+        claims = _parse_claims([{"id": CORE_ID, "text": core, "tier": "must"}] + rest) if core else None
         if not focus or not claims:
             errors.append(f"{n}:bad_spec")
             continue
-        # Движение здесь не выполнит ни один кадр (рисунок статичен): утверждение
-        # остаётся, но без флага motion — судья спросит его как обычное.
         for c in claims:
             c.pop("motion", None)
-        spec = {"focus": focus, "claims": claims, "queries": []}
-        subject = sqp.clean_text(obj.get("subject"), lo=1, hi=5)
+        spec = {"focus": focus, "claims": claims}
+        subject = clean_text(obj.get("subject"), lo=1, hi=5)
         if subject:
             spec["subject"] = subject
         frame, err = validate_frame(obj.get("frame"))
@@ -169,16 +266,31 @@ def parse_answer(raw, packet):
     return out, errors
 
 
-def ask_chapter(gateway, model, packet, setting, profile, cache_dir):
-    """Как sqp.ask_chapter: при сбитом формате глава спрашивается второй раз,
-    из второго ответа берутся только недостающие фразы."""
+def ask(gateway, model, prompt, cache_dir):
+    """Ответ модели на главу; кэш по содержимому вопроса (как в v3).
+    Пустой ответ в кэш не пишется."""
+    key = hashlib.sha256(f"{PLAN_VERSION}|{model}|{prompt}".encode("utf-8")).hexdigest()[:24]
+    cp = os.path.join(cache_dir, key + ".txt")
+    if os.path.exists(cp):
+        with open(cp, encoding="utf-8") as f:
+            return f.read(), True
+    text, _u, _p = gateway.chat(model, [{"type": "text", "text": prompt}], MAX_TOKENS, EST_PROMPT_TOKENS)
+    if text.strip():
+        os.makedirs(cache_dir, exist_ok=True)
+        with open(cp + ".part", "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(cp + ".part", cp)
+    return text, False
+
+
+def ask_chapter(gateway, model, packet, profile, cache_dir):
     import llm_gateway
-    prompt = render_prompt(packet, setting, profile)
-    raw, hit = sqp.ask(gateway, model, prompt, cache_dir)
+    prompt = render_prompt(packet, profile)
+    raw, hit = ask(gateway, model, prompt, cache_dir)
     got, errors = parse_answer(raw, packet)
     if len(got) < len(packet["units"]):
         try:
-            raw2, _h = sqp.ask(gateway, model, prompt + sqp.RETRY_NOTE, cache_dir)
+            raw2, _h = ask(gateway, model, prompt + RETRY_NOTE, cache_dir)
             more, _e = parse_answer(raw2, packet)
             for n, v in more.items():
                 got.setdefault(n, v)
@@ -191,47 +303,34 @@ def ask_chapter(gateway, model, packet, setting, profile, cache_dir):
 
 def fallback(block):
     """Спецификации нет — кадр всё равно нужен: сцена без текста по брифу
-    автора или по фразе; судья проверит её по брифу (spec_from_brief)."""
-    import shot_judge
-    brief = block.get("shot_brief")
-    picture = brief or f"a simple drawn scene illustrating: {block['text']}"
-    return {"spec": shot_judge.spec_from_brief(block["text"], brief),
+    автора или по фразе; судья проверит её по одному must-утверждению."""
+    text = block.get("shot_brief") or block["text"]
+    return {"spec": {"focus": text, "claims": [{"id": CORE_ID, "text": text, "tier": "must"}]},
             "frame": {"kind": "scene", "mascot": False, "backdrop": "paper", "labels": [],
-                      "picture": picture}, "fallback": True}
-
-
-def ensure_world(video_dir, gateway, verbose=True):
-    """Паспорт мира эпизода — тот же world_card.generate, что в старом
-    генераторе (ручной не трогается, свой пересоздаётся при правке озвучки)."""
-    prof = channel.load_profile()
-    card, what = world_card.generate(video_dir, gateway, niche=prof["niche"])
-    if verbose:
-        print(f"Паспорт мира: {what}; {world_card.describe(card)}")
-    return card
+                      "picture": block.get("shot_brief") or f"a simple drawn scene illustrating: {block['text']}"},
+            "fallback": True}
 
 
 def plan_episode(video_dir, gateway, model=DEFAULT_MODEL, force=False, workers=4, verbose=True):
     profile = channel.load_profile()
-    blocks = script_parser.parse_blocks(os.path.join(video_dir, "script.txt"))
-    card = ensure_world(video_dir, gateway, verbose)
-    setting = world_card.judge_setting(card)
+    script = os.path.join(video_dir, "script.txt")
+    blocks = script_parser.parse_blocks(script)
     cache_dir = os.path.join(video_dir, "media_plan", CACHE_DIR_NAME)
     if force and os.path.isdir(cache_dir):
         for f in os.listdir(cache_dir):
             os.remove(os.path.join(cache_dir, f))
-    packets = list(sbd.packets(video_dir, blocks))
+    pk = packets(blocks, episode_title(script))
 
     def one(packet):
         try:
-            return ask_chapter(gateway, model, packet, setting, profile, cache_dir)
+            return ask_chapter(gateway, model, packet, profile, cache_dir)
         except Exception as e:  # noqa: BLE001 — глава без ответа получит запасные кадры
             return {}, [f"call_failed:{type(e).__name__}: {e}"[:200]], False
 
-    with concurrent.futures.ThreadPoolExecutor(max(1, min(workers, len(packets) or 1))) as ex:
-        results = list(ex.map(one, packets))
-
+    with concurrent.futures.ThreadPoolExecutor(max(1, min(workers, len(pk) or 1))) as ex:
+        results = list(ex.map(one, pk))
     by_index, stats, errs = {}, {"planned": 0, "fallback": 0, "cached_chapters": 0}, {}
-    for packet, (got, errors, hit) in zip(packets, results):
+    for packet, (got, errors, hit) in zip(pk, results):
         stats["cached_chapters"] += int(bool(hit))
         if errors:
             errs[packet["section"]] = errors
@@ -242,19 +341,14 @@ def plan_episode(video_dir, gateway, model=DEFAULT_MODEL, force=False, workers=4
     for i, b in enumerate(blocks):
         entry = by_index.get(i) or fallback(b)
         stats["fallback" if entry.get("fallback") else "planned"] += 1
-        frames.append({"index": i, "section": b["section"], "text": b["text"],
-                       "key": shot_planner_llm.unit_key(b["text"]), "spec": entry["spec"],
-                       **entry["frame"], "fallback": bool(entry.get("fallback"))})
-    plan = {"version": PLAN_VERSION, "model": model, "setting": setting,
-            "world_card": world_card.describe(card),
-            "signature": hashlib.sha256(f"{PLAN_VERSION}|{model}|{PROMPT}|{setting}".encode()).hexdigest()[:16],
-            "frames": frames, "stats": stats, "errors": errs}
+        frames.append({"index": i, "section": b["section"], "text": b["text"], "key": unit_key(b["text"]),
+                       "spec": entry["spec"], **entry["frame"], "fallback": bool(entry.get("fallback"))})
+    plan = {"version": PLAN_VERSION, "model": model, "frames": frames, "stats": stats, "errors": errs}
     path = os.path.join(video_dir, "media_plan", PLAN_NAME)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
+    with open(path + ".tmp", "w", encoding="utf-8") as f:
         json.dump(plan, f, ensure_ascii=False, indent=1)
-    os.replace(tmp, path)
+    os.replace(path + ".tmp", path)
     if verbose:
         kinds = {k: sum(1 for f in frames if f["kind"] == k) for k in KINDS}
         print(f"План: {len(frames)} кадров {kinds}, с героем {sum(f['mascot'] for f in frames)}, "

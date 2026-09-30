@@ -49,15 +49,21 @@ def test_rejected_frame_is_not_shown(tmp_path):
     assert kept == [0, 2] and absorbed == [{"index": 1, "reason": "rejected"}]
 
 
-def test_film_look_is_off_by_default_and_restorable(monkeypatch):
-    import render_core as rc
-    monkeypatch.delenv("FILM_LOOK", raising=False)
-    assert rc.film_look(123, "HOOK") == "null"
-    monkeypatch.setenv("FILM_LOOK", "1")
-    assert rc.film_look(123, "HOOK") == rc._film_look_documentary(123, "HOOK")
 
 
-def test_frame_narrower_than_16x9_is_fitted_whole():
-    import render_core as rc
-    assert rc.needs_aspect_backdrop(1536, 1024)       # 3:2 от платной модели — целиком на подложку
-    assert not rc.needs_aspect_backdrop(1664, 928)    # 16:9 — прежний путь
+
+
+def test_frame_is_fitted_whole_not_cropped(tmp_path):
+    # подпись у самого края кадра 3:2 должна остаться на холсте 16:9
+    from PIL import Image
+    sys.path.insert(0, os.path.join(ROOT, "scripts"))
+    import assemble_frames as af
+    src = Image.new("RGB", (1536, 1024), "white")
+    for x in range(1536):
+        src.putpixel((x, 3), (255, 0, 0))          # красная полоса у верхнего края
+    src.save(tmp_path / "f.png")
+    af.fit_canvas(str(tmp_path / "f.png"), str(tmp_path / "c.png"))
+    c = Image.open(tmp_path / "c.png").convert("RGB")
+    assert c.size == (1920, 1080)
+    reds = [y for y in range(1080) if c.getpixel((960, y))[0] > 200 and c.getpixel((960, y))[1] < 80]
+    assert reds, "верхний край кадра обрезан"

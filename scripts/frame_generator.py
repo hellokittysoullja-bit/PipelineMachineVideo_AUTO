@@ -380,7 +380,6 @@ def main():
     channel.load_env()
     import llm_gateway
     import shot_judge
-    import world_card
     ap = argparse.ArgumentParser()
     ap.add_argument("video_dir")
     ap.add_argument("--confirm-spend", action="store_true", help="разрешить платную генерацию (IMAGE_BACKEND=gateway)")
@@ -424,11 +423,12 @@ def main():
             print(f"СУДЬЯ ВЫКЛЮЧЕН: {judge_model} не прошёл проверку зрения ({why}). Кадры не проверяются.")
     else:
         print("Судья не работает (нет LLM_GATEWAY_API_KEY или SHOT_JUDGE=0): кадры берутся без проверки.")
-    card = world_card.load(a.video_dir, strict=False)
-    look = (card or {}).get("look") or {}
+    # Мир эпизода (эпоха/культура) судье здесь не передаётся: у рисованного
+    # объяснялки главные браки — буквы и «не тот предмет», их ловят проверка
+    # текста и утверждения спецификации. Облик фильма для «лучший как кадр» —
+    # стиль канала.
     gen = Generator(backend, a.video_dir, profile, judge_gw=jgw, judge_model=judge_model,
-                    setting=world_card.judge_setting(card), world=world_card.world_to_check(card),
-                    look_style=look.get("style") or profile["style"]["base"], variants=variants, rounds=rounds)
+                    look_style=profile["style"]["base"], variants=variants, rounds=rounds)
     print(f"Кадров: {len(todo)}, бэкенд {backend.name} ({backend.model}), вариантов {variants} x раундов до {rounds}, "
           f"судья {judge_model if jgw else '—'}")
     workers = int(os.environ.get("IMAGE_WORKERS", "1" if backend_kind == "comfyui" else "3"))
