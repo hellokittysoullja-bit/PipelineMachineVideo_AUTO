@@ -482,7 +482,11 @@ def _two_gpu_api(monkeypatch):
     monkeypatch.setattr(rj.Runner, "wait_ready", lambda self, *a, **k: True)
     # Под поддельный: забор кэшей после задачи (persist) не должен ходить в сеть.
     api.fetched = []
-    monkeypatch.setattr(rj.Runner, "fetch", lambda self, path, dest: api.fetched.append(path))
+
+    def download(self, path):
+        api.fetched.append(path)
+        raise urllib.error.HTTPError("u", 400, "нет такого", {}, io.BytesIO(b'{"error": "x"}'))
+    monkeypatch.setattr(rj.Runner, "download", download)
     return api
 
 
@@ -772,18 +776,53 @@ def test_persist_is_on_by_default_and_can_be_switched_off(monkeypatch):
     assert seen == [True, False]
 
 
-def test_unreachable_pod_stops_the_cache_fetches_at_the_first_failure(capsys):
+def _tgz(files):
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        for name, body in files.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(body)
+            tar.addfile(info, io.BytesIO(body))
+    return buf.getvalue()
+
+
+class _PodCalls:
+    def __init__(self, answers):
+        self.answers, self.calls = answers, []
+
+    def download(self, name):
+        self.calls.append(name)
+        a = self.answers[name]
+        if isinstance(a, Exception):
+            raise a
+        return a
+
+
+def test_unreachable_pod_stops_the_cache_fetches_at_the_first_failure(tmp_path, capsys):
     """Под недоступен — каждый следующий кэш ждал бы полный срок повторов,
     а под оплачивается. Ответ «нет такого пути» — не сбой, забор идёт дальше."""
-    calls = []
-
-    class R:
-        def fetch(self, path, dest):
-            calls.append(path)
-            if path == "missing":
-                raise urllib.error.HTTPError("u", 400, "нет", {}, io.BytesIO(b'{"error": "x"}'))
-            if path == "down":
-                raise RuntimeError("исполнитель недоступен 240 с")
-    got = rj._fetch_persist(R(), [("a", "d"), ("missing", "d"), ("b", "d"), ("down", "d"), ("c", "d")])
-    assert got == 2 and calls == ["a", "missing", "b", "down"]
+    r = _PodCalls({
+        "a": _tgz({"a/x": b"1"}),
+        "missing": urllib.error.HTTPError("u", 400, "нет", {}, io.BytesIO(b'{"error": "x"}')),
+        "b": _tgz({"b/x": b"2"}),
+        "down": RuntimeError("исполнитель недоступен 240 с"),
+        "c": _tgz({"c/x": b"3"}),
+    })
+    d = str(tmp_path)
+    got = rj._fetch_persist(r, [(n, d) for n in ("a", "missing", "b", "down", "c")])
+    assert got == 2 and r.calls == ["a", "missing", "b", "down"]
+    assert (tmp_path / "b" / "x").read_bytes() == b"2"
     assert "под недоступен" in capsys.readouterr().out
+
+
+def test_cache_that_does_not_fit_on_disk_is_not_extracted(tmp_path, monkeypatch, capsys):
+    """Распаковка, оборванная нехваткой места, оставила бы усечённые файлы
+    кэша: место проверяется по заголовкам архива ДО распаковки."""
+    r = _PodCalls({"big": _tgz({"big/x": b"z" * 5000}), "small": _tgz({"small/x": b"1"})})
+    monkeypatch.setattr(rj, "PERSIST_DISK_RESERVE", 0)
+    free = rj.shutil.disk_usage(str(tmp_path)).free
+    monkeypatch.setattr(rj.shutil, "disk_usage", lambda p: type("U", (), {"free": 1000})())
+    got = rj._fetch_persist(r, [("big", str(tmp_path)), ("small", str(tmp_path))])
+    assert got == 1 and not (tmp_path / "big").exists() and (tmp_path / "small" / "x").exists()
+    assert "не распакован" in capsys.readouterr().out
+    assert free > 0

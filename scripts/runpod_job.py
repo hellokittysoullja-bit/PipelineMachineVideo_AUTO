@@ -43,6 +43,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import signal
 import sys
 import tarfile
@@ -88,6 +89,8 @@ PERSIST_ROOT_CACHES = ("temp_cascade_embed_cache", "temp_rerank_cache", "temp_ae
 # (pexels_cache, pexels_video_cache) и клипы не едут: это сотни мегабайт, и
 # кадр на поде всё равно скачивается и проверяется заново.
 PERSIST_TEMP_SMART = ("search_cache", "shot_judge_cache", "caption_screen_cache", "generated")
+# Свободное место, которое распаковка кэшей не трогает никогда.
+PERSIST_DISK_RESERVE = 512 * 2**20
 PERSIST_MEDIA_PLAN = ("query_resolution_cache", "shot_director_cache", "stock_query_cache",
                       "stock_queries.json", "world_card.json", "research_queries.json")
 
@@ -699,8 +702,12 @@ class Runner:
                 return st["exit"]
             time.sleep(3 if st["text"] else 10)
 
+    def download(self, path):
+        """tar.gz пути из /work (байты)."""
+        return self.call("GET", f"/download?path={path}", timeout=600, raw=True)
+
     def fetch(self, path, dest):
-        data = self.call("GET", f"/download?path={path}", timeout=600, raw=True)
+        data = self.download(path)
         with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
             tar.extractall(dest)
 
@@ -1118,13 +1125,29 @@ def _fetch_persist(r, items):
     got = 0
     for path, dest in items:
         try:
-            r.fetch(path, dest)
-            got += 1
+            data = r.download(path)
         except urllib.error.HTTPError:
             continue
         except Exception as e:  # noqa: BLE001
             print(f"  кэши не забраны: под недоступен ({e})")
             break
+        # Место проверяется ДО распаковки: оборванная на полпути распаковка
+        # оставила бы в кэше усечённые файлы. Размер после распаковки —
+        # сумма размеров из заголовков архива, не догадка.
+        try:
+            with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
+                need = sum(m.size for m in tar.getmembers())
+                os.makedirs(dest, exist_ok=True)
+                free = shutil.disk_usage(dest).free
+                if need + PERSIST_DISK_RESERVE > free:
+                    print(f"  кэш {path} не распакован: нужно {need / 2**20:.0f} МБ, "
+                          f"свободно {free / 2**20:.0f} МБ (запас {PERSIST_DISK_RESERVE / 2**20:.0f} МБ)")
+                    continue
+                tar.extractall(dest)
+            got += 1
+        except (tarfile.TarError, OSError) as e:
+            print(f"  кэш {path} не распакован ({e})")
+            continue
     return got
 
 
