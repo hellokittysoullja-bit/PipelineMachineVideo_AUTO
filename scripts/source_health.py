@@ -69,7 +69,30 @@ class Host:
         return max(0.0, self.cooldown_until - time.monotonic())
 
     def wait(self, interval=None):
+        """Дождаться своего слота: запросы к хосту не чаще, чем раз в interval.
+
+        Настоящий цикл идёт раньше фона (прогон 30.09 на L40): упреждение
+        ставило в очередь Викимедии (раз в 0.35 с) сотни превью будущих
+        слотов, и полные кадры текущего слота ждали за ними минутами — больше
+        80% замеров потоков стояли здесь. Раньше слот резервировался сразу по
+        порядку прихода, и фон занимал будущие слоты на минуты вперёд. Теперь
+        настоящий цикл резервирует как раньше, а фоновый запрос берёт слот,
+        только когда хост свободен прямо сейчас: очереди впереди настоящего
+        цикла фон не строит, и тот ждёт не больше одного фонового запроса.
+        Частота запросов к хосту та же, меняется только очерёдность."""
         iv = self.interval if interval is None else float(interval)
+        if BACKGROUND.get():
+            while True:
+                with self._lock:
+                    now = time.monotonic()
+                    if self.next_slot <= now:
+                        self.next_slot = now + iv
+                        self.stats["requests"] += 1
+                        return
+                    delay = self.next_slot - now
+                time.sleep(delay)
+                if time.monotonic() <= now:
+                    break      # часы стоят (подменены): очередь по-старому
         with self._lock:
             now = time.monotonic()
             slot = max(now, self.next_slot)
