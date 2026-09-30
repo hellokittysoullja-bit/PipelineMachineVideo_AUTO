@@ -927,6 +927,15 @@ def nothing_met(spec, answers):
     return all(vals[c["id"]] == 0 for c in spec["claims"] if c["tier"] == "must")
 
 
+def musts_unmet(spec, answers):
+    """Ни одно обязательное утверждение не выполнено — БЕЗ поблажки за ответ
+    «предмет виден» (в отличие от nothing_met, которая по замыслу оставляет
+    такой кадр заменой). Нужна, чтобы отличить замену, на которой нет ничего
+    из фразы, — судья называет «предметом» и человека в костюме у стены."""
+    vals = claim_values(spec, answers)
+    return all(vals[c["id"]] == 0 for c in spec["claims"] if c["tier"] == "must")
+
+
 def shows_nothing(spec, answers, grid=None):
     """Проверка по пунктам считает кадр браком: не выполнено ничего
     обязательного (nothing_met), либо сетка того же судьи поставила 0

@@ -6758,12 +6758,6 @@ def research_trigger(att):
     кулаке) шла на экран без второй попытки."""
     if att is None or known_bad_reason(att.verdicts):
         return "failed"
-    if att.notes.get("focus_met") is False and att.notes.get("musts_none"):
-        # Замены в смысле «годный кадр про эту фразу» нет: не выполнено ни
-        # одно обязательное утверждение, держится на слове «предмет виден».
-        # Это «кадра нет» — сразу генерация, а не принятая замена. Кадр
-        # остаётся запасным: research_takes_over берёт любой годный.
-        return "failed"
     if att.notes.get("focus_met") is False:
         return "weak"
     if att.notes.get("world_doubt"):
@@ -6853,7 +6847,7 @@ def _generation_gateway():
     return _GENERATION_GATEWAY[0]
 
 
-def ladder_steps(trigger):
+def ladder_steps(trigger, att=None):
     """Порядок двух последних ступеней слота. Кадра нет совсем — сразу
     генерация (секунды), второй круг поиска (минуты) — запасным. Есть
     замена без главного — сначала второй круг: настоящий кадр ценнее
@@ -6861,6 +6855,14 @@ def ladder_steps(trigger):
     if trigger == "failed":
         return ("generation", "research")
     if trigger == "weak":
+        if att is not None and att.notes.get("musts_none"):
+            # Замена, у которой не выполнено НИ ОДНО обязательное утверждение
+            # (держится на слове судьи «предмет виден»; эп.03 слот 0 —
+            # человек в костюме у стены на фразу «лежишь в грязи»). Это не
+            # «близкая замена». Генерация, но кадр вытесняет её только если
+            # СТРОГО лучше по проверке (research_takes_over для "weak"):
+            # настоящий стоящий рыцарь рисунку без пользы не уступит.
+            return ("generation",)
         return WEAK_REPLACEMENT_LADDER
     return ()
 
@@ -12837,7 +12839,7 @@ def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=
             # экране только потому, что судья сказал «предмет виден» (30.09,
             # эп.03 слот 0: человек в костюме упирается в стену на фразу
             # «лежишь в грязи на поле боя»).
-            c["verify_musts_none"] = shot_judge.nothing_met(spec, ans)
+            c["verify_musts_none"] = shot_judge.musts_unmet(spec, ans)
             if grid_vetoed(c):
                 # Сетка того же судьи сказала «не по теме» (0), а проверка по
                 # пунктам — «да»: ответы противоречат, и верить нельзя
@@ -17992,7 +17994,7 @@ def main():
             cur_att = attempt_of(slot_attempts, photo or video)
             trigger = (research_trigger(cur_att) if shot_judge_active(i) and not locked_shot
                        else None)
-            ladder = ladder_steps(trigger)
+            ladder = ladder_steps(trigger, cur_att)
             for step in ladder:
                 cur_att = attempt_of(slot_attempts, photo or video)
                 trigger = research_trigger(cur_att)
