@@ -18225,6 +18225,16 @@ REQUIRED_FFMPEG_FILTERS = {
 _FFMPEG_FILTERS_CACHE = None
 
 
+def parse_ffmpeg_filters(text):
+    """Имена фильтров из вывода `ffmpeg -filters`. Колонка флагов бывает из
+    трёх символов (ffmpeg до 7: « T.C scale») и из двух (сборка BtbN master
+    2026: « TS aap»); за именем всегда идёт сигнатура входов-выходов
+    («V->V»), по ней и отличаем строку фильтра от легенды. Прежний разбор
+    ждал ровно три символа и на новом ffmpeg узнавал 1 фильтр из 572 —
+    ложное «нет zoompan/xfade/scale…» на поде 30.09."""
+    return set(re.findall(r'^\s*[A-Z.]{2,3}\s+(\S+)\s+[AVN|]+->[AVN|]+', text, re.M))
+
+
 def available_ffmpeg_filters():
     """Множество имён фильтров у ТОГО ffmpeg, который реально будет вызван."""
     global _FFMPEG_FILTERS_CACHE
@@ -18234,7 +18244,7 @@ def available_ffmpeg_filters():
         out = subprocess.run(["ffmpeg", "-hide_banner", "-filters"],
                              capture_output=True, text=True, encoding="utf-8",
                              errors="replace", timeout=30).stdout
-        _FFMPEG_FILTERS_CACHE = set(re.findall(r'^\s*[A-Z.]{3}\s+(\S+)', out, re.M))
+        _FFMPEG_FILTERS_CACHE = parse_ffmpeg_filters(out)
     except Exception:
         _FFMPEG_FILTERS_CACHE = set()   # не смогли спросить — не гейтим
     return _FFMPEG_FILTERS_CACHE
