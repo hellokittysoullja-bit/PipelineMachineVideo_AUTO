@@ -314,3 +314,48 @@ def test_main_lists_cards_with_rental_constraints(monkeypatch):
     import inspect
     src = inspect.getsource(rj.main) + inspect.getsource(rj.create_when_in_stock)
     assert src.count("plan(") == src.count("image=a.image, disk_gb=a.disk_gb)")
+
+
+def test_listing_sees_hosts_on_drivers_newer_than_rest_enum(monkeypatch):
+    """30.09: RTX 6000 Ada на secure стояла только на драйвере 13.2 — фильтр
+    до 13.0 прятал её и в списке, и при аренде."""
+    lp = rj.price_filter(False, rj.DEFAULT_IMAGE, 80)
+    assert '"13.2"' in lp and '"12.8"' in lp and '"12.7"' not in lp
+
+
+def _no_stock_rest(bodies):
+    def rest(method, path, key, body=None):
+        bodies.append(dict(body))
+        if "allowedCudaVersions" in body:
+            raise RuntimeError('HTTP 500: {"error":"create pod: There are no instances currently available"}')
+        return {"id": "pod1"}
+    return rest
+
+
+def test_rental_retries_without_cuda_filter_when_only_newer_drivers_exist(monkeypatch):
+    bodies = []
+    monkeypatch.setattr(rj, "rest", _no_stock_rest(bodies))
+    seen = []
+    monkeypatch.setattr(rj, "gql", lambda q, key, v=None: seen.append(q) or
+                        {"gpuTypes": [{"id": "G", "lowestPrice": {"uninterruptablePrice": 0.84}}]})
+    pod = rj.create_pod("k", ["G"], rj.DEFAULT_IMAGE, 80, rj.runner_env("t", 10, 4, {}), "SECURE")
+    assert pod["id"] == "pod1"
+    assert bodies[0]["allowedCudaVersions"][0] == "12.8" and "allowedCudaVersions" not in bodies[1]
+    assert '"13.2"' in seen[0] and "secureCloud:true" in seen[0]
+
+
+def test_filter_stays_when_newer_drivers_are_not_confirmed(monkeypatch):
+    bodies = []
+    monkeypatch.setattr(rj, "rest", _no_stock_rest(bodies))
+    monkeypatch.setattr(rj, "gql", lambda q, key, v=None:
+                        {"gpuTypes": [{"id": "G", "lowestPrice": None}]})
+    with pytest.raises(rj.NoStock):
+        rj.create_pod("k", ["G"], rj.DEFAULT_IMAGE, 80, rj.runner_env("t", 10, 4, {}), "SECURE")
+    assert len(bodies) == 1, "без подтверждения хостов на новом драйвере фильтр не снимается"
+
+    def broken(q, key, v=None):
+        raise RuntimeError("сеть")
+    monkeypatch.setattr(rj, "gql", broken)
+    with pytest.raises(rj.NoStock):
+        rj.create_pod("k", ["G"], rj.DEFAULT_IMAGE, 80, rj.runner_env("t", 10, 4, {}), "SECURE")
+    assert len(bodies) == 2

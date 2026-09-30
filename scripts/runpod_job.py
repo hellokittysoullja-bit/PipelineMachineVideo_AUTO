@@ -138,7 +138,7 @@ def price_filter(community, image=None, disk_gb=None):
     parts = ["gpuCount:1", "secureCloud:%s" % ("false" if community else "true")]
     cuda = allowed_cuda(image or DEFAULT_IMAGE)
     if cuda:
-        parts.append("allowedCudaVersions:" + json.dumps(cuda))
+        parts.append("allowedCudaVersions:" + json.dumps(cuda + list(NEWER_CUDA_VERSIONS)))
     if disk_gb:
         parts.append("minDisk:%d" % int(disk_gb))
     return "lowestPrice(input:{%s})" % ", ".join(parts)
@@ -220,6 +220,11 @@ REST = "https://rest.runpod.io/v1"
 # Версии CUDA, которые принимает фильтр хостов REST API (allowedCudaVersions).
 CUDA_VERSIONS = ("11.8", "12.0", "12.1", "12.2", "12.3", "12.4", "12.5", "12.6", "12.7", "12.8",
                  "12.9", "13.0")
+# Драйверы новее 13.0: GraphQL-список цен их принимает, а фильтр REST при
+# создании пода — нет (перечень в openapi.json кончается на 13.0, проверено
+# 30.09). Хосты RTX 6000 Ada на secure стояли ровно на 13.2: с нашим
+# фильтром их не было видно в списке и нельзя было взять при аренде.
+NEWER_CUDA_VERSIONS = ("13.1", "13.2")
 # Проверка видеокарты на поде ДО загрузки данных: драйвер виден, torch видит
 # карту и реально на ней считает. Хост, где карта не работает, стоит денег
 # и не даёт ничего — его надо заменить сразу, а не после загрузки 500 МБ.
@@ -373,7 +378,22 @@ def create_pod(key, gpus, image, disk_gb, env, cloud, cpu=False, life_sec=None):
             if cloud == "COMMUNITY":
                 body["supportPublicIp"] = False
         try:
-            pod = rest("POST", "/pods", key, body)
+            try:
+                pod = rest("POST", "/pods", key, body)
+            except (RuntimeError, OSError) as e:
+                # Машин с фильтром нет, но есть на драйвере новее перечня REST
+                # (13.1+, см. NEWER_CUDA_VERSIONS): такой драйвер образ тянет.
+                # Под создаётся без фильтра; если Runpod всё же посадит его на
+                # старый драйвер, проверка карты до загрузки данных
+                # (gpu_preflight: torch видит карту и считает на ней) удалит
+                # под и возьмёт следующий хост.
+                if (not cpu and "allowedCudaVersions" in body and _is_plain_no_stock(e)
+                        and only_newer_driver_hosts(key, gpu, cloud)):
+                    print(f"  {gpu}: машин с драйвером до 13.0 нет, есть новее — беру без фильтра CUDA")
+                    body = {k: v for k, v in body.items() if k != "allowedCudaVersions"}
+                    pod = rest("POST", "/pods", key, body)
+                else:
+                    raise
             if pod and pod.get("id"):
                 pod.setdefault("gpuName", "CPU" if cpu else gpu)
                 pod["gpuTypeId"] = gpu
@@ -397,6 +417,20 @@ def create_pod(key, gpus, image, disk_gb, env, cloud, cpu=False, life_sec=None):
                     return adopted
             print(f"  {gpu or 'CPU'}: нет — {e}")
     raise NoStock(f"ни одной машины из списка нет в наличии ({last})")
+
+
+def only_newer_driver_hosts(key, gpu, cloud):
+    """Есть ли у карты хосты на драйвере новее перечня REST (13.1+). Сбой
+    запроса — нет: без подтверждения фильтр не снимается."""
+    lp = "lowestPrice(input:{gpuCount:1, secureCloud:%s, allowedCudaVersions:%s})" % (
+        "false" if cloud == "COMMUNITY" else "true", json.dumps(list(NEWER_CUDA_VERSIONS)))
+    try:
+        info = gql('query($ids:[String!]){ gpuTypes(input:{ids:$ids}){ id ' + lp
+                   + '{ uninterruptablePrice } } }', key, {"ids": [gpu]})
+        return any((g.get("lowestPrice") or {}).get("uninterruptablePrice") is not None
+                   for g in info.get("gpuTypes") or [])
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _is_plain_no_stock(e):
