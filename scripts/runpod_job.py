@@ -946,6 +946,23 @@ def _send(r, item):
         r.upload_dir(item)
 
 
+def with_cpu_budget(cmd, pod):
+    """Число vCPU пода — команде: контейнер показывает ядра ХОЗЯИНА (A40 30.09:
+    у пода 9, процесс видел 96 и поднял 95 воркеров рендера), а квоту cgroup
+    и RUNPOD_CPU_COUNT платформа может не выставить. Число известно из ответа
+    Runpod о созданном поде; export, а не префикс `VAR=x cmd`, потому что
+    команда — цепочка через && и префикс достался бы только первому звену.
+    Явный CPU_BUDGET в команде не перезаписывается."""
+    n = (pod or {}).get("vcpuCount")
+    try:
+        n = int(n)
+    except (TypeError, ValueError):
+        return cmd
+    if n < 1 or "CPU_BUDGET" in cmd:
+        return cmd
+    return f"export CPU_BUDGET={n}; {cmd}"
+
+
 def drive(key, pod, token, cap_sec, uploads, cmd, fetches, dest, prepare=None, preflight=None, watch=()):
     """Под создан: дождаться исполнителя, загрузить, запустить, забрать,
     и удалить под в ЛЮБОМ исходе. prepare — идёт на поде параллельно с
@@ -953,6 +970,7 @@ def drive(key, pod, token, cap_sec, uploads, cmd, fetches, dest, prepare=None, p
     preflight — проверка видеокарты до загрузки: не прошла — BadHost (под
     удалён, вызывающий берёт другой хост). Потраченное — pod["spent_usd"]."""
     pod_id, t0, code = pod["id"], time.time(), 1
+    cmd = with_cpu_budget(cmd, pod)
 
     def stage(name):
         # Время каждого этапа от создания пода: куда уходят оплачиваемые секунды.

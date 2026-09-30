@@ -30,6 +30,12 @@ import urllib.parse
 import urllib.request
 import urllib.error
 
+# Ядра и память, ВЫДАННЫЕ прогону (а не хозяина контейнера): пулы потоков
+# OpenMP/BLAS читают своё число при импорте numpy, поэтому переменные
+# выставляются здесь, до него. Ядра видны честно — ничего не меняется.
+import cpu_budget
+cpu_budget.apply_thread_env()
+
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -128,16 +134,14 @@ def _default_render_workers():
     а защита от самого частого правдоподобного сценария (мало RAM + много
     ядер в облачном контейнере). Сбой определения ресурсов -> тихий откат
     на прежний чисто CPU-based расчёт, ноль регресса."""
-    cpu_based = max(1, (os.cpu_count() or 4) - 1)
-    try:
-        with open("/proc/meminfo", encoding="utf-8") as f:
-            for line in f:
-                if line.startswith("MemAvailable:"):
-                    avail_mb = int(line.split()[1]) / 1024
-                    mem_based = max(1, int(avail_mb // 700))
-                    return max(1, min(cpu_based, mem_based))
-    except Exception:
-        pass
+    # Ядра и память — ВЫДАННЫЕ прогону (cgroup, RUNPOD_CPU_COUNT), а не хозяина:
+    # на поде с 9 vCPU процесс видел 96 ядер и поднимал 95 воркеров рендера
+    # (см. scripts/cpu_budget.py). Вне контейнера числа те же, что были.
+    cpu_based = max(1, cpu_budget.cores() - 1)
+    avail_mb = cpu_budget.mem_available_mb()
+    if avail_mb is not None:
+        mem_based = max(1, int(avail_mb // 700))
+        return max(1, min(cpu_based, mem_based))
     return cpu_based
 
 
@@ -148,7 +152,7 @@ def _render_workers_from_env():
         n = int(os.environ.get("RENDER_WORKERS", "") or _default_render_workers())
     except ValueError:
         n = _default_render_workers()
-    return max(1, min(n, max(1, os.cpu_count() or 4)))
+    return max(1, min(n, max(1, cpu_budget.cores())))
 
 
 RENDER_POOL_WORKERS = _render_workers_from_env()
@@ -12001,7 +12005,7 @@ def kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, stat=None,
         # parallax_kenburns(), путь просто приведён к одному виду.
         cmd += ["-frames:v", str(frames)] + clip_codec_args() + ["-r", str(FPS)] + COLOR_META_ARGS
         if ffmpeg_threads:
-            cmd += ["-threads", str(ffmpeg_threads)]
+            cmd += cpu_budget.ffmpeg_thread_args(ffmpeg_threads)
         cmd += [tmp_out]
         return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=render_timeout_sec(dur))
 
@@ -12978,6 +12982,15 @@ def print_compute_devices():
           f"{qwen_vl_rerank.MODEL_NAME}"
           + (f" (реранкер на {rr_dev}, вторая карта)" if rr_dev not in ("cuda:0", dev) else "")
           + f"; кодер клипов: {clip_encoder()}")
+    granted, host = cpu_budget.cores(), os.cpu_count() or 1
+    mem = cpu_budget.mem_available_mb()
+    print(f"  Ядра: выдано {granted}" + (f" (хозяин показывает {host} — берётся выданное)"
+                                        if granted < host else "")
+          + (f"; свободно памяти {mem / 1024:.0f} ГиБ" if mem is not None else "")
+          + f"; воркеров рендера {RENDER_POOL_WORKERS}")
+    if granted >= 32 and os.environ.get("RUNPOD_POD_ID") and not os.environ.get("RUNPOD_CPU_COUNT"):
+        print("  ВНИМАНИЕ: на поде видно много ядер, а квота и RUNPOD_CPU_COUNT не заданы — "
+              "если пода меньше, задайте CPU_BUDGET=<число vCPU> (--env CPU_BUDGET=9)")
 
 
 def cascade_batch():
@@ -15662,7 +15675,8 @@ def parallax_kenburns(photo, out, dur, title=None, zoom_in=None, pan_dir=None, s
             cmd += ["-vf", vf]
         tmp_out = render_tmp_path(out)
         enc_stack.enter_context(clip_encoder_session())
-        cmd += ["-frames:v", str(frames)] + clip_codec_args() + ["-r", str(FPS)] + COLOR_META_ARGS + [tmp_out]
+        cmd += ["-frames:v", str(frames)] + clip_codec_args() + ["-r", str(FPS)] + COLOR_META_ARGS
+        cmd += parallax_thread_args() + [tmp_out]
         # РЕАЛЬНЫЙ баг, пойманный на реальном продакшн-рендере (не гипотеза):
         # stderr=subprocess.PIPE здесь НИКОГДА не вычитывался, пока родитель
         # покадрово пишет сырое видео в stdin ниже — классический subprocess
@@ -16022,7 +16036,7 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
                     "-map", "[vout]", "-frames:v", str(frames), "-an"] + clip_codec_args() + [
                     "-r", str(FPS)] + COLOR_META_ARGS
             if ffmpeg_threads:
-                cmd += ["-threads", str(ffmpeg_threads)]
+                cmd += cpu_budget.ffmpeg_thread_args(ffmpeg_threads)
             cmd += [tmp_out]
             return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
                                   errors="replace", timeout=render_timeout_sec(dur))
@@ -16058,7 +16072,7 @@ def video_render(vid, out, dur, title=None, stat=None, section="", stat_variant=
             cmd += ["-vf", vf]
         cmd += ["-frames:v", str(frames), "-an"] + clip_codec_args() + ["-r", str(FPS)] + COLOR_META_ARGS
         if ffmpeg_threads:
-            cmd += ["-threads", str(ffmpeg_threads)]
+            cmd += cpu_budget.ffmpeg_thread_args(ffmpeg_threads)
         cmd += [tmp_out]
         return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=render_timeout_sec(dur))
 
@@ -16916,16 +16930,11 @@ def final_chunk_workers(n_chunks):
     raw = (os.environ.get("FINAL_CHUNK_WORKERS") or "").strip()
     if raw.isdigit() and int(raw) > 0:
         return min(n_chunks, int(raw))
-    by_cpu = max(1, (os.cpu_count() or 4) // FINAL_CHUNK_CORES_PER_WORKER)
+    by_cpu = max(1, cpu_budget.cores() // FINAL_CHUNK_CORES_PER_WORKER)
     by_mem = by_cpu
-    try:
-        with open("/proc/meminfo", encoding="utf-8") as f:
-            for line in f:
-                if line.startswith("MemAvailable:"):
-                    by_mem = max(1, int(int(line.split()[1]) / 1024 // FINAL_CHUNK_MEM_MB))
-                    break
-    except OSError:
-        pass
+    avail_mb = cpu_budget.mem_available_mb()
+    if avail_mb is not None:
+        by_mem = max(1, int(avail_mb // FINAL_CHUNK_MEM_MB))
     return max(1, min(n_chunks, by_cpu, by_mem))
 
 
@@ -18019,8 +18028,23 @@ def parallax_workers():
     raw = (os.environ.get("PARALLAX_WORKERS") or "").strip()
     if raw.isdigit() and int(raw) > 0:
         return min(16, int(raw))
-    cores = os.cpu_count() or 1
+    cores = cpu_budget.cores()
     return 1 if cores < 8 else min(4, cores // 4)
+
+
+def parallax_thread_args():
+    """Потоки ffmpeg параллакса. Кадры для него считает numpy в потоке главного
+    процесса, а сам ffmpeg шёл без ограничений — x264 и фильтры брали по потоку
+    на КАЖДОЕ ядро хозяина и, работая с обычным приоритетом главного процесса,
+    вытесняли отбор (A40 30.09: 96 потоков на 9 vCPU, три параллакса разом).
+    Ограничение ставится, только если ядер выдано меньше, чем видит процесс,
+    или явно задано PARALLAX_FFMPEG_THREADS; иначе — как было."""
+    raw = (os.environ.get("PARALLAX_FFMPEG_THREADS") or "").strip()
+    if raw.isdigit() and int(raw) > 0:
+        return cpu_budget.ffmpeg_thread_args(int(raw))
+    if not cpu_budget.restricted():
+        return []
+    return cpu_budget.ffmpeg_thread_args(max(1, cpu_budget.cores() // (2 * parallax_workers())))
 
 
 def render_highlight_clip(render_pool, i, photo, out, d, motion_mode, stage, kw):
