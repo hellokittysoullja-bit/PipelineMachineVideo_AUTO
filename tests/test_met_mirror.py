@@ -51,3 +51,38 @@ def test_refresh_renews_unchanged_and_refetches_changed(monkeypatch, tmp_path):
     assert [u for u in calls if u.endswith("/objects/2")], "изменённая карточка перекачана"
     assert not [u for u in calls if u.endswith("/objects/1")], "неизменённая — без запроса"
     assert ms._met_card_fresh(1) and ms._met_card_fresh(3)
+
+
+def test_mirror_waits_out_the_pause_instead_of_losing_cards(monkeypatch, tmp_path):
+    """Живая сборка 30.09: после 403 Мет на паузе, и каждая карточка, пришедшая
+    на паузу, числилась потерянной — 27 797 из 31 164. Сборка ждёт паузу."""
+    monkeypatch.setattr(ms, "MUSEUM_CACHE_DIR", str(tmp_path))
+    ms._MET_CARD_CACHE.clear()
+    state = {"cooling": False, "hit": set()}
+
+    def get(url):
+        if "/search?" in url:
+            return {"objectIDs": [1, 2, 3]}
+        oid = int(url.rsplit("/", 1)[1])
+        if oid == 3:
+            return None                        # предмета нет: отказ без паузы
+        if oid not in state["hit"]:
+            state["hit"].add(oid)
+            state["cooling"] = True            # первый раз — 403 и пауза
+            return None
+        return {"objectID": oid}
+    left = []
+
+    def cooldown_left():
+        if state["cooling"]:
+            state["cooling"] = False
+            left.append(1)
+            return 0.01
+        return 0.0
+    monkeypatch.setattr(ms, "_met_get", get)
+    monkeypatch.setattr(ms, "met_is_cooling_down", lambda: state["cooling"])
+    monkeypatch.setattr(ms.MET_HOST, "cooldown_left", cooldown_left)
+    monkeypatch.setattr(ms, "MET_DETAIL_WORKERS", 1)
+    st = ms.mirror_met_cards(900, 1600)
+    assert st["fetched"] == 2 and st["lost"] == 1, st
+    assert left, "пауза пережидалась"

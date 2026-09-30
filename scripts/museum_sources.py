@@ -873,6 +873,9 @@ def _met_card_fresh(oid):
         return False
 
 
+MIRROR_COOLDOWN_TRIES = 5
+
+
 def mirror_met_cards(date_begin, date_end, refresh=False, progress=print):
     """Собрать карточки всех предметов окна эпохи в кэш карточек.
 
@@ -904,11 +907,22 @@ def mirror_met_cards(date_begin, date_end, refresh=False, progress=print):
             todo.append(oid)
 
     def fetch(oid):
-        o = _met_get(f"{MET_API}/objects/{oid}")
-        if o is None:
-            return False
-        _met_card_store(oid, o)
-        return True
+        # Рендер на паузе источника карточку пропускает (слот не ждёт), а
+        # сборка зеркала — пережидает: иначе каждая карточка, пришедшая на
+        # паузу после 403, числилась потерянной (живая сборка 30.09: 27 797
+        # из 31 164). Потеря — только если Мет ответил отказом без паузы
+        # (предмета нет) или пауза повторилась MIRROR_COOLDOWN_TRIES раз.
+        for _ in range(MIRROR_COOLDOWN_TRIES):
+            left = MET_HOST.cooldown_left()
+            if left > 0:
+                time.sleep(left)
+            o = _met_get(f"{MET_API}/objects/{oid}")
+            if o is not None:
+                _met_card_store(oid, o)
+                return True
+            if not met_is_cooling_down():
+                return False
+        return False
     done = 0
     workers = max(1, min(MET_DETAIL_WORKERS, len(todo)))
     with ctx_pool.ContextThreadPoolExecutor(max_workers=workers) as ex:

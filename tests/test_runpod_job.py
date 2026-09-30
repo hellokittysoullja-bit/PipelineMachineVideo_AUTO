@@ -480,6 +480,9 @@ def _two_gpu_api(monkeypatch):
     monkeypatch.setattr(rj, "api_key", lambda: "k")
     monkeypatch.setattr(rj, "sweep_expired", lambda key, now=None: [])
     monkeypatch.setattr(rj.Runner, "wait_ready", lambda self, *a, **k: True)
+    # Под поддельный: забор кэшей после задачи (persist) не должен ходить в сеть.
+    api.fetched = []
+    monkeypatch.setattr(rj.Runner, "fetch", lambda self, path, dest: api.fetched.append(path))
     return api
 
 
@@ -505,6 +508,8 @@ def test_broken_gpu_host_is_replaced_before_any_upload(monkeypatch):
     assert created == ["bad", "good"]
     assert seen["uploads"] == ["good"], "данные не грузились на неисправный хост"
     assert not api.pods and sum(c[0].startswith("REST DELETE") for c in api.calls) == 2
+    # Кэши забираются только с хоста, где прошла задача, и по одному разу.
+    assert api.fetched and len(api.fetched) == len(set(api.fetched))
 
 
 def test_host_retries_share_one_money_cap(monkeypatch):
@@ -674,3 +679,111 @@ def test_no_stock_gives_up_after_the_wait_without_renting(monkeypatch):
     with pytest.raises(rj.NoStock):
         rj.main(["--cmd", "job", "--no-smoke", "--wait-stock-min", "1"])
     assert not api.pods
+
+
+# ---------- кэши между прогонами пода ----------
+
+def _episode_tree(root):
+    """Папка загрузки вне репозитория (как /home/user/stage98) с кодом и эпизодом."""
+    files = {
+        "scripts/pipeline_smart.py": "x",
+        "temp_cascade_embed_cache/a.npy": "e",
+        "temp_commons_cache/q.json": "c",
+        "temp_selection_freeze/big.bin": "f",
+        ".env": "SECRET",
+        "videos/98_ep/script.txt": "s",
+        "videos/98_ep/media_plan/world_card.json": "{}",
+        "videos/98_ep/temp_smart/search_cache/r.json": "r",
+        "videos/98_ep/temp_smart/shot_judge_cache/j.json": "j",
+        "videos/98_ep/temp_smart/pexels_cache/k.jpg": "img",
+        "videos/98_ep/temp_smart/clip_0000_x.mp4": "clip",
+        "videos/98_ep/temp_smart/generated/g.png": "g",
+    }
+    for rel, body in files.items():
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(body)
+
+
+def test_answer_caches_ride_along_and_frames_clips_secrets_do_not(tmp_path):
+    src = tmp_path / "stage98"
+    _episode_tree(src)
+    _label, blobs = rj.pack_dir(str(src))
+    names = set()
+    for b in blobs:
+        with tarfile.open(fileobj=io.BytesIO(b)) as tar:
+            names |= set(tar.getnames())
+    assert "stage98/temp_cascade_embed_cache/a.npy" in names
+    assert "stage98/videos/98_ep/temp_smart/search_cache/r.json" in names
+    assert "stage98/videos/98_ep/temp_smart/shot_judge_cache/j.json" in names
+    assert "stage98/videos/98_ep/temp_smart/generated/g.png" in names
+    assert "stage98/videos/98_ep/media_plan/world_card.json" in names
+    for gone in ("stage98/.env", "stage98/temp_selection_freeze/big.bin",
+                 "stage98/videos/98_ep/temp_smart/pexels_cache/k.jpg",
+                 "stage98/videos/98_ep/temp_smart/clip_0000_x.mp4"):
+        assert gone not in names, gone
+
+
+def test_persist_paths_land_back_where_the_upload_came_from(tmp_path):
+    src = tmp_path / "stage98"
+    _episode_tree(src)
+    got = rj.persist_fetches([str(src)])
+    assert all(dest == str(tmp_path) for _p, dest in got), "распаковка — в родителя папки загрузки"
+    paths = {p for p, _d in got}
+    assert "stage98/temp_cascade_embed_cache" in paths
+    assert "stage98/videos/98_ep/temp_smart/shot_judge_cache" in paths
+    assert "stage98/videos/98_ep/media_plan/world_card.json" in paths
+    assert not any("pexels_cache" in p or "temp_selection_freeze" in p for p in paths)
+
+
+def test_persist_of_the_repo_root_goes_back_into_the_repo():
+    got = rj.persist_fetches([rj.REPO])
+    assert got and all(dest == os.path.abspath(rj.REPO) for _p, dest in got)
+    assert "temp_cascade_embed_cache" in {p for p, _d in got}
+
+
+def test_missing_caches_do_not_change_the_exit_code_and_present_ones_come_back(runner, tmp_path,
+                                                                               monkeypatch):
+    r, _proc, work = runner
+    monkeypatch.setattr(rj, "terminate", lambda key, pid: True)
+    monkeypatch.setattr(rj.Runner, "wait_ready", lambda self, *a, **k: True)
+    base = r.base
+    monkeypatch.setattr(rj, "Runner", lambda url, token, watch=(): rj.__dict__["_RealRunner"](base, token))
+    monkeypatch.setattr(rj, "_RealRunner", type(r), raising=False)
+    dest = tmp_path / "back"
+    persist = [("stage/temp_cascade_embed_cache", str(dest)), ("stage/nope_cache", str(dest))]
+    code = rj.drive("k", {"id": "p", "costPerHr": 0.3}, TOKEN, 600, [],
+                    "mkdir -p stage/temp_cascade_embed_cache && echo 1 > stage/temp_cascade_embed_cache/a",
+                    [], str(tmp_path / "out"), persist=persist)
+    assert code == 0, "отсутствующий кэш — не ошибка прогона"
+    assert (dest / "stage" / "temp_cascade_embed_cache" / "a").read_text().strip() == "1"
+
+
+def test_persist_is_on_by_default_and_can_be_switched_off(monkeypatch):
+    seen = []
+    monkeypatch.setattr(rj, "api_key", lambda: "k")
+    monkeypatch.setattr(rj, "sweep_expired", lambda key: None)
+    api = FakeApi()
+    monkeypatch.setattr(rj, "gql", api)
+    monkeypatch.setattr(rj, "rest", api.rest)
+    monkeypatch.setattr(rj, "rent_and_drive", lambda key, a, *r, **k: seen.append(a.persist_caches) or 0)
+    assert rj.main(["--cmd", "true", "--no-smoke"]) == 0
+    assert rj.main(["--cmd", "true", "--no-smoke", "--no-persist-caches"]) == 0
+    assert seen == [True, False]
+
+
+def test_unreachable_pod_stops_the_cache_fetches_at_the_first_failure(capsys):
+    """Под недоступен — каждый следующий кэш ждал бы полный срок повторов,
+    а под оплачивается. Ответ «нет такого пути» — не сбой, забор идёт дальше."""
+    calls = []
+
+    class R:
+        def fetch(self, path, dest):
+            calls.append(path)
+            if path == "missing":
+                raise urllib.error.HTTPError("u", 400, "нет", {}, io.BytesIO(b'{"error": "x"}'))
+            if path == "down":
+                raise RuntimeError("исполнитель недоступен 240 с")
+    got = rj._fetch_persist(R(), [("a", "d"), ("missing", "d"), ("b", "d"), ("down", "d"), ("c", "d")])
+    assert got == 2 and calls == ["a", "missing", "b", "down"]
+    assert "под недоступен" in capsys.readouterr().out

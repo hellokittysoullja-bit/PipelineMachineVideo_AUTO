@@ -67,11 +67,29 @@ PORT = 8000
 # шлюза моделей.
 UA = "pipeline-runpod-job/1.0"
 CHUNK = 32 * 1024 * 1024
-# Что не едет в под: кэши, записи прогонов, веса, секреты — всё это либо
-# скачается там заново, либо не должно покидать машину.
+# Что не едет в под: записи прогонов, веса, секреты — всё это либо скачается
+# там заново, либо не должно покидать машину. temp_selection_freeze —
+# записи харнесса эквивалентности (гигабайты), прогону не нужны.
 EXCLUDE_DIRS = {".git", "__pycache__", ".venv", "venv", "temp_smart", "models", "node_modules",
-                ".pytest_cache", "temp_rerank_cache", "temp_cascade_embed_cache"}
+                ".pytest_cache", "temp_selection_freeze"}
 EXCLUDE_FILES = {".env"}
+# Кэши, которые ЕДУТ в под и возвращаются после прогона (--persist-caches).
+# Каждый из них отбор и так читает с диска между локальными прогонами, ключ —
+# содержимое (адрес превью и модель, байты картинки и текст вопроса, текст
+# запроса), а не время: взятый из кэша ответ тот же, что посчитался бы
+# заново. Эмбеддинги видеокарты лежат под своим ключом (ml_device.tag()),
+# поэтому числа процессора на поде не используются и выбор не меняют. Без
+# переноса каждый под заново платил судье и планировщику за уже заданные
+# вопросы и заново считал превью.
+PERSIST_ROOT_CACHES = ("temp_cascade_embed_cache", "temp_rerank_cache", "temp_aesthetic_cache",
+                       "temp_emb_cache", "temp_commons_cache", "temp_museum_cache",
+                       "temp_openverse_cache")
+# Внутри temp_smart эпизода — только кэши ответов; скачанные кадры
+# (pexels_cache, pexels_video_cache) и клипы не едут: это сотни мегабайт, и
+# кадр на поде всё равно скачивается и проверяется заново.
+PERSIST_TEMP_SMART = ("search_cache", "shot_judge_cache", "caption_screen_cache", "generated")
+PERSIST_MEDIA_PLAN = ("query_resolution_cache", "shot_director_cache", "stock_query_cache",
+                      "stock_queries.json", "world_card.json", "research_queries.json")
 
 
 def api_key():
@@ -422,6 +440,42 @@ def terminate(key, pod_id):
     return False
 
 
+def upload_arc(full):
+    """Путь папки загрузки внутри /work: относительно репозитория, папка вне
+    его — под своим именем, корень репозитория — сам /work (".")."""
+    rel = os.path.relpath(full, REPO)
+    return "." if rel == "." else (rel if not rel.startswith("..") else os.path.basename(full))
+
+
+def persist_fetches(uploads):
+    """Что забрать с пода после прогона, чтобы следующий под начал с тех же
+    кэшей: [(путь в /work, куда распаковать локально)]. Архив с пода несёт
+    путь от /work, поэтому распаковка идёт в папку, для которой папка
+    загрузки лежит на том же относительном пути. Кэши корня — только у
+    папки с кодом отбора; кэши эпизода — у каждого эпизода videos/*,
+    который есть в загрузке."""
+    out = []
+    for path in uploads:
+        full = os.path.abspath(path)
+        if not os.path.isdir(full):
+            continue
+        arc = upload_arc(full)
+        depth = 0 if arc == "." else len(arc.replace("\\", "/").split("/"))
+        dest = os.path.normpath(os.path.join(full, *([os.pardir] * depth))) if depth else full
+
+        def w(*parts):
+            return "/".join(p for p in (arc, *parts) if p and p != ".")
+        if os.path.isfile(os.path.join(full, "scripts", "pipeline_smart.py")):
+            out += [(w(c), dest) for c in PERSIST_ROOT_CACHES]
+        vids = os.path.join(full, "videos")
+        for ep in sorted(os.listdir(vids)) if os.path.isdir(vids) else ():
+            if not os.path.isdir(os.path.join(vids, ep)):
+                continue
+            out += [(w("videos", ep, "temp_smart", c), dest) for c in PERSIST_TEMP_SMART]
+            out += [(w("videos", ep, "media_plan", c), dest) for c in PERSIST_MEDIA_PLAN]
+    return out
+
+
 def pack_dir(path, streams=6):
     """Папка -> (подпись, [архивы tar]). Файлы делятся на streams архивов
     поровну по объёму. БЕЗ сжатия: основной груз — JPEG и веса, они не
@@ -430,11 +484,12 @@ def pack_dir(path, streams=6):
     оплачиваемого ожидания. Папка едет в /work по своему пути относительно
     репозитория (корень репозитория — в сам /work)."""
     full = os.path.abspath(path)
-    rel = os.path.relpath(full, REPO)
-    arc = "." if rel == "." else (rel if not rel.startswith("..") else os.path.basename(full))
+    arc = upload_arc(full)
     files = []
     for root, dirs, names in os.walk(full):
-        dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
+        here = [p for p in os.path.relpath(root, full).replace("\\", "/").split("/") if p not in ("", ".")]
+        # В temp_smart спускаемся: из неё едут кэши ответов (см. _excluded_dir).
+        dirs[:] = [d for d in dirs if d == "temp_smart" or not _excluded_dir(here + [d])]
         for n in names:
             fp = os.path.join(root, n)
             name = os.path.normpath(os.path.join(arc, os.path.relpath(fp, full)))
@@ -650,10 +705,26 @@ class Runner:
             tar.extractall(dest)
 
 
+def _excluded_dir(parts):
+    """Путь (список частей) лежит в исключённой папке? temp_smart исключена
+    вся, кроме кэшей ответов PERSIST_TEMP_SMART (файлы прямо в temp_smart —
+    клипы, склейка — не едут)."""
+    for i, p in enumerate(parts):
+        if p == "temp_smart":
+            if i + 1 < len(parts) and parts[i + 1] in PERSIST_TEMP_SMART:
+                continue
+            return True
+        if p in EXCLUDE_DIRS:
+            return True
+    return False
+
+
 def _exclude(info):
-    parts = set(info.name.replace("\\", "/").split("/"))
-    if parts & EXCLUDE_DIRS or os.path.basename(info.name) in EXCLUDE_FILES \
-            or os.path.basename(info.name).startswith(".env."):
+    parts = [p for p in info.name.replace("\\", "/").split("/") if p not in ("", ".")]
+    base = os.path.basename(info.name)
+    # Последняя часть — сам файл: temp_smart/search_cache как ФАЙЛ не бывает.
+    if _excluded_dir(parts[:-1] if info.isfile() else parts) or base in EXCLUDE_DIRS \
+            or base in EXCLUDE_FILES or base.startswith(".env."):
         return None
     return info
 
@@ -727,6 +798,9 @@ def main(argv=None):
                    help="разрешить `| tail`/`| head` в --cmd (вывод до конца задачи не виден)")
     p.add_argument("--fetch", action="append", default=[], help="путь в /work, вернуть сюда")
     p.add_argument("--dest", default=".")
+    p.add_argument("--no-persist-caches", dest="persist_caches", action="store_false",
+                   help="не забирать с пода кэши ответов и эмбеддингов (по умолчанию они "
+                        "возвращаются в папку загрузки, и следующий под начинает с них)")
     p.add_argument("--env-from-dotenv", default="", help="KEY1,KEY2 — передать в под из .env")
     p.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
                    help="несекретная переменная в окружение пода (видна и подготовке, и задаче); "
@@ -874,7 +948,8 @@ def _rent_attempts(key, a, order, by_id, token, extra, attempts, uploads, spent)
               f"потолок ${left:.2f} = {cap_sec / 60:.0f} мин, самоудаление через {a.idle_min:.0f} мин простоя")
         try:
             return drive(key, pod, token, cap_sec, uploads, a.cmd, a.fetch, a.dest,
-                         prepare=a.prepare, preflight=gpu_preflight(a.min_vram_mib), watch=a.watch)
+                         prepare=a.prepare, preflight=gpu_preflight(a.min_vram_mib), watch=a.watch,
+                         persist=persist_fetches(a.upload) if getattr(a, "persist_caches", False) else ())
         except BadHost as e:
             spent += pod.get("spent_usd", 0.0)
             print(f"  {e} — хост заменяется (потрачено ${spent:.2f})")
@@ -963,7 +1038,8 @@ def with_cpu_budget(cmd, pod):
     return f"export CPU_BUDGET={n}; {cmd}"
 
 
-def drive(key, pod, token, cap_sec, uploads, cmd, fetches, dest, prepare=None, preflight=None, watch=()):
+def drive(key, pod, token, cap_sec, uploads, cmd, fetches, dest, prepare=None, preflight=None, watch=(),
+          persist=()):
     """Под создан: дождаться исполнителя, загрузить, запустить, забрать,
     и удалить под в ЛЮБОМ исходе. prepare — идёт на поде параллельно с
     загрузкой (см. overlapped_cmd); первая папка (код) едет до старта.
@@ -1018,6 +1094,11 @@ def drive(key, pod, token, cap_sec, uploads, cmd, fetches, dest, prepare=None, p
                 print(f"  НЕ забрано: {path} ({getattr(e, 'code', '') or e})")
                 if code == 0:
                     code = 98
+        # Кэши для следующего пода (см. PERSIST_*): их может не быть (флаг
+        # выключен, эпизод без судьи), и это не ошибка — на код не влияет.
+        if persist:
+            got = _fetch_persist(r, persist)
+            print(f"  кэши для следующего прогона: забрано {got} из {len(persist)}")
     finally:
         # Повторный сигнал не должен прервать само удаление пода.
         signal.signal(signal.SIGINT, signal.SIG_IGN)
@@ -1027,6 +1108,24 @@ def drive(key, pod, token, cap_sec, uploads, cmd, fetches, dest, prepare=None, p
         pod["spent_usd"] = sec / 3600 * float(pod['costPerHr'])
         print(f"Под жил {sec / 60:.1f} мин ≈ ${pod['spent_usd']:.2f}")
     return code
+
+
+def _fetch_persist(r, items):
+    """Забрать кэши; сколько забрано. Ответ исполнителя «нет такого пути»
+    (HTTPError) — кэша просто нет, идём дальше. Любой другой сбой значит, что
+    под недоступен: остальные кэши не запрашиваются, иначе каждый ждал бы
+    полный срок повторов связи, а под всё это время оплачивается."""
+    got = 0
+    for path, dest in items:
+        try:
+            r.fetch(path, dest)
+            got += 1
+        except urllib.error.HTTPError:
+            continue
+        except Exception as e:  # noqa: BLE001
+            print(f"  кэши не забраны: под недоступен ({e})")
+            break
+    return got
 
 
 def _run_job(r, uploads, cmd, prepare, t0, cap_sec, stage):
