@@ -61,6 +61,46 @@ import source_health
 _SPECULATIVE = contextvars.ContextVar("llm_gateway_speculative", default=False)
 
 
+# ЗАМЕР ВЫЗОВОВ (прогон 30.09, пункт B4): фаза судьи занимала слоту 0 больше
+# тысячи секунд, а stage_timings не знал, сколько из них — ответ модели,
+# сколько — очередь и повторы. Каждый вызов чата и генерации пишет строку
+# gateway_call: кто спросил (функция вне шлюза), модель, секунды целиком
+# (очередь, повторы, пауза — всё, что ждал вызывающий), токены, цена, исход.
+# Ответ, взятый из хранилища упреждения, пишется с from_spec: его секунды —
+# сколько настоящий цикл ждал готовый ответ. Выключено вместе с STAGE_TIMER;
+# на ответы и выбор не влияет.
+def _caller():
+    import sys
+    f = sys._getframe(1)
+    here = __name__
+    while f is not None:
+        mod = f.f_globals.get("__name__", "")
+        if mod not in (here, "threading", "contextvars", "concurrent.futures.thread"):
+            return f"{mod}.{f.f_code.co_name}"
+        f = f.f_back
+    return "?"
+
+
+_FROM_SPEC = contextvars.ContextVar("llm_gateway_from_spec", default=False)
+
+
+def _record_call(kind, model, t0, ok, usage=None, price=None, err=None, **extra):
+    try:
+        import stage_timer
+        if not stage_timer.STAGE_TIMER_ENABLED:
+            return
+        u = usage or {}
+        rec = {"kind": kind, "model": model, "caller": _caller(), "ok": ok,
+               "prompt_tokens": u.get("prompt_tokens"), "completion_tokens": u.get("completion_tokens"),
+               "price": price}
+        if err is not None:
+            rec["error"] = f"{type(err).__name__}: {err}"[:300]
+        rec.update(extra)
+        stage_timer.record("gateway_call", time.monotonic() - t0, **rec)
+    except Exception:  # noqa: BLE001 — телеметрия не роняет вызов
+        pass
+
+
 # Сколько вопросов упреждения идёт в шлюз одновременно. Лимит параллельности
 # шлюза не опубликован, поэтому он подбирается на ходу: после серии ответов
 # без отказа лимит растёт на один, на отказ «слишком много запросов» (429,
@@ -537,14 +577,26 @@ class Gateway:
             raise GatewayError(f"шлюз выключен до конца прогона: {self.dead}")
         if not self.configured:
             raise GatewayError("нет LLM_GATEWAY_API_KEY")
-        with self._lock:
-            first = self._first_call.setdefault(model, threading.Lock())
-        if model in self._ratio or model in self._spec_ratio:
-            return self._chat_reasked(model, content, max_tokens, estimate_prompt_tokens, temperature,
-                                      timeout, reasoning)
-        with first:
-            return self._chat_reasked(model, content, max_tokens, estimate_prompt_tokens, temperature,
-                                      timeout, reasoning)
+        t0 = time.monotonic()
+        tok = _FROM_SPEC.set(False)
+        try:
+            with self._lock:
+                first = self._first_call.setdefault(model, threading.Lock())
+            if model in self._ratio or model in self._spec_ratio:
+                out = self._chat_reasked(model, content, max_tokens, estimate_prompt_tokens,
+                                         temperature, timeout, reasoning)
+            else:
+                with first:
+                    out = self._chat_reasked(model, content, max_tokens, estimate_prompt_tokens,
+                                             temperature, timeout, reasoning)
+        except Exception as e:
+            _record_call("chat", model, t0, False, err=e, from_spec=_FROM_SPEC.get())
+            raise
+        finally:
+            from_spec = _FROM_SPEC.get()
+            _FROM_SPEC.reset(tok)
+        _record_call("chat", model, t0, True, usage=out[1], price=out[2], from_spec=from_spec)
+        return out
 
     def _chat_reasked(self, model, content, max_tokens, estimate_prompt_tokens, temperature, timeout,
                       reasoning):
@@ -670,6 +722,7 @@ class Gateway:
             if entry["empty"]:
                 self.failures += 1
                 self.empty_answers += 1
+        _FROM_SPEC.set(True)
         if entry["empty"]:
             raise _empty_answer(model, entry["choice"], entry["usage"], max_tokens, price)
         return entry["text"], entry["usage"], price
@@ -773,6 +826,16 @@ class Gateway:
         повторов: повтор того же промпта ответил бы тем же. Ответ без
         картинок — EmptyAnswer: «успех без картинки» шлюз не берёт в счёт,
         но для вызывающего это отказ, а не пустой кадр."""
+        t0 = time.monotonic()
+        try:
+            images, price = self._image(model, prompt, size, quality, n, timeout)
+        except Exception as e:
+            _record_call("image", model, t0, False, err=e, n=n)
+            raise
+        _record_call("image", model, t0, True, price=price, n=n, got=len(images))
+        return images, price
+
+    def _image(self, model, prompt, size, quality, n, timeout):
         import base64
         if self.dead:
             raise GatewayError(f"шлюз выключен до конца прогона: {self.dead}")

@@ -75,7 +75,68 @@ def host(tensor):
     return tensor if device() == "cpu" else tensor.cpu()
 
 
-_GPU_LOCK = threading.Lock()      # замок первой карты (cuda:0)
+class PriorityLock:
+    """Замок карты, у которого настоящий цикл слота идёт первым.
+
+    Прогон 30.09 на A40: упреждение (фоновые потоки, source_health.BACKGROUND)
+    и текущий слот вставали в одну очередь к карте, и обычный Lock отдавал её
+    кому попало. Каскад слота 0 закончился через 6.5 мин, а упреждение за
+    40 мин посчитало каскады всех 24 слотов при двух готовых. Здесь фоновый
+    прогон ждёт, пока карту держат ИЛИ её ждёт хоть один настоящий прогон;
+    настоящий ждёт только занятости. Идущий фоновый прогон не прерывается —
+    текущий слот ждёт максимум одну пачку. Порядок прогонов на результат не
+    влияет: каждый вызов считает свой вход (см. run)."""
+
+    def __init__(self):
+        self._cond = threading.Condition(threading.Lock())
+        self._held = False
+        self._fg_waiting = 0
+
+    def acquire(self, background=None):
+        if background is None:
+            background = _is_background()
+        with self._cond:
+            if background:
+                while self._held or self._fg_waiting:
+                    self._cond.wait()
+            else:
+                self._fg_waiting += 1
+                try:
+                    while self._held:
+                        self._cond.wait()
+                finally:
+                    self._fg_waiting -= 1
+            self._held = True
+        return True
+
+    def release(self):
+        with self._cond:
+            if not self._held:
+                raise RuntimeError("release unlocked PriorityLock")
+            self._held = False
+            self._cond.notify_all()
+
+    def locked(self):
+        return self._held
+
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, *exc):
+        self.release()
+
+
+def _is_background():
+    """Прогон из фонового потока (упреждающий поиск или отбор)."""
+    try:
+        import source_health
+        return bool(source_health.BACKGROUND.get())
+    except Exception:  # noqa: BLE001 — нет модуля: считать настоящим
+        return False
+
+
+_GPU_LOCK = PriorityLock()        # замок первой карты (cuda:0)
 _LOCKS = {"cuda:0": _GPU_LOCK}
 _LOCKS_GUARD = threading.Lock()
 
@@ -109,7 +170,7 @@ def device_for(role):
 def _lock(dev):
     key = "cuda:0" if dev in (None, "cuda") else str(dev)
     with _LOCKS_GUARD:
-        return _LOCKS.setdefault(key, threading.Lock())
+        return _LOCKS.setdefault(key, PriorityLock())
 # Паузы перед повторами прогона после нехватки видеопамяти (см. run): сразу,
 # через 2, 5 и 10 с — до ~17 с на сессии NVENC, которые держат память клипа.
 OOM_RETRY_PAUSES_SEC = (0, 2, 5, 10)
@@ -168,11 +229,17 @@ def run(fn, dev=None):
     import time
     import torch
     oom = getattr(torch.cuda, "OutOfMemoryError", RuntimeError)
-    with _lock(dev):
+    lock = _lock(dev)
+    background = _is_background()
+    t0 = time.monotonic()
+    lock.acquire(background=background)
+    t1 = time.monotonic()
+    try:
         for pause in OOM_RETRY_PAUSES_SEC:
             try:
                 out = fn()
                 _relieve(torch, dev)
+                _record_run(dev, background, t1 - t0, time.monotonic() - t1)
                 return out
             except oom:
                 # Нехватка видеопамяти обычно временная: выбор кадров идёт
@@ -184,4 +251,40 @@ def run(fn, dev=None):
                 torch.cuda.empty_cache()
                 if pause:
                     time.sleep(pause)
-        return fn()
+        out = fn()
+        _record_run(dev, background, t1 - t0, time.monotonic() - t1)
+        return out
+    finally:
+        lock.release()
+
+
+# Строка на каждый прогон — тысячи строк в минуту (гейты считают по кадру),
+# они забили бы канал слежения за подом. Пишется только заметный прогон, а
+# итоги копятся и едут в каждой строке: последняя строка — полный разрез.
+GPU_RUN_LOG_WAIT_SEC = 1.0
+GPU_RUN_LOG_COMPUTE_SEC = 2.0
+_RUN_TOTALS = {"n_fg": 0, "n_bg": 0, "wait_fg": 0.0, "wait_bg": 0.0,
+               "compute_fg": 0.0, "compute_bg": 0.0}
+_RUN_TOTALS_LOCK = threading.Lock()
+
+
+def _record_run(dev, background, wait, compute):
+    """Строка gpu_run в stage_timings: сколько прогон ждал карту и сколько
+    считал (пункт B1 прогона 30.09 — очередь к карте не была видна), плюс
+    накопленные итоги отдельно для настоящего цикла (fg) и упреждения (bg).
+    Выключено вместе с STAGE_TIMER; на результат не влияет."""
+    try:
+        import stage_timer
+        if not stage_timer.STAGE_TIMER_ENABLED:
+            return
+        side = "bg" if background else "fg"
+        with _RUN_TOTALS_LOCK:
+            _RUN_TOTALS["n_" + side] += 1
+            _RUN_TOTALS["wait_" + side] += wait
+            _RUN_TOTALS["compute_" + side] += compute
+            totals = {k: (round(v, 2) if isinstance(v, float) else v) for k, v in _RUN_TOTALS.items()}
+        if wait >= GPU_RUN_LOG_WAIT_SEC or compute >= GPU_RUN_LOG_COMPUTE_SEC:
+            stage_timer.record("gpu_run", compute, wait=round(wait, 4), background=bool(background),
+                               dev=str(dev or "cuda:0"), totals=totals)
+    except Exception:  # noqa: BLE001 — телеметрия не роняет прогон
+        pass
