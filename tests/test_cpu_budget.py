@@ -91,10 +91,13 @@ def test_thread_env_only_when_restricted(monkeypatch, tmp_path):
     assert done["OPENBLAS_NUM_THREADS"] == "9"
 
 
-def test_ffmpeg_thread_args_cover_codec_and_filters():
+def test_ffmpeg_thread_args_limit_filters_only_in_a_restricted_container(monkeypatch):
+    monkeypatch.setattr(cb, "restricted", lambda *a, **k: True)
     a = cb.ffmpeg_thread_args(1)
     assert a == ["-threads", "1", "-filter_threads", "1", "-filter_complex_threads", "1"]
     assert cb.ffmpeg_thread_args(0)[1] == "1"
+    monkeypatch.setattr(cb, "restricted", lambda *a, **k: False)
+    assert cb.ffmpeg_thread_args(1) == ["-threads", "1"], "ядра видны честно — команда прежняя"
 
 
 def test_render_workers_follow_granted_cores_not_host(monkeypatch):
