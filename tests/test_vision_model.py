@@ -285,3 +285,19 @@ def test_main_stops_before_the_next_slot_when_vision_is_lost():
     assert src.index("speculator.close()") < stop < src.index("check_jobs_in_order(pending_jobs)\n        for job")
     assert "return EXIT_NOT_BUILT" in src[stop:stop + 1500]
     assert src.index("vision_model.mark_required(") < loop
+
+
+def test_headroom_default_and_env_override():
+    import importlib
+    import os
+    import vision_model as vm
+    saved = os.environ.pop("VISION_HEADROOM_GIB", None)
+    try:
+        assert importlib.reload(vm).HEADROOM_GIB == 2.5
+        os.environ["VISION_HEADROOM_GIB"] = "2.0"
+        assert importlib.reload(vm).HEADROOM_GIB == 2.0
+    finally:
+        os.environ.pop("VISION_HEADROOM_GIB", None)
+        if saved is not None:
+            os.environ["VISION_HEADROOM_GIB"] = saved
+        importlib.reload(vm)
