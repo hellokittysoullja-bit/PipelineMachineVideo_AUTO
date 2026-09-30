@@ -130,8 +130,10 @@ def test_claims_vector_background_is_penalty_main_is_veto():
     clean = sj.claims_vector(spec, ans())
     no_detail = sj.claims_vector(spec, ans(c1="no"))
     no_core = sj.claims_vector(spec, ans(core="no"))
-    # Исторический мир: чужое на фоне — отказ (зрители, бетон, куртка).
-    assert sj.claims_vector(spec, ans(bg=True)) is None
+    # Исторический мир: чужое на фоне — отказ (зрители, бетон, куртка),
+    # если не все обязательные пункты «да» (30.09: иначе — штраф).
+    assert sj.claims_vector(spec, ans(bg=True, core="unsure")) is None
+    assert sj.claims_vector(spec, ans(bg=True))[2] == 0.0
     # Под предохранителем мира и вне исторического мира — штраф: после
     # must, до should.
     for kw in ({"world_veto": False}, {"cg_veto": False}):
@@ -139,7 +141,8 @@ def test_claims_vector_background_is_penalty_main_is_veto():
         assert sj.claims_vector(spec, ans(), **kw) > sj.claims_vector(spec, ans(c1="no"), **kw) \
             > spectators > sj.claims_vector(spec, ans(core="no"), **kw), kw
     assert clean > no_detail > no_core, "главное — выше"
-    assert sj.claims_vector(spec, ans(main=False)) is None
+    assert sj.claims_vector(spec, ans(main=False, core="unsure")) is None
+    assert sj.claims_vector(spec, ans(main=False))[0] == 0.0, "все пункты «да» — штраф"
     assert sj.claims_vector(spec, ans(medium="cg")) is None
     assert sj.claims_vector(spec, ans(medium="cg"), cg_veto=False) == clean, \
         "3D — брак только в историческом эпизоде"

@@ -823,6 +823,27 @@ def claim_values(spec, answers):
             for c in spec["claims"]}
 
 
+def musts_all_yes(spec, answers):
+    """Каждое обязательное утверждение — «да» (у спецификации оно есть).
+    Такой кадр отказом по миру и фону не выбрасывается — только штрафуется
+    (claims_vector): одно шумное «не из мира» против всех «да» по пунктам —
+    противоречие, а не приговор."""
+    vals = claim_values(spec, answers)
+    musts = [vals[c["id"]] for c in spec["claims"] if c["tier"] == "must"]
+    return bool(musts) and all(v >= 1.0 for v in musts)
+
+
+def world_doubted(spec, answers, *, world_veto=True, cg_veto=True):
+    """Отказ по миру или фону сработал бы, но кадр выполнил все обязательные
+    утверждения, и отказ стал штрафом. Для решения о следующей порции
+    проверки такой кадр — как отклонённый: кадр своего мира ещё может
+    найтись, а этот останется запасным."""
+    if answers is None or not musts_all_yes(spec, answers):
+        return False
+    return bool(world_veto and (answers.get("main_in_world") is False
+                                or (cg_veto and answers.get("background_foreign"))))
+
+
 def claims_vector(spec, answers, *, world_veto=True, cg_veto=True):
     """Ключ сравнения кадров по спецификации; больше — лучше, каждый элемент
     0..1. None — отказ.
@@ -845,21 +866,34 @@ def claims_vector(spec, answers, *, world_veto=True, cg_veto=True):
     modern_intrusion. На сохранённых ответах эп.94 все кадры с этой
     пометкой, просмотренные глазами, современное содержат. Под
     предохранителем мира — снова штраф: при неверном паспорте «чужое»
-    может означать не современность, а другую эпоху."""
+    может означать не современность, а другую эпоху.
+
+    Кадр, выполнивший ВСЕ обязательные утверждения, по миру и фону не
+    отклоняется, а штрафуется (30.09, videos/99_mify): бородатый мужчина в
+    рогатом шлеме получил «да» на все пункты фразы «А викинги носили шлемы с
+    рогами», и одно шумное «не из мира» его выкинуло, а девушку в костюме
+    дьявола тот же вопрос на повторе то отклонял, то пропускал. Ответ о мире
+    у такого кадра противоречит ответам по пунктам, и верить отказу нельзя;
+    штрафом он всё равно проигрывает любому кадру своего мира. 3D в
+    историческом мире — по-прежнему отказ (musts_all_yes)."""
     if answers is None:
         return None
     if cg_veto and answers.get("medium") == "cg":
         return None
     foreign = answers.get("main_in_world") is False
-    if foreign and world_veto:
+    doubt = musts_all_yes(spec, answers)
+    if foreign and world_veto and not doubt:
         return None
-    if cg_veto and world_veto and answers.get("background_foreign"):
+    if cg_veto and world_veto and answers.get("background_foreign") and not doubt:
         return None
     vals = claim_values(spec, answers)
     musts = [vals[c["id"]] for c in spec["claims"] if c["tier"] == "must"]
     shoulds = [vals[c["id"]] for c in spec["claims"] if c["tier"] != "must"]
     clean = 0.0 if answers.get("background_foreign") else 1.0
-    return (0.0 if foreign else 1.0,) + tuple(musts) + (clean,) + tuple(shoulds)
+    # Отказ, ставший штрафом, — первым элементом: такой кадр проигрывает
+    # ЛЮБОМУ кадру своего мира с чистым фоном, как и тбурида (25.09).
+    penalty = foreign or world_doubted(spec, answers, world_veto=world_veto, cg_veto=cg_veto)
+    return (0.0 if penalty else 1.0,) + tuple(musts) + (clean,) + tuple(shoulds)
 
 
 def focus_met(spec, answers):

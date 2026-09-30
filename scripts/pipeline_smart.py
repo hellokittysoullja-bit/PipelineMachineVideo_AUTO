@@ -6751,6 +6751,12 @@ def research_trigger(att):
         return "failed"
     if att.notes.get("focus_met") is False:
         return "weak"
+    if att.notes.get("world_doubt"):
+        # Кадр выполнил все пункты, но мир или фон под сомнением — отказ
+        # стал штрафом (shot_judge.claims_vector). Он остаётся запасным, а
+        # кадр своего мира из второго круга встанет вместо него: вектор у
+        # того строго выше первым элементом (research_takes_over).
+        return "weak"
     return None
 
 
@@ -8676,6 +8682,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
             selection_attempt.record_note("quality", winner_quality(winner))
         if judged:
             selection_attempt.record_note("focus_met", bool(winner and winner.get("verify_focus")))
+            selection_attempt.record_note("world_doubt", bool(winner and winner.get("verify_world_doubt")))
         if (judged and judge_rejected(winner)) or (not judged and winner is not None and not screen_allowed(winner)):
             # Лучший кадр слота по оценке судьи — брак. Без судьи брак —
             # помеченный словарём запретов, которого проверка не очистила
@@ -12547,7 +12554,7 @@ def judge_candidates(index, kind, phrase, brief, candidates_info, spec=None):
     for c in candidates_info:
         c["judge"] = None
         c["verify"] = None
-        for k in ("_asked", "verify_skipped", "verify_focus", "verify_nothing", "verify_perfect", "world_clear",
+        for k in ("_asked", "verify_skipped", "verify_focus", "verify_nothing", "verify_perfect", "world_clear", "verify_world_doubt",
                   "look_rank"):
             c.pop(k, None)
     if index is not None and index >= SHOT_JUDGE_PAID_SLOTS:
@@ -12799,7 +12806,13 @@ def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=
             # следующей порции, как отказ: иначе слот уходил на вторую
             # страницу пула (новая сетка и новая проверка), не проверив
             # остальных кандидатов первой.
-            vetoed += 1 if vec is None or c["verify_nothing"] else 0
+            # Кадр выполнил все пункты, но мир или фон под сомнением: отказ
+            # стал штрафом (shot_judge.claims_vector) — кадр остаётся
+            # запасным, а следующая порция проверяется так же, как после
+            # отказа: кадр своего мира обгонит его первым элементом вектора.
+            c["verify_world_doubt"] = shot_judge.world_doubted(
+                spec, ans, world_veto=world_veto, cg_veto=cg_veto)
+            vetoed += 1 if vec is None or c["verify_nothing"] or c["verify_world_doubt"] else 0
             SHOT_JUDGE_LOG.append({"index": index, "kind": kind, "model": model,
                                    "id": str(c["p"].get("id")), "verify": ans, "vector": vec, **info})
             if vec is None:
@@ -15428,6 +15441,7 @@ class VideoAdapter(selection_engine.MediaAdapter):
             selection_attempt.record_note("judge_score", winner.get("judge"))
             selection_attempt.record_note("quality", winner_quality(winner))
             selection_attempt.record_note("focus_met", bool(winner.get("verify_focus")))
+            selection_attempt.record_note("world_doubt", bool(winner.get("verify_world_doubt")))
         if (judged and judge_rejected(winner)) or (not judged and winner is not None and not screen_allowed(winner)):
             selection_attempt.record_verdict("judge", {
                 "index": index, "kind": "video", "query": query,
