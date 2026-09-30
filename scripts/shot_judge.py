@@ -445,21 +445,10 @@ VERIFY_WORLD_KEYS = ', "main_in_world": true/false, "background": "none"/"subtle
 # только три кадра, и все три при просмотре брак по правилам канала —
 # степные всадники в ламеллярных доспехах, цифровой фэнтези-рисунок,
 # лучник в современной куртке.
-# РИСУНОК СУДИТСЯ ПО ТОМУ, ЧТО ИЗОБРАЖАЕТ (29.09). Формулировка выше считала
-# «вещью, сделанной в наше время» САМ РИСУНОК: сгенерированные кадры (канал
-# рисует их тушью и карандашом, shot_generator) получали «современная
-# иллюстрация, а не настоящий предмет» — 6 из 17 рисунков эп.94 и эп.98
-# проходили вопрос, то есть генерация в историческом эпизоде почти не могла
-# выиграть (на фразе #1 эп.94 выброшен рисунок «кинжал плашмя на ладони»,
-# все пункты которого — «да»). С этой фразой — 16 из 17. На 104 кадрах
-# эп.94, по два прогона каждого варианта (шум одного вопроса — 7 кадров из
-# 104): устойчиво отклонены 2 кадра брака, принята годная замена (лучник) и
-# цифровой рисунок рыцаря; устойчивой потери годного кадра нет.
 MAIN_WORLD_Q = ("- main_in_world: does the MAIN subject belong to that world (era, culture) — a real thing "
-                "of it, or a faithful reconstruction of it (reenactors, replica armour and weapons)? "
-                "A drawing, painting or illustration is judged by what it shows, not by when it was drawn. "
-                "false if the subject is clearly a modern-made thing (modern design, materials or finish) "
-                "or from another era or culture. true/false")
+                "of it, or a faithful reconstruction of it (reenactors, replica armour and weapons)? false "
+                "if it is clearly a modern-made thing (modern design, materials or finish) or from another "
+                "era or culture. true/false")
 BACKGROUND_LEVELS = ("none", "subtle", "obvious")
 BACKGROUND_CLEAN = {"none": 1.0, "subtle": 0.5, "obvious": 0.0}
 BACKGROUND_Q = """- background: look at everything ELSE in the picture (background, edges, people around). Is there anything that could not exist in that world — modern people, clothing, objects, vehicles, signs, buildings, spectators?
