@@ -96,7 +96,8 @@ def test_candidate_is_a_local_pool_candidate_with_provenance(tmp_path):
     c = sg.candidate(meta)
     assert c["id"] == "gen:" + meta["key"] and c["url"] == "" and c["alt"] == ""
     assert c["src"]["large2x"].startswith("file://") and c["src"]["large2x"].endswith(".png")
-    assert c["_gen_meta"]["license"] == "Apache-2.0" and "hourglass" in c["_gen_meta"]["prompt"]
+    assert c["_gen_meta"]["license"] == sg.LICENSES[sg.DEFAULT_MODEL] and "hourglass" in c["_gen_meta"]["prompt"]
+    assert c["_gen_meta"]["model"] == sg.DEFAULT_MODEL
 
 
 # ---------------------------------------------------------------- пайплайн
@@ -248,3 +249,11 @@ def test_report_is_written_when_generation_ran():
     ps = _ps()
     src = inspect.getsource(ps.main)
     assert "image_generation_report.json" in src and "GENERATION_LOG.clear()" in src
+
+
+def test_default_generator_is_flux_dev_with_checked_license():
+    """Решение владельца 30.09: генерация по умолчанию — FLUX.1 [dev].
+    Модель без записи в LICENSES генерацию закрывает, поэтому смена
+    дефолта обязана идти вместе с проверенной лицензией выдачи."""
+    assert sg.DEFAULT_MODEL == "am/flux.1-dev"
+    assert sg.DEFAULT_MODEL in sg.LICENSES

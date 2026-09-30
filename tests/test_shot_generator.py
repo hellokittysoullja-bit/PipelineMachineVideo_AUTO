@@ -61,7 +61,7 @@ def test_second_run_is_served_from_cache(tmp_path):
     a = sg.generate(gw, "a dagger", MEDIEVAL, str(tmp_path))
     b = sg.generate(gw, "a dagger", MEDIEVAL, str(tmp_path))
     assert len(gw.calls) == 1 and a["path"] == b["path"] and b["cached"] and not a["cached"]
-    assert b["license"] == "Apache-2.0" and b["prompt"] == a["prompt"]
+    assert b["license"] == sg.LICENSES[sg.DEFAULT_MODEL] and b["prompt"] == a["prompt"]
 
 
 def test_prompt_change_misses_the_cache(tmp_path):
