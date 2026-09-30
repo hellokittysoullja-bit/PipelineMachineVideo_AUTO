@@ -20,8 +20,19 @@
   cooling()    — хост на паузе: вызывающий решает, ждать или пропустить.
 
 Параметры хостов — замеренные раньше числа их модулей, а не новые."""
+import contextvars
 import threading
 import time
+
+# Запрос сделан фоновым потоком (упреждающий поиск, упреждающий отбор), а не
+# настоящим циклом слота. Такой запрос НЕ имеет права менять состояние хоста,
+# от которого зависит настоящий цикл: ни запускать паузу и замедление (403/429
+# на фоновом запросе оставляли настоящему слоту неполную кучу — разбор кода
+# 30.09), ни занимать очередь глубже одного интервала (настоящий запрос иначе
+# ждал бы дольше max_wait и пропускался). Хост на паузе — фон его пропускает.
+# Очередь и пауза проверяются только у вызовов с max_wait: они готовы к Skipped
+# (источники кучи); шлюз моделей без max_wait Skipped не ждёт.
+BACKGROUND = contextvars.ContextVar("SOURCE_HEALTH_BACKGROUND", default=False)
 
 # Сервис не назвал паузу — ждать не меньше этого (правило Викимедиа для
 # клиента без заголовка Retry-After: «at least five seconds»).
@@ -69,7 +80,8 @@ class Host:
         self.cooldown_until = 0.0
         self.fails = 0
         self.streak = 0
-        self.stats = {"requests": 0, "cooldowns": 0, "failures": 0, "skipped": 0}
+        self.stats = {"requests": 0, "cooldowns": 0, "failures": 0, "skipped": 0,
+                      "bg_skipped": 0, "bg_throttled": 0, "bg_failed": 0}
 
     @property
     def rate(self):
@@ -87,8 +99,15 @@ class Host:
         дольше (очередь или пауза хоста) — Skipped, место в очереди не
         занимается."""
         iv = self.interval if interval is None else float(interval)
+        background = BACKGROUND.get()
         with self._lock:
             now = time.monotonic()
+            if background and max_wait is not None and (
+                    self.cooling() or max(now, self.next_slot) - now > iv):
+                # Фон не встаёт в очередь глубже одного интервала и не идёт на
+                # хост, который на паузе: место остаётся настоящему циклу.
+                self.stats["bg_skipped"] += 1
+                raise Skipped(f"{self.name}: фоновый запрос уступает очередь настоящему циклу")
             slot = max(now, self.next_slot, self.cooldown_until if max_wait is not None else 0.0)
             if max_wait is not None and slot - now > max_wait:
                 self.stats["skipped"] += 1
@@ -116,6 +135,10 @@ class Host:
         (24.09): Викимедиа отвечала 429 с «Retry-After: 22», а хост ждал
         свои 60 с на каждую из трёх попыток — две минуты простоя на каждый
         отказавший запрос, четверть времени прогона."""
+        if BACKGROUND.get():
+            with self._lock:
+                self.stats["bg_throttled"] += 1
+            return False
         with self._lock:
             if self.cooling():
                 return False
@@ -127,6 +150,10 @@ class Host:
 
     def failed(self):
         """Вызов не удался. True — после этого отказа хост ушёл на паузу."""
+        if BACKGROUND.get():
+            with self._lock:
+                self.stats["bg_failed"] += 1
+            return False
         with self._lock:
             self.fails += 1
             self.stats["failures"] += 1
@@ -137,6 +164,8 @@ class Host:
             return False
 
     def succeeded(self):
+        if BACKGROUND.get():
+            return          # успех фона не возвращает темп и не обнуляет отказы настоящего цикла
         with self._lock:
             self.fails = 0
             if self.recover_after and self.interval > self.base_interval:

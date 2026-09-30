@@ -341,17 +341,33 @@ NVENC_CLIP_ARGS = ["-c:v", "hevc_nvenc", "-preset", "p6", "-tune", "hq", "-rc", 
 _NVENC_BROKEN = [False]
 
 
+_NVENC_REASON = [None]
+
+
+def nvenc_failure_reason():
+    """Почему проба NVENC не прошла (последние строки stderr ffmpeg) или None.
+    30.09 на A40 клипы молча ушли на x264, и причину узнать было нечем: nvenc_works
+    возвращал одно False."""
+    return _NVENC_REASON[0]
+
+
 def nvenc_works():
     """Кодирует ли этот ffmpeg 10-битный HEVC на NVENC — проверкой, а не по
-    списку кодеров: кодер бывает собран в ffmpeg без видеокарты рядом."""
+    списку кодеров: кодер бывает собран в ffmpeg без видеокарты рядом. Причина
+    отказа сохраняется (nvenc_failure_reason) и печатается при выборе кодера."""
+    _NVENC_REASON[0] = None
     try:
         r = subprocess.run(
             ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
              "color=c=gray:s=256x144:d=0.2:r=24", "-frames:v", "3"] + NVENC_CLIP_ARGS
             + ["-f", "null", "-"],
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+        if r.returncode != 0:
+            tail = " | ".join(l.strip() for l in (r.stderr or "").strip().splitlines()[-4:] if l.strip())
+            _NVENC_REASON[0] = f"ffmpeg код {r.returncode}: {tail or 'без сообщения'}"[:400]
         return r.returncode == 0
-    except Exception:
+    except Exception as e:  # noqa: BLE001
+        _NVENC_REASON[0] = f"{type(e).__name__}: {e}"[:400]
         return False
 
 
@@ -363,8 +379,14 @@ def resolve_clip_encoder():
     if choice in ("auto", "nvenc"):
         if nvenc_works():
             enc = "nvenc"
-        elif choice == "nvenc":
-            print("  ВНИМАНИЕ: CLIP_ENCODER=nvenc, но NVENC в этом ffmpeg не работает — клипы на x264")
+        else:
+            why = nvenc_failure_reason()
+            if choice == "nvenc":
+                print("  ВНИМАНИЕ: CLIP_ENCODER=nvenc, но NVENC в этом ffmpeg не работает — клипы на x264")
+            else:
+                print("  NVENC не прошёл пробное кодирование — клипы кодируются на процессоре (x264)")
+            if why:
+                print(f"    причина: {why}")
     os.environ["CLIP_ENCODER_RESOLVED"] = enc
     return enc
 
@@ -9320,6 +9342,7 @@ def prefetch_slot_inputs(request, kind, cascade, skip_sources=frozenset()):
     процесс не пишутся (prefetching()), ничего не выбирается и не
     оплачивается. Ошибки — наружу, их глотает slot_prefetch."""
     token = _PREFETCH_ACTIVE.set(True)
+    bg_token = source_health.BACKGROUND.set(True)
     try:
         adapter = PHOTO_ADAPTER if kind == "photo" else VIDEO_ADAPTER
         tiers = selection_engine.query_tiers(
@@ -9355,6 +9378,7 @@ def prefetch_slot_inputs(request, kind, cascade, skip_sources=frozenset()):
                             request.index, url_of=video_middle_url,
                             claims=cascade_claims(spec, "video"), rerank_text=rr)
     finally:
+        source_health.BACKGROUND.reset(bg_token)
         _PREFETCH_ACTIVE.reset(token)
 
 
@@ -15122,6 +15146,16 @@ _depth_model = None
 _DEPTH_MODEL_LOCK = threading.Lock()
 
 
+def depth_to_numpy(t):
+    """Тензор глубины -> float32 numpy, значения те же, что у np.array(t,
+    dtype=np.float32). Прежний вызов печатал DeprecationWarning («__array__ не
+    принимает copy») и с numpy 2.x перестанет работать; у тензора на видеокарте
+    он не работал бы вовсе."""
+    if hasattr(t, "detach"):
+        return t.detach().cpu().float().numpy().astype(np.float32, copy=True)
+    return np.array(t, dtype=np.float32)
+
+
 def get_depth_model():
     """Depth-Anything-V2-Small. На видеокарте — на ней (ml_device, float32,
     TF32 выключен), на процессоре — как было, без аргумента устройства.
@@ -15155,7 +15189,7 @@ def estimate_depth(canvas_bgr):
     img = PILImage.fromarray(canvas_bgr[:, :, ::-1])  # BGR -> RGB
     import ml_device
     out = ml_device.run(lambda: model(img))
-    depth = np.array(out["predicted_depth"], dtype=np.float32)
+    depth = depth_to_numpy(out["predicted_depth"])
     if depth.shape != (h, w):
         depth = cv2.resize(depth, (w, h), interpolation=cv2.INTER_LINEAR)
     d_min, d_max = float(depth.min()), float(depth.max())
@@ -19243,6 +19277,7 @@ def main():
             is_ss = j == 0 or blocks[j]["section"] != blocks[j - 1]["section"]
             with _llm_gateway_spec.speculation():
                 t1 = _SPECULATING.set(True)
+                t_bg = source_health.BACKGROUND.set(True)
                 t2 = _SPEC_LOGS.set({})
                 t3 = _SPEC_QUOTA_RESERVE.set(2 * (len(blocks) - j))
                 try:
@@ -19258,6 +19293,7 @@ def main():
                 finally:
                     _SPEC_QUOTA_RESERVE.reset(t3)
                     _SPEC_LOGS.reset(t2)
+                    source_health.BACKGROUND.reset(t_bg)
                     _SPECULATING.reset(t1)
         _depth = os.environ.get("SLOT_SPECULATE_DEPTH", "").strip()
         _workers = os.environ.get("SLOT_SPECULATE_WORKERS", "").strip()

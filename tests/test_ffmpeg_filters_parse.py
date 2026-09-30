@@ -49,3 +49,49 @@ def test_legend_lines_are_not_filters():
     import pipeline_smart as ps
     have = ps.parse_ffmpeg_filters(NEW + OLD)
     assert not {"=", "A", "V", "N", "|", "------", "Timeline"} & have
+
+
+def test_nvenc_failure_reason_is_kept_and_printed(monkeypatch, capsys):
+    import subprocess
+    import pipeline_smart as ps
+
+    class R:
+        returncode = 1
+        stderr = "[hevc_nvenc @ 0x1] Driver does not support the required nvenc API version.\nRequired: 13.0 Found: 12.2\n"
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: R())
+    monkeypatch.setenv("CLIP_ENCODER", "auto")
+    assert ps.nvenc_works() is False
+    assert "Required: 13.0" in ps.nvenc_failure_reason()
+    assert ps.resolve_clip_encoder() == "x264"
+    out = capsys.readouterr().out
+    assert "причина:" in out and "Required: 13.0" in out
+
+
+def test_nvenc_success_clears_the_reason(monkeypatch):
+    import subprocess
+    import pipeline_smart as ps
+
+    class R:
+        returncode = 0
+        stderr = ""
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: R())
+    ps._NVENC_REASON[0] = "старая"
+    assert ps.nvenc_works() is True and ps.nvenc_failure_reason() is None
+
+
+def test_depth_to_numpy_matches_the_old_conversion_without_warnings():
+    import warnings
+
+    import numpy as np
+    import torch
+    import pipeline_smart as ps
+    t = torch.tensor([[[0.25, 1.5], [3.0, -2.0]]])
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        old = np.array(t, dtype=np.float32)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        new = ps.depth_to_numpy(t)
+    assert new.dtype == np.float32 and new.shape == old.shape
+    assert np.array_equal(new, old)
+    assert ps.depth_to_numpy([[1, 2]]).dtype == np.float32
