@@ -122,47 +122,26 @@ def test_background_throttle_and_failure_do_not_change_the_host():
     assert h.throttled(5) is True and h.cooling() and h.interval == 2.0
 
 
-def test_background_success_does_not_recover_the_rate():
+def test_background_success_does_not_reset_the_main_loop_failures():
     import source_health as sh
-    h = sh.Host("bgok", interval=1.0, max_interval=8.0, cooldown_sec=60, recover_after=1)
-    h.throttled(5)
-    slowed = h.interval
+    h = sh.Host("bgok", interval=0.0, cooldown_sec=60, fail_threshold=3)
+    h.failed()
+    h.failed()
     _bg(h.succeeded)
-    assert h.interval == slowed
+    assert h.fails == 2, "успех фона не обнуляет отказы настоящего цикла"
     h.succeeded()
-    assert h.interval < slowed
+    assert h.fails == 0
 
 
-def test_background_yields_a_cooling_host_and_a_deep_queue():
-    import pytest
+def test_background_waits_in_the_queue_like_the_main_loop():
+    """Фон запросов не пропускает: встаёт в ту же очередь хоста (выбор кадров
+    тот же, что без упреждения)."""
     import source_health as sh
-    h = sh.Host("bgq", interval=1.0, cooldown_sec=60)
-    h.throttled(5)
-    with pytest.raises(sh.Skipped):
-        _bg(lambda: h.wait(max_wait=5))
-    h.reset()
-    h.next_slot = time.monotonic() + 3.0          # очередь глубже одного интервала
-    with pytest.raises(sh.Skipped):
-        _bg(lambda: h.wait(max_wait=5))
-    assert h.stats["bg_skipped"] == 1 and h.stats["requests"] == 0
-
-
-def test_background_takes_a_free_slot_and_never_queues_more_than_one_interval():
-    import source_health as sh
-    h = sh.Host("bgfree", interval=0.05)
-    _bg(lambda: h.wait(max_wait=5))
-    assert h.stats["requests"] == 1
-    # следующий фоновый сразу после — в пределах интервала: ждёт свой слот
-    _bg(lambda: h.wait(max_wait=5))
+    h = sh.Host("bgq", interval=0.05)
+    _bg(h.wait)
+    _bg(h.wait)
     assert h.stats["requests"] == 2
-
-
-def test_background_without_max_wait_is_not_gated():
-    """Шлюз моделей зовёт wait() без max_wait и Skipped не ждёт."""
-    import source_health as sh
-    h = sh.Host("bggw", interval=0.01, cooldown_sec=60)
-    h.throttled(5)
-    _bg(lambda: h.wait(interval=0.0))          # не бросает
+    assert not hasattr(sh, "Skipped"), "пропуска запросов нет ни в одной ветке"
 
 
 def test_prefetch_and_speculation_mark_their_requests_as_background():

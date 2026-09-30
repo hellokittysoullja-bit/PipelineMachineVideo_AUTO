@@ -261,7 +261,7 @@ MET_HOST = source_health.host("met", interval=1.0 / MET_MAX_REQUESTS_PER_SEC,
 # уходил в остывание и на какой скорости закончил. Читается вызывающим
 # кодом/тестами и уезжает в media_plan/source_contribution.json.
 FETCH_STATS = {"met_cards_lost": 0, "met_cooldowns": 0, "met_requests": 0,
-               "met_catalog_hits": 0, "met_search_failures": 0, "met_skipped": 0,
+               "met_catalog_hits": 0, "met_search_failures": 0,
                "met_rate_final": MET_MAX_REQUESTS_PER_SEC,
                "search_cache_hits": 0, "search_cache_misses": 0}
 
@@ -269,17 +269,16 @@ FETCH_STATS = {"met_cards_lost": 0, "met_cooldowns": 0, "met_requests": 0,
 def reset_fetch_stats():
     """Один прогон — один счёт. Нужен тестам и повторным вызовам в процессе."""
     for k in ("met_cards_lost", "met_cooldowns", "met_requests",
-              "met_catalog_hits", "met_search_failures", "met_skipped",
+              "met_catalog_hits", "met_search_failures",
               "search_cache_hits", "search_cache_misses"):
         FETCH_STATS[k] = 0
     MET_HOST.reset()
     FETCH_STATS["met_rate_final"] = MET_HOST.rate
 
 
-def _met_throttle(max_wait=None):
-    """Общий на процесс интервал между запросами к Мет. max_wait — предел
-    ожидания очереди (source_health.Skipped наружу, запрос не делается)."""
-    MET_HOST.wait(max_wait=max_wait)
+def _met_throttle():
+    """Общий на процесс интервал между запросами к Мет."""
+    MET_HOST.wait()
     with _STATS_LOCK:
         FETCH_STATS["met_requests"] += 1
 
@@ -296,18 +295,15 @@ def _met_enter_cooldown():
               f"дальше {MET_HOST.rate:.1f} запр/с (остальные музеи работают)")
 
 
-def _met_get(url, max_wait=None):
+def _met_get(url):
     """Запрос к Мет через ограничитель, с одним повтором на временных кодах.
 
     Возвращает None вместо исключения — вызывающий код обязан отличать
-    «карточка не пришла» от «карточка не подошла по паспорту». Исключение
-    одно: max_wait задан (путь отбора) и очередь ограничителя длиннее него —
-    source_health.Skipped, запрос не сделан (счёт met_skipped у вызывающего).
-    Инструменты без спешки (mirror-met) max_wait не передают и ждут."""
+    «карточка не пришла» от «карточка не подошла по паспорту»."""
     if met_is_cooling_down():
         return None
     for attempt in (0, 1):
-        _met_throttle(max_wait)
+        _met_throttle()
         try:
             return _get_json(url)
         except urllib.error.HTTPError as e:
@@ -541,18 +537,11 @@ def search_met(query, limit=MET_MAX_DETAIL_FETCHES, department=None):
         except Exception:
             cat_ids = []   # fail-open: каталог не обязан существовать
 
-    max_wait = source_health.max_wait_sec()
-    try:
-        data = _met_get(f"{MET_API}/search?hasImages=true&isPublicDomain=true"
-                        + (f"&dateBegin={int(window[0])}&dateEnd={int(window[1])}" if window else "")
-                        + (f"&departmentId={int(department)}" if department else "")
-                        + "&q=" + urllib.parse.quote(query), max_wait=max_wait)
-        skipped = False
-    except source_health.Skipped:
-        data, skipped = None, True
-        with _STATS_LOCK:
-            FETCH_STATS["met_skipped"] += 1
-    if data is None and not skipped:
+    data = _met_get(f"{MET_API}/search?hasImages=true&isPublicDomain=true"
+                    + (f"&dateBegin={int(window[0])}&dateEnd={int(window[1])}" if window else "")
+                    + (f"&departmentId={int(department)}" if department else "")
+                    + "&q=" + urllib.parse.quote(query))
+    if data is None:
         # Поиск не ответил (сеть, остывание). Кандидаты каталога остаются в
         # выдаче, как и раньше, но ответ неполон — search_museums не должна
         # класть его в дисковый кэш на месяц.
@@ -572,14 +561,7 @@ def search_met(query, limit=MET_MAX_DETAIL_FETCHES, department=None):
         o = _met_card_cached(oid)
         if o is not None:
             return o
-        try:
-            o = _met_get(f"{MET_API}/objects/{oid}", max_wait=max_wait)
-        except source_health.Skipped:
-            # Очередь Мет длиннее предела (много слотов разом или скорость
-            # после 403): карточка не спрашивается — не потеря сети, свой счёт.
-            with _STATS_LOCK:
-                FETCH_STATS["met_skipped"] += 1
-            return None
+        o = _met_get(f"{MET_API}/objects/{oid}")
         if o is None:
             with _STATS_LOCK:
                 FETCH_STATS["met_cards_lost"] += 1
@@ -819,7 +801,6 @@ def search_museums(query, department=None, limit=None):
     FETCH_STATS["search_cache_misses"] += 1
     cooldowns_before = FETCH_STATS["met_cooldowns"]
     search_failures_before = FETCH_STATS["met_search_failures"]
-    skipped_before = FETCH_STATS["met_skipped"]
     was_cooling = met_is_cooling_down()
 
     def _one(fn):
@@ -851,12 +832,6 @@ def search_museums(query, department=None, limit=None):
         for c in row:
             if c is not None:
                 out.append(c)
-    if FETCH_STATS["met_skipped"] != skipped_before:
-        # Часть запросов к Мет пропущена по очереди: ответ неполон и не
-        # кэшируется даже на прогон — следующий слот спросит снова, когда
-        # очередь схлынет. (Счётчик общий на процесс: чужой пропуск в то же
-        # время тоже снимет кэширование — это безопасная сторона.)
-        return out
     _SEARCH_CACHE[mem_key] = out
     # Неполный ответ (упавший музей, остывание Мет, неответивший поиск Мет)
     # в дисковый кэш не идёт: временный отказ замораживался бы на месяц.
