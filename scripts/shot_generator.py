@@ -61,7 +61,7 @@ import pathlib
 
 # Версия способа построения кадра: меняется промпт или разбор — меняется
 # ключ кэша, и кэш не отдаёт картинку, сделанную по старому правилу.
-GEN_VERSION = 3
+GEN_VERSION = 4
 
 # FLUX.1 [dev] вместо Klein 4B — решение владельца 30.09. Замер на одном
 # задании («рыцарь на коленях отдаёт перчатку»): у dev чище композиция и
@@ -89,9 +89,17 @@ LICENSES = {
     "am/flux.1-dev": "FLUX.1-dev: outputs usable commercially (s. 2(d)); no training of competing models",
 }
 
-STYLE_DEFAULT = ("Ink line drawing with colored pencil shading on textured paper, confident sketchy lines, "
-                 "limited palette of teal, ochre and warm red, dramatic cinematic light, "
-                 "no text, no numbers, no signs, no labels")
+# Стиль подобран серией из ~300 пробных картинок FLUX dev (30.09, глаза Claude, не
+# разметка владельца). Решение владельца: карандаш, не глянец, не «нейросетевое»,
+# короткие простые слова (dev плохо понимает длинные промпты).
+# Что замерено: «ink/colored pencil/палитра» даёт глянцевую цифровую графику и
+# подписи в углу; «page/sketchbook» рисует пустой лист с фигуркой; «no blank white»
+# тоже (читается буквально). Работает «уголь и карандаш на старой серо-коричневой
+# бумаге, рисунок от края до края»: фон заполнен, подписей нет, эпоха держится,
+# если описание кадра начинается словами «In the Middle Ages» (без эпохи модель
+# рисовала пиджаки, телефонный столб и грузовик).
+STYLE_DEFAULT = ("Charcoal and pencil drawing on old grey-brown paper. "
+                 "Dark smudged shading, rough strokes. Drawn from edge to edge. No text, no letters.")
 
 
 def style_for(profile=None):
@@ -119,18 +127,18 @@ def prompt_for(brief, card=None, style=None):
     return ", ".join([brief, style or STYLE_DEFAULT])
 
 
-DESCRIBE_VERSION = 1
+DESCRIBE_VERSION = 2
 DESCRIBE_PROMPT = """You write the picture description for ONE shot of a documentary film. An image model will draw it by hand.
 Narration line (the viewer hears it while seeing the picture): «{phrase}»
 What the viewer must see: «{focus}»
 Must be visible: {musts}{world}
 Rules — the image model is small and literal:
-1. Start with the main subject in plain words, then where it is. One or two sentences, at most 35 words.
+1. Use short, simple words, like for a child. ONE sentence, at most 20 words. Subject first, then where it is.
 2. If the subject is an object the model may not know by name, describe how it looks, or use a familiar object with the same meaning (a timer set for a short task -> a glass hourglass).
 3. Show an action through a close-up detail (a hand pressing a laptop lid shut), not a whole person doing it.
 4. People are ordinary and clothed. No famous people.
 5. No writing anywhere: no text, letters, numbers, dates, years, signs, labels, screens with words, documents, books with writing.
-6. If the world is historical, name the period in words inside the description, never as years or digits.
+6. If the world is historical, START the sentence with the period in plain words (for example «In the Middle Ages, ...»), never as years or digits. Without it the model draws modern clothes and things.
 7. Do not describe the drawing style, only what is in the picture.
 Reply with the description only."""
 

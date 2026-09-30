@@ -46,8 +46,8 @@ class Painter:
 
 def test_default_style_is_drawn_in_colour_and_forbids_text():
     s = sg.STYLE_DEFAULT.lower()
-    assert "ink" in s and "colored pencil" in s and "photograph" not in s
-    assert "no text" in s and "no numbers" in s
+    assert "pencil" in s and "charcoal" in s and "photograph" not in s and "ink" not in s.split()
+    assert "no text" in s and "edge to edge" in s
 
 
 def test_channel_profile_overrides_the_style():
