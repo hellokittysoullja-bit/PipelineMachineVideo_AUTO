@@ -186,19 +186,30 @@ def new_queries(video_dir, gateway, model, *, phrase, spec, setting, tried, reje
     """(запросы, откуда): с диска, если эта фраза с тем же поиском уже
     исследовалась, иначе — вопрос модели и запись на диск. Пустой ответ на
     диск не пишется: следующий прогон спросит снова."""
+    import llm_gateway
     key = unit_key(phrase)
-    sig = signature(model, setting, phrase, spec, tried, trigger)
     data = load(video_dir)
     entry = data.get(key)
-    if isinstance(entry, dict) and entry.get("sig") == sig and entry.get("queries"):
-        return entry["queries"], "disk"
+
+    def cached(m):
+        # Подпись — с моделью, которая ответила: ответ запасной (цепочка
+        # llm_gateway.text_chain) лежит под её именем, и первичная, когда
+        # поднимется, спрашивается заново, а не прячется за ним.
+        sig_m = signature(m, setting, phrase, spec, tried, trigger)
+        if isinstance(entry, dict) and entry.get("sig") == sig_m and entry.get("queries"):
+            return entry["queries"]
+        return None
     prompt = render_prompt(phrase, spec, setting, tried, rejections, trigger)
-    raw, _usage, _price = gateway.chat(model, [{"type": "text", "text": prompt}], MAX_TOKENS,
-                                       EST_PROMPT_TOKENS, reasoning=REASONING)
-    items = parse(raw, tried)
+    got = llm_gateway.chat_fallback(gateway, llm_gateway.text_chain(model),
+                                    [{"type": "text", "text": prompt}], MAX_TOKENS, EST_PROMPT_TOKENS,
+                                    cached=cached, reasoning=REASONING)
+    if got.from_cache:
+        return got[0], "disk"
+    items = parse(got[0], tried)
     if items:
         data = load(video_dir)
-        data[key] = {"sig": sig, "model": model, "phrase": phrase, "queries": items,
+        data[key] = {"sig": signature(got.model, setting, phrase, spec, tried, trigger),
+                     "model": got.model, "phrase": phrase, "queries": items,
                      "rejections": list(rejections), "trigger": trigger}
         save(video_dir, data)
     return items, "model"
