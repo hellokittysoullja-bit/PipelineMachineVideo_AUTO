@@ -194,6 +194,16 @@ def test_research_trigger_failed_weak_or_none(tmp_path):
     assert ps.research_trigger(_att(tmp_path)) is None, "без судьи (нет focus_met) — не трогаем"
 
 
+def test_replacement_with_no_must_met_counts_as_failed_slot(tmp_path):
+    """Эп.03 слот 0 (30.09): человек в костюме у стены на фразу «лежишь в
+    грязи» — ни одного обязательного пункта, держался на «предмет виден».
+    Это не замена, а «кадра нет» — сразу генерация."""
+    import pipeline_smart as ps
+    assert ps.research_trigger(_att(tmp_path, focus_met=False, musts_none=True)) == "failed"
+    assert ps.ladder_steps("failed")[0] == "generation"
+    assert ps.research_trigger(_att(tmp_path, focus_met=False, musts_none=False)) == "weak"
+
+
 def test_weak_substitute_is_replaced_only_by_a_strictly_better_frame(tmp_path):
     import pipeline_smart as ps
     cur = _att(tmp_path, focus_met=False, quality=((1, 0, 1), 2, False))

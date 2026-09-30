@@ -6758,6 +6758,12 @@ def research_trigger(att):
     кулаке) шла на экран без второй попытки."""
     if att is None or known_bad_reason(att.verdicts):
         return "failed"
+    if att.notes.get("focus_met") is False and att.notes.get("musts_none"):
+        # Замены в смысле «годный кадр про эту фразу» нет: не выполнено ни
+        # одно обязательное утверждение, держится на слове «предмет виден».
+        # Это «кадра нет» — сразу генерация, а не принятая замена. Кадр
+        # остаётся запасным: research_takes_over берёт любой годный.
+        return "failed"
     if att.notes.get("focus_met") is False:
         return "weak"
     if att.notes.get("world_doubt"):
@@ -8717,6 +8723,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
         if judged:
             selection_attempt.record_note("focus_met", bool(winner and winner.get("verify_focus")))
             selection_attempt.record_note("world_doubt", bool(winner and winner.get("verify_world_doubt")))
+            selection_attempt.record_note("musts_none", bool(winner and winner.get("verify_musts_none")))
         if (judged and judge_rejected(winner)) or (not judged and winner is not None and not screen_allowed(winner)):
             # Лучший кадр слота по оценке судьи — брак. Без судьи брак —
             # помеченный словарём запретов, которого проверка не очистила
@@ -12588,7 +12595,7 @@ def judge_candidates(index, kind, phrase, brief, candidates_info, spec=None):
     for c in candidates_info:
         c["judge"] = None
         c["verify"] = None
-        for k in ("_asked", "verify_skipped", "verify_focus", "verify_nothing", "verify_perfect", "world_clear", "verify_world_doubt",
+        for k in ("_asked", "verify_skipped", "verify_focus", "verify_nothing", "verify_perfect", "world_clear", "verify_world_doubt", "verify_musts_none",
                   "look_rank"):
             c.pop(k, None)
     if index is not None and index >= SHOT_JUDGE_PAID_SLOTS:
@@ -12826,6 +12833,11 @@ def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=
             c["verify_nothing"] = shot_judge.shows_nothing(
                 spec, ans, c["judge"] if isinstance(c.get("judge"), int) else None)
             c["verify_perfect"] = vec is not None and shot_judge.musts_met_clean(spec, ans)
+            # Ни одно обязательное утверждение не выполнено: кадр остался на
+            # экране только потому, что судья сказал «предмет виден» (30.09,
+            # эп.03 слот 0: человек в костюме упирается в стену на фразу
+            # «лежишь в грязи на поле боя»).
+            c["verify_musts_none"] = shot_judge.nothing_met(spec, ans)
             if grid_vetoed(c):
                 # Сетка того же судьи сказала «не по теме» (0), а проверка по
                 # пунктам — «да»: ответы противоречат, и верить нельзя
@@ -15476,6 +15488,7 @@ class VideoAdapter(selection_engine.MediaAdapter):
             selection_attempt.record_note("quality", winner_quality(winner))
             selection_attempt.record_note("focus_met", bool(winner.get("verify_focus")))
             selection_attempt.record_note("world_doubt", bool(winner.get("verify_world_doubt")))
+            selection_attempt.record_note("musts_none", bool(winner.get("verify_musts_none")))
         if (judged and judge_rejected(winner)) or (not judged and winner is not None and not screen_allowed(winner)):
             selection_attempt.record_verdict("judge", {
                 "index": index, "kind": "video", "query": query,
