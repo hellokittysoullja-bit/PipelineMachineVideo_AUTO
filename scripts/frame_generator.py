@@ -1,26 +1,23 @@
 #!/usr/bin/env python3
 """Кадры по плану (media_plan/frame_plan.json) -> frames/NNN.png.
 
-КАК ВЫБИРАЕТСЯ КАДР — связка старого генератора, не новая:
-  1. На кадр рисуется IMAGE_VARIANTS вариантов (по умолчанию 1: картинка
-     платная, и описание кадра должно попадать с первого раза).
-  2. Текст: нейросеть букв НЕ пишет никогда. Модель со зрением читает каждый
-     вариант — на сыром кадре не должно быть ни одной буквы (псевдонадписи
-     модели — брак). Русские подписи кладёт код (labels.py): Shantell Sans
-     ExtraBold, запасной Balsamiq Sans, без обводки; место — пустая нижняя
-     полоса или рамка от модели со зрением, пустота проверяется по пикселям.
-  3. Сетка судьи (shot_judge.judge): все варианты одной картинкой, оценка
-     0-3 по фразе и описанию кадра.
-  4. Проверка по утверждениям (shot_judge.verify_claims) лучших по сетке:
-     главное фразы, must/should из плана. Кадры
-     сравниваются вектором shot_judge.claims_vector в порядке спецификации.
-     Запрет «мультфильм/3D = брак» здесь выключен (cg_veto=False): канал
-     рисованный по замыслу.
-  5. Ничья по смыслу — shot_judge.rank_look («лучший как кадр фильма»).
-  6. Ни один вариант не годен — ещё раунд (IMAGE_ROUNDS). Не вышло и после
-     него — кадр помечается rejected и на экран НЕ идёт: сборщик отдаёт его
-     время соседнему проверенному кадру (NEVER_SHOW_KNOWN_BAD старого
-     генератора — «ни карточек, ни повторов», решение владельца).
+КАК ВЫБИРАЕТСЯ КАДР (картинка на фразу одна — она платная):
+  1. Рисуется IMAGE_VARIANTS вариантов (по умолчанию 1).
+  2. Текст: нейросеть букв НЕ пишет никогда. Модель со зрением читает
+     вариант — на сыром кадре не должно быть ни буквы, ни цифры (брак).
+     Русские подписи кладёт код (labels.py).
+  3. Проверка по утверждениям (shot_judge.verify_claims): главное фразы и
+     must из плана; «судья ответил: не то» — брак, «проверка не состоялась»
+     (сбой сети, нет судьи) — не брак, кадр идёт с пометкой unchecked.
+     Сетка судьи (shot_judge.judge) — только при 2+ вариантах: она сравнивает,
+     а её оценки на рисунках не откалиброваны. Запрет «мультфильм = брак»
+     выключен (cg_veto=False): канал рисованный.
+  4. Подписи на годный вариант. Брак или нет места под подписи — ещё раунд
+     (IMAGE_ROUNDS, по умолчанию 2: второй рисуется только при неудаче).
+     Годный рисунок без места под подписи и после всех раундов — подписи на
+     полосе цвета фона внизу, а не выброс кадра.
+  5. Брак во всех раундах — rejected: на экран не идёт, время отдаётся
+     соседнему кадру («ни карточек, ни повторов», решение владельца).
 
 КУДА РИСОВАТЬ: модель картинок шлюза (IMAGE_MODEL, IMAGE_SIZE, IMAGE_QUALITY
 в .env). На каждый кадр в модель уходят образцы стиля look/style/, на кадры
@@ -47,7 +44,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import env  # noqa: E402
 import labels  # noqa: E402
 
-GEN_VERSION = 3
+GEN_VERSION = 4
 TEXT_MATCH_MIN = 1.0        # только точное совпадение букв (см. докстринг, п.2)
 VERIFY_TOP = 3              # сколько лучших по сетке проверять по утверждениям
 READ_PROMPT = ("Transcribe every piece of text visible in this image exactly as written, "
@@ -90,12 +87,12 @@ def normalize(s):
 def text_score(expected, transcript):
     """(0..1, детали). Подпись найдена целиком в прочитанном (строки и склейки
     соседних строк: модель может разбить подпись на две) — 1.0, иначе 0.
-    Без подписей: 1.0, если букв не прочитано."""
+    Без подписей: 1.0, если не прочитано ни букв, ни цифр."""
     lines = [ln.strip() for ln in (transcript or "").splitlines() if ln.strip()]
     if len(lines) == 1 and lines[0].strip(" .").upper() == "NONE":
         lines = []
     if not expected:
-        letters = sum(len(re.sub(r"[^A-Za-zА-Яа-яЁё]", "", ln)) for ln in lines)
+        letters = sum(len(re.sub(r"[^0-9A-Za-zА-Яа-яЁё]", "", ln)) for ln in lines)   # и цифры: «777» — тоже брак
         return (1.0 if letters == 0 else 0.0), {"unexpected_text": lines}
     pool = [normalize(ln) for ln in lines]
     pool += [pool[i] + pool[i + 1] for i in range(len(pool) - 1)]
@@ -130,7 +127,6 @@ def make_backend(gateway):
 class Generator:
     def __init__(self, backend, video_dir, look, *, judge_gw=None, judge_model=None, variants=1, rounds=1):
         self.backend, self.video_dir, self.look = backend, video_dir, look
-        self.look_sig = look.signature()
         self.jgw, self.jmodel = judge_gw, judge_model
         self.variants, self.rounds = max(1, variants), max(1, rounds)
         self.cache_dir = os.path.join(video_dir, "media_plan", "image_cache")
@@ -141,10 +137,21 @@ class Generator:
         self.lock = threading.Lock()
         self.spent = 0
 
+    def task(self, frame):
+        """(промпт, с героем ли, отпечаток задания). Отпечаток — фраза, промпт,
+        модель, размер, качество и ТОТ облик, что реально уходит в модель
+        (герой — только на кадрах с героем): совпал — готовый кадр годен."""
+        with_hero = bool(frame.get("hero")) and self.look.hero is not None
+        prompt = build_prompt(frame, len(self.look.style), with_hero)
+        b = self.backend
+        sig = hashlib.sha256(f"{GEN_VERSION}|{frame.get('key')}|{b.model}|{b.size}|{b.quality}|"
+                             f"{self.look.signature(with_hero)}|{prompt}".encode("utf-8")).hexdigest()[:20]
+        return prompt, with_hero, sig
+
     # --- рисование с кэшем по (модель, размер, качество, облик, промпт, вариант)
     def _variant(self, prompt, v, with_hero):
         b = self.backend
-        key = hashlib.sha256(f"{GEN_VERSION}|{b.model}|{b.size}|{b.quality}|{self.look_sig}|{with_hero}|{prompt}|{v}"
+        key = hashlib.sha256(f"{GEN_VERSION}|{b.model}|{b.size}|{b.quality}|{self.look.signature(with_hero)}|{prompt}|{v}"
                              .encode("utf-8")).hexdigest()[:20]
         path = os.path.join(self.cache_dir, key + ".png")
         if os.path.exists(path) and os.path.getsize(path) > 0:
@@ -190,14 +197,17 @@ class Generator:
                 info[p].update(text_ok=ok >= TEXT_MATCH_MIN, text=det)
             except Exception as e:  # noqa: BLE001 — не прочли: текст не проверен
                 info[p]["text_error"] = f"{type(e).__name__}: {e}"[:200]
-        rep = {}
-        grid = shot_judge.judge(self.jgw, self.jmodel, phrase=frame["text"], brief=frame["spec"]["focus"],
-                                candidates=[(p, p) for p in cands], cache_dir=self.judge_cache,
-                                report=rep)
-        with self.lock:
-            self.spent += rep.get("cost", 0)
-        for p in cands:
-            info[p]["grid"] = (grid or {}).get(p)
+        # Сетка — СРАВНЕНИЕ вариантов; один вариант сравнивать не с чем, а как
+        # вето её оценки на рисунках не откалиброваны (вопросы писались под
+        # документальную съёмку) — поэтому сетка только при 2+ вариантах.
+        if len(cands) > 1:
+            rep = {}
+            grid = shot_judge.judge(self.jgw, self.jmodel, phrase=frame["text"], brief=frame["spec"]["focus"],
+                                    candidates=[(p, p) for p in cands], cache_dir=self.judge_cache, report=rep)
+            with self.lock:
+                self.spent += rep.get("cost", 0)
+            for p in cands:
+                info[p]["grid"] = (grid or {}).get(p)
         order = sorted(cands, key=lambda p: (info[p]["text_ok"] is not False, info[p]["grid"] or 0), reverse=True)
         for p in order[:VERIFY_TOP]:
             ans, vinfo = shot_judge.verify_claims(
@@ -211,64 +221,79 @@ class Generator:
         return info
 
     @staticmethod
-    def _acceptable(i):
-        return i["text_ok"] is not False and i["vector"] is not None and (i["grid"] is None or i["grid"] > 0)
+    def _verdict(i):
+        """"ok" — проверен и годен; "unchecked" — проверка не состоялась (нет
+        судьи, сбой сети, неразобранный ответ): это не брак, кадр идёт с пометкой;
+        None — брак (буквы на кадре, судья ответил «не то»)."""
+        if i["text_ok"] is False or (i["grid"] is not None and i["grid"] <= 0):
+            return None
+        if i["vector"] is not None:
+            return "ok"
+        return "unchecked" if i["answers"] is None else None
 
     def frame(self, frame):
-        import shot_judge
-        with_hero = bool(frame.get("hero")) and self.look.hero is not None
-        prompt = build_prompt(frame, len(self.look.style), with_hero)
-        rec = {"index": frame["index"], "kind": frame["kind"], "labels": frame.get("labels"),
-               "hero": with_hero, "prompt": prompt, "rounds": [], "path": None}
-        pool = {}
+        prompt, with_hero, sig = self.task(frame)
+        rec = {"index": frame["index"], "key": frame.get("key"), "sig": sig, "kind": frame["kind"],
+               "labels": frame.get("labels"), "hero": with_hero, "prompt": prompt, "rounds": [], "path": None}
+        out = os.path.join(self.out_dir, f"{frame['index'] + 1:03d}.png")
+        pool, tries = {}, []
+
+        def ranked():
+            good = [p for p, i in pool.items() if self._verdict(i)]
+            return sorted(good, key=lambda p: (self._verdict(pool[p]) == "ok", pool[p]["vector"] or (),
+                                               pool[p]["grid"] or 0), reverse=True)
+
+        def done(p, info, fallback=None):
+            rec.update(status=self._verdict(pool[p]), path=os.path.relpath(out, self.video_dir),
+                       chosen=os.path.basename(p), labels_placed=info, label_tries=tries,
+                       candidates={os.path.basename(q): i for q, i in pool.items()})
+            if fallback:
+                rec["labels_fallback"] = fallback
+            return rec
+
+        # Раунд: нарисовать, проверить, положить подписи. Второй раунд (платный)
+        # — только если в первом не вышло ни проверки, ни подписей.
         for rnd in range(self.rounds):
             new = []
             for v in range(rnd * self.variants, (rnd + 1) * self.variants):
                 try:
-                    p, _cached = self._variant(prompt, v, with_hero)
-                    new.append(p)
+                    new.append(self._variant(prompt, v, with_hero)[0])
                 except Exception as e:  # noqa: BLE001 — сбой одного варианта не сбой кадра
                     rec["rounds"].append({"round": rnd, "variant": v, "error": f"{type(e).__name__}: {e}"[:300]})
                     if type(e).__name__ in ("BudgetExhausted", "PaymentRequired"):
                         break
-            if not new and not pool:
-                continue
-            pool.update(self._judge(frame, new) if new else {})
-            if not self.jgw or any(self._acceptable(i) for i in pool.values()):
-                break
+            if new:
+                pool.update(self._judge(frame, new))
+            for p in [q for q in ranked() if q in new]:
+                ok, info = labels.compose(p, out, frame, self.jgw, self.jmodel, self.judge_cache)
+                tries.append({"variant": os.path.basename(p), "ok": ok, "info": info})
+                if ok:
+                    return done(p, info)
+        good = ranked()
+        if good:
+            # Годный рисунок, но места под подпись не нашлось ни в одном раунде:
+            # подпись — на полосе цвета фона, а не выброс кадра (иначе на экране
+            # висела бы прошлая картинка под новую фразу).
+            ok, info = labels.compose(good[0], out, frame, self.jgw, self.jmodel, self.judge_cache, fallback=True)
+            tries.append({"variant": os.path.basename(good[0]), "ok": ok, "info": info, "fallback": True})
+            if ok:
+                return done(good[0], info, fallback=info[0].get("fallback") if info else "unlabeled")
+        rec["candidates"] = {os.path.basename(q): i for q, i in pool.items()}
+        rec["label_tries"] = tries
         if not pool:
             rec["status"] = "failed"
-            return rec
-        if not self.jgw:
-            ranked, status = sorted(pool), "unchecked"
         else:
-            good = [p for p, i in pool.items() if self._acceptable(i)]
-            ranked = sorted(good, key=lambda p: (pool[p]["vector"], pool[p]["grid"] or 0), reverse=True)
-            if len(ranked) > 1:
-                top = [p for p in ranked if (pool[p]["vector"], pool[p]["grid"]) == (pool[ranked[0]]["vector"], pool[ranked[0]]["grid"])]
-                if len(top) > 1:
-                    order, _ = shot_judge.rank_look(self.jgw, self.jmodel, paths=top,
-                                                    cache_dir=self.judge_cache)
-                    if order:
-                        ranked = [top[k] for k in order] + [p for p in ranked if p not in top]
-            status = "ok"
-        out = os.path.join(self.out_dir, f"{frame['index'] + 1:03d}.png")
-        rec["candidates"] = {os.path.basename(p): i for p, i in pool.items()}
-        if not ranked:
-            rec["status"] = "rejected"
-            rec["reason"] = "ни один вариант не прошёл проверку"
-            return rec
-        # Подписи — кодом, на лучший вариант; не легли — на следующий годный.
-        tries = []
-        for p in ranked:
-            ok, info = labels.compose(p, out, frame, self.jgw, self.jmodel, self.judge_cache)
-            tries.append({"variant": os.path.basename(p), "ok": ok, "info": info})
-            if ok:
-                rec.update(status=status, path=os.path.relpath(out, self.video_dir), chosen=os.path.basename(p),
-                           labels_placed=info, label_tries=tries)
-                return rec
-        rec.update(status="rejected", reason="подписи не легли ни на один годный вариант", label_tries=tries)
+            rec.update(status="rejected", reason="ни один вариант не прошёл проверку (буквы на кадре или «не то»)")
         return rec
+
+
+def done_sigs(video_dir):
+    """{номер кадра: отпечаток} готовых кадров из отчёта (годных к показу)."""
+    try:
+        frames = json.load(open(os.path.join(video_dir, "media_plan", "frames_report.json"), encoding="utf-8"))["frames"]
+    except (OSError, ValueError, KeyError):
+        return {}
+    return {r["index"]: r.get("sig") for r in frames if r.get("status") not in ("rejected", "failed")}
 
 
 def write_report(video_dir, recs, extra):
@@ -305,18 +330,23 @@ def main():
     plan = json.load(open(os.path.join(a.video_dir, "media_plan", "frame_plan.json"), encoding="utf-8"))
     if plan.get("has_hero") and look.hero is None:
         sys.exit("План составлен с героем, а look/hero.* нет: положите героя или перепланируйте (--force).")
+    cap = os.environ.get("IMAGE_MAX_SPEND", "").strip()
+    img_gw = llm_gateway.Gateway(spend_cap=int(cap) if cap else None)
+    backend = make_backend(img_gw)
     only = {int(x) - 1 for x in a.only.split(",") if x.strip()}
+    done = done_sigs(a.video_dir)
+    probe = Generator(backend, a.video_dir, look)
+    # Готовый кадр берётся, только если его отпечаток совпал: фраза, промпт,
+    # модель и облик те же. Правка сценария, плана или образцов — перерисовка.
     todo = [f for f in plan["frames"] if (not only or f["index"] in only) and
-            (a.force or not os.path.exists(os.path.join(a.video_dir, "frames", f"{f['index'] + 1:03d}.png")))]
+            (a.force or done.get(f["index"]) != probe.task(f)[2]
+             or not os.path.exists(os.path.join(a.video_dir, "frames", f"{f['index'] + 1:03d}.png")))]
     if not todo:
         print("Все кадры уже выбраны.")
         return 0
 
-    cap = os.environ.get("IMAGE_MAX_SPEND", "").strip()
-    img_gw = llm_gateway.Gateway(spend_cap=int(cap) if cap else None)
-    backend = make_backend(img_gw)
     variants = int(os.environ.get("IMAGE_VARIANTS", "1"))
-    rounds = int(os.environ.get("IMAGE_ROUNDS", "1"))
+    rounds = int(os.environ.get("IMAGE_ROUNDS", "2"))
     per = img_gw.image_cost(backend.model, backend.size, backend.quality, 1)
     print(f"Модель {backend.model} ({backend.size}, {backend.quality or 'auto'}): картинка {per}, "
           f"до {per * variants * rounds * len(todo)} токенов баланса на {len(todo)} кадров")
@@ -343,7 +373,7 @@ def main():
     with ThreadPoolExecutor(max(1, int(os.environ.get("IMAGE_WORKERS", "3")))) as ex:
         recs = list(ex.map(gen.frame, todo))
     path = write_report(a.video_dir, recs, {"model": backend.model, "size": backend.size,
-                                            "quality": backend.quality, "look": gen.look_sig,
+                                            "quality": backend.quality, "look": look.signature(True),
                                             "judge_model": judge_model if jgw else None,
                                             "spent_this_run": gen.spent, "gateway": gw.summary()})
     by = {}

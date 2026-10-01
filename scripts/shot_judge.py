@@ -209,7 +209,6 @@ def _file_digest(path):
     return h.hexdigest()
 
 
-
 def _cache_write(cp, payload, readable=False):
     """Запись в кэш — по возможности. Не записалось (кончилось место на
     диске, 24.09: замер упал с OSError посреди прогона) — ответ модели уже
@@ -330,87 +329,6 @@ def judge(gateway, model, *, phrase, brief, candidates, cache_dir=None, report=N
     return result
 
 
-# ПРОВЕРКА МИРА ПОБЕДИТЕЛЯ — узкий вопрос по ОДНОМУ кадру. Шкала в сетке
-# одобряет кадры чужой эпохи и с современными вещами стабильно, во всех
-# прогонах (марокканское конное шоу, реконструкция Гражданской войны США,
-# видео со стрелами в табличках «HOMEWORK»). Тот же вопрос по одному
-# кадру — «может ли то, что на нём, существовать в мире эпизода» — модель
-# видит: называет тбуриду с баннерами Coca-Cola, мундиры XIX-XX века.
-# Замер 23.09 (36 размеченных кадров эпизода 94, два прогона без кэша,
-# совпадение ответов 32 из 36): брак (0) проходит 1-2 из 13, «не тот
-# предмет/эпоха/культура» (1) — 5 из 16, годные (2) — 3-4 из 7 (два из
-# отклонённых годных — рыцарский турнир с современными зрителями). Из
-# семи кадров, которые сетка одобряла во всех прогонах, отклонены шесть.
-# Цена — ~200 токенов баланса на кадр. Вопрос — ровно замеренный (второй
-# пункт про предмет в нём остаётся ради тождества замеру, но не читается:
-# он требует точной композиции и отклоняет годные).
-WORLD_CHECK_VERSION = 1
-WORLD_PROMPT = """You check one shot for a documentary video.
-Narration line: «{phrase}»
-Required shot: «{brief}»
-The episode's world: {setting}.
-Look at the picture carefully and answer two questions:
-1. world: does it show anything that could NOT exist in that world — modern people, modern clothing or haircuts, modern objects or vehicles, printed text or signs, spectators of a modern show, or a different era or culture?
-2. subject: is the main subject the kind of thing the required shot asks for?
-Reply with JSON only: {{"world_ok": true/false, "subject_ok": true/false, "why": "<short>"}}"""
-WORLD_VIDEO_NOTE = "\nThe picture shows three frames (beginning, middle, end) of ONE video clip."
-
-
-def parse_world(text):
-    """(True/False, почему) или (None, None) — ответ не разобран."""
-    import re
-    m = re.search(r"\{.*\}", text or "", re.S)
-    if not m:
-        return None, None
-    try:
-        j = json.loads(m.group(0))
-    except ValueError:
-        return None, None
-    ok = j.get("world_ok")
-    return (ok, str(j.get("why") or "")[:300]) if isinstance(ok, bool) else (None, None)
-
-
-def world_check(gateway, model, *, phrase, brief, setting, path, kind="photo", cache_dir=None):
-    """(True — мир не нарушен / False — нарушен / None — проверки не было,
-    почему, {"cost", "call", "cache_hit"}). Без строки мира не спрашивает:
-    «чужая эпоха» без мира не определена."""
-    if not setting or gateway is None or not path or not os.path.exists(path):
-        return None, None, {}
-    text = WORLD_PROMPT.format(phrase=phrase or "—", brief=brief or phrase or "—", setting=setting)
-    if kind == "video":
-        text += WORLD_VIDEO_NOTE
-    h = hashlib.sha256()
-    for part in ("world", str(WORLD_CHECK_VERSION), model, text, _file_digest(path)):
-        h.update(part.encode("utf-8"))
-        h.update(b"\0")
-    cp = os.path.join(cache_dir, "world_" + h.hexdigest() + ".json") if cache_dir else None
-    if cp and os.path.exists(cp):
-        try:
-            c = json.load(open(cp, encoding="utf-8"))
-            return c["ok"], c["why"], {"cache_hit": True}
-        except Exception:
-            pass
-    from PIL import Image
-    try:
-        with Image.open(path) as im:
-            im = flat_rgb(im)
-        im.thumbnail((1024, 1024))
-        buf = io.BytesIO()
-        im.save(buf, "JPEG", quality=88)
-    except Exception:
-        return None, None, {}
-    content = [{"type": "text", "text": text}, {"type": "image_url", "image_url": {
-        "url": "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()}}]
-    try:
-        answer, _u, price = gateway.chat(model, content, 400, 1200)
-    except Exception as e:  # noqa: BLE001 — сбой шлюза: проверки не было
-        return None, None, {"refused": f"{type(e).__name__}: {e}"[:200]}
-    ok, why = parse_world(answer)
-    if ok is not None and cp:
-        _cache_write(cp, {"ok": ok, "why": why, "model": model}, readable=True)
-    return ok, why, {"cost": price, "call": True}
-
-
 # Общие части вопроса проверки кадра (verify_claims ниже). Прежняя проверка
 # по пунктам «тот ли предмет: yes/close/no» + замены из плана (VERIFY_VERSION
 # 3) удалена: «close» засчитывал замену без главного — нагрудник на фразе
@@ -528,215 +446,6 @@ def world_of_image(gateway, model, *, setting, path, kind="photo", cache_dir=Non
     if cp:
         _cache_write(cp, {"answers": answers, "model": model}, readable=True)
     return answers, {"cost": price, "call": True}
-
-
-# РАМКА СМЫСЛОВОЙ ДЕТАЛИ — где на кадре то, о чём фраза. Нужна рисункам и
-# страницам рукописей: миниатюра битвы — это страница с текстом и полями, а
-# фраза — про одну сцену на ней. Документалисты показывают деталь медленным
-# наездом, а не страницу целиком; рендер (pipeline_smart.focus_crop) вырезает
-# область вокруг рамки (focus_frame.crop_region). Спрашивается ОДИН раз у
-# одобренного победителя, и вырезку судья потом смотрит сам (confirm_crop):
-# на странице бывает несколько сцен, и рамка может лечь не на ту.
-#
-# Формат — шкала 0-1000, родная для моделей Qwen: замер 24.09 на восьми
-# случаях с известной рамкой (страницы Азенкура, Фиоре, Тальхоффера,
-# миниатюра Азенкура) — при вопросе «доли кадра» модель половину ответов всё
-# равно дала в тысячных. Поле «what» (что в рамке, до самой рамки) — замер
-# того же дня: без него 7 из 8 рамок легли на нужную сцену (на странице
-# Фиоре — нижний рисунок вместо верхнего), с ним — 8 из 8.
-FOCUS_BOX_VERSION = 2
-FOCUS_BOX_PROMPT = """Look at this picture. Find the part of it that shows: «{focus}».
-Reply with JSON only: {{"what": "what is inside the box, in a few words", "box": [x0, y0, x1, y1]}} — coordinates on a 0-1000 scale (0 = left or top edge of the picture, 1000 = right or bottom edge), the tightest box that still contains all of it.
-Reply {{"what": "", "box": null}} if it fills most of the picture or is not in the picture."""
-FOCUS_CONFIRM_PROMPT = """Does this picture clearly show: «{focus}»?
-Reply with JSON only: {{"shows": "yes"}} or {{"shows": "no"}}."""
-FOCUS_BOX_MIN_AREA = 0.002     # меньше — точка, а не деталь: скорее ошибка разметки
-FOCUS_BOX_MAX_AREA = 0.70      # больше — и так почти весь кадр, вырезать незачем
-
-
-def parse_box(answer):
-    """[x0, y0, x1, y1] долями кадра или None: без рамки, неразборчиво,
-    рамка вне кадра, точка или почти весь кадр. Шкала 0-1000 (о ней
-    просит вопрос) и доли (так модель тоже иногда отвечает) — обе."""
-    import re
-    m = re.search(r"\{.*\}", answer or "", re.S)
-    try:
-        j = json.loads(m.group(0)) if m else None
-    except ValueError:
-        return None
-    box = j.get("box") if isinstance(j, dict) else None
-    if not isinstance(box, list) or len(box) != 4:
-        return None
-    try:
-        vals = [float(v) for v in box]
-    except (TypeError, ValueError):
-        return None
-    if max(vals) > 1.0:
-        if max(vals) > 1000.0:
-            return None
-        vals = [v / 1000.0 for v in vals]
-    x0, y0, x1, y1 = vals
-    if not (0.0 <= x0 < x1 <= 1.0 and 0.0 <= y0 < y1 <= 1.0):
-        return None
-    area = (x1 - x0) * (y1 - y0)
-    if not FOCUS_BOX_MIN_AREA <= area <= FOCUS_BOX_MAX_AREA:
-        return None
-    return [round(x0, 4), round(y0, 4), round(x1, 4), round(y1, 4)]
-
-
-def _ask_image(gateway, model, *, kind, text, path, cache_dir, max_side, reasoning, max_tokens):
-    """(ответ | None, info): вопрос по картинке с кэшем по тексту вопроса,
-    картинке и модели. Сбой шлюза — None."""
-    h = hashlib.sha256()
-    for part in (kind, model, text, str(max_side), repr(reasoning), _file_digest(path)):
-        h.update(part.encode("utf-8"))
-        h.update(b"\0")
-    cp = os.path.join(cache_dir, f"{kind}_{h.hexdigest()}.json") if cache_dir else None
-    if cp and os.path.exists(cp):
-        try:
-            return json.load(open(cp, encoding="utf-8"))["answer"], {"cache_hit": True}
-        except Exception:
-            pass
-    try:
-        image = _image_content(path, max_side)
-        answer, _u, price = gateway.chat(model, [{"type": "text", "text": text}, image],
-                                         max_tokens, 900, reasoning=reasoning)
-    except Exception as e:  # noqa: BLE001 — ответа нет: кадр идёт как раньше
-        return None, {"refused": f"{type(e).__name__}: {e}"[:200]}
-    if cp and answer:
-        _cache_write(cp, {"answer": answer, "model": model}, readable=True)
-    return answer, {"cost": price, "call": True}
-
-
-def locate_box(gateway, model, *, path, focus, cache_dir=None, max_side=1024, reasoning=False):
-    """(рамка | None, info). info["what"] — что модель увидела в рамке."""
-    if gateway is None or not path or not os.path.exists(path) or not focus:
-        return None, {}
-    text = FOCUS_BOX_PROMPT.format(focus=" ".join(str(focus).split())[:200])
-    answer, info = _ask_image(gateway, model, kind=f"focusbox{FOCUS_BOX_VERSION}", text=text,
-                              path=path, cache_dir=cache_dir, max_side=max_side,
-                              reasoning=reasoning, max_tokens=160)
-    if answer is None:
-        return None, info
-    try:
-        what = json.loads(answer[answer.index("{"): answer.rindex("}") + 1]).get("what")
-    except (ValueError, AttributeError):
-        what = None
-    return parse_box(answer), dict(info, what=(str(what)[:120] if what else None))
-
-
-def parse_shows(answer):
-    """True / False / None (неразборчиво) из ответа на FOCUS_CONFIRM_PROMPT."""
-    try:
-        j = json.loads(answer[answer.index("{"): answer.rindex("}") + 1])
-    except (ValueError, AttributeError, TypeError):
-        return None
-    v = str((j or {}).get("shows") or "").strip().lower() if isinstance(j, dict) else ""
-    return True if v == "yes" else False if v == "no" else None
-
-
-def confirm_crop(gateway, model, *, path, focus, cache_dir=None, max_side=1024, reasoning=False):
-    """(видно ли на вырезке то, о чём фраза: True/False/None, info). None —
-    вопроса не было или ответ неразборчив: вызывающий вырезку НЕ ставит."""
-    if gateway is None or not path or not os.path.exists(path) or not focus:
-        return None, {}
-    text = FOCUS_CONFIRM_PROMPT.format(focus=" ".join(str(focus).split())[:200])
-    answer, info = _ask_image(gateway, model, kind=f"focusok{FOCUS_BOX_VERSION}", text=text,
-                              path=path, cache_dir=cache_dir, max_side=max_side,
-                              reasoning=reasoning, max_tokens=40)
-    return (None if answer is None else parse_shows(answer)), info
-
-
-# ВЫБОР СРЕДИ РАВНЫХ ПО СМЫСЛУ. Проверка по утверждениям и сетка судьи
-# часто оставляют ничью наверху: у judge12/13 эп.94 в 6-8 из 16-17 пар
-# «слот, вид» лучший вектор утверждений был у нескольких кадров сразу, а у
-# 2 из 7 фото-слотов judge13 — и при равной оценке сетки. Ничью дальше
-# решали релевантность эмбеддинга, ритм крупностей и эстетика LAION —
-# и LAION на кинематографичность не отвечает вообще: замер 24.09 на 133
-# финалистах judge12/13, размеченных глазами Claude (сильный / простой /
-# слабый кадр), — 0.510 верных пар, уровень монетки. Тот же судья, которому
-# показали равных СЕТКОЙ и попросили упорядочить как кадры фильма, — 0.846
-# верных пар (188 пар, 10 групп); та же разметка по одному кадру за раз —
-# 0.68-0.74. Сравнение соседей надёжнее абсолютной оценки, поэтому вопрос —
-# порядок, а не баллы. Спрашивается только при ничьей наверху, один раз на
-# слот и вид.
-LOOK_VERSION = 1
-LOOK_MAX = 9
-LOOK_TILE = (480, 320)
-LOOK_PROMPT = """These {k} numbered pictures are candidates for the same shot of a documentary film; all of them show the right subject. Rank them from the best to the worst AS A FILM SHOT — light, composition, a clear subject, nothing distracting in the frame (onlookers, cars, signs, clutter), not an amateur snapshot. Do not judge what they show.
-Reply with JSON only: {{"order": [numbers from best to worst]}}"""
-LOOK_PROMPT_VIDEO = """These {k} numbered rows are candidate video clips for the same shot of a documentary film (each row shows three frames of one clip); all of them show the right subject. Rank the clips from the best to the worst AS A FILM SHOT — light, composition, a clear subject, nothing distracting in the frame (onlookers, cars, signs, clutter), not an amateur video. Do not judge what they show.
-Reply with JSON only: {{"order": [numbers from best to worst]}}"""
-
-
-def parse_order(answer, k):
-    """Порядок 0..k-1 (лучший первым) из ответа судьи или None. Номера вне
-    сетки и повторы отбрасываются; пропущенные встают в конец в исходном
-    порядке — судья мог не назвать самые слабые. Ни одного номера — None."""
-    import re
-    m = re.search(r"\[[^\]]*\]", answer or "")
-    if not m:
-        return None
-    out = []
-    for tok in re.findall(r"\d+", m.group(0)):
-        n = int(tok) - 1
-        if 0 <= n < k and n not in out:
-            out.append(n)
-    if not out:
-        return None
-    return out + [n for n in range(k) if n not in out]
-
-
-def look_question(kind, k, style=None):
-    """Вопрос «лучший как кадр фильма». style — облик ЭТОГО фильма из
-    паспорта (look.style): кадр фильма для детей и для взрослой
-    документалки хорош по-разному. Замер 26.09 на 188 размеченных парах
-    эп.94: верных пар 0.862 без облика против 0.899 с ним. Облика нет —
-    вопрос прежний байт в байт. Только фото: у видео замера нет, и вопрос
-    к ленте кадров без замера не меняется."""
-    text = (LOOK_PROMPT_VIDEO if kind == "video" else LOOK_PROMPT).format(k=k)
-    style = " ".join((style or "").split())
-    if style and kind != "video":
-        text = text.replace("of a documentary film", f"of a documentary film shown as: {style}", 1)
-    return text
-
-
-def rank_look(gateway, model, *, paths, kind="photo", cache_dir=None, style=None):
-    """(порядок 0..k-1, info) — кадры-равные по смыслу, упорядоченные как
-    кадры фильма; None — вопроса не было или ответ неразборчив."""
-    paths = [p for p in paths if p and os.path.exists(p)][:LOOK_MAX]
-    if gateway is None or len(paths) < 2:
-        return None, {}
-    text = look_question(kind, len(paths), style)
-    # Фото — плитки крупнее, чем у сетки смысла: вид кадра судится по свету
-    # и мелочам в кадре. Замер на той же разметке: сетка смысла 3x3 400x300 —
-    # 0.814 верных пар, плитки 480x320 в две-три колонки — 0.846-0.862.
-    cols, tile = (None, None) if kind == "video" else (2 if len(paths) <= 4 else 3, LOOK_TILE)
-    key = cache_key(model, "look" + str(LOOK_VERSION) + text + repr((cols, tile)), paths)
-    cp = os.path.join(cache_dir, "look_" + key + ".json") if cache_dir else None
-    if cp and os.path.exists(cp):
-        try:
-            return json.load(open(cp, encoding="utf-8"))["order"], {"cache_hit": True}
-        except Exception:
-            pass
-    content = [{"type": "text", "text": text}, {"type": "image_url", "image_url": {
-        "url": "data:image/jpeg;base64," + base64.b64encode(
-            _grid_bytes(paths, kind, cols=cols, tile=tile)).decode()}}]
-    try:
-        answer, _u, price = gateway.chat(model, content, 120, EST_PROMPT_TOKENS, reasoning=GRID_REASONING)
-    except Exception as e:  # noqa: BLE001 — нет ответа: ничью решают прежние ключи
-        return None, {"refused": f"{type(e).__name__}: {e}"[:200]}
-    order = parse_order(answer, len(paths))
-    if order is not None and cp:
-        _cache_write(cp, {"order": order, "model": model}, readable=True)
-    return order, {"cost": price, "call": True}
-
-
-def spec_from_brief(phrase, brief):
-    """Спецификация без плана: одно must-утверждение — бриф (или сама фраза).
-    Путь один и тот же со спецификацией и без неё."""
-    text = (brief or phrase or "").strip() or "—"
-    return {"focus": text, "claims": [{"id": "c1", "text": text, "tier": "must"}]}
 
 
 def shows_motion(kind, frames=None):
@@ -862,11 +571,6 @@ def claims_vector(spec, answers, *, world_veto=True, cg_veto=True):
     return (0.0 if foreign else 1.0,) + tuple(musts) + (clean,) + tuple(shoulds)
 
 
-def focus_met(spec, answers):
-    """Кадр показывает главное: первое утверждение — «да»."""
-    return claim_values(spec, answers)[spec["claims"][0]["id"]] >= 1.0
-
-
 def nothing_met(spec, answers):
     """Кадр не показывает из спецификации НИЧЕГО обязательного: каждое
     must-утверждение — «нет». Это брак — кроме случая, когда на прямой
@@ -900,20 +604,6 @@ def shows_nothing(spec, answers, grid=None):
     на 10:07 прошли как «часы у полуночи»). Одно правило для рендера и для
     бенча: две копии уже расходились — бенч не знал про сетку 0."""
     return nothing_met(spec, answers) or grid == 0
-
-
-def musts_met_clean(spec, answers):
-    """Все must-утверждения — «да», мир свой и фон чистый: лучше этот кадр по
-    смыслу не станет, второй вид медиа искать незачем."""
-    vals = claim_values(spec, answers)
-    return (all(vals[c["id"]] >= 1.0 for c in spec["claims"] if c["tier"] == "must")
-            and answers.get("main_in_world") is not False
-            and not answers.get("background_foreign"))
-
-
-def world_clear(answers):
-    """Проверка мира состоялась и ничего чужого на кадре нет."""
-    return (answers or {}).get("main_in_world") is True and answers.get("background_foreign") is False
 
 
 def _image_content(path, max_side):

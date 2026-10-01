@@ -59,10 +59,33 @@ def test_hero_is_only_explicit_true():
     assert ok(True) is True and ok("yes") is False and ok(None) is False
 
 
-def test_hero_never_on_three_frames_in_a_row():
-    frames = [{"hero": h} for h in (True, True, True, True, False, True, True, True)]
-    assert fp.limit_hero_runs(frames) == 2
-    assert [f["hero"] for f in frames] == [True, True, False, True, False, True, True, False]
+def test_hero_never_three_in_a_row_and_at_most_a_third():
+    frames = [{"hero": h, "picture": "the main character waves"} for h in
+              (True, True, True, True, False, True, True, False, False, False, False, False)]
+    trimmed = fp.limit_hero(frames)
+    heroes = [f["hero"] for f in frames]
+    assert sum(heroes) <= int(fp.MAX_HERO_SHARE * len(frames))
+    assert not any(heroes[i] and heroes[i + 1] and heroes[i + 2] for i in range(len(heroes) - 2))
+    assert trimmed == 6 - sum(heroes)
+    # снятый герой не превращается в «другого главного героя»
+    assert all(f["picture"] == "a person waves" for f in frames if not f["hero"] and "person" in f["picture"])
+    assert all("main character" in f["picture"] for f in frames if f["hero"])
+
+
+def test_no_hero_file_means_no_hero_anywhere(tmp_path):
+    (tmp_path / "script.txt").write_text("=== HOOK ===\nРаз. [pause] Два.\n", encoding="utf-8")
+
+    class GW:
+        def chat(self, model, content, max_tokens, est, **kw):
+            import re
+            nums = re.findall(r"^(\d+)\. «", content[0]["text"], re.M)
+            return "\n".join(line(int(n), {"kind": "scene", "hero": True,
+                                            "picture": "the main character sits by a small campfire"})
+                             for n in nums), {}, 1
+
+    plan = fp.plan_episode(str(tmp_path), GW(), model="fake", verbose=False, has_hero=False)
+    assert not any(f["hero"] for f in plan["frames"])
+    assert all("main character" not in f["picture"] for f in plan["frames"])
 
 
 def test_packets_group_by_section_with_tail():

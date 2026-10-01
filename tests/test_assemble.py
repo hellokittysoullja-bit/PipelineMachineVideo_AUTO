@@ -15,8 +15,14 @@ def test_end_to_end_assembly_on_old_render_chain(tmp_path):
     (tmp_path / "frames").mkdir()
     (tmp_path / "script.txt").write_text(
         "=== HOOK ===\nПредставь, что тебе семь лет. [pause] Школы нет. [pause] Жив. Полностью.\n", encoding="utf-8")
+    sys.path.insert(0, os.path.join(ROOT, "scripts"))
+    from frame_planner import unit_key
+    texts = ["Представь, что тебе семь лет.", "Школы нет.", "Жив. Полностью."]
     for i in (1, 3):     # кадр 2 отсутствует — его время должен получить сосед
         Image.new("RGB", (1664, 928), "white").save(tmp_path / "frames" / f"{i:03d}.png")
+    (tmp_path / "media_plan").mkdir()
+    json.dump({"frames": [{"index": i - 1, "key": unit_key(texts[i - 1]), "status": "ok"} for i in (1, 3)]},
+              open(tmp_path / "media_plan" / "frames_report.json", "w"))
     subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=duration=6",
                     str(tmp_path / "audio.mp3")], check=True)
     env = dict(os.environ, RENDER_WORKERS="2")
@@ -34,23 +40,24 @@ def test_end_to_end_assembly_on_old_render_chain(tmp_path):
 
 
 @pytest.mark.skipif(not shutil.which("ffmpeg"), reason="нужен ffmpeg")
-def test_rejected_frame_is_not_shown(tmp_path):
+def test_rejected_and_foreign_frames_are_not_shown(tmp_path):
     from PIL import Image
-    (tmp_path / "frames").mkdir()
-    (tmp_path / "media_plan").mkdir()
-    (tmp_path / "script.txt").write_text("=== HOOK ===\nРаз. [pause] Два. [pause] Три.\n", encoding="utf-8")
-    for i in (1, 2, 3):
-        Image.new("RGB", (1664, 928), "white").save(tmp_path / "frames" / f"{i:03d}.png")
-    json.dump({"frames": [{"index": 1, "status": "rejected"}]},
-              open(tmp_path / "media_plan" / "frames_report.json", "w"))
     sys.path.insert(0, os.path.join(ROOT, "scripts"))
     import assemble_frames
-    kept, absorbed = assemble_frames.kept_frames(str(tmp_path), 3)
-    assert kept == [0, 2] and absorbed == [{"index": 1, "reason": "rejected"}]
-
-
-
-
+    from frame_planner import unit_key
+    (tmp_path / "frames").mkdir()
+    (tmp_path / "media_plan").mkdir()
+    for i in (1, 2, 3):
+        Image.new("RGB", (64, 36), "white").save(tmp_path / "frames" / f"{i:03d}.png")
+    blocks = [{"text": "Раз."}, {"text": "Два."}, {"text": "Три."}]
+    json.dump({"frames": [{"index": 0, "key": unit_key("Раз."), "status": "ok"},
+                          {"index": 1, "key": unit_key("Два."), "status": "rejected"},
+                          # кадр 3 нарисован под фразу, которой в сценарии больше нет на этом месте
+                          {"index": 2, "key": unit_key("Вставленная фраза."), "status": "ok"}]},
+              open(tmp_path / "media_plan" / "frames_report.json", "w"))
+    kept, absorbed = assemble_frames.kept_frames(str(tmp_path), blocks)
+    assert kept == [0] and absorbed == [{"index": 1, "reason": "rejected"},
+                                        {"index": 2, "reason": "frame_for_another_line"}]
 
 
 def test_frame_is_fitted_whole_not_cropped(tmp_path):
@@ -60,10 +67,20 @@ def test_frame_is_fitted_whole_not_cropped(tmp_path):
     import assemble_frames as af
     src = Image.new("RGB", (1536, 1024), "white")
     for x in range(1536):
-        src.putpixel((x, 3), (255, 0, 0))          # красная полоса у верхнего края
+        src.putpixel((x, 20), (255, 0, 0))         # красная полоса у верхнего края (2% высоты)
     src.save(tmp_path / "f.png")
     af.fit_canvas(str(tmp_path / "f.png"), str(tmp_path / "c.png"))
     c = Image.open(tmp_path / "c.png").convert("RGB")
     assert c.size == (1920, 1080)
     reds = [y for y in range(1080) if c.getpixel((960, y))[0] > 200 and c.getpixel((960, y))[1] < 80]
     assert reds, "верхний край кадра обрезан"
+
+
+def test_margins_take_the_drawing_background_not_a_blur(tmp_path):
+    from PIL import Image
+    sys.path.insert(0, os.path.join(ROOT, "scripts"))
+    import assemble_frames as af
+    Image.new("RGB", (1536, 1024), (240, 228, 205)).save(tmp_path / "f.png")    # бумага
+    af.fit_canvas(str(tmp_path / "f.png"), str(tmp_path / "c.png"))
+    c = Image.open(tmp_path / "c.png").convert("RGB")
+    assert all(abs(a - b) <= 2 for a, b in zip(c.getpixel((5, 540)), (240, 228, 205)))

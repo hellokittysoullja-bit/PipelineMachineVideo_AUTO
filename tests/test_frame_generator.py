@@ -178,3 +178,46 @@ def test_rerun_reuses_cache_without_drawing(tmp_path):
     g2 = gen(tmp_path, FakeJudge([]))      # чтение и судья из кэша
     rec = g2.frame(FRAME)
     assert rec["status"] == "ok" and g2.backend.calls == 0
+
+
+def test_digits_on_the_raw_frame_are_a_defect():
+    assert g.text_score([], "777")[0] == 0.0
+
+
+def test_judge_failure_is_unchecked_not_rejected(tmp_path):
+    class Silent(FakeJudge):
+        def chat(self, model, content, max_tokens, est, reasoning=None, **kw):
+            if "For each statement" in content[0]["text"]:
+                return "не JSON", {}, 1                     # проверка не состоялась
+            return super().chat(model, content, max_tokens, est, reasoning=reasoning, **kw)
+    rec = gen(tmp_path, Silent(["NONE"]), variants=1, rounds=2).frame(FRAME)
+    assert rec["status"] == "unchecked" and rec["path"]
+
+
+class BusyBackend(FakeBackend):
+    """Рисунок, занятый до самого низа: под подпись места нет."""
+
+    def generate(self, prompt, refs):
+        from PIL import Image, ImageDraw
+        self.calls += 1
+        im = Image.new("RGB", (640, 360), (245, 235, 215))
+        d = ImageDraw.Draw(im)
+        for x in range(0, 640, 12):
+            d.line((x, 0, x, 360), fill=(20, 20, 20), width=3)
+        b = io.BytesIO()
+        im.save(b, "PNG")
+        return b.getvalue(), 0
+
+
+def test_no_room_for_caption_redraws_then_uses_a_band_not_rejects(tmp_path):
+    class NoBox(FakeJudge):
+        def chat(self, model, content, max_tokens, est, reasoning=None, **kw):
+            if "empty spaces left" in content[0]["text"]:
+                return "{}", {}, 1                          # модель места не нашла
+            return super().chat(model, content, max_tokens, est, reasoning=reasoning, **kw)
+    g1 = g.Generator(BusyBackend(), str(tmp_path), make_look(tmp_path), judge_gw=NoBox(["NONE"] * 2),
+                     judge_model="q", variants=1, rounds=2)
+    rec = g1.frame(FRAME)
+    assert g1.backend.calls == 2                            # второй раунд нарисован
+    assert rec["status"] == "ok" and rec["labels_fallback"] == "band"
+    assert rec["labels_placed"][0]["text"] == "ЖИВ. ПОЛНОСТЬЮ."

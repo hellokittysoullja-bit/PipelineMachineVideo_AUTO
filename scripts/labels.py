@@ -35,6 +35,10 @@ LINE_SPACING = 1.08
 # одна линия, облако) 0.065-0.106. Порог с запасом в обе стороны.
 MAX_INK_SHARE = 0.015
 CAPTION_BAND = (0.05, 0.79, 0.95, 0.97)   # доли кадра: x1, y1, x2, y2
+# Шкала кегля — доля высоты кадра, одна на весь ролик: подпись не прыгает
+# от кадра к кадру. Меньше потолка — только если текст не влезает в место.
+SIZE_CAPTION = 0.075
+SIZE_DIAGRAM = 0.045
 LOCATE_VERSION = 1
 
 _CMAP = {}
@@ -115,15 +119,16 @@ def text_color(img, box):
     return INK_DARK if (a.size == 0 or a.mean() >= 110) else INK_LIGHT
 
 
-def draw(img, box, text, pad=0.06):
-    """Нарисовать подпись в рамке (центр по горизонтали и вертикали).
-    Возвращает запись о подписи (шрифт, кегль, цвет, строки)."""
+def draw(img, box, text, pad=0.06, size_cap=SIZE_CAPTION):
+    """Нарисовать подпись в рамке (центр по горизонтали и вертикали), кегль не
+    больше size_cap × высота кадра. Возвращает запись (шрифт, кегль, цвет, строки)."""
     from PIL import ImageDraw, ImageFont
     x1, y1, x2, y2 = box
     px, py = int((x2 - x1) * pad), int((y2 - y1) * pad)
     inner = (x1 + px, y1 + py, x2 - px, y2 - py)
     path = font_for(text)
-    size, lines = fit(text, inner[2] - inner[0], inner[3] - inner[1], path)
+    size, lines = fit(text, inner[2] - inner[0], inner[3] - inner[1], path,
+                      max_size=max(18, round(size_cap * img.size[1])))
     font = ImageFont.truetype(path, size)
     color = text_color(img, box)
     d = ImageDraw.Draw(img)
@@ -202,15 +207,42 @@ def _overlap(a, b):
     return not (a[2] <= b[0] or b[2] <= a[0] or a[3] <= b[1] or b[3] <= a[1])
 
 
-def compose(img_path, out_path, frame, gateway=None, model=None, cache_dir=None):
+def background_color(img):
+    """Цвет фона рисунка — медиана пикселей по краю кадра."""
+    import numpy as np
+    a = np.asarray(img.convert("RGB"), dtype=np.int16)
+    edge = np.concatenate([a[0], a[-1], a[:, 0], a[:, -1]])
+    return tuple(int(v) for v in np.median(edge, axis=0))
+
+
+def _band(img, labels):
+    """Запасной путь: полоса цвета фона внизу кадра, подписи в одну строку
+    через точку. Для кадра, на котором модель не оставила пустого места."""
+    from PIL import ImageDraw
+    w, h = img.size
+    band = tuple(round(v * (w if i % 2 == 0 else h)) for i, v in enumerate(CAPTION_BAND))
+    full = (0, band[1] - round(0.02 * h), w, h)
+    ImageDraw.Draw(img).rectangle(full, fill=background_color(img))
+    rec = draw(img, band, " · ".join(labels), size_cap=SIZE_CAPTION if len(labels) == 1 else SIZE_DIAGRAM)
+    rec["fallback"] = "band"
+    return [rec]
+
+
+def compose(img_path, out_path, frame, gateway=None, model=None, cache_dir=None, fallback=False):
     """Положить подписи кадра. Возвращает (True, записи) или (False, причина).
-    Кадр без подписей копируется как есть."""
+    Кадр без подписей копируется как есть. fallback=True — места нет: подписи
+    на полосе цвета фона внизу (а не выброс годного рисунка)."""
     from PIL import Image
     img = Image.open(img_path).convert("RGB")
     labels = frame.get("labels") or []
     w, h = img.size
     placed = []
-    if labels:
+    if labels and fallback:
+        try:
+            placed = _band(img, labels)
+        except ValueError as e:
+            return False, str(e)
+    elif labels:
         boxes = None
         if frame.get("kind") == "caption" and len(labels) == 1:
             band = tuple(round(v * (w if i % 2 == 0 else h)) for i, v in enumerate(CAPTION_BAND))
@@ -239,7 +271,8 @@ def compose(img_path, out_path, frame, gateway=None, model=None, cache_dir=None)
             if any(_overlap(b, p["box"]) for p in placed):
                 return False, f"подпись {k} налезает на другую"
             try:
-                placed.append(draw(img, b, labels[k - 1]))
+                placed.append(draw(img, b, labels[k - 1],
+                                   size_cap=SIZE_CAPTION if frame.get("kind") == "caption" else SIZE_DIAGRAM))
             except ValueError as e:
                 return False, str(e)
     tmp = out_path + ".tmp.png"

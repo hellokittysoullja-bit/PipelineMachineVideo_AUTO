@@ -49,7 +49,9 @@ def main():
     step("План кадров", ["frame_planner.py", vd])
     step("Кадры", ["frame_generator.py", vd] + (["--confirm-spend"] if a.confirm_spend else []),
          ok_codes=(0, 2) if a.allow_rejected else (0,))
-    if not any(os.path.exists(os.path.join(vd, n)) for n in ("audio.mp3", "audio.wav", "audio.flac")):
+    sys.path.insert(0, HERE)
+    from assemble_frames import find_audio
+    if not find_audio(vd):
         if not a.tts:
             sys.exit("Нет audio.mp3. Положите озвучку в папку ролика или запустите с --tts (Lumean, платно).")
         step("Озвучка", ["lumean_tts.py", vd] + ([str(a.minutes)] if a.minutes else []))

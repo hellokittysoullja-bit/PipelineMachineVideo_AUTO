@@ -14,7 +14,8 @@
   picture  — английское описание рисунка, главное первым;
   hero     — появляется ли главный герой (референс look/hero.*): только где
              фраза о зрителе или обычном человеке, примерно на каждом
-             третьем-четвёртом кадре, не три кадра подряд (это правило кода).
+             третьем-четвёртом кадре; не три подряд и не больше трети
+             эпизода — правило кода (limit_hero).
 Стиль в описании не пишется никогда: его задают образцы look/style/.
 
 Глава — один вопрос (фразы по порядку, хвост прошлой главы, бриф автора
@@ -47,6 +48,7 @@ MAX_TOKENS = 8000
 EST_PROMPT_TOKENS = 2500
 KINDS = ("scene", "caption", "diagram")
 MAX_HERO_RUN = 2       # героя не бывает на трёх кадрах подряд
+MAX_HERO_SHARE = 0.35  # и не больше трети кадров эпизода (просьба модели — «каждый 3-4-й»)
 MAX_LABELS = {"scene": 0, "caption": 1, "diagram": 6}
 MAX_LABEL_WORDS = 5
 
@@ -138,7 +140,6 @@ FRAME_RULES = """frame — ONE hand-drawn picture per line. It is generated once
     "scene" — a drawn moment: people, objects, places, actions. The default.
     "caption" — the line is a punchline, a verdict or an emotional beat that lands harder written: one drawn moment plus ONE Russian caption of 1-4 words (like «ЖИВ. ПОЛНОСТЬЮ.»).
     "diagram" — the line explains a structure, a comparison, a sequence, a list or a cause: a simple hand-drawn diagram with 2-6 short Russian labels — a pyramid, a ladder, arrows from cause to effect, before and after, a list on a board, a timeline, a path of footprints, a crowd shrinking to one figure.
-    Never the same kind on three lines in a row.
   "labels" — Russian, UPPERCASE, at most {max_words} words each, taken from or clearly implied by the line, correctly spelled; empty for "scene". Code writes them on the finished picture.
   "hero" — {hero_rule}
   "picture" — English, 30-80 words, the full instruction for the image model. How to choose WHAT to draw:
@@ -172,8 +173,10 @@ For EVERY numbered line decide what the viewer must SEE while hearing it, then d
 
 {frame_rules}
 
-Two examples from another film. «The ball bounced off the wall and rolled away» — the core is the ball, not the wall:
+Three examples from another film. «The ball bounced off the wall and rolled away» — the core is the ball, not the wall:
 {{"n": 2, "focus": "a ball bouncing off a wall", "subject": "a ball", "core": "a ball is visible", "claims": [{{"id": "c1", "text": "the ball bounces off a wall", "tier": "must"}}], "frame": {{"kind": "scene", "labels": [], "hero": false, "picture": "close-up: a red rubber ball in mid-air just after hitting a brick wall, small curved motion lines behind it, a little dust puff at the wall; the ball sits in the right third of the frame, plain light background on the left"}}}}
+«First you need food and safety — only then friends, and only then dreams»:
+{{"n": 3, "focus": "needs built from the bottom up", "subject": "a pyramid", "core": "a pyramid of needs is visible", "claims": [{{"id": "c1", "text": "the pyramid has three tiers", "tier": "must"}}], "frame": {{"kind": "diagram", "labels": ["ЕДА И БЕЗОПАСНОСТЬ", "ДРУЗЬЯ", "МЕЧТЫ"], "hero": false, "picture": "a large hand-drawn pyramid with three tiers in the middle of the frame: a bowl and a little house in the wide bottom tier, two stick figures holding hands in the middle tier, a small star in the top tier; to the right of each tier an empty patch of plain background with a short arrow pointing at that tier; plain light background"}}}}
 «And you just lie there, scrolling, while the evening is gone» (a film with a main character):
 {{"n": 3, "focus": "a person lost in a phone while the evening passes", "subject": "a person with a phone", "core": "a person lying with a phone is visible", "claims": [{{"id": "c1", "text": "the person stares at the phone", "tier": "must"}}, {{"id": "c2", "text": "a dark window shows night has fallen", "tier": "should"}}], "frame": {{"kind": "scene", "labels": [], "hero": true, "picture": "medium shot: the main character lies on a sofa on their back, holding one phone with a blank glowing screen above their face with both hands, eyes wide and tired; a window behind shows a dark night sky with a crescent moon; a cold cup of tea on the floor; the character sits in the left half of the frame"}}}}
 
@@ -332,20 +335,34 @@ def fallback(block):
             "fallback": True}
 
 
-def limit_hero_runs(frames, max_run=MAX_HERO_RUN):
-    """Герой — гость, а не ведущий: третий кадр подряд с героем рисуется без
-    него. Описание кадра при этом не меняется — «the main character» без
-    референса модель нарисует обычным человеком того же стиля. Возвращает,
-    сколько кадров снято."""
-    run, trimmed = 0, 0
-    for f in frames:
-        if f.get("hero"):
-            run += 1
-            if run > max_run:
-                f["hero"], run, trimmed = False, 0, trimmed + 1
+def _drop_hero(f):
+    """Снять героя с кадра. В описании «the main character» становится «a person»:
+    иначе модель без референса нарисует другого «главного героя»."""
+    f["hero"] = False
+    f["picture"] = re.sub(r"\b[Tt]he main character\b", "a person", f["picture"])
+
+
+def limit_hero(frames, max_run=MAX_HERO_RUN, max_share=MAX_HERO_SHARE):
+    """Герой — гость, а не ведущий; правило кода, а не просьба к модели:
+    не больше max_run кадров подряд и не больше max_share кадров эпизода.
+    Лишнее снимается там, где герой стоит теснее всего (рядом с другими
+    кадрами героя), — так он остаётся разбросанным по ролику. Сколько снято."""
+    trimmed = 0
+    while True:
+        idx = [i for i, f in enumerate(frames) if f.get("hero")]
+        runs = [i for i in idx if all(i - k in idx for k in range(1, max_run + 1))]
+        over = len(idx) > max(1, int(max_share * len(frames)))
+        if not runs and not over:
+            return trimmed
+        if runs:
+            victim = runs[0]
         else:
-            run = 0
-    return trimmed
+            def crowd(i):
+                gaps = [abs(i - j) for j in idx if j != i]
+                return (min(gaps) if gaps else len(frames), -i)
+            victim = min(idx, key=crowd)
+        _drop_hero(frames[victim])
+        trimmed += 1
 
 
 def plan_episode(video_dir, gateway, model=DEFAULT_MODEL, force=False, workers=4, verbose=True, has_hero=False):
@@ -379,7 +396,11 @@ def plan_episode(video_dir, gateway, model=DEFAULT_MODEL, force=False, workers=4
         stats["fallback" if entry.get("fallback") else "planned"] += 1
         frames.append({"index": i, "section": b["section"], "text": b["text"], "key": unit_key(b["text"]),
                        "spec": entry["spec"], **entry["frame"], "fallback": bool(entry.get("fallback"))})
-    stats["hero_trimmed"] = limit_hero_runs(frames)
+    if not has_hero:
+        for f in frames:
+            if f.get("hero"):
+                _drop_hero(f)
+    stats["hero_trimmed"] = limit_hero(frames)
     plan = {"version": PLAN_VERSION, "model": model, "has_hero": has_hero, "frames": frames,
             "stats": stats, "errors": errs}
     path = os.path.join(video_dir, "media_plan", PLAN_NAME)
@@ -390,7 +411,7 @@ def plan_episode(video_dir, gateway, model=DEFAULT_MODEL, force=False, workers=4
     if verbose:
         kinds = {k: sum(1 for f in frames if f["kind"] == k) for k in KINDS}
         print(f"План: {len(frames)} кадров {kinds}, с героем {sum(f['hero'] for f in frames)} "
-              f"(снято правилом «не три подряд»: {stats['hero_trimmed']}), "
+              f"(снято правилом кода: {stats['hero_trimmed']}), "
               f"запасных {stats['fallback']}, глав из кэша {stats['cached_chapters']}")
         for sec, e in errs.items():
             print(f"  {sec}: {len(e)} замечаний: {', '.join(e[:4])}")

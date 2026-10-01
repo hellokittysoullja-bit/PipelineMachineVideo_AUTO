@@ -63,13 +63,22 @@ def probe_duration(path):
 
 
 def fit_canvas(src, dst):
-    from PIL import Image, ImageFilter, ImageOps
+    """Кадр целиком в 16:9. Поля — цветом фона самого рисунка (медиана края),
+    с узким мягким переходом (0.6% ширины, не шире: шире — съедает край
+    рисунка): размытая копия по бокам на бумажном рисунке читалась как
+    вертикальное видео в ленте."""
+    from PIL import Image, ImageDraw, ImageFilter, ImageOps
+    import labels
     with Image.open(src) as im0:
         im = ImageOps.exif_transpose(im0).convert("RGB")
-    bg = im.resize((W, H)).filter(ImageFilter.GaussianBlur(40))
+    bg = Image.new("RGB", (W, H), labels.background_color(im))
     s = min(W / im.width, H / im.height) * FIT_SAFE
     fg = im.resize((max(1, round(im.width * s)), max(1, round(im.height * s))), Image.LANCZOS)
-    bg.paste(fg, ((W - fg.width) // 2, (H - fg.height) // 2))
+    feather = max(2, round(0.006 * fg.width))
+    mask = Image.new("L", fg.size, 0)
+    ImageDraw.Draw(mask).rectangle((feather, feather, fg.width - feather, fg.height - feather), fill=255)
+    mask = mask.filter(ImageFilter.GaussianBlur(feather / 2))
+    bg.paste(fg, ((W - fg.width) // 2, (H - fg.height) // 2), mask)
     tmp = f"{dst}.{threading.get_ident()}.png"
     bg.save(tmp, "PNG")
     os.replace(tmp, dst)
@@ -105,23 +114,30 @@ def clip(canvas, out, dur, zoom_in):
     return False
 
 
-def load_statuses(video_dir):
+def load_report(video_dir):
     try:
-        return {r["index"]: r.get("status") for r in json.load(
+        return {r["index"]: r for r in json.load(
             open(os.path.join(video_dir, "media_plan", "frames_report.json"), encoding="utf-8"))["frames"]}
     except (OSError, ValueError, KeyError):
         return {}
 
 
-def kept_frames(video_dir, n):
-    statuses = load_statuses(video_dir)
+def kept_frames(video_dir, blocks):
+    """Кадр идёт на экран, только если он нарисован под ЭТУ фразу: ключ фразы
+    в отчёте совпал с текстом блока. Вставили фразу в сценарий — кадры не
+    съезжают под чужие фразы, а честно отсутствуют до перерисовки."""
+    from frame_planner import unit_key
+    report = load_report(video_dir)
     kept, absorbed = [], []
-    for i in range(n):
+    for i, b in enumerate(blocks):
         path = os.path.join(video_dir, "frames", f"{i + 1:03d}.png")
+        rec = report.get(i) or {}
         if not (os.path.exists(path) and os.path.getsize(path) > 0):
             absorbed.append({"index": i, "reason": "no_frame"})
-        elif statuses.get(i) in ("rejected", "failed"):
-            absorbed.append({"index": i, "reason": statuses[i]})
+        elif rec.get("key") != unit_key(b["text"]):
+            absorbed.append({"index": i, "reason": "frame_for_another_line"})
+        elif rec.get("status") in ("rejected", "failed"):
+            absorbed.append({"index": i, "reason": rec["status"]})
         else:
             kept.append(i)
     return kept, absorbed
@@ -156,7 +172,7 @@ def main(video_dir):
     rc.audio_qc(audio)
     total = rc.get_media_duration(audio)
 
-    kept, absorbed = kept_frames(video_dir, len(blocks))
+    kept, absorbed = kept_frames(video_dir, blocks)
     if not kept:
         print("Ни одного проверенного кадра — сборка остановлена (ролик из брака не собирается).")
         return EXIT_FAILED
@@ -200,7 +216,7 @@ def main(video_dir):
         i = kept[k]
         src = os.path.join(video_dir, "frames", f"{i + 1:03d}.png")
         h = hashlib.md5(open(src, "rb").read()).hexdigest()[:12]
-        key = hashlib.md5(f"{h}|{durs[k]:.5f}|{k % 2}|{ZOOM}|{FIT_SAFE}|{FPS}|{CRF}".encode()).hexdigest()[:16]
+        key = hashlib.md5(f"{h}|{durs[k]:.5f}|{k % 2}|{ZOOM}|{FIT_SAFE}|{FPS}|{CRF}|bgfill2".encode()).hexdigest()[:16]
         out = os.path.join(work, f"clip_{k:04d}_{key}.mp4")
         if os.path.exists(out) and probe_duration(out) is not None:
             return out

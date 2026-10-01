@@ -56,10 +56,11 @@ class Look:
         paths = list(self.style) + ([self.hero] if with_hero and self.hero else [])
         return [data_url(p) for p in paths]
 
-    def signature(self):
-        """Отпечаток содержимого: смена образца или героя меняет ключ кэша кадров."""
+    def signature(self, with_hero):
+        """Отпечаток того, что уходит в модель: образцы стиля, герой — только
+        для кадров с героем (смена героя не перерисовывает кадры без него)."""
         h = hashlib.sha256()
-        for p in list(self.style) + ([self.hero] if self.hero else []):
+        for p in list(self.style) + ([self.hero] if with_hero and self.hero else []):
             h.update(os.path.basename(p).encode())
             with open(p, "rb") as f:
                 h.update(f.read())
