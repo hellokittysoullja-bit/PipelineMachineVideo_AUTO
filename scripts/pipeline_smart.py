@@ -497,6 +497,10 @@ HOOK_MIN_CLIP = 2.5
 # склеило бы рез обратно. 0 — выключить и вернуть прежнюю нарезку.
 HOOK_SLOT_MAX_SEC = float(os.environ.get("HOOK_SLOT_MAX_SEC", "5.0"))
 HOOK_SLOT_TARGET_MIN_SEC = 3.0
+# Золотое правило: самый первый слот ролика не длиннее 3 с (решение владельца
+# 01.10). Выполняется, когда это возможно: нужен блок длиной от
+# первого слота + HOOK_MIN_CLIP на остаток (иначе остаток склеился бы обратно).
+HOOK_FIRST_SLOT_MAX_SEC = float(os.environ.get("HOOK_FIRST_SLOT_MAX_SEC", "3.0"))
 # Панорамирование считается от РЕАЛЬНОГО zoom в каждый момент кадра — (1-1/zoom)/2
 # это точный геометрический запас смещения без вылета за картинку, безопасно по
 # построению на любом кадре, поэтому PAN_SAFETY можно брать ближе к пределу, чем
@@ -16311,29 +16315,49 @@ def _emit_subcut_blocks(b, w, words, merged, new_blocks, new_weights):
         new_weights.append((w * (c - a) / total_w) if w is not None else None)
 
 
-def _hook_split_points(words, est, pause_after):
+def _hook_split_points(words, est, pause_after, first_slot=False):
     """Точки реза (индексы слов) для блока хука длиннее HOOK_SLOT_MAX_SEC.
 
     Слот живёт от онсета своей фразы до онсета следующей, то есть вместе с
     паузой после блока (она достаётся последнему куску). n = ceil(длина/max)
     кусков; границы ставятся рядом с равными долями слов, по возможности на
     знаке препинания (конец клаузы), если при этом каждый кусок остаётся в
-    [HOOK_MIN_CLIP, HOOK_SLOT_MAX_SEC]. Пустой список — блок не режем."""
+    [HOOK_MIN_CLIP, HOOK_SLOT_MAX_SEC]. Пустой список — блок не режем.
+
+    first_slot=True (самый первый блок ролика): первый кусок не длиннее
+    HOOK_FIRST_SLOT_MAX_SEC. Если блок для этого слишком короткий (остаток
+    не дотянул бы до HOOK_MIN_CLIP и склеился бы обратно), правило первого
+    слота не применяется, работает обычный потолок."""
     n_words = len(words)
     total = est + pause_after
-    if HOOK_SLOT_MAX_SEC <= 0 or total <= HOOK_SLOT_MAX_SEC or n_words < 4 or est <= 0:
+    if HOOK_SLOT_MAX_SEC <= 0 or n_words < 4 or est <= 0:
         return []
-    n = int(math.ceil(total / HOOK_SLOT_MAX_SEC - 1e-9))
+    first_cap = HOOK_SLOT_MAX_SEC
+    if first_slot and 0 < HOOK_FIRST_SLOT_MAX_SEC < HOOK_SLOT_MAX_SEC \
+            and total >= HOOK_FIRST_SLOT_MAX_SEC + HOOK_MIN_CLIP:
+        first_cap = HOOK_FIRST_SLOT_MAX_SEC
+    if total <= first_cap + 1e-9:
+        return []
+    if first_cap < HOOK_SLOT_MAX_SEC:
+        n = 1 + int(math.ceil((total - first_cap) / (HOOK_SLOT_MAX_SEC * 0.95) - 1e-9))
+    else:
+        n = int(math.ceil(total / (HOOK_SLOT_MAX_SEC * 0.95) - 1e-9))
     n = max(2, min(n, n_words // 2))
     per_word = est / n_words
 
-    def part_ok(a, c, last):
-        d = (c - a) * per_word + (pause_after if last else 0.0)
-        return HOOK_MIN_CLIP - 1e-6 <= d <= HOOK_SLOT_MAX_SEC + 1e-6
+    def part_ok(a, c, k):
+        d = (c - a) * per_word + (pause_after if k == n - 1 else 0.0)
+        cap = first_cap if k == 0 else HOOK_SLOT_MAX_SEC
+        return HOOK_MIN_CLIP - 1e-6 <= d <= cap + 1e-6
 
     cuts, prev = [], 0
     for k in range(1, n):
-        target = int(round(k * n_words / n))
+        # Первый кусок при правиле первого слота короче остальных.
+        if first_cap < HOOK_SLOT_MAX_SEC and k == 1:
+            target = int(round(min(first_cap, total / n) / per_word))
+        else:
+            # Остаток делим поровну между оставшимися кусками.
+            target = prev + int(round((n_words - prev) / (n - k + 1)))
         found = None
         for need_punct in (True, False):
             for radius in range(0, n_words):
@@ -16344,7 +16368,7 @@ def _hook_split_points(words, est, pause_after):
                         continue
                     rest = (n_words - cand) * per_word + pause_after
                     left = n - k
-                    if part_ok(prev, cand, False) and (
+                    if part_ok(prev, cand, k - 1) and (
                             HOOK_MIN_CLIP * left - 1e-6 <= rest <= HOOK_SLOT_MAX_SEC * left + 1e-6):
                         found = cand
                         break
@@ -16379,7 +16403,7 @@ def split_long_blocks(blocks, real_weights):
     та же логика, что уже работает для обычных блоков), картинка другая —
     засчёт дедупа по used_photo_ids на большем пуле Pexels (per_page=40)."""
     new_blocks, new_weights = [], []
-    for b, w in zip(blocks, real_weights or [None] * len(blocks)):
+    for _bi, (b, w) in enumerate(zip(blocks, real_weights or [None] * len(blocks))):
         min_source = SUBCUT_MIN_SOURCE_DUR
         min_part = SUBCUT_MIN_PART_DUR
         min_words = 8
@@ -16394,7 +16418,8 @@ def split_long_blocks(blocks, real_weights):
         # условия оба ранних выхода отсекли бы ровно тот блок, который и
         # нужно резать.
         if str(b.get("section", "")).startswith("HOOK") and HOOK_SLOT_MAX_SEC > 0:
-            hook_cuts = _hook_split_points(words, est, float(b.get("pause_after") or 0.0))
+            hook_cuts = _hook_split_points(words, est, float(b.get("pause_after") or 0.0),
+                                           first_slot=(_bi == 0))
             if not hook_cuts:
                 new_blocks.append(b)
                 new_weights.append(w)

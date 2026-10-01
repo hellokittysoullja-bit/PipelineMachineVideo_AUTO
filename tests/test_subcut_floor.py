@@ -38,6 +38,12 @@ HOOK_BLOCK_TEXT = ("Я его назову. Но если сказать пря�
 HOOK_BLOCK_EST = 8.10
 
 
+@pytest.fixture(autouse=True)
+def _no_first_slot_rule(monkeypatch):
+    # Эти тесты про механику нарезки блока хука, а не про правило первого слота.
+    monkeypatch.setattr(ps, "HOOK_FIRST_SLOT_MAX_SEC", 0.0)
+
+
 def _block(text, section="HOOK", **kw):
     b = {"text": text, "words": len(text.split()), "section": section,
          "pause_after": 0.8, "stat": None, "stat_word_pos": None,
@@ -86,7 +92,8 @@ class TestSplitPointRespectsTheClipFloor:
         первый кусок проходил вообще без проверки."""
         for est in (8.1, 9.0, 12.0, 20.0):
             _, weights = ps.split_long_blocks([_block(HOOK_BLOCK_TEXT)], [est])
-            assert min(weights) >= ps.SUBCUT_MIN_PART_DUR, (est, weights)
+            # Хук режется по своему полу HOOK_MIN_CLIP (2.5 с), а не по полу тела.
+            assert min(weights) >= ps.HOOK_MIN_CLIP - 1e-6, (est, weights)
 
 
 class TestSfxIsNotCopiedIntoEverySubcut:

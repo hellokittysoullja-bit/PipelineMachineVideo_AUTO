@@ -42,3 +42,23 @@ def test_pause_after_counts_toward_last_slot():
 def test_body_blocks_are_not_affected_by_hook_cap():
     nb, nw = ps.split_long_blocks([_block(TEXT, section="BLOCK 1: X")], [6.0])
     assert len(nb) == 1
+
+
+def test_first_slot_is_at_most_three_seconds():
+    nb, nw = ps.split_long_blocks([_block(TEXT)], [18.0])
+    assert nw[0] <= ps.HOOK_FIRST_SLOT_MAX_SEC + 1e-6
+    assert all(x <= ps.HOOK_SLOT_MAX_SEC + 1e-6 for x in nw)
+    assert " ".join(b["text"] for b in nb) == TEXT
+
+
+def test_first_slot_rule_only_for_the_first_block():
+    blocks = [_block("Короткий первый блок хука, он идёт раньше."), _block(TEXT)]
+    nb, nw = ps.split_long_blocks(blocks, [2.0, 18.0])
+    second = [w for b, w in zip(nb, nw) if b["text"] in TEXT]
+    assert second[0] > ps.HOOK_FIRST_SLOT_MAX_SEC
+
+
+def test_first_slot_rule_skipped_when_block_too_short_for_it():
+    # 5.0 с: 3 + остаток 2 < HOOK_MIN_CLIP — остаток склеился бы обратно
+    nb, nw = ps.split_long_blocks([_block(TEXT)], [5.0])
+    assert len(nb) == 1

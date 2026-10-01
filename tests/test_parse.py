@@ -2655,11 +2655,13 @@ def test_internal_sentence_boundaries_ignores_year_with_trailing_dot():
     assert pipeline_smart._internal_sentence_boundaries(words) == []
 
 
-def test_split_long_blocks_splits_short_multi_sentence_block_despite_duration():
+def test_split_long_blocks_splits_short_multi_sentence_block_despite_duration(monkeypatch):
     """Находка жива: составной по смыслу блок режется, даже если он КОРОЧЕ
     SUBCUT_MIN_SOURCE_DUR=8.0. Изменился только пример — см. тест ниже."""
     text = ("Этот доспех мастер делал почти четыре года подряд без перерыва. "
             "Платил за него барон столько же, сколько деревня отдавала налогов.")
+    # Тест про границу предложения, а не про правило первого слота (3 с).
+    monkeypatch.setattr(pipeline_smart, "HOOK_FIRST_SLOT_MAX_SEC", 0.0)
     blocks = [{"text": text, "words": len(text.split()), "pause_after": 0.0,
                "section": "HOOK", "stat": None}]
     # 7.0с — короче min_source=8.0, но граница предложения стоит посередине,
