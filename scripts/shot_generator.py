@@ -69,14 +69,14 @@ GEN_VERSION = 4
 # и в углу появилась нарисованная подпись (текст в кадре вопреки промпту);
 # время 10.5 с против 4.7 с, разрешение то же 1344x768, цена 0. Качество на
 # эпизоде НЕ замерено — поймает судья или контактный лист.
-DEFAULT_MODEL = "am/flux.1-dev"
-DEFAULT_SIZE = "1792x1024"
+DEFAULT_MODEL = (os.environ.get("IMAGE_GEN_MODEL") or "").strip() or "am/flux.1-dev"
+DEFAULT_SIZE = (os.environ.get("IMAGE_GEN_SIZE") or "").strip() or "1792x1024"
 # Вариантов на слот: у маленькой модели попытка нередко выходит с браком
 # (лишние руки, слитые предметы, закрытые глаза), а все варианты судья
 # сравнивает на одной сетке (до 9 плиток) — деньгами бесплатно. Цена —
 # время: ~35-40 с на вариант (эп.98), только на слотах, где сработала
 # генерация. 4 — решение владельца 27.09.
-VARIANTS = 4
+VARIANTS = int(os.environ.get("IMAGE_GEN_VARIANTS") or 4)
 
 # Проверено по первоисточнику 23.09.2026:
 #  - FLUX.2 [klein] 4B — Apache 2.0 (huggingface.co/black-forest-labs/FLUX.2-klein-4B);
@@ -86,6 +86,10 @@ VARIANTS = 4
 # Условия самого шлюза для выдачи не проверены — записано в NORTH_STAR.md.
 LICENSES = {
     "am/flux.2-klein-4b": "Apache-2.0",
+    # Gemini 3.1 Flash Image («nano banana»): решение владельца 01.10. Условия
+    # выдачи Google на шлюзе НЕ проверены по первоисточнику. ПЛАТНАЯ: 100 000
+    # токенов базы x 1.75 за 1792x1024 = 175 000 за картинку.
+    "ag/gemini-3.1-flash-image": "Google Gemini image: terms not verified (owner decision 2026-10-01)",
     "am/flux.1-dev": "FLUX.1-dev: outputs usable commercially (s. 2(d)); no training of competing models",
 }
 
