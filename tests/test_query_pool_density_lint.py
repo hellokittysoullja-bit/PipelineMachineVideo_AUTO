@@ -86,7 +86,7 @@ def test_lint_is_called_with_blocks_from_the_pipeline():
     assert "lint_authored_queries(authored_queries, blocks)" in inspect.getsource(ps.main)
 
 
-def test_real_episode_hook_is_no_longer_starved(capsys):
+def test_real_episode_hook_is_no_longer_starved(capsys, monkeypatch):
     """Якорь на реальных данных: после расширения запросов хук эпизода 02
     уходит из списка голодающих секций."""
     import re
@@ -94,6 +94,11 @@ def test_real_episode_hook_is_no_longer_starved(capsys):
     script = os.path.join(REPO_ROOT, "videos", "02_ne-mechom", "script.txt")
     if not os.path.exists(script):
         pytest.skip("сценарий эпизода 02 недоступен")
+    # Потолок слота хука (5 с) режет хук эпизода 02 на 39 слотов вместо ~30, и
+    # плотность пула на 6 запросов выходит за порог — это настоящий эффект
+    # решения владельца, линт его честно печатает. Тест про расширение запросов,
+    # поэтому меряем при выключенном потолке.
+    monkeypatch.setattr(ps, "HOOK_SLOT_MAX_SEC", 0.0)
     blocks, _ = ps.split_long_blocks(script_parser.parse_blocks(script), None)
     q = {}
     for line in open(script, encoding="utf-8"):

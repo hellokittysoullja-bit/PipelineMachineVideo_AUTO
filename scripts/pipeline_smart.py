@@ -488,7 +488,15 @@ MIN_CLIP, MAX_CLIP = 3.0, 9.0
 # неправ метод. Отдельный, ещё более быстрый пол для "открывающих" резов
 # убран целиком (не просто поднят числом) — единый HOOK_MIN_CLIP на весь
 # хук, никаких клипов короче него ни в одной позиции хука.
-HOOK_MIN_CLIP = 2.2
+HOOK_MIN_CLIP = 2.5
+# Слоты хука: цель 3-5 секунд, жёсткий потолок 5 (решение владельца 01.10).
+# Замер 03_plen: хук шёл 6 слотами по 6-18 с (средний 10 с) — медленнее тела.
+# Потолок режет блок на ceil(длина/5) кусков; пол HOOK_MIN_CLIP=2.5 ниже
+# целевых 3 с оставлен намеренно: блок 5-6 с иначе нельзя разделить и уложить
+# в потолок, а слияние коротких кусков (merge_short_phrase_locked_blocks)
+# склеило бы рез обратно. 0 — выключить и вернуть прежнюю нарезку.
+HOOK_SLOT_MAX_SEC = float(os.environ.get("HOOK_SLOT_MAX_SEC", "5.0"))
+HOOK_SLOT_TARGET_MIN_SEC = 3.0
 # Панорамирование считается от РЕАЛЬНОГО zoom в каждый момент кадра — (1-1/zoom)/2
 # это точный геометрический запас смещения без вылета за картинку, безопасно по
 # построению на любом кадре, поэтому PAN_SAFETY можно брать ближе к пределу, чем
@@ -1173,7 +1181,7 @@ STAT_PLATE_TAIL_SEC = STAT_PLATE_READABLE_SEC + XFADE_DUR  # резерв в ш�
 XFADE_TRANSITIONS = ["fade", "dissolve", "smoothleft", "smoothright",
                       "smoothup", "smoothdown", "hblur", "hlwind", "hrwind", "zoomin"]
 BOUNDARY_TRANSITIONS = ["dissolve", "fadeblack", "fadewhite", "fadegrays"]
-HOOK_MAX_CLIP = 3.6     # в хуке кадры короче и чаще — критично для удержания первых секунд.
+HOOK_MAX_CLIP = 5.0     # в хуке кадры короче и чаще — критично для удержания первых секунд.
                         # Было 5.0 — на практике держало хук почти вровень с телом ролика
                         # (4.65с против 6.8с), а не заметно быстрее, как задумано.
 # PAUSE_DURATIONS/parse_blocks живут в script_parser.py (лёгкий модуль без
@@ -16258,6 +16266,99 @@ def _usable_split_points(points, total_words, est, min_part):
     return out
 
 
+def _emit_subcut_blocks(b, w, words, merged, new_blocks, new_weights):
+    """Собрать под-блоки из кусков `merged` (список (a, c) по словам) и
+    добавить их в new_blocks/new_weights. Общий код обычной нарезки и
+    нарезки хука: плашка, климакс и sfx переезжают в свой кусок."""
+    total_w = len(words)
+    # Плашка раньше ВСЕГДА доставалась первому куску (k==0) независимо от
+    # того, где в исходном блоке реально стоял [stat:...] — если рез
+    # приходился ДО фразы с числом, цифра на экране показывалась на
+    # куске, где она ещё не произнесена, а реальный кусок с числом
+    # оставался без плашки вовсе. stat_word_pos (см. parse_blocks) —
+    # позиция тега в словах исходного блока; находим, в какой ИМЕННО
+    # кусок она попадает, и пересчитываем позицию относительно НАЧАЛА
+    # этого куска (nb-локально), чтобы дальше по конвейеру плашку можно
+    # было синхронизировать с моментом озвучки, а не с началом клипа.
+    stat_pos = b.get("stat_word_pos")
+    for k, (a, c) in enumerate(merged):
+        nb = dict(b)
+        nb["text"] = " ".join(words[a:c])
+        nb["words"] = c - a
+        has_stat = b["stat"] is not None and stat_pos is not None and (
+            (a < stat_pos <= c) or (stat_pos <= 0 and k == 0))
+        nb["stat"] = b["stat"] if has_stat else None
+        nb["stat_word_pos"] = max(0, stat_pos - a) if has_stat else None
+        nb["pause_after"] = b["pause_after"] if k == len(merged) - 1 else 0.0
+        nb["is_subcut"] = k > 0   # для choose_motion_mode() (1.4) — деталь, не главный кадр фразы
+        # is_climax (2.8) — та же логика, что и у плашки: тег стоит перед
+        # НАЧАЛОМ исходного блока, значит момент, к которому привязана
+        # тишина-акцент, попадает в ПЕРВЫЙ получившийся под-кадр, не во
+        # все (dict(b) выше скопировал бы флаг во все k без явного сброса).
+        nb["is_climax"] = b.get("is_climax", False) if k == 0 else False
+        # sfx добавлен ПОЗЖЕ stat/climax и остался без сброса: dict(b)
+        # копировал ВЕСЬ список в каждый под-кадр, а word_pos оставался
+        # от исходного блока. Замер 14.09: один тег [sfx:armour_clank] в
+        # сценарии дал ДВА кюя (блоки 5 и 6) с чужими позициями. Тот же
+        # класс и то же лекарство, что уже применены к плашке: кюй живёт
+        # в ТОМ куске, куда попала его позиция, и она пересчитывается
+        # относительно начала этого куска.
+        nb["sfx"] = [dict(x, word_pos=max(0, int(x.get("word_pos", 0)) - a))
+                     for x in (b.get("sfx") or [])
+                     if a <= int(x.get("word_pos", 0)) < c
+                     or (int(x.get("word_pos", 0)) <= 0 and k == 0)]
+        new_blocks.append(nb)
+        new_weights.append((w * (c - a) / total_w) if w is not None else None)
+
+
+def _hook_split_points(words, est, pause_after):
+    """Точки реза (индексы слов) для блока хука длиннее HOOK_SLOT_MAX_SEC.
+
+    Слот живёт от онсета своей фразы до онсета следующей, то есть вместе с
+    паузой после блока (она достаётся последнему куску). n = ceil(длина/max)
+    кусков; границы ставятся рядом с равными долями слов, по возможности на
+    знаке препинания (конец клаузы), если при этом каждый кусок остаётся в
+    [HOOK_MIN_CLIP, HOOK_SLOT_MAX_SEC]. Пустой список — блок не режем."""
+    n_words = len(words)
+    total = est + pause_after
+    if HOOK_SLOT_MAX_SEC <= 0 or total <= HOOK_SLOT_MAX_SEC or n_words < 4 or est <= 0:
+        return []
+    n = int(math.ceil(total / HOOK_SLOT_MAX_SEC - 1e-9))
+    n = max(2, min(n, n_words // 2))
+    per_word = est / n_words
+
+    def part_ok(a, c, last):
+        d = (c - a) * per_word + (pause_after if last else 0.0)
+        return HOOK_MIN_CLIP - 1e-6 <= d <= HOOK_SLOT_MAX_SEC + 1e-6
+
+    cuts, prev = [], 0
+    for k in range(1, n):
+        target = int(round(k * n_words / n))
+        found = None
+        for need_punct in (True, False):
+            for radius in range(0, n_words):
+                for cand in (target - radius, target + radius):
+                    if not (prev + 2 <= cand <= n_words - 2):
+                        continue
+                    if need_punct and radius and words[cand - 1].rstrip()[-1:] not in ",.!?—–;:":
+                        continue
+                    rest = (n_words - cand) * per_word + pause_after
+                    left = n - k
+                    if part_ok(prev, cand, False) and (
+                            HOOK_MIN_CLIP * left - 1e-6 <= rest <= HOOK_SLOT_MAX_SEC * left + 1e-6):
+                        found = cand
+                        break
+                if found is not None:
+                    break
+            if found is not None:
+                break
+        if found is None:
+            found = min(max(target, prev + 2), n_words - 2)
+        cuts.append(found)
+        prev = found
+    return cuts
+
+
 def split_long_blocks(blocks, real_weights):
     """Один блок = один клип 4-20 сек — механическая сетка "одна мысль = одна
     картинка". Профессиональный монтаж на одну длинную фразу даёт 2-3
@@ -16292,6 +16393,16 @@ def split_long_blocks(blocks, real_weights):
         # SOURCE_DUR=8.0), но составным по смыслу (3 предложения). Без этого
         # условия оба ранних выхода отсекли бы ровно тот блок, который и
         # нужно резать.
+        if str(b.get("section", "")).startswith("HOOK") and HOOK_SLOT_MAX_SEC > 0:
+            hook_cuts = _hook_split_points(words, est, float(b.get("pause_after") or 0.0))
+            if not hook_cuts:
+                new_blocks.append(b)
+                new_weights.append(w)
+                continue
+            bounds = sorted(set([0] + hook_cuts + [len(words)]))
+            merged = [(a, c) for a, c in zip(bounds, bounds[1:]) if c > a]
+            _emit_subcut_blocks(b, w, words, merged, new_blocks, new_weights)
+            continue
         sentence_bounds = _usable_split_points(
             _internal_sentence_boundaries(words), len(words), est, min_part)
         if est < min_source and not sentence_bounds:
@@ -16375,44 +16486,7 @@ def split_long_blocks(blocks, real_weights):
             new_blocks.append(b)
             new_weights.append(w)
             continue
-        # Плашка раньше ВСЕГДА доставалась первому куску (k==0) независимо от
-        # того, где в исходном блоке реально стоял [stat:...] — если рез
-        # приходился ДО фразы с числом, цифра на экране показывалась на
-        # куске, где она ещё не произнесена, а реальный кусок с числом
-        # оставался без плашки вовсе. stat_word_pos (см. parse_blocks) —
-        # позиция тега в словах исходного блока; находим, в какой ИМЕННО
-        # кусок она попадает, и пересчитываем позицию относительно НАЧАЛА
-        # этого куска (nb-локально), чтобы дальше по конвейеру плашку можно
-        # было синхронизировать с моментом озвучки, а не с началом клипа.
-        stat_pos = b.get("stat_word_pos")
-        for k, (a, c) in enumerate(merged):
-            nb = dict(b)
-            nb["text"] = " ".join(words[a:c])
-            nb["words"] = c - a
-            has_stat = b["stat"] is not None and stat_pos is not None and (
-                (a < stat_pos <= c) or (stat_pos <= 0 and k == 0))
-            nb["stat"] = b["stat"] if has_stat else None
-            nb["stat_word_pos"] = max(0, stat_pos - a) if has_stat else None
-            nb["pause_after"] = b["pause_after"] if k == len(merged) - 1 else 0.0
-            nb["is_subcut"] = k > 0   # для choose_motion_mode() (1.4) — деталь, не главный кадр фразы
-            # is_climax (2.8) — та же логика, что и у плашки: тег стоит перед
-            # НАЧАЛОМ исходного блока, значит момент, к которому привязана
-            # тишина-акцент, попадает в ПЕРВЫЙ получившийся под-кадр, не во
-            # все (dict(b) выше скопировал бы флаг во все k без явного сброса).
-            nb["is_climax"] = b.get("is_climax", False) if k == 0 else False
-            # sfx добавлен ПОЗЖЕ stat/climax и остался без сброса: dict(b)
-            # копировал ВЕСЬ список в каждый под-кадр, а word_pos оставался
-            # от исходного блока. Замер 14.09: один тег [sfx:armour_clank] в
-            # сценарии дал ДВА кюя (блоки 5 и 6) с чужими позициями. Тот же
-            # класс и то же лекарство, что уже применены к плашке: кюй живёт
-            # в ТОМ куске, куда попала его позиция, и она пересчитывается
-            # относительно начала этого куска.
-            nb["sfx"] = [dict(x, word_pos=max(0, int(x.get("word_pos", 0)) - a))
-                         for x in (b.get("sfx") or [])
-                         if a <= int(x.get("word_pos", 0)) < c
-                         or (int(x.get("word_pos", 0)) <= 0 and k == 0)]
-            new_blocks.append(nb)
-            new_weights.append((w * (c - a) / total_w) if w is not None else None)
+        _emit_subcut_blocks(b, w, words, merged, new_blocks, new_weights)
     return new_blocks, new_weights
 
 

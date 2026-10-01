@@ -136,10 +136,13 @@ def test_measured_hook_average_moves_into_the_documented_corridor():
     weights = [w for _, w in texts]
     sb, sw = ps.split_long_blocks(blocks, weights)
     mb, mw = ps.merge_short_phrase_locked_blocks(sb, sw, sum(sw))
-    assert len(mb) == 4, [b["text"][:30] for b in mb]
+    # С потолком слота хука (HOOK_SLOT_MAX_SEC=5) тот же хук режется чаще:
+    # было 4 кадра / макс 8.42с, стало 6 кадров и ни одного длиннее 5с.
+    assert len(mb) == 6, [b["text"][:30] for b in mb]
     avg = sum(mw) / len(mw)
     assert avg < 6.94, avg
-    assert max(mw) < 8.42, mw
-    assert min(mw) >= ps.HOOK_MIN_CLIP, mw
+    assert max(mw) <= ps.HOOK_SLOT_MAX_SEC + 1e-6, mw
+    # Слот живёт вместе с паузой после блока, поэтому пол считаем с ней.
+    assert min(w + b["pause_after"] for b, w in zip(mb, mw)) >= ps.HOOK_MIN_CLIP, mw
     # Сумма сохраняется: рез перераспределяет время, а не выдумывает его.
     assert sum(mw) == pytest.approx(sum(weights), abs=0.01)
