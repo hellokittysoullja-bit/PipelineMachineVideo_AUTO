@@ -74,17 +74,21 @@ def test_empty_brief_is_ignored(tmp_path):
     assert "[" not in blocks[0]["text"]
 
 
-def test_subcut_inherits_the_brief_of_its_phrase():
-    """Под-кадр — та же фраза, разрезанная по длительности. Бриф обязан
-    ехать с ним: иначе половина длинной фразы искала бы вслепую."""
+def test_subcut_gets_the_brief_written_inside_it():
+    """Правило сменилось 01.10 (решение после брака эп.03). Раньше бриф ехал
+    во ВСЕ куски фразы — и 7 слотов хука искали одно «монаха с пером».
+    Теперь бриф автора живёт в том куске, где стоит его тег; кусок без
+    своего брифа получает собственную спецификацию от планировщика."""
     import pipeline_smart as ps
     b = {"text": " ".join(f"слово{i}" for i in range(60)),
          "pause_after": 0.0, "words": 60, "section": "HOOK",
          "stat": None, "stat_word_pos": None, "is_climax": False,
-         "sfx": [], "hush": False, "shot_brief": "a halberd on a dark background"}
+         "sfx": [], "hush": False, "shot_brief": "a halberd on a dark background",
+         "shot_briefs": [{"word_pos": 0, "brief": "a halberd on a dark background"}]}
     out, _w = ps.split_long_blocks([b], [60.0])
     assert len(out) > 1, "блок не разрезался — тест не про то"
-    assert all(x.get("shot_brief") == "a halberd on a dark background" for x in out)
+    assert out[0]["shot_brief"] == "a halberd on a dark background"
+    assert all(x.get("shot_brief") is None for x in out[1:])
 
 
 def test_shelf_gets_the_brief_stocks_get_the_query():

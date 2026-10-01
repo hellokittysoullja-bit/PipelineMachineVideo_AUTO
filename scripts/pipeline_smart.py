@@ -4130,6 +4130,20 @@ def _merge_two_blocks(pb, cb, prev_words):
         nb["stat"] = cb["stat"]
         nb["stat_word_pos"] = (prev_words + sp) if sp is not None else None
     nb["is_climax"] = bool(pb.get("is_climax")) or bool(cb.get("is_climax"))
+    # Брифы обоих кусков остаются, позиции cb сдвигаются на длину pb; бриф
+    # слитого блока — первый из них (тот же порядок, что у парсера).
+    briefs = list(pb.get("shot_briefs") or []) + [
+        dict(x, word_pos=prev_words + int(x.get("word_pos", 0))) for x in (cb.get("shot_briefs") or [])]
+    if briefs:
+        nb["shot_briefs"] = briefs
+    if pb.get("shot_brief") and not pb.get("shot_briefs"):
+        # бриф без позиции (локальный режиссёр) описывает начало pb — он
+        # остаётся главным, позиционные брифы cb идут в список
+        nb["shot_brief"] = pb["shot_brief"]
+    elif briefs:
+        nb["shot_brief"] = briefs[0]["brief"]
+    elif not nb.get("shot_brief"):
+        nb["shot_brief"] = cb.get("shot_brief")
     return nb
 
 
@@ -4665,6 +4679,66 @@ def candidate_source(p):
         if pid.startswith(prefix + ":"):
             return prefix
     return "pexels"
+
+
+# ОДНА СЪЁМКА ПОДРЯД. Дедуп по id и aHash не видит разные кадры одной
+# съёмки: эп.03, слоты 9 и 10 — Pexels-ролики 7977776 и 7977676, тот же монах
+# той же съёмки, разные id и далёкие хэши.
+#
+# «Тот же автор» — НЕ съёмка: у стоков авторы — агентства. Замер по кэшу
+# поиска эп.03 (352 видео-запроса): Mikhail Nilov есть в 78% выдач, RDNE
+# Stock project (автор той самой пары) — в 43%, один автор занимает до 85%
+# выдачи запроса. Правило «тот же автор = дубль» выбивало бы годные кадры
+# ради кадров не по теме. Съёмка — это тот же автор И близкий номер
+# загрузки (кадры одной сессии грузятся пачкой: у пары выше разница 100).
+NEAR_DUP_SHOOT_WINDOW = 3
+NEAR_DUP_ID_SPAN = 2000
+# Аккаунты-переливки (Pexels «Pixabay» — тысячи чужих авторов): не съёмка.
+SHOOT_AGGREGATOR_AUTHORS = {"pexels:2659"}
+SLOT_SHOOT = {}   # слот -> «источник:автор:номер» показанного кадра
+
+
+def candidate_shoot(p):
+    """«источник:автор:номер» кандидата или None (автора или номера нет —
+    не судим)."""
+    a = p.get("_author")
+    if a is None:
+        a = p.get("photographer_id")
+    if a is None and isinstance(p.get("user"), dict):
+        a = p["user"].get("id")
+    if a is None or a == "":
+        return None
+    who = f"{candidate_channel(p)}:{a}"
+    if who in SHOOT_AGGREGATOR_AUTHORS:
+        return None
+    num = str(p.get("id") or "").rsplit(":", 1)[-1]
+    if not num.isdigit():
+        return None
+    return f"{who}:{num}"
+
+
+def _same_shoot(a, b):
+    if not a or not b:
+        return False
+    wa, _, na = a.rpartition(":")
+    wb, _, nb = b.rpartition(":")
+    return wa == wb and na.isdigit() and nb.isdigit() and abs(int(na) - int(nb)) < NEAR_DUP_ID_SPAN
+
+
+def cached_shoot_is_recent(media_path, index):
+    """Кадр из кэша кандидата снят той же съёмкой, что сосед, — кэш не
+    принимается, слот выбирается заново (как у дубля по aHash)."""
+    key = read_media_sidecar(media_path).get("shoot")
+    return bool(key) and index is not None and any(
+        _same_shoot(SLOT_SHOOT.get(index - j), key) for j in range(1, NEAR_DUP_SHOOT_WINDOW + 1))
+
+
+def shoot_is_recent(p, index):
+    key = candidate_shoot(p)
+    if key is None or index is None:
+        return False
+    return any(_same_shoot(SLOT_SHOOT.get(index - j), key)
+               for j in range(1, NEAR_DUP_SHOOT_WINDOW + 1))
 
 
 def candidate_channel(p):
@@ -6654,6 +6728,93 @@ _WORLD_CARD_CACHE = {}
 PLANNER_DEFAULT_SPEND_CAP = 30000
 
 
+def prepare_slot_blocks(blocks, total, verbose=True):
+    """Фразы сценария -> слоты монтажа: нарезка длинных фраз и слияние
+    кусков короче пола. ОДНА функция для рендера и для отдельной команды
+    планировщика (stock_query_planner main): спецификация кадра планируется
+    по слотам, и если команда строила бы их своим путём, ключи плана у неё и
+    у рендера разошлись бы (каждый следующий прогон перепланировал бы).
+    Возвращает (слоты, вес по alignment, число слотов после нарезки)."""
+    for _bi, _b in enumerate(blocks):
+        # ИСХОДНЫЙ индекс блока — единственное, что связывает блок монтажа с
+        # юнитом speech_plan.json после нарезки/слияния; parent_text — ключ
+        # фразы для запасного плана (subcut_plan_fallback).
+        _b["orig_index"] = _bi
+        _b["parent_text"] = _b.get("text")
+    # Реальный тайминг считаем ДО sub-cuts — alignment.csv записан 1:1 на
+    # исходные блоки, split_long_blocks() делит вес пропорционально словам.
+    real_weights = load_alignment_weights(blocks)
+    if real_weights and verbose:
+        known = sum(1 for w in real_weights if w is not None)
+        print(f"Реальный тайминг (alignment.csv): {known}/{len(blocks)} блоков")
+    n_before = len(blocks)
+    blocks, real_weights = split_long_blocks(blocks, real_weights)
+    n_split = len(blocks)
+    if n_split != n_before and verbose:
+        print(f"Sub-cuts: {n_before} -> {n_split} блоков")
+    # PHRASE LOCK строит длительность строго по реальным онсетам речи, без
+    # пола — поэтому заранее сливаем куски, чья фраза короче пола
+    # (см. merge_short_phrase_locked_blocks).
+    blocks, real_weights = merge_short_phrase_locked_blocks(blocks, real_weights, total)
+    if len(blocks) != n_split and verbose:
+        print(f"Phrase-lock merge (клипы короче пола): {n_split} -> {len(blocks)} блоков")
+    return blocks, real_weights, n_split
+
+
+def neighbour_plan_repeats(blocks):
+    """Соседние слоты одной секции с одним предметом или одним первым
+    запросом — строки для лога. Инструкция планировщику «соседние строки
+    показывают разное» — просьба, а не гарантия; без этой строки повтор
+    («писарь» на слотах 9 и 10 эп.03) был бы виден только на готовом ролике.
+    Ничего не меняет и не блокирует."""
+    out = []
+    for i in range(1, len(blocks)):
+        a, b = blocks[i - 1], blocks[i]
+        if a.get("section") != b.get("section"):
+            continue
+        sa, sb = a.get("shot_spec") or {}, b.get("shot_spec") or {}
+        subj_a = (sa.get("subject") or "").strip().lower()
+        subj_b = (sb.get("subject") or "").strip().lower()
+        qa = (a.get("phrase_queries") or [None])[0]
+        qb = (b.get("phrase_queries") or [None])[0]
+        if subj_a and subj_a == subj_b:
+            out.append(f"слоты {i - 1} и {i} — один предмет «{subj_a}»")
+        elif qa and qa == qb:
+            out.append(f"слоты {i - 1} и {i} — один первый запрос «{qa}»")
+    return out
+
+
+def subcut_plan_fallback(blocks, plan, specs):
+    """Запасной путь для кусков без своей спецификации (нет ключа шлюза, сбой
+    планировщика, план на диске от прежней версии — по целым фразам). Без
+    него кусок уходил на запрос секции: один запрос на 4-10 слотов, то есть
+    ровно тот повтор кадров, ради которого спецификация делается на слот.
+    Первый кусок фразы получает спецификацию целой фразы (она описывает и
+    его), остальные — запросы фразы по кругу со сдвигом на номер куска, чтобы
+    соседние слоты не начинали с одного и того же запроса. Возвращает число
+    кусков, получивших запасной план."""
+    import shot_planner_llm
+    n = 0
+    for b in blocks:
+        k = b.get("subcut_k")
+        if k is None or b.get("shot_spec") or b.get("phrase_queries"):
+            continue
+        key = shot_planner_llm.unit_key(b.get("parent_text") or "")
+        qs = list((plan or {}).get(key) or [])
+        if qs:
+            r = k % len(qs)
+            b["phrase_queries"] = qs[r:] + qs[:r]
+        import stock_query_planner
+        sp = (specs or {}).get(key)
+        # Спецификация фразы — первому куску и только если она спланирована
+        # под те же брифы автора, что стоят в этом куске.
+        if k == 0 and sp and stock_query_planner.spec_briefs_match(sp, b) is not False:
+            b["shot_spec"] = stock_query_planner.spec_without_bsig(sp)
+        if qs or b.get("shot_spec"):
+            n += 1
+    return n
+
+
 def auto_plan_episode(blocks, video_dir=None):
     """Паспорт мира и спецификации кадров эпизода — до отбора, сам рендер.
 
@@ -7479,6 +7640,7 @@ def _pixabay_search_photos(api_query):
             tags = [t.strip() for t in (h.get("tags") or "").split(",") if t.strip()]
             out.append({
                 "id": f"pixabay:{h.get('id')}",
+                "_author": h.get("user_id"),
                 "alt": ", ".join(tags),
                 "url": h.get("pageURL") or "",
                 "tags": tags,
@@ -7537,6 +7699,7 @@ def _pixabay_search_videos(api_query):
             thumb = ((h.get("videos") or {}).get("medium") or {}).get("thumbnail")
             out.append({
                 "id": f"pixabay:{h.get('id')}",
+                "_author": h.get("user_id"),
                 "alt": ", ".join(tags),
                 "url": h.get("pageURL") or "",
                 "tags": tags,
@@ -7600,6 +7763,7 @@ def _unsplash_search_photos(api_query):
             alt = h.get("alt_description") or h.get("description") or ""
             out.append({
                 "id": f"unsplash:{h.get('id')}",
+                "_author": (h.get("user") or {}).get("id"),
                 "alt": alt,
                 "url": ((h.get("links") or {}).get("html")) or "",
                 "src": {"large2x": img, "large": img,
@@ -7992,6 +8156,8 @@ class PhotoAdapter(selection_engine.MediaAdapter):
     def cache_hit(self, request, cf):
         used_ids, used_hashes = request.used_photo_ids, request.used_hashes
         recent_sizes = request.recent_sizes
+        if cached_shoot_is_recent(cf, request.index):
+            return None  # та же съёмка на соседнем слоте — отбор заново
         if used_hashes is None:
             if recent_sizes is not None:
                 try:
@@ -8370,6 +8536,8 @@ class PhotoAdapter(selection_engine.MediaAdapter):
                 _source_bump(candidate_channel(p), "considered")
                 min_d = min((hamming(h, uh) for uh in used_hashes), default=99)
                 is_dup_free = 1 if min_d > PHOTO_DEDUP_HAMMING else 0
+                if is_dup_free and shoot_is_recent(p, index):
+                    is_dup_free = 0
                 size_ok = 1
                 if recent_sizes is not None:
                     try:
@@ -8784,7 +8952,7 @@ class PhotoAdapter(selection_engine.MediaAdapter):
             relevance=(winner.get("relevance") if winner else None),
             chosen_by=chosen_by, provenance=_prov,
             quality=(winner_quality(winner) if judged else None),
-            focus_box=_focus_box)
+            focus_box=_focus_box, shoot=candidate_shoot(pick))
         if recent_sizes is not None:
             try:
                 selection_attempt.record_effect("shot_size", recent_sizes, estimate_shot_size(cf))
@@ -13191,7 +13359,8 @@ def media_sidecar_path(media_path):
 
 def write_media_sidecar(media_path, *, pexels_id=None, query=None, kind=None,
                         ahash_hex=None, relevance=None, chosen_by=None,
-                        provenance=None, quality=None, verdicts=None, focus_box=None):
+                        provenance=None, quality=None, verdicts=None, focus_box=None,
+                        shoot=None):
     """Записать, ЧТО именно лежит в кэш-файле кандидата.
 
     РЕАЛЬНАЯ, найденная вживую дыра (04.09), которую это закрывает: имя
@@ -13222,6 +13391,8 @@ def write_media_sidecar(media_path, *, pexels_id=None, query=None, kind=None,
         # другого места, где происхождение кадра ещё известно, нет.
         if provenance:
             payload["provenance"] = provenance
+        if shoot:
+            payload["shoot"] = shoot   # автор съёмки — см. SLOT_SHOOT
         # Оценка проверки кадра: на повторном рендере кадр берётся из кэша
         # без проверки, и без записанной оценки выбор «фото или видео»
         # сравнивал бы свежую оценку одного вида с пустотой у другого —
@@ -15268,8 +15439,10 @@ class VideoAdapter(selection_engine.MediaAdapter):
         кадра берётся из sidecar — ffmpeg на кэш-хите не нужен."""
         used_hashes = request.used_hashes
         h = read_media_sidecar(cf).get("ahash")
-        if used_hashes and h and min((hamming(h, uh) for uh in used_hashes), default=99) \
-                <= PHOTO_DEDUP_HAMMING:
+        # Повтор: тот же кадр по aHash или та же съёмка на соседнем слоте —
+        # кэш не принимается, отбор заново.
+        if (used_hashes and h and min((hamming(h, uh) for uh in used_hashes), default=99)
+                <= PHOTO_DEDUP_HAMMING) or cached_shoot_is_recent(cf, request.index):
             return None
         register_cached_media(cf, used_ids=request.used_video_ids,
                               used_hashes=request.used_hashes, kind="video")
@@ -15391,6 +15564,8 @@ class VideoAdapter(selection_engine.MediaAdapter):
                 h = None
             min_d = (min((hamming(h, uh) for uh in used_hashes), default=99)
                      if (h is not None and used_hashes) else 99)
+            if shoot_is_recent(v, request.index):
+                min_d = 0   # та же съёмка на соседнем слоте — как дубль
             size_ok = 1
             if recent_sizes is not None:
                 try:
@@ -15560,6 +15735,7 @@ class VideoAdapter(selection_engine.MediaAdapter):
         selection_attempt.record_effect("license", candidate_provenance(pick), query)
         selection_attempt.record_effect("source_won", candidate_channel(pick))
         write_media_sidecar(cf, pexels_id=pick.get("id"), query=query, kind="video",
+                            shoot=candidate_shoot(pick),
                             ahash_hex=winner["hash"], relevance=winner.get("relevance"),
                             chosen_by=chosen_by, provenance=candidate_provenance(pick),
                             quality=(winner_quality(winner) if judged else None))
@@ -16352,6 +16528,27 @@ def _emit_subcut_blocks(b, w, words, merged, new_blocks, new_weights):
                      for x in (b.get("sfx") or [])
                      if a <= int(x.get("word_pos", 0)) < c
                      or (int(x.get("word_pos", 0)) <= 0 and k == 0)]
+        # Брифы [shot:] — по позиции, тем же правилом, что sfx: бриф живёт в
+        # том куске, где автор его поставил. Бриф без позиции (локальный
+        # режиссёр, fill_briefs) описывает начало фразы — только первому
+        # куску. Раньше dict(b) копировал ОДИН бриф во все куски, и 7 слотов
+        # хука эп.03 искали «монаха с пером».
+        nb["subcut_k"] = k
+        if b.get("shot_briefs"):
+            own = [dict(x, word_pos=max(0, int(x.get("word_pos", 0)) - a))
+                   for x in b["shot_briefs"]
+                   if a <= int(x.get("word_pos", 0)) < c
+                   or (int(x.get("word_pos", 0)) <= 0 and k == 0)
+                   # тег в самом конце фразы (перед [pause]) — последнему куску
+                   or (int(x.get("word_pos", 0)) >= total_w and k == len(merged) - 1)]
+            nb["shot_briefs"] = own
+            nb["shot_brief"] = own[0]["brief"] if own else None
+        elif k > 0:
+            nb["shot_brief"] = None
+        if k > 0:
+            nb.pop("shot_type_hint", None)
+        nb.pop("shot_spec", None)
+        nb.pop("phrase_queries", None)
         new_blocks.append(nb)
         new_weights.append((w * (c - a) / total_w) if w is not None else None)
 
@@ -16501,12 +16698,10 @@ def split_long_blocks(blocks, real_weights):
     контраст-союзы ("но"/"однако"/...) или первое число за пределами первой
     четверти блока. Без триггеров, но всё равно длинный — режем ровно посередине по словам.
     Реальный вес блока делится между кусками ПРОПОРЦИОНАЛЬНО их доле слов —
-    сумма сохраняется, ничего не выдумываем сверху. Запрос к стоку для
-    под-кадров остаётся тем же самым блоком (resolve_queries считается уже
-    ПОСЛЕ split, на новом расширенном списке — если у куска нет своего
-    ключевого слова, он унаследует запрос соседнего куска той же секции,
-    та же логика, что уже работает для обычных блоков), картинка другая —
-    засчёт дедупа по used_photo_ids на большем пуле Pexels (per_page=40)."""
+    сумма сохраняется, ничего не выдумываем сверху. Спецификация кадра и
+    запросы фразы на кусках НЕ наследуются: они планируются на каждый слот
+    после нарезки (prepare_slot_blocks -> auto_plan_episode -> attach), а
+    брифы [shot:] раздаются по позиции (_emit_subcut_blocks)."""
     new_blocks, new_weights = [], []
     _hook_times = _hook_word_times(blocks) if HOOK_SLOT_MAX_SEC > 0 else {}
     for _bi, (b, w) in enumerate(zip(blocks, real_weights or [None] * len(blocks))):
@@ -17223,31 +17418,7 @@ def main():
     # dict(b) в split_long_blocks() и dict(pb) в _merge_two_blocks() копируют
     # ключ сами: под-кадры наследуют индекс своей фразы, а слитый блок —
     # индекс первого из слитых, что и требуется.
-    for _bi, _b in enumerate(blocks):
-        _b["orig_index"] = _bi
-        _b["parent_text"] = _b.get("text")
-    # Реальный тайминг считаем ДО sub-cuts — alignment.csv записан 1:1 на
-    # исходные блоки (по [pause]/[short pause]), split_long_blocks() потом
-    # честно делит вес пропорционально словам между получившимися кусками.
-    real_weights = load_alignment_weights(blocks)
-    if real_weights:
-        known = sum(1 for w in real_weights if w is not None)
-        print(f"Реальный тайминг (alignment.csv): {known}/{len(blocks)} блоков")
-    n_before = len(blocks)
-    blocks, real_weights = split_long_blocks(blocks, real_weights)
-    SHOT_JUDGE_EPISODE_SLOTS = len(blocks)
-    if len(blocks) != n_before:
-        print(f"Sub-cuts: {n_before} -> {len(blocks)} блоков")
-    # См. merge_short_phrase_locked_blocks() — PHRASE LOCK ветка строит
-    # длительность строго по реальным онсетам речи, без единого пола, поэтому
-    # сам HOOK_MIN_CLIP/MIN_CLIP её не защищает; здесь заранее сливаем
-    # блоки, чья реальная фраза короче пола, чтобы КАЖДЫЙ уцелевший рез
-    # (и в PHRASE LOCK, и в обычной ветке — обе читают уже этот blocks)
-    # гарантированно не давал клип короче пола.
-    n_before_merge = len(blocks)
-    blocks, real_weights = merge_short_phrase_locked_blocks(blocks, real_weights, total)
-    if len(blocks) != n_before_merge:
-        print(f"Phrase-lock merge (клипы короче пола): {n_before_merge} -> {len(blocks)} блоков")
+    blocks, real_weights, SHOT_JUDGE_EPISODE_SLOTS = prepare_slot_blocks(blocks, total)
     # СПЕЦИФИКАЦИЯ КАДРА — НА КАЖДЫЙ СЛОТ, ПОСЛЕ НАРЕЗКИ (01.10). Раньше план
     # спрашивался по фразам сценария ДО нарезки, и под-кадры наследовали
     # спецификацию родителя через dict(b). Живой брак эп.03: фраза хука в 68
@@ -17256,16 +17427,9 @@ def main():
     # все 7 слотов, нарезанных из неё, искали одно и то же — на экране семь
     # раз подряд монах с пером, а «сошлись девятьсот рыцарей» не показано
     # вообще. Теперь каждый слот спрашивается своим текстом, с главой в
-    # контексте. Бриф автора [shot:] стоит в начале фразы и описывает её
-    # начало — он остаётся только у первого под-кадра, остальным не мешает.
-    _seen_parent = set()
-    for _b in blocks:
-        if _b.get("text") != _b.get("parent_text"):
-            if _b.get("orig_index") in _seen_parent:
-                _b.pop("shot_brief", None)
-            _b.pop("shot_spec", None)
-            _b.pop("phrase_queries", None)
-        _seen_parent.add(_b.get("orig_index"))
+    # контексте. Брифы автора раздаёт сама нарезка (_emit_subcut_blocks: по
+    # позиции [shot:] в словах — кусок получает тот бриф, что стоит в нём).
+    # Без свежего плана — subcut_plan_fallback ниже, не запрос секции.
     auto_plan_episode(blocks)
     # Мир эпизода — в музейный фильтр: окно эпохи и чужие культуры из
     # паспорта, а не из дефолтов канала (см. museum_sources.set_episode_world).
@@ -17278,6 +17442,16 @@ def main():
         if _sq:
             print(f"  Запросы фраз: на {_sq} из {len(blocks)} слотов (media_plan/"
                   f"{stock_query_planner.PLAN_NAME})")
+        _rep = neighbour_plan_repeats(blocks)
+        if _rep:
+            print(f"  План: у {len(_rep)} пар соседних слотов один предмет или один первый "
+                  f"запрос (кадры могут повториться): " + "; ".join(_rep[:8])
+                  + (" …" if len(_rep) > 8 else ""))
+        _fb = subcut_plan_fallback(blocks, stock_query_planner.load(VIDEO_FOLDER),
+                                   stock_query_planner.load_specs(VIDEO_FOLDER))
+        if _fb:
+            print(f"  ВНИМАНИЕ: у {_fb} слотов нет своей спецификации (план не обновился) — "
+                  f"взяты запросы их целой фразы по кругу, спецификация — только первому куску")
     except Exception as _e:
         print(f"  Запросы фраз пропущены ({type(_e).__name__})")
     # Кроссфейд между КАЖДОЙ парой кадров суммарно "съедает" какую-то часть
@@ -17742,6 +17916,8 @@ def main():
     shotlist_locked_used = 0
     used_photo_ids = set()   # общий на весь ролик — не даём одной фотке всплыть дважды
     used_video_ids = set()   # то же самое, отдельно для видео (разные ID-пространства)
+    SLOT_SHOOT.clear()
+    ABSORBED_SLOTS.clear()   # список эпизода, не прошлого вызова main()
     used_photo_hashes = []   # aHash уже отобранных фото — ловит визуальные дубли под РАЗНЫМИ ID (см. pexels_photo)
     recent_shot_sizes = []   # скользящее окно масштаба плана (wide/medium/close/detail) — см. estimate_shot_size
     recent_media_types = []   # скользящее окно фото/видео — content-aware чередование, см. main() ниже
@@ -17965,6 +18141,10 @@ def main():
                 # спокойно брал уже стоящий в ролике кадр. Возвращаем кадр в
                 # дедуп по файлу из шотлиста: анти-дубль снова видит ВЕСЬ
                 # эпизод, а не только пересобранные в этом прогоне слоты.
+                # Автор показанного кадра — соседям для проверки «одна съёмка
+                # подряд»: без этого на прогретом кэше защита слепа.
+                SLOT_SHOOT[i] = (read_media_sidecar(prev_file).get("shoot")
+                                 if prev_file and os.path.exists(prev_file) else None)
                 if prev_file and os.path.exists(prev_file):
                     _cached = new_attempt(i, "clip_cache")
                     with selection_attempt.activate(_cached):
@@ -18580,6 +18760,10 @@ def main():
             video = _final
         else:
             photo = _final
+        # Автор показанного кадра — для проверки «одна съёмка подряд» у
+        # следующих слотов (shoot_is_recent). Нет sidecar (закреплённый,
+        # сгенерированный кадр) — автор неизвестен, слот не мешает соседям.
+        SLOT_SHOOT[i] = read_media_sidecar(photo or video).get("shoot") if (photo or video) else None
         shot_entries[i] = {"index": i, "section": b["section"], "text": b["text"], "query": queries[i],
                            "kind": "video" if video else "photo",
                            "file": shotlist_relative_file(video or photo, VIDEO_FOLDER),

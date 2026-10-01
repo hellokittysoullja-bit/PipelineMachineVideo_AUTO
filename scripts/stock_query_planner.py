@@ -92,6 +92,8 @@ Below are the narration lines of one chapter, in order{prev}. A line may come wi
 
 For EVERY numbered line decide what the viewer must SEE while hearing it.
 
+Lines are cut for editing: one sentence may be split over several lines, and each line gets its own shot of 3 to 5 seconds. Neighbouring lines must show DIFFERENT things — a new subject, or a new view of it that says something new — never the same core twice in a row, unless the line really repeats it.
+
 focus — the new thing this line says, understood in the context of the chapter (resolve pronouns and references from the lines around it). 3 to 12 English words.
 
 core — WHO or WHAT must be visible: the single thing (an object, a person, an animal, a place) that, even alone in a picture, still makes the viewer think of this line — with the state that defines it, if any ("an exhausted person", "a burnt letter"). Name the thing, not an event: what it does goes into the claims. Ask yourself: if the picture could show only one thing, which one? When the line is about something happening to, on or around something else, the core is what the line is about — usually the thing that moves, acts or changes — not the surface, place or object it happens on. When the line is abstract (a feeling, an idea, a process, an argument), the core is a concrete situation, a bodily sign or an object left behind that a camera can photograph and a viewer reads as this idea — never a bare "a person is visible" or an invisible thing like "a memory" or "a brain decision": say what makes the picture show THIS line ("a person slumped over an untouched plate", "a crumpled paper covered in red corrections"). Never make words, captions, labels, signs or logos in the picture part of the core or of a claim — the viewer hears the words, the picture shows things — unless the line is about that very document, chart, headline, sign or screen. Write it as a statement: "a ball is visible".
@@ -139,8 +141,15 @@ def render_spec_prompt(packet, setting):
     lines = []
     for u in packet["units"]:
         brief = u.get("author_brief")
-        lines.append(f"{u['n']}. «{u['text']}»" + (f" — shot: {brief}" if brief else ""))
+        also = [x for x in (u.get("author_briefs") or []) if x and x != brief]
+        lines.append(f"{u['n']}. «{u['text']}»" + (f" — shot: {brief}" if brief else "")
+                     + (f"; also: {'; '.join(also)}" if also else ""))
     prev = f" (the previous chapter ended with: «{packet['prev_tail']}»)" if packet.get("prev_tail") else ""
+    if packet.get("chapter_context"):
+        a, b = packet.get("portion") or (1, len(packet["units"]))
+        prev += (". The chapter is long; here is ALL of it, numbered, for context — answer ONLY for "
+                 f"lines {a} to {b} (listed below), using these same numbers: «"
+                 + " / ".join(packet["chapter_context"]) + "»")
     return SPEC_PROMPT.format(title=packet.get("episode_title") or "—", setting=setting or "not specified",
                               prev=prev, c1=MAX_CLAIMS - 1, q=MAX_QUERIES, lines="\n".join(lines))
 
@@ -346,6 +355,20 @@ def ask_chapter(gateway, model, packet, setting, cache_dir):
     return got, hit
 
 
+def briefs_signature(briefs):
+    """Отпечаток брифов автора слота: правка брифа при том же тексте фразы
+    обязана перепланировать спецификацию (бриф идёт в промпт «keep its
+    meaning»). Нет брифов — пустая строка."""
+    got = [" ".join(str(b).split()) for b in (briefs or []) if b and str(b).strip()]
+    return hashlib.sha256("|".join(got).encode("utf-8")).hexdigest()[:12] if got else ""
+
+
+def block_briefs(b):
+    """Брифы блока слота в том порядке, в каком их видит планировщик."""
+    got = [x.get("brief") for x in (b.get("shot_briefs") or []) if x.get("brief")]
+    return got or ([b.get("shot_brief")] if b.get("shot_brief") else [])
+
+
 def plan_signature(model, setting):
     """Что делает спецификации сопоставимыми между прогонами: версия,
     модель, текст инструкции и мир эпизода. Совпадает — спецификацию фразы с
@@ -359,6 +382,30 @@ def _read_plan(path):
             return json.load(f)
     except Exception:  # noqa: BLE001 — нет или битый: плана нет
         return {}
+
+
+# Глава длиннее этого уходит модели порциями. После нарезки на слоты
+# главы выросли в ~1.7 раза (эп.03: до 23 строк, ответ 18 КБ при потолке
+# MAX_TOKENS), и ответ на главу в 30+ строк обрывался бы, оставляя хвост
+# без спецификации. Каждая порция видит название главы и хвост предыдущей.
+PORTION_UNITS = 15
+
+
+def _portions(packets, size=PORTION_UNITS):
+    for p in packets:
+        us = p["units"]
+        if len(us) <= size:
+            yield p
+            continue
+        # Порция видит ВСЮ главу как контекст (местоимения, соседние кадры на
+        # стыке порций), а отвечает только на свои строки — ответ короткий.
+        # Номера строк — ИСХОДНЫЕ номера главы (контекст пронумерован так же):
+        # модель отвечает номером, который видит в контексте, и разбор ждёт
+        # ровно его.
+        whole = [f"{u['n']}. {_clean(u['text'])}" for u in us]
+        for s in range(0, len(us), size):
+            part = list(us[s:s + size])
+            yield dict(p, units=part, chapter_context=whole, portion=(part[0]["n"], part[-1]["n"]))
 
 
 def plan_episode(video_dir, blocks, gateway, model=DEFAULT_MODEL, verbose=True, workers=None):
@@ -383,7 +430,7 @@ def plan_episode(video_dir, blocks, gateway, model=DEFAULT_MODEL, verbose=True, 
     sig = plan_signature(model, setting)
     old = _read_plan(path)
     old_units = (old.get("units") or {}) if old.get("sig") == sig else {}
-    packets = list(sbd.packets(video_dir, blocks))
+    packets = list(_portions(sbd.packets(video_dir, blocks)))
 
     def one(packet):
         try:
@@ -393,7 +440,11 @@ def plan_episode(video_dir, blocks, gateway, model=DEFAULT_MODEL, verbose=True, 
         except llm_gateway.GatewayError as e:
             return None, e
 
-    units, kept = {}, 0
+    # Ключи, которых в этом вызове нет, остаются из прежнего плана той же
+    # подписи: рендер планирует по слотам (после нарезки), отдельная команда
+    # — по фразам сценария. Перезапись файла только своими ключами заставляла
+    # каждый следующий вызов перепланировать то, что стёр предыдущий.
+    units, kept = dict(old_units), 0
     with concurrent.futures.ThreadPoolExecutor(max(1, min(workers or len(packets), 8))) as ex:
         results = list(ex.map(one, packets))
     for no, (packet, (res, err)) in enumerate(zip(packets, results), 1):
@@ -411,16 +462,20 @@ def plan_episode(video_dir, blocks, gateway, model=DEFAULT_MODEL, verbose=True, 
         got, hit = res
         for u in packet["units"]:
             key = shot_planner_llm.unit_key(u["text"])
-            if not hit and key in old_units and old_units[key].get("model", model) == model:
-                # Спецификация запасной модели (цепочка llm_gateway) прежним
-                # планом не сохраняется: первичная ответила — берётся её ответ.
-                units[key] = old_units[key]
+            bsig = briefs_signature(u.get("author_briefs") or [u.get("author_brief")])
+            old_u = old_units.get(key)
+            if (not hit and isinstance(old_u, dict) and old_u.get("model", model) == model
+                    and old_u.get("bsig", "") == bsig):
+                # Текст слота и брифы автора не менялись — спецификация прежняя,
+                # иначе правка одного слова главы перепокупала бы кадры всех её
+                # слотов (спецификация входит в ключ кэша кандидата).
+                units[key] = old_u
                 kept += 1
                 continue
             spec = got.get(u["n"])
             if spec:
                 units[key] = dict(spec, text=u["text"], queries_for=spec["queries"],
-                                  queries=flat_queries(spec))
+                                  queries=flat_queries(spec), bsig=bsig)
         if verbose:
             print(f"  глава {no} «{_clean(packet['section'])[:40]}»: запросы на {len(got)} "
                   f"из {len(packet['units'])} фраз{' (кэш)' if hit else ''}")
@@ -448,13 +503,26 @@ def needs_planning(video_dir, blocks, model=DEFAULT_MODEL):
     if plan.get("sig") != plan_signature(model, setting):
         return True
     have = plan.get("units") or {}
-    if any(isinstance(v, dict) and v.get("model", model) != model for v in have.values()):
+    # Только ключи ТЕКУЩИХ слотов: план хранит и сирот (прежние тексты слотов,
+    # фразы команды планировщика), и сирота от запасной модели навсегда
+    # держала бы «нужно перепланировать».
+    current = {shot_planner_llm.unit_key(b.get("text") or "")
+               for b in blocks if (b.get("text") or "").strip()}
+    if any(isinstance(have.get(k), dict) and have[k].get("model", model) != model for k in current):
         # Часть фраз разобрала запасная модель (первичная лежала): следующий
         # прогон даёт первичной шанс. Её кэш по-прежнему смотрится первым,
         # лежит она и сейчас — ответ запасной берётся из её кэша бесплатно.
         return True
-    return any(shot_planner_llm.unit_key(b.get("text") or "") not in have
-               for b in blocks if (b.get("text") or "").strip())
+    for b in blocks:
+        if not (b.get("text") or "").strip():
+            continue
+        u = have.get(shot_planner_llm.unit_key(b.get("text") or ""))
+        if not isinstance(u, dict):
+            return True
+        # Бриф автора поменялся при том же тексте — спецификация устарела.
+        if u.get("bsig", "") != briefs_signature(block_briefs(b)):
+            return True
+    return False
 
 
 def load(video_dir):
@@ -489,7 +557,8 @@ def load_specs(video_dir):
     if data.get("version") != PLAN_VERSION:
         print(f"  {PLAN_NAME}: версия {data.get('version')}, нужна {PLAN_VERSION} — "
               f"спецификации кадров не используются; перепланировать: "
-              f"python scripts/stock_query_planner.py <эпизод>")
+              f"python scripts/stock_query_planner.py <эпизод> (после озвучки) "
+              f"или рендер с ключом шлюза")
         return {}
     out = {}
     for k, v in (data.get("units") or {}).items():
@@ -498,7 +567,24 @@ def load_specs(video_dir):
                       "queries": v.get("queries_for") or []}
             if v.get("subject"):
                 out[k]["subject"] = v["subject"]
+            # Отпечаток брифов — для сверки в attach. В саму спецификацию
+            # слота он не попадает (spec_without_bsig): спецификация входит в
+            # ключ кэша кандидата, и служебное поле не должно его двигать.
+            if "bsig" in v:
+                out[k]["bsig"] = v["bsig"]
     return out
+
+
+def spec_without_bsig(spec):
+    return {k: v for k, v in spec.items() if k != "bsig"}
+
+
+def spec_briefs_match(spec, b):
+    """True — спецификация под те же брифы; None — неизвестно (план до
+    отпечатков брифов, принимается); False — под другие брифы."""
+    if "bsig" not in spec:
+        return None
+    return spec["bsig"] == briefs_signature(block_briefs(b))
 
 
 def has_motion(spec, must=False):
@@ -509,13 +595,16 @@ def has_motion(spec, must=False):
 
 def attach(blocks, plan, specs=None):
     """Проставить блокам b["phrase_queries"] по тексту фразы, а по плану
-    версии 3 ещё b["shot_spec"]. Возвращает, скольким блокам нашлись
-    запросы. Под-кадры наследуют поля при нарезке (dict(b) в
-    split_long_blocks), поэтому проставляется ДО неё."""
+    версии 3+ ещё b["shot_spec"]. Возвращает, скольким блокам нашлись
+    запросы. Проставляется ПОСЛЕ нарезки на слоты (pipeline_smart.
+    prepare_slot_blocks): у каждого слота своя спецификация. Раньше —
+    до нарезки, и куски наследовали спецификацию целой фразы (эп.03: 7
+    слотов хука искали одно «монах с пером»)."""
     if not plan:
         return 0
     import shot_planner_llm
     n = 0
+    stale = unknown = 0
     for b in blocks:
         key = shot_planner_llm.unit_key(b.get("text") or "")
         qs = plan.get(key)
@@ -523,8 +612,26 @@ def attach(blocks, plan, specs=None):
             b["phrase_queries"] = list(qs)
             n += 1
         spec = (specs or {}).get(key)
-        if spec:
-            b["shot_spec"] = spec
+        if not spec:
+            continue
+        match = spec_briefs_match(spec, b)
+        if match is False:
+            # Спецификация спланирована под ДРУГИЕ брифы автора (бриф правили,
+            # а плана с ключом шлюза ещё не было): слот с брифом «две армии» и
+            # спецификацией «монах» искал бы монаха. Снимается только
+            # спецификация — запросы фразы остаются (иначе слот ушёл бы на
+            # запрос секции, а это хуже).
+            stale += 1
+            continue
+        if match is None and block_briefs(b):
+            unknown += 1
+        b["shot_spec"] = spec_without_bsig(spec)
+    if stale:
+        print(f"  ВНИМАНИЕ: у {stale} слотов спецификация спланирована под другие брифы "
+              f"автора — не используется, остаются запросы фразы (перепланирует рендер с ключом шлюза)")
+    if unknown:
+        print(f"  План до отпечатков брифов: у {unknown} слотов с брифом соответствие "
+              f"спецификации брифу не проверено")
     return n
 
 
@@ -536,8 +643,31 @@ def main(argv=None):
     args = ap.parse_args(argv)
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import llm_gateway
-    import script_parser
-    blocks = script_parser.parse_blocks(os.path.join(args.video_dir, "script.txt"))
+    # Слоты строятся тем же путём, что в рендере (pipeline_smart.
+    # prepare_slot_blocks): план ключуется текстом слота, и команда, строящая
+    # их иначе, писала бы ключи, которых рендер не ищет.
+    # pipeline_smart берёт папку эпизода из sys.argv при импорте — значит
+    # импорт обязан быть первым в процессе и с этой папкой.
+    if "pipeline_smart" in sys.modules:
+        print("ОТКАЗ: pipeline_smart уже импортирован в этом процессе с другой папкой — "
+              "запусти команду отдельным процессом")
+        return 2
+    saved_argv = sys.argv
+    sys.argv = [saved_argv[0], args.video_dir]
+    try:
+        import pipeline_smart
+    finally:
+        sys.argv = saved_argv
+    audio = pipeline_smart.AUDIO_FILE
+    if not audio or not os.path.exists(audio):
+        # Слоты нарезаются по реальному времени речи (alignment) и длине
+        # аудио: план до озвучки ключуется не теми кусками, что увидит рендер.
+        print("ОТКАЗ: озвучки ещё нет — спецификации кадров планируются ПОСЛЕ неё "
+              "(слоты режутся по реальному времени речи). Рендер с ключом шлюза "
+              "спланирует их сам.")
+        return 2
+    blocks = pipeline_smart.parse_blocks(pipeline_smart.SCRIPT_FILE)
+    blocks, _w, _n = pipeline_smart.prepare_slot_blocks(blocks, pipeline_smart.get_audio_duration())
     gw = llm_gateway.Gateway(spend_cap=args.cap)
     n = plan_episode(args.video_dir, blocks, gw, model=args.model)
     print(f"Готово: запросы на {n} фраз из {len(blocks)}. {gw.summary()}")

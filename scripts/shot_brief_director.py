@@ -337,6 +337,10 @@ def enumerate_units(items, stages, max_units):
             "stat": b.get("stat"),
             "is_climax": bool(b.get("is_climax")),
             "author_brief": _clean(b.get("shot_brief")) or None,
+            # Все брифы слота по порядку (их бывает два: автор пишет [shot:]
+            # к каждой фразе, а слот может закрыть две).
+            "author_briefs": [_clean(x.get("brief")) for x in (b.get("shot_briefs") or [])
+                              if _clean(x.get("brief"))],
         })
         if max_units and len(res) >= max_units:
             break

@@ -169,6 +169,7 @@ def parse_blocks(path):
     blocks, cur, pause, stat, stat_word_pos, pending_climax = [], "", 0.0, None, None, False
     sfx, hush = [], False
     shot_brief = None
+    shot_briefs = []
     # [sfx:...] стоит ВНУТРИ фразы и монтаж не режет. Но он разбивает строку
     # на части, и если к этому моменту висит несъеденная пауза (она осталась
     # от [pause] перед блоком), следующий же огрызок — хоть одна точка —
@@ -178,16 +179,17 @@ def parse_blocks(path):
     section = "BODY"
 
     def flush():
-        nonlocal cur, pause, stat, stat_word_pos, pending_climax, sfx, hush, shot_brief
+        nonlocal cur, pause, stat, stat_word_pos, pending_climax, sfx, hush, shot_brief, shot_briefs
         if cur:
             blocks.append({"text": cur, "pause_after": pause,
                            "words": len(cur.split()), "section": section, "stat": stat,
                            "stat_word_pos": stat_word_pos, "is_climax": pending_climax,
                            "sfx": list(sfx), "hush": hush,
-                           "shot_brief": shot_brief})
+                           "shot_brief": shot_brief, "shot_briefs": list(shot_briefs)})
         cur, pause, stat, stat_word_pos, pending_climax = "", 0.0, None, None, False
         sfx, hush = [], False
         shot_brief = None
+        shot_briefs = []
 
     for part in parts:
         mp = re.match(r'__PAUSE_([\d.]+)__', part)
@@ -260,7 +262,18 @@ def parse_blocks(path):
                 flush()
             brief = part[len("\x05SHOT:"):-1].strip()
             if brief:
-                shot_brief = brief
+                # Брифов в одной фразе может быть несколько: автор пишет
+                # [shot:] вплотную к КАЖДОЙ своей фразе, а блок режется только
+                # по [pause]. Раньше выживал последний (`shot_brief = brief`) —
+                # живой брак эп.03: во фразе хука «две армии конных рыцарей»
+                # затирался «монахом с пером», и монах уходил брифом на все
+                # 68 слов (22% брифов эпизода терялись так же). Теперь каждый
+                # бриф хранится со своей позицией в словах, как у [sfx:], и
+                # нарезка отдаёт его тому куску, где он стоит. shot_brief
+                # блока — ПЕРВЫЙ (он описывает начало фразы).
+                shot_briefs.append({"word_pos": len(cur.split()), "brief": brief})
+                if shot_brief is None:
+                    shot_brief = brief
             merge_next = bool(cur)
         elif part == "\x04HUSH\x04":
             hush = True
