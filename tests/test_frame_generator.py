@@ -78,7 +78,7 @@ def test_prompt_never_asks_the_model_for_letters_and_points_at_references():
     h = g.build_prompt(dict(FRAME, hero=True), 2, True)
     assert "person in reference image 3" in h          # герой — последним, после двух образцов
     d = g.build_prompt(dict(FRAME, kind="diagram", labels=["А", "Б"]), 1, False)
-    assert "2 empty patches" in d and "arrow" in d and "reference image 1:" in d and "А" not in d
+    assert "2 wide empty patches" in d and "arrow" in d and "reference image 1:" in d and "А" not in d
 
 
 def test_style_refs_always_hero_only_where_planned(tmp_path):
@@ -221,3 +221,37 @@ def test_no_room_for_caption_redraws_then_uses_a_band_not_rejects(tmp_path):
     assert g1.backend.calls == 2                            # второй раунд нарисован
     assert rec["status"] == "ok" and rec["labels_fallback"] == "band"
     assert rec["labels_placed"][0]["text"] == "ЖИВ. ПОЛНОСТЬЮ."
+
+
+def test_diagram_prompt_asks_wide_clean_patches_and_the_owner_arrow_colour(monkeypatch):
+    import frame_generator as fg
+    frame = {"kind": "diagram", "labels": ["А", "Б"], "picture": "a loop"}
+    monkeypatch.setenv("DIAGRAM_ARROW_COLOR", "red")
+    p = fg.build_prompt(frame, 3, False)
+    assert "exactly 2 wide empty patches" in p and "away from the image edges" in p
+    assert "no lighter fill" in p and "Draw every arrow in red" in p
+    monkeypatch.setenv("DIAGRAM_ARROW_COLOR", "")
+    assert "Draw every arrow" not in fg.build_prompt(frame, 3, False)   # пусто — цвет из образцов
+    assert "Draw every arrow" not in fg.build_prompt({"kind": "scene", "labels": [], "picture": "x"}, 3, False)
+
+
+def test_diagram_and_caption_get_the_owner_background_scenes_keep_their_place(monkeypatch):
+    import frame_generator as fg
+    monkeypatch.setenv("DIAGRAM_BACKGROUND", "near-white")
+    for kind in ("diagram", "caption"):
+        assert "plain near-white paper" in fg.build_prompt({"kind": kind, "labels": ["А"], "picture": "x"}, 3, False)
+    assert "near-white" not in fg.build_prompt({"kind": "scene", "labels": [], "picture": "x"}, 3, False)
+    monkeypatch.setenv("DIAGRAM_BACKGROUND", "")
+    assert "paper" not in fg.build_prompt({"kind": "diagram", "labels": ["А"], "picture": "x"}, 3, False)
+
+
+def test_flat_paper_follows_the_owner_background(monkeypatch, tmp_path):
+    import frame_generator as fg
+
+    class L:
+        def signature(self, h):
+            return "s"
+    monkeypatch.setenv("DIAGRAM_BACKGROUND", "near-white")
+    assert fg.Generator(None, str(tmp_path), L()).flat_paper is True
+    monkeypatch.setenv("DIAGRAM_BACKGROUND", "")
+    assert fg.Generator(None, str(tmp_path), L()).flat_paper is False

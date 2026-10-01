@@ -39,7 +39,7 @@ import script_parser  # noqa: E402
 
 PLAN_NAME = "frame_plan.json"
 CACHE_DIR_NAME = "frame_plan_cache"
-PLAN_VERSION = 6
+PLAN_VERSION = 7
 # Модель выбрана замером старого генератора 24.09 (58 фраз трёх ниш):
 # DeepSeek v4 Flash — 58/58, ~2 тыс. токенов баланса; Gemini 3.7 Flash по
 # смыслу наравне, но ~35 тыс.; Qwen 3.8 Max — 46/58.
@@ -152,10 +152,11 @@ FRAME_RULES = """frame — ONE hand-drawn picture per line. It is generated once
   How to WRITE it:
     - in order of importance: the main subject with its pose, gesture and facial expression; the action; at most two supporting props; the place in a few words;
     - an object the image model may not know by name is described by its look, or replaced by a familiar object with the same meaning; a small action (pressing, pouring, signing) is shown close up, through the hands;
+    - an object that appears twice in one picture is named the same way both times ("the phone ... the same phone"), never by a vaguer word ("a screen", "a device"): the image model draws a vaguer word as a different object;
     - exact counts for everything countable ("three children", "one phone"); every person has two arms and two legs and holds things in clearly drawn hands;
     - the framing (close-up, medium or wide shot) and where the main subject sits in the frame, with calm empty background around it; neighbouring pictures differ in subject and framing unless the lines continue one moment in the same place;
     - the background: plain and light for diagrams and simple statements, the place itself for scenes set somewhere;
-    - "caption": the bottom fifth of the frame is plain empty background. "diagram": the diagram fills the middle, next to each labelled part there is an empty patch of plain background with a short hand-drawn arrow from it to the part — no boxes, frames or lines around the empty patches;
+    - "caption": the bottom fifth of the frame is plain empty background. "diagram": the diagram fills the middle, next to each labelled part there is a wide empty patch of plain background (room for a word in big letters), away from the frame edges, with a short hand-drawn arrow from it to the part — no boxes, frames or lines around the empty patches; every label needs its own patch, so name as many patches as there are labels;
     - nothing may carry writing: no letters, numbers, digits, dates, symbols, logos or signs anywhere. Avoid objects that come with writing (apps on screens, book covers, slot-machine reels, price tags, clock numerals); when one is needed, make it blank ("a phone with a blank glowing screen", "a clock face without numerals"). A period is named in words, never as years;
     - people of the past wear the clothes and use the objects of their time;
     - never describe the drawing style, line work or palette: the style comes from the reference images."""

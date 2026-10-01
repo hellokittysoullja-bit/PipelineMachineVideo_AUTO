@@ -44,7 +44,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import env  # noqa: E402
 import labels  # noqa: E402
 
-GEN_VERSION = 4
+GEN_VERSION = 5
 TEXT_MATCH_MIN = 1.0        # только точное совпадение букв (см. докстринг, п.2)
 VERIFY_TOP = 3              # сколько лучших по сетке проверять по утверждениям
 READ_PROMPT = ("Transcribe every piece of text visible in this image exactly as written, "
@@ -53,6 +53,15 @@ READ_PROMPT = ("Transcribe every piece of text visible in this image exactly as 
 
 
 # ------------------------------------------------------------------ промпт
+
+def paper_background():
+    """Фон схем и подписей из .env (DIAGRAM_BACKGROUND), пусто — как в
+    образцах стиля. Одно место: и промпт, и выравнивание пятен под подписями
+    (labels.flatten_paper) включаются от одной настройки — ровный лист
+    просили, значит пятно на нём брак; на фактурной бумаге выравнивание
+    сделало бы гладкие заплаты."""
+    return os.environ.get("DIAGRAM_BACKGROUND", "").strip()
+
 
 def build_prompt(frame, n_style, with_hero):
     """Задание модели картинок. Главное первым (описание кадра от
@@ -67,8 +76,26 @@ def build_prompt(frame, n_style, with_hero):
     if frame.get("kind") == "caption" and labs:
         parts.append("Leave the bottom fifth of the image as plain empty background for a caption added later")
     elif labs:
-        parts.append(f"Leave {len(labs)} empty patches of plain background, one next to each labelled part, "
-                     "each with a short hand-drawn arrow to its part, and nothing drawn around the patches")
+        # Замер 01.10: без размера и отступа модель оставила под «ДОФАМИН»
+        # щель у края (кегль 66% шкалы) и залила места светлыми пятнами.
+        parts.append(f"Leave exactly {len(labs)} wide empty patches of plain background, one next to each labelled "
+                     "part, each big enough for a word in large letters (about a fifth of the image wide) and well "
+                     "away from the image edges, each with a short hand-drawn arrow to its part. The patches are the "
+                     "very same background as around them: no lighter fill, glow, shading, box or outline")
+        # Цвет стрелок — решение владельца в .env (читается здесь, после
+        # load_env); пусто — цвет из образцов стиля. Входит в промпт, а значит
+        # и в ключ кэша: смена цвета перерисует схемы.
+        arrow = os.environ.get("DIAGRAM_ARROW_COLOR", "").strip()
+        if arrow:
+            parts.append(f"Draw every arrow in {arrow}")
+    # Фон схем и подписей — решение владельца в .env (DIAGRAM_BACKGROUND):
+    # образцы стиля задают бумагу, а схеме нужен чистый светлый лист, на
+    # котором красные стрелки и подписи читаются сразу. Сцены не трогаются —
+    # их фон это место действия.
+    paper = paper_background()
+    if paper and frame.get("kind") in ("diagram", "caption"):
+        parts.append(f"The whole background is plain {paper} paper, even and untinted, "
+                     "even if the reference images use a darker or coloured paper")
     parts.append("No text, letters, numbers, digits, symbols, logos or signs anywhere in the image")
     # Камера наезжает на кадр до ~10% и вписывает его в 16:9 — главное у
     # самого края срезалось бы.
@@ -136,6 +163,7 @@ class Generator:
             os.makedirs(d, exist_ok=True)
         self.lock = threading.Lock()
         self.spent = 0
+        self.flat_paper = bool(paper_background())
 
     def task(self, frame):
         """(промпт, с героем ли, отпечаток задания). Отпечаток — фраза, промпт,
@@ -144,7 +172,7 @@ class Generator:
         with_hero = bool(frame.get("hero")) and self.look.hero is not None
         prompt = build_prompt(frame, len(self.look.style), with_hero)
         b = self.backend
-        sig = hashlib.sha256(f"{GEN_VERSION}|{frame.get('key')}|{b.model}|{b.size}|{b.quality}|"
+        sig = hashlib.sha256(f"{GEN_VERSION}|{labels.COMPOSE_VERSION}|{frame.get('key')}|{b.model}|{b.size}|{b.quality}|"
                              f"{self.look.signature(with_hero)}|{prompt}".encode("utf-8")).hexdigest()[:20]
         return prompt, with_hero, sig
 
@@ -265,7 +293,8 @@ class Generator:
             if new:
                 pool.update(self._judge(frame, new))
             for p in [q for q in ranked() if q in new]:
-                ok, info = labels.compose(p, out, frame, self.jgw, self.jmodel, self.judge_cache)
+                ok, info = labels.compose(p, out, frame, self.jgw, self.jmodel, self.judge_cache,
+                                           flat_paper=self.flat_paper)
                 tries.append({"variant": os.path.basename(p), "ok": ok, "info": info})
                 if ok:
                     return done(p, info)
@@ -274,7 +303,8 @@ class Generator:
             # Годный рисунок, но места под подпись не нашлось ни в одном раунде:
             # подпись — на полосе цвета фона, а не выброс кадра (иначе на экране
             # висела бы прошлая картинка под новую фразу).
-            ok, info = labels.compose(good[0], out, frame, self.jgw, self.jmodel, self.judge_cache, fallback=True)
+            ok, info = labels.compose(good[0], out, frame, self.jgw, self.jmodel, self.judge_cache, fallback=True,
+                                       flat_paper=self.flat_paper)
             tries.append({"variant": os.path.basename(good[0]), "ok": ok, "info": info, "fallback": True})
             if ok:
                 return done(good[0], info, fallback=info[0].get("fallback") if info else "unlabeled")

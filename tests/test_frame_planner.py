@@ -126,5 +126,7 @@ def test_prompt_keeps_the_measured_rules_of_the_old_generator():
                  "keep the mood of the chapter",
                  "must show the core and every must claim",       # связь рисунка со спецификацией
                  "a path of footprints",                          # набор схем канала
-                 "the core is the ball, not the wall"):           # урок примера v3
+                 "the core is the ball, not the wall",            # урок примера v3
+                 "named the same way both times",                 # 01.10: «экран» нарисован планшетом
+                 "name as many patches as there are labels"):     # 01.10: 4 подписи на 3 места
         assert rule in p, rule

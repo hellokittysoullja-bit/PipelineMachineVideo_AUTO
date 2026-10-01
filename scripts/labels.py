@@ -46,6 +46,10 @@ EDGE_VISUAL = 0.015   # там, где наезд не режет: текст в
 SIZE_CAPTION = 0.075
 SIZE_DIAGRAM = 0.045
 LOCATE_VERSION = 1
+# Версия вёрстки подписей: меняет готовый кадр, но не картинку модели —
+# входит в отпечаток кадра генератора, не в ключ кэша картинок (правка
+# вёрстки перекладывает подписи на уже оплаченные картинки бесплатно).
+COMPOSE_VERSION = 2
 
 _CMAP = {}
 
@@ -285,6 +289,42 @@ def background_color(img):
     return tuple(int(v) for v in np.median(edge, axis=0))
 
 
+PAPER_FLAT, PAPER_SOFT = 12, 20   # отличие от цвета бумаги (макс. по каналу): до 12 — бумага, 12-20 — плавный переход
+
+
+PATCH_REACH = 0.35   # окрестность рамки подписи, доля её размера: светлое пятно модели шире самой рамки
+
+
+def flatten_paper(img, boxes):
+    """Убрать пятна, которые модель оставляет под подписи. Даже когда ей
+    прямо сказано «без заливки», она кладёт под подпись чуть более светлый
+    прямоугольник (живой кадр 01.10: на 3-9 единиц светлее фона, но с
+    резкими краями — вокруг каждой подписи виден прямоугольник).
+
+    Только в окрестности рамок подписей (PATCH_REACH) и только то, что почти
+    цвета бумаги, становится ровно цвета бумаги. Порог замерен на том же
+    кадре: фактура бумаги отличается до 11 (90-й перцентиль), линии и цвета
+    рисунка — на десятки и сотни; 12-20 — плавный переход. Граница
+    окрестности тоже плавная. По всему кадру выравнивать нельзя: на том же
+    кадре это съело подсветку экранов телефонов. Возвращает новую картинку."""
+    import numpy as np
+    from PIL import Image, ImageDraw, ImageFilter
+    w, h = img.size
+    a = np.asarray(img.convert("RGB"), dtype=np.float32)
+    bg = np.array(background_color(img), dtype=np.float32)
+    d = np.abs(a - bg).max(axis=2)
+    near = np.clip((PAPER_SOFT - d) / (PAPER_SOFT - PAPER_FLAT), 0.0, 1.0)
+    region = Image.new("L", (w, h), 0)
+    dr = ImageDraw.Draw(region)
+    for x1, y1, x2, y2 in boxes:
+        rx, ry = PATCH_REACH * (x2 - x1), PATCH_REACH * (y2 - y1)
+        dr.rectangle((x1 - rx, y1 - ry, x2 + rx, y2 + ry), fill=255)
+    feather = max(2, round(0.02 * min(w, h)))
+    region = np.asarray(region.filter(ImageFilter.GaussianBlur(feather)), dtype=np.float32) / 255.0
+    k = (near * region)[..., None]
+    return Image.fromarray((a * (1 - k) + bg * k).round().astype("uint8"))
+
+
 def _band(img, labels):
     """Запасной путь: полоса цвета фона внизу кадра, подписи в одну строку
     через точку. Для кадра, на котором модель не оставила пустого места."""
@@ -298,10 +338,12 @@ def _band(img, labels):
     return [rec]
 
 
-def compose(img_path, out_path, frame, gateway=None, model=None, cache_dir=None, fallback=False):
+def compose(img_path, out_path, frame, gateway=None, model=None, cache_dir=None, fallback=False,
+            flat_paper=False):
     """Положить подписи кадра. Возвращает (True, записи) или (False, причина).
     Кадр без подписей копируется как есть. fallback=True — места нет: подписи
-    на полосе цвета фона внизу (а не выброс годного рисунка)."""
+    на полосе цвета фона внизу (а не выброс годного рисунка). flat_paper=True —
+    пятна модели вокруг мест под подписи выравниваются в цвет бумаги (flatten_paper)."""
     from PIL import Image
     img = Image.open(img_path).convert("RGB")
     labels = frame.get("labels") or []
@@ -347,6 +389,8 @@ def compose(img_path, out_path, frame, gateway=None, model=None, cache_dir=None,
             return False, (f"под подписи мало места: кегль {frame_size} при шкале {target} "
                            f"(меньше {MIN_FRAME_SIZE_SHARE:.0%})")
         cap = frame_size / h
+        if flat_paper:
+            img = flatten_paper(img, list(grown.values()))
         for k in range(1, len(labels) + 1):
             b = grown[k]
             share = ink_share(img, b)
