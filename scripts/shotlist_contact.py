@@ -180,7 +180,8 @@ def render_page(shots, video_dir, cols, out_path):
         who = shot.get("provider") or shot.get("source", "")
         rel = shot.get("relevance")
         rel_s = f" rel {rel:.2f}" if isinstance(rel, (int, float)) else ""
-        head = (f"#{shot.get('index', 0) + 1}  [{shot.get('kind') or '—'}/{who}]{rel_s}{lock}"
+        kind_ru = {"photo": "ФОТО", "video": "ВИДЕО", "card": "КАРТОЧКА"}.get(shot.get("kind"), shot.get("kind") or "—")
+        head = (f"слот {shot.get('index', 0)}  {kind_ru} ({who}){rel_s}{lock}"
                 f"  {shot.get('section', '')}")
         color = (255, 220, 120) if shot.get("lock") else (220, 220, 220)
         draw.text((x0 + 2, y0 + THUMB_H + 4),
