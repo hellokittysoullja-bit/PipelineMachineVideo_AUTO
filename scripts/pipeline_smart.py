@@ -4944,6 +4944,7 @@ FALLBACK_CARD_SLOTS = []   # [{"index", "reason", "text", "card_text"}, ...]
 # среди видео-слотов брак 63% (41 из 65), среди фото — 23% (35 из 154).
 # Видео-корпус Pexels на исторические темы объективно тоньше фото-корпуса,
 # а музейные API видео не отдают вообще.
+BEST_REJECTED_SHOWN = []   # [{"index", "score", "text"}] — отклонённый судьёй, но лучший кадр слота, всё же показан
 ABSORBED_SLOTS = []   # [{"index", "reason", "text", "carried_sec"}, ...]
 # Слоты, которые НЕ получили своего кадра и поглощены соседним ПРОВЕРЕННЫМ
 # кадром (он держится на экране дольше и накрывает эту фразу). Заменяет
@@ -13068,6 +13069,22 @@ def pick_kind_by_judge(first_kind, first_score, other_score, prefer_video):
     return "video" if prefer_video else "photo"
 
 
+SHOW_BEST_REJECTED_MIN = 1   # оценка сетки судьи (0-3): ниже — «не по теме», такой кадр не показываем
+
+
+def best_rejected_score(verdicts):
+    """Оценка сетки лучшего (отклонённого) кадра слота по вердикту судьи, или
+    None. Вердикты считает тот же effective_verdicts, что и known_bad_reason;
+    других причин брака (арбитр, вторая проверка эмбеддингом) здесь быть не
+    должно — они сильнее решения «показать лучшего из отклонённых»."""
+    vs = effective_verdicts(verdicts or [])
+    kinds = {k for k, _rec in vs}
+    if "judge" not in kinds or kinds - {"judge"}:
+        return None
+    scores = [rec.get("score") for k, rec in vs if k == "judge" and isinstance(rec.get("score"), int)]
+    return max(scores) if scores else None
+
+
 def judge_rejected(c):
     """Кадр — брак: отказ проверки (главный предмет не из мира, 3D в
     историческом эпизоде), не выполнено НИ ОДНО обязательное утверждение,
@@ -18265,8 +18282,21 @@ def main():
                 # золотому набору эпизода 01 ровно так в опубликованный
                 # ролик попали 8 браков из 17 — гейты знали правильный
                 # ответ и не имели чем воспользоваться.
-                photo, video = None, None
-                absorb_reason = bad_reason
+                # ИСКЛЮЧЕНИЕ (решение владельца 01.10, SHOW_BEST_REJECTED):
+                # судья отклонил ВСЕХ кандидатов слота, но среди них есть
+                # лучший (его оценка сетки не ниже SHOW_BEST_REJECTED_MIN) —
+                # поглощать слот соседом хуже, чем показать ближайший кадр
+                # (слот 0 хука: стоящий в доспехах рыцарь на «лежишь в
+                # грязи» лучше, чем растянутый соседний кадр).
+                _best = best_rejected_score(decisive_att.verdicts if decisive_att else None)
+                if (feature_flags.enabled("SHOW_BEST_REJECTED") and bad_reason == "shot_judge_rejected"
+                        and _best is not None and _best >= SHOW_BEST_REJECTED_MIN):
+                    BEST_REJECTED_SHOWN.append({"index": i, "score": _best, "text": b["text"]})
+                    print(f"    [{i+1}] судья отклонил всех кандидатов — показан лучший из них "
+                          f"(оценка сетки {_best})")
+                else:
+                    photo, video = None, None
+                    absorb_reason = bad_reason
         if not photo and not video and not never_show_known_bad:
             # Прежнее поведение (флаг снят): последняя попытка — локальная
             # папка ПО КРУГУ. Повтор картинки хуже свежего кадра, но лучше
@@ -19003,6 +19033,8 @@ def main():
                       resolved_slots=RESOLVED_SLOTS_THIS_RUN,
                       extra={"never_show_known_bad": never_show_known_bad,
                              "tail_carry_sec": round(_carry_sec, 3)})
+    merge_slot_report(os.path.join(VIDEO_FOLDER, "media_plan", "best_rejected_report.json"),
+                      BEST_REJECTED_SHOWN, resolved_slots=RESOLVED_SLOTS_THIS_RUN)
     fallback_cards_path = os.path.join(VIDEO_FOLDER, "media_plan",
                                         "fallback_cards_report.json")
     merge_slot_report(fallback_cards_path, FALLBACK_CARD_SLOTS,
