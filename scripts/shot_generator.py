@@ -76,6 +76,7 @@ DEFAULT_SIZE = (os.environ.get("IMAGE_GEN_SIZE") or "").strip() or "1792x1024"
 # сравнивает на одной сетке (до 9 плиток) — деньгами бесплатно. Цена —
 # время: ~35-40 с на вариант (эп.98), только на слотах, где сработала
 # генерация. 4 — решение владельца 27.09.
+QUALITY = (os.environ.get("IMAGE_GEN_QUALITY") or "").strip() or None
 VARIANTS = int(os.environ.get("IMAGE_GEN_VARIANTS") or 4)
 
 # Проверено по первоисточнику 23.09.2026:
@@ -218,7 +219,7 @@ def generate(gateway, brief, card, cache_dir, model=DEFAULT_MODEL, size=DEFAULT_
     prompt = prompt_for(brief, card, style)
     if not prompt:
         return {"error": "нет брифа"}
-    key = cache_key(model, size, prompt, variant)
+    key = cache_key(model, size + (f"|{QUALITY}" if QUALITY else ""), prompt, variant)
     os.makedirs(cache_dir, exist_ok=True)
     path = os.path.join(cache_dir, key + ".png")
     meta_path = path + ".meta.json"
@@ -226,7 +227,7 @@ def generate(gateway, brief, card, cache_dir, model=DEFAULT_MODEL, size=DEFAULT_
         meta = json.load(open(meta_path, encoding="utf-8"))
         return dict(meta, path=path, key=key, cached=True)
     try:
-        images, cost = gateway.image(model, prompt, size)
+        images, cost = gateway.image(model, prompt, size, quality=QUALITY)
     except Exception as e:  # noqa: BLE001 — любой сбой генерации: кандидата нет
         return {"error": f"{type(e).__name__}: {e}"}
     tmp = path + ".tmp"
