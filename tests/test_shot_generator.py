@@ -15,7 +15,7 @@ PSYCHOLOGY = {"register": "abstract", "era": None}
 
 def test_prompt_is_description_first_and_forbids_text():
     p = sg.prompt_for("an arrow glancing off a dented steel breastplate.", MEDIEVAL)
-    assert p.startswith("an arrow glancing off a dented steel breastplate,")
+    assert "an arrow glancing off a dented steel breastplate." in p
     assert "no text" in p.lower()
 
 
@@ -43,7 +43,7 @@ class Gw:
     def __init__(self, exc=None):
         self.calls, self.exc = [], exc
 
-    def image(self, model, prompt, size):
+    def image(self, model, prompt, size, quality=None):
         self.calls.append((model, prompt, size))
         if self.exc:
             raise self.exc

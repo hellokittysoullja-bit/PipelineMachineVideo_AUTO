@@ -35,7 +35,7 @@ class Painter:
     def __init__(self, fail_first=False):
         self.calls, self.fail_first = [], fail_first
 
-    def image(self, model, prompt, size):
+    def image(self, model, prompt, size, quality=None):
         self.calls.append(prompt)
         if self.fail_first and len(self.calls) == 1:
             raise RuntimeError("400 content_filter")
@@ -46,8 +46,8 @@ class Painter:
 
 def test_default_style_is_drawn_in_colour_and_forbids_text():
     s = sg.STYLE_DEFAULT.lower()
-    assert "pencil" in s and "charcoal" in s and "photograph" not in s and "ink" not in s.split()
-    assert "no text" in s and "edge to edge" in s
+    assert "colored pencil" in s and "photograph" not in s and "ink" not in s.split()
+    assert "no text" in s and "no digital gloss" in s
 
 
 def test_channel_profile_overrides_the_style():
@@ -56,9 +56,9 @@ def test_channel_profile_overrides_the_style():
     assert sg.style_for({"image_generation": {"style": ""}}) == sg.STYLE_DEFAULT
 
 
-def test_subject_comes_first_style_last():
+def test_style_comes_first_then_the_scene():
     p = sg.prompt_for("A glass hourglass on a desk.", None, "STYLE")
-    assert p.startswith("A glass hourglass on a desk,") and p.endswith("STYLE")
+    assert p.startswith("STYLE ") and "A glass hourglass on a desk." in p
 
 
 def test_describe_uses_the_brain_and_caches_its_answer(tmp_path):
@@ -71,7 +71,7 @@ def test_describe_uses_the_brain_and_caches_its_answer(tmp_path):
     assert len(brain.calls) == 1 and i2.get("cache_hit")
     q = brain.calls[0]
     assert "a timer is visible" in q and "it stands on a desk" not in q      # только обязательные
-    assert "hourglass" in q and "No writing anywhere" in q                   # правила из проб
+    assert "No writing anywhere" in q                   # правила из проб
 
 
 def test_describe_falls_back_to_the_brief(tmp_path):
@@ -188,7 +188,7 @@ def test_generation_round_builds_the_request_and_candidates(monkeypatch, tmp_pat
     base = _request()                     # бриф, фраза и слот — те же, меняется только поиск
     assert (req.shot_brief, req.block_text, req.index) == (base.shot_brief, base.block_text, base.index)
     assert [c["id"][:4] for c in items] == ["gen:"] * sg.VARIANTS and len(painter.calls) == sg.VARIANTS
-    assert all(p.startswith(desc.rstrip(".")) for p in painter.calls)
+    assert all(desc.rstrip(".") in p for p in painter.calls)
     log = ps.GENERATION_LOG[-1]
     assert log["description"] == desc and log["description_origin"] == "model"
     assert len(log["variants"]) == sg.VARIANTS and log["trigger"] == "failed"
@@ -196,6 +196,7 @@ def test_generation_round_builds_the_request_and_candidates(monkeypatch, tmp_pat
 
 def test_a_refused_variant_does_not_lose_the_other(monkeypatch, tmp_path):
     ps = _ps()
+    monkeypatch.setattr(sg, "VARIANTS", 2)
     req, items = _live_round(ps, monkeypatch, tmp_path, Painter(fail_first=True))
     assert len(items) == sg.VARIANTS - 1 and "content_filter" in ps.GENERATION_LOG[-1]["errors"][0]
 
@@ -204,7 +205,7 @@ def test_generation_round_with_no_picture_is_none(monkeypatch, tmp_path):
     ps = _ps()
 
     class Dead:
-        def image(self, *a):
+        def image(self, *a, **k):
             raise RuntimeError("524")
     assert _live_round(ps, monkeypatch, tmp_path, Dead()) is None
     assert ps.GENERATION_LOG[-1]["variants"] == [] and len(ps.GENERATION_LOG[-1]["errors"]) == sg.VARIANTS
@@ -254,9 +255,9 @@ def test_report_is_written_when_generation_ran():
     assert "image_generation_report.json" in src and "GENERATION_LOG.clear()" in src
 
 
-def test_default_generator_is_flux_dev_with_checked_license():
+def test_default_generator_is_gemini_flash_image_with_checked_license():
     """Решение владельца 30.09: генерация по умолчанию — FLUX.1 [dev].
     Модель без записи в LICENSES генерацию закрывает, поэтому смена
     дефолта обязана идти вместе с проверенной лицензией выдачи."""
-    assert sg.DEFAULT_MODEL == "am/flux.1-dev"
+    assert sg.DEFAULT_MODEL == "ag/gemini-3.1-flash-image"
     assert sg.DEFAULT_MODEL in sg.LICENSES

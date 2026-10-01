@@ -61,7 +61,7 @@ import pathlib
 
 # Версия способа построения кадра: меняется промпт или разбор — меняется
 # ключ кэша, и кэш не отдаёт картинку, сделанную по старому правилу.
-GEN_VERSION = 4
+GEN_VERSION = 5
 
 # FLUX.1 [dev] вместо Klein 4B — решение владельца 30.09. Замер на одном
 # задании («рыцарь на коленях отдаёт перчатку»): у dev чище композиция и
@@ -69,15 +69,19 @@ GEN_VERSION = 4
 # и в углу появилась нарисованная подпись (текст в кадре вопреки промпту);
 # время 10.5 с против 4.7 с, разрешение то же 1344x768, цена 0. Качество на
 # эпизоде НЕ замерено — поймает судья или контактный лист.
-DEFAULT_MODEL = (os.environ.get("IMAGE_GEN_MODEL") or "").strip() or "am/flux.1-dev"
-DEFAULT_SIZE = (os.environ.get("IMAGE_GEN_SIZE") or "").strip() or "1792x1024"
+# Gemini 3.1 Flash Image вместо FLUX dev — решение владельца 01.10 после пробы
+# (слот 2 эп.03): цветной карандаш с штриховкой и фактурой бумаги, сцена
+# читается, ИИ-глянца нет. Шлюз НЕ принимает 1792x1024 (400), принимает
+# 1536x1024; quality=low — 37 500 токенов за картинку (замер 01.10).
+DEFAULT_MODEL = (os.environ.get("IMAGE_GEN_MODEL") or "").strip() or "ag/gemini-3.1-flash-image"
+DEFAULT_SIZE = (os.environ.get("IMAGE_GEN_SIZE") or "").strip() or "1536x1024"
 # Вариантов на слот: у маленькой модели попытка нередко выходит с браком
 # (лишние руки, слитые предметы, закрытые глаза), а все варианты судья
 # сравнивает на одной сетке (до 9 плиток) — деньгами бесплатно. Цена —
 # время: ~35-40 с на вариант (эп.98), только на слотах, где сработала
 # генерация. 4 — решение владельца 27.09.
-QUALITY = (os.environ.get("IMAGE_GEN_QUALITY") or "").strip() or None
-VARIANTS = int(os.environ.get("IMAGE_GEN_VARIANTS") or 4)
+QUALITY = (os.environ.get("IMAGE_GEN_QUALITY") or "").strip() or "low"
+VARIANTS = int(os.environ.get("IMAGE_GEN_VARIANTS") or 1)
 
 # Проверено по первоисточнику 23.09.2026:
 #  - FLUX.2 [klein] 4B — Apache 2.0 (huggingface.co/black-forest-labs/FLUX.2-klein-4B);
@@ -103,8 +107,8 @@ LICENSES = {
 # бумаге, рисунок от края до края»: фон заполнен, подписей нет, эпоха держится,
 # если описание кадра начинается словами «In the Middle Ages» (без эпохи модель
 # рисовала пиджаки, телефонный столб и грузовик).
-STYLE_DEFAULT = ("Charcoal and pencil drawing on old grey-brown paper. "
-                 "Dark smudged shading, rough strokes. Drawn from edge to edge. No text, no letters.")
+STYLE_DEFAULT = ("Hand-drawn colored pencil illustration on textured paper, visible pencil strokes and hatching, "
+                 "soft warm earthy colors, no digital gloss, no text, no letters.")
 
 
 def style_for(profile=None):
@@ -129,21 +133,22 @@ def prompt_for(brief, card=None, style=None):
     brief = (brief or "").strip().rstrip(".")
     if not brief:
         return None
-    return ", ".join([brief, style or STYLE_DEFAULT])
+    # Gemini: стиль первым, затем сцена и композиция (так сделана удачная проба).
+    return " ".join([(style or STYLE_DEFAULT).rstrip(), brief + ". Wide cinematic composition."])
 
 
-DESCRIBE_VERSION = 2
-DESCRIBE_PROMPT = """You write the picture description for ONE shot of a documentary film. An image model will draw it by hand.
+DESCRIBE_VERSION = 3
+DESCRIBE_PROMPT = """You write the picture description for ONE shot of a documentary film. An image model will draw it.
 Narration line (the viewer hears it while seeing the picture): «{phrase}»
 What the viewer must see: «{focus}»
 Must be visible: {musts}{world}
-Rules — the image model is small and literal:
-1. Use short, simple words, like for a child. ONE sentence, at most 20 words. Subject first, then where it is.
-2. If the subject is an object the model may not know by name, describe how it looks, or use a familiar object with the same meaning (a timer set for a short task -> a glass hourglass).
-3. Show an action through a close-up detail (a hand pressing a laptop lid shut), not a whole person doing it.
+Rules:
+1. Two or three plain sentences, at most 50 words. Say who or what is in the picture, what they do, and where (ground, weather, sky, what is behind them).
+2. Name the pose and the action exactly (lying on his back, hands open; a tool held near him but not touching him), so the picture shows this moment and not a generic scene.
+3. If the subject is an object the model may not know by name, describe how it looks.
 4. People are ordinary and clothed. No famous people.
 5. No writing anywhere: no text, letters, numbers, dates, years, signs, labels, screens with words, documents, books with writing.
-6. If the world is historical, START the sentence with the period in plain words (for example «In the Middle Ages, ...»), never as years or digits. Without it the model draws modern clothes and things.
+6. If the world is historical, START with the period in plain words (for example «In the Middle Ages, ...»), never as years or digits. Describe period clothing and tools by name.
 7. Do not describe the drawing style, only what is in the picture.
 Reply with the description only."""
 
