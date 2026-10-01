@@ -6858,7 +6858,10 @@ def _generation_gateway():
     if not _GENERATION_GATEWAY:
         import llm_gateway
         raw = (os.environ.get("IMAGE_GEN_MAX_SPEND") or "").strip()
-        _GENERATION_GATEWAY.append(llm_gateway.Gateway(spend_cap=int(raw) if raw.isdigit() else 0))
+        _cap = int(raw) if raw.isdigit() else 0
+        print(f"  Генерация кадров: потолок {_cap} токенов баланса на весь рендер "
+              f"(~{_cap // 37500} картинок по 37 500)")
+        _GENERATION_GATEWAY.append(llm_gateway.Gateway(spend_cap=_cap))
     return _GENERATION_GATEWAY[0]
 
 

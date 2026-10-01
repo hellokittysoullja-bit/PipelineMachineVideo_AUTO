@@ -90,12 +90,10 @@ VARIANTS = int(os.environ.get("IMAGE_GEN_VARIANTS") or 1)
 #    конкурирующих моделей (huggingface.co/black-forest-labs/FLUX.1-dev, LICENSE.md).
 # Условия самого шлюза для выдачи не проверены — записано в NORTH_STAR.md.
 LICENSES = {
-    "am/flux.2-klein-4b": "Apache-2.0",
     # Gemini 3.1 Flash Image («nano banana»): решение владельца 01.10. Условия
     # выдачи Google на шлюзе НЕ проверены по первоисточнику. ПЛАТНАЯ: 100 000
     # токенов базы x 1.75 за 1792x1024 = 175 000 за картинку.
     "ag/gemini-3.1-flash-image": "Google Gemini image: terms not verified (owner decision 2026-10-01)",
-    "am/flux.1-dev": "FLUX.1-dev: outputs usable commercially (s. 2(d)); no training of competing models",
 }
 
 # Стиль подобран серией из ~300 пробных картинок FLUX dev (30.09, глаза Claude, не
