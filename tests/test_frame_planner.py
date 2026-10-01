@@ -87,3 +87,21 @@ def test_whole_episode_with_fake_model(tmp_path):
     assert plan["stats"] == {"planned": 3, "fallback": 0, "cached_chapters": 0, "hero_trimmed": 0}
     plan2 = fp.plan_episode(str(tmp_path), None, model="fake", verbose=False)   # из кэша, без модели
     assert plan2["stats"]["cached_chapters"] == 2
+
+
+def test_prompt_keeps_the_measured_rules_of_the_old_generator():
+    """Правила, замеренные в старом генераторе (shot_brief_director, shot_generator),
+    и то, что было в v4: тихо пропасть при правке промпта они не должны."""
+    p = fp.render_prompt({"episode_title": "T", "prev_tail": "", "units": [{"n": 1, "text": "x"}]}, True)
+    for rule in ("show what is NEW in this line",                 # «новое, а не главное»
+                 "a comparison that only flashes by",             # мимолётное сравнение
+                 "ONE picture with both side by side",            # противопоставление — один кадр
+                 "stock symbols are not",                         # без штампов-символов
+                 "described by its look, or replaced by a familiar object",  # незнакомый предмет
+                 "A period is named in words, never as years",    # годы рисуются надписью
+                 "no pronouns without a clear owner",
+                 "keep the mood of the chapter",
+                 "must show the core and every must claim",       # связь рисунка со спецификацией
+                 "a path of footprints",                          # набор схем канала
+                 "the core is the ball, not the wall"):           # урок примера v3
+        assert rule in p, rule

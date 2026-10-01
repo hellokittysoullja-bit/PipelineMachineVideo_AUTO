@@ -38,7 +38,7 @@ import script_parser  # noqa: E402
 
 PLAN_NAME = "frame_plan.json"
 CACHE_DIR_NAME = "frame_plan_cache"
-PLAN_VERSION = 5
+PLAN_VERSION = 6
 # Модель выбрана замером старого генератора 24.09 (58 фраз трёх ниш):
 # DeepSeek v4 Flash — 58/58, ~2 тыс. токенов баланса; Gemini 3.7 Flash по
 # смыслу наравне, но ~35 тыс.; Qwen 3.8 Max — 46/58.
@@ -133,23 +133,30 @@ def json_objects(raw):
 
 # ---------------------------------------------------------------- конец блока из v3
 
-FRAME_RULES = """frame — ONE hand-drawn picture per line. It is generated once and goes straight into the film, so describe it completely: the image model sees only your "picture" text and the reference images, nothing else.
+FRAME_RULES = """frame — ONE hand-drawn picture per line. It is generated once and goes straight into the film, so describe it completely: the image model sees only your "picture" text and the reference images, nothing else. The picture must show the core and every must claim.
   "kind" — by what the line does:
     "scene" — a drawn moment: people, objects, places, actions. The default.
     "caption" — the line is a punchline, a verdict or an emotional beat that lands harder written: one drawn moment plus ONE Russian caption of 1-4 words (like «ЖИВ. ПОЛНОСТЬЮ.»).
-    "diagram" — the line explains a structure, a comparison, a sequence, a list or a cause: a simple hand-drawn diagram with 2-6 short Russian labels.
+    "diagram" — the line explains a structure, a comparison, a sequence, a list or a cause: a simple hand-drawn diagram with 2-6 short Russian labels — a pyramid, a ladder, arrows from cause to effect, before and after, a list on a board, a timeline, a path of footprints, a crowd shrinking to one figure.
     Never the same kind on three lines in a row.
   "labels" — Russian, UPPERCASE, at most {max_words} words each, taken from or clearly implied by the line, correctly spelled; empty for "scene". Code writes them on the finished picture.
   "hero" — {hero_rule}
-  "picture" — English, 30-80 words, the full instruction for the image model:
-    - the one idea of the line as the clearest visual moment an ordinary viewer gets in a second — a concrete situation, not a collage of symbols;
+  "picture" — English, 30-80 words, the full instruction for the image model. How to choose WHAT to draw:
+    - show what is NEW in this line — the word it was written for, not its subject that the previous picture already showed ("he knows the job, but today his HANDS shake" -> the shaking hands, close);
+    - a comparison that only flashes by ("heavy as a fridge") is not the picture — draw what the line is about; draw the comparison only when it fills the whole line and the narration unfolds it;
+    - a contrast of two things ("ten years of practice against two weeks") is ONE picture with both side by side — half of a pair loses the thought;
+    - an abstract line (a feeling, an idea, a process) becomes a concrete situation, a bodily sign or an object left behind (hunched shoulders, an untouched plate). A visual metaphor is welcome when it explains the mechanism in a fresh, specific way (a brain lighting up like a slot machine at each notification); stock symbols are not (a stone of burden, a broken chain, an hourglass for "time");
+    - resolve "he", "it", "this" from the neighbouring lines and name the thing; no pronouns without a clear owner in the picture;
+    - keep the mood of the chapter: a heavy chapter is not drawn with sunny cheerful frames.
+  How to WRITE it:
     - in order of importance: the main subject with its pose, gesture and facial expression; the action; at most two supporting props; the place in a few words;
+    - an object the image model may not know by name is described by its look, or replaced by a familiar object with the same meaning; a small action (pressing, pouring, signing) is shown close up, through the hands;
     - exact counts for everything countable ("three children", "one phone"); every person has two arms and two legs and holds things in clearly drawn hands;
-    - the framing (close-up, medium or wide shot) and where the main subject sits in the frame, with calm empty background around it;
+    - the framing (close-up, medium or wide shot) and where the main subject sits in the frame, with calm empty background around it; neighbouring pictures differ in subject and framing unless the lines continue one moment in the same place;
+    - the background: plain and light for diagrams and simple statements, the place itself for scenes set somewhere;
     - "caption": the bottom fifth of the frame is plain empty background. "diagram": the diagram fills the middle, next to each labelled part there is an empty patch of plain background with a short hand-drawn arrow from it to the part — no boxes, frames or lines around the empty patches;
-    - nothing may carry writing: no letters, numbers, digits, symbols, logos or signs anywhere. Avoid objects that come with writing (apps on screens, book covers, slot-machine reels, price tags, clock numerals); when one is needed, make it blank ("a phone with a blank glowing screen", "a clock face without numerals");
+    - nothing may carry writing: no letters, numbers, digits, dates, symbols, logos or signs anywhere. Avoid objects that come with writing (apps on screens, book covers, slot-machine reels, price tags, clock numerals); when one is needed, make it blank ("a phone with a blank glowing screen", "a clock face without numerals"). A period is named in words, never as years;
     - people of the past wear the clothes and use the objects of their time;
-    - lines that continue one moment keep the same place and people; otherwise vary the framing from the previous line;
     - never describe the drawing style, line work or palette: the style comes from the reference images."""
 
 HERO_RULE = """the film has one recurring main character, shown to the image model as a reference picture. true only when the line speaks to the viewer ("you") or shows what an ordinary person feels, does or reacts to — the character then plays that person. Never for objects, places, maps, statistics, diagrams of facts or named historical people. The character is a guest, not the host: about one picture in three or four, never on three lines in a row. When true, call the character "the main character" in the picture and describe only pose, action, expression and props, never looks or clothes: the reference picture defines them."""
@@ -165,7 +172,9 @@ For EVERY numbered line decide what the viewer must SEE while hearing it, then d
 
 {frame_rules}
 
-Example from another film, «And you just lie there, scrolling, while the evening is gone» (a film with a main character):
+Two examples from another film. «The ball bounced off the wall and rolled away» — the core is the ball, not the wall:
+{{"n": 2, "focus": "a ball bouncing off a wall", "subject": "a ball", "core": "a ball is visible", "claims": [{{"id": "c1", "text": "the ball bounces off a wall", "tier": "must"}}], "frame": {{"kind": "scene", "labels": [], "hero": false, "picture": "close-up: a red rubber ball in mid-air just after hitting a brick wall, small curved motion lines behind it, a little dust puff at the wall; the ball sits in the right third of the frame, plain light background on the left"}}}}
+«And you just lie there, scrolling, while the evening is gone» (a film with a main character):
 {{"n": 3, "focus": "a person lost in a phone while the evening passes", "subject": "a person with a phone", "core": "a person lying with a phone is visible", "claims": [{{"id": "c1", "text": "the person stares at the phone", "tier": "must"}}, {{"id": "c2", "text": "a dark window shows night has fallen", "tier": "should"}}], "frame": {{"kind": "scene", "labels": [], "hero": true, "picture": "medium shot: the main character lies on a sofa on their back, holding one phone with a blank glowing screen above their face with both hands, eyes wide and tired; a window behind shows a dark night sky with a crescent moon; a cold cup of tea on the floor; the character sits in the left half of the frame"}}}}
 
 Answer with one JSON object per narration line, one per line, and nothing else — no explanations, no reasoning, no markdown.
