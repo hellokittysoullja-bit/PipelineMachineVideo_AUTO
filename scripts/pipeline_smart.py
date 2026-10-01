@@ -18112,9 +18112,15 @@ def main():
             # такая фраза получала фото ВСЕГДА, даже если главное — действие
             # (замер эп.03: 19 слотов короче 4 с, весь хук 3-5 с).
             import stock_query_planner as _sqp
-            video_min_d = (HOOK_MIN_CLIP if (spec and not stat and _sqp.has_motion(spec, must=True))
-                           else MIN_CLIP + 1.0)
+            # Решение владельца 01.10: действие во фразе — видео первым, длина
+            # слота не важна (порог снят совсем). Под плашкой с цифрой по-прежнему
+            # фото (движущийся фон мешает читать число).
+            _motion = (_sqp.has_motion(spec, must=True) if spec else has_action_word(b["text"]))
+            video_min_d = 0.0 if (_motion and not stat) else MIN_CLIP + 1.0
             prefer_video = want_video and d >= video_min_d
+            if _motion and not stat and video_min_d == 0.0:
+                prefer_video = True
+                want_video = True
             act_qual = action_video_qualifier(b["text"])
             # VLM-арбитр — ТОЛЬКО хук (см. shot_director.arbitrate_hook_
             # candidates, HOOK-only-скоуп объявлен пользователю явно, не
