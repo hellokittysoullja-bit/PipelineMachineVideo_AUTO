@@ -11,7 +11,8 @@
     следующий клип и не копится; клип проверяется ffprobe (код 0 ffmpeg не
     гарантирует, что записана нужная длина).
 
-Тайминг и звук — код старого генератора (render_core, дословно):
+Тайминг и звук — код старого генератора, логика без изменений
+(speech_timing, audio_master, subtitles):
   * PHRASE LOCK: рез ровно на начале следующей фразы по alignment озвучки;
     не сошлось — оценка по реальной длине речи блоков и громко в логе;
   * голос: срез низов, EQ, де-эссер, компрессор; музыка (первый файл в
@@ -42,6 +43,8 @@ import env  # noqa: E402
 EXIT_OK, EXIT_FAILED, EXIT_WARN = 0, 1, 2
 FPS, W, H = 24, 1920, 1080
 ZOOM = 0.04
+MARGIN_BLUR = 0.02       # радиус размытия полей, доля ширины холста
+MARGIN_DARKEN = 0.8      # поля темнее рисунка: взгляд остаётся на кадре
 FIT_SAFE = 0.96          # кадр чуть меньше холста: наезд 4% не срезает подписи у края
 CRF = "18"
 CLIP_TOLERANCE = 0.5 / FPS
@@ -63,15 +66,18 @@ def probe_duration(path):
 
 
 def fit_canvas(src, dst):
-    """Кадр целиком в 16:9. Поля — цветом фона самого рисунка (медиана края),
-    с узким мягким переходом (0.6% ширины, не шире: шире — съедает край
-    рисунка): размытая копия по бокам на бумажном рисунке читалась как
-    вертикальное видео в ленте."""
-    from PIL import Image, ImageDraw, ImageFilter, ImageOps
-    import labels
+    """Кадр целиком в 16:9, поля по бокам — размытой и чуть затемнённой
+    копией самого кадра, как делают авторы на YouTube (сам YouTube кадр не
+    16:9 показывает с чёрными полосами). Переход к рисунку мягкий и узкий
+    (0.6% ширины): шире — съедает край рисунка."""
+    from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps
     with Image.open(src) as im0:
         im = ImageOps.exif_transpose(im0).convert("RGB")
-    bg = Image.new("RGB", (W, H), labels.background_color(im))
+    cover = max(W / im.width, H / im.height)
+    bg = im.resize((max(W, round(im.width * cover)), max(H, round(im.height * cover))), Image.LANCZOS)
+    left, top = (bg.width - W) // 2, (bg.height - H) // 2
+    bg = bg.crop((left, top, left + W, top + H)).filter(ImageFilter.GaussianBlur(MARGIN_BLUR * W))
+    bg = ImageEnhance.Brightness(bg).enhance(MARGIN_DARKEN)
     s = min(W / im.width, H / im.height) * FIT_SAFE
     fg = im.resize((max(1, round(im.width * s)), max(1, round(im.height * s))), Image.LANCZOS)
     feather = max(2, round(0.006 * fg.width))
@@ -159,18 +165,20 @@ def music_file():
 
 def main(video_dir):
     env.load_env()
-    import render_core as rc
+    import audio_master as am
     import script_parser
+    import subtitles
+    from speech_timing import SpeechTiming
 
     video_dir = os.path.abspath(video_dir)
-    rc.configure(video_dir)
+    speech = SpeechTiming(video_dir)
     blocks = script_parser.parse_blocks(os.path.join(video_dir, "script.txt"))
     audio = find_audio(video_dir)
     if not audio:
         print("Нет озвучки (audio.mp3) в папке ролика")
         return EXIT_FAILED
-    rc.audio_qc(audio)
-    total = rc.get_media_duration(audio)
+    am.audio_qc(audio)
+    total = am.get_media_duration(audio)
 
     kept, absorbed = kept_frames(video_dir, blocks)
     if not kept:
@@ -179,12 +187,12 @@ def main(video_dir):
     for a in absorbed:
         print(f"  [{a['index'] + 1}] кадра нет ({a['reason']}) — время отдано соседнему кадру")
 
-    real_weights = rc.load_alignment_weights(blocks)
-    onsets = rc.load_alignment_onsets(blocks)
+    real_weights = speech.weights(blocks)
+    onsets = speech.onsets(blocks)
     if onsets:
         starts, timing = [0.0] + list(onsets[1:]), "phrase_lock"
     else:
-        f = rc.ALIGNMENT_ONSET_FAILURE or {"reason": "alignment не найден"}
+        f = speech.failure or {"reason": "alignment не найден"}
         print(f"  ВНИМАНИЕ: PHRASE LOCK ВЫКЛЮЧЕН — {f['reason']}. Кадры по ОЦЕНКЕ длины речи.")
         words = [max(1, b["words"]) + 2 * b.get("pause_after", 0.0) for b in blocks]
         starts, acc = [], 0.0
@@ -206,8 +214,8 @@ def main(video_dir):
                                "speech_onset_sec": kept_starts[k] if timing == "phrase_lock" else None,
                                "duration_sec": durs[k]} for k, i in enumerate(kept)]},
                   fh, ensure_ascii=False, indent=2)
-    rc.write_subtitles(video_dir, blocks, starts, base, real_weights=real_weights)
-    rc.write_chapters(video_dir, blocks, starts)
+    subtitles.write_subtitles(video_dir, blocks, starts, base, real_weights=real_weights)
+    subtitles.write_chapters(video_dir, blocks, starts)
 
     work = os.path.join(video_dir, "temp_render")
     os.makedirs(work, exist_ok=True)
@@ -216,7 +224,7 @@ def main(video_dir):
         i = kept[k]
         src = os.path.join(video_dir, "frames", f"{i + 1:03d}.png")
         h = hashlib.md5(open(src, "rb").read()).hexdigest()[:12]
-        key = hashlib.md5(f"{h}|{durs[k]:.5f}|{k % 2}|{ZOOM}|{FIT_SAFE}|{FPS}|{CRF}|bgfill2".encode()).hexdigest()[:16]
+        key = hashlib.md5(f"{h}|{durs[k]:.5f}|{k % 2}|{ZOOM}|{FIT_SAFE}|{FPS}|{CRF}|blur{MARGIN_BLUR}|{MARGIN_DARKEN}".encode()).hexdigest()[:16]
         out = os.path.join(work, f"clip_{k:04d}_{key}.mp4")
         if os.path.exists(out) and probe_duration(out) is not None:
             return out
@@ -247,25 +255,25 @@ def main(video_dir):
     run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", lst, "-c", "copy", video])
 
     # --- звук: цепочка старого генератора
-    voice = rc.process_voice(audio, os.path.join(work, "voice_processed.wav"))
+    voice = am.process_voice(audio, os.path.join(work, "voice_processed.wav"))
     music = music_file()
     premix = voice
     if music:
-        gain, why = rc.music_bed_gain_db(voice, music)
+        gain, why = am.music_bed_gain_db(voice, music)
         premix = os.path.join(work, "premix.wav")
         run(["ffmpeg", "-y", "-v", "error", "-i", voice, "-stream_loop", "-1", "-i", music, "-filter_complex",
              f"[1:a]atrim=0:{total:.3f},volume={gain:.2f}dB[m];[0:a]asplit=2[v][sc];"
-             f"[m][sc]sidechaincompress=threshold={rc.MUSIC_DUCK_THRESHOLD}:ratio={rc.MUSIC_DUCK_RATIO}:"
-             f"attack={rc.MUSIC_DUCK_ATTACK_MS}:release={rc.MUSIC_DUCK_RELEASE_MS}[md];"
+             f"[m][sc]sidechaincompress=threshold={am.MUSIC_DUCK_THRESHOLD}:ratio={am.MUSIC_DUCK_RATIO}:"
+             f"attack={am.MUSIC_DUCK_ATTACK_MS}:release={am.MUSIC_DUCK_RELEASE_MS}[md];"
              f"[v][md]amix=inputs=2:duration=first:normalize=0[a]", "-map", "[a]", "-ar", "48000", premix])
         print(f"  Музыка: {os.path.basename(music)}, {gain:+.1f} дБ ({why})")
-    af = rc.build_master_af(rc.measure_loudnorm_stats(premix), max(0.0, total - 2.0), 0.05)
+    af = am.build_master_af(am.measure_loudnorm_stats(premix), max(0.0, total - 2.0), 0.05)
     final = os.path.join(video_dir, "final.mp4")
     run(["ffmpeg", "-y", "-v", "error", "-i", video, "-i", premix, "-af", af, "-map", "0:v", "-map", "1:a",
          "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-t", f"{total:.3f}",
          "-movflags", "+faststart", final + ".tmp.mp4"])
     os.replace(final + ".tmp.mp4", final)
-    rc.audio_qc(final, label="Audio QC финала")
+    am.audio_qc(final, label="Audio QC финала")
     print(f"Готово. Файл: {final}")
     return EXIT_WARN if absorbed or timing != "phrase_lock" else EXIT_OK
 

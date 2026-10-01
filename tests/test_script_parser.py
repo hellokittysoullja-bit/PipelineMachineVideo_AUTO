@@ -44,26 +44,13 @@ def test_script_parser_does_not_touch_filesystem_beyond_given_path(tmp_path):
     assert blocks[0]["section"] == "HOOK"
 
 
-def test_pipeline_smart_reexports_same_object_as_script_parser():
-    # pipeline_smart.py требует sys.argv[1] на импорте (см. его докстринг) —
-    # ставим его перед импортом, как и остальные тесты этого проекта.
-    import tempfile
-    old_argv = sys.argv
-    sys.argv = ["pipeline_smart.py", tempfile.gettempdir()]
-    try:
-        sys.path.insert(0, SCRIPTS_DIR)
-        import render_core as pipeline_smart
-        import script_parser
-        assert pipeline_smart.parse_blocks is script_parser.parse_blocks
-        assert pipeline_smart.PAUSE_DURATIONS is script_parser.PAUSE_DURATIONS
-    finally:
-        sys.argv = old_argv
-
-
-# ---------- parse_pexels_queries / _normalize_section_key — === PEXELS
-# QUERIES === написан вручную по протоколу (CLAUDE.md ЧАСТЬ 13, Шаг 3), но
-# до этого коммита ни разу не читался пайплайном (реальный найденный
-# пробел) ----------
+def test_speech_timing_uses_the_one_tag_vocabulary():
+    """Словарь тегов — один (script_parser): копия в модуле тайминга уже
+    однажды стоила эпизоду PHRASE LOCK."""
+    sys.path.insert(0, SCRIPTS_DIR)
+    import script_parser
+    import speech_timing
+    assert speech_timing.ALIGNMENT_TAG_SPAN_RE is script_parser.ALIGNMENT_TAG_SPAN_RE
 
 def _sp():
     sys.path.insert(0, SCRIPTS_DIR)

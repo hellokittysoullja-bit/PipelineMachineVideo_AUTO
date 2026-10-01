@@ -1,7 +1,7 @@
 """Изоляция тестов (перенесено из PipelineMachineVideo_AUTO/tests/conftest.py).
 
 Тест не должен зависеть от .env рабочей копии: ключи шлюза и платные слои
-гасятся, рабочая папка render_core — временная, общая на сессию."""
+гасятся."""
 import os
 import sys
 
@@ -19,21 +19,6 @@ def _isolate_from_real_dotenv(monkeypatch):
         monkeypatch.setenv(k, "")
     for k in ("SHOT_JUDGE", "IMAGE_GENERATION", "CAPTION_SCREEN", "RESEARCH_ROUND"):
         monkeypatch.setenv(k, "0")
-
-
-@pytest.fixture(scope="session")
-def _suite_working_root(tmp_path_factory):
-    return tmp_path_factory.mktemp("suite_work")
-
-
-@pytest.fixture(autouse=True)
-def _private_working_folders(monkeypatch, _suite_working_root):
-    rc = sys.modules.get("render_core")
-    if rc is not None:
-        root = str(_suite_working_root)
-        monkeypatch.setattr(rc, "VIDEO_FOLDER", root, raising=False)
-        monkeypatch.setattr(rc, "TEMP_FOLDER", os.path.join(root, "temp_render"), raising=False)
-    yield
 
 
 def pytest_configure(config):

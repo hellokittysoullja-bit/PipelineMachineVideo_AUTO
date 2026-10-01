@@ -13,12 +13,10 @@
 сторожить тест, который этот файл ИЗМЕРЯЕТ. Иначе она снова разойдётся с
 реальностью при первой же замене ассета, и снова молча.
 """
-import json
 import os
 import shutil
 import subprocess
 import sys
-import tempfile
 
 import pytest
 
@@ -26,8 +24,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS_DIR = os.path.join(REPO_ROOT, "scripts")
 sys.path.insert(0, SCRIPTS_DIR)
 
-sys.argv = ["pipeline_smart.py", tempfile.gettempdir()]
-import render_core as ps  # noqa: E402
+import audio_master as ps  # noqa: E402
 
 HAS_FFMPEG = shutil.which("ffmpeg") is not None
 MUSIC_ASSET = os.path.join(REPO_ROOT, "assets", "music", "ambient_bed.flac")

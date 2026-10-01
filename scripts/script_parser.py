@@ -4,7 +4,7 @@
 эффектов импорта: только `import re`, ничего не читает из sys.argv, не
 трогает диск на импорте.
 
-pipeline_smart.py на импорте читает VIDEO_FOLDER из sys.argv[1] и запускает
+pipeline_smart.py (исходный репозиторий) на импорте читает VIDEO_FOLDER из sys.argv[1] и запускает
 find_audio() по всей папке (см. его докстринг/find_audio) — реальный,
 пойманный вживую баг: три модуля (section_sync.py, render_episode.py,
 pause_intelligence.py), которым нужна была ТОЛЬКО parse_blocks(), были

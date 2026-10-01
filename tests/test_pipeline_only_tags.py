@@ -22,16 +22,13 @@ import difflib
 import os
 import re
 import sys
-import tempfile
 
 import pytest
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS_DIR = os.path.join(REPO_ROOT, "scripts")
 sys.path.insert(0, SCRIPTS_DIR)
-sys.argv = ["pipeline_smart.py", tempfile.gettempdir()]
-
-import render_core as ps  # noqa: E402
+import speech_timing as ps  # noqa: E402
 import script_parser as sp  # noqa: E402
 
 FIXTURE = os.path.join(os.path.dirname(os.path.abspath(__file__)),

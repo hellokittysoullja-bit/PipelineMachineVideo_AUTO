@@ -76,11 +76,17 @@ def test_frame_is_fitted_whole_not_cropped(tmp_path):
     assert reds, "верхний край кадра обрезан"
 
 
-def test_margins_take_the_drawing_background_not_a_blur(tmp_path):
-    from PIL import Image
+def test_margins_are_a_blurred_darker_copy_of_the_frame(tmp_path):
+    from PIL import Image, ImageDraw
     sys.path.insert(0, os.path.join(ROOT, "scripts"))
     import assemble_frames as af
-    Image.new("RGB", (1536, 1024), (240, 228, 205)).save(tmp_path / "f.png")    # бумага
+    im = Image.new("RGB", (1536, 1024), (240, 228, 205))
+    ImageDraw.Draw(im).rectangle((0, 0, 40, 1024), fill=(20, 60, 200))   # синий левый край рисунка
+    im.save(tmp_path / "f.png")
     af.fit_canvas(str(tmp_path / "f.png"), str(tmp_path / "c.png"))
     c = Image.open(tmp_path / "c.png").convert("RGB")
-    assert all(abs(a - b) <= 2 for a, b in zip(c.getpixel((5, 540)), (240, 228, 205)))
+    r, g, b = c.getpixel((5, 540))
+    assert b > r + 30, "поле не взято из самого кадра (синий край должен проступать)"
+    assert b < 200, "поле не размыто и не затемнено"
+    rr, gg, bb = c.getpixel((1915, 540))
+    assert rr < 240 * af.MARGIN_DARKEN + 3, "поле не затемнено"

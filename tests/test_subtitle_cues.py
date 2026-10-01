@@ -19,19 +19,16 @@ cue из 259 (36%) получали строку длиннее стандарт
 """
 import os
 import sys
-import tempfile
 
 import pytest
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
-sys.argv = ["pipeline_smart.py", tempfile.gettempdir()]
-
-import render_core as pipeline_smart  # noqa: E402
+import subtitles  # noqa: E402
 
 
 def _lines_of(cue_text):
-    return pipeline_smart._wrap_caption_text(cue_text).split("\n")
+    return subtitles._wrap_caption_text(cue_text).split("\n")
 
 
 SHORT = "Доспех весил двадцать пять килограммов."
@@ -42,11 +39,11 @@ LONG = ("И тут надо сказать вещь, которую обычно
 
 def test_short_text_stays_one_cue():
     """Блок, который и так влезал, не дробится — ноль регресса."""
-    assert pipeline_smart._split_caption_into_cues(SHORT) == [SHORT]
+    assert subtitles._split_caption_into_cues(SHORT) == [SHORT]
 
 
 def test_long_text_is_split():
-    cues = pipeline_smart._split_caption_into_cues(LONG)
+    cues = subtitles._split_caption_into_cues(LONG)
     assert len(cues) > 1
 
 
@@ -54,24 +51,24 @@ def test_long_text_is_split():
 def test_every_cue_respects_the_subtitle_standard(text):
     """ГЛАВНЫЙ инвариант: ни одной строки длиннее SRT_MAX_LINE_CHARS и ни
     одного cue выше SRT_MAX_LINES строк. Именно он нарушался в 36% cue."""
-    for cue in pipeline_smart._split_caption_into_cues(text):
+    for cue in subtitles._split_caption_into_cues(text):
         lines = _lines_of(cue)
-        assert len(lines) <= pipeline_smart.SRT_MAX_LINES
+        assert len(lines) <= subtitles.SRT_MAX_LINES
         for line in lines:
-            assert len(line) <= pipeline_smart.SRT_MAX_LINE_CHARS, line
+            assert len(line) <= subtitles.SRT_MAX_LINE_CHARS, line
 
 
 @pytest.mark.parametrize("text", [SHORT, LONG, LONG + " " + LONG])
 def test_no_word_is_lost_or_reordered(text):
     """Разбивка только переставляет границы, а не редактирует текст."""
-    joined = " ".join(pipeline_smart._split_caption_into_cues(text))
+    joined = " ".join(subtitles._split_caption_into_cues(text))
     assert joined.split() == text.split()
 
 
 def test_no_orphan_tail_cue():
     """Жадная набивка оставляла хвост в 4 символа отдельным кадром —
     одинокий обрывок читается как сбой вёрстки. Балансировка это чинит."""
-    cues = pipeline_smart._split_caption_into_cues(LONG)
+    cues = subtitles._split_caption_into_cues(LONG)
     shortest, longest = min(map(len, cues)), max(map(len, cues))
     assert shortest >= longest * 0.4, cues
 
@@ -99,7 +96,7 @@ def test_written_file_tiles_the_block_window(tmp_path):
     blocks = [{"text": LONG, "pause_after": 0.0, "section": "BLOCK 1"},
               {"text": SHORT, "pause_after": 0.0, "section": "BLOCK 1"}]
     starts, durs = [0.0, 14.0], [14.0, 3.0]
-    pipeline_smart.write_subtitles(str(tmp_path), blocks, starts, durs)
+    subtitles.write_subtitles(str(tmp_path), blocks, starts, durs)
     cues = _parse_srt(os.path.join(str(tmp_path), "subtitles.srt"))
     assert len(cues) > len(blocks)
     for prev, cur in zip(cues, cues[1:]):
@@ -110,8 +107,8 @@ def test_written_file_tiles_the_block_window(tmp_path):
 
 def test_written_file_has_no_line_over_the_standard(tmp_path):
     blocks = [{"text": LONG, "pause_after": 0.0, "section": "BLOCK 1"}]
-    pipeline_smart.write_subtitles(str(tmp_path), blocks, [0.0], [14.0])
+    subtitles.write_subtitles(str(tmp_path), blocks, [0.0], [14.0])
     for _, _, body in _parse_srt(os.path.join(str(tmp_path), "subtitles.srt")):
-        assert len(body) <= pipeline_smart.SRT_MAX_LINES
+        assert len(body) <= subtitles.SRT_MAX_LINES
         for line in body:
-            assert len(line) <= pipeline_smart.SRT_MAX_LINE_CHARS, line
+            assert len(line) <= subtitles.SRT_MAX_LINE_CHARS, line
