@@ -18106,7 +18106,15 @@ def main():
                 if (not want_video and not stat and len(recent_media_types) >= 3
                         and all(t == "photo" for t in recent_media_types[-3:])):
                     want_video = True
-            prefer_video = want_video and d >= MIN_CLIP + 1.0
+            # Порог длины слота для видео. Обязательное движение во фразе —
+            # причина взять видео, и слоту 3-4 с (а хук нарезан именно так)
+            # видео не должно быть закрыто: с общим порогом MIN_CLIP+1 = 4 с
+            # такая фраза получала фото ВСЕГДА, даже если главное — действие
+            # (замер эп.03: 19 слотов короче 4 с, весь хук 3-5 с).
+            import stock_query_planner as _sqp
+            video_min_d = (HOOK_MIN_CLIP if (spec and not stat and _sqp.has_motion(spec, must=True))
+                           else MIN_CLIP + 1.0)
+            prefer_video = want_video and d >= video_min_d
             act_qual = action_video_qualifier(b["text"])
             # VLM-арбитр — ТОЛЬКО хук (см. shot_director.arbitrate_hook_
             # candidates, HOOK-only-скоуп объявлен пользователю явно, не
@@ -18138,7 +18146,7 @@ def main():
                         photo = fetch_in_attempt(slot_attempts, i, "photo", select_media, request, "photo")
                 else:
                     photo = fetch_in_attempt(slot_attempts, i, "photo", select_media, request, "photo")
-                    if not photo and d >= MIN_CLIP + 1.0:
+                    if not photo and d >= video_min_d:
                         video = fetch_in_attempt(slot_attempts, i, "video", select_media, request, "video")
             # ФОТО ИЛИ ВИДЕО — ПО ОЦЕНКЕ СУДЬИ. Первый вид выбран правилом
             # выше (действие во фразе, ритм), но это догадка по тексту: какой
@@ -18158,7 +18166,7 @@ def main():
             # Второй вид уже добывался в этом слоте (первый не дал кадра, и
             # слот перешёл к нему) — повтор дал бы тот же отказ.
             other_tried = any(a.kind == other_kind for a in slot_attempts)
-            if (shot_judge_active(i) and not stat and d >= MIN_CLIP + 1.0 and not other_tried
+            if (shot_judge_active(i) and not stat and d >= video_min_d and not other_tried
                     and first_score is not None and not quality_perfect(_as_quality(first_score))):
                 with stage_timer.stage("slot_other_kind", clip_idx=i, kind=other_kind):
                     other = fetch_in_attempt(slot_attempts, i, other_kind, select_media, request, other_kind)
@@ -18210,7 +18218,7 @@ def main():
                             import stock_query_planner
                             kinds = (["video", "photo"]
                                      if stock_query_planner.has_motion(req2.shot_spec, must=True)
-                                     and d >= MIN_CLIP + 1.0 and not stat else ["photo"])
+                                     and d >= video_min_d and not stat else ["photo"])
                             for k2 in kinds:
                                 got = fetch_in_attempt(slot_attempts, i, k2, select_media, req2, k2)
                                 got_att = attempt_of(slot_attempts, got)
