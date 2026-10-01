@@ -12843,6 +12843,15 @@ def _verify_finalists(index, kind, phrase, brief, judged, gw, model, card, spec=
                 foreign_frames += 1 if ans.get("main_in_world") is False else 0
             vec = shot_judge.claims_vector(spec, ans, world_veto=world_veto, cg_veto=cg_veto)
             c["verify"] = "veto" if vec is None else vec
+            # Среди отклонённых лучший — тот, у кого выполнено больше пунктов
+            # фразы (главное первым): иначе все отклонённые равны (-9,) и
+            # «лучший из отклонённых» (SHOW_BEST_REJECTED) выбирался случайно.
+            if vec is None:
+                try:
+                    _cv = shot_judge.claim_values(spec, ans)
+                    c["verify_veto_rank"] = tuple(_cv[cl["id"]] for cl in spec["claims"])
+                except Exception:
+                    c["verify_veto_rank"] = ()
             c["verify_focus"] = focus
             # Тип изображения по словам судьи: photo/artwork/object/cg —
             # рисунку и странице рукописи нужна рамка детали (focus_crop).
@@ -12935,7 +12944,7 @@ def verify_key(c):
     всех одно значение, порядок прежний."""
     v = c.get("verify")
     if v == "veto":
-        return (-9,)
+        return (-9,) + tuple(c.get("verify_veto_rank") or ())
     if c.get("verify_skipped") and not isinstance(v, tuple):
         return (-7,)
     if not isinstance(v, tuple):

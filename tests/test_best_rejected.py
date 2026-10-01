@@ -18,3 +18,10 @@ def test_other_rejection_reasons_still_absorb():
 
 def test_zero_grid_score_is_below_the_show_threshold():
     assert ps.best_rejected_score([("judge", {"score": 0})]) < ps.SHOW_BEST_REJECTED_MIN
+
+
+def test_rejected_candidates_are_ranked_by_how_much_of_the_phrase_they_show():
+    weak = {"verify": "veto", "verify_veto_rank": (0.0, 0.0, 1.0)}
+    good = {"verify": "veto", "verify_veto_rank": (1.0, 0.0, 1.0)}
+    assert ps.verify_key(good) > ps.verify_key(weak)
+    assert ps.verify_key({"verify": "veto"}) < ps.verify_key(weak)
