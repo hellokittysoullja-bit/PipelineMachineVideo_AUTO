@@ -27,7 +27,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import channel  # noqa: E402
+import env  # noqa: E402
 from script_parser import ALIGNMENT_TAG_SPAN_RE, PAUSE_DURATIONS, parse_blocks  # noqa: E402,F401
 
 
@@ -37,12 +37,6 @@ class feature_flags:  # noqa: N801 — имя модуля исходника, �
     @staticmethod
     def enabled(name):
         return os.environ.get(name, feature_flags.DEFAULTS.get(name, "0")).strip().lower() in ("1", "true", "on", "yes")
-
-
-class channel_profile:  # noqa: N801 — то же: исходник читал channel_profile.load()
-    @staticmethod
-    def load():
-        return channel.load_profile()
 
 
 _ARGV_POSITIONAL = [a for a in sys.argv[1:] if not a.startswith("--")]
@@ -290,36 +284,6 @@ def process_voice(voice_path, out_path):
                              capture_output=True, text=True, encoding="utf-8", errors="replace")
         return out_path if r2.returncode == 0 else voice_path
     return out_path
-
-
-CHANNEL_PROFILE = channel_profile.load()
-
-
-_voice_profile = CHANNEL_PROFILE.get("voice", {})
-
-
-VOICE_HIGHPASS_HZ = _voice_profile.get("highpass_hz", VOICE_HIGHPASS_HZ)
-
-
-VOICE_EQ_WARMTH_HZ = _voice_profile.get("eq_warmth_hz", VOICE_EQ_WARMTH_HZ)
-
-
-VOICE_EQ_WARMTH_GAIN = _voice_profile.get("eq_warmth_gain", VOICE_EQ_WARMTH_GAIN)
-
-
-VOICE_EQ_PRESENCE_HZ = _voice_profile.get("eq_presence_hz", VOICE_EQ_PRESENCE_HZ)
-
-
-VOICE_EQ_PRESENCE_GAIN = _voice_profile.get("eq_presence_gain", VOICE_EQ_PRESENCE_GAIN)
-
-
-VOICE_DEESS_INTENSITY = _voice_profile.get("deess_intensity", VOICE_DEESS_INTENSITY)
-
-
-VOICE_COMPRESS_THRESHOLD = _voice_profile.get("compress_threshold", VOICE_COMPRESS_THRESHOLD)
-
-
-VOICE_COMPRESS_RATIO = _voice_profile.get("compress_ratio", VOICE_COMPRESS_RATIO)
 
 
 ALIGNMENT_DIR = os.path.join(VIDEO_FOLDER, "media_plan", "alignment")

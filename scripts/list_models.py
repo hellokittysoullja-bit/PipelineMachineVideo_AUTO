@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """Модели шлюза с ценой: python scripts/list_models.py [image|chat] [фильтр]
 
-Нужен, чтобы выбрать IMAGE_MODEL / TEXT_CHECK_MODEL по каталогу шлюза, а не
-по памяти: каталог меняется, цены тоже."""
+Цена картинки — на каждом качестве и размере, по формуле шлюза (каталог
+меняется, поэтому из каталога, а не по памяти)."""
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import channel  # noqa: E402
+import env  # noqa: E402
 
 
 def main():
-    channel.load_env()
+    env.load_env()
     import llm_gateway
     kind = sys.argv[1] if len(sys.argv) > 1 else "image"
     flt = (sys.argv[2] if len(sys.argv) > 2 else "").lower()
@@ -25,9 +25,13 @@ def main():
         if (kind == "image") != is_image or (flt and flt not in m["id"].lower()):
             continue
         if is_image:
-            c = (b.get("coefficient") or {}).get("output")
-            price = "?" if c is None or "base_tokens" not in b else round(b["base_tokens"] * float(c))
-            print(f"{m['id']:45s} цена картинки (базовая): {price}")
+            print(m["id"])
+            scales = b.get("scales") or {}
+            quals = [q for q in (scales.get("quality") or {}) if q in ("low", "medium", "high")] or [None]
+            sizes = [z for z in (scales.get("size") or {}) if z in ("1024x1024", "1536x1024", "1792x1024")] or [None]
+            for q in quals:
+                row = "  ".join(f"{z or 'любой размер'}: {gw.image_cost(m['id'], z, q):,}" for z in sizes)
+                print(f"    {q or 'любое качество':14s} {row}")
         else:
             c = b.get("coefficient") or {}
             vision = "зрение" if "image" in str((m.get("capabilities") or {})).lower() else ""

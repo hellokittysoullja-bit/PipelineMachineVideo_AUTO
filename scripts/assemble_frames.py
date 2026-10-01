@@ -37,7 +37,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import channel  # noqa: E402
+import env  # noqa: E402
 
 EXIT_OK, EXIT_FAILED, EXIT_WARN = 0, 1, 2
 FPS, W, H = 24, 1920, 1080
@@ -136,13 +136,13 @@ def find_audio(video_dir):
 
 
 def music_file():
-    files = sorted(f for f in glob.glob(os.path.join(channel.ROOT, "assets", "music", "*"))
+    files = sorted(f for f in glob.glob(os.path.join(env.ROOT, "assets", "music", "*"))
                    if f.lower().endswith((".mp3", ".flac", ".wav", ".ogg", ".m4a")))
     return files[0] if files else None
 
 
 def main(video_dir):
-    channel.load_env()
+    env.load_env()
     import render_core as rc
     import script_parser
 

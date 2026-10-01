@@ -12,7 +12,10 @@
   labels   — русские подписи дословно (генератор нарисует ровно их, проверка
              букв сверит их точно);
   picture  — английское описание рисунка, главное первым;
-  mascot   — сквозной герой канала; backdrop — white | paper | painted.
+  hero     — появляется ли главный герой (референс look/hero.*): только где
+             фраза о зрителе или обычном человеке, примерно на каждом
+             третьем-четвёртом кадре, не три кадра подряд (это правило кода).
+Стиль в описании не пишется никогда: его задают образцы look/style/.
 
 Глава — один вопрос (фразы по порядку, хвост прошлой главы, бриф автора
 [shot:]); сорванная строка теряет себя, а не главу; при сбитом формате глава
@@ -30,12 +33,12 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import channel  # noqa: E402
+import env  # noqa: E402
 import script_parser  # noqa: E402
 
 PLAN_NAME = "frame_plan.json"
 CACHE_DIR_NAME = "frame_plan_cache"
-PLAN_VERSION = 4
+PLAN_VERSION = 5
 # Модель выбрана замером старого генератора 24.09 (58 фраз трёх ниш):
 # DeepSeek v4 Flash — 58/58, ~2 тыс. токенов баланса; Gemini 3.7 Flash по
 # смыслу наравне, но ~35 тыс.; Qwen 3.8 Max — 46/58.
@@ -43,7 +46,7 @@ DEFAULT_MODEL = os.environ.get("PLANNER_MODEL") or "ds/deepseek-v4-flash"
 MAX_TOKENS = 8000
 EST_PROMPT_TOKENS = 2500
 KINDS = ("scene", "caption", "diagram")
-BACKDROPS = ("white", "paper", "painted")
+MAX_HERO_RUN = 2       # героя не бывает на трёх кадрах подряд
 MAX_LABELS = {"scene": 0, "caption": 1, "diagram": 6}
 MAX_LABEL_WORDS = 5
 
@@ -54,11 +57,11 @@ MAX_CLAIMS = 5
 RETRY_NOTE = "\n\n(Answer again: one JSON object per numbered line, every line, nothing else.)"
 SPEC_RULES = """focus — the new thing this line says, understood in the context of the chapter (resolve pronouns and references from the lines around it). 3 to 12 English words.
 
-core — WHO or WHAT must be visible: the single thing (an object, a person, an animal, a place) that, even alone in a picture, still makes the viewer think of this line — with the state that defines it, if any ("an exhausted person", "a burnt letter"). Name the thing, not an event: what it does goes into the claims. Ask yourself: if the picture could show only one thing, which one? When the line is about something happening to, on or around something else, the core is what the line is about — usually the thing that moves, acts or changes — not the surface, place or object it happens on. When the line is abstract (a feeling, an idea, a process, an argument), the core is a concrete situation, a bodily sign or an object left behind that a camera can photograph and a viewer reads as this idea — never a bare "a person is visible" or an invisible thing like "a memory" or "a brain decision": say what makes the picture show THIS line ("a person slumped over an untouched plate", "a crumpled paper covered in red corrections"). Never make words, captions, labels, signs or logos in the picture part of the core or of a claim — the viewer hears the words, the picture shows things — unless the line is about that very document, chart, headline, sign or screen. Write it as a statement: "a ball is visible".
+core — WHO or WHAT must be visible: the single thing (an object, a person, an animal, a place) that, even alone in a picture, still makes the viewer think of this line — with the state that defines it, if any ("an exhausted person", "a burnt letter"). Name the thing, not an event: what it does goes into the claims. Ask yourself: if the picture could show only one thing, which one? When the line is about something happening to, on or around something else, the core is what the line is about — usually the thing that moves, acts or changes — not the surface, place or object it happens on. When the line is abstract (a feeling, an idea, a process, an argument), the core is a concrete situation, a bodily sign or an object left behind that can be drawn and that a viewer reads as this idea — never a bare "a person is visible" or an invisible thing like "a memory" or "a brain decision": say what makes the picture show THIS line ("a person slumped over an untouched plate", "a crumpled paper covered in red corrections"). Never make words, captions, labels, signs or logos in the picture part of the core or of a claim — the viewer hears the words, the picture shows things — unless the line is about that very document, chart, headline, sign or screen. Write it as a statement: "a ball is visible".
 
 subject — the thing the line is ABOUT, as a bare noun phrase of 1 to 4 English words ("a dagger", "an arrow", "a tired person"): the thing that must be in the picture for the picture to be about this line at all. Name its GENERAL kind, the word anyone would use — not its type, model, material or part: "a guitar", not "a flamenco guitar", "a guitar neck" or "a wooden guitar"; "a dog", not "a sleeping dog". A picture of another type of the same thing still shows the subject; the exact type belongs in the claims. Only the thing — no action, no place, no other object. For an abstract line, the subject is the thing in the core ("a crumpled paper"). If nothing concrete can be named, give an empty string.
 
-claims — 1 to {c1} more statements checkable by looking at the picture, most important first. Each checks ONE thing (an object, an action, a place, a detail) and does not repeat the core. "tier": "must" if without it the picture does not show this line, "should" if it only makes the picture better. If the line is about a movement that only footage can show, one claim has "motion": true and describes this movement; lines about objects, places or states have no motion claim."""
+claims — 1 to {c1} more statements checkable by looking at the picture, most important first. Each checks ONE thing (an object, an action, a place, a detail) and does not repeat the core. "tier": "must" if without it the picture does not show this line, "should" if it only makes the picture better."""
 
 
 def _clean(s):
@@ -130,28 +133,40 @@ def json_objects(raw):
 
 # ---------------------------------------------------------------- конец блока из v3
 
-FRAME_RULES = """frame — how to DRAW this shot for a hand-drawn explainer video (doodle style: stick figures, simple drawn objects and places, diagrams, arrows, short hand-lettered Russian labels). The drawing must show the core and the must claims.
-  "kind": "scene" — a drawn situation with no text at all (actions, places, everyday life);
-          "caption" — a drawn situation plus ONE big short Russian caption of 1-4 words that states the punchline of the line (like «ЖИВ. ПОЛНОСТЬЮ.»); use it for punchlines and emotional beats;
-          "diagram" — a hand-drawn diagram (pyramid, arrows, before/after, a list on a board, a comparison, a timeline, footprints) with 2-6 short Russian labels; use it when the line explains a structure, a comparison, a list or a cause.
-  Mix kinds across the chapter: roughly 45% scene, 25% caption, 30% diagram; never three identical kinds in a row.
-  "labels": Russian, UPPERCASE, max {max_words} words each, taken from or clearly implied by the line, correct spelling, no English; empty for "scene".
-  "picture": English, 15-45 words; start with the core, then the action, then the place. The image model draws NO text at all — the labels are added later by code — so never ask for words, letters or numbers in the picture; for a diagram say where the empty space for each label is and where its arrow points (empty space for label 1 to the right of the top tier, an arrow from it to the top tier). Do not describe the drawing style.
-  "mascot": true only when the line is about "you", a child, a typical person or an emotional reaction and the channel's recurring character fits: {mascot}.
-  "backdrop": "white" for diagrams, "paper" for calm explanations, "painted" for scenes set in a place (cave, field, sea shore, village)."""
+FRAME_RULES = """frame — ONE hand-drawn picture per line. It is generated once and goes straight into the film, so describe it completely: the image model sees only your "picture" text and the reference images, nothing else.
+  "kind" — by what the line does:
+    "scene" — a drawn moment: people, objects, places, actions. The default.
+    "caption" — the line is a punchline, a verdict or an emotional beat that lands harder written: one drawn moment plus ONE Russian caption of 1-4 words (like «ЖИВ. ПОЛНОСТЬЮ.»).
+    "diagram" — the line explains a structure, a comparison, a sequence, a list or a cause: a simple hand-drawn diagram with 2-6 short Russian labels.
+    Never the same kind on three lines in a row.
+  "labels" — Russian, UPPERCASE, at most {max_words} words each, taken from or clearly implied by the line, correctly spelled; empty for "scene". Code writes them on the finished picture.
+  "hero" — {hero_rule}
+  "picture" — English, 30-80 words, the full instruction for the image model:
+    - the one idea of the line as the clearest visual moment an ordinary viewer gets in a second — a concrete situation, not a collage of symbols;
+    - in order of importance: the main subject with its pose, gesture and facial expression; the action; at most two supporting props; the place in a few words;
+    - exact counts for everything countable ("three children", "one phone"); every person has two arms and two legs and holds things in clearly drawn hands;
+    - the framing (close-up, medium or wide shot) and where the main subject sits in the frame, with calm empty background around it;
+    - "caption": the bottom fifth of the frame is plain empty background. "diagram": the diagram fills the middle, next to each labelled part there is an empty patch of plain background with a short hand-drawn arrow from it to the part — no boxes, frames or lines around the empty patches;
+    - nothing may carry writing: no letters, numbers, digits, symbols, logos or signs anywhere. Avoid objects that come with writing (apps on screens, book covers, slot-machine reels, price tags, clock numerals); when one is needed, make it blank ("a phone with a blank glowing screen", "a clock face without numerals");
+    - people of the past wear the clothes and use the objects of their time;
+    - lines that continue one moment keep the same place and people; otherwise vary the framing from the previous line;
+    - never describe the drawing style, line work or palette: the style comes from the reference images."""
 
-PROMPT = """You direct the visuals of a hand-drawn explainer video.
-Episode: «{title}». Channel: {niche}.
+HERO_RULE = """the film has one recurring main character, shown to the image model as a reference picture. true only when the line speaks to the viewer ("you") or shows what an ordinary person feels, does or reacts to — the character then plays that person. Never for objects, places, maps, statistics, diagrams of facts or named historical people. The character is a guest, not the host: about one picture in three or four, never on three lines in a row. When true, call the character "the main character" in the picture and describe only pose, action, expression and props, never looks or clothes: the reference picture defines them."""
+NO_HERO_RULE = """always false: this film has no recurring main character."""
+
+PROMPT = """You are the director and storyboard artist of a hand-drawn explainer film.
+Film: «{title}».
 Below are the narration lines of one chapter, in order{prev}. A line may come with the shot the author wants — keep its meaning.
 
-For EVERY numbered line decide what the viewer must SEE while hearing it.
+For EVERY numbered line decide what the viewer must SEE while hearing it, then describe that picture.
 
 {spec_rules}
 
 {frame_rules}
 
-Example from another film, «The ball bounced off the wall and rolled away» — the core is the ball, not the wall:
-{{"n": 3, "focus": "a ball bouncing off a wall", "subject": "a ball", "core": "a ball is visible", "claims": [{{"id": "c1", "text": "the ball bounces off a wall", "tier": "must"}}, {{"id": "c2", "text": "a wall", "tier": "should"}}], "frame": {{"kind": "caption", "labels": ["ОТСКОК!"], "picture": "a round ball bouncing off a brick wall with small motion lines, the caption big at the bottom", "mascot": false, "backdrop": "paper"}}}}
+Example from another film, «And you just lie there, scrolling, while the evening is gone» (a film with a main character):
+{{"n": 3, "focus": "a person lost in a phone while the evening passes", "subject": "a person with a phone", "core": "a person lying with a phone is visible", "claims": [{{"id": "c1", "text": "the person stares at the phone", "tier": "must"}}, {{"id": "c2", "text": "a dark window shows night has fallen", "tier": "should"}}], "frame": {{"kind": "scene", "labels": [], "hero": true, "picture": "medium shot: the main character lies on a sofa on their back, holding one phone with a blank glowing screen above their face with both hands, eyes wide and tired; a window behind shows a dark night sky with a crescent moon; a cold cup of tea on the floor; the character sits in the left half of the frame"}}}}
 
 Answer with one JSON object per narration line, one per line, and nothing else — no explanations, no reasoning, no markdown.
 
@@ -190,16 +205,16 @@ def packets(blocks, title):
     return res
 
 
-def render_prompt(packet, profile):
+def render_prompt(packet, has_hero):
     lines = []
     for u in packet["units"]:
         brief = u.get("author_brief")
         lines.append(f"{u['n']}. «{u['text']}»" + (f" — shot: {brief}" if brief else ""))
     prev = f" (the previous chapter ended with: «{packet['prev_tail']}»)" if packet.get("prev_tail") else ""
     return PROMPT.format(
-        title=packet.get("episode_title") or "—", niche=profile["niche"], prev=prev,
+        title=packet.get("episode_title") or "—", prev=prev,
         spec_rules=SPEC_RULES.format(c1=MAX_CLAIMS - 1),
-        frame_rules=FRAME_RULES.format(max_words=MAX_LABEL_WORDS, mascot=profile["mascot"]["description"]),
+        frame_rules=FRAME_RULES.format(max_words=MAX_LABEL_WORDS, hero_rule=HERO_RULE if has_hero else NO_HERO_RULE),
         lines="\n".join(lines))
 
 
@@ -228,10 +243,7 @@ def validate_frame(obj):
             return None, f"no_cyrillic:{lab}"
         if len(lab.split()) > MAX_LABEL_WORDS:
             return None, f"label_too_long:{lab}"
-    backdrop = obj.get("backdrop") if obj.get("backdrop") in BACKDROPS else (
-        "white" if kind == "diagram" else "paper")
-    return {"kind": kind, "mascot": bool(obj.get("mascot")), "backdrop": backdrop,
-            "labels": labels, "picture": picture}, None
+    return {"kind": kind, "hero": obj.get("hero") is True, "labels": labels, "picture": picture}, None
 
 
 def parse_answer(raw, packet):
@@ -283,9 +295,9 @@ def ask(gateway, model, prompt, cache_dir):
     return text, False
 
 
-def ask_chapter(gateway, model, packet, profile, cache_dir):
+def ask_chapter(gateway, model, packet, has_hero, cache_dir):
     import llm_gateway
-    prompt = render_prompt(packet, profile)
+    prompt = render_prompt(packet, has_hero)
     raw, hit = ask(gateway, model, prompt, cache_dir)
     got, errors = parse_answer(raw, packet)
     if len(got) < len(packet["units"]):
@@ -306,13 +318,28 @@ def fallback(block):
     автора или по фразе; судья проверит её по одному must-утверждению."""
     text = block.get("shot_brief") or block["text"]
     return {"spec": {"focus": text, "claims": [{"id": CORE_ID, "text": text, "tier": "must"}]},
-            "frame": {"kind": "scene", "mascot": False, "backdrop": "paper", "labels": [],
+            "frame": {"kind": "scene", "hero": False, "labels": [],
                       "picture": block.get("shot_brief") or f"a simple drawn scene illustrating: {block['text']}"},
             "fallback": True}
 
 
-def plan_episode(video_dir, gateway, model=DEFAULT_MODEL, force=False, workers=4, verbose=True):
-    profile = channel.load_profile()
+def limit_hero_runs(frames, max_run=MAX_HERO_RUN):
+    """Герой — гость, а не ведущий: третий кадр подряд с героем рисуется без
+    него. Описание кадра при этом не меняется — «the main character» без
+    референса модель нарисует обычным человеком того же стиля. Возвращает,
+    сколько кадров снято."""
+    run, trimmed = 0, 0
+    for f in frames:
+        if f.get("hero"):
+            run += 1
+            if run > max_run:
+                f["hero"], run, trimmed = False, 0, trimmed + 1
+        else:
+            run = 0
+    return trimmed
+
+
+def plan_episode(video_dir, gateway, model=DEFAULT_MODEL, force=False, workers=4, verbose=True, has_hero=False):
     script = os.path.join(video_dir, "script.txt")
     blocks = script_parser.parse_blocks(script)
     cache_dir = os.path.join(video_dir, "media_plan", CACHE_DIR_NAME)
@@ -323,7 +350,7 @@ def plan_episode(video_dir, gateway, model=DEFAULT_MODEL, force=False, workers=4
 
     def one(packet):
         try:
-            return ask_chapter(gateway, model, packet, profile, cache_dir)
+            return ask_chapter(gateway, model, packet, has_hero, cache_dir)
         except Exception as e:  # noqa: BLE001 — глава без ответа получит запасные кадры
             return {}, [f"call_failed:{type(e).__name__}: {e}"[:200]], False
 
@@ -343,7 +370,9 @@ def plan_episode(video_dir, gateway, model=DEFAULT_MODEL, force=False, workers=4
         stats["fallback" if entry.get("fallback") else "planned"] += 1
         frames.append({"index": i, "section": b["section"], "text": b["text"], "key": unit_key(b["text"]),
                        "spec": entry["spec"], **entry["frame"], "fallback": bool(entry.get("fallback"))})
-    plan = {"version": PLAN_VERSION, "model": model, "frames": frames, "stats": stats, "errors": errs}
+    stats["hero_trimmed"] = limit_hero_runs(frames)
+    plan = {"version": PLAN_VERSION, "model": model, "has_hero": has_hero, "frames": frames,
+            "stats": stats, "errors": errs}
     path = os.path.join(video_dir, "media_plan", PLAN_NAME)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path + ".tmp", "w", encoding="utf-8") as f:
@@ -351,7 +380,8 @@ def plan_episode(video_dir, gateway, model=DEFAULT_MODEL, force=False, workers=4
     os.replace(path + ".tmp", path)
     if verbose:
         kinds = {k: sum(1 for f in frames if f["kind"] == k) for k in KINDS}
-        print(f"План: {len(frames)} кадров {kinds}, с героем {sum(f['mascot'] for f in frames)}, "
+        print(f"План: {len(frames)} кадров {kinds}, с героем {sum(f['hero'] for f in frames)} "
+              f"(снято правилом «не три подряд»: {stats['hero_trimmed']}), "
               f"запасных {stats['fallback']}, глав из кэша {stats['cached_chapters']}")
         for sec, e in errs.items():
             print(f"  {sec}: {len(e)} замечаний: {', '.join(e[:4])}")
@@ -359,7 +389,7 @@ def plan_episode(video_dir, gateway, model=DEFAULT_MODEL, force=False, workers=4
 
 
 def main():
-    channel.load_env()
+    env.load_env()
     import llm_gateway
     ap = argparse.ArgumentParser()
     ap.add_argument("video_dir")
@@ -369,7 +399,12 @@ def main():
     gw = llm_gateway.Gateway(spend_cap=int(os.environ.get("PLANNER_MAX_SPEND", "200000")))
     if not gw.configured:
         sys.exit("Нет LLM_GATEWAY_API_KEY в .env")
-    plan_episode(a.video_dir, gw, model=a.model, force=a.force)
+    import look
+    try:
+        has_hero = look.load().hero is not None
+    except look.LookError as e:
+        sys.exit(str(e))
+    plan_episode(a.video_dir, gw, model=a.model, force=a.force, has_hero=has_hero)
 
 
 if __name__ == "__main__":

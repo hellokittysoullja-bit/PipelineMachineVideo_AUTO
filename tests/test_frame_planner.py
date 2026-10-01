@@ -1,6 +1,5 @@
 import json
 
-import channel
 import frame_planner as fp
 
 PACKET = {"units": [{"n": 1, "text": "Утро начиналось с костра."},
@@ -44,13 +43,26 @@ def test_label_limits():
     assert fp.validate_frame({"kind": "scene", "picture": "картинка по-русски тут нельзя"})[1] == "bad_picture"
 
 
-def test_prompt_has_spec_rules_mascot_brief_and_prev_chapter():
-    p = fp.render_prompt({"episode_title": "T", "prev_tail": "конец прошлой главы",
-                          "units": [{"n": 1, "text": "x", "author_brief": "kids at a fire"}]},
-                         channel.load_profile())
-    assert "core — WHO or WHAT must be visible" in p       # правило v3 дословно
+def test_prompt_has_spec_rules_brief_prev_chapter_and_hero_rule():
+    pk = {"episode_title": "T", "prev_tail": "конец прошлой главы",
+          "units": [{"n": 1, "text": "x", "author_brief": "kids at a fire"}]}
+    p = fp.render_prompt(pk, True)
+    assert "core — WHO or WHAT must be visible" in p       # правило v3
     assert "kids at a fire" in p and "конец прошлой главы" in p
-    assert channel.load_profile()["mascot"]["description"] in p
+    assert "one recurring main character" in p and "never on three lines in a row" in p
+    assert "never describe the drawing style" in p and "camera" not in p
+    assert "always false" in fp.render_prompt(pk, False)
+
+
+def test_hero_is_only_explicit_true():
+    ok = lambda h: fp.validate_frame({"kind": "scene", "picture": "a b c d e", "hero": h})[0]["hero"]
+    assert ok(True) is True and ok("yes") is False and ok(None) is False
+
+
+def test_hero_never_on_three_frames_in_a_row():
+    frames = [{"hero": h} for h in (True, True, True, True, False, True, True, True)]
+    assert fp.limit_hero_runs(frames) == 2
+    assert [f["hero"] for f in frames] == [True, True, False, True, False, True, True, False]
 
 
 def test_packets_group_by_section_with_tail():
@@ -72,6 +84,6 @@ def test_whole_episode_with_fake_model(tmp_path):
                              for n in nums), {}, 1
 
     plan = fp.plan_episode(str(tmp_path), GW(), model="fake", verbose=False)
-    assert plan["stats"] == {"planned": 3, "fallback": 0, "cached_chapters": 0}
+    assert plan["stats"] == {"planned": 3, "fallback": 0, "cached_chapters": 0, "hero_trimmed": 0}
     plan2 = fp.plan_episode(str(tmp_path), None, model="fake", verbose=False)   # из кэша, без модели
     assert plan2["stats"]["cached_chapters"] == 2

@@ -487,7 +487,7 @@ class Gateway:
                               f"из {max_tokens}); оплачено {price}")
         return text, u, price
 
-    def image(self, model, prompt, size, quality=None, n=1, timeout=300):
+    def image(self, model, prompt, size, quality=None, n=1, timeout=300, images=None):
         """Сгенерировать картинки. Возвращает (список байтов картинок, цена).
 
         Потолок расходов проверяется ДО вызова по полной цене заказа (шлюз
@@ -495,7 +495,11 @@ class Gateway:
         Отказ сервиса по содержанию запроса (400) — GatewayError без
         повторов: повтор того же промпта ответил бы тем же. Ответ без
         картинок — EmptyAnswer: «успех без картинки» шлюз не берёт в счёт,
-        но для вызывающего это отказ, а не пустой кадр."""
+        но для вызывающего это отказ, а не пустой кадр.
+
+        images — референсы как data URL (так их принимает шлюз, api-docs.md:
+        «Reference images are sent as data URLs in image or images»). На цену
+        не влияют: шлюз берёт за доставленные картинки."""
         import base64
         if self.dead:
             raise GatewayError(f"шлюз выключен до конца прогона: {self.dead}")
@@ -510,6 +514,8 @@ class Gateway:
         body = {"model": model, "prompt": prompt, "n": n, "size": size, "response_format": "b64_json"}
         if quality:
             body["quality"] = quality
+        if images:
+            body["images"] = list(images)
 
         def lost_body():
             with self._lock:
