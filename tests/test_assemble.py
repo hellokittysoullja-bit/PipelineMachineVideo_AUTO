@@ -90,3 +90,24 @@ def test_margins_are_a_blurred_darker_copy_of_the_frame(tmp_path):
     assert b < 200, "поле не размыто и не затемнено"
     rr, gg, bb = c.getpixel((1915, 540))
     assert rr < 240 * af.MARGIN_DARKEN + 3, "поле не затемнено"
+
+
+def test_drawing_fills_the_full_height_and_only_the_sides_are_blurred(tmp_path):
+    from PIL import Image
+    sys.path.insert(0, os.path.join(ROOT, "scripts"))
+    import assemble_frames as af
+    Image.new("RGB", (1536, 1024), (240, 228, 205)).save(tmp_path / "f.png")
+    af.fit_canvas(str(tmp_path / "f.png"), str(tmp_path / "c.png"))
+    c = Image.open(tmp_path / "c.png").convert("RGB")
+    for y in (0, 1, 1079):                     # сверху и снизу — сам рисунок, не размытие
+        assert c.getpixel((960, y)) == (240, 228, 205), y
+    assert c.getpixel((5, 0)) != (240, 228, 205)   # по бокам — затемнённое поле
+
+
+def test_labels_stay_clear_of_what_the_zoom_crops():
+    sys.path.insert(0, os.path.join(ROOT, "scripts"))
+    import assemble_frames as af
+    import labels
+    assert labels.EDGE_SAFE > af.ZOOM / 2
+    assert labels._inside_safe((0, 0, 1920, 1080), 1920, 1080) == (58, 32, 1862, 1048)
+    assert labels.CAPTION_BAND[3] <= 1 - labels.EDGE_SAFE

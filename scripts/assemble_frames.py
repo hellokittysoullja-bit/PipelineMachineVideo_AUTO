@@ -42,10 +42,9 @@ import env  # noqa: E402
 
 EXIT_OK, EXIT_FAILED, EXIT_WARN = 0, 1, 2
 FPS, W, H = 24, 1920, 1080
-ZOOM = 0.04
+ZOOM = 0.04              # наезд срезает по ZOOM/2 с каждого края; подписи держатся дальше (labels.EDGE_SAFE)
 MARGIN_BLUR = 0.02       # радиус размытия полей, доля ширины холста
 MARGIN_DARKEN = 0.8      # поля темнее рисунка: взгляд остаётся на кадре
-FIT_SAFE = 0.96          # кадр чуть меньше холста: наезд 4% не срезает подписи у края
 CRF = "18"
 CLIP_TOLERANCE = 0.5 / FPS
 
@@ -66,10 +65,11 @@ def probe_duration(path):
 
 
 def fit_canvas(src, dst):
-    """Кадр целиком в 16:9, поля по бокам — размытой и чуть затемнённой
-    копией самого кадра, как делают авторы на YouTube (сам YouTube кадр не
-    16:9 показывает с чёрными полосами). Переход к рисунку мягкий и узкий
-    (0.6% ширины): шире — съедает край рисунка."""
+    """Кадр целиком в 16:9: рисунок на всю высоту холста, поля по бокам —
+    размытая и чуть затемнённая копия самого кадра, как делают авторы на
+    YouTube (сам YouTube кадр не 16:9 показывает с чёрными полосами).
+    Мягкий переход (0.6% ширины, шире — съедает край рисунка) только на тех
+    сторонах, где рядом размытое поле: у края холста рисунок обрезан ровно."""
     from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps
     with Image.open(src) as im0:
         im = ImageOps.exif_transpose(im0).convert("RGB")
@@ -78,12 +78,15 @@ def fit_canvas(src, dst):
     left, top = (bg.width - W) // 2, (bg.height - H) // 2
     bg = bg.crop((left, top, left + W, top + H)).filter(ImageFilter.GaussianBlur(MARGIN_BLUR * W))
     bg = ImageEnhance.Brightness(bg).enhance(MARGIN_DARKEN)
-    s = min(W / im.width, H / im.height) * FIT_SAFE
+    s = min(W / im.width, H / im.height)
     fg = im.resize((max(1, round(im.width * s)), max(1, round(im.height * s))), Image.LANCZOS)
     feather = max(2, round(0.006 * fg.width))
     mask = Image.new("L", fg.size, 0)
-    ImageDraw.Draw(mask).rectangle((feather, feather, fg.width - feather, fg.height - feather), fill=255)
-    mask = mask.filter(ImageFilter.GaussianBlur(feather / 2))
+    fx = feather if fg.width < W else 0
+    fy = feather if fg.height < H else 0
+    ImageDraw.Draw(mask).rectangle((fx, fy, fg.width - fx, fg.height - fy), fill=255)
+    if fx or fy:   # PIL размывает с продолжением края: сторона без поля остаётся 255
+        mask = mask.filter(ImageFilter.GaussianBlur(feather / 2))
     bg.paste(fg, ((W - fg.width) // 2, (H - fg.height) // 2), mask)
     tmp = f"{dst}.{threading.get_ident()}.png"
     bg.save(tmp, "PNG")
@@ -224,7 +227,7 @@ def main(video_dir):
         i = kept[k]
         src = os.path.join(video_dir, "frames", f"{i + 1:03d}.png")
         h = hashlib.md5(open(src, "rb").read()).hexdigest()[:12]
-        key = hashlib.md5(f"{h}|{durs[k]:.5f}|{k % 2}|{ZOOM}|{FIT_SAFE}|{FPS}|{CRF}|blur{MARGIN_BLUR}|{MARGIN_DARKEN}".encode()).hexdigest()[:16]
+        key = hashlib.md5(f"{h}|{durs[k]:.5f}|{k % 2}|{ZOOM}|fullh|{FPS}|{CRF}|blur{MARGIN_BLUR}|{MARGIN_DARKEN}".encode()).hexdigest()[:16]
         out = os.path.join(work, f"clip_{k:04d}_{key}.mp4")
         if os.path.exists(out) and probe_duration(out) is not None:
             return out

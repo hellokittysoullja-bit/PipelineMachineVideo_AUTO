@@ -35,6 +35,10 @@ LINE_SPACING = 1.08
 # одна линия, облако) 0.065-0.106. Порог с запасом в обе стороны.
 MAX_INK_SHARE = 0.015
 CAPTION_BAND = (0.05, 0.79, 0.95, 0.97)   # доли кадра: x1, y1, x2, y2
+# Рисунок стоит на всю высоту ролика, и наезд камеры (assemble_frames.ZOOM,
+# 4%) срезает по 2% сверху и снизу. Рамка подписи не ближе 3% к краю кадра —
+# иначе буквы у края уходят за кадр на первой или последней секунде клипа.
+EDGE_SAFE = 0.03
 # Шкала кегля — доля высоты кадра, одна на весь ролик: подпись не прыгает
 # от кадра к кадру. Меньше потолка — только если текст не влезает в место.
 SIZE_CAPTION = 0.075
@@ -203,6 +207,13 @@ def locate(gateway, model, img, labels, picture, cache_path=None):
     return px
 
 
+def _inside_safe(box, w, h):
+    """Рамка, ужатая в безопасную зону кадра (EDGE_SAFE от каждого края)."""
+    mx, my = round(EDGE_SAFE * w), round(EDGE_SAFE * h)
+    x1, y1, x2, y2 = box
+    return (max(x1, mx), max(y1, my), min(x2, w - mx), min(y2, h - my))
+
+
 def _overlap(a, b):
     return not (a[2] <= b[0] or b[2] <= a[0] or a[3] <= b[1] or b[3] <= a[1])
 
@@ -264,7 +275,7 @@ def compose(img_path, out_path, frame, gateway=None, model=None, cache_dir=None,
             if boxes is None:
                 return False, "модель не вернула рамки под подписи"
         for k in range(1, len(labels) + 1):
-            b = boxes[k]
+            b = _inside_safe(boxes[k], w, h)
             share = ink_share(img, b)
             if share > MAX_INK_SHARE:
                 return False, f"место под подпись {k} не пустое (рисунка {share:.0%})"
