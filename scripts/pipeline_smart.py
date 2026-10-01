@@ -6907,6 +6907,11 @@ def ladder_steps(trigger, att=None):
 WEAK_REPLACEMENT_LADDER = ()
 
 
+# Сгенерированный кадр ставится на слот, даже если судья его забраковал: за него уже
+# заплачено (решение владельца 01.10). IMAGE_GEN_ALWAYS_SHOW=0 возвращает проверку.
+GEN_ALWAYS_SHOWN = (os.environ.get("IMAGE_GEN_ALWAYS_SHOW") or "1").strip() != "0"
+
+
 def generation_round(index, block, request, trigger="failed"):
     """(запрос слота для ступени генерации, сгенерированные кандидаты) или
     None.
@@ -17975,6 +17980,7 @@ def main():
         # (given_attempt).
         media_origin = None
         locked_shot = bool(lock_photo or lock_video)
+        gen_forced = False  # сгенерированный кадр ставится без отказа судьи (решение владельца 01.10)
         if locked_shot:
             # Шотлист решил за нас — ни Pexels, ни гейтов, ни локального
             # перебора: ровно тот файл, который человек проверил и залочил.
@@ -18246,7 +18252,20 @@ def main():
                                 got = fetch_in_attempt(slot_attempts, i, "photo", select_media, req_g,
                                                        "photo")
                             got_att = attempt_of(slot_attempts, got)
-                            if got and research_takes_over(trigger, cur_att, got_att):
+                            if not got and items_g:
+                                # Судья/гейты не оставили ни одного кандидата — деньги на
+                                # генерацию уже потрачены: ставится первый рисунок как есть.
+                                try:
+                                    from urllib.parse import urlparse, unquote
+                                    got = unquote(urlparse(items_g[0]["src"]["large2x"]).path)
+                                except Exception:  # noqa: BLE001
+                                    got = None
+                            if got and GEN_ALWAYS_SHOWN:
+                                print(f"    [{i+1}] встал сгенерированный кадр (без отказа судьи)")
+                                photo, video = got, None
+                                gen_forced = True
+                                GENERATION_LOG[-1]["found"] = True
+                            elif got and research_takes_over(trigger, cur_att, got_att):
                                 print(f"    [{i+1}] встал сгенерированный кадр"
                                       + (" — лучше ближайшей замены" if trigger == "weak" else ""))
                                 photo, video = got, None
@@ -18296,7 +18315,7 @@ def main():
         # Попытка, чей кадр сейчас кандидат на экран, — она и решает судьбу
         # слота. У локального/залоченного файла попытки отбора нет.
         decisive_att = attempt_of(slot_attempts, photo or video)
-        if (photo or video) and not locked_shot:
+        if (photo or video) and not locked_shot and not gen_forced:
             bad_reason = known_bad_reason(decisive_att.verdicts) if decisive_att else None
             if bad_reason and not never_show_known_bad:
                 if fallback_card_allowed(i, len(blocks), is_opening=is_opening_shot):
@@ -18521,7 +18540,7 @@ def main():
         # релевантности) известны РАНЬШЕ отбора и обслуживаются первой
         # проверкой — её трогать нельзя, иначе видео-путь потеряет
         # спасение фотографией, которое идёт до карточки.
-        if (photo or video) and not locked_shot and not any(
+        if (photo or video) and not locked_shot and not gen_forced and not any(
                 sl.get("index") == i for sl in FALLBACK_CARD_SLOTS):
             late_reason = known_bad_reason(shown_att.verdicts)
             if (late_reason == "director_relevance_decisive"
