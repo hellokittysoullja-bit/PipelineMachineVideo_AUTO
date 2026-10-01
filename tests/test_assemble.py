@@ -110,4 +110,6 @@ def test_labels_stay_clear_of_what_the_zoom_crops():
     import labels
     assert labels.EDGE_SAFE > af.ZOOM / 2
     assert labels._inside_safe((0, 0, 1920, 1080), 1920, 1080) == (58, 32, 1862, 1048)
+    # 3:2 стоит на всю высоту, по бокам — поля: наезд режет только верх и низ
+    assert labels._inside_safe((0, 0, 1264, 848), 1264, 848) == (19, 25, 1245, 823)
     assert labels.CAPTION_BAND[3] <= 1 - labels.EDGE_SAFE

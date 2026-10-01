@@ -39,6 +39,8 @@ CAPTION_BAND = (0.05, 0.79, 0.95, 0.97)   # доли кадра: x1, y1, x2, y2
 # 4%) срезает по 2% сверху и снизу. Рамка подписи не ближе 3% к краю кадра —
 # иначе буквы у края уходят за кадр на первой или последней секунде клипа.
 EDGE_SAFE = 0.03
+CANVAS_ASPECT = 16 / 9
+EDGE_VISUAL = 0.015   # там, где наезд не режет: текст вплотную к краю рисунка читается как обрезанный
 # Шкала кегля — доля высоты кадра, одна на весь ролик: подпись не прыгает
 # от кадра к кадру. Меньше потолка — только если текст не влезает в место.
 SIZE_CAPTION = 0.075
@@ -208,10 +210,67 @@ def locate(gateway, model, img, labels, picture, cache_path=None):
 
 
 def _inside_safe(box, w, h):
-    """Рамка, ужатая в безопасную зону кадра (EDGE_SAFE от каждого края)."""
-    mx, my = round(EDGE_SAFE * w), round(EDGE_SAFE * h)
+    """Рамка, ужатая в безопасную зону кадра: EDGE_SAFE от тех краёв, которые
+    срезает наезд. Рисунок у́же 16:9 стоит на всю высоту, по бокам — поля,
+    и наезд съедает поля, а не рисунок: боковой отступ там не нужен и только
+    отнимает место у подписи (живой случай 01.10 — место под «ДОФАМИН» у
+    правого края кадра 3:2). Шире 16:9 — наоборот."""
+    narrow = w / h < CANVAS_ASPECT * (1 - 2 * EDGE_SAFE)
+    wide = w / h > CANVAS_ASPECT / (1 - 2 * EDGE_SAFE)
+    mx = round((EDGE_VISUAL if narrow else EDGE_SAFE) * w)
+    my = round((EDGE_VISUAL if wide else EDGE_SAFE) * h)
     x1, y1, x2, y2 = box
     return (max(x1, mx), max(y1, my), min(x2, w - mx), min(y2, h - my))
+
+
+MIN_FRAME_SIZE_SHARE = 0.6   # мельче — кадр в перерисовку, а не мелкий шрифт на экране
+GROW_STEP = 0.015      # шаг расширения тесной рамки, доля кадра
+GROW_MAX = (0.40, 0.25)   # рамка не шире 40% и не выше 25% кадра — подпись остаётся у своей стрелки
+
+
+def _fitted_size(box, text, size_cap, h, pad=0.06):
+    x1, y1, x2, y2 = box
+    bw, bh = (x2 - x1) * (1 - 2 * pad), (y2 - y1) * (1 - 2 * pad)
+    try:
+        return fit(text, int(bw), int(bh), font_for(text), max_size=max(18, round(size_cap * h)))[0]
+    except ValueError:
+        return 0
+
+
+def _grow(img, box, text, size_cap, others):
+    """Тесная рамка расширяется в пустой фон, пока подпись не встанет кеглем
+    шкалы ролика. Модель со зрением иногда отводит под слово щель (живой
+    случай 01.10: «ДОФАМИН» вдвое мельче соседей на том же кадре). Каждая
+    добавленная полоска должна быть пустой (MAX_INK_SHARE), в безопасной зоне
+    и не задевать рамки других подписей; не вышло — рамка остаётся как есть."""
+    w, h = img.size
+    target = max(18, round(size_cap * h))
+    if _fitted_size(box, text, size_cap, h) >= target:
+        return box
+    sx, sy = max(1, round(GROW_STEP * w)), max(1, round(GROW_STEP * h))
+    lim = _inside_safe((0, 0, w, h), w, h)
+    x1, y1, x2, y2 = box
+    grew = True
+    while grew and _fitted_size((x1, y1, x2, y2), text, size_cap, h) < target:
+        grew = False
+        for side in ("left", "right", "up", "down"):
+            if side == "left":
+                cand, strip = (max(lim[0], x1 - sx), y1, x2, y2), (max(lim[0], x1 - sx), y1, x1, y2)
+            elif side == "right":
+                cand, strip = (x1, y1, min(lim[2], x2 + sx), y2), (x2, y1, min(lim[2], x2 + sx), y2)
+            elif side == "up":
+                cand, strip = (x1, max(lim[1], y1 - sy), x2, y2), (x1, max(lim[1], y1 - sy), x2, y1)
+            else:
+                cand, strip = (x1, y1, x2, min(lim[3], y2 + sy)), (x1, y2, x2, min(lim[3], y2 + sy))
+            if strip[2] <= strip[0] or strip[3] <= strip[1]:
+                continue
+            if cand[2] - cand[0] > GROW_MAX[0] * w or cand[3] - cand[1] > GROW_MAX[1] * h:
+                continue
+            if ink_share(img, strip) > MAX_INK_SHARE or any(_overlap(cand, o) for o in others):
+                continue
+            x1, y1, x2, y2 = cand
+            grew = True
+    return (x1, y1, x2, y2)
 
 
 def _overlap(a, b):
@@ -274,16 +333,29 @@ def compose(img_path, out_path, frame, gateway=None, model=None, cache_dir=None,
                 return False, f"модель не нашла места: {type(e).__name__}: {e}"[:200]
             if boxes is None:
                 return False, "модель не вернула рамки под подписи"
+        cap = SIZE_CAPTION if frame.get("kind") == "caption" else SIZE_DIAGRAM
+        safe = {k: _inside_safe(boxes[k], w, h) for k in boxes}
+        grown = {}
         for k in range(1, len(labels) + 1):
-            b = _inside_safe(boxes[k], w, h)
+            others = [safe[j] for j in safe if j != k] + list(grown.values())
+            grown[k] = _grow(img, safe[k], labels[k - 1], cap, others)
+        # Одна величина на кадр — по самой тесной рамке: разный кегль у
+        # соседних подписей одной схемы читается как брак вёрстки.
+        target = max(18, round(cap * h))
+        frame_size = min(_fitted_size(grown[k], labels[k - 1], cap, h) for k in grown)
+        if frame_size < MIN_FRAME_SIZE_SHARE * target:
+            return False, (f"под подписи мало места: кегль {frame_size} при шкале {target} "
+                           f"(меньше {MIN_FRAME_SIZE_SHARE:.0%})")
+        cap = frame_size / h
+        for k in range(1, len(labels) + 1):
+            b = grown[k]
             share = ink_share(img, b)
             if share > MAX_INK_SHARE:
                 return False, f"место под подпись {k} не пустое (рисунка {share:.0%})"
             if any(_overlap(b, p["box"]) for p in placed):
                 return False, f"подпись {k} налезает на другую"
             try:
-                placed.append(draw(img, b, labels[k - 1],
-                                   size_cap=SIZE_CAPTION if frame.get("kind") == "caption" else SIZE_DIAGRAM))
+                placed.append(draw(img, b, labels[k - 1], size_cap=cap))
             except ValueError as e:
                 return False, str(e)
     tmp = out_path + ".tmp.png"
