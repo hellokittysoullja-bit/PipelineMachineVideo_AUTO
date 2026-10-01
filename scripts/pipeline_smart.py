@@ -17182,11 +17182,6 @@ def main():
     if not blocks:
         print("Сценарий не найден/пуст")
         return 1
-    auto_plan_episode(blocks)
-    # Мир эпизода — в музейный фильтр: окно эпохи и чужие культуры из
-    # паспорта, а не из дефолтов канала (см. museum_sources.set_episode_world).
-    import museum_sources
-    museum_sources.set_episode_world(episode_world_card())
     # ЛОКАЛЬНЫЙ РЕЖИССЁР (SHOT_PLANNER_LLM, дефолт 1). Заполняет РОВНО ТО ЖЕ
     # поле shot_brief, которое пишет автор тегом [shot:...] — и поэтому не
     # заводит ни одной новой связи: вопрос к полке (shelf_question), перевод
@@ -17216,18 +17211,6 @@ def main():
         # Fail-open той же дисциплины, что у остальных надстроек: сбой
         # планировщика не имеет права уронить рендер.
         print(f"  Локальный режиссёр пропущен ({type(_e).__name__})")
-    # Запросы к стокам на каждую фразу (scripts/stock_query_planner.py) —
-    # готовый план с диска, живых вызовов здесь нет. Проставляется ДО
-    # нарезки блоков: под-кадры наследуют поле через dict(b).
-    try:
-        import stock_query_planner
-        _sq = stock_query_planner.attach(blocks, stock_query_planner.load(VIDEO_FOLDER),
-                                         stock_query_planner.load_specs(VIDEO_FOLDER))
-        if _sq:
-            print(f"  Запросы фраз: на {_sq} из {len(blocks)} блоков (media_plan/"
-                  f"{stock_query_planner.PLAN_NAME})")
-    except Exception as _e:
-        print(f"  Запросы фраз пропущены ({type(_e).__name__})")
     # ИСХОДНЫЙ индекс блока — единственное, что связывает блок монтажа с юнитом
     # speech_plan.json ПОСЛЕ split_long_blocks()/merge_short_phrase_locked_blocks().
     # N4 из docs/AUDIT_2026-09_DEEP.md, измерено на этом эпизоде: главный цикл
@@ -17242,6 +17225,7 @@ def main():
     # индекс первого из слитых, что и требуется.
     for _bi, _b in enumerate(blocks):
         _b["orig_index"] = _bi
+        _b["parent_text"] = _b.get("text")
     # Реальный тайминг считаем ДО sub-cuts — alignment.csv записан 1:1 на
     # исходные блоки (по [pause]/[short pause]), split_long_blocks() потом
     # честно делит вес пропорционально словам между получившимися кусками.
@@ -17264,6 +17248,38 @@ def main():
     blocks, real_weights = merge_short_phrase_locked_blocks(blocks, real_weights, total)
     if len(blocks) != n_before_merge:
         print(f"Phrase-lock merge (клипы короче пола): {n_before_merge} -> {len(blocks)} блоков")
+    # СПЕЦИФИКАЦИЯ КАДРА — НА КАЖДЫЙ СЛОТ, ПОСЛЕ НАРЕЗКИ (01.10). Раньше план
+    # спрашивался по фразам сценария ДО нарезки, и под-кадры наследовали
+    # спецификацию родителя через dict(b). Живой брак эп.03: фраза хука в 68
+    # слов («Звучит как выдумка… девятьсот рыцарей… погибло трое… англичанин
+    # вёл счёт пленных») получила ОДНУ спецификацию «монах пишет хронику», и
+    # все 7 слотов, нарезанных из неё, искали одно и то же — на экране семь
+    # раз подряд монах с пером, а «сошлись девятьсот рыцарей» не показано
+    # вообще. Теперь каждый слот спрашивается своим текстом, с главой в
+    # контексте. Бриф автора [shot:] стоит в начале фразы и описывает её
+    # начало — он остаётся только у первого под-кадра, остальным не мешает.
+    _seen_parent = set()
+    for _b in blocks:
+        if _b.get("text") != _b.get("parent_text"):
+            if _b.get("orig_index") in _seen_parent:
+                _b.pop("shot_brief", None)
+            _b.pop("shot_spec", None)
+            _b.pop("phrase_queries", None)
+        _seen_parent.add(_b.get("orig_index"))
+    auto_plan_episode(blocks)
+    # Мир эпизода — в музейный фильтр: окно эпохи и чужие культуры из
+    # паспорта, а не из дефолтов канала (см. museum_sources.set_episode_world).
+    import museum_sources
+    museum_sources.set_episode_world(episode_world_card())
+    try:
+        import stock_query_planner
+        _sq = stock_query_planner.attach(blocks, stock_query_planner.load(VIDEO_FOLDER),
+                                         stock_query_planner.load_specs(VIDEO_FOLDER))
+        if _sq:
+            print(f"  Запросы фраз: на {_sq} из {len(blocks)} слотов (media_plan/"
+                  f"{stock_query_planner.PLAN_NAME})")
+    except Exception as _e:
+        print(f"  Запросы фраз пропущены ({type(_e).__name__})")
     # Кроссфейд между КАЖДОЙ парой кадров суммарно "съедает" какую-то часть
     # длительности — закладываем это в целевую длительность заранее, чтобы
     # после склейки общая длина видео снова совпала с аудио (без этого хвост
