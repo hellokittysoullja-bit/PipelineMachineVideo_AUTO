@@ -62,3 +62,19 @@ def test_first_slot_rule_skipped_when_block_too_short_for_it():
     # 5.0 с: 3 + остаток 2 < HOOK_MIN_CLIP — остаток склеился бы обратно
     nb, nw = ps.split_long_blocks([_block(TEXT)], [5.0])
     assert len(nb) == 1
+
+
+def test_real_word_times_beat_the_word_share_estimate():
+    """Речь быстрее оценки по словам: по доле слов первый кусок «2.8 с», а по
+    настоящим временам он звучит 2.0 с — и склеился бы обратно. С реальными
+    временами первый слот укладывается в потолок."""
+    words = TEXT.split()
+    n = len(words)
+    # равномерная речь 0.5 с на слово, пауза в 1 с в конце блока
+    times = [0.5 * k for k in range(n)] + [0.5 * n + 1.0]
+    cuts = ps._hook_split_points(words, 0.5 * n, 1.0, first_slot=True, times=times)
+    bounds = [0] + cuts + [n]
+    dur = [times[c] - times[a] for a, c in zip(bounds, bounds[1:])]
+    assert dur[0] <= ps.HOOK_FIRST_SLOT_MAX_SEC
+    assert max(dur) <= ps.HOOK_SLOT_MAX_SEC
+    assert min(dur) >= ps.HOOK_MIN_CLIP - 1e-6

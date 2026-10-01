@@ -91,9 +91,11 @@ class TestSplitPointRespectsTheClipFloor:
         """Дыра в цикле склейки: у ПЕРВОГО куска merged ещё пуст, и короткий
         первый кусок проходил вообще без проверки."""
         for est in (8.1, 9.0, 12.0, 20.0):
-            _, weights = ps.split_long_blocks([_block(HOOK_BLOCK_TEXT)], [est])
-            # Хук режется по своему полу HOOK_MIN_CLIP (2.5 с), а не по полу тела.
-            assert min(weights) >= ps.HOOK_MIN_CLIP - 1e-6, (est, weights)
+            sb, weights = ps.split_long_blocks([_block(HOOK_BLOCK_TEXT)], [est])
+            # Хук режется по своему полу HOOK_MIN_CLIP (2.5 с), а не по полу тела;
+            # слот живёт вместе с паузой после блока.
+            slots = [w + b["pause_after"] for b, w in zip(sb, weights)]
+            assert min(slots) >= ps.HOOK_MIN_CLIP - 1e-6, (est, slots)
 
 
 class TestSfxIsNotCopiedIntoEverySubcut:
