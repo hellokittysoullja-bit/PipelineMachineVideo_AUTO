@@ -1001,7 +1001,11 @@ MUSIC_BED_PATHS = {
     "BODY": MUSIC_BED_PATH,
     "FINAL": os.path.join(_MUSIC_DIR, "ambient_bed_final.flac"),
 }
-MUSIC_ENABLED = feature_flags.enabled("MUSIC_BED") and os.path.exists(MUSIC_BED_PATH)
+MUSIC_BED_FLAG = feature_flags.enabled("MUSIC_BED")
+SYNTH_MUSIC_BED = feature_flags.enabled("SYNTH_MUSIC_BED")
+# Синтезированный дрон — только по SYNTH_MUSIC_BED (решение владельца 02.10);
+# подложку из библиотеки собирает build_library_bed() по плану режиссёра.
+MUSIC_ENABLED = MUSIC_BED_FLAG and SYNTH_MUSIC_BED and os.path.exists(MUSIC_BED_PATH)
 # J-cut: смена настроения подложки опережает смену секции сценария на
 # столько секунд — звук "приходит первым", смысловой сдвиг подложки уже
 # ощущается ДО того, как текст/картинка формально сменили раздел (тот же
@@ -2461,7 +2465,7 @@ def build_episode_audio_layers(voice_path, video_dir, temp_dir, blocks, sub_star
     sound = plan_episode_sound(video_dir, blocks, sub_starts, total)
     premix = build_music_mix(voice_path, total, premix, hook_end=hook_end, final_start=final_start,
                               climax_times=climax_times, pause_windows_real=pause_windows_real,
-                              music_cues=sound["music"])
+                              music_cues=sound["music"], beds=sound.get("beds"))
     # Атмосферный слой — ПОСЛЕ музыки и дакинга (см. add_ambience_bed).
     # Уровень считается замером под ЭТОТ голос, не константой.
     premix = run_ambience(premix, video_dir, blocks, sub_starts, total, voice_path, sound=sound)
@@ -2699,7 +2703,7 @@ def _pause_swell_expr(pause_windows_real):
 # -24 LU под голосом не слышен; события звучат громче (AMB_EVENT_GAP_LU) и
 # мягко уступают словам (лёгкий сайдчейн 3:1), а в паузах выходят вперёд.
 SOUND_DIRECTOR_ENABLED = feature_flags.enabled("SOUND_DIRECTOR")
-SOUND_DIRECTOR_DEFAULT_SPEND_CAP = 20000
+SOUND_DIRECTOR_DEFAULT_SPEND_CAP = 150000   # замер 02.10: атмосфера ~37 тыс. + музыка ~15 тыс. на 20-минутный эпизод; резерв вызова считается по max_tokens
 AMB_EVENT_GAP_LU = 14.0
 AMB_EVENT_GAIN_MAX_DB = 24.0
 AMB_EVENT_DUCK_RATIO = 3.0
@@ -2732,7 +2736,7 @@ def plan_episode_sound(video_dir, blocks, sub_starts, total):
     Режиссёр выключен — пустые списки и source="off": атмосфера идёт прежним
     фоном по словарю, музыки нет. Решение пишется в SOUND_PLAN_LOG для отчёта.
     """
-    out = {"amb": [], "music": [], "source": "off"}
+    out = {"amb": [], "music": [], "beds": [], "source": "off"}
     if not SOUND_DIRECTOR_ENABLED:
         return out
     try:
@@ -2747,11 +2751,9 @@ def plan_episode_sound(video_dir, blocks, sub_starts, total):
         cues, source = sound_director.episode_sound_cues(video_dir, blocks, sub_starts, gw, kinds)
         out["source"] = source
         out["amb"] = sound_director.ambience_events(cues, sub_starts, total, available=set(kinds))
-        has_music = bool(library_sounds("music", "medieval"))
-        out["music"] = sound_director.music_cues(cues, sub_starts, total, enabled=has_music)
-        if not has_music:
-            print("  ВНИМАНИЕ: средневековой музыки в библиотеке нет — "
-                  "python scripts/sound_library.py build --kinds music:medieval")
+        author_music = [(i, name) for i, typ, name in cues if typ == "music"]
+        out["music"], out["beds"] = plan_episode_music(video_dir, blocks, sub_starts, total, gw,
+                                                       author_music=author_music)
         if gw is not None:
             out["spent"] = gw.spent
         by_kind = {}
@@ -2759,12 +2761,98 @@ def plan_episode_sound(video_dir, blocks, sub_starts, total):
             by_kind[e["kind"]] = by_kind.get(e["kind"], 0) + 1
         print(f"  Звуковой режиссёр ({source}): атмосфера — {len(out['amb'])} событий "
               f"({', '.join(f'{k} {v}' for k, v in sorted(by_kind.items())) or 'нет'}), "
-              f"средневековая музыка — {len(out['music'])} врезок")
+              f"музыка — {len(out['music'])} врезок, подложка — {len(out['beds'])} участков")
     except Exception as e:  # noqa: BLE001 — звук не имеет права уронить рендер
         print(f"  ВНИМАНИЕ: звуковой режиссёр не отработал ({type(e).__name__}: {str(e)[:200]})")
     SOUND_PLAN_LOG.clear()
     SOUND_PLAN_LOG.update(out)
     return out
+
+
+def plan_episode_music(video_dir, blocks, sub_starts, total, gw, author_music=None):
+    """(врезки, подложки) из библиотеки музыки по плану музыкального режиссёра.
+
+    План составляется при ключе шлюза (кэш вопросов делает повтор
+    бесплатным), иначе берётся с диска. Ни плана, ни библиотеки — музыки нет,
+    с предупреждением: зашитого «средневековья для всех» больше нет."""
+    import music_library
+    import sound_director
+    tracks = music_library.available_tracks()
+    if not tracks:
+        print("  ВНИМАНИЕ: библиотеки музыки на диске нет — python scripts/music_library.py restore")
+        return [], []
+    mplan = None
+    if gw is not None:
+        try:
+            mplan = sound_director.plan_music(video_dir, blocks, sub_starts, gw, tracks)
+        except Exception as e:  # noqa: BLE001
+            print(f"  ВНИМАНИЕ: музыкальный режиссёр не отработал ({type(e).__name__}: {str(e)[:160]})")
+    if mplan is None:
+        mplan = sound_director.load_music_plan(video_dir)
+    by_id = {t["id"]: t for t in tracks}
+    if author_music:
+        # Тег автора [music:<id трека>] перед фразой — врезка этим треком под
+        # её главой; врезки модели заменяются целиком (автор знает лучше).
+        stings = []
+        for i, name in author_music:
+            if name in by_id and i < len(blocks):
+                stings.append({"section": str(blocks[i].get("section", "")), "id": name})
+            else:
+                print(f"  ВНИМАНИЕ: тег [music:{name}] — такого трека в библиотеке нет "
+                      f"(python scripts/music_library.py cards)")
+        mplan = dict(mplan or {}, stings=stings)
+    if mplan is None:
+        print("  ВНИМАНИЕ: музыкального плана нет (нужен LLM_GATEWAY_API_KEY) — ролик без музыки")
+        return [], []
+    return sound_director.music_plan_cues(mplan, blocks, sub_starts, total, by_id)
+
+
+def build_library_bed(beds, total_dur, out_path):
+    """Подложка на весь ролик из треков библиотеки: участок главы — свой трек
+    (с начала, по кругу, если глава длиннее), стыки — медленный кроссфейд,
+    громкость файлов предварительно выровнена между собой. Участок без
+    подложки — тишина нужной длины (шкала ролика не сдвигается)."""
+    if not beds:
+        return None
+    d = MUSIC_MOOD_XFADE
+    segs, t = [], 0.0
+    for b in sorted(beds, key=lambda x: x["start"]):
+        if b["start"] > t + 0.05:
+            segs.append((t, b["start"], None))
+        segs.append((max(t, b["start"]), b["end"], b["path"]))
+        t = b["end"]
+    if t < total_dur - 0.05:
+        segs.append((t, total_dur, None))
+    inputs, parts = [], []
+    n = len(segs)
+    for k, (a, e, path) in enumerate(segs):
+        length = (e - a) + (d if k < n - 1 else 0.0)
+        if path:
+            try:
+                pre = _music_file_gain_cached(path, os.path.getmtime(path)) or 0.0
+            except OSError:
+                pre = 0.0
+            inputs += ["-stream_loop", "-1", "-i", path]
+            src = f"[{len(inputs) // 4 - 1}:a]"
+            parts.append(f"{src}atrim=0:{length:.3f},asetpts=N/SR/TB,aformat=sample_rates=48000:"
+                         f"channel_layouts=stereo,volume={pre:.2f}dB[b{k}]")
+        else:
+            parts.append(f"anullsrc=r=48000:cl=stereo,atrim=0:{length:.3f}[b{k}]")
+    chain = "[b0]"
+    for k in range(1, n):
+        out = f"[x{k}]" if k < n - 1 else "[bed]"
+        parts.append(f"{chain}[b{k}]acrossfade=d={d}:c1=tri:c2=tri{out}")
+        chain = out
+    if n == 1:
+        parts.append("[b0]anull[bed]")
+    fade_out = min(6.0, total_dur / 4)
+    parts.append(f"[bed]afade=t=in:st=0:d=2,afade=t=out:st={max(0.0, total_dur - fade_out):.3f}:"
+                 f"d={fade_out:.3f}[out]")
+    made = _run_ok(["ffmpeg", "-y", *inputs, "-filter_complex", ";".join(parts), "-map", "[out]",
+                    "-t", f"{total_dur:.3f}", "-ar", "48000", "-ac", "2", out_path], out_path)
+    if made is None:
+        print("  ВНИМАНИЕ: подложка из библиотеки не собралась — без подложки")
+    return made
 
 
 @functools.lru_cache(maxsize=64)
@@ -2774,18 +2862,18 @@ def _music_file_gain_cached(path, mtime):
 
 
 def build_music_cue_track(cues, total_dur, out_dir):
-    """Дорожка средневековой музыки на весь ролик: каждая врезка — с НАЧАЛА
+    """Дорожка музыкальных врезок на весь ролик: каждая врезка — с НАЧАЛА
     своей пьесы (вступление пьесы звучит естественно, середина — нет),
     разные пьесы на разные врезки, плавный вход и долгий выход."""
     files = library_sounds("music", "medieval")
-    if not files or not cues:
+    if not cues or not (files or all(c.get("path") for c in cues)):
         return None
     # Самая длинная пьеса — вступлению (seed 0): короткая оборвалась бы
     # раньше задуманных MUSIC_INTRO_SEC.
     files = sorted(files, key=lambda f: -(media_duration_or_none(f) or 0.0))
     parts, inputs = [], []
     for k, c in enumerate(cues):
-        path = files[(int(c.get("seed", k))) % len(files)]
+        path = c.get("path") or files[(int(c.get("seed", k))) % len(files)]
         dur = float(c["end"]) - float(c["start"])
         if dur <= 1.0:
             continue
@@ -2797,7 +2885,7 @@ def build_music_cue_track(cues, total_dur, out_dir):
         # места внутри неё: пьес в библиотеке мало, и одинаковое начало под
         # каждой главой слышалось бы как повтор.
         offset = 0.0
-        if c.get("role") == "chapter" and fdur - dur > 4.0:
+        if c.get("role") == "chapter" and not c.get("path") and fdur - dur > 4.0:
             offset = float((int(c.get("seed", k)) * 37) % int(fdur - dur))
         try:
             pre = _music_file_gain_cached(path, os.path.getmtime(path)) or 0.0
@@ -2820,7 +2908,7 @@ def build_music_cue_track(cues, total_dur, out_dir):
     made = _run_ok(["ffmpeg", "-y", *inputs, "-filter_complex", fc, "-map", "[out]",
                     "-t", f"{total_dur:.3f}", "-ar", "48000", "-ac", "2", out_path], out_path)
     if made is None:
-        print("  ВНИМАНИЕ: дорожка средневековой музыки не собралась — без неё.")
+        print("  ВНИМАНИЕ: дорожка музыкальных врезок не собралась — без неё.")
     return made
 
 
@@ -2831,12 +2919,12 @@ def music_cue_gain_db(voice_path, cue_path):
     v, m = measure_integrated_lufs(voice_path), measure_integrated_lufs(cue_path)
     detail = {"voice_lufs": v, "music_lufs": m, "target_gap_lu": MUSIC_CUE_GAP_LU}
     if v is None or m is None:
-        print("  ВНИМАНИЕ: громкость средневековой музыки не измерилась — врезки не добавлены")
+        print("  ВНИМАНИЕ: громкость музыкальных врезок не измерилась — врезки не добавлены")
         detail["source"] = "unmeasured"
         return None, detail
     gain = max(-40.0, min(10.0, v - MUSIC_CUE_GAP_LU - m))
     detail.update(gain_db=round(gain, 2), source="measured")
-    print(f"  Средневековая музыка: голос {v:.1f} LUFS, музыка {m:.1f} LUFS "
+    print(f"  Музыкальные врезки: голос {v:.1f} LUFS, музыка {m:.1f} LUFS "
           f"-> усиление {gain:+.1f} dB (разрыв {MUSIC_CUE_GAP_LU:.0f} LU, мягкий дакинг "
           f"{MUSIC_CUE_DUCK_RATIO:.0f}:1)")
     return gain, detail
@@ -2854,7 +2942,7 @@ def _music_cue_bed_dip_expr(cues):
 
 
 def build_music_mix(voice_path, total_dur, out_path, hook_end=0.0, final_start=None, climax_times=None,
-                     pause_windows_real=None, music_cues=None):
+                     pause_windows_real=None, music_cues=None, beds=None):
     """A1: атмосферная подложка под голосом, с сайдчейн-дакингом — громкость
     музыки автоматически прижимается, когда звучит речь, и отпускает в
     паузах (тот же приём, что в любом проф. документальном монтаже: подложка
@@ -2871,85 +2959,93 @@ def build_music_mix(voice_path, total_dur, out_path, hook_end=0.0, final_start=N
     Микс делается ОТДЕЛЬНЫМ шагом (не встроен прямо в финальный мультиплекс)
     — так итоговый loudnorm (A7) считается на ГОТОВОМ миксе голос+музыка,
     а не только на голосе, как было раньше: иначе музыка добавляла бы
-    громкость ПОСЛЕ калибровки и сводила её к нулю."""
-    if not MUSIC_ENABLED:
+    громкость ПОСЛЕ калибровки и сводила её к нулю.
+
+    02.10: подложка — треки библиотеки по плану музыкального режиссёра
+    (beds, build_library_bed); синтезированный дрон — только по
+    SYNTH_MUSIC_BED. Подложки нет, а врезки есть — микшируются одни врезки."""
+    def voice_only():
         r = subprocess.run(["ffmpeg", "-y", "-i", voice_path, "-t", f"{total_dur:.3f}",
-                             "-ar", "48000", "-ac", "2", out_path], capture_output=True, text=True, encoding="utf-8", errors="replace")
+                             "-ar", "48000", "-ac", "2", out_path], capture_output=True, text=True,
+                            encoding="utf-8", errors="replace")
         return out_path if r.returncode == 0 else voice_path
+    if not MUSIC_BED_FLAG:
+        return voice_only()
     if final_start is None:
         final_start = total_dur
     timeline_path = out_path + ".mood_timeline.wav"
-    timeline = build_mood_timeline(hook_end, final_start, total_dur, timeline_path)
-    if timeline is None:
-        r = subprocess.run(["ffmpeg", "-y", "-i", voice_path, "-t", f"{total_dur:.3f}",
-                             "-ar", "48000", "-ac", "2", out_path], capture_output=True, text=True, encoding="utf-8", errors="replace")
-        return out_path if r.returncode == 0 else voice_path
-    dip_expr = _climax_dip_expr(climax_times)
-    dip_stage = f",volume=eval=frame:volume='{dip_expr}'" if dip_expr else ""
-    swell_expr = _pause_swell_expr(pause_windows_real)
-    swell_stage = f",volume=eval=frame:volume='{swell_expr}'" if swell_expr else ""
-    # Уровень подложки — под ЭТУ пару дорожек, не глухой константой:
-    # см. music_bed_gain_db()/MUSIC_BED_GAP_LU. Меряется собранный timeline
-    # (именно он подаётся на [1:a]), а не один исходный ассет — у склейки
-    # трёх настроений громкость своя.
+    timeline = None
+    if beds:
+        timeline = build_library_bed(beds, total_dur, timeline_path)
+    elif MUSIC_ENABLED:
+        timeline = build_mood_timeline(hook_end, final_start, total_dur, timeline_path)
     global MUSIC_BED_DECISION
-    bed_gain, bed_detail = music_bed_gain_db(voice_path, timeline)
-    MUSIC_BED_DECISION = bed_detail
+    bed_gain = None
+    if timeline is not None:
+        # Уровень подложки — под ЭТУ пару дорожек, не глухой константой:
+        # см. music_bed_gain_db()/MUSIC_BED_GAP_LU.
+        bed_gain, bed_detail = music_bed_gain_db(voice_path, timeline)
+        MUSIC_BED_DECISION = dict(bed_detail, bed_source="library" if beds else "synth",
+                                  beds=[dict(b) for b in beds or []])
+    else:
+        MUSIC_BED_DECISION = {"source": "none", "bed_source": "none"}
     cue_track, cue_gain = None, None
     if music_cues:
         cue_track = build_music_cue_track(music_cues, total_dur, os.path.dirname(out_path) or ".")
         if cue_track:
             cue_gain, cue_detail = music_cue_gain_db(voice_path, cue_track)
-            MUSIC_BED_DECISION = dict(bed_detail, medieval_cues=cue_detail,
+            MUSIC_BED_DECISION = dict(MUSIC_BED_DECISION, music_cues=cue_detail,
                                       cues=[dict(c) for c in music_cues])
             if cue_gain is None:
                 cue_track = None
-    bed_dip = ""
-    if cue_track:
-        expr = _music_cue_bed_dip_expr(music_cues)
-        if expr:
-            bed_dip = f",volume=eval=frame:volume='{expr}'"
-    if cue_track:
-        filter_complex = (
-            f"[1:a]volume={bed_gain}dB{dip_stage}{swell_stage}{bed_dip}[music_raw];"
-            f"[2:a]volume={cue_gain}dB[cue_raw];"
-            f"[0:a]asplit=3[voice_main][voice_sc][voice_sc2];"
-            f"[music_raw][voice_sc]sidechaincompress=threshold={MUSIC_DUCK_THRESHOLD}:"
-            f"ratio={MUSIC_DUCK_RATIO}:attack={MUSIC_DUCK_ATTACK_MS}:release={MUSIC_DUCK_RELEASE_MS}[music_ducked];"
-            f"[cue_raw][voice_sc2]sidechaincompress=threshold={MUSIC_DUCK_THRESHOLD}:"
-            f"ratio={MUSIC_CUE_DUCK_RATIO}:attack={MUSIC_CUE_DUCK_ATTACK_MS}:"
-            f"release={MUSIC_CUE_DUCK_RELEASE_MS}[cue_ducked];"
-            f"[voice_main][music_ducked][cue_ducked]amix=inputs=3:duration=first:"
-            f"weights=1 1 1:normalize=0[mix]"
-        )
-        inputs = ["-i", voice_path, "-i", timeline, "-i", cue_track]
-    else:
-        filter_complex = (
-            f"[1:a]volume={bed_gain}dB{dip_stage}{swell_stage}[music_raw];"
-            f"[0:a]asplit=2[voice_main][voice_sc];"
-            f"[music_raw][voice_sc]sidechaincompress=threshold={MUSIC_DUCK_THRESHOLD}:"
-            f"ratio={MUSIC_DUCK_RATIO}:attack={MUSIC_DUCK_ATTACK_MS}:release={MUSIC_DUCK_RELEASE_MS}[music_ducked];"
-            f"[voice_main][music_ducked]amix=inputs=2:duration=first:weights=1 1:normalize=0[mix]"
-        )
-        inputs = ["-i", voice_path, "-i", timeline]
+    if timeline is None and cue_track is None:
+        return voice_only()
+    inputs = ["-i", voice_path]
+    parts, mix_in = [], ["[voice_main]"]
+    n_sc = (timeline is not None) + (cue_track is not None)
+    parts.append(f"[0:a]asplit={n_sc + 1}[voice_main]" + "".join(f"[vsc{k}]" for k in range(n_sc)))
+    sc = 0
+    if timeline is not None:
+        dip_expr = _climax_dip_expr(climax_times)
+        dip_stage = f",volume=eval=frame:volume='{dip_expr}'" if dip_expr else ""
+        swell_expr = _pause_swell_expr(pause_windows_real)
+        swell_stage = f",volume=eval=frame:volume='{swell_expr}'" if swell_expr else ""
+        bed_dip = ""
+        if cue_track:
+            expr = _music_cue_bed_dip_expr(music_cues)
+            if expr:
+                bed_dip = f",volume=eval=frame:volume='{expr}'"
+        inputs += ["-i", timeline]
+        idx = len(inputs) // 2 - 1
+        parts.append(f"[{idx}:a]volume={bed_gain}dB{dip_stage}{swell_stage}{bed_dip}[music_raw]")
+        parts.append(f"[music_raw][vsc{sc}]sidechaincompress=threshold={MUSIC_DUCK_THRESHOLD}:"
+                     f"ratio={MUSIC_DUCK_RATIO}:attack={MUSIC_DUCK_ATTACK_MS}:"
+                     f"release={MUSIC_DUCK_RELEASE_MS}[music_ducked]")
+        mix_in.append("[music_ducked]")
+        sc += 1
+    if cue_track is not None:
+        inputs += ["-i", cue_track]
+        idx = len(inputs) // 2 - 1
+        parts.append(f"[{idx}:a]volume={cue_gain}dB[cue_raw]")
+        parts.append(f"[cue_raw][vsc{sc}]sidechaincompress=threshold={MUSIC_DUCK_THRESHOLD}:"
+                     f"ratio={MUSIC_CUE_DUCK_RATIO}:attack={MUSIC_CUE_DUCK_ATTACK_MS}:"
+                     f"release={MUSIC_CUE_DUCK_RELEASE_MS}[cue_ducked]")
+        mix_in.append("[cue_ducked]")
+    k = len(mix_in)
+    parts.append("".join(mix_in) + f"amix=inputs={k}:duration=first:weights={' '.join(['1'] * k)}:"
+                 f"normalize=0[mix]")
     r = subprocess.run(
-        ["ffmpeg", "-y", *inputs,
-         "-filter_complex", filter_complex, "-map", "[mix]",
+        ["ffmpeg", "-y", *inputs, "-filter_complex", ";".join(parts), "-map", "[mix]",
          "-t", f"{total_dur:.3f}", "-ar", "48000", "-ac", "2", out_path],
         capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0 and cue_track:
-        print(f"  ВНИМАНИЕ: средневековая музыка не свелась ({r.stderr[-200:].strip()}) — "
-              f"подложка без неё")
+        print(f"  ВНИМАНИЕ: музыкальные врезки не свелись ({r.stderr[-200:].strip()}) — без них")
         return build_music_mix(voice_path, total_dur, out_path, hook_end, final_start,
-                               climax_times, pause_windows_real, music_cues=None)
+                               climax_times, pause_windows_real, music_cues=None, beds=beds)
     if r.returncode != 0:
-        # Микс не собрался — откат на голос без подложки, не срываем сборку
-        # ролика ради необязательного улучшения. Но НЕ молча (аудит 04.09):
-        # ролик без музыки выглядел как чистый успех.
+        # Не молча (аудит 04.09): ролик без музыки выглядел как чистый успех.
         print(f"  ВНИМАНИЕ: музыкальная подложка НЕ наложена (микс не собрался): {r.stderr[-200:].strip()}")
-        r2 = subprocess.run(["ffmpeg", "-y", "-i", voice_path, "-t", f"{total_dur:.3f}",
-                              "-ar", "48000", "-ac", "2", out_path], capture_output=True, text=True, encoding="utf-8", errors="replace")
-        return out_path if r2.returncode == 0 else voice_path
+        return voice_only()
     return out_path
 
 
@@ -3046,7 +3142,7 @@ def ambience_segment_gain_db(path):
     return (round(gain, 2), "measured_clamped" if abs(gain - raw) > 0.05 else "measured")
 
 
-def _ambience_segment(bed, duration, seed, out_path, fade_in=None, fade_out=None):
+def _ambience_segment(bed, duration, seed, out_path, fade_in=None, fade_out=None, pick=None):
     """Один участок атмосферы: слои крутятся независимо, каждый со своего
     сдвига и под своей медленной кривой громкости.
 
@@ -3065,7 +3161,7 @@ def _ambience_segment(bed, duration, seed, out_path, fade_in=None, fade_out=None
     независимых кандидата, которые надо сравнивать друг с другом.
     """
     import ambience_plan
-    layers = ambience_layers(bed, seed)
+    layers = [(pick[0], pick[2])] if pick else ambience_layers(bed, seed)
     if not layers:
         return None
     normalize_layers = len(layers) == 1
@@ -3074,7 +3170,7 @@ def _ambience_segment(bed, duration, seed, out_path, fade_in=None, fade_out=None
     for idx, ((path, seconds), drift) in enumerate(
             zip(layers, ambience_plan.AMBIENCE_DRIFT_SECONDS)):
         cmd += ["-stream_loop", "-1", "-i", path]
-        offset = (seed * (idx + 3)) % max(1, int(seconds))
+        offset = pick[1] if pick else (seed * (idx + 3)) % max(1, int(seconds))
         drift_expr = f"{1.0 - AMBIENCE_DRIFT_DEPTH}+{AMBIENCE_DRIFT_DEPTH}*sin(2*PI*t/{drift})"
         pre_gain = f"volume={ambience_segment_gain_db(path)[0]}dB," if normalize_layers else ""
         parts.append(
@@ -3158,6 +3254,29 @@ def build_ambience_track(plan, total_dur, out_dir):
     return made
 
 
+def ambience_event_pick(kind, occ, dur):
+    """(путь, сдвиг, длина файла) для n-го события вида в ролике.
+
+    Сначала разные записи вида; записи кончились — следующий НЕ
+    перекрывающийся отрезок тех же записей (одна 208-секундная запись битвы
+    даёт четыре разных момента боя, а не один и тот же кусок четыре раза).
+    Нет записей — None (прежний выбор по seed, включая синтез)."""
+    lib = library_sounds("ambience", kind)
+    if not lib:
+        return None
+    path = lib[occ % len(lib)]
+    try:
+        flen = float(get_media_duration(path) or 0.0)
+    except Exception:  # noqa: BLE001
+        return None
+    if flen <= 1.0:
+        return None
+    window = occ // len(lib)
+    span = max(1.0, flen - dur)
+    offset = round((window * (dur + 2.0)) % span, 3) if flen > dur else 0.0
+    return (path, offset, flen)
+
+
 def build_ambience_event_track(events, total_dur, out_dir):
     """Дорожка атмосферы-событий: каждое событие — свой отрезок записи
     (разные записи одного вида — по seed), наложенный на своё место."""
@@ -3168,7 +3287,8 @@ def build_ambience_event_track(events, total_dur, out_dir):
         dur = float(e["end"]) - float(e["start"])
         seg = os.path.join(out_dir, f"ambev_{k:03d}.wav")
         made = _ambience_segment(e["kind"], dur, int(e.get("seed", k)), seg,
-                                 fade_in=AMB_EVENT_FADE_IN_SEC, fade_out=AMB_EVENT_FADE_OUT_SEC)
+                                 fade_in=AMB_EVENT_FADE_IN_SEC, fade_out=AMB_EVENT_FADE_OUT_SEC,
+                                 pick=ambience_event_pick(e["kind"], int(e.get("occ", 0)), dur))
         if made is None:
             continue
         delay = int(round(float(e["start"]) * 1000))

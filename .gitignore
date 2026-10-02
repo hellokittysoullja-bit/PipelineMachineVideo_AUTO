@@ -36,6 +36,9 @@ temp_library/
 # Записи атмосферы из библиотеки (сотни МБ) не хранятся в git — восстанавливаются
 # по манифесту: python scripts/sound_library.py restore. Эффекты (sfx/) и манифест — в git.
 assets/library/ambience/
+# Музыка Mixkit (сотни МБ): индекс assets/library/music_index.json в git,
+# файлы — python scripts/music_library.py restore.
+assets/library/music_mixkit/
 
 # Кэш рендера. Обычно живёт внутри videos/<эпизод>/temp_smart (а videos/ уже
 # игнорируется), но скрипт, запущенный из корня репозитория, создаёт его
@@ -88,3 +91,6 @@ models/
 *.gguf
 # Кэш сырых ответов поиска Wikimedia Commons (commons_source.py) — продукт, не исходник
 temp_commons_cache/
+
+# Замеры звукового режиссёра (scripts/sound_director_eval.py) — продукт, не исходник.
+temp_sound_eval/
