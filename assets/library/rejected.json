@@ -2700,5 +2700,4689 @@
   "url": "https://cdn.freesound.org/previews/267/267711_3666787-hq.mp3",
   "creator": "WeeJee_vdH",
   "landing": "https://freesound.org/people/WeeJee_vdH/sounds/267711"
+ },
+ {
+  "id": "freesound:e6b6b62f-aee6-428c-8e3f-6d4e88e4cf26",
+  "title": "Seaside Morning Post Rain Ambience - Hambantota, Sri Lanka",
+  "kind": "ambience",
+  "name": "sea_waves",
+  "url": "https://cdn.freesound.org/previews/790/790352_3288322-hq.mp3",
+  "creator": "seventhsamurai",
+  "landing": "https://freesound.org/people/seventhsamurai/sounds/790352",
+  "reasons": [
+   "title:rain"
+  ]
+ },
+ {
+  "id": "freesound:0e202994-c712-4087-898e-71f3fc881642",
+  "title": "BEACH, SUMMER, CHILDREN- vers 2 facing away from the sea. Stereo atmos atmosphere wildtrack ambience.mp3",
+  "kind": "ambience",
+  "name": "sea_waves",
+  "url": "https://cdn.freesound.org/previews/437/437458_2010973-hq.mp3",
+  "creator": "arpeggio1980",
+  "landing": "https://freesound.org/people/arpeggio1980/sounds/437458",
+  "reasons": [
+   "title:children"
+  ]
+ },
+ {
+  "reasons": [
+   "ast_speech"
+  ],
+  "duration": 140.472,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "hum_db": 7.3,
+  "silence_share": 0.0,
+  "lufs": -21.9,
+  "lra": 5.4,
+  "true_peak": -4.0,
+  "lf_share": 0.013,
+  "channel_corr": 0.619,
+  "mono": false,
+  "clap_pos": 0.2578,
+  "clap_margin": 0.2992,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "kind_winner": "sea_waves",
+  "kind_gap": 0.151,
+  "ast": {
+   "Music": 0.012,
+   "Singing": 0.001,
+   "Speech": 0.204,
+   "Vehicle": 0.029
+  },
+  "id": "freesound:2a69cc50-19e8-4170-b3be-ab546c4fa874",
+  "title": "Sea Waves on Beach 02.wav",
+  "kind": "ambience",
+  "name": "sea_waves",
+  "url": "https://cdn.freesound.org/previews/401/401159_2076119-hq.mp3",
+  "creator": "acollier123",
+  "landing": "https://freesound.org/people/acollier123/sounds/401159"
+ },
+ {
+  "reasons": [
+   "ast_speech"
+  ],
+  "duration": 139.44,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 6.6,
+  "silence_share": 0.0,
+  "lufs": -36.6,
+  "lra": 14.8,
+  "true_peak": -11.8,
+  "lf_share": 0.016,
+  "channel_corr": 1.0,
+  "mono": true,
+  "clap_pos": 0.2978,
+  "clap_margin": 0.3039,
+  "clap_worst_neg": "music, melody, musical instruments, singing",
+  "kind_winner": "sea_waves",
+  "kind_gap": 0.1684,
+  "ast": {
+   "Music": 0.011,
+   "Singing": 0.0,
+   "Speech": 0.148,
+   "Vehicle": 0.036
+  },
+  "id": "freesound:f73c8295-d678-414e-bf9e-c2d1eabeeb6a",
+  "title": "MONO beach pebbles light waves-012.wav",
+  "kind": "ambience",
+  "name": "sea_waves",
+  "url": "https://cdn.freesound.org/previews/663/663015_5812520-hq.mp3",
+  "creator": "krnfa",
+  "landing": "https://freesound.org/people/krnfa/sounds/663015"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 74.376,
+  "clipping_share": 0.00041,
+  "source_sample_rate": 48000,
+  "hum_db": 7.4,
+  "silence_share": 0.0,
+  "lufs": -23.8,
+  "lra": 17.6,
+  "true_peak": 0.3,
+  "lf_share": 0.308,
+  "channel_corr": -0.006,
+  "mono": false,
+  "id": "freesound:850e5ceb-81c1-415a-b867-716b05547ce8",
+  "title": "Crashing Waves into Rocks 4",
+  "kind": "ambience",
+  "name": "sea_waves",
+  "url": "https://cdn.freesound.org/previews/376/376800_6128004-hq.mp3",
+  "creator": "amholma",
+  "landing": "https://freesound.org/people/amholma/sounds/376800"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 71.208,
+  "clipping_share": 0.000304,
+  "source_sample_rate": 48000,
+  "hum_db": 8.8,
+  "silence_share": 0.0,
+  "lufs": -20.7,
+  "lra": 11.2,
+  "true_peak": 0.2,
+  "lf_share": 0.784,
+  "channel_corr": 0.77,
+  "mono": false,
+  "id": "freesound:b0080e87-baf8-4331-8ed1-07a234a6e7b6",
+  "title": "Waves on Pebble Beach",
+  "kind": "ambience",
+  "name": "sea_waves",
+  "url": "https://cdn.freesound.org/previews/501/501132_2573247-hq.mp3",
+  "creator": "derjuli",
+  "landing": "https://freesound.org/people/derjuli/sounds/501132"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 37.056,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "hum_db": 14.8,
+  "silence_share": 0.0,
+  "lufs": -35.0,
+  "lra": 2.5,
+  "true_peak": -18.6,
+  "lf_share": 0.008,
+  "channel_corr": 0.604,
+  "mono": false,
+  "id": "freesound:beb0aa8a-2a7d-480c-a6c9-a3bbf652bcff",
+  "title": "Calm Waves Crashing Against A Beach.wav",
+  "kind": "ambience",
+  "name": "sea_waves",
+  "url": "https://cdn.freesound.org/previews/218/218387_3299593-hq.mp3",
+  "creator": "Motion_S",
+  "landing": "https://freesound.org/people/Motion_S/sounds/218387"
+ },
+ {
+  "id": "freesound:9f41808b-3870-4211-9d63-fcfff7c84305",
+  "title": "S18-28 Battle effects; variety of machine guns.wav",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/675/675132_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/675132",
+  "reasons": [
+   "title:gun"
+  ]
+ },
+ {
+  "id": "freesound:d33a20a2-5f55-4023-acdb-33d702a8d8b9",
+  "title": "S18-10 Battle background with heavy bombardment.wav",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/675/675126_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/675126",
+  "reasons": [
+   "title:bomb"
+  ]
+ },
+ {
+  "id": "freesound:b84fb1d3-47a5-4370-93a1-ca01344f9225",
+  "title": "S17-01 Battle Background Bombardment.wav",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/675/675125_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/675125",
+  "reasons": [
+   "title:bomb"
+  ]
+ },
+ {
+  "id": "freesound:3ab3768b-4fb1-4b69-8f4d-727bcb27ea36",
+  "title": "S17-04 Medium battle background and bombardment.wav",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/675/675140_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/675140",
+  "reasons": [
+   "title:bomb"
+  ]
+ },
+ {
+  "id": "freesound:0ed3a83e-b5df-437c-b9ea-339dadc74abf",
+  "title": "S17-02 Tank battle background.wav",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/675/675142_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/675142",
+  "reasons": [
+   "title:tank"
+  ]
+ },
+ {
+  "id": "freesound:cb6c421f-fd0a-41dd-8cb1-e48dbdbb05ed",
+  "title": "Battle, war zone gun fight",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/326/326442_5564376-hq.mp3",
+  "creator": "alanmcki",
+  "landing": "https://freesound.org/people/alanmcki/sounds/326442",
+  "reasons": [
+   "title:gun"
+  ]
+ },
+ {
+  "id": "freesound:9c5c4549-4ad6-4d6a-9a0f-386d8a5deba8",
+  "title": "Windy Desert Gun Battle",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/188/188839_71257-hq.mp3",
+  "creator": "qubodup",
+  "landing": "https://freesound.org/people/qubodup/sounds/188839",
+  "reasons": [
+   "title:gun"
+  ]
+ },
+ {
+  "id": "freesound:9e681318-fa1e-4967-b16e-705e6f6b781e",
+  "title": "Helicopter in Mountains",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/258/258007_3968009-hq.mp3",
+  "creator": "DallasBass",
+  "landing": "https://freesound.org/people/DallasBass/sounds/258007",
+  "reasons": [
+   "title:helicopter"
+  ]
+ },
+ {
+  "id": "freesound:aa2ce78a-f7a4-41ac-90f9-75b197ac6b3d",
+  "title": "Battle - Cinematic soundtrack music atmo background.wav",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/594/594223_2282212-hq.mp3",
+  "creator": "szegvari",
+  "landing": "https://freesound.org/people/szegvari/sounds/594223",
+  "reasons": [
+   "title:soundtrack"
+  ]
+ },
+ {
+  "id": "freesound:9d66365d-4e24-4091-9145-329285ed7859",
+  "title": "S19-18 Distant pistol gun battle.wav",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/675/675137_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/675137",
+  "reasons": [
+   "title:gun"
+  ]
+ },
+ {
+  "id": "freesound:0a6ad7c0-ca5a-4984-8d4f-6d5a48add345",
+  "title": "Laser Gun (metal slinky in a shower)",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/570/570753_6970469-hq.mp3",
+  "creator": "ericnorcross81",
+  "landing": "https://freesound.org/people/ericnorcross81/sounds/570753",
+  "reasons": [
+   "title:gun"
+  ]
+ },
+ {
+  "id": "freesound:0e9f134b-166e-4ac8-99ce-9be82e9aba2c",
+  "title": "Semi-Auto Rifle Simulation",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/235/235427_2425857-hq.mp3",
+  "creator": "ALLANZ10D",
+  "landing": "https://freesound.org/people/ALLANZ10D/sounds/235427",
+  "reasons": [
+   "title:rifle"
+  ]
+ },
+ {
+  "id": "freesound:918fea4c-48bc-41fa-8b83-8b813498bbfc",
+  "title": "Gunfire Battlefield Army Training Shooting",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/159/159622_71257-hq.mp3",
+  "creator": "qubodup",
+  "landing": "https://freesound.org/people/qubodup/sounds/159622",
+  "reasons": [
+   "title:gun"
+  ]
+ },
+ {
+  "reasons": [
+   "too_much_silence"
+  ],
+  "duration": 10.176,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "hum_db": 6.8,
+  "silence_share": 0.519,
+  "lufs": -22.2,
+  "lra": 2.3,
+  "true_peak": -7.5,
+  "lf_share": 0.0,
+  "channel_corr": 0.63,
+  "mono": false,
+  "id": "freesound:4b8e557a-ad44-4745-9f7e-279f8d88f134",
+  "title": "Swords Clashing",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/611/611765_13131817-hq.mp3",
+  "creator": "Sam300Productions",
+  "landing": "https://freesound.org/people/Sam300Productions/sounds/611765"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "kind_lost_to_war_drums"
+  ],
+  "duration": 188.736,
+  "clipping_share": 4e-06,
+  "source_sample_rate": 48000,
+  "hum_db": 8.1,
+  "silence_share": 0.0,
+  "lufs": -24.9,
+  "lra": 6.1,
+  "true_peak": -0.4,
+  "lf_share": 0.003,
+  "channel_corr": 1.0,
+  "mono": true,
+  "clap_pos": -0.0028,
+  "clap_margin": -0.4347,
+  "clap_worst_neg": "gunfire, rifles, machine guns, explosions",
+  "kind_winner": "war_drums",
+  "kind_gap": 0.0624,
+  "ast": {
+   "Music": 0.004,
+   "Singing": 0.0,
+   "Speech": 0.347,
+   "Vehicle": 0.003
+  },
+  "id": "freesound:eb8c0f45-b6a4-4ffb-a859-0b7d1360981d",
+  "title": "Modern War Battle Field.flac",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/184/184730_71257-hq.mp3",
+  "creator": "qubodup",
+  "landing": "https://freesound.org/people/qubodup/sounds/184730"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 141.479,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "hum_db": 18.0,
+  "silence_share": 0.0,
+  "lufs": -18.3,
+  "lra": 3.3,
+  "true_peak": -0.9,
+  "lf_share": 0.224,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:c1a521c4-3ba0-424e-b983-afc6c987c54b",
+  "title": "medieval battle 1500 AD BY KRIS KLAVENES.mp3",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/349/349382_4701691-hq.mp3",
+  "creator": "klavo1985",
+  "landing": "https://freesound.org/people/klavo1985/sounds/349382"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 71.616,
+  "clipping_share": 0.007313,
+  "source_sample_rate": 48000,
+  "hum_db": 8.1,
+  "silence_share": 0.028,
+  "lufs": -12.9,
+  "lra": 8.8,
+  "true_peak": 3.9,
+  "lf_share": 0.001,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:7af79df9-1b03-467d-897d-5fec465972ca",
+  "title": "Battle Firefight Scene.flac",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/184/184358_71257-hq.mp3",
+  "creator": "qubodup",
+  "landing": "https://freesound.org/people/qubodup/sounds/184358"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 55.128,
+  "clipping_share": 0.064656,
+  "source_sample_rate": 44100,
+  "hum_db": 6.9,
+  "silence_share": 0.0,
+  "lufs": -8.4,
+  "lra": 5.2,
+  "true_peak": 3.8,
+  "lf_share": 0.098,
+  "channel_corr": 0.822,
+  "mono": false,
+  "id": "freesound:a96f4919-3c0b-4217-8f92-abac1fe52d67",
+  "title": "World War 1 Trench warfare battlefield sounds.wav",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/345/345723_3282955-hq.mp3",
+  "creator": "paulbogush",
+  "landing": "https://freesound.org/people/paulbogush/sounds/345723"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 28.656,
+  "clipping_share": 1e-05,
+  "source_sample_rate": 44100,
+  "hum_db": 14.6,
+  "silence_share": 0.066,
+  "lufs": -12.1,
+  "lra": 9.1,
+  "true_peak": 2.3,
+  "lf_share": 0.008,
+  "channel_corr": -0.18,
+  "mono": false,
+  "id": "freesound:a1f85744-5a89-4332-962e-437f06bc172f",
+  "title": "Sword fight with monster.mp3",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/155/155122_128837-hq.mp3",
+  "creator": "pickleparade",
+  "landing": "https://freesound.org/people/pickleparade/sounds/155122"
+ },
+ {
+  "reasons": [
+   "too_much_silence"
+  ],
+  "duration": 222.798,
+  "clipping_share": 1.5e-05,
+  "source_sample_rate": 44100,
+  "hum_db": 5.3,
+  "silence_share": 0.46,
+  "lufs": -26.0,
+  "lra": 16.8,
+  "true_peak": 1.4,
+  "lf_share": 0.014,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:9b93bb4a-dcce-42be-99c8-340ae19f114e",
+  "title": "wooden sword foley",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/438/438905_7167354-hq.mp3",
+  "creator": "lizt5498",
+  "landing": "https://freesound.org/people/lizt5498/sounds/438905"
+ },
+ {
+  "reasons": [
+   "clipping",
+   "mains_hum"
+  ],
+  "duration": 145.368,
+  "clipping_share": 0.000638,
+  "source_sample_rate": 44100,
+  "hum_db": 17.0,
+  "silence_share": 0.0,
+  "lufs": -20.5,
+  "lra": 10.4,
+  "true_peak": -0.4,
+  "lf_share": 0.012,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:e6033baf-5b23-4093-8b47-e4bbc837c947",
+  "title": "Battle Ship Carrier Bridge Operations Ambience",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/162/162255_71257-hq.mp3",
+  "creator": "qubodup",
+  "landing": "https://freesound.org/people/qubodup/sounds/162255"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 133.464,
+  "clipping_share": 0.071115,
+  "source_sample_rate": 48000,
+  "hum_db": 9.6,
+  "silence_share": 0.0,
+  "lufs": -16.3,
+  "lra": 4.6,
+  "true_peak": 0.4,
+  "lf_share": 0.967,
+  "channel_corr": 0.224,
+  "mono": false,
+  "id": "freesound:3d4bf2a4-d811-4c9f-8f14-9932bad8dfdc",
+  "title": "Battle Zone Scene",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/444/444907_5106192-hq.mp3",
+  "creator": "DRFX",
+  "landing": "https://freesound.org/people/DRFX/sounds/444907"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "kind_lost_to_war_drums"
+  ],
+  "duration": 120.408,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 9.3,
+  "silence_share": 0.0,
+  "lufs": -24.4,
+  "lra": 4.0,
+  "true_peak": -8.5,
+  "lf_share": 0.0,
+  "channel_corr": 1.0,
+  "mono": true,
+  "clap_pos": -0.0115,
+  "clap_margin": -0.4167,
+  "clap_worst_neg": "gunfire, rifles, machine guns, explosions",
+  "kind_winner": "war_drums",
+  "kind_gap": 0.1892,
+  "ast": {
+   "Music": 0.058,
+   "Singing": 0.0,
+   "Speech": 0.026,
+   "Vehicle": 0.005
+  },
+  "id": "freesound:33cd5ee0-c2bf-4591-9db2-ad8fc1d56569",
+  "title": "S17-14 Battle background; fairly close.wav",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/675/675128_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/675128"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "kind_lost_to_war_drums"
+  ],
+  "duration": 87.408,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 7.3,
+  "silence_share": 0.0,
+  "lufs": -24.4,
+  "lra": 3.0,
+  "true_peak": -10.1,
+  "lf_share": 0.0,
+  "channel_corr": 1.0,
+  "mono": true,
+  "clap_pos": -0.0629,
+  "clap_margin": -0.3239,
+  "clap_worst_neg": "gunfire, rifles, machine guns, explosions",
+  "kind_winner": "war_drums",
+  "kind_gap": 0.0084,
+  "ast": {
+   "Music": 0.16,
+   "Singing": 0.0,
+   "Speech": 0.044,
+   "Vehicle": 0.025
+  },
+  "id": "freesound:475a83b4-410d-4b05-a65a-09b3d16c9aa1",
+  "title": "R05-24-Battle Scene.wav",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/479/479537_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/479537"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "kind_lost_to_war_drums"
+  ],
+  "duration": 79.392,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 7.7,
+  "silence_share": 0.0,
+  "lufs": -24.7,
+  "lra": 9.8,
+  "true_peak": -6.7,
+  "lf_share": 0.001,
+  "channel_corr": 1.0,
+  "mono": true,
+  "clap_pos": 0.0363,
+  "clap_margin": -0.3074,
+  "clap_worst_neg": "gunfire, rifles, machine guns, explosions",
+  "kind_winner": "war_drums",
+  "kind_gap": 0.1329,
+  "ast": {
+   "Music": 0.03,
+   "Singing": 0.0,
+   "Speech": 0.011,
+   "Vehicle": 0.015
+  },
+  "id": "freesound:c98e3698-327f-4904-ba30-cfebd35f091f",
+  "title": "S17-17 Battle backgrounds with shell whines and ricochets.wav",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/675/675131_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/675131"
+ },
+ {
+  "reasons": [
+   "too_much_silence"
+  ],
+  "duration": 65.724,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "hum_db": 5.4,
+  "silence_share": 0.253,
+  "lufs": -20.6,
+  "lra": 8.8,
+  "true_peak": 0.6,
+  "lf_share": 0.001,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:d09faffa-a11a-46b0-af06-d8d1fcaa0550",
+  "title": "MedievalSpeech.wav",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/144/144862_2573276-hq.mp3",
+  "creator": "tekgnosis",
+  "landing": "https://freesound.org/people/tekgnosis/sounds/144862"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "kind_lost_to_war_drums"
+  ],
+  "duration": 60.552,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 8.9,
+  "silence_share": 0.0,
+  "lufs": -23.0,
+  "lra": 5.1,
+  "true_peak": -6.8,
+  "lf_share": 0.001,
+  "channel_corr": 1.0,
+  "mono": true,
+  "clap_pos": -0.0455,
+  "clap_margin": -0.3029,
+  "clap_worst_neg": "gunfire, rifles, machine guns, explosions",
+  "kind_winner": "war_drums",
+  "kind_gap": 0.1491,
+  "ast": {
+   "Music": 0.165,
+   "Singing": 0.0,
+   "Speech": 0.018,
+   "Vehicle": 0.025
+  },
+  "id": "freesound:922b9e77-a8cd-4403-8a56-f15b0a27aec3",
+  "title": "S18-09 Battle background.wav",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/675/675127_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/675127"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "kind_lost_to_stone_hall"
+  ],
+  "duration": 57.192,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "hum_db": 7.2,
+  "silence_share": 0.03,
+  "lufs": -22.8,
+  "lra": 5.7,
+  "true_peak": -8.1,
+  "lf_share": 0.0,
+  "channel_corr": 0.81,
+  "mono": false,
+  "clap_pos": -0.1971,
+  "clap_margin": -0.3588,
+  "clap_worst_neg": "traffic, car engine, airplane, helicopter",
+  "kind_winner": "stone_hall",
+  "kind_gap": 0.0123,
+  "ast": {
+   "Music": 0.023,
+   "Singing": 0.0,
+   "Speech": 0.009,
+   "Vehicle": 0.033
+  },
+  "id": "freesound:d06e7aff-4852-4f13-8f67-ccbb86a9345a",
+  "title": "War Drone/Ambience",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/691/691481_8219380-hq.mp3",
+  "creator": "Bowesy",
+  "landing": "https://freesound.org/people/Bowesy/sounds/691481"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 43.92,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 14.1,
+  "silence_share": 0.0,
+  "lufs": -27.4,
+  "lra": 2.9,
+  "true_peak": -18.7,
+  "lf_share": 0.0,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:bb784045-2e42-4416-a84a-a71ccc522efa",
+  "title": "R29-39-Chinese Screams in Battle.wav",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/479/479582_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/479582"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "kind_lost_to_war_drums"
+  ],
+  "duration": 40.872,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 7.2,
+  "silence_share": 0.0,
+  "lufs": -24.5,
+  "lra": 4.6,
+  "true_peak": -6.1,
+  "lf_share": 0.0,
+  "channel_corr": 1.0,
+  "mono": true,
+  "clap_pos": 0.0533,
+  "clap_margin": -0.4003,
+  "clap_worst_neg": "gunfire, rifles, machine guns, explosions",
+  "kind_winner": "war_drums",
+  "kind_gap": 0.2285,
+  "ast": {
+   "Music": 0.026,
+   "Singing": 0.0,
+   "Speech": 0.013,
+   "Vehicle": 0.004
+  },
+  "id": "freesound:73d7e382-7cbf-4743-bac0-4ee104b7b6d9",
+  "title": "S17-15 Battle background; recorded close.wav",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/675/675130_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/675130"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 36.384,
+  "clipping_share": 2.3e-05,
+  "source_sample_rate": 48000,
+  "hum_db": 27.6,
+  "silence_share": 0.0,
+  "lufs": -16.8,
+  "lra": 5.0,
+  "true_peak": -0.4,
+  "lf_share": 0.003,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:d7a4e443-4031-40b8-be58-127649b990a3",
+  "title": "Iraq Arabic Battle Scene.flac",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/182/182818_71257-hq.mp3",
+  "creator": "qubodup",
+  "landing": "https://freesound.org/people/qubodup/sounds/182818"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "kind_lost_to_war_drums",
+   "ast_vehicle"
+  ],
+  "duration": 30.537,
+  "clipping_share": 2.3e-05,
+  "source_sample_rate": 44100,
+  "hum_db": 8.6,
+  "silence_share": 0.0,
+  "lufs": -14.9,
+  "lra": 9.1,
+  "true_peak": 0.5,
+  "lf_share": 0.002,
+  "channel_corr": 1.0,
+  "mono": true,
+  "clap_pos": -0.0713,
+  "clap_margin": -0.5208,
+  "clap_worst_neg": "gunfire, rifles, machine guns, explosions",
+  "kind_winner": "war_drums",
+  "kind_gap": 0.1208,
+  "ast": {
+   "Music": 0.008,
+   "Singing": 0.0,
+   "Speech": 0.123,
+   "Vehicle": 0.533
+  },
+  "id": "freesound:3f9c4e32-58ea-43c1-b72e-285b71f72d17",
+  "title": "River Fire Fight",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/162/162406_71257-hq.mp3",
+  "creator": "qubodup",
+  "landing": "https://freesound.org/people/qubodup/sounds/162406"
+ },
+ {
+  "reasons": [
+   "mains_hum",
+   "too_much_silence"
+  ],
+  "duration": 29.472,
+  "clipping_share": 6e-06,
+  "source_sample_rate": 48000,
+  "hum_db": 19.4,
+  "silence_share": 0.867,
+  "lufs": -20.8,
+  "lra": 14.3,
+  "true_peak": 1.4,
+  "lf_share": 0.0,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:374106bf-a8c1-4ce1-a732-4171ffd65eae",
+  "title": "Sword hitting a shield",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/588/588277_6461270-hq.mp3",
+  "creator": "marchelonia",
+  "landing": "https://freesound.org/people/marchelonia/sounds/588277"
+ },
+ {
+  "reasons": [
+   "clipping",
+   "too_much_silence"
+  ],
+  "duration": 25.872,
+  "clipping_share": 0.000127,
+  "source_sample_rate": 48000,
+  "hum_db": 7.9,
+  "silence_share": 0.351,
+  "lufs": -17.3,
+  "lra": 20.1,
+  "true_peak": 3.3,
+  "lf_share": 0.002,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:43891b65-1d60-4021-b739-e25140c3dc66",
+  "title": "sword and shealt.wav",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/527/527433_11519060-hq.mp3",
+  "creator": "bruno.auzet",
+  "landing": "https://freesound.org/people/bruno.auzet/sounds/527433"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "kind_lost_to_war_drums"
+  ],
+  "duration": 24.696,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 7.6,
+  "silence_share": 0.0,
+  "lufs": -24.4,
+  "lra": 4.3,
+  "true_peak": -7.9,
+  "lf_share": 0.0,
+  "channel_corr": 1.0,
+  "mono": true,
+  "clap_pos": -0.1009,
+  "clap_margin": -0.3564,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "kind_winner": "war_drums",
+  "kind_gap": 0.1111,
+  "ast": {
+   "Music": 0.017,
+   "Singing": 0.0,
+   "Speech": 0.05,
+   "Vehicle": 0.019
+  },
+  "id": "freesound:18d355c8-baff-436f-a0b3-cf17f660293b",
+  "title": "S16-32 Battle background; fairly close; bits strung together.wav",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/675/675129_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/675129"
+ },
+ {
+  "reasons": [
+   "too_much_silence"
+  ],
+  "duration": 19.224,
+  "clipping_share": 1.7e-05,
+  "source_sample_rate": 48000,
+  "hum_db": 10.5,
+  "silence_share": 0.892,
+  "lufs": -17.6,
+  "lra": 4.2,
+  "true_peak": 1.7,
+  "lf_share": 0.0,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:2953d021-96d1-4ef1-87f7-d46b0595589d",
+  "title": "heavy sword against sword or shield",
+  "kind": "ambience",
+  "name": "battle_distant",
+  "url": "https://cdn.freesound.org/previews/588/588278_6461270-hq.mp3",
+  "creator": "marchelonia",
+  "landing": "https://freesound.org/people/marchelonia/sounds/588278"
+ },
+ {
+  "id": "freesound:37e1dd26-77dd-48db-8803-bed25c14a20b",
+  "title": "traffic medium Middle East busy street near market throaty cars horn honks arabic voices2 +horse trot by near end Gaza 2016.wav",
+  "kind": "ambience",
+  "name": "cavalry_horses",
+  "url": "https://cdn.freesound.org/previews/406/406874_612689-hq.mp3",
+  "creator": "kyles",
+  "landing": "https://freesound.org/people/kyles/sounds/406874",
+  "reasons": [
+   "title:car"
+  ]
+ },
+ {
+  "id": "freesound:a194cf34-aefc-45f8-aaa2-1d733ecd3936",
+  "title": "Horse and Carriage.wav",
+  "kind": "ambience",
+  "name": "cavalry_horses",
+  "url": "https://cdn.freesound.org/previews/653/653091_6663213-hq.mp3",
+  "creator": "chuckeazay22",
+  "landing": "https://freesound.org/people/chuckeazay22/sounds/653091",
+  "reasons": [
+   "title:carriage"
+  ]
+ },
+ {
+  "id": "freesound:3b2b3d95-f06d-4248-b4fb-3ffb58681646",
+  "title": "cartoon horse gallop.wav",
+  "kind": "ambience",
+  "name": "cavalry_horses",
+  "url": "https://cdn.freesound.org/previews/393/393857_84709-hq.mp3",
+  "creator": "martian",
+  "landing": "https://freesound.org/people/martian/sounds/393857",
+  "reasons": [
+   "title:cart"
+  ]
+ },
+ {
+  "id": "freesound:4451c5a2-f31c-4627-9fff-4be3c17bca02",
+  "title": "cartoon horse.aif",
+  "kind": "ambience",
+  "name": "cavalry_horses",
+  "url": "https://cdn.freesound.org/previews/185/185862_84709-hq.mp3",
+  "creator": "martian",
+  "landing": "https://freesound.org/people/martian/sounds/185862",
+  "reasons": [
+   "title:cart"
+  ]
+ },
+ {
+  "id": "freesound:320ec3e2-53cb-4589-adb0-d2cb4ea7989a",
+  "title": "Horse carriage in Vienna",
+  "kind": "ambience",
+  "name": "cavalry_horses",
+  "url": "https://cdn.freesound.org/previews/628/628351_12244617-hq.mp3",
+  "creator": "Urkki69",
+  "landing": "https://freesound.org/people/Urkki69/sounds/628351",
+  "reasons": [
+   "title:carriage"
+  ]
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 41.232,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 16.2,
+  "silence_share": 0.027,
+  "lufs": -27.4,
+  "lra": 19.7,
+  "true_peak": -8.6,
+  "lf_share": 0.0,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:03d89950-6b6d-43c1-a521-f40c5224c1b4",
+  "title": "R14-05-Horses Gallop By.wav",
+  "kind": "ambience",
+  "name": "cavalry_horses",
+  "url": "https://cdn.freesound.org/previews/479/479742_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/479742"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 32.664,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 8.5,
+  "silence_share": 0.0,
+  "lufs": -48.4,
+  "lra": 15.3,
+  "true_peak": -16.6,
+  "lf_share": 0.559,
+  "channel_corr": 1.0,
+  "mono": true,
+  "clap_pos": 0.1966,
+  "clap_margin": -0.0389,
+  "clap_worst_neg": "wooden blocks clapping",
+  "kind_winner": "cavalry_horses",
+  "kind_gap": 0.0556,
+  "ast": {
+   "Music": 0.004,
+   "Singing": 0.0,
+   "Speech": 0.01,
+   "Vehicle": 0.003
+  },
+  "id": "freesound:967ffcdd-fb0b-4fef-bbec-47829e69e29c",
+  "title": "horse_galloping.wav",
+  "kind": "ambience",
+  "name": "cavalry_horses",
+  "url": "https://cdn.freesound.org/previews/368/368583_5492735-hq.mp3",
+  "creator": "telezon",
+  "landing": "https://freesound.org/people/telezon/sounds/368583"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 25.152,
+  "clipping_share": 0.000342,
+  "source_sample_rate": 48000,
+  "hum_db": 5.2,
+  "silence_share": 0.0,
+  "lufs": -17.5,
+  "lra": 25.5,
+  "true_peak": 0.6,
+  "lf_share": 0.053,
+  "channel_corr": 0.803,
+  "mono": false,
+  "id": "freesound:a6381bae-8ecf-4641-a175-31e0ded5dc88",
+  "title": "6 horses gallop.wav",
+  "kind": "ambience",
+  "name": "cavalry_horses",
+  "url": "https://cdn.freesound.org/previews/527/527430_11519060-hq.mp3",
+  "creator": "bruno.auzet",
+  "landing": "https://freesound.org/people/bruno.auzet/sounds/527430"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 24.096,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 19.4,
+  "silence_share": 0.0,
+  "lufs": -27.5,
+  "lra": 18.4,
+  "true_peak": -4.4,
+  "lf_share": 0.0,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:dd73bf61-57fd-4d63-abc8-fb46f172e7e4",
+  "title": "R13-51-Horse Galloping Quickly Past.wav",
+  "kind": "ambience",
+  "name": "cavalry_horses",
+  "url": "https://cdn.freesound.org/previews/479/479723_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/479723"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 18.864,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 6.9,
+  "silence_share": 0.029,
+  "lufs": -37.0,
+  "lra": 21.8,
+  "true_peak": -4.4,
+  "lf_share": 0.0,
+  "channel_corr": 1.0,
+  "mono": true,
+  "clap_pos": 0.2581,
+  "clap_margin": 0.0367,
+  "clap_worst_neg": "wooden blocks clapping",
+  "kind_winner": "cavalry_horses",
+  "kind_gap": 0.1199,
+  "ast": {
+   "Music": 0.007,
+   "Singing": 0.0,
+   "Speech": 0.005,
+   "Vehicle": 0.001
+  },
+  "id": "freesound:fb5ce56f-1963-40c5-852f-e76a266c6909",
+  "title": "S01-02_Foley horse gallops by; dirt.wav",
+  "kind": "ambience",
+  "name": "cavalry_horses",
+  "url": "https://cdn.freesound.org/previews/675/675420_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/675420"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 32.64,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 20.6,
+  "silence_share": 0.0,
+  "lufs": -27.5,
+  "lra": 23.3,
+  "true_peak": -10.1,
+  "lf_share": 0.004,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:a32a7c79-5a6b-4fad-904e-543dbddbf0f3",
+  "title": "R23-57-Horses Ride By.wav",
+  "kind": "ambience",
+  "name": "cavalry_horses",
+  "url": "https://cdn.freesound.org/previews/479/479800_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/479800"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 31.536,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 6.1,
+  "silence_share": 0.0,
+  "lufs": -20.4,
+  "lra": 2.9,
+  "true_peak": -3.5,
+  "lf_share": 0.014,
+  "channel_corr": 0.324,
+  "mono": false,
+  "clap_pos": 0.1452,
+  "clap_margin": -0.0135,
+  "clap_worst_neg": "wooden blocks clapping",
+  "kind_winner": "cavalry_horses",
+  "kind_gap": 0.014,
+  "ast": {
+   "Music": 0.059,
+   "Singing": 0.001,
+   "Speech": 0.069,
+   "Vehicle": 0.274
+  },
+  "id": "freesound:1eb66be3-5d47-4efc-96de-634bbf82b075",
+  "title": "Passing horses.wav",
+  "kind": "ambience",
+  "name": "cavalry_horses",
+  "url": "https://cdn.freesound.org/previews/389/389410_4298084-hq.mp3",
+  "creator": "BeeProductive",
+  "landing": "https://freesound.org/people/BeeProductive/sounds/389410"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 26.256,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 21.0,
+  "silence_share": 0.0,
+  "lufs": -27.3,
+  "lra": 15.2,
+  "true_peak": -10.1,
+  "lf_share": 0.008,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:534c355e-afb5-4977-abf0-6eb096fc9104",
+  "title": "G38-03-Horse Gallops Through Leaves.wav",
+  "kind": "ambience",
+  "name": "cavalry_horses",
+  "url": "https://cdn.freesound.org/previews/437/437096_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/437096"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 23.808,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 32.2,
+  "silence_share": 0.0,
+  "lufs": -27.4,
+  "lra": 11.0,
+  "true_peak": -5.8,
+  "lf_share": 0.002,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:a94420df-d6b1-4118-91de-e270edcd2a93",
+  "title": "G38-02-Horse gallops In Out.wav",
+  "kind": "ambience",
+  "name": "cavalry_horses",
+  "url": "https://cdn.freesound.org/previews/437/437097_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/437097"
+ },
+ {
+  "reasons": [
+   "ast_speech"
+  ],
+  "duration": 21.48,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 8.5,
+  "silence_share": 0.0,
+  "lufs": -27.4,
+  "lra": 9.3,
+  "true_peak": -6.0,
+  "lf_share": 0.0,
+  "channel_corr": 1.0,
+  "mono": true,
+  "clap_pos": 0.4431,
+  "clap_margin": 0.2431,
+  "clap_worst_neg": "wooden blocks clapping",
+  "kind_winner": "cavalry_horses",
+  "kind_gap": 0.1886,
+  "ast": {
+   "Music": 0.009,
+   "Singing": 0.0,
+   "Speech": 0.905,
+   "Vehicle": 0.006
+  },
+  "id": "freesound:e9ebc7e4-3574-4f2b-988a-04f5cd9a3764",
+  "title": "R14-38-Horse Gallops on Cobblestone.wav",
+  "kind": "ambience",
+  "name": "cavalry_horses",
+  "url": "https://cdn.freesound.org/previews/479/479769_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/479769"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 19.704,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 22.0,
+  "silence_share": 0.0,
+  "lufs": -27.5,
+  "lra": 13.6,
+  "true_peak": -7.1,
+  "lf_share": 0.0,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:f2a7d58f-9912-4049-b8b1-5cb931b812f7",
+  "title": "R14-37-Horse Gallop and Stop.wav",
+  "kind": "ambience",
+  "name": "cavalry_horses",
+  "url": "https://cdn.freesound.org/previews/479/479768_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/479768"
+ },
+ {
+  "reasons": [
+   "ast_speech",
+   "ast_music"
+  ],
+  "duration": 18.624,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 11.7,
+  "silence_share": 0.0,
+  "lufs": -26.3,
+  "lra": 18.2,
+  "true_peak": -4.2,
+  "lf_share": 0.0,
+  "channel_corr": 1.0,
+  "mono": true,
+  "clap_pos": 0.2881,
+  "clap_margin": 0.0799,
+  "clap_worst_neg": "wooden blocks clapping",
+  "kind_winner": "cavalry_horses",
+  "kind_gap": 0.138,
+  "ast": {
+   "Music": 0.42,
+   "Singing": 0.0,
+   "Speech": 0.617,
+   "Vehicle": 0.023
+  },
+  "id": "freesound:6665c67a-d44a-499a-bb83-53102a628205",
+  "title": "R14-24-Horse Gallops from There to Here.wav",
+  "kind": "ambience",
+  "name": "cavalry_horses",
+  "url": "https://cdn.freesound.org/previews/479/479759_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/479759"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 16.248,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 16.0,
+  "silence_share": 0.0,
+  "lufs": -29.1,
+  "lra": 16.1,
+  "true_peak": -2.6,
+  "lf_share": 0.0,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:88dc93c1-49e6-470a-9106-7a19376c6404",
+  "title": "R13-53-Horse Trotting on Stone.wav",
+  "kind": "ambience",
+  "name": "cavalry_horses",
+  "url": "https://cdn.freesound.org/previews/479/479725_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/479725"
+ },
+ {
+  "reasons": [
+   "ast_speech",
+   "ast_music"
+  ],
+  "duration": 7.32,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 5.7,
+  "silence_share": 0.0,
+  "lufs": -27.4,
+  "lra": 10.1,
+  "true_peak": -6.1,
+  "lf_share": 0.0,
+  "channel_corr": 1.0,
+  "mono": true,
+  "clap_pos": 0.3081,
+  "clap_margin": 0.1479,
+  "clap_worst_neg": "wooden blocks clapping",
+  "kind_winner": "cavalry_horses",
+  "kind_gap": 0.1125,
+  "ast": {
+   "Music": 0.31,
+   "Singing": 0.0,
+   "Speech": 0.584,
+   "Vehicle": 0.002
+  },
+  "id": "freesound:8d17cf5f-9e6b-4225-a2ce-e30473b4a091",
+  "title": "R14-43-Horse Trotting Quiet.wav",
+  "kind": "ambience",
+  "name": "cavalry_horses",
+  "url": "https://cdn.freesound.org/previews/479/479774_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/479774"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 7.152,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "hum_db": 7.9,
+  "silence_share": 0.0,
+  "lufs": -33.5,
+  "lra": 2.1,
+  "true_peak": -6.6,
+  "lf_share": 0.086,
+  "channel_corr": 1.0,
+  "mono": true,
+  "clap_pos": 0.0848,
+  "clap_margin": -0.0553,
+  "clap_worst_neg": "wooden blocks clapping",
+  "kind_winner": "cavalry_horses",
+  "kind_gap": 0.0046,
+  "ast": {
+   "Music": 0.002,
+   "Singing": 0.0,
+   "Speech": 0.005,
+   "Vehicle": 0.001
+  },
+  "id": "freesound:bcd48cc9-9305-486e-8cec-188014f5cad9",
+  "title": "horse gallop 2.wav",
+  "kind": "ambience",
+  "name": "cavalry_horses",
+  "url": "https://cdn.freesound.org/previews/328/328819_4705945-hq.mp3",
+  "creator": "SAMAMM101",
+  "landing": "https://freesound.org/people/SAMAMM101/sounds/328819"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "kind_lost_to_forge_fire",
+   "ast_speech",
+   "ast_vehicle"
+  ],
+  "duration": 356.448,
+  "clipping_share": 5.4e-05,
+  "source_sample_rate": 48000,
+  "hum_db": 6.6,
+  "silence_share": 0.0,
+  "lufs": -22.6,
+  "lra": 8.6,
+  "true_peak": 0.3,
+  "lf_share": 0.078,
+  "channel_corr": 0.563,
+  "mono": false,
+  "clap_pos": -0.0736,
+  "clap_margin": -0.1573,
+  "clap_worst_neg": "digital distortion, clipping, glitch, static",
+  "kind_winner": "forge_fire",
+  "kind_gap": 0.0144,
+  "ast": {
+   "Music": 0.069,
+   "Singing": 0.001,
+   "Speech": 0.353,
+   "Vehicle": 0.764
+  },
+  "id": "freesound:edbac3bc-ad40-400c-b6fa-280e2daeb7d8",
+  "title": "traffic heavy Middle East busy boulevard throaty movement loud horn honks +horse trot pass middle Gaza 2016.wav",
+  "kind": "ambience",
+  "name": "cavalry_horses",
+  "url": "https://cdn.freesound.org/previews/406/406791_612689-hq.mp3",
+  "creator": "kyles",
+  "landing": "https://freesound.org/people/kyles/sounds/406791"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "kind_lost_to_crowd_market",
+   "ast_speech"
+  ],
+  "duration": 48.36,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 7.3,
+  "silence_share": 0.0,
+  "lufs": -27.2,
+  "lra": 10.9,
+  "true_peak": -3.7,
+  "lf_share": 0.302,
+  "channel_corr": 0.645,
+  "mono": false,
+  "clap_pos": 0.0542,
+  "clap_margin": -0.0267,
+  "clap_worst_neg": "drums, percussion music",
+  "kind_winner": "crowd_market",
+  "kind_gap": 0.0071,
+  "ast": {
+   "Music": 0.016,
+   "Singing": 0.0,
+   "Speech": 0.923,
+   "Vehicle": 0.042
+  },
+  "id": "freesound:752f3092-7541-4f2a-9ce0-3c2cbc73105a",
+  "title": "market ext Palestine arabic voices vendors throaty traffic good movement and nearby generator +horse trot pass start Gaza 2016.wav",
+  "kind": "ambience",
+  "name": "cavalry_horses",
+  "url": "https://cdn.freesound.org/previews/406/406364_612689-hq.mp3",
+  "creator": "kyles",
+  "landing": "https://freesound.org/people/kyles/sounds/406364"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 46.8,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 23.3,
+  "silence_share": 0.0,
+  "lufs": -27.3,
+  "lra": 20.8,
+  "true_peak": -3.5,
+  "lf_share": 0.001,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:92336dc9-bc1f-4150-86d7-8eec779a001a",
+  "title": "R14-06-Single Horse Trots Slowly.wav",
+  "kind": "ambience",
+  "name": "cavalry_horses",
+  "url": "https://cdn.freesound.org/previews/479/479780_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/479780"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "ast_speech"
+  ],
+  "duration": 43.656,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 10.9,
+  "silence_share": 0.013,
+  "lufs": -26.3,
+  "lra": 6.4,
+  "true_peak": -2.7,
+  "lf_share": 0.001,
+  "channel_corr": 1.0,
+  "mono": true,
+  "clap_pos": 0.2132,
+  "clap_margin": -0.0136,
+  "clap_worst_neg": "wooden blocks clapping",
+  "kind_winner": "cavalry_horses",
+  "kind_gap": 0.0385,
+  "ast": {
+   "Music": 0.025,
+   "Singing": 0.0,
+   "Speech": 0.789,
+   "Vehicle": 0.023
+  },
+  "id": "freesound:4f2d8c3a-b60d-4bcf-9e66-2c41531fcfd3",
+  "title": "S15-16 Horse trots in stable; movement in background.wav",
+  "kind": "ambience",
+  "name": "cavalry_horses",
+  "url": "https://cdn.freesound.org/previews/675/675423_2524442-hq.mp3",
+  "creator": "craigsmith",
+  "landing": "https://freesound.org/people/craigsmith/sounds/675423"
+ },
+ {
+  "reasons": [
+   "ast_speech"
+  ],
+  "duration": 34.32,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 10.5,
+  "silence_share": 0.0,
+  "lufs": -47.3,
+  "lra": 11.0,
+  "true_peak": -21.5,
+  "lf_share": 0.696,
+  "channel_corr": 0.052,
+  "mono": false,
+  "clap_pos": 0.2695,
+  "clap_margin": 0.1551,
+  "clap_worst_neg": "drums, percussion music",
+  "kind_winner": "cavalry_horses",
+  "kind_gap": 0.107,
+  "ast": {
+   "Music": 0.016,
+   "Singing": 0.0,
+   "Speech": 0.748,
+   "Vehicle": 0.002
+  },
+  "id": "freesound:e63c5c18-6445-4c17-bef1-8a1357bbdd88",
+  "title": "HorseCentralPark.aif",
+  "kind": "ambience",
+  "name": "cavalry_horses",
+  "url": "https://cdn.freesound.org/previews/124/124132_2259746-hq.mp3",
+  "creator": "MarkThai",
+  "landing": "https://freesound.org/people/MarkThai/sounds/124132"
+ },
+ {
+  "id": "freesound:7d9d9fb7-1d02-42f1-bc9f-5e30a776799b",
+  "title": "Japan_Ina_Rural_Rainy_Farm_Birds_Crickets_Car_Tractor_24bit_96KHz.wav",
+  "kind": "ambience",
+  "name": "crows_field",
+  "url": "https://cdn.freesound.org/previews/361/361865_179538-hq.mp3",
+  "creator": "RutgerMuller",
+  "landing": "https://freesound.org/people/RutgerMuller/sounds/361865",
+  "reasons": [
+   "title:farm"
+  ]
+ },
+ {
+  "id": "freesound:4eb18964-23ec-4c52-baf1-30b89dab20be",
+  "title": "lone black crow calls, leaves swirl and traffic passes",
+  "kind": "ambience",
+  "name": "crows_field",
+  "url": "https://cdn.freesound.org/previews/537/537326_6911631-hq.mp3",
+  "creator": "PostProdDog",
+  "landing": "https://freesound.org/people/PostProdDog/sounds/537326",
+  "reasons": [
+   "title:traffic"
+  ]
+ },
+ {
+  "id": "freesound:1bba8464-43b9-40c7-bb3f-a831cbadae05",
+  "title": "ambience winter crow birds distant traffic construction.wav",
+  "kind": "ambience",
+  "name": "crows_field",
+  "url": "https://cdn.freesound.org/previews/263/263497_2663250-hq.mp3",
+  "creator": "lwdickens",
+  "landing": "https://freesound.org/people/lwdickens/sounds/263497",
+  "reasons": [
+   "title:traffic"
+  ]
+ },
+ {
+  "id": "freesound:9a301237-6448-4f82-8fba-3b10db6ff3a8",
+  "title": "American Crow, calls, close and distant, urban residential, 2011.wav",
+  "kind": "ambience",
+  "name": "crows_field",
+  "url": "https://cdn.freesound.org/previews/577/577094_97550-hq.mp3",
+  "creator": "TRP",
+  "landing": "https://freesound.org/people/TRP/sounds/577094",
+  "reasons": [
+   "title:urban"
+  ]
+ },
+ {
+  "id": "freesound:cb745265-33a9-4dfc-8e08-f73d46a9c73f",
+  "title": "210701 American Crows, caws calling, sparrows, robin, urban residential, TORONTO, 7am.wav",
+  "kind": "ambience",
+  "name": "crows_field",
+  "url": "https://cdn.freesound.org/previews/616/616975_97550-hq.mp3",
+  "creator": "TRP",
+  "landing": "https://freesound.org/people/TRP/sounds/616975",
+  "reasons": [
+   "title:urban"
+  ]
+ },
+ {
+  "id": "freesound:cabde2c6-0569-4e6c-94e3-4c2bd9148d67",
+  "title": "Rooster crows",
+  "kind": "ambience",
+  "name": "crows_field",
+  "url": "https://cdn.freesound.org/previews/200/200334_3159560-hq.mp3",
+  "creator": "jsbarrett",
+  "landing": "https://freesound.org/people/jsbarrett/sounds/200334",
+  "reasons": [
+   "title:rooster"
+  ]
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 60.768,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 26.9,
+  "silence_share": 0.0,
+  "lufs": -32.8,
+  "lra": 5.7,
+  "true_peak": -18.1,
+  "lf_share": 0.054,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:80f50b39-0223-4053-9a14-6f0adb994dcf",
+  "title": "crows.mp3",
+  "kind": "ambience",
+  "name": "crows_field",
+  "url": "https://cdn.freesound.org/previews/140/140815_2362707-hq.mp3",
+  "creator": "FreethinkerAnon",
+  "landing": "https://freesound.org/people/FreethinkerAnon/sounds/140815"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 48.192,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 19.2,
+  "silence_share": 0.0,
+  "lufs": -30.5,
+  "lra": 19.0,
+  "true_peak": -12.2,
+  "lf_share": 0.0,
+  "channel_corr": 0.093,
+  "mono": false,
+  "id": "freesound:f0b3edd2-e7e6-48f3-9642-ead56b31bdfb",
+  "title": "crows.wav",
+  "kind": "ambience",
+  "name": "crows_field",
+  "url": "https://cdn.freesound.org/previews/406/406818_2414299-hq.mp3",
+  "creator": "barkenov",
+  "landing": "https://freesound.org/people/barkenov/sounds/406818"
+ },
+ {
+  "reasons": [
+   "low_sample_rate"
+  ],
+  "duration": 47.016,
+  "clipping_share": 0.0,
+  "source_sample_rate": 24000,
+  "hum_db": 4.9,
+  "silence_share": 0.0,
+  "lufs": -34.9,
+  "lra": 4.6,
+  "true_peak": -20.4,
+  "lf_share": 0.035,
+  "channel_corr": 0.777,
+  "mono": false,
+  "id": "freesound:1e327f1f-80b0-470c-bb9f-51b0c5c943f2",
+  "title": "Crows Bird Squawking Fight",
+  "kind": "ambience",
+  "name": "crows_field",
+  "url": "https://cdn.freesound.org/previews/236/236307_154322-hq.mp3",
+  "creator": "JackMenhorn",
+  "landing": "https://freesound.org/people/JackMenhorn/sounds/236307"
+ },
+ {
+  "reasons": [
+   "ast_speech"
+  ],
+  "duration": 31.776,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 10.5,
+  "silence_share": 0.0,
+  "lufs": -17.0,
+  "lra": 24.1,
+  "true_peak": -2.5,
+  "lf_share": 0.189,
+  "channel_corr": 0.882,
+  "mono": false,
+  "clap_pos": 0.1851,
+  "clap_margin": 0.1144,
+  "clap_worst_neg": "people talking, human speech, voices",
+  "kind_winner": "crows_field",
+  "kind_gap": 0.0921,
+  "ast": {
+   "Music": 0.033,
+   "Singing": 0.001,
+   "Speech": 0.667,
+   "Vehicle": 0.001
+  },
+  "id": "freesound:2046c8a5-fa95-48c8-877c-3820a3e73dbe",
+  "title": "Hawk crows Headingley castle joust.wav",
+  "kind": "ambience",
+  "name": "crows_field",
+  "url": "https://cdn.freesound.org/previews/244/244519_2479316-hq.mp3",
+  "creator": "Cheeseheadburger",
+  "landing": "https://freesound.org/people/Cheeseheadburger/sounds/244519"
+ },
+ {
+  "reasons": [
+   "too_much_silence"
+  ],
+  "duration": 16.752,
+  "clipping_share": 3.1e-05,
+  "source_sample_rate": 44100,
+  "hum_db": 7.0,
+  "silence_share": 0.482,
+  "lufs": -16.0,
+  "lra": 9.4,
+  "true_peak": -2.1,
+  "lf_share": 0.0,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:129073ce-7ea6-416c-a9f8-1dd7349b4b57",
+  "title": "Alien Crow Cawing Sound effect",
+  "kind": "ambience",
+  "name": "crows_field",
+  "url": "https://cdn.freesound.org/previews/719/719975_13999124-hq.mp3",
+  "creator": "Mastersoundboy2005",
+  "landing": "https://freesound.org/people/Mastersoundboy2005/sounds/719975"
+ },
+ {
+  "reasons": [
+   "kind_lost_to_church_bells"
+  ],
+  "duration": 10.512,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "hum_db": 11.9,
+  "silence_share": 0.0,
+  "lufs": -34.1,
+  "lra": 4.5,
+  "true_peak": -20.1,
+  "lf_share": 0.0,
+  "channel_corr": 1.0,
+  "mono": true,
+  "clap_pos": 0.2507,
+  "clap_margin": 0.211,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "kind_winner": "church_bells",
+  "kind_gap": 0.0388,
+  "ast": {
+   "Music": 0.06,
+   "Singing": 0.0,
+   "Speech": 0.023,
+   "Vehicle": 0.001
+  },
+  "id": "freesound:9de860e6-c483-4e7b-ab3e-a2fb09d3c150",
+  "title": "Bell with Crows",
+  "kind": "ambience",
+  "name": "crows_field",
+  "url": "https://cdn.freesound.org/previews/474/474266_3531986-hq.mp3",
+  "creator": "MKzing",
+  "landing": "https://freesound.org/people/MKzing/sounds/474266"
+ },
+ {
+  "reasons": [
+   "duration_short"
+  ],
+  "duration": 8.76,
+  "id": "freesound:9d7687c2-810e-4c21-8216-c3137ceb0d2b",
+  "title": "Crows - Calling in distance 1 - 96kHz.wav",
+  "kind": "ambience",
+  "name": "crows_field",
+  "url": "https://cdn.freesound.org/previews/233/233132_4056007-hq.mp3",
+  "creator": "JarredGibb",
+  "landing": "https://freesound.org/people/JarredGibb/sounds/233132"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "kind_lost_to_night"
+  ],
+  "duration": 125.832,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 7.5,
+  "silence_share": 0.0,
+  "lufs": -52.2,
+  "lra": 6.4,
+  "true_peak": -23.2,
+  "lf_share": 0.059,
+  "channel_corr": 0.24,
+  "mono": false,
+  "clap_pos": 0.1665,
+  "clap_margin": -0.0351,
+  "clap_worst_neg": "electrical hum, buzzing, mains noise, fan noise",
+  "kind_winner": "night",
+  "kind_gap": 0.0469,
+  "ast": {
+   "Music": 0.001,
+   "Singing": 0.001,
+   "Speech": 0.002,
+   "Vehicle": 0.021
+  },
+  "id": "freesound:8c5e4a7c-71cc-487c-85a1-36c164aee74e",
+  "title": "Semi desert insects ravens birds quiet with bad mic noise BADLANDS AB 190818.flac",
+  "kind": "ambience",
+  "name": "crows_field",
+  "url": "https://cdn.freesound.org/previews/574/574397_97550-hq.mp3",
+  "creator": "TRP",
+  "landing": "https://freesound.org/people/TRP/sounds/574397"
+ },
+ {
+  "reasons": [
+   "kind_lost_to_forest_birds"
+  ],
+  "duration": 64.752,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "hum_db": 8.5,
+  "silence_share": 0.0,
+  "lufs": -34.1,
+  "lra": 18.3,
+  "true_peak": -4.2,
+  "lf_share": 0.468,
+  "channel_corr": 1.0,
+  "mono": true,
+  "clap_pos": 0.2109,
+  "clap_margin": 0.1544,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "kind_winner": "forest_birds",
+  "kind_gap": 0.0091,
+  "ast": {
+   "Music": 0.005,
+   "Singing": 0.0,
+   "Speech": 0.012,
+   "Vehicle": 0.007
+  },
+  "id": "freesound:5ca45dfc-aa24-414d-a72e-8daaf210c6f8",
+  "title": "Rooks in the trees - winter.m4a",
+  "kind": "ambience",
+  "name": "crows_field",
+  "url": "https://cdn.freesound.org/previews/553/553111_11335579-hq.mp3",
+  "creator": "HighPeakEmma",
+  "landing": "https://freesound.org/people/HighPeakEmma/sounds/553111"
+ },
+ {
+  "id": "freesound:44a8667a-3a76-4c30-883c-43cce5cbb309",
+  "title": "church bells ringing for wedding close good detail with traffic Montreal, Canada.flac",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/455/455677_612689-hq.mp3",
+  "creator": "kyles",
+  "landing": "https://freesound.org/people/kyles/sounds/455677",
+  "reasons": [
+   "title:traffic"
+  ]
+ },
+ {
+  "id": "freesound:f3450c74-9a2f-4e52-9f61-e90bad70d5c0",
+  "title": "City neighborhood ambiance with far traffic, far church bell ringing and slight wind",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/689/689358_1661766-hq.mp3",
+  "creator": "felix.blume",
+  "landing": "https://freesound.org/people/felix.blume/sounds/689358",
+  "reasons": [
+   "title:traffic"
+  ]
+ },
+ {
+  "id": "freesound:d450c7d9-da50-4cfe-8b6f-9fd34855ab5e",
+  "title": "City ambiance in a residential area with church bell ringing at a distance, passerby voices, traffic hum, some birds, slight wind and gust sometimes in Dekalb, Illinois",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/667/667196_1661766-hq.mp3",
+  "creator": "felix.blume",
+  "landing": "https://freesound.org/people/felix.blume/sounds/667196",
+  "reasons": [
+   "title:traffic"
+  ]
+ },
+ {
+  "id": "freesound:5a5158d8-2d09-4eff-973a-1f0eb731c8b9",
+  "title": "City outskirts ambiance with road hum far away, gust of wind sometimes, church bells ringing at a distance and slight bird singing in Ogallala, Nebraska",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/666/666656_1661766-hq.mp3",
+  "creator": "felix.blume",
+  "landing": "https://freesound.org/people/felix.blume/sounds/666656",
+  "reasons": [
+   "title:city"
+  ]
+ },
+ {
+  "id": "freesound:cde6ce1f-1a6c-476d-b6ff-689de2908243",
+  "title": "city from 3rd floor balcony nearby and distant traffic +church bells Montreal, Canada.flac",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/451/451777_612689-hq.mp3",
+  "creator": "kyles",
+  "landing": "https://freesound.org/people/kyles/sounds/451777",
+  "reasons": [
+   "title:traffic"
+  ]
+ },
+ {
+  "id": "freesound:a6da9fb6-a5d3-49ee-9b38-67f75dcd247f",
+  "title": "traffic heavy downtown 8th floor balcony +birds and distant voices, church bells at end Gibraltar MS.wav",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/451/451081_612689-hq.mp3",
+  "creator": "kyles",
+  "landing": "https://freesound.org/people/kyles/sounds/451081",
+  "reasons": [
+   "title:traffic"
+  ]
+ },
+ {
+  "id": "freesound:9d4f4e52-4071-4f5b-87a1-58635acde3b1",
+  "title": "EXT Siguenza, Spain NIGHT: Mountain sounds, Cathedral Church bells, crickets, birds, distant airplane, minor vehicle sounds.wav",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/552/552158_6838039-hq.mp3",
+  "creator": "Brett+Butter",
+  "landing": "https://freesound.org/people/Brett+Butter/sounds/552158",
+  "reasons": [
+   "title:airplane"
+  ]
+ },
+ {
+  "id": "freesound:acfc2b54-60ef-45d7-8e0c-5a7f9e80274e",
+  "title": "131201 Church bell, quarter to, distant, traffic, Victoria Park, London ON",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/717/717443_97550-hq.mp3",
+  "creator": "TRP",
+  "landing": "https://freesound.org/people/TRP/sounds/717443",
+  "reasons": [
+   "title:traffic"
+  ]
+ },
+ {
+  "id": "freesound:9bce1f86-44c9-40c0-ab9d-ad17547a7a3f",
+  "title": "AMB CITY NEIGHBOURHOOD - DRILLING MACHINE - CHURCH BELL - CHATTER - TRAFFIC",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/631/631568_7891112-hq.mp3",
+  "creator": "tferrino",
+  "landing": "https://freesound.org/people/tferrino/sounds/631568",
+  "reasons": [
+   "title:traffic"
+  ]
+ },
+ {
+  "id": "freesound:95d9df8e-c0f9-48b1-a54b-305fc4da9df9",
+  "title": "church bells ringing for wedding close good detail with some wet traffic Montreal, Canada.flac",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/455/455676_612689-hq.mp3",
+  "creator": "kyles",
+  "landing": "https://freesound.org/people/kyles/sounds/455676",
+  "reasons": [
+   "title:traffic"
+  ]
+ },
+ {
+  "id": "freesound:e2a50bf3-16bb-435d-b49f-8b950e45c450",
+  "title": "City Ambience with distant church bells",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/451/451731_6253486-hq.mp3",
+  "creator": "florianreichelt",
+  "landing": "https://freesound.org/people/florianreichelt/sounds/451731",
+  "reasons": [
+   "title:city"
+  ]
+ },
+ {
+  "id": "freesound:fa1bbb86-6453-4cee-99ad-1ff79a2e524b",
+  "title": "Distant Churchbells with street noises",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/418/418492_2573247-hq.mp3",
+  "creator": "derjuli",
+  "landing": "https://freesound.org/people/derjuli/sounds/418492",
+  "reasons": [
+   "title:street"
+  ]
+ },
+ {
+  "id": "freesound:499b9079-b9c7-4160-8cf7-0d77a9d2832b",
+  "title": "tibetan ball.wav",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/127/127167_667113-hq.mp3",
+  "creator": "Daphne_in_Wonderland",
+  "landing": "https://freesound.org/people/Daphne_in_Wonderland/sounds/127167",
+  "reasons": [
+   "title:tibetan"
+  ]
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 330.288,
+  "clipping_share": 0.000369,
+  "source_sample_rate": 48000,
+  "hum_db": 10.5,
+  "silence_share": 0.0,
+  "lufs": -12.7,
+  "lra": 2.7,
+  "true_peak": -1.2,
+  "lf_share": 0.0,
+  "channel_corr": 0.838,
+  "mono": false,
+  "id": "freesound:642c98d2-4f3f-45c9-b1f8-8c5423cf34b9",
+  "title": "Church Bells at noon from the top of the Cathedral of Bern (Switzerland)",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/460/460834_1661766-hq.mp3",
+  "creator": "felix.blume",
+  "landing": "https://freesound.org/people/felix.blume/sounds/460834"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 114.432,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "hum_db": 15.9,
+  "silence_share": 0.0,
+  "lufs": -25.3,
+  "lra": 4.6,
+  "true_peak": -9.4,
+  "lf_share": 0.226,
+  "channel_corr": 0.797,
+  "mono": false,
+  "id": "freesound:3913dd9f-f06c-4670-a02c-19a450a71d55",
+  "title": "Church bells tolling noon",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/560/560988_2900628-hq.mp3",
+  "creator": "shinyobjects",
+  "landing": "https://freesound.org/people/shinyobjects/sounds/560988"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 76.8,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 9.4,
+  "silence_share": 0.031,
+  "lufs": -29.2,
+  "lra": 23.3,
+  "true_peak": -12.0,
+  "lf_share": 0.121,
+  "channel_corr": -0.156,
+  "mono": false,
+  "clap_pos": 0.2197,
+  "clap_margin": 0.0081,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "kind_winner": "church_bells",
+  "kind_gap": 0.1229,
+  "ast": {
+   "Music": 0.056,
+   "Singing": 0.0,
+   "Speech": 0.011,
+   "Vehicle": 0.001
+  },
+  "id": "freesound:77a814c6-02f6-40f3-8f44-78b022ba0692",
+  "title": "Silencyo_VILLAGE_DAY_Bells_Inside_Small_Church_Birds_MSd.aif",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/81/81732_280284-hq.mp3",
+  "creator": "silencyo",
+  "landing": "https://freesound.org/people/silencyo/sounds/81732"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 45.096,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 19.9,
+  "silence_share": 0.0,
+  "lufs": -28.9,
+  "lra": 14.3,
+  "true_peak": -5.5,
+  "lf_share": 0.0,
+  "channel_corr": 0.994,
+  "mono": true,
+  "id": "freesound:c1d35ce8-79d7-4cf3-bd79-429ce1735926",
+  "title": "Corfu - Corfu Town, Church Tolling Bells, People, Birds, Calm",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/824/824575_2047664-hq.mp3",
+  "creator": "TicAshfield",
+  "landing": "https://freesound.org/people/TicAshfield/sounds/824575"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 183.72,
+  "clipping_share": 0.004135,
+  "source_sample_rate": 48000,
+  "hum_db": 12.7,
+  "silence_share": 0.0,
+  "lufs": -11.9,
+  "lra": 6.9,
+  "true_peak": 0.5,
+  "lf_share": 0.005,
+  "channel_corr": 0.94,
+  "mono": false,
+  "id": "freesound:3a32ba79-a6f3-4193-80a3-9ec0fea43e0c",
+  "title": "Bell ringing (Valaam Monastery)",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/645/645055_4835746-hq.mp3",
+  "creator": "Walking.With.Microphones",
+  "landing": "https://freesound.org/people/Walking.With.Microphones/sounds/645055"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 158.808,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 15.4,
+  "silence_share": 0.0,
+  "lufs": -41.7,
+  "lra": 9.0,
+  "true_peak": -6.4,
+  "lf_share": 0.02,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:2982400c-23dd-4d71-9963-89d7590f68d6",
+  "title": "church bells",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/530/530431_4522347-hq.mp3",
+  "creator": "m_marek",
+  "landing": "https://freesound.org/people/m_marek/sounds/530431"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 149.394,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "hum_db": 21.0,
+  "silence_share": 0.0,
+  "lufs": -20.3,
+  "lra": 3.4,
+  "true_peak": -4.7,
+  "lf_share": 0.03,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:2b9e46bb-787b-4b1d-8e22-9c63487c68e2",
+  "title": "church bells.wav",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/36/36628_35711-hq.mp3",
+  "creator": "Robin Whittaker",
+  "landing": "https://freesound.org/people/Robin%20Whittaker/sounds/36628"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 145.152,
+  "clipping_share": 6e-06,
+  "source_sample_rate": 44100,
+  "hum_db": 39.5,
+  "silence_share": 0.007,
+  "lufs": -14.8,
+  "lra": 3.0,
+  "true_peak": -0.7,
+  "lf_share": 0.0,
+  "channel_corr": 0.932,
+  "mono": false,
+  "id": "freesound:30e944dc-e3da-4e3e-b0db-ba9a02ed5df6",
+  "title": "Uusi Valamo, Bells from the Finnish Orthodox Monastery",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/149/149967_2661213-hq.mp3",
+  "creator": "vollkornbrot",
+  "landing": "https://freesound.org/people/vollkornbrot/sounds/149967"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 129.84,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 18.7,
+  "silence_share": 0.01,
+  "lufs": -23.8,
+  "lra": 7.5,
+  "true_peak": -9.6,
+  "lf_share": 0.027,
+  "channel_corr": 0.871,
+  "mono": false,
+  "id": "freesound:4e3cc011-cebc-4898-ae9d-82a7754278e1",
+  "title": "Italian bells mid distant.wav",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/411/411489_109726-hq.mp3",
+  "creator": "mikewest",
+  "landing": "https://freesound.org/people/mikewest/sounds/411489"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 116.112,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "hum_db": 8.6,
+  "silence_share": 0.0,
+  "lufs": -47.9,
+  "lra": 19.1,
+  "true_peak": -10.9,
+  "lf_share": 0.334,
+  "channel_corr": 0.626,
+  "mono": false,
+  "clap_pos": 0.207,
+  "clap_margin": -0.1315,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "kind_winner": "church_bells",
+  "kind_gap": 0.0327,
+  "ast": {
+   "Music": 0.028,
+   "Singing": 0.0,
+   "Speech": 0.003,
+   "Vehicle": 0.006
+  },
+  "id": "freesound:126430f4-7737-4661-a449-2a85bcd96cd0",
+  "title": "Churchbell_Village.WAV",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/629/629948_8535955-hq.mp3",
+  "creator": "Sindbad13",
+  "landing": "https://freesound.org/people/Sindbad13/sounds/629948"
+ },
+ {
+  "reasons": [
+   "ast_speech"
+  ],
+  "duration": 97.416,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 8.7,
+  "silence_share": 0.032,
+  "lufs": -22.5,
+  "lra": 13.5,
+  "true_peak": -3.8,
+  "lf_share": 0.0,
+  "channel_corr": 0.241,
+  "mono": false,
+  "clap_pos": 0.2353,
+  "clap_margin": 0.1957,
+  "clap_worst_neg": "electronic synthesizer melody, keyboard",
+  "kind_winner": "church_bells",
+  "kind_gap": 0.2176,
+  "ast": {
+   "Music": 0.057,
+   "Singing": 0.001,
+   "Speech": 0.278,
+   "Vehicle": 0.006
+  },
+  "id": "freesound:bffc587b-eadc-4e78-b1f9-a8ecbf1657c3",
+  "title": "Bells of Santa María la Real church",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/593/593663_938246-hq.mp3",
+  "creator": "nomadas",
+  "landing": "https://freesound.org/people/nomadas/sounds/593663"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 90.048,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "hum_db": 8.2,
+  "silence_share": 0.006,
+  "lufs": -28.0,
+  "lra": 19.6,
+  "true_peak": -12.6,
+  "lf_share": 0.886,
+  "channel_corr": 0.891,
+  "mono": false,
+  "clap_pos": 0.1977,
+  "clap_margin": 0.03,
+  "clap_worst_neg": "electronic synthesizer melody, keyboard",
+  "kind_winner": "church_bells",
+  "kind_gap": 0.1206,
+  "ast": {
+   "Music": 0.033,
+   "Singing": 0.0,
+   "Speech": 0.01,
+   "Vehicle": 0.001
+  },
+  "id": "freesound:554c3e38-5931-4b08-b25c-6d93180c4f47",
+  "title": "English Countryside with Church Bells (Short).wav",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/511/511160_1175748-hq.mp3",
+  "creator": "lazymonk",
+  "landing": "https://freesound.org/people/lazymonk/sounds/511160"
+ },
+ {
+  "reasons": [
+   "ast_speech"
+  ],
+  "duration": 64.296,
+  "clipping_share": 5e-05,
+  "source_sample_rate": 48000,
+  "hum_db": 7.3,
+  "silence_share": 0.0,
+  "lufs": -14.0,
+  "lra": 1.7,
+  "true_peak": -0.7,
+  "lf_share": 0.002,
+  "channel_corr": 0.873,
+  "mono": false,
+  "clap_pos": 0.2785,
+  "clap_margin": 0.1869,
+  "clap_worst_neg": "electronic synthesizer melody, keyboard",
+  "kind_winner": "church_bells",
+  "kind_gap": 0.2298,
+  "ast": {
+   "Music": 0.023,
+   "Singing": 0.001,
+   "Speech": 0.223,
+   "Vehicle": 0.003
+  },
+  "id": "freesound:0eb12588-ea61-4502-b7f4-4af7dd6f6f04",
+  "title": "All bells ringing at Notre-Dame in Paris",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/139/139109_630368-hq.mp3",
+  "creator": "Mxsmanic",
+  "landing": "https://freesound.org/people/Mxsmanic/sounds/139109"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 60.576,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "hum_db": 16.2,
+  "silence_share": 0.074,
+  "lufs": -25.7,
+  "lra": 17.1,
+  "true_peak": -9.4,
+  "lf_share": 0.002,
+  "channel_corr": 0.781,
+  "mono": false,
+  "id": "freesound:e0adae70-8fc2-4ddd-b738-14205e29bb54",
+  "title": "Bells of St Alkelda's Church, Giggleswick, England.flac",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/125/125825_2205380-hq.mp3",
+  "creator": "thaighaudio",
+  "landing": "https://freesound.org/people/thaighaudio/sounds/125825"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 55.776,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 6.4,
+  "silence_share": 0.223,
+  "lufs": -19.0,
+  "lra": 18.3,
+  "true_peak": -1.5,
+  "lf_share": 0.0,
+  "channel_corr": 1.0,
+  "mono": true,
+  "clap_pos": 0.1669,
+  "clap_margin": -0.1553,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "kind_winner": "church_bells",
+  "kind_gap": 0.0652,
+  "ast": {
+   "Music": 0.011,
+   "Singing": 0.0,
+   "Speech": 0.002,
+   "Vehicle": 0.036
+  },
+  "id": "freesound:91ab466d-3141-4aa4-8a8c-9e6d1d95436a",
+  "title": "Church Bell Ringing",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/522/522937_3248005-hq.mp3",
+  "creator": "Sheyvan",
+  "landing": "https://freesound.org/people/Sheyvan/sounds/522937"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 54.48,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 16.4,
+  "silence_share": 0.043,
+  "lufs": -39.6,
+  "lra": 3.6,
+  "true_peak": -20.9,
+  "lf_share": 0.0,
+  "channel_corr": 0.845,
+  "mono": false,
+  "id": "freesound:f5e6748f-2255-43f5-8aed-8066d8f64a3b",
+  "title": "Venice Church Bells.wav",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/324/324257_2814925-hq.mp3",
+  "creator": "freesoundjon01",
+  "landing": "https://freesound.org/people/freesoundjon01/sounds/324257"
+ },
+ {
+  "reasons": [
+   "ast_speech"
+  ],
+  "duration": 32.472,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 10.1,
+  "silence_share": 0.0,
+  "lufs": -18.2,
+  "lra": 4.1,
+  "true_peak": -2.6,
+  "lf_share": 0.031,
+  "channel_corr": 0.794,
+  "mono": false,
+  "clap_pos": 0.2935,
+  "clap_margin": 0.2316,
+  "clap_worst_neg": "electronic synthesizer melody, keyboard",
+  "kind_winner": "church_bells",
+  "kind_gap": 0.1445,
+  "ast": {
+   "Music": 0.116,
+   "Singing": 0.0,
+   "Speech": 0.542,
+   "Vehicle": 0.011
+  },
+  "id": "freesound:b11b57c6-2100-41b4-a874-4e197f145087",
+  "title": "Largest bell ringing at Notre Dame de Paris Cathedral",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/139/139110_630368-hq.mp3",
+  "creator": "Mxsmanic",
+  "landing": "https://freesound.org/people/Mxsmanic/sounds/139110"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 12.096,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 20.5,
+  "silence_share": 0.0,
+  "lufs": -20.8,
+  "lra": 9.4,
+  "true_peak": -4.9,
+  "lf_share": 0.0,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:0c82e4bc-9389-41e5-ba4e-25275d00d5c0",
+  "title": "180520 Bell church distant noisy BAHAMAS.flac",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/570/570981_97550-hq.mp3",
+  "creator": "TRP",
+  "landing": "https://freesound.org/people/TRP/sounds/570981"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 372.84,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 11.5,
+  "silence_share": 0.0,
+  "lufs": -40.0,
+  "lra": 16.2,
+  "true_peak": -8.9,
+  "lf_share": 0.0,
+  "channel_corr": 0.855,
+  "mono": false,
+  "clap_pos": 0.1394,
+  "clap_margin": -0.0202,
+  "clap_worst_neg": "electronic synthesizer melody, keyboard",
+  "kind_winner": "church_bells",
+  "kind_gap": 0.0064,
+  "ast": {
+   "Music": 0.688,
+   "Singing": 0.002,
+   "Speech": 0.077,
+   "Vehicle": 0.001
+  },
+  "id": "freesound:378119a4-da8d-40c7-8608-14eb68f71dd9",
+  "title": "romanian monastery nun wood and bell",
+  "kind": "ambience",
+  "name": "church_bells",
+  "url": "https://cdn.freesound.org/previews/721/721887_11519060-hq.mp3",
+  "creator": "bruno.auzet",
+  "landing": "https://freesound.org/people/bruno.auzet/sounds/721887"
+ },
+ {
+  "id": "commons:File:Machaut - Missa Notre Dame - Kyrie.ogg",
+  "title": "Machaut - Missa Notre Dame - Kyrie.ogg",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/f/f8/Machaut_-_Missa_Notre_Dame_-_Kyrie.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "Guillaume de Machaut, versão midi por Tetraktys",
+  "landing": "https://commons.wikimedia.org/wiki/File:Machaut_-_Missa_Notre_Dame_-_Kyrie.ogg",
+  "reasons": [
+   "title:kyrie"
+  ]
+ },
+ {
+  "id": "commons:File:Patience (HMV, cond. Byng) - 01 - Overture.mp3",
+  "title": "Patience (HMV, cond. Byng) - 01 - Overture.mp3",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/6/68/Patience_%28HMV%2C_cond._Byng%29_-_01_-_Overture.mp3?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "His Master's Voice",
+  "landing": "https://commons.wikimedia.org/wiki/File:Patience_(HMV,_cond._Byng)_-_01_-_Overture.mp3",
+  "reasons": [
+   "title:hmv"
+  ]
+ },
+ {
+  "id": "commons:File:Patience (HMV, cond. Byng) - 02 - Twenty lovesick maidens we.mp3",
+  "title": "Patience (HMV, cond. Byng) - 02 - Twenty lovesick maidens we.mp3",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/0/05/Patience_%28HMV%2C_cond._Byng%29_-_02_-_Twenty_lovesick_maidens_we.mp3?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "His Master's Voice",
+  "landing": "https://commons.wikimedia.org/wiki/File:Patience_(HMV,_cond._Byng)_-_02_-_Twenty_lovesick_maidens_we.mp3",
+  "reasons": [
+   "title:hmv"
+  ]
+ },
+ {
+  "id": "commons:File:Patience (HMV, cond. Byng) - 03 - Still brooding on their mad infatuation - I cannot tell what this love may be.mp3",
+  "title": "Patience (HMV, cond. Byng) - 03 - Still brooding on their mad infatuation - I cannot tell what this love may be.mp3",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/a/a1/Patience_%28HMV%2C_cond._Byng%29_-_03_-_Still_brooding_on_their_mad_infatuation_-_I_cannot_tell_what_this_love_may_be.mp3?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "His Master's Voice",
+  "landing": "https://commons.wikimedia.org/wiki/File:Patience_(HMV,_cond._Byng)_-_03_-_Still_brooding_on_their_mad_infatuation_-_I_cannot_tell_what_this_love_may_be.mp3",
+  "reasons": [
+   "title:hmv"
+  ]
+ },
+ {
+  "id": "commons:File:Patience (HMV, cond. Byng) - 04 - The soldiers of our Queen - If you want a receipt for that popular mystery.mp3",
+  "title": "Patience (HMV, cond. Byng) - 04 - The soldiers of our Queen - If you want a receipt for that popular mystery.mp3",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/4/4d/Patience_%28HMV%2C_cond._Byng%29_-_04_-_The_soldiers_of_our_Queen_-_If_you_want_a_receipt_for_that_popular_mystery.mp3?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "His Master's Voice",
+  "landing": "https://commons.wikimedia.org/wiki/File:Patience_(HMV,_cond._Byng)_-_04_-_The_soldiers_of_our_Queen_-_If_you_want_a_receipt_for_that_popular_mystery.mp3",
+  "reasons": [
+   "title:pop"
+  ]
+ },
+ {
+  "id": "commons:File:Patience (HMV, cond. Byng) - 05 - In a doleful train.mp3",
+  "title": "Patience (HMV, cond. Byng) - 05 - In a doleful train.mp3",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/8/8e/Patience_%28HMV%2C_cond._Byng%29_-_05_-_In_a_doleful_train.mp3?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "His Master's Voice",
+  "landing": "https://commons.wikimedia.org/wiki/File:Patience_(HMV,_cond._Byng)_-_05_-_In_a_doleful_train.mp3",
+  "reasons": [
+   "title:hmv"
+  ]
+ },
+ {
+  "id": "commons:File:Patience (HMV, cond. Byng) - 06 - When I first put this uniform on - Am I alone and unobserved.mp3",
+  "title": "Patience (HMV, cond. Byng) - 06 - When I first put this uniform on - Am I alone and unobserved.mp3",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/6/6e/Patience_%28HMV%2C_cond._Byng%29_-_06_-_When_I_first_put_this_uniform_on_-_Am_I_alone_and_unobserved.mp3?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "His Master's Voice",
+  "landing": "https://commons.wikimedia.org/wiki/File:Patience_(HMV,_cond._Byng)_-_06_-_When_I_first_put_this_uniform_on_-_Am_I_alone_and_unobserved.mp3",
+  "reasons": [
+   "title:hmv"
+  ]
+ },
+ {
+  "id": "commons:File:Patience (HMV, cond. Byng) - 08 - Long years ago, fourteen maybe - Prithee, pretty maiden.mp3",
+  "title": "Patience (HMV, cond. Byng) - 08 - Long years ago, fourteen maybe - Prithee, pretty maiden.mp3",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/2/27/Patience_%28HMV%2C_cond._Byng%29_-_08_-_Long_years_ago%2C_fourteen_maybe_-_Prithee%2C_pretty_maiden.mp3?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "His Master's Voice",
+  "landing": "https://commons.wikimedia.org/wiki/File:Patience_(HMV,_cond._Byng)_-_08_-_Long_years_ago,_fourteen_maybe_-_Prithee,_pretty_maiden.mp3",
+  "reasons": [
+   "title:hmv"
+  ]
+ },
+ {
+  "id": "commons:File:Patience (HMV, cond. Byng) - 09 - Let the merry cymbals sound.mp3",
+  "title": "Patience (HMV, cond. Byng) - 09 - Let the merry cymbals sound.mp3",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/e/e3/Patience_%28HMV%2C_cond._Byng%29_-_09_-_Let_the_merry_cymbals_sound.mp3?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "His Master's Voice",
+  "landing": "https://commons.wikimedia.org/wiki/File:Patience_(HMV,_cond._Byng)_-_09_-_Let_the_merry_cymbals_sound.mp3",
+  "reasons": [
+   "title:hmv"
+  ]
+ },
+ {
+  "id": "commons:File:Patience (HMV, cond. Byng) - 10 - Stay, we implore you.mp3",
+  "title": "Patience (HMV, cond. Byng) - 10 - Stay, we implore you.mp3",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/3/32/Patience_%28HMV%2C_cond._Byng%29_-_10_-_Stay%2C_we_implore_you.mp3?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "His Master's Voice",
+  "landing": "https://commons.wikimedia.org/wiki/File:Patience_(HMV,_cond._Byng)_-_10_-_Stay,_we_implore_you.mp3",
+  "reasons": [
+   "title:hmv"
+  ]
+ },
+ {
+  "id": "commons:File:Patience (HMV, cond. Byng) - 11 - What means this interference.mp3",
+  "title": "Patience (HMV, cond. Byng) - 11 - What means this interference.mp3",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/2/2a/Patience_%28HMV%2C_cond._Byng%29_-_11_-_What_means_this_interference.mp3?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "His Master's Voice",
+  "landing": "https://commons.wikimedia.org/wiki/File:Patience_(HMV,_cond._Byng)_-_11_-_What_means_this_interference.mp3",
+  "reasons": [
+   "title:hmv"
+  ]
+ },
+ {
+  "id": "commons:File:Patience (HMV, cond. Byng) - 12 - I hear the soft note of the echoing voice of an old, old love long dead.mp3",
+  "title": "Patience (HMV, cond. Byng) - 12 - I hear the soft note of the echoing voice of an old, old love long dead.mp3",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/3/35/Patience_%28HMV%2C_cond._Byng%29_-_12_-_I_hear_the_soft_note_of_the_echoing_voice_of_an_old%2C_old_love_long_dead.mp3?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "His Master's Voice",
+  "landing": "https://commons.wikimedia.org/wiki/File:Patience_(HMV,_cond._Byng)_-_12_-_I_hear_the_soft_note_of_the_echoing_voice_of_an_old,_old_love_long_dead.mp3",
+  "reasons": [
+   "title:hmv"
+  ]
+ },
+ {
+  "id": "commons:File:Patience (HMV, cond. Byng) - 13 - Sad is that woman's lot.mp3",
+  "title": "Patience (HMV, cond. Byng) - 13 - Sad is that woman's lot.mp3",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/1/18/Patience_%28HMV%2C_cond._Byng%29_-_13_-_Sad_is_that_woman%27s_lot.mp3?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "His Master's Voice",
+  "landing": "https://commons.wikimedia.org/wiki/File:Patience_(HMV,_cond._Byng)_-_13_-_Sad_is_that_woman%27s_lot.mp3",
+  "reasons": [
+   "title:hmv"
+  ]
+ },
+ {
+  "id": "commons:File:Patience (HMV, cond. Byng) - 14 - Turn, oh turn in this direction - A magnet hung in a hardware shop.mp3",
+  "title": "Patience (HMV, cond. Byng) - 14 - Turn, oh turn in this direction - A magnet hung in a hardware shop.mp3",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/0/04/Patience_%28HMV%2C_cond._Byng%29_-_14_-_Turn%2C_oh_turn_in_this_direction_-_A_magnet_hung_in_a_hardware_shop.mp3?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "His Master's Voice",
+  "landing": "https://commons.wikimedia.org/wiki/File:Patience_(HMV,_cond._Byng)_-_14_-_Turn,_oh_turn_in_this_direction_-_A_magnet_hung_in_a_hardware_shop.mp3",
+  "reasons": [
+   "title:hop"
+  ]
+ },
+ {
+  "id": "commons:File:Patience (HMV, cond. Byng) - 15 - Love is a plaintive song - Now go to him and say to him.mp3",
+  "title": "Patience (HMV, cond. Byng) - 15 - Love is a plaintive song - Now go to him and say to him.mp3",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/6/6a/Patience_%28HMV%2C_cond._Byng%29_-_15_-_Love_is_a_plaintive_song_-_Now_go_to_him_and_say_to_him.mp3?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "His Master's Voice",
+  "landing": "https://commons.wikimedia.org/wiki/File:Patience_(HMV,_cond._Byng)_-_15_-_Love_is_a_plaintive_song_-_Now_go_to_him_and_say_to_him.mp3",
+  "reasons": [
+   "title:hmv"
+  ]
+ },
+ {
+  "id": "commons:File:Patience (HMV, cond. Byng) - 18 - When I go out of door - I'm a Waterloo House young man - After much debate internal.mp3",
+  "title": "Patience (HMV, cond. Byng) - 18 - When I go out of door - I'm a Waterloo House young man - After much debate internal.mp3",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/b/bc/Patience_%28HMV%2C_cond._Byng%29_-_18_-_When_I_go_out_of_door_-_I%27m_a_Waterloo_House_young_man_-_After_much_debate_internal.mp3?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "His Master's Voice",
+  "landing": "https://commons.wikimedia.org/wiki/File:Patience_(HMV,_cond._Byng)_-_18_-_When_I_go_out_of_door_-_I%27m_a_Waterloo_House_young_man_-_After_much_debate_internal.mp3",
+  "reasons": [
+   "title:hmv"
+  ]
+ },
+ {
+  "id": "commons:File:James Scott - Troubadour Rag (1919).ogg",
+  "title": "James Scott - Troubadour Rag (1919).ogg",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/f/ff/James_Scott_-_Troubadour_Rag_%281919%29.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "Gnissah",
+  "landing": "https://commons.wikimedia.org/wiki/File:James_Scott_-_Troubadour_Rag_(1919).ogg",
+  "reasons": [
+   "title:rag"
+  ]
+ },
+ {
+  "id": "freesound:b211f626-c166-4502-b253-56ae317603d6",
+  "title": "The sound environment of a festival of medieval culture.",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/703/703643_15247766-hq.mp3",
+  "creator": "hobonski",
+  "landing": "https://freesound.org/people/hobonski/sounds/703643",
+  "reasons": [
+   "title:festival"
+  ]
+ },
+ {
+  "id": "freesound:706b3167-ded6-4c4b-9ba2-a9d3d9d2cff1",
+  "title": "street early morning small town or city birds echo distant traffic +high frequency bird and cart pushed by with salsa music middle and two throaty trucks pass end good detail Saravena, Colombia 2016.flac",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/405/405076_612689-hq.mp3",
+  "creator": "kyles",
+  "landing": "https://freesound.org/people/kyles/sounds/405076",
+  "reasons": [
+   "title:street"
+  ]
+ },
+ {
+  "id": "freesound:cc33df83-331f-457b-ad6f-aef227639d1e",
+  "title": "Bar interior, no music, loud blowing, low pool hubbub, around 20 people in early evening",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/684/684406_1661766-hq.mp3",
+  "creator": "felix.blume",
+  "landing": "https://freesound.org/people/felix.blume/sounds/684406",
+  "reasons": [
+   "title:bar interior"
+  ]
+ },
+ {
+  "id": "commons:File:Patience (HMV, cond. Byng) - 17 - If Saphir I choose to marry.mp3",
+  "title": "Patience (HMV, cond. Byng) - 17 - If Saphir I choose to marry.mp3",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/8/8b/Patience_%28HMV%2C_cond._Byng%29_-_17_-_If_Saphir_I_choose_to_marry.mp3?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "His Master's Voice",
+  "landing": "https://commons.wikimedia.org/wiki/File:Patience_(HMV,_cond._Byng)_-_17_-_If_Saphir_I_choose_to_marry.mp3",
+  "reasons": [
+   "title:hmv"
+  ]
+ },
+ {
+  "id": "commons:File:Patience (HMV, cond. Byng) - 07 - If you're anxious for to shine.mp3",
+  "title": "Patience (HMV, cond. Byng) - 07 - If you're anxious for to shine.mp3",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/b/ba/Patience_%28HMV%2C_cond._Byng%29_-_07_-_If_you%27re_anxious_for_to_shine.mp3?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "His Master's Voice",
+  "landing": "https://commons.wikimedia.org/wiki/File:Patience_(HMV,_cond._Byng)_-_07_-_If_you%27re_anxious_for_to_shine.mp3",
+  "reasons": [
+   "title:hmv"
+  ]
+ },
+ {
+  "id": "commons:File:Miserere aus den Troubadour ZS V78-0713.wav",
+  "title": "Miserere aus den Troubadour ZS V78-0713.wav",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/6/63/Miserere_aus_den_Troubadour_ZS_V78-0713.wav?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "",
+  "landing": "https://commons.wikimedia.org/wiki/File:Miserere_aus_den_Troubadour_ZS_V78-0713.wav",
+  "reasons": [
+   "title:miserere"
+  ]
+ },
+ {
+  "id": "commons:File:Patience (HMV, cond. Byng) - 16 - It's clear that mediaeval art alone retains its zest.mp3",
+  "title": "Patience (HMV, cond. Byng) - 16 - It's clear that mediaeval art alone retains its zest.mp3",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/b/ba/Patience_%28HMV%2C_cond._Byng%29_-_16_-_It%27s_clear_that_mediaeval_art_alone_retains_its_zest.mp3?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "His Master's Voice",
+  "landing": "https://commons.wikimedia.org/wiki/File:Patience_(HMV,_cond._Byng)_-_16_-_It%27s_clear_that_mediaeval_art_alone_retains_its_zest.mp3",
+  "reasons": [
+   "title:hmv"
+  ]
+ },
+ {
+  "id": "commons:File:Frederick Ranalow - A magnet hung in a hardware shop (1921).mp3",
+  "title": "Frederick Ranalow - A magnet hung in a hardware shop (1921).mp3",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/c/c6/Frederick_Ranalow_-_A_magnet_hung_in_a_hardware_shop_%281921%29.mp3?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "Frederick Ranalow/His Master's Voice",
+  "landing": "https://commons.wikimedia.org/wiki/File:Frederick_Ranalow_-_A_magnet_hung_in_a_hardware_shop_(1921).mp3",
+  "reasons": [
+   "title:hop"
+  ]
+ },
+ {
+  "id": "freesound:c1a521c4-3ba0-424e-b983-afc6c987c54b",
+  "title": "medieval battle 1500 AD BY KRIS KLAVENES.mp3",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/349/349382_4701691-hq.mp3",
+  "creator": "klavo1985",
+  "landing": "https://freesound.org/people/klavo1985/sounds/349382",
+  "reasons": [
+   "title:battle"
+  ]
+ },
+ {
+  "id": "freesound:a1958801-082b-43b8-827f-25958d7de04b",
+  "title": "The sound environment of a festival of medieval culture. Sounds of hammer hitting an anvil. The work of a blacksmith.",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/703/703642_15247766-hq.mp3",
+  "creator": "hobonski",
+  "landing": "https://freesound.org/people/hobonski/sounds/703642",
+  "reasons": [
+   "title:festival"
+  ]
+ },
+ {
+  "id": "freesound:df3a9a5b-48b3-4191-a825-6b5acd236261",
+  "title": "marching band - distant, evening, festival",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/485/485036_9267630-hq.mp3",
+  "creator": "Lewisounds",
+  "landing": "https://freesound.org/people/Lewisounds/sounds/485036",
+  "reasons": [
+   "title:festival"
+  ]
+ },
+ {
+  "id": "freesound:8cf31095-e153-42f0-a401-55787594a3ef",
+  "title": "Busker on a Pamplona side street 1985",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/379/379848_182472-hq.mp3",
+  "creator": "plantmonkey",
+  "landing": "https://freesound.org/people/plantmonkey/sounds/379848",
+  "reasons": [
+   "title:street"
+  ]
+ },
+ {
+  "id": "commons:File:A Christmas Hymn.ogg",
+  "title": "A Christmas Hymn.ogg",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/5/56/A_Christmas_Hymn.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "Arthur Chanter (1866-1950) and Tom Collins (pen-name Joseph Furphy 1843-1912)",
+  "landing": "https://commons.wikimedia.org/wiki/File:A_Christmas_Hymn.ogg",
+  "reasons": [
+   "title:hymn"
+  ]
+ },
+ {
+  "id": "commons:File:A Chantar2.ogg",
+  "title": "A Chantar2.ogg",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/d/d4/A_Chantar2.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "Makemi",
+  "landing": "https://commons.wikimedia.org/wiki/File:A_Chantar2.ogg",
+  "reasons": [
+   "title:chant"
+  ]
+ },
+ {
+  "id": "freesound:1982e140-ba6e-40f9-abbb-30d148395f0f",
+  "title": "Early Music Group Tuning.wav",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/437/437640_875947-hq.mp3",
+  "creator": "dorhel",
+  "landing": "https://freesound.org/people/dorhel/sounds/437640",
+  "reasons": [
+   "title:tuning"
+  ]
+ },
+ {
+  "id": "freesound:aff032f3-8f18-4db7-9f08-d635094e8218",
+  "title": "video game menu music",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/661/661248_14388937-hq.mp3",
+  "creator": "magmadiverrr",
+  "landing": "https://freesound.org/people/magmadiverrr/sounds/661248",
+  "reasons": [
+   "title:game"
+  ]
+ },
+ {
+  "id": "freesound:283104d4-b448-43af-95e1-b4c1af37af43",
+  "title": "'Medieval' guitar loop",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/399/399034_6384533-hq.mp3",
+  "creator": "User391915396",
+  "landing": "https://freesound.org/people/User391915396/sounds/399034",
+  "reasons": [
+   "title:loop"
+  ]
+ },
+ {
+  "id": "freesound:5657f36d-b998-4352-88ed-6956ab855bd5",
+  "title": "Castle Dance Loop.mp3",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/695/695628_14716160-hq.mp3",
+  "creator": "Ncone",
+  "landing": "https://freesound.org/people/Ncone/sounds/695628",
+  "reasons": [
+   "title:loop"
+  ]
+ },
+ {
+  "id": "freesound:64c02d4f-4ec0-4beb-a535-5428a08d8340",
+  "title": "Medieval music played at town plaza",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/424/424789_2927958-hq.mp3",
+  "creator": "bolkmar",
+  "landing": "https://freesound.org/people/bolkmar/sounds/424789",
+  "reasons": [
+   "title:plaza"
+  ]
+ },
+ {
+  "id": "freesound:3f87abd2-f1cc-4544-8bda-4bd2a6a82331",
+  "title": "Violin music",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/538/538226_11987772-hq.mp3",
+  "creator": "Zoey.holt",
+  "landing": "https://freesound.org/people/Zoey.holt/sounds/538226",
+  "reasons": [
+   "title:violin music"
+  ]
+ },
+ {
+  "id": "freesound:04c34f05-b6d7-46b5-a63c-57271194dcb3",
+  "title": "Harp and Pad Fm Complicated Loop",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/594/594067_8466114-hq.mp3",
+  "creator": "f-r-a-g-i-l-e",
+  "landing": "https://freesound.org/people/f-r-a-g-i-l-e/sounds/594067",
+  "reasons": [
+   "title:loop"
+  ]
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 81.456,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "lufs": -28.7,
+  "lra": 7.8,
+  "silence_share": 0.104,
+  "ast": {
+   "Music": 0.819,
+   "Singing": 0.001,
+   "Choir": 0.0,
+   "Speech": 0.001
+  },
+  "ast_min": {
+   "Music": 0.746,
+   "Singing": 0.001,
+   "Choir": 0.0,
+   "Speech": 0.001
+  },
+  "clap_pos": 0.2644,
+  "clap_margin": 0.0079,
+  "clap_worst_neg": "solo piano",
+  "id": "freesound:e559d023-8d44-4a26-b792-509754d7ba88",
+  "title": "Medieval various music.mp3",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/623/623427_10859468-hq.mp3",
+  "creator": "ZHRØ",
+  "landing": "https://freesound.org/people/ZHR%C3%98/sounds/623427"
+ },
+ {
+  "reasons": [
+   "ast_speech"
+  ],
+  "duration": 511.032,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "lufs": -14.1,
+  "lra": 5.7,
+  "silence_share": 0.01,
+  "ast": {
+   "Music": 0.766,
+   "Singing": 0.004,
+   "Choir": 0.001,
+   "Speech": 0.355
+  },
+  "ast_min": {
+   "Music": 0.57,
+   "Singing": 0.002,
+   "Choir": 0.0,
+   "Speech": 0.166
+  },
+  "id": "freesound:c483f1b5-3bce-43d7-ab45-74c8bba47529",
+  "title": "Way of the future - mixing desk improvisation, early 2014",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/338/338846_5450487-hq.mp3",
+  "creator": "cabled_mess",
+  "landing": "https://freesound.org/people/cabled_mess/sounds/338846"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 152.376,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "lufs": -12.7,
+  "lra": 2.6,
+  "silence_share": 0.0,
+  "ast": {
+   "Music": 0.919,
+   "Singing": 0.0,
+   "Choir": 0.0,
+   "Speech": 0.003
+  },
+  "ast_min": {
+   "Music": 0.909,
+   "Singing": 0.0,
+   "Choir": 0.0,
+   "Speech": 0.002
+  },
+  "clap_pos": 0.1873,
+  "clap_margin": -0.1189,
+  "clap_worst_neg": "romantic orchestral symphony",
+  "id": "freesound:60abeb65-6c80-44d5-a710-f32a6b8daab0",
+  "title": "Greensleeves music played on keyboard by kris klavenes.mp3",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/393/393803_4701691-hq.mp3",
+  "creator": "klavo1985",
+  "landing": "https://freesound.org/people/klavo1985/sounds/393803"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 117.144,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "lufs": -15.6,
+  "lra": 9.0,
+  "silence_share": 0.038,
+  "ast": {
+   "Music": 0.779,
+   "Singing": 0.009,
+   "Choir": 0.0,
+   "Speech": 0.006
+  },
+  "ast_min": {
+   "Music": 0.582,
+   "Singing": 0.0,
+   "Choir": 0.0,
+   "Speech": 0.001
+  },
+  "clap_pos": 0.1385,
+  "clap_margin": -0.1916,
+  "clap_worst_neg": "synthesized MIDI music, electronic keyboard sounds",
+  "id": "freesound:da9badd7-380f-4e0d-85d0-ef9bef8bdf75",
+  "title": "Todd Barton Kesh Music MG Reel.wav",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/459/459772_7700251-hq.mp3",
+  "creator": "makenoisemusic",
+  "landing": "https://freesound.org/people/makenoisemusic/sounds/459772"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 74.064,
+  "clipping_share": 0.000306,
+  "source_sample_rate": 44100,
+  "lufs": -15.7,
+  "lra": 8.0,
+  "silence_share": 0.019,
+  "ast": {
+   "Music": 0.935,
+   "Singing": 0.0,
+   "Choir": 0.0,
+   "Speech": 0.003
+  },
+  "ast_min": {
+   "Music": 0.761,
+   "Singing": 0.0,
+   "Choir": 0.0,
+   "Speech": 0.003
+  },
+  "clap_pos": 0.0932,
+  "clap_margin": -0.1398,
+  "clap_worst_neg": "synthesized MIDI music, electronic keyboard sounds",
+  "id": "freesound:d347a173-a1c9-49b6-a150-8ebb5139ae8a",
+  "title": "Renaissance",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/559/559593_11861866-hq.mp3",
+  "creator": "DaveJf",
+  "landing": "https://freesound.org/people/DaveJf/sounds/559593"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 289.491,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "lufs": -19.8,
+  "lra": 2.1,
+  "silence_share": 0.005,
+  "ast": {
+   "Music": 0.927,
+   "Singing": 0.001,
+   "Choir": 0.0,
+   "Speech": 0.001
+  },
+  "ast_min": {
+   "Music": 0.912,
+   "Singing": 0.001,
+   "Choir": 0.0,
+   "Speech": 0.001
+  },
+  "clap_pos": 0.244,
+  "clap_margin": -0.0069,
+  "clap_worst_neg": "solo piano",
+  "id": "commons:File:Jacob de Senleches - Fuions de ci.ogg",
+  "title": "Jacob de Senleches - Fuions de ci.ogg",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/7/7c/Jacob_de_Senleches_-_Fuions_de_ci.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "Jacob de Senleches, versão midi de Tetraktys",
+  "landing": "https://commons.wikimedia.org/wiki/File:Jacob_de_Senleches_-_Fuions_de_ci.ogg"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 197.139,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "lufs": -17.4,
+  "lra": 5.5,
+  "silence_share": 0.005,
+  "ast": {
+   "Music": 0.863,
+   "Singing": 0.009,
+   "Choir": 0.001,
+   "Speech": 0.002
+  },
+  "ast_min": {
+   "Music": 0.771,
+   "Singing": 0.005,
+   "Choir": 0.0,
+   "Speech": 0.002
+  },
+  "clap_pos": 0.2887,
+  "clap_margin": 0.0226,
+  "clap_worst_neg": "synthesized MIDI music, electronic keyboard sounds",
+  "id": "commons:File:O rosa bella - John Dunstable.ogg",
+  "title": "O rosa bella - John Dunstable.ogg",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/4/40/O_rosa_bella_-_John_Dunstable.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "John Dunstable, versão midi de Tetraktys",
+  "landing": "https://commons.wikimedia.org/wiki/File:O_rosa_bella_-_John_Dunstable.ogg"
+ },
+ {
+  "reasons": [
+   "ast_not_music"
+  ],
+  "duration": 245.141,
+  "clipping_share": 0.0,
+  "source_sample_rate": 192000,
+  "lufs": -41.1,
+  "lra": 13.7,
+  "silence_share": 0.0,
+  "ast": {
+   "Music": 0.409,
+   "Singing": 0.143,
+   "Choir": 0.037,
+   "Speech": 0.004
+  },
+  "ast_min": {
+   "Music": 0.38,
+   "Singing": 0.094,
+   "Choir": 0.016,
+   "Speech": 0.003
+  },
+  "id": "commons:File:L anthologie sonore-18a-as3-m6-73115.ogg",
+  "title": "L anthologie sonore-18a-as3-m6-73115.ogg",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/9/9e/L_anthologie_sonore-18a-as3-m6-73115.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "Carl Flisch",
+  "landing": "https://commons.wikimedia.org/wiki/File:L_anthologie_sonore-18a-as3-m6-73115.ogg"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 660.888,
+  "clipping_share": 0.000385,
+  "source_sample_rate": 44100,
+  "lufs": -10.2,
+  "lra": 0.6,
+  "silence_share": 0.0,
+  "ast": {
+   "Music": 0.7,
+   "Singing": 0.001,
+   "Choir": 0.001,
+   "Speech": 0.002
+  },
+  "ast_min": {
+   "Music": 0.674,
+   "Singing": 0.001,
+   "Choir": 0.001,
+   "Speech": 0.002
+  },
+  "clap_pos": 0.212,
+  "clap_margin": -0.0594,
+  "clap_worst_neg": "synthesized MIDI music, electronic keyboard sounds",
+  "id": "freesound:caba866f-c5e5-4538-b33e-a1f3469f4e21",
+  "title": "3 Sets (3rds) Saw and Triangle 10 min.wav",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/424/424594_2103851-hq.mp3",
+  "creator": "gggtrew",
+  "landing": "https://freesound.org/people/gggtrew/sounds/424594"
+ },
+ {
+  "reasons": [
+   "too_much_silence",
+   "ast_not_music"
+  ],
+  "duration": 734.664,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "lufs": -15.5,
+  "lra": 15.3,
+  "silence_share": 0.938,
+  "ast": {
+   "Music": 0.827,
+   "Singing": 0.003,
+   "Choir": 0.0,
+   "Speech": 0.016
+  },
+  "ast_min": {
+   "Music": 0.272,
+   "Singing": 0.0,
+   "Choir": 0.0,
+   "Speech": 0.003
+  },
+  "id": "freesound:ff241789-3c6b-4e4c-bdf9-e7239dfcd893",
+  "title": "Adult lullaby v1.mp3",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/542/542229_4398842-hq.mp3",
+  "creator": "Poliko",
+  "landing": "https://freesound.org/people/Poliko/sounds/542229"
+ },
+ {
+  "reasons": [
+   "ast_not_music",
+   "ast_speech"
+  ],
+  "duration": 492.576,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "lufs": -37.1,
+  "lra": 15.9,
+  "silence_share": 0.0,
+  "ast": {
+   "Music": 0.306,
+   "Singing": 0.0,
+   "Choir": 0.0,
+   "Speech": 0.563
+  },
+  "ast_min": {
+   "Music": 0.01,
+   "Singing": 0.0,
+   "Choir": 0.0,
+   "Speech": 0.007
+  },
+  "id": "freesound:757d9a5e-3a03-4910-85dc-a697f99bede1",
+  "title": "cladding repair work",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/713/713079_15314137-hq.mp3",
+  "creator": "lonerdroner",
+  "landing": "https://freesound.org/people/lonerdroner/sounds/713079"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 170.292,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "lufs": -16.8,
+  "lra": 2.6,
+  "silence_share": 0.029,
+  "ast": {
+   "Music": 0.686,
+   "Singing": 0.001,
+   "Choir": 0.001,
+   "Speech": 0.003
+  },
+  "ast_min": {
+   "Music": 0.62,
+   "Singing": 0.001,
+   "Choir": 0.0,
+   "Speech": 0.002
+  },
+  "clap_pos": 0.2662,
+  "clap_margin": -0.0237,
+  "clap_worst_neg": "romantic orchestral symphony",
+  "id": "commons:File:Perotinus - section of Sederunt principes.ogg",
+  "title": "Perotinus - section of Sederunt principes.ogg",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/f/f0/Perotinus_-_section_of_Sederunt_principes.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "Perotinus, midi version by Tetraktys",
+  "landing": "https://commons.wikimedia.org/wiki/File:Perotinus_-_section_of_Sederunt_principes.ogg"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 156.76,
+  "clipping_share": 2.1e-05,
+  "source_sample_rate": 44100,
+  "lufs": -13.6,
+  "lra": 3.5,
+  "silence_share": 0.062,
+  "ast": {
+   "Music": 0.801,
+   "Singing": 0.002,
+   "Choir": 0.001,
+   "Speech": 0.002
+  },
+  "ast_min": {
+   "Music": 0.781,
+   "Singing": 0.001,
+   "Choir": 0.0,
+   "Speech": 0.001
+  },
+  "clap_pos": 0.2453,
+  "clap_margin": -0.0509,
+  "clap_worst_neg": "synthesized MIDI music, electronic keyboard sounds",
+  "id": "commons:File:Johannes Ciconia - O Padua, sidus praeclarum.ogg",
+  "title": "Johannes Ciconia - O Padua, sidus praeclarum.ogg",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/3/30/Johannes_Ciconia_-_O_Padua%2C_sidus_praeclarum.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "Johannes Ciconia, versão midi de Tetraktys",
+  "landing": "https://commons.wikimedia.org/wiki/File:Johannes_Ciconia_-_O_Padua,_sidus_praeclarum.ogg"
+ },
+ {
+  "reasons": [
+   "ast_singing"
+  ],
+  "duration": 150.213,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "lufs": -23.5,
+  "lra": 18.6,
+  "silence_share": 0.056,
+  "ast": {
+   "Music": 0.86,
+   "Singing": 0.319,
+   "Choir": 0.015,
+   "Speech": 0.019
+  },
+  "ast_min": {
+   "Music": 0.663,
+   "Singing": 0.109,
+   "Choir": 0.01,
+   "Speech": 0.007
+  },
+  "id": "commons:File:Santa Maria.ogg",
+  "title": "Santa Maria.ogg",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/1/13/Santa_Maria.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "user:Makemi",
+  "landing": "https://commons.wikimedia.org/wiki/File:Santa_Maria.ogg"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 122.334,
+  "clipping_share": 0.000102,
+  "source_sample_rate": 44100,
+  "lufs": -13.3,
+  "lra": 3.1,
+  "silence_share": 0.01,
+  "ast": {
+   "Music": 0.881,
+   "Singing": 0.011,
+   "Choir": 0.003,
+   "Speech": 0.002
+  },
+  "ast_min": {
+   "Music": 0.816,
+   "Singing": 0.001,
+   "Choir": 0.001,
+   "Speech": 0.001
+  },
+  "clap_pos": 0.2114,
+  "clap_margin": -0.0074,
+  "clap_worst_neg": "synthesized MIDI music, electronic keyboard sounds",
+  "id": "commons:File:Ave Regina - Leonel Power.ogg",
+  "title": "Ave Regina - Leonel Power.ogg",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/d/d8/Ave_Regina_-_Leonel_Power.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "Leonel Power, versão midi de Tetraktys",
+  "landing": "https://commons.wikimedia.org/wiki/File:Ave_Regina_-_Leonel_Power.ogg"
+ },
+ {
+  "reasons": [
+   "too_much_silence",
+   "ast_not_music"
+  ],
+  "duration": 121.26,
+  "clipping_share": 2.1e-05,
+  "source_sample_rate": 44100,
+  "lufs": -14.8,
+  "lra": 17.2,
+  "silence_share": 0.459,
+  "ast": {
+   "Music": 0.003,
+   "Singing": 0.0,
+   "Choir": 0.0,
+   "Speech": 0.121
+  },
+  "ast_min": {
+   "Music": 0.0,
+   "Singing": 0.0,
+   "Choir": 0.0,
+   "Speech": 0.001
+  },
+  "id": "freesound:d611e833-968e-4f61-b76d-b5bbd3df985f",
+  "title": "dropping falling tin cans BASE-file NO-delay NO-echo",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/653/653449_5436128-hq.mp3",
+  "creator": "het_HCKM_DS_huis",
+  "landing": "https://freesound.org/people/het_HCKM_DS_huis/sounds/653449"
+ },
+ {
+  "reasons": [
+   "ast_speech"
+  ],
+  "duration": 117.768,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "lufs": -20.9,
+  "lra": 3.0,
+  "silence_share": 0.0,
+  "ast": {
+   "Music": 0.655,
+   "Singing": 0.039,
+   "Choir": 0.004,
+   "Speech": 0.233
+  },
+  "ast_min": {
+   "Music": 0.544,
+   "Singing": 0.007,
+   "Choir": 0.002,
+   "Speech": 0.156
+  },
+  "id": "freesound:89acc14b-76aa-417c-87f7-4a4da6e8415c",
+  "title": "120909-1049-FG-TdS-Kleinmesse.wav",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/165/165182_623488-hq.mp3",
+  "creator": "blaukreuz",
+  "landing": "https://freesound.org/people/blaukreuz/sounds/165182"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 100.104,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "lufs": -35.6,
+  "lra": 2.8,
+  "silence_share": 0.0,
+  "ast": {
+   "Music": 0.763,
+   "Singing": 0.002,
+   "Choir": 0.001,
+   "Speech": 0.056
+  },
+  "ast_min": {
+   "Music": 0.536,
+   "Singing": 0.0,
+   "Choir": 0.0,
+   "Speech": 0.005
+  },
+  "clap_pos": 0.0274,
+  "clap_margin": -0.1554,
+  "clap_worst_neg": "romantic orchestral symphony",
+  "id": "freesound:7ac26e07-cbe5-44e1-a0d7-edb5fb6782f0",
+  "title": "Rave Party - far away (2/5)",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/635/635950_7891112-hq.mp3",
+  "creator": "tferrino",
+  "landing": "https://freesound.org/people/tferrino/sounds/635950"
+ },
+ {
+  "reasons": [
+   "ast_not_music"
+  ],
+  "duration": 96.073,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "lufs": -25.0,
+  "lra": 24.4,
+  "silence_share": 0.121,
+  "ast": {
+   "Music": 0.509,
+   "Singing": 0.144,
+   "Choir": 0.022,
+   "Speech": 0.003
+  },
+  "ast_min": {
+   "Music": 0.175,
+   "Singing": 0.082,
+   "Choir": 0.006,
+   "Speech": 0.002
+  },
+  "id": "commons:File:O frondens 2.ogg",
+  "title": "O frondens 2.ogg",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/a/ad/O_frondens_2.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "User:Makemi",
+  "landing": "https://commons.wikimedia.org/wiki/File:O_frondens_2.ogg"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 93.57,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "lufs": -17.7,
+  "lra": 2.6,
+  "silence_share": 0.11,
+  "ast": {
+   "Music": 0.933,
+   "Singing": 0.002,
+   "Choir": 0.0,
+   "Speech": 0.002
+  },
+  "ast_min": {
+   "Music": 0.916,
+   "Singing": 0.002,
+   "Choir": 0.0,
+   "Speech": 0.001
+  },
+  "clap_pos": 0.2466,
+  "clap_margin": -0.099,
+  "clap_worst_neg": "solo piano",
+  "id": "commons:File:Solage - Fumeux fume par fumée.ogg",
+  "title": "Solage - Fumeux fume par fumée.ogg",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/d/d1/Solage_-_Fumeux_fume_par_fum%C3%A9e.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "Solage, versão midi de Tetraktys",
+  "landing": "https://commons.wikimedia.org/wiki/File:Solage_-_Fumeux_fume_par_fum%C3%A9e.ogg"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 92.854,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "lufs": -21.2,
+  "lra": 3.6,
+  "silence_share": 0.012,
+  "ast": {
+   "Music": 0.857,
+   "Singing": 0.001,
+   "Choir": 0.0,
+   "Speech": 0.001
+  },
+  "ast_min": {
+   "Music": 0.827,
+   "Singing": 0.001,
+   "Choir": 0.0,
+   "Speech": 0.001
+  },
+  "clap_pos": 0.2583,
+  "clap_margin": 0.0138,
+  "clap_worst_neg": "synthesized MIDI music, electronic keyboard sounds",
+  "id": "commons:File:Guillaume de Machaut - Riches d'amour et mandians d'amie.ogg",
+  "title": "Guillaume de Machaut - Riches d'amour et mandians d'amie.ogg",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/e/e2/Guillaume_de_Machaut_-_Riches_d%27amour_et_mandians_d%27amie.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "Guillaume de Machaut (ca. 1300 1377), composer \n\nVersão midi de Tetraktys",
+  "landing": "https://commons.wikimedia.org/wiki/File:Guillaume_de_Machaut_-_Riches_d%27amour_et_mandians_d%27amie.ogg"
+ },
+ {
+  "reasons": [
+   "ast_not_music",
+   "ast_speech"
+  ],
+  "duration": 84.216,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "lufs": -40.1,
+  "lra": 2.3,
+  "silence_share": 0.0,
+  "ast": {
+   "Music": 0.769,
+   "Singing": 0.001,
+   "Choir": 0.0,
+   "Speech": 0.264
+  },
+  "ast_min": {
+   "Music": 0.057,
+   "Singing": 0.0,
+   "Choir": 0.0,
+   "Speech": 0.017
+  },
+  "id": "freesound:61bcb9bc-5276-471f-9d29-ffa56c493def",
+  "title": "Rave Party - far away (5/5)",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/635/635947_7891112-hq.mp3",
+  "creator": "tferrino",
+  "landing": "https://freesound.org/people/tferrino/sounds/635947"
+ },
+ {
+  "reasons": [
+   "ast_not_music"
+  ],
+  "duration": 77.975,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "lufs": -18.1,
+  "lra": 17.6,
+  "silence_share": 0.054,
+  "ast": {
+   "Music": 0.315,
+   "Singing": 0.099,
+   "Choir": 0.029,
+   "Speech": 0.002
+  },
+  "ast_min": {
+   "Music": 0.164,
+   "Singing": 0.067,
+   "Choir": 0.011,
+   "Speech": 0.001
+  },
+  "id": "commons:File:Puer.natus.est.ogg",
+  "title": "Puer.natus.est.ogg",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/4/44/Puer.natus.est.ogg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+  "creator": "Membeth",
+  "landing": "https://commons.wikimedia.org/wiki/File:Puer.natus.est.ogg"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 75.144,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "lufs": -21.0,
+  "lra": 13.3,
+  "silence_share": 0.02,
+  "ast": {
+   "Music": 0.765,
+   "Singing": 0.001,
+   "Choir": 0.005,
+   "Speech": 0.141
+  },
+  "ast_min": {
+   "Music": 0.579,
+   "Singing": 0.001,
+   "Choir": 0.001,
+   "Speech": 0.017
+  },
+  "clap_pos": 0.1683,
+  "clap_margin": -0.1648,
+  "clap_worst_neg": "romantic orchestral symphony",
+  "id": "freesound:4199d67d-c616-4ea7-8c9e-8cc964df0e9d",
+  "title": "Toc de matinades (1)",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/336/336566_3274730-hq.mp3",
+  "creator": "RafaelCaro",
+  "landing": "https://freesound.org/people/RafaelCaro/sounds/336566"
+ },
+ {
+  "reasons": [
+   "too_much_silence"
+  ],
+  "duration": 75.0,
+  "clipping_share": 0.001423,
+  "source_sample_rate": 44100,
+  "lufs": -15.1,
+  "lra": 13.3,
+  "silence_share": 0.723,
+  "ast": {
+   "Music": 0.908,
+   "Singing": 0.002,
+   "Choir": 0.0,
+   "Speech": 0.003
+  },
+  "ast_min": {
+   "Music": 0.862,
+   "Singing": 0.001,
+   "Choir": 0.0,
+   "Speech": 0.002
+  },
+  "id": "freesound:87815289-0cc2-4d63-8baf-9df93111290e",
+  "title": "Oud.wav",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/160/160461_1-hq.mp3",
+  "creator": "--DeletedUser--",
+  "landing": "https://freesound.org/people/--DeletedUser--/sounds/160461"
+ },
+ {
+  "reasons": [
+   "ast_not_music"
+  ],
+  "duration": 72.384,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "lufs": -21.0,
+  "lra": 5.7,
+  "silence_share": 0.0,
+  "ast": {
+   "Music": 0.422,
+   "Singing": 0.0,
+   "Choir": 0.0,
+   "Speech": 0.017
+  },
+  "ast_min": {
+   "Music": 0.399,
+   "Singing": 0.0,
+   "Choir": 0.0,
+   "Speech": 0.01
+  },
+  "id": "freesound:b827511e-047b-4afb-93fa-839e024943de",
+  "title": "Scottish Pipers 4",
+  "kind": "music",
+  "name": "medieval",
+  "url": "https://cdn.freesound.org/previews/712/712451_15314137-hq.mp3",
+  "creator": "lonerdroner",
+  "landing": "https://freesound.org/people/lonerdroner/sounds/712451"
+ },
+ {
+  "id": "freesound:e422f372-cd0b-4152-b5b2-0d9d506b8aa2",
+  "title": "Bagpipes.wav",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/393/393660_1617412-hq.mp3",
+  "creator": "chripei",
+  "landing": "https://freesound.org/people/chripei/sounds/393660",
+  "reasons": [
+   "title:bagpipe"
+  ]
+ },
+ {
+  "id": "freesound:bc6d7dac-785c-46d6-9beb-a84f494c7da7",
+  "title": "crowd ext large bagpipes drums marching bands cheering applause St Patrick's Day parade Montreal, Canada.flac",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/453/453868_612689-hq.mp3",
+  "creator": "kyles",
+  "landing": "https://freesound.org/people/kyles/sounds/453868",
+  "reasons": [
+   "title:bagpipe"
+  ]
+ },
+ {
+  "id": "wikimedia_audio:340cc1d7-49c0-43c1-9ab6-58319acddf36",
+  "title": "Marsel Minga - 03 - Drum Machine Battle",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/2/20/Marsel_Minga_-_03_-_Drum_Machine_Battle.mp3",
+  "creator": "Marsel Minga (https://freemusicarchive.org/music/Marsel_Minga)",
+  "landing": "https://commons.wikimedia.org/w/index.php?curid=97282988",
+  "reasons": [
+   "title:machine"
+  ]
+ },
+ {
+  "id": "wikimedia_audio:2fb76a1b-cef5-41db-b028-efccfb5d26d0",
+  "title": "Marsel Minga - 03 - Drum Machine Battle",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/8/8b/Marsel_Minga_-_03_-_Drum_Machine_Battle.ogg",
+  "creator": "Marsel Minga",
+  "landing": "https://commons.wikimedia.org/w/index.php?curid=89440352",
+  "reasons": [
+   "title:machine"
+  ]
+ },
+ {
+  "id": "wikimedia_audio:2a4d67af-f2d8-41eb-b578-947bc0b21cd5",
+  "title": "The United States Army Old Guard Fife and Drum Corps - 03 - The Presidents March",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/8/86/The_United_States_Army_Old_Guard_Fife_and_Drum_Corps_-_03_-_The_Presidents_March.ogg",
+  "creator": "The United States Army Old Guard Fife and Drum Corps",
+  "landing": "https://commons.wikimedia.org/w/index.php?curid=89127702",
+  "reasons": [
+   "title:fife"
+  ]
+ },
+ {
+  "id": "wikimedia_audio:8b637c14-5ff1-42ab-9937-926f95229558",
+  "title": "The United States Army Old Guard Fife and Drum Corps - 19 - Bachs March Fur Die Arche",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/1/1d/The_United_States_Army_Old_Guard_Fife_and_Drum_Corps_-_19_-_Bachs_March_Fur_Die_Arche.ogg",
+  "creator": "The United States Army Old Guard Fife and Drum Corps",
+  "landing": "https://commons.wikimedia.org/w/index.php?curid=89127835",
+  "reasons": [
+   "title:fife"
+  ]
+ },
+ {
+  "id": "wikimedia_audio:18e635ab-0f36-4409-b9ac-c278f25054b6",
+  "title": "The United States Army Old Guard Fife and Drum Corps - 07 - Soldiers Farewell FanfareMontezumaMarch of WarWindsor Park",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://upload.wikimedia.org/wikipedia/commons/e/ea/The_United_States_Army_Old_Guard_Fife_and_Drum_Corps_-_07_-_Soldiers_Farewell_FanfareMontezumaMarch_of_WarWindsor_Park.ogg",
+  "creator": "The United States Army Old Guard Fife and Drum Corps",
+  "landing": "https://commons.wikimedia.org/w/index.php?curid=89127644",
+  "reasons": [
+   "title:fife"
+  ]
+ },
+ {
+  "id": "freesound:ddd952c8-df06-4fc2-975d-bed55ca40171",
+  "title": "War Drums Loop.wav",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/527/527829_2019171-hq.mp3",
+  "creator": "BaDoink",
+  "landing": "https://freesound.org/people/BaDoink/sounds/527829",
+  "reasons": [
+   "title:loop"
+  ]
+ },
+ {
+  "id": "freesound:dfb63f53-2c63-444f-bd70-583ee73b2380",
+  "title": "MUSCPerc-Blue Snowball Microphone, CU_Drum, Snare, Military Marching Band_Nicholas Judy_TDC",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/824/824967_6951162-hq.mp3",
+  "creator": "designerschoice",
+  "landing": "https://freesound.org/people/designerschoice/sounds/824967",
+  "reasons": [
+   "title:snare"
+  ]
+ },
+ {
+  "id": "freesound:b7ba0214-9f53-489a-a4ae-a609dde84369",
+  "title": "Protest chant FX",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/321/321577_2279089-hq.mp3",
+  "creator": "fredzed",
+  "landing": "https://freesound.org/people/fredzed/sounds/321577",
+  "reasons": [
+   "title:test "
+  ]
+ },
+ {
+  "id": "freesound:c32191f8-ae55-49bd-a777-6a1235b81329",
+  "title": "Time Before Loop {Hip-Hop}",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/246/246314_4485719-hq.mp3",
+  "creator": "PaynesBeats",
+  "landing": "https://freesound.org/people/PaynesBeats/sounds/246314",
+  "reasons": [
+   "title:loop"
+  ]
+ },
+ {
+  "id": "freesound:e43b2b3d-18f3-4610-acbd-ff23bb87251d",
+  "title": "marching_snare_with_reverb.wav",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/561/561814_12610918-hq.mp3",
+  "creator": "waldschrat1510",
+  "landing": "https://freesound.org/people/waldschrat1510/sounds/561814",
+  "reasons": [
+   "title:snare"
+  ]
+ },
+ {
+  "id": "freesound:fd288968-d6ca-471d-8577-4130215fcbd9",
+  "title": "Protest chant unprocessed",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/321/321578_2279089-hq.mp3",
+  "creator": "fredzed",
+  "landing": "https://freesound.org/people/fredzed/sounds/321578",
+  "reasons": [
+   "title:processed"
+  ]
+ },
+ {
+  "id": "freesound:38fd53f5-1a7c-4a09-adef-63ccd6276ce6",
+  "title": "MachineGunloop.wav",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/397/397657_7542558-hq.mp3",
+  "creator": "SuperPhat",
+  "landing": "https://freesound.org/people/SuperPhat/sounds/397657",
+  "reasons": [
+   "title:loop"
+  ]
+ },
+ {
+  "id": "freesound:26728e9d-d955-4a7e-b20f-9a13cf88f91a",
+  "title": "Tribe Drum Loop",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/342/342465_3906011-hq.mp3",
+  "creator": "PearceWilsonKing",
+  "landing": "https://freesound.org/people/PearceWilsonKing/sounds/342465",
+  "reasons": [
+   "title:loop"
+  ]
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 168.072,
+  "clipping_share": 0.000144,
+  "source_sample_rate": 44100,
+  "hum_db": 9.9,
+  "silence_share": 0.0,
+  "lufs": -12.3,
+  "lra": 6.1,
+  "true_peak": 0.8,
+  "lf_share": 0.015,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:c75f7072-d90d-4f36-81dc-fbdc119466d6",
+  "title": "guitar/song ontop of marching drums",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/325/325290_2042389-hq.mp3",
+  "creator": "LithiumCA",
+  "landing": "https://freesound.org/people/LithiumCA/sounds/325290"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 67.762,
+  "clipping_share": 0.000387,
+  "source_sample_rate": 44100,
+  "hum_db": 7.5,
+  "silence_share": 0.0,
+  "lufs": -17.9,
+  "lra": 11.3,
+  "true_peak": 1.2,
+  "lf_share": 0.002,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:b6924875-02b1-45f4-bd1e-5f710fa3c896",
+  "title": "Marching Band Passes By",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/211/211511_3839718-hq.mp3",
+  "creator": "FlatHill",
+  "landing": "https://freesound.org/people/FlatHill/sounds/211511"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins"
+  ],
+  "duration": 38.784,
+  "clipping_share": 8e-06,
+  "source_sample_rate": 44100,
+  "hum_db": 9.9,
+  "silence_share": 0.098,
+  "lufs": -22.5,
+  "lra": 5.5,
+  "true_peak": -0.3,
+  "lf_share": 0.016,
+  "channel_corr": 0.907,
+  "mono": false,
+  "clap_pos": 0.2201,
+  "clap_margin": -0.0248,
+  "clap_worst_neg": "modern drum kit with cymbals, rock or pop music",
+  "kind_winner": "war_drums",
+  "kind_gap": 0.1601,
+  "ast": {
+   "Music": 0.595,
+   "Singing": 0.0,
+   "Speech": 0.003,
+   "Vehicle": 0.001
+  },
+  "id": "freesound:846bc682-547e-40b3-812b-aa1d280c765d",
+  "title": "war_drums.mp3",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/632/632099_13943755-hq.mp3",
+  "creator": "nicovize",
+  "landing": "https://freesound.org/people/nicovize/sounds/632099"
+ },
+ {
+  "reasons": [
+   "ast_speech"
+  ],
+  "duration": 32.712,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "hum_db": 6.5,
+  "silence_share": 0.02,
+  "lufs": -21.0,
+  "lra": 4.7,
+  "true_peak": -4.2,
+  "lf_share": 0.0,
+  "channel_corr": 1.0,
+  "mono": true,
+  "clap_pos": 0.2157,
+  "clap_margin": 0.0488,
+  "clap_worst_neg": "modern drum kit with cymbals, rock or pop music",
+  "kind_winner": "war_drums",
+  "kind_gap": 0.188,
+  "ast": {
+   "Music": 0.6,
+   "Singing": 0.001,
+   "Speech": 0.407,
+   "Vehicle": 0.005
+  },
+  "id": "freesound:4676d843-bb8c-46d5-be83-3996be429534",
+  "title": "High School Marching Band 01.wav",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/486/486664_9945386-hq.mp3",
+  "creator": "thepodcastdoctor",
+  "landing": "https://freesound.org/people/thepodcastdoctor/sounds/486664"
+ },
+ {
+  "reasons": [
+   "clipping",
+   "mains_hum"
+  ],
+  "duration": 26.448,
+  "clipping_share": 0.000379,
+  "source_sample_rate": 44100,
+  "hum_db": 15.0,
+  "silence_share": 0.053,
+  "lufs": -18.0,
+  "lra": 7.8,
+  "true_peak": -0.2,
+  "lf_share": 0.136,
+  "channel_corr": 0.799,
+  "mono": false,
+  "id": "freesound:f1c0fef8-37f2-4d90-9764-ce516d509b56",
+  "title": "FX comedy marching.wav",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/115/115144_942821-hq.mp3",
+  "creator": "v0idation",
+  "landing": "https://freesound.org/people/v0idation/sounds/115144"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 18.744,
+  "clipping_share": 0.001225,
+  "source_sample_rate": 44100,
+  "hum_db": 12.7,
+  "silence_share": 0.0,
+  "lufs": -16.8,
+  "lra": 7.2,
+  "true_peak": -0.4,
+  "lf_share": 0.009,
+  "channel_corr": 0.716,
+  "mono": false,
+  "id": "freesound:23fb25c5-e404-42e1-878d-14f52e8c3a4f",
+  "title": "War Drums 5.MP3",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/329/329023_4438873-hq.mp3",
+  "creator": "BuytheField",
+  "landing": "https://freesound.org/people/BuytheField/sounds/329023"
+ },
+ {
+  "reasons": [
+   "ast_speech"
+  ],
+  "duration": 16.08,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "hum_db": 10.3,
+  "silence_share": 0.0,
+  "lufs": -26.0,
+  "lra": 1.0,
+  "true_peak": -4.4,
+  "lf_share": 0.004,
+  "channel_corr": 0.568,
+  "mono": false,
+  "clap_pos": 0.1462,
+  "clap_margin": 0.0684,
+  "clap_worst_neg": "modern drum kit with cymbals, rock or pop music",
+  "kind_winner": "war_drums",
+  "kind_gap": 0.0748,
+  "ast": {
+   "Music": 0.532,
+   "Singing": 0.001,
+   "Speech": 0.568,
+   "Vehicle": 0.002
+  },
+  "id": "freesound:684929d5-b138-420a-9fa7-56e3f317d1cc",
+  "title": "Marching band drumming in parade",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/340/340936_4978149-hq.mp3",
+  "creator": "SoundsAreGr8",
+  "landing": "https://freesound.org/people/SoundsAreGr8/sounds/340936"
+ },
+ {
+  "reasons": [
+   "ast_speech"
+  ],
+  "duration": 185.952,
+  "clipping_share": 2e-06,
+  "source_sample_rate": 44100,
+  "hum_db": 8.4,
+  "silence_share": 0.003,
+  "lufs": -20.2,
+  "lra": 4.5,
+  "true_peak": -0.4,
+  "lf_share": 0.001,
+  "channel_corr": 0.851,
+  "mono": false,
+  "clap_pos": 0.1232,
+  "clap_margin": 0.0418,
+  "clap_worst_neg": "people talking, human speech, voices",
+  "kind_winner": "war_drums",
+  "kind_gap": 0.0316,
+  "ast": {
+   "Music": 0.541,
+   "Singing": 0.007,
+   "Speech": 0.725,
+   "Vehicle": 0.016
+  },
+  "id": "freesound:b211f626-c166-4502-b253-56ae317603d6",
+  "title": "The sound environment of a festival of medieval culture.",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/703/703643_15247766-hq.mp3",
+  "creator": "hobonski",
+  "landing": "https://freesound.org/people/hobonski/sounds/703643"
+ },
+ {
+  "reasons": [
+   "ast_speech"
+  ],
+  "duration": 112.296,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "hum_db": 10.4,
+  "silence_share": 0.0,
+  "lufs": -15.4,
+  "lra": 6.4,
+  "true_peak": -2.0,
+  "lf_share": 0.044,
+  "channel_corr": 1.0,
+  "mono": true,
+  "clap_pos": 0.2441,
+  "clap_margin": 0.1363,
+  "clap_worst_neg": "modern drum kit with cymbals, rock or pop music",
+  "kind_winner": "war_drums",
+  "kind_gap": 0.1394,
+  "ast": {
+   "Music": 0.797,
+   "Singing": 0.022,
+   "Speech": 0.214,
+   "Vehicle": 0.022
+  },
+  "id": "freesound:ab1adf69-224a-4f55-857e-5defd89596b8",
+  "title": "Historical German military parade",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/560/560762_12584208-hq.mp3",
+  "creator": "Zydus",
+  "landing": "https://freesound.org/people/Zydus/sounds/560762"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 74.76,
+  "clipping_share": 0.019677,
+  "source_sample_rate": 44100,
+  "hum_db": 9.0,
+  "silence_share": 0.022,
+  "lufs": -12.5,
+  "lra": 1.2,
+  "true_peak": 0.0,
+  "lf_share": 0.441,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:66046b01-0b3d-4a62-9b4f-9e36e0b64235",
+  "title": "The Military",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/582/582109_13073035-hq.mp3",
+  "creator": "felineterror",
+  "landing": "https://freesound.org/people/felineterror/sounds/582109"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 59.472,
+  "clipping_share": 0.001315,
+  "source_sample_rate": 48000,
+  "hum_db": 9.0,
+  "silence_share": 0.0,
+  "lufs": -12.1,
+  "lra": 1.2,
+  "true_peak": 0.4,
+  "lf_share": 0.177,
+  "channel_corr": 0.636,
+  "mono": false,
+  "id": "freesound:cf3eee32-8bcf-46ab-b1c0-12f87285ef3a",
+  "title": "Monk in the wind - Drums Ethno Choir Monk Voice Drone World Hum Action Dark Cinematic Music Surround.wav",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/609/609034_2282212-hq.mp3",
+  "creator": "szegvari",
+  "landing": "https://freesound.org/people/szegvari/sounds/609034"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 55.08,
+  "clipping_share": 2.9e-05,
+  "source_sample_rate": 44100,
+  "hum_db": 14.3,
+  "silence_share": 0.047,
+  "lufs": -14.6,
+  "lra": 2.2,
+  "true_peak": -0.8,
+  "lf_share": 0.02,
+  "channel_corr": 0.715,
+  "mono": false,
+  "id": "freesound:ecba6501-76e7-40f4-827c-667fe35f2b3a",
+  "title": "Military tank music.mp3",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/584/584444_1339626-hq.mp3",
+  "creator": "Daniel Prellball",
+  "landing": "https://freesound.org/people/Daniel%20Prellball/sounds/584444"
+ },
+ {
+  "reasons": [
+   "ast_speech"
+  ],
+  "duration": 345.984,
+  "clipping_share": 4.6e-05,
+  "source_sample_rate": 44100,
+  "hum_db": 6.9,
+  "silence_share": 0.179,
+  "lufs": -26.6,
+  "lra": 23.6,
+  "true_peak": 1.5,
+  "lf_share": 0.049,
+  "channel_corr": 0.683,
+  "mono": false,
+  "clap_pos": 0.2595,
+  "clap_margin": 0.1455,
+  "clap_worst_neg": "people talking, human speech, voices",
+  "kind_winner": "war_drums",
+  "kind_gap": 0.119,
+  "ast": {
+   "Music": 0.238,
+   "Singing": 0.0,
+   "Speech": 0.526,
+   "Vehicle": 0.003
+  },
+  "id": "freesound:206d4e68-f6f1-4767-82bd-2b846d0853d3",
+  "title": "reenactment2.aif",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/125/125932_296888-hq.mp3",
+  "creator": "alienistcog",
+  "landing": "https://freesound.org/people/alienistcog/sounds/125932"
+ },
+ {
+  "reasons": [
+   "mains_hum"
+  ],
+  "duration": 199.2,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "hum_db": 19.4,
+  "silence_share": 0.0,
+  "lufs": -33.2,
+  "lra": 9.1,
+  "true_peak": -16.6,
+  "lf_share": 0.015,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:e95917c4-6110-453a-ac23-f04ad349f8ee",
+  "title": "KadenceMix",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/582/582368_11740799-hq.mp3",
+  "creator": "Bigvegie",
+  "landing": "https://freesound.org/people/Bigvegie/sounds/582368"
+ },
+ {
+  "reasons": [
+   "clap_negative_wins",
+   "kind_lost_to_church_bells"
+  ],
+  "duration": 253.464,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "hum_db": 10.5,
+  "silence_share": 0.0,
+  "lufs": -25.3,
+  "lra": 5.2,
+  "true_peak": -10.5,
+  "lf_share": 0.007,
+  "channel_corr": 0.91,
+  "mono": false,
+  "clap_pos": 0.0144,
+  "clap_margin": -0.0494,
+  "clap_worst_neg": "traffic, car engine, motor vehicle, airplane",
+  "kind_winner": "church_bells",
+  "kind_gap": 0.0338,
+  "ast": {
+   "Music": 0.667,
+   "Singing": 0.001,
+   "Speech": 0.02,
+   "Vehicle": 0.0
+  },
+  "id": "freesound:4dc669a6-7b2a-4467-92b1-2543c3755e75",
+  "title": "Hapi Drum Conversation - Track 1",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/339/339478_4965426-hq.mp3",
+  "creator": "easy_thunder",
+  "landing": "https://freesound.org/people/easy_thunder/sounds/339478"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 300.12,
+  "clipping_share": 0.046185,
+  "source_sample_rate": 44100,
+  "hum_db": 6.1,
+  "silence_share": 0.006,
+  "lufs": -8.8,
+  "lra": 15.6,
+  "true_peak": 2.2,
+  "lf_share": 0.004,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:85412672-b3aa-4e30-a41b-499a9bcc381c",
+  "title": "JULY 4TH, 2013 SOUNDS.mp3",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/194/194310_2454147-hq.mp3",
+  "creator": "tubbers",
+  "landing": "https://freesound.org/people/tubbers/sounds/194310"
+ },
+ {
+  "reasons": [
+   "ast_speech"
+  ],
+  "duration": 79.896,
+  "clipping_share": 0.0,
+  "source_sample_rate": 48000,
+  "hum_db": 8.6,
+  "silence_share": 0.0,
+  "lufs": -27.1,
+  "lra": 21.1,
+  "true_peak": -2.5,
+  "lf_share": 0.001,
+  "channel_corr": 0.977,
+  "mono": false,
+  "clap_pos": 0.2211,
+  "clap_margin": 0.0928,
+  "clap_worst_neg": "modern drum kit with cymbals, rock or pop music",
+  "kind_winner": "war_drums",
+  "kind_gap": 0.2055,
+  "ast": {
+   "Music": 0.667,
+   "Singing": 0.001,
+   "Speech": 0.802,
+   "Vehicle": 0.003
+  },
+  "id": "freesound:be78f0cf-39ab-4a4b-b952-77238c1d1ab6",
+  "title": "fanfare corps atmo field recording",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/463/463266_2061858-hq.mp3",
+  "creator": "Garuda1982",
+  "landing": "https://freesound.org/people/Garuda1982/sounds/463266"
+ },
+ {
+  "reasons": [
+   "ast_speech"
+  ],
+  "duration": 74.568,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "hum_db": 7.9,
+  "silence_share": 0.0,
+  "lufs": -25.3,
+  "lra": 22.8,
+  "true_peak": -0.5,
+  "lf_share": 0.002,
+  "channel_corr": 0.181,
+  "mono": false,
+  "clap_pos": 0.2532,
+  "clap_margin": 0.1537,
+  "clap_worst_neg": "modern drum kit with cymbals, rock or pop music",
+  "kind_winner": "war_drums",
+  "kind_gap": 0.1548,
+  "ast": {
+   "Music": 0.764,
+   "Singing": 0.001,
+   "Speech": 0.682,
+   "Vehicle": 0.007
+  },
+  "id": "freesound:bb9245c4-ca20-42b2-9b4f-5709cc497f49",
+  "title": "reenactment3.aif",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/125/125933_296888-hq.mp3",
+  "creator": "alienistcog",
+  "landing": "https://freesound.org/people/alienistcog/sounds/125933"
+ },
+ {
+  "reasons": [
+   "ast_speech"
+  ],
+  "duration": 73.752,
+  "clipping_share": 0.0,
+  "source_sample_rate": 44100,
+  "hum_db": 7.8,
+  "silence_share": 0.0,
+  "lufs": -24.2,
+  "lra": 14.6,
+  "true_peak": 0.1,
+  "lf_share": 0.156,
+  "channel_corr": 0.341,
+  "mono": false,
+  "clap_pos": 0.2017,
+  "clap_margin": 0.0574,
+  "clap_worst_neg": "modern drum kit with cymbals, rock or pop music",
+  "kind_winner": "war_drums",
+  "kind_gap": 0.1654,
+  "ast": {
+   "Music": 0.549,
+   "Singing": 0.002,
+   "Speech": 0.641,
+   "Vehicle": 0.011
+  },
+  "id": "freesound:6bb0e03c-a2c3-40f5-99b3-07e854105724",
+  "title": "reenactment1.aif",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/125/125931_296888-hq.mp3",
+  "creator": "alienistcog",
+  "landing": "https://freesound.org/people/alienistcog/sounds/125931"
+ },
+ {
+  "reasons": [
+   "clipping",
+   "mains_hum"
+  ],
+  "duration": 41.736,
+  "clipping_share": 0.00076,
+  "source_sample_rate": 44100,
+  "hum_db": 17.6,
+  "silence_share": 0.0,
+  "lufs": -18.9,
+  "lra": 3.0,
+  "true_peak": -0.2,
+  "lf_share": 0.001,
+  "channel_corr": 0.732,
+  "mono": false,
+  "id": "freesound:4b223a04-3547-4fdd-9da9-78cd1631faf4",
+  "title": "sredniowieczna_biesiada.wav",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/652/652036_5161731-hq.mp3",
+  "creator": "certoipus",
+  "landing": "https://freesound.org/people/certoipus/sounds/652036"
+ },
+ {
+  "reasons": [
+   "clipping",
+   "too_much_silence"
+  ],
+  "duration": 38.452,
+  "clipping_share": 0.000142,
+  "source_sample_rate": 44100,
+  "hum_db": 5.7,
+  "silence_share": 0.332,
+  "lufs": -17.3,
+  "lra": 8.7,
+  "true_peak": 5.2,
+  "lf_share": 0.341,
+  "channel_corr": 1.0,
+  "mono": true,
+  "id": "freesound:19cfe0b3-43f8-4a0a-a3db-ac70f30ad39f",
+  "title": "MPC2K1.WAV",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/84/84145_293854-hq.mp3",
+  "creator": "firnwald",
+  "landing": "https://freesound.org/people/firnwald/sounds/84145"
+ },
+ {
+  "reasons": [
+   "clipping"
+  ],
+  "duration": 33.696,
+  "clipping_share": 0.00175,
+  "source_sample_rate": 44100,
+  "hum_db": 7.7,
+  "silence_share": 0.0,
+  "lufs": -13.6,
+  "lra": 3.0,
+  "true_peak": -0.7,
+  "lf_share": 0.001,
+  "channel_corr": 0.837,
+  "mono": false,
+  "id": "freesound:ce17d8e3-1a98-4cad-8438-8a4dae843603",
+  "title": "Pickets.mp3",
+  "kind": "ambience",
+  "name": "war_drums",
+  "url": "https://cdn.freesound.org/previews/350/350635_6437441-hq.mp3",
+  "creator": "BigRay50",
+  "landing": "https://freesound.org/people/BigRay50/sounds/350635"
  }
 ]

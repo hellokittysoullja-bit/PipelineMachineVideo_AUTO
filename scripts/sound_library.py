@@ -115,6 +115,29 @@ CLAP_MIN_POSITIVE_REPORT_ONLY = 0.08
 AST_VETO = {"Speech": 0.12, "Music": 0.25, "Vehicle": 0.30, "Singing": 0.12}
 # Измерительные гейты атмосферы
 AMB_MAX_SILENCE_SHARE = 0.25
+# Музыка: AST обязан слышать музыку в каждом окне, без пения и речи —
+# пение под закадровым голосом спорит со словами.
+MUSIC_AST_LABELS = ("Music", "Singing", "Choir", "Speech", "Piano", "Keyboard (musical)",
+                    "Electric piano", "Synthesizer", "Clarinet")
+MUSIC_AST_MIN_MUSIC = 0.40
+# Клавишные, синтезатор и кларнет — признаки MIDI-рендера, а не живой
+# средневековой записи. Замер 02.10 на Commons: «Landini - Si dolce non sono»
+# (автор сам пишет «versão midi») — Keyboard 0.13, Piano 0.10; «Machaut
+# Doulz Viaire» — Clarinet 0.19, Piano 0.15, Keyboard 0.11. Обе прошли CLAP
+# с маржой +0.06..+0.08 и звучали бы ровно как «самодельная» музыка, которую
+# владелец уже браковал. Живые записи (колёсная лира, лютня/гитара) по этим
+# классам — ниже 0.05.
+# Пороги — по ТРЁМ замерам, не по одному: «Medieval March» (акустическая
+# гитара, Freesound cc0) даёт Piano 0.094 / Electric piano 0.091 / Keyboard
+# 0.065 в худшем окне и не должна отсекаться; оба MIDI-рендера отсекаются по
+# клавишным и кларнету с запасом. Порог на 3 точках — подгонка, это названо:
+# решающая проверка — ухо владельца.
+MUSIC_AST_VETO = {"Singing": 0.20, "Choir": 0.20, "Speech": 0.15, "Piano": 0.12,
+                  "Keyboard (musical)": 0.10, "Electric piano": 0.12, "Synthesizer": 0.10,
+                  "Clarinet": 0.10}
+MUSIC_MAX_SILENCE_SHARE = 0.30
+MUSIC_MAX_SEC = 300.0
+MUSIC_PEAK_DBFS = -12.0
 AMB_MAX_LRA = 20.0     # 18.2 отсекало настоящее летнее поле с птицами; 26 (ветер без ветрозащиты) остаётся вне
 CLIP_SAMPLE_SHARE = 1e-4     # доля сэмплов на |1.0| — клиппинг
 # Библиотека отдаётся в 48 кГц. Исходник ниже 44.1 кГц — это апсемплинг:
@@ -165,6 +188,29 @@ TITLE_BLOCK = {
                      "seller", "announc", "loudspeaker", "speech", "talk", "scream", "calling",
                      "bingo", "student", "headquarters", "office", "int ", "interior", "binaural"),
     "river_stream": ("sea", "wave", "surf", "rain", "waterfall", "fountain", "tap", "sink", "toilet", "shower"),
+    # Виды 02.10 (событийная атмосфера): слова — из реальной выдачи Openverse
+    # по их же запросам (огнестрел в «battle», петух в «crows», детская
+    # площадка у колоколов).
+    "sea_waves": ("airplane", "aircraft", "city", "street", "traffic", "harbour", "harbor", "port", "boat", "ship engine",
+                  "pool", "swim", "kids", "children", "underwater", "rain", "thunder"),
+    "battle_distant": ("gun", "rifle", "war zone", "explosion", "bomb", "helicopter", "tank",
+                       "laser", "sci", "robot", "game", "soundtrack", "music", "zombie", "ww",
+                       "airsoft", "paintball", "cannon", "artillery", "grenade", "cinematic"),
+    "cavalry_horses": ("airplane", "aircraft", "cart", "carriage", "car", "street", "city", "toy", "coconut", "music",
+                       "clock", "rain", "whinny only", "neigh only"),
+    "church_bells": ("airplane", "aircraft", "traffic", "street", "city", "car", "doorbell", "bicycle", "phone", "alarm", "electronic", "synth", "children",
+                     "playground", "school", "tibetan", "singing bowl", "chime", "handbell",
+                     "cowbell", "sleigh", "ship"),
+    "crows_field": ("airplane", "plane", "aircraft", "jet", "helicopter", "rooster", "chicken", "hen", "farm", "city", "street", "traffic", "urban",
+                    "indoor", "cage", "parrot"),
+    "war_drums": ("airplane", "aircraft", "bagpipe", "pipes", "fife", "machine", "old guard", "kit", "snare", "rock", "electronic", "edm", "trap", "dubstep", "hip", "808",
+                  "taiko", "djembe", "bongo", "conga", "tabla", "cymbal", "beat"),
+    "medieval": ("hip", "hop", "rock", "pop", "edm", "electronic", "synth", "trap", "beat",
+                 "piano", "symphony", "mendelssohn", "rag", "jazz", "game", "8bit", "8-bit",
+                 "chiptune", "gramophone", "pronunciation", "ll-q", "violin music", "guitar loop",
+                 "battle", "voices", "choir", "sing", "tuning", "hmv", "patience", "overture",
+                 "operetta", "street", "bar interior", "festival", "plaza", "kyrie", "missa",
+                 "mass ", "hymn", "chant", "miserere"),
     "chapter_turn": ("sword", "hit", "impact", "explosion", "punch"),
     "plate_tick": ("clock", "metronome", "loop"),
     "reveal_riser": (),
@@ -234,6 +280,15 @@ KIND_DECOYS = {
     "surf": "ocean waves breaking on a beach, sea surf",
     "traffic_city": "city street with traffic and cars",
 }
+# Приманка, ставшая настоящим видом, из конкуренции выпадает: иначе запись
+# моря проигрывала бы самой себе (тот же промпт под другим именем), и вид
+# sea_waves не принял бы ни одного кандидата.
+KIND_DECOY_COVERED_BY = {"surf": "sea_waves"}
+
+
+def active_decoys(spec_by_name):
+    return {k: v for k, v in KIND_DECOYS.items()
+            if KIND_DECOY_COVERED_BY.get(k) not in spec_by_name}
 
 
 NEGATIVE_PROMPTS = (
@@ -317,6 +372,86 @@ LIBRARY_SPEC = {
             queries=["stream water flowing", "river ambience", "brook water", "creek ambience"],
             prompt="a small stream of water flowing gently over stones",
             min_sec=15, keep=4),
+        # Виды событийной атмосферы (02.10): короткие, ~20 с, под конкретную
+        # фразу, а не фон под всю главу — поэтому допускаются записи короче
+        # и динамичнее, чем у фоновых видов выше (свой max_lra).
+        "sea_waves": dict(
+            queries=["sea waves shore", "ocean waves beach", "waves crashing rocks",
+                     "sea shore ambience", "stormy sea waves", "waves pebble beach"],
+            prompt="ocean waves breaking on a shore, sea ambience, no people",
+            min_sec=15, keep=5),
+        "battle_distant": dict(
+            queries=["medieval battle", "sword fight battle", "battle swords clash",
+                     "army battle", "war cries battle", "battle ambience", "swords clashing crowd"],
+            prompt="a medieval battle, clashing swords and shields, shouting soldiers, no gunfire",
+            # Цель — крики и лязг толпы: общая ловушка «people talking» здесь
+            # неприменима (тот же случай, что у crowd_market).
+            neg=("gunfire, rifles, machine guns, explosions",
+                 "music, melody, orchestral soundtrack",
+                 "traffic, car engine, airplane, helicopter",
+                 "one person speaking clearly, conversation",
+                 "digital distortion, clipping, glitch, static"),
+            ast_veto={"Music": 0.30, "Vehicle": 0.30},
+            min_sec=10, keep=5, max_lra=26.0),
+        "cavalry_horses": dict(
+            queries=["horses gallop", "horse galloping", "cavalry charge", "horses trotting",
+                     "herd of horses running", "horse gallop dirt"],
+            prompt="horses galloping on earth, hooves pounding, cavalry",
+            extra_neg=["drums, percussion music", "wooden blocks clapping"],
+            ast_veto={"Speech": 0.15, "Music": 0.25, "Vehicle": 0.30},
+            min_sec=6, keep=5, max_lra=26.0),
+        "church_bells": dict(
+            queries=["church bells ringing", "church bell distant", "village church bells",
+                     "cathedral bells", "monastery bell", "church bell toll"],
+            prompt="church bells ringing in the distance over an old village",
+            # Колокол для AST — почти всегда «Music»: вето по музыке здесь
+            # отбраковало бы саму цель.
+            ast_veto={"Speech": 0.15, "Vehicle": 0.25, "Singing": 0.15},
+            neg=("people talking, human speech, voices",
+                 "traffic, car engine, motor vehicle, airplane",
+                 "electronic synthesizer melody, keyboard",
+                 "digital distortion, clipping, glitch, static"),
+            min_sec=10, keep=5, max_lra=26.0),
+        "crows_field": dict(
+            queries=["crows", "crows cawing", "ravens", "crow calls field", "rooks rookery",
+                     "murder of crows"],
+            prompt="crows and ravens cawing over an empty field, desolate",
+            min_sec=10, keep=5, max_lra=26.0),
+        "war_drums": dict(
+            queries=["war drums", "marching drums", "military drums", "battle drums",
+                     "medieval drums", "army drums march"],
+            prompt="slow heavy war drums beating, an army marching to battle",
+            neg=("people talking, human speech, voices",
+                 "modern drum kit with cymbals, rock or pop music",
+                 "electronic beat, synthesizer, dance music",
+                 "traffic, car engine, motor vehicle, airplane",
+                 "digital distortion, clipping, glitch, static"),
+            ast_veto={"Speech": 0.15, "Vehicle": 0.30, "Singing": 0.15},
+            min_sec=10, keep=5, max_lra=26.0),
+    },
+    # МУЗЫКА (02.10). Средневековая инструментальная музыка под начало ролика,
+    # титры глав и финал. Источники — Wikimedia Commons (только pd/cc0 без
+    # требования атрибуции, проверка на каждом файле) и Openverse cc0.
+    # Вокал отсекается: пение под закадровым голосом спорит со словами.
+    "music": {
+        "medieval": dict(
+            queries=["medieval music", "medieval lute", "lute", "hurdy gurdy medieval",
+                     "medieval flute", "renaissance music", "early music", "medieval harp",
+                     "medieval dance music", "bagpipe medieval"],
+            commons_queries=["estampie", "saltarello medieval", "medieval music", "cantiga",
+                             "Machaut", "Landini", "Dunstable", "Ciconia", "Solage", "troubadour",
+                             "hurdy-gurdy", "ductia", "Llibre Vermell", "medieval instrumental",
+                             "lute music renaissance", "Agincourt carol"],
+            prompt="medieval instrumental music played on acoustic early instruments, "
+                   "lute, fiddle, recorder, hurdy-gurdy",
+            neg=("singing voice, choir, vocals",
+                 "synthesized MIDI music, electronic keyboard sounds",
+                 "modern pop or rock music with a drum kit",
+                 "romantic orchestral symphony",
+                 "solo piano",
+                 "people talking, speech",
+                 "digital distortion, clipping, glitch, static"),
+            min_sec=30, max_sec=900, keep=6),
     },
     # ОБЪЕКТНЫЙ СЛОЙ — предметные разовые звуки под конкретным словом
     # сценария (разметка `[sfx:концепт]`). Именно то, чего синтез не умеет:
@@ -539,10 +674,63 @@ def freesound_search(query, key, page_size=30):
     return out
 
 
+COMMONS_API = "https://commons.wikimedia.org/w/api.php"
+COMMONS_AUDIO_EXT = (".ogg", ".oga", ".opus", ".wav", ".flac", ".mp3")
+
+
+def commons_audio_search(query, limit=40):
+    """Wikimedia Commons, только аудио в общественном достоянии или cc0 БЕЗ
+    требования атрибуции — та же проверка по метаданным самого файла, что у
+    картинок (commons_source.py), fail-closed. MIDI отбрасывается: это
+    ноты, а не запись."""
+    params = {"action": "query", "format": "json", "generator": "search",
+              "gsrsearch": f"{query} filetype:audio", "gsrnamespace": 6, "gsrlimit": limit,
+              "prop": "imageinfo", "iiprop": "url|extmetadata|size|mediatype",
+              "iiextmetadatafilter": "License|AttributionRequired|Artist|LicenseShortName"}
+    url = COMMONS_API + "?" + urllib.parse.urlencode(params)
+    try:
+        from commons_source import USER_AGENT as commons_ua
+    except Exception:
+        commons_ua = UA
+    try:
+        data = _search_cached("commons|" + url, lambda: _get_json(url, headers={"User-Agent": commons_ua}))
+    except Exception as e:
+        print(f"    commons: {type(e).__name__} на «{query}»")
+        return []
+    out = []
+    for p in ((data.get("query") or {}).get("pages") or {}).values():
+        title = p.get("title") or ""
+        ii = (p.get("imageinfo") or [{}])[0]
+        md = ii.get("extmetadata") or {}
+        lic = str((md.get("License") or {}).get("value", "")).lower()
+        att = str((md.get("AttributionRequired") or {}).get("value", "")).lower()
+        if lic not in ("pd", "cc0") or att == "true":
+            continue
+        if not title.lower().endswith(COMMONS_AUDIO_EXT) or not ii.get("url"):
+            continue
+        artist = re.sub(r"<[^>]+>", "", str((md.get("Artist") or {}).get("value", ""))).strip()
+        out.append({
+            "source": "commons", "id": f"commons:{title}", "foreign_id": title,
+            "title": title.replace("File:", ""), "creator": artist[:120],
+            "license": "cc0" if lic == "cc0" else "pd",
+            "license_url": "https://creativecommons.org/publicdomain/mark/1.0/" if lic == "pd"
+            else "https://creativecommons.org/publicdomain/zero/1.0/",
+            "url": ii["url"], "landing": ii.get("descriptionurl"),
+            "duration": float(ii.get("duration") or 0), "query": query,
+        })
+    return out
+
+
 def gather_candidates(spec):
     key = os.environ.get("FREESOUND_API_KEY", "").strip()
     seen, out = set(), []
     pages = 2 if spec.get("min_sec", 0) >= 15 else 1
+    for q in spec.get("commons_queries", ()):
+        for item in commons_audio_search(q):
+            fid = item["foreign_id"]
+            if fid not in seen:
+                seen.add(fid)
+                out.append(item)
     for q in spec["queries"]:
         for item in openverse_search(q, pages) + freesound_search(q, key):
             fid = item["foreign_id"] or item["id"]
@@ -563,6 +751,23 @@ def preview_url(url, quality):
     return url
 
 
+import threading
+_WIKI_LOCK = threading.Lock()   # скачки с Викимедиа — по одной, без всплеска
+WIKI_DOWNLOAD_GAP_SEC = 4.0
+WIKI_MAX_WAIT_SEC = 620.0
+
+
+class _NoLock:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+_NO_LOCK = _NoLock()
+
+
 def download(item, quality="hq"):
     os.makedirs(CACHE_DIR, exist_ok=True)
     url = preview_url(item["url"], quality)
@@ -570,19 +775,48 @@ def download(item, quality="hq"):
     path = os.path.join(CACHE_DIR, f"{h}.audio")
     if os.path.exists(path) and os.path.getsize(path) > 1000:
         return path
-    req = urllib.request.Request(url, headers={"User-Agent": UA})
-    try:
-        with urllib.request.urlopen(req, timeout=180) as r, open(path + ".tmp", "wb") as f:
-            while True:
-                chunk = r.read(1 << 16)
-                if not chunk:
-                    break
-                f.write(chunk)
-        os.replace(path + ".tmp", path)
-        return path
-    except Exception as e:
-        print(f"    скачивание: {type(e).__name__} {item['title'][:40]!r}")
-        return None
+    wiki = "wikimedia.org" in url
+    headers = {"User-Agent": UA}
+    if wiki:
+        # Викимедиа требует опознаваемый User-Agent по своей политике и режет
+        # браузерную строку 403; всплеск параллельных скачек — 429 с
+        # Retry-After. Тот же урок, что у картинок (commons_source.py).
+        try:
+            from commons_source import USER_AGENT as commons_ua
+            headers["User-Agent"] = commons_ua
+        except Exception:
+            pass
+    for attempt in range(4 if wiki else 1):
+        req = urllib.request.Request(url, headers=headers)
+        try:
+            with _WIKI_LOCK if wiki else _NO_LOCK:
+                if wiki:
+                    time.sleep(WIKI_DOWNLOAD_GAP_SEC)
+                with urllib.request.urlopen(req, timeout=180) as r, open(path + ".tmp", "wb") as f:
+                    while True:
+                        chunk = r.read(1 << 16)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+            os.replace(path + ".tmp", path)
+            return path
+        except urllib.error.HTTPError as e:
+            if wiki and e.code in (429, 503) and attempt < 3:
+                try:
+                    wait = int(e.headers.get("Retry-After") or 0)
+                except ValueError:
+                    wait = 0
+                # Retry-After у хоста файлов бывает 600 с — ждём честно:
+                # повтор раньше срока продлевает блокировку.
+                with _WIKI_LOCK:
+                    time.sleep(min(WIKI_MAX_WAIT_SEC, max(5, wait)) + 2)
+                continue
+            print(f"    скачивание: HTTP {e.code} {item['title'][:40]!r}")
+            return None
+        except Exception as e:
+            print(f"    скачивание: {type(e).__name__} {item['title'][:40]!r}")
+            return None
+    return None
 
 
 # ------------------------------------------------------------ измерения
@@ -774,7 +1008,8 @@ def ast_probs(windows16k, labels):
 # ------------------------------------------------------------- оценка
 def _measure_key(path, spec):
     negs = negatives_for(spec)
-    raw = "|".join([os.path.basename(path), str(os.path.getsize(path)), spec["prompt"], *negs,
+    extra = list(MUSIC_AST_LABELS) if spec.get("_kind") == "music" or "commons_queries" in spec else []
+    raw = "|".join([os.path.basename(path), str(os.path.getsize(path)), spec["prompt"], *negs, *extra,
                     "clap:laion/larger_clap_general", "ast:MIT/ast-finetuned-audioset-10-10-0.4593", "v7"])
     return hashlib.sha1(raw.encode()).hexdigest()[:20]
 
@@ -811,6 +1046,10 @@ def measure(path, kind, spec):
         m["undecodable"] = True
         return m
     m["clipping_share"] = round(max(clipping_share(w) for w in win48), 6)
+    if kind == "music":
+        lufs, lra, tp = measure_loudness(path)
+        m.update(lufs=lufs, lra=lra, true_peak=tp)
+        m["silence_share"] = round(silence_share(path, dur, lufs), 3)
     if kind == "ambience":
         m["hum_db"] = round(max(hum_prominence_db(w, 48000) for w in win48), 1)
         m["lf_share"] = round(max(lf_share(w) for w in win48), 3)
@@ -830,14 +1069,22 @@ def measure(path, kind, spec):
         # дисторшн), которые любой сухой фоли-удар обходит даром. Ничто не
         # спрашивало «это скорее выхват меча или шаг?».
         by_name = {n: sp for n, sp in LIBRARY_SPEC[kind].items()}
-        names = list(by_name) + list(KIND_DECOYS)
-        kp = [by_name[n]["prompt"] for n in by_name] + list(KIND_DECOYS.values())
+        decoys = active_decoys(by_name)
+        names = list(by_name) + list(decoys)
+        kp = [by_name[n]["prompt"] for n in by_name] + list(decoys.values())
         krows = clap_scores(win48, kp)
         kavg = [sum(r[i] for r in krows) / len(krows) for i in range(len(names))]
         korder = sorted(range(len(names)), key=lambda i: -kavg[i])
         m["kind_winner"] = names[korder[0]]
         m["kind_gap"] = round(kavg[korder[0]] - kavg[korder[1]], 4)
         m["kind_scores"] = {n: round(x, 4) for n, x in zip(names, kavg)}
+    if kind == "music":
+        win16 = [decode_f32(path, st, min(CLAP_WINDOW_SEC, dur), 16000) for st in starts]
+        probs = ast_probs([w for w in win16 if w.size > 1600], list(MUSIC_AST_LABELS))
+        # Музыка обязана быть музыкой ВЕЗДЕ (минимум по окнам), а пение
+        # отсекается, если оно есть ХОТЬ ГДЕ-ТО (максимум).
+        m["ast_min"] = {lab: round(min(p.get(lab, 0.0) for p in probs), 3) for lab in MUSIC_AST_LABELS}
+        m["ast"] = {lab: round(max(p.get(lab, 0.0) for p in probs), 3) for lab in MUSIC_AST_LABELS}
     if kind == "ambience":
         # AST-вето откалибровано на длинных полевых записях и сознательно
         # НЕ распространяется на object этим заходом — это отдельное решение
@@ -885,8 +1132,18 @@ def judge(m, kind, spec):
             v["reasons"].append("mains_hum")
         if (m.get("silence_share") or 0) > AMB_MAX_SILENCE_SHARE:
             v["reasons"].append("too_much_silence")
-        if m.get("lra") is not None and m["lra"] > AMB_MAX_LRA:
+        if m.get("lra") is not None and m["lra"] > spec.get("max_lra", AMB_MAX_LRA):
             v["reasons"].append("too_dynamic")
+    if kind == "music":
+        v.update(lufs=m.get("lufs"), lra=m.get("lra"), silence_share=m.get("silence_share"),
+                 ast=m.get("ast"), ast_min=m.get("ast_min"))
+        if (m.get("silence_share") or 0) > MUSIC_MAX_SILENCE_SHARE:
+            v["reasons"].append("too_much_silence")
+        if (m.get("ast_min") or {}).get("Music", 0.0) < MUSIC_AST_MIN_MUSIC:
+            v["reasons"].append("ast_not_music")
+        for lab, thr in MUSIC_AST_VETO.items():
+            if (m.get("ast") or {}).get(lab, 0.0) > thr:
+                v["reasons"].append(f"ast_{lab.lower()}")
     if v["reasons"]:
         return v
     rows, negs = m["clap_rows"], m["neg_names"]
@@ -1101,6 +1358,23 @@ def import_file(src, dst, kind, dur):
     """
     peak_target = AMBIENCE_PEAK_DBFS if kind == "ambience" else SFX_PEAK_DBFS
     os.makedirs(os.path.dirname(dst), exist_ok=True)
+    if kind == "music":
+        # Музыка звучит один раз с начала куска, не петлёй: шов посреди
+        # мелодии слышен сразу. Обрезка тишины по краям, срез рокота ниже
+        # 40 Гц, объявленный пик.
+        lufs, _, _ = measure_loudness(src)
+        t0, t1 = _trim_bounds(src, lufs)
+        t1 = min(t1, t0 + MUSIC_MAX_SEC)
+        stage = os.path.join(CACHE_DIR, "music_" + hashlib.sha1(dst.encode()).hexdigest()[:12] + ".wav")
+        if _run(["ffmpeg", "-y", "-v", "error", "-ss", f"{t0:.3f}", "-t", f"{t1 - t0:.3f}", "-i", src,
+                 "-af", "highpass=f=40", "-ar", "48000", "-ac", "2", stage]).returncode != 0:
+            return False
+        r = _run(["ffmpeg", "-v", "info", "-i", stage, "-af", "volumedetect", "-f", "null", "-"])
+        m = re.findall(r"max_volume:\s*(-?[\d.]+) dB", r.stderr)
+        gain = MUSIC_PEAK_DBFS - (float(m[-1]) if m else 0.0)
+        return _run(["ffmpeg", "-y", "-v", "error", "-i", stage, "-af", f"volume={gain:.2f}dB",
+                     "-ar", "48000", "-ac", "2", "-c:a", "flac", "-compression_level", "8",
+                     dst]).returncode == 0
     if kind != "ambience":
         # Пик меряется ПОСЛЕ приведения к 48к/стерео, а не у исходника.
         # Реальный найденный перекос: ffmpeg при mono -> stereo применяет
@@ -1251,8 +1525,9 @@ def kind_competition(path, want, spec_by_name):
     wins = [w for w in wins if w.size > 4800]
     if not wins:
         return None, 0.0, {}
-    names = list(spec_by_name) + list(KIND_DECOYS)
-    prompts = [spec_by_name[n]["prompt"] for n in spec_by_name] + list(KIND_DECOYS.values())
+    decoys = active_decoys(spec_by_name)
+    names = list(spec_by_name) + list(decoys)
+    prompts = [spec_by_name[n]["prompt"] for n in spec_by_name] + list(decoys.values())
     rows = clap_scores(wins, prompts)
     avg = [sum(r[i] for r in rows) / len(rows) for i in range(len(names))]
     order = sorted(range(len(names)), key=lambda i: -avg[i])

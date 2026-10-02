@@ -258,10 +258,12 @@ class TestRealEpisode:
         assert share < 0.85, f"атмосфера покрывает {share:.0%} ролика — это уже автомат"
 
     def test_beds_chosen_are_plausible_for_this_episode(self):
-        """Эпизод про пеший бой в грязи: кузница/рынок под ним неуместны."""
+        """Эпизод про пеший бой в грязи: кузница/рынок под ним неуместны.
+        Звук боя (battle_distant, добавлен 02.10) — уместен: это и есть сцена."""
         _, plan, _ = self._plan()
         used = {s["bed"] for s in plan if s["bed"]}
-        assert used <= {"wind_open", "rain_mud", "stone_hall"}, f"неуместная атмосфера: {used}"
+        assert used <= {"wind_open", "rain_mud", "stone_hall", "battle_distant"}, \
+            f"неуместная атмосфера: {used}"
 
 
 def test_library_kinds_and_plan_vocabulary_match_exactly():

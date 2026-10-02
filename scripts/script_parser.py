@@ -39,7 +39,8 @@ PAUSE_DURATIONS = {"[pause]": 0.8, "[short pause]": 0.4,
 # посимвольный alignment он попал, сходство текста блока с озвученным упало
 # 1.000 -> 0.889 при пороге 0.9, и PHRASE LOCK выключился на ВЕСЬ эпизод:
 # кадры поехали по оценочным длительностям вместо реальных онсетов речи.
-PIPELINE_ONLY_TAG_RE = re.compile(r'\[(?:stat:[^\]]*|climax|sfx:[^\]]*|hush|shot:[^\]]*)\]',
+PIPELINE_ONLY_TAG_RE = re.compile(r'\[(?:stat:[^\]]*|climax|sfx:[^\]]*|hush|shot:[^\]]*'
+                                  r'|amb:[^\]]*|music:[^\]]*)\]',
                                   re.IGNORECASE)
 
 
@@ -148,6 +149,12 @@ def parse_blocks(path):
     # тегов выше, тот же механизм, что у [sfx:].
     content = re.sub(r'\[shot:(.*?)\]', lambda m: f"\x05SHOT:{m.group(1)}\x05", content)
     content = content.replace("[hush]", "\x04HUSH\x04")
+    # [amb:вид] и [music:вид] — звуковое событие под фразой: атмосфера на
+    # ~20 с (море, конница, колокола) и средневековая музыка. Ставит автор
+    # или звуковой режиссёр (scripts/sound_director.py). Разбор — тот же,
+    # что у [sfx:]: блок не режет, позиция хранится в словах.
+    content = re.sub(r'\[(amb|music):(.*?)\]',
+                     lambda m: f"\x06SND:{m.group(1).lower()}:{m.group(2)}\x06", content)
     processed = content
     for tag in sorted(PAUSE_DURATIONS, key=len, reverse=True):
         processed = processed.replace(tag, f"__PAUSE_{PAUSE_DURATIONS[tag]}__")
@@ -165,9 +172,10 @@ def parse_blocks(path):
               f"[long pause] запрещён явно (ломает TTS-артефактами) — проверь script.txt.")
     processed = re.sub(r'\[.*?\]', '', processed)
     parts = re.split(r'(__PAUSE_[\d.]+__|\x00SECTION:.*?\x00|\x01STAT:.*?\x01|\x02CLIMAX\x02'
-                     r'|\x03SFX:.*?\x03|\x04HUSH\x04|\x05SHOT:.*?\x05)', processed)
+                     r'|\x03SFX:.*?\x03|\x04HUSH\x04|\x05SHOT:.*?\x05|\x06SND:.*?\x06)', processed)
     blocks, cur, pause, stat, stat_word_pos, pending_climax = [], "", 0.0, None, None, False
     sfx, hush = [], False
+    sound_cues = []
     shot_brief = None
     shot_briefs = []
     # [sfx:...] стоит ВНУТРИ фразы и монтаж не режет. Но он разбивает строку
@@ -180,14 +188,16 @@ def parse_blocks(path):
 
     def flush():
         nonlocal cur, pause, stat, stat_word_pos, pending_climax, sfx, hush, shot_brief, shot_briefs
+        nonlocal sound_cues
         if cur:
             blocks.append({"text": cur, "pause_after": pause,
                            "words": len(cur.split()), "section": section, "stat": stat,
                            "stat_word_pos": stat_word_pos, "is_climax": pending_climax,
-                           "sfx": list(sfx), "hush": hush,
+                           "sfx": list(sfx), "hush": hush, "sound_cues": list(sound_cues),
                            "shot_brief": shot_brief, "shot_briefs": list(shot_briefs)})
         cur, pause, stat, stat_word_pos, pending_climax = "", 0.0, None, None, False
         sfx, hush = [], False
+        sound_cues = []
         shot_brief = None
         shot_briefs = []
 
@@ -274,6 +284,16 @@ def parse_blocks(path):
                 shot_briefs.append({"word_pos": len(cur.split()), "brief": brief})
                 if shot_brief is None:
                     shot_brief = brief
+            merge_next = bool(cur)
+        elif part.startswith("\x06SND:"):
+            # Тот же разбор, что у [sfx:] выше: открытая пауза -> тег стоит
+            # в начале СЛЕДУЮЩЕЙ фразы, и событие принадлежит ей.
+            if pause > 0 and cur:
+                flush()
+            typ, _, name = part[len("\x06SND:"):-1].partition(":")
+            name = name.strip().lower()
+            if name:
+                sound_cues.append({"type": typ, "name": name, "word_pos": len(cur.split())})
             merge_next = bool(cur)
         elif part == "\x04HUSH\x04":
             hush = True

@@ -298,6 +298,9 @@ FLAGS = {f.name: f for f in (
     Flag("AMBIENCE_BED", "1",
          summary="Атмосфера под кадром по главам (assets/ambience/, "
                  "scripts/ambience_plan.py)"),
+    Flag("SOUND_DIRECTOR", "1",
+         summary="Звуковой режиссёр: атмосфера-события ~20 с и средневековая музыка "
+                 "(теги [amb:]/[music:] или план модели, scripts/sound_director.py)"),
     Flag("SFX_DIRECTOR", "1",
          summary="Планировщик SFX: переход между главами и тик плашки по реальной тишине "
                  "(assets/sfx/transition/, assets/sfx/ui/)"),
