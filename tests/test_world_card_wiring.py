@@ -264,14 +264,21 @@ def test_forbidden_classes_reach_the_veto(episode, monkeypatch):
 
 
 def test_veto_judges_against_channel_plus_episode(episode, monkeypatch):
-    """negative_anchor_violation() судит по СУММЕ: канал + паспорт эпизода.
+    """negative_anchor_violation() судит по СУММЕ: канал + паспорт эпизода —
+    у эпизода МИРА КАНАЛА. Эпизод другого мира (психология) получает только
+    ловушки паспорта: см. tests/test_niche_world.py (аудит 02.10 — ловушка
+    «modern domestic interior, kitchen» отклоняла ожидаемую паспортом
+    раковину с посудой).
 
     Ловим сам факт подмешивания (какие тексты ушли в модель), а не вердикт:
     вердикт зависит от весов модели, а состав списка — от провода, который
     и был оборван.
     """
     monkeypatch.setattr(ps, "VIDEO_FOLDER", str(episode))
-    _write(episode, _psy_card())
+    card = _psy_card()
+    card.update(register="historical", era={"from": 1300, "to": 1500},
+                era_anchor_terms=["medieval"])
+    _write(episode, card)
     ps.reset_world_card_cache()
     seen = {}
 

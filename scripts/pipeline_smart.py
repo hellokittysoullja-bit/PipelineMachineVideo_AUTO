@@ -4097,7 +4097,7 @@ def action_video_qualifier(text):
         return None
     words = [re.sub(r'[^\w]', '', w.lower()) for w in text.split()]
     words = [w for w in words if w and w not in ACTION_STEM_EXCLUDE]
-    for stems, qualifier in ACTION_VIDEO_QUALIFIERS:
+    for stems, qualifier in (ACTION_VIDEO_QUALIFIERS if episode_matches_channel() else ()):
         if any(w.startswith(s) for w in words for s in stems):
             return qualifier
     return None
@@ -5945,6 +5945,9 @@ _CONTENT_ALT_BLOCKLIST_DEFAULT = ()
 # где cosplay/anime — нужный контент, не мусор) заменяется целиком через
 # профиль, не код.
 CONTENT_ALT_BLOCKLIST = tuple(CHANNEL_PROFILE.get("content_alt_blocklist", _CONTENT_ALT_BLOCKLIST_DEFAULT))
+# Термины блоклиста, привязанные к культуре (katana -> japanese): своя
+# культура эпизода их снимает (world_card.apply_culture).
+CULTURE_BOUND_TERMS = tuple(CHANNEL_PROFILE.get("culture_bound_terms", ()))
 
 
 def pexels_candidate_text(item):
@@ -6080,7 +6083,8 @@ def content_blocklist_effective():
     есть бесплатно. Нет паспорта — список ровно тот же, что был.
     """
     import world_card
-    return world_card.apply_culture(CONTENT_ALT_BLOCKLIST, episode_world_card())
+    channel = CONTENT_ALT_BLOCKLIST if episode_matches_channel() else ()
+    return world_card.apply_culture(channel, episode_world_card(), CULTURE_BOUND_TERMS)
 
 
 # Реальный, подтверждённый случай (внешний аудит + прямая проверка на
@@ -6218,6 +6222,8 @@ def _qualifier_fits_world(qualifier, ql):
         return True
     if not card:
         return True
+    if not world_card.matches_channel(card, CHANNEL_PROFILE):
+        return False
     words = qualifier.lower().split()
     if any(w in world_card.culture_exclude(card) for w in words):
         return False
@@ -7546,6 +7552,50 @@ def episode_world_card(video_dir=None):
     return _WORLD_CARD_CACHE[key]
 
 
+def episode_matches_channel(video_dir=None):
+    """Мир эпизода совпадает с миром канала (world_card.matches_channel) —
+    правила канала (ловушки вето, блоклист, домен-гвард, приписки,
+    словарь движения, запасные запросы и якоря) применяются как раньше.
+    Нет паспорта — True; сломанный паспорт скажет о себе в месте чтения,
+    здесь — прежнее поведение (True)."""
+    import world_card
+    try:
+        card = episode_world_card(video_dir)
+    except Exception:  # noqa: BLE001
+        return True
+    return world_card.matches_channel(card, CHANNEL_PROFILE)
+
+
+def report_episode_world():
+    """Громкая строка о том, каким миром собирается эпизод.
+
+    Без паспорта отбор молча идёт по миру КАНАЛА (его ловушки, блоклист,
+    приписки, запасные запросы). Для эпизода мира канала это верно, для
+    эпизода другой ниши — нет, и раньше единственной строкой об этом было
+    «Паспорт мира: нет» среди статуса плана (а без ключа шлюза — ничего)."""
+    import world_card
+    try:
+        card = episode_world_card()
+    except Exception:  # noqa: BLE001 — сломанный паспорт говорит о себе в месте чтения
+        return None
+    if not card:
+        world = ((CHANNEL_PROFILE.get("shot_domain") or {}).get("world")
+                 or "не объявлен в channel_profile.json")
+        msg = ("  ВНИМАНИЕ: паспорта мира эпизода НЕТ (media_plan/world_card.json) — "
+               f"отбор идёт по миру КАНАЛА ({world}): его ловушки вето, блоклист, "
+               "приписки и запасные запросы. Если эпизод не про этот мир — нужен "
+               "паспорт: ключ LLM_GATEWAY_API_KEY (рендер составит его сам) или "
+               "python scripts/world_card.py <папка> --prompt / --answer <файл>.")
+    elif not world_card.matches_channel(card, CHANNEL_PROFILE):
+        msg = ("  Мир эпизода НЕ совпадает с миром канала — правила канала (ловушки "
+               "вето, блоклист, домен-гвард, приписки, словарь движения, запасные "
+               "запросы) выключены, действует паспорт: " + world_card.describe(card))
+    else:
+        return None
+    print(msg)
+    return msg
+
+
 def _world_digest_for_signature():
     import world_card
     try:
@@ -7564,16 +7614,18 @@ def era_anchors_effective():
     """Якоря для запроса из БРИФА и каскада архивов: паспорт эпизода, иначе
     список канала."""
     import world_card
-    return world_card.era_anchors(episode_world_card(),
-                                  fallback=OPENVERSE_ERA_ANCHORS)
+    return world_card.era_anchors(
+        episode_world_card(),
+        fallback=OPENVERSE_ERA_ANCHORS if episode_matches_channel() else ())
 
 
 def query_era_anchors_effective():
     """Якоря для линта АВТОРСКИХ запросов. Тот же источник истины, другой
     запасной список: линт исторически знает больше слов, чем каскад."""
     import world_card
-    return world_card.era_anchors(episode_world_card(),
-                                  fallback=QUERY_ERA_ANCHORS)
+    return world_card.era_anchors(
+        episode_world_card(),
+        fallback=QUERY_ERA_ANCHORS if episode_matches_channel() else ())
 # Маркер версии каскада для _selection_stack_signature(): каскад меняет, КТО
 # вообще попадает в пул, а не только кто в нём победит — на прогретом
 # temp_smart/ без этого правка не дошла бы до экрана.
@@ -7642,7 +7694,8 @@ def generic_fallback_queries_effective():
     ноль регрессии."""
     import world_card
     subjects = world_card.expected_subjects(episode_world_card())
-    return subjects or GENERIC_FALLBACKS or [NEUTRAL_FALLBACK_QUERY]
+    channel = GENERIC_FALLBACKS if episode_matches_channel() else []
+    return subjects or channel or [NEUTRAL_FALLBACK_QUERY]
 
 
 def brief_to_stock_query(brief, fallback=None, max_words=BRIEF_STOCK_QUERY_MAX_WORDS):
@@ -8204,9 +8257,14 @@ def _openverse_query_cascade(api_query):
     lower = [w.lower() for w in words]
     _era_anchors = era_anchors_effective()
     anchors = [w for w, lw in zip(words, lower) if lw in _era_anchors]
+    # Слова сцены и предметы канала — для его мира; в эпизоде другого мира
+    # только слова камеры («deep sea water» не теряет «water»).
+    _own_world = episode_matches_channel()
+    _modifiers = OPENVERSE_QUERY_MODIFIERS if _own_world else _OPENVERSE_QUERY_MODIFIERS_DEFAULT
+    _nouns = OPENVERSE_DOMAIN_NOUNS if _own_world else ()
 
     trimmed = [w for w, lw in zip(words, lower)
-               if lw not in OPENVERSE_QUERY_MODIFIERS]
+               if lw not in _modifiers]
     if len(trimmed) >= OPENVERSE_QUERY_MIN_WORDS and len(trimmed) < len(words):
         variants.append(" ".join(trimmed))
 
@@ -8215,7 +8273,7 @@ def _openverse_query_cascade(api_query):
         # armour" последний ("armour") даёт 41 релевантный результат, а
         # первый ("army") — 6, где первый же кадр аэрофотосъёмка Индии.
         nouns = [w for w, lw in zip(words, lower)
-                 if lw in OPENVERSE_DOMAIN_NOUNS and lw not in
+                 if lw in _nouns and lw not in
                  {a.lower() for a in anchors[:1]}]
         head = nouns[-1] if nouns else None
         if head is not None:
@@ -10101,10 +10159,11 @@ def lint_authored_queries(authored_queries, blocks=None):
             print(f"      [{section}] {q}")
 
     hits = []
+    lint_terms = CONTENT_ALT_BLOCKLIST if episode_matches_channel() else content_blocklist_effective()
     for section, pool in sorted((authored_queries or {}).items()):
         for q in pool or []:
             ql = (q or "").lower()
-            for term in CONTENT_ALT_BLOCKLIST:
+            for term in lint_terms:
                 if term in ql:
                     hits.append((section, q, term))
                     break
@@ -12443,7 +12502,8 @@ def negative_anchor_violation(image_path, query):
     """
     if not NEGATIVE_VETO_ENABLED:
         return False, None
-    anchors = tuple(CONTENT_NEGATIVE_ANCHORS) + episode_forbidden_anchors()
+    channel = tuple(CONTENT_NEGATIVE_ANCHORS) if episode_matches_channel() else ()
+    anchors = channel + episode_forbidden_anchors()
     if not anchors:
         return False, None
     scores = clip_relevance_multi(image_path, [query] + list(anchors))
@@ -12462,7 +12522,7 @@ def visual_domain_guard_violation(image_path, query):
     выше. (False, None), если анкеры не применимы к этому запросу или CLIP
     недоступен (безопасный откат, тот же принцип, что is_risky_query)."""
     ql = query.lower()
-    for guard in VISUAL_DOMAIN_GUARDS:
+    for guard in (VISUAL_DOMAIN_GUARDS if episode_matches_channel() else ()):
         if not any(t in ql for t in guard["trigger_terms"]):
             continue
         euro = clip_relevance(image_path, guard["euro_prompt"])
@@ -14236,6 +14296,11 @@ def candidate_gate_signature(index=None):
             CLIP_GATE_MODEL_NAME,
         )))
         parts.append(_selection_stack_signature())
+        # Мир эпизода не совпал с миром канала — правила канала выключены
+        # (episode_matches_channel). Строка только в этом случае: у эпизодов
+        # мира канала подпись прежняя байт-в-байт.
+        if not episode_matches_channel():
+            parts.append("world:other")
         # Устройство моделей отбора (ml_device): на процессоре пустая строка,
         # подпись прежняя; на видеокарте — своя (числа отличаются на ~1e-6).
         import ml_device
@@ -17812,7 +17877,7 @@ def main():
         import shot_planner_llm
         if shot_planner_llm.enabled():
             _plan = shot_planner_llm.load_plan(VIDEO_FOLDER)
-            _filled = shot_planner_llm.fill_briefs(blocks, _plan)
+            _filled = shot_planner_llm.fill_briefs(blocks, _plan, video_dir=VIDEO_FOLDER)
             if _filled:
                 print(f"  Локальный режиссёр: заявка проставлена на {_filled} "
                       f"юнитов из {len(blocks)} (авторские брифы не тронуты)")
@@ -17853,6 +17918,7 @@ def main():
     # паспорта, а не из дефолтов канала (см. museum_sources.set_episode_world).
     import museum_sources
     museum_sources.set_episode_world(episode_world_card())
+    report_episode_world()
     try:
         import stock_query_planner
         _sq = stock_query_planner.attach(blocks, stock_query_planner.load(VIDEO_FOLDER),

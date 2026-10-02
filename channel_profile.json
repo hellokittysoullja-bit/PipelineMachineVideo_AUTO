@@ -79,6 +79,45 @@
     "parade",
     "military wedding"
   ],
+  "_culture_bound_terms_comment": "Термины блоклиста, привязанные к культуре, но не называющие её словом (katana/hanbok в 'japanese'/'korean' не совпадают). Эпизод, чей паспорт называет эту культуру своей (culture.include), их не блокирует (world_card.apply_culture). Ни одна из культур не своя — блоклист прежний.",
+  "culture_bound_terms": [
+    {
+      "cultures": [
+        "japan",
+        "japanese"
+      ],
+      "terms": [
+        "katana",
+        "samurai",
+        "kimono",
+        "shogun",
+        "ninja"
+      ]
+    },
+    {
+      "cultures": [
+        "china",
+        "chinese"
+      ],
+      "terms": [
+        "chinese sword",
+        "jian sword",
+        "wuxia",
+        "tai chi"
+      ]
+    },
+    {
+      "cultures": [
+        "korea",
+        "korean"
+      ],
+      "terms": [
+        "korean",
+        "hanbok",
+        "joseon"
+      ]
+    }
+  ],
   "voice": {
     "highpass_hz": 80,
     "eq_warmth_hz": 200,
