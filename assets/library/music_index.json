@@ -9,7 +9,7 @@
     "medieval"
    ],
    "dur": 35.81,
-   "card": "\"HurdySample.ogg\" medieval; sounds like: Celtic folk; sounds: bagpipes; no beat; medieval period music",
+   "card": "\"HurdySample.ogg\" medieval; sounds like: Celtic folk; sounds: bagpipes; no beat; medieval period music; owner hears: lively, cheerful - wrong under a grim opening",
    "ast": {
     "Music": 0.606,
     "Bagpipes": 0.716,
@@ -46,7 +46,14 @@
     "Christmas holiday": -0.0385,
     "playful children's": -0.0868,
     "jazz or latin": -0.069,
-    "country western": 0.0627
+    "country western": 0.0627,
+    "calm": -0.0045,
+    "melancholic": 0.0668,
+    "dark": 0.0103,
+    "tense": -0.023,
+    "solemn": 0.1305,
+    "lively dance": -0.1148,
+    "triumphant": -0.0412
    },
    "style_z": {
     "medieval European early music": 0.76,
@@ -69,9 +76,17 @@
     "Christmas holiday": -2.48,
     "playful children's": -2.46,
     "jazz or latin": -1.82,
-    "country western": 0.68
+    "country western": 0.68,
+    "calm": -3.31,
+    "melancholic": -2.11,
+    "dark": -2.14,
+    "tense": -2.65,
+    "solemn": -1.09,
+    "lively dance": -2.15,
+    "triumphant": -2.2
    },
-   "style_checked": true
+   "style_checked": true,
+   "heard_as": "lively, cheerful - wrong under a grim opening"
   },
   {
    "id": "lib_freesound_ba9d4bbe_94fd_4be5_8625_25406367aed6",
@@ -82,7 +97,7 @@
     "medieval"
    ],
    "dur": 77.52,
-   "card": "\"Medieval March (mp3)\" medieval; sounds: guitar, plucked string instrument, piano; steady rhythmic pattern; medieval period music",
+   "card": "\"Medieval March (mp3)\" medieval; sounds: guitar, plucked string instrument, piano; steady rhythmic pattern; medieval period music; owner hears: calm, atmospheric, gentle - fits a grim or quiet opening",
    "ast": {
     "Music": 0.927,
     "Piano": 0.081,
@@ -119,7 +134,14 @@
     "Christmas holiday": -0.05,
     "playful children's": 0.1422,
     "jazz or latin": 0.2236,
-    "country western": 0.0936
+    "country western": 0.0936,
+    "calm": 0.1636,
+    "melancholic": 0.2509,
+    "dark": -0.0074,
+    "tense": 0.0329,
+    "solemn": 0.1363,
+    "lively dance": 0.1978,
+    "triumphant": 0.1145
    },
    "style_z": {
     "medieval European early music": 0.83,
@@ -142,9 +164,17 @@
     "Christmas holiday": -2.71,
     "playful children's": 0.84,
     "jazz or latin": 1.32,
-    "country western": 1.19
+    "country western": 1.19,
+    "calm": -1.14,
+    "melancholic": -0.09,
+    "dark": -2.34,
+    "tense": -1.96,
+    "solemn": -1.02,
+    "lively dance": 1.67,
+    "triumphant": -0.21
    },
-   "style_checked": true
+   "style_checked": true,
+   "heard_as": "calm, atmospheric, gentle - fits a grim or quiet opening"
   },
   {
    "id": "mixkit_1017",
@@ -192,7 +222,14 @@
     "Christmas holiday": 0.058,
     "playful children's": 0.175,
     "jazz or latin": 0.2048,
-    "country western": 0.2466
+    "country western": 0.2466,
+    "calm": 0.1688,
+    "melancholic": 0.2263,
+    "dark": 0.0582,
+    "tense": 0.02,
+    "solemn": 0.0224,
+    "lively dance": 0.2142,
+    "triumphant": 0.2215
    },
    "style_z": {
     "medieval European early music": -0.11,
@@ -215,7 +252,14 @@
     "Christmas holiday": -0.5,
     "playful children's": 1.31,
     "jazz or latin": 1.12,
-    "country western": 3.73
+    "country western": 3.73,
+    "calm": -1.07,
+    "melancholic": -0.36,
+    "dark": -1.59,
+    "tense": -2.12,
+    "solemn": -2.34,
+    "lively dance": 1.87,
+    "triumphant": 1.15
    },
    "style_checked": true
   },
@@ -267,7 +311,14 @@
     "Christmas holiday": -0.0213,
     "playful children's": 0.0383,
     "jazz or latin": 0.0866,
-    "country western": 0.0758
+    "country western": 0.0758,
+    "calm": 0.2307,
+    "melancholic": 0.2414,
+    "dark": 0.1198,
+    "tense": 0.0289,
+    "solemn": 0.168,
+    "lively dance": 0.0506,
+    "triumphant": 0.0104
    },
    "style_z": {
     "medieval European early music": 0.6,
@@ -290,7 +341,14 @@
     "Christmas holiday": -2.12,
     "playful children's": -0.66,
     "jazz or latin": -0.15,
-    "country western": 0.9
+    "country western": 0.9,
+    "calm": -0.27,
+    "melancholic": -0.2,
+    "dark": -0.88,
+    "tense": -2.01,
+    "solemn": -0.65,
+    "lively dance": -0.13,
+    "triumphant": -1.54
    },
    "style_checked": true
   },
@@ -339,7 +397,14 @@
     "Christmas holiday": -0.0059,
     "playful children's": 0.1508,
     "jazz or latin": 0.2467,
-    "country western": 0.0715
+    "country western": 0.0715,
+    "calm": 0.167,
+    "melancholic": 0.145,
+    "dark": 0.0655,
+    "tense": 0.0557,
+    "solemn": 0.1056,
+    "lively dance": 0.2399,
+    "triumphant": 0.1954
    },
    "style_z": {
     "medieval European early music": -0.04,
@@ -362,7 +427,14 @@
     "Christmas holiday": -1.81,
     "playful children's": 0.96,
     "jazz or latin": 1.57,
-    "country western": 0.83
+    "country western": 0.83,
+    "calm": -1.1,
+    "melancholic": -1.25,
+    "dark": -1.5,
+    "tense": -1.68,
+    "solemn": -1.37,
+    "lively dance": 2.18,
+    "triumphant": 0.82
    },
    "style_checked": true
   },
@@ -415,7 +487,14 @@
     "Christmas holiday": 0.0054,
     "playful children's": 0.1225,
     "jazz or latin": 0.2634,
-    "country western": -0.0108
+    "country western": -0.0108,
+    "calm": 0.2836,
+    "melancholic": 0.4189,
+    "dark": 0.1511,
+    "tense": 0.0913,
+    "solemn": 0.1723,
+    "lively dance": 0.1714,
+    "triumphant": 0.141
    },
    "style_z": {
     "medieval European early music": 0.35,
@@ -438,7 +517,14 @@
     "Christmas holiday": -1.58,
     "playful children's": 0.55,
     "jazz or latin": 1.75,
-    "country western": -0.53
+    "country western": -0.53,
+    "calm": 0.41,
+    "melancholic": 1.75,
+    "dark": -0.52,
+    "tense": -1.24,
+    "solemn": -0.6,
+    "lively dance": 1.34,
+    "triumphant": 0.12
    },
    "style_checked": true
   },
@@ -488,7 +574,14 @@
     "Christmas holiday": 0.0772,
     "playful children's": 0.0549,
     "jazz or latin": 0.033,
-    "country western": 0.004
+    "country western": 0.004,
+    "calm": 0.199,
+    "melancholic": 0.1232,
+    "dark": 0.0877,
+    "tense": 0.1161,
+    "solemn": 0.0951,
+    "lively dance": 0.0417,
+    "triumphant": 0.012
    },
    "style_z": {
     "medieval European early music": -1.71,
@@ -511,7 +604,14 @@
     "Christmas holiday": -0.1,
     "playful children's": -0.42,
     "jazz or latin": -0.72,
-    "country western": -0.29
+    "country western": -0.29,
+    "calm": -0.68,
+    "melancholic": -1.49,
+    "dark": -1.25,
+    "tense": -0.94,
+    "solemn": -1.5,
+    "lively dance": -0.24,
+    "triumphant": -1.52
    },
    "style_checked": true
   },
@@ -560,7 +660,14 @@
     "Christmas holiday": 0.0318,
     "playful children's": -0.0601,
     "jazz or latin": -0.0915,
-    "country western": -0.0081
+    "country western": -0.0081,
+    "calm": 0.1961,
+    "melancholic": 0.0514,
+    "dark": 0.2078,
+    "tense": 0.1938,
+    "solemn": 0.1633,
+    "lively dance": -0.0585,
+    "triumphant": -0.0009
    },
    "style_z": {
     "medieval European early music": -2.6,
@@ -583,7 +690,14 @@
     "Christmas holiday": -1.03,
     "playful children's": -2.07,
     "jazz or latin": -2.06,
-    "country western": -0.49
+    "country western": -0.49,
+    "calm": -0.72,
+    "melancholic": -2.28,
+    "dark": 0.14,
+    "tense": 0.01,
+    "solemn": -0.71,
+    "lively dance": -1.46,
+    "triumphant": -1.68
    },
    "style_checked": true
   },
@@ -636,7 +750,14 @@
     "Christmas holiday": 0.1175,
     "playful children's": -0.0159,
     "jazz or latin": -0.059,
-    "country western": -0.0183
+    "country western": -0.0183,
+    "calm": 0.1408,
+    "melancholic": 0.1605,
+    "dark": 0.1807,
+    "tense": 0.1807,
+    "solemn": 0.2469,
+    "lively dance": -0.0724,
+    "triumphant": -0.0019
    },
    "style_z": {
     "medieval European early music": -0.64,
@@ -659,7 +780,14 @@
     "Christmas holiday": 0.73,
     "playful children's": -1.44,
     "jazz or latin": -1.71,
-    "country western": -0.66
+    "country western": -0.66,
+    "calm": -1.44,
+    "melancholic": -1.08,
+    "dark": -0.18,
+    "tense": -0.15,
+    "solemn": 0.26,
+    "lively dance": -1.63,
+    "triumphant": -1.7
    },
    "style_checked": true
   },
@@ -708,7 +836,14 @@
     "Christmas holiday": 0.0553,
     "playful children's": -0.0097,
     "jazz or latin": 0.0791,
-    "country western": -0.078
+    "country western": -0.078,
+    "calm": 0.2499,
+    "melancholic": 0.1708,
+    "dark": 0.1876,
+    "tense": 0.134,
+    "solemn": 0.1554,
+    "lively dance": -0.0133,
+    "triumphant": -0.012
    },
    "style_z": {
     "medieval European early music": -2.64,
@@ -731,7 +866,14 @@
     "Christmas holiday": -0.55,
     "playful children's": -1.35,
     "jazz or latin": -0.23,
-    "country western": -1.65
+    "country western": -1.65,
+    "calm": -0.03,
+    "melancholic": -0.97,
+    "dark": -0.1,
+    "tense": -0.72,
+    "solemn": -0.8,
+    "lively dance": -0.91,
+    "triumphant": -1.82
    },
    "style_checked": true
   },
@@ -784,7 +926,14 @@
     "Christmas holiday": 0.0926,
     "playful children's": -0.0039,
     "jazz or latin": -0.085,
-    "country western": -0.0242
+    "country western": -0.0242,
+    "calm": 0.1877,
+    "melancholic": 0.0876,
+    "dark": 0.2622,
+    "tense": 0.2551,
+    "solemn": 0.2407,
+    "lively dance": -0.0385,
+    "triumphant": 0.0657
    },
    "style_z": {
     "medieval European early music": -1.8,
@@ -807,7 +956,14 @@
     "Christmas holiday": 0.21,
     "playful children's": -1.26,
     "jazz or latin": -1.99,
-    "country western": -0.76
+    "country western": -0.76,
+    "calm": -0.83,
+    "melancholic": -1.88,
+    "dark": 0.76,
+    "tense": 0.77,
+    "solemn": 0.19,
+    "lively dance": -1.22,
+    "triumphant": -0.83
    },
    "style_checked": true
   },
@@ -858,7 +1014,14 @@
     "Christmas holiday": 0.1488,
     "playful children's": 0.0333,
     "jazz or latin": -0.0192,
-    "country western": -0.009
+    "country western": -0.009,
+    "calm": 0.2426,
+    "melancholic": 0.2252,
+    "dark": 0.2543,
+    "tense": 0.258,
+    "solemn": 0.2564,
+    "lively dance": 0.0109,
+    "triumphant": 0.1689
    },
    "style_z": {
     "medieval European early music": -1.67,
@@ -881,7 +1044,14 @@
     "Christmas holiday": 1.37,
     "playful children's": -0.73,
     "jazz or latin": -1.28,
-    "country western": -0.5
+    "country western": -0.5,
+    "calm": -0.12,
+    "melancholic": -0.37,
+    "dark": 0.67,
+    "tense": 0.8,
+    "solemn": 0.37,
+    "lively dance": -0.61,
+    "triumphant": 0.48
    },
    "style_checked": true
   },
@@ -930,7 +1100,14 @@
     "Christmas holiday": 0.0755,
     "playful children's": 0.0512,
     "jazz or latin": 0.0592,
-    "country western": -0.0094
+    "country western": -0.0094,
+    "calm": 0.2006,
+    "melancholic": 0.2277,
+    "dark": 0.0939,
+    "tense": 0.0842,
+    "solemn": 0.0869,
+    "lively dance": 0.0452,
+    "triumphant": 0.0979
    },
    "style_z": {
     "medieval European early music": -1.73,
@@ -953,7 +1130,14 @@
     "Christmas holiday": -0.14,
     "playful children's": -0.47,
     "jazz or latin": -0.44,
-    "country western": -0.51
+    "country western": -0.51,
+    "calm": -0.66,
+    "melancholic": -0.35,
+    "dark": -1.18,
+    "tense": -1.33,
+    "solemn": -1.59,
+    "lively dance": -0.2,
+    "triumphant": -0.42
    },
    "style_checked": true
   },
@@ -1002,7 +1186,14 @@
     "Christmas holiday": 0.1256,
     "playful children's": -0.0024,
     "jazz or latin": -0.0266,
-    "country western": 0.0261
+    "country western": 0.0261,
+    "calm": 0.1791,
+    "melancholic": 0.1504,
+    "dark": 0.1357,
+    "tense": 0.097,
+    "solemn": 0.1631,
+    "lively dance": 0.019,
+    "triumphant": 0.0711
    },
    "style_z": {
     "medieval European early music": -2.05,
@@ -1025,7 +1216,14 @@
     "Christmas holiday": 0.89,
     "playful children's": -1.24,
     "jazz or latin": -1.36,
-    "country western": 0.08
+    "country western": 0.08,
+    "calm": -0.94,
+    "melancholic": -1.19,
+    "dark": -0.7,
+    "tense": -1.17,
+    "solemn": -0.71,
+    "lively dance": -0.51,
+    "triumphant": -0.77
    },
    "style_checked": true
   },
@@ -1076,7 +1274,14 @@
     "Christmas holiday": -0.0292,
     "playful children's": 0.0341,
     "jazz or latin": 0.0386,
-    "country western": -0.0259
+    "country western": -0.0259,
+    "calm": 0.2274,
+    "melancholic": 0.2016,
+    "dark": 0.1189,
+    "tense": 0.1007,
+    "solemn": 0.0766,
+    "lively dance": 0.07,
+    "triumphant": 0.0812
    },
    "style_z": {
     "medieval European early music": -2.61,
@@ -1099,7 +1304,14 @@
     "Christmas holiday": -2.29,
     "playful children's": -0.72,
     "jazz or latin": -0.66,
-    "country western": -0.78
+    "country western": -0.78,
+    "calm": -0.32,
+    "melancholic": -0.63,
+    "dark": -0.89,
+    "tense": -1.13,
+    "solemn": -1.71,
+    "lively dance": 0.11,
+    "triumphant": -0.64
    },
    "style_checked": true
   },
@@ -1154,7 +1366,14 @@
     "Christmas holiday": 0.1279,
     "playful children's": -0.0756,
     "jazz or latin": 0.0219,
-    "country western": -0.0369
+    "country western": -0.0369,
+    "calm": 0.2249,
+    "melancholic": 0.29,
+    "dark": 0.218,
+    "tense": 0.1299,
+    "solemn": 0.2494,
+    "lively dance": -0.146,
+    "triumphant": 0.0164
    },
    "style_z": {
     "medieval European early music": -1.16,
@@ -1177,7 +1396,14 @@
     "Christmas holiday": 0.94,
     "playful children's": -2.3,
     "jazz or latin": -0.84,
-    "country western": -0.97
+    "country western": -0.97,
+    "calm": -0.35,
+    "melancholic": 0.34,
+    "dark": 0.25,
+    "tense": -0.77,
+    "solemn": 0.29,
+    "lively dance": -2.53,
+    "triumphant": -1.46
    },
    "style_checked": true
   },
@@ -1228,7 +1454,14 @@
     "Christmas holiday": 0.1223,
     "playful children's": 0.1158,
     "jazz or latin": 0.1031,
-    "country western": 0.0022
+    "country western": 0.0022,
+    "calm": 0.2731,
+    "melancholic": 0.218,
+    "dark": 0.187,
+    "tense": 0.2217,
+    "solemn": 0.1089,
+    "lively dance": 0.107,
+    "triumphant": 0.105
    },
    "style_z": {
     "medieval European early music": -1.52,
@@ -1251,7 +1484,14 @@
     "Christmas holiday": 0.82,
     "playful children's": 0.46,
     "jazz or latin": 0.03,
-    "country western": -0.32
+    "country western": -0.32,
+    "calm": 0.27,
+    "melancholic": -0.45,
+    "dark": -0.1,
+    "tense": 0.36,
+    "solemn": -1.34,
+    "lively dance": 0.56,
+    "triumphant": -0.33
    },
    "style_checked": true
   },
@@ -1301,7 +1541,14 @@
     "Christmas holiday": 0.0988,
     "playful children's": 0.0091,
     "jazz or latin": 0.1085,
-    "country western": -0.0057
+    "country western": -0.0057,
+    "calm": 0.1672,
+    "melancholic": 0.2672,
+    "dark": 0.1065,
+    "tense": 0.079,
+    "solemn": 0.2564,
+    "lively dance": -0.0178,
+    "triumphant": 0.0338
    },
    "style_z": {
     "medieval European early music": 0.21,
@@ -1324,7 +1571,14 @@
     "Christmas holiday": 0.34,
     "playful children's": -1.08,
     "jazz or latin": 0.09,
-    "country western": -0.45
+    "country western": -0.45,
+    "calm": -1.09,
+    "melancholic": 0.09,
+    "dark": -1.03,
+    "tense": -1.39,
+    "solemn": 0.37,
+    "lively dance": -0.96,
+    "triumphant": -1.24
    },
    "style_checked": true
   },
@@ -1376,7 +1630,14 @@
     "Christmas holiday": 0.1233,
     "playful children's": 0.0542,
     "jazz or latin": 0.1181,
-    "country western": -0.0088
+    "country western": -0.0088,
+    "calm": 0.1899,
+    "melancholic": 0.2407,
+    "dark": 0.1837,
+    "tense": 0.102,
+    "solemn": 0.2601,
+    "lively dance": 0.0319,
+    "triumphant": 0.1131
    },
    "style_z": {
     "medieval European early music": 0.8,
@@ -1399,7 +1660,14 @@
     "Christmas holiday": 0.85,
     "playful children's": -0.43,
     "jazz or latin": 0.19,
-    "country western": -0.5
+    "country western": -0.5,
+    "calm": -0.8,
+    "melancholic": -0.2,
+    "dark": -0.14,
+    "tense": -1.11,
+    "solemn": 0.41,
+    "lively dance": -0.36,
+    "triumphant": -0.23
    },
    "style_checked": true
   },
@@ -1456,7 +1724,14 @@
     "Christmas holiday": 0.0718,
     "playful children's": 0.0508,
     "jazz or latin": 0.1553,
-    "country western": 0.1098
+    "country western": 0.1098,
+    "calm": 0.3433,
+    "melancholic": 0.3815,
+    "dark": 0.277,
+    "tense": 0.1591,
+    "solemn": 0.3,
+    "lively dance": -0.0052,
+    "triumphant": 0.096
    },
    "style_z": {
     "medieval European early music": 0.61,
@@ -1479,7 +1754,14 @@
     "Christmas holiday": -0.21,
     "playful children's": -0.48,
     "jazz or latin": 0.59,
-    "country western": 1.46
+    "country western": 1.46,
+    "calm": 1.18,
+    "melancholic": 1.34,
+    "dark": 0.93,
+    "tense": -0.41,
+    "solemn": 0.87,
+    "lively dance": -0.81,
+    "triumphant": -0.45
    },
    "style_checked": true
   },
@@ -1531,7 +1813,14 @@
     "Christmas holiday": 0.1039,
     "playful children's": 0.1357,
     "jazz or latin": 0.1376,
-    "country western": 0.0577
+    "country western": 0.0577,
+    "calm": 0.3107,
+    "melancholic": 0.2444,
+    "dark": 0.1285,
+    "tense": 0.2133,
+    "solemn": 0.133,
+    "lively dance": 0.1914,
+    "triumphant": 0.1999
    },
    "style_z": {
     "medieval European early music": -1.2,
@@ -1554,7 +1843,14 @@
     "Christmas holiday": 0.45,
     "playful children's": 0.74,
     "jazz or latin": 0.4,
-    "country western": 0.6
+    "country western": 0.6,
+    "calm": 0.76,
+    "melancholic": -0.16,
+    "dark": -0.78,
+    "tense": 0.25,
+    "solemn": -1.06,
+    "lively dance": 1.59,
+    "triumphant": 0.87
    },
    "style_checked": true
   },
@@ -1607,7 +1903,14 @@
     "Christmas holiday": 0.0486,
     "playful children's": 0.0482,
     "jazz or latin": 0.0971,
-    "country western": 0.0002
+    "country western": 0.0002,
+    "calm": 0.3525,
+    "melancholic": 0.2861,
+    "dark": 0.2255,
+    "tense": 0.1977,
+    "solemn": 0.1848,
+    "lively dance": 0.112,
+    "triumphant": 0.1025
    },
    "style_z": {
     "medieval European early music": -0.97,
@@ -1630,7 +1933,14 @@
     "Christmas holiday": -0.69,
     "playful children's": -0.51,
     "jazz or latin": -0.04,
-    "country western": -0.35
+    "country western": -0.35,
+    "calm": 1.3,
+    "melancholic": 0.29,
+    "dark": 0.34,
+    "tense": 0.06,
+    "solemn": -0.46,
+    "lively dance": 0.62,
+    "triumphant": -0.37
    },
    "style_checked": true
   },
@@ -1683,7 +1993,14 @@
     "Christmas holiday": 0.1095,
     "playful children's": 0.0918,
     "jazz or latin": 0.0242,
-    "country western": 0.0388
+    "country western": 0.0388,
+    "calm": 0.1953,
+    "melancholic": 0.2097,
+    "dark": 0.1306,
+    "tense": 0.1685,
+    "solemn": 0.1135,
+    "lively dance": 0.0841,
+    "triumphant": 0.1966
    },
    "style_z": {
     "medieval European early music": -0.62,
@@ -1706,7 +2023,14 @@
     "Christmas holiday": 0.56,
     "playful children's": 0.11,
     "jazz or latin": -0.82,
-    "country western": 0.29
+    "country western": 0.29,
+    "calm": -0.73,
+    "melancholic": -0.54,
+    "dark": -0.75,
+    "tense": -0.3,
+    "solemn": -1.28,
+    "lively dance": 0.28,
+    "triumphant": 0.83
    },
    "style_checked": true
   },
@@ -1763,7 +2087,14 @@
     "Christmas holiday": 0.0409,
     "playful children's": 0.0299,
     "jazz or latin": 0.0618,
-    "country western": 0.0003
+    "country western": 0.0003,
+    "calm": 0.3165,
+    "melancholic": 0.2455,
+    "dark": 0.4108,
+    "tense": 0.3257,
+    "solemn": 0.35,
+    "lively dance": 0.0029,
+    "triumphant": 0.1512
    },
    "style_z": {
     "medieval European early music": -0.96,
@@ -1786,7 +2117,14 @@
     "Christmas holiday": -0.85,
     "playful children's": -0.78,
     "jazz or latin": -0.41,
-    "country western": -0.35
+    "country western": -0.35,
+    "calm": 0.84,
+    "melancholic": -0.15,
+    "dark": 2.48,
+    "tense": 1.63,
+    "solemn": 1.45,
+    "lively dance": -0.71,
+    "triumphant": 0.25
    },
    "style_checked": true
   },
@@ -1838,7 +2176,14 @@
     "Christmas holiday": 0.1218,
     "playful children's": 0.1674,
     "jazz or latin": 0.084,
-    "country western": 0.028
+    "country western": 0.028,
+    "calm": 0.0797,
+    "melancholic": 0.1701,
+    "dark": 0.0397,
+    "tense": 0.0331,
+    "solemn": 0.1885,
+    "lively dance": 0.0404,
+    "triumphant": 0.0317
    },
    "style_z": {
     "medieval European early music": 2.53,
@@ -1861,7 +2206,14 @@
     "Christmas holiday": 0.81,
     "playful children's": 1.2,
     "jazz or latin": -0.18,
-    "country western": 0.11
+    "country western": 0.11,
+    "calm": -2.23,
+    "melancholic": -0.98,
+    "dark": -1.8,
+    "tense": -1.96,
+    "solemn": -0.42,
+    "lively dance": -0.25,
+    "triumphant": -1.27
    },
    "style_checked": true
   },
@@ -1910,7 +2262,14 @@
     "Christmas holiday": -0.0287,
     "playful children's": 0.0318,
     "jazz or latin": 0.0857,
-    "country western": -0.0494
+    "country western": -0.0494,
+    "calm": 0.325,
+    "melancholic": 0.2265,
+    "dark": 0.2596,
+    "tense": 0.2296,
+    "solemn": 0.1744,
+    "lively dance": 0.0769,
+    "triumphant": 0.0319
    },
    "style_z": {
     "medieval European early music": -1.41,
@@ -1933,7 +2292,14 @@
     "Christmas holiday": -2.28,
     "playful children's": -0.75,
     "jazz or latin": -0.16,
-    "country western": -1.17
+    "country western": -1.17,
+    "calm": 0.95,
+    "melancholic": -0.36,
+    "dark": 0.73,
+    "tense": 0.45,
+    "solemn": -0.58,
+    "lively dance": 0.19,
+    "triumphant": -1.27
    },
    "style_checked": true
   },
@@ -1982,7 +2348,14 @@
     "Christmas holiday": -0.0322,
     "playful children's": 0.0681,
     "jazz or latin": 0.08,
-    "country western": -0.0085
+    "country western": -0.0085,
+    "calm": 0.2793,
+    "melancholic": 0.2382,
+    "dark": 0.2057,
+    "tense": 0.1646,
+    "solemn": 0.2038,
+    "lively dance": 0.0679,
+    "triumphant": 0.0838
    },
    "style_z": {
     "medieval European early music": -0.27,
@@ -2005,7 +2378,14 @@
     "Christmas holiday": -2.35,
     "playful children's": -0.23,
     "jazz or latin": -0.22,
-    "country western": -0.5
+    "country western": -0.5,
+    "calm": 0.35,
+    "melancholic": -0.23,
+    "dark": 0.11,
+    "tense": -0.34,
+    "solemn": -0.24,
+    "lively dance": 0.08,
+    "triumphant": -0.6
    },
    "style_checked": true
   },
@@ -2054,7 +2434,14 @@
     "Christmas holiday": 0.0478,
     "playful children's": 0.1001,
     "jazz or latin": 0.1872,
-    "country western": 0.0923
+    "country western": 0.0923,
+    "calm": 0.3339,
+    "melancholic": 0.3124,
+    "dark": 0.1946,
+    "tense": 0.1821,
+    "solemn": 0.1667,
+    "lively dance": 0.1499,
+    "triumphant": 0.1048
    },
    "style_z": {
     "medieval European early music": 0.23,
@@ -2077,7 +2464,14 @@
     "Christmas holiday": -0.7,
     "playful children's": 0.23,
     "jazz or latin": 0.93,
-    "country western": 1.17
+    "country western": 1.17,
+    "calm": 1.06,
+    "melancholic": 0.58,
+    "dark": -0.02,
+    "tense": -0.13,
+    "solemn": -0.67,
+    "lively dance": 1.08,
+    "triumphant": -0.34
    },
    "style_checked": true
   },
@@ -2125,7 +2519,14 @@
     "Christmas holiday": 0.0127,
     "playful children's": 0.1442,
     "jazz or latin": 0.0919,
-    "country western": 0.1252
+    "country western": 0.1252,
+    "calm": 0.2154,
+    "melancholic": 0.1582,
+    "dark": 0.0846,
+    "tense": 0.09,
+    "solemn": 0.1058,
+    "lively dance": 0.1114,
+    "triumphant": 0.0529
    },
    "style_z": {
     "medieval European early music": 0.57,
@@ -2148,7 +2549,14 @@
     "Christmas holiday": -1.43,
     "playful children's": 0.87,
     "jazz or latin": -0.09,
-    "country western": 1.72
+    "country western": 1.72,
+    "calm": -0.47,
+    "melancholic": -1.11,
+    "dark": -1.28,
+    "tense": -1.26,
+    "solemn": -1.37,
+    "lively dance": 0.61,
+    "triumphant": -1.0
    },
    "style_checked": true
   },
@@ -2203,7 +2611,14 @@
     "Christmas holiday": 0.1521,
     "playful children's": 0.0476,
     "jazz or latin": -0.0025,
-    "country western": -0.0087
+    "country western": -0.0087,
+    "calm": 0.2525,
+    "melancholic": 0.2588,
+    "dark": 0.1782,
+    "tense": 0.2403,
+    "solemn": 0.2986,
+    "lively dance": 0.0582,
+    "triumphant": 0.1998
    },
    "style_z": {
     "medieval European early music": 0.53,
@@ -2226,7 +2641,14 @@
     "Christmas holiday": 1.44,
     "playful children's": -0.52,
     "jazz or latin": -1.1,
-    "country western": -0.5
+    "country western": -0.5,
+    "calm": 0.01,
+    "melancholic": -0.01,
+    "dark": -0.21,
+    "tense": 0.59,
+    "solemn": 0.86,
+    "lively dance": -0.04,
+    "triumphant": 0.87
    },
    "style_checked": true
   },
@@ -2278,7 +2700,14 @@
     "Christmas holiday": 0.1079,
     "playful children's": 0.1294,
     "jazz or latin": 0.1226,
-    "country western": -0.0248
+    "country western": -0.0248,
+    "calm": 0.2124,
+    "melancholic": 0.2714,
+    "dark": 0.1024,
+    "tense": 0.1339,
+    "solemn": 0.1817,
+    "lively dance": 0.0884,
+    "triumphant": 0.0864
    },
    "style_z": {
     "medieval European early music": -0.54,
@@ -2301,7 +2730,14 @@
     "Christmas holiday": 0.53,
     "playful children's": 0.65,
     "jazz or latin": 0.24,
-    "country western": -0.77
+    "country western": -0.77,
+    "calm": -0.51,
+    "melancholic": 0.13,
+    "dark": -1.08,
+    "tense": -0.72,
+    "solemn": -0.49,
+    "lively dance": 0.33,
+    "triumphant": -0.57
    },
    "style_checked": true
   },
@@ -2350,7 +2786,14 @@
     "Christmas holiday": 0.0499,
     "playful children's": 0.1581,
     "jazz or latin": 0.1135,
-    "country western": -0.018
+    "country western": -0.018,
+    "calm": 0.2633,
+    "melancholic": 0.228,
+    "dark": 0.3086,
+    "tense": 0.3504,
+    "solemn": 0.256,
+    "lively dance": 0.1022,
+    "triumphant": 0.2592
    },
    "style_z": {
     "medieval European early music": 1.38,
@@ -2373,7 +2816,14 @@
     "Christmas holiday": -0.66,
     "playful children's": 1.07,
     "jazz or latin": 0.14,
-    "country western": -0.65
+    "country western": -0.65,
+    "calm": 0.15,
+    "melancholic": -0.34,
+    "dark": 1.3,
+    "tense": 1.94,
+    "solemn": 0.37,
+    "lively dance": 0.5,
+    "triumphant": 1.63
    },
    "style_checked": true
   },
@@ -2427,7 +2877,14 @@
     "Christmas holiday": 0.0926,
     "playful children's": -0.0008,
     "jazz or latin": 0.0226,
-    "country western": -0.0222
+    "country western": -0.0222,
+    "calm": 0.3284,
+    "melancholic": 0.3693,
+    "dark": 0.2662,
+    "tense": 0.2997,
+    "solemn": 0.3282,
+    "lively dance": -0.0111,
+    "triumphant": 0.158
    },
    "style_z": {
     "medieval European early music": -0.04,
@@ -2450,7 +2907,14 @@
     "Christmas holiday": 0.21,
     "playful children's": -1.22,
     "jazz or latin": -0.83,
-    "country western": -0.72
+    "country western": -0.72,
+    "calm": 0.99,
+    "melancholic": 1.2,
+    "dark": 0.81,
+    "tense": 1.31,
+    "solemn": 1.2,
+    "lively dance": -0.88,
+    "triumphant": 0.34
    },
    "style_checked": true
   },
@@ -2506,7 +2970,14 @@
     "Christmas holiday": 0.1424,
     "playful children's": 0.1369,
     "jazz or latin": 0.1875,
-    "country western": 0.0036
+    "country western": 0.0036,
+    "calm": 0.3323,
+    "melancholic": 0.4186,
+    "dark": 0.2399,
+    "tense": 0.2721,
+    "solemn": 0.2811,
+    "lively dance": 0.136,
+    "triumphant": 0.2588
    },
    "style_z": {
     "medieval European early music": 1.37,
@@ -2529,7 +3000,14 @@
     "Christmas holiday": 1.24,
     "playful children's": 0.76,
     "jazz or latin": 0.93,
-    "country western": -0.3
+    "country western": -0.3,
+    "calm": 1.04,
+    "melancholic": 1.74,
+    "dark": 0.51,
+    "tense": 0.98,
+    "solemn": 0.66,
+    "lively dance": 0.91,
+    "triumphant": 1.62
    },
    "style_checked": true
   },
@@ -2583,7 +3061,14 @@
     "Christmas holiday": 0.1069,
     "playful children's": 0.0569,
     "jazz or latin": 0.1017,
-    "country western": 0.0857
+    "country western": 0.0857,
+    "calm": 0.3251,
+    "melancholic": 0.3207,
+    "dark": 0.2674,
+    "tense": 0.2509,
+    "solemn": 0.2746,
+    "lively dance": 0.0277,
+    "triumphant": 0.1659
    },
    "style_z": {
     "medieval European early music": 0.51,
@@ -2606,7 +3091,14 @@
     "Christmas holiday": 0.51,
     "playful children's": -0.39,
     "jazz or latin": 0.01,
-    "country western": 1.06
+    "country western": 1.06,
+    "calm": 0.95,
+    "melancholic": 0.67,
+    "dark": 0.82,
+    "tense": 0.72,
+    "solemn": 0.58,
+    "lively dance": -0.41,
+    "triumphant": 0.44
    },
    "style_checked": true
   },
@@ -2660,7 +3152,14 @@
     "Christmas holiday": 0.0821,
     "playful children's": 0.0114,
     "jazz or latin": -0.0242,
-    "country western": -0.0211
+    "country western": -0.0211,
+    "calm": 0.2675,
+    "melancholic": 0.2752,
+    "dark": 0.2137,
+    "tense": 0.1398,
+    "solemn": 0.2656,
+    "lively dance": -0.0102,
+    "triumphant": 0.0704
    },
    "style_z": {
     "medieval European early music": -0.33,
@@ -2683,7 +3182,14 @@
     "Christmas holiday": -0.0,
     "playful children's": -1.04,
     "jazz or latin": -1.34,
-    "country western": -0.71
+    "country western": -0.71,
+    "calm": 0.2,
+    "melancholic": 0.17,
+    "dark": 0.2,
+    "tense": -0.65,
+    "solemn": 0.48,
+    "lively dance": -0.87,
+    "triumphant": -0.78
    },
    "style_checked": true
   },
@@ -2738,7 +3244,14 @@
     "Christmas holiday": 0.149,
     "playful children's": -0.0093,
     "jazz or latin": -0.043,
-    "country western": -0.0162
+    "country western": -0.0162,
+    "calm": 0.2917,
+    "melancholic": 0.2976,
+    "dark": 0.2532,
+    "tense": 0.2909,
+    "solemn": 0.2697,
+    "lively dance": 0.0151,
+    "triumphant": 0.1755
    },
    "style_z": {
     "medieval European early music": -0.61,
@@ -2761,7 +3274,14 @@
     "Christmas holiday": 1.37,
     "playful children's": -1.34,
     "jazz or latin": -1.54,
-    "country western": -0.62
+    "country western": -0.62,
+    "calm": 0.51,
+    "melancholic": 0.42,
+    "dark": 0.66,
+    "tense": 1.21,
+    "solemn": 0.52,
+    "lively dance": -0.56,
+    "triumphant": 0.56
    },
    "style_checked": true
   },
@@ -2811,7 +3331,14 @@
     "Christmas holiday": 0.0399,
     "playful children's": 0.0552,
     "jazz or latin": 0.0487,
-    "country western": 0.0863
+    "country western": 0.0863,
+    "calm": 0.2215,
+    "melancholic": 0.1811,
+    "dark": 0.1541,
+    "tense": 0.1583,
+    "solemn": 0.1268,
+    "lively dance": 0.0459,
+    "triumphant": 0.0732
    },
    "style_z": {
     "medieval European early music": 0.02,
@@ -2834,7 +3361,14 @@
     "Christmas holiday": -0.87,
     "playful children's": -0.41,
     "jazz or latin": -0.55,
-    "country western": 1.07
+    "country western": 1.07,
+    "calm": -0.39,
+    "melancholic": -0.86,
+    "dark": -0.48,
+    "tense": -0.42,
+    "solemn": -1.13,
+    "lively dance": -0.19,
+    "triumphant": -0.74
    },
    "style_checked": true
   },
@@ -2890,7 +3424,14 @@
     "Christmas holiday": 0.1474,
     "playful children's": 0.034,
     "jazz or latin": 0.1405,
-    "country western": 0.069
+    "country western": 0.069,
+    "calm": 0.2413,
+    "melancholic": 0.3062,
+    "dark": 0.1212,
+    "tense": 0.1257,
+    "solemn": 0.2197,
+    "lively dance": 0.013,
+    "triumphant": 0.0959
    },
    "style_z": {
     "medieval European early music": 0.51,
@@ -2913,7 +3454,14 @@
     "Christmas holiday": 1.34,
     "playful children's": -0.72,
     "jazz or latin": 0.43,
-    "country western": 0.79
+    "country western": 0.79,
+    "calm": -0.14,
+    "melancholic": 0.51,
+    "dark": -0.86,
+    "tense": -0.82,
+    "solemn": -0.05,
+    "lively dance": -0.59,
+    "triumphant": -0.45
    },
    "style_checked": true
   },
@@ -2967,7 +3515,14 @@
     "Christmas holiday": 0.0367,
     "playful children's": 0.0151,
     "jazz or latin": 0.0382,
-    "country western": -0.0625
+    "country western": -0.0625,
+    "calm": 0.2877,
+    "melancholic": 0.3363,
+    "dark": 0.2246,
+    "tense": 0.253,
+    "solemn": 0.2881,
+    "lively dance": 0.033,
+    "triumphant": 0.142
    },
    "style_z": {
     "medieval European early music": 1.13,
@@ -2990,7 +3545,14 @@
     "Christmas holiday": -0.93,
     "playful children's": -0.99,
     "jazz or latin": -0.67,
-    "country western": -1.39
+    "country western": -1.39,
+    "calm": 0.46,
+    "melancholic": 0.84,
+    "dark": 0.33,
+    "tense": 0.74,
+    "solemn": 0.74,
+    "lively dance": -0.34,
+    "triumphant": 0.14
    },
    "style_checked": true
   },
@@ -3042,7 +3604,14 @@
     "Christmas holiday": 0.0544,
     "playful children's": -0.009,
     "jazz or latin": -0.0529,
-    "country western": -0.0424
+    "country western": -0.0424,
+    "calm": 0.1945,
+    "melancholic": 0.1475,
+    "dark": 0.2458,
+    "tense": 0.291,
+    "solemn": 0.2278,
+    "lively dance": -0.0541,
+    "triumphant": 0.0782
    },
    "style_z": {
     "medieval European early music": -0.66,
@@ -3065,7 +3634,14 @@
     "Christmas holiday": -0.57,
     "playful children's": -1.34,
     "jazz or latin": -1.64,
-    "country western": -1.06
+    "country western": -1.06,
+    "calm": -0.74,
+    "melancholic": -1.23,
+    "dark": 0.57,
+    "tense": 1.21,
+    "solemn": 0.04,
+    "lively dance": -1.41,
+    "triumphant": -0.68
    },
    "style_checked": true
   },
@@ -3118,7 +3694,14 @@
     "Christmas holiday": 0.0918,
     "playful children's": -0.0292,
     "jazz or latin": 0.0078,
-    "country western": -0.0846
+    "country western": -0.0846,
+    "calm": 0.2185,
+    "melancholic": 0.2431,
+    "dark": 0.1445,
+    "tense": 0.1945,
+    "solemn": 0.2308,
+    "lively dance": -0.025,
+    "triumphant": 0.1118
    },
    "style_z": {
     "medieval European early music": -0.42,
@@ -3141,7 +3724,14 @@
     "Christmas holiday": 0.2,
     "playful children's": -1.63,
     "jazz or latin": -0.99,
-    "country western": -1.76
+    "country western": -1.76,
+    "calm": -0.43,
+    "melancholic": -0.18,
+    "dark": -0.59,
+    "tense": 0.02,
+    "solemn": 0.07,
+    "lively dance": -1.05,
+    "triumphant": -0.25
    },
    "style_checked": true
   },
@@ -3196,7 +3786,14 @@
     "Christmas holiday": 0.0995,
     "playful children's": 0.0781,
     "jazz or latin": 0.0491,
-    "country western": -0.0188
+    "country western": -0.0188,
+    "calm": 0.2543,
+    "melancholic": 0.2763,
+    "dark": 0.1179,
+    "tense": 0.1799,
+    "solemn": 0.166,
+    "lively dance": 0.055,
+    "triumphant": 0.1207
    },
    "style_z": {
     "medieval European early music": 0.21,
@@ -3219,7 +3816,14 @@
     "Christmas holiday": 0.36,
     "playful children's": -0.08,
     "jazz or latin": -0.55,
-    "country western": -0.67
+    "country western": -0.67,
+    "calm": 0.03,
+    "melancholic": 0.19,
+    "dark": -0.9,
+    "tense": -0.16,
+    "solemn": -0.68,
+    "lively dance": -0.08,
+    "triumphant": -0.13
    },
    "style_checked": true
   },
@@ -3272,7 +3876,14 @@
     "Christmas holiday": 0.1276,
     "playful children's": 0.0569,
     "jazz or latin": 0.0459,
-    "country western": 0.0458
+    "country western": 0.0458,
+    "calm": 0.3114,
+    "melancholic": 0.3053,
+    "dark": 0.252,
+    "tense": 0.2425,
+    "solemn": 0.2793,
+    "lively dance": 0.0202,
+    "triumphant": 0.1835
    },
    "style_z": {
     "medieval European early music": 0.3,
@@ -3295,7 +3906,14 @@
     "Christmas holiday": 0.93,
     "playful children's": -0.39,
     "jazz or latin": -0.58,
-    "country western": 0.4
+    "country western": 0.4,
+    "calm": 0.77,
+    "melancholic": 0.5,
+    "dark": 0.65,
+    "tense": 0.61,
+    "solemn": 0.63,
+    "lively dance": -0.5,
+    "triumphant": 0.67
    },
    "style_checked": true
   },
@@ -3349,7 +3967,14 @@
     "Christmas holiday": 0.1502,
     "playful children's": 0.178,
     "jazz or latin": 0.1594,
-    "country western": 0.0889
+    "country western": 0.0889,
+    "calm": 0.3016,
+    "melancholic": 0.2538,
+    "dark": 0.1917,
+    "tense": 0.3023,
+    "solemn": 0.2755,
+    "lively dance": 0.2147,
+    "triumphant": 0.2821
    },
    "style_z": {
     "medieval European early music": 1.31,
@@ -3372,7 +3997,14 @@
     "Christmas holiday": 1.4,
     "playful children's": 1.35,
     "jazz or latin": 0.63,
-    "country western": 1.12
+    "country western": 1.12,
+    "calm": 0.64,
+    "melancholic": -0.06,
+    "dark": -0.05,
+    "tense": 1.35,
+    "solemn": 0.59,
+    "lively dance": 1.87,
+    "triumphant": 1.92
    },
    "style_checked": true
   },
@@ -3422,7 +4054,14 @@
     "Christmas holiday": 0.1257,
     "playful children's": 0.1848,
     "jazz or latin": 0.0751,
-    "country western": 0.0544
+    "country western": 0.0544,
+    "calm": 0.1464,
+    "melancholic": 0.1923,
+    "dark": 0.0803,
+    "tense": 0.1071,
+    "solemn": 0.1474,
+    "lively dance": 0.1907,
+    "triumphant": 0.097
    },
    "style_z": {
     "medieval European early music": -0.26,
@@ -3445,7 +4084,14 @@
     "Christmas holiday": 0.89,
     "playful children's": 1.45,
     "jazz or latin": -0.27,
-    "country western": 0.54
+    "country western": 0.54,
+    "calm": -1.36,
+    "melancholic": -0.74,
+    "dark": -1.33,
+    "tense": -1.05,
+    "solemn": -0.89,
+    "lively dance": 1.58,
+    "triumphant": -0.44
    },
    "style_checked": true
   },
@@ -3498,7 +4144,14 @@
     "Christmas holiday": 0.1063,
     "playful children's": -0.0579,
     "jazz or latin": 0.0033,
-    "country western": -0.0668
+    "country western": -0.0668,
+    "calm": 0.1632,
+    "melancholic": 0.2329,
+    "dark": 0.1747,
+    "tense": 0.1126,
+    "solemn": 0.322,
+    "lively dance": -0.1319,
+    "triumphant": 0.0326
    },
    "style_z": {
     "medieval European early music": -0.51,
@@ -3521,7 +4174,14 @@
     "Christmas holiday": 0.5,
     "playful children's": -2.04,
     "jazz or latin": -1.04,
-    "country western": -1.46
+    "country western": -1.46,
+    "calm": -1.15,
+    "melancholic": -0.29,
+    "dark": -0.25,
+    "tense": -0.98,
+    "solemn": 1.13,
+    "lively dance": -2.35,
+    "triumphant": -1.26
    },
    "style_checked": true
   },
@@ -3570,7 +4230,14 @@
     "Christmas holiday": 0.0433,
     "playful children's": 0.1172,
     "jazz or latin": 0.2018,
-    "country western": 0.0717
+    "country western": 0.0717,
+    "calm": 0.365,
+    "melancholic": 0.272,
+    "dark": 0.2393,
+    "tense": 0.2431,
+    "solemn": 0.2443,
+    "lively dance": 0.134,
+    "triumphant": 0.1627
    },
    "style_z": {
     "medieval European early music": -0.12,
@@ -3593,7 +4260,14 @@
     "Christmas holiday": -0.8,
     "playful children's": 0.48,
     "jazz or latin": 1.09,
-    "country western": 0.83
+    "country western": 0.83,
+    "calm": 1.46,
+    "melancholic": 0.14,
+    "dark": 0.5,
+    "tense": 0.62,
+    "solemn": 0.23,
+    "lively dance": 0.89,
+    "triumphant": 0.4
    },
    "style_checked": true
   },
@@ -3644,7 +4318,14 @@
     "Christmas holiday": 0.0657,
     "playful children's": 0.1798,
     "jazz or latin": 0.2056,
-    "country western": 0.0612
+    "country western": 0.0612,
+    "calm": 0.1944,
+    "melancholic": 0.1603,
+    "dark": -0.0171,
+    "tense": 0.0583,
+    "solemn": 0.0157,
+    "lively dance": 0.261,
+    "triumphant": 0.101
    },
    "style_z": {
     "medieval European early music": -0.84,
@@ -3667,7 +4348,14 @@
     "Christmas holiday": -0.34,
     "playful children's": 1.38,
     "jazz or latin": 1.13,
-    "country western": 0.66
+    "country western": 0.66,
+    "calm": -0.74,
+    "melancholic": -1.09,
+    "dark": -2.46,
+    "tense": -1.65,
+    "solemn": -2.41,
+    "lively dance": 2.44,
+    "triumphant": -0.39
    },
    "style_checked": true
   },
@@ -3716,7 +4404,14 @@
     "Christmas holiday": 0.132,
     "playful children's": -0.0164,
     "jazz or latin": -0.0368,
-    "country western": -0.0619
+    "country western": -0.0619,
+    "calm": 0.1596,
+    "melancholic": 0.1373,
+    "dark": 0.1385,
+    "tense": 0.1844,
+    "solemn": 0.1573,
+    "lively dance": -0.0394,
+    "triumphant": 0.0745
    },
    "style_z": {
     "medieval European early music": -1.29,
@@ -3739,7 +4434,14 @@
     "Christmas holiday": 1.02,
     "playful children's": -1.44,
     "jazz or latin": -1.47,
-    "country western": -1.38
+    "country western": -1.38,
+    "calm": -1.19,
+    "melancholic": -1.34,
+    "dark": -0.66,
+    "tense": -0.1,
+    "solemn": -0.78,
+    "lively dance": -1.23,
+    "triumphant": -0.72
    },
    "style_checked": true
   },
@@ -3789,7 +4491,14 @@
     "Christmas holiday": 0.1435,
     "playful children's": 0.1202,
     "jazz or latin": 0.1138,
-    "country western": 0.1744
+    "country western": 0.1744,
+    "calm": 0.1882,
+    "melancholic": 0.288,
+    "dark": 0.1159,
+    "tense": 0.1156,
+    "solemn": 0.169,
+    "lively dance": 0.063,
+    "triumphant": 0.1474
    },
    "style_z": {
     "medieval European early music": -0.17,
@@ -3812,7 +4521,14 @@
     "Christmas holiday": 1.26,
     "playful children's": 0.52,
     "jazz or latin": 0.14,
-    "country western": 2.53
+    "country western": 2.53,
+    "calm": -0.82,
+    "melancholic": 0.31,
+    "dark": -0.92,
+    "tense": -0.95,
+    "solemn": -0.64,
+    "lively dance": 0.02,
+    "triumphant": 0.21
    },
    "style_checked": true
   },
@@ -3865,7 +4581,14 @@
     "Christmas holiday": 0.122,
     "playful children's": 0.0415,
     "jazz or latin": 0.1897,
-    "country western": 0.01
+    "country western": 0.01,
+    "calm": 0.1194,
+    "melancholic": 0.1394,
+    "dark": 0.2014,
+    "tense": 0.1235,
+    "solemn": 0.3582,
+    "lively dance": -0.0503,
+    "triumphant": 0.0481
    },
    "style_z": {
     "medieval European early music": 0.29,
@@ -3888,7 +4611,14 @@
     "Christmas holiday": 0.82,
     "playful children's": -0.61,
     "jazz or latin": 0.96,
-    "country western": -0.19
+    "country western": -0.19,
+    "calm": -1.71,
+    "melancholic": -1.31,
+    "dark": 0.06,
+    "tense": -0.85,
+    "solemn": 1.55,
+    "lively dance": -1.36,
+    "triumphant": -1.06
    },
    "style_checked": true
   },
@@ -3942,7 +4672,14 @@
     "Christmas holiday": 0.0762,
     "playful children's": 0.0667,
     "jazz or latin": 0.1597,
-    "country western": -0.0848
+    "country western": -0.0848,
+    "calm": 0.1556,
+    "melancholic": 0.1561,
+    "dark": 0.1249,
+    "tense": 0.1166,
+    "solemn": 0.3407,
+    "lively dance": 0.0304,
+    "triumphant": 0.0818
    },
    "style_z": {
     "medieval European early music": -0.21,
@@ -3965,7 +4702,14 @@
     "Christmas holiday": -0.12,
     "playful children's": -0.25,
     "jazz or latin": 0.64,
-    "country western": -1.76
+    "country western": -1.76,
+    "calm": -1.24,
+    "melancholic": -1.13,
+    "dark": -0.82,
+    "tense": -0.93,
+    "solemn": 1.35,
+    "lively dance": -0.38,
+    "triumphant": -0.63
    },
    "style_checked": true
   },
@@ -4018,7 +4762,14 @@
     "Christmas holiday": 0.0945,
     "playful children's": 0.117,
     "jazz or latin": 0.1983,
-    "country western": -0.0347
+    "country western": -0.0347,
+    "calm": 0.1492,
+    "melancholic": 0.1433,
+    "dark": 0.1406,
+    "tense": 0.1328,
+    "solemn": 0.3429,
+    "lively dance": 0.0345,
+    "triumphant": 0.1226
    },
    "style_z": {
     "medieval European early music": 0.68,
@@ -4041,7 +4792,14 @@
     "Christmas holiday": 0.25,
     "playful children's": 0.48,
     "jazz or latin": 1.05,
-    "country western": -0.93
+    "country western": -0.93,
+    "calm": -1.33,
+    "melancholic": -1.27,
+    "dark": -0.64,
+    "tense": -0.73,
+    "solemn": 1.37,
+    "lively dance": -0.33,
+    "triumphant": -0.11
    },
    "style_checked": true
   },
@@ -4094,7 +4852,14 @@
     "Christmas holiday": 0.0916,
     "playful children's": 0.0925,
     "jazz or latin": 0.1313,
-    "country western": -0.074
+    "country western": -0.074,
+    "calm": 0.1024,
+    "melancholic": 0.1231,
+    "dark": 0.1315,
+    "tense": 0.103,
+    "solemn": 0.3507,
+    "lively dance": -0.0163,
+    "triumphant": 0.0359
    },
    "style_z": {
     "medieval European early music": 0.56,
@@ -4117,7 +4882,14 @@
     "Christmas holiday": 0.19,
     "playful children's": 0.12,
     "jazz or latin": 0.33,
-    "country western": -1.58
+    "country western": -1.58,
+    "calm": -1.93,
+    "melancholic": -1.49,
+    "dark": -0.74,
+    "tense": -1.1,
+    "solemn": 1.46,
+    "lively dance": -0.95,
+    "triumphant": -1.21
    },
    "style_checked": true
   },
@@ -4173,7 +4945,14 @@
     "Christmas holiday": 0.044,
     "playful children's": 0.0133,
     "jazz or latin": 0.0106,
-    "country western": -0.0293
+    "country western": -0.0293,
+    "calm": 0.3025,
+    "melancholic": 0.3041,
+    "dark": 0.2319,
+    "tense": 0.2167,
+    "solemn": 0.2236,
+    "lively dance": 0.0086,
+    "triumphant": 0.1219
    },
    "style_z": {
     "medieval European early music": -0.68,
@@ -4196,7 +4975,14 @@
     "Christmas holiday": -0.78,
     "playful children's": -1.02,
     "jazz or latin": -0.96,
-    "country western": -0.84
+    "country western": -0.84,
+    "calm": 0.65,
+    "melancholic": 0.49,
+    "dark": 0.41,
+    "tense": 0.3,
+    "solemn": -0.01,
+    "lively dance": -0.64,
+    "triumphant": -0.12
    },
    "style_checked": true
   },
@@ -4249,7 +5035,14 @@
     "Christmas holiday": 0.1173,
     "playful children's": 0.0969,
     "jazz or latin": 0.1012,
-    "country western": 0.045
+    "country western": 0.045,
+    "calm": 0.3161,
+    "melancholic": 0.352,
+    "dark": 0.274,
+    "tense": 0.3025,
+    "solemn": 0.2755,
+    "lively dance": 0.0565,
+    "triumphant": 0.2342
    },
    "style_z": {
     "medieval European early music": 0.97,
@@ -4272,7 +5065,14 @@
     "Christmas holiday": 0.72,
     "playful children's": 0.19,
     "jazz or latin": 0.01,
-    "country western": 0.39
+    "country western": 0.39,
+    "calm": 0.83,
+    "melancholic": 1.01,
+    "dark": 0.9,
+    "tense": 1.35,
+    "solemn": 0.59,
+    "lively dance": -0.06,
+    "triumphant": 1.31
    },
    "style_checked": true
   },
@@ -4323,7 +5123,14 @@
     "Christmas holiday": -0.0073,
     "playful children's": 0.0337,
     "jazz or latin": 0.1302,
-    "country western": -0.0249
+    "country western": -0.0249,
+    "calm": 0.2685,
+    "melancholic": 0.2645,
+    "dark": 0.207,
+    "tense": 0.1802,
+    "solemn": 0.138,
+    "lively dance": 0.0663,
+    "triumphant": 0.1392
    },
    "style_z": {
     "medieval European early music": -0.65,
@@ -4346,7 +5153,14 @@
     "Christmas holiday": -1.84,
     "playful children's": -0.72,
     "jazz or latin": 0.32,
-    "country western": -0.77
+    "country western": -0.77,
+    "calm": 0.21,
+    "melancholic": 0.06,
+    "dark": 0.13,
+    "tense": -0.15,
+    "solemn": -1.0,
+    "lively dance": 0.06,
+    "triumphant": 0.1
    },
    "style_checked": true
   },
@@ -4399,7 +5213,14 @@
     "Christmas holiday": 0.0538,
     "playful children's": 0.0468,
     "jazz or latin": 0.0079,
-    "country western": 0.0384
+    "country western": 0.0384,
+    "calm": 0.3583,
+    "melancholic": 0.2995,
+    "dark": 0.2099,
+    "tense": 0.2322,
+    "solemn": 0.1324,
+    "lively dance": 0.0921,
+    "triumphant": 0.114
    },
    "style_z": {
     "medieval European early music": -1.35,
@@ -4422,7 +5243,14 @@
     "Christmas holiday": -0.58,
     "playful children's": -0.54,
     "jazz or latin": -0.99,
-    "country western": 0.28
+    "country western": 0.28,
+    "calm": 1.38,
+    "melancholic": 0.44,
+    "dark": 0.16,
+    "tense": 0.49,
+    "solemn": -1.06,
+    "lively dance": 0.38,
+    "triumphant": -0.22
    },
    "style_checked": true
   },
@@ -4470,7 +5298,14 @@
     "Christmas holiday": 0.1011,
     "playful children's": 0.1475,
     "jazz or latin": 0.0777,
-    "country western": -0.0182
+    "country western": -0.0182,
+    "calm": 0.1889,
+    "melancholic": 0.193,
+    "dark": 0.0879,
+    "tense": 0.1746,
+    "solemn": 0.1408,
+    "lively dance": 0.1413,
+    "triumphant": 0.1957
    },
    "style_z": {
     "medieval European early music": 0.01,
@@ -4493,7 +5328,14 @@
     "Christmas holiday": 0.39,
     "playful children's": 0.91,
     "jazz or latin": -0.24,
-    "country western": -0.66
+    "country western": -0.66,
+    "calm": -0.81,
+    "melancholic": -0.73,
+    "dark": -1.25,
+    "tense": -0.22,
+    "solemn": -0.97,
+    "lively dance": 0.98,
+    "triumphant": 0.82
    },
    "style_checked": true
   },
@@ -4545,7 +5387,14 @@
     "Christmas holiday": 0.0513,
     "playful children's": 0.1003,
     "jazz or latin": 0.0311,
-    "country western": 0.0386
+    "country western": 0.0386,
+    "calm": 0.1814,
+    "melancholic": 0.0901,
+    "dark": 0.0814,
+    "tense": 0.1035,
+    "solemn": 0.1291,
+    "lively dance": 0.107,
+    "triumphant": 0.1246
    },
    "style_z": {
     "medieval European early music": -0.51,
@@ -4568,7 +5417,14 @@
     "Christmas holiday": -0.63,
     "playful children's": 0.23,
     "jazz or latin": -0.74,
-    "country western": 0.28
+    "country western": 0.28,
+    "calm": -0.91,
+    "melancholic": -1.85,
+    "dark": -1.32,
+    "tense": -1.09,
+    "solemn": -1.1,
+    "lively dance": 0.56,
+    "triumphant": -0.08
    },
    "style_checked": true
   },
@@ -4622,7 +5478,14 @@
     "Christmas holiday": 0.1189,
     "playful children's": 0.0685,
     "jazz or latin": -0.0914,
-    "country western": -0.0314
+    "country western": -0.0314,
+    "calm": 0.2114,
+    "melancholic": 0.2444,
+    "dark": 0.14,
+    "tense": 0.2508,
+    "solemn": 0.1671,
+    "lively dance": 0.0601,
+    "triumphant": 0.1137
    },
    "style_z": {
     "medieval European early music": 0.08,
@@ -4645,7 +5508,14 @@
     "Christmas holiday": 0.76,
     "playful children's": -0.22,
     "jazz or latin": -2.06,
-    "country western": -0.88
+    "country western": -0.88,
+    "calm": -0.52,
+    "melancholic": -0.16,
+    "dark": -0.65,
+    "tense": 0.71,
+    "solemn": -0.66,
+    "lively dance": -0.01,
+    "triumphant": -0.22
    },
    "style_checked": true
   },
@@ -4696,7 +5566,14 @@
     "Christmas holiday": 0.0252,
     "playful children's": 0.0193,
     "jazz or latin": 0.0513,
-    "country western": -0.0446
+    "country western": -0.0446,
+    "calm": 0.27,
+    "melancholic": 0.2286,
+    "dark": 0.3282,
+    "tense": 0.3121,
+    "solemn": 0.3262,
+    "lively dance": -0.0106,
+    "triumphant": 0.1988
    },
    "style_z": {
     "medieval European early music": 0.3,
@@ -4719,7 +5596,14 @@
     "Christmas holiday": -1.17,
     "playful children's": -0.93,
     "jazz or latin": -0.53,
-    "country western": -1.09
+    "country western": -1.09,
+    "calm": 0.23,
+    "melancholic": -0.34,
+    "dark": 1.52,
+    "tense": 1.47,
+    "solemn": 1.18,
+    "lively dance": -0.88,
+    "triumphant": 0.86
    },
    "style_checked": true
   },
@@ -4773,7 +5657,14 @@
     "Christmas holiday": 0.0162,
     "playful children's": -0.0828,
     "jazz or latin": -0.0486,
-    "country western": -0.0276
+    "country western": -0.0276,
+    "calm": 0.2421,
+    "melancholic": 0.2399,
+    "dark": 0.1916,
+    "tense": 0.1475,
+    "solemn": 0.1957,
+    "lively dance": -0.0503,
+    "triumphant": 0.0747
    },
    "style_z": {
     "medieval European early music": -1.11,
@@ -4796,7 +5687,14 @@
     "Christmas holiday": -1.35,
     "playful children's": -2.4,
     "jazz or latin": -1.6,
-    "country western": -0.81
+    "country western": -0.81,
+    "calm": -0.13,
+    "melancholic": -0.21,
+    "dark": -0.05,
+    "tense": -0.55,
+    "solemn": -0.33,
+    "lively dance": -1.36,
+    "triumphant": -0.72
    },
    "style_checked": true
   },
@@ -4849,7 +5747,14 @@
     "Christmas holiday": 0.0888,
     "playful children's": 0.0051,
     "jazz or latin": 0.0283,
-    "country western": -0.0296
+    "country western": -0.0296,
+    "calm": 0.3108,
+    "melancholic": 0.3353,
+    "dark": 0.2748,
+    "tense": 0.2835,
+    "solemn": 0.2871,
+    "lively dance": 0.0296,
+    "triumphant": 0.1497
    },
    "style_z": {
     "medieval European early music": -0.52,
@@ -4872,7 +5777,14 @@
     "Christmas holiday": 0.14,
     "playful children's": -1.14,
     "jazz or latin": -0.77,
-    "country western": -0.85
+    "country western": -0.85,
+    "calm": 0.76,
+    "melancholic": 0.83,
+    "dark": 0.91,
+    "tense": 1.12,
+    "solemn": 0.73,
+    "lively dance": -0.39,
+    "triumphant": 0.23
    },
    "style_checked": true
   },
@@ -4924,7 +5836,14 @@
     "Christmas holiday": 0.1219,
     "playful children's": 0.1046,
     "jazz or latin": 0.1268,
-    "country western": 0.0504
+    "country western": 0.0504,
+    "calm": 0.2859,
+    "melancholic": 0.2126,
+    "dark": 0.2122,
+    "tense": 0.2148,
+    "solemn": 0.176,
+    "lively dance": 0.1424,
+    "triumphant": 0.1955
    },
    "style_z": {
     "medieval European early music": -0.32,
@@ -4947,7 +5866,14 @@
     "Christmas holiday": 0.82,
     "playful children's": 0.3,
     "jazz or latin": 0.28,
-    "country western": 0.48
+    "country western": 0.48,
+    "calm": 0.44,
+    "melancholic": -0.51,
+    "dark": 0.19,
+    "tense": 0.27,
+    "solemn": -0.56,
+    "lively dance": 0.99,
+    "triumphant": 0.82
    },
    "style_checked": true
   },
@@ -5000,7 +5926,14 @@
     "Christmas holiday": 0.1485,
     "playful children's": -0.0059,
     "jazz or latin": -0.0112,
-    "country western": -0.0441
+    "country western": -0.0441,
+    "calm": 0.2508,
+    "melancholic": 0.2769,
+    "dark": 0.2506,
+    "tense": 0.2534,
+    "solemn": 0.3401,
+    "lively dance": -0.0167,
+    "triumphant": 0.0957
    },
    "style_z": {
     "medieval European early music": -0.35,
@@ -5023,7 +5956,14 @@
     "Christmas holiday": 1.36,
     "playful children's": -1.29,
     "jazz or latin": -1.2,
-    "country western": -1.09
+    "country western": -1.09,
+    "calm": -0.01,
+    "melancholic": 0.19,
+    "dark": 0.63,
+    "tense": 0.75,
+    "solemn": 1.34,
+    "lively dance": -0.95,
+    "triumphant": -0.45
    },
    "style_checked": true
   },
@@ -5074,7 +6014,14 @@
     "Christmas holiday": 0.082,
     "playful children's": 0.0145,
     "jazz or latin": 0.0952,
-    "country western": 0.0564
+    "country western": 0.0564,
+    "calm": 0.4108,
+    "melancholic": 0.3939,
+    "dark": 0.37,
+    "tense": 0.356,
+    "solemn": 0.3453,
+    "lively dance": -0.0008,
+    "triumphant": 0.1986
    },
    "style_z": {
     "medieval European early music": -0.01,
@@ -5097,7 +6044,14 @@
     "Christmas holiday": -0.0,
     "playful children's": -1.0,
     "jazz or latin": -0.06,
-    "country western": 0.58
+    "country western": 0.58,
+    "calm": 2.05,
+    "melancholic": 1.47,
+    "dark": 2.01,
+    "tense": 2.01,
+    "solemn": 1.4,
+    "lively dance": -0.76,
+    "triumphant": 0.86
    },
    "style_checked": true
   },
@@ -5149,7 +6103,14 @@
     "Christmas holiday": 0.0149,
     "playful children's": 0.0435,
     "jazz or latin": 0.028,
-    "country western": -0.0071
+    "country western": -0.0071,
+    "calm": 0.2168,
+    "melancholic": 0.2391,
+    "dark": 0.2241,
+    "tense": 0.1788,
+    "solemn": 0.3549,
+    "lively dance": -0.0353,
+    "triumphant": 0.0466
    },
    "style_z": {
     "medieval European early music": -0.88,
@@ -5172,7 +6133,14 @@
     "Christmas holiday": -1.38,
     "playful children's": -0.58,
     "jazz or latin": -0.78,
-    "country western": -0.47
+    "country western": -0.47,
+    "calm": -0.45,
+    "melancholic": -0.22,
+    "dark": 0.32,
+    "tense": -0.17,
+    "solemn": 1.51,
+    "lively dance": -1.18,
+    "triumphant": -1.08
    },
    "style_checked": true
   },
@@ -5221,7 +6189,14 @@
     "Christmas holiday": -0.0311,
     "playful children's": 0.0322,
     "jazz or latin": 0.0757,
-    "country western": 0.0314
+    "country western": 0.0314,
+    "calm": 0.2012,
+    "melancholic": 0.2316,
+    "dark": 0.1843,
+    "tense": 0.0831,
+    "solemn": 0.2613,
+    "lively dance": 0.0086,
+    "triumphant": 0.0292
    },
    "style_z": {
     "medieval European early music": -1.08,
@@ -5244,7 +6219,14 @@
     "Christmas holiday": -2.33,
     "playful children's": -0.75,
     "jazz or latin": -0.26,
-    "country western": 0.16
+    "country western": 0.16,
+    "calm": -0.66,
+    "melancholic": -0.3,
+    "dark": -0.13,
+    "tense": -1.34,
+    "solemn": 0.43,
+    "lively dance": -0.64,
+    "triumphant": -1.3
    },
    "style_checked": true
   },
@@ -5292,7 +6274,14 @@
     "Christmas holiday": 0.0201,
     "playful children's": 0.0476,
     "jazz or latin": 0.0751,
-    "country western": -0.0178
+    "country western": -0.0178,
+    "calm": 0.177,
+    "melancholic": 0.2296,
+    "dark": 0.1859,
+    "tense": 0.1492,
+    "solemn": 0.3325,
+    "lively dance": 0.0055,
+    "triumphant": 0.0372
    },
    "style_z": {
     "medieval European early music": -0.92,
@@ -5315,7 +6304,14 @@
     "Christmas holiday": -1.27,
     "playful children's": -0.52,
     "jazz or latin": -0.27,
-    "country western": -0.65
+    "country western": -0.65,
+    "calm": -0.97,
+    "melancholic": -0.33,
+    "dark": -0.12,
+    "tense": -0.53,
+    "solemn": 1.25,
+    "lively dance": -0.68,
+    "triumphant": -1.2
    },
    "style_checked": true
   },
@@ -5367,7 +6363,14 @@
     "Christmas holiday": 0.0465,
     "playful children's": -0.0301,
     "jazz or latin": 0.0162,
-    "country western": -0.0293
+    "country western": -0.0293,
+    "calm": 0.2749,
+    "melancholic": 0.3286,
+    "dark": 0.2949,
+    "tense": 0.2676,
+    "solemn": 0.4006,
+    "lively dance": -0.0999,
+    "triumphant": 0.0569
    },
    "style_z": {
     "medieval European early music": -0.68,
@@ -5390,7 +6393,14 @@
     "Christmas holiday": -0.73,
     "playful children's": -1.64,
     "jazz or latin": -0.9,
-    "country western": -0.84
+    "country western": -0.84,
+    "calm": 0.3,
+    "melancholic": 0.76,
+    "dark": 1.14,
+    "tense": 0.92,
+    "solemn": 2.04,
+    "lively dance": -1.96,
+    "triumphant": -0.95
    },
    "style_checked": true
   },
@@ -5438,7 +6448,14 @@
     "Christmas holiday": 0.014,
     "playful children's": 0.0598,
     "jazz or latin": 0.084,
-    "country western": -0.0396
+    "country western": -0.0396,
+    "calm": 0.1708,
+    "melancholic": 0.2183,
+    "dark": 0.2186,
+    "tense": 0.1459,
+    "solemn": 0.426,
+    "lively dance": -0.0371,
+    "triumphant": 0.0447
    },
    "style_z": {
     "medieval European early music": -0.09,
@@ -5461,7 +6478,14 @@
     "Christmas holiday": -1.4,
     "playful children's": -0.35,
     "jazz or latin": -0.18,
-    "country western": -1.01
+    "country western": -1.01,
+    "calm": -1.05,
+    "melancholic": -0.45,
+    "dark": 0.26,
+    "tense": -0.57,
+    "solemn": 2.33,
+    "lively dance": -1.2,
+    "triumphant": -1.1
    },
    "style_checked": true
   },
@@ -5511,7 +6535,14 @@
     "Christmas holiday": 0.0364,
     "playful children's": 0.0313,
     "jazz or latin": -0.0043,
-    "country western": -0.1277
+    "country western": -0.1277,
+    "calm": 0.0904,
+    "melancholic": 0.2132,
+    "dark": 0.1338,
+    "tense": 0.1376,
+    "solemn": 0.2583,
+    "lively dance": -0.0848,
+    "triumphant": -0.0376
    },
    "style_z": {
     "medieval European early music": -0.26,
@@ -5534,7 +6565,14 @@
     "Christmas holiday": -0.94,
     "playful children's": -0.76,
     "jazz or latin": -1.12,
-    "country western": -2.47
+    "country western": -2.47,
+    "calm": -2.09,
+    "melancholic": -0.51,
+    "dark": -0.72,
+    "tense": -0.68,
+    "solemn": 0.39,
+    "lively dance": -1.78,
+    "triumphant": -2.15
    },
    "style_checked": true
   },
@@ -5583,7 +6621,14 @@
     "Christmas holiday": 0.0443,
     "playful children's": 0.0723,
     "jazz or latin": 0.0678,
-    "country western": 0.0479
+    "country western": 0.0479,
+    "calm": 0.2031,
+    "melancholic": 0.2126,
+    "dark": 0.1637,
+    "tense": 0.1272,
+    "solemn": 0.3197,
+    "lively dance": 0.0139,
+    "triumphant": 0.0382
    },
    "style_z": {
     "medieval European early music": -0.73,
@@ -5606,7 +6651,14 @@
     "Christmas holiday": -0.78,
     "playful children's": -0.17,
     "jazz or latin": -0.35,
-    "country western": 0.44
+    "country western": 0.44,
+    "calm": -0.63,
+    "melancholic": -0.51,
+    "dark": -0.37,
+    "tense": -0.8,
+    "solemn": 1.1,
+    "lively dance": -0.58,
+    "triumphant": -1.19
    },
    "style_checked": true
   },
@@ -5658,7 +6710,14 @@
     "Christmas holiday": 0.0864,
     "playful children's": 0.0434,
     "jazz or latin": 0.0122,
-    "country western": -0.032
+    "country western": -0.032,
+    "calm": 0.2084,
+    "melancholic": 0.2986,
+    "dark": 0.2168,
+    "tense": 0.2157,
+    "solemn": 0.35,
+    "lively dance": -0.0673,
+    "triumphant": 0.0482
    },
    "style_z": {
     "medieval European early music": -0.15,
@@ -5681,7 +6740,14 @@
     "Christmas holiday": 0.09,
     "playful children's": -0.58,
     "jazz or latin": -0.95,
-    "country western": -0.89
+    "country western": -0.89,
+    "calm": -0.56,
+    "melancholic": 0.43,
+    "dark": 0.24,
+    "tense": 0.28,
+    "solemn": 1.45,
+    "lively dance": -1.57,
+    "triumphant": -1.06
    },
    "style_checked": true
   },
@@ -5734,7 +6800,14 @@
     "Christmas holiday": 0.1157,
     "playful children's": -0.0132,
     "jazz or latin": -0.0237,
-    "country western": -0.0065
+    "country western": -0.0065,
+    "calm": 0.2757,
+    "melancholic": 0.2739,
+    "dark": 0.2824,
+    "tense": 0.2884,
+    "solemn": 0.3346,
+    "lively dance": -0.0134,
+    "triumphant": 0.1311
    },
    "style_z": {
     "medieval European early music": -0.31,
@@ -5757,7 +6830,14 @@
     "Christmas holiday": 0.69,
     "playful children's": -1.4,
     "jazz or latin": -1.33,
-    "country western": -0.46
+    "country western": -0.46,
+    "calm": 0.31,
+    "melancholic": 0.16,
+    "dark": 1.0,
+    "tense": 1.18,
+    "solemn": 1.27,
+    "lively dance": -0.91,
+    "triumphant": -0.0
    },
    "style_checked": true
   },
@@ -5811,7 +6891,14 @@
     "Christmas holiday": 0.1005,
     "playful children's": 0.0821,
     "jazz or latin": 0.1756,
-    "country western": 0.1435
+    "country western": 0.1435,
+    "calm": 0.3461,
+    "melancholic": 0.3457,
+    "dark": 0.3046,
+    "tense": 0.184,
+    "solemn": 0.3341,
+    "lively dance": 0.0475,
+    "triumphant": 0.184
    },
    "style_z": {
     "medieval European early music": 0.81,
@@ -5834,7 +6921,14 @@
     "Christmas holiday": 0.38,
     "playful children's": -0.03,
     "jazz or latin": 0.81,
-    "country western": 2.02
+    "country western": 2.02,
+    "calm": 1.22,
+    "melancholic": 0.95,
+    "dark": 1.25,
+    "tense": -0.11,
+    "solemn": 1.27,
+    "lively dance": -0.17,
+    "triumphant": 0.67
    },
    "style_checked": true
   },
@@ -5886,7 +6980,14 @@
     "Christmas holiday": 0.0956,
     "playful children's": 0.0439,
     "jazz or latin": 0.213,
-    "country western": 0.0679
+    "country western": 0.0679,
+    "calm": 0.2524,
+    "melancholic": 0.2632,
+    "dark": 0.1832,
+    "tense": 0.1862,
+    "solemn": 0.3092,
+    "lively dance": 0.0598,
+    "triumphant": 0.1633
    },
    "style_z": {
     "medieval European early music": 1.49,
@@ -5909,7 +7010,14 @@
     "Christmas holiday": 0.28,
     "playful children's": -0.58,
     "jazz or latin": 1.21,
-    "country western": 0.77
+    "country western": 0.77,
+    "calm": 0.01,
+    "melancholic": 0.04,
+    "dark": -0.15,
+    "tense": -0.08,
+    "solemn": 0.98,
+    "lively dance": -0.02,
+    "triumphant": 0.41
    },
    "style_checked": true
   },
@@ -5965,7 +7073,14 @@
     "Christmas holiday": 0.0925,
     "playful children's": -0.0316,
     "jazz or latin": -0.0385,
-    "country western": 0.0279
+    "country western": 0.0279,
+    "calm": 0.2072,
+    "melancholic": 0.2143,
+    "dark": 0.1827,
+    "tense": 0.2568,
+    "solemn": 0.2867,
+    "lively dance": -0.0445,
+    "triumphant": 0.098
    },
    "style_z": {
     "medieval European early music": -0.55,
@@ -5988,7 +7103,14 @@
     "Christmas holiday": 0.21,
     "playful children's": -1.66,
     "jazz or latin": -1.49,
-    "country western": 0.11
+    "country western": 0.11,
+    "calm": -0.58,
+    "melancholic": -0.49,
+    "dark": -0.15,
+    "tense": 0.79,
+    "solemn": 0.72,
+    "lively dance": -1.29,
+    "triumphant": -0.42
    },
    "style_checked": true
   },
@@ -6045,7 +7167,14 @@
     "Christmas holiday": 0.0677,
     "playful children's": 0.1388,
     "jazz or latin": 0.1868,
-    "country western": 0.0626
+    "country western": 0.0626,
+    "calm": 0.3596,
+    "melancholic": 0.4011,
+    "dark": 0.2587,
+    "tense": 0.2521,
+    "solemn": 0.2706,
+    "lively dance": 0.1564,
+    "triumphant": 0.2346
    },
    "style_z": {
     "medieval European early music": 1.98,
@@ -6068,7 +7197,14 @@
     "Christmas holiday": -0.3,
     "playful children's": 0.79,
     "jazz or latin": 0.93,
-    "country western": 0.68
+    "country western": 0.68,
+    "calm": 1.39,
+    "melancholic": 1.55,
+    "dark": 0.72,
+    "tense": 0.73,
+    "solemn": 0.53,
+    "lively dance": 1.16,
+    "triumphant": 1.32
    },
    "style_checked": true
   },
@@ -6122,7 +7258,14 @@
     "Christmas holiday": 0.0754,
     "playful children's": 0.0434,
     "jazz or latin": 0.023,
-    "country western": -0.0266
+    "country western": -0.0266,
+    "calm": 0.2288,
+    "melancholic": 0.2213,
+    "dark": 0.1407,
+    "tense": 0.1593,
+    "solemn": 0.1556,
+    "lively dance": 0.054,
+    "triumphant": 0.1181
    },
    "style_z": {
     "medieval European early music": -1.03,
@@ -6145,7 +7288,14 @@
     "Christmas holiday": -0.14,
     "playful children's": -0.58,
     "jazz or latin": -0.83,
-    "country western": -0.8
+    "country western": -0.8,
+    "calm": -0.3,
+    "melancholic": -0.42,
+    "dark": -0.64,
+    "tense": -0.41,
+    "solemn": -0.8,
+    "lively dance": -0.09,
+    "triumphant": -0.17
    },
    "style_checked": true
   },
@@ -6198,7 +7348,14 @@
     "Christmas holiday": 0.0422,
     "playful children's": 0.0091,
     "jazz or latin": 0.0478,
-    "country western": 0.0615
+    "country western": 0.0615,
+    "calm": 0.2196,
+    "melancholic": 0.2107,
+    "dark": 0.2015,
+    "tense": 0.189,
+    "solemn": 0.1767,
+    "lively dance": 0.0471,
+    "triumphant": 0.1385
    },
    "style_z": {
     "medieval European early music": -0.3,
@@ -6221,7 +7378,14 @@
     "Christmas holiday": -0.82,
     "playful children's": -1.08,
     "jazz or latin": -0.56,
-    "country western": 0.66
+    "country western": 0.66,
+    "calm": -0.42,
+    "melancholic": -0.53,
+    "dark": 0.06,
+    "tense": -0.04,
+    "solemn": -0.55,
+    "lively dance": -0.17,
+    "triumphant": 0.09
    },
    "style_checked": true
   },
@@ -6276,7 +7440,14 @@
     "Christmas holiday": -0.0039,
     "playful children's": 0.131,
     "jazz or latin": 0.1275,
-    "country western": 0.0785
+    "country western": 0.0785,
+    "calm": 0.2729,
+    "melancholic": 0.2111,
+    "dark": 0.2671,
+    "tense": 0.2094,
+    "solemn": 0.1736,
+    "lively dance": 0.108,
+    "triumphant": 0.1773
    },
    "style_z": {
     "medieval European early music": -0.26,
@@ -6299,7 +7470,14 @@
     "Christmas holiday": -1.77,
     "playful children's": 0.68,
     "jazz or latin": 0.29,
-    "country western": 0.94
+    "country western": 0.94,
+    "calm": 0.27,
+    "melancholic": -0.53,
+    "dark": 0.82,
+    "tense": 0.21,
+    "solemn": -0.59,
+    "lively dance": 0.57,
+    "triumphant": 0.59
    },
    "style_checked": true
   },
@@ -6354,7 +7532,14 @@
     "Christmas holiday": 0.1437,
     "playful children's": 0.1334,
     "jazz or latin": 0.1133,
-    "country western": 0.0655
+    "country western": 0.0655,
+    "calm": 0.2374,
+    "melancholic": 0.3036,
+    "dark": 0.1946,
+    "tense": 0.2657,
+    "solemn": 0.2509,
+    "lively dance": 0.1373,
+    "triumphant": 0.2527
    },
    "style_z": {
     "medieval European early music": 2.05,
@@ -6377,7 +7562,14 @@
     "Christmas holiday": 1.26,
     "playful children's": 0.71,
     "jazz or latin": 0.14,
-    "country western": 0.73
+    "country western": 0.73,
+    "calm": -0.19,
+    "melancholic": 0.48,
+    "dark": -0.02,
+    "tense": 0.9,
+    "solemn": 0.31,
+    "lively dance": 0.93,
+    "triumphant": 1.55
    },
    "style_checked": true
   },
@@ -6432,7 +7624,14 @@
     "Christmas holiday": 0.084,
     "playful children's": 0.1433,
     "jazz or latin": 0.1823,
-    "country western": 0.0325
+    "country western": 0.0325,
+    "calm": 0.3356,
+    "melancholic": 0.4329,
+    "dark": 0.2289,
+    "tense": 0.2071,
+    "solemn": 0.1891,
+    "lively dance": 0.1566,
+    "triumphant": 0.2028
    },
    "style_z": {
     "medieval European early music": 0.72,
@@ -6455,7 +7654,14 @@
     "Christmas holiday": 0.04,
     "playful children's": 0.85,
     "jazz or latin": 0.88,
-    "country western": 0.18
+    "country western": 0.18,
+    "calm": 1.08,
+    "melancholic": 1.9,
+    "dark": 0.38,
+    "tense": 0.18,
+    "solemn": -0.41,
+    "lively dance": 1.16,
+    "triumphant": 0.91
    },
    "style_checked": true
   },
@@ -6515,7 +7721,14 @@
     "Christmas holiday": 0.1546,
     "playful children's": 0.1654,
     "jazz or latin": 0.1569,
-    "country western": 0.0246
+    "country western": 0.0246,
+    "calm": 0.2966,
+    "melancholic": 0.384,
+    "dark": 0.2276,
+    "tense": 0.2513,
+    "solemn": 0.2075,
+    "lively dance": 0.1313,
+    "triumphant": 0.255
    },
    "style_z": {
     "medieval European early music": 1.32,
@@ -6538,7 +7751,14 @@
     "Christmas holiday": 1.49,
     "playful children's": 1.17,
     "jazz or latin": 0.61,
-    "country western": 0.05
+    "country western": 0.05,
+    "calm": 0.58,
+    "melancholic": 1.36,
+    "dark": 0.36,
+    "tense": 0.72,
+    "solemn": -0.2,
+    "lively dance": 0.85,
+    "triumphant": 1.58
    },
    "style_checked": true
   },
@@ -6591,7 +7811,14 @@
     "Christmas holiday": 0.1056,
     "playful children's": 0.1091,
     "jazz or latin": 0.077,
-    "country western": 0.011
+    "country western": 0.011,
+    "calm": 0.1878,
+    "melancholic": 0.2136,
+    "dark": 0.1634,
+    "tense": 0.1988,
+    "solemn": 0.213,
+    "lively dance": 0.119,
+    "triumphant": 0.1564
    },
    "style_z": {
     "medieval European early music": 1.83,
@@ -6614,7 +7841,14 @@
     "Christmas holiday": 0.48,
     "playful children's": 0.36,
     "jazz or latin": -0.25,
-    "country western": -0.17
+    "country western": -0.17,
+    "calm": -0.83,
+    "melancholic": -0.5,
+    "dark": -0.38,
+    "tense": 0.08,
+    "solemn": -0.13,
+    "lively dance": 0.7,
+    "triumphant": 0.32
    },
    "style_checked": true
   },
@@ -6666,7 +7900,14 @@
     "Christmas holiday": 0.1157,
     "playful children's": 0.0912,
     "jazz or latin": 0.0716,
-    "country western": 0.0315
+    "country western": 0.0315,
+    "calm": 0.3165,
+    "melancholic": 0.2844,
+    "dark": 0.1891,
+    "tense": 0.222,
+    "solemn": 0.1648,
+    "lively dance": 0.1467,
+    "triumphant": 0.2211
    },
    "style_z": {
     "medieval European early music": -0.8,
@@ -6689,7 +7930,14 @@
     "Christmas holiday": 0.69,
     "playful children's": 0.1,
     "jazz or latin": -0.31,
-    "country western": 0.17
+    "country western": 0.17,
+    "calm": 0.84,
+    "melancholic": 0.27,
+    "dark": -0.08,
+    "tense": 0.36,
+    "solemn": -0.69,
+    "lively dance": 1.04,
+    "triumphant": 1.14
    },
    "style_checked": true
   },
@@ -6742,7 +7990,14 @@
     "Christmas holiday": 0.0366,
     "playful children's": 0.0104,
     "jazz or latin": -0.0289,
-    "country western": 0.0233
+    "country western": 0.0233,
+    "calm": 0.2104,
+    "melancholic": 0.1629,
+    "dark": 0.2039,
+    "tense": 0.2361,
+    "solemn": 0.1721,
+    "lively dance": 0.0272,
+    "triumphant": 0.0706
    },
    "style_z": {
     "medieval European early music": -0.94,
@@ -6765,7 +8020,14 @@
     "Christmas holiday": -0.93,
     "playful children's": -1.06,
     "jazz or latin": -1.39,
-    "country western": 0.03
+    "country western": 0.03,
+    "calm": -0.54,
+    "melancholic": -1.06,
+    "dark": 0.09,
+    "tense": 0.53,
+    "solemn": -0.61,
+    "lively dance": -0.41,
+    "triumphant": -0.77
    },
    "style_checked": true
   },
@@ -6821,7 +8083,14 @@
     "Christmas holiday": 0.0586,
     "playful children's": 0.0079,
     "jazz or latin": 0.0415,
-    "country western": -0.009
+    "country western": -0.009,
+    "calm": 0.2334,
+    "melancholic": 0.2075,
+    "dark": 0.2102,
+    "tense": 0.1717,
+    "solemn": 0.1799,
+    "lively dance": -0.0264,
+    "triumphant": -0.0267
    },
    "style_z": {
     "medieval European early music": -0.78,
@@ -6844,7 +8113,14 @@
     "Christmas holiday": -0.48,
     "playful children's": -1.09,
     "jazz or latin": -0.63,
-    "country western": -0.5
+    "country western": -0.5,
+    "calm": -0.24,
+    "melancholic": -0.57,
+    "dark": 0.16,
+    "tense": -0.26,
+    "solemn": -0.51,
+    "lively dance": -1.07,
+    "triumphant": -2.01
    },
    "style_checked": true
   },
@@ -6897,7 +8173,14 @@
     "Christmas holiday": 0.0531,
     "playful children's": 0.1345,
     "jazz or latin": 0.0851,
-    "country western": 0.0378
+    "country western": 0.0378,
+    "calm": 0.3328,
+    "melancholic": 0.2704,
+    "dark": 0.2125,
+    "tense": 0.3058,
+    "solemn": 0.1877,
+    "lively dance": 0.1725,
+    "triumphant": 0.2134
    },
    "style_z": {
     "medieval European early music": -0.68,
@@ -6920,7 +8203,14 @@
     "Christmas holiday": -0.6,
     "playful children's": 0.73,
     "jazz or latin": -0.16,
-    "country western": 0.27
+    "country western": 0.27,
+    "calm": 1.05,
+    "melancholic": 0.12,
+    "dark": 0.19,
+    "tense": 1.39,
+    "solemn": -0.42,
+    "lively dance": 1.36,
+    "triumphant": 1.05
    },
    "style_checked": true
   },
@@ -6971,7 +8261,14 @@
     "Christmas holiday": 0.0764,
     "playful children's": -0.0364,
     "jazz or latin": 0.0428,
-    "country western": 0.0324
+    "country western": 0.0324,
+    "calm": 0.2672,
+    "melancholic": 0.2247,
+    "dark": 0.3534,
+    "tense": 0.2514,
+    "solemn": 0.304,
+    "lively dance": -0.0513,
+    "triumphant": 0.0766
    },
    "style_z": {
     "medieval European early music": -1.07,
@@ -6994,7 +8291,14 @@
     "Christmas holiday": -0.12,
     "playful children's": -1.73,
     "jazz or latin": -0.62,
-    "country western": 0.18
+    "country western": 0.18,
+    "calm": 0.2,
+    "melancholic": -0.38,
+    "dark": 1.81,
+    "tense": 0.72,
+    "solemn": 0.92,
+    "lively dance": -1.37,
+    "triumphant": -0.7
    },
    "style_checked": true
   },
@@ -7053,7 +8357,14 @@
     "Christmas holiday": 0.0879,
     "playful children's": 0.1498,
     "jazz or latin": 0.1618,
-    "country western": 0.0675
+    "country western": 0.0675,
+    "calm": 0.3115,
+    "melancholic": 0.4099,
+    "dark": 0.2435,
+    "tense": 0.246,
+    "solemn": 0.2317,
+    "lively dance": 0.1194,
+    "triumphant": 0.2164
    },
    "style_z": {
     "medieval European early music": 1.35,
@@ -7076,7 +8387,14 @@
     "Christmas holiday": 0.12,
     "playful children's": 0.95,
     "jazz or latin": 0.66,
-    "country western": 0.76
+    "country western": 0.76,
+    "calm": 0.77,
+    "melancholic": 1.65,
+    "dark": 0.55,
+    "tense": 0.66,
+    "solemn": 0.08,
+    "lively dance": 0.71,
+    "triumphant": 1.08
    },
    "style_checked": true
   },
@@ -7132,7 +8450,14 @@
     "Christmas holiday": 0.0373,
     "playful children's": 0.0153,
     "jazz or latin": 0.0127,
-    "country western": -0.0491
+    "country western": -0.0491,
+    "calm": 0.2956,
+    "melancholic": 0.3279,
+    "dark": 0.2972,
+    "tense": 0.2828,
+    "solemn": 0.3399,
+    "lively dance": -0.0309,
+    "triumphant": 0.1203
    },
    "style_z": {
     "medieval European early music": 0.19,
@@ -7155,7 +8480,14 @@
     "Christmas holiday": -0.92,
     "playful children's": -0.99,
     "jazz or latin": -0.94,
-    "country western": -1.17
+    "country western": -1.17,
+    "calm": 0.57,
+    "melancholic": 0.75,
+    "dark": 1.17,
+    "tense": 1.11,
+    "solemn": 1.34,
+    "lively dance": -1.12,
+    "triumphant": -0.14
    },
    "style_checked": true
   },
@@ -7204,7 +8536,14 @@
     "Christmas holiday": 0.0448,
     "playful children's": 0.1442,
     "jazz or latin": 0.1197,
-    "country western": 0.0531
+    "country western": 0.0531,
+    "calm": 0.1587,
+    "melancholic": 0.1347,
+    "dark": 0.0577,
+    "tense": 0.0596,
+    "solemn": 0.165,
+    "lively dance": 0.1614,
+    "triumphant": 0.0784
    },
    "style_z": {
     "medieval European early music": -0.17,
@@ -7227,7 +8566,14 @@
     "Christmas holiday": -0.77,
     "playful children's": 0.87,
     "jazz or latin": 0.21,
-    "country western": 0.52
+    "country western": 0.52,
+    "calm": -1.2,
+    "melancholic": -1.37,
+    "dark": -1.59,
+    "tense": -1.63,
+    "solemn": -0.69,
+    "lively dance": 1.22,
+    "triumphant": -0.67
    },
    "style_checked": true
   },
@@ -7278,7 +8624,14 @@
     "Christmas holiday": 0.0498,
     "playful children's": 0.0337,
     "jazz or latin": 0.0244,
-    "country western": -0.014
+    "country western": -0.014,
+    "calm": 0.2774,
+    "melancholic": 0.2468,
+    "dark": 0.3428,
+    "tense": 0.2938,
+    "solemn": 0.2893,
+    "lively dance": 0.0159,
+    "triumphant": 0.1761
    },
    "style_z": {
     "medieval European early music": 0.34,
@@ -7301,7 +8654,14 @@
     "Christmas holiday": -0.66,
     "playful children's": -0.72,
     "jazz or latin": -0.81,
-    "country western": -0.59
+    "country western": -0.59,
+    "calm": 0.33,
+    "melancholic": -0.14,
+    "dark": 1.69,
+    "tense": 1.24,
+    "solemn": 0.75,
+    "lively dance": -0.55,
+    "triumphant": 0.57
    },
    "style_checked": true
   },
@@ -7354,7 +8714,14 @@
     "Christmas holiday": 0.0679,
     "playful children's": -0.0215,
     "jazz or latin": -0.0194,
-    "country western": 0.0661
+    "country western": 0.0661,
+    "calm": 0.315,
+    "melancholic": 0.2265,
+    "dark": 0.343,
+    "tense": 0.2566,
+    "solemn": 0.2848,
+    "lively dance": 0.0223,
+    "triumphant": 0.1086
    },
    "style_z": {
     "medieval European early music": -0.26,
@@ -7377,7 +8744,14 @@
     "Christmas holiday": -0.29,
     "playful children's": -1.52,
     "jazz or latin": -1.28,
-    "country western": 0.74
+    "country western": 0.74,
+    "calm": 0.82,
+    "melancholic": -0.36,
+    "dark": 1.69,
+    "tense": 0.79,
+    "solemn": 0.7,
+    "lively dance": -0.47,
+    "triumphant": -0.29
    },
    "style_checked": true
   },
@@ -7428,7 +8802,14 @@
     "Christmas holiday": 0.1081,
     "playful children's": 0.1287,
     "jazz or latin": -0.039,
-    "country western": 0.057
+    "country western": 0.057,
+    "calm": 0.0606,
+    "melancholic": 0.1121,
+    "dark": 0.0557,
+    "tense": 0.1284,
+    "solemn": 0.119,
+    "lively dance": 0.0615,
+    "triumphant": 0.0471
    },
    "style_z": {
     "medieval European early music": -0.12,
@@ -7451,7 +8832,14 @@
     "Christmas holiday": 0.53,
     "playful children's": 0.64,
     "jazz or latin": -1.49,
-    "country western": 0.59
+    "country western": 0.59,
+    "calm": -2.47,
+    "melancholic": -1.61,
+    "dark": -1.62,
+    "tense": -0.79,
+    "solemn": -1.22,
+    "lively dance": 0.0,
+    "triumphant": -1.07
    },
    "style_checked": true
   },
@@ -7504,7 +8892,14 @@
     "Christmas holiday": 0.057,
     "playful children's": 0.1212,
     "jazz or latin": 0.1697,
-    "country western": 0.0675
+    "country western": 0.0675,
+    "calm": 0.3179,
+    "melancholic": 0.3381,
+    "dark": 0.2045,
+    "tense": 0.1982,
+    "solemn": 0.2301,
+    "lively dance": 0.0752,
+    "triumphant": 0.1406
    },
    "style_z": {
     "medieval European early music": 1.0,
@@ -7527,7 +8922,14 @@
     "Christmas holiday": -0.52,
     "playful children's": 0.54,
     "jazz or latin": 0.74,
-    "country western": 0.76
+    "country western": 0.76,
+    "calm": 0.85,
+    "melancholic": 0.86,
+    "dark": 0.1,
+    "tense": 0.07,
+    "solemn": 0.07,
+    "lively dance": 0.17,
+    "triumphant": 0.12
    },
    "style_checked": true
   },
@@ -7579,7 +8981,14 @@
     "Christmas holiday": 0.1449,
     "playful children's": 0.1654,
     "jazz or latin": 0.2312,
-    "country western": 0.0411
+    "country western": 0.0411,
+    "calm": 0.3439,
+    "melancholic": 0.3766,
+    "dark": 0.3072,
+    "tense": 0.271,
+    "solemn": 0.3572,
+    "lively dance": 0.0907,
+    "triumphant": 0.205
    },
    "style_z": {
     "medieval European early music": 0.93,
@@ -7602,7 +9011,14 @@
     "Christmas holiday": 1.29,
     "playful children's": 1.17,
     "jazz or latin": 1.4,
-    "country western": 0.32
+    "country western": 0.32,
+    "calm": 1.19,
+    "melancholic": 1.28,
+    "dark": 1.28,
+    "tense": 0.96,
+    "solemn": 1.54,
+    "lively dance": 0.36,
+    "triumphant": 0.94
    },
    "style_checked": true
   },
@@ -7655,7 +9071,14 @@
     "Christmas holiday": 0.043,
     "playful children's": 0.0987,
     "jazz or latin": 0.2032,
-    "country western": -0.0161
+    "country western": -0.0161,
+    "calm": 0.4194,
+    "melancholic": 0.4267,
+    "dark": 0.3434,
+    "tense": 0.318,
+    "solemn": 0.2815,
+    "lively dance": 0.1101,
+    "triumphant": 0.2231
    },
    "style_z": {
     "medieval European early music": 0.83,
@@ -7678,7 +9101,14 @@
     "Christmas holiday": -0.8,
     "playful children's": 0.21,
     "jazz or latin": 1.1,
-    "country western": -0.62
+    "country western": -0.62,
+    "calm": 2.17,
+    "melancholic": 1.83,
+    "dark": 1.7,
+    "tense": 1.54,
+    "solemn": 0.66,
+    "lively dance": 0.6,
+    "triumphant": 1.17
    },
    "style_checked": true
   },
@@ -7730,7 +9160,14 @@
     "Christmas holiday": 0.02,
     "playful children's": -0.001,
     "jazz or latin": 0.0935,
-    "country western": -0.0317
+    "country western": -0.0317,
+    "calm": 0.3289,
+    "melancholic": 0.3475,
+    "dark": 0.3034,
+    "tense": 0.3237,
+    "solemn": 0.3174,
+    "lively dance": -0.0237,
+    "triumphant": 0.1142
    },
    "style_z": {
     "medieval European early music": 0.32,
@@ -7753,7 +9190,14 @@
     "Christmas holiday": -1.28,
     "playful children's": -1.22,
     "jazz or latin": -0.07,
-    "country western": -0.88
+    "country western": -0.88,
+    "calm": 1.0,
+    "melancholic": 0.96,
+    "dark": 1.24,
+    "tense": 1.61,
+    "solemn": 1.08,
+    "lively dance": -1.04,
+    "triumphant": -0.22
    },
    "style_checked": true
   },
@@ -7808,7 +9252,14 @@
     "Christmas holiday": 0.1271,
     "playful children's": 0.0045,
     "jazz or latin": 0.0723,
-    "country western": -0.0596
+    "country western": -0.0596,
+    "calm": 0.2879,
+    "melancholic": 0.2938,
+    "dark": 0.4126,
+    "tense": 0.3196,
+    "solemn": 0.3178,
+    "lively dance": -0.046,
+    "triumphant": 0.1703
    },
    "style_z": {
     "medieval European early music": -0.45,
@@ -7831,7 +9282,14 @@
     "Christmas holiday": 0.92,
     "playful children's": -1.14,
     "jazz or latin": -0.3,
-    "country western": -1.34
+    "country western": -1.34,
+    "calm": 0.47,
+    "melancholic": 0.38,
+    "dark": 2.5,
+    "tense": 1.56,
+    "solemn": 1.08,
+    "lively dance": -1.31,
+    "triumphant": 0.5
    },
    "style_checked": true
   },
@@ -7883,7 +9341,14 @@
     "Christmas holiday": 0.088,
     "playful children's": 0.1445,
     "jazz or latin": 0.1634,
-    "country western": 0.015
+    "country western": 0.015,
+    "calm": 0.1794,
+    "melancholic": 0.1605,
+    "dark": 0.2595,
+    "tense": 0.2562,
+    "solemn": 0.3008,
+    "lively dance": 0.1025,
+    "triumphant": 0.2416
    },
    "style_z": {
     "medieval European early music": 0.14,
@@ -7906,7 +9371,14 @@
     "Christmas holiday": 0.12,
     "playful children's": 0.87,
     "jazz or latin": 0.67,
-    "country western": -0.11
+    "country western": -0.11,
+    "calm": -0.94,
+    "melancholic": -1.08,
+    "dark": 0.73,
+    "tense": 0.78,
+    "solemn": 0.88,
+    "lively dance": 0.5,
+    "triumphant": 1.41
    },
    "style_checked": true
   },
@@ -7959,7 +9431,14 @@
     "Christmas holiday": 0.0353,
     "playful children's": 0.0865,
     "jazz or latin": 0.0867,
-    "country western": -0.0185
+    "country western": -0.0185,
+    "calm": 0.2149,
+    "melancholic": 0.159,
+    "dark": 0.3117,
+    "tense": 0.1834,
+    "solemn": 0.2885,
+    "lively dance": 0.013,
+    "triumphant": 0.1467
    },
    "style_z": {
     "medieval European early music": 0.09,
@@ -7982,7 +9461,14 @@
     "Christmas holiday": -0.96,
     "playful children's": 0.04,
     "jazz or latin": -0.15,
-    "country western": -0.66
+    "country western": -0.66,
+    "calm": -0.48,
+    "melancholic": -1.1,
+    "dark": 1.33,
+    "tense": -0.11,
+    "solemn": 0.74,
+    "lively dance": -0.59,
+    "triumphant": 0.2
    },
    "style_checked": true
   },
@@ -8035,7 +9521,14 @@
     "Christmas holiday": 0.0804,
     "playful children's": 0.0974,
     "jazz or latin": 0.1097,
-    "country western": 0.0929
+    "country western": 0.0929,
+    "calm": 0.2068,
+    "melancholic": 0.2196,
+    "dark": 0.0758,
+    "tense": 0.1182,
+    "solemn": 0.1088,
+    "lively dance": 0.109,
+    "triumphant": 0.0764
    },
    "style_z": {
     "medieval European early music": -0.93,
@@ -8058,7 +9551,14 @@
     "Christmas holiday": -0.04,
     "playful children's": 0.19,
     "jazz or latin": 0.1,
-    "country western": 1.18
+    "country western": 1.18,
+    "calm": -0.58,
+    "melancholic": -0.44,
+    "dark": -1.39,
+    "tense": -0.91,
+    "solemn": -1.34,
+    "lively dance": 0.58,
+    "triumphant": -0.7
    },
    "style_checked": true
   },
@@ -8111,7 +9611,14 @@
     "Christmas holiday": 0.1148,
     "playful children's": 0.1389,
     "jazz or latin": 0.1626,
-    "country western": 0.0176
+    "country western": 0.0176,
+    "calm": 0.2442,
+    "melancholic": 0.1889,
+    "dark": 0.3186,
+    "tense": 0.3095,
+    "solemn": 0.2475,
+    "lively dance": 0.1136,
+    "triumphant": 0.3197
    },
    "style_z": {
     "medieval European early music": 0.47,
@@ -8134,7 +9641,14 @@
     "Christmas holiday": 0.67,
     "playful children's": 0.79,
     "jazz or latin": 0.67,
-    "country western": -0.06
+    "country western": -0.06,
+    "calm": -0.1,
+    "melancholic": -0.77,
+    "dark": 1.41,
+    "tense": 1.43,
+    "solemn": 0.27,
+    "lively dance": 0.64,
+    "triumphant": 2.4
    },
    "style_checked": true
   },
@@ -8189,7 +9703,14 @@
     "Christmas holiday": 0.0687,
     "playful children's": 0.1216,
     "jazz or latin": 0.2664,
-    "country western": 0.0114
+    "country western": 0.0114,
+    "calm": 0.4009,
+    "melancholic": 0.4468,
+    "dark": 0.2542,
+    "tense": 0.2629,
+    "solemn": 0.2527,
+    "lively dance": 0.1638,
+    "triumphant": 0.2494
    },
    "style_z": {
     "medieval European early music": 0.64,
@@ -8212,7 +9733,14 @@
     "Christmas holiday": -0.28,
     "playful children's": 0.54,
     "jazz or latin": 1.78,
-    "country western": -0.17
+    "country western": -0.17,
+    "calm": 1.93,
+    "melancholic": 2.05,
+    "dark": 0.67,
+    "tense": 0.86,
+    "solemn": 0.33,
+    "lively dance": 1.25,
+    "triumphant": 1.5
    },
    "style_checked": true
   },
@@ -8267,7 +9795,14 @@
     "Christmas holiday": 0.1087,
     "playful children's": 0.1522,
     "jazz or latin": 0.2,
-    "country western": 0.0004
+    "country western": 0.0004,
+    "calm": 0.3584,
+    "melancholic": 0.4365,
+    "dark": 0.1977,
+    "tense": 0.2234,
+    "solemn": 0.1821,
+    "lively dance": 0.1566,
+    "triumphant": 0.2109
    },
    "style_z": {
     "medieval European early music": 0.01,
@@ -8290,7 +9825,14 @@
     "Christmas holiday": 0.55,
     "playful children's": 0.98,
     "jazz or latin": 1.07,
-    "country western": -0.35
+    "country western": -0.35,
+    "calm": 1.38,
+    "melancholic": 1.94,
+    "dark": 0.02,
+    "tense": 0.38,
+    "solemn": -0.49,
+    "lively dance": 1.16,
+    "triumphant": 1.01
    },
    "style_checked": true
   },
@@ -8344,7 +9886,14 @@
     "Christmas holiday": 0.09,
     "playful children's": 0.1274,
     "jazz or latin": 0.1406,
-    "country western": -0.0284
+    "country western": -0.0284,
+    "calm": 0.3642,
+    "melancholic": 0.4245,
+    "dark": 0.3286,
+    "tense": 0.3176,
+    "solemn": 0.2978,
+    "lively dance": 0.0524,
+    "triumphant": 0.2216
    },
    "style_z": {
     "medieval European early music": 1.44,
@@ -8367,7 +9916,14 @@
     "Christmas holiday": 0.16,
     "playful children's": 0.62,
     "jazz or latin": 0.43,
-    "country western": -0.83
+    "country western": -0.83,
+    "calm": 1.45,
+    "melancholic": 1.81,
+    "dark": 1.53,
+    "tense": 1.53,
+    "solemn": 0.85,
+    "lively dance": -0.11,
+    "triumphant": 1.15
    },
    "style_checked": true
   },
@@ -8423,7 +9979,14 @@
     "Christmas holiday": 0.0754,
     "playful children's": 0.1575,
     "jazz or latin": 0.278,
-    "country western": 0.0034
+    "country western": 0.0034,
+    "calm": 0.3456,
+    "melancholic": 0.4547,
+    "dark": 0.2304,
+    "tense": 0.2294,
+    "solemn": 0.2421,
+    "lively dance": 0.1627,
+    "triumphant": 0.2265
    },
    "style_z": {
     "medieval European early music": 0.93,
@@ -8446,7 +10009,14 @@
     "Christmas holiday": -0.14,
     "playful children's": 1.06,
     "jazz or latin": 1.9,
-    "country western": -0.3
+    "country western": -0.3,
+    "calm": 1.21,
+    "melancholic": 2.14,
+    "dark": 0.4,
+    "tense": 0.45,
+    "solemn": 0.2,
+    "lively dance": 1.24,
+    "triumphant": 1.21
    },
    "style_checked": true
   },
@@ -8497,7 +10067,14 @@
     "Christmas holiday": 0.0759,
     "playful children's": 0.0541,
     "jazz or latin": 0.0838,
-    "country western": 0.0381
+    "country western": 0.0381,
+    "calm": 0.2158,
+    "melancholic": 0.2137,
+    "dark": 0.1084,
+    "tense": 0.1585,
+    "solemn": 0.164,
+    "lively dance": 0.0595,
+    "triumphant": 0.0844
    },
    "style_z": {
     "medieval European early music": 0.18,
@@ -8520,7 +10097,14 @@
     "Christmas holiday": -0.13,
     "playful children's": -0.43,
     "jazz or latin": -0.18,
-    "country western": 0.27
+    "country western": 0.27,
+    "calm": -0.47,
+    "melancholic": -0.5,
+    "dark": -1.01,
+    "tense": -0.42,
+    "solemn": -0.7,
+    "lively dance": -0.02,
+    "triumphant": -0.6
    },
    "style_checked": true
   },
@@ -8575,7 +10159,14 @@
     "Christmas holiday": 0.0818,
     "playful children's": 0.1795,
     "jazz or latin": 0.2732,
-    "country western": 0.03
+    "country western": 0.03,
+    "calm": 0.3386,
+    "melancholic": 0.4357,
+    "dark": 0.227,
+    "tense": 0.2139,
+    "solemn": 0.2493,
+    "lively dance": 0.1866,
+    "triumphant": 0.2598
    },
    "style_z": {
     "medieval European early music": 1.08,
@@ -8598,7 +10189,14 @@
     "Christmas holiday": -0.01,
     "playful children's": 1.37,
     "jazz or latin": 1.85,
-    "country western": 0.14
+    "country western": 0.14,
+    "calm": 1.12,
+    "melancholic": 1.93,
+    "dark": 0.36,
+    "tense": 0.26,
+    "solemn": 0.29,
+    "lively dance": 1.53,
+    "triumphant": 1.64
    },
    "style_checked": true
   },
@@ -8652,7 +10250,14 @@
     "Christmas holiday": 0.0961,
     "playful children's": 0.1578,
     "jazz or latin": 0.2062,
-    "country western": 0.0448
+    "country western": 0.0448,
+    "calm": 0.3302,
+    "melancholic": 0.4185,
+    "dark": 0.3062,
+    "tense": 0.3014,
+    "solemn": 0.3101,
+    "lively dance": 0.115,
+    "triumphant": 0.2432
    },
    "style_z": {
     "medieval European early music": 1.84,
@@ -8675,7 +10280,14 @@
     "Christmas holiday": 0.29,
     "playful children's": 1.06,
     "jazz or latin": 1.13,
-    "country western": 0.39
+    "country western": 0.39,
+    "calm": 1.01,
+    "melancholic": 1.74,
+    "dark": 1.27,
+    "tense": 1.34,
+    "solemn": 0.99,
+    "lively dance": 0.66,
+    "triumphant": 1.43
    },
    "style_checked": true
   },
@@ -8729,7 +10341,14 @@
     "Christmas holiday": 0.0653,
     "playful children's": 0.1763,
     "jazz or latin": 0.2466,
-    "country western": 0.0329
+    "country western": 0.0329,
+    "calm": 0.3991,
+    "melancholic": 0.459,
+    "dark": 0.3443,
+    "tense": 0.3044,
+    "solemn": 0.3013,
+    "lively dance": 0.1448,
+    "triumphant": 0.2467
    },
    "style_z": {
     "medieval European early music": 1.95,
@@ -8752,7 +10371,14 @@
     "Christmas holiday": -0.35,
     "playful children's": 1.33,
     "jazz or latin": 1.57,
-    "country western": 0.19
+    "country western": 0.19,
+    "calm": 1.9,
+    "melancholic": 2.19,
+    "dark": 1.71,
+    "tense": 1.37,
+    "solemn": 0.89,
+    "lively dance": 1.02,
+    "triumphant": 1.47
    },
    "style_checked": true
   },
@@ -8802,7 +10428,14 @@
     "Christmas holiday": 0.0711,
     "playful children's": 0.1036,
     "jazz or latin": 0.0967,
-    "country western": 0.0176
+    "country western": 0.0176,
+    "calm": 0.2991,
+    "melancholic": 0.2368,
+    "dark": 0.1441,
+    "tense": 0.2117,
+    "solemn": 0.0754,
+    "lively dance": 0.1389,
+    "triumphant": 0.1691
    },
    "style_z": {
     "medieval European early music": -1.55,
@@ -8825,7 +10458,14 @@
     "Christmas holiday": -0.23,
     "playful children's": 0.28,
     "jazz or latin": -0.04,
-    "country western": -0.06
+    "country western": -0.06,
+    "calm": 0.61,
+    "melancholic": -0.25,
+    "dark": -0.6,
+    "tense": 0.23,
+    "solemn": -1.72,
+    "lively dance": 0.95,
+    "triumphant": 0.48
    },
    "style_checked": true
   },
@@ -8876,7 +10516,14 @@
     "Christmas holiday": 0.0226,
     "playful children's": 0.0929,
     "jazz or latin": 0.0536,
-    "country western": 0.05
+    "country western": 0.05,
+    "calm": 0.1644,
+    "melancholic": 0.1341,
+    "dark": 0.1683,
+    "tense": 0.115,
+    "solemn": 0.1068,
+    "lively dance": 0.0732,
+    "triumphant": 0.0153
    },
    "style_z": {
     "medieval European early music": -0.92,
@@ -8899,7 +10546,14 @@
     "Christmas holiday": -1.22,
     "playful children's": 0.13,
     "jazz or latin": -0.5,
-    "country western": 0.47
+    "country western": 0.47,
+    "calm": -1.13,
+    "melancholic": -1.37,
+    "dark": -0.32,
+    "tense": -0.95,
+    "solemn": -1.36,
+    "lively dance": 0.15,
+    "triumphant": -1.48
    },
    "style_checked": true
   },
@@ -8952,7 +10606,14 @@
     "Christmas holiday": 0.1281,
     "playful children's": 0.1613,
     "jazz or latin": 0.0887,
-    "country western": 0.0592
+    "country western": 0.0592,
+    "calm": 0.2639,
+    "melancholic": 0.2954,
+    "dark": 0.1879,
+    "tense": 0.1957,
+    "solemn": 0.2545,
+    "lively dance": 0.1274,
+    "triumphant": 0.2036
    },
    "style_z": {
     "medieval European early music": 1.33,
@@ -8975,7 +10636,14 @@
     "Christmas holiday": 0.94,
     "playful children's": 1.11,
     "jazz or latin": -0.13,
-    "country western": 0.62
+    "country western": 0.62,
+    "calm": 0.16,
+    "melancholic": 0.39,
+    "dark": -0.09,
+    "tense": 0.04,
+    "solemn": 0.35,
+    "lively dance": 0.81,
+    "triumphant": 0.92
    },
    "style_checked": true
   },
@@ -9030,7 +10698,14 @@
     "Christmas holiday": 0.149,
     "playful children's": 0.0717,
     "jazz or latin": 0.0661,
-    "country western": -0.0037
+    "country western": -0.0037,
+    "calm": 0.2975,
+    "melancholic": 0.3251,
+    "dark": 0.1874,
+    "tense": 0.2117,
+    "solemn": 0.2222,
+    "lively dance": 0.0989,
+    "triumphant": 0.1723
    },
    "style_z": {
     "medieval European early music": 0.19,
@@ -9053,7 +10728,14 @@
     "Christmas holiday": 1.37,
     "playful children's": -0.18,
     "jazz or latin": -0.37,
-    "country western": -0.42
+    "country western": -0.42,
+    "calm": 0.59,
+    "melancholic": 0.72,
+    "dark": -0.1,
+    "tense": 0.23,
+    "solemn": -0.03,
+    "lively dance": 0.46,
+    "triumphant": 0.52
    },
    "style_checked": true
   },
@@ -9105,7 +10787,14 @@
     "Christmas holiday": 0.0884,
     "playful children's": 0.0558,
     "jazz or latin": 0.0848,
-    "country western": -0.0299
+    "country western": -0.0299,
+    "calm": 0.3049,
+    "melancholic": 0.2639,
+    "dark": 0.1487,
+    "tense": 0.1658,
+    "solemn": 0.1887,
+    "lively dance": 0.0677,
+    "triumphant": 0.0944
    },
    "style_z": {
     "medieval European early music": -0.95,
@@ -9128,7 +10817,14 @@
     "Christmas holiday": 0.13,
     "playful children's": -0.41,
     "jazz or latin": -0.17,
-    "country western": -0.85
+    "country western": -0.85,
+    "calm": 0.69,
+    "melancholic": 0.05,
+    "dark": -0.55,
+    "tense": -0.33,
+    "solemn": -0.41,
+    "lively dance": 0.08,
+    "triumphant": -0.47
    },
    "style_checked": true
   },
@@ -9181,7 +10877,14 @@
     "Christmas holiday": 0.1537,
     "playful children's": 0.1305,
     "jazz or latin": 0.1199,
-    "country western": 0.0718
+    "country western": 0.0718,
+    "calm": 0.2707,
+    "melancholic": 0.3045,
+    "dark": 0.1984,
+    "tense": 0.2293,
+    "solemn": 0.2116,
+    "lively dance": 0.16,
+    "triumphant": 0.214
    },
    "style_z": {
     "medieval European early music": 0.2,
@@ -9204,7 +10907,14 @@
     "Christmas holiday": 1.47,
     "playful children's": 0.67,
     "jazz or latin": 0.21,
-    "country western": 0.83
+    "country western": 0.83,
+    "calm": 0.24,
+    "melancholic": 0.49,
+    "dark": 0.03,
+    "tense": 0.45,
+    "solemn": -0.15,
+    "lively dance": 1.2,
+    "triumphant": 1.05
    },
    "style_checked": true
   },
@@ -9255,7 +10965,14 @@
     "Christmas holiday": 0.103,
     "playful children's": 0.0223,
     "jazz or latin": 0.1057,
-    "country western": -0.0084
+    "country western": -0.0084,
+    "calm": 0.256,
+    "melancholic": 0.2823,
+    "dark": 0.214,
+    "tense": 0.1627,
+    "solemn": 0.31,
+    "lively dance": 0.0009,
+    "triumphant": 0.1217
    },
    "style_z": {
     "medieval European early music": 0.16,
@@ -9278,7 +10995,14 @@
     "Christmas holiday": 0.43,
     "playful children's": -0.89,
     "jazz or latin": 0.06,
-    "country western": -0.5
+    "country western": -0.5,
+    "calm": 0.05,
+    "melancholic": 0.25,
+    "dark": 0.21,
+    "tense": -0.37,
+    "solemn": 0.99,
+    "lively dance": -0.74,
+    "triumphant": -0.12
    },
    "style_checked": true
   },
@@ -9329,7 +11053,14 @@
     "Christmas holiday": 0.0835,
     "playful children's": 0.1427,
     "jazz or latin": 0.1101,
-    "country western": 0.0423
+    "country western": 0.0423,
+    "calm": 0.1774,
+    "melancholic": 0.0945,
+    "dark": 0.043,
+    "tense": 0.0788,
+    "solemn": 0.0414,
+    "lively dance": 0.1766,
+    "triumphant": 0.0357
    },
    "style_z": {
     "medieval European early music": -1.72,
@@ -9352,7 +11083,14 @@
     "Christmas holiday": 0.03,
     "playful children's": 0.85,
     "jazz or latin": 0.1,
-    "country western": 0.34
+    "country western": 0.34,
+    "calm": -0.96,
+    "melancholic": -1.81,
+    "dark": -1.76,
+    "tense": -1.4,
+    "solemn": -2.12,
+    "lively dance": 1.41,
+    "triumphant": -1.22
    },
    "style_checked": true
   },
@@ -9402,7 +11140,14 @@
     "Christmas holiday": 0.0779,
     "playful children's": 0.1222,
     "jazz or latin": 0.2241,
-    "country western": 0.1335
+    "country western": 0.1335,
+    "calm": 0.2,
+    "melancholic": 0.2238,
+    "dark": 0.1093,
+    "tense": 0.0304,
+    "solemn": 0.2032,
+    "lively dance": 0.1415,
+    "triumphant": 0.0724
    },
    "style_z": {
     "medieval European early music": 1.49,
@@ -9425,7 +11170,14 @@
     "Christmas holiday": -0.09,
     "playful children's": 0.55,
     "jazz or latin": 1.33,
-    "country western": 1.85
+    "country western": 1.85,
+    "calm": -0.67,
+    "melancholic": -0.39,
+    "dark": -1.0,
+    "tense": -1.99,
+    "solemn": -0.25,
+    "lively dance": 0.98,
+    "triumphant": -0.75
    },
    "style_checked": true
   },
@@ -9473,7 +11225,14 @@
     "Christmas holiday": 0.0995,
     "playful children's": 0.1742,
     "jazz or latin": 0.0952,
-    "country western": 0.0706
+    "country western": 0.0706,
+    "calm": 0.2082,
+    "melancholic": 0.2399,
+    "dark": 0.0656,
+    "tense": 0.143,
+    "solemn": 0.1131,
+    "lively dance": 0.1491,
+    "triumphant": 0.1125
    },
    "style_z": {
     "medieval European early music": 0.23,
@@ -9496,7 +11255,14 @@
     "Christmas holiday": 0.36,
     "playful children's": 1.3,
     "jazz or latin": -0.06,
-    "country western": 0.81
+    "country western": 0.81,
+    "calm": -0.56,
+    "melancholic": -0.21,
+    "dark": -1.5,
+    "tense": -0.61,
+    "solemn": -1.29,
+    "lively dance": 1.07,
+    "triumphant": -0.24
    },
    "style_checked": true
   },
@@ -9546,7 +11312,14 @@
     "Christmas holiday": 0.1287,
     "playful children's": 0.1475,
     "jazz or latin": 0.1344,
-    "country western": 0.0937
+    "country western": 0.0937,
+    "calm": 0.2527,
+    "melancholic": 0.2513,
+    "dark": 0.1419,
+    "tense": 0.1649,
+    "solemn": 0.0975,
+    "lively dance": 0.1464,
+    "triumphant": 0.2152
    },
    "style_z": {
     "medieval European early music": -0.1,
@@ -9569,7 +11342,14 @@
     "Christmas holiday": 0.96,
     "playful children's": 0.91,
     "jazz or latin": 0.36,
-    "country western": 1.2
+    "country western": 1.2,
+    "calm": 0.01,
+    "melancholic": -0.09,
+    "dark": -0.62,
+    "tense": -0.34,
+    "solemn": -1.47,
+    "lively dance": 1.04,
+    "triumphant": 1.07
    },
    "style_checked": true
   },
@@ -9618,7 +11398,14 @@
     "Christmas holiday": 0.0019,
     "playful children's": 0.036,
     "jazz or latin": -0.0636,
-    "country western": -0.0467
+    "country western": -0.0467,
+    "calm": 0.1841,
+    "melancholic": 0.1906,
+    "dark": 0.2102,
+    "tense": 0.1457,
+    "solemn": 0.2758,
+    "lively dance": -0.0373,
+    "triumphant": 0.0733
    },
    "style_z": {
     "medieval European early music": 0.63,
@@ -9641,7 +11428,14 @@
     "Christmas holiday": -1.65,
     "playful children's": -0.69,
     "jazz or latin": -1.76,
-    "country western": -1.13
+    "country western": -1.13,
+    "calm": -0.88,
+    "melancholic": -0.75,
+    "dark": 0.16,
+    "tense": -0.58,
+    "solemn": 0.59,
+    "lively dance": -1.2,
+    "triumphant": -0.74
    },
    "style_checked": true
   },
@@ -9694,7 +11488,14 @@
     "Christmas holiday": 0.0537,
     "playful children's": 0.0626,
     "jazz or latin": 0.1113,
-    "country western": -0.077
+    "country western": -0.077,
+    "calm": 0.353,
+    "melancholic": 0.3798,
+    "dark": 0.3128,
+    "tense": 0.2933,
+    "solemn": 0.319,
+    "lively dance": 0.054,
+    "triumphant": 0.2348
    },
    "style_z": {
     "medieval European early music": 0.44,
@@ -9717,7 +11518,14 @@
     "Christmas holiday": -0.58,
     "playful children's": -0.31,
     "jazz or latin": 0.12,
-    "country western": -1.63
+    "country western": -1.63,
+    "calm": 1.31,
+    "melancholic": 1.32,
+    "dark": 1.35,
+    "tense": 1.24,
+    "solemn": 1.09,
+    "lively dance": -0.09,
+    "triumphant": 1.32
    },
    "style_checked": true
   },
@@ -9771,7 +11579,14 @@
     "Christmas holiday": 0.0995,
     "playful children's": 0.1768,
     "jazz or latin": 0.2435,
-    "country western": 0.0424
+    "country western": 0.0424,
+    "calm": 0.3128,
+    "melancholic": 0.4413,
+    "dark": 0.1804,
+    "tense": 0.2014,
+    "solemn": 0.2389,
+    "lively dance": 0.1635,
+    "triumphant": 0.2506
    },
    "style_z": {
     "medieval European early music": 1.47,
@@ -9794,7 +11609,14 @@
     "Christmas holiday": 0.36,
     "playful children's": 1.34,
     "jazz or latin": 1.53,
-    "country western": 0.35
+    "country western": 0.35,
+    "calm": 0.79,
+    "melancholic": 1.99,
+    "dark": -0.18,
+    "tense": 0.11,
+    "solemn": 0.17,
+    "lively dance": 1.25,
+    "triumphant": 1.52
    },
    "style_checked": true
   },
@@ -9847,7 +11669,14 @@
     "Christmas holiday": 0.0801,
     "playful children's": 0.1133,
     "jazz or latin": 0.195,
-    "country western": 0.0149
+    "country western": 0.0149,
+    "calm": 0.354,
+    "melancholic": 0.3634,
+    "dark": 0.1859,
+    "tense": 0.2507,
+    "solemn": 0.2213,
+    "lively dance": 0.1478,
+    "triumphant": 0.2477
    },
    "style_z": {
     "medieval European early music": -0.08,
@@ -9870,7 +11699,14 @@
     "Christmas holiday": -0.04,
     "playful children's": 0.42,
     "jazz or latin": 1.01,
-    "country western": -0.11
+    "country western": -0.11,
+    "calm": 1.32,
+    "melancholic": 1.14,
+    "dark": -0.12,
+    "tense": 0.71,
+    "solemn": -0.04,
+    "lively dance": 1.06,
+    "triumphant": 1.48
    },
    "style_checked": true
   },
@@ -9923,7 +11759,14 @@
     "Christmas holiday": 0.0801,
     "playful children's": 0.1133,
     "jazz or latin": 0.195,
-    "country western": 0.0149
+    "country western": 0.0149,
+    "calm": 0.354,
+    "melancholic": 0.3634,
+    "dark": 0.1859,
+    "tense": 0.2507,
+    "solemn": 0.2213,
+    "lively dance": 0.1478,
+    "triumphant": 0.2477
    },
    "style_z": {
     "medieval European early music": -0.08,
@@ -9946,7 +11789,14 @@
     "Christmas holiday": -0.04,
     "playful children's": 0.42,
     "jazz or latin": 1.01,
-    "country western": -0.11
+    "country western": -0.11,
+    "calm": 1.32,
+    "melancholic": 1.14,
+    "dark": -0.12,
+    "tense": 0.71,
+    "solemn": -0.04,
+    "lively dance": 1.06,
+    "triumphant": 1.48
    },
    "style_checked": true
   },
@@ -9995,7 +11845,14 @@
     "Christmas holiday": 0.1475,
     "playful children's": 0.0976,
     "jazz or latin": 0.0479,
-    "country western": 0.1386
+    "country western": 0.1386,
+    "calm": 0.1281,
+    "melancholic": 0.1356,
+    "dark": -0.0448,
+    "tense": -0.0071,
+    "solemn": -0.0535,
+    "lively dance": 0.0799,
+    "triumphant": 0.0201
    },
    "style_z": {
     "medieval European early music": -1.69,
@@ -10018,7 +11875,14 @@
     "Christmas holiday": 1.34,
     "playful children's": 0.2,
     "jazz or latin": -0.56,
-    "country western": 1.94
+    "country western": 1.94,
+    "calm": -1.6,
+    "melancholic": -1.36,
+    "dark": -2.78,
+    "tense": -2.45,
+    "solemn": -3.21,
+    "lively dance": 0.23,
+    "triumphant": -1.42
    },
    "style_checked": true
   },
@@ -10070,7 +11934,14 @@
     "Christmas holiday": 0.0671,
     "playful children's": 0.1507,
     "jazz or latin": 0.1555,
-    "country western": 0.0228
+    "country western": 0.0228,
+    "calm": 0.3627,
+    "melancholic": 0.3242,
+    "dark": 0.2297,
+    "tense": 0.2276,
+    "solemn": 0.1965,
+    "lively dance": 0.1437,
+    "triumphant": 0.2104
    },
    "style_z": {
     "medieval European early music": 0.5,
@@ -10093,7 +11964,14 @@
     "Christmas holiday": -0.31,
     "playful children's": 0.96,
     "jazz or latin": 0.59,
-    "country western": 0.02
+    "country western": 0.02,
+    "calm": 1.43,
+    "melancholic": 0.71,
+    "dark": 0.39,
+    "tense": 0.43,
+    "solemn": -0.32,
+    "lively dance": 1.01,
+    "triumphant": 1.01
    },
    "style_checked": true
   },
@@ -10144,7 +12022,14 @@
     "Christmas holiday": 0.0951,
     "playful children's": 0.0916,
     "jazz or latin": 0.0105,
-    "country western": 0.0633
+    "country western": 0.0633,
+    "calm": 0.3386,
+    "melancholic": 0.3112,
+    "dark": 0.2443,
+    "tense": 0.2416,
+    "solemn": 0.2496,
+    "lively dance": 0.0383,
+    "triumphant": 0.1874
    },
    "style_z": {
     "medieval European early music": 0.22,
@@ -10167,7 +12052,14 @@
     "Christmas holiday": 0.27,
     "playful children's": 0.11,
     "jazz or latin": -0.96,
-    "country western": 0.69
+    "country western": 0.69,
+    "calm": 1.12,
+    "melancholic": 0.57,
+    "dark": 0.56,
+    "tense": 0.6,
+    "solemn": 0.29,
+    "lively dance": -0.28,
+    "triumphant": 0.71
    },
    "style_checked": true
   }
@@ -10713,6 +12605,34 @@
   "country western": [
    0.0215,
    0.0604
+  ],
+  "calm": [
+   0.25188,
+   0.07736
+  ],
+  "melancholic": [
+   0.25941,
+   0.09129
+  ],
+  "dark": [
+   0.19601,
+   0.08676
+  ],
+  "tense": [
+   0.1926,
+   0.08148
+  ],
+  "solemn": [
+   0.22441,
+   0.08645
+  ],
+  "lively dance": [
+   0.06122,
+   0.08201
+  ],
+  "triumphant": [
+   0.13126,
+   0.07852
   ]
  }
 }

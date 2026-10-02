@@ -568,7 +568,7 @@ if __name__ == "__main__":
 # Длины не зашиты: врезка кончается на границе фразы рядом с целевой
 # длиной, а не посреди слова.
 # ======================================================================
-MUSIC_PLAN_VERSION = 2
+MUSIC_PLAN_VERSION = 4
 MUSIC_DRAFT_MODELS = ("qwen/qwen3.8-max", "ag/gemini-3.7-flash-low")
 MUSIC_CRITIC_MODELS = ("ag/gemini-3.7-flash-low", "qwen/qwen3.8-max")
 MUSIC_INTRO_TARGET_SEC = 36.0          # владелец 02.10: «чуть короче, на пару секунд» (было 40)
@@ -593,14 +593,14 @@ Music library (id | length | description):
 {cards}
 
 Choose music from the library:
-- intro: plays under the first ~35 seconds. It sets the world and the mood of the whole film; prefer a track whose instruments and style belong to the film's world.
+- intro: plays under the first ~35 seconds, under the opening lines of chapter 1. It must fit the mood of those opening lines (read them: a grim or tense opening needs dark, calm, slow or melancholic music, never a lively dance tune) and the world of the film (prefer instruments and style of that world).
 - outro: plays under the last ~40 seconds and closes the story.
 - sting: at most 3 chapters that open a new story in a concrete place and time; a short (~14 s) music entrance under the start of that chapter. Leave out chapters that open with an explanation.
 - bed: for EVERY chapter, a background track that plays very quietly under the whole chapter. It must have no beat and no busy melody, and fit the chapter's mood. Neighbouring chapters may share a bed when the mood continues.
 
 Rules:
 1. The music must belong to the film's world: no futuristic synthesizers in a film about the Middle Ages, no medieval lute in a film about the brain, no meditation chimes under a battle.
-2. The mood must match the moment: nothing cheerful or light under death, cruelty or loss; nothing scary under a calm explanation.
+2. The mood must match the moment ("owner hears:" in a description is a human verdict by ear and outranks every other word of it): nothing lively, cheerful or dance-like under danger, death, cruelty or loss; nothing scary under a calm explanation.
 3. Use different tracks for the intro, the outro and the stings.
 4. Use everything in the description, the title included: a title like "Happy ...", "Bangkok ..." or "Indian ..." tells the mood or the culture.
 
@@ -621,7 +621,7 @@ Chapters (number, start time, title, how it begins ... how it ends):
 Slots and options (slot | option letter: track id | description):
 {options}
 
-A choice is wrong if the track does not belong to the film's world (futuristic synthesizer in a medieval film, medieval lute in a film about the brain, Indian, East Asian or Andean music in a film about medieval Europe; the title counts too), if its mood contradicts the moment (cheerful or light under death or cruelty, scary under a calm explanation), or, for a bed, if it has a beat or a busy melody. If both options are fine, pick the one that fits the world and the moment more exactly.
+A choice is wrong if its mood ("owner hears:" is a human verdict by ear and outranks the rest of the description) contradicts the lines it plays under (a lively dance tune under a battle, a fall or a death), or if the track does not belong to the film's world (futuristic synthesizer in a medieval film, medieval lute in a film about the brain, Indian, East Asian or Andean music in a film about medieval Europe; the title counts too), if its mood contradicts the moment (cheerful or light under death or cruelty, scary under a calm explanation), or, for a bed, if it has a beat or a busy melody. If both options are fine, pick the one that fits the world and the moment more exactly.
 
 Answer with one line per slot and nothing else:
 slot | A

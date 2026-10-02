@@ -328,3 +328,19 @@ def test_same_inputs_reuse_the_plan_without_calls(tmp_path):
     sd.plan_episode(str(tmp_path), [{"section": "HOOK", "text": "Флот вышел из гавани."}], [0.0], gw,
                     ["cavalry_horses", "sea_waves"])
     assert len(gw.calls) > n
+
+
+def test_owner_note_outranks_model_mood(tmp_path, monkeypatch):
+    """Вердикт человека по слуху попадает в карточку, настроение CLAP — нет
+    (02.10: CLAP назвал спокойный Medieval March «lively dance»)."""
+    import music_library as ml
+    idx = {"tracks": [{"id": "t1", "title": "X", "card": "\"X\" medieval; no beat"}]}
+    monkeypatch.setattr(ml, "load_index", lambda: idx)
+    monkeypatch.setattr(ml, "save_index", lambda i: None)
+    assert ml.note("t1", "calm, atmospheric", log=lambda *a: None)
+    assert idx["tracks"][0]["card"].endswith("owner hears: calm, atmospheric")
+    ml.note("t1", "too cheerful", log=lambda *a: None)
+    assert idx["tracks"][0]["card"].count("owner hears:") == 1
+    heard = {"mean": {}, "rhythm": None}
+    c = ml.card({"name": "X", "genre": "", "tags": []}, heard, {"lively dance": 3.0})
+    assert "feels:" not in c and "lively" not in c

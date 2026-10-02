@@ -251,6 +251,20 @@ STYLE_PROMPTS = {
     "jazz or latin": "jazz or latin music",
     "country western": "country western music with acoustic guitar and harmonica",
 }
+# Настроение — отдельной строкой карточки: режиссёр ставит музыку под
+# момент, а не только под эпоху. Замер 02.10: у записи колёсной лиры в
+# карточке было «medieval; no beat», и проверка поставила бодрую плясовую
+# под хук «ты лежишь в грязи посреди поля боя».
+MOOD_PROMPTS = {
+    "calm": "calm slow peaceful music",
+    "melancholic": "sad slow melancholic music",
+    "dark": "dark ominous brooding music",
+    "tense": "tense suspenseful music",
+    "solemn": "solemn grave ceremonial music",
+    "lively dance": "lively cheerful upbeat dance tune",
+    "triumphant": "triumphant heroic energetic music",
+}
+MOOD_Z_MIN = 1.0
 STYLE_Z_MIN = 1.5
 # Стили, которым не место под закадром документального фильма ни в какой нише.
 STYLE_EXCLUDE = {"Christmas holiday": 1.5, "playful children's": 1.5, "upbeat corporate": 2.0,
@@ -274,8 +288,9 @@ def clap_style(path, dur):
             wins.append(a)
     if not wins:
         return None
-    names = list(STYLE_PROMPTS)
-    rows = sound_library.clap_scores(wins, [STYLE_PROMPTS[n] for n in names])
+    prompts = {**STYLE_PROMPTS, **MOOD_PROMPTS}
+    names = list(prompts)
+    rows = sound_library.clap_scores(wins, [prompts[n] for n in names])
     return {n: round(sum(r[k] for r in rows) / len(rows), 4) for k, n in enumerate(names)}
 
 
@@ -286,7 +301,7 @@ def style_ref(tracks):
     if len(have) < 5:
         return {}
     ref = {}
-    for n in STYLE_PROMPTS:
+    for n in list(STYLE_PROMPTS) + list(MOOD_PROMPTS):
         v = np.array([t["clap"].get(n, 0.0) for t in have])
         ref[n] = [round(float(v.mean()), 5), round(float(v.std()) or 1.0, 5)]
     return ref
@@ -366,9 +381,14 @@ def card(it, heard, z=None):
     energy = energy_words(heard.get("rhythm"))
     parts = [f"\"{it.get('name', '')}\" {it.get('genre', '').lower()}"]
     if z:
-        like = [n for n, v in sorted(z.items(), key=lambda kv: -kv[1]) if v >= STYLE_Z_MIN][:3]
+        like = [n for n, v in sorted(z.items(), key=lambda kv: -kv[1])
+                if n in STYLE_PROMPTS and v >= STYLE_Z_MIN][:3]
         if like:
             parts.append("sounds like: " + ", ".join(like))
+        # Настроение по CLAP (MOOD_PROMPTS) в карточку НЕ идёт: на прослушивании
+        # 02.10 оно разошлось с ухом владельца — спокойный «Medieval March»
+        # получил «lively dance». Числа остаются в style_z как данные; в
+        # карточку настроение попадает только из заметки человека (heard_as).
     if moods:
         parts.append("moods: " + ", ".join(moods[:4]))
     if instruments:
@@ -498,11 +518,13 @@ def recard(log=print):
             continue
         if t.get("rhythm") is None:
             t["rhythm"] = rhythm(p, t["dur"])
-        if not t.get("clap") or set(t["clap"]) != set(STYLE_PROMPTS):
+        if not t.get("clap") or set(t["clap"]) != set(STYLE_PROMPTS) | set(MOOD_PROMPTS):
             t["clap"] = clap_style(p, t["dur"])
-    ref = index.get("style_ref")
-    if not ref:
-        ref = index["style_ref"] = style_ref(index["tracks"])
+    ref = index.get("style_ref") or {}
+    fresh = style_ref(index["tracks"])
+    for n, v in fresh.items():      # новые описания получают шкалу, старые не сдвигаются
+        ref.setdefault(n, v)
+    index["style_ref"] = ref
     zs = style_z(index["tracks"], ref)
     keep = []
     rejected = index.setdefault("rejected", {})
@@ -525,6 +547,8 @@ def recard(log=print):
         c = card(it, heard, z)
         if t.get("source") != "mixkit" and t.get("tags"):
             c += f"; {t['tags'][0]} period music"
+        if t.get("heard_as"):
+            c += f"; owner hears: {t['heard_as']}"
         t["card"] = c
         t["style_z"] = z
         t["style_checked"] = True
@@ -554,6 +578,23 @@ def restore(log=print):
     log(f"на диске {ok} из {len(index['tracks'])}")
 
 
+def note(track_id, text, log=print):
+    """Вердикт человека по слуху ("calm, atmospheric" / "too cheerful").
+    Пишется в индекс и в карточку и стоит выше любых меток модели."""
+    index = load_index()
+    for t in index["tracks"]:
+        if t["id"] == track_id:
+            t["heard_as"] = text.strip()
+            t["card"] = re.sub(r"; owner hears: .*$", "", t.get("card", ""))
+            if t["heard_as"]:
+                t["card"] += f"; owner hears: {t['heard_as']}"
+            save_index(index)
+            log(t["card"])
+            return True
+    log(f"нет трека {track_id}")
+    return False
+
+
 def available_tracks():
     """Треки индекса, файлы которых есть на диске."""
     return [t for t in load_index()["tracks"] if os.path.exists(track_path(t))]
@@ -562,7 +603,9 @@ def available_tracks():
 def main(argv=None):
     import argparse
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=("build", "restore", "cards", "recard"))
+    ap.add_argument("cmd", choices=("build", "restore", "cards", "recard", "note"))
+    ap.add_argument("track_id", nargs="?")
+    ap.add_argument("text", nargs="?", default="")
     ap.add_argument("--limit", type=int, default=0)
     args = ap.parse_args(argv)
     if args.cmd == "build":
@@ -571,6 +614,8 @@ def main(argv=None):
         recard()
     elif args.cmd == "restore":
         restore()
+    elif args.cmd == "note":
+        return 0 if note(args.track_id, args.text) else 1
     else:
         for t in available_tracks():
             print(f"{t['id']:14s} {t['dur']:6.0f}s {t['title'][:30]:30s} {t['card']}")
