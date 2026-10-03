@@ -1818,6 +1818,48 @@ def sfx_cue_gain_db(path, kind):
     return round(gain, 2), "measured"
 
 
+def measure_sample_peak_dbfs(path):
+    """Пиковый уровень семпла (volumedetect max_volume), dBFS или None."""
+    try:
+        r = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", path, "-af", "volumedetect",
+                            "-f", "null", "-"], capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=max(120, int(_audio_len_for_timeout(path) * 0.5)))
+        m = re.findall(r"max_volume:\s*(-?[\d.]+)\s*dB", r.stderr)
+        return float(m[-1]) if m else None
+    except Exception:
+        return None
+
+
+def chapter_hit_cues(blocks):
+    """{индекс: {"time", "asset", "asset_dur"}} — удар на старте каждой
+    заставки главы (метка chapter_card в блоке ставится mark_chapter_cards;
+    время — тот же visual_start, на котором появляется заставка, то есть
+    звук и картинка говорят об одном моменте). Нет удара в библиотеке —
+    {} и прежний звук перехода."""
+    marked = [i for i, b in enumerate(blocks or []) if i > 0 and b.get("chapter_card")]
+    if not marked:
+        return {}
+    import chapter_card
+    paths = library_sounds("sfx", chapter_card.CARD_HIT_KIND)
+    path = paths[0] if paths else None
+    dur = media_duration_or_none(path) if path else None
+    if not dur:
+        print("  ВНИМАНИЕ: удара заставки главы нет в библиотеке "
+              f"(assets/library/sfx/{chapter_card.CARD_HIT_KIND}/) — главы без звука удара")
+        return {}
+    return {i: {"time": float(blocks[i]["chapter_card"]["visual_start"]),
+                "asset": path, "asset_dur": float(dur)} for i in marked}
+
+
+def chapter_hit_gain_db(path, voice_path, voice_lufs):
+    """(усиление, источник) удара заставки — см. chapter_card.hit_gain_db."""
+    import chapter_card
+    voice_peak = measure_sample_peak_dbfs(voice_path) if voice_path else None
+    return chapter_card.hit_gain_db(voice_lufs, voice_peak,
+                                    measure_max_momentary_lufs(path),
+                                    measure_sample_peak_dbfs(path))
+
+
 def chapter_sfx_variants():
     """[(путь, длительность), ...] реально существующих вариантов звука
     перехода. Длительность читается У ФАЙЛА, а не зашита числом: варианты
@@ -2185,7 +2227,8 @@ def run_sfx_director(mix_path, video_dir, blocks, sub_starts, real_weights, tota
             blocks, sub_starts, real_weights, total_dur,
             chapter_variants=chapter_sfx_variants(),
             plate_cues=plate_cues, reserved_windows=reserved,
-            object_asset_for=object_resolver)
+            object_asset_for=object_resolver,
+            chapter_hits=chapter_hit_cues(blocks))
         # Уровень перехода/тика — ЗДЕСЬ, после того как планировщик выбрал
         # конкретный файл (chapter — ротацией по помещающейся длине; plate —
         # тем, что дала plan_stat_sound_cues() ДО вызова этой функции, с
@@ -2197,8 +2240,19 @@ def run_sfx_director(mix_path, video_dir, blocks, sub_starts, real_weights, tota
         # себе были рассчитаны по ПИКУ ассета, а не по его реальной
         # громкости (см. sfx_cue_gain_db()). Объектный слой этой ошибки уже
         # избежал (object_gain_db() меряет), сюда чинка не доезжала.
+        hits = [c for c in accepted if c.get("hit")]
+        if hits:
+            gain, src = chapter_hit_gain_db(hits[0]["asset"], voice_path, voice_lufs)
+            if gain is None:
+                print("  ВНИМАНИЕ: громкость удара заставки или голоса не измерилась — "
+                      "удар не ставится")
+                accepted = [c for c in accepted if not c.get("hit")]
+                dropped.extend(dict(c, reason="hit_not_measured") for c in hits)
+            else:
+                for c in hits:
+                    c["gain_db"], c["gain_source"] = gain, src
         for c in accepted:
-            if c.get("kind") not in ("chapter", "plate"):
+            if c.get("kind") not in ("chapter", "plate") or c.get("hit"):
                 continue
             gain, src = sfx_cue_gain_db(c.get("asset"), c["kind"])
             c["gain_db"] = gain
@@ -4973,6 +5027,61 @@ def merge_short_phrase_locked_blocks(blocks, real_weights, total):
     return merged_blocks, merged_weights
 
 
+# Заставка ставится, только если пауза диктора на смене главы реально
+# длинная: на старом audio_fixed (fix_pauses без паузы главы) там ~0.4с, и
+# название не успело бы ни появиться, ни прочитаться до начала речи.
+CHAPTER_CARD_MIN_PAUSE_SEC = 1.0
+
+
+def clear_chapter_cards(blocks):
+    for b in blocks or []:
+        b.pop("chapter_card", None)
+
+
+def mark_chapter_cards(blocks, onsets):
+    """Пометить первые блоки глав с заставкой (chapter_card.py).
+
+    Заставка появляется сразу после конца речи прошлой главы (SPEECH_ENDS —
+    измеренный конец речи из alignment). Нужны онсеты PHRASE LOCK: без них
+    неизвестно, где тишина. Метка — в самом блоке, поэтому её видят и план
+    переходов, и рендер клипа, и планировщик звука: одно решение на всех.
+    Возвращает список индексов помеченных блоков."""
+    import chapter_card
+    clear_chapter_cards(blocks)
+    if not chapter_card.enabled() or not onsets or len(onsets) != len(blocks):
+        return []
+    if len(SPEECH_ENDS) != len(blocks):
+        print("  Заставки глав: нет измеренных концов речи — главы идут с прежним титром")
+        return []
+    out, short = [], []
+    for i in chapter_card.card_boundaries(blocks):
+        vs = chapter_card.card_visual_start(SPEECH_ENDS[i - 1])
+        if not (onsets[i - 1] < vs and onsets[i] - SPEECH_ENDS[i - 1] >= CHAPTER_CARD_MIN_PAUSE_SEC):
+            short.append(f"{blocks[i]['section'][:24]} ({onsets[i] - SPEECH_ENDS[i - 1]:.2f}с)")
+            continue
+        blocks[i]["chapter_card"] = {"title": chapter_card.section_title(blocks[i]["section"]),
+                                     "visual_start": round(vs, 6),
+                                     "speech_onset": round(float(onsets[i]), 6)}
+        out.append(i)
+    if out:
+        print(f"  Заставки глав: {len(out)} (пауза диктора перед главой "
+              f"{', '.join(f'{onsets[i] - SPEECH_ENDS[i - 1]:.2f}' for i in out)} с)")
+    if short:
+        print(f"  ВНИМАНИЕ: у {len(short)} глав пауза диктора короче "
+              f"{CHAPTER_CARD_MIN_PAUSE_SEC}с — заставки нет, прежний титр (перезапустить "
+              f"fix_pauses.py): " + "; ".join(short))
+    return out
+
+
+def card_visual_onsets(blocks, onsets):
+    """Онсеты для PHRASE LOCK: у блока с заставкой клип начинается не на
+    начале речи, а на появлении заставки."""
+    if not onsets:
+        return onsets
+    return [(b["chapter_card"]["visual_start"] if (i > 0 and b.get("chapter_card")) else o)
+            for i, (b, o) in enumerate(zip(blocks, onsets))]
+
+
 def phrase_locked_durations(onsets, total, trans_plan, fps=None):
     """Длительности клипов, при которых ВИДИМЫЙ рез приходится ТОЧНО на
     начало следующей фразы. None, если данных не хватает (fail-open).
@@ -5295,7 +5404,7 @@ def hook_visual_starts(blocks, durs):
     xfade_chain()). Значения вне HOOK этой функцией не гарантированы
     точными (там нет burned-caption потребителя — учитывать не нужно)."""
     sections = [b["section"] for b in blocks]
-    plan = effective_transition_plan(plan_transitions(sections, blocks), sections)
+    plan = effective_transition_plan(plan_transitions(sections, blocks), sections, blocks=blocks)
     starts, cum = [], (durs[0] if durs else 0.0)
     for i, d in enumerate(durs):
         if i == 0:
@@ -5323,7 +5432,7 @@ def first_visible_starts(blocks, durs):
     отчёт писал худший дрейф 21 мс при реальной медиане +42 мс по пикселям."""
     starts = hook_visual_starts(blocks, durs)
     sections = [b["section"] for b in blocks]
-    plan = effective_transition_plan(plan_transitions(sections, blocks), sections)
+    plan = effective_transition_plan(plan_transitions(sections, blocks), sections, blocks=blocks)
     out = []
     for i, s in enumerate(starts):
         lag = 0.0
@@ -16710,7 +16819,13 @@ def plan_transitions(sections, blocks=None, xfade_dur=XFADE_DUR):
         is_boundary = sections[i] != sections[i - 1]
         b_prev = blocks[i - 1] if blocks else None
         b_cur = blocks[i] if blocks else None
-        if is_boundary:
+        if is_boundary and b_cur is not None and b_cur.get("chapter_card"):
+            # Заставка главы (chapter_card.py): переход в неё — fade
+            # CARD_FADE_IN_SEC, как в утверждённом демо. История случайных
+            # переходов границ не трогается: без заставок план байт-в-байт прежний.
+            import chapter_card
+            transition, this_dur = "fade", chapter_card.CARD_FADE_IN_SEC
+        elif is_boundary:
             candidate = BOUNDARY_TRANSITIONS[h % len(BOUNDARY_TRANSITIONS)]
             transition = pick_no_repeat(boundary_hist, candidate, BOUNDARY_TRANSITIONS, 1)
             this_dur = xfade_dur
@@ -16727,6 +16842,64 @@ def plan_transitions(sections, blocks=None, xfade_dur=XFADE_DUR):
             transition = "fade" if choice == "hardcut" else choice
         plan.append((transition, quantize_dur_to_frame(this_dur)))
     return plan
+
+
+def chapter_card_pre_path(out):
+    """Клип главы БЕЗ заставки (вход apply_chapter_card)."""
+    return out[:-4] + "_precard.mp4" if out.endswith(".mp4") else out + "_precard.mp4"
+
+
+def chapter_card_recipe_signature():
+    """Отпечаток рецепта заставки (модуль chapter_card + наложение) — входит
+    ТОЛЬКО в ключ клипа с заставкой: правка вида перерендерит их и ничего
+    больше."""
+    try:
+        import inspect
+        import chapter_card
+        src = chapter_card.card_signature_source() + inspect.getsource(apply_chapter_card)
+    except Exception:
+        src = "chapter_card:unavailable"
+    return "card:" + hashlib.md5(src.encode("utf-8")).hexdigest()[:10]
+
+
+def apply_chapter_card(src, out, dur, card):
+    """Наложить заставку главы на готовый клип src -> out (атомарно, с
+    повтором и проверкой длительности, как любой клип). True/False."""
+    import chapter_card
+    if not FONT_PATH:
+        return False
+    fc = chapter_card.card_filter(
+        card["title"], card["lead"], dur, FONT_PATH, ffmpeg_filter_path(FONT_PATH),
+        escape_drawtext, accent=STAT_ACCENT, fps=FPS, upper=FONT_IS_DISPLAY)
+    tmp_out = render_tmp_path(out)
+
+    def build():
+        cmd = ["ffmpeg", "-y", "-i", src, "-filter_complex", fc, "-map", "[vout]",
+               "-frames:v", str(max(1, int(round(dur * FPS)))),
+               "-c:v", "libx264", "-preset", RENDER_PRESET, "-crf", RENDER_CRF,
+               "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS + [tmp_out]
+        return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", timeout=render_timeout_sec(dur))
+    ok, reason = run_ffmpeg_with_retry(build, tmp_out, dur, label="заставка главы")
+    finalize_render(tmp_out, out, ok)
+    if not ok:
+        print(f"  ВНИМАНИЕ: заставка главы «{card['title']}» не наложилась ({reason})")
+    return ok
+
+
+def finish_chapter_card(job):
+    """Путь клипа для склейки: с заставкой, если она наложилась; иначе клип
+    без неё (не в кэш-путь — следующий прогон попробует заставку снова)."""
+    pre = chapter_card_pre_path(job["out"])
+    if not os.path.exists(pre):
+        return job["out"]   # кэш-хит: заставка уже в out
+    if apply_chapter_card(pre, job["out"], job["d"], job["card"]):
+        try:
+            os.remove(pre)
+        except OSError:
+            pass
+        return job["out"]
+    return pre
 
 
 def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR, blocks=None, plan=None):
@@ -16824,7 +16997,13 @@ def xfade_chain(clips, durs, sections, out, xfade_dur=XFADE_DUR, blocks=None, pl
 XFADE_CHUNK_SIZE = 35   # порог чанкования — см. xfade_chain_chunked
 
 
-def _chunk_bounds(n, sections, chunk_size):
+def chapter_card_no_split(blocks):
+    """Индексы клипов-заставок: стык чанков перед ними запрещён — на стыке
+    чанков переход не делается (concat), а переход в заставку — её часть."""
+    return {i for i, b in enumerate(blocks or []) if b.get("chapter_card")}
+
+
+def _chunk_bounds(n, sections, chunk_size, no_split=None):
     """(start,end) полуинтервалы индексов клипов на чанки ~chunk_size —
     резать ТОЛЬКО на границах section (там и так планировался заметный
     dissolve/fadeblack/fadewhite, см. xfade_chain — на стыке чанков он
@@ -16845,6 +17024,8 @@ def _chunk_bounds(n, sections, chunk_size):
         j = target
         hard_cap = min(pos + chunk_size * 2, n)
         while j < hard_cap and sections[j] == sections[j - 1]:
+            j += 1
+        while no_split and j < n and j in no_split:
             j += 1
         bounds.append(j)
         pos = j
@@ -16884,7 +17065,7 @@ def xfade_chain_chunked(clips, durs, sections, out, temp_dir, xfade_dur=XFADE_DU
     concat всего ролика, как раньше (лучше без переходов, чем сорванная
     сборка)."""
     n = len(clips)
-    bounds = _chunk_bounds(n, sections, chunk_size)
+    bounds = _chunk_bounds(n, sections, chunk_size, chapter_card_no_split(blocks))
     # Один общий план на весь ролик, чанкам отдаются его СРЕЗЫ: элемент
     # plan[j] описывает переход между глобальными клипами j и j+1, значит
     # внутри чанка [a, b) работают переходы plan[a:b-1] (переход на самом
@@ -16947,10 +17128,10 @@ def estimate_xfade_budget(blocks, chunk_size=XFADE_CHUNK_SIZE):
     plan = plan_transitions(sections, blocks)
     if not plan:
         return 0.0
-    return sum(d for _t, d in effective_transition_plan(plan, sections, chunk_size))
+    return sum(d for _t, d in effective_transition_plan(plan, sections, chunk_size, blocks=blocks))
 
 
-def effective_transition_plan(plan, sections, chunk_size=XFADE_CHUNK_SIZE):
+def effective_transition_plan(plan, sections, chunk_size=XFADE_CHUNK_SIZE, blocks=None):
     """План переходов, каким его РЕАЛЬНО исполняет xfade_chain_chunked():
     переход на входе каждого чанка (concat -c copy между чанками) не делается
     и нахлёста не потребляет — его длительность здесь обнуляется. Аудит
@@ -16967,7 +17148,8 @@ def effective_transition_plan(plan, sections, chunk_size=XFADE_CHUNK_SIZE):
     visual_starts, сама склейка) читают один и тот же эффективный план."""
     if not plan:
         return list(plan)
-    dropped = {a for a, _b in _chunk_bounds(len(sections), sections, chunk_size) if a > 0}
+    dropped = {a for a, _b in _chunk_bounds(len(sections), sections, chunk_size,
+                                            chapter_card_no_split(blocks)) if a > 0}
     return [(t, 0.0 if (i + 1) in dropped else d) for i, (t, d) in enumerate(plan)]
 
 
@@ -18638,9 +18820,13 @@ def main():
               "Если озвучка свежая — сверить script.txt с media_plan/alignment/*.csv.")
     phrase_locked = None
     if onsets:
+        mark_chapter_cards(blocks, onsets)
         phrase_locked = phrase_locked_durations(
-            onsets, total, effective_transition_plan(plan_transitions([b["section"] for b in blocks], blocks),
-                                                    [b["section"] for b in blocks]))
+            card_visual_onsets(blocks, onsets), total,
+            effective_transition_plan(plan_transitions([b["section"] for b in blocks], blocks),
+                                      [b["section"] for b in blocks], blocks=blocks))
+    if not phrase_locked:
+        clear_chapter_cards(blocks)
     curve = audio_energy_curve(AUDIO_FILE)
     energy_lvls = [1.0] * len(blocks)
 
@@ -18708,13 +18894,18 @@ def main():
     phrase_timeline = {"locked": bool(phrase_locked), "fps": FPS,
                        "audio_total_sec": total, "blocks": []}
     _pt_sections = [b["section"] for b in blocks]
-    _pt_plan = effective_transition_plan(plan_transitions(_pt_sections, blocks), _pt_sections)
+    _pt_plan = effective_transition_plan(plan_transitions(_pt_sections, blocks), _pt_sections,
+                                         blocks=blocks)
     worst_drift = 0.0
     for i, b in enumerate(blocks):
         want = (0.0 if i == 0 else onsets[i]) if onsets else None
+        # У заставки главы клип появляется на конце речи прошлой главы, а не
+        # на онсете: дрейф меряется от этого замысла.
+        _card = b.get("chapter_card")
+        target = _card["visual_start"] if (_card and want is not None) else want
         # Дрейф — по моменту, когда кадр ПОЯВЛЯЕТСЯ (first_visible_starts), а
         # не по offset перехода: на offset xfade ещё показывает старый клип.
-        drift = (seen_starts[i] - want) if want is not None else None
+        drift = (seen_starts[i] - target) if target is not None else None
         if drift is not None:
             worst_drift = max(worst_drift, abs(drift))
         phrase_timeline["blocks"].append({
@@ -18727,6 +18918,9 @@ def main():
             # жёстких резов — у диссолва нет одного момента смены.
             "transition_in_sec": (_pt_plan[i - 1][1] if 0 < i <= len(_pt_plan) else 0.0),
         })
+        if _card:
+            phrase_timeline["blocks"][-1]["chapter_card"] = True
+            phrase_timeline["blocks"][-1]["visual_target_sec"] = target
     phrase_timeline["worst_drift_sec"] = worst_drift if onsets else None
     # Слова голоса на той же шкале — для оси «рез не поперёк слова»
     # (verify_timing.py). Сбой здесь не имеет права уронить рендер.
@@ -18802,6 +18996,7 @@ def main():
     # Плашки с цифрой, чьи слоты поглощены: цифра — контент, она переезжает
     # на поглощающий клип, а не исчезает с экрана.
     stat_carry = []
+    card_carry = None   # заставка поглощённого первого слота главы -> следующему клипу
     log_render_diagnostics("render_start")
     # Версия рецепта картинки — часть ключа кэша клипов (см.
     # render_recipe_signature): правка грейда/движения/оформления больше не
@@ -19125,6 +19320,23 @@ def main():
         stat = b.get("stat")
         if not ON_SCREEN_TEXT_ENABLED:
             title, stat = None, None
+        # Заставка главы (chapter_card.py) — вместо нижнего титра. lead —
+        # где в клипе начинается речь новой главы (клип начат раньше онсета).
+        card = None
+        if b.get("chapter_card"):
+            card = {"title": b["chapter_card"]["title"],
+                    "lead": max(0.0, float(b["chapter_card"]["speech_onset"]) - visual_starts[i]),
+                    "section": b["section"]}
+        elif card_carry is not None:
+            if card_carry["section"] == b["section"]:
+                card = card_carry
+                print(f"    [{i+1}] заставка главы перенесена с поглощённого слота")
+            else:
+                print(f"    ВНИМАНИЕ: [{i+1}] заставка главы «{card_carry['title']}» потеряна — "
+                      f"глава целиком без проверенного кадра")
+            card_carry = None
+        if card:
+            title = None
         stat_variant = stat_count
         # D2: кинетические подписи — только ХУК, только если alignment.csv
         # реально дал слова на эту секцию. hook_words уже пересчитаны в
@@ -19150,7 +19362,10 @@ def main():
         # шкале голоса (sub_starts). Плашка внутри клипа сдвигается на тот же
         # кадр, чтобы на экране она появлялась ровно там же, где и до сдвига,
         # — вместе со своим звуком.
-        if phrase_locked and stat_delay > 0:
+        if card and stat_delay > 0:
+            # Клип с заставкой начат раньше речи на lead: слова идут после него.
+            stat_delay = card["lead"] + stat_word_pos / max(1, b["words"]) * max(0.0, d - card["lead"])
+        elif phrase_locked and stat_delay > 0:
             stat_delay += max(0.0, seen_starts[i] - visual_starts[i])
         # D4: печатная машинка — только на 5-м варианте плашки (см. add_overlays).
         # Таймкоды щелчков считаем на РЕАЛЬНОЙ (не xfade-раздутой) шкале —
@@ -19221,6 +19436,9 @@ def main():
             f"{captions}|{look_cache_sig}|{domain_cache_sig}|{director_cache_sig}|"
             f"{arc_stage_for(b)}|{recipe_sig}|{lock_key}|{candidate_gate_signature(i)}")
         cache_key += arbiter_cache_suffix(b["section"])
+        if card:
+            # Только у клипов с заставкой: ключи остальных байт-в-байт прежние.
+            cache_key += f"|card:{card['title']}|{card['lead']:.3f}|{chapter_card_recipe_signature()}"
         params_hash = hashlib.md5(cache_key.encode()).hexdigest()[:8]
         out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}_{params_hash}.mp4")
         if os.path.exists(out) and not verify_clip(out, d)[0]:
@@ -19728,6 +19946,8 @@ def main():
                                    "text": b["text"], "carried_sec": round(d, 3)})
             if stat:
                 stat_carry.append((stat, stat_variant, stat_delay))
+            if card:
+                card_carry = card
             _carry_sec = d
             print(f"    [{i+1}] нет проверенного кадра ({reason}) — "
                   f"{d:.1f}с отдано соседнему кадру")
@@ -20008,18 +20228,21 @@ def main():
         # именно НЕПРЕДВИДЕННОГО исключения, кадр просто уходит в missing
         # (как и любой другой honest-failure), рендер продолжается дальше.
         future = None
+        # Клип с заставкой рендерится во временный файл, заставка
+        # накладывается после рендера (apply_chapter_card) уже в `out`.
+        render_out = chapter_card_pre_path(out) if card else out
         try:
             if video:
                 if render_pool:
                     future = render_pool.submit(
-                        _timed_render, video_render, i, video, out, d, title=title, stat=stat, section=b["section"],
+                        _timed_render, video_render, i, video, render_out, d, title=title, stat=stat, section=b["section"],
                         stat_variant=stat_variant, brightness_bias=brightness_bias,
                         energy_bias=energy_bias, stat_delay=stat_delay, levels=levels, wb=wb, grain_scale=grain_scale,
                         handheld=wants_handheld(b), captions=captions,
                         ffmpeg_threads=RENDER_FFMPEG_THREADS)
                     ok = None
                 else:
-                    ok = _timed_render(video_render, i, video, out, d, title=title, stat=stat, section=b["section"],
+                    ok = _timed_render(video_render, i, video, render_out, d, title=title, stat=stat, section=b["section"],
                                        stat_variant=stat_variant, brightness_bias=brightness_bias,
                                        energy_bias=energy_bias, stat_delay=stat_delay, levels=levels, wb=wb, grain_scale=grain_scale,
                                        handheld=wants_handheld(b), captions=captions)
@@ -20105,7 +20328,7 @@ def main():
                     # это отдельный, более дорогой визуальный приём для самых
                     # заметных точек ролика, не нуждается в дополнительной
                     # категоризации поверх собственной.
-                    ok = _timed_render(parallax_kenburns, i, photo, out, d, title=title, zoom_in=zoom_in,
+                    ok = _timed_render(parallax_kenburns, i, photo, render_out, d, title=title, zoom_in=zoom_in,
                                             pan_dir=pan_dir, stat=stat, section=b["section"],
                                             stat_variant=stat_variant, brightness_bias=brightness_bias,
                                             energy_bias=energy_bias, stat_delay=stat_delay, levels=levels, wb=wb, grain_scale=grain_scale,
@@ -20119,14 +20342,14 @@ def main():
                         CAMERA_LANGUAGE_STATS["without_stage"] += 1
                     if render_pool:
                         future = render_pool.submit(
-                            _timed_render, kenburns, i, photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
+                            _timed_render, kenburns, i, photo, render_out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
                             stat=stat, section=b["section"], motion_mode=motion_mode,
                             brightness_bias=brightness_bias, energy_bias=energy_bias,
                             stat_variant=stat_variant, stat_delay=stat_delay, levels=levels, wb=wb, grain_scale=grain_scale,
                             captions=captions, look_filter=look_filter, ffmpeg_threads=RENDER_FFMPEG_THREADS, domain=domain)
                         ok = None
                     else:
-                        ok = _timed_render(kenburns, i, photo, out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
+                        ok = _timed_render(kenburns, i, photo, render_out, d, title=title, zoom_in=zoom_in, pan_dir=pan_dir,
                                       stat=stat, section=b["section"], motion_mode=motion_mode,
                                       brightness_bias=brightness_bias, energy_bias=energy_bias,
                                       stat_variant=stat_variant, stat_delay=stat_delay, levels=levels, wb=wb, grain_scale=grain_scale,
@@ -20135,7 +20358,8 @@ def main():
             print(f"  [{i+1}] непредвиденный сбой рендера, пропускаю кадр: {type(e).__name__} {e}")
             ok, future = False, None
         pending_jobs.append({"i": i, "out": out, "d": d, "section": b["section"], "block": b,
-                              "video": bool(video), "photo": photo, "future": future, "ok": ok})
+                              "video": bool(video), "photo": photo, "future": future, "ok": ok,
+                              "card": card})
         if i % 20 == 0 or i < 3:
             print(f"  [{i+1}/{len(blocks)}] {d:.1f}с {b['words']} слов ({'видео' if video else 'фото'}, "
                   f"{'в очереди' if future is not None else 'готово' if ok else 'пропуск'})")
@@ -20158,6 +20382,11 @@ def main():
                     print(f"  [{job['i']+1}] непредвиденный сбой рендера в пуле, пропускаю кадр: "
                           f"{type(e).__name__} {e}")
                     job["ok"] = False
+            # Пост-рендер QC клипа с заставкой смотрит клип БЕЗ неё: в начале
+            # клипа размытая заставка, и проба резкости читала бы её как брак.
+            qc_clip = job["out"]
+            if job["ok"] and job.get("card") and os.path.exists(chapter_card_pre_path(job["out"])):
+                qc_clip = chapter_card_pre_path(job["out"])
             if job["ok"]:
                 clips.append(job["out"])
                 clip_durs.append(job["d"])
@@ -20171,7 +20400,7 @@ def main():
                     # сиан на уже скачанном исходнике + один кадр-пробник уже готового
                     # клипа, без новой модели/сети) — считается синхронно здесь же, не
                     # в пуле, лишние доли секунды на клип не стоят отдельного воркера.
-                    flagged, ratio = render_sharpness_regression(job["photo"], job["out"])
+                    flagged, ratio = render_sharpness_regression(job["photo"], qc_clip)
                     if flagged:
                         RENDER_QC_REPORT.append({
                             "index": job["i"], "source": job["photo"], "rendered": job["out"],
@@ -20187,13 +20416,15 @@ def main():
                     # отдельно от рендера (клип и есть исходник, без Ken Burns/
                     # ГРИП поверх), поэтому проверяем абсолютную резкость, не
                     # отношение.
-                    v_sharp_ok = video_sharpness_ok(job["out"])
+                    v_sharp_ok = video_sharpness_ok(qc_clip)
                     if v_sharp_ok is False:
                         RENDER_QC_REPORT.append({
                             "index": job["i"], "source": None, "rendered": job["out"],
                             "ratio": None, "threshold": VIDEO_SHARPNESS_REJECT,
                             "reason": "video_median_sharpness_below_threshold",
                         })
+                if job.get("card"):
+                    job["out"] = clips[-1] = finish_chapter_card(job)
                 render_manifest[job["i"]] = {"index": job["i"], "status": "ok", "path": job["out"],
                                               "section": job["section"], "duration": job["d"],
                                               "kind": "video" if job["video"] else "photo"}

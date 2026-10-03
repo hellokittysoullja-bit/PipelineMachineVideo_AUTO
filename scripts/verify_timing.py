@@ -347,7 +347,9 @@ def verify(video_dir, video_path=None, threshold=DIFF_PEAK_RATIO):
             locked = bool(pt.get("locked"))
             fps = float(pt.get("fps") or 0) or None
             blocks = [b for b in pt.get("blocks", []) if b.get("speech_onset_sec") is not None]
-            onsets = [b.get("speech_onset_sec") for b in blocks]
+            # У заставки главы (chapter_card) рез стоит на её появлении, а не
+            # на онсете речи — ожидаемый момент берётся оттуда.
+            onsets = [b.get("visual_target_sec", b.get("speech_onset_sec")) for b in blocks]
             words = [(float(a), float(e)) for a, e in (pt.get("speech_words") or [])]
             fps_ = fps or 24.0
             hard_onsets = {b["speech_onset_sec"] for b in blocks

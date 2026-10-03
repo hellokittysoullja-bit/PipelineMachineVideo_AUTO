@@ -503,7 +503,7 @@ def object_cues(blocks, sub_starts, real_weights, asset_for=None,
 def plan_sfx_cues(blocks, sub_starts, real_weights, total_dur,
                   chapter_variants=(), plate_cues=(), reserved_windows=(),
                   min_gap=SFX_MIN_GAP_SEC, max_per_min=SFX_MAX_PER_MIN,
-                  object_asset_for=None):
+                  object_asset_for=None, chapter_hits=None):
     """Итоговый список эффектов эпизода: (принятые, отклонённые).
 
     blocks/sub_starts/real_weights/total_dur — ровно те же объекты, что уже
@@ -517,6 +517,11 @@ def plan_sfx_cues(blocks, sub_starts, real_weights, total_dur,
         ЖЕ формулой, что задаёт появление текста в кадре, иначе звук и
         картинка разъедутся.
     reserved_windows — [(начало, конец), ...] окна кульминации.
+    chapter_hits — {индекс_блока: {"time", "asset", "asset_dur"}}: границы
+        глав с заставкой (chapter_card.py). Там вместо звука перехода в
+        тишине — удар на старте заставки; атака в паузе, хвост осознанно
+        уходит под голос новой главы, поэтому правило «целиком в тишине»
+        к нему не применяется.
 
     Каждый отклонённый cue сохраняет причину — «почему на этой границе
     главы нет звука» обязано быть проверяемым фактом, а не догадкой при
@@ -529,6 +534,12 @@ def plan_sfx_cues(blocks, sub_starts, real_weights, total_dur,
         section = _section_of(blocks[i])
         base = {"kind": "chapter", "block": i, "section": section,
                 "anchor": float(sub_starts[i]) if i < len(sub_starts) else None}
+        hit = (chapter_hits or {}).get(i)
+        if hit:
+            candidates.append(dict(base, time=float(hit["time"]), anchor=float(hit["time"]),
+                                   asset=hit["asset"], asset_dur=float(hit["asset_dur"]),
+                                   hit=True))
+            continue
         gap = speech_gap_before(i, sub_starts, real_weights)
         if gap is None:
             dropped.append(dict(base, reason="no_alignment"))
