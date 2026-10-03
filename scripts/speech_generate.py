@@ -51,7 +51,7 @@ speech_validator.py потребляют его БЕЗ ИЗМЕНЕНИЙ), medi
 (что сгенерировано, сколько попыток, кэш-хиты, потрачено символов).
 
 .env: ELEVENLABS_API_KEY (обязателен), ELEVENLABS_VOICE_ID (обязателен),
-TTS_MODEL (опц., по умолчанию eleven_v3 — ЧАСТЬ 10 CLAUDE.md).
+TTS_MODEL (опц., по умолчанию eleven_v4 — ЧАСТЬ 10 CLAUDE.md).
 SPEECH_GEN_MAX_CALLS_PER_RUN (опц., умолч. 200) — жёсткий потолок числа
 ЖИВЫХ (не кэш-хитов) вызовов ElevenLabs за один прогон."""
 import csv
@@ -96,7 +96,7 @@ except ImportError:
 
 # --- Константы/лимиты ---
 ELEVENLABS_API_BASE = "https://api.elevenlabs.io/v1"
-DEFAULT_TTS_MODEL = "eleven_v3"   # ЧАСТЬ 10 CLAUDE.md — модель по умолчанию канала
+DEFAULT_TTS_MODEL = "eleven_v4"   # ЧАСТЬ 10 CLAUDE.md — модель по умолчанию канала
 # Спецификация задачи: "максимум 2 попытки" — ЖЁСТКИЙ потолок, ENV может
 # только СУЗИТЬ (1), никогда не расширить сверх 2 — иначе одна опечатка в
 # .env превращает "максимум 2" в "максимум сколько угодно".
@@ -487,6 +487,17 @@ def _redact(text, api_key):
     return text.replace(api_key, "***REDACTED***")
 
 
+# У Eleven v4 нет ползунков Style и Speed (документация ElevenLabs, 28.09.2026):
+# поля, которых модель не знает, не отправляются.
+V4_UNSUPPORTED_VOICE_SETTINGS = ("style", "speed")
+
+
+def voice_settings_for_model(voice_settings, model):
+    if not str(model).startswith("eleven_v4"):
+        return voice_settings
+    return {k: v for k, v in voice_settings.items() if k not in V4_UNSUPPORTED_VOICE_SETTINGS}
+
+
 def call_elevenlabs_with_timestamps(text, voice_id, api_key, model, previous_text=None,
                                      next_text=None, voice_settings=None):
     """POST /v1/text-to-speech/{voice_id}/with-timestamps — документированный
@@ -506,7 +517,7 @@ def call_elevenlabs_with_timestamps(text, voice_id, api_key, model, previous_tex
     if next_text:
         body["next_text"] = next_text
     if voice_settings:
-        body["voice_settings"] = voice_settings
+        body["voice_settings"] = voice_settings_for_model(voice_settings, model)
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(url, data=data, method="POST", headers={
         "xi-api-key": api_key,

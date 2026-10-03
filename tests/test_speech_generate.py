@@ -951,3 +951,15 @@ def test_join_regen_budget_reads_env():
          "import speech_generate as sg; print(sg.SPEECH_JOIN_REGEN_BUDGET)" % SCRIPTS_DIR],
         capture_output=True, text=True, env=env, timeout=30)
     assert r.stdout.strip() == "3"
+
+
+def test_default_models_are_eleven_v4():
+    import lumean_tts
+    assert sg.DEFAULT_TTS_MODEL == "eleven_v4"
+    assert lumean_tts.DEFAULT_MODEL_ID == "eleven_v4"
+
+
+def test_v4_drops_style_and_speed_but_v3_keeps_them():
+    vs = {"stability": 0.5, "style": 0.3, "speed": 1.0, "use_speaker_boost": True}
+    assert sg.voice_settings_for_model(vs, "eleven_v4") == {"stability": 0.5, "use_speaker_boost": True}
+    assert sg.voice_settings_for_model(vs, "eleven_v3") == vs

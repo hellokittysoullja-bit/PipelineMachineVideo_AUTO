@@ -93,7 +93,7 @@ from script_parser import (strip_pipeline_only_tags,  # noqa: E402
                            speech_bounds_from_alignment)
 
 BASE = "https://api.lumean.app/api/public"
-DEFAULT_MODEL_ID = "eleven_v3"      # ЧАСТЬ 10 CLAUDE.md — теги [pause]/[energetic]/... это теги v3
+DEFAULT_MODEL_ID = "eleven_v4"      # ЧАСТЬ 10 CLAUDE.md — новейшая модель (28.09.2026), теги [pause]/[energetic]/... поддерживает
 DEFAULT_LANGUAGE_CODE = "ru"
 REQUEST_TIMEOUT_SEC = 30
 DOWNLOAD_TIMEOUT_SEC = 120
