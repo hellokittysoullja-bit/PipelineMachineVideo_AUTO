@@ -152,6 +152,12 @@ def domain_contract():
     # предохранитель по доле отказов промолчал.
     if os.environ.get("SHOT_BRIEF_WORLD", "") == "off":
         return ""
+    # Эпизод другого мира (паспорт не совпал с миром канала) — мир кадра
+    # из ПАСПОРТА эпизода, а не канала. Мир канала совпал или паспорта нет —
+    # текст прежний байт-в-байт (он входит в ключ кэша ответов).
+    card, same = shot_planner_llm.episode_world()
+    if not same:
+        return episode_contract(card)
     try:
         import pipeline_smart
         d = pipeline_smart.CHANNEL_PROFILE.get("shot_domain") or {}
@@ -164,6 +170,21 @@ def domain_contract():
         parts.append(f"Человек в кадре — {d['people_in_frame']}.")
     if d.get("forbidden"):
         parts.append(f"В кадре не должно быть: {d['forbidden']}.")
+    return " ".join(parts)
+
+
+def episode_contract(card):
+    """Мир кадра из паспорта эпизода: регистр, эпоха, свои культуры и что в
+    кадре запрещено. Человек в кадре не навязывается — паспорт его не
+    объявляет."""
+    import world_card
+    parts = []
+    setting = world_card.judge_setting(card)
+    if setting:
+        parts.append(f"МИР КАДРА (паспорт эпизода): {setting}.")
+    forbidden = world_card.forbidden_classes(card)
+    if forbidden:
+        parts.append(f"В кадре не должно быть: {', '.join(forbidden)}.")
     return " ".join(parts)
 
 
@@ -873,6 +894,7 @@ def _ask_cached(brain, prompt_text, chapter_no, cache_dir, verbose, label,
 def run(video_dir, blocks, brain, cache_dir=None, verbose=True,
         max_units=None, only_sections=None, use_vocabulary=False):
     """Пройти эпизод главами. Возвращает {индекс блока: заявка}."""
+    shot_planner_llm.set_episode(video_dir)
     contract = domain_contract()
     if verbose:
         if contract:
@@ -1139,6 +1161,7 @@ def main(argv):
     a = ap.parse_args(argv[1:])
 
     blocks = script_parser.parse_blocks(os.path.join(a.video_dir, "script.txt"))
+    shot_planner_llm.set_episode(a.video_dir)
 
     if a.brain == "packets":
         dest = a.out_packets or os.path.join(a.video_dir, "media_plan",

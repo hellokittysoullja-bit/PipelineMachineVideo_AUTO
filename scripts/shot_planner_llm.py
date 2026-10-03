@@ -236,6 +236,43 @@ def _looks_like_translation(shot_en, phrase):
     return any(p in low for p in pronouns) and any(v in low for v in verbs)
 
 
+# Эпизод, для которого сейчас пишутся и проверяются брифы (режиссёр главы,
+# fill_briefs). Нужен затем, чтобы мир кадра брался из паспорта ЭТОГО
+# эпизода, когда он не совпадает с миром канала (world_card.matches_channel):
+# средневековый мир канала иначе диктовал кадры психологическому сценарию
+# («a knight in armor standing beside a closed chest») и отклонял «a
+# person's hands». Не задан — как раньше, мир канала.
+_EPISODE = {"dir": None}
+
+
+def set_episode(video_dir):
+    """Эпизод, по паспорту которого решается мир кадра; None — сбросить."""
+    _EPISODE["dir"] = video_dir
+
+
+def episode_world():
+    """(паспорт или None, совпадает ли мир эпизода с миром канала).
+
+    Паспорта нет, эпизод не задан, паспорт не читается — (None, True):
+    всё как раньше."""
+    d = _EPISODE["dir"]
+    if not d:
+        return None, True
+    try:
+        import world_card
+        card = world_card.load(d, strict=False)
+        if not card:
+            return None, True
+        try:
+            import pipeline_smart
+            profile = pipeline_smart.CHANNEL_PROFILE
+        except Exception:  # noqa: BLE001
+            profile = None
+        return card, world_card.matches_channel(card, profile)
+    except Exception:  # noqa: BLE001
+        return None, True
+
+
 def channel_blocklist():
     """Термины, которых канал не хочет видеть — ИЗ УЖЕ СУЩЕСТВУЮЩЕГО списка.
 
@@ -247,6 +284,12 @@ def channel_blocklist():
 
     Fail-open: профиль не читается — проверка просто не применяется.
     """
+    card, same = episode_world()
+    if not same:
+        # Блоклист канала написан под его мир; в эпизоде другого мира —
+        # только чужие культуры из паспорта.
+        import world_card
+        return world_card.apply_culture((), card)
     try:
         import pipeline_smart
         return tuple(pipeline_smart.CONTENT_ALT_BLOCKLIST)
@@ -282,6 +325,10 @@ def domain_anchor_words():
     # выключатель хуже отсутствующего: задание больше не диктует чужой
     # мир, а проверка всё ещё требует его слов.
     if os.environ.get("SHOT_BRIEF_WORLD", "") == "off":
+        return ()
+    # Эпизод другого мира: словарь мира канала к нему не относится, правило
+    # «человек без привязки к миру» выключено (как у канала без shot_domain).
+    if not episode_world()[1]:
         return ()
     try:
         import pipeline_smart
@@ -384,7 +431,7 @@ def load_plan(video_dir):
         return {}
 
 
-def fill_briefs(blocks, plan):
+def fill_briefs(blocks, plan, video_dir=None):
     """Проставить `shot_brief` там, где автор его НЕ написал.
 
     Бриф автора не перезаписывается никогда и ни при каких условиях: он
@@ -393,6 +440,16 @@ def fill_briefs(blocks, plan):
     """
     if not plan:
         return 0
+    prev = _EPISODE["dir"]
+    if video_dir:
+        set_episode(video_dir)
+    try:
+        return _fill_briefs(blocks, plan)
+    finally:
+        set_episode(prev)
+
+
+def _fill_briefs(blocks, plan):
     filled = 0
     for b in blocks:
         if (b.get("shot_brief") or "").strip():

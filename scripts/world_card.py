@@ -265,7 +265,7 @@ def culture_exclude(card, fallback=()):
     return _as_terms(fallback)
 
 
-def apply_culture(channel_terms, card):
+def apply_culture(channel_terms, card, culture_terms=None):
     """Список «чужого» канала под мир ЭТОГО эпизода: своя культура эпизода
     из него вычитается (в эпизоде про корейское оружие «korean» из
     блоклиста канала выбрасывал бы сам предмет разговора), чужие культуры
@@ -276,6 +276,18 @@ def apply_culture(channel_terms, card):
     channel = _as_terms(channel_terms)
     own = culture_include(card)
     base = tuple(t for t in channel if not any(t in i or i in t for i in own))
+    # Термины, привязанные к культуре, но не называющие её («katana»,
+    # «hanbok» — японская и корейская культура словом «japanese»/«korean»
+    # в них не совпадают): соответствие культура -> термины объявляет канал
+    # (channel_profile.json -> culture_bound_terms). Своя культура эпизода
+    # снимает свои термины. Ни одна культура не своя — список прежний.
+    bound = set()
+    for group in culture_terms or ():
+        names = _as_terms((group or {}).get("cultures"))
+        if any(n in i or i in n for n in names for i in own):
+            bound.update(_as_terms(group.get("terms")))
+    if bound:
+        base = tuple(t for t in base if t not in bound)
     return base + tuple(t for t in culture_exclude(card) if t not in base)
 
 
@@ -355,6 +367,48 @@ def is_historical(card):
         return False
     reg = card.get("register")
     return reg == "historical" or (reg == "mixed" and era_window(card) is not None)
+
+
+def matches_channel(card, profile=None):
+    """Совпадает ли мир ЭТОГО эпизода с миром, под который написаны правила
+    канала (ловушки вето, блоклист, домен-гвард клинка, приписки «european»,
+    словарь движения, мир кадра режиссёра).
+
+    Правила канала откалиброваны на выдаче его мира; в эпизоде другого мира
+    они не «чуть менее точны», а про другое: в психологии ловушка «modern
+    domestic interior, kitchen» отклоняет ожидаемую паспортом раковину с
+    посудой, в эпизоде про Японию гвард «европейский или азиатский клинок»
+    отклоняет катану, о которой эпизод, а «astronaut helmet» уходит в сток
+    как «european astronaut helmet».
+
+    Совпадает (True — всё как раньше, байт-в-байт):
+      * паспорта нет — сравнивать не с чем;
+      * канал не объявил эпоху (era_from/era_to) — его правила и есть его
+        мир, клон сам решил, что в них;
+      * эпизод про прошлое (is_historical), окно эпохи паспорта (если есть)
+        пересекается с окном канала, и культура «включить» пуста или в ней
+        есть хоть одна НЕ чужая для канала (список foreign_culture_terms
+        профиля — тот же, что у паспорта музейного предмета).
+    Иначе — другой мир: современный/научный/абстрактный эпизод, эпоха вне
+    окна канала, или все свои культуры эпизода для канала чужие (Япония)."""
+    if not card:
+        return True
+    if profile is None:
+        import channel_profile
+        profile = channel_profile.load()
+    if "era_from" not in profile or "era_to" not in profile:
+        return True
+    if not is_historical(card):
+        return False
+    ep = era_window(card)
+    lo, hi = int(profile["era_from"]), int(profile["era_to"])
+    if ep and (ep[0] > hi or ep[1] < lo):
+        return False
+    own = culture_include(card)
+    foreign = _as_terms(profile.get("foreign_culture_terms"))
+    if own and foreign and all(any(t in c for t in foreign) for c in own):
+        return False
+    return True
 
 
 def renders_allowed(card):
