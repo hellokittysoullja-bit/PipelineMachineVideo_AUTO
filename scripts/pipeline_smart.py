@@ -4514,6 +4514,41 @@ def load_pause_inserts():
     return _PAUSE_INSERTS_CACHE
 
 
+_CHAPTER_INSERTS_CACHE = None
+
+
+def load_chapter_inserts():
+    """[(сырая_позиция, секунд), ...] — тишина, вставленная fix_pauses.py ради
+    паузы заставки главы (ключ chapter_inserts; она же входит в pause_inserts).
+    Нет ключа — []."""
+    global _CHAPTER_INSERTS_CACHE
+    if _CHAPTER_INSERTS_CACHE is not None:
+        return _CHAPTER_INSERTS_CACHE
+    try:
+        with open(PAUSE_CUTS_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        _CHAPTER_INSERTS_CACHE = sorted((float(a), float(b))
+                                        for a, b in (data.get("chapter_inserts") or []))
+    except Exception:
+        _CHAPTER_INSERTS_CACHE = []
+    return _CHAPTER_INSERTS_CACHE
+
+
+def chapter_insert_sec_between(t0, t1):
+    """Сколько секунд паузы заставки главы вставлено между реальными t0 и t1.
+
+    Нарезка фраз на слоты смотрит на время до начала следующего блока, то
+    есть вместе с паузой после блока. Пауза главы — время заставки, а не
+    последнего кадра прошлой главы, и вычитается из этого окна: иначе слоты
+    на концах глав резались бы по-другому, сдвинулись бы номера всех
+    следующих слотов, а с ними — платный кэш отбора."""
+    ins = load_chapter_inserts()
+    if not ins:
+        return 0.0
+    cuts = load_pause_cuts()
+    return sum(sec for pos, sec in ins if t0 < raw_to_real_time(pos, cuts) < t1)
+
+
 def raw_to_real_time(t, cuts):
     """Точный (не приближённый по тегам) пересчёт сырого времени alignment.csv
     (до обрезки пауз в fix_pauses.py) в реальное время audio_fixed.mp3 —
@@ -17802,6 +17837,10 @@ def _block_word_times(blocks, wanted):
                 if obi == bi and wi is not None:
                     times[wi] = on[k]
             nxt = next((on[k] for k, (obi, wi) in enumerate(owner) if obi > bi), None)
+            if nxt is not None:
+                _last = max((on[k] for k, (obi, wi) in enumerate(owner) if obi == bi), default=None)
+                if _last is not None:
+                    nxt -= chapter_insert_sec_between(_last, nxt)
             times[n] = nxt
             if times[n] is None:
                 continue
