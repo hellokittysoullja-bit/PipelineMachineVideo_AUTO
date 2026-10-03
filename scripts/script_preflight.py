@@ -235,7 +235,8 @@ def preflight(script_path, font_path=None):
         if not text:
             rep.error(f"пустая плашка [stat:] во фразе «{_short(b['text'], 60)}»")
         elif w > STAT_MAX_WIDTH:
-            rep.error(f"плашка «{text}» шире кадра крупным кеглем ({w:.0f} > {STAT_MAX_WIDTH}px)",
+            rep.error(f"плашка «{text}» шире кадра в варианте «крупно по центру», который выбирается "
+                      f"по контрасту кадра ({w:.0f} > {STAT_MAX_WIDTH}px)",
                       hint="2-3 слова, число + единица")
 
     # --- место и год -------------------------------------------------------------
