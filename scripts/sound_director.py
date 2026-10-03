@@ -58,22 +58,54 @@ MUSIC_CHAPTER_MIN_SPACING_SEC = 150.0
 
 # Что звучит у каждого вида — для модели. Только место или событие, никогда
 # предмет: урок ambience_plan.py («меч в кадре не говорит, где человек»).
-KIND_DESCRIPTIONS = {
-    "wind_open": "wind over open country: a field, hills, a plain, mountains, an army on the march",
-    "forest_birds": "a forest with birds: woods, morning, a quiet countryside",
-    "night": "night outdoors: crickets, owls, a camp at night",
-    "stone_hall": "inside stone walls: a castle hall, a church, an abbey, a monastery, a crypt, a prison cell; people hiding or held inside",
-    "forge_fire": "a fire: a campfire, a hearth, a burning town, a forge",
-    "rain_mud": "rain and mud: bad weather, a wet field, autumn",
-    "river_stream": "a river: a stream, a ford, a bridge over water",
-    "crowd_market": "a busy market, a fair or a gathered crowd talking: only when the line shows many people together in a public place; not a town merely named, not a battle, not people inside a building",
-    "sea_waves": "the sea: a shore, a sea crossing, ships, a coast, a port",
-    "battle_distant": "a battle in progress: clashing swords, shouting soldiers, a melee",
-    "cavalry_horses": "horses: a cavalry charge, galloping riders, mounted knights",
-    "church_bells": "church bells over a town or a village: alarm, funeral, celebration, a town in the story's present",
-    "crows_field": "crows over an empty field: the aftermath of a battle, the dead, desolation",
-    "war_drums": "war drums: an army marching to battle, getting ready to attack",
-}
+#
+# Ниша — в профиле канала, а не в коде (аудит 03_plen 02.10: «mounted
+# knights», «castle hall» жили литералами, и любой клон получал их как свои).
+# channel_profile.json -> sound.ambience_kinds — описания и порядок видов
+# этого канала. Профиля нет — описания берутся из каталога библиотеки
+# (sound_library.LIBRARY_SPEC: что записано в файлах, без сцен ниши).
+def _sound_profile():
+    try:
+        import channel_profile
+        prof = channel_profile.load()
+    except Exception:  # noqa: BLE001 — профиль необязателен
+        return {}
+    snd = prof.get("sound") if isinstance(prof, dict) else None
+    return snd if isinstance(snd, dict) else {}
+
+
+def kind_descriptions():
+    """{вид: что слышно} в порядке, в котором виды показываются модели."""
+    own = _sound_profile().get("ambience_kinds")
+    if isinstance(own, dict) and own:
+        return {str(k): str(v) for k, v in own.items()}
+    try:
+        import sound_library
+        return {k: str(v.get("prompt", k.replace("_", " ")))
+                for k, v in sound_library.LIBRARY_SPEC.get("ambience", {}).items()}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+# Примеры «не из мира фильма» в заданиях музыкального режиссёра. Тот же
+# принцип: примеры этого канала — в профиле, дефолт без ниши.
+MUSIC_WORLD_EXAMPLES_DEFAULT = (
+    "no futuristic synthesizers in a film about the distant past, no historical instruments "
+    "in a film about modern science, no music of a culture that is not the film's own")
+MUSIC_CRITIC_WORLD_EXAMPLES_DEFAULT = (
+    "futuristic synthesizer in a film about the past, historical instruments in a film about "
+    "modern science, music of a culture that is not the film's own")
+
+
+def music_world_examples():
+    v = _sound_profile().get("music_world_examples")
+    return str(v) if v else MUSIC_WORLD_EXAMPLES_DEFAULT
+
+
+def music_critic_world_examples():
+    v = _sound_profile().get("music_critic_world_examples")
+    return str(v) if v else MUSIC_CRITIC_WORLD_EXAMPLES_DEFAULT
+
 
 PROMPT = """You are the sound designer of a narrated documentary film (the voice-over is in Russian).
 Film: {title}
@@ -168,7 +200,8 @@ def world_summary(video_dir):
 
 
 def _kind_lines(kinds):
-    return "\n".join(f"- {k}: {KIND_DESCRIPTIONS.get(k, k.replace('_', ' '))}" for k in kinds)
+    desc = kind_descriptions()
+    return "\n".join(f"- {k}: {desc.get(k, k.replace('_', ' '))}" for k in kinds)
 
 
 def render_prompt(title, chapter, units, prev_tail, kinds, world="not specified"):
@@ -321,8 +354,7 @@ def plan_episode(video_dir, blocks, sub_starts, gateway, kinds, draft_models=DRA
     world = world_summary(video_dir)
     cache_dir = os.path.join(video_dir, "media_plan", "sound_director_cache")
     chapters = chapter_units(blocks, sub_starts)
-    sig = _signature(PLAN_VERSION, draft_models, critic_models, sorted(kinds), world, title,
-                     [(sec, [u[2] for u in units]) for sec, units in chapters])
+    sig = plan_signature(video_dir, blocks, sub_starts, kinds, draft_models, critic_models)
     old = load_plan(video_dir)
     if old and old.get("signature") == sig and not (old.get("stats") or {}).get("critic_failed") \
             and not (old.get("stats") or {}).get("draft_failed"):
@@ -391,6 +423,34 @@ def plan_episode(video_dir, blocks, sub_starts, gateway, kinds, draft_models=DRA
     return plan
 
 
+def plan_signature(video_dir, blocks, sub_starts, kinds, draft_models=DRAFT_MODELS,
+                   critic_models=CRITIC_MODELS):
+    """Отпечаток входов плана атмосферы — ОДНА формула и для составления
+    плана, и для проверки плана с диска без ключа шлюза."""
+    chapters = chapter_units(blocks, sub_starts)
+    return _signature(PLAN_VERSION, draft_models, critic_models, sorted(kinds),
+                      world_summary(video_dir), episode_title(video_dir),
+                      [(sec, [u[2] for u in units]) for sec, units in chapters])
+
+
+def stale_plan_note(plan, matched, expected_sig=None):
+    """Строка-предупреждение, если план с диска не про этот сценарий, или None.
+
+    Аудит 03_plen (02.10): без ключа шлюза план брался с диска без проверки,
+    и после правки сценария события молча выпадали (сверка по точному тексту
+    фразы). Звук от этого не меняется — меняется то, что человек это видит."""
+    if not plan:
+        return None
+    n_plan = len(plan.get("cues") or [])
+    lost = n_plan - len(matched)
+    notes = []
+    if expected_sig is not None and plan.get("signature") and plan["signature"] != expected_sig:
+        notes.append("план составлен для другой версии сценария/библиотеки/паспорта")
+    if lost > 0:
+        notes.append(f"{lost} из {n_plan} событий не нашли свою фразу в сценарии и выпали")
+    return "; ".join(notes) or None
+
+
 def load_plan(video_dir):
     try:
         with open(plan_path(video_dir), encoding="utf-8") as f:
@@ -436,7 +496,7 @@ def _stable_seed(*parts):
 
 
 def ambience_events(cues, sub_starts, total_dur, available=None,
-                    event_sec=AMB_EVENT_SEC, preroll=AMB_PREROLL_SEC):
+                    event_sec=AMB_EVENT_SEC, preroll=AMB_PREROLL_SEC, dropped=None):
     """События атмосферы на шкале аудио: [{start, end, kind, seed, block}].
 
     Правила, все от слуха, а не от удобства кода:
@@ -448,18 +508,30 @@ def ambience_events(cues, sub_starts, total_dur, available=None,
       * короче AMB_MIN_EVENT_SEC — выбрасывается.
     seed — номер вхождения вида: два события одного вида берут РАЗНЫЕ
     записи библиотеки, а не одну и ту же.
+
+    dropped — список, куда записывается КАЖДОЕ решение «не звучит» с
+    причиной (аудит 03_plen 02.10: rain_mud на «Азенкур» пропал по правилу
+    12 с без единой строки). Звук от него не меняется.
     """
+    def drop(i, name, t, reason):
+        if dropped is not None:
+            dropped.append({"block": i, "kind": name, "start": round(t, 3), "reason": reason})
     raw = []
     for i, typ, name in cues:
-        if typ != "amb" or not name or (available is not None and name not in available):
+        if typ != "amb" or not name:
+            continue
+        if available is not None and name not in available:
+            drop(i, name, 0.0, "no_recording")
             continue
         if i >= len(sub_starts):
+            drop(i, name, 0.0, "no_phrase")
             continue
         raw.append((max(0.0, float(sub_starts[i]) - preroll), name, i))
     raw.sort()
     events = []
     for start, name, i in raw:
         if events and start - events[-1]["start"] < AMB_MIN_START_GAP_SEC:
+            drop(i, name, start, f"start_gap<{AMB_MIN_START_GAP_SEC:g}s:{events[-1]['kind']}")
             continue
         if events and events[-1]["kind"] == name and start < events[-1]["end"]:
             events[-1]["end"] = min(float(total_dur), start + event_sec)
@@ -468,6 +540,9 @@ def ambience_events(cues, sub_starts, total_dur, available=None,
                        "kind": name, "block": i})
     for a, b in zip(events, events[1:]):
         a["end"] = min(a["end"], b["start"] + AMB_CROSSFADE_SEC)
+    for e in events:
+        if e["end"] - e["start"] < AMB_MIN_EVENT_SEC:
+            drop(e["block"], e["kind"], e["start"], f"shorter_than_{AMB_MIN_EVENT_SEC:g}s")
     events = [e for e in events if e["end"] - e["start"] >= AMB_MIN_EVENT_SEC]
     seen = {}
     for e in events:
@@ -496,11 +571,19 @@ def episode_sound_cues(video_dir, blocks, sub_starts, gateway=None, kinds=None, 
             if verbose:
                 print(f"  ВНИМАНИЕ: звуковой режиссёр не отработал ({type(e).__name__}: "
                       f"{str(e)[:160]}) — берётся план с диска, если есть")
+    from_disk = plan is None
     if plan is None:
         plan = load_plan(video_dir)
     if plan is None:
         return own_music, "none"
-    return plan_cues(plan, blocks) + own_music, "director"
+    matched = plan_cues(plan, blocks)
+    note = stale_plan_note(plan, matched,
+                           plan_signature(video_dir, blocks, sub_starts, kinds)
+                           if from_disk and kinds else None)
+    if note and verbose:
+        print(f"  ВНИМАНИЕ: план атмосферы с диска — {note}. "
+              f"Пересоставит рендер с LLM_GATEWAY_API_KEY.")
+    return matched + own_music, "director"
 
 
 def write_inline(script_path, plan):
@@ -599,7 +682,7 @@ Choose music from the library:
 - bed: for EVERY chapter, a background track that plays very quietly under the whole chapter. It must have no beat and no busy melody, and fit the chapter's mood. Neighbouring chapters may share a bed when the mood continues.
 
 Rules:
-1. The music must belong to the film's world: no futuristic synthesizers in a film about the Middle Ages, no medieval lute in a film about the brain, no meditation chimes under a battle.
+1. The music must belong to the film's world: {world_examples}.
 2. The mood must match the moment ("owner hears:" in a description is a human verdict by ear and outranks every other word of it): nothing lively, cheerful or dance-like under danger, death, cruelty or loss; nothing scary under a calm explanation.
 3. Use different tracks for the intro, the outro and the stings.
 4. Use everything in the description, the title included: a title like "Happy ...", "Bangkok ..." or "Indian ..." tells the mood or the culture.
@@ -621,12 +704,20 @@ Chapters (number, start time, title, how it begins ... how it ends):
 Slots and options (slot | option letter: track id | description):
 {options}
 
-A choice is wrong if its mood ("owner hears:" is a human verdict by ear and outranks the rest of the description) contradicts the lines it plays under (a lively dance tune under a battle, a fall or a death), or if the track does not belong to the film's world (futuristic synthesizer in a medieval film, medieval lute in a film about the brain, Indian, East Asian or Andean music in a film about medieval Europe; the title counts too), if its mood contradicts the moment (cheerful or light under death or cruelty, scary under a calm explanation), or, for a bed, if it has a beat or a busy melody. If both options are fine, pick the one that fits the world and the moment more exactly.
+A choice is wrong if its mood ("owner hears:" is a human verdict by ear and outranks the rest of the description) contradicts the lines it plays under (a lively dance tune under a battle, a fall or a death), or if the track does not belong to the film's world ({world_examples}; the title counts too), if its mood contradicts the moment (cheerful or light under death or cruelty, scary under a calm explanation), or, for a bed, if it has a beat or a busy melody. If both options are fine, pick the one that fits the world and the moment more exactly.
 
 Answer with one line per slot and nothing else:
 slot | A
 slot | B
 slot | none"""
+
+
+def music_prompt_text(**kw):
+    return MUSIC_PROMPT.format(world_examples=music_world_examples(), **kw)
+
+
+def music_critic_prompt_text(**kw):
+    return MUSIC_CRITIC_PROMPT.format(world_examples=music_critic_world_examples(), **kw)
 
 
 def _chapter_lines(chapters):
@@ -736,12 +827,11 @@ def plan_music(video_dir, blocks, sub_starts, gateway, tracks, draft_models=MUSI
     chapters = chapter_units(blocks, sub_starts)
     ids = {t["id"] for t in tracks}
     by_id = {t["id"]: t for t in tracks}
-    sig = _signature(MUSIC_PLAN_VERSION, draft_models, critic_models, world, title, sorted(ids),
-                     [(sec, [u[2] for u in units]) for sec, units in chapters])
+    sig = music_plan_signature(video_dir, blocks, sub_starts, tracks, draft_models, critic_models)
     old = load_music_plan(video_dir)
     if old and old.get("signature") == sig and old.get("complete"):
         return old
-    prompt = MUSIC_PROMPT.format(title=title or "(untitled)", world=world,
+    prompt = music_prompt_text(title=title or "(untitled)", world=world,
                                  chapters=_chapter_lines(chapters), cards=_card_lines(tracks))
     drafts = []
     est = max(EST_PROMPT_TOKENS, len(prompt) // 3)
@@ -765,7 +855,7 @@ def plan_music(video_dir, blocks, sub_starts, gateway, tracks, draft_models=MUSI
             for slot, opts in options)
         try:
             verdict, _h, _w = ask(gateway, tuple(critic_models),
-                                  MUSIC_CRITIC_PROMPT.format(title=title or "(untitled)", world=world,
+                                  music_critic_prompt_text(title=title or "(untitled)", world=world,
                                                              chapters=_chapter_lines(chapters),
                                                              options=opt_lines), cache_dir)
             picks = apply_music_critic([(s, o[:2]) for s, o in options], verdict)
@@ -793,6 +883,31 @@ def plan_music(video_dir, blocks, sub_starts, gateway, tracks, draft_models=MUSI
     return plan
 
 
+def music_plan_signature(video_dir, blocks, sub_starts, tracks, draft_models=MUSIC_DRAFT_MODELS,
+                         critic_models=MUSIC_CRITIC_MODELS):
+    """Отпечаток входов музыкального плана — одна формула для составления и
+    для проверки плана с диска."""
+    chapters = chapter_units(blocks, sub_starts)
+    return _signature(MUSIC_PLAN_VERSION, draft_models, critic_models, world_summary(video_dir),
+                      episode_title(video_dir), sorted(t["id"] for t in tracks),
+                      [(sec, [u[2] for u in units]) for sec, units in chapters])
+
+
+def stale_music_note(mplan, blocks, expected_sig=None):
+    """Предупреждение, если музыкальный план с диска не про этот сценарий."""
+    if not mplan:
+        return None
+    secs = {str(b.get("section", "")) for b in blocks}
+    lost = [x["section"] for x in (mplan.get("stings") or []) + (mplan.get("beds") or [])
+            if x.get("section") not in secs]
+    notes = []
+    if expected_sig is not None and mplan.get("signature") and mplan["signature"] != expected_sig:
+        notes.append("план составлен для другой версии сценария/библиотеки/паспорта")
+    if lost:
+        notes.append(f"{len(lost)} врезок/подложек привязаны к главам, которых в сценарии нет")
+    return "; ".join(notes) or None
+
+
 def _snap_end(sub_starts, start, target, lo, hi, total):
     """Конец врезки — на начале фразы (то есть в паузе перед ней), ближайшем
     к start+target в окне [start+lo, start+hi]; нет такой — start+target."""
@@ -805,9 +920,15 @@ def _snap_end(sub_starts, start, target, lo, hi, total):
     return min(float(total), best if best is not None else want)
 
 
-def music_plan_cues(mplan, blocks, sub_starts, total, tracks_by_id):
+def music_plan_cues(mplan, blocks, sub_starts, total, tracks_by_id, dropped=None):
     """Врезки с путями: [{start, end, role, path, id}] и подложки
-    [{start, end, path, id, section}] на шкале аудио."""
+    [{start, end, path, id, section}] на шкале аудио.
+
+    dropped — куда записать каждую врезку, снятую расписанием, с причиной
+    (аудит 03_plen 02.10: врезка BLOCK 7 срезана правилом 150 с молча)."""
+    def drop(role, tid, section, reason):
+        if dropped is not None:
+            dropped.append({"role": role, "id": tid, "section": section, "reason": reason})
     if not mplan:
         return [], []
     total = float(total)
@@ -838,19 +959,27 @@ def music_plan_cues(mplan, blocks, sub_starts, total, tracks_by_id):
             cues.append({"start": round(outro_start, 3), "end": round(total, 3), "role": "outro",
                          "id": mplan["outro"], "path": path_of(mplan["outro"])})
         else:
+            drop("outro", mplan["outro"], None, "overlaps_intro")
             outro_start = None
     last = None
     for s in mplan.get("stings") or []:
         i = first.get(s.get("section"))
         p = path_of(s.get("id"))
         if i is None or p is None or i >= len(sub_starts):
+            drop("chapter", s.get("id"), s.get("section"),
+                 "no_section" if i is None or i >= len(sub_starts) else "no_file")
             continue
         t = max(0.0, float(sub_starts[i]) - 1.0)
-        if t < intro_end + MUSIC_CHAPTER_MIN_SPACING_SEC / 2:
+        half = MUSIC_CHAPTER_MIN_SPACING_SEC / 2
+        if t < intro_end + half:
+            drop("chapter", s["id"], s.get("section"), f"within_{half:g}s_of_intro")
             continue
-        if outro_start is not None and t > outro_start - MUSIC_CHAPTER_MIN_SPACING_SEC / 2:
+        if outro_start is not None and t > outro_start - half:
+            drop("chapter", s["id"], s.get("section"), f"within_{half:g}s_of_outro")
             continue
         if last is not None and t - last < MUSIC_CHAPTER_MIN_SPACING_SEC:
+            drop("chapter", s["id"], s.get("section"),
+                 f"within_{MUSIC_CHAPTER_MIN_SPACING_SEC:g}s_of_previous_sting")
             continue
         end = _snap_end(sub_starts, t, MUSIC_STING_TARGET_SEC, *MUSIC_STING_RANGE, total)
         cues.append({"start": round(t, 3), "end": round(end, 3), "role": "chapter",
@@ -867,6 +996,8 @@ def music_plan_cues(mplan, blocks, sub_starts, total, tracks_by_id):
         end = float(sub_starts[secs[k + 1][1]]) if k + 1 < len(secs) else total
         tid = by_sec.get(sec)
         p = path_of(tid) if tid else None
+        if tid and p is None:
+            drop("bed", tid, sec, "no_file")
         if p is None or end - start < 1.0:
             continue
         if beds and beds[-1]["id"] == tid and abs(beds[-1]["end"] - start) < 0.01:

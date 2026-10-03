@@ -1091,6 +1091,14 @@ VOICE_COMPRESS_RATIO = 2.5
 MASTER_LIMITER_ENABLED = feature_flags.enabled("MASTER_LIMITER")
 MASTER_LIMITER_ATTACK_MS = 5
 MASTER_LIMITER_RELEASE_MS = 50
+# Запас лимитера под кодек (аудит 03_plen, 02.10). Лимитер держит потолок
+# на PCM, а AAC 192k после него добавляет межвыборочные пики: мастер
+# 03_plen -1.49 dBTP -> готовый final.mp4 -1.32 dBTP при цели -1.5.
+# Передискретизация x4 вокруг лимитера не помогла (-1.37: перелёт даёт
+# кодек, а не PCM). Потолок -2.0 дал на том же эпизоде -1.73 dBTP после
+# AAC при неизменной громкости (-14.04 против -14.03 LUFS) — лимитер
+# трогает только пики. Цель loudnorm (LOUDNORM_TARGET_TP) не меняется.
+MASTER_LIMITER_CODEC_HEADROOM_DB = 0.5
 
 # Решение по уровню подложки за этот прогон — заполняется build_music_mix()
 # и уходит в media_plan/audio_master_report.json. Без него по готовому
@@ -1750,7 +1758,17 @@ SFX_PLATE_GAIN_DB = -16.0
 # объектный слой, см. её докстринг про то, почему транзиенту нужна именно
 # эта мера, не интегральная), а не сырой пик. -22/-26 LUFS — те же числа,
 # что раньше ошибочно ждали от «пик минус dB», теперь это ЦЕЛЬ громкости.
-SFX_CUE_TARGET_LUFS = {"chapter": -22.0, "plate": -26.0}
+#
+# ИСПРАВЛЕНО 02.10 (аудит 03_plen): -22/-26 здесь стояли как цель
+# ГРОМКОСТИ, а это были ПИКИ прежнего замысла (CLAUDE.md: «переход -12 дБ,
+# пик ок. -22 dBFS; тик -16 дБ, ок. -26 dBFS»). Замер синтезированных
+# ассетов, на которых этот замысел и ставился (assets/sfx, пик -10 dBFS):
+# chapter_turn_long -19.3 / short -20.3 LUFS max-momentary, plate_tick -20.7.
+# То есть прежняя ТВОРЧЕСКАЯ громкость — -31.8 и -36.7 LUFS, а цель -22/-26
+# делала эффект на 10 дБ громче замысла: на 03_plen пик перехода -4.0 dBFS
+# выше максимума голоса -5.2, у 5 из 8 переходов упор в +6 дБ.
+# tests/test_sound_fixes_2510.py сверяет эти числа с самими ассетами.
+SFX_CUE_TARGET_LUFS = {"chapter": -31.8, "plate": -36.7}
 # Шире объектных [-40, 0] (см. sfx_plan.OBJECT_GAIN_MIN_DB/MAX_DB): эти два
 # кюя — созданные под конкретную творческую цель акценты, а не объект,
 # который нельзя поднимать громче своей записи. +6 — тот же потолок, что
@@ -2414,6 +2432,15 @@ def write_audio_preview(blocks, durs, sub_starts, sub_baseline, real_weights, to
     if r.returncode != 0:
         print(f"Мастеринг предпросмотра не собрался: {r.stderr[-300:].strip()}")
         return 1
+    # Предпросмотр собирает ВЕСЬ звук эпизода той же цепочкой, что рендер, —
+    # значит, и отчёт о том, чем собран звук, обязан обновиться. Аудит 03_plen
+    # (02.10): после пересборки звука через предпросмотр audio_master_report
+    # остался от прогона 01:37 (синтезированный дрон, без bed_source/beds/
+    # врезок), то есть описывал НЕ тот звук, что ушёл в ролик. Замер — по
+    # мастеру PCM до кодека (made_by="audio_preview").
+    meas = measure_final_loudness(mastered)
+    write_audio_master_report(VIDEO_FOLDER, meas["I"] if meas else None,
+                              meas["TP"] if meas else None, made_by="audio_preview")
     sec = max(5.0, min(AUDIO_PREVIEW_SEC, total))
     start = AUDIO_PREVIEW_AT if AUDIO_PREVIEW_AT >= 0 else _preview_window(VIDEO_FOLDER, total, sec)
     start = max(0.0, min(start, max(0.0, total - sec)))
@@ -2727,7 +2754,7 @@ def available_ambience_kinds():
     """Виды атмосферы, для которых в библиотеке есть хоть одна запись —
     модель выбирает только из них, иначе выбор кончался бы тишиной."""
     import sound_director
-    return [k for k in sound_director.KIND_DESCRIPTIONS if library_sounds("ambience", k)]
+    return [k for k in sound_director.kind_descriptions() if library_sounds("ambience", k)]
 
 
 def plan_episode_sound(video_dir, blocks, sub_starts, total):
@@ -2736,9 +2763,12 @@ def plan_episode_sound(video_dir, blocks, sub_starts, total):
     Режиссёр выключен — пустые списки и source="off": атмосфера идёт прежним
     фоном по словарю, музыки нет. Решение пишется в SOUND_PLAN_LOG для отчёта.
     """
-    out = {"amb": [], "music": [], "beds": [], "source": "off"}
+    out = {"amb": [], "music": [], "beds": [], "source": "off", "dropped": []}
     if not SOUND_DIRECTOR_ENABLED:
         return out
+    # Режиссёр включён: пока план не получен, источник — «плана нет»
+    # (тишина в атмосфере), а не «режиссёр выключен» (фон по словарю).
+    out["source"] = "none"
     try:
         import sound_director
         kinds = available_ambience_kinds()
@@ -2750,10 +2780,12 @@ def plan_episode_sound(video_dir, blocks, sub_starts, total):
             gw = llm_gateway.Gateway(spend_cap=cap)
         cues, source = sound_director.episode_sound_cues(video_dir, blocks, sub_starts, gw, kinds)
         out["source"] = source
-        out["amb"] = sound_director.ambience_events(cues, sub_starts, total, available=set(kinds))
+        out["amb"] = sound_director.ambience_events(cues, sub_starts, total, available=set(kinds),
+                                                    dropped=out["dropped"])
         author_music = [(i, name) for i, typ, name in cues if typ == "music"]
         out["music"], out["beds"] = plan_episode_music(video_dir, blocks, sub_starts, total, gw,
-                                                       author_music=author_music)
+                                                       author_music=author_music,
+                                                       dropped=out["dropped"])
         if gw is not None:
             out["spent"] = gw.spent
         by_kind = {}
@@ -2762,6 +2794,10 @@ def plan_episode_sound(video_dir, blocks, sub_starts, total):
         print(f"  Звуковой режиссёр ({source}): атмосфера — {len(out['amb'])} событий "
               f"({', '.join(f'{k} {v}' for k, v in sorted(by_kind.items())) or 'нет'}), "
               f"музыка — {len(out['music'])} врезок, подложка — {len(out['beds'])} участков")
+        for d in out["dropped"]:
+            what = d.get("kind") or f"{d.get('role')} {d.get('id')}"
+            where = (f"блок {d['block']}" if "block" in d else (d.get("section") or "")[:40])
+            print(f"    снято расписанием: {what} ({where}) — {d['reason']}")
     except Exception as e:  # noqa: BLE001 — звук не имеет права уронить рендер
         print(f"  ВНИМАНИЕ: звуковой режиссёр не отработал ({type(e).__name__}: {str(e)[:200]})")
     SOUND_PLAN_LOG.clear()
@@ -2769,7 +2805,7 @@ def plan_episode_sound(video_dir, blocks, sub_starts, total):
     return out
 
 
-def plan_episode_music(video_dir, blocks, sub_starts, total, gw, author_music=None):
+def plan_episode_music(video_dir, blocks, sub_starts, total, gw, author_music=None, dropped=None):
     """(врезки, подложки) из библиотеки музыки по плану музыкального режиссёра.
 
     План составляется при ключе шлюза (кэш вопросов делает повтор
@@ -2789,6 +2825,12 @@ def plan_episode_music(video_dir, blocks, sub_starts, total, gw, author_music=No
             print(f"  ВНИМАНИЕ: музыкальный режиссёр не отработал ({type(e).__name__}: {str(e)[:160]})")
     if mplan is None:
         mplan = sound_director.load_music_plan(video_dir)
+        note = sound_director.stale_music_note(
+            mplan, blocks, sound_director.music_plan_signature(video_dir, blocks, sub_starts, tracks)
+            if mplan else None)
+        if note:
+            print(f"  ВНИМАНИЕ: музыкальный план с диска — {note}. "
+                  f"Пересоставит рендер с LLM_GATEWAY_API_KEY.")
     by_id = {t["id"]: t for t in tracks}
     if author_music:
         # Тег автора [music:<id трека>] перед фразой — врезка этим треком под
@@ -2804,14 +2846,137 @@ def plan_episode_music(video_dir, blocks, sub_starts, total, gw, author_music=No
     if mplan is None:
         print("  ВНИМАНИЕ: музыкального плана нет (нужен LLM_GATEWAY_API_KEY) — ролик без музыки")
         return [], []
-    return sound_director.music_plan_cues(mplan, blocks, sub_starts, total, by_id)
+    return sound_director.music_plan_cues(mplan, blocks, sub_starts, total, by_id, dropped=dropped)
+
+
+# Цифровая тишина в начале и в конце файлов библиотеки (замер 03_plen,
+# 02.10): у 12 треков эпизода вступительная тишина 0.6-2.9 с и хвостовая
+# 1.6-6.0 с. Подложка зацикливала файл как есть, и на стыке петли стояли
+# 7 с полной тишины (216.0-223.25 с, mixkit_579), а новая глава входила
+# кроссфейдом в собственную тишину (559.75-561.0 с, mixkit_601: старый трек
+# уже гаснет, новый ещё молчит). -60 dBFS и 0.3 с — граница «нет музыки
+# вовсе», а не тихого места пьесы: внутренние паузы музыки ниже не режутся.
+MUSIC_SILENCE_DB = -60.0
+MUSIC_SILENCE_MIN_SEC = 0.3
+
+
+@functools.lru_cache(maxsize=128)
+def _music_content_window_cached(path, mtime):
+    """(начало звука, конец звука, длина файла) в секундах файла, или None.
+
+    Только тишина, примыкающая к началу и к концу файла; внутренние паузы
+    пьесы — её музыка, их не трогаем."""
+    fdur = media_duration_or_none(path)
+    if not fdur or fdur <= 0:
+        return None
+    try:
+        r = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", path, "-af",
+                            f"silencedetect=noise={MUSIC_SILENCE_DB}dB:d={MUSIC_SILENCE_MIN_SEC}",
+                            "-f", "null", "-"], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace",
+                           timeout=max(60, int(fdur)))
+    except Exception:  # noqa: BLE001 — замер не имеет права уронить подложку
+        return None
+    if r.returncode != 0:
+        return None
+    marks = re.findall(r"silence_(start|end):\s*(-?[\d.]+)", r.stderr or "")
+    spans, cur = [], None
+    for kind, val in marks:
+        if kind == "start":
+            cur = float(val)
+        elif cur is not None:
+            spans.append((cur, float(val)))
+            cur = None
+    if cur is not None:
+        spans.append((cur, float(fdur)))
+    s0, s1 = 0.0, float(fdur)
+    if spans and spans[0][0] <= 0.01:
+        s0 = spans[0][1]
+    if spans and spans[-1][1] >= float(fdur) - 0.1 and spans[-1][0] > s0:
+        s1 = spans[-1][0]
+    if s1 - s0 < 1.0:
+        return None
+    return (round(s0, 3), round(s1, 3), float(fdur))
+
+
+def music_content_window(path):
+    """Где в файле звучит музыка: (начало, конец, длина файла) или None."""
+    try:
+        return _music_content_window_cached(path, os.path.getmtime(path))
+    except OSError:
+        return None
+
+
+def _bed_segment_source(k, idx, path, length, pos, lead_trim, pre):
+    """Фрагмент filter_complex и входы ffmpeg для одного участка подложки.
+
+    (входы, фрагмент, следующая позиция в файле). Прежняя форма (файл с
+    начала, зацикленный -stream_loop) сохраняется БАЙТ-В-БАЙТ там, где она
+    верна: участок начинается с начала файла, не входит кроссфейдом в
+    тишину и кончается раньше хвостовой тишины. Иначе — только звучащая
+    часть файла, петля склеивается кроссфейдом MUSIC_MOOD_XFADE, а не
+    тишиной."""
+    win = music_content_window(path)
+    tail = f",asetpts=N/SR/TB,aformat=sample_rates=48000:channel_layouts=stereo,volume={pre:.2f}dB[b{k}]"
+    s0 = win[0] if win else 0.0
+    s1 = win[1] if win else None
+    start = max(pos, s0) if (lead_trim or pos > 0) else pos
+    if win is None or (start <= 0.0 and length <= s1):
+        return (["-stream_loop", "-1", "-i", path],
+                f"[{idx}:a]atrim=0:{length:.3f}" + tail, length)
+    c = s1 - s0
+    x = MUSIC_MOOD_XFADE
+    if c <= 2 * x:
+        # Звучащая часть короче двух кроссфейдов — петля из неё не склеится;
+        # прежний путь, честнее, чем рваная мини-петля.
+        return (["-stream_loop", "-1", "-i", path],
+                f"[{idx}:a]atrim=0:{length:.3f}" + tail, length)
+    pc = min(max(0.0, start - s0), c)
+    if pc >= c - x:
+        pc = 0.0                     # предыдущий участок доиграл пьесу до конца — с начала
+    need = pc + length
+    # Вход остаётся БЕСКОНЕЧНЫМ (-stream_loop -1), как у прежнего пути, и
+    # кусок вырезается atrim. Замер 02.10: конечный вход (без петли, и с
+    # -ss/-t, и без них), к которому граф обращается только в конце ролика,
+    # отдавал ~26 с и дальше тишину — ffmpeg молча, с кодом 0, видимо теряя
+    # кадры из очереди, когда вход дочитан до конца раньше, чем граф его
+    # спросил. У бесконечного входа конца нет, и потери нет.
+    loop_in = ["-stream_loop", "-1", "-i", path]
+    if need <= c:
+        frag = f"[{idx}:a]atrim={s0 + pc:.3f}:{s0 + need:.3f}" + tail
+        return (loop_in, frag, s0 + need)
+    n = 1
+    while n * c - (n - 1) * x < need:
+        n += 1
+    # Каждая копия петли — свой вход, а не asplit одного: замер 02.10 —
+    # asplit + acrossfade отдавал только первую копию (152.5 с вместо 259.7),
+    # вторая терялась без единой ошибки.
+    frag = ";".join(f"[{idx + j}:a]atrim={s0:.3f}:{s1:.3f},asetpts=N/SR/TB[c{k}_{j}]"
+                    for j in range(n))
+    chain = f"[c{k}_0]"
+    for j in range(1, n):
+        out = f"[l{k}_{j}]"
+        frag += f";{chain}[c{k}_{j}]acrossfade=d={x}:c1=tri:c2=tri{out}"
+        chain = out
+    frag += f";{chain}atrim={pc:.3f}:{need:.3f}" + tail
+    # позиция в файле, где пьеса продолжилась бы (для повтора трека позже)
+    period = c - x
+    nxt = s0 + x + ((need - c) % period)
+    return (loop_in * n, frag, nxt)
 
 
 def build_library_bed(beds, total_dur, out_path):
     """Подложка на весь ролик из треков библиотеки: участок главы — свой трек
     (с начала, по кругу, если глава длиннее), стыки — медленный кроссфейд,
     громкость файлов предварительно выровнена между собой. Участок без
-    подложки — тишина нужной длины (шкала ролика не сдвигается)."""
+    подложки — тишина нужной длины (шкала ролика не сдвигается).
+
+    Петля и стык главы склеиваются по ЗВУЧАЩЕЙ части файла (см.
+    MUSIC_SILENCE_DB): тишина в начале и в конце файла не попадает ни в
+    петлю, ни в кроссфейд. Тот же трек позже в ролике продолжает пьесу с
+    того места, где она остановилась, а не повторяет её вступление
+    (03_plen: HOOK и BLOCK 9 оба начинали mixkit_712 с начала). Дорожка
+    добивается тишиной до точной длины ролика (было на 25 мс короче)."""
     if not beds:
         return None
     d = MUSIC_MOOD_XFADE
@@ -2825,6 +2990,7 @@ def build_library_bed(beds, total_dur, out_path):
         segs.append((t, total_dur, None))
     inputs, parts = [], []
     n = len(segs)
+    resume = {}
     for k, (a, e, path) in enumerate(segs):
         length = (e - a) + (d if k < n - 1 else 0.0)
         if path:
@@ -2832,10 +2998,12 @@ def build_library_bed(beds, total_dur, out_path):
                 pre = _music_file_gain_cached(path, os.path.getmtime(path)) or 0.0
             except OSError:
                 pre = 0.0
-            inputs += ["-stream_loop", "-1", "-i", path]
-            src = f"[{len(inputs) // 4 - 1}:a]"
-            parts.append(f"{src}atrim=0:{length:.3f},asetpts=N/SR/TB,aformat=sample_rates=48000:"
-                         f"channel_layouts=stereo,volume={pre:.2f}dB[b{k}]")
+            idx = sum(1 for x in inputs if x == "-i")
+            ins, frag, nxt = _bed_segment_source(k, idx, path, length, resume.get(path, 0.0),
+                                                 lead_trim=k > 0, pre=pre)
+            resume[path] = nxt
+            inputs += ins
+            parts.append(frag)
         else:
             parts.append(f"anullsrc=r=48000:cl=stereo,atrim=0:{length:.3f}[b{k}]")
     chain = "[b0]"
@@ -2847,7 +3015,7 @@ def build_library_bed(beds, total_dur, out_path):
         parts.append("[b0]anull[bed]")
     fade_out = min(6.0, total_dur / 4)
     parts.append(f"[bed]afade=t=in:st=0:d=2,afade=t=out:st={max(0.0, total_dur - fade_out):.3f}:"
-                 f"d={fade_out:.3f}[out]")
+                 f"d={fade_out:.3f},apad[out]")
     made = _run_ok(["ffmpeg", "-y", *inputs, "-filter_complex", ";".join(parts), "-map", "[out]",
                     "-t", f"{total_dur:.3f}", "-ar", "48000", "-ac", "2", out_path], out_path)
     if made is None:
@@ -2861,36 +3029,63 @@ def _music_file_gain_cached(path, mtime):
     return None if lufs is None else max(-15.0, min(15.0, MUSIC_CUE_TARGET_LUFS - lufs))
 
 
+@functools.lru_cache(maxsize=128)
+def _music_window_gain_cached(path, mtime, offset, dur):
+    """Пред-усиление врезки по тому, что она РЕАЛЬНО играет: кусок
+    [offset, offset+dur], а не весь файл."""
+    try:
+        r = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-ss", f"{offset:.3f}",
+                            "-t", f"{dur:.3f}", "-i", path, "-af", "ebur128=framelog=quiet",
+                            "-f", "null", "-"], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=max(60, int(dur)))
+        m = re.findall(r"I:\s*(-?[\d.]+)\s*LUFS", r.stderr or "")
+        lufs = float(m[-1]) if m else None
+    except Exception:  # noqa: BLE001
+        lufs = None
+    if lufs is None or lufs < -70.0:
+        return None
+    return max(-15.0, min(15.0, MUSIC_CUE_TARGET_LUFS - lufs))
+
+
 def build_music_cue_track(cues, total_dur, out_dir):
     """Дорожка музыкальных врезок на весь ролик: каждая врезка — с НАЧАЛА
     своей пьесы (вступление пьесы звучит естественно, середина — нет),
-    разные пьесы на разные врезки, плавный вход и долгий выход."""
-    files = library_sounds("music", "medieval")
-    if not cues or not (files or all(c.get("path") for c in cues)):
+    разные пьесы на разные врезки, плавный вход и долгий выход.
+
+    «С начала» — с начала ЗВУКА: цифровая тишина в начале файла
+    (MUSIC_SILENCE_DB) пропускается, иначе врезка под главу входила бы на
+    1-3 с позже фразы. Громкость выравнивается по тому куску пьесы, который
+    реально звучит, а не по всему файлу: замер 03_plen 02.10 — первые 15.6 с
+    mixkit_602 тише всего файла на 7.5 LU, и врезка под BLOCK 8 вышла ТИШЕ
+    подложки, которую заменяла (-42 против -40 dB), хотя задумана на 4 LU
+    громче. Врезка без файла пропускается: прежний запасной путь брал
+    «средневековую» папку библиотеки для любой ниши, а план режиссёра всегда
+    даёт путь."""
+    if not cues:
         return None
-    # Самая длинная пьеса — вступлению (seed 0): короткая оборвалась бы
-    # раньше задуманных MUSIC_INTRO_SEC.
-    files = sorted(files, key=lambda f: -(media_duration_or_none(f) or 0.0))
     parts, inputs = [], []
     for k, c in enumerate(cues):
-        path = c.get("path") or files[(int(c.get("seed", k))) % len(files)]
+        path = c.get("path")
+        if not path:
+            continue
         dur = float(c["end"]) - float(c["start"])
         if dur <= 1.0:
             continue
         fdur = media_duration_or_none(path) or 0.0
         if fdur < 2.0:
             continue
-        dur = min(dur, fdur)
-        # Вступление и финал — с начала пьесы. Врезка под главу — со своего
-        # места внутри неё: пьес в библиотеке мало, и одинаковое начало под
-        # каждой главой слышалось бы как повтор.
-        offset = 0.0
-        if c.get("role") == "chapter" and not c.get("path") and fdur - dur > 4.0:
-            offset = float((int(c.get("seed", k)) * 37) % int(fdur - dur))
+        win = music_content_window(path)
+        offset = win[0] if win else 0.0
+        dur = min(dur, (win[1] if win else fdur) - offset)
+        if dur <= 1.0:
+            continue
         try:
-            pre = _music_file_gain_cached(path, os.path.getmtime(path)) or 0.0
+            mtime = os.path.getmtime(path)
         except OSError:
-            pre = 0.0
+            mtime = 0.0
+        pre = _music_window_gain_cached(path, mtime, round(offset, 3), round(dur, 3))
+        if pre is None:
+            pre = (_music_file_gain_cached(path, mtime) or 0.0) if mtime else 0.0
         fin = 0.3 if float(c["start"]) <= 0.05 else MUSIC_CUE_FADE_IN_SEC
         fout = min(MUSIC_CUE_FADE_OUT_SEC, dur / 2)
         delay = int(round(float(c["start"]) * 1000))
@@ -3405,6 +3600,16 @@ def run_ambience(mix_path, video_dir, blocks, sub_starts, total_dur, voice_path,
     sound = sound or {}
     if sound.get("source") in ("author", "director"):
         return _run_ambience_events(mix_path, video_dir, total_dur, voice_path, sound)
+    if sound.get("source") == "none":
+        # Режиссёр включён, а плана нет (нет ключа шлюза, нет тегов [amb:],
+        # нет плана на диске, или режиссёр упал). Аудит 03_plen 02.10: такой
+        # прогон уходил в прежний фон по словарю, вплоть до синтеза, — то
+        # есть звучало ровно то, от чего режиссёр отказался: «лишний звук хуже
+        # тишины». Режиссёр выключен (SOUND_DIRECTOR=0) — прежний фон, как был.
+        print("  ВНИМАНИЕ: звуковой режиссёр включён, но плана атмосферы нет "
+              "(нужен LLM_GATEWAY_API_KEY или теги [amb:вид]) — атмосфера не добавлена")
+        return _run_ambience_events(mix_path, video_dir, total_dur, voice_path,
+                                    dict(sound, amb=[]))
     plan, detail = [], None
     try:
         plan = ambience_plan.merge_adjacent(ambience_plan.plan_ambience(
@@ -3461,6 +3666,7 @@ def _run_ambience_events(mix_path, video_dir, total_dur, voice_path, sound):
         with open(report_path + ".tmp", "w", encoding="utf-8") as f:
             json.dump({"enabled": AMBIENCE_ENABLED, "applied": out != mix_path, "gain": detail,
                        "summary": summary, "events": events,
+                       "dropped": sound.get("dropped") or [],
                        "music": sound.get("music") or [],
                        "segments": [dict(e, bed=e["kind"]) for e in events]},
                       f, ensure_ascii=False, indent=2)
@@ -16611,6 +16817,32 @@ def audio_qc(path, label="Audio QC"):
           else f"{label}: клиппинга/аномальной громкости не найдено")
 
 
+def master_limiter_ceiling_db():
+    """Потолок лимитера: цель true peak минус запас под AAC."""
+    return round(LOUDNORM_TARGET_TP - MASTER_LIMITER_CODEC_HEADROOM_DB, 2)
+
+
+def measure_final_loudness(path):
+    """{"I": LUFS, "TP": dBTP} готового файла или None — ТОЛЬКО звук.
+
+    Аудит 03_plen (02.10): замер шёл без -vn, то есть декодировал и 1080p
+    видео, с таймаутом 60 с — доходил до 9:00 из 18:31 и молча отдавал
+    final_lufs=null. С -vn тот же 18-минутный файл меряется за ~31 с;
+    таймаут — от длительности, как у остальных замеров."""
+    try:
+        r = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-vn", "-i", path, "-af",
+                            f"loudnorm=I={LOUDNORM_TARGET_I}:TP={LOUDNORM_TARGET_TP}:"
+                            f"LRA={LOUDNORM_TARGET_LRA}:print_format=json",
+                            "-f", "null", "-"], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace",
+                           timeout=max(120, int(_audio_len_for_timeout(path) * 0.5)))
+        fs, fe = r.stderr.rindex("{"), r.stderr.rindex("}") + 1
+        j = json.loads(r.stderr[fs:fe])
+        return {"I": float(j["input_i"]), "TP": float(j["input_tp"])}
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def build_master_af(loud_stats, fade_out_st, fade_in_sec):
     """Мастер-цепочка финального прохода: loudnorm -> лимитер -> фейды.
 
@@ -16638,7 +16870,7 @@ def build_master_af(loud_stats, fade_out_st, fade_in_sec):
                  f"offset={loud_stats['target_offset']}")
     stages = [base]
     if MASTER_LIMITER_ENABLED:
-        stages.append(f"alimiter=limit={LOUDNORM_TARGET_TP}dB:"
+        stages.append(f"alimiter=limit={master_limiter_ceiling_db()}dB:"
                       f"attack={MASTER_LIMITER_ATTACK_MS}:"
                       f"release={MASTER_LIMITER_RELEASE_MS}:level=disabled")
     stages.append(f"afade=t=in:st=0:d={fade_in_sec}")
@@ -16646,7 +16878,7 @@ def build_master_af(loud_stats, fade_out_st, fade_in_sec):
     return ",".join(stages)
 
 
-def write_audio_master_report(video_dir, final_lufs=None):
+def write_audio_master_report(video_dir, final_lufs=None, final_tp=None, made_by="render"):
     """media_plan/audio_master_report.json — чем собран звук этого ролика.
 
     Ровно тот же принцип, что feature_flags.json для видео: по готовому
@@ -16655,20 +16887,27 @@ def write_audio_master_report(video_dir, final_lufs=None):
     исходнике, а результат измерения на месте (music_bed_gain_db()).
     """
     payload = {
-        "music_enabled": bool(MUSIC_ENABLED),
+        # music_enabled — была ли музыка ВООБЩЕ (подложка из библиотеки или
+        # врезки), а не только синтезированный дрон: с 02.10 дрон выключен,
+        # и прежнее поле говорило false при звучащей музыке.
+        "music_enabled": bool(MUSIC_ENABLED or (MUSIC_BED_DECISION or {}).get("bed_source")
+                              not in (None, "none") or (MUSIC_BED_DECISION or {}).get("cues")),
+        "synth_bed_enabled": bool(MUSIC_ENABLED),
+        "made_by": made_by,
         "bed": MUSIC_BED_DECISION,
         "target_gap_lu": MUSIC_BED_GAP_LU,
         "duck": {"threshold": MUSIC_DUCK_THRESHOLD, "ratio": MUSIC_DUCK_RATIO,
                  "attack_ms": MUSIC_DUCK_ATTACK_MS, "release_ms": MUSIC_DUCK_RELEASE_MS},
         "climax_dip_db": CLIMAX_DIP_DB,
         "voice_process_enabled": bool(VOICE_PROCESS_ENABLED),
-        "limiter": ({"limit_db": LOUDNORM_TARGET_TP,
+        "limiter": ({"limit_db": master_limiter_ceiling_db(),
                      "attack_ms": MASTER_LIMITER_ATTACK_MS,
                      "release_ms": MASTER_LIMITER_RELEASE_MS}
                     if MASTER_LIMITER_ENABLED else None),
         "loudnorm": {"I": LOUDNORM_TARGET_I, "TP": LOUDNORM_TARGET_TP,
                      "LRA": LOUDNORM_TARGET_LRA},
         "final_lufs": final_lufs,
+        "final_tp": final_tp,
     }
     try:
         path = os.path.join(video_dir, "media_plan", "audio_master_report.json")
@@ -20086,21 +20325,14 @@ def main():
     # четырёх точек loudnorm= — честный рендер на -14.3 (в пределах цели)
     # печатал ложную тревогу "разошлось с целью -16". Вынесено в константу
     # рядом с самим loudnorm=, а не восьмым магическим числом.
-    final_lufs = None
-    try:
-        fr = subprocess.run(["ffmpeg", "-i", OUTPUT_FILE, "-af",
-                              f"loudnorm=I={LOUDNORM_TARGET_I}:TP={LOUDNORM_TARGET_TP}:"
-                              f"LRA={LOUDNORM_TARGET_LRA}:print_format=json",
-                              "-f", "null", "-"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
-        fs, fe = fr.stderr.rindex("{"), fr.stderr.rindex("}") + 1
-        final_lufs = float(json.loads(fr.stderr[fs:fe])["input_i"])
-    except Exception:
-        pass
+    final_meas = measure_final_loudness(OUTPUT_FILE)
+    final_lufs = final_meas["I"] if final_meas else None
+    final_tp = final_meas["TP"] if final_meas else None
     # QC того, что реально услышит зритель. Проверка входного голоса (выше,
     # до сборки) не видит ничего, что делает мастер-цепочка: подложку, дакинг,
     # loudnorm и лимитер. Именно там и жили обе найденные поломки звука.
     audio_qc(OUTPUT_FILE, label="Audio QC финала")
-    write_audio_master_report(VIDEO_FOLDER, final_lufs)
+    write_audio_master_report(VIDEO_FOLDER, final_lufs, final_tp)
     mb = os.path.getsize(OUTPUT_FILE) / (1024 * 1024)
     # Пропущенные кадры и раньше не останавливали сборку (стратегия
     # "лучше меньше клипов, чем сорванный рендер") — но раньше это тонуло
@@ -20117,6 +20349,8 @@ def main():
         status += f" | Громкость: {final_lufs:.1f} LUFS" + (
             "" if abs(final_lufs - LOUDNORM_TARGET_I) <= 1.0
             else f" (!!! разошлось с целью {LOUDNORM_TARGET_I:.0f})")
+    if final_tp is not None and final_tp > LOUDNORM_TARGET_TP + 0.05:
+        status += f" | true peak {final_tp:.2f} dBTP (!!! выше цели {LOUDNORM_TARGET_TP})"
     # Дубли по фото — та же логика: не блокируем сборку (видео уже готово
     # и в целом смотрибельно), но не даём находке потеряться в середине
     # лога и не даём коду возврата соврать, что всё чисто.
