@@ -379,6 +379,9 @@ FLAGS = {f.name: f for f in (
          summary="Щелчки печатной машинки под stat-плашкой варианта 5 (нужны assets/sfx/keyboard_clicks/)"),
     Flag("ON_SCREEN_TEXT", "1",
          summary="Отрисовка титров/stat-плашек поверх кадра (текст сценария не трогается)"),
+    Flag("CHAPTER_CARD", "1",
+         summary="Заставка главы: пауза диктора ~1.8с, размытый первый кадр с названием, "
+                 "удар на старте (вместо нижнего титра и chapter_turn); нужен и ON_SCREEN_TEXT"),
 )}
 
 _warned = set()

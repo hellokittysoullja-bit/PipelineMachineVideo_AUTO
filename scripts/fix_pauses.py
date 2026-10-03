@@ -34,6 +34,8 @@ import re
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 THRESH_SEC = 1.0     # тишина длиннее этого — подрезается
 NOISE_DB = "-30dB"   # порог тишины
 LOUDNORM_TARGET = "I=-16:TP=-1.5:LRA=11"   # стандарт для закадрового голоса
@@ -332,7 +334,7 @@ def _match_protected(ss, se, protected_windows):
     return None, None
 
 
-def _keep_sec_for(ss, se, protected_windows=None):
+def _keep_sec_for(ss, se, protected_windows=None, chapter_windows=None):
     """Сколько секунд тишины (ss, se) реально оставляем.
 
     Если (ss, se) физически совпадает с protected-окном из
@@ -356,6 +358,14 @@ def _keep_sec_for(ss, se, protected_windows=None):
     реально вырезано — и вся синхронизация подписей хука снова разъедется,
     только уже на новых данных."""
     raw_dur = se - ss
+    # Пауза на смене главы (заставка, см. chapter_card.py) — точная цель
+    # CARD_PAUSE_SEC, выше любого другого правила: кривая подрезки сводила
+    # именно эту паузу к самой короткой в эпизоде.
+    if chapter_windows:
+        for w0, w1 in chapter_windows:
+            if ss < w1 and se > w0:
+                import chapter_card
+                return max(0.15, min(raw_dur, chapter_card.CARD_PAUSE_SEC))
     if protected_windows:
         target, _unit_id = _match_protected(ss, se, protected_windows)
         if target is not None:
@@ -444,7 +454,7 @@ def planned_tag_pauses(video_dir):
     return sorted(out)
 
 
-def real_silence_at(ps, pe, sil, protected_windows=None, fine=None):
+def real_silence_at(ps, pe, sil, protected_windows=None, fine=None, chapter_windows=None):
     """Сколько тишины РЕАЛЬНО останется в готовом файле вокруг тег-паузы.
 
     Считать по длине самого тега в alignment нельзя, и это не теория:
@@ -470,13 +480,14 @@ def real_silence_at(ps, pe, sil, protected_windows=None, fine=None):
     for ss, se in sil or []:
         if se <= s0 or ss >= s1:
             continue
-        keep = _keep_sec_for(ss, se, protected_windows)
+        keep = _keep_sec_for(ss, se, protected_windows, chapter_windows)
         removed_start = min(se, ss + keep)
         kept -= max(0.0, min(s1, se) - max(s0, removed_start))
     return max(0.0, kept)
 
 
-def apply_tag_pause_targets(segments, planned, sil=None, protected_windows=None, fine=None):
+def apply_tag_pause_targets(segments, planned, sil=None, protected_windows=None, fine=None,
+                            chapter_windows=None):
     """Довести короткие тег-паузы до цели, вставив тишину в разрез сегмента.
 
     Возвращает (новые_сегменты, вставки), где сегмент — это либо
@@ -485,7 +496,7 @@ def apply_tag_pause_targets(segments, planned, sil=None, protected_windows=None,
     segs = [("copy", a, b) for a, b in segments]
     inserts = []
     for ps, pe, target, _tag in planned:
-        have = real_silence_at(ps, pe, sil, protected_windows, fine)
+        have = real_silence_at(ps, pe, sil, protected_windows, fine, chapter_windows)
         need = target - have
         if need <= TAG_PAUSE_TOLERANCE:
             continue
@@ -502,7 +513,58 @@ def apply_tag_pause_targets(segments, planned, sil=None, protected_windows=None,
     return segs, sorted(inserts)
 
 
-def save_cuts(video_dir, sil, src, out, protected_windows=None, pause_inserts=None):
+CHAPTER_SPAN_SEARCH_SEC = 0.15   # тишина, касающаяся границы секции не дальше этого
+
+
+def chapter_card_boundaries(video_dir):
+    """Сырое время начала каждой секции, перед которой стоит заставка главы
+    (chapter_card.card_sections). Флаг выключен, нет карты смещений или
+    сценария — [] и прежнее поведение байт-в-байт."""
+    try:
+        import chapter_card
+    except Exception:
+        return []
+    if not chapter_card.enabled():
+        return []
+    offsets = load_section_offsets(video_dir)
+    if not offsets:
+        return []
+    order = script_section_order(video_dir)
+    return sorted(offsets[name] for name in chapter_card.card_sections(order) if name in offsets)
+
+
+def silence_span_around(t, fine, reach=CHAPTER_SPAN_SEARCH_SEC):
+    """Объединение мелких тишин, касающихся момента t (+-reach). Нет ни одной —
+    нулевой отрезок (t, t): вставка встанет ровно в t."""
+    s0, s1 = t, t
+    for _ in range(8):
+        grew = False
+        for ss, se in fine or []:
+            if se > s0 - reach and ss < s1 + reach and (ss < s0 or se > s1):
+                s0, s1 = min(s0, ss), max(s1, se)
+                grew = True
+        if not grew:
+            break
+    return s0, s1
+
+
+def chapter_pause_plan(boundaries, fine, planned):
+    """(окна_пауз_главы, планируемые_цели) — пауза на смене главы до
+    chapter_card.CARD_PAUSE_SEC.
+
+    Окно — реальная тишина вокруг границы секции (fine silencedetect).
+    Тег-паузы, попавшие в это окно, из плана снимаются: у паузы главы своя
+    цель, и вторая вставка на том же месте удлинила бы её сверх неё."""
+    import chapter_card
+    windows = [silence_span_around(b, fine) for b in boundaries]
+    keep = [p for p in planned
+            if not any(p[0] < w1 + 0.05 and p[1] > w0 - 0.05 for w0, w1 in windows)]
+    targets = [(w0, w1, chapter_card.CARD_PAUSE_SEC, "[chapter]") for w0, w1 in windows]
+    return windows, sorted(keep + targets)
+
+
+def save_cuts(video_dir, sil, src, out, protected_windows=None, pause_inserts=None,
+              chapter_windows=None):
     """Сохраняет РЕАЛЬНО вырезанные интервалы (сырое время audio.mp3) —
     только ту часть каждой тишины, что реально ушла (see _keep_sec_for —
     protected-паузы, hold-паузы и короткие тишины теряют разную долю) +
@@ -529,8 +591,10 @@ def save_cuts(video_dir, sil, src, out, protected_windows=None, pause_inserts=No
     # ОБОИХ местах разом (см. main() ниже) — записанное в pause_cuts.json
     # снова точно совпадает с тем, что реально режет ffmpeg, просто на
     # семпл-уровне, а не мс-уровне.
-    cuts = [[round(min(se, ss + _keep_sec_for(ss, se, protected_windows)), 6), round(se, 6)]
-            for ss, se in sil if se - min(se, ss + _keep_sec_for(ss, se, protected_windows)) > 0.001]
+    def keep(ss, se):
+        return _keep_sec_for(ss, se, protected_windows, chapter_windows)
+    cuts = [[round(min(se, ss + keep(ss, se)), 6), round(se, 6)]
+            for ss, se in sil if se - min(se, ss + keep(ss, se)) > 0.001]
     # P1-15 (аудит звукового пайплайна): отдельно от cuts (вырезанное) —
     # СОХРАНЁННЫЕ окна тишины [сырой_старт, сколько_оставлено], нужны
     # pipeline_smart.py, чтобы дать подложке лёгкий "вздох" именно на
@@ -540,11 +604,13 @@ def save_cuts(video_dir, sil, src, out, protected_windows=None, pause_inserts=No
     # вдохе TTS. Отдельный ключ, а не третий элемент
     # в cuts — raw_to_real_time() распаковывает cuts строго как (a, b) пары
     # по всему файлу, менять эту форму не нужно ради нового потребителя.
-    pause_windows = [[round(ss, 6), round(_keep_sec_for(ss, se, protected_windows), 6)] for ss, se in sil]
+    pause_windows = [[round(ss, 6), round(keep(ss, se), 6)] for ss, se in sil]
     plan_dir = os.path.join(video_dir, "media_plan")
     os.makedirs(plan_dir, exist_ok=True)
+    extra = ({"chapter_pauses": [[round(a, 6), round(b, 6)] for a, b in chapter_windows]}
+             if chapter_windows else {})
     with open(os.path.join(plan_dir, "pause_cuts.json"), "w", encoding="utf-8") as f:
-        json.dump({"source_audio_md5": _audio_fingerprint(src),
+        json.dump({**extra, "source_audio_md5": _audio_fingerprint(src),
                     "fixed_audio_md5": _audio_fingerprint(out) if os.path.exists(out) else None,
                     "cuts": cuts, "pause_windows": pause_windows,
                     "pause_inserts": [[round(p, 6), round(sec, 6)]
@@ -562,10 +628,17 @@ def main():
     sil = detect_silences(src, total=total)
     loud = loudnorm_filter(measure_loudness(src))
     protected_windows = load_protected_windows(video_dir)
+    chapter_bounds = chapter_card_boundaries(video_dir)
+    fine = detect_fine_silences(src) if chapter_bounds else None
+    chapter_windows = (chapter_pause_plan(chapter_bounds, fine, [])[0]
+                       if chapter_bounds else [])
+    if chapter_windows:
+        print(f"  Заставки глав: {len(chapter_windows)} пауз(ы) на смене главы "
+              f"доводятся до цели (chapter_card.CARD_PAUSE_SEC)")
     if protected_windows:
         print(f"  Speech Director: {len(protected_windows)} запланированных пауз защищено "
               f"от гладкой кривой/джиттера (media_plan/speech_timeline.json)")
-    if not sil:
+    if not sil and not chapter_windows:
         print("Длинных пауз не найдено — нормализую громкость.")
         r = subprocess.run(["ffmpeg", "-y", "-i", src, "-af", loud,
                             "-c:a", "flac", out],
@@ -587,7 +660,7 @@ def main():
     protected_used = 0
     for ss, se in sil:
         target, unit_id = _match_protected(ss, se, protected_windows) if protected_windows else (None, None)
-        keep = _keep_sec_for(ss, se, protected_windows)
+        keep = _keep_sec_for(ss, se, protected_windows, chapter_windows)
         if unit_id is not None:
             protected_used += 1
         if keep >= LONG_HOLD_REPORT_SEC:
@@ -645,8 +718,11 @@ def main():
             SILENCE_RATE = int(bits[0].strip())
         SILENCE_LAYOUT = "stereo" if bits[1].strip() == "2" else "mono"
     planned_pauses = planned_tag_pauses(video_dir)
+    if chapter_bounds:
+        _w, planned_pauses = chapter_pause_plan(chapter_bounds, fine, planned_pauses)
     segments, pause_inserts = apply_tag_pause_targets(
-        segments, planned_pauses, sil, protected_windows, detect_fine_silences(src))
+        segments, planned_pauses, sil, protected_windows,
+        fine if fine is not None else detect_fine_silences(src), chapter_windows)
     if pause_inserts:
         print(f"  Тег-паузы доведены до документированной длины: {len(pause_inserts)} "
               f"(+{sum(sec for _p, sec in pause_inserts):.2f}с) — движок отдал их короче")
@@ -711,7 +787,7 @@ def main():
     if r.returncode != 0 or not os.path.exists(out):
         print("Ошибка ffmpeg:", r.stderr[-400:])
         return 1
-    save_cuts(video_dir, sil, src, out, protected_windows, pause_inserts)
+    save_cuts(video_dir, sil, src, out, protected_windows, pause_inserts, chapter_windows)
     protected_note = f", из них по плану Speech Director: {protected_used}" if protected_windows else ""
     print(f"Готово: {out} | подрезано пауз: {len(sil)} (из них длинных hold-пауз: {long_holds}"
           f"{protected_note}) | было {total:.1f}с → стало {duration(out):.1f}с")
