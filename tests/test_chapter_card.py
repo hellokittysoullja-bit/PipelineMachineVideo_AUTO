@@ -275,7 +275,7 @@ def test_apply_card_renders_full_length_clip(tmp_path):
                     "testsrc2=s=1920x1080:r=24:d=4", "-c:v", "libx264", "-preset", "ultrafast"]
                    + ps.CLIP_PIX_ARGS + ps.COLOR_META_ARGS + [src], check=True)
     out = str(tmp_path / "out.mp4")
-    assert ps.apply_chapter_card(src, out, 4.0, {"title": "ПОЛЕ", "lead": 1.0})
+    assert ps.apply_clip_post(src, out, 4.0, {"card": {"title": "ПОЛЕ", "lead": 1.0}})
     ok, _reason, _d = ps.verify_clip(out, 4.0)
     assert ok
     # заставка темнее и размытее исходника, к концу клип снова чёткий

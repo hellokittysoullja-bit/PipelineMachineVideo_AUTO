@@ -283,3 +283,20 @@ def test_flags_off_no_marks_no_post(monkeypatch):
     assert blocks[0]["place_caption"]["place"] == "ПУАТЬЕ"
     post = ps.clip_post_spec(blocks[0], None, 0.0)
     assert post["caption"]["local"] == pytest.approx(0.55)
+
+
+@pytest.mark.skipif(not __import__("shutil").which("ffmpeg"), reason="нет ffmpeg")
+def test_caption_and_quote_render_through_post_pass(tmp_path):
+    pytest.importorskip("PIL")
+    import subprocess
+    import pipeline_smart as ps
+    src = str(tmp_path / "src.mp4")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=1920x1080:r=24:d=5",
+                    "-c:v", "libx264", "-preset", "ultrafast"] + ps.CLIP_PIX_ARGS + ps.COLOR_META_ARGS + [src],
+                   check=True)
+    post = {"caption": {"place": "ПУАТЬЕ", "year": "1356", "start": 0.5, "local": 0.5},
+            "quote": {"quote": "рыцари сражались до последнего", "author": "Фруассар",
+                      "q0": 1.0, "q1": 4.0, "l0": 1.0, "l1": 4.0}}
+    out = str(tmp_path / "out.mp4")
+    assert ps.apply_clip_post(src, out, 5.0, post)
+    assert ps.verify_clip(out, 5.0)[0]

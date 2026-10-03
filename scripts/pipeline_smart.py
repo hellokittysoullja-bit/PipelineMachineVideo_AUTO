@@ -1875,7 +1875,7 @@ def chapter_hit_gain_db(path, voice_path, voice_lufs, gap_lu=None, trim_sec=None
         af = f"atrim=0:{float(trim_sec):.3f}" + (
             f",afade=t=out:st={max(0.0, float(trim_sec) - fo):.3f}:d={fo:.3f}" if fo else "")
         r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", path, "-af", af, tmp],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
         src = tmp if r.returncode == 0 else path
     try:
         return chapter_card.hit_gain_db(voice_lufs, voice_peak,
@@ -16978,7 +16978,7 @@ def plan_transitions(sections, blocks=None, xfade_dur=XFADE_DUR):
 
 
 def chapter_card_pre_path(out):
-    """Клип главы БЕЗ заставки (вход apply_chapter_card)."""
+    """Клип главы БЕЗ заставки (вход apply_clip_post)."""
     return out[:-4] + "_precard.mp4" if out.endswith(".mp4") else out + "_precard.mp4"
 
 
@@ -17108,10 +17108,6 @@ def apply_clip_post(src, out, dur, post):
         print(f"  ВНИМАНИЕ: заставка/подпись не наложилась на {os.path.basename(out)} ({reason})")
     return ok
 
-
-def apply_chapter_card(src, out, dur, card):
-    """Заставка главы на готовый клип — частный случай apply_clip_post."""
-    return apply_clip_post(src, out, dur, {"card": card})
 
 
 def finish_chapter_card(job):
@@ -20467,7 +20463,7 @@ def main():
         # (как и любой другой honest-failure), рендер продолжается дальше.
         future = None
         # Клип с заставкой рендерится во временный файл, заставка
-        # накладывается после рендера (apply_chapter_card) уже в `out`.
+        # накладывается после рендера (apply_clip_post) уже в `out`.
         render_out = chapter_card_pre_path(out) if post else out
         try:
             if video:
