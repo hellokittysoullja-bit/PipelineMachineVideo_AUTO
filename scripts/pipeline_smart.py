@@ -491,7 +491,7 @@ MIN_CLIP, MAX_CLIP = 3.0, 9.0
 # 03.10: потолок слота хука 4.5 с (решение владельца). Пол обязан быть не
 # больше половины потолка — иначе фразу 4.5-5.0 с нельзя разрезать на два
 # куска, и она остаётся кадром длиннее потолка. Отсюда 2.25 (было 2.5).
-HOOK_MIN_CLIP = 2.25
+HOOK_MIN_CLIP = float(os.environ.get("HOOK_MIN_CLIP", "2.25"))
 # Слоты хука: цель 3-4.5 секунды, жёсткий потолок 4.5 (решение владельца 03.10;
 # до этого 5, решение 01.10).
 # Замер 03_plen: хук шёл 6 слотами по 6-18 с (средний 10 с) — медленнее тела.
@@ -1203,7 +1203,7 @@ STAT_PLATE_TAIL_SEC = STAT_PLATE_READABLE_SEC + XFADE_DUR  # резерв в ш�
 XFADE_TRANSITIONS = ["fade", "dissolve", "smoothleft", "smoothright",
                       "smoothup", "smoothdown", "hblur", "hlwind", "hrwind", "zoomin"]
 BOUNDARY_TRANSITIONS = ["dissolve", "fadeblack", "fadewhite", "fadegrays"]
-HOOK_MAX_CLIP = 4.5     # в хуке кадры короче и чаще — критично для удержания первых секунд.
+HOOK_MAX_CLIP = float(os.environ.get("HOOK_MAX_CLIP", "4.5"))     # в хуке кадры короче и чаще — критично для удержания первых секунд.
                         # Было 5.0 — на практике держало хук почти вровень с телом ролика
                         # (4.65с против 6.8с), а не заметно быстрее, как задумано.
 # PAUSE_DURATIONS/parse_blocks живут в script_parser.py (лёгкий модуль без
