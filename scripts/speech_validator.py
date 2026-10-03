@@ -127,7 +127,9 @@ def _load_section_segments(section_order):
             segs.append(chars[pos:m.start()])
             pos = m.end()
         segs.append(chars[pos:])
-        section_segments[name] = segs
+        # Тот же отсев пустых сегментов, что в pipeline_smart.
+        # _alignment_section_segments: «[pause][pause]» — один юнит, а не два.
+        section_segments[name] = [sg for sg in segs if pipeline_smart._clean_timed_chars(sg)]
     return section_segments
 
 
@@ -150,10 +152,20 @@ def _flat_segment_bounds(units, section_segments):
     величина вместо реальной паузы."""
     seg_cursor = {}
     bounds = []
-    for u in units:
+    # Посимвольное сопоставление (pipeline_smart._block_segment_spans): юнит,
+    # отрезанный тегом [climax] без паузы, делит сегмент с соседом и получает
+    # границы СВОИХ символов, а не весь сегмент и не чужой следующий.
+    spans = pipeline_smart._block_segment_spans(units, section_segments)
+    for ui, u in enumerate(units):
         segs = section_segments.get(u["section"])
         if segs is None:
             bounds.append(None)
+            continue
+        if spans[ui] is not None:
+            k, lo, hi = spans[ui]
+            clean = pipeline_smart._clean_timed_chars(segs[k])
+            bounds.append(pipeline_smart._real_speech_bounds(segs[k])
+                          if (lo == 0 and hi == len(clean)) else (clean[lo][1], clean[hi - 1][2]))
             continue
         k = seg_cursor.get(u["section"], 0)
         seg_cursor[u["section"]] = k + 1

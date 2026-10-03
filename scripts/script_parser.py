@@ -105,7 +105,12 @@ def parse_blocks(path):
     # [stat:TEXT] — цифра-плашка на экран (ЧАСТЬ "Монтаж под удержание": цифра
     # без плашки не запоминается). Вытаскиваем ДО общего вырезания [...],
     # иначе текст плашки пропадает вместе со всеми остальными тегами.
-    content = re.sub(r'\[stat:(.*?)\]', lambda m: f"\x01STAT:{m.group(1)}\x01", content)
+    # Все пайплайн-only теги разбираются БЕЗ учёта регистра — так же, как их
+    # вырезает из текста заказа PIPELINE_ONLY_TAG_RE. Раньше «[Climax]» или
+    # «[STAT:…]» уходили из TTS (там regex с IGNORECASE), но здесь не
+    # узнавались: тег вырезался как «неизвестный», флаг/плашка терялись.
+    content = re.sub(r'\[stat:(.*?)\]', lambda m: f"\x01STAT:{m.group(1)}\x01", content,
+                     flags=re.IGNORECASE)
     # [climax] — 2.8 (второй продакшн-документ, "тишина как акцент перед
     # разоблачением"): ставится сценаристом ЯВНО перед фразой-разоблачением
     # (не угадывается автоматически — риск ложного срабатывания на обычном
@@ -114,7 +119,7 @@ def parse_blocks(path):
     # как [stat:...] — не входит в текст, который читает TTS (тот же
     # принцип: пользователь копирует ЧИСТЫЙ текст в ElevenLabs, [stat:...]
     # туда тоже никогда не попадал).
-    content = content.replace("[climax]", "\x02CLIMAX\x02")
+    content = re.sub(r'\[climax\]', "\x02CLIMAX\x02", content, flags=re.IGNORECASE)
     # [sfx:концепт] и [hush] — намерение по ЗВУКУ, которое ставит автор
     # сценария в тот момент, когда он этот костёр в текст и вписывает.
     #
@@ -134,7 +139,8 @@ def parse_blocks(path):
     #
     # Оба — пайплайн-only маркеры, как [stat:...] и [climax]: в текст для
     # TTS не попадают (см. ЧАСТЬ 10 CLAUDE.md).
-    content = re.sub(r'\[sfx:(.*?)\]', lambda m: f"\x03SFX:{m.group(1)}\x03", content)
+    content = re.sub(r'\[sfx:(.*?)\]', lambda m: f"\x03SFX:{m.group(1)}\x03", content,
+                     flags=re.IGNORECASE)
     # [shot:описание кадра] — ЗАПИСКА АВТОРА О ТОМ, ЧТО ПОКАЗАТЬ, стоящая
     # рядом с той самой фразой, о которой она написана.
     #
@@ -147,14 +153,16 @@ def parse_blocks(path):
     #
     # Блок он НЕ режет и в TTS не уезжает — общий словарь пайплайн-only
     # тегов выше, тот же механизм, что у [sfx:].
-    content = re.sub(r'\[shot:(.*?)\]', lambda m: f"\x05SHOT:{m.group(1)}\x05", content)
-    content = content.replace("[hush]", "\x04HUSH\x04")
+    content = re.sub(r'\[shot:(.*?)\]', lambda m: f"\x05SHOT:{m.group(1)}\x05", content,
+                     flags=re.IGNORECASE)
+    content = re.sub(r'\[hush\]', "\x04HUSH\x04", content, flags=re.IGNORECASE)
     # [amb:вид] и [music:вид] — звуковое событие под фразой: атмосфера на
     # ~20 с (море, конница, колокола) и средневековая музыка. Ставит автор
     # или звуковой режиссёр (scripts/sound_director.py). Разбор — тот же,
     # что у [sfx:]: блок не режет, позиция хранится в словах.
     content = re.sub(r'\[(amb|music):(.*?)\]',
-                     lambda m: f"\x06SND:{m.group(1).lower()}:{m.group(2)}\x06", content)
+                     lambda m: f"\x06SND:{m.group(1).lower()}:{m.group(2)}\x06", content,
+                     flags=re.IGNORECASE)
     processed = content
     for tag in sorted(PAUSE_DURATIONS, key=len, reverse=True):
         processed = processed.replace(tag, f"__PAUSE_{PAUSE_DURATIONS[tag]}__")
@@ -170,6 +178,11 @@ def parse_blocks(path):
               f"паузы: {', '.join(unknown_tags)}. Разрешены только: "
               f"{', '.join(sorted(PAUSE_DURATIONS))} (ЧАСТЬ 10 CLAUDE.md). "
               f"[long pause] запрещён явно (ломает TTS-артефактами) — проверь script.txt.")
+    # Неизвестный тег между словами без пробелов («три.[x]Четыре») раньше
+    # вырезался в пустоту и склеивал слова в одно («три.Четыре»). Между двумя
+    # непробельными символами он теперь заменяется пробелом; рядом с
+    # пробелом — по-прежнему пустотой (текст байт-в-байт прежний).
+    processed = re.sub(r'(?<=\S)\[.*?\](?=\S)', ' ', processed)
     processed = re.sub(r'\[.*?\]', '', processed)
     parts = re.split(r'(__PAUSE_[\d.]+__|\x00SECTION:.*?\x00|\x01STAT:.*?\x01|\x02CLIMAX\x02'
                      r'|\x03SFX:.*?\x03|\x04HUSH\x04|\x05SHOT:.*?\x05|\x06SND:.*?\x06)', processed)

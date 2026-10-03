@@ -361,7 +361,7 @@ def preflight_and_run(video_dir, strict, legacy_allow_degraded, legacy_allow_unr
         print(f"  СТОП (--strict-production): измеренный тайминг готового файла — "
               f"{tv_report.get('verdict')} (дрейф {(tv_report.get('drift') or {}).get('median_ms')}мс, "
               f"тренд {(tv_report.get('drift') or {}).get('trend_ms_per_min')}мс/мин, "
-              f"резов в тишине {tv_report.get('cuts_in_silence_share')}). "
+              f"резов поперёк слова {(tv_report.get('cuts_across_words') or {}).get('share')}). "
               f"Подробности — media_plan/timing_verification.json. "
               f"--legacy-allow-degraded-timing для явного пропуска.")
         return 1

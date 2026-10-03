@@ -13,12 +13,12 @@ xfade_chain() сожмёт таймлайн. Дрейф в этом файле �
 создаёт ложную уверенность».
 
 Здесь источник истины другой — сам файл. Резы ищутся в ПИКСЕЛЯХ final.mp4
-(scene-детектор ffmpeg), тишина — в его ЗВУКОВОЙ дорожке (silencedetect).
+(свой детектор покадровой разницы), слова голоса — из посимвольного alignment.
 Если между расчётом и рендером что-то разъедется (чанкование, обрезка
 муксом, потерянный клип, переход не той длины), phrase_timeline.json об этом
 не узнает по устройству, а эта проверка увидит.
 
-ДВЕ НЕЗАВИСИМЫЕ ОСИ — вторая не использует alignment вообще:
+ДВЕ ОСИ — обе сверяют пиксели готового файла с речью, а не с моделью монтажа:
 
 1. ДРЕЙФ РЕЗА ОТ ФРАЗЫ. Найденные в кадре резы сопоставляются с
    `speech_onset_sec` из phrase_timeline.json (реальные онсеты речи из
@@ -26,10 +26,19 @@ xfade_chain() сожмёт таймлайн. Дрейф в этом файле �
    именно накопительный уход, а не разовая ошибка, был реальным симптомом
    всех трёх исторических поломок тайминга в этом проекте.
 
-2. РЕЗ В ТИШИНЕ, А НЕ ПОПЕРЁК СЛОВА. Доля найденных резов, попавших внутрь
-   паузы в звуке готового ролика. Эта ось не знает ни про alignment, ни про
-   phrase_timeline.json — она сверяет картинку со звуком напрямую, поэтому
-   переживает любую ошибку в самой карте фраз.
+2. РЕЗ НЕ ПОПЕРЁК СЛОВА. Доля жёстких резов, найденных в пикселях
+   final.mp4 и попавших ВНУТРЬ произнесённого слова (дальше допуска от его
+   краёв). Слова — интервалы речи по посимвольному alignment
+   (`speech_words` в phrase_timeline.json, та же шкала, что онсеты).
+
+   До 02.10 эта ось искала ТИШИНУ в звуке final.mp4 — и была неверна дважды.
+   Под голосом в готовом ролике лежат музыка и атмосфера: на 03_plen
+   silencedetect не нашёл ни одного интервала тишины, доля «резов в тишине»
+   вышла 0.0, и --strict-production остановил бы любой нормальный эпизод. А
+   на чистом голосе ось противоречила самому PHRASE LOCK: рез ставится на
+   онсет речи, то есть ровно туда, где тишина КОНЧАЕТСЯ, а рез внутри
+   длинной фразы (нарезка) стоит между словами без всякой паузы — 8.6% резов
+   «в тишине» на audio_fixed.flac при совершенно правильном монтаже.
 
 ЧЕСТНЫЕ ПРЕДЕЛЫ (записаны в отчёт, а не только здесь):
 * Детектор находит РЕЗКИЕ смены кадра. 15% переходов эпизода — короткий
@@ -45,7 +54,6 @@ xfade_chain() сожмёт таймлайн. Дрейф в этом файле �
 """
 import json
 import os
-import re
 import subprocess
 import sys
 import time
@@ -106,10 +114,16 @@ MATCH_WINDOW_SEC = 0.60
 MAX_MEDIAN_DRIFT_SEC = 0.10      # ~2.4 кадра при 24 fps
 MAX_DRIFT_TREND_SEC_PER_MIN = 0.05   # накопительный уход — главный симптом
 MIN_COVERAGE = 0.50              # ниже этого измерения просто нет
-MIN_CUTS_IN_SILENCE = 0.70       # рез поперёк слова — слышимая ошибка
-
-SILENCE_NOISE_DB = -35.0
-SILENCE_MIN_DUR = 0.20
+# Рез поперёк слова — видимая ошибка: картинка меняется посреди слова.
+# Допуск от края слова: кадр детектора (рез виден на кадре ПОСЛЕ смены) плюс
+# полкадра сетки, на которую PHRASE LOCK кладёт границу. Порог доли — не
+# измеренный оптимум, а потолок: у правильного PHRASE LOCK таких резов ноль,
+# и единичные попадания — ложные пики детектора на живом видео со стока.
+CUT_INSIDE_WORD_TOL_FRAMES = 1.5
+MAX_CUTS_ACROSS_WORDS = 0.10
+# Ось меряется только у жёстких резов: у диссолва нет одного момента смены,
+# и детектор ставит его в середину смешивания (+90…+190 мс на 03_plen).
+HARD_CUT_MAX_FRAMES = 1.5
 
 
 def _run(cmd, timeout=None):
@@ -234,21 +248,6 @@ def detect_cuts(video_path, ratio=DIFF_PEAK_RATIO):
     return times
 
 
-def detect_silences(video_path):
-    """Интервалы тишины в звуке готового файла — [(start, end), ...]."""
-    out = _run([FFMPEG, "-hide_banner", "-nostats", "-i", video_path, "-vn",
-                "-af", f"silencedetect=noise={SILENCE_NOISE_DB}dB:d={SILENCE_MIN_DUR}",
-                "-f", "null", "-"], timeout=_timeout_for(video_path))
-    starts = [float(x) for x in re.findall(r"silence_start: (-?[0-9.]+)", out)]
-    ends = [float(x) for x in re.findall(r"silence_end: ([0-9.]+)", out)]
-    spans = []
-    for i, s in enumerate(starts):
-        e = ends[i] if i < len(ends) else None
-        if e is not None and e > s:
-            spans.append((s, e))
-    return spans
-
-
 def _median(xs):
     if not xs:
         return None
@@ -302,11 +301,26 @@ def match_cuts(expected, detected, window=MATCH_WINDOW_SEC):
     return pairs, unmatched, extra
 
 
-def inside_silence(t, spans, pad=0.0):
-    for s, e in spans:
-        if s - pad <= t <= e + pad:
+def inside_word(t, words, tol):
+    """Рез t лежит внутри слова дальше допуска tol от обоих его краёв."""
+    for s, e in words:
+        if s + tol < t < e - tol:
             return True
     return False
+
+
+def cuts_across_words(pairs, hard_onsets, words, fps):
+    """Ось 2: {checked, across, share, tolerance_ms, examples} по жёстким
+    резам (pairs — (ожидаемый онсет, найденный рез)). None — слов нет."""
+    if not words:
+        return None
+    tol = CUT_INSIDE_WORD_TOL_FRAMES / fps
+    checked = [(e, d) for e, d in pairs if e in hard_onsets]
+    across = [(e, d) for e, d in checked if inside_word(d, words, tol)]
+    return {"checked": len(checked), "across": len(across),
+            "share": round(len(across) / len(checked), 4) if checked else None,
+            "tolerance_ms": round(tol * 1000, 1),
+            "examples_sec": [[round(e, 3), round(d, 3)] for e, d in across[:20]]}
 
 
 def verify(video_dir, video_path=None, threshold=DIFF_PEAK_RATIO):
@@ -324,41 +338,41 @@ def verify(video_dir, video_path=None, threshold=DIFF_PEAK_RATIO):
         return report, 1
 
     pt_path = os.path.join(video_dir, "media_plan", "phrase_timeline.json")
-    onsets, locked = [], False
+    onsets, locked, words, hard_onsets = [], False, [], set()
+    fps = None
     if os.path.exists(pt_path):
         try:
             with open(pt_path, encoding="utf-8") as f:
                 pt = json.load(f)
             locked = bool(pt.get("locked"))
-            onsets = [b.get("speech_onset_sec") for b in pt.get("blocks", [])
-                      if b.get("speech_onset_sec") is not None]
+            fps = float(pt.get("fps") or 0) or None
+            blocks = [b for b in pt.get("blocks", []) if b.get("speech_onset_sec") is not None]
+            onsets = [b.get("speech_onset_sec") for b in blocks]
+            words = [(float(a), float(e)) for a, e in (pt.get("speech_words") or [])]
+            fps_ = fps or 24.0
+            hard_onsets = {b["speech_onset_sec"] for b in blocks
+                           if float(b.get("transition_in_sec") if b.get("transition_in_sec")
+                                    is not None else 1.0 / fps_) <= HARD_CUT_MAX_FRAMES / fps_ + 1e-9}
         except Exception:
-            onsets = []
+            onsets, words, hard_onsets = [], [], set()
     report["phrase_lock"] = locked
 
     detected = detect_cuts(video_path, threshold)
-    silences = detect_silences(video_path)
     report["detected_cuts"] = len(detected)
-    report["silence_spans"] = len(silences)
-
-    # --- Ось 2: рез в тишине (не зависит от alignment вообще) ---
-    if detected:
-        in_sil = sum(1 for t in detected if inside_silence(t, silences))
-        report["cuts_in_silence_share"] = round(in_sil / len(detected), 4)
-    else:
-        report["cuts_in_silence_share"] = None
 
     # --- Ось 1: дрейф реза от фразы ---
     expected = [t for t in onsets if t and t > 0.0]
     report["expected_cuts"] = len(expected)
     if not expected:
+        report["cuts_across_words"] = None
         report["verdict"] = "no_reference"
-        report["note"] = ("нет phrase_timeline.json с онсетами речи — дрейф измерить "
-                          "нечем; ось «рез в тишине» выше всё равно посчитана")
-        return report, (0 if report["cuts_in_silence_share"] is None
-                        or report["cuts_in_silence_share"] >= MIN_CUTS_IN_SILENCE else 2)
+        report["note"] = ("нет phrase_timeline.json с онсетами речи — дрейф и «рез "
+                          "поперёк слова» измерить нечем")
+        return report, 0
 
     pairs, unmatched, extra = match_cuts(expected, detected)
+    report["cuts_across_words"] = cuts_across_words(
+        pairs, hard_onsets, words, fps or video_fps(video_path) or 24.0)
     coverage = len(pairs) / len(expected)
     drifts = [d - e for e, d in pairs]
     report["matched"] = len(pairs)
@@ -383,8 +397,8 @@ def verify(video_dir, video_path=None, threshold=DIFF_PEAK_RATIO):
     elif (report["drift"]["trend_ms_per_min"] is not None
           and abs(report["drift"]["trend_ms_per_min"]) > MAX_DRIFT_TREND_SEC_PER_MIN * 1000):
         verdict, code = "drift_trend", 2
-    elif (report["cuts_in_silence_share"] is not None
-          and report["cuts_in_silence_share"] < MIN_CUTS_IN_SILENCE):
+    elif ((report["cuts_across_words"] or {}).get("share") is not None
+          and report["cuts_across_words"]["share"] > MAX_CUTS_ACROSS_WORDS):
         verdict, code = "cuts_across_speech", 2
     report["verdict"] = verdict
     return report, code
@@ -422,7 +436,12 @@ def main(argv=None):
     if d:
         print(f"    дрейф: медиана {d.get('median_ms')}мс, p90 {d.get('p90_ms')}мс, "
               f"макс {d.get('max_ms')}мс, тренд {d.get('trend_ms_per_min')}мс/мин")
-    print(f"    резов в тишине: {report.get('cuts_in_silence_share')}")
+    caw = report.get("cuts_across_words")
+    if caw:
+        print(f"    жёстких резов поперёк слова: {caw.get('across')} из {caw.get('checked')} "
+              f"(доля {caw.get('share')}, допуск {caw.get('tolerance_ms')}мс)")
+    else:
+        print("    рез поперёк слова: не измерено (в phrase_timeline.json нет слов голоса)")
     print(f"    отчёт: {path}")
     if v == "low_coverage":
         print("    ВНИМАНИЕ: измерения по дрейфу НЕТ (мало найденных резов) — "
