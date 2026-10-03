@@ -1,4 +1,4 @@
-"""Слоты хука: потолок 5 с (HOOK_SLOT_MAX_SEC), без потери слов и тегов."""
+"""Слоты хука: потолок 4.5 с (HOOK_SLOT_MAX_SEC), без потери слов и тегов."""
 import sys, tempfile
 sys.argv = ["x", tempfile.mkdtemp()]
 sys.path.insert(0, "scripts")
@@ -59,8 +59,8 @@ def test_first_slot_rule_only_for_the_first_block():
 
 
 def test_first_slot_rule_skipped_when_block_too_short_for_it():
-    # 5.0 с: 3 + остаток 2 < HOOK_MIN_CLIP — остаток склеился бы обратно
-    nb, nw = ps.split_long_blocks([_block(TEXT)], [5.0])
+    # 4.4 с (в потолке 4.5): 3 + остаток 1.4 < HOOK_MIN_CLIP — остаток склеился бы обратно
+    nb, nw = ps.split_long_blocks([_block(TEXT)], [4.4])
     assert len(nb) == 1
 
 
@@ -78,3 +78,9 @@ def test_real_word_times_beat_the_word_share_estimate():
     assert dur[0] <= ps.HOOK_FIRST_SLOT_MAX_SEC
     assert max(dur) <= ps.HOOK_SLOT_MAX_SEC
     assert min(dur) >= ps.HOOK_MIN_CLIP - 1e-6
+
+
+def test_hook_cap_default_is_4_5_seconds():
+    """Решение владельца 03.10: кадры хука не длиннее 4.5 с."""
+    assert ps.HOOK_SLOT_MAX_SEC == 4.5
+    assert ps.HOOK_MAX_CLIP == 4.5

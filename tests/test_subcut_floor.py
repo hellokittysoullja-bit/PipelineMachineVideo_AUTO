@@ -52,6 +52,15 @@ def _block(text, section="HOOK", **kw):
     return b
 
 
+@pytest.fixture
+def _cap_5s(monkeypatch):
+    # Механика нарезки реального блока 8.1 с (две части) измерена при потолке
+    # слота хука 5 с; при 4.5 с (решение владельца 03.10) тот же блок режется
+    # на три части, и это проверяет test_measured_hook_average_...
+    monkeypatch.setattr(ps, "HOOK_SLOT_MAX_SEC", 5.0)
+
+
+@pytest.mark.usefixtures("_cap_5s")
 class TestSplitPointRespectsTheClipFloor:
     def test_the_real_hook_block_is_actually_split(self):
         """Негативный контроль: убрать фильтр _usable_split_points — и блок
@@ -98,6 +107,7 @@ class TestSplitPointRespectsTheClipFloor:
             assert min(slots) >= ps.HOOK_MIN_CLIP - 1e-6, (est, slots)
 
 
+@pytest.mark.usefixtures("_cap_5s")
 class TestSfxIsNotCopiedIntoEverySubcut:
     """У stat и is_climax сброс по кускам есть, у sfx его не было: dict(b)
     копировал список во ВСЕ под-кадры, а word_pos оставался от исходного
@@ -145,9 +155,9 @@ def test_measured_hook_average_moves_into_the_documented_corridor():
     weights = [w for _, w in texts]
     sb, sw = ps.split_long_blocks(blocks, weights)
     mb, mw = ps.merge_short_phrase_locked_blocks(sb, sw, sum(sw))
-    # С потолком слота хука (HOOK_SLOT_MAX_SEC=5) тот же хук режется чаще:
-    # было 4 кадра / макс 8.42с, стало 6 кадров и ни одного длиннее 5с.
-    assert len(mb) == 6, [b["text"][:30] for b in mb]
+    # С потолком слота хука (HOOK_SLOT_MAX_SEC=4.5, решение 03.10) тот же хук
+    # режется чаще: было 4 кадра / макс 8.42с, при 5 с — 6 кадров, при 4.5 — 7.
+    assert len(mb) == 7, [b["text"][:30] for b in mb]
     avg = sum(mw) / len(mw)
     assert avg < 6.94, avg
     assert max(mw) <= ps.HOOK_SLOT_MAX_SEC + 1e-6, mw
