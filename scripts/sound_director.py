@@ -329,7 +329,8 @@ def episode_title(video_dir):
     try:
         with open(os.path.join(video_dir, "script.txt"), encoding="utf-8") as f:
             for line in f:
-                if line.strip().upper().startswith("TITLE"):
+                # ровно «TITLE:» — «TITLE_CARD:» (текст заставки названия) не название
+                if re.match(r"TITLE\s*:", line.strip(), re.I):
                     return line.split(":", 1)[-1].strip()
     except OSError:
         pass

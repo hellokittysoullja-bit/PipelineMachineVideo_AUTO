@@ -34,6 +34,8 @@ import re
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 THRESH_SEC = 1.0     # тишина длиннее этого — подрезается
 NOISE_DB = "-30dB"   # порог тишины
 LOUDNORM_TARGET = "I=-16:TP=-1.5:LRA=11"   # стандарт для закадрового голоса
@@ -502,7 +504,116 @@ def apply_tag_pause_targets(segments, planned, sil=None, protected_windows=None,
     return segs, sorted(inserts)
 
 
-def save_cuts(video_dir, sil, src, out, protected_windows=None, pause_inserts=None):
+_TAG_SPAN_RE = re.compile(r'\[[^\]]*\]')
+
+
+def _section_speech_edges(path):
+    """(начало первого символа речи, конец последнего) в ЛОКАЛЬНОМ времени
+    alignment секции — без тегов [..] и пробелов. None, если не читается."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+        chars = [(r["char"], float(r["start"]), float(r["end"])) for r in rows]
+    except Exception:
+        return None
+    text = "".join(c for c, _s, _e in chars)
+    masked = [False] * len(chars)
+    for m in _TAG_SPAN_RE.finditer(text):
+        for k in range(m.start(), min(m.end(), len(chars))):
+            masked[k] = True
+    idx = [k for k, (c, _s, _e) in enumerate(chars) if not masked[k] and c.strip()]
+    if not idx:
+        return None
+    return chars[idx[0]][1], chars[idx[-1]][2]
+
+
+def chapter_card_windows(video_dir):
+    """[(сырой_конец_речи_прошлой_секции, сырой_онсет_новой, цель_паузы), ...]
+    перед каждой секцией с заставкой главы (chapter_card.card_sections); перед
+    главой 1 — пауза названия ролика (TITLE_DROP), если оно есть.
+
+    Окно меряется так же, как паузу видит рендер: от конца речи до начала
+    речи по alignment. Флаг выключен, нет карты смещений, alignment или
+    сценария — [] и прежнее поведение байт-в-байт."""
+    try:
+        import chapter_card
+    except Exception:
+        return []
+    chapters_on, title_on = chapter_card.enabled(), chapter_card.title_drop_enabled()
+    if not (chapters_on or title_on):
+        return []
+    offsets = load_section_offsets(video_dir)
+    if not offsets:
+        return []
+    order = script_section_order(video_dir)
+    align_dir = os.path.join(video_dir, "media_plan", "alignment")
+    title_sec = None
+    if title_on and chapter_card.film_title(os.path.join(video_dir, "script.txt"),
+                                            chapter_card.default_font()):
+        title_sec = chapter_card.hook_title_section(order)
+    out = []
+    for name in chapter_card.card_sections(order):
+        if name == title_sec:
+            target = chapter_card.TITLE_PAUSE_SEC
+        elif chapters_on:
+            target = chapter_card.CARD_PAUSE_SEC
+        else:
+            continue
+        k = order.index(name)
+        cur_off = section_offset(offsets, name, order)
+        prev_off = section_offset(offsets, order[k - 1], order)
+        cur = _section_speech_edges(os.path.join(align_dir, f"{k:02d}.csv"))
+        prev = _section_speech_edges(os.path.join(align_dir, f"{k - 1:02d}.csv"))
+        if cur is None or prev is None or cur_off is None or prev_off is None:
+            continue
+        a, b = prev[1] + prev_off, cur[0] + cur_off
+        if b > a:
+            out.append((a, b, target))
+    return sorted(out)
+
+
+def apply_chapter_pause_targets(segs, windows):
+    """Довести паузу диктора на смене главы до chapter_card.CARD_PAUSE_SEC.
+
+    ДОБАВЛЯЕТ тишину поверх уже готового плана (подрезка и тег-паузы — те же,
+    что без заставки): так сырое->реальное время всех остальных мест эпизода
+    отличается от прежнего ровно на эти вставки, и нарезка слотов, которая
+    смотрит на паузу после последнего блока секции, может их вычесть и
+    остаться прежней (pipeline_smart.load_chapter_inserts) — иначе сдвинулись
+    бы номера слотов и с ними платный кэш отбора.
+
+    Окно — от конца речи до онсета (сырое время). Сколько тишины в нём
+    реально останется: длина окна минус вырезанное плюс уже вставленное.
+    Вставка — в середину самого длинного сохранённого куска окна (не в
+    вырезанное место: туда вставлять нечего). Возвращает (сегменты, вставки)."""
+    inserts = []
+    for w0, w1, target in windows:
+        kept, best = 0.0, None
+        for item in segs:
+            if item[0] == "silence":
+                if w0 <= item[2] <= w1:
+                    kept += item[1]
+                continue
+            _k, a, b = item
+            lo, hi = max(a, w0), min(b, w1)
+            if hi > lo:
+                kept += hi - lo
+                if best is None or hi - lo > best[1] - best[0]:
+                    best = (lo, hi)
+        need = target - kept
+        if need <= TAG_PAUSE_TOLERANCE or best is None:
+            continue
+        mid = (best[0] + best[1]) / 2.0
+        for i, item in enumerate(segs):
+            if item[0] == "copy" and item[1] < mid < item[2]:
+                segs[i:i + 1] = [("copy", item[1], mid), ("silence", need, mid), ("copy", mid, item[2])]
+                inserts.append((round(mid, 6), round(need, 6)))
+                break
+    return segs, sorted(inserts)
+
+
+def save_cuts(video_dir, sil, src, out, protected_windows=None, pause_inserts=None,
+              chapter_windows=None, chapter_inserts=None):
     """Сохраняет РЕАЛЬНО вырезанные интервалы (сырое время audio.mp3) —
     только ту часть каждой тишины, что реально ушла (see _keep_sec_for —
     protected-паузы, hold-паузы и короткие тишины теряют разную долю) +
@@ -543,8 +654,13 @@ def save_cuts(video_dir, sil, src, out, protected_windows=None, pause_inserts=No
     pause_windows = [[round(ss, 6), round(_keep_sec_for(ss, se, protected_windows), 6)] for ss, se in sil]
     plan_dir = os.path.join(video_dir, "media_plan")
     os.makedirs(plan_dir, exist_ok=True)
+    # Ключи заставок пишутся только когда они есть: без них файл байт-в-байт прежний.
+    extra = {}
+    if chapter_windows:
+        extra["chapter_pauses"] = [[round(a, 6), round(b, 6), round(t, 3)] for a, b, t in chapter_windows]
+        extra["chapter_inserts"] = [[round(p, 6), round(sec, 6)] for p, sec in (chapter_inserts or [])]
     with open(os.path.join(plan_dir, "pause_cuts.json"), "w", encoding="utf-8") as f:
-        json.dump({"source_audio_md5": _audio_fingerprint(src),
+        json.dump({**extra, "source_audio_md5": _audio_fingerprint(src),
                     "fixed_audio_md5": _audio_fingerprint(out) if os.path.exists(out) else None,
                     "cuts": cuts, "pause_windows": pause_windows,
                     "pause_inserts": [[round(p, 6), round(sec, 6)]
@@ -650,6 +766,14 @@ def main():
     if pause_inserts:
         print(f"  Тег-паузы доведены до документированной длины: {len(pause_inserts)} "
               f"(+{sum(sec for _p, sec in pause_inserts):.2f}с) — движок отдал их короче")
+    chapter_windows = chapter_card_windows(video_dir)
+    chapter_inserts = []
+    if chapter_windows:
+        segments, chapter_inserts = apply_chapter_pause_targets(segments, chapter_windows)
+        pause_inserts = sorted(list(pause_inserts) + chapter_inserts)
+        print(f"  Заставки глав: пауза диктора на {len(chapter_windows)} сменах главы доведена "
+              f"до цели заставки (вставок {len(chapter_inserts)}, "
+              f"+{sum(sec for _p, sec in chapter_inserts):.2f}с)")
 
     SPLICE_FADE_SEC = 0.008
     parts, filt = [], ""
@@ -711,7 +835,8 @@ def main():
     if r.returncode != 0 or not os.path.exists(out):
         print("Ошибка ffmpeg:", r.stderr[-400:])
         return 1
-    save_cuts(video_dir, sil, src, out, protected_windows, pause_inserts)
+    save_cuts(video_dir, sil, src, out, protected_windows, pause_inserts,
+              chapter_windows, chapter_inserts)
     protected_note = f", из них по плану Speech Director: {protected_used}" if protected_windows else ""
     print(f"Готово: {out} | подрезано пауз: {len(sil)} (из них длинных hold-пауз: {long_holds}"
           f"{protected_note}) | было {total:.1f}с → стало {duration(out):.1f}с")

@@ -3640,6 +3640,50 @@
     "title": "Musket Tango"
    },
    "imported_at": 1790949996
+  },
+  "assets/library/sfx/chapter_hit/freesound_555245_bright_cinematic_boom.flac": {
+   "kind": "sfx",
+   "name": "chapter_hit",
+   "source": "freesound",
+   "id": "freesound:555245",
+   "title": "Bright Cinematic Boom (Fast Reverb)",
+   "creator": "cookies+policy",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/555/555245_10713160-hq.mp3",
+   "landing": "https://freesound.org/people/cookies+policy/sounds/555245",
+   "query": "cinematic boom (выбран владельцем по ручному демо 03.10)",
+   "approved": true,
+   "scores": {
+    "duration": 6.048,
+    "max_momentary_lufs": -10.6,
+    "lufs": -15.1,
+    "true_peak": -1.5,
+    "reasons": []
+   },
+   "imported_at": 1790990825
+  },
+  "assets/library/sfx/title_hit/freesound_555243_bright_cinematic_boom_slow.flac": {
+   "kind": "sfx",
+   "name": "title_hit",
+   "source": "freesound",
+   "id": "freesound:555243",
+   "title": "Bright Cinematic Boom (Slow Reverb)",
+   "creator": "cookies+policy",
+   "license": "cc0",
+   "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+   "url": "https://cdn.freesound.org/previews/555/555243_10713160-hq.mp3",
+   "landing": "https://freesound.org/people/cookies+policy/sounds/555243",
+   "query": "cinematic boom slow (выбран владельцем по ручному демо 03.10)",
+   "approved": true,
+   "scores": {
+    "duration": 11.498,
+    "max_momentary_lufs": -10.7,
+    "lufs": null,
+    "true_peak": -0.9,
+    "reasons": []
+   },
+   "imported_at": 1790992695
   }
  }
 }
