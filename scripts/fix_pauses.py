@@ -219,6 +219,43 @@ def load_section_offsets(video_dir):
         return {}
 
 
+def script_section_order(video_dir):
+    """Имена озвучиваемых секций в порядке script.txt — ровно тот порядок, в
+    котором пронумерованы media_plan/alignment/NN.csv (секция без текста
+    номера не получает, как и в parse_blocks). [] — сценария нет."""
+    path = os.path.join(video_dir, "script.txt")
+    if not os.path.exists(path):
+        return []
+    try:
+        import contextlib
+        import io
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from script_parser import parse_blocks
+        with contextlib.redirect_stdout(io.StringIO()):
+            blocks = parse_blocks(path)
+    except Exception:
+        return []
+    order = []
+    for b in blocks:
+        if not order or order[-1] != b["section"]:
+            order.append(b["section"])
+    return order
+
+
+def section_offset(offsets, section, order):
+    """Смещение секции, 0.0 для первой секции без записи, иначе None.
+
+    Секция без записи (кроме первой) раньше получала 0.0 — её локальное
+    время трактовалось как глобальное, и защита/вставка тишины ложилась на
+    паузы ХУКА. Теперь такая секция просто пропускается — как и
+    документировано для section_sync («офсет не записан» = не угадываем)."""
+    if section in offsets:
+        return offsets[section]
+    if order and section == order[0]:
+        return 0.0
+    return None
+
+
 def load_protected_windows(video_dir):
     """[(raw_start, raw_end, target_kept_sec, unit_id), ...] из
     media_plan/speech_timeline.json (см. scripts/speech_validator.py) —
@@ -261,11 +298,22 @@ def load_protected_windows(video_dir):
               f"(Stage B — scripts/speech_generate.py — пишет карту сам; при ручном "
               f"Шаге 6, вариант А, карты пока нет).")
     out = []
+    order = script_section_order(video_dir) if offsets else []
+    skipped = set()
     for w in raw_windows:
         raw_start, raw_end, kept, unit_id = float(w[0]), float(w[1]), float(w[2]), str(w[3])
         section = unit_id.rsplit("#", 1)[0]
-        offset = offsets.get(section, 0.0)
+        if offsets:
+            offset = section_offset(offsets, section, order)
+            if offset is None:
+                skipped.add(section)
+                continue
+        else:
+            offset = 0.0   # карты нет вовсе — прежнее поведение (предупреждение выше)
         out.append((raw_start + offset, raw_end + offset, kept, unit_id))
+    for section in sorted(skipped):
+        print(f"  ВНИМАНИЕ: нет смещения секции «{section[:40]}» в {SECTION_OFFSETS_PATH_NAME} — "
+              f"её protected-паузы пропущены (локальное время секции не глобальное)")
     return out
 
 
@@ -363,11 +411,20 @@ def planned_tag_pauses(video_dir):
         return []
     try:
         with open(os.path.join(plan_dir, "section_offsets.json"), encoding="utf-8") as f:
-            offsets = [float(v) for v in json.load(f).values()]
+            offsets = {str(k): float(v) for k, v in json.load(f).items()}
     except Exception:
         return []
+    # NN.csv нумеруются по порядку секций СЦЕНАРИЯ, а не по порядку значений
+    # в карте: раньше секция сопоставлялась с файлом через
+    # enumerate(sorted(offsets.values())), и при неполной карте (section_sync
+    # не набрал уверенности для одной секции) все следующие индексы
+    # съезжали — тишина вставлялась в паузу ЧУЖОЙ секции.
+    order = script_section_order(video_dir)
     out = []
-    for idx, off in enumerate(sorted(offsets)):
+    for idx, name in enumerate(order):
+        off = section_offset(offsets, name, order)
+        if off is None:
+            continue
         path = os.path.join(align_dir, f"{idx:02d}.csv")
         if not os.path.exists(path):
             continue

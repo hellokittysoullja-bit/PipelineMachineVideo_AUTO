@@ -74,12 +74,19 @@ def test_phrase_lock_stays_on_onsets_across_chunk_boundaries():
     durs = ps.phrase_locked_durations(onsets, total, eff)
     assert durs is not None
     starts, video_len = _simulate_chunked_timeline(durs, eff, sections)
-    worst = max(abs(starts[i] - onsets[i]) for i in range(120))
+    # Кадр ПОЯВЛЯЕТСЯ на кадр позже offset перехода (xfade: на offset ещё
+    # старый клип), кроме стыка чанков — там concat (02.10, montage.md, C).
+    seen = [s + ((1.0 / ps.FPS) if i > 0 and eff[i - 1][1] > 0 else 0.0)
+            for i, s in enumerate(starts)]
+    worst = max(abs(seen[i] - onsets[i]) for i in range(120))
     assert worst <= 0.5 / ps.FPS + 1e-6, f"худший дрейф {worst:.3f}с"
     assert abs(video_len - total) <= 0.5 / ps.FPS + 1e-6
-    # hook_visual_starts обязан совпадать с той же симуляцией
+    # hook_visual_starts обязан совпадать с той же симуляцией (начало клипа),
+    # first_visible_starts — с моментом появления.
     vs = ps.hook_visual_starts(blocks, durs)
     assert max(abs(vs[i] - starts[i]) for i in range(120)) < 1e-6
+    fv = ps.first_visible_starts(blocks, durs)
+    assert max(abs(fv[i] - seen[i]) for i in range(120)) < 1e-6
 
 
 def test_old_naive_plan_would_have_drifted():

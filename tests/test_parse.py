@@ -1059,14 +1059,16 @@ def test_load_protected_windows_applies_section_offset_to_non_first_section(tmp_
     assert windows == [(9.16, 10.96, 1.4, "BLOCK 1: ТЕСТ#0")]
 
 
-def test_load_protected_windows_unknown_section_defaults_to_zero_offset(tmp_path):
+def test_load_protected_windows_unknown_section_is_skipped_not_zero(tmp_path):
+    # Секция без смещения (не первая) раньше получала 0.0 — её окно ложилось
+    # на паузы ХУКА. Теперь пропускается (см. fix_pauses.section_offset).
     plan_dir = tmp_path / "media_plan"
     plan_dir.mkdir()
     (plan_dir / "speech_timeline.json").write_text(
         '{"protected_windows": [[1.0, 2.0, 0.9, "MYSTERY#0"]]}', encoding="utf-8")
     (plan_dir / "section_offsets.json").write_text('{"HOOK": 0.0}', encoding="utf-8")
     windows = fix_pauses.load_protected_windows(str(tmp_path))
-    assert windows == [(1.0, 2.0, 0.9, "MYSTERY#0")]
+    assert windows == []
 
 
 def test_load_protected_windows_section_name_split_on_last_hash():
@@ -1383,13 +1385,15 @@ def test_load_alignment_weights_applies_section_offset_to_non_first_section(tmp_
     assert weights[0] == pytest.approx(0.9)    # HOOK не затронут (обрезка далеко после него)
     assert weights[1] == pytest.approx(1.0)    # BLOCK1: 1.5с локальных - 0.5с реальной обрезки внутри
 
-    # Контроль: без section_offsets.json та же обрезка (10.5-11.0) не
-    # пересекает локальный диапазон BLOCK1 [0, 1.5] вообще -> вес остался
-    # бы НЕобрезанным (1.5) — именно так ошибка выглядела до фикса.
+    # Контроль: без section_offsets.json локальное время BLOCK1 глобальным НЕ
+    # считается (раньше считалось — вес выходил необрезанным 1.5, по паузам
+    # чужого участка). Теперь вес секции без смещения — оценка по словам
+    # (None), HOOK — первая секция, ноль по определению.
     (plan_dir / "section_offsets.json").unlink()
     _reset_pipeline_smart_caches(monkeypatch)
     weights_no_offset_file = pipeline_smart.load_alignment_weights(blocks)
-    assert weights_no_offset_file[1] == pytest.approx(1.5)
+    assert weights_no_offset_file[0] == pytest.approx(0.9)
+    assert weights_no_offset_file[1] is None
 
 
 # ---------- audio provenance gate (P0-1 форензик-аудита) ----------
@@ -2844,10 +2848,11 @@ def test_phrase_locked_durations_compensates_xfade_compression():
     total, tdur = 12.0, 0.25
     plan = [("fade", tdur)] * (len(onsets) - 1)
     durs = pipeline_smart.phrase_locked_durations(onsets, total, plan, fps=100)
-    # Видимый старт = cumsum(durs) - сумма уже прошедших нахлёстов.
+    # Видимый старт = cumsum(durs) - сумма уже прошедших нахлёстов + кадр:
+    # на самом offset xfade ещё показывает старый клип (02.10, montage.md, C).
     visible, acc, used = [], 0.0, 0.0
     for i, d in enumerate(durs):
-        visible.append(acc - used)
+        visible.append(acc - used + (0.01 if i else 0.0))
         acc += d
         if i < len(plan):
             used += plan[i][1]
@@ -2866,7 +2871,7 @@ def test_phrase_locked_durations_quantizes_bounds_not_durations():
     durs = pipeline_smart.phrase_locked_durations(onsets, total, plan, fps=fps)
     visible, acc, used = [], 0.0, 0.0
     for i, d in enumerate(durs):
-        visible.append(acc - used)
+        visible.append(acc - used + (1.0 / fps if i else 0.0))   # кадр, который прячет xfade
         acc += d
         if i < len(plan):
             used += plan[i][1]

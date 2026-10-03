@@ -4307,6 +4307,33 @@ def load_section_offsets():
     return _SECTION_OFFSETS_CACHE
 
 
+_SECTION_OFFSET_WARNED = set()
+
+
+def section_offset_for(section, section_order):
+    """Глобальное смещение секции или None, если его нет.
+
+    Первая секция эпизода начинается в нуле по определению — для неё
+    отсутствие записи значит 0.0, как и раньше. Для любой следующей
+    отсутствие записи (section_sync.py не набрал уверенности, карты нет
+    вовсе) раньше тоже превращалось в 0.0 — локальное время секции
+    трактовалось как глобальное, и её паузы/веса/онсеты ложились в начало
+    ролика, на паузы ХУКА. Теперь такая секция пропускается потребителем
+    (вес — оценка по словам, онсеты — отказ PHRASE LOCK с причиной) и об
+    этом печатается одна строка."""
+    offsets = load_section_offsets()
+    if section in offsets:
+        return offsets[section]
+    if section_order and section == section_order[0]:
+        return 0.0
+    if section not in _SECTION_OFFSET_WARNED:
+        _SECTION_OFFSET_WARNED.add(section)
+        print(f"  ВНИМАНИЕ: нет смещения секции «{section[:40]}» в "
+              f"media_plan/section_offsets.json — её alignment не используется "
+              f"(локальное время секции не глобальное; scripts/section_sync.py)")
+    return None
+
+
 def _clean_timed_chars(segment):
     """Только РЕАЛЬНО озвученные символы сегмента с их временами
     [(char, start, end), ...] — без пробелов, скобок и служебных тегов вроде
@@ -4405,8 +4432,56 @@ def _alignment_section_segments(blocks):
             segs.append(chars[pos:m.start()])
             pos = m.end()
         segs.append(chars[pos:])
-        section_segments[name] = segs
+        # Сегмент без единого произнесённого символа блока не порождает:
+        # «[pause][pause]» в parse_blocks — ОДИН блок с суммой пауз, а здесь
+        # между двумя тегами вставал пустой сегмент, и все следующие блоки
+        # секции сопоставлялись с чужим сегментом (PHRASE LOCK отказывал).
+        section_segments[name] = [sg for sg in segs if _clean_timed_chars(sg)]
     return section_segments
+
+
+def _block_segment_spans(blocks, section_segments):
+    """[(сегмент, lo, hi) | None] на блок: какой участок очищенных символов
+    alignment принадлежит блоку. None — прежнее сопоставление «k-й блок
+    секции = k-й сегмент» (секция, где посимвольное не сошлось).
+
+    Зачем: [climax] посреди фразы без паузы делит её на ДВА блока, а сегмент
+    в alignment один («Раз.[climax]Два.[pause]Шесть.» — 3 блока при 2
+    сегментах). Сопоставление по номеру отдавало второму блоку чужой
+    сегмент. Здесь блоки снимают символы сегмента по порядку, как в
+    load_alignment_onsets; блок, целиком занимающий сегмент, получает
+    (сегмент, 0, длина) — и потребители считают ровно то же, что раньше."""
+    out = [None] * len(blocks)
+    by_section = {}
+    for i, b in enumerate(blocks):
+        by_section.setdefault(b["section"], []).append(i)
+    for section, idxs in by_section.items():
+        segs = section_segments.get(section)
+        if not segs:
+            continue
+        k, pos, got = 0, 0, {}
+        ok = True
+        for i in idxs:
+            if k >= len(segs):
+                ok = False
+                break
+            clean = _clean_timed_chars(segs[k])
+            want = speech_chars_of_text(blocks[i]["text"])
+            if not want or pos + len(want) > len(clean):
+                ok = False
+                break
+            spoken = "".join(c for c, _s, _e in clean[pos:pos + len(want)])
+            if difflib.SequenceMatcher(None, want.lower(), spoken.lower()).ratio() < ONSET_TEXT_MATCH_MIN_RATIO:
+                ok = False
+                break
+            got[i] = (k, pos, pos + len(want))
+            pos += len(want)
+            if pos >= len(clean):
+                k, pos = k + 1, 0
+        if ok and pos == 0:
+            for i, span in got.items():
+                out[i] = span
+    return out
 
 
 ONSET_TEXT_MATCH_MIN_RATIO = 0.9   # ниже — текст блока разошёлся с озвученным, привязке нельзя доверять
@@ -4466,8 +4541,11 @@ def load_alignment_onsets(blocks):
     section_segments = _alignment_section_segments(blocks)
     if not section_segments:
         return _give_up("нет ни одного сегмента alignment (media_plan/alignment/*.csv)")
-    section_offsets = load_section_offsets()
     cuts = load_pause_cuts()
+    section_order = []
+    for b in blocks:
+        if b["section"] not in section_order:
+            section_order.append(b["section"])
     onsets = []
     seg_idx, char_pos = {}, {}
     for bi, b in enumerate(blocks):
@@ -4494,7 +4572,10 @@ def load_alignment_onsets(blocks):
                             section=section, block_index=bi, ratio=round(ratio, 3),
                             threshold=ONSET_TEXT_MATCH_MIN_RATIO,
                             script_text=b["text"][:60], spoken_text=got[:60])
-        offset = section_offsets.get(section, 0.0)
+        offset = section_offset_for(section, section_order)
+        if offset is None:
+            return _give_up("нет смещения секции в section_offsets.json — её время "
+                            "локальное, а не глобальное", section=section, block_index=bi)
         onsets.append(raw_to_real_time(clean[pos][1] + offset, cuts))
         # КОНЕЦ речи блока берётся ОТТУДА ЖЕ, где и начало — из символов
         # alignment. Раньше его нигде не было, и потребителям (sfx_plan)
@@ -4514,6 +4595,56 @@ def load_alignment_onsets(blocks):
         else:
             char_pos[section] = pos
     return onsets
+
+
+def speech_word_spans(blocks):
+    """[(начало, конец), ...] КАЖДОГО произнесённого слова эпизода в шкале
+    финального audio_fixed (та же, что у онсетов PHRASE LOCK) — по
+    посимвольному alignment, без тегов. Нужен проверке «рез не поперёк
+    слова» в verify_timing.py: прежняя ось искала тишину в звуке final.mp4,
+    где под голосом лежат музыка и атмосфера, и не находила её никогда
+    (03_plen: 0 интервалов тишины, вердикт «резы поперёк речи» на любом
+    нормальном эпизоде). Секция без смещения (кроме первой) пропускается:
+    её локальное время глобальным не является (см. section_offset_for)."""
+    section_segments = _alignment_section_segments(blocks)
+    if not section_segments:
+        return []
+    cuts = load_pause_cuts()
+    order = []
+    for b in blocks:
+        if b["section"] not in order:
+            order.append(b["section"])
+    spans = []
+    for name in order:
+        segs = section_segments.get(name)
+        offset = section_offset_for(name, order)
+        if not segs or offset is None:
+            continue
+        for seg in segs:
+            text = "".join(c for c, _s, _e in seg)
+            excluded = set()
+            for m in ALIGNMENT_TAG_SPAN_RE.finditer(text):
+                excluded.update(range(m.start(), m.end()))
+            word = []
+            prev_c = ""
+            for j, (c, cs, ce) in enumerate(seg + [(" ", 0.0, 0.0)]):
+                speech = j not in excluded and re.match(r'[^\s\[\]]', c or "")
+                # Граница слова — пробел, тег или знак препинания перед буквой:
+                # в alignment Lumean после точки внутри фразы пробела нет
+                # («столом.Знать»), и без этого два слова считались одним.
+                glued = speech and word and prev_c in ".,!?;:…»" and (c or "").isalpha()
+                if speech and not glued:
+                    word.append((cs, ce))
+                    prev_c = c
+                    continue
+                if word:
+                    spans.append((raw_to_real_time(word[0][0] + offset, cuts),
+                                  raw_to_real_time(word[-1][1] + offset, cuts)))
+                    word = []
+                if glued:
+                    word = [(cs, ce)]
+                prev_c = c if speech else ""
+    return spans
 
 
 # ИЗМЕРЕННЫЙ конец речи каждого блока (реальная шкала), заполняется
@@ -4664,7 +4795,21 @@ def phrase_locked_durations(onsets, total, trans_plan, fps=None):
     # Границы клипов на шкале РЕАЛЬНОГО аудио: клип i держится от начала своей
     # фразы до начала следующей (первый — от нуля, чтобы не было чёрного
     # экрана на ведущей тишине; последний — до конца аудио).
-    bounds = [0.0] + [onsets[i] for i in range(1, n)] + [float(total)]
+    #
+    # 3) ПЕРВЫЙ КАДР НОВОГО КЛИПА — НА ОНСЕТЕ, А НЕ КАДРОМ ПОЗЖЕ. xfade
+    #    смешивает с прогрессом 1 - (t - offset)/duration: кадр на самом
+    #    offset — ещё целиком старый клип, новый появляется на offset + 1
+    #    кадр. Пока граница стояла на онсете, «жёсткий» рез (xfade в один
+    #    кадр) приходил на кадр позже фразы — замер готового 03_plen по
+    #    пикселям: 153 из 177 найденных резов ровно на +41.7 мс, медиана
+    #    +42 мс. Поэтому граница переходов с нахлёстом ставится на кадр
+    #    РАНЬШЕ онсета, и первый кадр нового клипа (у диссолва — первый кадр,
+    #    где он вообще виден) приходится на сам онсет. Стык чанков
+    #    (effective_transition_plan обнуляет его длительность) — concat без
+    #    смешивания, новый клип там виден сразу, сдвига нет.
+    lead = [((1.0 / fps) if (i - 1 < len(trans_plan) and trans_plan[i - 1][1] > 0) else 0.0)
+            for i in range(n)]
+    bounds = [0.0] + [onsets[i] - lead[i] for i in range(1, n)] + [float(total)]
     if any(bounds[i + 1] <= bounds[i] for i in range(n)):
         return None   # непоследовательные онсеты — доверять нельзя
     cum = 0.0
@@ -4702,16 +4847,38 @@ def load_alignment_weights(blocks):
     if section_segments is None:
         return None
 
-    section_offsets = load_section_offsets()   # {} без Stage B/section_sync.py -> offset 0.0 для всех, как раньше
+    section_order = []
+    for b in blocks:
+        if b["section"] not in section_order:
+            section_order.append(b["section"])
     weights = []
     seg_cursor = {}
     stale = 0
-    for b in blocks:
+    spans = _block_segment_spans(blocks, section_segments)
+    for bi, b in enumerate(blocks):
         segs = section_segments.get(b["section"])
         if segs is None:
             weights.append(None)
             continue
-        offset = section_offsets.get(b["section"], 0.0)
+        offset = section_offset_for(b["section"], section_order)
+        if offset is None:
+            # Секция без глобального смещения: её реальный вес считался бы по
+            # паузам ЧУЖОГО участка ролика — честнее оценка по словам.
+            weights.append(None)
+            continue
+        if spans[bi] is not None:
+            k, lo, hi = spans[bi]
+            clean = _clean_timed_chars(segs[k])
+            if lo == 0 and hi == len(clean):
+                span = _real_speech_span(segs[k], offset)   # блок = сегмент, как раньше
+            else:
+                # Несколько блоков в одном сегменте ([climax] без паузы) —
+                # каждый получает время СВОИХ символов, а не весь сегмент.
+                cuts = load_pause_cuts()
+                span = (raw_to_real_time(clean[hi - 1][2] + offset, cuts)
+                        - raw_to_real_time(clean[lo][1] + offset, cuts))
+            weights.append(span if span > 0.05 else None)
+            continue
         k = seg_cursor.get(b["section"], 0)
         if k >= len(segs):
             # Число под-блоков в текущем script.txt разошлось с числом
@@ -4936,6 +5103,29 @@ def hook_visual_starts(blocks, durs):
         starts.append(offset)
         cum = cum + d - this_dur
     return starts
+
+
+def first_visible_starts(blocks, durs):
+    """Момент, когда клип i ПОЯВЛЯЕТСЯ на экране (шкала смонтированного видео).
+
+    hook_visual_starts() отдаёт offset перехода — локальный ноль клипа, от
+    него считаются подписи и плашки внутри клипа. Но на самом offset xfade
+    показывает ещё целиком предыдущий клип (прогресс смешивания 1); новый
+    появляется кадром позже. Стык чанков (длительность 0 в эффективном плане)
+    — concat, там новый клип виден сразу. Именно этот момент сравнивается с
+    онсетом речи в phrase_timeline.json: до 02.10 сравнивался offset, и
+    отчёт писал худший дрейф 21 мс при реальной медиане +42 мс по пикселям."""
+    starts = hook_visual_starts(blocks, durs)
+    sections = [b["section"] for b in blocks]
+    plan = effective_transition_plan(plan_transitions(sections, blocks), sections)
+    out = []
+    for i, s in enumerate(starts):
+        lag = 0.0
+        if i > 0:
+            d = plan[i - 1][1] if i - 1 < len(plan) else XFADE_DUR_HARD
+            lag = (1.0 / FPS) if d > 0 else 0.0
+        out.append(s + lag)
+    return out
 
 
 def rescale_hook_words_to_visual_time(hook_words, blocks, sub_starts, sub_baseline, visual_starts, durs):
@@ -16900,6 +17090,119 @@ def _usable_split_points(points, total_words, est, min_part):
     return out
 
 
+# КАЧЕСТВО ТОЧКИ РЕЗА ВНУТРИ ФРАЗЫ (02.10). Замер 03_plen: 17 резов из 74
+# внутри фраз приходились посреди словосочетания — «во Франции | сошлись»,
+# «под | охраной», «Двадцать пятое октября | тысяча четыреста пятнадцатого
+# года». Рез внутри фразы — это смена картинки на слове; на границе клаузы
+# она читается как монтаж, посреди словосочетания — как сбой.
+#
+# Правило «рез хороший» нарочно узкое и проверяемое: перед резом конец
+# клаузы (знак препинания), либо следующее слово открывает новую клаузу
+# (союз/относительное слово), и в обоих случаях кусок не кончается служебным
+# словом («…рыцарей, и, | по словам» — после «и,» продолжение обязательно).
+# Рез, который уже хороший, не трогается никогда (см. split_long_blocks) —
+# переписываются только блоки, где рез сейчас плохой.
+_CUT_PUNCT = ",.!?—–;:"
+# Слова, после которых продолжение обязательно даже через запятую («и, | по
+# словам монаха»): предлоги, союзы, частицы, относительные слова. Точка
+# после них — конец предложения, тогда рез законный.
+_CUT_DANGLING_HARD = frozenset("""
+в во на над под за к ко с со о об обо от до из изо у по при про без для через
+между перед около вокруг после среди сквозь ради из-за из-под против кроме
+вместо вдоль мимо возле внутри вне посреди насчёт насчет
+и а но или либо да ни не же ли бы что чтобы как если когда где куда откуда
+чем хотя пока будто словно даже лишь только
+который которая которое которые которого которой которому которым которых
+котором которую
+""".split())
+# Определители: без знака препинания после них всегда стоит их существительное
+# («своих | коней», «тот самый | случай»).
+_CUT_DANGLING_SOFT = frozenset("""
+это этот эта эти этой этого этом этих этим тот та те той того том тех тем
+самый самая самое самые самом самого самой самых самым
+свой своя своё свое свои своих своим своей своего своему
+мой моя моё мое мои наш наша наше наши ваш ваша ваше ваши
+твой твоя твоё твое твои твоих твоим твоей твоего твоему
+весь вся всё все всех всем всей всего
+каждый каждая каждое каждые каждого каждой каждому каждым каждых каждую
+такой такая такое такие такого такой таким таких такую так
+один одна одно одни одного одной одному одним одних одну
+""".split())
+_CUT_CLAUSE_STARTERS = frozenset("""
+и а но однако зато или либо что чтобы если когда где куда откуда пока хотя
+потому поэтому ведь причём причем притом зачем почему
+который которая которое которые которого которой которому которым которых
+котором которую
+""".split())
+_CUT_NUMERAL_RE = re.compile(
+    r'^(?:\d[\d.,]*|'
+    r'(?:одн|один|два|две|двух|двум|двумя|три|трёх|трех|трём|трем|тремя|'
+    r'четыр|пят[иьо]|пятн|пятый|пятая|пятое|пятого|пятом|шест|сем[иь]|седьм|'
+    r'восем|восьм|девят|десят|'
+    r'одиннадцат|двенадцат|тринадцат|четырнадцат|пятнадцат|шестнадцат|'
+    r'семнадцат|восемнадцат|девятнадцат|двадцат|тридцат|сорок|'
+    r'пятьдесят|пятидесят|шестьдесят|шестидесят|семьдесят|семидесят|'
+    r'восемьдесят|восьмидесят|девяност|сотн|двест|двухсот|трист|трёхсот|'
+    r'трехсот|четырест|четырёхсот|четырехсот|пятьсот|пятисот|шестьсот|'
+    r'шестисот|семьсот|семисот|восемьсот|восьмисот|девятьсот|девятисот|'
+    r'тысяч|миллион|миллиард|полтор)[а-яё]*|сто|ста|сотый|сотого|сотом)$')
+_CUT_NUMERAL_TAIL = frozenset({"год", "года", "году", "годом", "годах", "лет", "века",
+                               "веке", "век", "веков"})
+
+
+def _cut_core(word):
+    """Слово без пунктуации по краям, в нижнем регистре."""
+    return (word or "").strip(",.!?—–;:»«\"'()…").lower()
+
+
+def _cut_tail(word):
+    core = (word or "").rstrip().rstrip('»"\')')
+    return core[-1] if core else ""
+
+
+def _cut_dangles(word):
+    """Кусок, кончающийся этим словом, обрывается на полуслове."""
+    core, tail = _cut_core(word), _cut_tail(word)
+    if core in _CUT_DANGLING_HARD:
+        return tail not in ".!?"
+    if core in _CUT_DANGLING_SOFT:
+        return tail not in _CUT_PUNCT
+    return False
+
+
+def _cut_splits_number(words, k):
+    """Рез внутри составного числа или даты («…тысяча | четыреста…»,
+    «…пятнадцатого | года»)."""
+    if not (0 < k < len(words)) or _cut_tail(words[k - 1]) in _CUT_PUNCT:
+        return False
+    prev, nxt = _cut_core(words[k - 1]), _cut_core(words[k])
+    return bool(_CUT_NUMERAL_RE.match(prev)) and (
+        bool(_CUT_NUMERAL_RE.match(nxt)) or nxt in _CUT_NUMERAL_TAIL)
+
+
+def cut_rank(words, k):
+    """Ранг точки реза ПЕРЕД словом k (кусок слева — words[:k]), меньше —
+    лучше: 0 — конец клаузы (знак препинания), 1 — следующее слово открывает
+    клаузу (союз, относительное слово), 2 — не на служебном слове и не внутри
+    числа, 3 — обрыв посреди словосочетания."""
+    if not (0 < k < len(words)):
+        return 0
+    if _cut_dangles(words[k - 1]):
+        return 3
+    if _cut_tail(words[k - 1]) in _CUT_PUNCT:
+        return 0
+    if _cut_core(words[k]) in _CUT_CLAUSE_STARTERS:
+        return 1
+    if _cut_splits_number(words, k):
+        return 3
+    return 2
+
+
+def cut_is_clean(words, k):
+    """Рез на границе клаузы (ранг 0 или 1)."""
+    return cut_rank(words, k) <= 1
+
+
 def _emit_subcut_blocks(b, w, words, merged, new_blocks, new_weights):
     """Собрать под-блоки из кусков `merged` (список (a, c) по словам) и
     добавить их в new_blocks/new_weights. Общий код обычной нарезки и
@@ -16972,7 +17275,13 @@ def _emit_subcut_blocks(b, w, words, merged, new_blocks, new_weights):
 
 
 def _hook_word_times(blocks):
-    """Реальное время начала КАЖДОГО слова блоков хука по alignment.
+    return _block_word_times(blocks, lambda b: str(b.get("section", "")).startswith("HOOK"))
+
+
+def _block_word_times(blocks, wanted):
+    """Реальное время начала КАЖДОГО слова блоков, для которых wanted(b)
+    истинно (хук — _hook_word_times; тело — запасной рез в
+    _clause_fallback_cut), по alignment.
 
     {индекс блока: [t0, t1, ..., t_n]} — t_k это момент начала слова k, t_n —
     начало следующего блока (то есть слот куска [a, c) длится t_c - t_a,
@@ -16984,7 +17293,7 @@ def _hook_word_times(blocks):
     try:
         expanded, owner = [], []
         for bi, b in enumerate(blocks):
-            if str(b.get("section", "")).startswith("HOOK"):
+            if wanted(b):
                 for wi, wd in enumerate(b["text"].split()):
                     if speech_chars_of_text(wd):
                         nb = dict(b)
@@ -16999,7 +17308,7 @@ def _hook_word_times(blocks):
             return {}
         out = {}
         for bi, b in enumerate(blocks):
-            if not str(b.get("section", "")).startswith("HOOK"):
+            if not wanted(b):
                 continue
             n = len(b["text"].split())
             times = [None] * (n + 1)
@@ -17036,8 +17345,40 @@ def _hook_split_points(words, est, pause_after, first_slot=False, times=None):
     first_slot=True (самый первый блок ролика): первый кусок не длиннее
     HOOK_FIRST_SLOT_MAX_SEC. Если блок для этого слишком короткий (остаток
     не дотянул бы до HOOK_MIN_CLIP и склеился бы обратно), правило первого
-    слота не применяется, работает обычный потолок."""
+    слота не применяется, работает обычный потолок.
+
+    Рез ставится по возможности на границе клаузы (cut_rank). Раньше проход
+    «сначала знак препинания» проверял пунктуацию только при radius > 0, то
+    есть слово-цель принималось без неё всегда, и предпочтение пунктуации
+    не работало вовсе (03_plen: «во Франции | сошлись», «Трое на девятьсот |
+    человек»). Блок, где прежний алгоритм уже дал только чистые резы, не
+    меняется ни на байт: новый поиск вызывается только если прежний оставил
+    рез посреди словосочетания, и берётся, только если он лучше."""
+    old = _hook_split_points_search(words, est, pause_after, first_slot, times,
+                                    _HOOK_SPLIT_LEGACY_PASSES)
+    if all(cut_is_clean(words, c) for c in old):
+        return old
+    new = _hook_split_points_search(words, est, pause_after, first_slot, times,
+                                    _HOOK_SPLIT_CLAUSE_PASSES)
+    if sum(cut_rank(words, c) for c in new) < sum(cut_rank(words, c) for c in old):
+        return new
+    return old
+
+
+# Проходы поиска точки реза хука: максимальный допустимый ранг (cut_rank) на
+# каждом проходе, None — без ограничения. LEGACY — прежнее поведение
+# байт-в-байт: «пунктуация» на радиусе 0 не проверялась (дефект, ради
+# которого всё это), поэтому первый проход принимал слово-цель как есть.
+_HOOK_SPLIT_LEGACY_PASSES = ("legacy_punct", None)
+_HOOK_SPLIT_CLAUSE_PASSES = (0, 1, 2, None)
+
+
+def _hook_split_points_search(words, est, pause_after, first_slot, times, passes):
     n_words = len(words)
+
+    def rank_of(cand):
+        return cut_rank(words, cand)
+
     if HOOK_SLOT_MAX_SEC <= 0 or n_words < 4 or est <= 0:
         return []
     per_word = est / n_words
@@ -17079,12 +17420,15 @@ def _hook_split_points(words, est, pause_after, first_slot=False, times=None):
             if t(c) - t(prev) >= want * 0.97:
                 break
         found = None
-        for need_punct in (True, False):
+        for max_rank in passes:
             for radius in range(0, n_words):
                 for cand in (target - radius, target + radius):
                     if not (prev + 2 <= cand <= n_words - 2):
                         continue
-                    if need_punct and radius and words[cand - 1].rstrip()[-1:] not in ",.!?—–;:":
+                    if max_rank == "legacy_punct":
+                        if radius and words[cand - 1].rstrip()[-1:] not in ",.!?—–;:":
+                            continue
+                    elif max_rank is not None and rank_of(cand) > max_rank:
                         continue
                     rest = t(n_words) - t(cand)
                     left = n - k
@@ -17101,6 +17445,54 @@ def _hook_split_points(words, est, pause_after, first_slot=False, times=None):
         cuts.append(found)
         prev = found
     return cuts
+
+
+def _clause_fallback_cut(words, split_at, mid, est, min_part, times=None):
+    """Запасной рез тела без смыслового триггера — на границе клаузы.
+
+    Прежний запасной путь пробовал ОДНУ ближайшую к середине пунктуацию и,
+    если она давала кусок короче пола, резал ровно посередине по словам —
+    даже когда чуть дальше была пригодная граница клаузы. Замер 03_plen:
+    «под | охраной», «Двадцать пятое октября | тысяча четыреста…»,
+    «привязать | своих коней». Здесь перебираются ВСЕ пригодные точки, и
+    берётся чистая (cut_is_clean), ближайшая к середине; чистой нет — лучшая
+    по cut_rank.
+    Рез, который уже на границе клаузы, не трогается: правка меняет только
+    блоки, где он сейчас посреди словосочетания.
+
+    Возвращает (точки, по_реальному_времени): True — новая точка проверена
+    реальным временем слов, и оценочная склейка кусков по доле слов в
+    split_long_blocks к ней не применяется (иначе она склеивала бы обратно
+    кусок, который по настоящей речи длиннее пола: 03_plen, «…рыцарем, |
+    так король понимал…» — 2.98 с по доле слов, 3.4 с по речи)."""
+    if len(split_at) != 1 or cut_is_clean(words, split_at[0]):
+        return split_at, False
+    old = split_at[0]
+    real = times if (times is not None and len(times) == len(words) + 1) else None
+
+    def usable(cand):
+        # С реальным временем слов кусок меряется так же, как его потом
+        # проверит merge_short_phrase_locked_blocks (онсет -> онсет следующего
+        # куска, хвост — вместе с паузой); без него — прежняя оценка по доле слов.
+        if real is not None:
+            return (real[cand] - real[0] >= min_part - 1e-6
+                    and real[-1] - real[cand] >= min_part - 1e-6)
+        return bool(_usable_split_points([cand], len(words), est, min_part))
+
+    best = None
+    for cand in range(2, len(words) - 2):
+        if not usable(cand):
+            continue
+        r = cut_rank(words, cand)
+        # Чистые резы (ранг 0 и 1) равноценны: среди них решает близость к
+        # середине — иначе далёкая запятая давала бы кусок в 2.8 с рядом с
+        # куском в 11 с при чистом союзе посередине.
+        key = (r if r > 1 else 0, abs(cand - mid), r, cand)
+        if best is None or key < best:
+            best = key
+    if best is not None and best[2] < cut_rank(words, old):
+        return [best[3]], real is not None
+    return split_at, False
 
 
 def split_long_blocks(blocks, real_weights):
@@ -17122,6 +17514,7 @@ def split_long_blocks(blocks, real_weights):
     брифы [shot:] раздаются по позиции (_emit_subcut_blocks)."""
     new_blocks, new_weights = [], []
     _hook_times = _hook_word_times(blocks) if HOOK_SLOT_MAX_SEC > 0 else {}
+    _body_times = None   # лениво: нужны только блокам с запасным резом не на границе клаузы
     for _bi, (b, w) in enumerate(zip(blocks, real_weights or [None] * len(blocks))):
         min_source = SUBCUT_MIN_SOURCE_DUR
         min_part = SUBCUT_MIN_PART_DUR
@@ -17160,6 +17553,7 @@ def split_long_blocks(blocks, real_weights):
             new_weights.append(w)
             continue
         split_at = list(sentence_bounds)
+        real_checked = False
         if not split_at:
             trigger = []
             for i, word in enumerate(words):
@@ -17201,6 +17595,11 @@ def split_long_blocks(blocks, real_weights):
                 split_at = _usable_split_points([cand], len(words), est, min_part)
                 if split_at:
                     break
+            if split_at and not cut_is_clean(words, split_at[0]) and _body_times is None:
+                _body_times = _block_word_times(
+                    blocks, lambda x: not str(x.get("section", "")).startswith("HOOK"))
+            split_at, real_checked = _clause_fallback_cut(
+                words, split_at, mid, est, min_part, times=(_body_times or {}).get(_bi))
             if not split_at:
                 # Блок физически не делится на два куска выше пола — оставляем
                 # как есть. Это честный отказ, а не молчаливый рез пополам.
@@ -17215,7 +17614,7 @@ def split_long_blocks(blocks, real_weights):
         merged = []
         for a, c in chunks:
             frac = (c - a) / total_w
-            if merged and est * frac < min_part:
+            if merged and est * frac < min_part and not real_checked:
                 pa, _ = merged[-1]
                 merged[-1] = (pa, c)
             else:
@@ -17225,7 +17624,8 @@ def split_long_blocks(blocks, real_weights):
         # было не с чем НАЗАД. Склеиваем ВПЕРЁД. Само по себе это схлопывает
         # рез обратно, поэтому главная защита — _usable_split_points() выше
         # (не выбирать такую точку вовсе); здесь второй, страховочный слой.
-        while len(merged) >= 2 and est * ((merged[0][1] - merged[0][0]) / total_w) < min_part:
+        while (len(merged) >= 2 and not real_checked
+               and est * ((merged[0][1] - merged[0][0]) / total_w) < min_part):
             (a0, _c0), (_a1, c1) = merged[0], merged[1]
             merged[:2] = [(a0, c1)]
         if len(merged) < 2:
@@ -17991,6 +18391,7 @@ def main():
     # остаются аудио-шкалой для write_subtitles/write_chapters (это и должно
     # быть привязано к голосу, не к монтажу).
     visual_starts = hook_visual_starts(blocks, durs)
+    seen_starts = first_visible_starts(blocks, durs)
 
     # media_plan/phrase_timeline.json — ПРОВЕРЯЕМЫЙ аудит привязки кадра к
     # фразе. Пишется ВСЕГДА (даже когда привязки нет — тогда честно
@@ -18001,18 +18402,35 @@ def main():
     # что зритель действительно увидит.
     phrase_timeline = {"locked": bool(phrase_locked), "fps": FPS,
                        "audio_total_sec": total, "blocks": []}
+    _pt_sections = [b["section"] for b in blocks]
+    _pt_plan = effective_transition_plan(plan_transitions(_pt_sections, blocks), _pt_sections)
     worst_drift = 0.0
     for i, b in enumerate(blocks):
         want = (0.0 if i == 0 else onsets[i]) if onsets else None
-        drift = (visual_starts[i] - want) if want is not None else None
+        # Дрейф — по моменту, когда кадр ПОЯВЛЯЕТСЯ (first_visible_starts), а
+        # не по offset перехода: на offset xfade ещё показывает старый клип.
+        drift = (seen_starts[i] - want) if want is not None else None
         if drift is not None:
             worst_drift = max(worst_drift, abs(drift))
         phrase_timeline["blocks"].append({
             "index": i, "section": b["section"], "text": b["text"][:120],
-            "speech_onset_sec": want, "visual_start_sec": visual_starts[i],
+            "speech_onset_sec": want, "visual_start_sec": seen_starts[i],
+            "clip_origin_sec": visual_starts[i],
             "duration_sec": durs[i], "drift_sec": drift,
+            # длительность перехода НА этот клип (0 у первого и на стыке
+            # чанков): verify_timing меряет «рез поперёк слова» только у
+            # жёстких резов — у диссолва нет одного момента смены.
+            "transition_in_sec": (_pt_plan[i - 1][1] if 0 < i <= len(_pt_plan) else 0.0),
         })
     phrase_timeline["worst_drift_sec"] = worst_drift if onsets else None
+    # Слова голоса на той же шкале — для оси «рез не поперёк слова»
+    # (verify_timing.py). Сбой здесь не имеет права уронить рендер.
+    try:
+        phrase_timeline["speech_words"] = [[round(a, 4), round(e, 4)]
+                                           for a, e in speech_word_spans(blocks)]
+    except Exception as _e:
+        print(f"  Слова голоса для проверки резов не собраны ({type(_e).__name__})")
+        phrase_timeline["speech_words"] = []
     phrase_timeline["max_allowed_drift_sec"] = 0.5 / FPS
     pt_path = os.path.join(VIDEO_FOLDER, "media_plan", "phrase_timeline.json")
     os.makedirs(os.path.dirname(pt_path), exist_ok=True)
@@ -18372,8 +18790,12 @@ def main():
     # P0-3: слова с аудио-шкалы (sub_starts/sub_baseline) переносятся на
     # шкалу реально показанного кадра (visual_starts/durs) — см. докстринг
     # rescale_hook_words_to_visual_time().
+    # Под PHRASE LOCK окно клипа на экране начинается там, где клип
+    # ПОЯВЛЯЕТСЯ (first_visible_starts): начало клипа стоит на кадр раньше
+    # онсета, и без этого слова уехали бы на кадр раньше голоса.
     hook_words = rescale_hook_words_to_visual_time(hook_words, blocks, sub_starts, sub_baseline,
-                                                     visual_starts, durs)
+                                                     seen_starts if phrase_locked else visual_starts,
+                                                     durs)
     _slot_clock = None
     for i, (b, d) in enumerate(zip(blocks, durs)):
         # Время слота целиком (STAGE_TIMER=1): записывается при переходе к
@@ -18418,6 +18840,13 @@ def main():
         # точную модель специально под этот случай).
         stat_word_pos = b.get("stat_word_pos")
         stat_delay = (stat_word_pos / max(1, b["words"]) * d) if (stat and stat_word_pos) else 0.0
+        # PHRASE LOCK ставит начало клипа на кадр раньше онсета (см.
+        # phrase_locked_durations, п.3), а щелчок/тик плашки считается по
+        # шкале голоса (sub_starts). Плашка внутри клипа сдвигается на тот же
+        # кадр, чтобы на экране она появлялась ровно там же, где и до сдвига,
+        # — вместе со своим звуком.
+        if phrase_locked and stat_delay > 0:
+            stat_delay += max(0.0, seen_starts[i] - visual_starts[i])
         # D4: печатная машинка — только на 5-м варианте плашки (см. add_overlays).
         # Таймкоды щелчков считаем на РЕАЛЬНОЙ (не xfade-раздутой) шкале —
         # sub_starts/sub_baseline уже посчитаны выше по тексту, та же шкала,

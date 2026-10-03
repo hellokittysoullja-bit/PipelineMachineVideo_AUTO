@@ -50,6 +50,8 @@ section_offsets (см. ниже).
 Usage:
   python scripts/lumean_tts.py --list-voices [поисковый запрос] [--gender male|female]
   python scripts/lumean_tts.py --create-template <VOICE_ID> [--name "Имя шаблона"]
+  python scripts/lumean_tts.py --resync-offsets <video_dir>   (бесплатно: уточнить
+      section_offsets.json уже озвученного эпизода замером audio.mp3)
   python scripts/lumean_tts.py <video_dir> [T_минут] [--force-length] [--confirm-payg]
 
 .env: LUMEAN_API_KEY (обязателен для всех режимов), LUMEAN_TEMPLATE_ID
@@ -145,9 +147,24 @@ def extract_section_texts(path):
         body = parts[i + 1] if i + 1 < len(parts) else ""
         body = strip_pipeline_only_tags(body)
         body = re.sub(r'[ \t]+', ' ', body).strip()
-        if body:
+        # Секция без единого слова (одни теги: «[pause]») в parse_blocks не
+        # даёт ни одного блока и номера alignment/NN.csv не получает. Раньше
+        # она всё равно уходила заказом в TTS — платно и со сдвигом нумерации
+        # csv всех следующих секций на единицу.
+        if re.sub(r'\[.*?\]', '', body).strip():
             out.append((name, body))
     return out
+
+
+def duplicate_section_names(section_texts):
+    """Имена секций, встречающиеся больше одного раза: section_offsets.json —
+    словарь по имени, и вторая секция молча затирала бы смещение первой."""
+    seen, dup = set(), []
+    for name, _t in section_texts:
+        if name in seen and name not in dup:
+            dup.append(name)
+        seen.add(name)
+    return dup
 
 
 def wordcount_report(section_texts):
@@ -579,6 +596,142 @@ def concat_audio(paths, out_path, temp_dir, pads=None):
     return real_pads
 
 
+# ---------- ИЗМЕРЕННЫЕ смещения секций в собранном audio.mp3 ----------
+#
+# Смещение секции раньше считалось СУММОЙ ffprobe-длительностей кусков
+# склейки. Но склейка идёт `concat -c copy`, и сколько звука реально
+# приносит каждый mp3, зависит от его заголовка: у файла с Xing-кадром
+# ffprobe считает длительность на 26 мс больше, чем декодируется (кадр
+# 1152 сэмпла), у файла без него — нет. Замер 03_plen (кросс-корреляция
+# секции против собранного файла): HOOK и BLOCK 9 стоят на 25.0 мс РАНЬШЕ
+# записанного смещения — больше полкадра (21 мс), то есть рез хука и
+# девятой главы на кадр от фразы. Остальные девять секций — в пределах 1 мс.
+#
+# Поэтому смещение не считается, а МЕРЯЕТСЯ: кусок голоса каждой секции
+# ищется в собранном файле в окне вокруг расчётного места. Не нашлось
+# уверенно — остаётся расчётное (прежнее поведение) и печатается строка.
+OFFSET_MEASURE_SR = 22050
+OFFSET_SEARCH_SEC = 0.30        # ± вокруг расчётного смещения
+OFFSET_TEMPLATE_SEC = 4.0       # кусок голоса, по которому ищем
+OFFSET_TEMPLATE_SCAN_SEC = 20.0  # где в секции берём самый громкий кусок
+OFFSET_MIN_CORR = 0.90
+
+
+def _decode_mono(path, start=None, dur=None, sr=OFFSET_MEASURE_SR):
+    import numpy as np
+    cmd = ["ffmpeg", "-v", "error"]
+    if start is not None:
+        cmd += ["-ss", f"{max(0.0, start):.4f}"]
+    if dur is not None:
+        cmd += ["-t", f"{dur:.4f}"]
+    cmd += ["-i", path, "-ac", "1", "-ar", str(sr), "-f", "f32le", "-"]
+    r = subprocess.run(cmd, capture_output=True, timeout=300)
+    return np.frombuffer(r.stdout, dtype=np.float32)
+
+
+def measure_section_start(full_audio, section_audio, nominal):
+    """(начало секции в full_audio, корреляция) или (None, корреляция).
+
+    Шаблон — самый громкий кусок OFFSET_TEMPLATE_SEC в начале секции (тишина
+    в начале ничего не различает); ищется нормированной кросс-корреляцией
+    в окне ±OFFSET_SEARCH_SEC вокруг расчётного места."""
+    try:
+        import numpy as np
+    except Exception:
+        return None, None
+    sr = OFFSET_MEASURE_SR
+    sec = _decode_mono(section_audio, dur=OFFSET_TEMPLATE_SCAN_SEC + OFFSET_TEMPLATE_SEC)
+    n = int(OFFSET_TEMPLATE_SEC * sr)
+    if len(sec) < sr:
+        return None, None
+    n = min(n, len(sec))
+    hop = sr // 4
+    best_t0, best_e = 0, -1.0
+    # Шаблон не берётся с самого начала секции: её первые миллисекунды в
+    # склейке могут отсутствовать (HOOK 03_plen начинается на -25 мс), и
+    # кусок, начинающийся раньше нуля собранного файла, не нашёлся бы вовсе.
+    first = min(int(2 * OFFSET_SEARCH_SEC * sr), max(0, len(sec) - n))
+    for t0 in range(first, max(first + 1, len(sec) - n + 1), hop):
+        e = float(np.dot(sec[t0:t0 + n], sec[t0:t0 + n]))
+        if e > best_e:
+            best_e, best_t0 = e, t0
+    tpl = sec[best_t0:best_t0 + n].astype(np.float64)
+    if best_e <= 0:
+        return None, None
+    lo = nominal + best_t0 / sr - OFFSET_SEARCH_SEC
+    win = _decode_mono(full_audio, start=lo, dur=OFFSET_TEMPLATE_SEC + 2 * OFFSET_SEARCH_SEC + 0.05)
+    lo = max(0.0, lo)
+    if len(win) < n + 1:
+        return None, None
+    win = win.astype(np.float64)
+    m = len(win) - n + 1
+    size = 1 << int(np.ceil(np.log2(len(win) + n)))
+    corr = np.fft.irfft(np.fft.rfft(win, size) * np.conj(np.fft.rfft(tpl, size)), size)[:m]
+    csum = np.concatenate([[0.0], np.cumsum(win * win)])
+    energy = np.sqrt(np.maximum(csum[n:n + m] - csum[:m], 1e-12)) * np.sqrt(best_e)
+    norm = corr / energy
+    k = int(np.argmax(norm))
+    c = float(norm[k])
+    if c < OFFSET_MIN_CORR:
+        return None, c
+    return lo + k / sr - best_t0 / sr, c
+
+
+def measured_section_offsets(audio_out, sections, nominal_offsets):
+    """{секция: смещение} — расчётные смещения, уточнённые замером.
+    sections — [(имя, путь_к_mp3_секции)]; отчёт — [(имя, было, стало, корр)]."""
+    out, report = dict(nominal_offsets), []
+    for name, path in sections:
+        nominal = nominal_offsets.get(name)
+        if nominal is None or not path or not os.path.exists(path):
+            continue
+        try:
+            got, c = measure_section_start(audio_out, path, nominal)
+        except Exception:
+            got, c = None, None
+        if got is None:
+            report.append((name, nominal, None, c))
+            continue
+        out[name] = round(got, 5)
+        report.append((name, nominal, out[name], c))
+    return out, report
+
+
+def resync_offsets(video_dir):
+    """Пересчитать media_plan/section_offsets.json уже озвученного эпизода по
+    замеру, без новых заказов: нужны audio.mp3 и media_plan/lumean_temp/
+    section_NN.mp3 той же озвучки. Старая карта сохраняется рядом (.bak)."""
+    plan = os.path.join(video_dir, "media_plan")
+    path = os.path.join(plan, "section_offsets.json")
+    audio = os.path.join(video_dir, "audio.mp3")
+    temp = os.path.join(plan, "lumean_temp")
+    try:
+        with open(path, encoding="utf-8") as f:
+            nominal = {str(k): float(v) for k, v in json.load(f).items()}
+    except Exception as e:
+        print(f"  нет карты смещений ({e})")
+        return 1
+    if not os.path.exists(audio):
+        print("  нет audio.mp3")
+        return 1
+    order = [name for name, _t in extract_section_texts(os.path.join(video_dir, "script.txt"))]
+    sections = [(name, os.path.join(temp, f"section_{i:02d}.mp3")) for i, name in enumerate(order)]
+    new, report = measured_section_offsets(audio, sections, nominal)
+    for name, was, now, c in report:
+        if now is None:
+            print(f"  {name[:40]}: не найдено уверенно (корр {c}) — оставлено {was:.5f}")
+        else:
+            print(f"  {name[:40]}: {was:.5f} -> {now:.5f} ({(now - was) * 1000:+.1f} мс, корр {c:.4f})")
+    if new == nominal:
+        print("  Смещения совпали с замером — карта не тронута.")
+        return 0
+    import shutil
+    shutil.copyfile(path, path + ".bak")
+    atomic_write_json(path, new)
+    print(f"  Записано: {path} (прежняя карта — {path}.bak)")
+    return 0
+
+
 # ---------- одна секция целиком: заказ -> опрос -> скачивание ----------
 
 def process_section(api_key, template_id, temp_dir, idx, name, text, episode_name,
@@ -772,6 +925,9 @@ def main():
         return cmd_list_voices(argv[1:])
     if argv and argv[0] == "--create-template":
         return cmd_create_template(argv[1:])
+    if argv and argv[0] == "--resync-offsets":
+        # Бесплатно: ни одного заказа, только замер уже собранного audio.mp3.
+        return resync_offsets(argv[1] if len(argv) > 1 else os.getcwd())
 
     api_key = os.environ.get("LUMEAN_API_KEY", "").strip()
     template_id = os.environ.get("LUMEAN_TEMPLATE_ID", "").strip()
@@ -804,6 +960,13 @@ def main():
     section_texts = extract_section_texts(script_path)
     if not section_texts:
         print("Lumean TTS: в script.txt не найдено ни одной секции HOOK/BLOCK/FINAL.")
+        return 1
+
+    dup = duplicate_section_names(section_texts)
+    if dup:
+        print("Lumean TTS: СТОП — одинаковые заголовки секций в script.txt: "
+              + "; ".join(dup) + ". Смещения и alignment ключуются по имени секции — "
+              "переименуй до заказа (ни одного платного вызова не сделано).")
         return 1
 
     total_words, per_section = wordcount_report(section_texts)
@@ -866,6 +1029,14 @@ def main():
 
     total_duration = audio_duration(audio_out)
 
+    section_offsets, measured = measured_section_offsets(
+        audio_out, [(r["section"], r["audio_path"]) for r in section_results], section_offsets)
+    for name, was, now, c in measured:
+        if now is None:
+            print(f"  Смещение секции {name[:30]} не подтверждено замером (корр {c}) — расчётное")
+        elif abs(now - was) > 0.001:
+            print(f"  Смещение секции {name[:30]}: расчёт {was:.3f} -> замер {now:.3f} "
+                  f"({(now - was) * 1000:+.1f} мс)")
     atomic_write_json(os.path.join(video_dir, "media_plan", "section_offsets.json"), section_offsets)
 
     estimated_minutes = total_words / WPM

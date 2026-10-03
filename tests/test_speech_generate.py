@@ -388,7 +388,8 @@ def test_end_to_end_alignment_round_trips_through_pipeline_smart(tmp_path, monke
     assert audio_out.exists()
 
     alignment_dir = tmp_path / "media_plan" / "alignment"
-    sg.write_section_alignment_csvs(results, str(alignment_dir))
+    section_offsets = sg.write_section_alignment_csvs(results, str(alignment_dir))
+    sg.write_section_offsets(str(tmp_path), section_offsets)   # как в main()
     csv_files = sorted(os.listdir(alignment_dir))
     assert csv_files == ["00.csv", "01.csv", "02.csv"]   # HOOK, BLOCK 1, FINAL
 
@@ -409,6 +410,11 @@ def test_end_to_end_alignment_round_trips_through_pipeline_smart(tmp_path, monke
     import pipeline_smart
     sys.argv = saved_argv
     monkeypatch.setattr(pipeline_smart, "ALIGNMENT_DIR", str(alignment_dir))
+    # Секция без смещения больше не трактуется как начинающаяся в нуле
+    # (02.10, montage.md, G) — карта Stage B обязана дойти до потребителя.
+    monkeypatch.setattr(pipeline_smart, "SECTION_OFFSETS_PATH",
+                        str(tmp_path / "media_plan" / "section_offsets.json"))
+    monkeypatch.setattr(pipeline_smart, "_SECTION_OFFSETS_CACHE", None)
     blocks = pipeline_smart.parse_blocks(str(tmp_path / "script.txt"))
     weights = pipeline_smart.load_alignment_weights(blocks)
     assert weights is not None
