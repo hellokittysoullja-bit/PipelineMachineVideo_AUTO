@@ -205,7 +205,7 @@ def script_names(text):
 def _confirmed_name(name, confirm):
     """Одиночное слово подтверждено сценарием: та же форма или та же основа
     с другим падежным окончанием («Юниус» <- «Иоганнеса Юниуса»)."""
-    if not confirm or name.lower() in _NOT_AUTHOR:
+    if not confirm:
         return False
     stem = name[:-1] if name[-1] in "аяйьоеиыу" else name
     if len(stem) < 3:
@@ -236,8 +236,8 @@ def _author_near(text, confirm=None):
         lead = 0
         while lead < len(toks) and toks[lead].lower() in _NOT_AUTHOR:
             lead += 1
-        rest = [t for t in toks[lead:]]
-        if not rest or rest[0].lower() in _NOT_AUTHOR or not rest[0][:1].isupper():
+        rest = toks[lead:]
+        if not rest or not rest[0][:1].isupper():
             continue
         if lead or len(rest) >= 2 or _confirmed_name(rest[0], confirm):
             return " ".join(rest)
