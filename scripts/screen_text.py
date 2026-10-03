@@ -160,35 +160,132 @@ _QUOTE_RE = re.compile(r"«([^«»]{3,240})»")
 _NAME = r"[А-ЯЁ][а-яё]+(?:[ -](?:[А-ЯЁ][а-яё]+|де|ле|фон|ван|да|ди))*"
 
 
-def _author_near(text):
-    """Имя рядом с глаголом речи: «пишет Фруассар», «Фруассар писал». None — нет."""
+# Слова, которые бывают с заглавной в начале предложения и автором не
+# являются никогда: местоимения, наречия, союзы, частицы, адресаты. Нужны в
+# двух местах: снять их с начала многословного «имени» («Потом Юниус пишет»
+# -> Юниус) и не принять одиночное такое слово за автора, даже если оно
+# где-то в сценарии стоит с заглавной.
+_NOT_AUTHOR = {
+    "он", "она", "оно", "они", "я", "ты", "мы", "вы", "его", "её", "ее", "их", "ему", "ей",
+    "им", "это", "этот", "эта", "эти", "тот", "та", "те", "то", "там", "тут", "здесь",
+    "тогда", "потом", "затем", "позже", "позднее", "после", "сначала", "вскоре", "ещё", "еще",
+    "уже", "и", "а", "но", "да", "или", "так", "вот", "даже", "только", "лишь", "же", "ведь",
+    "вдруг", "теперь", "сейчас", "кто", "что", "где", "когда", "как", "почему", "зачем",
+    "сам", "сама", "сами", "само", "каждый", "один", "одна", "никто", "все", "всё", "многие",
+    "итак", "впрочем", "кстати", "например", "наверное", "однажды", "снова", "опять",
+    "дочери", "дочь", "сыну", "сын", "жене", "жена", "мужу", "муж", "матери", "мать", "отцу",
+    "отец", "брату", "брат", "сестре", "сестра", "другу", "друг", "королю", "король",
+    "историк", "историки", "летописец", "хронист", "монах", "автор", "свидетель", "судья",
+    "в", "во", "на", "при", "по", "из", "у", "к", "с", "со", "о", "об", "за", "до", "от",
+}
+
+_SENT_END = ".!?…"
+
+
+def _at_sentence_start(text, pos):
+    """Позиция — начало предложения: начало текста или перед ней (через
+    пробелы и закрывающие кавычки) конец предложения."""
+    k = pos - 1
+    while k >= 0 and text[k] in " \t\n\x00»\"'":
+        k -= 1
+    return k < 0 or text[k] in _SENT_END
+
+
+_MID_NAME_RE = re.compile(r"(?<=[а-яёa-z0-9,;:)\-—] )([А-ЯЁ][а-яё]{2,})")
+
+
+def script_names(text):
+    """Слова с заглавной НЕ в начале предложения во всём сценарии — тот же
+    приём подтверждения, что place_year.script_words: имя, которое где-то
+    ещё стоит с заглавной посреди предложения, — имя собственное, а не
+    первое слово фразы."""
+    return set(_MID_NAME_RE.findall(text or ""))
+
+
+def _confirmed_name(name, confirm):
+    """Одиночное слово подтверждено сценарием: та же форма или та же основа
+    с другим падежным окончанием («Юниус» <- «Иоганнеса Юниуса»)."""
+    if not confirm or name.lower() in _NOT_AUTHOR:
+        return False
+    stem = name[:-1] if name[-1] in "аяйьоеиыу" else name
+    if len(stem) < 3:
+        return False
+    return any(w == name or (w.startswith(stem) and len(w) - len(stem) <= 3) for w in confirm)
+
+
+def _author_near(text, confirm=None):
+    """Имя рядом с глаголом речи: «пишет Фруассар», «Фруассар писал». None — нет.
+
+    Имя в НАЧАЛЕ предложения («Юниус пишет дочери: …») раньше отбрасывалось
+    целиком: заглавная там бывает у любого слова. Теперь оно принимается,
+    если это не служебное слово (_NOT_AUTHOR) и выполнено одно из:
+    * перед ним стояли служебные слова («Потом Юниус пишет») — снимаются;
+    * имя из двух слов с заглавной («Иоганнес Юниус пишет»);
+    * одиночное слово подтверждено сценарием (confirm = script_names()):
+      где-то ещё оно (или его падежная форма) стоит с заглавной посреди
+      предложения. Без подтверждения — None: ложный автор хуже пропуска."""
     verbs = "|".join(SPEECH_VERBS)
     m = re.search(rf"\b(?:{verbs})\s+(?:[а-яё]+\s+)?({_NAME})", text)
     if m:
         return m.group(1)
-    m = re.search(rf"({_NAME})\s+(?:[а-яё]+\s+)?(?:{verbs})\b", text)
-    if m and m.start() > 0 and text[m.start() - 1] not in ".!?":
-        return m.group(1)
-    if m and m.start() == 0:
-        return None   # заглавная в начале фразы — не имя наверняка
+    for m in re.finditer(rf"({_NAME})\s+(?:[а-яё]+\s+)?(?:{verbs})\b", text):
+        name, start = m.group(1), m.start(1)
+        if not _at_sentence_start(text, start):
+            return name
+        toks = name.split()
+        lead = 0
+        while lead < len(toks) and toks[lead].lower() in _NOT_AUTHOR:
+            lead += 1
+        rest = [t for t in toks[lead:]]
+        if not rest or rest[0].lower() in _NOT_AUTHOR or not rest[0][:1].isupper():
+            continue
+        if lead or len(rest) >= 2 or _confirmed_name(rest[0], confirm):
+            return " ".join(rest)
     return None
 
 
-def find_quote(text, prev_text="", next_text=""):
-    """(цитата, автор) — только дословная цитата в «ёлочках» с автором рядом
-    с глаголом речи в той же фразе (или соседней). Иначе None."""
+QUOTE_MIN_WORDS = 3            # «Демонологию», «Молот ведьм» — название, не речь
+
+
+def _quote_is_speech(text, m):
+    """Ёлочки — прямая речь, а не название/термин:
+    * перед ними двоеточие («Юниус пишет дочери: «…»»);
+    * перед ними запятая СРАЗУ после имени или глагола речи («Как писал
+      Фруассар, «…»»). «…пишет целую книгу, «Демонологию»» — запятая после
+      дополнения, это название;
+    * после них «, —» («…», — вспоминал Маршал);
+    и в самих ёлочках не меньше QUOTE_MIN_WORDS слов."""
+    if len(m.group(1).split()) < QUOTE_MIN_WORDS:
+        return False
+    before = text[:m.start()].rstrip()
+    after = text[m.end():].lstrip()
+    if not before or before.endswith(":"):
+        return True
+    if after.startswith((", —", ",—", "—", ", -")):
+        return True
+    if before.endswith(","):
+        prev = re.findall(r"[А-Яа-яЁё]+", before)
+        return bool(prev) and (prev[-1][:1].isupper() or prev[-1].lower() in SPEECH_VERBS)
+    return False
+
+
+def find_quote(text, prev_text="", next_text="", confirm=None):
+    """(цитата, автор) — только дословная цитата в «ёлочках», оформленная
+    как прямая речь (_quote_is_speech), с автором рядом с глаголом речи в
+    той же фразе (или соседней). Иначе None. confirm — script_names()."""
     m = _QUOTE_RE.search(text or "")
-    if not m:
+    if not m or not _quote_is_speech(text, m):
         return None
     quote = " ".join(m.group(1).split()).strip(" ,")
     rest = (text[:m.start()] + " " + text[m.end():])
-    author = _author_near(rest) or _author_near(prev_text or "") or _author_near(next_text or "")
+    author = (_author_near(rest, confirm) or _author_near(prev_text or "", confirm)
+              or _author_near(next_text or "", confirm))
     if not author:
         return None
     return quote, author
 
 
-def plan_quote_cards(blocks, starts, ends, busy=()):
+def plan_quote_cards(blocks, starts, ends, busy=(), confirm=None):
     """{индекс_слота: {"quote", "author", "q0", "q1"}} — q0/q1 на шкале голоса.
 
     Карточка держится над всеми слотами исходной фразы с цитатой: от момента
@@ -204,7 +301,7 @@ def plan_quote_cards(blocks, starts, ends, busy=()):
         text = key[1] or ""
         prev_t = parents[n - 1][0][1] if n else ""
         next_t = parents[n + 1][0][1] if n + 1 < len(parents) else ""
-        got = find_quote(text, prev_t, next_t)
+        got = find_quote(text, prev_t, next_t, confirm)
         if not got or any(k in busy or blocks[k].get("chapter_card") for k in slots):
             continue
         p0, p1 = float(starts[slots[0]]), float(ends[slots[-1]])

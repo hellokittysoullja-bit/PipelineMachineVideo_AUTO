@@ -17033,7 +17033,11 @@ def mark_screen_text(blocks, starts, total, locked):
             print("  Место и год: " + "; ".join(
                 f"[{i + 1}] {c['place']} {c['year']} @{c['start']:.1f}с" for i, c in sorted(caps.items())))
     if screen_text.quote_enabled():
-        quotes = screen_text.plan_quote_cards(blocks, starts, ends, busy)
+        try:
+            names = screen_text.script_names(open(SCRIPT_FILE, encoding="utf-8").read())
+        except OSError:
+            names = set()
+        quotes = screen_text.plan_quote_cards(blocks, starts, ends, busy, names)
         for i, q in quotes.items():
             blocks[i]["quote_card"] = q
         if quotes:
@@ -18908,6 +18912,15 @@ def main():
     if not blocks:
         print("Сценарий не найден/пуст")
         return 1
+    # Предпросмотр экрана (Шаг 2.5): что встанет на экран и что молча не
+    # сработает — до часов рендера. Только печать, ничего не блокирует:
+    # к рендеру озвучка уже оплачена, исправлять сценарий поздно, а
+    # эвристика предпросмотра не вправе остановить сборку.
+    try:
+        import script_preflight
+        script_preflight.print_preflight(SCRIPT_FILE)
+    except Exception as e:  # noqa: BLE001
+        print(f"  script_preflight: не выполнен ({type(e).__name__}: {e})")
     # ЛОКАЛЬНЫЙ РЕЖИССЁР (SHOT_PLANNER_LLM, дефолт 1). Заполняет РОВНО ТО ЖЕ
     # поле shot_brief, которое пишет автор тегом [shot:...] — и поэтому не
     # заводит ни одной новой связи: вопрос к полке (shelf_question), перевод
