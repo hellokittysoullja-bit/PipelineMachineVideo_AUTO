@@ -66,8 +66,8 @@ FONT = os.path.join(REPO_ROOT, "assets", "fonts", "Benzin-ExtraBold.ttf")
 
 
 def test_short_title_one_line_at_64():
-    size, lines = cc.title_layout("ЧЕЛОВЕК, КОТОРЫЙ ВЁЛ СЧЁТ", FONT)
-    assert (size, lines) == (64, ["ЧЕЛОВЕК, КОТОРЫЙ ВЁЛ СЧЁТ"])
+    size, lines, ok = cc.title_layout("ЧЕЛОВЕК, КОТОРЫЙ ВЁЛ СЧЁТ", FONT)
+    assert (size, lines, ok) == (64, ["ЧЕЛОВЕК, КОТОРЫЙ ВЁЛ СЧЁТ"], True)
 
 
 @pytest.mark.parametrize("title", ["ТКАЧИ, КОТОРЫМ НЕ НУЖНЫ БЫЛИ ДЕНЬГИ",
@@ -75,8 +75,8 @@ def test_short_title_one_line_at_64():
                                    "ОЧЕНЬ ДЛИННОЕ НАЗВАНИЕ ГЛАВЫ КОТОРОЕ НИКАК НЕ ВЛЕЗАЕТ В ОДНУ СТРОКУ ЭКРАНА"])
 def test_long_title_never_wider_than_limit(title):
     pytest.importorskip("PIL")
-    size, lines = cc.title_layout(title, FONT)
-    assert 1 <= len(lines) <= 2
+    size, lines, ok = cc.title_layout(title, FONT)
+    assert ok and 1 <= len(lines) <= 2
     assert " ".join(lines) == title
     assert max(cc._text_width(x, size, FONT) for x in lines) <= cc.CARD_TITLE_MAX_WIDTH
 
@@ -145,7 +145,7 @@ def test_chapter_window_from_alignment(tmp_path, monkeypatch):
                     [["Ч", 0.3, 0.4], [".", 8.0, 8.1]],
                     [["Ш", 0.1, 0.2]]])
     # перед FINAL заставки нет: только BLOCK 1
-    assert fp.chapter_card_windows(str(tmp_path)) == [(9.2, 10.3)]
+    assert fp.chapter_card_windows(str(tmp_path)) == [(9.2, 10.3, cc.CARD_PAUSE_SEC)]
     monkeypatch.setenv("CHAPTER_CARD", "0")
     assert fp.chapter_card_windows(str(tmp_path)) == []
 
@@ -153,7 +153,7 @@ def test_chapter_window_from_alignment(tmp_path, monkeypatch):
 def test_chapter_pause_is_extended_to_target_inside_kept_silence():
     # окно 9.2..10.3, подрезка вырезала 9.6..10.1 -> осталось 0.6с
     segs = [("copy", 0.0, 9.6), ("copy", 10.1, 30.0)]
-    out, ins = fp.apply_chapter_pause_targets(list(segs), [(9.2, 10.3)])
+    out, ins = fp.apply_chapter_pause_targets(list(segs), [(9.2, 10.3, cc.CARD_PAUSE_SEC)])
     assert len(ins) == 1
     pos, sec = ins[0]
     assert sec == pytest.approx(cc.CARD_PAUSE_SEC - 0.6)
@@ -163,7 +163,7 @@ def test_chapter_pause_is_extended_to_target_inside_kept_silence():
 
 def test_long_enough_chapter_pause_left_alone():
     segs = [("copy", 0.0, 30.0)]
-    out, ins = fp.apply_chapter_pause_targets(list(segs), [(9.0, 11.0)])
+    out, ins = fp.apply_chapter_pause_targets(list(segs), [(9.0, 11.0, cc.CARD_PAUSE_SEC)])
     assert ins == [] and out == segs
 
 
@@ -174,7 +174,7 @@ def test_save_cuts_without_cards_writes_no_new_keys(tmp_path):
     data = json.load(open(tmp_path / "media_plan" / "pause_cuts.json"))
     assert "chapter_pauses" not in data and "chapter_inserts" not in data
     fp.save_cuts(str(tmp_path), [(1.0, 3.0)], str(src), str(tmp_path / "none.flac"),
-                 pause_inserts=[(2.0, 1.0)], chapter_windows=[(1.5, 2.5)], chapter_inserts=[(2.0, 1.0)])
+                 pause_inserts=[(2.0, 1.0)], chapter_windows=[(1.5, 2.5, 1.8)], chapter_inserts=[(2.0, 1.0)])
     data = json.load(open(tmp_path / "media_plan" / "pause_cuts.json"))
     assert data["chapter_inserts"] == [[2.0, 1.0]] and data["pause_inserts"] == [[2.0, 1.0]]
 
@@ -321,7 +321,8 @@ def test_chapter_hit_cues_follow_card_marks(monkeypatch):
     monkeypatch.setattr(ps, "library_sounds", lambda kind, name: [path] if name == "chapter_hit" else [])
     monkeypatch.setattr(ps, "media_duration_or_none", lambda p: 6.048)
     cues = ps.chapter_hit_cues(blocks)
-    assert cues == {2: {"time": 6.07, "asset": path, "asset_dur": 6.048}}
+    assert cues == {2: {"time": 6.07, "asset": path, "asset_dur": 6.048,
+                        "hit_gap_lu": cc.CARD_HIT_GAP_LU}}
 
 
 def test_verify_timing_expects_card_cut_at_card_start(tmp_path):

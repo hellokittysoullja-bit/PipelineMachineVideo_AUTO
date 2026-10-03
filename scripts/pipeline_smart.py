@@ -1840,24 +1840,93 @@ def chapter_hit_cues(blocks):
     if not marked:
         return {}
     import chapter_card
-    paths = library_sounds("sfx", chapter_card.CARD_HIT_KIND)
-    path = paths[0] if paths else None
-    dur = media_duration_or_none(path) if path else None
-    if not dur:
-        print("  ВНИМАНИЕ: удара заставки главы нет в библиотеке "
-              f"(assets/library/sfx/{chapter_card.CARD_HIT_KIND}/) — главы без звука удара")
-        return {}
-    return {i: {"time": float(blocks[i]["chapter_card"]["visual_start"]),
-                "asset": path, "asset_dur": float(dur)} for i in marked}
+    out, missing = {}, set()
+    for i in marked:
+        st = chapter_card.style_of(blocks[i]["chapter_card"])
+        paths = library_sounds("sfx", st["hit_kind"])
+        path = paths[0] if paths else None
+        dur = media_duration_or_none(path) if path else None
+        if not dur:
+            missing.add(st["hit_kind"])
+            continue
+        cue = {"time": float(blocks[i]["chapter_card"]["visual_start"]),
+               "asset": path, "asset_dur": float(dur), "hit_gap_lu": st["hit_gap_lu"]}
+        if st["hit_trim"]:
+            cue["asset_dur"] = min(float(dur), st["hit_trim"])
+            cue["trim_sec"] = cue["asset_dur"]
+            cue["fade_out_sec"] = st["hit_fade_out"]
+        out[i] = cue
+    for kind in sorted(missing):
+        print(f"  ВНИМАНИЕ: удара заставки нет в библиотеке (assets/library/sfx/{kind}/) — "
+              f"эти заставки без звука удара")
+    return out
 
 
-def chapter_hit_gain_db(path, voice_path, voice_lufs):
-    """(усиление, источник) удара заставки — см. chapter_card.hit_gain_db."""
+def chapter_hit_gain_db(path, voice_path, voice_lufs, gap_lu=None, trim_sec=None, fade_out_sec=None):
+    """(усиление, источник) удара заставки — см. chapter_card.hit_gain_db.
+    Громкость удара меряется в том виде, в каком он звучит (обрезка/спад)."""
     import chapter_card
     voice_peak = measure_sample_peak_dbfs(voice_path) if voice_path else None
-    return chapter_card.hit_gain_db(voice_lufs, voice_peak,
-                                    measure_max_momentary_lufs(path),
-                                    measure_sample_peak_dbfs(path))
+    src, tmp = path, None
+    if trim_sec:
+        tmp = os.path.join(TEMP_FOLDER if os.path.isdir(TEMP_FOLDER) else tempfile.gettempdir(),
+                           f"_hit_{os.getpid()}_{os.path.basename(path)}.wav")
+        fo = float(fade_out_sec or 0.0)
+        af = f"atrim=0:{float(trim_sec):.3f}" + (
+            f",afade=t=out:st={max(0.0, float(trim_sec) - fo):.3f}:d={fo:.3f}" if fo else "")
+        r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", path, "-af", af, tmp],
+                           capture_output=True, text=True)
+        src = tmp if r.returncode == 0 else path
+    try:
+        return chapter_card.hit_gain_db(voice_lufs, voice_peak,
+                                        measure_max_momentary_lufs(src),
+                                        measure_sample_peak_dbfs(src),
+                                        gap_lu if gap_lu is not None else chapter_card.CARD_HIT_GAP_LU)
+    finally:
+        if tmp and os.path.exists(tmp):
+            os.remove(tmp)
+
+
+def place_caption_key_cues(blocks, voice_path):
+    """Щелчок клавиши на каждую букву подписи места и года (screen_text.py) —
+    в тот же момент, когда буква появляется на экране. Уровень от голоса:
+    макс. мгновенная громкость щелчка на KEY_GAP_LU ниже интегральной
+    громкости голоса (в утверждённом демо -34 LUFS при миксе -14)."""
+    caps = [b["place_caption"] for b in blocks or [] if b.get("place_caption")]
+    if not caps:
+        return []
+    import screen_text
+    keys = library_sounds("sfx", "typewriter") or list(KEYBOARD_CLICK_PATHS)
+    if not keys:
+        return []
+    voice = measure_integrated_lufs(voice_path) if voice_path else None
+    if voice is None:
+        print("  ВНИМАНИЕ: громкость голоса не измерилась — подпись места без щелчков")
+        return []
+    gains = {}
+    for k in keys:
+        m = measure_max_momentary_lufs(k)
+        if m is not None:
+            gains[k] = round(max(-40.0, min(6.0, voice - screen_text.KEY_GAP_LU - m)), 2)
+    keys = [k for k in keys if k in gains]
+    cues, n = [], 0
+    for cap in caps:
+        times, _typed = screen_text.place_char_times(cap["place"], cap["year"])
+        for t in times:
+            k = keys[n % len(keys)] if keys else None
+            n += 1
+            if k:
+                cues.append({"kind": "key", "time": float(cap["start"]) + t, "asset": k,
+                             "gain_db": gains[k], "gain_source": "measured"})
+    return cues
+
+
+def add_place_caption_keys(mix_path, blocks, total, voice_path, out_path):
+    cues = place_caption_key_cues(blocks, voice_path)
+    if not cues:
+        return mix_path
+    print(f"  Щелчки подписи места и года: {len(cues)}")
+    return add_planned_sfx(mix_path, cues, total, out_path)
 
 
 def chapter_sfx_variants():
@@ -2241,16 +2310,18 @@ def run_sfx_director(mix_path, video_dir, blocks, sub_starts, real_weights, tota
         # громкости (см. sfx_cue_gain_db()). Объектный слой этой ошибки уже
         # избежал (object_gain_db() меряет), сюда чинка не доезжала.
         hits = [c for c in accepted if c.get("hit")]
-        if hits:
-            gain, src = chapter_hit_gain_db(hits[0]["asset"], voice_path, voice_lufs)
-            if gain is None:
-                print("  ВНИМАНИЕ: громкость удара заставки или голоса не измерилась — "
-                      "удар не ставится")
-                accepted = [c for c in accepted if not c.get("hit")]
-                dropped.extend(dict(c, reason="hit_not_measured") for c in hits)
-            else:
-                for c in hits:
-                    c["gain_db"], c["gain_source"] = gain, src
+        gains = {}
+        for c in hits:
+            key = (c["asset"], c.get("hit_gap_lu"), c.get("trim_sec"), c.get("fade_out_sec"))
+            if key not in gains:
+                gains[key] = chapter_hit_gain_db(c["asset"], voice_path, voice_lufs, *key[1:])
+            c["gain_db"], c["gain_source"] = gains[key]
+        lost = [c for c in hits if c["gain_db"] is None]
+        if lost:
+            print("  ВНИМАНИЕ: громкость удара заставки или голоса не измерилась — "
+                  "удар не ставится")
+            accepted = [c for c in accepted if not (c.get("hit") and c["gain_db"] is None)]
+            dropped.extend(dict(c, reason="hit_not_measured") for c in lost)
         for c in accepted:
             if c.get("kind") not in ("chapter", "plate") or c.get("hit"):
                 continue
@@ -2589,6 +2660,8 @@ def build_episode_audio_layers(voice_path, video_dir, temp_dir, blocks, sub_star
                                measured_spans, total,
                                climax_times=climax_times, plate_cues=plate_sfx_cues,
                                voice_path=voice_path)
+    premix = add_place_caption_keys(premix, blocks, total, voice_path,
+                                    os.path.join(temp_dir, "premix_keys.wav"))
     return premix
 
 
@@ -5083,20 +5156,34 @@ def mark_chapter_cards(blocks, onsets):
     Возвращает список индексов помеченных блоков."""
     import chapter_card
     clear_chapter_cards(blocks)
-    if not chapter_card.enabled() or not onsets or len(onsets) != len(blocks):
+    chapters_on, title_on = chapter_card.enabled(), chapter_card.title_drop_enabled()
+    if not (chapters_on or title_on) or not onsets or len(onsets) != len(blocks):
         return []
     if len(SPEECH_ENDS) != len(blocks):
         print("  Заставки глав: нет измеренных концов речи — главы идут с прежним титром")
         return []
+    film = None
+    if title_on:
+        film = chapter_card.film_title(SCRIPT_FILE, FONT_PATH or chapter_card.default_font())
+        if not film:
+            print("  Название ролика после хука: нет TITLE_CARD/TITLE, которое влезает в две "
+                  "строки — заставки названия нет")
+    title_sec = chapter_card.hook_title_section(
+        [b["section"] for k, b in enumerate(blocks) if k == 0 or b["section"] != blocks[k - 1]["section"]])
     out, short = [], []
     for i in chapter_card.card_boundaries(blocks):
+        if film and blocks[i]["section"] == title_sec:
+            card = {"title": film, "style": "title"}
+        elif chapters_on:
+            card = {"title": chapter_card.section_title(blocks[i]["section"])}
+        else:
+            continue
         vs = chapter_card.card_visual_start(SPEECH_ENDS[i - 1])
         if not (onsets[i - 1] < vs and onsets[i] - SPEECH_ENDS[i - 1] >= CHAPTER_CARD_MIN_PAUSE_SEC):
             short.append(f"{blocks[i]['section'][:24]} ({onsets[i] - SPEECH_ENDS[i - 1]:.2f}с)")
             continue
-        blocks[i]["chapter_card"] = {"title": chapter_card.section_title(blocks[i]["section"]),
-                                     "visual_start": round(vs, 6),
-                                     "speech_onset": round(float(onsets[i]), 6)}
+        card.update({"visual_start": round(vs, 6), "speech_onset": round(float(onsets[i]), 6)})
+        blocks[i]["chapter_card"] = card
         out.append(i)
     if out:
         print(f"  Заставки глав: {len(out)} (пауза диктора перед главой "
@@ -16859,7 +16946,7 @@ def plan_transitions(sections, blocks=None, xfade_dur=XFADE_DUR):
             # CARD_FADE_IN_SEC, как в утверждённом демо. История случайных
             # переходов границ не трогается: без заставок план байт-в-байт прежний.
             import chapter_card
-            transition, this_dur = "fade", chapter_card.CARD_FADE_IN_SEC
+            transition, this_dur = "fade", chapter_card.style_of(b_cur["chapter_card"])["fade_in"]
         elif is_boundary:
             candidate = BOUNDARY_TRANSITIONS[h % len(BOUNDARY_TRANSITIONS)]
             transition = pick_no_repeat(boundary_hist, candidate, BOUNDARY_TRANSITIONS, 1)
@@ -16891,35 +16978,129 @@ def chapter_card_recipe_signature():
     try:
         import inspect
         import chapter_card
-        src = chapter_card.card_signature_source() + inspect.getsource(apply_chapter_card)
+        import screen_text
+        import place_year
+        src = (chapter_card.card_signature_source() + inspect.getsource(screen_text)
+               + inspect.getsource(place_year) + inspect.getsource(apply_clip_post)
+               + inspect.getsource(clip_post_filter) + repr(sorted(SCREEN_TEXT_FONTS.items())))
     except Exception:
         src = "chapter_card:unavailable"
     return "card:" + hashlib.md5(src.encode("utf-8")).hexdigest()[:10]
 
 
-def apply_chapter_card(src, out, dur, card):
-    """Наложить заставку главы на готовый клип src -> out (атомарно, с
-    повтором и проверкой длительности, как любой клип). True/False."""
+SCREEN_TEXT_FONTS = {
+    "place": os.path.join(FONTS_DIR, "Benzin-ExtraBold.ttf"),
+    "year": os.path.join(FONTS_DIR, "Montserrat-SemiBold.ttf"),
+    "quote": os.path.join(FONTS_DIR, "Montserrat-MediumItalic.ttf"),
+    "mark": os.path.join(FONTS_DIR, "Montserrat-ExtraBold.ttf"),
+    "author": os.path.join(FONTS_DIR, "Montserrat-SemiBold.ttf"),
+}
+
+
+def mark_screen_text(blocks, starts, total, locked):
+    """Место и год печатной машинкой, карточка цитаты (screen_text.py) —
+    метки в блоках, на шкале голоса. Нужен PHRASE LOCK: без реальных
+    онсетов неизвестно, когда звучит фраза."""
+    for b in blocks or []:
+        b.pop("place_caption", None)
+        b.pop("quote_card", None)
+    import screen_text
+    if not locked or not (screen_text.place_enabled() or screen_text.quote_enabled()):
+        return
+    ends = [starts[i + 1] if i + 1 < len(starts) else total for i in range(len(starts))]
+    busy = {i for i, b in enumerate(blocks) if b.get("stat") or b.get("chapter_card")}
+    if screen_text.place_enabled():
+        import place_year
+        try:
+            confirm = place_year.script_words(open(SCRIPT_FILE, encoding="utf-8").read())
+        except OSError:
+            confirm = set()
+        caps = screen_text.plan_place_captions(blocks, starts, ends, busy, confirm)
+        for i, cap in caps.items():
+            blocks[i]["place_caption"] = cap
+        if caps:
+            print("  Место и год: " + "; ".join(
+                f"[{i + 1}] {c['place']} {c['year']} @{c['start']:.1f}с" for i, c in sorted(caps.items())))
+    if screen_text.quote_enabled():
+        quotes = screen_text.plan_quote_cards(blocks, starts, ends, busy)
+        for i, q in quotes.items():
+            blocks[i]["quote_card"] = q
+        if quotes:
+            print(f"  Карточки цитат: {len(set((q['quote'], q['q0']) for q in quotes.values()))}")
+
+
+def clip_post_spec(b, card, clip_origin):
+    """Что наложить на готовый клип после рендера: заставка, подпись места,
+    карточка цитаты — в ЛОКАЛЬНОМ времени клипа. None — ничего."""
+    post = {}
+    if card:
+        post["card"] = card
+    cap = b.get("place_caption")
+    if cap:
+        post["caption"] = dict(cap, local=round(float(cap["start"]) - clip_origin, 3))
+    q = b.get("quote_card")
+    if q:
+        post["quote"] = dict(q, l0=round(float(q["q0"]) - clip_origin, 3),
+                             l1=round(float(q["q1"]) - clip_origin, 3))
+    return post or None
+
+
+def clip_post_filter(post, dur):
+    """filter_complex для apply_clip_post: [0:v] -> [метка], метка."""
     import chapter_card
-    if not FONT_PATH:
+    import screen_text
+    fc, label = "", "0:v"
+    card = post.get("card")
+    if card and FONT_PATH:
+        fc = chapter_card.card_filter(
+            card["title"], card["lead"], dur, FONT_PATH, ffmpeg_filter_path(FONT_PATH),
+            escape_drawtext, accent=STAT_ACCENT, fps=FPS, upper=FONT_IS_DISPLAY,
+            style=chapter_card.style_of(card))
+        label = "vout"
+    q = post.get("quote")
+    if q:
+        g = screen_text.quote_graph(
+            q, q["l0"], q["l1"], {k: ffmpeg_filter_path(v) for k, v in SCREEN_TEXT_FONTS.items()},
+            SCREEN_TEXT_FONTS, escape_drawtext, label, "vq")
+        if g:
+            fc = (fc + ";" if fc else "") + g
+            label = "vq"
+    cap = post.get("caption")
+    if cap:
+        chain = screen_text.place_caption_chain(
+            cap, cap["local"], dur, ffmpeg_filter_path(SCREEN_TEXT_FONTS["place"]),
+            ffmpeg_filter_path(SCREEN_TEXT_FONTS["year"]), escape_drawtext,
+            SCREEN_TEXT_FONTS["year"], accent=STAT_ACCENT)
+        fc = (fc + ";" if fc else "") + f"[{label}]{chain}[vcap]"
+        label = "vcap"
+    return fc, label
+
+
+def apply_clip_post(src, out, dur, post):
+    """Наложить на готовый клип src -> out заставку/подпись/цитату (атомарно,
+    с повтором и проверкой длительности, как любой клип). True/False."""
+    fc, label = clip_post_filter(post, dur)
+    if not fc:
         return False
-    fc = chapter_card.card_filter(
-        card["title"], card["lead"], dur, FONT_PATH, ffmpeg_filter_path(FONT_PATH),
-        escape_drawtext, accent=STAT_ACCENT, fps=FPS, upper=FONT_IS_DISPLAY)
     tmp_out = render_tmp_path(out)
 
     def build():
-        cmd = ["ffmpeg", "-y", "-i", src, "-filter_complex", fc, "-map", "[vout]",
+        cmd = ["ffmpeg", "-y", "-i", src, "-filter_complex", fc, "-map", f"[{label}]",
                "-frames:v", str(max(1, int(round(dur * FPS)))),
                "-c:v", "libx264", "-preset", RENDER_PRESET, "-crf", RENDER_CRF,
                "-r", str(FPS)] + CLIP_PIX_ARGS + COLOR_META_ARGS + [tmp_out]
         return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
                               errors="replace", timeout=render_timeout_sec(dur))
-    ok, reason = run_ffmpeg_with_retry(build, tmp_out, dur, label="заставка главы")
+    ok, reason = run_ffmpeg_with_retry(build, tmp_out, dur, label="экранный текст")
     finalize_render(tmp_out, out, ok)
     if not ok:
-        print(f"  ВНИМАНИЕ: заставка главы «{card['title']}» не наложилась ({reason})")
+        print(f"  ВНИМАНИЕ: заставка/подпись не наложилась на {os.path.basename(out)} ({reason})")
     return ok
+
+
+def apply_chapter_card(src, out, dur, card):
+    """Заставка главы на готовый клип — частный случай apply_clip_post."""
+    return apply_clip_post(src, out, dur, {"card": card})
 
 
 def finish_chapter_card(job):
@@ -16928,7 +17109,7 @@ def finish_chapter_card(job):
     pre = chapter_card_pre_path(job["out"])
     if not os.path.exists(pre):
         return job["out"]   # кэш-хит: заставка уже в out
-    if apply_chapter_card(pre, job["out"], job["d"], job["card"]):
+    if apply_clip_post(pre, job["out"], job["d"], job["card"]):
         try:
             os.remove(pre)
         except OSError:
@@ -18922,6 +19103,7 @@ def main():
     # быть привязано к голосу, не к монтажу).
     visual_starts = hook_visual_starts(blocks, durs)
     seen_starts = first_visible_starts(blocks, durs)
+    mark_screen_text(blocks, seen_starts, total, bool(phrase_locked))
 
     # media_plan/phrase_timeline.json — ПРОВЕРЯЕМЫЙ аудит привязки кадра к
     # фразе. Пишется ВСЕГДА (даже когда привязки нет — тогда честно
@@ -19364,6 +19546,7 @@ def main():
         card = None
         if b.get("chapter_card"):
             card = {"title": b["chapter_card"]["title"],
+                    "style": b["chapter_card"].get("style") or "chapter",
                     "lead": max(0.0, float(b["chapter_card"]["speech_onset"]) - visual_starts[i]),
                     "section": b["section"]}
         elif card_carry is not None:
@@ -19376,6 +19559,7 @@ def main():
             card_carry = None
         if card:
             title = None
+        post = clip_post_spec(b, card, visual_starts[i])
         stat_variant = stat_count
         # D2: кинетические подписи — только ХУК, только если alignment.csv
         # реально дал слова на эту секцию. hook_words уже пересчитаны в
@@ -19475,9 +19659,11 @@ def main():
             f"{captions}|{look_cache_sig}|{domain_cache_sig}|{director_cache_sig}|"
             f"{arc_stage_for(b)}|{recipe_sig}|{lock_key}|{candidate_gate_signature(i)}")
         cache_key += arbiter_cache_suffix(b["section"])
-        if card:
-            # Только у клипов с заставкой: ключи остальных байт-в-байт прежние.
-            cache_key += f"|card:{card['title']}|{card['lead']:.3f}|{chapter_card_recipe_signature()}"
+        if post:
+            # Только у клипов с заставкой/подписью/цитатой: ключи остальных
+            # байт-в-байт прежние.
+            cache_key += f"|post:{json.dumps(post, ensure_ascii=False, sort_keys=True)}|" \
+                         f"{chapter_card_recipe_signature()}"
         params_hash = hashlib.md5(cache_key.encode()).hexdigest()[:8]
         out = os.path.join(TEMP_FOLDER, f"clip_{i:04d}_{params_hash}.mp4")
         if os.path.exists(out) and not verify_clip(out, d)[0]:
@@ -19987,6 +20173,8 @@ def main():
                 stat_carry.append((stat, stat_variant, stat_delay))
             if card:
                 card_carry = card
+            if b.get("place_caption") or b.get("quote_card"):
+                print(f"    [{i+1}] подпись места/цитата на поглощённом слоте не показана")
             _carry_sec = d
             print(f"    [{i+1}] нет проверенного кадра ({reason}) — "
                   f"{d:.1f}с отдано соседнему кадру")
@@ -20269,7 +20457,7 @@ def main():
         future = None
         # Клип с заставкой рендерится во временный файл, заставка
         # накладывается после рендера (apply_chapter_card) уже в `out`.
-        render_out = chapter_card_pre_path(out) if card else out
+        render_out = chapter_card_pre_path(out) if post else out
         try:
             if video:
                 if render_pool:
@@ -20398,7 +20586,7 @@ def main():
             ok, future = False, None
         pending_jobs.append({"i": i, "out": out, "d": d, "section": b["section"], "block": b,
                               "video": bool(video), "photo": photo, "future": future, "ok": ok,
-                              "card": card})
+                              "card": post})
         if i % 20 == 0 or i < 3:
             print(f"  [{i+1}/{len(blocks)}] {d:.1f}с {b['words']} слов ({'видео' if video else 'фото'}, "
                   f"{'в очереди' if future is not None else 'готово' if ok else 'пропуск'})")

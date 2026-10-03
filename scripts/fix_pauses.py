@@ -528,8 +528,9 @@ def _section_speech_edges(path):
 
 
 def chapter_card_windows(video_dir):
-    """[(сырой_конец_речи_прошлой_секции, сырой_онсет_новой), ...] перед
-    каждой секцией с заставкой главы (chapter_card.card_sections).
+    """[(сырой_конец_речи_прошлой_секции, сырой_онсет_новой, цель_паузы), ...]
+    перед каждой секцией с заставкой главы (chapter_card.card_sections); перед
+    главой 1 — пауза названия ролика (TITLE_DROP), если оно есть.
 
     Окно меряется так же, как паузу видит рендер: от конца речи до начала
     речи по alignment. Флаг выключен, нет карты смещений, alignment или
@@ -538,15 +539,26 @@ def chapter_card_windows(video_dir):
         import chapter_card
     except Exception:
         return []
-    if not chapter_card.enabled():
+    chapters_on, title_on = chapter_card.enabled(), chapter_card.title_drop_enabled()
+    if not (chapters_on or title_on):
         return []
     offsets = load_section_offsets(video_dir)
     if not offsets:
         return []
     order = script_section_order(video_dir)
     align_dir = os.path.join(video_dir, "media_plan", "alignment")
+    title_sec = None
+    if title_on and chapter_card.film_title(os.path.join(video_dir, "script.txt"),
+                                            chapter_card.default_font()):
+        title_sec = chapter_card.hook_title_section(order)
     out = []
     for name in chapter_card.card_sections(order):
+        if name == title_sec:
+            target = chapter_card.TITLE_PAUSE_SEC
+        elif chapters_on:
+            target = chapter_card.CARD_PAUSE_SEC
+        else:
+            continue
         k = order.index(name)
         cur_off = section_offset(offsets, name, order)
         prev_off = section_offset(offsets, order[k - 1], order)
@@ -556,7 +568,7 @@ def chapter_card_windows(video_dir):
             continue
         a, b = prev[1] + prev_off, cur[0] + cur_off
         if b > a:
-            out.append((a, b))
+            out.append((a, b, target))
     return sorted(out)
 
 
@@ -574,9 +586,8 @@ def apply_chapter_pause_targets(segs, windows):
     реально останется: длина окна минус вырезанное плюс уже вставленное.
     Вставка — в середину самого длинного сохранённого куска окна (не в
     вырезанное место: туда вставлять нечего). Возвращает (сегменты, вставки)."""
-    import chapter_card
     inserts = []
-    for w0, w1 in windows:
+    for w0, w1, target in windows:
         kept, best = 0.0, None
         for item in segs:
             if item[0] == "silence":
@@ -589,7 +600,7 @@ def apply_chapter_pause_targets(segs, windows):
                 kept += hi - lo
                 if best is None or hi - lo > best[1] - best[0]:
                     best = (lo, hi)
-        need = chapter_card.CARD_PAUSE_SEC - kept
+        need = target - kept
         if need <= TAG_PAUSE_TOLERANCE or best is None:
             continue
         mid = (best[0] + best[1]) / 2.0
@@ -646,7 +657,7 @@ def save_cuts(video_dir, sil, src, out, protected_windows=None, pause_inserts=No
     # Ключи заставок пишутся только когда они есть: без них файл байт-в-байт прежний.
     extra = {}
     if chapter_windows:
-        extra["chapter_pauses"] = [[round(a, 6), round(b, 6)] for a, b in chapter_windows]
+        extra["chapter_pauses"] = [[round(a, 6), round(b, 6), round(t, 3)] for a, b, t in chapter_windows]
         extra["chapter_inserts"] = [[round(p, 6), round(sec, 6)] for p, sec in (chapter_inserts or [])]
     with open(os.path.join(plan_dir, "pause_cuts.json"), "w", encoding="utf-8") as f:
         json.dump({**extra, "source_audio_md5": _audio_fingerprint(src),
@@ -761,7 +772,7 @@ def main():
         segments, chapter_inserts = apply_chapter_pause_targets(segments, chapter_windows)
         pause_inserts = sorted(list(pause_inserts) + chapter_inserts)
         print(f"  Заставки глав: пауза диктора на {len(chapter_windows)} сменах главы доведена "
-              f"до {__import__('chapter_card').CARD_PAUSE_SEC}с (вставок {len(chapter_inserts)}, "
+              f"до цели заставки (вставок {len(chapter_inserts)}, "
               f"+{sum(sec for _p, sec in chapter_inserts):.2f}с)")
 
     SPLICE_FADE_SEC = 0.008

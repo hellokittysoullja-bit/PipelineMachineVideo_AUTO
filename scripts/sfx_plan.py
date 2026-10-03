@@ -536,9 +536,7 @@ def plan_sfx_cues(blocks, sub_starts, real_weights, total_dur,
                 "anchor": float(sub_starts[i]) if i < len(sub_starts) else None}
         hit = (chapter_hits or {}).get(i)
         if hit:
-            candidates.append(dict(base, time=float(hit["time"]), anchor=float(hit["time"]),
-                                   asset=hit["asset"], asset_dur=float(hit["asset_dur"]),
-                                   hit=True))
+            candidates.append(dict(base, **hit, anchor=float(hit["time"]), hit=True))
             continue
         gap = speech_gap_before(i, sub_starts, real_weights)
         if gap is None:
