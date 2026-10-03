@@ -76,7 +76,7 @@ def test_prompt_never_asks_the_model_for_letters_and_points_at_references():
     assert "ЖИВ" not in p and "No text" in p and "bottom fifth" in p
     assert "style of reference images 1-2" in p and "main character" not in p
     h = g.build_prompt(dict(FRAME, hero=True), 2, True)
-    assert "person in reference image 3" in h          # герой — последним, после двух образцов
+    assert "character in reference image 3" in h and "person" not in h          # герой — последним, после двух образцов
     d = g.build_prompt(dict(FRAME, kind="diagram", labels=["А", "Б"]), 1, False)
     assert "2 wide empty patches" in d and "arrow" in d and "reference image 1:" in d and "А" not in d
 

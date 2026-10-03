@@ -44,7 +44,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import env  # noqa: E402
 import labels  # noqa: E402
 
-GEN_VERSION = 5
+GEN_VERSION = 6
 TEXT_MATCH_MIN = 1.0        # только точное совпадение букв (см. докстринг, п.2)
 VERIFY_TOP = 3              # сколько лучших по сетке проверять по утверждениям
 READ_PROMPT = ("Transcribe every piece of text visible in this image exactly as written, "
@@ -69,8 +69,11 @@ def build_prompt(frame, n_style, with_hero):
     запросе: сначала n_style образцов стиля, герой последним (look.refs)."""
     parts = [frame["picture"]]
     if with_hero:
-        parts.append(f"The main character is the person in reference image {n_style + 1}: keep exactly their "
-                     "head, face, body proportions and clothes; change only pose, action and expression")
+        # «character», а не «person»: герой может быть и не человеком (маскот-кот),
+        # и слово «person» подталкивало бы модель нарисовать человека.
+        parts.append(f"The main character is the character in reference image {n_style + 1}: keep exactly its "
+                     "head, face, colors, markings, body proportions and clothing if any; change only pose, "
+                     "action and expression")
     # Буквы нейросеть не пишет никогда: русские подписи кладёт код (labels.py).
     labs = frame.get("labels") or []
     if frame.get("kind") == "caption" and labs:
