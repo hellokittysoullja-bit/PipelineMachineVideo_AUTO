@@ -240,7 +240,8 @@ def test_diagram_and_caption_get_the_owner_background_scenes_keep_their_place(mo
     monkeypatch.setenv("DIAGRAM_BACKGROUND", "near-white")
     for kind in ("diagram", "caption"):
         assert "plain near-white paper" in fg.build_prompt({"kind": kind, "labels": ["А"], "picture": "x"}, 3, False)
-    assert "near-white" not in fg.build_prompt({"kind": "scene", "labels": [], "picture": "x"}, 3, False)
+    scene = fg.build_prompt({"kind": "scene", "labels": [], "picture": "x"}, 3, False)
+    assert "If the picture has no specific place" in scene and "a specific place is drawn as that place" in scene
     monkeypatch.setenv("DIAGRAM_BACKGROUND", "")
     assert "paper" not in fg.build_prompt({"kind": "diagram", "labels": ["А"], "picture": "x"}, 3, False)
 

@@ -39,7 +39,7 @@ import script_parser  # noqa: E402
 
 PLAN_NAME = "frame_plan.json"
 CACHE_DIR_NAME = "frame_plan_cache"
-PLAN_VERSION = 7
+PLAN_VERSION = 8
 # Модель выбрана замером старого генератора 24.09 (58 фраз трёх ниш):
 # DeepSeek v4 Flash — 58/58, ~2 тыс. токенов баланса; Gemini 3.7 Flash по
 # смыслу наравне, но ~35 тыс.; Qwen 3.8 Max — 46/58.
@@ -48,7 +48,16 @@ MAX_TOKENS = 8000
 EST_PROMPT_TOKENS = 2500
 KINDS = ("scene", "caption", "diagram")
 MAX_HERO_RUN = 2       # героя не бывает на трёх кадрах подряд
-MAX_HERO_SHARE = 0.35  # и не больше трети кадров эпизода (просьба модели — «каждый 3-4-й»)
+MAX_HERO_SHARE = 0.35  # и не больше трети кадров эпизода — для героя-гостя
+
+
+def hero_limits():
+    """(подряд, доля) из .env: HERO_MAX_RUN, HERO_MAX_SHARE. Герой-гость
+    (стикмен) — треть кадров; герой-маскот, лицо канала, — чаще (решение
+    владельца 03.10: кот бренда в 3 кадрах из 5, а не в одном)."""
+    run = int(os.environ.get("HERO_MAX_RUN", "").strip() or MAX_HERO_RUN)
+    share = float(os.environ.get("HERO_MAX_SHARE", "").strip() or MAX_HERO_SHARE)
+    return max(1, run), min(1.0, max(0.0, share))
 MAX_LABELS = {"scene": 0, "caption": 1, "diagram": 6}
 MAX_LABEL_WORDS = 5
 
@@ -161,8 +170,13 @@ FRAME_RULES = """frame — ONE hand-drawn picture per line. It is generated once
     - people of the past wear the clothes and use the objects of their time;
     - never describe the drawing style, line work or palette: the style comes from the reference images."""
 
-HERO_RULE = """the film has one recurring main character, shown to the image model as a reference picture. true only when the line speaks to the viewer ("you") or shows what an ordinary person feels, does or reacts to — the character then plays that person. Never for objects, places, maps, statistics, diagrams of facts or named historical people. The character is a guest, not the host: about one picture in three or four, never on three lines in a row. When true, call the character "the main character" in the picture and describe only pose, action, expression and props, never looks or clothes: the reference picture defines them."""
+HERO_RULE = """the film has one recurring main character, shown to the image model as a reference picture. true only when the line speaks to the viewer ("you") or shows what an ordinary person feels, does or reacts to — the character then plays that person. Never for objects, places, maps, statistics, diagrams of facts or named historical people. The character appears in at most {hero_share}% of the pictures and never on {hero_run_plus} lines in a row. When true, call the character "the main character" in the picture and describe only pose, action, expression and props, never looks or clothes: the reference picture defines them."""
 NO_HERO_RULE = """always false: this film has no recurring main character."""
+
+
+def hero_rule_text():
+    run, share = hero_limits()
+    return HERO_RULE.format(hero_share=round(share * 100), hero_run_plus=run + 1)
 
 PROMPT = """You are the director and storyboard artist of a hand-drawn explainer film.
 Film: «{title}».
@@ -227,7 +241,7 @@ def render_prompt(packet, has_hero):
     return PROMPT.format(
         title=packet.get("episode_title") or "—", prev=prev,
         spec_rules=SPEC_RULES.format(c1=MAX_CLAIMS - 1),
-        frame_rules=FRAME_RULES.format(max_words=MAX_LABEL_WORDS, hero_rule=HERO_RULE if has_hero else NO_HERO_RULE),
+        frame_rules=FRAME_RULES.format(max_words=MAX_LABEL_WORDS, hero_rule=hero_rule_text() if has_hero else NO_HERO_RULE),
         lines="\n".join(lines))
 
 
@@ -343,11 +357,14 @@ def _drop_hero(f):
     f["picture"] = re.sub(r"\b[Tt]he main character\b", "a person", f["picture"])
 
 
-def limit_hero(frames, max_run=MAX_HERO_RUN, max_share=MAX_HERO_SHARE):
+def limit_hero(frames, max_run=None, max_share=None):
     """Герой — гость, а не ведущий; правило кода, а не просьба к модели:
     не больше max_run кадров подряд и не больше max_share кадров эпизода.
     Лишнее снимается там, где герой стоит теснее всего (рядом с другими
     кадрами героя), — так он остаётся разбросанным по ролику. Сколько снято."""
+    run, share = hero_limits()
+    max_run = run if max_run is None else max_run
+    max_share = share if max_share is None else max_share
     trimmed = 0
     while True:
         idx = [i for i, f in enumerate(frames) if f.get("hero")]

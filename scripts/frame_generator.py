@@ -44,7 +44,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import env  # noqa: E402
 import labels  # noqa: E402
 
-GEN_VERSION = 6
+GEN_VERSION = 7
 TEXT_MATCH_MIN = 1.0        # только точное совпадение букв (см. докстринг, п.2)
 VERIFY_TOP = 3              # сколько лучших по сетке проверять по утверждениям
 READ_PROMPT = ("Transcribe every piece of text visible in this image exactly as written, "
@@ -91,14 +91,19 @@ def build_prompt(frame, n_style, with_hero):
         arrow = os.environ.get("DIAGRAM_ARROW_COLOR", "").strip()
         if arrow:
             parts.append(f"Draw every arrow in {arrow}")
-    # Фон схем и подписей — решение владельца в .env (DIAGRAM_BACKGROUND):
-    # образцы стиля задают бумагу, а схеме нужен чистый светлый лист, на
-    # котором красные стрелки и подписи читаются сразу. Сцены не трогаются —
-    # их фон это место действия.
+    # Фон — решение владельца в .env (DIAGRAM_BACKGROUND): образцы стиля задают
+    # бумагу, а кадру без места нужен чистый светлый лист. Схема и подпись —
+    # всегда лист. Сцена — лист, только если у неё нет конкретного места
+    # (решение владельца 03.10: «белый фон, но не всегда»); место действия
+    # (комната, улица) рисуется как есть.
     paper = paper_background()
     if paper and frame.get("kind") in ("diagram", "caption"):
         parts.append(f"The whole background is plain {paper} paper, even and untinted, "
                      "even if the reference images use a darker or coloured paper")
+    elif paper:
+        parts.append(f"If the picture has no specific place, its background is plain {paper} paper, even and "
+                     "untinted, even if the reference images use a darker or coloured paper; a specific place "
+                     "is drawn as that place")
     parts.append("No text, letters, numbers, digits, symbols, logos or signs anywhere in the image")
     # Камера наезжает на кадр до ~10% и вписывает его в 16:9 — главное у
     # самого края срезалось бы.

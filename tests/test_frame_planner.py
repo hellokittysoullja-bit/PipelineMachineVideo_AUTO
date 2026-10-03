@@ -49,7 +49,7 @@ def test_prompt_has_spec_rules_brief_prev_chapter_and_hero_rule():
     p = fp.render_prompt(pk, True)
     assert "core — WHO or WHAT must be visible" in p       # правило v3
     assert "kids at a fire" in p and "конец прошлой главы" in p
-    assert "one recurring main character" in p and "never on three lines in a row" in p
+    assert "one recurring main character" in p and "never on 3 lines in a row" in p
     assert "never describe the drawing style" in p and "camera" not in p
     assert "always false" in fp.render_prompt(pk, False)
 
@@ -130,3 +130,22 @@ def test_prompt_keeps_the_measured_rules_of_the_old_generator():
                  "named the same way both times",                 # 01.10: «экран» нарисован планшетом
                  "name as many patches as there are labels"):     # 01.10: 4 подписи на 3 места
         assert rule in p, rule
+
+
+
+def test_hero_share_and_run_come_from_env(monkeypatch):
+    """Маскот — лицо канала: доля героя задаётся в .env и попадает и в правило
+    кода, и в просьбу к модели (иначе модель просит треть, а код режет до трети)."""
+    def frames(n):
+        return [{"hero": True, "picture": "the main character waves", "kind": "scene", "labels": []} for _ in range(n)]
+    monkeypatch.setenv("HERO_MAX_SHARE", "0.6")
+    monkeypatch.setenv("HERO_MAX_RUN", "2")
+    f = frames(5)
+    fp.limit_hero(f)
+    assert sum(x["hero"] for x in f) == 3
+    assert "at most 60% of the pictures" in fp.hero_rule_text() and "never on 3 lines in a row" in fp.hero_rule_text()
+    monkeypatch.delenv("HERO_MAX_SHARE")
+    f = frames(5)
+    fp.limit_hero(f)
+    assert sum(x["hero"] for x in f) == 1                      # по умолчанию — герой-гость, треть
+    assert "at most 35% of the pictures" in fp.hero_rule_text()
