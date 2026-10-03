@@ -205,10 +205,11 @@ def test_music_cue_track_builds_with_several_pieces(tmp_path, monkeypatch):
                         f"sine=frequency={f}:duration={30 + 10 * k}", "-ac", "2", "-ar", "48000",
                         str(p)], check=True)
         files.append(str(p))
-    monkeypatch.setattr(ps, "library_sounds", lambda kind, name: files)
-    cues = [{"start": 0.0, "end": 20.0, "role": "intro", "seed": 0},
-            {"start": 40.0, "end": 52.0, "role": "chapter", "seed": 1},
-            {"start": 60.0, "end": 80.0, "role": "outro", "seed": 2}]
+    # Врезки несут свой файл (так их отдаёт план режиссёра); «средневековой»
+    # запасной папки для врезки без файла больше нет (аудит 03_plen 02.10).
+    cues = [{"start": 0.0, "end": 20.0, "role": "intro", "seed": 0, "path": files[1]},
+            {"start": 40.0, "end": 52.0, "role": "chapter", "seed": 1, "path": files[0]},
+            {"start": 60.0, "end": 80.0, "role": "outro", "seed": 2, "path": files[0]}]
     out = ps.build_music_cue_track(cues, 80.0, str(tmp_path))
     assert out and os.path.exists(out)
     dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",

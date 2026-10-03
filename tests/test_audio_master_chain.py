@@ -112,11 +112,15 @@ class TestMasterChain:
         af = ps.build_master_af(self.STATS, 100.0, 0.05)
         assert af.index("loudnorm") < af.index("alimiter") < af.index("afade")
 
-    def test_limiter_ceiling_equals_the_loudnorm_true_peak_target(self, monkeypatch):
-        """Две ступени не должны спорить о потолке."""
+    def test_limiter_ceiling_leaves_codec_headroom_below_true_peak_target(self, monkeypatch):
+        """Потолок лимитера — цель true peak МИНУС запас под AAC: на 03_plen
+        лимитер ровно на цели дал после кодека -1.32 dBTP при цели -1.5
+        (аудит 02.10). Ниже цели, а не выше: ступени по-прежнему не спорят."""
         monkeypatch.setattr(ps, "MASTER_LIMITER_ENABLED", True)
         af = ps.build_master_af(self.STATS, 100.0, 0.05)
-        assert f"alimiter=limit={ps.LOUDNORM_TARGET_TP}dB" in af
+        ceiling = ps.LOUDNORM_TARGET_TP - ps.MASTER_LIMITER_CODEC_HEADROOM_DB
+        assert ps.MASTER_LIMITER_CODEC_HEADROOM_DB > 0
+        assert f"alimiter=limit={round(ceiling, 2)}dB" in af
 
     def test_limiter_never_raises_the_level_back(self, monkeypatch):
         """level=disabled обязателен: авто-уровень обнулил бы loudnorm."""

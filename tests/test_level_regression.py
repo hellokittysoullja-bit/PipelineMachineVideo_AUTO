@@ -722,10 +722,13 @@ def test_cue_gain_targets_measured_loudness_not_the_old_peak_guess(tmp_path, kin
     target = ps.SFX_CUE_TARGET_LUFS[kind]
 
     old_result = measured_before + old_flat
-    assert target - old_result > 8.0, (
+    # Порог был 8 дБ, пока цель стояла на -22/-26 — а это были ПИКИ замысла,
+    # прочитанные как громкость (аудит 03_plen 02.10, см. SFX_CUE_TARGET_LUFS).
+    # С исправленной целью разрыв константы с замером меньше, но остаётся.
+    assert target - old_result > 3.0, (
         f"старая константа {old_flat} dB на этой форме сигнала давала бы "
         f"{old_result:.1f} LUFS против цели {target} — регрессия ожидалась "
-        f"большой (в реальном рендере вышло 14-20 дБ), а вышла всего "
+        f"заметной, а вышла всего "
         f"{target - old_result:.1f} дБ")
 
     gained = os.path.join(str(tmp_path), f"gained_{kind}.wav")

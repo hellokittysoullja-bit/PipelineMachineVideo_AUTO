@@ -772,5 +772,26 @@
         "illustration"
       ]
     ]
-  ]
+  ],
+  "_sound_comment": "Звук этого канала (02.10): описания видов атмосферы для звукового режиссёра (порядок = порядок в задании модели) и примеры «не из мира фильма» для музыкального режиссёра. Нет секции — нейтральные дефолты из кода (sound_director.kind_descriptions/music_world_examples).",
+  "sound": {
+    "ambience_kinds": {
+      "wind_open": "wind over open country: a field, hills, a plain, mountains, an army on the march",
+      "forest_birds": "a forest with birds: woods, morning, a quiet countryside",
+      "night": "night outdoors: crickets, owls, a camp at night",
+      "stone_hall": "inside stone walls: a castle hall, a church, an abbey, a monastery, a crypt, a prison cell; people hiding or held inside",
+      "forge_fire": "a fire: a campfire, a hearth, a burning town, a forge",
+      "rain_mud": "rain and mud: bad weather, a wet field, autumn",
+      "river_stream": "a river: a stream, a ford, a bridge over water",
+      "crowd_market": "a busy market, a fair or a gathered crowd talking: only when the line shows many people together in a public place; not a town merely named, not a battle, not people inside a building",
+      "sea_waves": "the sea: a shore, a sea crossing, ships, a coast, a port",
+      "battle_distant": "a battle in progress: clashing swords, shouting soldiers, a melee",
+      "cavalry_horses": "horses: a cavalry charge, galloping riders, mounted knights",
+      "church_bells": "church bells over a town or a village: alarm, funeral, celebration, a town in the story's present",
+      "crows_field": "crows over an empty field: the aftermath of a battle, the dead, desolation",
+      "war_drums": "war drums: an army marching to battle, getting ready to attack"
+    },
+    "music_world_examples": "no futuristic synthesizers in a film about the Middle Ages, no medieval lute in a film about the brain, no meditation chimes under a battle",
+    "music_critic_world_examples": "futuristic synthesizer in a medieval film, medieval lute in a film about the brain, Indian, East Asian or Andean music in a film about medieval Europe"
+  }
 }
