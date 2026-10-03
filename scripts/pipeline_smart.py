@@ -14057,7 +14057,18 @@ def shot_judge_signature(index=None):
 # Дальше слоты идут бесплатным путём (пул, гейты, физические проверки) — и
 # подпись судьи в их ключи кэша не входит: смена модели судьи не должна
 # перекачивать слоты, которые судья не видит.
-SHOT_JUDGE_PAID_SLOTS = 25
+# Владелец может расширить зону на прогон: SHOT_JUDGE_PAID_SLOTS=30 в окружении
+# (решение 03.10 — рендер 03_plen с 30 слотами). Не число или меньше 1 — 25.
+def _paid_slots_from_env(default=25):
+    raw = (os.environ.get("SHOT_JUDGE_PAID_SLOTS") or "").strip()
+    try:
+        n = int(raw)
+    except ValueError:
+        return default
+    return n if n >= 1 else default
+
+
+SHOT_JUDGE_PAID_SLOTS = _paid_slots_from_env()
 
 
 def shot_judge_active(index=None):

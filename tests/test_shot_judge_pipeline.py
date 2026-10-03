@@ -739,3 +739,11 @@ def test_unseen_candidate_below_an_approved_verified_one(tmp_path, monkeypatch):
     assert ps.judge_candidates(0, "photo", "x", "y", info, ARROW_SPEC)
     winner = ps._score_and_pick(info)[0]
     assert winner["p"]["id"] == "c0" and ps.judge_approved(winner)
+
+
+def test_paid_slots_can_be_widened_from_env(monkeypatch):
+    """Владелец 03.10: зона судьи задаётся на прогон (SHOT_JUDGE_PAID_SLOTS=30);
+    мусор и ноль — прежние 25."""
+    for raw, want in (("30", 30), ("", 25), ("abc", 25), ("0", 25)):
+        monkeypatch.setenv("SHOT_JUDGE_PAID_SLOTS", raw)
+        assert ps._paid_slots_from_env() == want
