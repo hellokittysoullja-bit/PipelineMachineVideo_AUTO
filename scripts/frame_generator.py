@@ -63,6 +63,22 @@ def paper_background():
     return os.environ.get("DIAGRAM_BACKGROUND", "").strip()
 
 
+_PERSON_RE = re.compile(r"\b(?:a|the) person\b|\bpersons?\b", re.I)
+
+
+def hero_spec(spec, hero_text):
+    """Копия спецификации, где человек в focus/subject/claims — это герой."""
+    def sub(t):
+        return _PERSON_RE.sub(hero_text, t) if isinstance(t, str) else t
+    out = dict(spec)
+    for k in ("focus", "subject"):
+        if k in out:
+            out[k] = sub(out[k])
+    if isinstance(out.get("claims"), list):
+        out["claims"] = [dict(c, text=sub(c.get("text"))) for c in out["claims"]]
+    return out
+
+
 def build_prompt(frame, n_style, with_hero):
     """Задание модели картинок. Главное первым (описание кадра от
     планировщика), служебное после, ссылки на референсы — по их порядку в
@@ -221,10 +237,19 @@ class Generator:
             f.write(text)
         return text
 
+    def _judge_spec(self, frame):
+        """Спецификация для судьи. На кадре с героем «a person» в пунктах
+        заменяется описанием героя: иначе герой-не-человек отклоняется."""
+        spec = frame["spec"]
+        if frame.get("hero") and self.look.hero is not None:
+            return hero_spec(spec, self.look.hero_text or "the main character")
+        return spec
+
     def _judge(self, frame, cands):
         """{путь: {"text_ok", "grid", "answers", "vector"}} для кандидатов."""
         import shot_judge
         info = {p: {"text_ok": None, "grid": None, "answers": None, "vector": None} for p in cands}
+        spec = self._judge_spec(frame)
         if not self.jgw:
             return info
         for p in cands:
@@ -238,7 +263,7 @@ class Generator:
         # документальную съёмку) — поэтому сетка только при 2+ вариантах.
         if len(cands) > 1:
             rep = {}
-            grid = shot_judge.judge(self.jgw, self.jmodel, phrase=frame["text"], brief=frame["spec"]["focus"],
+            grid = shot_judge.judge(self.jgw, self.jmodel, phrase=frame["text"], brief=spec["focus"],
                                     candidates=[(p, p) for p in cands], cache_dir=self.judge_cache, report=rep)
             with self.lock:
                 self.spent += rep.get("cost", 0)
@@ -247,13 +272,13 @@ class Generator:
         order = sorted(cands, key=lambda p: (info[p]["text_ok"] is not False, info[p]["grid"] or 0), reverse=True)
         for p in order[:VERIFY_TOP]:
             ans, vinfo = shot_judge.verify_claims(
-                self.jgw, self.jmodel, phrase=frame["text"], spec=frame["spec"], setting=None,
+                self.jgw, self.jmodel, phrase=frame["text"], spec=spec, setting=None,
                 path=p, cache_dir=self.judge_cache)
             with self.lock:
                 self.spent += vinfo.get("cost") or 0
             info[p]["answers"] = ans
-            if ans is not None and not shot_judge.shows_nothing(frame["spec"], ans, info[p]["grid"]):
-                info[p]["vector"] = shot_judge.claims_vector(frame["spec"], ans, cg_veto=False)
+            if ans is not None and not shot_judge.shows_nothing(spec, ans, info[p]["grid"]):
+                info[p]["vector"] = shot_judge.claims_vector(spec, ans, cg_veto=False)
         return info
 
     @staticmethod

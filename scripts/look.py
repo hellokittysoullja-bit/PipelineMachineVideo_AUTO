@@ -47,8 +47,13 @@ def data_url(path, side=REF_SIDE):
 
 
 class Look:
-    def __init__(self, style, hero):
+    def __init__(self, style, hero, hero_text=None):
         self.style, self.hero = style, hero
+        # look/hero.txt — кто герой, коротко («a black cartoon cat»): длинное
+        # описание судья проверял бы по приметам (огонёк хвоста не виден → «нет»). Нужно судье: план пишет
+        # пункты проверки про «a person», и рисунок героя-не-человека (кот)
+        # иначе отклоняется как «не человек».
+        self.hero_text = hero_text
 
     def refs(self, with_hero):
         """Референсы кадра по порядку: сначала образцы стиля, герой последним
@@ -79,4 +84,9 @@ def load(look_dir=None):
     heroes = _images(os.path.join(d, "hero.*"))
     if len(heroes) > 1:
         raise LookError(f"Героев несколько ({', '.join(map(os.path.basename, heroes))}): оставьте один hero.*")
-    return Look(style, heroes[0] if heroes else None)
+    hero = heroes[0] if heroes else None
+    hero_text = None
+    tp = os.path.join(d, "hero.txt")
+    if hero and os.path.exists(tp):
+        hero_text = " ".join(open(tp, encoding="utf-8").read().split()) or None
+    return Look(style, hero, hero_text)
