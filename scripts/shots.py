@@ -65,7 +65,7 @@ def subject_box(busy, objects):
 
 
 def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punch=-1e9, T0=0.0,
-         zoom_in=True, parts=None):
+         zoom_in=True, parts=None, accent=None):
     """Сегменты камеры и события кадра.
 
     D — длительность кадра; busy — карта занятости холста; words — слова речи
@@ -81,7 +81,7 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
     SH, SW = busy.shape
     wide = camera.window(SW/2, SH/2, SW, SW, SH)
     ys_, xs_ = np.nonzero(busy > 0.3)
-    if len(xs_):
+    if len(xs_) and not (key or accent):      # мысли и акценту нужна пустая бумага — общий план целиком
         # общий план — весь рисунок целиком, но без пустой бумаги вокруг
         tight = camera.frame_for(busy, (xs_.min(), ys_.min(), xs_.max(), ys_.max()), (1.0, WIDE_MAX_Z),
                                  margin=0.02, spread=0.1)
@@ -121,6 +121,19 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
 
     def free(t0, t1):
         return all(t1 <= a or t0 >= b for a, b in busy_win)
+
+    # акцент — короткие слова фразы жирным на её слове; не поверх письма карандашом
+    accent_time = None
+    if accent:
+        at = word_time(accent, words)
+        if at is None:
+            notes.append(f"акцент «{accent}»: слово не прозвучало")
+        elif at > D - 1.0:
+            notes.append(f"акцент «{accent}» слишком близко к концу кадра")
+        elif not free(at - 0.5, at + 1.0):
+            notes.append(f"акцент «{accent}» пропущен: пишется главная мысль")
+        else:
+            accent_time = at
 
     # наезд на предмет
     punch = None
@@ -230,7 +243,10 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
             s_ = snap(max(t, lo), lo, t1 - MIN_VIEW_SEC)
             if s_ is None:
                 break
-            cur = medium if cur == wide else wide
+            nxt = medium if cur == wide else wide
+            if nxt == medium and accent_time is not None and accent_time - MAX_VIEW_SEC - CUT_SNAP_SEC <= s_ <= accent_time + 1.5:
+                break           # акцент встаёт на общем плане: на среднем ему нет места (живой прогон)
+            cur = nxt
             out.append((s_, "cut", cur))
             t0 = s_
         return out
@@ -297,7 +313,7 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
         if sg["t1"] - sg["t0"] > MAX_VIEW_SEC + CUT_SNAP_SEC and sg["kind"] == "drift" and not sg.get("pushes") \
                 and not sg.get("lean"):
             notes.append(f"план {sg['t0']:.1f}-{sg['t1']:.1f} с без смены: другого плана без разреза рисунка нет")
-    return dict(segments=segs, label_times=label_times, key_time=key_time,
+    return dict(segments=segs, label_times=label_times, key_time=key_time, accent_time=accent_time,
                 punch_at=(T0 + punch[0]) if punch else None, punch_name=punch[2] if punch else None,
                 notes=notes)
 

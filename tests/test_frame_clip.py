@@ -124,3 +124,24 @@ def test_key_thought_speeds_up_instead_of_disappearing(tmp_path):
     p = frame_clip.plan_clip(fr, 4.6, words, key="только открыть")
     assert p["key_time"] is not None and p["key"]["speed"] > 1.0
     assert any("быстрее" in n for n in p["notes"])
+
+
+def test_accent_pops_up_on_its_word_and_stays(tmp_path):
+    import canvas
+    import frame_clip
+    src = tmp_path / "raw.png"
+    im = Image.new("RGB", (1264, 848), (251, 251, 246))
+    ImageDraw.Draw(im).ellipse((150, 250, 450, 600), fill=(40, 40, 40))
+    im.save(src)
+    fr = frame_clip.prepare(str(src), [], [], str(tmp_path), tex=canvas.paper_texture(w=1152, h=648))
+    words = [{"word": w, "start": 0.3 + 0.45*i, "end": 0.6 + 0.45*i}
+             for i, w in enumerate("ответить на письмо это пять минут не больше".split())]
+    p = frame_clip.plan_clip(fr, 4.5, words, accent="пять минут")
+    assert p["accent_time"] == pytest.approx(words[4]["start"]) and p.get("accent")
+    out = str(tmp_path / "a.mp4")
+    frame_clip.render(fr, p, 4.5, out)
+    cx, cy = [int(v) for v in p["accent"]["center"]]
+    box = (slice(cy - 30, cy + 30), slice(cx - 120, cx + 120))
+    assert _frame_at(out, p["accent_time"] - 0.3)[box].min() > 180     # до слова — пусто
+    assert _frame_at(out, p["accent_time"] + 0.5)[box].min() < 90      # после — жирный текст
+    assert _frame_at(out, 4.4)[box].min() < 90                         # и остаётся

@@ -39,7 +39,7 @@ import script_parser  # noqa: E402
 
 PLAN_NAME = "frame_plan.json"
 CACHE_DIR_NAME = "frame_plan_cache"
-PLAN_VERSION = 11
+PLAN_VERSION = 12
 # Модель выбрана замером старого генератора 24.09 (58 фраз трёх ниш):
 # DeepSeek v4 Flash — 58/58, ~2 тыс. токенов баланса; Gemini 3.7 Flash по
 # смыслу наравне, но ~35 тыс.; Qwen 3.8 Max — 46/58.
@@ -151,6 +151,7 @@ FRAME_RULES = """frame — ONE hand-drawn picture per line. It is generated once
     "diagram" — the line explains a structure, a comparison, a sequence, a list or a cause: a simple hand-drawn diagram with 2-6 short Russian labels — a pyramid, a ladder, arrows from cause to effect, before and after, a list on a board, a timeline, a path of footprints, a crowd shrinking to one figure.
   "zoom" — optional. When the line names ONE concrete object that deserves a close look at the moment it is said (the letter, the timer, the open door): {{"object": "<English name of that object exactly as in your picture>", "word": "<the word of the line at which the camera rushes onto it, copied exactly as written in the line>"}}. The camera then fills the screen with that object for a second or two. null when nothing is worth it; at most one line in three.
   "key" — optional: the chapter's main thought, written by hand on the picture as it is said — 1-3 Russian words copied word for word from the line ("только открыть"). Only for the one or two lines of a chapter that carry its main idea; null for all others. With a key, "key_near" — the English name of the drawn thing (from your picture) the words belong next to ("the blank wall calendar"), or null.
+  "accent" — optional: 1-3 Russian words copied word for word from the line that pop up on screen in bold as they are said — a number with its unit ("пять минут", "две минуты") or one short punchy word the line hits ("тонну"). Never on a line with a "key"; about one line in three; null otherwise.
   "labels" — Russian, UPPERCASE, at most {max_words} words each, taken from or clearly implied by the line, correctly spelled; empty for "scene". Code writes them on the finished picture.
   "hero" — {hero_rule}
   "picture" — English, 30-80 words, the full instruction for the image model. How to choose WHAT to draw:
@@ -326,6 +327,13 @@ def extras(obj, text, states=()):
                 out["key_near"] = near
         else:
             notes.append("key_dropped")
+    a = obj.get("accent")
+    if isinstance(a, str) and a.strip() and "key_thought" not in out:
+        a = " ".join(a.split()).lower()
+        if 1 <= len(a.split()) <= 3 and re.search(r"[а-яё0-9]", a) and not re.search(r"[a-z]", a) and words.in_text(a, text):
+            out["accent"] = a
+        else:
+            notes.append("accent_dropped")
     st = obj.get("hero_state")
     if isinstance(st, str) and st in states and obj.get("hero") is True:
         out["hero_state"] = st

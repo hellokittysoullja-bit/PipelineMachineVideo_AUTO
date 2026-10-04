@@ -256,6 +256,7 @@ def main(video_dir):
         pf = plan_frames.get(i) or {}
         jobs.append(dict(src=src, recs=recs, objects=rec.get("objects") or [], work=work, tex=tex_path,
                          seed=k, key=(pf.get("key_thought") or "").strip() or None, words=words,
+                         accent=(pf.get("accent") or "").strip() or None,
                          dur=durs[k], T0=kept_starts[k], end_fade=(k == len(kept) - 1)))
 
     workers = int(os.environ.get("RENDER_WORKERS", str(max(1, min(4, (os.cpu_count() or 2) - 1)))))
@@ -269,7 +270,7 @@ def main(video_dir):
             shot_log.append({"index": kept[k], "note": f"главная мысль «{job['key']}» пропущена: прошлая "
                                                       f"{job['T0'] - last_key:.1f} с назад"})
         p = frame_clip.plan_clip(fr, job["dur"], job["words"], key=key, last_punch=last_punch,
-                                 T0=job["T0"], zoom_in=(k % 2 == 0), fps=FPS)
+                                 T0=job["T0"], zoom_in=(k % 2 == 0), fps=FPS, accent=job.get("accent"))
         if p["punch_at"] is not None:
             last_punch = p["punch_at"]
         if p.get("key_time") is not None and p.get("key"):
@@ -290,6 +291,7 @@ def main(video_dir):
                          "labels_at": [round(t, 2) for t in p["label_times"]],
                          "punch": p.get("punch_name"), "key": (p.get("key") or {}).get("text") if p.get("key_time") is not None else None,
                          "key_at": None if p.get("key_time") is None else round(p["key_time"], 2),
+                         "accent": (p.get("accent") or {}).get("text") if p.get("accent_time") is not None else None,
                          "notes": p["notes"]})
 
     def cached(job):

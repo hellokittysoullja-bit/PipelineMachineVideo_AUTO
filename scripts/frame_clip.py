@@ -141,7 +141,42 @@ def key_layout(fr, text, win, seed=9):
 KEY_SPEEDUPS = (1.0, 1.25, 1.5)   # не успевает дописаться и постоять — карандаш быстрее, но не больше чем в 1.5 раза
 
 
-def plan_clip(fr, D, words, key=None, last_punch=-1e9, T0=0.0, zoom_in=True, fps=24):
+ACCENT_SIZE = 0.09      # кегль акцента — доля высоты кадра
+
+
+def accent_layout(fr, text, win):
+    """(центр, кегль) акцента в окне win — у главного предмета, по пустому месту; None — места нет."""
+    from PIL import ImageFont
+    scr = _screen(np.asarray(Image.fromarray(fr["final_rgb"]).resize(
+        (fr["SW"]*UPSCALE, fr["SH"]*UPSCALE), Image.BILINEAR)), win, UPSCALE)
+    font = labels_mod.font_for(text.upper())
+
+    def wh(sz):
+        f = ImageFont.truetype(font, int(sz))
+        a, d = f.getmetrics()
+        return f.getlength(text.upper()), a + d
+    subj = shots.subject_box(fr["busy"], fr["objects"])
+    obj = None
+    if subj:
+        s_ = W/(win[2] - win[0])
+        obj = ((subj[0] - win[0])*s_, (subj[1] - win[1])*s_, (subj[2] - win[0])*s_, (subj[3] - win[1])*s_)
+    size, pl = placement.choose_fit(scr, obj, wh, [int(H*ACCENT_SIZE*k) for k in (1.0, 0.85, 0.7)])
+    return (pl["center"], size) if pl else None
+
+
+def accent_alpha(text, center, size):
+    """Экранная альфа акцента: жирный шрифт подписей, заглавными."""
+    from PIL import ImageDraw, ImageFont
+    font = ImageFont.truetype(labels_mod.font_for(text.upper()), int(size))
+    m = Image.new("L", (W, H), 0)
+    d = ImageDraw.Draw(m)
+    a, de = font.getmetrics()
+    d.text((center[0] - d.textlength(text.upper(), font=font)/2, center[1] - (a + de)/2), text.upper(), font=font,
+           fill=255)
+    return np.asarray(m, np.float32)/255
+
+
+def plan_clip(fr, D, words, key=None, last_punch=-1e9, T0=0.0, zoom_in=True, fps=24, accent=None):
     """План кадра (shots.plan) + раскладка главной мысли. Главная мысль, которой
     нет места, не пишется — с записью в notes. Не успевает — пишется быстрее
     (KEY_SPEEDUPS), а не пропадает: живой ролик 04.10 потерял «только открыть»,
@@ -155,10 +190,18 @@ def plan_clip(fr, D, words, key=None, last_punch=-1e9, T0=0.0, zoom_in=True, fps
     for speed in (KEY_SPEEDUPS if key_l else (1.0,)):
         key_dur = writeon.plan(key_l[0], fps, factor=speed)[1] if key_l else 0.0
         p = shots.plan(D, fr["busy"], words, fr["recs"], fr["objects"], key if key_l else None, key_dur,
-                       last_punch=last_punch, T0=T0, zoom_in=zoom_in, parts=parts)
+                       last_punch=last_punch, T0=T0, zoom_in=zoom_in, parts=parts, accent=accent)
         if not key_l or p["key_time"] is not None:
             break
     p["assemble"] = bool(fr.get("assemble"))
+    if p.get("accent_time") is not None:
+        win = shots.window_at(p, p["accent_time"], fr["SW"], fr["SH"])
+        al = accent_layout(fr, accent, win)
+        if al:
+            p["accent"] = dict(text=accent, win=win, center=al[0], size=al[1])
+        else:
+            p["notes"].append(f"акценту «{accent}» нет места — не показывается")
+            p["accent_time"] = None
     if key and not key_l:
         p["notes"].append(f"главной мысли «{key}» нет места на кадре — не пишется")
     if key_l and p["key_time"] is not None:
@@ -221,6 +264,7 @@ def render(fr, p, D, out, fps=24, end_fade=False, crf="18"):
         cues = [(e["t0"], e["t1"], e["kind"]) for e in ev]
         key_end = p["key_time"] + T
     prev_world, fade_from, fade_len = None, None, shots.LABEL_FADE_SEC
+    acc_done = False
     tmp = out + ".tmp.mp4"
     proc = subprocess.Popen(["ffmpeg", "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}",
                              "-r", str(fps), "-i", "-", "-frames:v", str(n), "-c:v", "libx264", "-preset", "medium",
@@ -246,6 +290,14 @@ def render(fr, p, D, out, fps=24, end_fade=False, crf="18"):
                         world = np.asarray(big).copy()
                         fade_len = shots.LABEL_FADE_SEC
                     shown[i] = True
+            acc = p.get("accent") if p.get("accent_time") is not None else None
+            if acc and not acc_done and t >= p["accent_time"]:
+                prev_world, fade_from, fade_len = world.copy(), p["accent_time"], shots.LABEL_FADE_SEC
+                a_ = accent_alpha(acc["text"], acc["center"], acc["size"])
+                _bake_alpha(world, a_, acc["win"], UPSCALE, np.array(labels_mod.INK_DARK, np.float32))
+                if assemble and full is not world:
+                    _bake_alpha(full, a_, acc["win"], UPSCALE, np.array(labels_mod.INK_DARK, np.float32))
+                acc_done = True
             win = shots.window_at(p, t, SW, SH)
             f = _screen(world, win, UPSCALE)
             if prev_world is not None and t - fade_from < fade_len:

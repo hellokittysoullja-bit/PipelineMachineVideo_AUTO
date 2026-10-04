@@ -13,7 +13,7 @@
      а её оценки на рисунках не откалиброваны. Запрет «мультфильм = брак»
      выключен (cg_veto=False): канал рисованный.
   4. Подписи на годный вариант. Брак или нет места под подписи — ещё раунд
-     (IMAGE_ROUNDS, по умолчанию 2: второй рисуется только при неудаче).
+     (IMAGE_ROUNDS, по умолчанию 1 — решение владельца 04.10: одна попытка на кадр).
      Годный рисунок без места под подписи и после всех раундов — подписи на
      полосе цвета фона внизу, а не выброс кадра.
   5. Брак во всех раундах — rejected: на экран не идёт, время отдаётся
@@ -437,7 +437,7 @@ def main():
         return 0
 
     variants = int(os.environ.get("IMAGE_VARIANTS", "1"))
-    rounds = int(os.environ.get("IMAGE_ROUNDS", "2"))
+    rounds = int(os.environ.get("IMAGE_ROUNDS", "1"))
     per = img_gw.image_cost(backend.model, backend.size, backend.quality, 1)
     print(f"Модель {backend.model} ({backend.size}, {backend.quality or 'auto'}): картинка {per}, "
           f"до {per * variants * rounds * len(todo)} токенов баланса на {len(todo)} кадров")

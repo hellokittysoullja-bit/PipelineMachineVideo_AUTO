@@ -256,3 +256,12 @@ def test_pictures_that_invite_writing_are_rejected():
 
 def test_a_letter_is_mail_not_writing():
     assert fp.validate_frame({"kind": "scene", "picture": "one unopened letter lies on the desk"})[1] is None
+
+
+def test_accent_is_words_of_the_line_and_never_with_key():
+    raw = _l(1, {"kind": "scene", "picture": "a desk with a letter on it", "accent": "пять минут"})
+    assert fp.parse_answer(raw, PK2)[0][1]["frame"]["accent"] == "пять минут"
+    raw = _l(1, {"kind": "scene", "picture": "a desk with a letter on it", "accent": "пять минут", "key": "пять минут"})
+    assert "accent" not in fp.parse_answer(raw, PK2)[0][1]["frame"]
+    raw = _l(1, {"kind": "scene", "picture": "a desk with a letter on it", "accent": "десять часов"})
+    assert "accent" not in fp.parse_answer(raw, PK2)[0][1]["frame"]
