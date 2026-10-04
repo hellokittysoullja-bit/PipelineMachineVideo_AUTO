@@ -79,29 +79,54 @@ def hero_spec(spec, hero_text):
     return out
 
 
+# Порядок и форма задания — по руководству Google к Nano Banana (разбор 04.10):
+# роли референсов первыми, затем СЦЕНА, затем РАСКЛАДКА, стиль последним.
+# Запреты не перечисляются словами: список «no text, letters…» сам подсказывал
+# модели, что рисовать, — вместо него утверждение о чистых поверхностях.
+CLEAN_SURFACES = ("Every surface is clean and unmarked: blank paper, blank screens, plain envelopes, plain walls, "
+                  "unprinted floor and unprinted clothes")
+
+
+def _tidy(text):
+    """Описание от планировщика без сдвоенных артиклей («The the envelope»):
+    модель читает такую ошибку как два разных предмета."""
+    text = re.sub(r"\b(the|a|an)\s+(?:the|a|an)\b", r"\1", text, flags=re.I)
+    return " ".join(text.split())
+
+
 def build_prompt(frame, n_style, with_hero, hero_states=None):
-    """Задание модели картинок. Главное первым (описание кадра от
-    планировщика), служебное после, ссылки на референсы — по их порядку в
-    запросе: сначала n_style образцов стиля, герой последним (look.refs)."""
-    parts = [frame["picture"]]
+    """Задание модели картинок: кто есть кто среди референсов (n_style образцов
+    стиля, герой последним — look.refs), сцена от планировщика, ОДНО требование
+    размера и раскладка, места под код, фон, чистые поверхности, стиль."""
+    imgs = "Reference image 1 shows" if n_style == 1 else f"Reference images 1-{n_style} show"
+    parts = [f"{imgs} only the drawing style: take from them the line work, colors, shading and simplicity, "
+             "never their content or characters"]
     if with_hero:
         # «character», а не «person»: герой может быть и не человеком (маскот-кот),
         # и слово «person» подталкивало бы модель нарисовать человека.
-        parts.append(f"The main character is the character in reference image {n_style + 1}: keep exactly its "
-                     "head, face, colors, markings, body proportions and clothing if any; change only pose, "
-                     "action and expression")
+        parts.append(f"Reference image {n_style + 1} is the main character: keep exactly its head, face, colors, "
+                     "markings, body proportions and clothing if any; change only pose, action and expression")
+    parts.append("SCENE: " + _tidy(frame["picture"]))
+    if with_hero:
         if re.search(r"foot ?prints?|tracks?\b", frame["picture"], re.I):
             # критик 04.10: следы кота нарисованы подошвами ботинок
             parts.append("Any footprints or tracks are prints of the main character's own feet, exactly as its feet "
                          "look in the reference image")
-        parts.append("The main character is drawn big: at least a third of the image height")   # критик: кот на 10% кадра
         st = (hero_states or {}).get(frame.get("hero_state") or "")
         if st:
             parts.append(st["draw"])
-    zoom = frame.get("zoom") or {}
-    if zoom.get("object"):
-        # камера на этом кадре наезжает на предмет до экрана: мелкий не вытянуть
-        parts.append(f"The {zoom['object']} is drawn large and clear, with plain empty background around it")
+    # Требование размера одно: два «большое» спорят, и модель ужимает оба.
+    # Наезд важнее героя — камера заполняет предметом весь экран.
+    zoom = (frame.get("zoom") or {}).get("object")
+    if zoom:
+        parts.append(f"LAYOUT: the {zoom} is the biggest single object in the picture, its whole outline visible, "
+                     "with plain empty background around it")
+        if with_hero:
+            # камера режет кадр то на предмет, то на героя: касание срезало бы второго
+            parts.append(f"The main character and the {zoom} sit side by side with a clear gap of plain background "
+                         "between them; neither touches or covers the other")
+    elif with_hero:
+        parts.append("LAYOUT: the main character is drawn big, at least a third of the image height")   # критик: кот на 10% кадра
     if frame.get("key_thought"):
         near = f" next to the {frame['key_near']}" if frame.get("key_near") else ""
         parts.append(f"Keep a calm area of plain empty background{near}, about a third of the image, for "
@@ -140,13 +165,11 @@ def build_prompt(frame, n_style, with_hero, hero_states=None):
         parts.append(f"If the picture has no specific place, its background is plain {paper} paper, even and "
                      "untinted, even if the reference images use a darker or coloured paper; a specific place "
                      "is drawn as that place")
-    parts.append("No text, letters, numbers, digits, symbols, logos or signs anywhere in the image")
+    parts.append(CLEAN_SURFACES)
     # Камера наезжает на кадр до ~10% и вписывает его в 16:9 — главное у
     # самого края срезалось бы.
     parts.append("Keep the main subject well inside the frame, away from the edges")
-    imgs = "reference image 1" if n_style == 1 else f"reference images 1-{n_style}"
-    parts.append(f"Draw it in exactly the drawing style of {imgs}: the same line work, colors, shading and "
-                 "simplicity. Take only the style from them, not their content or characters")
+    parts.append("Draw everything in exactly the drawing style of the style references")
     return ". ".join(p.rstrip(". ") for p in parts) + "."
 
 

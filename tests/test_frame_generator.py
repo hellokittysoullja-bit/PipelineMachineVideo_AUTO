@@ -72,13 +72,15 @@ def test_exact_letters_required():
 
 def test_prompt_never_asks_the_model_for_letters_and_points_at_references():
     p = g.build_prompt(FRAME, 2, False)
-    assert p.startswith(FRAME["picture"])
-    assert "ЖИВ" not in p and "No text" in p and "bottom fifth" in p
-    assert "style of reference images 1-2" in p and "main character" not in p
+    # роли референсов первыми, сцена после них; запрета словами нет — утверждение о чистых поверхностях
+    assert p.startswith("Reference images 1-2 show only the drawing style") and "SCENE: " + FRAME["picture"] in p
+    assert "ЖИВ" not in p and "No text" not in p and "clean and unmarked" in p and "bottom fifth" in p
+    assert "main character" not in p
     h = g.build_prompt(dict(FRAME, hero=True), 2, True)
-    assert "character in reference image 3" in h and "person" not in h          # герой — последним, после двух образцов
+    assert "Reference image 3 is the main character" in h and "person" not in h   # герой — последним, после двух образцов
+    assert h.index("Reference image 3") < h.index("SCENE:")
     d = g.build_prompt(dict(FRAME, kind="diagram", labels=["А", "Б"]), 1, False)
-    assert "2 wide empty patches" in d and "arrow" in d and "reference image 1:" in d and "А" not in d
+    assert "2 wide empty patches" in d and "arrow" in d and d.startswith("Reference image 1 shows") and "А" not in d
 
 
 def test_prompt_carries_hero_state_zoom_key_and_hand_drawn_diagram():
@@ -87,9 +89,24 @@ def test_prompt_carries_hero_state_zoom_key_and_hand_drawn_diagram():
     assert "dim ember with smoke" in h
     assert "dim ember" not in g.build_prompt(dict(FRAME, hero_state="ember"), 2, False, states)   # без героя — нет
     z = g.build_prompt(dict(FRAME, zoom={"object": "envelope", "word": "письмо"}, key_thought="только открыть"), 2, False)
-    assert "envelope is drawn large" in z and "handwriting" in z and "только" not in z
+    assert "envelope is the biggest single object" in z and "handwriting" in z and "только" not in z
     d = g.build_prompt(dict(FRAME, kind="diagram", labels=["А"]), 1, False)
     assert "watercolor" in d and "no clean vector graphics" in d
+
+
+def test_one_size_demand_and_hero_beside_the_zoom_object():
+    zoom = {"object": "envelope", "word": "письмо"}
+    both = g.build_prompt(dict(FRAME, hero=True, zoom=zoom), 2, True)
+    assert "biggest single object" in both and "third of the image height" not in both   # одно требование размера
+    assert "side by side with a clear gap" in both
+    hero = g.build_prompt(dict(FRAME, hero=True), 2, True)
+    assert "third of the image height" in hero and "side by side" not in hero
+    assert "side by side" not in g.build_prompt(dict(FRAME, zoom=zoom), 2, False)
+
+
+def test_duplicate_articles_are_removed():
+    p = g.build_prompt(dict(FRAME, picture="The the envelope lies on a a desk"), 2, False)
+    assert "SCENE: The envelope lies on a desk" in p
 
 
 def test_style_refs_always_hero_only_where_planned(tmp_path):
@@ -254,7 +271,8 @@ def test_diagram_and_caption_get_the_owner_background_scenes_keep_their_place(mo
     scene = fg.build_prompt({"kind": "scene", "labels": [], "picture": "x"}, 3, False)
     assert "If the picture has no specific place" in scene and "a specific place is drawn as that place" in scene
     monkeypatch.setenv("DIAGRAM_BACKGROUND", "")
-    assert "paper" not in fg.build_prompt({"kind": "diagram", "labels": ["А"], "picture": "x"}, 3, False)
+    assert "plain near-white" not in fg.build_prompt({"kind": "diagram", "labels": ["А"], "picture": "x"}, 3, False)
+    assert "background is plain" not in fg.build_prompt({"kind": "diagram", "labels": ["А"], "picture": "x"}, 3, False)
 
 
 def test_flat_paper_follows_the_owner_background(monkeypatch, tmp_path):

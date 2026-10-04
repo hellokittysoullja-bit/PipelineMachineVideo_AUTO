@@ -39,7 +39,7 @@ import script_parser  # noqa: E402
 
 PLAN_NAME = "frame_plan.json"
 CACHE_DIR_NAME = "frame_plan_cache"
-PLAN_VERSION = 12
+PLAN_VERSION = 13
 # Модель выбрана замером старого генератора 24.09 (58 фраз трёх ниш):
 # DeepSeek v4 Flash — 58/58, ~2 тыс. токенов баланса; Gemini 3.7 Flash по
 # смыслу наравне, но ~35 тыс.; Qwen 3.8 Max — 46/58.
@@ -165,6 +165,13 @@ FRAME_RULES = """frame — ONE hand-drawn picture per line. It is generated once
     - in order of importance: the main subject with its pose, gesture and facial expression; the action; at most two supporting props; the place in a few words;
     - an object the image model may not know by name is described by its look, or replaced by a familiar object with the same meaning; a small action (pressing, pouring, signing) is shown close up, through the hands;
     - an object that appears twice in one picture is named the same way both times ("the phone ... the same phone"), never by a vaguer word ("a screen", "a device"): the image model draws a vaguer word as a different object;
+    - describe the moment you SEE, never a motion or a process: the image model draws a state, not a verb ("lifts the flap" -> "the flap is folded open, the letter half out"; "walks around the envelope" -> "stands on the floor beside the envelope");
+    - every figure stands, sits or lies on something named (the floor, a chair, the grass); a figure next to an object is beside it on the ground, never on top of it unless the line says so;
+    - something that happens again and again, or has gone on for long, is shown by the traces it left (a worn path, a pile of unopened envelopes, dust on the lid), not by several copies of the same figure;
+    - a feeling is shown only by the pose, the face and the objects around, never by symbols floating in the air (hearts, question marks, lightning, sweat drops as icons);
+    - only ONE thing is drawn big: the "zoom" object when there is one, otherwise the main subject; never ask for two big things;
+    - when the main character and the "zoom" object are both in the picture, they sit side by side with a clear gap of plain background between them, neither touching nor covering the other: the camera cuts to each of them in turn;
+    - with "hero" false the picture has no recurring character at all — no "main character", no animal of the film: show the idea through objects, hands of an unnamed person, or traces;
     - exact counts for everything countable ("three children", "one phone"); every person has two arms and two legs and holds things in clearly drawn hands;
     - the framing (close-up, medium or wide shot) and where the main subject sits in the frame, with calm empty background around it; neighbouring pictures differ in subject and framing unless the lines continue one moment in the same place;
     - the background: plain and light for diagrams and simple statements, the place itself for scenes set somewhere;
@@ -464,8 +471,10 @@ def limit_hero(frames, max_run=None, max_share=None, replacement="a person"):
 
 
 def plan_episode(video_dir, gateway, model=DEFAULT_MODEL, force=False, workers=4, verbose=True, has_hero=False,
-                 hero=None):
-    """hero — {"text": кто герой, "states": состояния из look/hero_states.json} или None."""
+                 hero=None, preflight=None):
+    """hero — {"text": кто герой, "states": состояния из look/hero_states.json} или None.
+    preflight — проверить описания до генерации (frame_preflight); None — по
+    FRAME_PREFLIGHT в .env (по умолчанию да)."""
     script = os.path.join(video_dir, "script.txt")
     blocks = script_parser.parse_blocks(script)
     cache_dir = os.path.join(video_dir, "media_plan", CACHE_DIR_NAME)
@@ -515,6 +524,14 @@ def plan_episode(video_dir, gateway, model=DEFAULT_MODEL, force=False, workers=4
               f"задания) — повторите запуск позже.")
         plan["not_written"] = failed
         return plan
+    if preflight is None:
+        preflight = os.environ.get("FRAME_PREFLIGHT", "1").strip() != "0"
+    if preflight:
+        # Описание с ошибкой — это брак кадра, оплаченный генерацией: чинится здесь, словами, за копейки.
+        import frame_preflight
+        plan["preflight"] = frame_preflight.run(
+            frames, gateway, model, os.path.join(video_dir, "media_plan", frame_preflight.CACHE_DIR_NAME),
+            (hero or {}).get("text") if has_hero else None, workers)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path + ".tmp", "w", encoding="utf-8") as f:
         json.dump(plan, f, ensure_ascii=False, indent=1)
@@ -526,6 +543,10 @@ def plan_episode(video_dir, gateway, model=DEFAULT_MODEL, force=False, workers=4
               f"запасных {stats['fallback']}, глав из кэша {stats['cached_chapters']}")
         for sec, e in errs.items():
             print(f"  {sec}: {len(e)} замечаний: {', '.join(e[:4])}")
+        pf = plan.get("preflight")
+        if pf:
+            print(f"Предпроверка описаний: переписано {pf['rewritten']} из {pf['checked']}, отклонено "
+                  f"переписанных {pf['rejected']}, ошибок {len(pf['errors'])}")
     return plan
 
 
