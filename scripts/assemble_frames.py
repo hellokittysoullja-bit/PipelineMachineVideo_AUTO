@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
-"""Сборка final.mp4 из frames/NNN.png и озвучки.
+"""Сборка final.mp4 из кадров генератора и озвучки.
 
-Картинка — нарочно простая (рисованной объяснялке сложная камера не нужна):
-  * кадр вписывается в 16:9 ЦЕЛИКОМ, поля — размытая копия самого кадра
-    (подписи у края не режутся);
-  * медленный наезд или отъезд 4% по центру на ВСЮ длину клипа: зум от
-    on/frames, а не инкрементом (ЧАСТЬ 6 старого CLAUDE.md — инкремент
-    упирается в максимум и камера встаёт);
-  * жёсткие резы по кадровой сетке, ошибка округления переносится на
-    следующий клип и не копится; клип проверяется ffprobe (код 0 ffmpeg не
-    гарантирует, что записана нужная длина).
+Картинка (решения владельца и критиков 04.10, подробности — frame_clip.py,
+shots.py, camera.py):
+  * фон — кремовая бумага, 16:9 дополняется той же бумагой (рисунок на
+    бумаге) или обрезается по центру рисунка (нарисовано место целиком);
+    лёгкая фактура бумаги едет вместе с рисунком;
+  * рисунок увеличивается нейросетью (upscale.py) — крупные планы резкие;
+  * один рисунок держится 6-10 с, а план меняется каждые 2-4 с: подписи
+    схемы появляются, когда голос их называет; быстрый наезд на предмет на
+    его слове (не чаще раза в 15 с по ролику); длинный план — склейкой на
+    средний план главного предмета; внутри плана движение не больше 4%;
+  * главная мысль пишется карандашом (writeon.py) со звуком (pencil_sound.py),
+    не чаще раза в 10 с; подписи — обычный жирный шрифт;
+  * конец ролика — плавно в крем, не в чёрное.
+Резы между кадрами — жёсткие, по кадровой сетке, ошибка округления
+переносится на следующий клип; клип проверяется ffprobe. Отчёт по планам —
+media_plan/shots_report.json.
 
 Тайминг и звук — код старого генератора, логика без изменений
 (speech_timing, audio_master, subtitles):
@@ -17,7 +24,8 @@
     не сошлось — оценка по реальной длине речи блоков и громко в логе;
   * голос: срез низов, EQ, де-эссер, компрессор; музыка (первый файл в
     assets/music, если есть) с уровнем по ЗАМЕРУ и приглушением под голос
-    теми же параметрами; двухпроходный loudnorm -14 LUFS + лимитер;
+    теми же параметрами; карандаш — на PENCIL_GAP_LU ниже голоса по замеру;
+    двухпроходный loudnorm -14 LUFS + лимитер;
     проверка звука входа и готового файла;
   * субтитры (2 строки, ~42 символа) и главы YouTube.
 
@@ -34,17 +42,13 @@ import json
 import os
 import subprocess
 import sys
-import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import env  # noqa: E402
 
 EXIT_OK, EXIT_FAILED, EXIT_WARN = 0, 1, 2
 FPS, W, H = 24, 1920, 1080
-ZOOM = 0.04              # наезд срезает по ZOOM/2 с каждого края; подписи держатся дальше (labels.EDGE_SAFE)
-MARGIN_BLUR = 0.02       # радиус размытия полей, доля ширины холста
-MARGIN_DARKEN = 0.8      # поля темнее рисунка: взгляд остаётся на кадре
 CRF = "18"
 CLIP_TOLERANCE = 0.5 / FPS
 
@@ -64,35 +68,6 @@ def probe_duration(path):
         return None
 
 
-def fit_canvas(src, dst):
-    """Кадр целиком в 16:9: рисунок на всю высоту холста, поля по бокам —
-    размытая и чуть затемнённая копия самого кадра, как делают авторы на
-    YouTube (сам YouTube кадр не 16:9 показывает с чёрными полосами).
-    Мягкий переход (0.6% ширины, шире — съедает край рисунка) только на тех
-    сторонах, где рядом размытое поле: у края холста рисунок обрезан ровно."""
-    from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps
-    with Image.open(src) as im0:
-        im = ImageOps.exif_transpose(im0).convert("RGB")
-    cover = max(W / im.width, H / im.height)
-    bg = im.resize((max(W, round(im.width * cover)), max(H, round(im.height * cover))), Image.LANCZOS)
-    left, top = (bg.width - W) // 2, (bg.height - H) // 2
-    bg = bg.crop((left, top, left + W, top + H)).filter(ImageFilter.GaussianBlur(MARGIN_BLUR * W))
-    bg = ImageEnhance.Brightness(bg).enhance(MARGIN_DARKEN)
-    s = min(W / im.width, H / im.height)
-    fg = im.resize((max(1, round(im.width * s)), max(1, round(im.height * s))), Image.LANCZOS)
-    feather = max(2, round(0.006 * fg.width))
-    mask = Image.new("L", fg.size, 0)
-    fx = feather if fg.width < W else 0
-    fy = feather if fg.height < H else 0
-    ImageDraw.Draw(mask).rectangle((fx, fy, fg.width - fx, fg.height - fy), fill=255)
-    if fx or fy:   # PIL размывает с продолжением края: сторона без поля остаётся 255
-        mask = mask.filter(ImageFilter.GaussianBlur(feather / 2))
-    bg.paste(fg, ((W - fg.width) // 2, (H - fg.height) // 2), mask)
-    tmp = f"{dst}.{threading.get_ident()}.png"
-    bg.save(tmp, "PNG")
-    os.replace(tmp, dst)
-
-
 def quantize(durs):
     out, carry = [], 0.0
     for d in durs:
@@ -103,24 +78,62 @@ def quantize(durs):
     return out
 
 
-def clip(canvas, out, dur, zoom_in):
-    frames = max(1, round(dur * FPS))
-    z = f"1.0+{ZOOM}*on/{frames}" if zoom_in else f"{1 + ZOOM}-{ZOOM}*on/{frames}"
-    vf = (f"scale={W * 2}:{H * 2},zoompan=z='{z}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
-          f":d={frames}:s={W}x{H}:fps={FPS},format=yuv420p")
-    tmp = out + ".tmp.mp4"
-    for _attempt in range(2):
-        try:
-            run(["ffmpeg", "-y", "-v", "error", "-framerate", "1", "-loop", "1", "-i", canvas, "-vf", vf,
-                 "-frames:v", str(frames), "-c:v", "libx264", "-preset", "medium", "-crf", CRF,
-                 "-r", str(FPS), tmp])
-            d = probe_duration(tmp)
-            if d is not None and abs(d - frames / FPS) <= CLIP_TOLERANCE + 1e-6:
-                os.replace(tmp, out)
-                return True
-        except Exception:  # noqa: BLE001 — одна повторная попытка
-            pass
-    return False
+KEY_GAP_SEC = 10.0     # главная мысль карандашом — не чаще раза в 10 с (решение владельца: 1 на 10-30 с)
+
+
+def frame_source(video_dir, i, rec):
+    """Исходник кадра для сборки: чистая картинка генератора + подписи отдельно
+    (появятся по словам), иначе готовый кадр с уже впечёнными подписями."""
+    placed = rec.get("labels_placed") or []
+    chosen = rec.get("chosen")
+    raw = os.path.join(video_dir, "media_plan", "image_cache", chosen) if chosen else None
+    if raw and os.path.exists(raw) and not any(r.get("fallback") for r in placed):
+        return raw, placed
+    return os.path.join(video_dir, "frames", f"{i + 1:03d}.png"), []
+
+
+def load_plan_frames(video_dir):
+    try:
+        return {f["index"]: f for f in json.load(open(os.path.join(video_dir, "media_plan", "frame_plan.json"),
+                                                      encoding="utf-8"))["frames"]}
+    except (OSError, ValueError, KeyError):
+        return {}
+
+
+# ---- работа воркеров (процессы: письмо карандашом — чистый Python)
+_TEX = {}
+
+
+def _tex(path):
+    if path not in _TEX:
+        from PIL import Image
+        _TEX[path] = Image.open(path).convert("L")
+    return _TEX[path]
+
+
+def _prepare(job):
+    import frame_clip
+    return frame_clip.prepare(job["src"], job["recs"], job["objects"], job["work"], seed=job["seed"],
+                              tex=_tex(job["tex"]))
+
+
+def _warm(job):
+    _prepare(job)
+    return True
+
+
+def _render(job):
+    import frame_clip
+    fr = _prepare(job)
+    tmp = job["out"]
+    cues = frame_clip.render(fr, job["plan"], job["dur"], tmp, fps=FPS, end_fade=job["end_fade"], crf=CRF)
+    d = probe_duration(tmp)
+    if d is None or abs(d - round(job["dur"]*FPS)/FPS) > CLIP_TOLERANCE + 1e-6:
+        os.remove(tmp)
+        return None, []
+    with open(tmp + ".cues.json", "w") as fh:
+        json.dump(cues, fh)
+    return tmp, cues
 
 
 def load_report(video_dir):
@@ -170,6 +183,7 @@ def main(video_dir):
     env.load_env()
     import audio_master as am
     import script_parser
+    import shots
     import subtitles
     from speech_timing import SpeechTiming
 
@@ -222,23 +236,81 @@ def main(video_dir):
 
     work = os.path.join(video_dir, "temp_render")
     os.makedirs(work, exist_ok=True)
+    import canvas
+    import frame_clip
+    tex_path = os.path.join(work, f"paper_texture_{canvas.TEX_W}.png")
+    if not os.path.exists(tex_path):
+        canvas.paper_texture().save(tex_path + ".tmp.png")
+        os.replace(tex_path + ".tmp.png", tex_path)
 
-    def render(k):
-        i = kept[k]
-        src = os.path.join(video_dir, "frames", f"{i + 1:03d}.png")
-        h = hashlib.md5(open(src, "rb").read()).hexdigest()[:12]
-        key = hashlib.md5(f"{h}|{durs[k]:.5f}|{k % 2}|{ZOOM}|fullh|{FPS}|{CRF}|blur{MARGIN_BLUR}|{MARGIN_DARKEN}".encode()).hexdigest()[:16]
-        out = os.path.join(work, f"clip_{k:04d}_{key}.mp4")
-        if os.path.exists(out) and probe_duration(out) is not None:
-            return out
-        canvas = os.path.join(work, f"canvas_{h}.png")
-        if not os.path.exists(canvas):
-            fit_canvas(src, canvas)
-        return out if clip(canvas, out, durs[k], zoom_in=(k % 2 == 0)) else None
+    report = load_report(video_dir)
+    plan_frames = load_plan_frames(video_dir)
+    word_times = speech.word_times if timing == "phrase_lock" else []
+    jobs = []
+    for k, i in enumerate(kept):
+        rec = report.get(i) or {}
+        src, recs = frame_source(video_dir, i, rec)
+        nxt = kept[k + 1] if k + 1 < len(kept) else len(blocks)
+        words = [{"word": w["word"], "start": w["start"] - kept_starts[k], "end": w["end"] - kept_starts[k]}
+                 for b in range(i, nxt) if b < len(word_times) for w in word_times[b]]
+        pf = plan_frames.get(i) or {}
+        jobs.append(dict(src=src, recs=recs, objects=rec.get("objects") or [], work=work, tex=tex_path,
+                         seed=k, key=(pf.get("key_thought") or "").strip() or None, words=words,
+                         dur=durs[k], T0=kept_starts[k], end_fade=(k == len(kept) - 1)))
 
-    workers = int(os.environ.get("RENDER_WORKERS", str(max(1, (os.cpu_count() or 2) - 1))))
-    with ThreadPoolExecutor(workers) as ex:
-        clips = list(ex.map(render, range(len(kept))))
+    workers = int(os.environ.get("RENDER_WORKERS", str(max(1, min(4, (os.cpu_count() or 2) - 1)))))
+    with ProcessPoolExecutor(workers) as ex:              # увеличение рисунков — дорого, параллельно и с кэшем
+        list(ex.map(_warm, jobs))
+    last_punch, last_key, shot_log = -1e9, -1e9, []
+    for k, job in enumerate(jobs):                         # план — по порядку: наезды и мысли не чаще порога
+        fr = _prepare(job)
+        key = job["key"] if job["key"] and job["T0"] - last_key >= KEY_GAP_SEC else None
+        if job["key"] and not key:
+            shot_log.append({"index": kept[k], "note": f"главная мысль «{job['key']}» пропущена: прошлая "
+                                                      f"{job['T0'] - last_key:.1f} с назад"})
+        p = frame_clip.plan_clip(fr, job["dur"], job["words"], key=key, last_punch=last_punch,
+                                 T0=job["T0"], zoom_in=(k % 2 == 0), fps=FPS)
+        if p["punch_at"] is not None:
+            last_punch = p["punch_at"]
+        if p.get("key_time") is not None and p.get("key"):
+            last_key = job["T0"] + p["key_time"]
+        else:
+            p["key_time"] = None
+        job["plan"] = p
+        h = hashlib.sha256(open(job["src"], "rb").read()).hexdigest()[:12]
+        sig = hashlib.sha256(json.dumps([h, job["recs"], job["objects"], frame_clip.plan_record(p), job["dur"],
+                                         job["end_fade"], job["seed"], FPS, CRF, frame_clip.RENDER_VERSION,
+                                         canvas.TEXTURE, frame_clip.UPSCALE],
+                                        sort_keys=True, default=str).encode()).hexdigest()[:16]
+        job["out"] = os.path.join(work, f"clip_{k:04d}_{sig}.mp4")
+        shot_log.append({"index": kept[k], "duration": round(job["dur"], 3),
+                         "views": [[round(s_["t0"], 2), s_["kind"]] for s_ in p["segments"]],
+                         "labels_at": [round(t, 2) for t in p["label_times"]],
+                         "punch": p.get("punch_name"), "key": (p.get("key") or {}).get("text") if p.get("key_time") is not None else None,
+                         "key_at": None if p.get("key_time") is None else round(p["key_time"], 2),
+                         "notes": p["notes"]})
+
+    def cached(job):
+        c = job["out"] + ".cues.json"
+        if os.path.exists(job["out"]) and os.path.exists(c) and probe_duration(job["out"]) is not None:
+            return job["out"], json.load(open(c))
+        return None
+
+    results = [cached(j) for j in jobs]
+    todo = [k for k, r in enumerate(results) if r is None]
+    with ProcessPoolExecutor(workers) as ex:
+        for k, r in zip(todo, ex.map(_render, [jobs[k] for k in todo])):
+            results[k] = r
+    clips = [r[0] if r else None for r in results]
+    cues = [(jobs[k]["T0"] + a, jobs[k]["T0"] + b, kind, 0.0) for k, r in enumerate(results) if r
+            for a, b, kind in r[1]]
+    with open(os.path.join(mp, "shots_report.json"), "w", encoding="utf-8") as fh:
+        json.dump({"punch_gap_sec": shots.PUNCH_GAP_SEC, "key_gap_sec": KEY_GAP_SEC, "clips": shot_log},
+                  fh, ensure_ascii=False, indent=1)
+    views = sum(len(c.get("views", [])) for c in shot_log)
+    print(f"Планов на экране: {views} на {len(kept)} кадров (в среднем {sum(durs)/max(1, views):.1f} с), "
+          f"наездов {sum(1 for c in shot_log if c.get('punch'))}, мыслей карандашом "
+          f"{sum(1 for c in shot_log if c.get('key'))}")
     failed = [kept[k] + 1 for k, c in enumerate(clips) if not c]
     with open(os.path.join(mp, "render_manifest.json"), "w", encoding="utf-8") as fh:
         status = {i: {"index": i, "status": "ok" if clips[k] else "failed", "dur": round(durs[k], 4)}
@@ -270,6 +342,21 @@ def main(video_dir):
              f"attack={am.MUSIC_DUCK_ATTACK_MS}:release={am.MUSIC_DUCK_RELEASE_MS}[md];"
              f"[v][md]amix=inputs=2:duration=first:normalize=0[a]", "-map", "[a]", "-ar", "48000", premix])
         print(f"  Музыка: {os.path.basename(music)}, {gain:+.1f} дБ ({why})")
+    if cues:
+        import pencil_sound
+        trk = pencil_sound.track(cues, total)
+        pencil = os.path.join(work, "pencil.wav")
+        pencil_sound.write_wav(trk, pencil)
+        pg, why = pencil_sound.gain_for(voice, pencil)
+        if pg is None:
+            print(f"  ВНИМАНИЕ: звук карандаша не сведён — {why}")
+        else:
+            mixed = os.path.join(work, "premix_pencil.wav")
+            run(["ffmpeg", "-y", "-v", "error", "-i", premix, "-i", pencil, "-filter_complex",
+                 f"[1:a]volume={pg:.2f}dB,aformat=channel_layouts=mono[p];[0:a][p]amix=inputs=2:duration=first:"
+                 f"normalize=0[a]", "-map", "[a]", "-ar", "48000", mixed])
+            premix = mixed
+            print(f"  Карандаш: {len(cues)} штрихов, {pg:+.1f} дБ ({why})")
     af = am.build_master_af(am.measure_loudnorm_stats(premix), max(0.0, total - 2.0), 0.05)
     final = os.path.join(video_dir, "final.mp4")
     run(["ffmpeg", "-y", "-v", "error", "-i", video, "-i", premix, "-af", af, "-map", "0:v", "-map", "1:a",

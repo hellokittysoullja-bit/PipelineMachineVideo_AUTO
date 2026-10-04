@@ -154,6 +154,30 @@ def draw(img, box, text, pad=0.06, size_cap=SIZE_CAPTION):
             "color": "dark" if color == INK_DARK else "light", "box": list(box)}
 
 
+def draw_rec(img, rec, scale=1.0, offset=(0, 0)):
+    """Повторить уже положенную подпись (запись draw()) на другом холсте:
+    тот же шрифт, кегль, строки и цвет, рамка — box*scale + offset. Нужна
+    сборке: подпись появляется в момент своего слова и рисуется прямо на
+    увеличенном холсте (резкая на крупном плане), а не берётся с готового кадра."""
+    from PIL import ImageDraw, ImageFont
+    bx1, by1, bx2, by2 = rec["box"]
+    px, py = int((bx2 - bx1)*0.06)*scale, int((by2 - by1)*0.06)*scale    # как в draw()
+    x1, y1, x2, y2 = bx1*scale + offset[0], by1*scale + offset[1], bx2*scale + offset[0], by2*scale + offset[1]
+    inner = (x1 + px, y1 + py, x2 - px, y2 - py)
+    font = ImageFont.truetype(os.path.join(ROOT, "assets", "fonts", rec["font"]), max(1, round(rec["size"]*scale)))
+    color = INK_DARK if rec.get("color") == "dark" else INK_LIGHT
+    d = ImageDraw.Draw(img)
+    asc, desc = font.getmetrics()
+    lh = (asc + desc)*LINE_SPACING
+    total = (asc + desc) + lh*(len(rec["lines"]) - 1)
+    y = inner[1] + ((inner[3] - inner[1]) - total)/2
+    cx = (inner[0] + inner[2])/2
+    for ln in rec["lines"]:
+        d.text((cx - d.textlength(ln, font=font)/2, y), ln, font=font, fill=color)
+        y += lh
+    return img
+
+
 # ------------------------------------------------------------------ где ставить
 
 LOCATE_PROMPT = """This is a drawing for an explainer video. It has empty spaces left for {n} short Russian text label(s), which will be added later.

@@ -12,6 +12,7 @@
 import base64
 import glob
 import hashlib
+import json
 import io
 import os
 
@@ -47,8 +48,12 @@ def data_url(path, side=REF_SIDE):
 
 
 class Look:
-    def __init__(self, style, hero, hero_text=None):
+    def __init__(self, style, hero, hero_text=None, hero_states=None):
         self.style, self.hero = style, hero
+        # look/hero_states.json — состояния героя, которые план выбирает по смыслу
+        # фразы, а генератор дописывает в задание: {"имя": {"when", "draw"}}.
+        # У кота — огонёк на хвосте: тлеет, когда «застрял», горит, когда сделал шаг.
+        self.hero_states = hero_states or {}
         # look/hero.txt — кто герой, коротко («a black cartoon cat»): длинное
         # описание судья проверял бы по приметам (огонёк хвоста не виден → «нет»). Нужно судье: план пишет
         # пункты проверки про «a person», и рисунок героя-не-человека (кот)
@@ -89,4 +94,15 @@ def load(look_dir=None):
     tp = os.path.join(d, "hero.txt")
     if hero and os.path.exists(tp):
         hero_text = " ".join(open(tp, encoding="utf-8").read().split()) or None
-    return Look(style, hero, hero_text)
+    states = {}
+    sp = os.path.join(d, "hero_states.json")
+    if hero and os.path.exists(sp):
+        try:
+            raw = json.load(open(sp, encoding="utf-8"))
+        except ValueError as e:
+            raise LookError(f"{sp}: не JSON ({e})")
+        for k, v in raw.items():
+            if not (isinstance(v, dict) and str(v.get("when", "")).strip() and str(v.get("draw", "")).strip()):
+                raise LookError(f"{sp}: у состояния «{k}» нужны непустые when и draw")
+            states[str(k)] = {"when": " ".join(str(v["when"]).split()), "draw": " ".join(str(v["draw"]).split())}
+    return Look(style, hero, hero_text, states)

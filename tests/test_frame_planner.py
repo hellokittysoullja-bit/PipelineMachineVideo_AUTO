@@ -50,7 +50,8 @@ def test_prompt_has_spec_rules_brief_prev_chapter_and_hero_rule():
     assert "core — WHO or WHAT must be visible" in p       # правило v3
     assert "kids at a fire" in p and "конец прошлой главы" in p
     assert "one recurring main character" in p and "never on 3 lines in a row" in p
-    assert "never describe the drawing style" in p and "camera" not in p
+    assert "never describe the drawing style" in p
+    assert '"zoom"' in p and '"key"' in p and "paw prints" in p
     assert "always false" in fp.render_prompt(pk, False)
 
 
@@ -149,3 +150,44 @@ def test_hero_share_and_run_come_from_env(monkeypatch):
     fp.limit_hero(f)
     assert sum(x["hero"] for x in f) == 1                      # по умолчанию — герой-гость, треть
     assert "at most 35% of the pictures" in fp.hero_rule_text()
+
+
+PK2 = {"units": [{"n": 1, "text": "Ответить на одно письмо — это пять минут."},
+                 {"n": 2, "text": "Поэтому договорись с собой: только открыть письмо."}]}
+
+
+def _l(n, frame):
+    return json.dumps({"n": n, "focus": "a letter", "core": "a letter is visible", "claims": [],
+                       "frame": frame}, ensure_ascii=False)
+
+
+def test_zoom_and_key_must_be_words_of_the_line():
+    raw = "\n".join([
+        _l(1, {"kind": "scene", "picture": "a cat circles a desk with a letter", "hero": True,
+               "zoom": {"object": "the letter", "word": "письмо"}, "key": "Пять минут", "hero_state": "ember"}),
+        _l(2, {"kind": "scene", "picture": "a cat opens a letter on a desk", "hero": True,
+               "zoom": {"object": "the letter", "word": "конверт"}, "key": "только открыть сейчас же",
+               "hero_state": "flying"}),
+    ])
+    got, errors = fp.parse_answer(raw, PK2, ("ember", "bright"))
+    f1, f2 = got[1]["frame"], got[2]["frame"]
+    assert f1["zoom"] == {"object": "the letter", "word": "письмо"}   # «письмо» есть в «письмо»
+    assert f1["key_thought"] == "пять минут" and f1["hero_state"] == "ember"
+    assert "zoom" not in f2 and "key_thought" not in f2 and "hero_state" not in f2
+    assert "2:zoom_dropped" in errors and "2:key_dropped" in errors
+
+
+def test_hero_state_needs_hero_and_is_dropped_with_hero():
+    raw = _l(1, {"kind": "scene", "picture": "a desk with a letter on it", "hero": False, "hero_state": "ember"})
+    got, _ = fp.parse_answer(raw, PK2, ("ember",))
+    assert "hero_state" not in got[1]["frame"]
+    f = {"hero": True, "hero_state": "ember", "picture": "the main character sits"}
+    fp._drop_hero(f)
+    assert "hero_state" not in f and f["picture"] == "a person sits"
+
+
+def test_hero_rule_names_the_hero_and_its_states():
+    pk = {"episode_title": "T", "prev_tail": "", "units": [{"n": 1, "text": "x"}]}
+    p = fp.render_prompt(pk, True, {"text": "a black cartoon cat",
+                                    "states": {"ember": {"when": "stuck", "draw": "dim ember"}}})
+    assert "(a black cartoon cat)" in p and '"hero_state"' in p and '"ember" when stuck' in p

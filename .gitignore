@@ -12,3 +12,4 @@ videos/*/audio*.mp3
 videos/*/audio*.flac
 *.gguf
 videos/*/frames/
+models/

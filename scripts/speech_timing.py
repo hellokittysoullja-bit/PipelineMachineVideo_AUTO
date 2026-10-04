@@ -70,6 +70,36 @@ def speech_chars_of_text(text):
     return re.sub(r'[\s\[\]]', '', text)
 
 
+def _word_times(text, want, timed, to_real):
+    """Слова блока с моментами их звучания: [{"word", "start", "end"}, ...].
+
+    want — озвучиваемые символы блока (speech_chars_of_text), timed — символы
+    alignment на той же позиции; они совпадают не буквально (ratio >= 0.9 —
+    TTS мог прочитать «2025» словами), поэтому позиция каждого символа слова
+    переносится через совпавшие куски SequenceMatcher, а не по индексу. Слово,
+    ни один символ которого не совпал, получает время соседей по положению —
+    честная оценка внутри уже измеренного блока, а не догадка по всему ролику."""
+    got = "".join(c for c, s, e in timed).lower()
+    m = difflib.SequenceMatcher(None, want.lower(), got, autojunk=False)
+    pos_map = {}
+    for a, b_, n in m.get_matching_blocks():
+        for k in range(n):
+            pos_map[a + k] = b_ + k
+    words, i = [], 0
+    for w in re.sub(r'\[[^\]]*\]', ' ', text or "").split():
+        n = len(re.sub(r'[\s\[\]]', '', w))
+        idx = [pos_map[j] for j in range(i, i + n) if j in pos_map]
+        frac = (i / max(1, len(want)), (i + n) / max(1, len(want)))
+        i += n
+        if idx:
+            st, en = timed[min(idx)][1], timed[max(idx)][2]
+        else:
+            lo, hi = timed[0][1], timed[-1][2]
+            st, en = lo + (hi - lo)*frac[0], lo + (hi - lo)*frac[1]
+        words.append({"word": w, "start": to_real(st), "end": to_real(en)})
+    return words
+
+
 def _real_speech_bounds(segment):
     """(старт, конец) реально озвученного текста в сегменте символов
         (index,char,start,end) — по первому и последнему озвученному символу
@@ -98,6 +128,7 @@ class SpeechTiming:
         self._cuts = None
         self._offsets = None
         self.speech_ends = []
+        self.word_times = []
         self.failure = None
 
     def pause_cuts(self):
@@ -254,6 +285,7 @@ class SpeechTiming:
             вернётся None, и сборка честно откатится на прежнее поведение."""
         self.failure = None
         self.speech_ends = []
+        self.word_times = []
 
         def _give_up(reason, **detail):
             """Запомнить ПРИЧИНУ отказа, а не просто вернуть None.
@@ -312,6 +344,8 @@ class SpeechTiming:
             # speech_gap_before() честно возвращала «нет сигнала». Молча
             # пропадали и переход главы, и объектный кюй — на трети границ.
             ends.append(raw_to_real_time(clean[pos + len(want) - 1][2] + offset, cuts))
+            self.word_times.append(_word_times(b["text"], want, clean[pos:pos + len(want)],
+                                               lambda t: raw_to_real_time(t + offset, cuts)))
             pos += len(want)
             if pos >= len(clean):
                 seg_idx[section] = k + 1

@@ -79,7 +79,7 @@ def hero_spec(spec, hero_text):
     return out
 
 
-def build_prompt(frame, n_style, with_hero):
+def build_prompt(frame, n_style, with_hero, hero_states=None):
     """Задание модели картинок. Главное первым (описание кадра от
     планировщика), служебное после, ссылки на референсы — по их порядку в
     запросе: сначала n_style образцов стиля, герой последним (look.refs)."""
@@ -90,6 +90,20 @@ def build_prompt(frame, n_style, with_hero):
         parts.append(f"The main character is the character in reference image {n_style + 1}: keep exactly its "
                      "head, face, colors, markings, body proportions and clothing if any; change only pose, "
                      "action and expression")
+        st = (hero_states or {}).get(frame.get("hero_state") or "")
+        if st:
+            parts.append(st["draw"])
+    zoom = frame.get("zoom") or {}
+    if zoom.get("object"):
+        # камера на этом кадре наезжает на предмет до экрана: мелкий не вытянуть
+        parts.append(f"The {zoom['object']} is drawn large and clear, with plain empty background around it")
+    if frame.get("key_thought"):
+        parts.append("Keep a calm area of plain empty background, about a third of the image, for handwriting "
+                     "added later")
+    if frame.get("kind") == "diagram":
+        # критика 04.10: схемы выходили чистой векторной инфографикой и выпадали из рисунков ролика
+        parts.append("The diagram is drawn by hand like the rest of the film: ink lines with soft watercolor "
+                     "washes, small drawn objects and figures instead of flat icons, no clean vector graphics")
     # Буквы нейросеть не пишет никогда: русские подписи кладёт код (labels.py).
     labs = frame.get("labels") or []
     if frame.get("kind") == "caption" and labs:
@@ -194,7 +208,7 @@ class Generator:
         модель, размер, качество и ТОТ облик, что реально уходит в модель
         (герой — только на кадрах с героем): совпал — готовый кадр годен."""
         with_hero = bool(frame.get("hero")) and self.look.hero is not None
-        prompt = build_prompt(frame, len(self.look.style), with_hero)
+        prompt = build_prompt(frame, len(self.look.style), with_hero, getattr(self.look, "hero_states", None))
         b = self.backend
         sig = hashlib.sha256(f"{GEN_VERSION}|{labels.COMPOSE_VERSION}|{frame.get('key')}|{b.model}|{b.size}|{b.quality}|"
                              f"{self.look.signature(with_hero)}|{prompt}".encode("utf-8")).hexdigest()[:20]
@@ -308,6 +322,14 @@ class Generator:
             rec.update(status=self._verdict(pool[p]), path=os.path.relpath(out, self.video_dir),
                        chosen=os.path.basename(p), labels_placed=info, label_tries=tries,
                        candidates={os.path.basename(q): i for q, i in pool.items()})
+            # где на рисунке предмет наезда и главный предмет — для камеры сборки
+            try:
+                import objects
+                rec["objects"] = objects.objects_for(self.jgw, self.jmodel, p, frame, self.look.hero_text,
+                                                     self.judge_cache)
+            except Exception as e:  # noqa: BLE001 — без рамок камера просто не наезжает
+                rec["objects"] = []
+                rec["objects_error"] = f"{type(e).__name__}: {e}"[:200]
             if fallback:
                 rec["labels_fallback"] = fallback
             return rec

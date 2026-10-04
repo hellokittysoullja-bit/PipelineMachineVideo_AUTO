@@ -81,6 +81,17 @@ def test_prompt_never_asks_the_model_for_letters_and_points_at_references():
     assert "2 wide empty patches" in d and "arrow" in d and "reference image 1:" in d and "А" not in d
 
 
+def test_prompt_carries_hero_state_zoom_key_and_hand_drawn_diagram():
+    states = {"ember": {"when": "stuck", "draw": "the tail flame is a dim ember with smoke"}}
+    h = g.build_prompt(dict(FRAME, hero=True, hero_state="ember"), 2, True, states)
+    assert "dim ember with smoke" in h
+    assert "dim ember" not in g.build_prompt(dict(FRAME, hero_state="ember"), 2, False, states)   # без героя — нет
+    z = g.build_prompt(dict(FRAME, zoom={"object": "envelope", "word": "письмо"}, key_thought="только открыть"), 2, False)
+    assert "envelope is drawn large" in z and "handwriting" in z and "только" not in z
+    d = g.build_prompt(dict(FRAME, kind="diagram", labels=["А"]), 1, False)
+    assert "watercolor" in d and "no clean vector graphics" in d
+
+
 def test_style_refs_always_hero_only_where_planned(tmp_path):
     look = make_look(tmp_path)
     g1 = gen(tmp_path, None, variants=1, rounds=1, look=look)

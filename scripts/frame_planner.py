@@ -39,7 +39,7 @@ import script_parser  # noqa: E402
 
 PLAN_NAME = "frame_plan.json"
 CACHE_DIR_NAME = "frame_plan_cache"
-PLAN_VERSION = 8
+PLAN_VERSION = 9
 # Модель выбрана замером старого генератора 24.09 (58 фраз трёх ниш):
 # DeepSeek v4 Flash — 58/58, ~2 тыс. токенов баланса; Gemini 3.7 Flash по
 # смыслу наравне, но ~35 тыс.; Qwen 3.8 Max — 46/58.
@@ -149,6 +149,8 @@ FRAME_RULES = """frame — ONE hand-drawn picture per line. It is generated once
     "scene" — a drawn moment: people, objects, places, actions. The default.
     "caption" — the line is a punchline, a verdict or an emotional beat that lands harder written: one drawn moment plus ONE Russian caption of 1-4 words (like «ЖИВ. ПОЛНОСТЬЮ.»).
     "diagram" — the line explains a structure, a comparison, a sequence, a list or a cause: a simple hand-drawn diagram with 2-6 short Russian labels — a pyramid, a ladder, arrows from cause to effect, before and after, a list on a board, a timeline, a path of footprints, a crowd shrinking to one figure.
+  "zoom" — optional. When the line names ONE concrete object that deserves a close look at the moment it is said (the letter, the timer, the open door): {{"object": "<English name of that object exactly as in your picture>", "word": "<the word of the line at which the camera rushes onto it, copied exactly as written in the line>"}}. The camera then fills the screen with that object for a second or two. null when nothing is worth it; at most one line in three.
+  "key" — optional: the chapter's main thought, written by hand on the picture as it is said — 1-3 Russian words copied word for word from the line ("только открыть"). Only for the one or two lines of a chapter that carry its main idea; null for all others.
   "labels" — Russian, UPPERCASE, at most {max_words} words each, taken from or clearly implied by the line, correctly spelled; empty for "scene". Code writes them on the finished picture.
   "hero" — {hero_rule}
   "picture" — English, 30-80 words, the full instruction for the image model. How to choose WHAT to draw:
@@ -165,18 +167,24 @@ FRAME_RULES = """frame — ONE hand-drawn picture per line. It is generated once
     - exact counts for everything countable ("three children", "one phone"); every person has two arms and two legs and holds things in clearly drawn hands;
     - the framing (close-up, medium or wide shot) and where the main subject sits in the frame, with calm empty background around it; neighbouring pictures differ in subject and framing unless the lines continue one moment in the same place;
     - the background: plain and light for diagrams and simple statements, the place itself for scenes set somewhere;
+    - the "zoom" object is drawn large and clear, never tiny, with plain background around it; a line with a "key" keeps a calm area of plain background (about a third of the frame) where the words will be written by hand;
     - "caption": the bottom fifth of the frame is plain empty background. "diagram": the diagram fills the middle, next to each labelled part there is a wide empty patch of plain background (room for a word in big letters), away from the frame edges, with a short hand-drawn arrow from it to the part — no boxes, frames or lines around the empty patches; every label needs its own patch, so name as many patches as there are labels;
     - nothing may carry writing: no letters, numbers, digits, dates, symbols, logos or signs anywhere. Avoid objects that come with writing (apps on screens, book covers, slot-machine reels, price tags, clock numerals); when one is needed, make it blank ("a phone with a blank glowing screen", "a clock face without numerals"). A period is named in words, never as years;
     - people of the past wear the clothes and use the objects of their time;
     - never describe the drawing style, line work or palette: the style comes from the reference images."""
 
-HERO_RULE = """the film has one recurring main character, shown to the image model as a reference picture. true only when the line speaks to the viewer ("you") or shows what an ordinary person feels, does or reacts to — the character then plays that person. Never for objects, places, maps, statistics, diagrams of facts or named historical people. The character appears in at most {hero_share}% of the pictures and never on {hero_run_plus} lines in a row. When true, call the character "the main character" in the picture and describe only pose, action, expression and props, never looks or clothes: the reference picture defines them."""
+HERO_RULE = """the film has one recurring main character ({hero_text}), shown to the image model as a reference picture. true only when the line speaks to the viewer ("you") or shows what an ordinary person feels, does or reacts to — the character then plays that person. Never for objects, places, maps, statistics, diagrams of facts or named historical people. The character appears in at most {hero_share}% of the pictures and never on {hero_run_plus} lines in a row. When true, call the character "the main character" in the picture and describe only pose, action, expression and props, never looks or clothes: the reference picture defines them. Traces it leaves are prints of its own feet (an animal leaves paw prints, not shoe prints).{states}"""
 NO_HERO_RULE = """always false: this film has no recurring main character."""
 
 
-def hero_rule_text():
+def hero_rule_text(hero_text=None, states=None):
     run, share = hero_limits()
-    return HERO_RULE.format(hero_share=round(share * 100), hero_run_plus=run + 1)
+    st = ""
+    if states:
+        opts = "; ".join(f'"{k}" when {v["when"]}' for k, v in states.items())
+        st = f'\n  "hero_state" — only with hero true: {opts}; null for a neutral moment.'
+    return HERO_RULE.format(hero_share=round(share * 100), hero_run_plus=run + 1,
+                            hero_text=hero_text or "the main character", states=st)
 
 PROMPT = """You are the director and storyboard artist of a hand-drawn explainer film.
 Film: «{title}».
@@ -232,7 +240,7 @@ def packets(blocks, title):
     return res
 
 
-def render_prompt(packet, has_hero):
+def render_prompt(packet, has_hero, hero=None):
     lines = []
     for u in packet["units"]:
         brief = u.get("author_brief")
@@ -241,7 +249,8 @@ def render_prompt(packet, has_hero):
     return PROMPT.format(
         title=packet.get("episode_title") or "—", prev=prev,
         spec_rules=SPEC_RULES.format(c1=MAX_CLAIMS - 1),
-        frame_rules=FRAME_RULES.format(max_words=MAX_LABEL_WORDS, hero_rule=hero_rule_text() if has_hero else NO_HERO_RULE),
+        frame_rules=FRAME_RULES.format(max_words=MAX_LABEL_WORDS, hero_rule=hero_rule_text(
+            (hero or {}).get("text"), (hero or {}).get("states")) if has_hero else NO_HERO_RULE),
         lines="\n".join(lines))
 
 
@@ -273,7 +282,34 @@ def validate_frame(obj):
     return {"kind": kind, "hero": obj.get("hero") is True, "labels": labels, "picture": picture}, None
 
 
-def parse_answer(raw, packet):
+def extras(obj, text, states=()):
+    """Необязательные поля кадра: наезд, главная мысль, состояние героя.
+    Слова наезда и мысли обязаны быть в самой фразе (тем же правилом, что
+    сборка ищет их в речи), иначе поле отбрасывается — не ошибка кадра."""
+    import words
+    out, notes = {}, []
+    z = obj.get("zoom")
+    if isinstance(z, dict):
+        o = " ".join(str(z.get("object") or "").split())
+        w = " ".join(str(z.get("word") or "").split())
+        if o and 1 <= len(o.split()) <= 6 and not re.search(r"[а-яА-ЯёЁ]", o) and w and words.in_text(w, text):
+            out["zoom"] = {"object": o, "word": w}
+        else:
+            notes.append("zoom_dropped")
+    k = obj.get("key")
+    if isinstance(k, str) and k.strip():
+        k = " ".join(k.split()).lower()
+        if 1 <= len(k.split()) <= 3 and re.search(r"[а-яё]", k) and not re.search(r"[a-z]", k) and words.in_text(k, text):
+            out["key_thought"] = k
+        else:
+            notes.append("key_dropped")
+    st = obj.get("hero_state")
+    if isinstance(st, str) and st in states and obj.get("hero") is True:
+        out["hero_state"] = st
+    return out, notes
+
+
+def parse_answer(raw, packet, states=()):
     """{номер юнита: {"spec", "frame"}} + ошибки. Спецификация — тем же
     разбором, что в v3 (без поисковых запросов: здесь их нет). Движение из
     утверждений снимается: рисунок статичен."""
@@ -301,6 +337,10 @@ def parse_answer(raw, packet):
         if err:
             errors.append(f"{n}:{err}")
             continue
+        text = next(u["text"] for u in packet["units"] if u["n"] == n)
+        more, notes = extras(obj.get("frame"), text, states)
+        frame.update(more)
+        errors += [f"{n}:{x}" for x in notes]
         out[n] = {"spec": spec, "frame": frame}
     return out, errors
 
@@ -322,15 +362,16 @@ def ask(gateway, model, prompt, cache_dir):
     return text, False
 
 
-def ask_chapter(gateway, model, packet, has_hero, cache_dir):
+def ask_chapter(gateway, model, packet, has_hero, cache_dir, hero=None):
     import llm_gateway
-    prompt = render_prompt(packet, has_hero)
+    prompt = render_prompt(packet, has_hero, hero)
+    states = tuple(((hero or {}).get("states") or {}).keys()) if has_hero else ()
     raw, hit = ask(gateway, model, prompt, cache_dir)
-    got, errors = parse_answer(raw, packet)
+    got, errors = parse_answer(raw, packet, states)
     if len(got) < len(packet["units"]):
         try:
             raw2, _h = ask(gateway, model, prompt + RETRY_NOTE, cache_dir)
-            more, _e = parse_answer(raw2, packet)
+            more, _e = parse_answer(raw2, packet, states)
             for n, v in more.items():
                 got.setdefault(n, v)
         except llm_gateway.PaymentRequired:
@@ -354,6 +395,7 @@ def _drop_hero(f):
     """Снять героя с кадра. В описании «the main character» становится «a person»:
     иначе модель без референса нарисует другого «главного героя»."""
     f["hero"] = False
+    f.pop("hero_state", None)
     f["picture"] = re.sub(r"\b[Tt]he main character\b", "a person", f["picture"])
 
 
@@ -383,7 +425,9 @@ def limit_hero(frames, max_run=None, max_share=None):
         trimmed += 1
 
 
-def plan_episode(video_dir, gateway, model=DEFAULT_MODEL, force=False, workers=4, verbose=True, has_hero=False):
+def plan_episode(video_dir, gateway, model=DEFAULT_MODEL, force=False, workers=4, verbose=True, has_hero=False,
+                 hero=None):
+    """hero — {"text": кто герой, "states": состояния из look/hero_states.json} или None."""
     script = os.path.join(video_dir, "script.txt")
     blocks = script_parser.parse_blocks(script)
     cache_dir = os.path.join(video_dir, "media_plan", CACHE_DIR_NAME)
@@ -394,7 +438,7 @@ def plan_episode(video_dir, gateway, model=DEFAULT_MODEL, force=False, workers=4
 
     def one(packet):
         try:
-            return ask_chapter(gateway, model, packet, has_hero, cache_dir)
+            return ask_chapter(gateway, model, packet, has_hero, cache_dir, hero)
         except Exception as e:  # noqa: BLE001 — глава без ответа получит запасные кадры
             return {}, [f"call_failed:{type(e).__name__}: {e}"[:200]], False
 
@@ -449,10 +493,12 @@ def main():
         sys.exit("Нет LLM_GATEWAY_API_KEY в .env")
     import look
     try:
-        has_hero = look.load().hero is not None
+        lk = look.load()
     except look.LookError as e:
         sys.exit(str(e))
-    plan_episode(a.video_dir, gw, model=a.model, force=a.force, has_hero=has_hero)
+    has_hero = lk.hero is not None
+    plan_episode(a.video_dir, gw, model=a.model, force=a.force, has_hero=has_hero,
+                 hero={"text": lk.hero_text, "states": lk.hero_states} if has_hero else None)
 
 
 if __name__ == "__main__":

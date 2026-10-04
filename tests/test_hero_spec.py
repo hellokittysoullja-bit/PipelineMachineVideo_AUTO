@@ -34,3 +34,18 @@ def test_judge_spec_only_for_hero_frames():
     spec = {"focus": "a person", "subject": "a person", "claims": []}
     assert g._judge_spec({"hero": True, "spec": spec})["subject"] == "a black cartoon cat"
     assert g._judge_spec({"hero": False, "spec": spec})["subject"] == "a person"
+
+
+def test_hero_states_load_and_validate(tmp_path):
+    import json
+    import pytest
+    import look
+    from PIL import Image
+    (tmp_path / "style").mkdir()
+    Image.new("RGB", (8, 8)).save(tmp_path / "style" / "a.png")
+    Image.new("RGB", (8, 8)).save(tmp_path / "hero.png")
+    (tmp_path / "hero_states.json").write_text(json.dumps({"ember": {"when": "stuck", "draw": "dim  ember"}}))
+    assert look.load(str(tmp_path)).hero_states == {"ember": {"when": "stuck", "draw": "dim ember"}}
+    (tmp_path / "hero_states.json").write_text(json.dumps({"ember": {"when": ""}}))
+    with pytest.raises(look.LookError):
+        look.load(str(tmp_path))

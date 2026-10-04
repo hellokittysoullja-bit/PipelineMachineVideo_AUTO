@@ -1,0 +1,10 @@
+{
+  "ember": {
+    "when": "the character is stuck, avoiding, putting off, tired, ashamed or failing",
+    "draw": "the small flame on the tip of the main character's tail has shrunk to a dim glowing ember with a thin wisp of grey smoke"
+  },
+  "bright": {
+    "when": "the character takes a step, starts, finishes something or feels relief",
+    "draw": "the flame on the tip of the main character's tail burns big and bright orange"
+  }
+}

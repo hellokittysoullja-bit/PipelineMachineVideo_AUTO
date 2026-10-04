@@ -1,0 +1,178 @@
+"""Холст, камера и план кадра: бумага, 16:9 без полей-размытий, наезд на предмет,
+подписи по словам, смена плана каждые 2-4 с."""
+import os
+import sys
+
+import numpy as np
+import pytest
+from PIL import Image, ImageDraw
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+import camera  # noqa: E402
+import canvas  # noqa: E402
+import placement  # noqa: E402
+import shots  # noqa: E402
+
+
+def _drawing(w=1264, h=848, paper=(251, 251, 246)):
+    im = Image.new("RGB", (w, h), paper)
+    d = ImageDraw.Draw(im)
+    d.ellipse((300, 250, 560, 600), outline=(20, 20, 20), width=8, fill=(40, 40, 40))      # «кот»
+    d.rectangle((740, 360, 1000, 520), outline=(20, 20, 20), width=6)                        # «письмо»
+    d.rectangle((1150, 700, 1175, 715), outline=(20, 20, 20), width=3)                       # «марка»: мелочь
+    d.rectangle((150, 60, 300, 220), outline=(20, 20, 20), width=5)                          # «календарь»
+    return im
+
+
+def test_paper_becomes_cream_and_ink_stays_ink():
+    cv, off, on_paper = canvas.prepare(_drawing())
+    assert on_paper
+    assert cv.shape[:2] == (848, 1508) and off == (122, 0)
+    corner = cv[10, 10].astype(int)
+    assert np.abs(corner - canvas.CREAM).max() <= 2
+    assert cv[425, 122 + 430].max() < 60                     # тушь не посветлела
+
+
+def test_padding_is_paper_without_seam_or_blur():
+    cv, off, _ = canvas.prepare(_drawing())
+    row = cv[790].astype(int)                                # строка без рисунка
+    assert np.abs(row - canvas.CREAM).max() <= 2             # поле и шов — тот же крем
+    assert np.abs(np.diff(row, axis=0)).max() <= 2
+
+
+def test_full_bleed_scene_is_cropped_not_framed():
+    a = (np.random.default_rng(1).random((848, 1264, 3))*120).astype(np.uint8)   # место нарисовано целиком
+    cv, off, on_paper = canvas.prepare(Image.fromarray(a))
+    assert not on_paper
+    assert cv.shape[:2] == (711, 1264) and off[0] == 0 and off[1] <= 0
+
+
+def test_texture_moves_with_the_world_and_is_subtle():
+    tex = canvas.paper_texture(w=640, h=360)
+    w = np.full((360, 640, 3), 250, np.uint8)
+    t = canvas.bake_texture(w, tex, seed=1).astype(float)
+    assert 0.5 < t.std() < 6
+    assert not np.array_equal(t, canvas.bake_texture(w, tex, seed=2))
+
+
+def test_window_stays_inside_and_keeps_16x9():
+    for cx, cy, wd in [(0, 0, 500), (1508, 848, 900), (700, 400, 5000)]:
+        x0, y0, x1, y1 = camera.window(cx, cy, wd, 1508, 848)
+        assert x0 >= -1e-6 and y0 >= -1e-6 and x1 <= 1508 + 1e-6 and y1 <= 848 + 1e-6
+        assert (x1 - x0)/(y1 - y0) == pytest.approx(16/9)
+
+
+def test_drift_is_small():
+    win = camera.window(754, 424, 1508, 1508, 848)
+    for zi in (True, False):
+        ws = [camera.drift(win, u, zi, 1508, 848)[2] - camera.drift(win, u, zi, 1508, 848)[0] for u in (0, 0.5, 1)]
+        assert max(ws)/min(ws) <= 1 + camera.DRIFT + 1e-6
+
+
+def test_punch_window_fills_frame_with_object_and_does_not_slice_neighbours():
+    cv, off, _ = canvas.prepare(_drawing())
+    busy = placement.busy_map(cv.astype(np.float32), margin=8)
+    letter = (740 + off[0], 360, 1000 + off[0], 520)
+    pw = camera.punch_window(busy, letter)
+    assert pw is not None
+    z = camera.zoom_of(pw, 1508, 848)
+    assert 1.3 <= z <= camera.PUNCH_MAX_ZOOM + 1e-6
+    assert pw[0] <= letter[0] and pw[2] >= letter[2] and pw[1] <= letter[1] and pw[3] >= letter[3]
+    ww = pw[2] - pw[0]
+    assert (letter[2] - letter[0])/ww > camera.PUNCH_MIN_FILL*0.9   # предмет крупно, а не точкой
+    # края окна идут по пустому: соседей (кот, календарь) не режет
+    edge = camera._edge_busy(busy, pw, 1.0)
+    assert edge < 0.15
+
+
+def test_tiny_object_gets_no_punch():
+    cv, off, _ = canvas.prepare(_drawing())
+    busy = placement.busy_map(cv.astype(np.float32), margin=8)
+    assert camera.punch_window(busy, (1150 + off[0], 700, 1175 + off[0], 715)) is None
+
+
+def test_jump_cut_detection():
+    wide = camera.window(754, 424, 1508, 1508, 848)
+    near = camera.window(760, 430, 1508/1.2, 1508, 848)
+    far = camera.window(754, 424, 1508/1.7, 1508, 848)
+    assert camera.is_jump(wide, near, 1508, 848)
+    assert not camera.is_jump(wide, far, 1508, 848)
+
+
+def _words(text, t0=0.2, step=0.45):
+    return [{"word": w, "start": t0 + i*step, "end": t0 + i*step + 0.35} for i, w in enumerate(text.split())]
+
+
+def _busy():
+    cv, off, _ = canvas.prepare(_drawing())
+    return placement.busy_map(cv.astype(np.float32), margin=8), off
+
+
+def test_labels_appear_when_the_voice_says_them():
+    busy, _ = _busy()
+    words = _words("Сначала телефон потом дофамин и хочется ещё")
+    p = shots.plan(8.0, busy, words, labels=[{"text": "Телефон"}, {"text": "Дофамин"}, {"text": "Хочется ещё"}])
+    assert p["label_times"] == pytest.approx([words[1]["start"], words[3]["start"], words[5]["start"]])
+
+
+def test_label_forms_match_and_missing_words_are_staggered():
+    busy, _ = _busy()
+    words = _words("Это всё про телефоны")
+    p = shots.plan(6.0, busy, words, labels=[{"text": "телефон"}, {"text": "петля"}])
+    assert p["label_times"][0] == pytest.approx(words[3]["start"])
+    assert p["label_times"][1] > p["label_times"][0]
+    assert any("петля" in n for n in p["notes"])
+
+
+def test_punch_at_word_returns_by_cut_and_respects_global_gap():
+    busy, off = _busy()
+    letter = {"name": "письмо", "box": (740 + off[0], 360, 1000 + off[0], 520), "word": "письмо"}
+    words = _words("Ответить на одно письмо это пять минут а ты ходишь кругами")
+    p = shots.plan(8.0, busy, words, objects=[letter], T0=100.0)
+    kinds = [s["kind"] for s in p["segments"]]
+    assert "punch" in kinds and p["punch_at"] == pytest.approx(100.0 + words[3]["start"])
+    i = kinds.index("punch")
+    assert p["segments"][i]["t1"] - p["segments"][i]["t0"] == pytest.approx(camera.PUNCH_SEC)
+    assert kinds[i + 1] == "hold"
+    if i + 2 < len(kinds):
+        assert kinds[i + 2] == "drift"                       # назад — склейкой, не обратным зумом
+    p2 = shots.plan(8.0, busy, words, objects=[letter], T0=100.0, last_punch=95.0)
+    assert "punch" not in [s["kind"] for s in p2["segments"]]
+
+
+def test_long_shot_gets_a_second_view_and_no_jump_cuts():
+    busy, _ = _busy()
+    words = _words(" ".join(["слово"]*20), step=0.45)
+    p = shots.plan(9.5, busy, words)
+    segs = p["segments"]
+    assert len(segs) >= 2
+    assert max(s["t1"] - s["t0"] for s in segs) <= shots.MAX_VIEW_SEC + shots.CUT_SNAP_SEC + 1e-6
+    for a, b in zip(segs, segs[1:]):
+        assert b["t0"] - a["t0"] >= shots.MIN_VIEW_SEC - 1e-6
+        if b["kind"] == "drift":
+            assert not camera.is_jump(a["win"], b["win"], 1508, 848)
+    starts = {round(w["start"], 6) for w in words}
+    assert all(round(s["t0"], 6) in starts for s in segs[1:])     # склейки — на начале слова
+
+
+def test_no_cut_or_punch_while_key_thought_is_written():
+    busy, off = _busy()
+    letter = {"name": "письмо", "box": (740 + off[0], 360, 1000 + off[0], 520), "word": "открыть"}
+    words = _words("Договорись с собой только открыть письмо и всё на сегодня хватит правда")
+    p = shots.plan(9.0, busy, words, objects=[letter], key="только открыть", key_dur=2.5)
+    kt = p["key_time"]
+    assert kt == pytest.approx(words[3]["start"])
+    for s in p["segments"][1:]:
+        assert not (kt - 0.2 < s["t0"] < kt + 2.5 + shots.WRITE_TAIL_SEC)
+
+
+def test_segments_cover_the_whole_frame():
+    busy, _ = _busy()
+    for D in (1.0, 3.0, 7.5, 12.0):
+        p = shots.plan(D, busy, _words(" ".join(["раз"]*30), step=0.4))
+        segs = p["segments"]
+        assert segs[0]["t0"] == 0 and segs[-1]["t1"] == pytest.approx(D)
+        assert all(a["t1"] == pytest.approx(b["t0"]) for a, b in zip(segs, segs[1:]))
+        for t in np.linspace(0, D - 1e-3, 7):
+            w = shots.window_at(p, t, 1508, 848)
+            assert w[0] >= -1e-6 and w[2] <= 1508 + 1e-6

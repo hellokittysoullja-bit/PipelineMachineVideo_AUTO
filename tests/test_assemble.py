@@ -60,55 +60,27 @@ def test_rejected_and_foreign_frames_are_not_shown(tmp_path):
                                         {"index": 2, "reason": "frame_for_another_line"}]
 
 
-def test_frame_is_fitted_whole_not_cropped(tmp_path):
-    # подпись у самого края кадра 3:2 должна остаться на холсте 16:9
+def test_frame_source_prefers_clean_drawing_with_timed_labels(tmp_path):
     from PIL import Image
     sys.path.insert(0, os.path.join(ROOT, "scripts"))
     import assemble_frames as af
-    src = Image.new("RGB", (1536, 1024), "white")
-    for x in range(1536):
-        src.putpixel((x, 20), (255, 0, 0))         # красная полоса у верхнего края (2% высоты)
-    src.save(tmp_path / "f.png")
-    af.fit_canvas(str(tmp_path / "f.png"), str(tmp_path / "c.png"))
-    c = Image.open(tmp_path / "c.png").convert("RGB")
-    assert c.size == (1920, 1080)
-    reds = [y for y in range(1080) if c.getpixel((960, y))[0] > 200 and c.getpixel((960, y))[1] < 80]
-    assert reds, "верхний край кадра обрезан"
-
-
-def test_margins_are_a_blurred_darker_copy_of_the_frame(tmp_path):
-    from PIL import Image, ImageDraw
-    sys.path.insert(0, os.path.join(ROOT, "scripts"))
-    import assemble_frames as af
-    im = Image.new("RGB", (1536, 1024), (240, 228, 205))
-    ImageDraw.Draw(im).rectangle((0, 0, 40, 1024), fill=(20, 60, 200))   # синий левый край рисунка
-    im.save(tmp_path / "f.png")
-    af.fit_canvas(str(tmp_path / "f.png"), str(tmp_path / "c.png"))
-    c = Image.open(tmp_path / "c.png").convert("RGB")
-    r, g, b = c.getpixel((5, 540))
-    assert b > r + 30, "поле не взято из самого кадра (синий край должен проступать)"
-    assert b < 200, "поле не размыто и не затемнено"
-    rr, gg, bb = c.getpixel((1915, 540))
-    assert rr < 240 * af.MARGIN_DARKEN + 3, "поле не затемнено"
-
-
-def test_drawing_fills_the_full_height_and_only_the_sides_are_blurred(tmp_path):
-    from PIL import Image
-    sys.path.insert(0, os.path.join(ROOT, "scripts"))
-    import assemble_frames as af
-    Image.new("RGB", (1536, 1024), (240, 228, 205)).save(tmp_path / "f.png")
-    af.fit_canvas(str(tmp_path / "f.png"), str(tmp_path / "c.png"))
-    c = Image.open(tmp_path / "c.png").convert("RGB")
-    for y in (0, 1, 1079):                     # сверху и снизу — сам рисунок, не размытие
-        assert c.getpixel((960, y)) == (240, 228, 205), y
-    assert c.getpixel((5, 0)) != (240, 228, 205)   # по бокам — затемнённое поле
+    (tmp_path / "media_plan" / "image_cache").mkdir(parents=True)
+    (tmp_path / "frames").mkdir()
+    Image.new("RGB", (64, 36), "white").save(tmp_path / "media_plan" / "image_cache" / "raw.png")
+    rec = {"chosen": "raw.png", "labels_placed": [{"text": "ДОФАМИН", "box": [1, 1, 30, 10]}]}
+    src, recs = af.frame_source(str(tmp_path), 0, rec)
+    assert src.endswith("raw.png") and recs == rec["labels_placed"]
+    # запасная полоса подписей и потерянный исходник — готовый кадр, подписи уже на нём
+    band = {"chosen": "raw.png", "labels_placed": [{"text": "А · Б", "box": [0, 0, 5, 5], "fallback": "band"}]}
+    assert af.frame_source(str(tmp_path), 0, band) == (str(tmp_path / "frames" / "001.png"), [])
+    assert af.frame_source(str(tmp_path), 0, {"chosen": "lost.png"})[1] == []
 
 
 def test_labels_stay_clear_of_what_the_zoom_crops():
     sys.path.insert(0, os.path.join(ROOT, "scripts"))
-    import assemble_frames as af
+    import camera
     import labels
-    assert labels.EDGE_SAFE > af.ZOOM / 2
+    assert labels.EDGE_SAFE > camera.DRIFT / 2
     assert labels._inside_safe((0, 0, 1920, 1080), 1920, 1080) == (58, 32, 1862, 1048)
     # 3:2 стоит на всю высоту, по бокам — поля: наезд режет только верх и низ
     assert labels._inside_safe((0, 0, 1264, 848), 1264, 848) == (19, 25, 1245, 823)
