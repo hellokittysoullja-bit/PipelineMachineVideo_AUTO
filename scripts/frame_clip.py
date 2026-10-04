@@ -138,28 +138,38 @@ def key_layout(fr, text, win, seed=9):
     return writeon.layout(text, size, W, H, cx, cy, seed=seed, max_w=KEY_MAX_W*W), (cx, cy), size
 
 
+KEY_SPEEDUPS = (1.0, 1.25, 1.5)   # не успевает дописаться и постоять — карандаш быстрее, но не больше чем в 1.5 раза
+
+
 def plan_clip(fr, D, words, key=None, last_punch=-1e9, T0=0.0, zoom_in=True, fps=24):
     """План кадра (shots.plan) + раскладка главной мысли. Главная мысль, которой
-    нет места, не пишется — с записью в notes."""
-    key_dur, key_l = 0.0, None
+    нет места, не пишется — с записью в notes. Не успевает — пишется быстрее
+    (KEY_SPEEDUPS), а не пропадает: живой ролик 04.10 потерял «только открыть»,
+    потому что фраза стоит в конце кадра."""
+    key_l = None
     if key:
         wide = camera.window(fr["SW"]/2, fr["SH"]/2, fr["SW"], fr["SW"], fr["SH"])
-        kl = key_layout(fr, key, wide)
-        if kl:
-            key_l = kl
-            _, key_dur = writeon.plan(kl[0], fps)
+        key_l = key_layout(fr, key, wide)
     parts = [pp["part"] or pp["label"] for pp in fr.get("parts", [])]
-    p = shots.plan(D, fr["busy"], words, fr["recs"], fr["objects"], key if key_l else None, key_dur,
-                   last_punch=last_punch, T0=T0, zoom_in=zoom_in, parts=parts)
+    p, speed = None, 1.0
+    for speed in (KEY_SPEEDUPS if key_l else (1.0,)):
+        key_dur = writeon.plan(key_l[0], fps, factor=speed)[1] if key_l else 0.0
+        p = shots.plan(D, fr["busy"], words, fr["recs"], fr["objects"], key if key_l else None, key_dur,
+                       last_punch=last_punch, T0=T0, zoom_in=zoom_in, parts=parts)
+        if not key_l or p["key_time"] is not None:
+            break
     p["assemble"] = bool(fr.get("assemble"))
     if key and not key_l:
         p["notes"].append(f"главной мысли «{key}» нет места на кадре — не пишется")
     if key_l and p["key_time"] is not None:
+        if speed > 1.0:
+            p["notes"] = [n for n in p["notes"] if "главная мысль" not in n]
+            p["notes"].append(f"главная мысль пишется в {speed:.2f} раза быстрее, чтобы успеть и постоять")
         # писать в окне, где камера будет в этот момент (план держит его без склеек)
         win = shots.window_at(p, p["key_time"], fr["SW"], fr["SH"])
         kl = key_layout(fr, key, win)
-        if kl and writeon.plan(kl[0], fps)[1] <= key_dur*1.05 + 0.1:   # окно под письмо в плане уже зарезервировано
-            p["key"] = dict(text=key, win=win, center=kl[1], size=kl[2])
+        if kl and writeon.plan(kl[0], fps, factor=speed)[1] <= key_dur*1.05 + 0.1:
+            p["key"] = dict(text=key, win=win, center=kl[1], size=kl[2], speed=speed)
         else:
             p["notes"].append(f"главной мысли «{key}» нет места в плане момента — не пишется")
             p["key_time"] = None
@@ -206,7 +216,7 @@ def render(fr, p, D, out, fps=24, end_fade=False, crf="18"):
     if key and p.get("key_time") is not None:
         L = writeon.layout(key["text"], key["size"], W, H, key["center"][0], key["center"][1], seed=9,
                            max_w=KEY_MAX_W*W)
-        ev, T = writeon.plan(L, fps, t0=p["key_time"])
+        ev, T = writeon.plan(L, fps, t0=p["key_time"], factor=key.get("speed", 1.0))
         ink = writeon.Ink(L, ev, H, W)
         cues = [(e["t0"], e["t1"], e["kind"]) for e in ev]
         key_end = p["key_time"] + T

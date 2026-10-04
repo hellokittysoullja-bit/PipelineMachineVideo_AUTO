@@ -111,3 +111,16 @@ def test_diagram_assembles_part_by_part_with_the_voice(tmp_path):
     dim, lit = red_at(0.5), red_at(1.6)                       # «красный» звучит на 0.8 с
     assert dim[0] - dim[1] < 80 and lit[0] - lit[1] > 100     # до слова тускло, после — во всю силу
     assert sx > 0
+
+
+def test_key_thought_speeds_up_instead_of_disappearing(tmp_path):
+    import canvas
+    import frame_clip
+    src = tmp_path / "raw.png"
+    Image.new("RGB", (1264, 848), (251, 251, 246)).save(src)
+    fr = frame_clip.prepare(str(src), [], [], str(tmp_path), tex=canvas.paper_texture(w=1152, h=648))
+    words = [{"word": w, "start": 0.3 + 0.45*i, "end": 0.6 + 0.45*i}
+             for i, w in enumerate("поэтому договорись с собой только открыть письмо".split())]
+    p = frame_clip.plan_clip(fr, 4.6, words, key="только открыть")
+    assert p["key_time"] is not None and p["key"]["speed"] > 1.0
+    assert any("быстрее" in n for n in p["notes"])

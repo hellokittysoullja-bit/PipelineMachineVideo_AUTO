@@ -29,7 +29,7 @@ LABEL_FADE_SEC = 0.15
 CUT_SNAP_SEC = 0.6
 MEDIUM_Z = (1.65, 1.95)        # от общего плана не меньше camera.CUT_MIN_RATIO с запасом на дрейф
 WRITE_TAIL_SEC = 0.6
-KEY_MAX_LEAD_SEC = 1.0   # мысль может начать писаться раньше своего слова не больше чем на секунду
+KEY_MAX_LEAD_SEC = 1.5   # мысль может начать писаться раньше своего слова не больше чем на 1.5 с
 KEY_HOLD_SEC = 1.5       # дописанная мысль стоит на экране не меньше (критики 04.10: стояла 0.75 с)
 PUSH_SEC = 0.6           # наклон камеры к части схемы, названной голосом
 PUSH_STEP = 0.025        # каждый наклон — на 2.5% крупнее,
@@ -148,9 +148,22 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
     subj = subject_box(busy, objects)
     # средний план, режущий соседей, хуже, чем никакого; поле вокруг предмета даёт ореол карты
     # занятости (placement.busy_map), отдельный отступ margin его только удваивал и отсекал годные планы
-    medium = (camera.frame_for(busy, subj, MEDIUM_Z, margin=0.0, spread=0.35, max_cross=camera.PUNCH_MAX_CROSS,
-                                grid=17)
+    medium = (camera.frame_for(busy, subj, MEDIUM_Z, margin=0.0, spread=0.35, max_cross=camera.SEPARATE_MAX_CROSS,
+                                grid=17, cross_map=camera.others(busy, subj))
               if subj else None)
+    if medium is None and subj is not None and not any(o.get("role") == "subject" and o.get("box")
+                                                       for o in objects or []):
+        # главный предмет не размечен, а рисунок — одна сплошная группа (обычный случай: кот, стол и
+        # следы слиты), и средний план «целиком на группу» не помещается. Тогда — на центр тяжести
+        # рисунка: там почти всегда главное, край своей же группы обрезать можно.
+        ys, xs = np.nonzero(busy > 0.3)
+        if len(xs):
+            wgt = busy[ys, xs]
+            cx, cy = float((xs*wgt).sum()/wgt.sum()), float((ys*wgt).sum()/wgt.sum())
+            bw, bh = 0.32*SW, 0.32*SH
+            core = (cx - bw/2, cy - bh/2, cx + bw/2, cy + bh/2)
+            medium = camera.frame_for(busy, core, MEDIUM_Z, margin=0.0, spread=0.2, max_cross=camera.SEPARATE_MAX_CROSS,
+                                      grid=13, cross_map=camera.others(busy, subj))
     if medium is not None and camera.is_jump(medium, wide, SW, SH):
         medium = None
 

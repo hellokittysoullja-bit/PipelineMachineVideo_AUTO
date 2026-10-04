@@ -17,6 +17,7 @@ DRIFT = 0.04             # наезд/отъезд внутри плана, до
 PUNCH_SEC = 0.33
 PUNCH_MAX_ZOOM = 2.5
 PUNCH_FILL = 0.72        # предмет занимает такую долю кадра по своей «тесной» стороне
+SEPARATE_MAX_CROSS = 0.0    # отдельный предмет край кадра не задевает совсем (живой ролик: уголок календаря у края)
 PUNCH_MAX_CROSS = 0.01   # край кадра наезда почти нигде не идёт по рисунку (соседи целиком или вне кадра)
 PUNCH_MIN_FILL = 0.45    # мельче даже на PUNCH_MAX_ZOOM — не «на весь экран»: наезда нет (нужен крупный план)
 CUT_MIN_RATIO, CUT_MIN_SHIFT = 1.5, 0.4   # соседние планы одного рисунка: иначе «скачок»
@@ -83,10 +84,42 @@ def edge_cross(busy, win, level=0.3):
     return max([float((s_ > level).mean()) for s_, k in zip(sides, keep) if k] or [0.0])
 
 
-def frame_for(busy, target, z_range, margin=0.12, bottom_w=2.0, spread=0.2, edge_k=6.0, max_cross=None, grid=13):
+def others(busy, box, level=0.3):
+    """Карта занятости без той группы рисунка, к которой принадлежит box (связные
+    участки, задевающие рамку). Крупный план вправе обрезать край своей же сцены —
+    так снимают всегда; нельзя резать ОТДЕЛЬНЫЙ предмет рядом (живой ролик 04.10:
+    кот держит конверт, и правило «не резать ничего» отменяло любой наезд и любой
+    средний план — ролик стоял одним планом)."""
+    from scipy import ndimage
+    lab, n = ndimage.label(busy > level)
+    if not n:
+        return busy
+    SH, SW = busy.shape
+    x0, y0, x1, y1 = [int(round(v)) for v in box]
+    inside = np.bincount(lab[max(0, y0):min(SH, y1), max(0, x0):min(SW, x1)].ravel(), minlength=n + 1)
+    total = np.bincount(lab.ravel(), minlength=n + 1)
+    # своя — группа, которая в основном внутри рамки; рамка большой группы может краем задеть
+    # соседний предмет (живой кадр: календарь над столом), и он от этого своим не становится
+    # …и группа, которой в рамке больше всего (предмет в лапах кота — часть группы «кот»)
+    ids = set((np.nonzero(inside[1:] > 0.5*total[1:])[0] + 1).tolist())
+    if inside[1:].max() > 0:
+        ids.add(int(np.argmax(inside[1:])) + 1)
+    ids = np.array(sorted(ids), int)
+    out = busy.copy()
+    mine = np.isin(lab, ids)
+    rest = ndimage.binary_dilation((lab > 0) & ~mine, iterations=12)        # чужие предметы с их краями
+    own = ndimage.binary_dilation(mine, iterations=30) & ~rest              # своя группа с бледным ореолом
+    out[own] = 0
+    return out
+
+
+def frame_for(busy, target, z_range, margin=0.12, bottom_w=2.0, spread=0.2, edge_k=6.0, max_cross=None, grid=13,
+              cross_map=None):
     """Окно, в котором цель целиком с полями, а края рамки идут по пустому.
     z — крупность относительно всего холста. max_cross — рамки, режущие рисунок
-    сильнее (edge_cross), не рассматриваются. None — не нашлось ни одного."""
+    сильнее (edge_cross по cross_map, по умолчанию — по всей карте), не
+    рассматриваются. None — не нашлось ни одного."""
+    cm = busy if cross_map is None else cross_map
     SH, SW = busy.shape
     base = min(SW, SH*ASPECT)
     tx0, ty0, tx1, ty1 = target
@@ -102,7 +135,8 @@ def frame_for(busy, target, z_range, margin=0.12, bottom_w=2.0, spread=0.2, edge
                 x0, y0, x1, y1 = win
                 if tx0 < x0 + margin*w or tx1 > x1 - margin*w or ty0 < y0 + margin*h or ty1 > y1 - margin*h:
                     continue
-                if max_cross is not None and edge_cross(busy, win) > max_cross:
+                # у отдельных предметов ловим и бледные края (листы календаря, ореол рисунка)
+                if max_cross is not None and edge_cross(cm, win, level=0.3 if cross_map is None else 0.15) > max_cross:
                     continue
                 off = np.hypot((x0 + x1)/2 - tcx, (y0 + y1)/2 - tcy)/w
                 cost = _edge_busy(busy, win, bottom_w)*edge_k + off*0.8 - 0.05*z
@@ -128,13 +162,15 @@ def punch_window(busy, obj):
         punch_window.why = f"предмет мелкий: даже на {PUNCH_MAX_ZOOM}x меньше {PUNCH_MIN_FILL:.0%} кадра"
         return None
     m = (1 - PUNCH_FILL)/2*0.6
+    sep = others(busy, obj)
     # от самого крупного к более общему: первый, у которого края не режут рисунок
     for z in np.linspace(z_hi, max(CUT_MIN_RATIO, z_fit*PUNCH_MIN_FILL/PUNCH_FILL), 8):
-        w = frame_for(busy, obj, (z, z), margin=m, spread=0.15, edge_k=10.0, max_cross=PUNCH_MAX_CROSS)
+        w = frame_for(busy, obj, (z, z), margin=m, spread=0.15, edge_k=10.0, max_cross=SEPARATE_MAX_CROSS,
+                      cross_map=sep)
         if w is not None:
             punch_window.why = None
             return w
-    punch_window.why = "любой кадр наезда режет соседний рисунок"
+    punch_window.why = "любой кадр наезда режет соседний отдельный предмет"
     return None
 
 

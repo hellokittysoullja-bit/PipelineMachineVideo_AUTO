@@ -249,7 +249,7 @@ def letter_strokes(L):
     return out
 
 
-def plan(letters, fps, t0=0.0, speed=None, seed=1):
+def plan(letters, fps, t0=0.0, speed=None, seed=1, factor=1.0):
     """Штрихи со временем. Постоянная скорость пера; отрыв ~0.02 с внутри буквы и между
     буквами, ~0.12 с между словами; короткий штрих — не короче кадра (без растягивания
     до двух: это давало пустые кадры и «пульс»). Замер 04.10: 0.9–1.4 с на слово, пустых
@@ -257,7 +257,7 @@ def plan(letters, fps, t0=0.0, speed=None, seed=1):
     rng = np.random.default_rng(seed)
     ev, t, prev_word = [], 0.0, None
     for L in letters:
-        sp = speed or SPEED_PER_SIZE*L["size"]
+        sp = (speed or SPEED_PER_SIZE*L["size"])*factor
         sts = letter_strokes(L)
         for j, s in enumerate(sts):
             if j == 0:

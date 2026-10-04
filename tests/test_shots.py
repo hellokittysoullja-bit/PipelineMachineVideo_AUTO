@@ -206,3 +206,20 @@ def test_camera_leans_to_each_named_part_within_8_percent():
     last = seg["pushes"][-1]["t"] + shots.PUSH_SEC
     a, b = shots.window_at(p, last + 0.05, 1508, 848), shots.window_at(p, seg["t1"] - 0.01, 1508, 848)
     assert (b[2] - b[0]) > (a[2] - a[0])
+
+
+def test_punch_may_crop_its_own_group_but_never_a_separate_object():
+    im = Image.new("RGB", (1264, 848), (251, 251, 246))
+    d = ImageDraw.Draw(im)
+    d.ellipse((380, 250, 640, 700), fill=(40, 40, 40))            # «кот»
+    d.rectangle((600, 380, 900, 560), fill=(230, 230, 230), outline=(20, 20, 20), width=6)   # конверт в лапах
+    d.rectangle((1050, 80, 1200, 200), outline=(20, 20, 20), width=6)                          # отдельный календарь
+    cv, off, _ = canvas.prepare(im)
+    busy = placement.busy_map(cv.astype(np.float32), margin=8)
+    env = (600 + off[0], 380, 900 + off[0], 560)
+    pw = camera.punch_window(busy, env)
+    assert pw is not None                                         # раньше: «режет кота» -> наезда нет
+    cal = (1050 + off[0], 80, 1200 + off[0], 200)
+    sep = camera.others(busy, env)
+    assert sep[int(cal[1]) + 5:int(cal[3]) - 5, int(cal[0]) + 5:int(cal[2]) - 5].max() > 0.3   # календарь — отдельный
+    assert camera.edge_cross(sep, pw) <= camera.PUNCH_MAX_CROSS
