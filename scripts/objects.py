@@ -108,8 +108,14 @@ def locate(gateway, model, img_path, names, cache_dir=None):
 
 
 def wanted(frame, hero_text):
-    """[(имя, роль, слово)] — что искать на кадре плана."""
+    """[(имя, роль, слово)] — что искать на кадре плана. Для схемы — ещё часть,
+    которую описывает каждая подпись (роль label:N): сборка проявляет её на
+    слове подписи."""
     out = []
+    if frame.get("kind") == "diagram":
+        for k, lab in enumerate(frame.get("labels") or []):
+            out.append((f"the drawn part that the label «{lab}» would describe (what its little arrow points to)",
+                        f"label:{k}", lab))
     z = frame.get("zoom") or {}
     if z.get("object"):
         out.append((z["object"], "zoom", z.get("word")))

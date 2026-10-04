@@ -176,3 +176,33 @@ def test_segments_cover_the_whole_frame():
         for t in np.linspace(0, D - 1e-3, 7):
             w = shots.window_at(p, t, 1508, 848)
             assert w[0] >= -1e-6 and w[2] <= 1508 + 1e-6
+
+
+def test_key_thought_finishes_and_then_stays_on_screen():
+    busy, _ = _busy()
+    words = _words("а ты третий день ходишь вокруг него кругами")
+    p = shots.plan(5.0, busy, words, key="третий день", key_dur=2.3)
+    kt = p["key_time"]
+    assert kt is not None and kt + 2.3 + shots.KEY_HOLD_SEC <= 5.0 - 0.2 + 1e-6
+    assert words[2]["start"] - kt <= shots.KEY_MAX_LEAD_SEC + 1e-6
+    p2 = shots.plan(3.0, busy, words, key="третий день", key_dur=2.3)     # не успевает постоять — не пишется
+    assert p2["key_time"] is None
+
+
+def test_camera_leans_to_each_named_part_within_8_percent():
+    busy, off = _busy()
+    words = _words("сначала кот потом письмо и календарь в конце")
+    labels = [{"text": "кот"}, {"text": "письмо"}, {"text": "календарь"}]
+    parts = [(414, 242, 690, 608), (862, 360, 1122, 520), (272, 60, 422, 220)]
+    p = shots.plan(8.0, busy, words, labels=labels, parts=parts)
+    seg = p["segments"][0]
+    assert seg.get("pushes") and all(abs(ps["t"] - lt) < 1e-9 for ps, lt in zip(seg["pushes"], p["label_times"]))
+    wide = 1508
+    for t in np.linspace(seg["t0"], seg["t1"] - 1e-3, 40):
+        w = shots.window_at(p, t, 1508, 848)
+        assert wide/(w[2] - w[0]) <= 1 + shots.PUSH_MAX + 1e-6
+        assert camera.edge_cross(busy, w) <= camera.PUNCH_MAX_CROSS + 1e-9 or t < 0.01
+    # после наклона камера не стоит: выдох обратно к общему плану
+    last = seg["pushes"][-1]["t"] + shots.PUSH_SEC
+    a, b = shots.window_at(p, last + 0.05, 1508, 848), shots.window_at(p, seg["t1"] - 0.01, 1508, 848)
+    assert (b[2] - b[0]) > (a[2] - a[0])

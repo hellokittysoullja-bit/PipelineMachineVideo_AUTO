@@ -27,9 +27,14 @@ MAX_VIEW_SEC = 4.0
 MIN_VIEW_SEC = 1.5
 LABEL_FADE_SEC = 0.15
 CUT_SNAP_SEC = 0.6
-MEDIUM_Z = (1.6, 1.95)        # от общего плана не меньше camera.CUT_MIN_RATIO с запасом на дрейф
+MEDIUM_Z = (1.65, 1.95)        # от общего плана не меньше camera.CUT_MIN_RATIO с запасом на дрейф
 WRITE_TAIL_SEC = 0.6
 KEY_MAX_LEAD_SEC = 1.0   # мысль может начать писаться раньше своего слова не больше чем на секунду
+KEY_HOLD_SEC = 1.5       # дописанная мысль стоит на экране не меньше (критики 04.10: стояла 0.75 с)
+PUSH_SEC = 0.6           # наклон камеры к части схемы, названной голосом
+PUSH_STEP = 0.025        # каждый наклон — на 2.5% крупнее,
+PUSH_MAX = 0.08          # всего не больше 8% (внутри плана — без «большого зума»)
+PUSH_PULL = 0.3          # центр сдвигается к части на эту долю пути
 
 
 def word_time(phrase, words, after=0.0):
@@ -56,14 +61,16 @@ def subject_box(busy, objects):
 
 
 def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punch=-1e9, T0=0.0,
-         zoom_in=True):
+         zoom_in=True, parts=None):
     """Сегменты камеры и события кадра.
 
     D — длительность кадра; busy — карта занятости холста; words — слова речи
     кадра со временем от его начала; labels — [{"text", ...}]; objects —
     [{"name", "box", "word", "role"}] в координатах холста; key — текст главной
     мысли, key_dur — сколько он пишется; last_punch — глобальное время прошлого
-    наезда; T0 — глобальное время начала кадра.
+    наезда; T0 — глобальное время начала кадра; parts — рамка (в координатах
+    холста) части схемы, которую называет каждая подпись: на её слове камера
+    чуть наклоняется к ней.
 
     Возвращает dict: segments [{t0, t1, kind: drift|punch, win, win_to, zoom_in}],
     label_times [t], key_time (или None), punch_at (глобальное время или None), notes."""
@@ -90,11 +97,11 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
         kt = word_time(key, words) if words else None
         said = kt
         kt = 0.3 if kt is None else kt
-        if kt + key_dur > D - 0.3:
-            kt = max(0.2, D - 0.3 - key_dur)
+        if kt + key_dur + KEY_HOLD_SEC > D - 0.2:
+            kt = max(0.2, D - 0.2 - KEY_HOLD_SEC - key_dur)
         if said is not None and said - kt > KEY_MAX_LEAD_SEC:
-            notes.append("главная мысль не успевает дописаться к концу кадра — не пишется")
-        elif kt + key_dur <= D - 0.2:
+            notes.append("главная мысль не успевает дописаться и постоять к концу кадра — не пишется")
+        elif kt + key_dur + KEY_HOLD_SEC <= D - 0.2 + 1e-6:
             key_time = kt
             busy_win.append((kt - 0.2, kt + key_dur + WRITE_TAIL_SEC))
         else:
@@ -106,7 +113,7 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
     # наезд на предмет
     punch = None
     for o in objects or []:
-        if not o.get("word") or not o.get("box"):
+        if not o.get("word") or not o.get("box") or o.get("role") not in (None, "zoom"):
             continue
         t = word_time(o["word"], words)
         if t is None:
@@ -202,8 +209,28 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
             cur = wa
             segs.append(dict(t0=a, t1=b, kind="drift", win=wa, zoom_in=zi))
             zi = not zi
+    # схема собирается по голосу: на каждой названной части камера чуть наклоняется к ней
     for sg in segs:
-        if sg["t1"] - sg["t0"] > MAX_VIEW_SEC + CUT_SNAP_SEC and sg["kind"] == "drift":
+        if sg["kind"] != "drift" or sg["win"] != wide:
+            continue
+        pushes, k = [], 0
+        for i, lt in enumerate(label_times):
+            if not (sg["t0"] <= lt < sg["t1"] - PUSH_SEC):
+                continue
+            box = parts[i] if parts and i < len(parts) else None
+            if not box:
+                continue
+            z = 1 + min(PUSH_MAX, PUSH_STEP*(k + 1))
+            cx = SW/2 + ((box[0] + box[2])/2 - SW/2)*PUSH_PULL
+            cy = SH/2 + ((box[1] + box[3])/2 - SH/2)*PUSH_PULL
+            win = camera.window(cx, cy, (wide[2] - wide[0])/z, SW, SH)
+            if camera.edge_cross(busy, win) > camera.PUNCH_MAX_CROSS:
+                continue                         # наклон резал бы рисунок — эта часть без него
+            pushes.append(dict(t=lt, win=win)); k += 1
+        if pushes:
+            sg["pushes"] = pushes
+    for sg in segs:
+        if sg["t1"] - sg["t0"] > MAX_VIEW_SEC + CUT_SNAP_SEC and sg["kind"] == "drift" and not sg.get("pushes"):
             notes.append(f"план {sg['t0']:.1f}-{sg['t1']:.1f} с без смены: другого плана без разреза рисунка нет")
     return dict(segments=segs, label_times=label_times, key_time=key_time,
                 punch_at=(T0 + punch[0]) if punch else None, punch_name=punch[2] if punch else None,
@@ -211,7 +238,12 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
 
 
 def window_at(p, t, SW, SH):
-    """Окно камеры в момент t (от начала кадра)."""
+    """Окно камеры в момент t (от начала кадра), всегда внутри холста."""
+    w = _window_at(p, t, SW, SH)
+    return camera.window((w[0] + w[2])/2, (w[1] + w[3])/2, w[2] - w[0], SW, SH)
+
+
+def _window_at(p, t, SW, SH):
     segs = p["segments"]
     s = next((s for s in segs if s["t0"] <= t < s["t1"]), segs[-1])
     u = (t - s["t0"])/max(1e-6, s["t1"] - s["t0"])
@@ -221,4 +253,18 @@ def window_at(p, t, SW, SH):
         cx, cy = (s["win"][0] + s["win"][2])/2, (s["win"][1] + s["win"][3])/2
         z = 1 + 0.5*camera.DRIFT*camera.ease_io(u)        # после наезда — еле заметно дальше
         return camera.window(cx, cy, (s["win"][2] - s["win"][0])/z, SW, SH)
+    if s.get("pushes"):
+        cur = s["win"]
+        for k, ps in enumerate(s["pushes"]):
+            if t < ps["t"]:
+                break
+            a = camera.ease_io((t - ps["t"])/PUSH_SEC)
+            cur = camera.lerp(cur, ps["win"], a) if a < 1 else ps["win"]
+        last = s["pushes"][-1]
+        rest_t0 = last["t"] + PUSH_SEC
+        if t > rest_t0 and s["t1"] - rest_t0 > 0.3:
+            # после сборки — медленный выдох обратно к общему плану, без остановки камеры
+            u2 = camera.ease_io((t - rest_t0)/(s["t1"] - rest_t0))
+            cur = camera.lerp(last["win"], s["win"], 0.6*u2)
+        return cur
     return camera.drift(s["win"], u, s.get("zoom_in", True), SW, SH)

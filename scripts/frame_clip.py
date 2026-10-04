@@ -35,6 +35,9 @@ KEY_SIZES = (150, 130, 115, 100)
 KEY_MAX_W = 0.62
 INK = np.array([52, 50, 56], np.float32)       # тёплый графит (вариант A владельца)
 END_FADE_SEC = 0.6
+DIM = 0.3                # схема до сборки — 30% силы, остальное бумага (критик монтажа 04.10)
+REVEAL_SEC = 0.35        # часть схемы проявляется за столько
+REVEAL_MAX_SHARE = 0.25  # общий прямоугольник «подпись + часть» не больше четверти холста
 RENDER_VERSION = 1
 
 
@@ -71,8 +74,38 @@ def prepare(src_path, recs, objects, work, seed=0, tex=None):
     for r in recs:
         labels_mod.draw_rec(final, r, 1.0, off)
     busy = placement.busy_map(np.asarray(final, np.float32), margin=8)
+    # части схемы по подписям: рамка части от судьи, иначе — сама подпись с её стрелкой-указателем
+    parts, have = [], 0
+    for k, r in enumerate(recs):
+        lb = shift(r["box"])
+        pb = next((o["box"] for o in objs if o.get("role") == f"label:{k}"), None)
+        have += pb is not None
+        parts.append(dict(label=lb, part=pb))
+    assemble = len(recs) >= 2 and have*2 >= len(recs)
     return dict(world=world, canvas=cv, off=off, on_paper=on_paper, SW=SW, SH=SH, recs=recs,
-                objects=objs, busy=busy, final_rgb=np.asarray(final))
+                objects=objs, busy=busy, final_rgb=np.asarray(final), parts=parts, assemble=assemble)
+
+
+def reveal_mask(fr, i, scale):
+    """Мягкая маска (в мире) того, что проявляется на слове подписи i: подпись со
+    стрелкой-указателем и часть, которую она описывает."""
+    from scipy import ndimage
+    SW, SH = fr["SW"], fr["SH"]
+    p = fr["parts"][i]
+    lb = p["label"]
+    lh = lb[3] - lb[1]
+    rects = [(lb[0] - 0.8*lh, lb[1] - 0.8*lh, lb[2] + 0.8*lh, lb[3] + 0.8*lh)]
+    if p["part"]:
+        pb = p["part"]
+        mx, my = 0.1*(pb[2] - pb[0]), 0.1*(pb[3] - pb[1])
+        rects.append((pb[0] - mx, pb[1] - my, pb[2] + mx, pb[3] + my))
+        u = (min(lb[0], pb[0]), min(lb[1], pb[1]), max(lb[2], pb[2]), max(lb[3], pb[3]))
+        if (u[2] - u[0])*(u[3] - u[1]) <= REVEAL_MAX_SHARE*SW*SH:
+            rects.append(u)
+    m = np.zeros((SH*scale, SW*scale), np.float32)
+    for x0, y0, x1, y1 in rects:
+        m[max(0, int(y0*scale)):max(0, int(y1*scale)), max(0, int(x0*scale)):max(0, int(x1*scale))] = 1
+    return np.clip(ndimage.gaussian_filter(m, 10*scale), 0, 1)[..., None]
 
 
 def _screen(world, win, scale):
@@ -105,8 +138,10 @@ def plan_clip(fr, D, words, key=None, last_punch=-1e9, T0=0.0, zoom_in=True, fps
         if kl:
             key_l = kl
             _, key_dur = writeon.plan(kl[0], fps)
+    parts = [pp["part"] or pp["label"] for pp in fr.get("parts", [])]
     p = shots.plan(D, fr["busy"], words, fr["recs"], fr["objects"], key if key_l else None, key_dur,
-                   last_punch=last_punch, T0=T0, zoom_in=zoom_in)
+                   last_punch=last_punch, T0=T0, zoom_in=zoom_in, parts=parts)
+    p["assemble"] = bool(fr.get("assemble"))
     if key and not key_l:
         p["notes"].append(f"главной мысли «{key}» нет места на кадре — не пишется")
     if key_l and p["key_time"] is not None:
@@ -148,7 +183,12 @@ def _bake_alpha(world, alpha, win, scale, color):
 def render(fr, p, D, out, fps=24, end_fade=False, crf="18"):
     """Клип в out. Возвращает [(t0, t1, kind)] штрихов карандаша (от начала клипа)."""
     SW, SH = fr["SW"], fr["SH"]
-    world = fr["world"].copy()
+    full = fr["world"].copy()                  # рисунок целиком (и подписи, когда появятся)
+    assemble = p.get("assemble") and len(fr["recs"]) >= 2
+    if assemble:
+        world = (full.astype(np.float32)*DIM + canvas.CREAM*(1 - DIM)).round().astype(np.uint8)
+    else:
+        world = full
     n = max(1, int(round(D*fps)))
     lab_t = list(p["label_times"])
     shown = [False]*len(fr["recs"])
@@ -160,7 +200,7 @@ def render(fr, p, D, out, fps=24, end_fade=False, crf="18"):
         ink = writeon.Ink(L, ev, H, W)
         cues = [(e["t0"], e["t1"], e["kind"]) for e in ev]
         key_end = p["key_time"] + T
-    prev_world, fade_from = None, None
+    prev_world, fade_from, fade_len = None, None, shots.LABEL_FADE_SEC
     tmp = out + ".tmp.mp4"
     proc = subprocess.Popen(["ffmpeg", "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}",
                              "-r", str(fps), "-i", "-", "-frames:v", str(n), "-c:v", "libx264", "-preset", "medium",
@@ -171,15 +211,25 @@ def render(fr, p, D, out, fps=24, end_fade=False, crf="18"):
             for i, lt in enumerate(lab_t):
                 if not shown[i] and t >= lt:
                     prev_world, fade_from = world.copy(), lt
-                    big = Image.fromarray(world)
-                    labels_mod.draw_rec(big, fr["recs"][i], UPSCALE,
-                                        (fr["off"][0]*UPSCALE, fr["off"][1]*UPSCALE))
-                    world = np.asarray(big).copy()
+                    off2 = (fr["off"][0]*UPSCALE, fr["off"][1]*UPSCALE)
+                    if assemble:
+                        big = Image.fromarray(full)
+                        labels_mod.draw_rec(big, fr["recs"][i], UPSCALE, off2)
+                        full = np.asarray(big).copy()
+                        last = all(shown[j] or j == i for j in range(len(shown)))
+                        m = 1.0 if last else reveal_mask(fr, i, UPSCALE)   # последняя — схема целиком
+                        world = (world*(1 - m) + full*m).round().astype(np.uint8) if not last else full.copy()
+                        fade_len = REVEAL_SEC
+                    else:
+                        big = Image.fromarray(world)
+                        labels_mod.draw_rec(big, fr["recs"][i], UPSCALE, off2)
+                        world = np.asarray(big).copy()
+                        fade_len = shots.LABEL_FADE_SEC
                     shown[i] = True
             win = shots.window_at(p, t, SW, SH)
             f = _screen(world, win, UPSCALE)
-            if prev_world is not None and t - fade_from < shots.LABEL_FADE_SEC:
-                a = (t - fade_from)/shots.LABEL_FADE_SEC
+            if prev_world is not None and t - fade_from < fade_len:
+                a = camera.ease_io((t - fade_from)/fade_len)
                 f = _screen(prev_world, win, UPSCALE)*(1 - a) + f*a
             elif prev_world is not None:
                 prev_world = None
@@ -188,6 +238,8 @@ def render(fr, p, D, out, fps=24, end_fade=False, crf="18"):
                 al = ink.alpha()
                 if t >= key_end + 1.0/fps:
                     _bake_alpha(world, al, key["win"], UPSCALE, INK)
+                    if assemble and full is not world:
+                        _bake_alpha(full, al, key["win"], UPSCALE, INK)   # иначе следующее проявление её сотрёт
                     baked = True
                     f = _screen(world, win, UPSCALE)
                 else:

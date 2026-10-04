@@ -38,10 +38,10 @@ def test_label_appears_at_its_word_and_key_thought_is_written_and_kept(tmp_path)
     fr = frame_clip.prepare(str(src), [rec], [], str(tmp_path), tex=tex)
     words = [{"word": w, "start": 0.3 + 0.5*i, "end": 0.6 + 0.5*i}
              for i, w in enumerate("сначала идёт дофамин а потом тянет ещё и ещё".split())]
-    p = frame_clip.plan_clip(fr, 4.0, words, key="ещё")
+    p = frame_clip.plan_clip(fr, 5.0, words, key="ещё")
     assert p["label_times"] == pytest.approx([1.3])
     out = str(tmp_path / "c.mp4")
-    cues = frame_clip.render(fr, p, 4.0, out, end_fade=True)
+    cues = frame_clip.render(fr, p, 5.0, out, end_fade=True)
     # подпись: до слова её нет, после — есть (в своей рамке, со сдвигом холста)
     sx = 1920/fr["SW"]
     x0, y0 = int((820 + fr["off"][0])*sx), int(380*sx)
@@ -53,7 +53,7 @@ def test_label_appears_at_its_word_and_key_thought_is_written_and_kept(tmp_path)
     assert p.get("key_time") is not None and p["key_time"] >= 3.3 - 1.0
     assert cues and min(c[0] for c in cues) >= p["key_time"] - 1e-6
     # конец — крем, а не чёрное
-    last = _frame_at(out, 3.94)
+    last = _frame_at(out, 4.94)
     assert np.abs(last.mean((0, 1)) - canvas.CREAM).max() < 12
 
 
@@ -75,3 +75,39 @@ def test_pencil_track_is_silent_between_strokes_and_scaled_to_voice(tmp_path):
     assert g is not None
     vl, pl = pencil_sound.integrated_lufs(v), pencil_sound.integrated_lufs(p)
     assert pl + g == pytest.approx(vl - pencil_sound.PENCIL_GAP_LU, abs=0.2)
+
+
+def test_diagram_assembles_part_by_part_with_the_voice(tmp_path):
+    import canvas
+    import frame_clip
+    src = tmp_path / "raw.png"
+    im = Image.new("RGB", (1264, 848), (251, 251, 246))
+    d = ImageDraw.Draw(im)
+    d.ellipse((150, 300, 350, 500), fill=(180, 30, 30))          # часть 1
+    d.ellipse((800, 300, 1000, 500), fill=(30, 30, 180))         # часть 2
+    im.save(src)
+    recs = [{"text": t, "font": "ShantellSans-ExtraBold.ttf", "size": 40, "lines": [t], "color": "dark",
+             "box": b} for t, b in (("КРАСНЫЙ", [150, 560, 360, 630]), ("СИНИЙ", [800, 560, 1010, 630]))]
+    objs = [{"name": "a", "role": "label:0", "box": [150, 300, 350, 500]},
+            {"name": "b", "role": "label:1", "box": [800, 300, 1000, 500]}]
+    fr = frame_clip.prepare(str(src), recs, objs, str(tmp_path), tex=canvas.paper_texture(w=1152, h=648))
+    assert fr["assemble"]
+    words = [{"word": w, "start": 0.3 + 0.5*i, "end": 0.6 + 0.5*i}
+             for i, w in enumerate("сначала красный а потом синий вот так".split())]
+    p = frame_clip.plan_clip(fr, 4.0, words)
+    out = str(tmp_path / "a.mp4")
+    frame_clip.render(fr, p, 4.0, out)
+    sx = 1920/fr["SW"]
+
+    def red_at(t):
+        f = _frame_at(out, t)
+        w = shots_win(p, t, fr)
+        x = ((250 + fr["off"][0]) - w[0])*1920/(w[2] - w[0]); y = (400 - w[1])*1920/(w[2] - w[0])
+        return f[int(y), int(x)]
+    import shots
+
+    def shots_win(p, t, fr):
+        return shots.window_at(p, t, fr["SW"], fr["SH"])
+    dim, lit = red_at(0.5), red_at(1.6)                       # «красный» звучит на 0.8 с
+    assert dim[0] - dim[1] < 80 and lit[0] - lit[1] > 100     # до слова тускло, после — во всю силу
+    assert sx > 0
