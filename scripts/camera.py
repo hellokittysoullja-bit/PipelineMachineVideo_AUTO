@@ -120,12 +120,14 @@ def others(busy, box, level=0.3):
 
 
 def frame_for(busy, target, z_range, margin=0.12, bottom_w=2.0, spread=0.2, edge_k=6.0, max_cross=None, grid=13,
-              cross_map=None):
+              cross_map=None, away=None):
     """Окно, в котором цель целиком с полями, а края рамки идут по пустому.
     z — крупность относительно всего холста. max_cross — рамки, режущие рисунок
     сильнее (edge_cross по cross_map, по умолчанию — по всей карте), не
     рассматриваются. None — не нашлось ни одного."""
     cm = busy if cross_map is None else cross_map
+    # away=(cx, cy, доля): склейка в ту же точку крупнее — «цифровой зум», читается как скачок;
+    # центр нового плана смещается от прежнего хотя бы на долю его ширины (если можно)
     SH, SW = busy.shape
     base = min(SW, SH*ASPECT)
     tx0, ty0, tx1, ty1 = target
@@ -143,6 +145,8 @@ def frame_for(busy, target, z_range, margin=0.12, bottom_w=2.0, spread=0.2, edge
                     continue
                 # у отдельных предметов ловим и бледные края (листы календаря, ореол рисунка)
                 if max_cross is not None and edge_cross(cm, win, level=0.3 if cross_map is None else 0.15) > max_cross:
+                    continue
+                if away is not None and abs((x0 + x1)/2 - away[0]) < away[2]:
                     continue
                 off = np.hypot((x0 + x1)/2 - tcx, (y0 + y1)/2 - tcy)/w
                 cost = _edge_busy(busy, win, bottom_w)*edge_k + off*0.8 - 0.05*z

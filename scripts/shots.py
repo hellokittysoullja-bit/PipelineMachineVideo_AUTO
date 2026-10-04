@@ -28,7 +28,8 @@ MIN_VIEW_SEC = 1.5
 LABEL_FADE_SEC = 0.15
 CUT_SNAP_SEC = 0.6
 MEDIUM_STEP = (1.55, 2.1)      # средний план крупнее общего во столько раз (не меньше camera.CUT_MIN_RATIO + дрейф)
-MEDIUM_MARGIN = 0.03           # поле вокруг предмета в среднем плане (критик: уши кота срезаны; больше — соседний предмет не даёт плана вовсе)
+MEDIUM_MIN_FILL = 0.3        # предмет среднего плана — не меньше трети кадра по одной из сторон
+MEDIUM_MARGIN = 0.06           # поле вокруг предмета в среднем плане (критик: уши кота срезаны; больше — соседний предмет не даёт плана вовсе)
 WIDE_MAX_Z = 1.45              # общий план — плотно по рисунку, а не весь лист (критик: кот на 10% кадра)
 WRITE_TAIL_SEC = 0.6
 KEY_MAX_LEAD_SEC = 1.5   # мысль может начать писаться раньше своего слова не больше чем на 1.5 с
@@ -175,8 +176,13 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
             if not (kb[0] >= tgt[0] - 1 and kb[1] >= tgt[1] - 1 and kb[2] <= tgt[2] + 1 and kb[3] <= tgt[3] + 1):
                 ys_k, xs_k = slice(int(kb[1]), int(kb[3])), slice(int(kb[0]), int(kb[2]))
                 cm[ys_k, xs_k] = np.maximum(cm[ys_k, xs_k], busy[ys_k, xs_k])
-        medium = camera.frame_for(busy, tgt, mz, margin=MEDIUM_MARGIN if marked else 0.0, spread=0.35,
-                                  max_cross=camera.SEPARATE_MAX_CROSS, grid=17, cross_map=cm)
+        kw = dict(margin=MEDIUM_MARGIN if marked else 0.0, spread=0.35, max_cross=camera.SEPARATE_MAX_CROSS,
+                  grid=17, cross_map=cm)
+        medium = camera.frame_for(busy, tgt, mz, away=((wide[0] + wide[2])/2, 0, 0.1*(wide[2] - wide[0])), **kw) \
+            or camera.frame_for(busy, tgt, mz, **kw)
+        if medium is not None and max((tgt[2] - tgt[0])/(medium[2] - medium[0]),
+                                      (tgt[3] - tgt[1])/(medium[3] - medium[1])) < MEDIUM_MIN_FILL:
+            medium = None       # мелкий предмет на пустом листе — не средний план (это работа быстрого наезда)
         if medium is not None:
             break
     if medium is None and subj is not None and not marked:
@@ -274,11 +280,13 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
             pushes.append(dict(t=lt, win=win)); k += 1
         if pushes:
             sg["pushes"] = pushes
-    # длинный план без смены и без сборки — медленный наезд к главному на всю длину (до 8%, без разреза)
+    # длинный план без смены и без сборки — медленный наезд к главному на всю длину (до 8%, без разреза);
+    # возврат к общему плану после среднего — тоже в движении, а не тот же стоп-кадр (критик: «jump-back»)
     focus = subj
-    for sg in segs:
+    for k_, sg in enumerate(segs):
+        back = k_ > 0 and sg["win"] == wide and segs[k_ - 1]["win"] != wide   # возврат к общему после среднего
         if (sg["kind"] == "drift" and not sg.get("pushes") and focus is not None
-                and sg["t1"] - sg["t0"] > MAX_VIEW_SEC + CUT_SNAP_SEC):
+                and (sg["t1"] - sg["t0"] > MAX_VIEW_SEC + CUT_SNAP_SEC or back)):
             w0 = sg["win"]
             wcx, wcy = (w0[0] + w0[2])/2, (w0[1] + w0[3])/2
             fcx, fcy = (focus[0] + focus[2])/2, (focus[1] + focus[3])/2
