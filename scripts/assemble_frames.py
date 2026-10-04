@@ -284,7 +284,9 @@ def main(video_dir):
                                         sort_keys=True, default=str).encode()).hexdigest()[:16]
         job["out"] = os.path.join(work, f"clip_{k:04d}_{sig}.mp4")
         shot_log.append({"index": kept[k], "duration": round(job["dur"], 3),
-                         "views": [[round(s_["t0"], 2), s_["kind"]] for s_ in p["segments"]],
+                         "views": [[round(s_["t0"], 2), "lean" if s_.get("lean") else ("assemble" if s_.get("pushes")
+                                                                                     else s_["kind"])]
+                                   for s_ in p["segments"]],
                          "labels_at": [round(t, 2) for t in p["label_times"]],
                          "punch": p.get("punch_name"), "key": (p.get("key") or {}).get("text") if p.get("key_time") is not None else None,
                          "key_at": None if p.get("key_time") is None else round(p["key_time"], 2),

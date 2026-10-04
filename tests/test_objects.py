@@ -26,7 +26,10 @@ def test_check_rejects_empty_paper_dots_and_whole_frame():
 def test_wanted_zoom_object_and_subject():
     f = {"hero": True, "zoom": {"object": "the envelope", "word": "письмо"}, "spec": {"subject": "a letter"}}
     assert objects.wanted(f, "a black cartoon cat") == [("the envelope", "zoom", "письмо"),
-                                                        ("a black cartoon cat", "subject", None)]
+                                                        ("a letter", "subject", None),      # о чём фраза
+                                                        ("a black cartoon cat", "hero", None)]
+    f2 = dict(f, spec={"subject": "a person with a phone"})
+    assert objects.wanted(f2, "a black cartoon cat")[1:] == [("a black cartoon cat", "hero", None)]
     assert objects.wanted({"spec": {"subject": "a timer"}}, None) == [("a timer", "subject", None)]
     assert objects.wanted({}, None) == []
 

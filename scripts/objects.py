@@ -122,9 +122,18 @@ def wanted(frame, hero_text):
     near = (frame.get("key_near") or "").strip()
     if frame.get("key_thought") and near:
         out.append((near, "key_anchor", None))
-    subj = hero_text if frame.get("hero") and hero_text else (frame.get("spec") or {}).get("subject")
+    # главный предмет — то, о чём фраза (spec.subject), а не всегда герой: на «мозг весит тонну»
+    # средний план по коту срезал мозг с гирей (критик 04.10). Человек фразы — это герой.
+    subj = (frame.get("spec") or {}).get("subject")
+    hero = frame.get("hero") and hero_text
+    if hero and (not subj or re.search(r"\bperson|people|man|woman|someone\b", subj, re.I)):
+        subj = None                          # «человек» фразы — это и есть герой
     if subj and subj != z.get("object"):
         out.append((subj, "subject", None))
+    if hero:
+        # средний план держит и предмет фразы, и героя (критик: план по коту срезал мозг с гирей,
+        # а план по одному письму был бы конвертом без кота)
+        out.append((hero_text, "hero", None))
     return out
 
 

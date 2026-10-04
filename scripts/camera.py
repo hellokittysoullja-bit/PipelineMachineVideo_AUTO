@@ -17,6 +17,7 @@ DRIFT = 0.04             # наезд/отъезд внутри плана, до
 PUNCH_SEC = 0.33
 PUNCH_MAX_ZOOM = 2.5
 PUNCH_FILL = 0.72        # предмет занимает такую долю кадра по своей «тесной» стороне
+SEPARATE_MIN_AREA = 0.015   # отдельный предмет — от 1.5% холста (календарь ~5%; огонёк, искры, следы меньше)
 SEPARATE_MAX_CROSS = 0.0    # отдельный предмет край кадра не задевает совсем (живой ролик: уголок календаря у края)
 PUNCH_MAX_CROSS = 0.01   # край кадра наезда почти нигде не идёт по рисунку (соседи целиком или вне кадра)
 PUNCH_MIN_FILL = 0.45    # мельче даже на PUNCH_MAX_ZOOM — не «на весь экран»: наезда нет (нужен крупный план)
@@ -107,6 +108,11 @@ def others(busy, box, level=0.3):
     ids = np.array(sorted(ids), int)
     out = busy.copy()
     mine = np.isin(lab, ids)
+    # мелкие отдельные кусочки (огонёк хвоста, искры, следы) — не «соседний предмет»: обрезать можно
+    sl = ndimage.find_objects(lab)
+    tiny = [k + 1 for k, q in enumerate(sl) if q is not None
+            and (q[0].stop - q[0].start)*(q[1].stop - q[1].start) < SEPARATE_MIN_AREA*SH*SW]   # по габариту
+    mine |= np.isin(lab, tiny)
     rest = ndimage.binary_dilation((lab > 0) & ~mine, iterations=12)        # чужие предметы с их краями
     own = ndimage.binary_dilation(mine, iterations=30) & ~rest              # своя группа с бледным ореолом
     out[own] = 0

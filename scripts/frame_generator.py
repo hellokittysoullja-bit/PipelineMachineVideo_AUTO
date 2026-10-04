@@ -94,6 +94,7 @@ def build_prompt(frame, n_style, with_hero, hero_states=None):
             # критик 04.10: следы кота нарисованы подошвами ботинок
             parts.append("Any footprints or tracks are prints of the main character's own feet, exactly as its feet "
                          "look in the reference image")
+        parts.append("The main character is drawn big: at least a third of the image height")   # критик: кот на 10% кадра
         st = (hero_states or {}).get(frame.get("hero_state") or "")
         if st:
             parts.append(st["draw"])

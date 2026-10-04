@@ -27,7 +27,9 @@ MAX_VIEW_SEC = 4.0
 MIN_VIEW_SEC = 1.5
 LABEL_FADE_SEC = 0.15
 CUT_SNAP_SEC = 0.6
-MEDIUM_Z = (1.65, 1.95)        # от общего плана не меньше camera.CUT_MIN_RATIO с запасом на дрейф
+MEDIUM_STEP = (1.55, 2.1)      # средний план крупнее общего во столько раз (не меньше camera.CUT_MIN_RATIO + дрейф)
+MEDIUM_MARGIN = 0.03           # поле вокруг предмета в среднем плане (критик: уши кота срезаны; больше — соседний предмет не даёт плана вовсе)
+WIDE_MAX_Z = 1.45              # общий план — плотно по рисунку, а не весь лист (критик: кот на 10% кадра)
 WRITE_TAIL_SEC = 0.6
 KEY_MAX_LEAD_SEC = 1.5   # мысль может начать писаться раньше своего слова не больше чем на 1.5 с
 KEY_HOLD_SEC = 1.5       # дописанная мысль стоит на экране не меньше (критики 04.10: стояла 0.75 с)
@@ -48,10 +50,11 @@ def word_time(phrase, words, after=0.0):
 
 
 def subject_box(busy, objects):
-    """Главный предмет: объект с ролью subject, иначе самый большой нарисованный участок."""
-    for o in objects or []:
-        if o.get("role") == "subject" and o.get("box"):
-            return tuple(o["box"])
+    """Главное в кадре: предмет фразы вместе с героем (их общая рамка), иначе самый
+    большой нарисованный участок."""
+    boxes = [o["box"] for o in objects or [] if o.get("role") in ("subject", "hero") and o.get("box")]
+    if boxes:
+        return (min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes))
     lab, n = ndimage.label(busy > 0.3)
     if not n:
         return None
@@ -76,6 +79,14 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
     label_times [t], key_time (или None), punch_at (глобальное время или None), notes."""
     SH, SW = busy.shape
     wide = camera.window(SW/2, SH/2, SW, SW, SH)
+    ys_, xs_ = np.nonzero(busy > 0.3)
+    if len(xs_):
+        # общий план — весь рисунок целиком, но без пустой бумаги вокруг
+        tight = camera.frame_for(busy, (xs_.min(), ys_.min(), xs_.max(), ys_.max()), (1.0, WIDE_MAX_Z),
+                                 margin=0.02, spread=0.1)
+        if tight is not None:
+            wide = tight
+    wz = camera.zoom_of(wide, SW, SH)
     notes = []
 
     # подписи — в момент слова; не нашлось слова — по очереди в первой половине кадра
@@ -148,11 +159,27 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
     subj = subject_box(busy, objects)
     # средний план, режущий соседей, хуже, чем никакого; поле вокруг предмета даёт ореол карты
     # занятости (placement.busy_map), отдельный отступ margin его только удваивал и отсекал годные планы
-    medium = (camera.frame_for(busy, subj, MEDIUM_Z, margin=0.0, spread=0.35, max_cross=camera.SEPARATE_MAX_CROSS,
-                                grid=17, cross_map=camera.others(busy, subj))
-              if subj else None)
-    if medium is None and subj is not None and not any(o.get("role") == "subject" and o.get("box")
-                                                       for o in objects or []):
+    mz = (wz*MEDIUM_STEP[0], min(camera.PUNCH_MAX_ZOOM, wz*MEDIUM_STEP[1]))
+    marked = any(o.get("role") in ("subject", "hero") and o.get("box") for o in objects or [])
+    # у рамки от судьи поля нет — нужен отступ; у пятна карты занятости поле уже есть (ореол).
+    # Предмет фразы с героем не влезает в средний план — тогда сам предмет фразы, потом герой.
+    tries = [subj] + [tuple(o["box"]) for r in ("subject", "hero") for o in objects or []
+                      if o.get("role") == r and o.get("box")] if subj else []
+    medium = None
+    keep = [tuple(o["box"]) for o in objects or [] if o.get("role") in ("subject", "hero") and o.get("box")]
+    for tgt in tries:
+        cm = camera.others(busy, tgt)
+        for kb in keep:
+            # герой и предмет фразы — целиком в кадре или целиком за ним, даже если слиты с группой:
+            # средний план по мозгу срезал коту морду (живой прогон 04.10)
+            if not (kb[0] >= tgt[0] - 1 and kb[1] >= tgt[1] - 1 and kb[2] <= tgt[2] + 1 and kb[3] <= tgt[3] + 1):
+                ys_k, xs_k = slice(int(kb[1]), int(kb[3])), slice(int(kb[0]), int(kb[2]))
+                cm[ys_k, xs_k] = np.maximum(cm[ys_k, xs_k], busy[ys_k, xs_k])
+        medium = camera.frame_for(busy, tgt, mz, margin=MEDIUM_MARGIN if marked else 0.0, spread=0.35,
+                                  max_cross=camera.SEPARATE_MAX_CROSS, grid=17, cross_map=cm)
+        if medium is not None:
+            break
+    if medium is None and subj is not None and not marked:
         # главный предмет не размечен, а рисунок — одна сплошная группа (обычный случай: кот, стол и
         # следы слиты), и средний план «целиком на группу» не помещается. Тогда — на центр тяжести
         # рисунка: там почти всегда главное, край своей же группы обрезать можно.
@@ -161,8 +188,12 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
             wgt = busy[ys, xs]
             cx, cy = float((xs*wgt).sum()/wgt.sum()), float((ys*wgt).sum()/wgt.sum())
             bw, bh = 0.32*SW, 0.32*SH
-            core = (cx - bw/2, cy - bh/2, cx + bw/2, cy + bh/2)
-            medium = camera.frame_for(busy, core, MEDIUM_Z, margin=0.0, spread=0.2, max_cross=camera.SEPARATE_MAX_CROSS,
+            # верх группы в кадре: у персонажа там голова и уши (критик: срезанные уши на 35 с)
+            band = ys[(np.abs(xs - cx) < bw/2) & (busy[ys, xs] > 0.3)]
+            top = float(band.min()) if len(band) else cy - bh/2
+            top = max(min(top, cy - bh/2), cy - 0.45*SH/wz)     # голова целиком, но не весь рост сцены
+            core = (cx - bw/2, top, cx + bw/2, cy + bh/2)
+            medium = camera.frame_for(busy, core, mz, margin=0.02, spread=0.2, max_cross=camera.SEPARATE_MAX_CROSS,
                                       grid=13, cross_map=camera.others(busy, subj))
     if medium is not None and camera.is_jump(medium, wide, SW, SH):
         medium = None
@@ -234,16 +265,29 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
             if not box:
                 continue
             z = 1 + min(PUSH_MAX, PUSH_STEP*(k + 1))
-            cx = SW/2 + ((box[0] + box[2])/2 - SW/2)*PUSH_PULL
-            cy = SH/2 + ((box[1] + box[3])/2 - SH/2)*PUSH_PULL
+            wcx, wcy = (wide[0] + wide[2])/2, (wide[1] + wide[3])/2
+            cx = wcx + ((box[0] + box[2])/2 - wcx)*PUSH_PULL
+            cy = wcy + ((box[1] + box[3])/2 - wcy)*PUSH_PULL
             win = camera.window(cx, cy, (wide[2] - wide[0])/z, SW, SH)
             if camera.edge_cross(busy, win) > camera.PUNCH_MAX_CROSS:
                 continue                         # наклон резал бы рисунок — эта часть без него
             pushes.append(dict(t=lt, win=win)); k += 1
         if pushes:
             sg["pushes"] = pushes
+    # длинный план без смены и без сборки — медленный наезд к главному на всю длину (до 8%, без разреза)
+    focus = subj
     for sg in segs:
-        if sg["t1"] - sg["t0"] > MAX_VIEW_SEC + CUT_SNAP_SEC and sg["kind"] == "drift" and not sg.get("pushes"):
+        if (sg["kind"] == "drift" and not sg.get("pushes") and focus is not None
+                and sg["t1"] - sg["t0"] > MAX_VIEW_SEC + CUT_SNAP_SEC):
+            w0 = sg["win"]
+            wcx, wcy = (w0[0] + w0[2])/2, (w0[1] + w0[3])/2
+            fcx, fcy = (focus[0] + focus[2])/2, (focus[1] + focus[3])/2
+            lean = camera.window(wcx + (fcx - wcx)*0.4, wcy + (fcy - wcy)*0.4, (w0[2] - w0[0])/(1 + PUSH_MAX), SW, SH)
+            if camera.edge_cross(camera.others(busy, focus), lean, level=0.15) <= camera.SEPARATE_MAX_CROSS:
+                sg["lean"] = lean
+    for sg in segs:
+        if sg["t1"] - sg["t0"] > MAX_VIEW_SEC + CUT_SNAP_SEC and sg["kind"] == "drift" and not sg.get("pushes") \
+                and not sg.get("lean"):
             notes.append(f"план {sg['t0']:.1f}-{sg['t1']:.1f} с без смены: другого плана без разреза рисунка нет")
     return dict(segments=segs, label_times=label_times, key_time=key_time,
                 punch_at=(T0 + punch[0]) if punch else None, punch_name=punch[2] if punch else None,
@@ -266,6 +310,8 @@ def _window_at(p, t, SW, SH):
         cx, cy = (s["win"][0] + s["win"][2])/2, (s["win"][1] + s["win"][3])/2
         z = 1 + 0.5*camera.DRIFT*camera.ease_io(u)        # после наезда — еле заметно дальше
         return camera.window(cx, cy, (s["win"][2] - s["win"][0])/z, SW, SH)
+    if s.get("lean"):
+        return camera.lerp(s["win"], s["lean"], camera.ease_io(u))
     if s.get("pushes"):
         cur = s["win"]
         for k, ps in enumerate(s["pushes"]):
