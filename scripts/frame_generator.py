@@ -90,6 +90,10 @@ def build_prompt(frame, n_style, with_hero, hero_states=None):
         parts.append(f"The main character is the character in reference image {n_style + 1}: keep exactly its "
                      "head, face, colors, markings, body proportions and clothing if any; change only pose, "
                      "action and expression")
+        if re.search(r"foot ?prints?|tracks?\b", frame["picture"], re.I):
+            # критик 04.10: следы кота нарисованы подошвами ботинок
+            parts.append("Any footprints or tracks are prints of the main character's own feet, exactly as its feet "
+                         "look in the reference image")
         st = (hero_states or {}).get(frame.get("hero_state") or "")
         if st:
             parts.append(st["draw"])
@@ -98,8 +102,9 @@ def build_prompt(frame, n_style, with_hero, hero_states=None):
         # камера на этом кадре наезжает на предмет до экрана: мелкий не вытянуть
         parts.append(f"The {zoom['object']} is drawn large and clear, with plain empty background around it")
     if frame.get("key_thought"):
-        parts.append("Keep a calm area of plain empty background, about a third of the image, for handwriting "
-                     "added later")
+        near = f" next to the {frame['key_near']}" if frame.get("key_near") else ""
+        parts.append(f"Keep a calm area of plain empty background{near}, about a third of the image, for "
+                     "handwriting added later")
     if frame.get("kind") == "diagram":
         # критика 04.10: схемы выходили чистой векторной инфографикой и выпадали из рисунков ролика
         parts.append("The diagram is drawn by hand like the rest of the film: ink lines with soft watercolor "

@@ -121,7 +121,17 @@ def key_layout(fr, text, win, seed=9):
 
     def wh(sz):
         return writeon.measure(text, sz, KEY_MAX_W*W)
-    size, pl = placement.choose_fit(scr, None, wh, KEY_SIZES)
+    # рядом со своим предметом (критики 04.10: надпись «висела в пустоте» отдельно от сцены)
+    anchor = next((o["box"] for o in fr.get("objects", []) if o.get("role") == "key_anchor"), None)
+    obj = None
+    if anchor:
+        s_ = W/(win[2] - win[0])
+        obj = ((anchor[0] - win[0])*s_, (anchor[1] - win[1])*s_, (anchor[2] - win[0])*s_, (anchor[3] - win[1])*s_)
+        if obj[2] < 0 or obj[3] < 0 or obj[0] > W or obj[1] > H:
+            obj = None
+    size, pl = placement.choose_fit(scr, obj, wh, KEY_SIZES)
+    if not pl and obj is not None:
+        size, pl = placement.choose_fit(scr, None, wh, KEY_SIZES)
     if not pl:
         return None
     cx, cy = pl["center"]

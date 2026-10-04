@@ -119,6 +119,9 @@ def wanted(frame, hero_text):
     z = frame.get("zoom") or {}
     if z.get("object"):
         out.append((z["object"], "zoom", z.get("word")))
+    near = (frame.get("key_near") or "").strip()
+    if frame.get("key_thought") and near:
+        out.append((near, "key_anchor", None))
     subj = hero_text if frame.get("hero") and hero_text else (frame.get("spec") or {}).get("subject")
     if subj and subj != z.get("object"):
         out.append((subj, "subject", None))

@@ -53,3 +53,9 @@ def test_locate_returns_pixels_and_caches(tmp_path):
     objects.objects_for(gw, "m", str(p), {"zoom": {"object": "box", "word": "ящик"},
                                           "spec": {"subject": "sky"}}, None, str(tmp_path))
     assert gw.calls == 1
+
+
+def test_key_anchor_is_searched_only_with_a_key():
+    f = {"key_thought": "третий день", "key_near": "the wall calendar", "spec": {"subject": "a desk"}}
+    assert ("the wall calendar", "key_anchor", None) in objects.wanted(f, None)
+    assert all(r != "key_anchor" for _n, r, _w in objects.wanted({"key_near": "x", "spec": {}}, None))

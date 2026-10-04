@@ -39,12 +39,12 @@ import script_parser  # noqa: E402
 
 PLAN_NAME = "frame_plan.json"
 CACHE_DIR_NAME = "frame_plan_cache"
-PLAN_VERSION = 9
+PLAN_VERSION = 11
 # Модель выбрана замером старого генератора 24.09 (58 фраз трёх ниш):
 # DeepSeek v4 Flash — 58/58, ~2 тыс. токенов баланса; Gemini 3.7 Flash по
 # смыслу наравне, но ~35 тыс.; Qwen 3.8 Max — 46/58.
 DEFAULT_MODEL = os.environ.get("PLANNER_MODEL") or "ds/deepseek-v4-flash"
-MAX_TOKENS = 8000
+MAX_TOKENS = 16000     # 04.10: DeepSeek рассуждал все 8000 и не успевал ответить
 EST_PROMPT_TOKENS = 2500
 KINDS = ("scene", "caption", "diagram")
 MAX_HERO_RUN = 2       # героя не бывает на трёх кадрах подряд
@@ -150,7 +150,7 @@ FRAME_RULES = """frame — ONE hand-drawn picture per line. It is generated once
     "caption" — the line is a punchline, a verdict or an emotional beat that lands harder written: one drawn moment plus ONE Russian caption of 1-4 words (like «ЖИВ. ПОЛНОСТЬЮ.»).
     "diagram" — the line explains a structure, a comparison, a sequence, a list or a cause: a simple hand-drawn diagram with 2-6 short Russian labels — a pyramid, a ladder, arrows from cause to effect, before and after, a list on a board, a timeline, a path of footprints, a crowd shrinking to one figure.
   "zoom" — optional. When the line names ONE concrete object that deserves a close look at the moment it is said (the letter, the timer, the open door): {{"object": "<English name of that object exactly as in your picture>", "word": "<the word of the line at which the camera rushes onto it, copied exactly as written in the line>"}}. The camera then fills the screen with that object for a second or two. null when nothing is worth it; at most one line in three.
-  "key" — optional: the chapter's main thought, written by hand on the picture as it is said — 1-3 Russian words copied word for word from the line ("только открыть"). Only for the one or two lines of a chapter that carry its main idea; null for all others.
+  "key" — optional: the chapter's main thought, written by hand on the picture as it is said — 1-3 Russian words copied word for word from the line ("только открыть"). Only for the one or two lines of a chapter that carry its main idea; null for all others. With a key, "key_near" — the English name of the drawn thing (from your picture) the words belong next to ("the blank wall calendar"), or null.
   "labels" — Russian, UPPERCASE, at most {max_words} words each, taken from or clearly implied by the line, correctly spelled; empty for "scene". Code writes them on the finished picture.
   "hero" — {hero_rule}
   "picture" — English, 30-80 words, the full instruction for the image model. How to choose WHAT to draw:
@@ -169,11 +169,13 @@ FRAME_RULES = """frame — ONE hand-drawn picture per line. It is generated once
     - the background: plain and light for diagrams and simple statements, the place itself for scenes set somewhere;
     - the "zoom" object is drawn large and clear, never tiny, with plain background around it; a line with a "key" keeps a calm area of plain background (about a third of the frame) where the words will be written by hand;
     - "caption": the bottom fifth of the frame is plain empty background. "diagram": the diagram fills the middle, next to each labelled part there is a wide empty patch of plain background (room for a word in big letters), away from the frame edges, with a short hand-drawn arrow from it to the part — no boxes, frames or lines around the empty patches; every label needs its own patch, so name as many patches as there are labels;
-    - nothing may carry writing: no letters, numbers, digits, dates, symbols, logos or signs anywhere. Avoid objects that come with writing (apps on screens, book covers, slot-machine reels, price tags, clock numerals); when one is needed, make it blank ("a phone with a blank glowing screen", "a clock face without numerals"). A period is named in words, never as years;
+    - nothing may carry writing: no letters, numbers, digits, dates, symbols, logos or signs anywhere. Never ask for things that are shown by writing: nothing "labeled", "named" or "marked as", no starting or finish lines, no crossed-off days, ticks or tally marks — show the idea by a drawn object or the character instead (shame — the character hiding its face; days passing — dust and cobwebs on the envelope). Avoid objects that come with writing (apps on screens, book covers, slot-machine reels, price tags, clock numerals); when one is needed, make it blank ("a phone with a blank glowing screen", "a clock face without numerals"). A period is named in words, never as years;
     - people of the past wear the clothes and use the objects of their time;
     - never describe the drawing style, line work or palette: the style comes from the reference images."""
 
 HERO_RULE = """the film has one recurring main character ({hero_text}), shown to the image model as a reference picture. true only when the line speaks to the viewer ("you") or shows what an ordinary person feels, does or reacts to — the character then plays that person. Never for objects, places, maps, statistics, diagrams of facts or named historical people. The character appears in at most {hero_share}% of the pictures and never on {hero_run_plus} lines in a row. When true, call the character "the main character" in the picture and describe only pose, action, expression and props, never looks or clothes: the reference picture defines them. Traces it leaves are prints of its own feet (an animal leaves paw prints, not shoe prints).{states}"""
+MASCOT_RULE = """the film has one recurring main character ({hero_text}) — the face of the channel, shown to the image model as a reference picture. true for most lines: the character ACTS OUT the line — what it says to the viewer, what a person feels or does, and even an abstract idea is shown through what the character does with an object or how it reacts. false only for named historical people, maps, statistics and pure diagrams of facts. The character appears in at most {hero_share}% of the pictures and never on {hero_run_plus} lines in a row. When true, call the character "the main character" in the picture and describe only pose, action, expression and props, never looks or clothes: the reference picture defines them. Traces it leaves are prints of its own feet (an animal leaves paw prints, not shoe prints).{states}"""
+MASCOT_SHARE = 0.5      # доля героя от этой — маскот: действует почти в каждом кадре, а не гость
 NO_HERO_RULE = """always false: this film has no recurring main character."""
 
 
@@ -183,8 +185,9 @@ def hero_rule_text(hero_text=None, states=None):
     if states:
         opts = "; ".join(f'"{k}" when {v["when"]}' for k, v in states.items())
         st = f'\n  "hero_state" — only with hero true: {opts}; null for a neutral moment.'
-    return HERO_RULE.format(hero_share=round(share * 100), hero_run_plus=run + 1,
-                            hero_text=hero_text or "the main character", states=st)
+    rule = MASCOT_RULE if share >= MASCOT_SHARE else HERO_RULE
+    return rule.format(hero_share=round(share * 100), hero_run_plus=run + 1,
+                       hero_text=hero_text or "the main character", states=st)
 
 PROMPT = """You are the director and storyboard artist of a hand-drawn explainer film.
 Film: «{title}».
@@ -202,6 +205,9 @@ Three examples from another film. «The ball bounced off the wall and rolled awa
 {{"n": 3, "focus": "needs built from the bottom up", "subject": "a pyramid", "core": "a pyramid of needs is visible", "claims": [{{"id": "c1", "text": "the pyramid has three tiers", "tier": "must"}}], "frame": {{"kind": "diagram", "labels": ["ЕДА И БЕЗОПАСНОСТЬ", "ДРУЗЬЯ", "МЕЧТЫ"], "hero": false, "picture": "a large hand-drawn pyramid with three tiers in the middle of the frame: a bowl and a little house in the wide bottom tier, two stick figures holding hands in the middle tier, a small star in the top tier; to the right of each tier an empty patch of plain background with a short arrow pointing at that tier; plain light background"}}}}
 «And you just lie there, scrolling, while the evening is gone» (a film with a main character):
 {{"n": 3, "focus": "a person lost in a phone while the evening passes", "subject": "a person with a phone", "core": "a person lying with a phone is visible", "claims": [{{"id": "c1", "text": "the person stares at the phone", "tier": "must"}}, {{"id": "c2", "text": "a dark window shows night has fallen", "tier": "should"}}], "frame": {{"kind": "scene", "labels": [], "hero": true, "picture": "medium shot: the main character lies on a sofa on their back, holding one phone with a blank glowing screen above their face with both hands, eyes wide and tired; a window behind shows a dark night sky with a crescent moon; a cold cup of tea on the floor; the character sits in the left half of the frame"}}}}
+
+A Russian line with a camera rush and a handwritten key thought («Поставь таймер на десять минут — и всё, больше ничего не нужно», a film with a main character):
+{{"n": 4, "focus": "a ten-minute timer as the whole task", "subject": "a kitchen timer", "core": "a kitchen timer is visible", "claims": [{{"id": "c1", "text": "the timer is being set", "tier": "must"}}], "frame": {{"kind": "scene", "labels": [], "hero": true, "zoom": {{"object": "the kitchen timer", "word": "таймер"}}, "key": "десять минут", "key_near": "the kitchen timer", "picture": "medium shot: the main character turns the dial of one big round kitchen timer with a blank face on an empty table, ears up, calm focused look; the timer is large in the right half of the frame with plain light background around it; calm empty background above the timer"}}}}
 
 Answer with one JSON object per narration line, one per line, and nothing else — no explanations, no reasoning, no markdown.
 
@@ -258,6 +264,14 @@ def _clean_label(s):
     return " ".join(str(s).split()).strip().upper()
 
 
+# Слова, которые модель картинок рисует БУКВАМИ (живые кадры 04.10: «labeled by shape as shame and
+# anxiety» -> на кляксах «shame»/«anxiety», «a starting line» -> надпись STARTING LINE, «crossed-off
+# days» -> крестики, прочитанные судьёй как текст). Описание с ними — брак задания, а не кадра.
+WRITING_RE = re.compile(r"\b(label(?:l)?ed|labels?|written|writing|inscri\w*|says|reads|titled|named|marked as|"
+                        r"word|words|lettering|captions?|signs?|starting line|finish line|"
+                        r"cross(?:ed)?[- ]off|tally|check ?marks?|ticks?)\b", re.I)
+
+
 def validate_frame(obj):
     """Форма описания кадра: (frame, None) или (None, причина)."""
     if not isinstance(obj, dict):
@@ -268,6 +282,12 @@ def validate_frame(obj):
     picture = " ".join(str(obj.get("picture") or "").split())
     if len(picture.split()) < 4 or re.search(r"[а-яА-ЯёЁ]", picture):
         return None, "bad_picture"
+    m = WRITING_RE.search(re.sub(r"\bno (?:text|letters|words|writing|signs)\b|without (?:text|letters|numerals)|"
+                                 r"blank[^,;]*", "", picture, flags=re.I))
+    if m and kind != "scene" and m.group(0).lower().startswith(("label", "caption")):
+        m = None        # у схемы и кадра-подписи места под подписи законны: подписи кладёт код
+    if m:
+        return None, f"writing_in_picture:{m.group(0)}"
     labels = [] if kind == "scene" else [_clean_label(x) for x in (obj.get("labels") or []) if str(x).strip()]
     if kind != "scene" and not labels:
         return None, "no_labels"
@@ -301,6 +321,9 @@ def extras(obj, text, states=()):
         k = " ".join(k.split()).lower()
         if 1 <= len(k.split()) <= 3 and re.search(r"[а-яё]", k) and not re.search(r"[a-z]", k) and words.in_text(k, text):
             out["key_thought"] = k
+            near = " ".join(str(obj.get("key_near") or "").split())
+            if near and 1 <= len(near.split()) <= 6 and not re.search(r"[а-яА-ЯёЁ]", near):
+                out["key_near"] = near
         else:
             notes.append("key_dropped")
     st = obj.get("hero_state")
@@ -391,15 +414,15 @@ def fallback(block):
             "fallback": True}
 
 
-def _drop_hero(f):
+def _drop_hero(f, replacement="a person"):
     """Снять героя с кадра. В описании «the main character» становится «a person»:
     иначе модель без референса нарисует другого «главного героя»."""
     f["hero"] = False
     f.pop("hero_state", None)
-    f["picture"] = re.sub(r"\b[Tt]he main character\b", "a person", f["picture"])
+    f["picture"] = re.sub(r"\b[Tt]he main character\b", replacement, f["picture"])
 
 
-def limit_hero(frames, max_run=None, max_share=None):
+def limit_hero(frames, max_run=None, max_share=None, replacement="a person"):
     """Герой — гость, а не ведущий; правило кода, а не просьба к модели:
     не больше max_run кадров подряд и не больше max_share кадров эпизода.
     Лишнее снимается там, где герой стоит теснее всего (рядом с другими
@@ -408,20 +431,27 @@ def limit_hero(frames, max_run=None, max_share=None):
     max_run = run if max_run is None else max_run
     max_share = share if max_share is None else max_share
     trimmed = 0
+
+    def weight(i):
+        # кадр, где герой несёт смысл (его состояние, наезд, главная мысль), снимается последним:
+        # 04.10 правило сняло кота ровно с кульминации «только открыть письмо»
+        f = frames[i]
+        return int(bool(f.get("hero_state"))) + int(bool(f.get("zoom"))) + int(bool(f.get("key_thought")))
     while True:
         idx = [i for i, f in enumerate(frames) if f.get("hero")]
         runs = [i for i in idx if all(i - k in idx for k in range(1, max_run + 1))]
-        over = len(idx) > max(1, int(max_share * len(frames)))
+        over = len(idx) > max(1, int(max_share * len(frames)))      # «не больше доли» — вниз
+
+        def crowd(i):
+            gaps = [abs(i - j) for j in idx if j != i]
+            return (weight(i), min(gaps) if gaps else len(frames), -i)
         if not runs and not over:
             return trimmed
         if runs:
-            victim = runs[0]
+            victim = min(range(runs[0] - max_run, runs[0] + 1), key=crowd)   # из самой длинной серии — наименее важный
         else:
-            def crowd(i):
-                gaps = [abs(i - j) for j in idx if j != i]
-                return (min(gaps) if gaps else len(frames), -i)
             victim = min(idx, key=crowd)
-        _drop_hero(frames[victim])
+        _drop_hero(frames[victim], replacement)
         trimmed += 1
 
 
@@ -462,10 +492,21 @@ def plan_episode(video_dir, gateway, model=DEFAULT_MODEL, force=False, workers=4
         for f in frames:
             if f.get("hero"):
                 _drop_hero(f)
-    stats["hero_trimmed"] = limit_hero(frames)
+    # у маскота снятый с кадра герой — тот же зверь словами (без референса), а не «человек с ушами»
+    _run, _share = hero_limits()
+    repl = (hero or {}).get("text") if (hero or {}).get("text") and _share >= MASCOT_SHARE else "a person"
+    stats["hero_trimmed"] = limit_hero(frames, replacement=repl)
     plan = {"version": PLAN_VERSION, "model": model, "has_hero": has_hero, "frames": frames,
             "stats": stats, "errors": errs}
     path = os.path.join(video_dir, "media_plan", PLAN_NAME)
+    failed = sorted({f["section"] for f in frames if f.get("fallback")})
+    if failed and os.path.exists(path) and not force:
+        # Глава без ответа модели получила бы запасные кадры «a simple drawn scene illustrating: <фраза>»,
+        # и генератор потратил бы деньги на них (живой случай 04.10: 429 шлюза). Прежний план не трогаем.
+        print(f"План НЕ перезаписан: нет ответа модели по главам {', '.join(failed)} (запасные кадры вместо "
+              f"задания) — повторите запуск позже.")
+        plan["not_written"] = failed
+        return plan
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path + ".tmp", "w", encoding="utf-8") as f:
         json.dump(plan, f, ensure_ascii=False, indent=1)
@@ -497,8 +538,10 @@ def main():
     except look.LookError as e:
         sys.exit(str(e))
     has_hero = lk.hero is not None
-    plan_episode(a.video_dir, gw, model=a.model, force=a.force, has_hero=has_hero,
-                 hero={"text": lk.hero_text, "states": lk.hero_states} if has_hero else None)
+    plan = plan_episode(a.video_dir, gw, model=a.model, force=a.force, has_hero=has_hero,
+                        hero={"text": lk.hero_text, "states": lk.hero_states} if has_hero else None)
+    if plan.get("not_written"):
+        sys.exit(1)
 
 
 if __name__ == "__main__":

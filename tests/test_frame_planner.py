@@ -191,3 +191,68 @@ def test_hero_rule_names_the_hero_and_its_states():
     p = fp.render_prompt(pk, True, {"text": "a black cartoon cat",
                                     "states": {"ember": {"when": "stuck", "draw": "dim ember"}}})
     assert "(a black cartoon cat)" in p and '"hero_state"' in p and '"ember" when stuck' in p
+
+
+def test_key_near_kept_only_with_key_and_in_english():
+    raw = _l(1, {"kind": "scene", "picture": "a desk with a letter on it", "key": "пять минут",
+                 "key_near": "the envelope"})
+    got, _ = fp.parse_answer(raw, PK2)
+    assert got[1]["frame"]["key_near"] == "the envelope"
+    raw = _l(1, {"kind": "scene", "picture": "a desk with a letter on it", "key": "пять минут", "key_near": "конверт"})
+    assert "key_near" not in fp.parse_answer(raw, PK2)[0][1]["frame"]
+
+
+def test_failed_chapter_never_overwrites_an_existing_plan(tmp_path):
+    import os
+    (tmp_path / "media_plan").mkdir()
+    (tmp_path / "script.txt").write_text("=== HOOK ===\nОдна фраза здесь.\n", encoding="utf-8")
+    old = tmp_path / "media_plan" / "frame_plan.json"
+    old.write_text('{"frames": "old"}', encoding="utf-8")
+
+    class Down:
+        def chat(self, *a, **k):
+            raise RuntimeError("429")
+    plan = fp.plan_episode(str(tmp_path), Down(), verbose=False)
+    assert plan["not_written"] == ["HOOK"]
+    assert old.read_text(encoding="utf-8") == '{"frames": "old"}'
+    assert os.path.exists(old)
+
+
+def test_partial_answer_does_not_overwrite_either(tmp_path):
+    (tmp_path / "media_plan").mkdir()
+    (tmp_path / "script.txt").write_text("=== HOOK ===\nОдна фраза. [pause] Вторая фраза.\n", encoding="utf-8")
+    old = tmp_path / "media_plan" / "frame_plan.json"
+    old.write_text('{"frames": "old"}', encoding="utf-8")
+
+    class Half:
+        def chat(self, *a, **k):
+            return line(1, {"kind": "scene", "picture": "kids around a campfire in a cave"}), {}, 0
+    plan = fp.plan_episode(str(tmp_path), Half(), verbose=False)
+    assert plan["not_written"] == ["HOOK"] and old.read_text(encoding="utf-8") == '{"frames": "old"}'
+
+
+def test_trim_keeps_the_hero_where_it_carries_meaning():
+    frames = [{"hero": True, "picture": "the main character waves"} for _ in range(5)]
+    frames[3]["key_thought"] = "только открыть"
+    frames[3]["hero_state"] = "bright"
+    frames[0]["zoom"] = {"object": "x", "word": "y"}
+    fp.limit_hero(frames, max_run=4, max_share=0.6)
+    assert frames[3]["hero"] and frames[0]["hero"]
+    assert sum(f["hero"] for f in frames) == 3
+
+
+def test_pictures_that_invite_writing_are_rejected():
+    bad = ["blobs labeled by shape as shame and anxiety on an envelope", "a cat walks from a starting line to a desk",
+           "a calendar with three crossed-off days on the wall", "a road sign next to the cat"]
+    for t in bad:
+        assert fp.validate_frame({"kind": "scene", "picture": t})[1].startswith("writing_in_picture"), t
+    ok = ["a phone with a blank glowing screen on a desk", "a clock face without numerals on the wall",
+          "the main character holds one envelope with both paws"]
+    for t in ok:
+        assert fp.validate_frame({"kind": "scene", "picture": t})[1] is None, t
+    d = {"kind": "diagram", "labels": ["А"], "picture": "a pyramid, an empty patch next to each labelled tier"}
+    assert fp.validate_frame(d)[1] is None
+
+
+def test_a_letter_is_mail_not_writing():
+    assert fp.validate_frame({"kind": "scene", "picture": "one unopened letter lies on the desk"})[1] is None
