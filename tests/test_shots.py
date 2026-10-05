@@ -237,3 +237,56 @@ def test_long_shot_without_a_second_view_leans_slowly_to_the_subject():
         a, b = shots.window_at(p, 0.0, 1508, 848), shots.window_at(p, 9.4, 1508, 848)
         z = (a[2] - a[0])/(b[2] - b[0])
         assert 1.04 < z <= 1 + shots.PUSH_MAX + 1e-6
+
+
+def _one_blob():
+    """Кот, мозг и глыба слиты в одну фигуру (живой кадр 05.10): среднего плана без
+    разреза нет, а крупные планы деталей есть."""
+    im = Image.new("RGB", (1264, 848), (251, 251, 246))
+    d = ImageDraw.Draw(im)
+    d.ellipse((380, 120, 720, 420), fill=(60, 60, 60))          # «мозг»
+    d.ellipse((680, 160, 960, 420), fill=(40, 40, 40))          # «глыба», касается мозга
+    d.rectangle((470, 380, 640, 720), fill=(30, 30, 30))        # «кот» под мозгом
+    d.line((640, 700, 900, 640), fill=(30, 30, 30), width=18)   # «хвост»
+    d.ellipse((860, 560, 960, 690), fill=(30, 30, 30))          # «огонёк с дымком» на конце хвоста
+    cv, off, _ = canvas.prepare(im)
+    return placement.busy_map(cv.astype(np.float32), margin=8), off
+
+
+def test_a_long_shot_cuts_to_close_ups_of_named_details_every_few_seconds():
+    busy, off = _one_blob()
+    ox = off[0]
+    hero = {"role": "hero", "box": (470 + ox - 10, 380, 940 + ox, 720)}
+    objs = [{"role": "subject", "box": (380 + ox, 120, 960 + ox, 420)}, hero,
+            {"role": "hero_head", "box": (470 + ox, 380, 640 + ox, 520)},
+            {"role": "detail", "name": "the boulder", "box": (680 + ox, 160, 960 + ox, 420)},
+            {"role": "detail", "name": "the tail flame", "box": (855 + ox, 555, 965 + ox, 695)}]
+    words = _words(" ".join(["слово"]*20), step=0.45)
+    p = shots.plan(9.0, busy, words, objects=objs)
+    segs = p["segments"]
+    assert len(segs) >= 3                                         # критик: 8.4 с одним планом
+    assert max(s["t1"] - s["t0"] for s in segs) <= shots.MAX_VIEW_SEC + shots.CUT_SNAP_SEC + 1e-6
+    wide = segs[0]["win"]
+    closes = [s["win"] for s in segs if s["win"] != wide]
+    assert closes
+    for c in closes:                                              # каждый крупный план — на детали целиком
+        inside = [o for o in objs[3:] if c[0] <= o["box"][0] and c[1] <= o["box"][1]
+                  and c[2] >= o["box"][2] and c[3] >= o["box"][3]]
+        assert inside
+    assert len({s["zoom_in"] for s in segs if s["kind"] == "drift"}) == 1   # одно направление на мысль
+
+
+def test_no_detail_close_up_that_slices_the_hero_head():
+    busy, off = _one_blob()
+    ox = off[0]
+    head = {"role": "hero_head", "box": (470 + ox, 380, 640 + ox, 520)}
+    objs = [{"role": "hero", "box": (470 + ox, 380, 940 + ox, 720)}, head,
+            {"role": "detail", "name": "the boulder", "box": (680 + ox, 160, 960 + ox, 420)},
+            {"role": "detail", "name": "a speck by the head", "box": (600 + ox, 430, 660 + ox, 480)}]
+    p = shots.plan(9.0, busy, _words(" ".join(["слово"]*20)), objects=objs)
+    b = head["box"]
+    for s in p["segments"]:
+        w = s["win"]
+        overlap = not (w[2] <= b[0] or w[0] >= b[2] or w[3] <= b[1] or w[1] >= b[3])
+        whole = w[0] <= b[0] and w[1] <= b[1] and w[2] >= b[2] and w[3] >= b[3]
+        assert whole or not overlap                       # голова целиком или вне кадра

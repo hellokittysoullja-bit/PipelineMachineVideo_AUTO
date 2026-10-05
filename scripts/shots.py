@@ -23,8 +23,10 @@ import words as wordsmod
 
 PUNCH_GAP_SEC = 15.0
 PUNCH_HOLD_SEC = 1.2
-MAX_VIEW_SEC = 4.0
+MAX_VIEW_SEC = 3.5      # брендбук: план 1,2-3,5 с (критик 05.10: планы по 7-8 с, зритель уходит)
 MIN_VIEW_SEC = 1.5
+HEAD_SLIVER = 0.05      # крупный план детали может захватить краешек головы героя (кончик уха) — до этой доли её рамки (0.15 захватил полглаза, живой прогон 05.10)
+DETAIL_FILL = 0.3       # деталь в крупном плане — не меньше этой доли кадра по своей тесной стороне (мельче — это уже пятнышко)
 LABEL_FADE_SEC = 0.15
 CUT_SNAP_SEC = 0.6
 MEDIUM_STEP = (1.55, 2.1)      # средний план крупнее общего во столько раз (не меньше camera.CUT_MIN_RATIO + дрейф)
@@ -65,7 +67,7 @@ def subject_box(busy, objects):
 
 
 def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punch=-1e9, T0=0.0,
-         zoom_in=True, parts=None, accent=None):
+         zoom_in=True, parts=None, accent=None, accent_dur=0.0):
     """Сегменты камеры и события кадра.
 
     D — длительность кадра; busy — карта занятости холста; words — слова речи
@@ -122,18 +124,21 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
     def free(t0, t1):
         return all(t1 <= a or t0 >= b for a, b in busy_win)
 
-    # акцент — короткие слова фразы жирным на её слове; не поверх письма карандашом
+    # акцент — 1-3 слова фразы, тоже от руки карандашом (брендбук: на экране только рукописные
+    # ключевые слова, со звуком карандаша) на своём слове; не поверх главной мысли; дописанный
+    # стоит не меньше KEY_HOLD_SEC; пока пишется — ни склеек, ни наездов
     accent_time = None
     if accent:
         at = word_time(accent, words)
         if at is None:
             notes.append(f"акцент «{accent}»: слово не прозвучало")
-        elif at > D - 1.0:
-            notes.append(f"акцент «{accent}» слишком близко к концу кадра")
-        elif not free(at - 0.5, at + 1.0):
+        elif at + accent_dur + KEY_HOLD_SEC > D - 0.2 + 1e-6:
+            notes.append(f"акцент «{accent}» не успевает дописаться и постоять к концу кадра")
+        elif not free(at - 0.5, at + accent_dur + WRITE_TAIL_SEC):
             notes.append(f"акцент «{accent}» пропущен: пишется главная мысль")
         else:
             accent_time = at
+            busy_win.append((at - 0.2, at + accent_dur + WRITE_TAIL_SEC))
 
     # наезд на предмет
     punch = None
@@ -217,6 +222,54 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
     if medium is not None and camera.is_jump(medium, wide, SW, SH):
         medium = None
 
+    # крупные планы деталей рисунка (цепь с глыбой, дымящийся хвост): то, что монтажёр
+    # снял бы отдельными планами. Деталь — часть общего рисунка, поэтому край кадра может
+    # идти по рисунку (край соседней части в крупном плане детали — норма); голова героя —
+    # целиком в кадре, целиком за ним или только краешком (до HEAD_SLIVER её рамки: на живых
+    # кадрах огонёк и глыба нарисованы вплотную к уху). Головы нет в разметке (старый
+    # кадр) — так же держится весь герой.
+    heads = [tuple(o["box"]) for o in objects or [] if o.get("role") == "hero_head" and o.get("box")]
+    guard = heads or [tuple(o["box"]) for o in objects or [] if o.get("role") == "hero" and o.get("box")]
+
+    def head_ok(win, db):
+        for kb in guard:
+            if db[0] >= kb[0] - 1 and db[1] >= kb[1] - 1 and db[2] <= kb[2] + 1 and db[3] <= kb[3] + 1:
+                continue                                  # деталь — часть головы: резать вокруг неё можно
+            ix = max(0.0, min(win[2], kb[2]) - max(win[0], kb[0]))
+            iy = max(0.0, min(win[3], kb[3]) - max(win[1], kb[1]))
+            area = max(1.0, (kb[2] - kb[0])*(kb[3] - kb[1]))
+            whole = win[0] <= kb[0] and win[1] <= kb[1] and win[2] >= kb[2] and win[3] >= kb[3]
+            if not whole and ix*iy > HEAD_SLIVER*area:
+                return False
+        return True
+
+    details = []
+    for o in objects or []:
+        if o.get("role") != "detail" or not o.get("box"):
+            continue
+        db = tuple(o["box"])
+        # обычный крупный план — от 1.5x общего; крупная деталь, которая в него не влезает, — менее
+        # крупно, но только со сдвигом центра (иначе склейка читается как «скачок», camera.is_jump)
+        kw = dict(margin=MEDIUM_MARGIN, spread=0.25, grid=13)
+        dz = (wz*camera.CUT_MIN_RATIO*1.02, camera.PUNCH_MAX_ZOOM)
+        dz_lo = (wz*1.15, wz*camera.CUT_MIN_RATIO*1.02)
+        dw = camera.frame_for(busy, db, dz, accept=lambda w, db=db: head_ok(w, db), **kw) or \
+            camera.frame_for(busy, db, dz_lo, accept=lambda w, db=db: head_ok(w, db) and not camera.is_jump(w, wide, SW, SH),
+                             **kw)
+        if dw is None:
+            any_ = camera.frame_for(busy, db, dz, **kw) or camera.frame_for(
+                busy, db, dz_lo, accept=lambda w: not camera.is_jump(w, wide, SW, SH), **kw)
+            why = "разрезал бы голову героя" if any_ else "деталь не помещается в план"
+            notes.append(f"крупный план «{o.get('name')}» не делается: {why}")
+            continue
+        if max((db[2] - db[0])/(dw[2] - dw[0]), (db[3] - db[1])/(dw[3] - dw[1])) < DETAIL_FILL:
+            notes.append(f"крупный план «{o.get('name')}» не делается: деталь мелкая даже на пределе зума")
+            continue
+        if camera.is_jump(dw, wide, SW, SH) or any(camera.is_jump(dw, v, SW, SH) for v in details + [medium] if v):
+            notes.append(f"крупный план «{o.get('name')}» не делается: почти совпадает с другим планом")
+            continue
+        details.append(dw)
+
     # опорные склейки: наезд и возврат
     cuts = []                                     # (t, kind, win)
     if punch:
@@ -229,10 +282,23 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
                 cuts.append((r, "cut", wide))
 
     # длинные планы — склейкой на другой план (не раньше, чем все подписи появились)
+    # порядок планов как у монтажёра: общий -> средний -> детали подряд -> снова общий ...
+    views = [v for v in [medium] + details if v is not None]
+    cycle = [wide] + views
+    order = {"i": 0}
+
+    def next_view(cur):
+        for _ in range(len(cycle)):
+            order["i"] = (order["i"] + 1) % len(cycle)
+            v = cycle[order["i"]]
+            if v != cur and not camera.is_jump(cur, v, SW, SH):
+                return v
+        return wide
+
     def split(t0, t1, win):
         """Равные куски не длиннее MAX_VIEW_SEC, склейки на началах слов."""
         out, cur = [], win
-        if medium is None:
+        if not views:
             return out
         while t1 - t0 > MAX_VIEW_SEC:
             k = int(np.ceil((t1 - t0)/MAX_VIEW_SEC))
@@ -243,8 +309,8 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
             s_ = snap(max(t, lo), lo, t1 - MIN_VIEW_SEC)
             if s_ is None:
                 break
-            nxt = medium if cur == wide else wide
-            if nxt == medium and accent_time is not None and accent_time - MAX_VIEW_SEC - CUT_SNAP_SEC <= s_ <= accent_time + 1.5:
+            nxt = next_view(cur)
+            if nxt != wide and accent_time is not None and accent_time - MAX_VIEW_SEC - CUT_SNAP_SEC <= s_ <= accent_time + 1.5:
                 break           # акцент встаёт на общем плане: на среднем ему нет места (живой прогон)
             cur = nxt
             out.append((s_, "cut", cur))
@@ -274,7 +340,6 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
                 continue
             cur = wa
             segs.append(dict(t0=a, t1=b, kind="drift", win=wa, zoom_in=zi))
-            zi = not zi
     # схема собирается по голосу: на каждой названной части камера чуть наклоняется к ней
     for sg in segs:
         if sg["kind"] != "drift" or sg["win"] != wide:

@@ -85,3 +85,13 @@ def test_labels_stay_clear_of_what_the_zoom_crops():
     # 3:2 стоит на всю высоту, по бокам — поля: наезд режет только верх и низ
     assert labels._inside_safe((0, 0, 1264, 848), 1264, 848) == (19, 25, 1245, 823)
     assert labels.CAPTION_BAND[3] <= 1 - labels.EDGE_SAFE
+
+
+def test_handwritten_words_stay_within_the_brandbook_budget():
+    import assemble_frames as af
+    assert af.writing_budget([], 0.0, "только открыть", "две минуты") == ("только открыть", None,
+                                                                          ["акцент «две минуты» пропущен: лимит рукописных слов"])
+    assert af.writing_budget([], 0.0, None, "две минуты")[:2] == (None, "две минуты")
+    # три слова за последние 30 с — больше ничего не пишется
+    assert af.writing_budget([(10.0, 3)], 30.0, "шаг", "тонну")[:2] == (None, None)
+    assert af.writing_budget([(10.0, 3)], 41.0, "шаг", None)[:2] == ("шаг", None)   # окно ушло

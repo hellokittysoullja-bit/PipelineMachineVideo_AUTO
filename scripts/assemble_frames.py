@@ -79,6 +79,8 @@ def quantize(durs):
 
 
 KEY_GAP_SEC = 10.0     # главная мысль карандашом — не чаще раза в 10 с (решение владельца: 1 на 10-30 с)
+WRITE_WORDS_MAX = 3    # брендбук: 1-3 рукописных ключевых слова за WRITE_WINDOW_SEC — мысль и акцент вместе
+WRITE_WINDOW_SEC = 30.0
 
 
 def frame_source(video_dir, i, rec):
@@ -109,6 +111,22 @@ def _tex(path):
         from PIL import Image
         _TEX[path] = Image.open(path).convert("L")
     return _TEX[path]
+
+
+def writing_budget(written, T0, key, accent):
+    """Брендбук: 1-3 рукописных ключевых слова за WRITE_WINDOW_SEC — главная мысль и
+    акцент вместе, мысль важнее. written — [(глобальное время, число слов)] уже
+    написанного. Возвращает (key, accent, замечания)."""
+    recent = sum(n for t, n in written if t > T0 - WRITE_WINDOW_SEC)
+    notes = []
+    if key and recent + len(key.split()) > WRITE_WORDS_MAX:
+        notes.append(f"главная мысль «{key}» пропущена: за {WRITE_WINDOW_SEC:.0f} с на экране уже {recent} "
+                     "рукописных слов")
+        key = None
+    if accent and recent + (len(key.split()) if key else 0) + len(accent.split()) > WRITE_WORDS_MAX:
+        notes.append(f"акцент «{accent}» пропущен: лимит рукописных слов")
+        accent = None
+    return key, accent, notes
 
 
 def _prepare(job):
@@ -262,21 +280,26 @@ def main(video_dir):
     workers = int(os.environ.get("RENDER_WORKERS", str(max(1, min(4, (os.cpu_count() or 2) - 1)))))
     with ProcessPoolExecutor(workers) as ex:              # увеличение рисунков — дорого, параллельно и с кэшем
         list(ex.map(_warm, jobs))
-    last_punch, last_key, shot_log = -1e9, -1e9, []
+    last_punch, last_key, shot_log, written = -1e9, -1e9, [], []
     for k, job in enumerate(jobs):                         # план — по порядку: наезды и мысли не чаще порога
         fr = _prepare(job)
         key = job["key"] if job["key"] and job["T0"] - last_key >= KEY_GAP_SEC else None
         if job["key"] and not key:
             shot_log.append({"index": kept[k], "note": f"главная мысль «{job['key']}» пропущена: прошлая "
                                                       f"{job['T0'] - last_key:.1f} с назад"})
+        key, accent, why = writing_budget(written, job["T0"], key, job.get("accent"))
+        shot_log += [{"index": kept[k], "note": n} for n in why]
         p = frame_clip.plan_clip(fr, job["dur"], job["words"], key=key, last_punch=last_punch,
-                                 T0=job["T0"], zoom_in=(k % 2 == 0), fps=FPS, accent=job.get("accent"))
+                                 T0=job["T0"], zoom_in=(k % 2 == 0), fps=FPS, accent=accent)
         if p["punch_at"] is not None:
             last_punch = p["punch_at"]
         if p.get("key_time") is not None and p.get("key"):
             last_key = job["T0"] + p["key_time"]
+            written.append((last_key, len(p["key"]["text"].split())))
         else:
             p["key_time"] = None
+        if p.get("accent_time") is not None and p.get("accent"):
+            written.append((job["T0"] + p["accent_time"], len(p["accent"]["text"].split())))
         job["plan"] = p
         h = hashlib.sha256(open(job["src"], "rb").read()).hexdigest()[:12]
         sig = hashlib.sha256(json.dumps([h, job["recs"], job["objects"], frame_clip.plan_record(p), job["dur"],

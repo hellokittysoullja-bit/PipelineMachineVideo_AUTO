@@ -285,3 +285,18 @@ def test_flat_paper_follows_the_owner_background(monkeypatch, tmp_path):
     assert fg.Generator(None, str(tmp_path), L()).flat_paper is True
     monkeypatch.setenv("DIAGRAM_BACKGROUND", "")
     assert fg.Generator(None, str(tmp_path), L()).flat_paper is False
+
+
+def test_hero_marks_go_into_every_hero_prompt_only(tmp_path):
+    marks = "Its ear on the viewer's left is folded down"
+    h = g.build_prompt(dict(FRAME, hero=True), 2, True, None, marks)
+    assert marks in h and h.index(marks) < h.index("SCENE:")
+    assert marks not in g.build_prompt(FRAME, 2, False, None, marks)
+    import look
+    from PIL import Image
+    d = tmp_path / "look"
+    (d / "style").mkdir(parents=True)
+    Image.new("RGB", (8, 8)).save(d / "style" / "a.png")
+    Image.new("RGB", (8, 8)).save(d / "hero.png")
+    (d / "hero_marks.txt").write_text(marks + "\n", encoding="utf-8")
+    assert look.load(str(d)).hero_marks == marks

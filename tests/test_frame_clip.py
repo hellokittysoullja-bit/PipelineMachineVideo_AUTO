@@ -126,7 +126,7 @@ def test_key_thought_speeds_up_instead_of_disappearing(tmp_path):
     assert any("быстрее" in n for n in p["notes"])
 
 
-def test_accent_pops_up_on_its_word_and_stays(tmp_path):
+def test_accent_is_written_by_hand_on_its_word_and_stays(tmp_path):
     import canvas
     import frame_clip
     src = tmp_path / "raw.png"
@@ -136,12 +136,18 @@ def test_accent_pops_up_on_its_word_and_stays(tmp_path):
     fr = frame_clip.prepare(str(src), [], [], str(tmp_path), tex=canvas.paper_texture(w=1152, h=648))
     words = [{"word": w, "start": 0.3 + 0.45*i, "end": 0.6 + 0.45*i}
              for i, w in enumerate("ответить на письмо это пять минут не больше".split())]
-    p = frame_clip.plan_clip(fr, 4.5, words, accent="пять минут")
+    D = 6.0
+    p = frame_clip.plan_clip(fr, D, words, accent="пять минут")
     assert p["accent_time"] == pytest.approx(words[4]["start"]) and p.get("accent")
     out = str(tmp_path / "a.mp4")
-    frame_clip.render(fr, p, 4.5, out)
+    cues = frame_clip.render(fr, p, D, out)
+    # брендбук: на экране только рукописные слова, со звуком карандаша — акцент тоже пишется штрихами
+    assert cues and min(c[0] for c in cues) >= p["accent_time"] - 1e-6
+    end = max(c[1] for c in cues)
     cx, cy = [int(v) for v in p["accent"]["center"]]
-    box = (slice(cy - 30, cy + 30), slice(cx - 120, cx + 120))
+    box = (slice(cy - 40, cy + 40), slice(cx - 160, cx + 160))
     assert _frame_at(out, p["accent_time"] - 0.3)[box].min() > 180     # до слова — пусто
-    assert _frame_at(out, p["accent_time"] + 0.5)[box].min() < 90      # после — жирный текст
-    assert _frame_at(out, 4.4)[box].min() < 90                         # и остаётся
+    mid = _frame_at(out, (p["accent_time"] + end)/2)[box]
+    done = _frame_at(out, D - 0.1)[box]
+    assert done.min() < 120                                            # дописано и остаётся
+    assert (mid < 150).sum() < (done < 150).sum()                      # на середине — написана только часть

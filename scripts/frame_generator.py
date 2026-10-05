@@ -94,7 +94,7 @@ def _tidy(text):
     return " ".join(text.split())
 
 
-def build_prompt(frame, n_style, with_hero, hero_states=None):
+def build_prompt(frame, n_style, with_hero, hero_states=None, hero_marks=None):
     """Задание модели картинок: кто есть кто среди референсов (n_style образцов
     стиля, герой последним — look.refs), сцена от планировщика, ОДНО требование
     размера и раскладка, места под код, фон, чистые поверхности, стиль."""
@@ -106,6 +106,8 @@ def build_prompt(frame, n_style, with_hero, hero_states=None):
         # и слово «person» подталкивало бы модель нарисовать человека.
         parts.append(f"Reference image {n_style + 1} is the main character: keep exactly its head, face, colors, "
                      "markings, body proportions and clothing if any; change only pose, action and expression")
+        if hero_marks:
+            parts.append(hero_marks)
     parts.append("SCENE: " + _tidy(frame["picture"]))
     if with_hero:
         if re.search(r"foot ?prints?|tracks?\b", frame["picture"], re.I):
@@ -237,7 +239,8 @@ class Generator:
         модель, размер, качество и ТОТ облик, что реально уходит в модель
         (герой — только на кадрах с героем): совпал — готовый кадр годен."""
         with_hero = bool(frame.get("hero")) and self.look.hero is not None
-        prompt = build_prompt(frame, len(self.look.style), with_hero, getattr(self.look, "hero_states", None))
+        prompt = build_prompt(frame, len(self.look.style), with_hero, getattr(self.look, "hero_states", None),
+                              getattr(self.look, "hero_marks", None))
         b = self.backend
         sig = hashlib.sha256(f"{GEN_VERSION}|{labels.COMPOSE_VERSION}|{frame.get('key')}|{b.model}|{b.size}|{b.quality}|"
                              f"{self.look.signature(with_hero)}|{prompt}".encode("utf-8")).hexdigest()[:20]

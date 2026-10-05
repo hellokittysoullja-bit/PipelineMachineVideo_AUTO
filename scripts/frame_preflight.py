@@ -27,7 +27,7 @@ import json
 import os
 import re
 
-PREFLIGHT_VERSION = 2
+PREFLIGHT_VERSION = 3
 CACHE_DIR_NAME = "frame_preflight_cache"
 MAX_TOKENS = 12000      # модель рассуждает до ответа, сам ответ короткий
 EST_PROMPT_TOKENS = 2000
@@ -97,6 +97,7 @@ CHECKLIST = """You check picture descriptions written for an image model before 
 7. Two things that must both be seen clearly (the main character and the KEEP BIG object) touching or overlapping: put them side by side with a clear gap of plain background.
 8. NO CHARACTER frames: any recurring character ("the main character", {hero}) — remove it entirely and show the same idea through objects, hands of an unnamed person, or traces.
 9. A vaguer word for an object named before ("a device" after "the phone"), or a pronoun with no clear owner.
+10. A second image idea stacked on the first (a heavy brain chained to a boulder that also has a burning fuse): keep the one that carries the line, drop the extra prop.
 Keep everything else unchanged: the meaning of the line, the framing, the objects listed in KEEP, 30-80 words, plain English, no words about drawing style. Never add anything to draw that the line does not need.
 
 For EVERY numbered frame answer one JSON object on its own line:

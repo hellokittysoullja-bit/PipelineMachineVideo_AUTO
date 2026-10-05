@@ -265,3 +265,13 @@ def test_accent_is_words_of_the_line_and_never_with_key():
     assert "accent" not in fp.parse_answer(raw, PK2)[0][1]["frame"]
     raw = _l(1, {"kind": "scene", "picture": "a desk with a letter on it", "accent": "десять часов"})
     assert "accent" not in fp.parse_answer(raw, PK2)[0][1]["frame"]
+
+
+def test_details_are_kept_english_unique_and_at_most_three():
+    import frame_planner as fp
+    out, _n = fp.extras({"details": ["the chain and the boulder", "цепь", "the chain and the boulder",
+                                     "the smoking tail", "a", "b"]}, "текст")
+    assert out["details"] == ["the chain and the boulder"]       # только первые три, без кириллицы и повторов
+    out, _n = fp.extras({"details": ["the chain", "the tail", "the paw"]}, "текст")
+    assert out["details"] == ["the chain", "the tail", "the paw"]
+    assert "details" not in fp.extras({"details": "the chain"}, "текст")[0]

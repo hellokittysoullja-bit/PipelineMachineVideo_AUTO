@@ -48,8 +48,12 @@ def data_url(path, side=REF_SIDE):
 
 
 class Look:
-    def __init__(self, style, hero, hero_text=None, hero_states=None):
+    def __init__(self, style, hero, hero_text=None, hero_states=None, hero_marks=None):
         self.style, self.hero = style, hero
+        # look/hero_marks.txt — приметы героя, которые модель путает при перерисовке
+        # (критик 05.10: свёрнутое ушко прыгало с одной стороны на другую). Сторона
+        # пишется от зрителя: «левое ухо» читается двояко. Уходит в задание каждого кадра с героем.
+        self.hero_marks = hero_marks
         # look/hero_states.json — состояния героя, которые план выбирает по смыслу
         # фразы, а генератор дописывает в задание: {"имя": {"when", "draw"}}.
         # У кота — огонёк на хвосте: тлеет, когда «застрял», горит, когда сделал шаг.
@@ -105,4 +109,8 @@ def load(look_dir=None):
             if not (isinstance(v, dict) and str(v.get("when", "")).strip() and str(v.get("draw", "")).strip()):
                 raise LookError(f"{sp}: у состояния «{k}» нужны непустые when и draw")
             states[str(k)] = {"when": " ".join(str(v["when"]).split()), "draw": " ".join(str(v["draw"]).split())}
-    return Look(style, hero, hero_text, states)
+    marks = None
+    mp = os.path.join(d, "hero_marks.txt")
+    if hero and os.path.exists(mp):
+        marks = " ".join(open(mp, encoding="utf-8").read().split()) or None
+    return Look(style, hero, hero_text, states, marks)

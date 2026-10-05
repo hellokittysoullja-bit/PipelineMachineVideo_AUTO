@@ -62,3 +62,16 @@ def test_key_anchor_is_searched_only_with_a_key():
     f = {"key_thought": "третий день", "key_near": "the wall calendar", "spec": {"subject": "a desk"}}
     assert ("the wall calendar", "key_anchor", None) in objects.wanted(f, None)
     assert all(r != "key_anchor" for _n, r, _w in objects.wanted({"key_near": "x", "spec": {}}, None))
+
+
+def test_details_and_the_smoking_tail_are_searched_with_the_hero_head():
+    hero = "a black cartoon cat"
+    f = {"kind": "scene", "hero": True, "hero_state": "ember", "details": ["the chain and the boulder"],
+         "spec": {"subject": "a heavy brain"}}
+    w = objects.wanted(f, hero)
+    roles = {r: n for n, r, _w in w}
+    assert ("the chain and the boulder", "detail", None) in w
+    assert any(r == "detail" and "tail" in n for n, r, _w in w)   # огонёк героя — всегда отдельный крупный план
+    assert roles["hero_head"] == f"the head of {hero}"            # голову крупный план детали не режет
+    plain = objects.wanted({"kind": "scene", "hero": False, "spec": {"subject": "a ball"}}, hero)
+    assert not any(r in ("detail", "hero_head") for _n, r, _w in plain)

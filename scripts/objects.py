@@ -130,6 +130,19 @@ def wanted(frame, hero_text):
         subj = None                          # «человек» фразы — это и есть герой
     if subj and subj != z.get("object"):
         out.append((subj, "subject", None))
+    # детали для крупных планов (камера режет на них каждые 2-3 с); у героя с состоянием огонька —
+    # всегда его хвост: огонёк и есть то, что он сейчас чувствует (критик 05.10: «крупно дымящийся хвост»)
+    det = list(frame.get("details") or [])
+    if hero and frame.get("hero_state"):
+        det.append(f"the flame on the tip of the tail of {hero_text}")
+    taken = {n for n, _r, _w in out}
+    for d in det[:4]:
+        if d not in taken:
+            out.append((d, "detail", None))
+            taken.add(d)
+    if hero and det:
+        # крупный план детали может задеть край героя, но не разрезать ему голову
+        out.append((f"the head of {hero_text}", "hero_head", None))
     if hero:
         # средний план держит и предмет фразы, и героя (критик: план по коту срезал мозг с гирей,
         # а план по одному письму был бы конвертом без кота)

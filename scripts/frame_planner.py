@@ -39,7 +39,7 @@ import script_parser  # noqa: E402
 
 PLAN_NAME = "frame_plan.json"
 CACHE_DIR_NAME = "frame_plan_cache"
-PLAN_VERSION = 13
+PLAN_VERSION = 14
 # Модель выбрана замером старого генератора 24.09 (58 фраз трёх ниш):
 # DeepSeek v4 Flash — 58/58, ~2 тыс. токенов баланса; Gemini 3.7 Flash по
 # смыслу наравне, но ~35 тыс.; Qwen 3.8 Max — 46/58.
@@ -150,6 +150,7 @@ FRAME_RULES = """frame — ONE hand-drawn picture per line. It is generated once
     "caption" — the line is a punchline, a verdict or an emotional beat that lands harder written: one drawn moment plus ONE Russian caption of 1-4 words (like «ЖИВ. ПОЛНОСТЬЮ.»).
     "diagram" — the line explains a structure, a comparison, a sequence, a list or a cause: a simple hand-drawn diagram with 2-6 short Russian labels — a pyramid, a ladder, arrows from cause to effect, before and after, a list on a board, a timeline, a path of footprints, a crowd shrinking to one figure.
   "zoom" — optional. When the line names ONE concrete object that deserves a close look at the moment it is said (the letter, the timer, the open door): {{"object": "<English name of that object exactly as in your picture>", "word": "<the word of the line at which the camera rushes onto it, copied exactly as written in the line>"}}. The camera then fills the screen with that object for a second or two. null when nothing is worth it; at most one line in three.
+  "details" — 1-3 English names of drawn things in your picture worth their own close shot while the line plays (the chain and the boulder; the smoking tail flame; the sticky blobs on the envelope), each named exactly as in your picture and each a small separate visible part — a quarter of the picture or less, not the whole picture or its main object ("the biggest dripping blob", not "the blobs on the envelope"); [] for a single simple object. The editor cuts between the whole picture and these close shots every 2-3 seconds, so a picture held for a long line needs them.
   "key" — optional: the chapter's main thought, written by hand on the picture as it is said — 1-3 Russian words copied word for word from the line ("только открыть"). Only for the one or two lines of a chapter that carry its main idea; null for all others. With a key, "key_near" — the English name of the drawn thing (from your picture) the words belong next to ("the blank wall calendar"), or null.
   "accent" — optional: 1-3 Russian words copied word for word from the line that pop up on screen in bold as they are said — a number with its unit ("пять минут", "две минуты") or one short punchy word the line hits ("тонну"). Never on a line with a "key"; about one line in three; null otherwise.
   "labels" — Russian, UPPERCASE, at most {max_words} words each, taken from or clearly implied by the line, correctly spelled; empty for "scene". Code writes them on the finished picture.
@@ -159,6 +160,7 @@ FRAME_RULES = """frame — ONE hand-drawn picture per line. It is generated once
     - a comparison that only flashes by ("heavy as a fridge") is not the picture — draw what the line is about; draw the comparison only when it fills the whole line and the narration unfolds it;
     - a contrast of two things ("ten years of practice against two weeks") is ONE picture with both side by side — half of a pair loses the thought;
     - an abstract line (a feeling, an idea, a process) becomes a concrete situation, a bodily sign or an object left behind (hunched shoulders, an untouched plate). A visual metaphor is welcome when it explains the mechanism in a fresh, specific way (a brain lighting up like a slot machine at each notification); stock symbols are not (a stone of burden, a broken chain, an hourglass for "time");
+    - ONE image idea per picture: never stack a second metaphor on the first (a heavy brain chained to a boulder does not also get a burning fuse); every prop either is the line's thought or supports it;
     - resolve "he", "it", "this" from the neighbouring lines and name the thing; no pronouns without a clear owner in the picture;
     - keep the mood of the chapter: a heavy chapter is not drawn with sunny cheerful frames.
   How to WRITE it:
@@ -341,6 +343,15 @@ def extras(obj, text, states=()):
             out["accent"] = a
         else:
             notes.append("accent_dropped")
+    det = obj.get("details")
+    if isinstance(det, list):
+        keep = []
+        for d in det[:3]:
+            d = " ".join(str(d or "").split())
+            if d and 1 <= len(d.split()) <= 8 and not re.search(r"[а-яА-ЯёЁ]", d) and d not in keep:
+                keep.append(d)
+        if keep:
+            out["details"] = keep
     st = obj.get("hero_state")
     if isinstance(st, str) and st in states and obj.get("hero") is True:
         out["hero_state"] = st
