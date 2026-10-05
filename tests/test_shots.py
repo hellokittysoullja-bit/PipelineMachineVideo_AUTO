@@ -290,3 +290,33 @@ def test_no_detail_close_up_that_slices_the_hero_head():
         overlap = not (w[2] <= b[0] or w[0] >= b[2] or w[3] <= b[1] or w[1] >= b[3])
         whole = w[0] <= b[0] and w[1] <= b[1] and w[2] >= b[2] and w[3] >= b[3]
         assert whole or not overlap                       # голова целиком или вне кадра
+
+
+def test_cuts_land_on_speech_pauses_so_shot_lengths_vary():
+    busy, off = _one_blob()
+    ox = off[0]
+    objs = [{"role": "hero", "box": (470 + ox, 380, 940 + ox, 720)},
+            {"role": "hero_head", "box": (470 + ox, 380, 640 + ox, 520)},
+            {"role": "detail", "name": "the boulder", "box": (680 + ox, 160, 960 + ox, 420)},
+            {"role": "detail", "name": "the tail flame", "box": (855 + ox, 555, 965 + ox, 695)}]
+    # фраза с паузой после 5-го слова (1.85 -> 2.6 с): склейка встаёт на неё, а не на ровную треть
+    words = _words("раз два три четыре пять", t0=0.2, step=0.4) + _words("шесть семь восемь девять десять "
+                                                                          "одиннадцать двенадцать", t0=2.6, step=0.4)
+    p = shots.plan(5.6, busy, words, objects=objs)
+    cuts = [round(s["t0"], 2) for s in p["segments"][1:]]
+    assert 2.6 in cuts
+
+
+def test_return_to_the_wide_shot_is_not_the_identical_frame():
+    busy, off = _one_blob()
+    ox = off[0]
+    objs = [{"role": "subject", "box": (380 + ox, 120, 960 + ox, 420)},
+            {"role": "hero", "box": (470 + ox, 380, 940 + ox, 720)},
+            {"role": "hero_head", "box": (470 + ox, 380, 640 + ox, 520)},
+            {"role": "detail", "name": "the boulder", "box": (680 + ox, 160, 960 + ox, 420)}]
+    p = shots.plan(9.0, busy, _words(" ".join(["слово"]*20)), objects=objs)
+    wins = [tuple(round(v) for v in s["win"]) for s in p["segments"]]
+    assert len(wins) >= 3
+    assert wins.count(wins[0]) == 1                                 # к общему плану возвращаемся другим кадром
+    n_unique = len(set(wins))
+    assert n_unique == min(len(wins), 3)                            # повтор — только когда новых планов не осталось

@@ -157,7 +157,7 @@ def frame_for(busy, target, z_range, margin=0.12, bottom_w=2.0, spread=0.2, edge
     return best[1] if best else None
 
 
-def punch_window(busy, obj):
+def punch_window(busy, obj, keep=()):
     """Окно быстрого наезда: предмет ~PUNCH_FILL кадра, не крупнее PUNCH_MAX_ZOOM,
     края по пустому. None — предмет слишком велик (наезд меньше CUT_MIN_RATIO —
     не наезд, и возврат склейкой был бы «скачком»)
@@ -175,6 +175,13 @@ def punch_window(busy, obj):
         return None
     m = (1 - PUNCH_FILL)/2*0.6
     sep = others(busy, obj)
+    # герой рядом (keep — его рамка): целиком в кадре или вне его, даже мелкими частями —
+    # усы и кончик хвоста у края кадра читались как случайные чёрточки (живой прогон 05.10)
+    for kb in keep:
+        if not (obj[0] >= kb[0] - 1 and obj[1] >= kb[1] - 1 and obj[2] <= kb[2] + 1 and obj[3] <= kb[3] + 1):
+            ys_k, xs_k = slice(max(0, int(kb[1])), int(kb[3])), slice(max(0, int(kb[0])), int(kb[2]))
+            sep = sep.copy() if sep is busy else sep
+            sep[ys_k, xs_k] = np.maximum(sep[ys_k, xs_k], busy[ys_k, xs_k])
     # от самого крупного к более общему: первый, у которого края не режут рисунок
     for z in np.linspace(z_hi, max(CUT_MIN_RATIO, z_fit*PUNCH_MIN_FILL/PUNCH_FILL), 8):
         w = frame_for(busy, obj, (z, z), margin=m, spread=0.15, edge_k=10.0, max_cross=SEPARATE_MAX_CROSS,

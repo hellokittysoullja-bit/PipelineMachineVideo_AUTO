@@ -94,7 +94,7 @@ def _tidy(text):
     return " ".join(text.split())
 
 
-def build_prompt(frame, n_style, with_hero, hero_states=None, hero_marks=None):
+def build_prompt(frame, n_style, with_hero, hero_states=None, hero_marks=None, palette=None):
     """Задание модели картинок: кто есть кто среди референсов (n_style образцов
     стиля, герой последним — look.refs), сцена от планировщика, ОДНО требование
     размера и раскладка, места под код, фон, чистые поверхности, стиль."""
@@ -167,6 +167,8 @@ def build_prompt(frame, n_style, with_hero, hero_states=None, hero_marks=None):
         parts.append(f"If the picture has no specific place, its background is plain {paper} paper, even and "
                      "untinted, even if the reference images use a darker or coloured paper; a specific place "
                      "is drawn as that place")
+    if palette and frame.get("kind") != "diagram":     # схемам цвет задаёт DIAGRAM_ARROW_COLOR и акварель
+        parts.append(palette)
     parts.append(CLEAN_SURFACES)
     # Камера наезжает на кадр до ~10% и вписывает его в 16:9 — главное у
     # самого края срезалось бы.
@@ -240,7 +242,7 @@ class Generator:
         (герой — только на кадрах с героем): совпал — готовый кадр годен."""
         with_hero = bool(frame.get("hero")) and self.look.hero is not None
         prompt = build_prompt(frame, len(self.look.style), with_hero, getattr(self.look, "hero_states", None),
-                              getattr(self.look, "hero_marks", None))
+                              getattr(self.look, "hero_marks", None), getattr(self.look, "palette", None))
         b = self.backend
         sig = hashlib.sha256(f"{GEN_VERSION}|{labels.COMPOSE_VERSION}|{frame.get('key')}|{b.model}|{b.size}|{b.quality}|"
                              f"{self.look.signature(with_hero)}|{prompt}".encode("utf-8")).hexdigest()[:20]

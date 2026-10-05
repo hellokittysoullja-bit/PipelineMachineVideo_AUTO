@@ -48,8 +48,11 @@ def data_url(path, side=REF_SIDE):
 
 
 class Look:
-    def __init__(self, style, hero, hero_text=None, hero_states=None, hero_marks=None):
+    def __init__(self, style, hero, hero_text=None, hero_states=None, hero_marks=None, palette=None):
         self.style, self.hero = style, hero
+        # look/palette.txt — палитра бренда в задании каждого кадра (критик 05.10: крафт-конверт и
+        # деревянная комната спорили с правилом брендбука «тёплое — только кот и огонёк»)
+        self.palette = palette
         # look/hero_marks.txt — приметы героя, которые модель путает при перерисовке
         # (критик 05.10: свёрнутое ушко прыгало с одной стороны на другую). Сторона
         # пишется от зрителя: «левое ухо» читается двояко. Уходит в задание каждого кадра с героем.
@@ -113,4 +116,8 @@ def load(look_dir=None):
     mp = os.path.join(d, "hero_marks.txt")
     if hero and os.path.exists(mp):
         marks = " ".join(open(mp, encoding="utf-8").read().split()) or None
-    return Look(style, hero, hero_text, states, marks)
+    palette = None
+    pp = os.path.join(d, "palette.txt")
+    if os.path.exists(pp):
+        palette = " ".join(open(pp, encoding="utf-8").read().split()) or None
+    return Look(style, hero, hero_text, states, marks, palette)

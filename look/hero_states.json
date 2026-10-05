@@ -4,7 +4,11 @@
     "draw": "the small flame on the tip of the main character's tail has shrunk to a dim glowing ember with a thin wisp of grey smoke"
   },
   "bright": {
-    "when": "the character takes a step, starts, finishes something or feels relief",
+    "when": "the character starts or is working on something",
     "draw": "the flame on the tip of the main character's tail burns big and bright orange"
+  },
+  "golden": {
+    "when": "the character has just done the step or finished — the moment of reward and relief",
+    "draw": "the flame on the tip of the main character's tail burns tall and golden with small bright sparks flying off it"
   }
 }

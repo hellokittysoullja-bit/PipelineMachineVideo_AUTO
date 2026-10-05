@@ -161,7 +161,11 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
         if not free(t, t + camera.PUNCH_SEC + PUNCH_HOLD_SEC):
             notes.append(f"наезд на «{o.get('name')}» во время письма — пропущен")
             continue
-        pw = camera.punch_window(busy, tuple(o["box"]))
+        # сначала — наезд, не задевающий героя даже усами; нет такого — обычный (наезд важнее
+        # кончика уса у края: решение владельца — быстрый наезд на предмет держим)
+        heroes = [tuple(h["box"]) for h in objects or [] if h.get("role") == "hero" and h.get("box")]
+        pw = (camera.punch_window(busy, tuple(o["box"]), keep=heroes) if heroes else None) \
+            or camera.punch_window(busy, tuple(o["box"]))
         if pw is None:
             notes.append(f"наезд на «{o.get('name')}» не делается: {getattr(camera.punch_window, 'why', '')}")
             continue
@@ -174,6 +178,16 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
         """Склейка — на начале ближайшего слова в пределах [lo, hi]."""
         cand = [s for s in starts if lo <= s <= hi and abs(s - t) <= CUT_SNAP_SEC and free(s - 0.05, s + 0.05)]
         return min(cand, key=lambda s: abs(s - t)) if cand else (t if free(t - 0.05, t + 0.05) else None)
+
+    gaps = {w["start"]: w["start"] - p_["end"] for p_, w in zip(words, words[1:]) if 0 < w["start"] < D}
+
+    def phrase_cut(lo, hi):
+        """Начало слова после самой длинной паузы в [lo, hi]; при равных — ближе к середине окна."""
+        cand = [s for s in starts if lo <= s <= hi and free(s - 0.05, s + 0.05)]
+        if not cand:
+            return None
+        mid = (lo + hi)/2
+        return max(cand, key=lambda s: (round(gaps.get(s, 0.0), 2), -abs(s - mid)))
 
     subj = subject_box(busy, objects)
     # средний план, режущий соседей, хуже, чем никакого; поле вокруг предмета даёт ореол карты
@@ -282,16 +296,37 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
                 cuts.append((r, "cut", wide))
 
     # длинные планы — склейкой на другой план (не раньше, чем все подписи появились)
-    # порядок планов как у монтажёра: общий -> средний -> детали подряд -> снова общий ...
+    # порядок планов как у монтажёра: общий -> средний -> детали подряд -> другой общий; повтор
+    # плана — только когда новых не осталось (критик 05.10: «ровно тот же общий план читается
+    # как повтор»). Другой общий — чуть крупнее и со сдвигом к главному, голова героя целиком.
     views = [v for v in [medium] + details if v is not None]
-    cycle = [wide] + views
+    wide_alt = None
+    if views and subj is not None:
+        fx, fy = (subj[0] + subj[2])/2, (subj[1] + subj[3])/2
+        wcx, wcy = (wide[0] + wide[2])/2, (wide[1] + wide[3])/2
+        for zf in (1.25, 1.18, 1.12, 0.9, 0.84):      # крупнее или чуть общее общего плана
+            for k in (0.5, 0.3, 0.0, -0.3):
+                w = camera.window(wcx + (fx - wcx)*k, wcy + (fy - wcy)*k, (wide[2] - wide[0])/zf, SW, SH)
+                # в него можно склеиться из крупных планов без «скачка»
+                if head_ok(w, (0, 0, 0, 0)) and not any(camera.is_jump(w, v, SW, SH) for v in views):
+                    wide_alt = w
+                    break
+            if wide_alt is not None:
+                break
+    cycle = [wide] + views + ([wide_alt] if wide_alt is not None else [])
+    used = {0}
     order = {"i": 0}
 
     def next_view(cur):
-        for _ in range(len(cycle)):
-            order["i"] = (order["i"] + 1) % len(cycle)
-            v = cycle[order["i"]]
-            if v != cur and not camera.is_jump(cur, v, SW, SH):
+        n_ = len(cycle)
+        for fresh in (True, False):
+            for step in range(1, n_ + 1):
+                j = (order["i"] + step) % n_
+                v = cycle[j]
+                if (fresh and j in used) or v == cur or camera.is_jump(cur, v, SW, SH):
+                    continue
+                order["i"] = j
+                used.add(j)
                 return v
         return wide
 
@@ -301,12 +336,21 @@ def plan(D, busy, words, labels=(), objects=(), key=None, key_dur=0.0, last_punc
         if not views:
             return out
         while t1 - t0 > MAX_VIEW_SEC:
-            k = int(np.ceil((t1 - t0)/MAX_VIEW_SEC))
-            t = t0 + (t1 - t0)/k
             lo = max(t0 + MIN_VIEW_SEC, labels_done)
+            hi = min(t0 + MAX_VIEW_SEC, t1 - MIN_VIEW_SEC)
             if lo > t1 - MIN_VIEW_SEC:
                 break
-            s_ = snap(max(t, lo), lo, t1 - MIN_VIEW_SEC)
+            # склейка — на паузе речи (самый длинный промежуток между словами в допустимом окне):
+            # длина плана идёт от фразы, а не ровными кусками (брендбук: «не ровно 2,0 с —
+            # ровный ритм усыпляет»; критик 05.10: все планы по 2-3 с)
+            # пауза ищется около «ровной» точки: кусков столько, сколько нужно, а не больше —
+            # лишний кусок повторял бы план, когда новых у картинки уже нет (живой прогон 05.10)
+            k = int(np.ceil((t1 - t0)/MAX_VIEW_SEC))
+            ideal = t0 + (t1 - t0)/k
+            s_ = phrase_cut(max(lo, ideal - 0.8), min(hi, ideal + 0.8)) if hi >= lo else None
+            if s_ is None:
+                k = int(np.ceil((t1 - t0)/MAX_VIEW_SEC))
+                s_ = snap(max(t0 + (t1 - t0)/k, lo), lo, t1 - MIN_VIEW_SEC)
             if s_ is None:
                 break
             nxt = next_view(cur)

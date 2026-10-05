@@ -300,3 +300,9 @@ def test_hero_marks_go_into_every_hero_prompt_only(tmp_path):
     Image.new("RGB", (8, 8)).save(d / "hero.png")
     (d / "hero_marks.txt").write_text(marks + "\n", encoding="utf-8")
     assert look.load(str(d)).hero_marks == marks
+
+
+def test_brand_palette_goes_into_scene_prompts_not_diagrams():
+    pal = "Colours: black ink and soft grey washes on cream paper"
+    assert pal in g.build_prompt(dict(FRAME, kind="scene", labels=[]), 2, False, palette=pal)
+    assert pal not in g.build_prompt(dict(FRAME, kind="diagram", labels=["А"]), 2, False, palette=pal)
