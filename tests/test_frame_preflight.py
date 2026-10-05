@@ -12,7 +12,7 @@ def frame(**kw):
     f = {"index": 0, "section": "HOOK", "text": "Ты открываешь письмо.", "kind": "scene", "labels": [],
          "hero": True,
          "picture": "medium shot: the main character stands on the floor beside a desk, both paws on one closed "
-                    "envelope that lies on the desk, ears up and eyes wide; plain light background around them"}
+                    "envelope that lies on the desk, eyes wide and tail raised; plain light background around them"}
     f.update(kw)
     return f
 
@@ -37,7 +37,7 @@ def test_issues_catch_the_real_defects_of_04_10():
 def test_accept_rejects_a_rewrite_that_loses_kept_objects_or_the_hero():
     f = frame(zoom={"object": "envelope", "word": "письмо"})
     good = ("close-up: the main character sits on the floor beside one big envelope, the flap already folded open "
-            "and the letter half out, ears up and a small smile; a clear gap of plain light background between them")
+            "and the letter half out, a small smile; a clear gap of plain light background between them")
     assert fp.accept(f, good, HERO)[0] == good
     no_zoom = good.replace("envelope", "box")
     assert fp.accept(f, no_zoom, HERO)[1].startswith("still:")
@@ -67,7 +67,7 @@ def test_check_chapter_rewrites_only_bad_frames_and_keeps_the_original(tmp_path)
                                  "lifting its flap, plain light background around them and the desk in the middle")
     ok = frame(index=0)
     new = ("medium shot: the main character stands on the floor beside a desk with one envelope on it, the flap "
-           "folded open and the letter half out, ears up; plain light background around them")
+           "folded open and the letter half out, tail raised; plain light background around them")
     gw = FakeGateway(json.dumps({"n": 1, "ok": True}) + "\n" +
                      json.dumps({"n": 2, "ok": False, "faults": [1, 2], "picture": new}))
     s = fp.check_chapter([ok, bad], gw, "m", str(tmp_path), HERO)
@@ -101,3 +101,11 @@ def test_fallback_frames_are_not_sent():
     f = frame(fallback=True)
     gw = FakeGateway("")
     assert fp.check_chapter([f], gw, "m", "/nonexistent", HERO)["checked"] == 0 and gw.calls == 0
+
+
+def test_hero_ears_are_not_described():
+    f = frame(picture=frame()["picture"].replace("eyes wide", "ears back, eyes wide"))
+    assert "hero_ears_described" in fp.issues(f, HERO)
+    assert "hero_ears_described" not in fp.issues(dict(f, hero=False, picture="a rabbit with long ears sits on "
+                                                       "the grass beside a fence, plain light background around, "
+                                                       "one carrot lying at its feet on the grass"), HERO)

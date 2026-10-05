@@ -113,17 +113,19 @@ def _tex(path):
     return _TEX[path]
 
 
-def writing_budget(written, T0, key, accent):
+def writing_budget(written, T0, key, accent, reserved=0):
     """Брендбук: 1-3 рукописных ключевых слова за WRITE_WINDOW_SEC — главная мысль и
     акцент вместе, мысль важнее. written — [(глобальное время, число слов)] уже
-    написанного. Возвращает (key, accent, замечания)."""
+    написанного; reserved — слова главных мыслей следующих кадров в пределах окна:
+    акцент их не вытесняет (живой прогон 05.10: «пять минут» в начале съели место
+    «только открыть»). Возвращает (key, accent, замечания)."""
     recent = sum(n for t, n in written if t > T0 - WRITE_WINDOW_SEC)
     notes = []
     if key and recent + len(key.split()) > WRITE_WORDS_MAX:
         notes.append(f"главная мысль «{key}» пропущена: за {WRITE_WINDOW_SEC:.0f} с на экране уже {recent} "
                      "рукописных слов")
         key = None
-    if accent and recent + (len(key.split()) if key else 0) + len(accent.split()) > WRITE_WORDS_MAX:
+    if accent and recent + (len(key.split()) if key else 0) + reserved + len(accent.split()) > WRITE_WORDS_MAX:
         notes.append(f"акцент «{accent}» пропущен: лимит рукописных слов")
         accent = None
     return key, accent, notes
@@ -287,7 +289,9 @@ def main(video_dir):
         if job["key"] and not key:
             shot_log.append({"index": kept[k], "note": f"главная мысль «{job['key']}» пропущена: прошлая "
                                                       f"{job['T0'] - last_key:.1f} с назад"})
-        key, accent, why = writing_budget(written, job["T0"], key, job.get("accent"))
+        reserved = sum(len(j["key"].split()) for j in jobs[k + 1:]
+                       if j.get("key") and j["T0"] < job["T0"] + WRITE_WINDOW_SEC)
+        key, accent, why = writing_budget(written, job["T0"], key, job.get("accent"), reserved)
         shot_log += [{"index": kept[k], "note": n} for n in why]
         p = frame_clip.plan_clip(fr, job["dur"], job["words"], key=key, last_punch=last_punch,
                                  T0=job["T0"], zoom_in=(k % 2 == 0), fps=FPS, accent=accent)

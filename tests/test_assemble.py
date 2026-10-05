@@ -95,3 +95,10 @@ def test_handwritten_words_stay_within_the_brandbook_budget():
     # три слова за последние 30 с — больше ничего не пишется
     assert af.writing_budget([(10.0, 3)], 30.0, "шаг", "тонну")[:2] == (None, None)
     assert af.writing_budget([(10.0, 3)], 41.0, "шаг", None)[:2] == ("шаг", None)   # окно ушло
+
+
+def test_accent_never_takes_the_place_of_a_coming_main_thought():
+    import assemble_frames as af
+    # «только открыть» (2 слова) через 23 с — «пять минут» сейчас не пишется
+    assert af.writing_budget([], 0.0, None, "пять минут", reserved=2)[1] is None
+    assert af.writing_budget([], 0.0, None, "тонну", reserved=2)[1] == "тонну"

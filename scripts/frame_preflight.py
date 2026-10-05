@@ -27,7 +27,7 @@ import json
 import os
 import re
 
-PREFLIGHT_VERSION = 3
+PREFLIGHT_VERSION = 4
 CACHE_DIR_NAME = "frame_preflight_cache"
 MAX_TOKENS = 12000      # модель рассуждает до ответа, сам ответ короткий
 EST_PROMPT_TOKENS = 2000
@@ -66,6 +66,9 @@ def issues(frame, hero_text=None):
         noun = hero_noun(hero_text)
         if CHARACTER_RE.search(pic) or (noun and re.search(rf"\b{noun}s?\b", pic, re.I)):
             out.append("character_without_reference")
+    if frame.get("hero") and re.search(r"\bears?\b", pic, re.I):
+        # живой кадр 05.10: «ears back» перебило примету героя — свёрнутое ушко встало
+        out.append("hero_ears_described")
     zoom = (frame.get("zoom") or {}).get("object")
     if zoom and _name_core(zoom) not in pic.lower():
         out.append("zoom_object_not_in_picture")
@@ -89,7 +92,8 @@ def _name_core(name):
 
 CHECKLIST = """You check picture descriptions written for an image model before it draws them. The image model draws each description ONCE and the picture goes straight into a film, so a fault in the words becomes a fault in the picture. Faults to look for:
 1. A motion or a process instead of a visible moment: the image model draws a state, not a verb. Rewrite into the end state you can see ("lifts the flap" -> "the flap is folded open, the letter half out"; "walks around the envelope" -> "stands on the floor beside the envelope").
-2. A figure without ground, or placed on an object it should stand beside: say what it stands, sits or lies on.
+2. A figure without ground, or placed on an object it should stand beside: say what it stands, sits or lies on ("sits at a table" is drawn as sitting ON the table — write "sits on a chair beside the table").
+11. The main character's ears described ("ears up", "ears back", "drooping ears"): remove — its ears are fixed by the reference; show the feeling by the face, the tail and the pose.
 3. Something repeated or going on for long (circling, pacing, waiting for days) drawn as motion or as several copies of the same figure: show it by the traces it left (a worn circle of paw prints around the desk, dust on the lid). Never drop it: when the motion is what the line is about, the traces carry it.
 4. Anything that invites letters, numbers or signs (titles, labels, words, documents with text, apps on screens, clocks with numerals, calendars with dates, starting lines, crossed-off days, tally marks, check marks): replace with a drawn object or make it blank ("a calendar page with no marks").
 5. A feeling shown by symbols floating in the air (hearts, question marks, lightning, icons): show it by pose, face and objects.
