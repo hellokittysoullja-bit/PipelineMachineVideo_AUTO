@@ -1,0 +1,4 @@
+[{"id":"ffmpegDemo01","name":"ffmpeg zoompan demo","active":false,"nodes":[
+{"parameters":{},"id":"a1","name":"Start","type":"n8n-nodes-base.manualTrigger","typeVersion":1,"position":[0,0]},
+{"parameters":{"command":"sh -c 'a=$(date +%s.%N); /tmp/claude-0/-home-user-PipelineMachineVideo-AUTO/a662cfcd-8b76-5070-99e9-f8f83d70da68/scratchpad/n8n/cmd.sh /tmp/claude-0/-home-user-PipelineMachineVideo-AUTO/a662cfcd-8b76-5070-99e9-f8f83d70da68/scratchpad/n8n/out/via_n8n.mp4; b=$(date +%s.%N); echo $a $b' "},"id":"a2","name":"Execute Command","type":"n8n-nodes-base.executeCommand","typeVersion":1,"position":[250,0]}],
+"connections":{"Start":{"main":[[{"node":"Execute Command","type":"main","index":0}]]}},"settings":{},"pinData":{}}]
