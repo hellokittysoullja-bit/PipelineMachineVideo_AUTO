@@ -94,6 +94,19 @@ def _tidy(text):
     return " ".join(text.split())
 
 
+def palette_without_hero(palette):
+    """Палитра для кадра БЕЗ героя: фраза «тёплые цвета — только огонёк на хвосте главного героя» в
+    задании без героя сама звала его в кадр (живой брак 07.10: на кадре куклы «только конверт» модель
+    дважды дорисовала существо с огненным хвостом). Предложение с героем выбрасывается, остальное —
+    как было."""
+    sents = re.split(r"(?<=[.;])\s+", palette.strip())
+    keep = [x for x in sents if not re.search(r"main character|hero|tail flame|cheek", x, re.I)]
+    out = " ".join(keep).strip()
+    if out and not re.search(r"warm|orange", out, re.I):
+        out += " No warm colours anywhere: every object is ink and grey."
+    return out or "Colours: black ink and soft grey washes on cream paper; no warm colours anywhere."
+
+
 def build_prompt(frame, n_style, with_hero, hero_states=None, hero_marks=None, palette=None):
     """Задание модели картинок: кто есть кто среди референсов (n_style образцов
     стиля, герой последним — look.refs), сцена от планировщика, ОДНО требование
@@ -174,7 +187,7 @@ def build_prompt(frame, n_style, with_hero, hero_states=None, hero_marks=None, p
                      "untinted, even if the reference images use a darker or coloured paper; a specific place "
                      "is drawn as that place")
     if palette and frame.get("kind") != "diagram":     # схемам цвет задаёт DIAGRAM_ARROW_COLOR и акварель
-        parts.append(palette)
+        parts.append(palette if with_hero else palette_without_hero(palette))
     parts.append(CLEAN_SURFACES)
     # Камера наезжает на кадр до ~10% и вписывает его в 16:9 — главное у
     # самого края срезалось бы.
@@ -333,6 +346,11 @@ class Generator:
             info[p]["answers"] = ans
             if ans is not None and not shot_judge.shows_nothing(spec, ans, info[p]["grid"]):
                 info[p]["vector"] = shot_judge.claims_vector(spec, ans, cg_veto=False)
+            # кадр куклы: любая фигура — брак, одним утверждением (общее правило «брак, если не выполнено
+            # НИ ОДНО обязательное» здесь не срабатывает: конверт-то виден — живой случай 07.10)
+            if frame.get("hero_live") and ((ans or {}).get("claims") or {}).get("nofig") == "no":
+                info[p]["vector"] = None
+                info[p]["figure_present"] = True
         return info
 
     @staticmethod

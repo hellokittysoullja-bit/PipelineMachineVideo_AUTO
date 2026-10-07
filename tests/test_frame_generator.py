@@ -306,3 +306,16 @@ def test_brand_palette_goes_into_scene_prompts_not_diagrams():
     pal = "Colours: black ink and soft grey washes on cream paper"
     assert pal in g.build_prompt(dict(FRAME, kind="scene", labels=[]), 2, False, palette=pal)
     assert pal not in g.build_prompt(dict(FRAME, kind="diagram", labels=["А"]), 2, False, palette=pal)
+
+
+def test_palette_without_hero_drops_the_character_sentence():
+    import frame_generator as fg
+    pal = ("Colours: black ink and soft grey washes on cream paper. The only warm colours in the picture are the "
+           "main character's orange tail flame and cheek marks; every other object is ink and grey.")
+    out = fg.palette_without_hero(pal)
+    assert "main character" not in out and "flame" not in out and "ink" in out
+    p = fg.build_prompt({"kind": "scene", "picture": "one envelope on the floor", "hero_live": True}, 2, False,
+                        palette=pal)
+    assert "main character's orange tail flame" not in p and "no character, creature" in p
+    p2 = fg.build_prompt({"kind": "scene", "picture": "the main character sits", "hero": True}, 2, True, palette=pal)
+    assert "main character's orange tail flame" in p2          # с героем палитра прежняя
