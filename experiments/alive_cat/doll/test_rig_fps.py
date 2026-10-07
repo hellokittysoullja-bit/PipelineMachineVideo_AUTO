@@ -23,3 +23,15 @@ def test_plan_is_defined_in_seconds_not_frames():
     b = D.plan(4.0, [{"t": 1.0, "do": "tilt", "deg": 5, "dur": 1.0}], seed=3)
     for t in (0.5, 1.3, 2.0, 3.1):          # одно и то же время — одно и то же состояние при любом fps
         assert a(t)["head"] == b(t)["head"] and a(t)["lid"] == b(t)["lid"]
+
+
+def test_set_paper_identity_on_source_paper_and_no_halo_on_cream():
+    CREAM = np.array([250, 247, 240], np.float32)
+    st = dict(look=(0, 0), lid=0, head=4, ear=-3, tail=3, breath=1.01, paws={})
+    r = D.Rig(); before = r.frame(st, .5).copy()
+    r.set_paper(r.paper_src)                      # та же бумага — ничего не меняется
+    assert np.array_equal(r.frame(st, .5), before)
+    r.set_paper(CREAM); f = r.frame(st, .5)
+    a = r.alpha / 255; edge = (a > 0.3) & (a < 0.7)
+    halo = (f[edge].astype(int).sum(1) > CREAM.sum() + 3).mean()
+    assert halo < 0.02                            # без снятия примеси было 1967 из 4124 (48%)

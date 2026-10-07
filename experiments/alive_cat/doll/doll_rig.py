@@ -86,6 +86,7 @@ class Rig:
         H, W = self.alpha.shape; self.H, self.W = H, W
         m = self.alpha > 128
         self.paper = np.median(self.src[~m], axis=0)
+        self.paper_src = self.paper.copy()               # бумага исходника: с ней смешаны края меха
         self.paper_u8 = np.empty((H, W, 3), np.uint8); self.paper_u8[:] = np.clip(self.paper, 0, 255).astype(np.uint8)
         ys, xs = np.nonzero(self.alpha > 1)
         pad = 60
@@ -351,6 +352,31 @@ class Rig:
         return Hm
 
     # ------------------------------------------------------------- глаза
+    def set_paper(self, rgb):
+        """Бумага, на которую кладётся кукла (сборщик роликов — canvas.CREAM, не белая).
+        Полупрозрачные края меха в исходнике уже смешаны с ЕГО бумагой; чтобы на другой
+        бумаге не было светлого ореола, примесь снимается обратным смешиванием:
+        цвет = (наблюдаемый − (1−a)·бумага_исходника) / a. На бумаге исходника кадр
+        остаётся байт в байт прежним (прямое смешивание восстанавливает исходник)."""
+        rgb = np.asarray(rgb, np.float32)
+        if np.allclose(rgb, self.paper_src):
+            return
+        if not getattr(self, "_defringed", False):
+            a = self.alpha[..., None] / 255
+            edge = (a > 0.02) & (a < 0.98)
+            for arr in (self.fur, self.base4[..., :3]):
+                fixed = (arr - (1 - a) * self.paper_src) / np.maximum(a, 0.02)
+                arr[edge[..., 0]] = np.clip(fixed, 0, 255)[edge[..., 0]]
+            for P in self.poses.values():
+                pa = P["alpha"][..., None] / 255; pe = (pa > 0.02) & (pa < 0.98)
+                for arr in (P["fur"], P["base4"][..., :3]):
+                    fixed = (arr - (1 - pa) * self.paper_src) / np.maximum(pa, 0.02)
+                    arr[pe[..., 0]] = np.clip(fixed, 0, 255)[pe[..., 0]]
+            self._defringed = True
+        self.paper = rgb
+        self.paper_u8[:] = np.clip(rgb, 0, 255).astype(np.uint8)
+        self.paper_bb[:] = rgb
+
     def face4(self, look, lid, base4):
         """То же, что face(), но сразу на 4-канальной основе (мех + прозрачность), без склейки каждый кадр."""
         img4 = base4.copy(); img = img4[..., :3]
