@@ -109,6 +109,12 @@ def build_prompt(frame, n_style, with_hero, hero_states=None, hero_marks=None, p
         if hero_marks:
             parts.append(hero_marks)
     parts.append("SCENE: " + _tidy(frame["picture"]))
+    if frame.get("hero_live"):
+        # кадр живой куклы (mascot_live): персонажа ставит сборщик. Живой кадр 07.10: по описанию «только конверт»
+        # модель дорисовала за конвертом маленькое существо с огненным хвостом — запрет нужен словами в задании
+        parts.append("There is no character, creature, animal, person, hand or paw anywhere in the picture and no "
+                     "footprints: the character is added later by the editor. One side of the picture stays plain "
+                     "empty background")
     if with_hero:
         if re.search(r"foot ?prints?|tracks?\b", frame["picture"], re.I):
             # критик 04.10: следы кота нарисованы подошвами ботинок

@@ -27,6 +27,8 @@ def test_live_pass_after_limit_and_revert_without_rewrite():
               {"hero": False, "picture": "a desk"}]
     assert fp.live_hero_pass(frames) == 2
     assert [f.get("hero") for f in frames] == [False, False, True, False]
+    assert any(c["id"] == fp.LIVE_NOFIG_ID and c["tier"] == "must" for c in frames[0]["spec"]["claims"])
+    assert fp.live_hero_pass(frames) == 0 and sum(c["id"] == fp.LIVE_NOFIG_ID for c in frames[0]["spec"]["claims"]) == 1
     assert frames[0]["hero_live"] and frames[1]["hero_live"]
     # предпроверки не было: кадр 0 всё ещё называет персонажа — возвращается рисунку; кадр 1 чист — остаётся живым
     assert fp.live_hero_revert(frames, "the black cat") == 1

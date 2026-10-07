@@ -199,6 +199,10 @@ LIVE_RULE = ('\n  "hero_action" — only with hero true: what the character phys
              'in any other way). Choose "other" whenever in doubt.')
 
 
+LIVE_NOFIG_ID = "nofig"
+LIVE_NOFIG_TEXT = "no character, creature, animal, person, hand or paw is anywhere in the picture"
+
+
 def live_hero_enabled():
     """MASCOT_LIVE_PLAN=1: герой на простых кадрах (сидит и смотрит, лапа у груди) не рисуется моделью,
     а ставится в сборке живой куклой (mascot_live) рядом с предметом. По умолчанию 0: меняет задание
@@ -481,6 +485,12 @@ def live_hero_pass(frames):
         if f.get("hero") and f.get("hero_action") in LIVE_ACTIONS:
             f["hero"] = False
             f["hero_live"] = True
+            # судья обязан отклонить кадр с любой фигурой: живой прогон 07.10 — модель дорисовала существо за
+            # конвертом, судья по утверждениям «конверт виден» его принял, и кукла встала бы рядом с чужаком
+            cl = list((f.get("spec") or {}).get("claims") or [])
+            if not any(c.get("id") == LIVE_NOFIG_ID for c in cl):
+                cl.append({"id": LIVE_NOFIG_ID, "text": LIVE_NOFIG_TEXT, "tier": "must"})
+                f.setdefault("spec", {})["claims"] = cl
             n += 1
     return n
 
