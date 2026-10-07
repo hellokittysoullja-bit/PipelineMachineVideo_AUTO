@@ -441,10 +441,10 @@ def _window_at(p, t, SW, SH):
         return camera.lerp(s["win"], s["win_to"], camera.ease_out(u))
     if s["kind"] == "hold":
         cx, cy = (s["win"][0] + s["win"][2])/2, (s["win"][1] + s["win"][3])/2
-        z = 1 + 0.5*camera.DRIFT*camera.ease_io(u)        # после наезда — еле заметно дальше
+        z = 1 + 0.5*camera.DRIFT*camera.through(u, ramp=0.25)   # после наезда — из покоя разогнаться и идти до склейки
         return camera.window(cx, cy, (s["win"][2] - s["win"][0])/z, SW, SH)
     if s.get("lean"):
-        return camera.lerp(s["win"], s["lean"], camera.ease_io(u))
+        return camera.lerp(s["win"], s["lean"], camera.through(u))   # план начинается и кончается склейкой — без стопов
     if s.get("pushes"):
         cur = s["win"]
         for k, ps in enumerate(s["pushes"]):
