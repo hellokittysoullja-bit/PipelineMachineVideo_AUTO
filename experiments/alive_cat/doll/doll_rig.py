@@ -38,6 +38,29 @@ def fbm(x, seed, octaves=3):
 def remap(img, X, Y, border=cv2.BORDER_CONSTANT):
     return cv2.remap(np.ascontiguousarray(img, np.float32), np.asarray(X, np.float32), np.asarray(Y, np.float32), cv2.INTER_LINEAR, borderMode=border)
 
+
+def _lama_fill(model, rgb, al, mask, crop=128):
+    """Дорисовать под маской LaMa (ONNX, 512x512): цвет и прозрачность отдельно. Кроп crop px
+    вокруг маски увеличивается до 512, пиксели под маской обнуляются до прогона."""
+    try:
+        import onnxruntime as ort
+        sess = ort.InferenceSession(model)
+    except Exception:
+        return None
+    ys, xs = np.nonzero(mask); cy, cx = (ys.min() + ys.max()) // 2, (xs.min() + xs.max()) // 2
+    H, W = mask.shape; y0 = int(np.clip(cy - crop // 2, 0, H - crop)); x0 = int(np.clip(cx - crop // 2, 0, W - crop))
+    sl = (slice(y0, y0 + crop), slice(x0, x0 + crop))
+    m = cv2.resize(mask[sl].astype(np.uint8), (512, 512), interpolation=cv2.INTER_NEAREST).astype(np.float32)
+    def run(img3):
+        im = cv2.resize(np.clip(img3, 0, 255), (512, 512), interpolation=cv2.INTER_CUBIC) / 255 * (1 - m[..., None])
+        o = sess.run(None, {"image": im.transpose(2, 0, 1)[None].astype(np.float32), "mask": m[None, None]})[0][0].transpose(1, 2, 0)
+        if o.max() <= 1.5: o = o * 255
+        return cv2.resize(o.astype(np.float32), (crop, crop), interpolation=cv2.INTER_AREA)
+    B = rgb.copy(); Ba = al.copy()
+    B[sl][mask[sl]] = run(rgb[sl])[mask[sl]]
+    Ba[sl][mask[sl]] = run(np.repeat(al[sl][..., None], 3, 2))[..., 0][mask[sl]]
+    return B, np.clip(Ba, 0, 255)
+
 def smooth(x):
     x = np.clip(x, 0, 1); return x * x * (3 - 2 * x)
 
@@ -52,22 +75,39 @@ class Rig:
         H, W = self.alpha.shape; self.H, self.W = H, W
         m = self.alpha > 128
         self.paper = np.median(self.src[~m], axis=0)
+        self.paper_u8 = np.empty((H, W, 3), np.uint8); self.paper_u8[:] = np.clip(self.paper, 0, 255).astype(np.uint8)
         ys, xs = np.nonzero(self.alpha > 1)
         pad = 60
         self.bb = (max(0, xs.min() - pad), max(0, ys.min() - pad), min(W, xs.max() + pad), min(H, ys.max() + pad))
         x0, y0, x1, y1 = self.bb
         YY, XX = np.mgrid[y0:y1, x0:x1].astype(np.float32); self.XX, self.YY = XX, YY
         import hashlib
-        key = hashlib.sha1(self.alpha.tobytes() + json.dumps([r["head_below_y"], r["neck"], r["flame_box"], [int(v) for v in self.bb]]).encode() + __import__("inspect").getsource(Rig._head_share).encode()).hexdigest()[:16]
-        cache = os.path.join(os.path.dirname(os.path.abspath(path)), f".head_share_{key}.npy")
-        if os.path.exists(cache): share = np.load(cache)
+        key = hashlib.sha1(self.alpha.tobytes() + json.dumps([r["head_below_y"], r["neck"], r["flame_box"], r["fur"]]).encode()
+                           + __import__("inspect").getsource(Rig._head_layer).encode()).hexdigest()[:16]
+        cache = os.path.join(os.path.dirname(os.path.abspath(path)), f".head_layer_{key}.npz")
+        if os.path.exists(cache):
+            z = np.load(cache); hm = z["hm"]
+            self.tip_patch = None if "sy" not in z else dict(sy=slice(*z["sy"]), sx=slice(*z["sx"]), mask=z["mask"], body=z["body"], head=z["head"])
         else:
-            share = self._head_share(r, x0, y0, x1, y1); np.save(cache, share)        # 1 — голова (с усами), 0 — хвост, плавно в просвете бумаги
-        self.w_head = smooth((r["head_below_y"] - YY) / 55) * share
+            hm = self._head_layer(r); tp = self.tip_patch
+            extra = {} if tp is None else dict(sy=[tp["sy"].start, tp["sy"].stop], sx=[tp["sx"].start, tp["sx"].stop], mask=tp["mask"], body=tp["body"], head=tp["head"])
+            np.savez_compressed(cache, hm=hm, **extra)
+        self._hm = hm                                              # слой головы; остальное — тело с хвостом
+
+        self.w_head = smooth((r["head_below_y"] - YY) / 55)          # голова целиком (по ширине не режется)
         eb, et = np.array(r["ear_base"], np.float32), np.array(r["ear_tip"], np.float32); ev = et - eb
         self.w_ear = smooth((((XX - eb[0]) * ev[0] + (YY - eb[1]) * ev[1]) / (ev @ ev)) * 1.3) * \
             smooth((100 - np.hypot(XX - r["ear_center"][0], YY - r["ear_center"][1])) / 25)
-        self.w_tail = smooth((XX - r["tail_from_x"]) / 140) * (YY > 260) * (1 - share)
+        self.w_tail = smooth((XX - r["tail_from_x"]) / 140) * (YY > 260)
+        self.head_rows = int(np.nonzero((self.w_head > 0).any(axis=1))[0].max()) + 1   # ниже — вес головы 0
+        # прямоугольник стыка: где оба веса ненулевые, с запасом на ход (40 px) — по нему слои
+        both = (self.w_head > 0) & (self.w_tail > 0); ys_, xs_ = np.nonzero(both); mg = 40
+        self.conflict = (slice(max(0, ys_.min() - mg), min(YY.shape[0], ys_.max() + mg)),
+                         slice(max(0, xs_.min() - mg), YY.shape[1]))
+        cy, cx = self.conflict; ms = 120                           # окно источника: ход до 120 px
+        self.conflict_src = (slice(max(0, y0 + cy.start - ms), min(self.H, y0 + cy.stop + ms)),
+                             slice(max(0, x0 + cx.start - ms), min(self.W, x0 + cx.stop + ms)))
+        self.m_head_src = np.repeat(self._hm[self.conflict_src].astype(np.float32)[..., None], 4, axis=2)
         self.w_paw = {}
         for k, p in r["paws"].items():
             sh, ft, hw = np.array(p["shoulder"], np.float32), np.array(p["foot"], np.float32), p["half_width"]
@@ -114,24 +154,25 @@ class Rig:
             self.eye_bb.append((int(cx - rx - 14), int(cy - ry - 14), int(cx + rx + 15), int(cy + ry + 15)))
 
 
-    def _head_share(self, r, x0, y0, x1, y1, gap=12.0):
-        """Чья точка — головы или хвоста. Раньше голову обрезала вертикаль x=tail_from_x+50:
-        щека и усы по ту сторону не поворачивались, на наклоне головы был шов. Теперь хозяин —
-        по формам: плотная голова и плотный хвост разделены бумагой (эрозия на 2 px), усы и
-        прочие тонкие штрихи над шеей — голове; в просвете между ними вес плавно делится."""
+    def _head_layer(self, r):
+        """Маска слоя ГОЛОВЫ (1) — всё нарисованное над шеей, что принадлежит голове, включая усы.
+        Голова и хвост — отдельные слои с отдельными жёсткими поворотами (а не одна деформация
+        с общими весами): общая деформация резала щеку вертикалью, а с плавной границей —
+        растягивала и гнула усы. Плотная голова и плотный хвост разделены бумагой (эрозия 2 px);
+        каждый штрих достаётся той форме, до которой ближе ВДОЛЬ рисунка; тонкие штрихи, которые
+        дорастают до хвоста (кончики усов), — голове целиком."""
         from scipy import ndimage
         hb = r["head_below_y"]
         S = self.alpha > 128; S[hb:] = False
-        lab, n = ndimage.label(ndimage.binary_erosion(S, iterations=2))
+        er = ndimage.binary_erosion(S, iterations=2)
+        lab, n = ndimage.label(er)
         nx, ny = r["neck"]; fx0, fy0, fx1, fy1 = r["flame_box"]
         hl = lab[min(ny, hb - 3), nx]
         fx = (fx0 + fx1) // 2                                  # хвост — та форма, что под огоньком
         tail_pts = [(y, fx) for y in range(fy1, hb) if lab[y, fx] and lab[y, fx] != hl]
         tl = lab[tail_pts[0]] if tail_pts else 0
-        if not hl or not tl or hl == tl:                       # формы не разделились — прежнее правило
-            return ((self.XX < r["tail_from_x"] + 50)).astype(np.float32)
-        # каждый штрих — той форме, до которой ближе ВДОЛЬ рисунка (а не по прямой через бумагу):
-        # одновременный рост от плотной головы и плотного хвоста только по пикселям рисунка
+        if not hl or not tl or hl == tl:
+            raise RuntimeError("голова и хвост не разделились по маске — проверь neck/flame_box в rig.json")
         ink = self.alpha > 1; ink[hb:] = False
         Hm, T = lab == hl, lab == tl
         for _ in range(400):
@@ -139,20 +180,122 @@ class Rig:
             if not free.any(): break
             gh = ndimage.binary_dilation(Hm) & free; gt = ndimage.binary_dilation(T) & free
             if not gh.any() and not gt.any(): break
-            Hm |= gh & ~gt; T |= gt & ~gh; both = gh & gt; Hm |= both   # ничья — голове
-        T |= ndimage.binary_dilation(lab == tl, iterations=2) & (self.alpha > 1) & ~Hm
-        d_tail = ndimage.distance_transform_edt(~T)[y0:y1, x0:x1]   # до хвоста над шеей
-        T[hb:] |= (self.alpha > 1)[hb:]                        # ниже шеи всё не голова
-        dh = ndimage.distance_transform_edt(~Hm)[y0:y1, x0:x1]
-        dt = ndimage.distance_transform_edt(~T)[y0:y1, x0:x1]
-        far = dh > 3 * gap                                     # ниже шеи головы нет — там хвост сам по себе
-        sh = smooth((dt - dh) / gap * .5 + .5); sh[far & (dt <= dh)] = 0
-        # размытие: граница по рваным штрихам меха давала зубцы на усах при встречном повороте
-        # головы и хвоста; σ=12 — ус плавно изгибается (подобрано на ±6°, st_all.jpg)
-        sh = ndimage.gaussian_filter(sh, 12.0)
-        sh[(lab == tl)[y0:y1, x0:x1]] = 0                      # плотный хвост — только хвост
-        sh[(self.YY < hb) & (d_tail > 80)] = 1                 # вдали от хвоста — как раньше, один в один
-        return sh.astype(np.float32)
+            Hm |= gh & ~gt; T |= gt & ~gh; Hm |= gh & gt       # ничья — голове
+        # полоса у хвоста (10 px от плотного хвоста, с кончиками пучков меха): всё в ней — хвосту (его мех и крапинки)
+        band = ndimage.binary_dilation(lab == tl, iterations=10)
+        Hm |= T & ~band; Hm &= ~band; Hm[hb:] = False
+        # кусочки, оторванные от головы (кончики пучков меха хвоста, крапинки), — ближайшей плотной части
+        pl, pn = ndimage.label(Hm, structure=np.ones((3, 3)))
+        main = set(np.unique(pl[(lab == hl) & Hm])) - {0}
+        dH = ndimage.distance_transform_edt(~(lab == hl)); dT = ndimage.distance_transform_edt(~(lab == tl))
+        for k in range(1, pn + 1):
+            if k in main: continue
+            piece = pl == k
+            if dT[piece].min() < dH[piece].min(): Hm &= ~piece
+        # кончики усов лежат поверх меха хвоста: что под ними — неизвестно. Один раз при подготовке:
+        # мех под кончиком дорисовывается (inpaint), а сам кончик вынимается разностью с этим фоном
+        # (I = a·F + (1-a)·B) и уходит в слой головы — в покое кадр собирается как исходник.
+        rgb, al = self.fur, self.alpha
+        patch = np.zeros((self.H, self.W), bool)
+        whisk = np.zeros((self.H, self.W), np.float32); fcol = []; geo = []
+        gap = ink & ~ndimage.binary_dilation(lab == hl, iterations=4) & ~band
+        wl, wn = ndimage.label(gap, structure=np.ones((3, 3)))
+        dtail = ndimage.distance_transform_edt(~(lab == tl))
+        yy, xx = np.mgrid[0:self.H, 0:self.W]
+        for i in range(1, wn + 1):
+            py, px = np.nonzero(wl == i)
+            if len(py) < 40 or dtail[py, px].min() > 13: continue               # ус, упирающийся в хвост
+            lum_ = rgb[py, px] @ np.float32([.299, .587, .114])
+            ok = (dtail[py, px] > 16) & (dtail[py, px] < 45) & (lum_ < 140)       # последний чистый участок уса (касательная)
+            if ok.sum() < 20: continue
+            P = np.stack([px[ok], py[ok]], 1).astype(np.float64); c = P.mean(0)
+            _, sv, vt = np.linalg.svd(P - c, full_matrices=False); d = vt[0]
+            if sv[1] > .15 * sv[0]: continue                                    # не прямая линия
+            t = (P - c) @ d
+            e_hi, e_lo = c + d * t.max(), c + d * t.min()
+            if dtail[int(round(e_hi[1])), int(round(e_hi[0]))] > dtail[int(round(e_lo[1])), int(round(e_lo[0]))]:
+                d = -d; t = -t                                                  # ось — к хвосту
+            tend = t.max(); dend = dtail[int(round((c + d * tend)[1])), int(round((c + d * tend)[0]))]
+            perp_all = np.abs(-(P[:, 0] - c[0]) * d[1] + (P[:, 1] - c[1]) * d[0])
+            hw = float(np.clip(np.percentile(perp_all, 95) + .7, 1.2, 2.5))
+            qx, qy = xx - c[0], yy - c[1]
+            along = qx * d[0] + qy * d[1]; perp = np.abs(-qx * d[1] + qy * d[0])
+            reg = (perp <= hw) & (along > tend - 2) & (along < tend + dend + 12) & ~(lab == hl)
+            patch |= reg
+            core = (wl == i) & (perp <= .8) & (dtail > 16)                      # цвет туши уса
+            fcol.append(np.median(rgb[core], axis=0) if core.any() else np.array([30, 30, 30], np.float32))
+            whisk[reg] = len(fcol); geo.append((c, d, hw))
+        if patch.any():
+            pr = ndimage.binary_dilation(patch, iterations=1)
+            ys_, xs_ = np.nonzero(pr); sy = slice(ys_.min() - 12, ys_.max() + 13); sx = slice(xs_.min() - 12, xs_.max() + 13)
+            # фон под усом: линейно поперёк уса, между точками по обе стороны (ус тонкий, поэтому
+            # контур хвоста, пересекающий ус под углом, остаётся непрерывным, а не размывается)
+            B = rgb[sy, sx].copy(); Ba = al[sy, sx].copy(); sdiff = np.full(B.shape[:2], 1e9, np.float32)
+            idx0 = whisk[sy, sx].astype(int)
+            gy, gx = np.mgrid[sy, sx].astype(np.float32)
+            for j, (c, d, hw) in enumerate(geo, start=1):
+                sel = (idx0 == j) | ((idx0 == 0) & pr[sy, sx] & (np.abs(-(gx - c[0]) * d[1] + (gy - c[1]) * d[0]) <= hw + 1.2))
+                if not sel.any(): continue
+                n_ = np.array([-d[1], d[0]]); qx, qy = gx[sel], gy[sel]
+                sp = -(qx - c[0]) * d[1] + (qy - c[1]) * d[0]                # со знаком, поперёк
+                off = hw + 1.5
+                ax, ay = qx - n_[0] * (sp + off), qy - n_[1] * (sp + off)    # точки за краями уса
+                bx, by = qx - n_[0] * (sp - off), qy - n_[1] * (sp - off)
+                w = np.clip((sp + off) / (2 * off), 0, 1)[:, None]
+                samp = lambda img, X, Y: cv2.remap(img, X.reshape(-1, 1).astype(np.float32), Y.reshape(-1, 1).astype(np.float32), cv2.INTER_LINEAR).reshape(len(X), -1)
+                rgb4 = np.dstack([rgb, al]).astype(np.float32)
+                va, vb = samp(rgb4, ax, ay), samp(rgb4, bx, by)
+                v = va * (1 - w) + vb * w
+                B[sel] = v[:, :3]; Ba[sel] = v[:, 3]
+                sdiff[sel] = np.abs(va - vb)[:, :3].max(axis=1)
+            # LaMa продолжает линии, входящие в дырку: закрыть от неё ус целиком, не только кончик
+            hide = pr | (ndimage.binary_dilation(Hm & (whisk_any := ndimage.binary_dilation(whisk > 0, iterations=60)), iterations=2) & ~(lab == hl))
+            lama = r.get("lama") and os.path.exists(r["lama"]) and _lama_fill(r["lama"], rgb, al, hide)
+            if lama:                                                           # LaMa — где ус пересекает контур
+                struct = sdiff > 30                                            # по сторонам уса разное — структура
+                B[struct] = lama[0][sy, sx][struct]; Ba[struct] = lama[1][sy, sx][struct]
+            I = rgb[sy, sx]; lum = lambda v: v @ np.float32([.299, .587, .114])
+            idx = whisk[sy, sx].astype(int)
+            gy, gx = np.mgrid[sy, sx].astype(np.float32)
+            a0 = al[sy, sx][..., None] / 255
+            tb = Ba / 255; pmB = np.dstack([B * tb[..., None], tb])                 # хвост без кончика
+            pmW = np.zeros_like(pmB)                                               # кончик уса
+            orig_pm = np.dstack([I * a0, a0]).astype(np.float32)
+            F = np.zeros_like(I)
+            for j in range(1, len(fcol) + 1): F[idx == j] = fcol[j - 1]
+            sel_all = idx > 0
+            # над бумагой (под усом хвоста нет) — сам ус, пиксель в пиксель
+            tail_ink = ndimage.binary_dilation(lab == tl, iterations=3)[sy, sx]      # хвост с контуром
+            paper_zone = sel_all & (tb < .5) & ~tail_ink
+            pmW[paper_zone] = orig_pm[paper_zone]; pmB[paper_zone] = 0
+            # над мехом хвоста — ус вынимается разностью с дорисованным мехом: I = a·F + (1-a)·B
+            fur_zone = sel_all & ~paper_zone
+            aw = np.clip((lum(B) - lum(I)) / np.maximum(lum(B) - lum(F), 20), 0, 1)
+            aw[~fur_zone] = 0
+            # только то, что продолжает ус от бумаги (связная тёмная нить), без отдельных крапинок
+            lab_w, nw = ndimage.label((aw > .25) | paper_zone, structure=np.ones((3, 3)))
+            keep_ids = set(np.unique(lab_w[paper_zone])) - {0}
+            thread = np.isin(lab_w, list(keep_ids)) & fur_zone
+            aw[~thread] = 0
+            pmW[fur_zone] = np.dstack([F * aw[..., None], aw])[fur_zone]
+            oncore = sel_all
+            # проверка покоя: ус поверх хвоста обязан дать исходный пиксель. Штрихи меха вне линии
+            # уса, которых модель не объясняет, остаются хвосту как есть; на самой линии — ус
+            pap = self.paper
+            bodyc = pmB[..., :3] + (1 - pmB[..., 3:4]) * pap
+            rec = pmW[..., :3] + (1 - pmW[..., 3:4]) * bodyc
+            orig = I * a0 + (1 - a0) * pap
+            bad = np.abs(rec - orig).max(axis=2) > 10
+            mk = pr[sy, sx] & ~Hm[sy, sx]                                         # только пиксели хвоста
+            keep = mk & bad & ~(pmW[..., 3] > .05) & (tb > .5)                   # на хвосте: что не рисует ус — как было
+            pmB[keep] = np.dstack([I * a0, a0])[keep]; pmW[keep] = 0
+            pmW[~mk] = 0
+            self.tip_stats = dict(pixels=int(mk.sum()), kept_original=int(keep.sum()),
+                                  rest_err_on_line=float(np.abs(rec - orig).max(axis=2)[mk & oncore].max()) if (mk & oncore).any() else 0.0)
+            self.tip_patch = dict(sy=sy, sx=sx, mask=mk, body=pmB.astype(np.float32), head=pmW.astype(np.float32))
+        else:
+            self.tip_patch = None
+        return Hm
 
     # ------------------------------------------------------------- глаза
     def face(self, look, lid, base=None):
@@ -240,8 +383,11 @@ class Rig:
         return np.clip(self.paper * (1 - a) + np.clip(c[..., :3], 0, 255) * a, 0, 255).astype(np.uint8)
 
     def _warp_cpu(self, cat, st):
+        """Одна общая деформация на весь кадр (как раньше) и два раздельных слоя — голова и тело
+        с хвостом — только в прямоугольнике, где голова встречается с хвостом (self.conflict).
+        На краях прямоугольника двигается только одна из частей, поэтому общая деформация и
+        слои там дают одно и то же — шва нет."""
         r = self.r; x0, y0, x1, y1 = self.bb
-        X, Y = self.XX.copy(), self.YY.copy()
         def rot(X, Y, p, deg, w, sl):
             """Поворот с весом только там, где вес ненулевой (in place)."""
             if sl is None or abs(deg) < 1e-3: return
@@ -249,19 +395,44 @@ class Rig:
             c, s = np.cos(ang), np.sin(ang); dx, dy = X[sl] - p[0], Y[sl] - p[1]
             X[sl] = p[0] + c * dx - s * dy; Y[sl] = p[1] + s * dx + c * dy
         b = st["breath"] * (1 - .02 * st.get("squash", 0)); fl = r["floor_y"]
-        Y[:] = fl - (fl - Y) / b
+        X0 = self.XX; Y0 = fl - (fl - self.YY) / b
+        XR, YR = X0.copy(), Y0.copy()                                          # тело: лапы и хвост
         for k, (lift, swing) in st["paws"].items():
             sl = self.sl["paw_" + k]; w = self.w_paw[k]
-            rot(X, Y, r["paws"][k]["shoulder"], swing, w, sl)
-            if abs(lift) > 1e-3: Y[sl] += np.float32(lift) * w[sl]       # ступня вверх, плечо на месте
-        rot(X, Y, r["tail_base"], st["tail"], self.w_tail, self.sl["tail"])
-        rot(X, Y, r["ear_base"], st["ear"], self.w_ear, self.sl["ear"])
-        rot(X, Y, r["neck"], st["head"], self.w_head, self.sl["head"])
-        c = remap(cat, X, Y)
-        out = np.empty((self.H, self.W, 3), np.float32); out[:] = self.paper
-        a = c[..., 3:4] / 255
-        out[y0:y1, x0:x1] = self.paper * (1 - a) + c[..., :3] * a
-        return np.clip(out, 0, 255).astype(np.uint8)
+            rot(XR, YR, r["paws"][k]["shoulder"], swing, w, sl)
+            if abs(lift) > 1e-3: YR[sl] += np.float32(lift) * w[sl]       # ступня вверх, плечо на месте
+        rot(XR, YR, r["tail_base"], st["tail"], self.w_tail, self.sl["tail"])
+        cy, cx = self.conflict
+        XRc, YRc = XR[cy, cx].copy(), YR[cy, cx].copy()
+        XH, YH = X0.copy(), Y0.copy()                                          # голова: ухо и голова
+        rot(XH, YH, r["ear_base"], st["ear"], self.w_ear, self.sl["ear"])
+        rot(XH, YH, r["neck"], st["head"], self.w_head, self.sl["head"])
+        XC, YC = XR, YR                                                        # общая: выше шеи — ход головы
+        hr = self.head_rows; XC[:hr] = XH[:hr]; YC[:hr] = YH[:hr]
+        c = remap(cat, XC, YC)                                                 # как раньше, один в один
+        A = c[..., 3:4] * np.float32(1 / 255)
+        reg = self.paper * (1 - A) + c[..., :3] * A
+        # стык головы и хвоста: два слоя (премультиплированные), сумма с приоритетом головы
+        sy, sx = self.conflict_src                                             # окно источника (абс.)
+        pm = cat[sy, sx].copy(); a = pm[..., 3] * np.float32(1 / 255); pm[..., 3] = a
+        for ch in range(3): pm[..., ch] *= a
+        Hin = cv2.multiply(pm, self.m_head_src); Rin = cv2.subtract(pm, Hin)
+        tp = self.tip_patch
+        if tp is not None:                                                     # кончики усов: хвосту — мех, голове — ус
+            py_, px_ = slice(tp["sy"].start - sy.start, tp["sy"].stop - sy.start), slice(tp["sx"].start - sx.start, tp["sx"].stop - sx.start)
+            mk = tp["mask"]
+            Rin[py_, px_][mk] = tp["body"][mk]; Hin[py_, px_][mk] = tp["head"][mk]
+        Hc = remap(Hin, XH[cy, cx] - sx.start, YH[cy, cx] - sy.start)
+        Rc = remap(Rin, XRc - sx.start, YRc - sy.start)
+        Pc = Hc + Rc
+        over = Pc[..., 3] > 1
+        if over.any():
+            aH, aR = Hc[over][:, 3:4], Rc[over][:, 3:4]
+            Pc[over] = Hc[over] + Rc[over] * np.clip((1 - aH) / np.maximum(aR, 1e-6), 0, 1)
+        reg[cy, cx] = self.paper * (1 - Pc[..., 3:4]) + Pc[..., :3]
+        out = self.paper_u8.copy()
+        out[y0:y1, x0:x1] = np.clip(reg, 0, 255).astype(np.uint8)
+        return out
 
 # ----------------------------------------------------------------- движения
 def key(t, pts, default=0.0):

@@ -67,5 +67,6 @@
    "image": "point.png",
    "mask": "mask_point.png"
   }
- }
+ },
+ "lama": "../cutout/lama_fp32.onnx"
 }
