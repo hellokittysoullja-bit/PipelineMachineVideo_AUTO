@@ -207,7 +207,7 @@ def plan_clip(fr, D, words, key=None, last_punch=-1e9, T0=0.0, zoom_in=True, fps
     if ms:
         ms["actions"] = mascot_live.plan_actions(D, words, mascot.get("text", ""), ms["gaze"], seed=int(mascot.get("seed", 0)),
                                                  action=mascot.get("action"))
-        ms["seed"] = int(mascot.get("seed", 0)); ms["sig"] = mascot_live.signature()
+        ms["seed"] = int(mascot.get("seed", 0)); ms["sig"] = mascot_live.signature(); ms["state"] = mascot.get("state")
         p["mascot"] = ms
     if accent and not acc_l:
         p["notes"].append(f"акценту «{accent}» нет места — не пишется")

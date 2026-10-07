@@ -204,6 +204,7 @@ class Layer:
         self.R = rig()
         self.state = _mod().plan(D, ms["actions"], seed=int(ms.get("seed", 0)))
         self.ox, self.oy = ms["origin"]; self.s = float(ms["scale"])
+        self.flame = ms.get("state") if ms.get("state") in getattr(_mod(), "FLAME_STATES", {}) else None
 
     def composite(self, f, t, win, W, H):
         key = (round(t, 6), tuple(round(v, 4) for v in win), W, H)
@@ -220,7 +221,10 @@ class Layer:
 
     def _warped(self, t, win, W, H):
         cv2 = self.cv2; R = self.R
-        rgba = R.frame_rgba(self.state(t), t)
+        st = self.state(t)
+        if self.flame:
+            st["flame"] = self.flame                     # ember/golden из плана кадра; bright — как нарисовано
+        rgba = R.frame_rgba(st, t)
         x0, y0, x1, y1 = R.bb
         sub = np.ascontiguousarray(rgba[y0:y1, x0:x1])
         k = self.s * W / (win[2] - win[0])                               # экранных px на px рига

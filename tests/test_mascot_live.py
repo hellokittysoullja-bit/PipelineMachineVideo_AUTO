@@ -122,3 +122,28 @@ def test_rgba_matches_frame_on_cream_paper():
     comp = np.clip(rg[..., :3] + canvas.CREAM * (1 - rg[..., 3:4]), 0, 255).round().astype(int)
     R.set_paper(canvas.CREAM); ref = R.frame(st, 0.5).astype(int)
     assert np.abs(comp - ref).max() <= 1
+
+
+@needs_rig
+def test_flame_state_scales_only_the_flame():
+    """Состояние огонька из плана: bright/None — кадр как нарисован; ember — ниже, golden — выше;
+    хвост под основанием пламени не меняется ни на пиксель."""
+    import cv2
+    R = M.rig(); st = M.rest_state(); X0, Y0, X1, Y1 = R.flame_geo["box"]; F = R.flame_state
+    base = R.cat_layer(dict(st), 0.5)
+    assert np.array_equal(R.cat_layer(dict(st, flame="bright"), 0.5), base)
+    assert np.array_equal(R.cat_layer(dict(st, flame="nonsense"), 0.5), base)
+
+    def top_row(c):
+        reg = c[Y0:Y1, X0:X1]; hsv = cv2.cvtColor(np.clip(reg[..., :3], 0, 255).astype(np.uint8), cv2.COLOR_RGB2HSV)
+        core = (hsv[..., 1] > 110) & (hsv[..., 2] > 210) & (reg[..., 3] > 100)
+        return int(np.nonzero(core.any(1))[0].min())
+    tops = {fs: top_row(R.cat_layer(dict(st, flame=fs), 0.5)) for fs in (None, "ember", "golden")}
+    assert tops["golden"] < tops[None] < tops["ember"]
+    yb = F["yb"][:, 0]
+    for fs in ("ember", "golden"):
+        d = np.abs(R.cat_layer(dict(st, flame=fs), 0.5) - base).max(2)
+        assert (d[Y0:Y1, X0:X1][yb >= F["base"] + 4] <= 1).all()          # хвост не тронут
+        assert (d[:Y0] <= 0).all() and (d[Y1:] <= 0).all()                  # вне рамки — ничего
+    ms = dict(origin=[0.0, 0.0], scale=1.0, actions=[], seed=0, state="ember")
+    assert M.Layer(ms, 2.0).flame == "ember" and M.Layer(dict(ms, state="bright"), 2.0).flame is None

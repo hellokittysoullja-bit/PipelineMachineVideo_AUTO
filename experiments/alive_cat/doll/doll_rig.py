@@ -71,6 +71,10 @@ def _lama_fill(model, rgb, al, mask, crop=128):
     Ba[sl][mask[sl]] = run(np.repeat(al[sl][..., None], 3, 2))[..., 0][mask[sl]]
     return B, np.clip(Ba, 0, 255)
 
+# состояние огонька: (масштаб по высоте, по ширине, множитель цвета RGB) — look/hero_states.json
+FLAME_STATES = {"ember": (0.55, 0.8, (0.72, 0.5, 0.42)), "golden": (1.15, 1.05, (1.0, 1.22, 0.8))}
+
+
 def _load_npy(path):
     """npy, а при его отсутствии — npz с тем же именем (в репозитории маски глаз лежат сжатыми: 6.4 МБ -> десятки КБ)."""
     if os.path.exists(path): return np.load(path)
@@ -144,6 +148,29 @@ class Rig:
         not_head = 1 - _nd.gaussian_filter(self._hm[Y0b:Y1b, X0b:X1b].astype(np.float32), 1.5)   # усы с пламенем не дрожат
         self.flame_geo = dict(box=(X0b, Y0b, X1b, Y1b), yy=yy, xx=xx, ku=ku.astype(np.float32),
                               w=(smooth(edge) * not_head).astype(np.float32))
+        # состояние огонька (look/hero_states.json): маска самого пламени — тёплые насыщенные пиксели в рамке;
+        # основание — нижний ряд пламени (где оно сидит на кончике хвоста), выше него пламя масштабируется
+        fr = np.clip(self.fur[Y0b:Y1b, X0b:X1b], 0, 255).astype(np.uint8); fa = self.alpha[Y0b:Y1b, X0b:X1b]
+        hsv = cv2.cvtColor(fr, cv2.COLOR_RGB2HSV)
+        # ядро пламени — яркое насыщенное тёплое (S>110, V>150): оранжевое свечение на тёмном мехе хвоста
+        # темнее (V медиана 182 против 244) и в ядро не попадает — первая версия красила его в бурый; берётся самая крупная связная область
+        core = (hsv[..., 1] > 110) & (hsv[..., 2] > 210) & (hsv[..., 0] < 30) & (fa > 100)   # замер: пламя V≈244, свечение на хвосте V≈182
+        lab, n = _nd.label(core)
+        if n:
+            core = lab == (np.argmax(_nd.sum(core, lab, range(1, n + 1))) + 1)
+            fys, fxs = np.nonzero(core)
+            base_y = float(yb[fys.max(), 0]) + 2.0
+            # ядро + тушь контура: всё нарисованное над основанием в полосе пламени (расширение от ядра
+            # не дотягивалось до туши у кончика, где пламя сужается — оставался призрак контура); усы — не пламя
+            hw = (fxs.max() - fxs.min()) / 2 + 22
+            outline = (fa > 3) & (yb < base_y + 1) & (np.abs(xb - xb[0, fxs].mean()) < hw) & \
+                (self._hm[Y0b:Y1b, X0b:X1b] == 0)
+            outline = _nd.binary_dilation(outline, iterations=4) & (yb < base_y + 1)   # край размытия — на бумаге, не на туши; хвост под основанием не трогаем
+            self.flame_state = dict(mask=_nd.gaussian_filter(outline.astype(np.float32), 1.0).astype(np.float32),
+                                    core=_nd.gaussian_filter(core.astype(np.float32), 1.0).astype(np.float32),
+                                    base=base_y, top=float(yb[fys.min(), 0]), cx=float(xb[0, fxs].mean()), yb=yb, xb=xb)
+        else:
+            self.flame_state = None
         self.w_paw = {}
         for k, p in r["paws"].items():
             sh, ft, hw = np.array(p["shoulder"], np.float32), np.array(p["foot"], np.float32), p["half_width"]
@@ -482,7 +509,26 @@ class Rig:
             dy = ku * 3 * np.sin(2 * np.pi * t * 4.1)
         dx = dx * g["w"]; dy = dy * g["w"]
         cat[Y0b:Y1b, X0b:X1b] = remap(cat[Y0b:Y1b, X0b:X1b], xx - X0b + fx0 - dx, (yy + fy0) - Y0b + dy, cv2.BORDER_REPLICATE)
+        fs = st.get("flame")
+        if fs in FLAME_STATES and self.flame_state is not None:
+            cat[Y0b:Y1b, X0b:X1b] = self._flame_state(cat[Y0b:Y1b, X0b:X1b], fs)
         return cat
+
+    def _flame_state(self, reg, fs):
+        """Огонёк по состоянию героя: ember — вдвое ниже и притушен (серо-оранжевый), golden — выше и
+        жёлтый. Масштаб — от основания пламени (кончик хвоста стоит на месте), цвет — только в маске
+        пламени. bright и отсутствие состояния — пламя как нарисовано, байт в байт."""
+        F = self.flame_state; sy, sx, col = FLAME_STATES[fs]
+        X0b, Y0b, _, _ = self.flame_geo["box"]
+        yb, xb = F["yb"], F["xb"]
+        Yq = F["base"] + (yb - F["base"]) / sy; Xq = F["cx"] + (xb - F["cx"]) / sx
+        src = remap(reg, Xq - X0b, Yq - Y0b, cv2.BORDER_REPLICATE)
+        m = F["mask"]
+        w = np.maximum(m, remap(m, Xq - X0b, Yq - Y0b, cv2.BORDER_REPLICATE))   # старый след и новое пламя
+        wm = remap(F["core"], Xq - X0b, Yq - Y0b, cv2.BORDER_REPLICATE)[..., None]   # цвет — только ядру, не туши и не меху
+        src = src.copy(); src[..., :3] = src[..., :3] * (1 - wm) + np.clip(src[..., :3] * np.float32(col), 0, 255) * wm
+        return reg * (1 - w[..., None]) + src * w[..., None]
+
 
     def frame_hd(self, st, t):
         """Кадр сразу 1920x1080: изгиб и увеличение одним пересчётом (INTER_CUBIC) — края резче,
