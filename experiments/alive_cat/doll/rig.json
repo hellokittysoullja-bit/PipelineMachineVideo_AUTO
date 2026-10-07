@@ -1,5 +1,5 @@
 {
- "image": "hero.png",
+ "image": "../../../look/hero.png",
  "mask": "mask.png",
  "fur": "part_fur.png",
  "iris": "part_iris.png",

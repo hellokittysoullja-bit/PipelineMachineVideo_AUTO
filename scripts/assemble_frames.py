@@ -274,8 +274,11 @@ def main(video_dir):
         words = [{"word": w["word"], "start": w["start"] - kept_starts[k], "end": w["end"] - kept_starts[k]}
                  for b in range(i, nxt) if b < len(word_times) for w in word_times[b]]
         pf = plan_frames.get(i) or {}
+        # живая кукла героя — только где план просит героя живьём, а картинка сгенерирована без него
+        mascot = (dict(text=blocks[i]["text"], state=pf.get("hero_state"), action=pf.get("hero_action"), seed=k)
+                  if pf.get("hero_live") and not rec.get("hero") else None)
         jobs.append(dict(src=src, recs=recs, objects=rec.get("objects") or [], work=work, tex=tex_path,
-                         seed=k, key=(pf.get("key_thought") or "").strip() or None, words=words,
+                         seed=k, key=(pf.get("key_thought") or "").strip() or None, words=words, mascot=mascot,
                          accent=(pf.get("accent") or "").strip() or None,
                          dur=durs[k], T0=kept_starts[k], end_fade=(k == len(kept) - 1)))
 
@@ -294,7 +297,7 @@ def main(video_dir):
         key, accent, why = writing_budget(written, job["T0"], key, job.get("accent"), reserved)
         shot_log += [{"index": kept[k], "note": n} for n in why]
         p = frame_clip.plan_clip(fr, job["dur"], job["words"], key=key, last_punch=last_punch,
-                                 T0=job["T0"], zoom_in=(k % 2 == 0), fps=FPS, accent=accent)
+                                 T0=job["T0"], zoom_in=(k % 2 == 0), fps=FPS, accent=accent, mascot=job.get("mascot"))
         if p["punch_at"] is not None:
             last_punch = p["punch_at"]
         if p.get("key_time") is not None and p.get("key"):

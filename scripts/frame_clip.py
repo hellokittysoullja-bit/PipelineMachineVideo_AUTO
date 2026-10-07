@@ -164,11 +164,18 @@ def accent_layout(fr, text, win, seed=11):
     return writeon.layout(text, size, W, H, cx, cy, seed=seed, max_w=KEY_MAX_W*W), (cx, cy), size
 
 
-def plan_clip(fr, D, words, key=None, last_punch=-1e9, T0=0.0, zoom_in=True, fps=24, accent=None):
+def plan_clip(fr, D, words, key=None, last_punch=-1e9, T0=0.0, zoom_in=True, fps=24, accent=None, mascot=None):
     """План кадра (shots.plan) + раскладка главной мысли. Главная мысль, которой
     нет места, не пишется — с записью в notes. Не успевает — пишется быстрее
     (KEY_SPEEDUPS), а не пропадает: живой ролик 04.10 потерял «только открыть»,
-    потому что фраза стоит в конце кадра."""
+    потому что фраза стоит в конце кадра.
+    mascot — {text, state, seed}: поставить живую куклу героя (mascot_live) — ДО раскладки
+    мысли и плана камеры, чтобы они её обходили. Нет рига или места — кадр без куклы."""
+    ms = None
+    if mascot:
+        import mascot_live
+        if mascot_live.available():
+            ms = mascot_live.place(fr, mascot)
     key_l = None
     if key:
         wide = camera.window(fr["SW"]/2, fr["SH"]/2, fr["SW"], fr["SW"], fr["SH"])
@@ -194,6 +201,14 @@ def plan_clip(fr, D, words, key=None, last_punch=-1e9, T0=0.0, zoom_in=True, fps
         if not key_l or p["key_time"] is not None:
             break
     p["assemble"] = bool(fr.get("assemble"))
+    if mascot and ms is None:
+        p["notes"].append("живой кукле нет места рядом с предметом — кадр без неё" if mascot_live.available()
+                          else "живая кукла: рига нет на диске — кадр без неё")
+    if ms:
+        ms["actions"] = mascot_live.plan_actions(D, words, mascot.get("text", ""), ms["gaze"], seed=int(mascot.get("seed", 0)),
+                                                 action=mascot.get("action"))
+        ms["seed"] = int(mascot.get("seed", 0)); ms["sig"] = mascot_live.signature()
+        p["mascot"] = ms
     if accent and not acc_l:
         p["notes"].append(f"акценту «{accent}» нет места — не пишется")
     if p.get("accent_time") is not None:
@@ -268,6 +283,10 @@ def render(fr, p, D, out, fps=24, end_fade=False, crf="18"):
         writes.append(dict(ink=writeon.Ink(L, ev, H, W), end=t0 + T, win=item["win"], baked=False))
         cues += [(e["t0"], e["t1"], e["kind"]) for e in ev]
     cues.sort()
+    doll = None
+    if p.get("mascot"):
+        import mascot_live
+        doll = mascot_live.Layer(p["mascot"], D)
     prev_world, fade_from, fade_len = None, None, shots.LABEL_FADE_SEC
     tmp = out + ".tmp.mp4"
     proc = subprocess.Popen(["ffmpeg", "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}",
@@ -301,6 +320,8 @@ def render(fr, p, D, out, fps=24, end_fade=False, crf="18"):
                 f = _screen(prev_world, win, UPSCALE)*(1 - a) + f*a
             elif prev_world is not None:
                 prev_world = None
+            if doll is not None:                      # кукла — рисунок на бумаге: под карандашом, над подписями
+                f = doll.composite(f, t, win, W, H)
             for wr in writes:
                 if wr["baked"]:
                     continue
@@ -312,6 +333,8 @@ def render(fr, p, D, out, fps=24, end_fade=False, crf="18"):
                         _bake_alpha(full, al, wr["win"], UPSCALE, INK)   # иначе следующее проявление её сотрёт
                     wr["baked"] = True
                     f = _screen(world, win, UPSCALE)
+                    if doll is not None:              # кадр пересчитан с нуля — кукла снова (из кэша кадра);
+                        f = doll.composite(f, t, win, W, H)   # без этого она пропадала ровно на один кадр (пилот 07.10)
                 elif al.any():
                     al = _warp(al, wr["win"], win)
                     f = f*(1 - al[..., None]) + INK*al[..., None]

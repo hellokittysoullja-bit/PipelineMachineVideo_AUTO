@@ -189,6 +189,23 @@ MASCOT_SHARE = 0.5      # доля героя от этой — маскот: д
 NO_HERO_RULE = """always false: this film has no recurring main character."""
 
 
+LIVE_ACTIONS = ("look", "paw_on_chest")      # что умеет живая кукла без жестов лап (владелец 07.10 отложил
+                                              # повороты и жесты лап; остались глаза, голова, ухо, хвост, огонёк,
+                                              # дыхание и поза «лапа у груди»)
+LIVE_RULE = ('\n  "hero_action" — only with hero true: what the character physically does in your picture, one of '
+             '"look" (sits or stands on the ground beside the thing of the line and looks at it, nothing in its '
+             'paws), "paw_on_chest" (sits with one paw pressed to its chest — a feeling, a confession, nothing else '
+             'in its paws), "other" (holds, carries, lies, climbs, hides its face, touches or interacts with anything '
+             'in any other way). Choose "other" whenever in doubt.')
+
+
+def live_hero_enabled():
+    """MASCOT_LIVE_PLAN=1: герой на простых кадрах (сидит и смотрит, лапа у груди) не рисуется моделью,
+    а ставится в сборке живой куклой (mascot_live) рядом с предметом. По умолчанию 0: меняет задание
+    модели и состав картинок — включать после разметки владельцем пилота."""
+    return os.environ.get("MASCOT_LIVE_PLAN", "0").strip() == "1"
+
+
 def hero_rule_text(hero_text=None, states=None):
     run, share = hero_limits()
     st = ""
@@ -196,6 +213,8 @@ def hero_rule_text(hero_text=None, states=None):
         opts = "; ".join(f'"{k}" when {v["when"]}' for k, v in states.items())
         st = f'\n  "hero_state" — only with hero true: {opts}; null for a neutral moment.'
     rule = MASCOT_RULE if share >= MASCOT_SHARE else HERO_RULE
+    if live_hero_enabled():
+        st += LIVE_RULE
     return rule.format(hero_share=round(share * 100), hero_run_plus=run + 1,
                        hero_text=hero_text or "the main character", states=st)
 
@@ -355,6 +374,9 @@ def extras(obj, text, states=()):
     st = obj.get("hero_state")
     if isinstance(st, str) and st in states and obj.get("hero") is True:
         out["hero_state"] = st
+    act = obj.get("hero_action")
+    if live_hero_enabled() and isinstance(act, str) and act in LIVE_ACTIONS and obj.get("hero") is True:
+        out["hero_action"] = act                 # "other" и всё незнакомое — герой рисуется моделью, как раньше
     return out, notes
 
 
@@ -448,6 +470,34 @@ def _drop_hero(f, replacement="a person"):
     f["picture"] = re.sub(r"\b[Tt]he main character\b", replacement, f["picture"])
 
 
+def live_hero_pass(frames):
+    """Кадры героя с простым действием (hero_action из LIVE_ACTIONS) отдаются живой кукле: картинка
+    генерируется БЕЗ героя (hero False — без референса), а в описании он пока остаётся, чтобы
+    предпроверка переписала его в «предметы и следы» (правило 8). Идёт ПОСЛЕ limit_hero: доля и
+    серии героя считаются по всем его кадрам, живым и нарисованным. Сколько кадров отдано."""
+    n = 0
+    for f in frames:
+        if f.get("hero") and f.get("hero_action") in LIVE_ACTIONS:
+            f["hero"] = False
+            f["hero_live"] = True
+            n += 1
+    return n
+
+
+def live_hero_revert(frames, hero_text=None):
+    """Живой кадр, в описании которого персонаж остался (предпроверки не было или она отклонила
+    переписанное), возвращается нарисованному герою: иначе модель без референса нарисовала бы
+    чужого кота рядом с куклой. Сколько возвращено."""
+    import frame_preflight
+    n = 0
+    for f in frames:
+        if f.get("hero_live") and "character_without_reference" in frame_preflight.issues(f, hero_text):
+            f["hero"] = True
+            f["hero_live"] = False
+            n += 1
+    return n
+
+
 def limit_hero(frames, max_run=None, max_share=None, replacement="a person"):
     """Герой — гость, а не ведущий; правило кода, а не просьба к модели:
     не больше max_run кадров подряд и не больше max_share кадров эпизода.
@@ -524,6 +574,8 @@ def plan_episode(video_dir, gateway, model=DEFAULT_MODEL, force=False, workers=4
     _run, _share = hero_limits()
     repl = (hero or {}).get("text") if (hero or {}).get("text") and _share >= MASCOT_SHARE else "a person"
     stats["hero_trimmed"] = limit_hero(frames, replacement=repl)
+    if has_hero and live_hero_enabled():          # без флага — stats байт в байт прежние
+        stats["hero_live"] = live_hero_pass(frames)
     plan = {"version": PLAN_VERSION, "model": model, "has_hero": has_hero, "frames": frames,
             "stats": stats, "errors": errs}
     path = os.path.join(video_dir, "media_plan", PLAN_NAME)
@@ -543,6 +595,9 @@ def plan_episode(video_dir, gateway, model=DEFAULT_MODEL, force=False, workers=4
         plan["preflight"] = frame_preflight.run(
             frames, gateway, model, os.path.join(video_dir, "media_plan", frame_preflight.CACHE_DIR_NAME),
             (hero or {}).get("text") if has_hero else None, workers)
+    if stats.get("hero_live"):
+        stats["hero_live_reverted"] = live_hero_revert(frames, (hero or {}).get("text"))
+        stats["hero_live"] -= stats["hero_live_reverted"]
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path + ".tmp", "w", encoding="utf-8") as f:
         json.dump(plan, f, ensure_ascii=False, indent=1)
@@ -550,7 +605,9 @@ def plan_episode(video_dir, gateway, model=DEFAULT_MODEL, force=False, workers=4
     if verbose:
         kinds = {k: sum(1 for f in frames if f["kind"] == k) for k in KINDS}
         print(f"План: {len(frames)} кадров {kinds}, с героем {sum(f['hero'] for f in frames)} "
-              f"(снято правилом кода: {stats['hero_trimmed']}), "
+              f"(снято правилом кода: {stats['hero_trimmed']}"
+              + (f", живой куклой: {stats['hero_live']}, возвращено рисунку: {stats.get('hero_live_reverted', 0)}"
+                 if stats.get("hero_live") or stats.get("hero_live_reverted") else "") + "), "
               f"запасных {stats['fallback']}, глав из кэша {stats['cached_chapters']}")
         for sec, e in errs.items():
             print(f"  {sec}: {len(e)} замечаний: {', '.join(e[:4])}")

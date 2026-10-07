@@ -71,18 +71,31 @@ def _lama_fill(model, rgb, al, mask, crop=128):
     Ba[sl][mask[sl]] = run(np.repeat(al[sl][..., None], 3, 2))[..., 0][mask[sl]]
     return B, np.clip(Ba, 0, 255)
 
+def _load_npy(path):
+    """npy, а при его отсутствии — npz с тем же именем (в репозитории маски глаз лежат сжатыми: 6.4 МБ -> десятки КБ)."""
+    if os.path.exists(path): return np.load(path)
+    alt = os.path.splitext(path)[0] + ".npz"
+    if os.path.exists(alt): return np.load(alt)["arr"]
+    raise FileNotFoundError(path)
+
 def smooth(x):
     x = np.clip(x, 0, 1); return x * x * (3 - 2 * x)
 
 class Rig:
     def __init__(self, path="rig.json"):
         r = json.load(open(path)); self.r = r
-        self.src = np.asarray(Image.open(r["image"]).convert("RGB")).astype(np.float32)
-        self.alpha = np.asarray(Image.open(r["mask"])).astype(np.float32)
-        self.fur = np.asarray(Image.open(r["fur"])).astype(np.float32)
+        base = os.path.dirname(os.path.abspath(path))      # ассеты — рядом с rig.json, а не от cwd
+        P = lambda k: r[k] if os.path.isabs(r[k]) else os.path.join(base, r[k])
+        self.src = np.asarray(Image.open(P("image")).convert("RGB")).astype(np.float32)
+        self.alpha = np.asarray(Image.open(P("mask"))).astype(np.float32)
+        self.fur = np.asarray(Image.open(P("fur"))).astype(np.float32)
         self.base4 = np.dstack([self.fur, self.alpha]).astype(np.float32)
-        self.iris = np.asarray(Image.open(r["iris"])).astype(np.float32)
-        self.E = np.load(r["eyes"]); self.M = np.load(r["eye_masks"])
+        self.iris = np.asarray(Image.open(P("iris"))).astype(np.float32)
+        self.E = _load_npy(P("eyes")); self.M = _load_npy(P("eye_masks"))
+        if r.get("lama") and not os.path.isabs(r["lama"]): r["lama"] = os.path.join(base, r["lama"])
+        for pz in list((r.get("poses") or {}).values()) + ([r["wave"]] if isinstance(r.get("wave"), dict) else []):
+            for k in ("image", "mask"):                      # пути поз и взмаха тоже от папки рига
+                if pz.get(k) and not os.path.isabs(pz[k]): pz[k] = os.path.join(base, pz[k])
         H, W = self.alpha.shape; self.H, self.W = H, W
         m = self.alpha > 128
         self.paper = np.median(self.src[~m], axis=0)
@@ -361,6 +374,14 @@ class Rig:
         rgb = np.asarray(rgb, np.float32)
         if np.allclose(rgb, self.paper_src):
             return
+        self.defringe()
+        self.paper = rgb
+        self.paper_u8[:] = np.clip(rgb, 0, 255).astype(np.uint8)
+        self.paper_bb[:] = rgb
+
+    def defringe(self):
+        """Снять с полупрозрачных краёв меха примесь бумаги исходника (один раз). Нужно и для RGBA-кадра:
+        там кота кладут на чужую бумагу тем же обратным смешиванием."""
         if not getattr(self, "_defringed", False):
             a = self.alpha[..., None] / 255
             edge = (a > 0.02) & (a < 0.98)
@@ -373,9 +394,6 @@ class Rig:
                     fixed = (arr - (1 - pa) * self.paper_src) / np.maximum(pa, 0.02)
                     arr[pe[..., 0]] = np.clip(fixed, 0, 255)[pe[..., 0]]
             self._defringed = True
-        self.paper = rgb
-        self.paper_u8[:] = np.clip(rgb, 0, 255).astype(np.uint8)
-        self.paper_bb[:] = rgb
 
     def face4(self, look, lid, base4):
         """То же, что face(), но сразу на 4-канальной основе (мех + прозрачность), без склейки каждый кадр."""
@@ -490,7 +508,7 @@ class Rig:
         a = np.clip(c[..., 3:4], 0, 255) / 255 * h["inside"][..., None]
         return np.clip(self.paper * (1 - a) + np.clip(c[..., :3], 0, 255) * a, 0, 255).astype(np.uint8)
 
-    def _warp_cpu(self, cat, st):
+    def _warp_core(self, cat, st):
         """Одна общая деформация на весь кадр (как раньше) и два раздельных слоя — голова и тело
         с хвостом — только в прямоугольнике, где голова встречается с хвостом (self.conflict).
         На краях прямоугольника двигается только одна из частей, поэтому общая деформация и
@@ -516,12 +534,14 @@ class Rig:
         XH, YH = X0[:rmax].copy(), Y0[:rmax].copy()                            # голова: ухо и голова
         rot(XH, YH, r["ear_base"], st["ear"], self.w_ear, self.sl["ear"])
         rot(XH, YH, r["neck"], st["head"], self.w_head, self.sl["head"])
+        self._YH = YH
         XC, YC = XR, YR                                                        # общая: выше шеи — ход головы
         XC[:hr] = XH[:hr]; YC[:hr] = YH[:hr]
         c = remap(cat, XC, YC)                                                 # как раньше, один в один
-        a = c[..., 3] * np.float32(1 / 255); a3 = cv2.merge([a, a, a])
-        reg = cv2.add(cv2.multiply(cv2.subtract(cv2.cvtColor(c, cv2.COLOR_RGBA2RGB), self.paper_bb), a3), self.paper_bb)   # = бумага·(1-A) + цвет·A
-        # стык головы и хвоста: два слоя (премультиплированные), сумма с приоритетом головы
+        return c, self._conflict_layers(cat, XH, XRc, YRc, cy, cx)
+
+    def _conflict_layers(self, cat, XH, XRc, YRc, cy, cx):
+        """Стык головы и хвоста: два премультиплицированных слоя, сумма с приоритетом головы."""
         sy, sx = self.conflict_src                                             # окно источника (абс.)
         pm = cat[sy, sx].copy(); a = pm[..., 3] * np.float32(1 / 255); pm[..., 3] = a
         for ch in range(3): pm[..., ch] *= a
@@ -531,16 +551,38 @@ class Rig:
             py_, px_ = slice(tp["sy"].start - sy.start, tp["sy"].stop - sy.start), slice(tp["sx"].start - sx.start, tp["sx"].stop - sx.start)
             mk = tp["mask"]
             Rin[py_, px_][mk] = tp["body"][mk]; Hin[py_, px_][mk] = tp["head"][mk]
-        Hc = remap(Hin, XH[cy, cx] - sx.start, YH[cy, cx] - sy.start)
+        Hc = remap(Hin, XH[cy, cx] - sx.start, self._YH[cy, cx] - sy.start)
         Rc = remap(Rin, XRc - sx.start, YRc - sy.start)
         Pc = Hc + Rc
         over = Pc[..., 3] > 1
         if over.any():
             aH, aR = Hc[over][:, 3:4], Rc[over][:, 3:4]
             Pc[over] = Hc[over] + Rc[over] * np.clip((1 - aH) / np.maximum(aR, 1e-6), 0, 1)
+        return Pc
+
+    def _warp_cpu(self, cat, st):
+        """Кадр на бумаге рига (как было, байт в байт)."""
+        x0, y0, x1, y1 = self.bb
+        c, Pc = self._warp_core(cat, st); cy, cx = self.conflict
+        a = c[..., 3] * np.float32(1 / 255); a3 = cv2.merge([a, a, a])
+        reg = cv2.add(cv2.multiply(cv2.subtract(cv2.cvtColor(c, cv2.COLOR_RGBA2RGB), self.paper_bb), a3), self.paper_bb)   # = бумага·(1-A) + цвет·A
         reg[cy, cx] = self.paper * (1 - Pc[..., 3:4]) + Pc[..., :3]
         out = self.paper_u8.copy()
         out[y0:y1, x0:x1] = np.clip(reg, 0, 255).astype(np.uint8)
+        return out
+
+    def frame_rgba(self, st, t):
+        """Кот без бумаги: ПРЕМУЛЬТИПЛИЦИРОВАННЫЙ RGBA float32 (H, W, 4), цвет 0..255, альфа 0..1 — для
+        сборщика роликов, который кладёт его на свою бумагу. Примесь белой бумаги исходника с краёв
+        снята (defringe), иначе на кремовом холсте был бы светлый ореол (замер: 48% краевых пикселей)."""
+        self.defringe()
+        x0, y0, x1, y1 = self.bb
+        c, Pc = self._warp_core(self.cat_layer(st, t), st); cy, cx = self.conflict
+        a = c[..., 3:4] * np.float32(1 / 255)
+        reg = np.concatenate([c[..., :3] * a, a], axis=2)
+        reg[cy, cx] = Pc                                                       # там уже премультиплицировано
+        out = np.zeros((self.H, self.W, 4), np.float32)
+        out[y0:y1, x0:x1] = reg
         return out
 
 # ----------------------------------------------------------------- движения
