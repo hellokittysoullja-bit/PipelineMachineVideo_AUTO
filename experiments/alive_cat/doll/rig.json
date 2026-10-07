@@ -58,19 +58,10 @@
   }
  },
  "floor_y": 772,
- "wave": {
-  "image": "raised_fixed.png",
-  "mask": "mask_raised.png",
-  "arm_max_x": 470,
-  "arm_max_y": 620,
-  "pivot": [
-   400,
-   560
-  ],
-  "tip": [
-   290,
-   390
-  ],
-  "down_deg": -25
+ "poses": {
+  "paw_up": {
+   "image": "beckon.png",
+   "mask": "mask_beckon.png"
+  }
  }
 }

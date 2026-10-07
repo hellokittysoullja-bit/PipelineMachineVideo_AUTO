@@ -73,6 +73,15 @@ class Rig:
             pv = np.array(wv["pivot"], np.float32); tip = np.array(wv["tip"], np.float32); v = tip - pv
             wgt = smooth((((Wm - pv[0]) * v[0] + (Hm - pv[1]) * v[1]) / (v @ v)) * 1.6).astype(np.float32)
             self.wave = dict(fur=fur_r, body_a=body_a, arm=np.dstack([rs, arm_a]), w=wgt, pivot=pv, down=wv["down_deg"])
+        self.poses = {}
+        for name, pz in (r.get("poses") or {}).items():
+            from scipy import ndimage
+            rs = np.asarray(Image.open(pz["image"]).convert("RGB")).astype(np.float32)
+            ra = np.asarray(Image.open(pz["mask"])).astype(np.float32)
+            fr = rs.copy()
+            for (mi, mw, mp) in self.M:
+                ww = ndimage.binary_dilation(mw, iterations=8); fr[ww] = self.fur[ww]
+            self.poses[name] = dict(fur=fr, alpha=ra)
         # части глаза — только в рамке глаз
         self.eye_bb = []
         for (cx, cy, rx, ry) in self.E:
@@ -118,6 +127,11 @@ class Rig:
             cat = np.dstack([cat[..., :3] * (1 - aa) + armw[..., :3] * aa, np.maximum(cat[..., 3], armw[..., 3])])
         else:
             cat = np.dstack([self.face(st["look"], st["lid"]), self.alpha])
+        pz = st.get("pose")                          # (имя позы, доля 0..1) — смена позы за 2 кадра
+        if pz and pz[1] > 0 and pz[0] in self.poses:
+            P = self.poses[pz[0]]
+            other = np.dstack([self.face(st["look"], st["lid"], P["fur"]), P["alpha"]])
+            k = np.float32(pz[1]); cat = cat * (1 - k) + other * k
         fx0, fy0, fx1, fy1 = r["flame_box"]; hh = fy1 - fy0                 # огонёк — в своих координатах
         yy, xx = np.mgrid[0:hh, 0:fx1 - fx0].astype(np.float32); ku = (1 - yy / hh) ** 1.5
         dx = ku * (4 * np.sin(2 * np.pi * (yy / 45 - t * 2.3)) + 2.5 * np.sin(2 * np.pi * (t * 3.7 + .3)))
@@ -130,7 +144,7 @@ class Rig:
             ang = np.float32(-np.radians(deg)) * w[sl]
             c, s = np.cos(ang), np.sin(ang); dx, dy = X[sl] - p[0], Y[sl] - p[1]
             X[sl] = p[0] + c * dx - s * dy; Y[sl] = p[1] + s * dx + c * dy
-        b = st["breath"]; fl = r["floor_y"]
+        b = st["breath"] * (1 - .02 * st.get("squash", 0)); fl = r["floor_y"]
         Y[:] = fl - (fl - Y) / b
         for k, (lift, swing) in st["paws"].items():
             sl = self.sl["paw_" + k]; w = self.w_paw[k]
@@ -171,6 +185,7 @@ def plan(dur, actions, seed=7):
         t += hold + rng.uniform(2.5, 5)
     paws = {"left": ([], []), "right": ([], [])}
     WV = []
+    POSE = []
     for a in actions:
         t0, kind = a["t"], a["do"]
         if kind == "look":                      # смотреть на точку: x,y в [-1..1]
@@ -192,6 +207,8 @@ def plan(dur, actions, seed=7):
             d = a.get("dur", 1.4); deg = a.get("deg", -12)
             S += [(t0, 0.), (t0 + .35, deg), (t0 + .35 + d, deg), (t0 + .8 + d, 0.)]
             L += [(t0, 0.), (t0 + .35, 12.), (t0 + .35 + d, 12.), (t0 + .8 + d, 0.)]
+        elif kind == "paw":                     # лапа к груди (поза), держит dur секунд
+            POSE.append((t0, t0 + a.get("dur", 2.0)))
         elif kind == "wave":                    # помахать: подъём 0.2 с, n взмахов, опускание
             n = a.get("n", 2); up = .2; per = .42
             WV.append((t0, t0 + up, t0 + up + n * per, t0 + up + n * per + .22, per))
@@ -216,7 +233,13 @@ def plan(dur, actions, seed=7):
                 lift = smooth((t - a0) / (a1 - a0)) if t < a1 else (1 - smooth((t - a2_) / (a3 - a2_)) if t > a2_ else 1.)
                 sw = 12 * np.sin(2 * np.pi * (t - a1) / per) if a1 <= t <= a2_ else 0.
                 wave = (float(lift), float(sw))
-        return dict(wave=wave, look=(key(t, look_x), key(t, look_y)), lid=lid, head=key(t, head), ear=ear,
+        pose = None; squash = 0.
+        for (p0, p1) in POSE:
+            sw = 2 / 30
+            if p0 - .15 <= t < p0: squash = float(np.sin(np.pi * (t - (p0 - .15)) / .15))   # присед-замах
+            if p0 <= t < p1:                                     # мгновенная смена позы: без полупрозрачных «призраков»
+                pose = ("paw_up", 1.0)
+        return dict(pose=pose, squash=squash, wave=wave, look=(key(t, look_x), key(t, look_y)), lid=lid, head=key(t, head), ear=ear,
                     tail=4 * np.sin(2 * np.pi * t / 3.1), breath=1 + .012 * np.sin(2 * np.pi * t / 2.6),
                     paws={k: (key(t, sorted(v[0])), key(t, sorted(v[1]))) for k, v in paws.items()})
     return state
