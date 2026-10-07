@@ -35,8 +35,13 @@ def fbm(x, seed, octaves=3):
         tot = tot + a * _vnoise(np.asarray(x, np.float32) * fr, seed + 101 * o); norm += a; a *= .5; fr *= 2.0
     return tot / norm * 1.9
 
+# Бикубика вместо билинейной: билинейная выборка при сдвиге на долю пикселя мылит рисунок, и при
+# дыхании резкость меха пульсировала на 27% (резко ровно при масштабе 1, мягко в остальные моменты).
+# Бикубика — 8%. В покое (сдвиг 0) обе дают исходник один в один.
+REMAP_INTERP = cv2.INTER_CUBIC if os.environ.get("REMAP_CUBIC", "1") == "1" else cv2.INTER_LINEAR
+
 def remap(img, X, Y, border=cv2.BORDER_CONSTANT):
-    return cv2.remap(np.ascontiguousarray(img, np.float32), np.asarray(X, np.float32), np.asarray(Y, np.float32), cv2.INTER_LINEAR, borderMode=border)
+    return cv2.remap(np.ascontiguousarray(img, np.float32), np.asarray(X, np.float32), np.asarray(Y, np.float32), REMAP_INTERP, borderMode=border)
 
 
 def _lama_fill(model, rgb, al, mask, crop=128):
@@ -70,6 +75,7 @@ class Rig:
         self.src = np.asarray(Image.open(r["image"]).convert("RGB")).astype(np.float32)
         self.alpha = np.asarray(Image.open(r["mask"])).astype(np.float32)
         self.fur = np.asarray(Image.open(r["fur"])).astype(np.float32)
+        self.base4 = np.dstack([self.fur, self.alpha]).astype(np.float32)
         self.iris = np.asarray(Image.open(r["iris"])).astype(np.float32)
         self.E = np.load(r["eyes"]); self.M = np.load(r["eye_masks"])
         H, W = self.alpha.shape; self.H, self.W = H, W
@@ -81,6 +87,7 @@ class Rig:
         self.bb = (max(0, xs.min() - pad), max(0, ys.min() - pad), min(W, xs.max() + pad), min(H, ys.max() + pad))
         x0, y0, x1, y1 = self.bb
         YY, XX = np.mgrid[y0:y1, x0:x1].astype(np.float32); self.XX, self.YY = XX, YY
+        self.paper_bb = np.empty((y1 - y0, x1 - x0, 3), np.float32); self.paper_bb[:] = self.paper
         import hashlib
         key = hashlib.sha1(self.alpha.tobytes() + json.dumps([r["head_below_y"], r["neck"], r["flame_box"], r["fur"]]).encode()
                            + __import__("inspect").getsource(Rig._head_layer).encode()).hexdigest()[:16]
@@ -108,6 +115,16 @@ class Rig:
         self.conflict_src = (slice(max(0, y0 + cy.start - ms), min(self.H, y0 + cy.stop + ms)),
                              slice(max(0, x0 + cx.start - ms), min(self.W, x0 + cx.stop + ms)))
         self.m_head_src = np.repeat(self._hm[self.conflict_src].astype(np.float32)[..., None], 4, axis=2)
+        fx0, fy0, fx1, fy1 = r["flame_box"]; hh = fy1 - fy0; mg = 30
+        X0b, Y0b, X1b, Y1b = max(0, fx0 - mg), max(0, fy0 - mg), min(W, fx1 + mg), fy1
+        yb, xb = np.mgrid[Y0b:Y1b, X0b:X1b].astype(np.float32)
+        yy = yb - fy0; xx = xb - fx0                                        # координаты прежней рамки
+        ku = np.clip(1 - yy / hh, 0, 1) ** 1.5
+        edge = np.minimum.reduce([xb - X0b, (X1b - 1) - xb, yb - Y0b]) / 20.0
+        from scipy import ndimage as _nd
+        not_head = 1 - _nd.gaussian_filter(self._hm[Y0b:Y1b, X0b:X1b].astype(np.float32), 1.5)   # усы с пламенем не дрожат
+        self.flame_geo = dict(box=(X0b, Y0b, X1b, Y1b), yy=yy, xx=xx, ku=ku.astype(np.float32),
+                              w=(smooth(edge) * not_head).astype(np.float32))
         self.w_paw = {}
         for k, p in r["paws"].items():
             sh, ft, hw = np.array(p["shoulder"], np.float32), np.array(p["foot"], np.float32), p["half_width"]
@@ -147,7 +164,7 @@ class Rig:
             fr = rs.copy()
             for (mi, mw, mp) in self.M:
                 ww = ndimage.binary_dilation(mw, iterations=8); fr[ww] = self.fur[ww]
-            self.poses[name] = dict(fur=fr, alpha=ra)
+            self.poses[name] = dict(fur=fr, alpha=ra, base4=np.dstack([fr, ra]).astype(np.float32))
         # части глаза — только в рамке глаз
         self.eye_bb = []
         for (cx, cy, rx, ry) in self.E:
@@ -298,8 +315,18 @@ class Rig:
         return Hm
 
     # ------------------------------------------------------------- глаза
+    def face4(self, look, lid, base4):
+        """То же, что face(), но сразу на 4-канальной основе (мех + прозрачность), без склейки каждый кадр."""
+        img4 = base4.copy(); img = img4[..., :3]
+        self._eyes(img, look, lid)
+        return img4
+
     def face(self, look, lid, base=None):
         img = (self.fur if base is None else base).copy()
+        self._eyes(img, look, lid)
+        return img
+
+    def _eyes(self, img, look, lid):
         for (cx, cy, rx, ry), (mi, mw, mp), (bx0, by0, bx1, by1) in zip(self.E, self.M, self.eye_bb):
             sl = (slice(by0, by1), slice(bx0, bx1))
             yy, xx = np.mgrid[by0:by1, bx0:bx1].astype(np.float32)
@@ -318,7 +345,6 @@ class Rig:
                 cv2.ellipse(c, (int(cx - bx0), int(l0 - ry * .15 - by0)), (int(rx * .85), int(ry * .4)), 0, 15, 165,
                             (24, 22, 24), 7, cv2.LINE_AA)
                 img[sl] = c
-        return img
 
     # ------------------------------------------------------------- кадр
     def frame(self, st, t):
@@ -341,21 +367,27 @@ class Rig:
             aa = armw[..., 3:4] / 255
             cat = np.dstack([cat[..., :3] * (1 - aa) + armw[..., :3] * aa, np.maximum(cat[..., 3], armw[..., 3])])
         else:
-            cat = np.dstack([self.face(st["look"], st["lid"]), self.alpha])
+            cat = self.face4(st["look"], st["lid"], self.base4)
         pz = st.get("pose")                          # (имя позы, доля 0..1) — смена позы за 2 кадра
         if pz and pz[1] > 0 and pz[0] in self.poses:
             P = self.poses[pz[0]]
-            other = np.dstack([self.face(st["look"], st["lid"], P["fur"]), P["alpha"]])
+            other = self.face4(st["look"], st["lid"], P["base4"])
             k = np.float32(pz[1]); cat = cat * (1 - k) + other * k
         fx0, fy0, fx1, fy1 = r["flame_box"]; hh = fy1 - fy0                 # огонёк — в своих координатах
-        yy, xx = np.mgrid[0:hh, 0:fx1 - fx0].astype(np.float32); ku = (1 - yy / hh) ** 1.5
+        # рамка с запасом на бумагу: в старой рамке кончик пламени (3 px от верха) при сдвиге вверх
+        # упирался в её край и срезался плоско (7% кадров), а мех хвоста, пересекающий её бок,
+        # сдвигался внутри и стоял снаружи — ступенька на краю. Сдвиг к краям запаса плавно гаснет.
+        g = self.flame_geo
+        X0b, Y0b, X1b, Y1b = g["box"]; yy, xx = g["yy"], g["xx"]
+        ku = g["ku"]                                                         # = прежний (1 - y/h)^1.5, выше рамки — 1
         if FLAME_NOISE:                                                      # fBm: без периода, языки не повторяются
             dx = ku * (4 * fbm(yy / 45 - t * 2.3, 11) + 2.5 * fbm(np.float32(t * 3.7), 23))
             dy = ku * 3 * fbm(np.float32(t * 4.1), 37)
         else:
             dx = ku * (4 * np.sin(2 * np.pi * (yy / 45 - t * 2.3)) + 2.5 * np.sin(2 * np.pi * (t * 3.7 + .3)))
             dy = ku * 3 * np.sin(2 * np.pi * t * 4.1)
-        cat[fy0:fy1, fx0:fx1] = remap(cat[fy0:fy1, fx0:fx1], xx - dx, yy + dy, cv2.BORDER_REPLICATE)
+        dx = dx * g["w"]; dy = dy * g["w"]
+        cat[Y0b:Y1b, X0b:X1b] = remap(cat[Y0b:Y1b, X0b:X1b], xx - X0b + fx0 - dx, (yy + fy0) - Y0b + dy, cv2.BORDER_REPLICATE)
         return cat
 
     def frame_hd(self, st, t):
@@ -404,14 +436,15 @@ class Rig:
         rot(XR, YR, r["tail_base"], st["tail"], self.w_tail, self.sl["tail"])
         cy, cx = self.conflict
         XRc, YRc = XR[cy, cx].copy(), YR[cy, cx].copy()
-        XH, YH = X0.copy(), Y0.copy()                                          # голова: ухо и голова
+        hr = self.head_rows; rmax = max(hr, cy.stop)                           # голова живёт только выше rmax
+        XH, YH = X0[:rmax].copy(), Y0[:rmax].copy()                            # голова: ухо и голова
         rot(XH, YH, r["ear_base"], st["ear"], self.w_ear, self.sl["ear"])
         rot(XH, YH, r["neck"], st["head"], self.w_head, self.sl["head"])
         XC, YC = XR, YR                                                        # общая: выше шеи — ход головы
-        hr = self.head_rows; XC[:hr] = XH[:hr]; YC[:hr] = YH[:hr]
+        XC[:hr] = XH[:hr]; YC[:hr] = YH[:hr]
         c = remap(cat, XC, YC)                                                 # как раньше, один в один
-        A = c[..., 3:4] * np.float32(1 / 255)
-        reg = self.paper * (1 - A) + c[..., :3] * A
+        a = c[..., 3] * np.float32(1 / 255); a3 = cv2.merge([a, a, a])
+        reg = cv2.add(cv2.multiply(cv2.subtract(cv2.cvtColor(c, cv2.COLOR_RGBA2RGB), self.paper_bb), a3), self.paper_bb)   # = бумага·(1-A) + цвет·A
         # стык головы и хвоста: два слоя (премультиплированные), сумма с приоритетом головы
         sy, sx = self.conflict_src                                             # окно источника (абс.)
         pm = cat[sy, sx].copy(); a = pm[..., 3] * np.float32(1 / 255); pm[..., 3] = a
