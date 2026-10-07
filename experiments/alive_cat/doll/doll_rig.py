@@ -17,6 +17,8 @@ from PIL import Image
 
 
 FLAME_NOISE = os.environ.get("FLAME_NOISE", "1") == "1"
+TAIL_NOISE = os.environ.get("TAIL_NOISE", "1") == "1"      # хвост: fBm вместо чистой синусоиды с периодом 3.1 с
+BLINK_ON_GAZE = os.environ.get("BLINK_ON_GAZE", "1") == "1"  # большой перевод взгляда сопровождается морганием
 
 def _vnoise(x, seed):
     """1D value-шум: случайные значения в целых точках, гладкая (smoothstep) интерполяция, диапазон -1..1."""
@@ -340,11 +342,16 @@ class Rig:
             e2 = remap(e4, xx - bx0, (l0 + (yy - l0) / sy) - by0)
             ea = e2[..., 3:4] / 255
             img[sl] = img[sl] * (1 - ea) + e2[..., :3] * ea
-            if lid > .85:
+            # Штрих закрытого века раньше ВКЛЮЧАЛСЯ разом при lid > 0.85 (между соседними кадрами
+            # 0.84 -> 0.86 появлялась линия в 7 px) — измеренный скачок кадра. Теперь он проявляется
+            # плавно от 0.7 к 1.0, вместе с тем как сплющенный глаз сходит в линию.
+            ka = float(smooth((lid - .7) / .3))
+            if ka > 0:
                 c = img[sl].copy()
                 cv2.ellipse(c, (int(cx - bx0), int(l0 - ry * .15 - by0)), (int(rx * .85), int(ry * .4)), 0, 15, 165,
                             (24, 22, 24), 7, cv2.LINE_AA)
-                img[sl] = c
+                outside = 1 - ea                                               # штрих не ложится поверх самого глаза
+                img[sl] = img[sl] * (1 - ka * outside) + c * (ka * outside)
 
     # ------------------------------------------------------------- кадр
     def frame(self, st, t):
@@ -498,6 +505,8 @@ def plan(dur, actions, seed=7):
         t0, kind = a["t"], a["do"]
         if kind == "look":                      # смотреть на точку: x,y в [-1..1]
             d = a.get("dur", 1.5)
+            if BLINK_ON_GAZE and abs(a["x"] - key(t0, look_x)) >= .6 and not any(abs(b - t0) < .5 for b in blinks):
+                blinks.append(t0 - .03)         # взгляд уходит под веком: так переводят глаза люди и кошки
             look_x = [p for p in look_x if not (t0 - .3 <= p[0] <= t0 + d + .3)]
             look_y = [p for p in look_y if not (t0 - .3 <= p[0] <= t0 + d + .3)]
             look_x += [(t0, key(t0, look_x)), (t0 + .22, a["x"]), (t0 + d, a["x"]), (t0 + d + .3, 0.)]
@@ -527,11 +536,11 @@ def plan(dur, actions, seed=7):
     blinks.sort(); head.sort()
     def state(t):
         lid = 0.
-        for b in blinks:
-            d = t - b
-            if 0 <= d < .08: lid = max(lid, d / .08)
-            elif .08 <= d < .14: lid = 1.
-            elif .14 <= d < .26: lid = max(lid, 1 - (d - .14) / .12)
+        for b in blinks:                       # веко: быстро вниз (80 мс), пауза, медленнее вверх (170 мс),
+            d = t - b                          # оба хода с плавным разгоном/торможением, а не линейно
+            if 0 <= d < .08: lid = max(lid, float(smooth(d / .08)))
+            elif .08 <= d < .13: lid = 1.
+            elif .13 <= d < .30: lid = max(lid, float(1 - smooth((d - .13) / .17)))
         ear = 0.
         for e in ears:
             for t1 in (e, e + .25):
@@ -552,7 +561,8 @@ def plan(dur, actions, seed=7):
                 best = (p0, name)
         if best: pose = (best[1], 1.0)
         return dict(pose=pose, squash=squash, wave=wave, look=(key(t, look_x), key(t, look_y)), lid=lid, head=key(t, head), ear=ear,
-                    tail=4 * np.sin(2 * np.pi * t / 3.1), breath=1 + .012 * np.sin(2 * np.pi * t / 2.6),
+                    tail=float(4.3 * np.tanh(fbm(np.float32(t / 3.1), 53))) if TAIL_NOISE else 4 * np.sin(2 * np.pi * t / 3.1),
+                    breath=1 + .012 * np.sin(2 * np.pi * t / 2.6),
                     paws={k: (key(t, sorted(v[0])), key(t, sorted(v[1]))) for k, v in paws.items()})
     return state
 
