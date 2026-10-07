@@ -623,7 +623,7 @@ def _work(args):
     if _ST is None: _ST = plan(dur, actions)
     return _RIG.frame(_ST(i / fps), i / fps).tobytes()
 
-def render(out, dur, actions, fps=30, workers=4):
+def render(out, dur, actions, fps=24, workers=4):   # 24 — как у сборщика роликов (assemble_frames.FPS); план в секундах, от fps не зависит
     rig = Rig(); H, W = rig.H, rig.W
     p = subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", str(fps), "-i", "-",
                           "-vf", "scale=1920:-2:flags=lanczos,crop=1920:1080", "-c:v", "libx264", "-crf", "17", "-preset", "medium",
