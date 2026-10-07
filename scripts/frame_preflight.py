@@ -27,7 +27,7 @@ import json
 import os
 import re
 
-PREFLIGHT_VERSION = 4
+PREFLIGHT_VERSION = 6
 CACHE_DIR_NAME = "frame_preflight_cache"
 MAX_TOKENS = 12000      # модель рассуждает до ответа, сам ответ короткий
 EST_PROMPT_TOKENS = 2000
@@ -99,7 +99,8 @@ CHECKLIST = """You check picture descriptions written for an image model before 
 5. A feeling shown by symbols floating in the air (hearts, question marks, lightning, icons): show it by pose, face and objects.
 6. More than one thing demanded to be big: keep only the one named in KEEP BIG.
 7. Two things that must both be seen clearly (the main character and the KEEP BIG object) touching or overlapping: put them side by side with a clear gap of plain background.
-8. NO CHARACTER frames: any recurring character ("the main character", {hero}) — remove it entirely and show the same idea through objects, hands of an unnamed person, or traces.
+8. NO CHARACTER frames: any recurring character ("the main character", {hero}) — remove it entirely, together with every part and feeling of it (its face, tail, paws, ears, pose, expression), and show the same idea through objects, hands of an unnamed person, or traces. A description must never keep a body part or a facial expression of a figure that is no longer there.
+12. CHARACTER ADDED LATER frames: the editor places the drawn character into the picture afterwards, so the picture must contain NO figure at all — no character, no person, no hands, no paws, no footprints: only the thing of the line (and its props) on the ground, drawn large, with plain empty background on one side where the character will sit. Remove every figure and every body part; keep the object and the place.
 9. A vaguer word for an object named before ("a device" after "the phone"), or a pronoun with no clear owner.
 10. A second image idea stacked on the first (a heavy brain chained to a boulder that also has a burning fuse): keep the one that carries the line, drop the extra prop.
 Keep everything else unchanged: the meaning of the line, the framing, the objects listed in KEEP, 30-80 words, plain English, no words about drawing style. Never add anything to draw that the line does not need.
@@ -122,7 +123,9 @@ def chapter_prompt(frames, hero_text=None):
                  f"   Kind: {f.get('kind')}" + (f", labels added by code later: {len(f.get('labels') or [])}"
                                                if f.get("labels") else ""),
                  "   Main character: " + ("YES — call it \"the main character\", describe only pose, action, "
-                                         "expression and props" if f.get("hero") else "NO CHARACTER")]
+                                         "expression and props" if f.get("hero") else
+                                         ("CHARACTER ADDED LATER — no figure, no hands, no paws (rule 12)"
+                                          if f.get("hero_live") else "NO CHARACTER"))]
         if zoom:
             lines.append(f"   KEEP BIG: {zoom}")
         if keep:
@@ -183,7 +186,16 @@ def ask(gateway, model, prompt, cache_dir):
     if os.path.exists(cp):
         with open(cp, encoding="utf-8") as f:
             return f.read(), True
-    text, _u, _p = gateway.chat(model, [{"type": "text", "text": prompt}], MAX_TOKENS, EST_PROMPT_TOKENS)
+    import llm_gateway
+    try:
+        text, _u, _p = gateway.chat(model, [{"type": "text", "text": prompt}], MAX_TOKENS, EST_PROMPT_TOKENS)
+    except llm_gateway.EmptyAnswer:
+        # живой прогон 07.10: DeepSeek съел все 12000 токенов рассуждением дважды подряд (оплачено 2×3362),
+        # глава осталась без предпроверки, и кадр куклы вернулся рисунку. Рассуждение выключается
+        # измеренным для DeepSeek переключателем (llm_gateway.reasoning_switch) — ответ короткий, чек-лист
+        # в самом вопросе; это запасной путь, а не дефолт: качество без рассуждения не замерено
+        text, _u, _p = gateway.chat(model, [{"type": "text", "text": prompt}], MAX_TOKENS, EST_PROMPT_TOKENS,
+                                    reasoning=False)
     if text.strip():
         os.makedirs(cache_dir, exist_ok=True)
         with open(cp + ".part", "w", encoding="utf-8") as f:

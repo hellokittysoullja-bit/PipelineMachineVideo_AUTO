@@ -467,6 +467,7 @@ def _drop_hero(f, replacement="a person"):
     иначе модель без референса нарисует другого «главного героя»."""
     f["hero"] = False
     f.pop("hero_state", None)
+    f.pop("hero_action", None)      # действие куклы без героя — мусор в плане (живой прогон 07.10)
     f["picture"] = re.sub(r"\b[Tt]he main character\b", replacement, f["picture"])
 
 
