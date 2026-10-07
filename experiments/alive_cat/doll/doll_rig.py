@@ -17,7 +17,9 @@ from PIL import Image
 
 
 FLAME_NOISE = os.environ.get("FLAME_NOISE", "1") == "1"
-TAIL_NOISE = os.environ.get("TAIL_NOISE", "1") == "1"      # хвост: fBm вместо чистой синусоиды с периодом 3.1 с
+TAIL_NOISE = os.environ.get("TAIL_NOISE", "1") == "1"
+LID_ANCHOR = float(os.environ.get("LID_ANCHOR", "0.24"))   # куда сходится глаз при закрытии, в долях радиуса от центра вниз
+LID_COVER = float(os.environ.get("LID_COVER", "0.84"))      # с какого lid штрих века накрывает остаток щёлки (к 0.95 — целиком)      # хвост: fBm вместо чистой синусоиды с периодом 3.1 с
 BLINK_ON_GAZE = os.environ.get("BLINK_ON_GAZE", "1") == "1"  # большой перевод взгляда сопровождается морганием
 
 def _vnoise(x, seed):
@@ -337,9 +339,15 @@ class Rig:
             pup = remap(src4, xx - bx0 - dx, yy - by0 - dy)
             pa = (pup[..., 3:4] / 255) * mi[sl][..., None]
             eye = self.iris[sl] * (1 - pa) + pup[..., :3] * pa
-            sy = max(1 - lid, 1e-3); l0 = cy + ry * .24
+            sy = max(1 - lid, 1e-3); l0 = cy + ry * LID_ANCHOR
             e4 = np.dstack([eye, mw[sl].astype(np.float32) * 255])
-            e2 = remap(e4, xx - bx0, (l0 + (yy - l0) / sy) - by0)
+            # глаз сплющивается не к прямой, а к ДУГЕ закрытого века (той же, что рисуется штрихом):
+            # остаток щёлки у самого закрытия лежит точно под штрихом, а не пересекает его прямой линией
+            # одна гладкая кривая на всю ширину глаза: и линия сжатия, и штрих века (без углов на концах)
+            u = np.clip((xx - cx) / (rx * .98), -1, 1); bump = (1 - u * u) ** 0.55
+            curve = (l0 - ry * .12) + ry * .37 * bump
+            lcurve = l0 + (curve - l0) * float(smooth(lid / .6))                # при открытом глазе — прежняя прямая
+            e2 = remap(e4, xx - bx0, (lcurve + (yy - lcurve) / sy) - by0)
             ea = e2[..., 3:4] / 255
             img[sl] = img[sl] * (1 - ea) + e2[..., :3] * ea
             # Штрих закрытого века раньше ВКЛЮЧАЛСЯ разом при lid > 0.85 (между соседними кадрами
@@ -348,10 +356,12 @@ class Rig:
             ka = float(smooth((lid - .7) / .3))
             if ka > 0:
                 c = img[sl].copy()
-                cv2.ellipse(c, (int(cx - bx0), int(l0 - ry * .15 - by0)), (int(rx * .85), int(ry * .4)), 0, 15, 165,
-                            (24, 22, 24), 7, cv2.LINE_AA)
-                outside = 1 - ea                                               # штрих не ложится поверх самого глаза
-                img[sl] = img[sl] * (1 - ka * outside) + c * (ka * outside)
+                us = np.linspace(-.92, .92, 48); pts = np.stack([cx - bx0 + us * rx * .98,
+                                                                (l0 - ry * .12) + ry * .37 * (1 - us * us) ** 0.55 - by0], 1)
+                cv2.polylines(c, [np.round(pts * 16).astype(np.int32)], False, (24, 22, 24), 7, cv2.LINE_AA, shift=4)
+                cover = float(smooth((lid - LID_COVER) / .15))                 # у закрытия штрих накрывает остаток щёлки под собой
+                w = ka * ((1 - ea) + ea * cover)
+                img[sl] = img[sl] * (1 - w) + c * w
 
     # ------------------------------------------------------------- кадр
     def frame(self, st, t):
