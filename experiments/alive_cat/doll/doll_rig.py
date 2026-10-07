@@ -53,14 +53,34 @@ class Rig:
             return (slice(ys.min(), ys.max() + 1), slice(xs.min(), xs.max() + 1)) if len(ys) else None
         self.sl = {"head": box(self.w_head), "ear": box(self.w_ear), "tail": box(self.w_tail)}
         self.sl.update({"paw_" + k: box(w) for k, w in self.w_paw.items()})
+        # поза «машет»: тело с поднятой лапой (платная правка эталона + убранная лишняя ступня)
+        self.wave = None
+        if r.get("wave"):
+            wv = r["wave"]
+            rs = np.asarray(Image.open(wv["image"]).convert("RGB")).astype(np.float32)
+            ra = np.asarray(Image.open(wv["mask"])).astype(np.float32)
+            Hm, Wm = np.mgrid[0:H, 0:W]
+            from scipy import ndimage
+            arm = (ra > 128) & ~ndimage.binary_dilation(self.alpha > 128, iterations=2) & (Wm < wv["arm_max_x"]) & (Hm < wv["arm_max_y"])
+            lab, n = ndimage.label(arm); keep = np.argmax(ndimage.sum(arm, lab, range(1, n + 1))) + 1
+            arm = ndimage.binary_fill_holes(ndimage.binary_dilation(lab == keep, iterations=4)) & (ra > 8)
+            arm_a = (ndimage.gaussian_filter(arm.astype(np.float32), 0.8) * ra).astype(np.float32)
+            outside = ~ndimage.binary_dilation(self.alpha > 128, iterations=1)   # вне силуэта эталона — только лапа
+            body_a = np.where(outside & ndimage.binary_dilation(arm, iterations=3), 0, ra).astype(np.float32)
+            fur_r = rs.copy()                                  # морда та же, что в эталоне: глаза — из системы глаз
+            for (mi, mw, mp) in self.M:
+                ww = ndimage.binary_dilation(mw, iterations=8); fur_r[ww] = self.fur[ww]
+            pv = np.array(wv["pivot"], np.float32); tip = np.array(wv["tip"], np.float32); v = tip - pv
+            wgt = smooth((((Wm - pv[0]) * v[0] + (Hm - pv[1]) * v[1]) / (v @ v)) * 1.6).astype(np.float32)
+            self.wave = dict(fur=fur_r, body_a=body_a, arm=np.dstack([rs, arm_a]), w=wgt, pivot=pv, down=wv["down_deg"])
         # части глаза — только в рамке глаз
         self.eye_bb = []
         for (cx, cy, rx, ry) in self.E:
             self.eye_bb.append((int(cx - rx - 14), int(cy - ry - 14), int(cx + rx + 15), int(cy + ry + 15)))
 
     # ------------------------------------------------------------- глаза
-    def face(self, look, lid):
-        img = self.fur.copy()
+    def face(self, look, lid, base=None):
+        img = (self.fur if base is None else base).copy()
         for (cx, cy, rx, ry), (mi, mw, mp), (bx0, by0, bx1, by1) in zip(self.E, self.M, self.eye_bb):
             sl = (slice(by0, by1), slice(bx0, bx1))
             yy, xx = np.mgrid[by0:by1, bx0:bx1].astype(np.float32)
@@ -84,7 +104,20 @@ class Rig:
     # ------------------------------------------------------------- кадр
     def frame(self, st, t):
         r = self.r; x0, y0, x1, y1 = self.bb
-        cat = np.dstack([self.face(st["look"], st["lid"]), self.alpha])
+        wave = st.get("wave")                       # None или (подъём 0..1, угол маха)
+        if wave and self.wave and wave[0] >= 0.35:
+            wv = self.wave
+            cat = np.dstack([self.face(st["look"], st["lid"], wv["fur"]), wv["body_a"]])
+            k = (wave[0] - .35) / .65
+            settle = wv["down"] * np.exp(-4 * k) * np.cos(7 * k)               # доворот с отскоком
+            ang = np.radians(settle + wave[1])
+            Hh, Ww = self.H, self.W; Ym, Xm = np.mgrid[0:Hh, 0:Ww].astype(np.float32)
+            a2 = -ang * wv["w"]; c, s_ = np.cos(a2), np.sin(a2); dx, dy = Xm - wv["pivot"][0], Ym - wv["pivot"][1]
+            armw = remap(wv["arm"], wv["pivot"][0] + c * dx - s_ * dy, wv["pivot"][1] + s_ * dx + c * dy)
+            aa = armw[..., 3:4] / 255
+            cat = np.dstack([cat[..., :3] * (1 - aa) + armw[..., :3] * aa, np.maximum(cat[..., 3], armw[..., 3])])
+        else:
+            cat = np.dstack([self.face(st["look"], st["lid"]), self.alpha])
         fx0, fy0, fx1, fy1 = r["flame_box"]; hh = fy1 - fy0                 # огонёк — в своих координатах
         yy, xx = np.mgrid[0:hh, 0:fx1 - fx0].astype(np.float32); ku = (1 - yy / hh) ** 1.5
         dx = ku * (4 * np.sin(2 * np.pi * (yy / 45 - t * 2.3)) + 2.5 * np.sin(2 * np.pi * (t * 3.7 + .3)))
@@ -137,6 +170,7 @@ def plan(dur, actions, seed=7):
         look_x += [(t, look_x[-1][1]), (t + .25, g), (t + .25 + hold, g), (t + .5 + hold, 0.)]
         t += hold + rng.uniform(2.5, 5)
     paws = {"left": ([], []), "right": ([], [])}
+    WV = []
     for a in actions:
         t0, kind = a["t"], a["do"]
         if kind == "look":                      # смотреть на точку: x,y в [-1..1]
@@ -158,6 +192,9 @@ def plan(dur, actions, seed=7):
             d = a.get("dur", 1.4); deg = a.get("deg", -12)
             S += [(t0, 0.), (t0 + .35, deg), (t0 + .35 + d, deg), (t0 + .8 + d, 0.)]
             L += [(t0, 0.), (t0 + .35, 12.), (t0 + .35 + d, 12.), (t0 + .8 + d, 0.)]
+        elif kind == "wave":                    # помахать: подъём 0.2 с, n взмахов, опускание
+            n = a.get("n", 2); up = .2; per = .42
+            WV.append((t0, t0 + up, t0 + up + n * per, t0 + up + n * per + .22, per))
         elif kind == "blink":
             blinks.append(t0)
     blinks.sort(); head.sort()
@@ -173,7 +210,13 @@ def plan(dur, actions, seed=7):
             for t1 in (e, e + .25):
                 d = (t - t1) / .11
                 if 0 <= d < 2: ear += -10 * np.sin(np.pi * d / 2) ** 2
-        return dict(look=(key(t, look_x), key(t, look_y)), lid=lid, head=key(t, head), ear=ear,
+        wave = None
+        for (a0, a1, a2_, a3, per) in WV:
+            if a0 <= t <= a3:
+                lift = smooth((t - a0) / (a1 - a0)) if t < a1 else (1 - smooth((t - a2_) / (a3 - a2_)) if t > a2_ else 1.)
+                sw = 12 * np.sin(2 * np.pi * (t - a1) / per) if a1 <= t <= a2_ else 0.
+                wave = (float(lift), float(sw))
+        return dict(wave=wave, look=(key(t, look_x), key(t, look_y)), lid=lid, head=key(t, head), ear=ear,
                     tail=4 * np.sin(2 * np.pi * t / 3.1), breath=1 + .012 * np.sin(2 * np.pi * t / 2.6),
                     paws={k: (key(t, sorted(v[0])), key(t, sorted(v[1]))) for k, v in paws.items()})
     return state

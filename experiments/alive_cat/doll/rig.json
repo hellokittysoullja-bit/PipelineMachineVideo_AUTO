@@ -1,11 +1,76 @@
 {
- "image": "hero.png", "mask": "mask.png", "fur": "part_fur.png", "iris": "part_iris.png",
- "eyes": "eyes.npy", "eye_masks": "masks.npy",
- "neck": [618, 575], "head_below_y": 585,
- "ear_base": [742, 222], "ear_tip": [774, 111], "ear_center": [758, 165],
- "tail_base": [822, 705], "tail_from_x": 830,
- "flame_box": [920, 270, 1050, 480],
- "paws": {"left": {"shoulder": [588, 610], "foot": [588, 760], "half_width": 42},
-          "right": {"shoulder": [662, 610], "foot": [662, 762], "half_width": 42}},
- "floor_y": 772
+ "image": "hero.png",
+ "mask": "mask.png",
+ "fur": "part_fur.png",
+ "iris": "part_iris.png",
+ "eyes": "eyes.npy",
+ "eye_masks": "masks.npy",
+ "neck": [
+  618,
+  575
+ ],
+ "head_below_y": 585,
+ "ear_base": [
+  742,
+  222
+ ],
+ "ear_tip": [
+  774,
+  111
+ ],
+ "ear_center": [
+  758,
+  165
+ ],
+ "tail_base": [
+  822,
+  705
+ ],
+ "tail_from_x": 830,
+ "flame_box": [
+  920,
+  270,
+  1050,
+  480
+ ],
+ "paws": {
+  "left": {
+   "shoulder": [
+    588,
+    610
+   ],
+   "foot": [
+    588,
+    760
+   ],
+   "half_width": 42
+  },
+  "right": {
+   "shoulder": [
+    662,
+    610
+   ],
+   "foot": [
+    662,
+    762
+   ],
+   "half_width": 42
+  }
+ },
+ "floor_y": 772,
+ "wave": {
+  "image": "raised_fixed.png",
+  "mask": "mask_raised.png",
+  "arm_max_x": 470,
+  "arm_max_y": 620,
+  "pivot": [
+   400,
+   560
+  ],
+  "tip": [
+   290,
+   390
+  ],
+  "down_deg": -25
+ }
 }
