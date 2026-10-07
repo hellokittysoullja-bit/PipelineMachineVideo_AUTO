@@ -11,6 +11,7 @@
   5. fix_pauses.py       — подрезка длинных пауз TTS.
   6. assemble_frames.py  — сборка final.mp4 + субтитры + главы.
   7. verify_timing.py    — резы, измеренные в пикселях готового файла, против начала фраз.
+  8. montage_qc.py       — приёмка монтажа по пикселям (docs/MONTAGE_SPEC.md); блок останавливает.
 Останавливается на шаге, который не может продолжить, и говорит, что сделать.
 Готовое берётся из кэша: перезапуск не платит и не рисует заново."""
 import argparse
@@ -58,6 +59,8 @@ def main():
     step("Паузы", ["fix_pauses.py", vd])
     step("Сборка", ["assemble_frames.py", vd], ok_codes=(0, 2))
     step("Замер тайминга", ["verify_timing.py", vd], ok_codes=(0, 1, 2))
+    # приёмка монтажа по пикселям (docs/MONTAGE_SPEC.md): 2 — предупреждения, ролик собран; 1 — блок
+    step("Приёмка монтажа", ["montage_qc.py", vd], ok_codes=(0, 2))
     try:
         v = json.load(open(os.path.join(vd, "media_plan", "timing_verification.json"), encoding="utf-8"))
         print(f"\nТайминг по готовому файлу: {v.get('verdict')}, дрейф {v.get('drift')}")
