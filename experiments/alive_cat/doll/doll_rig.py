@@ -15,6 +15,26 @@ cv2.setNumThreads(1)
 from multiprocessing import Pool
 from PIL import Image
 
+
+FLAME_NOISE = os.environ.get("FLAME_NOISE", "1") == "1"
+
+def _vnoise(x, seed):
+    """1D value-шум: случайные значения в целых точках, гладкая (smoothstep) интерполяция, диапазон -1..1."""
+    i = np.floor(x); f = x - i; i = i.astype(np.int64)
+    def h(n):
+        n = (n * 374761393 + seed * 668265263) & 0xFFFFFFFF
+        n = ((n ^ (n >> 13)) * 1274126177) & 0xFFFFFFFF
+        return (n & 0xFFFF) / 32767.5 - 1.0
+    u = f * f * (3 - 2 * f)
+    return (h(i) * (1 - u) + h(i + 1) * u).astype(np.float32)
+
+def fbm(x, seed, octaves=3):
+    """Сумма октав, нормирована к амплитуде синуса (~-1..1)."""
+    tot = np.zeros_like(np.asarray(x, np.float32)); a = 1.0; fr = 1.0; norm = 0.0
+    for o in range(octaves):
+        tot = tot + a * _vnoise(np.asarray(x, np.float32) * fr, seed + 101 * o); norm += a; a *= .5; fr *= 2.0
+    return tot / norm * 1.9
+
 def remap(img, X, Y, border=cv2.BORDER_CONSTANT):
     return cv2.remap(np.ascontiguousarray(img, np.float32), np.asarray(X, np.float32), np.asarray(Y, np.float32), cv2.INTER_LINEAR, borderMode=border)
 
@@ -113,6 +133,11 @@ class Rig:
     # ------------------------------------------------------------- кадр
     def frame(self, st, t):
         r = self.r; x0, y0, x1, y1 = self.bb
+        cat = self.cat_layer(st, t)
+        return self._warp_cpu(cat, st)
+
+    def cat_layer(self, st, t):
+        r = self.r
         wave = st.get("wave")                       # None или (подъём 0..1, угол маха)
         if wave and self.wave and wave[0] >= 0.35:
             wv = self.wave
@@ -134,9 +159,41 @@ class Rig:
             k = np.float32(pz[1]); cat = cat * (1 - k) + other * k
         fx0, fy0, fx1, fy1 = r["flame_box"]; hh = fy1 - fy0                 # огонёк — в своих координатах
         yy, xx = np.mgrid[0:hh, 0:fx1 - fx0].astype(np.float32); ku = (1 - yy / hh) ** 1.5
-        dx = ku * (4 * np.sin(2 * np.pi * (yy / 45 - t * 2.3)) + 2.5 * np.sin(2 * np.pi * (t * 3.7 + .3)))
-        dy = ku * 3 * np.sin(2 * np.pi * t * 4.1)
+        if FLAME_NOISE:                                                      # fBm: без периода, языки не повторяются
+            dx = ku * (4 * fbm(yy / 45 - t * 2.3, 11) + 2.5 * fbm(np.float32(t * 3.7), 23))
+            dy = ku * 3 * fbm(np.float32(t * 4.1), 37)
+        else:
+            dx = ku * (4 * np.sin(2 * np.pi * (yy / 45 - t * 2.3)) + 2.5 * np.sin(2 * np.pi * (t * 3.7 + .3)))
+            dy = ku * 3 * np.sin(2 * np.pi * t * 4.1)
         cat[fy0:fy1, fx0:fx1] = remap(cat[fy0:fy1, fx0:fx1], xx - dx, yy + dy, cv2.BORDER_REPLICATE)
+        return cat
+
+    def frame_hd(self, st, t):
+        """Кадр сразу 1920x1080: изгиб и увеличение одним пересчётом (INTER_CUBIC) — края резче,
+        чем remap + отдельный Lanczos-апскейл."""
+        cat = self.cat_layer(st, t); r = self.r
+        if not hasattr(self, "_hd"):
+            sc = 1920 / self.W; off = (self.H * sc - 1080) / 2
+            Oy, Ox = np.mgrid[0:1080, 0:1920].astype(np.float32)
+            Px = (Ox + .5) / sc - .5; Py = (Oy + off + .5) / sc - .5
+            x0, y0, x1, y1 = self.bb
+            ix = np.clip(np.round(Px).astype(int) - x0, 0, x1 - x0 - 1); iy = np.clip(np.round(Py).astype(int) - y0, 0, y1 - y0 - 1)
+            inside = (Px >= x0) & (Px < x1) & (Py >= y0) & (Py < y1)
+            self._hd = dict(Px=Px, Py=Py, inside=inside, wh=self.w_head[iy, ix] * inside, we=self.w_ear[iy, ix] * inside, wt=self.w_tail[iy, ix] * inside)
+        h = self._hd; X, Y = h["Px"].copy(), h["Py"].copy()
+        def rot(X, Y, p, deg, w):
+            if abs(deg) < 1e-3: return X, Y
+            a = np.float32(-np.radians(deg)) * w; c, s = np.cos(a), np.sin(a); dx, dy = X - p[0], Y - p[1]
+            return p[0] + c * dx - s * dy, p[1] + s * dx + c * dy
+        b = st["breath"] * (1 - .02 * st.get("squash", 0)); fl = r["floor_y"]
+        Y = fl - (fl - Y) / b
+        X, Y = rot(X, Y, r["tail_base"], st["tail"], h["wt"]); X, Y = rot(X, Y, r["ear_base"], st["ear"], h["we"]); X, Y = rot(X, Y, r["neck"], st["head"], h["wh"])
+        c = cv2.remap(np.ascontiguousarray(cat, np.float32), X.astype(np.float32), Y.astype(np.float32), cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT)
+        a = np.clip(c[..., 3:4], 0, 255) / 255 * h["inside"][..., None]
+        return np.clip(self.paper * (1 - a) + np.clip(c[..., :3], 0, 255) * a, 0, 255).astype(np.uint8)
+
+    def _warp_cpu(self, cat, st):
+        r = self.r; x0, y0, x1, y1 = self.bb
         X, Y = self.XX.copy(), self.YY.copy()
         def rot(X, Y, p, deg, w, sl):
             """Поворот с весом только там, где вес ненулевой (in place)."""
