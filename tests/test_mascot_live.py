@@ -147,3 +147,19 @@ def test_flame_state_scales_only_the_flame():
         assert (d[:Y0] <= 0).all() and (d[Y1:] <= 0).all()                  # вне рамки — ничего
     ms = dict(origin=[0.0, 0.0], scale=1.0, actions=[], seed=0, state="ember")
     assert M.Layer(ms, 2.0).flame == "ember" and M.Layer(dict(ms, state="bright"), 2.0).flame is None
+
+
+@needs_rig
+def test_doll_shrinks_beside_a_wide_subject_instead_of_vanishing(tmp_path):
+    """Живой кадр 3 эп.01: конверт в треть ширины холста — на 52% кукле не хватало пикселей,
+    и кадр шёл без неё. Теперь уменьшается ступенями, место слева или справа находится."""
+    import canvas
+    import frame_clip
+    src = tmp_path / "raw.png"
+    im = Image.new("RGB", (1264, 848), (251, 251, 246))
+    ImageDraw.Draw(im).rectangle((190, 301, 708, 695), outline=(20, 20, 20), width=8)
+    im.save(src)
+    objs = [dict(name="a letter", box=[190, 301, 708, 695], word=None, role="subject")]
+    fr = frame_clip.prepare(str(src), [], objs, str(tmp_path), tex=canvas.paper_texture(w=1152, h=648))
+    ms = M.place(fr, dict(text="x"))
+    assert ms and ms["share"] < M.HEIGHT_SHARE and ms["share"] in M.SHRINK_STEPS

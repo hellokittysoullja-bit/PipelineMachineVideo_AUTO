@@ -27,7 +27,9 @@ import placement
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RIG_DIR = os.environ.get("MASCOT_RIG_DIR") or os.path.join(os.path.dirname(HERE), "experiments", "alive_cat", "doll")
-HEIGHT_SHARE = 0.52      # рост кота по плотному силуэту — доля высоты холста (средний план, как у генератора)
+HEIGHT_SHARE = 0.52      # рост кота по плотному силуэту — доля высоты холста (решение владельца 07.10)
+SHRINK_STEPS = (0.46, 0.40)   # тесно рядом с крупным предметом — кукла меньше, а не никакой (живой кадр 3 эп.01:
+                              # конверт в треть ширины, коту 52% не хватило 3 px до безопасной зоны)
 GAP_SHARE = 0.03         # зазор между котом и предметом, доля ширины холста
 MAX_BUSY = 0.12          # средняя занятость под силуэтом, выше — кукле тут не место
 BUSY_MARGIN = 26         # поле вокруг куклы в карте занятости (как у busy_map)
@@ -112,25 +114,28 @@ def place(fr, spec):
     import shots
     R = rig(); SW, SH = fr["SW"], fr["SH"]
     tx0, ty0, tx1, ty1 = R.tight
-    s = HEIGHT_SHARE * SH / (ty1 - ty0)
-    cw, ch = (tx1 - tx0) * s, (ty1 - ty0) * s
     subj = shots.subject_box(fr["busy"], fr["objects"])
     sx0, sy0, sx1, sy1 = subj if subj else (SW * 0.45, SH * 0.4, SW * 0.55, SH * 0.6)
     L, T, Rr, B = placement.SAFE
-    floor = float(np.clip(max(sy1 + 0.02 * SH, 0.62 * SH), ch + T * SH, B * SH))   # пол: лапы не ниже безопасной зоны
-    y0 = floor - ch
     gap = GAP_SHARE * SW
-    cands = []
-    for side in ("left", "right"):
-        x0 = sx0 - gap - cw if side == "left" else sx1 + gap
-        x0 = float(np.clip(x0, L * SW, Rr * SW - cw))
-        x1 = x0 + cw
-        if (side == "left" and x1 > sx0 - gap * 0.5) or (side == "right" and x0 < sx1 + gap * 0.5):
-            continue                                                   # не поместился сбоку от предмета
-        b = fr["busy"][int(y0):int(y0 + ch), int(x0):int(x1)]
-        cands.append((float(b.mean()) if b.size else 1.0, side, x0))
-    cands.sort()
-    if not cands or cands[0][0] > MAX_BUSY:
+    for share in (HEIGHT_SHARE,) + tuple(SHRINK_STEPS):
+        s = share * SH / (ty1 - ty0)
+        cw, ch = (tx1 - tx0) * s, (ty1 - ty0) * s
+        floor = float(np.clip(max(sy1 + 0.02 * SH, 0.62 * SH), ch + T * SH, B * SH))   # пол: лапы не ниже безопасной зоны
+        y0 = floor - ch
+        cands = []
+        for side in ("left", "right"):
+            x0 = sx0 - gap - cw if side == "left" else sx1 + gap
+            x0 = float(np.clip(x0, L * SW, Rr * SW - cw))
+            x1 = x0 + cw
+            if (side == "left" and x1 > sx0 - gap * 0.5) or (side == "right" and x0 < sx1 + gap * 0.5):
+                continue                                               # не поместился сбоку от предмета
+            b = fr["busy"][int(y0):int(y0 + ch), int(x0):int(x1)]
+            cands.append((float(b.mean()) if b.size else 1.0, side, x0))
+        cands.sort()
+        if cands and cands[0][0] <= MAX_BUSY:
+            break
+    else:
         return None
     busy_v, side, x0 = cands[0]
     ox, oy = x0 - tx0 * s, y0 - ty0 * s                                # холст = origin + s * риг
@@ -145,7 +150,7 @@ def place(fr, spec):
     # fr["busy"]; без кота в final_rgb мысль легла бы ему на голову (пилот 07.10: центр мысли (635,360)
     # внутри рамки кота). Кот в покое впечатывается в final_rgb на своё место.
     fr["final_rgb"] = paint_rest(fr["final_rgb"], R, (ox, oy), s)
-    return dict(origin=[ox, oy], scale=s, box=box, gaze=gaze, side=side, busy=round(busy_v, 4))
+    return dict(origin=[ox, oy], scale=s, box=box, gaze=gaze, side=side, busy=round(busy_v, 4), share=share)
 
 
 def rest_state():

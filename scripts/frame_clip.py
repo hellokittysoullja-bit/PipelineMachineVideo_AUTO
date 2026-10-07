@@ -205,6 +205,8 @@ def plan_clip(fr, D, words, key=None, last_punch=-1e9, T0=0.0, zoom_in=True, fps
         p["notes"].append("живой кукле нет места рядом с предметом — кадр без неё" if mascot_live.available()
                           else "живая кукла: рига нет на диске — кадр без неё")
     if ms:
+        if ms.get("share", mascot_live.HEIGHT_SHARE) < mascot_live.HEIGHT_SHARE:
+            p["notes"].append(f"живая кукла уменьшена до {ms['share']:.0%} высоты: рядом с предметом тесно")
         ms["actions"] = mascot_live.plan_actions(D, words, mascot.get("text", ""), ms["gaze"], seed=int(mascot.get("seed", 0)),
                                                  action=mascot.get("action"))
         ms["seed"] = int(mascot.get("seed", 0)); ms["sig"] = mascot_live.signature(); ms["state"] = mascot.get("state")
