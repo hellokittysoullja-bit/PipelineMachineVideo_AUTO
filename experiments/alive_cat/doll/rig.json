@@ -62,6 +62,10 @@
   "paw_up": {
    "image": "beckon.png",
    "mask": "mask_beckon.png"
+  },
+  "point_right": {
+   "image": "point.png",
+   "mask": "mask_point.png"
   }
  }
 }

@@ -208,7 +208,9 @@ def plan(dur, actions, seed=7):
             S += [(t0, 0.), (t0 + .35, deg), (t0 + .35 + d, deg), (t0 + .8 + d, 0.)]
             L += [(t0, 0.), (t0 + .35, 12.), (t0 + .35 + d, 12.), (t0 + .8 + d, 0.)]
         elif kind == "paw":                     # лапа к груди (поза), держит dur секунд
-            POSE.append((t0, t0 + a.get("dur", 2.0)))
+            POSE.append((t0, t0 + a.get("dur", 2.0), "paw_up"))
+        elif kind == "pose":                    # любая поза из rig.json, поверх текущей
+            POSE.append((t0, t0 + a.get("dur", 1.5), a["name"]))
         elif kind == "wave":                    # помахать: подъём 0.2 с, n взмахов, опускание
             n = a.get("n", 2); up = .2; per = .42
             WV.append((t0, t0 + up, t0 + up + n * per, t0 + up + n * per + .22, per))
@@ -234,11 +236,13 @@ def plan(dur, actions, seed=7):
                 sw = 12 * np.sin(2 * np.pi * (t - a1) / per) if a1 <= t <= a2_ else 0.
                 wave = (float(lift), float(sw))
         pose = None; squash = 0.
-        for (p0, p1) in POSE:
-            sw = 2 / 30
-            if p0 - .15 <= t < p0: squash = float(np.sin(np.pi * (t - (p0 - .15)) / .15))   # присед-замах
-            if p0 <= t < p1:                                     # мгновенная смена позы: без полупрозрачных «призраков»
-                pose = ("paw_up", 1.0)
+        best = None
+        for (p0, p1, name) in POSE:
+            if name == "paw_up" and p0 - .15 <= t < p0:
+                squash = float(np.sin(np.pi * (t - (p0 - .15)) / .15))                  # присед-замах перед подъёмом
+            if p0 <= t < p1 and (best is None or p0 >= best[0]):  # мгновенная смена позы, последняя начатая главнее
+                best = (p0, name)
+        if best: pose = (best[1], 1.0)
         return dict(pose=pose, squash=squash, wave=wave, look=(key(t, look_x), key(t, look_y)), lid=lid, head=key(t, head), ear=ear,
                     tail=4 * np.sin(2 * np.pi * t / 3.1), breath=1 + .012 * np.sin(2 * np.pi * t / 2.6),
                     paws={k: (key(t, sorted(v[0])), key(t, sorted(v[1]))) for k, v in paws.items()})
