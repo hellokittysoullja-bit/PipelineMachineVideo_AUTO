@@ -18,6 +18,7 @@ from PIL import Image
 
 FLAME_NOISE = os.environ.get("FLAME_NOISE", "1") == "1"
 TAIL_NOISE = os.environ.get("TAIL_NOISE", "1") == "1"
+HIGHLIGHT_FIXED = os.environ.get("HIGHLIGHT_FIXED", "1") == "1"  # блик в глазу стоит на месте, зрачок ходит под ним
 LID_ANCHOR = float(os.environ.get("LID_ANCHOR", "0.24"))   # куда сходится глаз при закрытии, в долях радиуса от центра вниз
 LID_COVER = float(os.environ.get("LID_COVER", "0.84"))      # с какого lid штрих века накрывает остаток щёлки (к 0.95 — целиком)      # хвост: fBm вместо чистой синусоиды с периодом 3.1 с
 BLINK_ON_GAZE = os.environ.get("BLINK_ON_GAZE", "1") == "1"  # большой перевод взгляда сопровождается морганием
@@ -173,6 +174,37 @@ class Rig:
         self.eye_bb = []
         for (cx, cy, rx, ry) in self.E:
             self.eye_bb.append((int(cx - rx - 14), int(cy - ry - 14), int(cx + rx + 15), int(cy + ry + 15)))
+        # блик — отражение света на роговице: стоит на месте, когда зрачок уходит в сторону.
+        # Раньше он был частью слоя зрачка и ездил вместе с ним. Вынимаем его из зрачка один раз.
+        self.pupil_src = []; self.hl = []
+        from scipy import ndimage as _nd
+        for (cx, cy, rx, ry), (mi, mw, mp), (bx0, by0, bx1, by1) in zip(self.E, self.M, self.eye_bb):
+            sl = (slice(by0, by1), slice(bx0, bx1))
+            src = self.src[sl].copy(); lum = src @ np.float32([.299, .587, .114])
+            sat = src.max(2) - src.min(2)
+            white = (lum > 150) & (sat < 60) & _nd.binary_dilation(mp[sl], iterations=2)   # белое, не зелёная радужка
+            lab_, n_ = _nd.label(white); core = np.zeros_like(white)
+            if n_:
+                sizes = _nd.sum(white, lab_, range(1, n_ + 1)); k_ = int(np.argmax(sizes)) + 1
+                if sizes[k_ - 1] >= 20: core = lab_ == k_                            # одно пятно блика, не крапинки края
+            if HIGHLIGHT_FIXED and core.any():
+                reg = _nd.binary_dilation(core, iterations=2)
+                a = np.clip((lum - 60) / 110, 0, 1) * np.clip((90 - sat) / 40, 0, 1) * reg   # мягкий край блика, без зелени радужки
+                pm = mp[sl].astype(np.uint8)
+                dark = np.median(src[(pm > 0) & ~reg], axis=0)                       # цвет зрачка под бликом
+                fill = src.copy(); fill[reg] = dark
+                # форма зрачка под бликом неизвестна (маска рисовалась с бликом) — достроить эллипсом по остальному контуру
+                cnts, _ = cv2.findContours(pm, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+                cnt = max(cnts, key=cv2.contourArea).reshape(-1, 2)
+                keep = ~_nd.binary_dilation(reg, iterations=1)[cnt[:, 1], cnt[:, 0]]
+                pm2 = (pm > 0) & ~reg
+                if keep.sum() >= 5:
+                    ell = cv2.fitEllipse(cnt[keep].astype(np.float32)); em = np.zeros_like(pm)
+                    cv2.ellipse(em, ell, 1, -1); pm2 |= (em > 0) & reg                 # эллипс только там, где был блик
+                self.pupil_src.append(np.dstack([fill, pm2.astype(np.float32) * 255]))
+                self.hl.append((src * a[..., None], a[..., None]))                   # премультиплицированный блик
+            else:
+                self.pupil_src.append(np.dstack([src, mp[sl].astype(np.float32) * 255])); self.hl.append(None)
 
 
     def _head_layer(self, r):
@@ -331,14 +363,15 @@ class Rig:
         return img
 
     def _eyes(self, img, look, lid):
-        for (cx, cy, rx, ry), (mi, mw, mp), (bx0, by0, bx1, by1) in zip(self.E, self.M, self.eye_bb):
+        for k, ((cx, cy, rx, ry), (mi, mw, mp), (bx0, by0, bx1, by1)) in enumerate(zip(self.E, self.M, self.eye_bb)):
             sl = (slice(by0, by1), slice(bx0, bx1))
             yy, xx = np.mgrid[by0:by1, bx0:bx1].astype(np.float32)
             dx, dy = look[0] * rx * .3, look[1] * ry * .3
-            src4 = np.dstack([self.src[sl], mp[sl].astype(np.float32) * 255])
-            pup = remap(src4, xx - bx0 - dx, yy - by0 - dy)
+            pup = remap(self.pupil_src[k], xx - bx0 - dx, yy - by0 - dy)
             pa = (pup[..., 3:4] / 255) * mi[sl][..., None]
             eye = self.iris[sl] * (1 - pa) + pup[..., :3] * pa
+            if self.hl[k] is not None:                                             # блик на месте, поверх зрачка и радужки
+                hc, ha = self.hl[k]; eye = eye * (1 - ha) + hc
             sy = max(1 - lid, 1e-3); l0 = cy + ry * LID_ANCHOR
             e4 = np.dstack([eye, mw[sl].astype(np.float32) * 255])
             # глаз сплющивается не к прямой, а к ДУГЕ закрытого века (той же, что рисуется штрихом):
@@ -517,14 +550,18 @@ def plan(dur, actions, seed=7):
             d = a.get("dur", 1.5)
             if BLINK_ON_GAZE and abs(a["x"] - key(t0, look_x)) >= .6 and not any(abs(b - t0) < .5 for b in blinks):
                 blinks.append(t0 - .03)         # взгляд уходит под веком: так переводят глаза люди и кошки
+            if BLINK_ON_GAZE and abs(a["x"]) >= .6 and not any(abs(b - (t0 + d)) < .5 for b in blinks):
+                blinks.append(t0 + d - .03)     # и возвращается тоже под веком
             look_x = [p for p in look_x if not (t0 - .3 <= p[0] <= t0 + d + .3)]
             look_y = [p for p in look_y if not (t0 - .3 <= p[0] <= t0 + d + .3)]
             look_x += [(t0, key(t0, look_x)), (t0 + .22, a["x"]), (t0 + d, a["x"]), (t0 + d + .3, 0.)]
-            look_y += [(t0, 0.), (t0 + .22, a.get("y", 0.)), (t0 + d, a.get("y", 0.)), (t0 + d + .3, 0.)]
+            look_y += [(t0, key(t0, look_y)), (t0 + .22, a.get("y", 0.)), (t0 + d, a.get("y", 0.)), (t0 + d + .3, 0.)]
             look_x.sort(); look_y.sort()
         elif kind == "tilt":                    # наклон головы, градусы
             d = a.get("dur", 1.5)
-            head += [(t0, 0.), (t0 + .5, a["deg"]), (t0 + .5 + d, a["deg"]), (t0 + 1.1 + d, 0.)]
+            head.sort(); cur = key(t0, head)    # с ТЕКУЩЕГО угла, не с нуля: два наклона внахлёст давали рывок 3.4°/кадр
+            head = [p for p in head if not (t0 <= p[0] <= t0 + 1.1 + d)]
+            head += [(t0, cur), (t0 + .5, a["deg"]), (t0 + .5 + d, a["deg"]), (t0 + 1.1 + d, 0.)]
         elif kind == "tap":                     # постучать лапой n раз
             L = paws[a.get("paw", "right")][0]
             for i in range(a.get("n", 2)):
