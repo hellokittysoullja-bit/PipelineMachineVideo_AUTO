@@ -57,11 +57,17 @@ class Rig:
         self.bb = (max(0, xs.min() - pad), max(0, ys.min() - pad), min(W, xs.max() + pad), min(H, ys.max() + pad))
         x0, y0, x1, y1 = self.bb
         YY, XX = np.mgrid[y0:y1, x0:x1].astype(np.float32); self.XX, self.YY = XX, YY
-        self.w_head = smooth((r["head_below_y"] - YY) / 55) * (XX < r["tail_from_x"] + 50)
+        import hashlib
+        key = hashlib.sha1(self.alpha.tobytes() + json.dumps([r["head_below_y"], r["neck"], r["flame_box"], [int(v) for v in self.bb]]).encode() + __import__("inspect").getsource(Rig._head_share).encode()).hexdigest()[:16]
+        cache = os.path.join(os.path.dirname(os.path.abspath(path)), f".head_share_{key}.npy")
+        if os.path.exists(cache): share = np.load(cache)
+        else:
+            share = self._head_share(r, x0, y0, x1, y1); np.save(cache, share)        # 1 — голова (с усами), 0 — хвост, плавно в просвете бумаги
+        self.w_head = smooth((r["head_below_y"] - YY) / 55) * share
         eb, et = np.array(r["ear_base"], np.float32), np.array(r["ear_tip"], np.float32); ev = et - eb
         self.w_ear = smooth((((XX - eb[0]) * ev[0] + (YY - eb[1]) * ev[1]) / (ev @ ev)) * 1.3) * \
             smooth((100 - np.hypot(XX - r["ear_center"][0], YY - r["ear_center"][1])) / 25)
-        self.w_tail = smooth((XX - r["tail_from_x"]) / 140) * (YY > 260)
+        self.w_tail = smooth((XX - r["tail_from_x"]) / 140) * (YY > 260) * (1 - share)
         self.w_paw = {}
         for k, p in r["paws"].items():
             sh, ft, hw = np.array(p["shoulder"], np.float32), np.array(p["foot"], np.float32), p["half_width"]
@@ -106,6 +112,47 @@ class Rig:
         self.eye_bb = []
         for (cx, cy, rx, ry) in self.E:
             self.eye_bb.append((int(cx - rx - 14), int(cy - ry - 14), int(cx + rx + 15), int(cy + ry + 15)))
+
+
+    def _head_share(self, r, x0, y0, x1, y1, gap=12.0):
+        """Чья точка — головы или хвоста. Раньше голову обрезала вертикаль x=tail_from_x+50:
+        щека и усы по ту сторону не поворачивались, на наклоне головы был шов. Теперь хозяин —
+        по формам: плотная голова и плотный хвост разделены бумагой (эрозия на 2 px), усы и
+        прочие тонкие штрихи над шеей — голове; в просвете между ними вес плавно делится."""
+        from scipy import ndimage
+        hb = r["head_below_y"]
+        S = self.alpha > 128; S[hb:] = False
+        lab, n = ndimage.label(ndimage.binary_erosion(S, iterations=2))
+        nx, ny = r["neck"]; fx0, fy0, fx1, fy1 = r["flame_box"]
+        hl = lab[min(ny, hb - 3), nx]
+        fx = (fx0 + fx1) // 2                                  # хвост — та форма, что под огоньком
+        tail_pts = [(y, fx) for y in range(fy1, hb) if lab[y, fx] and lab[y, fx] != hl]
+        tl = lab[tail_pts[0]] if tail_pts else 0
+        if not hl or not tl or hl == tl:                       # формы не разделились — прежнее правило
+            return ((self.XX < r["tail_from_x"] + 50)).astype(np.float32)
+        # каждый штрих — той форме, до которой ближе ВДОЛЬ рисунка (а не по прямой через бумагу):
+        # одновременный рост от плотной головы и плотного хвоста только по пикселям рисунка
+        ink = self.alpha > 1; ink[hb:] = False
+        Hm, T = lab == hl, lab == tl
+        for _ in range(400):
+            free = ink & ~Hm & ~T
+            if not free.any(): break
+            gh = ndimage.binary_dilation(Hm) & free; gt = ndimage.binary_dilation(T) & free
+            if not gh.any() and not gt.any(): break
+            Hm |= gh & ~gt; T |= gt & ~gh; both = gh & gt; Hm |= both   # ничья — голове
+        T |= ndimage.binary_dilation(lab == tl, iterations=2) & (self.alpha > 1) & ~Hm
+        d_tail = ndimage.distance_transform_edt(~T)[y0:y1, x0:x1]   # до хвоста над шеей
+        T[hb:] |= (self.alpha > 1)[hb:]                        # ниже шеи всё не голова
+        dh = ndimage.distance_transform_edt(~Hm)[y0:y1, x0:x1]
+        dt = ndimage.distance_transform_edt(~T)[y0:y1, x0:x1]
+        far = dh > 3 * gap                                     # ниже шеи головы нет — там хвост сам по себе
+        sh = smooth((dt - dh) / gap * .5 + .5); sh[far & (dt <= dh)] = 0
+        # размытие: граница по рваным штрихам меха давала зубцы на усах при встречном повороте
+        # головы и хвоста; σ=12 — ус плавно изгибается (подобрано на ±6°, st_all.jpg)
+        sh = ndimage.gaussian_filter(sh, 12.0)
+        sh[(lab == tl)[y0:y1, x0:x1]] = 0                      # плотный хвост — только хвост
+        sh[(self.YY < hb) & (d_tail > 80)] = 1                 # вдали от хвоста — как раньше, один в один
+        return sh.astype(np.float32)
 
     # ------------------------------------------------------------- глаза
     def face(self, look, lid, base=None):
