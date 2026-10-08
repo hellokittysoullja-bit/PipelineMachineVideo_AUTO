@@ -7,8 +7,9 @@
 (+15-20%), кавычки в карточке цитаты белые.
 
 Главное правило обоих — НИЧЕГО НЕ ДОДУМЫВАТЬ:
-* подпись места и года — только там, где во фразе диктора явно названы и
-  место, и год (place_year.place_and_year); не уверены — подписи нет;
+* подпись места и года — только там, где во фразе диктора явно названа
+  дата (place_year.place_and_date: день-месяц-год или год), с местом, если оно
+  названо однозначно; даты нет — подписи нет;
 * карточка цитаты — только для дословной цитаты в «ёлочках» с явно
   названным автором (имя рядом с глаголом речи в той же или соседней
   фразе). Пересказ («пишет, что…», «по словам…» без кавычек) — никогда: на
@@ -81,14 +82,14 @@ def plan_place_captions(blocks, starts, ends, busy=(), confirm=None):
     названы в ОДНОЙ фразе. Подпись встаёт на первый её слот, где звучит год.
     busy — слоты, где уже есть плашка или заставка. starts/ends — начало и
     конец показа слота (сек)."""
-    out, last = {}, None
+    out, cands = {}, []
     seen_parents = set()
     for i, b in enumerate(blocks or []):
         parent = b.get("parent_text") or b.get("text") or ""
         key = (b.get("orig_index"), parent)
         if key in seen_parents:
             continue
-        got = place_year.place_and_year(parent, confirm)
+        got = place_year.place_and_date(parent, confirm)
         if not got:
             continue
         group = [k for k in range(i, len(blocks))
@@ -96,24 +97,34 @@ def plan_place_captions(blocks, starts, ends, busy=(), confirm=None):
         seen_parents.add(key)
         # Слот, где звучит год, первым; занят (плашка/заставка) или короток —
         # следующий слот той же фразы.
-        order = sorted(group, key=lambda k: (not place_year.years_in(blocks[k].get("text") or ""), k))
+        order = sorted(group, key=lambda k: (not place_year.dates_in(blocks[k].get("text") or ""), k))
         slot = next((k for k in order
                      if k not in busy and not blocks[k].get("stat") and not blocks[k].get("chapter_card")
                      and float(ends[k]) - (float(starts[k]) + PLACE_LEAD_SEC) >= PLACE_MIN_SHOW_SEC), None)
         if slot is None:
             continue
         start = float(starts[slot]) + PLACE_LEAD_SEC
-        if last is not None and start - last < PLACE_MIN_GAP_SEC:
-            continue
-        out[slot] = {"place": got[0], "year": str(got[1]), "start": round(start, 6)}
-        last = start
-    return out
+        cands.append((slot, start, {"place": got[0] or "", "year": str(got[1]), "start": round(start, 6)}))
+    # Подписи с местом ставятся первыми, подписи из одной даты — в оставшиеся
+    # окна: иначе «1351» за 30 с до «АЗЕНКУР 25 ОКТЯБРЯ 1415» отнимала бы
+    # главную подпись интервалом (замер эп.05).
+    taken = []
+    for want_place in (True, False):
+        for slot, start, cap in cands:
+            if bool(cap["place"]) != want_place:
+                continue
+            if any(abs(start - t) < PLACE_MIN_GAP_SEC for t in taken):
+                continue
+            out[slot] = cap
+            taken.append(start)
+    return dict(sorted(out.items()))
 
 
 def place_char_times(place, year):
     """Моменты появления символов от начала печати (сек) и конец печати."""
+    place = place or ""
     times = [k * PLACE_CPS for k in range(len(place))]
-    base = len(place) * PLACE_CPS + PLACE_LINE_PAUSE
+    base = (len(place) * PLACE_CPS + PLACE_LINE_PAUSE) if place else 0.0
     times += [base + k * PLACE_CPS for k in range(len(year))]
     return times, base + len(year) * PLACE_CPS
 
@@ -127,7 +138,7 @@ def _w(text, size, font_path):
 
 
 def place_caption_chain(cap, local_start, dur, font_place, font_year, escape, year_font_path,
-                        accent="0xC8102E"):
+                        accent="0xC8102E", place_font_path=None):
     """Цепочка drawtext/drawbox (через запятую) — подпись места и года в
     локальном времени клипа. fontfile-значения уже подготовлены."""
     c0 = float(local_start)
@@ -135,11 +146,18 @@ def place_caption_chain(cap, local_start, dur, font_place, font_year, escape, ye
     hold_end = min(c0 + PLACE_HOLD_SEC, float(dur) - PLACE_FADE_OUT - 0.05)
     alpha = f"if(lt(t\\,{hold_end:.3f})\\,1\\,max(0\\,1-(t-{hold_end:.3f})/{PLACE_FADE_OUT:.3f}))"
     end = hold_end + PLACE_FADE_OUT
-    bar_h = (YEAR_Y + YEAR_SIZE) - (PLACE_Y - 2)
+    # Без места дата встаёт первой строкой и крупнее: одна строка, полоса по ней.
+    date_only = not cap.get("place")
+    year_y, year_size = (PLACE_Y, PLACE_SIZE) if date_only else (YEAR_Y, YEAR_SIZE)
+    bar_h = (year_y + year_size) - (PLACE_Y - 2)
     parts = [f"drawbox=x={PLACE_X - PLACE_BAR_X_GAP}:y={PLACE_Y - 2}:w={PLACE_BAR_W}:h={bar_h}:"
              f"color={accent}@1:t=fill:enable='between(t,{c0 - 0.05:.3f},{end:.3f})'"]
-    lines = ((cap["place"], PLACE_Y, PLACE_SIZE, font_place, "white", 0),
-             (cap["year"], YEAR_Y, YEAR_SIZE, font_year, YEAR_COLOR, len(cap["place"])))
+    # Дата без места пишется шрифтом места: одна строка должна читаться так же
+    # уверенно, как название (тонкий шрифт года в одиночку выглядел подписью
+    # к пустоте — проверено на кадре эп.05).
+    lines = ((cap["year"], year_y, year_size, font_place, "white", 0),) if date_only else (
+        (cap["place"], PLACE_Y, PLACE_SIZE, font_place, "white", 0),
+        (cap["year"], YEAR_Y, YEAR_SIZE, font_year, YEAR_COLOR, len(cap["place"])))
     for txt, y, fs, font, col, off in lines:
         for n in range(1, len(txt) + 1):
             a = c0 + times[off + n - 1]
@@ -148,9 +166,10 @@ def place_caption_chain(cap, local_start, dur, font_place, font_year, escape, ye
                          f"fontcolor={col}:shadowcolor=black@0.75:shadowx=0:shadowy=2:"
                          f"x={PLACE_X}:y={y}:alpha='{alpha}':enable='between(t,{a:.3f},{b - 0.001:.3f})'")
     t_typed = c0 + typed
-    cx = PLACE_X + int(_w(cap["year"], YEAR_SIZE, year_font_path)) + 8
+    cx = PLACE_X + int(_w(cap["year"], year_size,
+                          (place_font_path or year_font_path) if date_only else year_font_path)) + 8
     per, on = CURSOR_BLINK
-    parts.append(f"drawbox=x={cx}:y={YEAR_Y + 4}:w=3:h={int(YEAR_SIZE * 0.88)}:color={accent}@1:t=fill:"
+    parts.append(f"drawbox=x={cx}:y={year_y + 4}:w=3:h={int(year_size * 0.88)}:color={accent}@1:t=fill:"
                  f"enable='between(t,{t_typed:.3f},{t_typed + CURSOR_SEC:.3f})*lt(mod(t-{t_typed:.3f}\\,{per})\\,{on})'")
     return ",".join(parts)
 

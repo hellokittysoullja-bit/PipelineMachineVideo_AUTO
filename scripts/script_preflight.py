@@ -254,7 +254,7 @@ def preflight(script_path, font_path=None):
     caps = screen_text.plan_place_captions(blocks, starts, ends, busy, confirm)
     found_any, last_cap = False, None
     for k, b in enumerate(blocks):
-        got = place_year.place_and_year(b["text"], confirm)
+        got = place_year.place_and_date(b["text"], confirm)
         years = place_year.years_in(b["text"])
         if got:
             found_any = True
@@ -268,8 +268,8 @@ def preflight(script_path, font_path=None):
                          f"{screen_text.PLACE_MIN_GAP_SEC:.0f} — решат реальные онсеты]"
                          if gap is not None and gap < screen_text.PLACE_MIN_GAP_SEC + GAP_NEAR_SEC else "")
                 last_cap = caps[k]["start"]
-            rep.info(f"{_mmss(starts[k])} {got[0]} {got[1]}{sched} — {_short(b['text'], 70)}")
-            if place_year.is_region(got[0]):
+            rep.info(f"{_mmss(starts[k])} {got[0] or '(только дата)'} {got[1]}{sched} — {_short(b['text'], 70)}")
+            if got[0] and place_year.is_region(got[0]):
                 other = _named_places(b["text"], known_places, exclude=got[0])
                 if other:
                     rep.error(f"подпись «{got[0]}» — страна, а во фразе есть {', '.join(sorted(other))}: "
