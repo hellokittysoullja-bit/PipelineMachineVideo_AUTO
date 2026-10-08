@@ -94,11 +94,15 @@
    "section": "HOOK",
    "text": "Сколько в них можно драться?",
    "query": "armoured knight fighting stance",
-   "kind": null,
-   "file": null,
+   "kind": "photo",
+   "file": "locked_media/slot001_gen.png",
    "source": "cache_hit_unknown_file",
    "clip": "clip_0001_b4d47b60.mp4",
-   "lock": false
+   "lock": true,
+   "curated": {
+    "id": "gen",
+    "note": "генерация по просьбе владельца"
+   }
   },
   {
    "index": 2,
@@ -138,11 +142,15 @@
    "section": "HOOK",
    "text": "Учёные это проверили.",
    "query": "armoured man treadmill laboratory",
-   "kind": null,
-   "file": null,
+   "kind": "photo",
+   "file": "locked_media/slot005_gen.png",
    "source": "cache_hit_unknown_file",
    "clip": "clip_0005_b6397410.mp4",
-   "lock": false
+   "lock": true,
+   "curated": {
+    "id": "gen",
+    "note": "генерация по просьбе владельца"
+   }
   },
   {
    "index": 6,

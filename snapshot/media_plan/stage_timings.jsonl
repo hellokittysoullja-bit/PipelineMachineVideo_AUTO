@@ -2848,3 +2848,4 @@
 {"stage": "slot_first", "t_wall": 98.7362, "ok": true, "pid": 26592, "ts": 1791453910.037, "clip_idx": 81}
 {"stage": "slot_total", "t_wall": 100.2796, "ok": true, "pid": 26592, "ts": 1791453911.58, "clip_idx": 81}
 {"stage": "clip_render", "t_wall": 30.1831, "ok": true, "pid": 28757, "ts": 1791453941.767, "clip_idx": 81, "fn": "kenburns"}
+{"stage": "slot_total", "t_wall": 2.1653, "ok": true, "pid": 360, "ts": 1791459100.242, "clip_idx": 0}

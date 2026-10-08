@@ -920,7 +920,7 @@
   "motion_mode_estimate": "slow_pull",
   "is_subcut": false,
   "has_stat": false,
-  "query": "hand pointing document",
+  "query": "person grimacing frustration",
   "text_preview": "Теперь самое неудобное."
  },
  {
@@ -932,7 +932,7 @@
   "motion_mode_estimate": "classic_kb",
   "is_subcut": false,
   "has_stat": false,
-  "query": "medieval knights fighting",
+  "query": "medieval manuscript knights fighting",
   "text_preview": "Ни одна из этих работ не измеряла бой. Никто не рубился и не"
  },
  {
@@ -944,7 +944,7 @@
   "motion_mode_estimate": "classic_kb",
   "is_subcut": false,
   "has_stat": false,
-  "query": "knight resting stone",
+  "query": "armoured knight resting",
   "text_preview": "Длительность боя в доспехе не измеряли вообще."
  },
  {
@@ -956,7 +956,7 @@
   "motion_mode_estimate": "static_hold",
   "is_subcut": true,
   "has_stat": false,
-  "query": "human heart close up",
+  "query": "armoured person breathing hard",
   "text_preview": "Из лидской работы следует только одно: при одной и той же ск"
  },
  {
@@ -968,7 +968,7 @@
   "motion_mode_estimate": "static_hold",
   "is_subcut": true,
   "has_stat": false,
-  "query": "clock hands stopped",
+  "query": "armoured person exhausted",
   "text_preview": "Значит, устаёшь быстрее, чем без доспеха. Но на сколько мину"
  },
  {
@@ -980,7 +980,7 @@
   "motion_mode_estimate": "classic_kb",
   "is_subcut": false,
   "has_stat": false,
-  "query": "gothic helmet visor",
+  "query": "closed visor helmet",
   "text_preview": "Про жару. Я искал замеры температуры тела в латах и не нашёл"
  },
  {
@@ -992,7 +992,7 @@
   "motion_mode_estimate": "static_hold",
   "is_subcut": true,
   "has_stat": false,
-  "query": "bulletproof vest close up",
+  "query": "modern body armour vest",
   "text_preview": "Есть работы про современные бронежилеты, а про латы нет."
  },
  {
@@ -1004,7 +1004,7 @@
   "motion_mode_estimate": "static_hold",
   "is_subcut": true,
   "has_stat": false,
-  "query": "steam rising heat",
+  "query": "armoured person sweating",
   "text_preview": "Так что фраза «рыцари перегревались» пока остаётся предполож"
  },
  {
@@ -1016,7 +1016,7 @@
   "motion_mode_estimate": "classic_kb",
   "is_subcut": false,
   "has_stat": false,
-  "query": "plate armour museum",
+  "query": "incomplete plate armour museum",
   "text_preview": "И ещё одна дыра. Целых доспехов времён Азенкура не сохранило"
  },
  {
@@ -1028,7 +1028,7 @@
   "motion_mode_estimate": "micro_drift",
   "is_subcut": true,
   "has_stat": false,
-  "query": "hand writing calculations",
+  "query": "replica plate armour",
   "text_preview": "Учёные берут копии конца века и переносят цифры на сто лет н"
  },
  {
@@ -1040,7 +1040,7 @@
   "motion_mode_estimate": "horizontal_pan",
   "is_subcut": false,
   "has_stat": false,
-  "query": "typing on phone",
+  "query": "person writing desk",
   "text_preview": "Если знаешь замер, который я пропустил, напиши в комментария"
  },
  {
@@ -1232,7 +1232,7 @@
   "motion_mode_estimate": "micro_drift",
   "is_subcut": true,
   "has_stat": false,
-  "query": "exhausted medieval fighters rest",
+  "query": "medieval knights resting battle",
   "text_preview": "По Фруассару, после нескольких часов обе стороны выдохлись и"
  },
  {
@@ -1244,7 +1244,7 @@
   "motion_mode_estimate": "micro_drift",
   "is_subcut": true,
   "has_stat": false,
-  "query": "coat of plates armour",
+  "query": "14th century armor",
   "text_preview": "Правда, полных латных доспехов тогда ещё не носили, так что "
  },
  {
@@ -1256,7 +1256,7 @@
   "motion_mode_estimate": "classic_kb",
   "is_subcut": false,
   "has_stat": false,
-  "query": "medieval manuscript knights battle",
+  "query": "manuscript knights battle pause",
   "text_preview": "Складывается картина, которую не покажешь на дорожке."
  },
  {
@@ -1268,7 +1268,7 @@
   "motion_mode_estimate": "micro_drift",
   "is_subcut": true,
   "has_stat": false,
-  "query": "armoured combat reenactment",
+  "query": "medieval knights fighting armor",
   "text_preview": "Это скорее вывод, чем замер: бой в доспехе шёл рывками. Схва"
  },
  {

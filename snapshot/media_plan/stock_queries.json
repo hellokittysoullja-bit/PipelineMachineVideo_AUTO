@@ -3226,65 +3226,65 @@
    "bsig": ""
   },
   "6d3a8ad60ebd2008": {
-   "focus": "exhausted fighters pausing to rest and bind wounds",
+   "focus": "exhausted knights resting after hours of fighting",
    "claims": [
     {
      "id": "core",
-     "text": "exhausted fighters are visible",
+     "text": "exhausted knights are visible",
      "tier": "must"
     },
     {
      "id": "c1",
-     "text": "fighters sit or lean in weariness",
+     "text": "knights sit or lean, resting",
      "tier": "must"
     },
     {
      "id": "c2",
-     "text": "one fighter binds a wound",
+     "text": "wounds are being bandaged",
      "tier": "should"
     },
     {
      "id": "c3",
-     "text": "weapons rest on the ground",
-     "tier": "should"
+     "text": "a pause in battle",
+     "tier": "must"
     }
    ],
    "queries": [
-    "exhausted medieval fighters rest",
-    "medieval battle pause",
-    "froissart chronicle battle miniature",
-    "wounded soldier bandage"
+    "medieval knights resting battle",
+    "froissart chronicle illustration",
+    "exhausted soldiers medieval",
+    "wounded knight bandage"
    ],
-   "subject": "exhausted fighters",
-   "model": "ds/deepseek-v4-pro",
+   "subject": "exhausted knights",
+   "model": "ds/deepseek-v4-flash",
    "text": "По Фруассару, после нескольких часов обе стороны выдохлись и сошлись на перерыв: освежиться и перевязать раны.",
    "queries_for": [
     {
-     "q": "exhausted medieval fighters rest",
+     "q": "medieval knights resting battle",
      "for": [
       "core",
-      "c1"
+      "c1",
+      "c3"
      ],
      "type": "scene"
     },
     {
-     "q": "medieval battle pause",
+     "q": "froissart chronicle illustration",
      "for": [
-      "core",
-      "c1"
-     ],
-     "type": "scene"
-    },
-    {
-     "q": "froissart chronicle battle miniature",
-     "for": [
-      "core",
-      "c1"
+      "core"
      ],
      "type": "illustration"
     },
     {
-     "q": "wounded soldier bandage",
+     "q": "exhausted soldiers medieval",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "wounded knight bandage",
      "for": [
       "c2"
      ],
@@ -3294,41 +3294,35 @@
    "bsig": ""
   },
   "5799c981d669f943": {
-   "focus": "armour of the period was not full plate",
+   "focus": "partial armor, not full plate, in 1351",
    "claims": [
     {
      "id": "core",
-     "text": "a coat of plates is visible",
+     "text": "a knight in partial armor is visible",
      "tier": "must"
     },
     {
      "id": "c1",
-     "text": "armour covers torso with riveted plates",
+     "text": "the armor is not full plate",
      "tier": "must"
     },
     {
      "id": "c2",
-     "text": "mail covers arms and legs",
-     "tier": "should"
-    },
-    {
-     "id": "c3",
-     "text": "no full plate limbs",
+     "text": "a knight on a battlefield",
      "tier": "should"
     }
    ],
    "queries": [
-    "coat of plates armour",
-    "14th century knight armour",
-    "brigandine museum",
-    "mail hauberk"
+    "14th century armor",
+    "medieval knight partial armor",
+    "combat of the thirty"
    ],
-   "subject": "a coat of plates",
-   "model": "ds/deepseek-v4-pro",
+   "subject": "medieval armor",
+   "model": "ds/deepseek-v4-flash",
    "text": "Правда, полных латных доспехов тогда ещё не носили, так что это намёк, а не доказательство.",
    "queries_for": [
     {
-     "q": "coat of plates armour",
+     "q": "14th century armor",
      "for": [
       "core",
       "c1"
@@ -3336,68 +3330,59 @@
      "type": "object"
     },
     {
-     "q": "14th century knight armour",
-     "for": [
-      "core",
-      "c1",
-      "c2"
-     ],
-     "type": "object"
-    },
-    {
-     "q": "brigandine museum",
+     "q": "medieval knight partial armor",
      "for": [
       "core",
       "c1"
      ],
-     "type": "object"
+     "type": "scene"
     },
     {
-     "q": "mail hauberk",
+     "q": "combat of the thirty",
      "for": [
+      "core",
       "c2"
      ],
-     "type": "object"
+     "type": "illustration"
     }
    ],
    "bsig": ""
   },
   "fdb50588f399a78d": {
-   "focus": "a manuscript drawing of armoured knights pausing in battle",
+   "focus": "manuscript drawing of armored knights pausing in battle",
    "claims": [
     {
      "id": "core",
-     "text": "a manuscript drawing is visible",
+     "text": "a manuscript drawing of armored knights pausing in battle is visible",
      "tier": "must"
     },
     {
      "id": "c1",
-     "text": "armoured knights pause in battle",
+     "text": "the drawing shows knights in armor",
      "tier": "must"
     },
     {
      "id": "c2",
-     "text": "the drawing is a medieval manuscript miniature",
+     "text": "the knights are pausing, not fighting",
      "tier": "must"
     },
     {
      "id": "c3",
-     "text": "weapons are lowered or held idle",
+     "text": "the drawing is on parchment or paper",
      "tier": "should"
     }
    ],
    "queries": [
-    "medieval manuscript knights battle",
-    "armoured knights pause miniature",
-    "chronicle battle illumination",
-    "froissart manuscript miniature"
+    "manuscript knights battle pause",
+    "medieval miniature armored knights",
+    "froissart manuscript battle"
    ],
    "subject": "a manuscript drawing",
-   "model": "ds/deepseek-v4-pro",
+   "model": "ds/deepseek-v4-flash",
    "text": "Складывается картина, которую не покажешь на дорожке.",
    "queries_for": [
     {
-     "q": "medieval manuscript knights battle",
+     "q": "manuscript knights battle pause",
      "for": [
       "core",
       "c1",
@@ -3406,7 +3391,7 @@
      "type": "illustration"
     },
     {
-     "q": "armoured knights pause miniature",
+     "q": "medieval miniature armored knights",
      "for": [
       "core",
       "c1"
@@ -3414,19 +3399,9 @@
      "type": "illustration"
     },
     {
-     "q": "chronicle battle illumination",
+     "q": "froissart manuscript battle",
      "for": [
-      "core",
-      "c2"
-     ],
-     "type": "illustration"
-    },
-    {
-     "q": "froissart manuscript miniature",
-     "for": [
-      "core",
-      "c1",
-      "c2"
+      "core"
      ],
      "type": "illustration"
     }
@@ -3434,78 +3409,72 @@
    "bsig": "fceb4e8fe7c9"
   },
   "ed81001092e476b4": {
-   "focus": "armoured combat moved in bursts of clash, throw, pause",
+   "focus": "fight in armor as bursts: clash, throw, pause",
    "claims": [
     {
      "id": "core",
-     "text": "armoured fighters are visible",
+     "text": "a sequence of armored combat moments is visible",
      "tier": "must"
     },
     {
      "id": "c1",
-     "text": "two armoured fighters grapple",
+     "text": "a clash of weapons",
      "tier": "must",
      "motion": true
     },
     {
      "id": "c2",
-     "text": "one fighter throws the other",
-     "tier": "should"
+     "text": "a throw to the ground",
+     "tier": "must"
     },
     {
      "id": "c3",
-     "text": "fighters separate and pause",
+     "text": "a pause between actions",
+     "tier": "must"
+    },
+    {
+     "id": "c4",
+     "text": "knights in full armor",
      "tier": "should"
     }
    ],
    "queries": [
-    "armoured combat reenactment",
-    "harnischfechten grappling",
-    "medieval wrestling armour",
-    "talhoffer wrestling plate",
-    "knight throw opponent"
+    "medieval knights fighting armor",
+    "froissart battle illustration",
+    "armored combat throw",
+    "knight battle pause"
    ],
-   "subject": "armoured fighters",
-   "model": "ds/deepseek-v4-pro",
+   "subject": "armored combat",
+   "model": "ds/deepseek-v4-flash",
    "text": "Это скорее вывод, чем замер: бой в доспехе шёл рывками. Схватка, бросок, пауза.",
    "queries_for": [
     {
-     "q": "armoured combat reenactment",
-     "for": [
-      "core",
-      "c1"
-     ],
-     "type": "scene"
-    },
-    {
-     "q": "harnischfechten grappling",
+     "q": "medieval knights fighting armor",
      "for": [
       "core",
       "c1",
-      "c2"
+      "c4"
      ],
      "type": "scene"
     },
     {
-     "q": "medieval wrestling armour",
+     "q": "froissart battle illustration",
      "for": [
-      "c1",
-      "c2"
-     ],
-     "type": "scene"
-    },
-    {
-     "q": "talhoffer wrestling plate",
-     "for": [
-      "c1",
-      "c2"
+      "core"
      ],
      "type": "illustration"
     },
     {
-     "q": "knight throw opponent",
+     "q": "armored combat throw",
      "for": [
       "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "knight battle pause",
+     "for": [
+      "c3"
      ],
      "type": "scene"
     }
@@ -6227,30 +6196,35 @@
    "bsig": "dde551775c4d"
   },
   "f44c6e85ad8395b4": {
-   "focus": "uncomfortable limitations of previous studies",
+   "focus": "the most inconvenient part of the research",
    "claims": [
     {
      "id": "core",
-     "text": "a hand hovering over a document",
+     "text": "a person grimacing with a hand on their forehead",
      "tier": "must"
     },
     {
      "id": "c1",
-     "text": "the hand pauses, indicating hesitation or realization of a gap",
+     "text": "the person looks uncomfortable",
      "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "a desk with papers",
+     "tier": "should"
     }
    ],
    "queries": [
-    "hand pointing document",
-    "researcher reading paper",
-    "close up hand shadow"
+    "person grimacing frustration",
+    "tired scholar",
+    "researcher desk papers"
    ],
-   "subject": "a hand",
-   "model": "qwen/qwen3.8-max",
+   "subject": "a person",
+   "model": "ds/deepseek-v4-pro",
    "text": "Теперь самое неудобное.",
    "queries_for": [
     {
-     "q": "hand pointing document",
+     "q": "person grimacing frustration",
      "for": [
       "core",
       "c1"
@@ -6258,52 +6232,52 @@
      "type": "scene"
     },
     {
-     "q": "researcher reading paper",
+     "q": "tired scholar",
      "for": [
       "core"
      ],
      "type": "scene"
     },
     {
-     "q": "close up hand shadow",
+     "q": "researcher desk papers",
      "for": [
-      "core"
+      "c2"
      ],
-     "type": "object"
+     "type": "scene"
     }
    ],
    "bsig": ""
   },
   "df761d55d87e43b4": {
-   "focus": "no studies measured combat or formation",
+   "focus": "no study measured actual combat",
    "claims": [
     {
      "id": "core",
-     "text": "armoured knights are fighting",
+     "text": "a manuscript illumination is visible",
      "tier": "must"
     },
     {
      "id": "c1",
-     "text": "two knights engage in sword combat",
+     "text": "two armoured knights fight with swords",
      "tier": "must"
     },
     {
      "id": "c2",
-     "text": "historical manuscript illumination style",
+     "text": "the illumination is old and painted",
      "tier": "must"
     }
    ],
    "queries": [
-    "medieval knights fighting",
-    "medieval manuscript combat",
-    "tournament scene medieval"
+    "medieval manuscript knights fighting",
+    "illuminated manuscript combat",
+    "knight duel illumination"
    ],
-   "subject": "knights",
-   "model": "qwen/qwen3.8-max",
+   "subject": "a manuscript illumination",
+   "model": "ds/deepseek-v4-pro",
    "text": "Ни одна из этих работ не измеряла бой. Никто не рубился и не стоял в строю.",
    "queries_for": [
     {
-     "q": "medieval knights fighting",
+     "q": "medieval manuscript knights fighting",
      "for": [
       "core",
       "c1"
@@ -6311,17 +6285,16 @@
      "type": "illustration"
     },
     {
-     "q": "medieval manuscript combat",
+     "q": "illuminated manuscript combat",
      "for": [
-      "core",
-      "c2"
+      "core"
      ],
      "type": "illustration"
     },
     {
-     "q": "tournament scene medieval",
+     "q": "knight duel illumination",
      "for": [
-      "core"
+      "c1"
      ],
      "type": "illustration"
     }
@@ -6329,50 +6302,56 @@
    "bsig": "0f32dccf2610"
   },
   "5468659afd271d49": {
-   "focus": "duration of armoured combat unmeasured",
+   "focus": "armoured combat duration was never measured",
    "claims": [
     {
      "id": "core",
-     "text": "a knight is resting on a stone",
+     "text": "an armoured knight is visible",
      "tier": "must"
     },
     {
      "id": "c1",
-     "text": "the knight sits exhausted",
+     "text": "the knight sits on a stone",
      "tier": "must"
     },
     {
      "id": "c2",
      "text": "a helmet lies beside him",
      "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "the knight looks tired",
+     "tier": "should"
     }
    ],
    "queries": [
-    "knight resting stone",
-    "battle fatigued warrior",
-    "medieval helmet close up"
+    "armoured knight resting",
+    "medieval reenactor resting armour",
+    "knight helmet beside"
    ],
-   "subject": "knight",
-   "model": "qwen/qwen3.8-max",
+   "subject": "a knight",
+   "model": "ds/deepseek-v4-pro",
    "text": "Длительность боя в доспехе не измеряли вообще.",
    "queries_for": [
     {
-     "q": "knight resting stone",
+     "q": "armoured knight resting",
      "for": [
       "core",
-      "c1"
+      "c1",
+      "c3"
      ],
      "type": "scene"
     },
     {
-     "q": "battle fatigued warrior",
+     "q": "medieval reenactor resting armour",
      "for": [
       "core"
      ],
      "type": "scene"
     },
     {
-     "q": "medieval helmet close up",
+     "q": "knight helmet beside",
      "for": [
       "c2"
      ],
@@ -6382,47 +6361,58 @@
    "bsig": "642b765ef831"
   },
   "5d745dc698128851": {
-   "focus": "aerobic limit reached earlier in armor",
+   "focus": "aerobic ceiling arrives earlier at the same speed",
    "claims": [
     {
      "id": "core",
-     "text": "a pulsing heart is visible",
+     "text": "a person breathing hard is visible",
      "tier": "must"
     },
     {
      "id": "c1",
-     "text": "the heart beats rapidly or intensely",
+     "text": "the person wears armour",
      "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the person is moving",
+     "tier": "should",
+     "motion": true
+    },
+    {
+     "id": "c3",
+     "text": "sweat on the face",
+     "tier": "should"
     }
    ],
    "queries": [
-    "human heart close up",
-    "anatomy heart illustration",
-    "thumping heart rhythm"
+    "armoured person breathing hard",
+    "armour running reenactment",
+    "knight exertion sweat"
    ],
-   "subject": "heart",
-   "model": "qwen/qwen3.8-max",
+   "subject": "a person",
+   "model": "ds/deepseek-v4-pro",
    "text": "Из лидской работы следует только одно: при одной и той же скорости аэробный потолок наступает раньше.",
    "queries_for": [
     {
-     "q": "human heart close up",
+     "q": "armoured person breathing hard",
      "for": [
       "core",
       "c1"
      ],
-     "type": "object"
+     "type": "scene"
     },
     {
-     "q": "anatomy heart illustration",
+     "q": "armour running reenactment",
      "for": [
-      "core"
+      "c2"
      ],
-     "type": "illustration"
+     "type": "scene"
     },
     {
-     "q": "thumping heart rhythm",
+     "q": "knight exertion sweat",
      "for": [
-      "core"
+      "c3"
      ],
      "type": "scene"
     }
@@ -6430,59 +6420,69 @@
    "bsig": ""
   },
   "430780fc45b0dbcb": {
-   "focus": "tiring faster but magnitude unknown",
+   "focus": "you tire faster but by how many minutes is unknown",
    "claims": [
     {
      "id": "core",
-     "text": "a clock face is visible",
+     "text": "a person slumped in exhaustion is visible",
      "tier": "must"
     },
     {
      "id": "c1",
-     "text": "the clock hands are stopped or blurred",
+     "text": "the person wears armour",
      "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the person leans on something",
+     "tier": "should"
+    },
+    {
+     "id": "c3",
+     "text": "a clock or hourglass nearby",
+     "tier": "should"
     }
    ],
    "queries": [
-    "clock hands stopped",
-    "antique clock close up",
-    "time passage abstract"
+    "armoured person exhausted",
+    "knight leaning tired",
+    "hourglass medieval"
    ],
-   "subject": "clock",
-   "model": "qwen/qwen3.8-max",
+   "subject": "a person",
+   "model": "ds/deepseek-v4-pro",
    "text": "Значит, устаёшь быстрее, чем без доспеха. Но на сколько минут быстрее, из этого не вывести.",
    "queries_for": [
     {
-     "q": "clock hands stopped",
+     "q": "armoured person exhausted",
      "for": [
       "core",
       "c1"
      ],
-     "type": "object"
+     "type": "scene"
     },
     {
-     "q": "antique clock close up",
+     "q": "knight leaning tired",
      "for": [
-      "core"
-     ],
-     "type": "object"
-    },
-    {
-     "q": "time passage abstract",
-     "for": [
-      "core"
+      "c2"
      ],
      "type": "scene"
+    },
+    {
+     "q": "hourglass medieval",
+     "for": [
+      "c3"
+     ],
+     "type": "object"
     }
    ],
    "bsig": ""
   },
   "89ab32a2e398d089": {
-   "focus": "lack of body temperature data in armor",
+   "focus": "no body temperature measurements in plate armour were found",
    "claims": [
     {
      "id": "core",
-     "text": "a closed visor helmet is shown",
+     "text": "a closed visor helmet is visible",
      "tier": "must"
     },
     {
@@ -6492,21 +6492,21 @@
     },
     {
      "id": "c2",
-     "text": "extreme close up of the visor",
-     "tier": "should"
+     "text": "the helmet is close up",
+     "tier": "must"
     }
    ],
    "queries": [
-    "gothic helmet visor",
-    "medieval helmet shadow",
-    "faceless helmet close up"
+    "closed visor helmet",
+    "medieval helmet close up",
+    "visor shadow face"
    ],
-   "subject": "helmet",
-   "model": "qwen/qwen3.8-max",
+   "subject": "a helmet",
+   "model": "ds/deepseek-v4-pro",
    "text": "Про жару. Я искал замеры температуры тела в латах и не нашёл.",
    "queries_for": [
     {
-     "q": "gothic helmet visor",
+     "q": "closed visor helmet",
      "for": [
       "core",
       "c1"
@@ -6514,149 +6514,7 @@
      "type": "object"
     },
     {
-     "q": "medieval helmet shadow",
-     "for": [
-      "core",
-      "c1"
-     ],
-     "type": "object"
-    },
-    {
-     "q": "faceless helmet close up",
-     "for": [
-      "core"
-     ],
-     "type": "object"
-    }
-   ],
-   "bsig": "dbb5901bddf1"
-  },
-  "2a60309d225fa4ed": {
-   "focus": "data exists for modern vests, not plates",
-   "claims": [
-    {
-     "id": "core",
-     "text": "a modern bulletproof vest is visible",
-     "tier": "must"
-    },
-    {
-     "id": "c1",
-     "text": "the vest is worn by a person or on a mannequin",
-     "tier": "must"
-    }
-   ],
-   "queries": [
-    "bulletproof vest close up",
-    "tactical vest mannequin",
-    "modern body armor"
-   ],
-   "subject": "vest",
-   "model": "qwen/qwen3.8-max",
-   "text": "Есть работы про современные бронежилеты, а про латы нет.",
-   "queries_for": [
-    {
-     "q": "bulletproof vest close up",
-     "for": [
-      "core",
-      "c1"
-     ],
-     "type": "object"
-    },
-    {
-     "q": "tactical vest mannequin",
-     "for": [
-      "core"
-     ],
-     "type": "object"
-    },
-    {
-     "q": "modern body armor",
-     "for": [
-      "core"
-     ],
-     "type": "object"
-    }
-   ],
-   "bsig": ""
-  },
-  "701ea5737fb73c5b": {
-   "focus": "overheating claim remains a hypothesis",
-   "claims": [
-    {
-     "id": "core",
-     "text": "steam rising from a surface",
-     "tier": "must"
-    },
-    {
-     "id": "c1",
-     "text": "the steam is faint or dissipating",
-     "tier": "must"
-    }
-   ],
-   "queries": [
-    "steam rising heat",
-    "hot surface steam",
-    "thermal vapor close up"
-   ],
-   "subject": "steam",
-   "model": "qwen/qwen3.8-max",
-   "text": "Так что фраза «рыцари перегревались» пока остаётся предположением.",
-   "queries_for": [
-    {
-     "q": "steam rising heat",
-     "for": [
-      "core",
-      "c1"
-     ],
-     "type": "scene"
-    },
-    {
-     "q": "hot surface steam",
-     "for": [
-      "core"
-     ],
-     "type": "scene"
-    },
-    {
-     "q": "thermal vapor close up",
-     "for": [
-      "core"
-     ],
-     "type": "object"
-    }
-   ],
-   "bsig": ""
-  },
-  "eb662edb0675ba75": {
-   "focus": "lack of complete Agincourt-era armor sets",
-   "claims": [
-    {
-     "id": "core",
-     "text": "incomplete plate armour is assembled",
-     "tier": "must"
-    },
-    {
-     "id": "c1",
-     "text": "pieces are from different sources or show gaps",
-     "tier": "must"
-    },
-    {
-     "id": "c2",
-     "text": "museum display setting",
-     "tier": "should"
-    }
-   ],
-   "queries": [
-    "plate armour museum",
-    "partial armour reassembled",
-    "medieval armour gaps"
-   ],
-   "subject": "armour",
-   "model": "qwen/qwen3.8-max",
-   "text": "И ещё одна дыра. Целых доспехов времён Азенкура не сохранилось, так что вес полного комплекта тех лет по музейным предметам не установить.",
-   "queries_for": [
-    {
-     "q": "plate armour museum",
+     "q": "medieval helmet close up",
      "for": [
       "core",
       "c2"
@@ -6664,7 +6522,45 @@
      "type": "object"
     },
     {
-     "q": "partial armour reassembled",
+     "q": "visor shadow face",
+     "for": [
+      "c1"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": "dbb5901bddf1"
+  },
+  "2a60309d225fa4ed": {
+   "focus": "studies exist for modern body armour but not plate",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a modern body armour vest is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the vest is modern",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the vest lies on a table",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "modern body armour vest",
+    "tactical vest close up",
+    "bulletproof vest table"
+   ],
+   "subject": "a body armour vest",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Есть работы про современные бронежилеты, а про латы нет.",
+   "queries_for": [
+    {
+     "q": "modern body armour vest",
      "for": [
       "core",
       "c1"
@@ -6672,9 +6568,124 @@
      "type": "object"
     },
     {
-     "q": "medieval armour gaps",
+     "q": "tactical vest close up",
      "for": [
       "core"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "bulletproof vest table",
+     "for": [
+      "c2"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": ""
+  },
+  "701ea5737fb73c5b": {
+   "focus": "knights overheating remains an assumption",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a person wiping sweat from their face is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the person wears armour",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the person looks hot",
+     "tier": "must"
+    }
+   ],
+   "queries": [
+    "armoured person sweating",
+    "knight wiping sweat",
+    "overheated reenactor"
+   ],
+   "subject": "a person",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Так что фраза «рыцари перегревались» пока остаётся предположением.",
+   "queries_for": [
+    {
+     "q": "armoured person sweating",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "knight wiping sweat",
+     "for": [
+      "core"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "overheated reenactor",
+     "for": [
+      "c2"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "eb662edb0675ba75": {
+   "focus": "no complete Agincourt-era armour survives to establish weight",
+   "claims": [
+    {
+     "id": "core",
+     "text": "an incomplete plate armour is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the armour is assembled from different pieces",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the armour stands in a museum",
+     "tier": "must"
+    }
+   ],
+   "queries": [
+    "incomplete plate armour museum",
+    "mixed armour pieces display",
+    "medieval armour museum exhibit"
+   ],
+   "subject": "an incomplete armour",
+   "model": "ds/deepseek-v4-pro",
+   "text": "И ещё одна дыра. Целых доспехов времён Азенкура не сохранилось, так что вес полного комплекта тех лет по музейным предметам не установить.",
+   "queries_for": [
+    {
+     "q": "incomplete plate armour museum",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "mixed armour pieces display",
+     "for": [
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "medieval armour museum exhibit",
+     "for": [
+      "c2"
      ],
      "type": "object"
     }
@@ -6682,52 +6693,52 @@
    "bsig": "c42f799f8c3f"
   },
   "64bb7fdd80a11f9e": {
-   "focus": "scholars risk extrapolating late-century data",
+   "focus": "scientists use later-century replicas and call it risky",
    "claims": [
     {
      "id": "core",
-     "text": "a hand is writing on paper",
+     "text": "a replica armour is visible",
      "tier": "must"
     },
     {
      "id": "c1",
-     "text": "the writing implies calculation or transfer of numbers",
+     "text": "the armour is a modern replica",
      "tier": "must"
     },
     {
      "id": "c2",
-     "text": "academic or scientific context",
+     "text": "a person examines the armour",
      "tier": "should"
     }
    ],
    "queries": [
-    "hand writing calculations",
-    "science notebook data",
-    "researcher analyzing stats"
+    "replica plate armour",
+    "modern armour replica workshop",
+    "researcher examining armour"
    ],
-   "subject": "pencil",
-   "model": "qwen/qwen3.8-max",
+   "subject": "a replica armour",
+   "model": "ds/deepseek-v4-pro",
    "text": "Учёные берут копии конца века и переносят цифры на сто лет назад, и сами называют это рискованным.",
    "queries_for": [
     {
-     "q": "hand writing calculations",
+     "q": "replica plate armour",
      "for": [
       "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "modern armour replica workshop",
+     "for": [
       "c1"
      ],
      "type": "scene"
     },
     {
-     "q": "science notebook data",
+     "q": "researcher examining armour",
      "for": [
-      "core"
-     ],
-     "type": "object"
-    },
-    {
-     "q": "researcher analyzing stats",
-     "for": [
-      "core"
+      "c2"
      ],
      "type": "scene"
     }
@@ -6735,30 +6746,35 @@
    "bsig": ""
   },
   "2668165e7da07eee": {
-   "focus": "request for missing measurements in comments",
+   "focus": "a request for missed measurements in comments",
    "claims": [
     {
      "id": "core",
-     "text": "a smartphone is held in hand",
+     "text": "a person writing at a desk is visible",
      "tier": "must"
     },
     {
      "id": "c1",
-     "text": "the screen shows a comment section or input field",
+     "text": "the person writes with a pen",
      "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "papers and books on the desk",
+     "tier": "should"
     }
    ],
    "queries": [
-    "typing on phone",
-    "social media comment",
-    "smartphone screen close up"
+    "person writing desk",
+    "hand writing pen close up",
+    "researcher notes papers"
    ],
-   "subject": "phone",
-   "model": "qwen/qwen3.8-max",
+   "subject": "a person",
+   "model": "ds/deepseek-v4-pro",
    "text": "Если знаешь замер, который я пропустил, напиши в комментариях со ссылкой.",
    "queries_for": [
     {
-     "q": "typing on phone",
+     "q": "person writing desk",
      "for": [
       "core",
       "c1"
@@ -6766,21 +6782,83 @@
      "type": "scene"
     },
     {
-     "q": "social media comment",
+     "q": "hand writing pen close up",
+     "for": [
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "researcher notes papers",
+     "for": [
+      "c2"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "6313e9ed86f356a7": {
+   "focus": "how long a knight could fight in armour",
+   "claims": [
+    {
+     "id": "core",
+     "text": "an empty plate armour harness stands alone in a museum hall",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "a museum hall surrounds the armour",
+     "tier": "should"
+    },
+    {
+     "id": "c2",
+     "text": "the armour has articulated plates",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "empty plate armour museum",
+    "suit of armour display",
+    "medieval armour harness",
+    "knight armour standing"
+   ],
+   "subject": "a suit of armour",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Так сколько же мог драться рыцарь в доспехе?",
+   "queries_for": [
+    {
+     "q": "empty plate armour museum",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "suit of armour display",
      "for": [
       "core"
      ],
-     "type": "scene"
+     "type": "object"
     },
     {
-     "q": "smartphone screen close up",
+     "q": "medieval armour harness",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "knight armour standing",
      "for": [
       "core"
      ],
      "type": "object"
     }
    ],
-   "bsig": ""
+   "bsig": "92c5b770517a"
   }
  }
 }
