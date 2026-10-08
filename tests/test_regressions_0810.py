@@ -76,8 +76,7 @@ def test_written_thought_stays_in_frame_until_held():
     for sg in p["segments"]:
         if sg["t0"] < hold_end - 1e-6 and sg["t1"] > p["key_time"]:
             w = sg["win"]
-            assert w[0] <= key_box[0] and w[1] <= key_box[1] and w[2] >= key_box[2] and w[3] >= key_box[3], \
-                f"план {sg['t0']:.2f}-{sg['t1']:.2f} режет надпись"
+            assert camera.inside(key_box, w, tol=0.0), f"план {sg['t0']:.2f}-{sg['t1']:.2f} режет надпись"
     # без рамки надписи склейка после письма идёт сразу после хвоста письма (до конца удержания) —
     # рамка сдвигает её к концу удержания
     p0 = shots.plan(8.0, busy, [], objects=objs, key="только открыть", key_dur=3.0)
@@ -189,6 +188,12 @@ def test_doll_blinks_are_spaced_and_quiet_before_the_cut():
     assert all(b <= 7.0 - doll_rig.END_QUIET_SEC for b in out)
     # функциональное моргание (взгляд под веком) побеждает случайное фоновое рядом
     assert doll_rig.thin_blinks([1.0, 3.0], 7.0, keep=[1.1]) == [1.1, 3.0]
+
+
+def test_qc_thresholds_follow_the_planner_constants():
+    import montage_qc as mq
+    assert mq.HOOK_ZONE_SEC == shots.HOOK_ZONE_SEC
+    assert mq.THRESHOLDS["plan_max_sec"][0] == shots.MAX_VIEW_SEC + 1/24
 
 
 def test_qc_does_not_count_the_handwriting_plan_as_too_long(tmp_path):

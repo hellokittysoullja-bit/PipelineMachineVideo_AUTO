@@ -331,8 +331,7 @@ def main(video_dir):
                          "punch": p.get("punch_name"), "key": (p.get("key") or {}).get("text") if p.get("key_time") is not None else None,
                          "key_at": None if p.get("key_time") is None else round(p["key_time"], 2),
                          # до этого момента дописанная мысль стоит на экране: приёмка не считает такой план длинным
-                         "key_hold_until": None if p.get("key_time") is None else
-                         round(p["key_time"] + (p.get("key") or {}).get("dur", 0.0) + shots.KEY_HOLD_SEC, 2),
+                         "key_hold_until": next((round(h["t1"], 2) for h in p.get("holds", []) if h["kind"] == "key"), None),
                          "accent": (p.get("accent") or {}).get("text") if p.get("accent_time") is not None else None,
                          "notes": p["notes"]})
 

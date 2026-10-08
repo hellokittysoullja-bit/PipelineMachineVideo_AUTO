@@ -73,8 +73,8 @@ def test_punch_window_fills_frame_with_object_and_does_not_slice_neighbours():
     cv, off, _ = canvas.prepare(_drawing())
     busy = placement.busy_map(cv.astype(np.float32), margin=8)
     letter = (740 + off[0], 360, 1000 + off[0], 520)
-    pw = camera.punch_window(busy, letter)
-    assert pw is not None
+    pw, why = camera.punch_window(busy, letter)
+    assert pw is not None and why is None
     z = camera.zoom_of(pw, 1508, 848)
     assert 1.3 <= z <= camera.PUNCH_MAX_ZOOM + 1e-6
     assert pw[0] <= letter[0] and pw[2] >= letter[2] and pw[1] <= letter[1] and pw[3] >= letter[3]
@@ -88,7 +88,8 @@ def test_punch_window_fills_frame_with_object_and_does_not_slice_neighbours():
 def test_tiny_object_gets_no_punch():
     cv, off, _ = canvas.prepare(_drawing())
     busy = placement.busy_map(cv.astype(np.float32), margin=8)
-    assert camera.punch_window(busy, (1150 + off[0], 700, 1175 + off[0], 715)) is None
+    pw, why = camera.punch_window(busy, (1150 + off[0], 700, 1175 + off[0], 715))
+    assert pw is None and "мелкий" in why
 
 
 def test_jump_cut_detection():
@@ -218,7 +219,7 @@ def test_punch_may_crop_its_own_group_but_never_a_separate_object():
     cv, off, _ = canvas.prepare(im)
     busy = placement.busy_map(cv.astype(np.float32), margin=8)
     env = (600 + off[0], 380, 900 + off[0], 560)
-    pw = camera.punch_window(busy, env)
+    pw, _ = camera.punch_window(busy, env)
     assert pw is not None                                         # раньше: «режет кота» -> наезда нет
     cal = (1050 + off[0], 80, 1200 + off[0], 200)
     sep = camera.others(busy, env)
@@ -270,8 +271,7 @@ def test_a_long_shot_cuts_to_close_ups_of_named_details_every_few_seconds():
     closes = [s["win"] for s in segs if s["win"] != wide]
     assert closes
     for c in closes:                                              # каждый крупный план — на детали целиком
-        inside = [o for o in objs[3:] if c[0] <= o["box"][0] and c[1] <= o["box"][1]
-                  and c[2] >= o["box"][2] and c[3] >= o["box"][3]]
+        inside = [o for o in objs[3:] if camera.inside(o["box"], c, tol=0.0)]
         assert inside
     assert len({s["zoom_in"] for s in segs if s["kind"] == "drift"}) == 1   # одно направление на мысль (§1.3)
 

@@ -10,7 +10,8 @@
 """
 import os
 os.environ.setdefault("OMP_NUM_THREADS", "1"); os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
-import json, subprocess, sys, time, numpy as np, cv2
+import json, subprocess, time, numpy as np, cv2
+from scipy import ndimage
 cv2.setNumThreads(1)
 from multiprocessing import Pool
 from PIL import Image
@@ -189,7 +190,6 @@ class Rig:
             rs = np.asarray(Image.open(wv["image"]).convert("RGB")).astype(np.float32)
             ra = np.asarray(Image.open(wv["mask"])).astype(np.float32)
             Hm, Wm = np.mgrid[0:H, 0:W]
-            from scipy import ndimage
             arm = (ra > 128) & ~ndimage.binary_dilation(self.alpha > 128, iterations=2) & (Wm < wv["arm_max_x"]) & (Hm < wv["arm_max_y"])
             lab, n = ndimage.label(arm); keep = np.argmax(ndimage.sum(arm, lab, range(1, n + 1))) + 1
             arm = ndimage.binary_fill_holes(ndimage.binary_dilation(lab == keep, iterations=4)) & (ra > 8)
@@ -204,7 +204,6 @@ class Rig:
             self.wave = dict(fur=fur_r, body_a=body_a, arm=np.dstack([rs, arm_a]), w=wgt, pivot=pv, down=wv["down_deg"])
         self.poses = {}
         for name, pz in (r.get("poses") or {}).items():
-            from scipy import ndimage
             rs = np.asarray(Image.open(pz["image"]).convert("RGB")).astype(np.float32)
             ra = np.asarray(Image.open(pz["mask"])).astype(np.float32)
             fr = rs.copy()
@@ -343,7 +342,7 @@ class Rig:
                 B[sel] = v[:, :3]; Ba[sel] = v[:, 3]
                 sdiff[sel] = np.abs(va - vb)[:, :3].max(axis=1)
             # LaMa продолжает линии, входящие в дырку: закрыть от неё ус целиком, не только кончик
-            hide = pr | (ndimage.binary_dilation(Hm & (whisk_any := ndimage.binary_dilation(whisk > 0, iterations=60)), iterations=2) & ~(lab == hl))
+            hide = pr | (ndimage.binary_dilation(Hm & ndimage.binary_dilation(whisk > 0, iterations=60), iterations=2) & ~(lab == hl))
             lama = r.get("lama") and os.path.exists(r["lama"]) and _lama_fill(r["lama"], rgb, al, hide)
             if lama:                                                           # LaMa — где ус пересекает контур
                 struct = sdiff > 30                                            # по сторонам уса разное — структура
@@ -469,7 +468,6 @@ class Rig:
 
     # ------------------------------------------------------------- кадр
     def frame(self, st, t):
-        r = self.r; x0, y0, x1, y1 = self.bb
         cat = self.cat_layer(st, t)
         return self._warp_cpu(cat, st)
 
@@ -494,7 +492,7 @@ class Rig:
             P = self.poses[pz[0]]
             other = self.face4(st["look"], st["lid"], P["base4"])
             k = np.float32(pz[1]); cat = cat * (1 - k) + other * k
-        fx0, fy0, fx1, fy1 = r["flame_box"]; hh = fy1 - fy0                 # огонёк — в своих координатах
+        fx0, fy0, fx1, fy1 = r["flame_box"]                                 # огонёк — в своих координатах
         # рамка с запасом на бумагу: в старой рамке кончик пламени (3 px от верха) при сдвиге вверх
         # упирался в её край и срезался плоско (7% кадров), а мех хвоста, пересекающий её бок,
         # сдвигался внутри и стоял снаружи — ступенька на краю. Сдвиг к краям запаса плавно гаснет.

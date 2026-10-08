@@ -45,6 +45,32 @@ def window(cx, cy, w, SW, SH):
     return (cx - w/2, cy - h/2, cx + w/2, cy + h/2)
 
 
+def full_window(SW, SH):
+    """Весь холст как окно 16:9."""
+    return window(SW/2, SH/2, SW, SW, SH)
+
+
+def center(win):
+    return ((win[0] + win[2])/2, (win[1] + win[3])/2)
+
+
+def inside(a, b, tol=1.0):
+    """Рамка a целиком внутри рамки b (с допуском tol пикселей)."""
+    return a[0] >= b[0] - tol and a[1] >= b[1] - tol and a[2] <= b[2] + tol and a[3] <= b[3] + tol
+
+
+def overlap_share(win, b):
+    """Доля площади рамки b, попавшая в окно win."""
+    ix = max(0.0, min(win[2], b[2]) - max(win[0], b[0]))
+    iy = max(0.0, min(win[3], b[3]) - max(win[1], b[1]))
+    return ix*iy/max(1.0, (b[2] - b[0])*(b[3] - b[1]))
+
+
+def fill(target, win):
+    """Насколько цель заполняет окно по своей тесной стороне (доля)."""
+    return max((target[2] - target[0])/max(1.0, win[2] - win[0]), (target[3] - target[1])/max(1.0, win[3] - win[1]))
+
+
 def lerp(a, b, u):
     """Промежуточное окно: центр линейно, ширина — по логарифму (равномерный зум на глаз)."""
     ca = ((a[0] + a[2])/2, (a[1] + a[3])/2); cb = ((b[0] + b[2])/2, (b[1] + b[3])/2)
@@ -176,7 +202,7 @@ def frame_for(busy, target, z_range, margin=0.12, bottom_w=2.0, spread=0.2, edge
     """Окно, в котором цель целиком с полями, а края рамки идут по пустому.
     z — крупность относительно всего холста. max_cross — рамки, режущие рисунок
     сильнее (edge_cross по cross_map, по умолчанию — по всей карте), не
-    рассматриваются; away=(cx, _, доля) — центр нового плана не ближе доли ширины к cx
+    рассматриваются; away=(cx, расстояние) — центр нового плана не ближе расстояния к cx
     (склейка в ту же точку крупнее читается как «цифровой зум»); accept(win) — внешняя
     проверка, зовётся по возрастанию стоимости до первого принятого. None — не нашлось.
 
@@ -202,7 +228,7 @@ def frame_for(busy, target, z_range, margin=0.12, bottom_w=2.0, spread=0.2, edge
         x0, y0, x1, y1 = cx - w_/2, cy - h_/2, cx + w_/2, cy + h_/2
         ok = ~((tx0 < x0 + margin*w) | (tx1 > x1 - margin*w) | (ty0 < y0 + margin*h) | (ty1 > y1 - margin*h))
         if away is not None:
-            ok &= ~(np.abs((x0 + x1)/2 - away[0]) < away[2])
+            ok &= ~(np.abs((x0 + x1)/2 - away[0]) < away[1])
         idx = np.nonzero(ok)[0]
         if len(idx) and max_cross is not None:
             idx = idx[~(_edge_cross_rows(cm, x0[idx], y0[idx], x1[idx], y1[idx], level) > max_cross)]
@@ -241,7 +267,7 @@ def _frame_for_scan(busy, target, z_range, margin=0.12, bottom_w=2.0, spread=0.2
                     continue
                 if max_cross is not None and edge_cross(cm, win, level=0.3 if cross_map is None else 0.15) > max_cross:
                     continue
-                if away is not None and abs((x0 + x1)/2 - away[0]) < away[2]:
+                if away is not None and abs((x0 + x1)/2 - away[0]) < away[1]:
                     continue
                 if accept is not None and not accept(win):
                     continue
@@ -253,27 +279,25 @@ def _frame_for_scan(busy, target, z_range, margin=0.12, bottom_w=2.0, spread=0.2
 
 
 def punch_window(busy, obj, keep=()):
-    """Окно быстрого наезда: предмет ~PUNCH_FILL кадра, не крупнее PUNCH_MAX_ZOOM,
-    края по пустому. None — предмет слишком велик (наезд меньше CUT_MIN_RATIO —
-    не наезд, и возврат склейкой был бы «скачком»)
-    или слишком мал (даже на PUNCH_MAX_ZOOM меньше PUNCH_MIN_FILL кадра)."""
+    """(окно быстрого наезда, причина отказа): предмет ~PUNCH_FILL кадра, не крупнее PUNCH_MAX_ZOOM,
+    края по пустому. Окно None — предмет слишком велик (наезд меньше CUT_MIN_RATIO — не наезд, и
+    возврат склейкой был бы «скачком»), слишком мал (даже на PUNCH_MAX_ZOOM меньше PUNCH_MIN_FILL
+    кадра) или любой кадр режет соседний предмет; причина — строкой."""
     SH, SW = busy.shape
     base = min(SW, SH*ASPECT)
     ow, oh = obj[2] - obj[0], obj[3] - obj[1]
     z_fit = min(base*PUNCH_FILL/max(ow, 1), base/ASPECT*PUNCH_FILL/max(oh, 1))
     z_hi = min(PUNCH_MAX_ZOOM, z_fit)
     if z_hi < CUT_MIN_RATIO:
-        punch_window.why = "предмет и так крупный"
-        return None
+        return None, "предмет и так крупный"
     if z_hi < z_fit*PUNCH_MIN_FILL/PUNCH_FILL:
-        punch_window.why = f"предмет мелкий: даже на {PUNCH_MAX_ZOOM}x меньше {PUNCH_MIN_FILL:.0%} кадра"
-        return None
+        return None, f"предмет мелкий: даже на {PUNCH_MAX_ZOOM}x меньше {PUNCH_MIN_FILL:.0%} кадра"
     m = (1 - PUNCH_FILL)/2*0.6
     sep = others(busy, obj)
     # герой рядом (keep — его рамка): целиком в кадре или вне его, даже мелкими частями —
     # усы и кончик хвоста у края кадра читались как случайные чёрточки (живой прогон 05.10)
     for kb in keep:
-        if not (obj[0] >= kb[0] - 1 and obj[1] >= kb[1] - 1 and obj[2] <= kb[2] + 1 and obj[3] <= kb[3] + 1):
+        if not inside(obj, kb):
             ys_k, xs_k = slice(max(0, int(kb[1])), int(kb[3])), slice(max(0, int(kb[0])), int(kb[2]))
             sep = sep.copy() if sep is busy else sep
             sep[ys_k, xs_k] = np.maximum(sep[ys_k, xs_k], busy[ys_k, xs_k])
@@ -282,10 +306,8 @@ def punch_window(busy, obj, keep=()):
         w = frame_for(busy, obj, (z, z), margin=m, spread=0.15, edge_k=10.0, max_cross=SEPARATE_MAX_CROSS,
                       cross_map=sep)
         if w is not None:
-            punch_window.why = None
-            return w
-    punch_window.why = "любой кадр наезда режет соседний отдельный предмет"
-    return None
+            return w, None
+    return None, "любой кадр наезда режет соседний отдельный предмет"
 
 
 def zoom_of(win, SW, SH):

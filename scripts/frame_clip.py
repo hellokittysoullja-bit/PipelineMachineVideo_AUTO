@@ -203,13 +203,11 @@ def plan_clip(fr, D, words, key=None, last_punch=-1e9, T0=0.0, zoom_in=True, fps
             ms = mascot_live.place(fr, mascot)
     key_l = None
     if key:
-        wide = camera.window(fr["SW"]/2, fr["SH"]/2, fr["SW"], fr["SW"], fr["SH"])
-        key_l = key_layout(fr, key, wide)
+        key_l = key_layout(fr, key, camera.full_window(fr["SW"], fr["SH"]))
     parts = [pp["part"] or pp["label"] for pp in fr.get("parts", [])]
     acc_l = None
     if accent:
-        wide = camera.window(fr["SW"]/2, fr["SH"]/2, fr["SW"], fr["SW"], fr["SH"])
-        acc_l = accent_layout(fr, accent, wide)
+        acc_l = accent_layout(fr, accent, camera.full_window(fr["SW"], fr["SH"]))
     acc_speed, acc_dur = 1.0, 0.0
     if acc_l:
         at = shots.word_time(accent, words) if words else None
@@ -277,7 +275,7 @@ def plan_clip(fr, D, words, key=None, last_punch=-1e9, T0=0.0, zoom_in=True, fps
         # писать в окне, где камера будет в этот момент (план держит его без склеек)
         win, kl = key_fit
         if kl and writeon.plan(kl[0], fps, factor=speed)[1] <= key_dur*1.05 + 0.1:
-            p["key"] = dict(text=key, win=win, center=kl[1], size=kl[2], speed=speed, dur=key_dur)
+            p["key"] = dict(text=key, win=win, center=kl[1], size=kl[2], speed=speed)
         else:
             p["notes"].append(f"главной мысли «{key}» нет места в плане момента — не пишется")
             p["key_time"] = None
@@ -405,4 +403,5 @@ def render(fr, p, D, out, fps=24, end_fade=False, crf="18"):
 
 def plan_record(p):
     """План в JSON-виде для отчёта."""
-    return json.loads(json.dumps({k: v for k, v in p.items()}, default=lambda o: list(o) if isinstance(o, tuple) else str(o)))
+    # кортежи json пишет сам; numpy-скаляры — числом, а не строкой (иначе смена типа одного поля меняла бы хэш клипа)
+    return json.loads(json.dumps(p, default=lambda o: o.item() if isinstance(o, np.generic) else str(o)))
