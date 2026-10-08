@@ -1,0 +1,1 @@
+{"answer": "```json\n{\n  \"what\": \"crowd of people talking and gesturing\",\n  \"box\": [\n    20,\n    330,\n    1000,\n    980\n  ]\n}\n```", "model": "qwen/qwen3.7-plus"}
