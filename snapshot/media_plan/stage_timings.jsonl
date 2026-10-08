@@ -140,3 +140,15 @@
 {"stage": "slot_first", "t_wall": 256.9786, "ok": true, "pid": 1947, "ts": 1791422741.582, "clip_idx": 2}
 {"stage": "clip_render", "t_wall": 25.9229, "ok": true, "pid": 1947, "ts": 1791422768.683, "clip_idx": 2, "fn": "parallax_kenburns"}
 {"stage": "slot_total", "t_wall": 284.0801, "ok": true, "pid": 1947, "ts": 1791422768.683, "clip_idx": 2}
+{"stage": "cascade_rank", "t_wall": 9.7104, "ok": true, "pid": 1947, "ts": 1791422797.176, "clip_idx": 3}
+{"stage": "cascade_rank", "t_wall": 3.2148, "ok": true, "pid": 1947, "ts": 1791422800.391, "clip_idx": 3}
+{"stage": "cascade_rank", "t_wall": 3.2799, "ok": true, "pid": 1947, "ts": 1791422803.671, "clip_idx": 3}
+{"stage": "cascade_rank", "t_wall": 3.1842, "ok": true, "pid": 1947, "ts": 1791422806.856, "clip_idx": 3}
+{"stage": "cascade_rank", "t_wall": 2.683, "ok": true, "pid": 1947, "ts": 1791422809.539, "clip_idx": 3}
+{"stage": "cascade_rank", "t_wall": 2.8759, "ok": true, "pid": 1947, "ts": 1791422812.415, "clip_idx": 3}
+{"stage": "cascade_rank", "t_wall": 2.9595, "ok": true, "pid": 1947, "ts": 1791422815.375, "clip_idx": 3}
+{"stage": "cascade_rank", "t_wall": 2.942, "ok": true, "pid": 1947, "ts": 1791422818.317, "clip_idx": 3}
+{"stage": "cascade_rank", "t_wall": 3.4226, "ok": true, "pid": 1947, "ts": 1791422821.74, "clip_idx": 3}
+{"stage": "cascade_rank", "t_wall": 3.0133, "ok": true, "pid": 1947, "ts": 1791422824.753, "clip_idx": 3}
+{"stage": "cascade_rank", "t_wall": 2.8808, "ok": true, "pid": 1947, "ts": 1791422827.634, "clip_idx": 3}
+{"stage": "cascade_rank", "t_wall": 2.5456, "ok": true, "pid": 1947, "ts": 1791422830.18, "clip_idx": 3}
