@@ -210,6 +210,7 @@ def plan_clip(fr, D, words, key=None, last_punch=-1e9, T0=0.0, zoom_in=True, fps
         ms["actions"] = mascot_live.plan_actions(D, words, mascot.get("text", ""), ms["gaze"], seed=int(mascot.get("seed", 0)),
                                                  action=mascot.get("action"))
         ms["seed"] = int(mascot.get("seed", 0)); ms["sig"] = mascot_live.signature(); ms["state"] = mascot.get("state")
+        ms["look"] = mascot.get("look") or {}
         p["mascot"] = ms
     if accent and not acc_l:
         p["notes"].append(f"акценту «{accent}» нет места — не пишется")
@@ -289,6 +290,9 @@ def render(fr, p, D, out, fps=24, end_fade=False, crf="18"):
     if p.get("mascot"):
         import mascot_live
         doll = mascot_live.Layer(p["mascot"], D)
+        world = mascot_live.bake_shadow(world, p["mascot"], SW, SH, UPSCALE)   # тень под лапами — в мире, как у предметов
+        if assemble and full is not world:
+            full = mascot_live.bake_shadow(full, p["mascot"], SW, SH, UPSCALE)
     prev_world, fade_from, fade_len = None, None, shots.LABEL_FADE_SEC
     tmp = out + ".tmp.mp4"
     proc = subprocess.Popen(["ffmpeg", "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}",

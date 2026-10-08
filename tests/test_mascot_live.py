@@ -163,3 +163,33 @@ def test_doll_shrinks_beside_a_wide_subject_instead_of_vanishing(tmp_path):
     fr = frame_clip.prepare(str(src), [], objs, str(tmp_path), tex=canvas.paper_texture(w=1152, h=648))
     ms = M.place(fr, dict(text="x"))
     assert ms and ms["share"] < M.HEIGHT_SHARE and ms["share"] in M.SHRINK_STEPS
+
+
+@needs_rig
+def test_look_match_grain_and_shadow():
+    """Кукла в кадре: насыщенность подгоняется к нарисованным котам (только вниз), зерно бумаги кадра
+    ложится на куклу, под лапами — мягкая тень в мире кадра, вне тени мир не тронут."""
+    import canvas
+    import cv2
+    W, H = 1920, 1080
+    ms = dict(origin=[0.0, 0.0], scale=1.0, actions=[], seed=0, box=[266, 109, 1141, 770])
+    f = np.empty((H, W, 3), np.float32); f[:] = canvas.CREAM
+    L1 = M.Layer(dict(ms, look={"sat": 1.0}), 2.0); L2 = M.Layer(dict(ms, look={"sat": 0.6}), 2.0)
+    g1 = L1.composite(f.copy(), 0.5, (0, 0, W, H), W, H); g2 = L2.composite(f.copy(), 0.5, (0, 0, W, H), W, H)
+    a = L1._warped(0.5, (0, 0, W, H), W, H)[..., 3] > 0.98
+    s1 = cv2.cvtColor(g1.astype(np.uint8), cv2.COLOR_RGB2HSV)[..., 1][a].mean()
+    s2 = cv2.cvtColor(g2.astype(np.uint8), cv2.COLOR_RGB2HSV)[..., 1][a].mean()
+    assert 0.5 < s2 / s1 < 0.75                                     # насыщенность снижена примерно в 0.6
+    # зерно: тёмная бумага под куклой (0.95) темнит и куклу, в пределах GRAIN_CLIP
+    f2 = f * 0.95; g3 = L1.composite(f2.copy(), 0.5, (0, 0, W, H), W, H)
+    assert 0.93 < (g3[a].mean() / g1[a].mean()) < 0.97
+    f3 = f * 0.5; g4 = L1.composite(f3.copy(), 0.5, (0, 0, W, H), W, H)   # линия под куклой — не сильнее зерна
+    assert g4[a].mean() / g1[a].mean() >= M.GRAIN_CLIP[0] - 0.01   # полупрозрачные края добавляют ~0.5%
+    world = np.full((H, W, 3), 250, np.uint8)
+    out = M.bake_shadow(world, ms, W, H, 1)
+    fx, fy = int((ms["box"][0] + ms["box"][2]) / 2), int(ms["box"][3]) - 5
+    assert out[fy, fx].mean() < 225 and np.array_equal(out[:50], world[:50]) and out.dtype == np.uint8
+
+
+def test_episode_look_without_drawn_cats_is_identity(tmp_path):
+    assert M.episode_look(str(tmp_path), [{"status": "ok", "path": "x.png", "hero": False, "objects": []}])["sat"] == 1.0

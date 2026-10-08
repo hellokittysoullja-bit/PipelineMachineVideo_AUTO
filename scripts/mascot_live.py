@@ -33,7 +33,10 @@ SHRINK_STEPS = (0.46, 0.40)   # тесно рядом с крупным пред
 GAP_SHARE = 0.03         # зазор между котом и предметом, доля ширины холста
 MAX_BUSY = 0.12          # средняя занятость под силуэтом, выше — кукле тут не место
 BUSY_MARGIN = 26         # поле вокруг куклы в карте занятости (как у busy_map)
-VERSION = 1
+GRAIN_CLIP = (0.93, 1.03)   # зерно бумаги кадра поверх куклы: 10–90-й перцентили фактуры 0.946–1.018 (замер эп.01)
+SHADOW_K = 0.13             # тень под лапами: бумага 250 -> ~217 в центре; пол в кадре эп.01 — 233
+SAT_MIN = 0.5               # насыщенность куклы подгоняется к нарисованным котам эпизода, но не ниже половины
+VERSION = 2
 
 _RIG = None
 _MOD = None
@@ -177,6 +180,67 @@ def paint_rest(rgb, R, origin, s):
     return np.clip(out, 0, 255).round().astype(np.uint8)
 
 
+def doll_saturation():
+    """Средняя насыщенность (HSV S) плотных пикселей куклы в покое — эталон для подгонки к рисунку."""
+    import cv2
+    R = rig()
+    if getattr(R, "_sat", None) is None:
+        rg = R.frame_rgba(rest_state(), 0.0); a = rg[..., 3]
+        rgb = np.clip(rg[..., :3] / np.maximum(a[..., None], 1e-3), 0, 255).astype(np.uint8)
+        hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
+        R._sat = float(hsv[..., 1][a > 0.98].mean())
+    return R._sat
+
+
+def episode_look(video_dir, report_frames):
+    """Подгонка облика куклы под котов, НАРИСОВАННЫХ моделью в этом же эпизоде: коэффициент
+    насыщенности = их средняя S / S куклы (только вниз, не ниже SAT_MIN). Замер эп.01: кукла 52,
+    нарисованные коты 27/32/45 — кукла читалась наклейкой. Нет нарисованных котов — 1.0 (как есть)."""
+    import cv2
+    vals = []
+    for f in report_frames or []:
+        if f.get("status") != "ok" or not f.get("path"):
+            continue
+        boxes = [o for o in (f.get("objects") or []) if o.get("role") in ("hero", "subject") and o.get("box")
+                 and f.get("hero")]
+        if not boxes:
+            continue
+        im = cv2.imread(os.path.join(video_dir, f["path"]))
+        if im is None:
+            continue
+        x0, y0, x1, y1 = [int(v) for v in boxes[0]["box"]]
+        c = im[max(0, y0):y1, max(0, x0):x1]
+        if c.size == 0:
+            continue
+        h = cv2.cvtColor(c, cv2.COLOR_BGR2HSV); m = h[..., 2] < 200          # без бумаги
+        if m.sum() > 500:
+            vals.append(float(h[..., 1][m].mean()))
+    if not vals or not available():
+        return {"sat": 1.0, "drawn_sat": vals}
+    ds = doll_saturation()
+    return {"sat": float(np.clip(np.mean(vals) / max(ds, 1e-3), SAT_MIN, 1.0)), "drawn_sat": vals, "doll_sat": ds}
+
+
+def shadow_mask(ms, SW, SH, scale=1):
+    """Мягкая тень-пятно под лапами (как у предметов в кадрах эпизода) в координатах холста × scale:
+    float32 0..1, эллипс у низа силуэта, размыт."""
+    import cv2
+    x0, y0, x1, y1 = ms["box"]; cw, ch = (x1 - x0) * scale, (y1 - y0) * scale
+    H, W = int(SH * scale), int(SW * scale)
+    m = np.zeros((H, W), np.float32)
+    cx, cy = int((x0 + x1) / 2 * scale), int(y1 * scale - 0.015 * ch)
+    cv2.ellipse(m, (cx, cy), (int(0.44 * cw), int(0.07 * ch)), 0, 0, 360, 1.0, -1)
+    k = max(3, int(0.05 * cw) | 1)
+    return cv2.GaussianBlur(m, (k, k), 0)
+
+
+def bake_shadow(world, ms, SW, SH, scale=1):
+    """Тень под куклой впекается в мир кадра один раз (кукла двигается на месте, тень стоит)."""
+    m = shadow_mask(ms, SW, SH, scale)[..., None]
+    out = world.astype(np.float32) * (1 - SHADOW_K * m)
+    return np.clip(out, 0, 255).round().astype(world.dtype)
+
+
 def plan_actions(D, words, text, gaze, seed=0, action=None):
     """Движения из самой фразы: смотрит на предмет почти весь кадр (в конце — снова на зрителя),
     вопрос — наклон головы на слове с «?», вторая мысль во фразе — лёгкий наклон в другую
@@ -210,6 +274,9 @@ class Layer:
         self.state = _mod().plan(D, ms["actions"], seed=int(ms.get("seed", 0)))
         self.ox, self.oy = ms["origin"]; self.s = float(ms["scale"])
         self.flame = ms.get("state") if ms.get("state") in getattr(_mod(), "FLAME_STATES", {}) else None
+        self.sat = float((ms.get("look") or {}).get("sat", 1.0))
+        import canvas
+        self.cream = canvas.CREAM
 
     def composite(self, f, t, win, W, H):
         key = (round(t, 6), tuple(round(v, 4) for v in win), W, H)
@@ -219,10 +286,14 @@ class Layer:
             warped = self._warped(t, win, W, H)
             self._last = (key, warped)
         a = warped[..., 3:4]
+        # зерно бумаги кадра ложится и на куклу (иначе гладкая кукла на зернистом рисунке — наклейка):
+        # множитель = кадр / чистая бумага, в пределах амплитуды зерна, чтобы линии рисунка под куклой
+        # не просвечивали сильнее зерна
+        grain = np.clip((f / self.cream).mean(axis=2, keepdims=True), *GRAIN_CLIP)
         # бикубическая выборка рига даёт альфу чуть вне 0..1 (замер: −0.09..1.09) — на бумаге рига это
         # режется при записи кадра; здесь тоже режем сразу, чтобы карандаш и затемнения выше по цепочке
         # не получали значения вне 0..255 (без клипа край отличался от кадра рига до 26 уровней)
-        return np.clip(f * (1 - a) + warped[..., :3], 0, 255)
+        return np.clip(f * (1 - a) + warped[..., :3] * grain, 0, 255)
 
     def _warped(self, t, win, W, H):
         cv2 = self.cv2; R = self.R
@@ -232,6 +303,12 @@ class Layer:
         rgba = R.frame_rgba(st, t)
         x0, y0, x1, y1 = R.bb
         sub = np.ascontiguousarray(rgba[y0:y1, x0:x1])
+        if self.sat < 0.999:                                             # к насыщенности нарисованных котов
+            a4 = sub[..., 3:4]; a1 = np.maximum(a4, 1e-3)
+            rgb = np.clip(sub[..., :3] / a1, 0, 255).astype(np.uint8)
+            hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV).astype(np.float32); hsv[..., 1] *= self.sat
+            rgb = cv2.cvtColor(np.clip(hsv, 0, 255).astype(np.uint8), cv2.COLOR_HSV2RGB).astype(np.float32)
+            sub = np.concatenate([rgb * a4, a4], axis=2)
         k = self.s * W / (win[2] - win[0])                               # экранных px на px рига
         if k < 1:                                                        # уменьшение — площадью, без алиасинга
             nw, nh = max(1, int(round(sub.shape[1] * k))), max(1, int(round(sub.shape[0] * k)))

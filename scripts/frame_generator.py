@@ -127,7 +127,8 @@ def build_prompt(frame, n_style, with_hero, hero_states=None, hero_marks=None, p
         # модель дорисовала за конвертом маленькое существо с огненным хвостом — запрет нужен словами в задании
         parts.append("There is no character, creature, animal, person, hand or paw anywhere in the picture and no "
                      "footprints: the character is added later by the editor. One side of the picture stays plain "
-                     "empty background")
+                     "empty background. The picture is a flat side view at ground level: the thing of the line "
+                     "rests on a simple flat ground, no room corner, no walls, no floor drawn in perspective")
     if with_hero:
         if re.search(r"foot ?prints?|tracks?\b", frame["picture"], re.I):
             # критик 04.10: следы кота нарисованы подошвами ботинок

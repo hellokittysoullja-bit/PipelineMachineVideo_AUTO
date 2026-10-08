@@ -266,6 +266,7 @@ def main(video_dir):
     report = load_report(video_dir)
     plan_frames = load_plan_frames(video_dir)
     word_times = speech.word_times if timing == "phrase_lock" else []
+    doll_look = None
     jobs = []
     for k, i in enumerate(kept):
         rec = report.get(i) or {}
@@ -275,8 +276,15 @@ def main(video_dir):
                  for b in range(i, nxt) if b < len(word_times) for w in word_times[b]]
         pf = plan_frames.get(i) or {}
         # живая кукла героя — только где план просит героя живьём, а картинка сгенерирована без него
-        mascot = (dict(text=blocks[i]["text"], state=pf.get("hero_state"), action=pf.get("hero_action"), seed=k)
-                  if pf.get("hero_live") and not rec.get("hero") else None)
+        mascot = None
+        if pf.get("hero_live") and not rec.get("hero"):
+            if doll_look is None:
+                import mascot_live
+                doll_look = mascot_live.episode_look(video_dir, list(report.values()))
+                print(f"  живая кукла: насыщенность x{doll_look['sat']:.2f} (нарисованные коты эпизода: "
+                      f"{[round(v) for v in doll_look['drawn_sat']]})")
+            mascot = dict(text=blocks[i]["text"], state=pf.get("hero_state"), action=pf.get("hero_action"), seed=k,
+                          look=doll_look)
         jobs.append(dict(src=src, recs=recs, objects=rec.get("objects") or [], work=work, tex=tex_path,
                          seed=k, key=(pf.get("key_thought") or "").strip() or None, words=words, mascot=mascot,
                          accent=(pf.get("accent") or "").strip() or None,
