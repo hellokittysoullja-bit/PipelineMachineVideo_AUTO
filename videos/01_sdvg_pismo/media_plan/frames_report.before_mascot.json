@@ -1,0 +1,296 @@
+{
+ "model": "ag/gemini-3.1-flash-image",
+ "size": "1536x1024",
+ "quality": "low",
+ "look": "197bb015d9f4dbbb",
+ "judge_model": "qwen/qwen3.7-plus",
+ "spent_this_run": 191415,
+ "gateway": {
+  "base_url": "https://anymodel.org/v1",
+  "calls": 14,
+  "failures": 0,
+  "lost_bodies": 0,
+  "empty_answers": 0,
+  "spent": 4882,
+  "spend_cap": 40000,
+  "dead": null,
+  "pause_wait_sec": 0.0,
+  "reasked": 0,
+  "empty_answer_reasked": 0
+ },
+ "frames": [
+  {
+   "index": 0,
+   "key": "42e66ffc1e5a6249",
+   "sig": "46085465e83b432dcaab",
+   "kind": "scene",
+   "labels": [],
+   "hero": true,
+   "prompt": "wide shot: the main character walks in a tight circle around one unopened envelope lying on a desk in the center, head down, ears drooping, one paw scratching the chin; a calendar on the wall behind shows three crossed-off days; the character and desk sit in the middle of the frame, plain light background around. The main character is the character in reference image 3: keep exactly its head, face, colors, markings, body proportions and clothing if any; change only pose, action and expression. the small flame on the tip of the main character's tail has shrunk to a dim glowing ember with a thin wisp of grey smoke. If the picture has no specific place, its background is plain near-white paper, even and untinted, even if the reference images use a darker or coloured paper; a specific place is drawn as that place. No text, letters, numbers, digits, symbols, logos or signs anywhere in the image. Keep the main subject well inside the frame, away from the edges. Draw it in exactly the drawing style of reference images 1-2: the same line work, colors, shading and simplicity. Take only the style from them, not their content or characters.",
+   "rounds": [],
+   "path": null,
+   "candidates": {
+    "3f5e50c8e41bd5f644c5.png": {
+     "text_ok": false,
+     "grid": null,
+     "answers": {
+      "claims": {
+       "core": "yes",
+       "c1": "yes",
+       "c2": "yes",
+       "subject": "yes"
+      },
+      "medium": "artwork",
+      "why": "The image is a digital drawing showing a cat on a desk with an envelope, and circular lines drawn on the desk surface visually represent the character walking in circles around the unopened letter."
+     },
+     "vector": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+     ],
+     "text": {
+      "unexpected_text": [
+       "X X X"
+      ]
+     }
+    }
+   },
+   "label_tries": [],
+   "status": "rejected",
+   "reason": "ни один вариант не прошёл проверку (буквы на кадре или «не то»)"
+  },
+  {
+   "index": 1,
+   "key": "9f7ab4124a6ac7e4",
+   "sig": "9ff1e4ed8e79a74ce82e",
+   "kind": "scene",
+   "labels": [],
+   "hero": true,
+   "prompt": "medium shot: the main character stands holding its own head, a large brain drawn above it with a tiny glowing spark on one side and a massive dark boulder chained to the other side, the character straining under the weight, eyes squeezed shut; the brain and boulder fill the upper half of the frame, plain light background. The main character is the character in reference image 3: keep exactly its head, face, colors, markings, body proportions and clothing if any; change only pose, action and expression. the small flame on the tip of the main character's tail has shrunk to a dim glowing ember with a thin wisp of grey smoke. If the picture has no specific place, its background is plain near-white paper, even and untinted, even if the reference images use a darker or coloured paper; a specific place is drawn as that place. No text, letters, numbers, digits, symbols, logos or signs anywhere in the image. Keep the main subject well inside the frame, away from the edges. Draw it in exactly the drawing style of reference images 1-2: the same line work, colors, shading and simplicity. Take only the style from them, not their content or characters.",
+   "rounds": [],
+   "path": "frames/002.png",
+   "status": "ok",
+   "chosen": "8b76d8bc60b8ca24ba5a.png",
+   "labels_placed": [],
+   "label_tries": [
+    {
+     "variant": "8b76d8bc60b8ca24ba5a.png",
+     "ok": true,
+     "info": []
+    }
+   ],
+   "candidates": {
+    "8b76d8bc60b8ca24ba5a.png": {
+     "text_ok": true,
+     "grid": null,
+     "answers": {
+      "claims": {
+       "core": "yes",
+       "c1": "yes",
+       "c2": "yes",
+       "subject": "yes"
+      },
+      "medium": "artwork",
+      "why": "The image is a digital illustration showing a brain chained to a large boulder with small sparkles nearby."
+     },
+     "vector": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+     ],
+     "text": {
+      "unexpected_text": []
+     }
+    }
+   },
+   "objects": [
+    {
+     "name": "a black cartoon cat",
+     "role": "subject",
+     "word": null,
+     "box": [
+      424.7,
+      341.7,
+      1015.0,
+      806.4
+     ],
+     "why": null
+    }
+   ]
+  },
+  {
+   "index": 2,
+   "key": "ac6fc7cce6d6858a",
+   "sig": "fd600f0a8eac17da25e8",
+   "kind": "scene",
+   "labels": [],
+   "hero": true,
+   "prompt": "medium shot: one unopened envelope on a desk, its surface covered with several dark sticky blobs labeled by shape as shame and anxiety, the envelope sagging under their weight; the main character sits nearby, chin on paws, watching with drooping ears; the envelope sits in the center of the frame, plain light background. The main character is the character in reference image 3: keep exactly its head, face, colors, markings, body proportions and clothing if any; change only pose, action and expression. the small flame on the tip of the main character's tail has shrunk to a dim glowing ember with a thin wisp of grey smoke. If the picture has no specific place, its background is plain near-white paper, even and untinted, even if the reference images use a darker or coloured paper; a specific place is drawn as that place. No text, letters, numbers, digits, symbols, logos or signs anywhere in the image. Keep the main subject well inside the frame, away from the edges. Draw it in exactly the drawing style of reference images 1-2: the same line work, colors, shading and simplicity. Take only the style from them, not their content or characters.",
+   "rounds": [],
+   "path": null,
+   "candidates": {
+    "7f0567fe48aeeda8e19c.png": {
+     "text_ok": false,
+     "grid": null,
+     "answers": {
+      "claims": {
+       "core": "yes",
+       "c1": "unsure",
+       "c2": "no",
+       "subject": "yes"
+      },
+      "medium": "cg",
+      "why": "The image is a cartoon illustration showing an envelope covered in blobs labeled 'shame' and 'anxiety'. The letter is resting on a surface, not sinking, and the dynamic process of growing heavier is not explicitly shown, only the static result."
+     },
+     "vector": [
+      1.0,
+      1.0,
+      0.5,
+      1.0,
+      0.0
+     ],
+     "text": {
+      "unexpected_text": [
+       "shame",
+       "anxiety"
+      ]
+     }
+    }
+   },
+   "label_tries": [],
+   "status": "rejected",
+   "reason": "ни один вариант не прошёл проверку (буквы на кадре или «не то»)"
+  },
+  {
+   "index": 3,
+   "key": "1adf92ce359141f9",
+   "sig": "2ae5a66a2f20e26a5bb8",
+   "kind": "scene",
+   "labels": [],
+   "hero": true,
+   "prompt": "close-up: the main character's paws hold one envelope and lift its flap open, the character's face calm with ears up and a small soft smile; the envelope is large in the right half of the frame with plain light background around it; calm empty background above the envelope. The main character is the character in reference image 3: keep exactly its head, face, colors, markings, body proportions and clothing if any; change only pose, action and expression. the flame on the tip of the main character's tail burns big and bright orange. The the envelope is drawn large and clear, with plain empty background around it. Keep a calm area of plain empty background next to the the envelope, about a third of the image, for handwriting added later. If the picture has no specific place, its background is plain near-white paper, even and untinted, even if the reference images use a darker or coloured paper; a specific place is drawn as that place. No text, letters, numbers, digits, symbols, logos or signs anywhere in the image. Keep the main subject well inside the frame, away from the edges. Draw it in exactly the drawing style of reference images 1-2: the same line work, colors, shading and simplicity. Take only the style from them, not their content or characters.",
+   "rounds": [],
+   "path": "frames/004.png",
+   "status": "ok",
+   "chosen": "12168422f3c5ae7f6180.png",
+   "labels_placed": [],
+   "label_tries": [
+    {
+     "variant": "12168422f3c5ae7f6180.png",
+     "ok": true,
+     "info": []
+    }
+   ],
+   "candidates": {
+    "12168422f3c5ae7f6180.png": {
+     "text_ok": true,
+     "grid": null,
+     "answers": {
+      "claims": {
+       "core": "no",
+       "c1": "no",
+       "c2": "no",
+       "subject": "yes"
+      },
+      "medium": "artwork",
+      "why": "The image is a digital drawing of a cat holding a closed envelope. The character is not opening it, and its tail is on fire, which contradicts looking calm and relieved."
+     },
+     "vector": [
+      1.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0
+     ],
+     "text": {
+      "unexpected_text": []
+     }
+    }
+   },
+   "objects": [
+    {
+     "name": "the envelope",
+     "role": "zoom",
+     "word": "открыть",
+     "box": [
+      446.2,
+      452.0,
+      900.0,
+      833.6
+     ],
+     "why": null
+    },
+    {
+     "name": "the envelope",
+     "role": "key_anchor",
+     "word": null,
+     "box": [
+      446.2,
+      452.0,
+      900.0,
+      833.6
+     ],
+     "why": null
+    },
+    {
+     "name": "a black cartoon cat",
+     "role": "subject",
+     "word": null,
+     "box": [
+      26.5,
+      68.7,
+      811.5,
+      848.0
+     ],
+     "why": null
+    }
+   ]
+  },
+  {
+   "index": 4,
+   "key": "72d39f59d61ffd44",
+   "sig": "ecd22f161f17cac9942c",
+   "kind": "scene",
+   "labels": [],
+   "hero": false,
+   "prompt": "wide shot: a black cartoon cat stands a few steps away from a desk with one open envelope, looking back at a starting line drawn on the floor, a short trail of paw prints between the line and the character; the character's chest is puffed, ears up, a small proud smile; the scene sits in the center of the frame, plain light background. If the picture has no specific place, its background is plain near-white paper, even and untinted, even if the reference images use a darker or coloured paper; a specific place is drawn as that place. No text, letters, numbers, digits, symbols, logos or signs anywhere in the image. Keep the main subject well inside the frame, away from the edges. Draw it in exactly the drawing style of reference images 1-2: the same line work, colors, shading and simplicity. Take only the style from them, not their content or characters.",
+   "rounds": [],
+   "path": null,
+   "candidates": {
+    "77c5a003c369f74d81da.png": {
+     "text_ok": false,
+     "grid": null,
+     "answers": {
+      "claims": {
+       "core": "yes",
+       "c1": "yes",
+       "c2": "yes",
+       "subject": "yes"
+      },
+      "medium": "artwork",
+      "why": "The image is a drawing depicting a cat that has moved from a starting line towards an envelope on a table, leaving a trail of paw prints."
+     },
+     "vector": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+     ],
+     "text": {
+      "unexpected_text": [
+       "STARTING LINE"
+      ]
+     }
+    }
+   },
+   "label_tries": [],
+   "status": "rejected",
+   "reason": "ни один вариант не прошёл проверку (буквы на кадре или «не то»)"
+  }
+ ]
+}

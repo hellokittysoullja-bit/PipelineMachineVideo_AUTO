@@ -1,0 +1,301 @@
+{
+ "schema_version": 1,
+ "measured_at": "2026-10-08T11:49:40",
+ "video": "final_preview_silent.mp4",
+ "spec": "docs/MONTAGE_SPEC.md",
+ "limits": [
+  "скорость камеры — по окнам 0.25 с, перебор масштаба ±1.5%: диссолвы и окна со склейкой выброшены",
+  "no_signal — отсутствие измерения, не успех",
+  "пороги со статусом hypothesis не блокируют до калибровки на живых роликах"
+ ],
+ "checks": {
+  "plan_max_sec": {
+   "value": 3.5,
+   "threshold": 3.5416666666666665,
+   "op": "<=",
+   "level": "block",
+   "status": "calibrated",
+   "state": "ok"
+  },
+  "plan_len_cv": {
+   "value": 0.26303800471027605,
+   "threshold": 0.25,
+   "op": ">=",
+   "level": "warn",
+   "status": "hypothesis",
+   "state": "ok"
+  },
+  "plan_near_equal_share": {
+   "value": 0.15384615384615385,
+   "threshold": 0.3,
+   "op": "<=",
+   "level": "warn",
+   "status": "hypothesis",
+   "state": "ok"
+  },
+  "frozen_share": {
+   "value": 0.0,
+   "threshold": 0.05,
+   "op": "<=",
+   "level": "warn",
+   "status": "hypothesis",
+   "state": "ok"
+  },
+  "speed_max_over_mean": {
+   "value": 1.0187978230024002,
+   "threshold": 1.25,
+   "op": "<=",
+   "level": "warn",
+   "status": "hypothesis",
+   "state": "ok"
+  },
+  "direction_flips_excess": {
+   "value": null,
+   "threshold": 0,
+   "op": "<=",
+   "level": "warn",
+   "status": "hypothesis",
+   "state": "no_signal"
+  },
+  "cut_luma_jump": {
+   "value": 47.81886718750002,
+   "threshold": 12.0,
+   "op": "<=",
+   "level": "warn",
+   "status": "hypothesis",
+   "state": "violation"
+  },
+  "cut_attention_shift": {
+   "value": 0.4655938446521759,
+   "threshold": 0.25,
+   "op": "<=",
+   "level": "warn",
+   "status": "hypothesis",
+   "state": "violation"
+  },
+  "sharpness_cv": {
+   "value": 0.017291106639924225,
+   "threshold": 0.1,
+   "op": "<=",
+   "level": "warn",
+   "status": "hypothesis",
+   "state": "ok"
+  },
+  "hook_first_cut_sec": {
+   "value": 1.5,
+   "threshold": 2.0,
+   "op": "<=",
+   "level": "warn",
+   "status": "hypothesis",
+   "state": "ok"
+  },
+  "hook_plan_len_sec": {
+   "value": 1.5,
+   "threshold": [
+    1.2,
+    2.0
+   ],
+   "op": "range",
+   "level": "warn",
+   "status": "hypothesis",
+   "state": "ok"
+  },
+  "hook_voice_onset_sec": {
+   "value": 25.054,
+   "threshold": 0.3,
+   "op": "<=",
+   "level": "warn",
+   "status": "hypothesis",
+   "state": "violation"
+  },
+  "cuts_in_silence_share": {
+   "value": 1.0,
+   "threshold": 0.7,
+   "op": ">=",
+   "level": "block",
+   "status": "calibrated",
+   "state": "ok"
+  }
+ },
+ "blocks": [],
+ "warnings": [
+  "cut_luma_jump",
+  "cut_attention_shift",
+  "hook_voice_onset_sec"
+ ],
+ "no_signal": [
+  "direction_flips_excess"
+ ],
+ "measured": {
+  "plan_max_sec": 3.5,
+  "plan_len_cv": 0.26303800471027605,
+  "plan_near_equal_share": 0.15384615384615385,
+  "plans": 14,
+  "plan_mean_sec": 2.892857142857143,
+  "writing_plans": 1,
+  "frozen_share": 0.0,
+  "speed_max_over_mean": 1.0187978230024002,
+  "plans_measured": 14,
+  "plans_total": 14,
+  "direction_flips_excess": null,
+  "pictures_measured": 0,
+  "cut_luma_jump": 47.81886718750002,
+  "cut_luma_jump_median": 19.27073784722222,
+  "cut_attention_shift": 0.4655938446521759,
+  "cuts": 13,
+  "sharpness_cv": 0.017291106639924225,
+  "hook_first_cut_sec": 1.5,
+  "hook_plan_len_sec": 1.5,
+  "hook_voice_onset_sec": 25.054,
+  "hook_plans": 2,
+  "cuts_in_silence_share": 1.0
+ },
+ "per_plan": [
+  {
+   "frozen": 0.0,
+   "ratio": 1.0166641495616788,
+   "static": false
+  },
+  {
+   "frozen": 0.0,
+   "ratio": 1.0122229070588151,
+   "static": false
+  },
+  {
+   "frozen": 0.0,
+   "ratio": 1.014006427977268,
+   "static": false
+  },
+  {
+   "frozen": 0.0,
+   "ratio": 1.0186587845723818,
+   "static": false
+  },
+  {
+   "frozen": 0.0,
+   "ratio": 1.0196181403273616,
+   "static": false
+  },
+  {
+   "frozen": 0.0,
+   "ratio": 1.0285335328653116,
+   "static": false
+  },
+  {
+   "frozen": 0.0,
+   "ratio": 1.0177296969235163,
+   "static": false
+  },
+  {
+   "frozen": 0.0,
+   "ratio": 1.0264556223661698,
+   "static": false
+  },
+  {
+   "frozen": 0.0,
+   "ratio": 1.0155942039153714,
+   "static": false
+  },
+  {
+   "frozen": 0.0,
+   "ratio": 1.0157236065677422,
+   "static": false
+  },
+  {
+   "frozen": 0.0,
+   "ratio": 1.0189368614324184,
+   "static": false
+  },
+  {
+   "frozen": 0.0,
+   "ratio": 1.0213170745182578,
+   "static": false
+  },
+  {
+   "frozen": 0.0,
+   "ratio": 1.028504889287322,
+   "static": false
+  },
+  {
+   "frozen": 0.0,
+   "ratio": 1.0304212781740292,
+   "static": false
+  }
+ ],
+ "plans": [
+  [
+   0.0,
+   1.5
+  ],
+  [
+   1.5,
+   3.208
+  ],
+  [
+   3.208,
+   5.875
+  ],
+  [
+   5.875,
+   8.25
+  ],
+  [
+   8.25,
+   11.458
+  ],
+  [
+   11.458,
+   14.917
+  ],
+  [
+   14.917,
+   17.917
+  ],
+  [
+   17.917,
+   21.417
+  ],
+  [
+   21.417,
+   24.75
+  ],
+  [
+   24.75,
+   29.292
+  ],
+  [
+   29.292,
+   31.583
+  ],
+  [
+   31.583,
+   34.875
+  ],
+  [
+   34.875,
+   38.0
+  ],
+  [
+   38.0,
+   40.5
+  ]
+ ],
+ "cuts": [
+  1.5,
+  3.208,
+  5.875,
+  8.25,
+  11.458,
+  14.917,
+  17.917,
+  21.417,
+  24.75,
+  29.292,
+  31.583,
+  34.875,
+  38.0
+ ],
+ "qc_seconds": 20.8,
+ "video_seconds": 40.5,
+ "verdict": "warnings"
+}

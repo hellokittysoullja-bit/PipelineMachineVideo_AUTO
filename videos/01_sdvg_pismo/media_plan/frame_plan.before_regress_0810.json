@@ -1,0 +1,272 @@
+{
+ "version": 15,
+ "model": "ds/deepseek-v4-flash",
+ "has_hero": true,
+ "frames": [
+  {
+   "index": 0,
+   "section": "HOOK",
+   "text": "Ответить на одно письмо — это пять минут. А ты третий день ходишь вокруг него кругами.",
+   "key": "42e66ffc1e5a6249",
+   "spec": {
+    "focus": "a person circling an unopened letter for days",
+    "claims": [
+     {
+      "id": "core",
+      "text": "a person is visible circling an unopened letter",
+      "tier": "must"
+     },
+     {
+      "id": "c1",
+      "text": "the letter is unopened",
+      "tier": "must"
+     },
+     {
+      "id": "c2",
+      "text": "the person walks in circles around it",
+      "tier": "must"
+     }
+    ],
+    "subject": "a person with a letter"
+   },
+   "kind": "scene",
+   "hero": true,
+   "labels": [],
+   "picture": "wide shot: the main character stands on the floor beside one unopened white envelope, head down, tail dragging; a worn circle of paw prints surrounds the envelope; plain light background. the small flame on the tip of the main character's tail has shrunk to a dim glowing ember with a thin wisp of grey smoke.",
+   "accent": "пять минут",
+   "details": [
+    "the unopened envelope",
+    "the worn circular path on the floor"
+   ],
+   "hero_state": "ember",
+   "fallback": false,
+   "preflight": {
+    "issues": [],
+    "rewritten": true,
+    "faults": [
+     1,
+     3,
+     11
+    ],
+    "original": "wide shot: the main character walks in a circle on the floor around one unopened envelope, head down, ears drooping, a worn circular path drawn on the floor around the envelope; the envelope sits in the center of the circle; plain light background"
+   },
+   "kept_drawn": true
+  },
+  {
+   "index": 1,
+   "section": "HOOK",
+   "text": "Мозг с СДВГ часто включается от интереса, а не от важности, и скучное дело для него будто весит тонну.",
+   "key": "9f7ab4124a6ac7e4",
+   "spec": {
+    "focus": "a boring task feels heavy as a ton",
+    "claims": [
+     {
+      "id": "core",
+      "text": "a heavy weight is visible",
+      "tier": "must"
+     },
+     {
+      "id": "c1",
+      "text": "the weight is attached to a boring task",
+      "tier": "must"
+     },
+     {
+      "id": "c2",
+      "text": "the weight is huge and heavy",
+      "tier": "must"
+     }
+    ],
+    "subject": "a heavy weight"
+   },
+   "kind": "scene",
+   "hero": true,
+   "labels": [],
+   "picture": "medium shot: the main character stands on the floor, one paw holding a rope tied to a huge dark weight that sits on the ground, the character leans back, straining; the weight is as big as the character; plain light background",
+   "accent": "тонну",
+   "details": [
+    "the huge weight",
+    "the straining rope"
+   ],
+   "hero_state": "ember",
+   "fallback": false,
+   "preflight": {
+    "issues": [
+     "several_size_demands"
+    ],
+    "rewritten": true,
+    "faults": [
+     6,
+     11
+    ],
+    "original": "medium shot: the main character stands on the floor, one paw holding a rope tied to a huge dark weight that sits on the ground, the character leans back, straining, ears back, the weight is as big as the character; plain light background"
+   },
+   "kept_drawn": true
+  },
+  {
+   "index": 2,
+   "section": "HOOK",
+   "text": "Чем дольше откладываешь, тем тяжелее оно становится: к письму прилипают стыд и тревога.",
+   "key": "ac6fc7cce6d6858a",
+   "spec": {
+    "focus": "shame and anxiety stick to the delayed task",
+    "claims": [
+     {
+      "id": "core",
+      "text": "a sticky envelope is visible",
+      "tier": "must"
+     },
+     {
+      "id": "c1",
+      "text": "the envelope is covered in sticky blobs",
+      "tier": "must"
+     },
+     {
+      "id": "c2",
+      "text": "the character looks at it with dread",
+      "tier": "must"
+     },
+     {
+      "id": "nofig",
+      "text": "no character, creature, animal, person, hand or paw is anywhere in the picture",
+      "tier": "must"
+     }
+    ],
+    "subject": "a sticky envelope"
+   },
+   "kind": "scene",
+   "hero": false,
+   "labels": [],
+   "picture": "medium shot: one large white envelope covered in dark sticky blobs lies on the floor, with plain empty background on one side; the envelope is bigger than before; plain light background.",
+   "details": [
+    "the biggest sticky blob",
+    "the smaller sticky blobs"
+   ],
+   "hero_state": "ember",
+   "fallback": false,
+   "preflight": {
+    "issues": [],
+    "rewritten": true,
+    "faults": [
+     11
+    ],
+    "original": "close-up: the main character sits on the floor beside one envelope covered in dark sticky blobs, eyes wide, ears back, one paw raised to its face; the envelope is large in the right half of the frame, the character in the left; plain light background"
+   },
+   "kept_drawn": true,
+   "hero_live": true,
+   "hero_action": "look"
+  },
+  {
+   "index": 3,
+   "section": "HOOK",
+   "text": "Поэтому не заставляй себя сделать всё сразу. Договорись с собой только открыть письмо.",
+   "key": "1adf92ce359141f9",
+   "spec": {
+    "focus": "agreeing to only open the letter",
+    "claims": [
+     {
+      "id": "core",
+      "text": "an open letter is visible",
+      "tier": "must"
+     },
+     {
+      "id": "c1",
+      "text": "the envelope is open",
+      "tier": "must"
+     },
+     {
+      "id": "c2",
+      "text": "the character reaches for it",
+      "tier": "must"
+     }
+    ],
+    "subject": "an open letter"
+   },
+   "kind": "scene",
+   "hero": true,
+   "labels": [],
+   "picture": "medium shot: the main character sits on the floor, one paw reaching toward one open envelope with its flap folded back, the letter half out, the character's face calm and determined; the envelope is large in the right half of the frame with plain light background around it; calm empty background above the envelope",
+   "zoom": {
+    "object": "the open envelope",
+    "word": "письмо"
+   },
+   "key_thought": "только открыть",
+   "key_near": "the open envelope",
+   "details": [
+    "the open flap of the envelope"
+   ],
+   "hero_state": "bright",
+   "fallback": false,
+   "preflight": {
+    "issues": [],
+    "rewritten": true,
+    "faults": [
+     7
+    ],
+    "original": "medium shot: the main character sits on the floor, one paw reaching toward one open envelope with its flap folded back, the letter half out, the character's face calm and determined; the envelope is large in the right half of the frame with plain light background around it; calm empty background above the envelope"
+   },
+   "kept_drawn": true
+  },
+  {
+   "index": 4,
+   "section": "HOOK",
+   "text": "Две минуты, и можно бросить. Но часто дальше идёт само, а если нет, ты всё равно сдвинулся с места.",
+   "key": "72d39f59d61ffd44",
+   "spec": {
+    "focus": "two minutes is enough to start, and it often continues",
+    "claims": [
+     {
+      "id": "core",
+      "text": "a person is visible reading a letter",
+      "tier": "must"
+     },
+     {
+      "id": "c1",
+      "text": "the person reads the letter",
+      "tier": "must"
+     },
+     {
+      "id": "c2",
+      "text": "the person has moved from the floor",
+      "tier": "should"
+     }
+    ],
+    "subject": "a person with a letter"
+   },
+   "kind": "scene",
+   "hero": false,
+   "labels": [],
+   "picture": "medium shot: one white envelope with a single paw print on it lies on the floor, the flap slightly open, large in the frame, with plain light background around it.",
+   "accent": "две минуты",
+   "details": [
+    "the letter in the character's paws",
+    "the open envelope on the floor"
+   ],
+   "fallback": false,
+   "preflight": {
+    "issues": [],
+    "rewritten": true,
+    "faults": [
+     8,
+     11
+    ],
+    "original": "medium shot: a black cartoon cat sits on a chair at a table, holding one open letter in both paws, reading it, ears up, a small smile; the open envelope lies on the table beside the character; plain light background"
+   },
+   "kept_drawn": true
+  }
+ ],
+ "stats": {
+  "planned": 5,
+  "fallback": 0,
+  "cached_chapters": 0,
+  "hero_trimmed": 1,
+  "hero_live": 1
+ },
+ "errors": {},
+ "preflight": {
+  "checked": 5,
+  "rewritten": 5,
+  "rejected": 0,
+  "cached_chapters": 0,
+  "errors": {}
+ }
+}

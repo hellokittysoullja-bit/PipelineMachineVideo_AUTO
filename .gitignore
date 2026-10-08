@@ -13,3 +13,9 @@ videos/*/audio*.flac
 *.gguf
 videos/*/frames/
 models/
+# результаты сборки эпизода — продукт, не исходник (план и отчёты в media_plan/*.json остаются в git)
+videos/*/media_plan/*_cache/
+videos/*/media_plan/*.jpg
+videos/*/final_preview*.mp4
+videos/*/subtitles.srt
+videos/*/chapters.txt

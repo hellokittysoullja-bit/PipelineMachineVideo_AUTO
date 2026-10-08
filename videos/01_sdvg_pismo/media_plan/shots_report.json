@@ -1,0 +1,159 @@
+{
+ "punch_gap_sec": 15.0,
+ "key_gap_sec": 10.0,
+ "clips": [
+  {
+   "index": 0,
+   "note": "акцент «пять минут» пропущен: лимит рукописных слов"
+  },
+  {
+   "index": 0,
+   "duration": 8.25,
+   "views": [
+    [
+     0.0,
+     "drift"
+    ],
+    [
+     1.5,
+     "drift"
+    ],
+    [
+     3.18,
+     "drift"
+    ],
+    [
+     5.87,
+     "drift"
+    ]
+   ],
+   "labels_at": [],
+   "punch": null,
+   "key": null,
+   "key_at": null,
+   "key_hold_until": null,
+   "accent": null,
+   "notes": [
+    "крупный план «the unopened envelope» не делается: разрезал бы голову или тело героя",
+    "крупный план «the ring of paw prints on the floor» не делается: деталь не помещается в план",
+    "крупный план «the flame on the tip of the tail of a black cartoon cat» не делается: деталь мелкая даже на пределе зума",
+    "крупный план «the head of a black cartoon cat» не делается: почти совпадает с другим планом"
+   ]
+  },
+  {
+   "index": 1,
+   "duration": 9.667,
+   "views": [
+    [
+     0.0,
+     "drift"
+    ],
+    [
+     3.19,
+     "drift"
+    ],
+    [
+     6.63,
+     "drift"
+    ]
+   ],
+   "labels_at": [],
+   "punch": null,
+   "key": null,
+   "key_at": null,
+   "key_hold_until": null,
+   "accent": null,
+   "notes": [
+    "акцент «тонну»: слово не прозвучало",
+    "крупный план «chain wrapped around rock» не делается: разрезал бы голову или тело героя",
+    "крупный план «the flame on the tip of the tail of a black cartoon cat» не делается: почти совпадает с другим планом",
+    "крупный план «the head of a black cartoon cat» не делается: почти совпадает с другим планом"
+   ]
+  },
+  {
+   "index": 2,
+   "duration": 6.833,
+   "views": [
+    [
+     0.0,
+     "drift"
+    ],
+    [
+     3.47,
+     "drift"
+    ]
+   ],
+   "labels_at": [],
+   "punch": null,
+   "key": null,
+   "key_at": null,
+   "key_hold_until": null,
+   "accent": null,
+   "notes": [
+    "крупный план «the biggest sticky blob» не делается: деталь мелкая даже на пределе зума",
+    "крупный план «the character's wide eyes» не делается: деталь мелкая даже на пределе зума",
+    "крупный план «the flame on the tip of the tail of a black cartoon cat» не делается: деталь мелкая даже на пределе зума"
+   ]
+  },
+  {
+   "index": 3,
+   "duration": 6.833,
+   "views": [
+    [
+     0.0,
+     "lean"
+    ],
+    [
+     4.54,
+     "drift"
+    ]
+   ],
+   "labels_at": [],
+   "punch": null,
+   "key": "только открыть",
+   "key_at": 0.3,
+   "key_hold_until": 4.54,
+   "accent": null,
+   "notes": [
+    "наезд на «the open envelope»: слово «письмо» не прозвучало",
+    "крупный план «the open flap of the envelope» не делается: разрезал бы голову или тело героя",
+    "крупный план «the letter sticking out of the envelope» не делается: разрезал бы голову или тело героя",
+    "крупный план «the head of a black cartoon cat» не делается: разрезал бы голову или тело героя"
+   ]
+  },
+  {
+   "index": 4,
+   "note": "акцент «две минуты» пропущен: лимит рукописных слов"
+  },
+  {
+   "index": 4,
+   "duration": 8.917,
+   "views": [
+    [
+     0.0,
+     "drift"
+    ],
+    [
+     3.29,
+     "drift"
+    ],
+    [
+     6.39,
+     "drift"
+    ]
+   ],
+   "labels_at": [],
+   "punch": null,
+   "key": null,
+   "key_at": null,
+   "key_hold_until": null,
+   "accent": null,
+   "notes": [
+    "крупный план «the open letter in the character's paws» не делается: деталь мелкая даже на пределе зума",
+    "крупный план «the opened envelope on the table» не делается: деталь мелкая даже на пределе зума",
+    "крупный план «the paw prints on the floor» не делается: разрезал бы голову или тело героя",
+    "крупный план «the head of a black cartoon cat» не делается: почти совпадает с другим планом"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,663 @@
+{
+ "model": "ag/gemini-3.1-flash-image",
+ "size": "1536x1024",
+ "quality": "low",
+ "look": "197bb015d9f4dbbb",
+ "judge_model": "qwen/qwen3.7-plus",
+ "spent_this_run": 152805,
+ "gateway": {
+  "base_url": "https://anymodel.org/v1",
+  "calls": 14,
+  "failures": 0,
+  "lost_bodies": 0,
+  "empty_answers": 0,
+  "spent": 4831,
+  "spend_cap": 300000,
+  "dead": null,
+  "pause_wait_sec": 0.0,
+  "reasked": 0,
+  "empty_answer_reasked": 0
+ },
+ "frames": [
+  {
+   "index": 0,
+   "key": "42e66ffc1e5a6249",
+   "sig": "4445fc4cb8126c0d3fc0",
+   "plan_sig": "b843377db441ad2c451b",
+   "kind": "scene",
+   "labels": [],
+   "hero": true,
+   "prompt": "Reference images 1-2 show only the drawing style: take from them the line work, colors, shading and simplicity, never their content or characters. Reference image 3 is the main character: keep exactly its head, face, colors, markings, body proportions and clothing if any; change only pose, action and expression. Its ear on the viewer's left is folded down and its ear on the viewer's right stands up, exactly as in the reference image, whichever way it turns; when the character is seen from behind, the folded ear is on the viewer's right. SCENE: wide shot: the main character stands on the floor beside one unopened white envelope, head down, looking at it; the envelope is large, in the centre of the lower half of the frame; one closed ring of dark worn paw prints circles the envelope, with a trodden groove along the ring; plain light background. the small flame on the tip of the main character's tail has shrunk to a dim glowing ember with a thin wisp of grey smoke. the small flame on the tip of the main character's tail has shrunk to a dim glowing ember with a thin wisp of grey smoke. LAYOUT: the main character is drawn big, at least a third of the image height. If the picture has no specific place, its background is plain near-white paper, even and untinted, even if the reference images use a darker or coloured paper; a specific place is drawn as that place. Colours: black ink and soft grey washes on cream paper. The only warm colours in the picture are the main character's orange tail flame and cheek marks; every other object — envelopes, paper, furniture, floors, walls — is ink and grey, never brown, beige or orange. Every surface is clean and unmarked: blank paper, blank screens, plain envelopes, plain walls, unprinted floor and unprinted clothes. Keep the main subject well inside the frame, away from the edges. Draw everything in exactly the drawing style of the style references.",
+   "rounds": [],
+   "path": "frames/001.png",
+   "status": "ok",
+   "chosen": "c52b3486eca23586570a.png",
+   "labels_placed": [],
+   "label_tries": [
+    {
+     "variant": "c52b3486eca23586570a.png",
+     "ok": true,
+     "info": []
+    }
+   ],
+   "candidates": {
+    "c52b3486eca23586570a.png": {
+     "text_ok": true,
+     "grid": null,
+     "answers": {
+      "claims": {
+       "core": "yes",
+       "c1": "yes",
+       "c2": "yes",
+       "c3": "no",
+       "subject": "yes"
+      },
+      "medium": "cg",
+      "why": "The image is a digital cartoon illustration showing a black cat standing next to a sealed envelope surrounded by a continuous ring of paw prints."
+     },
+     "vector": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      0.0
+     ],
+     "text": {
+      "unexpected_text": []
+     }
+    }
+   },
+   "objects": [
+    {
+     "name": "the unopened envelope",
+     "role": "detail",
+     "word": null,
+     "box": [
+      446.2,
+      484.2,
+      850.7,
+      653.8
+     ],
+     "why": null
+    },
+    {
+     "name": "the ring of paw prints on the floor",
+     "role": "detail",
+     "word": null,
+     "box": [
+      206.0,
+      426.5,
+      1078.2,
+      782.7
+     ],
+     "why": null
+    },
+    {
+     "name": "the flame on the tip of the tail of a black cartoon cat",
+     "role": "detail",
+     "word": null,
+     "box": [
+      964.4,
+      240.0,
+      1027.6,
+      299.3
+     ],
+     "why": null
+    },
+    {
+     "name": "the head of a black cartoon cat",
+     "role": "hero_head",
+     "word": null,
+     "box": [
+      635.8,
+      155.2,
+      913.9,
+      392.6
+     ],
+     "why": null
+    },
+    {
+     "name": "a black cartoon cat",
+     "role": "hero",
+     "word": null,
+     "box": [
+      635.8,
+      121.3,
+      1052.9,
+      494.4
+     ],
+     "why": null
+    }
+   ]
+  },
+  {
+   "index": 1,
+   "key": "9f7ab4124a6ac7e4",
+   "sig": "9ff1e4ed8e79a74ce82e",
+   "kind": "scene",
+   "labels": [],
+   "hero": true,
+   "prompt": "medium shot: the main character stands holding its own head, a large brain drawn above it with a tiny glowing spark on one side and a massive dark boulder chained to the other side, the character straining under the weight, eyes squeezed shut; the brain and boulder fill the upper half of the frame, plain light background. The main character is the character in reference image 3: keep exactly its head, face, colors, markings, body proportions and clothing if any; change only pose, action and expression. the small flame on the tip of the main character's tail has shrunk to a dim glowing ember with a thin wisp of grey smoke. If the picture has no specific place, its background is plain near-white paper, even and untinted, even if the reference images use a darker or coloured paper; a specific place is drawn as that place. No text, letters, numbers, digits, symbols, logos or signs anywhere in the image. Keep the main subject well inside the frame, away from the edges. Draw it in exactly the drawing style of reference images 1-2: the same line work, colors, shading and simplicity. Take only the style from them, not their content or characters.",
+   "rounds": [],
+   "path": "frames/002.png",
+   "status": "ok",
+   "chosen": "8b76d8bc60b8ca24ba5a.png",
+   "labels_placed": [],
+   "label_tries": [
+    {
+     "variant": "8b76d8bc60b8ca24ba5a.png",
+     "ok": true,
+     "info": []
+    }
+   ],
+   "candidates": {
+    "8b76d8bc60b8ca24ba5a.png": {
+     "text_ok": true,
+     "grid": null,
+     "answers": {
+      "claims": {
+       "core": "yes",
+       "c1": "yes",
+       "c2": "yes",
+       "subject": "yes"
+      },
+      "medium": "artwork",
+      "why": "The image is a digital illustration showing a brain chained to a large boulder with small sparkles nearby."
+     },
+     "vector": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+     ],
+     "text": {
+      "unexpected_text": []
+     }
+    }
+   },
+   "objects": [
+    {
+     "name": "a heavy weight",
+     "role": "subject",
+     "word": null,
+     "box": [
+      720.5,
+      40.7,
+      1089.6,
+      439.3
+     ],
+     "why": null
+    },
+    {
+     "name": "sparkler fuse on brain",
+     "role": "detail",
+     "word": null,
+     "box": [
+      302.1,
+      161.1,
+      427.2,
+      312.1
+     ],
+     "why": null
+    },
+    {
+     "name": "chain wrapped around rock",
+     "role": "detail",
+     "word": null,
+     "box": [
+      714.2,
+      121.3,
+      1071.9,
+      412.1
+     ],
+     "why": null
+    },
+    {
+     "name": "flame at tail tip",
+     "role": "detail",
+     "word": null,
+     "box": [
+      926.5,
+      485.9,
+      985.9,
+      681.8
+     ],
+     "why": null
+    },
+    {
+     "name": "the flame on the tip of the tail of a black cartoon cat",
+     "role": "detail",
+     "word": null,
+     "box": [
+      926.5,
+      485.9,
+      985.9,
+      681.8
+     ],
+     "why": null
+    },
+    {
+     "name": "the head of a black cartoon cat",
+     "role": "hero_head",
+     "word": null,
+     "box": [
+      450.0,
+      336.7,
+      786.2,
+      603.8
+     ],
+     "why": null
+    },
+    {
+     "name": "a black cartoon cat",
+     "role": "hero",
+     "word": null,
+     "box": [
+      413.3,
+      336.7,
+      983.4,
+      809.8
+     ],
+     "why": null
+    }
+   ],
+   "plan_sig": "5c0e1c2acee790db2713"
+  },
+  {
+   "index": 2,
+   "key": "ac6fc7cce6d6858a",
+   "sig": "f19adb7f0392fc64f96c",
+   "plan_sig": "9691153fddb40463de85",
+   "kind": "scene",
+   "labels": [],
+   "hero": true,
+   "prompt": "Reference images 1-2 show only the drawing style: take from them the line work, colors, shading and simplicity, never their content or characters. Reference image 3 is the main character: keep exactly its head, face, colors, markings, body proportions and clothing if any; change only pose, action and expression. Its ear on the viewer's left is folded down and its ear on the viewer's right stands up, exactly as in the reference image, whichever way it turns; when the character is seen from behind, the folded ear is on the viewer's right. SCENE: medium shot: the main character sits on the floor beside one large white envelope covered in dark sticky blobs, eyes wide, one paw raised to its face, body leaning away from the envelope; the envelope is large in the right half of the frame, the character in the left half, a clear gap of plain background between them; plain light background. the small flame on the tip of the main character's tail has shrunk to a dim glowing ember with a thin wisp of grey smoke. the small flame on the tip of the main character's tail has shrunk to a dim glowing ember with a thin wisp of grey smoke. LAYOUT: the main character is drawn big, at least a third of the image height. If the picture has no specific place, its background is plain near-white paper, even and untinted, even if the reference images use a darker or coloured paper; a specific place is drawn as that place. Colours: black ink and soft grey washes on cream paper. The only warm colours in the picture are the main character's orange tail flame and cheek marks; every other object — envelopes, paper, furniture, floors, walls — is ink and grey, never brown, beige or orange. Every surface is clean and unmarked: blank paper, blank screens, plain envelopes, plain walls, unprinted floor and unprinted clothes. Keep the main subject well inside the frame, away from the edges. Draw everything in exactly the drawing style of the style references.",
+   "rounds": [],
+   "path": "frames/003.png",
+   "status": "ok",
+   "chosen": "398ed33376683d17fc7e.png",
+   "labels_placed": [],
+   "label_tries": [
+    {
+     "variant": "398ed33376683d17fc7e.png",
+     "ok": true,
+     "info": []
+    }
+   ],
+   "candidates": {
+    "398ed33376683d17fc7e.png": {
+     "text_ok": true,
+     "grid": null,
+     "answers": {
+      "claims": {
+       "core": "yes",
+       "c1": "yes",
+       "c2": "yes",
+       "subject": "yes"
+      },
+      "medium": "artwork",
+      "why": "The image is a digital drawing showing an anxious cat and an envelope covered in dark, sticky blobs, visually representing the metaphorical weight of shame and anxiety."
+     },
+     "vector": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+     ],
+     "text": {
+      "unexpected_text": []
+     }
+    }
+   },
+   "objects": [
+    {
+     "name": "a sticky envelope",
+     "role": "subject",
+     "word": null,
+     "box": [
+      736.9,
+      248.5,
+      1264.0,
+      689.4
+     ],
+     "why": null
+    },
+    {
+     "name": "the biggest sticky blob",
+     "role": "detail",
+     "word": null,
+     "box": [
+      1056.7,
+      384.1,
+      1179.3,
+      494.4
+     ],
+     "why": null
+    },
+    {
+     "name": "the character's wide eyes",
+     "role": "detail",
+     "word": null,
+     "box": [
+      332.4,
+      341.7,
+      534.7,
+      452.0
+     ],
+     "why": null
+    },
+    {
+     "name": "the flame on the tip of the tail of a black cartoon cat",
+     "role": "detail",
+     "word": null,
+     "box": [
+      142.8,
+      384.1,
+      206.0,
+      468.9
+     ],
+     "why": null
+    },
+    {
+     "name": "the head of a black cartoon cat",
+     "role": "hero_head",
+     "word": null,
+     "box": [
+      244.0,
+      197.6,
+      560.0,
+      494.4
+     ],
+     "why": null
+    },
+    {
+     "name": "a black cartoon cat",
+     "role": "hero",
+     "word": null,
+     "box": [
+      79.6,
+      197.6,
+      585.2,
+      697.9
+     ],
+     "why": null
+    }
+   ]
+  },
+  {
+   "index": 3,
+   "key": "1adf92ce359141f9",
+   "sig": "be19b375296723a42571",
+   "plan_sig": "c65448e8a33eefd770d1",
+   "kind": "scene",
+   "labels": [],
+   "hero": true,
+   "prompt": "Reference images 1-2 show only the drawing style: take from them the line work, colors, shading and simplicity, never their content or characters. Reference image 3 is the main character: keep exactly its head, face, colors, markings, body proportions and clothing if any; change only pose, action and expression. Its ear on the viewer's left is folded down and its ear on the viewer's right stands up, exactly as in the reference image, whichever way it turns; when the character is seen from behind, the folded ear is on the viewer's right. SCENE: medium shot: the main character sits on the floor, one paw lifting the flap of one open white envelope; the flap is folded back and a folded letter sticks half out of the envelope; the character's face calm and determined; the envelope is large in the right half of the frame with plain light background around it; calm empty background above the envelope. the flame on the tip of the main character's tail burns big and bright orange. the flame on the tip of the main character's tail burns big and bright orange. LAYOUT: the the open envelope is the biggest single object in the picture, its whole outline visible, with plain empty background around it. The main character and the the open envelope sit side by side with a clear gap of plain background between them; neither touches or covers the other. Keep a calm area of plain empty background next to the the open envelope, about a third of the image, for handwriting added later. If the picture has no specific place, its background is plain near-white paper, even and untinted, even if the reference images use a darker or coloured paper; a specific place is drawn as that place. Colours: black ink and soft grey washes on cream paper. The only warm colours in the picture are the main character's orange tail flame and cheek marks; every other object — envelopes, paper, furniture, floors, walls — is ink and grey, never brown, beige or orange. Every surface is clean and unmarked: blank paper, blank screens, plain envelopes, plain walls, unprinted floor and unprinted clothes. Keep the main subject well inside the frame, away from the edges. Draw everything in exactly the drawing style of the style references.",
+   "rounds": [],
+   "path": "frames/004.png",
+   "status": "ok",
+   "chosen": "81089157656348d51bf2.png",
+   "labels_placed": [],
+   "label_tries": [
+    {
+     "variant": "81089157656348d51bf2.png",
+     "ok": true,
+     "info": []
+    }
+   ],
+   "candidates": {
+    "81089157656348d51bf2.png": {
+     "text_ok": true,
+     "grid": null,
+     "answers": {
+      "claims": {
+       "core": "yes",
+       "c1": "yes",
+       "c2": "yes",
+       "c3": "yes",
+       "subject": "yes"
+      },
+      "medium": "artwork",
+      "why": "The image is a drawing showing a cat touching an open envelope with a letter sticking out of it."
+     },
+     "vector": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+     ],
+     "text": {
+      "unexpected_text": []
+     }
+    }
+   },
+   "objects": [
+    {
+     "name": "the open envelope",
+     "role": "zoom",
+     "word": "письмо",
+     "box": [
+      572.6,
+      316.3,
+      911.3,
+      714.9
+     ],
+     "why": null
+    },
+    {
+     "name": "the open envelope",
+     "role": "key_anchor",
+     "word": null,
+     "box": [
+      572.6,
+      316.3,
+      911.3,
+      714.9
+     ],
+     "why": null
+    },
+    {
+     "name": "an open letter",
+     "role": "subject",
+     "word": null,
+     "box": [
+      621.9,
+      374.8,
+      888.6,
+      564.8
+     ],
+     "why": null
+    },
+    {
+     "name": "the open flap of the envelope",
+     "role": "detail",
+     "word": null,
+     "box": [
+      635.8,
+      316.3,
+      822.9,
+      384.1
+     ],
+     "why": null
+    },
+    {
+     "name": "the letter sticking out of the envelope",
+     "role": "detail",
+     "word": null,
+     "box": [
+      621.9,
+      374.8,
+      888.6,
+      564.8
+     ],
+     "why": null
+    },
+    {
+     "name": "the flame on the tip of the tail of a black cartoon cat",
+     "role": "detail",
+     "word": null,
+     "box": [
+      130.2,
+      332.4,
+      216.1,
+      459.6
+     ],
+     "why": null
+    },
+    {
+     "name": "the head of a black cartoon cat",
+     "role": "hero_head",
+     "word": null,
+     "box": [
+      242.7,
+      189.1,
+      578.9,
+      494.4
+     ],
+     "why": null
+    },
+    {
+     "name": "a black cartoon cat",
+     "role": "hero",
+     "word": null,
+     "box": [
+      78.4,
+      189.1,
+      621.9,
+      714.9
+     ],
+     "why": null
+    }
+   ]
+  },
+  {
+   "index": 4,
+   "key": "72d39f59d61ffd44",
+   "sig": "6b11d511baf321a1d05e",
+   "plan_sig": "c2da54b3f6e36cc0ec3c",
+   "kind": "scene",
+   "labels": [],
+   "hero": true,
+   "prompt": "Reference images 1-2 show only the drawing style: take from them the line work, colors, shading and simplicity, never their content or characters. Reference image 3 is the main character: keep exactly its head, face, colors, markings, body proportions and clothing if any; change only pose, action and expression. Its ear on the viewer's left is folded down and its ear on the viewer's right stands up, exactly as in the reference image, whichever way it turns; when the character is seen from behind, the folded ear is on the viewer's right. SCENE: medium shot: the main character sits on a chair beside a small wooden table, holding one open letter in both paws and reading it, a small smile; the opened envelope with its flap folded back lies on the table beside the character; a short trail of paw prints leads across the floor from the left edge of the frame to the chair; plain light background. the flame on the tip of the main character's tail burns tall and golden with small bright sparks flying off it. the flame on the tip of the main character's tail burns tall and golden with small bright sparks flying off it. LAYOUT: the main character is drawn big, at least a third of the image height. If the picture has no specific place, its background is plain near-white paper, even and untinted, even if the reference images use a darker or coloured paper; a specific place is drawn as that place. Colours: black ink and soft grey washes on cream paper. The only warm colours in the picture are the main character's orange tail flame and cheek marks; every other object — envelopes, paper, furniture, floors, walls — is ink and grey, never brown, beige or orange. Every surface is clean and unmarked: blank paper, blank screens, plain envelopes, plain walls, unprinted floor and unprinted clothes. Keep the main subject well inside the frame, away from the edges. Draw everything in exactly the drawing style of the style references.",
+   "rounds": [],
+   "path": "frames/005.png",
+   "status": "ok",
+   "chosen": "287a6002d06bb87fb669.png",
+   "labels_placed": [],
+   "label_tries": [
+    {
+     "variant": "287a6002d06bb87fb669.png",
+     "ok": true,
+     "info": []
+    }
+   ],
+   "candidates": {
+    "287a6002d06bb87fb669.png": {
+     "text_ok": true,
+     "grid": null,
+     "answers": {
+      "claims": {
+       "core": "yes",
+       "c1": "yes",
+       "c2": "yes",
+       "c3": "yes",
+       "subject": "yes"
+      },
+      "medium": "artwork",
+      "why": "The image is a 2D digital drawing depicting a black cartoon cat sitting on a chair at a table, holding a piece of paper (letter), with a trail of paw prints leading to the chair."
+     },
+     "vector": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+     ],
+     "text": {
+      "unexpected_text": []
+     }
+    }
+   },
+   "objects": [
+    {
+     "name": "the open letter in the character's paws",
+     "role": "detail",
+     "word": null,
+     "box": [
+      635.8,
+      390.9,
+      838.0,
+      552.0
+     ],
+     "why": null
+    },
+    {
+     "name": "the opened envelope on the table",
+     "role": "detail",
+     "word": null,
+     "box": [
+      791.3,
+      460.5,
+      1015.0,
+      562.2
+     ],
+     "why": null
+    },
+    {
+     "name": "the paw prints on the floor",
+     "role": "detail",
+     "word": null,
+     "box": [
+      79.6,
+      606.3,
+      585.2,
+      744.5
+     ],
+     "why": null
+    },
+    {
+     "name": "the flame on the tip of the tail of a black cartoon cat",
+     "role": "detail",
+     "word": null,
+     "box": [
+      256.6,
+      61.9,
+      443.7,
+      392.6
+     ],
+     "why": null
+    },
+    {
+     "name": "the head of a black cartoon cat",
+     "role": "hero_head",
+     "word": null,
+     "box": [
+      484.1,
+      121.3,
+      812.8,
+      441.8
+     ],
+     "why": null
+    },
+    {
+     "name": "a black cartoon cat",
+     "role": "hero",
+     "word": null,
+     "box": [
+      281.9,
+      121.3,
+      838.0,
+      696.2
+     ],
+     "why": null
+    }
+   ]
+  }
+ ]
+}

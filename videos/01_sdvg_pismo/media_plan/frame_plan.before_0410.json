@@ -1,0 +1,174 @@
+{
+ "version": 8,
+ "model": "ds/deepseek-v4-flash",
+ "has_hero": true,
+ "frames": [
+  {
+   "index": 0,
+   "section": "HOOK",
+   "text": "Ответить на одно письмо — это пять минут. А ты третий день ходишь вокруг него кругами.",
+   "key": "42e66ffc1e5a6249",
+   "spec": {
+    "focus": "a person circling an unopened letter for days",
+    "claims": [
+     {
+      "id": "core",
+      "text": "a person walking in circles around a letter is visible",
+      "tier": "must"
+     },
+     {
+      "id": "c1",
+      "text": "the letter lies on a desk in the center",
+      "tier": "must"
+     },
+     {
+      "id": "c2",
+      "text": "a worn circular path of footprints surrounds the desk",
+      "tier": "should"
+     }
+    ],
+    "subject": "a person"
+   },
+   "kind": "scene",
+   "hero": true,
+   "labels": [],
+   "picture": "wide shot: the main character walks in a circle around a desk with one unopened envelope on it, head down, hands in pockets, a tired frown; a worn ring of footprints marks the floor around the desk; a calendar on the wall with blank pages; the character and desk sit in the center of the frame, plain light background",
+   "fallback": false
+  },
+  {
+   "index": 1,
+   "section": "HOOK",
+   "text": "Мозг с СДВГ часто включается от интереса, а не от важности, и скучное дело для него будто весит тонну.",
+   "key": "9f7ab4124a6ac7e4",
+   "spec": {
+    "focus": "an ADHD brain weighing a boring task as a ton",
+    "claims": [
+     {
+      "id": "core",
+      "text": "a brain lifting a huge weight is visible",
+      "tier": "must"
+     },
+     {
+      "id": "c1",
+      "text": "the weight is a giant envelope",
+      "tier": "must"
+     },
+     {
+      "id": "c2",
+      "text": "the brain strains with effort",
+      "tier": "must"
+     }
+    ],
+    "subject": "a brain"
+   },
+   "kind": "scene",
+   "hero": false,
+   "labels": [],
+   "picture": "medium shot: a cartoon brain with two small arms straining to lift a giant envelope above its head, sweat drops flying, knees bent; the envelope is plain and blank; the brain sits in the center of the frame, plain light background",
+   "fallback": false
+  },
+  {
+   "index": 2,
+   "section": "HOOK",
+   "text": "Чем дольше откладываешь, тем тяжелее оно становится: к письму прилипают стыд и тревога.",
+   "key": "ac6fc7cce6d6858a",
+   "spec": {
+    "focus": "shame and anxiety sticking to a delayed letter",
+    "claims": [
+     {
+      "id": "core",
+      "text": "an envelope covered in sticky dark blobs is visible",
+      "tier": "must"
+     },
+     {
+      "id": "c1",
+      "text": "the blobs are labeled by their look as heavy and dark",
+      "tier": "should"
+     },
+     {
+      "id": "c2",
+      "text": "the envelope droops under the weight",
+      "tier": "should"
+     }
+    ],
+    "subject": "an envelope"
+   },
+   "kind": "scene",
+   "hero": false,
+   "labels": [],
+   "picture": "close-up: one plain envelope on a desk, its surface covered with several dark sticky blobs that sag and drip, the envelope bending under their weight; a small shadow under it; the envelope sits in the center of the frame, plain light background",
+   "fallback": false
+  },
+  {
+   "index": 3,
+   "section": "HOOK",
+   "text": "Поэтому не заставляй себя сделать всё сразу. Договорись с собой только открыть письмо.",
+   "key": "1adf92ce359141f9",
+   "spec": {
+    "focus": "agreeing with yourself to only open the letter",
+    "claims": [
+     {
+      "id": "core",
+      "text": "a person shaking hands with themselves is visible",
+      "tier": "must"
+     },
+     {
+      "id": "c1",
+      "text": "one hand holds the envelope",
+      "tier": "must"
+     },
+     {
+      "id": "c2",
+      "text": "the other hand is raised in a handshake with the first",
+      "tier": "must"
+     }
+    ],
+    "subject": "a person"
+   },
+   "kind": "scene",
+   "hero": true,
+   "labels": [],
+   "picture": "close-up: the main character's two hands in front of them, one hand holding a plain envelope, the other hand shaking it in a firm handshake; a small smile on the character's face visible at the top of the frame; the hands sit in the center of the frame, plain light background",
+   "fallback": false
+  },
+  {
+   "index": 4,
+   "section": "HOOK",
+   "text": "Две минуты, и можно бросить. Но часто дальше идёт само, а если нет, ты всё равно сдвинулся с места.",
+   "key": "72d39f59d61ffd44",
+   "spec": {
+    "focus": "starting is enough, even if you stop",
+    "claims": [
+     {
+      "id": "core",
+      "text": "a person taking one step forward is visible",
+      "tier": "must"
+     },
+     {
+      "id": "c1",
+      "text": "a trail of footprints starts behind them",
+      "tier": "should"
+     },
+     {
+      "id": "c2",
+      "text": "the person looks back at the trail with relief",
+      "tier": "should"
+     }
+    ],
+    "subject": "a person"
+   },
+   "kind": "scene",
+   "hero": true,
+   "labels": [],
+   "picture": "medium shot: the main character stands with one foot lifted, taking a first step forward, looking back over their shoulder at a short trail of footprints behind them, a small relieved smile; the envelope lies open on the ground ahead; the character sits in the left third of the frame, plain light background",
+   "fallback": false
+  }
+ ],
+ "stats": {
+  "planned": 5,
+  "fallback": 0,
+  "cached_chapters": 0,
+  "hero_trimmed": 0
+ },
+ "errors": {}
+}
