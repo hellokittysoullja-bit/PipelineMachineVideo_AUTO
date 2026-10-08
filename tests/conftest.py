@@ -19,6 +19,13 @@ def _isolate_from_real_dotenv(monkeypatch):
         monkeypatch.setenv(k, "")
     for k in ("SHOT_JUDGE", "IMAGE_GENERATION", "CAPTION_SCREEN", "RESEARCH_ROUND"):
         monkeypatch.setenv(k, "0")
+    # .env рабочей копии в тесты не попадает вовсе: сборщик зовёт env.load_env() в main(), и после первого
+    # такого теста HERO_MAX_SHARE/HERO_MAX_RUN из .env жили в процессе до конца прогона — два теста
+    # планировщика падали только в полном прогоне (08.10, когда .env появился в контейнере)
+    import env as _env
+    monkeypatch.setattr(_env, "load_env", lambda path=None: None)
+    for k in ("HERO_MAX_SHARE", "HERO_MAX_RUN", "MASCOT_LIVE_PLAN", "IMAGE_MAX_SPEND"):
+        monkeypatch.delenv(k, raising=False)
 
 
 def pytest_configure(config):

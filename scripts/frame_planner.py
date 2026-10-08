@@ -531,9 +531,10 @@ def keep_drawn_frames(frames, video_dir):
     Сколько кадров сохранено."""
     mp = os.path.join(video_dir, "media_plan")
     try:
-        old = {f.get("key"): f for f in json.load(open(os.path.join(mp, PLAN_NAME), encoding="utf-8"))["frames"]}
+        old = {f.get("key"): f for f in json.load(open(os.path.join(mp, PLAN_NAME), encoding="utf-8"))["frames"]
+               if isinstance(f, dict)}
         rep = json.load(open(os.path.join(mp, "frames_report.json"), encoding="utf-8"))
-    except (OSError, ValueError, KeyError):
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return 0
     drawn = {r.get("key") for r in rep.get("frames", []) if r.get("status") == "ok" and r.get("path")}
     n = 0
@@ -653,7 +654,9 @@ def plan_episode(video_dir, gateway, model=DEFAULT_MODEL, force=False, workers=4
         stats["fallback" if entry.get("fallback") else "planned"] += 1
         frames.append({"index": i, "section": b["section"], "text": b["text"], "key": unit_key(b["text"]),
                        "spec": entry["spec"], **entry["frame"], "fallback": bool(entry.get("fallback"))})
-    stats["kept_drawn"] = keep_drawn_frames(frames, video_dir)
+    n_kept = keep_drawn_frames(frames, video_dir)
+    if n_kept:
+        stats["kept_drawn"] = n_kept
     if not has_hero:
         for f in frames:
             if f.get("hero"):
