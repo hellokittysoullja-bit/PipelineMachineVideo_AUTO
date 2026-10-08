@@ -1466,3 +1466,39 @@
 {"stage": "cheap_gate_clip", "t_wall": 0.0004, "ok": true, "pid": 416, "ts": 1791440287.69, "clip_idx": 25}
 {"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791440287.696, "clip_idx": 25}
 {"stage": "cheap_gate_clip", "t_wall": 0.0004, "ok": true, "pid": 416, "ts": 1791440287.741, "clip_idx": 25}
+{"stage": "slot_other_kind", "t_wall": 347.8338, "ok": true, "pid": 416, "ts": 1791440487.482, "clip_idx": 25, "kind": "photo"}
+{"stage": "slot_total", "t_wall": 582.6201, "ok": true, "pid": 416, "ts": 1791440490.178, "clip_idx": 25}
+{"stage": "clip_render", "t_wall": 35.6009, "ok": true, "pid": 2875, "ts": 1791440525.782, "clip_idx": 25, "fn": "video_render"}
+{"stage": "cascade_rank", "t_wall": 3.0881, "ok": true, "pid": 416, "ts": 1791440592.264, "clip_idx": 26}
+{"stage": "cascade_rank", "t_wall": 0.6541, "ok": true, "pid": 416, "ts": 1791440592.919, "clip_idx": 26}
+{"stage": "cand_download_wait", "t_wall": 0.5077, "ok": true, "pid": 416, "ts": 1791440608.047, "clip_idx": 26}
+{"stage": "cheap_gate_clip", "t_wall": 0.1727, "ok": true, "pid": 416, "ts": 1791440608.253, "clip_idx": 26}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791440608.337, "clip_idx": 26}
+{"stage": "cheap_gate_clip", "t_wall": 0.0004, "ok": true, "pid": 416, "ts": 1791440608.387, "clip_idx": 26}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791440608.392, "clip_idx": 26}
+{"stage": "cheap_gate_clip", "t_wall": 0.0008, "ok": true, "pid": 416, "ts": 1791440608.467, "clip_idx": 26}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791440608.568, "clip_idx": 26}
+{"stage": "cheap_gate_clip", "t_wall": 0.0005, "ok": true, "pid": 416, "ts": 1791440608.623, "clip_idx": 26}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791440608.69, "clip_idx": 26}
+{"stage": "cheap_gate_clip", "t_wall": 0.1689, "ok": true, "pid": 416, "ts": 1791440608.89, "clip_idx": 26}
+{"stage": "slot_first", "t_wall": 520.4753, "ok": true, "pid": 416, "ts": 1791441010.654, "clip_idx": 26}
+{"stage": "cascade_rank", "t_wall": 3.6402, "ok": true, "pid": 416, "ts": 1791441022.489, "clip_idx": 26}
+{"stage": "cascade_rank", "t_wall": 2.5619, "ok": true, "pid": 416, "ts": 1791441025.051, "clip_idx": 26}
+{"stage": "cascade_rank", "t_wall": 2.6282, "ok": true, "pid": 416, "ts": 1791441027.679, "clip_idx": 26}
+{"stage": "cascade_rank", "t_wall": 1.3309, "ok": true, "pid": 416, "ts": 1791441029.01, "clip_idx": 26}
+{"stage": "slot_other_kind", "t_wall": 154.2516, "ok": true, "pid": 416, "ts": 1791441164.907, "clip_idx": 26, "kind": "video"}
+{"stage": "slot_total", "t_wall": 675.3276, "ok": true, "pid": 416, "ts": 1791441165.506, "clip_idx": 26}
+{"stage": "cascade_rank", "t_wall": 4.4481, "ok": true, "pid": 416, "ts": 1791441207.382, "clip_idx": 27}
+{"stage": "cascade_rank", "t_wall": 3.2629, "ok": true, "pid": 416, "ts": 1791441210.645, "clip_idx": 27}
+{"stage": "clip_render", "t_wall": 48.2193, "ok": true, "pid": 2875, "ts": 1791441213.728, "clip_idx": 26, "fn": "kenburns"}
+{"stage": "cascade_rank", "t_wall": 3.3717, "ok": true, "pid": 416, "ts": 1791441214.017, "clip_idx": 27}
+{"stage": "cand_download_wait", "t_wall": 0.8555, "ok": true, "pid": 416, "ts": 1791441215.032, "clip_idx": 27}
+{"stage": "cheap_gate_clip", "t_wall": 0.2969, "ok": true, "pid": 416, "ts": 1791441215.395, "clip_idx": 27}
+{"stage": "cand_download_wait", "t_wall": 0.0587, "ok": true, "pid": 416, "ts": 1791441215.466, "clip_idx": 27}
+{"stage": "cheap_gate_clip", "t_wall": 0.2061, "ok": true, "pid": 416, "ts": 1791441215.73, "clip_idx": 27}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791441215.742, "clip_idx": 27}
+{"stage": "cheap_gate_clip", "t_wall": 0.1682, "ok": true, "pid": 416, "ts": 1791441215.977, "clip_idx": 27}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791441215.985, "clip_idx": 27}
+{"stage": "cheap_gate_clip", "t_wall": 0.185, "ok": true, "pid": 416, "ts": 1791441216.225, "clip_idx": 27}
+{"stage": "cand_download_wait", "t_wall": 0.0, "ok": true, "pid": 416, "ts": 1791441216.235, "clip_idx": 27}
+{"stage": "cheap_gate_clip", "t_wall": 0.1793, "ok": true, "pid": 416, "ts": 1791441216.468, "clip_idx": 27}
