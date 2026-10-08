@@ -108,5 +108,7 @@ class TestDiscipline:
         assert rep["verdict"] == "no_video" and code == mq.EXIT_BLOCK
 
     def test_qc_is_cheaper_than_realtime(self, reports):
+        if os.environ.get("PYTEST_XDIST_WORKER"):
+            pytest.skip("замер времени под параллельными воркерами делит ядра — не показатель")
         r = reports["lin"]
         assert r["qc_seconds"] < r["video_seconds"]

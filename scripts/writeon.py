@@ -258,7 +258,11 @@ def plan(letters, fps, t0=0.0, speed=None, seed=1, factor=1.0):
     ev, t, prev_word = [], 0.0, None
     for L in letters:
         sp = (speed or SPEED_PER_SIZE*L["size"])*factor
-        sts = letter_strokes(L)
+        # штрихи буквы — чистая функция её раскладки (не зависят от fps/t0/скорости): считаются один раз на
+        # букву, план берёт копии (ревью 08.10: четыре пересчёта на клип с мыслью — 57% времени планирования)
+        if "_strokes" not in L:
+            L["_strokes"] = letter_strokes(L)
+        sts = [dict(st) for st in L["_strokes"]]
         for j, s in enumerate(sts):
             if j == 0:
                 gap = 0.0 if prev_word is None else (rng.uniform(0.11, 0.14) if L["word"] != prev_word else rng.uniform(0.012, 0.024))
