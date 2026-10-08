@@ -1,11 +1,65 @@
 {
   "enabled": false,
-  "cache_hits_skipped_analysis": 15,
+  "cache_hits_skipped_analysis": 62,
   "clips": [
     {
       "decision": "skipped_cache_hit"
     },
     {
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_video"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_video"
+    },
+    {
       "decision": "skipped_cache_hit"
     },
     {
@@ -39,6 +93,126 @@
       "decision": "skipped_cache_hit"
     },
     {
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_video"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_video"
+    },
+    {
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_video"
+    },
+    {
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_disabled"
+    },
+    {
       "decision": "skipped_cache_hit"
     },
     {
@@ -51,31 +225,10 @@
       "decision": "skipped_disabled"
     },
     {
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_video"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "decision": "skipped_video"
@@ -93,148 +246,7 @@
       "decision": "skipped_disabled"
     },
     {
-      "decision": "skipped_video"
-    },
-    {
       "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_video"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_video"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_video"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_video"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_video"
-    },
-    {
-      "decision": "skipped_video"
-    },
-    {
-      "decision": "skipped_video"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_video"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_video"
-    },
-    {
-      "decision": "skipped_video"
-    },
-    {
-      "decision": "skipped_video"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_video"
-    },
-    {
-      "decision": "skipped_video"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_video"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_video"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_video"
     },
     {
       "decision": "absorbed_into_neighbour"
@@ -243,27 +255,6 @@
       "decision": "skipped_video"
     },
     {
-      "decision": "skipped_video"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "absorbed_into_neighbour"
-    },
-    {
-      "decision": "skipped_video"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_video"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
       "decision": "skipped_disabled"
     },
     {
@@ -273,25 +264,31 @@
       "decision": "skipped_video"
     },
     {
-      "decision": "skipped_video"
+      "decision": "skipped_cache_hit"
     },
     {
-      "decision": "skipped_video"
+      "decision": "skipped_cache_hit"
     },
     {
-      "decision": "skipped_video"
-    },
-    {
-      "decision": "skipped_video"
-    },
-    {
-      "decision": "skipped_video"
+      "decision": "skipped_cache_hit"
     },
     {
       "decision": "skipped_disabled"
     },
     {
-      "decision": "skipped_video"
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_cache_hit"
     },
     {
       "decision": "skipped_video"
@@ -303,34 +300,13 @@
       "decision": "skipped_disabled"
     },
     {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_video"
+      "decision": "skipped_cache_hit"
     },
     {
       "decision": "skipped_disabled"
     },
     {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_video"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "decision": "skipped_video"
@@ -345,7 +321,10 @@
       "decision": "skipped_video"
     },
     {
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_cache_hit"
     },
     {
       "decision": "skipped_disabled"
@@ -355,6 +334,18 @@
     },
     {
       "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_video"
+    },
+    {
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_cache_hit"
     },
     {
       "decision": "skipped_video"
@@ -363,7 +354,19 @@
       "decision": "skipped_disabled"
     },
     {
-      "decision": "skipped_video"
+      "decision": "skipped_cache_hit"
+    },
+    {
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_disabled"
+    },
+    {
+      "decision": "skipped_cache_hit"
     },
     {
       "decision": "skipped_disabled"
@@ -372,10 +375,7 @@
       "decision": "skipped_video"
     },
     {
-      "decision": "skipped_disabled"
-    },
-    {
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     }
   ]
 }

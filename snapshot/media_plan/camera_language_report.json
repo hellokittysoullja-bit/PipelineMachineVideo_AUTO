@@ -2,17 +2,17 @@
   "schema_version": 1,
   "enabled": true,
   "version": 1,
-  "shots_total": 54,
+  "shots_total": 42,
   "shots_with_stage": 0,
-  "shots_without_stage": 54,
+  "shots_without_stage": 42,
   "stage_had_direction": 0,
   "direction_overridden_by_antirepeat": 0,
   "modes": {
-    "slow_pull": 5,
+    "classic_kb": 7,
+    "micro_drift": 16,
     "static_hold": 17,
-    "classic_kb": 8,
-    "micro_drift": 20,
-    "horizontal_pan": 4
+    "slow_pull": 1,
+    "horizontal_pan": 1
   },
   "language": {
     "заход-якорь": {

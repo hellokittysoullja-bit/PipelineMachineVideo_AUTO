@@ -1,17 +1,24 @@
 {
   "flagged": [
     {
-      "index": 20,
-      "source": "/home/user/PipelineMachineVideo_AUTO/videos/05_dospeh/temp_smart/pexels_cache/0020_415ce013_7d7dd32e4f.jpg",
-      "rendered": "videos/05_dospeh/temp_smart/clip_0020_054a08ea.mp4",
-      "ratio": 0.22850341117866202,
+      "index": 9,
+      "source": "videos/05_dospeh/locked_media/slot009_cur.jpg",
+      "rendered": "videos/05_dospeh/temp_smart/clip_0009_d801c73f.mp4",
+      "ratio": 0.3334607497554157,
       "threshold": 0.5
     },
     {
-      "index": 63,
-      "source": "/home/user/PipelineMachineVideo_AUTO/videos/05_dospeh/temp_smart/pexels_cache/0063_41e7565f_44be7428bd.jpg",
-      "rendered": "videos/05_dospeh/temp_smart/clip_0063_9f6e2680.mp4",
-      "ratio": 0.3974729277573911,
+      "index": 50,
+      "source": "videos/05_dospeh/locked_media/slot050_cur.jpg",
+      "rendered": "videos/05_dospeh/temp_smart/clip_0050_9f9db290.mp4",
+      "ratio": 0.4125574413619164,
+      "threshold": 0.5
+    },
+    {
+      "index": 77,
+      "source": "videos/05_dospeh/locked_media/slot077_cur.jpg",
+      "rendered": "videos/05_dospeh/temp_smart/clip_0077_c8919acf.mp4",
+      "ratio": 0.4826283707023567,
       "threshold": 0.5
     }
   ]

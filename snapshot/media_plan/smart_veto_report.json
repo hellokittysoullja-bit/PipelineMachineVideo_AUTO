@@ -1,9 +1,9 @@
 {
-  "slots_evaluated_this_run": 110,
+  "slots_evaluated_this_run": 63,
   "misses": [
     {
-      "index": 78,
-      "query": "medieval helmet visor close up",
+      "index": 82,
+      "query": "modern body armour vest",
       "kind": "photo"
     }
   ]

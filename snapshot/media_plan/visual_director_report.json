@@ -3,7 +3,7 @@
   "mode": "off",
   "scored": 0,
   "diverged_from_base": 0,
-  "cache_hits_skipped_analysis": 15,
+  "cache_hits_skipped_analysis": 62,
   "clips": [
     {
       "index": 0,
@@ -11,7 +11,7 @@
     },
     {
       "index": 1,
-      "decision": "skipped_cache_hit"
+      "decision": "skipped_disabled"
     },
     {
       "index": 2,
@@ -27,7 +27,7 @@
     },
     {
       "index": 5,
-      "decision": "skipped_cache_hit"
+      "decision": "skipped_disabled"
     },
     {
       "index": 6,
@@ -35,7 +35,7 @@
     },
     {
       "index": 7,
-      "decision": "skipped_cache_hit"
+      "decision": "skipped_disabled"
     },
     {
       "index": 8,
@@ -43,7 +43,7 @@
     },
     {
       "index": 9,
-      "decision": "skipped_cache_hit"
+      "decision": "skipped_disabled"
     },
     {
       "index": 10,
@@ -67,15 +67,15 @@
     },
     {
       "index": 15,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 16,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 17,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 18,
@@ -83,47 +83,47 @@
     },
     {
       "index": 19,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 20,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 21,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 22,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 23,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 24,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 25,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 26,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 27,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 28,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 29,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 30,
@@ -131,11 +131,11 @@
     },
     {
       "index": 31,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 32,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 33,
@@ -147,7 +147,7 @@
     },
     {
       "index": 35,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 36,
@@ -159,11 +159,11 @@
     },
     {
       "index": 38,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 39,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 40,
@@ -171,19 +171,19 @@
     },
     {
       "index": 41,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 42,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 43,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 44,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 45,
@@ -215,7 +215,7 @@
     },
     {
       "index": 52,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 53,
@@ -223,7 +223,7 @@
     },
     {
       "index": 54,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 55,
@@ -235,7 +235,7 @@
     },
     {
       "index": 57,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 58,
@@ -247,19 +247,19 @@
     },
     {
       "index": 60,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 61,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 62,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 63,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 64,
@@ -275,11 +275,11 @@
     },
     {
       "index": 67,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 68,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 69,
@@ -287,15 +287,15 @@
     },
     {
       "index": 70,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 71,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 72,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 73,
@@ -303,11 +303,11 @@
     },
     {
       "index": 74,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 75,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 76,
@@ -319,7 +319,7 @@
     },
     {
       "index": 78,
-      "decision": "absorbed_into_neighbour"
+      "decision": "skipped_disabled"
     },
     {
       "index": 79,
@@ -355,15 +355,15 @@
     },
     {
       "index": 87,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 88,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 89,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 90,
@@ -387,7 +387,7 @@
     },
     {
       "index": 95,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 96,
@@ -403,7 +403,7 @@
     },
     {
       "index": 99,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 100,
@@ -411,7 +411,7 @@
     },
     {
       "index": 101,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 102,
@@ -431,11 +431,11 @@
     },
     {
       "index": 106,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 107,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 108,
@@ -451,7 +451,7 @@
     },
     {
       "index": 111,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 112,
@@ -459,11 +459,11 @@
     },
     {
       "index": 113,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 114,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 115,
@@ -475,7 +475,7 @@
     },
     {
       "index": 117,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 118,
@@ -491,7 +491,7 @@
     },
     {
       "index": 121,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     },
     {
       "index": 122,
@@ -503,7 +503,7 @@
     },
     {
       "index": 124,
-      "decision": "skipped_disabled"
+      "decision": "skipped_cache_hit"
     }
   ]
 }

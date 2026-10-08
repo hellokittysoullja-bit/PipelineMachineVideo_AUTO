@@ -3096,3 +3096,31 @@
 {"stage": "slot_total", "t_wall": 1.7854, "ok": true, "pid": 360, "ts": 1791460062.706, "clip_idx": 109}
 {"stage": "slot_total", "t_wall": 1.3602, "ok": true, "pid": 360, "ts": 1791460064.066, "clip_idx": 110}
 {"stage": "slot_total", "t_wall": 0.1436, "ok": true, "pid": 360, "ts": 1791460064.21, "clip_idx": 111}
+{"stage": "slot_total", "t_wall": 5.2091, "ok": true, "pid": 360, "ts": 1791460069.419, "clip_idx": 112}
+{"stage": "slot_total", "t_wall": 0.1121, "ok": true, "pid": 360, "ts": 1791460069.531, "clip_idx": 113}
+{"stage": "slot_total", "t_wall": 0.1043, "ok": true, "pid": 360, "ts": 1791460069.636, "clip_idx": 114}
+{"stage": "slot_total", "t_wall": 3.9988, "ok": true, "pid": 360, "ts": 1791460073.634, "clip_idx": 115}
+{"stage": "slot_total", "t_wall": 1.0233, "ok": true, "pid": 360, "ts": 1791460074.658, "clip_idx": 116}
+{"stage": "slot_total", "t_wall": 0.1081, "ok": true, "pid": 360, "ts": 1791460074.766, "clip_idx": 117}
+{"stage": "slot_total", "t_wall": 1.1636, "ok": true, "pid": 360, "ts": 1791460075.93, "clip_idx": 118}
+{"stage": "slot_total", "t_wall": 1.4189, "ok": true, "pid": 360, "ts": 1791460077.349, "clip_idx": 119}
+{"stage": "clip_render", "t_wall": 70.2195, "ok": true, "pid": 2369, "ts": 1791460078.061, "clip_idx": 103, "fn": "kenburns"}
+{"stage": "slot_total", "t_wall": 1.0825, "ok": true, "pid": 360, "ts": 1791460078.431, "clip_idx": 120}
+{"stage": "slot_total", "t_wall": 0.0944, "ok": true, "pid": 360, "ts": 1791460078.526, "clip_idx": 121}
+{"stage": "slot_total", "t_wall": 1.7796, "ok": true, "pid": 360, "ts": 1791460080.306, "clip_idx": 122}
+{"stage": "slot_total", "t_wall": 4.9842, "ok": true, "pid": 360, "ts": 1791460085.29, "clip_idx": 123}
+{"stage": "clip_render", "t_wall": 53.1643, "ok": true, "pid": 2340, "ts": 1791460099.935, "clip_idx": 104, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 115.2433, "ok": true, "pid": 1678, "ts": 1791460110.158, "clip_idx": 102, "fn": "video_render"}
+{"stage": "clip_render", "t_wall": 45.3887, "ok": true, "pid": 2340, "ts": 1791460145.324, "clip_idx": 108, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 49.2732, "ok": true, "pid": 1678, "ts": 1791460159.432, "clip_idx": 109, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 81.4085, "ok": true, "pid": 2369, "ts": 1791460159.47, "clip_idx": 105, "fn": "video_render"}
+{"stage": "clip_render", "t_wall": 45.9686, "ok": true, "pid": 2340, "ts": 1791460191.293, "clip_idx": 110, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 54.5428, "ok": true, "pid": 2369, "ts": 1791460214.013, "clip_idx": 115, "fn": "video_render"}
+{"stage": "clip_render", "t_wall": 44.1215, "ok": true, "pid": 2340, "ts": 1791460235.415, "clip_idx": 116, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 77.3065, "ok": true, "pid": 1678, "ts": 1791460236.741, "clip_idx": 112, "fn": "video_render"}
+{"stage": "clip_render", "t_wall": 41.1146, "ok": true, "pid": 2369, "ts": 1791460255.129, "clip_idx": 118, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 58.6039, "ok": true, "pid": 2340, "ts": 1791460294.024, "clip_idx": 119, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 39.0257, "ok": true, "pid": 2369, "ts": 1791460294.155, "clip_idx": 122, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 58.3357, "ok": true, "pid": 1678, "ts": 1791460295.078, "clip_idx": 120, "fn": "kenburns"}
+{"stage": "clip_render", "t_wall": 74.4017, "ok": true, "pid": 2340, "ts": 1791460368.427, "clip_idx": 123, "fn": "video_render"}
+{"stage": "slot_total", "t_wall": 286.8281, "ok": true, "pid": 360, "ts": 1791460372.118, "clip_idx": 124}
