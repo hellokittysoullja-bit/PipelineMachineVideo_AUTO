@@ -1,0 +1,2426 @@
+{
+ "version": 3,
+ "model": "ds/deepseek-v4-flash",
+ "setting": "historical, 1300 AD-1550 AD, western european, english, italian (milanese), german (gothic), french, burgundian",
+ "sig": "ec673fa56383cac5",
+ "units": {
+  "f4e9999f13f7be52": {
+   "focus": "a full plate armour harness on a stand",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a complete plate armour harness is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the armour stands on a display stand",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the armour is a full body harness",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "the armour is made of steel",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "full plate armour stand",
+    "medieval armour harness museum",
+    "steel plate armour"
+   ],
+   "subject": "a suit of armour",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Тридцать пять килограммов стали на тебе.",
+   "queries_for": [
+    {
+     "q": "full plate armour stand",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "medieval armour harness museum",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "steel plate armour",
+     "for": [
+      "core",
+      "c3"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": "518809fa424d"
+  },
+  "a0644b8404ac54df": {
+   "focus": "a fighter in armour ready to fight",
+   "claims": [
+    {
+     "id": "core",
+     "text": "an armoured fighter is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the fighter wears plate armour",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the fighter holds a weapon",
+     "tier": "should"
+    },
+    {
+     "id": "c3",
+     "text": "the fighter stands in a fighting stance",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "armoured knight fighting stance",
+    "knight in armour weapon",
+    "medieval reenactment fighter"
+   ],
+   "subject": "an armoured fighter",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Сколько в них можно драться?",
+   "queries_for": [
+    {
+     "q": "armoured knight fighting stance",
+     "for": [
+      "core",
+      "c1",
+      "c3"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "knight in armour weapon",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "medieval reenactment fighter",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "415cb2fb3b82cd3f": {
+   "focus": "an armoured knight lying helpless on his back",
+   "claims": [
+    {
+     "id": "core",
+     "text": "an armoured knight lying on his back is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the knight lies on his back",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the knight is in mud",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "the knight wears full plate armour",
+     "tier": "must"
+    }
+   ],
+   "queries": [
+    "armoured knight lying mud",
+    "knight fallen ground armour",
+    "medieval knight on back"
+   ],
+   "subject": "an armoured knight",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Ты наверняка слышал ответ: пару минут.",
+   "queries_for": [
+    {
+     "q": "armoured knight lying mud",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "knight fallen ground armour",
+     "for": [
+      "core",
+      "c1",
+      "c3"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "medieval knight on back",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": "d97b407382bd"
+  },
+  "860af3d10c84dfa4": {
+   "focus": "a fallen knight unable to rise",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a fallen armoured knight is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the knight lies on the ground",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the knight struggles to get up",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c3",
+     "text": "the knight wears plate armour",
+     "tier": "must"
+    }
+   ],
+   "queries": [
+    "knight struggling rise armour",
+    "fallen knight cannot stand",
+    "armoured man on ground"
+   ],
+   "subject": "an armoured knight",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Рыцарь в латах как консервная банка. Упал и не встал.",
+   "queries_for": [
+    {
+     "q": "knight struggling rise armour",
+     "for": [
+      "core",
+      "c2",
+      "c3"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "fallen knight cannot stand",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "armoured man on ground",
+     "for": [
+      "core",
+      "c1",
+      "c3"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "08f150aab3cd5f12": {
+   "focus": "an armoured man exhausted after running",
+   "claims": [
+    {
+     "id": "core",
+     "text": "an exhausted armoured man is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the man wears plate armour",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the man gasps for breath",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c3",
+     "text": "the man is bent over or leaning",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "armoured man exhausted running",
+    "knight out of breath",
+    "armoured runner gasping"
+   ],
+   "subject": "an armoured man",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Пробежал сотню метров и задохнулся.",
+   "queries_for": [
+    {
+     "q": "armoured man exhausted running",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "knight out of breath",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "armoured runner gasping",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "114d876e0be6f0fe": {
+   "focus": "an armoured fighter walking on a laboratory treadmill",
+   "claims": [
+    {
+     "id": "core",
+     "text": "an armoured fighter on a treadmill is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the fighter wears plate armour",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the fighter walks on a treadmill",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c3",
+     "text": "the setting is a laboratory",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "armoured man treadmill laboratory",
+    "knight armour treadmill test",
+    "plate armour exercise study"
+   ],
+   "subject": "an armoured fighter",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Учёные это проверили.",
+   "queries_for": [
+    {
+     "q": "armoured man treadmill laboratory",
+     "for": [
+      "core",
+      "c1",
+      "c2",
+      "c3"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "knight armour treadmill test",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "plate armour exercise study",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": "a084e4c2a3a4"
+  },
+  "2e57caa461456161": {
+   "focus": "four fighters being dressed in armour",
+   "claims": [
+    {
+     "id": "core",
+     "text": "fighters being dressed in armour are visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "several people are putting on plate armour",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c2",
+     "text": "there are four fighters",
+     "tier": "should"
+    },
+    {
+     "id": "c3",
+     "text": "the setting suggests England",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "putting on plate armour",
+    "armour being fitted",
+    "medieval reenactors arming"
+   ],
+   "subject": "armoured fighters",
+   "model": "ds/deepseek-v4-pro",
+   "text": "В английском городе Лидсе четырёх опытных бойцов одели",
+   "queries_for": [
+    {
+     "q": "putting on plate armour",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "armour being fitted",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "medieval reenactors arming",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "234630ccbdcfa963": {
+   "focus": "fighters in fifteenth century armour on a treadmill",
+   "claims": [
+    {
+     "id": "core",
+     "text": "fighters in fifteenth century armour on a treadmill are visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the fighters wear fifteenth century style plate armour",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the fighters stand on a treadmill",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "the fighters begin to walk",
+     "tier": "should",
+     "motion": true
+    }
+   ],
+   "queries": [
+    "fifteenth century armour treadmill",
+    "medieval armour walking treadmill",
+    "gothic plate armour reenactment"
+   ],
+   "subject": "armoured fighters",
+   "model": "ds/deepseek-v4-pro",
+   "text": "в копии доспехов пятнадцатого века и поставили на беговую дорожку.",
+   "queries_for": [
+    {
+     "q": "fifteenth century armour treadmill",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "medieval armour walking treadmill",
+     "for": [
+      "core",
+      "c2",
+      "c3"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "gothic plate armour reenactment",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "5ab617e35907ac1e": {
+   "focus": "a close up of a man in armour wearing a breathing mask",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a man in armour wearing a breathing mask is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the man wears a breathing mask over his face",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the man wears plate armour",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "the shot is a close up",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "breathing mask face close up",
+    "armoured man oxygen mask",
+    "treadmill breathing mask test"
+   ],
+   "subject": "an armoured man",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Маска на лице ловила каждый вдох.",
+   "queries_for": [
+    {
+     "q": "breathing mask face close up",
+     "for": [
+      "core",
+      "c1",
+      "c3"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "armoured man oxygen mask",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "treadmill breathing mask test",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": "28e8471a0a67"
+  },
+  "2542025138783056": {
+   "focus": "the effort of walking in armour",
+   "claims": [
+    {
+     "id": "core",
+     "text": "an armoured man walking with effort is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the man wears plate armour",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the man walks with visible effort",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c3",
+     "text": "the man is on a treadmill",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "armoured man walking effort",
+    "knight walking heavy armour",
+    "treadmill walking exertion"
+   ],
+   "subject": "an armoured man",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Сил на ходьбу уходило в два с лишним раза больше, чем без доспеха.",
+   "queries_for": [
+    {
+     "q": "armoured man walking effort",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "knight walking heavy armour",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "treadmill walking exertion",
+     "for": [
+      "core",
+      "c2",
+      "c3"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "719307946b54753a": {
+   "focus": "laboured breathing as if climbing steep stairs",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a person breathing heavily is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the person breathes heavily",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c2",
+     "text": "the person wears armour",
+     "tier": "should"
+    },
+    {
+     "id": "c3",
+     "text": "the person climbs stairs",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "heavy breathing exertion",
+    "climbing stairs out of breath",
+    "armoured man breathing hard"
+   ],
+   "subject": "a breathing person",
+   "model": "ds/deepseek-v4-pro",
+   "text": "И дышали они чаще, как на крутой лестнице.",
+   "queries_for": [
+    {
+     "q": "heavy breathing exertion",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "climbing stairs out of breath",
+     "for": [
+      "core",
+      "c1",
+      "c3"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "armoured man breathing hard",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "171b3c0db0f2569b": {
+   "focus": "a moment of suspense before the answer",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a paused or frozen moment is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the scene appears paused or held",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "an armoured figure is visible",
+     "tier": "should"
+    },
+    {
+     "id": "c3",
+     "text": "the mood is suspenseful",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "armoured knight paused",
+    "suspense moment freeze frame",
+    "knight waiting still"
+   ],
+   "subject": "a paused scene",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Миф подтвердился? Подожди.",
+   "queries_for": [
+    {
+     "q": "armoured knight paused",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "suspense moment freeze frame",
+     "for": [
+      "core",
+      "c1",
+      "c3"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "knight waiting still",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "d697747409b2d3e0": {
+   "focus": "a heavy late fifteenth century gothic plate armour",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a heavy gothic plate armour is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the armour is a late fifteenth century gothic style",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the armour is a full body harness",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "the armour appears heavy",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "gothic plate armour fifteenth century",
+    "late medieval gothic harness",
+    "heavy plate armour museum"
+   ],
+   "subject": "a suit of armour",
+   "model": "ds/deepseek-v4-pro",
+   "text": "В Швейцарии опыт повторили. Доспех ещё тяжелее, почти сорок",
+   "queries_for": [
+    {
+     "q": "gothic plate armour fifteenth century",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "late medieval gothic harness",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "heavy plate armour museum",
+     "for": [
+      "core",
+      "c2",
+      "c3"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": "195144d762b1"
+  },
+  "d5f484c592f328b2": {
+   "focus": "the armour weighing almost forty kilograms",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a heavy suit of armour is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the armour is a full plate harness",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the armour appears massive or heavy",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "the armour is gothic style",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "heavy gothic armour",
+    "massive plate armour",
+    "full plate harness heavy"
+   ],
+   "subject": "a suit of armour",
+   "model": "ds/deepseek-v4-pro",
+   "text": "килограммов. А сил ушло на две трети больше. Не вдвое.",
+   "queries_for": [
+    {
+     "q": "heavy gothic armour",
+     "for": [
+      "core",
+      "c1",
+      "c2",
+      "c3"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "massive plate armour",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "full plate harness heavy",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": ""
+  },
+  "e1a7d4cab8f68d6d": {
+   "focus": "an armoured fighter rising from the ground",
+   "claims": [
+    {
+     "id": "core",
+     "text": "an armoured fighter rising from the ground is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the fighter rises from the ground",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c2",
+     "text": "the fighter wears plate armour",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "the image is a fight book drawing",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "armoured fighter rising ground",
+    "knight getting up armour",
+    "fight book armoured rising"
+   ],
+   "subject": "an armoured fighter",
+   "model": "ds/deepseek-v4-pro",
+   "text": "И с земли этот человек вставал сам.",
+   "queries_for": [
+    {
+     "q": "armoured fighter rising ground",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "knight getting up armour",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "fight book armoured rising",
+     "for": [
+      "core",
+      "c1",
+      "c3"
+     ],
+     "type": "illustration"
+    }
+   ],
+   "bsig": "8b45008c38f3"
+  },
+  "c15b54f036ccfcff": {
+   "focus": "two different plate armour harnesses side by side",
+   "claims": [
+    {
+     "id": "core",
+     "text": "two suits of armour are visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "two different plate armour harnesses stand side by side",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "one harness is visibly heavier or larger",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "two suits of armour museum",
+    "plate armour harness display",
+    "medieval armour pair"
+   ],
+   "subject": "a suit of armour",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Доспех тяжелее, а сил меньше.",
+   "queries_for": [
+    {
+     "q": "two suits of armour museum",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "plate armour harness display",
+     "for": [
+      "core"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "medieval armour pair",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": "ebbd4fc25e5c"
+  },
+  "f90fae80417dc7cf": {
+   "focus": "a question left hanging for later",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a person pauses with a questioning look",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "a person raises a hand or shrugs",
+     "tier": "should",
+     "motion": true
+    },
+    {
+     "id": "c2",
+     "text": "the person looks at armour or a screen",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "man puzzled shrug",
+    "person thinking question",
+    "confused reenactor armour"
+   ],
+   "subject": "a puzzled person",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Как так? Разберём через пару минут.",
+   "queries_for": [
+    {
+     "q": "man puzzled shrug",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "person thinking question",
+     "for": [
+      "core"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "confused reenactor armour",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "590a4549a77716a5": {
+   "focus": "a stranger thing is coming",
+   "claims": [
+    {
+     "id": "core",
+     "text": "two armoured knights fight on foot",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "two knights in armour fight on foot",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c2",
+     "text": "the image is a manuscript illumination",
+     "tier": "must"
+    }
+   ],
+   "queries": [
+    "manuscript illumination knights fighting",
+    "medieval miniature combat armour",
+    "knight duel on foot illumination"
+   ],
+   "subject": "an armoured knight",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Но есть вещь страннее.",
+   "queries_for": [
+    {
+     "q": "manuscript illumination knights fighting",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "medieval miniature combat armour",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "knight duel on foot illumination",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "illustration"
+    }
+   ],
+   "bsig": "2f4f96396000"
+  },
+  "22556d907f60c470": {
+   "focus": "both laboratories measured walking on a treadmill",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a person in armour walks on a treadmill",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "a person in armour walks on a treadmill",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c2",
+     "text": "a laboratory setting",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "armour treadmill test",
+    "person walking treadmill laboratory",
+    "knight treadmill experiment"
+   ],
+   "subject": "a treadmill",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Обе лаборатории мерили ходьбу на дорожке.",
+   "queries_for": [
+    {
+     "q": "armour treadmill test",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "person walking treadmill laboratory",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "knight treadmill experiment",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "586e38f8a4c72375": {
+   "focus": "the fight itself was not measured",
+   "claims": [
+    {
+     "id": "core",
+     "text": "an armoured fighter stands still",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "a person in armour stands still or waits",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "no measuring equipment is visible",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "armoured fighter standing",
+    "knight waiting armour",
+    "medieval reenactor idle"
+   ],
+   "subject": "an armoured fighter",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Сам бой не мерили. Я искал замер схватки в доспехе",
+   "queries_for": [
+    {
+     "q": "armoured fighter standing",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "knight waiting armour",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "medieval reenactor idle",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "eb09a59fc721b49f": {
+   "focus": "no measurement of a fight was found",
+   "claims": [
+    {
+     "id": "core",
+     "text": "an empty search result is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "an empty shelf, drawer or blank page",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "a person searches through papers or a screen",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "empty archive shelf",
+    "person searching papers",
+    "blank page old book"
+   ],
+   "subject": "an empty archive",
+   "model": "ds/deepseek-v4-pro",
+   "text": "и не нашёл ни одного. А фразу про рыцаря,",
+   "queries_for": [
+    {
+     "q": "empty archive shelf",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "person searching papers",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "blank page old book",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": ""
+  },
+  "3274678f8df7ebd8": {
+   "focus": "everyone repeats the claim about the knight",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a person speaks to others",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "a person speaks or gestures to an audience",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c2",
+     "text": "other people listen",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "person speaking audience",
+    "man talking group",
+    "lecturer gesturing"
+   ],
+   "subject": "a talking person",
+   "model": "ds/deepseek-v4-pro",
+   "text": "который выдыхался за минуты, повторяют все.",
+   "queries_for": [
+    {
+     "q": "person speaking audience",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "man talking group",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "lecturer gesturing",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "c673972536dc3c2b": {
+   "focus": "a French marshal six hundred years ago",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a French marshal in armour mounts a horse",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "a knight in armour mounts a horse",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c2",
+     "text": "the image is a manuscript illumination",
+     "tier": "must"
+    }
+   ],
+   "queries": [
+    "manuscript illumination marshal mounting horse",
+    "medieval knight mounting horse miniature",
+    "french marshal armour illumination"
+   ],
+   "subject": "a mounted knight",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Зато один французский маршал шестьсот лет назад специально",
+   "queries_for": [
+    {
+     "q": "manuscript illumination marshal mounting horse",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "medieval knight mounting horse miniature",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "illustration"
+    },
+    {
+     "q": "french marshal armour illumination",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "illustration"
+    }
+   ],
+   "bsig": "bc6ff29af20d"
+  },
+  "129ef002456f2e9e": {
+   "focus": "training to keep breathing steady",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a knight trains with controlled breathing",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "a person in armour exercises or drills",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c2",
+     "text": "the person breathes visibly or steadily",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "knight training drill",
+    "armoured fighter exercise",
+    "medieval reenactor training"
+   ],
+   "subject": "a training knight",
+   "model": "ds/deepseek-v4-pro",
+   "text": "тренировался, чтобы не сбивать дыхание.",
+   "queries_for": [
+    {
+     "q": "knight training drill",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "armoured fighter exercise",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "medieval reenactor training",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "dec2914a8e78cf17": {
+   "focus": "why train if the fight lasted minutes",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a knight pauses exhausted",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "a person in armour breathes heavily or rests",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the person looks tired",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "tired knight resting",
+    "armoured fighter exhausted",
+    "knight catching breath"
+   ],
+   "subject": "a tired knight",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Зачем, если бой длился пару минут?",
+   "queries_for": [
+    {
+     "q": "tired knight resting",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "armoured fighter exhausted",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "knight catching breath",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "434c20c48c93df0d": {
+   "focus": "a study published by the Royal Society",
+   "claims": [
+    {
+     "id": "core",
+     "text": "an armoury museum hall is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "plate armour on mannequins",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "a museum hall interior",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "armoury museum hall",
+    "royal armouries museum",
+    "plate armour mannequin"
+   ],
+   "subject": "an armoury museum hall",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Исследование вышло в журнале британского Королевского общества, его вёл Грэм Аскью из Лидского университета.",
+   "queries_for": [
+    {
+     "q": "armoury museum hall",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "royal armouries museum",
+     "for": [
+      "core"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "plate armour mannequin",
+     "for": [
+      "c1"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": "cdc1233f9070"
+  },
+  "4ee7d1a2ebdd1fc6": {
+   "focus": "four experienced armour-wearing interpreters",
+   "claims": [
+    {
+     "id": "core",
+     "text": "four people in armour are visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "four people wear plate armour",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "they stand together",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "four people plate armour",
+    "armoured reenactors group",
+    "knights standing together"
+   ],
+   "subject": "four people",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Участников было четверо: бойцы-интерпретаторы из Королевской оружейной палаты в Лидсе, то есть люди, которые носят доспехи не первый год.",
+   "queries_for": [
+    {
+     "q": "four people plate armour",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "armoured reenactors group",
+     "for": [
+      "core"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "knights standing together",
+     "for": [
+      "core"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "c4cac445c52dfc98": {
+   "focus": "replica 15th-century armour on a treadmill",
+   "claims": [
+    {
+     "id": "core",
+     "text": "an armoured fighter is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "replica plate armour",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "a breathing mask on the face",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "a treadmill",
+     "tier": "must"
+    }
+   ],
+   "queries": [
+    "armoured fighter treadmill mask",
+    "knight treadmill breathing mask",
+    "replica plate armour"
+   ],
+   "subject": "an armoured fighter",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Им выдали копии боевых доспехов второй половины пятнадцатого века: английский, миланский и немецкий готический.",
+   "queries_for": [
+    {
+     "q": "armoured fighter treadmill mask",
+     "for": [
+      "core",
+      "c1",
+      "c2",
+      "c3"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "knight treadmill breathing mask",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "replica plate armour",
+     "for": [
+      "c1"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": "a65a50ab56a4"
+  },
+  "03d1c0b327db9903": {
+   "focus": "armour with underclothing weighing 35 kg",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a suit of armour is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "padded underclothing beside the armour",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "a full plate harness",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "plate armour padded underclothing",
+    "full plate harness",
+    "arming doublet armour"
+   ],
+   "subject": "a suit of armour",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Вместе с поддоспешной одеждой выходило в среднем тридцать пять килограммов, чуть меньше половины собственного веса человека.",
+   "queries_for": [
+    {
+     "q": "plate armour padded underclothing",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "full plate harness",
+     "for": [
+      "core"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "arming doublet armour",
+     "for": [
+      "c1"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": ""
+  },
+  "d8f5ce9f9d994db1": {
+   "focus": "a treadmill with an oxygen-measuring mask",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a treadmill is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "a breathing mask attached to equipment",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "oxygen measurement tubing",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "treadmill oxygen mask",
+    "exercise oxygen consumption test",
+    "metabolic measurement mask"
+   ],
+   "subject": "a treadmill",
+   "model": "ds/deepseek-v4-pro",
+   "text": "И поставили на беговую дорожку с маской, которая измеряет, сколько кислорода тратит организм.",
+   "queries_for": [
+    {
+     "q": "treadmill oxygen mask",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "exercise oxygen consumption test",
+     "for": [
+      "core"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "metabolic measurement mask",
+     "for": [
+      "c1",
+      "c2"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": ""
+  },
+  "fc5519f5e6175c55": {
+   "focus": "walking and running cost double energy",
+   "claims": [
+    {
+     "id": "core",
+     "text": "steel leg armour is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "thigh plates",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "shin plates",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "close-up view",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "steel leg armour close up",
+    "plate leg harness",
+    "cuisse greave armour"
+   ],
+   "subject": "steel leg armour",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Результат такой. На каждый метр пути при ходьбе уходило в два с лишним раза больше энергии, чем без доспеха, а при беге почти вдвое.",
+   "queries_for": [
+    {
+     "q": "steel leg armour close up",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "plate leg harness",
+     "for": [
+      "core"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "cuisse greave armour",
+     "for": [
+      "c1",
+      "c2"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": "9c5c939bb4b4"
+  },
+  "f1fbad7f22c06a4a": {
+   "focus": "mass increased only one and a half times",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a suit of armour is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "a full plate harness on a stand",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "a person standing beside it for scale",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "plate armour on stand",
+    "armour suit display",
+    "knight armour museum"
+   ],
+   "subject": "a suit of armour",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Хотя масса выросла всего примерно в полтора раза.",
+   "queries_for": [
+    {
+     "q": "plate armour on stand",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "armour suit display",
+     "for": [
+      "core"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "knight armour museum",
+     "for": [
+      "core"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": ""
+  },
+  "ba0e46d53588e718": {
+   "focus": "a backpack of the same weight adds 70 percent",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a heavy backpack is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "a person carries a large backpack",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the person walks",
+     "tier": "should",
+     "motion": true
+    }
+   ],
+   "queries": [
+    "heavy backpack walking",
+    "person carrying large backpack",
+    "loaded backpack hiker"
+   ],
+   "subject": "a backpack",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Для сравнения: такой же груз в рюкзаке прибавляет около семидесяти процентов при ходьбе.",
+   "queries_for": [
+    {
+     "q": "heavy backpack walking",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "person carrying large backpack",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "loaded backpack hiker",
+     "for": [
+      "core"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "962aefbc30d997af": {
+   "focus": "armour costs more energy than a backpack",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a suit of armour is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "a backpack beside the armour",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "both items of similar size",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "armour and backpack comparison",
+    "plate armour next to backpack",
+    "armour suit backpack"
+   ],
+   "subject": "a suit of armour",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Доспех обходился заметно дороже рюкзака того же веса.",
+   "queries_for": [
+    {
+     "q": "armour and backpack comparison",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "plate armour next to backpack",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "armour suit backpack",
+     "for": [
+      "core"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": ""
+  },
+  "7fdd6747871a76f9": {
+   "focus": "swinging weighted limbs raises leg power by two thirds",
+   "claims": [
+    {
+     "id": "core",
+     "text": "an armoured knight breathing hard is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "hands on knees",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "helmet off",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "breathing hard",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "armoured knight breathing hard",
+    "knight hands on knees exhausted",
+    "armoured fighter helmet off tired"
+   ],
+   "subject": "an armoured knight",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Почему? Руки и ноги приходится раскачивать с грузом на каждой, и мощность маха ног выросла примерно на две трети.",
+   "queries_for": [
+    {
+     "q": "armoured knight breathing hard",
+     "for": [
+      "core",
+      "c3"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "knight hands on knees exhausted",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "armoured fighter helmet off tired",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": "4d6ae750bfc5"
+  },
+  "23a01e2842bae3e6": {
+   "focus": "breathing became faster and shallower",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a person breathing rapidly is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "chest rises and falls quickly",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c2",
+     "text": "shallow breaths",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "person breathing rapidly",
+    "shallow breathing chest",
+    "panting person close up"
+   ],
+   "subject": "a breathing person",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Плюс дыхание: объём вдоха не вырос, зато люди дышали чаще и мельче.",
+   "queries_for": [
+    {
+     "q": "person breathing rapidly",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "shallow breathing chest",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "panting person close up",
+     "for": [
+      "core"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "3a162ba805be530d": {
+   "focus": "armour prevents a full breath",
+   "claims": [
+    {
+     "id": "core",
+     "text": "a breastplate is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "a breastplate pressed against a chest",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "a person wearing the breastplate",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "breastplate chest tight",
+    "armour restricting breathing",
+    "plate cuirass chest"
+   ],
+   "subject": "a breastplate",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Авторы предполагают, что доспех мешает вдохнуть полностью.",
+   "queries_for": [
+    {
+     "q": "breastplate chest tight",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "armour restricting breathing",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "plate cuirass chest",
+     "for": [
+      "core"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": ""
+  },
+  "58fa56b811dbc51a": {
+   "focus": "an unloaded man walks at 2.7 metres per second",
+   "claims": [
+    {
+     "id": "core",
+     "text": "an armoured knight walking slowly is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "side view",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "walking across a field",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c3",
+     "text": "full plate armour",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "armoured knight walking field",
+    "knight walking side view",
+    "armoured man walking slow"
+   ],
+   "subject": "an armoured knight",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Они посчитали и модельный пример. Взрослый мужчина без груза может идти на пределе аэробных сил со скоростью две целых семь десятых метра в секунду.",
+   "queries_for": [
+    {
+     "q": "armoured knight walking field",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "knight walking side view",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "armoured man walking slow",
+     "for": [
+      "core"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": "cbbcb0ffecdb"
+  },
+  "c3477974c1790c42": {
+   "focus": "armour lowers the limit to 1.7 metres per second",
+   "claims": [
+    {
+     "id": "core",
+     "text": "an armoured knight walking slowly is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "walking with visible effort",
+     "tier": "must",
+     "motion": true
+    },
+    {
+     "id": "c2",
+     "text": "full plate armour",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "slow pace",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "armoured knight slow walk",
+    "knight walking effort armour",
+    "armoured man trudging"
+   ],
+   "subject": "an armoured knight",
+   "model": "ds/deepseek-v4-pro",
+   "text": "В доспехе его предел падает до одной целой семи десятых.",
+   "queries_for": [
+    {
+     "q": "armoured knight slow walk",
+     "for": [
+      "core",
+      "c1",
+      "c3"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "knight walking effort armour",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "armoured man trudging",
+     "for": [
+      "core"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": ""
+  },
+  "a6d0e8ab262d504f": {
+   "focus": "four people and replica armour harnesses",
+   "claims": [
+    {
+     "id": "core",
+     "text": "four plate armour harnesses are visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "four different harnesses on stands",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "lined up in a row",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "each harness distinct in style",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "four plate armour stands",
+    "armour harnesses lined up",
+    "different armour suits display"
+   ],
+   "subject": "four armour harnesses",
+   "model": "ds/deepseek-v4-pro",
+   "text": "Запомни четыре человека и копии доспехов. Это пригодится через минуту.",
+   "queries_for": [
+    {
+     "q": "four plate armour stands",
+     "for": [
+      "core",
+      "c1"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "armour harnesses lined up",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "object"
+    },
+    {
+     "q": "different armour suits display",
+     "for": [
+      "core",
+      "c3"
+     ],
+     "type": "object"
+    }
+   ],
+   "bsig": "2fe5382556da"
+  },
+  "d48fa7ecadf460dd": {
+   "focus": "both studies measured walking, not combat",
+   "claims": [
+    {
+     "id": "core",
+     "text": "an armoured knight is visible",
+     "tier": "must"
+    },
+    {
+     "id": "c1",
+     "text": "the knight stands still on grass",
+     "tier": "must"
+    },
+    {
+     "id": "c2",
+     "text": "the knight is in full plate armour",
+     "tier": "must"
+    },
+    {
+     "id": "c3",
+     "text": "a side view of the knight",
+     "tier": "should"
+    }
+   ],
+   "queries": [
+    "armoured knight standing",
+    "medieval knight full plate",
+    "knight side view",
+    "plate armour reenactment"
+   ],
+   "subject": "an armoured knight",
+   "model": "ds/deepseek-v4-flash",
+   "text": "Выходит, правы оба, и оба измеряли не бой. Люди шли и бежали по дорожке.",
+   "queries_for": [
+    {
+     "q": "armoured knight standing",
+     "for": [
+      "core",
+      "c1",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "medieval knight full plate",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "knight side view",
+     "for": [
+      "core",
+      "c3"
+     ],
+     "type": "scene"
+    },
+    {
+     "q": "plate armour reenactment",
+     "for": [
+      "core",
+      "c2"
+     ],
+     "type": "scene"
+    }
+   ],
+   "bsig": "2c1f7617f94f"
+  }
+ }
+}

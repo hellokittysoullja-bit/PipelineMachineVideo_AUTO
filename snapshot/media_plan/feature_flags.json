@@ -1,0 +1,297 @@
+{
+  "VLM_ARBITER_MODE": {
+    "value": "on",
+    "default": "on",
+    "from_env": false
+  },
+  "SHOT_DIRECTOR_MODE": {
+    "value": "off",
+    "default": "off",
+    "from_env": false
+  },
+  "VISUAL_DIRECTOR_MODE": {
+    "value": "off",
+    "default": "off",
+    "from_env": false
+  },
+  "LOOK_MANAGEMENT_MODE": {
+    "value": "off",
+    "default": "off",
+    "from_env": false
+  },
+  "GRAIN_BLEND_MODE": {
+    "value": "softlight",
+    "default": "softlight",
+    "from_env": false
+  },
+  "LUMA_MATCH": {
+    "value": "normal",
+    "default": "normal",
+    "from_env": false
+  },
+  "ML_DEVICE": {
+    "value": "auto",
+    "default": "auto",
+    "from_env": false
+  },
+  "DELIVERY_PROFILE": {
+    "value": "youtube",
+    "default": "youtube",
+    "from_env": false
+  },
+  "DOMAIN_GRADE_MODE": {
+    "value": "on",
+    "default": "on",
+    "from_env": false
+  },
+  "RENDER_STRICT_GATE": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "DEFLICKER_ENABLED": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "GRAIN_ENABLED": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "OPENVERSE_ENABLED": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "COMMONS_ENABLED": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "RESEARCH_ROUND": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "IMAGE_GENERATION": {
+    "value": "1",
+    "default": "1",
+    "from_env": true
+  },
+  "FOCUS_CROP": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "LOOK_TIEBREAK": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "CAPTION_SCREEN": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "QUERY_FUSION": {
+    "value": "0",
+    "default": "0",
+    "from_env": false
+  },
+  "MET_CATALOG": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "CAMERA_LANGUAGE": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "SHOT_PLANNER_LLM": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "SHOT_BRIEF_CRITIQUE": {
+    "value": "0",
+    "default": "0",
+    "from_env": false
+  },
+  "SHOT_BRIEF_REASONING": {
+    "value": "0",
+    "default": "0",
+    "from_env": false
+  },
+  "SHELF_INDEX": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "MUSEUM_SOURCES_ENABLED": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "GRADE_HASH_JITTER": {
+    "value": "0",
+    "default": "0",
+    "from_env": false
+  },
+  "REVEAL_SFX": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "SOUND_LIBRARY": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "AMBIENCE_BED": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "SOUND_DIRECTOR": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "SYNTH_MUSIC_BED": {
+    "value": "0",
+    "default": "0",
+    "from_env": false
+  },
+  "SFX_DIRECTOR": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "OBJECT_SFX_ENABLED": {
+    "value": "0",
+    "default": "0",
+    "from_env": false
+  },
+  "ASPECT_FIT_BACKDROP": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "LOCAL_STOCK_GATE": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "PIXABAY_ENABLED": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "UNSPLASH_ENABLED": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "VIDEO_PHOTO_RESCUE": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "STRESS_HINTS_ENABLED": {
+    "value": "0",
+    "default": "0",
+    "from_env": false
+  },
+  "DOF_BLUR": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "CLIP_RELEVANCE": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "MUSIC_BED": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "MASTER_LIMITER": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "SHOT_JUDGE": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "SMART_RELEVANCE_VETO": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "QUERY_ERA_ANCHOR_ENFORCE": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "NEVER_SHOW_KNOWN_BAD": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "SHOW_BEST_REJECTED": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "FALLBACK_CARD": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "NEGATIVE_VETO": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "VOICE_PROCESS": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "TYPEWRITER_CLICKS": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "ON_SCREEN_TEXT": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "CHAPTER_CARD": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "TITLE_DROP": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "PLACE_CAPTION": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  },
+  "QUOTE_CARD": {
+    "value": "1",
+    "default": "1",
+    "from_env": false
+  }
+}
