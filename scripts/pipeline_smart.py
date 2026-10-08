@@ -17779,6 +17779,12 @@ def apply_human_jitter(blocks, durs, magnitude=0.3):
 
 SUBCUT_MIN_SOURCE_DUR = 8.0   # блок короче этого не режем вообще
 SUBCUT_MIN_PART_DUR = 3.0     # ни один получившийся под-кадр не короче этого
+#: Кадр вне хука не длиннее этого (секунды экрана: речь куска плюс пауза до
+#: следующего, по alignment; без alignment — оценка по доле слов). Решение
+#: владельца 08.10: после хука шли кадры по 9-11 с, потому что длинный блок
+#: резался ОДИН раз и половинки больше не проверялись. 0 — выключить.
+BODY_SLOT_MAX_SEC = float(os.environ.get("BODY_SLOT_MAX_SEC", "8.0"))
+BODY_SLOT_FLOOR_MARGIN = 0.3
 SUBCUT_CONTRAST_WORDS = {"но", "однако", "зато", "хотя", "просто", "ведь",
                           "потому", "поэтому", "притом", "притом,"}
 # Раньше здесь стоял отдельный, более агрессивный набор порогов
@@ -18258,6 +18264,77 @@ def _clause_fallback_cut(words, split_at, mid, est, min_part, times=None):
     return split_at, False
 
 
+def _enforce_body_slot_max(words, merged, est, min_part, max_sec, times=None):
+    """Куски тела длиннее max_sec режутся дальше, пока каждый не уложится
+    или резать уже нельзя (обе половины обязаны дотянуть до min_part).
+
+    Длительность куска [a, c) — по реальному времени слов, если оно есть
+    (times[k] — начало слова k, times[-1] — начало следующего блока: это
+    время на экране вместе с паузой), иначе доля слов от est. Точка реза
+    выбирается тем же ранжированием, что у остальной нарезки (cut_rank):
+    сперва конец предложения, потом граница клаузы, потом любое место, кроме
+    обрыва словосочетания; внутри класса — ближе к середине куска по
+    времени. Ничего не режется, если max_sec <= 0."""
+    n = len(words)
+    if max_sec <= 0 or not n:
+        return merged
+    use_t = bool(times) and len(times) == n + 1
+
+    def at(k):
+        return times[k] if use_t else (est or 0.0) * k / n
+
+    def dur(a, c):
+        return at(c) - at(a)
+
+    out = list(merged)
+    if use_t:
+        # Сначала склеить куски, которые по НАСТОЯЩЕМУ времени короче пола:
+        # прежняя нарезка проверяет пол по доле слов, и кусок «3.2 с по
+        # словам» звучал 2.9 с. Дальше его склеила бы merge_short_phrase_
+        # locked_blocks — уже без потолка (замер 05_dospeh: 10.6 с). Здесь
+        # склейка идёт ДО потолка, и длинный результат режется ниже заново.
+        glued = []
+        for a, c in out:
+            if glued and dur(a, c) < min_part:
+                glued[-1] = (glued[-1][0], c)
+            else:
+                glued.append((a, c))
+        while len(glued) >= 2 and dur(*glued[0]) < min_part:
+            glued[:2] = [(glued[0][0], glued[1][1])]
+        out = glued
+    for _ in range(n):
+        nxt, changed = [], False
+        for a, c in out:
+            if dur(a, c) <= max_sec or c - a < 2:
+                nxt.append((a, c))
+                continue
+            mid_t = (at(a) + at(c)) / 2.0
+            best = None
+            for k in range(a + 1, c):
+                # Запас к полу: онсеты, по которым потом сливаются короткие
+                # куски (merge_short_phrase_locked_blocks), чуть расходятся со
+                # временем слов; кусок «ровно 3.0» по словам склеивался бы
+                # обратно, и потолок молча не держался.
+                if dur(a, k) < min_part + BODY_SLOT_FLOOR_MARGIN or dur(k, c) < min_part + BODY_SLOT_FLOOR_MARGIN:
+                    continue
+                rank = cut_rank(words, k)
+                if rank >= 3:
+                    continue
+                sent = 0 if words[k - 1].rstrip("»\"')").endswith((".", "!", "?", "…")) else 1
+                key = (rank, sent, abs(at(k) - mid_t))
+                if best is None or key < best[0]:
+                    best = (key, k)
+            if best is None:
+                nxt.append((a, c))
+                continue
+            nxt += [(a, best[1]), (best[1], c)]
+            changed = True
+        out = nxt
+        if not changed:
+            break
+    return out
+
+
 def split_long_blocks(blocks, real_weights):
     """Один блок = один клип 4-20 сек — механическая сетка "одна мысль = одна
     картинка". Профессиональный монтаж на одну длинную фразу даёт 2-3
@@ -18278,6 +18355,24 @@ def split_long_blocks(blocks, real_weights):
     new_blocks, new_weights = [], []
     _hook_times = _hook_word_times(blocks) if HOOK_SLOT_MAX_SEC > 0 else {}
     _body_times = None   # лениво: нужны только блокам с запасным резом не на границе клаузы
+
+    def _finish_body(bi, b, w, words, merged, est, min_part, real_checked=False):
+        """Последний шаг тела: потолок BODY_SLOT_MAX_SEC, потом выдача.
+        Один кусок — блок уходит как есть (тот же объект, байт-в-байт)."""
+        nonlocal _body_times
+        if BODY_SLOT_MAX_SEC > 0 and not str(b.get("section", "")).startswith("HOOK"):
+            need_times = est is not None and est + 2.0 > BODY_SLOT_MAX_SEC
+            if need_times and _body_times is None:
+                _body_times = _block_word_times(
+                    blocks, lambda x: not str(x.get("section", "")).startswith("HOOK"))
+            t = (_body_times or {}).get(bi) if need_times else None
+            merged = _enforce_body_slot_max(words, merged, est, min_part, BODY_SLOT_MAX_SEC,
+                                            times=t if t and len(t) == len(words) + 1 else None)
+        if len(merged) < 2:
+            new_blocks.append(b)
+            new_weights.append(w)
+        else:
+            _emit_subcut_blocks(b, w, words, merged, new_blocks, new_weights)
     for _bi, (b, w) in enumerate(zip(blocks, real_weights or [None] * len(blocks))):
         min_source = SUBCUT_MIN_SOURCE_DUR
         min_part = SUBCUT_MIN_PART_DUR
@@ -18308,12 +18403,10 @@ def split_long_blocks(blocks, real_weights):
         sentence_bounds = _usable_split_points(
             _internal_sentence_boundaries(words), len(words), est, min_part)
         if est < min_source and not sentence_bounds:
-            new_blocks.append(b)
-            new_weights.append(w)
+            _finish_body(_bi, b, w, words, [(0, len(words))], est, min_part)
             continue
         if len(words) < min_words and not sentence_bounds:
-            new_blocks.append(b)
-            new_weights.append(w)
+            _finish_body(_bi, b, w, words, [(0, len(words))], est, min_part)
             continue
         split_at = list(sentence_bounds)
         real_checked = False
@@ -18366,8 +18459,7 @@ def split_long_blocks(blocks, real_weights):
             if not split_at:
                 # Блок физически не делится на два куска выше пола — оставляем
                 # как есть. Это честный отказ, а не молчаливый рез пополам.
-                new_blocks.append(b)
-                new_weights.append(w)
+                _finish_body(_bi, b, w, words, [(0, len(words))], est, min_part)
                 continue
         bounds = sorted(set([0] + split_at + [len(words)]))
         chunks = [(a, c) for a, c in zip(bounds, bounds[1:]) if c > a]
@@ -18392,10 +18484,9 @@ def split_long_blocks(blocks, real_weights):
             (a0, _c0), (_a1, c1) = merged[0], merged[1]
             merged[:2] = [(a0, c1)]
         if len(merged) < 2:
-            new_blocks.append(b)
-            new_weights.append(w)
+            _finish_body(_bi, b, w, words, [(0, len(words))], est, min_part)
             continue
-        _emit_subcut_blocks(b, w, words, merged, new_blocks, new_weights)
+        _finish_body(_bi, b, w, words, merged, est, min_part, real_checked)
     return new_blocks, new_weights
 
 
