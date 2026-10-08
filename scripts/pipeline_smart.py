@@ -17234,6 +17234,46 @@ def chapter_card_no_split(blocks):
     return {i for i, b in enumerate(blocks or []) if b.get("chapter_card")}
 
 
+def present_transition_layout(blocks, present_idx, chunk_size=XFADE_CHUNK_SIZE):
+    """План склейки и чанки для клипов, которые РЕАЛЬНО есть, в нумерации
+    ПОЛНОГО списка блоков.
+
+    Длительности клипов (PHRASE LOCK, visual_starts, бюджет нахлёстов)
+    считаются по плану полного списка блоков. Поглощённый слот (Шаг 7.3) клипа
+    не получает, и раньше склейка пересчитывала план по укороченному списку:
+    тип перехода выбирается хэшем НОМЕРА склейки и историей соседей, поэтому
+    после каждого поглощения все следующие переходы менялись (рез вместо
+    наплыва и наоборот), а длительности остались от старого плана. Замер на
+    эп.05 (08.10): после двух поглощений рез отставал от фразы на 0.2-0.35 с
+    до конца ролика, при модельном дрейфе 0.02 с.
+
+    Здесь переход в клип — это переход в НАЧАЛО его отрезка (первый
+    поглощённый перед ним слот или сам клип), ровно тот, по которому
+    считались длительности. Без поглощений результат совпадает с
+    plan_transitions()/_chunk_bounds() байт в байт."""
+    sections = [b["section"] for b in blocks]
+    full = plan_transitions(sections, blocks)
+    starts = {a for a, _b in _chunk_bounds(len(blocks), sections, chunk_size,
+                                            chapter_card_no_split(blocks))}
+    run_start, prev = [], -1
+    for j in present_idx:
+        run_start.append(prev + 1)
+        prev = j
+    plan = [full[r - 1] for r in run_start[1:]]
+    n = len(present_idx)
+    cuts = [0] + [p for p in range(1, n) if run_start[p] in starts] + [n]
+    chunks = []
+    for a, b in zip(cuts[:-1], cuts[1:]):
+        if b - a < 2 and chunks:
+            chunks[-1] = (chunks[-1][0], b)
+        else:
+            chunks.append((a, b))
+    if len(chunks) > 1 and chunks[0][1] - chunks[0][0] < 2:
+        chunks[1] = (chunks[0][0], chunks[1][1])
+        chunks.pop(0)
+    return plan, chunks
+
+
 def _chunk_bounds(n, sections, chunk_size, no_split=None):
     """(start,end) полуинтервалы индексов клипов на чанки ~chunk_size —
     резать ТОЛЬКО на границах section (там и так планировался заметный
@@ -17282,7 +17322,7 @@ def _chunk_bounds(n, sections, chunk_size, no_split=None):
 
 
 def xfade_chain_chunked(clips, durs, sections, out, temp_dir, xfade_dur=XFADE_DUR, blocks=None,
-                         chunk_size=XFADE_CHUNK_SIZE):
+                         chunk_size=XFADE_CHUNK_SIZE, plan=None, bounds=None):
     """Обёртка над xfade_chain(): на длинной цепочке (150+ клипов после
     sub-cuts) один filter_complex со всеми xfade сразу ловит документированный
     в xfade_chain() баг ffmpeg — молча роняет кадры и застревает на
@@ -17296,13 +17336,15 @@ def xfade_chain_chunked(clips, durs, sections, out, temp_dir, xfade_dur=XFADE_DU
     concat всего ролика, как раньше (лучше без переходов, чем сорванная
     сборка)."""
     n = len(clips)
-    bounds = _chunk_bounds(n, sections, chunk_size, chapter_card_no_split(blocks))
+    if bounds is None:
+        bounds = _chunk_bounds(n, sections, chunk_size, chapter_card_no_split(blocks))
     # Один общий план на весь ролик, чанкам отдаются его СРЕЗЫ: элемент
     # plan[j] описывает переход между глобальными клипами j и j+1, значит
     # внутри чанка [a, b) работают переходы plan[a:b-1] (переход на самом
     # входе чанка не делается вообще — чанки склеиваются concat -c copy,
     # именно это учитывает estimate_xfade_budget()).
-    plan = plan_transitions(sections, blocks, xfade_dur=xfade_dur)
+    if plan is None:
+        plan = plan_transitions(sections, blocks, xfade_dur=xfade_dur)
     if len(bounds) <= 1:
         return xfade_chain(clips, durs, sections, out, xfade_dur=xfade_dur, blocks=blocks, plan=plan)
     chunk_files, chunk_total = [], 0.0
@@ -19189,6 +19231,7 @@ def main():
               "правился после записи) — тайминг оценочный, см. media_plan/phrase_timeline.json")
 
     clips, clip_durs, clip_sections, clip_blocks = [], [], [], []
+    clip_orig = []   # номер слота в полном списке blocks (см. present_transition_layout)
     missing = []   # индексы блоков, для которых не нашлось ни фото, ни видео
     media_log = []   # (индекс, путь_к_фото) — для QC-проверки на похожие кадры в конце
     render_manifest = {}   # индекс -> статус (ok/failed/skipped-no-media), для резюме/диагностики
@@ -20199,7 +20242,10 @@ def main():
                 card_carry = card
             if b.get("place_caption") or b.get("quote_card"):
                 print(f"    [{i+1}] подпись места/цитата на поглощённом слоте не показана")
-            _carry_sec = d
+            # Слот исчезает вместе со своим выходным нахлёстом: длительность d
+            # включает переход в следующий клип, а этого перехода больше нет.
+            # Без вычета каждый поглощённый слот удлинял ролик на этот нахлёст.
+            _carry_sec = max(0.0, d - (_pt_plan[i][1] if i < len(_pt_plan) else 0.0))
             print(f"    [{i+1}] нет проверенного кадра ({reason}) — "
                   f"{d:.1f}с отдано соседнему кадру")
             render_manifest[i] = {"index": i, "status": "absorbed",
@@ -20643,6 +20689,7 @@ def main():
                 clip_durs.append(job["d"])
                 clip_sections.append(job["section"])
                 clip_blocks.append(job["block"])
+                clip_orig.append(job["i"])
                 if not job["video"] and job["photo"]:
                     media_log.append((job["i"], job["photo"]))
                     # Пост-рендер QC (RENDER_SHARPNESS_DROP_RATIO выше) — единственная
@@ -21091,8 +21138,10 @@ def main():
         return 1
     merged = os.path.join(TEMP_FOLDER, "merged.mp4")
     with stage_timer.stage("assembly_xfade", n_clips=len(clips)):
+        _x_plan, _x_bounds = (present_transition_layout(blocks, clip_orig)
+                              if len(clip_orig) == len(clips) else (None, None))
         ok, xfade_total = xfade_chain_chunked(clips, clip_durs, clip_sections, merged, TEMP_FOLDER,
-                                               blocks=clip_blocks)
+                                               blocks=clip_blocks, plan=_x_plan, bounds=_x_bounds)
     if not ok:
         concat = os.path.join(TEMP_FOLDER, "concat.txt")
         # Пути ТОЛЬКО абсолютные: concat-демуксер ffmpeg резолвит относительные
