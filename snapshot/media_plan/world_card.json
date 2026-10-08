@@ -1,0 +1,19 @@
+{
+ "schema_version": 1,
+ "register": "historical",
+ "era": {"from": 1300, "to": 1550},
+ "culture": {
+  "include": ["Western European", "English", "Italian (Milanese)", "German (gothic)", "French", "Burgundian"],
+  "exclude": ["Samurai", "Japanese", "Ancient Roman", "Ancient Greek", "Ottoman", "Mesoamerican", "Chinese", "Indian", "Modern Military"]
+ },
+ "must_not_show": ["cars", "smartphones", "brand logos", "tourists", "museum visitors", "spectators", "cosplay costumes", "fantasy armour", "video game screenshots"],
+ "expected_subjects": ["plate armour harness", "armour in a museum", "reenactor in replica plate armour", "steel gauntlet", "helmet bascinet sallet", "padded arming doublet with mail", "medieval fight book manuscript drawing", "manuscript illumination of armoured fighting", "knight on horseback", "muddy field", "laboratory treadmill with breathing mask", "researcher with respiratory equipment"],
+ "era_anchor_terms": ["medieval", "15th century", "plate armour", "knight", "manuscript illumination"],
+ "modern_props_allowed": true,
+ "look": {
+  "style": "Museum armour, manuscript drawings and careful historical reconstruction of the 1400s. Scientific measurements are shown honestly: a laboratory, a treadmill and a breathing mask are allowed because the episode is about the experiment.",
+  "renders_ok": false
+ },
+ "notes": "Эп.5: тема — сколько мог драться рыцарь в доспехе. Два научных опыта (Лидс 2011, Швейцария 2016) на копиях доспехов конца XV века. Законны: музейные доспехи, реконструкторы В ДОСПЕХЕ (копии), манускрипты и фехтбухи, лаборатория с беговой дорожкой и дыхательной маской. Незаконны: косплей, фэнтези-доспехи, туристы и зрители, современная одежда без доспеха в историческом кадре.",
+ "derived_by": "manual:claude-session-08.10"
+}

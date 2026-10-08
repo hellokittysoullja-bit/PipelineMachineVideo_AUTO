@@ -1,0 +1,10 @@
+MOOD | 0 | 1 | голоса эпохи
+1 | illustration | a 15th century manuscript miniature of knights in armour
+2 | illustration | a medieval manuscript page of the life of a french knight
+3 | illustration | a manuscript illumination of an armoured knight vaulting onto a horse
+4 | illustration | a medieval siege ladder against a castle wall with armoured men
+5 | illustration | a manuscript drawing of an armoured knight leaping
+6 | object | an open medieval manuscript on a wooden table
+7 | illustration | a fight book page showing armoured fighters wrestling on the ground
+8 | illustration | a manuscript illumination of the combat of thirty knights
+9 | illustration | a manuscript drawing of armoured knights pausing in battle

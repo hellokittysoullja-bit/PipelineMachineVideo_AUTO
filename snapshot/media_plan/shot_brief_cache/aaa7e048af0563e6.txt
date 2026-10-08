@@ -1,0 +1,7 @@
+MOOD | -1 | 2 | неудобная правда
+1 | - | -
+2 | illustration | a manuscript illumination of two armoured knights fighting with swords
+3 | scene | an armoured knight sitting on a stone, resting, helmet beside him
+4 | object | a closed visor helmet close up, face opening in shadow
+5 | object | an incomplete plate armour assembled from different pieces in a museum
+6 | - | -

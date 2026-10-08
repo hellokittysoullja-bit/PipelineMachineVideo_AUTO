@@ -1,0 +1,7 @@
+MOOD | 0 | 1 | разбор мифов
+1 | - | -
+2 | illustration | a medieval illumination of an armoured knight mounting a horse
+3 | object | a field plate armour in a museum, three quarter view
+4 | object | a nuremberg field armour of the 1520s, whole figure, museum display
+5 | illustration | a satirical 19th century cartoon of a knight hoisted onto a horse by a crane
+6 | object | a steel breastplate close up with fine scratches

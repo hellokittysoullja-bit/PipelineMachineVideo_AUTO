@@ -1,0 +1,6 @@
+MOOD | 0 | 1 | устройство доспеха
+1 | object | a padded arming doublet with laces on a stand
+2 | object | mail gussets sewn on a padded doublet, close up
+3 | object | a plate armour made to measure standing in a museum case
+4 | object | a great bascinet helmet with a visor, close up
+5 | illustration | a 15th century manuscript page of a squire helping a knight into armour

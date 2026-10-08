@@ -1,0 +1,8 @@
+MOOD | 0 | 2 | спор учёных
+1 | illustration | a 15th century fight book page showing armoured fighters
+2 | object | a gothic plate armour on a stand, three quarter view, 1470s
+3 | object | a gothic breastplate and helmet close up
+4 | scene | an armoured knight rising from the ground on one knee, side view
+5 | object | a bascinet and a sallet helmet side by side on a table
+6 | illustration | a manuscript illumination of the battle of Crecy
+7 | scene | an armoured knight standing still on grass, side view

@@ -1,0 +1,7 @@
+MOOD | 0 | 2 | научный опыт
+1 | object | an armoury museum hall with plate armour on mannequins
+2 | scene | an armoured fighter in replica plate armour with a breathing mask on a treadmill
+3 | object | steel leg armour, thigh and shin plates, close up
+4 | scene | an armoured knight breathing hard, hands on knees, helmet off
+5 | scene | an armoured knight walking slowly across a field, side view
+6 | object | four different plate armour harnesses lined up on stands

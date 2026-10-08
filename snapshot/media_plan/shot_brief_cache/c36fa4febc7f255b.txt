@@ -1,0 +1,6 @@
+MOOD | 0 | 1 | честный итог
+1 | object | an empty plate armour harness standing alone in a museum hall
+2 | scene | an armoured knight standing calmly in a field, side view
+3 | object | a polished plate armour breastplate close up
+4 | scene | a crusader castle on a rocky hill
+5 | - | -

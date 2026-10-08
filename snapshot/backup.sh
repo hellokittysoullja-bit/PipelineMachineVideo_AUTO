@@ -17,8 +17,8 @@ S=$W/snapshot; mkdir -p $S
 E=$R/videos/05_dospeh
 for f in script.txt audio.mp3 audio_fixed.flac overnight.sh watchdog.sh backup.sh stall.sh; do [ -f $E/$f ] && cp -u $E/$f $S/; done
 mkdir -p $S/media_plan $S/temp_smart
-rsync -a --exclude '*.mp4' --exclude '*.jpg' --exclude '*.png' $E/media_plan/ $S/media_plan/ 2>/dev/null
-for d in shot_judge_cache caption_screen_cache; do [ -d $E/temp_smart/$d ] && rsync -a $E/temp_smart/$d $S/temp_smart/; done
+(cd $E/media_plan && tar cf - --exclude='*.mp4' --exclude='*.jpg' --exclude='*.png' .) | (cd $S/media_plan && tar xf -)
+for d in shot_judge_cache caption_screen_cache; do [ -d $E/temp_smart/$d ] && cp -au $E/temp_smart/$d $S/temp_smart/; done
 # крупнее 50 МБ в обычный git не кладём
 find $S -size +50M -print -delete
 cd $W

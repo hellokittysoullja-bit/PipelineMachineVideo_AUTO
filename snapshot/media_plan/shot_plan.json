@@ -1,0 +1,373 @@
+{
+  "version": 6,
+  "planner": "shot_brief_director",
+  "model": "file:shot_answers",
+  "stats": {
+    "chapters": 9,
+    "asked": 9,
+    "cache_hits": 0,
+    "rows": 51,
+    "rejected": 0,
+    "empty_chapters": 0,
+    "critique_asked": 0,
+    "critique_cache_hits": 0,
+    "critique_rewrites": 0,
+    "critique_shift_caught": 0
+  },
+  "moods": {
+    "HOOK": {
+      "tone": -1.0,
+      "tension": 2.0,
+      "words": "тяжесть, вопрос"
+    },
+    "BLOCK 1: ЧТО ТЕБЕ РАССКАЗЫВАЛИ": {
+      "tone": 0.0,
+      "tension": 1.0,
+      "words": "разбор мифов"
+    },
+    "BLOCK 2: ЛАБОРАТОРИЯ В ЛИДСЕ": {
+      "tone": 0.0,
+      "tension": 2.0,
+      "words": "научный опыт"
+    },
+    "BLOCK 3: СПОР, В КОТОРОМ ЦИФРЫ НЕ СХОДЯТСЯ": {
+      "tone": 0.0,
+      "tension": 2.0,
+      "words": "спор учёных"
+    },
+    "BLOCK 4: ЧТО БЫЛО ПОД ЖЕЛЕЗОМ": {
+      "tone": 0.0,
+      "tension": 1.0,
+      "words": "устройство доспеха"
+    },
+    "BLOCK 5: ЧЕГО НИКТО НЕ ИЗМЕРИЛ": {
+      "tone": -1.0,
+      "tension": 2.0,
+      "words": "неудобная правда"
+    },
+    "BLOCK 6: ЧТО ПИСАЛИ ТЕ, КТО ТАМ БЫЛ": {
+      "tone": 0.0,
+      "tension": 1.0,
+      "words": "голоса эпохи"
+    },
+    "BLOCK 7: ТРИ ЧАСА АЗЕНКУРА": {
+      "tone": -1.0,
+      "tension": 2.0,
+      "words": "тяжёлый день"
+    },
+    "FINAL": {
+      "tone": 0.0,
+      "tension": 1.0,
+      "words": "честный итог"
+    }
+  },
+  "rejected": [],
+  "units": {
+    "53347dc19cc3e4e2": {
+      "shot_en": "a complete plate armour harness standing on a stand, whole figure",
+      "function": "object",
+      "forbidden": null,
+      "subject": null
+    },
+    "4af416f66a743727": {
+      "shot_en": "a manuscript illumination of two armoured knights fighting on foot",
+      "function": "illustration",
+      "forbidden": null,
+      "subject": null
+    },
+    "5955c669cd712ce7": {
+      "shot_en": "an armoured knight lying on his back in mud",
+      "function": "scene",
+      "forbidden": null,
+      "subject": null
+    },
+    "b8c1572b6333c1e9": {
+      "shot_en": "an armoured fighter in plate armour walking on a laboratory treadmill",
+      "function": "scene",
+      "forbidden": null,
+      "subject": null
+    },
+    "17bf6795a2408375": {
+      "shot_en": "a fight book drawing of an armoured fighter rising from the ground",
+      "function": "illustration",
+      "forbidden": null,
+      "subject": null
+    },
+    "64dcfc5bd2983786": {
+      "shot_en": "two different plate armour harnesses standing side by side in a museum",
+      "function": "object",
+      "forbidden": null,
+      "subject": null
+    },
+    "52d40fcee507e581": {
+      "shot_en": "a manuscript drawing of exhausted armoured knights resting after battle",
+      "function": "illustration",
+      "forbidden": null,
+      "subject": null
+    },
+    "875bc54b4cea081d": {
+      "shot_en": "a medieval illumination of an armoured knight mounting a horse",
+      "function": "illustration",
+      "forbidden": null,
+      "subject": null
+    },
+    "bfa043536ad10309": {
+      "shot_en": "a field plate armour in a museum, three quarter view",
+      "function": "object",
+      "forbidden": null,
+      "subject": null
+    },
+    "9db146bdb35f21a8": {
+      "shot_en": "a nuremberg field armour of the 1520s, whole figure, museum display",
+      "function": "object",
+      "forbidden": null,
+      "subject": null
+    },
+    "8bd1c33c7a7a56cb": {
+      "shot_en": "a satirical 19th century cartoon of a knight hoisted onto a horse by a crane",
+      "function": "illustration",
+      "forbidden": null,
+      "subject": null
+    },
+    "c36e0f2f8637f206": {
+      "shot_en": "a steel breastplate close up with fine scratches",
+      "function": "object",
+      "forbidden": null,
+      "subject": null
+    },
+    "31000d9830bdd4d5": {
+      "shot_en": "an armoury museum hall with plate armour on mannequins",
+      "function": "object",
+      "forbidden": null,
+      "subject": null
+    },
+    "3799785810247df9": {
+      "shot_en": "an armoured fighter in replica plate armour with a breathing mask on a treadmill",
+      "function": "scene",
+      "forbidden": null,
+      "subject": null
+    },
+    "d2b5ca9bf10ff124": {
+      "shot_en": "steel leg armour, thigh and shin plates, close up",
+      "function": "object",
+      "forbidden": null,
+      "subject": null
+    },
+    "4ae971cfbffa350f": {
+      "shot_en": "an armoured knight breathing hard, hands on knees, helmet off",
+      "function": "scene",
+      "forbidden": null,
+      "subject": null
+    },
+    "1d944c86fa735105": {
+      "shot_en": "an armoured knight walking slowly across a field, side view",
+      "function": "scene",
+      "forbidden": null,
+      "subject": null
+    },
+    "a6d0e8ab262d504f": {
+      "shot_en": "four different plate armour harnesses lined up on stands",
+      "function": "object",
+      "forbidden": null,
+      "subject": null
+    },
+    "addfac833f484d9b": {
+      "shot_en": "a 15th century fight book page showing armoured fighters",
+      "function": "illustration",
+      "forbidden": null,
+      "subject": null
+    },
+    "8c582c97c67928b7": {
+      "shot_en": "a gothic plate armour on a stand, three quarter view, 1470s",
+      "function": "object",
+      "forbidden": null,
+      "subject": null
+    },
+    "ca30af637906e3de": {
+      "shot_en": "a gothic breastplate and helmet close up",
+      "function": "object",
+      "forbidden": null,
+      "subject": null
+    },
+    "71100a328149a5e3": {
+      "shot_en": "an armoured knight rising from the ground on one knee, side view",
+      "function": "scene",
+      "forbidden": null,
+      "subject": null
+    },
+    "1ae07909e42e64fe": {
+      "shot_en": "a bascinet and a sallet helmet side by side on a table",
+      "function": "object",
+      "forbidden": null,
+      "subject": null
+    },
+    "0348dcd6d53ae57e": {
+      "shot_en": "a manuscript illumination of the battle of Crecy",
+      "function": "illustration",
+      "forbidden": null,
+      "subject": null
+    },
+    "d48fa7ecadf460dd": {
+      "shot_en": "an armoured knight standing still on grass, side view",
+      "function": "scene",
+      "forbidden": null,
+      "subject": null
+    },
+    "7496e35288c49649": {
+      "shot_en": "a padded arming doublet with laces on a stand",
+      "function": "object",
+      "forbidden": null,
+      "subject": null
+    },
+    "e7f6dc2d66f6b239": {
+      "shot_en": "mail gussets sewn on a padded doublet, close up",
+      "function": "object",
+      "forbidden": null,
+      "subject": null
+    },
+    "28700cdeff74cf7b": {
+      "shot_en": "a plate armour made to measure standing in a museum case",
+      "function": "object",
+      "forbidden": null,
+      "subject": null
+    },
+    "fbbcc0db1fee0d7f": {
+      "shot_en": "a great bascinet helmet with a visor, close up",
+      "function": "object",
+      "forbidden": null,
+      "subject": null
+    },
+    "f5c2697be98d6895": {
+      "shot_en": "a 15th century manuscript page of a squire helping a knight into armour",
+      "function": "illustration",
+      "forbidden": null,
+      "subject": null
+    },
+    "df761d55d87e43b4": {
+      "shot_en": "a manuscript illumination of two armoured knights fighting with swords",
+      "function": "illustration",
+      "forbidden": null,
+      "subject": null
+    },
+    "73e78667bb31e484": {
+      "shot_en": "an armoured knight sitting on a stone, resting, helmet beside him",
+      "function": "scene",
+      "forbidden": null,
+      "subject": null
+    },
+    "86467f473b4ccc9e": {
+      "shot_en": "a closed visor helmet close up, face opening in shadow",
+      "function": "object",
+      "forbidden": null,
+      "subject": null
+    },
+    "b14fd2cd540c5345": {
+      "shot_en": "an incomplete plate armour assembled from different pieces in a museum",
+      "function": "object",
+      "forbidden": null,
+      "subject": null
+    },
+    "7b445a11d69b94e9": {
+      "shot_en": "a 15th century manuscript miniature of knights in armour",
+      "function": "illustration",
+      "forbidden": null,
+      "subject": null
+    },
+    "68b13210d89ebc3c": {
+      "shot_en": "a medieval manuscript page of the life of a french knight",
+      "function": "illustration",
+      "forbidden": null,
+      "subject": null
+    },
+    "b2a9908c1eea3d0d": {
+      "shot_en": "a manuscript illumination of an armoured knight vaulting onto a horse",
+      "function": "illustration",
+      "forbidden": null,
+      "subject": null
+    },
+    "576f7fd681d6d8a0": {
+      "shot_en": "a medieval siege ladder against a castle wall with armoured men",
+      "function": "illustration",
+      "forbidden": null,
+      "subject": null
+    },
+    "01cfa7c6d637c203": {
+      "shot_en": "a manuscript drawing of an armoured knight leaping",
+      "function": "illustration",
+      "forbidden": null,
+      "subject": null
+    },
+    "7ab64860915c0056": {
+      "shot_en": "an open medieval manuscript on a wooden table",
+      "function": "object",
+      "forbidden": null,
+      "subject": null
+    },
+    "a2140b941d6f6f49": {
+      "shot_en": "a fight book page showing armoured fighters wrestling on the ground",
+      "function": "illustration",
+      "forbidden": null,
+      "subject": null
+    },
+    "9d4d38667e1346ee": {
+      "shot_en": "a manuscript illumination of the combat of thirty knights",
+      "function": "illustration",
+      "forbidden": null,
+      "subject": null
+    },
+    "48783c8a746be12d": {
+      "shot_en": "a manuscript drawing of armoured knights pausing in battle",
+      "function": "illustration",
+      "forbidden": null,
+      "subject": null
+    },
+    "25649e0c34251fd4": {
+      "shot_en": "a manuscript illumination of the battle of Agincourt",
+      "function": "illustration",
+      "forbidden": null,
+      "subject": null
+    },
+    "b873752b1a27b8a7": {
+      "shot_en": "a manuscript illumination of armoured knights fighting in a dense line",
+      "function": "illustration",
+      "forbidden": null,
+      "subject": null
+    },
+    "97f1a7bc2374847e": {
+      "shot_en": "a muddy ploughed field in rain between two woods",
+      "function": "scene",
+      "forbidden": null,
+      "subject": null
+    },
+    "2867a12ece2f8a65": {
+      "shot_en": "a steel sabaton boot pressed into thick mud, close up",
+      "function": "object",
+      "forbidden": null,
+      "subject": null
+    },
+    "f76f95cbe788da0a": {
+      "shot_en": "an empty plate armour harness standing alone in a museum hall",
+      "function": "object",
+      "forbidden": null,
+      "subject": null
+    },
+    "792db820f663fd3a": {
+      "shot_en": "an armoured knight standing calmly in a field, side view",
+      "function": "scene",
+      "forbidden": null,
+      "subject": null
+    },
+    "f432be8b23c31169": {
+      "shot_en": "a polished plate armour breastplate close up",
+      "function": "object",
+      "forbidden": null,
+      "subject": null
+    },
+    "b9de3f16f0ab201a": {
+      "shot_en": "a crusader castle on a rocky hill",
+      "function": "scene",
+      "forbidden": null,
+      "subject": null
+    }
+  }
+}

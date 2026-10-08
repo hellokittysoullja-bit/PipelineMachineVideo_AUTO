@@ -1,0 +1,8 @@
+MOOD | -1 | 2 | тяжесть, вопрос
+1 | object | a complete plate armour harness standing on a stand, whole figure
+2 | illustration | a manuscript illumination of two armoured knights fighting on foot
+3 | scene | an armoured knight lying on his back in mud
+4 | scene | an armoured fighter in plate armour walking on a laboratory treadmill
+5 | illustration | a fight book drawing of an armoured fighter rising from the ground
+6 | object | two different plate armour harnesses standing side by side in a museum
+7 | illustration | a manuscript drawing of exhausted armoured knights resting after battle

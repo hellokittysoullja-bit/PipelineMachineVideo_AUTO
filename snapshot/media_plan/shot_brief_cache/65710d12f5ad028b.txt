@@ -1,0 +1,6 @@
+MOOD | -1 | 2 | тяжёлый день
+1 | illustration | a manuscript illumination of the battle of Agincourt
+2 | illustration | a manuscript illumination of armoured knights fighting in a dense line
+3 | scene | a muddy ploughed field in rain between two woods
+4 | object | a steel sabaton boot pressed into thick mud, close up
+5 | - | -
