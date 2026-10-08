@@ -1,4 +1,5 @@
-import subprocess, time, numpy as np, cv2
+import subprocess
+import time
 from multiprocessing import Pool
 import doll_rig as d
 _R=None; _S=None

@@ -111,7 +111,7 @@ def _split_caption_into_cues(text, max_chars=SRT_MAX_CUE_CHARS,
 
     def _fits(chunk):
         wrapped = _wrap_caption_text(chunk).split("\n")
-        return len(wrapped) <= max_lines and all(len(l) <= max_line_chars for l in wrapped)
+        return len(wrapped) <= max_lines and all(len(ln) <= max_line_chars for ln in wrapped)
 
     def _fill(limit_chars):
         """Жадно набирает cue, пока следующий шаг не ломает стандарт.

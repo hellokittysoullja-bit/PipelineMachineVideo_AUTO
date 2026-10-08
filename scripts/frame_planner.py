@@ -648,8 +648,8 @@ def limit_hero(frames, max_run=None, max_share=None, replacement="a person", loc
         runs = [i for i in idx if all(i - k in idx for k in range(1, max_run + 1))]
         over = len(idx) > max(1, int(max_share * len(frames)))      # «не больше доли» — вниз
 
-        def crowd(i):
-            gaps = [abs(i - j) for j in idx if j != i]
+        def crowd(i):                                  # зовётся в этой же итерации
+            gaps = [abs(i - j) for j in idx if j != i]  # noqa: B023
             return (weight(i), min(gaps) if gaps else len(frames), -i)
         if not runs and not over:
             return trimmed

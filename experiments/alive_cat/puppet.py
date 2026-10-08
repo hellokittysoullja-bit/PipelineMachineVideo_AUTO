@@ -1,5 +1,7 @@
 """Оживление вырезанного кота кодом: моргание, огонёк, дыхание. CPU, без моделей."""
-import sys, subprocess, numpy as np
+import sys
+import subprocess
+import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 from scipy import ndimage
 k = sys.argv[1]; C = "../cutout"

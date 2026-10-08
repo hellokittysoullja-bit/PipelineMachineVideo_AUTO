@@ -33,7 +33,6 @@ def test_cuts_happen_without_word_timings_when_a_view_exists():
     objects = [dict(name="cat", box=(500, 300, 1000, 700), role="hero"),
                dict(name="head", box=(600, 300, 900, 480), role="hero_head")]
     p = shots.plan(9.0, busy, [], objects=objects, T0=20.0)
-    kinds = [s["kind"] for s in p["segments"]]
     assert len(p["segments"]) >= 3, p["notes"]                       # 9 с без слов — всё равно резано
     assert all(s["t1"] - s["t0"] <= shots.MAX_VIEW_SEC + 0.05 for s in p["segments"])
 
@@ -92,7 +91,8 @@ def test_cut_after_the_key_thought_is_written():
     busy = _busy_with_subject()
     objects = [dict(name="cat", box=(500, 300, 1000, 700), role="hero"),
                dict(name="head", box=(600, 300, 900, 480), role="hero_head")]
-    words = [{"word": w, "start": 0.3 + 0.4*i, "end": 0.6 + 0.4*i} for i, w in enumerate("раз два три четыре пять шесть семь восемь девять десять одиннадцать двенадцать тринадцать".split())]
+    text = "раз два три четыре пять шесть семь восемь девять десять одиннадцать двенадцать тринадцать"
+    words = [{"word": w, "start": 0.3 + 0.4*i, "end": 0.6 + 0.4*i} for i, w in enumerate(text.split())]
     p = shots.plan(6.8, busy, words, objects=objects, key="два три", key_dur=2.0, T0=20.0)
     assert p["key_time"] is not None
     cuts = [s["t0"] for s in p["segments"][1:]]

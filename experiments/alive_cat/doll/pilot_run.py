@@ -1,6 +1,10 @@
 """Пилот куклы в сборщике: baseline (до правок кода) | nomascot (после, без куклы — обязан совпасть с baseline по md5)
 | mascot | samecam (план с куклой, рендер без неё — эталон камеры для замера ореола)."""
-import hashlib, json, os, sys, time
+import hashlib
+import json
+import os
+import sys
+import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "..", "..", "scripts")); sys.path.insert(0, HERE)
 import pilot_scene as scene

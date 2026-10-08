@@ -85,9 +85,9 @@ class TestCutsAndHook:
 
 class TestCameraSpeed:
     def test_ease_is_caught_linear_is_clean(self, reports):
-        e, l = reports["ease"]["measured"], reports["lin"]["measured"]
-        assert 0.10 <= e["frozen_share"] <= 0.25 and l["frozen_share"] <= 0.02
-        assert e["speed_max_over_mean"] > 1.5 and l["speed_max_over_mean"] < 1.25
+        e, lin = reports["ease"]["measured"], reports["lin"]["measured"]
+        assert 0.10 <= e["frozen_share"] <= 0.25 and lin["frozen_share"] <= 0.02
+        assert e["speed_max_over_mean"] > 1.5 and lin["speed_max_over_mean"] < 1.25
 
     def test_direction_without_picture_map_is_no_signal(self, reports):
         assert reports["lin"]["checks"]["direction_flips_excess"]["state"] == "no_signal"

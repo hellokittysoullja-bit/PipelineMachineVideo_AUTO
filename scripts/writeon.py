@@ -62,7 +62,7 @@ def fit_lines(text, size, max_w, min_frac=0.7):
                for i in range(1, len(words)))
     lines = [" ".join(words[:best[1]]), " ".join(words[best[1]:])]
     s = size
-    while max(_font(s).getlength(l) for l in lines) > max_w and s > 16:
+    while max(_font(s).getlength(ln) for ln in lines) > max_w and s > 16:
         s -= 4
     return int(s), lines
 
@@ -71,7 +71,7 @@ def measure(text, size, max_w):
     """(ширина, высота) надписи после подгонки — для поиска места."""
     s, lines = fit_lines(text, size, max_w)
     f = _font(s); asc, desc = f.getmetrics()
-    return max(f.getlength(l) for l in lines), (asc + desc)*1.05*len(lines)
+    return max(f.getlength(ln) for ln in lines), (asc + desc)*1.05*len(lines)
 
 
 def layout(text, size, W, H, cx, cy, seed=1, jitter=1.0, max_w=None):

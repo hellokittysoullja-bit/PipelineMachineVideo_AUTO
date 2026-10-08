@@ -35,8 +35,8 @@ def _integral(a):
     return np.pad(a, ((1, 0), (1, 0))).cumsum(0).cumsum(1)
 
 
-def _boxsum(I, x0, y0, x1, y1):
-    return I[y1, x1] - I[y0, x1] - I[y1, x0] + I[y0, x0]
+def _boxsum(integ, x0, y0, x1, y1):
+    return integ[y1, x1] - integ[y0, x1] - integ[y1, x0] + integ[y0, x0]
 
 def _line_busy(b, p0, p1, n=40):
     t = np.linspace(0.15, 0.85, n)
@@ -50,7 +50,7 @@ def choose(rgb, obj, text_wh, step=12, b=None):
     H, W = rgb.shape[:2]
     if b is None:
         b = busy_map(rgb)
-    I = _integral(b)
+    integ = _integral(b)
     thr = max(0.06, float(np.percentile(b, 40)) + 0.04)      # порог «пусто» — по самому кадру, а не числом
     tw, th = text_wh; pw, ph = int(tw + 0.5*th), int(th*1.6)          # окно с полями
     free = obj is None                    # надпись без предмета: ни «рядом», ни стрелки
@@ -62,7 +62,7 @@ def choose(rgb, obj, text_wh, step=12, b=None):
     for cy in range(int(SAFE[1]*H + ph/2), int(SAFE[3]*H - ph/2), step):
         for cx in range(int(SAFE[0]*W + pw/2), int(SAFE[2]*W - pw/2), step):
             x0, y0, x1, y1 = int(cx-pw/2), int(cy-ph/2), int(cx+pw/2), int(cy+ph/2)
-            fill = _boxsum(I, x0, y0, x1, y1)/(pw*ph)
+            fill = _boxsum(integ, x0, y0, x1, y1)/(pw*ph)
             if fill > thr: continue                                     # не на рисунке
             if x1 > ox0 - 10 and x0 < ox1 + 10 and y1 > oy0 - 10 and y0 < oy1 + 10: continue
             # расстояние от окна до предмета (по краям)
@@ -83,7 +83,7 @@ def choose(rgb, obj, text_wh, step=12, b=None):
                 s_path = -9*_line_busy(b, p0, p1)              # стрелка не должна резать рисунок
             # не «висеть» над чужим рисунком: что прямо под надписью
             by0, by1 = min(H-1, y1), min(H-1, y1 + int(0.14*H))
-            under = _boxsum(I, x0, by0, x1, by1)/max(1, (x1-x0)*(by1-by0))
+            under = _boxsum(integ, x0, by0, x1, by1)/max(1, (x1-x0)*(by1-by0))
             s_under = -2.5*under
             if free:
                 s_gap = s_path = 0.0

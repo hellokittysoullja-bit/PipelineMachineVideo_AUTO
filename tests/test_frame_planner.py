@@ -56,7 +56,8 @@ def test_prompt_has_spec_rules_brief_prev_chapter_and_hero_rule():
 
 
 def test_hero_is_only_explicit_true():
-    ok = lambda h: fp.validate_frame({"kind": "scene", "picture": "a b c d e", "hero": h})[0]["hero"]
+    def ok(h):
+        return fp.validate_frame({"kind": "scene", "picture": "a b c d e", "hero": h})[0]["hero"]
     assert ok(True) is True and ok("yes") is False and ok(None) is False
 
 

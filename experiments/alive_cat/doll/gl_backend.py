@@ -79,7 +79,8 @@ def make(rig):
 def render(out, dur, actions, fps=30):
     """Ролик через GL: кадры сразу 1920x1080, ffmpeg только сжимает. Слой кота (CPU) считается
     в параллельных процессах, изгиб и наложение — в GL. Нет GL — None (вызывающий рендерит по-старому)."""
-    import subprocess, time
+    import subprocess
+    import time
     from multiprocessing import Pool
     import doll_rig as d
     rig = d.Rig(); gl = make(rig)

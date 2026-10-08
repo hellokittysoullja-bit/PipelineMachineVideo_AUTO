@@ -1,5 +1,7 @@
 """Живой кот кодом, CPU: параллакс по карте глубины + покачивание головы + дёрганье уха + огонёк + дыхание."""
-import subprocess, numpy as np, onnxruntime as ort
+import subprocess
+import numpy as np
+import onnxruntime as ort
 from PIL import Image
 from scipy import ndimage
 C = "../cutout"; k = "10"

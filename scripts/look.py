@@ -107,7 +107,7 @@ def load(look_dir=None):
         try:
             raw = json.load(open(sp, encoding="utf-8"))
         except ValueError as e:
-            raise LookError(f"{sp}: не JSON ({e})")
+            raise LookError(f"{sp}: не JSON ({e})") from e
         for k, v in raw.items():
             if not (isinstance(v, dict) and str(v.get("when", "")).strip() and str(v.get("draw", "")).strip()):
                 raise LookError(f"{sp}: у состояния «{k}» нужны непустые when и draw")

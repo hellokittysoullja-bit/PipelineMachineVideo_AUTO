@@ -1,6 +1,7 @@
 """Нарезка эталонного кота на части: мех без глаз (LaMa), радужка без зрачка, зрачки-спрайты."""
-import numpy as np, onnxruntime as ort, json
-from PIL import Image, ImageDraw, ImageFilter
+import numpy as np
+import onnxruntime as ort
+from PIL import Image
 from scipy import ndimage
 src = Image.open("hero.png").convert("RGB"); W, H = src.size
 a = np.asarray(src).astype(np.float32); m = np.asarray(Image.open("mask.png")) > 128

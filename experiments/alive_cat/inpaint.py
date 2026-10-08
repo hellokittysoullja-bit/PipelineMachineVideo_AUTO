@@ -1,4 +1,7 @@
-import numpy as np, onnxruntime as ort, sys, time
+import numpy as np
+import onnxruntime as ort
+import sys
+import time
 from PIL import Image, ImageFilter
 s=ort.InferenceSession("lama_fp32.onnx")
 for k in sys.argv[1:]:

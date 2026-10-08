@@ -1,4 +1,7 @@
-import time, numpy as np, cv2, moderngl
+import time
+import numpy as np
+import cv2
+import moderngl
 from PIL import Image
 src = np.asarray(Image.open("/home/user/DoodleExplainer_AUTO/look/hero.png").convert("RGBA"))
 H, W = src.shape[:2]

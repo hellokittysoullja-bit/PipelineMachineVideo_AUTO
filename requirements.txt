@@ -6,3 +6,6 @@ fonttools>=4.40
 scipy>=1.10
 scikit-image>=0.21
 onnxruntime>=1.16
+scenedetect>=0.6.6        # второе мнение о склейках в приёмке (BSD-3); нет — приёмка пишет no_signal
+pytest-xdist>=3.5          # pytest -n auto: суита 7.5 -> 4.6 мин на 4 ядрах
+ruff>=0.5                  # линт: ruff check scripts tests

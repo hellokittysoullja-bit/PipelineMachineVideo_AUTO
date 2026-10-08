@@ -9,4 +9,6 @@ cp config.example.env .env                     # ключ шлюза и моде
 python scripts/make_video.py videos/01_tema --minutes 15 --confirm-spend   # план, кадры, сборка
 python scripts/make_video.py videos/01_tema --minutes 15 --tts    # + озвучка Lumean (платно)
 ```
+Проверка кода: `pytest -n auto tests` (pytest-xdist, ~4-5 мин на 4 ядрах) и `ruff check scripts tests experiments` — оба должны быть чисты.
+
 Подробно — CLAUDE.md. Цены моделей картинок — python scripts/list_models.py image.

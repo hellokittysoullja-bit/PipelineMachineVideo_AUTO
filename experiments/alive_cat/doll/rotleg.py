@@ -1,5 +1,7 @@
 """Лапа того же размера поворачивается от груди: вырезаем настоящую лапу эталона, поворачиваем как жёсткую часть."""
-import numpy as np, cv2, onnxruntime as ort, sys
+import numpy as np
+import cv2
+import onnxruntime as ort
 from PIL import Image, ImageDraw
 from scipy import ndimage
 H0 = "/home/user/DoodleExplainer_AUTO/look/hero.png"

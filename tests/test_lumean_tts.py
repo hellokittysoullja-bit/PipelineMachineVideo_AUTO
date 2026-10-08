@@ -7,7 +7,6 @@ import json
 import os
 import shutil
 import sys
-import tempfile
 
 import pytest
 
@@ -329,7 +328,7 @@ def test_download_leaves_no_partial_file_on_error(tmp_path, monkeypatch):
     def raising(req, timeout=None):
         raise IOError("connection reset")
     monkeypatch.setattr(lt.urllib.request, "urlopen", raising)
-    with pytest.raises(Exception):
+    with pytest.raises(IOError, match="connection reset"):
         lt.download("https://example.invalid/x.mp3", dest)
     assert not os.path.exists(dest)
     assert not os.path.exists(dest + ".part")
@@ -348,7 +347,7 @@ def test_download_rejects_empty_response(tmp_path, monkeypatch):
         def read(self):
             return b""
     monkeypatch.setattr(lt.urllib.request, "urlopen", lambda req, timeout=None: _Empty())
-    with pytest.raises(Exception):
+    with pytest.raises(IOError, match="0-байтный"):
         lt.download("https://example.invalid/x.mp3", dest)
     assert not os.path.exists(dest)
 

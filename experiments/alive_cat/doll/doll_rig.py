@@ -10,7 +10,11 @@
 """
 import os
 os.environ.setdefault("OMP_NUM_THREADS", "1"); os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
-import json, subprocess, time, numpy as np, cv2
+import json
+import subprocess
+import time
+import numpy as np
+import cv2
 from scipy import ndimage
 cv2.setNumThreads(1)
 from multiprocessing import Pool

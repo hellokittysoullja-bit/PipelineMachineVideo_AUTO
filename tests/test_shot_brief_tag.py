@@ -24,7 +24,8 @@ def _blocks(tmp_path, text):
 
 def test_brief_attaches_to_its_own_phrase(tmp_path):
     blocks = _blocks(tmp_path, """=== HOOK ===
-[shot:a knight lying face down in churned mud] И всё равно ты лежишь лицом в грязи. [pause] [shot:a two-handed European sword, the full blade] Возьми настоящий боевой меч. [pause] Ничего не произойдёт.
+[shot:a knight lying face down in churned mud] И всё равно ты лежишь лицом в грязи. [pause] \
+[shot:a two-handed European sword, the full blade] Возьми настоящий боевой меч. [pause] Ничего не произойдёт.
 """)
     assert len(blocks) == 3
     assert blocks[0]["shot_brief"] == "a knight lying face down in churned mud"

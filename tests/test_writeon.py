@@ -25,9 +25,9 @@ def _render(text, size=120, max_w=1500):
 def test_full_coverage_with_dots_and_punctuation():
     L, ev, T, fr = _render("ёжик 2025, привет!: да?")
     mask = np.zeros((H, W), np.float32)
-    for l in L:
-        np.maximum(mask, l["soft"], out=mask)
-        for d in l["dots"]:
+    for let in L:
+        np.maximum(mask, let["soft"], out=mask)
+        for d in let["dots"]:
             np.maximum(mask, d, out=mask)
     ink = fr[-1] > 0.3*0.86
     assert ink[mask > 0.5].mean() > 0.98             # ни одной недописанной части
@@ -36,7 +36,7 @@ def test_full_coverage_with_dots_and_punctuation():
 
 def test_dots_are_drawn_after_letter_body():
     L, ev, *_ = _render("ёжик!")
-    yo = [l for l in L if l["ch"] == "ё"][0]
+    yo = [let for let in L if let["ch"] == "ё"][0]
     assert yo["dots"], "точки ё должны быть отдельными касаниями"
     kinds = [e["kind"] for e in w.plan([yo], FPS)[0]]
     assert kinds[-len(yo["dots"]):] == ["dot"]*len(yo["dots"])
@@ -65,8 +65,8 @@ def test_d_starts_at_bowl_not_at_top_curl():
 
 def test_long_text_wraps_inside_width():
     L = w.layout("это очень длинная мысль которая не влезает в одну строку экрана", 120, W, H, W/2, H/2, max_w=1500)
-    xs = np.nonzero(sum(l["soft"] for l in L).max(0) > 0.3)[0]
-    ys = np.nonzero(sum(l["soft"] for l in L).max(1) > 0.3)[0]
+    xs = np.nonzero(sum(let["soft"] for let in L).max(0) > 0.3)[0]
+    ys = np.nonzero(sum(let["soft"] for let in L).max(1) > 0.3)[0]
     assert xs.max() - xs.min() <= 1500 + 40
     assert ys.max() - ys.min() > 1.6*L[0]["size"]                  # две строки
 

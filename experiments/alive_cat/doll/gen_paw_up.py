@@ -1,4 +1,6 @@
-import sys, io, base64, json
+import sys
+import io
+import base64
 sys.path.insert(0, "/home/user/DoodleExplainer_AUTO/scripts")
 from llm_gateway import Gateway
 from PIL import Image

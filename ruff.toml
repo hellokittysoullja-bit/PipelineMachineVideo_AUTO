@@ -1,0 +1,22 @@
+# ruff: линт проекта. Длина строки 140: русские комментарии и докстринги с замерами здесь намеренно подробные;
+# тексты заданий моделям (frame_planner, frame_preflight, shot_judge) — одной строкой, их длина не стиль кода.
+line-length = 140
+target-version = "py311"
+
+[lint]
+select = ["E", "F", "W", "B"]
+ignore = [
+    "B905",            # zip(strict=) — Python 3.11 есть, но массовая правка без пользы для смысла
+    "E701", "E702",    # компактная запись «a = 1; b = 2» в геометрии и рендере — осознанный стиль проекта (470 мест), не ошибка
+]
+
+[lint.per-file-ignores]
+"scripts/frame_planner.py" = ["E501"]
+"scripts/frame_preflight.py" = ["E501"]
+"scripts/shot_judge.py" = ["E501"]
+"scripts/lumean_tts.py" = ["E501"]
+"scripts/labels.py" = ["E501"]           # тексты заданий модели — одной строкой
+"scripts/objects.py" = ["E501"]
+"scripts/writeon.py" = ["B023"]          # замыкание move() зовётся внутри той же итерации
+"experiments/**" = ["E501", "E741", "B023", "B007", "E402", "E731"]
+"experiments/alive_cat/doll/rotdemo.py" = ["F821"]   # имена приходят из exec(rotleg.py) — демо-скрипт, так и задуман

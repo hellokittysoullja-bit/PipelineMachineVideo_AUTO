@@ -345,7 +345,7 @@ class SpeechTiming:
             # пропадали и переход главы, и объектный кюй — на трети границ.
             ends.append(raw_to_real_time(clean[pos + len(want) - 1][2] + offset, cuts))
             self.word_times.append(_word_times(b["text"], want, clean[pos:pos + len(want)],
-                                               lambda t: raw_to_real_time(t + offset, cuts)))
+                                               lambda t: raw_to_real_time(t + offset, cuts)))  # noqa: B023 — вызывается здесь же
             pos += len(want)
             if pos >= len(clean):
                 seg_idx[section] = k + 1

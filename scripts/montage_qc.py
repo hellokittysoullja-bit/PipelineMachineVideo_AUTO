@@ -49,10 +49,12 @@ THRESHOLDS = {
     "plan_max_sec":           (3.5 + 1/24, "<=", "block", "calibrated"),   # shots.MAX_VIEW_SEC + кадр
     "plan_len_cv":            (0.25, ">=", "warn", "hypothesis"),
     "plan_near_equal_share":  (0.30, "<=", "warn", "hypothesis"),
-    "frozen_share":           (0.05, "<=", "warn", "hypothesis"),         # §1.1: ease_io давал 16% по пикселям, линейный ход — 0; запас на шум
-    "speed_max_over_mean":    (1.25, "<=", "warn", "hypothesis"),       # на идеально линейном синтетическом материале оценка даёт 1.13 (шум)
+    "frozen_share":           (0.05, "<=", "warn", "hypothesis"),         # §1.1: ease_io давал 16% по пикселям, линейный — 0; запас на шум
+    "speed_max_over_mean":    (1.25, "<=", "warn", "hypothesis"),       # на идеально линейном синтетическом материале — 1.13 (шум)
     "direction_flips_excess": (0,    "<=", "warn", "hypothesis"),
-    "cut_luma_jump":          (12.0, "<=", "warn", "hypothesis"),
+    "cut_luma_jump":          (12.0, "<=", "warn", "hypothesis"),       # средняя яркость: содержание (чёрный кот крупно) тоже прыгает
+    "cut_paper_de":           (2.0,  "<=", "warn", "hypothesis"),       # тон бумаги между планами — то, что обязано совпадать
+    "cuts_unconfirmed":       (0,    "<=", "warn", "hypothesis"),       # склейки, которых не видит PySceneDetect (второе мнение)
     "cut_attention_shift":    (0.25, "<=", "warn", "hypothesis"),
     "sharpness_cv":           (0.10, "<=", "warn", "hypothesis"),
     "hook_first_cut_sec":     (2.0,  "<=", "warn", "hypothesis"),
@@ -199,6 +201,69 @@ def direction_metrics(sc, plans, picture_starts, total):
     return dict(direction_flips_excess=flips if measured else None, pictures_measured=measured)
 
 
+PAPER_L_MIN = 85.0            # пиксели бумаги: L* выше этого (чернила и герой — ниже)
+CUT_PAPER_DE_MAX = 2.0        # ΔE2000 тона бумаги между соседними планами; замер эп.01 08.10 — максимум 1.05 на 13 склейках,
+                              # заметная глазом разница ~1.0 на плоском поле, порог с запасом на шум сжатия (гипотеза)
+CUT_MATCH_SEC = 0.15          # склейки двух детекторов считаются одной, если ближе этого
+
+
+def _rgb_frame_at(video_path, t, w=64, h=36):
+    """Один маленький RGB-кадр в момент t (ffmpeg -ss), float 0..1; None при сбое."""
+    r = subprocess.run([vt.FFMPEG, "-v", "error", "-ss", f"{max(0.0, t):.3f}", "-i", video_path, "-frames:v", "1",
+                        "-vf", f"scale={w}:{h}", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                       capture_output=True, timeout=60)
+    if len(r.stdout) < w*h*3:
+        return None
+    return np.frombuffer(r.stdout[:w*h*3], np.uint8).reshape(h, w, 3).astype(np.float32)/255
+
+
+def paper_tone_jumps(video_path, cuts, fps):
+    """ΔE2000 (Lab) среднего тона БУМАГИ по обе стороны каждой склейки. Средняя яркость кадра на
+    склейке «чёрный кот крупно → чистая бумага» прыгает на 47 и это содержание, а не дефект; тон
+    бумаги между планами одного ролика обязан совпадать — его дрейф и есть то, что ловится здесь
+    (замер эп.01 08.10: ΔE бумаги ≤1.05 при ΔY до 47). None — нечего мерить."""
+    from skimage import color
+    out = []
+    for c in cuts:
+        a, b = _rgb_frame_at(video_path, c - 1.5/fps), _rgb_frame_at(video_path, c + 1.5/fps)
+        if a is None or b is None:
+            continue
+        la, lb = color.rgb2lab(a), color.rgb2lab(b)
+        ma, mb = la[..., 0] > PAPER_L_MIN, lb[..., 0] > PAPER_L_MIN
+        if ma.sum() < 50 or mb.sum() < 50:
+            continue
+        pa, pb = la[ma].mean(0), lb[mb].mean(0)
+        out.append(float(color.deltaE_ciede2000(pa[None, None, :], pb[None, None, :])[0, 0]))
+    return dict(cut_paper_de=float(max(out)) if out else None, cut_paper_de_median=float(np.median(out)) if out else None)
+
+
+def scenedetect_cuts(video_path):
+    """Склейки по PySceneDetect (AdaptiveDetector — отраслевой детектор с годами калибровки) как
+    независимое второе мнение к собственному детектору доли изменившихся пикселей. None — библиотека
+    не установлена (это отсутствие измерения, не согласие). Замер эп.01 08.10: 13 из 13 склеек совпали,
+    лишних 0; на старом ролике адаптивный детектор пропустил 3 из 14 — расхождение это повод смотреть,
+    а не приговор любой из сторон."""
+    try:
+        from scenedetect import open_video, SceneManager
+        from scenedetect.detectors import AdaptiveDetector
+    except ImportError:
+        return None
+    v = open_video(video_path)
+    sm = SceneManager()
+    sm.add_detector(AdaptiveDetector())
+    sm.detect_scenes(v)
+    return [s[0].get_seconds() for s in sm.get_scene_list()[1:]]
+
+
+def cuts_crosscheck(cuts, other):
+    """Сколько склеек не подтверждены вторым детектором и сколько он нашёл лишних (в пределах CUT_MATCH_SEC)."""
+    if other is None:
+        return dict(cuts_unconfirmed=None, cuts_extra_by_scenedetect=None)
+    unconfirmed = sum(not any(abs(c - o) <= CUT_MATCH_SEC for o in other) for c in cuts)
+    extra = sum(not any(abs(c - o) <= CUT_MATCH_SEC for c in cuts) for o in other)
+    return dict(cuts_unconfirmed=int(unconfirmed), cuts_extra_by_scenedetect=int(extra))
+
+
 def cut_metrics(sc, cuts):
     fps = sc["fps"]
     lj, sh = [], []
@@ -263,7 +328,7 @@ def length_metrics(plans, writing=()):
     eff = [effective(a, b) for a, b in plans]
     return dict(plan_max_sec=float(max(eff)), plan_len_cv=float(L.std() / L.mean()) if len(L) > 2 else None,
                 plan_near_equal_share=near, plans=len(L), plan_mean_sec=float(L.mean()),
-                writing_plans=int(sum(e < l - 1e-9 for e, l in zip(eff, L))))
+                writing_plans=int(sum(e < ln - 1e-9 for e, ln in zip(eff, L))))
 
 
 def hook_metrics(plans, cuts, silences):
@@ -314,8 +379,10 @@ def build(video_dir, video_path=None):
     sc = scan(video_path)
     plans = plan_bounds(cuts, total, pic)
     m = {}
-    m.update(length_metrics(plans, writing_windows(video_dir))); m.update(speed_metrics(sc, plans)); m.update(direction_metrics(sc, plans, pic, total))
+    m.update(length_metrics(plans, writing_windows(video_dir))); m.update(speed_metrics(sc, plans))
+    m.update(direction_metrics(sc, plans, pic, total))
     m.update(cut_metrics(sc, cuts)); m.update(sharpness_metrics(sc, plans)); m.update(hook_metrics(plans, cuts, silences))
+    m.update(paper_tone_jumps(video_path, cuts, fps_d)); m.update(cuts_crosscheck(cuts, scenedetect_cuts(video_path)))
     if cuts and silences is not None:
         m["cuts_in_silence_share"] = float(np.mean([vt.inside_silence(c, silences, pad=0.05) for c in cuts]))
     else:

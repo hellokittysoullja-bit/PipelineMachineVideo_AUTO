@@ -1,11 +1,13 @@
-import json, sys, time
+import json
+import sys
+import time
 from PIL import Image
 from rembg import new_session, remove
 boxes=json.load(open("boxes.json"))
 model=sys.argv[1]
 s=new_session(model)
 import os; os.makedirs(model,exist_ok=True)
-only=sys.argv[2:] 
+only=sys.argv[2:]
 for k,b in sorted(boxes.items()):
     if only and k not in only: continue
     if not b: continue

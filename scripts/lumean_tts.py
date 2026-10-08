@@ -734,8 +734,8 @@ def cmd_list_voices(argv):
         desc = v.get("description") or ""
         print(f"  voice_id={vid}  name={vname!r}  {meta}\n"
              f"    {desc}\n    preview: {preview}\n")
-    print(f"Прослушай preview у выбранного голоса, затем:\n"
-         f"  python scripts/lumean_tts.py --create-template <VOICE_ID>")
+    print("Прослушай preview у выбранного голоса, затем:\n"
+         "  python scripts/lumean_tts.py --create-template <VOICE_ID>")
     return 0
 
 
@@ -859,8 +859,8 @@ def main():
         global_offset += real_pads[idx] if idx < len(real_pads) else 0.0
         section_offsets[r["section"]] = round(global_offset, 5)
         if r["alignment"]:
-            path = write_alignment_csv(os.path.join(video_dir, "media_plan", "alignment"),
-                                       idx, [(c, round(s, 5), round(e, 5)) for c, s, e in r["alignment"]])
+            write_alignment_csv(os.path.join(video_dir, "media_plan", "alignment"),
+                                idx, [(c, round(s, 5), round(e, 5)) for c, s, e in r["alignment"]])
             alignment_written.append(r["section"])
         global_offset += audio_duration(r["audio_path"])
 

@@ -1,5 +1,7 @@
 """Убрать лишнюю переднюю ступню внизу (лапа теперь поднята): мех — LaMa, контур живота — штрих туши кодом."""
-import numpy as np, onnxruntime as ort, cv2
+import numpy as np
+import onnxruntime as ort
+import cv2
 from PIL import Image, ImageDraw
 from scipy import ndimage
 im = Image.open("raised.png").convert("RGB"); W, H = im.size; a = np.asarray(im).astype(np.float32)

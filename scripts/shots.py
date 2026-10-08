@@ -30,7 +30,8 @@ MAX_VIEW_SEC = 3.5      # брендбук: план 1,2-3,5 с (критик 05
 HOOK_FIRST_VIEW_SEC = 2.0   # планы в зоне хука — не дольше (брендбук: хук 1,2–2,0 с; живой эп.01: 8,25 с до первой склейки)
 HOOK_ZONE_SEC = 3.0         # зона хука — первые секунды ролика (та же, что у приёмки montage_qc)
 MIN_VIEW_SEC = 1.5
-HEAD_SLIVER = 0.05      # крупный план детали может захватить краешек головы героя (кончик уха) — до этой доли её рамки (0.15 захватил полглаза, живой прогон 05.10)
+HEAD_SLIVER = 0.05      # крупный план детали может захватить краешек головы героя (кончик уха) — до этой доли её рамки
+                        # (0.15 захватил полглаза, живой прогон 05.10)
 HEAD_MAX_BOTTOM = 0.82  # голова героя в плане — целиком выше зоны плеера телефона (нижние 18% кадра): сравнение с эп.01 08.10 —
                         # подбородок на 0.98 и 1.03 высоты окна в среднем плане, лицо под плеером
 BODY_CROSS_MAX = 0.05   # окно захватывает больше этой доли ЧЕРНИЛ героя без головы в кадре — «обрубок» (эп.01: туловище без
@@ -49,7 +50,8 @@ LABEL_FADE_SEC = 0.15
 CUT_SNAP_SEC = 0.6
 MEDIUM_STEP = (1.55, 2.1)      # средний план крупнее общего во столько раз (не меньше camera.CUT_MIN_RATIO + дрейф)
 MEDIUM_MIN_FILL = 0.3        # предмет среднего плана — не меньше трети кадра по одной из сторон
-MEDIUM_MARGIN = 0.06           # поле вокруг предмета в среднем плане (критик: уши кота срезаны; больше — соседний предмет не даёт плана вовсе)
+MEDIUM_MARGIN = 0.06           # поле вокруг предмета в среднем плане (критик: уши кота срезаны;
+                               # больше — соседний предмет не даёт плана вовсе)
 WIDE_MAX_Z = 1.45              # общий план — плотно по рисунку, а не весь лист (критик: кот на 10% кадра)
 WRITE_TAIL_SEC = 0.6
 KEY_MAX_LEAD_SEC = 1.5   # мысль может начать писаться раньше своего слова не больше чем на 1.5 с
@@ -417,8 +419,8 @@ def detail_views(busy, objects, wide, wz, medium, view_ok):
         kw = dict(margin=MEDIUM_MARGIN, spread=0.25, grid=13)
         dz = (wz*camera.CUT_MIN_RATIO*1.02, camera.PUNCH_MAX_ZOOM)
         dz_lo = (wz*1.15, wz*camera.CUT_MIN_RATIO*1.02)
-        dw = camera.frame_for(busy, db, dz, accept=lambda w: view_ok(w, db), **kw) or \
-            camera.frame_for(busy, db, dz_lo, accept=lambda w: view_ok(w, db) and no_jump(w), **kw)
+        dw = camera.frame_for(busy, db, dz, accept=lambda w, db=db: view_ok(w, db), **kw) or \
+            camera.frame_for(busy, db, dz_lo, accept=lambda w, db=db: view_ok(w, db) and no_jump(w), **kw)
         if dw is None:
             any_ = camera.frame_for(busy, db, dz, **kw) or camera.frame_for(busy, db, dz_lo, accept=no_jump, **kw)
             if any_ is None:
@@ -687,7 +689,7 @@ def _window_at(p, t, SW, SH):
         return camera.lerp(s["win"], s["lean"], camera.through(u))   # план начинается и кончается склейкой — без стопов
     if s.get("pushes"):
         cur = s["win"]
-        for k, ps in enumerate(s["pushes"]):
+        for ps in s["pushes"]:
             if t < ps["t"]:
                 break
             a = camera.ease_io((t - ps["t"])/PUSH_SEC)

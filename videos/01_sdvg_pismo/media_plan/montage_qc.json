@@ -1,6 +1,6 @@
 {
  "schema_version": 1,
- "measured_at": "2026-10-08T11:49:40",
+ "measured_at": "2026-10-08T14:14:21",
  "video": "final_preview_silent.mp4",
  "spec": "docs/MONTAGE_SPEC.md",
  "limits": [
@@ -64,6 +64,22 @@
    "level": "warn",
    "status": "hypothesis",
    "state": "violation"
+  },
+  "cut_paper_de": {
+   "value": 0.6920040249824524,
+   "threshold": 2.0,
+   "op": "<=",
+   "level": "warn",
+   "status": "hypothesis",
+   "state": "ok"
+  },
+  "cuts_unconfirmed": {
+   "value": 0,
+   "threshold": 0,
+   "op": "<=",
+   "level": "warn",
+   "status": "hypothesis",
+   "state": "ok"
   },
   "cut_attention_shift": {
    "value": 0.4655938446521759,
@@ -148,6 +164,10 @@
   "hook_plan_len_sec": 1.5,
   "hook_voice_onset_sec": 25.054,
   "hook_plans": 2,
+  "cut_paper_de": 0.6920040249824524,
+  "cut_paper_de_median": 0.32820990681648254,
+  "cuts_unconfirmed": 0,
+  "cuts_extra_by_scenedetect": 0,
   "cuts_in_silence_share": 1.0
  },
  "per_plan": [
@@ -295,7 +315,7 @@
   34.875,
   38.0
  ],
- "qc_seconds": 20.8,
+ "qc_seconds": 37.2,
  "video_seconds": 40.5,
  "verdict": "warnings"
 }

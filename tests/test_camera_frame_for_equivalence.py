@@ -37,7 +37,6 @@ def _scenes():
 
 
 def test_vectorized_frame_for_matches_the_scan_on_every_mode():
-    rng = np.random.default_rng(3)
     n = 0
     for draw in _scenes():
         busy, ox = _busy(draw)
@@ -47,7 +46,7 @@ def test_vectorized_frame_for_matches_the_scan_on_every_mode():
         for tgt in targets:
             for kw in (dict(), dict(margin=0.06, spread=0.35, grid=17, max_cross=0.0, cross_map=camera.others(busy, tgt)),
                        dict(margin=0.02, spread=0.2, max_cross=0.0, away=(SW/2, 0, 0.1*SW)),
-                       dict(margin=0.06, spread=0.25, grid=13, accept=lambda w: (w[3] - w[1]) < 0.7*SH),
+                       dict(margin=0.06, spread=0.25, grid=13, accept=lambda w, SH=SH: (w[3] - w[1]) < 0.7*SH),
                        dict(margin=0.12, bottom_w=1.0, edge_k=10.0, spread=0.15, grid=9)):
                 for z in ((1.0, 1.45), (1.55, 2.1), (1.53, 2.5), (1.15, 1.53)):
                     a = camera.frame_for(busy, tgt, z, **kw)

@@ -1,5 +1,6 @@
 """Кукла Чирка из эталона: взгляд (зрачки), моргание (сжатие глаза к веку), наклон головы, ухо, хвост, огонёк, дыхание."""
-import subprocess, numpy as np
+import subprocess
+import numpy as np
 from PIL import Image, ImageDraw
 from scipy import ndimage
 src = np.asarray(Image.open("hero.png").convert("RGB")).astype(np.float32); H, W = src.shape[:2]

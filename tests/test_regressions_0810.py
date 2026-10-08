@@ -70,7 +70,8 @@ def test_view_rules_head_body_and_ink():
 def test_written_thought_stays_in_frame_until_held():
     busy, objs, ox = _scene()
     key_box = (900 + ox, 100, 1250 + ox, 200)        # надпись справа вверху — в средний план кота не влезает
-    p = shots.plan(8.0, busy, [], objects=objs, key="только открыть", key_dur=3.0, key_box=key_box)   # письмо до 3.9, удержание до 4.8: склейка после письма попадает в удержание
+    # письмо до 3.9, удержание до 4.8: склейка после письма попадает в удержание
+    p = shots.plan(8.0, busy, [], objects=objs, key="только открыть", key_dur=3.0, key_box=key_box)
     assert p["key_time"] is not None
     hold_end = p["key_time"] + 3.0 + shots.KEY_HOLD_SEC
     for sg in p["segments"]:
@@ -131,7 +132,8 @@ def test_splits_without_word_timings_are_not_a_metronome_but_deterministic():
 def test_live_doll_does_not_take_frames_that_need_fear_or_shame():
     import frame_planner as fp
     f = {"hero": True, "hero_action": "look", "picture": "the main character sits beside the envelope",
-         "spec": {"focus": "shame sticks to the task", "claims": [{"id": "c2", "text": "the character looks at it with dread", "tier": "must"}]}}
+         "spec": {"focus": "shame sticks to the task",
+                  "claims": [{"id": "c2", "text": "the character looks at it with dread", "tier": "must"}]}}
     g = {"hero": True, "hero_action": "look", "picture": "the main character sits beside the open envelope, calm",
          "spec": {"focus": "only open it", "claims": [{"id": "c1", "text": "the envelope is open", "tier": "must"}]}}
     assert fp.live_emotion_blocked(f) and not fp.live_emotion_blocked(g)
@@ -214,3 +216,22 @@ def test_qc_does_not_count_the_handwriting_plan_as_too_long(tmp_path):
         {"index": 1, "duration": 7.0, "key_at": 0.3, "key_hold_until": 4.3}]}), encoding="utf-8")
     (w0, w1), = mq.writing_windows(str(tmp_path))
     assert (w0, w1) == (pytest.approx(2.3), pytest.approx(6.3))
+
+
+def test_second_opinion_on_cuts_and_paper_tone(tmp_path):
+    """Приёмка: второе мнение о склейках (PySceneDetect) и тон бумаги между планами (ΔE2000)."""
+    import subprocess
+    import montage_qc as mq
+    assert mq.cuts_crosscheck([1.0, 2.0, 3.0], [1.05, 2.0, 4.0]) == dict(cuts_unconfirmed=1, cuts_extra_by_scenedetect=1)
+    assert mq.cuts_crosscheck([1.0], None) == dict(cuts_unconfirmed=None, cuts_extra_by_scenedetect=None)
+    # две бумаги: кремовая и заметно желтее — склейка между ними должна дать ΔE выше порога, одинаковые — нет
+    vid = str(tmp_path / "tone.mp4")
+    subprocess.run(["ffmpeg", "-v", "error", "-y",
+                    "-f", "lavfi", "-i", "color=c=0xfaf7ee:s=192x108:d=1.0:r=24",
+                    "-f", "lavfi", "-i", "color=c=0xf5e6b0:s=192x108:d=1.0:r=24",
+                    "-f", "lavfi", "-i", "color=c=0xf5e6b0:s=192x108:d=1.0:r=24",
+                    "-filter_complex", "[0][1][2]concat=n=3:v=1:a=0[v]", "-map", "[v]", "-pix_fmt", "yuv420p", vid], check=True)
+    m = mq.paper_tone_jumps(vid, [1.0, 2.0], 24.0)
+    assert m["cut_paper_de"] > mq.CUT_PAPER_DE_MAX                      # кремовая -> жёлтая: видно
+    same = mq.paper_tone_jumps(vid, [2.0], 24.0)
+    assert same["cut_paper_de"] < 0.5                                  # жёлтая -> та же жёлтая: шум сжатия

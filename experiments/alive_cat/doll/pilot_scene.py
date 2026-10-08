@@ -1,7 +1,7 @@
 """Сцена пилота куклы в сборщике (07.10): кремовая бумага + конверт (ассет куклы), без кота.
 Запуск: python pilot_run.py baseline|nomascot|mascot|samecam (из этой папки). Результат — pilot_out/."""
-import json, os, sys
-import numpy as np
+import os
+import sys
 from PIL import Image
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".."))
 sys.path.insert(0, os.path.join(ROOT, "scripts"))

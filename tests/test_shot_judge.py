@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Судья кадров: разбор ответа, кэш по содержимому, отказ без частичных оценок."""
-import json
 import os
 import re
 import sys

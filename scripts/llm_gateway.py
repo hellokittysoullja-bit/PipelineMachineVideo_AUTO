@@ -319,14 +319,14 @@ class Gateway:
             except urllib.error.HTTPError as e:
                 info = self._error_info(e)
                 if e.code == 402:
-                    raise PaymentRequired(f"402 баланс ключа исчерпан ({info})")
+                    raise PaymentRequired(f"402 баланс ключа исчерпан ({info})") from e
                 if e.code in (401, 403):
-                    raise GatewayError(f"{e.code} ключ не принят ({info})")
+                    raise GatewayError(f"{e.code} ключ не принят ({info})") from e
                 if e.code == 429 or e.code >= 500:
                     last = f"{e.code} ({info})"
                     time.sleep(self._retry_after(e, attempt))
                     continue
-                raise GatewayError(f"{e.code} ({info})")
+                raise GatewayError(f"{e.code} ({info})") from e
             except (urllib.error.URLError, TimeoutError, ConnectionError, OSError,
                     http.client.HTTPException) as e:
                 last = type(e).__name__

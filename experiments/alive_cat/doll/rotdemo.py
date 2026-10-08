@@ -1,4 +1,6 @@
-import numpy as np, cv2, subprocess
+import numpy as np
+import cv2
+import subprocess
 from PIL import Image
 exec(open("rotleg.py").read().split('# 1) основа')[0])
 base = np.asarray(Image.open("base_noleg.png")).astype(np.float32); base_a = np.asarray(Image.open("base_noleg_a.png")).astype(np.float32)
